@@ -54,9 +54,16 @@ defmodule Letflow.Identity.Tenant do
   own unresolved open question (OQ-1: strict immutability vs. a
   dedicated admin operation); REQ-019's acceptance criteria do not ask for
   one, and no other requirement in this codebase currently needs one. So
-  `idp_realm_id`, once set at creation, has no code path anywhere in this
-  module that can change it again — see the design doc §3.1 for the full
-  reasoning.
+  `idp_realm_id`, once set, has no code path anywhere in this module that can
+  change or clear it again — see the design doc §3.1 for the full reasoning.
+
+  **Narrow bind-once exception (ISS-1030).** A tenant onboarded without a realm
+  has `idp_realm_id` NULL and could otherwise never be reached by a login.
+  `realm_bind_changeset/2` is the ONLY changeset that casts `:idp_realm_id` on
+  an existing row, and the only caller (`Letflow.Identity.bind_tenant_realm/3`)
+  applies it through a conditional update that matches only while the column is
+  still NULL: a realm that is set can never be changed or cleared. The
+  platform operator alone reaches it (`POST /onboarding/:id/bind-realm`).
   """
 
   use Ecto.Schema
@@ -144,6 +151,50 @@ defmodule Letflow.Identity.Tenant do
     |> cast(attrs, [:display_name, :login_disclosure_mode])
     |> validate_inclusion(:login_disclosure_mode, @login_disclosure_modes)
     |> check_constraint(:login_disclosure_mode, name: :tenants_login_disclosure_mode_check)
+  end
+
+  @realm_id_regex ~r/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
+  @reserved_realm_ids ["master"]
+
+  @doc """
+  ISS-1030: the format a bindable realm id must have (1..64 ASCII letters,
+  digits, `_` or `-`, starting with a letter or digit; no dot, so `.` and `..`
+  can never form a path segment). Applied to the TRIMMED value.
+  """
+  @spec realm_id_format?(term()) :: boolean()
+  def realm_id_format?(value) when is_binary(value), do: Regex.match?(@realm_id_regex, value)
+  def realm_id_format?(_other), do: false
+
+  @doc """
+  ISS-1030: true for a reserved realm id (Keycloak's own administration realm,
+  `master`), compared case-insensitively. Such a realm is never bindable.
+  """
+  @spec reserved_realm_id?(term()) :: boolean()
+  def reserved_realm_id?(value) when is_binary(value),
+    do: String.downcase(value) in @reserved_realm_ids
+
+  def reserved_realm_id?(_other), do: false
+
+  @doc """
+  Changeset for the bind-once realm route (ISS-1030) -- casts **only**
+  `:idp_realm_id`, validates its format and the reserved-name rule, and maps the
+  partial unique index to a changeset error. It is the only changeset that casts
+  `:idp_realm_id` on an existing row; the "only while NULL" rule is enforced by
+  the conditional update in `Letflow.Identity.bind_tenant_realm/3`, not here.
+  """
+  @spec realm_bind_changeset(t :: %__MODULE__{}, attrs :: map()) :: Ecto.Changeset.t()
+  def realm_bind_changeset(tenant, attrs) do
+    tenant
+    |> cast(attrs, [:idp_realm_id])
+    |> validate_required([:idp_realm_id])
+    |> validate_change(:idp_realm_id, fn :idp_realm_id, value ->
+      cond do
+        not realm_id_format?(value) -> [idp_realm_id: "has an invalid format"]
+        reserved_realm_id?(value) -> [idp_realm_id: "is reserved"]
+        true -> []
+      end
+    end)
+    |> unique_constraint(:idp_realm_id, name: :tenants_idp_realm_id_partial_index)
   end
 
   @doc """
