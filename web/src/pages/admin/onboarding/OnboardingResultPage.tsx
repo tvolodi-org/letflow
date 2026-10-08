@@ -16,6 +16,8 @@ import { Navigate, useNavigate, useParams, useLocation, Link } from 'react-route
 import { useAuth } from '@/auth/AuthContext'
 import { Button } from '@/components/ui/Button'
 import {
+  bindRealm,
+  fieldErrorConstraint,
   getOnboardingByHostname,
   OnboardingApiError,
   type OnboardingFormValues,
@@ -169,75 +171,12 @@ export default function OnboardingResultPage() {
 
   if (view.phase === 'completed') {
     return (
-      <div style={{ padding: '2rem', maxWidth: '520px' }}>
-        <div
-          style={{
-            marginBottom: '1.5rem',
-            padding: '.75rem 1rem',
-            borderRadius: 'var(--radius-sm)',
-            border: '1px solid var(--color-success-border)',
-            background: 'var(--color-success-tint)',
-            color: 'var(--color-success-dark)',
-            fontWeight: 600,
-          }}
-        >
-          Tenant onboarding completed successfully.
-        </div>
-
-        <table style={{ borderCollapse: 'collapse', width: '100%', marginBottom: '1.5rem' }}>
-          <tbody>
-            <tr>
-              <td style={tdLabelStyle}>Slug</td>
-              <td style={tdValueStyle}>
-                <code>{view.result.slug ?? onboardingId}</code>
-              </td>
-            </tr>
-            <tr>
-              <td style={tdLabelStyle}>OIDC Authority</td>
-              <td style={tdValueStyle}>
-                <a href={view.result.oidc_authority} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--interactive-primary)' }}>
-                  {view.result.oidc_authority}
-                </a>
-              </td>
-            </tr>
-            {view.result.hostname && (
-              <tr>
-                <td style={tdLabelStyle}>Hostname</td>
-                <td style={tdValueStyle}>{view.result.hostname}</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-
-        {view.result.slug && (
-          // Navigational CTA to a per-tenant hostname outside the SPA's own
-          // router -- kept as a plain <a>, not Button, for the same reason
-          // as "Start over" above. Colour consolidated onto the same
-          // --interactive-primary token as the other CTAs on this page
-          // rather than reusing --color-avatar-teal, which tokens.css
-          // reserves explicitly for actor-avatar backgrounds only.
-          <a
-            href={`${window.location.origin}/?realm=${view.result.slug}`}
-            style={{
-              display: 'inline-block',
-              marginBottom: '1rem',
-              padding: '.5rem 1.2rem',
-              background: 'var(--interactive-primary)',
-              color: 'var(--text-inverse)',
-              textDecoration: 'none',
-              borderRadius: 'var(--radius-sm)',
-              fontWeight: 600,
-              fontSize: '.9rem',
-            }}
-          >
-            Open {view.result.slug} workspace
-          </a>
-        )}
-
-        <Button variant="primary" size="md" onClick={() => navigate('/admin/users')}>
-          Back to Admin
-        </Button>
-      </div>
+      <CompletedView
+        result={view.result}
+        fallbackId={onboardingId}
+        onBack={() => navigate('/admin/users')}
+        onResultChange={(next) => setView({ phase: 'completed', result: next, formValues: view.formValues })}
+      />
     )
   }
 
@@ -272,6 +211,277 @@ export default function OnboardingResultPage() {
       >
         Try Again
       </Button>
+    </div>
+  )
+}
+
+// ── Completed view (ISS-1030) ──────────────────────────────────────────────────
+// Every string that came from the server (administrator values, ignored field
+// names, messages, next steps) is rendered as a React text node, never as HTML.
+
+const REALM_ID_FORMAT = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
+
+const sectionTitleStyle: React.CSSProperties = {
+  margin: '0 0 .5rem 0',
+  fontSize: '.95rem',
+  color: 'var(--text-primary)',
+}
+
+const noteStyle: React.CSSProperties = {
+  margin: '0 0 .5rem 0',
+  fontSize: '.87rem',
+  color: 'var(--text-secondary)',
+}
+
+function bindErrorMessage(err: unknown): string {
+  if (!(err instanceof OnboardingApiError)) {
+    return 'An unexpected error occurred. Please try again.'
+  }
+  switch (err.httpStatus) {
+    case 404:
+      return 'This onboarding record was not found.'
+    case 409: {
+      const title = err.body['title']
+      return typeof title === 'string' && title ? title : 'The realm could not be bound (conflict).'
+    }
+    case 422: {
+      const c = fieldErrorConstraint(err.body, 'idp_realm_id')
+      if (c === 'not_found') return 'The identity provider does not know this realm.'
+      if (c === 'reserved') return 'This realm id is reserved.'
+      if (c === 'format') return 'The realm id has an invalid format.'
+      return 'The realm id was rejected.'
+    }
+    case 503:
+      return 'The identity provider could not be reached. Try again in a moment.'
+    default:
+      return 'An unexpected error occurred. Please try again.'
+  }
+}
+
+interface CompletedViewProps {
+  result: OnboardingStatusCompleted
+  fallbackId?: string
+  onBack: () => void
+  onResultChange: (next: OnboardingStatusCompleted) => void
+}
+
+function CompletedView({ result, fallbackId, onBack, onResultChange }: CompletedViewProps) {
+  const [realmInput, setRealmInput] = useState('')
+  const [bindError, setBindError] = useState<string | null>(null)
+  const [binding, setBinding] = useState(false)
+
+  const loginable = result.login?.loginable === true
+  const admin = result.administrator
+  const ignored = result.ignored_fields ?? []
+  const onboardingId = result.onboarding_id || fallbackId || ''
+
+  async function handleBind() {
+    const realm = realmInput.trim()
+    if (!REALM_ID_FORMAT.test(realm)) {
+      setBindError('Use 1–64 letters, digits, "_" or "-", starting with a letter or digit')
+      return
+    }
+    setBinding(true)
+    setBindError(null)
+    try {
+      const next = await bindRealm(onboardingId, realm)
+      setRealmInput('')
+      // The bind response carries no administrator / ignored_fields; keep the
+      // ones from the create response so the notices stay visible.
+      onResultChange({
+        ...next,
+        ...(result.administrator ? { administrator: result.administrator } : {}),
+        ...(result.ignored_fields ? { ignored_fields: result.ignored_fields } : {}),
+      })
+    } catch (err) {
+      setBindError(bindErrorMessage(err))
+    } finally {
+      setBinding(false)
+    }
+  }
+
+  return (
+    <div style={{ padding: '2rem', maxWidth: '620px' }}>
+      <div
+        role="status"
+        style={{
+          marginBottom: '1.5rem',
+          padding: '.75rem 1rem',
+          borderRadius: 'var(--radius-sm)',
+          border: `1px solid ${loginable ? 'var(--color-success-border)' : 'var(--color-error-border)'}`,
+          background: loginable ? 'var(--color-success-tint)' : 'var(--color-error-tint)',
+          color: loginable ? 'var(--color-success-dark)' : 'var(--color-error-dark)',
+          fontWeight: 600,
+        }}
+      >
+        {loginable
+          ? 'Tenant created and ready to log into.'
+          : 'Tenant created, but not yet loginable: no identity realm is bound.'}
+      </div>
+
+      <table style={{ borderCollapse: 'collapse', width: '100%', marginBottom: '1.5rem' }}>
+        <tbody>
+          <tr>
+            <td style={tdLabelStyle}>Slug</td>
+            <td style={tdValueStyle}>
+              <code>{result.slug ?? fallbackId}</code>
+            </td>
+          </tr>
+          {result.hostname && (
+            <tr>
+              <td style={tdLabelStyle}>Hostname</td>
+              <td style={tdValueStyle}>{result.hostname}</td>
+            </tr>
+          )}
+          <tr>
+            <td style={tdLabelStyle}>Login</td>
+            <td style={tdValueStyle}>
+              {loginable ? (
+                <>
+                  Realm bound: <code>{result.login?.idp_realm_id}</code>
+                </>
+              ) : (
+                'Not yet loginable'
+              )}
+            </td>
+          </tr>
+          {result.oidc_authority && (
+            <tr>
+              <td style={tdLabelStyle}>OIDC Authority</td>
+              <td style={tdValueStyle}>
+                <a href={result.oidc_authority} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--interactive-primary)' }}>
+                  {result.oidc_authority}
+                </a>
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+
+      {!loginable && result.login && result.login.next_steps.length > 0 && (
+        <section aria-label="Login next steps" style={{ marginBottom: '1.5rem' }}>
+          <h3 style={sectionTitleStyle}>Next steps to make this tenant loginable</h3>
+          <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '.87rem' }}>
+            {result.login.next_steps.map((step, i) => (
+              <li key={i}>{step}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {admin && (
+        <section aria-label="Administrator" style={{ marginBottom: '1.5rem' }}>
+          <h3 style={sectionTitleStyle}>Administrator</h3>
+          <p style={noteStyle}>{admin.message}</p>
+          {admin.not_provisioned.length > 0 && (
+            <>
+              <p style={noteStyle}>Details you entered that were not used:</p>
+              <ul style={{ margin: '0 0 .5rem 0', paddingLeft: '1.2rem', fontSize: '.87rem' }}>
+                {admin.not_provisioned.map((f, i) => (
+                  <li key={i}>
+                    <code>{f.field}</code>
+                    {f.value !== undefined && <>: {f.value}</>}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {admin.next_steps.length > 0 && (
+            <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '.87rem' }}>
+              {admin.next_steps.map((step, i) => (
+                <li key={i}>{step}</li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {ignored.length > 0 && (
+        <section aria-label="Ignored fields" style={{ marginBottom: '1.5rem' }}>
+          <h3 style={sectionTitleStyle}>Fields not used by the server</h3>
+          <p style={noteStyle}>The following request fields were received but not used:</p>
+          <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '.87rem' }}>
+            {ignored.map((name, i) => (
+              <li key={i}>
+                <code>{name}</code>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {!loginable && (
+        <section aria-label="Bind realm" style={{ marginBottom: '1.5rem' }}>
+          <h3 style={sectionTitleStyle}>Bind an identity realm</h3>
+          <p style={noteStyle}>
+            Once the realm exists, bind it here. A realm can be bound once and cannot be changed
+            afterwards. The server checks the realm with the identity provider.
+          </p>
+          <label htmlFor="bind_realm_id" style={{ display: 'block', fontWeight: 600, fontSize: '.87rem', marginBottom: '.3rem' }}>
+            Realm ID
+          </label>
+          <div style={{ display: 'flex', gap: '.5rem' }}>
+            <input
+              id="bind_realm_id"
+              value={realmInput}
+              onChange={(e) => {
+                setRealmInput(e.target.value)
+                setBindError(null)
+              }}
+              autoComplete="off"
+              style={{
+                flex: 1,
+                padding: '.45rem .65rem',
+                border: `1px solid ${bindError ? 'var(--border-error)' : 'var(--border-default)'}`,
+                borderRadius: 'var(--radius-sm)',
+                fontSize: 'var(--text-base)',
+              }}
+            />
+            <Button
+              variant="primary"
+              size="md"
+              loading={binding}
+              disabled={realmInput.trim() === ''}
+              onClick={() => { void handleBind() }}
+            >
+              Bind realm
+            </Button>
+          </div>
+          {bindError && (
+            <div role="alert" style={{ color: 'var(--color-error)', fontSize: '.8rem', marginTop: '.3rem' }}>
+              {bindError}
+            </div>
+          )}
+        </section>
+      )}
+
+      {loginable && result.slug && (
+        // Navigational CTA to a per-tenant hostname outside the SPA's own
+        // router -- kept as a plain <a>, not Button, for the same reason
+        // as "Start over" above.
+        <a
+          href={`${window.location.origin}/?realm=${encodeURIComponent(result.slug)}`}
+          style={{
+            display: 'inline-block',
+            marginBottom: '1rem',
+            padding: '.5rem 1.2rem',
+            background: 'var(--interactive-primary)',
+            color: 'var(--text-inverse)',
+            textDecoration: 'none',
+            borderRadius: 'var(--radius-sm)',
+            fontWeight: 600,
+            fontSize: '.9rem',
+          }}
+        >
+          Open {result.slug} workspace
+        </a>
+      )}
+
+      <div>
+        <Button variant="primary" size="md" onClick={onBack}>
+          Back to Admin
+        </Button>
+      </div>
     </div>
   )
 }
