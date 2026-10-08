@@ -69,6 +69,7 @@ defmodule Letflow.Oidc.RealmProbe.Httpc do
 
   @behaviour Letflow.Oidc.RealmProbe
 
+  # Deliberate self-contained safety layer for the URL path; do not dedupe with Tenant.
   @realm_regex ~r/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
   @max_body_bytes 64 * 1024
   @deadline_ms 3_000
@@ -94,8 +95,17 @@ defmodule Letflow.Oidc.RealmProbe.Httpc do
   @spec base_url() :: {:ok, String.t()} | :error
   defp base_url do
     case :letflow |> Application.get_env(:oidc, []) |> Keyword.get(:keycloak_base_url) do
-      base when is_binary(base) and base != "" -> {:ok, String.replace_suffix(base, "/", "")}
+      base when is_binary(base) -> normalize_base(String.replace_suffix(base, "/", ""))
       _unset -> :error
+    end
+  end
+
+  # Scheme is matched case-insensitively and normalised to lower case once, so
+  # an upper-case HTTPS still gets the TLS options; any other scheme fails closed.
+  defp normalize_base(base) do
+    case Regex.run(~r/\A(https?):\/\/(.+)\z/i, base) do
+      [_all, scheme, rest] -> {:ok, String.downcase(scheme) <> "://" <> rest}
+      _other -> :error
     end
   end
 

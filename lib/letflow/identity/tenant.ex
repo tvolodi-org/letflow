@@ -61,8 +61,8 @@ defmodule Letflow.Identity.Tenant do
   has `idp_realm_id` NULL and could otherwise never be reached by a login.
   `realm_bind_changeset/2` is the ONLY changeset that casts `:idp_realm_id` on
   an existing row, and the only caller (`Letflow.Identity.bind_tenant_realm/3`)
-  applies it through a conditional update that matches only while the column is
-  still NULL: a realm that is set can never be changed or cleared. The
+  applies it under a row lock (`SELECT ... FOR UPDATE`), only while the column is
+  still NULL and the tenant is `:active`: a realm that is set can never be changed or cleared. The
   platform operator alone reaches it (`POST /onboarding/:id/bind-realm`).
   """
 
@@ -180,7 +180,8 @@ defmodule Letflow.Identity.Tenant do
   `:idp_realm_id`, validates its format and the reserved-name rule, and maps the
   partial unique index to a changeset error. It is the only changeset that casts
   `:idp_realm_id` on an existing row; the "only while NULL" rule is enforced by
-  the conditional update in `Letflow.Identity.bind_tenant_realm/3`, not here.
+  the row-locked check in `Letflow.Identity.bind_tenant_realm/3` (only while NULL
+  and `:active`), not here.
   """
   @spec realm_bind_changeset(t :: %__MODULE__{}, attrs :: map()) :: Ecto.Changeset.t()
   def realm_bind_changeset(tenant, attrs) do
