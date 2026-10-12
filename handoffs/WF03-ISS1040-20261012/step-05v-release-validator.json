@@ -7,9 +7,9 @@
  "to_agent": "RELEASE-VALIDATOR",
  "file": "handoffs/WF03-ISS1040-20261012/step-05v-release-validator.json",
  "created_at": "2026-10-12T10:16:30Z",
- "started_at": null,
- "completed_at": null,
- "status": "PENDING",
+ "started_at": "2026-10-12T10:18:33Z",
+ "completed_at": "2026-10-12T10:18:33Z",
+ "status": "COMPLETED",
  "priority": "NORMAL",
  "context": {
   "stage": "S1",
@@ -34,5 +34,22 @@
    "verdict per criterion with evidence"
   ]
  },
- "result": null
+ "result": {
+  "status": "PASS",
+  "criteria": {
+   "c1": "PASS - executor_test.exs:493 (AC-5) and :787 (nil max_heap_words) now use timeout_ms 30_000 plus await_own_child/2 (monotonic 5000 ms deadline, $callers-scoped lookup) and Process.exit(child,:kill); no fixed ~200 ms poll inside a 300 ms script remains; asserts exact {:error,\"Letflow.Engine.Lua.Executor task crashed: :killed\"}.",
+   "c2": "PASS - mutant async_nolink -> Task.async at lib/letflow/engine/lua/executor.ex:367 in throwaway worktree: \"Result: 57/60 passed, Failed: 3 tests\": AC-5 in-flight test (executor_test.exs:515 \"expected at least one in-flight child while the script is running\"), nil-max_heap_words test (:807 \"a nil max_heap_words call must still run under Letflow.Engine.Lua.TaskSupervisor\"), plus nested isolated-partition test (:1560, 9/11, expected). Worktree removed.",
+   "c3": "PASS - stress script stress1040.sh command shape valid (6 busy loops, mutexed one-BEAM per seed, --max-cases 32, --seed 1..100, nested partition test excluded by name); step-03 quotes 100/100 exit 0, each \"Result: 250 passed, 1 excluded\" (not re-run per instructions). Plain rerun of executor_test.exs --include lua_wallclock_race on HEAD: \"Result: 60 passed\".",
+   "c4": "PASS - git diff origin/main...HEAD --stat: only docs/anti-patterns.md, docs/issues/ISS-1040.yaml, handoffs/*, design doc, test/letflow/engine/lua/executor_test.exs; no lib/, config, priv or .github change. anti-patterns entry accurate vs diff. Committed handoff blobs LF, no BOM (step-01 working-tree copy shows CRLF via core.autocrlf=true but the committed blob has 0 CR).",
+   "c5": "NOT RUN by instruction - full suite and mix letflow.check.test left to CI; mix format/compile --warnings-as-errors reported exit 0 in step-03."
+  },
+  "findings": [
+   {
+    "severity": "INFO",
+    "file": "test/letflow/engine/lua/executor_test.exs:484",
+    "note": "pre-existing type warning (refute match? on AC-4 test), untouched, not part of ISS-1040."
+   }
+  ],
+  "notes": "Throwaway Postgres iss1040-rv-pg (port 5499) removed; mutex released each invocation."
+ }
 }
