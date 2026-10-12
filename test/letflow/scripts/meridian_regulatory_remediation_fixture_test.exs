@@ -118,7 +118,7 @@ defmodule Letflow.Scripts.MeridianRegulatoryRemediationFixtureTest do
     )
   end
 
-  defp check_version(d), do: ok_if(d["version"] == "1.9", {:version, d["version"]})
+  defp check_version(d), do: ok_if(d["version"] == "1.10", {:version, d["version"]})
 
   defp edge_shape(d) do
     d

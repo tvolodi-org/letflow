@@ -1,0 +1,28 @@
+id: ISS-1047
+title: "BA question: a timed-out l1-approval falls back straight to l2-approval (fallback-l1-approval), leaving L2 as the sole approver; should a timed-out L1 go to a held or escalation review?"
+discovered_by: letflow-2 (BA/UAT lane), while analysing ISS-1044
+discovered_in_run: "Q-1044 decision analysis, 2026-10-12"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: MAJOR
+owner: "BA-<VERTICAL> (meridian) decides; no definition change under this record"
+scope: business-rule
+description: >
+  Verified on main: in test/fixtures/qa/meridian_loan_origination_process_definition.json,
+  l1-approval (role-credit-approver-l1) has escalation_timer_duration P2D and
+  escalation_role role-credit-director. Its unconditional edge fallback-l1-approval goes
+  straight to l2-approval, so a timed-out L1 decision skips L1 entirely and leaves L2
+  (role-credit-director) as the sole approver.
+  Related but not a duplicate: ISS-1001 (closed) recorded that fallback-l1-approval ->
+  l2-approval is acceptable as "more scrutiny". This question reopens that acceptance in
+  light of the distinct-person analysis in ISS-1044: if L2 is the only approver and the same
+  role reaches the payment path, one person can decide and release the loan without a second
+  decision.
+resolution: >
+  Open. Question for the BA (meridian): when l1-approval times out, should the loan go to a
+  held or escalation review, with an explicit timed-out-L1 outcome, instead of straight to L2
+  as sole approver? Options: (a) keep the fallback to L2 as accepted in ISS-1001; (b) route a
+  timed-out L1 to a held review that a different role decides; (c) route to escalation with
+  its own distinct_from.
+queue_ref: Q-1047
+github_ref: GH-2389
+status: open

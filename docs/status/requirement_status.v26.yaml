@@ -975,3 +975,68 @@ history:
       TEST-DESIGN-VALIDATOR (03b, 24 mutants killed), TEST-RUNNER (step 04,
       61 single-file mix test invocations, all exit 0, zero failures),
       RELEASE-VALIDATOR (05, re-check 05b PASS). Full suite left to CI.
+
+  - req: REQ-464
+    event: done
+    agent: DOC-UPDATER
+    at: "2026-10-12T04:55:43Z"
+    note: >
+      Validator build (queue task 1027, GH#2342, run WF02-REQ464-20261007,
+      branch feat/REQ-464-distinct-from-validator-Q-1027): distinct_from checks
+      on process definitions per the REQ-459 design. CHK-26 shape and existence
+      violations (invalid_distinct_from, distinct_from_on_non_human_task,
+      distinct_from_self_reference, distinct_from_unknown_node,
+      distinct_from_not_human_task) and CHK-27 path position
+      (distinct_from_downstream_only; parallel, preceding and rework-loop
+      listed nodes pass) inside Graph.validate_node_attributes/1; the
+      distinct_from_single_member_role: WARNING (one per unordered pair, never
+      blocks) via RoleBinding.single_member_pairs/1, member_counts/2 and
+      format_single_member_warning/2, surfaced as the third source of
+      ValidationWarnings.for_definitions/2 in the pack-install result and the
+      validate 200 body, not the activate response. Gates recorded in the run
+      handoffs: SECURITY-REVIEWER (02c, member_counts/2 prefix-scoped, counts
+      only), REVIEWER (02d), CODE-DESIGN-VALIDATOR (02b), TEST-DESIGN-VALIDATOR
+      (03b, 38 mutants killed), RELEASE-VALIDATOR (05 PASS: 90 scoped tests
+      passed, 13 shipped definitions 0 violations 0 candidate pairs).
+      Environmental caveat from step 05: 3 failures in
+      Letflow.Scripts.UatPreflightLocalDepsTest on this Windows host, file
+      untouched by this branch; CI is the authoritative full-suite gate.
+
+  - req: REQ-457
+    event: done
+    agent: DOC-UPDATER
+    at: "2026-10-12T05:12:10Z"
+    note: >
+      Status flipped to done with an explicit exception, per handover item H1e
+      (supervisor ruling 2026-10-07: must not read plain done while the
+      TENANT_AUDITOR step is outstanding). The refusal scenarios of queue task
+      974 (Q-974, GH #2246) were released done on 2026-10-07 (PR #2361 /
+      d6601fbc) and delivered every refusal scenario except the TENANT_AUDITOR
+      step. Residual: Q-1036 / GH #2363, which waits for REQ-448 (Q-965). The
+      status line in docs/requirements.yaml now reads "done  # done except the
+      TENANT_AUDITOR step (residual Q-1036 / GH #2363, waits for REQ-448)".
+      Written by letflow-2 (BA/UAT lane) on the handover's instruction, under
+      the DOC-UPDATER agent id; lands in the ONE docs bundle branch
+      docs/h1-bundle-req457-iss1043-20261012, not yet pushed.
+
+  - req: REQ-465
+    event: revised
+    agent: DOC-UPDATER
+    at: "2026-10-12T05:41:30Z"
+    note: >
+      PARTIAL adoption, status in_progress, NOT done. distinct_from adopted on
+      the meridian loan origination and meridian regulatory sign-off definitions
+      (queue task 1028, GH#2343, branch feat/REQ-465-adopt-distinct-from-meridian-Q-1028,
+      local, not pushed or merged). Residual gap: two candidate pairs are dropped.
+      escalate-disburse-loan-to-credit-director does not name l2-approval or
+      committee-vote-director (checked in the branch fixture
+      test/fixtures/qa/meridian_loan_origination_process_definition.json, node
+      at lines 432-438), because both hold role-credit-director and the REQ-464
+      same-role guard forbids that pair. The residual case stays open until the BA
+      rules on it (BA design item, GH #2386). The regulatory chain follows the
+      candidate list (findings-sign-off and ceo-override name their listed nodes).
+      REQ-465 is not marked done while the residual case is open and the BA ruling
+      is outstanding. Not run by DOC-UPDATER: the invariant test and mix
+      letflow.lint_handoffs, because the mkdir mutex at
+      C:\Users\tvolo\AppData\Local\Temp\claude\mixlock was held by another process
+      (mkdir failed with File exists; not waited for, not removed).

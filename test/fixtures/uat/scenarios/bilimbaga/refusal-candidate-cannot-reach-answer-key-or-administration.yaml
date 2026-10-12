@@ -48,7 +48,7 @@ steps:
 
   - step: 4
     actor: candidate
-    action: Tries to open the exam settings where the pass mark and question rules are kept
+    action: Tries to open the maintenance screens for the exam definition and the question bank settings (the screens an exam author uses to change the pass mark, question rules and time limit)
     via: gui
     expect_refusal: true
 
@@ -88,7 +88,7 @@ expected_outcomes:
 
   - id: EO-002
     description: >
-      Each attempt to open the answer bank, the exam settings, the user list,
+      Each attempt to open the answer bank, the exam maintenance screens, the user list,
       the role controls or the audit log is turned away, and the candidate
       sees none of the content behind it
     verification:

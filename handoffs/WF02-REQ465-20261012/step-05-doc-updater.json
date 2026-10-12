@@ -1,0 +1,84 @@
+{
+  "handoff_id": "e38ec017-9171-41f0-bfc1-c12b025e9dd5",
+  "run_id": "WF02-REQ465-20261012",
+  "workflow_id": "WF-02",
+  "step": "05",
+  "from_agent": "ORCH",
+  "to_agent": "DOC-UPDATER",
+  "file": "handoffs/WF02-REQ465-20261012/step-05-doc-updater.json",
+  "created_at": "2026-10-12T05:40:18Z",
+  "started_at": "2026-10-12T05:40:18Z",
+  "completed_at": "2026-10-12T05:42:28Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": ["REQ-465"],
+    "queue_task": 1028,
+    "gh_issue": 2343,
+    "branch_name": "feat/REQ-465-adopt-distinct-from-meridian-Q-1028",
+    "base_commit": "6d46832c",
+    "prior_commits": ["2758d53e", "afc10d07"],
+    "artifacts_in": [
+      "docs/agents/instructions/core-directives.md",
+      "docs/agents/workflows/WF-02_requirement_implementation.md",
+      "docs/status/requirement_status.index.yaml",
+      "docs/status/requirement_status.v26.yaml",
+      "docs/requirements.yaml",
+      "docs/anti-patterns.md",
+      "test/fixtures/qa/meridian_loan_origination_process_definition.json",
+      "test/fixtures/qa/meridian_regulatory_compliance_review_process_definition.json"
+    ]
+  },
+  "task": {
+    "description": "STEP 05 DOC-UPDATER for REQ-465 (queue task 1028, GH #2343). Record HONEST PARTIAL adoption, not done. (1) In docs/requirements.yaml edit only the status line of the REQ-465 entry: pending to in_progress, with an inline comment naming the two dropped candidate pairs (escalate-disburse-loan-to-credit-director does not name l2-approval or committee-vote-director) and the residual gap, BA design item GH #2386. Every other word of the letflow-2 REQ-465 text is unchanged. (2) Append exactly one revised event for REQ-465 to the current run-history volume (volume 26, named by the index), real UTC timestamp from the clock, noting partial adoption and the residual gap. (3) Bump the index entries counter for volume 26 from 44 to 45 and append an increment note in the established form. (4) Write this handoff. No application code, fixture or test change. REQ-466 not touched. Do not push. No commit amend, no checkout or reset.",
+    "acceptance_criteria": [
+      "docs/requirements.yaml: REQ-465 status line reads status: in_progress with the inline partial-adoption comment; no other line of the REQ-465 entry changed (git diff --numstat 1/1)",
+      "REQ-465 is NOT done (status is not done anywhere in the entry)",
+      "volume 26 gains exactly one REQ-465 entry, event revised, agent DOC-UPDATER, at a clock timestamp; git diff --numstat shows 0 deletions for the volume",
+      "index entries counter for volume 26 is 45, equal to the on-disk count of '  - req:' entries (grep -c)",
+      "invariant test test/docs/requirement_status_invariants_test.exs run under mix only if the mkdir mutex at C:/Users/tvolo/AppData/Local/Temp/claude/mixlock is acquired; otherwise skipped and stated",
+      "handoff written in the established shape; mix letflow.lint_handoffs --dir run on it (core-directives item 4)"
+    ]
+  },
+  "result": {
+    "status": "PARTIAL",
+    "summary": "REQ-465 set to in_progress (partial adoption), not done. One revised event appended to volume 26 (volume now 45 entries, 1042 lines / 59164 bytes, under the 1200-line / 120000-byte roll ceiling, no roll). Index counter 44 to 45 with increment note. Partial adoption is verified against the branch fixture: escalate-disburse-loan-to-credit-director names [l1-approval, escalate-l2-approval-to-ceo, committee-vote-cro, committee-vote-ceo] and does not name l2-approval or committee-vote-director; findings-sign-off and ceo-override in the regulatory fixture match the candidate list. Not run: the invariant test and mix letflow.lint_handoffs, because the mkdir mutex was held by another process at 2026-10-12T05:40Z and again at 05:42Z (mkdir: File exists; erl.exe running). Not waited for, lock not removed. README.md not changed: status-only change, no documented current behaviour altered. No migration or decision doc named in the acceptance criteria.",
+    "checks": [
+      "git diff --numstat: docs/requirements.yaml 1/1 (status line only); docs/status/requirement_status.index.yaml 6/1 (entries counter line plus increment note); docs/status/requirement_status.v26.yaml 22/0 (zero deletions)",
+      "requirements.yaml REQ-465 status line (quoted): status: in_progress  # partial adoption: two candidate pairs dropped (escalate-disburse-loan-to-credit-director does not name l2-approval or committee-vote-director), residual gap recorded in the PR; BA design item, see GH #2386",
+      "python -I yaml.safe_load of volume 26: 45 history entries; the appended REQ-465 event parses as revised, agent DOC-UPDATER, at 2026-10-12T05:41:30Z",
+      "python -I yaml.safe_load of the index: volume 26 status current, entries 45; 4 known_anomalies intact",
+      "grep -c '^  - req:' volume 26 = 45 = index entries counter (A9 equality, checked by hand; the invariant test did not run)",
+      "volume 26 line endings: CR bytes 1042 = LF bytes 1042 (CRLF preserved; file appended with >> only)",
+      "MIX_ENV=test mix test test/docs/requirement_status_invariants_test.exs: NOT RUN (mutex held)",
+      "mix letflow.lint_handoffs --dir handoffs/WF02-REQ465-20261012/step-05-doc-updater.json: NOT RUN (mutex held)"
+    ],
+    "artifacts_out": [
+      "docs/requirements.yaml",
+      "docs/status/requirement_status.v26.yaml",
+      "docs/status/requirement_status.index.yaml",
+      "handoffs/WF02-REQ465-20261012/step-05-doc-updater.json"
+    ],
+    "issues": [
+      {"severity": "MAJOR", "description": "Invariant test test/docs/requirement_status_invariants_test.exs was NOT run. The mkdir mutex C:/Users/tvolo/AppData/Local/Temp/claude/mixlock was held (mkdir: File exists at 05:40Z and 05:42Z; erl.exe running), so per the instruction it was skipped and not waited for. The A9 entries-equality check was verified by grep and YAML parse only. Required before Step Final: a green run of this test (CI full gate, or a local run once the mutex is free). This handoff does not claim it passed.", "affected_requirement": "REQ-465"},
+      {"severity": "MAJOR", "description": "mix letflow.lint_handoffs --dir on this handoff was NOT run (core-directives item 4), for the same mutex reason. The full-corpus lint at the CI gate is the backstop.", "affected_requirement": "REQ-465"},
+      {"severity": "MINOR", "description": "Residual gap, kept open on purpose: escalate-disburse-loan-to-credit-director does not name l2-approval or committee-vote-director. Both hold role-credit-director, and the REQ-464 shipped-definition guard forbids a same-role distinct_from pair, so the pair is dropped and reported, not forced. REQ-465 stays in_progress until the BA rules (BA design item, GH #2386). This is a BA scope decision, not a defect of this commit.", "affected_requirement": "REQ-465"},
+      {"severity": "MINOR", "description": "The status comment says the residual gap is recorded in the PR. The branch is not pushed and no PR exists (push_status skipped). The PR body must carry the residual-gap record when it is opened, or the comment points at nothing. ORCH to confirm at PR open.", "affected_requirement": "REQ-465"},
+      {"severity": "MINOR", "description": "Handoff filename: this step is named step-05-doc-updater.json as instructed. The REQ-464 run named its DOC-UPDATER handoff step-06-doc-updater.json (WF-02 Step 6). ORCH to confirm the step numbering for this run.", "affected_requirement": null},
+      {"severity": "MINOR", "description": "Pre-existing, not changed here: the index has no 'Incremented to 44' note for the REQ-457 done event (the 44th entry). The counter value 44 was already correct against the on-disk count. It was not back-filled, because a past note is not edited.", "affected_requirement": "REQ-457"}
+    ],
+    "git_evidence": {
+      "branch_name": "feat/REQ-465-adopt-distinct-from-meridian-Q-1028",
+      "commit_sha_list": [],
+      "commit_title": "chore(REQ-465/Q-1028): partial adoption status and history event [Q-1028 / GH #2343]",
+      "remote_branch": null,
+      "push_status": "skipped",
+      "pr_url": null,
+      "pr_create_error": null
+    },
+    "next_action": "ORCH: (1) record the commit SHA for the commit titled above; (2) confirm the four artifacts_out contain the claimed changes (grep the status line, the REQ-465 volume entry, entries 45); (3) require a green invariant test run (CI or a local run once the mutex is free) and a clean mix letflow.lint_handoffs before Step Final; (4) keep REQ-465 in_progress until the BA rules on the residual pair; do not mark it done; (5) put the residual-gap record in the PR body when it is opened."
+  },
+  "rework_count": 0,
+  "max_rework": 3
+}

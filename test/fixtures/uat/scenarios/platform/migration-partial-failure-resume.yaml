@@ -25,12 +25,10 @@ description: >
   resuming the rollout touches only the companies still outstanding.
 
 pipeline_test: web/tests/e2e/pipelines/platform-migration-partial-failure-resume.pipeline.e2e.spec.ts
-# NOTE (ISS-0527): this spec file does not exist in R-Co's own web/ tree at the
-# pinned commit either -- it is an aspirational forward-reference to a Playwright
-# test that was never authored anywhere, gated on the same missing feature this
-# scenario's own steps exercise. UAT-RUNNER cannot drive this pipeline_test yet;
-# treat any run of this scenario as BLOCKED/UNBUILT_FEATURE on the frontend leg
-# until FRONTEND-DEV authors it against a real shipped feature.
+# NOTE (refreshed 2026-10-12; replaces the ISS-0526/ISS-0527 wording that said
+# this spec file does not exist): the pipeline_test named above exists on main
+# (checked 2026-10-12). Whether this scenario can run is decided per run by the
+# UAT preflight and UAT-RUNNER, not by this note.
 # UAT-RUNNER drives this Playwright pipeline test for the operator's steps.
 # If this file does not exist or the test cannot run, that is a BLOCKER
 # (missing UI) and must be routed to FRONTEND-DEV before UAT can proceed.
@@ -47,8 +45,8 @@ pipeline_test: web/tests/e2e/pipelines/platform-migration-partial-failure-resume
 # docs/requirements.yaml REQ-374 (backend fanout runner, ELIXIR-DEV) and
 # REQ-375 (frontend rollout-status screen, FRONTEND-DEV, depends on REQ-374).
 # Full trace: test/uat-reports/gui-review-2026-09-20-migration-partial-failure-resume.md.
-# This scenario stays BLOCKED/UNBUILT_FEATURE until REQ-374 and REQ-375 both
-# ship and this pipeline_test is authored for real against a live screen.
+# REQ-374 and REQ-375 are done on main (checked 2026-10-12), so the blocker this
+# addendum recorded is cleared. Whether the scenario runs green is decided by its UAT run.
 
 actors:
   operator: actor-platform-admin

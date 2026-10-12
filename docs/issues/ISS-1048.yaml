@@ -1,0 +1,23 @@
+id: ISS-1048
+title: "Meridian loan origination: reroute escalate-disburse-loan to a non-approver role (role-loan-ops-lead) and add distinct_from with all six approval nodes (follow-up to Q-1044 decision option b)"
+discovered_by: letflow-2 (BA/UAT lane), filed as the replacement for superseded ISS-1046
+discovered_in_run: "Q-1044 decision, 2026-10-12"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: MAJOR
+owner: "ELIXIR-DEV (definition, seed scripts, engine tests); SECURITY-REVIEWER hard gate on acceptance criteria 2, 5 and 6"
+scope: definition
+description: >
+  Implementation of the decision recorded in ISS-1044 (option b, guard unchanged). Reroutes
+  escalate-disburse-loan-to-credit-director to role-loan-ops-lead, renames the node, adds
+  distinct_from with all six approval nodes, and adds one meridian persona with that role and no
+  approval role. Full text and ten acceptance criteria are in REQ-467.
+  CLAIM GATE (queue description): claim only after the Q-1028 / GH #2343 PR is merged; the
+  supervisor sequences it. Depends on REQ-465 in the queue sense only.
+  Runtime fact (letflow-3 code reading, restated from code by the implementer in the run
+  report): escalation_role grants no eligibility at runtime; the reroute closes the gap.
+resolution: >
+  In progress: letflow-3 claimed Q-1048 and is implementing. Tracked as REQ-467.
+queue_ref: Q-1048
+github_ref: GH-2390
+status: in_progress
+requirement: REQ-467

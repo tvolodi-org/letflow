@@ -1,0 +1,155 @@
+{
+  "handoff_id": "5c2bd94f-0b6e-4493-9bbc-5a05a2901517",
+  "run_id": "WF02-REQ465-20261012",
+  "workflow_id": "WF-02",
+  "step": "06",
+  "from_agent": "RELEASE-VALIDATOR",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF02-REQ465-20261012/step-06-release-validator.json",
+  "created_at": "2026-10-12T05:45:40Z",
+  "started_at": "2026-10-12T05:45:40Z",
+  "completed_at": "2026-10-12T07:06:50Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [
+      "REQ-465"
+    ],
+    "queue_task": 1028,
+    "gh_issue": 2343,
+    "branch_name": "feat/REQ-465-adopt-distinct-from-meridian-Q-1028",
+    "base_commit": "6d46832c",
+    "code_validated_commit": "ddefe829",
+    "head_validated": "db0b4fed",
+    "head_validated_note": "db0b4fed adds only handoffs/WF02-REQ465-20261012/step-04-reviewer.json on top of ddefe829. Code, fixtures, tests and scripts are identical between the two commits (git diff --stat ddefe829 db0b4fed).",
+    "artifacts_in": [
+      "docs/requirements.yaml (REQ-465 entry)",
+      "docs/status/requirement_status.index.yaml (REQ-465 status in_progress)",
+      "test/fixtures/qa/meridian_loan_origination_process_definition.json",
+      "test/fixtures/qa/meridian_regulatory_compliance_review_process_definition.json",
+      "handoffs/WF02-REQ465-20261012/step-02-elixir-dev.json",
+      "handoffs/WF02-REQ465-20261012/step-03-security-reviewer.json",
+      "handoffs/WF02-REQ465-20261012/step-04-reviewer.json",
+      "handoffs/WF02-REQ465-20261012/step-05-doc-updater.json"
+    ]
+  },
+  "task": {
+    "description": "STEP 06 RELEASE-VALIDATOR for REQ-465 (queue task 1028, GH #2343). Independently re-verify, without trusting any handoff verdict, whether REQ-465 can be marked done. Re-run: MIX_ENV=test mix compile --warnings-as-errors; mix format --check-formatted on the changed .ex/.exs files; the scoped REQ-465 and meridian tests; mix letflow.check_boundaries and mix letflow.check.static; the REQ-464 validator over the two changed definitions; mix letflow.lint_handoffs on the REQ-465 handoff directory; the escalation-gap fixture state; scripts/test_parallel.sh and mix letflow.check.test. Re-check each acceptance criterion against code and tests. Write this verdict. Do not edit code, fixtures, tests or docs.",
+    "acceptance_criteria": [
+      "MIX_ENV=test mix compile --warnings-as-errors exits 0",
+      "mix format --check-formatted exits 0 on every changed .ex/.exs file",
+      "scoped MIX_ENV=test tests (REQ-465 new tests, six version-string tests, shipped-definition guard, requirement_status invariants test, meridian engine tests naming the changed definitions) pass",
+      "mix letflow.check_boundaries and mix letflow.check.static pass",
+      "REQ-464 validator reports valid with no violations for both changed definitions",
+      "mix letflow.lint_handoffs --dir handoffs/WF02-REQ465-20261012 passes",
+      "escalate-disburse-loan-to-credit-director names exactly [l1-approval, escalate-l2-approval-to-ceo, committee-vote-cro, committee-vote-ceo]",
+      "scripts/test_parallel.sh and mix letflow.check.test are green (no failing tests, no dead-default-argument warning)",
+      "each REQ-465 acceptance criterion is met by current code and tests, and only in-scope definitions and seed scripts changed"
+    ]
+  },
+  "rework_count": 0,
+  "max_rework": 3,
+  "result": {
+    "status": "FAIL",
+    "verdict": "FAIL",
+    "summary": "FAIL: REQ-465 is NOT release-validated and must stay in_progress (DOC-UPDATER already set it that way, which is correct). Every in-scope technical check that ran cleanly passed: forced compile with warnings-as-errors exit 0 (360 files, 0 warnings); format check exit 0; 14 scoped test files 188 passed, 0 failed; boundaries 0 violations; static check exit 0; REQ-464 validator valid with no violations for both definitions; lint_handoffs exit 0 with 0 new violations. The gate fails on three grounds. (1) The full suite is not green on this host: scripts/test_parallel.sh exit 1 with 6 failures (7988 tests, 8 properties; 7990/7996 passed), and mix letflow.check.test exit 1 with 4 failures (7992/7996 passed). No failing file is in REQ-465's change set. Three UatPreflightLocalDepsTest tests fail deterministically on this Windows host (the scenario directory scan rejects the c:/Users/... tmp path; setting UAT_PF_BASH to Git bash does not change it). The other failures are load-sensitive and pass when re-run in isolation (PlatformScopeNotConferredTest 401; DefinitionsTest and MigrationRolloutTest tenant clone 'tenant_id has already been taken'; TestParallelWatchdogOrphanTest 40 s pipe timeout at loadavg 12.8). No origin/main baseline was run, so pre-existence is not proven. (2) REVIEWER's must-correct item is still open: the regulatory fixture description still says findings-sign-off is inert because it is reached only through its timeout edge, which REVIEWER states is false (step-04 issue 1). (3) REVIEWER issue 4 is still open: req465_meridian_loan_distinct_from_test.exs calls A.sandbox_auto!() in setup, a global Repo mode flip with no on_exit restore. The escalation residual (escalate-disburse-loan-to-credit-director does not name l2-approval or committee-vote-director) is confirmed, correctly documented, and is a BA decision (GH #2386). It is not a technical failure of this validation, but it blocks done.",
+    "evidence": {
+      "step1_compile": "MIX_ENV=test mix compile --warnings-as-errors -> exit 0, empty output (already compiled). Forced recheck: MIX_ENV=test mix compile --force --warnings-as-errors -> exit 0, 'Compiling 360 files (.ex)', 'Generated letflow app', 0 warnings.",
+      "step2_format": "mix format --check-formatted on the 9 changed .ex/.exs files (list from git diff --name-only origin/main...ddefe829) -> exit 0, no output.",
+      "step3_scoped_tests": "MIX_ENV=test mix test on 14 files -> exit 0, 'Result: 188 passed', 0 failed, no skips. Files: engine/req465_meridian_loan_distinct_from_test.exs, engine/req465_meridian_regulatory_distinct_from_test.exs, scripts/req465_meridian_distinct_from_fixture_test.exs, the six version-string tests (definitions/req462_shipped_required_outputs_adoption_test.exs, scripts/meridian_loan_kyc_fail_closed_fixture_test.exs, scripts/meridian_loan_origination_fixture_test.exs, scripts/meridian_regulatory_remediation_fixture_test.exs, scripts/meridian_timeout_review_and_forms_fixture_test.exs, scripts/regulatory_review_timer_path_fixture_test.exs), definitions/required_outputs_shipped_definitions_test.exs, docs/requirement_status_invariants_test.exs, engine/meridian_loan_escalation_timer_test.exs, engine/regulatory_review_timer_path_test.exs, engine/req462_meridian_required_outputs_test.exs.",
+      "step4_boundaries_static": "mix letflow.check_boundaries -> exit 0, 'OK -- 973 edges checked, 0 violations'. mix letflow.check.static -> exit 0, '49 file(s) checked, 0 violation(s) across 0 file(s)', 0 FAIL lines.",
+      "step5_req464_validator": "Pure checks (Graph.from_map, Graph.validate_graph/1, Graph.validate_node_attributes/1 including REQ-464 CHK-26/27, RoleBinding.single_member_pairs/1). Loan v1.14: structural valid=true violations=[]; node_attributes valid=true violations=[]; single_member_pairs=[]. Regulatory v1.10: same, all empty. The DB-backed warning path (validate_definition_graph/2 with a tenant) was not run; it only evaluates candidate pairs and there are none, so it cannot warn.",
+      "step6_lint_handoffs": "mix letflow.lint_handoffs --dir handoffs/WF02-REQ465-20261012 -> exit 0, 'letflow.lint_handoffs: OK -- 0 new violations across 4 handoff files under handoffs/WF02-REQ465-20261012 (0 pre-existing grandfathered, traced to ISS-0190).' Advisory only: ARTIFACTS_OUT_SELF_REF on steps 03, 04, 05.",
+      "step7_escalation_fixture": "escalate-disburse-loan-to-credit-director (node index 29, role-credit-director) distinct_from = ['l1-approval', 'escalate-l2-approval-to-ceo', 'committee-vote-cro', 'committee-vote-ceo'], exactly as required, nothing else. Not changed. Not named: l2-approval and committee-vote-director (both role-credit-director).",
+      "test_parallel_run1": "scripts/test_parallel.sh (default N=16, from nproc) -> TEST_PARALLEL EXIT=1; 'combined: 7988 tests, 8 properties, 6 failures (7990/7996 passed) -- 16/16 partitions reported'. Failing: Letflow.Api.PlatformScopeNotConferredTest 'test 10(f)' (401 invalid or expired bearer token); Letflow.Entities.DefinitionsTest 'AC5 ... ISS-0522' (tenant clone, tenant_schemas tenant_id 'has already been taken'); Letflow.Platform.MigrationRolloutTest 'EO-001/EO-002' (same clone failure); Letflow.Scripts.UatPreflightLocalDepsTest T2, T7, T1 (preflight 'no scenario files under c:/Users/...').",
+      "test_parallel_run1_isolated_rerun": "The four failing files re-run together under one BEAM: 'Result: 50/53 passed', 'Failed: 3 tests', all three in UatPreflightLocalDepsTest. PlatformScopeNotConferredTest, DefinitionsTest and MigrationRolloutTest pass in isolation.",
+      "uat_preflight_env_check": "UAT_PF_BASH='C:/Program Files/Git/bin/bash.exe' mix test test/scripts/uat_preflight_local_deps_test.exs -> 'Result: 4/7 passed', 'Failed: 3 tests' (the same three). Not fixed by setting the variable on this host.",
+      "check_test_run2": "mix letflow.check.test -> exit 1: '** (Mix) mix letflow.check.test: FAILED -- scripts/test_parallel.sh exited 1 (real test failure/error)'. 'combined: 7988 tests, 8 properties, 4 failures (7992/7996 passed) -- 16/16 partitions reported'. Failing: Letflow.Scripts.TestParallelWatchdogOrphanTest 'EXIT-trap path: abort while a watchdog is running releases the pipe promptly' (script did not release its stdout pipe within 40000 ms; loadavg 12.84; passes in isolation, 5 passed), plus the same three UatPreflightLocalDepsTest tests. Dead-default substring 'default values for the optional arguments': 0 hits in the check output.",
+      "ac_review": "AC1 run report and validator: node table present in step-02 (node ids exist, validator valid for both); wording drift ('reports status OK' vs valid=true). AC2 loan refusals: tests at req465_meridian_loan_distinct_from_test.exs lines 100, 123, 155 pass. AC3 regulatory evidence-collection refusal: regulatory test line 71 passes. AC4 committee votes: fixture names verified (cro [director, ceo]; director [cro, ceo]; ceo [cro, director]); test line 183 passes. AC5 scope: structural diff vs origin/main shows the same node ids and edges; only distinct_from added (loan 7 nodes, regulatory 2 nodes), plus version and description; seed script changed only header comment lines. AC6 UAT refusal list: step-02 reports refused_scenarios = []; NOT independently re-derived here. AC7 SECURITY-REVIEWER: step-03 recorded, verdict PASS_WITH_FINDINGS. AC8: all four checks pass in this run.",
+      "decision_records": "grep of docs/migration/decisions/*.md for distinct_from, separation of duties and distinct person: no match. No decision record found to be contradicted."
+    },
+    "artifacts_out": [],
+    "issues": [
+      {
+        "severity": "MAJOR",
+        "affected_requirement": "REQ-465",
+        "description": "The full suite is not green on this host. scripts/test_parallel.sh exited 1 (6 failures) and mix letflow.check.test exited 1 (4 failures). No failing file is in the REQ-465 change set. Three UatPreflightLocalDepsTest failures are deterministic on this Windows host. The other failures are load-sensitive and pass in isolation. No origin/main baseline was run, so pre-existence is unproven. A green run on Linux CI is required before merge."
+      },
+      {
+        "severity": "MAJOR",
+        "affected_requirement": "REQ-465",
+        "description": "REVIEWER step-04 issue 1 (must correct in this PR) is still open. The regulatory fixture description (test/fixtures/qa/meridian_regulatory_compliance_review_process_definition.json, description field) still says ceo-override's findings-sign-off entry is inert because findings-sign-off is reached only through its timeout edge. REVIEWER states that premise is false. ELIXIR-DEV must correct the text (no list, edge or test change) and the copy in step-02. I did not re-derive the edges."
+      },
+      {
+        "severity": "MINOR",
+        "affected_requirement": "REQ-465",
+        "description": "REVIEWER step-04 issue 4 is still open. test/letflow/engine/req465_meridian_loan_distinct_from_test.exs calls A.sandbox_auto!() in setup, a global Repo sandbox mode flip (test/support/req462_adoption.ex:41-44), with no on_exit restore. DataCase setup resets shared mode for each non-async test, so the leak should be limited to the loan test's own writes, which are not rolled back. Whether this contributes to the tenant-clone collisions was not tested. ELIXIR-DEV should document why :auto is needed or drop it (restore in on_exit if kept). TEST-DESIGNER should confirm the suite is green under the shared mode."
+      },
+      {
+        "severity": "MAJOR",
+        "affected_requirement": "REQ-465",
+        "description": "Escalation residual, confirmed and correctly documented. escalate-disburse-loan-to-credit-director (role-credit-director) does not name l2-approval or committee-vote-director (both role-credit-director). The shipped guard (required_outputs_shipped_definitions_test.exs:149) asserts zero single-member candidate pairs, and single_member_pairs/1 treats any same-role node pair as a candidate, so the REQ-465 description's candidate pairs conflict with the REQ-464 guard. The sole role-credit-director holder can approve at l2-approval and then release via escalate-disburse. This is a BA/ORCH decision (GH #2386). REQ-465 stays in_progress until it is decided. Not a technical failure of this validation."
+      },
+      {
+        "severity": "MINOR",
+        "affected_requirement": "REQ-465",
+        "description": "AC6 (UAT scenarios that would now be refused) rests on ELIXIR-DEV's analysis (refused_scenarios = []). It was not independently re-derived in this run."
+      },
+      {
+        "severity": "MINOR",
+        "affected_requirement": "REQ-465",
+        "description": "Wording drift (REVIEWER step-04 issue 7): the REQ-465 acceptance criteria say the REQ-464 validator 'reports status OK'. The implementation returns valid=true. The BA or ORCH should reword the criterion; it should not be forced."
+      },
+      {
+        "severity": "MINOR",
+        "affected_requirement": "REQ-465",
+        "description": "ceo-override has distinct_from but no refusal test (SECURITY-REVIEWER issue 2, REVIEWER issue 5). Not in the stated acceptance criteria. Recommended, not blocking."
+      },
+      {
+        "severity": "MINOR",
+        "affected_requirement": "REQ-465",
+        "description": "Simulation process copies (test/fixtures/simulation/meridian/process_claim_intake.yaml and process_policy_binding.yaml) lack distinct_from while the QA copies carry it. Recorded drift, not registered (REVIEWER issue 8). Outside this change set by design."
+      },
+      {
+        "severity": "MINOR",
+        "affected_requirement": "REQ-465",
+        "description": "Rollout gap (SECURITY-REVIEWER issue 4): instances created on 1.13 keep their snapshot and no separation rule after the 1.14 activation. The BA or ORCH must accept this or drain in-flight instances."
+      },
+      {
+        "severity": "MINOR",
+        "affected_requirement": null,
+        "description": "Test-infrastructure flakes in the full run, same family as ISS-0578 and ISS-0842 (both closed): tenant clone 'tenant_id has already been taken' (DefinitionsTest, MigrationRolloutTest) and a 401 in PlatformScopeNotConferredTest. Each passes in isolation. ORCH should decide whether to file an ISS. I did not file one."
+      },
+      {
+        "severity": "MINOR",
+        "affected_requirement": null,
+        "description": "UatPreflightLocalDepsTest fails on this Windows host because the scenario directory scan rejects the c:/Users/... tmp path. The test and script are unchanged by this branch. Needs a Windows-compatible fix, or confirmation that Linux CI passes."
+      },
+      {
+        "severity": "INFO",
+        "affected_requirement": null,
+        "description": "Process notes: (a) HEAD moved from ddefe829 to db0b4fed (REVIEWER handoff only) during this run; code is identical. (b) Another session held the BEAM mutex (mixlock) from 05:45 to 06:13 UTC; I acquired it at 06:13:34 and released it at 07:04:18 with rmdir. (c) The Bash tool moved the first full-suite call to the background at its 600 s cap; I did not background it myself, and I polled in foreground until the 'combined:' line appeared. The harness's 'exit code 0' completion notices reflected a trailing grep, not the runner; the runner's own exits were 1. (d) Free memory fell to about 0.4 GB during run 1 (31.8 GB total); the harness did not kill the run."
+      }
+    ],
+    "not_run": [
+      "validate_definition_graph/2 and ValidationWarnings.for_definitions/2 (DB-backed; need a tenant). Not needed for the candidate-pair conclusion, see step 5.",
+      "An origin/main baseline run of the full suite (no checkout performed; the worktree is shared with another session).",
+      "A run of scripts/test_parallel.sh on Linux or in CI.",
+      "Independent re-derivation of the AC6 UAT refusal analysis.",
+      "The REQ-465 loan test with and without sandbox_auto! to confirm or rule out leakage into other tests.",
+      "UAT-RUNNER scenario runs against a live instance (outside this gate)."
+    ],
+    "git_evidence": {
+      "branch_name": "feat/REQ-465-adopt-distinct-from-meridian-Q-1028",
+      "head_validated": "db0b4fed",
+      "code_validated_commit": "ddefe829",
+      "commit_sha_list": [],
+      "push_status": "not_pushed",
+      "pr_url": null,
+      "pr_create_error": null,
+      "note": "This verdict file is committed on top of db0b4fed. The commit SHA is reported in the RELEASE-VALIDATOR final message, not stored here."
+    },
+    "next_action": "ORCH: do NOT mark REQ-465 done. It stays in_progress. Route to ELIXIR-DEV: (1) correct the regulatory description sentence (REVIEWER step-04 issue 1) in the fixture and in step-02; (2) document or drop sandbox_auto! in req465_meridian_loan_distinct_from_test.exs setup, restoring the mode in on_exit if kept (REVIEWER issue 4); (3) optionally add a ceo-override refusal test. Route to BA/ORCH: decide GH #2386 (escalation residual) and the acceptance-criterion wording. Suite: confirm the full run is green on Linux CI; triage the three UatPreflightLocalDepsTest failures (Windows path) and the flake class (ISS-0578/ISS-0842 family). Re-run RELEASE-VALIDATOR after the fixes."
+  }
+}

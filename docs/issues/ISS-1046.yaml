@@ -1,0 +1,20 @@
+id: ISS-1046
+title: "Meridian loan origination: reroute escalate-disburse-loan to a non-approver role (role-loan-ops-lead) and add distinct_from with all six approval nodes (follow-up to Q-1044 decision option b)"
+discovered_by: letflow-2 (BA/UAT lane), filed as the follow-up to ISS-1044
+discovered_in_run: "Q-1044 decision, 2026-10-12"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: MAJOR
+owner: "ELIXIR-DEV (definition, seed scripts, engine tests); SECURITY-REVIEWER hard gate"
+scope: definition
+description: >
+  Implementation of the decision recorded in ISS-1044. The original registration carried
+  depends_on [1028], which deadlocks because Q-1028 stays open until this lands. Its content
+  is the same as the replacement, REQ-467 (queue Q-1048 / GH #2390, ISS-1048).
+resolution: >
+  SUPERSEDED by ISS-1048 (queue Q-1048 / GH #2390, REQ-467). Queue task Q-1046 is blocked and
+  its id is not reused. GitHub #2388 was closed as not planned with a pointer to the
+  replacement.
+queue_ref: Q-1046
+github_ref: GH-2388
+status: superseded
+superseded_by: ISS-1048

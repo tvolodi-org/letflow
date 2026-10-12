@@ -25,12 +25,10 @@ description: >
   older process instances can still be replayed afterwards.
 
 pipeline_test: web/tests/e2e/pipelines/platform-partition-retention-drop.pipeline.e2e.spec.ts
-# NOTE (ISS-0527): this spec file does not exist in R-Co's own web/ tree at the
-# pinned commit either -- it is an aspirational forward-reference to a Playwright
-# test that was never authored anywhere, gated on the same missing feature this
-# scenario's own steps exercise. UAT-RUNNER cannot drive this pipeline_test yet;
-# treat any run of this scenario as BLOCKED/UNBUILT_FEATURE on the frontend leg
-# until FRONTEND-DEV authors it against a real shipped feature.
+# NOTE (refreshed 2026-10-12; replaces the ISS-0526/ISS-0527 wording that said
+# this spec file does not exist): the pipeline_test named above exists on main
+# (checked 2026-10-12). Whether this scenario can run is decided per run by the
+# UAT preflight and UAT-RUNNER, not by this note.
 # UAT-RUNNER drives this Playwright pipeline test for the operator's steps.
 # If this file does not exist or the test cannot run, that is a BLOCKER
 # (missing UI) and must be routed to FRONTEND-DEV before UAT can proceed.

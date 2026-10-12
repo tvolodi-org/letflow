@@ -1,0 +1,25 @@
+id: ISS-1043
+title: "Letflow exposes no build SHA or version endpoint, so WF-05 preflight cannot confirm which build is deployed on QA"
+discovered_by: letflow-2 (BA/UAT lane, read-only QA preflight)
+discovered_in_run: "uat_preflight.sh --environment qa, 2026-10-12 (ENV_NOT_READY; deployed_sha UNKNOWN)"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: LOW
+owner: "ELIXIR-DEV (lib/letflow/router.ex; the redeploy pipeline must inject the SHA at build time); no tenant-data path"
+description: >
+  The WF-05 preflight's global deployed_sha check reports UNKNOWN against https://qa.bizdala.com:
+  no endpoint exposes a build SHA (GET /health and GET /api/v1/version were both probed). In the
+  code, lib/letflow/router.ex defines GET /health, which returns only {"status":"ok"}, and no
+  version or build-SHA route exists under lib/letflow/. A UAT run therefore cannot record the
+  commit it ran against, and a run against a stale build cannot be told apart from one against
+  the current build. ISS-0911 also notes that QA exposes no build SHA.
+acceptance_criteria:
+  - "A public, unauthenticated route (either an extra field on GET /health or a new GET /api/v1/version) returns the git commit SHA baked into the running release"
+  - "The response contains no tenant data and needs no token, so it sits outside Letflow.Plugs.AuthPipeline the way /health does"
+  - "The existing GET /health response keeps status \"ok\" unchanged, so redeploy-test.sh liveness keeps working"
+  - "After a QA redeploy, scripts/uat_preflight.sh --environment qa reports deployed_sha OK with the SHA that origin/main points to, instead of UNKNOWN"
+  - "A test asserts that the route returns the SHA the release was built from"
+affected_files:
+  - lib/letflow/router.ex
+queue_ref: Q-1043
+github_ref: GH-2384
+status: open

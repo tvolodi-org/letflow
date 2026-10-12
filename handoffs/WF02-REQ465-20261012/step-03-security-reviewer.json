@@ -1,0 +1,97 @@
+{
+  "handoff_id": "86d8ce19-7fd6-4f9e-a21a-41b41e727638",
+  "run_id": "WF02-REQ465-20261012",
+  "workflow_id": "WF-02",
+  "step": "03",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF02-REQ465-20261012/step-03-security-reviewer.json",
+  "created_at": "2026-10-12T05:35:52Z",
+  "started_at": "2026-10-12T05:35:52Z",
+  "completed_at": "2026-10-12T05:37:32Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": ["REQ-465"],
+    "queue_task": 1028,
+    "gh_issue": 2343,
+    "branch_name": "feat/REQ-465-adopt-distinct-from-meridian-Q-1028",
+    "reviewed_commit": "c25df0f52fba4fa6aca23cfb64215d63a36a1d71",
+    "artifacts_in": [
+      "docs/agents/instructions/security-invariants.md",
+      "docs/agents/instructions/core-directives.md",
+      "docs/agents/workflows/WF-02_requirement_implementation.md",
+      "lib/letflow/engine/separation_of_duties.ex",
+      "lib/letflow/engine.ex",
+      "lib/letflow/routers/tasks.ex",
+      "lib/letflow/api/response.ex",
+      "lib/letflow/definitions/role_binding.ex",
+      "lib/letflow/engine/service_task_dispatcher.ex",
+      "lib/letflow/plugs/auth_pipeline.ex",
+      "test/fixtures/qa/meridian_loan_origination_process_definition.json",
+      "test/fixtures/qa/meridian_regulatory_compliance_review_process_definition.json",
+      "test/letflow/engine/req465_meridian_loan_distinct_from_test.exs",
+      "test/letflow/engine/req465_meridian_regulatory_distinct_from_test.exs",
+      "test/letflow/scripts/req465_meridian_distinct_from_fixture_test.exs",
+      "test/letflow/definitions/required_outputs_shipped_definitions_test.exs",
+      "test/fixtures/uat/actors.yaml",
+      "scripts/seed_meridian_definition.sh",
+      "handoffs/WF02-REQ465-20261012/step-02-elixir-dev.json"
+    ]
+  },
+  "task": {
+    "description": "STEP 02c SECURITY GATE for commit c25df0f5 (REQ-465 distinct_from on the Meridian loan and regulatory HUMAN_TASK nodes). Read-only: no code edits, no mix, no BEAM. Run the scope test, assess INV-1..INV-10 (APPLIES or NOT-APPLICABLE, with the check run for each APPLIES invariant), verify the refusal body is the fixed generic body and that the new tests assert it, verify nothing is loosened, and state a verdict on the escalate-disburse-loan-to-credit-director residual gap that ELIXIR-DEV dropped (l2-approval and committee-vote-director not named).",
+    "acceptance_criteria": [
+      "scope test recorded with the clause that applies",
+      "each of INV-1..INV-10 recorded APPLIES or NOT-APPLICABLE, with the check run and PASS or FAIL for each APPLIES invariant",
+      "refusal body verified as the fixed generic body in code and asserted byte-for-byte by the new tests",
+      "no loosening of any rule verified against the diff",
+      "verdict on the escalation residual gap stated, with whether it is a security-invariant issue"
+    ]
+  },
+  "result": {
+    "status": "PASS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "PASS_WITH_FINDINGS (result.status PASS: no applicable invariant fails). Scope test: IN SCOPE, by the secret clause (scripts/seed_meridian_definition.sh is modified and resolves QA_AUTH_TOKEN) and the tenant-data clause (tenant-scoped definition content and tests that write tenant rows). INV-1 APPLIES, PASS. INV-4 APPLIES, PASS. INV-2, INV-3, INV-5, INV-6, INV-7, INV-8, INV-9 and INV-10 are NOT-APPLICABLE: no route, migration, response shaping, lookup-by-ID handler, host function, SQL, outbound URL or permission changed, and lib/ and priv/ have zero changed lines. The refusal body is the fixed constant and the new tests assert it byte-for-byte in all eight refusal assertions. Nothing is loosened: node and edge counts are unchanged, removed lines are version and description only, and the description change is append-only. ESCALATION GAP VERDICT: not a breach of INV-1..INV-10 (it is an in-tenant business separation-of-duties residual; no tenant boundary, secret, response shape, crash or platform authority is involved), and not introduced by this commit (escalate-disburse-loan-to-credit-director had no separation rule before; this commit narrows it). It is a real, verified money-release gap in the QA roster: the single role-credit-director holder can approve at L2 and then release the payment through the escalation if disburse-loan times out. Rated MAJOR for a BA ruling before REQ-465 is marked done. It is not a gate blocker for this step.",
+    "evidence": {
+      "scope_test": "IN SCOPE. Secret clause: scripts/seed_meridian_definition.sh is modified (two header comment lines) and the script resolves QA_AUTH_TOKEN. Tenant-data clause: tenant-scoped process-definition content and tests that write tenant rows. Not triggered: API route, migration, response shaping, lookup-by-ID handler. lib/ and priv/ have 0 changed lines in c25df0f5.",
+      "INV-1": "APPLIES (conservative reading: changes content of tenant-scoped definition rows that the seed writes into the meridian tenant, and adds tests that write tenant rows). (a) The diff adds no query. The three new test files contain 0 direct Repo calls and reach tenant rows only through ctx.schema_name and auth_context tenant_id. (b) No migration (priv/ untouched). (c) No tenant_id column is written. PASS.",
+      "INV-2": "NOT-APPLICABLE. No response type, serializer or field allowlist changed. The refusal body is a constant (Response.separation_of_duties/1, lib/letflow/api/response.ex:61) carrying no node id, user id or name.",
+      "INV-3": "NOT-APPLICABLE. No Lua or WASM host function or capability touched; the diff contains no service-task script change.",
+      "INV-4": "APPLIES (scope clause: the seed script is modified and resolves QA_AUTH_TOKEN). grep 1 (System.get_env over config/ and lib/): 43 hits, all env-sourced. grep 2 (heuristic over lib/ and config/): 0 hits; 0 hits in the three new test files. The seed script reads QA_AUTH_TOKEN from the environment with a guard (around line 46) and uses it only in the Authorization header. No set -x in the script or in scripts/lib/seed_service_task_base.sh. The diff changes only header comment lines. This handoff's step-02 JSON contains no token, bearer, password or secret string. PASS.",
+      "INV-5": "NOT-APPLICABLE. No lookup-by-ID handler added or changed. The SoD check runs inside the completion transaction after the task and instance row locks (lib/letflow/engine.ex:2320 calls check_completion_guards at :3998; separation_of_duties.ex moduledoc), on the instance snapshot in the caller's tenant prefix. A task outside the caller's tenant does not reach it.",
+      "INV-6": "NOT-APPLICABLE. No new API route, Lua or WASM host function, or business-table migration. This handoff is the SECURITY-REVIEWER record that the REQ-465 acceptance criterion requires.",
+      "INV-7": "NOT-APPLICABLE. The diff adds no SQL: 0 diff hits for Repo.query, Ecto.Adapters.SQL, Repo.all or Repo.get; no lib/ or priv/ line changed.",
+      "INV-8": "NOT-APPLICABLE to runtime. No lib/ line changed. The bare {:ok, _} = matches in the new fixture test are test code. The completion guards and graph checks the tests exercise are unchanged.",
+      "INV-9": "NOT-APPLICABLE. No outbound URL added or changed. Existing service-task HTTP dispatch already calls UrlValidator before :httpc.request/4 (lib/letflow/engine/service_task_dispatcher.ex:287-310), unchanged by this commit.",
+      "INV-10": "NOT-APPLICABLE. No route or permission added or changed. Roles named by distinct_from nodes are workflow routing roles inside the definition, not platform permissions.",
+      "refusal_body": "Fixed generic body confirmed in code: lib/letflow/api/response.ex defines the constant separation-of-duties body (detail 'separation of duties', status 403), sent by separation_of_duties/1 with problem+json content type and status 403, with no node id, user id or name. lib/letflow/routers/tasks.ex:391 maps the :separation_of_duties result to it on complete, and the comment there says the same body is used on claim. The new tests assert exact equality (conn.resp_body == @sod_body), status 403 and a problem+json content type on every refusal: 5 call sites in req465_meridian_loan_distinct_from_test.exs and 3 in req465_meridian_regulatory_distinct_from_test.exs. Each refusal also asserts that a before/after row snapshot is unchanged.",
+      "no_loosening": "Node and edge counts are unchanged (loan 35 nodes and 62 edges; regulatory 16 and 25). The only removed fixture lines are the version and description lines; the new description is an append-only extension of the old one (checked with StartsWith). No edge condition changed. The six existing test files changed only version strings and test names; no assertion was removed. The REQ-464 zero-pair guard test (required_outputs_shipped_definitions_test.exs) was not edited. No definition other than the two named changed (simulation, swiftroute and vortex untouched).",
+      "escalation_gap": "PATH (all in test/fixtures/qa/meridian_loan_origination_process_definition.json): actor-meridian-julia is the only role-credit-director holder (test/fixtures/uat/actors.yaml:32-35). l2-approval (role-credit-director, distinct_from [l1-approval]) completes, then create-facility, then disburse-loan (role-loan-ops, P1D, distinct_from includes l2-approval). If disburse-loan times out (timeout-disburse-loan, lines 541-542), the flow goes to escalate-disburse-loan-to-credit-director (role-credit-director; distinct_from [l1-approval, escalate-l2-approval-to-ceo, committee-vote-cro, committee-vote-ceo]; l2-approval is NOT named). Its edge e27-escalated goes to end-disbursed, which is the payout. The engine comparison (separation_of_duties.ex, blocking_nodes) only considers named nodes, so the L2 completion is not considered and the completion is accepted. The committee path has the same shape: committee-vote-director (role-credit-director) can vote, then the escalation after a disburse timeout is not refused for the same user. PRE-CHANGE: the escalate node had no separation rule, so the commit narrows the gap for L1, the CEO escalation and the committee CRO and CEO, and does not close it for the two role-credit-director approvers. TESTS: no refusal test exercises escalate-disburse-loan-to-credit-director or ceo-override (grep: only the fixture-shape test names them). The node's own description discloses the open case. CAUSE: the second REQ-464 test in required_outputs_shipped_definitions_test.exs asserts zero single-member candidate pairs across all shipped definitions. That is stricter than REQ-464's acceptance criterion (quoted counts) and than REQ-464's design, where check 4 is a warning that the node could never complete for a single-member role. VERDICT: not an INV-1..INV-10 breach. PASS_WITH_FINDINGS, MAJOR for a BA ruling. Recommended resolution (fail closed): re-add l2-approval and committee-vote-director to escalate-disburse-loan-to-credit-director's distinct_from and relax the zero-pair assertion to REQ-464's membership-aware warning semantics. With one holder, the escalation then has no eligible completer besides the approver and ends at disbursement-held-notice with no payout. Accepting the gap instead needs an explicit BA risk acceptance recorded in REQ-465 that names the L2 approver's self-release; it must not stay implicit. Either path that changes the fixture or the guard needs a new SECURITY-REVIEWER pass.",
+      "actor_id_skip": "SeparationOfDuties.run_check skips the rule when actor_id is not a binary. That is not reachable from the tenant auth pipeline as read: lib/letflow/plugs/auth_pipeline.ex:133 and :146 attach a user id from a provisioned user or a verified token user, and token creation requires a user id (comment near auth_pipeline.ex:58-59). Pre-existing, not changed by this commit.",
+      "rollout": "Completion takes its graph from the instance snapshot captured at instance start (engine.ex fetch_graph, 'never a live re-read of process_definitions'). Instances created on 1.13 therefore keep no separation rule after the 1.14 activation. The seed script replaces ACTIVE 1.13 with 1.14 (seed_meridian_definition.sh:89). This is a transitional gap for ORCH and the BA to accept or drain.",
+      "not_checked": "Static review only: no mix and no BEAM were run, per the instruction. The new tests were read, not executed; the 369-passed figure is ELIXIR-DEV's report and was not re-derived. mix letflow.lint_handoffs was not run (it needs mix). This file's JSON syntax was checked with ConvertFrom-Json, and its top-level keys were compared with the protocol template. The UAT-scenario claim (no expected-success step refused) was not re-derived; it belongs to REVIEWER and TEST-DESIGNER. The live QA realm roster is in the sibling ai-dala-infra repo and was not checked; the single-holder premise rests on the repo fixture test/fixtures/uat/actors.yaml."
+    },
+    "artifacts_out": ["handoffs/WF02-REQ465-20261012/step-03-security-reviewer.json"],
+    "issues": [
+      {"severity": "MAJOR", "description": "Escalation residual (result.evidence.escalation_gap). The L2 approver, the sole role-credit-director holder, can release a disbursement through escalate-disburse-loan-to-credit-director after disburse-loan times out. The committee-vote-director can do the same on the committee path. This is an in-tenant separation-of-duties gap, not an INV-1..INV-10 breach. BA ruling required before REQ-465 is marked done: either the fail-closed option (re-add the two pairs and relax the REQ-464 zero-pair test to membership-aware semantics) or a recorded risk acceptance that names this path.", "affected_requirement": "REQ-465"},
+      {"severity": "MINOR", "description": "No refusal test covers escalate-disburse-loan-to-credit-director or the regulatory ceo-override node. Both carry distinct_from, and only the fixture-shape test names them. Add refusal tests that match the BA ruling.", "affected_requirement": "REQ-465"},
+      {"severity": "MINOR", "description": "Scope question for the BA: no review or memo node is in any distinct_from set. credit-memo-escalation-review (role-credit-director) records credit_decision on the timeout path, and l2-approval (role-credit-director) does not name it, so the same director can record the credit decision and then approve at L2. The REQ scoped adoption to approve, pay and commit nodes, so this is a scope decision, not a defect of this commit.", "affected_requirement": "REQ-465"},
+      {"severity": "MINOR", "description": "Transitional rollout gap (result.evidence.rollout): instances created on 1.13 keep their snapshot and no separation rule after the 1.14 activation. The BA or ORCH must accept this or drain in-flight instances.", "affected_requirement": "REQ-465"},
+      {"severity": "MINOR", "description": "Drift confirmed (ELIXIR-DEV's note): test/fixtures/simulation/meridian/process_claim_intake.yaml and process_policy_binding.yaml lack distinct_from. The seed script header still calls them the payload sources of truth (scripts/seed_meridian_definition.sh:38-39), but the script deploys test/fixtures/qa JSON (lines 161 and 167). Fix the header or the drift in a follow-up.", "affected_requirement": null},
+      {"severity": "MINOR", "description": "Pre-existing, not changed by REQ-465 (for ORCH to decide whether to file per ISSUE_QUEUE): the seed script's default SERVICE_TASK_MOCK_BASE_URL is https://httpbin.org/anything, so seeded QA service-task payloads, including application ids in the disbursement-held-notice path, go to a third-party echo host. Acceptable only for synthetic QA data.", "affected_requirement": null}
+    ],
+    "git_evidence": {
+      "branch_name": "feat/REQ-465-adopt-distinct-from-meridian-Q-1028",
+      "commit_sha_list": ["c25df0f52fba4fa6aca23cfb64215d63a36a1d71"],
+      "remote_branch": null,
+      "push_status": "skipped",
+      "pr_url": null,
+      "pr_create_error": null
+    },
+    "next_action": "Route to REVIEWER (2d). Before REQ-465 is marked done, ORCH must record a BA ruling on issue 1 (fail-closed change or a named risk acceptance). Any change to the fixture or to the REQ-464 guard needs a new SECURITY-REVIEWER pass before TEST-DESIGNER. This handoff is committed on the branch in the commit titled chore(REQ-465/Q-1028): security review; ORCH records that SHA. The handoff registry was not updated (ORCH bookkeeping)."
+  },
+  "rework_count": 0,
+  "max_rework": 3
+}

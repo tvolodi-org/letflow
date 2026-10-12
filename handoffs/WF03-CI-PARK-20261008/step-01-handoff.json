@@ -1,0 +1,23 @@
+{
+  "handoff_id": "5d1f9a52-3c7e-4b1a-9a64-0c2d7e4f8b11",
+  "run_id": "WF03-CI-PARK-20261008",
+  "workflow_id": "WF-03",
+  "step": "01",
+  "from_agent": "ORCH",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF03-CI-PARK-20261008/step-01-handoff.json",
+  "created_at": "2026-10-08T05:50:00Z",
+  "started_at": "2026-10-08T05:50:00Z",
+  "completed_at": "2026-10-08T05:50:00Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "queue_task": 1037,
+    "gh_issue": 2364
+  },
+  "task": {"description": "Handoff for the next round after the team park of 2026-10-08."},
+  "result": {
+    "summary": "CI gate sharded and hardened; Q-1037 done; REQ-464 parked as draft PR #2382",
+    "handoff_text": "CI HANDOFF (Q-1037 / GH #2364, parked 2026-10-08)\nCI FACTS\n- Backend gate was 15.5-32 min single runner; now ~7.8 min wall (samples 6m15s, 7m48s, 7m52s main run 37730036364). Target <=10 min met.\n- Design: ci.yml jobs backend_static (static checks + --tails-only), backend_shard (matrix shard: [1,2,3], THE knob; job name 'Backend shard K/M'), aggregator named byte-exact 'Backend gate (mix letflow.check)' with if: always(), fail-closed (changes must succeed; filter false => static+shards skipped, else both success). A failed 'changes' job is now red (behaviour change).\n- Sharding: ExUnit assigns sorted test FILES round-robin; scripts/test_parallel.sh TEST_PARALLEL_SHARD=K/M (TOTAL=N*M, OFFSET=(K-1)*N), global partition indexes everywhere, N pinned to 4 on every shard. mix letflow.check.static / letflow.check.test --shard K/M | --tails-only.\n- Reading samples: run createdAt->updatedAt for the workflow; per shard look at 'test_parallel: runner ...' (CPU model), 'partition N elapsed=' and 'phase elapsed=' lines. Shards 5m02s/4m36s/7m30s: slice 9..12 is consistently +15-30% heavier.\n- CPU variance: AMD EPYC 7763/9V45/9V74, Xeon 8573C/8370C/6973P-C; same code partition phase varied 546-1100 s unsharded; one starved-runner event (1800 s watchdog, Xeon 6973P-C) and one 60 s AC6 timeout. Postgres durability off (fsync, synchronous_commit, full_page_writes) ~13-19%.\n- Mutex lessons: harness kills runs at critical memory; never restart killed batches on your own; run mix under the shared mutex; report honest gaps (e.g. 19/30 PollerTest runs). MIX_TEST_PARTITION needs MIX_ENV=test.\nMERGED (main): #2346 merge_group/A3 filter, #2357, #2366, #2368, #2369, #2370, #2372 (shard script + hermeticity), #2373, #2374 (sharded gate), #2375 (AC6), PollerTest AC3 deterministic.\nREMAINING\n- test/letflow/engine/lua/executor_test.exs:518 and :817 poll 20x10 ms = 200 ms for an in-flight child; widen deterministically (script signals readiness).\n- Slice 9..12 imbalance lever (rebalance file assignment) for a cheaper M=3; M=4 gains ~1.5 min but 7 jobs/PR risks the 20 concurrent-job limit.\n- Tenant-template clone cost per shard setup (~70 s).\n- TEST_PARALLEL env guard rules: tests spawning the script or run/1 must scrub TEST_PARALLEL_SHARD/TOTAL/OFFSET via Letflow.Test.TestParallelEnv; the guard test test/scripts/test_parallel_env_guard_test.exs has an empty allow-list; non-shard invocations set them to ''.\n- Flake history: AuthzDenyLogTest/NotifierNoLeakTest (global capture_log -> LoggerCollector), TenantSchemaReaperTest + ServiceCatalogReaperTest (FakeInvocationConnection), NoSmtpSecretGuardTest AC6 (git grep prefilter + 300 s timeout), PollerTest AC3 (long-known probabilistic flake, now telemetry-deterministic). AC (5) 10-run p50 and (6) are covered by the samples above and throwaway proof PRs.\nOPEN PRs / BRANCHES\n- #2382 DRAFT WIP REQ-464 (branch feat/REQ-464-distinct-from-validator-Q-1027, Q-1027 open, not done): remaining RELEASE-VALIDATOR, DOC-UPDATER, final checks.\n- No other open PRs from this session; throwaway proof PRs/branches deleted; local worktrees letflow-3-ci-wt/-wt2/-wt3 removed."
+  }
+}
