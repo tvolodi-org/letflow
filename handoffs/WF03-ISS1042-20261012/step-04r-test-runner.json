@@ -7,9 +7,9 @@
  "to_agent": "TEST-RUNNER",
  "file": "handoffs/WF03-ISS1042-20261012/step-04r-test-runner.json",
  "created_at": "2026-10-12T07:30:22Z",
- "started_at": null,
- "completed_at": null,
- "status": "PENDING",
+ "started_at": "2026-10-12T07:31:30Z",
+ "completed_at": "2026-10-12T08:32:18Z",
+ "status": "COMPLETED",
  "priority": "NORMAL",
  "context": {
   "stage": "S1",
@@ -43,5 +43,10 @@
    "report file + issue yaml updated"
   ]
  },
- "result": null
+ "result": {
+  "status": "PASS",
+  "summary": "10/10 timed runs green, 0 discarded. Finished-in mean before 367.9s vs after 256.2s (1.44x, -30.4%); median 370.7 vs 251.0. Scoped gates: 161 passed 0 failures, compile --warnings-as-errors clean, format clean. 1 expected rebuilt/run (pool test drift probe), 78 resets.",
+  "report": "test/reports/report-2026-10-12-WF03-ISS1042-20261012.yaml",
+  "caveat": "partition-1 membership differs by arm (542 vs 527 tests); compile gate run with --force"
+ }
 }

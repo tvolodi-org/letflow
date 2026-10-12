@@ -139,4 +139,38 @@ implementation_measurements:
     OQ-8: "digest median ~16 ms (< 40 ms); the end fence and fence A never fired on a clean module in the adopter runs"
     OQ-9: "moot: a clone has no partitions (plain events/events_archive), FK closure never needed a leaf partition edge"
   status_note: "Formal 5+5 interleaved runs and CI run ids are TEST-RUNNER's (design 11.2); numbers above are an implementer smoke only."
+before_after:
+  step: "WF03-ISS1042-20261012 step 04r (TEST-RUNNER); measurements only, status not flipped"
+  slice: "MIX_TEST_PARTITION=1 mix test --partitions 12 --seed 0 (no --slowest), one BEAM at a time under the machine mutex"
+  environment: "Windows 11, Intel i5-14400F, postgres:16 container on port 5499 (throwaway, removed), default Logger level (debug), both arms same DB, sequential interleaved B1,A1,...,B5,A5"
+  before: {commit: cc65f7b16, description: "main, no pooled fixture"}
+  after: {commit: 7dfed51a0, description: "branch head, pooled fixture + 3 adopters"}
+  runs:
+    - {id: B1, finished_in_s: 374.5, elapsed_s: 379.9, result: "542 passed (1 property, 541 tests), 11 excluded", erl_before_after: "0/0"}
+    - {id: A1, finished_in_s: 269.5, elapsed_s: 272.0, result: "527 passed (1 property, 526 tests), 11 excluded", erl_before_after: "0/0"}
+    - {id: B2, finished_in_s: 391.1, elapsed_s: 393.6, result: "542 passed", erl_before_after: "0/0"}
+    - {id: A2, finished_in_s: 268.5, elapsed_s: 271.1, result: "527 passed", erl_before_after: "0/0"}
+    - {id: B3, finished_in_s: 370.7, elapsed_s: 373.4, result: "542 passed", erl_before_after: "0/0"}
+    - {id: A3, finished_in_s: 249.8, elapsed_s: 252.0, result: "527 passed", erl_before_after: "0/0"}
+    - {id: B4, finished_in_s: 351.4, elapsed_s: 353.8, result: "542 passed", erl_before_after: "0/0"}
+    - {id: A4, finished_in_s: 242.2, elapsed_s: 244.5, result: "527 passed", erl_before_after: "0/0"}
+    - {id: B5, finished_in_s: 351.8, elapsed_s: 354.2, result: "542 passed", erl_before_after: "0/0"}
+    - {id: A5, finished_in_s: 251.0, elapsed_s: 253.3, result: "527 passed", erl_before_after: "0/0"}
+  finished_in_seconds:
+    before: {mean: 367.9, median: 370.7, min: 351.4, max: 391.1}
+    after: {mean: 256.2, median: 251.0, min: 242.2, max: 269.5}
+  elapsed_seconds:
+    before: {mean: 371.0, median: 373.4, min: 353.8, max: 393.6}
+    after: {mean: 258.6, median: 253.3, min: 244.5, max: 272.0}
+  speedup: {mean_finished_in: "1.44x (-30.4%)", median_finished_in: "1.48x (-32.3%)", every_after_run_faster_than_every_before_run: true}
+  failures: 0
+  discarded_samples: 0
+  pool_acquire_outcomes_after_arm: "per run identical: 204 pool_acquire = 125 clean + 78 reset + 1 rebuilt (reset:rebuilt = 78:1). The single rebuilt is test/letflow/support/tenant_fixture_pool_test.exs deliberately adding zz_probe to a slot (pool_fallback reason=definition_drift), expected; 0 unexpected rebuilds in adopter modules."
+  caveats:
+    - "The two arms did not run an identical test set: partition 1 of 12 holds 542 tests at before and 527 at after (module hashing shifted when files were added). Per-test cost is dominated by sync tests (before 359s, after 248s of sync time in mean), so the direction is clear, but the magnitude is for 'CI partition 1', not for a fixed test list."
+    - "Load/free RAM drifted downward across the session (free 7.0M kB -> 4.2M kB); interleaving distributes it over both arms. Before-arm runs B4/B5 were the fastest before runs, so before-arm spread (351-391) is the noise floor."
+  scoped_gates_on_branch_head:
+    tests: "161 passed (1 property, 160 tests), 0 failures, Finished in 113.5 s (3 adopter files + tenant_fixture_dispatch_test.exs + tenant_fixture_pool_test.exs)"
+    compile: "MIX_ENV=test mix compile --warnings-as-errors --force: rc=0, 0 warnings (--force added so the check is meaningful on an already-built tree)"
+    format: "mix format --check-formatted: rc=0"
 status: open
