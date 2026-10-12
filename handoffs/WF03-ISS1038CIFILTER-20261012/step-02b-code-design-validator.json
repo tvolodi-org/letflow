@@ -7,9 +7,9 @@
  "to_agent": "CODE-DESIGN-VALIDATOR",
  "file": "handoffs/WF03-ISS1038CIFILTER-20261012/step-02b-code-design-validator.json",
  "created_at": "2026-10-12T12:43:54Z",
- "started_at": null,
- "completed_at": null,
- "status": "PENDING",
+ "started_at": "2026-10-12T13:10:00Z",
+ "completed_at": "2026-10-12T13:30:00Z",
+ "status": "COMPLETED",
  "priority": "NORMAL",
  "context": {
   "stage": "S1",
@@ -34,5 +34,30 @@
    "verdict with independent evidence"
   ]
  },
- "result": null
+ "result": {
+  "verdict": "PASS",
+  "summary": "Option B (add only scripts/.*\\.sh$ to the backend grep -qE alternation on ci.yml line 255) is a complete, correct, one-line design. No BLOCKER or MAJOR findings.",
+  "checks": {
+   "1_script_list_complete": "PASS. Independent grep of lib/mix/tasks, lib/, test/, mix.exs, .github/workflows/*.yml for scripts/ references found only: scripts/test_parallel.sh (lib/mix/tasks/letflow.check.test.ex:229 via bash; every shard leg and tails), scripts/seed_*.sh (8 files) and scripts/lib/seed_persona_actors_base.sh + seed_service_task_base.sh (run/sourced/globbed by test/letflow/scripts/* and test/scripts/*), scripts/uat_preflight.sh (test/scripts/uat_preflight_*_test.exs). scripts/timed_test.sh is only named in comments/docs and a test moduledoc (also matched by the regex, harmless). scripts/mutate.py, fix_registry.py, README.md are referenced by no job or test and stay out. Names like scripts/test_parallel_*_test.sh, qa-login.sh, qa-uat-env.sh seen in grep are test/scripts/*.sh (already under test/) or external ai-dala-infra tools, not in this repo's scripts/. ci.yml only mentions scripts/test_parallel.sh in comments; no run: step invokes scripts/ directly; mix.exs aliases contain only comments. Nothing missed by the step-01 list.",
+   "2_regex_correct": "PASS. Re-ran on a scratch copy of the HEAD blob (CRLF stripped): the edited line is exactly ... config/|scripts/.*\\.sh$|\\.github/workflows/ci\\.yml)'. $ is a valid ERE anchor inside a group alternation; the leading ^( ) anchors every alternative; .* spans nested scripts/lib/. Table old/new: scripts/test_parallel.sh f/t; scripts/lib/seed_persona_actors_base.sh f/t; scripts/seed_vortex_definition.sh f/t; scripts/uat_preflight.sh f/t; scripts/sub/dir/a.sh f/t; scripts/README.md, mutate.py, fix_registry.py, foo.sh.bak, x.shx, xsh, a.csh f/f; xscripts/test_parallel.sh, web/scripts/a.sh, docs/scripts/a.sh f/f; lib/a.ex, priv/repo/migrations/1.exs, test/a.exs, mix.exs, mix.lock, .tool-versions, config/test.exs, ci.yml t/t; cd.yml, docs/a.md, handoffs/x.json, README.md, web/src/App.tsx, .formatter.exs f/f. Multi-line CHANGED: docs+script+docs matches; docs-only multi-line list (docs/, docs/scripts/x.sh, handoffs/, README.md) does not. All old-true paths stay true; no old-false path flips except scripts/*.sh. Implementer must write the dot as \\. (an unescaped . would also match scripts/xsh, scripts/a.csh; the step-01 diff has it escaped).",
+   "3_one_line_and_other_branches": "PASS. Diff of HEAD blob vs edited copy touches exactly line 255 (1 changed line). push (all gates true, ISS-0840), merge_group (same CHANGED regex, A3), zero-SHA/unreachable-base fail-safes, the fallback step, frontend/mobile greps (lines 261, 267), the aggregator and all job name: values are outside that line and byte-identical.",
+   "4_proof_plan": "SOUND with caveats. on: has bare pull_request (no branches filter), so a PR whose base is the fix branch triggers CI. pull_request workflows run the workflow file from the PR merge commit (refs/pull/N/merge = head merged into base); the base (fix branch) carries the fixed ci.yml and the throwaway head is cut from it, so the fixed filter is the one exercised. changes diffs base.sha..head.sha = just the throwaway commit, so backend=true is attributable to the new pattern alone (the real PR to main touches ci.yml, which matches the pre-existing ci.yml alternative, so it cannot prove this by itself; the throwaway PR is therefore necessary). Preconditions: the fix commit must be pushed and the fix branch must exist on origin before opening the throwaway PRs; base must be the pushed fix branch, not main. Negative PR: docs-only change under docs/ (not docs/requirements.yaml etc.) expects backend_static/backend_shard skipped, aggregator success. Concurrency group is per PR number so the two throwaway PRs do not cancel each other or the real PR. Close PRs and delete both throwaway branches afterwards; no required-check or branch-protection change."
+  },
+  "findings": [
+   {
+    "severity": "MINOR",
+    "text": "Working-tree ci.yml is CRLF while the git blob is LF; the implementer must edit with a CRLF-preserving method (or confirm git diff shows exactly one changed line) so the PR diff is not a whole-file rewrite."
+   },
+   {
+    "severity": "MINOR",
+    "text": "Throwaway PR will also trigger frontend/mobile filters = false and e2e-style jobs as today; quote run id and the 'Backend static checks + isolated tails' / 'Backend shard K/M' job conclusions (not skipped) as evidence."
+   },
+   {
+    "severity": "MINOR",
+    "text": "Out of scope by ORCH decision, to file as follow-up: .formatter.exs, priv/ outside migrations, docs/requirements.yaml / docs/issues / handoffs read by static checks, web/ files read by tests, cd.yml read by enablement_gate_test."
+   }
+  ],
+  "implementation_code_present": false,
+  "tbd_or_deferral_language": false
+ }
 }
