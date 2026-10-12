@@ -52,7 +52,7 @@ defmodule Letflow.Scripts.MeridianDEscEscalationFixtureTest do
         "committee-vote-director",
         "committee-vote-ceo",
         "escalate-l2-approval-to-ceo",
-        "escalate-disburse-loan-to-credit-director"
+        "escalate-disburse-loan-to-loan-ops-lead"
       ]
     },
     %{
@@ -78,7 +78,7 @@ defmodule Letflow.Scripts.MeridianDEscEscalationFixtureTest do
         "committee-vote-director",
         "committee-vote-ceo",
         "escalate-l2-approval-to-ceo",
-        "escalate-disburse-loan-to-credit-director"
+        "escalate-disburse-loan-to-loan-ops-lead"
       ]
     },
     %{
@@ -282,9 +282,9 @@ defmodule Letflow.Scripts.MeridianDEscEscalationFixtureTest do
         "l2-approval" => {"P2D", "role-ceo", "escalate-l2-approval-to-ceo"},
         "escalate-l2-approval-to-ceo" => {"P2D", "role-ceo", "decline-application"},
         "disburse-loan" =>
-          {"P1D", "role-credit-director", "escalate-disburse-loan-to-credit-director"},
-        "escalate-disburse-loan-to-credit-director" =>
-          {"P1D", "role-credit-director", "disbursement-held-notice"},
+          {"P1D", "role-loan-ops-lead", "escalate-disburse-loan-to-loan-ops-lead"},
+        "escalate-disburse-loan-to-loan-ops-lead" =>
+          {"P1D", "role-loan-ops-lead", "disbursement-held-notice"},
         "credit-memo-review" => {"P2D", "role-credit-director", "credit-memo-timeout"},
         "risk-assessment" => {"P2D", "role-cro", "risk-assessment-timeout"},
         "credit-memo-escalation-review" => {"P2D", "role-credit-director", "assessment-join"},

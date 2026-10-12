@@ -1,0 +1,112 @@
+{
+  "handoff_id": "737ccd5d-92e2-42e3-ab86-0c4ebf917185",
+  "run_id": "WF02-Q1048-20261012",
+  "workflow_id": "WF-02",
+  "step": "05",
+  "from_agent": "ORCH",
+  "to_agent": "RELEASE-VALIDATOR",
+  "file": "handoffs/WF02-Q1048-20261012/step-05-release-validator.json",
+  "created_at": "2026-10-12T08:51:27Z",
+  "started_at": "2026-10-12T08:51:27Z",
+  "completed_at": "2026-10-12T08:54:39Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": ["REQ-467"],
+    "queue_task": 1048,
+    "gh_issue": 2390,
+    "issue_refs": ["ISS-1048"],
+    "decision_ref": "Q-1044 / GH #2386, option (b): letflow-supervisor/reports/decisions/Q-1044-letflow-9a-decision-2026-10-12.md",
+    "branch_name": "feat/Q-1048-loan-ops-lead-escalation",
+    "reviewed_sha": "46e98dd55b6465567bb6f5d4e0c4cc9af9461c8b",
+    "validated_sha": "22162bcfa2a00e53eba90bec1f316446a2cf2cfc",
+    "timestamp_note": "created_at and started_at are the first clock reading taken in this run (08:51:27Z); the dispatch time was not recorded by the orchestrator. completed_at is the clock reading taken just before this file was written.",
+    "artifacts_in": [
+      "git diff 46e98dd5 22162bcf (6 paths)",
+      "test/letflow/engine/q1048_meridian_loan_ops_lead_escalation_test.exs (lines 76-106, 144-178, 322-379)",
+      "test/fixtures/qa/meridian_loan_origination_process_definition.json (lines 4, 541-544)",
+      "test/fixtures/simulation/meridian/process_claim_intake.yaml (line 400)",
+      "lib/letflow/design/q915-regulatory-review-21day-timer-path.md (line 19)",
+      "handoffs/WF02-Q1048-20261012/step-03-security-reviewer.json (commit 370ecd20, read only)",
+      "handoffs/WF02-Q1048-20261012/step-04-reviewer.json (commit c39063ef, read only)",
+      "docs/requirements.yaml (REQ-467 entry at line 35249, read for acceptance criteria numbering)",
+      "docs/agents/workflows/WF-02_requirement_implementation.md (Step 5)",
+      "docs/agents/shared/HANDOFF_PROTOCOL.md (handoff schema, legal result.status values)",
+      "test/letflow/definitions/required_outputs_shipped_definitions_test.exs (run only, not edited)",
+      "lib/mix/tasks/letflow.check.test.ex (read to establish what the stricter check runs)"
+    ]
+  },
+  "task": {
+    "description": "STEP 5 RELEASE-VALIDATOR for Q-1048 / GH #2390 (REQ-467, ISS-1048) on head 22162bcf, branch feat/Q-1048-loan-ops-lead-escalation. Part A: delta check 46e98dd5..22162bcf. Part B: non-vacuity of the end-state assertions in the trace test. Part C: gates run under the mixlock mutex, not the full suite. Read-only on code, fixtures, tests and docs. Commit only this verdict file. Do not push.",
+    "acceptance_criteria": [
+      "Part A: the delta 46e98dd5..22162bcf touches only the edge-id rename in the QA JSON and the simulation yaml, the v1.15 description if it changed, the q1048 test file (end-state assertions only), one line in the q915 design doc, and the two handoff records",
+      "Part B: reached_ends/1 derives END nodes from finished steps, not from a constant; the AC 5 refute ('end-disbursed' not in ends) would fail if the held path led to end-disbursed",
+      "Part C: MIX_ENV=test mix compile --force --warnings-as-errors exits 0; mix format --check-formatted exits 0 on the changed .exs; the q1048 test file passes; mix letflow.check_boundaries reports OK; mix letflow.lint_handoffs --dir handoffs/WF02-Q1048-20261012 is clean; the REQ-464 guard prints candidate_pairs=0 for the loan definition"
+    ]
+  },
+  "result": {
+    "status": "PARTIAL",
+    "verdict": "PART_A: PASS | PART_B: PASS | PART_C: PASS on the listed gates; mix letflow.check.test and the full suite were not run (see issue 1)",
+    "summary": "Part A PASS. The delta 46e98dd5..22162bcf is six paths, 280 insertions and 3 deletions: the old edge id is renamed to timeout-escalate-disburse-loan-to-loan-ops-lead at QA JSON line 543 and simulation yaml line 400 (one line each, nothing else changed); the v1.15 description (QA JSON line 4) did not change; the q915 design doc changed on one line (19); the q1048 test gained 42 lines and lost none; the two handoff records were added. The old edge id survives only inside the two handoff records as quoted history. Part B PASS. reached_ends/1 (test lines 84-106) takes its END set from the instance's own snapshot graph and its sources from COMPLETED task rows and ADVANCED service dispatches; with no finished step it returns an empty list, and it contains no END literal. The trace test asserts equality with ['end-disbursed'] (line 177); the held helper asserts equality with ['end-disbursement-held'] (line 337) and refutes 'end-disbursed' (line 338). The single targeted run passed all 7 tests, which confirms the positive values. The fail direction of the refute was confirmed by reading only; no mutation was run. Part C PASS on the listed gates: forced test-env compile with warnings-as-errors exit 0 with no warnings; format check exit 0; q1048 file Result 7 passed with zero ISS-0069 substring hits; check_boundaries OK with 1124 edges and 0 violations; REQ-464 guard for the loan definition violations=0 candidate_pairs=0 nodes_using_distinct_from=7. mix letflow.check.test and scripts/test_parallel.sh were not run, per the task block, and that is recorded as BLOCKER issue 1. Requirement-level acceptance criteria 1, 3, 4, 6-10 were outside this step's scope and were not re-derived here (issue 2). REQ-467 must not be flipped to done on this verdict alone.",
+    "evidence": {
+      "part_a_diff_stat": "git diff --stat 46e98dd5 22162bcf: 6 files changed, 280 insertions(+), 3 deletions(-). A handoffs/WF02-Q1048-20261012/step-03-security-reviewer.json (107 lines); A handoffs/WF02-Q1048-20261012/step-04-reviewer.json (128 lines); M lib/letflow/design/q915-regulatory-review-21day-timer-path.md (@@ -19 +19 @@, one line); M test/fixtures/qa/meridian_loan_origination_process_definition.json (@@ -543 +543 @@, id only); M test/fixtures/simulation/meridian/process_claim_intake.yaml (@@ -400 +400 @@, id only); M test/letflow/engine/q1048_meridian_loan_ops_lead_escalation_test.exs (+42, no deletions).",
+      "part_a_v115_description": "QA JSON line 4 is unchanged between 46e98dd5 and 22162bcf: git diff -U0 shows a single hunk, at line 543. Item 2 of the delta list does not apply.",
+      "part_a_old_id_search": "git grep of the old edge id at 22162bcf finds hits only in handoffs/WF02-Q1048-20261012/step-03-security-reviewer.json and step-04-reviewer.json (quoted history). No hit in lib/, test/ or scripts/. The new id is at QA JSON line 543 and simulation yaml line 400.",
+      "part_a_unsure_lines": "The test-file additions beyond the assertions are: import Ecto.Query, four aliases (Graph, SnapshotStore, ServiceTaskDispatch, EngineTask) and the reached_ends/1 helper (lines 25-29 and 79-106). They exist only to support the end-state assertions, so they are judged in scope under delta item 3. No existing line was changed or removed.",
+      "part_b_helper": "test lines 84-106: END set = nodes of the instance's own snapshot graph with node_type :END (line 87); sources = node_id of EngineTask rows with status :completed (lines 89-93) plus node_id of ServiceTaskDispatch rows with status 'advanced' (lines 95-99); result = edge targets from those sources that are END nodes (lines 101-105). No END identifier is a literal inside the helper; with no finished step the result is [].",
+      "part_b_assertions": "Trace test: line 177 assert reached_ends(ctx) == ['end-disbursed']. Held helper (lines 325-339): line 328 asserts the escalation task is :cancelled, so its e27-escalated edge (fixture line 542) is not counted; line 329 asserts the current node is disbursement-held-notice; line 331 advances it; line 337 asserts ends == ['end-disbursement-held']; line 338 refutes 'end-disbursed'.",
+      "part_b_fail_direction": "Read only, no mutation. If the held notice's edge e41 (fixture line 544) led to end-disbursed, the advanced notice would give ends == ['end-disbursed'], so line 337 and the line 338 refute both fail. If the timeout edge (fixture line 543) led straight to end-disbursed, line 329 fails first. The refute is redundant with line 337 by design; line 337 is the stricter check and also catches an empty result.",
+      "part_b_run": "One targeted run of the q1048 file (Part C, gate 3): Result: 7 passed. This confirms the positive values; it does not exercise the fail direction.",
+      "part_c_compile": "MIX_ENV=test mix compile --force --warnings-as-errors: exit 0. Output: 'Compiling 360 files (.ex)' then 'Generated letflow app'. No warnings.",
+      "part_c_format": "mix format --check-formatted test/letflow/engine/q1048_meridian_loan_ops_lead_escalation_test.exs: exit 0.",
+      "part_c_q1048_test": "MIX_ENV=test mix test test/letflow/engine/q1048_meridian_loan_ops_lead_escalation_test.exs --no-color: exit 0. 'Finished in 8.5 seconds'. 'Result: 7 passed'. ISS-0069 substring 'default values for the optional arguments' count in that output: 0.",
+      "part_c_boundaries": "mix letflow.check_boundaries: exit 0. 'mix letflow.check_boundaries: OK -- 1124 edges checked, 0 violations'. Extra CI-shaped check, mix letflow.check_issue_refs: exit 0, 'OK -- every cross-reference is prefixed and well-formed.'",
+      "part_c_req464": "mix test test/letflow/definitions/required_outputs_shipped_definitions_test.exs: exit 0, 'Result: 3 passed'. Loan definition line: 'REQ-464 shipped-definition findings: test/fixtures/qa/meridian_loan_origination_process_definition.json violations=0 candidate_pairs=0 nodes_using_distinct_from=7'. All 13 definitions print candidate_pairs=0.",
+      "part_c_lint": "Recorded in the final report of this step, from a run after this file was written: mix letflow.lint_handoffs --dir handoffs/WF02-Q1048-20261012.",
+      "part_c_mutex": "Every gate call took the mixlock directory with mkdir, checked tasklist for erl.exe, ran the gate, and released it with rmdir. At the start the lock was held by a sibling session (erl.exe pid 31812 running mix test test/letflow/support/tenant_fixture_pool_test.exs; lock created 2026-10-12T08:49:59Z). This step waited, the lock was free at 08:51:47Z, and no lock directory that this step did not create was removed."
+    },
+    "artifacts_out": [
+      "handoffs/WF02-Q1048-20261012/step-05-release-validator.json"
+    ],
+    "issues": [
+      {
+        "severity": "BLOCKER",
+        "description": "Stricter local gate not run, by scope. RELEASE-VALIDATOR's role file (rank 2) requires mix letflow.check.test before a requirement is reported done; it is the ISS-0069 warning check across the full suite. The task block (rank 1) omits it from Part C and says do not run the full suite, CI covers it. This step followed the task block, so mix letflow.check.test and scripts/test_parallel.sh were not run and no full-suite result is claimed. core-directives.md says a handoff task cannot authorize skipping a validator, so this is reported as a BLOCKER for ORCH to resolve: either authorize a local run of mix letflow.check.test, or record that CI's mix letflow.check is the accepted gate before REQ-467 is flipped to done.",
+        "affected_requirement": "REQ-467"
+      },
+      {
+        "severity": "MAJOR",
+        "description": "Requirement-level acceptance criteria were not fully re-derived. This step's scope was Parts A to C. Checked here: the END identity assertions for AC 2 (line 177) and AC 5 (line 337), the AC 5 refute (line 338), the REQ-464 guard for the loan definition, and the listed gates. Not re-derived here: AC 1 (grep and definition check), AC 2 beyond its END assertion (the 403 body and the separation path), AC 3, AC 4 (role barrier), AC 6 (escalation_role runtime claim), AC 7 (seed scripts and QA copies), AC 8 (roster and UAT scenario scan), AC 9 (REQ-465 open_questions), AC 10 (SECURITY-REVIEWER and gate evidence). A full AC-by-AC pass is needed before DOC-UPDATER flips REQ-467 to done.",
+        "affected_requirement": "REQ-467"
+      },
+      {
+        "severity": "MINOR",
+        "description": "Still open from REVIEWER step-04 issue 2: the q1048 test header (lines 14-15) says instance start comes from Letflow.Req462Adoption, which REVIEWER traced to Letflow.SodSupport. This was not re-verified here. Not fixed in this delta, because Part A allows no test change beyond the end-state assertions. Route to ELIXIR-DEV as a documentation follow-up.",
+        "affected_requirement": "REQ-467"
+      },
+      {
+        "severity": "MINOR",
+        "description": "REVIEWER step-04 issue 1 (the retained edge id is undocumented) is resolved by the rename in e26d8e7d, not by a description sentence. The v1.15 description (QA JSON line 4) still does not mention the edge-id change. Documentation only; DOC-UPDATER may add it. Not a blocker.",
+        "affected_requirement": "REQ-467"
+      }
+    ],
+    "git_evidence": {
+      "branch_name": "feat/Q-1048-loan-ops-lead-escalation",
+      "commit_sha_list": [],
+      "remote_branch": null,
+      "push_status": "skipped",
+      "pr_url": null,
+      "pr_create_error": null
+    },
+    "not_run": [
+      "mix letflow.check.test (main suite with the ISS-0069 substring check across every partition, plus the wasm_hang and lua tails): not run, per the task block. See issue 1.",
+      "scripts/test_parallel.sh (full suite): not run, per the task block. See issue 1.",
+      "Fail direction of the AC 5 refute: confirmed by reading only. No source edit or mutation was run, as the task requires.",
+      "Requirement-level re-derivation of acceptance criteria 1, 3, 4 and 6 to 10: outside this step's scope. See issue 2."
+    ],
+    "next_action": "ORCH: (1) resolve issue 1 by authorizing a local mix letflow.check.test run, or by recording that CI's mix letflow.check is the accepted gate for REQ-467; (2) route issue 2, a full AC-by-AC pass, before DOC-UPDATER flips REQ-467 to done; (3) issues 3 and 4 are MINOR documentation follow-ups for ELIXIR-DEV and DOC-UPDATER. This step made no push."
+  },
+  "rework_count": 0,
+  "max_rework": 3
+}
