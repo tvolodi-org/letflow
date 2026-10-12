@@ -1,0 +1,22 @@
+id: ISS-1069
+# Ref clash: the queue's issue_ref for Q-1065 is ISS-1065, but the held records bundle uses ISS-1065 for Q-1062
+# (docs/issues/ISS-1065.yaml). This record takes the next free local id, ISS-1069 (re-checked on origin/main f10dab91
+# and open PR branches). The queue and GH ids are unchanged: Q-1065 / GH #2419.
+title: "Batch MINOR issues by area into one WF-03 run: an eligibility rule, a queue claim and release protocol for a batch, and a named PR-per-issue exception"
+discovered_by: letflow-9a (team audit, 2026-10-12); filed by letflow-2 (sole filer)
+discovered_in_run: "team audit, 2026-10-12"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: MINOR
+owner: "WF-01 with REQ-VALIDATOR before any REQ id; then ORCH (WF-03 and ORCHESTRATOR.md section 4), REVIEWER sign-off on the 'one PR per issue' exception"
+scope: process
+description: >
+  docs/issues holds 640 issue files in about 8 weeks (214 in 2026-08, 310 in 2026-09, 106 in 2026-10 so far). By
+  severity: MINOR 374, MAJOR 215, BLOCKER 41. Each issue runs its own WF-03 chain and its own PR. WF-03 has no batching
+  rule. Proposed: up to 4 open MINOR issues in one run and one PR when they share owned_modules or one directory, have no
+  depends_on between them, and none touches a tenant-data path. BLOCKER and MAJOR are never batched. Records only.
+resolution: >
+  Open. Eligibility test, claim and release protocol for a batch (a failed issue is split out; the rest proceed), the
+  named exception to 'one PR per issue', and one worked example. Queue Q-1065 / GH #2419.
+queue_ref: Q-1065
+github_ref: GH-2419
+status: open

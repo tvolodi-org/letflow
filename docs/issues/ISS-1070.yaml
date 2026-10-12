@@ -1,0 +1,24 @@
+id: ISS-1070
+# Ref clash: the queue's issue_ref for Q-1066 is ISS-1066, but the held records bundle uses ISS-1066 for Q-1063
+# (docs/issues/ISS-1066.yaml). This record takes the next free local id, ISS-1070 (re-checked on origin/main f10dab91
+# and open PR branches). The queue and GH ids are unchanged: Q-1066 / GH #2420.
+title: "Security review beyond the diff: SECURITY-REVIEWER lists the assumptions a change relies on, with file:line evidence, and a periodic read-only whole-model authorization audit"
+discovered_by: letflow-9a (team audit, 2026-10-12); filed by letflow-2 (sole filer)
+discovered_in_run: "team audit, 2026-10-12"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: MINOR
+owner: "WF-01 with REQ-VALIDATOR before any REQ id; then REQ-ANALYST (where the audit role lives) and SECURITY-REVIEWER and REVIEWER verdicts on the rule change"
+scope: security-process
+description: >
+  Two authorization gaps passed per-diff SECURITY-REVIEWER runs and were found another way: the tenant PLATFORM_ADMIN
+  cross-tenant exposure (ISS-0994, REQ-445 to REQ-451, INV-10) and the meridian approver-releases-payment gap (Q-1044 /
+  GH #2386). Both sat in an assumption the diff relied on, outside the diff. Proposed: SECURITY-REVIEWER lists every
+  assumption about roles, authority or data ownership with a file:line outside the diff, and a periodic read-only
+  whole-model authorization audit modelled on PROCESS-AUDITOR. Records only.
+resolution: >
+  Open. Assumptions list with file:line per assumption (a handoff without it is not a PASS); a whole-model audit with a
+  closed checklist, owner, trigger, output path and verdict set; a first run on main with findings filed. Queue Q-1066 /
+  GH #2420.
+queue_ref: Q-1066
+github_ref: GH-2420
+status: open
