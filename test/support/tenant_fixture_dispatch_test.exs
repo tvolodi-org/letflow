@@ -266,7 +266,10 @@ end
 defmodule Letflow.TenantFixtureDispatchPoolAsyncRejectTest do
   @moduledoc "ISS-1042 design section 8: an async module can neither create nor attach a pool."
 
-  use ExUnit.Case, async: true
+  # async: false -- this file as a whole sets the GLOBAL :auto sandbox mode and uses
+  # provisioned tenants, so no module in it may run async (the contexts passed below are
+  # synthetic maps; the module's own async flag is irrelevant to what is asserted).
+  use ExUnit.Case, async: false
 
   test "start_pool!/2 rejects an async or unknown module context" do
     assert_raise ArgumentError, ~r/async: false/, fn ->
