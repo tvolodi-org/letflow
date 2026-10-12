@@ -35044,7 +35044,7 @@ requirements:
   - id: REQ-464
     title: "Process definition validator: distinct_from names existing nodes of the same definition (parallel branches allowed), and a WARNING when a named node routes to the same single-member role"
     owner: ELIXIR-DEV
-    status: pending
+    status: done
     stage: S3
     impl_order: 1027  # letflow-queue task id, GH#2342. Registered 2026-10-07 by ORCH (WF-01 Step 3; registered in this PR because mix letflow.check_deferral_staleness requires 0 deferrals). Ordering recorded at drafting: blocked-by: REQ-463 and REQ-461 (ValidationWarnings, CHK-25) -- checks the attribute REQ-463 introduces, with the code names reserved in the REQ-459 design
     # Queue task Q-1027 was registered with depends_on [1026] only (the queue cannot edit depends_on); ORCH keeps Q-1027 locked until Q-1024 (REQ-461) is done.
