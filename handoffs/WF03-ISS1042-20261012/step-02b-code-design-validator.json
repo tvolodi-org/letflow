@@ -1,0 +1,51 @@
+{
+  "handoff_id": "c818a001-7768-4114-be33-9edde18c3e03",
+  "run_id": "WF03-ISS1042-20261012",
+  "workflow_id": "WF-03",
+  "step": "02b",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGN-VALIDATOR",
+  "file": "handoffs/WF03-ISS1042-20261012/step-02b-code-design-validator.json",
+  "created_at": "2026-10-12T03:51:24Z",
+  "started_at": null,
+  "completed_at": null,
+  "status": "PENDING",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1042": "MEDIUM, owner CI lane (follow-up of Q-1037, the next lever after sharding). Reported by the supervisor 2026-10-08. Evidence: ExUnit reports ~0.5 s average per test and ~66 min of cumulative test work per backend run (7.7k tests); a large share is believed to be the per-test tenant schema clone from tenant_template (CREATE SCHEMA ... LIKE tenant_template... for every table, see the LETFLOW_TENANT_FIXTURE setup/teardown log lines and the 'tenant_template_build' schemas): cost per test = DDL for every table of the template plus DROP SCHEMA CASCADE at teardown. NOT yet measured: step 1 is to instrument (time per clone, number of tables cloned, share of test time) on one partition, step 2 choose the lever: (a) clone only the tables the test needs, (b) share a read-only tenant across tests that do not mutate it (async-safe), (c) a pooled tenant per module with truncate-reset, (d) Postgres schema cloning via CREATE DATABASE ... TEMPLATE or a faster mechanism; keep isolation guarantees (no cross-test leakage, the ISS-0410-class isolation bugs). Each step measured before/after; mutation proof that isolation still holds (a test that leaves data behind must not leak into the next). Overlap check 2026-10-08: Q-1037 is the umbrella; ISS-0410 (isolation failure, blocked) is background, not a duplicate."
+    },
+    "related_handoff_ids": [
+      "6d2942ae-a237-4395-9718-097f7939763b"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/iss1042-pooled-tenant-fixture.md",
+      "docs/issues/ISS-1042.yaml",
+      "test/support/tenant_fixture.ex",
+      "test/support/tenant_template.ex"
+    ],
+    "owned_modules": [
+      "test/support/tenant_fixture.ex",
+      "test/support/tenant_template.ex",
+      "test/support/tenant_fixture_dispatch_test.exs",
+      "test/letflow/support/tenant_fixture_test.exs",
+      "test/letflow/api/identity_id_hardening_test.exs",
+      "test/letflow/routers/promotion_scope_test.exs"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1042-20261012"
+  },
+  "task": {
+    "description": "WF-03 Step 2b: independent hard gate on CODE-DESIGNER's design for ISS-1042 / Q-1042 (equivalent of WF-02 Step 1b). Follow your role file .claude/agents/code-design-validator.md.\n\nDESIGN UNDER REVIEW: lib/letflow/design/iss1042-pooled-tenant-fixture.md. Diagnosis it designs against: docs/issues/ISS-1042.yaml. Source of acceptance criteria: this handoff's task.acceptance_criteria (4 items).\n\nVERIFY (independently, from the files, not from the designer's summary):\n1. Every acceptance criterion is covered by a concrete design element (measurement plan with 5+5 runs; isolation mutation proof; one lever; no CI check-name change, no paid runners).\n2. The design contains no implementation code beyond signatures/@specs/SQL sketches the role file permits.\n3. It is unambiguous enough that a weaker model could build it: every function has name, @spec, behaviour, failure mode; the reset algorithm is stepwise and ordering-safe against FKs; no 'TBD' that blocks building. Open questions (section 14) must each have a stated default and a stated consequence, and the design must be correct under either answer to OQ-1/OQ-2 (whether test-process writes commit under DataCase checkout + Sandbox.mode(:auto)). Check that claim by reading test/support/ (DataCase, TenantFixture) yourself.\n4. The design's description of the CURRENT code (test/support/tenant_fixture.ex, test/support/tenant_template.ex, the single dispatch point, the 22 template: :replay sites, DDL/drop tests) is factually accurate: spot-check at least 8 specific claims against the files and quote what you found.\n5. Leak classes: try to find a cross-test leakage path the design's M1-M12 mutations do NOT cover (public-schema rows keyed by tenant, sequences, triggers, advisory locks, ETS/Registry/process state, caches keyed by tenant id, files). Each real gap is a finding.\n6. Fail-safe: confirm the design can never return a dirty tenant (falls back to fresh clone or raises). Look for a TOCTOU between the cleanliness proof and the hand-out.\n7. owned_modules in section 12 are complete and minimal; named existing tests-to-stay-green exist.\nYou may run read-only commands and mix compile. Do not edit the design (never edit what you validate); report findings with severity BLOCKER/MAJOR/MINOR in result.issues. FAIL on any BLOCKER or an unfixable-by-implementer MAJOR; PASS_WITH_FINDINGS style minor items go in issues with result.status PASS.\nComplete the handoff per docs/agents/shared/HANDOFF_PROTOCOL.md. Commit your handoff completion and push to feature/WF03-ISS1042-20261012. Do not edit handoffs/registry.json or handoffs/orchestrator.log.",
+    "acceptance_criteria": [
+      "Instrumented measurement: clone time per test, tables per clone, share of total test time (numbers quoted)",
+      "One lever implemented with before/after wall time of the test phase (5 runs each, run ids)",
+      "Isolation proof: a test leaving data behind does not leak into the next test (mutation test)",
+      "No change to required check names; no paid runners"
+    ]
+  },
+  "result": null
+}
