@@ -1,0 +1,69 @@
+{
+  "handoff_id": "8d79f78b-718c-4f0a-ad08-632c544cae2d",
+  "run_id": "WF02-REQ465-20261012",
+  "workflow_id": "WF-02",
+  "step": "07",
+  "from_agent": "DOC-UPDATER",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF02-REQ465-20261012/step-07-doc-updater.json",
+  "created_at": "2026-10-12T07:12:39Z",
+  "started_at": "2026-10-12T07:12:39Z",
+  "completed_at": "2026-10-12T07:12:39Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": ["REQ-465"],
+    "queue_task": 1028,
+    "gh_issue": 2343,
+    "branch_name": "feat/REQ-465-adopt-distinct-from-meridian-Q-1028",
+    "base_commit": "9c40d303",
+    "prior_commits": ["43e7aa81", "db0b4fed", "ddefe829"],
+    "artifacts_in": [
+      "docs/requirements.yaml",
+      "handoffs/WF02-REQ465-20261012/step-06-release-validator.json"
+    ]
+  },
+  "task": {
+    "description": "STEP 07 DOC-UPDATER for REQ-465 (queue task 1028, GH #2343). Record the Q-1044 (GH #2386) residual-gap decision in REQ-465's open_questions list only. (1) Append exactly one new item at the end of REQ-465 open_questions in docs/requirements.yaml, text as given by ORCH, a YAML double-quoted scalar. Keep every existing item, the status line (in_progress), the description, acceptance_criteria and every other entry, including REQ-466, unchanged. (2) Verify the YAML still parses. (3) Commit with the given message and the Co-Authored-By trailer, together with this handoff. No mix run, no push, no index or run-history change (not in this task's scope).",
+    "acceptance_criteria": [
+      "docs/requirements.yaml: REQ-465 open_questions gains exactly one item, appended after the roster-fact item, text exactly as given by ORCH (verified by parsing the file and comparing the parsed string)",
+      "git diff --numstat docs/requirements.yaml shows 1 insertion and 0 deletions",
+      "REQ-465 status remains in_progress; REQ-466 status remains pending and its open_questions are unchanged",
+      "docs/requirements.yaml parses with python -I yaml.safe_load (exit 0)",
+      "no mix command run in this step; no push"
+    ]
+  },
+  "rework_count": 0,
+  "max_rework": 3,
+  "result": {
+    "status": "COMPLETED",
+    "summary": "Appended one open_questions item to REQ-465 in docs/requirements.yaml at line 35190 (the new item is now the 6th and last open_questions entry; acceptance_criteria: moved to line 35191). The item records the Q-1044 / GH #2386 advisory decision (option b: shipped-definition guard unchanged), the residual gap that escalate-disburse-loan-to-credit-director does not name l2-approval or committee-vote-director, the suggested follow-up reroute to role-loan-ops-lead (Q-1048 / GH #2390), and that Q-1029 (REQ-466) waits for it. REQ-465 stays in_progress. The edit is one insertion, zero deletions. The YAML parses (python -I yaml.safe_load, exit 0), REQ-465 has 6 open_questions with the new item matching the supplied text exactly, and REQ-466 is unchanged (pending, 4 open_questions).",
+    "checks": [
+      "git diff --numstat docs/requirements.yaml: 1 insertion, 0 deletions",
+      "python -I yaml.safe_load(docs/requirements.yaml): exit 0; top-level keys stages, requirements",
+      "parsed REQ-465 open_questions[-1] == supplied text: True",
+      "parsed REQ-465 status: in_progress; REQ-466 status: pending, open_questions count 4",
+      "file line endings: LF only (0 CR), unchanged by the edit"
+    ],
+    "artifacts_out": [
+      "docs/requirements.yaml",
+      "handoffs/WF02-REQ465-20261012/step-07-doc-updater.json"
+    ],
+    "issues": [
+      {"severity": "MINOR", "description": "No run-history event was appended to the current volume and the index was not touched. This task was scoped to the open_questions edit and the commit only; no status was flipped. ORCH to decide whether a decision event is needed in the volume named by docs/status/requirement_status.index.yaml.", "affected_requirement": "REQ-465"},
+      {"severity": "MINOR", "description": "The Q-1044 decision record (reports/decisions/Q-1044-letflow-9a-decision-2026-10-12.md) lives in the supervisor repo and Q-1048 / GH #2390 is tracked outside this repo. Neither was verified from this checkout; the item cites them as given by ORCH.", "affected_requirement": "REQ-465"},
+      {"severity": "MINOR", "description": "The REQ-465 status comment on the status line still says the residual gap is recorded in the PR. Not changed here (the task said not to touch the status line). The PR body must carry the residual-gap record when it is opened, as step-05 and step-06 noted.", "affected_requirement": "REQ-465"},
+      {"severity": "INFO", "description": "mix letflow.lint_handoffs was not run for this handoff (the task said no mix). The full-corpus lint at the CI gate is the backstop.", "affected_requirement": null}
+    ],
+    "git_evidence": {
+      "branch_name": "feat/REQ-465-adopt-distinct-from-meridian-Q-1028",
+      "commit_title": "docs(REQ-465/Q-1028): open_questions records the Q-1044 residual-gap decision [Q-1028 / GH #2343]",
+      "commit_sha_list": [],
+      "push_status": "not_pushed",
+      "pr_url": null,
+      "pr_create_error": null
+    },
+    "next_action": "ORCH: (1) record the commit SHA of the commit titled above; (2) confirm docs/requirements.yaml shows one insertion in REQ-465 open_questions; (3) decide whether a decision event belongs in the run-history volume; (4) keep REQ-465 in_progress; (5) put the residual-gap record in the PR body when it is opened; (6) route the Q-1048 / GH #2390 reroute as the follow-up; REQ-466 waits for it."
+  }
+}
