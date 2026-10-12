@@ -819,6 +819,13 @@ defmodule Letflow.Support.TenantFixturePoolTest do
       ~s|ALTER TABLE "%S".tenant_role ADD CONSTRAINT tenant_role_group_id_fkey | <>
         ~s|FOREIGN KEY (group_id) REFERENCES "%S".groups(id) ON DELETE CASCADE|
     ],
+    # MATCH FULL changes only pg_get_constraintdef: the RI trigger functions are the same
+    # ones, so class G cannot see it (class K must).
+    m18b_constraint_match_full: [
+      ~s|ALTER TABLE "%S".tenant_role DROP CONSTRAINT tenant_role_group_id_fkey|,
+      ~s|ALTER TABLE "%S".tenant_role ADD CONSTRAINT tenant_role_group_id_fkey | <>
+        ~s|FOREIGN KEY (group_id) REFERENCES "%S".groups(id) MATCH FULL|
+    ],
     m19_sequence_parameters: [~s|ALTER SEQUENCE "%S".events_global_seq_seq INCREMENT BY 7|],
     m19b_sequence_owned_by_none: [~s|ALTER SEQUENCE "%S".events_global_seq_seq OWNED BY NONE|],
     m20a_table_comment: [~s|COMMENT ON TABLE "%S".groups IS 'x'|],
@@ -969,9 +976,14 @@ defmodule Letflow.Support.TenantFixturePoolTest do
           send(holder_pid, :release)
         end)
 
-      result = fx(:a)
+      log = capture_log([level: :info], fn -> send(self(), {:result, fx(:a)}) end)
+      assert_received {:result, result}
       Task.await(releaser, 60_000)
       assert {:ok, :ok} = Task.await(holder, 60_000)
+
+      # the reset gave up because of the server-side lock_timeout, not because the client
+      # connection timed out 15 s later
+      assert log =~ "lock timeout"
 
       after_stats = stats(ctx)
       assert result.schema_name == schema
@@ -1321,6 +1333,46 @@ defmodule Letflow.Support.TenantFixturePoolTest do
       assert stats(ctx).generations[s] == before.generations[s] + 1
       assert_pristine!(again)
     end
+
+    test "design 4.4: a seed re-copy that cannot reproduce the baseline fails verify and rebuilds",
+         ctx do
+      a = fx(:a)
+      assert_pristine!(a)
+      s = a.schema_name
+      before = stats(ctx)
+
+      # Simulates "the live template was rebuilt mid-module": the slot's baseline remembers
+      # a seed digest that a re-copy from the template can no longer produce. (The shared
+      # template is deliberately NOT touched: a crash mid-test would poison later runs.)
+      :sys.replace_state(ctx.tenant_pool.worker, fn state ->
+        update_in(state.slots, fn slots ->
+          Map.new(slots, fn {key, slot} ->
+            if slot.schema_name == s do
+              stale =
+                put_in(slot.baseline.state.seed_digests["event_type_registry"], {999, "stale"})
+
+              {key, stale}
+            else
+              {key, slot}
+            end
+          end)
+        end)
+      end)
+
+      TenantFixture.recycle_pool!()
+      again = fx(:a)
+
+      after_stats = stats(ctx)
+      assert after_stats.rebuilds == before.rebuilds + 1, "verify did not reject the re-copy"
+      assert :verify_failed in new_reasons(before, after_stats)
+      assert after_stats.generations[s] == before.generations[s] + 1
+      assert_pristine!(again)
+
+      # the rebuild replaced the baseline with the truth: the next acquire is clean
+      TenantFixture.recycle_pool!()
+      assert_pristine!(fx(:a))
+      assert stats(ctx).rebuilds == after_stats.rebuilds
+    end
   end
 
   defp registration_id(tenant_id),
@@ -1585,9 +1637,9 @@ defmodule Letflow.Support.TenantFixturePoolTeardownTest do
   end
 
   test "a module that never provisions a tenant still has a valid pool to tear down", ctx do
-    # deliberately no provisioned_tenant!/1: the Sandbox mode stays {:shared, this pid}
-    assert TenantFixture.pool_stats(ctx.tenant_pool).slots == 1
-    assert TenantFixture.pool_stats(ctx.tenant_pool).acquires == 0
+    # deliberately no provisioned_tenant!/1 and no pool_stats/1 / pool_dirty_report/1 (those
+    # set Sandbox :auto themselves): the mode stays {:shared, this pid} until teardown
+    assert Process.alive?(ctx.tenant_pool.worker)
   end
 
   defp check_everything_is_gone! do
