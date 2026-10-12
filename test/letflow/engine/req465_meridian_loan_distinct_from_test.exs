@@ -31,10 +31,6 @@ defmodule Letflow.Engine.Req465MeridianLoanDistinctFromTest do
              __DIR__
            )
 
-  setup do
-    A.sandbox_auto!()
-  end
-
   # -- fixtures -----------------------------------------------------------------------------
 
   defp definition_doc, do: @fixture |> File.read!() |> Jason.decode!()
