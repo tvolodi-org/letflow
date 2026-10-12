@@ -1,0 +1,66 @@
+{
+ "handoff_id": "c4a7d1e0-1038-4a11-8c20-000000000003",
+ "run_id": "WF03-ISS1038CIFILTER-20261012",
+ "workflow_id": "WF-03",
+ "step": "03",
+ "from_agent": "ORCH",
+ "to_agent": "ELIXIR-DEV",
+ "file": "handoffs/WF03-ISS1038CIFILTER-20261012/step-03-elixir-dev.json",
+ "created_at": "2026-10-12T12:46:56Z",
+ "started_at": "2026-10-12T13:20:00Z",
+ "completed_at": "2026-10-12T14:05:00Z",
+ "status": "COMPLETED",
+ "priority": "NORMAL",
+ "context": {
+  "stage": "S1",
+  "requirement_ids": [],
+  "requirement_text": {},
+  "source_text": {
+   "Q-1038": "LOW, CI lane, owner letflow-3. Queue Q-1038 / GH #2365, queue issue_ref ISS-1038. Source: letflow-3 CI speed analysis (Q-1037 / GH #2364 comment). Evidence: the 'Detect changed paths' filter in .github/workflows/ci.yml only matches lib/, priv/repo/migrations/, test/, mix.exs, mix.lock, .tool-versions, config/ and .github/workflows/ci.yml, so a PR that changes scripts/test_parallel.sh (the partition runner the backend gate itself uses) gets backend=false and the backend gate is skipped on that PR. Fix: add scripts/test_parallel.sh and any other script the backend gate itself runs (read what `mix letflow.check` and the gate steps invoke under scripts/) to the backend pattern; keep the A3 / merge_group behaviour intact; required check names unchanged. Test: a throwaway PR touching only scripts/test_parallel.sh shows the backend gate running (run id quoted); a docs-only PR still skips it. Related: Q-1037. Acceptance: (1) scripts/test_parallel.sh and every other script executed by the backend gate are in the backend path pattern; (2) a PR touching only scripts/test_parallel.sh runs the backend gate (run id quoted); a docs-only PR still skips it; (3) merge_group trigger and required check names unchanged. Supervisor rules: check names byte-exact, NO aggregator / branch-protection change (that is the user's), full local gates, PR body per template; diff of the filter only."
+  },
+  "related_handoff_ids": [],
+  "artifacts_in": [
+   ".github/workflows/ci.yml",
+   "docs/issues/ISS-1059.yaml",
+   "handoffs/WF03-ISS1038CIFILTER-20261012/step-02b-code-design-validator.json"
+  ],
+  "owned_modules": [
+   ".github/workflows/ci.yml"
+  ],
+  "worktree": null,
+  "branch_name": "feature/WF03-ISS1038CIFILTER-20261012"
+ },
+ "task": {
+  "description": "WF-03 Step 3 implement the CI path filter fix (Q-1038 / GH #2365; record docs/issues/ISS-1059.yaml). You are ELIXIR-DEV acting as the CI-lane implementer (.claude/agents/elixir-dev.md). Implement EXACTLY design option B, validated PASS in handoffs/WF03-ISS1038CIFILTER-20261012/step-02b-code-design-validator.json (findings MINOR only).\n\nEDIT: .github/workflows/ci.yml line ~255 only: in the backend `grep -qE` alternation add  scripts/.*\\.sh$  (before the final \\.github/workflows/ci\\.yml alternative), nothing else. Preserve the file's line endings: the working tree copy may be CRLF while the git blob is LF, so edit with a byte-preserving method (e.g. a python replace on bytes) and confirm `git diff` shows exactly ONE changed line and no whole-file EOL change. Do NOT touch the aggregator job, any job name:, the frontend/mobile greps, the push/merge_group/fallback branches, cd.yml or branch protection. Also add a short comment line above the grep? NO: keep the diff to the one line. If docs/anti-patterns.md has no entry for 'a CI path filter must include every file a gate executes or reads' add ONE short entry there.\n\nVERIFY with real output:\n(a) local table test: extract the real grep line from the edited ci.yml and run it in bash against the 24+ sample paths from the step-01 handoff (and the validator's extra paths: scripts/lib/seed_*_base.sh, scripts/sub/dir/a.sh must be true; scripts/README.md, scripts/*.py, scripts/foo.sh.bak, docs/*, handoffs/*, web/* false; every old-true path still true); quote the table.\n(b) `git diff --stat` = ci.yml 1 insertion/1 deletion (+ anti-patterns entry if added + handoff).\n(c) local gates before push: `mix format --check-formatted`, MIX_ENV=test mix letflow.check.static, MIX_ENV=test mix letflow.check_async_sandbox_reachability, lint_handoffs; also any test that reads ci.yml: grep test/ for 'ci.yml' and run those tests (each mix invocation = ONE BEAM under the machine mutex wrapper below; throwaway Postgres on 5499 only if a test needs the DB: docker run postgres:16, user/password letflow, db letflow_dev; remove afterwards).\n(d) LIVE PROOF (acceptance 2), after pushing the fix commit to the feature branch feature/WF03-ISS1038CIFILTER-20261012 on origin: (1) create branch tmp/iss1038-proof-script from the feature branch whose ONLY change vs the feature branch is one trailing comment line appended to scripts/test_parallel.sh (a comment line starting with '#', no behaviour change); open a throwaway PR with --base feature/WF03-ISS1038CIFILTER-20261012 (title 'THROWAWAY proof ISS-1038: scripts-only change, do not merge'); wait for the 'Detect changed paths' job and quote the run id plus conclusions of 'Detect changed paths' (output backend=true visible in its log: gh run view --log), and that 'Backend static checks + isolated tails' and 'Backend shard 1/3' etc. were NOT skipped (in_progress or completed is enough; you do NOT need to wait for the full shard run: cancel the run with gh run cancel afterwards to save runner minutes, ubuntu-latest only, no paid runners); (2) create tmp/iss1038-proof-docs from the feature branch changing only docs/anti-patterns.md by one trailing blank-safe comment line, throwaway PR with the same base, quote the run id and that the backend legs are skipped (backend=false). Close BOTH PRs without merging (gh pr close --delete-branch) and make sure both tmp branches are deleted on origin; quote the final `gh pr list` state. Retry gh/git calls on 'could not resolve host' / 'error connecting to api.github.com' failures in a bounded loop.\n(e) Never merge anything; never force-push; do not touch main.\n\nMACHINE RULE: ONE BEAM at a time machine-wide; every mix invocation takes the mutex, one acquisition per invocation: L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2>/dev/null; do sleep 20; done; trap 'rmdir \"$L\" 2>/dev/null' EXIT; cd <dir> && MIX_ENV=test <ONE mix invocation> 2>&1 . Foreground/polling only, no Monitors.\n\nResult into this handoff (COMPLETED, PASS/FAIL; no BOM, LF), commit + push (pull --rebase first; message ends 'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>'); reply with the table, the diff and the run ids.\n",
+  "acceptance_criteria": [
+   "scripts/test_parallel.sh and other gate scripts in the backend pattern",
+   "scripts-only throwaway PR runs the backend gate, run id quoted; docs-only skips",
+   "merge_group trigger and check names unchanged"
+  ]
+ },
+ "result": {
+  "verdict": "PASS",
+  "summary": "Option B implemented: ci.yml line 255 backend grep -qE gains scripts/.*\\.sh$ before the ci.yml alternative. One line changed (1 insertion/1 deletion, no EOL change; working tree CRLF, blob LF, edited by bytes). anti-patterns.md entry added. Local table test, local gates and live proof all pass.",
+  "fix_commit": "fa8a4fb52",
+  "diff": "-          if echo \"$CHANGED\" | grep -qE '^(lib/|priv/repo/migrations/|test/|mix\\.exs|mix\\.lock|\\.tool-versions|config/|\\.github/workflows/ci\\.yml)'; then\n+          if echo \"$CHANGED\" | grep -qE '^(lib/|priv/repo/migrations/|test/|mix\\.exs|mix\\.lock|\\.tool-versions|config/|scripts/.*\\.sh$|\\.github/workflows/ci\\.yml)'; then",
+  "diff_stat": "ci.yml 1 insertion/1 deletion; docs/anti-patterns.md 4 insertions (new entry)",
+  "table_test": "Real line extracted from edited ci.yml. TRUE: scripts/test_parallel.sh, scripts/lib/seed_persona_actors_base.sh, scripts/lib/seed_service_task_base.sh, scripts/seed_vortex_definition.sh, scripts/uat_preflight.sh, scripts/timed_test.sh, scripts/sub/dir/a.sh, priv/repo/migrations/*, lib/, test/, mix.exs, mix.lock, .tool-versions, config/test.exs, .github/workflows/ci.yml. FALSE: scripts/README.md, scripts/mutate.py, scripts/fix_registry.py, scripts/foo.sh.bak, .formatter.exs, priv/keycloak/*, priv/modules/*, priv/wasm_fixtures/*, .github/workflows/cd.yml, docs/**, handoffs/**, README.md, CLAUDE.md, web/src/App.tsx.",
+  "local_gates": "mix format --check-formatted EXIT=0; mix letflow.check.static OK (0 violations, check_boundaries OK); mix letflow.check_async_sandbox_reachability OK (0 new violations); mix letflow.lint_handoffs OK (0 new violations). No test reads ci.yml (only a comment in letflow_check_deferral_staleness_test.exs), so no extra test run; no DB needed.",
+  "live_proof": {
+   "scripts_only": {
+    "pr": 2408,
+    "run_id": 38259846157,
+    "detect_changed_paths": "completed/success, changed file scripts/test_parallel.sh, outputs backend=true frontend=false",
+    "backend_jobs": "Backend static checks + isolated tails, Backend shard 1/3, 2/3, 3/3 all in_progress (not skipped); run cancelled"
+   },
+   "docs_only": {
+    "pr": 2409,
+    "run_id": 38259853514,
+    "detect_changed_paths": "completed/success, changed file docs/anti-patterns.md, outputs backend=false frontend=false",
+    "backend_jobs": "Backend static checks + isolated tails: skipped; Backend shard matrix: skipped; aggregator 'Backend gate (mix letflow.check)': success"
+   },
+   "cleanup": "both PRs closed without merge with --delete-branch; git ls-remote shows no tmp/iss1038* heads; local tmp branches deleted; PRs 2408/2409 CLOSED"
+  },
+  "notes": "Mobile gate showed in_progress on the docs-only run; the mobile output is not echoed by the Detect step log, and the mobile/frontend filters were not touched (pre-existing, out of scope). merge_group/push/fallback branches, job names and aggregator untouched."
+ }
+}

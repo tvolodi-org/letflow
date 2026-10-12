@@ -1,0 +1,66 @@
+{
+  "handoff_id": "c4a7d1e0-1038-4a11-8c20-000000000004",
+  "run_id": "WF03-ISS1038CIFILTER-20261012",
+  "workflow_id": "WF-03",
+  "step": "04",
+  "from_agent": "ORCH",
+  "to_agent": "REVIEWER",
+  "file": "handoffs/WF03-ISS1038CIFILTER-20261012/step-04-reviewer.json",
+  "created_at": "2026-10-12T14:20:00Z",
+  "started_at": "2026-10-12T14:25:00Z",
+  "completed_at": "2026-10-12T14:40:00Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1038": "LOW, CI lane, owner letflow-3. Queue Q-1038 / GH #2365, queue issue_ref ISS-1038. Source: letflow-3 CI speed analysis (Q-1037 / GH #2364 comment). Evidence: the 'Detect changed paths' filter in .github/workflows/ci.yml only matches lib/, priv/repo/migrations/, test/, mix.exs, mix.lock, .tool-versions, config/ and .github/workflows/ci.yml, so a PR that changes scripts/test_parallel.sh (the partition runner the backend gate itself uses) gets backend=false and the backend gate is skipped on that PR. Fix: add scripts/test_parallel.sh and any other script the backend gate itself runs (read what `mix letflow.check` and the gate steps invoke under scripts/) to the backend pattern; keep the A3 / merge_group behaviour intact; required check names unchanged. Test: a throwaway PR touching only scripts/test_parallel.sh shows the backend gate running (run id quoted); a docs-only PR still skips it. Related: Q-1037. Acceptance: (1) scripts/test_parallel.sh and every other script executed by the backend gate are in the backend path pattern; (2) a PR touching only scripts/test_parallel.sh runs the backend gate (run id quoted); a docs-only PR still skips it; (3) merge_group trigger and required check names unchanged. Supervisor rules: check names byte-exact, NO aggregator / branch-protection change (that is the user's), full local gates, PR body per template; diff of the filter only."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      ".github/workflows/ci.yml",
+      "docs/anti-patterns.md",
+      "handoffs/WF03-ISS1038CIFILTER-20261012/step-03-elixir-dev.json"
+    ],
+    "owned_modules": [
+      ".github/workflows/ci.yml"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1038CIFILTER-20261012"
+  },
+  "task": {
+    "description": "WF-03 Step 4 REVIEWER hard gate (.claude/agents/reviewer.md). Q-1038 / GH #2365, record docs/issues/ISS-1059.yaml, branch feature/WF03-ISS1038CIFILTER-20261012 (fix fa8a4fb52, step-03 handoff 7440a66a6). Change under review: ONE line of .github/workflows/ci.yml (add scripts/.*\\.sh$ to the backend grep -qE alternation) plus one docs/anti-patterns.md entry. Compare with `git diff origin/main...HEAD`. Acceptance: (1) scripts/test_parallel.sh and every other script the backend gate executes match the backend pattern; (2) scripts-only PR runs backend gate (run 38259846157, throwaway PR #2408), docs-only still skips (run 38259853514, #2409); (3) merge_group trigger and required check names unchanged. Do NOT run mix (no test reads ci.yml; if you need it, use the machine mutex). Foreground only, no Monitors. Result into this handoff (COMPLETED, result.status PASS/FAIL, no BOM, LF); pull --rebase, commit, push with retry on github resolve failures; message ends 'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>'. Check scope creep (exactly the one ci.yml line + anti-patterns entry + run bookkeeping), line endings (blob LF, no EOL churn), job name: values/aggregator/merge_group byte-identical, decision-record consistency, anti-pattern entry accuracy. Security gate N/A (CI config, no tenant-data path). Also check that the anti-pattern's claim of the Mobile/Frontend legs running on the docs-only run is pre-existing and not caused by this change; report as a MINOR follow-up if real."
+  },
+  "result": {
+    "verdict": "PASS",
+    "status": "PASS",
+    "summary": "Scope is exactly one ci.yml line plus one anti-patterns entry plus run bookkeeping. Backend filter now matches scripts/.*\\.sh$, covering test_parallel.sh (the only script ci.yml and mix letflow.check.test execute) and all scripts/lib and seed scripts. merge_group/push/pull_request triggers, job name: values and the aggregator are untouched (diff has 1 insertion/1 deletion in ci.yml, no name:/merge_group lines). Blob is LF, no EOL churn. Security gate N/A.",
+    "checks": {
+      "idiom_otp": "N/A, CI config only",
+      "supervision": "N/A",
+      "scope_creep": "None: ci.yml 1+/1-, anti-patterns.md 4+, ISS-1059.yaml, handoffs/registry/log. No comment added, no frontend/mobile grep change.",
+      "line_endings": "git ls-files --eol: index lf (working tree crlf is autocrlf only); numstat 1/1",
+      "acceptance_1": "PASS: only scripts/test_parallel.sh is executed by the gate (ci.yml, letflow.check.test.ex); pattern also covers scripts/lib/*.sh and seed scripts (harmless over-inclusion). .py scripts (mutate.py, fix_registry.py) are not executed by the gate and not matched.",
+      "acceptance_2": "PASS per step-03 evidence: run 38259846157 backend=true, run 38259853514 backend=false",
+      "acceptance_3": "PASS: merge_group, job names, aggregator byte-identical (not in diff)",
+      "decision_records": "Consistent with 0018 branch-protection posture: no required-check name or aggregator change",
+      "anti_pattern_entry": "Accurate: describes the omission, the fix and a verification rule; makes no claim about Mobile/Frontend legs"
+    },
+    "findings": [
+      {
+        "severity": "MINOR",
+        "id": "F1",
+        "text": "Mobile gate showed in_progress on the docs-only run. Pre-existing and not caused by this change: mobile/frontend filters untouched; the jobs always start (required check names) and gate their steps with != 'false' at step level, so a running job does not mean real work ran. No action; optional follow-up only if someone wants the job-level skip."
+      },
+      {
+        "severity": "MINOR",
+        "id": "F2",
+        "text": "scripts/.*\\.sh$ also triggers the backend gate for seed_*/uat_preflight scripts the gate does not run. Intentional over-inclusion per design option B; cheap and safe."
+      }
+    ],
+    "type_safety_issues_filed": [],
+    "route_back": null
+  }
+}

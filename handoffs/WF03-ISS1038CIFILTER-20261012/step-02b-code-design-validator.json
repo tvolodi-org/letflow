@@ -1,0 +1,63 @@
+{
+ "handoff_id": "c4a7d1e0-1038-4a11-8c20-0000000000b2",
+ "run_id": "WF03-ISS1038CIFILTER-20261012",
+ "workflow_id": "WF-03",
+ "step": "02b",
+ "from_agent": "ORCH",
+ "to_agent": "CODE-DESIGN-VALIDATOR",
+ "file": "handoffs/WF03-ISS1038CIFILTER-20261012/step-02b-code-design-validator.json",
+ "created_at": "2026-10-12T12:43:54Z",
+ "started_at": "2026-10-12T13:10:00Z",
+ "completed_at": "2026-10-12T13:30:00Z",
+ "status": "COMPLETED",
+ "priority": "NORMAL",
+ "context": {
+  "stage": "S1",
+  "requirement_ids": [],
+  "requirement_text": {},
+  "source_text": {
+   "Q-1038": "LOW, CI lane, owner letflow-3. Queue Q-1038 / GH #2365, queue issue_ref ISS-1038. Source: letflow-3 CI speed analysis (Q-1037 / GH #2364 comment). Evidence: the 'Detect changed paths' filter in .github/workflows/ci.yml only matches lib/, priv/repo/migrations/, test/, mix.exs, mix.lock, .tool-versions, config/ and .github/workflows/ci.yml, so a PR that changes scripts/test_parallel.sh (the partition runner the backend gate itself uses) gets backend=false and the backend gate is skipped on that PR. Fix: add scripts/test_parallel.sh and any other script the backend gate itself runs (read what `mix letflow.check` and the gate steps invoke under scripts/) to the backend pattern; keep the A3 / merge_group behaviour intact; required check names unchanged. Test: a throwaway PR touching only scripts/test_parallel.sh shows the backend gate running (run id quoted); a docs-only PR still skips it. Related: Q-1037. Acceptance: (1) scripts/test_parallel.sh and every other script executed by the backend gate are in the backend path pattern; (2) a PR touching only scripts/test_parallel.sh runs the backend gate (run id quoted); a docs-only PR still skips it; (3) merge_group trigger and required check names unchanged. Supervisor rules: check names byte-exact, NO aggregator / branch-protection change (that is the user's), full local gates, PR body per template; diff of the filter only."
+  },
+  "related_handoff_ids": [],
+  "artifacts_in": [
+   "docs/issues/ISS-1059.yaml",
+   ".github/workflows/ci.yml",
+   "handoffs/WF03-ISS1038CIFILTER-20261012/step-01-issue-fixer.json"
+  ],
+  "owned_modules": [],
+  "worktree": null,
+  "branch_name": "feature/WF03-ISS1038CIFILTER-20261012"
+ },
+ "task": {
+  "description": "WF-03 Step 2b hard gate (.claude/agents/code-design-validator.md) on the ISSUE-FIXER's fix design for the CI path filter (Q-1038 / GH #2365; local record docs/issues/ISS-1059.yaml; step-01 handoff handoffs/WF03-ISS1038CIFILTER-20261012/step-01-issue-fixer.json). The change is ONE line in .github/workflows/ci.yml, so ORCH uses the ISSUE-FIXER's design (exact diff, table test) as the design artefact and gates it here instead of a separate CODE-DESIGNER pass.\n\nORCH DECISION (scope): option B, minimal: add ONLY the alternative  scripts/.*\\.sh$  to the backend grep -qE alternation (the issue's scope is the scripts the gate runs). The wider candidates (priv/ outside migrations, .formatter.exs, docs/handoffs read by static checks, web/ files read by tests, cd.yml) are NOT in this PR and will be filed as a follow-up.\n\nValidate:\n(1) The claimed script list is complete: independently grep lib/mix/tasks, test/, .github/workflows/ci.yml and mix.exs aliases for scripts/ executions or reads and report anything the step-01 list missed (only scripts/*.sh matter for this regex; scripts/lib/*.sh is covered by scripts/.*\\.sh$).\n(2) Regex B is correct in grep -E (the .* part, the \\.sh$ anchoring, interaction with the leading ^( ... ) group); it must not match scripts/README.md or scripts/*.py, and must still match every old path. Re-run the table in the step-01 handoff yourself in bash with the real line extracted from ci.yml (apply the B edit to a scratch copy, not the repo).\n(3) Docs-only PRs still skip; push, merge_group and fallback branches and all job name: values are byte-identical: show that git diff would touch exactly one line.\n(4) The proof plan is sound: a throwaway PR with base = the fix branch touching only scripts/test_parallel.sh, plus a docs-only throwaway PR, both closed and their branches deleted afterwards, with no required-check or branch-protection change; also state whether a pull_request run uses the workflow file of the merge commit (HEAD merged onto base) so that a throwaway PR with base = fix branch really exercises the fixed filter.\nNo mix needed. Verdict PASS/FAIL in result.status; findings BLOCKER/MAJOR/MINOR.\n\nCommit + push (pull --rebase first; retry on github.com resolve failures; message ends 'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>'); result into this handoff (COMPLETED, PASS/FAIL; no BOM, LF).\n",
+  "acceptance_criteria": [
+   "verdict with independent evidence"
+  ]
+ },
+ "result": {
+  "verdict": "PASS",
+  "summary": "Option B (add only scripts/.*\\.sh$ to the backend grep -qE alternation on ci.yml line 255) is a complete, correct, one-line design. No BLOCKER or MAJOR findings.",
+  "checks": {
+   "1_script_list_complete": "PASS. Independent grep of lib/mix/tasks, lib/, test/, mix.exs, .github/workflows/*.yml for scripts/ references found only: scripts/test_parallel.sh (lib/mix/tasks/letflow.check.test.ex:229 via bash; every shard leg and tails), scripts/seed_*.sh (8 files) and scripts/lib/seed_persona_actors_base.sh + seed_service_task_base.sh (run/sourced/globbed by test/letflow/scripts/* and test/scripts/*), scripts/uat_preflight.sh (test/scripts/uat_preflight_*_test.exs). scripts/timed_test.sh is only named in comments/docs and a test moduledoc (also matched by the regex, harmless). scripts/mutate.py, fix_registry.py, README.md are referenced by no job or test and stay out. Names like scripts/test_parallel_*_test.sh, qa-login.sh, qa-uat-env.sh seen in grep are test/scripts/*.sh (already under test/) or external ai-dala-infra tools, not in this repo's scripts/. ci.yml only mentions scripts/test_parallel.sh in comments; no run: step invokes scripts/ directly; mix.exs aliases contain only comments. Nothing missed by the step-01 list.",
+   "2_regex_correct": "PASS. Re-ran on a scratch copy of the HEAD blob (CRLF stripped): the edited line is exactly ... config/|scripts/.*\\.sh$|\\.github/workflows/ci\\.yml)'. $ is a valid ERE anchor inside a group alternation; the leading ^( ) anchors every alternative; .* spans nested scripts/lib/. Table old/new: scripts/test_parallel.sh f/t; scripts/lib/seed_persona_actors_base.sh f/t; scripts/seed_vortex_definition.sh f/t; scripts/uat_preflight.sh f/t; scripts/sub/dir/a.sh f/t; scripts/README.md, mutate.py, fix_registry.py, foo.sh.bak, x.shx, xsh, a.csh f/f; xscripts/test_parallel.sh, web/scripts/a.sh, docs/scripts/a.sh f/f; lib/a.ex, priv/repo/migrations/1.exs, test/a.exs, mix.exs, mix.lock, .tool-versions, config/test.exs, ci.yml t/t; cd.yml, docs/a.md, handoffs/x.json, README.md, web/src/App.tsx, .formatter.exs f/f. Multi-line CHANGED: docs+script+docs matches; docs-only multi-line list (docs/, docs/scripts/x.sh, handoffs/, README.md) does not. All old-true paths stay true; no old-false path flips except scripts/*.sh. Implementer must write the dot as \\. (an unescaped . would also match scripts/xsh, scripts/a.csh; the step-01 diff has it escaped).",
+   "3_one_line_and_other_branches": "PASS. Diff of HEAD blob vs edited copy touches exactly line 255 (1 changed line). push (all gates true, ISS-0840), merge_group (same CHANGED regex, A3), zero-SHA/unreachable-base fail-safes, the fallback step, frontend/mobile greps (lines 261, 267), the aggregator and all job name: values are outside that line and byte-identical.",
+   "4_proof_plan": "SOUND with caveats. on: has bare pull_request (no branches filter), so a PR whose base is the fix branch triggers CI. pull_request workflows run the workflow file from the PR merge commit (refs/pull/N/merge = head merged into base); the base (fix branch) carries the fixed ci.yml and the throwaway head is cut from it, so the fixed filter is the one exercised. changes diffs base.sha..head.sha = just the throwaway commit, so backend=true is attributable to the new pattern alone (the real PR to main touches ci.yml, which matches the pre-existing ci.yml alternative, so it cannot prove this by itself; the throwaway PR is therefore necessary). Preconditions: the fix commit must be pushed and the fix branch must exist on origin before opening the throwaway PRs; base must be the pushed fix branch, not main. Negative PR: docs-only change under docs/ (not docs/requirements.yaml etc.) expects backend_static/backend_shard skipped, aggregator success. Concurrency group is per PR number so the two throwaway PRs do not cancel each other or the real PR. Close PRs and delete both throwaway branches afterwards; no required-check or branch-protection change."
+  },
+  "findings": [
+   {
+    "severity": "MINOR",
+    "text": "Working-tree ci.yml is CRLF while the git blob is LF; the implementer must edit with a CRLF-preserving method (or confirm git diff shows exactly one changed line) so the PR diff is not a whole-file rewrite."
+   },
+   {
+    "severity": "MINOR",
+    "text": "Throwaway PR will also trigger frontend/mobile filters = false and e2e-style jobs as today; quote run id and the 'Backend static checks + isolated tails' / 'Backend shard K/M' job conclusions (not skipped) as evidence."
+   },
+   {
+    "severity": "MINOR",
+    "text": "Out of scope by ORCH decision, to file as follow-up: .formatter.exs, priv/ outside migrations, docs/requirements.yaml / docs/issues / handoffs read by static checks, web/ files read by tests, cd.yml read by enablement_gate_test."
+   }
+  ],
+  "implementation_code_present": false,
+  "tbd_or_deferral_language": false
+ }
+}

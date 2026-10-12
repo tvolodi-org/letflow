@@ -1,0 +1,39 @@
+id: ISS-1059
+title: "CI 'Detect changed paths' backend filter ignores scripts/ (and other files backend jobs execute or read): a PR touching only scripts/test_parallel.sh gets backend=false and the backend gate is skipped"
+discovered_by: letflow-3 CI speed analysis (Q-1037 / GH #2364 comment)
+discovered_in_run: WF03-ISS1038CIFILTER-20261012
+discovered_at: "2026-10-12T00:00:00Z"
+severity: LOW
+failure_class: defect
+occurrence: 1
+owner: "ELIXIR-DEV or CI lane (.github/workflows/ci.yml filter regex only); CODE-DESIGNER not needed for a one-line regex change"
+scope: tooling
+# Ref clash: the queue's issue_ref for Q-1038 is ISS-1038, but docs/issues/ISS-1038.yaml already
+# exists for a DIFFERENT issue (Q-1039 / GH-2367, log capture). The local number is therefore the
+# next free one: ISS-1059 (highest on this branch was ISS-1058; no ISS-1059 on any local ref;
+# origin could not be fetched at diagnosis time, github.com did not resolve -- re-check before PR).
+description: >
+  .github/workflows/ci.yml job `changes`, step `filter`, backend regex is
+  '^(lib/|priv/repo/migrations/|test/|mix\.exs|mix\.lock|\.tool-versions|config/|\.github/workflows/ci\.yml)'.
+  The backend jobs execute scripts/test_parallel.sh (mix letflow.check.test shells out to it, every
+  shard leg), and ExUnit tests execute scripts/seed_*.sh, scripts/lib/*.sh and scripts/uat_preflight.sh,
+  yet none of scripts/ matches, so a PR changing only a script gets backend=false and the aggregator
+  reports green with static and shards skipped. Same class: .formatter.exs (read by `format
+  --check-formatted`) and priv/ outside migrations (priv/keycloak, priv/modules, priv/solutions,
+  priv/expr_conformance, priv/wasm_fixtures are read by tests) are not matched either.
+acceptance_criteria:
+  - "scripts/test_parallel.sh and every other script executed by the backend gate or its tests are in the backend path pattern"
+  - "A PR touching only scripts/test_parallel.sh runs the backend gate (run id quoted); a docs-only PR still skips it"
+  - "merge_group / push / fallback branches and required check names unchanged"
+affected_files:
+  - .github/workflows/ci.yml
+queue_ref: Q-1038
+github_ref: GH-2365
+status: resolved
+resolved_in_run: WF03-ISS1038CIFILTER-20261012
+resolved_at: "2026-10-12T14:05:20Z"
+resolution: >
+  Backend path filter in .github/workflows/ci.yml now includes scripts/.*.sh$. Proof runs:
+  38259846157 (scripts-only throwaway PR #2408, backend=true, backend legs started) and
+  38259853514 (docs-only PR #2409, backend legs skipped). Follow-up wider candidates
+  (.formatter.exs and priv/ outside migrations) are tracked separately.
