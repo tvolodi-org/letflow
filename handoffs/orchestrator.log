@@ -2792,3 +2792,21 @@
 2026-10-12T09:04:30Z | FAIL | WF-03 | WF03-ISS1042-20261012 | CI → ORCH | PR #2397 run 38226440033 red: check_async_sandbox_reachability (static job + shard 3 partition 9 same root cause), PR-caused, deterministic; ORCH missed running letflow.check.static locally before push (merge discipline)
 2026-10-12T09:04:30Z | DISPATCH | WF-03 | WF03-ISS1042-20261012 | ORCH → ELIXIR-DEV | Step 07 CI fix async:false
 2026-10-12T09:05:53Z | PASS | WF-03 | WF03-ISS1042-20261012 | ELIXIR-DEV → ORCH | Step 07 PASS (e798f224d; async:false, check_async_sandbox_reachability OK, check.static 0 violations, 27 tests green, format clean); main 3eaf1515 merged into branch, CI rerun
+2026-10-12T09:25:30Z | START | WF-03 | WF03-ISS1040-20261012 | ORCH | Q-1040 / ISS-1040 / GH #2379 claimed as tvolodi-orch on supervisor assignment (named single task, not drain mode); branch created by ORCH
+2026-10-12T09:25:30Z | DISPATCH | WF-03 | WF03-ISS1040-20261012 | ORCH → ISSUE-FIXER | Step 01 diagnosis
+2026-10-12T09:25:36Z | RUN_DONE | WF-03 | WF03-ISS1042-20261012 | ORCH | Q-1042 / ISS-1042 resolved, PR #2397 merged edf3e6141 (squash), queue task 1042 released done, GH #2381 closed + evidence comment, partition 1 mean 367.9s -> 256.2s (1.44x); follow-ups R1/R5/V2/flake handed to supervisor's filer
+2026-10-12T09:28:41Z | PASS | WF-03 | WF03-ISS1040-20261012 | ISSUE-FIXER → ORCH | Step 01 PASS (690ff2832; race reproduced with a 350 ms stall; test-only fix: large timeout_ms + own-child via $callers + monotonic deadline + kill; mutant async_nolink->Task.async; ORCH stripped a UTF-8 BOM from the handoff file)
+2026-10-12T09:28:41Z | DISPATCH | WF-03 | WF03-ISS1040-20261012 | ORCH → CODE-DESIGNER | Step 02 design
+2026-10-12T09:30:29Z | PASS | WF-03 | WF03-ISS1040-20261012 | CODE-DESIGNER → ORCH | Step 02 PASS (05a3a8ab0)
+2026-10-12T09:30:29Z | DISPATCH | WF-03 | WF03-ISS1040-20261012 | ORCH → CODE-DESIGN-VALIDATOR | Step 02b
+2026-10-12T09:31:41Z | PASS | WF-03 | WF03-ISS1040-20261012 | CODE-DESIGN-VALIDATOR → ORCH | Step 02b PASS (7930c3645; 0 BLOCKER/MAJOR, 3 MINOR to implementer)
+2026-10-12T09:31:41Z | DISPATCH | WF-03 | WF03-ISS1040-20261012 | ORCH → ELIXIR-DEV | Step 03 implement
+2026-10-12T10:09:24Z | PASS | WF-03 | WF03-ISS1040-20261012 | ELIXIR-DEV → ORCH | Step 03 PASS (5527a9dbd; test-only; 100/100 stress seeds green under 6 busy loops ~34 min; mutant fails both target tests; ORCH verified diff scope)
+2026-10-12T10:09:24Z | DISPATCH | WF-03 | WF03-ISS1040-20261012 | ORCH → REVIEWER | Step 03d (security gate N/A: test-only)
+2026-10-12T10:09:24Z | DISPATCH | WF-03 | WF03-ISS1040-20261012 | ORCH → TEST-DESIGN-VALIDATOR | Step 04b (parallel)
+2026-10-12T10:16:30Z | PASS | WF-03 | WF03-ISS1040-20261012 | REVIEWER → ORCH | Step 03d PASS (0be8ad176; 2 MINOR no action)
+2026-10-12T10:16:30Z | PASS | WF-03 | WF03-ISS1040-20261012 | TEST-DESIGN-VALIDATOR → ORCH | Step 04b PASS (ec9874060; own mutants M1 async_nolink->Task.async and M2 callers deleted both fail the 2 target tests; spot-check seeds 201-210 10/10)
+2026-10-12T10:16:30Z | DISPATCH | WF-03 | WF03-ISS1040-20261012 | ORCH → RELEASE-VALIDATOR | Step 05v
+2026-10-12T10:18:56Z | PASS | WF-03 | WF03-ISS1040-20261012 | RELEASE-VALIDATOR → ORCH | Step 05v PASS (fdccc100b; own mutant 57/60, plain run 60 passed, no lib/config/priv/.github change)
+2026-10-12T10:18:56Z | DISPATCH | WF-03 | WF03-ISS1040-20261012 | ORCH → DOC-UPDATER | Step 06
+2026-10-12T10:19:38Z | PASS | WF-03 | WF03-ISS1040-20261012 | DOC-UPDATER → ORCH | Step 06 PASS (ISS-1040 resolved); ORCH verified yaml keys; registry COMPLETED

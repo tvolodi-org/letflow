@@ -1,0 +1,57 @@
+{
+ "handoff_id": "c4a7d1e0-1040-4a11-8c20-000000000004b",
+ "run_id": "WF03-ISS1040-20261012",
+ "workflow_id": "WF-03",
+ "step": "04b",
+ "from_agent": "ORCH",
+ "to_agent": "TEST-DESIGN-VALIDATOR",
+ "file": "handoffs/WF03-ISS1040-20261012/step-04b-test-design-validator.json",
+ "created_at": "2026-10-12T10:09:24Z",
+ "started_at": "2026-10-12T10:15:52Z",
+ "completed_at": "2026-10-12T10:15:52Z",
+ "status": "COMPLETED",
+ "priority": "NORMAL",
+ "context": {
+  "stage": "S1",
+  "requirement_ids": [],
+  "requirement_text": {},
+  "source_text": {
+   "Q-1040": "LOW, test-only, CI/test lane. test/letflow/engine/lua/executor_test.exs polling loops at ~L518 and ~L817 (Enum.reduce_while(1..20) with Process.sleep(10) = ~200 ms of observation) wait for a supervised Lua child while the script/call runs only timeout_ms 300; under host load the child can finish or not yet have started inside that window, so the assertion that a real in-flight child was observed can miss it. Fix: make the script deterministic instead of time-bound (script blocks on a message from the test, or the poll waits on a :started message plus a monotonic deadline well above the script's life; the script's duration is controlled by the test, not a sleep) so the window cannot close before the test looks; no global timing change. Mutation proof: a mutant that never spawns the child must still fail; stress: 100 consecutive runs under max_cases concurrency green (quote command and result). Acceptance: (1) both observation windows no longer depend on a fixed ~200 ms poll inside a 300 ms script; (2) mutant that never spawns the child still fails both tests; (3) 100 consecutive local runs under concurrency green, command and result quoted. Overlap: no open queue issue on executor_test; ISS-0456 (wasm_hang) is a different file. GH #2379."
+  },
+  "related_handoff_ids": [],
+  "artifacts_in": [
+   "test/letflow/engine/lua/executor_test.exs",
+   "lib/letflow/design/iss1040-executor-test-deterministic-window.md",
+   "docs/anti-patterns.md",
+   "docs/issues/ISS-1040.yaml",
+   "handoffs/WF03-ISS1040-20261012/step-03-elixir-dev.json"
+  ],
+  "owned_modules": [],
+  "worktree": null,
+  "branch_name": "feature/WF03-ISS1040-20261012"
+ },
+ "task": {
+  "description": "WF-03 Step 4b hard gate (.claude/agents/test-design-validator.md) for ISS-1040. The deliverable IS a test change (executor_test.exs, two tests + helper await_own_child/2). Validate independently: (a) acceptance 1: both windows no longer depend on a fixed ~200 ms poll inside a 300 ms script; (b) acceptance 2: YOU must apply the mutants in a throwaway git worktree OUTSIDE the repo, run the file, quote real output, discard: M1 Task.Supervisor.async_nolink -> Task.async at lib/letflow/engine/lua/executor.ex:367 (both target tests must fail by assertion), M2 a mutant that spawns the child but under a DIFFERENT caller so the $callers match is lost (e.g. make the executor spawn via Task.Supervisor.start_child with no $callers, if that compiles; else say why not) -> the tests must fail, M3 weaken the tests' own guard: confirm the false-positive class is closed: with the own-child filter replaced by 'any child' the test would pass on a sibling's child: argue from code, run only if cheap; (c) acceptance 3 evidence: do NOT re-run 100 iterations; re-run 10 consecutive seeds of the exact stress command shape (see step-03 handoff result for the command) as a spot-check under the mutex; (d) the file still asserts exactly 11 :lua_wallclock_race tests and the nested isolated-partition test passes; (e) no lib/ change in the diff. Poll synchronously. Throwaway Postgres port 5499 (remove afterwards). MACHINE RULE: only ONE BEAM at a time machine-wide; every mix invocation takes the mutex, one acquisition per invocation: wrapper: L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2>/dev/null; do sleep 20; done; trap 'rmdir \"$L\" 2>/dev/null' EXIT; cd <dir> && LETFLOW_DB_PORT=5499 MIX_ENV=test <ONE mix invocation> 2>&1 . Verdict result.status PASS/FAIL (handoff COMPLETED; no BOM, LF); commit+push (message ends 'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>').",
+  "acceptance_criteria": [
+   "independent mutants applied with real output",
+   "verdict"
+  ]
+ },
+ "result": {
+  "status": "PASS",
+  "summary": "ISS-1040 test change validated independently. Both observation windows replaced by await_own_child/2 (own-child match via $callers, 5000 ms monotonic deadline, 5 ms retry) with timeout_ms 30_000 and test-controlled release by Process.exit(child,:kill); no fixed ~200 ms poll inside a 300 ms script remains. No findings.",
+  "checks": {
+   "a_acceptance_1": "PASS: diff 5527a9dbd shows Enum.reduce_while(1..20)+Process.sleep(10) and timeout_ms 300 removed from both tests (AC-5 in-flight test and nil-max_heap_words test); script life ends only when the test kills the child; 30_000 ms is a ceiling, not the observation window. Timer-free terminal assertion {:error,\"Letflow.Engine.Lua.Executor task crashed: :killed\"}.",
+   "b_baseline": "MIX_ENV=test LETFLOW_DB_PORT=5499 mix test test/letflow/engine/lua/executor_test.exs --include lua_wallclock_race -> \"Result: 60 passed\" (incl. exactly-11 AST guard test and nested isolated-partition test).",
+   "b_M1_Task_async": "Throwaway worktree outside repo (detached at HEAD, deps/_build copied), executor.ex:367 Task.Supervisor.async_nolink(TaskSupervisor, fn) -> Task.async(fn): \"Result: 57/60 passed\". Failures by assertion: AC-5 in-flight test (\"expected at least one in-flight child while the script is running\", code: assert is_pid(child), ...) and nil-max_heap_words test (\"a nil max_heap_words call must still run under Letflow.Engine.Lua.TaskSupervisor\"); third failure is the nested isolated-partition test which re-runs the same two inside the mutant (expected).",
+   "b_M2_lost_callers": "Same worktree, mutant: child still spawned under Letflow.Engine.Lua.TaskSupervisor via async_nolink but body begins with Process.delete(:\"$callers\") (compiles; start_child cannot be used to drop $callers because Task.Supervisor records them itself). \"Result: 57/60 passed\"; the same two target tests fail by assertion with the same messages, plus the nested partition test. This proves the own-child filter is load-bearing: a supervised child exists but is not matched.",
+   "b_M3_any_child_guard": "Argued from code, not run: await_own_child/2 filters children by caller_pid in Keyword.get(dict,:\"$callers\",[]); the replaced check was a global Task.Supervisor.children(TaskSupervisor) != [] which a sibling async test child satisfies. M2 demonstrates the filter rejects a supervised child that is not this call's own, so the sibling false-positive class is closed. Residual: Process.info(pid,:dictionary) returning nil (child exited between children/1 and info/2) is handled as non-match, retried until deadline.",
+   "c_spot_check": "/c/Users/tvolo/AppData/Local/Temp/claude/stress1040.sh 201 210 (6 busy loops, per-iteration mutexed BEAM, mix test --include lua_wallclock_race --exclude <nested partition test> test/letflow/engine/lua --max-cases 32 --seed N): seeds 201..210 each \"Result: 250 passed, 1 excluded\", \"PASS COUNT 10\".",
+   "d_tag_count_and_nested": "Test names and the 11 @tag :lua_wallclock_race nodes unchanged; baseline run above passes both the exactly-11 AST guard and the nested isolated-partition test (60/60).",
+   "e_no_lib_change": "git diff --name-only origin/main...HEAD -- lib config priv excluding lib/letflow/design/ is empty; test commit 5527a9dbd touches only executor_test.exs, docs/anti-patterns.md and the step-03 handoff.",
+   "f_cleanliness": "Worktree removed and pruned; git status --porcelain lib/ test/ empty (0 lines) in main tree; throwaway Postgres iss1040-tdv-pg removed; mutex dir released."
+  },
+  "findings": [],
+  "notes": "Pre-existing type warning at executor_test.exs:484 (refute match?) unchanged and out of scope. Spot-check was 10 seeds only per instruction; 100-run evidence is from step 03."
+ }
+}

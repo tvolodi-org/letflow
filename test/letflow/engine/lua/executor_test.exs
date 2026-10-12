@@ -499,38 +499,25 @@ defmodule Letflow.Engine.Lua.ExecutorTest do
 
           Executor.execute_with_manifest(@infinite_loop, "h",
             max_instructions: 1_000_000_000,
-            timeout_ms: 300,
+            timeout_ms: 30_000,
             max_heap_words: nil
           )
         end)
 
       assert_receive :started, 1_000
 
-      # Poll for the in-flight child instead of a single fixed sleep+check: under
-      # host load contention a fixed sleep can miss the window entirely (checked
-      # too early, before execute_with_manifest/3 has spawned its supervised task,
-      # or too late, after scheduler jitter has delayed this process past it).
-      # Poll in small increments up to a bound well under the call's own
-      # timeout_ms (300) above, so the loop still proves a real in-flight child
-      # was observed -- it never falls back to asserting something trivially
-      # true, it just gives the spawn more chances to be caught mid-flight.
-      children =
-        Enum.reduce_while(1..20, [], fn _attempt, _acc ->
-          case Task.Supervisor.children(Letflow.Engine.Lua.TaskSupervisor) do
-            [] ->
-              Process.sleep(10)
-              {:cont, []}
+      # ISS-1040: locate THIS call's own child (matched via $callers) under a
+      # monotonic deadline, then end the script deterministically by killing it.
+      # The script's life is bounded by this test (timeout_ms: 30_000 is only a
+      # ceiling), never by a fixed ~200 ms poll inside a 300 ms script.
+      child = await_own_child(task.pid, 5_000)
 
-            found ->
-              {:halt, found}
-          end
-        end)
+      assert is_pid(child), "expected at least one in-flight child while the script is running"
 
-      assert children != [], "expected at least one in-flight child while the script is running"
+      Process.exit(child, :kill)
 
-      # Let the in-flight call finish (times out on its own) so the test doesn't
-      # leak a lingering process.
-      assert {:error, {:wallclock_timeout, 300}} = Task.await(task, 1_000)
+      assert {:error, "Letflow.Engine.Lua.Executor task crashed: :killed"} =
+               Task.await(task, 5_000)
     end
 
     test "AC-5: moduledoc names Letflow.Engine.Lua.TaskSupervisor and justifies not reusing PluginTaskSupervisor" do
@@ -806,29 +793,24 @@ defmodule Letflow.Engine.Lua.ExecutorTest do
 
           Executor.execute_with_manifest("while true do end", "h",
             max_instructions: 1_000_000_000,
-            timeout_ms: 300,
+            timeout_ms: 30_000,
             max_heap_words: nil
           )
         end)
 
       assert_receive :started, 1_000
 
-      children =
-        Enum.reduce_while(1..20, [], fn _attempt, _acc ->
-          case Task.Supervisor.children(Letflow.Engine.Lua.TaskSupervisor) do
-            [] ->
-              Process.sleep(10)
-              {:cont, []}
+      # ISS-1040: see the AC-5 in-flight test above -- own-child lookup under a
+      # monotonic deadline, deterministic release by kill.
+      child = await_own_child(task.pid, 5_000)
 
-            found ->
-              {:halt, found}
-          end
-        end)
-
-      assert children != [],
+      assert is_pid(child),
              "a nil max_heap_words call must still run under Letflow.Engine.Lua.TaskSupervisor"
 
-      assert {:error, {:wallclock_timeout, 300}} = Task.await(task, 1_000)
+      Process.exit(child, :kill)
+
+      assert {:error, "Letflow.Engine.Lua.Executor task crashed: :killed"} =
+               Task.await(task, 5_000)
     end
 
     # Gap found by TEST-DESIGNER mutation testing: design §5.1's fourth table row and
@@ -1692,6 +1674,39 @@ defmodule Letflow.Engine.Lua.ExecutorTest do
                "#{sync_seam_call_count}. A drop below 31 likely means one of the 9 " <>
                "ISS-0876 conversions (design §2) was reverted back onto the racing " <>
                "execute_with_manifest/2 path."
+    end
+  end
+
+  # ISS-1040: finds the supervised Lua child spawned on behalf of `caller_pid` (the
+  # process that called execute_with_manifest/3), identified by the `$callers`
+  # entry Task.Supervisor.async_nolink/2 records. Scoping to the caller closes the
+  # false-positive where a sibling async test's child satisfies a global
+  # `children != []` check. Bounded by a monotonic deadline, not an attempt count.
+  @spec await_own_child(pid(), pos_integer()) :: pid() | nil
+  defp await_own_child(caller_pid, deadline_ms) do
+    deadline = System.monotonic_time(:millisecond) + deadline_ms
+    do_await_own_child(caller_pid, deadline)
+  end
+
+  defp do_await_own_child(caller_pid, deadline) do
+    found =
+      Enum.find(Task.Supervisor.children(Letflow.Engine.Lua.TaskSupervisor), fn pid ->
+        case Process.info(pid, :dictionary) do
+          {:dictionary, dict} -> caller_pid in Keyword.get(dict, :"$callers", [])
+          nil -> false
+        end
+      end)
+
+    cond do
+      found != nil ->
+        found
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        nil
+
+      true ->
+        Process.sleep(5)
+        do_await_own_child(caller_pid, deadline)
     end
   end
 end

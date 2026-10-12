@@ -1,0 +1,48 @@
+{
+ "handoff_id": "c4a7d1e0-1040-4a11-8c20-0000000000d6",
+ "run_id": "WF03-ISS1040-20261012",
+ "workflow_id": "WF-03",
+ "step": "06",
+ "from_agent": "ORCH",
+ "to_agent": "DOC-UPDATER",
+ "file": "handoffs/WF03-ISS1040-20261012/step-06-doc-updater.json",
+ "created_at": "2026-10-12T10:18:56Z",
+ "started_at": "2026-10-12T10:19:06Z",
+ "completed_at": "2026-10-12T10:20:00Z",
+ "status": "COMPLETED",
+ "priority": "NORMAL",
+ "context": {
+  "stage": "S1",
+  "requirement_ids": [],
+  "requirement_text": {},
+  "source_text": {
+   "Q-1040": "LOW, test-only, CI/test lane. test/letflow/engine/lua/executor_test.exs polling loops at ~L518 and ~L817 (Enum.reduce_while(1..20) with Process.sleep(10) = ~200 ms of observation) wait for a supervised Lua child while the script/call runs only timeout_ms 300; under host load the child can finish or not yet have started inside that window, so the assertion that a real in-flight child was observed can miss it. Fix: make the script deterministic instead of time-bound (script blocks on a message from the test, or the poll waits on a :started message plus a monotonic deadline well above the script's life; the script's duration is controlled by the test, not a sleep) so the window cannot close before the test looks; no global timing change. Mutation proof: a mutant that never spawns the child must still fail; stress: 100 consecutive runs under max_cases concurrency green (quote command and result). Acceptance: (1) both observation windows no longer depend on a fixed ~200 ms poll inside a 300 ms script; (2) mutant that never spawns the child still fails both tests; (3) 100 consecutive local runs under concurrency green, command and result quoted. Overlap: no open queue issue on executor_test; ISS-0456 (wasm_hang) is a different file. GH #2379."
+  },
+  "related_handoff_ids": [],
+  "artifacts_in": [
+   "docs/issues/ISS-1040.yaml",
+   "docs/anti-patterns.md",
+   "handoffs/WF03-ISS1040-20261012/step-05v-release-validator.json",
+   "docs/agents/protocols/ISSUE_QUEUE.md"
+  ],
+  "owned_modules": [
+   "docs/issues/ISS-1040.yaml"
+  ],
+  "worktree": null,
+  "branch_name": "feature/WF03-ISS1040-20261012"
+ },
+ "task": {
+  "description": "WF-03 Step 5 doc/close for ISS-1040 (.claude/agents/doc-updater.md). Docs only; no mix runs. (1) docs/issues/ISS-1040.yaml: set status: resolved with resolved_in_run: WF03-ISS1040-20261012 and resolved_at: real UTC now (check docs/agents/protocols/ISSUE_QUEUE.md 'Issue status vocabulary' for the exact keys/evidence required for resolved; follow exactly); add regression_test: test/letflow/engine/lua/executor_test.exs (the two in-flight-child tests and helper await_own_child/2) and a short resolution block: root cause (test-process poll of ~200 ms against a 300 ms script, global child check), fix (30_000 ms ceiling, own-child via $callers, monotonic 5 s deadline, deterministic kill), evidence (mutant async_nolink->Task.async fails both target tests, own mutants by TEST-DESIGN-VALIDATOR M1/M2, 100/100 seeded stress under 6 busy loops ~34 min, RELEASE-VALIDATOR plain run 60 passed). Keep existing fields. (2) Do not touch docs/requirements.yaml (queue issue, no REQ). Leave docs/anti-patterns.md as ELIXIR-DEV wrote it unless factually wrong. (3) Handoff result PASS/FAIL, status COMPLETED, no BOM, LF endings; commit + push (pull --rebase first; message ends 'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>').",
+  "acceptance_criteria": [
+   "ISS-1040 resolved with the right key pair and evidence"
+  ]
+ },
+ "result": {
+  "verdict": "PASS",
+  "summary": "ISS-1040 set to status: resolved with resolved_in_run, resolved_at, regression_test and a resolution block (root cause, fix, evidence). docs/requirements.yaml and docs/anti-patterns.md untouched. No requirement_status volume event: queue issue with no REQ.",
+  "artifacts_out": [
+   "docs/issues/ISS-1040.yaml",
+   "handoffs/WF03-ISS1040-20261012/step-06-doc-updater.json"
+  ]
+ }
+}

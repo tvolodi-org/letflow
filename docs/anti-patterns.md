@@ -4671,3 +4671,7 @@ Three lessons from the module-scoped pooled tenant (`Letflow.TenantFixture.start
    returns), every reachable `lib/` fire-and-forget worker and every tenant-keyed in-memory state; keep the
    quiescence fences fail-closed (raise, never log-and-continue); and do not re-snapshot a row that a
    rebuild does not touch (re-snapshotting `public.tenants` after a rebuild would bless a corrupted row).
+
+## A test observed a global supervisor's child under a timer shorter than the host's load jitter (2026-10-12, ELIXIR-DEV, ISS-1040 / Q-1040 / GH #2379)
+
+Two `:lua_wallclock_race` tests polled `Task.Supervisor.children(Letflow.Engine.Lua.TaskSupervisor)` for ~200 ms (20 x 10 ms) while the script under test lived only `timeout_ms: 300`. Both ends of the overlap were wall-clock, so host load could close the window before the test looked; and the lookup was global, so under `async: true` another module's child could satisfy `children != []` (a false pass). Rule: a test must not observe a shared supervisor under a timer shorter than its own load jitter. Own the child instead: give the call a large per-call ceiling (`timeout_ms: 30_000`), find THIS call's child by its `$callers` entry under a monotonic deadline, and end the script by `Process.exit(child, :kill)` so the test, not a timer, controls its lifetime. Prove it with a mutant that never spawns the child under the supervisor (`Task.async` for `async_nolink`): the target tests must fail by assertion.
