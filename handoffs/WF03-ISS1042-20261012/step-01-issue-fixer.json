@@ -8,8 +8,8 @@
   "file": "handoffs/WF03-ISS1042-20261012/step-01-issue-fixer.json",
   "created_at": "2026-10-12T03:21:21Z",
   "started_at": null,
-  "completed_at": null,
-  "status": "PENDING",
+  "completed_at": "2026-10-12T03:43:27Z",
+  "status": "COMPLETED",
   "priority": "NORMAL",
   "context": {
     "stage": "S1",
@@ -41,5 +41,43 @@
       "No change to required check names; no paid runners"
     ]
   },
-  "result": null
+  "result": {
+    "status": "PASS",
+    "summary": "DIAGNOSIS (not a code defect: a performance finding; no fix implemented). Measured on partition 1 of the 12-slice space (MIX_TEST_PARTITION=1 mix test --partitions 12 --slowest N; 542 tests, 403 tenant provisionings, 19 provisioning modules, 11 excluded), two runs, instrumentation temporary and reverted. Run A (default logger): 'Finished in 482.8 seconds (20.9s async, 461.9s sync)'; clone n=403 sum=332.8s mean=825.7ms median=723.8ms max=6544ms; provisioned_tenant! sum=341.3s; teardown (DROP SCHEMA CASCADE) n=384 sum=15.9s mean=41.3ms; fixture share (341.3+15.9)/482.8 = 74.0%. Run B (Logger :warning): 'Finished in 452.6 seconds (15.4s async, 437.1s sync)'; clone n=403 sum=338.2s mean=839.2ms median=710.6ms max=3107ms; provisioned_tenant! sum=346.7s; teardown n=384 sum=17.1s; fixture share (346.7+17.1)/452.6 = 80.4%. Debug logging is NOT the cause (A vs B clone mean 826 vs 839 ms). Tables per clone: 50 (+schema_migrations). Per-clone mean step costs (run B): LIKE loop 620.9ms (~12.4ms/table), index rename 110.3ms, FK re-add 54.6ms, sequences 13.8ms, triggers 24.3ms, seed+Registration 13.1ms, CREATE SCHEMA 2.2ms. ROOT CAUSE: Letflow.TenantFixture.provisioned_tenant!/1 (test/support/tenant_fixture.ex, default template: :clone) calls Letflow.Test.TenantTemplate.clone_tenant_schema!/1 -> do_clone/2 (test/support/tenant_template.ex) once per TEST (setup), and registers on_exit teardown/2 doing DROP SCHEMA IF EXISTS ... CASCADE; the sync modules that dominate run serially, so ~50 server-side CREATE TABLE ... LIKE INCLUDING ALL DDLs per test are on the critical path. Isolation today = fresh schema per test in Sandbox :auto mode (committed), dropped at teardown. Server-side microbenchmarks on a quiet DB (57 template tables): one-transaction LIKE loop 399-543ms (median ~420ms) with no round trips, drop 12-21ms; TRUNCATE of all 57 tables 932-1055ms (WORSE than a clone, so naive truncate-reset is ruled out); TRUNCATE of a subset ~8ms per table (1 table 6ms, 5: ~39ms, 10: ~88ms, 20: ~160ms); probing all tables for rows 3.6ms. RECOMMENDED LEVER: (c) refined = module-scoped pooled tenant with DIRTY-TABLE-ONLY reset (probe, truncate only dirty tables, re-seed event_type_registry/schema_migrations, reset public rows keyed to the tenant), opt-in per module via a fixture option with default unchanged, roll out from the top-clone modules (IdentityIdHardeningTest 114 clones, PromotionScopeTest 51, StoreTest 39, ServiceTaskWiringTest 32, EngineRequiredOutputsTest 25). Estimated (not measured) partition test phase ~483s -> ~160-180s (about -63%): 19 clones (~16s) + 403 x ~50-100ms reset. Rejected: (a) clone-only-needed tables (high blast radius, only shrinks the LIKE loop), (b) read-only shared tenant / sandbox rollback (heavy modules mutate; contradicts the fixture's Sandbox :auto contract of ISS-0113; sequences not rolled back), (d) CREATE DATABASE TEMPLATE (pool/Sandbox/public tables bound to one DB per partition; not measured), server-side single-round-trip (floor is server DDL ~420ms). Not a recurrence: ISS-0427 introduced this clone (replay 2259ms -> clone); this is the next lever on the same path. Isolation risk to carry into design: public-schema rows keyed to the tenant (ISS-0410 class), sequences, seeded tables, tests that DDL the tenant schema or drop it (RegistryTenantSchemaMissingTest, TenantProvisioningTest, the 22 template: :replay sites) must keep a fresh clone. Constraints binding any fix: no change to required CI check names; no paid runners; acceptance criteria (5-run before/after per lever, mutation isolation proof). CAVEATS: one partition (1/12), one run per configuration, shared Docker host with other containers; suite-wide numbers are extrapolation, the implementer must re-measure 5x. Working tree: instrumentation reverted via git checkout; `git status --porcelain lib/ test/ scripts/` was empty.",
+    "artifacts_out": [
+      "docs/issues/ISS-1042.yaml",
+      "handoffs/WF03-ISS1042-20261012/step-01-issue-fixer.json"
+    ],
+    "issues": [
+      {
+        "severity": "MINOR",
+        "description": "Handoff started_at is null at claim; left null per HANDOFF_PROTOCOL 1.2 (ORCH's field).",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "Queue text calls ISS-0410 'blocked'; docs/issues/ISS-0410.yaml says status: no_defect. ISS-1040/ISS-1041 named as siblings do not exist locally or on any remote branch.",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "Measurement ran on one partition and one run per configuration on a shared Docker host (--slowest implies --trace so max_cases was 1); the 5-run before/after belongs to the implementation step. The estimated post-fix gain is an extrapolation from micro-benchmarks, not a measurement.",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "Observation, not filed: Letflow.LoginDiscoveryRuntimeConfigTest has a single 36.8 s test (8% of the measured partition) unrelated to the tenant fixture; a possible separate speed item.",
+        "affected_requirement": null
+      }
+    ],
+    "git_evidence": {
+      "branch_name": "feature/WF03-ISS1042-20261012",
+      "commit_sha_list": [],
+      "remote_branch": "origin/feature/WF03-ISS1042-20261012",
+      "push_status": "skipped",
+      "pr_url": null,
+      "pr_create_error": null
+    },
+    "next_action": "Route to CODE-DESIGNER with the recommended lever (c: module-scoped pooled tenant, dirty-table-only reset, opt-in per module). owned_modules: test/support/tenant_fixture.ex, test/support/tenant_template.ex, test/support/tenant_fixture_dispatch_test.exs, test/letflow/support/tenant_fixture_test.exs, plus per-module opt-ins starting with test/letflow/api/identity_id_hardening_test.exs and test/letflow/routers/promotion_scope_test.exs. Design must address public-schema leakage (ISS-0410 class), sequences, seeded tables, DDL/drop tests, and the mutation isolation proof."
+  }
 }

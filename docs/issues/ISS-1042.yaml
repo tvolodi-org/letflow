@@ -1,0 +1,121 @@
+id: ISS-1042
+title: "Per-test tenant schema clone from tenant_template (+ DROP SCHEMA teardown) is ~75-80% of test-phase wall time on a measured partition; pick the lever that removes the per-test clone without cross-test leakage"
+discovered_by: supervisor (queue task Q-1042, reported 2026-10-08)
+discovered_in_run: WF03-ISS1042-20261012
+discovered_at: "2026-10-08T00:00:00Z"
+severity: MEDIUM
+failure_class: performance
+occurrence: 1
+owner: "CI lane / test infrastructure (test/support/tenant_fixture.ex, test/support/tenant_template.ex); no tenant-data production path"
+scope: tooling
+stage: S1
+tags: [ci, test-performance, tenant-template, follow-up-of-Q-1037]
+queue_ref: Q-1042
+github_ref: GH-2381
+description: >
+  Follow-up of Q-1037 (backend-gate sharding), the next lever after sharding. Reported evidence:
+  ~0.5 s average per test, ~66 min cumulative test work per backend run (7.7k tests), a large share
+  believed to be the per-test tenant schema clone. NOW MEASURED (WF03-ISS1042-20261012, partition 1
+  of the 12-slice global partition space, `MIX_TEST_PARTITION=1 mix test --partitions 12`, 542
+  tests, 403 tenant provisionings): the belief is correct and understated. Letflow.TenantFixture
+  .provisioned_tenant!/1 (default template: :clone) runs Letflow.Test.TenantTemplate
+  .clone_tenant_schema!/1 once per test (CREATE SCHEMA + 50 x CREATE TABLE (LIKE tenant_template.X
+  INCLUDING ALL) + index rename + FK/sequence/trigger re-add + seed copy + Registration insert, in
+  one transaction) and an on_exit teardown that does DROP SCHEMA ... CASCADE. Over the measured
+  partition the fixture (provision + completeness assert + teardown) is 74.0% (run A, default
+  logger level) and 80.4% (run B, Logger at :warning) of the whole test-phase wall time. Mean clone
+  839 ms / median 711 ms / max 3107 ms (run B), 50 tables per clone. The cost is server-side DDL
+  (CREATE TABLE LIKE INCLUDING ALL ~12 ms per table inside the test, ~7 ms per table on a quiet
+  database), not round trips and not debug logging.
+measurements:
+  environment: >
+    Windows 11 host, 16 logical CPUs, Docker postgres:16 (fsync on, synchronous_commit on,
+    shared_buffers 128MB) with other containers running on the same host, one partition only
+    (1/12 of the suite), ONE run per configuration (the acceptance criterion's 5-runs-per-lever is
+    for the implementation step, not this diagnosis). Both runs used --slowest, which implies
+    --trace and therefore max_cases: 1; the partition is dominated by non-async modules anyway
+    (ExUnit: 20.9 s async / 461.9 s sync in run A, 15.4 s / 437.1 s in run B).
+  run_A_default_logger_debug:
+    wall: "482.8 s (Finished in 482.8 seconds (20.9s async, 461.9s sync))"
+    tests: "Result: 542 passed (1 property, 541 tests), 11 excluded"
+    provisioned_tenant_calls: 403
+    clone_sum: "332.8 s (mean 825.7 ms, median 723.8 ms, max 6544 ms)"
+    provisioned_tenant_sum: "341.3 s (mean 822.6-846.8 ms)"
+    teardown: "n=384, sum 15.9 s, mean 41.3 ms, median 37.1 ms, max 238 ms"
+    fixture_share_of_wall: "(341.3 + 15.9) / 482.8 = 74.0%"
+  run_B_logger_warning:
+    wall: "452.6 s (Finished in 452.6 seconds (15.4s async, 437.1s sync))"
+    tests: "Result: 542 passed (1 property, 541 tests), 11 excluded"
+    provisioned_tenant_calls: 403
+    clone_sum: "338.2 s (mean 839.2 ms, median 710.6 ms, max 3107 ms)"
+    provisioned_tenant_sum: "346.7 s (mean 860.2 ms, median 730.5 ms)"
+    teardown: "n=384, sum 17.1 s, mean 44.6 ms, median 37.8 ms, max 314 ms"
+    fixture_share_of_wall: "(346.7 + 17.1) / 452.6 = 80.4%"
+    tables_per_clone: 50 (expected_tenant_tables) plus schema_migrations
+    per_step_mean_per_clone_ms:
+      create_schema: 2.2
+      like_loop_50_create_table: 620.9
+      rename_indexes_to_template_names: 110.3
+      readd_foreign_keys: 54.6
+      recreate_sequences: 13.8
+      readd_triggers_and_functions: 24.3
+      seed_copy_and_registration_insert: 13.1
+  provisioning_per_module_in_partition: >
+    19 test modules provisioned 403 tenants (e.g. Letflow.Api.IdentityIdHardeningTest 114,
+    Letflow.Routers.PromotionScopeTest 51, Letflow.Definitions.StoreTest 39,
+    Letflow.Engine.ServiceTaskWiringTest 32, Letflow.EngineRequiredOutputsTest 25). A tenant per
+    module instead of per test would be 19 clones for the same partition.
+  server_side_microbenchmarks_quiet_db: >
+    One transaction, no client round trips, 57 template tables: CREATE SCHEMA + LIKE loop
+    399-543 ms over 8 iterations (median ~420 ms), DROP SCHEMA CASCADE 12-21 ms. TRUNCATE of all 57
+    tables of a clone in one statement: 932-1055 ms (5 iterations) -- slower than cloning, so a
+    naive truncate-everything reset is ruled out. TRUNCATE of a subset in one statement: 1 table
+    6 ms, 5 tables ~39 ms, 10 tables ~88 ms, 20 tables ~160 ms (~8 ms per table). Probing all 57
+    tables for "has any row" (SELECT 1 LIMIT 1 each, server side) 3.6 ms.
+  extrapolation_not_measured: >
+    74% of tests in the partition provision a tenant (403/542). 7,117 test macros in 455 files;
+    182 files / 838 call sites use provisioned_tenant!; 14 files use setup_all (2 of them with the
+    fixture). The suite-wide cumulative figure was not re-measured (one partition only).
+registry_lookup:
+  recurrence: "No. Same cost CLASS as ISS-0427 (resolved: replay of 52 migrations, 2259 ms per schema, replaced by the template clone), now the next lever on the same path; not a regression of that fix."
+  related:
+    - "ISS-0427 (resolved) introduced the clone this issue measures; its parity checks are the isolation oracle any new lever must keep."
+    - "ISS-0410 (status: no_defect in docs/issues, NOT blocked as the queue text says) is background for cross-test leakage via global service_catalog rows; any shared-tenant lever must treat PUBLIC-schema rows keyed to the tenant, not only the tenant schema."
+    - "ISS-0113 / ISS-0423 (resolved): fixture sets Sandbox.mode(:auto) unconditionally and deliberately does not restore :manual; a second mid-test Sandbox.mode call is documented as harmful. This rules out a Sandbox-rollback design without a redesign of that contract."
+    - "ISS-0515 / ISS-0842 (resolved): template build race / stale-template rebuild; ensure_template! cost is once per partition (13.6 ms when already built) and is NOT the cost here."
+    - "ISS-1037 / ISS-1038 (resolved, Q-1037 family): sharding and capture-log determinism; unrelated code, same umbrella."
+    - "ISS-1040 / ISS-1041: no such files exist in docs/issues or on any remote branch as of 2026-10-12."
+affected_files:
+  - test/support/tenant_fixture.ex
+  - test/support/tenant_template.ex
+  - test/support/tenant_fixture_dispatch_test.exs
+  - test/support/tenant_template_test.exs
+  - test/letflow/support/tenant_fixture_test.exs
+recommended_lever: >
+  (c) refined: a module-scoped pooled tenant with a DIRTY-TABLE-ONLY reset, opt-in per module via
+  a fixture option (default stays a fresh clone), rolled out starting with the highest-clone
+  modules. Per test: probe the tenant schema's tables for rows in one query, TRUNCATE only the
+  dirty ones (RESTART IDENTITY, one statement), re-seed event_type_registry/schema_migrations if
+  touched, and reset any public-schema rows keyed to that tenant; per module: one clone via the
+  existing do_clone path. Keeps the committed / Sandbox :auto semantics unchanged. Estimated gain
+  on the measured partition: ~357 s (run A fixture total) -> ~16 s (19 clones) + ~403 x
+  (~50-100 ms reset) = ~35-55 s, i.e. test phase 483 s -> ~160-180 s (about -63%); an ESTIMATE
+  from the micro-benchmarks, to be replaced by the implementer's measured 5-run before/after.
+levers_evaluated:
+  a_clone_only_needed_tables: "Rejected as primary. Per-table cost is ~12 ms, so clone cost scales with table count, but FK closure and the 182-file blast radius (each call site would declare its tables) make it high-effort for <=5x on at most the LIKE loop; also does not remove the 110 ms index-rename or 55 ms FK re-add steps. Possible add-on."
+  b_shared_readonly_tenant_or_sandbox_rollback: "Rejected as primary. A truly read-only shared tenant helps few modules (the heavy ones mutate: promotions, definitions, identity writes). Sandbox-rollback needs tests in manual mode, contradicting the fixture's :auto contract (ISS-0113) and tests that commit across connections; sequences also are not rolled back. High leak/flake risk."
+  c_pooled_tenant_per_module_with_reset: "RECOMMENDED in the dirty-only form. Measured: truncate-all (932-1055 ms) is WORSE than a clone, so the lever only pays with dirty-table detection (probe 3.6 ms; truncate ~8 ms per dirty table)."
+  d_create_database_template: "Rejected: not applicable. The Repo pool, Sandbox ownership and the public-schema tables (tenants, tenant_schemas, ...) are bound to one database per partition (letflow_test<i>); a database per test would need a per-test pool and would not clone faster than ~50 table DDLs of a small schema. Not measured."
+  e_server_side_single_roundtrip: "Rejected by measurement: the server-side one-transaction LIKE loop alone costs ~420 ms for 57 tables; round trips are not the floor."
+constraints_on_any_fix:
+  - "No change to required CI check names (Backend gate (mix letflow.check), Frontend gate (npm run check), and the aggregator)."
+  - "No paid runners."
+  - "Isolation proof: a test that leaves data behind (tenant schema rows AND public rows keyed to the tenant, sequences, and an UPDATE to a seeded table such as event_type_registry) must not leak into the next test; mutation test required."
+  - "Keep the existing clone parity checks (assert_clone_parity!, template_self_check!) green and keep template: :replay as the escape hatch for migration-replay/schema-vanish tests."
+  - "Before/after wall time of the test phase, 5 runs each, with run ids; instrumentation used for diagnosis was local and reverted."
+acceptance_criteria:
+  - "Instrumented measurement: clone time per test, tables per clone, share of total test time (numbers quoted) -- DONE in this diagnosis (see measurements)"
+  - "One lever implemented with before/after wall time of the test phase (5 runs each, run ids)"
+  - "Isolation proof: a test leaving data behind does not leak into the next test (mutation test)"
+  - "No change to required check names; no paid runners"
+status: open
