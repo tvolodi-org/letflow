@@ -8,8 +8,8 @@
   "file": "handoffs/WF03-ISS1053SHARDFLAKE-20261012/step-05-release-validator.json",
   "created_at": "2026-10-12T15:10:00Z",
   "started_at": null,
-  "completed_at": null,
-  "status": "PENDING",
+  "completed_at": "2026-10-12T19:30:00Z",
+  "status": "COMPLETED",
   "priority": "NORMAL",
   "context": {
     "stage": "S1",
@@ -32,5 +32,34 @@
   },
   "task": {
     "description": "WF-03 Step 5 RELEASE-VALIDATOR (.claude/agents/release-validator.md) for Q-1053 / GH #2399 (local record docs/issues/ISS-1062.yaml), branch feature/WF03-ISS1053SHARDFLAKE-20261012, implementation commit 22e9d0e54. Independently re-derive acceptance; trust nothing from the step-03 report. Acceptance (queue): (1) the cause of the early exit is diagnosed from a captured partition log, or capture is added so the next occurrence leaves one; (2) a KEEP_LOGS-style capture keeps stub partition logs when a partition exits without its ready-file and the failure message names the path (here: the failure_context helper appends tmp-tree listing and logs to assertion failures - judge whether this meets the intent); (3) the test wait remains bounded and the failure still reported when a ready-file never appears; (4) assertions on the ready-file-to-global-index pairing unchanged; (5) five consecutive local runs under CPU load recorded. Plus the supervisor family scope: every wall-clock-window test in test/scripts/test_parallel_*_test.exs fixed deterministically, a mutant per test, no assertion weakened.\n\nDO YOURSELF, each mix invocation under the machine-wide mutex (ONE BEAM at a time, one acquisition per invocation; these tests use a stub mix and no DB unless one needs it): L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2>/dev/null; do sleep 20; done; trap 'rmdir \"$L\" 2>/dev/null' EXIT; cd /c/Users/tvolo/dev/ai-dala/letflow && LETFLOW_DB_PORT=5499 MIX_ENV=test <ONE mix invocation> 2>&1. Throwaway postgres only if needed (docker run -d --rm --name pg1053v -e POSTGRES_USER=letflow -e POSTGRES_PASSWORD=letflow -e POSTGRES_DB=letflow_dev -p 5499:5432 postgres:16; remove it afterwards).\n(a) Fail-first: copy scripts/test_parallel.sh from origin/main into place (git show origin/main:scripts/test_parallel.sh), run test/scripts/test_parallel_race_regression_test.exs, quote the failures, then git checkout the file back and confirm a clean tree.\n(b) With the fix: run all test/scripts/test_parallel_*_test.exs files in ONE mix invocation; quote counts. NOTE the implementer reports the orphan test \"EXIT-trap path\" is intermittently hanging on this Windows git-bash host (also on the unfixed script, group kill failing); run that file 3 times and report the rate; judge whether it is a pre-existing host artefact (decide from evidence, e.g. does it also hang on origin/main's script) and whether CI Linux is exposed.\n(c) Mutants: apply MU-C1a (in-loop wait site left unfixed) and MU-B1 (ready-file then kill -0 order) alone, run the race file, confirm the named test fails, restore (git checkout) and confirm a clean tree.\n(d) mix format --check-formatted; bash -n scripts/test_parallel.sh; git diff --stat origin/main...HEAD lists only expected files (scripts/test_parallel.sh, the test files, test/support/test_parallel_capture.ex, docs/anti-patterns.md, docs/issues/ISS-1062.yaml, handoffs); git merge-tree --write-tree origin/main HEAD clean (origin/main may have advanced: say so).\n(e) one end-to-end run of the real runner with a small slice: TEST_PARALLEL_N=2 TEST_PARALLEL_SHARD=1/50 bash scripts/test_parallel.sh under the mutex (needs the DB: throwaway postgres on 5499 with LETFLOW_DB_PORT=5499); quote the combined line.\nReport real output. Verdict PASS/FAIL. Foreground only; no Monitors. Result into your handoff (COMPLETED, result.status, no BOM, LF, artifacts_out under result, no self-reference); pull --rebase (the REVIEWER writes a sibling handoff concurrently), commit, push with bounded retry; message ends: Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>.\n"
+  },
+  "result": {
+    "status": "PASS",
+    "verdict_note": "Technical acceptance re-derived and PASS. One BLOCKING merge-prep condition (C1) outside the code: record id collision with origin/main.",
+    "checks": {
+      "a_fail_first": "origin/main script vs race_regression test: Result 1/7 passed, 6 failed (T1, T2a x2, T2b x2, T3) incl. \"finished_pid: unbound variable\" and watchdog subshell rm -rf of tmp dir; tree restored clean.",
+      "b_all_test_parallel_exs": "one mix invocation over test/scripts/test_parallel_*_test.exs: Result: 58 passed, 0 failed (134 s).",
+      "b_orphan_exit_trap_rate": "orphan file alone, fixed script: 1 pass / 4 fail of 5 runs (fail = EXIT-trap test, 40 s pipe not released). origin/main script+test: 1 pass / 3 fail of 4 runs, same single test. Pre-existing host artefact: scripts EXIT-trap/group-kill code is unchanged by the fix and fails at the same rate on main. Not shown to fail in the combined 58-test run. Root cause on this Windows git-bash host not isolated (a bare set -m group kill does work here). CI Linux exposure: the test passed on CI-shape previously per ISS record occurrence list only for other tests; not verified on Linux here -- unverified.",
+      "c_mutants": "MU-C1a (in-loop wait site unfixed): T2a survives-unset and T2a real-failure tests fail (5/7). MU-B1 (ready-file then kill -0): T1 fails (6/7). Both restored via git checkout, tree clean.",
+      "d_static": "mix format --check-formatted exit 0; bash -n scripts/test_parallel.sh OK; diff vs origin/main is only expected files (scripts/test_parallel.sh, 4 test files + capture helper test/support/test_parallel_capture.ex, docs/anti-patterns.md, docs/issues/ISS-1062.yaml, handoffs). origin/main has ADVANCED to c82ca981b; git merge-tree conflicts on docs/issues/ISS-1062.yaml (add/add) and handoffs/registry.json.",
+      "e_end_to_end": "TEST_PARALLEL_N=2 TEST_PARALLEL_SHARD=1/50, throwaway pg on 5499: \"combined: 100 tests, 0 properties, 0 failures (100/100 passed) -- 2/2 partitions reported (slice 1..2 of 100)\" exit 0.",
+      "criterion_5_five_runs_under_load": "not run by this validator (not in step task list); orphan file 5x recorded above is the only repetition."
+    },
+    "acceptance": {
+      "1": "met: failure context (tmp tree + logs) captured on failure; RC-A..RC-D fixed",
+      "2": "met: failure_context helper appends tree listing and partition/create logs to assertion failures and names the preserved path; meets intent",
+      "3": "met: waits remain bounded (40 s @prompt_ms, hung-partition test passes)",
+      "4": "met: ready-file/global-index assertions unchanged (shard test passes)",
+      "5": "not independently verified"
+    },
+    "conditions": [
+      "C1 BLOCKING for merge: origin/main already has docs/issues/ISS-1062.yaml for a different issue (ci.yml path-filter gap, Q-1059/GH #2411). This branch also adds ISS-1062.yaml => add/add conflict and ID collision. Renumber this record to a free id and update references in docs/anti-patterns.md, code comments, handoffs; resolve handoffs/registry.json conflict on rebase.",
+      "C2: the EXIT-trap orphan test remains flaky on the Windows host (pre-existing); track separately, not introduced by this change."
+    ],
+    "artifacts_out": [
+      "scripts/test_parallel.sh",
+      "test/scripts/test_parallel_race_regression_test.exs",
+      "test/support/test_parallel_capture.ex"
+    ]
   }
 }
