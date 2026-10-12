@@ -7,9 +7,9 @@
  "to_agent": "TEST-DESIGN-VALIDATOR",
  "file": "handoffs/WF03-ISS1040-20261012/step-04b-test-design-validator.json",
  "created_at": "2026-10-12T10:09:24Z",
- "started_at": null,
- "completed_at": null,
- "status": "PENDING",
+ "started_at": "2026-10-12T10:15:52Z",
+ "completed_at": "2026-10-12T10:15:52Z",
+ "status": "COMPLETED",
  "priority": "NORMAL",
  "context": {
   "stage": "S1",
@@ -37,5 +37,21 @@
    "verdict"
   ]
  },
- "result": null
+ "result": {
+  "status": "PASS",
+  "summary": "ISS-1040 test change validated independently. Both observation windows replaced by await_own_child/2 (own-child match via $callers, 5000 ms monotonic deadline, 5 ms retry) with timeout_ms 30_000 and test-controlled release by Process.exit(child,:kill); no fixed ~200 ms poll inside a 300 ms script remains. No findings.",
+  "checks": {
+   "a_acceptance_1": "PASS: diff 5527a9dbd shows Enum.reduce_while(1..20)+Process.sleep(10) and timeout_ms 300 removed from both tests (AC-5 in-flight test and nil-max_heap_words test); script life ends only when the test kills the child; 30_000 ms is a ceiling, not the observation window. Timer-free terminal assertion {:error,\"Letflow.Engine.Lua.Executor task crashed: :killed\"}.",
+   "b_baseline": "MIX_ENV=test LETFLOW_DB_PORT=5499 mix test test/letflow/engine/lua/executor_test.exs --include lua_wallclock_race -> \"Result: 60 passed\" (incl. exactly-11 AST guard test and nested isolated-partition test).",
+   "b_M1_Task_async": "Throwaway worktree outside repo (detached at HEAD, deps/_build copied), executor.ex:367 Task.Supervisor.async_nolink(TaskSupervisor, fn) -> Task.async(fn): \"Result: 57/60 passed\". Failures by assertion: AC-5 in-flight test (\"expected at least one in-flight child while the script is running\", code: assert is_pid(child), ...) and nil-max_heap_words test (\"a nil max_heap_words call must still run under Letflow.Engine.Lua.TaskSupervisor\"); third failure is the nested isolated-partition test which re-runs the same two inside the mutant (expected).",
+   "b_M2_lost_callers": "Same worktree, mutant: child still spawned under Letflow.Engine.Lua.TaskSupervisor via async_nolink but body begins with Process.delete(:\"$callers\") (compiles; start_child cannot be used to drop $callers because Task.Supervisor records them itself). \"Result: 57/60 passed\"; the same two target tests fail by assertion with the same messages, plus the nested partition test. This proves the own-child filter is load-bearing: a supervised child exists but is not matched.",
+   "b_M3_any_child_guard": "Argued from code, not run: await_own_child/2 filters children by caller_pid in Keyword.get(dict,:\"$callers\",[]); the replaced check was a global Task.Supervisor.children(TaskSupervisor) != [] which a sibling async test child satisfies. M2 demonstrates the filter rejects a supervised child that is not this call's own, so the sibling false-positive class is closed. Residual: Process.info(pid,:dictionary) returning nil (child exited between children/1 and info/2) is handled as non-match, retried until deadline.",
+   "c_spot_check": "/c/Users/tvolo/AppData/Local/Temp/claude/stress1040.sh 201 210 (6 busy loops, per-iteration mutexed BEAM, mix test --include lua_wallclock_race --exclude <nested partition test> test/letflow/engine/lua --max-cases 32 --seed N): seeds 201..210 each \"Result: 250 passed, 1 excluded\", \"PASS COUNT 10\".",
+   "d_tag_count_and_nested": "Test names and the 11 @tag :lua_wallclock_race nodes unchanged; baseline run above passes both the exactly-11 AST guard and the nested isolated-partition test (60/60).",
+   "e_no_lib_change": "git diff --name-only origin/main...HEAD -- lib config priv excluding lib/letflow/design/ is empty; test commit 5527a9dbd touches only executor_test.exs, docs/anti-patterns.md and the step-03 handoff.",
+   "f_cleanliness": "Worktree removed and pruned; git status --porcelain lib/ test/ empty (0 lines) in main tree; throwaway Postgres iss1040-tdv-pg removed; mutex dir released."
+  },
+  "findings": [],
+  "notes": "Pre-existing type warning at executor_test.exs:484 (refute match?) unchanged and out of scope. Spot-check was 10 seeds only per instruction; 100-run evidence is from step 03."
+ }
 }
