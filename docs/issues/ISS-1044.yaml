@@ -1,0 +1,28 @@
+id: ISS-1044
+title: "DESIGN DECISION (no implementation): shipped-definition guard forbids the distinct_from pairs REQ-465 needs on escalate-disburse-loan-to-credit-director; the same credit director can approve, then complete the escalation that releases payment"
+discovered_by: letflow-2 (BA/UAT lane), reported by letflow-3 while adopting distinct_from in REQ-465
+discovered_in_run: "REQ-465 / Q-1028 adoption, 2026-10-12"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: MAJOR
+owner: "BA-<VERTICAL> (meridian) with the letflow-9a design-intent session; SECURITY-REVIEWER verdict required before any adoption PR merges"
+scope: design
+description: >
+  Found while adopting distinct_from in REQ-465. The shipped-definition guard
+  (test/letflow/definitions/required_outputs_shipped_definitions_test.exs) asserts zero
+  single-member candidate pairs per shipped definition. In the meridian loan definition,
+  l2-approval, committee-vote-director and escalate-disburse-loan-to-credit-director all
+  route to role-credit-director, which has one holder. The distinct_from that REQ-465
+  asks for on the escalation node is the pair the guard forbids, so the adoption cannot be
+  completed as written. Security-relevant: separation of duties on a payment path. Risk as
+  reported by letflow-3 (not traced in a run): the person who completed l2-approval can
+  complete escalate-disburse-loan-to-credit-director after a disburse-loan timeout, and that
+  escalation can release the payment.
+resolution: >
+  Decided by letflow-9a (advisory design session), relayed by the supervisor on 2026-10-12:
+  option (b), the guard stays unchanged. The escalation node moves to a new non-approver
+  routing role (role-loan-ops-lead) and carries distinct_from with all six approval nodes.
+  Implementation is filed as REQ-467, queue Q-1048 / GH #2390 (ISS-1048). Closed as decided;
+  this record carries no implementation.
+queue_ref: Q-1044
+github_ref: GH-2386
+status: closed-decided
