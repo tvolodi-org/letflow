@@ -124,7 +124,7 @@ defmodule Letflow.Scripts.RegulatoryReviewTimerPathFixtureTest do
   # bumped it to "1.6" (remediation-subprocess is now a HUMAN_TASK, not an
   # attribute-less SUB_PROCESS). ISS-1015 / Q-997 bumped it to "1.7" (every
   # HUMAN_TASK carries a form_schema).
-  defp check_t1(doc), do: ok_if(doc["version"] == "1.9", {:version, doc["version"]})
+  defp check_t1(doc), do: ok_if(doc["version"] == "1.10", {:version, doc["version"]})
 
   defp check_t2(doc),
     do:

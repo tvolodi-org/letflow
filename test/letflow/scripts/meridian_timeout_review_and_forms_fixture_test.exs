@@ -126,12 +126,12 @@ defmodule Letflow.Scripts.MeridianTimeoutReviewAndFormsFixtureTest do
   ]
 
   describe "versions" do
-    test "loan is 1.9 and regulatory is 1.7 (the bumps force the QA re-seed); seed header names both" do
-      assert loan()["version"] == "1.13"
-      assert reg()["version"] == "1.9"
+    test "loan is 1.14 and regulatory is 1.10 (the bumps force the QA re-seed); seed header names both" do
+      assert loan()["version"] == "1.14"
+      assert reg()["version"] == "1.10"
       script = File.read!(Path.expand("../../../scripts/seed_meridian_definition.sh", __DIR__))
-      assert script =~ ~s("Loan Origination" v1.13 )
-      assert script =~ ~s("Regulatory Compliance Review" v1.9 )
+      assert script =~ ~s("Loan Origination" v1.14 )
+      assert script =~ ~s("Regulatory Compliance Review" v1.10 )
     end
   end
 

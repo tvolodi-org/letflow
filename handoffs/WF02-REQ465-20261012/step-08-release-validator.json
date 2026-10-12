@@ -1,0 +1,139 @@
+{
+  "handoff_id": "6833cae3-6c36-4b6f-b2a4-0bdb5db7d59d",
+  "run_id": "WF02-REQ465-20261012",
+  "workflow_id": "WF-02",
+  "step": "08",
+  "from_agent": "RELEASE-VALIDATOR",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF02-REQ465-20261012/step-08-release-validator.json",
+  "created_at": "2026-10-12T07:14:09Z",
+  "started_at": "2026-10-12T07:14:09Z",
+  "completed_at": "2026-10-12T07:24:37Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": ["REQ-465"],
+    "queue_task": 1028,
+    "gh_issue": 2343,
+    "branch_name": "feat/REQ-465-adopt-distinct-from-meridian-Q-1028",
+    "base_commit": "6d46832c",
+    "code_validated_commit": "18f8d76b",
+    "head_validated": "18f8d76b",
+    "head_validated_note": "Re-validation after the step-06 FAIL on ddefe829. Fix commits validated here: 9c40d303 (regulatory description correction; loan test sandbox_auto! removed) and 18f8d76b (open_questions decision item). Code, fixtures, tests and scripts changed by 9c40d303 and 18f8d76b only; the earlier change set is 6d46832c..43e7aa81.",
+    "related_handoff_ids": ["5c2bd94f-0b6e-4493-9bbc-5a05a2901517"],
+    "artifacts_in": [
+      "handoffs/WF02-REQ465-20261012/step-06-release-validator.json (FAIL verdict on ddefe829, re-validated here)",
+      "handoffs/WF02-REQ465-20261012/step-07-doc-updater.json (open_questions item spec)",
+      "test/fixtures/qa/meridian_regulatory_compliance_review_process_definition.json",
+      "test/fixtures/qa/meridian_loan_origination_process_definition.json",
+      "test/letflow/engine/req465_meridian_loan_distinct_from_test.exs",
+      "docs/requirements.yaml (REQ-465 open_questions, last item)"
+    ],
+    "owned_modules": []
+  },
+  "task": {
+    "description": "STEP 08 RELEASE-VALIDATOR re-validation of REQ-465 (queue task 1028, GH #2343) on 18f8d76b after the step-06 FAIL. Verify the two blockers fixed in 9c40d303 and the open_questions decision in 18f8d76b. Re-run compile with warnings-as-errors, format check, the 13 scoped test files, boundaries, static check, the REQ-464 validator as pure functions, the regulatory fixture description against its edges, and lint_handoffs. Do NOT run the full suite (scripts/test_parallel.sh); CI runs it. Write this verdict, commit this file only, do not push. Do not edit code, fixtures, tests or docs.",
+    "acceptance_criteria": [
+      "blocker 1: regulatory fixture description states the edges as they are (findings-sign-off reached via e7 and e9; ceo-override reached only via timeout-findings-sign-off -> cro-sign-off-timeout -> e13)",
+      "blocker 2: req465_meridian_loan_distinct_from_test.exs no longer calls sandbox_auto!; the scoped run is green without it",
+      "MIX_ENV=test mix compile --force --warnings-as-errors exits 0",
+      "mix format --check-formatted exits 0 on every changed .ex/.exs file",
+      "the 13 scoped test files pass with zero failures",
+      "mix letflow.check_boundaries and mix letflow.check.static exit 0",
+      "REQ-464 validator (Graph.validate_graph/1, Graph.validate_node_attributes/1, RoleBinding.single_member_pairs/1) reports valid with no violations for both changed definitions",
+      "mix letflow.lint_handoffs --dir handoffs/WF02-REQ465-20261012 exits 0",
+      "open_questions decision item is the last item of REQ-465 exactly as specified, REQ-465 stays in_progress, REQ-466 unchanged, docs/requirements.yaml parses",
+      "each REQ-465 acceptance criterion is met by current code and tests (AC1-AC8)"
+    ]
+  },
+  "rework_count": 1,
+  "max_rework": 3,
+  "result": {
+    "status": "PASS",
+    "verdict": "PASS",
+    "summary": "PASS for the REQ-465 change set at 18f8d76b, validated as the partial adoption it is. Both step-06 blockers are fixed and verified: the regulatory description now matches the edges, and the loan test no longer calls sandbox_auto! (the scoped run is green without it). Every technical gate passes on this run: forced compile with warnings-as-errors exit 0 (360 files, 0 warnings); format check exit 0; 13 scoped test files Result: 186 passed, exit 0, and the same set with --warnings-as-errors exit 0 with 0 compiler warnings; boundaries 973 edges 0 violations exit 0; static 49 files 0 violations exit 0; REQ-464 validator valid with no violations and zero candidate pairs for both definitions; lint_handoffs exit 0 over the six existing files; the open_questions decision item is the sixth and last REQ-465 item, parses, REQ-465 stays in_progress and REQ-466 is unchanged. REQ-465 is NOT released as done: the escalation residual (escalate-disburse-loan-to-credit-director does not name l2-approval or committee-vote-director) is the decided partial adoption under Q-1044 / GH #2386, so the status stays in_progress until the follow-up Q-1048 / GH #2390 lands. The full suite and mix letflow.check.test were not run here by instruction (the latter shells to the full suite); the PR's CI full-suite run is the remaining gate and must be green on Linux before merge.",
+    "evidence": {
+      "step1_compile": "MIX_ENV=test mix compile --force --warnings-as-errors -> 'Compiling 360 files (.ex)', 'Generated letflow app', EXIT=0.",
+      "step2_format": "mix format --check-formatted on the 9 changed .ex/.exs files (git diff --name-only origin/main...HEAD) -> FORMAT_EXIT=0, no output.",
+      "step3_scoped_tests": "13 files, all present (req462 adoption test is at test/letflow/definitions/) -> MIX_TEST_EXIT=0; 'Finished in 32.8 seconds'; 'Result: 186 passed'; no failures, no skips.",
+      "step3b_warnings_as_errors": "same 13 files with --warnings-as-errors -> WAE_EXIT=0; 'Finished in 33.6 seconds'; 'Result: 186 passed'; compiler-style 'warning:' lines 0; dead-default substring 'default values for the optional arguments' hits 0.",
+      "step4_boundaries_static": "mix letflow.check_boundaries -> 'mix letflow.check_boundaries: OK -- 973 edges checked, 0 violations', EXIT=0. mix letflow.check.static -> '49 file(s) checked, 0 violation(s) across 0 file(s)', then 'mix letflow.check_boundaries: OK -- 973 edges checked, 0 violations', EXIT=0.",
+      "step5_req464_validator": "Graph.validate_graph/1 -> %{valid: true, violations: []} for both definitions. Graph.validate_node_attributes/1 -> %{valid: true, violations: []} for both. RoleBinding.single_member_pairs/1 -> [] for both. Non-vacuous: 9 nodes (loan 7, regulatory 2) carry distinct_from naming 25 targets in total, all targets exist, and none joins two nodes that share a role.",
+      "step6_fixture_description": "Regulatory fixture edges: e7 severity-routing -> findings-sign-off; e9 post-remediation-check -> findings-sign-off (the only incoming edges of findings-sign-off besides the timeout edge). Completion edges e11 findings-sign-off -> archive-review and e12 findings-sign-off -> reopen-review. Incoming to ceo-override: only e13 from cro-sign-off-timeout. Incoming to cro-sign-off-timeout: only timeout-findings-sign-off from findings-sign-off. The description sentence states exactly this. PASS.",
+      "step7_lint_handoffs": "mix letflow.lint_handoffs --dir handoffs/WF02-REQ465-20261012 -> LINT_EXIT=0; 'letflow.lint_handoffs: OK -- 0 new violations across 6 handoff files under handoffs/WF02-REQ465-20261012 (0 pre-existing grandfathered, traced to ISS-0190)'. Advisory ARTIFACTS_OUT_SELF_REF x4 (no effect on exit). This handoff (step-08) is lint-checked after it is written.",
+      "step8_open_questions": "docs/requirements.yaml at 18f8d76b: git show --numstat 1 insertion, 0 deletions. REQ-465 open_questions 5 -> 6; the first five items are identical to 9c40d303; the sixth is the DECIDED 2026-10-12 Q-1044 / GH #2386 option (b) item, matching the step-07 spec. REQ-465 status in_progress. REQ-466 status pending, entry identical to 9c40d303. Only REQ-465 differs between 9c40d303 and 18f8d76b. python -I yaml.safe_load exit 0, 433 requirements parsed.",
+      "blocker_1_regulatory_description": "Verified in step6_fixture_description: the description (v1.10) now names findings-sign-off as reached on normal completion via e7 and e9, and ceo-override as reached only through timeout-findings-sign-off -> cro-sign-off-timeout -> e13. The previous FALSE premise is gone.",
+      "blocker_2_loan_sandbox": "9c40d303 removed the setup block with A.sandbox_auto!() from req465_meridian_loan_distinct_from_test.exs. The module uses Letflow.DataCase with async: false, and test/support/data_case.ex (lines 15-19) checks out the sandbox and sets {:shared, self()} for non-async tests. The scoped runs in step3 and step3b are green with the call removed.",
+      "acceptance_criteria": "AC1 PASS: validator valid true with no violations; every distinct_from target exists; the 'status OK' wording drift is MINOR (carried). AC2 PASS: tests at req465_meridian_loan_distinct_from_test.exs lines 96 (l2-approval), 119 (escalate-l2-approval-to-ceo), 151 (disburse-loan), 179 (committee votes), green. AC3 PASS: req465_meridian_regulatory_distinct_from_test.exs lines 71 and 98 (findings-sign-off refusals), green. AC4 PASS: fixture names committee-vote-cro [director, ceo]; committee-vote-director [cro, ceo]; committee-vote-ceo [cro, director]; test at line 179 green. AC5 PASS: node-id and edge sets identical to 6d46832c for both definitions; the only node change is distinct_from (loan 7 nodes, regulatory 2 nodes); version 1.13 -> 1.14 and 1.9 -> 1.10; descriptions changed. AC6 PASS by re-derivation from scenario data: the 10 meridian UAT and simulation scenario files that name a changed node were checked for any actor who completes two nodes now linked by distinct_from (e.g. julia at committee-vote-director with thomas and eva as the other votes; lars at l1-approval with julia at l2-approval; claudia at evidence-collection with miriam at risk-evaluation). None found, so no step that was accepted before is refused now. AC7 PASS: step-03 security review recorded, result PASS_WITH_FINDINGS. AC8 PASS: compile, format, scoped tests, boundaries all run here with real output.",
+      "decision_records": "grep of docs/migration/decisions/*.md for distinct_from, separation of duties and distinct person: no match. No decision record is contradicted.",
+      "mutex": "Took C:\\Users\\tvolo\\AppData\\Local\\Temp\\claude\\mixlock by mkdir at 07:19:59Z after a prior holder released it at 07:19:55Z; no erl.exe running at acquisition; released with rmdir after the last mix run."
+    },
+    "artifacts_out": [],
+    "issues": [
+      {
+        "severity": "MAJOR",
+        "affected_requirement": "REQ-465",
+        "description": "Not a defect of this change set. REQ-465 is partial adoption by decision Q-1044 / GH #2386: escalate-disburse-loan-to-credit-director (role-credit-director) does not name l2-approval or committee-vote-director (both role-credit-director). REQ-465 must stay in_progress and must not be flipped to done until the follow-up Q-1048 / GH #2390 lands. The decision record reports/decisions/Q-1044-letflow-9a-decision-2026-10-12.md lives in the supervisor repo and was not verified from this checkout."
+      },
+      {
+        "severity": "MAJOR",
+        "affected_requirement": "REQ-465",
+        "description": "The full suite was not run in this validation (out of scope by instruction; CI runs it). The step-06 run on this Windows host had scripts/test_parallel.sh with 6 failures and mix letflow.check.test with 4 failures, including 3 deterministic UatPreflightLocalDepsTest failures caused by the c:/Users tmp path, plus load-sensitive failures that pass in isolation. No origin/main baseline was run. None of this was re-verified here. The PR's CI full-suite run must be green on Linux, and any failure classified per core-directives before merge."
+      },
+      {
+        "severity": "MINOR",
+        "affected_requirement": "REQ-465",
+        "description": "AC1 wording drift: the criterion says the REQ-464 validator reports status OK, but the implementation returns valid true with an empty violations list. Carried forward from step-06. The BA or ORCH should reword the criterion; the implementation should not be forced."
+      },
+      {
+        "severity": "MINOR",
+        "affected_requirement": "REQ-465",
+        "description": "ceo-override has distinct_from but no refusal test (SECURITY-REVIEWER issue 2, REVIEWER issue 5). Recommended, not blocking. Carried forward."
+      },
+      {
+        "severity": "MINOR",
+        "affected_requirement": "REQ-465",
+        "description": "Simulation process copies test/fixtures/simulation/meridian/process_claim_intake.yaml and process_policy_binding.yaml lack distinct_from while the QA copies carry it. Recorded drift, outside this change set. Carried forward."
+      },
+      {
+        "severity": "MINOR",
+        "affected_requirement": "REQ-465",
+        "description": "Rollout gap (SECURITY-REVIEWER issue 4): instances created on version 1.13 keep their snapshot and get no separation rule after the 1.14 activation. The BA or ORCH must accept this or drain in-flight instances. Carried forward."
+      }
+    ],
+    "not_run": [
+      "scripts/test_parallel.sh (full suite): excluded by instruction; CI runs it. Not run in this validation.",
+      "mix letflow.check.test: shells to scripts/test_parallel.sh (the full suite), so it falls under the same exclusion. Substitute evidence is in step3b_warnings_as_errors and step1_compile.",
+      "origin/main baseline run of the full suite: not performed.",
+      "validate_definition_graph/2 and ValidationWarnings.for_definitions/2 (DB-backed): not run; the pure half was run in step5.",
+      "UAT-RUNNER scenario runs against a live instance: outside this gate.",
+      "reports/decisions/Q-1044-letflow-9a-decision-2026-10-12.md (supervisor repo) and GH #2390 (Q-1048): outside this checkout, not verified."
+    ],
+    "git_evidence": {
+      "branch_name": "feat/REQ-465-adopt-distinct-from-meridian-Q-1028",
+      "head_validated": "18f8d76b",
+      "code_validated_commit": "18f8d76b",
+      "commit_sha_list": [],
+      "push_status": "not_pushed",
+      "pr_url": null,
+      "pr_create_error": null,
+      "note": "This verdict file is committed on top of 18f8d76b. The commit SHA is reported in the RELEASE-VALIDATOR final message, not stored here."
+    },
+    "next_action": "ORCH: REQ-465 stays in_progress (partial adoption under Q-1044). Do not flip it to done. Merge the PR only after its CI full-suite run is green on Linux, classifying any failure per core-directives. Track Q-1048 / GH #2390 as the follow-up; REQ-466 (Q-1029) waits for it."
+  },
+  "gate_history": [
+    {
+      "iteration": 0,
+      "gated_at": "2026-10-12T07:06:50Z",
+      "status": "FAIL",
+      "summary": "Step-06 FAIL on ddefe829: two blockers (regulatory description with a false premise; loan test sandbox_auto! with no restore) plus the escalation residual awaiting a BA decision. Full-suite failures on this host were not attributed.",
+      "issues": [
+        "regulatory fixture description states findings-sign-off is inert because it is reached only through its timeout edge (false)",
+        "req465_meridian_loan_distinct_from_test.exs calls A.sandbox_auto!() in setup with no on_exit restore",
+        "escalate-disburse-loan-to-credit-director residual gap awaiting BA decision (GH #2386)"
+      ],
+      "next_action": "Correct the description (9c40d303); remove the sandbox_auto! call or restore it (9c40d303); record the Q-1044 decision (18f8d76b); re-run release validation."
+    }
+  ]
+}

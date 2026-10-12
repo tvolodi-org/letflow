@@ -1018,3 +1018,25 @@ history:
       Written by letflow-2 (BA/UAT lane) on the handover's instruction, under
       the DOC-UPDATER agent id; lands in the ONE docs bundle branch
       docs/h1-bundle-req457-iss1043-20261012, not yet pushed.
+
+  - req: REQ-465
+    event: revised
+    agent: DOC-UPDATER
+    at: "2026-10-12T05:41:30Z"
+    note: >
+      PARTIAL adoption, status in_progress, NOT done. distinct_from adopted on
+      the meridian loan origination and meridian regulatory sign-off definitions
+      (queue task 1028, GH#2343, branch feat/REQ-465-adopt-distinct-from-meridian-Q-1028,
+      local, not pushed or merged). Residual gap: two candidate pairs are dropped.
+      escalate-disburse-loan-to-credit-director does not name l2-approval or
+      committee-vote-director (checked in the branch fixture
+      test/fixtures/qa/meridian_loan_origination_process_definition.json, node
+      at lines 432-438), because both hold role-credit-director and the REQ-464
+      same-role guard forbids that pair. The residual case stays open until the BA
+      rules on it (BA design item, GH #2386). The regulatory chain follows the
+      candidate list (findings-sign-off and ceo-override name their listed nodes).
+      REQ-465 is not marked done while the residual case is open and the BA ruling
+      is outstanding. Not run by DOC-UPDATER: the invariant test and mix
+      letflow.lint_handoffs, because the mkdir mutex at
+      C:\Users\tvolo\AppData\Local\Temp\claude\mixlock was held by another process
+      (mkdir failed with File exists; not waited for, not removed).

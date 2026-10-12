@@ -1,0 +1,106 @@
+{
+  "handoff_id": "43b029a4-b2df-407e-82eb-2dfdd763510d",
+  "run_id": "WF02-REQ465-20261012",
+  "workflow_id": "WF-02",
+  "step": "04",
+  "from_agent": "ORCH",
+  "to_agent": "REVIEWER",
+  "file": "handoffs/WF02-REQ465-20261012/step-04-reviewer.json",
+  "created_at": "2026-10-12T05:45:32Z",
+  "started_at": "2026-10-12T05:45:32Z",
+  "completed_at": "2026-10-12T05:45:32Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": ["REQ-465"],
+    "queue_task": 1028,
+    "gh_issue": 2343,
+    "branch_name": "feat/REQ-465-adopt-distinct-from-meridian-Q-1028",
+    "reviewed_commits": [
+      "2758d53ea5329804d9a06a395235e277a3cb2b43",
+      "afc10d0738fea75d825095a5081c3fcebf4052f3"
+    ],
+    "reviewed_commit_pre_rebase_equivalent": "c25df0f52fba4fa6aca23cfb64215d63a36a1d71",
+    "head_at_review": "ddefe829fddc38bbb2486f8ed70b14af7c3521d1",
+    "scope_paths_identical_to_security_reviewed_commit": true,
+    "artifacts_in": [
+      ".claude/agents/reviewer.md",
+      "docs/agents/instructions/core-directives.md",
+      "docs/requirements.yaml",
+      "test/specs/REQ-464.md",
+      "lib/letflow/design/req459-required-outputs-and-distinct-person.md",
+      "lib/letflow/engine/separation_of_duties.ex",
+      "lib/letflow/definitions/role_binding.ex",
+      "test/letflow/definitions/required_outputs_shipped_definitions_test.exs",
+      "test/fixtures/qa/meridian_loan_origination_process_definition.json",
+      "test/fixtures/qa/meridian_regulatory_compliance_review_process_definition.json",
+      "test/letflow/engine/req465_meridian_loan_distinct_from_test.exs",
+      "test/letflow/engine/req465_meridian_regulatory_distinct_from_test.exs",
+      "test/letflow/scripts/req465_meridian_distinct_from_fixture_test.exs",
+      "test/support/sod_support.ex",
+      "test/support/req462_adoption.ex",
+      "test/support/data_case.ex",
+      "scripts/seed_meridian_definition.sh",
+      "handoffs/WF02-REQ465-20261012/step-02-elixir-dev.json",
+      "handoffs/WF02-REQ465-20261012/step-03-security-reviewer.json"
+    ]
+  },
+  "task": {
+    "description": "STEP 2d REVIEWER gate for REQ-465 (queue 1028, GH #2343). Read-only: no code edits, no mix, no BEAM. Check the two feature commits against the four REVIEWER questions (OTP idiom, supervision, type-safety, scope creep) and against the decision records (REQ-459 design, REQ-463 engine rule, REQ-464 validator semantics). Check the new tests for global state leaks, real Postgres use and sleeps used as synchronisation. Check that the description text of both fixtures is accurate against the distinct_from lists in the JSON. The escalate-disburse-loan-to-credit-director residual (l2-approval and committee-vote-director not named, because the shipped-definition guard forbids same-role pairs) is already decided and is a BA design item; verify only that the text documents it accurately. Commit only this handoff file.",
+    "acceptance_criteria": [
+      "idiom, supervision, type-safety and scope questions answered with file:line evidence",
+      "new tests checked for global state, real Postgres use and sleeps",
+      "scope limited to the two definitions, the seed script header, the six version-pin tests and the three new tests; REQ-464 shipped-definition guard file unchanged",
+      "every distinct_from list in both fixtures compared with the description text and with the REQ-465 candidate table",
+      "verdict recorded as PASS, PASS_WITH_FINDINGS or FAIL, with findings at file:line and the commit SHA"
+    ]
+  },
+  "result": {
+    "status": "PASS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "PASS_WITH_FINDINGS (result.status PASS: no acceptance failure and no blocker; TEST-DESIGNER may start). Scope: exactly the two named definitions, the seed script header, six existing version-pin test files and three new test files. No lib/ or priv/ line changed since origin/main 6d46832c. The REQ-464 shipped-definition guard file is not in the diff. The scoped content is byte-identical to the pre-rebase commit c25df0f5 that SECURITY-REVIEWER gated. Idiom and supervision: no production code and no supervision tree touched; the new tests are ExUnit over real Postgres through DataCase, SodSupport and Req462Adoption, with no sleeps, no wall clock and no mocks. Isolation: the loan engine test calls Req462Adoption.sandbox_auto!/0, which flips the Repo sandbox to :auto globally with no restore; the regulatory engine test does not. Decision records: every distinct_from list matches the REQ-465 candidate table. Re-derived by reachability from the JSON edges: 25 named pairs, all either preceding or parallel, none downstream-only (REQ-464 check 3). The loan description's residual sentence is accurate, including the guard reason (the guard asserts zero same-role pairs at required_outputs_shipped_definitions_test.exs:186-191). The regulatory description's reason for the inert ceo-override entry is wrong as written: findings-sign-off has normal incoming edges e7 and e9, and it is ceo-override that is reached only through findings-sign-off's timeout edge. The inertness conclusion still holds, because findings-sign-off's completion edges lead only to terminal nodes. That sentence must be corrected in this PR; it does not change any list, edge, or test outcome. Nothing was executed: no mix, no BEAM, no test run.",
+    "evidence": {
+      "scope": "git diff --name-status 6d46832c HEAD: 14 paths, all in the listed set plus the two handoff files. git diff c25df0f5 2758d53e over test/fixtures/qa, scripts, test/letflow, lib, priv is empty. Node and edge counts unchanged: loan 35 nodes and 62 edges, regulatory 16 and 25 (re-counted from the JSON). The seed script diff is header comment lines 5-6 only; the versions in the header match the JSON (loan 1.14, regulatory 1.10).",
+      "idiom_and_supervision": "No lib/ change, so no GenServer, gen_statem, supervisor or InstanceSupervisor change to judge. Nothing in the diff spawns a process or touches Letflow.InstanceSupervisor. Idiom of the new tests: ExUnit assert pattern matches, no mock layer, unique tenants per case via TenantFixture.provisioned_tenant! (on_exit teardown in test/support/tenant_fixture.ex), async false for DB tests, async true only for the pure fixture test.",
+      "test_isolation": "Loan engine test: setup calls A.sandbox_auto!() (req465_meridian_loan_distinct_from_test.exs:34-36), which runs Sandbox.mode(Repo, :auto) (test/support/req462_adoption.ex:41-44). DataCase non-async setup normally sets {:shared, self()} (test/support/data_case.ex:19). The loan file does not justify :auto, and nothing restores the mode. Regulatory engine test uses the DataCase default. No Process.sleep, :timer, receive or send_after in any new test or support file (grep). Fixture test is async true, reads files only, no global state.",
+      "decision_record_consistency": "REQ-459 design section 9 (no inheritance; each escalation node carries its own distinct_from; a later node names the escalation node id too): escalate-l2-approval-to-ceo and escalate-disburse-loan-to-credit-director carry their own lists; disburse-loan names escalate-l2-approval-to-ceo. REQ-463 rule (identity is user id, most recent completion, named nodes only): the lists are consistent with it. REQ-464 check 4 is warning-only in the design (design section 1.5, 9 decision 4), but the shipped-definition guard turns same-role pairs into a test failure (required_outputs_shipped_definitions_test.exs:186-191); that is stricter than the design and than REQ-464 acceptance criterion 6, so the residual rests on a test assertion, not on a decision record. REQ-465's own rule (docs/requirements.yaml:35175-35177: a later approver names BOTH a node and its escalation node when either may have been the decider) is not met by escalate-disburse-loan-to-credit-director for l2-approval; that is the known residual.",
+      "description_accuracy": "Loan description (JSON line 4): every named list in the v1.14 separation-of-duties sentence matches the JSON; the escalate-disburse residual sentence matches the JSON exactly, including the same-role reason. The 'BA decision 2026-10-07' citation for mutual committee naming points to a ruling in the repo that covers parallel-branch legality (docs/requirements.yaml:34952; design A10); the committee-distinctness choice itself is recorded only in REQ-465 text (docs/requirements.yaml:35161). Regulatory description (JSON line 4): findings-sign-off names [evidence-collection, risk-evaluation, remediation-subprocess] and ceo-override names those three plus findings-sign-off, both as in the JSON. The 'inert' parenthetical is wrong as written (see issue 1).",
+      "reachability_rederivation": "Read-only Python over the JSON edges (no BEAM): for every (node, listed id) pair, classified as X-precedes-N (listed node reaches the node), parallel/exclusive (neither reaches the other), or X-downstream-of-N-only. Result: 18 loan pairs and 7 regulatory pairs, all X-precedes-N or parallel; zero downstream-only. This uses all edges, not the validator's resolved-edge adjacency, so it agrees with the reported validator outcome but does not independently reproduce the resolved-edge variant.",
+      "known_residual": "Verified as documented: escalate-disburse-loan-to-credit-director (role-credit-director) does not name l2-approval or committee-vote-director, both role-credit-director. The SECURITY-REVIEWER issue 1 (MAJOR) requires a BA ruling before REQ-465 is marked done; DOC-UPDATER commit ddefe829 already sets REQ-465 to in_progress. Carried as a condition, not re-decided here.",
+      "type_safety": "No new transition logic in this branch, so no new type-safety gap is introduced by it. One pre-existing observation is recorded in issue 9 (engine-side distinct_from/1 treats a malformed value as no rule). No docs/issues file was written here: ORCH allocates issue ids per ISSUE_QUEUE.md."
+    },
+    "artifacts_out": ["handoffs/WF02-REQ465-20261012/step-04-reviewer.json"],
+    "issues": [
+      {"severity": "MINOR", "description": "Must correct in this PR (text only): test/fixtures/qa/meridian_regulatory_compliance_review_process_definition.json line 4, and the same sentence at handoffs/WF02-REQ465-20261012/step-02-elixir-dev.json line 107, say ceo-override's findings-sign-off entry is inert because 'findings-sign-off is reached only through its timeout edge'. That is false: findings-sign-off has normal incoming edges e7 (severity-routing) and e9 (post-remediation-check). The true premise is that ceo-override is reached only through findings-sign-off's timeout edge (e13, from cro-sign-off-timeout), and findings-sign-off's completion edges e11 and e12 lead only to terminal nodes (archive-review to end-closed, reopen-review to end-reopened), so findings-sign-off cannot complete before ceo-override. No list, edge or test changes. Suggested wording is for ELIXIR-DEV to choose.", "affected_requirement": "REQ-465"},
+      {"severity": "MINOR", "description": "Decision-record framing (no code change): the escalate-disburse residual is blocked by the zero-pair assertion in test/letflow/definitions/required_outputs_shipped_definitions_test.exs:186-191, which is stricter than REQ-464's design (check 4 is a warning, design section 1.5 and 9 decision 4) and than REQ-464 acceptance criterion 6. The BA ruling should name the guard assertion as the thing it may change, and should record that the residual also departs from REQ-465's own 'names BOTH' rule (docs/requirements.yaml:35175-35177) and from REQ-459 section 9 decision 2. Do not re-litigate the residual itself.", "affected_requirement": "REQ-465"},
+      {"severity": "MINOR", "description": "Traceability: the loan description (JSON line 4) cites 'BA decision 2026-10-07' for the mutual naming of the three committee votes. The only 2026-10-07 ruling in the repo on this topic is the parallel-branch legality in docs/requirements.yaml:34952 and design A10. The committee-distinctness policy is recorded only in REQ-465 text (docs/requirements.yaml:35161). ORCH to confirm the BA record exists; if not, reword the attribution. Non-blocking.", "affected_requirement": "REQ-465"},
+      {"severity": "MINOR", "description": "Test isolation: test/letflow/engine/req465_meridian_loan_distinct_from_test.exs:34-36 calls A.sandbox_auto!(), a global Repo sandbox mode flip (test/support/req462_adoption.ex:41-44) with no on_exit restore, and the file gives no reason shared mode is insufficient. The regulatory engine test uses the DataCase default and does not. ELIXIR-DEV to either document why :auto is needed or drop it; if kept, restore the mode in on_exit. TEST-DESIGNER to confirm the suite is green under shared mode. Not verifiable without running.", "affected_requirement": "REQ-465"},
+      {"severity": "MINOR", "description": "Coverage observation (not an acceptance criterion): no refusal test exercises escalate-disburse-loan-to-credit-director or ceo-override. Both carry distinct_from; ceo-override is named only in the fixture-shape test. A BA ruling on the residual should come with a refusal test for whichever option is chosen. TEST-DESIGNER to consider.", "affected_requirement": "REQ-465"},
+      {"severity": "MINOR", "description": "Lock bookkeeping: handoffs/WF02-REQ465-20261012/step-02-elixir-dev.json context.owned_modules (lines 31-38) omits the six existing test files edited for version pins (req462 adoption test, meridian_loan_kyc_fail_closed, meridian_loan_origination, meridian_regulatory_remediation, meridian_timeout_review_and_forms, regulatory_review_timer_path). ORCH to reflect them in the owned_modules record. The edits themselves are in scope.", "affected_requirement": "REQ-465"},
+      {"severity": "MINOR", "description": "Requirement wording drift: REQ-465 acceptance criteria (docs/requirements.yaml:35191 and :35239) say the REQ-464 validator 'reports status OK'. REQ-464's record (test/specs/REQ-464.md, row 5) and the implementation return valid true. The new tests assert valid true, which is consistent with REQ-464. Wording fix belongs to REQ-ANALYST or DOC-UPDATER; no code change.", "affected_requirement": "REQ-465"},
+      {"severity": "MINOR", "description": "Drift not yet registered: test/fixtures/simulation/meridian/process_claim_intake.yaml and process_policy_binding.yaml lack distinct_from while the QA copies now carry it (acknowledged in step-02 issue 3 and step-03 issue 5). Per core-directives 'No Issue Left Local-Only', ORCH must register this in the queue and mirror it; it is not a REQ-465 defect.", "affected_requirement": null},
+      {"severity": "MINOR", "description": "[type-safety, pre-existing, not introduced here] lib/letflow/engine/separation_of_duties.ex:153-158: distinct_from/1 treats any non-list value as no rule and silently drops non-binary and empty entries. Validity relies on REQ-464 check 1 having run when the definition was written. A validated, typed list at Graph construction would make the malformed state unrepresentable. For ORCH to register under ISSUE_QUEUE if it judges the gap worth claiming; not filed here.", "affected_requirement": null},
+      {"severity": "MINOR", "description": "Sequencing note for ORCH: commit ddefe829 (DOC-UPDATER, step 05) is on the branch before this REVIEWER gate and TEST-DESIGNER returned. Its own message says the invariant test and mix letflow.lint_handoffs were not run (mkdir mutex held). It changes only the REQ-465 status line, the status index counter and the history volume, not any fixture, test or distinct_from list. Confirm the order is intended.", "affected_requirement": "REQ-465"}
+    ],
+    "git_evidence": {
+      "branch_name": "feat/REQ-465-adopt-distinct-from-meridian-Q-1028",
+      "commit_sha_list": [
+        "2758d53ea5329804d9a06a395235e277a3cb2b43",
+        "afc10d0738fea75d825095a5081c3fcebf4052f3"
+      ],
+      "remote_branch": null,
+      "push_status": "skipped",
+      "pr_url": null,
+      "pr_create_error": null
+    },
+    "not_run": [
+      "mix, mix test, mix compile, mix format, mix letflow.check_boundaries and mix letflow.lint_handoffs were NOT run, per the read-only instruction. The 369-passed figure in step-02 is ELIXIR-DEV's report and was not re-derived.",
+      "The runtime behaviour of the refusal, committee and escalation paths was not executed; only the static graph and the test source were read.",
+      "This handoff's own schema was not linted by mix letflow.lint_handoffs (core-directives Bookkeeping item 4). The full-corpus lint runs in the mix letflow.check CI gate; ORCH or CI must run it on this file."
+    ],
+    "next_action": "TEST-DESIGNER may start (gate returned PASS_WITH_FINDINGS). Before merge: ELIXIR-DEV corrects the regulatory description sentence (issue 1) in this PR; ORCH confirms or rewords the BA citation (issue 3) and registers the drift and type-safety items (issues 8 and 9). REQ-465 is not marked done until the BA ruling on the escalate-disburse residual is recorded (SECURITY-REVIEWER issue 1; REQ-465 is already in_progress at ddefe829). ORCH records this file's commit SHA."
+  },
+  "rework_count": 0,
+  "max_rework": 3
+}
