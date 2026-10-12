@@ -34,7 +34,7 @@
       "docs/issues/ISS-1042.yaml",
       "test/letflow/api/identity_id_hardening_test.exs",
       "test/letflow/routers/promotion_scope_test.exs",
-      "test/letflow/store_test.exs",
+      "test/letflow/definitions/store_test.exs",
       "test/letflow/support/tenant_fixture_pool_test.exs",
       "test/letflow/support/tenant_fixture_test.exs",
       "test/support/tenant_fixture.ex",
@@ -73,9 +73,11 @@
     ],
     "git_evidence": {
       "branch_name": "feature/WF03-ISS1042-20261012",
-      "commit_sha_list": [],
+      "commit_sha_list": [
+        "6daa9bdc6"
+      ],
       "remote_branch": "origin/feature/WF03-ISS1042-20261012",
-      "push_status": "pending",
+      "push_status": "ok",
       "pr_url": null,
       "pr_create_error": null
     },
