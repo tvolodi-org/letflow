@@ -1,0 +1,17 @@
+id: ISS-1056
+title: "V2 (ISS-1042 follow-up, performance-only): add a depth-2 FK-chain test for the in-place reset of the pooled tenant fixture"
+discovered_by: ISS-1042 follow-up V2; filed by letflow-2
+discovered_in_run: "WF03-ISS1042-20261012 (ISS-1042 resolution)"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: LOW
+owner: "CI lane / test infrastructure (test/support/tenant_fixture.ex); no production path"
+scope: tooling
+description: >
+  Today the pooled fixture resets a depth-2 foreign-key chain by rebuilding the slot rather than resetting in
+  place. That is a performance-only gap, not a correctness one.
+resolution: >
+  Open. Add a depth-2 FK-chain test for the in-place reset, or record the reason it cannot be done and measure
+  the rebuild cost instead. Queue Q-1056 / GH #2402.
+queue_ref: Q-1056
+github_ref: GH-2402
+status: open

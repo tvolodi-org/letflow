@@ -1,0 +1,23 @@
+id: ISS-1066
+# Ref clash: the queue's issue_ref for Q-1063 is ISS-1063, but ISS-1063 is already used in the held records bundle
+# for Q-1060 (GH #2412, not on main). This record takes the next free local id, ISS-1066 (re-checked on origin/main
+# f10dab91 and on open PR branches). The queue and GH ids are unchanged: Q-1063 / GH #2416.
+title: "Type-safety: the L1 CRO escalation node's condition strings are copied by hand from l1-approval (meridian loan definition and simulation copy); no test asserts they stay equal"
+discovered_by: letflow-3 (Q-1051 / GH #2395 review); filed by letflow-2 (sole filer)
+discovered_in_run: "Q-1051 review, 2026-10-12"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: MEDIUM
+owner: "ELIXIR-DEV or TEST-DESIGNER (test/letflow/definitions, meridian fixtures); applies once Q-1051 merges"
+scope: definition
+description: >
+  The new node escalate-l1-approval-to-cro in test/fixtures/qa/meridian_loan_origination_process_definition.json (and its
+  simulation copy in test/fixtures/simulation/meridian/process_claim_intake.yaml) copies l1-approval's approve/escalate
+  and reject edge condition strings by hand. No test asserts that they stay equal, so a later edit to one can silently
+  make the L1 CRO path diverge from the L1 path. The node is on the Q-1051 branch, not on main. Ranked MEDIUM because it
+  sits on the approval path. Related, not a duplicate: Q-1051 / GH #2395 (ISS-1051) is the implementation item.
+resolution: >
+  Open. Add a structural equality test over the new node's conditioned outgoing edges against l1-approval's, covering the
+  QA definition and the simulation copy, and a mutation check. Queue Q-1063 / GH #2416.
+queue_ref: Q-1063
+github_ref: GH-2416
+status: open
