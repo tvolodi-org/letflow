@@ -1,0 +1,49 @@
+{
+ "handoff_id": "c4a7d1e0-1058-4a11-8c20-0000000000d6",
+ "run_id": "WF03-ISS1058-20261012",
+ "workflow_id": "WF-03",
+ "step": "06",
+ "from_agent": "ORCH",
+ "to_agent": "DOC-UPDATER",
+ "file": "handoffs/WF03-ISS1058-20261012/step-06-doc-updater.json",
+ "created_at": "2026-10-12T12:07:36Z",
+ "started_at": "2026-10-12T12:09:36Z",
+ "completed_at": "2026-10-12T12:10:00Z",
+ "status": "COMPLETED",
+ "priority": "HIGH",
+ "context": {
+  "stage": "S1",
+  "requirement_ids": [],
+  "requirement_text": {},
+  "source_text": {
+   "Q-1058": "CI main flake / defect, HIGH. Property 'any set of row writers is invisible after the boundary, and never rebuilds' in test/letflow/support/tenant_fixture_pool_test.exs (property ~L1402, failing assertion ~L1430 `assert nonseed_rows(a.schema_name) == []`) fails on some ExUnit seeds. Regression of Q-1042 (PR #2397, edf3e614). Evidence: reproduced locally with `LETFLOW_DB_PORT=5499 MIX_ENV=test mix test test/letflow/support/tenant_fixture_pool_test.exs --seed 193355` => 56/57; failing case after 2 successful runs: writers [:groups], via :test; nonseed_rows(a.schema_name) got [{\"groups\",1}] after recycle_pool! although pool_dirty_report(fx(:a)) said clean. Second occurrence on main 28fcc928, CI run 38235738863, shard 3/3 partition 11, seed 40898. H1 (isolation hole, the worse case): the pool leaves a row in an attached tenant after recycle, so a later test can see another test's writes. H2 (test defect): the property asserts on a.schema_name after a recycle that attached a different slot, so it checks the wrong schema. Acceptance: (1) root cause H1 or H2 with evidence from seeds 193355 and 40898 quoted; (2) if H1: SECURITY-REVIEWER note, the hole fixed, fix shown to hold on the failing sequences; (3) if H2: the assertion checks the schema that holds the writes, decision recorded with reasoning; (4) both seeds added as fixed regression cases of the property; (5) the property passes on the failing seeds and on a fresh sample of seeds across consecutive runs, real output quoted; (6) the property's claim (writers invisible after the boundary, no rebuild) is NOT weakened. Related, not duplicates: ISS-1054 (R1 current_database guard), ISS-1055 (R5 typing), ISS-1056 (V2 depth-2 FK). GH #2406, Q-1058."
+  },
+  "related_handoff_ids": [],
+  "artifacts_in": [
+   "docs/issues/ISS-1058.yaml",
+   "docs/anti-patterns.md",
+   "handoffs/WF03-ISS1058-20261012/step-05v-release-validator.json",
+   "docs/agents/protocols/ISSUE_QUEUE.md"
+  ],
+  "owned_modules": [
+   "docs/issues/ISS-1058.yaml"
+  ],
+  "worktree": null,
+  "branch_name": "feature/WF03-ISS1058-20261012"
+ },
+ "task": {
+  "description": "WF-03 Step 5 doc/close for ISS-1058 (.claude/agents/doc-updater.md). Docs only; no mix. Be quick (main CI is red until this merges). (1) docs/issues/ISS-1058.yaml: set status: resolved with resolved_in_run: WF03-ISS1058-20261012 and resolved_at: real UTC now (check docs/agents/protocols/ISSUE_QUEUE.md 'Issue status vocabulary' for the exact keys/evidence for resolved; follow exactly); add regression_test: test/letflow/support/tenant_fixture_pool_test.exs (cases C1, C1b, C2, C3, C4 + the property); add a resolution block: verdict H2 (test defect, not an isolation hole), chain (fixed-PK :fk_chain repeated by the generator -> 23505 aborts iteration before recycle_pool!/0 -> claims map leaks -> shrink re-run in the same process claims the other declared slot -> nonseed_rows(a.schema_name) inspects the wrong slot), fix (repeatable ids, iteration-start recycle, same-schema assertion, fixed cases), evidence (pre-fix main file fails seed 193355 56/57, post-fix 62 passed on 193355/40898/7 and 9 others; mutants MU1 MU2 MU3 MU4a MU4b MU5 all fail the property; release validator own runs 193355 and 40898 green), and a note that the property's claim is not weakened. Keep existing fields. (2) docs/requirements.yaml untouched (queue issue). docs/anti-patterns.md as written. Handoff result PASS/FAIL, COMPLETED, no BOM, LF; commit + push (pull --rebase; retry on github.com resolve failures; message ends 'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>').",
+  "acceptance_criteria": [
+   "ISS-1058 resolved with the right key pair and evidence"
+  ]
+ },
+ "result": {
+  "verdict": "PASS",
+  "status": "COMPLETED",
+  "summary": "ISS-1058 set to resolved (resolved_in_run, resolved_at, regression_test, resolution block H2). requirements.yaml and status volumes untouched (queue issue).",
+  "artifacts_out": [
+   "docs/issues/ISS-1058.yaml",
+   "handoffs/WF03-ISS1058-20261012/step-06-doc-updater.json"
+  ]
+ }
+}

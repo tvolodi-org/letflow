@@ -2810,3 +2810,20 @@
 2026-10-12T10:18:56Z | PASS | WF-03 | WF03-ISS1040-20261012 | RELEASE-VALIDATOR → ORCH | Step 05v PASS (fdccc100b; own mutant 57/60, plain run 60 passed, no lib/config/priv/.github change)
 2026-10-12T10:18:56Z | DISPATCH | WF-03 | WF03-ISS1040-20261012 | ORCH → DOC-UPDATER | Step 06
 2026-10-12T10:19:38Z | PASS | WF-03 | WF03-ISS1040-20261012 | DOC-UPDATER → ORCH | Step 06 PASS (ISS-1040 resolved); ORCH verified yaml keys; registry COMPLETED
+2026-10-12T10:52:12Z | START | WF-03 | WF03-ISS1058-20261012 | ORCH | Q-1058 / ISS-1058 / GH #2406 claimed as tvolodi-orch (supervisor assignment, HIGH, regression of Q-1042); branch created by ORCH
+2026-10-12T10:52:12Z | DISPATCH | WF-03 | WF03-ISS1058-20261012 | ORCH → ISSUE-FIXER | Step 01 diagnosis H1 vs H2
+2026-10-12T11:03:17Z | PASS | WF-03 | WF03-ISS1058-20261012 | ISSUE-FIXER → ORCH | Step 01 PASS (546840499; VERDICT H2 test defect: fixed-PK fk_chain repeat aborts iteration before recycle, claims map leaks, shrink re-run attaches the other slot; reproduced seeds 193355/40898; security gate N/A)
+2026-10-12T11:03:17Z | DISPATCH | WF-03 | WF03-ISS1058-20261012 | ORCH → CODE-DESIGNER | Step 02 design
+2026-10-12T11:07:15Z | PASS | WF-03 | WF03-ISS1058-20261012 | CODE-DESIGNER → ORCH | Step 02 PASS (design iss1058-pool-property-claims-leak.md; mutants MU1 prove_clean skips reset, MU2 reset stub, MU3 recycle claims clear removed)
+2026-10-12T11:07:15Z | DISPATCH | WF-03 | WF03-ISS1058-20261012 | ORCH → CODE-DESIGN-VALIDATOR | Step 02b
+2026-10-12T11:09:15Z | PASS | WF-03 | WF03-ISS1058-20261012 | CODE-DESIGN-VALIDATOR → ORCH | Step 02b PASS (d7b54fd09; 0 BLOCKER/MAJOR, MINOR m1-m3: MU1/MU2 fail via final_guard not the L1430 assertions, add MU4)
+2026-10-12T11:09:15Z | DISPATCH | WF-03 | WF03-ISS1058-20261012 | ORCH → ELIXIR-DEV | Step 03 implement
+2026-10-12T11:45:13Z | PASS | WF-03 | WF03-ISS1058-20261012 | ELIXIR-DEV → ORCH | Step 03 PASS (5257380550f; test-only; seeds 193355/40898 + 9 others green 62 passed; MU1-MU4 all fail the property; fail-first per change shown; check.static/async checker clean; ORCH verified diff scope)
+2026-10-12T11:45:13Z | DISPATCH | WF-03 | WF03-ISS1058-20261012 | ORCH → REVIEWER | Step 03d (security N/A, H2)
+2026-10-12T11:45:13Z | DISPATCH | WF-03 | WF03-ISS1058-20261012 | ORCH → TEST-DESIGN-VALIDATOR | Step 04b (parallel)
+2026-10-12T12:01:26Z | PASS | WF-03 | WF03-ISS1058-20261012 | REVIEWER → ORCH | Step 03d PASS (H2 agreed, property not weakened line by line, 4 MINOR no action)
+2026-10-12T12:01:26Z | PASS | WF-03 | WF03-ISS1058-20261012 | TEST-DESIGN-VALIDATOR → ORCH | Step 04b PASS (0d588c3c5; pre-fix origin/main file fails seed 193355 56/57, post-fix 62 passed on 193355/40898/7; own mutants MU1 8/62, MU3 27/62, MU5 blind groups 14/62 all fail property)
+2026-10-12T12:01:26Z | DISPATCH | WF-03 | WF03-ISS1058-20261012 | ORCH → RELEASE-VALIDATOR | Step 05v
+2026-10-12T12:07:36Z | PASS | WF-03 | WF03-ISS1058-20261012 | RELEASE-VALIDATOR → ORCH | Step 05v PASS (ce04191fe; own runs seeds 193355 and 40898 62 passed, lint_handoffs OK, no lib/test-support change)
+2026-10-12T12:07:36Z | DISPATCH | WF-03 | WF03-ISS1058-20261012 | ORCH → DOC-UPDATER | Step 06
+2026-10-12T12:10:06Z | PASS | WF-03 | WF03-ISS1058-20261012 | DOC-UPDATER → ORCH | Step 06 PASS (ISS-1058 resolved); ORCH verified yaml keys; registry COMPLETED

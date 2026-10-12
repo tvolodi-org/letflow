@@ -245,29 +245,33 @@ defmodule Letflow.Support.TenantFixturePoolTest do
   # design M1: groups <- group_members -> users, tenant_role -> groups
   defp write!(:fk_chain, s) do
     n = uniq()
+    # ISS-1058: ids are generated per call so the writer is repeatable in one schema between
+    # resets (a generated list may draw :fk_chain twice; literal PKs raised 23505 mid-iteration).
+    gid = Ecto.UUID.dump!(Ecto.UUID.generate())
+    uid = Ecto.UUID.dump!(Ecto.UUID.generate())
 
     q!(
       "INSERT INTO #{tr(s)}.groups (id, name, inserted_at, updated_at) " <>
-        "VALUES ('00000000-0000-0000-0000-0000000000a1', $1, now(), now())",
-      ["chain-g-#{n}"]
+        "VALUES ($1, $2, now(), now())",
+      [gid, "chain-g-#{n}"]
     )
 
     q!(
       "INSERT INTO #{tr(s)}.users (id, username, display_name, email, password_hash, " <>
-        "inserted_at, updated_at) VALUES ('00000000-0000-0000-0000-0000000000b1', $1, 'u', " <>
-        "$2, 'x', now(), now())",
-      ["chain-u-#{n}", "chain-#{n}@example.test"]
+        "inserted_at, updated_at) VALUES ($1, $2, 'u', $3, 'x', now(), now())",
+      [uid, "chain-u-#{n}", "chain-#{n}@example.test"]
     )
 
     q!(
       "INSERT INTO #{tr(s)}.group_members (group_id, user_id, inserted_at) VALUES " <>
-        "('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000b1', now())"
+        "($1, $2, now())",
+      [gid, uid]
     )
 
     q!(
       "INSERT INTO #{tr(s)}.tenant_role (id, name, group_id, inserted_at, kind) VALUES " <>
-        "(gen_random_uuid(), $1, '00000000-0000-0000-0000-0000000000a1', now(), 'custom')",
-      ["chain-r-#{n}"]
+        "(gen_random_uuid(), $1, $2, now(), 'custom')",
+      ["chain-r-#{n}", gid]
     )
 
     ["group_members", "groups", "tenant_role", "users"]
@@ -1385,6 +1389,76 @@ defmodule Letflow.Support.TenantFixturePoolTest do
   # Property: any subset of writers, from the test process or a Task, is gone next acquire
   # ===========================================================================================
 
+  # ISS-1058 (Q-1058 / GH #2406): the whole body of the property, shared with the fixed
+  # regression cases below so they cannot drift apart.
+  #
+  # Starts with `recycle_pool!/0`: StreamData re-runs the body in the SAME test process
+  # (shrinking), and an aborted attempt never reaches its closing recycle, so the per-process
+  # claims map would leak and `fx(:a)` would claim the SECOND declared @a slot. The recycle
+  # changes no slot data (reset stays lazy at acquire), it only gives every attempt the
+  # precondition the first one has: empty claims.
+  defp assert_boundary_invisible!(writers, via) do
+    TenantFixture.recycle_pool!()
+
+    a = fx(:a)
+    assert %{clean?: true} = TenantFixture.pool_dirty_report(a)
+
+    touched =
+      in_task_or_here(via, fn ->
+        Enum.flat_map(writers, &write!(&1, a.schema_name))
+      end)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    report = TenantFixture.pool_dirty_report(a)
+    assert report.dirty_tables == touched
+
+    if Enum.any?(writers, &(&1 in [:events, :seq_only])) do
+      assert report.dirty_sequences == ["events_global_seq_seq"]
+    end
+
+    TenantFixture.recycle_pool!()
+    again = fx(:a)
+
+    # Before any content assertion: the schema inspected below must be the one that was
+    # written to. Otherwise a leaked claims map makes `again` a different slot and the content
+    # assertions read a neighbouring slot (the misleading [{"groups", 1}] of ISS-1058).
+    assert again.schema_name == a.schema_name,
+           "post-boundary claim attached a different slot (#{again.schema_name} vs written " <>
+             "#{a.schema_name}); the claims map leaked or slots were reordered"
+
+    assert %{clean?: true} = TenantFixture.pool_dirty_report(again)
+    assert nonseed_rows(a.schema_name) == []
+    assert called_sequences(a.schema_name) == []
+    TenantFixture.recycle_pool!()
+    :ok
+  end
+
+  # Deterministic stand-in for an iteration aborted by an in-body raise: one claim made and
+  # left in the claims map, one row left in that slot, no recycle.
+  defp abort_attempt! do
+    a = fx(:a)
+    write!(:groups, a.schema_name)
+    gid = Ecto.UUID.dump!(Ecto.UUID.generate())
+
+    ins = fn ->
+      Repo.query!(
+        "INSERT INTO #{tr(a.schema_name)}.groups (id, name, inserted_at, updated_at) " <>
+          "VALUES ($1, $2, now(), now())",
+        [gid, "abort-#{uniq()}"]
+      )
+    end
+
+    ins.()
+
+    assert_raise Postgrex.Error, ~r/unique|23505/, fn ->
+      # a failed statement outside a transaction does not poison the connection
+      ins.()
+    end
+
+    :ok
+  end
+
   describe "property (design 9.1 generalised)" do
     @prop_writers [
       :groups,
@@ -1408,31 +1482,49 @@ defmodule Letflow.Support.TenantFixturePoolTest do
               via <- member_of([:test, :task]),
               max_runs: 12
             ) do
-        a = fx(:a)
-        assert %{clean?: true} = TenantFixture.pool_dirty_report(a)
-
-        touched =
-          in_task_or_here(via, fn ->
-            Enum.flat_map(writers, &write!(&1, a.schema_name))
-          end)
-          |> Enum.uniq()
-          |> Enum.sort()
-
-        report = TenantFixture.pool_dirty_report(a)
-        assert report.dirty_tables == touched
-
-        if Enum.any?(writers, &(&1 in [:events, :seq_only])) do
-          assert report.dirty_sequences == ["events_global_seq_seq"]
-        end
-
-        TenantFixture.recycle_pool!()
-        assert %{clean?: true} = TenantFixture.pool_dirty_report(fx(:a))
-        assert nonseed_rows(a.schema_name) == []
-        assert called_sequences(a.schema_name) == []
-        TenantFixture.recycle_pool!()
+        assert_boundary_invisible!(writers, via)
       end
 
       assert TenantFixture.pool_stats(pool).rebuilds == rebuilds
+    end
+  end
+
+  # ISS-1058 (Q-1058 / GH #2406; docs/issues/ISS-1058.yaml). ExUnit's --seed is not a property
+  # parameter, so the failing seeds are pinned by encoding their failing sequences:
+  # seed 193355 (local, 56/57) and seed 40898 (CI run 38235738863, shard 3/3 partition 11).
+  # Root cause: duplicate :fk_chain raised 23505 inside an iteration, the abort skipped the
+  # closing recycle, the leaked claims map made the shrink re-run claim slot 2 and assert on
+  # slot 1's schema (test defect, no pool hole).
+  describe "ISS-1058 claims leak after an aborted iteration" do
+    test "C1 [:fk_chain, :fk_chain] via :test" do
+      assert_boundary_invisible!([:fk_chain, :fk_chain], :test)
+    end
+
+    test "C1b [:fk_chain, :fk_chain] via :task" do
+      assert_boundary_invisible!([:fk_chain, :fk_chain], :task)
+    end
+
+    test "C2 aborted attempt, then [:groups] via :test (seed 193355 shrunk case)" do
+      abort_attempt!()
+      assert_boundary_invisible!([:groups], :test)
+    end
+
+    test "C3 two aborted attempts, then [:groups] via :test (seed 40898 tail)" do
+      abort_attempt!()
+      abort_attempt!()
+      assert_boundary_invisible!([:groups], :test)
+    end
+
+    test "C4 claims are positional: after an abort fx(:a) is the other slot, recycle resets" do
+      first = fx(:a)
+      TenantFixture.recycle_pool!()
+      assert fx(:a).schema_name == first.schema_name
+      TenantFixture.recycle_pool!()
+
+      abort_attempt!()
+      assert fx(:a).schema_name != first.schema_name
+      TenantFixture.recycle_pool!()
+      assert fx(:a).schema_name == first.schema_name
     end
   end
 end
