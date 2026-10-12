@@ -2,7 +2,8 @@ defmodule Letflow.Scripts.Req465MeridianDistinctFromFixtureTest do
   @moduledoc """
   REQ-465 -- the two shipped Meridian QA fixtures carry `distinct_from` on exactly the approve,
   pay and commit nodes listed in the requirement's table, and nothing else. Pins the node set and
-  the listed ids, the version bumps (loan 1.13 -> 1.14, regulatory 1.9 -> 1.10) and that each
+  the listed ids, the version bumps (loan 1.13 -> 1.14, then 1.14 -> 1.15 under Q-1048 / GH #2390;
+  regulatory 1.9 -> 1.10) and that each
   description says why, and runs the REQ-464 checks over both definitions: zero violations and
   zero same-role candidate pairs.
 
@@ -39,10 +40,15 @@ defmodule Letflow.Scripts.Req465MeridianDistinctFromFixtureTest do
         "committee-vote-director",
         "committee-vote-ceo"
       ],
-      "escalate-disburse-loan-to-credit-director" => [
+      # Q-1048 / GH #2390 closes the REQ-465 residual: the node now routes to role-loan-ops-lead, which
+      # no approval node holds, so the two same-role approvals (l2-approval and committee-vote-director,
+      # both role-credit-director) can be named without a same-role pair. All six approval nodes listed.
+      "escalate-disburse-loan-to-loan-ops-lead" => [
         "l1-approval",
+        "l2-approval",
         "escalate-l2-approval-to-ceo",
         "committee-vote-cro",
+        "committee-vote-director",
         "committee-vote-ceo"
       ]
     },
@@ -89,9 +95,10 @@ defmodule Letflow.Scripts.Req465MeridianDistinctFromFixtureTest do
     end
   end
 
-  test "versions: loan is 1.14 (from 1.13) and regulatory is 1.10 (from 1.9); each description says why (REQ-465)" do
-    assert doc(@loan)["version"] == "1.14"
+  test "versions: loan is 1.15 (from 1.14, Q-1048) and regulatory is 1.10 (from 1.9); each description says why (REQ-465 / Q-1048)" do
+    assert doc(@loan)["version"] == "1.15"
     assert doc(@regulatory)["version"] == "1.10"
+    assert doc(@loan)["description"] =~ "Q-1048"
     assert doc(@loan)["description"] =~ "REQ-465"
     assert doc(@regulatory)["description"] =~ "REQ-465"
   end

@@ -97,8 +97,8 @@ defmodule Letflow.Scripts.MeridianLoanKycFailClosedFixtureTest do
 
   defp vars(extra), do: Map.merge(@pass, extra)
 
-  test "fixture version is 1.14 (REQ-465 distinct_from; 1.13 REQ-462 required_outputs; ISS-1013 D-ESC timers; 1.7 forced the QA re-seed of the KYC fail-closed gate; ISS-1024 bumped to 1.8; ISS-1015 to 1.9)" do
-    assert doc()["version"] == "1.14"
+  test "fixture version is 1.15 (Q-1048 loan-ops-lead escalation; 1.14 REQ-465 distinct_from; 1.13 REQ-462 required_outputs; ISS-1013 D-ESC timers; 1.7 forced the QA re-seed of the KYC fail-closed gate; ISS-1024 bumped to 1.8; ISS-1015 to 1.9)" do
+    assert doc()["version"] == "1.15"
   end
 
   describe "eligibility-gate through the real engine" do

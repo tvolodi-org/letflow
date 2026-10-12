@@ -126,11 +126,11 @@ defmodule Letflow.Scripts.MeridianTimeoutReviewAndFormsFixtureTest do
   ]
 
   describe "versions" do
-    test "loan is 1.14 and regulatory is 1.10 (the bumps force the QA re-seed); seed header names both" do
-      assert loan()["version"] == "1.14"
+    test "loan is 1.15 and regulatory is 1.10 (the bumps force the QA re-seed); seed header names both" do
+      assert loan()["version"] == "1.15"
       assert reg()["version"] == "1.10"
       script = File.read!(Path.expand("../../../scripts/seed_meridian_definition.sh", __DIR__))
-      assert script =~ ~s("Loan Origination" v1.14 )
+      assert script =~ ~s("Loan Origination" v1.15 )
       assert script =~ ~s("Regulatory Compliance Review" v1.10 )
     end
   end
@@ -281,7 +281,7 @@ defmodule Letflow.Scripts.MeridianTimeoutReviewAndFormsFixtureTest do
       "committee-vote-ceo" => %{"committee_vote_ceo" => ["approve", "reject"]},
       "disburse-loan" => %{"disbursement_reference" => :optional_free},
       "escalate-l2-approval-to-ceo" => %{"l2_decision" => ["approve", "reject"]},
-      "escalate-disburse-loan-to-credit-director" => %{"disbursement_reference" => :optional_free}
+      "escalate-disburse-loan-to-loan-ops-lead" => %{"disbursement_reference" => :optional_free}
     }
 
     @reg_forms %{

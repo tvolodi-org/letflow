@@ -1,7 +1,7 @@
 defmodule Letflow.Engine.MeridianLoanEscalationTimerTest do
   @moduledoc """
   ISS-1013 / Q-995 (GH #2282) -- engine-level proof of the D-ESC escalation chain (BA ruling
-  GH #2281) on the REAL Meridian "Loan Origination" fixture (v1.12), through the real
+  GH #2281) on the REAL Meridian "Loan Origination" fixture (v1.15), through the real
   `Definitions` registration/activation, `Engine.create/2`, `Engine.complete_task/3` and the real
   timer path the advance-timer route uses (`Scheduler.resolve_advance_target/3` +
   `Scheduler.fire_timer/2`).
@@ -10,7 +10,8 @@ defmodule Letflow.Engine.MeridianLoanEscalationTimerTest do
     * l2-approval's timer escalates to `escalate-l2-approval-to-ceo` (role-ceo): l2 CANCELLED, a new
       task for role-ceo is created; its own timer fails closed to `decline-application`
       (NEVER `create-facility`); an explicit 'approve' by the CEO still creates the facility;
-    * disburse-loan's timer escalates to `escalate-disburse-loan-to-credit-director`; its own timer
+    * disburse-loan's timer escalates to `escalate-disburse-loan-to-loan-ops-lead` (role-loan-ops-lead,
+      Q-1048 / GH #2390; formerly the credit-director node); its own timer
       holds the loan (`disbursement-held-notice` -> `end-disbursement-held`), no payout.
 
   No HTTP: the dispatcher is not run; service-task outcomes are re-entered by hand exactly as
@@ -29,6 +30,7 @@ defmodule Letflow.Engine.MeridianLoanEscalationTimerTest do
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.Scheduler
   alias Letflow.Scheduler.Timer
+  alias Letflow.SodSupport, as: S
   alias Letflow.TenantFixture
 
   @fixture Path.expand(
@@ -109,6 +111,27 @@ defmodule Letflow.Engine.MeridianLoanEscalationTimerTest do
                },
                prefix: schema
              )
+  end
+
+  # Completion as a named actor (the escalation tests need a real holder of the node's role).
+  defp complete_as!(schema, task, actor_id, output) do
+    assert {:ok, _} =
+             Engine.complete_task(
+               task.id,
+               %{
+                 output_variables: output,
+                 actor_id: actor_id,
+                 idempotency_key: unique("q1048-complete")
+               },
+               prefix: schema
+             )
+  end
+
+  # A real user holding role-loan-ops-lead, the escalation node's role (Q-1048 / GH #2390).
+  defp loan_ops_lead!(schema) do
+    user = S.insert_user!(schema, "ops-lead")
+    S.grant_role!(schema, "role-loan-ops-lead", [user.id])
+    user
   end
 
   defp projection(schema, instance_id),
@@ -277,7 +300,7 @@ defmodule Letflow.Engine.MeridianLoanEscalationTimerTest do
     {schema, id}
   end
 
-  test "disburse-loan timer escalates to role-credit-director; a stalled escalation holds the loan with a notice (no payout)" do
+  test "disburse-loan timer escalates to role-loan-ops-lead; a stalled escalation holds the loan with a notice (no payout)" do
     {schema, id} = at_disburse_loan!()
     original = task!(schema, id, "disburse-loan")
     assert original.assignee_ref == "role-loan-ops"
@@ -287,11 +310,11 @@ defmodule Letflow.Engine.MeridianLoanEscalationTimerTest do
     assert abs(DateTime.diff(timer.fire_at, timer.created_at, :second) - 86_400) <= 60
 
     assert Repo.get!(EngineTask, original.id, prefix: schema).status == :cancelled
-    esc = task!(schema, id, "escalate-disburse-loan-to-credit-director")
-    assert esc.assignee_ref == "role-credit-director"
+    esc = task!(schema, id, "escalate-disburse-loan-to-loan-ops-lead")
+    assert esc.assignee_ref == "role-loan-ops-lead"
 
     timer2 = fire_escalation!(schema, id)
-    assert timer2.node_id == "escalate-disburse-loan-to-credit-director"
+    assert timer2.node_id == "escalate-disburse-loan-to-loan-ops-lead"
     assert Repo.get!(EngineTask, esc.id, prefix: schema).status == :cancelled
     assert projection(schema, id).current_nodes == ["disbursement-held-notice"]
 
@@ -302,16 +325,23 @@ defmodule Letflow.Engine.MeridianLoanEscalationTimerTest do
     # the held path never completed a disbursement: no task for it was ever completed
     for t <-
           tasks(schema, id, "disburse-loan") ++
-            tasks(schema, id, "escalate-disburse-loan-to-credit-director") do
+            tasks(schema, id, "escalate-disburse-loan-to-loan-ops-lead") do
       assert t.status == :cancelled
     end
   end
 
-  test "the credit director completing the escalated disbursement in time ends disbursed" do
+  test "a role-loan-ops-lead holder completing the escalated disbursement in time ends disbursed" do
     {schema, id} = at_disburse_loan!()
     fire_escalation!(schema, id)
+    ops = loan_ops_lead!(schema)
 
-    complete!(schema, task!(schema, id, "escalate-disburse-loan-to-credit-director"), %{})
+    complete_as!(
+      schema,
+      task!(schema, id, "escalate-disburse-loan-to-loan-ops-lead"),
+      ops.id,
+      %{}
+    )
+
     assert projection(schema, id).status == :completed
 
     assert dispatches(schema, id)

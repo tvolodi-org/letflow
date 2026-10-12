@@ -19,7 +19,7 @@ defmodule Letflow.Scripts.PersonaActorSeedDriftTest do
         "test/fixtures/qa/meridian_loan_origination_process_definition.json",
         "test/fixtures/qa/meridian_regulatory_compliance_review_process_definition.json"
       ],
-      count: 8
+      count: 9
     },
     "vortex" => %{
       script: "scripts/seed_vortex_persona_actors.sh",
@@ -169,7 +169,7 @@ defmodule Letflow.Scripts.PersonaActorSeedDriftTest do
   describe "mutation sensitivity (in-memory copies)" do
     test "M1: dropping role-loan-ops from meridian ROLES is detected" do
       s = String.replace(src("meridian"), "  \"role-loan-ops\"\n", "", global: false)
-      assert [msg | _] = roles_errors(s, fx("meridian"), 8)
+      assert [msg | _] = roles_errors(s, fx("meridian"), 9)
       assert msg =~ "missing_in_script=[\"role-loan-ops\"]"
     end
 
