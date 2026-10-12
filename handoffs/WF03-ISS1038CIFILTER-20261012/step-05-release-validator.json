@@ -1,0 +1,35 @@
+{
+  "handoff_id": "c4a7d1e0-1038-4a11-8c20-000000000005",
+  "run_id": "WF03-ISS1038CIFILTER-20261012",
+  "workflow_id": "WF-03",
+  "step": "05",
+  "from_agent": "ORCH",
+  "to_agent": "RELEASE-VALIDATOR",
+  "file": "handoffs/WF03-ISS1038CIFILTER-20261012/step-05-release-validator.json",
+  "created_at": "2026-10-12T14:20:00Z",
+  "started_at": null,
+  "completed_at": null,
+  "status": "PENDING",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1038": "LOW, CI lane, owner letflow-3. Queue Q-1038 / GH #2365, queue issue_ref ISS-1038. Source: letflow-3 CI speed analysis (Q-1037 / GH #2364 comment). Evidence: the 'Detect changed paths' filter in .github/workflows/ci.yml only matches lib/, priv/repo/migrations/, test/, mix.exs, mix.lock, .tool-versions, config/ and .github/workflows/ci.yml, so a PR that changes scripts/test_parallel.sh (the partition runner the backend gate itself uses) gets backend=false and the backend gate is skipped on that PR. Fix: add scripts/test_parallel.sh and any other script the backend gate itself runs (read what `mix letflow.check` and the gate steps invoke under scripts/) to the backend pattern; keep the A3 / merge_group behaviour intact; required check names unchanged. Test: a throwaway PR touching only scripts/test_parallel.sh shows the backend gate running (run id quoted); a docs-only PR still skips it. Related: Q-1037. Acceptance: (1) scripts/test_parallel.sh and every other script executed by the backend gate are in the backend path pattern; (2) a PR touching only scripts/test_parallel.sh runs the backend gate (run id quoted); a docs-only PR still skips it; (3) merge_group trigger and required check names unchanged. Supervisor rules: check names byte-exact, NO aggregator / branch-protection change (that is the user's), full local gates, PR body per template; diff of the filter only."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      ".github/workflows/ci.yml",
+      "handoffs/WF03-ISS1038CIFILTER-20261012/step-03-elixir-dev.json"
+    ],
+    "owned_modules": [
+      ".github/workflows/ci.yml"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1038CIFILTER-20261012"
+  },
+  "task": {
+    "description": "WF-03 Step 5 RELEASE-VALIDATOR (.claude/agents/release-validator.md): independently re-derive acceptance, trust nothing from the step-03 report. Q-1038 / GH #2365, record docs/issues/ISS-1059.yaml, branch feature/WF03-ISS1038CIFILTER-20261012 (fix fa8a4fb52, step-03 handoff 7440a66a6). Change under review: ONE line of .github/workflows/ci.yml (add scripts/.*\\.sh$ to the backend grep -qE alternation) plus one docs/anti-patterns.md entry. Compare with `git diff origin/main...HEAD`. Acceptance: (1) scripts/test_parallel.sh and every other script the backend gate executes match the backend pattern; (2) scripts-only PR runs backend gate (run 38259846157, throwaway PR #2408), docs-only still skips (run 38259853514, #2409); (3) merge_group trigger and required check names unchanged. Do NOT run mix (no test reads ci.yml; if you need it, use the machine mutex). Foreground only, no Monitors. Result into this handoff (COMPLETED, result.status PASS/FAIL, no BOM, LF); pull --rebase, commit, push with retry on github resolve failures; message ends 'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>'. Do yourself: extract the real grep line from ci.yml and re-run a path table (scripts/test_parallel.sh, scripts/lib/seed_*_base.sh, scripts/seed_*.sh, scripts/uat_preflight.sh true; scripts/README.md, scripts/*.py, docs/*, handoffs/*, web/* false; all old-true paths true); enumerate scripts executed by the backend gate independently (grep ci.yml, mix.exs aliases, lib/mix/tasks, test/) and confirm all match; use `gh run view 38259846157 --json jobs` and `gh run view 38259853514 --json jobs` to confirm job conclusions (Detect changed paths success; backend legs not skipped / skipped respectively; aggregator name unchanged); confirm tmp/iss1038* branches absent on origin; run `git merge-tree`/`git merge --no-commit` check that origin/main merges cleanly (abort afterwards, leave tree clean); run `mix letflow.lint_handoffs` only under the mutex if you want it."
+  }
+}
