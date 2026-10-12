@@ -1,0 +1,45 @@
+{
+  "handoff_id": "c4a7d1e0-1038-4a11-8c20-000000000006",
+  "run_id": "WF03-ISS1038CIFILTER-20261012",
+  "workflow_id": "WF-03",
+  "step": "06",
+  "from_agent": "ORCH",
+  "to_agent": "DOC-UPDATER",
+  "file": "handoffs/WF03-ISS1038CIFILTER-20261012/step-06-doc-updater.json",
+  "created_at": "2026-10-12T14:05:00Z",
+  "started_at": "2026-10-12T14:05:00Z",
+  "completed_at": "2026-10-12T14:06:00Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1038": "Queue Q-1038 / GH #2365, local record docs/issues/ISS-1059.yaml. Steps 01..05 PASS; flip the record to resolved."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-1038-4a11-8c20-000000000005"
+    ],
+    "artifacts_in": [
+      "docs/issues/ISS-1059.yaml",
+      "handoffs/WF03-ISS1038CIFILTER-20261012/step-05-release-validator.json"
+    ],
+    "owned_modules": [
+      "docs/issues/ISS-1059.yaml"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1038CIFILTER-20261012"
+  },
+  "task": {
+    "description": "WF-03 Step 6 DOC-UPDATER: flip docs/issues/ISS-1059.yaml to resolved per docs/agents/protocols/ISSUE_QUEUE.md vocabulary; no requirement status or run-history volume change (no requirement in scope)."
+  },
+  "result": {
+    "status": "PASS",
+    "verdict": "PASS",
+    "summary": "ISS-1059 flipped open -> resolved with resolved_in_run WF03-ISS1038CIFILTER-20261012, resolved_at from the real clock, and a resolution note (backend path filter now includes scripts/.*\\.sh$; proof runs 38259846157 backend=true, 38259853514 skip; wider candidates .formatter.exs and priv/ outside migrations tracked separately). No requirements or status-history volume touched; registry.json and orchestrator.log untouched (ORCH-only).",
+    "artifacts_out": [
+      "docs/issues/ISS-1059.yaml"
+    ]
+  }
+}
