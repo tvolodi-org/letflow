@@ -8,8 +8,8 @@
   "file": "handoffs/WF03-ISS1042-20261012/step-02b-code-design-validator-regate1.json",
   "created_at": "2026-10-12T04:05:24Z",
   "started_at": null,
-  "completed_at": null,
-  "status": "PENDING",
+  "completed_at": "2026-10-12T04:11:21Z",
+  "status": "COMPLETED",
   "priority": "NORMAL",
   "context": {
     "stage": "S1",
@@ -52,5 +52,82 @@
       "No change to required check names; no paid runners"
     ]
   },
-  "result": null
+  "result": {
+    "status": "PASS",
+    "summary": "PASS with 8 MINOR, 0 BLOCKER, 0 MAJOR. Re-derived from the files, not from the designer's summary. F1 resolved: 4.2 defines a definitional digest D (classes T C K I G F Q P R Y X H incl. tgenabled, pg_get_constraintdef, pg_get_indexdef, trigger function md5, column type/default/not-null, sequence params, comments, ACL/owner) run in detect AND verify; drift -> rebuild, never repair (INV-P10); mutations M8a/b and M15-M21 each carry an expected result (M15 states the teeth check explicitly; for the others the expected 'rebuild' outcome is itself the teeth, because an undetected drift leaves the baseline-comparison assertion failing). Omissions vs assert_clone_parity! are named in issue M1 (sequence OWNED BY ownership; internal-trigger tgenabled), both additive and not exercised by the adopters. Cost: the 12.4-17.2 ms digest was measured on tenant_template (57 relations), not a clone; I did not re-measure on a clone (no clone schema exists at rest and creating one would write into the shared letflow_test database another session uses), so digest_ms on a clone is UNVERIFIED by me. The 'gain survives' conclusion holds with a wide margin regardless: detect+verify ~2 x 13 ms (about 80 ms even at the OQ-8 stop-line of 40 ms) plus dirty-subset truncate ~8 ms/table against ~839 ms clone + ~42 ms drop saved; a clone has fewer relations than the template, so the template figure is an upper-bound proxy. F2: INV-P1 (4.0, 9.4, 13) is now precise and honest: proof at the final-guard instant by the worker's own session; post-guard foreign writes explicitly NOT claimed (RR-1), bounded by M13c. Independent straggler audit CONFIRMS the claims: obs/alerts.ex:484 fire_hooks is a defp reached only via evaluate_trigger <- run_detection <- build_context_and_detect, whose only caller in lib is scheduler/poller.ex:436, and that Poller is gated off by start_scheduler: false (config/test.exs:56, pollers.ex scheduler_children); login_discovery/dispatch.ex:56 Dispatch.submit has exactly one caller, routers/login_discovery.ex:97, which no adopter calls. IdentityIdHardeningTest, PromotionScopeTest and store_test.exs contain no spawn/Task/start_supervised/GenServer except store_test Task.async at 338-339, 1151, 1162, all awaited (Task.await_many at 341 and 1217). Adopter-reachable lib modules (Routers.Identity, Identity.*, Routers.Promotions/Tenants/Definitions, Definitions.Promotion*, EventStore.Registry, TenantProvisioning, Definitions.create/activate) contain no un-awaited spawner (full grep of Task.*/spawn/GenServer.cast/start_child/async_nolink/send_after/:telemetry.attach over lib); Lua/Wasm/plugin async_nolink are yield+shutdown inside their callers; RoleBackfill async_stream is synchronous; no Oban/Quantum; service_task_dispatcher gated off; pg advisory locks are all xact-scoped; no bearer tokens in the adopters so OIDC ProviderRegistry is not reached. The straggler-free results are correct. F3 one mechanism (4.4: re-copy from live template, count+md5 only in baseline, ISS-0842 assumption stated, OQ-6 withdrawn): resolved, no contradiction (verified no FK targets event_type_registry/schema_migrations in tenant_template). F4 (4.6: worker runs rebuild, assert_schema_complete!, baseline replaced, tenant and registration re-snapshotted, generation+1, then normal detect/guard): resolved. F5 (4.0 verify always, INV-P12): resolved. F6 (3.4 Sandbox.mode(:auto) first, plus every worker-routed entry point): resolved. M-a OQ-1 recorded as answer B (1.3): resolved. M-b counts re-grepped: 52 files reference PlatformTenantFixture, 27 three_tenants!, 29 'template: :replay' occurrences in 14 test files: correct. M-c 49+1 and public.secrets / event_history_retirement_outcomes in 5.1: resolved. M-d owned_modules 12.1 complete and every path exists (store_test.exs is test/letflow/definitions/store_test.exs; the new pool test is the only non-existing path and is marked new). M-e ordering/misordering/where-executes: resolved (3.1, 2.1, M22). TOCTOU/deadlock: detect -> reset txn -> verify -> final guard -> repeat-once -> raise has no unacknowledged hole except the Fence A 'continue' reasoning (issue M2); no worker/test-process deadlock (test blocked in call holding no lock; worker waits bounded by lock_timeout 3 s; PG deadlock aborts surface as unprovable -> rebuild). Fence false-positive default is fail-closed (issue M8). Unchanged parts: single dispatch point after the existing Sandbox.mode line; :replay / teardown:false / pool:false bypass; async modules rejected (explicit false required); AC mapping (5+5 interleaved runs, one lever (c), no .github change, no paid runners); no implementation bodies (signatures, types and SQL sketches only). OQ-1..OQ-9 each have a default and consequence; none blocks building (OQ-2 is verified by the M-tests with an ORCH escalation path). The T-12b/T-12c interplay was re-read in the test: T-12c's information_schema probe across ALL schemas passes only because the next acquire rebuilds slot P, which design 6.2 states. Design not edited.",
+    "artifacts_out": [],
+    "issues": [
+      {
+        "severity": "MINOR",
+        "description": "M1 digest vs assert_clone_parity! (F1 residue): design 4.2 says the digest is 'a superset of what assert_clone_parity! dimensions 2-6 and 8-13 compare'. Two things are not in it. (a) Sequence OWNED BY ownership: dimension 5 (check_sequences, pg_get_serial_sequence) depends on the pg_depend ownership link; class Q lists only type/start/increment/max/min/cache/cycle and class C compares the default expression, so ALTER SEQUENCE .. OWNED BY NONE changes neither, the sequence is then skipped by TRUNCATE .. RESTART IDENTITY, and a dirty sequence with no owning table falls out of S (4.3 step 3). (b) Class G is 'non-internal triggers' only (same filter as dimension 8), so ALTER TABLE .. DISABLE TRIGGER ALL (superuser, which the docker test role is) flips tgenabled on the internal FK RI triggers and is invisible; the 4.5 claim that triggers are proved 'present, enabled and unchanged' is true for user triggers only. Neither is exercised by the three adopters (grep: their only DDL is T-12b CREATE TABLE zz_probe). Fix: add pg_depend ownership of sequences to Q and tgenabled of internal triggers (no definition text) to G, add a mutation each, and correct the 'superset' sentence. Implementer-resolvable, additive.",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "M2 Fence A 'continue' reasoning is unsound for uncommitted stragglers (4.3 step 1): 'the straggler's writes will be visible to detect and reset like any other dirt' and 'the proof below is what protects the test' are false for a backend that is idle-in-transaction with an UNCOMMITTED insert: probes cannot see it, nothing is truncated (tables read clean), the final guard passes, and the commit lands during the owning test (RR-1 technically, but the design observed the straggler and handed out anyway). Residual is narrow (the previous test's end fence 3.6 raises for the same condition first, and adopters pass the 6.2 audit) so not a BLOCKER. Fix: if fence A still sees an in-flight matching backend after its budget, raise pool_straggler (or rebuild) instead of continuing.",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "M3 Probe P vs public state is ambiguous: 4.2 defines P as items 2-4 (row presence, sequences, seed digests), but 4.3 steps 4/6 and 5.2.1 ('batched in the probe of 4.2') rely on public keyed-row counts and the tenants/tenant_schemas snapshot comparison being part of detect and verify, while 9.4 lists the final guard as 'row-presence + sequence + seed probe' only. State explicitly that public keyed counts + tenant/registration row compare are part of detect and verify, and say whether the final guard includes them. Mutations M5-M7 would catch a literal-P implementation in the pool test, so tests, not production, are the safety net here.",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "M4 No call timeout is specified for the test-process -> worker calls (start_pool! slot creation of up to 3 clones, max observed clone 3107 ms; acquire worst case = fence 250 ms + lock_timeout 3 s + rebuild clone + final-guard second reset). A default 5 s GenServer.call timeout would turn a slow-CI clone into a spurious exit (section 10 'worker process dies' row): flaky, not deterministic. State :infinity or a value above the sum of the stated budgets. No worker<->test deadlock found: the test process is blocked in the call holding no DB lock under :auto, and the worker only waits on DB locks bounded by lock_timeout 3 s.",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "M5 Factual: section 1.2 says the clone 'holds 50 base tables plus the partitions of events/events_archive (57 relations)', clone_state.definition_rows says '995 for a clone today', and OQ-9 discusses leaf partitions. 57/995 were measured on tenant_template (genuinely migrated, partitioned). A :clone schema is plain/unpartitioned by design (tenant_template.ex do_clone comments near lines 948-950 and 1187-1192; dimension 12 normalizes p/r for events/events_archive), so a clone has 50 plain tables and OQ-9 is moot. Harmless to the algorithm (baseline is read from the clone), but correct the text so an implementer does not build partition handling.",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "M6 Section 6.1/6.2 audit is incomplete on in-memory tenant-keyed state: the ETS/persistent_term list is correct (5 holders, re-grepped), but per-tenant-schema state also lives in the Letflow.Admission GenServer (state.tenants keyed by schema, evicted via forget_tenant on deactivate, reachable through Plugs.ApiPipeline on router calls) and Letflow.Oidc.ProviderRegistry (DynamicSupervisor; not reachable from the adopters, no bearer token in their tests). Admission releases refs in register_before_send so schema reuse is harmless for the three adopters, and none uses capture_log / deny-log assertions (AuthzDenyLog sampler windows). But the 6.2 result table records only spawn results, not the item-3 (ETS/env/telemetry/GenServer) result per adopter. Add that column and name Admission.",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "M7 End fence 'honest limit' overstates what pg_stat_activity.query shows: track_activity_query_size truncates at 1024 bytes by default and Ecto SELECTs put the schema after the column list, so a wide-column read can be invisible to the schema-name/tenant-id match. Writers (INSERT/UPDATE/DELETE) carry the schema in the first bytes, so the leak class that matters is covered; reword the limit, or match on pg_locks relations in the slot schema instead of query text. Also state in 3.6 that an on_exit registered EARLIER than the first claim that stops a process runs after the fence (reverse order); not an issue for the three adopters (no start_supervised).",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "M8 OQ-8 gives a stop-the-line escalation for a fence false positive but no runtime default; the effective runtime default is fail-closed (raise, 3.6 step 2), the safe direction. State that sentence explicitly (no override knob, no downgrade to a log line) so the implementer does not invent one. Not blocking.",
+        "affected_requirement": null
+      }
+    ],
+    "git_evidence": {
+      "branch_name": "feature/WF03-ISS1042-20261012",
+      "commit_sha_list": [],
+      "remote_branch": "origin/feature/WF03-ISS1042-20261012",
+      "push_status": "ok",
+      "pr_url": null,
+      "pr_create_error": null
+    },
+    "next_action": "Proceed to the implementation step (ELIXIR-DEV) against lib/letflow/design/iss1042-pooled-tenant-fixture.md. Pass the 8 MINOR items to ELIXIR-DEV as design clarifications: add sequence ownership to class Q and internal-trigger tgenabled to class G with a mutation each (M1), make fence A raise rather than continue on an in-flight backend (M2), include public keyed rows + tenant/registration snapshots in detect/verify P (M3), use an explicit call timeout (M4). No CODE-DESIGNER rework required."
+  },
+  "gate_history": [
+    {
+      "iteration": 0,
+      "gated_at": "2026-10-12T03:58:00Z",
+      "status": "FAIL",
+      "summary": "Prior gate (handoffs/WF03-ISS1042-20261012/step-02b-code-design-validator.json): 2 BLOCKER (F1 name+count fingerprint blind to name/count-preserving DDL; F2 late-writer/TOCTOU and unaudited spawned processes), 4 MAJOR (F3 two seed-restore mechanisms; F4 rebuild leaves snapshots/baseline stale; F5 first-acquire skip contradicts INV-P1; F6 teardown never sets Sandbox :auto), 5 MINOR.",
+      "issues": [
+        "F1",
+        "F2",
+        "F3",
+        "F4",
+        "F5",
+        "F6",
+        "M-a",
+        "M-b",
+        "M-c",
+        "M-d",
+        "M-e"
+      ],
+      "next_action": "Rework CODE-DESIGNER iteration 1: resolve F1-F6 and M-a..M-e in the design; re-gate."
+    }
+  ]
 }
