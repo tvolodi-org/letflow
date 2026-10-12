@@ -18,8 +18,11 @@ description: >
   INV-F-6). Precedent: ISS-0705 and ISS-0512 (both closed). A restore-on-exit change conflicts with the ISS-0113
   decision, so the question is the convention, not a per-file edit.
 resolution: >
+  DECIDED 2026-10-12 by letflow-9a (relayed by the supervisor): KEEP the convention; no sweep. Implementation: Q-1070 / GH #2424
+  (ISS-1073). GH #2415 closed as decided, queue Q-1062 released done. Previously:
   Open. Decision needed, not implementation: keep the convention and record the reason once, or change it in one
   sweep with the ISS-0113 position revisited. Queue Q-1062 / GH #2415.
 queue_ref: Q-1062
 github_ref: GH-2415
-status: open
+status: closed-decided
+implementation: ISS-1073
