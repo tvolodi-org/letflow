@@ -63,9 +63,15 @@ and `POST .../bind-realm` answers 409 `tenant is not active`, writing nothing.
 4. **If recovery fails, stop and escalate** to the platform owner with the onboarding id and the
    error. Do not retry by changing the database.
 
-If the onboarding call carried an `idp_realm_id`, that realm is already bound to the `migrating`
-tenant (the create step binds it). Another tenant cannot bind the same realm (409, realm bound
-elsewhere) until that is resolved, so recover this tenant rather than rebinding its realm.
+If the onboarding call carried an `idp_realm_id` and provisioning failed, the realm is **not** bound:
+the realm is bound only after provisioning and the onboarding record succeed. The realm therefore
+stays free, and after recovery you bind it with step R3.
+
+If the create call answers 409 `hostname already bound` after provisioning, the tenant exists,
+is active and has no realm; the realm stays free and the call can be retried with a free hostname.
+If it answers 409 `realm already bound` after provisioning (only in a race with another create for
+the same realm), the tenant exists without a realm: find it with `GET /api/v1/onboarding?hostname=`,
+escalate to the platform owner, and do not bind it by hand.
 
 ## Realm checklist
 

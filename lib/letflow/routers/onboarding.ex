@@ -348,36 +348,67 @@ defmodule Letflow.Routers.Onboarding do
   end
 
   defp create_with_realm(conn, attrs, body, slug, hostname, realm) do
+    case realm_bind_opts(conn, realm) do
+      {:ok, bind_opts} ->
+        create_tenant(conn, attrs, body, slug, hostname, realm, bind_opts)
+
+      :platform_prefix_mismatch ->
+        Logger.error("operator realm bind refused: platform prefix check failed")
+        Response.internal_error(conn)
+    end
+  end
+
+  # A realm bound elsewhere is refused before any row is written. The realm is NOT written
+  # with the tenant: it is bound only after provisioning and the onboarding record succeed
+  # (provision_and_bind/7), so a later failure such as a taken hostname cannot leave an
+  # active tenant that already owns the realm (ISS-1030 SECURITY-REVIEWER F1).
+  defp create_tenant(conn, attrs, body, slug, hostname, realm, bind_opts) do
+    if realm_taken?(realm) do
+      Response.conflict(conn, "realm already bound")
+    else
+      insert_migrating_tenant(conn, attrs, body, slug, hostname, realm, bind_opts)
+    end
+  end
+
+  defp realm_taken?(nil), do: false
+
+  defp realm_taken?(realm),
+    do: match?({:ok, _tenant}, Identity.resolve_tenant_by_realm(realm))
+
+  defp insert_migrating_tenant(conn, attrs, body, slug, hostname, realm, bind_opts) do
     create_attrs =
       attrs
       |> Map.take(["slug", "display_name"])
       |> Map.put("status", "migrating")
-      |> put_realm(realm)
 
     case Identity.create_tenant(create_attrs) do
       {:error, :duplicate_slug} ->
         Response.conflict(conn, "slug already exists")
 
-      {:error, %Ecto.Changeset{} = changeset} ->
-        if realm_unique_conflict?(changeset) do
-          Response.conflict(conn, "realm already bound")
-        else
-          Response.unprocessable(conn, "validation failed")
-        end
+      {:error, %Ecto.Changeset{}} ->
+        Response.unprocessable(conn, "validation failed")
 
       {:ok, tenant} ->
-        provision_and_bind(conn, tenant, slug, hostname, body)
+        provision_and_bind(conn, tenant, slug, hostname, body, realm, bind_opts)
     end
   end
 
-  defp put_realm(attrs, nil), do: attrs
-  defp put_realm(attrs, realm), do: Map.put(attrs, "idp_realm_id", realm)
+  # The same platform-prefix gate as the bind route (design 7a), checked before any write.
+  defp realm_bind_opts(_conn, nil), do: {:ok, nil}
 
-  defp realm_unique_conflict?(%Ecto.Changeset{errors: errors}) do
-    Enum.any?(errors, fn
-      {:idp_realm_id, {_message, keyword}} -> Keyword.get(keyword, :constraint) == :unique
-      _other -> false
-    end)
+  defp realm_bind_opts(conn, _realm) do
+    case verified_platform_prefix(conn) do
+      {:ok, platform_prefix} ->
+        {:ok,
+         [
+           actor_id: conn.assigns.auth_context.user_id,
+           platform_prefix: platform_prefix,
+           trace_id: conn.assigns[:trace_id]
+         ]}
+
+      :platform_prefix_mismatch ->
+        :platform_prefix_mismatch
+    end
   end
 
   # Routes through Letflow.TenantOnboarding.provision_and_migrate/1 (AC8/AC9's
@@ -391,10 +422,11 @@ defmodule Letflow.Routers.Onboarding do
   # provisioning/replay failure -- see Letflow.TenantProvisioning's moduledoc
   # "No reconciliation path for a half-provisioned tenant" section. Adding a
   # rollback here would orphan a real Postgres schema; not attempted.
-  defp provision_and_bind(conn, tenant, slug, hostname, body) do
+  defp provision_and_bind(conn, tenant, slug, hostname, body, realm, bind_opts) do
     with {:ok, _registration} <- TenantOnboarding.provision_and_migrate(tenant.id),
          {:ok, record} <-
            Identity.create_onboarding(%{tenant_id: tenant.id, slug: slug, hostname: hostname}),
+         :ok <- bind_requested_realm(tenant, realm, bind_opts),
          {:ok, login_state} <- Identity.get_onboarding_login_state(record.tenant_id) do
       created_body =
         record
@@ -405,10 +437,24 @@ defmodule Letflow.Routers.Onboarding do
       Response.created(conn, created_body)
     else
       {:error, :duplicate_hostname} -> Response.conflict(conn, "hostname already bound")
+      {:error, :realm_already_bound} -> Response.conflict(conn, "realm already bound")
+      {:error, :duplicate_realm} -> Response.conflict(conn, "realm already bound")
+      {:error, :audit_failed} -> Response.internal_error(conn)
       {:error, %Ecto.Changeset{}} -> Response.unprocessable(conn, "validation failed")
       {:error, {:provisioning_failed, _reason}} -> Response.internal_error(conn)
       {:error, {:migration_failed, _exception}} -> Response.internal_error(conn)
       _provisioning_or_replay_error -> Response.internal_error(conn)
+    end
+  end
+
+  # Binds the realm requested at creation, after the tenant is active and its onboarding
+  # record exists. Same audited path as POST .../bind-realm (bind-once, row lock, audit).
+  defp bind_requested_realm(_tenant, nil, _bind_opts), do: :ok
+
+  defp bind_requested_realm(tenant, realm, bind_opts) do
+    case Identity.bind_tenant_realm(tenant.id, realm, bind_opts) do
+      {:ok, _tenant} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 

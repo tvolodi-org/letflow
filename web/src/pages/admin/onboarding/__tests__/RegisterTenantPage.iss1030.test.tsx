@@ -133,6 +133,8 @@ describe('RegisterTenantPage ISS-1030', () => {
     renderRegister()
     await fillRequired(user)
     await user.type(screen.getByLabelText(/Admin Username/), '   ')
+    // whitespace-only realm: the field is typed into, then must be omitted, not sent as ''
+    await user.type(screen.getByLabelText(/Identity Realm ID/), '   ')
     await submit(user)
     await waitFor(() => expect(postWithHeaders).toHaveBeenCalledTimes(1))
     const body = postWithHeaders.mock.calls[0]![1] as Record<string, unknown>

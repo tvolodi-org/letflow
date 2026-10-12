@@ -203,7 +203,11 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     schema_name = schema_of(resp["tenant_id"])
 
     assert Repo.aggregate(
-             from(u in User, where: u.username == "ada-admin" or u.email == ^email),
+             from(u in User,
+               where:
+                 u.username == "ada-admin" or
+                   fragment("lower(?)", u.email) == ^String.downcase(email)
+             ),
              :count,
              :id,
              prefix: schema_name
@@ -492,6 +496,36 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     assert stored_realm(other.tenant_id) == held
   end
 
+  test "POST /onboarding with a realm and a taken hostname answers 409 and never binds the realm to the failed tenant",
+       ctx do
+    first = onboard!(ctx, %{})
+    slug = Letflow.TenantSlugFixture.unique_slug("iss1030")
+    free = realm()
+
+    # Provisioning succeeds and the onboarding record fails AFTER the tenant exists. The
+    # realm is bound only after the record, so the failed tenant must stay unbound.
+    conn =
+      call(ctx, :post, "/api/v1/onboarding", %{
+        "slug" => slug,
+        "display_name" => "ISS-1030 Tenant",
+        "hostname" => first["hostname"],
+        "idp_realm_id" => free
+      })
+
+    assert conn.status == 409
+    assert json(conn)["detail"] == "hostname already bound"
+
+    orphan = Repo.get_by!(Tenant, slug: slug)
+    cleanup_onboarded_tenant!(orphan.id)
+    assert orphan.idp_realm_id == nil
+    refute Repo.exists?(from(t in Tenant, where: t.idp_realm_id == ^free))
+
+    # The realm is still free: a later create with a free hostname binds it.
+    created = onboard!(ctx, %{"idp_realm_id" => free})
+    assert created["login"]["loginable"] == true
+    assert stored_realm(created["tenant_id"]) == free
+  end
+
   test "POST /onboarding answers 503 with a retry-after header of 5 and creates no tenant row when the realm probe is unreachable",
        ctx do
     conn = refused!(ctx, %{"idp_realm_id" => "unreachable-" <> Ecto.UUID.generate()}, 503)
@@ -630,6 +664,20 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     assert stored_realm(resp["tenant_id"]) == nil
   end
 
+  test "POST /onboarding/:id/bind-realm on a tenant that became non-active answers 409 even for the realm already stored",
+       ctx do
+    resp = onboard!(ctx, %{})
+    bound = realm()
+    assert bind(ctx, resp["id"], bound).status == 200
+
+    set_status!(resp["tenant_id"], :inactive)
+
+    conn = bind(ctx, resp["id"], bound)
+    assert conn.status == 409
+    assert json(conn)["detail"] == "tenant is not active"
+    assert stored_realm(resp["tenant_id"]) == bound
+  end
+
   test "POST /onboarding/:id/bind-realm for a nonexistent onboarding id answers 404", ctx do
     for id <- [Ecto.UUID.generate(), "not-a-uuid"] do
       conn = bind(ctx, id, realm())
@@ -732,6 +780,8 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     # to what the request path logs at warning/error level.
     ids = Enum.map_join([other.tenant_id, ctx.platform.tenant_id], "|", &Regex.escape/1)
     refute Regex.match?(~r/\[(warning|error)\][^\n]*(#{ids})/, log)
+    # The fault is still logged (design 3.4: a real fault is logged, with fixed text).
+    assert log =~ "operator realm bind refused: platform prefix check failed"
 
     assert stored_realm(resp["tenant_id"]) == nil
     assert entries(schema_of(resp["tenant_id"]), "tenant.idp_realm.bound") == []
@@ -743,12 +793,13 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
        ctx do
     resp = onboard!(ctx, %{})
 
-    {conn, _log} =
+    {conn, log} =
       with_log(fn -> with_pin_change(:unpin, fn -> bind(ctx, resp["id"], realm()) end) end)
 
     assert conn.status == 500
     assert json(conn)["status"] == 500
     refute conn.resp_body =~ ctx.platform.tenant_id
+    assert log =~ "operator realm bind refused: platform prefix check failed"
 
     assert stored_realm(resp["tenant_id"]) == nil
     assert entries(schema_of(resp["tenant_id"]), "tenant.idp_realm.bound") == []
@@ -790,7 +841,7 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     assert entries(outsider.schema_name, "platform.tenant_idp_realm.bound") == []
   end
 
-  test "after bind-realm a token from that realm resolves the tenant and a tenant without a realm cannot be resolved",
+  test "after bind-realm a token from that realm resolves the tenant (and is rejected before the bind)",
        ctx do
     original = Application.fetch_env!(:letflow, :oidc)
 

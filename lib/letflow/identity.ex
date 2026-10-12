@@ -1898,11 +1898,11 @@ defmodule Letflow.Identity do
     do: {:ok, :unchanged}
 
   defp audit_realm_bind(repo, {:bound, tenant}, actor_id, platform_prefix, trace_id) do
+    # `limit: 1`: tenant_id has only a plain index, so two rows would make get_by raise.
     onboarding_id =
-      case repo.get_by(OnboardingRecord, tenant_id: tenant.id) do
-        %OnboardingRecord{id: id} -> id
-        nil -> nil
-      end
+      repo.one(
+        from(o in OnboardingRecord, where: o.tenant_id == ^tenant.id, select: o.id, limit: 1)
+      )
 
     with %TenantProvisioning.Registration{schema_name: prefix} <-
            repo.get_by(TenantProvisioning.Registration, tenant_id: tenant.id),
@@ -1914,7 +1914,8 @@ defmodule Letflow.Identity do
                action: "tenant.idp_realm.bound",
                resource_type: "tenant",
                resource_id: tenant.id,
-               trace_id: trace_id,
+               # No operator-chosen trace id in the tenant chain (tenant admins read it).
+               trace_id: nil,
                before_state: nil,
                after_state: %{
                  "idp_realm_id" => tenant.idp_realm_id,
