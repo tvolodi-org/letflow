@@ -1,0 +1,25 @@
+id: ISS-1045
+title: "Resync simulation fixtures test/fixtures/simulation/meridian/process_claim_intake.yaml and process_policy_binding.yaml to the QA meridian definitions after REQ-465 adds distinct_from"
+discovered_by: letflow-2 (BA/UAT lane), reported by letflow-3 from the REQ-465 branch analysis
+discovered_in_run: "REQ-465 / Q-1028 adoption, 2026-10-12"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: MINOR
+owner: "ELIXIR-DEV or BA-<VERTICAL> (meridian), whoever picks up the resync"
+scope: simulation
+description: >
+  REQ-465 forbids editing these two simulation fixtures inside Q-1028, so the drift is
+  left for this follow-up. Verified on main: process_claim_intake.yaml is version "1.1"
+  with no distinct_from; process_policy_binding.yaml is version "1.0" with no
+  distinct_from. The QA-side versions and attributes come from letflow-3's analysis and
+  were not independently checked. The simulation fixtures therefore do not model the
+  separation-of-duties rules the QA definitions enforce, so simulation runs can pass where
+  QA refuses.
+resolution: >
+  SUPERSEDED by ISS-1049 (queue Q-1049 / GH #2391). The original registration carried
+  depends_on [1028], which deadlocks because Q-1028 stays open until the follow-up lands.
+  Queue task Q-1045 is blocked and its id is not reused. GitHub #2387 was closed as not
+  planned with a pointer to the replacement.
+queue_ref: Q-1045
+github_ref: GH-2387
+status: superseded
+superseded_by: ISS-1049

@@ -1,0 +1,25 @@
+id: ISS-1049
+title: "Resync simulation fixtures test/fixtures/simulation/meridian/process_claim_intake.yaml and process_policy_binding.yaml to the QA meridian definitions after REQ-465 adds distinct_from"
+discovered_by: letflow-2 (BA/UAT lane), replacement for superseded ISS-1045
+discovered_in_run: "REQ-465 / Q-1028 adoption, 2026-10-12"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: MINOR
+owner: "ELIXIR-DEV or BA-<VERTICAL> (meridian), whoever picks up the resync"
+scope: simulation
+description: >
+  Resync of the two simulation fixtures to the QA meridian definitions after the REQ-465
+  adoption. Verified on main: process_claim_intake.yaml is version "1.1" with no
+  distinct_from; process_policy_binding.yaml is version "1.0" with no distinct_from. The
+  QA-side versions and attributes come from letflow-3's analysis and were not independently
+  checked. Resync must read the merged or deployed QA values, not copy them from this text.
+  The fixtures are not edited inside Q-1028 (REQ-465 forbids it), so this is a separate PR.
+  Depends on the follow-up Q-1048 / GH #2390 (ISS-1048), which must be done first.
+  Overlap noted: open PR #765 (REQ-205 harness) touches other meridian simulation files
+  (company.yaml, org_structure.yaml, process_loan_origination.yaml,
+  process_regulatory_compliance_review.yaml), not these two; coordinate merge order.
+resolution: >
+  Open. Blocked until ISS-1048 is done.
+queue_ref: Q-1049
+github_ref: GH-2391
+status: open
+depends_on: ISS-1048

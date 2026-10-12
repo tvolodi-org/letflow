@@ -35245,3 +35245,76 @@ requirements:
       - "SECURITY-REVIEWER verdict recorded (mandatory)"
       - "mix compile --warnings-as-errors, mix format --check-formatted, scoped mix test over the vortex and swiftroute definition fixture tests and engine tests, and mix letflow.check_boundaries pass, real output quoted"
     depends_on: [REQ-462, REQ-463, REQ-464, REQ-465]
+
+  - id: REQ-467
+    title: "Meridian escalate-disburse-loan: reroute the disbursement escalation to a non-approver role (role-loan-ops-lead), rename the node, and add distinct_from with all six approval nodes (Q-1044 decision option b)"
+    owner: ELIXIR-DEV
+    status: in_progress
+    stage: S3
+    impl_order: 1048  # letflow-queue task id, GH#2390 (Q-1048). Follow-up to Q-1044 / GH #2386 (decision-only, closed as decided). Superseded queue ids Q-1046 / GH #2388 (blocked) and Q-1045 / GH #2387 (blocked) carried depends_on [1028], which deadlocks because Q-1028 stays open by design; this id carries depends_on [] and a claim gate instead.
+    description: >
+      Source: letflow-9a advisory design session, relayed by the supervisor on
+      2026-10-12 (decision file reports/decisions/Q-1044-letflow-9a-decision-2026-10-12.md
+      in the supervisor's reports). Decision: option (b), the shipped-definition
+      guard stays UNCHANGED.
+
+      GAP (verified by reading main, not by a run): in
+      test/fixtures/qa/meridian_loan_origination_process_definition.json
+      (v1.13), l2-approval routes to role-credit-director. disburse-loan
+      (role-loan-ops) falls back on a P1D timer to escalate-disburse-loan-to-credit-director,
+      which also routes to role-credit-director and completes to end-disbursed.
+      A person who approved at L2 can therefore release the payment through
+      that escalation. If l1-approval also times out (fallback-l1-approval goes
+      straight to l2-approval), one person can approve and pay alone.
+
+      CHANGE, as decided:
+      1. Reroute escalate-disburse-loan-to-credit-director to a NEW routing role,
+         role-loan-ops-lead (the payments team's management line; approves nothing
+         in the loan process). Rename the node id to
+         escalate-disburse-loan-to-loan-ops-lead, because an id naming
+         credit-director on a payment-release step is a lasting trap.
+      2. That node carries distinct_from with ALL six approval nodes: l1-approval,
+         l2-approval, escalate-l2-approval-to-ceo, committee-vote-cro,
+         committee-vote-director, committee-vote-ceo. No same-role pair results,
+         so the guard holds as written.
+      3. test/letflow/definitions/required_outputs_shipped_definitions_test.exs is
+         NOT relaxed. The change records that it is deliberately stricter than
+         REQ-464 check 4 for shipped definitions; revisit only when a shipped
+         definition needs four-eyes inside one role.
+      4. One new meridian persona holds role-loan-ops-lead and no approval role
+         (BA lane). Proposed id: actor-meridian-hannah (not in the roster today).
+
+      RUNTIME FACT (letflow-3's code reading, to be restated from code by the
+      implementer in the run report, AC 6): escalation_role grants NO eligibility
+      at runtime. lib/letflow/engine.ex (~line 808) and
+      lib/letflow/engine/transition.ex (~line 443) read only
+      escalation_timer_duration; the timeout follows the node's single
+      unconditioned edge. escalation_role is read only by definition-time checks
+      (lib/letflow/definitions/graph.ex CHK-21 co-requirement and
+      lib/letflow/definitions/role_binding.ex, the routed-role set for roster
+      checks). Who may act on the escalation node is governed by that node's own
+      role attribute, so the reroute is what closes the gap.
+
+      ROUTING: owner ELIXIR-DEV (definition, seed scripts, engine tests).
+      SECURITY-REVIEWER is a mandatory HARD gate on the implementation PR before
+      merge, and its verdict must explicitly cover acceptance criteria 2, 5 and 6.
+      Depends on REQ-465 / Q-1028 in the queue sense: REQ-465 stays in_progress
+      (partial adoption) until this lands. No urgency: QA only, no real payments.
+
+      Version: each changed definition is incremented by one minor step, with the
+      reason in its description.
+    open_questions:
+      - "The persona's QA Keycloak account is a UAT-class infra request: it is sent only after letflow-2 issues a written APPROVE for this task id and scope, when implementation is near."
+      - "Sequencing: letflow-3 claimed Q-1048 and is implementing; the supervisor sequences the start, so no worker is assigned until Q-1028 is merged."
+    acceptance_criteria:
+      - "Definition: the escalation node routes to role-loan-ops-lead; no approval node routes to it; its distinct_from is exactly the six ids above (grep quoted); the REQ-464 validator reports no violation; the shipped-definition guard prints candidate_pairs=0 for the loan definition and its assertion is unchanged (git diff shows no change to pair_failures)"
+      - "Trace test, real Postgres, small-loan path: user U completes l2-approval; the disburse-loan timer fires; U, who also holds role-loan-ops-lead, is refused at the escalation node with HTTP 403 and body exactly {\"detail\":\"separation of duties\",\"status\":403}; a different holder of role-loan-ops-lead completes it, and the instance ends at end-disbursed"
+      - "The same trace test for the committee path (completer of committee-vote-director) and for completers of l1-approval and escalate-l2-approval-to-ceo"
+      - "Role barrier: a user holding only role-credit-director is not eligible for the escalation task, refused by the existing eligibility check (not the separation-of-duties body)"
+      - "Fail-closed: when no eligible distinct holder exists, the escalation timer leads to end-disbursement-held and never to end-disbursed (test)"
+      - "escalation_role: disburse-loan and the escalation node both carry escalation_role role-credit-director today. The run report states FROM THE CODE what the attribute does at runtime. If it grants eligibility it must not name an approver role; either way it is changed to agree with the new routing"
+      - "Seed scripts under scripts/, QA copies, test/fixtures/simulation/meridian/process_claim_intake.yaml (resync follow-up Q-1049 / GH #2391) and the three tests that name the old node id agree with the definition; historical uat-reports and ISS-1013 are not edited; version +1 minor with the reason in the description"
+      - "Roster: test/fixtures/uat/actors.yaml and scripts/seed_meridian_persona_actors.sh gain the persona; every meridian UAT or simulation scenario whose outcome changes is listed with actor and step"
+      - "REQ-465 open_questions carries the decision (recorded by the Q-1028 PR); REQ-465 / Q-1028 is not flipped done and not released as done in the queue until this lands"
+      - "SECURITY-REVIEWER verdict recorded (mandatory hard gate; covers acceptance criteria 2, 5 and 6); compile --warnings-as-errors, format --check-formatted, scoped mix test and mix letflow.check_boundaries, each with real output quoted"
+    depends_on: [REQ-465]
