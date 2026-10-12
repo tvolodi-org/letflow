@@ -1,0 +1,45 @@
+{
+ "handoff_id": "b3f6c0de-6a41-4c8e-9a52-1042040b0001",
+ "run_id": "WF03-ISS1042-20261012",
+ "workflow_id": "WF-03",
+ "step": "04b",
+ "from_agent": "ORCH",
+ "to_agent": "TEST-DESIGN-VALIDATOR",
+ "file": "handoffs/WF03-ISS1042-20261012/step-04b-test-design-validator.json",
+ "created_at": "2026-10-12T07:08:12Z",
+ "started_at": null,
+ "completed_at": null,
+ "status": "PENDING",
+ "priority": "NORMAL",
+ "context": {
+  "stage": "S1",
+  "requirement_ids": [],
+  "requirement_text": {},
+  "source_text": {
+   "Q-1042": "CI lever: per-test tenant-template clone cost. Acceptance: (1) instrumented measurement quoted; (2) one lever implemented with before/after wall time of test phase (5 runs each); (3) isolation proof: a test that leaves data behind must not leak (mutation test); (4) no change to required CI check names; no paid runners."
+  },
+  "related_handoff_ids": [
+   "235a3a10-8dcf-4eed-9ddc-a8834d244fb7"
+  ],
+  "artifacts_in": [
+   "test/letflow/support/tenant_fixture_pool_test.exs",
+   "test/specs/ISS-1042.md",
+   "lib/letflow/design/iss1042-pooled-tenant-fixture.md",
+   "test/support/tenant_fixture.ex",
+   "test/support/tenant_template.ex",
+   "handoffs/WF03-ISS1042-20261012/step-04-test-designer.json"
+  ],
+  "owned_modules": [],
+  "worktree": null,
+  "branch_name": "feature/WF03-ISS1042-20261012"
+ },
+ "task": {
+  "description": "WF-03 Step 4b: you are TEST-DESIGN-VALIDATOR (hard gate, .claude/agents/test-design-validator.md). Independently validate TEST-DESIGNER's isolation suite for the pooled tenant fixture. Check: (a) every acceptance criterion and every design section-9 mutation class M1..M22 has a runnable test; (b) no skips/tag-excludes/vacuous assertions; each mutation test asserts the pool SEES the mutation (teeth) and that isolation holds after reset; (c) fixtures self-sufficient, async false, no order dependence; (d) the claimed 35-mutant table in test/specs/ISS-1042.md is real: you MUST independently APPLY at least 5 mutants of your own choosing (include at least 2 not chosen by the designer's table if you can devise them, e.g. weaken the dirty-table detection, skip the straggler fence, skip the seed restore) in a throwaway git worktree OUTSIDE the repo, run the suite against each, and quote real output showing the suite fails; revert/discard every mutant; (e) no edits to test/support, lib, or adopters by the designer (git diff dc8efd642..HEAD --stat). Do NOT edit the test file yourself; report findings with file:line. Verdict PASS or FAIL in result.status (PASS/FAIL only) with the handoff status COMPLETED. Poll synchronously; do not arm Monitors. MACHINE RULE (supervisor): only ONE BEAM at a time machine-wide. Every mix test/compile MUST use this wrapper, one lock acquisition per mix invocation: L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2>/dev/null; do sleep 20; done; trap 'rmdir \"$L\" 2>/dev/null' EXIT; cd <worktree> && LETFLOW_DB_PORT=5499 MIX_ENV=test mix test <file> --seed 0 2>&1 . Use a throwaway Postgres on port 5499 if you need one (docker run, then remove it). Never delete another session's lock. Write your result into this handoff file and commit it with message ending 'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>', push.",
+  "acceptance_criteria": [
+   "verdict with evidence",
+   "at least 5 independently applied mutants with real output",
+   "worktree and container removed; git status clean"
+  ]
+ },
+ "result": null
+}
