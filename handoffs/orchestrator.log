@@ -2768,3 +2768,5 @@
 2026-10-12T04:12:02Z | DISPATCH | WF-03 | WF03-ISS1042-20261012 | ORCH → ELIXIR-DEV | Step 03 implement
 2026-10-12T04:40:24Z | PASS | WF-03 | WF03-ISS1042-20261012 | ELIXIR-DEV → ORCH | Step 03 PASS (head 40ce0ed0d; ORCH verified diff scope; 247 scoped tests green per agent, 3 adopters smoke 95.2->14.4s, 39.7->7.0s, 37.3->10.3s, 1 run each)
 2026-10-12T04:40:24Z | DISPATCH | WF-03 | WF03-ISS1042-20261012 | ORCH → SECURITY-REVIEWER | Step 03c security gate
+2026-10-12T04:41:39Z | PASS | WF-03 | WF03-ISS1042-20261012 | SECURITY-REVIEWER → ORCH | Step 03c PASS out-of-scope (9b2514123; INV-4/INV-7 applied+pass; F2 MINOR no runtime test-DB guard, optional)
+2026-10-12T04:41:39Z | DISPATCH | WF-03 | WF03-ISS1042-20261012 | ORCH → REVIEWER | Step 03d idiom review
