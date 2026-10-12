@@ -261,6 +261,12 @@ defmodule Letflow.Definitions.Graph do
             | :invalid_required_outputs
             | :required_outputs_on_non_human_task
             | :required_output_without_variable_schema
+            | :invalid_distinct_from
+            | :distinct_from_on_non_human_task
+            | :distinct_from_self_reference
+            | :distinct_from_unknown_node
+            | :distinct_from_not_human_task
+            | :distinct_from_downstream_only
 
     @type t :: %__MODULE__{
             code: code(),
@@ -432,6 +438,10 @@ defmodule Letflow.Definitions.Graph do
   plus CHK-25 (`check_required_outputs/1`, REQ-461 — the optional
   `required_outputs` attribute is a duplicate-free list of non-empty strings,
   and only on a HUMAN_TASK)
+  plus CHK-26 (`check_distinct_from/1`, REQ-464 checks 1 and 2 -- the optional
+  `distinct_from` attribute's shape and the existence/type of every listed
+  node) and CHK-27 (`check_distinct_from_position/1`, REQ-464 check 3 -- a
+  listed node must not be reachable only after the node that lists it)
   against every node in `graph`
   and returns every violation found — never short-circuits, same
   unconditional-concatenation construction as `validate_graph/1`. Does not
@@ -449,7 +459,9 @@ defmodule Letflow.Definitions.Graph do
         &check_sub_process_interface/1,
         &check_form_schema_expressions/1,
         &check_human_task_escalation/1,
-        &check_required_outputs/1
+        &check_required_outputs/1,
+        &check_distinct_from/1,
+        &check_distinct_from_position/1
       ]
       |> Enum.flat_map(& &1.(graph))
 
@@ -1183,6 +1195,164 @@ defmodule Letflow.Definitions.Graph do
           "Node '#{node.id}' (#{node.node_type}) has a 'required_outputs' attribute; it is only allowed on a HUMAN_TASK"
       }
     ]
+  end
+
+  # CHK-26 (REQ-464 checks 1 and 2, REQ-459 design section 1.2): the optional
+  # "distinct_from" attribute. A `null` value is treated as absent (same as
+  # CHK-25). On a non-HUMAN_TASK node the key is a violation; on a HUMAN_TASK
+  # it must be a list of non-empty strings, no duplicates, never the node's own
+  # id, and every entry must name a HUMAN_TASK node of this definition. One
+  # violation per defect; an entry flagged for shape/self is not also checked
+  # for existence.
+  @spec check_distinct_from(t()) :: [Violation.t()]
+  defp check_distinct_from(%__MODULE__{nodes: nodes}) do
+    by_id = nodes |> unique_nodes() |> Map.new(&{&1.id, &1})
+
+    Enum.flat_map(nodes, fn node ->
+      raw = if is_map(node.attributes), do: Map.get(node.attributes, "distinct_from")
+      distinct_from_violations(node, raw, by_id)
+    end)
+  end
+
+  @spec distinct_from_violations(Node.t(), term(), %{String.t() => Node.t()}) :: [Violation.t()]
+  defp distinct_from_violations(_node, nil, _by_id), do: []
+
+  defp distinct_from_violations(%Node{node_type: :HUMAN_TASK} = node, raw, by_id)
+       when is_list(raw) do
+    entry_violations =
+      raw
+      |> Enum.reject(&(is_binary(&1) and String.trim(&1) != ""))
+      |> Enum.map(fn entry ->
+        %Violation{
+          code: :invalid_distinct_from,
+          message:
+            "Node '#{node.id}' (HUMAN_TASK) has an invalid 'distinct_from' entry (#{inspect(entry)}); every entry must be a non-empty string"
+        }
+      end)
+
+    duplicate_violations =
+      raw
+      |> Enum.filter(&is_binary/1)
+      |> Enum.frequencies()
+      |> Enum.filter(fn {_id, count} -> count > 1 end)
+      |> Enum.map(&elem(&1, 0))
+      |> Enum.sort()
+      |> Enum.map(fn id ->
+        %Violation{
+          code: :invalid_distinct_from,
+          message: "Node '#{node.id}' (HUMAN_TASK) lists duplicate 'distinct_from' id '#{id}'"
+        }
+      end)
+
+    listed_violations =
+      raw
+      |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
+      |> Enum.uniq()
+      |> Enum.flat_map(&distinct_from_target_violations(node, &1, by_id))
+
+    entry_violations ++ duplicate_violations ++ listed_violations
+  end
+
+  defp distinct_from_violations(%Node{node_type: :HUMAN_TASK} = node, raw, _by_id) do
+    [
+      %Violation{
+        code: :invalid_distinct_from,
+        message:
+          "Node '#{node.id}' (HUMAN_TASK) has an invalid 'distinct_from' attribute (#{inspect(raw)}); must be a list of node ids"
+      }
+    ]
+  end
+
+  defp distinct_from_violations(%Node{} = node, _raw, _by_id) do
+    [
+      %Violation{
+        code: :distinct_from_on_non_human_task,
+        message:
+          "Node '#{node.id}' (#{node.node_type}) has a 'distinct_from' attribute; it is only allowed on a HUMAN_TASK"
+      }
+    ]
+  end
+
+  @spec distinct_from_target_violations(Node.t(), String.t(), %{String.t() => Node.t()}) ::
+          [Violation.t()]
+  defp distinct_from_target_violations(%Node{id: id}, id, _by_id) do
+    [
+      %Violation{
+        code: :distinct_from_self_reference,
+        message: "Node '#{id}' (HUMAN_TASK) lists itself in distinct_from"
+      }
+    ]
+  end
+
+  defp distinct_from_target_violations(node, other, by_id) do
+    case Map.fetch(by_id, other) do
+      :error ->
+        [
+          %Violation{
+            code: :distinct_from_unknown_node,
+            message:
+              "Node '#{node.id}' (HUMAN_TASK) lists '#{other}' in distinct_from, but no node '#{other}' exists in this definition"
+          }
+        ]
+
+      {:ok, %Node{node_type: :HUMAN_TASK}} ->
+        []
+
+      {:ok, %Node{node_type: type}} ->
+        [
+          %Violation{
+            code: :distinct_from_not_human_task,
+            message:
+              "Node '#{node.id}' (HUMAN_TASK) lists '#{other}' in distinct_from, but '#{other}' is a #{type}, not a HUMAN_TASK"
+          }
+        ]
+    end
+  end
+
+  # CHK-27 (REQ-464 check 3, REQ-459 design section 1.5 relation table): a
+  # listed node L must not be reachable only AFTER the listing node N (path
+  # N -> L and no path L -> N). L before N, a rework loop (both ways) and
+  # parallel / mutually exclusive branches (neither way) pass. Only well-formed
+  # entries that name an existing HUMAN_TASK other than N are examined (the
+  # rest are CHK-26's); a node unreachable from START has no path either way
+  # and passes (CHK-22 reports it). Reachability is the forward closure over
+  # resolved edges (`flow_adjacency/3` + `walk/2`, as CHK-22), computed once per
+  # listing node and per distinct listed node.
+  @spec check_distinct_from_position(t()) :: [Violation.t()]
+  defp check_distinct_from_position(%__MODULE__{nodes: nodes, edges: edges}) do
+    by_id = nodes |> unique_nodes() |> Map.new(&{&1.id, &1})
+
+    listings =
+      for node <- unique_nodes(nodes),
+          node.node_type == :HUMAN_TASK,
+          is_map(node.attributes),
+          is_list(raw = Map.get(node.attributes, "distinct_from")),
+          other <- raw |> Enum.filter(&is_binary/1) |> Enum.uniq(),
+          other != node.id,
+          match?(%Node{node_type: :HUMAN_TASK}, Map.get(by_id, other)),
+          do: {node.id, other}
+
+    if listings == [] do
+      []
+    else
+      adjacency = flow_adjacency(nodes, edges, :forward)
+
+      reach =
+        listings
+        |> Enum.flat_map(&Tuple.to_list/1)
+        |> Enum.uniq()
+        |> Map.new(&{&1, walk([&1], adjacency)})
+
+      for {id, other} <- listings,
+          MapSet.member?(reach[id], other),
+          not MapSet.member?(reach[other], id) do
+        %Violation{
+          code: :distinct_from_downstream_only,
+          message:
+            "Node '#{id}' (HUMAN_TASK) lists '#{other}' in distinct_from, but '#{other}' is reachable only after '#{id}'"
+        }
+      end
+    end
   end
 
   # `attributes` is documented as `map() | nil` with string keys (design doc

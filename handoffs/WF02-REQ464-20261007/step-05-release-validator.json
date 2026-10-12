@@ -1,0 +1,43 @@
+{
+  "run_id": "WF02-REQ464-20261007",
+  "workflow_id": "WF-02",
+  "step": "05",
+  "from_agent": "ORCH",
+  "to_agent": "RELEASE-VALIDATOR",
+  "file": "handoffs/WF02-REQ464-20261007/step-05-release-validator.json",
+  "status": "COMPLETED",
+  "context": {
+    "requirement_ids": ["REQ-464"],
+    "queue_task": 1027,
+    "gh_issue": 2342,
+    "branch_name": "feat/REQ-464-distinct-from-validator-Q-1027",
+    "verified_head": "40ff6bdb"
+  },
+  "result": {
+    "verdict": "PASS",
+    "criteria": {
+      "1_one_test_per_check_1_to_3_with_neighbour": "PASS",
+      "2_five_negative_tests_plus_non_list_and_non_human_task_reserved_codes": "PASS",
+      "3_parallel_p1_p2_p3_same_path_predecessor_rework_loop": "PASS",
+      "4_single_member_role_warning_one_member_warns_two_members_none_definition_still_installs": "PASS",
+      "5_warning_never_blocks_present_in_pack_install_and_validate_200_absent_in_activate": "PASS",
+      "6_every_shipped_definition_13_run_through_validator_0_violations_0_candidate_pairs": "PASS",
+      "7_compile_format_scoped_tests_check_boundaries": "PASS",
+      "8_security_reviewer_verdict_recorded_and_member_counts_prefix_scoped_counts_only": "PASS (handoff 02c; code read: Repo.all(prefix:), select {name, count distinct user_id})"
+    },
+    "commands": [
+      "mix test <4 REQ-464 files> (MIX_ENV=test): Result: 90 passed",
+      "mix test required_outputs_shipped_definitions_test.exs: Result: 3 passed, 13 findings lines all violations=0 candidate_pairs=0",
+      "mix letflow.check.static: exit 0, 0 violations, check_boundaries OK 1124 edges 0 violations",
+      "mix format --check-formatted (7 changed files): exit 0",
+      "mix compile --force --warnings-as-errors: exit 0",
+      "TEST_PARALLEL_N=1 mix letflow.check.test --shard K/16, K=1..16 sequentially: 15/16 OK; shard 12 reported 3 failures in Letflow.Scripts.UatPreflightLocalDepsTest (T1, T2, T7), Windows git-bash preflight path issue, file untouched by this branch, reproduced identically on rerun",
+      "mix letflow.check.test --tails-only: OK (isolated lua_wallclock_race passed clean)"
+    ],
+    "gaps": [
+      "scripts/test_parallel.sh not run at host nproc (machine-wide one-BEAM constraint); full suite run as 16 sequential single-partition shards through mix letflow.check.test, which wraps test_parallel.sh",
+      "Shard 12 UatPreflightLocalDepsTest failures are environmental (Windows) and were not compared against main by checkout; CI on Linux is the authoritative cross-check",
+      "Local postgres container letflow-3-postgres-1 was recreated to publish port 5472"
+    ]
+  }
+}

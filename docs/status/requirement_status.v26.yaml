@@ -975,3 +975,29 @@ history:
       TEST-DESIGN-VALIDATOR (03b, 24 mutants killed), TEST-RUNNER (step 04,
       61 single-file mix test invocations, all exit 0, zero failures),
       RELEASE-VALIDATOR (05, re-check 05b PASS). Full suite left to CI.
+
+  - req: REQ-464
+    event: done
+    agent: DOC-UPDATER
+    at: "2026-10-12T04:55:43Z"
+    note: >
+      Validator build (queue task 1027, GH#2342, run WF02-REQ464-20261007,
+      branch feat/REQ-464-distinct-from-validator-Q-1027): distinct_from checks
+      on process definitions per the REQ-459 design. CHK-26 shape and existence
+      violations (invalid_distinct_from, distinct_from_on_non_human_task,
+      distinct_from_self_reference, distinct_from_unknown_node,
+      distinct_from_not_human_task) and CHK-27 path position
+      (distinct_from_downstream_only; parallel, preceding and rework-loop
+      listed nodes pass) inside Graph.validate_node_attributes/1; the
+      distinct_from_single_member_role: WARNING (one per unordered pair, never
+      blocks) via RoleBinding.single_member_pairs/1, member_counts/2 and
+      format_single_member_warning/2, surfaced as the third source of
+      ValidationWarnings.for_definitions/2 in the pack-install result and the
+      validate 200 body, not the activate response. Gates recorded in the run
+      handoffs: SECURITY-REVIEWER (02c, member_counts/2 prefix-scoped, counts
+      only), REVIEWER (02d), CODE-DESIGN-VALIDATOR (02b), TEST-DESIGN-VALIDATOR
+      (03b, 38 mutants killed), RELEASE-VALIDATOR (05 PASS: 90 scoped tests
+      passed, 13 shipped definitions 0 violations 0 candidate pairs).
+      Environmental caveat from step 05: 3 failures in
+      Letflow.Scripts.UatPreflightLocalDepsTest on this Windows host, file
+      untouched by this branch; CI is the authoritative full-suite gate.

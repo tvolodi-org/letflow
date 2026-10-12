@@ -13,8 +13,11 @@ defmodule Letflow.Definitions.ValidationWarnings do
     2. `Letflow.Definitions.SemanticValidation.decision_key_warnings/2` -- the
        `decision_key_not_required:` lines (pure).
 
-  REQ-464 adds a third source (`distinct_from_single_member_role:`). The
-  warnings type stays `[String.t()]`.
+    3. `Letflow.Definitions.RoleBinding.single_member_warnings_for_definitions/2`
+       -- the `distinct_from_single_member_role:` lines (REQ-464 check 4; one
+       counts-only read, and none when no definition has a candidate pair).
+
+  The warnings type stays `[String.t()]`.
   """
 
   alias Letflow.Definitions.Graph
@@ -30,6 +33,6 @@ defmodule Letflow.Definitions.ValidationWarnings do
     RoleBinding.warnings_for_definitions(definitions, opts) ++
       Enum.flat_map(definitions, fn {name, %Graph{} = graph} ->
         SemanticValidation.decision_key_warnings(graph, name)
-      end)
+      end) ++ RoleBinding.single_member_warnings_for_definitions(definitions, opts)
   end
 end
