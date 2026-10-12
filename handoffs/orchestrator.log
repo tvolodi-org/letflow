@@ -2792,3 +2792,5 @@
 2026-10-12T09:04:30Z | FAIL | WF-03 | WF03-ISS1042-20261012 | CI → ORCH | PR #2397 run 38226440033 red: check_async_sandbox_reachability (static job + shard 3 partition 9 same root cause), PR-caused, deterministic; ORCH missed running letflow.check.static locally before push (merge discipline)
 2026-10-12T09:04:30Z | DISPATCH | WF-03 | WF03-ISS1042-20261012 | ORCH → ELIXIR-DEV | Step 07 CI fix async:false
 2026-10-12T09:05:53Z | PASS | WF-03 | WF03-ISS1042-20261012 | ELIXIR-DEV → ORCH | Step 07 PASS (e798f224d; async:false, check_async_sandbox_reachability OK, check.static 0 violations, 27 tests green, format clean); main 3eaf1515 merged into branch, CI rerun
+2026-10-12T09:25:30Z | START | WF-03 | WF03-ISS1040-20261012 | ORCH | Q-1040 / ISS-1040 / GH #2379 claimed as tvolodi-orch on supervisor assignment (named single task, not drain mode); branch created by ORCH
+2026-10-12T09:25:30Z | DISPATCH | WF-03 | WF03-ISS1040-20261012 | ORCH → ISSUE-FIXER | Step 01 diagnosis
