@@ -1,0 +1,36 @@
+{
+  "handoff_id": "c4a7d1e0-1053-4a11-8c20-000000000002b",
+  "run_id": "WF03-ISS1053SHARDFLAKE-20261012",
+  "workflow_id": "WF-03",
+  "step": "02b",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGN-VALIDATOR",
+  "file": "handoffs/WF03-ISS1053SHARDFLAKE-20261012/step-02b-code-design-validator.json",
+  "created_at": "2026-10-12T15:10:00Z",
+  "started_at": null,
+  "completed_at": null,
+  "status": "PENDING",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1054": "MEDIUM, R1 from ISS-1042 follow_ups (SECURITY-REVIEWER F2), supervisor-assigned 2026-10-12. Queue Q-1054 / GH #2400, issue_ref ISS-1054. See task.description."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "docs/issues/ISS-1062.yaml",
+      "scripts/test_parallel.sh",
+      "handoffs/WF03-ISS1053SHARDFLAKE-20261012/step-01-issue-fixer.json"
+    ],
+    "owned_modules": [
+      "test/support/tenant_fixture.ex"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1054DBGUARD-20261012"
+  },
+  "task": {
+    "description": "WF-03 Step 2b hard gate (.claude/agents/code-design-validator.md) on the ISSUE-FIXER's diagnosis and fix design for Q-1053 / GH #2399 (local record docs/issues/ISS-1062.yaml; design in handoffs/WF03-ISS1053SHARDFLAKE-20261012/step-01-issue-fixer.json). ORCH uses that design (root causes RC-A..RC-D, fixes S1..S3, new test file test/scripts/test_parallel_race_regression_test.exs with T1..T3, failure_context capture, diag/orphan test windows, stress protocol, mutants MU-A1..MU-F) as the design artefact and gates it here instead of a separate CODE-DESIGNER pass.\n\nIMPORTANT context: three of the four fixes change scripts/test_parallel.sh, the partition runner EVERY backend CI shard and every local `mix letflow.check.test` uses. A regression there reddens every PR. Be strict.\n\nValidate independently (read scripts/test_parallel.sh and the test files yourself; do not trust the report):\n(1) RC-A: is the claim true that the per-partition watchdog subshell inherits the EXIT trap and can run cleanup_tmp_dir (rm -rf tmp_dir) under the running parent? Check how traps and subshells interact in bash 5.x (ERR/EXIT trap inheritance in ( ) subshells, `trap` reset on subshell start, when exactly it is reset), and whether the proposed guard (set _tp_main_pid=$$ BEFORE the trap is installed; early return unless $BASHPID == _tp_main_pid) is correct, including for `$$` vs `$BASHPID` in the main shell, nested runner invocations, and `exec`. Does the guard change behaviour for the normal exit path, signals (TERM/INT), and the 'cleanup runs once' invariant? Any other place that relies on cleanup running in a subshell (command substitution, process substitution)?\n(2) RC-B: is swapping the order (liveness first, ready-file second) race-free? Think through all four orderings: ready+alive, ready+dead (wrote ready then exited cleanly = must be success), not ready+alive, not ready+dead; the swap must not produce a false 'ready' when the process died before writing, nor a false 'dead' when it wrote ready then exited. Is a re-check of the ready-file after observing death needed? Give the exact required order.\n(3) RC-C: the `wait -n -p finished_pid` fallback (reset var first, fallback kill -0 + wait <pid>): is it correct under set -u / set -e / pipefail, does the exit status of the finished partition still propagate, can it double-reap or lose a status, bash version compatibility (wait -n -p needs bash 5.1+; what does the script do on older bash)? Both sites.\n(4) New test file T1..T3 (BASH_ENV shims): do they fail on the unmodified script and pass on the fixed one, are they deterministic (no wall-clock windows of their own), do they leak processes or tmp dirs, async: false and mutex-friendly (no BEAM in the nested runner)? Does it follow the existing stub conventions of the sibling test_parallel_*_test.exs files?\n(5) Diag / orphan / shard test changes: no assertion weakened, waits bounded (state the worst-case added wall time per test), premise-checked retry semantics sound, TEST_PARALLEL_KEEP_LOGS left unset where it would mask RC-A.\n(6) Mutant list adequacy: each fix has a mutant killed by a named test; anything missing (e.g. a mutant that reintroduces the pre-fix ordering in only one of the two wait sites).\n(7) Anything in the family the audit missed: independently grep test/scripts/test_parallel_*_test.exs for sleeps, deadlines, timeouts, `Process.sleep`, `:timer`, File.exists? polling, ps/pgrep reads, and list any wall-clock window not in the table.\n(8) Is the design unambiguous and implementable by a weak model; what must ELIXIR-DEV do in what order; what local verification is mandatory before push (all test_parallel_* test files green, the script-level soak, shellcheck/bash -n, `mix letflow.check.static`, plus one full `mix letflow.check.test` run or the shard runner end to end, under the machine mutex).\n\nNo mix is needed for this step (you may run bash and script-level experiments in a container or locally; if you must run a mix invocation use the machine mutex: L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2>/dev/null; do sleep 20; done; trap 'rmdir \"$L\" 2>/dev/null' EXIT; cd /c/Users/tvolo/dev/ai-dala/letflow && MIX_ENV=test <ONE mix invocation>). Foreground only; no Monitors. Verdict PASS/FAIL in result.status; findings BLOCKER/MAJOR/MINOR with required corrections. Commit + push (pull --rebase first; bounded retry on github resolve failures; message ends: Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>); handoff COMPLETED, no BOM, LF, artifacts_out under result, no self-reference.\n"
+  }
+}
