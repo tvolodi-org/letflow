@@ -21,4 +21,13 @@ design: >
   handoffs/WF03-ISS1054DBGUARD-20261012/step-01-issue-fixer.json.
 queue_ref: Q-1054
 github_ref: GH-2400
-status: open
+status: resolved
+resolved_in_run: WF03-ISS1054DBGUARD-20261012
+resolved_at: "2026-10-12T14:50:28Z"
+resolution: >
+  start_pool!/2 and Pool.init/1 now call TenantFixture.assert_test_database!/1 (current_database()
+  vs Repo.config()[:database], letflow_test* prefix required, fail closed) before any provisioning
+  or reset. Tests T1..T5 added in test/letflow/support/tenant_fixture_pool_test.exs; mutants M1..M7
+  killed. The fresh-clone provisioned_tenant!/1 and TenantTemplate paths are deliberately NOT
+  guarded (out of scope) and are a possible follow-up. Local id ISS-1061 corresponds to queue ref
+  ISS-1054 (local ISS-1059 is the resolved Q-1038 record).

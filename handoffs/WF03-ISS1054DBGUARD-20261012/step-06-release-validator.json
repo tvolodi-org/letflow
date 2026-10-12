@@ -35,7 +35,7 @@
   "result": {
     "status": "PASS",
     "summary": "RELEASE-VALIDATOR PASS. Independently re-run on a throwaway postgres:16 (port 5499, removed afterwards), one mix invocation at a time under the mutex. (a) tenant_fixture_pool_test.exs + tenant_fixture_dispatch_test.exs: 'Result: 78 passed (1 property, 77 tests)', exit 0. (b) describe 'ISS-1061 database guard': 'Result: 5 passed, 62 excluded'. (c) Mutant M1 (guard call deleted in start_pool!/2): 'Result: 4/5 passed', T4 failed; tree restored via git checkout. (d) Mutant M2b (guard moved after create_slots, init guard also removed so it is not masked): 'Result: 3/5 passed', T4 and T5 failed; tree restored. (e) mix format --check-formatted exit 0. (f) git diff --stat origin/main...HEAD lists only expected files (issue record, handoffs, design doc paragraph, pool test, test spec, tenant_fixture.ex). (g) git merge-tree --write-tree origin/main HEAD clean (tree ce3e39795e2a076e5eae75424239a4b872ea1d91, no conflicts). Acceptance: (1) guard runs after Sandbox.mode(:auto) and before GenServer.start/create_slots, raising ArgumentError; (2) T2/T3 assert refusal on name mismatch; (3) mutation makes T4 fail; (4) fixture diff is purely additive, reset path untouched. Note: full-suite test_parallel.sh and mix letflow.check.test were not run as this is a test-support-only issue fix and the handoff scoped the checks.",
-    "findings": []
-  },
-  "artifacts_out": []
+    "findings": [],
+    "artifacts_out": []
+  }
 }
