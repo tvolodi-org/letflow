@@ -1,0 +1,43 @@
+{
+ "handoff_id": "b3f6c0de-6a41-4c8e-9a52-1042040b0003",
+ "run_id": "WF03-ISS1042-20261012",
+ "workflow_id": "WF-03",
+ "step": "05v",
+ "from_agent": "ORCH",
+ "to_agent": "RELEASE-VALIDATOR",
+ "file": "handoffs/WF03-ISS1042-20261012/step-05v-release-validator.json",
+ "created_at": "2026-10-12T08:32:49Z",
+ "started_at": null,
+ "completed_at": null,
+ "status": "PENDING",
+ "priority": "NORMAL",
+ "context": {
+  "stage": "S1",
+  "requirement_ids": [],
+  "requirement_text": {},
+  "source_text": {
+   "Q-1042": "CI lever: per-test tenant-template clone cost. Acceptance: (1) instrumented measurement quoted; (2) one lever implemented with before/after wall time of the test phase (5 runs each, run ids); (3) isolation proof: a test that leaves data behind must not leak (mutation test); (4) no change to required CI check names; no paid runners."
+  },
+  "related_handoff_ids": [
+   "b3f6c0de-6a41-4c8e-9a52-1042040b0002"
+  ],
+  "artifacts_in": [
+   "docs/issues/ISS-1042.yaml",
+   "test/reports/report-2026-10-12-WF03-ISS1042-20261012.yaml",
+   "test/specs/ISS-1042.md",
+   "lib/letflow/design/iss1042-pooled-tenant-fixture.md",
+   "handoffs/WF03-ISS1042-20261012/"
+  ],
+  "owned_modules": [],
+  "worktree": null,
+  "branch_name": "feature/WF03-ISS1042-20261012"
+ },
+ "task": {
+  "description": "WF-03 pre-close RELEASE-VALIDATOR gate for ISS-1042 (.claude/agents/release-validator.md). Independently re-derive each of the 4 acceptance criteria from files and your OWN runs; do not trust the TEST-RUNNER report. You write no code. Checks: (1) docs/issues/ISS-1042.yaml quotes the instrumented measurement; spot-check it against step-01 handoff and, if feasible, nothing more. (2) before/after: re-verify the 5+5 table is in the report with per-run ids; AND independently run ONE 'after' sample and ONE 'before' sample (MIX_TEST_PARTITION=1 mix test --partitions 12 --seed 0; before = throwaway worktree at cc65f7b16, after = branch head in another throwaway worktree; throwaway postgres port 5499, remove afterwards) and confirm the direction and rough magnitude (>=20% faster) of the claimed speedup; note the claimed 542 vs 527 test-count difference between arms and judge whether it undermines the comparison (e.g. compare time per test or the per-module times of the three adopter files, which are identical code in both arms). (3) isolation: confirm the pool test + mutant table; run test/letflow/support/tenant_fixture_pool_test.exs once yourself. (4) `git diff cc65f7b16..HEAD --stat` : confirm no change under .github/, no workflow/job name changes, no paid-runner labels, no lib/ or priv/ changes. Also check the diff for scope creep and that docs/anti-patterns.md entry exists. Record R4 (docs say 57 tables of a clone; a clone has 50 plain tables) as a known pending doc fix, not a blocker. Verdict PASS/FAIL in result.status, handoff status COMPLETED; list any findings with file:line. MACHINE RULE: only ONE BEAM at a time machine-wide; every mix invocation takes the mutex, one acquisition per invocation, wrapper: L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2>/dev/null; do sleep 20; done; trap 'rmdir \"$L\" 2>/dev/null' EXIT; cd <dir> && <ONE mix invocation> 2>&1 . Foreground/polling only, no Monitors. Clean up worktrees/container. Commit the handoff and push (message ends with 'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>').",
+  "acceptance_criteria": [
+   "verdict per acceptance criterion with evidence",
+   "own before/after sample and pool test run output quoted"
+  ]
+ },
+ "result": null
+}

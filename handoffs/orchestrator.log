@@ -2776,3 +2776,5 @@
 2026-10-12T07:08:12Z | DISPATCH | WF-03 | WF03-ISS1042-20261012 | ORCH → TEST-DESIGN-VALIDATOR | Step 04b hard gate
 2026-10-12T07:30:22Z | PASS | WF-03 | WF03-ISS1042-20261012 | TEST-DESIGN-VALIDATOR → ORCH | Step 04b PASS (bcd479412; 9 independent mutants: 6 killed, V2/V4/V5 survivors analysed non-blocking)
 2026-10-12T07:30:22Z | DISPATCH | WF-03 | WF03-ISS1042-20261012 | ORCH → TEST-RUNNER | Step 04r before/after 5+5 runs + scoped gates
+2026-10-12T08:32:49Z | PASS | WF-03 | WF03-ISS1042-20261012 | TEST-RUNNER → ORCH | Step 04r PASS (97961c284; before 367.9s mean vs after 256.2s mean over 5+5 interleaved runs, 1.44x; scoped gates 161 passed, compile/format clean)
+2026-10-12T08:32:49Z | DISPATCH | WF-03 | WF03-ISS1042-20261012 | ORCH → RELEASE-VALIDATOR | Step 05v pre-close independent verification
