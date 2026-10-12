@@ -244,14 +244,19 @@ defmodule Letflow.Routers.Onboarding do
 
       {:ok, %{"slug" => slug, "hostname" => hostname} = attrs} ->
         with {:ok, realm} <- validate_create_extras(body, attrs),
+             {:ok, bind_opts} <- realm_bind_opts(conn, realm),
              :ok <- verify_realm(conn, realm) do
-          create_with_realm(conn, attrs, body, slug, hostname, realm)
+          create_tenant(conn, attrs, body, slug, hostname, realm, bind_opts)
         else
           {:errors, field_errors} ->
             Response.send_problem(conn, Validation.problem(field_errors))
 
           {:halt, halted_conn} ->
             halted_conn
+
+          :platform_prefix_mismatch ->
+            Logger.error("operator realm bind refused: platform prefix check failed")
+            Response.internal_error(conn)
         end
     end
   end
@@ -347,17 +352,6 @@ defmodule Letflow.Routers.Onboarding do
     end
   end
 
-  defp create_with_realm(conn, attrs, body, slug, hostname, realm) do
-    case realm_bind_opts(conn, realm) do
-      {:ok, bind_opts} ->
-        create_tenant(conn, attrs, body, slug, hostname, realm, bind_opts)
-
-      :platform_prefix_mismatch ->
-        Logger.error("operator realm bind refused: platform prefix check failed")
-        Response.internal_error(conn)
-    end
-  end
-
   # A realm bound elsewhere is refused before any row is written. The realm is NOT written
   # with the tenant: it is bound only after provisioning and the onboarding record succeed
   # (provision_and_bind/7), so a later failure such as a taken hostname cannot leave an
@@ -426,8 +420,7 @@ defmodule Letflow.Routers.Onboarding do
     with {:ok, _registration} <- TenantOnboarding.provision_and_migrate(tenant.id),
          {:ok, record} <-
            Identity.create_onboarding(%{tenant_id: tenant.id, slug: slug, hostname: hostname}),
-         :ok <- bind_requested_realm(tenant, realm, bind_opts),
-         {:ok, login_state} <- Identity.get_onboarding_login_state(record.tenant_id) do
+         {:ok, login_state} <- bind_requested_realm(tenant, record, realm, bind_opts) do
       created_body =
         record
         |> onboarding_map(login_state)
@@ -449,11 +442,14 @@ defmodule Letflow.Routers.Onboarding do
 
   # Binds the realm requested at creation, after the tenant is active and its onboarding
   # record exists. Same audited path as POST .../bind-realm (bind-once, row lock, audit).
-  defp bind_requested_realm(_tenant, nil, _bind_opts), do: :ok
+  # The login state comes from the bind's own result, so nothing fallible runs AFTER the
+  # bind commits (a failed read there would answer 500 with the realm already bound).
+  defp bind_requested_realm(_tenant, record, nil, _bind_opts),
+    do: Identity.get_onboarding_login_state(record.tenant_id)
 
-  defp bind_requested_realm(tenant, realm, bind_opts) do
+  defp bind_requested_realm(tenant, _record, realm, bind_opts) do
     case Identity.bind_tenant_realm(tenant.id, realm, bind_opts) do
-      {:ok, _tenant} -> :ok
+      {:ok, bound} -> {:ok, %{idp_realm_id: bound.idp_realm_id}}
       {:error, reason} -> {:error, reason}
     end
   end

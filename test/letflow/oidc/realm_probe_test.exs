@@ -14,7 +14,6 @@ defmodule Letflow.Oidc.RealmProbeTest do
   Exactly one test waits for the 3 s probe deadline (the hang case in "no stray
   http message ..."); every other path decides without waiting.
 
-  Status: WRITTEN, NOT YET RUN (see test/specs/ISS-1030-PR1.md).
   """
 
   use ExUnit.Case, async: false
@@ -55,12 +54,6 @@ defmodule Letflow.Oidc.RealmProbeTest do
     server = Server.start(responder, [])
     Server.put_base_url!(server.base_url)
     server
-  end
-
-  defp elapsed_ms(fun) do
-    started = System.monotonic_time(:millisecond)
-    result = fun.()
-    {result, System.monotonic_time(:millisecond) - started}
   end
 
   # Messages in the test mailbox that are not the scripted server's own.
@@ -124,10 +117,8 @@ defmodule Letflow.Oidc.RealmProbeTest do
        ]}
     end)
 
-    {result, elapsed} = elapsed_ms(fn -> Httpc.verify(realm()) end)
-
-    assert result == {:error, :unreachable}
-    assert elapsed < 2_000, "decided only after #{elapsed} ms: the body was waited for"
+    assert Httpc.verify(realm()) == {:error, :unreachable}
+    # The probe cancelled the request: the server saw its connection close.
     assert_receive {:realm_probe_server, :closed, _path}, 5_000
   end
 

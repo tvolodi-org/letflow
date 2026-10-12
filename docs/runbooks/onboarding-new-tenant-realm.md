@@ -73,6 +73,11 @@ If it answers 409 `realm already bound` after provisioning (only in a race with 
 the same realm), the tenant exists without a realm: find it with `GET /api/v1/onboarding?hostname=`,
 escalate to the platform owner, and do not bind it by hand.
 
+If the create call answers 500 after provisioning (an audit fault while binding, which rolls the
+bind back), the tenant is active, the onboarding record exists, and the realm is **free**. Find the
+onboarding id with `GET /api/v1/onboarding?hostname=`, then retry the bind with
+`POST /api/v1/onboarding/{id}/bind-realm`. If the bind fails again, escalate; do not bind by hand.
+
 ## Realm checklist
 
 One row per item; evidence is a reference, never a value.

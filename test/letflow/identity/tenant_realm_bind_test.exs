@@ -12,7 +12,6 @@ defmodule Letflow.Identity.TenantRealmBindTest do
   open transaction) and polls `pg_stat_activity` until BOTH binders are waiting
   on that lock, so the interleaving is forced and no sleep is involved.
 
-  Status: WRITTEN, NOT YET RUN (see test/specs/ISS-1030-PR1.md).
   """
 
   use Letflow.DataCase, async: false
@@ -79,8 +78,12 @@ defmodule Letflow.Identity.TenantRealmBindTest do
 
     refute inspect(tenant_entry) =~ ctx.actor_id
 
+    # The tenant chain never carries the operator's trace id; the platform chain does.
+    assert tenant_entry.trace_id == nil
+
     assert [platform_entry] = entries(ctx.platform.schema_name, "platform.tenant_idp_realm.bound")
     assert platform_entry.actor_id == ctx.actor_id
+    assert platform_entry.trace_id == "t-1"
     assert platform_entry.after_state["tenant_id"] == ctx.tenant.tenant_id
     assert platform_entry.after_state["idp_realm_id"] == bound
   end

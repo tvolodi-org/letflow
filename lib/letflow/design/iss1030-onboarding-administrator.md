@@ -507,7 +507,7 @@ Existing tests updated: any test asserting the manifest length or the tenant-sch
 | AC | Delivered by | Design element | Test |
 |---|---|---|---|
 | 1 no silent drop | PR 1 | 3.4 `administrator`, `ignored_fields` | 10.1 first block |
-| 2 realm bind with validation; "not yet loginable" | PR 1 | 3.1, 3.2, 3.3 | 10.1 realm tests |
+| 2 realm bind with validation; "not yet loginable" | PR 1 | 3.1, 3.2, 3.3 | 10.1 realm tests; create-path tests (SECURITY-REVIEWER F1 and the create gate): "POST /onboarding with a realm and a taken hostname answers 409 and never binds the realm to the failed tenant", "POST /onboarding/:id/bind-realm on a tenant that became non-active answers 409 even for the realm already stored" |
 | 3 runbook referencing T-0150/T-0158 | PR 1 | 9 | test "the onboarding runbook exists and references T-0150, T-0158 and bind-realm" (`onboarding_administrator_fields_test.exs`) |
 | 4 tests for admin fields, valid/unknown realm, unchanged existing tests | PR 1 | 10.1 | listed |
 | 5 follow-up requirement for item 4 NOT built here | both | 11 `follow_ups`; no Keycloak admin client anywhere | **EXEMPT (documented exemption, not a test gap).** No runnable test: the follow-up is a separate task, and an absence test would break legitimately when that task lands. Verified by review of the PR 1 diff: no Keycloak admin or user-creation call exists; the only outbound request is the discovery GET in `realm_probe.ex`. Follow-up: queue Q-1061 / GH #2414 (filed by letflow-2; a decision gate awaiting the platform owner, NOT built). |

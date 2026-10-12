@@ -18,7 +18,6 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
   `async: false`: tenant provisioning flips the SQL sandbox to `:auto`, and the
   platform-tenant pin, the realm-probe adapter and the OIDC config are VM-global.
 
-  Status: WRITTEN, NOT YET RUN (see test/specs/ISS-1030-PR1.md).
   """
 
   use Letflow.DataCase, async: false
@@ -743,6 +742,8 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     assert [tenant_entry] = entries(schema_of(resp["tenant_id"]), "tenant.idp_realm.bound")
     assert tenant_entry.actor_id == nil
     assert tenant_entry.resource_id == resp["tenant_id"]
+    # No operator-chosen trace id in the tenant chain (tenant admins read it).
+    assert tenant_entry.trace_id == nil
 
     assert tenant_entry.after_state == %{
              "idp_realm_id" => bound,
@@ -781,7 +782,7 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     ids = Enum.map_join([other.tenant_id, ctx.platform.tenant_id], "|", &Regex.escape/1)
     refute Regex.match?(~r/\[(warning|error)\][^\n]*(#{ids})/, log)
     # The fault is still logged (design 3.4: a real fault is logged, with fixed text).
-    assert log =~ "operator realm bind refused: platform prefix check failed"
+    assert log =~ "[error] operator realm bind refused: platform prefix check failed"
 
     assert stored_realm(resp["tenant_id"]) == nil
     assert entries(schema_of(resp["tenant_id"]), "tenant.idp_realm.bound") == []
@@ -799,7 +800,7 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     assert conn.status == 500
     assert json(conn)["status"] == 500
     refute conn.resp_body =~ ctx.platform.tenant_id
-    assert log =~ "operator realm bind refused: platform prefix check failed"
+    assert log =~ "[error] operator realm bind refused: platform prefix check failed"
 
     assert stored_realm(resp["tenant_id"]) == nil
     assert entries(schema_of(resp["tenant_id"]), "tenant.idp_realm.bound") == []
@@ -841,7 +842,7 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     assert entries(outsider.schema_name, "platform.tenant_idp_realm.bound") == []
   end
 
-  test "after bind-realm a token from that realm resolves the tenant (and is rejected before the bind)",
+  test "after bind-realm a token from that realm resolves the tenant and a tenant without a realm cannot be resolved",
        ctx do
     original = Application.fetch_env!(:letflow, :oidc)
 
@@ -862,7 +863,9 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
       |> AuthPipeline.call(AuthPipeline.init([]))
     end
 
-    # Before the bind no tenant owns the realm: the token is rejected.
+    # Before the bind the tenant has no realm, so no tenant resolves it and the token is rejected.
+    assert Repo.get!(Tenant, resp["tenant_id"]).idp_realm_id == nil
+    assert {:error, :not_found} = Letflow.Identity.resolve_tenant_by_realm(bound)
     before_bind = token_call.()
     assert before_bind.halted
     assert before_bind.status == 401
