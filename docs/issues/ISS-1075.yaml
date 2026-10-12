@@ -1,0 +1,27 @@
+id: ISS-1075
+# Ref clash: the queue's issue_ref for Q-1072 is ISS-1072, but main already has docs/issues/ISS-1072.yaml for Q-1069
+# (GH #2423, the standing priority owner item, merged with PR #2426). This record takes the next free local id,
+# ISS-1075 (re-checked on origin/main c82ca981 and open PR branches). The queue and GH ids are unchanged: Q-1072 / GH #2428.
+title: "UI-DESIGNER role (hard gate on GUI changes) and alignment of web/ with the design system: owns docs/frontend/design-system.md, reviews screenshots of each changed screen, mechanical guards in npm run check, and a first conformance audit"
+discovered_by: letflow-9a (team audit, decided by the user 2026-10-12, relayed); filed by letflow-2 (sole filer)
+discovered_in_run: "team audit item 7, 2026-10-12"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: MINOR
+owner: "WF-01 with REQ-VALIDATOR before any REQ id; may be split (role first, alignment second)"
+scope: process
+description: >
+  Records only; NOT in force until merged; WF-01 with REQ-VALIDATOR before any REQ id exists. Decided: the source of
+  truth is docs/frontend/design-system.md (REQ-120); Penpot is not used. Evidence on main: docs/frontend/design-system.md
+  is version 0.1 (2026-05-20), names FRONTEND-DEV as its agent, and its line 24 says web/src/styles/tokens.css does not
+  yet exist, although the file exists. No role validates the look of a GUI change. No Penpot live-source reference in
+  docs/frontend/, docs/guides/frontend_developer_guide.md or .claude/agents; the only Penpot line in a live file is a
+  host comment at deploy/docker-compose.test.yml:13. Related, not duplicates: REQ-276 to REQ-278 (done), REQ-362 (done),
+  ISS-0545 and ISS-0547 (done). The screenshot run against QA needs the Bilimbaga tenant admin actor
+  (actor-bilimbaga-admin, added to actors.yaml in the same bundle).
+resolution: >
+  Open. Role UI-DESIGNER (hard gate, closed checklist, PASS / PASS_WITH_FINDINGS / FAIL), three mechanical guards in
+  npm run check, WF-02 and WF-03 step, design-system.md brought to the code and its version bumped, Penpot references
+  marked historical, and a first conformance audit of every routed screen. Queue Q-1072 / GH #2428.
+queue_ref: Q-1072
+github_ref: GH-2428
+status: open
