@@ -2810,3 +2810,5 @@
 2026-10-12T10:18:56Z | PASS | WF-03 | WF03-ISS1040-20261012 | RELEASE-VALIDATOR → ORCH | Step 05v PASS (fdccc100b; own mutant 57/60, plain run 60 passed, no lib/config/priv/.github change)
 2026-10-12T10:18:56Z | DISPATCH | WF-03 | WF03-ISS1040-20261012 | ORCH → DOC-UPDATER | Step 06
 2026-10-12T10:19:38Z | PASS | WF-03 | WF03-ISS1040-20261012 | DOC-UPDATER → ORCH | Step 06 PASS (ISS-1040 resolved); ORCH verified yaml keys; registry COMPLETED
+2026-10-12T10:52:12Z | START | WF-03 | WF03-ISS1058-20261012 | ORCH | Q-1058 / ISS-1058 / GH #2406 claimed as tvolodi-orch (supervisor assignment, HIGH, regression of Q-1042); branch created by ORCH
+2026-10-12T10:52:12Z | DISPATCH | WF-03 | WF03-ISS1058-20261012 | ORCH → ISSUE-FIXER | Step 01 diagnosis H1 vs H2
