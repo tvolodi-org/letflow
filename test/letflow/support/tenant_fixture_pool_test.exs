@@ -1527,6 +1527,83 @@ defmodule Letflow.Support.TenantFixturePoolTest do
       assert fx(:a).schema_name == first.schema_name
     end
   end
+
+  # ISS-1061 (Q-1054 / GH #2400; docs/issues/ISS-1061.yaml). The pool's reset/drop paths
+  # must never run against a database that is not the configured test database. Refusal
+  # tests use a fresh module atom so no pool is registered and nothing leaks.
+  describe "ISS-1061 database guard" do
+    @wrong_db "letflow_test_not_this_db"
+
+    test "T1 the guard accepts the real configured database" do
+      assert :ok == TenantFixture.assert_test_database!()
+      assert :ok == TenantFixture.assert_test_database!(Repo.config()[:database])
+    end
+
+    test "T2 a mismatching database name is refused, naming both databases" do
+      actual = Repo.query!("SELECT current_database()").rows |> hd() |> hd()
+
+      error =
+        assert_raise ArgumentError, ~r/but the configured test database is/, fn ->
+          TenantFixture.assert_test_database!(@wrong_db)
+        end
+
+      assert error.message =~ inspect(actual)
+      assert error.message =~ inspect(@wrong_db)
+    end
+
+    test "T3 a non-letflow_test expected name is refused before any comparison" do
+      assert_raise ArgumentError, ~r/is not a letflow_test\* database/, fn ->
+        TenantFixture.assert_test_database!("letflow_dev")
+      end
+    end
+
+    test "T4 start_pool!/2 refuses before provisioning, cloning or registering anything",
+         ctx do
+      fresh = Module.concat(__MODULE__, "GuardRefusal#{System.unique_integer([:positive])}")
+      slug = "guard-refusal-#{System.unique_integer([:positive])}"
+
+      count = fn sql -> Repo.query!(sql).rows |> hd() |> hd() end
+      schemas = "SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'tenant_%'"
+      tenants = "SELECT count(*) FROM public.tenants"
+      slug_rows = "SELECT count(*) FROM public.tenants WHERE slug LIKE '#{slug}%'"
+
+      before = {count.(schemas), count.(tenants)}
+      stats_before = TenantFixture.pool_stats(ctx.tenant_pool)
+
+      assert_raise ArgumentError, ~r/but the configured test database is/, fn ->
+        TenantFixture.start_pool!(%{module: fresh, async: false},
+          slots: [[slug_prefix: slug, display_name: "Guard Refusal"]],
+          expected_database: @wrong_db
+        )
+      end
+
+      assert Process.whereis(TenantFixture.pool_name(fresh)) == nil
+      assert count.(slug_rows) == 0
+      assert {count.(schemas), count.(tenants)} == before
+      assert TenantFixture.pool_stats(ctx.tenant_pool) == stats_before
+    end
+
+    test "T5 the worker's own init refuses a mismatching database" do
+      fresh = Module.concat(__MODULE__, "GuardWorker#{System.unique_integer([:positive])}")
+
+      capture_log(fn -> send(self(), {:result, start_unguarded(fresh)}) end)
+
+      assert_received {:result, {:error, {%ArgumentError{message: message}, _stack}}}
+      assert message =~ "but the configured test database is"
+    end
+  end
+
+  defp start_unguarded(module) do
+    result =
+      GenServer.start(Letflow.TenantFixture.Pool, %{
+        module: module,
+        expected_database: "letflow_test_not_this_db"
+      })
+
+    # A mutant that lets the worker start must not leak a live, unregistered process.
+    with {:ok, pid} <- result, do: GenServer.stop(pid)
+    result
+  end
 end
 
 defmodule Letflow.Support.TenantFixturePoolMisorderTest do

@@ -30,8 +30,8 @@ defmodule Letflow.Scripts.MeridianLoanOriginationFixtureTest do
     graph
   end
 
-  test "fixture version is 1.15 (Q-1048 loan-ops-lead escalation; 1.14 was REQ-465 distinct_from; 1.13 was REQ-462 required_outputs; 1.12 was ISS-1013: D-ESC timers; 1.9 was ISS-1015: timeouts route to escalation reviews, human tasks carry forms; 1.8 was ISS-1024: committee votes route to three distinct roles; 1.7 was ISS-1020, the KYC fail-closed gate; 1.6 was ISS-1001, 1.5 ISS-0998)" do
-    assert doc()["version"] == "1.15"
+  test "fixture version is 1.16 (Q-1051 / GH #2395: L1 CRO escalation and assessment distinct_from; 1.15 was Q-1048 loan-ops-lead escalation; 1.14 was REQ-465 distinct_from; 1.13 was REQ-462 required_outputs; 1.12 was ISS-1013: D-ESC timers; 1.9 was ISS-1015: timeouts route to escalation reviews, human tasks carry forms; 1.8 was ISS-1024: committee votes route to three distinct roles; 1.7 was ISS-1020, the KYC fail-closed gate; 1.6 was ISS-1001, 1.5 ISS-0998)" do
+    assert doc()["version"] == "1.16"
   end
 
   # --- ISS-1001 / Q-983: l2-approval fails toward scrutiny, never to create-facility ---
@@ -85,11 +85,21 @@ defmodule Letflow.Scripts.MeridianLoanOriginationFixtureTest do
              Enum.filter(esc_edges, &(&1["target"] == "create-facility"))
   end
 
-  test "ISS-1001: fallback-l1-approval -> l2-approval is unchanged (escalation = more scrutiny)" do
-    assert [%{"id" => "fallback-l1-approval", "target" => "l2-approval"} = edge] =
+  # ISS-1001's original criterion ("fallback-l1-approval -> l2-approval is unchanged") is REVISED by
+  # Q-1051 / GH #2395 (decision Q-1047 option b): an unanswered L1 approval escalates to the CRO task,
+  # never straight to l2-approval. The escalation is still more scrutiny, and a second approver remains.
+  test "Q-1051: fallback-l1-approval -> escalate-l1-approval-to-cro (unconditioned, not l2-approval)" do
+    assert [%{"id" => "fallback-l1-approval", "target" => "escalate-l1-approval-to-cro"} = edge] =
              Enum.filter(edges_from(doc(), "l1-approval"), &(&1["id"] == "fallback-l1-approval"))
 
     refute Map.has_key?(edge, "condition")
+  end
+
+  test "Q-1051: no unconditioned edge from l1-approval to l2-approval remains" do
+    refute Enum.any?(
+             edges_from(doc(), "l1-approval"),
+             &(&1["target"] == "l2-approval" and not Map.has_key?(&1, "condition"))
+           )
   end
 
   test "ISS-1001: an instance at l2-approval with a missing or unrecognised l2_decision never reaches create-facility" do

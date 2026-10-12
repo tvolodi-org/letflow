@@ -1,0 +1,78 @@
+{
+  "handoff_id": "c4a7d1e0-1054-4a11-8c20-000000000002b",
+  "run_id": "WF03-ISS1054DBGUARD-20261012",
+  "workflow_id": "WF-03",
+  "step": "02b",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGN-VALIDATOR",
+  "file": "handoffs/WF03-ISS1054DBGUARD-20261012/step-02b-code-design-validator.json",
+  "created_at": "2026-10-12T15:10:00Z",
+  "started_at": "2026-10-12T14:34:57Z",
+  "completed_at": "2026-10-12T14:50:00Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1054": "MEDIUM, R1 from ISS-1042 follow_ups (SECURITY-REVIEWER F2), supervisor-assigned 2026-10-12. Queue Q-1054 / GH #2400, issue_ref ISS-1054. See task.description."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "docs/issues/ISS-1061.yaml",
+      "test/support/tenant_fixture.ex",
+      "handoffs/WF03-ISS1054DBGUARD-20261012/step-01-issue-fixer.json"
+    ],
+    "owned_modules": [
+      "test/support/tenant_fixture.ex"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1054DBGUARD-20261012"
+  },
+  "task": {
+    "description": "WF-03 Step 2b hard gate (.claude/agents/code-design-validator.md) on the ISSUE-FIXER's fix design for Q-1054 / GH #2400 (local record docs/issues/ISS-1061.yaml; design in handoffs/WF03-ISS1054DBGUARD-20261012/step-01-issue-fixer.json). ORCH uses that design (exact guard function, start_pool!/2 placement, worker init defense, tests T1..T6, mutants M1..M7) as the design artefact and gates it here instead of a separate CODE-DESIGNER pass.\nORCH decisions: KEEP the letflow_test* prefix check (config/test.exs derives database \"letflow_test#{MIX_TEST_PARTITION}\", so the prefix is the repo's own convention); the :expected_database opt stays the test seam; no lib/ change; worker init guard stays as defense in depth.\nValidate: (1) every acceptance criterion maps to a design element and a test: guard before ANY provisioning/reset/clone, refusal test, mutation makes the refusal test fail, reset semantics unchanged; (2) independently read test/support/tenant_fixture.ex and the Pool worker: is the guard placed before the first side effect (Sandbox.mode(:auto) acceptable?), are there other destructive entry points reachable without start_pool!/2 (e.g. provisioned_tenant!/1 fresh-clone path, recycle_pool!, teardown) that the design leaves unguarded and that matter, and is Repo.config()[:database] the right source (check Repo.init/2 and any runtime config override); (3) can the :expected_database seam be abused to disarm the guard (the prefix check must still bind); can the tests T4/T5 leak a registered pool or schema, or break the single live pool of tenant_fixture_pool_test.exs (async: false, one pool per module per VM); is T4's global-count snapshot flaky if another BEAM shares the DB (suggest the schema-prefix variant if so); (4) each mutant M1..M7 is truly killed by the named test; (5) the design is unambiguous enough for a weak model to implement; anything missing. No mix needed. Verdict PASS/FAIL in result.status; findings BLOCKER/MAJOR/MINOR. Commit + push (pull --rebase first; retry on github resolve failures; message ends 'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>'); handoff COMPLETED, no BOM, LF, no self-reference in artifacts_out.\n"
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "PASS (no BLOCKER, no MAJOR, 5 MINOR). Verdict re-derived from test/support/tenant_fixture.ex (start_pool!/2 L382-433, Pool.init L1299, teardown/pool_teardown!/teardown_slot, TenantTemplate), config/test.exs L76, lib/letflow/repo.ex init/2, test/support/data_case.ex and test/letflow/support/tenant_fixture_pool_test.exs, not from the ISSUE-FIXER summary. (1) Acceptance mapping: guard before any provisioning/reset/clone -> start_pool! step 2 placed after argument validation and Sandbox.mode(:auto), before GenServer.start/on_exit/create_slots (verified: nothing destructive precedes it; Sandbox.mode(:auto) is acceptable and already precedent in the existing duplicate-pool test L1264); refusal test -> T2/T4/T5; mutation fails refusal test -> M1 killed by T4, M2 by T4, M5 by T5; reset semantics unchanged -> no change to reset/rebuild/final_guard/teardown, T6 (existing suite). (2) Placement and source: all pool-destructive entry points (teardown_slot, reset_public!, reset, rebuild, final_guard!, pool_teardown!, recycle_pool!) are reachable only through a worker started by start_pool!/2 or a direct GenServer.start of Pool, which the init guard covers; teardown/rebuild need no per-call guard. Repo.config()[:database] is correct: config/test.exs L76 sets it, Repo.init/2 (repo.ex) returns config unchanged in test (it only inspects :require_dev_db_confirmation), no put_dynamic_repo anywhere, runtime.exs overrides only under :prod. (3) Seam abuse: :expected_database cannot disarm the guard. Any override must (a) start with letflow_test and (b) equal current_database(); an override naming a real non-test database fails (a), one naming a test-prefixed name that differs from the connected DB fails (b). Test leakage: T4 uses a fresh module atom and refuses before GenServer.start, so nothing is registered and the live pool is untouched; T5 starts an unnamed worker (no name opt) so no registry entry can leak even under M5, and the try/after stops the pid. Module is async: false (ExUnit runs sync modules serially, partitions use separate letflow_test<N> databases), so the global-count snapshots in T4 are not flaky in practice. (4) Mutants M1..M7 each traced against T1..T5: all killed as stated (M3 always-unequal by T1, always-equal by T2/T4/T5; M6 by T3 because the equality branch would emit the other message). (5) Implementable by a weak model with the corrections below. Findings are the MINORs in result.issues.",
+    "artifacts_out": [],
+    "owned_modules": [],
+    "issues": [
+      {
+        "severity": "MINOR",
+        "description": "T4 / R7 fallback is wrong as written: the ISSUE-FIXER suggests asserting 'no schema with the fresh module's prefix', but schema names are tenant_<uuid-without-dashes> (TenantProvisioning.schema_name_for_tenant/1), never module-derived, so that variant cannot be implemented. The workable stronger variant: give the refused slot a unique slug_prefix (e.g. \"guard-refusal-#{System.unique_integer([:positive])}\"), and assert `SELECT count(*) FROM public.tenants WHERE slug LIKE $1` with that prefix <> '%' is 0 after the refusal. Slugs are Letflow.TenantSlugFixture.unique_slug(prefix) = prefix-<uuid>, so the match is exact. Keep the pg_namespace/public.tenants global counts only as a secondary assertion (the tenant_template schema also matches 'tenant_%' so use an exact before/after delta, never an absolute number).",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "assert_test_database!/1 uses Keyword.fetch!(Repo.config(), :database): a config with no :database raises KeyError, not the fail-closed ArgumentError the design promises, and the is_binary/prefix check then never runs for that case. Use Keyword.get(Repo.config(), :database) so nil reaches the 'is not a letflow_test* database' ArgumentError. Also note `unless cond, do: raise ArgumentError, msg` one-liners parse ambiguously; the implementer should use a block form.",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "The design (step-01 result.summary) embeds the full body of assert_test_database!/1 as code. Strictly, 'no implementation code' is one of this gate's checks. Judged acceptable and NOT a FAIL because: it lives in a handoff string, not a lib/ .ex artefact; it is behavioural specification (SQL, error types, exact messages, ordering) that ORCH's task required be 'exact'; and the body was reviewed line by line here. ORCH may overrule if the strict reading is wanted; the cost is a prose rewrite of identical content. ELIXIR-DEV must write the real code, applying the Keyword.get correction above.",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "Scope note, no change needed: provisioned_tenant!/1's default (non-pool) path (teardown/2: DROP SCHEMA of one tenant_<uuid> plus its Registration/Tenant rows; TenantTemplate.ensure_template! DROP of tenant_template) and the public TenantTemplate reset/rebuild functions are not guarded by this change. Their blast radius is the single tenant schema or template schema they created, not slot pools, and the acceptance criteria are scoped to start_pool!/2. Record in the ISS-1061 resolution text that this is deliberately out of scope so it is not read as full coverage. Also: the prefix check accepts any letflow_test* name (e.g. a copy named letflow_test_prod_copy); that is the documented, accepted convention (ORCH decision).",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "Implementer/TEST-DESIGNER notes: (a) T5's init crash is logged by the gen_server crash reporter; wrap the GenServer.start in ExUnit.CaptureLog.capture_log/1 (already imported in the test module) to keep output clean. (b) T4 calls start_pool! from the test process, which executes Sandbox.mode(:auto) and leaves it :auto for the rest of that test; the existing duplicate-pool assertion (L1264) and the module's own on_exit already do the same and DataCase re-sets shared mode per test, so this is safe. (c) T6 is not a new test: the implementer must run the whole file (and tenant_fixture_dispatch_test.exs) to show the default path is unchanged. (d) test/specs/ISS-1061.md (spec of record per file-placement rules) is a TEST-DESIGNER deliverable not listed under FILES TO TOUCH.",
+        "affected_requirement": null
+      }
+    ],
+    "git_evidence": {
+      "branch_name": "feature/WF03-ISS1054DBGUARD-20261012",
+      "commit_sha_list": [],
+      "remote_branch": null,
+      "push_status": "skipped",
+      "pr_url": null,
+      "pr_create_error": null
+    },
+    "next_action": "ORCH: proceed to ELIXIR-DEV (test/support/tenant_fixture.ex + test/letflow/support/tenant_fixture_pool_test.exs) with the design plus the T4 slug-prefix and Keyword.get corrections above; no lib/ change, SECURITY-REVIEWER awareness only."
+  }
+}

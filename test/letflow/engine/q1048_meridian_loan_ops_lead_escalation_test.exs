@@ -1,7 +1,7 @@
 defmodule Letflow.Engine.Q1048MeridianLoanOpsLeadEscalationTest do
   @moduledoc """
   Q-1048 / GH #2390 (REQ-467 / ISS-1048) -- the disbursement escalation of the shipped Meridian
-  "Loan Origination" fixture (v1.15) is rerouted from role-credit-director to a new
+  "Loan Origination" fixture (rerouted in v1.15; current version v1.16, Q-1051) is rerouted from role-credit-director to a new
   role-loan-ops-lead, and its node `escalate-disburse-loan-to-loan-ops-lead` carries
   `distinct_from` on all six approval nodes (l1-approval, l2-approval, escalate-l2-approval-to-ceo,
   committee-vote-cro, committee-vote-director, committee-vote-ceo). Decision: Q-1044 option (b).

@@ -35132,7 +35132,7 @@ requirements:
   - id: REQ-465
     title: "Adopt distinct_from in the meridian loan origination and meridian regulatory sign-off definitions (approvals that pay, release or commit)"
     owner: ELIXIR-DEV
-    status: in_progress  # partial adoption: two candidate pairs dropped (escalate-disburse-loan-to-credit-director does not name l2-approval or committee-vote-director), residual gap recorded in the PR; BA design item, see GH #2386
+    status: done  # residual gap closed by REQ-467 (PR #2398, escalation node names the six approvals); AC 6 record in handoffs/WF02-REQ465-20261012/ac6-affected-scenarios.md; decision on GH #2386 (Q-1044)
     stage: S3
     impl_order: 1028  # letflow-queue task id, GH#2343. Registered 2026-10-07 by ORCH (WF-01 Step 3; registered in this PR because mix letflow.check_deferral_staleness requires 0 deferrals). Ordering recorded at drafting: blocked-by: REQ-464 -- shipped definitions can adopt only after the engine rule (REQ-463) and the validator (REQ-464) exist; REQ-463 is reached through REQ-464 and REQ-462 (same fixtures) precedes through depends_on
     description: >

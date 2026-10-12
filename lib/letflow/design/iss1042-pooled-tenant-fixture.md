@@ -651,6 +651,11 @@ Rejection is loud and fail-closed:
 
 No claim is made that any async module can use it; none may.
 
+**Database guard (ISS-1061 / Q-1054 / GH #2400).** `start_pool!/2` also raises `ArgumentError`, before
+the worker is started or any slot is cloned, unless `SELECT current_database()` equals the configured
+`Letflow.Repo` database and that name is a `letflow_test*` database; `Pool.init/1` repeats the assertion
+for a directly started worker. The unguarded fresh-clone / `TenantTemplate` paths are out of scope.
+
 ## 9. Isolation proof (mutation test), fail-safe and what is claimed
 
 New file: `test/letflow/support/tenant_fixture_pool_test.exs`, `use Letflow.DataCase, async: false`,
