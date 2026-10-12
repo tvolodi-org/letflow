@@ -67,11 +67,11 @@ measurements:
     module instead of per test would be 19 clones for the same partition.
   server_side_microbenchmarks_quiet_db: >
     One transaction, no client round trips, 57 template tables: CREATE SCHEMA + LIKE loop
-    399-543 ms over 8 iterations (median ~420 ms), DROP SCHEMA CASCADE 12-21 ms. TRUNCATE of all 57
-    tables of a clone in one statement: 932-1055 ms (5 iterations) -- slower than cloning, so a
+    399-543 ms over 8 iterations (median ~420 ms), DROP SCHEMA CASCADE 12-21 ms. TRUNCATE of all 50
+    tables of a clone in one statement (the 57 above is the partitioned template; a clone has 50 plain tables): 932-1055 ms (5 iterations) -- slower than cloning, so a
     naive truncate-everything reset is ruled out. TRUNCATE of a subset in one statement: 1 table
     6 ms, 5 tables ~39 ms, 10 tables ~88 ms, 20 tables ~160 ms (~8 ms per table). Probing all 57
-    tables for "has any row" (SELECT 1 LIMIT 1 each, server side) 3.6 ms.
+    template tables for "has any row" (SELECT 1 LIMIT 1 each, server side) 3.6 ms.
   extrapolation_not_measured: >
     74% of tests in the partition provision a tenant (403/542). 7,117 test macros in 455 files;
     182 files / 838 call sites use provisioned_tenant!; 14 files use setup_all (2 of them with the
@@ -106,7 +106,7 @@ levers_evaluated:
   b_shared_readonly_tenant_or_sandbox_rollback: "Rejected as primary. A truly read-only shared tenant helps few modules (the heavy ones mutate: promotions, definitions, identity writes). Sandbox-rollback needs tests in manual mode, contradicting the fixture's :auto contract (ISS-0113) and tests that commit across connections; sequences also are not rolled back. High leak/flake risk."
   c_pooled_tenant_per_module_with_reset: "RECOMMENDED in the dirty-only form. Measured: truncate-all (932-1055 ms) is WORSE than a clone, so the lever only pays with dirty-table detection (probe 3.6 ms; truncate ~8 ms per dirty table)."
   d_create_database_template: "Rejected: not applicable. The Repo pool, Sandbox ownership and the public-schema tables (tenants, tenant_schemas, ...) are bound to one database per partition (letflow_test<i>); a database per test would need a per-test pool and would not clone faster than ~50 table DDLs of a small schema. Not measured."
-  e_server_side_single_roundtrip: "Rejected by measurement: the server-side one-transaction LIKE loop alone costs ~420 ms for 57 tables; round trips are not the floor."
+  e_server_side_single_roundtrip: "Rejected by measurement: the server-side one-transaction LIKE loop alone costs ~420 ms for the 57 template tables (a clone has 50); round trips are not the floor."
 constraints_on_any_fix:
   - "No change to required CI check names (Backend gate (mix letflow.check), Frontend gate (npm run check), and the aggregator)."
   - "No paid runners."
@@ -173,4 +173,22 @@ before_after:
     tests: "161 passed (1 property, 160 tests), 0 failures, Finished in 113.5 s (3 adopter files + tenant_fixture_dispatch_test.exs + tenant_fixture_pool_test.exs)"
     compile: "MIX_ENV=test mix compile --warnings-as-errors --force: rc=0, 0 warnings (--force added so the check is meaningful on an already-built tree)"
     format: "mix format --check-formatted: rc=0"
-status: open
+status: resolved
+resolved_in_run: WF03-ISS1042-20261012
+resolved_at: "2026-10-12T08:53:02Z"
+regression_test: test/letflow/support/tenant_fixture_pool_test.exs
+resolution: >
+  Root cause removed for the adopting modules: the per-test tenant-schema clone (CREATE SCHEMA + 50 x
+  CREATE TABLE LIKE, ~0.8 s each, 74-80% of the measured partition's test-phase wall time) is replaced,
+  for modules that opt in, by one clone per module (Letflow.TenantFixture.start_pool!/2) with a
+  dirty-table-only reset between tests. Default stays a fresh clone per test; opt-in per module,
+  test infrastructure only, no production path. Measured by TEST-RUNNER, 5+5 interleaved runs on
+  partition 1 of 12: finished_in mean 367.9 s -> 256.2 s (1.44x, -30.4%), every after-run faster than
+  every before-run, 0 failures. Isolation proven by the mutation suite (test/specs/ISS-1042.md) and
+  re-verified by RELEASE-VALIDATOR (handoffs/WF03-ISS1042-20261012/step-05v-release-validator.json).
+follow_ups:
+  - "R1: adopt a current_database() assertion in start_pool!/2 (test-DB guard) so a pool can never reset a non-test database."
+  - "R5: worker/slot maps are untyped; add typespecs/structs (type-safety, low priority)."
+  - "V2: add a depth-2 FK-chain test for in-place reset; today the pool resets such cases via rebuild, so this is a performance-only gap, not a correctness one."
+  - "OQ-8: monitor the end-fence false-positive rate (digest median ~16 ms; fences never fired on a clean module in adopter runs; rate across the full suite unmeasured)."
+  - "Adopter rollout: more modules may opt in via start_pool!/2. Highest remaining provisioners on the measured partition: Letflow.Engine.ServiceTaskWiringTest (32 clones), Letflow.EngineRequiredOutputsTest (25); then the rest of the 19 provisioning modules. Adopted so far: IdentityIdHardeningTest, PromotionScopeTest, Definitions.StoreTest. Audit stragglers and fire-and-forget processes first (docs/anti-patterns.md ISS-1042 entry, rule 3)."

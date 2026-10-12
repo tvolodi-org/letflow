@@ -7,9 +7,9 @@
  "to_agent": "DOC-UPDATER",
  "file": "handoffs/WF03-ISS1042-20261012/step-06-doc-updater.json",
  "created_at": "2026-10-12T08:52:16Z",
- "started_at": null,
- "completed_at": null,
- "status": "PENDING",
+ "started_at": "2026-10-12T08:52:35Z",
+ "completed_at": "2026-10-12T08:53:11Z",
+ "status": "COMPLETED",
  "priority": "NORMAL",
  "context": {
   "stage": "S1",
@@ -45,5 +45,21 @@
    "follow_ups recorded"
   ]
  },
- "result": null
+ "result": {
+  "status": "PASS",
+  "summary": "R4 corrected: no '57 tables of a clone' remains (anti-patterns.md rule 2 now 50; ISS-1042.yaml TRUNCATE sentence now 50 with the 57 labelled as the partitioned template; remaining 57 mentions are explicitly template tables). ISS-1042.yaml: status resolved, resolved_in_run WF03-ISS1042-20261012, resolved_at from clock, regression_test test/letflow/support/tenant_fixture_pool_test.exs, resolution text, before_after/measurements kept, follow_ups added (R1, R5, V2, OQ-8, adopter rollout naming ServiceTaskWiringTest 32 and EngineRequiredOutputsTest 25).",
+  "artifacts_out": [
+   "docs/anti-patterns.md",
+   "docs/issues/ISS-1042.yaml",
+   "handoffs/WF03-ISS1042-20261012/step-06-doc-updater.json"
+  ],
+  "not_touched": {
+   "docs/requirements.yaml": "ISS-1042 is queue issue Q-1042, not linked to a REQ; no requirement status flipped; run-history volume not appended (no requirement event)",
+   "README.md": "does not document the test fixture or tenant provisioning; no change",
+   "test/specs/ISS-1042.md": "'/57' occurrences are mutant counts (tests failed / total), not table counts; left unchanged"
+  },
+  "other_docs_checked": "grep tenant_template|TenantFixture over docs/README: only anti-patterns.md (already has the ISS-1042 entry) and decisions 0009/0037 (about pool sizing / partitioning; do not contradict or need a pool note)",
+  "issues": [],
+  "not_run": "no mix run (docs only)"
+ }
 }

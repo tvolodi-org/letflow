@@ -4660,7 +4660,7 @@ Three lessons from the module-scoped pooled tenant (`Letflow.TenantFixture.start
    `phase=pool_acquire outcome=` log lines (`clean` / `reset` / `rebuilt`) after adopting a module, not
    only its wall time and pass count: a pool that rebuilds on every acquire still passes every test.
 
-2. **Measure the reset before choosing it.** TRUNCATE of all 57 tables of a clone costs 0.9-1.0 s, slower
+2. **Measure the reset before choosing it.** TRUNCATE of all 50 tables of a clone costs 0.9-1.0 s, slower
    than the 0.7-0.8 s clone it is meant to replace; the lever only pays with dirty-table detection (an
    `EXISTS` probe of every table is ~4 ms) and a TRUNCATE of just the dirty tables plus their FK-referencing
    closure (no CASCADE, so a missing edge raises instead of silently widening the set).
