@@ -6,7 +6,7 @@ discovered_at: "2026-10-12T00:00:00Z"
 severity: MEDIUM  # priority raised by the supervisor after the recurrence below (was MINOR at filing)
 failure_class: flake
 occurrence: 2
-owner: "CI lane / test infrastructure (scripts/test_parallel.sh and its shard test); no tenant-data path"
+owner: "letflow-16 (Q-1053, in progress). Scope is the family: all wall-clock-dependent tests in test/scripts/test_parallel_*_test.exs; no tenant-data path"
 scope: tooling
 description: >
   The test uses stub bash partitions and no BEAM. Under host load (loadavg 10.09 on 4 cores), partition 7's
@@ -16,6 +16,14 @@ description: >
   at test/scripts/test_parallel_shard_test.exs:274, PR #2383 head a24feb11, shard 2 of 3, host load 9.75 on
   4 cores; green on rerun. Same family: the nested runner's partition log is missing. Run link: recorded on
   GH #2399 as a comment, with run 38263915020, shard 2 of 3, job 114861236729 (reported by letflow-4).
+  Occurrence 3 (same family): test "hung partition: the watchdog still TERMs it after the timeout" at
+  test/scripts/test_parallel_watchdog_orphan_test.exs:339, PR #2413 run 38265950635, shard 1 of 3, partition 3,
+  host load 11.1 on 4 cores; reran by letflow-16 and passed. First occurrence by name for this test (git log,
+  docs and handoffs checked). Also in the family: test "huge partition log: diagnostics stay bounded and respect
+  the 300-column cap" at test/scripts/test_parallel_watchdog_diag_test.exs:247, main run 38235738863, shard 1 of 3,
+  partition 2, seed 181618 (see docs/status/flake-watchlist-2026-10-12.md).
+  Family scope: all wall-clock-dependent tests in test/scripts/test_parallel_*_test.exs. Priority raised by the
+  supervisor to MEDIUM after occurrence 2.
 resolution: >
   Open. Asks: diagnose from a captured partition log, or add a KEEP_LOGS-style capture so the next occurrence
   leaves one. Queue Q-1053 / GH #2399.
