@@ -22,4 +22,4 @@ resolution: >
 queue_ref: Q-1049
 github_ref: GH-2391
 status: open
-depends_on: ISS-1048
+depends_on: ISS-1048 (done; merged as 3eaf1515, PR #2398)
