@@ -1,0 +1,45 @@
+id: ISS-1062
+title: "test_parallel.sh family flakes under CI load: shard test :241 (admission-control poll TOCTOU) and :274 (EXIT trap rm -rf'd in the watchdog subshell), orphan test :339 (wait -n -p leaves finished_pid unset), diag test :247 (stub emission vs a 2 s watchdog)"
+discovered_by: CI (run 38227698118 shard :241; run 38263915020 job 114861236729 shard :274; run 38265950635 attempt 1 orphan :339; run 38235738863 attempt 1 diag :247)
+discovered_in_run: "Q-1053 / GH #2399 (queue issue_ref ISS-1053; local alias ISS-1062, ISS-1053 is taken by another issue)"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: MAJOR
+failure_class: flake
+occurrence: 4
+owner: "CODE-DESIGNER (fix design) then ELIXIR-DEV/TEST-DESIGNER; production script change in scripts/test_parallel.sh plus test changes"
+scope: tooling
+description: >
+  Four distinct mechanisms, all exposed by tests that drive the real scripts/test_parallel.sh with
+  instantly-exiting stub partitions, all load-dependent, all green on rerun. RC-A (shard :274, symptom
+  "partition-N.log: No such file", exit 0, elapsed=0s, 0/4 reported): the per-partition watchdog
+  subshell `( sleep ... ) &` inherits the script's EXIT trap; if Step 3's `kill -- -<watchdog>` arrives
+  while the child is between fork() and bash resetting its handlers, bash's termsig_handler runs the
+  inherited cleanup_tmp_dir in the CHILD with $?=0, which `rm -rf "$tmp_dir"`s every partition and create
+  log under the running parent. Natural reproduction on the unmodified script (bash 5.2.37 linux, 4 cpus,
+  12 busy loops): 1 in 300 runs; deterministic with the watchdog killed right after fork (15/25, and 214/1000
+  in a minimal reproducer); a BASHPID guard in the trap removes it (25/25). Production runs are not exposed
+  (a real partition lives minutes, the kill is never in the fork window). RC-B (shard :241): in
+  poll_template_ready_dir the ready-file test precedes `kill -0`; a stub that writes the ready-file and exits
+  between the two builtins is reported as "exited during its own template build". Proved by widening the
+  window (sleep 0.3 between the tests: 6/6 reproduce the exact message; with the ready-file re-tested after
+  the liveness check 8/8 pass). RC-C (orphan :339 in CI; seen once locally in ~700 runs): Step 1.7
+  `wait -n -p finished_pid` returned with finished_pid unset, so `${create_pid_to_partition[$finished_pid]}`
+  aborts under set -u ("test_parallel.sh: line 554: finished_pid: unbound variable", exit 1, no WARNING
+  line, the orphan test's `out =~ "exceeded ..."` fails). RC-D (diag :247 huge case, CI): the 200k-line stub
+  emission (awk) had not finished when the 2 s watchdog fired, so the DIAG tail ended at P1-199971 and the
+  "...." line (K=4) was not yet in the log.
+acceptance_criteria:
+  - "scripts/test_parallel.sh: the EXIT trap acts only in the main shell (BASHPID == main pid)"
+  - "poll_template_ready_dir samples liveness BEFORE the ready-file (or re-tests the ready-file after a failed liveness check)"
+  - "Step 1.7 wait -n -p sites tolerate an empty finished_pid (fall back to kill -0 / wait <pid>)"
+  - "failure messages of tests that drive the script include the nested runner's tmp tree listing and partition log contents"
+  - "each fixed race has a deterministic regression test (BASH_ENV shim) that fails on the pre-fix script"
+  - "diag/orphan tests poll conditions with bounded deadlines instead of fixed 2 s / 6 s windows; assertions not weakened"
+affected_files:
+  - scripts/test_parallel.sh
+  - test/scripts/test_parallel_shard_test.exs
+  - test/scripts/test_parallel_watchdog_diag_test.exs
+  - test/scripts/test_parallel_watchdog_orphan_test.exs
+queue_ref: Q-1053
+github_ref: GH-2399
+status: open
