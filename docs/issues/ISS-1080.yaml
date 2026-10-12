@@ -1,7 +1,8 @@
-id: ISS-1062
+# Written as ISS-1062 in this run's handoffs; renumbered to ISS-1080 because origin/main's ISS-1062 is Q-1059 / GH #2411.
+id: ISS-1080
 title: "test_parallel.sh family flakes under CI load: shard test :241 (admission-control poll TOCTOU) and :274 (EXIT trap rm -rf'd in the watchdog subshell), orphan test :339 (wait -n -p leaves finished_pid unset), diag test :247 (stub emission vs a 2 s watchdog)"
 discovered_by: CI (run 38227698118 shard :241; run 38263915020 job 114861236729 shard :274; run 38265950635 attempt 1 orphan :339; run 38235738863 attempt 1 diag :247)
-discovered_in_run: "Q-1053 / GH #2399 (queue issue_ref ISS-1053; local alias ISS-1062, ISS-1053 is taken by another issue)"
+discovered_in_run: "Q-1053 / GH #2399 (queue issue_ref ISS-1053; local alias ISS-1080, ISS-1053 is taken by another issue)"
 discovered_at: "2026-10-12T00:00:00Z"
 severity: MAJOR
 failure_class: flake
@@ -42,4 +43,8 @@ affected_files:
   - test/scripts/test_parallel_watchdog_orphan_test.exs
 queue_ref: Q-1053
 github_ref: GH-2399
-status: open
+status: resolved
+resolved_in_run: WF03-ISS1053SHARDFLAKE-20261012
+resolved_at: "2026-10-12T19:18:42Z"
+resolution: >
+  Four root causes fixed: RC-A (EXIT trap inherited by the watchdog subshell deleted the tmp dir), RC-B (ready-file/liveness check order in poll_template_ready_dir), RC-C (wait -n -p left finished_pid unbound), RC-D (diag test wall-clock window). Fixes in scripts/test_parallel.sh S1..S3 and the test windows; regression file test/scripts/test_parallel_race_regression_test.exs; failure_context capture added; mutants killed. Known residual: orphan test "EXIT-trap path" intermittently hangs on the Windows git-bash host only (pre-existing, same rate on origin/main script); test_parallel_pool_sizing_test.sh is stale and not in CI. Both are candidates for separate issues.

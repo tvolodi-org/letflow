@@ -57,7 +57,7 @@ fi
 #      process exit code, not inferred from the captured text.
 #   2. Even if (1) were bypassed, the captured block is positively bounded
 #      before eval: it must be <= 150 lines (the real block is ~85 lines as of
-#      ISS-1062; 150 gives margin for comment growth while remaining far
+#      ISS-1080; 150 gives margin for comment growth while remaining far
 #      short of what an EOF over-capture into Step 2/3/4/5 would produce),
 #      and must NOT contain any token unique to Step 1.7's create/migrate
 #      loop or later ("ecto.create", "ecto.migrate", "declare -A",

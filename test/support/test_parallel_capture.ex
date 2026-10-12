@@ -1,6 +1,6 @@
 defmodule Letflow.Test.TestParallelCapture do
   @moduledoc """
-  Q-1053 / GH #2399 / ISS-1062: failure-time capture for the tests that drive the real
+  Q-1053 / GH #2399 / ISS-1080: failure-time capture for the tests that drive the real
   `scripts/test_parallel.sh` with stub `mix`/`psql`.
 
   The script preserves its own tmp dir on every nonzero exit, but a CI job log only shows
@@ -17,7 +17,7 @@ defmodule Letflow.Test.TestParallelCapture do
 
   It never raises on a missing directory, and it deliberately does NOT set
   `TEST_PARALLEL_KEEP_LOGS`: that knob would skip the very `rm -rf` the regression tests
-  exist to expose (ISS-1062 RC-A).
+  exist to expose (ISS-1080 RC-A).
   """
 
   @max_lines 200
@@ -74,7 +74,7 @@ defmodule Letflow.Test.TestParallelCapture do
       end)
 
     [
-      "==== test_parallel failure context (ISS-1062) ====",
+      "==== test_parallel failure context (ISS-1080) ====",
       if(elapsed_ms, do: "elapsed_ms=#{elapsed_ms}", else: "elapsed_ms=unknown"),
       nested,
       "---- script output ----",

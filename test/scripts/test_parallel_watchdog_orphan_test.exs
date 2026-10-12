@@ -78,7 +78,7 @@ defmodule Letflow.Scripts.TestParallelWatchdogOrphanTest do
   #                             remains (or the deadline), and writes the LAST count of live
   #                             `sleep $TEST_PARALLEL_PARTITION_TIMEOUT_S` processes (read from /proc,
   #                             which exists on Linux and in git-bash) to $STUB_MARKER, then passes.
-  #                             No fixed wall-clock sample point (ISS-1062): a real orphan stays at 2.
+  #                             No fixed wall-clock sample point (ISS-1080): a real orphan stays at 2.
   defp write_stubs(tmp) do
     bin = Path.join(tmp, "stubbin")
     File.mkdir_p!(bin)
@@ -229,7 +229,7 @@ defmodule Letflow.Scripts.TestParallelWatchdogOrphanTest do
   # args` is procps (Linux CI); git-bash's ps does not support it, so the check is
   # skipped there -- the EOF-timing assertion above is the primary one.
   #
-  # ISS-1062: a group-killed `sleep` can still be LISTED for a few ms after the script
+  # ISS-1080: a group-killed `sleep` can still be LISTED for a few ms after the script
   # returned (it is being reaped), so the listing is polled every 100 ms for up to 5 s and
   # the assertion is made on the last listing at the deadline: a real orphan (it sleeps
   # for @timeout_s+) is still there, a reaped one is gone.

@@ -21,7 +21,7 @@ defmodule Letflow.Scripts.TestParallelWatchdogDiagTest do
 
   Cases:
 
-    0. (ISS-1062) every timing-sensitive case is PREMISE-CHECKED: the premise is that each
+    0. (ISS-1080) every timing-sensitive case is PREMISE-CHECKED: the premise is that each
        partition's DIAG tail contains its final marker line (`P<P>-LAST`, or the `....`
        line for the huge case), i.e. the stub finished emitting BEFORE the watchdog read
        its log. If it did not (a starved host), the attempt is discarded and re-run with

@@ -191,7 +191,7 @@ defmodule Letflow.Scripts.TestParallelShardTest do
     {status, lines, argv_dir} = run_script(tmp, env)
     out = Enum.join(lines, "\n")
 
-    # ISS-1062: on failure the message carries the tmp tree + partition/create logs.
+    # ISS-1080: on failure the message carries the tmp tree + partition/create logs.
     TestParallelCapture.with_context(tmp, out, fn ->
       assert_sliced_run_body(status, lines, argv_dir, out, range, total)
     end)

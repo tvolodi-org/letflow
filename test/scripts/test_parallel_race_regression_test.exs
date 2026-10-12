@@ -1,6 +1,6 @@
 defmodule Letflow.Scripts.TestParallelRaceRegressionTest do
   @moduledoc """
-  Q-1053 / GH #2399 / ISS-1062: deterministic regression tests for three races in
+  Q-1053 / GH #2399 / ISS-1080: deterministic regression tests for three races in
   `scripts/test_parallel.sh` that made the `test_parallel` test family flaky (and, for the
   create-burst one, could hit real CI shard runs).
 

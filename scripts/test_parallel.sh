@@ -447,7 +447,7 @@ cleanup_tmp_dir() {
                                # exit status; any earlier statement would
                                # clobber it before it can be read.
 
-  # ISS-1062 (RC-A): this trap is INHERITED by every `( ... ) &` subshell the
+  # ISS-1080 (RC-A): this trap is INHERITED by every `( ... ) &` subshell the
   # script forks (the per-partition watchdogs, the connection sampler). A
   # subshell that receives a fatal signal in the window between fork() and
   # bash resetting its inherited handlers runs this function IN THE CHILD with
@@ -518,7 +518,7 @@ cleanup_tmp_dir() {
 }
 
 tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/letflow_test_parallel.XXXXXX")
-_tp_main_pid=${BASHPID:-$$}   # ISS-1062: plain variable, deliberately NOT exported
+_tp_main_pid=${BASHPID:-$$}   # ISS-1080: plain variable, deliberately NOT exported
 trap cleanup_tmp_dir EXIT
 echo "test_parallel: partition logs in $tmp_dir"
 
@@ -533,7 +533,7 @@ echo "test_parallel: seeding+migrating $N partition databases (capped at $max_co
 declare -A create_pid_to_partition
 in_flight=0
 
-# ISS-1062 (RC-C): reaps exactly ONE finished create/migrate job (both wait
+# ISS-1080 (RC-C): reaps exactly ONE finished create/migrate job (both wait
 # sites below call this, so there is a single copy of the logic). On CI
 # (shard 1/3, loadavg 11) `wait -n -p finished_pid` returned without setting
 # the variable and the `set -u` lookup aborted the whole run
@@ -664,7 +664,7 @@ poll_template_ready_dir() {
   local idx pid
   for idx in "${!building_partition_pid[@]}"; do
     pid="${building_partition_pid[$idx]}"
-    # ISS-1062 (RC-B): sample liveness FIRST, test the ready-file SECOND. The old
+    # ISS-1080 (RC-B): sample liveness FIRST, test the ready-file SECOND. The old
     # order (ready-file, then kill -0) could observe "no ready-file yet", get
     # preempted while the partition wrote it AND exited, then see a dead pid and
     # report a crash. A process that is dead at sample time wrote its ready-file
