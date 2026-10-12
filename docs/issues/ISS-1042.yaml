@@ -118,4 +118,25 @@ acceptance_criteria:
   - "One lever implemented with before/after wall time of the test phase (5 runs each, run ids)"
   - "Isolation proof: a test leaving data behind does not leak into the next test (mutation test)"
   - "No change to required check names; no paid runners"
+implementation_measurements:
+  step: "WF03-ISS1042-20261012 step 03 (ELIXIR-DEV): single-run smoke, NOT the formal 5+5 protocol (that is TEST-RUNNER's, step 4)"
+  lever: "(c) refined: opt-in module-scoped pooled tenant with dirty-only reset (Letflow.TenantFixture.start_pool!/2), adopted by 3 modules"
+  environment: "Windows 11 host, Docker postgres:16 on a private port, whole test file per run (mix test <file>), default Logger level (debug), one run per configuration"
+  per_module_wall_seconds:
+    identity_id_hardening_test: {before: 95.2, after: 14.4, tests: 38, pool_acquires: "81 clean, 30 reset, 2 rebuilt (T-12b CREATE TABLE zz_probe -> definition drift -> rebuild, expected)"}
+    promotion_scope_test: {before: 39.7, after: 7.0, tests: 17, pool_acquires: "34 clean, 17 reset"}
+    definitions_store_test: {before: 37.3, after: 10.3, tests: 38, pool_acquires: "7 clean, 32 reset"}
+  defect_found_by_this_measurement: >
+    The first digest keyed internal FK (RI) triggers non-uniquely, so every verify reported drift and rebuilt
+    the slot (store_test 37.3 s before, 50.3 s with the buggy pool; identity 44.4 s, promotion 19.2 s). Fixed by
+    adding tgfoid to the key and aggregating duplicates; see docs/anti-patterns.md.
+  digest_cost_on_a_real_clone: "definition_rows=905 (clone: 50 plain tables, no partitions), full probe (digest + row presence + sequences + seeds) 19.4-25.9 ms over 10 runs with debug logging on, digest alone 15-16 ms; median digest well under OQ-8's 40 ms bound"
+  open_question_answers:
+    OQ-1: "answer B confirmed: a Task's INSERT and a committed TRUNCATE by the worker are visible to the test process; reset needs no sandbox rollback"
+    OQ-2: "confirmed: the worker (no $callers) runs on an ordinary connection under Sandbox :auto; its TRUNCATE/DELETE commit and are visible to the test process; no config/test.exs change needed"
+    OQ-3: "confirmed: context[:async] is present (false) in both setup_all and setup contexts of the installed ExUnit 1.20.3"
+    OQ-5: "confirmed: TRUNCATE ... RESTART IDENTITY plus ALTER SEQUENCE ... RESTART returns events_global_seq_seq to nextval = 1 after 'row gone, sequence advanced'"
+    OQ-8: "digest median ~16 ms (< 40 ms); the end fence and fence A never fired on a clean module in the adopter runs"
+    OQ-9: "moot: a clone has no partitions (plain events/events_archive), FK closure never needed a leaf partition edge"
+  status_note: "Formal 5+5 interleaved runs and CI run ids are TEST-RUNNER's (design 11.2); numbers above are an implementer smoke only."
 status: open
