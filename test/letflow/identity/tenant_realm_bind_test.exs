@@ -8,7 +8,11 @@ defmodule Letflow.Identity.TenantRealmBindTest do
   is the fixture tenant's own schema; the platform chain is a second fixture
   tenant's schema. `async: false`: `TenantFixture` flips the sandbox to `:auto`.
 
-  Status: WRITTEN, NOT YET RUN (park of Q-1012; see test/specs/ISS-1030-PR1.md).
+  The concurrency test uses a lock-holder (a raw `SELECT ... FOR UPDATE` in an
+  open transaction) and polls `pg_stat_activity` until BOTH binders are waiting
+  on that lock, so the interleaving is forced and no sleep is involved.
+
+  Status: WRITTEN, NOT YET RUN (see test/specs/ISS-1030-PR1.md).
   """
 
   use Letflow.DataCase, async: false
@@ -179,5 +183,82 @@ defmodule Letflow.Identity.TenantRealmBindTest do
       |> Enum.sort()
 
     assert callers == ["lib/letflow/identity.ex", "lib/letflow/identity/tenant.ex"]
+  end
+
+  test "two concurrent bind_tenant_realm calls with different realms: exactly one wins and the loser gets realm_already_bound",
+       ctx do
+    parent = self()
+    tenant_id = ctx.tenant.tenant_id
+    realm_a = realm()
+    realm_b = realm()
+
+    # The holder owns the tenant row lock until released, so both binders are
+    # guaranteed to be queued on it at the same time.
+    holder =
+      Task.async(fn ->
+        Repo.transaction(fn ->
+          Repo.one!(from(t in Tenant, where: t.id == ^tenant_id, lock: "FOR UPDATE"))
+          send(parent, :row_locked)
+
+          receive do
+            :release -> :released
+          end
+        end)
+      end)
+
+    assert_receive :row_locked, 10_000
+
+    binders =
+      for realm_id <- [realm_a, realm_b] do
+        Task.async(fn -> Identity.bind_tenant_realm(tenant_id, realm_id, opts(ctx)) end)
+      end
+
+    assert wait_for_lock_waiters(2, 10_000),
+           "the two binders never both queued on the tenant row lock"
+
+    send(holder.pid, :release)
+    assert {:ok, :released} = Task.await(holder, 10_000)
+
+    results = Task.await_many(binders, 30_000)
+
+    assert [{:ok, %Tenant{idp_realm_id: winner}}] =
+             Enum.filter(results, &match?({:ok, %Tenant{}}, &1))
+
+    assert winner in [realm_a, realm_b]
+    assert Enum.count(results, &(&1 == {:error, :realm_already_bound})) == 1
+
+    assert stored_realm(tenant_id) == winner
+    assert length(entries(ctx.tenant.schema_name, "tenant.idp_realm.bound")) == 1
+    assert length(entries(ctx.platform.schema_name, "platform.tenant_idp_realm.bound")) == 1
+  end
+
+  # True once `count` backends are blocked on a lock behind a `FOR UPDATE` read
+  # of `tenants`. Polls through the repo (each poll is a round trip; no sleep).
+  defp wait_for_lock_waiters(_count, 0), do: false
+
+  defp wait_for_lock_waiters(count, attempts) do
+    %{rows: [[waiting]]} =
+      Repo.query!(
+        "SELECT count(*) FROM pg_stat_activity " <>
+          "WHERE datname = current_database() AND wait_event_type = 'Lock' " <>
+          "AND query ILIKE '%FOR UPDATE%' AND query ILIKE '%tenants%'",
+        []
+      )
+
+    waiting >= count or wait_for_lock_waiters(count, attempts - 1)
+  end
+
+  test "realm_bind_changeset rejects a value with a trailing newline (the format check must not rely on a prior trim)",
+       ctx do
+    # `$` in a PCRE pattern also matches before a final "\n"; a stored realm
+    # with a newline would never match a token's `iss` realm and would be
+    # unbindable-yet-claimed.
+    refute Tenant.realm_bind_changeset(ctx.tenant.tenant, %{"idp_realm_id" => "realm\n"}).valid?
+    refute Tenant.realm_id_format?("realm\n")
+
+    assert {:error, %Ecto.Changeset{}} =
+             Identity.bind_tenant_realm(ctx.tenant.tenant_id, "realm\n", opts(ctx))
+
+    assert stored_realm(ctx.tenant.tenant_id) == nil
   end
 end

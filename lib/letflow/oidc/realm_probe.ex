@@ -70,7 +70,7 @@ defmodule Letflow.Oidc.RealmProbe.Httpc do
   @behaviour Letflow.Oidc.RealmProbe
 
   # Deliberate self-contained safety layer for the URL path; do not dedupe with Tenant.
-  @realm_regex ~r/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
+  @realm_regex ~r/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\z/
   @max_body_bytes 64 * 1024
   @deadline_ms 3_000
   @connect_timeout_ms 2_000

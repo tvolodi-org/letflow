@@ -72,6 +72,8 @@ defmodule Letflow.Api.PlatformPrefixUniform403Test do
          {:matched_existing_mutating, :post, "/",
           %{"slug" => "uniform-403-created", "display_name" => "Uniform 403"}},
          {:matched_nonexistent, :get, "/" <> @unused_uuid, nil},
+         {:matched_bind_realm, :post, "/" <> @unused_uuid <> "/bind-realm",
+          %{"idp_realm_id" => "iss1030-uniform-403"}},
          {:unmatched_subpath, :get, "/x/y/z/w", nil},
          {:unmatched_bare, :delete, "/", nil}
        ]},

@@ -153,7 +153,7 @@ defmodule Letflow.Identity.Tenant do
     |> check_constraint(:login_disclosure_mode, name: :tenants_login_disclosure_mode_check)
   end
 
-  @realm_id_regex ~r/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
+  @realm_id_regex ~r/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\z/
   @reserved_realm_ids ["master"]
 
   @doc """
