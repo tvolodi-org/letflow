@@ -1,9 +1,11 @@
 /** OnboardingResultPage — ONB-UI-04
  *
- * Shows the final outcome of the onboarding saga.
+ * Shows the outcome of POST /onboarding, which is synchronous: the backend
+ * answers with the onboarding record (+ login / administrator / ignored_fields)
+ * and has no failed or pending state.
  *
  * State restore priority:
- * 1. Router location.state.sagaResult (forward navigation from progress screen)
+ * 1. Router location.state.record (forward navigation from the register page)
  * 2. GET /api/v1/onboarding?hostname=<h> (page-reload restore via URL search param)
  * 3. "Could not restore" fallback (no state, no hostname, or 404)
  *
@@ -20,35 +22,15 @@ import {
   fieldErrorConstraint,
   getOnboardingByHostname,
   OnboardingApiError,
-  type OnboardingFormValues,
-  type OnboardingStatusCompleted,
-  type OnboardingStatusFailed,
-  type OnboardingSagaResult,
+  type OnboardingRecord,
 } from '@/api/onboarding'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 type ViewState =
   | { phase: 'loading' }
-  | { phase: 'completed'; result: OnboardingStatusCompleted; formValues?: OnboardingFormValues }
-  | { phase: 'failed'; result: OnboardingStatusFailed; formValues?: OnboardingFormValues }
+  | { phase: 'completed'; record: OnboardingRecord }
   | { phase: 'restore-failed' }
-
-// ── Helpers ────────────────────────────────────────────────────────────────────
-
-function resolveViewFromSaga(
-  result: OnboardingSagaResult,
-  formValues?: OnboardingFormValues,
-): ViewState {
-  if (result.state === 'completed') {
-    return { phase: 'completed', result, formValues }
-  }
-  if (result.state === 'failed') {
-    return { phase: 'failed', result, formValues }
-  }
-  // pending — should not normally reach result screen; treat as restore-failed
-  return { phase: 'restore-failed' }
-}
 
 // ── Styles ─────────────────────────────────────────────────────────────────────
 
@@ -77,21 +59,18 @@ export default function OnboardingResultPage() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  const locationState = location.state as {
-    sagaResult?: OnboardingSagaResult
-    formValues?: OnboardingFormValues
-  } | null
+  const locationState = location.state as { record?: OnboardingRecord } | null
 
   const [view, setView] = useState<ViewState>(() => {
-    if (locationState?.sagaResult) {
-      return resolveViewFromSaga(locationState.sagaResult, locationState.formValues)
+    if (locationState?.record) {
+      return { phase: 'completed', record: locationState.record }
     }
     return { phase: 'loading' }
   })
 
   useEffect(() => {
     // If we already have a result from router state, skip the fetch
-    if (locationState?.sagaResult) return
+    if (locationState?.record) return
 
     const params = new URLSearchParams(location.search)
     const hostname = params.get('hostname')
@@ -104,18 +83,14 @@ export default function OnboardingResultPage() {
     let cancelled = false
 
     getOnboardingByHostname(hostname)
-      .then((result) => {
+      .then((record) => {
         if (!cancelled) {
-          setView({ phase: 'completed', result })
+          setView({ phase: 'completed', record })
         }
       })
-      .catch((err) => {
+      .catch(() => {
         if (!cancelled) {
-          if (err instanceof OnboardingApiError && err.httpStatus === 404) {
-            setView({ phase: 'restore-failed' })
-          } else {
-            setView({ phase: 'restore-failed' })
-          }
+          setView({ phase: 'restore-failed' })
         }
       })
 
@@ -145,7 +120,7 @@ export default function OnboardingResultPage() {
       <div style={{ padding: '2rem', maxWidth: '520px' }}>
         <h2 style={{ margin: '0 0 1rem 0' }}>Could not restore onboarding state</h2>
         <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
-          The onboarding record for this page could not be retrieved. The saga may have failed, or the URL may be invalid.
+          The onboarding record for this page could not be retrieved. The URL may be invalid.
         </p>
         {/* Navigational CTA styled as a button -- kept as Link (not Button, which
             has no href/anchor semantics) so browser features (open-in-new-tab,
@@ -169,49 +144,14 @@ export default function OnboardingResultPage() {
     )
   }
 
-  if (view.phase === 'completed') {
-    return (
-      <CompletedView
-        result={view.result}
-        fallbackId={onboardingId}
-        onBack={() => navigate('/admin/users')}
-        onResultChange={(next) => setView({ phase: 'completed', result: next, formValues: view.formValues })}
-      />
-    )
-  }
-
-  // phase === 'failed'
-  const failureReason =
-    view.result.error?.trim() || 'Onboarding failed. No additional detail is available.'
-
+  // phase === 'completed'
   return (
-    <div style={{ padding: '2rem', maxWidth: '520px' }}>
-      <div
-        style={{
-          marginBottom: '1.5rem',
-          padding: '.75rem 1rem',
-          borderRadius: 'var(--radius-sm)',
-          border: '1px solid var(--color-error-border)',
-          background: 'var(--color-error-tint)',
-          color: 'var(--color-error-dark)',
-        }}
-      >
-        <strong>Onboarding failed.</strong>
-        <p style={{ margin: '.5rem 0 0 0', fontSize: '.88rem' }}>{failureReason}</p>
-      </div>
-
-      <Button
-        variant="primary"
-        size="md"
-        onClick={() => {
-          navigate('/admin/onboarding/new', {
-            state: view.formValues ? { prefill: view.formValues } : undefined,
-          })
-        }}
-      >
-        Try Again
-      </Button>
-    </div>
+    <CompletedView
+      record={view.record}
+      fallbackId={onboardingId}
+      onBack={() => navigate('/admin/users')}
+      onRecordChange={(next) => setView({ phase: 'completed', record: next })}
+    />
   )
 }
 
@@ -259,21 +199,21 @@ function bindErrorMessage(err: unknown): string {
 }
 
 interface CompletedViewProps {
-  result: OnboardingStatusCompleted
+  record: OnboardingRecord
   fallbackId?: string
   onBack: () => void
-  onResultChange: (next: OnboardingStatusCompleted) => void
+  onRecordChange: (next: OnboardingRecord) => void
 }
 
-function CompletedView({ result, fallbackId, onBack, onResultChange }: CompletedViewProps) {
+function CompletedView({ record, fallbackId, onBack, onRecordChange }: CompletedViewProps) {
   const [realmInput, setRealmInput] = useState('')
   const [bindError, setBindError] = useState<string | null>(null)
   const [binding, setBinding] = useState(false)
 
-  const loginable = result.login?.loginable === true
-  const admin = result.administrator
-  const ignored = result.ignored_fields ?? []
-  const onboardingId = result.onboarding_id || fallbackId || ''
+  const loginable = record.login?.loginable === true
+  const admin = record.administrator
+  const ignored = record.ignored_fields ?? []
+  const onboardingId = record.id || fallbackId || ''
 
   async function handleBind() {
     const realm = realmInput.trim()
@@ -288,10 +228,10 @@ function CompletedView({ result, fallbackId, onBack, onResultChange }: Completed
       setRealmInput('')
       // The bind response carries no administrator / ignored_fields; keep the
       // ones from the create response so the notices stay visible.
-      onResultChange({
+      onRecordChange({
         ...next,
-        ...(result.administrator ? { administrator: result.administrator } : {}),
-        ...(result.ignored_fields ? { ignored_fields: result.ignored_fields } : {}),
+        ...(record.administrator ? { administrator: record.administrator } : {}),
+        ...(record.ignored_fields ? { ignored_fields: record.ignored_fields } : {}),
       })
     } catch (err) {
       setBindError(bindErrorMessage(err))
@@ -324,13 +264,13 @@ function CompletedView({ result, fallbackId, onBack, onResultChange }: Completed
           <tr>
             <td style={tdLabelStyle}>Slug</td>
             <td style={tdValueStyle}>
-              <code>{result.slug ?? fallbackId}</code>
+              <code>{record.slug ?? fallbackId}</code>
             </td>
           </tr>
-          {result.hostname && (
+          {record.hostname && (
             <tr>
               <td style={tdLabelStyle}>Hostname</td>
-              <td style={tdValueStyle}>{result.hostname}</td>
+              <td style={tdValueStyle}>{record.hostname}</td>
             </tr>
           )}
           <tr>
@@ -338,31 +278,21 @@ function CompletedView({ result, fallbackId, onBack, onResultChange }: Completed
             <td style={tdValueStyle}>
               {loginable ? (
                 <>
-                  Realm bound: <code>{result.login?.idp_realm_id}</code>
+                  Realm bound: <code>{record.login?.idp_realm_id}</code>
                 </>
               ) : (
                 'Not yet loginable'
               )}
             </td>
           </tr>
-          {result.oidc_authority && (
-            <tr>
-              <td style={tdLabelStyle}>OIDC Authority</td>
-              <td style={tdValueStyle}>
-                <a href={result.oidc_authority} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--interactive-primary)' }}>
-                  {result.oidc_authority}
-                </a>
-              </td>
-            </tr>
-          )}
         </tbody>
       </table>
 
-      {!loginable && result.login && result.login.next_steps.length > 0 && (
+      {!loginable && record.login && record.login.next_steps.length > 0 && (
         <section aria-label="Login next steps" style={{ marginBottom: '1.5rem' }}>
           <h3 style={sectionTitleStyle}>Next steps to make this tenant loginable</h3>
           <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '.87rem' }}>
-            {result.login.next_steps.map((step, i) => (
+            {record.login.next_steps.map((step, i) => (
               <li key={i}>{step}</li>
             ))}
           </ul>
@@ -455,12 +385,12 @@ function CompletedView({ result, fallbackId, onBack, onResultChange }: Completed
         </section>
       )}
 
-      {loginable && result.slug && (
+      {loginable && record.slug && (
         // Navigational CTA to a per-tenant hostname outside the SPA's own
         // router -- kept as a plain <a>, not Button, for the same reason
         // as "Start over" above.
         <a
-          href={`${window.location.origin}/?realm=${encodeURIComponent(result.slug)}`}
+          href={`${window.location.origin}/?realm=${encodeURIComponent(record.slug)}`}
           style={{
             display: 'inline-block',
             marginBottom: '1rem',
@@ -473,7 +403,7 @@ function CompletedView({ result, fallbackId, onBack, onResultChange }: Completed
             fontSize: '.9rem',
           }}
         >
-          Open {result.slug} workspace
+          Open {record.slug} workspace
         </a>
       )}
 

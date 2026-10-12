@@ -2,7 +2,7 @@
  *
  * Collects onboarding inputs for a new tenant and submits to POST /api/v1/onboarding.
  * Role guard: redirects to /instances if session does not include PLATFORM_ADMIN.
- * On success navigates to OnboardingProgressPage with form values in router state.
+ * On success navigates to OnboardingResultPage with the created record in router state.
  */
 
 import { useState, useEffect, useRef } from 'react'
@@ -337,8 +337,8 @@ export default function RegisterTenantPage() {
       // The backend is synchronous: the 201 already carries the final record,
       // so go straight to the result page (no progress polling).
       navigate(
-        `/admin/onboarding/${created.onboarding_id}/result?hostname=${encodeURIComponent(formValues.hostname)}`,
-        { state: { sagaResult: created.result, formValues } },
+        `/admin/onboarding/${created.id}/result?hostname=${encodeURIComponent(formValues.hostname)}`,
+        { state: { record: created, formValues } },
       )
     } catch (err) {
       if (err instanceof OnboardingApiError) {

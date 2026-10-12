@@ -54,7 +54,9 @@ export interface OnboardingSubmitRequest {
 // lib/letflow/routers/onboarding.ex: POST /onboarding answers 201 with the
 // onboarding record plus `login`, `administrator`, `ignored_fields`;
 // GET /onboarding/:id, GET /onboarding?hostname= and POST /:id/bind-realm
-// answer the record plus `login`.
+// answer the record plus `login`. These types mirror the wire; pages consume
+// them directly (no adapter). The backend never emits a saga `state`, a
+// `failed` outcome or an `onboarding_id` key -- the identifier is `id`.
 
 export interface OnboardingLogin {
   loginable: boolean
@@ -89,48 +91,6 @@ export interface OnboardingRecord {
   ignored_fields?: string[]
 }
 
-export type OnboardingState = 'pending' | 'completed' | 'failed'
-
-export interface OnboardingStatusPending {
-  state: 'pending'
-}
-
-export interface OnboardingStatusCompleted {
-  state: 'completed'
-  onboarding_id: string
-  tenant_id: string
-  hostname: string
-  slug?: string
-  created?: string
-  // The synchronous backend does not provision a client or an admin user and
-  // does not return these (ISS-1030, OQ-10); they stay for the saga shape.
-  idp_realm_id?: string | null
-  client_id?: string
-  admin_user_id?: string
-  oidc_authority?: string
-  discovery_url?: string
-  // ISS-1030 additions, taken from the backend response.
-  login?: OnboardingLogin
-  administrator?: OnboardingAdministrator
-  ignored_fields?: string[]
-}
-
-export interface OnboardingStatusFailed {
-  state: 'failed'
-  error: string
-}
-
-export type OnboardingSagaResult =
-  | OnboardingStatusPending
-  | OnboardingStatusCompleted
-  | OnboardingStatusFailed
-
-export interface OnboardingCreateResponse {
-  onboarding_id: string
-  /** The created record, adapted to the saga-shaped "completed" result. */
-  result: OnboardingStatusCompleted
-}
-
 // ── Error class ────────────────────────────────────────────────────────────────
 
 export class OnboardingApiError extends Error {
@@ -144,37 +104,6 @@ export class OnboardingApiError extends Error {
 }
 
 // ── API helpers ────────────────────────────────────────────────────────────────
-
-/**
- * Thin adapter (design OQ-10): the backend answers synchronously with a plain
- * record ({id, tenant_id, slug, hostname, created_at, login, ...}); the pages
- * are written against the saga shape ({state, onboarding_id, ...}). This maps
- * the record to the saga-shaped "completed" result, limited to what the pages
- * display. It does not invent values the server did not send.
- */
-export function adaptRecord(raw: OnboardingRecord | OnboardingSagaResult): OnboardingSagaResult {
-  if ('state' in raw) return raw
-  return {
-    state: 'completed',
-    onboarding_id: raw.id,
-    tenant_id: raw.tenant_id,
-    hostname: raw.hostname,
-    slug: raw.slug,
-    created: raw.created_at,
-    idp_realm_id: raw.login?.idp_realm_id ?? null,
-    ...(raw.login ? { login: raw.login } : {}),
-    ...(raw.administrator ? { administrator: raw.administrator } : {}),
-    ...(raw.ignored_fields ? { ignored_fields: raw.ignored_fields } : {}),
-  }
-}
-
-function adaptCompleted(raw: OnboardingRecord | OnboardingSagaResult): OnboardingStatusCompleted {
-  const adapted = adaptRecord(raw)
-  if (adapted.state !== 'completed') {
-    throw new OnboardingApiError(502, { error: 'unexpected_onboarding_state' })
-  }
-  return adapted
-}
 
 /** Convert an ApiError into OnboardingApiError for caller taxonomy handling. */
 function toOnboardingApiError(err: unknown): OnboardingApiError {
@@ -226,7 +155,7 @@ export function fieldErrorConstraint(
 export async function submitOnboarding(
   formValues: OnboardingFormValues,
   idempotencyKey: string,
-): Promise<OnboardingCreateResponse> {
+): Promise<OnboardingRecord> {
   const adminEmail = nonBlank(formValues.admin_email)
   const adminUsername = nonBlank(formValues.admin_username)
   const adminDisplayName = nonBlank(formValues.admin_display_name)
@@ -251,40 +180,29 @@ export async function submitOnboarding(
       : {}),
   }
 
-  const record = await client
+  return client
     .postWithHeaders<OnboardingRecord>('/api/v1/onboarding', body, {
       'Idempotency-Key': idempotencyKey,
     })
     .catch((err: unknown) => {
       throw toOnboardingApiError(err)
     })
-
-  const result = adaptCompleted(record)
-  return { onboarding_id: result.onboarding_id, result }
 }
 
 /**
  * GET /api/v1/onboarding/:onboardingId
- * Returns the current record (adapted to the saga shape).
- * Throws on non-2xx responses.
+ * Returns the onboarding record (with `login`). Throws on non-2xx responses.
  */
-export async function getOnboardingStatus(onboardingId: string): Promise<OnboardingSagaResult> {
-  const raw = await client.get<OnboardingRecord | OnboardingSagaResult>(
-    `/api/v1/onboarding/${encodeURIComponent(onboardingId)}`,
-  )
-  return adaptRecord(raw)
+export async function getOnboarding(onboardingId: string): Promise<OnboardingRecord> {
+  return client.get<OnboardingRecord>(`/api/v1/onboarding/${encodeURIComponent(onboardingId)}`)
 }
 
 /**
  * GET /api/v1/onboarding?hostname=<hostname>
- * Returns the record for the given hostname (adapted to the saga shape).
- * Throws on non-2xx responses (404 means not found).
+ * Returns the record for the given hostname. Throws on non-2xx (404 = not found).
  */
-export async function getOnboardingByHostname(hostname: string): Promise<OnboardingStatusCompleted> {
-  const raw = await client.get<OnboardingRecord | OnboardingSagaResult>('/api/v1/onboarding', {
-    hostname,
-  })
-  return adaptCompleted(raw)
+export async function getOnboardingByHostname(hostname: string): Promise<OnboardingRecord> {
+  return client.get<OnboardingRecord>('/api/v1/onboarding', { hostname })
 }
 
 /**
@@ -295,8 +213,8 @@ export async function getOnboardingByHostname(hostname: string): Promise<Onboard
 export async function bindRealm(
   onboardingId: string,
   idpRealmId: string,
-): Promise<OnboardingStatusCompleted> {
-  const raw = await client
+): Promise<OnboardingRecord> {
+  return client
     .post<OnboardingRecord>(
       `/api/v1/onboarding/${encodeURIComponent(onboardingId)}/bind-realm`,
       { idp_realm_id: idpRealmId.trim() },
@@ -304,5 +222,4 @@ export async function bindRealm(
     .catch((err: unknown) => {
       throw toOnboardingApiError(err)
     })
-  return adaptCompleted(raw)
 }

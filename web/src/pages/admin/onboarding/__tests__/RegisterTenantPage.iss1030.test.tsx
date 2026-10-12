@@ -13,7 +13,6 @@ import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
 import { render, screen, cleanup, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import React from 'react'
 expect.extend(jestDomMatchers)
 
 vi.mock('@/auth/AuthContext', () => ({
@@ -34,13 +33,13 @@ vi.mock('@/api/client', () => ({
 
 import RegisterTenantPage from '../RegisterTenantPage'
 import OnboardingResultPage from '../OnboardingResultPage'
-import type { OnboardingStatusCompleted } from '@/api/onboarding'
+import type { OnboardingRecord } from '@/api/onboarding'
 
 const RECORD = {
   id: 'ob-1',
   tenant_id: 't-1',
-  slug: 'acme',
-  hostname: 'acme.example.com',
+  slug: 'newco',
+  hostname: 'newco.example.com',
   created_at: '2026-10-08T00:00:00Z',
   login: {
     loginable: false,
@@ -64,9 +63,9 @@ function renderRegister() {
 }
 
 async function fillRequired(user: ReturnType<typeof userEvent.setup>) {
-  await user.type(screen.getByLabelText('Slug'), 'acme')
-  await user.type(screen.getByLabelText('Display Name'), 'Acme Corp')
-  await user.type(screen.getByLabelText('Hostname'), 'acme.example.com')
+  await user.type(screen.getByLabelText('Slug'), 'newco')
+  await user.type(screen.getByLabelText('Display Name'), 'Newco Corp')
+  await user.type(screen.getByLabelText('Hostname'), 'newco.example.com')
   await user.type(screen.getByPlaceholderText('https://app.example.com/callback'), 'https://a.example.com/cb')
 }
 
@@ -105,16 +104,16 @@ describe('RegisterTenantPage ISS-1030', () => {
   it('the optional realm field is sent when filled', async () => {
     postWithHeaders.mockResolvedValue({
       ...RECORD,
-      login: { loginable: true, status: 'realm_bound', idp_realm_id: 'acme-realm', next_steps: [] },
+      login: { loginable: true, status: 'realm_bound', idp_realm_id: 'newco-realm', next_steps: [] },
     })
     const user = userEvent.setup()
     renderRegister()
     await fillRequired(user)
-    await user.type(screen.getByLabelText(/Identity Realm ID/), '  acme-realm  ')
+    await user.type(screen.getByLabelText(/Identity Realm ID/), '  newco-realm  ')
     await submit(user)
     await waitFor(() => expect(postWithHeaders).toHaveBeenCalledTimes(1))
     const body = postWithHeaders.mock.calls[0]![1] as Record<string, unknown>
-    expect(body['idp_realm_id']).toBe('acme-realm')
+    expect(body['idp_realm_id']).toBe('newco-realm')
     expect(await screen.findByText('Tenant created and ready to log into.')).toBeInTheDocument()
   })
 
@@ -140,15 +139,15 @@ describe('RegisterTenantPage ISS-1030', () => {
     for (const key of ['admin_email', 'admin_username', 'admin_display_name', 'idp_realm_id']) {
       expect(Object.prototype.hasOwnProperty.call(body, key)).toBe(false)
     }
-    expect(body['slug']).toBe('acme')
+    expect(body['slug']).toBe('newco')
   })
 })
 
 describe('OnboardingResultPage ISS-1030', () => {
-  function renderResult(result: OnboardingStatusCompleted) {
+  function renderResult(record: OnboardingRecord) {
     return render(
       <MemoryRouter
-        initialEntries={[{ pathname: '/admin/onboarding/ob-1/result', state: { sagaResult: result } }]}
+        initialEntries={[{ pathname: '/admin/onboarding/ob-1/result', state: { record } }]}
       >
         <Routes>
           <Route path="/admin/onboarding/:onboardingId/result" element={<OnboardingResultPage />} />
@@ -157,13 +156,13 @@ describe('OnboardingResultPage ISS-1030', () => {
     )
   }
 
-  const BASE: OnboardingStatusCompleted = {
-    state: 'completed',
-    onboarding_id: 'ob-1',
+  const BASE: OnboardingRecord = {
+    id: 'ob-1',
     tenant_id: 't-1',
-    hostname: 'acme.example.com',
-    slug: 'acme',
-    login: RECORD.login as OnboardingStatusCompleted['login'],
+    hostname: 'newco.example.com',
+    slug: 'newco',
+    created_at: '2026-10-08T00:00:00Z',
+    login: RECORD.login as OnboardingRecord['login'],
   }
 
   it('administrator values and ignored field names are rendered as text, never as HTML', () => {
@@ -204,15 +203,15 @@ describe('OnboardingResultPage ISS-1030', () => {
   it('bind-realm posts the trimmed realm and switches the view to loginable', async () => {
     post.mockResolvedValue({
       ...RECORD,
-      login: { loginable: true, status: 'realm_bound', idp_realm_id: 'acme-realm', next_steps: [] },
+      login: { loginable: true, status: 'realm_bound', idp_realm_id: 'newco-realm', next_steps: [] },
     })
     const user = userEvent.setup()
     renderResult({ ...BASE, ignored_fields: ['client_config'] })
-    await user.type(screen.getByLabelText('Realm ID'), ' acme-realm ')
+    await user.type(screen.getByLabelText('Realm ID'), ' newco-realm ')
     await user.click(screen.getByRole('button', { name: 'Bind realm' }))
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
     expect(post.mock.calls[0]![0]).toBe('/api/v1/onboarding/ob-1/bind-realm')
-    expect(post.mock.calls[0]![1]).toEqual({ idp_realm_id: 'acme-realm' })
+    expect(post.mock.calls[0]![1]).toEqual({ idp_realm_id: 'newco-realm' })
     expect(await screen.findByText('Tenant created and ready to log into.')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Bind realm' })).toBeNull()
     // notices from the create response survive the bind
