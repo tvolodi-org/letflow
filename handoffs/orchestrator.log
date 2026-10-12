@@ -2778,3 +2778,5 @@
 2026-10-12T07:30:22Z | DISPATCH | WF-03 | WF03-ISS1042-20261012 | ORCH → TEST-RUNNER | Step 04r before/after 5+5 runs + scoped gates
 2026-10-12T08:32:49Z | PASS | WF-03 | WF03-ISS1042-20261012 | TEST-RUNNER → ORCH | Step 04r PASS (97961c284; before 367.9s mean vs after 256.2s mean over 5+5 interleaved runs, 1.44x; scoped gates 161 passed, compile/format clean)
 2026-10-12T08:32:49Z | DISPATCH | WF-03 | WF03-ISS1042-20261012 | ORCH → RELEASE-VALIDATOR | Step 05v pre-close independent verification
+2026-10-12T08:52:16Z | PASS | WF-03 | WF03-ISS1042-20261012 | RELEASE-VALIDATOR → ORCH | Step 05v PASS (own samples before 399.5s/542 vs after 286.1s/527, -28.4% wall, -26% per test; pool test 57 passed; no CI/priv change)
+2026-10-12T08:52:16Z | DISPATCH | WF-03 | WF03-ISS1042-20261012 | ORCH → DOC-UPDATER | Step 06 docs + issue close record
