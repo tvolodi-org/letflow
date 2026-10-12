@@ -1,0 +1,37 @@
+{
+  "handoff_id": "c4a7d1e0-1053-4a11-8c20-000000000003",
+  "run_id": "WF03-ISS1053SHARDFLAKE-20261012",
+  "workflow_id": "WF-03",
+  "step": "03",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF03-ISS1053SHARDFLAKE-20261012/step-03-elixir-dev.json",
+  "created_at": "2026-10-12T15:10:00Z",
+  "started_at": null,
+  "completed_at": null,
+  "status": "PENDING",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1054": "MEDIUM, R1 from ISS-1042 follow_ups (SECURITY-REVIEWER F2), supervisor-assigned 2026-10-12. Queue Q-1054 / GH #2400, issue_ref ISS-1054. See task.description."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "scripts/test_parallel.sh",
+      "docs/issues/ISS-1062.yaml",
+      "handoffs/WF03-ISS1053SHARDFLAKE-20261012/step-01-issue-fixer.json",
+      "handoffs/WF03-ISS1053SHARDFLAKE-20261012/step-02b-code-design-validator.json"
+    ],
+    "owned_modules": [
+      "test/support/tenant_fixture.ex"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1054DBGUARD-20261012"
+  },
+  "task": {
+    "description": "WF-03 Step 3 implement Q-1053 / GH #2399 (local record docs/issues/ISS-1062.yaml) as ELIXIR-DEV (.claude/agents/elixir-dev.md; scripts/test_parallel.sh and test/scripts/ are in scope). The design is in handoffs/WF03-ISS1053SHARDFLAKE-20261012/step-01-issue-fixer.json (root causes RC-A..RC-D, fixes S1..S3, new tests, capture, stress protocol, mutants). The CODE-DESIGN-VALIDATOR returned FAIL with 4 MAJOR + 4 MINOR mechanical corrections in handoffs/WF03-ISS1053SHARDFLAKE-20261012/step-02b-code-design-validator.json (read its result, especially findings F1..F8 and section (8) \"ELIXIR-DEV order\" with the mandatory local verification list). The corrections F1..F8 are BINDING and REPLACE the conflicting parts of the step-01 design (ORCH rework decision: the fixes are mechanical and experimentally verified by the validator, so they ride with the implementation and are re-checked by REVIEWER and RELEASE-VALIDATOR). Summary of the binding corrections (the validator handoff is authoritative where it is more detailed):\nF1: _tp_main_pid=${BASHPID:-$$} (not $$); fix the stale \">40 lines\" cap in test/scripts/test_parallel_tmpdir_cleanup_test.sh; hand-run test_parallel_tmpdir_cleanup_test.sh, test_parallel_create_burst_test.sh and test_parallel_pool_sizing_test.sh against the fixed script and quote the output.\nF2: T2a (MAX_CONCURRENT_CREATES=1) and T2b (>=N), each with an exit-3 variant whose failing partition lies inside the shard slice; mutants MU-C1a and MU-C1b (each wait site fixed alone must be caught).\nF3: T3 asserts 4/4 reported, no \"No such file\", no \"preserving\"; no assertion that the nested dir still holds logs after a clean exit; TEST_PARALLEL_KEEP_LOGS stays unset in the nested runner.\nF4: orphan \"staggered\" case: require count >= 2 first, then poll down to 1, record the last value; MU-O1 must fail it.\nF5: T1 uses a gate file plus a bounded liveness loop, no fixed 0.4 s sleep.\nF6: the wait -n -p fallback is poll-only after an empty variable (no repeated wait -n), in one shared reap_one_create function used by both sites; correct the set -e/pipefail wording (the script uses only set -u and set -m).\nF7: the diag premise is one rule: the DIAG tail contains the final marker line; no sentinel; scale bounds per attempt.\nF8: exact S2 code shape from the design (liveness sampled into a local first, then the ready-file test, error only if not ready and sampled dead); do not export _tp_main_pid.\n\nDeliver: the script fixes S1..S3, new test/scripts/test_parallel_race_regression_test.exs (T1, T2a, T2b, T3 + failure_context capture helper shared by the family tests), the diag and orphan and shard test changes with failure-time log capture (tmp-tree listing and partition/create log contents appended to assertion failures), docs/anti-patterns.md entry only if a real new lesson (e.g. \"an EXIT trap is inherited by background subshells: guard on BASHPID\"), docs paragraph if scripts/test_parallel.sh header documents behaviour. Do not weaken any existing assertion; no longer sleeps.\n\nVERIFY with real output: (a) fail-first: run the new regression file against the UNMODIFIED script (git stash or checkout of the script from origin/main) and quote the failures T1/T2a/T2b/T3; (b) with fixes: all test/scripts/test_parallel_*_test.exs green; the three hand-run .sh harnesses green; (c) mutants MU-A1, MU-A2, MU-B1, MU-B2, MU-C1a, MU-C1b, MU-C2, MU-D1, MU-O1, MU-F each applied alone, the named test fails, restored (never commit a mutant), quote the table; (d) stress: five consecutive loaded runs (4 busy loops) of the touched test files under the mutex, plus a script-level soak of at least 300 iterations of the RC-A scenario (container or host bash; quote counts); (e) bash -n scripts/test_parallel.sh, shellcheck if present; (f) mix format --check-formatted, MIX_ENV=test mix letflow.check.static, MIX_ENV=test mix letflow.check_async_sandbox_reachability, mix letflow.lint_handoffs; (g) the end-to-end shard runner once through the real script with a small slice (the validator's section 8 gives the exact command; one full `mix letflow.check.test` only if the validator's list demands it and the mutex wait is acceptable, else a justified smaller slice and say so).\n\nMACHINE RULE: ONE BEAM at a time machine-wide, one mutex acquisition per mix invocation (tests here use stub mix and no DB unless a test needs it; if a throwaway postgres is needed: docker run -d --rm --name pg1053 -e POSTGRES_USER=letflow -e POSTGRES_PASSWORD=letflow -e POSTGRES_DB=letflow_dev -p 5499:5432 postgres:16 -c max_connections=200; remove afterwards): L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2>/dev/null; do sleep 20; done; trap 'rmdir \"$L\" 2>/dev/null' EXIT; cd /c/Users/tvolo/dev/ai-dala/letflow && LETFLOW_DB_PORT=5499 MIX_ENV=test <ONE mix invocation> 2>&1. Foreground/polling only; no Monitors. Pre-push: the scripts change will make the backend gate run on this PR (scripts/*.sh is now in the path filter), so be thorough.\n\nCommit (pull --rebase first; message references [Q-1053 / GH #2399 / ISS-1062], ends: Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>), push to feature/WF03-ISS1053SHARDFLAKE-20261012 with bounded retry. Result into this handoff (COMPLETED, PASS/FAIL, no BOM, LF, artifacts_out under result, no self reference). Reply: diff summary, fail-first output, mutant table, stress counts, gate outputs. Do NOT open a PR, never merge.\n"
+  }
+}
