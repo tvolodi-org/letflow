@@ -16,8 +16,8 @@ description: >
   Runtime fact (letflow-3 code reading, restated from code by the implementer in the run
   report): escalation_role grants no eligibility at runtime; the reroute closes the gap.
 resolution: >
-  In progress: letflow-3 claimed Q-1048 and is implementing. Tracked as REQ-467.
+  Done: implemented in PR #2398, merged as 3eaf1515. Definition v1.15. REQ-467 status done.
 queue_ref: Q-1048
 github_ref: GH-2390
-status: in_progress
+status: done  # merged to main as 3eaf1515 via PR #2398; Q-1048 done in the queue
 requirement: REQ-467

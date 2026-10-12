@@ -1,0 +1,26 @@
+id: ISS-1051
+title: "Meridian loan origination: escalate a timed-out L1 to a CRO node (Q-1047 part 1) and make disburse-loan and the loan-ops-lead escalation distinct from the five assessment nodes (Q-1050 part 2A), one version (follow-up to REQ-467)"
+discovered_by: letflow-2 (BA/UAT lane), filed from the decisions on ISS-1047 and ISS-1050
+discovered_in_run: "Q-1047 / Q-1050 decisions, 2026-10-12"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: MAJOR
+owner: "ELIXIR-DEV (definition, seed scripts, engine tests); SECURITY-REVIEWER hard gate on the implementation PR"
+scope: definition
+description: >
+  One file, one version bump, one re-seed, one SECURITY-REVIEWER gate. Part 1 (ISS-1047, option b): a
+  new node escalate-l1-approval-to-cro (role-cro) replaces the target of fallback-l1-approval; its
+  timeout goes to decline-application, never to l2-approval; ISS-1001's acceptance is revised. Part
+  2A (ISS-1050): disburse-loan and the loan-ops-lead escalation node also name credit-memo-review,
+  credit-memo-escalation-review, risk-assessment, risk-assessment-escalation-review and
+  kyc-manual-review. Verified on main at v1.15: assessment roles are role-credit-manager,
+  role-credit-director (credit-memo-escalation-review), role-risk-manager, role-cro
+  (risk-assessment-escalation-review) and role-compliance-officer. Coordination: Q-1049 / GH #2391
+  (simulation resync) also edits test/fixtures/simulation/meridian/process_claim_intake.yaml.
+  Split only if too big, and then Part 2A first.
+resolution: >
+  Open. CLAIM GATE: claim only after the Q-1048 PR (REQ-467) merges, which it has, on 3eaf1515. The queue
+  holds this item by its depends_on edge (blocked_by Q-1048) until Q-1048 is done.
+queue_ref: Q-1051
+github_ref: GH-2395
+status: open
+depends_on: ISS-1048

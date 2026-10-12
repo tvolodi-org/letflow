@@ -1,0 +1,23 @@
+id: ISS-1052
+title: "BA question (low rank): can the assessor of an escalated review also approve the same loan (credit director at credit-memo-escalation-review and l2-approval; CRO at risk-assessment-escalation-review and the new L1 escalation)?"
+discovered_by: letflow-9a (advisory design session), relayed by the supervisor; filed by letflow-2 (BA lane)
+discovered_in_run: "Q-1047 / Q-1050 decisions, 2026-10-12"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: MINOR
+owner: "BA-<VERTICAL> (meridian) decides, with letflow-9a; no implementation under this record"
+scope: business-rule
+description: >
+  An assessor and an approver can be the same person on one loan. Verified on main (v1.15):
+  credit-memo-escalation-review routes to role-credit-director, the same role as l2-approval. On a
+  credit-memo timeout, the credit director records credit_decision in credit-memo-escalation-review
+  and may then approve at l2-approval. The same pattern is possible for the CRO between
+  risk-assessment-escalation-review (role-cro) and the new L1 escalation node
+  (escalate-l1-approval-to-cro, Q-1051). A second independent approver always remains in the chain.
+  Naming these pairs in distinct_from would create same-role pairs and reopen the shipped-definition
+  guard question (pair_failures == []), so it is deliberately not folded into ISS-1050 or ISS-1051.
+resolution: >
+  Open. Question for the BA: is the assessor-then-approver pattern acceptable as it stands, given the
+  second independent approver? If not, which rule applies, and does it require a guard change?
+queue_ref: Q-1052
+github_ref: GH-2396
+status: open

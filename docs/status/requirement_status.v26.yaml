@@ -1040,3 +1040,24 @@ history:
       letflow.lint_handoffs, because the mkdir mutex at
       C:\Users\tvolo\AppData\Local\Temp\claude\mixlock was held by another process
       (mkdir failed with File exists; not waited for, not removed).
+
+  - req: REQ-467
+    event: done
+    agent: DOC-UPDATER
+    at: "2026-10-12T09:05:53Z"
+    note: >
+      Status flipped from in_progress to done. Implementation in PR #2398 (merged
+      as 3eaf1515; queue Q-1048 / GH #2390, ISS-1048): definition
+      test/fixtures/qa/meridian_loan_origination_process_definition.json at v1.15,
+      escalate-disburse-loan-to-credit-director renamed to
+      escalate-disburse-loan-to-loan-ops-lead, routed to role-loan-ops-lead, with
+      distinct_from on the six approval nodes. Persona actor-meridian-hannah
+      (role-loan-ops-lead only) added to test/fixtures/uat/actors.yaml and
+      scripts/seed_meridian_persona_actors.sh. Trace tests in
+      test/letflow/engine/q1048_meridian_loan_ops_lead_escalation_test.exs cover
+      the committee, L1, escalate-L2 and fail-closed paths and the role barrier.
+      SECURITY-REVIEWER verdict PASS_WITH_FINDINGS (explicit on ACs 2, 5, 6); the
+      findings are tracked as Q-1050 / GH #2394 (closed as decided) and Q-1051 /
+      GH #2395 (follow-up, blocked by Q-1048). Written by letflow-2 (BA lane) under
+      the DOC-UPDATER agent id, as in earlier events; lands in the docs bundle branch
+      docs/bundle-req467-req465-iss1047-1052-runbook-20261012, not yet pushed.

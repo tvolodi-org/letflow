@@ -1,0 +1,29 @@
+id: ISS-1050
+title: "BA question (Q-1048 / REQ-467): should the loan-ops escalation and disburse-loan also be distinct from the assessment nodes? And how do in-flight v1.14 loans roll out to v1.15 (migrate or drain)?"
+discovered_by: letflow-2 (BA/UAT lane), raised by SECURITY-REVIEWER on Q-1048 (PASS_WITH_FINDINGS, reviewed head 46e98dd5)
+discovered_in_run: "Q-1048 / REQ-467 security review, 2026-10-12"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: MAJOR
+owner: "BA-<VERTICAL> (meridian) decides, with letflow-9a"
+scope: business-rule
+description: >
+  (A) The six-node distinct_from set on the loan-ops escalation node and on disburse-loan covered
+  the approval nodes only. Assessment nodes that feed the payment decision were not in it, so a
+  loan-ops lead who completed one could still release the payment. (B) Loan instances started on
+  definition v1.14 keep the old escalation until they end, so a rollout to v1.15 needs a decision
+  on migrate versus drain. QA only today; no real payments.
+resolution: >
+  DECIDED 2026-10-12 by the meridian BA, from letflow-9a's answer. Part A: YES, five assessment nodes
+  (credit-memo-review, credit-memo-escalation-review, risk-assessment, risk-assessment-escalation-review,
+  kyc-manual-review) are named by disburse-loan and by the loan-ops-lead escalation node. The REQ-465
+  rule is not widened; this is maker-checker. Part B: DRAIN, no mid-flight migration. Instances stay on
+  their start version; rewiring a live case is itself a separation-of-duties risk. Production: no loan
+  version with a known gap is activated; QA: activating a new version deprecates the old one. The proviso
+  is verified on main: the loan-ops holder (actor-meridian-marcus) holds only role-loan-ops, and the
+  persona actor-meridian-hannah holds only role-loan-ops-lead. Implementation: Q-1051 / GH #2395
+  (ISS-1051). Recorded on GH #2394, closed as decided, queue released done. The standing rule for
+  future security-fix versions is in docs/runbooks/definition-security-fix-rollout.md.
+queue_ref: Q-1050
+github_ref: GH-2394
+status: closed-decided
+implementation: ISS-1051

@@ -35249,7 +35249,7 @@ requirements:
   - id: REQ-467
     title: "Meridian escalate-disburse-loan: reroute the disbursement escalation to a non-approver role (role-loan-ops-lead), rename the node, and add distinct_from with all six approval nodes (Q-1044 decision option b)"
     owner: ELIXIR-DEV
-    status: in_progress
+    status: done  # implemented in PR #2398 (Q-1048 / GH #2390), definition v1.15; SECURITY-REVIEWER PASS_WITH_FINDINGS, findings tracked as Q-1050 / GH #2394 and Q-1051 / GH #2395
     stage: S3
     impl_order: 1048  # letflow-queue task id, GH#2390 (Q-1048). Follow-up to Q-1044 / GH #2386 (decision-only, closed as decided). Superseded queue ids Q-1046 / GH #2388 (blocked) and Q-1045 / GH #2387 (blocked) carried depends_on [1028], which deadlocks because Q-1028 stays open by design; this id carries depends_on [] and a claim gate instead.
     description: >
