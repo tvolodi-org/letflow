@@ -2804,3 +2804,6 @@
 2026-10-12T10:09:24Z | PASS | WF-03 | WF03-ISS1040-20261012 | ELIXIR-DEV → ORCH | Step 03 PASS (5527a9dbd; test-only; 100/100 stress seeds green under 6 busy loops ~34 min; mutant fails both target tests; ORCH verified diff scope)
 2026-10-12T10:09:24Z | DISPATCH | WF-03 | WF03-ISS1040-20261012 | ORCH → REVIEWER | Step 03d (security gate N/A: test-only)
 2026-10-12T10:09:24Z | DISPATCH | WF-03 | WF03-ISS1040-20261012 | ORCH → TEST-DESIGN-VALIDATOR | Step 04b (parallel)
+2026-10-12T10:16:30Z | PASS | WF-03 | WF03-ISS1040-20261012 | REVIEWER → ORCH | Step 03d PASS (0be8ad176; 2 MINOR no action)
+2026-10-12T10:16:30Z | PASS | WF-03 | WF03-ISS1040-20261012 | TEST-DESIGN-VALIDATOR → ORCH | Step 04b PASS (ec9874060; own mutants M1 async_nolink->Task.async and M2 callers deleted both fail the 2 target tests; spot-check seeds 201-210 10/10)
+2026-10-12T10:16:30Z | DISPATCH | WF-03 | WF03-ISS1040-20261012 | ORCH → RELEASE-VALIDATOR | Step 05v
