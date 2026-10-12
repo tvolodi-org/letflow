@@ -11,7 +11,7 @@ defmodule Letflow.Definitions.Req462ShippedRequiredOutputsAdoptionTest do
 
   Pins:
     * validator status OK: `valid: true`, no violations (check 2, a VIOLATION, included);
-    * REQ-461 check 3 emits NO `decision_key_not_required:` warning for any of the twelve adopted
+    * REQ-461 check 3 emits NO `decision_key_not_required:` warning for any of the thirteen adopted
       node/key pairs, asserted per key and per node id;
     * the adopted set is EXACT per definition (a stray adoption, or a lost one, fails);
     * the remaining check-3 warnings are exactly the measured, deliberately unadopted ones.
@@ -37,9 +37,10 @@ defmodule Letflow.Definitions.Req462ShippedRequiredOutputsAdoptionTest do
     },
     meridian: {
       "meridian_loan_origination_process_definition.json",
-      "1.15",
+      "1.16",
       %{
         "l1-approval" => ["l1_decision"],
+        "escalate-l1-approval-to-cro" => ["l1_decision"],
         "l2-approval" => ["l2_decision"],
         "escalate-l2-approval-to-ceo" => ["l2_decision"],
         "kyc-manual-review" => ["kyc_outcome"]
@@ -65,11 +66,13 @@ defmodule Letflow.Definitions.Req462ShippedRequiredOutputsAdoptionTest do
     }
   }
 
-  # The twelve adopted {definition, node id, key} triples (REQ-462 BUILDS item 1, a..l).
+  # The thirteen adopted {definition, node id, key} triples (REQ-462 BUILDS item 1, a..l, plus the
+  # Q-1051 / GH #2395 L1 CRO escalation node, which declares the same l1_decision as l1-approval).
   @adopted [
     {:swiftroute, "ops-review", "ops_decision"},
     {:swiftroute, "ceo-approval", "ceo_decision"},
     {:meridian, "l1-approval", "l1_decision"},
+    {:meridian, "escalate-l1-approval-to-cro", "l1_decision"},
     {:meridian, "l2-approval", "l2_decision"},
     {:meridian, "escalate-l2-approval-to-ceo", "l2_decision"},
     {:meridian, "kyc-manual-review", "kyc_outcome"},
@@ -251,8 +254,8 @@ defmodule Letflow.Definitions.Req462ShippedRequiredOutputsAdoptionTest do
       end
     end
 
-    test "the twelve adopted triples cover the four definitions exactly (a..l)" do
-      assert length(@adopted) == 12
+    test "the thirteen adopted triples cover the four definitions exactly (a..l, plus Q-1051's L1 CRO escalation)" do
+      assert length(@adopted) == 13
 
       by_definition =
         Enum.group_by(@adopted, &elem(&1, 0), fn {_n, node, key} -> {node, [key]} end)
@@ -313,7 +316,7 @@ defmodule Letflow.Definitions.Req462ShippedRequiredOutputsAdoptionTest do
   # --- (4) versions ----------------------------------------------------------------------------------
 
   describe "versions" do
-    test "swiftroute 1.6, meridian 1.15, vortex release 1.6, vortex deviation 1.7" do
+    test "swiftroute 1.6, meridian 1.16, vortex release 1.6, vortex deviation 1.7" do
       for {name, {_file, version, _adopted}} <- @definitions do
         assert doc!(name)["version"] == version, "#{name} version"
       end

@@ -2,7 +2,7 @@
 # seed_meridian_definition.sh
 #
 # Deploys the two Meridian ProcessDefinitions to a live Letflow QA instance:
-#   1. "Loan Origination" v1.15       (proc-meridian-loan-origination)
+#   1. "Loan Origination" v1.16       (proc-meridian-loan-origination)
 #   2. "Regulatory Compliance Review" v1.10 (proc-meridian-regulatory-compliance-review)
 # Version-aware idempotency per unit (versions compared numerically by
 # `sort -V`, see scripts/lib/seed_service_task_base.sh):
