@@ -1,0 +1,36 @@
+{
+  "handoff_id": "c4a7d1e0-1053-4a11-8c20-000000000004",
+  "run_id": "WF03-ISS1053SHARDFLAKE-20261012",
+  "workflow_id": "WF-03",
+  "step": "04",
+  "from_agent": "ORCH",
+  "to_agent": "REVIEWER",
+  "file": "handoffs/WF03-ISS1053SHARDFLAKE-20261012/step-04-reviewer.json",
+  "created_at": "2026-10-12T15:10:00Z",
+  "started_at": null,
+  "completed_at": null,
+  "status": "PENDING",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1054": "MEDIUM, R1 from ISS-1042 follow_ups (SECURITY-REVIEWER F2), supervisor-assigned 2026-10-12. Queue Q-1054 / GH #2400, issue_ref ISS-1054. See task.description."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "scripts/test_parallel.sh",
+      "docs/issues/ISS-1062.yaml",
+      "handoffs/WF03-ISS1053SHARDFLAKE-20261012/step-03-elixir-dev.json"
+    ],
+    "owned_modules": [
+      "test/support/tenant_fixture.ex"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1054DBGUARD-20261012"
+  },
+  "task": {
+    "description": "WF-03 Step 4 REVIEWER hard gate (.claude/agents/reviewer.md) for Q-1053 / GH #2399 (local record docs/issues/ISS-1062.yaml), branch feature/WF03-ISS1053SHARDFLAKE-20261012, implementation commit 22e9d0e54 (step-03 handoff). Compare with `git diff origin/main...HEAD`. Read-only review; no mix needed (if you want one, use the machine mutex: L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2>/dev/null; do sleep 20; done; trap 'rmdir \"$L\" 2>/dev/null' EXIT; cd /c/Users/tvolo/dev/ai-dala/letflow && MIX_ENV=test <ONE mix invocation>).\n\nContext: the change fixes the test_parallel_* timing-flake family. It modifies scripts/test_parallel.sh (the partition runner EVERY backend CI shard uses: S1 BASHPID guard on the cleanup trap, S2 liveness-before-ready-file order in poll_template_ready_dir, S3 shared reap_one_create fallback for `wait -n -p`), adds test/scripts/test_parallel_race_regression_test.exs and test/support/test_parallel_capture.ex, hardens the diag/orphan/shard tests, raises a stale cap in test_parallel_tmpdir_cleanup_test.sh, adds an anti-patterns entry. Design: step-01 handoff; validator corrections F1..F8 in step-02b handoff (verdict FAIL with mechanical corrections, rework folded into step 03 by ORCH decision: you are the check that every F1..F8 item is really implemented).\n\nCheck: (1) F1..F8 each implemented as specified (list each with file:line); (2) S1..S3 correctness by reading the script: normal exit, TERM/INT, nested runner, cleanup runs once, `set -u`/`set -m`, bash version compatibility of the fallback; (3) no existing assertion weakened in diag/orphan/shard tests (diff each hunk; deadlines bounded; worst-case added wall time); (4) new tests deterministic (no wall-clock windows of their own), async: false, no leaked processes or tmp dirs, follow sibling conventions; (5) scope creep: only the listed files + run bookkeeping; test/support/test_parallel_capture.ex compiled only in test env and not a dependency of lib/; (6) the anti-patterns entry is accurate; (7) decision-record consistency; (8) the known issue recorded in the step-03 handoff (orphan \"EXIT-trap path\" intermittent hang on the Windows git-bash host, also on the unfixed script; kill of the process group) is it real and acceptable/out of scope or does it indicate a defect that CI Linux would hit; classify it; (9) the incident of the truncated script (recovered before commit) cannot be in the diff: verify scripts/test_parallel.sh is intact and byte-sane (bash -n, line count vs origin/main, no CRLF introduced if origin/main is LF). Also note (not a blocker) that the implementer ran test_parallel_create_burst_test.sh outside the machine mutex (it starts a real 8-partition suite and a postgres on 5799); assess whether any lock/container residue remains: `docker ps -a`, any leftover tmp trees (just report).\n\nVerdict PASS/FAIL (BLOCKER/MAJOR/MINOR). Foreground only; no Monitors. Result into your handoff (COMPLETED, result.status, no BOM, LF, artifacts_out under result, no self-reference); pull --rebase, commit, push with bounded retry; message ends: Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>. A sibling gate (RELEASE-VALIDATOR) writes another handoff on this branch concurrently: pull --rebase before push.\n"
+  }
+}
