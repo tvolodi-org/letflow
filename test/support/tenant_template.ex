@@ -275,6 +275,595 @@ defmodule Letflow.Test.TenantTemplate do
   end
 
   # ---------------------------------------------------------------------------
+  # ISS-1042 -- pooled-tenant support (`Letflow.TenantFixture.start_pool!/2`)
+  #
+  # Design: lib/letflow/design/iss1042-pooled-tenant-fixture.md section 2.2 and 4.
+  # This module owns the knowledge of what a clone looks like, so the baseline, the
+  # probe (row presence + definitional digest), the dirty-only reset and the rebuild
+  # live here; the pool worker in `Letflow.TenantFixture.Pool` only orchestrates them.
+  #
+  # Nothing above this block changes behaviour. `clone_tenant_schema!/1` is reused
+  # unchanged by `rebuild_clone_schema!/1`.
+  # ---------------------------------------------------------------------------
+
+  # The two tables that legitimately hold rows in a pristine clone. `do_clone/2`
+  # steps 7-8 copy them from the live template; a reset restores them the same way.
+  @seed_tables ["event_type_registry", "schema_migrations"]
+
+  # Bounds for the reset transaction (design 3.5): a test that died holding a lock
+  # must make the reset time out (-> unprovable -> rebuild), not hang the module.
+  @reset_lock_timeout "3s"
+  @reset_statement_timeout "30s"
+
+  # The definitional digest (design 4.2 item 1). One statement over the catalogs of
+  # ONE schema ($1) returning `{"<class>:<key>", md5(definition text)}` per definition
+  # row. Classes: N schema, T relations (all relkinds), C columns, K constraints,
+  # I indexes, G triggers (user triggers: enabled flag + definition; internal FK RI
+  # triggers: enabled flag only, ISS-1042 M1(b)), F functions, Q sequences (parameters
+  # AND owning column, ISS-1042 M1(a)), P policies, R rules, Y domains/enums/ranges,
+  # X extended statistics, H inheritance / partition bounds.
+  #
+  # The schema's own name is deliberately left in place inside definition text: the
+  # baseline and every later probe read the SAME schema, and a rebuilt slot replaces
+  # its baseline.
+  @definition_sql """
+  WITH ns AS (SELECT oid, nspname FROM pg_namespace WHERE nspname = $1),
+  defs AS (
+    SELECT 'N' AS cls, ns.nspname AS key,
+           concat_ws('|', pg_get_userbyid(n.nspowner), coalesce(n.nspacl::text, '~'),
+                     coalesce(obj_description(n.oid, 'pg_namespace'), '~')) AS def
+    FROM ns JOIN pg_namespace n ON n.oid = ns.oid
+    UNION ALL
+    SELECT 'T', c.relname,
+           concat_ws('|', c.relkind, coalesce(c.reloptions::text, '~'), c.relrowsecurity,
+                     c.relforcerowsecurity, c.relpersistence, pg_get_userbyid(c.relowner),
+                     coalesce(c.relacl::text, '~'), c.reltablespace, c.relispartition,
+                     c.relreplident, c.relam, coalesce(pg_get_partkeydef(c.oid), '~'),
+                     coalesce(obj_description(c.oid, 'pg_class'), '~'))
+    FROM pg_class c JOIN ns ON ns.oid = c.relnamespace
+    UNION ALL
+    SELECT 'C', c.relname || '.' || a.attname,
+           concat_ws('|', a.attnum, format_type(a.atttypid, a.atttypmod), a.attnotnull,
+                     a.attidentity, a.attgenerated, coalesce(a.attstattarget::text, '~'),
+                     a.attcollation, a.attstorage, coalesce(a.attacl::text, '~'),
+                     coalesce(pg_get_expr(d.adbin, d.adrelid), '~'),
+                     coalesce(col_description(c.oid, a.attnum), '~'))
+    FROM pg_attribute a
+    JOIN pg_class c ON c.oid = a.attrelid
+    JOIN ns ON ns.oid = c.relnamespace
+    LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+    WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f') AND a.attnum > 0 AND NOT a.attisdropped
+    UNION ALL
+    SELECT 'K', c.relname || '.' || k.conname,
+           concat_ws('|', k.contype, k.convalidated, k.condeferrable, k.condeferred,
+                     pg_get_constraintdef(k.oid))
+    FROM pg_constraint k
+    JOIN pg_class c ON c.oid = k.conrelid
+    JOIN ns ON ns.oid = c.relnamespace
+    UNION ALL
+    SELECT 'I', ic.relname,
+           concat_ws('|', i.indisvalid, i.indisready, i.indisclustered,
+                     pg_get_indexdef(i.indexrelid))
+    FROM pg_index i
+    JOIN pg_class ic ON ic.oid = i.indexrelid
+    JOIN ns ON ns.oid = ic.relnamespace
+    UNION ALL
+    SELECT 'G', c.relname || '.' || t.tgname,
+           concat_ws('|', t.tgenabled, pg_get_triggerdef(t.oid))
+    FROM pg_trigger t
+    JOIN pg_class c ON c.oid = t.tgrelid
+    JOIN ns ON ns.oid = c.relnamespace
+    WHERE NOT t.tgisinternal
+    UNION ALL
+    SELECT 'G', c.relname || '#internal#' || coalesce(k.conname, t.tgname) || '#' || t.tgtype
+           || '#' || t.tgfoid::regproc::text,
+           concat_ws('|', t.tgenabled, t.tgfoid::regproc::text)
+    FROM pg_trigger t
+    JOIN pg_class c ON c.oid = t.tgrelid
+    JOIN ns ON ns.oid = c.relnamespace
+    LEFT JOIN pg_constraint k ON k.oid = t.tgconstraint
+    WHERE t.tgisinternal
+    UNION ALL
+    SELECT 'F', p.proname || '(' || oidvectortypes(p.proargtypes) || ')',
+           concat_ws('|', pg_get_userbyid(p.proowner), coalesce(p.proacl::text, '~'),
+                     md5(pg_get_functiondef(p.oid)))
+    FROM pg_proc p JOIN ns ON ns.oid = p.pronamespace
+    WHERE p.prokind IN ('f', 'p')
+    UNION ALL
+    SELECT 'Q', c.relname,
+           concat_ws('|', s.seqtypid::regtype, s.seqstart, s.seqincrement, s.seqmax, s.seqmin,
+                     s.seqcache, s.seqcycle,
+                     coalesce((SELECT string_agg(rc.relname || '.' || ra.attname || ':' || d.deptype::text,
+                                                 ',' ORDER BY rc.relname, ra.attname)
+                               FROM pg_depend d
+                               JOIN pg_class rc ON rc.oid = d.refobjid
+                               JOIN pg_attribute ra ON ra.attrelid = d.refobjid AND ra.attnum = d.refobjsubid
+                               WHERE d.classid = 'pg_class'::regclass AND d.objid = s.seqrelid
+                                 AND d.refclassid = 'pg_class'::regclass
+                                 AND d.deptype IN ('a', 'i')), 'NONE'))
+    FROM pg_sequence s
+    JOIN pg_class c ON c.oid = s.seqrelid
+    JOIN ns ON ns.oid = c.relnamespace
+    UNION ALL
+    SELECT 'P', c.relname || '.' || po.polname,
+           concat_ws('|', po.polcmd, po.polpermissive, po.polroles::regrole[]::text,
+                     coalesce(pg_get_expr(po.polqual, po.polrelid), '~'),
+                     coalesce(pg_get_expr(po.polwithcheck, po.polrelid), '~'))
+    FROM pg_policy po
+    JOIN pg_class c ON c.oid = po.polrelid
+    JOIN ns ON ns.oid = c.relnamespace
+    UNION ALL
+    SELECT 'R', c.relname || '.' || r.rulename, pg_get_ruledef(r.oid)
+    FROM pg_rewrite r
+    JOIN pg_class c ON c.oid = r.ev_class
+    JOIN ns ON ns.oid = c.relnamespace
+    UNION ALL
+    SELECT 'Y', ty.typname,
+           concat_ws('|', ty.typtype, format_type(ty.typbasetype, ty.typtypmod), ty.typnotnull,
+                     coalesce(pg_get_expr(ty.typdefaultbin, 0), '~'),
+                     coalesce((SELECT string_agg(e.enumlabel, ',' ORDER BY e.enumsortorder)
+                               FROM pg_enum e WHERE e.enumtypid = ty.oid), '~'),
+                     coalesce((SELECT string_agg(pg_get_constraintdef(k.oid), ',' ORDER BY k.conname)
+                               FROM pg_constraint k WHERE k.contypid = ty.oid), '~'))
+    FROM pg_type ty JOIN ns ON ns.oid = ty.typnamespace
+    WHERE ty.typtype IN ('d', 'e', 'r', 'm')
+    UNION ALL
+    SELECT 'X', se.stxname, pg_get_statisticsobjdef(se.oid)
+    FROM pg_statistic_ext se JOIN ns ON ns.oid = se.stxnamespace
+    UNION ALL
+    SELECT 'H', c.relname,
+           concat_ws('|', pc.relname, coalesce(pg_get_expr(c.relpartbound, c.oid), '~'))
+    FROM pg_inherits h
+    JOIN pg_class c ON c.oid = h.inhrelid
+    JOIN pg_class pc ON pc.oid = h.inhparent
+    JOIN ns ON ns.oid = c.relnamespace
+  )
+  SELECT cls || ':' || key, md5(string_agg(def, chr(10) ORDER BY def)) FROM defs GROUP BY 1 ORDER BY 1
+  """
+
+  @typedoc """
+  What a probe reads from one clone schema. `definition_index` (`"<class>:<key>" => md5`) and the
+  two `*_ms` fields are additive to design 2.2's shape: the index is what lets a drift report name
+  the rows that differ rather than only say "the digest changed".
+  """
+  @type clone_state :: %{
+          tables: [String.t()],
+          dirty_tables: [String.t()],
+          dirty_sequences: [{table :: String.t() | nil, sequence :: String.t()}],
+          seed_digests: %{String.t() => {non_neg_integer(), String.t()}},
+          definition_digest: String.t(),
+          definition_rows: non_neg_integer(),
+          definition_index: %{String.t() => String.t()},
+          digest_ms: non_neg_integer(),
+          probe_ms: non_neg_integer()
+        }
+
+  @typedoc "Captured right after a verified-complete clone; opaque to callers."
+  @opaque clone_baseline :: %{schema_name: String.t(), state: clone_state()}
+
+  @type reset_report :: %{
+          probe_ms: non_neg_integer(),
+          digest_ms: non_neg_integer(),
+          truncated: [String.t()],
+          closure_added: [String.t()],
+          sequences_restarted: [String.t()],
+          seeds_restored: [String.t()],
+          verify_ms: non_neg_integer(),
+          total_ms: non_neg_integer()
+        }
+
+  @typedoc "What differs between a probed state and the baseline (all empty == clean)."
+  @type clone_diff :: %{
+          drift: [String.t()],
+          dirty_tables: [String.t()],
+          dirty_sequences: [{String.t() | nil, String.t()}],
+          seeds_diverged: [String.t()]
+        }
+
+  @doc """
+  Captures the baseline of a freshly cloned (and completeness-asserted) schema: its table
+  set, definitional digest and seed digests. Raises `ArgumentError` if the schema is not
+  pristine (a row in a non-seed table or a called sequence), because a baseline taken from
+  a dirty schema would bless that dirt as clean.
+  """
+  @spec capture_clone_baseline!(schema_name :: String.t()) :: clone_baseline()
+  def capture_clone_baseline!(schema_name) when is_binary(schema_name) do
+    case probe_clone_state(schema_name) do
+      {:ok, %{dirty_tables: [], dirty_sequences: []} = state} ->
+        %{schema_name: schema_name, state: state}
+
+      {:ok, state} ->
+        raise ArgumentError,
+              "cannot capture a baseline of #{schema_name}: not pristine " <>
+                "(dirty_tables=#{inspect(state.dirty_tables)} " <>
+                "dirty_sequences=#{inspect(state.dirty_sequences)})"
+
+      {:error, reason} ->
+        raise ArgumentError,
+              "cannot capture a baseline of #{schema_name}: #{inspect(reason)}"
+    end
+  end
+
+  @doc "The table set (relkind r/p, sorted) recorded in `baseline`."
+  @spec baseline_tables(clone_baseline()) :: [String.t()]
+  def baseline_tables(%{state: %{tables: tables}}), do: tables
+
+  @doc """
+  Reads the current state of one clone schema: row presence of every table, called
+  sequences, seed digests and the definitional digest. Read-only. The one-argument form
+  discovers the table set from the catalog; the two-argument form probes exactly `tables`
+  (the pool passes the baseline's set).
+  """
+  @spec probe_clone_state(schema_name :: String.t()) :: {:ok, clone_state()} | {:error, term()}
+  def probe_clone_state(schema_name) do
+    probe_clone_state(schema_name, discover_tables(schema_name))
+  rescue
+    exception -> {:error, exception}
+  end
+
+  @spec probe_clone_state(schema_name :: String.t(), tables :: [String.t()]) ::
+          {:ok, clone_state()} | {:error, term()}
+  def probe_clone_state(schema_name, tables) when is_list(tables) do
+    with {:ok, index, digest_ms} <- probe_definitions(schema_name),
+         {:ok, data} <- probe_clone_data(schema_name, tables) do
+      {:ok,
+       Map.merge(data, %{
+         tables: Enum.sort(tables),
+         definition_digest: digest_of(index),
+         definition_rows: map_size(index),
+         definition_index: index,
+         digest_ms: digest_ms
+       })}
+    end
+  end
+
+  @doc """
+  The row-level half of a probe only (design 4.2 items 2-4, "probe P"): which non-seed
+  tables hold rows, which sequences have been called (with the table that owns each), and
+  the `{count, md5}` of each seed table. One round trip. Used by the pool's final guard.
+  """
+  @spec probe_clone_data(schema_name :: String.t(), tables :: [String.t()]) ::
+          {:ok,
+           %{
+             dirty_tables: [String.t()],
+             dirty_sequences: [{String.t() | nil, String.t()}],
+             seed_digests: %{String.t() => {non_neg_integer(), String.t()}},
+             probe_ms: non_neg_integer()
+           }}
+          | {:error, term()}
+  def probe_clone_data(schema_name, tables) do
+    started = System.monotonic_time(:millisecond)
+    quoted_schema = quote_ident(schema_name)
+
+    presence =
+      for table <- Enum.sort(tables), table not in @seed_tables do
+        "SELECT 'row', #{quote_literal(table)}, NULL::text, NULL::text " <>
+          "WHERE EXISTS (SELECT 1 FROM #{quoted_schema}.#{quote_ident(table)})"
+      end
+
+    seeds =
+      for table <- @seed_tables, table in tables do
+        "SELECT 'seed', #{quote_literal(table)}, count(*)::text, " <>
+          "md5(coalesce(string_agg(t::text, '|' ORDER BY t::text), '')) " <>
+          "FROM #{quoted_schema}.#{quote_ident(table)} t"
+      end
+
+    sequences = """
+    SELECT 'seq', ps.sequencename,
+           (SELECT rc.relname
+              FROM pg_class sc
+              JOIN pg_namespace sn ON sn.oid = sc.relnamespace AND sn.nspname = ps.schemaname
+              JOIN pg_depend d ON d.objid = sc.oid AND d.classid = 'pg_class'::regclass
+                              AND d.refclassid = 'pg_class'::regclass AND d.deptype IN ('a', 'i')
+              JOIN pg_class rc ON rc.oid = d.refobjid
+             WHERE sc.relname = ps.sequencename
+             LIMIT 1),
+           NULL::text
+      FROM pg_sequences ps
+     WHERE ps.schemaname = $1 AND ps.last_value IS NOT NULL
+    """
+
+    sql = Enum.join(presence ++ seeds ++ [sequences], "\nUNION ALL\n")
+
+    %{rows: rows} = Repo.query!(sql, [schema_name])
+
+    {:ok,
+     %{
+       dirty_tables: for(["row", table, _, _] <- rows, do: table) |> Enum.sort(),
+       dirty_sequences:
+         for(["seq", sequence, owner, _] <- rows, do: {owner, sequence}) |> Enum.sort(),
+       seed_digests:
+         for(["seed", table, count, md5] <- rows, into: %{}) do
+           {table, {String.to_integer(count), md5}}
+         end,
+       probe_ms: System.monotonic_time(:millisecond) - started
+     }}
+  rescue
+    exception -> {:error, exception}
+  end
+
+  @doc """
+  Compares a probed `clone_state` with `baseline`. Pure. `drift` lists one entry per
+  definition row that was added, removed or changed.
+  """
+  @spec diff_clone_state(map(), clone_baseline()) :: clone_diff()
+  def diff_clone_state(state, %{state: base}) do
+    drift =
+      case Map.get(state, :definition_index) do
+        nil -> []
+        index -> index_drift(base.definition_index, index)
+      end
+
+    seeds_diverged =
+      for {table, digest} <- base.seed_digests,
+          Map.get(state.seed_digests, table) != digest,
+          do: table
+
+    %{
+      drift: drift,
+      dirty_tables: state.dirty_tables,
+      dirty_sequences: state.dirty_sequences,
+      seeds_diverged: Enum.sort(seeds_diverged)
+    }
+  end
+
+  @doc "True when `diff` shows neither drift, dirt nor diverged seeds."
+  @spec clean_diff?(clone_diff()) :: boolean()
+  def clean_diff?(%{drift: [], dirty_tables: [], dirty_sequences: [], seeds_diverged: []}),
+    do: true
+
+  def clean_diff?(_diff), do: false
+
+  @doc """
+  Dirty-only reset of one clone schema (design 4.3 steps 2-6).
+
+  Test-only bypass, stated once and deliberately: `audit_entries`, `repository_artifacts` and
+  `artifact_versions` carry BEFORE UPDATE / BEFORE DELETE immutability triggers, and there is
+  no BEFORE TRUNCATE trigger, so `TRUNCATE` is the one way to empty them. That is acceptable
+  only because this runs against throwaway test schemas; the triggers themselves are never
+  dropped, disabled or modified here (a test that does so is detected as definition drift and
+  the schema is rebuilt, never repaired).
+
+  Steps: probe; if the definitional digest differs from `baseline` return `unprovable`
+  BEFORE any DML (drift is never repaired in place); otherwise, in one transaction with
+  bounded lock and statement timeouts, `TRUNCATE` exactly the dirty tables plus the tables
+  whose foreign keys reference them (explicit closure, **no CASCADE**) `RESTART IDENTITY`,
+  restart called sequences that no truncated table owns, re-copy the seed tables from the
+  live template, then run `opts[:extra]` (a zero-arity function for state outside this
+  schema, e.g. public rows keyed to the tenant) in the SAME transaction; finally probe again
+  and require equality with `baseline`.
+
+  Never raises for an unproven result: returns `{:error, {:unprovable, reasons}}` and the
+  caller rebuilds.
+  """
+  @spec reset_clone_schema!(schema_name :: String.t(), clone_baseline(), keyword()) ::
+          {:ok, reset_report()} | {:error, {:unprovable, [String.t()]}}
+  def reset_clone_schema!(schema_name, baseline, opts \\ []) do
+    started = System.monotonic_time(:millisecond)
+    extra = Keyword.get(opts, :extra)
+    tables = baseline_tables(baseline)
+
+    case probe_clone_state(schema_name, tables) do
+      {:error, reason} ->
+        {:error, {:unprovable, ["probe_failed: " <> inspect_error(reason)]}}
+
+      {:ok, state} ->
+        diff = diff_clone_state(state, baseline)
+
+        if diff.drift != [] do
+          {:error, {:unprovable, ["definition_drift" | diff.drift]}}
+        else
+          do_reset(schema_name, baseline, state, diff, extra, started)
+        end
+    end
+  end
+
+  defp do_reset(schema_name, baseline, state, diff, extra, started) do
+    tables = baseline_tables(baseline)
+    base = Enum.uniq(diff.dirty_tables ++ diff.seeds_diverged)
+    {truncate_set, closure_added} = fk_closure(base, fk_referencing_graph(schema_name), tables)
+    seeds_to_restore = Enum.filter(@seed_tables, &(&1 in truncate_set))
+
+    to_restart =
+      for {owner, sequence} <- diff.dirty_sequences, owner == nil or owner not in truncate_set do
+        sequence
+      end
+
+    quoted_schema = quote_ident(schema_name)
+
+    result =
+      try do
+        Repo.transaction(fn ->
+          Repo.query!("SET LOCAL lock_timeout = '#{@reset_lock_timeout}'")
+          Repo.query!("SET LOCAL statement_timeout = '#{@reset_statement_timeout}'")
+
+          if truncate_set != [] do
+            list = Enum.map_join(truncate_set, ", ", &"#{quoted_schema}.#{quote_ident(&1)}")
+            Repo.query!("TRUNCATE #{list} RESTART IDENTITY")
+          end
+
+          Enum.each(to_restart, fn sequence ->
+            Repo.query!("ALTER SEQUENCE #{quoted_schema}.#{quote_ident(sequence)} RESTART")
+          end)
+
+          Enum.each(seeds_to_restore, fn seed ->
+            Repo.query!(
+              "INSERT INTO #{quoted_schema}.#{quote_ident(seed)} " <>
+                "SELECT * FROM #{quote_ident(@template_schema)}.#{quote_ident(seed)}"
+            )
+          end)
+
+          if is_function(extra, 0), do: extra.()
+          :ok
+        end)
+      rescue
+        exception -> {:error, {:reset_failed, exception}}
+      end
+
+    case result do
+      {:ok, :ok} ->
+        verify_reset(schema_name, baseline, state, started, %{
+          truncated: truncate_set,
+          closure_added: closure_added,
+          sequences_restarted: to_restart,
+          seeds_restored: seeds_to_restore
+        })
+
+      {:error, reason} ->
+        {:error, {:unprovable, ["reset_failed: " <> inspect_error(reason)]}}
+    end
+  end
+
+  defp verify_reset(schema_name, baseline, before, started, parts) do
+    verify_started = System.monotonic_time(:millisecond)
+
+    case probe_clone_state(schema_name, baseline_tables(baseline)) do
+      {:ok, after_state} ->
+        diff = diff_clone_state(after_state, baseline)
+
+        if clean_diff?(diff) do
+          now = System.monotonic_time(:millisecond)
+
+          {:ok,
+           Map.merge(parts, %{
+             probe_ms: before.probe_ms,
+             digest_ms: before.digest_ms,
+             verify_ms: now - verify_started,
+             total_ms: now - started
+           })}
+        else
+          {:error, {:unprovable, ["verify_failed" | describe_diff(diff)]}}
+        end
+
+      {:error, reason} ->
+        {:error, {:unprovable, ["verify_probe_failed: " <> inspect_error(reason)]}}
+    end
+  end
+
+  @doc """
+  Drops the tenant's clone schema, deletes its `Registration` row, then runs the existing
+  `clone_tenant_schema!/1` (which inserts a NEW `Registration` row). Does not assert
+  completeness, capture a baseline or snapshot anything: those are the pool worker's job.
+  """
+  @spec rebuild_clone_schema!(source_tenant_id :: Ecto.UUID.t()) ::
+          {:ok, schema_name :: String.t()} | {:error, {:clone_failed, term()}}
+  def rebuild_clone_schema!(source_tenant_id) do
+    case TenantProvisioning.schema_name_for_tenant(source_tenant_id) do
+      {:ok, schema_name} ->
+        Repo.query!("DROP SCHEMA IF EXISTS #{quote_ident(schema_name)} CASCADE")
+        Repo.delete_all(from(r in Registration, where: r.tenant_id == ^source_tenant_id))
+        clone_tenant_schema!(source_tenant_id)
+
+      {:error, reason} ->
+        {:error, {:clone_failed, reason}}
+    end
+  rescue
+    exception -> {:error, {:clone_failed, exception}}
+  end
+
+  @doc "Human-readable one-line-per-finding description of a non-clean `clone_diff`."
+  @spec describe_diff(clone_diff()) :: [String.t()]
+  def describe_diff(diff) do
+    Enum.map(diff.drift, &"definition_drift #{&1}") ++
+      Enum.map(diff.dirty_tables, &"dirty_table #{&1}") ++
+      Enum.map(diff.dirty_sequences, fn {owner, seq} -> "dirty_sequence #{owner}.#{seq}" end) ++
+      Enum.map(diff.seeds_diverged, &"seed_diverged #{&1}")
+  end
+
+  defp probe_definitions(schema_name) do
+    started = System.monotonic_time(:millisecond)
+    %{rows: rows} = Repo.query!(@definition_sql, [schema_name])
+    index = Map.new(rows, fn [key, md5] -> {key, md5} end)
+    {:ok, index, System.monotonic_time(:millisecond) - started}
+  rescue
+    exception -> {:error, exception}
+  end
+
+  defp digest_of(index) do
+    index
+    |> Enum.sort()
+    |> Enum.map_join("\n", fn {key, md5} -> key <> "=" <> md5 end)
+    |> then(&Base.encode16(:crypto.hash(:md5, &1), case: :lower))
+  end
+
+  defp index_drift(base, current) do
+    changed =
+      for {key, md5} <- current, Map.get(base, key) != md5 do
+        if Map.has_key?(base, key), do: "changed #{key}", else: "added #{key}"
+      end
+
+    removed = for key <- Map.keys(base), not Map.has_key?(current, key), do: "removed #{key}"
+    Enum.sort(changed ++ removed)
+  end
+
+  defp discover_tables(schema_name) do
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = $1 AND c.relkind IN ('r', 'p') ORDER BY 1
+        """,
+        [schema_name]
+      )
+
+    Enum.map(rows, fn [table] -> table end)
+  end
+
+  # %{referenced_table => [referencing tables]} for FKs wholly inside the clone schema.
+  defp fk_referencing_graph(schema_name) do
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT cr.relname, pr.relname
+        FROM pg_constraint k
+        JOIN pg_class cr ON cr.oid = k.conrelid
+        JOIN pg_class pr ON pr.oid = k.confrelid
+        JOIN pg_namespace n ON n.oid = cr.relnamespace
+        WHERE k.contype = 'f' AND n.nspname = $1 AND pr.relnamespace = n.oid
+        """,
+        [schema_name]
+      )
+
+    Enum.reduce(rows, %{}, fn [referencing, referenced], acc ->
+      Map.update(acc, referenced, [referencing], &[referencing | &1])
+    end)
+  end
+
+  # `base` closed under "tables whose FK references a member". Returns {sorted set,
+  # members added only for closure}. Restricted to `tables` (the clone's own table set).
+  defp fk_closure(base, graph, tables) do
+    allowed = MapSet.new(tables)
+    closed = do_closure(base, MapSet.new(base), graph, allowed)
+    set = closed |> MapSet.to_list() |> Enum.sort()
+    {set, set -- base}
+  end
+
+  defp do_closure([], seen, _graph, _allowed), do: seen
+
+  defp do_closure([table | rest], seen, graph, allowed) do
+    new =
+      graph
+      |> Map.get(table, [])
+      |> Enum.filter(&(MapSet.member?(allowed, &1) and not MapSet.member?(seen, &1)))
+      |> Enum.uniq()
+
+    do_closure(rest ++ new, Enum.reduce(new, seen, &MapSet.put(&2, &1)), graph, allowed)
+  end
+
+  defp inspect_error({:reset_failed, %{__exception__: true} = exception}),
+    do: Exception.message(exception)
+
+  defp inspect_error(%{__exception__: true} = exception), do: Exception.message(exception)
+  defp inspect_error(other), do: inspect(other)
+
+  # Identifiers here come from the catalog or from `schema_name_for_tenant/1`, never from
+  # tenant or user input; quoting (with embedded-quote doubling) is belt and braces (INV-7).
+  defp quote_ident(identifier) when is_binary(identifier),
+    do: ~s("#{String.replace(identifier, ~s("), ~s(""))}")
+
+  defp quote_literal(value) when is_binary(value), do: "'#{String.replace(value, "'", "''")}'"
+
+  # ---------------------------------------------------------------------------
   # Template build (design §2.3, ensure_template!/0's build sequence)
   # ---------------------------------------------------------------------------
 
