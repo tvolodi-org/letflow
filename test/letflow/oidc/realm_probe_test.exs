@@ -327,7 +327,7 @@ defmodule Letflow.Oidc.RealmProbeTest do
     assert Httpc.verify(realm()) == {:error, :not_found}
   end
 
-  test "maps a 404 to not_found and a timeout or transport error to unreachable" do
+  test "maps a 404 to not_found and a closed or refused connection to unreachable" do
     start_server!(fn _request -> {:respond, [Server.response(404, [], "")]} end)
     assert Httpc.verify(realm()) == {:error, :not_found}
 
@@ -391,12 +391,14 @@ defmodule Letflow.Oidc.RealmProbeTest do
   # --- SECURITY-REVIEWER additions --------------------------------------------
 
   test "an unknown URL scheme and an unset base URL are unreachable and no request is made" do
-    start_server!(ok_responder())
+    server = start_server!(ok_responder())
 
-    Server.put_base_url!("ftp://127.0.0.1:1")
+    # The live server's own port is used, so a probe that ignored the scheme or the
+    # missing scheme would reach it and the refute below would fail.
+    Server.put_base_url!("ftp://127.0.0.1:#{server.port}")
     assert Httpc.verify(realm()) == {:error, :unreachable}
 
-    Server.put_base_url!("127.0.0.1:1")
+    Server.put_base_url!("127.0.0.1:#{server.port}")
     assert Httpc.verify(realm()) == {:error, :unreachable}
 
     Server.put_base_url!(nil)
@@ -442,15 +444,27 @@ defmodule Letflow.Oidc.RealmProbeTest do
   defp ec_key, do: :public_key.generate_key({:namedCurve, :secp256r1})
 
   # Makes `:public_key.cacerts_get/0` (what the probe trusts) return exactly these roots.
+  # The CA store is VM-global, so the previous contents are restored on exit instead
+  # of being cleared (other modules read it through the default TLS options).
   defp trust!(root_ders) do
-    path = Path.join(System.tmp_dir!(), "realm_probe_ca_#{Ecto.UUID.generate()}.pem")
-    pem = :public_key.pem_encode(Enum.map(root_ders, &{:Certificate, &1, :not_encrypted}))
-    File.write!(path, pem)
-    :ok = :public_key.cacerts_load(path)
+    previous = :public_key.cacerts_get()
+    install_cacerts!(root_ders)
+    ExUnit.Callbacks.on_exit(fn -> install_cacerts!(previous) end)
+  end
 
-    ExUnit.Callbacks.on_exit(fn ->
-      :public_key.cacerts_clear()
-      File.rm(path)
-    end)
+  defp install_cacerts!(entries) do
+    # `cacerts_get/0` returns `{:cert, der, meta}` tuples on current OTP; plain DER is also accepted.
+    ders =
+      Enum.map(entries, fn
+        {:cert, der, _meta} -> der
+        der -> der
+      end)
+
+    path = Path.join(System.tmp_dir!(), "realm_probe_ca_#{Ecto.UUID.generate()}.pem")
+    pem = :public_key.pem_encode(Enum.map(ders, &{:Certificate, &1, :not_encrypted}))
+    File.write!(path, pem)
+    :public_key.cacerts_clear()
+    :ok = :public_key.cacerts_load(path)
+    File.rm(path)
   end
 end

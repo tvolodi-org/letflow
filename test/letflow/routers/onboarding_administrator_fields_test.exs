@@ -68,8 +68,8 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
 
   defp json(conn), do: Jason.decode!(conn.resp_body)
 
-  # The decoded body without the per-request correlation id.
-  defp stable_json(conn), do: conn |> json() |> Map.delete("trace_id")
+  # Byte-level comparison: the body with only the per-request trace_id removed.
+  defp stable_body(conn), do: Regex.replace(~r/"trace_id":"[^"]*",?/, conn.resp_body, "")
 
   defp new_body(extra) do
     Map.merge(
@@ -519,6 +519,8 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
 
       assert step =~ @runbook
       assert step =~ "bind-realm"
+      # `administrator` is only in the 201 body, never in the GET maps (design section 3).
+      refute Map.has_key?(json(conn), "administrator")
     end
 
     # The same record, once bound, reads loginable through both routes.
@@ -649,7 +651,7 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
         assert json(conn)["detail"] == "tenant is not active"
         assert stored_realm(resp["tenant_id"]) == nil
         assert entries(schema_of(resp["tenant_id"]), "tenant.idp_realm.bound") == []
-        stable_json(conn)
+        stable_body(conn)
       end
 
     assert [same, same] = responses
@@ -679,7 +681,7 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     end
 
     # Both causes answer the same bytes.
-    assert stable_json(elsewhere) == stable_json(different)
+    assert stable_body(elsewhere) == stable_body(different)
     assert stored_realm(fresh["tenant_id"]) == nil
     assert stored_realm(other.tenant_id) == held
   end
@@ -777,8 +779,8 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
 
     for conn <- [matched, unknown_id, unmatched], do: assert(conn.status == 403)
 
-    assert stable_json(matched) == stable_json(unknown_id)
-    assert stable_json(matched) == stable_json(unmatched)
+    assert stable_body(matched) == stable_body(unknown_id)
+    assert stable_body(matched) == stable_body(unmatched)
     refute matched.resp_body =~ resp["tenant_id"]
 
     # INV-10: nothing was written for the target tenant, in either chain.
@@ -863,5 +865,14 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     end
 
     :ok
+  end
+
+  # AC3 (design section 11): the operator runbook exists and names the steps it must.
+  test "the onboarding runbook exists and references T-0150, T-0158 and bind-realm" do
+    runbook = File.read!(@runbook)
+
+    for reference <- ["T-0150", "T-0158", "bind-realm"] do
+      assert runbook =~ reference
+    end
   end
 end

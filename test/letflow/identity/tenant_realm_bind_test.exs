@@ -137,6 +137,24 @@ defmodule Letflow.Identity.TenantRealmBindTest do
     assert entries(ctx.tenant.schema_name, "tenant.idp_realm.bound") == []
   end
 
+  test "realm bound: a tenant with no provisioning registration is not bound (audit_failed, rolled back)",
+       ctx do
+    # Without the registration row the tenant's audit schema is unknown; the bind must
+    # be rolled back, not committed without its audit entries.
+    Repo.delete_all(
+      from(r in Letflow.TenantProvisioning.Registration,
+        where: r.tenant_id == ^ctx.tenant.tenant_id
+      )
+    )
+
+    assert {:error, :audit_failed} =
+             Identity.bind_tenant_realm(ctx.tenant.tenant_id, realm(), opts(ctx))
+
+    assert stored_realm(ctx.tenant.tenant_id) == nil
+    assert entries(ctx.tenant.schema_name, "tenant.idp_realm.bound") == []
+    assert entries(ctx.platform.schema_name, "platform.tenant_idp_realm.bound") == []
+  end
+
   test "realm_bind_changeset casts nothing but idp_realm_id and rejects a malformed value", ctx do
     tenant = ctx.tenant.tenant
 
@@ -158,7 +176,7 @@ defmodule Letflow.Identity.TenantRealmBindTest do
     refute Tenant.realm_bind_changeset(tenant, %{}).valid?
   end
 
-  test "no other changeset casts idp_realm_id on an existing tenant (structural)", ctx do
+  test "no other changeset casts idp_realm_id on an existing tenant", ctx do
     tenant = ctx.tenant.tenant
     attrs = %{"idp_realm_id" => "smuggled", "idp_realm_id_" => "x"}
 

@@ -226,7 +226,10 @@ describe('OnboardingResultPage ISS-1030', () => {
     renderResult(BASE)
     await user.type(screen.getByLabelText('Realm ID'), 'ghost')
     await user.click(screen.getByRole('button', { name: 'Bind realm' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('The identity provider does not know this realm.')
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('The identity provider does not know this realm.')
+    // the server's raw text is never shown, not only the fixed message is present
+    expect(alert.textContent).not.toMatch(/realm not found|validation failed/)
     expect(screen.getByText(/Tenant created, but not yet loginable/)).toBeInTheDocument()
   })
 })
