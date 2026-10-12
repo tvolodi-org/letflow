@@ -2752,3 +2752,5 @@
 2026-10-07T12:51:19Z | DISPATCH | WF-02 | WF02-REQ462-20261007 | ORCH → DOC-UPDATER | Step 06
 2026-10-07T12:53:21Z | RUN_DONE | WF-02 | WF02-REQ462-20261007 | ORCH | gates green (security PASS, idiom PASS, test-design PASS w/ all 12 node mutants + 8 extra killed, test-run scoped 46 files, release PASS, doc-update verified by ORCH from disk); local commits, NOT pushed; queue lock 1025 and GH#2340 left to parent
 2026-10-07T14:26:06Z | RUN_DONE | WF-02 | WF02-REQ463-20261007 | ORCH | gates green (security PASS+recheck, idiom PASS+recheck, test-design PASS 24 mutants killed, release PASS after BOM fix); 1 rework; scoped runs only; local commits, NOT pushed; queue lock 1026 left to parent.
+2026-10-12T03:20:21Z | START | WF-03 | WF03-ISS1042-20261012 | ORCH | Q-1042/GH#2381 claimed (get_next_task, agent tvolodi-orch); overlap check clean
+2026-10-12T03:20:21Z | DISPATCH | WF-03 | WF03-ISS1042-20261012 | ORCH → ELIXIR-DEV | Step 00 git setup
