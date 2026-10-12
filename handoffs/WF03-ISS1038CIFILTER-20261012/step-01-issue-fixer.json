@@ -1,0 +1,42 @@
+{
+ "handoff_id": "c4a7d1e0-1038-4a11-8c20-000000000001",
+ "run_id": "WF03-ISS1038CIFILTER-20261012",
+ "workflow_id": "WF-03",
+ "step": "01",
+ "from_agent": "ORCH",
+ "to_agent": "ISSUE-FIXER",
+ "file": "handoffs/WF03-ISS1038CIFILTER-20261012/step-01-issue-fixer.json",
+ "created_at": "2026-10-12T12:35:27Z",
+ "started_at": null,
+ "completed_at": null,
+ "status": "PENDING",
+ "priority": "NORMAL",
+ "context": {
+  "stage": "S1",
+  "requirement_ids": [],
+  "requirement_text": {},
+  "source_text": {
+   "Q-1038": "LOW, CI lane, owner letflow-3. Queue Q-1038 / GH #2365, queue issue_ref ISS-1038. Source: letflow-3 CI speed analysis (Q-1037 / GH #2364 comment). Evidence: the 'Detect changed paths' filter in .github/workflows/ci.yml only matches lib/, priv/repo/migrations/, test/, mix.exs, mix.lock, .tool-versions, config/ and .github/workflows/ci.yml, so a PR that changes scripts/test_parallel.sh (the partition runner the backend gate itself uses) gets backend=false and the backend gate is skipped on that PR. Fix: add scripts/test_parallel.sh and any other script the backend gate itself runs (read what `mix letflow.check` and the gate steps invoke under scripts/) to the backend pattern; keep the A3 / merge_group behaviour intact; required check names unchanged. Test: a throwaway PR touching only scripts/test_parallel.sh shows the backend gate running (run id quoted); a docs-only PR still skips it. Related: Q-1037. Acceptance: (1) scripts/test_parallel.sh and every other script executed by the backend gate are in the backend path pattern; (2) a PR touching only scripts/test_parallel.sh runs the backend gate (run id quoted); a docs-only PR still skips it; (3) merge_group trigger and required check names unchanged. Supervisor rules: check names byte-exact, NO aggregator / branch-protection change (that is the user's), full local gates, PR body per template; diff of the filter only."
+  },
+  "related_handoff_ids": [],
+  "artifacts_in": [
+   ".github/workflows/ci.yml",
+   "scripts/test_parallel.sh",
+   "docs/issues/ISS-1038.yaml"
+  ],
+  "owned_modules": [
+   "docs/issues/ISS-1059.yaml"
+  ],
+  "worktree": null,
+  "branch_name": "feature/WF03-ISS1038CIFILTER-20261012"
+ },
+ "task": {
+  "description": "WF-03 Step 0.5+1 for the CI path-filter issue (.claude/agents/issue-fixer.md). NOTE the ref clash: local docs/issues/ISS-1038.yaml already exists for a DIFFERENT issue (queue Q-1039, log capture). Create the local record under the next free number (ls docs/issues; the highest is ISS-1058, use ISS-1059 unless taken on origin/main or open PRs/branches: check) with queue_ref: Q-1038, github_ref: GH-2365, and a comment noting the clash with ISS-1038.yaml. Diagnose: (a) list every script/file the backend gate legs, the 'Backend static checks + isolated tails' job and `mix letflow.check`/`mix letflow.check.test` execute or read from outside lib/ test/ config/ (grep .github/workflows/ci.yml for run: steps, scripts/ invocations, `mix letflow.*` tasks that shell out to scripts/*, test/** helper scripts, docker compose files used, docs/ files read by static checkers such as docs/issues/*.yaml or handoffs/ for lint_handoffs, fixtures under test/fixtures): classify each as 'must trigger backend' vs 'docs-only'; the principle: a path belongs in the backend regex iff a change to it can change the outcome of a backend job; (b) give the exact new regex (keep it as a single grep -qE alternation line, same style), the exact diff of the filter only, and say what happens on docs-only PRs (docs/, *.md, handoffs/, docs/issues/ must still skip... but check: does the static job read handoffs/ or docs/issues? if so that is a pre-existing question: report it, do NOT widen the regex for it without evidence, list it as an open question); (c) confirm merge_group/push/fallback branches are untouched; (d) how to prove it: a deterministic local table test of the regex against sample paths, PLUS the live proof the acceptance asks for (throwaway PR whose BASE is the fix branch and whose head touches only scripts/test_parallel.sh; check ci.yml 'on: pull_request: branches' allows a non-main base; if it does not, propose the alternative). Do NOT edit ci.yml. No mix runs unless needed (mutex wrapper: L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2>/dev/null; do sleep 20; done; trap 'rmdir \"$L\" 2>/dev/null' EXIT; cd <dir> && <ONE mix invocation> 2>&1). Foreground only. Result into this handoff (COMPLETED, PASS/FAIL; no BOM, LF), commit docs/issues/<new>.yaml + handoff, pull --rebase, push (retry on github.com resolve failures); message ends 'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>'.",
+  "acceptance_criteria": [
+   "complete list of backend-relevant scripts",
+   "exact filter diff",
+   "proof plan"
+  ]
+ },
+ "result": null
+}
