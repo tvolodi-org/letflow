@@ -397,7 +397,7 @@ graph:
       source: escalate-disburse-loan-to-loan-ops-lead
       target: end-disbursed
       condition: "true"
-    - id: timeout-escalate-disburse-loan-to-credit-director
+    - id: timeout-escalate-disburse-loan-to-loan-ops-lead
       source: escalate-disburse-loan-to-loan-ops-lead
       target: disbursement-held-notice
     - id: e41

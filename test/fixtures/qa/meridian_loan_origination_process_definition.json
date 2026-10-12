@@ -540,7 +540,7 @@
       { "id": "e27",                         "source": "disburse-loan",          "target": "end-disbursed", "condition": "true" },
       { "id": "timeout-disburse-loan", "source": "disburse-loan", "target": "escalate-disburse-loan-to-loan-ops-lead" },
       { "id": "e27-escalated", "source": "escalate-disburse-loan-to-loan-ops-lead", "target": "end-disbursed", "condition": "true" },
-      { "id": "timeout-escalate-disburse-loan-to-credit-director", "source": "escalate-disburse-loan-to-loan-ops-lead", "target": "disbursement-held-notice" },
+      { "id": "timeout-escalate-disburse-loan-to-loan-ops-lead", "source": "escalate-disburse-loan-to-loan-ops-lead", "target": "disbursement-held-notice" },
       { "id": "e41", "source": "disbursement-held-notice", "target": "end-disbursement-held" },
       { "id": "e28",                         "source": "decline-application",    "target": "end-declined" }
     ]
