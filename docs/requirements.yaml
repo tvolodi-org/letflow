@@ -34367,7 +34367,7 @@ requirements:
   - id: REQ-457
     title: "Refusal scenarios for every vertical: who must not be able to do what, authored per vertical and run"
     owner: "BA-<VERTICAL>"
-    status: pending
+    status: done  # done except the TENANT_AUDITOR step (residual Q-1036 / GH #2363, waits for REQ-448)
     stage: S7
     # ORDERING NOTE (2026-10-07): requires REQ-463 (distinct person) and REQ-460 (required outputs) for its refusal scenario 'requester approves own request'; ordering enforced by assignment (queue depends_on cannot be edited).
     impl_order: 974  # letflow-queue task id, GH#2246. Registered 2026-10-06 by ORCH (role-system audit follow-up, approved by the user). Queue depends_on: Q-964, Q-965, Q-969, Q-970.
@@ -34907,6 +34907,7 @@ requirements:
          line does. REQ-465 and REQ-466 then increment again from whatever
          this entry leaves, so numbering is sequential and read, never
          assumed.
+      NOTE (INV-2): On a node with neither a form_schema nor required_outputs a schema rejection names no key (INV-2); adopting required_outputs on the decision nodes is what makes the 422 name them.
     open_questions:
       - "Escalation tasks of D-ESC (for example escalate-l2-approval-to-ceo, escalate-to-ceo) are HUMAN_TASKs that take the same decision. DECIDED by REQ-459 design section 9 (decision 1): no inheritance; each escalation node declares the same required_outputs as the node it replaces, explicitly, because an omitted decision on an escalation task has the same silent fail-closed effect. Items e, h, j and l declare them."
       - "Start-form required instance-start variables (declared_value) are out of scope (see REQ-460 open_questions). The ISS-1008 acceptance line 'The declared value is a required start field' stays unmet by this entry and is reported to ORCH."
@@ -35185,6 +35186,7 @@ requirements:
       - "Whether D-ESC escalation tasks inherit the distinct_from of the task they replace. DECIDED by REQ-459 design section 9: no inheritance; they carry their own."
       - "Sizing: if the work exceeds one turn, ELIXIR-DEV adopts the meridian loan first and reports the regulatory chain to ORCH for a split, not a partial silent pass."
       - "PROCESS-AUDITOR re-audit (checklist B1 answer text) is a separate follow-up recorded in REQ-463."
+      - "Roster fact: role-credit-director has one holder (actor-meridian-julia). If she approved at l2-approval or voted as committee-vote-director, she is refused (403 separation of duties) on escalate-disburse-loan-to-credit-director, and the escalation fails closed into disbursement-held (hold notice, no payout). This is the intended safe outcome. A second credit director is needed to complete that path in any future UAT run; Meridian is not UAT-run now. Every other role has one holder as well: happy paths complete because each path needs different roles; only escalation-after-same-person cases fail closed."
     acceptance_criteria:
       - "the run report lists every node that received distinct_from with the listed node ids and a one-line business reason; every listed id exists in the definition (the REQ-464 validator reports status OK, no violation, for both changed definitions)"
       - "meridian loan: one user holding both role-credit-approver-l1 and role-credit-director is refused at l2-approval after completing l1-approval (403, body exactly {\"detail\":\"separation of duties\",\"status\":403}), and a second user is accepted; the same user holding role-ceo is refused at escalate-l2-approval-to-ceo after completing l1-approval; a user who completed l2-approval is refused at disburse-loan (three tests, real Postgres)"
@@ -35232,6 +35234,7 @@ requirements:
       - "vortex supplier quality deviation: severity-classification and its D-ESC task do not approve or pay; the issue lists 'vortex/swiftroute approvals'. Default: not changed; ORCH decides whether a compliance reading calls for it."
       - "Roster size: see REQ-465 open_questions; same default."
       - "Whether D-ESC escalation tasks inherit distinct_from. DECIDED by REQ-459 design section 9: no inheritance; they carry their own."
+      - "Roster fact: every vortex role has exactly one holder (role-ceo = actor-vortex-dirk). With distinct_from on escalate-budget-approval-to-ceo naming escalate-to-ceo, the escalated budget path cannot complete when the same CEO already decided the capacity escalation: it stalls and ends fail-closed (auto-reject-order / terminal) by the E3 timer. This is the intended safe outcome. A second CEO-class holder is needed for that path to complete in any future UAT run; vortex is not UAT-run now."
     acceptance_criteria:
       - "the run report lists every node that received distinct_from with listed ids and a one-line business reason; the REQ-464 validator reports status OK for both changed definitions"
       - "swiftroute: one user holding role-ops-manager and role-ceo is refused at ceo-approval after completing ops-review, and a second user holding role-ceo is accepted (two-roles-one-user test, real Postgres)"

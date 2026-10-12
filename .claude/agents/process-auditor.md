@@ -127,7 +127,7 @@ always means "no gap found here". **NOT_APPLICABLE** is allowed only where state
 | A2 | Where the business needs a rework or correction loop, does the process have one? A loop is needed when a scenario step, a scenario description or a node name says the requester can correct and resubmit, or something is returned for correction. | No scenario text and no node name in the scope mentions correction, resubmission or return; say so. | MAJOR |
 | A3 | Does every outcome end? The definition validator output for each definition lists none of `unreachable_node`, `no_path_to_end`, `no_default_route`, and every rejection branch found under A1 reaches an end node. | The scope has no process definition. | BLOCKER, except MAJOR when the only cause is a validator output with `status: NOT_AVAILABLE` |
 | A4 | For every human task: is there a stated consequence if nobody acts, that is, the task has both `escalation_timer_duration` and `escalation_role`, or a timer node on its route, or the definition's `description` or a scenario `description` says explicitly that waiting without limit is intended? | The scope has no human task. | MAJOR |
-| B1 | Is it impossible for the same person to both request and approve the same matter, given the roles the tasks route to and the roster (`routing_roles` of each actor)? It fails when the task that starts the matter and the approval task route to a role that one roster actor holds, or an approval task has no route at all. | The scope has no approval. | BLOCKER when the approval is of paying or releasing something or of a commitment on the organisation's behalf; otherwise MAJOR |
+| B1 | Is it impossible for the same person to both request and approve the same matter, given the roles the tasks route to and the roster (`routing_roles` of each actor)? It fails when the task that starts the matter and the approval task route to a role that one roster actor holds, or an approval task has no route at all, unless note 3 applies. | The scope has no approval. | BLOCKER when the approval is of paying or releasing something or of a commitment on the organisation's behalf; otherwise MAJOR |
 | B2 | Is it impossible for the same person to both enter and verify the same data (a data-entry task and its check task route to different roles with no shared actor)? | The scope has no verification step. | MAJOR |
 | C1 | Does every decision read only values that every path to it collects? The definition validator output lists no `variable_never_collected`, AND you have read each decision's condition and found no value that at least one path to it never collects. | The scope has no process definition. | BLOCKER for a `variable_never_collected` code; MAJOR for a gap you found by reading, and MAJOR when the only cause is a validator output with `status: NOT_AVAILABLE` |
 | D1 | Does every scenario step correspond to a step the process has (a human task for a person step, a start for a submit step), and does every scenario `process_id` of the form `proc-...` resolve through a sidecar in `test/fixtures/uat/process-definition-aliases/`? | All scenarios of the scope have `process_id` `n/a` or a `sys-...` label (state it). | MAJOR |
@@ -143,6 +143,7 @@ Notes to the table:
 
 1. **Legacy platform administrators (E2, E3).** For an actor listed under legacy_platform_admin in the roster the default severity is MAJOR, not BLOCKER; this exception ends when REQ-454 removes that list. (D4 has no BLOCKER default, so it needs no exception.)
 2. **Missing refusal step (E1).** A missing refusal step stays MAJOR; its release gate is the product owner's access gate, not the audit.
+3. **Separation of duties by distinct_from (B1).** B1 may answer YES when the approval HUMAN_TASK carries distinct_from naming the node that started or requested the matter (and, for escalation nodes, its own distinct_from: escalation tasks inherit nothing, REQ-459 design section 9), in addition to the existing role-routing reasoning. The auditor still checks the roster (`routing_roles`) and the validator output for distinct_from_* violations and the distinct_from_single_member_role: warning (a role with one holder makes a stalled path fail closed, which is acceptable).
 
 Roll-up for the letters A to F: a letter is `NO` when any of its items is `NO`; `NOT_APPLICABLE` when
 all its items are; otherwise `YES`. The report records the items, not the roll-up.
@@ -257,10 +258,15 @@ what you looked at; never in `business_description` or `verdict_note`.
 > "Gateway authority-routing has no edge with is_default true; no_default_route in validate output
 > for definition 8c1f, see graph.ex:762."
 
-**Correct example** (checklist B1):
+**Correct example** (checklist B1, answer NO: the approval has no distinct_from):
 
 > "The dispatcher who submits a shipment request is also one of the people the approval task goes to,
 > so one person could approve their own shipment."
+
+**Correct example** (checklist B1, answer YES through distinct_from, note 3):
+
+> "The person who completed the operations review cannot also give the final approval, and the company
+> has two people in the CEO role, so the approval can still be completed by someone else."
 
 **Forbidden example:**
 

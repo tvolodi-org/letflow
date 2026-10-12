@@ -1,0 +1,163 @@
+run_id: WF05-REFUSAL-BILIMBAGA-20261007-BILIMBAGA
+date: "2026-10-07"
+agent: UAT-RUNNER
+slice: bilimbaga
+purpose: "Refusal run: can a CANDIDATE reach the answer key, exam settings, user/role lists, role grants or the audit log, and is the correct-answer marker ever shown in the candidate's own exam session state."
+environment:
+  base_url: https://qa.bizdala.com
+  environment: qa
+  idp: https://auth.qa.bizdala.com
+  realm: bilimbaga
+  qa_build: "UNKNOWN (no endpoint exposes a build SHA). Repo main = d6601fbc."
+  credential_source: "ai-dala-infra/scripts/qa-uat-env.sh token actor-bilimbaga-candidate (fresh fetch per script run; token held in shell variable only, never printed, logged or written)"
+  preflight_report: test/uat-reports/preflight-2026-10-07-qa-bilimbaga-refusal.txt
+  readiness: "Token acquired, POST/GET exam-sessions answered 2xx on https://qa.bizdala.com"
+result_overall: PASS
+result_overall_note: >
+  The one scenario in this run ran in full against the real QA instance. No refusal step succeeded; no protected data appeared.
+  The preflight for the whole corpus is ENV_NOT_READY (9 GAP, 12 UNKNOWN across 48 scenarios) but every non-OK cell is in a
+  non-bilimbaga scenario; the two bilimbaga rows are all OK. No scenario of this run is BLOCKED, so this report's result is not
+  ENV_NOT_READY.
+process_audit_gate:
+  scope: bilimbaga
+  artefact: test/uat-reports/process-audit-bilimbaga-WF05-BASELINE7-20261007.yaml
+  verdict: PASS
+  note: "Digests computed at d6601fbc by ORCH (per dispatch); gate satisfied; cited, not re-run."
+preflight_gap_table_bilimbaga:
+  note: "Columns: spec, local_deps, feature, tenant, realm, actors, app_roles, definitions, env_limitation."
+  bilimbaga-refusal-candidate-cannot-reach-answer-key-or-administration: "OK OK OK OK OK OK OK OK OK"
+  bilimbaga-candidate-timed-exam-autograde: "OK OK OK OK OK OK OK OK OK (not run in this run)"
+  credential_validity: "actor-bilimbaga-candidate@bilimbaga=OK"
+  corpus_summary: "checks OK=414 GAP=9 UNKNOWN=12; 7 of 48 scenarios with >=1 GAP; RESULT ENV_NOT_READY (all GAPs non-bilimbaga, not this run's concern)"
+actors_observed:
+  - actor: actor-bilimbaga-candidate
+    account: candidate-user
+    realm: bilimbaga
+    source: token_claim
+    roster_roles: "see test/fixtures/uat/actors.yaml (candidate: CANDIDATE)"
+    observed_roles: [CANDIDATE]
+    other_claims: [offline_access, uma_authorization, default-roles-bilimbaga]
+    match: true
+    note: "iss https://auth.qa.bizdala.com/realms/bilimbaga. No PLATFORM_ADMIN or TENANT_ADMIN in the claim."
+driver:
+  surface: "Direct HTTPS API calls (curl) with the candidate's own bearer token, to the /api/v1 route each GUI screen calls. NOT the Playwright GUI."
+  why: >
+    No existing Playwright spec drives the refusal steps (web/tests/e2e/pipelines has only the happy-path
+    bilimbaga-candidate-timed-exam spec; the scenario has no pipeline_test key). An API probe is the stricter check:
+    a hidden SPA control could sit over a working route, and the API refusal is what protects the data. The SPA
+    routes a candidate would type (/admin/bilimbaga, /admin/users, /admin/audit) were NOT opened in a browser, so what
+    the page itself shows a candidate (blank, redirect, 403 panel) was not observed.
+scenarios:
+  - id: bilimbaga-refusal-candidate-cannot-reach-answer-key-or-administration
+    file: test/fixtures/uat/scenarios/bilimbaga/refusal-candidate-cannot-reach-answer-key-or-administration.yaml
+    verdict: PASS
+    counts: {REFUSED: 5, NOT_REFUSED: 0, BLOCKED: 0}
+    steps_1_2:
+      step_1:
+        verdict: PASS
+        evidence: "POST /api/v1/modules/exam/exam-sessions {exam_id: c085b5a6-...} as candidate -> 201. Session 78949578-b1dd-4706-81ea-f4bd1c73aa68, status in_progress, 2 questions, remaining_seconds 1799."
+      step_2:
+        verdict: PASS
+        evidence: "GET /api/v1/modules/exam/exam-sessions/<id> -> 200. Questions carry only question_id, sort_order, stem, type, options[{id,text}]."
+    refusal_steps:
+      step_3:
+        action: "Open the bank of questions and answer choices (answer key)"
+        driver: "API, candidate token"
+        verdict: REFUSED
+        leak: false
+        attempts:
+          - "POST /entities/query {entity_type: answer_option} -> 403"
+          - "POST /entities/query {entity_type: question} -> 403"
+          - "GET /entities/definitions/active/answer_option -> 403"
+          - "GET /entities/definitions -> 403"
+          - "POST /entities/records/answer_option/export -> 403"
+        body: "Every answer is the same 172-byte RFC7807 problem: status 403, title Forbidden, detail 'insufficient permissions', trace_id. No entity row, no field, no definition."
+        protected_data_in_answer: "none (no is_correct, no answer text, no question rows)"
+      step_4:
+        action: "Open exam settings (pass mark, question rules)"
+        driver: "API, candidate token"
+        verdict: REFUSED
+        leak: false
+        attempts:
+          - "POST /entities/query {entity_type: exam} -> 403"
+          - "GET /entities/definitions/active/exam -> 403"
+          - "PUT /entities/records/exam/<exam id> {passing_score_pct: 70.0 (unchanged value, so a success would not alter QA)} -> 403"
+          - "PATCH /tenant/settings/ {} -> 403"
+        body: "Same 172-byte 403 RFC7807 body; no passing_score_pct or rule appeared."
+        protected_data_in_answer: "none"
+        side_note: "The candidate's own active-exam list (GET .../exam-sessions/available, 200, step-1 helper) already includes passing_score_pct 70.0 and max_attempts for the exam they may sit. That is a by-design own-exam read, not a probe answer, and not counted as a leak here. Flagged for BA-BILIMBAGA only in case the pass mark should be hidden from candidates."
+      step_5:
+        action: "Open the list of the organisation's users and their roles"
+        driver: "API, candidate token"
+        verdict: REFUSED
+        leak: false
+        attempts:
+          - "GET /identity/users -> 403"
+          - "GET /identity/roles -> 403"
+          - "GET /identity/groups -> 403"
+          - "GET /identity/users/<own subject id> -> 403"
+        body: "Same 172-byte 403 body; no user, email, username or role name."
+        protected_data_in_answer: "none"
+      step_6:
+        action: "Give own account a more powerful role"
+        driver: "API, candidate token, own subject id"
+        verdict: REFUSED
+        leak: false
+        attempts:
+          - "POST /identity/roles {name: TENANT_ADMIN, user_id: <own>} -> 403"
+          - "PATCH /identity/users/<own> {roles: [TENANT_ADMIN]} -> 403"
+          - "POST /identity/tokens {user_id: <own>, roles: [TENANT_ADMIN]} -> 403"
+          - "POST /identity/groups/00000000-0000-0000-0000-000000000001/members {user_id: <own>} -> 403"
+        body: "Same 172-byte 403 body; no handler output."
+        protected_data_in_answer: "none"
+        nothing_changed: >
+          Refused at the route-authorization layer before any handler runs (403 identical to the other steps, no validation
+          error that would show the handler was reached). Not independently queried back with an admin token (instruction
+          limits the admin token to cleanup). The candidate's own session state after all probes still showed no change.
+      step_7:
+        action: "Open the organisation's audit log"
+        driver: "API, candidate token"
+        verdict: REFUSED
+        leak: false
+        attempts:
+          - "GET /audit -> 403"
+          - "GET /audit?page_size=5 -> 403"
+        body: "Same 172-byte 403 body; no audit entries (no actor_id, before_state)."
+        protected_data_in_answer: "none"
+    refusal_step_summary: "5 of 5 REFUSED with HTTP 403 (a permission refusal, not 404/empty list/hidden page); 0 NOT_REFUSED; 0 BLOCKED. 17 distinct requests, all 403, all with an identical 172-byte body, none containing is_correct, email, username, passing_score_pct, roles, actor_id or before_state."
+    expected_outcomes:
+      EO-001:
+        verdict: PASS
+        evidence: >
+          The session-start answer (201) and the session-state read (GET .../exam-sessions/<id>, 200, read after all probes and
+          again after submit) were scanned for is_correct and any correct/answer_key marker. Zero hits. Each option object has
+          exactly two keys, id and text; each question has exactly question_id, sort_order, stem, type, options. The only
+          'score' field is session.score_pct (null while in_progress). After submit the state shows status submitted,
+          score_pct 0.0, passed false, with the same key set and still no is_correct. Method page_state was verified at the
+          API layer (the screen renders from this response); the exam screen was not re-driven in a browser in this run
+          (the sibling happy-path spec covers that screen).
+      EO-002:
+        verdict: PASS
+        evidence: "See refusal_steps: all five refused with 403, no question, answer marking, pass mark, user or role information shown."
+      EO-003:
+        verdict: PASS
+        evidence: >
+          Session 78949578-... was queried after all 17 refused attempts: GET -> 200, status in_progress, same two questions,
+          remaining_seconds counting down normally (1768 s at read time), and the candidate could still submit it:
+          POST .../submit -> 200 {status: submitted, passed: false, percentage: 0.0, total_score 0.0 of 2.0}.
+    cleanup:
+      done: true
+      method: "Candidate submitted its own session (POST .../submit -> 200). No admin token was used. Submitting with no answers recorded a 0.0% failed attempt for candidate-user on the Safety Certification Exam (max_attempts 100); it cannot be undone by the candidate. State queried back: status submitted. No open session left."
+    visual_regression: "No gui_screen expected outcome; REQ-362 two-phase comparison not applicable."
+findings:
+  not_refused: []
+  note: "No finding. No refusal step succeeded."
+observations:
+  - "All refusals are 403 Forbidden RFC7807 with detail 'insufficient permissions'; none was a 404, empty list or hidden page. Every route probed is a real route (identity, entities, audit, tenant/settings), not an unmatched path (unmatched paths also answer 403 by default-deny in this app, which is why the routes were taken from the router source)."
+  - "GET /me/access (REQ-449) was not used for role observation; the token_claim source was."
+  - "A failed first attempt of the scratch script reported 'session id:' empty because of a Windows path issue in the script's own python call; the session had been created (201) and was recovered from the saved response and used. No effect on results."
+  - "Shared scratchpad files main.sh, run1.sh, run2.sh and pf.txt in the session scratchpad were overwritten by this run (scratch only; nothing in the repo)."
+  - "Extra artefact: test/uat-reports/preflight-2026-10-07-qa-bilimbaga-refusal.txt (Step 0 output, no secrets)."
+secret_handling: "No password or token was printed, logged or written. Response bodies saved in the scratchpad contain no credentials."
+known_open_issues_cited: [ISS-0727, ISS-0895, ISS-0901]
+env_blocked: []
