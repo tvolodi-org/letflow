@@ -463,7 +463,7 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     end
   end
 
-  test "a realm name is percent-encoded as a path segment in the probe URL", ctx do
+  test "a validated realm reaches the probe URL path unchanged (trimmed, not escaped)", ctx do
     Server.use_real_probe!()
 
     server =

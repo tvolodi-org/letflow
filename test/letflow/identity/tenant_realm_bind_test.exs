@@ -137,6 +137,23 @@ defmodule Letflow.Identity.TenantRealmBindTest do
     assert entries(ctx.tenant.schema_name, "tenant.idp_realm.bound") == []
   end
 
+  test "a non-active tenant answers tenant_not_active even when the same realm is already stored (design 3.2)",
+       ctx do
+    bound = realm()
+    assert {:ok, _} = Identity.bind_tenant_realm(ctx.tenant.tenant_id, bound, opts(ctx))
+
+    {:ok, _} =
+      Repo.get!(Tenant, ctx.tenant.tenant_id)
+      |> Tenant.status_changeset(%{status: :inactive})
+      |> Repo.update()
+
+    assert {:error, :tenant_not_active} =
+             Identity.bind_tenant_realm(ctx.tenant.tenant_id, bound, opts(ctx))
+
+    assert stored_realm(ctx.tenant.tenant_id) == bound
+    assert length(entries(ctx.tenant.schema_name, "tenant.idp_realm.bound")) == 1
+  end
+
   test "realm bound: a tenant with no provisioning registration is not bound (audit_failed, rolled back)",
        ctx do
     # Without the registration row the tenant's audit schema is unknown; the bind must

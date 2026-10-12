@@ -39,9 +39,33 @@ values belong in this file or in any evidence field.
    `migrating` or deactivated tenant answers 409). It cannot be changed or cleared afterwards, so
    confirm the realm belongs to this customer before you bind it (checklist item "realm ownership
    confirmed by").
+
+   **Activation is automatic.** The onboarding call provisions the tenant schema and then flips
+   the tenant from `migrating` to `active` (`Letflow.TenantOnboarding.provision_and_migrate/1`).
+   You do not activate the tenant by hand. If it is still `migrating`, see "If the tenant stays
+   migrating" below.
 4. **R4 First sign-in.** The administrator signs in once. Verify `GET /api/v1/me` shows
    `TENANT_ADMIN` (role names only). Re-read `GET /api/v1/onboarding/{id}`: `login.status` is
    `realm_bound`.
+
+## If the tenant stays migrating
+
+Provisioning can fail after the onboarding record is created. The tenant then stays `migrating`,
+and `POST .../bind-realm` answers 409 `tenant is not active`, writing nothing.
+
+1. **Do not bind or edit the tenant row by hand.** A `migrating` tenant has a half-provisioned
+   schema, and a hand-written status change would make it look ready when it is not.
+2. **Recover provisioning.** An engineer runs `Letflow.TenantOnboarding.recover_provisioning/1`
+   with the tenant id from a release console. There is no HTTP route for it. The call is
+   idempotent: it re-runs the same provisioning steps and flips the tenant to `active` only on
+   success.
+3. **Bind again.** Once the tenant is `active`, run R3 unchanged.
+4. **If recovery fails, stop and escalate** to the platform owner with the onboarding id and the
+   error. Do not retry by changing the database.
+
+If the onboarding call carried an `idp_realm_id`, that realm is already bound to the `migrating`
+tenant (the create step binds it). Another tenant cannot bind the same realm (409, realm bound
+elsewhere) until that is resolved, so recover this tenant rather than rebinding its realm.
 
 ## Realm checklist
 

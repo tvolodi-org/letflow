@@ -1859,18 +1859,20 @@ defmodule Letflow.Identity do
   defp lock_and_bind_realm(repo, tenant_id, realm) do
     locked = from(t in Tenant, where: t.id == ^tenant_id, lock: "FOR UPDATE")
 
+    # Status is checked first: design 3.2 answers 409 for any non-active tenant, even when
+    # the same realm is already stored, so a repeat call cannot succeed on a non-active tenant.
     case repo.one(locked) do
       nil ->
         {:error, :not_found}
+
+      %Tenant{status: status} when status != :active ->
+        {:error, :tenant_not_active}
 
       %Tenant{idp_realm_id: ^realm} = tenant ->
         {:ok, {:unchanged, tenant}}
 
       %Tenant{idp_realm_id: stored} when is_binary(stored) ->
         {:error, :realm_already_bound}
-
-      %Tenant{status: status} when status != :active ->
-        {:error, :tenant_not_active}
 
       %Tenant{} = tenant ->
         changeset = Tenant.realm_bind_changeset(tenant, %{"idp_realm_id" => realm})
