@@ -419,20 +419,13 @@ defmodule Letflow.Routers.Onboarding do
   defp provision_and_bind(conn, tenant, slug, hostname, body, realm, bind_opts) do
     with {:ok, _registration} <- TenantOnboarding.provision_and_migrate(tenant.id),
          {:ok, record} <-
-           Identity.create_onboarding(%{tenant_id: tenant.id, slug: slug, hostname: hostname}),
-         {:ok, login_state} <- bind_requested_realm(tenant, record, realm, bind_opts) do
-      created_body =
-        record
-        |> onboarding_map(login_state)
-        |> Map.put("administrator", administrator_map(body))
-        |> Map.put("ignored_fields", ignored_fields(body))
-
-      Response.created(conn, created_body)
+           Identity.create_onboarding(%{tenant_id: tenant.id, slug: slug, hostname: hostname}) do
+      # The tenant and its onboarding record are committed from here on. A realm that cannot be
+      # bound is reported in the 201 body, never as an error that implies nothing was created
+      # (SECURITY-REVIEWER MAJOR-2). Nothing fallible runs after a bind commits.
+      created_with_realm(conn, tenant, record, body, realm, bind_opts)
     else
       {:error, :duplicate_hostname} -> Response.conflict(conn, "hostname already bound")
-      {:error, :realm_already_bound} -> Response.conflict(conn, "realm already bound")
-      {:error, :duplicate_realm} -> Response.conflict(conn, "realm already bound")
-      {:error, :audit_failed} -> Response.internal_error(conn)
       {:error, %Ecto.Changeset{}} -> Response.unprocessable(conn, "validation failed")
       {:error, {:provisioning_failed, _reason}} -> Response.internal_error(conn)
       {:error, {:migration_failed, _exception}} -> Response.internal_error(conn)
@@ -440,18 +433,38 @@ defmodule Letflow.Routers.Onboarding do
     end
   end
 
-  # Binds the realm requested at creation, after the tenant is active and its onboarding
-  # record exists. Same audited path as POST .../bind-realm (bind-once, row lock, audit).
-  # The login state comes from the bind's own result, so nothing fallible runs AFTER the
-  # bind commits (a failed read there would answer 500 with the realm already bound).
-  defp bind_requested_realm(_tenant, record, nil, _bind_opts),
-    do: Identity.get_onboarding_login_state(record.tenant_id)
+  defp created_with_realm(conn, _tenant, record, body, nil, _bind_opts) do
+    Response.created(conn, created_body(record, %{idp_realm_id: nil}, body))
+  end
 
-  defp bind_requested_realm(tenant, _record, realm, bind_opts) do
+  defp created_with_realm(conn, tenant, record, body, realm, bind_opts) do
     case Identity.bind_tenant_realm(tenant.id, realm, bind_opts) do
-      {:ok, bound} -> {:ok, %{idp_realm_id: bound.idp_realm_id}}
-      {:error, reason} -> {:error, reason}
+      {:ok, bound} ->
+        Response.created(conn, created_body(record, %{idp_realm_id: bound.idp_realm_id}, body))
+
+      {:error, reason} ->
+        created_body = created_body(record, %{idp_realm_id: nil}, body)
+
+        Response.created(
+          conn,
+          Map.put(created_body, "realm_request", %{
+            "status" => "not_bound",
+            "reason" => realm_not_bound_reason(reason)
+          })
+        )
     end
+  end
+
+  defp realm_not_bound_reason(reason) when reason in [:duplicate_realm, :realm_already_bound],
+    do: "taken"
+
+  defp realm_not_bound_reason(_other), do: "unavailable"
+
+  defp created_body(record, login_state, body) do
+    record
+    |> onboarding_map(login_state)
+    |> Map.put("administrator", administrator_map(body))
+    |> Map.put("ignored_fields", ignored_fields(body))
   end
 
   # ── Administrator echo and ignored fields (design §3.4) ──────────────────
@@ -607,13 +620,28 @@ defmodule Letflow.Routers.Onboarding do
     ]
 
     case Identity.bind_tenant_realm(record.tenant_id, realm, opts) do
-      {:ok, _tenant} -> respond_with_record(conn, record)
-      {:error, :not_found} -> Response.not_found(conn)
-      {:error, :realm_already_bound} -> Response.conflict(conn, "realm already bound")
-      {:error, :duplicate_realm} -> Response.conflict(conn, "realm already bound")
-      {:error, :tenant_not_active} -> Response.conflict(conn, "tenant is not active")
-      {:error, %Ecto.Changeset{}} -> Response.unprocessable(conn, "validation failed")
-      {:error, :audit_failed} -> Response.internal_error(conn)
+      # The response comes from the bind's own result: a read after the commit could fail
+      # with the realm already bound (SECURITY-REVIEWER BLOCKER-1).
+      {:ok, bound} ->
+        Response.ok(conn, onboarding_map(record, %{idp_realm_id: bound.idp_realm_id}))
+
+      {:error, :not_found} ->
+        Response.not_found(conn)
+
+      {:error, :realm_already_bound} ->
+        Response.conflict(conn, "realm already bound")
+
+      {:error, :duplicate_realm} ->
+        Response.conflict(conn, "realm already bound")
+
+      {:error, :tenant_not_active} ->
+        Response.conflict(conn, "tenant is not active")
+
+      {:error, %Ecto.Changeset{}} ->
+        Response.unprocessable(conn, "validation failed")
+
+      {:error, :audit_failed} ->
+        Response.internal_error(conn)
     end
   end
 

@@ -446,11 +446,13 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
 
     refute_received {:realm_probe, _realm}
 
-    resp = onboard!(ctx, %{"idp_realm_id" => " x "})
+    # A unique-column value: a generated realm, so a leftover row can never collide with a later run.
+    value = realm()
+    resp = onboard!(ctx, %{"idp_realm_id" => " " <> value <> " "})
 
-    assert stored_realm(resp["tenant_id"]) == "x"
-    assert resp["login"]["idp_realm_id"] == "x"
-    assert_received {:realm_probe, "x"}
+    assert stored_realm(resp["tenant_id"]) == value
+    assert resp["login"]["idp_realm_id"] == value
+    assert_received {:realm_probe, ^value}
   end
 
   test "an idp_realm_id validation error never echoes the received value", ctx do
@@ -514,15 +516,79 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     assert conn.status == 409
     assert json(conn)["detail"] == "hostname already bound"
 
-    orphan = Repo.get_by!(Tenant, slug: slug)
-    cleanup_onboarded_tenant!(orphan.id)
-    assert orphan.idp_realm_id == nil
+    # Cleanup is registered before the assertion, so a failing run still drops the schema.
+    orphan = Repo.get_by(Tenant, slug: slug)
+    if orphan, do: cleanup_onboarded_tenant!(orphan.id)
+    assert %Tenant{idp_realm_id: nil} = orphan
     refute Repo.exists?(from(t in Tenant, where: t.idp_realm_id == ^free))
 
     # The realm is still free: a later create with a free hostname binds it.
     created = onboard!(ctx, %{"idp_realm_id" => free})
     assert created["login"]["loginable"] == true
     assert stored_realm(created["tenant_id"]) == free
+  end
+
+  # The authorization plug answers 403 before the handler's own prefix gate (design 3.2), so the
+  # create-path gate is defence in depth: reachable only by a race, and pinned by mutant M12.
+  test "POST /onboarding with a realm answers 403 before any write when the platform pin is another tenant",
+       ctx do
+    other = TenantFixture.provisioned_tenant!(slug_prefix: "iss1030-plug-other")
+    Fixture.pin!(other.tenant_id)
+
+    refused!(ctx, %{"idp_realm_id" => realm()}, 403)
+  end
+
+  test "POST /onboarding whose realm is claimed by another tenant before the bind answers 201 with realm_request not_bound and keeps the record",
+       ctx do
+    other = TenantFixture.provisioned_tenant!(slug_prefix: "iss1030-race-other")
+    value = realm()
+    slug = TenantSlugFixture.unique_slug("iss1030")
+
+    conn =
+      with_realm_claimed_after_registry_insert(other.tenant_id, value, fn ->
+        call(
+          ctx,
+          :post,
+          "/api/v1/onboarding",
+          new_body(%{"slug" => slug, "idp_realm_id" => value})
+        )
+      end)
+
+    assert conn.status == 201, conn.resp_body
+    created = json(conn)
+    cleanup_onboarded_tenant!(created["tenant_id"])
+
+    assert created["login"]["loginable"] == false
+    assert created["realm_request"] == %{"status" => "not_bound", "reason" => "taken"}
+    assert stored_realm(created["tenant_id"]) == nil
+    assert stored_realm(other.tenant_id) == value
+
+    fetched = call(ctx, :get, "/api/v1/onboarding/#{created["id"]}", nil)
+    assert fetched.status == 200
+    assert json(fetched)["login"]["loginable"] == false
+  end
+
+  test "bind-realm records the request's x-trace-id in the platform chain and never in the tenant chain",
+       ctx do
+    resp = onboard!(ctx, %{})
+    bound = realm()
+
+    conn =
+      :post
+      |> Fixture.api_conn(
+        "/api/v1/onboarding/#{resp["id"]}/bind-realm",
+        ctx.token,
+        ctx.platform.tenant.slug,
+        %{"idp_realm_id" => bound}
+      )
+      |> Plug.Conn.put_req_header("x-trace-id", "t-router-7")
+      |> Fixture.dispatch_api()
+
+    assert conn.status == 200, conn.resp_body
+    assert [tenant_entry] = entries(schema_of(resp["tenant_id"]), "tenant.idp_realm.bound")
+    assert tenant_entry.trace_id == nil
+    assert [platform_entry] = entries(ctx.platform.schema_name, "platform.tenant_idp_realm.bound")
+    assert platform_entry.trace_id == "t-router-7"
   end
 
   test "POST /onboarding answers 503 with a retry-after header of 5 and creates no tenant row when the realm probe is unreachable",
@@ -675,6 +741,50 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     assert conn.status == 409
     assert json(conn)["detail"] == "tenant is not active"
     assert stored_realm(resp["tenant_id"]) == bound
+  end
+
+  test "POST /onboarding/:id/bind-realm issues no tenant read after the bind commits", ctx do
+    resp = onboard!(ctx, %{})
+    bound = realm()
+    handler_id = {__MODULE__, make_ref()}
+    test_pid = self()
+
+    :telemetry.attach(
+      handler_id,
+      [:letflow, :repo, :query],
+      &__MODULE__.forward_query_sql/4,
+      test_pid
+    )
+
+    try do
+      assert bind(ctx, resp["id"], bound).status == 200
+    after
+      :telemetry.detach(handler_id)
+    end
+
+    statements = drain_query_sql([])
+    update_index = Enum.find_index(statements, &String.contains?(&1, ~s(UPDATE "tenants")))
+    assert is_integer(update_index), "the bind did not write the tenant row"
+
+    after_commit = Enum.drop(statements, update_index + 1)
+
+    refute Enum.any?(after_commit, &String.contains?(&1, ~s(FROM "tenants"))),
+           "a tenant read ran after the bind commit: #{inspect(after_commit)}"
+  end
+
+  @doc false
+  def forward_query_sql(_event, _measurements, metadata, test_pid) do
+    if self() == test_pid do
+      send(test_pid, {:query_sql, to_string(Map.get(metadata, :query) || "")})
+    end
+  end
+
+  defp drain_query_sql(acc) do
+    receive do
+      {:query_sql, sql} -> drain_query_sql([sql | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
   end
 
   test "POST /onboarding/:id/bind-realm for a nonexistent onboarding id answers 404", ctx do
@@ -904,6 +1014,40 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     end
   end
 
+  # Claims the realm for another tenant right after the create's onboarding-record insert, so the
+  # create's own bind loses the race (after the pre-check, before the bind). Calling process only.
+  # The claim is an UPDATE, which does not match the INSERT filter, so it cannot re-enter here.
+  defp with_realm_claimed_after_registry_insert(tenant_id, realm_value, fun) do
+    handler_id = {__MODULE__, make_ref()}
+
+    :telemetry.attach(
+      handler_id,
+      [:letflow, :repo, :query],
+      &__MODULE__.claim_realm_on_registry_insert/4,
+      {self(), tenant_id, realm_value}
+    )
+
+    try do
+      fun.()
+    after
+      :telemetry.detach(handler_id)
+    end
+  end
+
+  @doc false
+  def claim_realm_on_registry_insert(
+        _event,
+        _measurements,
+        metadata,
+        {test_pid, tenant_id, value}
+      ) do
+    query = to_string(Map.get(metadata, :query) || "")
+
+    if self() == test_pid and String.starts_with?(query, ~s(INSERT INTO "onboarding_registry")) do
+      Repo.update_all(from(t in Tenant, where: t.id == ^tenant_id), set: [idp_realm_id: value])
+    end
+  end
+
   @doc false
   def change_pin_on_registry_read(_event, _measurements, metadata, {test_pid, action}) do
     query = to_string(Map.get(metadata, :query) || "")
@@ -928,5 +1072,8 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     for reference <- ["T-0150", "T-0158", "bind-realm"] do
       assert runbook =~ reference
     end
+
+    # AC3 names the activate step: the runbook must say activation is automatic.
+    assert runbook =~ "Activation is automatic"
   end
 end

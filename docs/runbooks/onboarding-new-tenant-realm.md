@@ -69,14 +69,12 @@ stays free, and after recovery you bind it with step R3.
 
 If the create call answers 409 `hostname already bound` after provisioning, the tenant exists,
 is active and has no realm; the realm stays free and the call can be retried with a free hostname.
-If it answers 409 `realm already bound` after provisioning (only in a race with another create for
-the same realm), the tenant exists without a realm: find it with `GET /api/v1/onboarding?hostname=`,
-escalate to the platform owner, and do not bind it by hand.
-
-If the create call answers 500 after provisioning (an audit fault while binding, which rolls the
-bind back), the tenant is active, the onboarding record exists, and the realm is **free**. Find the
-onboarding id with `GET /api/v1/onboarding?hostname=`, then retry the bind with
-`POST /api/v1/onboarding/{id}/bind-realm`. If the bind fails again, escalate; do not bind by hand.
+If the create call answers **201** with `realm_request.status = "not_bound"` (the realm was claimed by
+another tenant in a race, `reason = "taken"`, or the bind hit an audit fault, `reason =
+"unavailable"`), the tenant is active, the onboarding record exists (the body's `id`), and the realm
+is **free**. The response says so: `login.loginable` is `false`. Retry the bind with
+`POST /api/v1/onboarding/{id}/bind-realm` using the body's `id`. If `taken`, choose another realm
+first. If the bind fails again, escalate to the platform owner; do not bind by hand.
 
 ## Realm checklist
 

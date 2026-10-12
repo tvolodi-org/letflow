@@ -439,8 +439,9 @@ defmodule Letflow.Oidc.RealmProbeTest do
   # of being cleared (other modules read it through the default TLS options).
   defp trust!(root_ders) do
     previous = :public_key.cacerts_get()
-    install_cacerts!(root_ders)
+    # Registered before the install, so a failing install still restores the store.
     ExUnit.Callbacks.on_exit(fn -> install_cacerts!(previous) end)
+    install_cacerts!(root_ders)
   end
 
   defp install_cacerts!(entries) do
