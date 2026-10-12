@@ -157,3 +157,133 @@ defmodule Letflow.TenantFixtureDispatchTest do
     Repo.delete_all(from(t in Letflow.Identity.Tenant, where: t.id == ^tenant_id))
   end
 end
+
+defmodule Letflow.TenantFixtureDispatchPoolSmokeTest do
+  @moduledoc """
+  ISS-1042 smoke tests for the dispatch point of `Letflow.TenantFixture.provisioned_tenant!/1`
+  (design `lib/letflow/design/iss1042-pooled-tenant-fixture.md` sections 7 and 12.1).
+
+  Deliberately minimal: the full M1..M22 mutation/isolation proof is
+  `test/letflow/support/tenant_fixture_pool_test.exs` (TEST-DESIGNER). This module only proves
+  that the opt-in wiring works end to end and that the bypass options reach the unchanged
+  default path.
+
+  Every pooled test has the same shape (design 9.1), so the result does not depend on which
+  test runs first: assert the slot is pristine, then leave data behind.
+  """
+
+  use Letflow.DataCase, async: false
+
+  alias Letflow.Repo
+  alias Letflow.TenantFixture
+
+  # Audit (design 6.2): no Task / spawn / start_supervised / GenServer.cast in this module;
+  # no lib/ fire-and-forget worker is reachable (only Repo and TenantFixture are called); no
+  # ETS / Application.put_env / telemetry state is touched.
+  setup_all context do
+    TenantFixture.start_pool!(context, slots: [[slug_prefix: "pool-smoke"]])
+  end
+
+  setup context do
+    TenantFixture.attach_pool!(context)
+  end
+
+  defp leave_data_behind!(%{schema_name: schema_name, tenant_id: tenant_id}) do
+    Repo.query!(
+      ~s|INSERT INTO "#{schema_name}".groups (id, name, inserted_at, updated_at) | <>
+        ~s|VALUES (gen_random_uuid(), 'leftover', now(), now())|
+    )
+
+    Repo.query!(~s|SELECT nextval('"#{schema_name}".events_global_seq_seq')|)
+    tenant_id
+  end
+
+  defp group_count(schema_name),
+    do: Repo.query!(~s|SELECT count(*) FROM "#{schema_name}".groups|).rows |> hd() |> hd()
+
+  for n <- 1..3 do
+    test "pooled acquire #{n} starts pristine and leaves data behind" do
+      fixture = TenantFixture.provisioned_tenant!(slug_prefix: "pool-smoke")
+
+      assert group_count(fixture.schema_name) == 0
+      assert %{clean?: true} = TenantFixture.pool_dirty_report(fixture)
+
+      leave_data_behind!(fixture)
+
+      assert %{dirty_tables: ["groups"], dirty_sequences: [_ | _], clean?: false} =
+               TenantFixture.pool_dirty_report(fixture)
+    end
+  end
+
+  test "pooled calls return the same schema in one module; pool: false and :replay bypass it",
+       ctx do
+    pooled = TenantFixture.provisioned_tenant!(slug_prefix: "pool-smoke")
+    stats = TenantFixture.pool_stats(ctx.tenant_pool)
+    assert stats.slots == 1
+
+    assert Map.keys(pooled) |> Enum.sort() == [:schema_name, :tenant, :tenant_id]
+
+    bypass = TenantFixture.provisioned_tenant!(slug_prefix: "pool-smoke", pool: false)
+    refute bypass.schema_name == pooled.schema_name
+
+    replay =
+      TenantFixture.provisioned_tenant!(slug_prefix: "pool-smoke", template: :replay)
+
+    refute replay.schema_name == pooled.schema_name
+  end
+
+  test "an undeclared shape raises instead of cloning silently" do
+    assert_raise ArgumentError, ~r/did not declare/, fn ->
+      TenantFixture.provisioned_tenant!(slug_prefix: "never-declared")
+    end
+  end
+
+  test "a second attach in the same process raises", ctx do
+    assert_raise ArgumentError, ~r/twice/, fn -> TenantFixture.attach_pool!(ctx) end
+  end
+
+  test "definition drift (a new table) rebuilds the slot instead of resetting it", ctx do
+    fixture = TenantFixture.provisioned_tenant!(slug_prefix: "pool-smoke")
+    before_rebuilds = TenantFixture.pool_stats(ctx.tenant_pool).rebuilds
+
+    Repo.query!(~s|CREATE TABLE "#{fixture.schema_name}".zz_smoke_probe (id integer)|)
+    assert %{definition_drift: [_ | _]} = TenantFixture.pool_dirty_report(fixture)
+
+    TenantFixture.recycle_pool!()
+    again = TenantFixture.provisioned_tenant!(slug_prefix: "pool-smoke")
+
+    assert again.schema_name == fixture.schema_name
+    assert TenantFixture.pool_stats(ctx.tenant_pool).rebuilds == before_rebuilds + 1
+
+    assert Repo.query!(
+             "SELECT 1 FROM information_schema.tables WHERE table_schema = $1 " <>
+               "AND table_name = 'zz_smoke_probe'",
+             [again.schema_name]
+           ).rows == []
+  end
+end
+
+defmodule Letflow.TenantFixtureDispatchPoolAsyncRejectTest do
+  @moduledoc "ISS-1042 design section 8: an async module can neither create nor attach a pool."
+
+  # async: false -- this file as a whole sets the GLOBAL :auto sandbox mode and uses
+  # provisioned tenants, so no module in it may run async (the contexts passed below are
+  # synthetic maps; the module's own async flag is irrelevant to what is asserted).
+  use ExUnit.Case, async: false
+
+  test "start_pool!/2 rejects an async or unknown module context" do
+    assert_raise ArgumentError, ~r/async: false/, fn ->
+      Letflow.TenantFixture.start_pool!(%{module: __MODULE__, async: true}, slots: [[]])
+    end
+
+    assert_raise ArgumentError, ~r/async: false/, fn ->
+      Letflow.TenantFixture.start_pool!(%{module: __MODULE__}, slots: [[]])
+    end
+  end
+
+  test "attach_pool!/1 rejects an async context" do
+    assert_raise ArgumentError, ~r/async: false/, fn ->
+      Letflow.TenantFixture.attach_pool!(%{async: true})
+    end
+  end
+end

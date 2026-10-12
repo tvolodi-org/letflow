@@ -1,0 +1,52 @@
+{
+ "handoff_id": "b3f6c0de-6a41-4c8e-9a52-1042040b0002",
+ "run_id": "WF03-ISS1042-20261012",
+ "workflow_id": "WF-03",
+ "step": "04r",
+ "from_agent": "ORCH",
+ "to_agent": "TEST-RUNNER",
+ "file": "handoffs/WF03-ISS1042-20261012/step-04r-test-runner.json",
+ "created_at": "2026-10-12T07:30:22Z",
+ "started_at": "2026-10-12T07:31:30Z",
+ "completed_at": "2026-10-12T08:32:18Z",
+ "status": "COMPLETED",
+ "priority": "NORMAL",
+ "context": {
+  "stage": "S1",
+  "requirement_ids": [],
+  "requirement_text": {},
+  "source_text": {
+   "Q-1042": "Acceptance (2): one lever implemented with before/after wall time of the test phase, 5 runs each, run ids. (3) isolation proof. (4) no CI check name changes."
+  },
+  "related_handoff_ids": [
+   "b3f6c0de-6a41-4c8e-9a52-1042040b0001"
+  ],
+  "artifacts_in": [
+   "test/letflow/support/tenant_fixture_pool_test.exs",
+   "test/specs/ISS-1042.md",
+   "docs/issues/ISS-1042.yaml",
+   "test/support/tenant_fixture.ex",
+   "handoffs/WF03-ISS1042-20261012/step-04b-test-design-validator.json"
+  ],
+  "owned_modules": [
+   "test/reports/",
+   "docs/issues/ISS-1042.yaml (measurements section only)"
+  ],
+  "worktree": null,
+  "branch_name": "feature/WF03-ISS1042-20261012"
+ },
+ "task": {
+  "description": "WF-03 Step 4 TEST-RUNNER for ISS-1042 (.claude/agents/test-runner.md). Do NOT edit lib/ or test/ code. Two jobs, REAL output only:\n\nJOB A (formal before/after, acceptance 2). BEFORE = a throwaway git worktree OUTSIDE the repo at commit cc65f7b16 (main, no pooled fixture). AFTER = a second throwaway worktree at the branch head (git pull first). In each: deps/_build as needed (copy or mix deps.get; ecto.create/migrate handled by the test alias). Run INTERLEAVED B,A,B,A,... 5 each, the exact CI-shaped slice: MIX_TEST_PARTITION=1 mix test --partitions 12 (no --slowest; same seed 0 for both; same Postgres on port 5499, a throwaway docker postgres you remove afterwards; use the DB config of each worktree). Capture for each run: run id (B1..B5/A1..A5), wall time ('Finished in X seconds' and total elapsed), tests passed/failed, count of LETFLOW_TENANT_FIXTURE outcome=clean|reset|rebuilt log lines for AFTER (a reset-vs-rebuilt ratio; rebuilt should be ~0 in a clean suite). If a run fails, classify (flake vs real) and quote output; do not hide it. Report mean/median/min/max per arm and speedup.\n\nJOB B (scoped gates on the branch head, one invocation each): the three adopter files + test/support/tenant_fixture_dispatch_test.exs + test/letflow/support/tenant_fixture_pool_test.exs in one mix test call; then 'MIX_ENV=test mix compile --warnings-as-errors'; then 'mix format --check-formatted'.\n\nWrite test/reports/report-2026-10-12-WF03-ISS1042-20261012.yaml with the numbers and put the A/B table in docs/issues/ISS-1042.yaml under a 'before_after' key (measurements only; do not flip status). Commit and push (message ends with 'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>').\n\nMACHINE RULE (supervisor): only ONE BEAM at a time machine-wide. EVERY mix invocation (each of the 10 runs separately, and each Job B command) must take the mutex, one lock acquisition per mix invocation, wrapper: L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2>/dev/null; do sleep 20; done; trap 'rmdir \"$L\" 2>/dev/null' EXIT; cd <dir> && <ONE mix invocation> 2>&1 . A single run may wait a long time for the lock; that wait is excluded from wall time (the timer is mix's own 'Finished in'). Never delete another session's lock. Poll synchronously: foreground calls only, split with timeouts under 10 min (a BEAM that needs more than the tool timeout must be run so the call blocks; if a single call can time out, run it with nohup to a log in the scratchpad INSIDE the lock-holding wrapper script and poll the log with short foreground sleeps; never arm Monitors). Clean up worktrees and container at the end; git status clean.",
+  "acceptance_criteria": [
+   "10 timed runs with ids and real output",
+   "scoped gates results",
+   "report file + issue yaml updated"
+  ]
+ },
+ "result": {
+  "status": "PASS",
+  "summary": "10/10 timed runs green, 0 discarded. Finished-in mean before 367.9s vs after 256.2s (1.44x, -30.4%); median 370.7 vs 251.0. Scoped gates: 161 passed 0 failures, compile --warnings-as-errors clean, format clean. 1 expected rebuilt/run (pool test drift probe), 78 resets.",
+  "report": "test/reports/report-2026-10-12-WF03-ISS1042-20261012.yaml",
+  "caveat": "partition-1 membership differs by arm (542 vs 527 tests); compile gate run with --force"
+ }
+}

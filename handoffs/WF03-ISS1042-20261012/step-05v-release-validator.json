@@ -1,0 +1,57 @@
+{
+ "handoff_id": "b3f6c0de-6a41-4c8e-9a52-1042040b0003",
+ "run_id": "WF03-ISS1042-20261012",
+ "workflow_id": "WF-03",
+ "step": "05v",
+ "from_agent": "ORCH",
+ "to_agent": "RELEASE-VALIDATOR",
+ "file": "handoffs/WF03-ISS1042-20261012/step-05v-release-validator.json",
+ "created_at": "2026-10-12T08:32:49Z",
+ "started_at": "2026-10-12T08:35:00Z",
+ "completed_at": "2026-10-12T14:00:00Z",
+ "status": "COMPLETED",
+ "priority": "NORMAL",
+ "context": {
+  "stage": "S1",
+  "requirement_ids": [],
+  "requirement_text": {},
+  "source_text": {
+   "Q-1042": "CI lever: per-test tenant-template clone cost. Acceptance: (1) instrumented measurement quoted; (2) one lever implemented with before/after wall time of the test phase (5 runs each, run ids); (3) isolation proof: a test that leaves data behind must not leak (mutation test); (4) no change to required CI check names; no paid runners."
+  },
+  "related_handoff_ids": [
+   "b3f6c0de-6a41-4c8e-9a52-1042040b0002"
+  ],
+  "artifacts_in": [
+   "docs/issues/ISS-1042.yaml",
+   "test/reports/report-2026-10-12-WF03-ISS1042-20261012.yaml",
+   "test/specs/ISS-1042.md",
+   "lib/letflow/design/iss1042-pooled-tenant-fixture.md",
+   "handoffs/WF03-ISS1042-20261012/"
+  ],
+  "owned_modules": [],
+  "worktree": null,
+  "branch_name": "feature/WF03-ISS1042-20261012"
+ },
+ "task": {
+  "description": "WF-03 pre-close RELEASE-VALIDATOR gate for ISS-1042 (.claude/agents/release-validator.md). Independently re-derive each of the 4 acceptance criteria from files and your OWN runs; do not trust the TEST-RUNNER report. You write no code. Checks: (1) docs/issues/ISS-1042.yaml quotes the instrumented measurement; spot-check it against step-01 handoff and, if feasible, nothing more. (2) before/after: re-verify the 5+5 table is in the report with per-run ids; AND independently run ONE 'after' sample and ONE 'before' sample (MIX_TEST_PARTITION=1 mix test --partitions 12 --seed 0; before = throwaway worktree at cc65f7b16, after = branch head in another throwaway worktree; throwaway postgres port 5499, remove afterwards) and confirm the direction and rough magnitude (>=20% faster) of the claimed speedup; note the claimed 542 vs 527 test-count difference between arms and judge whether it undermines the comparison (e.g. compare time per test or the per-module times of the three adopter files, which are identical code in both arms). (3) isolation: confirm the pool test + mutant table; run test/letflow/support/tenant_fixture_pool_test.exs once yourself. (4) `git diff cc65f7b16..HEAD --stat` : confirm no change under .github/, no workflow/job name changes, no paid-runner labels, no lib/ or priv/ changes. Also check the diff for scope creep and that docs/anti-patterns.md entry exists. Record R4 (docs say 57 tables of a clone; a clone has 50 plain tables) as a known pending doc fix, not a blocker. Verdict PASS/FAIL in result.status, handoff status COMPLETED; list any findings with file:line. MACHINE RULE: only ONE BEAM at a time machine-wide; every mix invocation takes the mutex, one acquisition per invocation, wrapper: L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2>/dev/null; do sleep 20; done; trap 'rmdir \"$L\" 2>/dev/null' EXIT; cd <dir> && <ONE mix invocation> 2>&1 . Foreground/polling only, no Monitors. Clean up worktrees/container. Commit the handoff and push (message ends with 'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>').",
+  "acceptance_criteria": [
+   "verdict per acceptance criterion with evidence",
+   "own before/after sample and pool test run output quoted"
+  ]
+ },
+ "result": {
+  "status": "PASS",
+  "summary": "All 4 acceptance criteria independently re-verified. Own before/after sample: before (cc65f7b16) Finished in 399.5s, 542 passed; after (branch head) 286.1s, 527 passed -> -28.4% wall (0.737 vs 0.543 s/test, -26%), >=20% threshold met. Pool test: 57 passed (1 property, 56 tests), 82.3s.",
+  "criteria": {
+   "1_instrumented_measurement": "PASS: docs/issues/ISS-1042.yaml measurements quote clone mean 839ms/median 711ms/max 3107ms, 50 tables/clone, fixture share 74.0% (run A) / 80.4% (run B); 74.0/80.4/452.6s spot-checked against step-01 handoff.",
+   "2_before_after": "PASS: report + ISS yaml hold 5+5 table with ids B1..B5/A1..A5 (before mean 367.9, after 256.2, -30.4%, every after run faster than every before run). Own samples: before 399.5s (542 passed), after 286.1s (527 passed), same direction and magnitude; after-arm pool_acquire log lines 125 clean / 78 reset / 1 rebuilt, matching the report. 542 vs 527 count difference does not undermine: per-test time drops 26% as well, sync time dominates, and direction replicated 11/11 (10 reported + mine). Caveat stays documented (partition membership shifted by file hashing).",
+   "3_isolation": "PASS: tenant_fixture_pool_test.exs 57 passed on my run; TEST-DESIGN-VALIDATOR 9 independent mutants (6 killed, 3 survivors analysed: 1 equivalent, 1 outside design claim, 1 perf-only), designer 35-mutant table not re-run by me.",
+   "4_ci_names_runners": "PASS: git diff cc65f7b16..HEAD --stat: no .github/ change, no priv/ change, lib/ change only lib/letflow/design/iss1042-pooled-tenant-fixture.md (design doc); runners remain ubuntu-latest."
+  },
+  "scope_creep": "None: changes limited to test/support/tenant_fixture.ex (+, 1 line removed: template option type line), tenant_template.ex (additions only), 3 adopter test files (setup_all/attach_pool! + audit comments), new pool/dispatch tests, docs/issues, docs/anti-patterns.md entry present (pooled fixture digest lesson), design, spec, report, handoffs.",
+  "known_pending_doc_fix": "R4: docs say 57 tables of a clone; a clone has 50 plain tables. Not a blocker.",
+  "not_run": "scripts/test_parallel.sh full suite and mix letflow.check.test not run: change touches only test infrastructure + 3 adopter files; scoped gates (161 passed, compile --warnings-as-errors --force, format) were run by TEST-RUNNER; CI is the full-suite check. Flagged for ORCH.",
+  "findings": [],
+  "cleanup": "worktrees, container rv1042-pg, scratch dir removed; mutex released."
+ }
+}

@@ -1,0 +1,121 @@
+{
+  "handoff_id": "e630a1c9-77e7-4d2a-9740-b11a734ea325",
+  "run_id": "WF03-ISS1042-20261012",
+  "workflow_id": "WF-03",
+  "step": "03",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF03-ISS1042-20261012/step-03-elixir-dev.json",
+  "created_at": "2026-10-12T04:12:02Z",
+  "started_at": null,
+  "completed_at": "2026-10-12T04:39:20Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1042": "MEDIUM, owner CI lane (follow-up of Q-1037, the next lever after sharding). Reported by the supervisor 2026-10-08. Evidence: ExUnit reports ~0.5 s average per test and ~66 min of cumulative test work per backend run (7.7k tests); a large share is believed to be the per-test tenant schema clone from tenant_template (CREATE SCHEMA ... LIKE tenant_template... for every table, see the LETFLOW_TENANT_FIXTURE setup/teardown log lines and the 'tenant_template_build' schemas): cost per test = DDL for every table of the template plus DROP SCHEMA CASCADE at teardown. NOT yet measured: step 1 is to instrument (time per clone, number of tables cloned, share of test time) on one partition, step 2 choose the lever: (a) clone only the tables the test needs, (b) share a read-only tenant across tests that do not mutate it (async-safe), (c) a pooled tenant per module with truncate-reset, (d) Postgres schema cloning via CREATE DATABASE ... TEMPLATE or a faster mechanism; keep isolation guarantees (no cross-test leakage, the ISS-0410-class isolation bugs). Each step measured before/after; mutation proof that isolation still holds (a test that leaves data behind must not leak into the next). Overlap check 2026-10-08: Q-1037 is the umbrella; ISS-0410 (isolation failure, blocked) is background, not a duplicate."
+    },
+    "related_handoff_ids": [
+      "6d2942ae-a237-4395-9718-097f7939763b",
+      "2ffb51ca-bbae-4ae0-8e77-50d3dbf3d7f1"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/iss1042-pooled-tenant-fixture.md",
+      "docs/issues/ISS-1042.yaml",
+      "test/support/tenant_fixture.ex",
+      "test/support/tenant_template.ex",
+      "handoffs/WF03-ISS1042-20261012/step-02b-code-design-validator-regate1.json"
+    ],
+    "owned_modules": [
+      "docs/anti-patterns.md",
+      "docs/issues/ISS-1042.yaml",
+      "test/letflow/api/identity_id_hardening_test.exs",
+      "test/letflow/routers/promotion_scope_test.exs",
+      "test/letflow/definitions/store_test.exs",
+      "test/letflow/support/tenant_fixture_pool_test.exs",
+      "test/letflow/support/tenant_fixture_test.exs",
+      "test/support/tenant_fixture.ex",
+      "test/support/tenant_fixture_dispatch_test.exs",
+      "test/support/tenant_template.ex"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1042-20261012"
+  },
+  "task": {
+    "description": "WF-03 Step 3 (implement) for ISS-1042 / Q-1042 / GH #2381, the equivalent of WF-02 Step 2a. You are ELIXIR-DEV. The fix lives in test/support (test infrastructure) plus per-module opt-ins; it is NOT a production tenant-data path.\n\nSPEC: lib/letflow/design/iss1042-pooled-tenant-fixture.md (validated: CODE-DESIGN-VALIDATOR re-gate PASS, handoffs/WF03-ISS1042-20261012/step-02b-code-design-validator-regate1.json). Diagnosis: docs/issues/ISS-1042.yaml. Read the whole design first, and section 12 (owned modules, tests that must stay green) and section 14 (open questions, each has a default: follow it and record the actual answer you observe).\n\nDO:\n1. Verify branch == feature/WF03-ISS1042-20261012 (primary checkout, git pull --ff-only first). If not, STOP and report FAIL before touching any file.\n2. Implement the opt-in module-scoped pooled tenant exactly as the design specifies: public API and @specs in Letflow.TenantFixture (start_pool!/2, attach_pool!/1, per-call opt-out, pool_dirty_report/1 as designed), the pool worker, probe/dirty detection, FK-closure truncate without CASCADE, sequence reset, seed re-copy from the live template, definitional digest, fences and final guard, rebuild path, teardown with Sandbox.mode(:auto), loud rejection for async modules and misordered attach. Default path (no pool) must stay byte-for-byte behaviourally unchanged: one dispatch point only.\n3. Opt in exactly the three modules the design adopts (IdentityIdHardeningTest, PromotionScopeTest, test/letflow/definitions/store_test.exs), after applying the design's adopter audit rule to each (record the audit result in your summary; a module that fails the audit is NOT adopted).\n4. Do NOT write the M1..M21 mutation/isolation test file (test/letflow/support/tenant_fixture_pool_test.exs): TEST-DESIGNER owns it at Step 4 and will write it against your implementation. You MAY add the minimal smoke test(s) the design says the implementer owns. Existing tests listed in section 12 must stay green.\n5. Resolve these validator MINORs by judgement while implementing (all were accepted as implementer-level, no design rework):\n- [MINOR] M1 digest vs assert_clone_parity! (F1 residue): design 4.2 says the digest is 'a superset of what assert_clone_parity! dimensions 2-6 and 8-13 compare'. Two things are not in it. (a) Sequence OWNED BY ownership: dimension 5 (check_sequences, pg_get_serial_sequence) depends on the pg_depend ownership link; class Q lists only type/start/increment/max/min/cache/cycle and class C compares the default expression, so ALTER SEQUENCE .. OWNED BY NONE changes neither, the sequence is then skipped by TRUNCATE .. RESTART IDENTITY, and a dirty sequence with no owning table falls out of S (4.3 step 3). (b) Class G is 'non-internal triggers' only (same filter as dimension 8), so ALTER TABLE .. DISABLE TRIGGER ALL (superuser, which the docker test role is) flips tgenabled on the internal FK RI triggers and is invisible; the 4.5 claim that triggers are proved 'present, enabled and unchanged' is true for user triggers only. Neither is exercised by the three adopters (grep: their only DDL is T-12b CREATE TABLE zz_probe). Fix: add pg_depend ownership of sequences to Q and tgenabled of internal triggers (no definition text) to G, add a mutation each, and correct the 'superset' sentence. Implementer-resolvable, additive.\n- [MINOR] M2 Fence A 'continue' reasoning is unsound for uncommitted stragglers (4.3 step 1): 'the straggler's writes will be visible to detect and reset like any other dirt' and 'the proof below is what protects the test' are false for a backend that is idle-in-transaction with an UNCOMMITTED insert: probes cannot see it, nothing is truncated (tables read clean), the final guard passes, and the commit lands during the owning test (RR-1 technically, but the design observed the straggler and handed out anyway). Residual is narrow (the previous test's end fence 3.6 raises for the same condition first, and adopters pass the 6.2 audit) so not a BLOCKER. Fix: if fence A still sees an in-flight matching backend after its budget, raise pool_straggler (or rebuild) instead of continuing.\n- [MINOR] M3 Probe P vs public state is ambiguous: 4.2 defines P as items 2-4 (row presence, sequences, seed digests), but 4.3 steps 4/6 and 5.2.1 ('batched in the probe of 4.2') rely on public keyed-row counts and the tenants/tenant_schemas snapshot comparison being part of detect and verify, while 9.4 lists the final guard as 'row-presence + sequence + seed probe' only. State explicitly that public keyed counts + tenant/registration row compare are part of detect and verify, and say whether the final guard includes them. Mutations M5-M7 would catch a literal-P implementation in the pool test, so tests, not production, are the safety net here.\n- [MINOR] M4 No call timeout is specified for the test-process -> worker calls (start_pool! slot creation of up to 3 clones, max observed clone 3107 ms; acquire worst case = fence 250 ms + lock_timeout 3 s + rebuild clone + final-guard second reset). A default 5 s GenServer.call timeout would turn a slow-CI clone into a spurious exit (section 10 'worker process dies' row): flaky, not deterministic. State :infinity or a value above the sum of the stated budgets. No worker<->test deadlock found: the test process is blocked in the call holding no DB lock under :auto, and the worker only waits on DB locks bounded by lock_timeout 3 s.\n- [MINOR] M5 Factual: section 1.2 says the clone 'holds 50 base tables plus the partitions of events/events_archive (57 relations)', clone_state.definition_rows says '995 for a clone today', and OQ-9 discusses leaf partitions. 57/995 were measured on tenant_template (genuinely migrated, partitioned). A :clone schema is plain/unpartitioned by design (tenant_template.ex do_clone comments near lines 948-950 and 1187-1192; dimension 12 normalizes p/r for events/events_archive), so a clone has 50 plain tables and OQ-9 is moot. Harmless to the algorithm (baseline is read from the clone), but correct the text so an implementer does not build partition handling.\n- [MINOR] M6 Section 6.1/6.2 audit is incomplete on in-memory tenant-keyed state: the ETS/persistent_term list is correct (5 holders, re-grepped), but per-tenant-schema state also lives in the Letflow.Admission GenServer (state.tenants keyed by schema, evicted via forget_tenant on deactivate, reachable through Plugs.ApiPipeline on router calls) and Letflow.Oidc.ProviderRegistry (DynamicSupervisor; not reachable from the adopters, no bearer token in their tests). Admission releases refs in register_before_send so schema reuse is harmless for the three adopters, and none uses capture_log / deny-log assertions (AuthzDenyLog sampler windows). But the 6.2 result table records only spawn results, not the item-3 (ETS/env/telemetry/GenServer) result per adopter. Add that column and name Admission.\n- [MINOR] M7 End fence 'honest limit' overstates what pg_stat_activity.query shows: track_activity_query_size truncates at 1024 bytes by default and Ecto SELECTs put the schema after the column list, so a wide-column read can be invisible to the schema-name/tenant-id match. Writers (INSERT/UPDATE/DELETE) carry the schema in the first bytes, so the leak class that matters is covered; reword the limit, or match on pg_locks relations in the slot schema instead of query text. Also state in 3.6 that an on_exit registered EARLIER than the first claim that stops a process runs after the fence (reverse order); not an issue for the three adopters (no start_supervised).\n- [MINOR] M8 OQ-8 gives a stop-the-line escalation for a fence false positive but no runtime default; the effective runtime default is fail-closed (raise, 3.6 step 2), the safe direction. State that sentence explicitly (no override knob, no downgrade to a log line) so the implementer does not invent one. Not blocking.\n6. Measure ONE quick smoke before/after on a single adopter (e.g. mix test test/letflow/api/identity_id_hardening_test.exs with and without the pool opt-in; use the documented Docker Postgres convention, see docs/anti-patterns.md and the way docs/issues/ISS-1042.yaml's measurements ran). Quote real numbers. The formal 5+5 runs are TEST-RUNNER's job at Step 4, not yours. Stop any container you start; do not leave scratch files in the tree.\n7. Quality gates, quoting real output: mix compile --warnings-as-errors; mix format --check-formatted; mix test on the three adopter modules plus the existing fixture/template tests named in design section 12 (scoped runs; the full suite is NOT required). If any fails, fix and retry.\n8. Self-review: no string interpolation of tenant/user input into SQL beyond identifiers quoted via the existing safe helper the codebase already uses for schema names (INV-7); no `{:ok, _} =` match on a path reachable from external I/O; new public functions have @doc and @spec.\n9. Commit in small logical commits to the branch and push (git push origin feature/WF03-ISS1042-20261012). Commit message tag: [Q-1042 / GH #2381]. Complete the handoff per docs/agents/shared/HANDOFF_PROTOCOL.md with artifacts_out listing every file, real git_evidence, and next_action 'Route to SECURITY-REVIEWER (2c)'. Do not edit handoffs/registry.json or handoffs/orchestrator.log. Do not change CI workflow files or required check names. Do not touch any file outside design section 12's owned modules; if you find you need one, STOP that thread and report it as an issue in the handoff instead of editing it.",
+    "acceptance_criteria": [
+      "Instrumented measurement: clone time per test, tables per clone, share of total test time (numbers quoted)",
+      "One lever implemented with before/after wall time of the test phase (5 runs each, run ids)",
+      "Isolation proof: a test leaving data behind does not leak into the next test (mutation test)",
+      "No change to required check names; no paid runners"
+    ]
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "Implemented the opt-in module-scoped pooled tenant per lib/letflow/design/iss1042-pooled-tenant-fixture.md and adopted it in the three designated modules. TenantTemplate (test/support/tenant_template.ex): capture_clone_baseline!/1, baseline_tables/1, probe_clone_state/1,/2, probe_clone_data/2, diff_clone_state/2, clean_diff?/1, describe_diff/1, reset_clone_schema!/3 (3rd arg optional keyword with :extra, so the designed /2 form is intact), rebuild_clone_schema!/1, and one 1-statement definitional digest (classes N T C K I G F Q P R Y X H). TenantFixture (test/support/tenant_fixture.ex): start_pool!/2, attach_pool!/1, pool_dirty_report/1, recycle_pool!/0, pool_end_fence!/0, pool_stats/1, `pool:` opt, and ONE dispatch point (provisioned_tenant!/1 calls pool_dispatch/1 right after the unchanged Sandbox.mode line; the original body moved verbatim, same indentation, into defp default_provisioned_tenant!/1). Worker: Letflow.TenantFixture.Pool (GenServer, same file). Fence A (raises, M2), detect, dirty-only TRUNCATE of dirty tables + FK closure without CASCADE, sequence restart, seed re-copy from the live template, verify, final guard (probe P + public state, M3), rebuild, end fence, teardown with Sandbox.mode(:auto) first, :infinity call timeouts (M4), loud rejection of async modules and misordered/double attach. MINOR resolutions: M1 sequence OWNED BY ownership added to class Q and internal RI trigger tgenabled to class G (tested: ALTER SEQUENCE .. OWNED BY NONE and DISABLE TRIGGER ALL are seen as drift and rebuilt); M2 fence A raises pool_straggler instead of continuing; M3 stated in the Pool moduledoc (detect, verify and the final guard all include public keyed counts and tenants/tenant_schemas row equality; the final guard omits only the definitional digest); M4 :infinity; M5 a clone has 905 definition rows, 50 plain tables, no partitions (OQ-9 moot); M6 audit comments in each adopter carry an item-3 line (ETS/env/telemetry/Admission); M7 honest-limit wording and on_exit ordering note in the pool_end_fence!/0 doc; M8 fail-closed stated in the Pool moduledoc. ADOPTER AUDIT (design 6.2, re-read each module, not copied): IdentityIdHardeningTest: no Task/spawn/start_supervised/GenServer/capture_log/put_env/telemetry/api_conn/mint_token; only Routers.Identity + Identity.* called; ADOPTED (3 slots scope-a/b/p; T-12b CREATE TABLE zz_probe drives one expected rebuild). PromotionScopeTest: same grep clean; only Routers.Promotions/Definitions/Tenants; ADOPTED (3 slots). definitions/store_test.exs: Task.async at 338-339 and 1151/1162 all Task.await_many-ed in-test and linked to the test process, telemetry handler detached by on_exit and keyed to the test's own pids, Definitions.create/activate only; ADOPTED (2 slots of one shape). None failed the audit. Gates (real output): MIX_ENV=test mix compile --warnings-as-errors --force: 'Compiling 360 files (.ex) / Generated letflow app', no warnings. mix format --check-formatted (whole repo): exit 0. Scoped mix test over the three adopters + tenant_fixture_dispatch_test (with the new smoke modules) + tenant_template_test + tenant_template_retry_test + letflow/support/tenant_fixture_test (C1-C6 unchanged) + registry_tenant_schema_missing_test + tenant_provisioning_test + tenant_provisioning/backfill_test + event_store/registry_test + public_read_test + routers/public_read_test + platform_admin_outside_platform_test + platform_admin_role_binding_test (non-adopting three_tenants! users): 'Finished in 267.6 seconds ... Result: 247 passed', 0 failures. Smoke measurement (single run, whole file, Docker postgres:16 on private port 5499, default debug logging; the formal 5+5 is TEST-RUNNER's): identity_id_hardening_test 95.2 s -> 14.4 s (38 tests; 81 clean / 30 reset / 2 rebuilt acquires), promotion_scope_test 39.7 s -> 7.0 s (17 tests; 34 clean / 17 reset), definitions/store_test 37.3 s -> 10.3 s (38 tests; 7 clean / 32 reset). Digest on a real clone: 905 rows, 15-16 ms alone, full probe 19-26 ms (OQ-8 bound 40 ms). IMPORTANT FINDING during measurement: the first digest keyed internal FK (RI) triggers non-uniquely (self-FK or two FKs on one table give two UPDATE triggers with the same relation#constraint#tgtype), so every verify reported drift and rebuilt the slot (store_test 37.3 s -> 50.3 s, i.e. a regression, while all tests still passed). Fixed (tgfoid in the key plus string_agg GROUP BY) and recorded in docs/anti-patterns.md. Pre-merge verification of the isolation mechanics, done with a throwaway test file (deleted, not committed; TEST-DESIGNER owns the M1..M22 file): M1 FK chain, M2 sequence advanced / row gone (next nextval = 1), M3 seed delete/diverge, M5 public rows (tenant_memberships, FK-less secrets), M6 tenants row, M7 tenant_schemas row, M13a/b/c, M14 (idle-in-transaction straggler makes pool_end_fence! raise), M15 DISABLE TRIGGER, internal-trigger + OWNED BY NONE drift, Task writer, and assert_clone_parity! (13 dimensions) equal to the template after a reset: 12/12 passed. Schemas left behind after the runs: 0; the only tenants row is the seeded bpm-default. Container iss1042-pg (started by me on port 5499) was stopped and removed; no scratch files left in the tree.",
+    "artifacts_out": [
+      "test/support/tenant_template.ex",
+      "test/support/tenant_fixture.ex",
+      "test/support/tenant_fixture_dispatch_test.exs",
+      "test/letflow/api/identity_id_hardening_test.exs",
+      "test/letflow/routers/promotion_scope_test.exs",
+      "test/letflow/definitions/store_test.exs",
+      "docs/anti-patterns.md",
+      "docs/issues/ISS-1042.yaml"
+    ],
+    "issues": [
+      {
+        "severity": "MINOR",
+        "description": "Deviation from design 3.2: the tenant_snapshot is NOT re-taken on rebuild (only the registration snapshot is). A rebuild does not touch public.tenants, so re-snapshotting it would bless a tenants row a test had corrupted before the drift that triggered the rebuild. The design text says 're-taken on every rebuild'; this is a correctness fix of the design, not a loosening. DESIGN TEXT should be corrected by CODE-DESIGNER/DOC-UPDATER if the doc is kept.",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "Deviation from design 3.2/3.4: the worker is started with GenServer.start (unlinked), not linked to the setup_all process. A link would let the worker die with the module process BEFORE the setup_all on_exit (which runs in a different process after the module process ends) tears the schemas down; the on_exit stops it explicitly. If the worker is already gone at teardown the on_exit logs a warning and leaves the schemas to TenantSchemaReaper's sweep (as designed).",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "Deviation from design 3.2: the FK-referencing graph is recomputed inside reset_clone_schema!/3 on each reset (one catalog query, only on the dirty path) rather than cached per pool and recomputed on rebuild. Simpler and cannot go stale; cost is ~1 ms on a path that already truncates.",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "Additive API beyond design 2.1/2.2: pool_opts `parity_check: true` (runs assert_clone_parity! on every slot at creation, for TEST-DESIGNER's pool test); pool_stats gains a `generations` map (schema name => rebuild generation) so tests can prove fail-safe without a new accessor; clone_state gains definition_index, digest_ms, probe_ms; TenantTemplate gains probe_clone_data/2, diff_clone_state/2, clean_diff?/1, describe_diff/1, baseline_tables/1; reset_clone_schema! has an optional third keyword arg (:extra). All additive; the designed arities still exist.",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "Design 5.1's informative list names platform_migration_rollouts and event_history_retirements; the live catalog discovery found platform_migration_rollout_outcomes and no such tables under those names. Discovery is by catalog as designed, so no code impact; the list in the design is simply stale.",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "started_at was null when the handoff reached me (per HANDOFF_PROTOCOL 1.2 it is ORCH's); left untouched. Also: the dispatched artifacts_in listed test/support/tenant_fixture.ex etc. as inputs but no pool-test file exists yet; test/letflow/support/tenant_fixture_pool_test.exs is TEST-DESIGNER's at step 4 as instructed. The dispatched owned_modules entry test/letflow/definitions/store_test.exs is the real path (confirmed).",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "For TEST-DESIGNER / TEST-RUNNER: (1) the per-test claim state lives in the test process dictionary, hooks (after_verify / after_guard) run in the worker so a test must drive them through a global (persistent_term/atomics), as my throwaway probe did; (2) fence A and the end fence only fire for an in-flight client backend whose query text contains the slot schema or tenant id, M14 therefore needs an INSERT (schema is in the first bytes); (3) log lines to count for the 5+5 table: phase=pool_clone, phase=pool_acquire outcome=clean|reset|rebuilt, phase=pool_reset, phase=pool_fallback; check outcome counts, not just wall time (see the anti-pattern entry).",
+        "affected_requirement": null
+      }
+    ],
+    "git_evidence": {
+      "branch_name": "feature/WF03-ISS1042-20261012",
+      "commit_sha_list": [
+        "572053ab1",
+        "21a415cff",
+        "a246a0293",
+        "c64af6c66"
+      ],
+      "remote_branch": "origin/feature/WF03-ISS1042-20261012",
+      "push_status": "ok",
+      "pr_url": null,
+      "pr_create_error": null
+    },
+    "next_action": "Route to SECURITY-REVIEWER (2c)"
+  }
+}

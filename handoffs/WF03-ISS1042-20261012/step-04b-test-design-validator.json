@@ -1,0 +1,112 @@
+{
+ "handoff_id": "b3f6c0de-6a41-4c8e-9a52-1042040b0001",
+ "run_id": "WF03-ISS1042-20261012",
+ "workflow_id": "WF-03",
+ "step": "04b",
+ "from_agent": "ORCH",
+ "to_agent": "TEST-DESIGN-VALIDATOR",
+ "file": "handoffs/WF03-ISS1042-20261012/step-04b-test-design-validator.json",
+ "created_at": "2026-10-12T07:08:12Z",
+ "started_at": "2026-10-12T07:10:00Z",
+ "completed_at": "2026-10-12T07:29:49Z",
+ "status": "COMPLETED",
+ "priority": "NORMAL",
+ "context": {
+  "stage": "S1",
+  "requirement_ids": [],
+  "requirement_text": {},
+  "source_text": {
+   "Q-1042": "CI lever: per-test tenant-template clone cost. Acceptance: (1) instrumented measurement quoted; (2) one lever implemented with before/after wall time of test phase (5 runs each); (3) isolation proof: a test that leaves data behind must not leak (mutation test); (4) no change to required CI check names; no paid runners."
+  },
+  "related_handoff_ids": [
+   "235a3a10-8dcf-4eed-9ddc-a8834d244fb7"
+  ],
+  "artifacts_in": [
+   "test/letflow/support/tenant_fixture_pool_test.exs",
+   "test/specs/ISS-1042.md",
+   "lib/letflow/design/iss1042-pooled-tenant-fixture.md",
+   "test/support/tenant_fixture.ex",
+   "test/support/tenant_template.ex",
+   "handoffs/WF03-ISS1042-20261012/step-04-test-designer.json"
+  ],
+  "owned_modules": [],
+  "worktree": null,
+  "branch_name": "feature/WF03-ISS1042-20261012"
+ },
+ "task": {
+  "description": "WF-03 Step 4b: you are TEST-DESIGN-VALIDATOR (hard gate, .claude/agents/test-design-validator.md). Independently validate TEST-DESIGNER's isolation suite for the pooled tenant fixture. Check: (a) every acceptance criterion and every design section-9 mutation class M1..M22 has a runnable test; (b) no skips/tag-excludes/vacuous assertions; each mutation test asserts the pool SEES the mutation (teeth) and that isolation holds after reset; (c) fixtures self-sufficient, async false, no order dependence; (d) the claimed 35-mutant table in test/specs/ISS-1042.md is real: you MUST independently APPLY at least 5 mutants of your own choosing (include at least 2 not chosen by the designer's table if you can devise them, e.g. weaken the dirty-table detection, skip the straggler fence, skip the seed restore) in a throwaway git worktree OUTSIDE the repo, run the suite against each, and quote real output showing the suite fails; revert/discard every mutant; (e) no edits to test/support, lib, or adopters by the designer (git diff dc8efd642..HEAD --stat). Do NOT edit the test file yourself; report findings with file:line. Verdict PASS or FAIL in result.status (PASS/FAIL only) with the handoff status COMPLETED. Poll synchronously; do not arm Monitors. MACHINE RULE (supervisor): only ONE BEAM at a time machine-wide. Every mix test/compile MUST use this wrapper, one lock acquisition per mix invocation: L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2>/dev/null; do sleep 20; done; trap 'rmdir \"$L\" 2>/dev/null' EXIT; cd <worktree> && LETFLOW_DB_PORT=5499 MIX_ENV=test mix test <file> --seed 0 2>&1 . Use a throwaway Postgres on port 5499 if you need one (docker run, then remove it). Never delete another session's lock. Write your result into this handoff file and commit it with message ending 'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>', push.",
+  "acceptance_criteria": [
+   "verdict with evidence",
+   "at least 5 independently applied mutants with real output",
+   "worktree and container removed; git status clean"
+  ]
+ },
+ "result": {
+  "status": "PASS",
+  "summary": "Pooled-fixture isolation suite validated. Baseline (seed 0, own worktree outside repo, throwaway PG 5499): 57 passed (1 property, 56 tests). No @tag skip/exclude/TODO in the file; all four modules async: false; every design 9.3 class M1..M22 has a runnable test with teeth assertions (exact dirty_tables/dirty_sequences/seeds_diverged/definition_drift/public_keyed_rows) and a post-reset pristine/clone-parity assertion. Designer diff dc8efd642..HEAD touches only the test file, spec and handoffs (no lib/ or test/support edits).",
+  "independent_mutants": [
+   {
+    "id": "V1",
+    "mutant": "row-presence probe skips table tenant_role (dirty-table detection weakened)",
+    "file": "test/support/tenant_template.ex",
+    "result": "KILLED 9/57 failed (48/57 passed)"
+   },
+   {
+    "id": "V3",
+    "mutant": "seed tables not restored after reset (seeds_to_restore = [])",
+    "file": "test/support/tenant_template.ex",
+    "result": "KILLED 2/57 failed (55/57 passed)"
+   },
+   {
+    "id": "V6",
+    "mutant": "public_clean? ignores keyed public rows",
+    "file": "test/support/tenant_fixture.ex",
+    "result": "KILLED 23/57 failed (34/57 passed)"
+   },
+   {
+    "id": "V7",
+    "mutant": "dirty report tenant_row_diverged hard-coded false",
+    "file": "test/support/tenant_fixture.ex",
+    "result": "KILLED 9/57 failed (48/57 passed)"
+   },
+   {
+    "id": "V8",
+    "mutant": "straggler fence ignores 'idle in transaction' backends",
+    "file": "test/support/tenant_fixture.ex",
+    "result": "KILLED 1/57 failed (56/57 passed)"
+   },
+   {
+    "id": "V9",
+    "mutant": "seed divergence compared by row count only (md5 ignored)",
+    "file": "test/support/tenant_template.ex",
+    "result": "KILLED 33/57 failed (24/57 passed)"
+   },
+   {
+    "id": "V2",
+    "mutant": "FK closure not transitive (do_closure does not expand newly added tables)",
+    "file": "test/support/tenant_template.ex",
+    "result": "SURVIVED 57/57 passed"
+   },
+   {
+    "id": "V4",
+    "mutant": "sequences with no owning table (owner nil) not restarted",
+    "file": "test/support/tenant_template.ex",
+    "result": "SURVIVED 57/57 passed"
+   },
+   {
+    "id": "V5",
+    "mutant": "final guard ignores public_clean?",
+    "file": "test/support/tenant_fixture.ex",
+    "result": "SURVIVED 57/57 passed"
+   }
+  ],
+  "survivor_analysis": [
+   "V4 equivalent: tenant_template has 2 sequences, 0 unowned (queried pg_depend); a new unowned sequence is definition drift and rebuilt, so the branch is unreachable.",
+   "V5 outside the design claim: design 4.3 step 7 and 9.4 specify the final guard as probe P only (rows, sequences, seeds), not public state; public state is checked in detect/verify and the suite covers it (V6 killed). Not an acceptance gap.",
+   "V2 does not weaken isolation: a missed transitive referencer makes TRUNCATE raise, reset_failed, and the slot is rebuilt clean. It only loses the cheap in-place reset for FK chains of depth >= 2 (e.g. repository_artifacts -> artifact_versions -> artifact_activations); M1b asserts rebuilds +0 only for a depth-1 closure. Non-blocking observation; a depth-2 reset-in-place test would close it."
+  ],
+  "mutation_totals": "9 independent mutants applied in a throwaway worktree: 6 killed, 3 survived (2 equivalent/out-of-design, 1 non-isolation perf observation). Designer's 35-mutant table not re-run in full; its tooling pattern and counts were spot-confirmed by V1..V9 behaving consistently with the same teeth.",
+  "cleanup": "worktree ../letflow-tdv1042-wt removed, container tdv1042-pg removed, git status --porcelain empty in main checkout, mix lock released.",
+  "findings": []
+ }
+}

@@ -78,7 +78,8 @@ defmodule Letflow.TenantFixture do
           idp_realm_id: String.t() | nil,
           expected_tables: [String.t()] | :default,
           teardown: boolean(),
-          template: :clone | :replay
+          template: :clone | :replay,
+          pool: boolean()
         ]
 
   @typedoc """
@@ -115,6 +116,11 @@ defmodule Letflow.TenantFixture do
   @phase_provision_failed "provision_failed"
   @phase_replay_failed "replay_failed"
   @phase_incomplete_schema "incomplete_schema"
+
+  # ISS-1042: the pooled-tenant path (Letflow.TenantFixture.Pool) emits ONLY these
+  # phases, all distinct from the four above, so the "a phase=teardown line is by
+  # construction a post-test teardown" invariant is untouched: pool_clone,
+  # pool_acquire, pool_reset, pool_fallback, pool_teardown.
 
   # The tables the @tenant_scoped_migration_manifest's `create table(..., prefix:
   # prefix())` migrations produce (48 as of REQ-402 -- see
@@ -236,6 +242,16 @@ defmodule Letflow.TenantFixture do
   def provisioned_tenant!(opts \\ []) do
     Sandbox.mode(Letflow.Repo, :auto)
 
+    # ISS-1042: the ONE dispatch point. A pool attached to this test process (opt-in,
+    # `attach_pool!/1`) serves the call; every other call -- and every call in a module
+    # that never opted in -- takes the unchanged default path below.
+    case pool_dispatch(opts) do
+      {:pooled, fixture} -> fixture
+      :default -> default_provisioned_tenant!(opts)
+    end
+  end
+
+  defp default_provisioned_tenant!(opts) do
     slug_prefix = Keyword.get(opts, :slug_prefix, "tenant-fixture")
     display_name = Keyword.get(opts, :display_name, "Tenant Fixture")
     oidc_mode = Keyword.get(opts, :oidc_mode, :disabled)
@@ -264,6 +280,434 @@ defmodule Letflow.TenantFixture do
     assert_schema_complete!(tenant.id, expected)
 
     %{tenant_id: tenant.id, schema_name: schema_name, tenant: tenant}
+  end
+
+  # -----------------------------------------------------------------------------------
+  # ISS-1042 -- opt-in, module-scoped pooled tenant.
+  #
+  # Design: lib/letflow/design/iss1042-pooled-tenant-fixture.md. A NON-async test module
+  # clones each declared tenant shape ONCE (`start_pool!/2`, in `setup_all`); each test
+  # then gets the same schema back after a fence, a detect pass, a dirty-only reset, a
+  # verify pass and a final guard (`Letflow.TenantFixture.Pool`). Definitional drift is
+  # never repaired in place: the slot is rebuilt by a fresh clone. The default path
+  # above is untouched; this section is only reached through `pool_dispatch/1`.
+  # -----------------------------------------------------------------------------------
+
+  @pool_key {__MODULE__, :pool}
+  @claims_key {__MODULE__, :claims}
+  @fence_key {__MODULE__, :end_fence_registered}
+
+  @typedoc "One tenant shape a pool serves. Defaults match `provisioned_tenant!/1`."
+  @type slot_spec :: [
+          slug_prefix: String.t(),
+          display_name: String.t(),
+          oidc_mode: :enabled | :disabled,
+          idp_realm_id: String.t() | nil,
+          expected_tables: [String.t()] | :default
+        ]
+
+  @typedoc """
+  `slots` is required. `reset_hooks` run in the TEST process after the DB reset (for
+  VM-global in-memory tenant-keyed state, design 6.1). `after_verify` / `after_guard` are
+  TEST-ONLY seams run in the pool worker. `parity_check: true` additionally runs
+  `assert_clone_parity!/3` (all 13 dimensions) on every slot at creation.
+  """
+  @type pool_opts :: [
+          slots: [slot_spec()],
+          reset_hooks: [(tenant_fixture() -> any())],
+          hooks: [
+            after_verify: (schema_name :: String.t() -> any()),
+            after_guard: (schema_name :: String.t() -> any())
+          ],
+          parity_check: boolean()
+        ]
+
+  @opaque pool :: %{
+            module: module(),
+            worker: pid(),
+            reset_hooks: [(tenant_fixture() -> any())]
+          }
+
+  @type pool_dirty_report :: %{
+          dirty_tables: [String.t()],
+          dirty_sequences: [String.t()],
+          seeds_diverged: [String.t()],
+          definition_drift: [String.t()],
+          public_keyed_rows: [{String.t(), non_neg_integer()}],
+          tenant_row_diverged: boolean(),
+          clean?: boolean()
+        }
+
+  @type pool_stats :: %{
+          slots: non_neg_integer(),
+          clones: non_neg_integer(),
+          acquires: non_neg_integer(),
+          resets: non_neg_integer(),
+          rebuilds: non_neg_integer(),
+          final_guard_resets: non_neg_integer(),
+          fallback_reasons: [atom()],
+          dirty_tables_truncated: non_neg_integer(),
+          digest_ms_total: non_neg_integer(),
+          reset_ms_total: non_neg_integer(),
+          generations: %{String.t() => non_neg_integer()}
+        }
+
+  @slot_spec_keys [:slug_prefix, :display_name, :oidc_mode, :idp_realm_id, :expected_tables]
+
+  @doc """
+  Creates the module's tenant pool. Call from the adopting module's `setup_all`; it returns
+  `[tenant_pool: pool]` so the value is merged into every test's context for
+  `attach_pool!/1`.
+
+  Raises `ArgumentError` if the module is not explicitly `async: false` (the context must
+  carry `async: false`; an absent key is rejected, never defaulted to "ok"), if `slots` is
+  missing or empty, or if a pool for the same module already exists in this VM.
+
+  Every slot is cloned once, here, never lazily from a test (INV-P2). Declare the maximum
+  number of tenants a single test claims: each declared slot is one clone per module.
+  Teardown (`on_exit`) drops every slot's schema and removes its `Registration` and
+  `Tenant` rows after the module's last test.
+
+  ## Adopter audit rule (design 6.2) -- read before adopting a module
+
+  A module may adopt the pool only if no process it (or any `lib/` entry point it calls)
+  starts can outlive the test and touch the tenant schema: every `Task`/`spawn`/
+  `start_supervised`/`GenServer.cast` is awaited or stopped before the test body returns,
+  no fire-and-forget `lib/` worker is reachable, and no ETS / `Application.put_env` /
+  telemetry / GenServer state keyed by tenant id leaks across tests (use `reset_hooks`
+  for the ones that do). Record the result as one line per item in a comment above the
+  module's `setup_all`. A module that cannot show this keeps the default fresh clone.
+  """
+  @spec start_pool!(context :: map(), pool_opts()) :: [tenant_pool: pool()]
+  def start_pool!(context, opts) when is_map(context) and is_list(opts) do
+    unless Map.get(context, :async) == false do
+      raise ArgumentError,
+            "Letflow.TenantFixture.start_pool!/2 requires an explicit `async: false` module " <>
+              "(context[:async] was #{inspect(Map.get(context, :async))}); a pooled tenant is " <>
+              "one mutable schema and cannot serve concurrent tests"
+    end
+
+    module =
+      case Map.get(context, :module) do
+        module when is_atom(module) and not is_nil(module) -> module
+        other -> raise ArgumentError, "start_pool!/2: context[:module] is #{inspect(other)}"
+      end
+
+    specs =
+      case Keyword.get(opts, :slots) do
+        [_ | _] = slots ->
+          Enum.map(slots, &normalize_spec!/1)
+
+        other ->
+          raise ArgumentError, "start_pool!/2 requires a non-empty :slots, got #{inspect(other)}"
+      end
+
+    reset_hooks = Keyword.get(opts, :reset_hooks, [])
+    hooks = Keyword.get(opts, :hooks, [])
+
+    # `Sandbox.mode(:auto)` first, as `provisioned_tenant!/1` does: the worker's own
+    # statements (and the clone's DDL) must commit on ordinary pool connections.
+    Sandbox.mode(Letflow.Repo, :auto)
+
+    init = %{module: module, hooks: hooks, parity_check: Keyword.get(opts, :parity_check, false)}
+
+    worker =
+      case GenServer.start(Letflow.TenantFixture.Pool, init, name: pool_name(module)) do
+        {:ok, pid} ->
+          pid
+
+        {:error, {:already_started, _pid}} ->
+          raise ArgumentError,
+                "start_pool!/2: a pool for #{inspect(module)} is already registered in this VM"
+      end
+
+    on_exit(fn -> pool_teardown!(worker) end)
+
+    case call_worker!(worker, {:create_slots, specs}) do
+      :ok ->
+        [tenant_pool: %{module: module, worker: worker, reset_hooks: reset_hooks}]
+
+      {:error, message} ->
+        raise ExUnit.AssertionError, message: message
+    end
+  end
+
+  @doc """
+  Attaches the module's pool to the calling TEST process. Call from a `setup` that is
+  declared BEFORE every setup that calls `provisioned_tenant!/1` (or a helper that does):
+  per-test setups run in the test process, which is where the claim happens.
+
+  Raises `ArgumentError` for an async module, when the context carries no pool, on a second
+  call in the same process, or if the process already holds a claim.
+  """
+  @spec attach_pool!(context :: map()) :: :ok
+  def attach_pool!(context) when is_map(context) do
+    unless Map.get(context, :async) == false do
+      raise ArgumentError,
+            "attach_pool!/1 requires an explicit `async: false` module " <>
+              "(context[:async] was #{inspect(Map.get(context, :async))})"
+    end
+
+    pool =
+      case Map.get(context, :tenant_pool) do
+        %{worker: worker} = pool when is_pid(worker) ->
+          pool
+
+        _other ->
+          raise ArgumentError,
+                "attach_pool!/1: the context has no :tenant_pool; call " <>
+                  "start_pool!/2 from this module's setup_all"
+      end
+
+    if Process.get(@pool_key) != nil or Process.get(@claims_key, %{}) != %{} do
+      raise ArgumentError,
+            "attach_pool!/1 called twice, or after a claim, in the same test process"
+    end
+
+    Process.put(@pool_key, pool)
+    Process.put(@claims_key, %{})
+    :ok
+  end
+
+  @doc """
+  Read-only report of how far the pooled slot behind `fixture` is from its baseline right
+  now (what the next acquire would have to reset). Test-support. Executes in the pool worker.
+  """
+  @spec pool_dirty_report(tenant_fixture()) :: pool_dirty_report()
+  def pool_dirty_report(%{schema_name: schema_name}) when is_binary(schema_name) do
+    pool = attached_pool!()
+    Sandbox.mode(Letflow.Repo, :auto)
+
+    case call_worker!(pool.worker, {:dirty_report, schema_name}) do
+      {:ok, report} -> report
+      {:error, message} -> raise ExUnit.AssertionError, message: message
+    end
+  end
+
+  @doc """
+  Test-support: simulates a test boundary inside one test. Clears the per-test claim map
+  (so the same slots can be acquired again) and runs the end-of-test fence (see
+  `pool_end_fence!/0`).
+  """
+  @spec recycle_pool!() :: :ok
+  def recycle_pool! do
+    pool = attached_pool!()
+    Process.put(@claims_key, %{})
+    run_end_fence!(pool.worker)
+  end
+
+  @doc """
+  The end-of-test fence: waits (bounded) until no other backend is mid-statement or
+  mid-transaction against a pooled slot, and raises `ExUnit.AssertionError` naming the
+  schema, backend pid, state and query text if one still is. Changes no data. Registered
+  automatically as an `on_exit` at a test's first claim, so it runs after any `on_exit` the
+  test registered LATER; an `on_exit` registered EARLIER than the first claim (for example one
+  that stops a `start_supervised` process) runs after the fence (ExUnit runs them in reverse
+  order).
+
+  Honest limit: the match is on `pg_stat_activity.query` text, which Postgres truncates at
+  `track_activity_query_size` (1024 bytes by default). Writers carry the schema name in the
+  first bytes; a wide-column `SELECT` can put it past the cut and be invisible here.
+  """
+  @spec pool_end_fence!() :: :ok
+  def pool_end_fence! do
+    run_end_fence!(attached_pool!().worker)
+  end
+
+  @doc "Counters of the pool's work so far, plus the current generation of every slot."
+  @spec pool_stats(pool()) :: pool_stats()
+  def pool_stats(%{worker: worker}) do
+    Sandbox.mode(Letflow.Repo, :auto)
+    call_worker!(worker, :stats)
+  end
+
+  @doc false
+  # Used by the pool worker: raises the same report-carrying AssertionError the default
+  # path raises (and logs it under the marker).
+  @spec pool_report_and_raise(String.t(), Ecto.UUID.t(), [String.t()]) :: no_return()
+  def pool_report_and_raise(phase, tenant_id, reasons),
+    do: report_and_raise(phase, tenant_id, reasons)
+
+  @doc false
+  @spec pool_name(module()) :: atom()
+  def pool_name(module), do: Module.concat(Letflow.TenantFixture.Pool, module)
+
+  defp attached_pool! do
+    case Process.get(@pool_key) do
+      %{worker: _} = pool ->
+        pool
+
+      _other ->
+        raise ArgumentError,
+              "no pooled tenant is attached to this process; call attach_pool!/1 first"
+    end
+  end
+
+  defp normalize_spec!(spec) when is_list(spec) do
+    case Keyword.keys(spec) -- @slot_spec_keys do
+      [] -> shape_of(spec)
+      unknown -> raise ArgumentError, "unknown slot_spec keys: #{inspect(unknown)}"
+    end
+  end
+
+  defp normalize_spec!(other),
+    do: raise(ArgumentError, "a slot_spec is a keyword list, got #{inspect(other)}")
+
+  # The shape of a tenant: the five `slot_spec` fields with defaults applied. Equal shapes
+  # are interchangeable; `{shape, k}` (k = occurrence within one test) names a slot.
+  defp shape_of(opts) do
+    %{
+      slug_prefix: Keyword.get(opts, :slug_prefix, "tenant-fixture"),
+      display_name: Keyword.get(opts, :display_name, "Tenant Fixture"),
+      oidc_mode: Keyword.get(opts, :oidc_mode, :disabled),
+      idp_realm_id: Keyword.get(opts, :idp_realm_id, nil),
+      expected_tables: Keyword.get(opts, :expected_tables, :default)
+    }
+  end
+
+  # A call is served from a pool only when ALL of: a pool is attached to this process,
+  # template is :clone, teardown is true, and `pool:` is not false (design 7).
+  defp pool_dispatch(opts) do
+    eligible? =
+      Keyword.get(opts, :template, :clone) == :clone and
+        Keyword.get(opts, :teardown, true) == true and
+        Keyword.get(opts, :pool, true) != false
+
+    cond do
+      not eligible? ->
+        :default
+
+      pool = Process.get(@pool_key) ->
+        {:pooled, claim_pooled!(pool, opts)}
+
+      true ->
+        reject_misordered_pool!()
+        :default
+    end
+  end
+
+  defp claim_pooled!(pool, opts) do
+    shape = shape_of(opts)
+    claims = Process.get(@claims_key, %{})
+    k = Map.get(claims, shape, 0)
+
+    case call_worker!(pool.worker, {:acquire, {shape, k}}) do
+      {:ok, fixture} ->
+        Process.put(@claims_key, Map.put(claims, shape, k + 1))
+        register_end_fence!(pool)
+        Enum.each(pool.reset_hooks, & &1.(fixture))
+        fixture
+
+      {:undeclared, declared} ->
+        raise ArgumentError,
+              "provisioned_tenant!/1 asked a pooled module for slot #{inspect({shape, k})}, " <>
+                "which start_pool!/2 did not declare in #{inspect(pool.module)}. " <>
+                "Declared slots: #{inspect(declared)}. Declare it (one more clone per module) " <>
+                "or pass `pool: false`."
+
+      {:error, message} ->
+        raise ExUnit.AssertionError, message: message
+    end
+  end
+
+  # The fence runs after any on_exit the test registered LATER (ExUnit runs them in
+  # reverse registration order) and is registered once per test, at the first claim.
+  defp register_end_fence!(pool) do
+    if Process.get(@fence_key) != true do
+      Process.put(@fence_key, true)
+      worker = pool.worker
+      on_exit(fn -> run_end_fence!(worker) end)
+    end
+  end
+
+  defp run_end_fence!(worker) do
+    Sandbox.mode(Letflow.Repo, :auto)
+
+    case call_worker!(worker, :end_fence) do
+      :ok -> :ok
+      {:error, message} -> raise ExUnit.AssertionError, message: message
+    end
+  end
+
+  defp pool_teardown!(worker) do
+    # FIRST statement (design 3.4): DataCase leaves the mode at {:shared, dead_test_pid}.
+    Sandbox.mode(Letflow.Repo, :auto)
+
+    if Process.alive?(worker) do
+      result = call_worker!(worker, :teardown)
+      GenServer.stop(worker, :normal)
+
+      case result do
+        :ok -> :ok
+        {:error, message} -> raise ExUnit.AssertionError, message: message
+      end
+    else
+      Logger.warning(
+        "#{@marker} phase=pool_teardown pool worker already gone; its schemas are left to " <>
+          "Letflow.TenantSchemaReaper's sweep"
+      )
+    end
+  end
+
+  # No call timeout (design review M4): clone + rebuild + final-guard budgets legitimately
+  # exceed GenServer's 5 s default on a slow host, and a spurious exit would be flaky, not
+  # deterministic. The worker only waits on DB locks bounded by lock_timeout.
+  defp call_worker!(worker, message) do
+    GenServer.call(worker, message, :infinity)
+  catch
+    :exit, reason ->
+      raise ExUnit.AssertionError,
+        message:
+          "#{@marker} phase=pool_fallback the pool worker is unavailable: #{inspect(reason)}"
+  end
+
+  # A process with no attachment normally takes the default path. The one exception is the
+  # TEST process of a pooled module that forgot (or misordered) `attach_pool!/1`: that must
+  # fail loudly, never silently clone per test or double-hand a slot.
+  defp reject_misordered_pool! do
+    with module when not is_nil(module) <- owning_module(),
+         true <- test_process?(),
+         pid when is_pid(pid) <- Process.whereis(pool_name(module)) do
+      raise ArgumentError,
+            "provisioned_tenant!/1 was called in #{inspect(module)} (pool worker #{inspect(pid)}) " <>
+              "before attach_pool!/1: attach_pool!/1 must be the module's FIRST setup, " <>
+              "before any setup that provisions a tenant"
+    else
+      _no_pool -> :ok
+    end
+  end
+
+  # ExUnit stores the running test under the `ExUnit.Runner` key in the dictionary of the
+  # process that runs the module (see owning_test/0). The module is read from the same key.
+  defp owning_module do
+    (parent_chain(self(), 4) ++ List.wrap(Process.get(:"$ancestors")))
+    |> Enum.find_value(&current_module_of/1)
+  rescue
+    _exception -> nil
+  end
+
+  defp current_module_of(pid) when is_pid(pid) do
+    with {:dictionary, dictionary} <- Process.info(pid, :dictionary),
+         {ExUnit.Runner, %{__struct__: ExUnit.Test, module: module}} <-
+           List.keyfind(dictionary, ExUnit.Runner, 0) do
+      module
+    else
+      _other -> nil
+    end
+  end
+
+  defp current_module_of(_not_a_pid), do: nil
+
+  # The test process is the direct child of the process holding the runner key and has no
+  # `$ancestors`; a Task or spawned helper of the test is not (its parent is the test).
+  defp test_process? do
+    Process.get(:"$ancestors") == nil and
+      case Process.info(self(), :parent) do
+        {:parent, parent} when is_pid(parent) -> current_module_of(parent) != nil
+        _other -> false
+      end
+  rescue
+    _exception -> false
   end
 
   @doc """
@@ -792,4 +1236,864 @@ defmodule Letflow.TenantFixture do
   end
 
   defp current_test_of(_not_a_pid), do: nil
+end
+
+defmodule Letflow.TenantFixture.Pool do
+  @moduledoc """
+  The worker behind `Letflow.TenantFixture.start_pool!/2` (ISS-1042 / Q-1042 / GH #2381).
+  Design: `lib/letflow/design/iss1042-pooled-tenant-fixture.md`.
+
+  Test-only (`test/support/`), never referenced from `lib/`, never in the application's
+  supervision tree. One plain `GenServer` per adopting module, started unlinked from the
+  module's `setup_all` and stopped by that setup's `on_exit` (a link would let the worker
+  die with the module process BEFORE the `on_exit` that tears its schemas down runs). It
+  exists so reset and rebuild statements run on an ordinary pool connection, not on the
+  test's own connection and locks (it has no `$callers`, so under Sandbox `:auto` it is
+  not routed onto a `{:shared, pid}` checkout; every entry point sets `:auto` first).
+
+  ## Every acquire runs the full sequence (INV-P12)
+
+      fence A -> detect (probe P + digest D) -> [reset -> verify] -> final guard -> return
+
+  Slot `status` never skips a step. The returned tenant was proven clean, by this worker's
+  own session, at the instant of the final guard; foreign writes after that instant are
+  detected and bounded to the owning test, not prevented (RR-1, design 9.4).
+
+  ## What "public state" means in detect, verify and the final guard
+
+  Detect and verify read, besides the clone schema (row presence, called sequences, seed
+  digests, definitional digest): the count of rows keyed to the tenant in every discovered
+  public table, and `public.tenants` / `public.tenant_schemas` row equality with their
+  snapshots. The final guard re-reads the row-level half of the schema (probe P) AND the
+  public state, but not the definitional digest (a definition change between verify and
+  guard is caught by the next acquire's detect, and by the owning test's own assertions).
+
+  ## Fail-closed (design OQ-8)
+
+  A fence or guard that fires raises; there is no override knob and no downgrade to a log
+  line. A false positive is stop-the-line and goes to ORCH.
+  """
+
+  use GenServer
+
+  require Logger
+
+  import Ecto.Query, only: [from: 2]
+
+  alias Letflow.Identity.Tenant
+  alias Letflow.Repo
+  alias Letflow.Test.TenantTemplate
+  alias Letflow.TenantFixture
+  alias Letflow.TenantProvisioning
+  alias Letflow.TenantProvisioning.Registration
+
+  @marker "LETFLOW_TENANT_FIXTURE"
+  @fence_a_budget_ms 250
+  @fence_end_budget_ms 500
+  @fence_step_ms 10
+  @public_excluded ["tenants", "tenant_schemas", "schema_migrations"]
+
+  # -- GenServer ------------------------------------------------------------------------
+
+  @impl true
+  def init(%{module: module} = init) do
+    {:ok,
+     %{
+       module: module,
+       hooks: Map.get(init, :hooks, []),
+       parity_check: Map.get(init, :parity_check, false),
+       slots: %{},
+       order: [],
+       public_keyed: [],
+       public_sql: nil,
+       tenant_columns: [],
+       registration_columns: [],
+       stats: %{
+         clones: 0,
+         acquires: 0,
+         resets: 0,
+         rebuilds: 0,
+         final_guard_resets: 0,
+         fallback_reasons: [],
+         dirty_tables_truncated: 0,
+         digest_ms_total: 0,
+         reset_ms_total: 0
+       }
+     }}
+  end
+
+  @impl true
+  def handle_call({:create_slots, shapes}, _from, state) do
+    state = discover_public(state)
+
+    {_seen, keyed} =
+      Enum.reduce(shapes, {%{}, []}, fn shape, {seen, acc} ->
+        k = Map.get(seen, shape, 0)
+        {Map.put(seen, shape, k + 1), acc ++ [{shape, k}]}
+      end)
+
+    result =
+      Enum.reduce_while(keyed, {:ok, state}, fn key, {:ok, st} ->
+        st = insert_slot(st, key)
+
+        try do
+          {:cont, {:ok, clone_slot(st, key)}}
+        rescue
+          exception -> {:halt, {:error, Exception.message(exception), st}}
+        end
+      end)
+
+    case result do
+      {:ok, state} -> {:reply, :ok, state}
+      {:error, message, state} -> {:reply, {:error, message}, state}
+    end
+  rescue
+    exception -> {:reply, {:error, Exception.message(exception)}, state}
+  end
+
+  def handle_call({:acquire, key}, _from, state) do
+    case Map.fetch(state.slots, key) do
+      :error ->
+        {:reply, {:undeclared, state.order}, state}
+
+      {:ok, _slot} ->
+        try do
+          state = do_acquire(state, key)
+          state = put_in(state.slots[key].status, :handed_out)
+          {:reply, {:ok, fixture_of(Map.fetch!(state.slots, key))}, state}
+        rescue
+          exception ->
+            {:reply, {:error, "#{@marker} phase=pool_fallback #{Exception.message(exception)}"},
+             state}
+        catch
+          {:pool_fail, message, failed_state} -> {:reply, {:error, message}, failed_state}
+        end
+    end
+  end
+
+  def handle_call(:end_fence, _from, state) do
+    case wait_quiescent(fence_keys(state), @fence_end_budget_ms) do
+      :ok ->
+        {:reply, :ok, state}
+
+      {:busy, rows} ->
+        slots = Map.new(state.slots, fn {k, s} -> {k, %{s | status: :handed_out}} end)
+        state = add_fallback(%{state | slots: slots}, :straggler_at_end)
+
+        message =
+          "#{@marker} phase=pool_fallback reason=straggler_at_end a process was still using " <>
+            "the pooled tenant after the test finished: #{describe_busy(rows)}"
+
+        {:reply, {:error, message}, state}
+    end
+  rescue
+    exception -> {:reply, {:error, Exception.message(exception)}, state}
+  end
+
+  def handle_call({:dirty_report, schema_name}, _from, state) do
+    case Enum.find(Map.values(state.slots), &(&1.schema_name == schema_name)) do
+      nil ->
+        {:reply, {:error, "pool_dirty_report: #{schema_name} is not a pooled slot"}, state}
+
+      slot ->
+        {:reply, {:ok, dirty_report(state, slot)}, state}
+    end
+  rescue
+    exception -> {:reply, {:error, Exception.message(exception)}, state}
+  end
+
+  def handle_call(:stats, _from, state) do
+    stats =
+      Map.merge(state.stats, %{
+        slots: map_size(state.slots),
+        generations:
+          Map.new(state.slots, fn {_key, slot} -> {slot.schema_name, slot.generation} end)
+      })
+
+    {:reply, stats, state}
+  end
+
+  def handle_call(:teardown, _from, state) do
+    errors =
+      Enum.flat_map(state.order, fn key ->
+        case Map.get(state.slots, key) do
+          nil -> []
+          slot -> teardown_slot(state, slot)
+        end
+      end)
+
+    state = %{state | slots: %{}, order: []}
+
+    case errors do
+      [] -> {:reply, :ok, state}
+      errors -> {:reply, {:error, Enum.join(errors, "\n")}, state}
+    end
+  end
+
+  # -- slot creation --------------------------------------------------------------------
+
+  defp insert_slot(state, {shape, _k} = key) do
+    tenant =
+      %Tenant{}
+      |> Tenant.create_changeset(
+        %{
+          slug: Letflow.TenantSlugFixture.unique_slug(shape.slug_prefix),
+          display_name: shape.display_name,
+          idp_realm_id: shape.idp_realm_id
+        },
+        shape.oidc_mode
+      )
+      |> Repo.insert!()
+
+    {:ok, schema_name} = TenantProvisioning.schema_name_for_tenant(tenant.id)
+
+    slot = %{
+      key: key,
+      shape: shape,
+      tenant: tenant,
+      tenant_id: tenant.id,
+      schema_name: schema_name,
+      baseline: nil,
+      tenant_snapshot: nil,
+      registration_snapshot: nil,
+      status: :creating,
+      generation: 0
+    }
+
+    %{state | slots: Map.put(state.slots, key, slot), order: state.order ++ [key]}
+  end
+
+  defp clone_slot(state, key) do
+    slot = Map.fetch!(state.slots, key)
+    started = now_ms()
+
+    TenantTemplate.ensure_template!()
+
+    schema_name =
+      case TenantTemplate.clone_tenant_schema!(slot.tenant_id) do
+        {:ok, schema_name} ->
+          schema_name
+
+        {:error, reason} ->
+          TenantFixture.pool_report_and_raise("replay_failed", slot.tenant_id, [
+            "clone_tenant_schema!/1 returned {:error, #{inspect(reason)}}"
+          ])
+      end
+
+    TenantFixture.assert_schema_complete!(slot.tenant_id, slot.shape.expected_tables)
+
+    if state.parity_check do
+      TenantTemplate.assert_clone_parity!(TenantTemplate.template_schema_name(), schema_name)
+    end
+
+    slot = %{
+      slot
+      | schema_name: schema_name,
+        baseline: TenantTemplate.capture_clone_baseline!(schema_name),
+        tenant_snapshot: snapshot_tenant(slot.tenant_id),
+        registration_snapshot: snapshot_registration(slot.tenant_id),
+        status: :clean
+    }
+
+    log(
+      "phase=pool_clone schema=#{schema_name} tenant_id=#{slot.tenant_id} " <>
+        "tables=#{length(TenantTemplate.baseline_tables(slot.baseline))} " <>
+        "ms=#{now_ms() - started}"
+    )
+
+    state = bump(state, :clones, 1)
+    %{state | slots: Map.put(state.slots, key, slot)}
+  end
+
+  defp snapshot_tenant(tenant_id) do
+    %{rows: [[json]]} =
+      Repo.query!("SELECT to_jsonb(t)::text FROM public.tenants t WHERE t.id = $1", [
+        dump(tenant_id)
+      ])
+
+    json
+  end
+
+  defp snapshot_registration(tenant_id) do
+    %{rows: [[json]]} =
+      Repo.query!(
+        "SELECT to_jsonb(r)::text FROM public.tenant_schemas r WHERE r.tenant_id = $1",
+        [dump(tenant_id)]
+      )
+
+    json
+  end
+
+  # -- public state keyed to the tenant (design 5) ----------------------------------------
+
+  defp discover_public(state) do
+    %{rows: pairs} =
+      Repo.query!(
+        """
+        SELECT DISTINCT c.relname, a.attname
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+        WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
+          AND a.atttypid = 'uuid'::regtype
+          AND c.relname <> ALL ($1::text[])
+          AND (
+            EXISTS (SELECT 1 FROM pg_constraint k
+                    WHERE k.conrelid = c.oid AND k.contype = 'f'
+                      AND k.confrelid = 'public.tenants'::regclass
+                      AND a.attnum = ANY (k.conkey))
+            OR a.attname IN ('tenant_id', 'owner_tenant_id')
+            OR a.attname LIKE '%\\_tenant\\_id'
+          )
+        ORDER BY 1, 2
+        """,
+        [@public_excluded]
+      )
+
+    keyed = Enum.map(pairs, fn [table, column] -> {table, column} end)
+    tables = keyed |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+
+    %{rows: edges} =
+      Repo.query!(
+        """
+        SELECT cr.relname, pr.relname
+        FROM pg_constraint k
+        JOIN pg_class cr ON cr.oid = k.conrelid
+        JOIN pg_class pr ON pr.oid = k.confrelid
+        JOIN pg_namespace cn ON cn.oid = cr.relnamespace AND cn.nspname = 'public'
+        JOIN pg_namespace pn ON pn.oid = pr.relnamespace AND pn.nspname = 'public'
+        WHERE k.contype = 'f' AND cr.relname = ANY ($1::text[]) AND pr.relname = ANY ($1::text[])
+          AND cr.oid <> pr.oid
+        """,
+        [tables]
+      )
+
+    ordered_tables = children_first(tables, Enum.map(edges, fn [c, p] -> {c, p} end))
+
+    ordered =
+      Enum.flat_map(ordered_tables, fn table ->
+        for {t, c} <- keyed, t == table, do: {t, c}
+      end)
+
+    keyed_sql =
+      for {table, column} <- ordered do
+        "SELECT 'pub', #{literal(table)}, count(*)::text, NULL::text " <>
+          "FROM public.#{ident(table)} WHERE #{ident(column)} = $1"
+      end
+
+    public_sql =
+      Enum.join(
+        keyed_sql ++
+          [
+            "SELECT 'tenant', 'tenants', (to_jsonb(t) = $2::text::jsonb)::text, NULL::text " <>
+              "FROM public.tenants t WHERE t.id = $1",
+            "SELECT 'registration', 'tenant_schemas', (to_jsonb(r) = $3::text::jsonb)::text, " <>
+              "NULL::text FROM public.tenant_schemas r WHERE r.tenant_id = $1"
+          ],
+        "\nUNION ALL\n"
+      )
+
+    %{
+      state
+      | public_keyed: ordered,
+        public_sql: public_sql,
+        tenant_columns: columns_of("tenants"),
+        registration_columns: columns_of("tenant_schemas")
+    }
+  end
+
+  defp columns_of(table) do
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT column_name FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = $1 ORDER BY ordinal_position
+        """,
+        [table]
+      )
+
+    Enum.map(rows, fn [name] -> name end)
+  end
+
+  # Children (FK-referencing) tables before the tables they reference. A cycle raises at
+  # adoption time instead of guessing.
+  defp children_first(tables, edges), do: do_children_first(tables, edges, [])
+
+  defp do_children_first([], _edges, acc), do: Enum.reverse(acc)
+
+  defp do_children_first(remaining, edges, acc) do
+    ready =
+      Enum.filter(remaining, fn table ->
+        not Enum.any?(edges, fn {child, parent} -> parent == table and child in remaining end)
+      end)
+
+    if ready == [] do
+      raise "public tables keyed to a tenant form a foreign-key cycle: #{inspect(remaining)}"
+    end
+
+    do_children_first(remaining -- ready, edges, Enum.reverse(ready) ++ acc)
+  end
+
+  defp public_state(state, slot) do
+    %{rows: rows} =
+      Repo.query!(state.public_sql, [
+        dump(slot.tenant_id),
+        slot.tenant_snapshot,
+        slot.registration_snapshot
+      ])
+
+    keyed =
+      for ["pub", table, count, _] <- rows, String.to_integer(count) > 0 do
+        {table, String.to_integer(count)}
+      end
+
+    %{
+      keyed_rows: keyed,
+      tenant_ok?: Enum.any?(rows, &match?(["tenant", _, "true", _], &1)),
+      registration_ok?: Enum.any?(rows, &match?(["registration", _, "true", _], &1))
+    }
+  end
+
+  defp public_clean?(%{keyed_rows: [], tenant_ok?: true, registration_ok?: true}), do: true
+  defp public_clean?(_public), do: false
+
+  # Runs inside the reset transaction (and, after a rebuild, in its own).
+  defp reset_public!(state, slot, public) do
+    tenant_id = dump(slot.tenant_id)
+    dirty = Map.new(public.keyed_rows)
+
+    for {table, column} <- state.public_keyed, Map.has_key?(dirty, table) do
+      Repo.query!("DELETE FROM public.#{ident(table)} WHERE #{ident(column)} = $1", [tenant_id])
+    end
+
+    unless public.tenant_ok? do
+      restore_row!("tenants", "id", state.tenant_columns, slot.tenant_snapshot, tenant_id)
+    end
+
+    unless public.registration_ok? do
+      restore_row!(
+        "tenant_schemas",
+        "tenant_id",
+        state.registration_columns,
+        slot.registration_snapshot,
+        tenant_id
+      )
+    end
+
+    :ok
+  end
+
+  defp restore_row!(table, key_column, columns, snapshot, tenant_id) do
+    assignments =
+      columns
+      |> Enum.reject(&(&1 in ["id", key_column]))
+      |> Enum.map_join(", ", &"#{ident(&1)} = r.#{ident(&1)}")
+
+    Repo.query!(
+      "UPDATE public.#{ident(table)} AS t SET #{assignments} " <>
+        "FROM jsonb_populate_record(NULL::public.#{ident(table)}, $1::text::jsonb) AS r " <>
+        "WHERE t.#{ident(key_column)} = $2",
+      [snapshot, tenant_id]
+    )
+  end
+
+  # -- acquire --------------------------------------------------------------------------
+
+  defp do_acquire(state, key) do
+    started = now_ms()
+    state = bump(state, :acquires, 1)
+
+    state = fence_a!(state)
+    {state, outcome} = prove_clean(state, key)
+    state = final_guard!(state, key, 1)
+
+    slot = Map.fetch!(state.slots, key)
+
+    log(
+      "phase=pool_acquire slot=#{slot.schema_name} outcome=#{outcome} " <>
+        "generation=#{slot.generation} ms=#{now_ms() - started}"
+    )
+
+    state
+  end
+
+  # Fence A: no other client backend may be mid-statement / mid-transaction against a
+  # pooled slot when the next test starts. A straggler that is still there after the
+  # budget is NOT waved through (design review M2): its uncommitted writes are invisible
+  # to every probe, so the proof below could not protect the test.
+  defp fence_a!(state) do
+    case wait_quiescent(fence_keys(state), @fence_a_budget_ms) do
+      :ok ->
+        state
+
+      {:busy, rows} ->
+        state = add_fallback(state, :straggler_at_acquire)
+
+        fail(
+          state,
+          "#{@marker} phase=pool_fallback reason=pool_straggler a process is still using the " <>
+            "pooled tenant at acquire: #{describe_busy(rows)}"
+        )
+    end
+  end
+
+  defp prove_clean(state, key) do
+    slot = Map.fetch!(state.slots, key)
+
+    case detect(state, slot) do
+      {:error, reason} ->
+        state
+        |> rebuild(key, :probe_failed, [inspect(reason)])
+        |> finish_after_rebuild(key)
+
+      {:ok, %{drift: [_ | _] = drift}, _public, _st} ->
+        state
+        |> rebuild(key, :definition_drift, drift)
+        |> finish_after_rebuild(key)
+
+      {:ok, diff, public, st} ->
+        state = add_digest(state, st)
+
+        if TenantTemplate.clean_diff?(diff) and public_clean?(public) do
+          {state, :clean}
+        else
+          reset(state, key, diff, public)
+        end
+    end
+  end
+
+  defp reset(state, key, diff, public) do
+    slot = Map.fetch!(state.slots, key)
+    started = now_ms()
+
+    result =
+      TenantTemplate.reset_clone_schema!(slot.schema_name, slot.baseline,
+        extra: fn -> reset_public!(state, slot, public) end
+      )
+
+    case result do
+      {:ok, report} ->
+        if public_clean?(public_state(state, slot)) do
+          log(
+            "phase=pool_reset slot=#{slot.schema_name} " <>
+              "dirty_tables=#{length(report.truncated) - length(report.closure_added)} " <>
+              "closure_added=#{length(report.closure_added)} " <>
+              "sequences=#{length(report.sequences_restarted)} probe_ms=#{report.probe_ms} " <>
+              "verify_ms=#{report.verify_ms} total_ms=#{report.total_ms}"
+          )
+
+          state =
+            state
+            |> bump(:resets, 1)
+            |> bump(:dirty_tables_truncated, length(diff.dirty_tables))
+            |> bump(:reset_ms_total, report.total_ms)
+
+          {state, :reset}
+        else
+          state
+          |> rebuild(key, :verify_failed, ["public state not clean after reset"])
+          |> finish_after_rebuild(key)
+        end
+
+      {:error, {:unprovable, reasons}} ->
+        state = bump(state, :reset_ms_total, now_ms() - started)
+
+        reason =
+          if match?(["definition_drift" | _], reasons),
+            do: :definition_drift,
+            else: :verify_failed
+
+        state
+        |> rebuild(key, reason, reasons)
+        |> finish_after_rebuild(key)
+    end
+  end
+
+  # Design 4.6: a rebuilt slot is never handed out on the strength of the rebuild alone.
+  # Re-run detect on it; the schema must be clean, and public state (which a rebuild
+  # cannot repair) is reset here, loudly, or the acquire raises.
+  defp finish_after_rebuild(state, key) do
+    slot = Map.fetch!(state.slots, key)
+
+    case detect(state, slot) do
+      {:ok, diff, public, _st} ->
+        cond do
+          not TenantTemplate.clean_diff?(diff) ->
+            fail(
+              state,
+              "#{@marker} phase=pool_fallback a rebuilt slot is not clean: " <>
+                Enum.join(TenantTemplate.describe_diff(diff), "; ")
+            )
+
+          public_clean?(public) ->
+            {state, :rebuilt}
+
+          true ->
+            {:ok, :ok} = Repo.transaction(fn -> reset_public!(state, slot, public) end)
+
+            if public_clean?(public_state(state, slot)) do
+              {state, :rebuilt}
+            else
+              fail(state, "#{@marker} phase=pool_fallback public state could not be reset")
+            end
+        end
+
+      {:error, reason} ->
+        fail(
+          state,
+          "#{@marker} phase=pool_fallback probe failed after rebuild: #{inspect(reason)}"
+        )
+    end
+  end
+
+  defp detect(state, slot) do
+    tables = TenantTemplate.baseline_tables(slot.baseline)
+
+    case TenantTemplate.probe_clone_state(slot.schema_name, tables) do
+      {:ok, st} ->
+        {:ok, TenantTemplate.diff_clone_state(st, slot.baseline), public_state(state, slot), st}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # Design 4.3 step 7. `after_verify` is a TEST-ONLY seam that runs before each guard.
+  defp final_guard!(state, key, attempt) do
+    slot = Map.fetch!(state.slots, key)
+    run_hook(state, :after_verify, slot.schema_name)
+
+    tables = TenantTemplate.baseline_tables(slot.baseline)
+
+    diff =
+      case TenantTemplate.probe_clone_data(slot.schema_name, tables) do
+        {:ok, data} ->
+          TenantTemplate.diff_clone_state(data, slot.baseline)
+
+        {:error, reason} ->
+          fail(
+            state,
+            "#{@marker} phase=pool_fallback final guard probe failed: #{inspect(reason)}"
+          )
+      end
+
+    public = public_state(state, slot)
+
+    cond do
+      TenantTemplate.clean_diff?(diff) and public_clean?(public) ->
+        run_hook(state, :after_guard, slot.schema_name)
+        state
+
+      attempt == 1 ->
+        state = state |> bump(:final_guard_resets, 1) |> add_fallback(:final_guard)
+        log("phase=pool_fallback reason=final_guard slot=#{slot.schema_name}")
+        {state, _outcome} = prove_clean(state, key)
+        final_guard!(state, key, 2)
+
+      true ->
+        keyed = Enum.map(public.keyed_rows, fn {t, n} -> "public #{t} rows=#{n}" end)
+
+        fail(
+          state,
+          "#{@marker} phase=pool_fallback reason=pool_straggler the pooled tenant " <>
+            "#{slot.schema_name} was written to again after two resets (a writer is still " <>
+            "active): " <> Enum.join(TenantTemplate.describe_diff(diff) ++ keyed, "; ")
+        )
+    end
+  end
+
+  defp run_hook(state, name, schema_name) do
+    case Keyword.get(state.hooks, name) do
+      fun when is_function(fun, 1) -> fun.(schema_name)
+      _none -> :ok
+    end
+  end
+
+  # -- rebuild (design 4.6) ---------------------------------------------------------------
+
+  defp rebuild(state, key, reason, details) do
+    slot = Map.fetch!(state.slots, key)
+    started = now_ms()
+
+    log(
+      "phase=pool_fallback reason=#{reason} slot=#{slot.schema_name} " <>
+        "details=#{inspect(Enum.take(details, 5))}"
+    )
+
+    case TenantTemplate.rebuild_clone_schema!(slot.tenant_id) do
+      {:ok, schema_name} ->
+        TenantFixture.assert_schema_complete!(slot.tenant_id, slot.shape.expected_tables)
+
+        # The tenant snapshot is deliberately NOT re-taken: a rebuild does not touch
+        # public.tenants, so re-snapshotting could bless a row a test had corrupted. The
+        # registration row IS new (new id and timestamps), so it is re-snapshotted.
+        slot = %{
+          slot
+          | schema_name: schema_name,
+            baseline: TenantTemplate.capture_clone_baseline!(schema_name),
+            registration_snapshot: snapshot_registration(slot.tenant_id),
+            status: :clean,
+            generation: slot.generation + 1
+        }
+
+        log(
+          "phase=pool_clone slot=#{schema_name} rebuilt=true " <>
+            "generation=#{slot.generation} ms=#{now_ms() - started}"
+        )
+
+        state
+        |> Map.update!(:slots, &Map.put(&1, key, slot))
+        |> bump(:rebuilds, 1)
+        |> bump(:clones, 1)
+        |> add_fallback(reason)
+
+      {:error, error} ->
+        state = add_fallback(state, reason)
+
+        try do
+          TenantFixture.pool_report_and_raise("replay_failed", slot.tenant_id, [
+            "rebuild_clone_schema!/1 returned {:error, #{inspect(error)}}"
+          ])
+        rescue
+          exception -> fail(state, Exception.message(exception))
+        end
+    end
+  end
+
+  # -- reports ----------------------------------------------------------------------------
+
+  defp dirty_report(state, slot) do
+    {:ok, st} =
+      TenantTemplate.probe_clone_state(
+        slot.schema_name,
+        TenantTemplate.baseline_tables(slot.baseline)
+      )
+
+    diff = TenantTemplate.diff_clone_state(st, slot.baseline)
+    public = public_state(state, slot)
+
+    %{
+      dirty_tables: diff.dirty_tables,
+      dirty_sequences: Enum.map(diff.dirty_sequences, fn {_owner, sequence} -> sequence end),
+      seeds_diverged: diff.seeds_diverged,
+      definition_drift: diff.drift,
+      public_keyed_rows: public.keyed_rows,
+      tenant_row_diverged: not (public.tenant_ok? and public.registration_ok?),
+      clean?: TenantTemplate.clean_diff?(diff) and public_clean?(public)
+    }
+  end
+
+  defp fixture_of(slot) do
+    %{tenant_id: slot.tenant_id, schema_name: slot.schema_name, tenant: slot.tenant}
+  end
+
+  # -- quiescence fence (design 3.6 / 4.3 step 1) -----------------------------------------
+
+  defp fence_keys(state) do
+    state.slots
+    |> Map.values()
+    |> Enum.flat_map(fn slot -> [slot.schema_name, slot.tenant_id] end)
+    |> Enum.uniq()
+  end
+
+  defp wait_quiescent(keys, budget_ms), do: do_wait_quiescent(keys, now_ms() + budget_ms)
+
+  defp do_wait_quiescent(keys, deadline) do
+    case busy_backends(keys) do
+      [] ->
+        :ok
+
+      rows ->
+        if now_ms() >= deadline do
+          {:busy, rows}
+        else
+          Process.sleep(@fence_step_ms)
+          do_wait_quiescent(keys, deadline)
+        end
+    end
+  end
+
+  # Client backends of this database, other than this worker's current one, that are
+  # mid-statement or mid-transaction and whose current/last query text names a pooled
+  # slot's schema or tenant id. Honest limit: `track_activity_query_size` truncates the
+  # text (1024 bytes by default) and Ecto SELECTs put the schema after the column list,
+  # so a wide read can be invisible here; writers carry the schema in the first bytes.
+  defp busy_backends(keys) do
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT pid, state, left(query, 300)
+        FROM pg_stat_activity
+        WHERE datname = current_database()
+          AND backend_type = 'client backend'
+          AND pid <> pg_backend_pid()
+          AND state IN ('active', 'idle in transaction', 'idle in transaction (aborted)')
+          AND EXISTS (SELECT 1 FROM unnest($1::text[]) k WHERE strpos(query, k) > 0)
+        """,
+        [keys]
+      )
+
+    rows
+  end
+
+  defp describe_busy(rows) do
+    Enum.map_join(rows, "; ", fn [pid, state, query] ->
+      "backend pid=#{pid} state=#{state} query=#{inspect(query)}"
+    end)
+  end
+
+  # -- teardown (design 3.4) ----------------------------------------------------------------
+
+  defp teardown_slot(state, slot) do
+    log(
+      "phase=pool_teardown schema=#{slot.schema_name} tenant_id=#{slot.tenant_id} " <>
+        "test_module=#{inspect(state.module)}"
+    )
+
+    dump = dump(slot.tenant_id)
+
+    steps = [
+      fn ->
+        for {table, column} <- state.public_keyed do
+          Repo.query!("DELETE FROM public.#{ident(table)} WHERE #{ident(column)} = $1", [dump])
+        end
+      end,
+      fn -> Repo.query!("DROP SCHEMA IF EXISTS #{ident(slot.schema_name)} CASCADE") end,
+      fn -> Repo.delete_all(from(r in Registration, where: r.tenant_id == ^slot.tenant_id)) end,
+      fn -> Repo.delete_all(from(t in Tenant, where: t.id == ^slot.tenant_id)) end
+    ]
+
+    Enum.flat_map(steps, fn step ->
+      try do
+        step.()
+        []
+      rescue
+        exception ->
+          ["#{@marker} phase=pool_teardown #{slot.schema_name}: #{Exception.message(exception)}"]
+      end
+    end)
+  end
+
+  # -- small helpers ------------------------------------------------------------------------
+
+  defp fail(state, message), do: throw({:pool_fail, message, state})
+
+  defp bump(state, counter, by), do: update_in(state.stats[counter], &(&1 + by))
+
+  defp add_fallback(state, reason),
+    do: update_in(state.stats.fallback_reasons, &(&1 ++ [reason]))
+
+  defp add_digest(state, %{digest_ms: digest_ms}), do: bump(state, :digest_ms_total, digest_ms)
+
+  defp log(text), do: Logger.info("#{@marker} #{text}")
+
+  defp now_ms, do: System.monotonic_time(:millisecond)
+
+  defp dump(tenant_id), do: Ecto.UUID.dump!(tenant_id)
+
+  # Identifiers come from the catalog or `schema_name_for_tenant/1`, never from user input
+  # (INV-7); quoting with quote-doubling is belt and braces.
+  defp ident(name), do: ~s("#{String.replace(name, ~s("), ~s(""))}")
+
+  defp literal(value), do: "'#{String.replace(value, "'", "''")}'"
 end

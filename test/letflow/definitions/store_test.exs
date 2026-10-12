@@ -85,6 +85,28 @@ defmodule Letflow.Definitions.StoreTest do
   alias Letflow.Definitions.ServiceScopeValidator.{Lookup, Violation}
   alias Letflow.TenantFixture
 
+  # --- ISS-1042 pooled tenant (design iss1042-pooled-tenant-fixture.md 6.2 adopter audit) -------
+  # Spawned/un-awaited processes (item 1): the Task.async writers of the REQ-030 concurrency test
+  #   and the REQ-125 TOCTOU test are all awaited (Task.await_many) inside their own test and are
+  #   linked to the test process; no start_supervised / spawn / GenServer.cast.
+  # lib/ fire-and-forget workers (item 2): none reachable -- Definitions.create/activate/etc. only.
+  # In-memory tenant-keyed state (item 3): the REQ-125 telemetry handler is detached by its own
+  #   on_exit and only reacts to the test's own task pids; no ETS / Application env / Admission.
+  # Two slots of the SAME shape: one test provisions two tenants of that shape (tenant isolation).
+  setup_all context do
+    TenantFixture.start_pool!(context,
+      slots: [
+        [slug_prefix: "req030", display_name: "REQ-030 Test Tenant"],
+        [slug_prefix: "req030", display_name: "REQ-030 Test Tenant"]
+      ]
+    )
+  end
+
+  # MUST stay the module's first setup (before anything that provisions a tenant).
+  setup context do
+    TenantFixture.attach_pool!(context)
+  end
+
   # ---------------------------------------------------------------------------------
   # Fixtures / helpers -- provisions via Letflow.TenantFixture (ISS-0112 / GH#366).
   # ---------------------------------------------------------------------------------

@@ -4642,3 +4642,32 @@ activation, so 30 tests failed in CI (Backend gate) while the REQ-461 local run,
 directories, passed. Rule: before pushing a validator that starts refusing at activate (or create), grep the
 WHOLE `test/` tree for the attribute it checks (`grep -rln "required_outputs" test/`) and run every file that
 activates hand-built definitions, not only the validator's own tests. Register the schema rows before activation.
+
+## A pooled test fixture must prove cleanliness by a definitional digest, not by names and counts; TRUNCATE-everything is slower than a clone; a pooled id makes stragglers harmful (2026-10-12, ELIXIR-DEV, ISS-1042 / Q-1042 / GH #2381)
+
+Three lessons from the module-scoped pooled tenant (`Letflow.TenantFixture.start_pool!/2`).
+
+1. **Fingerprint by definition, and key every row uniquely.** A "same number of indexes, constraints and
+   triggers" fingerprint cannot see `DISABLE TRIGGER`, `ALTER COLUMN`, a same-name index recreate, `ALTER
+   SEQUENCE ... OWNED BY NONE` or `COMMENT ON`. The pool digests the catalog definition text of every object
+   and compares per-row hashes. The first version of that digest keyed internal foreign-key (RI) triggers by
+   `relation#constraint#tgtype`, which is NOT unique (a self-referencing FK, or two FKs on one table, produce
+   two UPDATE triggers with the same key), so which row won in the map depended on result order: every
+   verify "found drift" and rebuilt the slot, which turned a 5x win into a +35% regression on one module
+   (`definitions/store_test.exs`: 37 s before, 50 s with the buggy pool, 10 s fixed). Rule: when a digest
+   or fingerprint keys rows into a map, assert key uniqueness against a real schema (`GROUP BY key HAVING
+   count(*) > 1`) and aggregate duplicates deterministically; and always read the pool's own
+   `phase=pool_acquire outcome=` log lines (`clean` / `reset` / `rebuilt`) after adopting a module, not
+   only its wall time and pass count: a pool that rebuilds on every acquire still passes every test.
+
+2. **Measure the reset before choosing it.** TRUNCATE of all 50 tables of a clone costs 0.9-1.0 s, slower
+   than the 0.7-0.8 s clone it is meant to replace; the lever only pays with dirty-table detection (an
+   `EXISTS` probe of every table is ~4 ms) and a TRUNCATE of just the dirty tables plus their FK-referencing
+   closure (no CASCADE, so a missing edge raises instead of silently widening the set).
+
+3. **A pooled id turns a straggler from harmless into harmful.** With a fresh tenant id per test, a
+   fire-and-forget process that writes late hits a dropped schema. With a reused id it corrupts the next
+   test. Adopt a module only after auditing every process it can start (awaited or stopped before the test
+   returns), every reachable `lib/` fire-and-forget worker and every tenant-keyed in-memory state; keep the
+   quiescence fences fail-closed (raise, never log-and-continue); and do not re-snapshot a row that a
+   rebuild does not touch (re-snapshotting `public.tenants` after a rebuild would bless a corrupted row).

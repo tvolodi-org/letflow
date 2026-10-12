@@ -2752,6 +2752,34 @@
 2026-10-07T12:51:19Z | DISPATCH | WF-02 | WF02-REQ462-20261007 | ORCH → DOC-UPDATER | Step 06
 2026-10-07T12:53:21Z | RUN_DONE | WF-02 | WF02-REQ462-20261007 | ORCH | gates green (security PASS, idiom PASS, test-design PASS w/ all 12 node mutants + 8 extra killed, test-run scoped 46 files, release PASS, doc-update verified by ORCH from disk); local commits, NOT pushed; queue lock 1025 and GH#2340 left to parent
 2026-10-07T14:26:06Z | RUN_DONE | WF-02 | WF02-REQ463-20261007 | ORCH | gates green (security PASS+recheck, idiom PASS+recheck, test-design PASS 24 mutants killed, release PASS after BOM fix); 1 rework; scoped runs only; local commits, NOT pushed; queue lock 1026 left to parent.
+2026-10-12T03:20:21Z | START | WF-03 | WF03-ISS1042-20261012 | ORCH | Q-1042/GH#2381 claimed (get_next_task, agent tvolodi-orch); overlap check clean
+2026-10-12T03:20:21Z | DISPATCH | WF-03 | WF03-ISS1042-20261012 | ORCH → ELIXIR-DEV | Step 00 git setup
+2026-10-12T03:21:27Z | PASS | WF-03 | WF03-ISS1042-20261012 | ELIXIR-DEV → ORCH | Step 00 PASS (branch feature/WF03-ISS1042-20261012 pushed; handoff backfilled by ORCH, was not written pre-dispatch)
+2026-10-12T03:21:27Z | DISPATCH | WF-03 | WF03-ISS1042-20261012 | ORCH → ISSUE-FIXER | Step 0.5+1 registry lookup and measured diagnosis
+2026-10-12T03:44:20Z | PASS | WF-03 | WF03-ISS1042-20261012 | ISSUE-FIXER → ORCH | Step 0.5+1 PASS (ORCH verified commit 99782d5d4 + issue record on branch; clone 74-80% of partition wall, 1 run/config; lever c recommended)
+2026-10-12T03:44:20Z | DISPATCH | WF-03 | WF03-ISS1042-20261012 | ORCH → CODE-DESIGNER | Step 02 fix design
+2026-10-12T03:51:24Z | PASS | WF-03 | WF03-ISS1042-20261012 | CODE-DESIGNER → ORCH | Step 02 PASS (design lib/letflow/design/iss1042-pooled-tenant-fixture.md on branch; OQ-1/OQ-2 unprobed, Postgres was down)
+2026-10-12T03:51:24Z | DISPATCH | WF-03 | WF03-ISS1042-20261012 | ORCH → CODE-DESIGN-VALIDATOR | Step 02b
+2026-10-12T03:58:16Z | FAIL | WF-03 | WF03-ISS1042-20261012 | CODE-DESIGN-VALIDATOR → ORCH | Step 02b FAIL (2 BLOCKER: F1 structure fingerprint blind to DDL with unchanged counts, F2 late writer/straggler on pooled id; 4 MAJOR F3-F6; 5 MINOR)
+2026-10-12T03:58:16Z | REWORK | WF-03 | WF03-ISS1042-20261012 | ORCH → CODE-DESIGNER | Step 02 rework_count 1/3
+2026-10-12T04:05:24Z | PASS | WF-03 | WF03-ISS1042-20261012 | CODE-DESIGNER → ORCH | Step 02 rework 1 COMPLETED (commit 6daa9bdc6; F1-F6 mapped; git_evidence corrected by ORCH)
+2026-10-12T04:05:24Z | DISPATCH | WF-03 | WF03-ISS1042-20261012 | ORCH → CODE-DESIGN-VALIDATOR | Step 02b re-gate (fresh validator)
+2026-10-12T04:12:02Z | PASS | WF-03 | WF03-ISS1042-20261012 | CODE-DESIGN-VALIDATOR → ORCH | Step 02b re-gate PASS (fresh validator, ca11458f5; F1-F6 resolved, straggler audit independently re-traced; 8 MINOR for implementer)
+2026-10-12T04:12:02Z | DISPATCH | WF-03 | WF03-ISS1042-20261012 | ORCH → ELIXIR-DEV | Step 03 implement
+2026-10-12T04:40:24Z | PASS | WF-03 | WF03-ISS1042-20261012 | ELIXIR-DEV → ORCH | Step 03 PASS (head 40ce0ed0d; ORCH verified diff scope; 247 scoped tests green per agent, 3 adopters smoke 95.2->14.4s, 39.7->7.0s, 37.3->10.3s, 1 run each)
+2026-10-12T04:40:24Z | DISPATCH | WF-03 | WF03-ISS1042-20261012 | ORCH → SECURITY-REVIEWER | Step 03c security gate
+2026-10-12T04:41:39Z | PASS | WF-03 | WF03-ISS1042-20261012 | SECURITY-REVIEWER → ORCH | Step 03c PASS out-of-scope (9b2514123; INV-4/INV-7 applied+pass; F2 MINOR no runtime test-DB guard, optional)
+2026-10-12T04:41:39Z | DISPATCH | WF-03 | WF03-ISS1042-20261012 | ORCH → REVIEWER | Step 03d idiom review
+2026-10-12T04:46:15Z | PASS | WF-03 | WF03-ISS1042-20261012 | REVIEWER → ORCH | Step 03d PASS (dc8efd642; unlinked worker judged correct; non-blocking R1-R5)
+2026-10-12T04:46:15Z | DISPATCH | WF-03 | WF03-ISS1042-20261012 | ORCH → TEST-DESIGNER | Step 04 isolation suite + mutants
+2026-10-12T07:08:12Z | PASS | WF-03 | WF03-ISS1042-20261012 | TEST-DESIGNER → ORCH | Step 04 PASS (5bfe37368; 57 tests, 35/35 mutants killed per agent, file runs 68.6s/64.9s)
+2026-10-12T07:08:12Z | DISPATCH | WF-03 | WF03-ISS1042-20261012 | ORCH → TEST-DESIGN-VALIDATOR | Step 04b hard gate
+2026-10-12T07:30:22Z | PASS | WF-03 | WF03-ISS1042-20261012 | TEST-DESIGN-VALIDATOR → ORCH | Step 04b PASS (bcd479412; 9 independent mutants: 6 killed, V2/V4/V5 survivors analysed non-blocking)
+2026-10-12T07:30:22Z | DISPATCH | WF-03 | WF03-ISS1042-20261012 | ORCH → TEST-RUNNER | Step 04r before/after 5+5 runs + scoped gates
+2026-10-12T08:32:49Z | PASS | WF-03 | WF03-ISS1042-20261012 | TEST-RUNNER → ORCH | Step 04r PASS (97961c284; before 367.9s mean vs after 256.2s mean over 5+5 interleaved runs, 1.44x; scoped gates 161 passed, compile/format clean)
+2026-10-12T08:32:49Z | DISPATCH | WF-03 | WF03-ISS1042-20261012 | ORCH → RELEASE-VALIDATOR | Step 05v pre-close independent verification
+2026-10-12T08:52:16Z | PASS | WF-03 | WF03-ISS1042-20261012 | RELEASE-VALIDATOR → ORCH | Step 05v PASS (own samples before 399.5s/542 vs after 286.1s/527, -28.4% wall, -26% per test; pool test 57 passed; no CI/priv change)
+2026-10-12T08:52:16Z | DISPATCH | WF-03 | WF03-ISS1042-20261012 | ORCH → DOC-UPDATER | Step 06 docs + issue close record
 2026-10-07T15:05:03Z | RUN_START | WF-02 | WF02-REQ464-20261007 | ORCH | REQ-464 / Q-1027 / GH#2342 on feat/REQ-464-distinct-from-validator-Q-1027 (local branch from origin/main 5b7b8c90, not pushed); design = req459 (no new design)
 2026-10-07T15:05:22Z | DISPATCH | WF-02 | WF02-REQ464-20261007 | ORCH → ELIXIR-DEV | Step 02a
 2026-10-07T15:18:19Z | PASS | WF-02 | WF02-REQ464-20261007 | ELIXIR-DEV → ORCH | Step 02a PASS, committed 7befe9f9
@@ -2760,3 +2788,7 @@
 2026-10-07T15:19:43Z | DISPATCH | WF-02 | WF02-REQ464-20261007 | ORCH → TEST-DESIGNER | Step 03
 2026-10-07T15:27:14Z | PASS | WF-02 | WF02-REQ464-20261007 | TEST-DESIGNER → ORCH | Step 03 PASS, committed f8d1a7ea
 2026-10-07T15:27:14Z | DISPATCH | WF-02 | WF02-REQ464-20261007 | ORCH → TEST-DESIGN-VALIDATOR | Step 03b
+2026-10-12T08:54:02Z | PASS | WF-03 | WF03-ISS1042-20261012 | DOC-UPDATER → ORCH | Step 06 PASS (7532d808e; ISS-1042 resolved, R4 fix, follow_ups); lint_handoffs OK locally
+2026-10-12T09:04:30Z | FAIL | WF-03 | WF03-ISS1042-20261012 | CI → ORCH | PR #2397 run 38226440033 red: check_async_sandbox_reachability (static job + shard 3 partition 9 same root cause), PR-caused, deterministic; ORCH missed running letflow.check.static locally before push (merge discipline)
+2026-10-12T09:04:30Z | DISPATCH | WF-03 | WF03-ISS1042-20261012 | ORCH → ELIXIR-DEV | Step 07 CI fix async:false
+2026-10-12T09:05:53Z | PASS | WF-03 | WF03-ISS1042-20261012 | ELIXIR-DEV → ORCH | Step 07 PASS (e798f224d; async:false, check_async_sandbox_reachability OK, check.static 0 violations, 27 tests green, format clean); main 3eaf1515 merged into branch, CI rerun
