@@ -7,9 +7,9 @@
  "to_agent": "CODE-DESIGN-VALIDATOR",
  "file": "handoffs/WF03-ISS1058-20261012/step-02b-code-design-validator.json",
  "created_at": "2026-10-12T11:03:17Z",
- "started_at": null,
- "completed_at": null,
- "status": "PENDING",
+ "started_at": "2026-10-12T11:05:00Z",
+ "completed_at": "2026-10-12T11:25:00Z",
+ "status": "COMPLETED",
  "priority": "HIGH",
  "context": {
   "stage": "S1",
@@ -33,5 +33,42 @@
    "verdict with evidence"
   ]
  },
- "result": null
+ "result": {
+  "verdict": "PASS",
+  "summary": "Design lib/letflow/design/iss1058-pool-property-claims-leak.md covers all 6 acceptance criteria; every factual claim re-verified against test/support/tenant_fixture.ex and test/letflow/support/tenant_fixture_pool_test.exs by direct reading; no implementation code; no lib/ or test/support change; claim not weakened. No BLOCKER, no MAJOR; 3 MINOR findings, none gating.",
+  "verified": [
+   "F1-F3: @claims_key L297; claim_pooled! L589-598 takes k=Map.get(claims,shape,0), puts k+1 at L596, ArgumentError for undeclared slot L600-607; recycle_pool! L493-497 clears claims at L495 then run_end_fence!, touches no data.",
+   "F4: reset is lazy, at do_acquire (L1702): fence_a! -> prove_clean -> final_guard!; the other slot is untouched. F5: {:dirty_report, schema_name} (L1393) resolves slot by schema_name only. F6: attach_pool! L462 refuses non-empty claims.",
+   "Test side: slots [@a,@a,@b] L46-53; fx(:a) L98; property body ~L1402-1435 as described, max_runs 12, generators as described, closing rebuilds equality.",
+   ":fk_chain is the ONLY fixed-PK writer in @prop_writers: write!(:fk_chain) L246-274 uses literals ...0a1/...0b1 in groups/users/group_members/tenant_role. All other 9 writers use gen_random_uuid() or uniq() (names, emails, module_id, correlation_id; events instance_id random so (instance_id,sequence_number) never collides; seq_only writes no row). grep of the two literals in test/ and lib/ hits only tenant_fixture_pool_test.exs. Fixed-case users (mutate_everything! L413, M1 L528, M11 L1142) call it once per slot after an acquire that reset the slot, so unaffected.",
+   "Recycle at iteration start is sound: it only clears the per-process counter and runs the straggler fence; no slot data is touched, dirt is reset lazily by the next acquire of that slot regardless; the boundary under test (write, recycle, acquire) is outside it.",
+   "Pinned cases C1/C1b/C2/C3 encode the failing chain from the ISS-1058 diagnosis (duplicate :fk_chain -> 23505 -> claims {a=>1} leaks -> shrink re-run claims slot 2 -> post-boundary slot 1; seed 40898 second leak -> ArgumentError {shape,2}). Hand-traced C3: abort_attempt! x2 leaves claims {a=>2}; without change 2 helper fx(:a) raises ArgumentError, with it the start recycle yields slot 1 and the dirty slots are reset at acquire. Seeds themselves cannot be pinned through ExUnit; design O4 records that and encodes sequences instead (acceptable reading of acceptance 4).",
+   "Hooks hook_after_verify/hook_after_guard are no-ops unless a test sets the persistent_term (none do in the property); no hidden masking from them."
+  ],
+  "mutant_verification": {
+   "MU1": "EXISTS and FAILS the property, not masked by a rebuild. prove_clean (L1740-1763) else-arm at L1759-1761 calls reset/4. Replacing it by {state,:clean} touches neither the rebuild branches (probe error / definition drift only) nor final_guard!. Next acquire of the dirty slot: final_guard! L1862 probes with probe_clone_data, sees dirty tables, attempt 1 -> bump final_guard_resets, add_fallback(:final_guard), prove_clean again (still mutated, no reset), attempt 2 -> fail() throw -> ExUnit.AssertionError at fx(:a), message reason=pool_straggler \"written to again after two resets\". No rebuild occurs (rebuild/4 is only reachable from detect error, drift, or public-verify failure), so the end-of-property rebuilds equality is not what catches it. It fails at the post-boundary fx(:a) of the SAME iteration (or the next iteration start-acquire).",
+   "MU2": "EXISTS (reset/4 L1765-1810, reset_clone_schema! call L1769-1772) and FAILS the property. Stub {:ok, report} needs fields truncated, closure_added, sequences_restarted, probe_ms, verify_ms, total_ms (all read at L1779-1789) - design lists them. public_clean?(public_state) holds because the writers only write the tenant schema, so :reset is reported; rows and sequence state stay; final_guard! attempt 1 -> prove_clean -> same stub -> attempt 2 -> fail, identical observable outcome to MU1. No rebuild masking.",
+   "MU3": "EXISTS (L495) and FAILS at the new same-schema assertion on the first iteration: claims not cleared, post-boundary fx(:a) claims slot 2, a.schema_name != again.schema_name. (attach_pool! L468 also clears claims but runs once in setup, so it does not mask.) Correct as designed.",
+   "caveat": "Under MU1/MU2 the property fails at final_guard!, which subsumes the property assertions at ~L1430-1431: probe_clone_data + clean_diff? (tenant_template.ex L612) cover dirty_tables AND dirty_sequences. So the design statement that MU2 \"proves the row/sequence assertions at L1430-1431 still carry weight and are not subsumed by the pool report\" is not true; those assertions are reachable only by a mutant that also blinds the guard/detect (for example diff_clone_state or clean_diff? always clean), and are otherwise defence in depth. See finding m1."
+  },
+  "findings": [
+   {
+    "id": "m1",
+    "severity": "MINOR",
+    "text": "Section 7 MU1/MU2 rationale overstated: failure surfaces through final_guard! (pool_straggler, after two attempts), never at nonseed_rows/called_sequences; the \"if the guard passes\" arm is unreachable. TEST-RUNNER/TEST-DESIGN-VALIDATOR should expect and record the guard message as the observed failing assertion for MU1/MU2 (the design already lists \"the guard\" first, so it is within expectation). If proof that L1430-1431 carry independent weight is wanted, add MU4 that blinds clean_diff?/diff_clone_state; not required for the property to be shown non-weakened."
+   },
+   {
+    "id": "m2",
+    "severity": "MINOR",
+    "text": "Line cite for prove_clean is L1740-1763 (else-arm reset call L1759-1761), design says L1740-1759. Cosmetic; mutation target is unambiguous."
+   },
+   {
+    "id": "m3",
+    "severity": "MINOR",
+    "text": "Acceptance 4 \"both seeds added as fixed regression cases\" is met by encoding the failing sequences (C1-C3), not by a literal seed pin; justified in O4 (ExUnit --seed is not a property parameter). TEST-DESIGN-VALIDATOR should accept that reading and require the --seed 193355 and --seed 40898 whole-file runs as corroboration, as design section 6 states."
+   }
+  ],
+  "routing": "PASS -> proceed to step 03 (ELIXIR-DEV/TEST-DESIGNER per WF-03). No rework to CODE-DESIGNER required.",
+  "mix_invoked": false
+ }
 }
