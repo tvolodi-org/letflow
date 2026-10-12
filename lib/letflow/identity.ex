@@ -1758,6 +1758,10 @@ defmodule Letflow.Identity do
           {:error, changeset}
         end
     end
+  rescue
+    # A database fault outside the changeset (for example a value longer than its column) is a typed
+    # result for the caller, not an exception (SECURITY-REVIEWER INV-8).
+    _error in Postgrex.Error -> {:error, :database_error}
   end
 
   @doc "Fetches a single onboarding record by id. Design §8.2."
@@ -1853,7 +1857,18 @@ defmodule Letflow.Identity do
     # Fixed message, tenant id only: never the exception (INV-4).
     _exception ->
       Logger.error("tenant realm bind failed (tenant_id=#{inspect(tenant_id)})")
-      {:error, :audit_failed}
+      committed_realm_or_audit_failed(tenant_id, realm)
+  end
+
+  # An exception during COMMIT leaves the outcome unknown, so re-read before reporting a failure
+  # (SECURITY-REVIEWER F5). A rolled-back bind shows the realm still NULL and stays :audit_failed.
+  defp committed_realm_or_audit_failed(tenant_id, realm) do
+    case Repo.get(Tenant, tenant_id) do
+      %Tenant{idp_realm_id: ^realm} = tenant -> {:ok, tenant}
+      _other -> {:error, :audit_failed}
+    end
+  rescue
+    _exception -> {:error, :audit_failed}
   end
 
   defp lock_and_bind_realm(repo, tenant_id, realm) do

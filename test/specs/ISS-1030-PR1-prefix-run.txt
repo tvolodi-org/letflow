@@ -1,0 +1,94 @@
+WF-03 pre-fix run for ISS-1030 PR 1 (issue record: docs/issues/ISS-1030.yaml: failure_class: defect; discovered_in_run: WF03-ISS1030-Q1012-20261008)
+Base: f10dab91, clean, in a separate temporary worktree (since removed). PR 1 test files and the two probe support modules copied in; no library change; config/test.exs NOT copied (the PR adds config for the realm probe double), so the pre-fix environment differs from the PR's in that file.
+Command: mix test on the four PR 1 Elixir files (test/letflow/routers/onboarding_administrator_fields_test.exs, test/letflow/identity/tenant_realm_bind_test.exs, test/letflow/oidc/realm_probe_test.exs, test/letflow/platform_tenant_prefix_test.exs), MIX_ENV=test, MIX_TEST_PARTITION=pre1012.
+Result: 3 passed, 77 failed (of 80).
+The web test (RegisterTenantPage.iss1030.test.tsx) was NOT run pre-fix.
+
+Causes (the classification is by the first matching error line after each failure header):
+  undefined-function: the new function or module does not exist on the base
+  assertion: a value differs on the base (for example administrator missing, status different)
+  missing-file: a file the PR adds is read by the test
+  other-error: protocol or argument errors on the new shapes
+
+assertion	GET /onboarding/:id and GET /onboarding?hostname= mark a tenant without a realm as not_yet_loginable with next steps
+assertion	POST /onboarding lists client_config, realm_config and redirect_uris in ignored_fields by name only
+assertion	POST /onboarding treats a blank-string admin field as not sent: state none and no echo
+assertion	POST /onboarding treats a null admin field as not sent: state none and no echo
+assertion	POST /onboarding treats a whitespace-only admin field as not sent: state none and no echo
+assertion	POST /onboarding whose realm is claimed by another tenant before the bind answers 201 with realm_request not_bound and keeps the record
+assertion	POST /onboarding whose tenant is not active when the bind runs answers 201 with realm_request unavailable
+assertion	POST /onboarding with a realm and a taken hostname answers 409 and never binds the realm to the failed tenant
+assertion	POST /onboarding with a valid idp_realm_id binds it and the record says loginable true
+assertion	POST /onboarding with admin_email, admin_username and admin_display_name returns 201, echoes each as not_provisioned and stores nothing
+assertion	POST /onboarding with no admin fields returns 201 and administrator.state none with the next-step message
+assertion	POST /onboarding with only admin_username and admin_display_name returns state none, the no-administrator message and both fields echoed as not_provisioned
+assertion	POST /onboarding without any extra field is unchanged: status 201 and the five original keys are present
+assertion	POST /onboarding/:id/bind-realm 409 for a realm bound to another tenant names no tenant
+assertion	POST /onboarding/:id/bind-realm answers the fixed 500 and writes nothing when no platform tenant is configured
+assertion	POST /onboarding/:id/bind-realm answers the fixed 500 and writes nothing when the platform prefix differs from the caller's tenant prefix
+assertion	POST /onboarding/:id/bind-realm binds the realm once, answers 200 and writes a tenant.idp_realm.bound audit entry
+assertion	POST /onboarding/:id/bind-realm issues no tenant read after the bind commits
+assertion	POST /onboarding/:id/bind-realm on a deactivated or migrating tenant answers 409 tenant is not active with identical bytes and writes nothing
+assertion	POST /onboarding/:id/bind-realm on a tenant that became non-active answers 409 even for the realm already stored
+assertion	POST /onboarding/:id/bind-realm validates the realm like onboarding does and answers 503 when the probe is unreachable
+assertion	POST /onboarding/:id/bind-realm with a different realm after binding answers 409 and leaves the tenant unchanged
+assertion	POST /onboarding/:id/bind-realm with an unknown realm answers 422 and leaves the tenant unchanged
+assertion	POST /onboarding/:id/bind-realm with the same realm again answers 200 and writes no second audit entry
+assertion	after bind-realm a token from that realm resolves the tenant and a tenant without a realm cannot be resolved
+assertion	an unknown admin_* key is listed in ignored_fields by name, while the three known ones are not
+assertion	bind-realm writes a tenant-chain entry with a NIL actor and a platform-chain entry with the operator id
+assertion	no other changeset casts idp_realm_id on an existing tenant
+missing-file	PR 1 modules make no Keycloak admin realm or user call (AC5 scope guard)
+missing-file	the onboarding runbook exists and references T-0150, T-0158 and bind-realm
+other-error	POST /onboarding does not echo a non-string admin value and omits oversize values
+other-error	ignored_fields is capped at 20 names, truncates each to 64 characters and strips control characters
+other-error	two concurrent bind_tenant_realm calls with different realms: exactly one wins and the loser gets realm_already_bound
+assertion	POST /onboarding answers 503 with a retry-after header of 5 and creates no tenant row when the realm probe is unreachable
+assertion	POST /onboarding with a blank, malformed or master idp_realm_id answers 422 and creates no tenant row
+assertion	POST /onboarding with a non-string admin_email answers 422 and creates no tenant row
+assertion	POST /onboarding with an idp_realm_id already bound to another tenant answers 409 and creates no tenant row
+assertion	POST /onboarding with an invalid UTF-8 field name answers 422 and writes nothing
+assertion	POST /onboarding with an unknown idp_realm_id answers 422 and creates no tenant row
+assertion	a validated realm reaches the probe URL path unchanged (trimmed, not escaped)
+assertion	an idp_realm_id validation error never echoes the received value
+assertion	bind-realm records the request's x-trace-id in the platform chain and never in the tenant chain
+assertion	idp_realm_id validation refuses '.', '..', 'Master' (any case of master), an over-long value (65 characters) and a leading dash or underscore, and stores ' x ' as 'x' after trimming
+undefined-function	RealmProbe.verify/1 delegates to the configured adapter
+undefined-function	a document whose issuer keeps the doubled slash of an unstripped base URL is not accepted
+undefined-function	a non-active tenant answers tenant_not_active even when the same realm is already stored (design 3.2)
+undefined-function	accepts a realm whose discovery issuer equals the expected issuer
+undefined-function	an unknown URL scheme and an unset base URL are unreachable and no request is made
+undefined-function	an upper-case URL scheme is normalised and still gets peer and host name verification
+undefined-function	an upper-case http scheme is normalised and probed over plain http
+undefined-function	bind_tenant_realm audits a NIL actor in the tenant chain and the operator in the platform chain
+undefined-function	bind_tenant_realm refuses a non-active tenant, an unknown tenant and a realm held elsewhere
+undefined-function	bind_tenant_realm sets idp_realm_id only while it is NULL
+undefined-function	bind_tenant_realm without actor_id or platform_prefix writes nothing
+undefined-function	builds the URL only from the configured Keycloak base URL and the validated realm
+undefined-function	does not follow a redirect: a 3xx answer is unreachable and the Location target is never requested
+undefined-function	ignores http messages that carry another request id and never decides from them
+undefined-function	maps a 404 to not_found and a closed or refused connection to unreachable
+undefined-function	maps a 404, a 500 and a 206 to not_found, unreachable and unreachable and never decodes their bodies
+undefined-function	no stray http message remains in the caller mailbox after a cancel or a timeout
+undefined-function	platform_prefix issues no database query for a valid configured id either
+undefined-function	platform_prefix returns error when no platform tenant is configured
+undefined-function	platform_prefix returns error when the configured value is not a valid tenant id
+undefined-function	platform_prefix returns the schema name of the configured platform tenant
+undefined-function	realm bound: a forced failure of the platform write leaves idp_realm_id NULL and no tenant entry
+undefined-function	realm bound: a tenant with no provisioning registration is not bound (audit_failed, rolled back)
+undefined-function	realm_bind_changeset casts nothing but idp_realm_id and rejects a malformed value
+undefined-function	realm_bind_changeset rejects a value with a trailing newline (the format check must not rely on a prior trim)
+undefined-function	refuses a 200 response that is not a JSON object
+undefined-function	refuses a 200 response whose content-length exceeds 64 KiB, cancelling before reading the body
+undefined-function	refuses a chunked 200 response that grows past 64 KiB, cancelling the request without decoding
+undefined-function	refuses a realm name outside the allowed alphabet before any request is made
+undefined-function	refuses a realm name with a trailing newline before any request is made
+undefined-function	rejects a discovery document whose issuer differs
+undefined-function	rejects a server certificate whose host name does not match the base URL host
+undefined-function	sends no Accept-Encoding header
+undefined-function	strips a trailing slash of the base URL in both the request URL and the expected issuer
+
+Passing on base (not regression guards: they pass because an unmatched route already answers the uniform 403 or 404):
+  POST /onboarding with a realm answers 403 before any write when the platform pin is another tenant
+  POST /onboarding/:id/bind-realm by an admin of another tenant answers the uniform 403, byte-identical for a matched and an unmatched path
+  POST /onboarding/:id/bind-realm for a nonexistent onboarding id answers 404

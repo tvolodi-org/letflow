@@ -67,8 +67,10 @@ If the onboarding call carried an `idp_realm_id` and provisioning failed, the re
 the realm is bound only after provisioning and the onboarding record succeed. The realm therefore
 stays free, and after recovery you bind it with step R3.
 
-If the create call answers 409 `hostname already bound` after provisioning, the tenant exists,
-is active and has no realm; the realm stays free and the call can be retried with a free hostname.
+If the create call answers 409 `hostname already bound`, no tenant was created (the hostname is checked
+before any write): retry with a free hostname. Only a hostname taken in the instant between that check
+and the insert (a race) can leave an active tenant with no onboarding record and no realm; that state
+goes to the platform owner, and nobody binds the realm by hand.
 If the create call answers **201** with `realm_request.status = "not_bound"` (the realm was claimed by
 another tenant in a race, `reason = "taken"`, or the bind hit an audit fault, `reason =
 "unavailable"`), the tenant is active, the onboarding record exists (the body's `id`), and the realm

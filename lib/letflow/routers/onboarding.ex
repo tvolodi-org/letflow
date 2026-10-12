@@ -244,6 +244,7 @@ defmodule Letflow.Routers.Onboarding do
 
       {:ok, %{"slug" => slug, "hostname" => hostname} = attrs} ->
         with {:ok, realm} <- validate_create_extras(body, attrs),
+             :ok <- codepoint_fit(attrs),
              {:ok, extras} <- response_extras(body),
              {:ok, bind_opts} <- realm_bind_opts(conn, realm),
              :ok <- verify_realm(conn, realm) do
@@ -357,11 +358,14 @@ defmodule Letflow.Routers.Onboarding do
   # with the tenant: it is bound only after provisioning and the onboarding record succeed
   # (provision_and_bind/7), so a later failure such as a taken hostname cannot leave an
   # active tenant that already owns the realm (ISS-1030 SECURITY-REVIEWER F1).
+  # The hostname is pre-checked as well (SECURITY-REVIEWER MAJOR-2): a taken hostname is answered 409
+  # before any row is written, so the answer never leaves an active tenant behind. A hostname taken
+  # between this read and the insert (a race) still leaves the tenant committed, as the runbook records.
   defp create_tenant(conn, attrs, extras, slug, hostname, realm, bind_opts) do
-    if realm_taken?(realm) do
-      Response.conflict(conn, "realm already bound")
-    else
-      insert_migrating_tenant(conn, attrs, extras, slug, hostname, realm, bind_opts)
+    cond do
+      realm_taken?(realm) -> Response.conflict(conn, "realm already bound")
+      hostname_taken?(hostname) -> Response.conflict(conn, "hostname already bound")
+      true -> insert_migrating_tenant(conn, attrs, extras, slug, hostname, realm, bind_opts)
     end
   end
 
@@ -369,6 +373,36 @@ defmodule Letflow.Routers.Onboarding do
 
   defp realm_taken?(realm),
     do: match?({:ok, _tenant}, Identity.resolve_tenant_by_realm(realm))
+
+  defp hostname_taken?(hostname),
+    do: match?({:ok, _record}, Identity.get_onboarding_by_hostname(hostname))
+
+  # Postgres varchar(n) counts code points; the validator counts graphemes (String.length). A value
+  # with combining marks can pass the validator and then fail the insert with a 500 after the tenant
+  # is committed (SECURITY-REVIEWER BLOCKER F1). Checked here, before any write.
+  @codepoint_max %{"slug" => 63, "display_name" => 255, "hostname" => 255}
+
+  defp codepoint_fit(attrs) do
+    too_long =
+      Enum.find(@codepoint_max, fn {field, max} ->
+        length(String.codepoints(Map.fetch!(attrs, field))) > max
+      end)
+
+    case too_long do
+      nil ->
+        :ok
+
+      {field, max} ->
+        {:errors,
+         [
+           %FieldError{
+             field: field,
+             constraint: "max_length",
+             message: "length must be at most #{max} characters"
+           }
+         ]}
+    end
+  end
 
   defp insert_migrating_tenant(conn, attrs, extras, slug, hostname, realm, bind_opts) do
     create_attrs =
@@ -465,18 +499,22 @@ defmodule Letflow.Routers.Onboarding do
   # bodies as UTF-8 but not part NAMES (deps/plug/lib/plug/parsers/multipart.ex), so a key can carry
   # bytes that Jason refuses. That is a 422 with nothing written, never an exception after the
   # tenant and record have committed (SECURITY-REVIEWER BLOCKER-1 on the create route).
+  # Keys are checked for UTF-8 BEFORE the sanitiser or the encoder sees them (SECURITY-REVIEWER F3): a
+  # defect in either must surface as a crash, not be mistaken for an encoding refusal.
   defp response_extras(body) do
-    extras = %{
-      "administrator" => administrator_map(body),
-      "ignored_fields" => ignored_fields(body)
-    }
+    if Enum.all?(Map.keys(body), &(is_binary(&1) and String.valid?(&1))) do
+      extras = %{
+        "administrator" => administrator_map(body),
+        "ignored_fields" => ignored_fields(body)
+      }
 
-    case Jason.encode(extras) do
-      {:ok, _json} -> {:ok, extras}
-      {:error, _reason} -> {:errors, [unencodable_field_error()]}
+      case Jason.encode(extras) do
+        {:ok, _json} -> {:ok, extras}
+        {:error, _reason} -> {:errors, [unencodable_field_error()]}
+      end
+    else
+      {:errors, [unencodable_field_error()]}
     end
-  rescue
-    _exception -> {:errors, [unencodable_field_error()]}
   end
 
   defp unencodable_field_error do

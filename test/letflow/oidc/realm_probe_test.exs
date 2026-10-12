@@ -117,7 +117,15 @@ defmodule Letflow.Oidc.RealmProbeTest do
        ]}
     end)
 
-    assert Httpc.verify(realm()) == {:error, :unreachable}
+    # Decided from the head alone: well under the 3 s deadline that a probe waiting for the body would hit
+    # (and that a raised cap would hit, answering the same :unreachable).
+    {elapsed_us, result} = :timer.tc(fn -> Httpc.verify(realm()) end)
+
+    assert result == {:error, :unreachable}
+
+    assert elapsed_us < 2_000_000,
+           "decided after #{div(elapsed_us, 1000)} ms: the body was waited for"
+
     # The probe cancelled the request: the server saw its connection close.
     assert_receive {:realm_probe_server, :closed, _path}, 5_000
   end

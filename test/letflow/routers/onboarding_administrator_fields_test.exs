@@ -497,14 +497,14 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     assert stored_realm(other.tenant_id) == held
   end
 
-  test "POST /onboarding with a realm and a taken hostname answers 409 and never binds the realm to the failed tenant",
+  # The hostname is pre-checked: the 409 is answered before any row is written, so no tenant is left
+  # behind and the realm stays free (SECURITY-REVIEWER MAJOR-2).
+  test "POST /onboarding with a realm and a taken hostname answers 409 and creates no tenant",
        ctx do
     first = onboard!(ctx, %{})
     slug = Letflow.TenantSlugFixture.unique_slug("iss1030")
     free = realm()
 
-    # Provisioning succeeds and the onboarding record fails AFTER the tenant exists. The
-    # realm is bound only after the record, so the failed tenant must stay unbound.
     conn =
       call(ctx, :post, "/api/v1/onboarding", %{
         "slug" => slug,
@@ -513,13 +513,9 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
         "idp_realm_id" => free
       })
 
-    # Cleanup is registered before any assertion below, so a failing run still drops the schema.
-    orphan = Repo.get_by(Tenant, slug: slug)
-    if orphan, do: cleanup_onboarded_tenant!(orphan.id)
-
     assert conn.status == 409
     assert json(conn)["detail"] == "hostname already bound"
-    assert %Tenant{idp_realm_id: nil} = orphan
+    assert Repo.get_by(Tenant, slug: slug) == nil
     refute Repo.exists?(from(t in Tenant, where: t.idp_realm_id == ^free))
 
     # The realm is still free: a later create with a free hostname binds it.
@@ -595,10 +591,11 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
         :telemetry.detach(handler_id)
       end
 
-    assert conn.status == 201, conn.resp_body
+    # Cleanup first, so a failing assertion still drops the schema (a non-201 body has no tenant_id: a no-op).
     created = json(conn)
     cleanup_onboarded_tenant!(created["tenant_id"])
 
+    assert conn.status == 201, conn.resp_body
     assert created["realm_request"] == %{"status" => "not_bound", "reason" => "unavailable"}
     assert created["login"]["loginable"] == false
     assert stored_realm(created["tenant_id"]) == nil
@@ -608,7 +605,8 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
   def deactivate_on_registry_insert(_event, _measurements, metadata, {test_pid, slug}) do
     query = to_string(Map.get(metadata, :query) || "")
 
-    if self() == test_pid and String.starts_with?(query, ~s(INSERT INTO "onboarding_registry")) do
+    if self() == test_pid and String.starts_with?(query, ~s(INSERT INTO "onboarding_registry")) and
+         match?({:ok, _}, Map.get(metadata, :result)) do
       Repo.update_all(from(t in Tenant, where: t.slug == ^slug), set: [status: :inactive])
     end
   end
@@ -637,9 +635,53 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
       |> Fixture.dispatch_api()
 
     assert conn.status == 422, conn.resp_body
+
+    assert json(conn)["errors"] == [
+             %{
+               "field" => "(root)",
+               "constraint" => "encoding",
+               "message" => "field names must be valid UTF-8",
+               "received" => nil
+             }
+           ]
+
     assert Repo.get_by(Tenant, slug: slug) == nil
     assert Repo.get_by(OnboardingRecord, hostname: hostname) == nil
     refute Repo.exists?(from(t in Tenant, where: t.idp_realm_id == ^value))
+  end
+
+  # The validator counts graphemes and the column counts code points: 255 graphemes made of a letter and
+  # a combining mark is 510 code points. It must be refused with 422 before any write (SECURITY-REVIEWER F1).
+  test "POST /onboarding with a hostname over 255 code points answers 422 and creates no tenant",
+       ctx do
+    slug = Letflow.TenantSlugFixture.unique_slug("iss1030")
+    hostname = String.duplicate("é", 255)
+
+    conn =
+      call(ctx, :post, "/api/v1/onboarding", new_body(%{"slug" => slug, "hostname" => hostname}))
+
+    assert conn.status == 422, conn.resp_body
+    assert field_error_on?(conn, "hostname")
+    assert Repo.get_by(Tenant, slug: slug) == nil
+    assert Repo.get_by(OnboardingRecord, hostname: hostname) == nil
+  end
+
+  test "POST /onboarding with a display_name over 255 code points answers 422 and creates no tenant",
+       ctx do
+    slug = Letflow.TenantSlugFixture.unique_slug("iss1030")
+    display_name = String.duplicate("é", 255)
+
+    conn =
+      call(
+        ctx,
+        :post,
+        "/api/v1/onboarding",
+        new_body(%{"slug" => slug, "display_name" => display_name})
+      )
+
+    assert conn.status == 422, conn.resp_body
+    assert field_error_on?(conn, "display_name")
+    assert Repo.get_by(Tenant, slug: slug) == nil
   end
 
   test "bind-realm records the request's x-trace-id in the platform chain and never in the tenant chain",
@@ -1118,7 +1160,8 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
       ) do
     query = to_string(Map.get(metadata, :query) || "")
 
-    if self() == test_pid and String.starts_with?(query, ~s(INSERT INTO "onboarding_registry")) do
+    if self() == test_pid and String.starts_with?(query, ~s(INSERT INTO "onboarding_registry")) and
+         match?({:ok, _}, Map.get(metadata, :result)) do
       Repo.update_all(from(t in Tenant, where: t.id == ^tenant_id), set: [idp_realm_id: value])
     end
   end
@@ -1140,35 +1183,31 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     :ok
   end
 
-  # AC3 (design section 11): the operator runbook exists and names the steps it must.
   # PR1 scope guard for AC5 (ISS-1030). Narrow on purpose: it scans only the PR 1 modules and fails on
   # a Keycloak admin realm or user call. Remove or replace it when Q-1061 / GH #2414 (decision gate) lands.
   test "PR 1 modules make no Keycloak admin realm or user call (AC5 scope guard)" do
-    pr1_modules = [
-      "lib/letflow/routers/onboarding.ex",
-      "lib/letflow/identity.ex",
-      "lib/letflow/identity/tenant.ex",
-      "lib/letflow/oidc/realm_probe.ex",
-      "lib/letflow/platform_tenant.ex"
-    ]
-
-    forbidden = [
-      ~r{/admin/realms},
-      ~r{/admin/users},
-      ~r{:httpc\.request\(:(post|put|patch|delete)},
-      ~r{Req\.(post|put|patch|delete)\(},
-      ~r{HTTPoison\.(post|put|patch|delete)\(}
-    ]
-
-    for path <- pr1_modules, pattern <- forbidden do
+    # No module under lib names a Keycloak admin realm or user path.
+    for path <- Path.wildcard("lib/**/*.ex"), pattern <- [~r{/admin/realms}, ~r{/admin/users}] do
       refute File.read!(path) =~ pattern, "#{path} matches #{inspect(pattern)}"
+    end
+
+    # The PR 1 modules make no outbound write call through any HTTP client.
+    outbound_write =
+      ~r{:httpc\.request\(:(post|put|patch|delete)|Req\.(post|put|patch|delete|request)\(|HTTPoison\.|Finch\.|Tesla\.}
+
+    for path <-
+          ~w(lib/letflow/routers/onboarding.ex lib/letflow/identity.ex lib/letflow/identity/tenant.ex
+                   lib/letflow/platform_tenant.ex lib/letflow/api/authorization.ex lib/letflow/oidc/realm_probe.ex) do
+      refute File.read!(path) =~ outbound_write, path
     end
 
     # The probe is the only outbound request of PR 1: one GET through :httpc.
     probe_source = File.read!("lib/letflow/oidc/realm_probe.ex")
     assert length(Regex.scan(~r{:httpc\.request\(}, probe_source)) == 1
+    assert probe_source =~ ~r{:httpc\.request\(:get, }
   end
 
+  # AC3 (design section 11): the operator runbook exists and names the steps it must.
   test "the onboarding runbook exists and references T-0150, T-0158 and bind-realm" do
     runbook = File.read!(@runbook)
 
@@ -1176,7 +1215,9 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
       assert runbook =~ reference
     end
 
-    # AC3 names the activate step: the runbook must say activation is automatic.
+    # The realm and first-administrator steps, and the activate step: activation is automatic.
+    assert runbook =~ "Create the realm"
+    assert runbook =~ "Create the first administrator"
     assert runbook =~ "Activation is automatic"
   end
 end
