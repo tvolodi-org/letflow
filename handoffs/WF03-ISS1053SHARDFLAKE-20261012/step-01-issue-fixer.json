@@ -1,0 +1,36 @@
+{
+  "handoff_id": "c4a7d1e0-1053-4a11-8c20-000000000001",
+  "run_id": "WF03-ISS1053SHARDFLAKE-20261012",
+  "workflow_id": "WF-03",
+  "step": "01",
+  "from_agent": "ORCH",
+  "to_agent": "ISSUE-FIXER",
+  "file": "handoffs/WF03-ISS1053SHARDFLAKE-20261012/step-01-issue-fixer.json",
+  "created_at": "2026-10-12T15:10:00Z",
+  "started_at": null,
+  "completed_at": null,
+  "status": "PENDING",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1053": "CI flake, supervisor-prioritised 2026-10-12. Queue Q-1053 / GH #2399, issue_ref ISS-1053. See task.description."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "test/scripts/test_parallel_shard_test.exs",
+      "scripts/test_parallel.sh"
+    ],
+    "owned_modules": [
+      "test/scripts/test_parallel_shard_test.exs",
+      "scripts/test_parallel.sh"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1053SHARDFLAKE-20261012"
+  },
+  "task": {
+    "description": "WF-03 Step 1 diagnosis + exact fix design (ISSUE-FIXER, .claude/agents/issue-fixer.md) for Q-1053 / GH #2399, queue issue_ref ISS-1053 (CI flake, priority raised by the supervisor: it now makes other PRs red). Branch feature/WF03-ISS1053SHARDFLAKE-20261012 (from origin/main). Read the GH issue (gh issue view 2399 --comments) for both occurrences.\n\nFailures: test/scripts/test_parallel_shard_test.exs:241 \"shard 2 of 3 under admission control cap 1\" fails with \"partition 7's process exited during its own template build, before producing a ready-file\" (CI run 38227698118, loadavg 10.09 on 4 cores); recurrence :274 \"TEST_PARALLEL_SHARD SHARD wins over TOTAL and OFFSET (even invalid ones)\" (PR #2383, CI run 38263915020, shard 2/3, job 114861236729, nested runner's partition-1 log is missing, load 9.75). Both are green on rerun; on main the test ran green on 7a66381e and 2809e5ff. The tests use stub bash partitions and no BEAM and drive scripts/test_parallel.sh (and possibly scripts/timed_test.sh) with a stub mix.\n\nAcceptance (queue): (1) the cause of the early exit is diagnosed from a captured partition log, or the capture is added so the next occurrence leaves one; (2) a KEEP_LOGS-style capture (name chosen by the implementer; check scripts/test_parallel.sh for an existing TEST_PARALLEL_KEEP_LOGS or similar) keeps each stub partition's log when a partition exits without its ready-file, and the failure message names the kept log path; (3) the test's wait remains bounded, failure still reported when a ready-file never appears; (4) assertions on the ready-file-to-global-index pairing unchanged; (5) five consecutive local runs of the test under CPU load recorded with real output. The supervisor adds: look at ALL tests in that file that read the nested runner's partition log or wait on ready-files, not just :241 and :274.\n\nDo: read test/scripts/test_parallel_shard_test.exs fully and scripts/test_parallel.sh (partition spawn, ready-file, template build, log paths, cleanup trap, admission control, the SHARD/TOTAL/OFFSET handling). Find a plausible mechanism for \"process exited before ready-file / partition log missing\" under load that is NOT just \"slow machine\" (e.g. a timing assumption, a cleanup trap that deletes the log dir before the test reads it, a shared tmp path or partition-number collision between the nested runner and a concurrently running real runner on the same host or CI shard, a wait deadline too short, the stub killed by the harness's own timeout or process-group signal, set -e/pipefail interplay, a mktemp dir removed by the test's on_exit while the stub still runs). Prove or refute each candidate by reading code and, where safe, by a controlled local reproduction (stress: run the single test file in a loop with CPU burners, for example 4 parallel busy loops, 20+ iterations; keep ALL output). If a root cause can be shown, design the minimal fix (production script change only if the script is at fault, else test-only). In every case design the capture: keep logs on failure with the path in the failure message. Check docs/anti-patterns.md.\n\nDeliver: root cause (or ranked hypotheses with the evidence), the exact design (files, code shape, wait bounds, messages), the stress-run protocol, a mutant list (a regression of the fix that must fail the new or changed test), risks. Do NOT write the implementation. Local issue id: use ISS-1062 (ISS-1059 is taken, ISS-1061 is used by the open branch feature/WF03-ISS1054DBGUARD-20261012); verify it is free (docs/issues, git ls-remote --heads origin, queue max ref is ISS-1060) and create docs/issues/<id>.yaml with queue_ref Q-1053, github_ref GH-2399 (schema of docs/issues/ISS-1058.yaml).\n\nMix is allowed ONLY under the machine-wide mutex (one BEAM at a time; one acquisition per mix invocation, so a stress loop acquires per iteration): L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2>/dev/null; do sleep 20; done; trap 'rmdir \"$L\" 2>/dev/null' EXIT; cd /c/Users/tvolo/dev/ai-dala/letflow && LETFLOW_DB_PORT=5499 MIX_ENV=test <ONE mix invocation>. A throwaway postgres:16 on 5499 is needed only if the test touches the DB (check; docker run -d --rm --name pg1053 -e POSTGRES_USER=letflow -e POSTGRES_PASSWORD=letflow -e POSTGRES_DB=letflow_dev -p 5499:5432 postgres:16; remove afterwards). Foreground only; no Monitors.\n\nResult into this handoff (COMPLETED, result.status PASS/FAIL, no BOM, LF, artifacts_out under result, no self-reference); pull --rebase, commit, push with bounded retry on github resolve failures; message ends: Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>\n"
+  }
+}
