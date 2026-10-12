@@ -7,9 +7,9 @@
  "to_agent": "ISSUE-FIXER",
  "file": "handoffs/WF03-ISS1038CIFILTER-20261012/step-01-issue-fixer.json",
  "created_at": "2026-10-12T12:35:27Z",
- "started_at": null,
- "completed_at": null,
- "status": "PENDING",
+ "started_at": "2026-10-12T12:40:00Z",
+ "completed_at": "2026-10-12T13:05:00Z",
+ "status": "COMPLETED",
  "priority": "NORMAL",
  "context": {
   "stage": "S1",
@@ -38,5 +38,44 @@
    "proof plan"
   ]
  },
- "result": null
+ "result": {
+  "verdict": "PASS",
+  "local_issue_record": "docs/issues/ISS-1059.yaml (queue_ref Q-1038, github_ref GH-2365; ISS-1038.yaml clash noted in a comment; origin not fetchable, re-check ISS-1059 is free before PR)",
+  "summary": "Root cause confirmed by reading the filter and tracing what backend jobs execute/read: ci.yml 'Detect changed paths' backend regex has no scripts/ (nor .formatter.exs, nor priv/ outside migrations). No mix run was needed. Backend executes: scripts/test_parallel.sh (lib/mix/tasks/letflow.check.test.ex:229 bash scripts/test_parallel.sh; every shard leg and the tails); tests execute scripts/seed_*.sh, scripts/lib/seed_persona_actors_base.sh and seed_service_task_base.sh (sourced), scripts/uat_preflight.sh, and glob scripts/seed_*.sh and scripts/lib/seed_*.sh. scripts/mutate.py, scripts/fix_registry.py, scripts/README.md are referenced by no test/lib/CI step.",
+  "classification_must_trigger_backend": [
+   "scripts/test_parallel.sh (mix letflow.check.test; every shard leg)",
+   "scripts/seed_meridian_definition.sh, seed_meridian_persona_actors.sh, seed_swiftroute_definition.sh, seed_swiftroute_incident_definition.sh, seed_swiftroute_persona_actors.sh, seed_vortex_definition.sh, seed_vortex_entities.sh, seed_vortex_persona_actors.sh (test/letflow/scripts/*, test/scripts/*, shipped_definitions_validation_test)",
+   "scripts/lib/seed_persona_actors_base.sh, scripts/lib/seed_service_task_base.sh (sourced by the seed scripts; globbed by seed_scripts_no_argv_payload_test)",
+   "scripts/uat_preflight.sh (test/scripts/uat_preflight_*_test.exs)",
+   ".formatter.exs (mix format --check-formatted in letflow.check.static; not in the regex today)",
+   "priv/keycloak, priv/modules, priv/solutions, priv/expr_conformance, priv/wasm_fixtures (read by tests/lib; only priv/repo/migrations/ is in the regex today)"
+  ],
+  "classification_docs_only": [
+   "scripts/mutate.py, scripts/fix_registry.py, scripts/README.md (not referenced by any backend job or test)",
+   "README.md, CLAUDE.md, web/**, apps/mobile/** (own filters)",
+   "docs/** and handoffs/** and .github/workflows/cd.yml: skipped today; see open questions 1-3 for the ones backend jobs read"
+  ],
+  "filter_diff": {
+   "file": ".github/workflows/ci.yml (step id: filter; the backend grep line only, no other line changes)",
+   "recommended_A_principled": "-          if echo \"$CHANGED\" | grep -qE '^(lib/|priv/repo/migrations/|test/|mix\\.exs|mix\\.lock|\\.tool-versions|config/|\\.github/workflows/ci\\.yml)'; then\n+          if echo \"$CHANGED\" | grep -qE '^(lib/|priv/|test/|mix\\.exs|mix\\.lock|\\.formatter\\.exs|\\.tool-versions|config/|scripts/.*\\.sh$|\\.github/workflows/ci\\.yml)'; then",
+   "minimal_B_acceptance_literal": "-          if echo \"$CHANGED\" | grep -qE '^(lib/|priv/repo/migrations/|test/|mix\\.exs|mix\\.lock|\\.tool-versions|config/|\\.github/workflows/ci\\.yml)'; then\n+          if echo \"$CHANGED\" | grep -qE '^(lib/|priv/repo/migrations/|test/|mix\\.exs|mix\\.lock|\\.tool-versions|config/|scripts/.*\\.sh$|\\.github/workflows/ci\\.yml)'; then",
+   "recommendation": "A: same principle ('can change a backend job outcome'), same bug class, hard evidence for each added path. B satisfies the acceptance literally. Either stays one grep -qE alternation line in the same style."
+  },
+  "untouched_confirmed": "push branch (ci.yml ~L204, all gates true), merge_group branch (~L215, same regex over merge_group base/head), zero-SHA / unreachable-base branches and the fallback step are all outside the grep line and unchanged. Aggregator job 'Backend gate (mix letflow.check)' and the frontend/mobile greps are untouched. No check name changes.",
+  "docs_only_behaviour": "docs/**, *.md, handoffs/**, web/**, docs/issues/*.yaml match none of A or B, so backend=false and backend_static/backend_shard are skipped exactly as today (the aggregator still reports success). Verified by the local table.",
+  "local_table_test": "bash grep -qE over sample paths, columns old/B/A: scripts/test_parallel.sh false/true/true; scripts/lib/seed_persona_actors_base.sh false/true/true; scripts/seed_vortex_definition.sh false/true/true; scripts/uat_preflight.sh false/true/true; scripts/README.md, scripts/mutate.py, scripts/fix_registry.py false/false/false; .formatter.exs false/false/true; priv/keycloak/realms/bpm-default.json false/false/true; priv/modules/exam/pack.json false/false/true; priv/wasm_fixtures/req165_hang.wat false/false/true; priv/repo/migrations/*, lib/, test/, mix.exs, config/test.exs, ci.yml true/true/true; cd.yml, docs/migration/README.md, docs/issues/ISS-1059.yaml, handoffs/WF03-X/step-01.json, README.md, CLAUDE.md, web/src/App.tsx false/false/false. The implementer re-runs this against the line extracted from the final ci.yml and quotes it in the PR.",
+  "proof_plan": [
+   "1. Local: extract the final grep -qE line from ci.yml, run each sample path above, quote the table.",
+   "2. Live: ci.yml 'on:' has push: branches [main], bare pull_request: (no branches filter) and merge_group, so a PR with a non-main base is accepted. Create throwaway/iss1059-script-touch off the fix branch changing only scripts/test_parallel.sh (append one comment line), open a PR with base = the fix branch. 'changes' diffs base.sha..head.sha = just the script, so backend=true on the fixed filter; quote the run id and that 'Backend static checks + isolated tails' and 'Backend shard K/M' ran (not skipped). The base branch carries the fixed ci.yml, so the PR run uses the new filter.",
+   "3. Negative: second throwaway PR (base = fix branch) touching only a docs/ file; expect backend=false, static and shards skipped, aggregator success; quote run id.",
+   "4. Close both throwaway PRs and delete the branches. No branch-protection or aggregator change."
+  ],
+  "open_questions": [
+   "1. Pre-existing and wider than scripts: the static job and tests READ docs/requirements.yaml (check_requirements_registration, check_deferral_staleness, check_req_id_collision, ~24 test refs), docs/issues/*.yaml (check_issue_refs), handoffs/** and docs/agents/shared/HANDOFF_PROTOCOL.md (lint_handoffs), docs/migration/decisions/0005-*.md (check_toolchain), docs/status/requirement_status*.yaml, docs/runbooks/*, docs/anti-patterns.md, docs/frontend/x-ui-widget-vocabulary.md, docs/migration/stage-7*.md and decision 0025 (tests). A docs-only PR touching any of them skips these checks; the push-to-main run is the backstop. NOT widened here (task forbids it without evidence, and these are exactly the volume the filter exists to skip); owner decision needed whether to add docs/requirements.yaml, docs/issues/, handoffs/ at least for the cheap static job.",
+   "2. Files outside lib/test that tests read: .env.example, deploy/.env.example, deploy/Dockerfile, deploy/docker-compose*.yml, web/.env.example, web/vite.config.ts, web/src/api/dlq.ts, web/src/types/api.ts (dlq_test, enablement_gate_test, no_smtp_secret_guard_test). A frontend-only PR touching web/src/types/api.ts can change a backend test result. Not added.",
+   "3. enablement_gate_test scans .github/workflows/*.yml, so a cd.yml-only change can alter a backend test; only ci.yml is in the regex.",
+   "4. Choice between recommended A (adds priv/ and .formatter.exs) and minimal B (scripts only).",
+   "5. ISS-1059 number: origin/main and open PRs could not be checked (github.com did not resolve after 5 retries); re-check before PR. This branch could not be pulled; local HEAD was f7734a503."
+  ]
+ }
 }
