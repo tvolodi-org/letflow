@@ -2794,3 +2794,4 @@
 2026-10-12T09:05:53Z | PASS | WF-03 | WF03-ISS1042-20261012 | ELIXIR-DEV → ORCH | Step 07 PASS (e798f224d; async:false, check_async_sandbox_reachability OK, check.static 0 violations, 27 tests green, format clean); main 3eaf1515 merged into branch, CI rerun
 2026-10-12T09:25:30Z | START | WF-03 | WF03-ISS1040-20261012 | ORCH | Q-1040 / ISS-1040 / GH #2379 claimed as tvolodi-orch on supervisor assignment (named single task, not drain mode); branch created by ORCH
 2026-10-12T09:25:30Z | DISPATCH | WF-03 | WF03-ISS1040-20261012 | ORCH → ISSUE-FIXER | Step 01 diagnosis
+2026-10-12T09:25:36Z | RUN_DONE | WF-03 | WF03-ISS1042-20261012 | ORCH | Q-1042 / ISS-1042 resolved, PR #2397 merged edf3e6141 (squash), queue task 1042 released done, GH #2381 closed + evidence comment, partition 1 mean 367.9s -> 256.2s (1.44x); follow-ups R1/R5/V2/flake handed to supervisor's filer
