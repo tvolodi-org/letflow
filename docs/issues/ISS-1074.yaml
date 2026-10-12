@@ -1,0 +1,23 @@
+id: ISS-1074
+# Ref clash: the queue's issue_ref for Q-1071 is ISS-1071, but the held records bundle uses ISS-1071 for Q-1068
+# (docs/issues/ISS-1071.yaml). This record takes the next free local id, ISS-1074 (re-checked on origin/main bc6febba
+# and open PR branches). The queue and GH ids are unchanged: Q-1071 / GH #2425.
+title: "Stale R-Co portal path in the exam router comments: lib/letflow/modules/exam/router.ex:20 and :168 name /api/v1/portal/sessions/:id/answers/:questionId as the real route; the live route is PUT /api/v1/modules/exam/exam-sessions/:id/answers/:question_id"
+discovered_by: letflow-2 (API probe of the candidate answer route, 2026-10-12)
+discovered_in_run: "Bilimbaga candidate API walk on QA, read-only static follow-up, 2026-10-12"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: LOW
+owner: "ELIXIR-DEV (router comments only); no behaviour change"
+scope: documentation
+description: >
+  The comments in lib/letflow/modules/exam/router.ex say the real registration is PUT /api/v1/portal/sessions/:id/answers/:questionId
+  (line 20; lines 168 to 170 cite the R-Co reference). That path is copied from the R-Co reference and is not mounted in Letflow. The live
+  route is authz_put "/exam-sessions/:id/answers/:question_id" at router.ex:171, served under /api/v1/modules/exam/exam-sessions (REQ-410),
+  and it requires time_spent_seconds. The grep for api/v1/portal on main: lib/letflow/modules/exam/router.ex:20 (this defect) and
+  :168-170 (the R-Co reference, misleading in a Letflow file); docs/requirements.yaml:23642-23649 is historical REQ-335 text, not edited.
+  Related, not a duplicate: REQ-413 (closed) did not cover these comments.
+resolution: >
+  Open. Name the real route in the comments; mark the R-Co path as a reference only. Queue Q-1071 / GH #2425.
+queue_ref: Q-1071
+github_ref: GH-2425
+status: open

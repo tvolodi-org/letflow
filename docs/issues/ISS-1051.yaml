@@ -18,9 +18,12 @@ description: >
   (simulation resync) also edits test/fixtures/simulation/meridian/process_claim_intake.yaml.
   Split only if too big, and then Part 2A first.
 resolution: >
-  Open. CLAIM GATE: claim only after the Q-1048 PR (REQ-467) merges, which it has, on 3eaf1515. The queue
-  holds this item by its depends_on edge (blocked_by Q-1048) until Q-1048 is done.
+  Resolved by PR #2417 (merged as bc6febba on main). Q-1051 / GH #2395: the L1 timeout goes to
+  escalate-l1-approval-to-cro (role-cro), and disburse-loan and the loan-ops-lead escalation name the five
+  assessment nodes. Version 1.16 on main. The residual items are separate: ISS-1066 (Q-1063, copied condition
+  strings) and ISS-1052 (Q-1052, assessor vs approver). The REQ-465 AC 6 record is in handoffs/WF02-REQ465-20261012/.
 queue_ref: Q-1051
 github_ref: GH-2395
-status: open
+status: resolved
+resolved_by: PR #2417 (merge bc6febba)
 depends_on: ISS-1048
