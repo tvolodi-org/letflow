@@ -4683,3 +4683,5 @@ The pool property "any set of row writers is invisible after the boundary" faile
 ## A CI path filter omitted a script that a gate executes (2026-10-12, ELIXIR-DEV, ISS-1059 / Q-1038 / GH #2365)
 
 The `Detect changed paths` backend filter matched `lib/`, `test/`, `config/` and a few root files but not `scripts/`, so a PR that changed `scripts/test_parallel.sh` (the partition runner every backend shard leg executes) got `backend=false` and the backend gate was skipped on the very change that could break it. Rule: a CI path filter must include every file a gate executes or reads, not only the source tree it checks. When adding a script, fixture or config that a job runs, add its path to that job's filter in the same PR, and prove it with a table test of the real extracted `grep -qE` line against old-true, new-true and must-stay-false paths.
+
+<!-- ISS-1038 throwaway proof -->
