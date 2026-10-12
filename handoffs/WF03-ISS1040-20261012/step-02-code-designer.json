@@ -7,9 +7,9 @@
  "to_agent": "CODE-DESIGNER",
  "file": "handoffs/WF03-ISS1040-20261012/step-02-code-designer.json",
  "created_at": "2026-10-12T09:28:41Z",
- "started_at": null,
- "completed_at": null,
- "status": "PENDING",
+ "started_at": "2026-10-12T09:30:18Z",
+ "completed_at": "2026-10-12T09:30:18Z",
+ "status": "COMPLETED",
  "priority": "NORMAL",
  "context": {
   "stage": "S1",
@@ -37,5 +37,20 @@
    "no implementation code"
   ]
  },
- "result": null
+ "result": {
+  "status": "PASS",
+  "design_file": "lib/letflow/design/iss1040-executor-test-deterministic-window.md",
+  "summary": "Test-only design: per-call timeout_ms 30_000; shared private await_own_child/2 matching $callers on the test task pid with 5 s monotonic deadline; Process.exit(child, :kill) release and exact crashed :killed assertion; one mutant (Task.async instead of async_nolink at executor.ex:367) fails both tests; 100-run stress over test/letflow/engine/lua with --include and --max-cases 32 (single-module max_cases caveat documented); invariants listed.",
+  "open_questions": [
+   "OQ-1 mutex wrapper not documented in repo",
+   "OQ-2 stress surface / pool size",
+   "OQ-3 crashed :killed string not re-derived by designer",
+   "OQ-4 constants not empirically tuned",
+   "OQ-5 kill of supervised child not run"
+  ],
+  "acceptance_criteria": {
+   "design covers all 3 acceptance criteria": "PASS",
+   "no implementation code": "PASS"
+  }
+ }
 }
