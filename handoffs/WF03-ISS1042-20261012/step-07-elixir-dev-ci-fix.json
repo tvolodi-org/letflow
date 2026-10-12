@@ -1,0 +1,43 @@
+{
+ "handoff_id": "b3f6c0de-6a41-4c8e-9a52-1042040b0005",
+ "run_id": "WF03-ISS1042-20261012",
+ "workflow_id": "WF-03",
+ "step": "07",
+ "from_agent": "ORCH",
+ "to_agent": "ELIXIR-DEV",
+ "file": "handoffs/WF03-ISS1042-20261012/step-07-elixir-dev-ci-fix.json",
+ "created_at": "2026-10-12T09:04:30Z",
+ "started_at": null,
+ "completed_at": null,
+ "status": "PENDING",
+ "priority": "HIGH",
+ "context": {
+  "stage": "S1",
+  "requirement_ids": [],
+  "requirement_text": {},
+  "source_text": {
+   "Q-1042": "PR #2397 CI run 38226440033 RED, classification: PR-caused, deterministic (not flaky). Job 'Backend static checks + isolated tails' fails at mix letflow.check_async_sandbox_reachability with 1 new violation class, 10 hits, all in test/support/tenant_fixture_dispatch_test.exs: an async: true file calls Sandbox.mode(Letflow.Repo, :auto) (line ~60) and TenantFixture.provisioned_tenant!( (lines ~82,116,206,220,226,230,237,246,253) without a @verified_safe entry. Backend shard 3/3 partition 9 fails the same way: Mix.Tasks.Letflow.CheckAsyncSandboxReachabilityTest 'passes green against the current real tree'. Same root cause."
+  },
+  "related_handoff_ids": [
+   "b3f6c0de-6a41-4c8e-9a52-1042040b0004"
+  ],
+  "artifacts_in": [
+   "test/support/tenant_fixture_dispatch_test.exs",
+   "lib/mix/tasks/letflow.check_async_sandbox_reachability.ex"
+  ],
+  "owned_modules": [
+   "test/support/tenant_fixture_dispatch_test.exs"
+  ],
+  "worktree": null,
+  "branch_name": "feature/WF03-ISS1042-20261012"
+ },
+ "task": {
+  "description": "CI fix (rework of Step 03 for ISS-1042; this is rework 2 of max 3 at run level): in test/support/tenant_fixture_dispatch_test.exs change `use ExUnit.Case, async: true` (or equivalent) to async: false, because the file sets the GLOBAL :auto sandbox mode and uses provisioned tenants; async is wrong by construction. Do NOT add a @verified_safe entry. Make no other change; if the file's moduledoc/comments claim async-safety, correct that sentence. Then verify, each as ONE mix invocation under the machine mutex wrapper (only one BEAM at a time machine-wide): (1) `MIX_ENV=test mix letflow.check_async_sandbox_reachability` -> must be green with 0 violations; (2) `MIX_ENV=test mix letflow.check.static` (what CI's 'Backend static checks' job runs; read .github/workflows to confirm the exact command, and run that) -> green, quote the tail; (3) `MIX_ENV=test mix test test/support/tenant_fixture_dispatch_test.exs test/letflow/mix/tasks/` (find the Mix.Tasks.Letflow.CheckAsyncSandboxReachabilityTest file via grep and run it) -> green; (4) `mix format --check-formatted`. Quote real output. Wrapper: L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2>/dev/null; do sleep 20; done; trap 'rmdir \"$L\" 2>/dev/null' EXIT; cd <dir> && <ONE mix invocation> 2>&1 . Throwaway Postgres on port 5499 (docker run postgres:16, remove afterwards). Foreground/polling only. One commit, message ends with 'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>'; do NOT push if any check is red; do not touch handoffs/registry.json or orchestrator.log. Push to the branch when green and report.",
+  "acceptance_criteria": [
+   "check_async_sandbox_reachability green",
+   "check.static green",
+   "dispatch test file passes"
+  ]
+ },
+ "result": null
+}

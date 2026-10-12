@@ -2789,3 +2789,5 @@
 2026-10-07T15:27:14Z | PASS | WF-02 | WF02-REQ464-20261007 | TEST-DESIGNER → ORCH | Step 03 PASS, committed f8d1a7ea
 2026-10-07T15:27:14Z | DISPATCH | WF-02 | WF02-REQ464-20261007 | ORCH → TEST-DESIGN-VALIDATOR | Step 03b
 2026-10-12T08:54:02Z | PASS | WF-03 | WF03-ISS1042-20261012 | DOC-UPDATER → ORCH | Step 06 PASS (7532d808e; ISS-1042 resolved, R4 fix, follow_ups); lint_handoffs OK locally
+2026-10-12T09:04:30Z | FAIL | WF-03 | WF03-ISS1042-20261012 | CI → ORCH | PR #2397 run 38226440033 red: check_async_sandbox_reachability (static job + shard 3 partition 9 same root cause), PR-caused, deterministic; ORCH missed running letflow.check.static locally before push (merge discipline)
+2026-10-12T09:04:30Z | DISPATCH | WF-03 | WF03-ISS1042-20261012 | ORCH → ELIXIR-DEV | Step 07 CI fix async:false
