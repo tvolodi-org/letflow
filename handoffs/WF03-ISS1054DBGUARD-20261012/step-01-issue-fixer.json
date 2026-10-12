@@ -1,0 +1,34 @@
+{
+  "handoff_id": "c4a7d1e0-1054-4a11-8c20-000000000001",
+  "run_id": "WF03-ISS1054DBGUARD-20261012",
+  "workflow_id": "WF-03",
+  "step": "01",
+  "from_agent": "ORCH",
+  "to_agent": "ISSUE-FIXER",
+  "file": "handoffs/WF03-ISS1054DBGUARD-20261012/step-01-issue-fixer.json",
+  "created_at": "2026-10-12T15:00:00Z",
+  "started_at": null,
+  "completed_at": null,
+  "status": "PENDING",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1054": "MEDIUM, R1 from ISS-1042 follow_ups (SECURITY-REVIEWER F2), supervisor-assigned 2026-10-12. Queue Q-1054 / GH #2400, issue_ref ISS-1054. See task.description."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "test/support/tenant_fixture.ex"
+    ],
+    "owned_modules": [
+      "test/support/tenant_fixture.ex"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1054DBGUARD-20261012"
+  },
+  "task": {
+    "description": "WF-03 Step 1 diagnosis + exact fix design (ISSUE-FIXER, .claude/agents/issue-fixer.md) for Q-1054 / GH #2400, queue issue_ref ISS-1054 (R1, MEDIUM, ISS-1042 follow-up, SECURITY-REVIEWER F2). Branch feature/WF03-ISS1054DBGUARD-20261012. NOTE ID collision: the local file docs/issues/ISS-1059.yaml is an already-resolved record (Q-1038) while the queue now also has an issue ref ISS-1059 (a different follow-up); pick the next FREE local ISS id by checking docs/issues AND `git ls-remote`/origin branches AND the queue (GET https://queue-test.ai-dala.com/tasks?status=open with header Authorization: Bearer <QUEUE_AUTH_TOKEN from ./.env, parse with grep/cut>) for ISS-10xx, create docs/issues/<id>.yaml for this issue with queue_ref Q-1054, github_ref GH-2400 (follow the schema of docs/issues/ISS-1058.yaml), and report the id.\n\nProblem: test/support/tenant_fixture.ex `start_pool!/2` (line ~382) and the pool worker `Letflow.TenantFixture.Pool` reset/truncate tenant-schema rows between tests (dirty-table reset, rebuild, final guard reset, teardown drop of slot schemas and Registration/Tenant rows). If the pool is ever pointed at a database that is not the test database, those resets/drops could destroy real data. Acceptance: (1) start_pool!/2 checks `SELECT current_database()` against the configured test database (derive the expected name from Letflow.Repo config / the test config, do not hard-code) and raises BEFORE it provisions, clones or resets anything; (2) a test asserts the refusal when the name does not match; (3) a mutation (removing the guard) makes the refusal test fail; (4) no change to reset semantics when the guard passes.\n\nDo: read test/support/tenant_fixture.ex fully (start_pool!/2, create_slots, the Pool GenServer, teardown, and also every other path that drops/truncates: pool_teardown!, recycle_pool!, rebuild, final guard) and decide the minimal correct placement: the guard must precede the first side effect (Sandbox.mode(:auto) is fine; GenServer.start of the worker and create_slots are not) and, if the worker has independent entry points that destructively act, whether a second assertion belongs in the worker's init. Decide how to make the refusal TESTABLE without pointing at a real non-test DB: e.g. an injectable/overridable expected-name via opts (`:expected_database`) or a private function seam, kept test-support only; the default must be the real configured test DB. Check how existing tests for the pool (test/support/tenant_fixture_pool_test.exs or similar; grep) are structured (async: false, one pool per module per VM) so the new refusal test does not leak a registered pool or break siblings. Check docs/agents/instructions/security-invariants.md and docs/anti-patterns.md for anything relevant. Deliver the exact design (function signatures, the SQL, error type/message, where the expected name comes from, the test list incl. a mutant list: M1 guard removed, M2 guard placed after create_slots, M3 compares wrong value), the exact files to touch (expected: test/support/tenant_fixture.ex + its test file + docs), and the risks. Do NOT write the implementation. No mix is needed (if you must run one, use the machine mutex: L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2>/dev/null; do sleep 20; done; trap 'rmdir \"$L\" 2>/dev/null' EXIT; cd /c/Users/tvolo/dev/ai-dala/letflow && LETFLOW_DB_PORT=5499 MIX_ENV=test <ONE mix invocation>). Foreground only; no Monitors. Result into this handoff (COMPLETED, result.status PASS/FAIL, no BOM, LF; no self-reference in artifacts_out); pull --rebase, commit, push with bounded retry on github resolve failures; commit message ends 'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>'.\n"
+  }
+}
