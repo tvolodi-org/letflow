@@ -7,9 +7,9 @@
   "to_agent": "CODE-DESIGN-VALIDATOR",
   "file": "handoffs/WF03-ISS1053SHARDFLAKE-20261012/step-02b-code-design-validator.json",
   "created_at": "2026-10-12T15:10:00Z",
-  "started_at": null,
-  "completed_at": null,
-  "status": "PENDING",
+  "started_at": "2026-10-12T15:12:00Z",
+  "completed_at": "2026-10-12T15:35:00Z",
+  "status": "COMPLETED",
   "priority": "NORMAL",
   "context": {
     "stage": "S1",
@@ -32,5 +32,85 @@
   },
   "task": {
     "description": "WF-03 Step 2b hard gate (.claude/agents/code-design-validator.md) on the ISSUE-FIXER's diagnosis and fix design for Q-1053 / GH #2399 (local record docs/issues/ISS-1062.yaml; design in handoffs/WF03-ISS1053SHARDFLAKE-20261012/step-01-issue-fixer.json). ORCH uses that design (root causes RC-A..RC-D, fixes S1..S3, new test file test/scripts/test_parallel_race_regression_test.exs with T1..T3, failure_context capture, diag/orphan test windows, stress protocol, mutants MU-A1..MU-F) as the design artefact and gates it here instead of a separate CODE-DESIGNER pass.\n\nIMPORTANT context: three of the four fixes change scripts/test_parallel.sh, the partition runner EVERY backend CI shard and every local `mix letflow.check.test` uses. A regression there reddens every PR. Be strict.\n\nValidate independently (read scripts/test_parallel.sh and the test files yourself; do not trust the report):\n(1) RC-A: is the claim true that the per-partition watchdog subshell inherits the EXIT trap and can run cleanup_tmp_dir (rm -rf tmp_dir) under the running parent? Check how traps and subshells interact in bash 5.x (ERR/EXIT trap inheritance in ( ) subshells, `trap` reset on subshell start, when exactly it is reset), and whether the proposed guard (set _tp_main_pid=$$ BEFORE the trap is installed; early return unless $BASHPID == _tp_main_pid) is correct, including for `$$` vs `$BASHPID` in the main shell, nested runner invocations, and `exec`. Does the guard change behaviour for the normal exit path, signals (TERM/INT), and the 'cleanup runs once' invariant? Any other place that relies on cleanup running in a subshell (command substitution, process substitution)?\n(2) RC-B: is swapping the order (liveness first, ready-file second) race-free? Think through all four orderings: ready+alive, ready+dead (wrote ready then exited cleanly = must be success), not ready+alive, not ready+dead; the swap must not produce a false 'ready' when the process died before writing, nor a false 'dead' when it wrote ready then exited. Is a re-check of the ready-file after observing death needed? Give the exact required order.\n(3) RC-C: the `wait -n -p finished_pid` fallback (reset var first, fallback kill -0 + wait <pid>): is it correct under set -u / set -e / pipefail, does the exit status of the finished partition still propagate, can it double-reap or lose a status, bash version compatibility (wait -n -p needs bash 5.1+; what does the script do on older bash)? Both sites.\n(4) New test file T1..T3 (BASH_ENV shims): do they fail on the unmodified script and pass on the fixed one, are they deterministic (no wall-clock windows of their own), do they leak processes or tmp dirs, async: false and mutex-friendly (no BEAM in the nested runner)? Does it follow the existing stub conventions of the sibling test_parallel_*_test.exs files?\n(5) Diag / orphan / shard test changes: no assertion weakened, waits bounded (state the worst-case added wall time per test), premise-checked retry semantics sound, TEST_PARALLEL_KEEP_LOGS left unset where it would mask RC-A.\n(6) Mutant list adequacy: each fix has a mutant killed by a named test; anything missing (e.g. a mutant that reintroduces the pre-fix ordering in only one of the two wait sites).\n(7) Anything in the family the audit missed: independently grep test/scripts/test_parallel_*_test.exs for sleeps, deadlines, timeouts, `Process.sleep`, `:timer`, File.exists? polling, ps/pgrep reads, and list any wall-clock window not in the table.\n(8) Is the design unambiguous and implementable by a weak model; what must ELIXIR-DEV do in what order; what local verification is mandatory before push (all test_parallel_* test files green, the script-level soak, shellcheck/bash -n, `mix letflow.check.static`, plus one full `mix letflow.check.test` run or the shard runner end to end, under the machine mutex).\n\nNo mix is needed for this step (you may run bash and script-level experiments in a container or locally; if you must run a mix invocation use the machine mutex: L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2>/dev/null; do sleep 20; done; trap 'rmdir \"$L\" 2>/dev/null' EXIT; cd /c/Users/tvolo/dev/ai-dala/letflow && MIX_ENV=test <ONE mix invocation>). Foreground only; no Monitors. Verdict PASS/FAIL in result.status; findings BLOCKER/MAJOR/MINOR with required corrections. Commit + push (pull --rebase first; bounded retry on github resolve failures; message ends: Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>); handoff COMPLETED, no BOM, LF, artifacts_out under result, no self-reference.\n"
+  },
+  "result": {
+    "status": "FAIL",
+    "verdict": "FAIL (strict gate): 4 MAJOR + 4 MINOR design defects. The three production fixes S1-S3 and the T1-T3 shims are sound and were verified empirically; the corrections are small and mechanical.",
+    "summary": "Independently verified in a linux container (postgres:16 image, bash 5.2.37, --cpus 4) by applying S1-S3 to a copy of scripts/test_parallel.sh and driving it with the shard-test stub mix/psql and the T1-T3 BASH_ENV shims. RESULTS: unmodified script: T1 red 8/8 (exact 'exited during its own template build'), T2 red 10/10 ('finished_pid: unbound variable'), T3 red 15/15 ('0/4 partitions reported'); with S1-S3 applied: T1 green, T2 green (cap 1 and cap 4; the exit-3 variant reports 'failed with exit 3'), T3 green 15/15. Independent reproduction of RC-A (minimal reproducer, linux: trap ran in the subshell 1/300, 0/300 with the BASHPID guard).\n\n(1) RC-A CONFIRMED. A ( ) subshell starts with the parent's EXIT trap inherited ('trap -p' inside it prints the parent's trap, verified); bash resets handlers shortly after fork and a fatal signal inside that window runs the parent's cleanup in the child with $?=0. The guard 'BASHPID != main pid -> return 0' as the first statement after 'local exit_code=$?' is correct: normal exit, TERM/INT of the main shell (BASHPID == main) and run-once cleanup are unchanged; a subshell killed by signal still dies by signal; the script uses no exec; command substitutions never ran the parent's trap; the sampler and watchdog subshells are the only ones and both are covered. Nested runners get their own value (plain variable, must not be exported). Use ${BASHPID:-$$} for the main pid (F1).\n(2) RC-B CONFIRMED. Required order: sample liveness first into a local, THEN test the ready-file, error only if (not ready AND sampled dead). Truth table: ready+alive -> ready; ready+dead -> ready (a file written before death is visible at the later test); not ready+alive -> keep polling; not ready+dead -> error. No false 'ready' is possible and no ready-file re-check is needed.\n(3) RC-C CONFIRMED and the fallback is sound (see F6, F2).\n(4) T1-T3 verified red-on-old / green-on-fixed, no BEAM, no process or tmp leaks; T2 is a pure flag-file shim (deterministic), T3 is deterministic (15/15), T1 has its own 0.4 s window (F5). The new file must keep a Letflow.Test.TestParallelEnv reference (env_guard).\n(5) Worst-case added wall time: orphan ps poll +5 s per test only when survivors exist (3 tests); staggered stub +30 s only on failure; diag escalation up to +28 s per diag case (2 cases), roughly <= 60 s extra worst case, inside the moduletag timeouts. F4 is the only assertion weakening found. TEST_PARALLEL_KEEP_LOGS must stay unset (agreed).\n(6) Mutants: add MU-C1a/MU-C1b (F2) and MU-A3 'guard compares $$ instead of BASHPID' (killed by T3, equivalent in effect to MU-A1); MU-B2/MU-O1 only count after F4.\n(7) No further wall-clock windows found: grep of test/scripts/test_parallel_*_test.exs for Process.sleep, :timer, deadlines, File.exists? polling and ps/pgrep shows only the table's items plus fixed bounds that are already generous (@run_limit_ms 120 s, @prompt_ms 40 s, orphan 'elapsed < 60 s', instrumentation 'secs >= 1 && <= 60' on epoch deltas which is safe, diag 'running for' in T..T+10 which is epoch-truncation safe). test/mix/tasks/letflow_check_test_test.exs uses a FAKE bash and is not exposed. The one family member the audit missed is the shell harness test_parallel_tmpdir_cleanup_test.sh (F1).\n(8) Implementable by a weak model after the corrections. Order for ELIXIR-DEV: 1) new race regression file (T1, T2a, T2b, T3) and run it RED against the unmodified script (record the reds); 2) S1 (${BASHPID:-$$}), S2, S3, then bash -n and shellcheck; 3) race file GREEN; 4) failure_context helper + changes to shard/diag/orphan files; 5) fix the stale cap in test_parallel_tmpdir_cleanup_test.sh; 6) hand-run the three .sh harnesses against the fixed script; 7) under the mix mutex: all test_parallel_* ExUnit files (5 seeds, 8 busy loops), the script-level soak (>=300 iterations per scenario A and B, 12 busy loops), 'mix letflow.check.static', then one full 'mix letflow.check.test' (or the shard runner end to end); 8) mutants in a throwaway worktree.",
+    "findings": [
+      {
+        "id": "F1",
+        "severity": "MAJOR",
+        "check": "1/8 cross-module dependency",
+        "finding": "S1 as written (_tp_main_pid=$$) breaks test/scripts/test_parallel_tmpdir_cleanup_test.sh case (a). That harness extracts the block from 'cleanup_tmp_dir() {' to 'max_concurrent_creates=' (which now includes the new _tp_main_pid line) and evals it inside $( ( ... ) ); there BASHPID != $$, so the new guard returns early and tmp_dir is not removed. VERIFIED: a patched copy gives 'FAIL: clean exit, KEEP_LOGS unset -> tmp_dir removed ... still exists' (3 passed, 1 failed); the unpatched script gives 4/4. The design's R7 ('run the .sh harnesses by hand') did not notice. The harness is also ALREADY red on main (its 'block > 40 lines' guard trips: the block is 69 lines now) and is not wired into CI, so this would be a silent break of a dormant regression guard.",
+        "required_correction": "Use _tp_main_pid=${BASHPID:-$$} (identical value in the real main shell; in the harness it is the eval subshell's own pid). VERIFIED: with that form the harness (40-line cap raised) passes 4/4 and T3 stays green 8/8. Also raise or replace the stale '-gt 40' cap in test_parallel_tmpdir_cleanup_test.sh (and its size comments) so the harness is runnable again, and list it, test_parallel_create_burst_test.sh and test_parallel_pool_sizing_test.sh as mandatory hand-run harnesses against the fixed script (record output)."
+      },
+      {
+        "id": "F2",
+        "severity": "MAJOR",
+        "check": "3/6 both wait sites, mutant adequacy",
+        "finding": "T2 as designed fires its shim once (first 'wait -n'). With TEST_PARALLEL_MAX_CONCURRENT_CREATES=1 (needed to reach the in-loop site) the shim never reaches the drain site, and with the default cap (4 = N) it never reaches the in-loop site. VERIFIED with a mutant that fixes only the in-loop site: T2 at cap 1 passes (rc=0), i.e. the mutant survives; at default cap it is red ('finished_pid: unbound variable', drain site). The design has no one-site mutant and no per-site test.",
+        "required_correction": "T2 must be two cases: T2a MAX_CONCURRENT_CREATES=1 (in-loop site) and T2b MAX_CONCURRENT_CREATES>=N (drain site), each asserting the shim flag file exists, plus the exit-3 variant in BOTH (the failing partition must be an index inside the shard slice, e.g. partition 2 for shard 1/3; verified: 'partition 2 ecto.create/ecto.migrate failed with exit 3', rc=1). Add mutants MU-C1a (drop the fix at the in-loop site only -> T2a red) and MU-C1b (drop it at the drain site only -> T2b red)."
+      },
+      {
+        "id": "F3",
+        "severity": "MAJOR",
+        "check": "4 deterministic/implementable",
+        "finding": "T3 asserts that 'the nested letflow_test_parallel.* dir still holds partition-1..4.log' after the run. On a clean exit 0 with TEST_PARALLEL_KEEP_LOGS unset (which the design itself mandates) the MAIN shell's own trap rm -rf's tmp_dir, so the directory is gone on the fixed script too: the assertion is unsatisfiable.",
+        "required_correction": "Drop the post-run directory assertion. Assert status 0, 'combined: ... -- 4/4 partitions reported', refute 'No such file', refute 'preserving'. (Verified: fixed script with the T3 shim rc=0, 4/4 reported, 15/15 runs; unmodified script rc=1, '0/4 partitions reported', 15/15 runs.)"
+      },
+      {
+        "id": "F4",
+        "severity": "MAJOR",
+        "check": "5 premise-checked polling / no weakening",
+        "finding": "Orphan 'Step 3 reaps' redesign: stub 2 'records the first value 1'. Early in the run stub 2 can see only partition 1's watchdog sleep (its own watchdog not yet forked) = count 1 while partition 1's watchdog is still alive, so MU-O1 (Step 3 kill removed) can false-PASS under load. That weakens the assertion.",
+        "required_correction": "Stub 2 must first observe count >= 2 (both watchdogs alive; bounded 30 s, 100 ms poll), then poll until the count drops to 1 or the deadline, and record the LAST value; the test still asserts == 1. If count 2 is never observed (starved) record the last value. A real orphan then stays at 2 and fails."
+      },
+      {
+        "id": "F5",
+        "severity": "MINOR",
+        "check": "4 determinism of T1",
+        "finding": "T1 uses a 0.4 s sleep before kill -0, a wall-clock window of its own; red-on-old depends on the stub not having written the ready-file before the first '-e' test. Measured: 8/8 red on the unmodified script in a 4-cpu container; no risk of a false RED on the fixed script (liveness is sampled before the sleep returns), so this only affects fail-first sensitivity.",
+        "required_correction": "Prefer a gate over a duration: T1's own stub waits (bounded 5 s) for $SHIM_GO before writing the ready-file and exiting; the shim's kill -0 touches $SHIM_GO then loops 'builtin kill -0 $2' with 20 ms ticks (bounded 250) until the pid is gone, then calls builtin kill. Old order: -e false (stub gated) -> shim -> dead -> error. Fixed order: liveness sampled after death, ready-file present -> success. No clock dependence."
+      },
+      {
+        "id": "F6",
+        "severity": "MINOR",
+        "check": "3 S3 fallback spec",
+        "finding": "(a) The design says 'under set -u / set -e / pipefail': the script has only 'set -u' (and 'set -m'); no -e, no pipefail. (b) After an empty finished_pid the design re-issues wait -n every 50 ms; on bash < 5.1 'wait -p' is an invalid option and would print usage to stderr at 20 Hz. (c) kill -0 on a zombie succeeds; bash reaps via SIGCHLD so this is theoretical, but a poll-only loop would then be unbounded. Verified on bash 5.2.37: wait -n -p with no waitable child returns 127 AND unsets the variable (this is exactly the set -u abort; likely trigger = finished jobs already dropped from the job table under set -m); 'wait <pid>' on an already-collected pid returns the saved status, repeatedly (3,3,3); no double-reap loss. The prototype fallback (reset var, scan map for the first non-alive pid, wait <pid> and take ITS status, else sleep 0.05) was run against both sites: T2 green, exit-3 propagates.",
+        "required_correction": "Specify: reset finished_pid=\"\" before each wait -n; if empty after it, do NOT call wait -n again, poll the map (kill -0 scan + 'wait <pid>' taking that status, 50 ms sleep) in ONE function reap_one_create used by both sites; a pid returned by wait -n that is not in the map is ignored without decrementing in_flight; in the fallback finished_exit always comes from the wait on the chosen pid. Fix the 'set -e/pipefail' wording."
+      },
+      {
+        "id": "F7",
+        "severity": "MINOR",
+        "check": "8 ambiguity",
+        "finding": "W1 defines the premise two ways (a sentinel file emitted-<P> written after the last line, and 'DIAG tail contains the final marker'). The sentinel does not prove emission finished BEFORE the watchdog read the log.",
+        "required_correction": "Define the premise ONLY as: each partition's DIAG tail contains its final marker line (P<P>-LAST for marked, the '....' line for huge); drop the sentinel. Escalation attempts must also scale @prompt_ms and the elapsed bound per attempt, and keep @moduletag timeout >= the sum of attempts (2+6+20 s plus emission, < 180 s is fine). MU-D1 'stub sleeps 3 s before emitting at T=2' is acceptable."
+      },
+      {
+        "id": "F8",
+        "severity": "MINOR",
+        "check": "1/2 exact spec",
+        "finding": "S2 is described in prose only.",
+        "required_correction": "Put this exact shape in the design: first statements of the loop body 'local alive=1; kill -0 \"$pid\" 2>/dev/null || alive=0', then 'if [ -e ready ]; then <existing ready branch>; elif [ \"$alive\" -eq 0 ]; then <existing ERROR text>; exit 1; fi'. No ready-file re-check is needed. _tp_main_pid must NOT be exported."
+      }
+    ],
+    "required_corrections_summary": [
+      "F1 use _tp_main_pid=${BASHPID:-$$}; fix the stale 40-line cap in test_parallel_tmpdir_cleanup_test.sh; hand-run the 3 .sh harnesses",
+      "F2 T2a (cap 1) + T2b (cap>=N), each with an exit-3 variant; mutants MU-C1a/MU-C1b",
+      "F3 drop the T3 post-run dir assertion; assert 4/4 reported, no 'No such file', no 'preserving'",
+      "F4 staggered stub: first require count>=2, then poll down to 1, record the last value",
+      "F5 gate-based T1 shim (optional)",
+      "F6 exact fallback spec: poll-only after an empty var, shared reap_one_create, wording fix",
+      "F7 single premise definition (tail contains final marker), per-attempt bounds",
+      "F8 exact S2 shape; do not export _tp_main_pid"
+    ],
+    "family_tests_audit_missed": [
+      "test/scripts/test_parallel_tmpdir_cleanup_test.sh (extracts and evals the cleanup block; breaks under a $$-based guard, and is already red on main from its stale 40-line cap; not wired into CI)",
+      "test/scripts/test_parallel_create_burst_test.sh and test_parallel_pool_sizing_test.sh: real-script / extraction harnesses not run by ExUnit; must be hand-run against the fixed script (S3 touches the create burst they cover). Not executed in this gate."
+    ],
+    "artifacts_out": [],
+    "next_agent": "CODE-DESIGNER (ISSUE-FIXER may amend its step-01 design), then a light re-gate; or ORCH folds F1-F8 into the ELIXIR-DEV handoff",
+    "next_action": "Amend the design with F1-F8, re-check, then ELIXIR-DEV"
   }
 }
