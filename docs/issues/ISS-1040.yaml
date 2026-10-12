@@ -63,9 +63,24 @@ stress_command: >
   100 consecutive runs under concurrency, one BEAM at a time (mutex wrapper): loop
   `mix test --only lua_wallclock_race test/letflow/engine/lua/executor_test.exs --max-cases 32`
   100 times breaking on first non-zero exit, quoting the command and final exit codes.
-resolution: >
-  Open. Diagnosis complete; implementation routes to CODE-DESIGNER (trivial design) then
-  ELIXIR-DEV/TEST-DESIGNER per WF-03.
 queue_ref: Q-1040
 github_ref: GH-2379
-status: open
+status: resolved
+resolved_in_run: WF03-ISS1040-20261012
+resolved_at: "2026-10-12T10:20:00Z"
+regression_test: test/letflow/engine/lua/executor_test.exs
+resolution: >
+  Root cause removed. The two in-flight-child tests (AC-5 "the running script is a child of
+  Letflow.Engine.Lua.TaskSupervisor while in flight" and "a nil max_heap_words leaves the REQ-155
+  TaskSupervisor-based path unchanged") polled the global TaskSupervisor from the test process for
+  ~200 ms against a 300 ms script life, both ends wall-clock, so the window could close before the
+  test looked, and the global check could also be satisfied by another test's child. Fix (test-only,
+  no lib/ change, no global timing change): each call's own timeout_ms is 30_000 ms so the script's
+  life is bounded by the test; the shared helper await_own_child/2 finds THIS call's child via the
+  "$callers" process-dictionary entry within a monotonic 5 s deadline; the test then releases the
+  script deterministically with Process.exit(child, :kill) and asserts the resulting crash shape.
+  Both tests and their @tag :lua_wallclock_race tags are kept (property test count unchanged).
+  Evidence: mutant async_nolink -> Task.async in lib/letflow/engine/lua/executor.ex fails both target
+  tests; TEST-DESIGN-VALIDATOR's own mutants M1/M2 also fail them; 100/100 seeded stress runs green
+  under 6 busy loops (~34 min); RELEASE-VALIDATOR plain run of the file: 60 passed
+  (handoffs/WF03-ISS1040-20261012/step-05v-release-validator.json).

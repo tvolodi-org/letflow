@@ -7,9 +7,9 @@
  "to_agent": "DOC-UPDATER",
  "file": "handoffs/WF03-ISS1040-20261012/step-06-doc-updater.json",
  "created_at": "2026-10-12T10:18:56Z",
- "started_at": null,
- "completed_at": null,
- "status": "PENDING",
+ "started_at": "2026-10-12T10:19:06Z",
+ "completed_at": "2026-10-12T10:20:00Z",
+ "status": "COMPLETED",
  "priority": "NORMAL",
  "context": {
   "stage": "S1",
@@ -37,5 +37,12 @@
    "ISS-1040 resolved with the right key pair and evidence"
   ]
  },
- "result": null
+ "result": {
+  "verdict": "PASS",
+  "summary": "ISS-1040 set to status: resolved with resolved_in_run, resolved_at, regression_test and a resolution block (root cause, fix, evidence). docs/requirements.yaml and docs/anti-patterns.md untouched. No requirement_status volume event: queue issue with no REQ.",
+  "artifacts_out": [
+   "docs/issues/ISS-1040.yaml",
+   "handoffs/WF03-ISS1040-20261012/step-06-doc-updater.json"
+  ]
+ }
 }
