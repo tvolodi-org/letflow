@@ -1,43 +1,51 @@
 {
- "handoff_id": "c4a7d1e0-1058-4a11-8c20-000000000001",
- "run_id": "WF03-ISS1058-20261012",
- "workflow_id": "WF-03",
- "step": "01",
- "from_agent": "ORCH",
- "to_agent": "ISSUE-FIXER",
- "file": "handoffs/WF03-ISS1058-20261012/step-01-issue-fixer.json",
- "created_at": "2026-10-12T10:52:12Z",
- "started_at": null,
- "completed_at": null,
- "status": "PENDING",
- "priority": "HIGH",
- "context": {
-  "stage": "S1",
-  "requirement_ids": [],
-  "requirement_text": {},
-  "source_text": {
-   "Q-1058": "CI main flake / defect, HIGH. Property 'any set of row writers is invisible after the boundary, and never rebuilds' in test/letflow/support/tenant_fixture_pool_test.exs (property ~L1402, failing assertion ~L1430 `assert nonseed_rows(a.schema_name) == []`) fails on some ExUnit seeds. Regression of Q-1042 (PR #2397, edf3e614). Evidence: reproduced locally with `LETFLOW_DB_PORT=5499 MIX_ENV=test mix test test/letflow/support/tenant_fixture_pool_test.exs --seed 193355` => 56/57; failing case after 2 successful runs: writers [:groups], via :test; nonseed_rows(a.schema_name) got [{\"groups\",1}] after recycle_pool! although pool_dirty_report(fx(:a)) said clean. Second occurrence on main 28fcc928, CI run 38235738863, shard 3/3 partition 11, seed 40898. H1 (isolation hole, the worse case): the pool leaves a row in an attached tenant after recycle, so a later test can see another test's writes. H2 (test defect): the property asserts on a.schema_name after a recycle that attached a different slot, so it checks the wrong schema. Acceptance: (1) root cause H1 or H2 with evidence from seeds 193355 and 40898 quoted; (2) if H1: SECURITY-REVIEWER note, the hole fixed, fix shown to hold on the failing sequences; (3) if H2: the assertion checks the schema that holds the writes, decision recorded with reasoning; (4) both seeds added as fixed regression cases of the property; (5) the property passes on the failing seeds and on a fresh sample of seeds across consecutive runs, real output quoted; (6) the property's claim (writers invisible after the boundary, no rebuild) is NOT weakened. Related, not duplicates: ISS-1054 (R1 current_database guard), ISS-1055 (R5 typing), ISS-1056 (V2 depth-2 FK). GH #2406, Q-1058."
+  "handoff_id": "c4a7d1e0-1058-4a11-8c20-000000000001",
+  "run_id": "WF03-ISS1058-20261012",
+  "workflow_id": "WF-03",
+  "step": "01",
+  "from_agent": "ORCH",
+  "to_agent": "ISSUE-FIXER",
+  "file": "handoffs/WF03-ISS1058-20261012/step-01-issue-fixer.json",
+  "created_at": "2026-10-12T10:52:12Z",
+  "started_at": "2026-10-12T11:02:42Z",
+  "completed_at": "2026-10-12T11:02:42Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1058": "CI main flake / defect, HIGH. Property 'any set of row writers is invisible after the boundary, and never rebuilds' in test/letflow/support/tenant_fixture_pool_test.exs (property ~L1402, failing assertion ~L1430 `assert nonseed_rows(a.schema_name) == []`) fails on some ExUnit seeds. Regression of Q-1042 (PR #2397, edf3e614). Evidence: reproduced locally with `LETFLOW_DB_PORT=5499 MIX_ENV=test mix test test/letflow/support/tenant_fixture_pool_test.exs --seed 193355` => 56/57; failing case after 2 successful runs: writers [:groups], via :test; nonseed_rows(a.schema_name) got [{\"groups\",1}] after recycle_pool! although pool_dirty_report(fx(:a)) said clean. Second occurrence on main 28fcc928, CI run 38235738863, shard 3/3 partition 11, seed 40898. H1 (isolation hole, the worse case): the pool leaves a row in an attached tenant after recycle, so a later test can see another test's writes. H2 (test defect): the property asserts on a.schema_name after a recycle that attached a different slot, so it checks the wrong schema. Acceptance: (1) root cause H1 or H2 with evidence from seeds 193355 and 40898 quoted; (2) if H1: SECURITY-REVIEWER note, the hole fixed, fix shown to hold on the failing sequences; (3) if H2: the assertion checks the schema that holds the writes, decision recorded with reasoning; (4) both seeds added as fixed regression cases of the property; (5) the property passes on the failing seeds and on a fresh sample of seeds across consecutive runs, real output quoted; (6) the property's claim (writers invisible after the boundary, no rebuild) is NOT weakened. Related, not duplicates: ISS-1054 (R1 current_database guard), ISS-1055 (R5 typing), ISS-1056 (V2 depth-2 FK). GH #2406, Q-1058."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "test/letflow/support/tenant_fixture_pool_test.exs",
+      "test/support/tenant_fixture.ex",
+      "test/support/tenant_template.ex",
+      "lib/letflow/design/iss1042-pooled-tenant-fixture.md",
+      "docs/issues/ISS-1042.yaml"
+    ],
+    "owned_modules": [
+      "docs/issues/ISS-1058.yaml"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1058-20261012"
   },
-  "related_handoff_ids": [],
-  "artifacts_in": [
-   "test/letflow/support/tenant_fixture_pool_test.exs",
-   "test/support/tenant_fixture.ex",
-   "test/support/tenant_template.ex",
-   "lib/letflow/design/iss1042-pooled-tenant-fixture.md",
-   "docs/issues/ISS-1042.yaml"
-  ],
-  "owned_modules": [
-   "docs/issues/ISS-1058.yaml"
-  ],
-  "worktree": null,
-  "branch_name": "feature/WF03-ISS1058-20261012"
- },
- "task": {
-  "description": "WF-03 Step 0.5+1 for ISS-1058 (.claude/agents/issue-fixer.md): create docs/issues/ISS-1058.yaml if absent (check docs/issues first; letflow-2's filer may have added it on main; github_issue: 2406, queue_task: 1058). SETTLE H1 vs H2 FIRST, with evidence, and put the verdict in the first line of result.summary as 'VERDICT: H1' or 'VERDICT: H2' (or 'H1+H2' if both, or 'NEITHER: <what>'). Method: read test/support/tenant_fixture.ex (pool API: recycle_pool!/0, attach, pool_dirty_report/1, slots, reset, verify, lazy vs eager reset) and the property and the helpers (fx/1, write!/2, in_task_or_here/2, nonseed_rows/1) in test/letflow/support/tenant_fixture_pool_test.exs. Key questions: after recycle_pool!/0, does fx(:a) attach the SAME schema as a.schema_name? Is the reset of the old slot performed at recycle time or lazily on the next acquire/verify? If the pool has >1 slot or a slot ring, can the next attach pick another slot while the written-to slot is still dirty/unreset (then a.schema_name keeps its row but nobody can see it, which is H2 for the test but may still be a pool-design fact worth documenting), or can a LATER attach to that dirty slot see the row (H1)? Does the dirty report only inspect the slot currently attached? Reproduce deterministically with seeds 193355 (and 40898 if the CI log is retrievable: gh run view 38235738863 --log-failed) by instrumenting a COPY of the test in a throwaway worktree OUTSIDE the repo (print a.schema_name vs fx(:a).schema_name, pool_stats, and whether the dirty slot is later attached and still contains the row). If the row is reachable by a later attach through the public pool API, it is H1. State clearly which. Do NOT edit test/ or lib/ in the main tree. Give a concrete fix design (smallest change that keeps the property's claim intact, no weakening). MACHINE RULE: ONE BEAM at a time machine-wide; every mix invocation takes the mutex, one acquisition per invocation: wrapper: L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2>/dev/null; do sleep 20; done; trap 'rmdir \"$L\" 2>/dev/null' EXIT; cd <dir> && LETFLOW_DB_PORT=5499 MIX_ENV=test <ONE mix invocation> 2>&1 . Throwaway Postgres: docker run postgres:16 on port 5499 (user/password letflow, db letflow_dev), remove afterwards; check `docker ps` first. Foreground/polling only, no Monitors. Result into this handoff (COMPLETED, PASS/FAIL; no BOM, LF), commit docs/issues/ISS-1058.yaml + handoff, pull --rebase, push; message ends 'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>'.",
-  "acceptance_criteria": [
-   "VERDICT H1 or H2 with evidence from seed 193355",
-   "fix design that does not weaken the property"
-  ]
- },
- "result": null
+  "task": {
+    "description": "WF-03 Step 0.5+1 for ISS-1058 (.claude/agents/issue-fixer.md): create docs/issues/ISS-1058.yaml if absent (check docs/issues first; letflow-2's filer may have added it on main; github_issue: 2406, queue_task: 1058). SETTLE H1 vs H2 FIRST, with evidence, and put the verdict in the first line of result.summary as 'VERDICT: H1' or 'VERDICT: H2' (or 'H1+H2' if both, or 'NEITHER: <what>'). Method: read test/support/tenant_fixture.ex (pool API: recycle_pool!/0, attach, pool_dirty_report/1, slots, reset, verify, lazy vs eager reset) and the property and the helpers (fx/1, write!/2, in_task_or_here/2, nonseed_rows/1) in test/letflow/support/tenant_fixture_pool_test.exs. Key questions: after recycle_pool!/0, does fx(:a) attach the SAME schema as a.schema_name? Is the reset of the old slot performed at recycle time or lazily on the next acquire/verify? If the pool has >1 slot or a slot ring, can the next attach pick another slot while the written-to slot is still dirty/unreset (then a.schema_name keeps its row but nobody can see it, which is H2 for the test but may still be a pool-design fact worth documenting), or can a LATER attach to that dirty slot see the row (H1)? Does the dirty report only inspect the slot currently attached? Reproduce deterministically with seeds 193355 (and 40898 if the CI log is retrievable: gh run view 38235738863 --log-failed) by instrumenting a COPY of the test in a throwaway worktree OUTSIDE the repo (print a.schema_name vs fx(:a).schema_name, pool_stats, and whether the dirty slot is later attached and still contains the row). If the row is reachable by a later attach through the public pool API, it is H1. State clearly which. Do NOT edit test/ or lib/ in the main tree. Give a concrete fix design (smallest change that keeps the property's claim intact, no weakening). MACHINE RULE: ONE BEAM at a time machine-wide; every mix invocation takes the mutex, one acquisition per invocation: wrapper: L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2>/dev/null; do sleep 20; done; trap 'rmdir \"$L\" 2>/dev/null' EXIT; cd <dir> && LETFLOW_DB_PORT=5499 MIX_ENV=test <ONE mix invocation> 2>&1 . Throwaway Postgres: docker run postgres:16 on port 5499 (user/password letflow, db letflow_dev), remove afterwards; check `docker ps` first. Foreground/polling only, no Monitors. Result into this handoff (COMPLETED, PASS/FAIL; no BOM, LF), commit docs/issues/ISS-1058.yaml + handoff, pull --rebase, push; message ends 'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>'.",
+    "acceptance_criteria": [
+      "VERDICT H1 or H2 with evidence from seed 193355",
+      "fix design that does not weaken the property"
+    ]
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "VERDICT: H2. Test defect; isolation hole H1 ruled out. The property asserts on a.schema_name after a recycle that attached a DIFFERENT slot because the claims map leaked from an aborted iteration. Root chain (reproduced with instrumented copy, seeds 193355 and 40898): (1) write!(:fk_chain) uses fixed PKs (groups 00000000-...-0000000000a1, users ...b1) and the generator can emit :fk_chain twice, so the second write raises 23505 groups_pkey (first failure: writers [:fk_chain,:fk_chain] via :test). (2) the iteration aborts before recycle_pool!/0, so {TenantFixture,:claims} stays {shape_a=>1}. (3) StreamData shrinking re-runs in the same test process: fx(:a) claims k=1 = second declared @a slot (schema 817bbc/a6418b), recycle_pool! clears claims, post-recycle fx(:a) claims k=0 = first slot. nonseed_rows(a.schema_name) then inspects the untouched second slot. Probe output: first=tenant_a6418b.. after_recycle=tenant_4a4c4e.. same=false clean=true rows_first=[{\"groups\",1}] rows_second=[]. Not an isolation hole: reset is lazy at acquire (INV-P12), and the next acquire of that dirty slot was reported clean?:true with the earlier rows gone (iteration rows did not accumulate). Seed 40898 same first failure; its shrink ends in ArgumentError undeclared slot {shape,2} (claims leaked twice). CI log of run 38235738863 not retrievable (gh: cannot connect to api.github.com); seed 40898 reproduced locally instead. FIX DESIGN (test-only, property claim not weakened): (a) make write!(:fk_chain) repeatable (ids from uniq()/gen_random_uuid) so duplicate writers are legal; (b) first statement of each check-all iteration: TenantFixture.recycle_pool!() so an aborted attempt cannot leak claims, and after the boundary bind again = fx(:a) and assert again.schema_name == a.schema_name before asserting nonseed_rows(a.schema_name) == [] and called_sequences == [] and clean?; (c) fixed regression cases: [:fk_chain,:fk_chain]/:test (seed 193355 and 40898 first failure) and a deterministic test that aborts an attempt mid-iteration then runs [:groups]/:test (shrunk failure of 193355), plus a pool-API assertion that a lazily-dirty slot is clean on next acquire. No lib/ or test/support change needed; optional hardening: none required. Probe was an untracked temp copy of the test file, deleted; throwaway postgres container removed; no tracked file under test/ or lib/ modified. Record: docs/issues/ISS-1058.yaml.",
+    "verdict": "H2",
+    "artifacts_out": [
+      "docs/issues/ISS-1058.yaml"
+    ],
+    "next_agent": "CODE-DESIGNER"
+  }
 }
