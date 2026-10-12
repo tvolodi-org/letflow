@@ -319,7 +319,8 @@ defmodule Letflow.TenantFixture do
             after_verify: (schema_name :: String.t() -> any()),
             after_guard: (schema_name :: String.t() -> any())
           ],
-          parity_check: boolean()
+          parity_check: boolean(),
+          expected_database: String.t() | nil
         ]
 
   @opaque pool :: %{
@@ -377,6 +378,16 @@ defmodule Letflow.TenantFixture do
   telemetry / GenServer state keyed by tenant id leaks across tests (use `reset_hooks`
   for the ones that do). Record the result as one line per item in a comment above the
   module's `setup_all`. A module that cannot show this keeps the default fresh clone.
+
+  ## Database guard (ISS-1061 / Q-1054 / GH #2400)
+
+  Before anything is provisioned, cloned, reset or dropped, `assert_test_database!/1`
+  refuses (`ArgumentError`) to run unless the connected `current_database()` equals the
+  configured `Letflow.Repo` database AND that name is a `letflow_test*` database. The
+  `:expected_database` opt is a test-only seam for proving the refusal; the default is the
+  configured database, and a non-`letflow_test*` name is refused even when supplied. Only
+  the pool's own start-up path is guarded: the fresh-clone / `TenantTemplate` paths are out
+  of scope here.
   """
   @spec start_pool!(context :: map(), pool_opts()) :: [tenant_pool: pool()]
   def start_pool!(context, opts) when is_map(context) and is_list(opts) do
@@ -409,7 +420,17 @@ defmodule Letflow.TenantFixture do
     # statements (and the clone's DDL) must commit on ordinary pool connections.
     Sandbox.mode(Letflow.Repo, :auto)
 
-    init = %{module: module, hooks: hooks, parity_check: Keyword.get(opts, :parity_check, false)}
+    # ISS-1061: strictly before the worker is started and before any slot is created, so a
+    # refusal leaves nothing registered and nothing to tear down.
+    expected_database = Keyword.get(opts, :expected_database)
+    :ok = assert_test_database!(expected_database)
+
+    init = %{
+      module: module,
+      hooks: hooks,
+      parity_check: Keyword.get(opts, :parity_check, false),
+      expected_database: expected_database
+    }
 
     worker =
       case GenServer.start(Letflow.TenantFixture.Pool, init, name: pool_name(module)) do
@@ -430,6 +451,34 @@ defmodule Letflow.TenantFixture do
       {:error, message} ->
         raise ExUnit.AssertionError, message: message
     end
+  end
+
+  @doc false
+  # ISS-1061 / Q-1054 / GH #2400. Fail-closed database guard for the pool's destructive
+  # paths. `expected` defaults to the configured Repo database (never a literal); it must
+  # also be a `letflow_test*` name, so a config pointed at a real database is not a
+  # tautology. Must run on an ordinary pool connection (after `Sandbox.mode(:auto)`).
+  @spec assert_test_database!(expected :: String.t() | nil) :: :ok
+  def assert_test_database!(expected \\ nil) do
+    expected = expected || Keyword.get(Repo.config(), :database)
+
+    unless is_binary(expected) and String.starts_with?(expected, "letflow_test") do
+      raise ArgumentError,
+            "LETFLOW_TENANT_FIXTURE phase=pool_database_guard expected database " <>
+              "#{inspect(expected)} is not a letflow_test* database; refusing to provision, " <>
+              "clone, reset or drop anything"
+    end
+
+    %{rows: [[actual]]} = Repo.query!("SELECT current_database()")
+
+    if actual != expected do
+      raise ArgumentError,
+            "LETFLOW_TENANT_FIXTURE phase=pool_database_guard connected to database " <>
+              "#{inspect(actual)} but the configured test database is #{inspect(expected)}; " <>
+              "refusing to provision, clone, reset or drop anything"
+    end
+
+    :ok
   end
 
   @doc """
@@ -1268,6 +1317,11 @@ defmodule Letflow.TenantFixture.Pool do
   public state, but not the definitional digest (a definition change between verify and
   guard is caught by the next acquire's detect, and by the owning test's own assertions).
 
+  ## Database guard (ISS-1061)
+
+  `init/1` re-asserts the test database (`Letflow.TenantFixture.assert_test_database!/1`)
+  before any state exists, in case the worker is started without `start_pool!/2`.
+
   ## Fail-closed (design OQ-8)
 
   A fence or guard that fires raises; there is no override knob and no downgrade to a log
@@ -1297,6 +1351,10 @@ defmodule Letflow.TenantFixture.Pool do
 
   @impl true
   def init(%{module: module} = init) do
+    # ISS-1061: defense in depth for a direct GenServer.start of this public module; a
+    # raise here makes start return {:error, {exception, stacktrace}} with nothing created.
+    :ok = TenantFixture.assert_test_database!(Map.get(init, :expected_database))
+
     {:ok,
      %{
        module: module,
