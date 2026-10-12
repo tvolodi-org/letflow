@@ -22,9 +22,14 @@ defmodule Letflow.Engine.Q1048MeridianLoanOpsLeadEscalationTest do
 
   use Letflow.DataCase, async: false
 
+  import Ecto.Query
   import Plug.Conn
   import Plug.Test
 
+  alias Letflow.Definitions.Graph
+  alias Letflow.Definitions.SnapshotStore
+  alias Letflow.Engine.ServiceTaskDispatcher.ServiceTaskDispatch
+  alias Letflow.Engine.Task, as: EngineTask
   alias Letflow.Req462Adoption, as: A
   alias Letflow.SodSupport, as: S
 
@@ -70,6 +75,35 @@ defmodule Letflow.Engine.Q1048MeridianLoanOpsLeadEscalationTest do
   end
 
   defp current_nodes(ctx), do: A.projection(ctx.schema_name, ctx.instance_id).current_nodes
+
+  # The END node(s) the instance has reached, read from the definition snapshot it runs under.
+  # The engine records no END id: END dispatch writes no event, and the completion result carries
+  # only current_nodes, which is empty at END. So each END is named by a step that actually
+  # finished -- a COMPLETED human task or an ADVANCED service task -- whose outgoing edge into an
+  # END node is the edge taken.
+  defp reached_ends(ctx) do
+    {:ok, snapshot} = SnapshotStore.get_by_instance_id(ctx.instance_id, prefix: ctx.schema_name)
+    {:ok, graph} = Graph.from_map(snapshot.graph)
+    ends = for n <- graph.nodes, n.node_type == :END, into: MapSet.new(), do: n.id
+
+    completed =
+      EngineTask
+      |> where([t], t.instance_id == ^ctx.instance_id and t.status == :completed)
+      |> select([t], t.node_id)
+      |> Repo.all(prefix: ctx.schema_name)
+
+    advanced =
+      ServiceTaskDispatch
+      |> where([d], d.instance_id == ^ctx.instance_id and d.status == "advanced")
+      |> select([d], d.node_id)
+      |> Repo.all(prefix: ctx.schema_name)
+
+    for source <- completed ++ advanced,
+        e <- graph.edges,
+        e.source == source and MapSet.member?(ends, e.target),
+        uniq: true,
+        do: e.target
+  end
 
   # -- HTTP ----------------------------------------------------------------------------------
 
@@ -138,6 +172,9 @@ defmodule Letflow.Engine.Q1048MeridianLoanOpsLeadEscalationTest do
     # is ever dispatched, and the instance completes.
     assert A.projection(ctx.schema_name, ctx.instance_id).status == :completed
     refute "disbursement-held-notice" in A.dispatched_nodes(ctx.schema_name, ctx.instance_id)
+
+    # Named END: the completed escalation's completion edge (e27-escalated) leads into end-disbursed.
+    assert reached_ends(ctx) == ["end-disbursed"]
   end
 
   # -- (b) committee path ----------------------------------------------------------------------
@@ -294,6 +331,11 @@ defmodule Letflow.Engine.Q1048MeridianLoanOpsLeadEscalationTest do
     A.advance_service_task!(ctx.schema_name, ctx.instance_id, "disbursement-held-notice", %{})
     assert A.projection(ctx.schema_name, ctx.instance_id).status == :completed
     assert "disbursement-held-notice" in A.dispatched_nodes(ctx.schema_name, ctx.instance_id)
+
+    # Named END: the hold notice's edge leads into end-disbursement-held, and end-disbursed is refuted.
+    ends = reached_ends(ctx)
+    assert ends == ["end-disbursement-held"]
+    refute "end-disbursed" in ends
   end
 
   test "fail-closed: the only holder of role-loan-ops-lead is the refused completer, so the escalation timer ends the loan at end-disbursement-held, never end-disbursed" do
