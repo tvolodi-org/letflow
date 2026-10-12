@@ -18,11 +18,12 @@ description: >
   role reaches the payment path, one person can decide and release the loan without a second
   decision.
 resolution: >
-  Open. Question for the BA (meridian): when l1-approval times out, should the loan go to a
-  held or escalation review, with an explicit timed-out-L1 outcome, instead of straight to L2
-  as sole approver? Options: (a) keep the fallback to L2 as accepted in ISS-1001; (b) route a
-  timed-out L1 to a held review that a different role decides; (c) route to escalation with
-  its own distinct_from.
+  DECIDED 2026-10-12 by the meridian BA (decision owner), from letflow-9a's answer: option (b).
+  A new node escalate-l1-approval-to-cro (role-cro) replaces the target of fallback-l1-approval.
+  Its timeout goes to decline-application, never to l2-approval. ISS-1001's acceptance of
+  fallback-l1-approval -> l2-approval is revised. Implementation: Q-1051 / GH #2395 (ISS-1051),
+  blocked by Q-1048 (REQ-467). Recorded on GH #2389, closed as decided, queue released done.
 queue_ref: Q-1047
 github_ref: GH-2389
-status: open
+status: closed-decided
+implementation: ISS-1051
