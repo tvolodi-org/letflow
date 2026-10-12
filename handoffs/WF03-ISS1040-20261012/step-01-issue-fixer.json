@@ -1,40 +1,53 @@
-{
- "handoff_id": "c4a7d1e0-1040-4a11-8c20-000000000001",
- "run_id": "WF03-ISS1040-20261012",
- "workflow_id": "WF-03",
- "step": "01",
- "from_agent": "ORCH",
- "to_agent": "ISSUE-FIXER",
- "file": "handoffs/WF03-ISS1040-20261012/step-01-issue-fixer.json",
- "created_at": "2026-10-12T09:25:30Z",
- "started_at": null,
- "completed_at": null,
- "status": "PENDING",
- "priority": "NORMAL",
- "context": {
-  "stage": "S1",
-  "requirement_ids": [],
-  "requirement_text": {},
-  "source_text": {
-   "Q-1040": "LOW, test-only, CI/test lane. test/letflow/engine/lua/executor_test.exs polling loops at ~L518 and ~L817 (Enum.reduce_while(1..20) with Process.sleep(10) = ~200 ms of observation) wait for a supervised Lua child while the script/call runs only timeout_ms 300; under host load the child can finish or not yet have started inside that window, so the assertion that a real in-flight child was observed can miss it. Fix: make the script deterministic instead of time-bound (script blocks on a message from the test, or the poll waits on a :started message plus a monotonic deadline well above the script's life; the script's duration is controlled by the test, not a sleep) so the window cannot close before the test looks; no global timing change. Mutation proof: a mutant that never spawns the child must still fail; stress: 100 consecutive runs under max_cases concurrency green (quote command and result). Acceptance: (1) both observation windows no longer depend on a fixed ~200 ms poll inside a 300 ms script; (2) mutant that never spawns the child still fails both tests; (3) 100 consecutive local runs under concurrency green, command and result quoted. Overlap: no open queue issue on executor_test; ISS-0456 (wasm_hang) is a different file. GH #2379."
-  },
-  "related_handoff_ids": [],
-  "artifacts_in": [
-   "test/letflow/engine/lua/executor_test.exs"
-  ],
-  "owned_modules": [
-   "docs/issues/ISS-1040.yaml"
-  ],
-  "worktree": null,
-  "branch_name": "feature/WF03-ISS1040-20261012"
- },
- "task": {
-  "description": "WF-03 Step 0.5+1 for ISS-1040 (.claude/agents/issue-fixer.md): registry lookup (docs/issues/ for matching resolved/open entries; ISS-1040 has no local yaml yet, create docs/issues/ISS-1040.yaml per docs/agents/protocols/ISSUE_QUEUE.md with github_issue: 2379, queue_task: 1040), then diagnose. Read the two tests and the Lua executor path they exercise (what spawns the supervised child, what 'in-flight' means, what signals exist: messages, telemetry, registry lookups). Determine the exact race and give a concrete deterministic fix design the implementer can follow: which handshake replaces the poll (e.g. the script/NIF/fixture sends the test process a :started message and then blocks on a message/sentinel the test releases; or poll-until-deadline with a deadline far above script life); state whether the script duration can be controlled by the test without a production change (test-only is the acceptance bar; if it needs a lib/ hook, say so and stop at the diagnosis). Name how to prove the mutant 'never spawns the child' fails both tests. Also check git log -L / blame for why the 300 ms is there. Do NOT edit test or lib code. If you need to RUN anything with mix, use the machine mutex wrapper (only ONE BEAM at a time machine-wide, one acquisition per mix invocation): L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2>/dev/null; do sleep 20; done; trap 'rmdir \"$L\" 2>/dev/null' EXIT; cd <dir> && LETFLOW_DB_PORT=5499 MIX_ENV=test <ONE mix invocation> 2>&1 with a throwaway Postgres on port 5499 you start and remove. Poll synchronously, no Monitors. Write result into this handoff (COMPLETED, result.status PASS/FAIL), commit docs/issues/ISS-1040.yaml and the handoff, push, message ends with 'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>'.",
-  "acceptance_criteria": [
-   "root cause with file:line",
-   "deterministic fix design, test-only or flagged",
-   "docs/issues/ISS-1040.yaml created"
-  ]
- },
- "result": null
+﻿{
+    "handoff_id":  "c4a7d1e0-1040-4a11-8c20-000000000001",
+    "run_id":  "WF03-ISS1040-20261012",
+    "workflow_id":  "WF-03",
+    "step":  "01",
+    "from_agent":  "ORCH",
+    "to_agent":  "ISSUE-FIXER",
+    "file":  "handoffs/WF03-ISS1040-20261012/step-01-issue-fixer.json",
+    "created_at":  "2026-10-12T09:25:30Z",
+    "started_at":  "2026-10-12T09:26:00Z",
+    "completed_at":  "2026-10-12T09:35:00Z",
+    "status":  "COMPLETED",
+    "priority":  "NORMAL",
+    "context":  {
+                    "stage":  "S1",
+                    "requirement_ids":  [
+
+                                        ],
+                    "requirement_text":  {
+
+                                         },
+                    "source_text":  {
+                                        "Q-1040":  "LOW, test-only, CI/test lane. test/letflow/engine/lua/executor_test.exs polling loops at ~L518 and ~L817 (Enum.reduce_while(1..20) with Process.sleep(10) = ~200 ms of observation) wait for a supervised Lua child while the script/call runs only timeout_ms 300; under host load the child can finish or not yet have started inside that window, so the assertion that a real in-flight child was observed can miss it. Fix: make the script deterministic instead of time-bound (script blocks on a message from the test, or the poll waits on a :started message plus a monotonic deadline well above the script\u0027s life; the script\u0027s duration is controlled by the test, not a sleep) so the window cannot close before the test looks; no global timing change. Mutation proof: a mutant that never spawns the child must still fail; stress: 100 consecutive runs under max_cases concurrency green (quote command and result). Acceptance: (1) both observation windows no longer depend on a fixed ~200 ms poll inside a 300 ms script; (2) mutant that never spawns the child still fails both tests; (3) 100 consecutive local runs under concurrency green, command and result quoted. Overlap: no open queue issue on executor_test; ISS-0456 (wasm_hang) is a different file. GH #2379."
+                                    },
+                    "related_handoff_ids":  [
+
+                                            ],
+                    "artifacts_in":  [
+                                         "test/letflow/engine/lua/executor_test.exs"
+                                     ],
+                    "owned_modules":  [
+                                          "docs/issues/ISS-1040.yaml"
+                                      ],
+                    "worktree":  null,
+                    "branch_name":  "feature/WF03-ISS1040-20261012"
+                },
+    "task":  {
+                 "description":  "WF-03 Step 0.5+1 for ISS-1040 (.claude/agents/issue-fixer.md): registry lookup (docs/issues/ for matching resolved/open entries; ISS-1040 has no local yaml yet, create docs/issues/ISS-1040.yaml per docs/agents/protocols/ISSUE_QUEUE.md with github_issue: 2379, queue_task: 1040), then diagnose. Read the two tests and the Lua executor path they exercise (what spawns the supervised child, what \u0027in-flight\u0027 means, what signals exist: messages, telemetry, registry lookups). Determine the exact race and give a concrete deterministic fix design the implementer can follow: which handshake replaces the poll (e.g. the script/NIF/fixture sends the test process a :started message and then blocks on a message/sentinel the test releases; or poll-until-deadline with a deadline far above script life); state whether the script duration can be controlled by the test without a production change (test-only is the acceptance bar; if it needs a lib/ hook, say so and stop at the diagnosis). Name how to prove the mutant \u0027never spawns the child\u0027 fails both tests. Also check git log -L / blame for why the 300 ms is there. Do NOT edit test or lib code. If you need to RUN anything with mix, use the machine mutex wrapper (only ONE BEAM at a time machine-wide, one acquisition per mix invocation): L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2\u003e/dev/null; do sleep 20; done; trap \u0027rmdir \"$L\" 2\u003e/dev/null\u0027 EXIT; cd \u003cdir\u003e \u0026\u0026 LETFLOW_DB_PORT=5499 MIX_ENV=test \u003cONE mix invocation\u003e 2\u003e\u00261 with a throwaway Postgres on port 5499 you start and remove. Poll synchronously, no Monitors. Write result into this handoff (COMPLETED, result.status PASS/FAIL), commit docs/issues/ISS-1040.yaml and the handoff, push, message ends with \u0027Co-Authored-By: Claude Sonnet 5.5 \u003cnoreply@anthropic.com\u003e\u0027.",
+                 "acceptance_criteria":  [
+                                             "root cause with file:line",
+                                             "deterministic fix design, test-only or flagged",
+                                             "docs/issues/ISS-1040.yaml created"
+                                         ]
+             },
+    "result":  {
+                   "status":  "PASS",
+                   "summary":  "Root cause: tests at executor_test.exs ~L518 and ~L817 (nil max_heap_words, tagged lua_wallclock_race) observe the supervised child via 20x10ms polls of the GLOBAL Letflow.Engine.Lua.TaskSupervisor while the child lives only until Task.yield(300)+brutal_kill (lib/letflow/engine/lua/executor.ex:367-372). :started is sent before the spawn and the test polls on its own schedule, so a \u003e300 ms test-process stall (child already killed) or late spawn gives children == []. Reproduced: with a 350 ms stall the existing poll returned [] (probe test outside repo, one mix invocation under the mutex, throwaway PG on 5499, removed). Also the global check can false-pass from other async tests children. 300 ms comes from REQ-155 (d932dbaec) as a short per-call timeout, not load-bearing. Fix is TEST-ONLY, no lib/ hook, no new tags (file asserts exactly 11 tagged tests): per test use timeout_ms ~30000, identify OWN child via the $callers pdict entry containing task.pid (probe-verified), poll with a monotonic ~5 s deadline, assert found, release by Process.exit(child, :kill) and assert {:error, \"Letflow.Engine.Lua.Executor task crashed: :killed\"} (probe-verified). Mutant: swap async_nolink at executor.ex:367 for Task.async -\u003e both fixed tests miss the child and fail at deadline. Details in docs/issues/ISS-1040.yaml.",
+                   "artifacts_out":  [
+                                         "docs/issues/ISS-1040.yaml"
+                                     ],
+                   "next_agent":  "CODE-DESIGNER"
+               }
 }

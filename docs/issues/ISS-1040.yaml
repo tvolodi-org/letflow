@@ -1,0 +1,71 @@
+id: ISS-1040
+title: "executor_test.exs: two in-flight-child observation windows (~200 ms poll vs 300 ms script life) are wall-clock bound and can miss under host load"
+discovered_by: ORCH (CI/test lane audit)
+discovered_in_run: "Q-1040 / GH-2379, 2026-10-12"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: MINOR
+owner: "TEST-DESIGNER or ELIXIR-DEV (test-only fix; no lib/ change needed)"
+scope: test
+description: >
+  Two tests in test/letflow/engine/lua/executor_test.exs (both @tag :lua_wallclock_race,
+  so they run only in the isolated --only lua_wallclock_race partition):
+  "AC-5: the running script is a child of Letflow.Engine.Lua.TaskSupervisor while in flight"
+  (~L518-533) and "a nil max_heap_words leaves the REQ-155 TaskSupervisor-based path unchanged"
+  (~L817-832). Each starts execute_with_manifest/3 with "while true do end" and timeout_ms: 300
+  inside Task.async, waits for :started, then polls Task.Supervisor.children/1 with
+  Enum.reduce_while(1..20) + Process.sleep(10) (~200 ms) and asserts children != [].
+  ROOT CAUSE: the supervised child (lib/letflow/engine/lua/executor.ex:367, async_nolink) lives
+  only from spawn to the caller's own Task.yield(300) expiry plus brutal_kill (L372,
+  handle_yield_result(nil, ...)). The :started message is sent BEFORE the child is spawned and
+  the test process polls on its own schedule, so the observation window [first poll, first poll +
+  ~200 ms] must overlap the child's life [spawn, spawn + 300 ms]. Both ends are wall-clock; under
+  host load a test-process stall of more than 300 ms after :started (child already killed) or a
+  more than 200 ms delay in the Task process reaching the spawn (all 20 polls precede it) leaves
+  children == [] and the assertion fails. The script's life is not controlled by the test; it is
+  fixed by the timeout_ms the assertion also pins (wallclock_timeout 300). Secondary weakness:
+  the assertion inspects the GLOBAL supervisor, so under async: true another test's child can
+  satisfy children != [] (false pass) and the check does not prove THIS call's child existed.
+  REPRODUCED (single mix invocation, probe test outside the repo, test env): with a 350 ms stall
+  of the test process after :started, the existing poll returned children == [] (printed
+  "children after stall: []") while the call itself still returned
+  {:error, {:wallclock_timeout, 300}}. The prompt-schedule baseline passed, so the flake is
+  load-only, as filed.
+  Why 300 ms: introduced with REQ-155 (d932dbaec, 2026-08-27) as the short per-call timeout so a
+  hanging script terminates quickly; the polling loop was added later, bounded "well under" the
+  300 ms, which is exactly what makes it racy. No evidence 300 is load-bearing beyond test speed;
+  the assertion {:error, {:wallclock_timeout, 300}} just echoes the configured value.
+fix_design: >
+  TEST-ONLY, no lib/ change, no global timing change, no new @tag (the file's property test
+  requires exactly 11 @tag :lua_wallclock_race nodes and an isolated-partition count of 11 -
+  keep both tests, same tags). For each of the two tests: (1) raise this call's own timeout_ms
+  to a generous value (e.g. 30_000) so the script's life is bounded by the test, not by a
+  300 ms timer; (2) after assert_receive :started, find THIS call's child instead of "any
+  child": among Task.Supervisor.children(Letflow.Engine.Lua.TaskSupervisor), pick the pid whose
+  Process.info(pid, :dictionary) "$callers" entry contains task.pid (async_nolink records the
+  caller; verified in the probe: returned the right pid), polling with Process.sleep(5) against
+  a monotonic deadline of ~5_000 ms (far above spawn latency; only a missing child ever waits it
+  out); (3) assert the pid was found; (4) release the script deterministically with
+  Process.exit(child, :kill) and assert the result: the probe observed
+  {:error, "Letflow.Engine.Lua.Executor task crashed: :killed"} (handle_yield_result({:exit, _})).
+  Assert that shape instead of {:wallclock_timeout, 300}; the wallclock_timeout value itself is
+  already covered by the other REQ-155 tests (AC-1..AC-4). A shared private helper in the test
+  file (e.g. await_own_child/2) removes the duplicated loop. A Lua-level block-on-message
+  handshake is not possible without a lib/ hook (capabilities [] exposes no send) and is not
+  needed: kill-on-observation gives the same determinism.
+mutation_proof: >
+  One mutant covers both tests because both use max_heap_words: nil: in
+  lib/letflow/engine/lua/executor.ex:367 replace
+  Task.Supervisor.async_nolink(Letflow.Engine.Lua.TaskSupervisor, fn -> ... end) with
+  Task.async(fn -> ... end) (child never under the named supervisor). The fixed tests never
+  find a child whose $callers matches, hit the 5 s deadline and fail. Run with
+  mix test --only lua_wallclock_race test/letflow/engine/lua/executor_test.exs, then revert.
+stress_command: >
+  100 consecutive runs under concurrency, one BEAM at a time (mutex wrapper): loop
+  `mix test --only lua_wallclock_race test/letflow/engine/lua/executor_test.exs --max-cases 32`
+  100 times breaking on first non-zero exit, quoting the command and final exit codes.
+resolution: >
+  Open. Diagnosis complete; implementation routes to CODE-DESIGNER (trivial design) then
+  ELIXIR-DEV/TEST-DESIGNER per WF-03.
+queue_ref: Q-1040
+github_ref: GH-2379
+status: open
