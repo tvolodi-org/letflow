@@ -7,9 +7,9 @@
  "to_agent": "CODE-DESIGNER",
  "file": "handoffs/WF03-ISS1058-20261012/step-02-code-designer.json",
  "created_at": "2026-10-12T11:03:17Z",
- "started_at": null,
- "completed_at": null,
- "status": "PENDING",
+ "started_at": "2026-10-12T11:10:00Z",
+ "completed_at": "2026-10-12T11:30:00Z",
+ "status": "COMPLETED",
  "priority": "HIGH",
  "context": {
   "stage": "S1",
@@ -37,5 +37,12 @@
    "no implementation code"
   ]
  },
- "result": null
+ "result": {
+  "status": "PASS",
+  "summary": "Design written: lib/letflow/design/iss1058-pool-property-claims-leak.md. Test-only change to test/letflow/support/tenant_fixture_pool_test.exs (no lib/ or test/support change). (1) :fk_chain made repeatable (ids from Ecto.UUID.generate per call); audit table of all 10 @prop_writers shows fk_chain is the only literal-PK writer; fixed-case users (mutate_everything!, M1, M11) unaffected. (2) recycle_pool!/0 as first statement of each iteration; soundness argued from tenant_fixture.ex L297, L493-497, L589-598, L1702-1720 (claims map is a positional counter, recycle changes no data, reset is lazy at acquire). (3) post-boundary again = fx(:a) and assert again.schema_name == a.schema_name BEFORE pool_dirty_report/nonseed_rows/called_sequences. (4) Seeds pinned by encoded sequences, not seed flags: C1/C1b [:fk_chain,:fk_chain] via :test/:task, C2 one aborted attempt then [:groups]/:test, C3 two aborted attempts then [:groups]/:test (40898 ArgumentError tail), C4 documents positional-claims fact; property and cases share one helper assert_boundary_invisible!/2; seeds 193355/40898 recorded in a comment and run by TEST-RUNNER as corroboration. (5) Claim not weakened: same writers, generators, max_runs 12, all assertions kept, one assertion added. MUTANT PROOF (supervisor addition), throwaway worktree, one mutant at a time against test/support/tenant_fixture.ex, property and C1-C3 must FAIL, unmutated must PASS: MU1 prove_clean/2 (L1740-1759) else-arm returns {state,:clean} instead of reset/4 (skip reset of dirty slot); MU2 reset/4 (L1765-1810) replaces TenantTemplate.reset_clone_schema!/3 with a stub {:ok, empty report} (reset reported, nothing truncated); MU3 (extra) delete Process.put(@claims_key, %{}) at L495 in recycle_pool!/0, must FAIL at the new same-schema assertion on the first iteration. (6) Fail-first by single-change reverts: change 1 -> C1 23505; change 2 -> C2 different-slot, C3 ArgumentError; all reverted -> C1-C3 fail; change 3 guarded by MU3. Open questions O1-O5 listed in the design. No mix run (design only).",
+  "artifacts_out": [
+   "lib/letflow/design/iss1058-pool-property-claims-leak.md"
+  ],
+  "next_agent": "CODE-DESIGN-VALIDATOR"
+ }
 }
