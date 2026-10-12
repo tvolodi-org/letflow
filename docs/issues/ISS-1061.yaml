@@ -1,0 +1,24 @@
+id: ISS-1061
+title: "TenantFixture.start_pool!/2 and its pool worker reset and drop tenant schemas with no check that the connected database is the test database"
+discovered_by: SECURITY-REVIEWER (F2, ISS-1042 review)
+discovered_in_run: "Q-1054 / GH #2400, queue issue_ref ISS-1054, follow-up R1 of ISS-1042"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: MEDIUM
+owner: "ELIXIR-DEV / TEST-DESIGNER; test-support only, no lib/ change"
+scope: test-support
+description: >
+  test/support/tenant_fixture.ex start_pool!/2 (~L382) starts Letflow.TenantFixture.Pool and
+  clones slot schemas; the worker truncates dirty tables, rebuilds slots, runs a final guard and
+  on teardown drops slot schemas and deletes Registration/Tenant rows. Nothing verifies that
+  `SELECT current_database()` is the configured test database (config/test.exs
+  letflow_test<MIX_TEST_PARTITION>), so a mis-pointed Repo (config or URL override) would run
+  those destructive statements against real data.
+design: >
+  Public assert_test_database!/1 (expected defaults to Repo.config()[:database], must start with
+  letflow_test, must equal current_database()), called in start_pool!/2 after Sandbox.mode(:auto)
+  and before GenServer.start/create_slots, and again as the first statement of Pool.init/1.
+  Test seam: :expected_database pool opt. Detail in
+  handoffs/WF03-ISS1054DBGUARD-20261012/step-01-issue-fixer.json.
+queue_ref: Q-1054
+github_ref: GH-2400
+status: open
