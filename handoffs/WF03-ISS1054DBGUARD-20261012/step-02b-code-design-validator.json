@@ -1,0 +1,36 @@
+{
+  "handoff_id": "c4a7d1e0-1054-4a11-8c20-000000000002b",
+  "run_id": "WF03-ISS1054DBGUARD-20261012",
+  "workflow_id": "WF-03",
+  "step": "02b",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGN-VALIDATOR",
+  "file": "handoffs/WF03-ISS1054DBGUARD-20261012/step-02b-code-design-validator.json",
+  "created_at": "2026-10-12T15:10:00Z",
+  "started_at": null,
+  "completed_at": null,
+  "status": "PENDING",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1054": "MEDIUM, R1 from ISS-1042 follow_ups (SECURITY-REVIEWER F2), supervisor-assigned 2026-10-12. Queue Q-1054 / GH #2400, issue_ref ISS-1054. See task.description."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "docs/issues/ISS-1061.yaml",
+      "test/support/tenant_fixture.ex",
+      "handoffs/WF03-ISS1054DBGUARD-20261012/step-01-issue-fixer.json"
+    ],
+    "owned_modules": [
+      "test/support/tenant_fixture.ex"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1054DBGUARD-20261012"
+  },
+  "task": {
+    "description": "WF-03 Step 2b hard gate (.claude/agents/code-design-validator.md) on the ISSUE-FIXER's fix design for Q-1054 / GH #2400 (local record docs/issues/ISS-1061.yaml; design in handoffs/WF03-ISS1054DBGUARD-20261012/step-01-issue-fixer.json). ORCH uses that design (exact guard function, start_pool!/2 placement, worker init defense, tests T1..T6, mutants M1..M7) as the design artefact and gates it here instead of a separate CODE-DESIGNER pass.\nORCH decisions: KEEP the letflow_test* prefix check (config/test.exs derives database \"letflow_test#{MIX_TEST_PARTITION}\", so the prefix is the repo's own convention); the :expected_database opt stays the test seam; no lib/ change; worker init guard stays as defense in depth.\nValidate: (1) every acceptance criterion maps to a design element and a test: guard before ANY provisioning/reset/clone, refusal test, mutation makes the refusal test fail, reset semantics unchanged; (2) independently read test/support/tenant_fixture.ex and the Pool worker: is the guard placed before the first side effect (Sandbox.mode(:auto) acceptable?), are there other destructive entry points reachable without start_pool!/2 (e.g. provisioned_tenant!/1 fresh-clone path, recycle_pool!, teardown) that the design leaves unguarded and that matter, and is Repo.config()[:database] the right source (check Repo.init/2 and any runtime config override); (3) can the :expected_database seam be abused to disarm the guard (the prefix check must still bind); can the tests T4/T5 leak a registered pool or schema, or break the single live pool of tenant_fixture_pool_test.exs (async: false, one pool per module per VM); is T4's global-count snapshot flaky if another BEAM shares the DB (suggest the schema-prefix variant if so); (4) each mutant M1..M7 is truly killed by the named test; (5) the design is unambiguous enough for a weak model to implement; anything missing. No mix needed. Verdict PASS/FAIL in result.status; findings BLOCKER/MAJOR/MINOR. Commit + push (pull --rebase first; retry on github resolve failures; message ends 'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>'); handoff COMPLETED, no BOM, LF, no self-reference in artifacts_out.\n"
+  }
+}
