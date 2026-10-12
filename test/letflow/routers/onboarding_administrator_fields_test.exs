@@ -513,12 +513,12 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
         "idp_realm_id" => free
       })
 
-    assert conn.status == 409
-    assert json(conn)["detail"] == "hostname already bound"
-
-    # Cleanup is registered before the assertion, so a failing run still drops the schema.
+    # Cleanup is registered before any assertion below, so a failing run still drops the schema.
     orphan = Repo.get_by(Tenant, slug: slug)
     if orphan, do: cleanup_onboarded_tenant!(orphan.id)
+
+    assert conn.status == 409
+    assert json(conn)["detail"] == "hostname already bound"
     assert %Tenant{idp_realm_id: nil} = orphan
     refute Repo.exists?(from(t in Tenant, where: t.idp_realm_id == ^free))
 
@@ -566,6 +566,80 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     fetched = call(ctx, :get, "/api/v1/onboarding/#{created["id"]}", nil)
     assert fetched.status == 200
     assert json(fetched)["login"]["loginable"] == false
+  end
+
+  # A bind that cannot run because the tenant is no longer active (a state change after the onboarding
+  # insert) is reported as realm_request reason "unavailable" in the 201 body.
+  test "POST /onboarding whose tenant is not active when the bind runs answers 201 with realm_request unavailable",
+       ctx do
+    value = realm()
+    slug = TenantSlugFixture.unique_slug("iss1030")
+    handler_id = {__MODULE__, make_ref()}
+
+    :telemetry.attach(
+      handler_id,
+      [:letflow, :repo, :query],
+      &__MODULE__.deactivate_on_registry_insert/4,
+      {self(), slug}
+    )
+
+    conn =
+      try do
+        call(
+          ctx,
+          :post,
+          "/api/v1/onboarding",
+          new_body(%{"slug" => slug, "idp_realm_id" => value})
+        )
+      after
+        :telemetry.detach(handler_id)
+      end
+
+    assert conn.status == 201, conn.resp_body
+    created = json(conn)
+    cleanup_onboarded_tenant!(created["tenant_id"])
+
+    assert created["realm_request"] == %{"status" => "not_bound", "reason" => "unavailable"}
+    assert created["login"]["loginable"] == false
+    assert stored_realm(created["tenant_id"]) == nil
+  end
+
+  @doc false
+  def deactivate_on_registry_insert(_event, _measurements, metadata, {test_pid, slug}) do
+    query = to_string(Map.get(metadata, :query) || "")
+
+    if self() == test_pid and String.starts_with?(query, ~s(INSERT INTO "onboarding_registry")) do
+      Repo.update_all(from(t in Tenant, where: t.slug == ^slug), set: [status: :inactive])
+    end
+  end
+
+  # JSON cannot carry invalid UTF-8, and the harness encodes bodies as JSON, so the parsed body is set
+  # directly, as multipart parsing would set it. A part name with invalid bytes must be refused with 422
+  # before any write (SECURITY-REVIEWER BLOCKER-1 on the create route).
+  test "POST /onboarding with an invalid UTF-8 field name answers 422 and writes nothing", ctx do
+    slug = TenantSlugFixture.unique_slug("iss1030")
+    hostname = "iss1030-#{Ecto.UUID.generate()}.example.com"
+    value = realm()
+
+    body = %{
+      "slug" => slug,
+      "display_name" => "ISS-1030 Tenant",
+      "hostname" => hostname,
+      "idp_realm_id" => value,
+      <<0xFF, 0xFE>> => "x"
+    }
+
+    conn =
+      :post
+      |> Fixture.api_conn("/api/v1/onboarding", ctx.token, ctx.platform.tenant.slug, nil)
+      |> Map.put(:body_params, body)
+      |> Map.put(:params, body)
+      |> Fixture.dispatch_api()
+
+    assert conn.status == 422, conn.resp_body
+    assert Repo.get_by(Tenant, slug: slug) == nil
+    assert Repo.get_by(OnboardingRecord, hostname: hostname) == nil
+    refute Repo.exists?(from(t in Tenant, where: t.idp_realm_id == ^value))
   end
 
   test "bind-realm records the request's x-trace-id in the platform chain and never in the tenant chain",
@@ -1016,7 +1090,8 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
 
   # Claims the realm for another tenant right after the create's onboarding-record insert, so the
   # create's own bind loses the race (after the pre-check, before the bind). Calling process only.
-  # The claim is an UPDATE, which does not match the INSERT filter, so it cannot re-enter here.
+  # The claim is an UPDATE: its telemetry event re-enters this handler, but it does not match the INSERT
+  # filter, so the nested call does nothing.
   defp with_realm_claimed_after_registry_insert(tenant_id, realm_value, fun) do
     handler_id = {__MODULE__, make_ref()}
 
@@ -1066,6 +1141,34 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
   end
 
   # AC3 (design section 11): the operator runbook exists and names the steps it must.
+  # PR1 scope guard for AC5 (ISS-1030). Narrow on purpose: it scans only the PR 1 modules and fails on
+  # a Keycloak admin realm or user call. Remove or replace it when Q-1061 / GH #2414 (decision gate) lands.
+  test "PR 1 modules make no Keycloak admin realm or user call (AC5 scope guard)" do
+    pr1_modules = [
+      "lib/letflow/routers/onboarding.ex",
+      "lib/letflow/identity.ex",
+      "lib/letflow/identity/tenant.ex",
+      "lib/letflow/oidc/realm_probe.ex",
+      "lib/letflow/platform_tenant.ex"
+    ]
+
+    forbidden = [
+      ~r{/admin/realms},
+      ~r{/admin/users},
+      ~r{:httpc\.request\(:(post|put|patch|delete)},
+      ~r{Req\.(post|put|patch|delete)\(},
+      ~r{HTTPoison\.(post|put|patch|delete)\(}
+    ]
+
+    for path <- pr1_modules, pattern <- forbidden do
+      refute File.read!(path) =~ pattern, "#{path} matches #{inspect(pattern)}"
+    end
+
+    # The probe is the only outbound request of PR 1: one GET through :httpc.
+    probe_source = File.read!("lib/letflow/oidc/realm_probe.ex")
+    assert length(Regex.scan(~r{:httpc\.request\(}, probe_source)) == 1
+  end
+
   test "the onboarding runbook exists and references T-0150, T-0158 and bind-realm" do
     runbook = File.read!(@runbook)
 

@@ -244,9 +244,10 @@ defmodule Letflow.Routers.Onboarding do
 
       {:ok, %{"slug" => slug, "hostname" => hostname} = attrs} ->
         with {:ok, realm} <- validate_create_extras(body, attrs),
+             {:ok, extras} <- response_extras(body),
              {:ok, bind_opts} <- realm_bind_opts(conn, realm),
              :ok <- verify_realm(conn, realm) do
-          create_tenant(conn, attrs, body, slug, hostname, realm, bind_opts)
+          create_tenant(conn, attrs, extras, slug, hostname, realm, bind_opts)
         else
           {:errors, field_errors} ->
             Response.send_problem(conn, Validation.problem(field_errors))
@@ -356,11 +357,11 @@ defmodule Letflow.Routers.Onboarding do
   # with the tenant: it is bound only after provisioning and the onboarding record succeed
   # (provision_and_bind/7), so a later failure such as a taken hostname cannot leave an
   # active tenant that already owns the realm (ISS-1030 SECURITY-REVIEWER F1).
-  defp create_tenant(conn, attrs, body, slug, hostname, realm, bind_opts) do
+  defp create_tenant(conn, attrs, extras, slug, hostname, realm, bind_opts) do
     if realm_taken?(realm) do
       Response.conflict(conn, "realm already bound")
     else
-      insert_migrating_tenant(conn, attrs, body, slug, hostname, realm, bind_opts)
+      insert_migrating_tenant(conn, attrs, extras, slug, hostname, realm, bind_opts)
     end
   end
 
@@ -369,7 +370,7 @@ defmodule Letflow.Routers.Onboarding do
   defp realm_taken?(realm),
     do: match?({:ok, _tenant}, Identity.resolve_tenant_by_realm(realm))
 
-  defp insert_migrating_tenant(conn, attrs, body, slug, hostname, realm, bind_opts) do
+  defp insert_migrating_tenant(conn, attrs, extras, slug, hostname, realm, bind_opts) do
     create_attrs =
       attrs
       |> Map.take(["slug", "display_name"])
@@ -383,7 +384,7 @@ defmodule Letflow.Routers.Onboarding do
         Response.unprocessable(conn, "validation failed")
 
       {:ok, tenant} ->
-        provision_and_bind(conn, tenant, slug, hostname, body, realm, bind_opts)
+        provision_and_bind(conn, tenant, slug, hostname, extras, realm, bind_opts)
     end
   end
 
@@ -416,14 +417,14 @@ defmodule Letflow.Routers.Onboarding do
   # provisioning/replay failure -- see Letflow.TenantProvisioning's moduledoc
   # "No reconciliation path for a half-provisioned tenant" section. Adding a
   # rollback here would orphan a real Postgres schema; not attempted.
-  defp provision_and_bind(conn, tenant, slug, hostname, body, realm, bind_opts) do
+  defp provision_and_bind(conn, tenant, slug, hostname, extras, realm, bind_opts) do
     with {:ok, _registration} <- TenantOnboarding.provision_and_migrate(tenant.id),
          {:ok, record} <-
            Identity.create_onboarding(%{tenant_id: tenant.id, slug: slug, hostname: hostname}) do
       # The tenant and its onboarding record are committed from here on. A realm that cannot be
       # bound is reported in the 201 body, never as an error that implies nothing was created
       # (SECURITY-REVIEWER MAJOR-2). Nothing fallible runs after a bind commits.
-      created_with_realm(conn, tenant, record, body, realm, bind_opts)
+      created_with_realm(conn, tenant, record, extras, realm, bind_opts)
     else
       {:error, :duplicate_hostname} -> Response.conflict(conn, "hostname already bound")
       {:error, %Ecto.Changeset{}} -> Response.unprocessable(conn, "validation failed")
@@ -433,17 +434,17 @@ defmodule Letflow.Routers.Onboarding do
     end
   end
 
-  defp created_with_realm(conn, _tenant, record, body, nil, _bind_opts) do
-    Response.created(conn, created_body(record, %{idp_realm_id: nil}, body))
+  defp created_with_realm(conn, _tenant, record, extras, nil, _bind_opts) do
+    Response.created(conn, created_body(record, %{idp_realm_id: nil}, extras))
   end
 
-  defp created_with_realm(conn, tenant, record, body, realm, bind_opts) do
+  defp created_with_realm(conn, tenant, record, extras, realm, bind_opts) do
     case Identity.bind_tenant_realm(tenant.id, realm, bind_opts) do
       {:ok, bound} ->
-        Response.created(conn, created_body(record, %{idp_realm_id: bound.idp_realm_id}, body))
+        Response.created(conn, created_body(record, %{idp_realm_id: bound.idp_realm_id}, extras))
 
       {:error, reason} ->
-        created_body = created_body(record, %{idp_realm_id: nil}, body)
+        created_body = created_body(record, %{idp_realm_id: nil}, extras)
 
         Response.created(
           conn,
@@ -460,11 +461,37 @@ defmodule Letflow.Routers.Onboarding do
 
   defp realm_not_bound_reason(_other), do: "unavailable"
 
-  defp created_body(record, login_state, body) do
+  # The echoed fields are built and encoded BEFORE the first write. Plug checks multipart part
+  # bodies as UTF-8 but not part NAMES (deps/plug/lib/plug/parsers/multipart.ex), so a key can carry
+  # bytes that Jason refuses. That is a 422 with nothing written, never an exception after the
+  # tenant and record have committed (SECURITY-REVIEWER BLOCKER-1 on the create route).
+  defp response_extras(body) do
+    extras = %{
+      "administrator" => administrator_map(body),
+      "ignored_fields" => ignored_fields(body)
+    }
+
+    case Jason.encode(extras) do
+      {:ok, _json} -> {:ok, extras}
+      {:error, _reason} -> {:errors, [unencodable_field_error()]}
+    end
+  rescue
+    _exception -> {:errors, [unencodable_field_error()]}
+  end
+
+  defp unencodable_field_error do
+    %FieldError{
+      field: "(root)",
+      constraint: "encoding",
+      message: "field names must be valid UTF-8"
+    }
+  end
+
+  # Only fixed-shape values are computed here; `extras` was encoded before the write.
+  defp created_body(record, login_state, extras) do
     record
     |> onboarding_map(login_state)
-    |> Map.put("administrator", administrator_map(body))
-    |> Map.put("ignored_fields", ignored_fields(body))
+    |> Map.merge(extras)
   end
 
   # ── Administrator echo and ignored fields (design §3.4) ──────────────────
