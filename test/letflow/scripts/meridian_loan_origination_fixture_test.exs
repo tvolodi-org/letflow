@@ -30,8 +30,8 @@ defmodule Letflow.Scripts.MeridianLoanOriginationFixtureTest do
     graph
   end
 
-  test "fixture version is 1.13 (REQ-462 required_outputs; 1.12 was ISS-1013: D-ESC timers; 1.9 was ISS-1015: timeouts route to escalation reviews, human tasks carry forms; 1.8 was ISS-1024: committee votes route to three distinct roles; 1.7 was ISS-1020, the KYC fail-closed gate; 1.6 was ISS-1001, 1.5 ISS-0998)" do
-    assert doc()["version"] == "1.13"
+  test "fixture version is 1.14 (REQ-465 distinct_from; 1.13 was REQ-462 required_outputs; 1.12 was ISS-1013: D-ESC timers; 1.9 was ISS-1015: timeouts route to escalation reviews, human tasks carry forms; 1.8 was ISS-1024: committee votes route to three distinct roles; 1.7 was ISS-1020, the KYC fail-closed gate; 1.6 was ISS-1001, 1.5 ISS-0998)" do
+    assert doc()["version"] == "1.14"
   end
 
   # --- ISS-1001 / Q-983: l2-approval fails toward scrutiny, never to create-facility ---

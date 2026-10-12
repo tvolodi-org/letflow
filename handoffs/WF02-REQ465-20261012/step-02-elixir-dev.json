@@ -1,0 +1,132 @@
+{
+  "handoff_id": "6da2ea7b-24b5-4803-a182-adb0e3c8e0c1",
+  "run_id": "WF02-REQ465-20261012",
+  "workflow_id": "WF-02",
+  "step": "02",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF02-REQ465-20261012/step-02-elixir-dev.json",
+  "created_at": "2026-10-12T05:16:31Z",
+  "started_at": "2026-10-12T05:16:31Z",
+  "completed_at": "2026-10-12T05:30:10Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": ["REQ-465"],
+    "queue_task": 1028,
+    "gh_issue": 2343,
+    "branch_name": "feat/REQ-465-adopt-distinct-from-meridian-Q-1028",
+    "base": "origin/main 9aedbdd8 (REQ-464 validator and REQ-463 engine rule on main)",
+    "requirement_acceptance_criteria": [
+      "the run report lists every node that received distinct_from with the listed node ids and a one-line business reason; every listed id exists in the definition (the REQ-464 validator reports status OK, no violation, for both changed definitions)",
+      "meridian loan: one user holding both role-credit-approver-l1 and role-credit-director is refused at l2-approval after completing l1-approval (403, body exactly {\"detail\":\"separation of duties\",\"status\":403}), and a second user is accepted; the same user holding role-ceo is refused at escalate-l2-approval-to-ceo after completing l1-approval; a user who completed l2-approval is refused at disburse-loan (three tests, real Postgres)",
+      "regulatory chain: the user who completed evidence-collection is refused at findings-sign-off, tested; a different user completes it",
+      "committee votes: committee-vote-cro names [committee-vote-director, committee-vote-ceo], committee-vote-director names [committee-vote-cro, committee-vote-ceo], committee-vote-ceo names [committee-vote-cro, committee-vote-director] (grep quoted); a test with one user holding role-cro and role-credit-director refuses the second vote and accepts three distinct users",
+      "no node outside the approval, release or payment set is changed and no definition other than the two named is changed (git diff --stat quoted)",
+      "every UAT scenario file under test/fixtures/uat/scenarios/meridian and simulation scenario that would now be refused is listed in the run report with actor and step; none is edited",
+      "SECURITY-REVIEWER verdict recorded (mandatory: adoption changes who may act in gated money and compliance processes)",
+      "mix compile --warnings-as-errors, mix format --check-formatted, scoped mix test over the meridian definition fixture tests and the engine tests naming the changed definitions, and mix letflow.check_boundaries pass, real output quoted"
+    ],
+    "owned_modules": [
+      "test/fixtures/qa/meridian_loan_origination_process_definition.json",
+      "test/fixtures/qa/meridian_regulatory_compliance_review_process_definition.json",
+      "scripts/seed_meridian_definition.sh",
+      "test/letflow/engine/req465_meridian_loan_distinct_from_test.exs",
+      "test/letflow/engine/req465_meridian_regulatory_distinct_from_test.exs",
+      "test/letflow/scripts/req465_meridian_distinct_from_fixture_test.exs"
+    ],
+    "artifacts_in": [
+      "docs/agents/instructions/core-directives.md",
+      "lib/letflow/definitions/graph.ex",
+      "lib/letflow/definitions/role_binding.ex",
+      "lib/letflow/engine/separation_of_duties.ex",
+      "test/support/sod_support.ex",
+      "test/support/req462_adoption.ex",
+      "test/letflow/routers/tasks_distinct_from_test.exs"
+    ]
+  },
+  "task": {
+    "description": "Adopt distinct_from (REQ-459 rule A, enforced by REQ-463) on the approve, pay and commit HUMAN_TASK nodes of the two shipped Meridian QA definitions (loan 1.13 to 1.14, regulatory 1.9 to 1.10), keep the seed script and tests in agreement, and write tests on real Postgres for the loan and regulatory refusals and the committee votes. Full acceptance criteria are in context.requirement_acceptance_criteria.",
+    "acceptance_criteria": [
+      "node table, committee grep, git diff --stat and refused-scenario list in result",
+      "loan l2-approval, escalate-l2-approval-to-ceo and disburse-loan refusals tested (HTTP 403, fixed body)",
+      "regulatory findings-sign-off refusal tested",
+      "committee votes name each other and the three-vote test passes",
+      "compile, format, scoped mix test, check_boundaries and REQ-464 validator status run and quoted"
+    ]
+  },
+  "result": {
+    "verdict": "PARTIAL",
+    "summary": "distinct_from adopted on 7 loan nodes and 2 regulatory nodes; both definitions bumped (loan 1.13 to 1.14, regulatory 1.9 to 1.10). Two candidate entries (escalate-disburse-loan-to-credit-director naming l2-approval and committee-vote-director) were dropped because both share role-credit-director and the shipped-definition guard requires zero same-role pairs; see issues. 13 new tests plus the updated version pins pass against real Postgres (scoped run: 369 passed, 0 failures). SECURITY-REVIEWER and REVIEWER gates have not run; this step is not PASS.",
+    "issues": [
+      {
+        "severity": "MAJOR",
+        "description": "Candidate pairs dropped: escalate-disburse-loan-to-credit-director (role-credit-director) would name l2-approval and committee-vote-director (both role-credit-director). Those are same-role pairs, which REQ-464's shipped-definition guard (required_outputs_shipped_definitions_test, asserts zero candidate_pairs) forbids. The REQ-464 design (role_binding.ex single_member_pairs/1 and check 4) warns only when the shared role has one member, and the test asserts zero pure pairs regardless of member count. Every meridian routing role has exactly one holder in test/fixtures/uat/actors.yaml, so the design warning would fire. The guard was not edited. Residual gap: the l2 approver (julia, sole role-credit-director holder) can release via escalate-disburse-loan-to-credit-director if disburse-loan times out. BA/ORCH decision needed: either relax the guard to REQ-464's membership-aware semantics and re-add the two pairs (path is then uncompletable for julia after l2, ending in disbursement-held-notice), or accept the gap.",
+        "affected_requirement": "REQ-465"
+      },
+      {
+        "severity": "MINOR",
+        "description": "The REQ-464 validator's HTTP route (POST /definitions/:id/validate) reports the literal status valid, not OK. Both changed definitions return valid true and violations empty from Letflow.Definitions.validate_definition_graph/2 in the new engine tests.",
+        "affected_requirement": "REQ-465"
+      },
+      {
+        "severity": "MINOR",
+        "description": "Simulation process copies test/fixtures/simulation/meridian/process_claim_intake.yaml and process_policy_binding.yaml were NOT changed (the acceptance criteria forbid changing any definition other than the two named). They no longer match the QA fixtures for distinct_from. The simulation scenarios run on a test-local graph (test/letflow/simulation/req208_meridian_test.exs), so no simulation scenario is refused by this change. Drift to fix in a follow-up.",
+        "affected_requirement": "REQ-465"
+      },
+      {
+        "severity": "MINOR",
+        "description": "SECURITY-REVIEWER verdict not recorded. It is a mandatory gate for this change (adoption changes who may act in gated money and compliance processes) and has not been run by this step. Routed next.",
+        "affected_requirement": "REQ-465"
+      },
+      {
+        "severity": "MINOR",
+        "description": "Version pins in existing tests updated from 1.13 and 1.9 to 1.14 and 1.10: req462_shipped_required_outputs_adoption_test.exs, meridian_loan_kyc_fail_closed_fixture_test.exs, meridian_loan_origination_fixture_test.exs, meridian_timeout_review_and_forms_fixture_test.exs, meridian_regulatory_remediation_fixture_test.exs, regulatory_review_timer_path_fixture_test.exs. Also the seed script header comment in scripts/seed_meridian_definition.sh. The kyc fail-closed test name already said 1.12 while asserting 1.13 (pre-existing mislabel), and it now says 1.14.",
+        "affected_requirement": "REQ-465"
+      }
+    ],
+    "artifacts_out": [
+      "test/fixtures/qa/meridian_loan_origination_process_definition.json",
+      "test/fixtures/qa/meridian_regulatory_compliance_review_process_definition.json",
+      "scripts/seed_meridian_definition.sh",
+      "test/letflow/engine/req465_meridian_loan_distinct_from_test.exs",
+      "test/letflow/engine/req465_meridian_regulatory_distinct_from_test.exs",
+      "test/letflow/scripts/req465_meridian_distinct_from_fixture_test.exs"
+    ],
+    "files_changed": "12 files: 2 fixtures, 1 seed script, 6 existing test version pins, 3 new test files (see git_diff_stat)",
+    "node_table": [
+      {"node_id": "l2-approval", "distinct_from": ["l1-approval"], "business_reason": "the level-2 credit director may not be the level-1 approver of the same application"},
+      {"node_id": "escalate-l2-approval-to-ceo", "distinct_from": ["l1-approval"], "business_reason": "the CEO escalation of level 2 may not be decided by the person who gave the level-1 approval"},
+      {"node_id": "committee-vote-cro", "distinct_from": ["committee-vote-director", "committee-vote-ceo"], "business_reason": "one committee member cannot cast two of the three votes"},
+      {"node_id": "committee-vote-director", "distinct_from": ["committee-vote-cro", "committee-vote-ceo"], "business_reason": "one committee member cannot cast two of the three votes"},
+      {"node_id": "committee-vote-ceo", "distinct_from": ["committee-vote-cro", "committee-vote-director"], "business_reason": "one committee member cannot cast two of the three votes"},
+      {"node_id": "disburse-loan", "distinct_from": ["l1-approval", "l2-approval", "escalate-l2-approval-to-ceo", "committee-vote-cro", "committee-vote-director", "committee-vote-ceo"], "business_reason": "the person who pays the loan did not approve it"},
+      {"node_id": "escalate-disburse-loan-to-credit-director", "distinct_from": ["l1-approval", "escalate-l2-approval-to-ceo", "committee-vote-cro", "committee-vote-ceo"], "business_reason": "the escalated payment is released by someone who did not approve it; l2-approval and committee-vote-director are NOT listed (dropped, same role-credit-director; see issues)"},
+      {"node_id": "findings-sign-off", "distinct_from": ["evidence-collection", "risk-evaluation", "remediation-subprocess"], "business_reason": "the CRO sign-off is given by someone who did not collect the evidence, rate the risk or remediate the findings"},
+      {"node_id": "ceo-override", "distinct_from": ["evidence-collection", "risk-evaluation", "remediation-subprocess", "findings-sign-off"], "business_reason": "the CEO override is decided by someone who did not do the earlier steps (the findings-sign-off entry is inert on the current graph: it is reached only via its timeout edge, so it cannot complete before ceo-override; kept because the graph gives a path)"}
+    ],
+    "committee_vote_grep": "grep -n distinct_from over the loan fixture, committee-vote nodes: committee-vote-cro -> [\"committee-vote-director\", \"committee-vote-ceo\"]; committee-vote-director -> [\"committee-vote-cro\", \"committee-vote-ceo\"]; committee-vote-ceo -> [\"committee-vote-cro\", \"committee-vote-director\"] (fixture lines 269, 296, 323)",
+    "git_diff_stat": " scripts/seed_meridian_definition.sh | 4 +-; meridian_loan_origination_process_definition.json | 11 +-; meridian_regulatory_compliance_review_process_definition.json | 6 +-; req462_shipped_required_outputs_adoption_test.exs | 4 +-; req465_meridian_loan_distinct_from_test.exs | 233 +++ (new); req465_meridian_regulatory_distinct_from_test.exs | 136 +++ (new); meridian_loan_kyc_fail_closed_fixture_test.exs | 4 +-; meridian_loan_origination_fixture_test.exs | 4 +-; meridian_regulatory_remediation_fixture_test.exs | 2 +-; meridian_timeout_review_and_forms_fixture_test.exs | 10 +-; regulatory_review_timer_path_fixture_test.exs | 2 +-; req465_meridian_distinct_from_fixture_test.exs | 122 +++ (new). 12 files changed, 519 insertions(+), 19 deletions(-). No swiftroute or vortex file touched; no simulation file touched; docs/requirements.yaml not touched.",
+    "refused_scenarios": [],
+    "scenario_analysis": "Checked every step of the 8 files in test/fixtures/uat/scenarios/meridian and the 3 files in test/fixtures/simulation/meridian/scenarios against the REQ-463 rule (the same user completing a later node after a named node of the same instance). No expected-success step is refused. Steps marked expect_refusal that are refused by role (for example claudia or ben attempting cro or ceo tasks) stay refused, and the SoD rule cannot change them. Simulation scenarios run against a test-local graph (test/letflow/simulation/req208_meridian_test.exs), not the QA fixture, so none is affected.",
+    "verification": {
+      "mix format --check-formatted": "exit 0",
+      "MIX_ENV=test mix compile --warnings-as-errors": "exit 0 (no warnings)",
+      "MIX_ENV=test mix test (19 files: meridian fixture tests, req465 fixture, shipped-definition guards, meridian and shipped engine tests, persona/seed drift)": "Result: 369 passed, exit 0. Includes the 13 new REQ-465 tests and the REQ-461 and REQ-464 shipped-definition guards.",
+      "shipped-definition guard output (REQ-464)": "REQ-464 shipped-definition findings: test/fixtures/qa/meridian_loan_origination_process_definition.json violations=0 candidate_pairs=0 nodes_using_distinct_from=7; test/fixtures/qa/meridian_regulatory_compliance_review_process_definition.json violations=0 candidate_pairs=0 nodes_using_distinct_from=2",
+      "MIX_ENV=test mix letflow.check_boundaries": "letflow.check_boundaries: OK -- 1124 edges checked, 0 violations",
+      "REQ-464 validator (status)": "Definitions.validate_definition_graph/2 on the activated loan and regulatory definitions: {:ok, %{valid: true, violations: []}} with no distinct_from_single_member_role warning (asserted in both engine files)",
+      "mix letflow.lint_handoffs --dir": "run after this file is written (see the step log)"
+    },
+    "not_run": [
+      "SECURITY-REVIEWER (mandatory gate; not run by ELIXIR-DEV)",
+      "REVIEWER (hard gate; not run by ELIXIR-DEV)",
+      "Commit SHA: recorded by ORCH after the commit; this file is in the same commit"
+    ],
+    "mutex": "C:\\Users\\tvolo\\AppData\\Local\\Temp\\claude\\mixlock was held by another session when this run started (created 05:12:55Z). Waited with bounded polls until 05:25:45Z, then held it for every BEAM command and released it with rmdir afterwards.",
+    "interpretation": "The requirement's 'three tests' for disburse-loan was read as three refusal tests (l2-approval, escalate-l2-approval-to-ceo, disburse-loan), each with its own real-Postgres case, plus the committee and regulatory tests.",
+    "design_vs_requirement_differences": [],
+    "next_action": "SECURITY-REVIEWER (tenant-money and compliance path, mandatory) then REVIEWER; BA/ORCH decision on the two dropped escalate-disburse pairs (issue 1) before TEST-DESIGNER if the BA wants them in."
+  }
+}

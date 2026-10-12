@@ -37,7 +37,7 @@ defmodule Letflow.Definitions.Req462ShippedRequiredOutputsAdoptionTest do
     },
     meridian: {
       "meridian_loan_origination_process_definition.json",
-      "1.13",
+      "1.14",
       %{
         "l1-approval" => ["l1_decision"],
         "l2-approval" => ["l2_decision"],
@@ -313,7 +313,7 @@ defmodule Letflow.Definitions.Req462ShippedRequiredOutputsAdoptionTest do
   # --- (4) versions ----------------------------------------------------------------------------------
 
   describe "versions" do
-    test "swiftroute 1.6, meridian 1.13, vortex release 1.6, vortex deviation 1.7" do
+    test "swiftroute 1.6, meridian 1.14, vortex release 1.6, vortex deviation 1.7" do
       for {name, {_file, version, _adopted}} <- @definitions do
         assert doc!(name)["version"] == version, "#{name} version"
       end
