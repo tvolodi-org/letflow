@@ -1024,3 +1024,4 @@ echo "combined: $total_tests tests, $total_properties properties, $total_failure
 # exit codes -- see design doc section 4.6.
 
 exit "$any_failed"
+# ISS-1038 throwaway proof: no behaviour change
