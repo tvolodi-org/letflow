@@ -707,6 +707,33 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     assert platform_entry.trace_id == "t-router-7"
   end
 
+  # SECURITY-REVIEWER R1: a hostname taken after the pre-check but before the onboarding insert answers 409,
+  # and its detail says the tenant exists (it is committed and active). It must not read as "nothing created".
+  test "POST /onboarding whose hostname is taken in the race window answers 409 and says the tenant was created",
+       ctx do
+    owner = onboard!(ctx, %{})
+    slug = TenantSlugFixture.unique_slug("iss1030")
+    rival_slug = TenantSlugFixture.unique_slug("iss1030")
+    hostname = "iss1030-race-#{Ecto.UUID.generate()}.example.com"
+
+    conn =
+      with_hostname_taken_after_tenant_insert(owner["tenant_id"], rival_slug, hostname, fn ->
+        call(
+          ctx,
+          :post,
+          "/api/v1/onboarding",
+          new_body(%{"slug" => slug, "hostname" => hostname})
+        )
+      end)
+
+    tenant = Repo.get_by(Tenant, slug: slug)
+    if tenant, do: cleanup_onboarded_tenant!(tenant.id)
+
+    assert conn.status == 409, conn.resp_body
+    assert json(conn)["detail"] =~ "the tenant for this slug was created and is active"
+    assert %Tenant{status: :active} = tenant
+  end
+
   test "POST /onboarding answers 503 with a retry-after header of 5 and creates no tenant row when the realm probe is unreachable",
        ctx do
     conn = refused!(ctx, %{"idp_realm_id" => "unreachable-" <> Ecto.UUID.generate()}, 503)
@@ -1163,6 +1190,48 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     if self() == test_pid and String.starts_with?(query, ~s(INSERT INTO "onboarding_registry")) and
          match?({:ok, _}, Map.get(metadata, :result)) do
       Repo.update_all(from(t in Tenant, where: t.id == ^tenant_id), set: [idp_realm_id: value])
+    end
+  end
+
+  # Takes the hostname right after the create's tenant insert, so the create's own onboarding insert loses the
+  # race (after the pre-check, before the onboarding record). Calling process only. Runs once per test.
+  defp with_hostname_taken_after_tenant_insert(owner_tenant_id, slug, hostname, fun) do
+    handler_id = {__MODULE__, make_ref()}
+
+    :telemetry.attach(
+      handler_id,
+      [:letflow, :repo, :query],
+      &__MODULE__.take_hostname_on_tenant_insert/4,
+      {self(), owner_tenant_id, slug, hostname}
+    )
+
+    try do
+      fun.()
+    after
+      :telemetry.detach(handler_id)
+    end
+  end
+
+  @doc false
+  def take_hostname_on_tenant_insert(
+        _event,
+        _measurements,
+        metadata,
+        {test_pid, owner_tenant_id, slug, hostname}
+      ) do
+    query = to_string(Map.get(metadata, :query) || "")
+
+    if self() == test_pid and String.starts_with?(query, ~s(INSERT INTO "tenants")) and
+         match?({:ok, _}, Map.get(metadata, :result)) do
+      Repo.insert_all(OnboardingRecord, [
+        %{
+          id: Ecto.UUID.generate(),
+          tenant_id: owner_tenant_id,
+          slug: slug,
+          hostname: hostname,
+          inserted_at: NaiveDateTime.truncate(NaiveDateTime.utc_now(), :second)
+        }
+      ])
     end
   end
 

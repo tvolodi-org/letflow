@@ -460,11 +460,28 @@ defmodule Letflow.Routers.Onboarding do
       # (SECURITY-REVIEWER MAJOR-2). Nothing fallible runs after a bind commits.
       created_with_realm(conn, tenant, record, extras, realm, bind_opts)
     else
-      {:error, :duplicate_hostname} -> Response.conflict(conn, "hostname already bound")
-      {:error, %Ecto.Changeset{}} -> Response.unprocessable(conn, "validation failed")
-      {:error, {:provisioning_failed, _reason}} -> Response.internal_error(conn)
-      {:error, {:migration_failed, _exception}} -> Response.internal_error(conn)
-      _provisioning_or_replay_error -> Response.internal_error(conn)
+      # Reached only after the tenant is committed (a hostname taken in the race window after the
+      # pre-check). The detail says so: this is not "nothing was created" (SECURITY-REVIEWER R1).
+      {:error, :duplicate_hostname} ->
+        Response.conflict(
+          conn,
+          "hostname taken during the request; the tenant for this slug was created and is active; retry with the same slug or escalate to the platform owner"
+        )
+
+      {:error, %Ecto.Changeset{}} ->
+        Response.unprocessable(
+          conn,
+          "onboarding record rejected after the tenant was created; escalate to the platform owner"
+        )
+
+      {:error, {:provisioning_failed, _reason}} ->
+        Response.internal_error(conn)
+
+      {:error, {:migration_failed, _exception}} ->
+        Response.internal_error(conn)
+
+      _provisioning_or_replay_error ->
+        Response.internal_error(conn)
     end
   end
 

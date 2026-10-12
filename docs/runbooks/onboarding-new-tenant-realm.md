@@ -67,14 +67,20 @@ If the onboarding call carried an `idp_realm_id` and provisioning failed, the re
 the realm is bound only after provisioning and the onboarding record succeed. The realm therefore
 stays free, and after recovery you bind it with step R3.
 
-If the create call answers 409 `hostname already bound`, no tenant was created (the hostname is checked
-before any write): retry with a free hostname. Only a hostname taken in the instant between that check
-and the insert (a race) can leave an active tenant with no onboarding record and no realm; that state
-goes to the platform owner, and nobody binds the realm by hand.
+If the create call answers 409 `hostname already bound`, no tenant was created: the hostname is checked
+before any write. Retry with a free hostname.
+
+A 409 whose detail reads "hostname taken during the request; the tenant for this slug was created and is
+active" means the tenant **does** exist: a hostname was taken in the instant between that check and the
+insert. Retry with the **same** slug (a 409 "slug already exists" confirms the tenant), or escalate to the
+platform owner. Do not retry with a new slug, which creates a second tenant. Nobody binds a realm by hand.
+
 If the create call answers **201** with `realm_request.status = "not_bound"` (the realm was claimed by
 another tenant in a race, `reason = "taken"`, or the bind hit an audit fault, `reason =
-"unavailable"`), the tenant is active, the onboarding record exists (the body's `id`), and the realm
-is **free**. The response says so: `login.loginable` is `false`. Retry the bind with
+"unavailable"`), the tenant is active and the onboarding record exists (the body's `id`). The response
+says `login.loginable` is `false`. For `reason = "unavailable"` the realm may in fact be bound (an audit
+fault can fail after the commit): retry the bind with the same realm id first. A 200 means it is bound;
+a 409 means another tenant or a different realm holds it. Then retry the bind with
 `POST /api/v1/onboarding/{id}/bind-realm` using the body's `id`. If `taken`, choose another realm
 first. If the bind fails again, escalate to the platform owner; do not bind by hand.
 

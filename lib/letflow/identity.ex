@@ -1743,6 +1743,7 @@ defmodule Letflow.Identity do
         ) ::
           {:ok, OnboardingRecord.t()}
           | {:error, :duplicate_hostname}
+          | {:error, :database_error}
           | {:error, Ecto.Changeset.t()}
   def create_onboarding(attrs) do
     changeset = OnboardingRecord.insert_changeset(%OnboardingRecord{}, attrs)
@@ -1760,9 +1761,15 @@ defmodule Letflow.Identity do
     end
   rescue
     # A database fault outside the changeset (for example a value longer than its column) is a typed
-    # result for the caller, not an exception (SECURITY-REVIEWER INV-8).
-    _error in Postgrex.Error -> {:error, :database_error}
+    # result for the caller, not an exception (SECURITY-REVIEWER INV-8). The SQLSTATE is logged; the
+    # message is not, because it can carry the value.
+    error in Postgrex.Error ->
+      Logger.error("onboarding record insert failed (sqlstate=#{inspect(sqlstate(error))})")
+      {:error, :database_error}
   end
+
+  defp sqlstate(%Postgrex.Error{postgres: %{code: code}}), do: code
+  defp sqlstate(_error), do: nil
 
   @doc "Fetches a single onboarding record by id. Design §8.2."
   @spec get_onboarding(id :: Ecto.UUID.t() | String.t()) ::
@@ -1855,8 +1862,12 @@ defmodule Letflow.Identity do
     end
   rescue
     # Fixed message, tenant id only: never the exception (INV-4).
-    _exception ->
-      Logger.error("tenant realm bind failed (tenant_id=#{inspect(tenant_id)})")
+    exception ->
+      # The exception class only: the message can carry the realm (INV-4).
+      Logger.error(
+        "tenant realm bind failed (tenant_id=#{inspect(tenant_id)}, exception=#{inspect(exception.__struct__)})"
+      )
+
       committed_realm_or_audit_failed(tenant_id, realm)
   end
 
@@ -1868,7 +1879,12 @@ defmodule Letflow.Identity do
       _other -> {:error, :audit_failed}
     end
   rescue
-    _exception -> {:error, :audit_failed}
+    exception ->
+      Logger.error(
+        "tenant realm re-read failed (tenant_id=#{inspect(tenant_id)}, exception=#{inspect(exception.__struct__)})"
+      )
+
+      {:error, :audit_failed}
   end
 
   defp lock_and_bind_realm(repo, tenant_id, realm) do
