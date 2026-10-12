@@ -43,6 +43,26 @@ defmodule Letflow.Api.IdentityIdHardeningTest do
 
   @conflict_detail "group is bound to a role"
 
+  # --- ISS-1042 pooled tenant (design iss1042-pooled-tenant-fixture.md 6.2 adopter audit) ---------
+  # Spawned/un-awaited processes (item 1): none -- no Task, spawn, start_supervised or GenServer
+  #   in this module or in PlatformTenantFixture's two_tenants!/three_tenants!/pin!/router_conn.
+  # lib/ fire-and-forget workers (item 2): none reachable -- only Letflow.Routers.Identity and
+  #   Letflow.Identity.* are called; Alerts, LoginDiscovery.Dispatch and retention are not.
+  # In-memory tenant-keyed state (item 3): ETS / telemetry / Admission: none touched (no api_conn,
+  #   no mint_token!, no bearer token); Application env: the platform pin, restored by the
+  #   fixture's own per-test on_exit.
+  # T-12b commits a CREATE TABLE into slot P; the pool sees the definition drift and rebuilds it.
+  setup_all context do
+    Letflow.TenantFixture.start_pool!(context,
+      slots: [[slug_prefix: "scope-a"], [slug_prefix: "scope-b"], [slug_prefix: "scope-p"]]
+    )
+  end
+
+  # MUST stay the module's first setup (before anything that provisions a tenant).
+  setup context do
+    Letflow.TenantFixture.attach_pool!(context)
+  end
+
   # --- helpers (copied from platform_escalation_guard_test.exs, test/support is not extended) -------
 
   setup do

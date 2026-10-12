@@ -148,6 +148,26 @@ defmodule Letflow.Routers.PromotionScopeTest do
 
   defp touching(queries, fixture), do: Enum.filter(queries, &Fixture.touches_tenant?(&1, fixture))
 
+  # --- ISS-1042 pooled tenant (design iss1042-pooled-tenant-fixture.md 6.2 adopter audit) ---------
+  # Spawned/un-awaited processes (item 1): none -- no Task, spawn, start_supervised or GenServer
+  #   in this module or in PlatformTenantFixture (capture_repo_queries/1 only attaches a
+  #   telemetry handler for the duration of its fun and detaches it).
+  # lib/ fire-and-forget workers (item 2): none reachable -- only Letflow.Routers.Promotions,
+  #   Definitions and Tenants (promote) and the Definitions/EventStore contexts are called.
+  # In-memory tenant-keyed state (item 3): no ETS / Admission / rate-limit bucket touched (no
+  #   api_conn, no bearer token); no capture_log / deny-log assertion; the platform pin is
+  #   Application env restored by the fixture's per-test on_exit.
+  setup_all context do
+    Letflow.TenantFixture.start_pool!(context,
+      slots: [[slug_prefix: "scope-a"], [slug_prefix: "scope-b"], [slug_prefix: "scope-p"]]
+    )
+  end
+
+  # MUST stay the module's first setup (before anything that provisions a tenant).
+  setup context do
+    Letflow.TenantFixture.attach_pool!(context)
+  end
+
   setup do
     tenants = Fixture.three_tenants!()
     Fixture.pin!(tenants.p.tenant_id)
