@@ -8,8 +8,8 @@
   "file": "handoffs/WF03-ISS1042-20261012/step-02-code-designer.json",
   "created_at": "2026-10-12T03:44:20Z",
   "started_at": "2026-10-12T03:50:50Z",
-  "completed_at": null,
-  "status": "PENDING",
+  "completed_at": "2026-10-12T04:04:49Z",
+  "status": "COMPLETED",
   "priority": "NORMAL",
   "context": {
     "stage": "S1",
@@ -54,34 +54,32 @@
     ]
   },
   "result": {
-    "status": "PASS",
-    "summary": "Design for ISS-1042 lever (c) refined: opt-in, module-scoped tenant pool with dirty-table-only reset, in lib/letflow/design/iss1042-pooled-tenant-fixture.md. Specifies (1) API: TenantFixture.start_pool!/2 (setup_all, declared slot_specs, reset_hooks), attach_pool!/1 (setup), pool_dirty_report/1, recycle_pool!/0, pool_stats/1, new opt pool: false; TenantTemplate.capture_clone_baseline!/probe_clone_state/reset_clone_schema!/rebuild_clone_schema!; slots created only in setup_all by a linked no-$callers worker so resets commit regardless of the test's sandbox ownership; teardown on_exit reuses the per-test teardown statements. (2) Algorithm: probe every table with EXISTS in one statement (3.6 ms measured; xmin/pg_stat/reltuples rejected), structure fingerprint vs baseline, TRUNCATE of dirty tables plus explicit FK-referencing closure with RESTART IDENTITY and no CASCADE, ALTER SEQUENCE RESTART for sequence-only dirt, seed tables restored from the template not emptied, triggers untouched (TRUNCATE does not fire the BEFORE UPDATE/DELETE immutability triggers), second verify pass. (3) Public state: catalog-discovered tables keyed to the tenant (FK to tenants or *_tenant_id uuid columns) deleted children-first, tenants and tenant_schemas rows compare-and-restore against snapshots; unkeyed public rows explicitly out of scope; VM-global ETS state audit rule and audit result for the three adopters. (4) Fresh-clone classes: no pool attached (default, single dispatch point after Sandbox.mode(:auto), existing body unedited), template: :replay, teardown: false, pool: false, DDL/drop/migration tests. (5) Async: start_pool!/attach_pool! raise unless async is explicitly false; one pool per module. (6) Isolation proof: mutation classes M1-M12 (rows+FK chain, advanced sequence with row gone, seed UPDATE/DELETE/INSERT, schema_migrations, public keyed rows, tenants row, registration row, committed structure drift, lock-timeout fail-safe, late writer, cross-slot bleed, default path), cross-test order-independent shape plus recycle_pool! boundary proof with a teeth check; fail-safe INV-P1: returns only after verify proves clean, else rebuild or raise. (7) Measurement: 5+5 interleaved runs of MIX_TEST_PARTITION=1 mix test --partitions 12 (no --slowest) base b9d5fa015 vs implementation, CI run ids via gh, marker-line instrumentation, pass criteria; rollout limited to IdentityIdHardeningTest (3 slots), PromotionScopeTest (3), StoreTest (2); out-of-scope list. (8) owned_modules and must-stay-green list. No implementation code in the design. Seven open questions listed, none silently resolved (OQ-1/OQ-2: Postgres was not reachable in this step so whether test-process writes commit under DataCase checkout + Sandbox :auto is unverified; the design is correct under both answers and the implementer must record the probe result).",
+    "status": "COMPLETED",
+    "summary": "Rework 1 of lib/letflow/design/iss1042-pooled-tenant-fixture.md, revised in place. F1 (BLOCKER): structure fingerprint is now a definitional digest D (4.2: pg_get_triggerdef incl. tgenabled, pg_get_constraintdef, pg_get_indexdef, per-column type/default/nullability/identity/collation, trigger function defs, sequence params, policies, rules, types, ext stats, inheritance, comments, owner/ACL), run on every detect and verify pass; drift is never repaired in place, always rebuild (INV-P10). Cost MEASURED against letflow_test tenant_template: 12.4-17.2 ms warm, 995 rows (1.1), so no cheap/full split; new mutations M8a/b, M15-M21 (DISABLE TRIGGER, column/index/constraint/sequence/comment/function alteration with unchanged counts, with a teeth check). F2 (BLOCKER): INV-P1 restated precisely (9.4, 13) with named residual risk RR-1; adopter audit rule 6.2 with per-module RESULT (all three straggler-free, grep-verified incl. obs/alerts.ex:484 and login_discovery/dispatch.ex:56 reachability, StoreTest Tasks all awaited); mitigations fence A (4.3.1), final guard with one re-reset then raise (4.3.7), end-of-test fence failing the owning test (3.6); mutations M13a/b/c (post-verify, persistent, post-guard containment) and M14 (straggler at end). A module that cannot be audited is dropped from the PR (11.3, INV-P11). F3: single seed mechanism = re-copy from live tenant_template; baseline holds only count+md5; ISS-0842 assumption stated, violation self-heals via verify-fail rebuild (4.4); OQ-6 withdrawn. F4: rebuild is run by the pool worker: rebuild_clone_schema!, assert_schema_complete!, recapture baseline, re-snapshot registration and tenant rows, generation+1, then normal proof (4.6, 3.2). F5: one rule, every acquire runs fence+detect+[reset+verify]+final guard including the first; status is informational (4.0, INV-P12). F6: teardown first calls Sandbox.mode(:auto) with the global check-in side effect noted (3.4); worker-routed APIs do the same (2.1). M-a: OQ-1 resolved as answer B with sandbox.ex evidence, 'correct under both' claim withdrawn (1.3). M-b: counts corrected (52 files reference PlatformTenantFixture, 27 call three_tenants!; 29 template: :replay occurrences in 14 files; 455 test files) (1.2, 7). M-c: 49 expected tables + schema_migrations = 50 statements; secrets and event_history_retirement_outcomes added to 5.1. M-d: section 12.1 matches; flagged for ORCH that the dispatched owned_modules path test/letflow/store_test.exs does not exist, real path test/letflow/definitions/store_test.exs. M-e: attach_pool! must be first setup, misordering and double attach raise (3.1, M22); M2 uses events_global_seq_seq via nextval; pool_dirty_report/1 etc execute in the pool worker (2.1). Design only, no implementation code.",
     "artifacts_out": [
       "lib/letflow/design/iss1042-pooled-tenant-fixture.md"
     ],
     "issues": [
       {
         "severity": "MINOR",
-        "description": "Postgres (localhost:5462) was not running in this environment, so premises OQ-1/OQ-2 (sandbox-transaction behaviour of the test process after Sandbox.mode(:auto), and that a no-$callers worker gets a committed connection) could not be probed; the design is written correct under both outcomes and requires the implementer to record the answer. A scratch probe test file was created and deleted; the tree has no residue.",
+        "description": "Dispatched context.owned_modules lists test/letflow/store_test.exs which does not exist; real file is test/letflow/definitions/store_test.exs. Design 12.1 uses the real path; ORCH should correct the ELIXIR-DEV dispatch.",
         "affected_requirement": null
       },
       {
         "severity": "MINOR",
-        "description": "Queue text says ISS-0410 is blocked; docs/issues records it as no_defect (already noted in ISS-1042.yaml). Not acted on.",
+        "description": "Digest cost was measured on tenant_template (read-only, letflow_test on the letflow-3 docker Postgres), not on a live clone, and the pg_stat_activity end fence false-positive rate is unmeasured; both are OQ-8 for the implementer.",
         "affected_requirement": null
       }
     ],
     "git_evidence": {
       "branch_name": "feature/WF03-ISS1042-20261012",
-      "commit_sha_list": [
-        "e0a6152ac93785cfe892f550bfdae1d1cb7dfbdd"
-      ],
+      "commit_sha_list": [],
       "remote_branch": "origin/feature/WF03-ISS1042-20261012",
-      "push_status": "ok",
+      "push_status": "pending",
       "pr_url": null,
       "pr_create_error": null
     },
-    "next_action": "Dispatch CODE-DESIGN-VALIDATOR on lib/letflow/design/iss1042-pooled-tenant-fixture.md; on PASS dispatch ELIXIR-DEV with the owned_modules in design section 12.1."
+    "next_action": "Re-dispatch CODE-DESIGN-VALIDATOR step 02b (rework iteration 1 re-validation); on PASS dispatch ELIXIR-DEV with owned_modules from design 12.1."
   },
   "rework_count": 1,
   "max_rework": 3
