@@ -1,0 +1,128 @@
+{
+  "handoff_id": "6a0cbf36-5157-40e8-9f74-ddbaad4f5275",
+  "run_id": "WF02-Q1048-20261012",
+  "workflow_id": "WF-02",
+  "step": "04",
+  "from_agent": "ORCH",
+  "to_agent": "REVIEWER",
+  "file": "handoffs/WF02-Q1048-20261012/step-04-reviewer.json",
+  "created_at": "2026-10-12T08:38:49Z",
+  "started_at": "2026-10-12T08:38:49Z",
+  "completed_at": "2026-10-12T08:41:41Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": ["REQ-467"],
+    "queue_task": 1048,
+    "gh_issue": 2390,
+    "issue_refs": ["ISS-1048"],
+    "decision_ref": "Q-1044 / GH #2386, option (b): letflow-supervisor/reports/decisions/Q-1044-letflow-9a-decision-2026-10-12.md",
+    "branch_name": "feat/Q-1048-loan-ops-lead-escalation",
+    "base_sha": "633b8478f12ab9d2c51276456e5ac9ba7b392b81",
+    "reviewed_commits": [
+      "568dd9a9b4c505192087a397db198c1d145a7009",
+      "46e98dd55b6465567bb6f5d4e0c4cc9af9461c8b"
+    ],
+    "head_at_review": "46e98dd55b6465567bb6f5d4e0c4cc9af9461c8b",
+    "head_before_this_commit": "370ecd203e0c1bde9ff14ce85fbc0985eb90dae6",
+    "sibling_commit_observed": "370ecd20 landed on this branch at 08:40:21Z, after this review started. It adds only handoffs/WF02-Q1048-20261012/step-03-security-reviewer.json. No lib, test, fixture or script path changed after 46e98dd5 (git diff exit 0 for those paths), so the reviewed code is unchanged. Not modified by REVIEWER.",
+    "artifacts_in": [
+      ".claude/agents/reviewer.md",
+      "docs/agents/instructions/core-directives.md",
+      "letflow-supervisor/reports/decisions/Q-1044-letflow-9a-decision-2026-10-12.md",
+      "docs/agents/workflows/WF-02_requirement_implementation.md",
+      "docs/agents/shared/HANDOFF_PROTOCOL.md",
+      "git diff origin/main..HEAD (14 paths)",
+      "docs/requirements.yaml (origin/main: REQ-465 at line 35132, REQ-467 at line 35249)",
+      "docs/issues/ISS-1048.yaml (origin/main)",
+      "handoffs/WF02-Q1048-20261012/step-03-security-reviewer.json (commit 370ecd20, read only; Step 2c evidence)",
+      "lib/letflow/engine/separation_of_duties.ex:100 (instance snapshot read, cited in issue 7)",
+      "handoffs/WF02-REQ465-20261012/step-04-reviewer.json (shape reference)"
+    ]
+  },
+  "task": {
+    "description": "STEP 2d REVIEWER gate for Q-1048 / GH #2390 (REQ-467, ISS-1048; Q-1044 decision option b). Branch feat/Q-1048-loan-ops-lead-escalation, base origin/main 633b8478, commits 568dd9a9 and 46e98dd5. Read-only: no code edits, no mix, no BEAM. Commit only this handoff file. Do not push.",
+    "acceptance_criteria": [
+      "Idiom and OTP: no lib/ change; no GenServer, gen_statem, supervisor or InstanceSupervisor change; the new test has no sandbox mode change, no sleeps, and uses the existing DataCase, SodSupport and Req462Adoption helpers as the REQ-465 tests do.",
+      "Scope: changed paths are exactly the brief's set; test/letflow/definitions/required_outputs_shipped_definitions_test.exs is byte-identical to origin/main.",
+      "Decision record: escalate node routed to role-loan-ops-lead; no approval node routes to it; distinct_from is exactly the six approval ids; no same-role pair; escalation_role agrees with the routing; version 1.15; REQ-467 and ISS-1048 present on origin/main; REQ-465 not flipped to done.",
+      "Description accuracy: the v1.15 reason sentence and the Chains sentence match the JSON edges.",
+      "Known items (edge ids keep the old name; v1.14 history names the old node id; simulation drift on version and six REQ-465 distinct_from fields) are present as described and not re-litigated.",
+      "Type safety: any new transition logic is assessed, and any gap is filed under docs/issues tagged type-safety.",
+      "Sequencing: the Step 2c SECURITY-REVIEWER verdict is present for the reviewed commit before this 2d verdict is relied on."
+    ]
+  },
+  "result": {
+    "status": "PASS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "PASS_WITH_FINDINGS. The content gate passes. The shipped definition, simulation copy, seed scripts, roster, drift count and the seven updated tests agree with the Q-1044 decision: escalate node rerouted to role-loan-ops-lead, six distinct_from ids, no same-role pair, guard unchanged, version 1.15, and the Chains and v1.15 sentences match the edges. The new test uses real Postgres through SodSupport and Req462Adoption, is async false, has no sleeps and no sandbox calls, and asserts refusals on the HTTP surface with the exact body. No lib/ change, so no OTP, supervision or type-safety item arises. The Step 2c precondition is met: SECURITY-REVIEWER commit 370ecd20 (result PASS, verdict PASS_WITH_FINDINGS) covers ACs 2, 5 and 6 against reviewed commit 46e98dd5, which is the code this review covers. Seven MINOR items are open: test-strength and documentation fixes for ELIXIR-DEV and DOC-UPDATER, two items for ORCH and the BA (in-flight v1.14 instances, and the retained edge id as a judgment rather than a decision requirement), and one pre-existing sandbox item for ORCH.",
+    "evidence": {
+      "scope": "git diff --name-only origin/main..HEAD: 14 paths, all in the brief's set (scripts/seed_meridian_definition.sh, scripts/seed_meridian_persona_actors.sh, test/fixtures/qa/meridian_loan_origination_process_definition.json, test/fixtures/simulation/meridian/process_claim_intake.yaml, test/fixtures/uat/actors.yaml, test/scripts/persona_actor_seed_drift_test.exs, seven updated tests, and the new test). The brief names scripts/lib for the ROLES addition, but scripts/lib is unchanged: the ROLES array is in scripts/seed_meridian_persona_actors.sh:31-41 (role-loan-ops-lead at :39). No lib/ path changed. test/letflow/definitions/required_outputs_shipped_definitions_test.exs: git diff origin/main..HEAD exits 0 (byte-identical).",
+      "sequencing": "Step 2c is evidenced by handoffs/WF02-Q1048-20261012/step-03-security-reviewer.json at commit 370ecd20 (ORCH to SECURITY-REVIEWER; result PASS; verdict PASS_WITH_FINDINGS; reviewed_commit 46e98dd5; evidence keys AC_2, AC_5, AC_6, INV-1..INV-10). The 2c file landed on this branch after this review began, and the reviewed code is identical to 46e98dd5. A later change to routing, distinct_from or the QA fixture needs a new 2c pass (REQ-467 AC 10).",
+      "idiom_and_supervision": "No lib/ change in this range, so no GenServer, gen_statem, supervisor or InstanceSupervisor change, and no per-instance isolation is collapsed. Confirmed in lib: escalation_role is read only at definition time (lib/letflow/definitions/graph.ex:1094-1122 CHK-21; lib/letflow/definitions/role_binding.ex:37 routed-role set). The engine and transition read only escalation_timer_duration (lib/letflow/engine.ex:808; lib/letflow/engine/transition.ex:443). So escalation_role grants no runtime eligibility, which matches ISS-1048 and REQ-467 AC 6. The new test's choices are idiomatic and match REQ-465: Letflow.DataCase with async false; per-case tenants via SodSupport.new_case!; no Sandbox.mode or checkout call in the test; no Process.sleep or :timer.sleep; escalation timers fired through Req462Adoption.fire_escalation! (Scheduler.fire_timer, no wall clock); refusals asserted on Letflow.Routers.Tasks.call/2 with the exact body. The timer test's complete_as! and loan_ops_lead! helpers duplicate SodSupport.complete/4 and grant_role!. That is a small local duplication, not scope creep.",
+      "test_isolation": "New test: DataCase setup (sandbox checkout; shared mode only because async is false, as in REQ-465). Pre-existing, not introduced here: test/letflow/engine/meridian_loan_escalation_timer_test.exs:40-42 calls Sandbox.mode(Letflow.Repo, :auto) in setup, with no reset visible in the file; present on origin/main at line 40. See issue 6.",
+      "role_barrier": "lib/letflow/routers/tasks.ex:319-328: Tasks.authorize_completion runs before Engine.complete_task. lib/letflow/routers/tasks.ex:415-416 maps :assignee_role_not_held to Response.forbidden with 'caller does not hold the assigned role', which is the text assert_not_eligible! asserts. The separation body is the constant at lib/letflow/api/response.ex:61. The role-barrier test is not vacuous: if the separation guard ran first, the body would equal the separation body and assert_not_eligible! would fail.",
+      "type_safety": "No new transition logic in this range (JSON, YAML, script and test files only), so the reviewer.md item 3 check finds no gap to file. Nothing filed under docs/issues. distinct_from ids are untyped strings in the JSON; the existing definition-time checks (REQ-464 validator, shipped-definition guard) cover them. Those checks were not run here.",
+      "definition_static_check": "python -I JSON parse of the shipped definition: version 1.15; escalate node present and old node absent; role and escalation_role role-loan-ops-lead; escalation_timer_duration P1D; distinct_from exactly [l1-approval, l2-approval, escalate-l2-approval-to-ceo, committee-vote-cro, committee-vote-director, committee-vote-ceo] (6); every named id exists; zero same-role pairs among distinct_from entries (a static approximation of REQ-464 check 4, not the guard itself). role-loan-ops-lead appears only on disburse-loan (escalation_role, JSON line 393) and on the escalate node (lines 435, 437), so no approval node routes there. Edges: timeout-disburse-loan (line 541) goes to the escalate node; e27-escalated (line 542) goes to end-disbursed; timeout-escalate-disburse-loan-to-credit-director (line 543) goes to disbursement-held-notice; e41 goes from disbursement-held-notice to end-disbursement-held. Simulation copy (python -I YAML parse): escalate node role and escalation_role role-loan-ops-lead, same six distinct_from, same three edges (process_claim_intake.yaml lines 395, 397, 401); disburse-loan escalation_role role-loan-ops-lead (line 146). The simulation version key reads 1.1: known drift, Q-1049.",
+      "description_accuracy": "Definition line 3 reads version 1.15. The v1.15 reason sentence (line 4) matches: role-credit-director holds l2-approval and committee-vote-director, the two same-role approvals the node must be distinct from; a P1D escalation to it could release payment after one day; role-loan-ops-lead holds no approval node; the rename, the six-id distinct_from and the disburse-loan escalation_role all match the JSON. The Chains sentence (line 4) matches the edges: disburse-loan P1D, then the escalate node P1D, then disbursement-held-notice, then end-disbursement-held. The v1.14 history sentence in the same description still names the old node id, and it is labelled as history (known, not re-litigated).",
+      "decision_record_consistency": "Q-1044 decision file: option (b), guard unchanged, reroute to role-loan-ops-lead, six distinct_from ids, one new persona with no approval role, acceptance criteria 1-10. On origin/main: docs/requirements.yaml REQ-467 at line 35249 (status in_progress; ACs as decided); REQ-465 at line 35132 (status in_progress; open_questions carries the decision at line 35190; not flipped to done); docs/issues/ISS-1048.yaml present (status in_progress). Persona actor-meridian-hannah: test/fixtures/uat/actors.yaml lines 67-71 (routing role role-loan-ops-lead only, no approval role); scripts/seed_meridian_persona_actors.sh PERSONAS line 54. Drift test count 8 to 9 at test/scripts/persona_actor_seed_drift_test.exs:22 and the M1 mutation at :172; the ROLES array has nine entries.",
+      "known_items": "(a) Edge ids keeping the old credit-director name: verified present at definition line 543 and simulation line 400; NOT documented anywhere on main (issue 2). The e27-escalated edge id carries no role name; only timeout-escalate-disburse-loan-to-credit-director does. (b) v1.14 history sentence still names the old node id: documented as history in the description, line 4. (c) Simulation drift on version (1.1) and on six REQ-465 distinct_from fields on other nodes: verified, known, Q-1049.",
+      "edge_id_decision_wording": "The Q-1044 decision (option b, item 1) requires renaming the NODE id because an id naming credit-director on a payment-release step is a trap. It does not address edge ids. SECURITY-REVIEWER 370ecd20 item 3 cites the decision for renaming the edge id; that citation is not supported by the decision text. Keeping the edge id is a known retained item, so this is noted for accuracy, not re-litigated.",
+      "uat_scan": "AC 8 scan: test/fixtures/uat/scenarios/meridian/loan-origination-above-threshold.yaml, loan-origination-below-threshold.yaml, loan-origination-kyc-manual-review.yaml and refusal-loan-approval-and-disbursement.yaml. None advances a timer or reaches the disbursement escalation node, so no scenario outcome changes. The regulatory timer scenarios are unrelated. No file on main records this scan (issue 5).",
+      "security_cross_check": "Items in 370ecd20 that overlap this review: AC 2 and AC 5 test precision (issue 4 here; same finding), edge-id rename (issue 2 here, with the wording note above), simulation parity (known, Q-1049), in-flight v1.14 residual (issue 7 here). Items in 370ecd20 that are not reviewer items and are recorded for ORCH: (i) BA scope question: distinct_from covers only the six approval nodes, while assessment and decision nodes that set credit_decision, risk_rating and kyc_outcome are unnamed. The v1.14 description scopes distinct_from to approve, pay and commit nodes, so this is outside the recorded rule, not a decision conflict. Route to letflow-2. (ii) Stale design note lib/letflow/design/q915-regulatory-review-21day-timer-path.md:19 says escalation_role has no reader in lib/; role_binding.ex has read it since REQ-455 check 4. Documentation only, outside this change's diff; route to ORCH for filing.",
+      "old_id_references": "Live references to the old node id on HEAD, outside historical records: the v1.14 history sentence and the retained edge id only (definition lines 4 and 543; simulation line 400). Historical records (test/uat-reports, ISS-1013, handoffs, the docs/status volume) are not edited, as the brief requires."
+    },
+    "artifacts_out": [
+      "handoffs/WF02-Q1048-20261012/step-04-reviewer.json"
+    ],
+    "issues": [
+      {
+        "severity": "MINOR",
+        "description": "Retained edge id is undocumented. test/fixtures/qa/meridian_loan_origination_process_definition.json:543 and test/fixtures/simulation/meridian/process_claim_intake.yaml:400 keep timeout-escalate-disburse-loan-to-credit-director on the payment-release escalation. Keeping the id is the known decision and is not re-litigated. However, neither the v1.15 description (line 4), REQ-467 (docs/requirements.yaml:35249) nor ISS-1048 records that it was kept. Route ELIXIR-DEV: add one sentence to the v1.15 description, or record it in REQ-467. Whether to rename the edge id is a judgment for ORCH, not a decision requirement (see evidence.edge_id_decision_wording).",
+        "affected_requirement": "REQ-467"
+      },
+      {
+        "severity": "MINOR",
+        "description": "Test documentation. test/letflow/engine/q1048_meridian_loan_ops_lead_escalation_test.exs:14-15 says instance start comes from Letflow.Req462Adoption; it comes from Letflow.SodSupport.new_case! and start_instance! (test/support/sod_support.ex). There is also an orphan section heading at line 106 with no tests under it. Text-only fix, route to ELIXIR-DEV.",
+        "affected_requirement": "REQ-467"
+      },
+      {
+        "severity": "MINOR",
+        "description": "AC 2 and AC 5 terminal nodes not asserted. The small-loan test (q1048_meridian_loan_ops_lead_escalation_test.exs:110-141) and the committee and (c) tests (:145-253) infer end-disbursed from status :completed and the absence of the held notice. assert_held_never_disbursed! (:288-297) and the fail-closed tests (:299-336) do not name end-disbursement-held or refute end-disbursed. The properties hold structurally (disbursement-held-notice's only outgoing edge is e41 to end-disbursement-held; verified in the JSON), so this is a test-strength gap, not a defect. SECURITY-REVIEWER 370ecd20 raised the same two gaps. Route ELIXIR-DEV: assert the terminal node on each path if the event store exposes it.",
+        "affected_requirement": "REQ-467"
+      },
+      {
+        "severity": "MINOR",
+        "description": "AC 8 scan not recorded. No UAT or simulation scenario outcome changes (see evidence.uat_scan), but nothing on main records the scan. Route DOC-UPDATER: add the list of scanned scenarios and the no-change result to REQ-467.",
+        "affected_requirement": "REQ-467"
+      },
+      {
+        "severity": "MINOR",
+        "description": "Pre-existing, not introduced by this change. test/letflow/engine/meridian_loan_escalation_timer_test.exs:40-42 calls Sandbox.mode(Letflow.Repo, :auto) in setup. The call is present on origin/main (line 40), and no reset is visible in the file, so it sets Repo-wide sandbox mode to auto and can bypass per-test isolation for later tests in the same run. This is a global sandbox leak in a file this change touches. The new test does not do this. REVIEWER did not file an issue; route to ORCH for a separate issue per ISSUE_QUEUE.md.",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "Transitional state not recorded. lib/letflow/engine/separation_of_duties.ex:100 (load_snapshot) reads the instance's definition snapshot. Instances started on v1.14 therefore keep the credit-director escalation and the L2 self-release residual until they end. Neither REQ-467 nor the Q-1044 decision records this transitional state or who accepted it. The decision says QA only, with no real payments, which may be the acceptance, but it is not written down. Route ORCH and letflow-2 (BA): drain in-flight v1.14 instances or record the acceptance in REQ-467.",
+        "affected_requirement": "REQ-467"
+      }
+    ],
+    "git_evidence": {
+      "branch_name": "feat/Q-1048-loan-ops-lead-escalation",
+      "commit_sha_list": [],
+      "remote_branch": null,
+      "push_status": "skipped",
+      "pr_url": null,
+      "pr_create_error": null
+    },
+    "not_run": [
+      "mix compile --warnings-as-errors, mix format --check-formatted, scoped mix test, mix letflow.check_boundaries and mix letflow.lint_handoffs --dir: not run. REVIEWER is read-only and runs no mix and no BEAM, per the brief. ORCH and CI run these.",
+      "test/letflow/definitions/required_outputs_shipped_definitions_test.exs (candidate_pairs=0) and the REQ-464 validator: not run. The same-role result is a static check only (python -I parse of the JSON).",
+      "Simulation resync (version, and six REQ-465 distinct_from fields on other nodes): out of scope, Q-1049."
+    ],
+    "next_action": "ORCH: (1) the Step 2c precondition is met by 370ecd20; no further security gate is needed for this commit. TEST-DESIGNER may start. (2) Route issues 1-4 to ELIXIR-DEV as text and test fixes, or accept them as follow-ups per ISSUE_QUEUE.md; route issue 4 together with the SECURITY-REVIEWER items it duplicates. (3) Route issue 5 to DOC-UPDATER; route issue 6 to ORCH as a separate pre-existing finding, not filed by REVIEWER; route issue 7 to ORCH and letflow-2 (BA). (4) Any later change to routing, distinct_from or the QA fixture needs a new SECURITY-REVIEWER pass (REQ-467 AC 10). (5) No type-safety item: no new transition logic, so nothing is filed under docs/issues. This PASS_WITH_FINDINGS does not cover the compile, format, test, boundary or lint steps, which were not run here."
+  },
+  "rework_count": 0,
+  "max_rework": 3
+}

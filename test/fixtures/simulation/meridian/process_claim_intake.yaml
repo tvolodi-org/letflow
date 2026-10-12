@@ -143,7 +143,7 @@ graph:
       attributes:
         role: role-loan-ops
         escalation_timer_duration: P1D
-        escalation_role: role-credit-director
+        escalation_role: role-loan-ops-lead
         form_schema: {"type": "object", "properties": {"disbursement_reference": {"type": "string", "title": "Disbursement reference", "description": "Core-banking reference of the disbursement that was made. Recorded for audit; no gateway reads it. Optional. No personal data beyond what the process needs.", "minLength": 1}}}
     - id: escalate-l2-approval-to-ceo
       node_type: HUMAN_TASK
@@ -152,12 +152,13 @@ graph:
         escalation_timer_duration: P2D
         escalation_role: role-ceo
         form_schema: {"type": "object", "properties": {"l2_decision": {"type": "string", "title": "L2 decision (CEO escalation)", "description": "Escalation of an L2 credit decision that the credit director did not make in time: 'approve' creates the facility, 'reject' (or no answer within the escalation deadline) declines. Same decision variable as l2-approval.", "enum": ["approve", "reject"]}}, "required": ["l2_decision"]}
-    - id: escalate-disburse-loan-to-credit-director
+    - id: escalate-disburse-loan-to-loan-ops-lead
       node_type: HUMAN_TASK
       attributes:
-        role: role-credit-director
+        role: role-loan-ops-lead
         escalation_timer_duration: P1D
-        escalation_role: role-credit-director
+        escalation_role: role-loan-ops-lead
+        distinct_from: [l1-approval, l2-approval, escalate-l2-approval-to-ceo, committee-vote-cro, committee-vote-director, committee-vote-ceo]
         form_schema: {"type": "object", "properties": {"disbursement_reference": {"type": "string", "title": "Disbursement reference", "description": "Escalation of a disbursement that loan operations did not make in time: core-banking reference of the disbursement that was made. Recorded for audit; no gateway reads it. Optional. No personal data beyond what the process needs. If nobody completes this task within the escalation deadline the loan is held undisbursed and a hold notice is filed.", "minLength": 1}}}
     - id: disbursement-held-notice
       node_type: SERVICE_TASK
@@ -391,13 +392,13 @@ graph:
       condition: "true"
     - id: timeout-disburse-loan
       source: disburse-loan
-      target: escalate-disburse-loan-to-credit-director
+      target: escalate-disburse-loan-to-loan-ops-lead
     - id: e27-escalated
-      source: escalate-disburse-loan-to-credit-director
+      source: escalate-disburse-loan-to-loan-ops-lead
       target: end-disbursed
       condition: "true"
-    - id: timeout-escalate-disburse-loan-to-credit-director
-      source: escalate-disburse-loan-to-credit-director
+    - id: timeout-escalate-disburse-loan-to-loan-ops-lead
+      source: escalate-disburse-loan-to-loan-ops-lead
       target: disbursement-held-notice
     - id: e41
       source: disbursement-held-notice

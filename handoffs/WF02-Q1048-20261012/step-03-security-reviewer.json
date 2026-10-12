@@ -1,0 +1,107 @@
+{
+  "handoff_id": "ef5da85b-fca9-4ef0-8b04-c491f309862b",
+  "run_id": "WF02-Q1048-20261012",
+  "workflow_id": "WF-02",
+  "step": "03",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF02-Q1048-20261012/step-03-security-reviewer.json",
+  "created_at": "2026-10-12T08:38:16Z",
+  "started_at": "2026-10-12T08:38:16Z",
+  "completed_at": "2026-10-12T08:39:16Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": ["REQ-467"],
+    "queue_task": 1048,
+    "gh_issue": 2390,
+    "branch_name": "feat/Q-1048-loan-ops-lead-escalation",
+    "reviewed_commit": "46e98dd55b6465567bb6f5d4e0c4cc9af9461c8b",
+    "artifacts_in": [
+      "docs/agents/instructions/security-invariants.md",
+      "docs/agents/instructions/core-directives.md",
+      "docs/agents/workflows/WF-02_requirement_implementation.md",
+      ".claude/agents/security-reviewer.md",
+      "test/fixtures/qa/meridian_loan_origination_process_definition.json",
+      "test/fixtures/simulation/meridian/process_claim_intake.yaml",
+      "test/fixtures/uat/actors.yaml",
+      "scripts/seed_meridian_persona_actors.sh",
+      "scripts/seed_meridian_definition.sh",
+      "scripts/lib/seed_persona_actors_base.sh",
+      "test/letflow/engine/q1048_meridian_loan_ops_lead_escalation_test.exs",
+      "test/letflow/engine/meridian_loan_escalation_timer_test.exs",
+      "lib/letflow/definitions/role_binding.ex",
+      "lib/letflow/definitions/graph.ex",
+      "lib/letflow/engine/separation_of_duties.ex",
+      "lib/letflow/engine/task_activation.ex",
+      "lib/letflow/tasks.ex",
+      "lib/letflow/api/response.ex",
+      "lib/letflow/routers/tasks.ex",
+      "C:/Users/tvolo/dev/ai-dala/letflow-supervisor/reports/decisions/Q-1044-letflow-9a-decision-2026-10-12.md"
+    ]
+  },
+  "task": {
+    "description": "SECURITY-REVIEWER hard gate for Q-1048 / GH #2390 (REQ-467 / ISS-1048) on branch feat/Q-1048-loan-ops-lead-escalation. Commits in origin/main..HEAD: 568dd9a9 (feat) and 46e98dd5 (fix); base origin/main 633b8478. Read-only: no mix, no BEAM, no code edits, no push. Run the scope test, record INV-1..INV-10 as APPLIES or NOT-APPLICABLE with the check run for each APPLIES invariant. The verdict must explicitly cover decision acceptance criteria 2, 5 and 6 from the Q-1044 decision file (section Acceptance criteria for the FOLLOW-UP). Also confirm: no secret or credential introduced, seed-script token handling unchanged, no change to tenant-data-path routes, migrations or response shaping, no Keycloak account created or referenced as created, seed script not run and no committed artifact claims otherwise.",
+    "acceptance_criteria": [
+      "scope test recorded with the clause that applies",
+      "each of INV-1..INV-10 recorded APPLIES or NOT-APPLICABLE, with the check run and PASS or FAIL for each APPLIES invariant",
+      "AC 2 verdict with evidence: small-loan trace, exact 403 body asserted, no node id, user id or name leaked",
+      "AC 5 verdict with evidence: fail-closed to end-disbursement-held and never end-disbursed; no path reaches end-disbursed without a distinct eligible completer",
+      "AC 6 verdict with evidence: escalation_role runtime meaning stated from a grep of lib/; escalation node and disburse-loan name role-loan-ops-lead; no approval node routes to it; actor-meridian-hannah holds role-loan-ops-lead and no approval role in actors.yaml and the seed script",
+      "no secret or credential introduced; seed-script token handling unchanged",
+      "no Keycloak account created or referenced as created; seed script not run"
+    ]
+  },
+  "result": {
+    "status": "PASS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "PASS_WITH_FINDINGS (result.status PASS: no applicable invariant fails). Scope test: IN SCOPE by the secret clause (scripts/seed_meridian_persona_actors.sh and scripts/seed_meridian_definition.sh are modified, and both resolve QA_AUTH_TOKEN from the environment) and by the tenant-data clause (tenant-scoped process-definition content, plus tests that write tenant rows through the fixture helpers). Not triggered: API route, migration, response shaping, lookup-by-ID handler. lib/, config/ and priv/ have zero changed lines on this branch. APPLIES: INV-1 (conservative reading, PASS) and INV-4 (PASS). NOT-APPLICABLE: INV-2, INV-3, INV-5, INV-6, INV-7, INV-8, INV-9, INV-10. AC 2: PASS_WITH_FINDINGS. AC 5: PASS_WITH_FINDINGS. AC 6: PASS_WITH_FINDINGS. The Q-1044 escalation gap (l2-approval and committee-vote-director could release the payment through the disbursement escalation, which was role-credit-director) is closed in both the QA definition and the simulation copy: the escalation node routes to role-loan-ops-lead, which no approval node holds, and it names all six approval nodes in distinct_from. Static reading only: no mix or BEAM was run, so the new tests were read, not executed.",
+    "evidence": {
+      "scope_test": "IN SCOPE. Secret clause: scripts/seed_meridian_persona_actors.sh and scripts/seed_meridian_definition.sh are modified and resolve QA_AUTH_TOKEN (persona_require_env in scripts/lib/seed_persona_actors_base.sh lines 16-26). Tenant-data clause: tenant-scoped definition content and tests that write tenant rows. Not triggered: API route, migration, response shaping, lookup-by-ID handler. lib/, config/ and priv/ have zero changed lines (git diff origin/main...HEAD --name-only).",
+      "INV-1": "APPLIES (conservative reading, same as the REQ-465 precedent). (a) The new test file test/letflow/engine/q1048_meridian_loan_ops_lead_escalation_test.exs contains no Repo call; every read and write goes through the Letflow.SodSupport and Letflow.Req462Adoption helpers with ctx.schema_name, and the HTTP calls carry auth_context tenant_id. The changed meridian_loan_escalation_timer_test.exs uses prefix: schema throughout. (b) No migration: priv/ has zero changed lines. (c) This change writes no tenant_id column. PASS.",
+      "INV-2": "NOT-APPLICABLE. No response type, serializer or field allowlist changed. The refusal is the constant Letflow.Api.Response.separation_of_duties/1 body (lib/letflow/api/response.ex line 61, sender at lines 191-200), which carries no node id, user id or name. Blocking node ids reach only the internal audit record (lib/letflow/engine.ex completion_refusal_after_state, around lines 5218-5229).",
+      "INV-3": "NOT-APPLICABLE. No Lua or WASM host function or capability change. Diff-scoped grep of added lines for lua, wasm, httpc, Req., webhook returned 0 hits.",
+      "INV-4": "APPLIES, PASS. Checks run: (1) grep System.get_env over config/ and lib/ returned 43 hits, all env-sourced. (2) Heuristic grep for (password|secret|client_secret|token) followed by a quoted literal of 8 or more characters, over lib/ and config/, returned 0 hits. (3) Diff-scoped grep of added lines for token, secret, passw, bearer, api key, credential and private_key returned 0 hits. Token handling: persona_require_env reads QA_AUTH_TOKEN from the environment and uses it only in the Authorization header. There is no set -x. The only echo lines that mention the token (base script lines 276-285) print the variable name, never its value. The diff to the seed scripts changes only header comments, the ROLES array and the PERSONAS array. PASS.",
+      "INV-5": "NOT-APPLICABLE. No lookup-by-ID handler added or changed. The completion-side separation check runs inside the completion transaction after the task and instance row locks (lib/letflow/engine/separation_of_duties.ex check/5), on the caller tenant's prefix.",
+      "INV-6": "NOT-APPLICABLE. No new API route, host function or business-table migration. This handoff is the SECURITY-REVIEWER record for the change.",
+      "INV-7": "NOT-APPLICABLE. Diff-scoped grep of added lines for Repo.query, Ecto.Adapters.SQL and fragment( returned 0 hits, and no lib/ or priv/ line changed. Codebase-wide, Repo.query appears in 13 files; all of them are unchanged on this branch.",
+      "INV-8": "NOT-APPLICABLE to runtime. No lib/ or priv/ change. Bare {:ok, _} = matches in the new test file are test code.",
+      "INV-9": "NOT-APPLICABLE. No outbound URL or HTTP client code added or changed.",
+      "INV-10": "NOT-APPLICABLE. No route or permission added or changed (no authz_ route macro in the diff; lib/ untouched). role-loan-ops-lead is a tenant-scope process-routing role inside the definition and the tenant seed, not a platform permission. The seed writes stay in the meridian tenant through the existing endpoints.",
+      "AC_2": "PASS_WITH_FINDINGS. Evidence: test/letflow/engine/q1048_meridian_loan_ops_lead_escalation_test.exs lines 110-141. U holds role-credit-director (line 116) and role-loan-ops-lead (line 117). U completes l2-approval (line 120, 200). The disburse-loan escalation timer fires through the real Scheduler path (A.fire_escalation!, line 124; node_id asserted as disburse-loan at line 125; current node is the escalation at line 126). U's completion is refused (line 130): status 403, content type application/problem+json, and conn.resp_body equals the exact body {\"detail\":\"separation of duties\",\"status\":403} (assert_separation!, lines 92-97). Instance rows (projection, tokens, tasks, event count, timers) are unchanged (line 131), and the escalation task stays pending (line 132). V also holds role-loan-ops-lead (line 117) and completes (line 134, 200). Task completed (line 135), projection completed (line 139), and no disbursement-held-notice dispatched (line 140). Leakage: the body is a constant, so no node id, user id or name can appear. FINDING (non-blocking): the test does not name end-disbursed. It infers the terminal node from status completed plus the absence of the held notice. The QA graph makes that inference sound (end-disbursed has exactly two incoming edges, e27 and e27-escalated, and the escalation's only completion edge is e27-escalated), but the assertion is not literal. test/support/req462_adoption.ex dispatched_nodes/2 reads service-task dispatch rows only, so it cannot prove an end node.",
+      "AC_5": "PASS_WITH_FINDINGS. Evidence: test/letflow/engine/q1048_meridian_loan_ops_lead_escalation_test.exs lines 299-336 and the helper assert_held_never_disbursed! (lines 288-297). Test 1: the only holder of role-loan-ops-lead is the refused completer u. u is refused with the separation body and the rows are unchanged (lines 313-315). The escalation timer then fires: escalation task cancelled (line 291), current node disbursement-held-notice (line 292), notice advanced, projection completed (lines 294-295), disbursement-held-notice dispatched (line 296). Test 2: no user holds role-loan-ops-lead; the same chain runs. Graph, parsed from test/fixtures/qa/meridian_loan_origination_process_definition.json: the escalation's timeout edge goes to disbursement-held-notice, whose single outgoing edge e41 goes to end-disbursement-held. end-disbursed has exactly two incoming edges: e27 (from disburse-loan) and e27-escalated (from the escalation). Each requires a holder of the node's role (ROLE check in lib/letflow/tasks.ex apply_completion_authz, around lines 585-590, against group membership resolved per request in resolve_principal_scope, around lines 362-374) and a separation-of-duties pass (separation_of_duties.ex check/5, under row locks). No route can force a node: POST /instances/:id/advance-timer (lib/letflow/routers/instances.ex line 356) fires only an armed timer, and its target comes from the Timer record. The claim-time separation check is fail-open and advisory, but completion re-checks under the locks, so it is not a bypass. No path reaches end-disbursed without a distinct eligible completer. FINDING (non-blocking): the test asserts held-notice dispatch and completed status but does not name end-disbursement-held or refute end-disbursed explicitly. A regression that reached end-disbursed would fail the held-notice assertion, so the property is pinned indirectly. Explicit assertions are recommended.",
+      "AC_6": "PASS_WITH_FINDINGS. (a) Runtime meaning, from the code: escalation_role grants no eligibility. Readers in lib/ are exactly two: lib/letflow/definitions/graph.ex around lines 1072-1122 (CHK-21, presence and pairing validation only) and lib/letflow/definitions/role_binding.ex lines 28-37 (task_roles/1, which feeds advisory unbound_task_role warnings through validation_warnings.ex and definitions.ex around line 1261; it never writes a binding and never grants). The engine, task activation and eligibility do not read it: the escalation task's assignee_ref is the node's own attributes[\"role\"] (lib/letflow/engine/task_activation.ex around lines 130-141), and completion compares that value with the caller's DB-resolved role names (lib/letflow/tasks.ex around lines 585-590). Expected answer confirmed: no. (b) The attribute agrees with the routing: disburse-loan escalation_role is role-loan-ops-lead (QA JSON line 393; simulation yaml line 146); escalate-disburse-loan-to-loan-ops-lead role and escalation_role are role-loan-ops-lead (QA lines 435 and 437; simulation lines 158 and 160). The escalation node's distinct_from is exactly the six ids l1-approval, l2-approval, escalate-l2-approval-to-ceo, committee-vote-cro, committee-vote-director and committee-vote-ceo, and all six exist in the graph. (c) No approval node routes to role-loan-ops-lead: in the parsed QA JSON, the only nodes whose attributes name it are disburse-loan (escalation_role) and the escalation node. The simulation yaml agrees. (d) Roster: test/fixtures/uat/actors.yaml hannah entry (lines 67-71) is TASK_WORKER builtin with routing_roles [role-loan-ops-lead] and no approval role. scripts/seed_meridian_persona_actors.sh ROLES (line 39) includes role-loan-ops-lead, and PERSONAS (line 54) has actor-meridian-hannah|role-loan-ops-lead. The persona holds no approval role. FINDINGS (MINOR): the edge id timeout-escalate-disburse-loan-to-credit-director is kept in the QA JSON and in the simulation yaml (line 400), so the payment-release step still carries the credit-director id that the Q-1044 decision named a lasting trap. Also, lib/letflow/design/q915-regulatory-review-21day-timer-path.md line 19 says escalation_role has no reader in lib/; role_binding.ex has read it since REQ-455 check 4, so that design note is stale (documentation only).",
+      "seed_script": "Token handling unchanged. The diff to scripts/seed_meridian_persona_actors.sh changes the header comment, ROLES and PERSONAS only. The diff to scripts/seed_meridian_definition.sh changes the header comment version (1.14 to 1.15) only. No token value is written into any committed file.",
+      "keycloak": "No Keycloak account is created or referenced as created. scripts/lib/seed_persona_actors_base.sh performs only GET user lookups (lines 35 and 58), which abort when the account is missing, and three POSTs: create a process_routing role group (line 96), create a tenant_role binding (line 123), and add a group member (line 150). No user-creation call exists. The REQ-467 record on main (docs/requirements.yaml entry REQ-467 and docs/issues/ISS-1048.yaml) says the persona's QA Keycloak account is a UAT-class infra request that is sent only after letflow-2 issues a written APPROVE. The actors.yaml hannah note makes no claim that the account exists.",
+      "seed_not_run": "No committed artifact on this branch claims that the seed script was run. The branch diff touches no docs/, handoffs/ or status file. Out-of-band runs against QA cannot be observed from here; this statement covers committed artifacts only.",
+      "static_checks": {
+        "same_role_distinct_from_pairs_loan_qa": 0,
+        "method": "Parsed the QA JSON and applied the REQ-464 check 4 rule (both nodes name each other in distinct_from and share attributes.role). Result: no pairs.",
+        "shipped_guard_test": "test/letflow/definitions/required_outputs_shipped_definitions_test.exs is not in the diff, so its pair_failures assertion is unchanged, as the decision's AC 1 requires."
+      },
+      "not_run": "Read-only, as instructed. mix compile, mix format, mix test, mix letflow.lint_handoffs and mix letflow.check_boundaries were NOT run. The verdicts rest on reading the test and fixture files and on grep and parse of the definition, not on test execution. The decision's AC 10 needs real mix output from the implementer or TEST-RUNNER. This JSON was checked with a JSON parse only, not with mix letflow.lint_handoffs."
+    },
+    "artifacts_out": ["handoffs/WF02-Q1048-20261012/step-03-security-reviewer.json"],
+    "issues": [
+      {"severity": "MINOR", "description": "AC 2 test precision: test/letflow/engine/q1048_meridian_loan_ops_lead_escalation_test.exs (small-loan test) infers end-disbursed from status completed and the absence of the held notice. Add an explicit assertion on the terminal node (for example, the completed token or event at end-disbursed).", "affected_requirement": "REQ-467"},
+      {"severity": "MINOR", "description": "AC 5 test precision: the fail-closed tests (assert_held_never_disbursed!) do not name end-disbursement-held and do not refute end-disbursed. Add both explicit assertions.", "affected_requirement": "REQ-467"},
+      {"severity": "MINOR", "description": "Naming trap left behind: the edge id timeout-escalate-disburse-loan-to-credit-director still names credit-director on a payment-release step in test/fixtures/qa/meridian_loan_origination_process_definition.json and test/fixtures/simulation/meridian/process_claim_intake.yaml (line 400). The Q-1044 decision asked that the id not carry the old role. Rename in a follow-up that updates every reference, or in this PR if the rename is contained.", "affected_requirement": "REQ-467"},
+      {"severity": "MINOR", "description": "BA scope question, not an AC 5 failure. distinct_from covers only the six approval nodes. Assessment and decision nodes that set credit_decision, risk_rating or kyc_outcome are not named: credit-memo-review (role-credit-manager), risk-assessment (role-risk-manager), kyc-manual-review (role-compliance-officer), credit-memo-escalation-review (role-credit-director) and risk-assessment-escalation-review (role-cro). A holder of role-loan-ops-lead who completed one of them could release the payment through the escalation. disburse-loan has the same residual. Route to letflow-2 (BA) for a ruling.", "affected_requirement": "REQ-467"},
+      {"severity": "MINOR", "description": "Transitional rollout gap. Completion reads the instance snapshot (separation_of_duties.ex load_snapshot reads InstanceDefinitionSnapshot). Loans started on v1.14 keep the credit-director escalation and the L2 self-release residual until they end. The decision says QA only and no real payments. ORCH or the BA should drain in-flight v1.14 instances or record an acceptance.", "affected_requirement": "REQ-467"},
+      {"severity": "MINOR", "description": "Simulation copy parity. The simulation disburse-loan node has no distinct_from, and origin/main's simulation yaml has none on any node (a v1.1 port that predates REQ-465). This branch added distinct_from only to the escalation node, which matches the QA definition. The REQ-467 record defers the full resync to Q-1049 / GH #2391. Not introduced by this branch.", "affected_requirement": "REQ-467"},
+      {"severity": "MINOR", "description": "Stale design note: lib/letflow/design/q915-regulatory-review-21day-timer-path.md line 19 says escalation_role has no reader in lib/. role_binding.ex has read it since REQ-455 check 4 (advisory warnings only). Documentation fix only.", "affected_requirement": null}
+    ],
+    "git_evidence": {
+      "branch_name": "feat/Q-1048-loan-ops-lead-escalation",
+      "commit_sha_list": ["568dd9a9b4c505192087a397db198c1d145a7009", "46e98dd55b6465567bb6f5d4e0c4cc9af9461c8b"],
+      "remote_branch": null,
+      "push_status": "skipped",
+      "pr_url": null,
+      "pr_create_error": null
+    },
+    "next_action": "No applicable invariant fails, so the SECURITY-REVIEWER gate passes for this branch (result.status PASS). ORCH should: (1) fold the two test-precision assertions (end-disbursed, end-disbursement-held) and the edge-id rename into this PR, or file them as follow-ups per ISSUE_QUEUE; (2) route the assessment-node residual and the in-flight rollout question to letflow-2 (BA); (3) treat any later change to routing, distinct_from or the QA fixture as needing a new SECURITY-REVIEWER pass."
+  },
+  "rework_count": 0,
+  "max_rework": 3
+}

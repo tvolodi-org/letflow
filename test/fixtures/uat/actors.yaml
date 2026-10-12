@@ -64,6 +64,11 @@ actors:
     builtin_roles: [TASK_WORKER]
     routing_roles: []
     note: "seed_meridian_persona_actors.sh PERSONAS line (actor-meridian-oliver|, no routing role; dept-risk member per org_structure.yaml); TASK_WORKER implicit per script header. Process-audit WF05-BASELINE3 PA-MERIDIAN-009 / ISS-1006 / Q-988: seeded account now recorded in the roster"
+  actor-meridian-hannah:
+    tenant: meridian
+    builtin_roles: [TASK_WORKER]
+    routing_roles: [role-loan-ops-lead]
+    note: "seed_meridian_persona_actors.sh PERSONAS line (actor-meridian-hannah|role-loan-ops-lead, no approval role; Q-1048 / GH #2390: the loan-ops lead who completes the disbursement escalation); TASK_WORKER implicit per script header"
 
   actor-swiftroute-lena:
     tenant: swiftroute
