@@ -67,9 +67,11 @@
     ],
     "git_evidence": {
       "branch_name": "feature/WF03-ISS1042-20261012",
-      "commit_sha_list": [],
+      "commit_sha_list": [
+        "e0a6152ac93785cfe892f550bfdae1d1cb7dfbdd"
+      ],
       "remote_branch": "origin/feature/WF03-ISS1042-20261012",
-      "push_status": "skipped",
+      "push_status": "ok",
       "pr_url": null,
       "pr_create_error": null
     },
