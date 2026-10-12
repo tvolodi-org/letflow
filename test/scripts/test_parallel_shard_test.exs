@@ -22,6 +22,8 @@ defmodule Letflow.Scripts.TestParallelShardTest do
   """
   use ExUnit.Case, async: false
 
+  alias Letflow.Test.TestParallelCapture
+
   @moduletag :tmp_dir
   @moduletag timeout: 300_000
 
@@ -185,9 +187,17 @@ defmodule Letflow.Scripts.TestParallelShardTest do
     for l <- lines, [_, p] <- [Regex.run(~r/^partition (\d+): /, l)], do: String.to_integer(p)
   end
 
-  defp assert_sliced_run(tmp, env, first..last//1 = range, total) do
+  defp assert_sliced_run(tmp, env, range, total) do
     {status, lines, argv_dir} = run_script(tmp, env)
     out = Enum.join(lines, "\n")
+
+    # ISS-1062: on failure the message carries the tmp tree + partition/create logs.
+    TestParallelCapture.with_context(tmp, out, fn ->
+      assert_sliced_run_body(status, lines, argv_dir, out, range, total)
+    end)
+  end
+
+  defp assert_sliced_run_body(status, lines, argv_dir, out, first..last//1 = range, total) do
     assert status == 0, out
     parts = Enum.to_list(range)
 
@@ -303,29 +313,36 @@ defmodule Letflow.Scripts.TestParallelShardTest do
           run_script(tmp, [{"TEST_PARALLEL_MAX_CONCURRENT_TEMPLATE_BUILDS", unquote(cap)}])
 
         out = Enum.join(lines, "\n")
-        assert status == 0, out
 
-        assert argv_parts(argv_dir) == [1, 2, 3, 4], out
-        for p <- 1..4, do: assert(argv(argv_dir, p) == expected_argv(4), out)
-
-        assert Enum.sort(db_log(argv_dir)) ==
-                 Enum.sort(
-                   for p <- 1..4, sub <- ["ecto.create", "ecto.migrate"] do
-                     "#{p} _build/test-partition-#{p} #{sub}"
-                   end
-                 ),
-               out
-
-        assert_build_paths_seeded(argv_dir, [1, 2, 3, 4], out)
-        assert summary_parts(lines) == [1, 2, 3, 4], out
-        # (not a bare "slice": the test name, hence the tmp path in the output, may contain it)
-        refute Enum.any?(lines, &Regex.match?(~r/slice [0-9]+\.\.[0-9]+|\(slice /, &1)), out
-
-        combined = Enum.find(lines, &String.starts_with?(&1, "combined: "))
-        assert combined, out
-        assert String.ends_with?(combined, "-- 4/4 partitions reported"), combined
+        TestParallelCapture.with_context(tmp, out, fn ->
+          assert_no_shard_run(status, lines, argv_dir, out)
+        end)
       end
     end
+  end
+
+  defp assert_no_shard_run(status, lines, argv_dir, out) do
+    assert status == 0, out
+
+    assert argv_parts(argv_dir) == [1, 2, 3, 4], out
+    for p <- 1..4, do: assert(argv(argv_dir, p) == expected_argv(4), out)
+
+    assert Enum.sort(db_log(argv_dir)) ==
+             Enum.sort(
+               for p <- 1..4, sub <- ["ecto.create", "ecto.migrate"] do
+                 "#{p} _build/test-partition-#{p} #{sub}"
+               end
+             ),
+           out
+
+    assert_build_paths_seeded(argv_dir, [1, 2, 3, 4], out)
+    assert summary_parts(lines) == [1, 2, 3, 4], out
+    # (not a bare "slice": the test name, hence the tmp path in the output, may contain it)
+    refute Enum.any?(lines, &Regex.match?(~r/slice [0-9]+\.\.[0-9]+|\(slice /, &1)), out
+
+    combined = Enum.find(lines, &String.starts_with?(&1, "combined: "))
+    assert combined, out
+    assert String.ends_with?(combined, "-- 4/4 partitions reported"), combined
   end
 
   describe "invalid slice inputs are rejected before anything is launched" do

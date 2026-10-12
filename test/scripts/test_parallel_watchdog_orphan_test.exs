@@ -47,6 +47,8 @@ defmodule Letflow.Scripts.TestParallelWatchdogOrphanTest do
   """
   use ExUnit.Case, async: false
 
+  alias Letflow.Test.TestParallelCapture
+
   @moduletag :tmp_dir
 
   # The watchdog's sleep length. Large on purpose: an orphan would hold the pipe this
@@ -71,9 +73,12 @@ defmodule Letflow.Scripts.TestParallelWatchdogOrphanTest do
   #   STUB_MODE=fail            partition STUB_FAIL_PARTITION (default 1) reports a failure, exit 2
   #   STUB_MODE=die_early       partition 1 exits 1 at once with no Result and no ready-file
   #   STUB_MODE=hang            partition 1 sleeps for 600 s (until killed)
-  #   STUB_MODE=staggered       partition 1 passes after 2 s; partition 2 waits 6 s, writes the number of
-  #                             live `sleep $TEST_PARALLEL_PARTITION_TIMEOUT_S` processes (read from
-  #                             /proc, which exists on Linux and in git-bash) to $STUB_MARKER, then passes
+  #   STUB_MODE=staggered       partition 1 passes after 2 s; partition 2 first waits (bounded, 100 ms
+  #                             poll) until it sees BOTH watchdog sleeps alive, then polls until only one
+  #                             remains (or the deadline), and writes the LAST count of live
+  #                             `sleep $TEST_PARALLEL_PARTITION_TIMEOUT_S` processes (read from /proc,
+  #                             which exists on Linux and in git-bash) to $STUB_MARKER, then passes.
+  #                             No fixed wall-clock sample point (ISS-1062): a real orphan stays at 2.
   defp write_stubs(tmp) do
     bin = Path.join(tmp, "stubbin")
     File.mkdir_p!(bin)
@@ -105,11 +110,28 @@ defmodule Letflow.Scripts.TestParallelWatchdogOrphanTest do
           sleep 2
         fi
         if [ "$part" = "2" ]; then
-          sleep 6
+          count_sleeps() {
+            local n=0 d c
+            for d in /proc/[0-9]*; do
+              c=$(tr "\\0" " " <"$d/cmdline" 2>/dev/null)
+              case "$c" in "sleep $TEST_PARALLEL_PARTITION_TIMEOUT_S "*) n=$((n + 1)) ;; esac
+            done
+            echo "$n"
+          }
+          deadline=$((SECONDS + 25))
           n=0
-          for d in /proc/[0-9]*; do
-            c=$(tr "\\0" " " <"$d/cmdline" 2>/dev/null)
-            case "$c" in "sleep $TEST_PARALLEL_PARTITION_TIMEOUT_S "*) n=$((n + 1)) ;; esac
+          # phase 1: both watchdogs alive (own + partition 1's). If never seen (starved
+          # host) fall through and record the last value.
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            n=$(count_sleeps)
+            [ "$n" -ge 2 ] && break
+            sleep 0.1
+          done
+          # phase 2: partition 1 finishes (2 s) and Step 3 must reap its watchdog.
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            n=$(count_sleeps)
+            [ "$n" -le 1 ] && break
+            sleep 0.1
           done
           echo "$n" > "$STUB_MARKER"
         fi
@@ -206,19 +228,39 @@ defmodule Letflow.Scripts.TestParallelWatchdogOrphanTest do
   # Secondary, portable-where-possible check: no surviving `sleep @timeout_s`. `ps -eo
   # args` is procps (Linux CI); git-bash's ps does not support it, so the check is
   # skipped there -- the EOF-timing assertion above is the primary one.
+  #
+  # ISS-1062: a group-killed `sleep` can still be LISTED for a few ms after the script
+  # returned (it is being reaped), so the listing is polled every 100 ms for up to 5 s and
+  # the assertion is made on the last listing at the deadline: a real orphan (it sleeps
+  # for @timeout_s+) is still there, a reaped one is gone.
   defp assert_no_orphan_sleep(timeout_s) do
+    case orphan_survivors(timeout_s, 50) do
+      :unsupported ->
+        :ok
+
+      survivors ->
+        assert survivors == [], "orphaned watchdog sleep survived: #{inspect(survivors)}"
+    end
+  end
+
+  defp orphan_survivors(timeout_s, attempts_left) do
     case System.cmd("ps", ["-eo", "args"], stderr_to_stdout: true) do
       {out, 0} ->
         survivors =
           out |> String.split("\n") |> Enum.filter(&(&1 =~ ~r/(^|\s|\/)sleep #{timeout_s}\s*$/))
 
-        assert survivors == [], "orphaned watchdog sleep survived: #{inspect(survivors)}"
+        if survivors == [] or attempts_left <= 0 do
+          survivors
+        else
+          Process.sleep(100)
+          orphan_survivors(timeout_s, attempts_left - 1)
+        end
 
       _ ->
-        :ok
+        :unsupported
     end
   rescue
-    ErlangError -> :ok
+    ErlangError -> :unsupported
   end
 
   defp unique_timeout, do: @timeout_s + :rand.uniform(300)
@@ -235,14 +277,16 @@ defmodule Letflow.Scripts.TestParallelWatchdogOrphanTest do
 
     IO.puts("[watchdog-orphan] success case returned in #{elapsed} ms (watchdog timeout #{t} s)")
 
-    refute status == :timeout,
-           "script did not release its stdout pipe within #{@prompt_ms} ms (an orphaned " <>
-             "watchdog sleep holds it for up to #{t} s); output:\n#{out}"
+    TestParallelCapture.with_context(tmp, out, fn ->
+      refute status == :timeout,
+             "script did not release its stdout pipe within #{@prompt_ms} ms (an orphaned " <>
+               "watchdog sleep holds it for up to #{t} s); output:\n#{out}"
 
-    assert status == 0, out
-    assert out =~ "combined: 2 tests"
-    assert elapsed < @prompt_ms
-    assert_no_orphan_sleep(t)
+      assert status == 0, out
+      assert out =~ "combined: 2 tests"
+      assert elapsed < @prompt_ms
+      assert_no_orphan_sleep(t)
+    end)
   end
 
   test "failing partition: exits non-zero and still returns promptly", %{tmp_dir: tmp} do
@@ -261,15 +305,17 @@ defmodule Letflow.Scripts.TestParallelWatchdogOrphanTest do
 
     IO.puts("[watchdog-orphan] failing case returned in #{elapsed} ms")
 
-    refute status == :timeout,
-           "script did not release its stdout pipe within #{@prompt_ms} ms; output:\n#{out}"
+    TestParallelCapture.with_context(tmp, out, fn ->
+      refute status == :timeout,
+             "script did not release its stdout pipe within #{@prompt_ms} ms; output:\n#{out}"
 
-    assert status == 1,
-           "expected non-zero exit for a failing partition, got #{inspect(status)}:\n#{out}"
+      assert status == 1,
+             "expected non-zero exit for a failing partition, got #{inspect(status)}:\n#{out}"
 
-    assert out =~ "partition 1: "
-    assert out =~ "1 failures"
-    assert_no_orphan_sleep(t)
+      assert out =~ "partition 1: "
+      assert out =~ "1 failures"
+      assert_no_orphan_sleep(t)
+    end)
   end
 
   test "EXIT-trap path: abort while a watchdog is running releases the pipe promptly",
@@ -292,15 +338,17 @@ defmodule Letflow.Scripts.TestParallelWatchdogOrphanTest do
 
     IO.puts("[watchdog-orphan] trap case returned in #{elapsed} ms")
 
-    refute status == :timeout,
-           "script did not release its stdout pipe within #{@prompt_ms} ms after an " <>
-             "EXIT-trap exit; output:\n#{out}"
+    TestParallelCapture.with_context(tmp, out, fn ->
+      refute status == :timeout,
+             "script did not release its stdout pipe within #{@prompt_ms} ms after an " <>
+               "EXIT-trap exit; output:\n#{out}"
 
-    assert status == 1,
-           "expected exit 1 from the admission abort, got #{inspect(status)}:\n#{out}"
+      assert status == 1,
+             "expected exit 1 from the admission abort, got #{inspect(status)}:\n#{out}"
 
-    assert out =~ "exited during its own template build"
-    assert_no_orphan_sleep(t)
+      assert out =~ "exited during its own template build"
+      assert_no_orphan_sleep(t)
+    end)
   end
 
   test "Step 3 reaps a finished partition watchdog while later partitions still run",
@@ -309,9 +357,11 @@ defmodule Letflow.Scripts.TestParallelWatchdogOrphanTest do
     marker = Path.join(tmp, "sleep_count")
 
     # Partition 1 finishes after 2 s (long enough that its watchdog `sleep` really is
-    # running, so this does not race the fork); partition 2 counts live `sleep <t>`
-    # processes at 6 s. Only partition 2's own watchdog may remain. The EXIT trap would also reap
-    # an orphan, but only at script exit -- this is what pins the Step 3 kill itself.
+    # running, so this does not race the fork). Partition 2 first waits until it sees BOTH
+    # watchdog sleeps alive, then polls until only one remains and records the LAST count;
+    # only partition 2's own watchdog may remain. The EXIT trap would also reap an orphan,
+    # but only at script exit -- this is what pins the Step 3 kill itself. A real orphan
+    # keeps the count at 2 until the stub's deadline, so it still fails the assertion.
     {status, out, elapsed} =
       run_script(
         tmp,
@@ -324,16 +374,19 @@ defmodule Letflow.Scripts.TestParallelWatchdogOrphanTest do
       )
 
     IO.puts("[watchdog-orphan] staggered case returned in #{elapsed} ms")
-    refute status == :timeout, "script did not release its stdout pipe in time; output:
-#{out}"
-    assert status == 0, out
-    assert File.exists?(marker), "stub partition 2 did not record the sleep count:
-#{out}"
 
-    assert marker |> File.read!() |> String.trim() == "1",
-           "expected exactly 1 live watchdog sleep (partition 2's own) while partition 2 " <>
-             "ran, got #{String.trim(File.read!(marker))} -- partition 1's watchdog sleep was " <>
-             "orphaned by the Step 3 kill"
+    TestParallelCapture.with_context(tmp, out, fn ->
+      refute status == :timeout,
+             "script did not release its stdout pipe in time; output:\n#{out}"
+
+      assert status == 0, out
+      assert File.exists?(marker), "stub partition 2 did not record the sleep count:\n#{out}"
+
+      assert marker |> File.read!() |> String.trim() == "1",
+             "expected exactly 1 live watchdog sleep (partition 2's own) while partition 2 " <>
+               "ran, got #{String.trim(File.read!(marker))} -- partition 1's watchdog sleep was " <>
+               "orphaned by the Step 3 kill"
+    end)
   end
 
   test "hung partition: the watchdog still TERMs it after the timeout", %{tmp_dir: tmp} do
@@ -350,14 +403,16 @@ defmodule Letflow.Scripts.TestParallelWatchdogOrphanTest do
 
     IO.puts("[watchdog-orphan] hung case returned in #{elapsed} ms (watchdog timeout 2 s)")
 
-    refute status == :timeout,
-           "hung partition was not killed by the watchdog within #{@prompt_ms} ms; output:\n#{out}"
+    TestParallelCapture.with_context(tmp, out, fn ->
+      refute status == :timeout,
+             "hung partition was not killed by the watchdog within #{@prompt_ms} ms; output:\n#{out}"
 
-    assert status == 1,
-           "expected non-zero exit for a killed partition, got #{inspect(status)}:\n#{out}"
+      assert status == 1,
+             "expected non-zero exit for a killed partition, got #{inspect(status)}:\n#{out}"
 
-    assert out =~ "exceeded TEST_PARALLEL_PARTITION_TIMEOUT_S=2s"
-    # the 600 s stub partition must have been cut short by the watchdog, not run out
-    assert elapsed < 60_000
+      assert out =~ "exceeded TEST_PARALLEL_PARTITION_TIMEOUT_S=2s"
+      # the 600 s stub partition must have been cut short by the watchdog, not run out
+      assert elapsed < 60_000
+    end)
   end
 end

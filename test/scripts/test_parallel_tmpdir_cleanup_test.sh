@@ -56,8 +56,8 @@ fi
 #      ever closing (END block, explicit exit 1) -- checked via awk's own
 #      process exit code, not inferred from the captured text.
 #   2. Even if (1) were bypassed, the captured block is positively bounded
-#      before eval: it must be <= 40 lines (the real block is 16 lines as of
-#      this writing; 40 gives margin for comment growth while remaining far
+#      before eval: it must be <= 150 lines (the real block is ~85 lines as of
+#      ISS-1062; 150 gives margin for comment growth while remaining far
 #      short of what an EOF over-capture into Step 2/3/4/5 would produce),
 #      and must NOT contain any token unique to Step 1.7's create/migrate
 #      loop or later ("ecto.create", "ecto.migrate", "declare -A",
@@ -107,8 +107,8 @@ if ! printf '%s' "$cleanup_block" | grep -q '^tmp_dir=\$(mktemp -d'; then
 fi
 
 block_line_count=$(printf '%s\n' "$cleanup_block" | wc -l | tr -d ' ')
-if [ "$block_line_count" -gt 40 ]; then
-  echo "FAIL: extracted cleanup_tmp_dir block from $target is $block_line_count lines (> 40) -- refusing to eval a suspiciously large capture; end marker may be misplaced/renamed" >&2
+if [ "$block_line_count" -gt 150 ]; then
+  echo "FAIL: extracted cleanup_tmp_dir block from $target is $block_line_count lines (> 150) -- refusing to eval a suspiciously large capture; end marker may be misplaced/renamed" >&2
   fail=$((fail + 1))
   echo "---"
   echo "test_parallel_tmpdir_cleanup_test: $pass passed, $fail failed"
