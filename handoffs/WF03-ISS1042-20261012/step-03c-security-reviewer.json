@@ -1,0 +1,59 @@
+{
+  "handoff_id": "bf11ff30-f5e6-4fc6-abb1-4492e9f7cc66",
+  "run_id": "WF03-ISS1042-20261012",
+  "workflow_id": "WF-03",
+  "step": "03c",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF03-ISS1042-20261012/step-03c-security-reviewer.json",
+  "created_at": "2026-10-12T04:40:24Z",
+  "started_at": null,
+  "completed_at": null,
+  "status": "PENDING",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1042": "MEDIUM, owner CI lane (follow-up of Q-1037, the next lever after sharding). Reported by the supervisor 2026-10-08. Evidence: ExUnit reports ~0.5 s average per test and ~66 min of cumulative test work per backend run (7.7k tests); a large share is believed to be the per-test tenant schema clone from tenant_template (CREATE SCHEMA ... LIKE tenant_template... for every table, see the LETFLOW_TENANT_FIXTURE setup/teardown log lines and the 'tenant_template_build' schemas): cost per test = DDL for every table of the template plus DROP SCHEMA CASCADE at teardown. NOT yet measured: step 1 is to instrument (time per clone, number of tables cloned, share of test time) on one partition, step 2 choose the lever: (a) clone only the tables the test needs, (b) share a read-only tenant across tests that do not mutate it (async-safe), (c) a pooled tenant per module with truncate-reset, (d) Postgres schema cloning via CREATE DATABASE ... TEMPLATE or a faster mechanism; keep isolation guarantees (no cross-test leakage, the ISS-0410-class isolation bugs). Each step measured before/after; mutation proof that isolation still holds (a test that leaves data behind must not leak into the next). Overlap check 2026-10-08: Q-1037 is the umbrella; ISS-0410 (isolation failure, blocked) is background, not a duplicate."
+    },
+    "related_handoff_ids": [
+      "e630a1c9-77e7-4d2a-9740-b11a734ea325"
+    ],
+    "artifacts_in": [
+      "test/support/tenant_template.ex",
+      "test/support/tenant_fixture.ex",
+      "test/support/tenant_fixture_dispatch_test.exs",
+      "test/letflow/api/identity_id_hardening_test.exs",
+      "test/letflow/routers/promotion_scope_test.exs",
+      "test/letflow/definitions/store_test.exs",
+      "docs/anti-patterns.md",
+      "docs/issues/ISS-1042.yaml"
+    ],
+    "owned_modules": [
+      "docs/anti-patterns.md",
+      "docs/issues/ISS-1042.yaml",
+      "test/letflow/api/identity_id_hardening_test.exs",
+      "test/letflow/routers/promotion_scope_test.exs",
+      "test/letflow/definitions/store_test.exs",
+      "test/letflow/support/tenant_fixture_pool_test.exs",
+      "test/letflow/support/tenant_fixture_test.exs",
+      "test/support/tenant_fixture.ex",
+      "test/support/tenant_fixture_dispatch_test.exs",
+      "test/support/tenant_template.ex"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1042-20261012"
+  },
+  "task": {
+    "description": "WF-03 Step 3 / WF-02 Step 2c: SECURITY GATE (hard gate, in-scope changes only) for ISS-1042 / Q-1042. Role file .claude/agents/security-reviewer.md; checklist docs/agents/instructions/security-invariants.md INV-1..INV-8.\n\nDIFF: `git diff origin/main...HEAD -- test/ lib/ priv/ config/ scripts/ .github/` on branch feature/WF03-ISS1042-20261012 (implementation commits 572053ab1, 21a415cff, a246a0293, c64af6c66). Implementer's handoff: handoffs/WF03-ISS1042-20261012/step-03-elixir-dev.json. Design: lib/letflow/design/iss1042-pooled-tenant-fixture.md.\n\n1. Run the SCOPE TEST per your procedure: does this diff touch a tenant-data PATH per security-invariants.md's applicability notes (API route, migration, secrets, response shaping, anything resolving a tenant/token at runtime in production)? The change is test infrastructure (test/support pooled tenant fixture, test opt-ins). Decide it yourself from the diff, citing the files: confirm that NO file under lib/, priv/, config/ (runtime), scripts/, .github/ changed and that no test helper is compiled into the production release (check mix.exs elixirc_paths for :test vs :prod).\n2. Even if out of production scope, look for SECURITY-RELEVANT test-infrastructure risk and report it as findings: SQL built by interpolation with non-quoted identifiers in the new TRUNCATE/ALTER/DROP/EXECUTE sequences (INV-7 shape: how schema and table names are quoted, whether any name can come from outside the catalog), any credential/secret/token written to logs or disk by the fixture or the measurements committed in docs/issues/ISS-1042.yaml, any code path that could run its DDL against a non-test database (guard against MIX_ENV != :test or a shared dev/QA DB), and any weakening of the existing tenant-isolation assertions in the three adopted test modules (compare adopted tests' assertions before/after: they must still test cross-tenant denial against genuinely separate tenants, not a pooled one that could mask a leak).\n3. For an out-of-scope diff: result.status PASS, summary 'out of scope - no tenant-data path touched' PLUS your finding list (severity-tagged). For in-scope or a BLOCKER finding: FAIL with failed invariants listed.\nYou are read-only: do not modify any file other than your own handoff. Complete the handoff per docs/agents/shared/HANDOFF_PROTOCOL.md (COMPLETED, real timestamps), commit and push it to the branch. Do not edit handoffs/registry.json or handoffs/orchestrator.log.",
+    "acceptance_criteria": [
+      "Instrumented measurement: clone time per test, tables per clone, share of total test time (numbers quoted)",
+      "One lever implemented with before/after wall time of the test phase (5 runs each, run ids)",
+      "Isolation proof: a test leaving data behind does not leak into the next test (mutation test)",
+      "No change to required check names; no paid runners"
+    ]
+  },
+  "result": null
+}
