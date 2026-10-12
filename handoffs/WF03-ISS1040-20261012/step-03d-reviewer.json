@@ -1,0 +1,40 @@
+{
+ "handoff_id": "c4a7d1e0-1040-4a11-8c20-000000000003d",
+ "run_id": "WF03-ISS1040-20261012",
+ "workflow_id": "WF-03",
+ "step": "03d",
+ "from_agent": "ORCH",
+ "to_agent": "REVIEWER",
+ "file": "handoffs/WF03-ISS1040-20261012/step-03d-reviewer.json",
+ "created_at": "2026-10-12T10:09:24Z",
+ "started_at": null,
+ "completed_at": null,
+ "status": "PENDING",
+ "priority": "NORMAL",
+ "context": {
+  "stage": "S1",
+  "requirement_ids": [],
+  "requirement_text": {},
+  "source_text": {
+   "Q-1040": "LOW, test-only, CI/test lane. test/letflow/engine/lua/executor_test.exs polling loops at ~L518 and ~L817 (Enum.reduce_while(1..20) with Process.sleep(10) = ~200 ms of observation) wait for a supervised Lua child while the script/call runs only timeout_ms 300; under host load the child can finish or not yet have started inside that window, so the assertion that a real in-flight child was observed can miss it. Fix: make the script deterministic instead of time-bound (script blocks on a message from the test, or the poll waits on a :started message plus a monotonic deadline well above the script's life; the script's duration is controlled by the test, not a sleep) so the window cannot close before the test looks; no global timing change. Mutation proof: a mutant that never spawns the child must still fail; stress: 100 consecutive runs under max_cases concurrency green (quote command and result). Acceptance: (1) both observation windows no longer depend on a fixed ~200 ms poll inside a 300 ms script; (2) mutant that never spawns the child still fails both tests; (3) 100 consecutive local runs under concurrency green, command and result quoted. Overlap: no open queue issue on executor_test; ISS-0456 (wasm_hang) is a different file. GH #2379."
+  },
+  "related_handoff_ids": [],
+  "artifacts_in": [
+   "test/letflow/engine/lua/executor_test.exs",
+   "lib/letflow/design/iss1040-executor-test-deterministic-window.md",
+   "docs/anti-patterns.md",
+   "docs/issues/ISS-1040.yaml",
+   "handoffs/WF03-ISS1040-20261012/step-03-elixir-dev.json"
+  ],
+  "owned_modules": [],
+  "worktree": null,
+  "branch_name": "feature/WF03-ISS1040-20261012"
+ },
+ "task": {
+  "description": "WF-03 Step 03d idiom/scope review for ISS-1040 (.claude/agents/reviewer.md). SECURITY-REVIEWER gate is not applicable: test-only diff, no tenant-data path, no lib/ change (verify with git diff a3b95f0eb..HEAD --stat: executor_test.exs, docs/anti-patterns.md, handoff). Review the diff of test/letflow/engine/lua/executor_test.exs and the docs/anti-patterns.md entry: OTP idiom (use of $callers via Process.info(pid,:dictionary) on a supervisor-owned child: race with child exit between children/1 and Process.info is handled by the nil clause?), scope creep, assertion strength (the exact :killed string; the in-flight case no longer asserts {:wallclock_timeout,300}: confirm another test still covers that), leftover process hygiene (does the test leak anything if the assertion fails before kill), decision-record consistency. No mix runs needed; if you run, use the machine mutex (mkdir /c/Users/tvolo/AppData/Local/Temp/claude/mixlock; one acquisition per invocation). Verdict result.status PASS/FAIL (handoff COMPLETED; no BOM, LF), findings BLOCKER/MAJOR/MINOR with file:line. Commit+push (message ends 'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>').",
+  "acceptance_criteria": [
+   "verdict"
+  ]
+ },
+ "result": null
+}

@@ -1,0 +1,41 @@
+{
+ "handoff_id": "c4a7d1e0-1040-4a11-8c20-000000000004b",
+ "run_id": "WF03-ISS1040-20261012",
+ "workflow_id": "WF-03",
+ "step": "04b",
+ "from_agent": "ORCH",
+ "to_agent": "TEST-DESIGN-VALIDATOR",
+ "file": "handoffs/WF03-ISS1040-20261012/step-04b-test-design-validator.json",
+ "created_at": "2026-10-12T10:09:24Z",
+ "started_at": null,
+ "completed_at": null,
+ "status": "PENDING",
+ "priority": "NORMAL",
+ "context": {
+  "stage": "S1",
+  "requirement_ids": [],
+  "requirement_text": {},
+  "source_text": {
+   "Q-1040": "LOW, test-only, CI/test lane. test/letflow/engine/lua/executor_test.exs polling loops at ~L518 and ~L817 (Enum.reduce_while(1..20) with Process.sleep(10) = ~200 ms of observation) wait for a supervised Lua child while the script/call runs only timeout_ms 300; under host load the child can finish or not yet have started inside that window, so the assertion that a real in-flight child was observed can miss it. Fix: make the script deterministic instead of time-bound (script blocks on a message from the test, or the poll waits on a :started message plus a monotonic deadline well above the script's life; the script's duration is controlled by the test, not a sleep) so the window cannot close before the test looks; no global timing change. Mutation proof: a mutant that never spawns the child must still fail; stress: 100 consecutive runs under max_cases concurrency green (quote command and result). Acceptance: (1) both observation windows no longer depend on a fixed ~200 ms poll inside a 300 ms script; (2) mutant that never spawns the child still fails both tests; (3) 100 consecutive local runs under concurrency green, command and result quoted. Overlap: no open queue issue on executor_test; ISS-0456 (wasm_hang) is a different file. GH #2379."
+  },
+  "related_handoff_ids": [],
+  "artifacts_in": [
+   "test/letflow/engine/lua/executor_test.exs",
+   "lib/letflow/design/iss1040-executor-test-deterministic-window.md",
+   "docs/anti-patterns.md",
+   "docs/issues/ISS-1040.yaml",
+   "handoffs/WF03-ISS1040-20261012/step-03-elixir-dev.json"
+  ],
+  "owned_modules": [],
+  "worktree": null,
+  "branch_name": "feature/WF03-ISS1040-20261012"
+ },
+ "task": {
+  "description": "WF-03 Step 4b hard gate (.claude/agents/test-design-validator.md) for ISS-1040. The deliverable IS a test change (executor_test.exs, two tests + helper await_own_child/2). Validate independently: (a) acceptance 1: both windows no longer depend on a fixed ~200 ms poll inside a 300 ms script; (b) acceptance 2: YOU must apply the mutants in a throwaway git worktree OUTSIDE the repo, run the file, quote real output, discard: M1 Task.Supervisor.async_nolink -> Task.async at lib/letflow/engine/lua/executor.ex:367 (both target tests must fail by assertion), M2 a mutant that spawns the child but under a DIFFERENT caller so the $callers match is lost (e.g. make the executor spawn via Task.Supervisor.start_child with no $callers, if that compiles; else say why not) -> the tests must fail, M3 weaken the tests' own guard: confirm the false-positive class is closed: with the own-child filter replaced by 'any child' the test would pass on a sibling's child: argue from code, run only if cheap; (c) acceptance 3 evidence: do NOT re-run 100 iterations; re-run 10 consecutive seeds of the exact stress command shape (see step-03 handoff result for the command) as a spot-check under the mutex; (d) the file still asserts exactly 11 :lua_wallclock_race tests and the nested isolated-partition test passes; (e) no lib/ change in the diff. Poll synchronously. Throwaway Postgres port 5499 (remove afterwards). MACHINE RULE: only ONE BEAM at a time machine-wide; every mix invocation takes the mutex, one acquisition per invocation: wrapper: L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2>/dev/null; do sleep 20; done; trap 'rmdir \"$L\" 2>/dev/null' EXIT; cd <dir> && LETFLOW_DB_PORT=5499 MIX_ENV=test <ONE mix invocation> 2>&1 . Verdict result.status PASS/FAIL (handoff COMPLETED; no BOM, LF); commit+push (message ends 'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>').",
+  "acceptance_criteria": [
+   "independent mutants applied with real output",
+   "verdict"
+  ]
+ },
+ "result": null
+}
