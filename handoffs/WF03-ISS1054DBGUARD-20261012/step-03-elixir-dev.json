@@ -7,9 +7,9 @@
   "to_agent": "ELIXIR-DEV",
   "file": "handoffs/WF03-ISS1054DBGUARD-20261012/step-03-elixir-dev.json",
   "created_at": "2026-10-12T15:10:00Z",
-  "started_at": null,
-  "completed_at": null,
-  "status": "PENDING",
+  "started_at": "2026-10-12T15:30:00Z",
+  "completed_at": "2026-10-12T16:00:00Z",
+  "status": "COMPLETED",
   "priority": "NORMAL",
   "context": {
     "stage": "S1",
@@ -32,5 +32,30 @@
   },
   "task": {
     "description": "WF-03 Step 3 implement Q-1054 / GH #2400 (local record docs/issues/ISS-1061.yaml) as ELIXIR-DEV (.claude/agents/elixir-dev.md; test-support code in test/support/ is in scope). Implement EXACTLY the design in handoffs/WF03-ISS1054DBGUARD-20261012/step-01-issue-fixer.json, validated PASS in step-02b-code-design-validator.json, WITH these corrections from the validator: (1) use Keyword.get(Repo.config(), :database) not fetch! (fail closed with ArgumentError, never KeyError) and write raises in block form; (2) T4 asserts no public.tenants row with the unique slug_prefix used by the refused call and unchanged live-pool stats; keep the global tenant_% schema / tenants counts only as a secondary before/after delta (note tenant_template matches tenant_%); (3) T5: wrap the GenServer.start of the Pool in ExUnit.CaptureLog.capture_log to silence the crash report; (4) T6 = run the WHOLE existing pool test file plus test/support/tenant_fixture_dispatch_test.exs and any other tenant-fixture tests (grep test/ for start_pool!) unchanged and green; (5) also create test/specs/ISS-1061.md (short spec: criteria -> tests T1..T5, mutants M1..M7) like other test/specs files if that convention exists (check ls test/specs). Keep the diff minimal: test/support/tenant_fixture.ex, test/letflow/support/tenant_fixture_pool_test.exs, test/specs/ISS-1061.md, optional one paragraph in lib/letflow/design/iss1042-pooled-tenant-fixture.md, optional docs/anti-patterns.md only if a real new lesson. The unguarded fresh-clone / TenantTemplate paths are OUT of scope (state so in the module doc, one sentence).\n\nMUTANTS (run each for real, quote the failing test names): apply M1 (guard removed in start_pool!/2), M2 (guard moved after GenServer.start/create_slots), M3a/M3b (always-unequal / always-equal compare), M4 (ignore :expected_database override), M5 (guard removed in Pool.init/1), M6 (prefix check removed), M7 (log instead of raise) one at a time to the working tree, run ONLY the new describe (mix test <file> --only describe:\"ISS-1061 database guard\" or by line), confirm it FAILS with the named tests, then restore (git checkout the file) and confirm a final clean green run. Never commit a mutant.\n\nLOCAL GATES before push (each = ONE mix invocation under the mutex, one acquisition each): mix format --check-formatted; MIX_ENV=test mix letflow.check.static; MIX_ENV=test mix letflow.check_async_sandbox_reachability; mix letflow.lint_handoffs; the pool test file + dispatch test file + any other start_pool! adopter test files (unchanged, green). Quote the real output and test counts. DB: throwaway Postgres on 5499 only (docker run -d --rm --name pg1054 -e POSTGRES_USER=letflow -e POSTGRES_PASSWORD=letflow -e POSTGRES_DB=letflow_dev -p 5499:5432 postgres:16 -c max_connections=200; run tests with LETFLOW_DB_PORT=5499; docker rm -f pg1054 at the end). Do not touch any other container/DB.\n\nMACHINE RULE: ONE BEAM at a time machine-wide, one mutex acquisition per mix invocation: L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2>/dev/null; do sleep 20; done; trap 'rmdir \"$L\" 2>/dev/null' EXIT; cd /c/Users/tvolo/dev/ai-dala/letflow && LETFLOW_DB_PORT=5499 MIX_ENV=test <ONE mix invocation> 2>&1 . Batch the mutants sensibly (one test invocation per mutant). Foreground/polling only; no Monitors.\n\nThen commit (pull --rebase first; message references [Q-1054 / GH #2400 / ISS-1061], ends 'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>') and push to feature/WF03-ISS1054DBGUARD-20261012 with bounded retry on github resolve failures. Result into this handoff (COMPLETED, PASS/FAIL, no BOM, LF, no self reference in artifacts_out). Reply: diff summary, test counts, mutant table, gate outputs. Do NOT open a PR, never merge.\n"
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "Implemented ISS-1061 (Q-1054 / GH #2400) per step-01 design with validator corrections. test/support/tenant_fixture.ex: new Letflow.TenantFixture.assert_test_database!/1 (Keyword.get(Repo.config(), :database), ArgumentError fail-closed, block-form raises, letflow_test* prefix check + current_database() compare), called in start_pool!/2 after Sandbox.mode(:auto) and before GenServer.start/create_slots; :expected_database opt (test seam) added to pool_opts; Pool.init/1 re-asserts as first statement; moduledoc/doc sentences incl. fresh-clone/TenantTemplate paths out of scope. Tests: describe \"ISS-1061 database guard\" T1..T5 in test/letflow/support/tenant_fixture_pool_test.exs (T5 wrapped in capture_log, T4 asserts no tenants row for the unique slug + unchanged live pool stats, global tenant_% schema/tenants counts secondary). New test/specs/ISS-1061.md; one paragraph in section 8 of lib/letflow/design/iss1042-pooled-tenant-fixture.md. Gates: mix format --check-formatted OK; letflow.check.static OK (0 violations); letflow.check_async_sandbox_reachability OK (0 new); letflow.lint_handoffs OK; pool file + dispatch + identity_id_hardening + store + promotion_scope + promotion_assertion_rerun: 183 passed (1 property, 182 tests), 0 failures; new describe alone 5 passed. Mutants (each applied alone, run, restored; no mutant committed): M1 T4; M2a T4; M2b T4; M3a module setup_all refused so all 5 invalid; M3b T2,T4,T5; M4 T2,T3,T4,T5; M5 T5; M6 T3; M7 T2,T4,T5. docs/issues/ISS-1061.yaml left open for DOC-UPDATER/ORCH to resolve.",
+    "artifacts_out": [
+      "test/support/tenant_fixture.ex",
+      "test/letflow/support/tenant_fixture_pool_test.exs",
+      "test/specs/ISS-1061.md",
+      "lib/letflow/design/iss1042-pooled-tenant-fixture.md"
+    ],
+    "tests": {
+      "new_describe": "5 passed",
+      "adopter_run": "183 passed (1 property, 182 tests), 0 failures"
+    },
+    "mutants": {
+      "M1": "T4",
+      "M2a": "T4",
+      "M2b": "T4",
+      "M3a": "all 5 invalid (setup_all refuses real DB)",
+      "M3b": "T2,T4,T5",
+      "M4": "T2,T3,T4,T5",
+      "M5": "T5",
+      "M6": "T3",
+      "M7": "T2,T4,T5"
+    }
   }
 }
