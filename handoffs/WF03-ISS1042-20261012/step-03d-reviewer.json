@@ -8,8 +8,8 @@
   "file": "handoffs/WF03-ISS1042-20261012/step-03d-reviewer.json",
   "created_at": "2026-10-12T04:41:39Z",
   "started_at": null,
-  "completed_at": null,
-  "status": "PENDING",
+  "completed_at": "2026-10-12T04:45:36Z",
+  "status": "COMPLETED",
   "priority": "NORMAL",
   "context": {
     "stage": "S1",
@@ -56,5 +56,50 @@
       "No change to required check names; no paid runners"
     ]
   },
-  "result": null
+  "result": {
+    "status": "PASS",
+    "summary": "PASS with non-blocking notes. Reviewed git diff origin/main...HEAD (test/, docs/anti-patterns.md, docs/issues/ISS-1042.yaml; no lib/ code change). Q1 unlinked GenServer.start: ACCEPTABLE, not a crutch. start_supervised!/start_link_supervised! would be WRONG here: ExUnit's OnExitHandler terminates the test supervisor BEFORE running on_exit callbacks, so a supervised worker would already be dead when pool_teardown! needs it to DROP the schemas; a link has the same defect (stated in the Pool moduledoc). Registration order is correct: on_exit(pool_teardown!) is registered immediately after GenServer.start and before the create_slots call, so a failing slot clone is still torn down. Exit paths: module-process crash, setup_all timeout and --max-failures still run the module on_exit (ExUnit runs it from the runner after the module process ends); if the worker is already dead pool_teardown! logs a warning and TenantSchemaReaper sweeps the schemas (same posture as the pre-existing per-test fixture). A hard VM kill (CI watchdog) takes worker and connections with it. No monitor/reaper is needed and none recommended; a named process left behind only makes a later start_pool! for the SAME module raise already_started, loudly. Q2 hidden global state: one registered name per module (Module.concat(Letflow.TenantFixture.Pool, module)), released on GenServer.stop or VM exit; process-dictionary keys (@pool_key/@claims_key/@fence_key) live in the per-test process only; NO ETS, persistent_term, Application env or Process.register added (the only persistent_term in the area is TenantTemplate's pre-existing @built_marker_key). Interference: pooled modules are rejected unless async: false, ExUnit runs sync modules after async ones and serially, each partition has its own database, and names are per module, so no concurrent pooled module and no collision. Q3 scope: the single dispatch point is `case pool_dispatch(opts) do {:pooled, fixture} -> fixture; :default -> default_provisioned_tenant!(opts) end` at tenant_fixture.ex ~241-252, directly after the unchanged Sandbox.mode(:auto) line; the only removed line in the file diff is a typespec line, the original body moved verbatim into default_provisioned_tenant!/1. Extra API: `extra:` opt is used (reset_public! at fixture ~1770); recycle_pool!/pool_dirty_report/pool_stats are exercised by tenant_fixture_dispatch_test; parity_check:, pool_end_fence!/0 and pool_stats.generations have no caller yet and exist for TEST-DESIGNER step 4 (stated need) - non-blocking, see R2. Size: ~887 added pool lines in tenant_fixture.ex plus 589 in tenant_template.ex for a validated 14-section design (definitional digest, fences, rebuild) is proportionate; no behaviour/macro/framework abstraction introduced; ident/literal helpers are re-implemented privately in the Pool next to tenant_template's quote helpers - tiny duplication, watch item. Q4 error handling: no swallowing catch-alls. Every worker handle_call rescue converts the exception to {:error, message} that the client raises as ExUnit.AssertionError (fail-closed, message preserved); `throw {:pool_fail, ...}` is internal control flow caught in the same handle_call; teardown collects per-step errors and reports them. Two bare rescues in owning_module/0 and test_process?/0 introspect ExUnit process dictionaries and degrade to nil/false (see R3). No `{:ok, _} =` matches on fallible paths (call results are case-matched). Timeouts: call_worker! uses :infinity (design M4) but the worker is bounded: resets run under SET LOCAL lock_timeout 3s / statement_timeout 30s (tenant_template.ex:295-296), fences have fixed 250/500 ms budgets, other Repo queries carry the DBConnection default 15 s, so the worker replies or errors; and test_helper sets no ExUnit :timeout override (ExUnit.start(exclude: ...)), so ExUnit's default 60 s per test/setup_all/on_exit kills a client blocked on a truly hung worker and fails the module loudly, long before the 30 min watchdog. Acceptable. Q5 decisions: nothing contradicts docs/migration/decisions (0009 pool sizing untouched; fixture stays test-only; Sandbox.mode(:auto) contract of ISS-0113/0423 preserved and set first in start_pool!/pool_teardown!/run_end_fence!; REQ-045 untouched - the module-scoped worker is test infrastructure, not an engine instance process, InstanceSupervisor not involved; ISS-0410 lineage addressed by public keyed-row counts and tenants/tenant_schemas snapshot compare). Q6 F2 (assert current_database()): ADOPT as a non-blocking follow-up (R1), not a blocker: start_pool! issues TRUNCATE/DROP SCHEMA CASCADE/DELETE on public, the pre-existing teardown already does DROP SCHEMA CASCADE under the same structural protection (elixirc_paths + config/test.exs letflow_test<partition>); the check is one cheap query. Q7 docs: spot-checks against the step-03 handoff match: identity_id_hardening 95.2 s -> 14.4 s (81 clean/30 reset/2 rebuilt), definitions/store_test 37.3 s -> 50.3 s (buggy digest) -> 10.3 s, digest 905 definition rows at 15-16 ms alone / 19-26 ms full probe. One wording inaccuracy (R4). ISS-1042 acceptance criterion 2 (5+5 runs) stays open by design for TEST-RUNNER. I did not run mix test (read-only review); behavioural evidence is the implementer's quoted 247-pass run, extended by TEST-DESIGNER M1..M22.",
+    "artifacts_out": [],
+    "issues": [
+      {
+        "severity": "MINOR",
+        "id": "R1",
+        "description": "Follow-up: adopt security F2 - assert current_database() starts with letflow_test (the configured test database) in start_pool!/2 or Pool.init before any DDL. Non-blocking."
+      },
+      {
+        "severity": "MINOR",
+        "id": "R2",
+        "description": "parity_check: opt, pool_end_fence!/0 and pool_stats.generations have no caller outside the pool code yet; keep only if TEST-DESIGNER consumes them at step 4, otherwise remove (scope creep)."
+      },
+      {
+        "severity": "MINOR",
+        "id": "R3",
+        "description": "owning_module/0 and test_process?/0 rescue-all to nil/false: a future ExUnit internals change would silently disable the misordered-attach rejection (falls back to per-test clone, slower not unsafe). TEST-DESIGNER should include a test that the rejection still fires."
+      },
+      {
+        "severity": "MINOR",
+        "id": "R4",
+        "description": "Docs: docs/anti-patterns.md item 2 and ISS-1042.yaml server_side_microbenchmarks say TRUNCATE of \"all 57 tables of a clone\"; a clone has 50 plain tables, 57 is the template incl. partitions. Correct at DOC-UPDATER step."
+      },
+      {
+        "severity": "INFO",
+        "id": "R5",
+        "description": "Type-safety observation (does not block): worker state, slot records and the process-dictionary claim map are untyped plain maps with atom statuses; a @type or small struct for slot/state would make a missing :baseline or invalid status unrepresentable rather than caught by probes/tests. Role file says to file this under docs/issues tagged type-safety; NOT filed by me because this dispatch limits REVIEWER to editing only its own handoff - ORCH please file it (low priority, test infrastructure)."
+      },
+      {
+        "severity": "INFO",
+        "id": "R6",
+        "description": "Implementer deviations from design 3.2/3.4 (unlinked start, tenant_snapshot not re-taken on rebuild, FK graph recomputed per reset) judged sound; design text should be updated by CODE-DESIGNER/DOC-UPDATER if the doc is kept."
+      }
+    ],
+    "git_evidence": {
+      "branch": "feature/WF03-ISS1042-20261012",
+      "commands": [
+        "git diff --stat origin/main...HEAD -- test/ docs/anti-patterns.md docs/issues/ISS-1042.yaml",
+        "grep GenServer/persistent_term/ets/put_env/rescue/catch/:infinity in test/support/tenant_fixture.ex and tenant_template.ex",
+        "git diff origin/main...HEAD of the three adopter modules (additions only)"
+      ]
+    },
+    "next_action": "ORCH: dispatch TEST-DESIGNER (step 4). Carry R1-R5 forward; TEST-DESIGNER writes the M1..M22 pool test and consumes or flags parity_check/pool_end_fence!/generations."
+  }
 }
