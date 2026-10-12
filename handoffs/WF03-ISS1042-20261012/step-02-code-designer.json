@@ -7,9 +7,9 @@
   "to_agent": "CODE-DESIGNER",
   "file": "handoffs/WF03-ISS1042-20261012/step-02-code-designer.json",
   "created_at": "2026-10-12T03:44:20Z",
-  "started_at": null,
-  "completed_at": null,
-  "status": "PENDING",
+  "started_at": "2026-10-12T03:50:50Z",
+  "completed_at": "2026-10-12T03:50:50Z",
+  "status": "COMPLETED",
   "priority": "NORMAL",
   "context": {
     "stage": "S1",
@@ -47,5 +47,32 @@
       "No change to required check names; no paid runners"
     ]
   },
-  "result": null
+  "result": {
+    "status": "PASS",
+    "summary": "Design for ISS-1042 lever (c) refined: opt-in, module-scoped tenant pool with dirty-table-only reset, in lib/letflow/design/iss1042-pooled-tenant-fixture.md. Specifies (1) API: TenantFixture.start_pool!/2 (setup_all, declared slot_specs, reset_hooks), attach_pool!/1 (setup), pool_dirty_report/1, recycle_pool!/0, pool_stats/1, new opt pool: false; TenantTemplate.capture_clone_baseline!/probe_clone_state/reset_clone_schema!/rebuild_clone_schema!; slots created only in setup_all by a linked no-$callers worker so resets commit regardless of the test's sandbox ownership; teardown on_exit reuses the per-test teardown statements. (2) Algorithm: probe every table with EXISTS in one statement (3.6 ms measured; xmin/pg_stat/reltuples rejected), structure fingerprint vs baseline, TRUNCATE of dirty tables plus explicit FK-referencing closure with RESTART IDENTITY and no CASCADE, ALTER SEQUENCE RESTART for sequence-only dirt, seed tables restored from the template not emptied, triggers untouched (TRUNCATE does not fire the BEFORE UPDATE/DELETE immutability triggers), second verify pass. (3) Public state: catalog-discovered tables keyed to the tenant (FK to tenants or *_tenant_id uuid columns) deleted children-first, tenants and tenant_schemas rows compare-and-restore against snapshots; unkeyed public rows explicitly out of scope; VM-global ETS state audit rule and audit result for the three adopters. (4) Fresh-clone classes: no pool attached (default, single dispatch point after Sandbox.mode(:auto), existing body unedited), template: :replay, teardown: false, pool: false, DDL/drop/migration tests. (5) Async: start_pool!/attach_pool! raise unless async is explicitly false; one pool per module. (6) Isolation proof: mutation classes M1-M12 (rows+FK chain, advanced sequence with row gone, seed UPDATE/DELETE/INSERT, schema_migrations, public keyed rows, tenants row, registration row, committed structure drift, lock-timeout fail-safe, late writer, cross-slot bleed, default path), cross-test order-independent shape plus recycle_pool! boundary proof with a teeth check; fail-safe INV-P1: returns only after verify proves clean, else rebuild or raise. (7) Measurement: 5+5 interleaved runs of MIX_TEST_PARTITION=1 mix test --partitions 12 (no --slowest) base b9d5fa015 vs implementation, CI run ids via gh, marker-line instrumentation, pass criteria; rollout limited to IdentityIdHardeningTest (3 slots), PromotionScopeTest (3), StoreTest (2); out-of-scope list. (8) owned_modules and must-stay-green list. No implementation code in the design. Seven open questions listed, none silently resolved (OQ-1/OQ-2: Postgres was not reachable in this step so whether test-process writes commit under DataCase checkout + Sandbox :auto is unverified; the design is correct under both answers and the implementer must record the probe result).",
+    "artifacts_out": [
+      "lib/letflow/design/iss1042-pooled-tenant-fixture.md"
+    ],
+    "issues": [
+      {
+        "severity": "MINOR",
+        "description": "Postgres (localhost:5462) was not running in this environment, so premises OQ-1/OQ-2 (sandbox-transaction behaviour of the test process after Sandbox.mode(:auto), and that a no-$callers worker gets a committed connection) could not be probed; the design is written correct under both outcomes and requires the implementer to record the answer. A scratch probe test file was created and deleted; the tree has no residue.",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "Queue text says ISS-0410 is blocked; docs/issues records it as no_defect (already noted in ISS-1042.yaml). Not acted on.",
+        "affected_requirement": null
+      }
+    ],
+    "git_evidence": {
+      "branch_name": "feature/WF03-ISS1042-20261012",
+      "commit_sha_list": [],
+      "remote_branch": "origin/feature/WF03-ISS1042-20261012",
+      "push_status": "skipped",
+      "pr_url": null,
+      "pr_create_error": null
+    },
+    "next_action": "Dispatch CODE-DESIGN-VALIDATOR on lib/letflow/design/iss1042-pooled-tenant-fixture.md; on PASS dispatch ELIXIR-DEV with the owned_modules in design section 12.1."
+  }
 }
