@@ -8,8 +8,8 @@
   "file": "handoffs/WF03-ISS1042-20261012/step-03-elixir-dev.json",
   "created_at": "2026-10-12T04:12:02Z",
   "started_at": null,
-  "completed_at": null,
-  "status": "PENDING",
+  "completed_at": "2026-10-12T04:39:20Z",
+  "status": "COMPLETED",
   "priority": "NORMAL",
   "context": {
     "stage": "S1",
@@ -53,5 +53,69 @@
       "No change to required check names; no paid runners"
     ]
   },
-  "result": null
+  "result": {
+    "status": "PASS",
+    "summary": "Implemented the opt-in module-scoped pooled tenant per lib/letflow/design/iss1042-pooled-tenant-fixture.md and adopted it in the three designated modules. TenantTemplate (test/support/tenant_template.ex): capture_clone_baseline!/1, baseline_tables/1, probe_clone_state/1,/2, probe_clone_data/2, diff_clone_state/2, clean_diff?/1, describe_diff/1, reset_clone_schema!/3 (3rd arg optional keyword with :extra, so the designed /2 form is intact), rebuild_clone_schema!/1, and one 1-statement definitional digest (classes N T C K I G F Q P R Y X H). TenantFixture (test/support/tenant_fixture.ex): start_pool!/2, attach_pool!/1, pool_dirty_report/1, recycle_pool!/0, pool_end_fence!/0, pool_stats/1, `pool:` opt, and ONE dispatch point (provisioned_tenant!/1 calls pool_dispatch/1 right after the unchanged Sandbox.mode line; the original body moved verbatim, same indentation, into defp default_provisioned_tenant!/1). Worker: Letflow.TenantFixture.Pool (GenServer, same file). Fence A (raises, M2), detect, dirty-only TRUNCATE of dirty tables + FK closure without CASCADE, sequence restart, seed re-copy from the live template, verify, final guard (probe P + public state, M3), rebuild, end fence, teardown with Sandbox.mode(:auto) first, :infinity call timeouts (M4), loud rejection of async modules and misordered/double attach. MINOR resolutions: M1 sequence OWNED BY ownership added to class Q and internal RI trigger tgenabled to class G (tested: ALTER SEQUENCE .. OWNED BY NONE and DISABLE TRIGGER ALL are seen as drift and rebuilt); M2 fence A raises pool_straggler instead of continuing; M3 stated in the Pool moduledoc (detect, verify and the final guard all include public keyed counts and tenants/tenant_schemas row equality; the final guard omits only the definitional digest); M4 :infinity; M5 a clone has 905 definition rows, 50 plain tables, no partitions (OQ-9 moot); M6 audit comments in each adopter carry an item-3 line (ETS/env/telemetry/Admission); M7 honest-limit wording and on_exit ordering note in the pool_end_fence!/0 doc; M8 fail-closed stated in the Pool moduledoc. ADOPTER AUDIT (design 6.2, re-read each module, not copied): IdentityIdHardeningTest: no Task/spawn/start_supervised/GenServer/capture_log/put_env/telemetry/api_conn/mint_token; only Routers.Identity + Identity.* called; ADOPTED (3 slots scope-a/b/p; T-12b CREATE TABLE zz_probe drives one expected rebuild). PromotionScopeTest: same grep clean; only Routers.Promotions/Definitions/Tenants; ADOPTED (3 slots). definitions/store_test.exs: Task.async at 338-339 and 1151/1162 all Task.await_many-ed in-test and linked to the test process, telemetry handler detached by on_exit and keyed to the test's own pids, Definitions.create/activate only; ADOPTED (2 slots of one shape). None failed the audit. Gates (real output): MIX_ENV=test mix compile --warnings-as-errors --force: 'Compiling 360 files (.ex) / Generated letflow app', no warnings. mix format --check-formatted (whole repo): exit 0. Scoped mix test over the three adopters + tenant_fixture_dispatch_test (with the new smoke modules) + tenant_template_test + tenant_template_retry_test + letflow/support/tenant_fixture_test (C1-C6 unchanged) + registry_tenant_schema_missing_test + tenant_provisioning_test + tenant_provisioning/backfill_test + event_store/registry_test + public_read_test + routers/public_read_test + platform_admin_outside_platform_test + platform_admin_role_binding_test (non-adopting three_tenants! users): 'Finished in 267.6 seconds ... Result: 247 passed', 0 failures. Smoke measurement (single run, whole file, Docker postgres:16 on private port 5499, default debug logging; the formal 5+5 is TEST-RUNNER's): identity_id_hardening_test 95.2 s -> 14.4 s (38 tests; 81 clean / 30 reset / 2 rebuilt acquires), promotion_scope_test 39.7 s -> 7.0 s (17 tests; 34 clean / 17 reset), definitions/store_test 37.3 s -> 10.3 s (38 tests; 7 clean / 32 reset). Digest on a real clone: 905 rows, 15-16 ms alone, full probe 19-26 ms (OQ-8 bound 40 ms). IMPORTANT FINDING during measurement: the first digest keyed internal FK (RI) triggers non-uniquely (self-FK or two FKs on one table give two UPDATE triggers with the same relation#constraint#tgtype), so every verify reported drift and rebuilt the slot (store_test 37.3 s -> 50.3 s, i.e. a regression, while all tests still passed). Fixed (tgfoid in the key plus string_agg GROUP BY) and recorded in docs/anti-patterns.md. Pre-merge verification of the isolation mechanics, done with a throwaway test file (deleted, not committed; TEST-DESIGNER owns the M1..M22 file): M1 FK chain, M2 sequence advanced / row gone (next nextval = 1), M3 seed delete/diverge, M5 public rows (tenant_memberships, FK-less secrets), M6 tenants row, M7 tenant_schemas row, M13a/b/c, M14 (idle-in-transaction straggler makes pool_end_fence! raise), M15 DISABLE TRIGGER, internal-trigger + OWNED BY NONE drift, Task writer, and assert_clone_parity! (13 dimensions) equal to the template after a reset: 12/12 passed. Schemas left behind after the runs: 0; the only tenants row is the seeded bpm-default. Container iss1042-pg (started by me on port 5499) was stopped and removed; no scratch files left in the tree.",
+    "artifacts_out": [
+      "test/support/tenant_template.ex",
+      "test/support/tenant_fixture.ex",
+      "test/support/tenant_fixture_dispatch_test.exs",
+      "test/letflow/api/identity_id_hardening_test.exs",
+      "test/letflow/routers/promotion_scope_test.exs",
+      "test/letflow/definitions/store_test.exs",
+      "docs/anti-patterns.md",
+      "docs/issues/ISS-1042.yaml"
+    ],
+    "issues": [
+      {
+        "severity": "MINOR",
+        "description": "Deviation from design 3.2: the tenant_snapshot is NOT re-taken on rebuild (only the registration snapshot is). A rebuild does not touch public.tenants, so re-snapshotting it would bless a tenants row a test had corrupted before the drift that triggered the rebuild. The design text says 're-taken on every rebuild'; this is a correctness fix of the design, not a loosening. DESIGN TEXT should be corrected by CODE-DESIGNER/DOC-UPDATER if the doc is kept.",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "Deviation from design 3.2/3.4: the worker is started with GenServer.start (unlinked), not linked to the setup_all process. A link would let the worker die with the module process BEFORE the setup_all on_exit (which runs in a different process after the module process ends) tears the schemas down; the on_exit stops it explicitly. If the worker is already gone at teardown the on_exit logs a warning and leaves the schemas to TenantSchemaReaper's sweep (as designed).",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "Deviation from design 3.2: the FK-referencing graph is recomputed inside reset_clone_schema!/3 on each reset (one catalog query, only on the dirty path) rather than cached per pool and recomputed on rebuild. Simpler and cannot go stale; cost is ~1 ms on a path that already truncates.",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "Additive API beyond design 2.1/2.2: pool_opts `parity_check: true` (runs assert_clone_parity! on every slot at creation, for TEST-DESIGNER's pool test); pool_stats gains a `generations` map (schema name => rebuild generation) so tests can prove fail-safe without a new accessor; clone_state gains definition_index, digest_ms, probe_ms; TenantTemplate gains probe_clone_data/2, diff_clone_state/2, clean_diff?/1, describe_diff/1, baseline_tables/1; reset_clone_schema! has an optional third keyword arg (:extra). All additive; the designed arities still exist.",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "Design 5.1's informative list names platform_migration_rollouts and event_history_retirements; the live catalog discovery found platform_migration_rollout_outcomes and no such tables under those names. Discovery is by catalog as designed, so no code impact; the list in the design is simply stale.",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "started_at was null when the handoff reached me (per HANDOFF_PROTOCOL 1.2 it is ORCH's); left untouched. Also: the dispatched artifacts_in listed test/support/tenant_fixture.ex etc. as inputs but no pool-test file exists yet; test/letflow/support/tenant_fixture_pool_test.exs is TEST-DESIGNER's at step 4 as instructed. The dispatched owned_modules entry test/letflow/definitions/store_test.exs is the real path (confirmed).",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "For TEST-DESIGNER / TEST-RUNNER: (1) the per-test claim state lives in the test process dictionary, hooks (after_verify / after_guard) run in the worker so a test must drive them through a global (persistent_term/atomics), as my throwaway probe did; (2) fence A and the end fence only fire for an in-flight client backend whose query text contains the slot schema or tenant id, M14 therefore needs an INSERT (schema is in the first bytes); (3) log lines to count for the 5+5 table: phase=pool_clone, phase=pool_acquire outcome=clean|reset|rebuilt, phase=pool_reset, phase=pool_fallback; check outcome counts, not just wall time (see the anti-pattern entry).",
+        "affected_requirement": null
+      }
+    ],
+    "git_evidence": {
+      "branch_name": "feature/WF03-ISS1042-20261012",
+      "commit_sha_list": [
+        "572053ab1",
+        "21a415cff",
+        "a246a0293",
+        "c64af6c66"
+      ],
+      "remote_branch": "origin/feature/WF03-ISS1042-20261012",
+      "push_status": "ok",
+      "pr_url": null,
+      "pr_create_error": null
+    },
+    "next_action": "Route to SECURITY-REVIEWER (2c)"
+  }
 }
