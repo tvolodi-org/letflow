@@ -1,0 +1,23 @@
+id: ISS-1072
+# Ref clash: the queue's issue_ref for Q-1069 is ISS-1069, but the held records bundle uses ISS-1069 for Q-1065
+# (docs/issues/ISS-1069.yaml). This record takes the next free local id, ISS-1072 (re-checked on origin/main bc6febba
+# and open PR branches). The queue and GH ids are unchanged: Q-1069 / GH #2423.
+title: "Standing priority owner: PRODUCT-OWNER keeps one ordered backlog toward the user's product goal (docs/status/priority_backlog.yaml), with a schema check and a one-lane cap on pipeline items"
+discovered_by: letflow-9a (team audit, relayed 2026-10-12); filed by letflow-2 (sole filer)
+discovered_in_run: "team audit, 2026-10-12"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: MINOR
+owner: "WF-01 with REQ-VALIDATOR before any REQ id; then PRODUCT-OWNER role file, AGENT_SYSTEM.md and ORCHESTRATOR.md section 1"
+scope: process
+description: >
+  Records only; NOT in force until merged. No role orders the backlog. Proposed: PRODUCT-OWNER gains a second duty, to
+  keep one ordered backlog file ranking open queue tasks against the user's product goal, in plain language, refreshed
+  on a trigger. The goal is a field only the user sets. A one-lane cap on pipeline, CI and test-infrastructure items
+  applies except while main is red. Related, not a duplicate: REQ-361 (closed, created the PRODUCT-OWNER release role),
+  REQ-453 (done).
+resolution: >
+  Open. Schema check for the backlog file, a first backlog covering every open queue task, the selection rule stated once
+  in ORCHESTRATOR.md, PRODUCT-OWNER edits nothing but the ranking. Queue Q-1069 / GH #2423.
+queue_ref: Q-1069
+github_ref: GH-2423
+status: open

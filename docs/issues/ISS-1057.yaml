@@ -1,0 +1,22 @@
+id: ISS-1057
+title: "Recurrence (ISS-0426 family, low): ExecutorTest AC-5 at test/letflow/engine/lua/executor_test.exs:1139 compares short and long wall-clock timeouts and failed under load on PR #2392 shard 1/3"
+discovered_by: CI (PR #2392, shard 1 of 3); filed by letflow-2
+discovered_in_run: "PR #2392 shard 1/3, failed once under load"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: LOW
+failure_class: defect
+occurrence: 2
+owner: "ELIXIR-DEV or TEST-DESIGNER (test/letflow/engine/lua/executor_test.exs); test-only"
+scope: tooling
+description: >
+  The AC-5 test is tagged :lua_wallclock_race, but its assertion still compares measured elapsed times for a
+  short and a long wall-clock timeout, so it races the wall-clock under contention. Same family as ISS-0426
+  (done) and ISS-0469 (closed, the same raw wall-clock comparison at :625). Q-1040 / GH #2379 (ISS-1040)
+  covers only :518 and :817, not this test. Under the S7 rule a repeat is a defect, so this is recorded as a
+  recurrence (occurrence 2 of the family).
+resolution: >
+  Open. Remove the raw elapsed-time dependence under contention, or run the assertion only under the
+  lua_wallclock_race isolation with a deterministic bound. Queue Q-1057 / GH #2403.
+queue_ref: Q-1057
+github_ref: GH-2403
+status: open

@@ -1,0 +1,24 @@
+id: ISS-1062
+# Ref clash: this record was written as ISS-1059 (queue Q-1059 / GH #2411). Main already has
+# docs/issues/ISS-1059.yaml for a different, resolved issue (Q-1038 / GH #2365, scripts/ filter only,
+# PR #2410), so this record takes the next free local id, ISS-1062. The queue and GH ids are unchanged.
+# Related to ISS-1059 (Q-1038): that record covers scripts/*.sh; this one widens the gap to the other paths.
+title: "ci.yml backend path filter gap: .formatter.exs and priv/ outside migrations, plus docs, handoffs and web paths the tests read, do not set backend=true, so such a change can merge without the backend gate"
+discovered_by: letflow-16 (PR #2410, Q-1038 follow-up); filed by letflow-2 (sole filer)
+discovered_in_run: "PR #2410 evidence: run 38259846157 (scripts-only) gave backend=true; run 38259853514 (docs-only) gave backend=false"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: MEDIUM
+owner: "CI lane (.github/workflows/ci.yml); no tenant-data path"
+scope: tooling
+description: >
+  The backend path filter in .github/workflows/ci.yml does not set backend=true for .formatter.exs, for
+  priv/ outside migrations (keycloak, modules, solutions, wasm_fixtures, expr_conformance), and for the
+  docs, handoffs and web files that backend tests read. A change confined to those paths can merge
+  without the backend gate running. Related: Q-1038 / GH #2365 (its local record on main is ISS-1059, resolved)
+  covers scripts/*.sh only, and PR #2410 is letflow-16's change for that line.
+resolution: >
+  Open. Widen the backend path filter to every path the backend gate reads, with a check that fails when
+  a read path is missing from the filter. Queue Q-1059 / GH #2411.
+queue_ref: Q-1059
+github_ref: GH-2411
+status: open

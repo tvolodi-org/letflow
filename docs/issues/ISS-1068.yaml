@@ -1,0 +1,23 @@
+id: ISS-1068
+# Ref clash: the queue's issue_ref for Q-1064 is ISS-1064, but the held records bundle uses ISS-1064 for Q-1061
+# (docs/issues/ISS-1064.yaml). This record takes the next free local id, ISS-1068 (re-checked on origin/main f10dab91
+# and open PR branches). The queue and GH ids are unchanged: Q-1064 / GH #2418.
+title: "Structured gate verdict and step timing in handoffs: a closed verdict set for validating roles, enforced by lint_handoffs for new handoffs, plus a read-only per-role report"
+discovered_by: letflow-9a (team audit, 2026-10-12); filed by letflow-2 (sole filer)
+discovered_in_run: "team audit, 2026-10-12"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: MINOR
+owner: "WF-01 with REQ-VALIDATOR before any REQ id; then ELIXIR-DEV (lint_handoffs) and TEST-RUNNER (report task)"
+scope: tooling
+description: >
+  Of 3,478 handoffs/*/step-*.json files, only 297 carry result.verdict; the rest put the verdict in free text in dozens
+  of spellings. About 960 lack started_at and completed_at. In handoffs/registry.json only about 26 of 366 runs have a
+  usable start and completion pair, so the rate of gate rejection and the step duration cannot be measured. Related,
+  not a duplicate: ISS-0440 (blocked) covers the top-level status enum, not the verdict or timing. Records only.
+resolution: >
+  Open. A closed verdict set (PASS, PASS_WITH_FINDINGS, FAIL) for validating roles, enforced by lint_handoffs for NEW
+  handoffs only, plus a read-only report of verdict counts and median step minutes per role and month. Queue Q-1064 /
+  GH #2418.
+queue_ref: Q-1064
+github_ref: GH-2418
+status: open

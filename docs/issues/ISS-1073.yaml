@@ -1,0 +1,24 @@
+id: ISS-1073
+# Ref clash: the queue's issue_ref for Q-1070 is ISS-1070, but the held records bundle uses ISS-1070 for Q-1066
+# (docs/issues/ISS-1070.yaml). This record takes the next free local id, ISS-1073 (re-checked on origin/main bc6febba
+# and open PR branches). The queue and GH ids are unchanged: Q-1070 / GH #2424.
+title: "Sandbox mode convention follow-up (decided on Q-1062 / GH #2415, KEEP :auto without restore): an async-false Repo module must set its own sandbox mode, and a checker catches inline :auto outside a frozen allow-list"
+discovered_by: letflow-9a (decision on Q-1062), relayed by the supervisor 2026-10-12; filed by letflow-2 (sole filer)
+discovered_in_run: "Q-1062 / GH #2415 decision, 2026-10-12"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: MINOR
+owner: "Test Design Validator is the gate; TEST-DESIGNER or ELIXIR-DEV for the checker and the fixtures; one pipeline lane at a time"
+scope: tooling
+description: >
+  Decision: KEEP the convention. Tenant-schema tests run in Sandbox :auto and do not restore :manual (ISS-0113 / INV-F-6).
+  No sweep over the 121 files that call Sandbox.mode(..., :auto) on main. The exposure is closed from the victim side:
+  no test may depend on a sandbox mode a previous test left behind; every async: false module that touches the Repo sets
+  its own mode in setup. The ISS-0113 / INV-F-6 position is recorded once in the moduledoc of
+  test/support/sandbox_auto_mode.ex. Test-only. Related: ISS-0512 (closed), ISS-0513 (closed), ISS-0705 (closed).
+resolution: >
+  Open. Checker (extend mix letflow.check_async_sandbox_reachability or a test) for async: false Repo modules without
+  DataCase or a setup mode; fails on a new inline Sandbox.mode(_, :auto) outside a frozen allow-list; the existing async
+  checker shown to catch an async: true file reaching :auto. Queue Q-1070 / GH #2424.
+queue_ref: Q-1070
+github_ref: GH-2424
+status: open

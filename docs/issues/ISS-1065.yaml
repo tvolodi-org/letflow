@@ -1,0 +1,28 @@
+id: ISS-1065
+# Ref clash: the queue's issue_ref for Q-1062 is ISS-1062, but ISS-1062 is already used in the held records bundle
+# for Q-1059 (GH #2411, not on main). This record takes the next free local id, ISS-1065 (re-checked on origin/main
+# f10dab91 and on open PR branches). The queue and GH ids are unchanged: Q-1062 / GH #2415.
+title: "Global Ecto Sandbox.mode(:auto) without restore in test/letflow/engine/meridian_loan_escalation_timer_test.exs:42 (async: false): decide the sandbox-mode convention across the ~121 test files that set :auto"
+discovered_by: letflow-3 (Q-1051 / GH #2395 review); filed by letflow-2 (sole filer)
+discovered_in_run: "Q-1051 review, 2026-10-12"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: MEDIUM
+owner: "Decision first: the BA and letflow-fc (letflow-9a role) on the convention; ELIXIR-DEV or TEST-DESIGNER for any sweep after the decision"
+scope: tooling
+description: >
+  test/letflow/engine/meridian_loan_escalation_timer_test.exs:42 calls Sandbox.mode(Letflow.Repo, :auto) and does not
+  restore the mode. A global :auto without a reset can leak state into other tests in the same partition, and it is
+  the pattern the async-sandbox checker is meant to catch if the file becomes async: true. On origin/main f10dab91,
+  121 test files call Sandbox.mode(..., :auto). A crude text check finds 27 that also contain 'async: true' (this
+  includes comments). The convention is documented as deliberate in test/support/tenant_fixture.ex:192 (ISS-0113,
+  INV-F-6). Precedent: ISS-0705 and ISS-0512 (both closed). A restore-on-exit change conflicts with the ISS-0113
+  decision, so the question is the convention, not a per-file edit.
+resolution: >
+  DECIDED 2026-10-12 by letflow-9a (relayed by the supervisor): KEEP the convention; no sweep. Implementation: Q-1070 / GH #2424
+  (ISS-1073). GH #2415 closed as decided, queue Q-1062 released done. Previously:
+  Open. Decision needed, not implementation: keep the convention and record the reason once, or change it in one
+  sweep with the ISS-0113 position revisited. Queue Q-1062 / GH #2415.
+queue_ref: Q-1062
+github_ref: GH-2415
+status: closed-decided
+implementation: ISS-1073

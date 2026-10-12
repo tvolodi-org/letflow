@@ -1061,3 +1061,21 @@ history:
       GH #2395 (follow-up, blocked by Q-1048). Written by letflow-2 (BA lane) under
       the DOC-UPDATER agent id, as in earlier events; lands in the docs bundle branch
       docs/bundle-req467-req465-iss1047-1052-runbook-20261012, not yet pushed.
+
+  - req: REQ-465
+    event: done
+    agent: DOC-UPDATER
+    at: "2026-10-12T18:35:44Z"
+    note: >
+      Status flipped from in_progress to done. The partial-adoption residual (the
+      escalation node did not name l2-approval or committee-vote-director) is closed
+      by REQ-467 (PR #2398, Q-1048), whose escalation node names the six approvals.
+      REQ-465's own change (PR #2392, definitions at 1.13 to 1.14) touches only
+      distinct_from on seven approval and payment nodes; the criteria are evidenced
+      on main: the run report node table, the three loan-path refusal tests, the
+      regulatory findings-sign-off refusal, the committee-vote refusal, the format,
+      compile and scoped-test results, and the SECURITY-REVIEWER verdict
+      (PASS_WITH_FINDINGS). The affected-scenario listing (AC 6) is recorded in
+      handoffs/WF02-REQ465-20261012/ac6-affected-scenarios.md: none changes outcome.
+      Written by letflow-2 under the DOC-UPDATER agent id, as in earlier events; lands
+      in the docs bundle branch docs/bundle-iss1053-1057-records-20261012, not yet pushed.

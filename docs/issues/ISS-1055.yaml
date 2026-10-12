@@ -1,0 +1,15 @@
+id: ISS-1055
+title: "R5 (ISS-1042 follow-up, low): the worker and slot maps in test/support/tenant_fixture.ex are untyped; add typespecs or structs"
+discovered_by: ISS-1042 follow-up R5; filed by letflow-2
+discovered_in_run: "WF03-ISS1042-20261012 (ISS-1042 resolution)"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: LOW
+owner: "CI lane / test infrastructure (test/support/tenant_fixture.ex); no production path"
+scope: tooling
+description: >
+  The worker and slot maps used by the pooled tenant fixture have no typespecs. Type-safety only.
+resolution: >
+  Open. Add typespecs or structs for the worker and slot maps; no behaviour change. Queue Q-1055 / GH #2401.
+queue_ref: Q-1055
+github_ref: GH-2401
+status: open

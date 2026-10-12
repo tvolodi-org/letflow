@@ -1,0 +1,22 @@
+id: ISS-1064
+# Ref clash: the queue's issue_ref for Q-1061 is ISS-1061, but PR #2413 (Q-1054, feature/WF03-ISS1054DBGUARD-20261012)
+# already uses docs/issues/ISS-1061.yaml. ISS-1061 stays with PR #2413. This record takes the next free local id,
+# ISS-1064 (re-checked on origin/main 2809e5ff and on open PR branches on 2026-10-12). The queue and GH ids are unchanged.
+title: "ISS-1030 AC 5 follow-up (parent Q-1012 / GH #2312): wizard-driven realm and user creation via the Keycloak admin API (BA item 4), awaiting the platform owner's decision; NOT built"
+discovered_by: letflow-4 (design AC 5, lib/letflow/design/iss1030-onboarding-administrator.md section 11, row 5); filed by letflow-2 (sole filer)
+discovered_in_run: "ISS-1030 design, PR branch feat/ISS-1030-onboarding-admin, 2026-10-12"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: MINOR
+owner: "Platform owner decides (decision gate); BA-<VERTICAL> files the follow-up requirement after the decision"
+scope: decision
+description: >
+  Follow-up required by AC 5 of the onboarding-administrator design. The design states that item 4 of the
+  original request, the wizard creating the realm user via the Keycloak admin API, is NOT built, and that no
+  Keycloak admin client exists anywhere in the code. The design says the BA files the follow-up requirement
+  after the platform owner's decision. This record is filed now so AC 5 has a queue task to point at.
+resolution: >
+  Open. Decision gate, not implementation. The platform owner decides whether the wizard creates the realm and the
+  administrator through the Keycloak admin API, or the manual runbook path stays. No implementation until recorded.
+queue_ref: Q-1061
+github_ref: GH-2414
+status: open

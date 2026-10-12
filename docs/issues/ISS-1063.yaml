@@ -1,0 +1,22 @@
+id: ISS-1063
+# Ref clash: this record was written as ISS-1060 (queue Q-1060 / GH #2412). Renumbered to the next free local
+# id, ISS-1063, because ISS-1059 on main is a different record (Q-1038 / GH #2365) and ISS-1061 is taken by
+# PR #2413. The queue and GH ids are unchanged.
+title: "Mobile and Frontend jobs always start on docs-only PRs and gate only at step level, so the jobs run as real work with no effect (pre-existing; runner-minute waste)"
+discovered_by: letflow-16 (PR #2410, Q-1038 follow-up); filed by letflow-2 (sole filer)
+discovered_in_run: "PR #2410 evidence: docs-only run 38259853514 (backend=false)"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: LOW
+owner: "CI lane (.github/workflows/ci.yml); no tenant-data path"
+scope: tooling
+description: >
+  The Mobile and Frontend jobs always start, even on docs-only PRs, and gate only at step level. They show
+  as in progress while doing no real work, and runner minutes are spent. Pre-existing. Related: REQ-420
+  (closed, added the path-filtered Mobile gate job) and ISS-0592 (done, the original paths-filter work);
+  neither covers job-level skipping for Mobile and Frontend.
+resolution: >
+  Open. Skip the Mobile and Frontend jobs at job level when their path filter is false, keeping required
+  check names unchanged and the aggregator green on a filter skip. Queue Q-1060 / GH #2412.
+queue_ref: Q-1060
+github_ref: GH-2412
+status: open

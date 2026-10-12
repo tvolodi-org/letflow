@@ -1,0 +1,20 @@
+id: ISS-1067
+title: "Cut the mandatory reading load: an anti-patterns index checked for coverage, and requirements archive volumes behind an index (anti-patterns first)"
+discovered_by: letflow-9a (team audit, 2026-10-12); filed by letflow-2 (sole filer)
+discovered_in_run: "team audit, 2026-10-12"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: MINOR
+owner: "WF-01 with REQ-VALIDATOR before any REQ id; then ELIXIR-DEV for check tasks and DOC-UPDATER for the split"
+scope: tooling
+description: >
+  Measured on origin/main f10dab91: docs/anti-patterns.md 4,685 lines, 338 KB (the audit quoted 4,689 lines), about
+  123 entries, read at session start by CLAUDE.md and at least five role files. docs/requirements.yaml 35,320 lines,
+  2.8 MB, most entries done. core-directives.md 736 lines; ORCHESTRATOR.md 536 lines. Related, not a duplicate: REQ-451
+  (open) makes the role charter binding and mandatory reading; this item is about reading volume. Records only: a
+  workflow change that must go through WF-01 with REQ-VALIDATOR before a REQ id exists.
+resolution: >
+  Open. (a) anti-patterns index, covered by a check; (b) requirements archive volumes behind an index, if (a) does not
+  finish in one turn. Queue Q-1067 / GH #2421.
+queue_ref: Q-1067
+github_ref: GH-2421
+status: open

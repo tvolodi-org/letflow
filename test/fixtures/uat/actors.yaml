@@ -133,6 +133,12 @@ actors:
     routing_roles: []
     note: "Seeded user candidate-user in realm bilimbaga (ai-dala-infra/scripts/qa-login.sh candidate-user; ISS-0690, ISS-0718, ISS-0725). CANDIDATE only, least privilege per docs/roles.md: lists installed modules; exam-session actions come from the exam module's own grants; no routing role, no TASK_WORKER."
 
+  actor-bilimbaga-admin:
+    tenant: bilimbaga
+    builtin_roles: [TENANT_ADMIN]
+    routing_roles: []
+    note: "Seeded user bilimbaga-admin-user in realm bilimbaga (ai-dala-infra secrets-inventory; qa-login.sh bilimbaga-admin-user). TENANT_ADMIN only: ai-dala-infra T-0173 (done) removed PLATFORM_ADMIN from this user. The inventory line that still says PLATFORM_ADMIN is stale (T-0178). No credential in this file; minting a token needs a qa-login mapping for this name, which is UAT-class and not yet approved."
+
   actor-vortex-dirk:
     tenant: vortex
     builtin_roles: [TASK_WORKER]

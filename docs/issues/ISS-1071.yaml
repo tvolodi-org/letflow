@@ -1,0 +1,24 @@
+id: ISS-1071
+# Ref clash: the queue's issue_ref for Q-1068 is ISS-1068, but the held records bundle uses ISS-1068 for Q-1064
+# (docs/issues/ISS-1068.yaml). This record takes the next free local id, ISS-1071 (re-checked on origin/main bc6febba
+# and open PR branches). The queue and GH ids are unchanged: Q-1068 / GH #2422.
+title: "Risk-tiered pipeline: a short chain for test-only and docs-only changes, decided by a mechanical path checklist (ORCHESTRATOR.md), with full chain kept for fixtures, roster, merge gate and security paths"
+discovered_by: letflow-9a (team audit, relayed 2026-10-12); filed by letflow-2 (sole filer)
+discovered_in_run: "team audit, 2026-10-12"
+discovered_at: "2026-10-12T00:00:00Z"
+severity: MINOR
+owner: "WF-01 with REQ-VALIDATOR before any REQ id; then REVIEWER and SECURITY-REVIEWER sign-off on the addendum and the always-FULL path list"
+scope: process
+description: >
+  Records only; NOT in force until merged; workers keep the full chain. 123 of 186 non-merge commits on main since
+  2026-10-01 touch nothing under lib/, web/, apps/ or priv/. A test-only change still runs the long chain. Proposed: a
+  mechanical SHORT tier (test/ or docs-only paths, one producer and one validator, then CI) decided from the diff's paths
+  only, with FULL kept for test/fixtures/qa/, test/fixtures/simulation/, the roster, .github/workflows/, security-scope
+  paths, and any change that removes a test or assertion or loosens a guard. Related, not a duplicate: ISS-0592 (done),
+  ISS-0840 (closed), ISS-1060 (open).
+resolution: >
+  Open. Checklist in ORCHESTRATOR.md, dated addendum to decision 0004, a checkable helper with tests, measurement and a
+  30-run review. Queue Q-1068 / GH #2422.
+queue_ref: Q-1068
+github_ref: GH-2422
+status: open
