@@ -7,9 +7,9 @@
  "to_agent": "CODE-DESIGN-VALIDATOR",
  "file": "handoffs/WF03-ISS1040-20261012/step-02b-code-design-validator.json",
  "created_at": "2026-10-12T09:28:41Z",
- "started_at": null,
- "completed_at": null,
- "status": "PENDING",
+ "started_at": "2026-10-12T09:31:12Z",
+ "completed_at": "2026-10-12T09:31:12Z",
+ "status": "COMPLETED",
  "priority": "NORMAL",
  "context": {
   "stage": "S1",
@@ -33,5 +33,28 @@
    "verdict with evidence"
   ]
  },
- "result": null
+ "result": {
+  "status": "PASS",
+  "design_file": "lib/letflow/design/iss1040-executor-test-deterministic-window.md",
+  "blockers": [],
+  "majors": [],
+  "minors": [
+   "MINOR-1: stress surface (test/letflow/engine/lua with --include) also runs the test at executor_test.exs L1541, which shells out to a nested `mix test --only lua_wallclock_race` (second BEAM and mix invocation per iteration, 100 times); the implementer must account for the mutex/BEAM rule and runtime. Design OQ-2 already flags the surface; consider excluding that one test via --exclude or accepting the nested run.",
+   "MINOR-2: design 3 step 4 says 'exactly the two target tests fail' for M1; the other 9 tagged tests never traverse the nil-heap arm except via run_script paths that do not assert on children, so this is plausible but unverified here (mix not run). The mutation run itself is the proof; the design correctly delegates it.",
+   "MINOR-3: OQ-3 (crash string ':killed') and OQ-5 (kill of :temporary child, no restart) are unverified by the designer; both are correctly deferred to the first implementation run with a rule not to loosen the assertion."
+  ],
+  "evidence": {
+   "ac1_no_fixed_poll_in_300ms_script": "Design 2.1 raises per-call timeout_ms to 30_000, replaces 20x10ms loop with monotonic 5_000 ms deadline helper, releases via Process.exit(child,:kill). Current code confirmed at executor_test.exs L518-533 and L817-832 (Enum.reduce_while(1..20), Process.sleep(10), timeout_ms: 300).",
+   "ac2_mutant": "Both tests pass max_heap_words: nil, so both traverse executor.ex L367 async_nolink arm (verified L360-373). Replacing with Task.async puts the child outside Letflow.Engine.Lua.TaskSupervisor; helper returns nil at deadline; assertion fails in both. Single mutant covers both; procedure (throwaway worktree, control run) specified.",
+   "ac3_stress": "Section 4 gives exact command (100 iterations, seeds 1..100, --max-cases 32, break on first failure) and correctly notes ExUnit runs one module serially so concurrency must come from sibling async modules; evidence format specified.",
+   "callers_claim": "Task.Supervisor.async_nolink records owner (the Task.async caller task.pid) as head of $callers in the child; the child of async_nolink is called from the Task.async process, so task.pid is matched correctly.",
+   "killed_string": "handle_yield_result({:exit, reason}) at executor.ex L701 yields \"Letflow.Engine.Lua.Executor task crashed: \" <> format_exit_reason(:killed) = inspect(:killed) = \":killed\" (L710-716); Module inspect gives Letflow.Engine.Lua.Executor. Matches design string.",
+   "eleven_tags": "11 real @tag :lua_wallclock_race lines (L348,410,431,457,492,708,799,848,953,1138,1168); other grep hits are prose; AST guard at L1450 asserts 11; design keeps tags unchanged.",
+   "no_implementation_code": "Design contains only a helper signature/contract, prose, mutant description and a shell command; no .ex/.exs bodies. Scope is test-only; no lib/ or config/ change."
+  },
+  "acceptance_criteria": {
+   "verdict with evidence": "PASS"
+  },
+  "mix_run": false
+ }
 }
