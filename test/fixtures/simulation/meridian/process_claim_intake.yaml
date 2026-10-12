@@ -82,8 +82,15 @@ graph:
       attributes:
         role: role-credit-approver-l1
         escalation_timer_duration: P2D
-        escalation_role: role-credit-director
+        escalation_role: role-cro
         form_schema: {"type": "object", "properties": {"l1_decision": {"type": "string", "title": "L1 decision", "description": "Level 1 credit decision: 'approve' or 'escalate' passes to L2 approval, 'reject' declines.", "enum": ["approve", "escalate", "reject"]}}, "required": ["l1_decision"]}
+    - id: escalate-l1-approval-to-cro
+      node_type: HUMAN_TASK
+      attributes:
+        role: role-cro
+        escalation_timer_duration: P2D
+        escalation_role: role-cro
+        form_schema: {"type": "object", "properties": {"l1_decision": {"type": "string", "title": "L1 decision (CRO escalation)", "description": "Escalation of an L1 credit decision that the L1 approver did not make in time: 'approve' or 'escalate' passes to L2 approval, 'reject' (or no answer within the escalation deadline) declines. Same decision variable as l1-approval.", "enum": ["approve", "escalate", "reject"]}}, "required": ["l1_decision"]}
     - id: l2-approval
       node_type: HUMAN_TASK
       attributes:
@@ -299,10 +306,21 @@ graph:
       source: l1-approval
       target: decline-application
       condition: "variables.l1_decision == 'reject'"
-    # fallback for l1-approval
+    # fallback for l1-approval: the CRO escalation task (Q-1051 / Q-1047 option b)
     - id: fallback-l1-approval
       source: l1-approval
+      target: escalate-l1-approval-to-cro
+    - id: e19-cro-escalated
+      source: escalate-l1-approval-to-cro
       target: l2-approval
+      condition: "variables.l1_decision == 'approve' || variables.l1_decision == 'escalate'"
+    - id: e20-cro-escalated
+      source: escalate-l1-approval-to-cro
+      target: decline-application
+      condition: "variables.l1_decision == 'reject'"
+    - id: timeout-escalate-l1-approval-to-cro
+      source: escalate-l1-approval-to-cro
+      target: decline-application
     - id: e21
       source: l2-approval
       target: create-facility

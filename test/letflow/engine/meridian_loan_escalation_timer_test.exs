@@ -1,12 +1,13 @@
 defmodule Letflow.Engine.MeridianLoanEscalationTimerTest do
   @moduledoc """
   ISS-1013 / Q-995 (GH #2282) -- engine-level proof of the D-ESC escalation chain (BA ruling
-  GH #2281) on the REAL Meridian "Loan Origination" fixture (v1.15), through the real
+  GH #2281) on the REAL Meridian "Loan Origination" fixture (v1.16), through the real
   `Definitions` registration/activation, `Engine.create/2`, `Engine.complete_task/3` and the real
   timer path the advance-timer route uses (`Scheduler.resolve_advance_target/3` +
   `Scheduler.fire_timer/2`).
 
-    * l1-approval's timer escalates to l2-approval (role-credit-director): the l1 task is CANCELLED;
+    * l1-approval's timer escalates to escalate-l1-approval-to-cro (role-cro, Q-1051 / GH #2395;
+      formerly l2-approval, which left one approver for two decisions): the l1 task is CANCELLED;
     * l2-approval's timer escalates to `escalate-l2-approval-to-ceo` (role-ceo): l2 CANCELLED, a new
       task for role-ceo is created; its own timer fails closed to `decline-application`
       (NEVER `create-facility`); an explicit 'approve' by the CEO still creates the facility;
@@ -209,7 +210,7 @@ defmodule Letflow.Engine.MeridianLoanEscalationTimerTest do
 
   # --- l1 -> l2 --------------------------------------------------------------------------------
 
-  test "l1-approval timer: the l1 task is cancelled and l2-approval (role-credit-director) is created" do
+  test "l1-approval timer: the l1 task is cancelled and escalate-l1-approval-to-cro (role-cro) is created, not l2-approval" do
     {schema, id} = at_l1_approval!()
     l1 = task!(schema, id, "l1-approval")
 
@@ -218,10 +219,10 @@ defmodule Letflow.Engine.MeridianLoanEscalationTimerTest do
     assert abs(DateTime.diff(timer.fire_at, timer.created_at, :second) - 2 * 86_400) <= 60
 
     assert Repo.get!(EngineTask, l1.id, prefix: schema).status == :cancelled
-    l2 = task!(schema, id, "l2-approval")
-    assert l2.status == :pending
-    assert l2.assignee_ref == "role-credit-director"
-    assert projection(schema, id).current_nodes == ["l2-approval"]
+    cro = task!(schema, id, "escalate-l1-approval-to-cro")
+    assert cro.status == :pending
+    assert cro.assignee_ref == "role-cro"
+    assert projection(schema, id).current_nodes == ["escalate-l1-approval-to-cro"]
   end
 
   # --- l2 -> CEO -> fail closed -----------------------------------------------------------------

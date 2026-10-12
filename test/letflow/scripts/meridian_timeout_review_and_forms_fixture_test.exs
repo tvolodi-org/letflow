@@ -126,11 +126,11 @@ defmodule Letflow.Scripts.MeridianTimeoutReviewAndFormsFixtureTest do
   ]
 
   describe "versions" do
-    test "loan is 1.15 and regulatory is 1.10 (the bumps force the QA re-seed); seed header names both" do
-      assert loan()["version"] == "1.15"
+    test "loan is 1.16 and regulatory is 1.10 (the bumps force the QA re-seed); seed header names both" do
+      assert loan()["version"] == "1.16"
       assert reg()["version"] == "1.10"
       script = File.read!(Path.expand("../../../scripts/seed_meridian_definition.sh", __DIR__))
-      assert script =~ ~s("Loan Origination" v1.15 )
+      assert script =~ ~s("Loan Origination" v1.16 )
       assert script =~ ~s("Regulatory Compliance Review" v1.10 )
     end
   end
@@ -275,6 +275,7 @@ defmodule Letflow.Scripts.MeridianTimeoutReviewAndFormsFixtureTest do
       },
       "kyc-manual-review" => %{"kyc_outcome" => ["cleared", "rejected"]},
       "l1-approval" => %{"l1_decision" => ["approve", "escalate", "reject"]},
+      "escalate-l1-approval-to-cro" => %{"l1_decision" => ["approve", "escalate", "reject"]},
       "l2-approval" => %{"l2_decision" => ["approve", "reject"]},
       "committee-vote-cro" => %{"committee_vote_cro" => ["approve", "reject"]},
       "committee-vote-director" => %{"committee_vote_director" => ["approve", "reject"]},

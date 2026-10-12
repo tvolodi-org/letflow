@@ -1,0 +1,132 @@
+{
+  "handoff_id": "4f91dc8f-7939-4e12-8487-7d191752f2c3",
+  "run_id": "WF02-Q1051-20261012",
+  "workflow_id": "WF-02",
+  "step": "05",
+  "from_agent": "ORCH",
+  "to_agent": "RELEASE-VALIDATOR",
+  "file": "handoffs/WF02-Q1051-20261012/step-05-release-validator.json",
+  "created_at": "2026-10-12T15:38:43Z",
+  "started_at": "2026-10-12T15:38:43Z",
+  "completed_at": "2026-10-12T16:51:40Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S3 (follow-up to REQ-467, per docs/issues/ISS-1051.yaml)",
+    "requirement_ids": [],
+    "queue_task": 1051,
+    "gh_issue": 2395,
+    "issue_refs": ["ISS-1051", "ISS-1047", "ISS-1050", "ISS-1001 (acceptance revised, closed issue)", "ISS-1052 (open, BA question, not folded in)"],
+    "decision_ref": "letflow-supervisor/reports/decisions/Q-1047-Q-1050-letflow-9a-decision-2026-10-12.md",
+    "branch_name": "feat/Q-1051-l1-cro-escalation-and-assessment-sod",
+    "base_sha": "f10dab91f369f596298aedc482d3b6fa2479a7f1",
+    "validated_sha": "f5d9d3f01ded96d87f160bd6cae2e1f3987ada7b",
+    "security_and_reviewer_code_head": "a8c100f843f32647ef7a2e6d712fd1e314eaa05f",
+    "clock_note": "started_at is the first clock reading taken in this run; every other timestamp is a clock reading from this run",
+    "artifacts_in": [
+      "handoffs/WF02-Q1051-20261012/step-03-security-reviewer.json",
+      "handoffs/WF02-Q1051-20261012/step-04-reviewer.json",
+      ".claude/agents/release-validator.md",
+      "docs/agents/instructions/core-directives.md",
+      "docs/agents/shared/HANDOFF_PROTOCOL.md",
+      "docs/agents/workflows/WF-02_requirement_implementation.md",
+      "test/fixtures/qa/meridian_loan_origination_process_definition.json",
+      "test/letflow/simulation/req208_meridian_test.exs",
+      "test/letflow/scripts/meridian_loan_kyc_fail_closed_fixture_test.exs",
+      "test/letflow/engine/q1051_meridian_l1_cro_and_assessment_sod_test.exs",
+      "test/support/sod_support.ex",
+      "test/support/req462_adoption.ex",
+      "lib/letflow/definitions/graph.ex",
+      "lib/letflow/definitions/role_binding.ex",
+      "docs/issues/ISS-1051.yaml",
+      "docs/issues/ISS-1001.yaml"
+    ]
+  },
+  "task": {
+    "description": "RELEASE-VALIDATOR (step 5) for Q-1051 / GH #2395 (ISS-1051) on validated sha f5d9d3f0. Part A: confirm the delta a8c100f8..f5d9d3f0 is limited to the v1.16 description clause in the loan QA fixture, a comment-only reword in req208_meridian_test.exs, and a one-space change in one test title; confirm no graph, edge, distinct_from, role, timer, version or assertion change; state that handoff commits 6c8fb815 and b0d2cdf9 are records only. Part B: independently re-run the gates on f5d9d3f0, one BEAM at a time under the mixlock mutex: MIX_ENV=test mix compile --force --warnings-as-errors; mix format --check-formatted on every changed .ex/.exs file; the 13-file Q-1051 scoped test set; mix letflow.check.static; mix letflow.check_async_sandbox_reachability; mix letflow.check_boundaries; mix letflow.check_issue_refs; mix letflow.lint_handoffs --dir handoffs/WF02-Q1051-20261012; the REQ-464 validator on the loan definition; a grep of the distinct_from lists and of the unconditioned l1-approval -> l2-approval edge; and a non-vacuity read of the new end-state assertions. Full suite: re-run scripts/test_parallel.sh or mix letflow.check.test independently, or record it as not run with the reason.",
+    "acceptance_criteria": [
+      "Part A: the delta is limited to the three files named in the task, the two handoff commits are identified as records outside the code delta, and no graph, edge, distinct_from, role, timer, version or assertion changed.",
+      "Part B items 1 to 11 are each executed on f5d9d3f0 with real output and exit codes quoted.",
+      "The full suite (scripts/test_parallel.sh or mix letflow.check.test) is re-run by RELEASE-VALIDATOR, or recorded as not run with the specific reason.",
+      "Only this verdict file is committed; nothing is pushed; letflow-3.code-workspace is not staged."
+    ]
+  },
+  "result": {
+    "status": "PARTIAL",
+    "verdict": "PARTIAL",
+    "summary": "Part A PASS. The delta a8c100f8..f5d9d3f0 changes exactly three code or test files: the loan QA fixture (one line, the description string only; a node-parsed comparison shows every top-level key other than description identical, the graph identical, version 1.16 unchanged, and the new text equal to the old text with the final period changed to a semicolon plus one appended clause), req208_meridian_test.exs (two comment lines replaced by four comment lines at 424-427, no code), and meridian_loan_kyc_fail_closed_fixture_test.exs (one space inside a test title string; the assertion is unchanged). Handoff commits 6c8fb815 (step-03) and b0d2cdf9 (step-04) add records only and are not part of the code delta. Part B: the 11 enumerated gates PASS on f5d9d3f0 (see part_b). The role-mandated full-suite re-run is NOT COMPLETE: the one-BEAM-at-a-time rule, the 10-minute call limit and the sibling session's mixlock traffic prevented a full run (see full_suite and issues). Overall status PARTIAL: release validation cannot be marked done until the full suite is confirmed.",
+    "part_a": {
+      "result": "PASS",
+      "delta_files": [
+        "test/fixtures/qa/meridian_loan_origination_process_definition.json (description line only)",
+        "test/letflow/simulation/req208_meridian_test.exs (comment lines 424-427 only)",
+        "test/letflow/scripts/meridian_loan_kyc_fail_closed_fixture_test.exs (one space in a test title)"
+      ],
+      "record_only_commits": ["6c8fb815 (adds handoffs/WF02-Q1051-20261012/step-03-security-reviewer.json)", "b0d2cdf9 (adds handoffs/WF02-Q1051-20261012/step-04-reviewer.json)"],
+      "checks": [
+        "git diff --numstat a8c100f8 f5d9d3f0: 1/1 json, 1/1 kyc test, 4/2 req208 test; handoff files 131 and 203 insertions",
+        "node JSON comparison of a8c100f8 vs f5d9d3f0 fixture: only top-level key differing is description; graph identical; version 1.16 in both",
+        "new description startsWith old description minus its final period: true; appended tail begins '; the earlier Chains sentence'",
+        "req208 hunk @@ -424,2 +424,4 @@: both old and new lines start with '#' (comment-only)",
+        "kyc hunk @@ -100 +100 @@: only the test title string changes; the assert doc()[\"version\"] == \"1.16\" line is unchanged"
+      ]
+    },
+    "part_b": {
+      "result": "PASS for the 11 enumerated gates; full suite not complete (see full_suite)",
+      "gates": [
+        {"id": 1, "gate": "MIX_ENV=test mix compile --force --warnings-as-errors", "exit": 0, "output": "Compiling 360 files (.ex); Generated letflow app; no warnings"},
+        {"id": 2, "gate": "mix format --check-formatted on the 67 changed .ex/.exs files (union of main...HEAD, origin/main...HEAD and a8c100f8..f5d9d3f0)", "exit": 0, "output": "no output"},
+        {"id": 3, "gate": "MIX_ENV=test mix test on the 13-file Q-1051 scoped set", "exit": 0, "output": "Finished in 52.8 seconds (8.6s async, 44.2s sync); Result: 145 passed; no Failed line; failure count 0"},
+        {"id": 4, "gate": "MIX_ENV=test mix letflow.check.static", "exit": 0, "output": "check_toolchain: TOOLCHAIN OFF PIN (Rust warning only, non-gating); requirements registration 434 = 434 registered + 0 deferred; req_id_collision OK; lint_handoffs OK (0 new violations across 3545 files, 25 grandfathered); async_sandbox_reachability OK; issue_refs OK (643 files); uat_scenario_schema 49 files, 0 violations; check_boundaries OK (1124 edges, 0 violations)"},
+        {"id": 5, "gate": "MIX_ENV=test mix letflow.check_async_sandbox_reachability", "exit": 0, "output": "OK -- 150 async:true test file(s) scanned under \"test\", 0 reach Sandbox.mode/2 (0 permitted, verified exceptions), 0 new violations."},
+        {"id": 6, "gate": "MIX_ENV=test mix letflow.check_boundaries", "exit": 0, "output": "OK -- 1124 edges checked, 0 violations"},
+        {"id": 7, "gate": "MIX_ENV=test mix letflow.check_issue_refs", "exit": 0, "output": "643 file(s) under docs/issues/; OK -- every cross-reference is prefixed and well-formed."},
+        {"id": 8, "gate": "MIX_ENV=test mix letflow.lint_handoffs --dir handoffs/WF02-Q1051-20261012", "exit": 0, "output": "OK -- 0 new violations across 2 handoff files (0 pre-existing grandfathered, traced to ISS-0190); re-run after this file was written, see the lint line in the final report"},
+        {"id": 9, "gate": "REQ-464 validator on test/fixtures/qa/meridian_loan_origination_process_definition.json", "exit": 0, "output": "version 1.16; nodes 36; edges 65; validate_graph valid=true violations=0; validate_node_attributes valid=true violations=0; RoleBinding.single_member_pairs candidate_pairs=0"},
+        {"id": 10, "gate": "grep and structural check of distinct_from and of l1-approval edges", "exit": 0, "output": "disburse-loan distinct_from: 12 ids; escalate-disburse-loan-to-loan-ops-lead distinct_from: 12 ids; l1-approval outgoing edges: e19 (to l2-approval, conditioned on approve or escalate), e20 (to decline-application, conditioned on reject), fallback-l1-approval (to escalate-l1-approval-to-cro, unconditioned); unconditioned l1-approval -> l2-approval edges: none"},
+        {"id": 11, "gate": "non-vacuity read of the new end-state and refusal assertions", "exit": 0, "output": "AC 1b (end-declined): decline-application is a SERVICE_TASK whose only edge e28 goes to END end-declined; timeout-escalate-l1-approval-to-cro goes to decline-application; the test asserts reached_ends == [\"end-declined\"], refutes l2-approval, create-facility and disburse-loan among engine task rows. Payment refusals: S.rows snapshot compared before and after a 403 refusal (fixed body, problem+json); reload_task status :pending; a distinct payer is then accepted and reaches end-disbursed. Helpers read real Postgres state (S.rows, reload_task!, advance_service_task! asserts a pending row, fire_escalation! asserts a real timer). Path count of 4 reproduced independently."}
+      ],
+      "scoped_set_files": 13,
+      "consumer_group_run": {"files": 14, "result": "249 passed", "exit": 0, "files_list": "every test file outside the scoped set that loads or globs the loan fixture (shipped-definition validation, default-edge scrutiny, required-outputs adoption, engine distinct-from, variable-schema, seed-payload and persona-drift tests)"}
+    },
+    "full_suite": {
+      "status": "NOT_RUN_TO_COMPLETION",
+      "required_by": "release-validator.md: scripts/test_parallel.sh and mix letflow.check.test",
+      "suite_size": "464 test files; about 7,285 test cases",
+      "why_not_completed": "The explicit instruction is one BEAM at a time under the mixlock. Unsharded scripts/test_parallel.sh and mix letflow.check.test start N parallel partitions (16 on this host), so they were not run unsharded. The one-partition shard form (TEST_PARALLEL_N=1 mix letflow.check.test --shard K/M) was attempted: --shard 1/8 hit the 570-second call budget with no result; --shard 1/16 hit the budget after about 6 minutes of partition time with 181 tenant teardowns and no result. A serial full run is estimated at well over two hours and needs many 10-minute calls while a sibling session held the mixlock for most of the run.",
+      "tests_run_in_lieu": "scoped set 145 passed plus fixture-consumer group 249 passed (394 tests, no failures)",
+      "iss_0069_substring": "'default values for the optional arguments' absent from every captured log (scoped, consumer, static). Weak evidence only: the forced test-env compile (elixirc_paths(:test) includes test/support) produced zero warnings.",
+      "orphans": "None left by this run. The shard timeout fired the test_parallel EXIT trap, which TERMed its own partition; the erl.exe processes seen afterwards were children of another session's mix test --partitions runs.",
+      "mixlock": "Created and removed by this agent only (rmdir after each step). Not deleted when held by another session."
+    },
+    "open_documentation_findings": [
+      {"id": "F-05", "source": "step-04-reviewer.json F-05 (MINOR, non-blocking)", "description": "Decision AC 1(g) and 2A(d) ask for the affected-scenario list; neither docs/issues/ISS-1051.yaml nor the branch records the scan. The branch touches no file under docs/. Still open.", "route": "DOC-UPDATER"},
+      {"id": "F-06", "source": "step-04-reviewer.json F-06 (MINOR, non-blocking)", "description": "docs/issues/ISS-1001.yaml has no revision pointer to ISS-1051 / Q-1051 for the superseded fallback-l1-approval -> l2-approval criterion. Still open.", "route": "DOC-UPDATER"},
+      {"id": "F-07", "source": "step-04-reviewer.json F-07 (OBSERVATION, not filed)", "description": "No structural assertion that escalate-l1-approval-to-cro's conditioned edges equal l1-approval's; the reject path is not exercised at runtime. Not filed; ORCH to file if wanted.", "route": "ORCH (file) / TEST-DESIGNER"},
+      {"id": "F-04", "source": "step-04-reviewer.json F-04 (pre-existing)", "description": "test/letflow/engine/meridian_loan_escalation_timer_test.exs:43 calls Sandbox.mode(Letflow.Repo, :auto) in setup; pre-existing, not introduced here, and the async check passes because the file is async false. Separate issue recommended.", "route": "ORCH"}
+    ],
+    "known_and_accepted_not_blockers": [
+      "simulation copy drift on Q-1049-owned fields (version, several distinct_from lists, required_outputs, endpoint strings)",
+      "Q-1062 and Q-1063 items filed by letflow-2, out of scope for this PR",
+      "REQ-462 and vortex test files do not call Sandbox.mode"
+    ],
+    "artifacts_out": [],
+    "issues": [
+      {"severity": "BLOCKER", "description": "Full-suite gate not completed by RELEASE-VALIDATOR. The role-mandated full run (scripts/test_parallel.sh or mix letflow.check.test, about 7,285 tests) was not finished under the one-BEAM-at-a-time rule and the 10-minute call limit; the one-partition shard runs --shard 1/8 and --shard 1/16 did not finish. Q-1051 must not be marked done until the full suite is green on the PR's CI backend gate, or a local sharded run completes (TEST_PARALLEL_N=1 MIX_ENV=test mix letflow.check.test --shard K/M for K=1..M, then --tails-only, all on f5d9d3f0).", "affected_requirement": null},
+      {"severity": "MINOR", "description": "Reviewer F-05: the affected-scenario scan required by Decision AC 1(g) and 2A(d) is not recorded anywhere in the branch. DOC-UPDATER to record it in the ISS-1051 record.", "affected_requirement": null},
+      {"severity": "MINOR", "description": "Reviewer F-06: docs/issues/ISS-1001.yaml has no revision pointer for the superseded fallback-l1-approval -> l2-approval criterion. DOC-UPDATER to add a pointer to ISS-1051 / Q-1051.", "affected_requirement": null},
+      {"severity": "MINOR", "description": "Handoff registry bookkeeping: handoffs/WF02-Q1051-20261012 is listed by the lint H5 report as on disk but missing from handoffs/registry.json (report-only; not a gate failure).", "affected_requirement": null}
+    ],
+    "git_evidence": {
+      "branch_name": "feat/Q-1051-l1-cro-escalation-and-assessment-sod",
+      "commit_sha_list": [],
+      "remote_branch": null,
+      "push_status": "skipped",
+      "pr_url": null,
+      "pr_create_error": null
+    },
+    "next_action": "ORCH: do not mark Q-1051 done on this verdict alone. (1) Confirm the full suite on f5d9d3f0 through the PR's CI backend gate (mix letflow.check.static, the test shards, the tails job), or run the sharded one-BEAM check.test form above when the mixlock is free; this closes the BLOCKER. (2) Route F-05 and F-06 to DOC-UPDATER. (3) File F-07 and the pre-existing F-04 Sandbox.mode item as separate issues. (4) Register WF02-Q1051-20261012 in handoffs/registry.json."
+  },
+  "rework_count": 0,
+  "max_rework": 3
+}

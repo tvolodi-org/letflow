@@ -54,8 +54,9 @@ defmodule Letflow.Definitions.ShippedDefinitionsDefaultEdgeScrutinyTest do
   also catches approving defaults into nodes the id list above does not know. Blind spot: an
   approving condition phrased outside that regex (`>=`, `in`, `!=`) is not seen. Exception
   (BA-accepted, ISS-1001): a target that is a HUMAN_TASK is not a violation -- a default into a
-  further human task is escalation to more scrutiny (`fallback-l1-approval` -> `l2-approval`, which
-  shares its target with the `l1_decision == 'approve'` branch by design).
+  further human task is escalation to more scrutiny (`fallback-l1-approval` ->
+  `escalate-l1-approval-to-cro`, a further HUMAN_TASK; Q-1051 / GH #2395 retargeted it from
+  `l2-approval`, which shares its target with the `l1_decision == 'approve'` branch by design).
 
   Blind spots of the second rule (deliberate): an irreversible action whose id lacks those prefixes (e.g. `book-loan`,
   `ceo-approval`) is not detected -- approval HUMAN_TASKs (`*-approval`) are intentionally NOT in

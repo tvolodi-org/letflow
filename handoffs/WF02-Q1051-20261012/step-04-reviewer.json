@@ -1,0 +1,203 @@
+{
+  "handoff_id": "8d3b7bc9-cac0-4eeb-8e0c-67e6ad6ec5f5",
+  "run_id": "WF02-Q1051-20261012",
+  "workflow_id": "WF-02",
+  "step": "04",
+  "from_agent": "ORCH",
+  "to_agent": "REVIEWER",
+  "file": "handoffs/WF02-Q1051-20261012/step-04-reviewer.json",
+  "created_at": "2026-10-12T15:27:18Z",
+  "started_at": "2026-10-12T15:27:18Z",
+  "completed_at": "2026-10-12T15:33:24Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S3 (follow-up to REQ-467, per docs/issues/ISS-1051.yaml)",
+    "requirement_ids": [],
+    "queue_task": 1051,
+    "gh_issue": 2395,
+    "issue_refs": ["ISS-1051", "ISS-1047", "ISS-1050", "ISS-1001 (acceptance revised, closed issue)", "ISS-1052 (open, BA question, correctly not folded in)"],
+    "decision_ref": "letflow-supervisor/reports/decisions/Q-1047-Q-1050-letflow-9a-decision-2026-10-12.md (Q-1047 option (b); Q-1050 option yes-five, item 2A; item 2B drain is runbook-only and not in this diff)",
+    "branch_name": "feat/Q-1051-l1-cro-escalation-and-assessment-sod",
+    "base_sha": "f10dab91f369f596298aedc482d3b6fa2479a7f1",
+    "reviewed_commits": [
+      "abba3cdf9243c6b51967a8f0675b9e278828d9aa",
+      "3e5afa5b003ba7d43a3d88656f420be3ae375971",
+      "a8c100f843f32647ef7a2e6d712fd1e314eaa05f"
+    ],
+    "head_at_review": "a8c100f843f32647ef7a2e6d712fd1e314eaa05f",
+    "head_before_this_commit": "a8c100f843f32647ef7a2e6d712fd1e314eaa05f",
+    "sibling_session_note": "Two agents shared this checkout earlier. Only commits abba3cdf and 3e5afa5b carry content; a8c100f8 is an empty commit (Part A). No sibling state was modified by REVIEWER.",
+    "artifacts_in": [
+      ".claude/agents/reviewer.md",
+      "docs/agents/instructions/core-directives.md",
+      "letflow-supervisor/reports/decisions/Q-1047-Q-1050-letflow-9a-decision-2026-10-12.md",
+      "docs/issues/ISS-1051.yaml (origin/main)",
+      "docs/issues/ISS-1047.yaml, ISS-1050.yaml, ISS-1052.yaml, ISS-1001.yaml (origin/main, read only)",
+      "handoffs/WF02-Q1048-20261012/step-04-reviewer.json (shape reference)",
+      "git diff origin/main..HEAD (13 paths, 450 insertions, 58 deletions, one added file)",
+      "test/fixtures/qa/meridian_loan_origination_process_definition.json (HEAD, v1.16)",
+      "test/fixtures/simulation/meridian/process_claim_intake.yaml (HEAD)",
+      "test/letflow/engine/q1051_meridian_l1_cro_and_assessment_sod_test.exs (HEAD, 318 lines)",
+      "test/letflow/simulation/req208_meridian_test.exs:420-440, 580-600",
+      "test/fixtures/uat/scenarios/meridian/*.yaml and test/fixtures/simulation/meridian/scenarios/*.yaml (scenario scan)",
+      "scripts/seed_meridian_persona_actors.sh:38-54, test/fixtures/uat/actors.yaml:50-71 (persona proviso)",
+      "lib/letflow/definitions/graph.ex, lib/letflow/definitions/snapshot_store.ex, test/support/sod_support.ex, test/support/req462_adoption.ex (helper signatures used by the new test, static read only)",
+      "python -I static parse of the QA JSON and sim YAML (graph structure, guard same-role pairs, small-loan path enumeration). No mix and no BEAM were run."
+    ]
+  },
+  "task": {
+    "description": "STEP 2d REVIEWER gate for Q-1051 / GH #2395 (ISS-1051). Branch feat/Q-1051-l1-cro-escalation-and-assessment-sod, base origin/main f10dab91, HEAD a8c100f8. Part A: stray-edit check of the final diff. Part B: normal REVIEWER gate (OTP idiom, test isolation, scope, decision-record consistency, description accuracy) plus a verdict on the req208 test-local graph flag. Read-only: no mix, no BEAM, no code edits. Commit only this handoff file. Do not push.",
+    "acceptance_criteria": [
+      "Part A: no duplicated blocks or entries, no stray edits, no half-written or commented-out code, no debug output, untracked letflow-3.code-workspace not committed; a8c100f8 confirmed empty.",
+      "Part B idiom and isolation: no lib/ change; new test is async false, uses real Postgres via DataCase, SodSupport and Req462Adoption, has no sleeps and no sandbox mode calls.",
+      "Scope: required_outputs_shipped_definitions_test.exs is byte-identical to origin/main (zero diff lines); no abstractions added.",
+      "Decision record: Q-1047 option (b) met; Q-1050 2A (12 distinct_from ids on both payment nodes, REQ-465 rule not widened, no same-role pair, persona proviso verified); one version bump; one re-seed.",
+      "Description accuracy: appended v1.16 sentence matches the edges; known items (Chains sentence, simulation drift on Q-1049 fields) checked for in-text documentation.",
+      "req208_meridian_test.exs fallback flag decided with a one-line verdict and the minimal change, if any."
+    ]
+  },
+  "result": {
+    "status": "PASS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "PASS_WITH_FINDINGS. Part A: no stray content found. Both WIP commits' content is clean: unique node and edge ids in the QA JSON (36 nodes, 65 edges) and the simulation YAML (36 nodes, 65 edges, parsed), no dangling edges, no duplicate entries in any distinct_from list, no duplicate test names in the 13 touched files, no debug output, no commented-out code. a8c100f8 is an empty commit (no files; its tree equals 3e5afa5b's tree). letflow-3.code-workspace is untracked, in no commit and not in the diff. Part B: no lib/ change, so no GenServer, gen_statem or supervision change. The new test is async false, uses real Postgres through DataCase, SodSupport and Req462Adoption, has no sleeps and no sandbox calls, and checks refusals by status, fixed body and an unchanged database snapshot. The guard test is byte-identical to origin/main. Decision record: Q-1047 option (b) is met (fallback-l1-approval targets escalate-l1-approval-to-cro, its conditioned edges match l1-approval's, its timeout goes to decline-application which ends at end-declined via e28); the four nodes that name l1-approval all name the new node; both payment nodes carry exactly the 12 Q-1050 ids; the new node has no distinct_from; the static guard check finds zero same-role pairs; one version bump 1.15 to 1.16 and one seed header change. The loan-ops persona proviso holds (actor-meridian-marcus holds only role-loan-ops; actor-meridian-hannah only role-loan-ops-lead). The description v1.16 sentence matches the edges. Findings: F-01 (the Chains sentence is not superseded in the text), F-02 (req208 parity comment becomes false; comment-only fix required in this PR), F-03 (typo), F-04 (pre-existing global sandbox mode in a touched file), F-05 (affected-scenario scan not recorded; scan finds no outcome change), F-06 (ISS-1001 revision not recorded), F-07 (type-safety observation, not filed).",
+    "part_a": {
+      "result": "NO_STRAY_CONTENT",
+      "checks": [
+        "git diff --stat origin/main..HEAD: 13 paths; only test/letflow/engine/q1051_meridian_l1_cro_and_assessment_sod_test.exs is new.",
+        "a8c100f8: git diff-tree returns no files; tree 3b8ae223... equals 3e5afa5b's tree. Consistent with --allow-empty; its message says the content is in abba3cdf and 3e5afa5b.",
+        "QA JSON: node ids unique (36), edge ids unique (65), no dangling edges, no duplicate entries in any distinct_from array, no self-reference.",
+        "Simulation YAML: parsed with PyYAML; node and edge ids unique; the new node and edges appear once each (process_claim_intake.yaml:87, :310-322).",
+        "Test files: no duplicate test names in any touched *.exs file.",
+        "Added lines: no IO.inspect, IO.puts, dbg, TODO, FIXME, Process.sleep, :timer.sleep, Sandbox.mode, Sandbox.allow, async: true, spawn, or Logger.debug. Added # lines are prose only; no commented-out code.",
+        "Half-written code: QA JSON and simulation YAML parse; the new test module is balanced and ends with end.",
+        "Out-of-scope edits: none. The seed script change is the header line only. The guard test has zero diff lines. No docs/ file changed in the PR.",
+        "letflow-3.code-workspace: untracked (git status ??); no commit contains it (git log --all empty); not in the diff. It must stay out of the commit.",
+        "scratch/base_loan.json: present in the working tree, gitignored (.gitignore:43), not in the diff, a pre-change copy of the QA JSON. It is not a PR stray and REVIEWER did not touch it.",
+        "REVIEWER's own leftover: a copy of origin/main's QA JSON written to C:/Users/tvolo/AppData/Local/Temp/q_main.json during this review; removed."
+      ],
+      "strays": []
+    },
+    "findings": [
+      {
+        "id": "F-01",
+        "severity": "MINOR",
+        "file": "test/fixtures/qa/meridian_loan_origination_process_definition.json",
+        "line": 4,
+        "description": "Known item, verified: the description still reads 'Chains: l1-approval (P2D) -> l2-approval (role-credit-director, via fallback-l1-approval)'. The appended v1.16 sentence does not say that this Chains route is superseded, so the text as written is wrong for v1.16 and nothing in it says so. The v1.16 sentence itself matches the edges. The earlier sentence should stay as written (the spec forbids rewriting it), but the appended sentence can carry one clause that documents the supersession.",
+        "recommendation": "Append one clause to the v1.16 sentence, for example: 'The Chains sentence above shows the v1.15 L1 route; from v1.16 l1-approval's fallback is escalate-l1-approval-to-cro.' No version change, no rewrite of earlier text.",
+        "affected_requirement": null,
+        "route": "ELIXIR-DEV",
+        "blocking": false
+      },
+      {
+        "id": "F-02",
+        "severity": "MINOR",
+        "file": "test/letflow/simulation/req208_meridian_test.exs",
+        "line": "424-425",
+        "description": "The test-local comment says l1-approval's fallback 'still targets l2-approval (unchanged from the real fixture)'. This PR makes that claim false. No parity assertion exists: the file never loads the QA fixture, and the fallback edge is never exercised (comment at lines 431-432; no l1-approval step after line 587). See the req208 decision in the result block.",
+        "recommendation": "Comment-only reword in this PR. Keep the edge at lines 433 and 587 unchanged. Example: '(REQ-208 snapshot, not kept in step with the real fixture; since v1.16 (Q-1051) the real fixture's fallback-l1-approval targets escalate-l1-approval-to-cro)'.",
+        "affected_requirement": null,
+        "route": "ELIXIR-DEV",
+        "blocking": false
+      },
+      {
+        "id": "F-03",
+        "severity": "NIT",
+        "file": "test/letflow/scripts/meridian_loan_kyc_fail_closed_fixture_test.exs",
+        "line": 100,
+        "description": "Test title reads 'distinct_from;1.13 REQ-462' with the space missing after the semicolon. Cosmetic only.",
+        "recommendation": "Insert a space after the semicolon.",
+        "affected_requirement": null,
+        "route": "ELIXIR-DEV",
+        "blocking": false
+      },
+      {
+        "id": "F-04",
+        "severity": "MINOR",
+        "file": "test/letflow/engine/meridian_loan_escalation_timer_test.exs",
+        "line": 43,
+        "description": "Pre-existing, not introduced by this PR (origin/main line 42). The setup calls Sandbox.mode(Letflow.Repo, :auto), a repo-wide sandbox mode change in a file this PR edits. The new test does not do this. This is the item the Q-1048 REVIEWER already recorded.",
+        "recommendation": "File as a separate issue under ISSUE_QUEUE.md. Do not fold it into this PR.",
+        "affected_requirement": null,
+        "route": "ORCH",
+        "blocking": false
+      },
+      {
+        "id": "F-05",
+        "severity": "MINOR",
+        "file": "docs/issues/ISS-1051.yaml (resolution field); docs/requirements.yaml has no Q-1051 record",
+        "line": null,
+        "description": "Decision AC 1(g) and 2A(d) require the affected-scenario list (every scenario whose outcome changes, none edited). The PR records none. REVIEWER scanned all 11 Meridian scenario files (6 loan scenarios: 4 UAT, 2 simulation; the 5 regulatory or compliance scenarios do not touch the changed loan nodes) and found no outcome change: no scenario reaches an L1 timeout (every L1 step is a direct completion); the only payer, actor-meridian-marcus, is never an assessor; refusal-loan-approval-and-disbursement step 12 (actor-meridian-ben, expect_refusal) is refused before and after this change. The list should say 'scanned, none changed'.",
+        "recommendation": "Record the scan result and its date in the ISS-1051 resolution or the requirement record.",
+        "affected_requirement": null,
+        "route": "DOC-UPDATER",
+        "blocking": false
+      },
+      {
+        "id": "F-06",
+        "severity": "MINOR",
+        "file": "docs/issues/ISS-1001.yaml",
+        "line": 32,
+        "description": "ISS-1001's criterion 'fallback-l1-approval -> l2-approval is unchanged' is superseded by Q-1047 option (b), per the decision. The issue file has no revision pointer. The revision is recorded only in the test comment at test/letflow/scripts/meridian_loan_origination_fixture_test.exs:88-90.",
+        "recommendation": "Add a revision note to the closed ISS-1001 record pointing to ISS-1051 and Q-1051.",
+        "affected_requirement": null,
+        "route": "DOC-UPDATER",
+        "blocking": false
+      },
+      {
+        "id": "F-07",
+        "severity": "OBSERVATION (type-safety, not filed)",
+        "file": "test/fixtures/qa/meridian_loan_origination_process_definition.json",
+        "line": "542-543 (l1-approval edges e19, e20) and 545-546 (e19-cro-escalated, e20-cro-escalated)",
+        "description": "The new escalation node's two conditioned edges repeat l1-approval's condition strings by hand, and nothing asserts they stay equal. The runtime test covers approve (q1051 test a, line 176) and timeout (test b, line 205), but not reject. This is the same copy pattern the existing escalate-l2-approval-to-ceo uses. A drift here is a state only a runtime test catches, and a shared outcome-routing definition would make it unrepresentable. Under reviewer.md item 3 this does not block PASS.",
+        "recommendation": "TEST-DESIGNER adds a structural assertion that the escalation's conditioned edges equal l1-approval's (targets and condition strings). For the type-safety item: not filed. The brief limits this commit to the report file, so ORCH should file it under docs/issues tagged type-safety if it is to be claimable work.",
+        "affected_requirement": null,
+        "route": "ORCH (file) / TEST-DESIGNER (test)",
+        "blocking": false
+      }
+    ],
+    "req208_decision": {
+      "question": "Must test/letflow/simulation/req208_meridian_test.exs (lines 422-433 and 587, test-local graphs with fallback-l1-approval -> l2-approval) be updated in this PR because its comment claims parity with the real fixture?",
+      "verdict": "It may stay as a test-local snapshot, but its parity comment at lines 424-425 is made false by this PR, so a comment-only correction is required in this PR; no graph, edge or assertion change.",
+      "reasons": [
+        "No parity assertion exists: the file never loads the QA fixture.",
+        "The fallback edge is never exercised (the file's own comment at lines 431-432; no l1-approval step after line 587).",
+        "The line 587 graph carries no parity claim and needs no change.",
+        "Adding escalate-l1-approval-to-cro to the REQ-208 design graph would be scope creep into a different requirement's graph."
+      ]
+    },
+    "scope_and_decision_record": {
+      "q1047_option_b": "met. fallback-l1-approval targets escalate-l1-approval-to-cro (role-cro, P2D); its conditioned edges match l1-approval's; its timeout (timeout-escalate-l1-approval-to-cro) goes to decline-application, which reaches end-declined through e28. No unconditioned l1-approval -> l2-approval edge remains.",
+      "q1050_2a": "met. disburse-loan and escalate-disburse-loan-to-loan-ops-lead each carry exactly the 12 ids (six approvals, the new L1 node, five assessment nodes). Assessment roles verified against ISS-1051: role-credit-manager, role-credit-director, role-risk-manager, role-cro, role-compliance-officer. No payment node's role equals any assessment role.",
+      "req465_rule": "not widened. distinct_from appears only on approval nodes (l2-approval, escalate-l2-approval-to-ceo; the new L1 id added to both) and payment nodes. The new L1 node has no distinct_from, as decided; naming risk-assessment-escalation-review would create a role-cro same-role pair, which is the deferred question tracked in ISS-1052.",
+      "guard": "required_outputs_shipped_definitions_test.exs: zero diff lines against origin/main. Static same-role check on HEAD: zero pairs (candidate_pairs 0, consistent with the commit's claim; not re-run).",
+      "one_version_bump": "met. 1.15 to 1.16 once in the QA JSON, with the test pins updated to 1.16. No stale 1.15 loan pin remains in test or scripts.",
+      "one_reseed": "met. scripts/seed_meridian_definition.sh header only.",
+      "persona_proviso": "verified. scripts/seed_meridian_persona_actors.sh:50 gives actor-meridian-marcus role-loan-ops only; :54 gives actor-meridian-hannah role-loan-ops-lead only; test/fixtures/uat/actors.yaml:70-71 agrees.",
+      "simulation_copy": "carries the L1 pair and the escalation_role change only; its version is still \"1.1\" and it has no assessment distinct_from. This is the documented Q-1049 deferral (commit a8c100f8 message). Accepted, not a finding."
+    },
+    "idiom_and_isolation": {
+      "otp": "No lib/ change. No GenServer, gen_statem, supervisor, InstanceSupervisor or spawn change. Nothing to gate under items 1, 2 or 4 of reviewer.md.",
+      "new_test": "test/letflow/engine/q1051_meridian_l1_cro_and_assessment_sod_test.exs: use Letflow.DataCase, async: false; real Postgres through SodSupport and Req462Adoption; no sleeps; no Sandbox.mode or allow; timers by Req462Adoption.fire_escalation! (no wall clock); refusals assert 403, problem+json, the fixed body, and an unchanged database snapshot (S.rows before and after); graph-walk is structural and conditions are ignored.",
+      "graph_checks": "Python static walk (same algorithm as test (c)) finds exactly 4 small-loan paths to create-facility, each containing an L1 node and an L2 node, matching the test's assertion of 4.",
+      "helper_signatures": "All helpers used by the new test exist with the arities used (sod_support.ex, req462_adoption.ex, graph.ex from_map/1, snapshot_store.ex get_by_instance_id/2, lib/letflow/engine/task.ex, service_task_dispatcher.ex ServiceTaskDispatch)."
+    },
+    "git_evidence": {
+      "branch_name": "feat/Q-1051-l1-cro-escalation-and-assessment-sod",
+      "commit_sha_list": [],
+      "report_commit": "the commit carrying this file is reported in the final message, not self-referenced here",
+      "remote_branch": null,
+      "push_status": "not pushed (per brief)",
+      "pr_url": null,
+      "pr_create_error": null
+    },
+    "not_run": [
+      "mix compile, mix format --check-formatted, mix test, mix letflow.check_boundaries, check_async_sandbox_reachability, check_issue_refs and the REQ-464 validator: not run. REVIEWER is read-only and runs no mix and no BEAM. The commit message's verification claims from ELIXIR-DEV are not re-verified here.",
+      "PyYAML and python -I static checks were used only to read the fixtures; they are not a substitute for the mix suite."
+    ],
+    "next_action": "ORCH: (1) TEST-DESIGNER may start after the gate is recorded. (2) Route F-01 and F-02 to ELIXIR-DEV as documentation fixes in this PR (no version bump, no graph change); F-03 optional. (3) Route F-04 to ORCH as a separate issue, not this PR. (4) Route F-05 and F-06 to DOC-UPDATER. (5) File F-07 under docs/issues tagged type-safety if it is to be tracked, and ask TEST-DESIGNER for the structural equality assertion. (6) Any later change to routing, distinct_from or the QA fixture needs the normal SECURITY-REVIEWER pass; the security gate is separate and not decided here. (7) The Q-1047 / Q-1050 2B drain rule is a runbook item and was not in scope for this diff."
+  },
+  "rework_count": 0,
+  "max_rework": 3
+}

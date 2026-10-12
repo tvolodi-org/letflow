@@ -24,33 +24,36 @@ defmodule Letflow.Scripts.Req465MeridianDistinctFromFixtureTest do
   @loan "meridian_loan_origination_process_definition.json"
   @regulatory "meridian_regulatory_compliance_review_process_definition.json"
 
+  # Q-1051 / GH #2395: the two payment nodes name the six approval nodes, the new L1 CRO escalation
+  # node (Q-1047 option b) and the five assessment nodes (Q-1050, assessment/payment separation).
+  @payment_distinct_from [
+    "l1-approval",
+    "escalate-l1-approval-to-cro",
+    "l2-approval",
+    "escalate-l2-approval-to-ceo",
+    "committee-vote-cro",
+    "committee-vote-director",
+    "committee-vote-ceo",
+    "credit-memo-review",
+    "credit-memo-escalation-review",
+    "risk-assessment",
+    "risk-assessment-escalation-review",
+    "kyc-manual-review"
+  ]
+
   # node id => the listed distinct_from ids, exactly as the requirement's table records them.
   @expected %{
     @loan => %{
-      "l2-approval" => ["l1-approval"],
-      "escalate-l2-approval-to-ceo" => ["l1-approval"],
+      "l2-approval" => ["l1-approval", "escalate-l1-approval-to-cro"],
+      "escalate-l2-approval-to-ceo" => ["l1-approval", "escalate-l1-approval-to-cro"],
       "committee-vote-cro" => ["committee-vote-director", "committee-vote-ceo"],
       "committee-vote-director" => ["committee-vote-cro", "committee-vote-ceo"],
       "committee-vote-ceo" => ["committee-vote-cro", "committee-vote-director"],
-      "disburse-loan" => [
-        "l1-approval",
-        "l2-approval",
-        "escalate-l2-approval-to-ceo",
-        "committee-vote-cro",
-        "committee-vote-director",
-        "committee-vote-ceo"
-      ],
+      "disburse-loan" => @payment_distinct_from,
       # Q-1048 / GH #2390 closes the REQ-465 residual: the node now routes to role-loan-ops-lead, which
       # no approval node holds, so the two same-role approvals (l2-approval and committee-vote-director,
-      # both role-credit-director) can be named without a same-role pair. All six approval nodes listed.
-      "escalate-disburse-loan-to-loan-ops-lead" => [
-        "l1-approval",
-        "l2-approval",
-        "escalate-l2-approval-to-ceo",
-        "committee-vote-cro",
-        "committee-vote-director",
-        "committee-vote-ceo"
-      ]
+      # both role-credit-director) can be named without a same-role pair. Q-1051 widens it to 12 ids.
+      "escalate-disburse-loan-to-loan-ops-lead" => @payment_distinct_from
     },
     @regulatory => %{
       "findings-sign-off" => ["evidence-collection", "risk-evaluation", "remediation-subprocess"],
@@ -95,9 +98,10 @@ defmodule Letflow.Scripts.Req465MeridianDistinctFromFixtureTest do
     end
   end
 
-  test "versions: loan is 1.15 (from 1.14, Q-1048) and regulatory is 1.10 (from 1.9); each description says why (REQ-465 / Q-1048)" do
-    assert doc(@loan)["version"] == "1.15"
+  test "versions: loan is 1.16 (from 1.15, Q-1051) and regulatory is 1.10 (from 1.9); each description says why (REQ-465 / Q-1048 / Q-1051)" do
+    assert doc(@loan)["version"] == "1.16"
     assert doc(@regulatory)["version"] == "1.10"
+    assert doc(@loan)["description"] =~ "Q-1051"
     assert doc(@loan)["description"] =~ "Q-1048"
     assert doc(@loan)["description"] =~ "REQ-465"
     assert doc(@regulatory)["description"] =~ "REQ-465"

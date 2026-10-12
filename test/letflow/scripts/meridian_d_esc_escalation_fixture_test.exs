@@ -52,6 +52,7 @@ defmodule Letflow.Scripts.MeridianDEscEscalationFixtureTest do
         "committee-vote-director",
         "committee-vote-ceo",
         "escalate-l2-approval-to-ceo",
+        "escalate-l1-approval-to-cro",
         "escalate-disburse-loan-to-loan-ops-lead"
       ]
     },
@@ -78,6 +79,7 @@ defmodule Letflow.Scripts.MeridianDEscEscalationFixtureTest do
         "committee-vote-director",
         "committee-vote-ceo",
         "escalate-l2-approval-to-ceo",
+        "escalate-l1-approval-to-cro",
         "escalate-disburse-loan-to-loan-ops-lead"
       ]
     },
@@ -278,7 +280,8 @@ defmodule Letflow.Scripts.MeridianDEscEscalationFixtureTest do
 
     test "loan: timer durations, escalation roles and timeout targets", %{loan: d} do
       expected = %{
-        "l1-approval" => {"P2D", "role-credit-director", "l2-approval"},
+        "l1-approval" => {"P2D", "role-cro", "escalate-l1-approval-to-cro"},
+        "escalate-l1-approval-to-cro" => {"P2D", "role-cro", "decline-application"},
         "l2-approval" => {"P2D", "role-ceo", "escalate-l2-approval-to-ceo"},
         "escalate-l2-approval-to-ceo" => {"P2D", "role-ceo", "decline-application"},
         "disburse-loan" =>
