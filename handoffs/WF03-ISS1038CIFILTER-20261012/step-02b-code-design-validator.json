@@ -1,0 +1,38 @@
+{
+ "handoff_id": "c4a7d1e0-1038-4a11-8c20-0000000000b2",
+ "run_id": "WF03-ISS1038CIFILTER-20261012",
+ "workflow_id": "WF-03",
+ "step": "02b",
+ "from_agent": "ORCH",
+ "to_agent": "CODE-DESIGN-VALIDATOR",
+ "file": "handoffs/WF03-ISS1038CIFILTER-20261012/step-02b-code-design-validator.json",
+ "created_at": "2026-10-12T12:43:54Z",
+ "started_at": null,
+ "completed_at": null,
+ "status": "PENDING",
+ "priority": "NORMAL",
+ "context": {
+  "stage": "S1",
+  "requirement_ids": [],
+  "requirement_text": {},
+  "source_text": {
+   "Q-1038": "LOW, CI lane, owner letflow-3. Queue Q-1038 / GH #2365, queue issue_ref ISS-1038. Source: letflow-3 CI speed analysis (Q-1037 / GH #2364 comment). Evidence: the 'Detect changed paths' filter in .github/workflows/ci.yml only matches lib/, priv/repo/migrations/, test/, mix.exs, mix.lock, .tool-versions, config/ and .github/workflows/ci.yml, so a PR that changes scripts/test_parallel.sh (the partition runner the backend gate itself uses) gets backend=false and the backend gate is skipped on that PR. Fix: add scripts/test_parallel.sh and any other script the backend gate itself runs (read what `mix letflow.check` and the gate steps invoke under scripts/) to the backend pattern; keep the A3 / merge_group behaviour intact; required check names unchanged. Test: a throwaway PR touching only scripts/test_parallel.sh shows the backend gate running (run id quoted); a docs-only PR still skips it. Related: Q-1037. Acceptance: (1) scripts/test_parallel.sh and every other script executed by the backend gate are in the backend path pattern; (2) a PR touching only scripts/test_parallel.sh runs the backend gate (run id quoted); a docs-only PR still skips it; (3) merge_group trigger and required check names unchanged. Supervisor rules: check names byte-exact, NO aggregator / branch-protection change (that is the user's), full local gates, PR body per template; diff of the filter only."
+  },
+  "related_handoff_ids": [],
+  "artifacts_in": [
+   "docs/issues/ISS-1059.yaml",
+   ".github/workflows/ci.yml",
+   "handoffs/WF03-ISS1038CIFILTER-20261012/step-01-issue-fixer.json"
+  ],
+  "owned_modules": [],
+  "worktree": null,
+  "branch_name": "feature/WF03-ISS1038CIFILTER-20261012"
+ },
+ "task": {
+  "description": "WF-03 Step 2b hard gate (.claude/agents/code-design-validator.md) on the ISSUE-FIXER's fix design for the CI path filter (Q-1038 / GH #2365; local record docs/issues/ISS-1059.yaml; step-01 handoff handoffs/WF03-ISS1038CIFILTER-20261012/step-01-issue-fixer.json). The change is ONE line in .github/workflows/ci.yml, so ORCH uses the ISSUE-FIXER's design (exact diff, table test) as the design artefact and gates it here instead of a separate CODE-DESIGNER pass.\n\nORCH DECISION (scope): option B, minimal: add ONLY the alternative  scripts/.*\\.sh$  to the backend grep -qE alternation (the issue's scope is the scripts the gate runs). The wider candidates (priv/ outside migrations, .formatter.exs, docs/handoffs read by static checks, web/ files read by tests, cd.yml) are NOT in this PR and will be filed as a follow-up.\n\nValidate:\n(1) The claimed script list is complete: independently grep lib/mix/tasks, test/, .github/workflows/ci.yml and mix.exs aliases for scripts/ executions or reads and report anything the step-01 list missed (only scripts/*.sh matter for this regex; scripts/lib/*.sh is covered by scripts/.*\\.sh$).\n(2) Regex B is correct in grep -E (the .* part, the \\.sh$ anchoring, interaction with the leading ^( ... ) group); it must not match scripts/README.md or scripts/*.py, and must still match every old path. Re-run the table in the step-01 handoff yourself in bash with the real line extracted from ci.yml (apply the B edit to a scratch copy, not the repo).\n(3) Docs-only PRs still skip; push, merge_group and fallback branches and all job name: values are byte-identical: show that git diff would touch exactly one line.\n(4) The proof plan is sound: a throwaway PR with base = the fix branch touching only scripts/test_parallel.sh, plus a docs-only throwaway PR, both closed and their branches deleted afterwards, with no required-check or branch-protection change; also state whether a pull_request run uses the workflow file of the merge commit (HEAD merged onto base) so that a throwaway PR with base = fix branch really exercises the fixed filter.\nNo mix needed. Verdict PASS/FAIL in result.status; findings BLOCKER/MAJOR/MINOR.\n\nCommit + push (pull --rebase first; retry on github.com resolve failures; message ends 'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>'); result into this handoff (COMPLETED, PASS/FAIL; no BOM, LF).\n",
+  "acceptance_criteria": [
+   "verdict with independent evidence"
+  ]
+ },
+ "result": null
+}

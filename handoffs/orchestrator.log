@@ -2831,3 +2831,5 @@
 2026-10-12T12:35:27Z | RUN_DONE | WF-03 | WF03-ISS1058-20261012 | ORCH | Q-1058 / ISS-1058 resolved (H2 test defect), PR #2407 merged 7a66381e7 (squash), queue task 1058 released done, GH #2406 evidence comment posted; main CI 38248622813 green on the merge sha
 2026-10-12T12:35:27Z | START | WF-03 | WF03-ISS1038CIFILTER-20261012 | ORCH | Q-1038 / GH #2365 claimed as tvolodi-orch (supervisor assignment); branch created by ORCH; local ISS number clash with ISS-1038.yaml (Q-1039) noted
 2026-10-12T12:35:27Z | DISPATCH | WF-03 | WF03-ISS1038CIFILTER-20261012 | ORCH → ISSUE-FIXER | Step 01 diagnosis
+2026-10-12T12:43:54Z | PASS | WF-03 | WF03-ISS1038CIFILTER-20261012 | ISSUE-FIXER → ORCH | Step 01 PASS (2e094d21e; backend regex lacks scripts/; ORCH scope decision B = scripts/.*\.sh$ only, extras to a follow-up; separate CODE-DESIGNER pass skipped for a one-line change, ISSUE-FIXER design gated by CODE-DESIGN-VALIDATOR instead)
+2026-10-12T12:43:54Z | DISPATCH | WF-03 | WF03-ISS1038CIFILTER-20261012 | ORCH → CODE-DESIGN-VALIDATOR | Step 02b
