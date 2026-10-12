@@ -1,0 +1,41 @@
+{
+ "handoff_id": "c4a7d1e0-1040-4a11-8c20-000000000002",
+ "run_id": "WF03-ISS1040-20261012",
+ "workflow_id": "WF-03",
+ "step": "02",
+ "from_agent": "ORCH",
+ "to_agent": "CODE-DESIGNER",
+ "file": "handoffs/WF03-ISS1040-20261012/step-02-code-designer.json",
+ "created_at": "2026-10-12T09:28:41Z",
+ "started_at": null,
+ "completed_at": null,
+ "status": "PENDING",
+ "priority": "NORMAL",
+ "context": {
+  "stage": "S1",
+  "requirement_ids": [],
+  "requirement_text": {},
+  "source_text": {
+   "Q-1040": "LOW, test-only, CI/test lane. test/letflow/engine/lua/executor_test.exs polling loops at ~L518 and ~L817 (Enum.reduce_while(1..20) with Process.sleep(10) = ~200 ms of observation) wait for a supervised Lua child while the script/call runs only timeout_ms 300; under host load the child can finish or not yet have started inside that window, so the assertion that a real in-flight child was observed can miss it. Fix: make the script deterministic instead of time-bound (script blocks on a message from the test, or the poll waits on a :started message plus a monotonic deadline well above the script's life; the script's duration is controlled by the test, not a sleep) so the window cannot close before the test looks; no global timing change. Mutation proof: a mutant that never spawns the child must still fail; stress: 100 consecutive runs under max_cases concurrency green (quote command and result). Acceptance: (1) both observation windows no longer depend on a fixed ~200 ms poll inside a 300 ms script; (2) mutant that never spawns the child still fails both tests; (3) 100 consecutive local runs under concurrency green, command and result quoted. Overlap: no open queue issue on executor_test; ISS-0456 (wasm_hang) is a different file. GH #2379."
+  },
+  "related_handoff_ids": [],
+  "artifacts_in": [
+   "docs/issues/ISS-1040.yaml",
+   "test/letflow/engine/lua/executor_test.exs",
+   "lib/letflow/engine/lua/executor.ex"
+  ],
+  "owned_modules": [
+   "lib/letflow/design/iss1040-executor-test-deterministic-window.md"
+  ],
+  "worktree": null,
+  "branch_name": "feature/WF03-ISS1040-20261012"
+ },
+ "task": {
+  "description": "WF-03 Step 2 fix design for ISS-1040 (.claude/agents/code-designer.md). Input: docs/issues/ISS-1040.yaml (ISSUE-FIXER's root cause + fix design; its race analysis was reproduced). Produce lib/letflow/design/iss1040-executor-test-deterministic-window.md: design only, no implementation code beyond signatures/pseudocode of at most a few lines. Must cover each acceptance criterion: (1) exact replacement of the ~200 ms poll in both tests (L518 'AC-5 child of TaskSupervisor' and L817 'nil max_heap_words') with the deterministic mechanism (large per-call timeout_ms so the test bounds the script life; locate the test's OWN child via the $callers entry containing the task pid, rather than any global child; monotonic deadline ~5 s; explicit release via Process.exit(child,:kill) and the exact asserted return); a shared private helper if both tests use the same code; (2) how the mutant (Task.Supervisor.async_nolink swapped for Task.async at lib/letflow/engine/lua/executor.ex:367) fails BOTH tests, and how TEST-DESIGN-VALIDATOR can apply it in a throwaway worktree; (3) the 100-run stress command (specify a shell loop of mix test runs of the two tests with different seeds under max_cases concurrency, exact command, to be run under the machine mutex wrapper, and what 'green' means); also the invariants: same two test names/tags (the file asserts exactly 11 :lua_wallclock_race tagged tests, partition reports 11), no lib/ change, no global timing change, async flag unchanged unless the helper needs otherwise, and the async:true global-supervisor false-positive class is closed by the own-child lookup. List open questions explicitly. No mix runs needed. Commit + push (message ends 'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>'); write result into this handoff.",
+  "acceptance_criteria": [
+   "design covers all 3 acceptance criteria",
+   "no implementation code"
+  ]
+ },
+ "result": null
+}
