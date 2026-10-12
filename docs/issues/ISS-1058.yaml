@@ -26,12 +26,24 @@ description: >
   the ArgumentError 'asked a pooled module for slot {shape, 2}, which start_pool!/2 did not declare'
   (claims leaked twice).
 resolution: >
-  Open (diagnosis complete, fix not implemented). Design: (a) make write!(:fk_chain) repeatable
-  (ids from uniq/gen_random_uuid), or dedupe; (b) start each iteration with recycle_pool!/0 so an
-  aborted prior attempt cannot leak claims into the next, and assert fx(:a).schema_name ==
-  a.schema_name after the boundary so a wrong-schema check can never pass or fail silently;
-  (c) add fixed regression cases for [:fk_chain, :fk_chain]/:test and [:groups]/:test after an aborted
-  attempt. The property's claim is unchanged.
+  Verdict H2 (test defect, not an isolation hole). The pool leaves no row in an attached tenant
+  after recycle; the property inspected the wrong slot. Chain: the fixed-PK :fk_chain writer,
+  repeated by the generator, raises 23505 inside the iteration; that aborts the iteration before
+  recycle_pool!/0, so the claims map leaks; the shrink re-run in the same process claims the other
+  declared slot; nonseed_rows(a.schema_name) then inspects the wrong slot. Fix (test-only, no lib/
+  change): repeatable ids for write!(:fk_chain), recycle_pool!/0 at iteration start, an assertion
+  that fx(:a).schema_name == a.schema_name after the boundary, and fixed regression cases C1, C1b,
+  C2, C3, C4 beside the property. The property's claim (any set of row writers is invisible after
+  the boundary, and the pool never rebuilds) is NOT weakened: same generator domain, same
+  invisibility and no-rebuild assertions, now checked against the schema that holds the writes.
+  Evidence: pre-fix main file fails seed 193355 at 56/57; post-fix 62 passed on seeds 193355,
+  40898, 7 and 9 others; mutants MU1, MU2, MU3, MU4a, MU4b, MU5 all fail the property; the
+  release validator's own runs on 193355 and 40898 are green (handoff
+  handoffs/WF03-ISS1058-20261012/step-05v-release-validator.json).
 queue_ref: Q-1058
 github_ref: GH-2406
-status: open
+status: resolved
+resolved_in_run: WF03-ISS1058-20261012
+resolved_at: "2026-10-12T12:10:00Z"
+regression_test: test/letflow/support/tenant_fixture_pool_test.exs
+regression_cases: "C1, C1b, C2, C3, C4 plus the property (seeds 193355 and 40898 as fixed cases)"
