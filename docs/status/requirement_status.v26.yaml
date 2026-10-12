@@ -1001,3 +1001,20 @@ history:
       Environmental caveat from step 05: 3 failures in
       Letflow.Scripts.UatPreflightLocalDepsTest on this Windows host, file
       untouched by this branch; CI is the authoritative full-suite gate.
+
+  - req: REQ-457
+    event: done
+    agent: DOC-UPDATER
+    at: "2026-10-12T05:12:10Z"
+    note: >
+      Status flipped to done with an explicit exception, per handover item H1e
+      (supervisor ruling 2026-10-07: must not read plain done while the
+      TENANT_AUDITOR step is outstanding). The refusal scenarios of queue task
+      974 (Q-974, GH #2246) were released done on 2026-10-07 (PR #2361 /
+      d6601fbc) and delivered every refusal scenario except the TENANT_AUDITOR
+      step. Residual: Q-1036 / GH #2363, which waits for REQ-448 (Q-965). The
+      status line in docs/requirements.yaml now reads "done  # done except the
+      TENANT_AUDITOR step (residual Q-1036 / GH #2363, waits for REQ-448)".
+      Written by letflow-2 (BA/UAT lane) on the handover's instruction, under
+      the DOC-UPDATER agent id; lands in the ONE docs bundle branch
+      docs/h1-bundle-req457-iss1043-20261012, not yet pushed.

@@ -1,0 +1,147 @@
+{
+  "handoff_id": "6e172765-445c-4ed7-bfd2-9e407e5134b3",
+  "run_id": "HANDOVER-letflow-2-20261008",
+  "workflow_id": "WF-01",
+  "step": "handover",
+  "from_agent": "ORCH",
+  "to_agent": "ORCH",
+  "file": "handoffs/HANDOVER-letflow-2-20261008/step-01-handover-orch-uat.json",
+  "created_at": "2026-10-08T05:43:08.193898Z",
+  "status": "PENDING",
+  "priority": "NORMAL",
+  "context": {
+    "summary": "Handover of letflow-2 (UAT/BA/ORCH lane) to the next round after the team stop of 2026-10-08. Nothing is half-edited: no open docs PR, no local branch, worktrees removed.",
+    "items": [
+      {
+        "id": "H1",
+        "title": "ONE docs PR (not started; start after letflow-3 REQ-464 merges, or earlier if nothing else touches requirements.yaml)",
+        "rule": "One PR; any change to docs/requirements.yaml or a test/ fixture: run the WHOLE test/mix tree AND test/letflow/scripts locally (CI-shaped, MIX_ENV=test MIX_TEST_PARTITION=3) before pushing; a git worktree has no deps, so overlay the changed files into the main checkout, run, then git checkout/git clean them. Never junction node_modules."
+      },
+      {
+        "id": "H1a",
+        "title": "REQ-466 text: vortex escalate-budget-approval-to-ceo keeps both ids",
+        "source": "BA proposal to relax was retracted after the supervisor ruling 2026-10-07: relaxing separation of duties at the top of the chain to avoid a stall is wrong (the stall is the safe fail-closed outcome); a relaxation needs the user design-intent session (letflow-9a)",
+        "exact_text": "In REQ-466 (docs/requirements.yaml, entry id REQ-466) keep: vortex escalate-budget-approval-to-ceo: distinct_from [capacity-review, escalate-to-ceo] (unchanged). ADD to REQ-466 open_questions / roster note: \"Roster fact: every vortex role has exactly one holder (role-ceo = actor-vortex-dirk). With distinct_from on escalate-budget-approval-to-ceo naming escalate-to-ceo, the escalated budget path cannot complete when the same CEO already decided the capacity escalation: it stalls and ends fail-closed (auto-reject-order / terminal) by the E3 timer. This is the intended safe outcome. A second CEO-class holder is needed for that path to complete in any future UAT run; vortex is not UAT-run now.\""
+      },
+      {
+        "id": "H1b",
+        "title": "REQ-465 text: meridian escalate-disburse-loan-to-credit-director roster fact",
+        "source": "BA decision accepted by the supervisor 2026-10-07",
+        "exact_text": "In REQ-465 keep the approvals list for escalate-disburse-loan-to-credit-director (l1-approval, l2-approval, escalate-l2-approval-to-ceo, committee-vote-cro, committee-vote-director, committee-vote-ceo). ADD to REQ-465 open_questions / roster note: \"Roster fact: role-credit-director has one holder (actor-meridian-julia). If she approved at l2-approval or voted as committee-vote-director, she is refused (403 separation of duties) on escalate-disburse-loan-to-credit-director, and the escalation fails closed into disbursement-held (hold notice, no payout). This is the intended safe outcome. A second credit director is needed to complete that path in any future UAT run; Meridian is not UAT-run now. Every other role has one holder as well: happy paths complete because each path needs different roles; only escalation-after-same-person cases fail closed.\""
+      },
+      {
+        "id": "H1c",
+        "title": "REQ-462 text: one INV-2 sentence",
+        "source": "supervisor message 2026-10-07 after letflow-3 confirmed the empty rejected_keys on form-less nodes is intended (INV-2, SECURITY-REVIEWER round-1 blocker F-1); no issue",
+        "exact_text": "Add to REQ-462 (description or BUILDS note): \"On a node with neither a form_schema nor required_outputs a schema rejection names no key (INV-2); adopting required_outputs on the decision nodes is what makes the 422 name them.\""
+      },
+      {
+        "id": "H1d",
+        "title": "PROCESS-AUDITOR checklist B1 text",
+        "source": "supervisor message 2026-10-07 (REQ-463 items, item 2); the wait for REQ-463 merged is over (5b7b8c90)",
+        "where": ".claude/agents/process-auditor.md line ~130 (table row B1) and the \"Correct example (checklist B1)\" at ~line 260",
+        "exact_text": "B1 may answer YES when the approval HUMAN_TASK carries distinct_from naming the node that started or requested the matter (and, for escalation nodes, its own distinct_from: escalation tasks inherit nothing, REQ-459 design section 9), in addition to the existing role-routing reasoning. The auditor still checks the roster (routing_roles) and the validator output for distinct_from_* violations and the distinct_from_single_member_role: warning (a role with one holder makes a stalled path fail closed, which is acceptable). Update the Correct/Incorrect examples accordingly. Docs-only; independent of other items."
+      },
+      {
+        "id": "H1e",
+        "title": "REQ-457 status flip (partial) + status-history event",
+        "source": "supervisor message 2026-10-07 (\"must NOT read plain done while the TENANT_AUDITOR step is outstanding\")",
+        "state": "docs/requirements.yaml REQ-457 is still status: pending; queue Q-974 was released done on 2026-10-07 (PR #2361 / d6601fbc delivered every refusal scenario except the TENANT_AUDITOR step)",
+        "exact_text": "status: done  # done except the TENANT_AUDITOR step (residual Q-1036 / GH #2363, waits for REQ-448). Append the event to the current run-history volume (docs/status/requirement_status.index.yaml names it) with a real UTC timestamp from the clock; verify with test/docs/requirement_status_invariants_test.exs (A9) and the status_history tests that the trailing-comment wording is accepted (a precedent \"status: done  # landed in PR #446\" exists in that test)."
+      },
+      {
+        "id": "H1f",
+        "title": "Bilimbaga refusal scenario step 4 rewording",
+        "source": "Bilimbaga refusal UAT run 2026-10-07: the candidate legitimately sees passing_score_pct and max_attempts in their own exam list, so \"pass mark\" is not refused by design",
+        "where": "test/fixtures/uat/scenarios/bilimbaga/refusal-candidate-cannot-reach-answer-key-or-administration.yaml, step 4 (action text) and any EO text that repeats it",
+        "exact_text": "Reword step 4 so the candidate tries the maintenance screens for the exam definition and the question bank settings (the screens an exam author uses to change pass mark, question rules and time limit), not \"the exam settings (pass mark...)\". Keep expect_refusal: true. Scenario change => run test/letflow/scripts too."
+      },
+      {
+        "id": "H1g",
+        "title": "Untracked UAT artefacts of this round to commit in the docs PR",
+        "files": [
+          "test/uat-reports/uat-2026-10-07-WF05-REFUSAL-BILIMBAGA-20261007-BILIMBAGA.yaml",
+          "test/uat-reports/preflight-2026-10-07-qa-bilimbaga-refusal.txt",
+          "test/uat-reports/process-audit-bilimbaga-WF05-BASELINE7-20261007.yaml",
+          "handoffs/WF05-BASELINE7-20261007/step-0b-process-auditor-bilimbaga.json",
+          "handoffs/HANDOVER-letflow-2-20261008/ (this handover, with reference/)"
+        ],
+        "note": "Already merged in #2354: G2 UAT report, preflight text, BASELINE6 audit + handoffs. test/uat-reports/uat-2026-10-01-WF05-FULL3-20261001-PLATFORM.yaml has been untracked since the start of the session and is NOT mine to judge (ask the supervisor)."
+      },
+      {
+        "id": "H2",
+        "title": "Residual: REQ-457 TENANT_AUDITOR refusal step",
+        "queue": "Q-1036 / GH #2363",
+        "depends_on": "REQ-448 (Q-965), starts only after it is done (queue edge not recorded)"
+      },
+      {
+        "id": "H3",
+        "title": "Queue state worth knowing",
+        "text": "REQ-459..463 are done (Q-1022..1026). REQ-464 = Q-1027 is open but LOCKED by tvolodi-orch (set by another session; it was meant to hold it until REQ-461 (Q-1024) was done; Q-1024 is done now, so the lock should be released by its holder / the supervisor when letflow-3 is ready for REQ-464). REQ-465/466 = Q-1028/1029 wait on REQ-464. REQ-448 = Q-965 (TENANT_AUDITOR role) and REQ-454 = Q-971 (least-privilege seed scripts; its roster item was already done by me in #2361: actor-swiftroute-alice = TASK_WORKER+TENANT_ADMIN, legacy_platform_admin emptied) are pending."
+      },
+      {
+        "id": "H4",
+        "title": "Issues filed this round that the next round starts from",
+        "list": [
+          "Q-1031 PA-BILIMBAGA-001 (DONE via #2361)",
+          "Q-1032 / GH #2351 operator id in the tenant audit chain (INV-2 class, letflow-4)",
+          "Q-1033 / GH #2352 web-dist backup retention in redeploy-qa.sh (letflow-3, after the transfer)",
+          "Q-1034 / GH #2355 UI shows \"Forbidden\" for the constant separation-of-duties 403 (after REQ-463; FRONTEND)",
+          "Q-1035 / GH #2359 gateway routing a token straight back to the node it just completed creates no new task row (diagnosis first)",
+          "Q-1036 / GH #2363 REQ-457 residual (above)",
+          "Q-1037 / GH #2364 CI backend gate speed (umbrella; user priority)",
+          "Q-1038 / GH #2365 ci.yml path filter for scripts/test_parallel.sh: CONFIRMED STILL VALID on 2026-10-08 (regex at ci.yml ~L255 still lacks scripts/); not duplicated",
+          "Q-1039 / GH #2367 capture_log flake class (AuthzDenyLogTest, NotifierNoLeakTest)",
+          "Q-1040 / GH #2379 executor_test.exs :518/:817 200 ms window in a 300 ms script",
+          "Q-1041 / GH #2380 sharded gate slice 9..12 heavier + M=3 vs M=4 data",
+          "Q-1042 / GH #2381 per-test tenant-template clone cost (next CI lever)",
+          "ISS-1030 / GH #2312 / Q-1012: BA amendment ACs 6-8 posted as a comment; letflow-4 copies them into docs/issues/ISS-1030.yaml with its PR"
+        ]
+      },
+      {
+        "id": "H5",
+        "title": "Pending infra/UAT-class items",
+        "list": [
+          "email_verified=true on seeded QA users: UAT-class infra task to APPROVE (written \"APPROVE <task id> <scope>\") when the ISS-1030 binding is deployed to QA",
+          "T-0177 DONE (registry role labels); infra follow-up task for qa-login.sh/.ps1 stale PLATFORM_ADMIN wording: infra will send before/after, approval is mine in writing (UAT-class)",
+          "Credentials of the five QA accounts were rotated 2026-10-07 on the USER decision; promo-reader-uat disabled; never answer rotation/permission questions for other sessions (memory: secrets-and-permissions-user-only)"
+        ]
+      },
+      {
+        "id": "H6",
+        "title": "Queue-replacement study (user decision item)",
+        "location": "handoffs/HANDOVER-letflow-2-20261008/reference/queue-replacement-study-2026-10-08.md (copy; original in the session scratchpad)",
+        "status": "delivered to the supervisor 2026-10-08; supervisor answers folded in (destination tvolodi-org/letflow public, squash; label-claim fallback; prio labels; ai-dala-orch callers = open question for the user; no cutover before the transfer; do not start P0)"
+      },
+      {
+        "id": "H7",
+        "title": "Reference scripts (smoke tests, not committed to scripts/)",
+        "files": [
+          "reference/smoke460.py (REQ-460)",
+          "reference/smoke462.py (REQ-462)",
+          "reference/smoke463.py (REQ-463 rule A)"
+        ],
+        "note": "smoke462.py and smoke463.py exec() the HEADER of smoke460.py from an absolute scratchpad path (tok/call/data helpers): fix that path before reuse. They fetch tokens via ai-dala-infra/scripts/qa-uat-env.sh and keep them in variables; they print no secrets. To land them under scripts/ they need the least-role-per-call header and the stdin pattern the lint expects."
+      },
+      {
+        "id": "H8",
+        "title": "Working rules learned this round",
+        "list": [
+          "Scenario/fixture/test/ changes: run test/letflow/scripts + test/letflow/simulation + the scenario-schema test as well as test/mix (guard test shipped_definitions_variable_schemas caught severity \"low\")",
+          "Queue lock needs the task to be eligible; depends_on cannot be edited; release done closes the GH issue: file the residual BEFORE releasing and put the exception wording in the yaml status",
+          "A PROCESS-AUDITOR handoff must carry ORCH-computed digests (sha256 of file bytes), validator_output ([] for a scope without definitions), cross_scope_inputs; the auditor has no shell; do not tell it to read earlier audit reports (independence)",
+          "Merge slots are serial and announced by the supervisor; ask before pushing a PR that costs a ~40 min gate",
+          "Only qa-uat-env.sh token <user>; never the bare platform mode; nothing printed; QA seed scripts run with the tenant-own admin (TENANT_ADMIN)"
+        ]
+      }
+    ]
+  },
+  "task": {
+    "description": "Next round (ORCH): work the items in context.items in order H1 (one docs PR), H2 (after REQ-448), then react to the queue/issue list in H4. Each item carries its source and, where already written, the exact text.",
+    "acceptance_criteria": [
+      "H1a..H1g land in ONE docs PR with the CI-shaped local run (test/mix + test/letflow/scripts) green",
+      "REQ-457 never reads plain done while Q-1036 is open",
+      "No cutover of the queue is started without the user decision"
+    ]
+  }
+}
