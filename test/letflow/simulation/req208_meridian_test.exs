@@ -421,8 +421,10 @@ defmodule Letflow.Simulation.Req208MeridianTest do
       # edge to also have an unconditioned fallback edge. The real fixture's own
       # fallback-l1-approval/fallback-l2-approval edges served this role
       # (targeting l2-approval/create-facility respectively) -- kept here,
-      # verbatim in shape: l1-approval's fallback still targets l2-approval
-      # (unchanged from the real fixture); l2-approval's fallback now targets
+      # verbatim in shape: l1-approval's fallback still targets l2-approval (this graph
+      # is a test-local snapshot of the pre-v1.16 chain, not a parity copy of the shipped
+      # fixture, whose fallback-l1-approval targets escalate-l1-approval-to-cro since
+      # v1.16); l2-approval's fallback now targets
       # disburse-loan directly, since create-facility no longer exists as an
       # intermediate node on that path in this simplified graph. The three
       # committee-vote-* HUMAN_TASKs need no fallback of their own: each has
