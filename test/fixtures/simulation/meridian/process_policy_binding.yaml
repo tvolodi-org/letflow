@@ -1,7 +1,7 @@
 # Ported from R-Co tests/simulation/companies/meridian/process_regulatory_compliance_review.yaml (ISS-0388).
 # Filename kept as process_policy_binding.yaml to avoid breaking test references.
 name: Regulatory Compliance Review
-version: "1.0"
+version: "1.10"
 description: >
   Periodic BaFin-mandated compliance review. Compliance Officer collects evidence;
   Risk Manager evaluates within 21 days. If risk-evaluation is still open when its
@@ -65,6 +65,7 @@ graph:
         role: role-cro
         escalation_timer_duration: P3D
         escalation_role: role-ceo
+        distinct_from: [evidence-collection, risk-evaluation, remediation-subprocess]
         form_schema: {"type": "object", "properties": {"cro_decision": {"type": "string", "title": "CRO decision", "description": "CRO decision on the findings: 'sign_off' archives the review, 'reject_and_reopen' reopens it.", "enum": ["sign_off", "reject_and_reopen"]}}, "required": ["cro_decision"]}
     - id: cro-sign-off-timeout
       node_type: SERVICE_TASK
@@ -77,6 +78,7 @@ graph:
         role: role-ceo
         escalation_timer_duration: P3D
         escalation_role: role-ceo
+        distinct_from: [evidence-collection, risk-evaluation, remediation-subprocess, findings-sign-off]
         form_schema: {"type": "object", "properties": {"ceo_decision": {"type": "string", "title": "CEO decision", "description": "CEO decision after the CRO did not respond: 'sign_off' archives the review; 'reject_and_reopen' (or no answer) reopens it.", "enum": ["sign_off", "reject_and_reopen"]}}, "required": ["ceo_decision"]}
     - id: archive-review
       node_type: SERVICE_TASK

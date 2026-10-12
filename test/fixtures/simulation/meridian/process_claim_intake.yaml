@@ -2,7 +2,7 @@
 # Filename kept as process_claim_intake.yaml to avoid breaking test references.
 # Graph translated from R-Co's YAML format to Letflow's native schema.
 name: Loan Origination
-version: "1.1"
+version: "1.16"
 description: >
   Full SME loan origination flow. Three parallel assessment tracks (credit,
   risk, KYC/AML). Standard path uses L1+L2 sign-off; large loans go to
@@ -97,6 +97,7 @@ graph:
         role: role-credit-director
         escalation_timer_duration: P2D
         escalation_role: role-ceo
+        distinct_from: [l1-approval, escalate-l1-approval-to-cro]
         form_schema: {"type": "object", "properties": {"l2_decision": {"type": "string", "title": "L2 decision", "description": "Level 2 credit decision: 'approve' creates the facility, 'reject' (or no answer) declines.", "enum": ["approve", "reject"]}}, "required": ["l2_decision"]}
     - id: committee-vote-fork
       node_type: PARALLEL_GATEWAY
@@ -106,6 +107,7 @@ graph:
         role: role-cro
         escalation_timer_duration: P2D
         escalation_role: role-ceo
+        distinct_from: [committee-vote-director, committee-vote-ceo]
         form_schema: {"type": "object", "properties": {"committee_vote_cro": {"type": "string", "title": "CRO vote", "description": "The CRO's committee vote. Two matching votes of three decide; a missing vote counts for neither side.", "enum": ["approve", "reject"]}}, "required": ["committee_vote_cro"]}
     - id: committee-vote-director
       node_type: HUMAN_TASK
@@ -113,6 +115,7 @@ graph:
         role: role-credit-director
         escalation_timer_duration: P2D
         escalation_role: role-ceo
+        distinct_from: [committee-vote-cro, committee-vote-ceo]
         form_schema: {"type": "object", "properties": {"committee_vote_director": {"type": "string", "title": "Credit director vote", "description": "The credit director's committee vote. Two matching votes of three decide; a missing vote counts for neither side.", "enum": ["approve", "reject"]}}, "required": ["committee_vote_director"]}
     - id: committee-vote-ceo
       node_type: HUMAN_TASK
@@ -120,6 +123,7 @@ graph:
         role: role-ceo
         escalation_timer_duration: P2D
         escalation_role: role-ceo
+        distinct_from: [committee-vote-cro, committee-vote-director]
         form_schema: {"type": "object", "properties": {"committee_vote_ceo": {"type": "string", "title": "CEO vote", "description": "The CEO's committee vote. Two matching votes of three decide; a missing vote counts for neither side.", "enum": ["approve", "reject"]}}, "required": ["committee_vote_ceo"]}
     - id: committee-vote-cro-timeout
       node_type: SERVICE_TASK
@@ -151,6 +155,7 @@ graph:
         role: role-loan-ops
         escalation_timer_duration: P1D
         escalation_role: role-loan-ops-lead
+        distinct_from: [l1-approval, escalate-l1-approval-to-cro, l2-approval, escalate-l2-approval-to-ceo, committee-vote-cro, committee-vote-director, committee-vote-ceo, credit-memo-review, credit-memo-escalation-review, risk-assessment, risk-assessment-escalation-review, kyc-manual-review]
         form_schema: {"type": "object", "properties": {"disbursement_reference": {"type": "string", "title": "Disbursement reference", "description": "Core-banking reference of the disbursement that was made. Recorded for audit; no gateway reads it. Optional. No personal data beyond what the process needs.", "minLength": 1}}}
     - id: escalate-l2-approval-to-ceo
       node_type: HUMAN_TASK
@@ -158,6 +163,7 @@ graph:
         role: role-ceo
         escalation_timer_duration: P2D
         escalation_role: role-ceo
+        distinct_from: [l1-approval, escalate-l1-approval-to-cro]
         form_schema: {"type": "object", "properties": {"l2_decision": {"type": "string", "title": "L2 decision (CEO escalation)", "description": "Escalation of an L2 credit decision that the credit director did not make in time: 'approve' creates the facility, 'reject' (or no answer within the escalation deadline) declines. Same decision variable as l2-approval.", "enum": ["approve", "reject"]}}, "required": ["l2_decision"]}
     - id: escalate-disburse-loan-to-loan-ops-lead
       node_type: HUMAN_TASK
@@ -165,7 +171,7 @@ graph:
         role: role-loan-ops-lead
         escalation_timer_duration: P1D
         escalation_role: role-loan-ops-lead
-        distinct_from: [l1-approval, l2-approval, escalate-l2-approval-to-ceo, committee-vote-cro, committee-vote-director, committee-vote-ceo]
+        distinct_from: [l1-approval, escalate-l1-approval-to-cro, l2-approval, escalate-l2-approval-to-ceo, committee-vote-cro, committee-vote-director, committee-vote-ceo, credit-memo-review, credit-memo-escalation-review, risk-assessment, risk-assessment-escalation-review, kyc-manual-review]
         form_schema: {"type": "object", "properties": {"disbursement_reference": {"type": "string", "title": "Disbursement reference", "description": "Escalation of a disbursement that loan operations did not make in time: core-banking reference of the disbursement that was made. Recorded for audit; no gateway reads it. Optional. No personal data beyond what the process needs. If nobody completes this task within the escalation deadline the loan is held undisbursed and a hold notice is filed.", "minLength": 1}}}
     - id: disbursement-held-notice
       node_type: SERVICE_TASK
