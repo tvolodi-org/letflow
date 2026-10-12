@@ -1,0 +1,72 @@
+{
+  "handoff_id": "716f84fc-995e-43b3-9efe-72c27363fae0",
+  "run_id": "WF02-Q1049-20261012",
+  "workflow_id": "WF-02",
+  "step": "05",
+  "from_agent": "ORCH",
+  "to_agent": "RELEASE-VALIDATOR",
+  "file": "handoffs/WF02-Q1049-20261012/step-05-release-validator.json",
+  "created_at": "2026-10-12T18:54:02Z",
+  "started_at": "2026-10-12T18:54:02Z",
+  "completed_at": "2026-10-12T20:02:47Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "n/a",
+    "requirement_ids": [],
+    "issue_ids": ["ISS-1049"],
+    "queue_ref": "Q-1049",
+    "github_ref": "GH #2391",
+    "pr_ref": "#2427",
+    "requirement_text": {
+      "ISS-1049": "Resync the two simulation fixtures test/fixtures/simulation/meridian/process_claim_intake.yaml (version 1.1 -> QA 1.16) and process_policy_binding.yaml (version 1.0 -> QA 1.10) to the QA meridian definitions after REQ-465 adds distinct_from. Resync must read the merged QA values, not copy them from the issue text."
+    },
+    "artifacts_in": [
+      "test/fixtures/simulation/meridian/process_claim_intake.yaml",
+      "test/fixtures/simulation/meridian/process_policy_binding.yaml",
+      "test/fixtures/qa/meridian_loan_origination_process_definition.json",
+      "test/fixtures/qa/meridian_regulatory_compliance_review_process_definition.json",
+      "docs/issues/ISS-1049.yaml"
+    ]
+  },
+  "task": {
+    "description": "Independently validate branch feat/Q-1049-simulation-resync at head 6042ce24 (base bc6febba on origin/main). Part A: confirm the delta is exactly the two simulation fixtures and changes only version and distinct_from lines. Part B: mechanically compare both fixtures against the QA definitions on origin/main (version equality; distinct_from node set; each list exact, including order). Part C: run each of the 12 named test files as its own single-BEAM mix test invocation under the mixlock mutex, with free RAM at or above 4 GB before each run. Read-only with respect to code and fixtures. Commit only this verdict file.",
+    "acceptance_criteria": [
+      "PART A: git diff --stat bc6febba 6042ce24 lists exactly two files, both simulation fixtures, and every changed line is a version: line or a distinct_from: line",
+      "PART B: version equals the QA version (loan 1.16, regulatory 1.10); the set of nodes carrying distinct_from equals the QA set; each distinct_from list equals the QA list exactly, including order",
+      "PART C: each of the 12 named test files passes in its own mix test invocation with exit code 0, and no run's output contains the ISS-0069 substring 'default values for the optional arguments'"
+    ]
+  },
+  "result": {
+    "status": "PARTIAL",
+    "summary": "Part A PASS: git diff --stat bc6febba 6042ce24 = 2 files changed, 11 insertions(+), 3 deletions(-) (process_claim_intake.yaml, process_policy_binding.yaml). Every hunk is a version: line or a distinct_from: line; the one changed existing line is escalate-disburse-loan-to-loan-ops-lead widened from 6 to 12 ids. Part B PASS (python -I, PyYAML, against origin/main QA JSON): loan version 1.16 = QA 1.16; regulatory version 1.10 = QA 1.10. Loan distinct_from nodes (7) equal QA's set and every list matches QA in order: committee-vote-ceo, committee-vote-cro, committee-vote-director, disburse-loan, escalate-disburse-loan-to-loan-ops-lead (12 ids each), escalate-l2-approval-to-ceo, l2-approval. Regulatory distinct_from nodes (2) equal QA's set and lists match: ceo-override (4), findings-sign-off (3). Part C PASS: 12 of 12 single-file runs exited 0. Result lines: req206_swiftroute_test 5 passed; req207_vortex_test 4 passed; req208_meridian_test 4 passed; runner_template_and_outcomes_test 9 passed; runner_test 2 passed; seed_idempotency_test 4 passed; meridian_committee_distinct_voters_fixture_test 5 passed; meridian_d_esc_escalation_fixture_test 34 passed; meridian_l1_distinct_from_memo_review_fixture_test 7 passed; meridian_regulatory_remediation_fixture_test 25 passed; meridian_timeout_review_and_forms_fixture_test 20 passed; regulatory_review_timer_path_fixture_test 29 passed. ISS-0069 substring hits: 0 in all 12 logs. PARTIAL overall only because mix letflow.check.test (required by the role file) was NOT run by this validator; see issues.",
+    "artifacts_out": [
+      "handoffs/WF02-Q1049-20261012/step-05-release-validator.json"
+    ],
+    "issues": [
+      {
+        "severity": "MAJOR",
+        "description": "mix letflow.check.test was not run locally by RELEASE-VALIDATOR. The role file requires it before a status is called done. It was withheld because its default mode runs the whole suite as N parallel partition BEAMs plus per-test :wasm_hang subprocesses, which conflicts with this task's one-BEAM-at-a-time, no-big-combined-run constraint, and free RAM stayed below the 4 GB guard for part of the run (lowest reading 3.2 GB). Mitigation: this change contains no .ex or .exs file (the delta is two YAML fixtures), so it cannot introduce the ISS-0069 default-argument warning class; the 12 targeted runs produced 0 substring hits. The PR's CI runs mix letflow.check, which includes check.test. ORCH must confirm that CI's check is green before merge and before DOC-UPDATER.",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "Pre-existing differences between the simulation fixtures and the QA definitions on origin/main, not touched by this PR and outside ISS-1049's scope (distinct_from and version). Loan fixture: endpoint notation differs ('POST /path' versus an httpbin URL plus method, with method None in the fixture); required_outputs is absent on l1-approval, l2-approval, escalate-l1-approval-to-cro, escalate-l2-approval-to-ceo and kyc-manual-review; edge id kyc-routing-default versus QA e9-default. Regulatory fixture: the same endpoint-notation difference on archive-review, cro-sign-off-timeout, evidence-collection-timeout, reopen-review; regulatory-auto-escalation and remediation-unresolved-escalation lack body_template. Recorded for ORCH to register as a separate issue, not filed here.",
+        "affected_requirement": null
+      }
+    ],
+    "git_evidence": {
+      "branch_name": "feat/Q-1049-simulation-resync",
+      "commit_sha_list": [
+        "6042ce24"
+      ],
+      "remote_branch": null,
+      "push_status": "not pushed (verdict commit is local only)",
+      "pr_url": null,
+      "pr_create_error": null
+    },
+    "next_action": "ORCH: confirm the PR's CI mix letflow.check (including check.test) is green before merge; if so the validated fixture change may proceed to DOC-UPDATER. Register the MINOR fixture-vs-QA observations as a separate queued issue."
+  },
+  "rework_count": 0,
+  "max_rework": 3
+}
