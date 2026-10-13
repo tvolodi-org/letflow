@@ -40,8 +40,28 @@ defmodule Mix.Tasks.Letflow.WorkBoardGatesTest do
                  "# header\r\ncutover: false   # flip on cutover day\r\nlast_legacy_iss: 1109\r\n"
                )
 
-      assert {:ok, %{cutover: true, last_legacy_iss: nil}} =
-               WorkBoardCutover.parse("cutover: true\n")
+      assert {:ok, %{cutover: false, last_legacy_iss: nil}} =
+               WorkBoardCutover.parse("cutover: false\n")
+
+      assert {:ok, %{cutover: true, last_legacy_iss: 1119}} =
+               WorkBoardCutover.parse("cutover: true\nlast_legacy_iss: 1119\n")
+    end
+
+    test "cutover: true without last_legacy_iss is an error (fail closed)" do
+      assert {:error, msg} = WorkBoardCutover.parse("cutover: true\n")
+      assert msg =~ "requires `last_legacy_iss:`"
+    end
+
+    test "a duplicated key is an error, not last-one-wins" do
+      assert {:error, msg} =
+               WorkBoardCutover.parse("cutover: true\nlast_legacy_iss: 1\ncutover: false\n")
+
+      assert msg =~ "`cutover:` appears more than once"
+
+      assert {:error, msg} =
+               WorkBoardCutover.parse("cutover: false\nlast_legacy_iss: 1\nlast_legacy_iss: 2\n")
+
+      assert msg =~ "`last_legacy_iss:` appears more than once"
     end
 
     test "refuses a missing or non-boolean switch rather than defaulting" do

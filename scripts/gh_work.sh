@@ -7,13 +7,15 @@
 #
 # Usage:
 #   scripts/gh_work.sh ready  [--for CHECKOUT]   open, state:ready, unclaimed, every
-#                                                'Depends on:' issue closed; ordered
-#                                                prio asc, then issue number asc
+#                                                'Depends on:' issue closed as completed
+#                                                (not 'not planned', not missing, not a
+#                                                PR); ordered prio asc, then number asc;
+#                                                held-back items are listed under blocked-on
 #   scripts/gh_work.sh claims                    every open issue that is in progress
 #                                                or carries a claimed:* label, with
 #                                                last activity and linked open PRs
 #   scripts/gh_work.sh stale  [--hours N]        claims with no PR and no activity for
-#                                                more than N hours (default 4)
+#                                                at least N hours: idle >= N h (default 4)
 #   scripts/gh_work.sh graph                     'Depends on:' edges between open
 #                                                issues, plus cycles and blocked ones
 #   scripts/gh_work.sh check                     board-script check: exit 1 on a label
@@ -109,23 +111,59 @@ case "$cmd" in
     if [ -n "$for_checkout" ]; then
       case " $CHECKOUTS " in *" $for_checkout "*) ;; *) die "--for must be one of: $CHECKOUTS" ;; esac
     fi
-    load_issues | jq -r --arg for "$for_checkout" "$PRELUDE"'
+    load_issues >"$TMP/issues.json"
+    # Dependencies that are not open issues: look each one up once. Only a
+    # closed-as-completed issue satisfies a dependency; a not-planned close, a
+    # pull request or a number that does not exist keeps the item blocked.
+    jq -r --arg for "$for_checkout" "$PRELUDE"'
       . as $all
       | ($all | map(.number)) as $open
       | $all
       | map(select(.labels | index("state:ready")))
       | map(select((lab("claimed:") | length) == 0))
       | map(select(($for == "") or (.labels | index("next:" + $for))))
-      | map(select(((deps) - ((deps) - $open) | length) == 0))
-      | sort_by([prio, .number])
+      | map(deps[]) | unique | map(select(. as $d | ($open | index($d)) | not)) | .[]
+    ' "$TMP/issues.json" >"$TMP/dep_numbers.txt" || die "jq failed reading dependencies"
+    : >"$TMP/dep_status.tsv"
+    while IFS= read -r dep; do
+      [ -n "$dep" ] || continue
+      if raw="$("$GH_BIN" api "repos/${REPO}/issues/${dep}" 2>/dev/null)"; then
+        st="$(printf '%s' "$raw" | jq -r 'if has("pull_request") then "not-an-issue"
+              elif .state == "open" then "open"
+              elif (.state_reason // "completed") == "not_planned" then "not_planned"
+              else "completed" end')" || die "unexpected response for issue #${dep}"
+      else
+        st="missing"
+      fi
+      printf '%s\t%s\n' "$dep" "$st" >>"$TMP/dep_status.tsv"
+    done <"$TMP/dep_numbers.txt"
+    jq -Rn '[inputs | split("\t") | {key: .[0], value: .[1]}] | from_entries' \
+      "$TMP/dep_status.tsv" >"$TMP/dep_status.json" || die "jq failed building dependency status"
+    jq -r --arg for "$for_checkout" --slurpfile ds "$TMP/dep_status.json" "$PRELUDE"'
+      . as $all
+      | ($all | map(.number)) as $open
+      | def status($d): if ($open | index($d)) then "open"
+                        else ($ds[0][($d | tostring)] // "missing") end;
+        def unmet: [deps[] | select(status(.) != "completed") | "#\(.) (\(status(.)))"];
+      $all
+      | map(select(.labels | index("state:ready")))
+      | map(select((lab("claimed:") | length) == 0))
+      | map(select(($for == "") or (.labels | index("next:" + $for))))
+      | . as $cand
+      | ($cand | map(select((unmet | length) == 0)) | sort_by([prio, .number])) as $ready
       | (["#", "prio", "type", "stage", "lane", "next", "title"] | @tsv),
-        (.[] | [("#" + (.number | tostring)),
+        ($ready[] | [("#" + (.number | tostring)),
                 (prio | tostring),
                 (val("type:") | join(",")),
                 (val("stage:") | join(",")),
                 (val("lane:") | join(",")),
                 (val("next:") | join(",")),
-                .title] | @tsv)'
+                .title] | @tsv),
+        ($cand | map(select((unmet | length) > 0)) | sort_by(.number)
+         | if length > 0 then "blocked-on:" else empty end),
+        ($cand | map(select((unmet | length) > 0)) | sort_by(.number)[]
+         | "  #\(.number) blocked-on " + (unmet | join(", ")))
+    ' "$TMP/issues.json"
     ;;
 
   claims|stale)
@@ -189,11 +227,9 @@ case "$cmd" in
     load_issues >"$TMP/issues.json"
     violations=0
     # Static label rules (no per-issue calls).
-    while IFS= read -r line; do
-      [ -n "$line" ] || continue
-      echo "VIOLATION: $line"
-      violations=$((violations + 1))
-    done < <(jq -r --arg checkouts "$CHECKOUTS" "$PRELUDE"'
+    # jq writes to a file first so a jq failure is fatal (a process
+    # substitution's exit status is never observed and would read as "no violations").
+    jq -r --arg checkouts "$CHECKOUTS" "$PRELUDE"'
       ($checkouts | split(" ")) as $ok
       | .[]
       | . as $i
@@ -211,12 +247,20 @@ case "$cmd" in
          then "#\($i.number): claimed:\($claimed | join(",")) without state:in-progress" else empty end),
         (if ($state | index("in-progress")) and ($claimed | length) == 0
          then "#\($i.number): state:in-progress without a claimed:<checkout> label" else empty end)
-    ' "$TMP/issues.json")
+    ' "$TMP/issues.json" >"$TMP/static.out" || die "jq failed evaluating the static label rules"
+    while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      echo "VIOLATION: $line"
+      violations=$((violations + 1))
+    done <"$TMP/static.out"
     # Provenance rule: every claimed:<checkout> label must be backed by the
     # supervisor's (or the user's) claim comment for the SAME checkout, and no
     # later claim comment may name another checkout. All sessions share one
     # GitHub login, so the label's actor cannot prove who set it; the comment is
     # the recorded act (WORK_BOARD.md "Claim record").
+    jq -r '.[] | . as $i | .labels[] | select(startswith("claimed:"))
+           | [$i.number, .[8:]] | @tsv' "$TMP/issues.json" >"$TMP/claimed.tsv" \
+      || die "jq failed listing claimed labels"
     while IFS=$'\t' read -r number checkout; do
       [ -n "$number" ] || continue
       comments="$(paged "repos/${REPO}/issues/${number}/comments")"
@@ -231,8 +275,7 @@ case "$cmd" in
         echo "VIOLATION: #${number}: claimed:${checkout} but the latest claim comment names ${last}"
         violations=$((violations + 1))
       fi
-    done < <(jq -r '.[] | . as $i | .labels[] | select(startswith("claimed:"))
-                    | [$i.number, .[8:]] | @tsv' "$TMP/issues.json")
+    done <"$TMP/claimed.tsv"
     if [ "$violations" -gt 0 ]; then
       echo "gh_work.sh check: FAILED -- ${violations} violation(s)"
       exit 1

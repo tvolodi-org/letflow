@@ -12,7 +12,7 @@ defmodule Mix.Letflow.WorkBoardCutover do
 
       docs/status/work_board_cutover.yaml
         cutover: false          # flip to true on cutover day
-        last_legacy_iss: 1109   # highest ISS-NNNN that predates the board
+        last_legacy_iss: 1119   # highest ISS-NNNN that predates the board
 
   Cutover is not a calendar date and is not tied to the repository transfer;
   it is the day a PR flips this value, after one CI-shaped dry run passed.
@@ -22,7 +22,9 @@ defmodule Mix.Letflow.WorkBoardCutover do
   checkout that predates this switch, and of the hermetic fixture
   directories some check tests `cd` into); the live file's presence is
   pinned by a test. An unreadable file or a missing/invalid `cutover:` value
-  is an error, never a silent default.
+  is an error, never a silent default. So are a key that appears twice and
+  `cutover: true` without `last_legacy_iss:` (the R7 ceiling would silently
+  never fire).
   """
 
   @path "docs/status/work_board_cutover.yaml"
@@ -41,7 +43,7 @@ defmodule Mix.Letflow.WorkBoardCutover do
   """
   @spec parse(String.t()) :: {:ok, config()} | {:error, String.t()}
   def parse(content) when is_binary(content) do
-    fields =
+    pairs =
       content
       |> String.split(~r/\r?\n/)
       |> Enum.flat_map(fn line ->
@@ -50,13 +52,35 @@ defmodule Mix.Letflow.WorkBoardCutover do
           _ -> []
         end
       end)
-      |> Map.new()
 
-    with {:ok, cutover} <- parse_cutover(Map.get(fields, "cutover")),
-         {:ok, last} <- parse_last_legacy(Map.get(fields, "last_legacy_iss")) do
+    fields = Map.new(pairs)
+
+    with :ok <- reject_duplicates(pairs),
+         {:ok, cutover} <- parse_cutover(Map.get(fields, "cutover")),
+         {:ok, last} <- parse_last_legacy(Map.get(fields, "last_legacy_iss")),
+         :ok <- require_ceiling(cutover, last) do
       {:ok, %{cutover: cutover, last_legacy_iss: last}}
     end
   end
+
+  defp reject_duplicates(pairs) do
+    dup =
+      pairs
+      |> Enum.map(&elem(&1, 0))
+      |> Enum.filter(&(&1 in ["cutover", "last_legacy_iss"]))
+      |> Enum.frequencies()
+      |> Enum.find(fn {_key, n} -> n > 1 end)
+
+    case dup do
+      nil -> :ok
+      {key, _} -> {:error, "`#{key}:` appears more than once"}
+    end
+  end
+
+  defp require_ceiling(true, nil),
+    do: {:error, "`cutover: true` requires `last_legacy_iss:` (the R7 ceiling)"}
+
+  defp require_ceiling(_cutover, _last), do: :ok
 
   defp parse_cutover("true"), do: {:ok, true}
   defp parse_cutover("false"), do: {:ok, false}

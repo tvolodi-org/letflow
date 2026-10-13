@@ -34,6 +34,9 @@ defmodule Letflow.Scripts.GhWorkTest do
     repos/*/issues/*/comments*)
       n="${ep#repos/*/issues/}"; n="${n%%/*}"; page="${ep##*page=}"
       f="$d/comments.$n.$page.json" ;;
+    repos/*/issues/[0-9]*)
+      n="${ep##*/}"; f="$d/issue.$n.json"
+      [ -f "$f" ] || { echo "stub gh: 404 $ep" >&2; exit 1; } ;;
     repos/*/issues\\?*) f="$d/issues.${ep##*page=}.json" ;;
     repos/*/pulls\\?*) f="$d/pulls.${ep##*page=}.json" ;;
   esac
@@ -80,17 +83,23 @@ defmodule Letflow.Scripts.GhWorkTest do
       File.write!(Path.join(dir, "comments.#{n}.1.json"), Jason.encode!(comments))
     end
 
+    # single-issue lookups (dependency status): number => issue json map
+    for {n, body} <- Keyword.get(opts, :lookups, []) do
+      File.write!(Path.join(dir, "issue.#{n}.json"), Jason.encode!(body))
+    end
+
     {dir, stub}
   end
 
-  defp run(dir, stub, args) do
+  defp run(dir, stub, args, extra_env \\ []) do
     System.cmd("bash", [@script | args],
-      env: [
-        {"GH_BIN", stub},
-        {"GH_STUB_DIR", dir},
-        {"GH_REPO", "owner/repo"},
-        {"GH_WORK_NOW", Integer.to_string(@now)}
-      ],
+      env:
+        [
+          {"GH_BIN", stub},
+          {"GH_STUB_DIR", dir},
+          {"GH_REPO", "owner/repo"},
+          {"GH_WORK_NOW", Integer.to_string(@now)}
+        ] ++ extra_env,
       stderr_to_stdout: true
     )
   end
@@ -146,7 +155,7 @@ defmodule Letflow.Scripts.GhWorkTest do
   defp numbers(output) do
     output
     |> String.split("\n", trim: true)
-    |> Enum.drop(1)
+    |> Enum.filter(&Regex.match?(~r/^#\d+\t/, &1))
     |> Enum.map(&(&1 |> String.split("\t") |> hd()))
   end
 
@@ -155,7 +164,10 @@ defmodule Letflow.Scripts.GhWorkTest do
     {out, 0} = run(dir, stub, ["ready"])
 
     # #240 exists only on page 3 -> proves pagination beyond 100 issues.
-    assert numbers(out) == ["#2", "#240", "#1", "#4"]
+    # #4 depends on #999, which does not exist: held back, not ready
+    assert numbers(out) == ["#2", "#240", "#1"]
+    assert out =~ "  #4 blocked-on #999 (missing)"
+    assert out =~ "  #3 blocked-on #2 (open)"
     refute out =~ "#241", "pull requests are not board items"
     refute out =~ "#3\t", "#3 depends on open #2"
     refute out =~ "#5\t", "#5 is claimed"
@@ -163,6 +175,33 @@ defmodule Letflow.Scripts.GhWorkTest do
     calls = File.read!(Path.join(dir, "calls.log"))
     assert calls =~ "issues?state=open&per_page=100&page=3"
     assert Regex.scan(~r/issues\?state=open/, calls) |> length() == 3
+  end
+
+  test "ready: only a dependency closed as completed is satisfied" do
+    issues = [
+      issue(1, ["state:ready", "prio:1"], body: "Depends on: #50"),
+      issue(2, ["state:ready", "prio:1"], body: "Depends on: #51"),
+      issue(3, ["state:ready", "prio:1"], body: "Depends on: #52"),
+      issue(4, ["state:ready", "prio:1"], body: "Depends on: #53"),
+      issue(5, ["state:ready", "prio:1"], body: "Depends on: #50, #51")
+    ]
+
+    lookups = [
+      {50, %{"number" => 50, "state" => "closed", "state_reason" => "completed"}},
+      {51, %{"number" => 51, "state" => "closed", "state_reason" => "not_planned"}},
+      # closed before GitHub recorded a reason: treated as completed
+      {52, %{"number" => 52, "state" => "closed", "state_reason" => nil}},
+      {53, %{"number" => 53, "state" => "closed", "pull_request" => %{"url" => "x"}}}
+    ]
+
+    {dir, stub} = setup_board(issues, lookups: lookups)
+    {out, 0} = run(dir, stub, ["ready"])
+
+    assert numbers(out) == ["#1", "#3"]
+    assert out =~ "  #2 blocked-on #51 (not_planned)"
+    assert out =~ "  #4 blocked-on #53 (not-an-issue)"
+    assert out =~ "  #5 blocked-on #51 (not_planned)"
+    refute out =~ "#5 blocked-on #50"
   end
 
   test "ready --for filters to next:<checkout> and rejects an unknown checkout" do
@@ -201,6 +240,23 @@ defmodule Letflow.Scripts.GhWorkTest do
     assert numbers(out) == ["#5", "#6", "#8", "#9"]
   end
 
+  test "stale threshold is inclusive: idle >= N hours, as the header says" do
+    issues = [
+      issue(1, ["state:in-progress", "claimed:letflow"], idle_h: 4),
+      issue(2, ["state:in-progress", "claimed:letflow-2"], idle_h: 3)
+    ]
+
+    {dir, stub} = setup_board(issues)
+    {out, 0} = run(dir, stub, ["stale"])
+    assert numbers(out) == ["#1"]
+
+    {out, 0} = run(dir, stub, ["stale", "--hours", "3"])
+    assert numbers(out) == ["#1", "#2"]
+
+    assert File.read!(@script) =~ "idle >= N h"
+    refute File.read!(@script) =~ "more than N hours"
+  end
+
   test "graph prints edges, closed-or-absent targets and cycles" do
     issues = [
       issue(10, ["state:ready"], body: "Depends on: #11, #999"),
@@ -237,6 +293,30 @@ defmodule Letflow.Scripts.GhWorkTest do
     # a properly recorded claim is not reported
     refute out =~ "#6:"
     assert out =~ "FAILED"
+  end
+
+  test "check does not hide a jq failure behind OK" do
+    real_jq = System.find_executable("jq") || flunk("jq is required")
+    {dir, stub} = setup_board([issue(1, ["state:ready"])])
+
+    bin = Path.join(dir, "bin")
+    File.mkdir_p!(bin)
+    shim = Path.join(bin, "jq")
+
+    File.write!(shim, """
+    #!/usr/bin/env bash
+    case "$*" in *"--arg checkouts"*) echo "jq: boom" >&2; exit 3 ;; esac
+    exec "#{real_jq}" "$@"
+    """)
+
+    File.chmod!(shim, 0o755)
+    sep = if match?({:win32, _}, :os.type()), do: ";", else: ":"
+    path = bin <> sep <> System.get_env("PATH", "")
+
+    {out, status} = run(dir, stub, ["check"], [{"PATH", path}])
+    assert status == 2
+    assert out =~ "jq failed evaluating the static label rules"
+    refute out =~ "OK"
   end
 
   test "check passes on a clean board" do
