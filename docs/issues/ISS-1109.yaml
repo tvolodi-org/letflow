@@ -1,0 +1,15 @@
+id: ISS-1109
+title: "Grant :PromotionsRead to TENANT_AUDITOR once the stored-tenant check (Q-1011 / GH #2311) has merged"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-13 REQ-448 merge follow-up (PR #2488), supervisor request"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: LOW
+owner: "ELIXIR-DEV, SECURITY-REVIEWER mandatory"
+scope: defect
+description: >
+  REQ-448 withheld :PromotionsRead from TENANT_AUDITOR (decision 0046 D6 deviation) until the stored-tenant check of GH #2311 merges. This is the one-step grant: authorization.ex atom, roles.md cell, pins 13->14 and 28->27, the GET /promotions route tests, the AC5 tripwire, and the 0046 closure note. Depends on Q-1011.
+resolution: >
+  Open. Filed GitHub-first (GH #2489), then registered with the queue (Q-1109) with depends_on [1011].
+queue_ref: Q-1109
+github_ref: GH-2489
+status: open
