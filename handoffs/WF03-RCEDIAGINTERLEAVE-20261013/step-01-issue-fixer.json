@@ -1,0 +1,35 @@
+{
+  "handoff_id": "c4a7d1e0-1083-4a11-8c20-000000000001",
+  "run_id": "WF03-RCEDIAGINTERLEAVE-20261013",
+  "workflow_id": "WF-03",
+  "step": "01",
+  "from_agent": "ORCH",
+  "to_agent": "ISSUE-FIXER",
+  "file": "handoffs/WF03-RCEDIAGINTERLEAVE-20261013/step-01-issue-fixer.json",
+  "created_at": "2026-10-13T03:00:00Z",
+  "started_at": null,
+  "completed_at": null,
+  "status": "PENDING",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1054": "MEDIUM, R1 from ISS-1042 follow_ups (SECURITY-REVIEWER F2), supervisor-assigned 2026-10-12. Queue Q-1054 / GH #2400, issue_ref ISS-1054. See task.description."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "test/scripts/test_parallel_watchdog_diag_test.exs",
+      "scripts/test_parallel.sh"
+    ],
+    "owned_modules": [
+      "test/support/tenant_fixture.ex"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1054DBGUARD-20261012"
+  },
+  "task": {
+    "description": "WF-03 Step 1 ISSUE-FIXER (.claude/agents/issue-fixer.md): diagnose and DESIGN the fix for RC-E, the diag-block interleave flake of test/scripts/test_parallel_watchdog_diag_test.exs \"huge partition log: diagnostics stay bounded and respect the 300-column cap\" (queue id pending from letflow-2; GH body will say RC-E MAJOR). Branch feature/WF03-RCEDIAGINTERLEAVE-20261013 is off origin/main 3a4ca1200 (Q-1053 / PR #2440 merged). LOCAL ONLY: do not push, do not open a PR; commit locally.\n\nEvidence (three CI occurrences, same symptom, none reproduced locally yet): runs 38293810774 attempt 1 (job 114960028887, shard 1/3 partition 3), 38301751106 attempt 1 (job 114986157916), 38334100544 (shard 2/3 partition 5, job 115074477292; red on PR #2440, green on rerun). Assertion text of the last: \"DIAG line wider than cap (399): test_parallel: DIAG partition 1:   P1-199974-LLLLLLLLLLLLLLLLLLLtest_parallel: DIAG partition 2:   P2-199962-LLLL...\" i.e. the DIAG block of partition 1 was cut mid-line (after 19 of the 300 L) and the next partition's DIAG lines continued on the same physical line. All three partitions use TEST_PARALLEL_PARTITION_TIMEOUT_S=2 so their watchdog subshells fire together; host loadavg 9-10 on 4 cores; CI stderr of the runner is a pipe/file captured by the ExUnit test (System.cmd or Port). The emitting function is test_parallel_watchdog_diag in scripts/test_parallel.sh (about lines 790-825): it writes `echo`, then `tail -n 40 log | cut -c1-300 | sed \"s/^/pfx  /\"` inside `{ ... } >&2`, plus a host block under a mkdir lock. Gathering: `gh api repos/tvolodi/letflow/actions/jobs/<job id>/logs` (job ids above) for the exact interleave bytes.\n\nTasks: (1) Establish the mechanism with an experiment, not by speculation: why can two watchdog blocks interleave MID-LINE? Candidates: sed/cut stdio buffering flushing partial lines when the output is a pipe or file and >PIPE_BUF/buffer size, two writers sharing one open file description without O_APPEND, the harness reading with a line splitter. Reproduce deterministically at script level (a standalone bash experiment with two concurrent emitters writing into a pipe read by a slow reader, and into a file; vary `cut`/`sed` with `stdbuf`, 400-column lines x 40, bash 5.2 linux in a container is fine if the host cannot reproduce; the host is Windows git-bash, a `docker run bash:5.2` or ubuntu container works; throwaway, remove after). Report rates (N runs, loaded with busy loops) for the unfixed emitter. (2) Design the fix: each partition's DIAG block must reach stderr as ONE uninterleaved unit, with a bounded and never-blocking mechanism (e.g. assemble the block into a variable/temp file first and emit it with a single write, serialised by a bounded mkdir lock with stale-lock/timeout fallback so a dead holder can never block the watchdog or the TERM path). State exactly what is atomic and why. Keep the 300-column cap, the 40-line tail, the host block, the final marker \"approx tests finished\" line, and the exit behaviour unchanged. (3) Regression test design: a deterministic test that fails on the unfixed script (e.g. BASH_ENV shim or a stub that makes the emission slow/forced concurrent) and passes on the fix, not a wall-clock window; plus mutants. Reuse test/support/test_parallel_capture.ex and the shim conventions of test/scripts/test_parallel_race_regression_test.exs. (4) Baseline plan: stress loop of the diag test file on UNMODIFIED main under the same load for the stable \"0 failures\" claim (loop capped to ~40 min total, under the machine mutex, one BEAM, >=4 GB free RAM waiter floor): propose the loop shape and iteration count (the CI rate is roughly 1 in 5 runs on loaded shards). (5) Anything else in test_parallel.sh that emits multi-line output from concurrent subshells (WARNING lines, partition summary) and could interleave the same way.\n\nRules: no application code edits in this step (design only; experiments in the scratchpad dir or a container), foreground only (no Monitors), machine mutex for any BEAM: L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2>/dev/null; do sleep 20; done; trap 'rmdir \"$L\" 2>/dev/null' EXIT; cd /c/Users/tvolo/dev/ai-dala/letflow && LETFLOW_DB_PORT=5499 MIX_ENV=test <ONE mix invocation>. Result into your handoff (COMPLETED, result.status PASS/FAIL, no BOM, LF, artifacts_out under result, no self-reference); commit locally on this branch, no push. Message ends: Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>.\n"
+  }
+}
