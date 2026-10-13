@@ -71,8 +71,8 @@ stays free, and after recovery you bind it with step R3.
 If the create call answers 409 `hostname already bound`, no tenant was created: the hostname is checked
 before any write. Retry with a free hostname.
 
-A 409 whose detail reads "hostname taken during the request; the tenant for this slug was created and is
-active" means the tenant **does** exist: a hostname was taken in the instant between that check and the
+A 409 whose detail reads "hostname taken during the request; the tenant for this slug was created" means
+the tenant **does** exist, and it may be `active` or still `migrating`: a hostname was taken in the instant between that check and the
 insert. A retry with the **same** slug only confirms it: the answer is 409 "slug already exists" and
 nothing is created. Do not retry with a new slug, which creates a second tenant. Escalate to the
 platform owner. Nobody binds a realm by hand.

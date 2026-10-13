@@ -242,8 +242,16 @@ defmodule Letflow.Routers.Onboarding do
       {:errors, field_errors} ->
         Response.send_problem(conn, Validation.problem(sanitize_field_errors(field_errors)))
 
-      {:ok, %{"slug" => slug, "hostname" => hostname} = attrs} ->
+      {:ok, %{"slug" => slug, "hostname" => raw_hostname} = attrs} ->
+        # The validator does not trim (it refuses only the empty string). Untrimmed, a padded hostname
+        # would miss the duplicate pre-check and be stored trimmed, and a whitespace-only one would commit
+        # the tenant and then fail the record after the commit (TEST-DESIGN-VALIDATOR B1). So it is
+        # trimmed once here, and a blank result is refused before any write.
+        hostname = String.trim(raw_hostname)
+        attrs = Map.put(attrs, "hostname", hostname)
+
         with {:ok, realm} <- validate_create_extras(body, attrs),
+             :ok <- hostname_present(hostname),
              :ok <- codepoint_fit(attrs),
              {:ok, extras} <- response_extras(body),
              {:ok, bind_opts} <- realm_bind_opts(conn, realm),
@@ -404,6 +412,14 @@ defmodule Letflow.Routers.Onboarding do
     end
   end
 
+  # A hostname that is only whitespace is refused before any write (see handle_create/1).
+  defp hostname_present(""),
+    do:
+      {:errors,
+       [%FieldError{field: "hostname", constraint: "required", message: "field is required"}]}
+
+  defp hostname_present(_hostname), do: :ok
+
   defp insert_migrating_tenant(conn, attrs, extras, slug, hostname, realm, bind_opts) do
     create_attrs =
       attrs
@@ -451,22 +467,25 @@ defmodule Letflow.Routers.Onboarding do
   # provisioning/replay failure -- see Letflow.TenantProvisioning's moduledoc
   # "No reconciliation path for a half-provisioned tenant" section. Adding a
   # rollback here would orphan a real Postgres schema; not attempted.
+  # The detail of every answer after the tenant commit that is not a success. A fixed literal (INV-4):
+  # it names no exception and no value. It says the tenant may exist, because provisioning can fail
+  # after the tenant row is committed (SECURITY-REVIEWER R1, F1).
+  @after_commit_failure_detail "an unexpected error occurred after the tenant for this slug was created; the tenant may exist; do not retry with a new slug; escalate to the platform owner"
+
   defp provision_and_bind(conn, tenant, slug, hostname, extras, realm, bind_opts) do
-    with {:ok, _registration} <- TenantOnboarding.provision_and_migrate(tenant.id),
-         {:ok, record} <-
-           Identity.create_onboarding(%{tenant_id: tenant.id, slug: slug, hostname: hostname}) do
-      # The tenant and its onboarding record are committed from here on. A realm that cannot be
-      # bound is reported in the 201 body, never as an error that implies nothing was created
-      # (SECURITY-REVIEWER MAJOR-2). Nothing fallible runs after a bind commits.
-      created_with_realm(conn, tenant, record, extras, realm, bind_opts)
-    else
+    case provision_and_record(tenant, slug, hostname) do
+      {:ok, record} ->
+        # The tenant and its onboarding record are committed from here on. A realm that cannot be
+        # bound is reported in the 201 body, never as an error that implies nothing was created
+        # (SECURITY-REVIEWER MAJOR-2). Nothing fallible runs after a bind commits.
+        created_with_realm(conn, tenant, record, extras, realm, bind_opts)
+
       # Every answer below is reached only after the tenant is committed. Each detail says so, and
-      # none implies that nothing was created (SECURITY-REVIEWER R1, F1). The details are fixed
-      # literals (INV-4): the failure itself is not threaded into them.
+      # none implies that nothing was created (SECURITY-REVIEWER R1, F1).
       {:error, :duplicate_hostname} ->
         Response.conflict(
           conn,
-          "hostname taken during the request; the tenant for this slug was created and is active; do not retry with a new slug; escalate to the platform owner"
+          "hostname taken during the request; the tenant for this slug was created; do not retry with a new slug; escalate to the platform owner"
         )
 
       {:error, %Ecto.Changeset{}} ->
@@ -476,13 +495,29 @@ defmodule Letflow.Routers.Onboarding do
         )
 
       _after_commit_failure ->
-        # A provisioning or replay failure (the tenant stays `migrating`) and a database fault on the
-        # record insert (the tenant is `active` with no record) both leave a committed tenant behind.
-        Response.internal_error(
-          conn,
-          "an unexpected error occurred after the tenant for this slug was created; the tenant may exist; do not retry with a new slug; escalate to the platform owner"
-        )
+        # A provisioning or replay failure (the tenant stays `migrating`), a database fault on the record
+        # insert, or a raise (see provision_and_record/3): each leaves a committed tenant behind.
+        Response.internal_error(conn, @after_commit_failure_detail)
     end
+  end
+
+  # The two writes after the tenant commit. A raise in either (a database fault inside provisioning, a
+  # pool timeout) becomes a tagged error, so the answer is the fixed post-commit 500 and not the
+  # framework's crash response (SECURITY-REVIEWER MAJOR, INV-8). Only the exception class is logged.
+  defp provision_and_record(tenant, slug, hostname) do
+    with {:ok, _registration} <- TenantOnboarding.provision_and_migrate(tenant.id),
+         {:ok, record} <-
+           Identity.create_onboarding(%{tenant_id: tenant.id, slug: slug, hostname: hostname}) do
+      {:ok, record}
+    end
+  rescue
+    error ->
+      Logger.error(
+        "onboarding failed after the tenant was committed (tenant_id=#{inspect(tenant.id)}, " <>
+          "exception=#{inspect(error.__struct__)})"
+      )
+
+      {:error, :raised}
   end
 
   defp created_with_realm(conn, _tenant, record, extras, nil, _bind_opts) do

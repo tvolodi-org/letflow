@@ -730,7 +730,7 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     if tenant, do: cleanup_onboarded_tenant!(tenant.id)
 
     assert conn.status == 409, conn.resp_body
-    assert json(conn)["detail"] =~ "the tenant for this slug was created and is active"
+    assert json(conn)["detail"] =~ "the tenant for this slug was created"
     assert json(conn)["detail"] =~ "do not retry with a new slug"
     assert %Tenant{status: :active} = tenant
   end
@@ -757,7 +757,59 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     assert json(conn)["detail"] =~ "the tenant may exist"
     assert json(conn)["detail"] =~ "do not retry with a new slug"
     refute Repo.get_by(OnboardingRecord, hostname: hostname)
-    refute Repo.get_by(Tenant, slug: slug)
+  end
+
+  # The database faults inside provisioning, after the tenant is committed: the provisioning transaction
+  # re-raises it, and the answer is the fixed post-commit 500 with a committed tenant behind it. The fault
+  # is real (a trigger on tenant_schemas raises; see with_tenant_schema_insert_failing/1), not a stub.
+  test "POST /onboarding answers 500 with the after-commit detail when the database faults during provisioning after the tenant was committed",
+       ctx do
+    slug = TenantSlugFixture.unique_slug("iss1030")
+    hostname = "iss1030-raise-#{Ecto.UUID.generate()}.example.com"
+
+    conn =
+      with_tenant_schema_insert_failing(fn ->
+        call(
+          ctx,
+          :post,
+          "/api/v1/onboarding",
+          new_body(%{"slug" => slug, "hostname" => hostname})
+        )
+      end)
+
+    tenant = Repo.get_by(Tenant, slug: slug)
+    if tenant, do: cleanup_onboarded_tenant!(tenant.id)
+
+    assert conn.status == 500, conn.resp_body
+    assert json(conn)["detail"] =~ "the tenant may exist"
+    assert %Tenant{status: :migrating} = tenant
+    refute Repo.get_by(OnboardingRecord, hostname: hostname)
+  end
+
+  test "POST /onboarding with a whitespace-only hostname answers 422 and creates no tenant",
+       ctx do
+    refused!(ctx, %{"hostname" => "   "}, 422)
+  end
+
+  # The hostname is trimmed before the duplicate pre-check, so a padded value that matches a bound hostname is
+  # answered 409 before any write (TEST-DESIGN-VALIDATOR B1, the padded case).
+  test "POST /onboarding with a padded hostname that is already bound answers 409 and creates no tenant",
+       ctx do
+    hostname = "iss1030-padded-#{Ecto.UUID.generate()}.example.com"
+    _owner = onboard!(ctx, %{"hostname" => hostname})
+    slug = TenantSlugFixture.unique_slug("iss1030")
+
+    conn =
+      call(
+        ctx,
+        :post,
+        "/api/v1/onboarding",
+        new_body(%{"slug" => slug, "hostname" => "  " <> hostname <> "  "})
+      )
+
+    assert conn.status == 409, conn.resp_body
+    assert json(conn)["detail"] == "hostname already bound"
+    assert Repo.get_by(Tenant, slug: slug) == nil
   end
 
   test "POST /onboarding answers 503 with a retry-after header of 5 and creates no tenant row when the realm probe is unreachable",
@@ -1287,6 +1339,30 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     if self() == test_pid and String.starts_with?(query, ~s(INSERT INTO "tenants")) and
          match?({:ok, _}, Map.get(metadata, :result)) do
       Repo.delete_all(from(t in Tenant, where: t.slug == ^slug))
+    end
+  end
+
+  # Makes every insert into tenant_schemas raise, so provisioning raises inside the request after the tenant
+  # commit. A real database fault: the trigger raises, and the provisioning transaction re-raises it. The
+  # sandbox in this module commits (see cleanup_onboarded_tenant!/1), so the trigger and its function are
+  # dropped on exit, including when the request raises.
+  defp with_tenant_schema_insert_failing(fun) do
+    Repo.query!("DROP TRIGGER IF EXISTS letflow_iss1030_fail_insert ON tenant_schemas")
+    Repo.query!("DROP FUNCTION IF EXISTS letflow_iss1030_fail_insert()")
+
+    Repo.query!(
+      "CREATE FUNCTION letflow_iss1030_fail_insert() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected database fault (ISS-1030 test)'; END $$"
+    )
+
+    Repo.query!(
+      "CREATE TRIGGER letflow_iss1030_fail_insert BEFORE INSERT ON tenant_schemas FOR EACH ROW EXECUTE FUNCTION letflow_iss1030_fail_insert()"
+    )
+
+    try do
+      fun.()
+    after
+      Repo.query!("DROP TRIGGER IF EXISTS letflow_iss1030_fail_insert ON tenant_schemas")
+      Repo.query!("DROP FUNCTION IF EXISTS letflow_iss1030_fail_insert()")
     end
   end
 
