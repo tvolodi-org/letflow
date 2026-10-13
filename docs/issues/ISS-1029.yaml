@@ -51,8 +51,19 @@ regression_test: test/letflow/routers/promotion_read_stored_ids_test.exs
 # The number may need renumbering at merge if another branch took it (none found at 2026-10-13).
 queue_ref: Q-1011
 github_ref: GH-2311
-status: open
+status: resolved
+resolved_in_run: WF03-ISS1029READSTORED-20261013
+resolved_at: "2026-10-13T12:57:55Z"
+resolution: >
+  GET /promotions/:id/context, GET /promotions/:id and GET /promotions now re-check the review's STORED source/target tenant
+  ids for a non-operator through review_tenants_authorized?/2 (the decision core shared with
+  stored_tenants_authorized?/3): the two per-review routes answer the zero-detail nonexistent-review 404, the list
+  omits such rows via PromotionReviewStore.list_reviews/2 :row_visible? (keyset scan, no cap, cursors only ever encode
+  emitted rows). Operator unchanged. SECURITY-REVIEWER step-04 PASS, REVIEWER step-05 PASS, RELEASE-VALIDATOR step-06
+  PASS (independent re-run, mutants M3/M11 killed). Ships with the PR of this run (this record is part of that PR, so
+  it reads resolved on merge). Two unrelated pre-existing 500s (tenant_admin_routes_test AC2,
+  req077_promotion_pipeline_test.exs:1279) are not part of this issue.
 implementation: >
   Implemented in run WF03-ISS1029READSTORED-20261013 (ELIXIR-DEV step 03): review_tenants_authorized?/2 shared by
   all seven per-review routes; list_reviews/2 row_visible? keyset scan; tests and mutants in test/specs/ISS-1029.md.
-  Status stays open until SECURITY-REVIEWER, REVIEWER and RELEASE-VALIDATOR have passed it (DOC-UPDATER resolves).
+  All gates passed; resolved by DOC-UPDATER (step 07).
