@@ -1,15 +1,26 @@
 id: ISS-1110
-title: "ci.yml path filter: echo | grep -q under pipefail can SIGPIPE and yield backend=false on a large changed-file list"
-discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
-discovered_in_run: "2026-10-13 letflow-3 REVIEWER notes on PR #2491 (Q-1059), relayed by the supervisor"
-discovered_at: "2026-10-13T00:00:00Z"
+title: "ci.yml path filter: echo | grep -q under set -o pipefail can yield false on a large changed list (SIGPIPE), skipping a gate"
+discovered_by: letflow-3 REVIEWER on PR #2491; filed by letflow-2 (sole filer)
+discovered_at: "2026-10-13T15:46:07Z"
 severity: LOW
-owner: "letflow-16 (CI and test-infra)"
+owner: "CI lane (.github/workflows/ci.yml); no tenant-data path"
 scope: tooling
 description: >
-  .github/workflows/ci.yml:255,261,267 decide each gate with echo "$CHANGED" | grep -qE under set -uo pipefail (:191); grep -q exits early, echo gets SIGPIPE, the pipeline is non-zero and the gate output is false (tests skipped). Fix: grep -qE <<<"$CHANGED".
-resolution: >
-  Open. Filed GitHub-first (GH #2492), then registered with the queue (Q-1110) using that number.
+  The filter step in .github/workflows/ci.yml runs under `set -uo pipefail` and matched the changed-file list
+  with `echo "$CHANGED" | grep -qE <re>`. grep -q exits at the first match, echo then gets SIGPIPE on a list
+  larger than the pipe buffer, the pipeline status is 141 and the `if` is false, so backend/frontend/mobile
+  is reported false for a list that contains a match (a gate skipped, the unsafe direction).
+acceptance_criteria:
+  - "No `echo | grep -q` pipe remains in any of the three path filters"
+  - "A guard test fails if that pattern returns"
+  - "Evidence on a ~20k-line changed list"
+affected_files:
+  - .github/workflows/ci.yml
+  - test/letflow/ci_backend_path_filter_test.exs
 queue_ref: Q-1110
 github_ref: GH-2492
-status: open
+status: resolved
+resolution: >
+  All three filters match with a here-string (`grep -qE <re> <<<"$CHANGED"`). The guard test
+  test/letflow/ci_backend_path_filter_test.exs rejects a pipe into grep -q. On a 20,001-line list the piped
+  form gave FFFFFFFFFF and the here-string TTTTTTTTTT (see test/specs/ISS-1110.md).
