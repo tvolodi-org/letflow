@@ -1,0 +1,65 @@
+{
+  "handoff_id": "c4a7d1e0-1029-4b11-8c20-000000000005r2",
+  "run_id": "WF03-ISS1029READSTORED-20261013",
+  "workflow_id": "WF-03",
+  "step": "05-r2",
+  "from_agent": "ORCH",
+  "to_agent": "REVIEWER",
+  "file": "handoffs/WF03-ISS1029READSTORED-20261013/step-05-reviewer-r2.json",
+  "created_at": "2026-10-13T14:24:00Z",
+  "started_at": "2026-10-13T14:25:07Z",
+  "completed_at": "2026-10-13T14:40:56Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1011": "GH #2311 / ISS-1029; review of reworked implementation (design rev3)."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "lib/letflow/routers/promotions.ex",
+      "lib/letflow/definitions/promotion_review_store.ex"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1029READSTORED-20261013"
+  },
+  "task": {
+    "description": "WF-03 step 05 REVIEWER pass on the rev3 implementation; supersedes step-05-reviewer.json (rev1)."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "PASS (0 BLOCKER, 0 MAJOR, 3 MINOR). Diff e29356eb8..HEAD (main-merge exam files ignored). SCOPE: lib change is promotions.ex (read predicate review_read_access/2, tolerant_plan/1, stored_plan_ids/1, three read call sites; write predicate review_tenants_authorized?/2 is the old stored_tenants_authorized? body extracted, same decode-to-%{} semantics, still the only predicate used by approve/reject/apply/run-assertions) plus promotion_review_store.ex, whose :row_visible? keyset scan is the rev1 mechanism that design rev3 explicitly keeps (\"needs NO change\", filer accepted it, GH #2311 comment 6146252089); the step-03 r2 handoff says the store is unchanged from rev1. No new behaviours/macros/generic plumbing; the store opt is one typed optional keyword with a fail-closed ArgumentError for a non-function. IDIOM: no process/OTP surface touched (plain transactional context per REQ-045; InstanceSupervisor untouched). review_read_access returns a closed atom set with a 3-way cond, guarded by @spec; non-bang Jason.decode everywhere on the read path; operator path never decodes. Pattern-matching on %PromotionReview{} in each private fun. DEAD CODE: none found; mix compile --force --warnings-as-errors clean; every rev1 helper (@min_scan_chunk, fetch_row_visible!, scan_visible_reviews, list_reviews_opts) is used; the rev1 both-sides predicate on the read routes is gone. DESIGN CONFORMANCE: rev3 and validator r4 PASS followed point by point: party rule (:full/:own_side/:none), 404 before any run read on /:id, 7-key run map kept for :own_side (AC5 decision), tolerant_plan nil -> serialised_plan null for the operator (AC7), list predicate non-operator only, tenant only from auth_context via TenantTarget.authorize_target_tenant (AC3). ACs 1-10: covered by the 38-test repro file and spec ISS-1029.md; AC9 satisfied by SECURITY-REVIEWER r2 handoff. DECISION RECORDS: 0046 closing note matches the party rule and the write-route statement; ISS-1021/1023 spec notes say the pinning tests pass as written (consistent with restored originals); ISS-1026 follow-up marked resolved; no decision contradicted (no web-framework or process-model re-decision). ANTI-PATTERNS: docs/anti-patterns.md has no ISS-1029 or read-side entry; nothing applicable violated. TEST TAG: @tag :long_hidden_run is on the two 1100-row tests only, test-only, no behaviour change; it is NOT in the test_helper exclude list so the tests run in the normal suite (about 4 minutes for the 5 promotion files, fine) and the tag exists only for mutant runs via --exclude. VERIFIED BY RUN (Postgres 5462, one mix process at a time): 5 files (read_stored_ids, review_store, allowlist, entries_scope, approve_reject_stored_ids) completed in 247 s; read_stored_ids --exclude long_hidden_run: 36 passed, 2 excluded in two consecutive runs. STALE DESIGN WORDING (validator MINOR: R5 reduced run map, ROUTING says rev2, TESTS heading rev2) does not matter for the PR: the handoff is not promoted to lib/letflow/design/, ELIXIR-DEV followed the authoritative sections, and no shipped file repeats the stale text; fix only if the design is ever promoted.",
+    "artifacts_out": [],
+    "owned_modules": [],
+    "issues": [
+      {
+        "severity": "MINOR",
+        "description": "Test flake observed once: the first run of promotion_read_stored_ids_test.exs --exclude long_hidden_run reported 35/36 passed; three later identical runs were 36/36. The failing test was not captured (output was tailed). The DB is shared with other sessions (TenantSchemaReaper log lines show other mix invocations). RELEASE-VALIDATOR should watch for it in its own run; not classified as a defect without a repeat.",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "test/specs/ISS-1021.md OQ-3 still says an invalid-JSON serialised_plan raises in Jason.decode!/1 (HTTP 500) for both views; after ISS-1029 the operator /context path is tolerant (200, serialised_plan null) and non-operators get 404. The appended ISS-1029 note does not retract OQ-3. Also docs/migration/decisions/0046 and the two spec notes lack a trailing newline. Cosmetic; fix with the PR docs or leave.",
+        "affected_requirement": "AC7"
+      },
+      {
+        "severity": "MINOR",
+        "description": "scan_visible_reviews does acc ++ filter and length(acc) per chunk (O(n^2) in the worst case) and has no scan cap; with a JSON decode per scanned row this is a full-table cost for a non-operator whose list hides most rows. Design-accepted (a cap would disclose or make rows unreachable) and flagged by ELIXIR-DEV for SECURITY-REVIEWER; not a defect today. Consider a follow-up if promotion_reviews grows large (stored/generated party column). Type-safety: none new that would justify a docs/issues type-safety entry (the :full|:own_side|:none atom set is already specced).",
+        "affected_requirement": "AC6"
+      }
+    ],
+    "git_evidence": {
+      "branch_name": "feature/WF03-ISS1029READSTORED-20261013",
+      "commit_sha_list": [],
+      "remote_branch": null,
+      "push_status": "skipped",
+      "pr_url": null,
+      "pr_create_error": null
+    },
+    "next_action": "ORCH: proceed to TEST-DESIGN-VALIDATOR (tests already written by ELIXIR-DEV; AC9 SECURITY-REVIEWER done) then RELEASE-VALIDATOR; state in the PR body that AC1 was preferred over a strict AC5 and that the run-map residual follow-up is filed."
+  }
+}

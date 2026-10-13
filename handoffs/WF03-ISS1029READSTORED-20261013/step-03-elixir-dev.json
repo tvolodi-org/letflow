@@ -1,0 +1,98 @@
+{
+  "handoff_id": "c4a7d1e0-1029-4b11-8c20-000000000003",
+  "run_id": "WF03-ISS1029READSTORED-20261013",
+  "workflow_id": "WF-03",
+  "step": "03",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF03-ISS1029READSTORED-20261013/step-03-elixir-dev.json",
+  "created_at": "2026-10-13T11:40:00Z",
+  "started_at": "2026-10-13T11:41:00Z",
+  "completed_at": "2026-10-13T12:30:00Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1011": "LOW (INV-10 family), S3, ISS-1026 follow-up, GH #2311, local ISS-1029."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-1029-4b11-8c20-000000000001",
+      "c4a7d1e0-1029-4b11-8c20-000000000002c"
+    ],
+    "artifacts_in": [
+      "handoffs/WF03-ISS1029READSTORED-20261013/step-01-issue-fixer.json",
+      "handoffs/WF03-ISS1029READSTORED-20261013/step-02-code-design-validator-r2.json",
+      "docs/issues/ISS-1029.yaml"
+    ],
+    "owned_modules": [
+      "lib/letflow/routers/promotions.ex",
+      "lib/letflow/definitions/promotion_review_store.ex"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1029READSTORED-20261013"
+  },
+  "task": {
+    "description": "WF-03 Step 3: implement the validated ISS-1029 design (revision 1) for the three promotion read routes, with the tests, mutants and docs it enumerates; fold the three MINORs of step-02 r2."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "IMPLEMENTED exactly the revision-1 design; no deviations. lib (two files only): promotions.ex gains review_tenants_authorized?/2 (the former decision core of stored_tenants_authorized?/3, which now delegates to it, so approve/reject/apply/run-assertions are byte-identical); handle_get_assertion_run and render_context call it before reading/rendering and answer Response.not_found/1; handle_list_reviews passes row_visible: &review_tenants_authorized?(conn, &1) only when tenant_view(conn) != :operator. promotion_review_store.ex: list_reviews/2 takes opts :row_visible? (nil/absent = the old single query; 1-arity fun = keyset scan in chunks of max(page_size + 1, 100) full rows, stop at page_size + 1 visible rows or a short chunk, no cap; any other value raises ArgumentError); next_cursor always built from the last EMITTED row; @spec/@type widened (list_reviews_opts). No migration, no new route or response shape. TESTS: promotion_read_stored_ids_test.exs extended from 5 to 27 (1(a)..1(i); the 1(c) matrix includes an all-hidden-schema empty-page case also reused in 1(d), per MINOR 2; 1(e) fixture raised to 1100 hidden rows then one visible row so a cap up to 1000 is killed, per MINOR 3; M8 is attributed to 1(c), per MINOR 1); promotion_review_store_test.exs +7 tests (describe :row_visible? (ISS-1029)); T-8 (2 tests), T-11 (8 tests), T-13 (5 tests) flipped/rewritten per the design list; promotions_test.exs req397_sample_plan/2 stamps source_tenant_id: tenant_id. DOCS: test/specs/ISS-1029.md (new), notes in test/specs/ISS-1021.md and ISS-1023.md, decision 0046 follow-up closed, docs/issues/ISS-1029.yaml gets an implementation note (status left open for the gates and DOC-UPDATER). FAIL-FIRST (same tests, pre-fix lib e29356eb8): repro+new+T-8+T-11+T-13+promotions_test+store test = 73/110 passed, 37 failed; with the fix all 110 green (the 1(e) fixture was then enlarged; final run below). POST-FIX: 27/27 repro file; 28/28 store test; T-8+T-11+T-13+promotions_test 55/55 (shaping, allowlist, entries_scope, promotions_test: 55 incl. the REQ-397 list tests); route/affected set A (read_stored_ids, T-8, T-11, T-13, promotions_test, approve_reject_stored_ids, promotion_scope, req446_cross_tenant_denial, tenant_admin_routes) 123/124 and set B (store, assertion_rerun, definitions promotion_test, rollback, platform_events, req064, req077_promotion_pipeline, allowlist_drift) 132/133: the two failures are PRE-EXISTING and unrelated, reproduced identically on the pre-fix lib e29356eb8 (tenant_admin_routes_test AC2 POST /identity/users answers 500; req077_promotion_pipeline_test.exs:1279 POST /plan with a real VIEWER token answers 500 instead of 403). MUTANTS (each applied alone to lib, run against the route file + store test, plus the flipped files for M1/M5/M10, restored after each; git diff HEAD -- lib empty at the end): M1 14 failed (repro context, 1(i) x2, T-8 x1, T-11 x5, T-13 x5); M2 4 failed (repro /:id, 1(a), 1(i) x2); M3 18 failed (repro list, 1(c), 1(d), 1(e), 1(f), 1(g), 1(i)); M4 dropped (equivalent); M5 20 failed (incl. T-13 one_foreign_side and legacy); M6 3 failed (1(h), 1(i) operator, 1(f) operator; note the real predicate returns true for an operator so the mutant uses a strict own-only predicate); M7 15 failed (1(c), 1(d), 1(e), 1(f), 1(g); the repro list test does NOT catch it, 1(c) does); M8 8 failed (1(c) x3, 1(f), 1(h), store boundary + cursor, REQ-397 keyset; 1(d) alone does not catch it, as the validator said); M9 15 failed; M10 1 failed in the route file (1(f)) and 1 in T-11 (non_map_plan_fails_closed); M11 1 failed (1(f) list, Jason.DecodeError); M12a 3 failed (1(e) x2, store 251-row run); M12b (1000-row budget) 1 failed (1(e) 1100-row case); M13 1 failed (store ArgumentError); M14 4 failed (1(c) all-hidden, 1(d) all-hidden, 1(g), store all-hidden). All 14 mutants killed. GATES (MIX_ENV=test MIX_TEST_PARTITION=3, committed tree): mix format --check-formatted exit 0; mix compile --force --warnings-as-errors exit 0 (364 files); mix letflow.lint_handoffs OK (0 new violations); mix letflow.check_issue_refs OK; mix letflow.check_boundaries OK (1130 edges, 0 violations); mix letflow.check.static exit 0 (all static checks, 0 violations). NOT RUN: the full test suite (sharded script) and `mix letflow.check` as a whole; dev-env compile (no MIX_ENV=dev build was done); Dialyzer. SECURITY-REVIEWER must confirm the accepted trade-offs R2/R3/R7: full keyset scan with a JSON decode per scanned row for a non-operator whose list hides rows, no cap, timing not byte-observable.",
+    "artifacts_out": [
+      "lib/letflow/routers/promotions.ex",
+      "lib/letflow/definitions/promotion_review_store.ex",
+      "test/letflow/routers/promotion_read_stored_ids_test.exs",
+      "test/letflow/routers/promotion_context_shaping_test.exs",
+      "test/letflow/routers/promotion_context_allowlist_test.exs",
+      "test/letflow/routers/promotion_context_entries_scope_test.exs",
+      "test/letflow/routers/promotions_test.exs",
+      "test/letflow/definitions/promotion_review_store_test.exs",
+      "test/specs/ISS-1029.md",
+      "test/specs/ISS-1021.md",
+      "test/specs/ISS-1023.md",
+      "docs/migration/decisions/0046-admin-scopes-and-role-charter.md",
+      "docs/issues/ISS-1029.yaml"
+    ],
+    "owned_modules": [
+      "lib/letflow/routers/promotions.ex",
+      "lib/letflow/definitions/promotion_review_store.ex"
+    ],
+    "design_deviations": [],
+    "tests": {
+      "repro_file": "27 passed",
+      "store_file": "28 passed",
+      "t8_t11_t13_promotions": "55 passed (4 files: shaping, allowlist, entries_scope, promotions_test) in the fail-first comparison; 110 total with repro and store files",
+      "fail_first_pre_fix": "73/110 passed, 37 failed",
+      "affected_set_a": "123/124 (1 pre-existing unrelated failure)",
+      "affected_set_b": "132/133 (1 pre-existing unrelated failure)"
+    },
+    "mutants": {
+      "M1": "14 killed",
+      "M2": "4 killed",
+      "M3": "18 killed",
+      "M4": "dropped (equivalent)",
+      "M5": "20 killed",
+      "M6": "3 killed",
+      "M7": "15 killed",
+      "M8": "8 killed",
+      "M9": "15 killed",
+      "M10": "1+1 killed",
+      "M11": "1 killed",
+      "M12a": "3 killed",
+      "M12b": "1 killed",
+      "M13": "1 killed",
+      "M14": "4 killed"
+    },
+    "git_evidence": {
+      "branch_name": "feature/WF03-ISS1029READSTORED-20261013",
+      "commit_sha_list": [],
+      "remote_branch": null,
+      "push_status": "skipped",
+      "pr_url": null,
+      "pr_create_error": null
+    },
+    "next_action": "ORCH: SECURITY-REVIEWER (tenant-data path, INV-10; R2/R3/R7 scan-cost trade-off), then REVIEWER, then TEST-RUNNER/RELEASE-VALIDATOR; DOC-UPDATER resolves docs/issues/ISS-1029.yaml. Two unrelated pre-existing failures (tenant_admin_routes_test AC2, req077_promotion_pipeline_test:1279) should be filed separately."
+  }
+}

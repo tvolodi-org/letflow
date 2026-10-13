@@ -1,0 +1,33 @@
+{
+  "handoff_id": "c4a7d1e0-1029-4b11-8c20-000000000005b-r2",
+  "run_id": "WF03-ISS1029READSTORED-20261013",
+  "workflow_id": "WF-03",
+  "step": "05b-r2",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGN-VALIDATOR",
+  "file": "handoffs/WF03-ISS1029READSTORED-20261013/step-05b-test-design-validator-r2.json",
+  "created_at": "2026-10-13T14:51:00Z",
+  "started_at": "2026-10-13T14:52:08Z",
+  "completed_at": "2026-10-13T14:54:11Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "related_handoff_ids": ["c4a7d1e0-1029-4b11-8c20-000000000005b"],
+    "artifacts_in": ["test/letflow/routers/promotion_read_stored_ids_test.exs", "commit e5117252b"],
+    "branch_name": "feature/WF03-ISS1029READSTORED-20261013"
+  },
+  "task": {
+    "description": "Re-check of the step-05b MAJOR (T5 did not kill a request-decides mutant) after ELIXIR-DEV commit e5117252b."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "PASS (0 BLOCKER, 0 MAJOR, 0 MINOR). The earlier MAJOR is closed. MUTANTS APPLIED BY ME (lib/letflow/routers/promotions.ex review_read_access/2 {:tenant,_} branch, each alone, file restored by git checkout after): (a) the tenant_id query param replaces the auth_context tenant_id used for the party comparison (the exact form that survived 36/36 in r1): T5 describe 0/2 passed, both T5 tests failed -> KILLED; (b) header variant, x-tenant-id request header replaces the auth tenant: T5 describe 0/2 passed -> KILLED. TEST CONTENT CHECKS (read from the committed file): the non-party half seeds (b, p) in A's schema and sends, for each of named in [b, p, a] and for query / headers / body / all channels and both suffixes, a request naming the stored foreign ids; each response must be 404 and its Scope.observable (status, body, headers) must equal baseline/6 = the same call to a freshly generated nonexistent review id carrying the SAME query, headers and body; the list is requested under every channel/named id and must be exactly [] (the schema holds only the hidden review, so a leak would make it non-empty: meaningful) plus a refute on the id with tenant_id=b. The party half seeds (a,b) and (b,a) and for named in [b, p] on every channel and both suffixes compares to the plain 200 read byte for byte (plain.status == 200 asserted) and the list length == 2. Default run of the whole file: 'Result: 38 passed' (long_hidden_run tests included; no exclude on that tag in test_helper.exs). REVERT VERIFIED: git diff HEAD -- lib is 0 bytes and git status --porcelain lib/ test/ is empty after each mutant and at the end; no mutant committed; no erl/mix processes of mine left.",
+    "issues": [],
+    "artifacts_out": ["handoffs/WF03-ISS1029READSTORED-20261013/step-05b-test-design-validator-r2.json"],
+    "owned_modules": [],
+    "design_deviations": [],
+    "next_action": "ORCH: proceed to RELEASE-VALIDATOR."
+  }
+}
