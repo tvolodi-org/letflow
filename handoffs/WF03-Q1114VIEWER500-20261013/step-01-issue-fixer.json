@@ -1,0 +1,41 @@
+{
+  "handoff_id": "c4a7d1e0-1114-4a11-8c20-000000000001",
+  "run_id": "WF03-Q1114VIEWER500-20261013",
+  "workflow_id": "WF-03",
+  "step": "01",
+  "from_agent": "ORCH",
+  "to_agent": "ISSUE-FIXER",
+  "file": "handoffs/WF03-Q1114VIEWER500-20261013/step-01-issue-fixer.json",
+  "created_at": "2026-10-13T15:30:00Z",
+  "started_at": "2026-10-13T15:31:20Z",
+  "completed_at": "2026-10-13T15:34:31Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1114": "GH #2497, pre-existing red test, diagnosis only."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "test/letflow/routers/req077_promotion_pipeline_test.exs"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF03-Q1114VIEWER500-20261013"
+  },
+  "task": {
+    "description": "WF-03 step 1 diagnosis and classification for Q-1114 / GH #2497. No fix, no lib/ or test/ edits."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "DIAGNOSIS (reproduced, root cause confirmed): ENVIRONMENT (stale local database), not a code defect. The default test database `letflow_test` on this machine has public.tenant_login_directory WITHOUT the `key_id` column (and without the key_id_format check). Migration priv/repo/migrations/20261004000001_create_tenant_login_directory.exs was edited in place to add `key_id` before it merged (b01b785e4, 2026-10-05; its header says 'Edited in place: this migration is not on main'), so a DB migrated from the earlier branch state has version 20261004000001 recorded in schema_migrations and `mix ecto.migrate` never re-applies it. Schema Letflow.Identity.TenantLoginDirectoryEntry (lib/letflow/identity/tenant_login_directory_entry.ex L34) declares key_id, so LoginDirectory.upsert_entry/2 (lib/letflow/login_directory.ex L418-437) raises Postgrex undefined_column inside Repo.insert_all (log: false) and its blanket `rescue _exception -> {:error, :write_failed}` (L436) turns it into {:error, :write_failed}; the user INSERT is rolled back with it. DBs letflow_test1..16 and several others have the column (checked via information_schema); stale ones: letflow_test, letflow_test377, letflow_test9232, letflow_test9233, letflow_testr436a, letflow_testr436t (all lack key_id). Direct proof, psql on letflow_test: `insert into tenant_login_directory(email_key,key_id,tenant_id,inserted_at) ...` -> ERROR: column \"key_id\" of relation \"tenant_login_directory\" does not exist. Fails identically at e29356eb8: YES by construction (b01b785e4 is an ancestor of e29356eb8, same schema and code path; the failure depends on DB state, not on any commit since the key_id migration landed 2026-10-05). Not re-run in a worktree: the outcome is independent of code revision once key_id is in the schema (verified by ancestry and by reading the tree at e29356eb8). REPRO (default DB): `LETFLOW_DEV_DB_CONFIRMED=1 MIX_ENV=test mix test test/letflow/routers/req077_promotion_pipeline_test.exs:1279` -> `1) test design section 12.9 ... POST /api/v1/promotions/plan with a real VIEWER token, full pipeline, is 403 ... Assertion with == failed code: assert conn.status == 403 left: 500 right: 403` (req077_promotion_pipeline_test.exs:1296); log line: `[error] JIT user provisioning failed reason={:login_directory, :write_failed}`, preceded by INSERT INTO tenant_<id>.users ... ON CONFLICT DO NOTHING and then `rollback`. TRACE: the test sends a real-pipeline request with 'valid-test-token' (subject test-subject-001) into a fresh tenant under realm bpm-default; the user does not exist, so the auth pipeline JIT-provisions it (Identity.provision_oidc_user, lib/letflow/identity.ex ~L2398 write_jit_directory_entry -> LoginDirectory.apply_plan -> upsert_entry); the directory write fails on the stale table; Repo.rollback({:login_directory, :write_failed}); the pipeline answers 500 BEFORE the authorization decision (:Unknown gate) is reached, so the 403 under test is never evaluated. SEPARATION PRODUCTION VS TEST: the same unmodified test on a freshly created and migrated database (MIX_TEST_PARTITION=dg1 -> letflow_testdg1, created by the mix test alias, dropped afterwards): `Result: 1 passed, 36 excluded`. So on a correctly migrated DB the real router returns 403 with detail 'insufficient permissions' and auth_context.roles == [] as asserted; the test's request/token/fixture is correct; no scratch test was needed and git diff shows no lib/ or test/ change. CLASSIFICATION: ENVIRONMENT. Not a production defect in the authz path: INV-8 is not violated by a refusal; the 500 is an infrastructure fault (schema drift) in JIT provisioning, which precedes authorization. A real client on a DB lacking key_id would see 500 on first login of any user regardless of role (fail-closed, correct). Severity LOW (local default test DB only; CI creates fresh DBs; partition DBs 1-16 are fine; no production deployment exists). FIX: no code change; recreate the stale DB (`DROP DATABASE letflow_test`, the mix test alias recreates and migrates it; letflow_test's tenant_login_directory is empty so an in-place ALTER also works) and the other stale DBs listed. Optional hardening for ORCH to decide: a test_helper preflight comparing tenant_login_directory columns with the schema, or enforcing 'never edit an applied migration in place'. SECURITY-REVIEWER: not required (no lib/ change). The test needs no correction. Q-1113 / GH #2496 has the same root cause: one DB repair clears both.",
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "diagnosis_confirmed": true,
+    "implementation_written": false,
+    "classification": "ENVIRONMENT"
+  }
+}

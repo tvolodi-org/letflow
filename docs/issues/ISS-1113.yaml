@@ -9,7 +9,7 @@ scope: defect
 description: >
   test/letflow/routers/tenant_admin_routes_test.exs AC2 (~L67): POST /identity/users answers 500; fails identically at e29356eb8 per letflow-9c. Filing only, no root cause diagnosed.
 resolution: >
-  Open. Filed GitHub-first (GH #2496), then registered with the queue (Q-1113) using that number.
+  Closed as ENVIRONMENT, no production defect (letflow-9c, 2026-10-13): a stale local test DB lacked tenant_login_directory.key_id because migration 20261004000001 was edited in place before merge b01b785e4; a fresh DB passes; INV-8 not violated. Evidence comments on GH #2496; diagnosis in handoffs/WF03-Q1113IDENTUSERS500-20261013/step-01-issue-fixer.json. Hardening is tracked separately (see the migration-drift item). Filed GitHub-first, registered with the queue (Q-1113).
 queue_ref: Q-1113
 github_ref: GH-2496
-status: open
+status: no_defect
