@@ -208,15 +208,22 @@ defmodule Letflow.Modules.Exam.SessionTest do
       assert {:error, :attempts_exhausted} = Session.create(candidate_id, exam.record_id, schema)
     end
 
-    test "an already-open session -> :session_already_open" do
+    test "an already-open session -> {:session_already_open, that candidate's own open session id}" do
       %{schema_name: schema} = tenant("req332-elig-open")
       %{exam: exam} = build_minimal_exam!(schema, exam_attrs: %{"max_attempts" => 5})
       candidate_id = Ecto.UUID.generate()
+      other_candidate_id = Ecto.UUID.generate()
 
-      assert {:ok, _first} = Session.create(candidate_id, exam.record_id, schema)
+      assert {:ok, first} = Session.create(candidate_id, exam.record_id, schema)
 
-      assert {:error, :session_already_open} =
+      # Another candidate's open session on the same exam is never the id returned to this one.
+      assert {:ok, other} = Session.create(other_candidate_id, exam.record_id, schema)
+      refute other.id == first.id
+
+      assert {:error, {:session_already_open, open_id}} =
                Session.create(candidate_id, exam.record_id, schema)
+
+      assert open_id == first.id
     end
 
     test "two CONCURRENT create/3 calls for the same candidate+exam produce exactly one session (fails if the exam-row lock is removed)" do
@@ -238,7 +245,7 @@ defmodule Letflow.Modules.Exam.SessionTest do
       # (WF02-REQ332-20260913) showed was possible before `create_with_seed/4`
       # ran inside `Repo.transaction/1` with that lock.
       assert Enum.count(results, &match?({:ok, _session_view}, &1)) == 1
-      assert Enum.count(results, &(&1 == {:error, :session_already_open})) == 1
+      assert Enum.count(results, &match?({:error, {:session_already_open, _id}}, &1)) == 1
 
       import Ecto.Query
 

@@ -66,7 +66,6 @@ async function fillRequired(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByLabelText('Slug'), 'newco')
   await user.type(screen.getByLabelText('Display Name'), 'Newco Corp')
   await user.type(screen.getByLabelText('Hostname'), 'newco.example.com')
-  await user.type(screen.getByPlaceholderText('https://app.example.com/callback'), 'https://a.example.com/cb')
 }
 
 async function submit(user: ReturnType<typeof userEvent.setup>) {
