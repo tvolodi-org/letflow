@@ -295,6 +295,29 @@ case Letflow.LoginDirectory.parse_deployment_mode(System.get_env("LETFLOW_LOGIN_
             "uniform_plus_email or redirect_single. The value is not echoed."
 end
 
+# ISS-1030 (design iss1030-onboarding-administrator.md s4.4; decision 0048): OPTIONAL
+# LETFLOW_OIDC_ADMIN_BIND_UNVERIFIED_REALMS, a comma-separated list of realm names whose
+# e-mail claim may bind a pending administrator grant WITHOUT `email_verified=true`.
+# Unset or empty means none (the default, OFF). It is the ONLY source of the setting: no
+# database column, API, tenant setting or claim can set it. A name outside the realm
+# alphabet stops boot WITHOUT echoing it (INV-4). Read at boot; restart to change.
+admin_bind_unverified_realms =
+  "LETFLOW_OIDC_ADMIN_BIND_UNVERIFIED_REALMS"
+  |> System.get_env()
+  |> Kernel.||("")
+  |> String.split(",", trim: true)
+  |> Enum.map(&String.trim/1)
+  |> Enum.reject(&(&1 == ""))
+
+if not Enum.all?(admin_bind_unverified_realms, &Letflow.Identity.Tenant.realm_id_format?/1) or
+     Enum.any?(admin_bind_unverified_realms, &Letflow.Identity.Tenant.reserved_realm_id?/1) do
+  raise "environment variable LETFLOW_OIDC_ADMIN_BIND_UNVERIFIED_REALMS must be a comma-separated " <>
+          "list of realm names (letters, digits, _ and -, at most 64 characters, not master). " <>
+          "The value is not echoed."
+end
+
+config :letflow, :oidc_admin_bind_unverified_realms, admin_bind_unverified_realms
+
 # REQ-441 (design lib/letflow/design/req441-mail-notifier-adapter.md s3; decision 0045):
 # the notifier mail adapter. ALL variables are OPTIONAL: LETFLOW_MAIL_ADAPTER unset or
 # blank writes nothing (the config/config.exs Noop default, or the config/test.exs double,

@@ -69,16 +69,11 @@ function renderRegister() {
   )
 }
 
-// The admin fields are optional on main (ISS-1030) but required on the pre-fix form, so they are filled too.
-// Filling them is valid on both, and it lets the pre-fix page reach submit for the fail-first run. The labels
-// differ by an "(optional)" suffix between the two, so the match is on the prefix.
 async function fillRequired(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByLabelText('Slug'), 'newco')
   await user.type(screen.getByLabelText('Display Name'), 'Newco Corp')
   await user.type(screen.getByLabelText('Hostname'), 'newco.example.com')
   await user.type(screen.getByLabelText(/^Admin Email/), 'admin@newco.example.com')
-  await user.type(screen.getByLabelText(/^Admin Username/), 'newco-admin')
-  await user.type(screen.getByLabelText(/^Admin Display Name/), 'Newco Admin')
 }
 
 beforeEach(() => {

@@ -194,7 +194,10 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     assert Enum.any?(steps, &(&1 =~ "TENANT_ADMIN"))
   end
 
-  test "POST /onboarding with admin_email, admin_username and admin_display_name returns 201, echoes each as not_provisioned and stores nothing",
+  # ISS-1030 PR 2 changed this behaviour on purpose: the e-mail is now stored as a PENDING grant (state
+  # `pending`, `grant_id`), and only the other two fields are echoed as not_provisioned. What stays
+  # true, and is still asserted: no user, no group membership is created from the named administrator.
+  test "POST /onboarding with admin_email, admin_username and admin_display_name returns 201, stores the e-mail as a pending grant, echoes the other two as not_provisioned and creates no user or membership",
        ctx do
     email = "Ada.Admin@Example.com"
 
@@ -205,17 +208,22 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
         "admin_display_name" => "Ada Admin"
       })
 
-    assert resp["administrator"]["state"] == "not_provisioned"
-    assert resp["administrator"]["message"] =~ "NOT used"
-    assert resp["administrator"]["message"] =~ @runbook
+    assert resp["administrator"]["state"] == "pending"
+    assert is_binary(resp["administrator"]["grant_id"])
+    assert resp["administrator"]["message"] =~ "pending TENANT_ADMIN"
 
     echoed = Map.new(resp["administrator"]["not_provisioned"], &{&1["field"], &1["value"]})
 
     assert echoed == %{
-             "admin_email" => email,
              "admin_username" => "ada-admin",
              "admin_display_name" => "Ada Admin"
            }
+
+    # The e-mail is not echoed anywhere in the response: it is held as the grant's key only.
+    refute resp
+           |> Jason.encode!()
+           |> String.downcase()
+           |> String.contains?(String.downcase(email))
 
     # Nothing was created from the named administrator: no user in the new tenant.
     schema_name = schema_of(resp["tenant_id"])
@@ -231,9 +239,12 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
              prefix: schema_name
            ) == 0
 
-    # And nothing was granted: the tenant has no membership row at all.
+    # And nothing was granted: the tenant has no membership row at all, only the pending grant.
     members = Repo.aggregate(Letflow.Identity.GroupMember, :count, :user_id, prefix: schema_name)
     assert members == 0
+
+    assert [%{email_key: "ada.admin@example.com", consumed_at: nil, revoked_at: nil}] =
+             Repo.all(Letflow.Identity.PendingAdminGrant, prefix: schema_name)
   end
 
   test "POST /onboarding treats a blank-string admin field as not sent: state none and no echo",
@@ -300,20 +311,24 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     end
   end
 
+  # ISS-1030 PR 2 changed the first half on purpose: a 255-character admin_email is no longer echoed
+  # (it can become a grant, so it is validated as an address, at most 254 characters, BEFORE any write:
+  # 422, nothing created). The non-string and oversize echo rules of the other two fields are unchanged.
   test "POST /onboarding does not echo a non-string admin value and omits oversize values", ctx do
     at_limit = String.duplicate("a", 255)
     oversize = String.duplicate("d", 256)
 
+    conn = refused!(ctx, %{"admin_email" => at_limit}, 422)
+    assert field_error_on?(conn, "admin_email")
+
     resp =
       onboard!(ctx, %{
-        "admin_email" => at_limit,
         "admin_username" => 42,
         "admin_display_name" => oversize
       })
 
     echoed = Map.new(resp["administrator"]["not_provisioned"], &{&1["field"], &1})
 
-    assert echoed["admin_email"] == %{"field" => "admin_email", "value" => at_limit}
     assert echoed["admin_username"] == %{"field" => "admin_username"}
     assert echoed["admin_display_name"] == %{"field" => "admin_display_name"}
     refute resp |> Jason.encode!() |> String.contains?(oversize)

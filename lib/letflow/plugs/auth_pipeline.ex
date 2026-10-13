@@ -15,6 +15,11 @@ defmodule Letflow.Plugs.AuthPipeline do
     3. Realm-ownership guard, **before** JIT provisioning
        (`Letflow.Identity.verify_realm_ownership/2`).
     4. JIT provisioning/lookup (`Letflow.Identity.provision_oidc_user/4`).
+    4c. Pending-administrator binding (ISS-1030,
+       `Letflow.Identity.PendingAdminGrants.bind_on_login/5`): between JIT
+       provisioning and the per-request effective-role read, so the request that
+       binds already sees `TENANT_ADMIN`. OIDC branch only; a bind outcome
+       never changes the HTTP outcome (every failure is a silent no-op).
     5. Attach an auth context (`user_id`, `tenant_id`, `roles`) to
        `conn.assigns[:auth_context]` for downstream plugs.
 
@@ -88,6 +93,7 @@ defmodule Letflow.Plugs.AuthPipeline do
   import Plug.Conn
 
   alias Letflow.Identity
+  alias Letflow.Identity.PendingAdminGrants
   alias Letflow.Oidc.ClaimMapping
   alias Letflow.Oidc.ClaimMappingConfig
   alias Letflow.Oidc.JitProvisioningConfig
@@ -129,6 +135,7 @@ defmodule Letflow.Plugs.AuthPipeline do
          :ok <- guard_realm_ownership(tenant.id, realm),
          {:ok, identity_context} <- map_claims(realm, claims),
          {:ok, provisioned} <- provision_user(identity_context, tenant.id, realm),
+         :ok <- bind_pending_admin(tenant, provisioned, identity_context, realm),
          {:ok, live_roles} <- verify_local_account_state(provisioned, tenant.id) do
       attach_auth_context(conn, tenant.id, provisioned.user.id, live_roles)
     else
@@ -330,6 +337,32 @@ defmodule Letflow.Plugs.AuthPipeline do
 
       {:error, :invalid_tenant_id} ->
         {:error, {:provision, :invalid_tenant_id}}
+    end
+  end
+
+  # Step 4c (ISS-1030, design section 6) — the first-login binding of a pending
+  # tenant-administrator grant. Runs between provision_user/3 and
+  # verify_local_account_state/2 so the bind commits BEFORE the per-request
+  # effective-role read. The tenant is the DB-resolved struct (never the token),
+  # the prefix is derived exactly as the neighbouring steps derive it. The result
+  # is ignored on purpose: bind_on_login/5 never raises and never fails the
+  # request, and the pipeline's outcome is identical with or without a grant.
+  defp bind_pending_admin(tenant, provisioned, identity_context, realm) do
+    case TenantProvisioning.schema_name_for_tenant(tenant.id) do
+      {:ok, schema_name} ->
+        _ =
+          PendingAdminGrants.bind_on_login(
+            tenant,
+            provisioned,
+            identity_context,
+            JitProvisioningConfig.for_realm(realm),
+            prefix: schema_name
+          )
+
+        :ok
+
+      {:error, :invalid_tenant_id} ->
+        :ok
     end
   end
 
