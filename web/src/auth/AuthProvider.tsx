@@ -18,7 +18,7 @@ import { buildRedirectArgs } from './oidcRedirectArgs'
 /** Shared by `login()` (authorization-code-flow callback) and
  *  `switchTenant()` (§5.3 — silent-auth outcome) — both produce the SAME
  *  `UserSession` shape from a raw access token, just sourced differently. */
-async function buildSessionFromToken(token: string): Promise<UserSession> {
+export async function buildSessionFromToken(token: string): Promise<UserSession> {
   const payload = decodeTokenPayload(token)
   if (payload === null) {
     throw { status: 400, message: 'Token format is invalid.', code: 'TOKEN_DECODE_INVALID', details: undefined }
@@ -32,7 +32,10 @@ async function buildSessionFromToken(token: string): Promise<UserSession> {
   let tenantId: string | null = null
   let tenantType: 'production' | 'test' | null = null
   let productionTenantDisplayName: string | null = null
-  if (tenantSlug) {
+  // Q-1074 / GH #2431: GET /api/v1/tenants/:slug is TENANTS_MANAGE (platform-only).
+  // Only a PLATFORM_ADMIN session asks for the record; every other session skips the
+  // call and shows the slug as its display name (same rule as OidcCallbackPage).
+  if (tenantSlug && payload.roles.includes('PLATFORM_ADMIN')) {
     try {
       const tenant = await tenantsApi.getBySlug(tenantSlug)
       tenantDisplayName = tenant.display_name
@@ -41,7 +44,7 @@ async function buildSessionFromToken(token: string): Promise<UserSession> {
       productionTenantDisplayName = tenant.production_tenant_display_name ?? null
     } catch {
       console.error('[AuthProvider] Could not resolve tenant display name', tenantSlug)
-      // tenantDisplayName stays null → rendered as 'Unknown workspace'
+      // a failed lookup leaves tenantDisplayName null, so the slug is shown below
     }
   }
 
@@ -51,7 +54,7 @@ async function buildSessionFromToken(token: string): Promise<UserSession> {
     roles: payload.roles,
     loginSource: 'oidc',
     tenant_slug: tenantSlug,
-    tenant_display_name: tenantDisplayName,
+    tenant_display_name: tenantDisplayName ?? tenantSlug,
     tenant_id: tenantId,
     tenant_type: tenantType,
     production_tenant_display_name: productionTenantDisplayName,
