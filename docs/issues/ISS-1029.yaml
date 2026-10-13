@@ -21,16 +21,23 @@ description: >
   platform-tenant pin unset, legacy rows, and after REQ-447 grants :PromotionsRead to
   TENANT_ADMIN/TENANT_AUDITOR.
   Diagnosis and fix design: handoffs/WF03-ISS1029READSTORED-20261013/step-01-issue-fixer.json
-  (revision 1 after CODE-DESIGN-VALIDATOR step-02). List decision: omit, filter in the store's keyset
-  loop, no scan cap, cursors only ever encode emitted (visible) rows. Repro measured 2/5 passed, 3 failed.
+  (revision 2: the read predicate is PARTY-based, source OR target == the authenticated tenant; the
+  write routes keep the strict both-sides predicate). List decision: omit, filter in the store's keyset
+  loop, no scan cap, cursors only ever encode emitted (visible) rows (mechanism accepted by the filer,
+  GH #2311 comment 6146252089). Repro measured 2/5 passed, 3 failed; it must be re-seeded with a non-party.
 acceptance_criteria:
-  - "GET /promotions/:id/context and GET /promotions/:id answer, for a non-operator, the exact zero-detail 404 bytes of a nonexistent review when the stored source or target tenant id is not the caller's own (stored_tenants_authorized? predicate reused)"
-  - "GET /promotions omits such reviews for a non-operator; page_size / next_cursor stay consistent"
-  - "The operator is unchanged"
-  - "Two-tenant test: platform-tenant-held non-operator reader and an operator-created review naming foreign tenants: 404 bytes equal a nonexistent id, list omits it, own-tenant reviews unaffected"
-  - "T-8/T-11/T-13 tests of ISS-1021/ISS-1023 (incl. non_scalar_under_plain_key_omitted) and the REQ-397 list helper updated where they assert reads of foreign-named or id-less reviews"
-  - "Also covered: TENANT_ADMIN of the platform tenant on /:id and list; list never 500s on malformed/legacy rows; no cursor encodes a hidden row"
-  - "SECURITY-REVIEWER verdict recorded"
+  # REVISED ACs (letflow-2, GH #2311 comment of 2026-10-13T10:53Z, AC6 clarified in comment 6146252089)
+  - "AC1: a tenant admin whose tenant is a named PARTY (source or target) of the review keeps the ISS-1023 own-side view: 200, own-side fields, entries [], foreign ids omitted; the four pinning tests (T-8/T-11/T-13) stay as they are"
+  - "AC2: a 404 is returned only to a non-operator caller who is NOT a named party"
+  - "AC3: party status is decided from the stored source and target ids compared with the authenticated tenant context, never from anything in the request"
+  - "AC4: the 404 has the same status and body as for a nonexistent id on GET /:id, GET /:id/context and the list (omission); a test compares the bodies byte for byte"
+  - "AC5: for a party, GET /:id may return the assertion run status; nothing of the foreign side beyond what ISS-1023 allows"
+  - "AC6: the list omits non-parties for non-operators (in SQL or in a chunked in-app filter); no placeholder row (mechanism accepted by the filer)"
+  - "AC7: a legacy row whose stored ids cannot be read as JSON is non-party for non-operators (fail closed) and stays visible to operators; never a 500"
+  - "AC8: keyset pagination shows no gaps and no counts that reveal omitted rows; page-boundary test incl. an all-hidden page"
+  - "AC9: SECURITY-REVIEWER reviews before TEST-DESIGN-VALIDATOR"
+  - "AC10: the failing case is re-seeded with a non-party caller so the test exercises the 404 path, plus a party control expecting 200"
+  - "The approve/reject/apply/run-assertions write routes keep the strict both-sides predicate (behaviour unchanged)"
 affected_files:
   - lib/letflow/routers/promotions.ex
   - lib/letflow/definitions/promotion_review_store.ex
@@ -51,19 +58,4 @@ regression_test: test/letflow/routers/promotion_read_stored_ids_test.exs
 # The number may need renumbering at merge if another branch took it (none found at 2026-10-13).
 queue_ref: Q-1011
 github_ref: GH-2311
-status: resolved
-resolved_in_run: WF03-ISS1029READSTORED-20261013
-resolved_at: "2026-10-13T12:57:55Z"
-resolution: >
-  GET /promotions/:id/context, GET /promotions/:id and GET /promotions now re-check the review's STORED source/target tenant
-  ids for a non-operator through review_tenants_authorized?/2 (the decision core shared with
-  stored_tenants_authorized?/3): the two per-review routes answer the zero-detail nonexistent-review 404, the list
-  omits such rows via PromotionReviewStore.list_reviews/2 :row_visible? (keyset scan, no cap, cursors only ever encode
-  emitted rows). Operator unchanged. SECURITY-REVIEWER step-04 PASS, REVIEWER step-05 PASS, RELEASE-VALIDATOR step-06
-  PASS (independent re-run, mutants M3/M11 killed). Ships with the PR of this run (this record is part of that PR, so
-  it reads resolved on merge). Two unrelated pre-existing 500s (tenant_admin_routes_test AC2,
-  req077_promotion_pipeline_test.exs:1279) are not part of this issue.
-implementation: >
-  Implemented in run WF03-ISS1029READSTORED-20261013 (ELIXIR-DEV step 03): review_tenants_authorized?/2 shared by
-  all seven per-review routes; list_reviews/2 row_visible? keyset scan; tests and mutants in test/specs/ISS-1029.md.
-  All gates passed; resolved by DOC-UPDATER (step 07).
+status: open
