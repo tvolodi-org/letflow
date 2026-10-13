@@ -1,7 +1,7 @@
 id: ISS-1110
 title: "ci.yml path filter: echo | grep -q under set -o pipefail can yield false on a large changed list (SIGPIPE), skipping a gate"
 discovered_by: letflow-3 REVIEWER on PR #2491; filed by letflow-2 (sole filer)
-discovered_at: "2026-10-13T00:00:00Z"
+discovered_at: "2026-10-13T15:46:07Z"
 severity: LOW
 owner: "CI lane (.github/workflows/ci.yml); no tenant-data path"
 scope: tooling

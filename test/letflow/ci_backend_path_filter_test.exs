@@ -299,7 +299,7 @@ defmodule Letflow.CiBackendPathFilterTest do
         |> Enum.with_index(1)
         |> Enum.filter(fn {line, _} ->
           not String.starts_with?(String.trim_leading(line), "#") and
-            Regex.match?(~r/\|\s*grep\s+(-[A-Za-z]*q[A-Za-z]*)/, line)
+            Regex.match?(~r/\|\s*grep\s[^\n]*(\s-[A-Za-z]*q|--quiet|--silent)/, line)
         end)
 
       assert offenders == [],
