@@ -1,0 +1,16 @@
+# Ref clash: the queue's issue_ref for Q-1080 is ISS-1080, which is already used on main (or reserved for another record). This record takes the next free local id, ISS-1091. The queue and GH ids are unchanged: Q-1080 / GH #2437.
+id: ISS-1091
+title: "Onboarding: Idempotency-Key is sent and never read; a resubmit gets 409 'slug already exists', not a replay"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-12 / 2026-10-13 walk and CI review"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: MINOR
+owner: "ELIXIR-DEV (onboarding) and FRONTEND-DEV"
+scope: defect
+description: >
+  web/src/api/onboarding.ts:114-117 sends the header; nothing reads it. Found in the static walk.
+resolution: >
+  Open. Filed GitHub-first (GH #2437), then registered with the queue (Q-1080) using that number.
+queue_ref: Q-1080
+github_ref: GH-2437
+status: open

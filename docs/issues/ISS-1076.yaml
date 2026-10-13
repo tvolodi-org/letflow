@@ -1,0 +1,15 @@
+id: ISS-1076
+title: "Exam session: a reload mid-exam strands the candidate; no route lists the open session"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-12 / 2026-10-13 walk and CI review"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: MAJOR
+owner: "ELIXIR-DEV (exam session) and FRONTEND-DEV (ExamSessionPage.tsx)"
+scope: defect
+description: >
+  ExamSessionPage.tsx:137-138 calls startSession on every mount; session.ex:699-701 returns session_already_open, mapped to 409 by router.ex:293-294. Found in the static walk.
+resolution: >
+  Open. Filed GitHub-first (GH #2433), then registered with the queue (Q-1076) using that number.
+queue_ref: Q-1076
+github_ref: GH-2433
+status: open
