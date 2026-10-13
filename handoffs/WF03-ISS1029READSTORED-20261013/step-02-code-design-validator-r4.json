@@ -1,0 +1,63 @@
+{
+  "handoff_id": "c4a7d1e0-1029-4b11-8c20-000000000002e",
+  "run_id": "WF03-ISS1029READSTORED-20261013",
+  "workflow_id": "WF-03",
+  "step": "02b-r4",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGN-VALIDATOR",
+  "file": "handoffs/WF03-ISS1029READSTORED-20261013/step-02-code-design-validator-r4.json",
+  "created_at": "2026-10-13T13:30:00Z",
+  "started_at": "2026-10-13T13:22:40Z",
+  "completed_at": "2026-10-13T13:25:42Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1011": "LOW (INV-10 family), S3, GH #2311, local ISS-1029; re-validation of design rev3 (commit ee41c8664) against the revised 10-point ACs."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-1029-4b11-8c20-000000000002d"
+    ],
+    "artifacts_in": [
+      "handoffs/WF03-ISS1029READSTORED-20261013/step-01-issue-fixer.json",
+      "docs/issues/ISS-1029.yaml",
+      "handoffs/WF03-ISS1029READSTORED-20261013/step-02-code-design-validator-r3.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1029READSTORED-20261013"
+  },
+  "task": {
+    "description": "WF-03 Step 2b re-validation of ISS-1029 design rev3 after the r3 FAIL. started_at is approximate (first clock reading of this validation)."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "PASS (0 BLOCKER, 0 MAJOR, 2 MINOR). Re-validated rev3 (ee41c8664: step-01 handoff and docs/issues/ISS-1029.yaml) against the 10 revised ACs of GH #2311 plus the AC6 clarification 6146252089, and re-ran my own method. EXPERIMENT (measured, then reverted): on top of the branch's rev1 implementation I temporarily applied a reference rev3 predicate (review_read_access: operator -> :full; else authorize_target_tenant on stored source and target: both -> :full, one -> :own_side, none -> :none; /:id and /:id/context 404 on :none and otherwise unchanged incl. the existing 7-key run map; list row_visible? != :none; tolerant_plan/1 replacing Jason.decode! in review_context_map), restored the four ORIGINAL files from origin/main (shaping, allowlist, entries_scope, promotions_test), kept promotion_approve_reject_stored_ids_test.exs as is, applied the designer's legacy SPLIT to the entries_scope legacy test (dropped the three non-party cases both-ids-missing / both-foreign / odd-keys-only from the loop), and added a temporary operator/non-operator test over unparseable texts. Postgres 5462, one mix process. RESULT: 56/64 passed; exactly 8 failures, all in the designer's STAYS-flipped set: entries_scope tenant_admin_of_the_platform_tenant_reads_a_foreign_review_without_entries, withheld_entries_leave_the_rest_of_the_response_unchanged, foreign_reviews_entries_are_empty_for_a_non_operator_reader_in_p; allowlist entries_not_a_list_replaced_by_empty_list, non_scalar_under_plain_key_omitted, legacy_plan_missing_keys, foreign_side_definition_id_omitted_own_side_kept ((b,b) row), non_map_plan_fails_closed. Everything else passed UNMODIFIED: context_other_keys_and_status_unchanged (7-key map), context_omits_foreign_tenant_ids_for_non_operator, null_definition_id_..., envelope_has_nine_keys_..., pin_unset_..., one_foreign_side_is_enough_..., every promotions_test.exs R12 test with the ORIGINAL helper, the ISS-1026 write-route tests, and the split legacy test. The designer's 56/65 with 9 failures equals mine plus the legacy test, which I confirm passes once split exactly as specified (so the whole-loop failure they counted is the pre-split state). The temporary test passed: operator /:id/context 200 with serialised_plan null for truncated JSON and 200 for x, [1], 7, null, \"s\", empty text; operator /:id and list 200; non-operator /:context 404, list 200. lib/ and test/ were reverted with git checkout HEAD and the temp test deleted; the branch has no lib/ or test/ change from this experiment (only the pre-existing orchestrator.log modification). PRIOR FINDINGS (r3, six): (1) BLOCKER AC5 vs T-8 resolved: 7-key map kept for :own_side, N6/N6b mutants, residual recorded; (2) MAJOR operator /context 500 resolved: tolerant_plan/1, 200 with serialised_plan null, test T9 operator half, mutant N10b (the designer measured it killed; on paper it is: a Jason.decode! restored raises DecodeError on '{\"a\":' and the T9/temp test asserts 200); (3) MAJOR legacy test misclassified resolved: split specified exactly (three non-party cases -> 404, the rest keep original 200/entries [] assertions), confirmed by my run; (4) MINOR entries_not_a_list equality resolved: plan == %{process_key, source_tenant_id: a, target_tenant_id: a, entries: []} per bad value, which my run is consistent with (that test fails only because the original has no ids, as designed); (5) MINOR AC5 fallback moot, residual recorded; (6) MINOR T6 now compares status + headers + body on the Scope.observable tuple with the same conn fixture. ALSO RE-CHECKED: AC1-AC10 -> tests -> mutants table complete; write routes untouched (N4 killed by the existing (b, a) cases in the approve/reject test, which passed here with the party predicate present only on read routes); chunked list scan is predicate-agnostic and unchanged.",
+    "artifacts_out": [],
+    "owned_modules": [],
+    "issues": [
+      {
+        "severity": "MINOR",
+        "description": "Stale rev2 text left in the rev3 handoff: RISKS R5 still says ELIXIR-DEV touches 'the reduced run map' (rev3 keeps the 7-key map and adds tolerant_plan/1 in review_context_map, which IS a promotions.ex change the R5 list omits), the ROUTING line still says 'on this rev2', and the TESTS heading says 'rev2 set'. Authoritative text (Routes, AC5 DECISION, AC7 OPERATOR /context DECODE, mutants N6/N6b/N10b) is correct; the implementer must follow those. Clean up when the design is promoted to lib/letflow/design/.",
+        "affected_requirement": null
+      },
+      {
+        "severity": "MINOR",
+        "description": "AC5 judgement (informational, for ORCH/SECURITY-REVIEWER): keeping the existing 7-key run map for a party is SOUND and AC1-compliant: AC1 (pinning tests unchanged) and the original T-8 test assert exactly that shape; a party now sees strictly less than before ISS-1029 (non-parties get 404), no new field or shape is introduced, and the run row lives in the caller's own schema. The literal AC5 sentence ('nothing of the foreign side beyond what ISS-1023 allows') is only arguably met for teardown_error / failing_assertion_ids, since those are sandbox/assertion free text that could in principle name the foreign side; the design records this as a pre-existing residual for SECURITY-REVIEWER plus a follow-up issue. Recommend the PR body states plainly that AC1 and AC5 pull in different directions and that AC1 was preferred, and that the filer is told. Not a design defect.",
+        "affected_requirement": "AC1, AC5"
+      }
+    ],
+    "git_evidence": {
+      "branch_name": "feature/WF03-ISS1029READSTORED-20261013",
+      "commit_sha_list": [],
+      "remote_branch": null,
+      "push_status": "skipped",
+      "pr_url": null,
+      "pr_create_error": null
+    },
+    "next_action": "ORCH: proceed to ELIXIR-DEV (promotions.ex: review_read_access/2, three call sites, tolerant_plan/1; store untouched) and TEST-DESIGNER per the rev3 test list, then SECURITY-REVIEWER (AC9, before TEST-DESIGN-VALIDATOR) with the AC5 7-key-map residual and the full-scan cost flagged; file the follow-up issue for the run-map residual; tell the filer AC1 was preferred over a strict reading of AC5."
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "handoff_id": "c4a7d1e0-1029-4b11-8c20-000000000003r3",
+  "run_id": "WF03-ISS1029READSTORED-20261013",
+  "workflow_id": "WF-03",
+  "step": "03-r3",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF03-ISS1029READSTORED-20261013/step-03-elixir-dev-r3.json",
+  "created_at": "2026-10-13T14:41:00Z",
+  "started_at": "2026-10-13T14:42:00Z",
+  "completed_at": "2026-10-13T14:52:00Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1011": "LOW (INV-10 family), S3, GH #2311, local ISS-1029; test-only rework after TEST-DESIGN-VALIDATOR step-05b FAIL (T5 did not kill a request-decides mutant)."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-1029-4b11-8c20-000000000003r2",
+      "c4a7d1e0-1029-4b11-8c20-000000000005b"
+    ],
+    "artifacts_in": [
+      "handoffs/WF03-ISS1029READSTORED-20261013/step-05b-test-design-validator.json",
+      "test/letflow/routers/promotion_read_stored_ids_test.exs"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1029READSTORED-20261013"
+  },
+  "task": {
+    "description": "Strengthen T5 (AC3) so a request-decides mutant that replaces the authenticated tenant is killed: name the STORED source and target ids of a non-party (b, p) review in every request-borne channel on /:id, /:id/context and the list; keep and widen the party-control half; re-apply the mutants and update test/specs/ISS-1029.md. No lib change."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "Tests only; git diff HEAD -- lib is empty. T5 rewritten into two tests. (1) 'a request naming the STORED source or target id never opens a non-party review': review (b, p) in A's schema read as TENANT_ADMIN of A; for each named id in [b, p, a] and each channel (query keys tenant_id/source_tenant_id/target_tenant_id/tenant/tenantId; x-tenant-id and x-letflow-tenant headers; a body_params body with the same keys; all together) on /:id and /:id/context the response is 404 and equals the nonexistent-id baseline sent with the SAME query/headers/body; the list under every channel and named id returns items []. (2) 'a request naming a foreign tenant never closes or opens a party review': parties (a, b) and (b, a), channels naming b and p, on /:id and /:id/context observable-equal to the plain read; list still shows both rows. get_resp/6 and baseline/6 gained an optional body argument (Fixture.router_conn already supports it). A GET carries no path-borne tenant, so there is no path channel. MUTANTS RE-APPLIED (repro file, --exclude long_hidden_run, each alone, lib restored by git checkout after each; git diff HEAD -- lib empty at the end): N3q (the validator's form: authenticated tenant_id replaced by the tenant_id query param when binary) 34/36 passed, 2 failed (both T5 tests); N3h (replaced by the x-tenant-id header) 34/36, 2 failed (both T5 tests); N3body (replaced by body_params[\"tenant_id\"], a first attempt that crashed on the Unfetched body struct was corrected) 34/36, 2 failed (both T5 tests); N3 (compared id replaced by the tenant_id param, the original form) 34/36, 2 failed (both T5 tests). Clean lib: repro file 38/38 (long_hidden_run tests included), 36/36 with them excluded; mix format --check-formatted exit 0. test/specs/ISS-1029.md: AC3 row and the N3 mutant rows (N3, N3q, N3h, N3body) updated to the measured attribution. VALIDATOR MINOR (AC4, list has no 404; cursor page compares only that next_cursor is binary): informational, accepted by the validator, no test change. NOT RUN: files other than the repro file (only it and the spec changed; lib untouched); mix letflow.lint_handoffs result is quoted in the reply.",
+    "artifacts_out": [
+      "test/letflow/routers/promotion_read_stored_ids_test.exs",
+      "test/specs/ISS-1029.md"
+    ],
+    "owned_modules": [],
+    "issues": [],
+    "git_evidence": {
+      "branch_name": "feature/WF03-ISS1029READSTORED-20261013",
+      "commit_sha_list": [],
+      "remote_branch": null,
+      "push_status": "skipped",
+      "pr_url": null,
+      "pr_create_error": null
+    },
+    "next_action": "ORCH: re-run TEST-DESIGN-VALIDATOR step 05b r2, then RELEASE-VALIDATOR."
+  }
+}

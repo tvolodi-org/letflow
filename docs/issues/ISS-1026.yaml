@@ -46,7 +46,7 @@ resolution: >
   Closes ISS-1023 residual R10.
 follow_ups:
   - >
-    Q-1011 / GH #2311 / ISS-1029 (TRACKED, LOW, depends on this issue): the READ side still
+    Q-1011 / GH #2311 / ISS-1029 (RESOLVED in run WF03-ISS1029READSTORED-20261013, LOW, depends on this issue): the READ side still
     discloses status on a foreign-named review held in a tenant's own schema. GET /promotions/:id/context
     (status, requested_by, def_type, def_id, created_at, row_version), GET /promotions/:id (assertion
     run counts and failing assertion ids) and GET /promotions (list) have no stored-tenant check. No
