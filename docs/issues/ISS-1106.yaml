@@ -1,0 +1,15 @@
+id: ISS-1106
+title: "Design doc req442-per-tenant-login-disclosure-mode.md still describes the old audit actor (operator id in the tenant chain)"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-13 follow-ups of PR #2482 (Q-1032 / GH #2351), relayed by the supervisor"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: LOW
+owner: "DOC-UPDATER (after PR #2482 merges)"
+scope: docs
+description: >
+  lib/letflow/design/req442-per-tenant-login-disclosure-mode.md lines 92 and 108-126 describe the operator id as the tenant-chain actor; PR #2482 splits it (tenant entry nil actor with actor_class platform_operator, platform entry carries the operator id).
+resolution: >
+  Open. Filed GitHub-first (GH #2484), then registered with the queue (Q-1106) using that number.
+queue_ref: Q-1106
+github_ref: GH-2484
+status: open
