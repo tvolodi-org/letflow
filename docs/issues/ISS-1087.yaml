@@ -1,0 +1,15 @@
+id: ISS-1087
+title: "test_parallel.sh: per-partition watchdog DIAG blocks interleave on stderr when partitions time out simultaneously (RC-E); test_parallel_watchdog_diag_test.exs:247 fails with 'DIAG line wider than cap (399)'"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-12 / 2026-10-13 walk and CI review"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: MAJOR
+owner: "letflow-16 (CI and test-infra), after Q-1053"
+scope: flake
+description: >
+  Three CI occurrences (runs 38293810774, 38301751106, 38334100544). Emitter unchanged since main; not reproduced locally in 20 runs. Fix shape is letflow-16's proposal, not decided.
+resolution: >
+  Open. Filed GitHub-first (GH #2448), then registered with the queue (Q-1087) using that number.
+queue_ref: Q-1087
+github_ref: GH-2448
+status: open
