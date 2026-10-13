@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Q-1074 / GH #2431 (S1, MAJOR): buildSessionFromToken is the second caller of
+ * Q-1074 / GH 2431 (S1, MAJOR): buildSessionFromToken is the second caller of
  * GET /api/v1/tenants/:slug. That route is TENANTS_MANAGE (platform-only), so
  * every candidate or tenant-user session build got a 403, logged and swallowed.
  *
@@ -61,7 +61,7 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
-describe('Q-1074 / GH #2431 — buildSessionFromToken tenant lookup', () => {
+describe('Q-1074 / GH 2431 — buildSessionFromToken tenant lookup', () => {
   it('candidate token: makes no tenants/:slug request and the display name is the slug', async () => {
     const session = await buildSessionFromToken(fakeToken(['CANDIDATE'], SLUG))
 

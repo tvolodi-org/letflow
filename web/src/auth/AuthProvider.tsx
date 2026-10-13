@@ -32,7 +32,7 @@ export async function buildSessionFromToken(token: string): Promise<UserSession>
   let tenantId: string | null = null
   let tenantType: 'production' | 'test' | null = null
   let productionTenantDisplayName: string | null = null
-  // Q-1074 / GH #2431: GET /api/v1/tenants/:slug is TENANTS_MANAGE (platform-only).
+  // Q-1074 / GH 2431: GET /api/v1/tenants/:slug is TENANTS_MANAGE (platform-only).
   // Only a PLATFORM_ADMIN session asks for the record; every other session skips the
   // call and shows the slug as its display name (same rule as OidcCallbackPage).
   if (tenantSlug && payload.roles.includes('PLATFORM_ADMIN')) {

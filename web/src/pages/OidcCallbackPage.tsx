@@ -80,7 +80,7 @@ export default function OidcCallbackPage() {
         let tenantId: string | null = null
         let tenantType: 'production' | 'test' | null = null
         let productionTenantDisplayName: string | null = null
-        // Q-1074 / GH #2431: GET /api/v1/tenants/:slug is TENANTS_MANAGE (platform-only).
+        // Q-1074 / GH 2431: GET /api/v1/tenants/:slug is TENANTS_MANAGE (platform-only).
         // Only a PLATFORM_ADMIN login asks for the record; every other login skips the
         // call and shows the slug as its display name.
         if (realmSlug && payload.roles.includes('PLATFORM_ADMIN')) {

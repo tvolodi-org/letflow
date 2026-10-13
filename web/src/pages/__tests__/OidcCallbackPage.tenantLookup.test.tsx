@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Q-1074 / GH #2431 (S1, MAJOR): a non-platform login must not call
+ * Q-1074 / GH 2431 (S1, MAJOR): a non-platform login must not call
  * GET /api/v1/tenants/:slug. That route is gated by TENANTS_MANAGE (a
  * PLATFORM_ADMIN permission), so every candidate or tenant-user login got a
  * 403 on it, swallowed by the page's catch.
@@ -78,7 +78,7 @@ afterEach(() => {
   vi.mocked(resolveRealmFromUrl).mockReturnValue(null)
 })
 
-describe('Q-1074 / GH #2431 — OidcCallbackPage tenant lookup', () => {
+describe('Q-1074 / GH 2431 — OidcCallbackPage tenant lookup', () => {
   it('candidate login: makes no tenants/:slug request and the header shows the slug', async () => {
     vi.resetModules()
     const token = fakeToken(['CANDIDATE'])
