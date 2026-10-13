@@ -1,6 +1,8 @@
 # 0048 -- Pending tenant-administrator grant: first-login binding rules, bind-once realm, and consistency with 0046
 
 Status: ACCEPTED (REVIEWER sign-off 2026-10-13, see "Sign-off").
+Interim note: letflow-fc's open question Q7 on the ISS-1030 design was never answered; the design's default
+stands as an INTERIM decision, pending fc review. Nothing here should be read as fc-ratified until then.
 Decisions below were fixed by the BA's binding answers to ISS-1030 / Q-1012 / GH #2312
 (letflow-9a, 2026-10-07) and the design `lib/letflow/design/iss1030-onboarding-administrator.md`
 (OQ-13). This record writes them down; it does not re-decide them.
