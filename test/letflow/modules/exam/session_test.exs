@@ -1540,4 +1540,66 @@ defmodule Letflow.Modules.Exam.SessionTest do
       assert reread.passed == nil
     end
   end
+
+  # Q-1075 / GH #2432: the stored time per question is the bounded running total.
+  defp q1075_save_time(ctx, seconds) do
+    Session.autosave_answer(
+      ctx.session_id,
+      ctx.candidate_id,
+      %{
+        question_id: ctx.question_id,
+        selected_option_ids: [ctx.correct_id],
+        time_spent_seconds: seconds
+      },
+      ctx.schema
+    )
+  end
+
+  defp q1075_stored_time(ctx) do
+    assert {:ok, state} =
+             Session.get_session_state_for_user(ctx.session_id, ctx.candidate_id, ctx.schema)
+
+    state.answers[ctx.question_id].time_spent_seconds
+  end
+
+  describe "Q-1075 / GH #2432 -- time_spent_seconds is the bounded running total" do
+    setup do
+      %{schema_name: schema} = tenant("q1075-time-#{System.unique_integer([:positive])}")
+
+      %{exam: exam, questions: [{question_id, correct_id, _wrong_id}]} =
+        build_minimal_exam!(schema)
+
+      candidate_id = Ecto.UUID.generate()
+      assert {:ok, session_view} = Session.create(candidate_id, exam.record_id, schema)
+
+      %{
+        schema: schema,
+        session_id: session_view.id,
+        candidate_id: candidate_id,
+        question_id: question_id,
+        correct_id: correct_id
+      }
+    end
+
+    test "a delayed save stores a non-zero time, and a later lower report never lowers it", ctx do
+      # The stored value is clamped to the session's elapsed seconds, so wait long enough
+      # for two whole seconds to have elapsed before the first save.
+      Process.sleep(2_100)
+
+      assert {:ok, _} = q1075_save_time(ctx, 2)
+      assert q1075_stored_time(ctx) == 2
+
+      assert {:ok, _} = q1075_save_time(ctx, 1)
+      assert q1075_stored_time(ctx) == 2
+    end
+
+    test "an over-large report is clamped to the session's elapsed time, and the save still succeeds",
+         ctx do
+      assert {:ok, _} = q1075_save_time(ctx, 999_999)
+
+      # The session was created moments ago, so the bound is small; the save is not rejected.
+      assert q1075_stored_time(ctx) < 999_999
+      assert q1075_stored_time(ctx) <= 30
+    end
+  end
 end

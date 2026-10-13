@@ -66,6 +66,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useIntl } from 'react-intl'
 import { examApi } from './exam.api'
+import { createDwellClock, recordSaveTotal, switchQuestion } from './dwellTime'
 import { classifyStartError, isDeadlinePassedError, type ExamEligibilityErrorKind } from '@/utils/examErrors'
 import { useAntiCheatSignals } from './useAntiCheatSignals'
 import { PageLayout } from '@/components/ui/PageLayout'
@@ -158,6 +159,14 @@ function ExamSessionPageInner() {
 
   const currentQuestion: ExamQuestionState | undefined = session?.questions[questionIndex]
 
+  // Q-1075 / GH #2432: time on a question is measured here (client-reported; the server
+  // bounds it). The clock is charged to whichever question is on screen, and survives
+  // revisits within this page mount.
+  const [dwell] = useState(() => createDwellClock(Date.now()))
+  useEffect(() => {
+    switchQuestion(dwell, currentQuestion?.question_id, Date.now())
+  }, [currentQuestion?.question_id, dwell])
+
   // Local, uncommitted draft of the current short_text question's textarea
   // value -- keystrokes update this only; `saveAnswer` (on blur) is what
   // actually autosaves. Re-synced from the restored `answers` state whenever
@@ -182,10 +191,17 @@ function ExamSessionPageInner() {
     (question: ExamQuestionState, selectedOptionIds: string[], textAnswer?: string): Promise<void> => {
       if (!session) return Promise.resolve()
       setSaveStatus('saving')
+      // Q-1075 / GH #2432: the running total for this question, not a 0 default.
+      const timeSpentSeconds = recordSaveTotal(
+        dwell,
+        question.question_id,
+        answers[question.question_id]?.time_spent_seconds ?? 0,
+        Date.now(),
+      )
       return examApi
         .saveAnswer(session.session.id, question.question_id, {
           selected_option_ids: selectedOptionIds,
-          time_spent_seconds: answers[question.question_id]?.time_spent_seconds ?? 0,
+          time_spent_seconds: timeSpentSeconds,
           ...(question.type === 'short_text' ? { text_answer: textAnswer ?? '' } : {}),
         })
         .then((response) => {
@@ -197,7 +213,7 @@ function ExamSessionPageInner() {
               selected_option_ids: selectedOptionIds,
               text_answer:
                 question.type === 'short_text' ? (textAnswer ?? '') : (prev[question.question_id]?.text_answer ?? null),
-              time_spent_seconds: prev[question.question_id]?.time_spent_seconds ?? 0,
+              time_spent_seconds: timeSpentSeconds,
               saved_at: new Date().toISOString(),
             },
           }))
@@ -211,7 +227,7 @@ function ExamSessionPageInner() {
           setSaveStatus('error')
         })
     },
-    [session, answers],
+    [session, answers, dwell],
   )
 
   // Shared save-if-changed check (ISS-0654): the one thing both

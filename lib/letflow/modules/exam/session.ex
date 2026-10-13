@@ -535,6 +535,7 @@ defmodule Letflow.Modules.Exam.Session do
              selected_option_ids,
              text_answer,
              time_spent_seconds,
+             parse_dt!(fv(session, "started_at")),
              user_id,
              prefix
            ) do
@@ -1016,6 +1017,7 @@ defmodule Letflow.Modules.Exam.Session do
          selected_option_ids,
          text_answer,
          time_spent_seconds,
+         started_at,
          user_id,
          prefix
        ) do
@@ -1030,12 +1032,13 @@ defmodule Letflow.Modules.Exam.Session do
     # ... with a full replacement field_values"): omitting the key on a
     # later save genuinely clears a prior text answer, it does not leave a
     # stale one behind.
+    now = utc_now()
+
     base_attrs = %{
       "session_id" => session_id,
       "question_id" => question_id,
       "selected_option_ids" => selected_option_ids || [],
-      "saved_at" => iso8601(utc_now()),
-      "time_spent_seconds" => time_spent_seconds
+      "saved_at" => iso8601(now)
     }
 
     attrs =
@@ -1049,12 +1052,17 @@ defmodule Letflow.Modules.Exam.Session do
            prefix
          ) do
       {:ok, [existing | _rest]} ->
+        # Q-1075 / GH #2432: the stored time is the max of what is stored and what the
+        # client reports, bounded by the session's own elapsed time (see bounded_time_spent/4).
+        time_value =
+          bounded_time_spent(time_spent_seconds, stored_time_spent(existing), started_at, now)
+
         write_result =
           Records.update_record(
             %{
               entity_type: "session_answer",
               record_id: normalize_record_id(existing.record_id),
-              field_values: attrs,
+              field_values: Map.put(attrs, "time_spent_seconds", time_value),
               actor_id: user_id,
               idempotency_key: Ecto.UUID.generate()
             },
@@ -1064,10 +1072,37 @@ defmodule Letflow.Modules.Exam.Session do
         ok_or_error(write_result)
 
       {:ok, []} ->
-        ok_or_error(write_record("session_answer", attrs, user_id, prefix))
+        time_value = bounded_time_spent(time_spent_seconds, 0, started_at, now)
+
+        ok_or_error(
+          write_record(
+            "session_answer",
+            Map.put(attrs, "time_spent_seconds", time_value),
+            user_id,
+            prefix
+          )
+        )
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  # Q-1075 / GH #2432: the client reports the running total of time spent on a question
+  # (client-reported, not server-measured: a per-question "shown" event is out of scope).
+  # The stored value never decreases (max with what is stored) and is CLAMPED to the
+  # session's own elapsed wall-clock time, so it cannot exceed the time the session has
+  # existed. A clamp, not a rejection: an over-large value must not lose the candidate's
+  # answer save mid-exam; the save still succeeds and the value is bounded.
+  defp bounded_time_spent(received, stored, started_at, now) do
+    elapsed = max(DateTime.diff(now, started_at, :second), 0)
+    min(max(stored, received), elapsed)
+  end
+
+  defp stored_time_spent(answer) do
+    case fv(answer, "time_spent_seconds") do
+      seconds when is_integer(seconds) -> seconds
+      _ -> 0
     end
   end
 
