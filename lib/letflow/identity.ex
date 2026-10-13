@@ -1743,6 +1743,7 @@ defmodule Letflow.Identity do
         ) ::
           {:ok, OnboardingRecord.t()}
           | {:error, :duplicate_hostname}
+          | {:error, :database_error}
           | {:error, Ecto.Changeset.t()}
   def create_onboarding(attrs) do
     changeset = OnboardingRecord.insert_changeset(%OnboardingRecord{}, attrs)
@@ -1758,7 +1759,22 @@ defmodule Letflow.Identity do
           {:error, changeset}
         end
     end
+  rescue
+    # A database fault outside the changeset (a value longer than its column, or the database
+    # unreachable) is a typed result for the caller, not an exception (SECURITY-REVIEWER INV-8, F5).
+    # The exception class and the SQLSTATE are logged, and the tenant id, so an operator can tie the
+    # failure to the committed tenant (F6). The message is not logged: it can carry the value (INV-4).
+    error in [Postgrex.Error, DBConnection.ConnectionError] ->
+      Logger.error(
+        "onboarding record insert failed (tenant_id=#{inspect(Map.get(attrs, :tenant_id))}, " <>
+          "exception=#{inspect(error.__struct__)}, sqlstate=#{inspect(sqlstate(error))})"
+      )
+
+      {:error, :database_error}
   end
+
+  defp sqlstate(%Postgrex.Error{postgres: %{code: code}}), do: code
+  defp sqlstate(_error), do: nil
 
   @doc "Fetches a single onboarding record by id. Design §8.2."
   @spec get_onboarding(id :: Ecto.UUID.t() | String.t()) ::
@@ -1767,6 +1783,226 @@ defmodule Letflow.Identity do
     case Repo.get(OnboardingRecord, id) do
       %OnboardingRecord{} = record -> {:ok, record}
       nil -> {:error, :not_found}
+    end
+  end
+
+  @doc """
+  ISS-1030: the login state of an onboarded tenant, one primary-key read of
+  `tenants`. `idp_realm_id` is `nil` while the tenant is "not yet loginable".
+  Callers must already have passed the `:TenantsManage` gate (the onboarding
+  router does); this function performs no authorization check.
+  """
+  @spec get_onboarding_login_state(tenant_id :: Ecto.UUID.t()) ::
+          {:ok, %{idp_realm_id: String.t() | nil}} | {:error, :not_found}
+  def get_onboarding_login_state(tenant_id) do
+    case Repo.one(from(t in Tenant, where: t.id == ^tenant_id, select: {t.id, t.idp_realm_id})) do
+      {_id, realm} -> {:ok, %{idp_realm_id: realm}}
+      nil -> {:error, :not_found}
+    end
+  end
+
+  @type bind_realm_opts :: [
+          actor_id: Ecto.UUID.t(),
+          platform_prefix: String.t(),
+          trace_id: String.t() | nil
+        ]
+
+  @doc """
+  ISS-1030 (design section 3.2): binds `realm` to a tenant that has none, ONCE.
+
+  The bind-once exception to decision 0006 R5 ("`idp_realm_id` immutable after
+  creation"): the tenant row is locked, and the realm is set only while the
+  column is still NULL and the tenant is `:active`. A realm that is set is never
+  changed or cleared. Outcomes:
+
+    * `{:ok, tenant}` -- bound now, or the SAME realm was already stored
+      (idempotent; no second audit entry).
+    * `{:error, :not_found}` -- no such tenant.
+    * `{:error, :realm_already_bound}` -- a DIFFERENT realm is already stored.
+    * `{:error, :tenant_not_active}` -- the tenant is `:migrating` or `:inactive`
+      and has no realm; nothing is written. (Not named in the design's spec
+      union; the design requires this refusal in section 3.2.)
+    * `{:error, :duplicate_realm}` -- the realm belongs to another tenant.
+    * `{:error, %Ecto.Changeset{}}` -- the realm failed `Tenant.realm_bind_changeset/2`.
+    * `{:error, :audit_failed}` -- an audit write failed or a prefix is missing;
+      the whole transaction rolled back.
+
+  Audit (one transaction with the update, section 7a): a TENANT-chain entry
+  `tenant.idp_realm.bound` with a NIL actor (the operator's id is deliberately
+  not written into a customer tenant's chain) and a PLATFORM-chain entry
+  `platform.tenant_idp_realm.bound` carrying the operator's user id. Lock order:
+  tenant row, tenant chain, platform chain. `opts[:platform_prefix]` must be
+  verified by the caller (`Letflow.PlatformTenant.platform_prefix/0`).
+  """
+  @spec bind_tenant_realm(
+          tenant_id :: Ecto.UUID.t(),
+          realm :: String.t(),
+          bind_realm_opts()
+        ) ::
+          {:ok, Tenant.t()}
+          | {:error, :not_found}
+          | {:error, :realm_already_bound}
+          | {:error, :tenant_not_active}
+          | {:error, :duplicate_realm}
+          | {:error, Ecto.Changeset.t()}
+          | {:error, :audit_failed}
+  def bind_tenant_realm(tenant_id, realm, opts) when is_binary(realm) do
+    actor_id = Keyword.get(opts, :actor_id)
+    platform_prefix = Keyword.get(opts, :platform_prefix)
+
+    if is_binary(actor_id) and is_binary(platform_prefix) do
+      Multi.new()
+      |> Multi.run(:bind, fn repo, _changes -> lock_and_bind_realm(repo, tenant_id, realm) end)
+      |> Multi.run(:audit, fn repo, %{bind: bound} ->
+        audit_realm_bind(repo, bound, actor_id, platform_prefix, Keyword.get(opts, :trace_id))
+      end)
+      |> Repo.transaction()
+      |> case do
+        {:ok, %{bind: {_outcome, tenant}}} -> {:ok, tenant}
+        {:error, :bind, reason, _changes} -> {:error, reason}
+        {:error, _step, _reason, _changes} -> {:error, :audit_failed}
+      end
+    else
+      {:error, :audit_failed}
+    end
+  rescue
+    # Fixed message, tenant id only: never the exception (INV-4).
+    exception ->
+      # The exception class only: the message can carry the realm (INV-4).
+      Logger.error(
+        "tenant realm bind failed (tenant_id=#{inspect(tenant_id)}, exception=#{inspect(exception.__struct__)})"
+      )
+
+      committed_realm_or_audit_failed(tenant_id, realm)
+  catch
+    # An exit from the checkout (DBConnection's holder) is not an exception, so the rescue above does not see it
+    # (SECURITY-REVIEWER round 3, BLOCKER, INV-8). The outcome is unknown, so the realm is re-read as for a raise.
+    # Only the exit tag is logged (INV-4).
+    :exit, reason ->
+      Logger.error(
+        "tenant realm bind failed (tenant_id=#{inspect(tenant_id)}, exit=#{inspect(bind_exit_tag(reason))})"
+      )
+
+      committed_realm_or_audit_failed(tenant_id, realm)
+  end
+
+  # The exit tag only. The reason can carry the pool and its options (INV-4).
+  defp bind_exit_tag({tag, _detail}) when is_atom(tag), do: tag
+  defp bind_exit_tag(tag) when is_atom(tag), do: tag
+  defp bind_exit_tag(_other), do: :other
+
+  # An exception or exit during COMMIT leaves the outcome unknown, so re-read before reporting a failure
+  # (SECURITY-REVIEWER F5). A rolled-back bind shows the realm still NULL and stays :audit_failed.
+  defp committed_realm_or_audit_failed(tenant_id, realm) do
+    case Repo.get(Tenant, tenant_id) do
+      %Tenant{idp_realm_id: ^realm} = tenant -> {:ok, tenant}
+      _other -> {:error, :audit_failed}
+    end
+  rescue
+    exception ->
+      Logger.error(
+        "tenant realm re-read failed (tenant_id=#{inspect(tenant_id)}, exception=#{inspect(exception.__struct__)})"
+      )
+
+      {:error, :audit_failed}
+  catch
+    :exit, reason ->
+      Logger.error(
+        "tenant realm re-read failed (tenant_id=#{inspect(tenant_id)}, exit=#{inspect(bind_exit_tag(reason))})"
+      )
+
+      {:error, :audit_failed}
+  end
+
+  defp lock_and_bind_realm(repo, tenant_id, realm) do
+    locked = from(t in Tenant, where: t.id == ^tenant_id, lock: "FOR UPDATE")
+
+    # Status is checked first: design 3.2 answers 409 for any non-active tenant, even when
+    # the same realm is already stored, so a repeat call cannot succeed on a non-active tenant.
+    case repo.one(locked) do
+      nil ->
+        {:error, :not_found}
+
+      %Tenant{status: status} when status != :active ->
+        {:error, :tenant_not_active}
+
+      %Tenant{idp_realm_id: ^realm} = tenant ->
+        {:ok, {:unchanged, tenant}}
+
+      %Tenant{idp_realm_id: stored} when is_binary(stored) ->
+        {:error, :realm_already_bound}
+
+      %Tenant{} = tenant ->
+        changeset = Tenant.realm_bind_changeset(tenant, %{"idp_realm_id" => realm})
+
+        case repo.update(changeset) do
+          {:ok, updated} -> {:ok, {:bound, updated}}
+          {:error, %Ecto.Changeset{} = failed} -> {:error, realm_bind_failure(failed)}
+        end
+    end
+  end
+
+  defp realm_bind_failure(%Ecto.Changeset{errors: errors} = changeset) do
+    unique? =
+      Enum.any?(errors, fn
+        {:idp_realm_id, {_message, keyword}} -> Keyword.get(keyword, :constraint) == :unique
+        _other -> false
+      end)
+
+    if unique?, do: :duplicate_realm, else: changeset
+  end
+
+  defp audit_realm_bind(_repo, {:unchanged, _tenant}, _actor_id, _platform_prefix, _trace_id),
+    do: {:ok, :unchanged}
+
+  defp audit_realm_bind(repo, {:bound, tenant}, actor_id, platform_prefix, trace_id) do
+    # `limit: 1`: tenant_id has only a plain index, so two rows would make get_by raise.
+    onboarding_id =
+      repo.one(
+        from(o in OnboardingRecord, where: o.tenant_id == ^tenant.id, select: o.id, limit: 1)
+      )
+
+    with %TenantProvisioning.Registration{schema_name: prefix} <-
+           repo.get_by(TenantProvisioning.Registration, tenant_id: tenant.id),
+         {:ok, _tenant_entry} <-
+           Audit.insert_entry(
+             repo,
+             %{
+               actor_id: nil,
+               action: "tenant.idp_realm.bound",
+               resource_type: "tenant",
+               resource_id: tenant.id,
+               # No operator-chosen trace id in the tenant chain (tenant admins read it).
+               trace_id: nil,
+               before_state: nil,
+               after_state: %{
+                 "idp_realm_id" => tenant.idp_realm_id,
+                 "actor_class" => "platform_operator"
+               }
+             },
+             prefix
+           ),
+         {:ok, _platform_entry} <-
+           Audit.insert_entry(
+             repo,
+             %{
+               actor_id: actor_id,
+               action: "platform.tenant_idp_realm.bound",
+               resource_type: "tenant",
+               resource_id: tenant.id,
+               trace_id: trace_id,
+               before_state: nil,
+               after_state: %{
+                 "tenant_id" => tenant.id,
+                 "idp_realm_id" => tenant.idp_realm_id,
+                 "onboarding_id" => onboarding_id
+               }
+             },
+             platform_prefix
+           ) do
+      {:ok, :audited}
+    else
+      _missing_registration_or_audit_failure -> {:error, :audit_failed}
     end
   end
 

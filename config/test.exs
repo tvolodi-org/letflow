@@ -167,6 +167,11 @@ config :letflow, :oidc_claim_mapping, %{
   }
 }
 
+# ISS-1030: deterministic realm-existence double for POST /onboarding's
+# idp_realm_id check (test/support/realm_probe_double.ex). dev/prod use the
+# default Letflow.Oidc.RealmProbe.Httpc adapter.
+config :letflow, :oidc_realm_probe, Letflow.Oidc.RealmProbeDouble
+
 # Duplicated from config/dev.exs (this repo's config files don't cascade —
 # see the :oidc key's comment above for the same note). Per-realm JIT
 # user-provisioning configuration for Letflow.Identity.provision_oidc_user/3,

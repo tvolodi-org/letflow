@@ -21,7 +21,7 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       of the two sets (core scope table or Catalog rule), otherwise the runtime fail-closed
       fallback (`:platform`) would apply and the test fails.
     * **G3** -- platform pinning. The set of routes whose permission is platform scope equals a
-      literal snapshot of the 21 rows of design 7.1, and the pure `evaluate_access/2` grid for the
+      literal snapshot of the 22 rows (design 7.1 plus ISS-1030's POST /onboarding/:id/bind-realm), and the pure `evaluate_access/2` grid for the
       platform keys is as designed.
     * **G4** -- tenant-identifier scan (design 11, A2). Router files that read a tenant identifier
       from the request (a field constraint naming a tenant or slug, a `params["..."]` read of one,
@@ -486,6 +486,7 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
     {"POST", "/tenants/:slug/reactivate"},
     {"POST", "/onboarding"},
     {"GET", "/onboarding/:id"},
+    {"POST", "/onboarding/:id/bind-realm"},
     {"GET", "/onboarding"},
     {"POST", "/platform-migrations/rollouts"},
     {"GET", "/platform-migrations/rollouts/:id"},
@@ -502,13 +503,13 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
   ]
 
   describe "G3: platform pinning" do
-    test "the routes whose permission is platform scope are exactly the 21 snapshot rows" do
+    test "the routes whose permission is platform scope are exactly the 22 snapshot rows" do
       actual =
         for {_router, method, path, key} <- all_routes(),
             Authorization.permission_scope(Authorization.required_permission(key)) == :platform,
             do: {method, path}
 
-      assert length(@platform_routes) == 21
+      assert length(@platform_routes) == 22
       assert Enum.sort(actual) == Enum.sort(@platform_routes)
     end
 
