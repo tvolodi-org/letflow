@@ -49,7 +49,23 @@ defmodule Mix.Tasks.Letflow.CheckIssueRefs do
 
     * **R5 — `id` matches the filename.** `docs/issues/ISS-0030.yaml` must
       declare `id: ISS-0030`. A file whose `id` is a placeholder such as
-      `PENDING` is invisible to every registry at once.
+      `PENDING` is invisible to every registry at once. Since the work-board
+      change (ISS-1073 / GH #2430) a record may instead be named by its
+      GitHub issue number: `docs/issues/GH-2430.yaml` declares `id: GH-2430`.
+
+    * **R6 — a GH-named record points at its own issue.** `GH-2430.yaml` must
+      carry `github_ref: GH-2430`; the number in the name *is* the machine id
+      (`docs/agents/protocols/WORK_BOARD.md`), so a different or null
+      `github_ref` is a record about one issue filed under another's name.
+
+    * **R7 — after cutover, no new `ISS-NNNN` names.** Only once
+      `docs/status/work_board_cutover.yaml` says `cutover: true`: an
+      `ISS-NNNN` file with `NNNN` above that file's `last_legacy_iss` is
+      refused, because the number would have to come from the retired queue.
+      Existing `ISS-*.yaml` files and their `queue_ref` fields stay as
+      history. Before cutover this rule never fires, and a `queue_ref` is
+      never required: a record carrying only a GitHub number is valid in
+      both modes.
 
   ## Parsing model
 
@@ -73,6 +89,8 @@ defmodule Mix.Tasks.Letflow.CheckIssueRefs do
 
   use Mix.Task
 
+  alias Mix.Letflow.WorkBoardCutover
+
   @issues_dir "docs/issues"
 
   @gh_field "github_ref"
@@ -88,10 +106,14 @@ defmodule Mix.Tasks.Letflow.CheckIssueRefs do
   @gh_ok ~r/^GH-[1-9]\d*$/
   @queue_ok ~r/^Q-[1-9]\d*$/
   @id_ok ~r/^ISS-\d{4}$/
+  @gh_id_ok ~r/^GH-[1-9]\d*$/
 
   @impl Mix.Task
   def run(_argv) do
-    violations = @issues_dir |> issue_files() |> Enum.flat_map(&check_file/1)
+    config = WorkBoardCutover.load!()
+    opts = [cutover: config.cutover, last_legacy_iss: config.last_legacy_iss]
+
+    violations = @issues_dir |> issue_files() |> Enum.flat_map(&check_file(&1, opts))
 
     report(violations)
 
@@ -123,18 +145,18 @@ defmodule Mix.Tasks.Letflow.CheckIssueRefs do
   Exposed so tests can exercise the rules against fixture content without
   writing files, the same way the sibling checks' own audit functions are.
   """
-  def audit(content, path) when is_binary(content) and is_binary(path) do
+  def audit(content, path, opts \\ []) when is_binary(content) and is_binary(path) do
     lines = String.split(content, ~r/\r?\n/)
 
-    id_violations(lines, path) ++
+    id_violations(lines, path, opts) ++
       Enum.flat_map(Enum.with_index(lines, 1), fn {line, no} ->
         line_violations(line, no, path)
       end)
   end
 
-  defp check_file(path), do: path |> File.read!() |> audit(path)
+  defp check_file(path, opts), do: path |> File.read!() |> audit(path, opts)
 
-  defp id_violations(lines, path) do
+  defp id_violations(lines, path, opts) do
     expected = path |> Path.basename(".yaml")
     declared = Enum.find_value(lines, &capture(&1, "id"))
 
@@ -142,22 +164,66 @@ defmodule Mix.Tasks.Letflow.CheckIssueRefs do
       declared == nil ->
         [v(:R5, path, 0, "declares no `id` field")]
 
-      declared == expected and Regex.match?(@id_ok, declared) ->
-        []
+      declared == expected and Regex.match?(@gh_id_ok, declared) ->
+        gh_named_violations(lines, declared, path)
 
-      not Regex.match?(@id_ok, declared) ->
+      declared == expected and Regex.match?(@id_ok, declared) ->
+        legacy_name_violations(declared, path, opts)
+
+      not (Regex.match?(@id_ok, declared) or Regex.match?(@gh_id_ok, declared)) ->
         [
           v(
             :R5,
             path,
             0,
-            "`id: #{declared}` is not an ISS-NNNN identifier -- a placeholder id is " <>
-              "invisible to every registry at once"
+            "`id: #{declared}` is not an ISS-NNNN or GH-<n> identifier -- a placeholder " <>
+              "id is invisible to every registry at once"
           )
         ]
 
       true ->
         [v(:R5, path, 0, "`id: #{declared}` does not match filename `#{expected}`")]
+    end
+  end
+
+  # R6: the number in a GH-named record's name is its machine id.
+  defp gh_named_violations(lines, declared, path) do
+    case Enum.find_value(lines, &capture(&1, @gh_field)) do
+      ^declared ->
+        []
+
+      other ->
+        [
+          v(
+            :R6,
+            path,
+            0,
+            "`id: #{declared}` requires `github_ref: #{declared}`, found " <>
+              inspect(other || "no github_ref")
+          )
+        ]
+    end
+  end
+
+  # R7: after cutover the queue no longer allocates ISS numbers.
+  defp legacy_name_violations(declared, path, opts) do
+    cutover = Keyword.get_lazy(opts, :cutover, &WorkBoardCutover.cutover?/0)
+    last = Keyword.get_lazy(opts, :last_legacy_iss, &WorkBoardCutover.last_legacy_iss/0)
+
+    "ISS-" <> digits = declared
+
+    if cutover and is_integer(last) and String.to_integer(digits) > last do
+      [
+        v(
+          :R7,
+          path,
+          0,
+          "`#{declared}` is above last_legacy_iss #{last}: after the work-board cutover " <>
+            "new records are named by GitHub issue number (GH-<n>.yaml)"
+        )
+      ]
+    else
+      []
     end
   end
 

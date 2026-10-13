@@ -33613,6 +33613,7 @@ requirements:
     status: pending
     stage: S4
     impl_order: 962  # letflow-queue task id, GH#2233. Registered 2026-10-05 by ORCH (role-system audit AUDIT-ROLES-20261005, model ratified by the user).
+    gh: 2233  # REQ-445 board issue (row Q-962); impl_order above is history
     description: >
       Documentation only. Writes down, as a decision record and a one-page
       charter, the role model the user (repo owner) RATIFIED on 2026-10-05
@@ -33908,6 +33909,7 @@ requirements:
     status: pending
     stage: S4
     impl_order: 966  # letflow-queue task id, GH#2237. Registered 2026-10-05 by ORCH (role-system audit AUDIT-ROLES-20261005, model ratified by the user). Queue depends_on: Q-964.
+    gh: 2237  # REQ-449 board issue (row Q-966); impl_order above is history
     description: >
       The web app decides what to show from the roles in the token payload
       (web/src/pages/OidcCallbackPage.tsx:97, web/src/auth/AuthProvider.tsx:51)
@@ -33947,6 +33949,7 @@ requirements:
     status: pending
     stage: S8
     impl_order: 967  # letflow-queue task id, GH#2238. Registered 2026-10-05 by ORCH (role-system audit AUDIT-ROLES-20261005, model ratified by the user). Queue depends_on: Q-965, Q-966.
+    gh: 2238  # REQ-450 board issue (row Q-967); impl_order above is history
     description: >
       Read docs/roles.md first. Today every tenant's admin sees the platform
       console (web/src/components/layout/AppShell.tsx:43-60: Register Tenant,
@@ -34004,6 +34007,7 @@ requirements:
     status: pending
     stage: S7
     impl_order: 968  # letflow-queue task id, GH#2239. Registered 2026-10-05 by ORCH (role-system audit AUDIT-ROLES-20261005, model ratified by the user). Queue depends_on: Q-962, Q-964.
+    gh: 2239  # REQ-451 board issue (row Q-968); impl_order above is history
     description: >
       The role-system audit (AUDIT-ROLES-20261005) found that agents had no
       single statement of what a platform admin and a tenant admin may do, and
@@ -34177,6 +34181,7 @@ requirements:
     status: pending
     stage: S7
     impl_order: 971  # letflow-queue task id, GH#2243. Registered 2026-10-06 by ORCH (role-system audit follow-up, approved by the user). Queue depends_on: Q-964, Q-969.
+    gh: 2243  # REQ-454 board issue (row Q-971); impl_order above is history
     description: >
       Follow-up to the role-system audit, approved by the user on 2026-10-06.
       The persona seed scripts document a PLATFORM_ADMIN token of the tenant
@@ -35205,6 +35210,7 @@ requirements:
     status: in_progress  # partial adoption merged in PR #2446 (bf304105); residual tracked as ISS-1086 / GH #2447
     stage: S3
     impl_order: 1029  # letflow-queue task id, GH#2344. Registered 2026-10-07 by ORCH (WF-01 Step 3; registered in this PR because mix letflow.check_deferral_staleness requires 0 deferrals). Ordering recorded at drafting: blocked-by: REQ-465 -- part 2 of the adoption split, chained after part 1 so each turn edits one pair of definitions; REQ-465 itself waits for REQ-462 and the engine rule
+    gh: 2344  # REQ-466 board issue (row Q-1029); impl_order above is history
     description: >
       Source: GH #2323 (ISS-1034, Q-1016) adoption scope, part 2 of 2
       (part 1 is REQ-465). Adds distinct_from to HUMAN_TASK nodes of
@@ -35326,6 +35332,7 @@ requirements:
     status: pending
     stage: S4
     impl_order: 1099  # letflow-queue task id, GH #2464 (Q-1094). Registered 2026-10-13 by ORCH (WF-01 Step 3; registered in this PR because mix letflow.check_deferral_staleness requires 0 deferrals).
+    gh: 2475  # REQ-468 board issue (row Q-1099); impl_order above is history
     # Source: GH #2464 (Q-1094; requirement draft filed by letflow-2 from the 2026-10-13 batch Q2 decision, option C of GH #2454). The queue id is written back by ORCH at WF-01 Step 3 (register_task), not here.
     description: >
       Source: GH #2464 (Q-1094), the API half of the decision on GH #2454
@@ -35395,6 +35402,7 @@ requirements:
     status: pending
     stage: S4
     impl_order: 1100  # letflow-queue task id, GH #2465 (Q-1095), backend part. Registered 2026-10-13 by ORCH (WF-01 Step 3; registered in this PR because mix letflow.check_deferral_staleness requires 0 deferrals).
+    gh: 2476  # REQ-469 board issue (row Q-1100); impl_order above is history
     # Source: GH #2465 (Q-1095), priority 2; re-scoped feature gap GH #2444. Public tenant-config half is REQ-472, web half is REQ-470. The queue id is written back by ORCH at WF-01 Step 3, not here.
     description: >
       Source: GH #2465 (Q-1095, priority 2) and GH #2444 (feature gap: the web
@@ -35500,6 +35508,7 @@ requirements:
     status: pending
     stage: S4
     impl_order: 1101  # letflow-queue task id, GH #2465 (Q-1095), public endpoint part, split from REQ-469 by REQ-VALIDATOR F3. Registered 2026-10-13 by ORCH (WF-01 Step 3; registered in this PR because mix letflow.check_deferral_staleness requires 0 deferrals).
+    gh: 2477  # REQ-472 board issue (row Q-1101); impl_order above is history
     # Source: GH #2465 (Q-1095), 'NON-PLATFORM DATA SOURCE' paragraph, split out of the original backend draft. The queue id is written back by ORCH at WF-01 Step 3, not here.
     description: >
       Source: GH #2465 (Q-1095): 'the public GET /api/tenant-config carries
@@ -35556,6 +35565,7 @@ requirements:
     status: pending
     stage: S8
     impl_order: 1102  # letflow-queue task id, GH #2465 (Q-1095), web part. Registered 2026-10-13 by ORCH (WF-01 Step 3; registered in this PR because mix letflow.check_deferral_staleness requires 0 deferrals).
+    gh: 2478  # REQ-470 board issue (row Q-1102); impl_order above is history
     # Source: GH #2465 (Q-1095, web part) and GH #2444. Its own queue row (a FRONTEND-DEV task, not folded into REQ-469 or REQ-472); the queue id is written back by ORCH at WF-01 Step 3, not here.
     description: >
       Source: GH #2465 (Q-1095), 'UNTIL IT SHIPS' paragraph, and GH #2444.
@@ -35643,6 +35653,7 @@ requirements:
     status: pending
     stage: S3
     impl_order: 1103  # letflow-queue task id, GH #2447 (Q-1086 / ISS-1086); the queue row carries no depends_on edge because REQ-466 closes only through this requirement. Registered 2026-10-13 by ORCH (WF-01 Step 3; registered in this PR because mix letflow.check_deferral_staleness requires 0 deferrals).
+    gh: 2479  # REQ-471 board issue (row Q-1103); impl_order above is history
     # Source: GH #2447 (ISS-1086, Q-1086), decision (a) of 2026-10-13 (letflow-fc answer Q1). Priority 2, after the go-live items; STANDING RULE (Q-1050): no vortex definition goes to a production tenant before this version. The queue id is written back by ORCH at WF-01 Step 3, not here.
     description: >
       Source: GH #2447 (ISS-1086, Q-1086), the residual of REQ-466 (PR #2446).

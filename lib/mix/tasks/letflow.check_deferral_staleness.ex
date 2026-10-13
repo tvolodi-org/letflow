@@ -14,7 +14,7 @@ defmodule Mix.Tasks.Letflow.CheckDeferralStaleness do
   dimension and no re-evaluation against the world. A requirement deferred
   with a once-true reason stays green after that reason stops being true.
   That is the ISS-0221 failure mode -- a validated-looking requirement
-  `get_next_task` never returns, whose only symptom is an idle pipeline --
+  no worker is ever offered, whose only symptom is an idle pipeline --
   displaced one layer up. `UNREGISTERED` is now watched; **`DEFERRED` is
   the state nothing watches.**
 
@@ -167,6 +167,17 @@ defmodule Mix.Tasks.Letflow.CheckDeferralStaleness do
      disambiguate which one broke before knowing whether the file changed
      or the world did.
 
+  ## Work-board registration (ISS-1073 / GH #2430)
+
+  This task has no registration vocabulary of its own: it consumes the
+  registration module's entry list, so a requirement registered by
+  `gh: <number>` (alone, or beside a legacy `impl_order`) is an ordinary
+  non-deferred entry exactly like an `impl_order`-registered one, and counts
+  toward stage activity by its `status:` as before. The deferral marker and
+  the `blocked-by:` hatch are unchanged. The transition switch
+  (`docs/status/work_board_cutover.yaml`) is passed straight through to
+  `scan/2`; it changes only registration rule R7, never an S-rule.
+
   Exactly **one parser** exists for `docs/requirements.yaml` across both
   tasks: `Mix.Tasks.Letflow.CheckRequirementsRegistration.scan/1`. A second
   parser would drift into its own form-blindness, which is ISS-0231's root
@@ -202,6 +213,7 @@ defmodule Mix.Tasks.Letflow.CheckDeferralStaleness do
 
   use Mix.Task
 
+  alias Mix.Letflow.WorkBoardCutover
   alias Mix.Tasks.Letflow.CheckRequirementsRegistration, as: Registration
 
   @requirements_file "docs/requirements.yaml"
@@ -277,7 +289,7 @@ defmodule Mix.Tasks.Letflow.CheckDeferralStaleness do
           )
       end
 
-    result = audit(content)
+    result = audit(content, cutover: WorkBoardCutover.cutover?())
 
     result |> render() |> IO.write()
 
@@ -310,9 +322,9 @@ defmodule Mix.Tasks.Letflow.CheckDeferralStaleness do
   module and `CheckRequirementsRegistration` would otherwise hold two
   same-named public functions with different return shapes.
   """
-  @spec audit(String.t()) :: audit()
-  def audit(content) when is_binary(content) do
-    report = Registration.scan(content)
+  @spec audit(String.t(), keyword()) :: audit()
+  def audit(content, opts \\ []) when is_binary(content) and is_list(opts) do
+    report = Registration.scan(content, opts)
     entries = report.entries
 
     statuses =
@@ -670,8 +682,8 @@ defmodule Mix.Tasks.Letflow.CheckDeferralStaleness do
         "S1",
         d.id,
         d.line,
-        "STALE deferral -- #{d.reason}. Either register it (`register_task`, which is " <>
-          "the only source of an `impl_order`), or re-scope the rationale to a live " <>
+        "STALE deferral -- #{d.reason}. Either register it (open its GitHub issue and add " <>
+          "`gh: <number>`, see docs/agents/protocols/WORK_BOARD.md), or re-scope the rationale to a live " <>
           "`blocked-by: REQ-NNN -- <reason>`"
       )
     ]

@@ -2,6 +2,15 @@ defmodule Mix.Tasks.Letflow.CheckQueueReconciliation do
   @shortdoc "Reconciles docs/requirements.yaml + docs/issues/*.yaml against the live letflow-queue"
 
   @moduledoc """
+  **TRANSITION-ONLY (ISS-1073 / GH #2430).** The work board
+  (`docs/agents/protocols/WORK_BOARD.md`) replaces letflow-queue. While
+  `docs/status/work_board_cutover.yaml` says `cutover: false` this task works
+  exactly as described below. Once it says `cutover: true` the task prints
+  `SKIPPED` and exits `0` without any network call, and **this module and
+  its test are deleted in the cutover PR** (the queue service is then
+  stopped by infra; there is nothing left to reconcile against). Nothing in
+  this module may be extended.
+
   Implements ISS-0848 AC2: a check that flags drift between what
   `docs/requirements.yaml`/`docs/issues/*.yaml` claim (yaml `status:`) and
   what letflow-queue actually reports for the same task (`GET /tasks`
@@ -41,6 +50,7 @@ defmodule Mix.Tasks.Letflow.CheckQueueReconciliation do
 
   use Mix.Task
 
+  alias Mix.Letflow.WorkBoardCutover
   alias Mix.Tasks.Letflow.CheckIssueRefs
   alias Mix.Tasks.Letflow.CheckRequirementsRegistration
 
@@ -93,14 +103,23 @@ defmodule Mix.Tasks.Letflow.CheckQueueReconciliation do
   @impl Mix.Task
   @spec run([String.t()]) :: :ok
   def run(_args) do
-    case resolve_queue_auth_token() do
-      :none ->
-        Mix.shell().info("SKIPPED -- no $QUEUE_AUTH_TOKEN (checked shell env and ./.env)")
+    if WorkBoardCutover.cutover?() do
+      Mix.shell().info(
+        "SKIPPED -- work board cutover is live (docs/status/work_board_cutover.yaml); " <>
+          "the queue is retired. Delete this task and its test."
+      )
 
-        :ok
+      :ok
+    else
+      case resolve_queue_auth_token() do
+        :none ->
+          Mix.shell().info("SKIPPED -- no $QUEUE_AUTH_TOKEN (checked shell env and ./.env)")
 
-      {:ok, token} ->
-        run_with_token(token)
+          :ok
+
+        {:ok, token} ->
+          run_with_token(token)
+      end
     end
   end
 

@@ -1,0 +1,8 @@
+# Work-board cutover switch (ISS-1073 / GH #2430). Read by
+# Mix.Letflow.WorkBoardCutover; see docs/agents/protocols/WORK_BOARD.md.
+#
+# Cutover day is one line: change `cutover: false` to `cutover: true` and set
+# last_legacy_iss to the highest ISS-NNNN on main at that moment.
+
+cutover: false
+last_legacy_iss: 1109
