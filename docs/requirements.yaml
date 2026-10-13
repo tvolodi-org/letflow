@@ -35428,7 +35428,7 @@ requirements:
         changeset that casts it.
 
       BUILDS:
-      1. Migration on the public tenants table (model:
+      1. Migration on the public tenants table (version later than 20261008000001, which the pending-administrator-grants migration of GH #2312 PR2 takes; model:
          priv/repo/migrations/20261005000001_add_login_disclosure_mode_to_tenants.exs;
          not added to TenantProvisioning.tenant_scoped_migrations/0): add
          column tenant_type, string, NOT NULL, DEFAULT 'test', with a check
@@ -35483,7 +35483,7 @@ requirements:
       - "Audit action name and payload. Default: keep tenant.platform_setting.updated for every PATCH (one entry per PATCH, so a combined PATCH needs one action) and add the tenant_type values to the payload as built in item 3. A distinct action name is rejected for that reason. If a test or registry over audit payload shapes (grep test for the closed list) forbids the added keys, ELIXIR-DEV reports it to ORCH before choosing another shape."
       - "Whether POST /onboarding (REQ-076 path, also :TenantsManage) accepts tenant_type. Default: no; the onboarded tenant is created 'test' and set by PATCH. A tenant_type key sent there is an undeclared key and is listed in ignored_fields by name."
     acceptance_criteria:
-      - "migration: after migrating, tenants.tenant_type exists, is NOT NULL with default 'test', and an insert of the value 'staging' fails the check constraint; rows inserted before the migration read 'test' (test over the Repo); rollback removes the column (quoted)"
+      - "migration: after migrating, tenants.tenant_type exists, is NOT NULL with default 'test', and an insert of the value 'staging' fails the check constraint; rows inserted before the migration read 'test' (test over the Repo); rollback removes the column (quoted); the migration file version sorts after 20261008000001 (quoted ls of priv/repo/migrations)"
       - "creation: POST /tenants by the platform admin with tenant_type production returns 201 and tenant_type production; without the field returns test; an invalid value returns 422 and writes nothing (three tests)"
       - "change authorization: PATCH /tenants/:slug with tenant_type by a PLATFORM_ADMIN of the platform tenant returns 200 and persists it; the same call by a TENANT_ADMIN of that tenant, by a PLATFORM_ADMIN of another tenant and by a task worker returns 403 with the router's fixed body, and the row is unchanged (negative tests); a tenant_type key sent to the tenant-settings route does not change the column"
       - "audit: a PATCH that changes tenant_type produces exactly one audit entry in the target tenant's chain naming the actor and the tenant, in the same transaction as the update (a forced audit failure leaves the column unchanged and returns 500); a PATCH to the same value writes no entry"

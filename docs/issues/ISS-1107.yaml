@@ -1,0 +1,15 @@
+id: ISS-1107
+title: "DECISION: pre-fix tenant-chain audit entries still carry platform operator ids (hash-linked, no rewrite): redact by policy or leave and document"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-13 follow-ups of PR #2482 (Q-1032 / GH #2351), relayed by the supervisor"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: MAJOR
+owner: "the user / letflow-fc (decision item, not for a worker)"
+scope: decision
+description: >
+  Tenant.platform_setting.updated entries written before PR #2482 carry the platform operator id in each tenant's own hash-linked audit chain. Options: (a) redaction by policy, (b) leave and document, (c) re-chain with an ADR.
+resolution: >
+  Open. Filed GitHub-first (GH #2485), then registered with the queue (Q-1107) using that number.
+queue_ref: Q-1107
+github_ref: GH-2485
+status: open
