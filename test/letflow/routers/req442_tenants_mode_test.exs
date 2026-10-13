@@ -26,6 +26,13 @@ defmodule Letflow.Routers.Req442TenantsModeTest do
   alias Letflow.TenantFixture
   alias Letflow.TenantProvisioning
 
+  # The platform tenant is provisioned BEFORE any test body inserts a row: provisioning flips the
+  # sandbox to :auto, which would hide a row the test had already inserted (ISS-1032).
+  setup do
+    platform_fixture()
+    :ok
+  end
+
   @opts Letflow.Routers.Tenants.init([])
   @audit_opts Letflow.Routers.Audit.init([])
   @modes ["uniform_plus_email", "redirect_single"]
@@ -52,9 +59,33 @@ defmodule Letflow.Routers.Req442TenantsModeTest do
     conn
     |> assign(
       :auth_context,
-      PlatformTenantFixture.operator_auth_context(user_id, Ecto.UUID.generate(), roles)
+      PlatformTenantFixture.operator_auth_context(user_id, platform_fixture().tenant_id, roles)
     )
     |> assign(:trace_id, "req442-trace-id")
+  end
+
+  # ISS-1032 / GH 2351: a mode change also writes a PLATFORM-chain entry, so the operator's tenant is a
+  # real, provisioned platform tenant (pinned by operator_auth_context/3), created in setup.
+  defp platform_fixture do
+    case Process.get(:req442_platform_fixture) do
+      nil ->
+        fixture = TenantFixture.provisioned_tenant!(slug_prefix: "req442-platform")
+        Process.put(:req442_platform_fixture, fixture)
+        fixture
+
+      fixture ->
+        fixture
+    end
+  end
+
+  defp platform_entries(tenant_id) do
+    Repo.all(
+      from(e in Entry,
+        where:
+          e.resource_id == ^tenant_id and e.action == "platform.tenant_platform_setting.updated"
+      ),
+      prefix: platform_fixture().schema_name
+    )
   end
 
   defp dispatch(conn), do: Letflow.Routers.Tenants.call(conn, @opts)
@@ -111,19 +142,34 @@ defmodule Letflow.Routers.Req442TenantsModeTest do
         assert Map.keys(body) |> Enum.sort() == @seven_keys
         assert stored_mode(t.tenant_id) == mode
 
+        # ISS-1032: the TENANT chain entry has a NIL actor and a constant actor class; the operator's
+        # id is in the PLATFORM chain only.
         assert [entry] = mode_audit_entries(t.schema_name, t.tenant_id)
-        assert entry.actor_id == actor
+        assert entry.actor_id == nil
         assert entry.resource_type == "tenant"
         assert entry.resource_id == t.tenant_id
-        assert entry.trace_id == "req442-trace-id"
+        assert entry.trace_id == nil
         assert entry.before_state == nil
-        assert entry.after_state == %{"changed" => true}
-        # value-free (INV-2): neither the mode value nor the attribute name is in the entry
-        dumped = inspect(Map.from_struct(entry))
-        refute dumped =~ "uniform_plus_email"
-        refute dumped =~ "redirect_single"
-        refute dumped =~ "login_disclosure_mode"
-        # nothing else was audited
+        assert entry.after_state == %{"changed" => true, "actor_class" => "platform_operator"}
+        refute inspect(Map.from_struct(entry)) =~ actor
+
+        assert [platform_entry] = platform_entries(t.tenant_id)
+        assert platform_entry.actor_id == actor
+        assert platform_entry.resource_type == "tenant"
+        assert platform_entry.resource_id == t.tenant_id
+        assert platform_entry.trace_id == "req442-trace-id"
+        assert platform_entry.before_state == nil
+        assert platform_entry.after_state == %{"tenant_id" => t.tenant_id, "changed" => true}
+
+        # value-free (INV-2): neither the mode value nor the attribute name is in either entry
+        for e <- [entry, platform_entry] do
+          dumped = inspect(Map.from_struct(e))
+          refute dumped =~ "uniform_plus_email"
+          refute dumped =~ "redirect_single"
+          refute dumped =~ "login_disclosure_mode"
+        end
+
+        # nothing else was audited in the tenant chain
         assert all_audit_count(t.schema_name) == 1
       end
     end
@@ -499,7 +545,55 @@ defmodule Letflow.Routers.Req442TenantsModeTest do
                actor_id: 12_345
              ) == {:error, :audit_failed}
 
+      # a binary actor but no verified platform prefix: nothing is written (ISS-1032)
+      assert Identity.patch_tenant(t.tenant.slug, %{login_disclosure_mode: "redirect_single"},
+               actor_id: Ecto.UUID.generate()
+             ) == {:error, :audit_failed}
+
       assert stored_mode(t.tenant_id) == nil
+      assert all_audit_count(t.schema_name) == 0
+    end
+
+    test "a failed PLATFORM-chain write rolls back the tenant update and the tenant-chain entry (ISS-1032)" do
+      t = TenantFixture.provisioned_tenant!(slug_prefix: "req442-platfail")
+      platform = platform_fixture()
+      set_mode!(t.tenant_id, "redirect_single")
+
+      Repo.query!(~s(DROP TABLE "#{platform.schema_name}".audit_entries))
+
+      on_exit(fn ->
+        Repo.query!(~s"""
+        CREATE TABLE IF NOT EXISTS "#{platform.schema_name}".audit_entries (
+          id uuid PRIMARY KEY,
+          tenant_id uuid NOT NULL,
+          actor_id uuid,
+          action text NOT NULL,
+          resource_type text NOT NULL,
+          resource_id text NOT NULL,
+          "timestamp" timestamp(6) without time zone NOT NULL,
+          before_state jsonb,
+          after_state jsonb,
+          trace_id text,
+          chain_hash text NOT NULL,
+          prev_chain_hash text,
+          inserted_at timestamp(6) without time zone NOT NULL
+        )
+        """)
+      end)
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        resp =
+          admin_patch(
+            t.tenant.slug,
+            %{"login_disclosure_mode" => "uniform_plus_email"},
+            Ecto.UUID.generate()
+          )
+
+        assert resp.status == 500
+      end)
+
+      assert stored_mode(t.tenant_id) == "redirect_single"
+      assert mode_audit_entries(t.schema_name, t.tenant_id) == []
       assert all_audit_count(t.schema_name) == 0
     end
   end
@@ -510,10 +604,12 @@ defmodule Letflow.Routers.Req442TenantsModeTest do
     test "GET /audit shows the neutral action and a byte-level search finds neither the value nor the attribute name" do
       t = TenantFixture.provisioned_tenant!(slug_prefix: "req442-auditread")
 
+      operator = Ecto.UUID.generate()
+
       assert admin_patch(
                t.tenant.slug,
                %{"login_disclosure_mode" => "uniform_plus_email"},
-               Ecto.UUID.generate()
+               operator
              ).status ==
                200
 
@@ -521,6 +617,9 @@ defmodule Letflow.Routers.Req442TenantsModeTest do
         resp = get_audit(t.tenant_id, roles)
         assert resp.status == 200
         assert resp.resp_body =~ "tenant.platform_setting.updated"
+        # ISS-1032: the tenant's own administrators cannot learn which operator acted
+        refute resp.resp_body =~ operator
+        refute resp.resp_body =~ "platform.tenant_platform_setting.updated"
         refute resp.resp_body =~ "uniform_plus_email"
         refute resp.resp_body =~ "redirect_single"
         refute resp.resp_body =~ "login_disclosure_mode"
