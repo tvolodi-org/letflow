@@ -16,7 +16,7 @@ import { execSync } from 'node:child_process'
 import fg from 'fast-glob'
 import { PATTERNS } from './forbidlist'
 import { writeViolations, assertRedacted } from './reporter'
-import { scanBundle, summaryLines, type ScanFile } from './scan-core'
+import { scanBundle, summaryText, type ScanFile } from './scan-core'
 
 const WEB_DIR = join(__dirname, '..', '..')
 const DIST_DIR = join(WEB_DIR, 'dist')
@@ -52,7 +52,7 @@ describe('bundle-scan', () => {
       writeViolations(violations, evaluatedPatterns, runId)
 
       if (violations.length > 0) {
-        const summary = summaryLines(result, v => v.file).join('\n')
+        const summary = summaryText(result, v => v.file)
         expect.fail(`Bundle scan found ${violations.length} violation(s):\n${summary}`)
       }
 

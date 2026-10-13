@@ -105,7 +105,22 @@ export function scanBundle(assets: ScanFile[], patterns: GuardPattern[]): ScanRe
 }
 
 // The failure-message line for every violation, in order. `locate` gives the location text:
-// 'file:line' for sources, 'file' for bundles. The source spec caps the printed list itself.
+// 'file:line' for sources, 'file' for bundles.
 export function summaryLines(result: ScanResult, locate: (v: Violation) => string): string[] {
   return result.violations.map(v => describeViolation(v, result.tokens.get(v), locate(v)))
+}
+
+// The source scan prints at most this many violations, then an "and N more" line (as before).
+export const SOURCE_SUMMARY_LIMIT = 10
+
+// The printed summary: the first `limit` lines, then "and N more" when some were cut.
+export function summaryText(
+  result: ScanResult,
+  locate: (v: Violation) => string,
+  limit: number = Number.POSITIVE_INFINITY,
+): string {
+  const lines = summaryLines(result, locate)
+  const shown = lines.slice(0, limit).join('\n')
+  const more = lines.length > limit ? `\n  ... and ${lines.length - limit} more` : ''
+  return shown + more
 }

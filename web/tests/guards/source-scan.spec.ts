@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import fg from 'fast-glob'
 import { PATTERNS } from './forbidlist'
 import { writeViolations, assertRedacted } from './reporter'
-import { scanSource, summaryLines, type ScanFile } from './scan-core'
+import { SOURCE_SUMMARY_LIMIT, scanSource, summaryText, type ScanFile } from './scan-core'
 
 const WEB_PREFIX = 'web/'
 
@@ -48,11 +48,8 @@ describe('source-scan', () => {
       writeViolations(violations, evaluatedPatterns, runId)
 
       if (violations.length > 0) {
-        const summary = summaryLines(result, v => `${v.file}:${v.line}`).slice(0, 10).join('\n')
-        const more = violations.length > 10 ? `\n  ... and ${violations.length - 10} more` : ''
-        expect.fail(
-          `Source scan found ${violations.length} violation(s):\n${summary}${more}`,
-        )
+        const summary = summaryText(result, v => `${v.file}:${v.line}`, SOURCE_SUMMARY_LIMIT)
+        expect.fail(`Source scan found ${violations.length} violation(s):\n${summary}`)
       }
 
       expect(violations).toHaveLength(0)

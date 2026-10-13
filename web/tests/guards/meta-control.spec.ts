@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PATTERNS } from './forbidlist'
 import { describeViolation, LITERAL_COLOUR_HINT } from './reporter'
-import { scanBundle, scanSource, summaryLines } from './scan-core'
+import { SOURCE_SUMMARY_LIMIT, scanBundle, scanSource, summaryLines, summaryText } from './scan-core'
 
 const FIXTURES_DIR = join(__dirname, 'fixtures')
 
@@ -72,6 +72,27 @@ describe('meta-control: literal-colour exemption (GH #2451)', () => {
   it("a '/*' inside a string does not exempt a colour after it (image/* in an attribute)", () => {
     const src = `<input accept="image/*" style={{ color: '#000' }} />`
     expect(scanLiteralColour(src).violations).toHaveLength(1)
+  })
+
+  it('an unclosed "/*" exempts nothing: a colour after "/* see #NNNN" with no "*/" anywhere is flagged', () => {
+    expect(scanLiteralColour('/* see #2431').violations).toHaveLength(1)
+  })
+
+  it('the source summary prints the first SOURCE_SUMMARY_LIMIT lines and "and N more" (12 -> 10 + 2)', () => {
+    const violations = Array.from({ length: 12 }, (_, k) => ({
+      file: `web/src/f${k}.ts`,
+      line: 1,
+      patternName: 'literal-colour',
+    }))
+    const tokens = new Map(violations.map(v => [v, '#000'] as const))
+    const text = summaryText({ violations, tokens }, v => `${v.file}:${v.line}`, SOURCE_SUMMARY_LIMIT)
+    expect(text.split('\n')).toHaveLength(11)
+    expect(text).toContain('... and 2 more')
+    expect(text).not.toContain('web/src/f10.ts')
+  })
+
+  it('a bare JSDoc-style line with no opener is not exempt (verbatim " * #NNNN")', () => {
+    expect(scanLiteralColour(' * see GH #2432').violations).toHaveLength(1)
   })
 
   it('a CSS universal selector line is not exempt (the JSDoc exemption is removed)', () => {
