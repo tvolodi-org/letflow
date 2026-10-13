@@ -1079,3 +1079,20 @@ history:
       handoffs/WF02-REQ465-20261012/ac6-affected-scenarios.md: none changes outcome.
       Written by letflow-2 under the DOC-UPDATER agent id, as in earlier events; lands
       in the docs bundle branch docs/bundle-iss1053-1057-records-20261012, not yet pushed.
+
+  - req: REQ-466
+    event: revised
+    agent: DOC-UPDATER
+    at: "2026-10-13T11:37:45Z"
+    note: >
+      Status flipped from pending to in_progress. PR #2446 (bf304105) adopted
+      distinct_from on three approval nodes of the vortex and swiftroute
+      fixtures (partial adoption); the REQ is not done. Residual gap: the vortex
+      escalate-budget-approval-to-ceo node cannot name escalate-to-ceo because
+      the shipped-definition same-role guard compares roles, not holders
+      (ISS-1086 / Q-1086 / GH #2447). DECIDED 2026-10-13 (option a): reroute that
+      node to a new non-CEO role with distinct_from naming capacity-review,
+      escalate-to-ceo and budget-approval. A CORRECTION open_question was added
+      to the REQ (the Q-1044 membership premise was wrong). Written by
+      letflow-2 under the DOC-UPDATER agent id, as in earlier events; lands in
+      the docs bundle branch docs/bundle-iss-walk-q1087-20261013, not yet pushed.
