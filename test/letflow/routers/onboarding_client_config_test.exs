@@ -6,7 +6,7 @@ defmodule Letflow.Routers.OnboardingClientConfigTest do
   (lib/letflow/routers/onboarding.ex).
 
   Tests 1 and 2 pin the decision recorded in test/specs/Q-1088-prefix-run.txt (option A): each key the
-  request carries gets a disposition, and nothing is stored or applied. Tests 3 and 4 are design-neutral
+  request carries gets a disposition in the response; non-storage is not asserted here. Tests 3 and 4 are design-neutral
   about disposition values: they hold for any decision that keeps `ignored_fields`, echoes no client value, and
   adds no key for an absent field.
 
@@ -28,7 +28,7 @@ defmodule Letflow.Routers.OnboardingClientConfigTest do
   alias Letflow.TenantSlugFixture
 
   setup do
-    platform = TenantFixture.provisioned_tenant!(slug_prefix: "iss1088-plat")
+    platform = TenantFixture.provisioned_tenant!(slug_prefix: "q1088-plat")
     Fixture.pin!(platform.tenant_id)
     token = Fixture.mint_token!(platform, ["PLATFORM_ADMIN"])
     %{platform: platform, token: token}
@@ -45,9 +45,9 @@ defmodule Letflow.Routers.OnboardingClientConfigTest do
   defp new_body(extra) do
     Map.merge(
       %{
-        "slug" => TenantSlugFixture.unique_slug("iss1088"),
+        "slug" => TenantSlugFixture.unique_slug("q1088"),
         "display_name" => "Q-1088 Tenant",
-        "hostname" => "iss1088-#{Ecto.UUID.generate()}.example.com"
+        "hostname" => "q1088-#{Ecto.UUID.generate()}.example.com"
       },
       extra
     )
@@ -117,7 +117,7 @@ defmodule Letflow.Routers.OnboardingClientConfigTest do
     refute Map.has_key?(body, "realm_config")
   end
 
-  test "POST /onboarding names the keys of client_config and realm_config in ignored_fields and echoes no client value",
+  test "POST /onboarding names the keys of client_config and realm_config in ignored_fields and echoes no client string value",
        ctx do
     conn =
       post_onboarding(ctx, %{

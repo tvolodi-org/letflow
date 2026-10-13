@@ -13,7 +13,7 @@ Failing (the new behaviour is absent on main):
   assertion: the 201 body has no client_config key (the disposition is absent).
 
 Passing on main (must stay green after the fix):
-  POST /onboarding echoes the key names of client_config and realm_config in ignored_fields, never their values (ignored_fields already names them; no value is echoed)
+  POST /onboarding names the keys of client_config and realm_config in ignored_fields and echoes no client string value (ignored_fields already names them; no string value is echoed)
   POST /onboarding without client_config or realm_config answers no disposition for them (existing callers unchanged)
 
 Note: an earlier run of the same file failed on a test-harness cleanup order (the tenant row was deleted before its
@@ -21,7 +21,7 @@ onboarding_registry row, a foreign-key error). The harness was fixed before this
 The wizard's submit body is web/src/api/onboarding.ts (client_config { redirect_uris, service_account_enabled? } and
 realm_config). The backend keeps only slug and display_name (lib/letflow/routers/onboarding.ex, Map.take).
 
-Mutant run (disposition dropped from the merge: `extras = Map.merge(base, %{})`), mix test, on the test file before the
+Mutant run (disposition dropped: `dispositions(body)` replaced by `%{}` in response_extras), mix test, on the test file before the
 review-findings round: 2 of 4 pass, both disposition tests fail. Killed. Since then the assertions of tests 1-2 are
 unchanged; the helper and one realm string changed.
 Note: the mutant also leaves dispositions/1 unused (its reads of @not_stored_keys and @not_stored_next still count),
@@ -33,3 +33,5 @@ administrator map unchanged), REVIEWER APPROVED on the final code, SECURITY-REVI
 Naming: this record and the test use Q-1088 / GH #2450. docs/issues/ISS-1088.yaml on main is a different issue (Q-1073).
 
 Dated gate on commit c58440bc (2026-10-13 07:06Z to 07:15Z; the test file and lib as committed there): format exit 0; compile --warnings-as-errors exit 0; mix letflow.check.static exit 0; the five onboarding files 63 passed, 0 failed. This entry is in the following commit; the tested content is c58440bc.
+
+Dated gate on the test file committed with this entry (2026-10-13 07:17Z to 07:26Z): format exit 0; compile --warnings-as-errors exit 0; mix letflow.check.static exit 0; the five onboarding files 63 passed, 0 failed. This entry is the record of that gate; the tested test file is the one in this commit.
