@@ -32,7 +32,8 @@ defmodule Letflow.Identity.TenantAdminSeedingTest do
   alias Letflow.TenantProvisioning
   alias Letflow.TenantProvisioning.Registration
 
-  @all_names ~w(PLATFORM_ADMIN PROCESS_DESIGNER PROCESS_OPERATOR TASK_WORKER AGENT_RUNNER CANDIDATE TENANT_ADMIN)
+  # Derived (REQ-448): never re-literalled to the next role count.
+  @all_names Enum.map(Letflow.Api.Authorization.roles(), &Atom.to_string/1)
   @non_platform_names List.delete(@all_names, "PLATFORM_ADMIN")
 
   # A tenant in the `migrating` state exactly as `POST /onboarding` creates it; the cleanup mirrors
@@ -99,7 +100,7 @@ defmodule Letflow.Identity.TenantAdminSeedingTest do
       assert %Group{name: "TENANT_ADMIN"} = Repo.get(Group, binding.group_id, prefix: schema_name)
     end
 
-    test "the pinned platform tenant gets BOTH the TENANT_ADMIN and the PLATFORM_ADMIN bindings (all seven)" do
+    test "the pinned platform tenant gets BOTH the TENANT_ADMIN and the PLATFORM_ADMIN bindings (every role of roles/0)" do
       tenant = new_migrating_tenant!()
       Fixture.pin!(tenant.id)
 
@@ -138,8 +139,8 @@ defmodule Letflow.Identity.TenantAdminSeedingTest do
         assert Repo.aggregate(Group, :count, prefix: schema) == length(first)
       end
 
-      assert length(role_names(ordinary.schema_name)) == 6
-      assert length(role_names(platform.schema_name)) == 7
+      assert length(role_names(ordinary.schema_name)) == length(@non_platform_names)
+      assert length(role_names(platform.schema_name)) == length(@all_names)
     end
   end
 
@@ -158,7 +159,7 @@ defmodule Letflow.Identity.TenantAdminSeedingTest do
       assert RoleRegistry.seedable_role_names(ctx.schema_name) == @non_platform_names
     end
 
-    test "pin set: exactly the pinned tenant's schema is a platform prefix and gets all seven names in roles/0 order",
+    test "pin set: exactly the pinned tenant's schema is a platform prefix and gets every name of roles/0 in order",
          ctx do
       Fixture.pin!(ctx.tenant_id)
 
@@ -294,12 +295,13 @@ defmodule Letflow.Identity.TenantAdminSeedingTest do
 
     defp do_paths(_other, _needle, _path), do: []
 
-    test "TENANT_ADMIN is a realm role and the realm role list equals roles/0 (seven)" do
+    test "TENANT_ADMIN is a realm role and the realm role list equals roles/0" do
       names = realm() |> get_in(["roles", "realm"]) |> Enum.map(& &1["name"])
 
       assert "TENANT_ADMIN" in names
-      assert length(names) == 7
-      assert List.last(names) == "TENANT_ADMIN"
+      assert length(names) == length(Letflow.Api.Authorization.roles())
+      assert "TENANT_AUDITOR" in names
+      assert List.last(names) == "TENANT_AUDITOR"
     end
 
     test "tenant-admin-user exists with exactly [TENANT_ADMIN]; admin-user is still PLATFORM_ADMIN only; no other user holds TENANT_ADMIN" do

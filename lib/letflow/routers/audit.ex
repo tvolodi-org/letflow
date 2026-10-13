@@ -105,7 +105,7 @@ defmodule Letflow.Routers.Audit do
   adapted, per REQ-130's design §2.4.
 
   `Letflow.Api.Authorization.endpoint_policy_key("GET", "/audit")` already
-  returns `:AuditRead`. Per `role_allows?/2`, `PLATFORM_ADMIN` and
+  returns `:AuditRead`. Per `role_allows?/2`, `PLATFORM_ADMIN`, `TENANT_ADMIN`, `TENANT_AUDITOR` and
   `PROCESS_OPERATOR` hold it; `PROCESS_DESIGNER`, `TASK_WORKER` and
   `AGENT_RUNNER` do not — so such a caller gets **403**, never a 404 and never
   an empty 200.

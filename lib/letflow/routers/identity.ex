@@ -78,7 +78,7 @@ defmodule Letflow.Routers.Identity do
   that actually knows which domain it is writing, so this route does not
   infer `kind` from `name`'s shape the way the pre-ISS-0774 code implicitly
   did everywhere downstream. `kind: "platform_role"` additionally requires
-  `name` to be one of `Letflow.Api.Authorization.roles/0`'s seven recognized
+  `name` to be one of `Letflow.Api.Authorization.roles/0`'s eight recognized
   literals — `RoleRegistry.upsert_role/4` rejects any other value with
   `{:error, :name_not_a_recognized_platform_role}`, surfaced here as `422`,
   before any `Repo` call. See

@@ -19,7 +19,7 @@ defmodule Letflow.Api.AuthorizationTest do
   alias Letflow.Api.Authorization.AccessContext
 
   describe "acceptance criterion 1 — exact Role and Permission enumeration" do
-    test "roles/0 returns exactly R-Co's five Role values plus ISS-0646's CANDIDATE plus REQ-447's TENANT_ADMIN" do
+    test "roles/0 returns exactly R-Co's five Role values plus ISS-0646's CANDIDATE plus REQ-447's TENANT_ADMIN plus REQ-448's TENANT_AUDITOR" do
       assert Authorization.roles() == [
                :PLATFORM_ADMIN,
                :PROCESS_DESIGNER,
@@ -27,11 +27,12 @@ defmodule Letflow.Api.AuthorizationTest do
                :TASK_WORKER,
                :AGENT_RUNNER,
                :CANDIDATE,
-               :TENANT_ADMIN
+               :TENANT_ADMIN,
+               :TENANT_AUDITOR
              ]
     end
 
-    # The core, closed-set literal of the 40 core permissions (REQ-403 added
+    # The core, closed-set literal of the 41 core permissions (REQ-403 added
     # :MyModulesRead; REQ-446 / ISS-0993 added the promotion and rollback ones).
     # This is what core_permissions/0 must return exactly.
     @core_permissions [
@@ -74,7 +75,8 @@ defmodule Letflow.Api.AuthorizationTest do
       :TenantSettingsManage,
       :PromotionsRead,
       :PromotionsManage,
-      :DefinitionsRollback
+      :DefinitionsRollback,
+      :AttachmentLinksIssue
     ]
 
     test "core_permissions/0 returns the closed core list through ISS-0935's :EntitiesRestrictionsManage, no Catalog atoms" do
@@ -455,7 +457,8 @@ defmodule Letflow.Api.AuthorizationTest do
           37 => "thirty-seven",
           38 => "thirty-eight",
           39 => "thirty-nine",
-          40 => "forty"
+          40 => "forty",
+          41 => "forty-one"
         }
         |> Map.get(actual_count)
 
@@ -639,10 +642,17 @@ defmodule Letflow.Api.AuthorizationTest do
         EntitiesDefinitionsWrite: true,
         EntitiesRecordsWrite: true,
         EntitiesQuery: true
+      },
+      # REQ-448: TENANT_AUDITOR is read-only, so it holds the two read atoms.
+      TENANT_AUDITOR: %{
+        EntitiesDefinitionsRead: true,
+        EntitiesDefinitionsWrite: false,
+        EntitiesRecordsWrite: false,
+        EntitiesQuery: true
       }
     }
 
-    test "the grid covers every role x every new permission -- 28 pairs, none missing" do
+    test "the grid covers every role x every new permission -- 32 pairs, none missing" do
       assert Map.keys(@new_permission_grid) |> Enum.sort() ==
                Authorization.roles() |> Enum.sort()
 
@@ -651,7 +661,7 @@ defmodule Letflow.Api.AuthorizationTest do
             {permission, _} <- by_permission,
             do: permission
 
-      assert length(pairs) == 28
+      assert length(pairs) == length(Authorization.roles()) * length(@req309_permissions)
 
       for {role, by_permission} <- @new_permission_grid do
         assert Enum.sort(Map.keys(by_permission)) == Enum.sort(@req309_permissions),
@@ -659,7 +669,7 @@ defmodule Letflow.Api.AuthorizationTest do
       end
     end
 
-    test "role_allows?/2 matches the grid for all 28 role/permission pairs" do
+    test "role_allows?/2 matches the grid for all 32 role/permission pairs" do
       for {role, by_permission} <- @new_permission_grid,
           {permission, expected} <- by_permission do
         actual = Authorization.role_allows?(role, permission)
@@ -775,10 +785,20 @@ defmodule Letflow.Api.AuthorizationTest do
       CANDIDATE: [],
       # REQ-447: TENANT_ADMIN holds exactly the tenant-scope permissions. Of the
       # pre-existing permissions only :TenantsManage is platform scope.
-      TENANT_ADMIN: Enum.reject(@pre_req309_permissions, &(&1 == :TenantsManage))
+      TENANT_ADMIN: Enum.reject(@pre_req309_permissions, &(&1 == :TenantsManage)),
+      # REQ-448: TENANT_AUDITOR's closed read-only list, intersected with
+      # this snapshot's permission set (hand-transcribed).
+      TENANT_AUDITOR: [
+        :DefinitionsRead,
+        :InstancesRead,
+        :TasksRead,
+        :AuditRead,
+        :MetricsRead,
+        :AttachmentsRead
+      ]
     }
 
-    test "the regression grid is complete: 7 roles x 19 pre-existing permissions = 133 pairs" do
+    test "the regression grid is complete: 8 roles x 19 pre-existing permissions = 152 pairs" do
       assert length(@pre_req309_permissions) == 19
       assert Enum.sort(Map.keys(@pre_req309_allowed)) == Enum.sort(Authorization.roles())
 
@@ -803,7 +823,7 @@ defmodule Letflow.Api.AuthorizationTest do
       assert Enum.take(live, length(expected_prefix)) == expected_prefix
 
       pair_count = length(Authorization.roles()) * length(@pre_req309_permissions)
-      assert pair_count == 133
+      assert pair_count == 152
     end
 
     test "all 95 pre-existing role/permission pairs return exactly what they returned before REQ-309" do
@@ -813,7 +833,8 @@ defmodule Letflow.Api.AuthorizationTest do
             :PROCESS_OPERATOR,
             :TASK_WORKER,
             :AGENT_RUNNER,
-            :TENANT_ADMIN
+            :TENANT_ADMIN,
+            :TENANT_AUDITOR
           ],
           permission <- @pre_req309_permissions do
         expected = permission in Map.fetch!(@pre_req309_allowed, role)
@@ -1006,7 +1027,8 @@ defmodule Letflow.Api.AuthorizationTest do
           37 => "thirty-seven",
           38 => "thirty-eight",
           39 => "thirty-nine",
-          40 => "forty"
+          40 => "forty",
+          41 => "forty-one"
         }
         |> Map.get(actual_count)
 
@@ -1165,10 +1187,22 @@ defmodule Letflow.Api.AuthorizationTest do
       CANDIDATE: [],
       # REQ-447: TENANT_ADMIN holds exactly the tenant-scope permissions. Of the
       # pre-existing permissions only :TenantsManage is platform scope.
-      TENANT_ADMIN: Enum.reject(@pre_req315_permissions, &(&1 == :TenantsManage))
+      TENANT_ADMIN: Enum.reject(@pre_req315_permissions, &(&1 == :TenantsManage)),
+      # REQ-448: TENANT_AUDITOR's closed read-only list, intersected with
+      # this snapshot's permission set (hand-transcribed).
+      TENANT_AUDITOR: [
+        :DefinitionsRead,
+        :InstancesRead,
+        :TasksRead,
+        :AuditRead,
+        :MetricsRead,
+        :AttachmentsRead,
+        :EntitiesDefinitionsRead,
+        :EntitiesQuery
+      ]
     }
 
-    test "the regression grid is complete: 7 roles x 23 pre-existing permissions = 161 pairs" do
+    test "the regression grid is complete: 8 roles x 23 pre-existing permissions = 184 pairs" do
       assert length(@pre_req315_permissions) == 23
       assert Enum.sort(Map.keys(@pre_req315_allowed)) == Enum.sort(Authorization.roles())
 
@@ -1190,7 +1224,7 @@ defmodule Letflow.Api.AuthorizationTest do
       assert Enum.take(live, length(expected_prefix)) == expected_prefix
 
       pair_count = length(Authorization.roles()) * length(@pre_req315_permissions)
-      assert pair_count == 161
+      assert pair_count == 184
     end
 
     test "all 115 pre-existing role/permission pairs return exactly what they returned before REQ-315" do
@@ -1200,7 +1234,8 @@ defmodule Letflow.Api.AuthorizationTest do
             :PROCESS_OPERATOR,
             :TASK_WORKER,
             :AGENT_RUNNER,
-            :TENANT_ADMIN
+            :TENANT_ADMIN,
+            :TENANT_AUDITOR
           ],
           permission <- @pre_req315_permissions do
         expected = permission in Map.fetch!(@pre_req315_allowed, role)
@@ -1483,7 +1518,8 @@ defmodule Letflow.Api.AuthorizationTest do
           37 => "thirty-seven",
           38 => "thirty-eight",
           39 => "thirty-nine",
-          40 => "forty"
+          40 => "forty",
+          41 => "forty-one"
         }
         |> Map.get(actual_count)
 
@@ -1546,10 +1582,12 @@ defmodule Letflow.Api.AuthorizationTest do
       # permissions, same "holds nothing here" shape as AGENT_RUNNER above.
       CANDIDATE: %{EntitiesAttachmentsManage: false, EntitiesAttachmentsRead: false},
       # REQ-447: tenant-scope permissions are all granted to TENANT_ADMIN.
-      TENANT_ADMIN: %{EntitiesAttachmentsManage: true, EntitiesAttachmentsRead: true}
+      TENANT_ADMIN: %{EntitiesAttachmentsManage: true, EntitiesAttachmentsRead: true},
+      # REQ-448: read-only auditor holds the read atom only.
+      TENANT_AUDITOR: %{EntitiesAttachmentsManage: false, EntitiesAttachmentsRead: true}
     }
 
-    test "the grid covers every role x both new permissions -- 14 pairs, none missing" do
+    test "the grid covers every role x both new permissions -- 16 pairs, none missing" do
       assert Map.keys(@req317_grid) |> Enum.sort() == Authorization.roles() |> Enum.sort()
 
       pairs =
@@ -1557,7 +1595,7 @@ defmodule Letflow.Api.AuthorizationTest do
             {permission, _} <- by_permission,
             do: permission
 
-      assert length(pairs) == 14
+      assert length(pairs) == length(Authorization.roles()) * length(@req317_permissions)
 
       for {role, by_permission} <- @req317_grid do
         assert Enum.sort(Map.keys(by_permission)) == Enum.sort(@req317_permissions),
@@ -1565,7 +1603,7 @@ defmodule Letflow.Api.AuthorizationTest do
       end
     end
 
-    test "role_allows?/2 matches the grid for all 14 role/permission pairs" do
+    test "role_allows?/2 matches the grid for all 16 role/permission pairs" do
       for {role, by_permission} <- @req317_grid,
           {permission, expected} <- by_permission do
         actual = Authorization.role_allows?(role, permission)
@@ -1680,7 +1718,20 @@ defmodule Letflow.Api.AuthorizationTest do
       AGENT_RUNNER: [],
       # REQ-447: TENANT_ADMIN holds exactly the tenant-scope permissions. Of the
       # pre-existing permissions only :TenantsManage is platform scope.
-      TENANT_ADMIN: Enum.reject(@pre_req318_permissions, &(&1 == :TenantsManage))
+      TENANT_ADMIN: Enum.reject(@pre_req318_permissions, &(&1 == :TenantsManage)),
+      # REQ-448: TENANT_AUDITOR's closed read-only list, intersected with
+      # this snapshot's permission set (hand-transcribed).
+      TENANT_AUDITOR: [
+        :DefinitionsRead,
+        :InstancesRead,
+        :TasksRead,
+        :AuditRead,
+        :MetricsRead,
+        :AttachmentsRead,
+        :EntitiesDefinitionsRead,
+        :EntitiesQuery,
+        :EntitiesAggregate
+      ]
     }
 
     test "the live permissions/0 list's first twenty-seven entries are exactly the pre-existing twenty-four plus REQ-318's three, in that order" do
@@ -1701,7 +1752,8 @@ defmodule Letflow.Api.AuthorizationTest do
             :PROCESS_OPERATOR,
             :TASK_WORKER,
             :AGENT_RUNNER,
-            :TENANT_ADMIN
+            :TENANT_ADMIN,
+            :TENANT_AUDITOR
           ],
           permission <- @pre_req318_permissions do
         expected = permission in Map.fetch!(@pre_req318_allowed, role)
@@ -1715,8 +1767,8 @@ defmodule Letflow.Api.AuthorizationTest do
       end
     end
 
-    test "PROCESS_DESIGNER, PROCESS_OPERATOR and TASK_WORKER are denied all three new atoms" do
-      for role <- [:PROCESS_DESIGNER, :PROCESS_OPERATOR, :TASK_WORKER],
+    test "PROCESS_DESIGNER, PROCESS_OPERATOR, TASK_WORKER and TENANT_AUDITOR are denied all three new atoms" do
+      for role <- [:PROCESS_DESIGNER, :PROCESS_OPERATOR, :TASK_WORKER, :TENANT_AUDITOR],
           permission <- @req318_permissions do
         refute Authorization.role_allows?(role, permission),
                "expected #{inspect(role)} to be denied #{inspect(permission)} -- design §5 " <>
@@ -1832,10 +1884,23 @@ defmodule Letflow.Api.AuthorizationTest do
       CANDIDATE: [],
       # REQ-447: TENANT_ADMIN holds exactly the tenant-scope permissions. Of the
       # pre-existing permissions only :TenantsManage is platform scope.
-      TENANT_ADMIN: Enum.reject(@pre_req317_permissions, &(&1 == :TenantsManage))
+      TENANT_ADMIN: Enum.reject(@pre_req317_permissions, &(&1 == :TenantsManage)),
+      # REQ-448: TENANT_AUDITOR's closed read-only list, intersected with
+      # this snapshot's permission set (hand-transcribed).
+      TENANT_AUDITOR: [
+        :DefinitionsRead,
+        :InstancesRead,
+        :TasksRead,
+        :AuditRead,
+        :MetricsRead,
+        :AttachmentsRead,
+        :EntitiesDefinitionsRead,
+        :EntitiesQuery,
+        :EntitiesAggregate
+      ]
     }
 
-    test "the regression grid is complete: 7 roles x 24 pre-existing permissions = 168 pairs" do
+    test "the regression grid is complete: 8 roles x 24 pre-existing permissions = 192 pairs" do
       assert length(@pre_req317_permissions) == 24
       assert Enum.sort(Map.keys(@pre_req317_allowed)) == Enum.sort(Authorization.roles())
 
@@ -1858,7 +1923,7 @@ defmodule Letflow.Api.AuthorizationTest do
       assert Enum.take(live, length(@pre_req317_permissions)) == @pre_req317_permissions
 
       pair_count = length(Authorization.roles()) * length(@pre_req317_permissions)
-      assert pair_count == 168
+      assert pair_count == 192
     end
 
     test "all 120 pre-existing role/permission pairs return exactly what they returned before REQ-317" do
@@ -1868,7 +1933,8 @@ defmodule Letflow.Api.AuthorizationTest do
             :PROCESS_OPERATOR,
             :TASK_WORKER,
             :AGENT_RUNNER,
-            :TENANT_ADMIN
+            :TENANT_ADMIN,
+            :TENANT_AUDITOR
           ],
           permission <- @pre_req317_permissions do
         expected = permission in Map.fetch!(@pre_req317_allowed, role)
@@ -2067,7 +2133,7 @@ defmodule Letflow.Api.AuthorizationTest do
         {"DELETE", "/instances/:id/attachments/:attachment_id", :AttachmentsManage},
         {"GET", "/instances/:id/attachments", :AttachmentsRead},
         {"GET", "/instances/:id/attachments/:attachment_id", :AttachmentsRead},
-        {"POST", "/instances/:id/attachments/:attachment_id/link", :AttachmentsRead},
+        {"POST", "/instances/:id/attachments/:attachment_id/link", :AttachmentLinksIssue},
         {"GET", "/instances/:id/attachments/:attachment_id/link-content", :AttachmentsRead},
         {"GET", "/instances/storage-usage", :AttachmentsRead},
         {"GET", "/entities/definitions", :EntitiesDefinitionsRead},
@@ -2118,7 +2184,7 @@ defmodule Letflow.Api.AuthorizationTest do
   describe "REQ-401 AC6 — full regression grid" do
     # Every one of the thirty-two permissions that existed immediately
     # before REQ-401 (before :ModulesManage was appended), crossed with all
-    # six roles: 192 pairs, each expected value transcribed by hand from
+    # eight roles (six when written): 256 pairs, each expected value transcribed by hand from
     # `lib/letflow/api/authorization.ex` as it stood on main before this
     # change -- NOT derived from role_allows?/2, permissions/0, or any other
     # part of the module under test. NOTE: The six exam atoms
@@ -2226,10 +2292,26 @@ defmodule Letflow.Api.AuthorizationTest do
       CANDIDATE: [],
       # REQ-447: TENANT_ADMIN holds exactly the tenant-scope permissions. Of the
       # pre-existing permissions only :TenantsManage is platform scope.
-      TENANT_ADMIN: Enum.reject(@pre_req401_permissions, &(&1 == :TenantsManage))
+      TENANT_ADMIN: Enum.reject(@pre_req401_permissions, &(&1 == :TenantsManage)),
+      # REQ-448: TENANT_AUDITOR's closed read-only list, intersected with
+      # this snapshot's permission set (hand-transcribed).
+      TENANT_AUDITOR: [
+        :DefinitionsRead,
+        :InstancesRead,
+        :TasksRead,
+        :AuditRead,
+        :MetricsRead,
+        :AttachmentsRead,
+        :EntitiesDefinitionsRead,
+        :EntitiesQuery,
+        :EntitiesAggregate,
+        :EntitiesAttachmentsRead,
+        :HelpRead,
+        :MembershipsRead
+      ]
     }
 
-    test "the regression grid is complete: 7 roles x 32 pre-existing core permissions = 224 pairs" do
+    test "the regression grid is complete: 8 roles x 32 pre-existing core permissions = 256 pairs" do
       assert length(@pre_req401_permissions) == 32
       assert Enum.sort(Map.keys(@pre_req401_allowed)) == Enum.sort(Authorization.roles())
 
@@ -2244,11 +2326,13 @@ defmodule Letflow.Api.AuthorizationTest do
                    :TenantSettingsManage,
                    :PromotionsRead,
                    :PromotionsManage,
-                   :DefinitionsRollback
+                   :DefinitionsRollback,
+                   # REQ-448 (L1)
+                   :AttachmentLinksIssue
                  ]
 
       pair_count = length(Authorization.roles()) * length(@pre_req401_permissions)
-      assert pair_count == 224
+      assert pair_count == 256
     end
 
     test "all 228 pre-existing (role, permission) pairs return exactly what they returned before REQ-401" do

@@ -6,13 +6,18 @@ defmodule Letflow.Api.Authorization do
   no I/O, never raises on any input. See
   `lib/letflow/design/req069-authorization.md` for the full design.
 
-  ## Seven roles (REQ-447)
+  ## Eight roles (REQ-448)
 
-  `role/0` has seven members: `PLATFORM_ADMIN`, `PROCESS_DESIGNER`,
-  `PROCESS_OPERATOR`, `TASK_WORKER`, `AGENT_RUNNER`, `CANDIDATE`, and
-  `TENANT_ADMIN`. `TENANT_ADMIN` is allowed a permission iff
-  `permission_scope/1` of it is `:tenant`; never a platform-scope permission,
-  never `:Unknown` (see the `TENANT_ADMIN` clause of `core_role_allows?/2`).
+  `role/0` has eight members: `PLATFORM_ADMIN`, `PROCESS_DESIGNER`,
+  `PROCESS_OPERATOR`, `TASK_WORKER`, `AGENT_RUNNER`, `CANDIDATE`,
+  `TENANT_ADMIN` (REQ-447) and `TENANT_AUDITOR` (REQ-448). `TENANT_ADMIN` is
+  allowed a permission iff `permission_scope/1` of it is `:tenant`; never a
+  platform-scope permission, never `:Unknown` (see the `TENANT_ADMIN` clause
+  of `core_role_allows?/2`). `TENANT_AUDITOR` is read-only: a closed explicit
+  list of 12 core atoms plus the role-agnostic `:MyModulesRead` (13 effective
+  grants). `:PromotionsRead` is deliberately withheld until Q-1011's
+  stored-tenant check merges (decision 0046 D6, interim deviation), and the
+  link-issue route is denied through `:AttachmentLinksIssue`.
 
   ## Untrusted input: roles are caller-influenced strings, not R-Co's enum
 
@@ -186,7 +191,8 @@ defmodule Letflow.Api.Authorization do
   explicitly inviting REVIEWER to judge a narrower grant instead. This
   module implements a **deliberate, flagged deviation** from that literal
   instruction: `role_allows?/2` grants `:HelpRead` to `PLATFORM_ADMIN`,
-  `PROCESS_DESIGNER`, `PROCESS_OPERATOR`, `TASK_WORKER`, and `AGENT_RUNNER`,
+  `PROCESS_DESIGNER`, `PROCESS_OPERATOR`, `TASK_WORKER`, and `AGENT_RUNNER`
+  (and, since REQ-447/REQ-448, `TENANT_ADMIN` and `TENANT_AUDITOR`),
   but **not** `CANDIDATE`. Reason: `test/letflow/api/authorization_test.exs`'s
   ISS-0646 closed-set invariant test ("CANDIDATE must hold exactly its six
   ExamSession*/ExamCertificateIssue permissions and nothing else",
@@ -278,6 +284,7 @@ defmodule Letflow.Api.Authorization do
           | :AGENT_RUNNER
           | :CANDIDATE
           | :TENANT_ADMIN
+          | :TENANT_AUDITOR
 
   @type permission ::
           :DefinitionsWrite
@@ -320,6 +327,7 @@ defmodule Letflow.Api.Authorization do
           | :PromotionsRead
           | :PromotionsManage
           | :DefinitionsRollback
+          | :AttachmentLinksIssue
 
   @type access_decision_kind :: :Allow | :Deny403 | :AllowWithRowFilter
 
@@ -376,6 +384,7 @@ defmodule Letflow.Api.Authorization do
           | :PromotionsRead
           | :PromotionsManage
           | :DefinitionsRollback
+          | :AttachmentLinksIssue
           | :UnmatchedPlatformPath
           | :UnmatchedRoute
           | :Unknown
@@ -389,7 +398,8 @@ defmodule Letflow.Api.Authorization do
     :TASK_WORKER,
     :AGENT_RUNNER,
     :CANDIDATE,
-    :TENANT_ADMIN
+    :TENANT_ADMIN,
+    :TENANT_AUDITOR
   ]
 
   @permissions [
@@ -433,7 +443,9 @@ defmodule Letflow.Api.Authorization do
     :TenantSettingsManage,
     :PromotionsRead,
     :PromotionsManage,
-    :DefinitionsRollback
+    :DefinitionsRollback,
+    # REQ-448 (design req448-tenant-auditor-role.md section 2.6, item L1)
+    :AttachmentLinksIssue
   ]
 
   # ISS-0993 section 5: every core permission has exactly one scope. A test
@@ -451,12 +463,12 @@ defmodule Letflow.Api.Authorization do
                       end
                     )
 
-  @doc "All seven `Role` values, R-Co's exact names plus ISS-0646's `CANDIDATE` and REQ-447's `TENANT_ADMIN` (every tenant-scope permission, never a platform-scope one). See `roles_from_strings/1` for untrusted-input conversion."
+  @doc "All eight `Role` values, R-Co's exact names plus ISS-0646's `CANDIDATE`, REQ-447's `TENANT_ADMIN` (every tenant-scope permission, never a platform-scope one) and REQ-448's read-only `TENANT_AUDITOR`. See `roles_from_strings/1` for untrusted-input conversion."
   @spec roles() :: [role()]
   def roles, do: @roles
 
   @doc """
-  All forty core `Permission` values — R-Co's fourteen, plus REQ-075's
+  All forty-one core `Permission` values — R-Co's fourteen, plus REQ-075's
   `:TenantsManage`, plus REQ-076's `:RolesManage`, plus REQ-212's
   `:AttachmentsManage`/`:AttachmentsRead`, plus ISS-0389's
   `:InstancesAdvanceTimer`, plus REQ-309's four entity-subsystem permissions
@@ -475,7 +487,10 @@ defmodule Letflow.Api.Authorization do
   `lib/letflow/design/iss0935-vortex-entity-seed.md` §1.3's own
   justification for not reusing it), plus ISS-0993's `:PlatformServicesManage`,
   `:TenantSettingsManage`, `:PromotionsRead`, `:PromotionsManage` and
-  `:DefinitionsRollback`. Each has exactly one scope, see `permission_scope/1`.
+  `:DefinitionsRollback`, plus REQ-448's `:AttachmentLinksIssue` (the
+  `POST .../attachments/:attachment_id/link` route, split from
+  `:AttachmentsRead` so the read-only `TENANT_AUDITOR` can be denied it).
+  Each has exactly one scope, see `permission_scope/1`.
 
   The stated core count is asserted against `length(core_permissions())` by
   `test/letflow/api/authorization_test.exs` (REQ-309 AC1), computed rather than
@@ -635,6 +650,7 @@ defmodule Letflow.Api.Authorization do
   defp role_from_string("AGENT_RUNNER"), do: :AGENT_RUNNER
   defp role_from_string("CANDIDATE"), do: :CANDIDATE
   defp role_from_string("TENANT_ADMIN"), do: :TENANT_ADMIN
+  defp role_from_string("TENANT_AUDITOR"), do: :TENANT_AUDITOR
   defp role_from_string(_other), do: nil
 
   @doc """
@@ -884,11 +900,14 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("GET", "/instances/:id/attachments/:attachment_id"),
     do: :AttachmentsRead
 
-  # REQ-386 — signed, time-limited attachment links. Same :AttachmentsRead
-  # permission as the existing content route (see design
-  # lib/letflow/design/req386-attachment-signed-links.md §5).
+  # REQ-386 — signed, time-limited attachment links. Issuing a link persists
+  # state (the lazy signing-key write) and mints a bearer capability, so since
+  # REQ-448 (design req448-tenant-auditor-role.md section 2.6, item L1) it has
+  # its own :AttachmentLinksIssue permission, granted to exactly the roles that
+  # reached it through :AttachmentsRead before (never the read-only
+  # TENANT_AUDITOR). The sibling GET .../link-content stays :AttachmentsRead.
   def endpoint_policy_key("POST", "/instances/:id/attachments/:attachment_id/link"),
-    do: :AttachmentsRead
+    do: :AttachmentLinksIssue
 
   def endpoint_policy_key("GET", "/instances/:id/attachments/:attachment_id/link-content"),
     do: :AttachmentsRead
@@ -1149,7 +1168,8 @@ defmodule Letflow.Api.Authorization do
       not has_role?(roles, :PLATFORM_ADMIN) and
       not has_role?(roles, :PROCESS_DESIGNER) and
       not has_role?(roles, :PROCESS_OPERATOR) and
-      not has_role?(roles, :TENANT_ADMIN)
+      not has_role?(roles, :TENANT_ADMIN) and
+      not has_role?(roles, :TENANT_AUDITOR)
   end
 
   @doc """
@@ -1209,6 +1229,7 @@ defmodule Letflow.Api.Authorization do
   def required_permission(:RolesManage), do: :RolesManage
   def required_permission(:AttachmentsManage), do: :AttachmentsManage
   def required_permission(:AttachmentsRead), do: :AttachmentsRead
+  def required_permission(:AttachmentLinksIssue), do: :AttachmentLinksIssue
 
   # REQ-309 — identity clauses (policy-key name == permission name), design §3.
   def required_permission(:EntitiesDefinitionsRead), do: :EntitiesDefinitionsRead
@@ -1364,6 +1385,8 @@ defmodule Letflow.Api.Authorization do
         :TasksRead,
         :RolesManage,
         :AttachmentsRead,
+        # REQ-448 L1: the link-issue route was keyed :AttachmentsRead before.
+        :AttachmentLinksIssue,
         # REQ-309 (design §3 role matrix): schema authoring tracks this role's
         # existing :DefinitionsWrite ("author a definition"); record authoring
         # (:EntitiesRecordsWrite) deliberately does NOT — that is
@@ -1408,6 +1431,8 @@ defmodule Letflow.Api.Authorization do
         :WebhooksManage,
         :AttachmentsManage,
         :AttachmentsRead,
+        # REQ-448 L1: the link-issue route was keyed :AttachmentsRead before.
+        :AttachmentLinksIssue,
         :InstancesAdvanceTimer,
         # REQ-309 (design §3 role matrix): record authoring tracks this role's
         # existing InstancesStart/InstancesCancel/AttachmentsManage grants;
@@ -1440,6 +1465,8 @@ defmodule Letflow.Api.Authorization do
         :TasksRead,
         :TasksComplete,
         :AttachmentsRead,
+        # REQ-448 L1: the link-issue route was keyed :AttachmentsRead before.
+        :AttachmentLinksIssue,
         # REQ-309 (design §3 role matrix): read-only in this subsystem — every
         # role that can read anything here also holds :EntitiesQuery, mirroring
         # how every role holding :InstancesRead also holds :AttachmentsRead.
@@ -1479,4 +1506,29 @@ defmodule Letflow.Api.Authorization do
   # now supplies them, so core_role_allows?(:CANDIDATE, _) is uniformly
   # false — the Catalog side handles the grant.
   defp core_role_allows?(:CANDIDATE, _permission), do: false
+
+  # REQ-448 (design req448-tenant-auditor-role.md section 2.2): TENANT_AUDITOR
+  # is read-only. A CLOSED explicit list of 12 core atoms (deliberately NOT a
+  # `permission_scope == :tenant` rule, unlike TENANT_ADMIN); :MyModulesRead is
+  # granted to every role by the first role_allows?/2 clause. Withheld on
+  # purpose: :PromotionsRead (interim, until Q-1011's stored-tenant check
+  # merges; decision 0046 D6), :EntitiesRecordsExport and every write, manage,
+  # import, token, user, role, module, settings, promotion, rollback or
+  # link-issue permission. Never a platform-scope permission.
+  defp core_role_allows?(:TENANT_AUDITOR, permission),
+    do:
+      permission in [
+        :DefinitionsRead,
+        :InstancesRead,
+        :TasksRead,
+        :AuditRead,
+        :MetricsRead,
+        :AttachmentsRead,
+        :EntitiesDefinitionsRead,
+        :EntitiesQuery,
+        :EntitiesAggregate,
+        :EntitiesAttachmentsRead,
+        :HelpRead,
+        :MembershipsRead
+      ]
 end

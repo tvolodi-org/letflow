@@ -129,7 +129,7 @@ defmodule Letflow.TenantOnboarding do
        does not swallow a real migration failure into a false success.
     3. `Letflow.Identity.RoleRegistry.seed_default_platform_role_groups/1`
        (ISS-0778) — seeds the group/role bindings for the platform roles that
-       tenant is entitled to (REQ-447: all seven roles of
+       tenant is entitled to (REQ-447: all eight roles of
        `Letflow.Api.Authorization.roles/0` in the platform tenant, every role
        except `PLATFORM_ADMIN` in any other tenant, so every tenant gets a
        `TENANT_ADMIN` binding), scoped to this tenant's own

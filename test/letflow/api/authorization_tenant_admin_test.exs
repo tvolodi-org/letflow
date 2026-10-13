@@ -18,11 +18,12 @@ defmodule Letflow.Api.AuthorizationTenantAdminTest do
     do: %AccessContext{user_id: "u-req447", roles: roles, platform_tenant?: platform_tenant?}
 
   describe "roles/0" do
-    test "returns seven atoms ending in TENANT_ADMIN, the six pre-existing roles first and unchanged" do
+    test "returns eight atoms ending in TENANT_ADMIN then TENANT_AUDITOR, the six pre-existing roles first and unchanged" do
       roles = Authorization.roles()
 
-      assert length(roles) == 7
-      assert List.last(roles) == :TENANT_ADMIN
+      assert length(roles) == 8
+      assert Enum.at(roles, 6) == :TENANT_ADMIN
+      assert List.last(roles) == :TENANT_AUDITOR
 
       assert Enum.take(roles, 6) == [
                :PLATFORM_ADMIN,
@@ -38,7 +39,7 @@ defmodule Letflow.Api.AuthorizationTenantAdminTest do
   describe "AC1: the grant rule" do
     test "role_allows?(:TENANT_ADMIN, p) is true exactly when permission_scope(p) is :tenant, for every p in permissions/0" do
       permissions = Authorization.permissions()
-      assert length(permissions) > 40
+      assert length(permissions) > length(Authorization.core_permissions())
 
       for permission <- permissions do
         expected = Authorization.permission_scope(permission) == :tenant

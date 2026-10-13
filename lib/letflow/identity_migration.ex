@@ -242,7 +242,7 @@ defmodule Letflow.IdentityMigration do
   # ISS-0774's own migration backfill classifies pre-existing rows (see
   # priv/repo/migrations/20260921000002_add_kind_to_tenant_role.exs):
   # :platform_role iff `name` is one of Letflow.Api.Authorization.roles/0's
-  # six recognized literals, :process_routing_role otherwise. Applied here
+  # the recognized literals (`Authorization.roles/0`; six at ISS-0774 time), :process_routing_role otherwise. Applied here
   # (Elixir-side, post-query) rather than at the SQL layer because the legacy
   # source table has no `kind` column to select in the first place -- see
   # copy_tenant_roles/2's own comment above.

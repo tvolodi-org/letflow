@@ -35,7 +35,7 @@ defmodule Letflow.Routers.Me do
   role gate." `lib/letflow/api/authorization.ex` implements the same
   deliberate, flagged deviation `:HelpRead` (REQ-366) already established:
   granted to `PLATFORM_ADMIN`, `PROCESS_DESIGNER`, `PROCESS_OPERATOR`,
-  `TASK_WORKER`, `AGENT_RUNNER`, but **not** `CANDIDATE` — widening
+  `TASK_WORKER`, `AGENT_RUNNER`, `TENANT_ADMIN`, `TENANT_AUDITOR`, but **not** `CANDIDATE` — widening
   `CANDIDATE`'s ISS-0646 closed permission set is a call for
   SECURITY-REVIEWER/REVIEWER, not something silently decided here. See that
   module's moduledoc "MembershipsRead" section.

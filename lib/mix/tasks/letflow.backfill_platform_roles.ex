@@ -3,8 +3,8 @@ defmodule Mix.Tasks.Letflow.BackfillPlatformRoles do
 
   @moduledoc """
   Backfills `Letflow.Identity.RoleRegistry.seed_default_platform_role_groups/1`
-  (the `Letflow.Api.Authorization.roles/0` platform-role bindings: seven roles in the platform
-  tenant, six elsewhere) for
+  (the `Letflow.Api.Authorization.roles/0` platform-role bindings: eight roles in the platform
+  tenant, seven elsewhere) for
   every tenant registered in `Letflow.TenantProvisioning.list_registrations/0`.
 
   ISS-0778 (2026-09-22) started seeding these bindings automatically at

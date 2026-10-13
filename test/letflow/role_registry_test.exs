@@ -657,10 +657,10 @@ defmodule Letflow.Identity.RoleRegistryTest do
     # idempotent under re-invocation (design §2.4 -- required for both the normal
     # onboarding-creation path and TenantOnboarding.recover_provisioning/1 to be safe
     # to call more than once against the same tenant).
-    test "seeds the six non-platform-tenant role literals (all but PLATFORM_ADMIN) in roles/0 order; a second call converges (no duplicates)",
+    test "seeds the non-platform-tenant role literals (all but PLATFORM_ADMIN) in roles/0 order; a second call converges (no duplicates)",
          ctx do
       # REQ-447: this fixture tenant is not the pinned platform tenant, so PLATFORM_ADMIN is
-      # not seeded; TENANT_ADMIN is. Six rows, seven roles minus the operator role.
+      # not seeded; TENANT_ADMIN and TENANT_AUDITOR are (REQ-448). Rows = roles/0 minus PLATFORM_ADMIN.
       expected_names =
         Letflow.Api.Authorization.roles()
         |> Enum.map(&Atom.to_string/1)
@@ -671,15 +671,15 @@ defmodule Letflow.Identity.RoleRegistryTest do
       assert {:ok, roles} =
                RoleRegistry.seed_default_platform_role_groups(prefix: ctx.schema_name)
 
-      assert length(roles) == 6
+      assert length(roles) == length(expected_names)
       assert Enum.map(roles, & &1.name) == expected_names
       assert Enum.all?(roles, &(&1.kind == :platform_role))
 
       # Exactly six Group rows and six TenantRole rows exist -- not merely that the
       # function's return value looked right, matching this project's established
       # "re-select from Postgres directly" persistence-test convention.
-      assert Repo.aggregate(Group, :count, prefix: ctx.schema_name) == 6
-      assert Repo.aggregate(TenantRole, :count, prefix: ctx.schema_name) == 6
+      assert Repo.aggregate(Group, :count, prefix: ctx.schema_name) == length(expected_names)
+      assert Repo.aggregate(TenantRole, :count, prefix: ctx.schema_name) == length(expected_names)
 
       group_ids_first = roles |> Enum.map(& &1.group_id) |> Enum.sort()
 
@@ -697,11 +697,11 @@ defmodule Letflow.Identity.RoleRegistryTest do
       group_ids_second = roles2 |> Enum.map(& &1.group_id) |> Enum.sort()
       assert group_ids_second == group_ids_first
 
-      assert Repo.aggregate(Group, :count, prefix: ctx.schema_name) == 6
-      assert Repo.aggregate(TenantRole, :count, prefix: ctx.schema_name) == 6
+      assert Repo.aggregate(Group, :count, prefix: ctx.schema_name) == length(expected_names)
+      assert Repo.aggregate(TenantRole, :count, prefix: ctx.schema_name) == length(expected_names)
     end
 
-    test "against a tenant schema that already has unrelated process-routing-role bindings, only the six platform-role names are affected",
+    test "against a tenant schema that already has unrelated process-routing-role bindings, only the platform-role names are affected",
          ctx do
       # A process-routing-role binding pre-exists (a HUMAN_TASK routing group, exactly
       # the ISS-0774 domain distinction this codebase already draws) -- proves seeding
@@ -719,12 +719,13 @@ defmodule Letflow.Identity.RoleRegistryTest do
       assert {:ok, roles} =
                RoleRegistry.seed_default_platform_role_groups(prefix: ctx.schema_name)
 
-      assert length(roles) == 6
+      seeded_count = length(RoleRegistry.seedable_role_names(ctx.schema_name))
+      assert length(roles) == seeded_count
       refute "role-ops-manager" in Enum.map(roles, & &1.name)
 
-      # Total tenant_role count is 6 (seeded) + 1 (pre-existing routing row) -- the
+      # Total tenant_role count is the seeded count + 1 (pre-existing routing row) -- the
       # routing row survived untouched, not overwritten or deleted.
-      assert Repo.aggregate(TenantRole, :count, prefix: ctx.schema_name) == 7
+      assert Repo.aggregate(TenantRole, :count, prefix: ctx.schema_name) == seeded_count + 1
 
       assert %TenantRole{kind: :process_routing_role, group_id: unchanged_group_id} =
                Repo.get_by(TenantRole, [name: "role-ops-manager"], prefix: ctx.schema_name)
