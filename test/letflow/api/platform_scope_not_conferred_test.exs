@@ -43,7 +43,7 @@ defmodule Letflow.Api.PlatformScopeNotConferredTest do
 
   @unused_uuid "00000000-0000-4000-8000-000000000004"
 
-  # The 22 platform routes (design 7.1 plus ISS-1030's bind-realm): {router, method, concrete local path, body}.
+  # The 24 platform routes (design 7.1 plus ISS-1030's bind-realm and, in PR 2, the pending-admins list and revoke): {router, method, concrete local path, body}.
   @routes [
     {Letflow.Routers.Tenants, :post, "/", %{}},
     {Letflow.Routers.Tenants, :get, "/", nil},
@@ -56,6 +56,9 @@ defmodule Letflow.Api.PlatformScopeNotConferredTest do
     {Letflow.Routers.Onboarding, :post, "/" <> @unused_uuid <> "/bind-realm",
      %{"idp_realm_id" => "iss1030-not-conferred"}},
     {Letflow.Routers.Onboarding, :get, "/", nil},
+    {Letflow.Routers.Onboarding, :get, "/" <> @unused_uuid <> "/pending-admins", nil},
+    {Letflow.Routers.Onboarding, :delete,
+     "/" <> @unused_uuid <> "/pending-admins/" <> @unused_uuid, nil},
     {Letflow.Routers.PlatformMigrations, :post, "/rollouts", %{}},
     {Letflow.Routers.PlatformMigrations, :get, "/rollouts/" <> @unused_uuid, nil},
     {Letflow.Routers.PlatformMigrations, :post, "/rollouts/" <> @unused_uuid <> "/resume", nil},
@@ -83,7 +86,7 @@ defmodule Letflow.Api.PlatformScopeNotConferredTest do
   end
 
   defp assert_all_forbidden(fixture, roles) do
-    assert length(@routes) == 22
+    assert length(@routes) == 24
 
     for {label, status} <- platform_route_statuses(fixture, roles) do
       assert status == 403, "#{label}: expected 403, got #{status}"
