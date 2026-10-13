@@ -129,7 +129,6 @@ function validateForm(form: FormState): FormErrors {
 
 interface ApiErrorView {
   banner: string
-  progressLink?: string
   realmError?: string
   adminEmailError?: string
 }
@@ -142,13 +141,6 @@ function resolveApiErrorMessage(
   const problemType = body['type'] as string | undefined
 
   if (httpStatus === 409) {
-    if (errorCode === 'onboarding_in_progress') {
-      const oid = body['onboarding_id'] as string | undefined
-      return {
-        banner: 'An onboarding for this tenant is already in progress.',
-        progressLink: oid ? `/admin/onboarding/${oid}/progress` : undefined,
-      }
-    }
     if (problemType?.includes('idempotency-conflict')) {
       return { banner: 'A conflicting submission was detected. Please start over.' }
     }
@@ -369,14 +361,6 @@ export default function RegisterTenantPage() {
           }}
         >
           {apiError.banner}
-          {apiError.progressLink && (
-            <>
-              {' '}
-              <a href={apiError.progressLink} style={{ color: 'var(--interactive-primary)' }}>
-                View progress
-              </a>
-            </>
-          )}
         </div>
       )}
 
