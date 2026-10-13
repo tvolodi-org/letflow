@@ -252,7 +252,15 @@ jobs:
           echo "Changed files ($BASE_SHA..$HEAD_SHA):"
           echo "$CHANGED"
 
-          if echo "$CHANGED" | grep -qE '^(lib/|priv/repo/migrations/|test/|mix\.exs|mix\.lock|\.tool-versions|config/|scripts/.*\.sh$|\.github/workflows/ci\.yml)'; then
+          # Q-1059 / GH #2411: the backend gate reads more than lib/ and test/. Every repo path it reads
+          # must match BACKEND_PATHS_RE, or a change confined to that path merges without the gate
+          # (letflow.check.* reads docs/requirements.yaml, docs/issues, docs/status, handoffs/ via
+          # lint_handoffs, .formatter.exs via mix format; tests read priv/**, deploy/, docs/roles.md,
+          # docs/runbooks/ and a few web/ files). The guard test test/letflow/ci_backend_path_filter_test.exs
+          # parses this line and fails when a path the gate reads is missing. Keep it ONE single-quoted
+          # line, assigned exactly as below, so the test can extract it.
+          BACKEND_PATHS_RE='^(lib/|priv/|test/|config/|mix\.exs|mix\.lock|\.tool-versions|\.formatter\.exs$|\.gitattributes$|\.env\.example$|scripts/.*\.sh$|deploy/|\.github/workflows/|\.claude/agents/uat-runner\.md$|web/\.env|web/vite\.config\.ts$|web/tests/e2e/env04\.e2e\.spec\.ts$|web/tests/e2e/pipelines/onboarding-wizard\.pipeline\.e2e\.spec\.ts$|docs/requirements\.yaml$|docs/issues/[^/]+\.yaml$|docs/status/requirement_status[^/]*\.yaml$|docs/roles\.md$|docs/frontend/x-ui-widget-vocabulary\.md$|docs/migration/stage-7-simulation-uat-parity\.md$|docs/runbooks/|docs/agents/shared/HANDOFF_PROTOCOL\.md$|handoffs/registry\.json$|handoffs/(.*/)?step[^/]*\.[^/]*$)'
+          if echo "$CHANGED" | grep -qE "$BACKEND_PATHS_RE"; then
             echo "backend=true" >> "$GITHUB_OUTPUT"
           else
             echo "backend=false" >> "$GITHUB_OUTPUT"
