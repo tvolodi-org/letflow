@@ -21,12 +21,13 @@ vi.mock('@/auth/AuthContext', () => ({
   })),
 }))
 
-const postWithHeaders = vi.fn()
+const createOnboarding = vi.fn()
 const post = vi.fn()
 vi.mock('@/api/client', () => ({
   client: {
-    postWithHeaders: (...args: unknown[]) => postWithHeaders(...args),
-    post: (...args: unknown[]) => post(...args),
+    // create goes through client.post; the bind-realm call is the other client.post caller
+    post: (path: string, ...rest: unknown[]) =>
+      path === '/api/v1/onboarding' ? createOnboarding(path, ...rest) : post(path, ...rest),
     get: vi.fn(),
   },
 }))
@@ -73,19 +74,19 @@ async function submit(user: ReturnType<typeof userEvent.setup>) {
 }
 
 beforeEach(() => {
-  postWithHeaders.mockReset()
+  createOnboarding.mockReset()
   post.mockReset()
 })
 afterEach(cleanup)
 
 describe('RegisterTenantPage ISS-1030', () => {
   it('admin fields are optional and the form submits without them', async () => {
-    postWithHeaders.mockResolvedValue(RECORD)
+    createOnboarding.mockResolvedValue(RECORD)
     const user = userEvent.setup()
     renderRegister()
     await fillRequired(user)
     await submit(user)
-    await waitFor(() => expect(postWithHeaders).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(createOnboarding).toHaveBeenCalledTimes(1))
     expect(screen.queryByText(/is required/)).toBeNull()
     expect(await screen.findByText(/not yet loginable/i, { selector: '[role="status"]' })).toBeInTheDocument()
   })
@@ -97,11 +98,11 @@ describe('RegisterTenantPage ISS-1030', () => {
     await user.type(screen.getByLabelText(/Admin Email/), 'not-an-email')
     await submit(user)
     expect(screen.getByText('Enter a valid email address')).toBeInTheDocument()
-    expect(postWithHeaders).not.toHaveBeenCalled()
+    expect(createOnboarding).not.toHaveBeenCalled()
   })
 
   it('the optional realm field is sent when filled', async () => {
-    postWithHeaders.mockResolvedValue({
+    createOnboarding.mockResolvedValue({
       ...RECORD,
       login: { loginable: true, status: 'realm_bound', idp_realm_id: 'newco-realm', next_steps: [] },
     })
@@ -110,8 +111,8 @@ describe('RegisterTenantPage ISS-1030', () => {
     await fillRequired(user)
     await user.type(screen.getByLabelText(/Identity Realm ID/), '  newco-realm  ')
     await submit(user)
-    await waitFor(() => expect(postWithHeaders).toHaveBeenCalledTimes(1))
-    const body = postWithHeaders.mock.calls[0]![1] as Record<string, unknown>
+    await waitFor(() => expect(createOnboarding).toHaveBeenCalledTimes(1))
+    const body = createOnboarding.mock.calls[0]![1] as Record<string, unknown>
     expect(body['idp_realm_id']).toBe('newco-realm')
     expect(await screen.findByText('Tenant created and ready to log into.')).toBeInTheDocument()
   })
@@ -123,11 +124,11 @@ describe('RegisterTenantPage ISS-1030', () => {
     await user.type(screen.getByLabelText(/Identity Realm ID/), 'bad realm!')
     await submit(user)
     expect(screen.getByText(/starting with a letter or digit/)).toBeInTheDocument()
-    expect(postWithHeaders).not.toHaveBeenCalled()
+    expect(createOnboarding).not.toHaveBeenCalled()
   })
 
   it('blank admin and realm fields are omitted from the request body', async () => {
-    postWithHeaders.mockResolvedValue(RECORD)
+    createOnboarding.mockResolvedValue(RECORD)
     const user = userEvent.setup()
     renderRegister()
     await fillRequired(user)
@@ -135,8 +136,8 @@ describe('RegisterTenantPage ISS-1030', () => {
     // whitespace-only realm: the field is typed into, then must be omitted, not sent as ''
     await user.type(screen.getByLabelText(/Identity Realm ID/), '   ')
     await submit(user)
-    await waitFor(() => expect(postWithHeaders).toHaveBeenCalledTimes(1))
-    const body = postWithHeaders.mock.calls[0]![1] as Record<string, unknown>
+    await waitFor(() => expect(createOnboarding).toHaveBeenCalledTimes(1))
+    const body = createOnboarding.mock.calls[0]![1] as Record<string, unknown>
     for (const key of ['admin_email', 'admin_username', 'admin_display_name', 'idp_realm_id']) {
       expect(Object.prototype.hasOwnProperty.call(body, key)).toBe(false)
     }
@@ -158,14 +159,14 @@ describe('RegisterTenantPage ISS-1030 PR 2 form', () => {
   })
 
   it('sends admin_email trimmed and never the removed admin fields', async () => {
-    postWithHeaders.mockResolvedValue(RECORD)
+    createOnboarding.mockResolvedValue(RECORD)
     const user = userEvent.setup()
     renderRegister()
     await fillRequired(user)
     await user.type(screen.getByLabelText(/Admin Email/), '  boss@newco.example.com ')
     await submit(user)
-    await waitFor(() => expect(postWithHeaders).toHaveBeenCalledTimes(1))
-    const body = postWithHeaders.mock.calls[0]![1] as Record<string, unknown>
+    await waitFor(() => expect(createOnboarding).toHaveBeenCalledTimes(1))
+    const body = createOnboarding.mock.calls[0]![1] as Record<string, unknown>
     expect(Object.keys(body).sort()).toEqual(['admin_email', 'display_name', 'hostname', 'slug'])
     expect(body['admin_email']).toBe('boss@newco.example.com')
   })
