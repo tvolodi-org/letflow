@@ -1,0 +1,16 @@
+# Ref clash: the queue's issue_ref for Q-1073 is ISS-1073, which is already used on main (or reserved for another record). This record takes the next free local id, ISS-1088. The queue and GH ids are unchanged: Q-1073 / GH #2430.
+id: ISS-1088
+title: "Work board on GitHub replaces letflow-queue (GitHub issues as the single store, labels carry state)"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-12 / 2026-10-13 walk and CI review"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: MINOR
+owner: "WF-01 with REQ-VALIDATOR; then ORCH and REVIEWER"
+scope: process
+description: >
+  Item 8 of the team audit, decided by the user on 2026-10-13. Covers WORK_BOARD.md, gh_work.sh, re-specified gate checks, label scheme and a cutover order that does not hard-wire the transfer date. Corrections are posted on GH #2430.
+resolution: >
+  Open. Filed GitHub-first (GH #2430), then registered with the queue (Q-1073) using that number.
+queue_ref: Q-1073
+github_ref: GH-2430
+status: open

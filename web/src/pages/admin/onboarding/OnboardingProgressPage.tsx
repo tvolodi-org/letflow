@@ -2,12 +2,16 @@
  *
  * Polls GET /api/v1/onboarding/:onboardingId at a fixed interval.
  * Uses a manual setInterval in useEffect (NOT TanStack Query refetchInterval)
- * so that the interval can be cleared and navigation triggered on terminal state.
+ * so that the interval can be cleared and navigation triggered on success.
+ *
+ * The backend is synchronous (ISS-1030): a record that exists is final, there
+ * is no pending/failed state. Any successful response is therefore terminal.
+ * The register page no longer navigates here; this page only serves old
+ * links (see the follow-up to remove it).
  *
  * Polling rules:
  * - Skip tick if document.hidden (Page Visibility API)
- * - state=pending: reset transient error counter, stay on screen
- * - state=completed|failed: clearInterval, navigate to result screen
+ * - successful response (the record): clearInterval, navigate to result screen
  * - 3 consecutive transient errors: clearInterval, show error banner + Retry button
  * - cleanup: clearInterval unconditionally on unmount
  */
@@ -17,9 +21,9 @@ import { Navigate, useNavigate, useParams, useLocation } from 'react-router-dom'
 import { useAuth } from '@/auth/AuthContext'
 import { Button } from '@/components/ui/Button'
 import {
-  getOnboardingStatus,
+  getOnboarding,
   type OnboardingFormValues,
-  type OnboardingSagaResult,
+  type OnboardingRecord,
 } from '@/api/onboarding'
 
 const DEFAULT_POLL_MS = 10_000
@@ -62,23 +66,20 @@ export default function OnboardingProgressPage() {
       if (document.hidden) return
 
       try {
-        const result: OnboardingSagaResult = await getOnboardingStatus(onboardingId!)
+        const record: OnboardingRecord = await getOnboarding(onboardingId!)
         transientErrorCount.current = 0
 
-        if (result.state === 'completed' || result.state === 'failed') {
-          clearPoll()
-          const hn = hostnameRef.current
-          navigateRef.current(
-            `/admin/onboarding/${onboardingId}/result${hn ? `?hostname=${encodeURIComponent(hn)}` : ''}`,
-            {
-              state: {
-                sagaResult: result,
-                formValues: formValuesRef.current,
-              },
+        clearPoll()
+        const hn = hostnameRef.current
+        navigateRef.current(
+          `/admin/onboarding/${onboardingId}/result${hn ? `?hostname=${encodeURIComponent(hn)}` : ''}`,
+          {
+            state: {
+              record,
+              formValues: formValuesRef.current,
             },
-          )
-        }
-        // state === 'pending': stay, transient counter already reset
+          },
+        )
       } catch {
         transientErrorCount.current += 1
         if (transientErrorCount.current >= 3) {

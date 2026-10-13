@@ -1,0 +1,16 @@
+# Ref clash: the queue's issue_ref for Q-1074 is ISS-1074, which is already used on main (or reserved for another record). This record takes the next free local id, ISS-1089. The queue and GH ids are unchanged: Q-1074 / GH #2431.
+id: ISS-1089
+title: "Candidate login: OidcCallbackPage calls GET /api/v1/tenants/:slug, which needs TENANTS_MANAGE (a PLATFORM_ADMIN permission); every non-platform candidate login gets a 403 that is swallowed"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-12 / 2026-10-13 walk and CI review"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: MAJOR
+owner: "FRONTEND-DEV (web); ELIXIR-DEV if the route changes"
+scope: defect
+description: >
+  Found by letflow-4 in the static Bilimbaga walk. Fixed on main by PR #2445 (merge 8460399f): the lookup is guarded by PLATFORM_ADMIN and non-platform sessions use the slug. The QA header check is not yet observed; no browser tool.
+resolution: >
+  Open. Filed GitHub-first (GH #2431), then registered with the queue (Q-1074) using that number.
+queue_ref: Q-1074
+github_ref: GH-2431
+status: open

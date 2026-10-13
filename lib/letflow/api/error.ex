@@ -359,6 +359,23 @@ defmodule Letflow.Api.Error do
     }
   end
 
+  @doc """
+  HTTP 500 — Internal Server Error with a caller-supplied fixed detail.
+
+  Callers pass a literal string that names no exception and no value (INV-4). Used where
+  the answer must say something the generic detail cannot, such as a committed tenant
+  that may exist after a later step failed (SECURITY-REVIEWER R1, F1).
+  """
+  @spec internal(detail :: String.t()) :: t()
+  def internal(detail) when is_binary(detail) do
+    %__MODULE__{
+      type: @problems_base <> "internal-error",
+      title: "Internal Server Error",
+      status: 500,
+      detail: detail
+    }
+  end
+
   @doc "HTTP 503 — Service Unavailable."
   @spec service_unavailable(String.t()) :: t()
   def service_unavailable(detail) do

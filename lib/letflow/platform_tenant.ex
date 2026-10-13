@@ -93,6 +93,24 @@ defmodule Letflow.PlatformTenant do
     end
   end
 
+  @doc """
+  ISS-1030 (design section 7a, "One source for the platform prefix"): the tenant
+  schema name of the configured platform tenant, built on `configured_id/0` and
+  `Letflow.TenantProvisioning.schema_name_for_tenant/1`. Pure, no database
+  access (it never reads the registration table). `:error` when no platform
+  tenant is configured or the configured value is not a valid tenant id. Never
+  logs the id.
+  """
+  @spec platform_prefix() :: {:ok, String.t()} | :error
+  def platform_prefix do
+    with id when is_binary(id) <- configured_id(),
+         {:ok, schema_name} <- Letflow.TenantProvisioning.schema_name_for_tenant(id) do
+      {:ok, schema_name}
+    else
+      _unset_or_invalid -> :error
+    end
+  end
+
   # --- Derived facts --------------------------------------------------------
 
   @doc "True iff a platform tenant is configured and `tenant_id` equals it. False for `nil`."

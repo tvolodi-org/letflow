@@ -10,8 +10,9 @@ defmodule Letflow.Routers.Onboarding do
   * POST /                (mounted path: `POST /api/v1/onboarding`)          -> `handle_create/1`
   * GET  /:id              (mounted path: `GET /api/v1/onboarding/:id`)       -> `handle_get/2`
   * GET  /?hostname=       (mounted path: `GET /api/v1/onboarding`)           -> `handle_get_by_hostname/1`
+  * POST /:id/bind-realm   (mounted path: `POST /api/v1/onboarding/:id/bind-realm`) -> `handle_bind_realm/2` (ISS-1030)
 
-  All three require `:TenantsManage` — reused, not a new permission (same
+  All four require `:TenantsManage` — reused, not a new permission (same
   risk class and PLATFORM_ADMIN-only intent as `Letflow.Routers.Tenants`,
   REQ-075 §1.1: creating a tenant, and reading records that disclose which
   hostnames/slugs exist platform-wide, is exactly the kind of "wrong role,
@@ -112,21 +113,53 @@ defmodule Letflow.Routers.Onboarding do
   `tenants` already give this simpler flow a comparable "can't silently
   double-create" property without the saga/idempotency-record machinery.
 
+  ## Administrator and realm fields (ISS-1030)
+
+  Design: `lib/letflow/design/iss1030-onboarding-administrator.md`. The request
+  body is still validated against `@create_schema`, which drops every
+  undeclared key, so the handler reads `conn.body_params` for the administrator
+  fields (`admin_email`, `admin_username`, `admin_display_name`) and the NAMES
+  of every other key, solely to echo them in the 201 body:
+
+    * `administrator` -- `state` (`none` | `not_provisioned`), a fixed
+      `message`, the sent fields in `not_provisioned`, and `next_steps`.
+      Nothing is stored or acted on; a null or blank field counts as not sent.
+    * `ignored_fields` -- names (never values) of every other body key, capped
+      and sanitised.
+    * `login` -- whether the tenant is loginable (a realm is bound) and, when
+      not, the next steps.
+    * `client_config`, `realm_config` -- for each one sent, `disposition`
+      (`not_stored`) and `next`. Values are never echoed.
+
+  An optional `idp_realm_id` is trimmed, format-checked, refused when reserved,
+  and verified against the configured identity provider
+  (`Letflow.Oidc.RealmProbe`) before any row is written. A tenant onboarded
+  without a realm is "not yet loginable" until the operator binds one with
+  `POST /onboarding/:id/bind-realm` (bind-once: set only while NULL, never
+  changed). Runbook: `docs/runbooks/onboarding-new-tenant-realm.md`.
+
   ## Response allowlist
 
-  `onboarding_map/1` is a hand-built map with exactly the five keys named in
+  `onboarding_map/2` is a hand-built map with exactly the six keys named in
   its own @doc — never a `Jason.Encoder` derivation over
   `%Letflow.Identity.OnboardingRecord{}`.
   """
 
   use Letflow.Api.AuthorizedRouter
 
+  require Logger
+
   alias Letflow.Api.Response
   alias Letflow.Api.Validation
   alias Letflow.Api.Validation.FieldConstraint
+  alias Letflow.Api.Validation.FieldError
   alias Letflow.Identity
   alias Letflow.Identity.OnboardingRecord
+  alias Letflow.Identity.Tenant
+  alias Letflow.Oidc.RealmProbe
+  alias Letflow.PlatformTenant
   alias Letflow.TenantOnboarding
+  alias Letflow.TenantProvisioning
 
   authz_post "/", :TenantsManage do
     handle_create(conn)
@@ -134,6 +167,10 @@ defmodule Letflow.Routers.Onboarding do
 
   authz_get "/:id", :TenantsManage do
     handle_get(conn, conn.params["id"])
+  end
+
+  authz_post "/:id/bind-realm", :TenantsManage do
+    handle_bind_realm(conn, conn.params["id"])
   end
 
   authz_get "/", :TenantsManage do
@@ -168,30 +205,256 @@ defmodule Letflow.Routers.Onboarding do
       reject_empty_string: true,
       min_length: 1,
       max_length: 255
-    }
+    },
+    # ISS-1030: optional; trimmed and checked by validate_realm_field/1.
+    %FieldConstraint{name: "idp_realm_id", required: false, type: :string, max_length: 64}
   ]
 
+  @bind_realm_schema [
+    %FieldConstraint{name: "idp_realm_id", required: true, type: :string, max_length: 64}
+  ]
+
+  @known_create_fields ["slug", "display_name", "hostname", "idp_realm_id"]
+  @admin_fields ["admin_email", "admin_username", "admin_display_name"]
+  @ignored_fields_max 20
+  @ignored_field_name_max 64
+  @echo_value_max 255
+
+  @runbook "docs/runbooks/onboarding-new-tenant-realm.md"
+  @not_loginable_next_step "Create the realm and its first administrator (#{@runbook}), " <>
+                             "then bind it with POST /api/v1/onboarding/{id}/bind-realm."
+
+  @administrator_next_steps [
+    "Follow #{@runbook} to create the realm and its first administrator.",
+    "Bind the realm with POST /api/v1/onboarding/{id}/bind-realm (or give idp_realm_id when onboarding).",
+    "The first administrator must carry the realm role TENANT_ADMIN."
+  ]
+
+  @none_message "This tenant has no administrator. Nobody can administer it until one is set up: " <>
+                  "follow #{@runbook} (create the realm and its first administrator with the " <>
+                  "TENANT_ADMIN role, then bind the realm)."
+  @none_other_fields_message " The other administrator details you entered were NOT used."
+  @not_provisioned_message "The administrator details you entered were NOT used. The platform does " <>
+                             "not create realm users from the wizard yet; follow #{@runbook}."
+
   defp handle_create(conn) do
-    case Validation.validate(@create_schema, conn.body_params) do
+    body = conn.body_params
+
+    case Validation.validate(@create_schema, body) do
       {:errors, field_errors} ->
-        Response.send_problem(conn, Validation.problem(field_errors))
+        Response.send_problem(conn, Validation.problem(sanitize_field_errors(field_errors)))
 
-      {:ok, %{"slug" => slug, "hostname" => hostname} = attrs} ->
-        create_attrs =
-          attrs
-          |> Map.take(["slug", "display_name"])
-          |> Map.put("status", "migrating")
+      {:ok, %{"slug" => slug, "hostname" => raw_hostname} = attrs} ->
+        # The validator does not trim (it refuses only the empty string). Untrimmed, a padded hostname
+        # would miss the duplicate pre-check and be stored trimmed, and a whitespace-only one would commit
+        # the tenant and then fail the record after the commit (TEST-DESIGN-VALIDATOR B1). So it is
+        # trimmed once here, and a blank result is refused before any write.
+        hostname = String.trim(raw_hostname)
+        attrs = Map.put(attrs, "hostname", hostname)
 
-        case Identity.create_tenant(create_attrs) do
-          {:error, :duplicate_slug} ->
-            Response.conflict(conn, "slug already exists")
+        with {:ok, realm} <- validate_create_extras(body, attrs),
+             :ok <- hostname_present(hostname),
+             :ok <- codepoint_fit(attrs),
+             {:ok, extras} <- response_extras(body),
+             {:ok, bind_opts} <- realm_bind_opts(conn, realm),
+             :ok <- verify_realm(conn, realm) do
+          create_tenant(conn, attrs, extras, slug, hostname, realm, bind_opts)
+        else
+          {:errors, field_errors} ->
+            Response.send_problem(conn, Validation.problem(field_errors))
 
-          {:error, %Ecto.Changeset{}} ->
-            Response.unprocessable(conn, "validation failed")
+          {:halt, halted_conn} ->
+            halted_conn
 
-          {:ok, tenant} ->
-            provision_and_bind(conn, tenant, slug, hostname)
+          :platform_prefix_mismatch ->
+            Logger.error("operator realm bind refused: platform prefix check failed")
+            Response.internal_error(conn)
         end
+    end
+  end
+
+  # Field errors for the optional extras, all collected before any row is written.
+  defp validate_create_extras(body, attrs) do
+    realm_result = validate_realm_field(Map.get(attrs, "idp_realm_id"))
+
+    realm_errors =
+      case realm_result do
+        {:error, %FieldError{} = error} -> [error]
+        _ok -> []
+      end
+
+    case {realm_errors ++ admin_email_errors(body), realm_result} do
+      {[], {:ok, realm}} -> {:ok, realm}
+      {errors, _realm_result} -> {:errors, errors}
+    end
+  end
+
+  # A non-string admin_email is a 422 field error (it can never become a
+  # grant); the value is never echoed.
+  defp admin_email_errors(body) do
+    case admin_field_sent(body, "admin_email") do
+      {:sent, value} when not is_binary(value) ->
+        [
+          %FieldError{
+            field: "admin_email",
+            constraint: "type.string",
+            message: "must be a string"
+          }
+        ]
+
+      _absent_or_string ->
+        []
+    end
+  end
+
+  # Trim first and STORE the trimmed value. Never echoes the value.
+  @spec validate_realm_field(term()) :: {:ok, String.t() | nil} | {:error, FieldError.t()}
+  defp validate_realm_field(nil), do: {:ok, nil}
+
+  defp validate_realm_field(raw) when is_binary(raw) do
+    trimmed = String.trim(raw)
+
+    cond do
+      trimmed == "" ->
+        {:error, realm_field_error("not_blank", "must not be blank")}
+
+      not Tenant.realm_id_format?(trimmed) ->
+        {:error, realm_field_error("format", "has an invalid format")}
+
+      Tenant.reserved_realm_id?(trimmed) ->
+        {:error, realm_field_error("reserved", "is reserved")}
+
+      true ->
+        {:ok, trimmed}
+    end
+  end
+
+  # A non-string value was already refused by the schema's type check.
+  defp validate_realm_field(_other), do: {:ok, nil}
+
+  defp realm_field_error(constraint, message),
+    do: %FieldError{field: "idp_realm_id", constraint: constraint, message: message}
+
+  # The schema's own type/length errors would echo the received value; the
+  # realm id is never echoed.
+  defp sanitize_field_errors(field_errors) do
+    Enum.map(field_errors, fn
+      %FieldError{field: "idp_realm_id"} = error -> %{error | received: nil}
+      error -> error
+    end)
+  end
+
+  # Existence check against the configured identity provider. A nil realm is
+  # allowed (the tenant is created "not yet loginable").
+  defp verify_realm(_conn, nil), do: :ok
+
+  defp verify_realm(conn, realm) do
+    case RealmProbe.verify(realm) do
+      :ok ->
+        :ok
+
+      {:error, :not_found} ->
+        {:errors, [realm_field_error("not_found", "realm not found")]}
+
+      {:error, :unreachable} ->
+        {:halt,
+         conn
+         |> put_resp_header("retry-after", "5")
+         |> Response.service_unavailable("identity provider could not be reached")}
+    end
+  end
+
+  # A realm bound elsewhere is refused before any row is written. The realm is NOT written
+  # with the tenant: it is bound only after provisioning and the onboarding record succeed
+  # (provision_and_bind/7), so a later failure such as a taken hostname cannot leave an
+  # active tenant that already owns the realm (ISS-1030 SECURITY-REVIEWER F1).
+  # The hostname is pre-checked as well (SECURITY-REVIEWER MAJOR-2): a taken hostname is answered 409
+  # before any row is written, so the answer never leaves an active tenant behind. A hostname taken
+  # between this read and the insert (a race) still leaves the tenant committed, as the runbook records.
+  defp create_tenant(conn, attrs, extras, slug, hostname, realm, bind_opts) do
+    cond do
+      realm_taken?(realm) -> Response.conflict(conn, "realm already bound")
+      hostname_taken?(hostname) -> Response.conflict(conn, "hostname already bound")
+      true -> insert_migrating_tenant(conn, attrs, extras, slug, hostname, realm, bind_opts)
+    end
+  end
+
+  defp realm_taken?(nil), do: false
+
+  defp realm_taken?(realm),
+    do: match?({:ok, _tenant}, Identity.resolve_tenant_by_realm(realm))
+
+  defp hostname_taken?(hostname),
+    do: match?({:ok, _record}, Identity.get_onboarding_by_hostname(hostname))
+
+  # Postgres varchar(n) counts code points; the validator counts graphemes (String.length). A value
+  # with combining marks can pass the validator and then fail the insert with a 500 after the tenant
+  # is committed (SECURITY-REVIEWER BLOCKER F1). Checked here, before any write.
+  @codepoint_max %{"slug" => 63, "display_name" => 255, "hostname" => 255}
+
+  defp codepoint_fit(attrs) do
+    too_long =
+      Enum.find(@codepoint_max, fn {field, max} ->
+        length(String.codepoints(Map.fetch!(attrs, field))) > max
+      end)
+
+    case too_long do
+      nil ->
+        :ok
+
+      {field, max} ->
+        {:errors,
+         [
+           %FieldError{
+             field: field,
+             constraint: "max_length",
+             message: "length must be at most #{max} characters"
+           }
+         ]}
+    end
+  end
+
+  # A hostname that is only whitespace is refused before any write (see handle_create/1).
+  defp hostname_present(""),
+    do:
+      {:errors,
+       [%FieldError{field: "hostname", constraint: "required", message: "field is required"}]}
+
+  defp hostname_present(_hostname), do: :ok
+
+  defp insert_migrating_tenant(conn, attrs, extras, slug, hostname, realm, bind_opts) do
+    create_attrs =
+      attrs
+      |> Map.take(["slug", "display_name"])
+      |> Map.put("status", "migrating")
+
+    case Identity.create_tenant(create_attrs) do
+      {:error, :duplicate_slug} ->
+        Response.conflict(conn, "slug already exists")
+
+      {:error, %Ecto.Changeset{}} ->
+        Response.unprocessable(conn, "validation failed")
+
+      {:ok, tenant} ->
+        provision_and_bind(conn, tenant, slug, hostname, extras, realm, bind_opts)
+    end
+  end
+
+  # The same platform-prefix gate as the bind route (design 7a), checked before any write.
+  defp realm_bind_opts(_conn, nil), do: {:ok, nil}
+
+  defp realm_bind_opts(conn, _realm) do
+    case verified_platform_prefix(conn) do
+      {:ok, platform_prefix} ->
+        {:ok,
+         [
+           actor_id: conn.assigns.auth_context.user_id,
+           platform_prefix: platform_prefix,
+           trace_id: conn.assigns[:trace_id]
+         ]}
+
+      :platform_prefix_mismatch ->
+        :platform_prefix_mismatch
     end
   end
 
@@ -206,17 +469,335 @@ defmodule Letflow.Routers.Onboarding do
   # provisioning/replay failure -- see Letflow.TenantProvisioning's moduledoc
   # "No reconciliation path for a half-provisioned tenant" section. Adding a
   # rollback here would orphan a real Postgres schema; not attempted.
-  defp provision_and_bind(conn, tenant, slug, hostname) do
+  # The detail of every answer after the tenant commit that is not a success. A fixed literal (INV-4):
+  # it names no exception and no value. It says the tenant may exist, because provisioning can fail
+  # after the tenant row is committed (SECURITY-REVIEWER R1, F1).
+  @after_commit_failure_detail "an unexpected error occurred after the tenant for this slug was created; the tenant may exist; do not retry with a new slug; escalate to the platform owner"
+
+  defp provision_and_bind(conn, tenant, slug, hostname, extras, realm, bind_opts) do
+    case provision_and_record(tenant, slug, hostname) do
+      {:ok, record} ->
+        # The tenant and its onboarding record are committed from here on. A realm that cannot be
+        # bound is reported in the 201 body, never as an error that implies nothing was created
+        # (SECURITY-REVIEWER MAJOR-2). Nothing fallible runs after a bind commits.
+        created_with_realm(conn, tenant, record, extras, realm, bind_opts)
+
+      # Every answer below is reached only after the tenant is committed. Each detail says so, and
+      # none implies that nothing was created (SECURITY-REVIEWER R1, F1).
+      {:error, :duplicate_hostname} ->
+        Response.conflict(
+          conn,
+          "hostname taken during the request; the tenant for this slug was created; do not retry with a new slug; escalate to the platform owner"
+        )
+
+      {:error, %Ecto.Changeset{}} ->
+        Response.unprocessable(
+          conn,
+          "onboarding record rejected after the tenant was created; do not retry with a new slug; escalate to the platform owner"
+        )
+
+      _after_commit_failure ->
+        # A provisioning or replay failure (the tenant stays `migrating`), a database fault on the record
+        # insert, or a raise (see provision_and_record/3): each leaves a committed tenant behind.
+        Response.internal_error(conn, @after_commit_failure_detail)
+    end
+  end
+
+  # The two writes after the tenant commit. A raise in either (a database fault inside provisioning, a
+  # pool timeout) becomes a tagged error, so the answer is the fixed post-commit 500 and not the
+  # framework's crash response (SECURITY-REVIEWER MAJOR, INV-8). Only the exception class is logged.
+  defp provision_and_record(tenant, slug, hostname) do
     with {:ok, _registration} <- TenantOnboarding.provision_and_migrate(tenant.id),
          {:ok, record} <-
            Identity.create_onboarding(%{tenant_id: tenant.id, slug: slug, hostname: hostname}) do
-      Response.created(conn, onboarding_map(record))
+      {:ok, record}
+    end
+  rescue
+    error ->
+      Logger.error(
+        "onboarding failed after the tenant was committed (tenant_id=#{inspect(tenant.id)}, " <>
+          "exception=#{inspect(error.__struct__)})"
+      )
+
+      {:error, :raised}
+  catch
+    # An exit, not an exception: a DBConnection checkout that fails through the pool's holder exits
+    # rather than raises (SECURITY-REVIEWER round 2, MAJOR, INV-8). Only the exit tag is logged.
+    :exit, reason ->
+      Logger.error(
+        "onboarding failed after the tenant was committed (tenant_id=#{inspect(tenant.id)}, " <>
+          "exit=#{inspect(exit_tag(reason))})"
+      )
+
+      {:error, :raised}
+  end
+
+  # The exit tag only. The full reason can carry the pool and its options (DBConnection holder), which must
+  # not be logged (INV-4).
+  defp exit_tag({tag, _detail}) when is_atom(tag), do: tag
+  defp exit_tag(tag) when is_atom(tag), do: tag
+  defp exit_tag(_other), do: :other
+
+  defp created_with_realm(conn, _tenant, record, extras, nil, _bind_opts) do
+    Response.created(conn, created_body(record, %{idp_realm_id: nil}, extras))
+  end
+
+  defp created_with_realm(conn, tenant, record, extras, realm, bind_opts) do
+    case Identity.bind_tenant_realm(tenant.id, realm, bind_opts) do
+      {:ok, bound} ->
+        Response.created(conn, created_body(record, %{idp_realm_id: bound.idp_realm_id}, extras))
+
+      {:error, reason} ->
+        created_body = created_body(record, %{idp_realm_id: nil}, extras)
+
+        Response.created(
+          conn,
+          Map.put(created_body, "realm_request", %{
+            "status" => "not_bound",
+            "reason" => realm_not_bound_reason(reason)
+          })
+        )
+    end
+  end
+
+  defp realm_not_bound_reason(reason) when reason in [:duplicate_realm, :realm_already_bound],
+    do: "taken"
+
+  defp realm_not_bound_reason(_other), do: "unavailable"
+
+  # The echoed fields are built and encoded BEFORE the first write. Plug checks multipart part
+  # bodies as UTF-8 but not part NAMES (deps/plug/lib/plug/parsers/multipart.ex), so a key can carry
+  # bytes that Jason refuses. That is a 422 with nothing written, never an exception after the
+  # tenant and record have committed (SECURITY-REVIEWER BLOCKER-1 on the create route).
+  # Keys are checked for UTF-8 BEFORE the sanitiser or the encoder sees them (SECURITY-REVIEWER F3): a
+  # defect in either must surface as a crash, not be mistaken for an encoding refusal.
+  defp response_extras(body) do
+    if Enum.all?(Map.keys(body), &(is_binary(&1) and String.valid?(&1))) do
+      extras =
+        Map.merge(
+          %{
+            "administrator" => administrator_map(body),
+            "ignored_fields" => ignored_fields(body)
+          },
+          dispositions(body)
+        )
+
+      case Jason.encode(extras) do
+        {:ok, _json} -> {:ok, extras}
+        {:error, _reason} -> {:errors, [unencodable_field_error()]}
+      end
     else
-      {:error, :duplicate_hostname} -> Response.conflict(conn, "hostname already bound")
-      {:error, %Ecto.Changeset{}} -> Response.unprocessable(conn, "validation failed")
-      {:error, {:provisioning_failed, _reason}} -> Response.internal_error(conn)
-      {:error, {:migration_failed, _exception}} -> Response.internal_error(conn)
-      _provisioning_or_replay_error -> Response.internal_error(conn)
+      {:errors, [unencodable_field_error()]}
+    end
+  end
+
+  # Q-1088 / GH #2450: the wizard's client_config and realm_config are not stored and not applied by the
+  # platform (ADR 0044 Phase 1: realm per tenant, hand-provisioned; Letflow has no Keycloak Admin client). Each
+  # key that the request carries gets a disposition in the 201 body, so the operator is not left to infer it
+  # from a silent drop. Only the fixed disposition is returned, never the value: the client's redirect URIs and
+  # realm settings are not echoed (SECURITY-REVIEWER light gate, Q-1088).
+  # Decision (Q-1088 / GH #2450, option A): disposition only. Storing or applying these keys is not done here and needs
+  # its own requirement.
+  @not_stored_keys ["client_config", "realm_config"]
+  @not_stored_next "Not stored or applied by the platform. Set up this tenant's client and realm by hand, as " <>
+                     "the onboarding runbook describes (docs/runbooks/onboarding-new-tenant-realm.md, ADR 0044 Phase 1)."
+
+  defp dispositions(body) do
+    for key <- @not_stored_keys, Map.has_key?(body, key), into: %{} do
+      {key, %{"disposition" => "not_stored", "next" => @not_stored_next}}
+    end
+  end
+
+  defp unencodable_field_error do
+    %FieldError{
+      field: "(root)",
+      constraint: "encoding",
+      message: "field names must be valid UTF-8"
+    }
+  end
+
+  # Only fixed-shape values are computed here; `extras` was encoded before the write.
+  defp created_body(record, login_state, extras) do
+    record
+    |> onboarding_map(login_state)
+    |> Map.merge(extras)
+  end
+
+  # ── Administrator echo and ignored fields (design §3.4) ──────────────────
+
+  # ONE "sent" rule for all three admin fields: JSON null or a string that is
+  # empty after trim counts as NOT sent.
+  @spec admin_field_sent(map(), String.t()) :: {:sent, term()} | :not_sent
+  defp admin_field_sent(body, field) do
+    case Map.get(body, field) do
+      nil ->
+        :not_sent
+
+      value when is_binary(value) ->
+        if String.trim(value) == "", do: :not_sent, else: {:sent, value}
+
+      value ->
+        {:sent, value}
+    end
+  end
+
+  defp administrator_map(body) do
+    sent =
+      Enum.flat_map(@admin_fields, fn field ->
+        case admin_field_sent(body, field) do
+          {:sent, value} -> [{field, value}]
+          :not_sent -> []
+        end
+      end)
+
+    email_sent? = Enum.any?(sent, fn {field, _value} -> field == "admin_email" end)
+
+    {state, message} =
+      cond do
+        email_sent? -> {"not_provisioned", @not_provisioned_message}
+        sent == [] -> {"none", @none_message}
+        true -> {"none", @none_message <> @none_other_fields_message}
+      end
+
+    %{
+      "state" => state,
+      "message" => message,
+      "not_provisioned" => Enum.map(sent, &echo_field/1),
+      "next_steps" => @administrator_next_steps
+    }
+  end
+
+  # The value is echoed only when it is a string of at most 255 characters; the
+  # operator's own input goes back to the same operator and is never logged.
+  defp echo_field({field, value}) when is_binary(value) do
+    if String.length(value) <= @echo_value_max,
+      do: %{"field" => field, "value" => value},
+      else: %{"field" => field}
+  end
+
+  defp echo_field({field, _non_string}), do: %{"field" => field}
+
+  defp ignored_fields(body) do
+    names =
+      body
+      |> Map.keys()
+      |> Enum.reject(&(&1 in @known_create_fields or &1 in @admin_fields))
+      |> Enum.map(&sanitize_field_name/1)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    if length(names) > @ignored_fields_max,
+      do: Enum.take(names, @ignored_fields_max) ++ ["..."],
+      else: names
+  end
+
+  # Control characters (U+0000-U+001F, U+007F) stripped, then truncated.
+  defp sanitize_field_name(name) do
+    name
+    |> to_string()
+    |> String.replace(~r/[\x00-\x1F\x7F]/u, "")
+    |> String.slice(0, @ignored_field_name_max)
+  end
+
+  # ── POST /:id/bind-realm (design §3.2) ───────────────────────────────────
+  #
+  # Bind-once: sets idp_realm_id only while it is NULL and the tenant is
+  # :active. Plain 404 for an unknown onboarding id (same as GET /:id).
+
+  defp handle_bind_realm(conn, id) do
+    with {:ok, uuid} <- cast_uuid(id),
+         {:ok, record} <- Identity.get_onboarding(uuid) do
+      bind_realm(conn, record)
+    else
+      _unknown_or_malformed_id -> Response.not_found(conn)
+    end
+  end
+
+  defp cast_uuid(id) when is_binary(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, uuid} -> {:ok, uuid}
+      :error -> :error
+    end
+  end
+
+  defp cast_uuid(_other), do: :error
+
+  defp bind_realm(conn, %OnboardingRecord{} = record) do
+    case Validation.validate(@bind_realm_schema, conn.body_params) do
+      {:errors, field_errors} ->
+        Response.send_problem(conn, Validation.problem(sanitize_field_errors(field_errors)))
+
+      {:ok, attrs} ->
+        with {:ok, realm} <- bind_realm_value(attrs),
+             {:ok, platform_prefix} <- verified_platform_prefix(conn),
+             :ok <- verify_realm(conn, realm) do
+          perform_bind(conn, record, realm, platform_prefix)
+        else
+          {:errors, field_errors} ->
+            Response.send_problem(conn, Validation.problem(field_errors))
+
+          {:halt, halted_conn} ->
+            halted_conn
+
+          :platform_prefix_mismatch ->
+            Logger.error("operator realm bind refused: platform prefix check failed")
+            Response.internal_error(conn)
+        end
+    end
+  end
+
+  defp bind_realm_value(attrs) do
+    case validate_realm_field(Map.get(attrs, "idp_realm_id")) do
+      {:ok, realm} when is_binary(realm) -> {:ok, realm}
+      {:ok, nil} -> {:errors, [realm_field_error("required", "field is required")]}
+      {:error, %FieldError{} = error} -> {:errors, [error]}
+    end
+  end
+
+  # Design section 7a: the platform prefix comes from ONE accessor and must
+  # equal the schema of the caller's database-resolved tenant. A mismatch or an
+  # unconfigured platform tenant fails closed (fixed 500, nothing written).
+  defp verified_platform_prefix(conn) do
+    with {:ok, platform_prefix} <- PlatformTenant.platform_prefix(),
+         {:ok, caller_prefix} <-
+           TenantProvisioning.schema_name_for_tenant(conn.assigns.auth_context.tenant_id),
+         true <- platform_prefix == caller_prefix do
+      {:ok, platform_prefix}
+    else
+      _error_or_mismatch -> :platform_prefix_mismatch
+    end
+  end
+
+  defp perform_bind(conn, record, realm, platform_prefix) do
+    opts = [
+      actor_id: conn.assigns.auth_context.user_id,
+      platform_prefix: platform_prefix,
+      trace_id: conn.assigns[:trace_id]
+    ]
+
+    case Identity.bind_tenant_realm(record.tenant_id, realm, opts) do
+      # The response comes from the bind's own result: a read after the commit could fail
+      # with the realm already bound (SECURITY-REVIEWER BLOCKER-1).
+      {:ok, bound} ->
+        Response.ok(conn, onboarding_map(record, %{idp_realm_id: bound.idp_realm_id}))
+
+      {:error, :not_found} ->
+        Response.not_found(conn)
+
+      {:error, :realm_already_bound} ->
+        Response.conflict(conn, "realm already bound")
+
+      {:error, :duplicate_realm} ->
+        Response.conflict(conn, "realm already bound")
+
+      {:error, :tenant_not_active} ->
+        Response.conflict(conn, "tenant is not active")
+
+      {:error, %Ecto.Changeset{}} ->
+        Response.unprocessable(conn, "validation failed")
+
+      {:error, :audit_failed} ->
+        Response.internal_error(conn)
     end
   end
 
@@ -228,7 +809,7 @@ defmodule Letflow.Routers.Onboarding do
 
   defp handle_get(conn, id) do
     case Identity.get_onboarding(id) do
-      {:ok, record} -> Response.ok(conn, onboarding_map(record))
+      {:ok, record} -> respond_with_record(conn, record)
       {:error, :not_found} -> Response.not_found(conn)
     end
   end
@@ -240,8 +821,9 @@ defmodule Letflow.Routers.Onboarding do
 
     case Map.get(conn.query_params, "hostname") do
       hostname when is_binary(hostname) and hostname != "" ->
-        case Identity.get_onboarding_by_hostname(hostname) do
-          {:ok, record} -> Response.ok(conn, onboarding_map(record))
+        # Trimmed as the create path trims it: a padded value would otherwise miss the stored, trimmed one.
+        case Identity.get_onboarding_by_hostname(String.trim(hostname)) do
+          {:ok, record} -> respond_with_record(conn, record)
           {:error, :not_found} -> Response.not_found(conn)
         end
 
@@ -250,19 +832,48 @@ defmodule Letflow.Routers.Onboarding do
     end
   end
 
+  # 200 with the onboarding map (plus its `login` key) for a record whose
+  # tenant still exists.
+  defp respond_with_record(conn, %OnboardingRecord{} = record) do
+    case Identity.get_onboarding_login_state(record.tenant_id) do
+      {:ok, login_state} -> Response.ok(conn, onboarding_map(record, login_state))
+      {:error, :not_found} -> Response.not_found(conn)
+    end
+  end
+
   # ── Response allowlist ────────────────────────────────────────────────────
 
   @doc false
-  # Exactly 5 keys, hand-built -- never a Jason.Encoder derivation over the
-  # full %OnboardingRecord{} struct.
-  @spec onboarding_map(OnboardingRecord.t()) :: map()
-  defp onboarding_map(%OnboardingRecord{} = record) do
+  # Exactly 6 keys, hand-built -- never a Jason.Encoder derivation over the
+  # full %OnboardingRecord{} struct. `login` (ISS-1030) is the only key beyond
+  # the original five.
+  @spec onboarding_map(OnboardingRecord.t(), %{idp_realm_id: String.t() | nil}) :: map()
+  defp onboarding_map(%OnboardingRecord{} = record, %{idp_realm_id: realm}) do
     %{
       "id" => record.id,
       "tenant_id" => record.tenant_id,
       "slug" => record.slug,
       "hostname" => record.hostname,
-      "created_at" => iso8601(record.inserted_at)
+      "created_at" => iso8601(record.inserted_at),
+      "login" => login_map(realm)
+    }
+  end
+
+  defp login_map(realm) when is_binary(realm) do
+    %{
+      "loginable" => true,
+      "status" => "realm_bound",
+      "idp_realm_id" => realm,
+      "next_steps" => []
+    }
+  end
+
+  defp login_map(nil) do
+    %{
+      "loginable" => false,
+      "status" => "not_yet_loginable",
+      "idp_realm_id" => nil,
+      "next_steps" => [@not_loginable_next_step]
     }
   end
 

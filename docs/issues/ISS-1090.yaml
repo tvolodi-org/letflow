@@ -1,0 +1,16 @@
+# Ref clash: the queue's issue_ref for Q-1075 is ISS-1075, which is already used on main (or reserved for another record). This record takes the next free local id, ISS-1090. The queue and GH ids are unchanged: Q-1075 / GH #2432.
+id: ISS-1090
+title: "Exam session: time_spent_seconds is never measured; every saved answer stores 0"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-12 / 2026-10-13 walk and CI review"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: MAJOR
+owner: "ELIXIR-DEV (lib/letflow/modules/exam/session.ex)"
+scope: defect
+description: >
+  ExamSessionPage.tsx:200 sends the stored value or 0; session.ex:1038 overwrites on each save. Data defect found in the static walk.
+resolution: >
+  Open. Filed GitHub-first (GH #2432), then registered with the queue (Q-1075) using that number.
+queue_ref: Q-1075
+github_ref: GH-2432
+status: open

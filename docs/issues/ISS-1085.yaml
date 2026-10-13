@@ -1,0 +1,15 @@
+id: ISS-1085
+title: "Tenant contract drift: the web Tenant type expects fields the tenant API never sends (tenant_id, tenant_type, production_tenant_display_name and others)"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-12 / 2026-10-13 walk and CI review"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: MEDIUM
+owner: "ELIXIR-DEV (tenants router) and FRONTEND-DEV (web Tenant type)"
+scope: defect
+description: >
+  web/src/api/tenants.ts:3-15 against lib/letflow/routers/tenants.ex:530-540 (tenant_map). The test banner and promotion pairing text get null on every login.
+resolution: >
+  Open. Filed GitHub-first (GH #2444), then registered with the queue (Q-1085) using that number.
+queue_ref: Q-1085
+github_ref: GH-2444
+status: open

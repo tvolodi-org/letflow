@@ -1,0 +1,15 @@
+id: ISS-1079
+title: "Onboarding: the success path can reach /admin/onboarding/undefined/progress (RegisterTenantPage reads body['onboarding_id'], the backend returns 'id')"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-12 / 2026-10-13 walk and CI review"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: MAJOR
+owner: "FRONTEND-DEV"
+scope: defect
+description: >
+  RegisterTenantPage.tsx:146 reads the wrong key. Found in the static walk on the 3344de22 branch.
+resolution: >
+  Open. Filed GitHub-first (GH #2436), then registered with the queue (Q-1079) using that number.
+queue_ref: Q-1079
+github_ref: GH-2436
+status: open

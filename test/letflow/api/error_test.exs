@@ -122,6 +122,13 @@ defmodule Letflow.Api.ErrorTest do
       )
     end
 
+    # SECURITY-REVIEWER R1, F1: a 500 whose detail names a committed tenant. The detail is the
+    # caller's literal, sent unchanged; INV-4 holds because callers pass literals only.
+    test "internal/1 builds the 500 document with the fixed detail it is given" do
+      Error.internal("the tenant may exist")
+      |> assert_problem("internal-error", "Internal Server Error", 500, "the tenant may exist")
+    end
+
     # REQ-066 AC1 — spec §2 case 10.
     test "service_unavailable/1 builds the 503 document" do
       Error.service_unavailable("partition not yet attached")

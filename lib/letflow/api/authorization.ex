@@ -805,6 +805,8 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("POST", "/onboarding"), do: :TenantsManage
   def endpoint_policy_key("GET", "/onboarding/:id"), do: :TenantsManage
   def endpoint_policy_key("GET", "/onboarding"), do: :TenantsManage
+  # ISS-1030 -- bind-once realm route; same gate as the three above.
+  def endpoint_policy_key("POST", "/onboarding/:id/bind-realm"), do: :TenantsManage
 
   # REQ-374 -- platform-wide tenant-migration fanout runner
   # (Letflow.Routers.PlatformMigrations), a top-level sibling router mounted
