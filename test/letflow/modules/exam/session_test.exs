@@ -993,8 +993,8 @@ defmodule Letflow.Modules.Exam.SessionTest do
       assert [row] = rows
       assert row.field_values["selected_option_ids"] == [ctx.wrong_id]
       # Q-1075 / GH #2432: this test pins the stored value exactly, so the session's elapsed
-      # bound must not bind here. The clamp (min with elapsed seconds) is covered separately by
-      # the clamp tests; this one waits past 10 seconds so that the reported 10 is stored as-is.
+      # bound must not bind here: the wait above makes elapsed exceed 10 seconds, so the reported
+      # 10 is stored as-is. The bound itself is tested by the over-large clamp test further down.
       assert row.field_values["time_spent_seconds"] == 10
     end
   end
@@ -1601,17 +1601,21 @@ defmodule Letflow.Modules.Exam.SessionTest do
 
     test "an over-large report is clamped to the session's elapsed time, and the save still succeeds",
          ctx do
+      # Wait so that at least 2 whole seconds have elapsed since started_at. Without the wait the
+      # elapsed bound is 0 and a store-0 mutant would pass (TEST-DESIGN-VALIDATOR G1).
+      Process.sleep(2_100)
+
       assert {:ok, _} = q1075_save_time(ctx, 999_999)
 
-      # The stored value is clamped to the session's elapsed seconds at save time. That is at most
-      # the elapsed seconds measured now (the save happened earlier), so this is the upper bound.
+      # The stored value is clamped to the session's elapsed seconds at save time: at least the 2
+      # seconds waited above, and at most the elapsed seconds measured now (the save happened earlier).
       assert {:ok, state} =
                Session.get_session_state_for_user(ctx.session_id, ctx.candidate_id, ctx.schema)
 
       elapsed_now = DateTime.diff(DateTime.utc_now(), state.session.started_at, :second)
       stored = state.answers[ctx.question_id].time_spent_seconds
 
-      assert stored >= 0
+      assert stored >= 2
       assert stored <= elapsed_now
       assert stored < 999_999
     end

@@ -16,7 +16,7 @@ describe('Q-1075 / GH 2432 -- dwellTime', () => {
     expect(recordSaveTotal(clock, 'q1', 0, 12_000)).toBe(5) // 3s + 2s
   })
 
-  it('reports a non-zero total on the first save after a delay (the 0 default is gone)', () => {
+  it('rounds a 1.5 s first save down to whole seconds (1, not 0)', () => {
     const clock = createDwellClock(0)
     switchQuestion(clock, 'q1', 0)
     expect(recordSaveTotal(clock, 'q1', 0, 1_500)).toBe(1)
