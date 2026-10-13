@@ -130,6 +130,8 @@ function ExamSessionPageInner() {
   const [answers, setAnswers] = useState<Record<string, ExamAnswerState>>({})
   const [remainingSeconds, setRemainingSeconds] = useState<number>(0)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  // Q-1077 / GH 2434: a failed submit is shown, not swallowed; the button stays usable to retry.
+  const [submitError, setSubmitError] = useState(false)
   const [warning, setWarning] = useState<{ eventCount: number } | null>(null)
   const [questionIndex, setQuestionIndex] = useState(0)
 
@@ -313,9 +315,19 @@ function ExamSessionPageInner() {
 
   const handleSubmit = () => {
     if (!session) return
-    examApi.submitSession(session.session.id).then((outcome) => {
-      setPhase({ kind: 'result', outcome })
-    })
+    setSubmitError(false)
+    examApi
+      .submitSession(session.session.id)
+      .then((outcome) => {
+        setPhase({ kind: 'result', outcome })
+      })
+      .catch((err: unknown) => {
+        if (isDeadlinePassedError(err)) {
+          setPhase({ kind: 'expired' })
+          return
+        }
+        setSubmitError(true)
+      })
   }
 
   // ── Render ───────────────────────────────────────────────────────────
@@ -371,6 +383,22 @@ function ExamSessionPageInner() {
           </Button>
         }
       >
+        {submitError && (
+          <div
+            data-testid="exam-submit-error"
+            role="alert"
+            style={{
+              border: '1px solid var(--color-error-dark)',
+              color: 'var(--color-error-dark)',
+              borderRadius: 'var(--radius-sm)',
+              padding: 'var(--space-4)',
+              marginBottom: 'var(--space-4)',
+            }}
+          >
+            {intl.formatMessage({ id: 'exam.session.submitError' })}
+          </div>
+        )}
+
         {warning && (
           <div
             data-testid="exam-anticheat-warning"
