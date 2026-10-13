@@ -1,0 +1,16 @@
+# Ref clash: the queue's issue_ref for Q-1090 is ISS-1090, which is already used on main (or reserved for another record). This record takes the next free local id, ISS-1098. The queue and GH ids are unchanged: Q-1090 / GH #2454.
+id: ISS-1098
+title: "Onboarding wizard: decide what happens to the realm, administrator and client inputs: remove them, or create and apply them through ADR 0044 Phase 2"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-12 / 2026-10-13 walk and CI review"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: MINOR
+owner: "user decision, then FRONTEND-DEV"
+scope: defect
+description: >
+  Decision question raised by the Q-1088 finding.
+resolution: >
+  Decided 2026-10-13 (letflow-fc answer Q2, GH #2454): option C now, replace the inputs with a read-only line (ISS-1093) and keep the per-key not_stored disposition until the web stops sending the keys (ISS-1094); option D only with an ADR, not scheduled; /progress route kept.
+queue_ref: Q-1090
+github_ref: GH-2454
+status: open

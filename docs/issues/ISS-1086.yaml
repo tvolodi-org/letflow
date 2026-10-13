@@ -13,3 +13,14 @@ resolution: >
 queue_ref: Q-1086
 github_ref: GH-2447
 status: open
+decision: >
+  DECIDED 2026-10-13 (letflow-fc answer Q1): option (a). Runtime enforcement already exists
+  (Letflow.Engine.SeparationOfDuties.check/5 compares the user id with the most recent completer
+  of each distinct_from node, under row locks). The gap is that the vortex budget escalation node
+  does not name escalate-to-ceo, and the unchanged same-role guard forbids naming it while both
+  nodes are role-ceo. Reroute escalate-budget-approval-to-ceo to a NEW non-CEO role (REQ-ANALYST
+  names it, e.g. role-finance-director) with distinct_from [capacity-review, escalate-to-ceo,
+  budget-approval], a new definition version and its own fail-closed timeout (Q-1047 shape).
+  No second role-ceo. Priority 2 after go-live items; no vortex definition goes to a production
+  tenant before it. Sweep folded into ISS-1066 / GH #2420: same-role HUMAN_TASK pairs where
+  neither names the other (advisory, swiftroute first).

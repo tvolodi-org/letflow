@@ -1,0 +1,16 @@
+# Ref clash: the queue's issue_ref for Q-1089 is ISS-1089, which is already used on main (or reserved for another record). This record takes the next free local id, ISS-1097. The queue and GH ids are unchanged: Q-1089 / GH #2451.
+id: ISS-1097
+title: "literal-colour guard flags issue references in comments ('// Q-1074 / GH #2431' matches the hex-colour pattern)"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-12 / 2026-10-13 walk and CI review"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: LOW
+owner: "FRONTEND-DEV (guard GRD-UI-01)"
+scope: defect
+description: >
+  The guard matched #[0-9a-fA-F]{3,8} inside issue references and the failure only named the file.
+resolution: >
+  Done. Merged as #2461 (303007a4, Q-1089, GH #2451): the guard ignores issue references in comments and the message names the token.
+queue_ref: Q-1089
+github_ref: GH-2451
+status: done

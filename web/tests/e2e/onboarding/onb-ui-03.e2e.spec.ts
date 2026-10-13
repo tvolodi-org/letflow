@@ -45,7 +45,6 @@ async function submitValidForm(
   await page.locator('#admin_username').fill(`admin-${uid}`)
   await page.locator('#admin_display_name').fill(`Admin ${uid}`)
   await page.locator('#hostname').fill(hostname)
-  await page.locator('input[placeholder*="callback"]').first().fill('https://app.example.com/cb')
 
   await page.getByRole('button', { name: /register tenant/i }).click()
   await page.waitForURL(/\/admin\/onboarding\/.+\/progress/, { timeout: 30_000 })

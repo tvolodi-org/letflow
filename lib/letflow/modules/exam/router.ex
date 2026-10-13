@@ -290,8 +290,22 @@ defmodule Letflow.Modules.Exam.Router do
   defp render_start_session(conn, {:error, :attempts_exhausted}, _candidate_id, _prefix),
     do: Response.unprocessable(conn, "you have used all allowed attempts for this exam")
 
-  defp render_start_session(conn, {:error, :session_already_open}, _candidate_id, _prefix),
-    do: Response.conflict(conn, "you already have an active session for this exam")
+  # Q-1076 / GH #2433: the same 409 problem document as before, plus one additive
+  # `session_id` member (Letflow.Api.Error's `extensions` merge in serialise/1). type, title,
+  # status and detail are unchanged. The id is the candidate's own open session for this exam.
+  defp render_start_session(
+         conn,
+         {:error, {:session_already_open, session_id}},
+         _candidate_id,
+         _prefix
+       ) do
+    problem = %{
+      Letflow.Api.Error.conflict("you already have an active session for this exam")
+      | extensions: %{"session_id" => session_id}
+    }
+
+    Response.send_problem(conn, problem)
+  end
 
   defp render_start_session(conn, {:error, reason}, _candidate_id, _prefix) do
     Logger.warning("exam session create failed: #{inspect(reason)}")

@@ -136,7 +136,7 @@ defmodule Letflow.Modules.Exam.Session do
           | :exam_not_active
           | :outside_availability_window
           | :attempts_exhausted
-          | :session_already_open
+          | {:session_already_open, session_id :: String.t()}
 
   @type autosave_error ::
           :session_not_found
@@ -697,11 +697,14 @@ defmodule Letflow.Modules.Exam.Session do
     if finished >= max_attempts, do: {:error, :attempts_exhausted}, else: :ok
   end
 
+  # Q-1076 / GH #2433: the error carries the id of the candidate's own open session, so a
+  # reloaded page can resume it. `sessions` is create_txn's query for this exam and this
+  # candidate under the tenant prefix, so the id can never be another candidate's or another
+  # tenant's session.
   defp check_no_open_session(sessions) do
-    if Enum.any?(sessions, &(fv(&1, "status") == "in_progress")) do
-      {:error, :session_already_open}
-    else
-      :ok
+    case Enum.find(sessions, &(fv(&1, "status") == "in_progress")) do
+      nil -> :ok
+      open -> {:error, {:session_already_open, normalize_record_id(open.record_id)}}
     end
   end
 

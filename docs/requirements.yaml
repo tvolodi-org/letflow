@@ -35202,7 +35202,7 @@ requirements:
   - id: REQ-466
     title: "Adopt distinct_from in the vortex production order release and swiftroute shipment approval definitions (approvals that release or commit)"
     owner: ELIXIR-DEV
-    status: pending
+    status: in_progress  # partial adoption merged in PR #2446 (bf304105); residual tracked as ISS-1086 / GH #2447
     stage: S3
     impl_order: 1029  # letflow-queue task id, GH#2344. Registered 2026-10-07 by ORCH (WF-01 Step 3; registered in this PR because mix letflow.check_deferral_staleness requires 0 deferrals). Ordering recorded at drafting: blocked-by: REQ-465 -- part 2 of the adoption split, chained after part 1 so each turn edits one pair of definitions; REQ-465 itself waits for REQ-462 and the engine rule
     description: >
@@ -35235,6 +35235,7 @@ requirements:
       - "vortex supplier quality deviation: severity-classification and its D-ESC task do not approve or pay; the issue lists 'vortex/swiftroute approvals'. Default: not changed; ORCH decides whether a compliance reading calls for it."
       - "Roster size: see REQ-465 open_questions; same default."
       - "Whether D-ESC escalation tasks inherit distinct_from. DECIDED by REQ-459 design section 9: no inheritance; they carry their own."
+      - "CORRECTION 2026-10-13 (ISS-1086 / GH #2447, letflow-fc answer Q1, option (a)): the roster-fact entry below and the Q-1044 premise that distinct_from is membership-aware are wrong about the guard. The same-role guard compares ROLES, not holders, so escalate-budget-approval-to-ceo (role-ceo) cannot name escalate-to-ceo (role-ceo) and a single role-ceo holder can make both CEO decisions. Runtime enforcement (Letflow.Engine.SeparationOfDuties.check/5, user id vs the most recent completer of each distinct_from node, under row locks) already exists. DECIDED: reroute escalate-budget-approval-to-ceo to a NEW non-CEO role (REQ-ANALYST names it, e.g. role-finance-director) with distinct_from [capacity-review, escalate-to-ceo, budget-approval], new definition version, own fail-closed timeout (Q-1047 shape); guard zero diff; simulation copy process_quality_check.yaml at the same version; one UAT scenario; one roster actor for the new role (UAT-class); no second role-ceo. Priority 2 after go-live items; no vortex definition to a production tenant before it."
       - "Roster fact: every vortex role has exactly one holder (role-ceo = actor-vortex-dirk). With distinct_from on escalate-budget-approval-to-ceo naming escalate-to-ceo, the escalated budget path cannot complete when the same CEO already decided the capacity escalation: it stalls and ends fail-closed (auto-reject-order / terminal) by the E3 timer. This is the intended safe outcome. A second CEO-class holder is needed for that path to complete in any future UAT run; vortex is not UAT-run now."
     acceptance_criteria:
       - "the run report lists every node that received distinct_from with listed ids and a one-line business reason; the REQ-464 validator reports status OK for both changed definitions"

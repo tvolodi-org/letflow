@@ -6,7 +6,7 @@
  *   2. Invalid slug format (contains uppercase / special chars) shows slug error.
  *   3. Invalid email (no @) shows email validation error.
  *   4. Hostname with protocol prefix shows hostname validation error.
- *   5. Empty redirect_uris shows URI validation error.
+ *   5. (removed, GH 2463: the wizard no longer collects redirect URIs)
  *   6. Valid form submission navigates to progress screen.
  *
  * No mocks. No MSW. Real Keycloak tokens. Real backend for test 6.
@@ -54,7 +54,6 @@ test.describe('ONB-UI-02 — Tenant registration form', () => {
     await expect(page.getByText('Admin username is required')).toBeVisible()
     await expect(page.getByText('Admin display name is required')).toBeVisible()
     await expect(page.getByText('Hostname is required')).toBeVisible()
-    await expect(page.getByText('At least one redirect URI is required')).toBeVisible()
 
     // Verify we stayed on the form (no navigation)
     expect(page.url()).toContain('/admin/onboarding/new')
@@ -93,7 +92,6 @@ test.describe('ONB-UI-02 — Tenant registration form', () => {
     await page.locator('#admin_username').fill(`admin-${uid}`)
     await page.locator('#admin_display_name').fill(`Admin ${uid}`)
     await page.locator('#hostname').fill(`tenant-${uid}.example.com`)
-    await page.locator('input[placeholder*="callback"]').first().fill('https://app.example.com/cb')
 
     await page.getByRole('button', { name: /register tenant/i }).click()
 
@@ -118,7 +116,6 @@ test.describe('ONB-UI-02 — Tenant registration form', () => {
     await page.locator('#admin_display_name').fill(`Admin ${uid}`)
     // Provide hostname WITH a protocol prefix — must be rejected
     await page.locator('#hostname').fill(`https://tenant-${uid}.example.com`)
-    await page.locator('input[placeholder*="callback"]').first().fill('https://app.example.com/cb')
 
     await page.getByRole('button', { name: /register tenant/i }).click()
 
@@ -144,7 +141,6 @@ test.describe('ONB-UI-02 — Tenant registration form', () => {
     await page.locator('#admin_username').fill(`admin-${uid}`)
     await page.locator('#admin_display_name').fill(`Admin ${uid}`)
     await page.locator('#hostname').fill(`tenant-${uid}.example.com`)
-    await page.locator('input[placeholder*="callback"]').first().fill('https://app.example.com/cb')
 
     await page.screenshot({ path: 'scratch/onb-ui-02-filled-form.png', fullPage: true })
 

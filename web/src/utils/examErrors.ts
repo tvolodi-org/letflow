@@ -62,6 +62,16 @@ export function classifyStartError(err: unknown): ExamEligibilityErrorKind {
   return 'unknown'
 }
 
+/** The candidate's own open session id, which a refused start call's 409 body names (Q-1076 /
+ *  GH 2433) so a reloaded page can resume it. Null for every other failure, and for a server
+ *  that does not send the id. */
+export function openSessionIdFromStartError(err: unknown): string | null {
+  if (classifyStartError(err) !== 'session_already_open' || !isApiError(err)) return null
+  const details = err.details as Record<string, unknown> | undefined
+  const sessionId = details?.['session_id']
+  return typeof sessionId === 'string' && sessionId.length > 0 ? sessionId : null
+}
+
 /** True when a `saveAnswer` (or `submitSession`) call failed because the
  *  session's server-side deadline has passed (REQ-332's
  *  server-authoritative-clock enforcement) — a terminal state, not something

@@ -525,6 +525,108 @@ defmodule Letflow.Modules.Exam.RouterTest do
 
   # ── Tenant isolation (INV-1) ───────────────────────────────────────────
 
+  # ── Q-1076 / GH #2433: a reload mid-exam resumes the candidate's open session ──
+
+  describe "Q-1076 -- a second start while a session is open returns that session's id" do
+    defp start_again(ctx, exam_id) do
+      request("POST", "/api/v1/modules/exam/exam-sessions", ctx, %{"exam_id" => exam_id})
+    end
+
+    test "the 409 keeps type, title, status and detail, and adds only session_id" do
+      tenant = tenant("q1076-409")
+      ctx = candidate_ctx(tenant)
+      %{exam: exam} = build_minimal_exam!(tenant.schema_name)
+      %{"session" => %{"id" => session_id}} = start_session!(ctx, exam.record_id)
+
+      conn = start_again(ctx, exam.record_id)
+      body = json(conn)
+      error = Letflow.Api.Error.conflict("you already have an active session for this exam")
+
+      assert conn.status == 409
+
+      assert Enum.sort(Map.keys(body)) ==
+               Enum.sort(["type", "title", "status", "detail", "trace_id", "session_id"])
+
+      assert body["type"] == error.type
+      assert body["title"] == error.title
+      assert body["status"] == error.status
+      assert body["detail"] == error.detail
+      assert body["session_id"] == session_id
+    end
+
+    test "resuming the open session keeps its stored deadline and creates no second session row" do
+      tenant = tenant("q1076-resume")
+      ctx = candidate_ctx(tenant)
+      %{exam: exam} = build_minimal_exam!(tenant.schema_name, %{"max_attempts" => 1})
+      started = start_session!(ctx, exam.record_id)
+      session_id = started["session"]["id"]
+      expires_at = started["session"]["expires_at"]
+      assert is_binary(expires_at)
+
+      assert %{"session_id" => ^session_id} = json(start_again(ctx, exam.record_id))
+
+      resumed = json(request("GET", "/api/v1/modules/exam/exam-sessions/#{session_id}", ctx))
+      assert resumed["session"]["id"] == session_id
+      assert resumed["session"]["status"] == "in_progress"
+      # The stored deadline, not a fresh one: resume neither resets nor extends the timer.
+      assert resumed["session"]["expires_at"] == expires_at
+      assert resumed["remaining_seconds"] <= started["remaining_seconds"]
+      assert resumed["questions"] == started["questions"]
+
+      # Still one session row for this candidate and exam, so the attempt count is unchanged.
+      import Ecto.Query, only: [from: 2]
+
+      rows =
+        Repo.all(
+          from(r in Letflow.Entities.Record.Latest, where: r.entity_type == "session"),
+          prefix: tenant.schema_name
+        )
+
+      own_rows =
+        Enum.filter(rows, fn row ->
+          row.field_values["exam_id"] == exam.record_id and
+            row.field_values["user_id"] == ctx.user_id
+        end)
+
+      assert length(own_rows) == 1
+    end
+
+    test "another candidate in the same tenant never receives this candidate's session id" do
+      tenant = tenant("q1076-same-tenant")
+      ctx_a = candidate_ctx(tenant)
+      ctx_b = candidate_ctx(tenant)
+      %{exam: exam} = build_minimal_exam!(tenant.schema_name, %{"max_attempts" => 5})
+      %{"session" => %{"id" => a_id}} = start_session!(ctx_a, exam.record_id)
+
+      b_start = start_session!(ctx_b, exam.record_id)
+      b_id = b_start["session"]["id"]
+      refute b_id == a_id
+
+      b_again = start_again(ctx_b, exam.record_id)
+      assert b_again.status == 409
+      assert json(b_again)["session_id"] == b_id
+      refute b_again.resp_body =~ a_id
+    end
+
+    test "a candidate in another tenant never receives a session id from this tenant" do
+      tenant_a = tenant("q1076-xt-a")
+      tenant_b = tenant("q1076-xt-b")
+      ctx_a = candidate_ctx(tenant_a)
+      ctx_b = candidate_ctx(tenant_b)
+      %{exam: exam} = build_minimal_exam!(tenant_a.schema_name)
+      %{"session" => %{"id" => a_id}} = start_session!(ctx_a, exam.record_id)
+
+      # The exam id belongs to tenant A, so tenant B's start cannot find an open session there.
+      cross =
+        request("POST", "/api/v1/modules/exam/exam-sessions", ctx_b, %{
+          "exam_id" => exam.record_id
+        })
+
+      refute cross.status == 409
+      refute cross.resp_body =~ a_id
+    end
+  end
+
   describe "cross-tenant isolation" do
     test "a session in one tenant is invisible to a request scoped to another tenant" do
       tenant_a = tenant("req335-tenant-a")
