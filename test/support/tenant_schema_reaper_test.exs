@@ -290,8 +290,21 @@ defmodule Letflow.TenantSchemaReaperTest do
       # otherwise this test could pass for the wrong reason (Q-1037 / GH #2364).
       other_conn = FakeInvocationConnection.start!(fake_tag)
 
-      assert {:ok, %{reclaimed: 0, skipped_invalid_format: _}} =
-               TenantSchemaReaper.sweep_orphans(Repo, 1)
+      # ISS-1083 / GH #2441: start!/2 proved visibility once, through the fake connection,
+      # at setup time. Re-prove it through the sweeper's own session right before the
+      # sweep, so a backend that is between disconnect and reconnect cannot make the sweep
+      # reclaim while another invocation is still open.
+      Ecto.Adapters.SQL.Sandbox.mode(Letflow.Repo, :auto)
+      :ok = FakeInvocationConnection.assert_visible!(other_conn, fake_tag)
+
+      result = TenantSchemaReaper.sweep_orphans(Repo, 1)
+
+      unless match?({:ok, %{reclaimed: 0, skipped_invalid_format: _}}, result) do
+        flunk(
+          "sweep_orphans/2 reclaimed while another invocation was open: #{inspect(result)}\n" <>
+            FakeInvocationConnection.capture(other_conn, fake_tag)
+        )
+      end
 
       Ecto.Adapters.SQL.Sandbox.mode(Letflow.Repo, :auto)
 

@@ -102,6 +102,87 @@ defmodule Letflow.Test.FakeInvocationConnection do
     :ok
   end
 
+  @doc """
+  Asserts that `tag` is visible in `pg_stat_activity` through `Letflow.Repo` right now,
+  the same session type and view the reaper's own guard uses (ISS-1083 / GH #2441).
+
+  `start!/2` proves visibility once, through the fake connection itself, at setup time.
+  That proof does not carry to the sweep: the backend can disappear and reconnect in
+  between, so the sweep runs in the gap and reclaims. Callers must put the Repo session
+  in `:auto` mode first (`Ecto.Adapters.SQL.Sandbox.mode(Letflow.Repo, :auto)`): a
+  sandboxed transaction caches the `pg_stat_activity` snapshot until it ends. Polls,
+  bounded, and returns `:ok` once visible; otherwise raises, naming `tag` and carrying
+  `capture/2`'s failure-time evidence.
+  """
+  @spec assert_visible!(pid(), String.t(), poll_opts()) :: :ok
+  def assert_visible!(conn, tag, poll_opts \\ []) when is_binary(tag) do
+    {attempts, interval_ms} = poll_config(poll_opts)
+
+    case poll_repo_visible(tag, attempts, interval_ms) do
+      :ok ->
+        :ok
+
+      :error ->
+        raise "fake-tagged connection #{tag} is not visible through Letflow.Repo before the " <>
+                "sweep (after #{attempts} attempts)\n" <> capture(conn, tag)
+    end
+  end
+
+  defp poll_repo_visible(tag, attempts, interval_ms) do
+    %{rows: rows} = Repo.query!(@tag_sql, [tag])
+
+    cond do
+      rows != [] ->
+        :ok
+
+      attempts <= 1 ->
+        :error
+
+      true ->
+        Process.sleep(interval_ms)
+        poll_repo_visible(tag, attempts - 1, interval_ms)
+    end
+  end
+
+  @doc """
+  Failure-time evidence for a guard miss (ISS-1083 / GH #2441): the `letflow_mixtest_*`
+  backends visible in `pg_stat_activity` (pid, application_name, state, backend_start),
+  whether `conn` is still alive, and the backend pid `conn` itself reports. Never raises,
+  and bounded by the query timeout. Call it only on an assertion-failure path so a
+  passing run pays nothing.
+  """
+  @spec capture(pid(), String.t()) :: String.t()
+  def capture(conn, tag) when is_binary(tag) do
+    backends =
+      try do
+        %{rows: rows} =
+          Repo.query!(
+            "SELECT pid, application_name, state, backend_start FROM pg_stat_activity " <>
+              "WHERE application_name LIKE 'letflow_mixtest_%' OR application_name = $1 " <>
+              "ORDER BY backend_start",
+            [tag]
+          )
+
+        Enum.map_join(rows, "\n", &("    " <> inspect(&1)))
+      rescue
+        exception -> "    pg_stat_activity query failed: #{Exception.message(exception)}"
+      end
+
+    conn_info =
+      try do
+        case Postgrex.query(conn, "SELECT pg_backend_pid()", [], timeout: @query_timeout_ms) do
+          {:ok, %{rows: [[pid]]}} -> "answers as backend pid #{pid}"
+          other -> "query returned #{inspect(other)}"
+        end
+      catch
+        :exit, reason -> "query exited: #{inspect(reason)}"
+      end
+
+    "failure-time capture for tag #{tag}:\n" <>
+      "  connection alive? #{Process.alive?(conn)}; #{conn_info}\n" <>
+      "  mix-test backends in pg_stat_activity:\n#{backends}"
+  end
+
   defp poll_config(poll_opts) do
     {Keyword.get(poll_opts, :attempts, @default_attempts),
      Keyword.get(poll_opts, :interval_ms, @default_interval_ms)}

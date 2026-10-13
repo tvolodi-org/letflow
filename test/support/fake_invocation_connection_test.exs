@@ -89,6 +89,47 @@ defmodule Letflow.Test.FakeInvocationConnectionTest do
     end
   end
 
+  describe "assert_visible!/3 (ISS-1083 / GH #2441)" do
+    test "returns :ok when the tag is visible through Letflow.Repo right now" do
+      tag = unique_tag("fake-visible")
+      conn = FakeInvocationConnection.start!(tag)
+
+      assert :ok =
+               FakeInvocationConnection.assert_visible!(conn, tag, attempts: 2, interval_ms: 1)
+    end
+
+    # Mutant guard: a helper whose assert_visible!/3 skips the check (returns :ok
+    # unconditionally) cannot pass this: the tag below was never started, so only a
+    # real check raises.
+    test "raises naming the tag, with failure-time evidence, when the tag is not visible" do
+      conn = FakeInvocationConnection.start!(unique_tag("fake-other"))
+      missing = unique_tag("fake-missing")
+
+      error =
+        assert_raise RuntimeError, fn ->
+          FakeInvocationConnection.assert_visible!(conn, missing, attempts: 2, interval_ms: 1)
+        end
+
+      assert error.message =~ missing
+      assert error.message =~ "not visible through Letflow.Repo before the sweep"
+      assert error.message =~ "failure-time capture for tag #{missing}"
+      assert error.message =~ "connection alive? true"
+    end
+  end
+
+  describe "capture/2" do
+    test "reports the connection's own backend pid and the mix-test backends, and never raises" do
+      tag = unique_tag("fake-capture")
+      conn = FakeInvocationConnection.start!(tag)
+
+      text = FakeInvocationConnection.capture(conn, tag)
+
+      assert text =~ "connection alive? true"
+      assert text =~ "answers as backend pid"
+      assert text =~ tag
+    end
+  end
+
   describe "stop_and_wait_gone!/3" do
     test "post-condition: after :ok the connection is stopped and the tag is not visible (wait timing itself is pinned by the timeout test below)" do
       tag = unique_tag("fake-stop")
