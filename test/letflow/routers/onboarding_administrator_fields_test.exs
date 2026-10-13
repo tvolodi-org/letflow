@@ -96,9 +96,13 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     body = new_body(extra)
     conn = call(ctx, :post, "/api/v1/onboarding", body)
 
+    # A tenant the request created is removed even when an assert below fails (TEST-DESIGN-VALIDATOR MINOR 8).
+    if tenant = Repo.get_by(Tenant, slug: body["slug"]), do: cleanup_onboarded_tenant!(tenant.id)
+
     assert conn.status == status, conn.resp_body
     assert Repo.get_by(Tenant, slug: body["slug"]) == nil, "a tenant row was created"
-    assert Repo.get_by(OnboardingRecord, hostname: body["hostname"]) == nil
+    # The record stores the trimmed hostname, so the check uses the trimmed value (MINOR 10).
+    assert Repo.get_by(OnboardingRecord, hostname: String.trim(body["hostname"])) == nil
     conn
   end
 
@@ -142,18 +146,33 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
   # TenantFixture tenant, so it gets none of that module's own cleanup); the
   # same shape as `test/letflow/routers/onboarding_test.exs`.
   defp cleanup_onboarded_tenant!(tenant_id) do
+    on_exit(fn -> drop_tenant_rows!(tenant_id) end)
+  end
+
+  # For a test whose request may raise before it returns the tenant id: the tenant for the slug, if one was
+  # committed, is looked up at exit and removed.
+  defp cleanup_slug_on_exit(slug) do
     on_exit(fn ->
       Ecto.Adapters.SQL.Sandbox.mode(Letflow.Repo, :auto)
 
-      case TenantProvisioning.schema_name_for_tenant(tenant_id) do
-        {:ok, schema_name} -> Repo.query!(~s(DROP SCHEMA IF EXISTS "#{schema_name}" CASCADE))
-        {:error, :invalid_tenant_id} -> :ok
+      case Repo.get_by(Tenant, slug: slug) do
+        %Tenant{id: tenant_id} -> drop_tenant_rows!(tenant_id)
+        nil -> :ok
       end
-
-      Repo.delete_all(from(o in OnboardingRecord, where: o.tenant_id == ^tenant_id))
-      Repo.delete_all(from(r in Registration, where: r.tenant_id == ^tenant_id))
-      Repo.delete_all(from(t in Tenant, where: t.id == ^tenant_id))
     end)
+  end
+
+  defp drop_tenant_rows!(tenant_id) do
+    Ecto.Adapters.SQL.Sandbox.mode(Letflow.Repo, :auto)
+
+    case TenantProvisioning.schema_name_for_tenant(tenant_id) do
+      {:ok, schema_name} -> Repo.query!(~s(DROP SCHEMA IF EXISTS "#{schema_name}" CASCADE))
+      {:error, :invalid_tenant_id} -> :ok
+    end
+
+    Repo.delete_all(from(o in OnboardingRecord, where: o.tenant_id == ^tenant_id))
+    Repo.delete_all(from(r in Registration, where: r.tenant_id == ^tenant_id))
+    Repo.delete_all(from(t in Tenant, where: t.id == ^tenant_id))
   end
 
   # --- administrator echo (design 3.4) -----------------------------------------
@@ -732,6 +751,9 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     assert conn.status == 409, conn.resp_body
     assert json(conn)["detail"] =~ "the tenant for this slug was created"
     assert json(conn)["detail"] =~ "do not retry with a new slug"
+
+    # Happy-path only: this test's tenant is activated before the record insert. Activation is best-effort in
+    # general (tenant_onboarding.ex:209), so no other test relies on the status, and the detail does not claim it.
     assert %Tenant{status: :active} = tenant
   end
 
@@ -753,6 +775,10 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
         )
       end)
 
+    # The hook removes the tenant, so none is expected; a tenant found here (the hook failed) is cleaned up.
+    tenant = Repo.get_by(Tenant, slug: slug)
+    if tenant, do: cleanup_onboarded_tenant!(tenant.id)
+
     assert conn.status == 500, conn.resp_body
     assert json(conn)["detail"] =~ "the tenant may exist"
     assert json(conn)["detail"] =~ "do not retry with a new slug"
@@ -767,22 +793,35 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     slug = TenantSlugFixture.unique_slug("iss1030")
     hostname = "iss1030-raise-#{Ecto.UUID.generate()}.example.com"
 
-    conn =
-      with_tenant_schema_insert_failing(fn ->
-        call(
-          ctx,
-          :post,
-          "/api/v1/onboarding",
-          new_body(%{"slug" => slug, "hostname" => hostname})
-        )
-      end)
+    # Registered before the request: a request that raises out of the test still leaves no committed tenant.
+    cleanup_slug_on_exit(slug)
 
-    tenant = Repo.get_by(Tenant, slug: slug)
-    if tenant, do: cleanup_onboarded_tenant!(tenant.id)
+    {conn, log} =
+      with_log(fn ->
+        with_tenant_schema_insert_failing(fn ->
+          call(
+            ctx,
+            :post,
+            "/api/v1/onboarding",
+            new_body(%{"slug" => slug, "hostname" => hostname})
+          )
+        end)
+      end)
 
     assert conn.status == 500, conn.resp_body
     assert json(conn)["detail"] =~ "the tenant may exist"
-    assert %Tenant{status: :migrating} = tenant
+    assert json(conn)["detail"] =~ "do not retry with a new slug"
+
+    # The fault's message reaches neither the answer nor the log: the log names the exception class only (INV-4).
+    # Without these, a wrong implementation that echoed the exception text would still pass the detail check.
+    refute conn.resp_body =~ "injected database fault"
+    assert log =~ "exception=Postgrex.Error"
+
+    # Only error-level lines are checked: the captured debug log also carries the trigger's own SQL, which contains the phrase.
+    # Positive control: the same error-line pattern matches the logged line, so the refute below is not vacuous.
+    assert log =~ ~r/\[error\][^\n]*exception=Postgrex.Error/
+    refute log =~ ~r/\[error\][^\n]*injected database fault/
+    assert %Tenant{status: :migrating} = Repo.get_by(Tenant, slug: slug)
     refute Repo.get_by(OnboardingRecord, hostname: hostname)
   end
 
@@ -1347,8 +1386,16 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
   # sandbox in this module commits (see cleanup_onboarded_tenant!/1), so the trigger and its function are
   # dropped on exit, including when the request raises.
   defp with_tenant_schema_insert_failing(fun) do
-    Repo.query!("DROP TRIGGER IF EXISTS letflow_iss1030_fail_insert ON tenant_schemas")
-    Repo.query!("DROP FUNCTION IF EXISTS letflow_iss1030_fail_insert()")
+    # The drop runs on exit, not in an `after` block, so it also runs when the test process is killed or
+    # the request raises. It runs in autocommit (the sandbox mode this module uses for committed rows).
+    drop = fn ->
+      Ecto.Adapters.SQL.Sandbox.mode(Letflow.Repo, :auto)
+      Repo.query!("DROP TRIGGER IF EXISTS letflow_iss1030_fail_insert ON tenant_schemas")
+      Repo.query!("DROP FUNCTION IF EXISTS letflow_iss1030_fail_insert()")
+    end
+
+    drop.()
+    on_exit(drop)
 
     Repo.query!(
       "CREATE FUNCTION letflow_iss1030_fail_insert() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected database fault (ISS-1030 test)'; END $$"
@@ -1358,12 +1405,7 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
       "CREATE TRIGGER letflow_iss1030_fail_insert BEFORE INSERT ON tenant_schemas FOR EACH ROW EXECUTE FUNCTION letflow_iss1030_fail_insert()"
     )
 
-    try do
-      fun.()
-    after
-      Repo.query!("DROP TRIGGER IF EXISTS letflow_iss1030_fail_insert ON tenant_schemas")
-      Repo.query!("DROP FUNCTION IF EXISTS letflow_iss1030_fail_insert()")
-    end
+    fun.()
   end
 
   @doc false

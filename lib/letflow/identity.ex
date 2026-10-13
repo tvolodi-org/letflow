@@ -1874,9 +1874,24 @@ defmodule Letflow.Identity do
       )
 
       committed_realm_or_audit_failed(tenant_id, realm)
+  catch
+    # An exit from the checkout (DBConnection's holder) is not an exception, so the rescue above does not see it
+    # (SECURITY-REVIEWER round 3, BLOCKER, INV-8). The outcome is unknown, so the realm is re-read as for a raise.
+    # Only the exit tag is logged (INV-4).
+    :exit, reason ->
+      Logger.error(
+        "tenant realm bind failed (tenant_id=#{inspect(tenant_id)}, exit=#{inspect(bind_exit_tag(reason))})"
+      )
+
+      committed_realm_or_audit_failed(tenant_id, realm)
   end
 
-  # An exception during COMMIT leaves the outcome unknown, so re-read before reporting a failure
+  # The exit tag only. The reason can carry the pool and its options (INV-4).
+  defp bind_exit_tag({tag, _detail}) when is_atom(tag), do: tag
+  defp bind_exit_tag(tag) when is_atom(tag), do: tag
+  defp bind_exit_tag(_other), do: :other
+
+  # An exception or exit during COMMIT leaves the outcome unknown, so re-read before reporting a failure
   # (SECURITY-REVIEWER F5). A rolled-back bind shows the realm still NULL and stays :audit_failed.
   defp committed_realm_or_audit_failed(tenant_id, realm) do
     case Repo.get(Tenant, tenant_id) do
@@ -1887,6 +1902,13 @@ defmodule Letflow.Identity do
     exception ->
       Logger.error(
         "tenant realm re-read failed (tenant_id=#{inspect(tenant_id)}, exception=#{inspect(exception.__struct__)})"
+      )
+
+      {:error, :audit_failed}
+  catch
+    :exit, reason ->
+      Logger.error(
+        "tenant realm re-read failed (tenant_id=#{inspect(tenant_id)}, exit=#{inspect(bind_exit_tag(reason))})"
       )
 
       {:error, :audit_failed}

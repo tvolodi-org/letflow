@@ -518,7 +518,23 @@ defmodule Letflow.Routers.Onboarding do
       )
 
       {:error, :raised}
+  catch
+    # An exit, not an exception: a DBConnection checkout that fails through the pool's holder exits
+    # rather than raises (SECURITY-REVIEWER round 2, MAJOR, INV-8). Only the exit tag is logged.
+    :exit, reason ->
+      Logger.error(
+        "onboarding failed after the tenant was committed (tenant_id=#{inspect(tenant.id)}, " <>
+          "exit=#{inspect(exit_tag(reason))})"
+      )
+
+      {:error, :raised}
   end
+
+  # The exit tag only. The full reason can carry the pool and its options (DBConnection holder), which must
+  # not be logged (INV-4).
+  defp exit_tag({tag, _detail}) when is_atom(tag), do: tag
+  defp exit_tag(tag) when is_atom(tag), do: tag
+  defp exit_tag(_other), do: :other
 
   defp created_with_realm(conn, _tenant, record, extras, nil, _bind_opts) do
     Response.created(conn, created_body(record, %{idp_realm_id: nil}, extras))
@@ -782,7 +798,8 @@ defmodule Letflow.Routers.Onboarding do
 
     case Map.get(conn.query_params, "hostname") do
       hostname when is_binary(hostname) and hostname != "" ->
-        case Identity.get_onboarding_by_hostname(hostname) do
+        # Trimmed as the create path trims it: a padded value would otherwise miss the stored, trimmed one.
+        case Identity.get_onboarding_by_hostname(String.trim(hostname)) do
           {:ok, record} -> respond_with_record(conn, record)
           {:error, :not_found} -> Response.not_found(conn)
         end

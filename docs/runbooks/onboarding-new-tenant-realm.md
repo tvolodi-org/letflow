@@ -84,10 +84,12 @@ and no realm. Do not retry with a new slug. Escalate to the platform owner with 
 the call.
 
 If the create call answers **201** with `realm_request.status = "not_bound"` (the realm was claimed by
-another tenant in a race, `reason = "taken"`, or the bind hit an audit fault, `reason =
-"unavailable"`), the tenant is active and the onboarding record exists (the body's `id`). The response
-says `login.loginable` is `false`. For `reason = "unavailable"` the realm may in fact be bound (an audit
-fault can fail after the commit): retry the bind with the same realm id first. A 200 means it is bound;
+another tenant in a race, `reason = "taken"`, or the bind outcome is unknown, `reason =
+"unavailable"`), the tenant exists (`active`, or still `migrating` if activation did not complete) and the
+onboarding record exists (the body's `id`). The response
+says `login.loginable` is `false`. For `reason = "unavailable"` the realm may in fact be bound (an error or an exit
+around the commit leaves the outcome unknown): retry the bind with the same realm id first. The retry is safe: it
+binds the same realm once and answers 200 with no second audit entry. A 200 means it is bound;
 a 409 means another tenant or a different realm holds it, or the tenant is no longer `active`. Then retry the bind with
 `POST /api/v1/onboarding/{id}/bind-realm` using the body's `id`. If `taken`, choose another realm
 first. If the bind fails again, escalate to the platform owner; do not bind by hand.
