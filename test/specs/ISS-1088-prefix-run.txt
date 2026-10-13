@@ -1,0 +1,22 @@
+Decision: option A (disposition only, chosen 2026-10-13 by the supervisor). Storing or applying client_config and realm_config needs its own requirement.
+WF-03 pre-fix run for ISS-1088 (GH #2450, queue task 1088): POST /onboarding drops client_config and realm_config silently.
+Base: origin/main 453880eb, clean, branch feat/ISS-1088-client-config-disposition (no library change).
+Test file: test/letflow/routers/onboarding_client_config_test.exs (four tests, design-neutral: a disposition per key, and a guard).
+Command: mix test test/letflow/routers/onboarding_client_config_test.exs (MIX_ENV=test, MIX_TEST_PARTITION=q1088, LETFLOW_DB_PORT=5482), run under the machine mixlock, timeout 600 s.
+Earlier runs: 2026-10-13 06:11Z to 06:17Z (the first two-test file); superseded by the final file.
+Result (final test file, 2026-10-13 06:29Z; lib/letflow/routers/onboarding.ex stashed to HEAD 453880eb): 2 passed, 2 failed (of 4).
+
+Failing (the new behaviour is absent on main):
+  POST /onboarding answers each of client_config and realm_config with disposition not_stored and the next step
+  assertion: the 201 body has no client_config key (the disposition is absent).
+  POST /onboarding with only client_config answers a disposition for client_config and none for realm_config
+  assertion: the 201 body has no client_config key (the disposition is absent).
+
+Passing on main (must stay green after the fix):
+  POST /onboarding echoes the key names of client_config and realm_config in ignored_fields, never their values (ignored_fields already names them; no value is echoed)
+  POST /onboarding without client_config or realm_config answers no disposition for them (existing callers unchanged)
+
+Note: an earlier run of the same file failed on a test-harness cleanup order (the tenant row was deleted before its
+onboarding_registry row, a foreign-key error). The harness was fixed before this run; the record is the fixed run only.
+The wizard's submit body is web/src/api/onboarding.ts (client_config { redirect_uris, service_account_enabled? } and
+realm_config). The backend keeps only slug and display_name (lib/letflow/routers/onboarding.ex, Map.take).

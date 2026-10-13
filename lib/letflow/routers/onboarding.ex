@@ -128,6 +128,8 @@ defmodule Letflow.Routers.Onboarding do
       and sanitised.
     * `login` -- whether the tenant is loginable (a realm is bound) and, when
       not, the next steps.
+    * `client_config`, `realm_config` -- for each one sent, `disposition`
+      (`not_stored`) and `next`. Values are never echoed.
 
   An optional `idp_realm_id` is trimmed, format-checked, refused when reserved,
   and verified against the configured identity provider
@@ -571,10 +573,14 @@ defmodule Letflow.Routers.Onboarding do
   # defect in either must surface as a crash, not be mistaken for an encoding refusal.
   defp response_extras(body) do
     if Enum.all?(Map.keys(body), &(is_binary(&1) and String.valid?(&1))) do
-      extras = %{
-        "administrator" => administrator_map(body),
-        "ignored_fields" => ignored_fields(body)
-      }
+      extras =
+        Map.merge(
+          %{
+            "administrator" => administrator_map(body),
+            "ignored_fields" => ignored_fields(body)
+          },
+          dispositions(body)
+        )
 
       case Jason.encode(extras) do
         {:ok, _json} -> {:ok, extras}
@@ -582,6 +588,23 @@ defmodule Letflow.Routers.Onboarding do
       end
     else
       {:errors, [unencodable_field_error()]}
+    end
+  end
+
+  # ISS-1088 / GH #2450: the wizard's client_config and realm_config are not stored and not applied by the
+  # platform (ADR 0044 Phase 1: realm per tenant, hand-provisioned; Letflow has no Keycloak Admin client). Each
+  # key that the request carries gets a disposition in the 201 body, so the operator is not left to infer it
+  # from a silent drop. Only the fixed disposition is returned, never the value: the client's redirect URIs and
+  # realm settings are not echoed (SECURITY-REVIEWER light gate, ISS-1088).
+  # Decision (ISS-1088, option A): disposition only. Storing or applying these keys is not done here and needs
+  # its own requirement.
+  @not_stored_keys ["client_config", "realm_config"]
+  @not_stored_next "Not stored or applied by the platform. Set up this tenant's client and realm by hand, as " <>
+                     "the onboarding runbook describes (docs/runbooks/onboarding-new-tenant-realm.md, ADR 0044 Phase 1)."
+
+  defp dispositions(body) do
+    for key <- @not_stored_keys, Map.has_key?(body, key), into: %{} do
+      {key, %{"disposition" => "not_stored", "next" => @not_stored_next}}
     end
   end
 
