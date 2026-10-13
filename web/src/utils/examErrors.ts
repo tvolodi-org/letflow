@@ -63,7 +63,7 @@ export function classifyStartError(err: unknown): ExamEligibilityErrorKind {
 }
 
 /** The candidate's own open session id, which a refused start call's 409 body names (Q-1076 /
- *  GH #2433) so a reloaded page can resume it. Null for every other failure, and for a server
+ *  GH 2433) so a reloaded page can resume it. Null for every other failure, and for a server
  *  that does not send the id. */
 export function openSessionIdFromStartError(err: unknown): string | null {
   if (classifyStartError(err) !== 'session_already_open' || !isApiError(err)) return null

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Q-1076 / GH #2433 -- a reload mid-exam resumes the candidate's open session.
+ * Q-1076 / GH 2433 -- a reload mid-exam resumes the candidate's open session.
  *
  * On main the mount-time startSession is refused with 409 session_already_open, and the page stops at
  * the error screen, whose only action goes back to the exam list: the candidate is stranded. The refusal
@@ -103,7 +103,7 @@ afterEach(() => {
   cleanup()
 })
 
-describe('Q-1076 / GH #2433 -- reload mid-exam', () => {
+describe('Q-1076 / GH 2433 -- reload mid-exam', () => {
   it('a refused second start resumes the open session and reaches the in-progress screen', async () => {
     mockedExamApi.startSession.mockRejectedValue(REFUSED_WITH_OPEN_SESSION)
     mockedExamApi.getSessionState.mockResolvedValue(sessionState())

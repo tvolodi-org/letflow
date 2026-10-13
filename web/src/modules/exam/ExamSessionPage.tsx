@@ -153,7 +153,7 @@ function ExamSessionPageInner() {
       .startSession(examId)
       .then(enterSession)
       .catch(async (err: unknown) => {
-        // Q-1076 / GH #2433: a reload mid-exam. The server refused a second session and named this
+        // Q-1076 / GH 2433: a reload mid-exam. The server refused a second session and named this
         // candidate's own open one, so resume it. If that resume fails, show the start error.
         const openSessionId = openSessionIdFromStartError(err)
         if (openSessionId) {
