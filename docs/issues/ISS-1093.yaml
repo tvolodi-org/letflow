@@ -1,0 +1,15 @@
+id: ISS-1093
+title: "Onboarding wizard: replace the client_config/realm_config inputs with one read-only line that realm and client are created by infra (ADR 0044 Phase 1)"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-12 / 2026-10-13 walk and CI review"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: MINOR
+owner: "FRONTEND-DEV (web onboarding wizard)"
+scope: defect
+description: >
+  Decision Q2 of the 2026-10-13 letflow-fc answers (option C). The wizard stops sending the removed inputs; the API per-key not_stored disposition stays until this ships (see ISS-1094). Supersedes the decision part of ISS-1098 (queue ISS-1090).
+resolution: >
+  Open. Filed GitHub-first (GH #2463), then registered with the queue (Q-1093) using that number.
+queue_ref: Q-1093
+github_ref: GH-2463
+status: open

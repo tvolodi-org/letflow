@@ -1,0 +1,15 @@
+id: ISS-1092
+title: "ISS-1084 follow-up: behavioural replacement for the pool-clamp arithmetic and sampler gating (ISS-0287)"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-12 / 2026-10-13 walk and CI review"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: LOW
+owner: "letflow-16 (CI and test-infra)"
+scope: defect
+description: >
+  Follow-up of ISS-1084 (stale shell test removed in #2459). A behavioural test runs the real scripts/test_parallel.sh with a stub mix and fake psql and asserts the printed TEST_POOL_SIZE, warning lines and sampler gating.
+resolution: >
+  Open. Filed GitHub-first (GH #2460), then registered with the queue (Q-1092) using that number.
+queue_ref: Q-1092
+github_ref: GH-2460
+status: open
