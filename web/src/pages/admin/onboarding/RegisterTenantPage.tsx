@@ -144,9 +144,12 @@ function resolveApiErrorMessage(
     if (problemType?.includes('idempotency-conflict')) {
       return { banner: 'A conflicting submission was detected. Please start over.' }
     }
-    // Other 409 (DuplicateTenantSlug, DuplicateHostname, RealmAlreadyExists etc.)
-    const title = (body['title'] as string) ?? (body['detail'] as string)
-    return { banner: title ?? 'A conflict was detected. Please check your inputs.' }
+    // The 409s from the onboarding endpoint (slug, hostname and realm conflicts, and a tenant that
+    // is not active). Error.conflict/1 sets title to the fixed "Conflict" and carries the specific
+    // reason in detail, so detail is read first (GH 2438). Title is only a fallback.
+    const detail = body['detail'] as string | undefined
+    const title = body['title'] as string | undefined
+    return { banner: detail ?? title ?? 'A conflict was detected. Please check your inputs.' }
   }
 
   if (httpStatus === 422) {
