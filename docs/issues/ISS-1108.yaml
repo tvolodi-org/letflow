@@ -1,0 +1,15 @@
+id: ISS-1108
+title: "Local e2e: the run recipe lives only in a stale inventory doc, and the specs default backend port (8080) disagrees with the dev backend (4000)"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-13 onb-ui e2e preparation, supervisor request"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: LOW
+owner: "DOC-UPDATER or letflow-16 (CI and test-infra)"
+scope: tooling
+description: >
+  A local Keycloak realm import exists (docker-compose.yml:27, priv/keycloak/realms/bpm-default.json with letflow-web and admin-user). The run recipe is only in docs/testing/REQ-122-e2e-inventory.md and says backend :4000 while web/tests/e2e/pipeline.ts:119 defaults BPM_TEST_URL to 127.0.0.1:8080.
+resolution: >
+  Open. Filed GitHub-first (GH #2486), then registered with the queue (Q-1108) using that number.
+queue_ref: Q-1108
+github_ref: GH-2486
+status: open
