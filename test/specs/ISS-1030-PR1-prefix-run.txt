@@ -1,6 +1,6 @@
 WF-03 pre-fix run for ISS-1030 PR 1 (issue record: docs/issues/ISS-1030.yaml: failure_class: defect; discovered_in_run: WF03-ISS1030-Q1012-20261008)
 Base: f10dab91, clean, in a separate worktree (wt-prefix-iss1030-r2, detached at f10dab91). The four PR 1 Elixir test files and the two support modules (test/support/realm_probe_test_server.ex, test/support/configurable_token_verifier_double.ex) copied in; no library change; config/test.exs NOT copied (the PR adds config for the realm probe double), so the pre-fix environment differs from the PR's in that file.
-Command: mix test on the four PR 1 Elixir files (test/letflow/routers/onboarding_administrator_fields_test.exs, test/letflow/identity/tenant_realm_bind_test.exs, test/letflow/oidc/realm_probe_test.exs, test/letflow/platform_tenant_prefix_test.exs), MIX_ENV=test, MIX_TEST_PARTITION=pre1012b. Run at 2026-10-13 01:20Z.
+Command: mix test on the four PR 1 Elixir files (test/letflow/routers/onboarding_administrator_fields_test.exs, test/letflow/identity/tenant_realm_bind_test.exs, test/letflow/oidc/realm_probe_test.exs, test/letflow/platform_tenant_prefix_test.exs), MIX_ENV=test, MIX_TEST_PARTITION=pre1012b. Run at 2026-10-13 01:20Z, on the test files as copied into the base worktree at that time (commit 33576f24 plus the import fix); the later test edits of rounds 3 and 4 are not in this run.
 Result: 3 passed, 84 failed (of 87).
 This run supersedes the first record (80 tests, same base), which predates the tests added in the fix rounds. The first run is kept in git history.
 

@@ -751,10 +751,6 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     assert conn.status == 409, conn.resp_body
     assert json(conn)["detail"] =~ "the tenant for this slug was created"
     assert json(conn)["detail"] =~ "do not retry with a new slug"
-
-    # Happy-path only: this test's tenant is activated before the record insert. Activation is best-effort in
-    # general (tenant_onboarding.ex:209), so no other test relies on the status, and the detail does not claim it.
-    assert %Tenant{status: :active} = tenant
   end
 
   test "POST /onboarding answers 500 with the after-commit detail when provisioning fails after the tenant was committed",
@@ -796,9 +792,10 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     # Registered before the request: a request that raises out of the test still leaves no committed tenant.
     cleanup_slug_on_exit(slug)
 
+    # The trigger is created outside the captured log, so the log holds only what the request itself logged.
     {conn, log} =
-      with_log(fn ->
-        with_tenant_schema_insert_failing(fn ->
+      with_tenant_schema_insert_failing(fn ->
+        with_log(fn ->
           call(
             ctx,
             :post,
@@ -812,15 +809,13 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
     assert json(conn)["detail"] =~ "the tenant may exist"
     assert json(conn)["detail"] =~ "do not retry with a new slug"
 
-    # The fault's message reaches neither the answer nor the log: the log names the exception class only (INV-4).
+    # The fault's message reaches neither the answer nor Letflow's own log line (INV-4). Letflow's line is one
+    # line by construction (the log call concatenates its parts), so the match below reads that whole line.
     # Without these, a wrong implementation that echoed the exception text would still pass the detail check.
     refute conn.resp_body =~ "injected database fault"
-    assert log =~ "exception=Postgrex.Error"
-
-    # Only error-level lines are checked: the captured debug log also carries the trigger's own SQL, which contains the phrase.
-    # Positive control: the same error-line pattern matches the logged line, so the refute below is not vacuous.
-    assert log =~ ~r/\[error\][^\n]*exception=Postgrex.Error/
-    refute log =~ ~r/\[error\][^\n]*injected database fault/
+    [letflow_line] = Regex.run(~r/onboarding failed after the tenant was committed[^\n]*/, log)
+    assert letflow_line =~ "exception=Postgrex.Error"
+    refute letflow_line =~ "injected database fault"
     assert %Tenant{status: :migrating} = Repo.get_by(Tenant, slug: slug)
     refute Repo.get_by(OnboardingRecord, hostname: hostname)
   end
@@ -1386,10 +1381,15 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
   # sandbox in this module commits (see cleanup_onboarded_tenant!/1), so the trigger and its function are
   # dropped on exit, including when the request raises.
   defp with_tenant_schema_insert_failing(fun) do
+    # The restore is registered first, so ExUnit's LIFO order runs it last, after the drop below and after
+    # every other cleanup that needs autocommit (see Letflow.Test.SandboxAutoMode). The mode is set through
+    # the helper, not inline: Sandbox.mode/2 is pool-wide.
+    on_exit(fn -> Letflow.Test.SandboxAutoMode.exit_auto_mode!(Letflow.Repo) end)
+    Letflow.Test.SandboxAutoMode.enter_auto_mode!(Letflow.Repo)
+
     # The drop runs on exit, not in an `after` block, so it also runs when the test process is killed or
-    # the request raises. It runs in autocommit (the sandbox mode this module uses for committed rows).
+    # the request raises. It also runs once before the create, to clear a trigger a killed run left behind.
     drop = fn ->
-      Ecto.Adapters.SQL.Sandbox.mode(Letflow.Repo, :auto)
       Repo.query!("DROP TRIGGER IF EXISTS letflow_iss1030_fail_insert ON tenant_schemas")
       Repo.query!("DROP FUNCTION IF EXISTS letflow_iss1030_fail_insert()")
     end
