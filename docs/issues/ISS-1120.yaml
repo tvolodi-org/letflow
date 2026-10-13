@@ -1,0 +1,18 @@
+id: ISS-1120
+title: "REQ-445 status drift: requirements.yaml says pending, GH #2233 closed COMPLETED and 0046 + roles.md merged (PR #2250); no status-history event"
+discovered_by: letflow-2 (sole filer), found while preparing the REQ-468 flip
+discovered_in_run: "2026-10-14 docs bundle preparation"
+discovered_at: "2026-10-13T20:46:31Z"
+severity: LOW
+owner: "DOC-UPDATER with RELEASE-VALIDATOR (docs only)"
+scope: docs
+description: >
+  docs/requirements.yaml REQ-445 is status pending (impl_order 962, GH #2233) although GH #2233 was closed COMPLETED on 2026-10-05
+  and the work landed: decision record 0046 and docs/roles.md via PR #2250 (merge 8c44eec3, sign-offs defb56e4). No status-history
+  event exists for REQ-445 in the current volume. Fix: RELEASE-VALIDATOR re-derives the acceptance criteria against main, then flip
+  to done and append one event with a real UTC time. Not flipped by the sole filer on its own judgement.
+resolution: >
+  Open. Filed GitHub-first (GH #2505), then registered with the queue (Q-1120) using that number.
+queue_ref: Q-1120
+github_ref: GH-2505
+status: open

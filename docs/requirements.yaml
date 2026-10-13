@@ -35323,7 +35323,7 @@ requirements:
   - id: REQ-468
     title: "Onboarding API: POST /onboarding stops answering the client_config and realm_config dispositions (the web no longer sends them); the keys are ignored by name, never echoed (ADR 0044 Phase 1)"
     owner: ELIXIR-DEV
-    status: pending
+    status: done
     stage: S4
     impl_order: 1099  # letflow-queue task id, GH #2464 (Q-1094). Registered 2026-10-13 by ORCH (WF-01 Step 3; registered in this PR because mix letflow.check_deferral_staleness requires 0 deferrals).
     # Source: GH #2464 (Q-1094; requirement draft filed by letflow-2 from the 2026-10-13 batch Q2 decision, option C of GH #2454). The queue id is written back by ORCH at WF-01 Step 3 (register_task), not here.
