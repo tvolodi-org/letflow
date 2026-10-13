@@ -34,6 +34,12 @@ defmodule Letflow.Scripts.TestParallelWatchdogDiagTest do
     2. normal quick run: no `DIAG` anywhere in the output
     3. huge partition log (200k lines, many > 300 chars) then hang: diagnostics finish in
        bounded time and every DIAG partition line respects the 300-column cap
+    4. (RC-E, Q-1087) forced concurrency: a `sed` shim re-emits each partition block in
+       lock-step 1000-byte chunks; every block must still be one contiguous, uncut unit
+    5. (RC-E) every `mkdir diag-emit.lock` denied (dead holder): all 4 emits (3 partition
+       blocks + host block) fall through after 30 tries, blocks intact
+    6. (RC-E) the lock is released 4 times and no block file or lock is left behind; each
+       block is emitted by one `cat -- <block file>`
   """
   use ExUnit.Case, async: false
 
@@ -113,7 +119,87 @@ defmodule Letflow.Scripts.TestParallelWatchdogDiagTest do
     File.write!(Path.join(bin, "psql"), "#!/usr/bin/env bash\nexit 1\n")
     File.chmod!(mix, 0o755)
     File.chmod!(Path.join(bin, "psql"), 0o755)
+    write_tool_shims(bin)
     bin
+  end
+
+  # RC-E (Q-1087 / GH #2448) PATH shims. Every shim is GATED on its own env var and is a
+  # byte-for-byte pass-through (`PATH="$REAL_PATH" exec <tool> "$@"`) otherwise, so the
+  # pre-existing cases are unaffected. REAL_PATH is exported by the launcher from inside
+  # bash (a POSIX path list, also on the Windows git-bash host).
+  #
+  #   sed   STUB_SED_CHUNK=<bytes>  the partition-block `sed "s/^/test_parallel: DIAG
+  #         partition N: ..."` (found by scanning ALL args, so `sed -u`/`stdbuf -oL sed`
+  #         are caught too) re-emits its output in <bytes> chunks in LOCK-STEP across the
+  #         partitions (file barrier STUB_BARRIER, every wait bounded to 5 s)
+  #   mkdir STUB_LOCK_DENY=1        every `mkdir .../diag-emit.lock` is denied (a dead
+  #         holder that never releases) and logged `mkdir-denied` in STUB_LOG
+  #   rmdir STUB_LOG_RMDIR=1        logs `rmdir <args>` for diag-emit.lock
+  #   cat   STUB_LOG_CAT=1          logs `cat <args>`
+  defp write_tool_shims(bin) do
+    shims = %{
+      "sed" => """
+      #!/usr/bin/env bash
+      [ -n "${STUB_SED_CHUNK:-}" ] || { PATH="$REAL_PATH" exec sed "$@"; }
+      part=""
+      for a in "$@"; do
+        case "$a" in
+          's/^/test_parallel: DIAG partition '*)
+            part="${a#s/^/test_parallel: DIAG partition }"
+            part="${part%%:*}"
+            break ;;
+        esac
+      done
+      [ -n "$part" ] || { PATH="$REAL_PATH" exec sed "$@"; }
+      k=0
+      PATH="$REAL_PATH" sed "$@" | {
+        while IFS= read -r -d '' -N "$STUB_SED_CHUNK" c || [ -n "$c" ]; do
+          k=$((k + 1))
+          : > "$STUB_BARRIER/$part.$k"
+          w=0
+          while [ "$w" -lt 100 ]; do
+            set -- "$STUB_BARRIER"/*."$k"
+            [ "$#" -ge 3 ] && [ -e "$1" ] && break
+            w=$((w + 1))
+            sleep 0.05
+          done
+          printf '%s' "$c"
+          c=""
+        done
+      }
+      """,
+      "mkdir" => """
+      #!/usr/bin/env bash
+      if [ -n "${STUB_LOCK_DENY:-}" ]; then
+        case "$*" in
+          *diag-emit.lock*) echo "mkdir-denied" >> "$STUB_LOG"; exit 1 ;;
+        esac
+      fi
+      PATH="$REAL_PATH" exec mkdir "$@"
+      """,
+      "rmdir" => """
+      #!/usr/bin/env bash
+      if [ -n "${STUB_LOG_RMDIR:-}" ]; then
+        case "$*" in
+          *diag-emit.lock*) echo "rmdir $*" >> "$STUB_LOG" ;;
+        esac
+      fi
+      PATH="$REAL_PATH" exec rmdir "$@"
+      """,
+      "cat" => """
+      #!/usr/bin/env bash
+      if [ -n "${STUB_LOG_CAT:-}" ]; then echo "cat $*" >> "$STUB_LOG"; fi
+      PATH="$REAL_PATH" exec cat "$@"
+      """
+    }
+
+    for {name, body} <- shims do
+      path = Path.join(bin, name)
+      File.write!(path, body)
+      File.chmod!(path, 0o755)
+    end
+
+    :ok
   end
 
   # Returns {exit_status | :timeout, output, elapsed_ms}.
@@ -125,11 +211,20 @@ defmodule Letflow.Scripts.TestParallelWatchdogDiagTest do
     tmpdir = Path.join(tmp, "tp_tmp")
     File.mkdir_p!(tmpdir)
 
+    # RC-E shim state is created HERE, per call, under this call's own directory (the
+    # per-attempt `attempt-<t>` dir for run_until_premise), never passed in by the caller:
+    # barrier files and logs of an earlier, discarded attempt must not satisfy the
+    # lock-step barrier or inflate the counts of a later one.
+    state = Path.join(tmp, "shimstate")
+    File.mkdir_p!(Path.join(state, "barrier"))
+
     launcher =
-      ~S{d=$(cygpath -u "$1" 2>/dev/null || printf '%s' "$1"); PATH="$d:$PATH"; export PATH; shift; set -o pipefail; bash "$@" 2>&1 | cat}
+      ~S{REAL_PATH="$PATH"; export REAL_PATH; d=$(cygpath -u "$1" 2>/dev/null || printf '%s' "$1"); PATH="$d:$PATH"; export PATH; shift; set -o pipefail; bash "$@" 2>&1 | cat}
 
     env =
       [
+        {"STUB_BARRIER", Path.join(state, "barrier")},
+        {"STUB_LOG", Path.join(state, "calls.log")},
         {"TEST_PARALLEL_N", "3"},
         {"TEST_POOL_SIZE", "6"},
         {"TEST_PARALLEL_PARTITION_TIMEOUT_S", "2"},
@@ -353,6 +448,144 @@ defmodule Letflow.Scripts.TestParallelWatchdogDiagTest do
         assert Enum.any?(mine, &(&1 =~ "P#{n}-200000-"))
         assert "#{pfx(n)}approx tests finished: 4" in mine
       end
+    end)
+  end
+
+  # ---------------------------------------------------------------------------------
+  # RC-E (Q-1087 / GH #2448): DIAG blocks of simultaneously firing watchdogs must reach
+  # stderr as uninterleaved units. See the comment above test_parallel_diag_emit in
+  # scripts/test_parallel.sh.
+  # ---------------------------------------------------------------------------------
+
+  # Mirrors the lock-loop bound of test_parallel_diag_emit in scripts/test_parallel.sh.
+  @lock_tries 30
+  # test_parallel_diag_emit is called for 3 partition blocks AND the one host block.
+  @emits 4
+
+  defp shim_lines(%{t: t}, tmp) do
+    case File.read(Path.join([tmp, "attempt-#{t}", "shimstate", "calls.log"])) do
+      {:ok, s} -> String.split(s, ~r/\r?\n/, trim: true)
+      _ -> []
+    end
+  end
+
+  # the script's own tmp dir of the LAST attempt (preserved: the run exits non-zero)
+  defp preserved_tmp_dirs(%{t: t}, tmp),
+    do: Path.wildcard(Path.join([tmp, "attempt-#{t}", "tp_tmp", "letflow_test_parallel.*"]))
+
+  defp approx4_premise?(out), do: length(Regex.scan(~r/approx tests finished: 4\b/, out)) >= 3
+
+  defp assert_blocks_intact(out) do
+    all = lines(out)
+
+    for l <- all do
+      assert length(String.split(l, "test_parallel: DIAG")) <= 2,
+             "two DIAG fragments on one physical line (mid-line interleave): #{inspect(l)}"
+    end
+
+    indexed = Enum.with_index(all)
+
+    for n <- 1..3 do
+      idx = for {l, i} <- indexed, String.starts_with?(l, pfx(n)), do: i
+      assert length(idx) == 43, "partition #{n}: expected 43 DIAG lines, got #{length(idx)}"
+
+      assert idx == Enum.to_list(hd(idx)..List.last(idx)//1),
+             "partition #{n}: DIAG block is not one contiguous run (foreign line inside)"
+
+      mine = Enum.map(idx, &Enum.at(all, &1))
+      assert hd(mine) =~ "last 40 lines of"
+      assert List.last(mine) =~ ~r/running for \d+s of TEST_PARALLEL_PARTITION_TIMEOUT_S=\d+s$/
+      cap = String.length(pfx(n)) + @indent + 300
+
+      for l <- mine do
+        assert String.length(l) <= cap + 1, "DIAG line wider than cap: #{inspect(l)}"
+      end
+    end
+
+    host = for {l, i} <- indexed, String.starts_with?(l, "test_parallel: DIAG host: "), do: i
+    assert host != [], "no host block"
+
+    assert host == Enum.to_list(hd(host)..List.last(host)//1),
+           "host block is not one contiguous run"
+  end
+
+  test "RC-E forced concurrency: each DIAG block is one uninterleaved unit", %{tmp_dir: tmp} do
+    # the sed shim re-emits every partition block in 1000-byte chunks in lock-step across
+    # the three partitions: an emitter that streams sed straight onto the shared stderr is
+    # cut mid-line and adjacent to foreign text on every run
+    res = run_until_premise(tmp, "huge", [{"STUB_SED_CHUNK", "1000"}], &approx4_premise?/1)
+
+    TestParallelCapture.with_context(tmp, res.out, fn ->
+      refute res.status == :timeout, "script did not return within #{res.limit} ms"
+      assert res.status == 1, res.out
+
+      # non-vacuity: the shim really ran for all three partitions (first chunk of each)
+      barrier = Path.join([tmp, "attempt-#{res.t}", "shimstate", "barrier", "*.1"])
+      assert length(Path.wildcard(barrier)) >= 3, "sed shim not exercised"
+
+      assert_blocks_intact(res.out)
+    end)
+  end
+
+  test "RC-E stale emit lock: bounded fall-through, blocks intact, nothing leaked",
+       %{tmp_dir: tmp} do
+    res =
+      run_until_premise(
+        tmp,
+        "huge",
+        [{"STUB_LOCK_DENY", "1"}, {"STUB_LOG_RMDIR", "1"}],
+        &approx4_premise?/1
+      )
+
+    TestParallelCapture.with_context(tmp, res.out, fn ->
+      # NO extra wall-clock bound beyond the run limit: 30 shim forks per emit are slow
+      # on git-bash
+      refute res.status == :timeout, "script did not return within #{res.limit} ms"
+      assert res.status == 1, res.out
+      assert_blocks_intact(res.out)
+
+      lines = shim_lines(res, tmp)
+      denied = Enum.count(lines, &(&1 == "mkdir-denied"))
+      assert denied == @emits * @lock_tries, "mkdir-denied #{denied}"
+
+      # a fall-through emitter never took the lock, so it must not remove it: a
+      # non-owner rmdir would break exclusion for the emitter that does hold it
+      rmdirs = Enum.filter(lines, &String.starts_with?(&1, "rmdir "))
+      assert rmdirs == [], "fall-through removed a lock it never took: #{inspect(rmdirs)}"
+    end)
+  end
+
+  test "RC-E lock released and block files removed after every emit", %{tmp_dir: tmp} do
+    res = run_until_premise(tmp, "huge", [{"STUB_LOG_RMDIR", "1"}], &approx4_premise?/1)
+
+    TestParallelCapture.with_context(tmp, res.out, fn ->
+      assert res.status == 1, res.out
+      rmdirs = Enum.filter(shim_lines(res, tmp), &String.starts_with?(&1, "rmdir "))
+      assert length(rmdirs) == @emits, inspect(rmdirs)
+
+      dirs = preserved_tmp_dirs(res, tmp)
+      assert dirs != [], "exit 1 must preserve the script tmp dir"
+
+      for d <- dirs do
+        assert Path.wildcard(Path.join(d, "diag-block-*.txt")) == []
+        assert Path.wildcard(Path.join(d, "diag-host-block.txt")) == []
+        refute File.exists?(Path.join(d, "diag-emit.lock")), "diag-emit.lock left behind"
+      end
+    end)
+  end
+
+  test "RC-E every block is emitted by ONE cat of a block file", %{tmp_dir: tmp} do
+    # a variable + printf (stdio splits > 4 KB into several writes), `echo "$(cat f)"` or
+    # a while-read re-emission never invoke `cat -- <block file>`
+    res = run_until_premise(tmp, "huge", [{"STUB_LOG_CAT", "1"}], &approx4_premise?/1)
+
+    TestParallelCapture.with_context(tmp, res.out, fn ->
+      assert res.status == 1, res.out
+      cats = shim_lines(res, tmp)
+      part = Enum.count(cats, &(&1 =~ ~r{^cat -- \S*diag-block-[123]\.txt$}))
+      host = Enum.count(cats, &(&1 =~ ~r{^cat -- \S*diag-host-block\.txt$}))
+      assert part == 3, inspect(cats)
+      assert host == 1, inspect(cats)
     end)
   end
 end
