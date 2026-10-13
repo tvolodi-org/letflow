@@ -1382,9 +1382,11 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
   # dropped on exit, including when the request raises.
   defp with_tenant_schema_insert_failing(fun) do
     # ExUnit runs on_exit callbacks last-registered first. The order is: the trigger drop (registered last), then
-    # the restore to :manual (registered here), then cleanup_slug_on_exit/1 and the fixture teardown, which set
-    # :auto themselves, as they did before this PR. So the pool ends in :auto, the same as the existing convention
-    # (test/support/tenant_fixture.ex). The mode is set through the helper, not inline: Sandbox.mode/2 is pool-wide.
+    # the restore to :manual (registered here), then cleanup_slug_on_exit/1 and drop_tenant_rows!/1, which each set
+    # :auto, and the fixture's provisioned_tenant! (test/support/tenant_fixture.ex:243), entered in setup and not
+    # restored (tenant_fixture.ex:192). So the pool ends in :auto. This departs from the restore-last rule documented
+    # in test/support/sandbox_auto_mode.ex, deliberately: the cleanups need :auto, as they did before this PR. The
+    # mode is set through the helper, not inline: Sandbox.mode/2 is pool-wide.
     on_exit(fn -> Letflow.Test.SandboxAutoMode.exit_auto_mode!(Letflow.Repo) end)
     Letflow.Test.SandboxAutoMode.enter_auto_mode!(Letflow.Repo)
 
