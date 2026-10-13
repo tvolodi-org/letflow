@@ -40,24 +40,24 @@ acceptance_criteria:
   - "The follow-up requirement for wizard-driven realm/admin creation (item 4) is filed by the BA after the user's decision; it is NOT built here"
   # ACs 6-8 are copied verbatim from the BA amendment comment
   # https://github.com/tvolodi/letflow/issues/2312#issuecomment-6031770847 (the BA does not edit local issue files).
-  - >
-    6. Pending administrator grant.
-    Storage: a NEW table in the tenant schema (not a column on `tenants`).
-    Content: the grant is TENANT_ADMIN only, never a broader role.
-    Creation: ONLY by the onboarding call (v1), from the optional `admin_email`. The e-mail is normalised by trim + lower-case only, nothing else.
-    `admin_email` is optional. When it is absent the onboarding response says plainly that the tenant has no administrator, and names the next step (the manual runbook).
-  - >
-    7. Binding.
-    A pending grant binds only on a VERIFIED e-mail claim (`email_verified=true`), never via `preferred_username`, and only through the tenant's own realm.
-    It binds exactly once, and the binding is audited with the creator of the grant.
-    Realms that cannot supply `email_verified` need an optional per-realm setting: operator-set, default OFF, server-side only (no client or tenant-admin control).
-    The login response is byte-identical with or without a pending grant (no information leak).
-    No TTL. The operator can list pending grants with the grant AGE.
-  - >
-    8. Visibility, delivery.
-    A TENANT_ADMIN of the tenant may READ its pending grants. Alternatively v1 is operator-only with the tenant-admin read filed as a follow-up: letflow-4 decides in the design and records which.
-    Delivery is in two PRs (letflow-4 decides the split in the design).
-    Tests cover: unverified e-mail does not bind; `preferred_username` equal to the e-mail does not bind; second login does not re-bind; response identical with/without a grant; per-realm setting default off; admin_email absent message; audit row carries the creator.
+  - |
+    6. **Pending administrator grant.**
+       - Storage: a NEW table in the tenant schema (not a column on `tenants`).
+       - Content: the grant is TENANT_ADMIN only, never a broader role.
+       - Creation: ONLY by the onboarding call (v1), from the optional `admin_email`. The e-mail is normalised by trim + lower-case only, nothing else.
+       - `admin_email` is optional. When it is absent the onboarding response says plainly that the tenant has no administrator, and names the next step (the manual runbook).
+  - |
+    7. **Binding.**
+       - A pending grant binds only on a VERIFIED e-mail claim (`email_verified=true`), never via `preferred_username`, and only through the tenant's own realm.
+       - It binds exactly once, and the binding is audited with the creator of the grant.
+       - Realms that cannot supply `email_verified` need an optional per-realm setting: operator-set, default OFF, server-side only (no client or tenant-admin control).
+       - The login response is byte-identical with or without a pending grant (no information leak).
+       - No TTL. The operator can list pending grants with the grant AGE.
+  - |
+    8. **Visibility, delivery.**
+       - A TENANT_ADMIN of the tenant may READ its pending grants. Alternatively v1 is operator-only with the tenant-admin read filed as a follow-up: letflow-4 decides in the design and records which.
+       - Delivery is in two PRs (letflow-4 decides the split in the design).
+       - Tests cover: unverified e-mail does not bind; `preferred_username` equal to the e-mail does not bind; second login does not re-bind; response identical with/without a grant; per-realm setting default off; admin_email absent message; audit row carries the creator.
 affected_files:
   - lib/letflow/routers/onboarding.ex
   - lib/letflow/identity.ex
@@ -70,15 +70,43 @@ affected_files:
   - docs/runbooks/onboarding-new-tenant-realm.md
   - docs/issues/ISS-1030.yaml
   - lib/letflow/design/iss1030-onboarding-administrator.md
+  # PR 2
+  - priv/repo/migrations/20261008000001_create_pending_tenant_admin_grants.exs
+  - lib/letflow/tenant_provisioning.ex
+  - lib/letflow/identity/pending_admin_grant.ex
+  - lib/letflow/identity/pending_admin_grants.ex
+  - lib/letflow/identity/pending_admin_grants/fault_throttle.ex
+  - lib/letflow/supervisor/infrastructure.ex
+  - lib/letflow/oidc/identity_context.ex
+  - lib/letflow/oidc/claim_mapping.ex
+  - lib/letflow/oidc/jit_provisioning_config.ex
+  - config/runtime.exs
+  - lib/letflow/plugs/auth_pipeline.ex
+  - lib/letflow/routers/identity.ex
+  - docs/migration/decisions/0048-pending-tenant-admin-grant.md
+  - lib/letflow/design/req447-infra-realm-mapping.md
   - web/src/api/onboarding.ts
   - web/src/pages/admin/onboarding/RegisterTenantPage.tsx
   - web/src/pages/admin/onboarding/OnboardingResultPage.tsx
+# Regression tests for ACs 6-8 (PR 2): written by TEST-DESIGNER per design section 10.2.
+regression_test: test/letflow/identity/pending_admin_binding_test.exs
 queue_ref: Q-1012
 github_ref: GH-2312
-status: open
+status: resolved
+resolved_in_run: WF03-ISS1030-Q1012-20261008
+resolved_at: "2026-10-13T13:45:00Z"
+resolution: >
+  PR 1 (ACs 1-5): POST /onboarding no longer drops the administrator fields (administrator,
+  ignored_fields, login in the 201 body), an optional validated idp_realm_id and the bind-once
+  POST /onboarding/:id/bind-realm, and the runbook. PR 2 (ACs 6-8): a tenant-schema table
+  pending_tenant_admin_grants (TENANT_ADMIN only, by CHECK); admin_email at onboarding is stored
+  as a pending grant; the grant binds at the first login through the tenant's own realm on a
+  verified e-mail claim (or the operator-set per-realm setting, default OFF), exactly once, in one
+  transaction with a tenant-chain entry (NIL actor) and a platform-chain entry (operator id); the
+  operator list with AGE and revoke routes; the tenant-admin read route. Decision 0048.
 follow_ups:
   - "Wizard-driven realm and user creation (BA item 4): awaiting the platform owner's decision; NOT built."
   - "Tenant-admin revoke of a pending grant."
   - "Re-creation (replacement) of a pending grant after a typo."
   - "A platform-wide sweep of pending grants across all tenants."
-  - "Q-1032 / GH #2351: patch_tenant_with_audit writes the operator's user id into the tenant audit chain; fix with the tenant-chain/platform-chain split of design section 7a (separate small PR)."
+  - "Q-1032 / GH #2351 (patch_tenant_with_audit wrote the operator's user id into the tenant audit chain): DONE, merged as a separate PR (9a8aa7ca), same split as design section 7a."

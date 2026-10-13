@@ -25,13 +25,23 @@ defmodule Letflow.Oidc.JitProvisioningConfig do
   """
 
   @enforce_keys [:realm, :enabled, :default_status, :default_roles]
-  defstruct [:realm, :enabled, :default_status, :default_roles]
+  defstruct [
+    :realm,
+    :enabled,
+    :default_status,
+    :default_roles,
+    # ISS-1030: operator-set, server-side only, default OFF. When true, an
+    # e-mail claim WITHOUT `email_verified=true` may bind a pending
+    # administrator grant. Never read from a tenant setting, a claim or a request.
+    accept_unverified_email_for_admin_bind: false
+  ]
 
   @type t :: %__MODULE__{
           realm: String.t(),
           enabled: boolean(),
           default_status: :active | :inactive,
-          default_roles: [String.t()]
+          default_roles: [String.t()],
+          accept_unverified_email_for_admin_bind: boolean()
         }
 
   @doc """
@@ -39,22 +49,37 @@ defmodule Letflow.Oidc.JitProvisioningConfig do
   `JitProvisioningConfig` built from that realm's configured
   `enabled`/`default_status`/`default_roles` entry if present, otherwise falls
   back to `default/1`.
+
+  ISS-1030: `accept_unverified_email_for_admin_bind` is true only for a realm
+  named in `config :letflow, :oidc_admin_bind_unverified_realms`, which
+  `config/runtime.exs` fills from `LETFLOW_OIDC_ADMIN_BIND_UNVERIFIED_REALMS`
+  (restart to change). No other source can set it.
   """
   @spec for_realm(realm :: String.t()) :: t()
   def for_realm(realm) when is_binary(realm) do
     config_by_realm = Application.fetch_env!(:letflow, :oidc_jit_provisioning)
 
-    case Map.fetch(config_by_realm, realm) do
-      {:ok, entry} ->
-        %__MODULE__{
-          realm: realm,
-          enabled: entry.enabled,
-          default_status: entry.default_status,
-          default_roles: entry.default_roles
-        }
+    base =
+      case Map.fetch(config_by_realm, realm) do
+        {:ok, entry} ->
+          %__MODULE__{
+            realm: realm,
+            enabled: entry.enabled,
+            default_status: entry.default_status,
+            default_roles: entry.default_roles
+          }
 
-      :error ->
-        default(realm)
+        :error ->
+          default(realm)
+      end
+
+    %{base | accept_unverified_email_for_admin_bind: unverified_bind_realm?(realm)}
+  end
+
+  defp unverified_bind_realm?(realm) do
+    case Application.get_env(:letflow, :oidc_admin_bind_unverified_realms, []) do
+      realms when is_list(realms) -> realm in realms
+      _other -> false
     end
   end
 
@@ -75,7 +100,8 @@ defmodule Letflow.Oidc.JitProvisioningConfig do
       realm: realm,
       enabled: true,
       default_status: :active,
-      default_roles: []
+      default_roles: [],
+      accept_unverified_email_for_admin_bind: false
     }
   end
 

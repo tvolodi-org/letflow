@@ -131,7 +131,7 @@ describe('RegisterTenantPage ISS-1030', () => {
     const user = userEvent.setup()
     renderRegister()
     await fillRequired(user)
-    await user.type(screen.getByLabelText(/Admin Username/), '   ')
+    await user.type(screen.getByLabelText(/Admin Email/), '   ')
     // whitespace-only realm: the field is typed into, then must be omitted, not sent as ''
     await user.type(screen.getByLabelText(/Identity Realm ID/), '   ')
     await submit(user)
@@ -141,6 +141,33 @@ describe('RegisterTenantPage ISS-1030', () => {
       expect(Object.prototype.hasOwnProperty.call(body, key)).toBe(false)
     }
     expect(body['slug']).toBe('newco')
+  })
+})
+
+describe('RegisterTenantPage ISS-1030 PR 2 form', () => {
+  it('has no admin_username or admin_display_name input and shows the admin_email hint', () => {
+    renderRegister()
+    expect(screen.queryByLabelText(/Admin Username/)).toBeNull()
+    expect(screen.queryByLabelText(/Admin Display Name/)).toBeNull()
+    expect(document.getElementById('admin_username')).toBeNull()
+    expect(document.getElementById('admin_display_name')).toBeNull()
+    const email = screen.getByLabelText('Admin Email (optional)')
+    expect(email).toHaveAccessibleDescription(
+      "Stored as a pending TENANT_ADMIN. The person becomes the active administrator at their first sign-in with this e-mail VERIFIED through the tenant's realm.",
+    )
+  })
+
+  it('sends admin_email trimmed and never the removed admin fields', async () => {
+    postWithHeaders.mockResolvedValue(RECORD)
+    const user = userEvent.setup()
+    renderRegister()
+    await fillRequired(user)
+    await user.type(screen.getByLabelText(/Admin Email/), '  boss@newco.example.com ')
+    await submit(user)
+    await waitFor(() => expect(postWithHeaders).toHaveBeenCalledTimes(1))
+    const body = postWithHeaders.mock.calls[0]![1] as Record<string, unknown>
+    expect(Object.keys(body).sort()).toEqual(['admin_email', 'display_name', 'hostname', 'slug'])
+    expect(body['admin_email']).toBe('boss@newco.example.com')
   })
 })
 
@@ -199,6 +226,72 @@ describe('OnboardingResultPage ISS-1030', () => {
     expect(screen.getByText('admin_email')).toBeInTheDocument()
     expect(screen.getByText('client_config')).toBeInTheDocument()
     expect(screen.getByText('redirect_uris')).toBeInTheDocument()
+  })
+
+  it('state pending shows the headline, the grant id and the server message and steps as text', () => {
+    renderResult({
+      ...BASE,
+      administrator: {
+        state: 'pending',
+        grant_id: 'grant-123',
+        message: 'The named administrator is stored as a pending TENANT_ADMIN.',
+        not_provisioned: [],
+        next_steps: ['Ask the person to sign in.'],
+      },
+    })
+    expect(screen.getByTestId('administrator-state')).toHaveTextContent(
+      'Administrator pending: becomes active at first sign-in',
+    )
+    expect(screen.getByText('grant-123')).toBeInTheDocument()
+    expect(
+      screen.getByText('The named administrator is stored as a pending TENANT_ADMIN.'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Ask the person to sign in.')).toBeInTheDocument()
+  })
+
+  it('state not_stored says the administrator was NOT stored', () => {
+    renderResult({
+      ...BASE,
+      administrator: {
+        state: 'not_stored',
+        message: 'The administrator could not be stored.',
+        not_provisioned: [{ field: 'admin_email', value: 'boss@newco.example.com' }],
+        next_steps: ['Follow the runbook.'],
+      },
+    })
+    expect(screen.getByTestId('administrator-state')).toHaveTextContent('Administrator NOT stored')
+    expect(screen.queryByText(/Grant ID/)).toBeNull()
+    expect(screen.getByText('The administrator could not be stored.')).toBeInTheDocument()
+    expect(screen.getByText('boss@newco.example.com', { exact: false })).toBeInTheDocument()
+  })
+
+  it('state none says there is no administrator', () => {
+    renderResult({
+      ...BASE,
+      administrator: {
+        state: 'none',
+        message: 'This tenant has no administrator.',
+        not_provisioned: [],
+        next_steps: [],
+      },
+    })
+    expect(screen.getByTestId('administrator-state')).toHaveTextContent('No administrator set up')
+    expect(screen.getByText('This tenant has no administrator.')).toBeInTheDocument()
+  })
+
+  it('a pending grant id and message with markup are text, never HTML', () => {
+    const payload = '<b onclick=alert(1)>x</b>'
+    renderResult({
+      ...BASE,
+      administrator: {
+        state: 'pending',
+        grant_id: payload,
+        message: payload,
+        not_provisioned: [],
+        next_steps: [],
+      },
+    })
+    expect(document.querySelector('b')).toBeNull()
   })
 
   it('bind-realm posts the trimmed realm and switches the view to loginable', async () => {

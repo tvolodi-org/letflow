@@ -36,6 +36,10 @@ defmodule Letflow.Supervisor.InfrastructureTest do
   `Letflow.LoginDiscovery.TaskSupervisor` directly before
   `Letflow.Obs.Alerts.TaskSupervisor`, bringing the live list from 21 to 22.
 
+  ISS-1030 PR 2 (design `iss1030-onboarding-administrator.md` s7 step 11, OQ-16) added
+  `Letflow.Identity.PendingAdminGrants.FaultThrottle` directly after
+  `Letflow.Plugs.LoginDiscoveryRateLimit.Bucket`, bringing the live list from 22 to 23.
+
   Read-only against the already-running, application-supervised singletons
   -- no restart, no config mutation, safe to run `async: true`.
 
@@ -71,7 +75,7 @@ defmodule Letflow.Supervisor.InfrastructureTest do
     refute Letflow.Scheduler.Poller in ids
   end
 
-  test "Letflow.Supervisor.Infrastructure owns the 22 expected children, in order" do
+  test "Letflow.Supervisor.Infrastructure owns the 23 expected children, in order" do
     children = Supervisor.which_children(Letflow.Supervisor.Infrastructure)
 
     ids =
@@ -97,6 +101,9 @@ defmodule Letflow.Supervisor.InfrastructureTest do
              Letflow.Plugs.PublicReadRateLimit.Bucket,
              # REQ-436: sibling leaf bucket for Letflow.Plugs.LoginDiscoveryRateLimit.
              Letflow.Plugs.LoginDiscoveryRateLimit.Bucket,
+             # ISS-1030 PR 2: once-per-tenant-per-hour throttle for the pending-admin
+             # bind's fault warning. A leaf with no ordering dependency.
+             Letflow.Identity.PendingAdminGrants.FaultThrottle,
              Letflow.Admission,
              Letflow.InstanceSupervisor,
              Letflow.SandboxPool.TaskSupervisor,
@@ -123,7 +130,7 @@ defmodule Letflow.Supervisor.InfrastructureTest do
              Letflow.Obs.Alerts.TaskSupervisor
            ]
 
-    assert length(ids) == 22
+    assert length(ids) == 23
   end
 
   test "ISS-0224: SandboxPool.TaskSupervisor precedes SandboxPool" do

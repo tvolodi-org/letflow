@@ -14,8 +14,6 @@ export interface OnboardingFormValues {
   display_name: string
   /** Optional (ISS-1030): blank after trim is omitted from the request. */
   admin_email?: string
-  admin_username?: string
-  admin_display_name?: string
   hostname: string
   /** Optional (ISS-1030): blank after trim is omitted from the request. */
   idp_realm_id?: string
@@ -24,10 +22,8 @@ export interface OnboardingFormValues {
 export interface OnboardingSubmitRequest {
   slug: string
   display_name: string
-  // ISS-1030: these four are OMITTED (never sent as '' or null) when blank.
+  // ISS-1030: these two are OMITTED (never sent as '' or null) when blank.
   admin_email?: string
-  admin_username?: string
-  admin_display_name?: string
   idp_realm_id?: string
   hostname: string
 }
@@ -53,8 +49,22 @@ export interface OnboardingAdministratorField {
   value?: string
 }
 
+/**
+ * `none`: no administrator e-mail was sent; `pending`: the e-mail is stored as
+ * a pending TENANT_ADMIN grant (`grant_id` present); `not_stored`: the e-mail
+ * was sent but the grant could not be stored; `not_provisioned`: legacy state
+ * of the first PR, still rendered when received.
+ */
+export type OnboardingAdministratorState =
+  | 'none'
+  | 'pending'
+  | 'not_stored'
+  | 'not_provisioned'
+
 export interface OnboardingAdministrator {
-  state: string
+  state: OnboardingAdministratorState
+  /** Present only when `state` is `pending`. */
+  grant_id?: string
   message: string
   not_provisioned: OnboardingAdministratorField[]
   next_steps: string[]
@@ -139,16 +149,12 @@ export async function submitOnboarding(
   idempotencyKey: string,
 ): Promise<OnboardingRecord> {
   const adminEmail = nonBlank(formValues.admin_email)
-  const adminUsername = nonBlank(formValues.admin_username)
-  const adminDisplayName = nonBlank(formValues.admin_display_name)
   const realmId = nonBlank(formValues.idp_realm_id)
 
   const body: OnboardingSubmitRequest = {
     slug: formValues.slug,
     display_name: formValues.display_name,
     ...(adminEmail ? { admin_email: adminEmail } : {}),
-    ...(adminUsername ? { admin_username: adminUsername } : {}),
-    ...(adminDisplayName ? { admin_display_name: adminDisplayName } : {}),
     ...(realmId ? { idp_realm_id: realmId } : {}),
     hostname: formValues.hostname,
   }

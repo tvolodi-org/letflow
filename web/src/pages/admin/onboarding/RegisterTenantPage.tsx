@@ -22,8 +22,6 @@ interface FormState {
   slug: string
   display_name: string
   admin_email: string
-  admin_username: string
-  admin_display_name: string
   hostname: string
   idp_realm_id: string
 }
@@ -32,8 +30,6 @@ interface FormErrors {
   slug?: string
   display_name?: string
   admin_email?: string
-  admin_username?: string
-  admin_display_name?: string
   hostname?: string
   idp_realm_id?: string
 }
@@ -54,8 +50,6 @@ const EMPTY_FORM: FormState = {
   slug: '',
   display_name: '',
   admin_email: '',
-  admin_username: '',
-  admin_display_name: '',
   hostname: '',
   idp_realm_id: '',
 }
@@ -77,8 +71,7 @@ function validateForm(form: FormState): FormErrors {
     errors.display_name = 'Display name is required'
   }
 
-  // ISS-1030: the admin fields are optional (the platform does not provision
-  // an administrator yet); a filled email must still look like an address.
+  // ISS-1030: the admin e-mail is optional; a filled one must look like an address.
   const adminEmail = form.admin_email.trim()
   if (adminEmail && (!adminEmail.includes('@') || adminEmail.split('@')[1]?.length === 0)) {
     errors.admin_email = 'Enter a valid email address'
@@ -244,8 +237,6 @@ export default function RegisterTenantPage() {
       slug: form.slug.trim(),
       display_name: form.display_name.trim(),
       admin_email: form.admin_email.trim(),
-      admin_username: form.admin_username.trim(),
-      admin_display_name: form.admin_display_name.trim(),
       hostname: form.hostname.trim(),
       idp_realm_id: form.idp_realm_id.trim(),
     }
@@ -323,8 +314,8 @@ export default function RegisterTenantPage() {
             color: 'var(--text-secondary)',
           }}
         >
-          Administrator details are optional and not provisioned by the platform yet: they are
-          not used to create a user. The tenant cannot be logged into until a realm is bound.
+          The administrator e-mail is optional. The tenant cannot be logged into until a realm is
+          bound.
         </p>
 
         {/* Admin email */}
@@ -337,34 +328,17 @@ export default function RegisterTenantPage() {
             value={form.admin_email}
             onChange={(e) => setField('admin_email', e.target.value)}
             autoComplete="off"
+            aria-describedby="admin_email_hint"
           />
+          <div
+            id="admin_email_hint"
+            style={{ fontSize: '.8rem', color: 'var(--text-secondary)', marginTop: '.2rem' }}
+          >
+            Stored as a pending TENANT_ADMIN. The person becomes the active administrator at
+            their first sign-in with this e-mail VERIFIED through the tenant&apos;s realm.
+          </div>
           {errors.admin_email && <div style={errorStyle}>{errors.admin_email}</div>}
           {apiError?.adminEmailError && <div style={errorStyle}>{apiError.adminEmailError}</div>}
-        </div>
-
-        {/* Admin username */}
-        <div style={fieldGroupStyle}>
-          <label style={labelStyle} htmlFor="admin_username">Admin Username (optional)</label>
-          <input
-            id="admin_username"
-            style={{ ...inputStyle, borderColor: errors.admin_username ? 'var(--border-error)' : 'var(--border-default)' }}
-            value={form.admin_username}
-            onChange={(e) => setField('admin_username', e.target.value)}
-            autoComplete="off"
-          />
-          {errors.admin_username && <div style={errorStyle}>{errors.admin_username}</div>}
-        </div>
-
-        {/* Admin display name */}
-        <div style={fieldGroupStyle}>
-          <label style={labelStyle} htmlFor="admin_display_name">Admin Display Name (optional)</label>
-          <input
-            id="admin_display_name"
-            style={{ ...inputStyle, borderColor: errors.admin_display_name ? 'var(--border-error)' : 'var(--border-default)' }}
-            value={form.admin_display_name}
-            onChange={(e) => setField('admin_display_name', e.target.value)}
-          />
-          {errors.admin_display_name && <div style={errorStyle}>{errors.admin_display_name}</div>}
         </div>
 
         {/* Hostname */}

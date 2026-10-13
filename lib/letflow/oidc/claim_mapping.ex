@@ -98,7 +98,11 @@ defmodule Letflow.Oidc.ClaimMapping do
          email: resolve_optional_string_claim(claims, config.email_claim, ""),
          preferred_username:
            resolve_optional_string_claim(claims, config.preferred_username_claim, subject),
-         display_name: resolve_optional_string_claim(claims, config.display_name_claim, nil)
+         display_name: resolve_optional_string_claim(claims, config.display_name_claim, nil),
+         # ISS-1030: strict equality with the JSON boolean `true`; the string
+         # "true", 1, a missing claim and any other value are all `false`.
+         # The claim name is fixed, not configurable.
+         email_verified: Map.get(claims, "email_verified") == true
        }}
     end
   end
