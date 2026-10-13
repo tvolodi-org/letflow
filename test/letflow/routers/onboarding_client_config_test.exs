@@ -1,17 +1,16 @@
 defmodule Letflow.Routers.OnboardingClientConfigTest do
   @moduledoc """
-  ISS-1088 / GH #2450 -- `POST /api/v1/onboarding` must not drop `client_config` and
-  `realm_config` silently. The wizard sends both (web/src/api/onboarding.ts); main keeps
-  only `slug` and `display_name` (`Map.take`, lib/letflow/routers/onboarding.ex) and the
-  response says nothing about either key.
+  Q-1088 / GH #2450 -- `POST /api/v1/onboarding` must not drop `client_config` and `realm_config` silently.
+  The wizard sends both (web/src/api/onboarding.ts). On main, `ignored_fields` names both keys, but the
+  response says nothing about where they went: `Map.take` keeps only `slug` and `display_name`
+  (lib/letflow/routers/onboarding.ex).
 
-  The assertions here are design-neutral: whatever the decision (store and apply, store
-  without applying, or stop sending), the 201 response must say, for each key, where it
-  went. The decision itself is recorded in the spec before the disposition values are
-  pinned; these tests check the shape only.
+  Tests 1 and 2 pin the decision recorded in test/specs/Q-1088-prefix-run.txt (option A): each key the
+  request carries gets a disposition, and nothing is stored or applied. Tests 3 and 4 are design-neutral:
+  they hold for any decision that keeps `ignored_fields` and echoes no client value.
 
-  `async: false`: tenant provisioning flips the SQL sandbox to `:auto`, and the platform
-  tenant pin is VM-global.
+  `async: false`: tenant provisioning flips the SQL sandbox to `:auto`, and the platform tenant pin is
+  VM-global.
   """
 
   use Letflow.DataCase, async: false
@@ -46,36 +45,41 @@ defmodule Letflow.Routers.OnboardingClientConfigTest do
     Map.merge(
       %{
         "slug" => TenantSlugFixture.unique_slug("iss1088"),
-        "display_name" => "ISS-1088 Tenant",
+        "display_name" => "Q-1088 Tenant",
         "hostname" => "iss1088-#{Ecto.UUID.generate()}.example.com"
       },
       extra
     )
   end
 
-  defp cleanup_onboarded_tenant!(tenant_id) do
+  # The tenant for the slug is looked up at exit, so a request that raises before it returns an id still
+  # leaves nothing behind. The onboarding record goes first (its foreign key points at the tenant).
+  defp cleanup_slug_on_exit(slug) do
     on_exit(fn ->
       Ecto.Adapters.SQL.Sandbox.mode(Letflow.Repo, :auto)
 
-      case TenantProvisioning.schema_name_for_tenant(tenant_id) do
-        {:ok, schema_name} -> Repo.query!(~s(DROP SCHEMA IF EXISTS "#{schema_name}" CASCADE))
-        {:error, :invalid_tenant_id} -> :ok
+      case Repo.get_by(Tenant, slug: slug) do
+        %Tenant{id: tenant_id} -> drop_tenant_rows!(tenant_id)
+        nil -> :ok
       end
-
-      Repo.delete_all(from(o in OnboardingRecord, where: o.tenant_id == ^tenant_id))
-      Repo.delete_all(from(r in Registration, where: r.tenant_id == ^tenant_id))
-      Repo.delete_all(from(t in Tenant, where: t.id == ^tenant_id))
     end)
   end
 
-  # The request's tenant is removed at exit, whatever the assertions do.
+  defp drop_tenant_rows!(tenant_id) do
+    case TenantProvisioning.schema_name_for_tenant(tenant_id) do
+      {:ok, schema_name} -> Repo.query!(~s(DROP SCHEMA IF EXISTS "#{schema_name}" CASCADE))
+      {:error, :invalid_tenant_id} -> :ok
+    end
+
+    Repo.delete_all(from(o in OnboardingRecord, where: o.tenant_id == ^tenant_id))
+    Repo.delete_all(from(r in Registration, where: r.tenant_id == ^tenant_id))
+    Repo.delete_all(from(t in Tenant, where: t.id == ^tenant_id))
+  end
+
   defp post_onboarding(ctx, extra) do
     body = new_body(extra)
-    conn = call(ctx, :post, "/api/v1/onboarding", body)
-
-    if tenant = Repo.get_by(Tenant, slug: body["slug"]), do: cleanup_onboarded_tenant!(tenant.id)
-
-    conn
+    cleanup_slug_on_exit(body["slug"])
+    call(ctx, :post, "/api/v1/onboarding", body)
   end
 
   # Pinned to the production text (lib/letflow/routers/onboarding.ex, @not_stored_next). A change to the wording
@@ -90,7 +94,7 @@ defmodule Letflow.Routers.OnboardingClientConfigTest do
           "redirect_uris" => ["https://app.example.test/callback"],
           "service_account_enabled" => false
         },
-        "realm_config" => %{"realm_display_name" => "ISS-1088 realm"}
+        "realm_config" => %{"realm_display_name" => "Q-1088 realm"}
       })
 
     assert conn.status == 201, conn.resp_body
@@ -112,20 +116,25 @@ defmodule Letflow.Routers.OnboardingClientConfigTest do
     refute Map.has_key?(body, "realm_config")
   end
 
-  test "POST /onboarding echoes the key names of client_config and realm_config in ignored_fields, never their values",
+  test "POST /onboarding names the keys of client_config and realm_config in ignored_fields and echoes no client value",
        ctx do
     conn =
       post_onboarding(ctx, %{
         "client_config" => %{
-          "redirect_uris" => ["https://zz-iss1088-sentinel.example.test/cb"],
+          "redirect_uris" => ["https://zz-q1088-sentinel.example.test/cb"],
           "service_account_enabled" => true
         },
-        "realm_config" => %{"realm_display_name" => "ZZ-ISS1088-SENTINEL"}
+        "realm_config" => %{"realm_display_name" => "ZZ-Q1088-SENTINEL"}
       })
 
     assert conn.status == 201, conn.resp_body
-    refute conn.resp_body =~ "zz-iss1088-sentinel"
-    refute conn.resp_body =~ "ZZ-ISS1088-SENTINEL"
+
+    # Case-insensitive, and the response headers too: an echo in any case or any header is a leak.
+    refute String.downcase(conn.resp_body) =~ "zz-q1088-sentinel"
+
+    refute Enum.any?(conn.resp_headers, fn {_name, value} ->
+             String.downcase(value) =~ "zz-q1088-sentinel"
+           end)
 
     body = json(conn)
     assert "client_config" in body["ignored_fields"]
