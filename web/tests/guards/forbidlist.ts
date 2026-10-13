@@ -47,8 +47,16 @@ export const PATTERNS: GuardPattern[] = [
     // Catches raw colour literals anywhere in TS/TSX source and the built bundle.
     // web/src/styles/tokens.css is allowedPaths-exempt. Negative lookbehind on rgba?/hsla?
     // prevents matching zero-arg calls from colour-manipulation libraries.
+    //
+    // GH #2451 (Q-1089): an issue reference in a comment ("// Q-1074 / GH #2431", "/* #2440 */",
+    // a JSDoc " * #2432" line) is not a colour. The first two lookbehinds exempt a match that
+    // has a line comment or block-comment opener earlier on the same line, or that sits on a
+    // JSDoc continuation line. Digit-only colours in code ('#000') are still matched: the
+    // exemption needs a comment marker before the token, not a digit-only shape.
+    // Known limit: a colour that follows a '//' inside a string on the same line
+    // (e.g. "url('https://x') + '#000'") is exempted; it is not seen by this pattern.
     name: 'literal-colour',
-    regex: /#[0-9a-fA-F]{3,8}\b|(?<![.a-zA-Z0-9_$])rgba?\([^)]+\)|(?<![.a-zA-Z0-9_$])hsla?\([^)]+\)/,
+    regex: /(?<!(?:\/\/|\/\*)[^\n]*)(?<!(?:^|\n)[ \t]*\*[^\n]*)(?:#[0-9a-fA-F]{3,8}\b|(?<![.a-zA-Z0-9_$])rgba?\([^)]+\)|(?<![.a-zA-Z0-9_$])hsla?\([^)]+\))/,
     appliesTo: 'both',
     allowedPaths: [
       'web/src/styles/tokens.css',

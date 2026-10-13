@@ -2,3 +2,5 @@
   color: var(--text-primary);
   background: var(--surface-page);
 }
+/* GH #2431: an issue reference in a comment is not a colour literal */
+/* (see #2432 and Q-1074 / GH #2440) */
