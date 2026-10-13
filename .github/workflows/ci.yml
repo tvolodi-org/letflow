@@ -262,19 +262,23 @@ jobs:
           # Known gap: no_smtp_secret_guard_test greps the whole tracked tree, so no path list can be
           # complete; the push-to-main always-run rule (ISS-0840) is the backstop.
           BACKEND_PATHS_RE='^(lib/|priv/|test/|config/|mix\.exs|mix\.lock|\.tool-versions|\.formatter\.exs$|\.gitattributes$|\.env\.example$|scripts/.*\.sh$|deploy/|\.github/workflows/|\.claude/agents/uat-runner\.md$|web/\.env|web/vite\.config\.ts$|web/tests/e2e/env04\.e2e\.spec\.ts$|web/tests/e2e/pipelines/onboarding-wizard\.pipeline\.e2e\.spec\.ts$|docs/requirements\.yaml$|docs/issues/[^/]+\.yaml$|docs/status/requirement_status[^/]*\.yaml$|docs/roles\.md$|docs/frontend/x-ui-widget-vocabulary\.md$|docs/migration/stage-7-simulation-uat-parity\.md$|docs/runbooks/|docs/agents/shared/HANDOFF_PROTOCOL\.md$|handoffs/registry\.json$|handoffs/(.*/)?step[^/]*\.[^/]*$)'
-          if echo "$CHANGED" | grep -qE "$BACKEND_PATHS_RE"; then
+          # Q-1110 / GH #2492: match with a here-string, never `echo "$CHANGED" | grep -q`. grep -q exits
+          # on the first match; under `set -o pipefail` the still-writing echo then dies of SIGPIPE on a
+          # large list (> pipe buffer), the pipeline reports 141, `if` takes the else branch and the
+          # gate is silently skipped. test/letflow/ci_backend_path_filter_test.exs fails on the pattern.
+          if grep -qE "$BACKEND_PATHS_RE" <<<"$CHANGED"; then
             echo "backend=true" >> "$GITHUB_OUTPUT"
           else
             echo "backend=false" >> "$GITHUB_OUTPUT"
           fi
 
-          if echo "$CHANGED" | grep -qE '^(web/|\.github/workflows/ci\.yml)'; then
+          if grep -qE '^(web/|\.github/workflows/ci\.yml)' <<<"$CHANGED"; then
             echo "frontend=true" >> "$GITHUB_OUTPUT"
           else
             echo "frontend=false" >> "$GITHUB_OUTPUT"
           fi
 
-          if echo "$CHANGED" | grep -qE '^(apps/mobile/|\.github/workflows/ci\.yml)'; then
+          if grep -qE '^(apps/mobile/|\.github/workflows/ci\.yml)' <<<"$CHANGED"; then
             echo "mobile=true" >> "$GITHUB_OUTPUT"
           else
             echo "mobile=false" >> "$GITHUB_OUTPUT"
