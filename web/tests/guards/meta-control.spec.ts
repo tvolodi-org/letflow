@@ -91,7 +91,7 @@ describe('meta-control: literal-colour exemption (GH #2451)', () => {
     expect(text).not.toContain('web/src/f10.ts')
   })
 
-  it('a bare JSDoc-style line with no opener is not exempt (verbatim " * #NNNN")', () => {
+  it('a bare JSDoc-style line with no opener is not exempt (" * see GH #NNNN")', () => {
     expect(scanLiteralColour(' * see GH #2432').violations).toHaveLength(1)
   })
 
@@ -164,6 +164,12 @@ describe('meta-control: literal-colour exemption (GH #2451)', () => {
     expect(scanLiteralColour('x}/* see GH #2431 */').violations).toHaveLength(0)
   })
 
+  it('line comments after ";", "{" and "}" are openers too: "x;// GH #NNNN" and "{// GH #NNNN" and "x}// GH #NNNN"', () => {
+    expect(scanLiteralColour('x = 1;// see GH #2431').violations).toHaveLength(0)
+    expect(scanLiteralColour('x = {// see GH #2431').violations).toHaveLength(0)
+    expect(scanLiteralColour('x}// see GH #2431').violations).toHaveLength(0)
+  })
+
   it('documented limit: a "//" inside a block comment that closes on the same line hides a later colour', () => {
     expect(scanLiteralColour("/* see // x */ const c = '#fff';").violations).toHaveLength(0)
   })
@@ -218,6 +224,21 @@ describe('meta-control: literal-colour failure message (GH #2451)', () => {
   it('other patterns keep the plain message (no token, no hint)', () => {
     const text = describeViolation({ file: 'web/src/x.ts', line: 3, patternName: 'native-confirm' }, 'window.confirm(', 'web/src/x.ts:3')
     expect(text).toBe('  native-confirm @ web/src/x.ts:3')
+  })
+})
+
+// GH #2451: the source spec must print through summaryText with the source cap. A static check,
+// in the style of the single-source checks below: removing the cap argument would otherwise leave
+// every test green while the message became uncapped.
+describe('meta-control: source scan uses the shared summary cap (GH #2451)', () => {
+  it('source-scan.spec.ts calls summaryText with SOURCE_SUMMARY_LIMIT', () => {
+    const source = readFileSync(join(__dirname, 'source-scan.spec.ts'), 'utf8')
+    expect(source).toMatch(/summaryText\([^)]*SOURCE_SUMMARY_LIMIT\)/)
+  })
+
+  it('bundle-scan.spec.ts does not apply the source cap', () => {
+    const source = readFileSync(join(__dirname, 'bundle-scan.spec.ts'), 'utf8')
+    expect(source).not.toContain('SOURCE_SUMMARY_LIMIT')
   })
 })
 

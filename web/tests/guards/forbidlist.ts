@@ -60,6 +60,9 @@ export const PATTERNS: GuardPattern[] = [
     // selector '* { color: #fff }'), so put issue references after '//' or inside a block comment.
     // A second '/*' between the match and its '*/' closer also refuses the exemption (conservative).
     // Digit-only colours in code ('#000') are still matched.
+    // A match that is followed by another '/*' before its closing '*/' is flagged: the forward check
+    // stops at the next '/*', so a second opener between the match and its closer refuses the
+    // block exemption.
     // Known limits (pinned by meta-control tests):
     //  - a '//' inside a string that follows whitespace, ';', '{' or '}' hides a later colour on
     //    the same line, e.g. "const s = \"a // b\"; const c = '#000';" (no '*/' is involved);
