@@ -169,6 +169,12 @@ defmodule Letflow.Routers.Promotions do
   (R5/R6/R7/R8 re-check) goes through `Letflow.Api.TenantTarget.authorize_target_tenant/2`
   BEFORE any lookup: a foreign id is the same 404 as a nonexistent one.
 
+  The READ routes (`GET /:id`, `GET /:id/context`, `GET /`) use a separate,
+  party-based predicate (`review_read_access/2`, ISS-1029): a caller whose
+  tenant is the stored source OR target keeps the own-side view, a non-party
+  non-operator gets the nonexistent-id 404 (the list omits the row). The write
+  routes keep the strict both-sides predicate.
+
   ## The allowlist statement (design §7, AC6)
 
   Every response body below is a hand-built map with exactly the key set
