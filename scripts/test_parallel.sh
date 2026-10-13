@@ -810,10 +810,11 @@ test_parallel_diag_run() {
 # Never replace the cat by printf of a variable: bash printf goes through stdio and
 # splits a > 4 KB string into several writes (measured mid-line cuts).
 #
-# Bounded and never blocking: 30 tries x 0.1 s (an iteration count, not wall clock:
+# Bounded, never waiting forever: 30 tries x 0.1 s (an iteration count, not wall clock:
 # about 3 s of sleeping plus fork time, ~5 s on a loaded git-bash). A stale lock (a
-# holder killed between mkdir and rmdir) is not waited out: after the bound the
-# block is emitted anyway (still one write), so the TERM that follows is never
+# holder killed between mkdir and rmdir) costs that full bound on EVERY emit, so one
+# watchdog can spend up to ~6 s (partition block + host block) before its TERM. After
+# the bound the block is emitted anyway (still one write), so the TERM that follows is never
 # missed. Every variable is initialised (the script runs under `set -u` inside a
 # `( )` watchdog whose death would mean no TERM). No new TEST_* knob. Always 0.
 test_parallel_diag_emit() {
@@ -850,6 +851,7 @@ test_parallel_watchdog_diag() {
   if [ -s "$blk" ]; then
     test_parallel_diag_emit "$blk"
   else
+    rm -f -- "$blk"
     echo "${pfx}diagnostics unavailable: could not write $blk" >&2
   fi
   if mkdir "$tmp_dir/diag-host.lock" 2>/dev/null; then
@@ -870,6 +872,7 @@ test_parallel_watchdog_diag() {
     if [ -s "$blk" ]; then
       test_parallel_diag_emit "$blk"
     else
+      rm -f -- "$blk"
       echo "test_parallel: DIAG host: diagnostics unavailable: could not write $blk" >&2
     fi
   fi
