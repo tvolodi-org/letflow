@@ -21,6 +21,13 @@ defmodule Letflow.Scripts.TestParallelWatchdogDiagTest do
 
   Cases:
 
+    0. (ISS-1080) every timing-sensitive case is PREMISE-CHECKED: the premise is that each
+       partition's DIAG tail contains its final marker line (`P<P>-LAST`, or the `....`
+       line for the huge case), i.e. the stub finished emitting BEFORE the watchdog read
+       its log. If it did not (a starved host), the attempt is discarded and re-run with
+       a longer watchdog (2 s, then 6 s, then 20 s) with every assertion scaled to that
+       attempt's value; the failure of the last attempt is reported with the tmp-tree /
+       partition-log capture of `Letflow.Test.TestParallelCapture`.
     1. three hung partitions, each with partition-specific log text: each partition's DIAG
        block carries its OWN log tail (no swapped numbers), the exact K, the elapsed/timeout
        line, exactly one host block, DIAG after the WARNING line, prompt non-zero exit
@@ -30,10 +37,15 @@ defmodule Letflow.Scripts.TestParallelWatchdogDiagTest do
   """
   use ExUnit.Case, async: false
 
-  @moduletag :tmp_dir
-  @moduletag timeout: 180_000
+  alias Letflow.Test.TestParallelCapture
 
-  @timeout_s 2
+  @moduletag :tmp_dir
+  # sum of the escalation attempts (2 + 6 + 20 s of watchdog, each with its own prompt
+  # bound) plus emission, with headroom
+  @moduletag timeout: 400_000
+
+  # watchdog escalation (seconds): the first value is the original, tight one
+  @attempts [2, 6, 20]
   @prompt_ms 40_000
   # `sed "s/^/${pfx}  /"` indents each tail line by two spaces after the prefix
   @indent 2
@@ -69,6 +81,7 @@ defmodule Letflow.Scripts.TestParallelWatchdogDiagTest do
         echo "Result: 1 passed"
         exit 0 ;;
       marked)
+        sleep "${STUB_PRE_SLEEP:-0}"
         echo ".....F.."
         i=1
         while [ "$i" -le 60 ]; do
@@ -84,6 +97,7 @@ defmodule Letflow.Scripts.TestParallelWatchdogDiagTest do
         echo "P$part-LAST"
         sleep 600 ;;
       huge)
+        sleep "${STUB_PRE_SLEEP:-0}"
         awk -v p="$part" 'BEGIN {
           long = sprintf("%400s", ""); gsub(/ /, "L", long)
           for (i = 1; i <= 200000; i++) {
@@ -118,7 +132,7 @@ defmodule Letflow.Scripts.TestParallelWatchdogDiagTest do
       [
         {"TEST_PARALLEL_N", "3"},
         {"TEST_POOL_SIZE", "6"},
-        {"TEST_PARALLEL_PARTITION_TIMEOUT_S", Integer.to_string(@timeout_s)},
+        {"TEST_PARALLEL_PARTITION_TIMEOUT_S", "2"},
         {"TEST_PARALLEL_PARTITION_KILL_GRACE_S", "1"},
         {"TEST_PARALLEL_MAX_CONCURRENT_TEMPLATE_BUILDS", "4"},
         {"TMPDIR", tmpdir},
@@ -171,16 +185,51 @@ defmodule Letflow.Scripts.TestParallelWatchdogDiagTest do
 
   defp partition_diag_lines(out, n), do: Enum.filter(lines(out), &String.starts_with?(&1, pfx(n)))
 
-  test "hung partitions: each DIAG block has its own log tail, exact K, one host block",
-       %{tmp_dir: tmp} do
-    {status, out, elapsed} = run_script(tmp, [{"STUB_MODE", "marked"}], @prompt_ms)
+  # Runs the stub in `mode` under escalating watchdog values until `premise?` (out ->
+  # boolean) holds. Each attempt gets its own subdirectory; returns the last attempt's
+  # %{t, status, out, elapsed, limit}. The caller asserts on it with ITS `t`.
+  defp run_until_premise(tmp, mode, extra_env, premise?) do
+    last = List.last(@attempts)
 
-    IO.puts("[watchdog-diag] marked case returned in #{elapsed} ms (timeout #{@timeout_s} s)")
+    Enum.reduce_while(@attempts, nil, fn t, _ ->
+      sub = Path.join(tmp, "attempt-#{t}")
+      File.mkdir_p!(sub)
+      limit = @prompt_ms + t * 1000
+
+      {status, out, elapsed} =
+        run_script(
+          sub,
+          [{"STUB_MODE", mode}, {"TEST_PARALLEL_PARTITION_TIMEOUT_S", "#{t}"}] ++ extra_env,
+          limit
+        )
+
+      res = %{t: t, status: status, out: out, elapsed: elapsed, limit: limit}
+
+      if t == last or (status != :timeout and premise?.(out)),
+        do: {:halt, res},
+        else: {:cont, res}
+    end)
+  end
+
+  defp marked_premise?(out) do
+    Enum.all?(1..3, fn n -> Enum.any?(partition_diag_lines(out, n), &(&1 =~ "P#{n}-LAST")) end)
+  end
+
+  defp huge_premise?(out) do
+    Enum.all?(1..3, fn n ->
+      Enum.any?(partition_diag_lines(out, n), fn l ->
+        l |> String.replace_prefix(pfx(n), "") |> String.trim() == "...."
+      end)
+    end)
+  end
+
+  defp assert_marked(%{t: t, status: status, out: out, elapsed: elapsed, limit: limit}) do
+    IO.puts("[watchdog-diag] marked case returned in #{elapsed} ms (timeout #{t} s)")
     IO.puts("[watchdog-diag] SAMPLE OUTPUT:\n#{out}")
 
-    refute status == :timeout, "script did not return within #{@prompt_ms} ms:\n#{out}"
+    refute status == :timeout, "script did not return within #{limit} ms:\n#{out}"
     assert status == 1, "expected non-zero exit, got #{inspect(status)}:\n#{out}"
-    assert elapsed < @prompt_ms
+    assert elapsed < limit
 
     all = lines(out)
 
@@ -210,15 +259,15 @@ defmodule Letflow.Scripts.TestParallelWatchdogDiagTest do
 
       assert [_, secs] =
                Regex.run(
-                 ~r/running for (\d+)s of TEST_PARALLEL_PARTITION_TIMEOUT_S=#{@timeout_s}s$/,
+                 ~r/running for (\d+)s of TEST_PARALLEL_PARTITION_TIMEOUT_S=#{t}s$/,
                  running
                )
 
-      assert String.to_integer(secs) in @timeout_s..(@timeout_s + 10)
+      assert String.to_integer(secs) in t..(t + 10)
 
       # ordering: the unchanged WARNING line precedes this partition's first DIAG line
       warning =
-        "WARNING partition #{n} exceeded TEST_PARALLEL_PARTITION_TIMEOUT_S=#{@timeout_s}s" <>
+        "WARNING partition #{n} exceeded TEST_PARALLEL_PARTITION_TIMEOUT_S=#{t}s" <>
           " -- sending TERM to its process group"
 
       warn_idx = Enum.find_index(all, &(&1 =~ warning))
@@ -235,41 +284,75 @@ defmodule Letflow.Scripts.TestParallelWatchdogDiagTest do
     assert Enum.count(host, &(&1 =~ ~r/DIAG host: \d+\s*$/)) <= 1, Enum.join(host, "\n")
   end
 
+  test "hung partitions: each DIAG block has its own log tail, exact K, one host block",
+       %{tmp_dir: tmp} do
+    res = run_until_premise(tmp, "marked", [], &marked_premise?/1)
+
+    TestParallelCapture.with_context(tmp, res.out, fn -> assert_marked(res) end)
+  end
+
+  test "late emission: the premise check retries with a longer watchdog and ends green",
+       %{tmp_dir: tmp} do
+    # The stub emits 3 s AFTER launch, i.e. after the first 2 s watchdog fired: attempt 1
+    # must be discarded by the premise check and a longer attempt must satisfy every
+    # original assertion. (Mutating the premise check to always-true makes this red.)
+    res = run_until_premise(tmp, "marked", [{"STUB_PRE_SLEEP", "3"}], &marked_premise?/1)
+
+    TestParallelCapture.with_context(tmp, res.out, fn ->
+      assert res.t > 2, "the 2 s attempt was accepted although the stub had not emitted yet"
+      assert_marked(res)
+    end)
+  end
+
   test "normal quick run prints no DIAG lines", %{tmp_dir: tmp} do
-    {status, out, elapsed} = run_script(tmp, [{"STUB_MODE", "pass"}], @prompt_ms)
+    # 600 s: this case asserts the ABSENCE of a firing watchdog, so the window must not be
+    # something a starved host can exceed.
+    {status, out, elapsed} =
+      run_script(
+        tmp,
+        [{"STUB_MODE", "pass"}, {"TEST_PARALLEL_PARTITION_TIMEOUT_S", "600"}],
+        @prompt_ms
+      )
+
     IO.puts("[watchdog-diag] quick case returned in #{elapsed} ms")
 
-    assert status == 0, out
-    refute out =~ "test_parallel: DIAG", out
-    refute out =~ "WARNING", out
+    TestParallelCapture.with_context(tmp, out, fn ->
+      assert status == 0, out
+      refute out =~ "test_parallel: DIAG", out
+      refute out =~ "WARNING", out
+    end)
   end
 
   test "huge partition log: diagnostics stay bounded and respect the 300-column cap",
        %{tmp_dir: tmp} do
-    {status, out, elapsed} = run_script(tmp, [{"STUB_MODE", "huge"}], @prompt_ms)
+    res = run_until_premise(tmp, "huge", [], &huge_premise?/1)
+    %{t: t, status: status, out: out, elapsed: elapsed, limit: limit} = res
 
-    IO.puts("[watchdog-diag] huge case returned in #{elapsed} ms (timeout #{@timeout_s} s)")
+    IO.puts("[watchdog-diag] huge case returned in #{elapsed} ms (timeout #{t} s)")
 
-    refute status == :timeout, "script did not return within #{@prompt_ms} ms"
-    assert status == 1, out
-    assert elapsed < (@timeout_s + 15) * 1000, "diagnostics took too long: #{elapsed} ms"
+    TestParallelCapture.with_context(tmp, out, fn ->
+      refute status == :timeout, "script did not return within #{limit} ms"
+      assert status == 1, out
+      assert elapsed < (t + 15) * 1000, "diagnostics took too long: #{elapsed} ms"
 
-    for n <- 1..3 do
-      mine = partition_diag_lines(out, n)
-      assert mine != [], "no DIAG partition lines for partition #{n}"
-      cap = String.length(pfx(n)) + @indent + 300
+      for n <- 1..3 do
+        mine = partition_diag_lines(out, n)
+        assert mine != [], "no DIAG partition lines for partition #{n}"
+        cap = String.length(pfx(n)) + @indent + 300
 
-      # +1: a possible trailing carriage return from the Windows pipe is not a column
-      for l <- mine do
-        assert String.length(l) <= cap + 1, "DIAG line wider than cap (#{String.length(l)}): #{l}"
+        # +1: a possible trailing carriage return from the Windows pipe is not a column
+        for l <- mine do
+          assert String.length(l) <= cap + 1,
+                 "DIAG line wider than cap (#{String.length(l)}): #{l}"
+        end
+
+        # the cap really cut something: a 400-wide tail line came out at exactly the cap
+        assert Enum.any?(mine, &(String.length(&1) in cap..(cap + 1))),
+               "no DIAG line was cut to the cap for partition #{n}"
+
+        assert Enum.any?(mine, &(&1 =~ "P#{n}-200000-"))
+        assert "#{pfx(n)}approx tests finished: 4" in mine
       end
-
-      # the cap really cut something: a 400-wide tail line came out at exactly the cap
-      assert Enum.any?(mine, &(String.length(&1) in cap..(cap + 1))),
-             "no DIAG line was cut to the cap for partition #{n}"
-
-      assert Enum.any?(mine, &(&1 =~ "P#{n}-200000-"))
-      assert "#{pfx(n)}approx tests finished: 4" in mine
-    end
+    end)
   end
 end

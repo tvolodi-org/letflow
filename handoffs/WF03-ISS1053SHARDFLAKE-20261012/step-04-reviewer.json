@@ -1,0 +1,81 @@
+{
+    "handoff_id":  "c4a7d1e0-1053-4a11-8c20-000000000004",
+    "run_id":  "WF03-ISS1053SHARDFLAKE-20261012",
+    "workflow_id":  "WF-03",
+    "step":  "04",
+    "from_agent":  "ORCH",
+    "to_agent":  "REVIEWER",
+    "file":  "handoffs/WF03-ISS1053SHARDFLAKE-20261012/step-04-reviewer.json",
+    "created_at":  "2026-10-12T15:10:00Z",
+    "started_at":  "2026-10-12T23:40:00Z",
+    "completed_at":  "2026-10-12T23:58:00Z",
+    "status":  "COMPLETED",
+    "priority":  "NORMAL",
+    "context":  {
+                    "stage":  "S1",
+                    "requirement_ids":  [
+
+                                        ],
+                    "requirement_text":  {
+
+                                         },
+                    "source_text":  {
+                                        "Q-1054":  "MEDIUM, R1 from ISS-1042 follow_ups (SECURITY-REVIEWER F2), supervisor-assigned 2026-10-12. Queue Q-1054 / GH #2400, issue_ref ISS-1054. See task.description."
+                                    },
+                    "related_handoff_ids":  [
+
+                                            ],
+                    "artifacts_in":  [
+                                         "scripts/test_parallel.sh",
+                                         "docs/issues/ISS-1062.yaml",
+                                         "handoffs/WF03-ISS1053SHARDFLAKE-20261012/step-03-elixir-dev.json"
+                                     ],
+                    "owned_modules":  [
+                                          "test/support/tenant_fixture.ex"
+                                      ],
+                    "worktree":  null,
+                    "branch_name":  "feature/WF03-ISS1054DBGUARD-20261012"
+                },
+    "task":  {
+                 "description":  "WF-03 Step 4 REVIEWER hard gate (.claude/agents/reviewer.md) for Q-1053 / GH #2399 (local record docs/issues/ISS-1062.yaml), branch feature/WF03-ISS1053SHARDFLAKE-20261012, implementation commit 22e9d0e54 (step-03 handoff). Compare with `git diff origin/main...HEAD`. Read-only review; no mix needed (if you want one, use the machine mutex: L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2\u003e/dev/null; do sleep 20; done; trap \u0027rmdir \"$L\" 2\u003e/dev/null\u0027 EXIT; cd /c/Users/tvolo/dev/ai-dala/letflow \u0026\u0026 MIX_ENV=test \u003cONE mix invocation\u003e).\n\nContext: the change fixes the test_parallel_* timing-flake family. It modifies scripts/test_parallel.sh (the partition runner EVERY backend CI shard uses: S1 BASHPID guard on the cleanup trap, S2 liveness-before-ready-file order in poll_template_ready_dir, S3 shared reap_one_create fallback for `wait -n -p`), adds test/scripts/test_parallel_race_regression_test.exs and test/support/test_parallel_capture.ex, hardens the diag/orphan/shard tests, raises a stale cap in test_parallel_tmpdir_cleanup_test.sh, adds an anti-patterns entry. Design: step-01 handoff; validator corrections F1..F8 in step-02b handoff (verdict FAIL with mechanical corrections, rework folded into step 03 by ORCH decision: you are the check that every F1..F8 item is really implemented).\n\nCheck: (1) F1..F8 each implemented as specified (list each with file:line); (2) S1..S3 correctness by reading the script: normal exit, TERM/INT, nested runner, cleanup runs once, `set -u`/`set -m`, bash version compatibility of the fallback; (3) no existing assertion weakened in diag/orphan/shard tests (diff each hunk; deadlines bounded; worst-case added wall time); (4) new tests deterministic (no wall-clock windows of their own), async: false, no leaked processes or tmp dirs, follow sibling conventions; (5) scope creep: only the listed files + run bookkeeping; test/support/test_parallel_capture.ex compiled only in test env and not a dependency of lib/; (6) the anti-patterns entry is accurate; (7) decision-record consistency; (8) the known issue recorded in the step-03 handoff (orphan \"EXIT-trap path\" intermittent hang on the Windows git-bash host, also on the unfixed script; kill of the process group) is it real and acceptable/out of scope or does it indicate a defect that CI Linux would hit; classify it; (9) the incident of the truncated script (recovered before commit) cannot be in the diff: verify scripts/test_parallel.sh is intact and byte-sane (bash -n, line count vs origin/main, no CRLF introduced if origin/main is LF). Also note (not a blocker) that the implementer ran test_parallel_create_burst_test.sh outside the machine mutex (it starts a real 8-partition suite and a postgres on 5799); assess whether any lock/container residue remains: `docker ps -a`, any leftover tmp trees (just report).\n\nVerdict PASS/FAIL (BLOCKER/MAJOR/MINOR). Foreground only; no Monitors. Result into your handoff (COMPLETED, result.status, no BOM, LF, artifacts_out under result, no self-reference); pull --rebase, commit, push with bounded retry; message ends: Co-Authored-By: Claude Sonnet 5.5 \u003cnoreply@anthropic.com\u003e. A sibling gate (RELEASE-VALIDATOR) writes another handoff on this branch concurrently: pull --rebase before push.\n"
+             },
+    "result":  {
+                   "status":  "PASS",
+                   "verdict":  "PASS. 0 BLOCKER, 0 MAJOR, 3 MINOR (none blocks). F1..F8 all implemented; S1..S3 read correct against commit 22e9d0e54 (committed blob).",
+                   "summary":  "Reviewed origin/main...HEAD (16 files). F1..F8 (scripts/test_parallel.sh line numbers are in the committed blob): F1 _tp_main_pid=${BASHPID:-$$} unexported at :521, set before the EXIT trap line; guard at :460 is the first statement after \u0027local exit_code=$?\u0027; tmpdir_cleanup harness cap raised 40 to 150 (test_parallel_tmpdir_cleanup_test.sh:59,110), hand-run 4/4 per step-03. F2 race file test_parallel_race_regression_test.exs:238 has T2a (cap 1) and T2b (cap 4), each asserting shim.flag fired, each with an exit-3 variant (STUB_FAIL_CREATE=1 in shard 1/3, STUB_HOLD_FOR=shim.flag so the failing partition is the one the fallback reaps); mutants MU-C1a/MU-C1b reported killed. F3 T3 (:285-296) has no post-run log-dir assertion; it asserts status 0, 4/4 reported, refute \u0027No such file\u0027 and \u0027preserving\u0027, and that tp_tmp is empty (main trap ran once; consistent with F3). F4 orphan test_parallel_watchdog_orphan_test.exs:113-134 stub 2 requires count\u003e=2 (bounded 25 s, 100 ms poll) then polls to \u003c=1 and records the LAST value; the assertion is still == 1. F5 T1 uses the SHIM_GO gate (race test :113-124, stub :68-75), no wall-clock window. F6 reap_one_create (:548) is one shared function used at both sites (:589 in-loop, :604 drain): finished_pid reset per wait, \u0027:-\u0027 expansions, poll-only fallback (kill -0 scan + wait \u003cpid\u003e, 50 ms) with no repeated wait -n, untracked pid ignored without touching in_flight, status taken from wait on the chosen pid. F7 diag premise is defined only as the final marker in the DIAG tail (marked_premise?/huge_premise?), per-attempt limit = @prompt_ms + t*1000, moduletag timeout 400000 \u003e= sum of attempts. F8 S2 exact shape at :672-678 (local alive=1; kill -0 || alive=0; if ready ... elif alive==0 ERROR exit 1). S1..S3 correctness: main shell BASHPID equals the recorded value, so normal exit and TERM/INT run cleanup exactly once; subshells (watchdogs, sampler) return 0 and still die by their signal; no exec; one trap line only; nested runner gets its own unexported variable; set -u safe (:- expansions); script has set -u and set -m only. On bash\u003c5.1 \u0027wait -p\u0027 prints usage once per reap then the poll fallback proceeds (not 20 Hz). No assertion weakened: diag asserts identical with t substituted, quick case window widened to 600 s (strengthens), orphan ps poll only delays the same assertion by up to 5 s; worst-case added wall time diag ~+28 s per case x2, orphan +5 s x3, staggered +25 s only on failure. New tests: async false, tmp_dir, BASH_ENV shims, no BEAM in the nested runner, output path via env (the anti-pattern from the truncation incident), Letflow.Test.TestParallelEnv used, only bounded 5 s gates in stubs/shims. Scope: only the listed files + docs/issues/ISS-1062.yaml + run bookkeeping; no lib/, config, mix.exs or .github change; test/support/test_parallel_capture.ex is under elixirc_paths(:test) only and nothing in lib/ references it. Anti-patterns entry matches the code. No decision record applies (test/CI tooling only; no conflict with 0001..0012). Truncation incident: committed blob scripts/test_parallel.sh is bash -n OK, 1074 lines (origin/main 1026, consistent with the +48 net diff), 0 CR in both, starts \u0027#!/\u0027, ends \u0027exit \"$any_failed\"\u0027; not in the diff. WARNING (not a defect of the commit): at review time the WORKING TREE copy of scripts/test_parallel.sh was modified (1026 lines, S1-S3 absent, \u0027 M\u0027 in git status) by a concurrent session, almost certainly the sibling RELEASE-VALIDATOR running mutants in the shared checkout; I reviewed the committed blob (git show HEAD:) and did not touch or restore it. That session must restore it (git checkout -- scripts/test_parallel.sh) and must not commit it.",
+                   "findings":  [
+                                    {
+                                        "id":  "R1",
+                                        "severity":  "MINOR",
+                                        "check":  "8 known issue classification",
+                                        "finding":  "Orphan \u0027EXIT-trap path\u0027 intermittent hang on the Windows git-bash host: the group kill \u0027kill -- -$watchdog_pid\u0027 fails under MSYS (process groups/job control are emulated) and the plain-pid fallback leaves the watchdog \u0027sleep\u0027 holding the stdout pipe. Real and pre-existing (step-03 measured unfixed 9/12 vs fixed 6/12 hangs), not caused by and not worsened by this change. Linux CI has real process groups and the validator container runs were green, so CI Linux would not hit it. It is a host-specific local flake in the same test family and should not stay unrecorded.",
+                                        "required_correction":  "None for this PR. ORCH: file a follow-up issue (windows-msys, test_parallel EXIT-trap watchdog reap); do not block."
+                                    },
+                                    {
+                                        "id":  "R2",
+                                        "severity":  "MINOR",
+                                        "check":  "2 S3 edge",
+                                        "finding":  "In the poll fallback, if bash no longer holds the saved status of an already-collected child, \u0027wait \u003cpid\u003e\u0027 returns 127 and the create would be reported as \u0027failed with exit 127\u0027. Fail-loud, not silent, and unlikely (bash keeps statuses; step-02b verified repeated waits return the saved status).",
+                                        "required_correction":  "None. Observation only."
+                                    },
+                                    {
+                                        "id":  "R3",
+                                        "severity":  "MINOR",
+                                        "check":  "3/4 hygiene",
+                                        "finding":  "(a) Diag moduletag timeout raised 180000 to 400000 ms (covers 2+6+20 s attempts each with a 40 s prompt bound; only matters on failure). (b) test_parallel_pool_sizing_test.sh is red on HEAD and on main (stale extraction markers), left untouched: pre-existing, dormant, not wired into CI; deserves its own issue like R1.",
+                                        "required_correction":  "None blocking."
+                                    }
+                                ],
+                   "residue_check":  {
+                                         "docker":  "no container on ports 5799/5499 and none named pg1053/burst in \u0027docker ps -a\u0027; the running containers belong to other sessions (letflow-wt1012-postgres-1, letflow-3-postgres-1, uat-*; bbf-fresh-* exited 3 days ago)",
+                                         "tmp_trees":  "13 leftover /c/Users/tvolo/AppData/Local/Temp/letflow_test_parallel.* directories (the script preserves them on nonzero exit): 6 dated 2026-10-05..06, 7 dated 2026-10-12 (latest 21:39). Report only; some are likely this run\u0027s preserved failure trees. Safe to delete when no run is in flight.",
+                                         "mixlock":  "/c/Users/tvolo/AppData/Local/Temp/claude/mixlock existed at review time (held by a concurrent session)."
+                                     },
+                   "not_run":  "No mix invocation (read-only review) and no soak by me; red-on-old/green-on-fixed and mutant results rely on step-02b and step-03 empirical runs, which I cross-checked against the code.",
+                   "artifacts_out":  [
+                                         "handoffs/WF03-ISS1053SHARDFLAKE-20261012/step-04-reviewer.json"
+                                     ],
+                   "next_agent":  "TEST-DESIGNER per WF-03 (RELEASE-VALIDATOR runs in parallel)",
+                   "next_action":  "ORCH: file the R1 follow-up issue; ensure the sibling restores the mutated working-tree scripts/test_parallel.sh before any commit"
+               }
+}
