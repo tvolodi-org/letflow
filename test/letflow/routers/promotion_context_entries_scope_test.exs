@@ -29,8 +29,6 @@ defmodule Letflow.Routers.PromotionContextEntriesScopeTest do
   alias Letflow.Support.PlatformTenantFixture, as: Fixture
   alias Letflow.Support.PromotionScopeFixture, as: Scope
 
-  @allowlisted ~w(process_key base_version source_tenant_id target_tenant_id source_definition_id target_definition_id entries)
-  @envelope ~w(review_id plan_digest serialised_plan status requested_by def_type def_id created_at row_version)
   @reader ["TENANT_ADMIN"]
   @operator ["PLATFORM_ADMIN"]
 
@@ -53,6 +51,19 @@ defmodule Letflow.Routers.PromotionContextEntriesScopeTest do
     resp = context_resp(fixture, review_id, roles)
     assert resp.status == 200
     {resp.resp_body, Jason.decode!(resp.resp_body)["serialised_plan"]}
+  end
+
+  # ISS-1029: a review whose stored ids are not the reader's own is not readable by a
+  # non-operator at all: the exact 404 bytes of a nonexistent review id, carrying no marker.
+  defp assert_not_found_like_absent!(ctx, fixture, review_id, label \\ "") do
+    resp = context_resp(fixture, review_id, @reader)
+    assert resp.status == 404, "#{label}: #{resp.status}"
+
+    assert Scope.observable(resp) ==
+             Scope.observable(context_resp(fixture, Ecto.UUID.generate(), @reader)),
+           label
+
+    refute_markers!(resp.resp_body, markers(ctx))
   end
 
   defp overwrite_plan!(fixture, review_id, json_text) do
@@ -183,12 +194,10 @@ defmodule Letflow.Routers.PromotionContextEntriesScopeTest do
           Scope.seed_review!(ctx.p, source, target, overrides(ctx, src_def, tgt_def))
 
         Fixture.unpin!()
-        {raw, plan} = read_plan!(ctx.p, review.id)
+        assert_not_found_like_absent!(ctx, ctx.p, review.id, "#{source}/#{target}")
+        resp = context_resp(ctx.p, review.id, @reader)
+        refute_markers!(resp.resp_body, [src_def, tgt_def])
         Fixture.pin!(ctx.p.tenant_id)
-
-        assert plan["entries"] == []
-        refute_markers!(raw, markers(ctx) ++ [src_def, tgt_def])
-        assert Map.keys(plan) -- @allowlisted == []
       end
     end
 
@@ -208,10 +217,7 @@ defmodule Letflow.Routers.PromotionContextEntriesScopeTest do
             overrides(ctx, Ecto.UUID.generate(), Ecto.UUID.generate())
           )
 
-        {raw, plan} = read_plan!(ctx.p, review.id)
-
-        assert plan["entries"] == []
-        refute_markers!(raw, markers(ctx))
+        assert_not_found_like_absent!(ctx, ctx.p, review.id, "#{source}/#{target}")
       end
 
       # control: both sides own (P/P) shows the stored entries
@@ -260,7 +266,8 @@ defmodule Letflow.Routers.PromotionContextEntriesScopeTest do
     end
 
     test "withheld_entries_leave_the_rest_of_the_response_unchanged", ctx do
-      %{review: review, plan: stored} =
+      # ISS-1029: the foreign-named review is withheld as a whole (404), not shaped
+      %{review: review} =
         Scope.seed_review!(
           ctx.p,
           ctx.b.tenant_id,
@@ -269,20 +276,11 @@ defmodule Letflow.Routers.PromotionContextEntriesScopeTest do
         )
 
       Fixture.unpin!()
+      assert_not_found_like_absent!(ctx, ctx.p, review.id)
+
       resp = context_resp(ctx.p, review.id, @reader)
-      assert resp.status == 200
-
       body = Jason.decode!(resp.resp_body)
-      plan = body["serialised_plan"]
-
-      assert body |> Map.keys() |> Enum.sort() == Enum.sort(@envelope)
-      assert body["status"] == "pending_review"
-      assert body["review_id"] == review.id
-      refute Map.has_key?(plan, "source_tenant_id")
-      refute Map.has_key?(plan, "target_tenant_id")
-      # R4/R8 documented: the plan's process_key is still returned
-      assert plan["process_key"] == stored.process_key
-      assert plan["entries"] == []
+      assert Enum.all?(~w(review_id plan_digest serialised_plan), &(not Map.has_key?(body, &1)))
     end
   end
 
@@ -336,13 +334,18 @@ defmodule Letflow.Routers.PromotionContextEntriesScopeTest do
           )
 
       for {label, fields} <- cases do
+        # ISS-1029: missing/non-binary/foreign stored ids fail closed to the nonexistent 404
         review = seed_and_overwrite!(ctx.a, plan_text.(fields))
-        {raw, plan} = read_plan!(ctx.a, review.id)
+        resp = context_resp(ctx.a, review.id, @reader)
+        assert resp.status == 404, label
 
-        assert plan["entries"] == [], label
-        refute raw =~ "LEGACY-MARKER-iss1023", label
-        refute raw =~ "n-iss1023-legacy", label
-        refute raw =~ b, label
+        assert Scope.observable(resp) ==
+                 Scope.observable(context_resp(ctx.a, Ecto.UUID.generate(), @reader)),
+               label
+
+        refute resp.resp_body =~ "LEGACY-MARKER-iss1023", label
+        refute resp.resp_body =~ "n-iss1023-legacy", label
+        refute resp.resp_body =~ b, label
       end
 
       # positive control: both ids own shows the decoded fixture entries
@@ -367,7 +370,7 @@ defmodule Letflow.Routers.PromotionContextEntriesScopeTest do
     # TENANT_AUDITOR still resolves to no role (`role_from_string/1`). When REQ-448 adds
     # TENANT_AUDITOR with :PromotionsRead this test fails: MOVE that row to the allowed side
     # (next test) and re-assert it against the new rule (a non-operator reader of P's
-    # operator-created reviews must read `entries == []`).
+    # operator-created reviews naming foreign tenants must get the nonexistent 404, ISS-1029).
     test "non_admin_core_roles_in_the_platform_tenant_are_denied_promotions_read", ctx do
       %{review: review} =
         Scope.seed_review!(
@@ -409,16 +412,17 @@ defmodule Letflow.Routers.PromotionContextEntriesScopeTest do
           overrides(ctx, src_def, tgt_def)
         )
 
+      # ISS-1029: with the pin on P and with no pin the review is the nonexistent 404
       for pinned? <- [true, false] do
         if pinned?, do: Fixture.pin!(ctx.p.tenant_id), else: Fixture.unpin!()
 
         resp = context_resp(ctx.p, review.id, ["TENANT_ADMIN"])
-        assert resp.status == 200, "pinned=#{pinned?}"
+        assert resp.status == 404, "pinned=#{pinned?}"
 
-        plan = Jason.decode!(resp.resp_body)["serialised_plan"]
-        assert plan["entries"] == [], "pinned=#{pinned?}"
+        assert Scope.observable(resp) ==
+                 Scope.observable(context_resp(ctx.p, Ecto.UUID.generate(), ["TENANT_ADMIN"]))
+
         refute_markers!(resp.resp_body, markers(ctx) ++ [src_def, tgt_def])
-        assert Map.keys(plan) -- @allowlisted == []
       end
 
       # Control: the operator (PLATFORM_ADMIN of the pinned P) sees the same review in full.

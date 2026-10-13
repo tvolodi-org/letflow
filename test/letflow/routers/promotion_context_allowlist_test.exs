@@ -47,6 +47,16 @@ defmodule Letflow.Routers.PromotionContextAllowlistTest do
     {resp.resp_body, Jason.decode!(resp.resp_body)["serialised_plan"]}
   end
 
+  # ISS-1029: a review whose stored ids are not the reader's own is not readable by a
+  # non-operator at all: the exact 404 bytes of a nonexistent review id.
+  defp assert_not_found_like_absent!(fixture, review_id, roles \\ @reader) do
+    resp = context_resp(fixture, review_id, roles)
+    assert resp.status == 404
+
+    assert Scope.observable(resp) ==
+             Scope.observable(context_resp(fixture, Ecto.UUID.generate(), roles))
+  end
+
   # The one recipe for a malformed or legacy plan (design section 6 file 3).
   defp overwrite_plan!(fixture, review_id, json_text) do
     query = from(r in PromotionReview, where: r.id == ^review_id)
@@ -135,8 +145,19 @@ defmodule Letflow.Routers.PromotionContextAllowlistTest do
       ]
 
       for {key, value} <- cases do
+        # own a/a ids: a non-operator can only reach (ISS-1029) a review naming its own tenant
         stored =
-          Map.put(%{"process_key" => "p", "base_version" => "1.0.0", "entries" => []}, key, value)
+          Map.put(
+            %{
+              "process_key" => "p",
+              "base_version" => "1.0.0",
+              "source_tenant_id" => ctx.a.tenant_id,
+              "target_tenant_id" => ctx.a.tenant_id,
+              "entries" => []
+            },
+            key,
+            value
+          )
 
         review = seed_and_overwrite!(ctx.a, Jason.encode!(stored))
 
@@ -171,49 +192,44 @@ defmodule Letflow.Routers.PromotionContextAllowlistTest do
       tgt_def = Ecto.UUID.generate()
       overrides = %{source_definition_id: src_def, target_definition_id: tgt_def}
 
-      # {source, target, expected kept keys with their values}
-      cases = [
-        {b, a, %{"target_tenant_id" => a, "target_definition_id" => tgt_def}},
-        {a, a,
-         %{
-           "source_tenant_id" => a,
-           "target_tenant_id" => a,
-           "source_definition_id" => src_def,
-           "target_definition_id" => tgt_def
-         }},
-        {a, b, %{"source_tenant_id" => a, "source_definition_id" => src_def}},
-        {b, b, %{}}
-      ]
+      # own/own: every id kept as stored
+      %{review: review} = Scope.seed_review!(ctx.a, a, a, overrides)
+      {raw, plan} = read_plan!(ctx.a, review.id)
+      refute raw =~ b
+      assert plan["source_tenant_id"] == a
+      assert plan["target_tenant_id"] == a
+      assert plan["source_definition_id"] == src_def
+      assert plan["target_definition_id"] == tgt_def
+      assert plan["entries"] != []
 
-      for {source, target, kept} <- cases do
+      # any foreign side (ISS-1029): the review is not readable, so none of its ids can be
+      for {source, target} <- [{b, a}, {a, b}, {b, b}] do
         %{review: review} = Scope.seed_review!(ctx.a, source, target, overrides)
-        {raw, plan} = read_plan!(ctx.a, review.id)
-
-        refute raw =~ b
-
-        # ISS-1023: the stored default entry is one element, shown only for A/A
-        assert plan["entries"] != [] == (source == a and target == a)
-
-        for key <- ~w(source_tenant_id target_tenant_id source_definition_id target_definition_id) do
-          assert Map.has_key?(plan, key) == Map.has_key?(kept, key),
-                 "#{key} presence for source=#{source} target=#{target}"
-
-          assert Map.get(plan, key) == Map.get(kept, key)
-        end
+        assert_not_found_like_absent!(ctx.a, review.id)
+        refute context_resp(ctx.a, review.id, @reader).resp_body =~ b
       end
     end
 
     test "null_definition_id_omitted_for_foreign_side_kept_for_own_side", ctx do
       %{review: review} =
-        Scope.seed_review!(ctx.a, ctx.b.tenant_id, ctx.a.tenant_id, %{
+        Scope.seed_review!(ctx.a, ctx.a.tenant_id, ctx.a.tenant_id, %{
           source_definition_id: nil,
           target_definition_id: nil
         })
 
       {_raw, plan} = read_plan!(ctx.a, review.id)
 
-      refute Map.has_key?(plan, "source_definition_id")
+      assert Map.fetch(plan, "source_definition_id") == {:ok, nil}
       assert Map.fetch(plan, "target_definition_id") == {:ok, nil}
+
+      # a foreign side is not readable at all (ISS-1029)
+      %{review: foreign} =
+        Scope.seed_review!(ctx.a, ctx.b.tenant_id, ctx.a.tenant_id, %{
+          source_definition_id: nil,
+          target_definition_id: nil
+        })
+
+      assert_not_found_like_absent!(ctx.a, foreign.id)
     end
   end
 
@@ -227,9 +243,9 @@ defmodule Letflow.Routers.PromotionContextAllowlistTest do
       ]
 
       for {shape, json, operator_value} <- shapes do
+        # ISS-1029: no readable stored ids, so the non-operator gets the nonexistent 404
         review = seed_and_overwrite!(ctx.a, json)
-        {_raw, plan} = read_plan!(ctx.a, review.id)
-        assert plan == %{"entries" => []}, "non-operator, #{shape}"
+        assert_not_found_like_absent!(ctx.a, review.id)
 
         op_review = seed_and_overwrite!(ctx.p, json)
         {_raw, op_plan} = read_plan!(ctx.p, op_review.id, @operator)
@@ -244,18 +260,16 @@ defmodule Letflow.Routers.PromotionContextAllowlistTest do
       only_entries = "{\"entries\":[],\"legacy_tenant\":\"#{b}\"}"
 
       review = seed_and_overwrite!(ctx.a, no_entries)
-      {raw, plan} = read_plan!(ctx.a, review.id)
-      assert plan == %{"process_key" => "legacy-key", "entries" => []}
-      refute raw =~ b
+      assert_not_found_like_absent!(ctx.a, review.id)
+      refute context_resp(ctx.a, review.id, @reader).resp_body =~ b
 
       op_review = seed_and_overwrite!(ctx.p, no_entries)
       {_raw, op_plan} = read_plan!(ctx.p, op_review.id, @operator)
       assert op_plan == %{"process_key" => "legacy-key", "tenant_ids" => [b]}
 
       review = seed_and_overwrite!(ctx.a, only_entries)
-      {raw, plan} = read_plan!(ctx.a, review.id)
-      assert plan == %{"entries" => []}
-      refute raw =~ b
+      assert_not_found_like_absent!(ctx.a, review.id)
+      refute context_resp(ctx.a, review.id, @reader).resp_body =~ b
 
       op_review = seed_and_overwrite!(ctx.p, only_entries)
       {_raw, op_plan} = read_plan!(ctx.p, op_review.id, @operator)
@@ -264,11 +278,24 @@ defmodule Letflow.Routers.PromotionContextAllowlistTest do
 
     test "entries_not_a_list_replaced_by_empty_list", ctx do
       for bad <- ["\"not-a-list\"", "{\"a\":1}", "null"] do
-        json = "{\"process_key\":\"p\",\"entries\":#{bad}}"
+        # own a/a ids so a non-operator can reach the review (ISS-1029)
+        a = ctx.a.tenant_id
+
+        json =
+          "{\"process_key\":\"p\",\"source_tenant_id\":\"#{a}\",\"target_tenant_id\":\"#{a}\",\"entries\":#{bad}}"
+
         review = seed_and_overwrite!(ctx.a, json)
         {raw, plan} = read_plan!(ctx.a, review.id)
 
-        assert plan == %{"process_key" => "p", "entries" => []}, "entries #{bad}"
+        assert plan ==
+                 %{
+                   "process_key" => "p",
+                   "source_tenant_id" => a,
+                   "target_tenant_id" => a,
+                   "entries" => []
+                 },
+               "entries #{bad}"
+
         refute raw =~ "not-a-list"
       end
     end
@@ -324,8 +351,9 @@ defmodule Letflow.Routers.PromotionContextAllowlistTest do
         Enum.sort(~w(review_id plan_digest serialised_plan status requested_by def_type def_id
                      created_at row_version))
 
-      for fixture <- [ctx.a, ctx.p] do
-        %{review: review} = Scope.seed_review!(fixture, ctx.b.tenant_id, fixture.tenant_id)
+      # a reader can only reach an own/own review (ISS-1029); the operator reads a foreign one
+      for {fixture, source} <- [{ctx.a, ctx.a.tenant_id}, {ctx.p, ctx.b.tenant_id}] do
+        %{review: review} = Scope.seed_review!(fixture, source, fixture.tenant_id)
         roles = if fixture == ctx.p, do: @operator, else: @reader
         resp = context_resp(fixture, review.id, roles)
         assert resp.status == 200
@@ -336,19 +364,29 @@ defmodule Letflow.Routers.PromotionContextAllowlistTest do
     test "pin_unset_would_be_operator_is_shaped_like_everyone_else", ctx do
       b = ctx.b.tenant_id
 
-      %{review: review} =
+      %{review: foreign} =
         Scope.seed_review!(ctx.p, b, ctx.p.tenant_id, %{tenantId: b, plan_extra: "x"})
+
+      %{review: own} =
+        Scope.seed_review!(ctx.p, ctx.p.tenant_id, ctx.p.tenant_id, %{
+          tenantId: b,
+          plan_extra: "x"
+        })
 
       Fixture.unpin!()
 
-      {raw, plan} = read_plan!(ctx.p, review.id)
+      # ISS-1029: the foreign-named review is not readable; the shaping is still applied to
+      # an own/own one
+      assert_not_found_like_absent!(ctx.p, foreign.id)
+
+      {raw, plan} = read_plan!(ctx.p, own.id)
 
       refute raw =~ b
       assert Map.keys(plan) -- @allowlisted == []
-      refute Map.has_key?(plan, "source_tenant_id")
+      assert plan["source_tenant_id"] == ctx.p.tenant_id
       assert plan["target_tenant_id"] == ctx.p.tenant_id
-      # ISS-1023: source is B (foreign), so entries are withheld
-      assert plan["entries"] == []
+      refute Map.has_key?(plan, "tenantId")
+      refute Map.has_key?(plan, "plan_extra")
     end
   end
 end
