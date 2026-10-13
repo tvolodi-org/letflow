@@ -1,0 +1,15 @@
+id: ISS-1112
+title: "Promotions: a hand-crafted well-prefixed list cursor raises in decode_list_reviews_seek and answers 500 instead of 400"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-13 Q-1011 follow-ups (PR #2474), relayed by letflow-9c"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: LOW
+owner: "ELIXIR-DEV"
+scope: defect
+description: >
+  promotion_review_store.ex:402 decode_list_reviews_seek/1 can raise MatchError/ArgumentError on a well-prefixed unexpired cursor; INV-8, not a leak, pre-existing.
+resolution: >
+  Open. Filed GitHub-first (GH #2495), then registered with the queue (Q-1112) using that number.
+queue_ref: Q-1112
+github_ref: GH-2495
+status: open

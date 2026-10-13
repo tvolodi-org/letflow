@@ -1,7 +1,8 @@
 /** Onboarding API — tenant registration
  *  Covers: ONB-UI-01..04, ISS-1030 (administrator / realm display)
  *  All calls go through client.ts per frontend conventions.
- *  Idempotency-Key is injected per-call by submitOnboarding (not by client.ts globally).
+ *  No Idempotency-Key is sent (ISS-1091 / GH 2437): the backend never read it. A resubmit of an
+ *  already-created slug or hostname answers 409 and creates nothing.
  */
 
 import { client } from './client'
@@ -140,13 +141,13 @@ export function fieldErrorConstraint(
 
 /**
  * POST /api/v1/onboarding
- * Injects the provided idempotencyKey as the Idempotency-Key header.
+ * A repeated submit is not replayed: the slug/hostname unique constraints answer 409 and nothing is
+ * created twice (ISS-1091 / GH 2437).
  * Throws OnboardingApiError on non-201 responses so callers can inspect the
  * status and body for the error taxonomy (section 9.2).
  */
 export async function submitOnboarding(
   formValues: OnboardingFormValues,
-  idempotencyKey: string,
 ): Promise<OnboardingRecord> {
   const adminEmail = nonBlank(formValues.admin_email)
   const realmId = nonBlank(formValues.idp_realm_id)
@@ -160,9 +161,7 @@ export async function submitOnboarding(
   }
 
   return client
-    .postWithHeaders<OnboardingRecord>('/api/v1/onboarding', body, {
-      'Idempotency-Key': idempotencyKey,
-    })
+    .post<OnboardingRecord>('/api/v1/onboarding', body)
     .catch((err: unknown) => {
       throw toOnboardingApiError(err)
     })

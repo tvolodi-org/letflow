@@ -1110,3 +1110,16 @@ history:
       #2311 merges (residual filed separately). Written by letflow-2 under the
       DOC-UPDATER agent id, as in earlier events; lands in the docs bundle
       branch docs/req448-done-20261013, not yet pushed.
+
+  - req: REQ-468
+    event: done
+    agent: DOC-UPDATER
+    at: "2026-10-13T20:46:31Z"
+    note: >
+      Status flipped from pending to done. Delivered by PR #2504 (merge
+      17386e3d349cadea132bdc832c785887119b9101, GH #2475, queue 1099; GH #2464 / Q-1094 closes through this
+      requirement): POST /onboarding ignores client_config and realm_config by
+      name and no longer answers a per-key disposition; the web stopped sending
+      them in PR #2467. Written by letflow-2 under the DOC-UPDATER agent id, as
+      in earlier events; lands in the docs bundle branch
+      docs/iss-1110-20261013, not yet pushed.

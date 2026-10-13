@@ -21,12 +21,13 @@ vi.mock('@/auth/AuthContext', () => ({
   })),
 }))
 
-const postWithHeaders = vi.fn()
+const createOnboarding = vi.fn()
 const post = vi.fn()
 vi.mock('@/api/client', () => ({
   client: {
-    postWithHeaders: (...args: unknown[]) => postWithHeaders(...args),
-    post: (...args: unknown[]) => post(...args),
+    // create goes through client.post; the bind-realm call is the other client.post caller
+    post: (path: string, ...rest: unknown[]) =>
+      path === '/api/v1/onboarding' ? createOnboarding(path, ...rest) : post(path, ...rest),
     get: vi.fn(),
   },
 }))
@@ -77,7 +78,7 @@ async function fillRequired(user: ReturnType<typeof userEvent.setup>) {
 }
 
 beforeEach(() => {
-  postWithHeaders.mockReset()
+  createOnboarding.mockReset()
   post.mockReset()
   lastPath = ''
 })
@@ -85,7 +86,7 @@ afterEach(cleanup)
 
 describe('RegisterTenantPage success navigation (GH issue 2436)', () => {
   it('after a successful registration the page reaches the result page of the id the backend returns', async () => {
-    postWithHeaders.mockResolvedValue(BACKEND_RECORD)
+    createOnboarding.mockResolvedValue(BACKEND_RECORD)
     const user = userEvent.setup()
     renderRegister()
     await fillRequired(user)

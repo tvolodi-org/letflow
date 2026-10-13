@@ -1,0 +1,15 @@
+id: ISS-1118
+title: "pending_tenant_admin_grants: the partial open index duplicates the unique email_key index"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-13 follow-ups of PR #2493 (Q-1012 PR2), relayed by the supervisor"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: LOW
+owner: "ELIXIR-DEV"
+scope: defect
+description: >
+  Migration 20261008000001 creates a unique index on (email_key) (line 52) and a partial index on the same column (line 58); the partial one is redundant. Decide: drop via a forward migration, or keep with a stated reason.
+resolution: >
+  Open. Filed GitHub-first (GH #2502), then registered with the queue (Q-1118) using that number.
+queue_ref: Q-1118
+github_ref: GH-2502
+status: open

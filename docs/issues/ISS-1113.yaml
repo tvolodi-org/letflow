@@ -1,0 +1,15 @@
+id: ISS-1113
+title: "tenant_admin_routes_test AC2: POST /identity/users answers 500 for a TENANT_ADMIN (red on main, pre-existing)"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-13 Q-1011 follow-ups (PR #2474), relayed by letflow-9c"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: MINOR
+owner: "ISSUE-FIXER, then ELIXIR-DEV"
+scope: defect
+description: >
+  test/letflow/routers/tenant_admin_routes_test.exs AC2 (~L67): POST /identity/users answers 500; fails identically at e29356eb8 per letflow-9c. Filing only, no root cause diagnosed.
+resolution: >
+  Closed as ENVIRONMENT, no production defect (letflow-9c, 2026-10-13): a stale local test DB lacked tenant_login_directory.key_id because migration 20261004000001 was edited in place before merge b01b785e4; a fresh DB passes; INV-8 not violated. Evidence comments on GH #2496; diagnosis in handoffs/WF03-Q1113IDENTUSERS500-20261013/step-01-issue-fixer.json. Hardening is tracked separately (see the migration-drift item). Filed GitHub-first, registered with the queue (Q-1113).
+queue_ref: Q-1113
+github_ref: GH-2496
+status: no_defect
