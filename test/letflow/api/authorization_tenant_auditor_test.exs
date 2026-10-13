@@ -4,12 +4,10 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
   `test/specs/REQ-448.md`): the read-only `TENANT_AUDITOR` role and its grant rule in
   `Letflow.Api.Authorization`, plus the new `:AttachmentLinksIssue` permission (item L1).
 
-  INTERIM DEVIATION pinned here on purpose: decision 0046 D6 lists 14 atoms for the auditor;
-  `:PromotionsRead` is WITHHELD until Q-1011's stored-tenant check merges (supervisor decision
-  OQ-2), so the effective grant is 13 atoms (12 explicit core atoms plus the role-agnostic
-  `:MyModulesRead`). `:EntitiesRecordsExport` is not granted either (supervisor decision). The
-  follow-up that grants `:PromotionsRead` must edit `@auditor_granted` and
-  `@auditor_refused_core` below on purpose.
+  Decision 0046 D6 lists 14 atoms for the auditor and the effective grant is exactly those 14
+  (13 explicit core atoms plus the role-agnostic `:MyModulesRead`). `:PromotionsRead` was
+  withheld by REQ-448 until the stored-tenant check of Q-1011 / ISS-1029 merged and was granted
+  by ISS-1109 / GH #2489. `:EntitiesRecordsExport` is not granted (supervisor decision).
 
   Both expectation lists are literal (not derived from `role_allows?/2`), so a drift of the
   grant rule is caught here and not silently followed.
@@ -37,10 +35,11 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
     :EntitiesAttachmentsRead,
     :HelpRead,
     :MembershipsRead,
+    :PromotionsRead,
     :MyModulesRead
   ]
 
-  # The 28 core permissions the auditor does NOT hold (41 core permissions minus the 13 above).
+  # The 27 core permissions the auditor does NOT hold (41 core permissions minus the 14 above).
   @auditor_refused_core [
     :DefinitionsWrite,
     :InstancesStart,
@@ -66,7 +65,6 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
     :EntitiesRestrictionsManage,
     :PlatformServicesManage,
     :TenantSettingsManage,
-    :PromotionsRead,
     :PromotionsManage,
     :DefinitionsRollback,
     :AttachmentLinksIssue
@@ -97,7 +95,7 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
   end
 
   describe "AC1: the grant rule" do
-    test "for every p in permissions/0, role_allows?(:TENANT_AUDITOR, p) is true exactly for the 13 literal atoms and false for every other core and Catalog permission" do
+    test "for every p in permissions/0, role_allows?(:TENANT_AUDITOR, p) is true exactly for the 14 literal atoms and false for every other core and Catalog permission" do
       permissions = Authorization.permissions()
       assert length(permissions) > length(Authorization.core_permissions())
 
@@ -110,19 +108,20 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
 
       granted = Enum.filter(permissions, &Authorization.role_allows?(:TENANT_AUDITOR, &1))
       assert Enum.sort(granted) == Enum.sort(@auditor_granted)
-      assert length(granted) == 13
+      assert length(granted) == 14
     end
 
-    test "the refused core set is the literal 28, PromotionsRead and EntitiesRecordsExport among them, and it partitions core_permissions/0 together with the granted set" do
+    test "the refused core set is the literal 27, EntitiesRecordsExport among them (PromotionsRead is granted), and it partitions core_permissions/0 together with the granted set" do
       core = Authorization.core_permissions()
       granted_core = Enum.filter(core, &Authorization.role_allows?(:TENANT_AUDITOR, &1))
       refused_core = core -- granted_core
 
-      assert length(@auditor_refused_core) == 28
+      assert length(@auditor_refused_core) == 27
       assert Enum.sort(refused_core) == Enum.sort(@auditor_refused_core)
       assert Enum.sort(granted_core ++ @auditor_refused_core) == Enum.sort(core)
 
-      assert :PromotionsRead in refused_core
+      refute :PromotionsRead in refused_core
+      assert :PromotionsRead in granted_core
       assert :EntitiesRecordsExport in refused_core
       assert :EntitiesRecordsExportUnredacted in refused_core
     end
@@ -212,6 +211,7 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
               :EntitiesAggregate,
               :HelpRead,
               :MembershipsRead,
+              :PromotionsRead,
               :MyModulesRead
             ] do
           assert Authorization.evaluate_access(ctx([:TENANT_AUDITOR], flag), key).kind == :Allow,
@@ -224,7 +224,6 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
               :InstancesCancel,
               :TasksComplete,
               :TasksAssign,
-              :PromotionsRead,
               :PromotionsManage,
               :DefinitionsRollback,
               :AttachmentLinksIssue,

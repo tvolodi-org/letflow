@@ -493,7 +493,7 @@ name-collision guard now covers `TENANT_ADMIN` and `TENANT_AUDITOR`.
 Deliberate interim deviations from D6, recorded here so the charter and the code
 stay reconcilable:
 
-- `:PromotionsRead` is WITHHELD from `TENANT_AUDITOR` (13 effective grants, D6's
+- (RESOLVED by ISS-1109, see the closure note at the end of this file.) `:PromotionsRead` was WITHHELD from `TENANT_AUDITOR` (13 effective grants, D6's
   list minus `PromotionsRead`; the `docs/roles.md` cell is `no`). The read-side
   stored-tenant check of Q-1011 / GH #2311 / ISS-1029 is not merged, and a new
   role must not widen a surface whose check is open. Follow-up after Q-1011 merges:
@@ -511,3 +511,18 @@ stay reconcilable:
 - `is_task_worker_only?/1` excludes `TENANT_AUDITOR`, so an auditor who also holds
   `TASK_WORKER` gets unfiltered task lists.
 - The missing `PlatformServicesManage` row (platform scope) was added to the matrix.
+
+### Closure of the `:PromotionsRead` deviation (ISS-1109 / GH #2489, Q-1109)
+
+The first deliberate deviation above is RESOLVED. The read-side stored-tenant
+check (Q-1011 / GH #2311 / ISS-1029, PR #2474) is on `main`, so
+`:PromotionsRead` is now in `TENANT_AUDITOR`'s explicit list: the auditor holds
+D6's full 14 atoms (13 core atoms plus the role-agnostic `:MyModulesRead`), the
+`docs/roles.md` cell is `yes`, and the pins moved from 13 to 14 granted and from
+28 to 27 refused core atoms. The auditor reads promotions exactly as a tenant
+admin does: `GET /promotions` and `GET /promotions/platform-events` are 200,
+every `:PromotionsManage` route stays 403, and a non-party auditor receives the
+same 404 as for a nonexistent id on `GET /promotions/:id` and
+`GET /promotions/:id/context`. The AC5 row of
+`promotion_context_entries_scope_test.exs` moved to the allowed side. The other
+deviations above stand.
