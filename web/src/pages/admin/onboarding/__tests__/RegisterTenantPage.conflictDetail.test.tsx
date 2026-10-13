@@ -2,9 +2,10 @@
 /**
  * GH 2438 (Q-1081): the register banner shows the server's detail for a 409 conflict.
  *
- * The server sets title to the fixed "Conflict" for every 409 and puts the specific reason in
- * detail (lib/letflow/api/error.ex conflict/1). The banner used to read title first, so every
- * conflict showed "Conflict". This pins that the banner shows the detail.
+ * The onboarding endpoint's 409s are built by Error.conflict/1 (lib/letflow/api/error.ex), which
+ * sets title to the fixed "Conflict" and puts the specific reason in detail. The banner used to
+ * read title first, so every onboarding conflict showed "Conflict". This pins that the banner shows
+ * the detail, and the fallback order (detail, then title, then the generic text).
  *
  * The real api/onboarding module runs; only the HTTP client is mocked.
  */
@@ -77,5 +78,37 @@ describe('GH 2438 -- the register banner shows the server detail for a 409', () 
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('slug already exists')
     expect(alert.textContent).not.toBe('Conflict')
+  })
+
+  it('fallback: a 409 with no detail shows its title', async () => {
+    postWithHeaders.mockRejectedValue({
+      status: 409,
+      message: 'Conflict',
+      code: 'https://letflow.example/problems/conflict',
+      details: { type: 'https://letflow.example/problems/conflict', title: 'Conflict', status: 409 },
+    })
+    const user = userEvent.setup()
+    renderRegister()
+    await fillRequired(user)
+    await user.click(screen.getByRole('button', { name: 'Register Tenant' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('Conflict')
+  })
+
+  it('fallback: a 409 with neither detail nor title shows the generic text', async () => {
+    postWithHeaders.mockRejectedValue({
+      status: 409,
+      message: '',
+      code: 'https://letflow.example/problems/conflict',
+      details: { type: 'https://letflow.example/problems/conflict', status: 409 },
+    })
+    const user = userEvent.setup()
+    renderRegister()
+    await fillRequired(user)
+    await user.click(screen.getByRole('button', { name: 'Register Tenant' }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('A conflict was detected. Please check your inputs.')
   })
 })
