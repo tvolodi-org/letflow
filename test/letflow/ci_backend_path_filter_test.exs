@@ -23,6 +23,11 @@ defmodule Letflow.CiBackendPathFilterTest do
   single-line string literals are seen; a path assembled with `Path.join/2` from separate
   segments is invisible (the decision table covers the known ones); `\#{...}` interpolation is
   treated as a `*` wildcard.
+
+  Known gap no filter can close: `test/letflow/no_smtp_secret_guard_test.exs` (lines 48-56) runs
+  `git ls-files` and `git grep` over the WHOLE tracked tree, so any path, including README.md, can
+  fail the backend gate. A change confined to a path the filter omits can therefore still break that
+  test and merge ungated; the always-run-all-gates rule for push to main (ISS-0840) is the backstop.
   """
 
   use ExUnit.Case, async: true
