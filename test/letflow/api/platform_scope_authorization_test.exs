@@ -371,6 +371,7 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
             {"POST", "/tenants/:slug/reactivate"},
             {"POST", "/onboarding"},
             {"GET", "/onboarding/:id"},
+            {"POST", "/onboarding/:id/bind-realm"},
             {"GET", "/onboarding"},
             {"POST", "/platform-migrations/rollouts"},
             {"GET", "/platform-migrations/rollouts/:id"},

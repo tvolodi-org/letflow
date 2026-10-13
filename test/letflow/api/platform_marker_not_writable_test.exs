@@ -321,7 +321,7 @@ defmodule Letflow.Api.PlatformMarkerNotWritableTest do
 
     test "routers and identity code reference Letflow.PlatformTenant only through its read functions" do
       read_functions =
-        ~w(parse_env uuid? configured_id platform_tenant? platform_prefix? scope_facts scope_facts_for
+        ~w(parse_env uuid? configured_id platform_prefix platform_tenant? platform_prefix? scope_facts scope_facts_for
            cross_tenant_promotion_operator_only? check_registration)
 
       files =

@@ -1,0 +1,37 @@
+Decision: option A (disposition only, chosen 2026-10-13 by the supervisor). Storing or applying client_config and realm_config needs its own requirement.
+WF-03 pre-fix run for Q-1088 (GH #2450, queue task 1088): POST /onboarding drops client_config and realm_config silently.
+Base: origin/main 453880eb, clean, branch feat/ISS-1088-client-config-disposition (no library change).
+Test file: test/letflow/routers/onboarding_client_config_test.exs (four tests: tests 1-2 pin option A; tests 3-4 are design-neutral).
+Command: mix test test/letflow/routers/onboarding_client_config_test.exs (MIX_ENV=test, MIX_TEST_PARTITION=q1088, LETFLOW_DB_PORT=5482), run under the machine mixlock, timeout 600 s.
+Earlier runs: 2026-10-13 06:11Z to 06:17Z (the first two-test file); superseded by the final file.
+Result (final test file, 2026-10-13 06:29Z; lib/letflow/routers/onboarding.ex stashed to HEAD 453880eb): 2 passed, 2 failed (of 4).
+
+Failing (the new behaviour is absent on main):
+  POST /onboarding answers each of client_config and realm_config with disposition not_stored and the next step
+  assertion: the 201 body has no client_config key (the disposition is absent).
+  POST /onboarding with only client_config answers a disposition for client_config and none for realm_config
+  assertion: the 201 body has no client_config key (the disposition is absent).
+
+Passing on main (must stay green after the fix):
+  POST /onboarding names the keys of client_config and realm_config in ignored_fields and echoes no client string value (ignored_fields already names them; no string value is echoed)
+  POST /onboarding without client_config or realm_config answers no disposition for them (existing callers unchanged)
+
+Note: an earlier run of the same file failed on a test-harness cleanup order (the tenant row was deleted before its
+onboarding_registry row, a foreign-key error). The harness was fixed before this run; the record is the fixed run only.
+The wizard's submit body is web/src/api/onboarding.ts (client_config { redirect_uris, service_account_enabled? } and
+realm_config). The backend keeps only slug and display_name (lib/letflow/routers/onboarding.ex, Map.take).
+
+Mutant run (disposition dropped: `dispositions(body)` replaced by `%{}` in response_extras), mix test, on the test file before the
+review-findings round: 2 of 4 pass, both disposition tests fail. Killed. Since then the assertions of tests 1-2 are
+unchanged; the helper and one realm string changed.
+Note: the mutant also leaves dispositions/1 unused (its reads of @not_stored_keys and @not_stored_next still count),
+so `compile --warnings-as-errors` would also fail on it. That is a second gate, not the kill; the kill is the test run.
+Post-fix: the five onboarding files, 63 passed (2026-10-13 06:39Z), and the final gate, 63 passed after the documentation
+changes (06:48Z). Static: `mix letflow.check.static` exit 0 on 27e5ba6c (06:50Z).
+No new tenant-data path: diff inspection (no migration, no Repo.query, no Keycloak call; ignored_fields and the
+administrator map unchanged), REVIEWER APPROVED on the final code, SECURITY-REVIEWER light gate PASS.
+Naming: this record and the test use Q-1088 / GH #2450. docs/issues/ISS-1088.yaml on main is a different issue (Q-1073).
+
+Dated gate on commit c58440bc (2026-10-13 07:06Z to 07:15Z; the test file and lib as committed there): format exit 0; compile --warnings-as-errors exit 0; mix letflow.check.static exit 0; the five onboarding files 63 passed, 0 failed. This entry is in the following commit; the tested content is c58440bc.
+
+Dated gate on the test file committed with this entry (2026-10-13 07:17Z to 07:26Z): format exit 0; compile --warnings-as-errors exit 0; mix letflow.check.static exit 0; the five onboarding files 63 passed, 0 failed. This entry is the record of that gate; the tested test file is the one in this commit.

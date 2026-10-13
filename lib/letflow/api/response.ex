@@ -215,6 +215,13 @@ defmodule Letflow.Api.Response do
   @spec internal_error(Plug.Conn.t()) :: Plug.Conn.t()
   def internal_error(conn), do: send_problem(conn, Error.internal())
 
+  @doc """
+  HTTP 500 — Internal Server Error with a fixed, caller-supplied detail (a literal; see
+  `Letflow.Api.Error.internal/1`).
+  """
+  @spec internal_error(Plug.Conn.t(), String.t()) :: Plug.Conn.t()
+  def internal_error(conn, detail), do: send_problem(conn, Error.internal(detail))
+
   @doc "HTTP 503 — Service Unavailable."
   @spec service_unavailable(Plug.Conn.t(), String.t()) :: Plug.Conn.t()
   def service_unavailable(conn, detail), do: send_problem(conn, Error.service_unavailable(detail))

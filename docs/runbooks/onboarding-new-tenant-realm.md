@@ -1,0 +1,133 @@
+# Runbook: giving a newly onboarded tenant a realm and a first administrator
+
+ISS-1030 / Q-1012 / GH #2312. Design: `lib/letflow/design/iss1030-onboarding-administrator.md`
+(sections 3 and 9).
+
+A tenant created through the onboarding wizard or `POST /api/v1/onboarding` is **not yet
+loginable** until an identity-provider realm is bound to it: a login reaches a tenant only through
+the realm named in the token, and a tenant with no `idp_realm_id` cannot be reached by any token.
+The onboarding response says so (`login.status` is `not_yet_loginable`, with `login.next_steps`),
+and it says plainly that the administrator details typed into the wizard were **not used**
+(`administrator.state`, `administrator.not_provisioned`). Nothing in Letflow creates a realm or a
+realm user today; this runbook is the manual procedure.
+
+Fill the Owner, Evidence and Date columns when an item is done. Evidence is a reference (ticket,
+PR, document, inventory entry), never a secret value. Names only: no passwords, tokens or secret
+values belong in this file or in any evidence field.
+
+## References
+
+- Infra tasks T-0150 (the realm and persona-account recipe) and T-0158.
+- Decision 0044 (realm-per-tenant, Phase 1) and decision 0046 D4/D5 (`PLATFORM_ADMIN` has no
+  power inside a customer tenant; `TENANT_ADMIN` is the tenant's owner role).
+- `lib/letflow/design/req447-infra-realm-mapping.md`, sections 1 and 3b (every new realm must
+  issue `TENANT_ADMIN`).
+
+## Ordered steps
+
+1. **R1 Create the realm.** Clone the `bpm-default` realm definition
+   (`priv/keycloak/realms/bpm-default.json`: the `letflow-web` client with its audience mapper and
+   the `realm-roles` mapper), including the realm role `TENANT_ADMIN`. Set the `letflow-web` client's valid
+   redirect URIs for this tenant's hostname by hand. Letflow does not store the `client_config.redirect_uris`
+   the wizard sent.
+2. **R2 Create the first administrator.** Create the user with the e-mail set and the e-mail
+   marked verified, and map the realm role `TENANT_ADMIN` to that user.
+3. **R3 Bind the realm.** Either give `idp_realm_id` when onboarding (the realm must already
+   exist), or bind it afterwards with `POST /api/v1/onboarding/{id}/bind-realm` and the body
+   `{"idp_realm_id": "<realm>"}` (operator, `TenantsManage`). The realm id is 1 to 64 letters,
+   digits, `_` or `-`, starting with a letter or digit; `master` is refused. The server checks
+   that the realm exists on the configured Keycloak before binding. **The binding is permanent:**
+   it can be set only while the tenant has no realm, and only for an `active` tenant (a
+   `migrating` or deactivated tenant answers 409). It cannot be changed or cleared afterwards, so
+   confirm the realm belongs to this customer before you bind it (checklist item "realm ownership
+   confirmed by").
+
+   **Activation is automatic.** The onboarding call provisions the tenant schema and then flips
+   the tenant from `migrating` to `active` (`Letflow.TenantOnboarding.provision_and_migrate/1`).
+   You do not activate the tenant by hand. If it is still `migrating`, see "If the tenant stays
+   migrating" below.
+4. **R4 First sign-in.** The administrator signs in once. Verify `GET /api/v1/me` shows
+   `TENANT_ADMIN` (role names only). Re-read `GET /api/v1/onboarding/{id}`: `login.status` is
+   `realm_bound`.
+
+## If the tenant stays migrating
+
+Provisioning runs before the onboarding record is written. If it fails, `POST /api/v1/onboarding`
+answers 500 and the tenant for that slug stays `migrating` with no onboarding record, so there is no
+onboarding id to bind against.
+
+1. **Do not bind or edit the tenant row by hand.** A `migrating` tenant has a half-provisioned
+   schema, and a hand-written status change would make it look ready when it is not.
+2. **Recover provisioning.** An engineer runs `Letflow.TenantOnboarding.recover_provisioning/1`
+   with the tenant id from a release console. There is no HTTP route for it. The call is
+   idempotent: it re-runs the same provisioning steps and flips the tenant to `active` only on
+   success.
+3. **Bind again.** Once the tenant is `active` and an onboarding record exists, run R3 unchanged.
+4. **If recovery fails, stop and escalate** to the platform owner with the slug, the time of the
+   call and the error. Do not retry by changing the database.
+
+If the onboarding call carried an `idp_realm_id` and provisioning failed, the realm is **not** bound:
+the realm is bound only after provisioning and the onboarding record succeed. The realm therefore
+stays free, and after recovery you bind it with step R3.
+
+If the create call answers 409 `hostname already bound`, no tenant was created: the hostname is checked
+before any write. Retry with a free hostname.
+
+A 409 whose detail reads "hostname taken during the request; the tenant for this slug was created" means
+the tenant **does** exist, and it may be `active` or still `migrating`: a hostname was taken in the instant between that check and the
+insert. A retry with the **same** slug only confirms it: the answer is 409 "slug already exists" and
+nothing is created. Do not retry with a new slug, which creates a second tenant. Escalate to the
+platform owner. Nobody binds a realm by hand.
+
+A 500 whose detail reads "an unexpected error occurred after the tenant for this slug was created", or a
+422 "onboarding record rejected after the tenant was created", from `POST /api/v1/onboarding` means the
+tenant for that slug **may** exist: `migrating` (provisioning failed) or `active` with no onboarding record
+and no realm. Do not retry with a new slug. Escalate to the platform owner with the slug and the time of
+the call.
+
+If the create call answers **201** with `realm_request.status = "not_bound"` (the realm was claimed by
+another tenant in a race, `reason = "taken"`, or the bind outcome is unknown, `reason =
+"unavailable"`), the tenant exists (`active`, or still `migrating` if activation did not complete) and the
+onboarding record exists (the body's `id`). The response
+says `login.loginable` is `false`. For `reason = "unavailable"` the realm may in fact be bound (an error or an exit
+around the commit leaves the outcome unknown): retry the bind with the same realm id first. The retry is safe: it
+binds the same realm once and answers 200 with no second audit entry. A 200 means it is bound;
+a 409 means another tenant or a different realm holds it, or the tenant is no longer `active`. Then retry the bind with
+`POST /api/v1/onboarding/{id}/bind-realm` using the body's `id`. If `taken`, choose another realm
+first. If the bind fails again, escalate to the platform owner; do not bind by hand.
+
+## Realm checklist
+
+One row per item; evidence is a reference, never a value.
+
+| Item | Owner | Evidence | Date |
+|------|-------|----------|------|
+| `TENANT_ADMIN` exists as a plain realm role and is NOT in `default-roles-<realm>`, any default group, any client-scope role mapping or any composite | | | |
+| "Duplicate emails" is OFF | | | |
+| Self-registration is OFF | | | |
+| No brokered identity provider with "Trust Email" | | | |
+| The first user's e-mail is verified | | | |
+| "Verify email" is ON in the realm | | | |
+| Users cannot edit their own e-mail, or `email_verified` is reset whenever the e-mail changes (the realm's profile and "Update email" settings reviewed) | | | |
+| The `email` and `email_verified` mappers are present in the `letflow-web` client scope | | | |
+| The realm never issues `PLATFORM_ADMIN` | | | |
+| Realm ownership confirmed by (named person at the operator who confirmed this realm belongs to this customer's tenant, and the date) | | | |
+
+## The one line for the infra onboarding checklist
+
+> Every new tenant realm: clone from bpm-default including the TENANT_ADMIN realm role; create
+> the first user with a VERIFIED e-mail and the TENANT_ADMIN role; never map TENANT_ADMIN to
+> default roles or groups; Duplicate emails OFF.
+
+This repository does not edit the infra repository; ORCH copies the line into
+`ai-dala-infra`'s onboarding checklist as a task.
+
+## What the wizard fields do and do not do
+
+- `admin_email`, `admin_username` and `admin_display_name` are **echoed, not stored and not
+  acted on**. Nothing creates a realm user or a role grant from them.
+- `client_config` and `realm_config` are **not stored and not applied**. Each one sent gets
+  `{"disposition": "not_stored", "next": ...}` in the 201 body and is also listed in `ignored_fields`.
+  The `redirect_uris` inside `client_config` is not read. Any other unknown body key is listed by name in
+  `ignored_fields` only; its value is not read.
+- A blank or null administrator field counts as not sent.

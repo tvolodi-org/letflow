@@ -2,7 +2,7 @@
  *
  * Collects onboarding inputs for a new tenant and submits to POST /api/v1/onboarding.
  * Role guard: redirects to /instances if session does not include PLATFORM_ADMIN.
- * On success navigates to OnboardingProgressPage with form values in router state.
+ * On success navigates to OnboardingResultPage with the created record in router state.
  */
 
 import { useState, useEffect, useRef } from 'react'
@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/Button'
 import {
   submitOnboarding,
   OnboardingApiError,
+  fieldErrorConstraint,
   type OnboardingFormValues,
 } from '@/api/onboarding'
 
@@ -30,6 +31,7 @@ interface FormState {
   admin_username: string
   admin_display_name: string
   hostname: string
+  idp_realm_id: string
   redirect_uris: string[]
   realm_default_token_lifetime_seconds: string
   realm_min_password_length: string
@@ -46,7 +48,20 @@ interface FormErrors {
   admin_username?: string
   admin_display_name?: string
   hostname?: string
+  idp_realm_id?: string
   redirect_uris?: string
+}
+
+// Client-side format HINT for the optional realm id (ISS-1030). The server
+// re-validates, checks the realm with the identity provider and is
+// authoritative; this only saves a round trip on an obvious typo.
+const REALM_ID_FORMAT = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
+
+const REALM_SERVER_MESSAGES: Record<string, string> = {
+  format: 'The server rejected this realm id: invalid format.',
+  reserved: 'The server rejected this realm id: it is reserved.',
+  not_found: 'The identity provider does not know this realm.',
+  not_blank: 'The realm id must not be blank.',
 }
 
 const EMPTY_FORM: FormState = {
@@ -56,6 +71,7 @@ const EMPTY_FORM: FormState = {
   admin_username: '',
   admin_display_name: '',
   hostname: '',
+  idp_realm_id: '',
   redirect_uris: [''],
   realm_default_token_lifetime_seconds: '',
   realm_min_password_length: '',
@@ -82,18 +98,17 @@ function validateForm(form: FormState): FormErrors {
     errors.display_name = 'Display name is required'
   }
 
-  if (!form.admin_email.trim()) {
-    errors.admin_email = 'Admin email is required'
-  } else if (!form.admin_email.includes('@') || form.admin_email.split('@')[1]?.length === 0) {
+  // ISS-1030: the admin fields are optional (the platform does not provision
+  // an administrator yet); a filled email must still look like an address.
+  const adminEmail = form.admin_email.trim()
+  if (adminEmail && (!adminEmail.includes('@') || adminEmail.split('@')[1]?.length === 0)) {
     errors.admin_email = 'Enter a valid email address'
   }
 
-  if (!form.admin_username.trim()) {
-    errors.admin_username = 'Admin username is required'
-  }
-
-  if (!form.admin_display_name.trim()) {
-    errors.admin_display_name = 'Admin display name is required'
+  const realm = form.idp_realm_id.trim()
+  if (realm && !REALM_ID_FORMAT.test(realm)) {
+    errors.idp_realm_id =
+      'Use 1–64 letters, digits, "_" or "-", starting with a letter or digit'
   }
 
   if (!form.hostname.trim()) {
@@ -112,32 +127,48 @@ function validateForm(form: FormState): FormErrors {
 
 // ── Error taxonomy banner message ──────────────────────────────────────────────
 
+interface ApiErrorView {
+  banner: string
+  realmError?: string
+  adminEmailError?: string
+}
+
 function resolveApiErrorMessage(
   err: OnboardingApiError,
-): { banner: string; progressLink?: string } {
+): ApiErrorView {
   const { httpStatus, body } = err
   const errorCode = body['error'] as string | undefined
   const problemType = body['type'] as string | undefined
 
   if (httpStatus === 409) {
-    if (errorCode === 'onboarding_in_progress') {
-      const oid = body['onboarding_id'] as string | undefined
-      return {
-        banner: 'An onboarding for this tenant is already in progress.',
-        progressLink: oid ? `/admin/onboarding/${oid}/progress` : undefined,
-      }
-    }
     if (problemType?.includes('idempotency-conflict')) {
       return { banner: 'A conflicting submission was detected. Please start over.' }
     }
-    // Other 409 (DuplicateTenantSlug, DuplicateHostname, RealmAlreadyExists etc.)
-    const title = (body['title'] as string) ?? (body['detail'] as string)
-    return { banner: title ?? 'A conflict was detected. Please check your inputs.' }
+    // The 409s from the onboarding endpoint (slug, hostname and realm conflicts, and a tenant that
+    // is not active). Error.conflict/1 sets title to the fixed "Conflict" and carries the specific
+    // reason in detail, so detail is read first (GH 2438). Title is only a fallback.
+    const detail = body['detail'] as string | undefined
+    const title = body['title'] as string | undefined
+    return { banner: detail ?? title ?? 'A conflict was detected. Please check your inputs.' }
   }
 
   if (httpStatus === 422) {
     if (errorCode === 'idempotency_key_required') {
       return { banner: 'Internal error: idempotency key missing. Please reload and try again.' }
+    }
+    const realmConstraint = fieldErrorConstraint(body, 'idp_realm_id')
+    if (realmConstraint) {
+      return {
+        banner: 'The server rejected the submission due to a validation error. Please check all fields.',
+        realmError: REALM_SERVER_MESSAGES[realmConstraint] ?? 'The server rejected this realm id.',
+      }
+    }
+    const adminEmailConstraint = fieldErrorConstraint(body, 'admin_email')
+    if (adminEmailConstraint) {
+      return {
+        banner: 'The server rejected the submission due to a validation error. Please check all fields.',
+        adminEmailError: 'The server rejected the admin email.',
+      }
     }
     return { banner: 'The server rejected the submission due to a validation error. Please check all fields.' }
   }
@@ -228,7 +259,7 @@ export default function RegisterTenantPage() {
   const [errors, setErrors] = useState<FormErrors>({})
   const [idempotencyKey] = useState<string>(() => crypto.randomUUID())
   const [submitting, setSubmitting] = useState(false)
-  const [apiError, setApiError] = useState<{ banner: string; progressLink?: string } | null>(null)
+  const [apiError, setApiError] = useState<ApiErrorView | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const [realmOpen, setRealmOpen] = useState(false)
   const [clientOpen, setClientOpen] = useState(false)
@@ -290,16 +321,20 @@ export default function RegisterTenantPage() {
       admin_username: form.admin_username.trim(),
       admin_display_name: form.admin_display_name.trim(),
       hostname: form.hostname.trim(),
+      idp_realm_id: form.idp_realm_id.trim(),
       redirect_uris: form.redirect_uris.map((u) => u.trim()).filter((u) => u.length > 0),
       realm_config: buildRealmConfig(form),
       client_config: buildClientConfig(form),
     }
 
     try {
-      const result = await submitOnboarding(formValues, idempotencyKey)
-      navigate(`/admin/onboarding/${result.onboarding_id}/progress`, {
-        state: { formValues, hostname: formValues.hostname },
-      })
+      const created = await submitOnboarding(formValues, idempotencyKey)
+      // The backend is synchronous: the 201 already carries the final record,
+      // so go straight to the result page (no progress polling).
+      navigate(
+        `/admin/onboarding/${created.id}/result?hostname=${encodeURIComponent(formValues.hostname)}`,
+        { state: { record: created, formValues } },
+      )
     } catch (err) {
       if (err instanceof OnboardingApiError) {
         const resolved = resolveApiErrorMessage(err)
@@ -329,14 +364,6 @@ export default function RegisterTenantPage() {
           }}
         >
           {apiError.banner}
-          {apiError.progressLink && (
-            <>
-              {' '}
-              <a href={apiError.progressLink} style={{ color: 'var(--interactive-primary)' }}>
-                View progress
-              </a>
-            </>
-          )}
         </div>
       )}
 
@@ -366,9 +393,20 @@ export default function RegisterTenantPage() {
           {errors.display_name && <div style={errorStyle}>{errors.display_name}</div>}
         </div>
 
+        <p
+          style={{
+            margin: '0 0 1rem 0',
+            fontSize: '.85rem',
+            color: 'var(--text-secondary)',
+          }}
+        >
+          Administrator details are optional and not provisioned by the platform yet: they are
+          not used to create a user. The tenant cannot be logged into until a realm is bound.
+        </p>
+
         {/* Admin email */}
         <div style={fieldGroupStyle}>
-          <label style={labelStyle} htmlFor="admin_email">Admin Email</label>
+          <label style={labelStyle} htmlFor="admin_email">Admin Email (optional)</label>
           <input
             id="admin_email"
             type="email"
@@ -378,11 +416,12 @@ export default function RegisterTenantPage() {
             autoComplete="off"
           />
           {errors.admin_email && <div style={errorStyle}>{errors.admin_email}</div>}
+          {apiError?.adminEmailError && <div style={errorStyle}>{apiError.adminEmailError}</div>}
         </div>
 
         {/* Admin username */}
         <div style={fieldGroupStyle}>
-          <label style={labelStyle} htmlFor="admin_username">Admin Username</label>
+          <label style={labelStyle} htmlFor="admin_username">Admin Username (optional)</label>
           <input
             id="admin_username"
             style={{ ...inputStyle, borderColor: errors.admin_username ? 'var(--border-error)' : 'var(--border-default)' }}
@@ -395,7 +434,7 @@ export default function RegisterTenantPage() {
 
         {/* Admin display name */}
         <div style={fieldGroupStyle}>
-          <label style={labelStyle} htmlFor="admin_display_name">Admin Display Name</label>
+          <label style={labelStyle} htmlFor="admin_display_name">Admin Display Name (optional)</label>
           <input
             id="admin_display_name"
             style={{ ...inputStyle, borderColor: errors.admin_display_name ? 'var(--border-error)' : 'var(--border-default)' }}
@@ -416,6 +455,35 @@ export default function RegisterTenantPage() {
             placeholder="tenant.example.com"
           />
           {errors.hostname && <div style={errorStyle}>{errors.hostname}</div>}
+        </div>
+
+        {/* Identity-provider realm id (optional, ISS-1030) */}
+        <div style={fieldGroupStyle}>
+          <label style={labelStyle} htmlFor="idp_realm_id">Identity Realm ID (optional)</label>
+          <input
+            id="idp_realm_id"
+            style={{
+              ...inputStyle,
+              borderColor:
+                errors.idp_realm_id || apiError?.realmError
+                  ? 'var(--border-error)'
+                  : 'var(--border-default)',
+            }}
+            value={form.idp_realm_id}
+            onChange={(e) => setField('idp_realm_id', e.target.value)}
+            autoComplete="off"
+            aria-describedby="idp_realm_id_hint"
+          />
+          <div
+            id="idp_realm_id_hint"
+            style={{ fontSize: '.8rem', color: 'var(--text-secondary)', marginTop: '.2rem' }}
+          >
+            Leave empty if the realm does not exist yet; the tenant is then &quot;not yet
+            loginable&quot; and the realm can be bound from the result page. The server checks the
+            realm with the identity provider.
+          </div>
+          {errors.idp_realm_id && <div style={errorStyle}>{errors.idp_realm_id}</div>}
+          {apiError?.realmError && <div style={errorStyle}>{apiError.realmError}</div>}
         </div>
 
         {/* Redirect URIs */}

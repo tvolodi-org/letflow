@@ -12,7 +12,8 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import fg from 'fast-glob'
 import { PATTERNS } from './forbidlist'
-import { writeViolations, assertRedacted, type Violation } from './reporter'
+import { writeViolations, assertRedacted } from './reporter'
+import { SOURCE_SUMMARY_LIMIT, scanSource, summaryText, type ScanFile } from './scan-core'
 
 const WEB_PREFIX = 'web/'
 
@@ -22,33 +23,6 @@ function toForwardSlash(p: string): string {
 
 function normToWsPath(relFile: string): string {
   return WEB_PREFIX + toForwardSlash(relFile)
-}
-
-function isAllowed(filePath: string, allowedPaths: string[]): boolean {
-  const lc = filePath.toLowerCase()
-  return allowedPaths.some(a => lc.startsWith(a.toLowerCase()))
-}
-
-function findViolationInFile(
-  content: string,
-  lines: string[],
-  pattern: { name: string; regex: RegExp; allowedPaths: string[] },
-  filePath: string,
-): Violation | null {
-  // Test whole-file content — required for multi-line patterns (e.g. missing-query-state-boundary)
-  pattern.regex.lastIndex = 0
-  if (!pattern.regex.test(content)) return null
-
-  // Violation confirmed — find the first line that individually matches for accurate line number
-  for (let i = 0; i < lines.length; i++) {
-    pattern.regex.lastIndex = 0
-    if (pattern.regex.test(lines[i])) {
-      return { file: filePath, line: i + 1, patternName: pattern.name }
-    }
-  }
-
-  // Multi-line pattern: no single line matches — report line 1
-  return { file: filePath, line: 1, patternName: pattern.name }
 }
 
 describe('source-scan', () => {
@@ -61,23 +35,12 @@ describe('source-scan', () => {
       // Glob relative to web/ directory
       const files = await fg('src/**/*.{ts,tsx,css}', { cwd: join(__dirname, '..', '..') })
 
-      const violations: Violation[] = []
-
-      for (const relFile of files) {
-        const wsPath = normToWsPath(relFile)
-        const absPath = join(__dirname, '..', '..', relFile)
-        const content = readFileSync(absPath, 'utf8')
-        const lines = content.split('\n')
-
-        for (const pattern of sourcePatterns) {
-          if (isAllowed(wsPath, pattern.allowedPaths)) continue
-
-          const violation = findViolationInFile(content, lines, pattern, wsPath)
-          if (violation) {
-            violations.push(violation)
-          }
-        }
-      }
+      const scanFiles: ScanFile[] = files.map(relFile => ({
+        wsPath: normToWsPath(relFile),
+        content: readFileSync(join(__dirname, '..', '..', relFile), 'utf8'),
+      }))
+      const result = scanSource(scanFiles, sourcePatterns)
+      const { violations } = result
 
       const ts = new Date().toISOString().slice(0, 19).split(':').join('-')
       const runId = process.env.GUARD_RUN_ID ?? ts
@@ -85,14 +48,8 @@ describe('source-scan', () => {
       writeViolations(violations, evaluatedPatterns, runId)
 
       if (violations.length > 0) {
-        const summary = violations
-          .slice(0, 10)
-          .map(v => `  ${v.patternName} @ ${v.file}:${v.line}`)
-          .join('\n')
-        const more = violations.length > 10 ? `\n  ... and ${violations.length - 10} more` : ''
-        expect.fail(
-          `Source scan found ${violations.length} violation(s):\n${summary}${more}`,
-        )
+        const summary = summaryText(result, v => `${v.file}:${v.line}`, SOURCE_SUMMARY_LIMIT)
+        expect.fail(`Source scan found ${violations.length} violation(s):\n${summary}`)
       }
 
       expect(violations).toHaveLength(0)
