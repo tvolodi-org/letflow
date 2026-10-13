@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # seed_swiftroute_definition.sh
 #
-# Deploys the SwiftRoute "Shipment Approval" v1.6 ProcessDefinition to a
+# Deploys the SwiftRoute "Shipment Approval" v1.7 ProcessDefinition to a
 # live Letflow QA instance. Version-aware idempotency (versions compared
 # numerically by `sort -V`, see scripts/lib/seed_service_task_base.sh):
 #   none ACTIVE               -> create the fixture version and activate it

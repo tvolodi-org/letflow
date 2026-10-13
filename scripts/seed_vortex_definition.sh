@@ -2,7 +2,7 @@
 # seed_vortex_definition.sh
 #
 # Deploys the three Vortex ProcessDefinitions to a live Letflow QA instance:
-#   1. "Production Order Release" v1.6  (proc-vortex-production-order-release)
+#   1. "Production Order Release" v1.7  (proc-vortex-production-order-release)
 #   2. "8D Corrective Action" v1.1 (proc-vortex-8d-corrective-action; child of
 #       Supplier Quality Deviation, late-bound by name at SUB_PROCESS spawn, ISS-0929)
 #   3. "Supplier Quality Deviation" v1.7 (proc-vortex-supplier-quality-deviation,

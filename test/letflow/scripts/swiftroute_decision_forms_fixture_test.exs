@@ -92,9 +92,9 @@ defmodule Letflow.Scripts.SwiftrouteDecisionFormsFixtureTest do
       assert doc["description"] =~ "required"
     end
 
-    test "version 1.6, the D-ESC line is kept verbatim and the v1.5 and v1.6 sentences are present" do
+    test "version 1.7, the D-ESC line is kept verbatim and the v1.5 and v1.6 sentences are present" do
       doc = qa()
-      assert doc["version"] == "1.6"
+      assert doc["version"] == "1.7"
       assert doc["description"] =~ "Escalation follows D-ESC: timer -> higher role -> fail closed"
       assert doc["description"] =~ "v1.5"
     end

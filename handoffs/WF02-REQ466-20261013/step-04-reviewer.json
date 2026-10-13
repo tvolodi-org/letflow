@@ -1,0 +1,120 @@
+{
+  "handoff_id": "dd7fab22-12ce-4e70-a280-87c41025f0af",
+  "run_id": "WF02-REQ466-20261013",
+  "workflow_id": "WF-02",
+  "step": "04",
+  "from_agent": "ORCH",
+  "to_agent": "REVIEWER",
+  "file": "handoffs/WF02-REQ466-20261013/step-04-reviewer.json",
+  "created_at": "2026-10-13T02:12:29Z",
+  "started_at": "2026-10-13T02:12:29Z",
+  "completed_at": "2026-10-13T02:13:20Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": ["REQ-466"],
+    "queue_task": 1029,
+    "gh_issue": 2344,
+    "branch_name": "feat/Q-1029-vortex-swiftroute-distinct-from",
+    "base_sha": "8460399fa86c7457b4afa8e2937c978d30d9052b",
+    "head_at_review": "afb62fdeb59f63330d4c62ed7c6a44fa26120ddd",
+    "reviewed_range": "origin/main..afb62fde (12 paths, 649 insertions, 15 deletions)",
+    "decision_refs": [
+      "letflow-supervisor/reports/decisions/Q-1044-letflow-9a-decision-2026-10-12.md (items 3, 7; acceptance criteria 1 and 2; design section 9)",
+      "lib/letflow/design/req459-required-outputs-and-distinct-person.md section 9 decision 1 (lines 757-761) and decision 2 (lines 762-766)",
+      "docs/requirements.yaml REQ-465 open_questions, line 35190 (Q-1044 guard decision); REQ-466 entry at lines 35202-35248"
+    ],
+    "artifacts_in": [
+      ".claude/agents/reviewer.md",
+      "docs/agents/instructions/core-directives.md",
+      "docs/anti-patterns.md (headings and keyword scan; no entry triggered)",
+      "docs/requirements.yaml REQ-466 and REQ-465 (grep and awk, scoped)",
+      "git diff origin/main..afb62fde (12 paths; all read)",
+      "test/letflow/engine/req466_swiftroute_distinct_from_test.exs (read)",
+      "test/letflow/engine/req466_vortex_distinct_from_test.exs (read)",
+      "test/letflow/scripts/req466_distinct_from_fixture_test.exs (read)",
+      "test/letflow/definitions/required_outputs_shipped_definitions_test.exs (read; unchanged)",
+      "test/support/sod_support.ex and test/support/req462_adoption.ex (helper definitions, static read)",
+      "test/support/data_case.ex, test/test_helper.exs (sandbox setup and exclude list, static read)",
+      "lib/letflow/definitions/validation_warnings.ex and definitions.ex validate_definition_graph/2 (return shape, static read)",
+      "handoffs/WF02-REQ466-20261013/step-02-elixir-dev.json (read; valid JSON)",
+      "handoffs/WF02-Q1051-20261012/step-04-reviewer.json (shape reference)",
+      "python -I static parse of both QA fixtures against origin/main (duplicate keys, description prefix, distinct_from targets). No mix and no BEAM were run."
+    ]
+  },
+  "task": {
+    "description": "STEP 2d REVIEWER gate for REQ-466 / Q-1029 / GH #2344. Branch feat/Q-1029-vortex-swiftroute-distinct-from at afb62fde, base origin/main 8460399f. Checks: (A) stray or duplicated edits; (B) scope creep, including the unchanged shipped-definition guard; (C) decision-record consistency (Q-1044 precedent, the escalate-list deviation, versions 1.6 to 1.7 with an appended reason sentence and no earlier sentence rewritten); (D) description accuracy against the distinct_from lists; (E) OTP idiom and test isolation in the three new test files. Read-only: no mix, no BEAM, no code edits. Commit only this handoff file. Do not push. Do not stage letflow-3.code-workspace.",
+    "acceptance_criteria": [
+      "A: exactly the 12 expected paths; no deletions; no stray or duplicated content in JSON, seeds, pinned tests or new tests; letflow-3.code-workspace not in any commit.",
+      "B: test/letflow/definitions/required_outputs_shipped_definitions_test.exs byte-identical to origin/main; no change outside the two definitions, their seeds, their pinned tests and the new tests; no abstraction added.",
+      "C: Q-1044 guard decision honoured; versions 1.6 to 1.7 on both definitions; reason sentence appended; no earlier sentence rewritten; the escalate-list deviation checked against its cited precedent.",
+      "D: each appended sentence matches the actual distinct_from arrays in the JSON.",
+      "E: three new test files: real Postgres through existing helpers where DB-backed, async false where DB-backed, no sleeps used for synchronisation, no Sandbox.mode or sandbox_auto calls, no global state leaks.",
+      "Known and accepted, not re-litigated: the narrowed escalate list and its residual (Dirk is the only role-ceo in vortex); simulation copies lag (follow-up); the pre-existing seed header comment naming the simulation YAML."
+    ]
+  },
+  "result": {
+    "status": "PASS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "PASS_WITH_FINDINGS for the REVIEWER idiom and scope gate on REQ-466 at afb62fde. No code defect and no stray edit. No lib/ change, so no GenServer, gen_statem or supervision surface is touched. The shipped-definition guard is byte-identical to origin/main. Both QA fixtures change only the version, an append-only description sentence and three distinct_from arrays, and the appended sentences match those arrays exactly. The two DB-backed engine tests are async false on real Postgres with no sleeps and no sandbox-mode calls. Two MINOR decision-record findings (F-01, F-02) concern how the accepted escalate-list narrowing is recorded: REQ-466 requirement text still shows the un-narrowed list, and the handoff cites the Q-1044 precedent for a narrowing that precedent does not support. Neither touches code or JSON. PRECONDITION: no SECURITY-REVIEWER verdict for REQ-466 exists on the branch or on any ref. This verdict does not cover security. ORCH must confirm that verdict before TEST-DESIGNER starts.",
+    "checks": {
+      "A_stray_and_duplicate_edits": "PASS. git diff origin/main..afb62fde touches exactly 12 paths: 2 QA fixtures, 2 seed scripts, 4 pinned version tests, 3 new test files, 1 handoff. No deletions. git diff --check clean. Both QA JSON files parse with no duplicate keys. Against origin/main, the only changes are version 1.6 to 1.7, an appended description sentence (prefix preserved), and distinct_from on swiftroute ceo-approval, vortex budget-approval and vortex escalate-budget-approval-to-ceo. Everything else (other keys, nodes, edges) is identical after removing those. Seed diffs are header comments only (scripts/seed_vortex_definition.sh:5, scripts/seed_swiftroute_definition.sh:4). The four pinned tests change only version literals and titles. No stale 1.6 assertion remains for these definitions.",
+      "B_scope": "PASS. test/letflow/definitions/required_outputs_shipped_definitions_test.exs has zero diff against origin/main and is not in the changed-path list. No path under lib/ changed (no GenServer, gen_statem, supervisor, InstanceSupervisor or migration). No other definition, seed, UAT scenario or simulation file changed.",
+      "C_decision_record": "PASS_WITH_FINDINGS. Q-1044 item 3 (guard unchanged, deliberately stricter than REQ-464 check 4 for shipped definitions) holds and is recorded in-repo at docs/requirements.yaml:35190. Versions are 1.6 to 1.7 on both definitions. The appended reason sentence follows the existing text; the old description is a verbatim prefix of the new one. The narrowed escalate list departs from REQ-459 design section 9 decision 2 and Q-1044 acceptance criterion 1. The narrowing is accepted and not re-litigated; the record of that departure is findings F-01 and F-02.",
+      "D_description_accuracy": "PASS. swiftroute appended sentence matches ceo-approval distinct_from [ops-review]. Vortex appended sentence matches budget-approval [capacity-review, escalate-to-ceo] and escalate-budget-approval-to-ceo [capacity-review]. The stated reason (the shipped-definition guard forbids same-role pairs) matches required_outputs_shipped_definitions_test.exs, which asserts pair_failures == [].",
+      "E_idiom_and_isolation": "PASS for the two DB-backed engine tests. Each uses Letflow.DataCase with async: false, real Postgres via Letflow.SodSupport and Letflow.Req462Adoption, and HTTP through Letflow.Routers.Tasks.call/2. In the new files and the support helpers they call: no Process.sleep, :timer.sleep, receive or after; no Sandbox.mode, sandbox_auto or allow calls (sandbox_auto! is called only from three pre-existing req462 setups, none of which the new tests call); no Application.put_env, persistent_term or System.put_env. Escalation timers fire through Scheduler.fire_timer via Req462Adoption.fire_escalation!, with no wall clock. The fixture-shape test is async: true and pure (no Repo, no DB, no shared state). That is correct; the real-Postgres requirement applies to the two engine tests only. The :unit tag is not in test_helper's exclude list, so the fixture test runs.",
+      "item_3_type_safety": "No issue filed under docs/issues/ (only ORCH allocates ids). The same-role invariant depends on group-membership counts read from the database at validation time (RoleBinding), so no @type, struct or Ecto.Enum can make it unrepresentable at compile time. distinct_from remains a string list in JSON, validated by REQ-464 at validate time. Policy observation only: a same-role pair is still expressible in a shipped definition (REQ-464 check 4 is a WARNING), and the shipped-definition guard test is its only blocker. That is the Q-1044 choice, not a gap.",
+      "item_4_scope_creep": "None introduced. No new behaviour, behaviour module, macro or shared abstraction. The two engine test modules duplicate their helpers (complete_http/4, assert_accepted!/1, assert_separation!/1, reached_ends/1, schemas/1, current_nodes/1). Watch item only: do not extract a shared module until a third module needs it."
+    },
+    "findings": [
+      {
+        "id": "F-01",
+        "severity": "MINOR",
+        "file": "docs/requirements.yaml",
+        "line": "35220, 35238",
+        "description": "REQ-466 requirement text still records the un-narrowed list. Line 35220 (candidate table) gives escalate-budget-approval-to-ceo distinct_from [capacity-review, escalate-to-ceo]. Line 35238 (open question) calls naming escalate-to-ceo 'the intended safe outcome'. The shipped fixture, the tests and the ELIXIR-DEV handoff all use [capacity-review] only. The REQ-466 acceptance criteria name only capacity-review for that refusal, so the requirement is internally inconsistent.",
+        "recommendation": "DOC-UPDATER or ORCH appends an open_question to REQ-466 stating that escalate-budget-approval-to-ceo carries distinct_from [capacity-review] only; that this departs from REQ-459 design section 9 decision 2 and Q-1044 acceptance criterion 1; that the residual (Dirk is the only role-ceo) is accepted by the coordinator; and that the 'intended safe outcome' sentence at line 35238 is superseded. No JSON or code change.",
+        "affected_requirement": "REQ-466",
+        "route": "ORCH / DOC-UPDATER",
+        "blocking": false
+      },
+      {
+        "id": "F-02",
+        "severity": "MINOR",
+        "file": "test/letflow/engine/req466_vortex_distinct_from_test.exs",
+        "line": "9",
+        "description": "The narrowing is cited as following the 'Q-1044 pattern' (this line; also handoffs/WF02-REQ466-20261013/step-02-elixir-dev.json lines 70 and 134). Q-1044 does not support narrowing. Its acceptance criterion 1 requires exactly the six approval ids on the escalation node (Q-1044 report lines 22 and 25), and it avoided the same-role pair by rerouting the escalation to a non-approver role (lines 6-7). What Q-1044 does support is leaving the guard unchanged (lines 11-12; recorded at docs/requirements.yaml:35190). REQ-459 design section 9 decision 2 (lib/letflow/design/req459-required-outputs-and-distinct-person.md:765-766) says a later node must name the escalation node's id too. The fixture's appended sentence states the narrowing and its cause but does not call it a departure from those records. The pre-existing sentence 'Deviations (documented, no waivers): none' at test/fixtures/qa/vortex_production_order_release_process_definition.json line 4 stays in place under the no-rewrite rule, so the record has to live elsewhere.",
+        "recommendation": "Record the narrowing as a departure from REQ-459 section 9 decision 2 and Q-1044 acceptance criterion 1 (via F-01), and stop describing it as following the Q-1044 pattern. Do not edit the v1.7 description in place; a wording change to a published version needs its own version decision. No code change.",
+        "affected_requirement": "REQ-466",
+        "route": "ORCH (record); ELIXIR-DEV only if the coordinator later wants the wording changed in a new version",
+        "blocking": false
+      }
+    ],
+    "watch_items": [
+      "W-1: the two engine test modules duplicate about 60 lines of helpers. Leave as is until a third caller exists; extracting now is an abstraction ahead of need.",
+      "W-2: moduledocs at test/letflow/engine/req462_vortex_release_required_outputs_test.exs:3 and test/letflow/engine/vortex_escalation_timer_test.exs:5 still call the fixture 'v1.6'. Prose only, no version assertion. Refresh when next touched.",
+      "W-3: .claude/agents/reviewer.md question 2 (process-per-instance under Letflow.InstanceSupervisor) is stale: CLAUDE.md records that REQ-045 decided against it. Not engaged by this change (no lib/ change). ORCH may want the role file refreshed.",
+      "W-4: accepted and not re-litigated: the narrowed escalate list and its residual; simulation copies lag (test/fixtures/simulation/vortex/process_quality_check.yaml and test/fixtures/simulation/swiftroute/process_route_approval.yaml, as listed in the ELIXIR-DEV handoff; not re-verified here); the pre-existing seed header comment naming the simulation YAML."
+    ],
+    "precondition": {
+      "security_reviewer_verdict": "NOT FOUND",
+      "detail": "handoffs/WF02-REQ466-20261013/ holds only step-02-elixir-dev.json. No commit on any ref carries a SECURITY-REVIEWER verdict for REQ-466 (git log --all grep for Q-1029, REQ-466 and REQ466). reviewer.md orders this gate after SECURITY-REVIEWER, and the REQ-466 acceptance criteria make the SECURITY-REVIEWER verdict mandatory.",
+      "effect": "This REVIEWER verdict covers idiom, scope, decision record and description accuracy only. ORCH must confirm a recorded SECURITY-REVIEWER PASS for REQ-466 before TEST-DESIGNER starts."
+    },
+    "git_evidence": {
+      "branch_name": "feat/Q-1029-vortex-swiftroute-distinct-from",
+      "head_at_review": "afb62fdeb59f63330d4c62ed7c6a44fa26120ddd",
+      "report_commit": "reported in the final message, not self-referenced here",
+      "push_status": "not pushed (per brief)"
+    },
+    "not_run": [
+      "mix compile, mix format --check-formatted, mix test, mix letflow.check_boundaries, mix letflow.lint_handoffs, mix letflow.check_async_sandbox_reachability and the REQ-464 validator: not run (read-only gate; no mix, no BEAM). ELIXIR-DEV's reported results are not re-verified here.",
+      "Static checks used instead: python -I JSON parse with duplicate-key detection and description-prefix comparison of both QA fixtures against origin/main; grep and git for scope, sleeps, sandbox calls, global-state calls and version literals.",
+      "One failed shell redirect to /tmp/x during the review wrote nothing; scratch copies were written under the session scratchpad."
+    ],
+    "next_action": "ORCH: (1) confirm a recorded SECURITY-REVIEWER PASS for REQ-466 before TEST-DESIGNER starts; (2) route F-01 and F-02 to ORCH / DOC-UPDATER as record-only changes (no code or JSON change); (3) TEST-DESIGNER may start once step (1) is satisfied."
+  },
+  "rework_count": 0,
+  "max_rework": 3
+}

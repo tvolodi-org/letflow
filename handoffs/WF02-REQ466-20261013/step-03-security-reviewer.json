@@ -1,0 +1,174 @@
+{
+  "handoff_id": "0d93ad70-a65e-4f01-b94e-3d5eca2ed36b",
+  "run_id": "WF02-REQ466-20261013",
+  "workflow_id": "WF-02",
+  "step": "03",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF02-REQ466-20261013/step-03-security-reviewer.json",
+  "created_at": "2026-10-13T02:12:48Z",
+  "started_at": "2026-10-13T02:12:48Z",
+  "completed_at": "2026-10-13T02:13:24Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": ["REQ-466"],
+    "issue_ids": [],
+    "parent_requirement": "REQ-464 (validator, shipped-definition guard), REQ-463 (distinct_from enforcement), REQ-459 (design)",
+    "queue_task": 1029,
+    "gh_issue": 2344,
+    "branch_name": "feat/Q-1029-vortex-swiftroute-distinct-from",
+    "base_commit": "8460399fa86c7457b4afa8e2937c978d30d9052b",
+    "reviewed_commit": "afb62fdeb59f63330d4c62ed7c6a44fa26120ddd",
+    "artifacts_in": [
+      ".claude/agents/security-reviewer.md",
+      "docs/agents/instructions/security-invariants.md",
+      "docs/agents/instructions/core-directives.md",
+      "docs/agents/shared/HANDOFF_PROTOCOL.md",
+      "docs/requirements.yaml (REQ-466 entry)",
+      "handoffs/WF02-REQ466-20261013/step-02-elixir-dev.json",
+      "handoffs/WF02-Q1051-20261012/step-03-security-reviewer.json (shape reference)",
+      "test/fixtures/qa/vortex_production_order_release_process_definition.json",
+      "test/fixtures/qa/swiftroute_process_definition.json",
+      "test/letflow/engine/req466_vortex_distinct_from_test.exs",
+      "test/letflow/engine/req466_swiftroute_distinct_from_test.exs",
+      "test/letflow/scripts/req466_distinct_from_fixture_test.exs",
+      "test/letflow/definitions/required_outputs_shipped_definitions_test.exs",
+      "test/support/sod_support.ex",
+      "test/support/req462_adoption.ex",
+      "test/fixtures/uat/actors.yaml",
+      "test/fixtures/uat/scenarios/vortex/production-order-above-threshold.yaml",
+      "test/fixtures/uat/scenarios/vortex/production-order-ceo-escalation-approved.yaml",
+      "test/fixtures/uat/scenarios/vortex/production-order-ceo-escalation-rejected.yaml",
+      "test/fixtures/uat/scenarios/vortex/refusal-production-order-release.yaml",
+      "test/fixtures/uat/scenarios/swiftroute/shipment-high-value-happy.yaml",
+      "test/fixtures/uat/scenarios/swiftroute/shipment-ops-timeout-escalation.yaml",
+      "test/fixtures/simulation/vortex/scenarios/production-order-above-threshold.yaml",
+      "test/fixtures/simulation/swiftroute/scenarios/shipment-ops-timeout-escalation.yaml",
+      "lib/letflow/engine/separation_of_duties.ex",
+      "lib/letflow/engine.ex",
+      "lib/letflow/api/response.ex",
+      "lib/letflow/routers/tasks.ex",
+      "lib/letflow/definitions/role_binding.ex",
+      "lib/letflow/definitions/graph.ex",
+      "lib/letflow/design/req459-required-outputs-and-distinct-person.md",
+      "C:/Users/tvolo/dev/ai-dala/letflow-supervisor/reports/decisions/Q-1044-letflow-9a-decision-2026-10-12.md"
+    ]
+  },
+  "task": {
+    "description": "SECURITY-REVIEWER hard gate for REQ-466 / Q-1029 / GH #2344 on branch feat/Q-1029-vortex-swiftroute-distinct-from, HEAD afb62fde, based on origin/main 8460399f. Read-only: no mix, no BEAM, no code edits. Scope test, INV-1..INV-10 applicability and checks, a verdict for each REQ-466 acceptance criterion, a rating and closure options for the escalate-to-ceo / escalate-budget-approval-to-ceo residual, and the escalation_role, refusal-body, secret and shipped-guard checks. Output: this file, committed alone.",
+    "acceptance_criteria": [
+      "AC1: the run report lists each distinct_from node with ids and a one-line reason; the REQ-464 validator is valid for both changed definitions",
+      "AC2: swiftroute: a user holding role-ops-manager and role-ceo is refused at ceo-approval after ops-review; a second role-ceo holder is accepted",
+      "AC3: vortex: a user holding role-production-manager and role-controller is refused at budget-approval after capacity-review; the same user holding role-ceo is refused at escalate-budget-approval-to-ceo after capacity-review; a different user is accepted in both",
+      "AC4: capacity-review, escalate-to-ceo and ops-review carry no distinct_from; nothing else changed",
+      "AC5: affected UAT and simulation scenarios listed; none edited",
+      "AC6: SECURITY-REVIEWER verdict recorded"
+    ]
+  },
+  "result": {
+    "status": "PASS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "PASS_WITH_FINDINGS. result.status PASS because no applicable invariant fails. Scope: IN SCOPE, conservatively: none of the five literal clauses of the scope test fires (lib/, config/ and priv/ are unchanged), but the change alters completion-time authorization of tenant-scoped tasks through tenant-scoped definition content, and the new tests write tenant rows. APPLIES and PASS: INV-1, INV-4, INV-6, INV-7, INV-8. NOT-APPLICABLE: INV-2, INV-3, INV-5, INV-9, INV-10. AC verdicts: AC1 PASS (static), AC2 PASS (static), AC3 PASS_WITH_FINDINGS, AC4 PASS, AC5 PASS, AC6 PASS_WITH_FINDINGS (this record). One MAJOR residual: the escalated budget CEO escalation (escalate-budget-approval-to-ceo, role-ceo) does not name escalate-to-ceo (role-ceo), so one CEO holder can complete both CEO escalations on the same vortex order and release it. The change does not close it and does not record it as a decision; it must be decided and recorded before merge (see residual). Nothing was run: this review is read-only and the mix results quoted in step-02 were not reproduced.",
+    "evidence": {
+      "scope_test": "IN SCOPE, conservatively. Literal clauses not triggered: no API route, migration, secret resolution, response shaping or lookup-by-ID handler changed (git diff --name-only: no lib/, config/, priv/ paths). Treated as a tenant-data path because (1) it changes who may complete tenant-scoped tasks, via tenant-scoped definition content seeded to tenant schemas; (2) the new tests write tenant rows through schema-prefixed helpers. Same reasoning as handoffs/WF02-Q1051-20261012/step-03-security-reviewer.json.",
+      "git_checks": {
+        "range": "origin/main 8460399f..afb62fde",
+        "diff_stat": "12 files changed, 649 insertions(+), 15 deletions(-) (including the ELIXIR-DEV handoff and three new test files)",
+        "distinct_from_changes": "exactly three additions in the two QA fixtures: vortex budget-approval [capacity-review, escalate-to-ceo]; vortex escalate-budget-approval-to-ceo [capacity-review]; swiftroute ceo-approval [ops-review]. Checked by a read-only JSON parse of the branch fixtures.",
+        "first_level_nodes": "capacity-review, escalate-to-ceo (vortex) and ops-review (swiftroute) carry no distinct_from (parse)",
+        "versions": "both QA fixtures 1.6 -> 1.7, description sentence appended; the other changes are seed-script header comments, the existing version pins and three new test files",
+        "untouched": "lib/, config/, priv/, test/fixtures/uat, test/fixtures/simulation, scripts/seed_meridian_persona_actors.sh, test/letflow/definitions/required_outputs_shipped_definitions_test.exs (diff is zero bytes)"
+      },
+      "ac_verdicts": {
+        "AC1": "PASS (static, not reproduced). The step-02 node table matches the fixture lists exactly. The dropped id escalate-to-ceo is reported with its reason. Both engine test files assert Definitions.validate_definition_graph returns valid true, violations [], and no distinct_from_single_member_role warning. The fixture-shape file runs the pure REQ-464 checks. No mix run here.",
+        "AC2": "PASS (static). test/letflow/engine/req466_swiftroute_distinct_from_test.exs: u (role-ops-manager and role-ceo) completes ops-review; completing ceo-approval returns 403 application/problem+json with the body byte-equal to {\"detail\":\"separation of duties\",\"status\":403}; rows unchanged; task still pending. v (role-ceo) is accepted; the instance reaches release-shipment and end-approved. Uses DataCase (real Postgres), no mocks.",
+        "AC3": "PASS_WITH_FINDINGS. test/letflow/engine/req466_vortex_distinct_from_test.exs: (a) u (role-production-manager and role-controller) completes capacity-review; budget-approval refuses u with the fixed body and rows unchanged; v (controller) is accepted and the order is released. (b) budget-approval timer fires; u (role-production-manager and role-ceo) is refused at escalate-budget-approval-to-ceo with the fixed body and rows unchanged; c (second role-ceo) is accepted and the order is released. Finding: in (b) the refused user does not hold role-controller. The refusal is by completion history, so the AC is met as written, but this is not the literal same user. Separately, the escalate-to-ceo residual below is accepted by the implementation and no test pins it.",
+        "AC4": "PASS. Exactly the three distinct_from additions above. The three first-level nodes carry none. No other definition, actor grant or enforcement code changed.",
+        "AC5": "PASS (with a note). The set of newly refused scenarios is empty and none was edited. Re-derived from the scenario files: no scenario has one actor completing both members of a changed pair. uat swiftroute shipment-high-value-happy: marco (ops-review), alice (ceo-approval). uat swiftroute shipment-ops-timeout-escalation: ops-review times out; alice (ceo-approval). sim swiftroute shipment-ops-timeout-escalation: marco only advances the timer. uat and sim vortex production-order-above-threshold: sabine (capacity-review), stefan (budget-approval). uat vortex production-order-ceo-escalation-approved and -rejected: capacity-review times out; dirk completes escalate-to-ceo; order value EUR 8,000 so no budget-approval step is reached. uat vortex refusal-production-order-release: sabine completes capacity-review (step 4) and attempts budget-approval (step 5), refused by role because she does not hold role-controller; controller completes budget-approval (step 7). Note: step 5 is not recorded as a role refusal in the step-02 listing.",
+        "AC6": "PASS_WITH_FINDINGS (this record). Overall verdict PASS_WITH_FINDINGS. result.status PASS. The MAJOR residual below requires a recorded decision before merge."
+      },
+      "residual_escalate_pair": {
+        "rating": "MAJOR",
+        "path_on_v1.7_fixture": "capacity-review times out (PT4H, timeout-capacity-review) -> escalate-to-ceo (role-ceo) approve (e3) -> budget-gate (order value above 10000, e5) -> budget-approval (role-controller) times out (P2D, timeout-budget-approval) -> escalate-budget-approval-to-ceo (role-ceo) approve (e7-escalated) -> assign-line -> notify-planner -> end-released. The same CEO holder can decide both CEO escalations on one order. escalate-budget-approval-to-ceo names only capacity-review, which has no completion on this path, so nothing refuses. The asymmetry: budget-approval (controller) names escalate-to-ceo, so a controller who completed escalate-to-ceo is refused there; a CEO who completed escalate-to-ceo is not refused at the budget CEO escalation.",
+        "why_a_bypass_not_a_benign_residual": "(1) One person satisfies two release gates on one order. Q-1044 treated the same shape ('one person approves and pays alone' after timeouts) as a real gap and fixed it structurally. (2) REQ-466 open_questions states that this path must end fail-closed and calls that 'the intended safe outcome'. The delivered definition lets the path complete, and nothing records the change. (3) Q-1044 says to revisit the shipped guard 'only when a shipped definition needs four-eyes inside one role'. This pair is exactly that case.",
+        "why_MAJOR_not_BLOCKER": "No applicable invariant (INV-1..INV-10) is violated. No tenant boundary, secret or response is affected. The path needs an order value above EUR 10,000 and two sequential timeouts (PT4H then P2D), and the completer is the sole legitimately authorised CEO. No UAT or simulation scenario reaches it: the Dirk-led CEO-escalation scenarios use EUR 8,000 and stop before budget-approval.",
+        "why_roster_alone_does_not_close_it": "The shipped guard is structural. RoleBinding.single_member_pairs/1 is the pure half of REQ-464 check 4 and does not read membership. required_outputs_shipped_definitions_test.exs (line 160, asserted at lines 186-191 as pair_failures == []) fails on any same-role distinct_from pair regardless of holder count. A second role-ceo holder would clear the REQ-464 check-4 warning but would not let escalate-budget-approval-to-ceo name escalate-to-ceo. Q-1044's premise that the guard is 'membership-aware' is not what the code does; the decision record needs correcting.",
+        "what_would_close_it": [
+          "(a) Give the budget CEO escalation a distinct approver role (business decision). Then escalate-budget-approval-to-ceo can name escalate-to-ceo legitimately: the guard and check 4 both pass, and the person barrier holds if that role has a holder other than actor-vortex-dirk.",
+          "(b) Decision record (REVIEWER sign-off) making the shipped guard membership-aware for same-role pairs, plus a second role-ceo holder (roster change; creating a Keycloak account is an external action for the user). Then add escalate-to-ceo to escalate-budget-approval-to-ceo distinct_from: with one CEO the path stalls fail-closed, as REQ-466 intends; with a second CEO it completes through that person.",
+          "(c) If the business accepts the residual: a decision record stating the preconditions and the fail-open outcome, a correction of REQ-466 open_questions to match the delivered behaviour, and a test that pins the current behaviour so any change is deliberate. Acceptable only as a recorded acceptance, never as an unrecorded residual."
+        ],
+        "recommendation": "Choose (a) or (b). Use (c) only with a recorded decision. Do not merge with the residual unrecorded."
+      },
+      "invariants": {
+        "INV-1": "APPLIES, PASS. (a) every Repo call in both new tests passes prefix: ctx.schema_name; test/support/sod_support.ex and test/support/req462_adoption.ex pass prefix on every query; HTTP requests carry auth_context tenant_id = ctx.tenant_id. (b) no migration (priv/ unchanged). (c) no tenant_id column added or written (no schema change).",
+        "INV-2": "NOT-APPLICABLE. No tenant-scoped response shape changed. The refusal body is the constant @separation_of_duties_body (lib/letflow/api/response.ex lines 61, 195-200), with no node id or user id. Blocking node ids reach only the audit row (lib/letflow/engine.ex lines 5222-5227), which carries no other user id.",
+        "INV-3": "NOT-APPLICABLE. No Lua or WASM host function or capability change.",
+        "INV-4": "APPLIES, PASS. Added-line scan of the whole diff for token, secret, passw, bearer, api key, credential, keycloak, curl, http, System.get_env, Repo.query, Ecto.Adapters, fragment(, string interpolation and concatenation: no matches in changed code (only test and doc text). The two seed scripts change one header comment line each; no token or auth line changed; no value written to any file.",
+        "INV-5": "NOT-APPLICABLE. No lookup-by-ID handler changed. The refusal is a completion-time check after eligibility, and its body does not vary with whether a resource exists.",
+        "INV-6": "APPLIES, PASS. This record lists INV-1..INV-10 with applicability and reasons.",
+        "INV-7": "APPLIES, PASS. No Repo.query, Ecto.Adapters.SQL or fragment( added. lib/ and priv/ unchanged.",
+        "INV-8": "APPLIES, PASS. lib/ unchanged. The new bare pattern matches (for example {:ok, snapshot} = SnapshotStore.get_by_instance_id) are in test code only; no runtime path added.",
+        "INV-9": "NOT-APPLICABLE. No outbound URL or HTTP client code.",
+        "INV-10": "NOT-APPLICABLE. No route or permission added or changed. No grant change (test/fixtures/uat/actors.yaml and the persona seed unchanged). role-ceo, role-controller and similar names are process-routing attributes inside definitions, not platform permissions."
+      },
+      "escalation_role": "Documentation-only at runtime. escalation_role is unchanged on every node. Readers in lib/: lib/letflow/definitions/graph.ex (CHK-21 presence and pairing validation) and lib/letflow/definitions/role_binding.ex (advisory unbound-role warnings via validation_warnings.ex). No reader in lib/letflow/engine.ex, lib/letflow/engine/, lib/letflow/tasks.ex or lib/letflow/routers/. The engine reads escalation_timer_duration only (engine.ex lines 799-808; engine/transition.ex lines 434-443). No approver role gains access: the changed nodes keep their existing role attributes and only add distinct_from, which restricts.",
+      "refusal_body": "Fixed generic body. Response.separation_of_duties/1 sends the constant body with status 403 and application/problem+json (lib/letflow/api/response.ex lines 61, 195-200). The router maps {:error, :separation_of_duties} to it (lib/letflow/routers/tasks.ex lines 394-396); the engine returns the detail-free atom (lib/letflow/engine.ex lines 2189-2192, 5542-5558). No node id or user id reaches the response. Eligibility refusals come first, so an ineligible caller learns nothing about distinct_from (REQ-459 design, lib/letflow/design/req459-required-outputs-and-distinct-person.md lines 592-594; the ordering is taken from the design text and not re-traced in code). A refused caller learns only about their own prior completion.",
+      "secrets_keycloak_seed": "No token, secret, auth or Keycloak line in the diff. No seed script was run: the committed artifacts say so (commit afb62fde body; step-02 result.not_run). Out-of-band runs against QA cannot be observed from this checkout; this statement covers committed artifacts only.",
+      "shipped_guard": "test/letflow/definitions/required_outputs_shipped_definitions_test.exs: zero-byte diff against origin/main. Its assertion is unchanged and structural (see residual).",
+      "precedent": "Q-1044 decision (letflow-supervisor/reports/decisions/Q-1044-letflow-9a-decision-2026-10-12.md): followed for keeping the guard unchanged and for escalation nodes carrying their own distinct_from. Its trigger 'revisit only when a shipped definition needs four-eyes inside one role' is met by this change. Its 'membership-aware guard' premise is inaccurate (see residual)."
+    },
+    "artifacts_out": ["handoffs/WF02-REQ466-20261013/step-03-security-reviewer.json"],
+    "issues": [
+      {
+        "severity": "MAJOR",
+        "description": "Residual separation-of-duties gap: escalate-budget-approval-to-ceo (role-ceo) does not name escalate-to-ceo (role-ceo). One CEO holder (actor-vortex-dirk) can decide escalate-to-ceo and then escalate-budget-approval-to-ceo on the same order (order value above 10000; capacity-review and budget-approval both time out) and release it. Not closed by the change, not recorded as a decision, and contrary to REQ-466 open_questions' stated fail-closed intent. Required before merge: a recorded decision to close it by option (a) or (b), or accept it under (c), with REQ-466 open_questions updated to match. Owner: ORCH with REVIEWER sign-off.",
+        "affected_requirement": "REQ-466"
+      },
+      {
+        "severity": "MINOR",
+        "description": "Decision-record premise is wrong. Q-1044 describes the shipped guard as membership-aware. required_outputs_shipped_definitions_test.exs asserts pair_failures == [] on RoleBinding.single_member_pairs/1, which is structural. A second role-ceo holder alone therefore cannot clear the guard. Correct the premise in the Q-1044 decision record (outside this repository) before it is cited for closure. Owner: REVIEWER.",
+        "affected_requirement": "REQ-466"
+      },
+      {
+        "severity": "MINOR",
+        "description": "No test pins the escalate-to-ceo to escalate-budget-approval-to-ceo path. The current behaviour (same CEO accepted on both) is untested, so a later change to it would not be visible. Add a test that pins the current behaviour, or the chosen closure from the residual decision. Owner: TEST-DESIGNER / ELIXIR-DEV.",
+        "affected_requirement": "REQ-466"
+      },
+      {
+        "severity": "MINOR",
+        "description": "No claim-time refusal test for the three new pairs. The router comment says the check is identical on complete and claim, and the claim-time check fails open by design (REQ-459). Completion is the authority, so this is coverage, not a bypass. Add claim-time tests. Owner: TEST-DESIGNER / ELIXIR-DEV.",
+        "affected_requirement": "REQ-466"
+      },
+      {
+        "severity": "MINOR",
+        "description": "The AC3 second refusal is tested with a user who holds role-production-manager and role-ceo, not the full role set of the first clause. The refusal is by completion history, so the outcome is unaffected, but the test is not the literal same user. Owner: TEST-DESIGNER.",
+        "affected_requirement": "REQ-466"
+      },
+      {
+        "severity": "MINOR",
+        "description": "Simulation drift: test/fixtures/simulation/vortex/process_quality_check.yaml (budget-approval, escalate-budget-approval-to-ceo) and test/fixtures/simulation/swiftroute/process_route_approval.yaml (ceo-approval) carry no distinct_from and no 1.7 bump. Simulation runs therefore do not evidence the new separation of duties. Not in the AC; follow-up. Owner: ORCH.",
+        "affected_requirement": "REQ-466"
+      },
+      {
+        "severity": "MINOR",
+        "description": "Pre-existing stale comment: scripts/seed_swiftroute_definition.sh line 44 names test/fixtures/simulation/swiftroute/process_route_approval.yaml as the payload source of truth, but the script deploys the QA JSON. Not changed here; follow-up with the simulation drift. Owner: ELIXIR-DEV.",
+        "affected_requirement": "REQ-466"
+      }
+    ],
+    "git_evidence": {
+      "branch_name": "feat/Q-1029-vortex-swiftroute-distinct-from",
+      "commit_sha_list": ["afb62fdeb59f63330d4c62ed7c6a44fa26120ddd"],
+      "reviewed_commit": "afb62fdeb59f63330d4c62ed7c6a44fa26120ddd",
+      "remote_branch": null,
+      "push_status": "not_pushed",
+      "pr_url": null
+    },
+    "not_run": "Read-only, per instruction: no mix, no BEAM. Not reproduced here: mix compile --warnings-as-errors, mix format --check-formatted, the scoped mix test, mix letflow.check_boundaries, mix letflow.check.static (quoted in step-02; not re-run). mix letflow.lint_handoffs was not run (no mix); this file was checked by a JSON parse only. Seed scripts were not run; no Keycloak or environment touched.",
+    "next_action": "Before merge, ORCH with REVIEWER sign-off: (1) record a decision on the MAJOR residual (option (a) or (b), or accepted under (c)) and update REQ-466 open_questions to match the delivered behaviour; (2) correct the Q-1044 membership premise in its decision record; (3) TEST-DESIGNER pins the residual path or the chosen closure with a test; (4) ELIXIR-DEV adds claim-time refusal tests for the three pairs; (5) simulation drift and the stale seed comment go to a follow-up. Any later change to a distinct_from list, to escalation routing, or to the shipped guard needs a new SECURITY-REVIEWER pass. ORCH runs mix letflow.lint_handoffs on this file, which was not run here."
+  },
+  "rework_count": 0,
+  "max_rework": 3
+}

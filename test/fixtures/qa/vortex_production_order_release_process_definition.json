@@ -1,7 +1,7 @@
 {
   "name": "Production Order Release",
-  "version": "1.6",
-  "description": "Multi-level release gate for a new production order. Planner creates the order; Production Manager reviews; if value > 10000 Financial Controller signs off. Timer escalation to CEO. Exercises: sequential chain, timer escalation, conditional branch. Escalation follows D-ESC: timer -> higher role -> fail closed (v1.5, ISS-1002 / Q-984; BA ruling GH #2281). Every human task carries the escalation_timer_duration + escalation_role pair; when the timer fires the engine cancels the task and follows the node's single unconditioned (timeout) edge. Chains: capacity-review (role-production-manager, PT4H) -> escalate-to-ceo (role-ceo, PT4H) -> stalled: auto-reject-order, never a release. budget-approval (role-controller, P2D) -> escalate-budget-approval-to-ceo (role-ceo, same budget_decision, P2D) -> stalled: auto-reject-order. Deviations (documented, no waivers): none; durations are the BA E7 defaults (operational PT4H, financial approval P2D). A stalled escalation level repeats its own role as escalation_role (co-required CHK-21 attribute only) because there is no third level. Required decision outputs (v1.6, REQ-462 / Q-1025, REQ-459 design): capacity-review and escalate-to-ceo declare required_outputs [capacity_decision], budget-approval and escalate-budget-approval-to-ceo declare [budget_decision] (an escalation task inherits nothing), each already typed by variable_schemas, so completing one of them without its decision key is refused with a retryable 422 (output_refused) instead of silently taking the fail-closed edge.",
+  "version": "1.7",
+  "description": "Multi-level release gate for a new production order. Planner creates the order; Production Manager reviews; if value > 10000 Financial Controller signs off. Timer escalation to CEO. Exercises: sequential chain, timer escalation, conditional branch. Escalation follows D-ESC: timer -> higher role -> fail closed (v1.5, ISS-1002 / Q-984; BA ruling GH #2281). Every human task carries the escalation_timer_duration + escalation_role pair; when the timer fires the engine cancels the task and follows the node's single unconditioned (timeout) edge. Chains: capacity-review (role-production-manager, PT4H) -> escalate-to-ceo (role-ceo, PT4H) -> stalled: auto-reject-order, never a release. budget-approval (role-controller, P2D) -> escalate-budget-approval-to-ceo (role-ceo, same budget_decision, P2D) -> stalled: auto-reject-order. Deviations (documented, no waivers): none; durations are the BA E7 defaults (operational PT4H, financial approval P2D). A stalled escalation level repeats its own role as escalation_role (co-required CHK-21 attribute only) because there is no third level. Required decision outputs (v1.6, REQ-462 / Q-1025, REQ-459 design): capacity-review and escalate-to-ceo declare required_outputs [capacity_decision], budget-approval and escalate-budget-approval-to-ceo declare [budget_decision] (an escalation task inherits nothing), each already typed by variable_schemas, so completing one of them without its decision key is refused with a retryable 422 (output_refused) instead of silently taking the fail-closed edge. Separation of duties (v1.7, REQ-466 / Q-1029, GH #2344): budget-approval may not be decided by the person who completed capacity-review or escalate-to-ceo, and escalate-budget-approval-to-ceo may not be decided by the person who completed capacity-review (it does not name escalate-to-ceo because both nodes route to role-ceo and the shipped-definition guard forbids same-role pairs).",
   "graph": {
     "nodes": [
       {
@@ -40,6 +40,7 @@
           "role": "role-controller",
           "escalation_timer_duration": "P2D",
           "escalation_role": "role-ceo",
+          "distinct_from": ["capacity-review", "escalate-to-ceo"],
           "required_outputs": ["budget_decision"]
         }
       },
@@ -51,6 +52,7 @@
           "description": "top of chain: escalation_role is nominal; stalled = fail closed",
           "escalation_timer_duration": "P2D",
           "escalation_role": "role-ceo",
+          "distinct_from": ["capacity-review"],
           "required_outputs": ["budget_decision"]
         }
       },

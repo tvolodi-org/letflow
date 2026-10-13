@@ -355,8 +355,8 @@ defmodule Letflow.Scripts.SwiftrouteDEscEscalationFixtureTest do
       end
     end
 
-    test "the QA Shipment Approval fixture is v1.6", %{approval: d} do
-      assert d["version"] == "1.6"
+    test "the QA Shipment Approval fixture is v1.7", %{approval: d} do
+      assert d["version"] == "1.7"
     end
   end
 
