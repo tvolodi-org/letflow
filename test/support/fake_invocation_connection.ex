@@ -6,8 +6,8 @@ defmodule Letflow.Test.FakeInvocationConnection do
   tagged with a fake `application_name`, standing in for "another `mix test`
   invocation", and closes it again deterministically (Q-1037 / GH #2364).
 
-  Two CI flake classes this module removes (the guard-miss shape of GH #2441 is
-  diagnosed by `capture/2` and pre-checked by `assert_visible!/3`, see below):
+  Two CI flake classes this module removes. The guard miss of GH #2441 is NOT removed
+  here: `capture/2` diagnoses it and `assert_visible!/3` pre-checks it, see below:
 
   1. **Shed first query.** The fake connection was a plain `Postgrex.start_link/1`
      with DBConnection's default overload-shedding queue options (`:queue_target`
@@ -106,10 +106,10 @@ defmodule Letflow.Test.FakeInvocationConnection do
   end
 
   @doc """
-  Asserts that `tag` is visible in `pg_stat_activity` through `Letflow.Repo` at the
-  moment of the call (ISS-1083 / GH #2441). It uses the sweeper's session type. The
-  sweeper's own guard is a `LIKE` query with group logic, so an exact-tag match here
-  implies the guard can see the tag, not the reverse.
+  Asserts that `tag` is visible in `pg_stat_activity` through `Letflow.Repo`, polling
+  until the first sighting or the bound (ISS-1083 / GH #2441). It uses the sweeper's
+  session type. An exact-tag match here means the sweeper's own `LIKE` query can see
+  the tag too; the sweeper's group exclusion concerns other tags and is not re-checked.
 
   `start!/2` proves visibility once, through the fake connection itself, at setup time.
   That proof does not carry to the sweep. This check narrows the window between the
@@ -118,7 +118,9 @@ defmodule Letflow.Test.FakeInvocationConnection do
   Repo session in `:auto` mode first (`Ecto.Adapters.SQL.Sandbox.mode(Letflow.Repo,
   :auto)`): a sandboxed transaction caches the `pg_stat_activity` snapshot until it
   ends. Polls, bounded, and returns `:ok` at the first sighting; otherwise raises,
-  naming `tag` and carrying `capture/2`'s failure-time evidence.
+  naming `tag` and carrying `capture/2`'s failure-time evidence. A Repo error during the
+  poll (a raised error or a query timeout) propagates unchanged and does not name the
+  tag.
   """
   @spec assert_visible!(pid(), String.t(), poll_opts()) :: :ok
   def assert_visible!(conn, tag, poll_opts \\ []) when is_binary(tag) do
@@ -185,6 +187,8 @@ defmodule Letflow.Test.FakeInvocationConnection do
           {:ok, %{rows: [[pid]]}} -> "answers as backend pid #{pid}"
           other -> "query returned #{inspect(other)}"
         end
+      rescue
+        exception -> "query raised: #{Exception.message(exception)}"
       catch
         :exit, reason -> "query exited: #{inspect(reason)}"
       end
