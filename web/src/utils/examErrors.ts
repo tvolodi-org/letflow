@@ -40,6 +40,11 @@ const START_ERROR_DETAIL_MAP: Record<string, ExamEligibilityErrorKind> = {
 // Verbatim string from render_autosave/2's :deadline_passed branch.
 const DEADLINE_PASSED_DETAIL = 'your exam session has expired'
 
+// Verbatim string from render_autosave/2's :session_not_in_progress branch (a 422). A save to a
+// session that expiry already finalised gets this text, not the one above (Q-1078 / GH 2435); the
+// same text also answers a session closed by a submit, which is just as terminal for a save.
+const SESSION_NOT_IN_PROGRESS_DETAIL = 'session is not in progress'
+
 export function isApiError(err: unknown): err is ApiError {
   return typeof err === 'object' && err !== null && 'status' in err
 }
@@ -75,7 +80,10 @@ export function openSessionIdFromStartError(err: unknown): string | null {
 /** True when a `saveAnswer` (or `submitSession`) call failed because the
  *  session's server-side deadline has passed (REQ-332's
  *  server-authoritative-clock enforcement) — a terminal state, not something
- *  to retry. */
+ *  to retry. Also true for the 422 'session is not in progress' (the session was
+ *  finalised, e.g. by the expiry sweep; Q-1078 / GH 2435). */
 export function isDeadlinePassedError(err: unknown): boolean {
-  return extractDetail(err) === DEADLINE_PASSED_DETAIL
+  const detail = extractDetail(err)
+  if (detail === DEADLINE_PASSED_DETAIL) return true
+  return detail === SESSION_NOT_IN_PROGRESS_DETAIL && isApiError(err) && err.status === 422
 }
