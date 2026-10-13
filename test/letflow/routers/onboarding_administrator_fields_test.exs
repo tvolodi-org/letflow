@@ -153,7 +153,7 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
   # committed, is looked up at exit and removed.
   defp cleanup_slug_on_exit(slug) do
     on_exit(fn ->
-      Ecto.Adapters.SQL.Sandbox.mode(Letflow.Repo, :auto)
+      Letflow.Test.SandboxAutoMode.enter_auto_mode!(Letflow.Repo)
 
       case Repo.get_by(Tenant, slug: slug) do
         %Tenant{id: tenant_id} -> drop_tenant_rows!(tenant_id)
@@ -163,7 +163,7 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
   end
 
   defp drop_tenant_rows!(tenant_id) do
-    Ecto.Adapters.SQL.Sandbox.mode(Letflow.Repo, :auto)
+    Letflow.Test.SandboxAutoMode.enter_auto_mode!(Letflow.Repo)
 
     case TenantProvisioning.schema_name_for_tenant(tenant_id) do
       {:ok, schema_name} -> Repo.query!(~s(DROP SCHEMA IF EXISTS "#{schema_name}" CASCADE))
@@ -1381,9 +1381,10 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
   # sandbox in this module commits (see cleanup_onboarded_tenant!/1), so the trigger and its function are
   # dropped on exit, including when the request raises.
   defp with_tenant_schema_insert_failing(fun) do
-    # The restore is registered first, so ExUnit's LIFO order runs it last, after the drop below and after
-    # every other cleanup that needs autocommit (see Letflow.Test.SandboxAutoMode). The mode is set through
-    # the helper, not inline: Sandbox.mode/2 is pool-wide.
+    # ExUnit runs on_exit callbacks last-registered first. The order is: the trigger drop (registered last), then
+    # the restore to :manual (registered here), then cleanup_slug_on_exit/1 and the fixture teardown, which set
+    # :auto themselves, as they did before this PR. So the pool ends in :auto, the same as the existing convention
+    # (test/support/tenant_fixture.ex). The mode is set through the helper, not inline: Sandbox.mode/2 is pool-wide.
     on_exit(fn -> Letflow.Test.SandboxAutoMode.exit_auto_mode!(Letflow.Repo) end)
     Letflow.Test.SandboxAutoMode.enter_auto_mode!(Letflow.Repo)
 
