@@ -58,13 +58,20 @@ export const PATTERNS: GuardPattern[] = [
     // A JSDoc line is exempt only inside an enclosing '/** ... */' that closes later. A bare
     // ' * #2432' line with no opener is NOT exempt (it cannot be told from a CSS universal
     // selector '* { color: #fff }'), so put issue references after '//' or inside a block comment.
+    // A second '/*' between the match and its '*/' closer also refuses the exemption (conservative).
     // Digit-only colours in code ('#000') are still matched.
-    // Known limits (pinned by meta-control's limit fixture): a comment-like marker inside a
-    // string that follows whitespace, ';', '{' or '}', when the matching close (for '/*') is
-    // later in the file. E.g. "const s = \"a // b\"; const c = '#000';" and a three-line
-    // '" /* "' / colour / '" */"' sequence are not flagged.
+    // Known limits (pinned by meta-control tests): a comment-like marker inside a string that follows
+    // whitespace, ';', '{' or '}' hides a later colour on its line when a '*/' closes it later in
+    // the file, e.g. "const s = \"a // b\"; const c = '#000';" and a three-line '" /* "' / colour /
+    // '" */"' sequence. And a comment opener inside a comment: '/* see // x */ const c = '#fff';'
+    // and '// see /* x' followed by a colour and a later '*/' are not flagged.
+    // Cost: the exemption lookarounds run only at a candidate position (the leading lookahead
+    // on '#', 'rgb(' and 'hsl('). A candidate's '//' check scans back to its line start; its
+    // block check scans back to the nearest '*/' (or the file start) and forward to the next '*/'
+    // (or the file end). A file with many candidates costs roughly candidates x distance to the
+    // nearest '*/'. Measured: 80 KB of code with no candidates runs in under 1 ms.
     name: 'literal-colour',
-    regex: /(?<!(?:^|[\s;{}])\/\/[^\n]*)(?!(?<=(?:^|[\s;{}])\/\*(?:(?!\*\/)[\s\S])*)(?=(?:(?!\/\*)[\s\S])*\*\/))(?:#[0-9a-fA-F]{3,8}\b|(?<![.a-zA-Z0-9_$])rgba?\([^)]+\)|(?<![.a-zA-Z0-9_$])hsla?\([^)]+\))/,
+    regex: /(?=#|rgba?\(|hsla?\()(?<!(?:^|[\s;{}])\/\/[^\n]*)(?!(?<=(?:^|[\s;{}])\/\*(?:(?!\*\/)[\s\S])*)(?=(?:(?!\/\*)[\s\S])*\*\/))(?:#[0-9a-fA-F]{3,8}\b|(?<![.a-zA-Z0-9_$])rgba?\([^)]+\)|(?<![.a-zA-Z0-9_$])hsla?\([^)]+\))/,
     appliesTo: 'both',
     allowedPaths: [
       'web/src/styles/tokens.css',

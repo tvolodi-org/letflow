@@ -104,10 +104,8 @@ export function scanBundle(assets: ScanFile[], patterns: GuardPattern[]): ScanRe
   return { violations, tokens }
 }
 
-/**
- * The failure-message line for every violation, in order. `locate` gives the location text:
- * 'file:line' for sources, 'file' for bundles. The source spec caps the printed list itself.
- */
+// The failure-message line for every violation, in order. `locate` gives the location text:
+// 'file:line' for sources, 'file' for bundles. The source spec caps the printed list itself.
 export function summaryLines(result: ScanResult, locate: (v: Violation) => string): string[] {
   return result.violations.map(v => describeViolation(v, result.tokens.get(v), locate(v)))
 }

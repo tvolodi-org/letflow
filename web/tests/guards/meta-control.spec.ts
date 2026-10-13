@@ -127,6 +127,34 @@ describe('meta-control: literal-colour exemption (GH #2451)', () => {
     expect(scanLiteralColour(fixtureText('limit').split('\n')[0]).violations).toHaveLength(0)
   })
 
+  it('documented limit: a three-line " /* " / colour / " */" sequence is not flagged (the closer is later in the file)', () => {
+    expect(scanLiteralColour('const s = " /* ";\nconst c = \'#000\';\nconst e = " */";').violations).toHaveLength(0)
+  })
+
+  it('the offender fixture\'s digit-only line alone is flagged (#000 in code)', () => {
+    expect(scanLiteralColour("const digitsOnly = { color: '#000' };").violations).toHaveLength(1)
+  })
+
+  it('the ";" opener boundary: "x;/* GH #NNNN */" is a comment, not a colour', () => {
+    expect(scanLiteralColour('x = 1;/* see GH #2431 */').violations).toHaveLength(0)
+  })
+
+  it('the "}" opener boundary: "x}/* GH #NNNN */" is a comment, not a colour', () => {
+    expect(scanLiteralColour('x}/* see GH #2431 */').violations).toHaveLength(0)
+  })
+
+  it('documented limit: a "//" inside a block comment that closes on the same line hides a later colour', () => {
+    expect(scanLiteralColour("/* see // x */ const c = '#fff';").violations).toHaveLength(0)
+  })
+
+  it('documented limit: a "/*" opened in a line comment hides a colour until a later "*/"', () => {
+    expect(scanLiteralColour("// see /* x\nconst c = '#fff';\n*/").violations).toHaveLength(0)
+  })
+
+  it('a second "/*" between a match and its "*/" refuses the exemption (conservative)', () => {
+    expect(scanLiteralColour('/* see #2431 /* inner */').violations).toHaveLength(1)
+  })
+
   it('documented limit: a comment-like /* ... */ inside a string on the same line hides a later colour', () => {
     expect(scanLiteralColour(fixtureText('limit').split('\n')[1]).violations).toHaveLength(0)
   })
