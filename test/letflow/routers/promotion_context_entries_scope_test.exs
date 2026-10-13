@@ -29,6 +29,8 @@ defmodule Letflow.Routers.PromotionContextEntriesScopeTest do
   alias Letflow.Support.PlatformTenantFixture, as: Fixture
   alias Letflow.Support.PromotionScopeFixture, as: Scope
 
+  @allowlisted ~w(process_key base_version source_tenant_id target_tenant_id source_definition_id target_definition_id entries)
+  @envelope ~w(review_id plan_digest serialised_plan status requested_by def_type def_id created_at row_version)
   @reader ["TENANT_ADMIN"]
   @operator ["PLATFORM_ADMIN"]
 
@@ -217,7 +219,10 @@ defmodule Letflow.Routers.PromotionContextEntriesScopeTest do
             overrides(ctx, Ecto.UUID.generate(), Ecto.UUID.generate())
           )
 
-        assert_not_found_like_absent!(ctx, ctx.p, review.id, "#{source}/#{target}")
+        {raw, plan} = read_plan!(ctx.p, review.id)
+
+        assert plan["entries"] == []
+        refute_markers!(raw, markers(ctx))
       end
 
       # control: both sides own (P/P) shows the stored entries
@@ -333,8 +338,22 @@ defmodule Letflow.Routers.PromotionContextEntriesScopeTest do
                [{"source_tenant_id", Jason.encode!(v)}, {"target_tenant_id", own}]}
           )
 
-      for {label, fields} <- cases do
-        # ISS-1029: missing/non-binary/foreign stored ids fail closed to the nonexistent 404
+      # ISS-1029 split: a case with at least ONE readable own id is a named PARTY and keeps
+      # the ISS-1023 view (200, entries withheld); only a case with no readable own id is a
+      # non-party (fail closed) and answers the nonexistent-review 404.
+      non_parties = ["both ids missing", "both foreign", "odd keys only"]
+
+      for {label, fields} <- cases, label not in non_parties do
+        review = seed_and_overwrite!(ctx.a, plan_text.(fields))
+        {raw, plan} = read_plan!(ctx.a, review.id)
+
+        assert plan["entries"] == [], label
+        refute raw =~ "LEGACY-MARKER-iss1023", label
+        refute raw =~ "n-iss1023-legacy", label
+        refute raw =~ b, label
+      end
+
+      for {label, fields} <- cases, label in non_parties do
         review = seed_and_overwrite!(ctx.a, plan_text.(fields))
         resp = context_resp(ctx.a, review.id, @reader)
         assert resp.status == 404, label
