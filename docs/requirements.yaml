@@ -33853,7 +33853,7 @@ requirements:
   - id: REQ-448
     title: "Add the read-only TENANT_AUDITOR role and a parity test between docs/roles.md and the authorization matrix"
     owner: ELIXIR-DEV
-    status: pending
+    status: done
     stage: S4
     impl_order: 965  # letflow-queue task id, GH#2236. Registered 2026-10-05 by ORCH (role-system audit AUDIT-ROLES-20261005, model ratified by the user). Queue depends_on: Q-964.
     description: >

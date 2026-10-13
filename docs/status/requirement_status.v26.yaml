@@ -1096,3 +1096,17 @@ history:
       to the REQ (the Q-1044 membership premise was wrong). Written by
       letflow-2 under the DOC-UPDATER agent id, as in earlier events; lands in
       the docs bundle branch docs/bundle-iss-walk-q1087-20261013, not yet pushed.
+
+  - req: REQ-448
+    event: done
+    agent: DOC-UPDATER
+    at: "2026-10-13T14:07:28Z"
+    note: >
+      Status flipped from pending to done. Delivered by PR #2488 (merge
+      89d2ff451ee1330e90d20434128278ad42f70562, GH #2236, queue 965): the
+      read-only TENANT_AUDITOR role and the roles.md parity test. Interim
+      OQ-1/2/3/8 pending fc review; AC1 satisfied with :PromotionsRead
+      intentionally withheld (D6 deviation), to be granted after Q-1011 / GH
+      #2311 merges (residual filed separately). Written by letflow-2 under the
+      DOC-UPDATER agent id, as in earlier events; lands in the docs bundle
+      branch docs/req448-done-20261013, not yet pushed.
