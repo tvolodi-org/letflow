@@ -11,8 +11,10 @@ defmodule Letflow.Routers.Onboarding do
   * GET  /:id              (mounted path: `GET /api/v1/onboarding/:id`)       -> `handle_get/2`
   * GET  /?hostname=       (mounted path: `GET /api/v1/onboarding`)           -> `handle_get_by_hostname/1`
   * POST /:id/bind-realm   (mounted path: `POST /api/v1/onboarding/:id/bind-realm`) -> `handle_bind_realm/2` (ISS-1030)
+  * GET  /:id/pending-admins (mounted path: `GET /api/v1/onboarding/:id/pending-admins`) -> `handle_list_pending_admins/2` (ISS-1030 PR 2)
+  * DELETE /:id/pending-admins/:grant_id (mounted path: `DELETE /api/v1/onboarding/:id/pending-admins/:grant_id`) -> `handle_revoke_pending_admin/3` (ISS-1030 PR 2)
 
-  All four require `:TenantsManage` — reused, not a new permission (same
+  All six require `:TenantsManage` — reused, not a new permission (same
   risk class and PLATFORM_ADMIN-only intent as `Letflow.Routers.Tenants`,
   REQ-075 §1.1: creating a tenant, and reading records that disclose which
   hostnames/slugs exist platform-wide, is exactly the kind of "wrong role,
@@ -121,9 +123,14 @@ defmodule Letflow.Routers.Onboarding do
   fields (`admin_email`, `admin_username`, `admin_display_name`) and the NAMES
   of every other key, solely to echo them in the 201 body:
 
-    * `administrator` -- `state` (`none` | `not_provisioned`), a fixed
-      `message`, the sent fields in `not_provisioned`, and `next_steps`.
-      Nothing is stored or acted on; a null or blank field counts as not sent.
+    * `administrator` -- `state` (`none` | `pending` | `not_stored`), a fixed
+      `message`, the sent fields in `not_provisioned`, and `next_steps`. Only
+      `admin_email` can become a grant (ISS-1030 PR 2): it is validated BEFORE
+      the tenant is created (422, never echoed), stored as a pending
+      `TENANT_ADMIN` grant after provisioning (`state: "pending"` with the
+      `grant_id`), or reported `not_stored` when that insert failed (the tenant
+      stays; 201). `admin_username` and `admin_display_name` are never acted on,
+      only echoed as `not_provisioned`. A null or blank field counts as not sent.
     * `ignored_fields` -- names (never values) of every other body key, capped
       and sanitised.
     * `login` -- whether the tenant is loginable (a realm is bound) and, when
@@ -137,6 +144,15 @@ defmodule Letflow.Routers.Onboarding do
   without a realm is "not yet loginable" until the operator binds one with
   `POST /onboarding/:id/bind-realm` (bind-once: set only while NULL, never
   changed). Runbook: `docs/runbooks/onboarding-new-tenant-realm.md`.
+
+  ## Pending administrator grants (ISS-1030 PR 2, decision 0048)
+
+  The operator lists a tenant's grants with their AGE (`GET /:id/pending-admins`)
+  and withdraws an open one (`DELETE /:id/pending-admins/:grant_id`). The tenant
+  comes from the onboarding record, never from the request. There is NO route
+  that creates or changes a grant other than the onboarding call itself. The
+  operator's user id is written only to the platform tenant's own audit chain;
+  the tenant chain never carries it.
 
   ## Response allowlist
 
@@ -155,6 +171,8 @@ defmodule Letflow.Routers.Onboarding do
   alias Letflow.Api.Validation.FieldError
   alias Letflow.Identity
   alias Letflow.Identity.OnboardingRecord
+  alias Letflow.Identity.PendingAdminGrant
+  alias Letflow.Identity.PendingAdminGrants
   alias Letflow.Identity.Tenant
   alias Letflow.Oidc.RealmProbe
   alias Letflow.PlatformTenant
@@ -171,6 +189,14 @@ defmodule Letflow.Routers.Onboarding do
 
   authz_post "/:id/bind-realm", :TenantsManage do
     handle_bind_realm(conn, conn.params["id"])
+  end
+
+  authz_get "/:id/pending-admins", :TenantsManage do
+    handle_list_pending_admins(conn, conn.params["id"])
+  end
+
+  authz_delete "/:id/pending-admins/:grant_id", :TenantsManage do
+    handle_revoke_pending_admin(conn, conn.params["id"], conn.params["grant_id"])
   end
 
   authz_get "/", :TenantsManage do
@@ -234,8 +260,20 @@ defmodule Letflow.Routers.Onboarding do
                   "follow #{@runbook} (create the realm and its first administrator with the " <>
                   "TENANT_ADMIN role, then bind the realm)."
   @none_other_fields_message " The other administrator details you entered were NOT used."
-  @not_provisioned_message "The administrator details you entered were NOT used. The platform does " <>
-                             "not create realm users from the wizard yet; follow #{@runbook}."
+
+  @not_stored_message "The named administrator could NOT be stored as a pending administrator. " <>
+                        "The tenant was created without one."
+
+  @pending_message "The named administrator is stored as a pending TENANT_ADMIN. It becomes active " <>
+                     "when that person first signs in through this tenant's realm with this e-mail " <>
+                     "address VERIFIED. The tenant must have a bound realm first."
+
+  @pending_next_steps [
+    "Create the realm and the first user with that e-mail address marked verified (#{@runbook}); " <>
+      "the TENANT_ADMIN realm role is optional for this person.",
+    "Bind the realm with POST /api/v1/onboarding/{id}/bind-realm (or give idp_realm_id when onboarding) if it is not bound yet.",
+    "Ask the person to sign in once through this tenant's realm."
+  ]
 
   defp handle_create(conn) do
     body = conn.body_params
@@ -252,11 +290,11 @@ defmodule Letflow.Routers.Onboarding do
         hostname = String.trim(raw_hostname)
         attrs = Map.put(attrs, "hostname", hostname)
 
-        with {:ok, realm} <- validate_create_extras(body, attrs),
+        with {:ok, realm, email_key} <- validate_create_extras(body, attrs),
              :ok <- hostname_present(hostname),
              :ok <- codepoint_fit(attrs),
-             {:ok, extras} <- response_extras(body),
-             {:ok, bind_opts} <- realm_bind_opts(conn, realm),
+             {:ok, extras} <- response_extras(body, email_key),
+             {:ok, bind_opts} <- platform_write_opts(conn, realm, email_key),
              :ok <- verify_realm(conn, realm) do
           create_tenant(conn, attrs, extras, slug, hostname, realm, bind_opts)
         else
@@ -283,27 +321,50 @@ defmodule Letflow.Routers.Onboarding do
         _ok -> []
       end
 
-    case {realm_errors ++ admin_email_errors(body), realm_result} do
-      {[], {:ok, realm}} -> {:ok, realm}
-      {errors, _realm_result} -> {:errors, errors}
+    email_result = admin_email_check(body)
+
+    email_errors =
+      case email_result do
+        {:error, %FieldError{} = error} -> [error]
+        _ok -> []
+      end
+
+    case {realm_errors ++ email_errors, realm_result, email_result} do
+      {[], {:ok, realm}, {:ok, email_key}} -> {:ok, realm, email_key}
+      {errors, _realm_result, _email_result} -> {:errors, errors}
     end
   end
 
-  # A non-string admin_email is a 422 field error (it can never become a
-  # grant); the value is never echoed.
-  defp admin_email_errors(body) do
+  # The administrator e-mail is validated and normalised BEFORE any row is written
+  # (design 5.1 step 2): a non-string or malformed value is a 422 field error that
+  # never echoes the value. Not sent means no grant.
+  @spec admin_email_check(map()) :: {:ok, String.t() | nil} | {:error, FieldError.t()}
+  defp admin_email_check(body) do
     case admin_field_sent(body, "admin_email") do
-      {:sent, value} when not is_binary(value) ->
-        [
-          %FieldError{
-            field: "admin_email",
-            constraint: "type.string",
-            message: "must be a string"
-          }
-        ]
+      :not_sent ->
+        {:ok, nil}
 
-      _absent_or_string ->
-        []
+      {:sent, value} when is_binary(value) ->
+        case PendingAdminGrants.normalize_email(value) do
+          {:ok, email_key} ->
+            {:ok, email_key}
+
+          :error ->
+            {:error,
+             %FieldError{
+               field: "admin_email",
+               constraint: "format",
+               message: "must be a valid e-mail address"
+             }}
+        end
+
+      {:sent, _non_string} ->
+        {:error,
+         %FieldError{
+           field: "admin_email",
+           constraint: "type.string",
+           message: "must be a string"
+         }}
     end
   end
 
@@ -441,9 +502,11 @@ defmodule Letflow.Routers.Onboarding do
   end
 
   # The same platform-prefix gate as the bind route (design 7a), checked before any write.
-  defp realm_bind_opts(_conn, nil), do: {:ok, nil}
+  # Needed by every operator write that reaches the platform chain: the realm bind and the
+  # pending-grant creation.
+  defp platform_write_opts(_conn, nil, nil), do: {:ok, nil}
 
-  defp realm_bind_opts(conn, _realm) do
+  defp platform_write_opts(conn, _realm, _email_key) do
     case verified_platform_prefix(conn) do
       {:ok, platform_prefix} ->
         {:ok,
@@ -479,8 +542,10 @@ defmodule Letflow.Routers.Onboarding do
       {:ok, record} ->
         # The tenant and its onboarding record are committed from here on. A realm that cannot be
         # bound is reported in the 201 body, never as an error that implies nothing was created
-        # (SECURITY-REVIEWER MAJOR-2). Nothing fallible runs after a bind commits.
-        created_with_realm(conn, tenant, record, extras, realm, bind_opts)
+        # (SECURITY-REVIEWER MAJOR-2). Nothing fallible runs after a bind commits. The pending
+        # grant is created first and never raises: a failed insert is the `not_stored` state.
+        outcome = create_pending_grant(tenant, record, extras.email_key, bind_opts)
+        created_with_realm(conn, tenant, record, extras, realm, bind_opts, outcome)
 
       # Every answer below is reached only after the tenant is committed. Each detail says so, and
       # none implies that nothing was created (SECURITY-REVIEWER R1, F1).
@@ -538,17 +603,44 @@ defmodule Letflow.Routers.Onboarding do
   defp exit_tag(tag) when is_atom(tag), do: tag
   defp exit_tag(_other), do: :other
 
-  defp created_with_realm(conn, _tenant, record, extras, nil, _bind_opts) do
-    Response.created(conn, created_body(record, %{idp_realm_id: nil}, extras))
+  # ISS-1030 PR 2 (design 5.1): the ONLY caller of PendingAdminGrants.create/3. The creator is the
+  # operator's user id; the schema is the new tenant's own; the platform prefix was verified before
+  # any write (platform_write_opts/3). A failure is logged with fixed text and the tenant id only.
+  defp create_pending_grant(_tenant, _record, nil, _bind_opts), do: :none
+
+  defp create_pending_grant(tenant, record, email_key, bind_opts) do
+    with {:ok, prefix} <- TenantProvisioning.schema_name_for_tenant(tenant.id),
+         {:ok, grant} <-
+           PendingAdminGrants.create(
+             email_key,
+             %{user_id: Keyword.fetch!(bind_opts, :actor_id)},
+             prefix: prefix,
+             platform_prefix: Keyword.fetch!(bind_opts, :platform_prefix),
+             trace_id: Keyword.get(bind_opts, :trace_id),
+             onboarding_id: record.id
+           ) do
+      {:pending, grant.id}
+    else
+      _failure ->
+        Logger.error("pending administrator grant not stored (tenant_id=#{inspect(tenant.id)})")
+        :not_stored
+    end
   end
 
-  defp created_with_realm(conn, tenant, record, extras, realm, bind_opts) do
+  defp created_with_realm(conn, _tenant, record, extras, nil, _bind_opts, outcome) do
+    Response.created(conn, created_body(record, %{idp_realm_id: nil}, extras, outcome))
+  end
+
+  defp created_with_realm(conn, tenant, record, extras, realm, bind_opts, outcome) do
     case Identity.bind_tenant_realm(tenant.id, realm, bind_opts) do
       {:ok, bound} ->
-        Response.created(conn, created_body(record, %{idp_realm_id: bound.idp_realm_id}, extras))
+        Response.created(
+          conn,
+          created_body(record, %{idp_realm_id: bound.idp_realm_id}, extras, outcome)
+        )
 
       {:error, reason} ->
-        created_body = created_body(record, %{idp_realm_id: nil}, extras)
+        created_body = created_body(record, %{idp_realm_id: nil}, extras, outcome)
 
         Response.created(
           conn,
@@ -571,19 +663,20 @@ defmodule Letflow.Routers.Onboarding do
   # tenant and record have committed (SECURITY-REVIEWER BLOCKER-1 on the create route).
   # Keys are checked for UTF-8 BEFORE the sanitiser or the encoder sees them (SECURITY-REVIEWER F3): a
   # defect in either must surface as a crash, not be mistaken for an encoding refusal.
-  defp response_extras(body) do
+  #
+  # `extras` is `%{fields: map, sent: [{name, value}], email_key: String.t() | nil}`:
+  # `fields` is the part of the 201 body that does not depend on the write outcomes, `sent`
+  # the sent administrator fields, from which `administrator` is built AFTER the write for
+  # the outcome that happened. The `not_stored` variant (a superset of every echo) is
+  # encoded here as the encodability check.
+  defp response_extras(body, email_key) do
     if Enum.all?(Map.keys(body), &(is_binary(&1) and String.valid?(&1))) do
-      extras =
-        Map.merge(
-          %{
-            "administrator" => administrator_map(body),
-            "ignored_fields" => ignored_fields(body)
-          },
-          dispositions(body)
-        )
+      sent = sent_admin_fields(body)
+      fields = Map.merge(%{"ignored_fields" => ignored_fields(body)}, dispositions(body))
+      checked = Map.put(fields, "administrator", administrator_map(sent, :not_stored))
 
-      case Jason.encode(extras) do
-        {:ok, _json} -> {:ok, extras}
+      case Jason.encode(checked) do
+        {:ok, _json} -> {:ok, %{fields: fields, sent: sent, email_key: email_key}}
         {:error, _reason} -> {:errors, [unencodable_field_error()]}
       end
     else
@@ -617,10 +710,11 @@ defmodule Letflow.Routers.Onboarding do
   end
 
   # Only fixed-shape values are computed here; `extras` was encoded before the write.
-  defp created_body(record, login_state, extras) do
+  defp created_body(record, login_state, extras, outcome) do
     record
     |> onboarding_map(login_state)
-    |> Map.merge(extras)
+    |> Map.merge(extras.fields)
+    |> Map.put("administrator", administrator_map(extras.sent, outcome))
   end
 
   # ── Administrator echo and ignored fields (design §3.4) ──────────────────
@@ -641,26 +735,49 @@ defmodule Letflow.Routers.Onboarding do
     end
   end
 
-  defp administrator_map(body) do
-    sent =
-      Enum.flat_map(@admin_fields, fn field ->
-        case admin_field_sent(body, field) do
-          {:sent, value} -> [{field, value}]
-          :not_sent -> []
-        end
-      end)
-
-    email_sent? = Enum.any?(sent, fn {field, _value} -> field == "admin_email" end)
-
-    {state, message} =
-      cond do
-        email_sent? -> {"not_provisioned", @not_provisioned_message}
-        sent == [] -> {"none", @none_message}
-        true -> {"none", @none_message <> @none_other_fields_message}
+  defp sent_admin_fields(body) do
+    Enum.flat_map(@admin_fields, fn field ->
+      case admin_field_sent(body, field) do
+        {:sent, value} -> [{field, value}]
+        :not_sent -> []
       end
+    end)
+  end
+
+  # `outcome`: :none (no admin_email sent, no grant sought), {:pending, grant_id} (the grant is
+  # stored) or :not_stored (admin_email sent, the insert failed). Only the e-mail can become a
+  # grant; every other sent field is echoed as not_provisioned, never dropped silently.
+  @spec administrator_map([{String.t(), term()}], :none | :not_stored | {:pending, String.t()}) ::
+          map()
+  defp administrator_map(sent, {:pending, grant_id}) do
+    others = Enum.reject(sent, fn {field, _value} -> field == "admin_email" end)
+
+    message =
+      if others == [], do: @pending_message, else: @pending_message <> @none_other_fields_message
 
     %{
-      "state" => state,
+      "state" => "pending",
+      "grant_id" => grant_id,
+      "message" => message,
+      "not_provisioned" => Enum.map(others, &echo_field/1),
+      "next_steps" => @pending_next_steps
+    }
+  end
+
+  defp administrator_map(sent, :not_stored) do
+    %{
+      "state" => "not_stored",
+      "message" => @not_stored_message <> " " <> @none_message,
+      "not_provisioned" => Enum.map(sent, &echo_field/1),
+      "next_steps" => @administrator_next_steps
+    }
+  end
+
+  defp administrator_map(sent, :none) do
+    message = if sent == [], do: @none_message, else: @none_message <> @none_other_fields_message
+
+    %{
+      "state" => "none",
       "message" => message,
       "not_provisioned" => Enum.map(sent, &echo_field/1),
       "next_steps" => @administrator_next_steps
@@ -801,6 +918,96 @@ defmodule Letflow.Routers.Onboarding do
     end
   end
 
+  # ── GET /:id/pending-admins and DELETE /:id/pending-admins/:grant_id ───────
+  #
+  # ISS-1030 PR 2 (design 5.2). The tenant is the onboarding record's, never a
+  # request value. An unknown or malformed onboarding id or grant id is the same
+  # plain 404. The operator's id is never part of a tenant-chain entry.
+
+  defp handle_list_pending_admins(conn, id) do
+    with {:ok, uuid} <- cast_uuid(id),
+         {:ok, record} <- Identity.get_onboarding(uuid),
+         {:ok, platform_prefix} <- verified_platform_prefix(conn) do
+      list_pending_admins(conn, record, platform_prefix)
+    else
+      :platform_prefix_mismatch ->
+        Logger.error("operator pending-admin list refused: platform prefix check failed")
+        Response.internal_error(conn)
+
+      _unknown_or_malformed_id ->
+        Response.not_found(conn)
+    end
+  end
+
+  defp list_pending_admins(conn, %OnboardingRecord{} = record, platform_prefix) do
+    case PendingAdminGrants.registered_prefix(record.tenant_id) do
+      {:ok, prefix} ->
+        rows = PendingAdminGrants.list(prefix: prefix)
+        creators = PendingAdminGrants.creators(Enum.map(rows, & &1.grant.id), platform_prefix)
+
+        Response.ok(conn, %{
+          "pending_admins" => Enum.map(rows, &pending_admin_map(&1, creators))
+        })
+
+      :error ->
+        # Provisioning never registered a schema, so no grant can exist.
+        Response.ok(conn, %{"pending_admins" => []})
+    end
+  rescue
+    # A missing table (replay not yet done) or a database fault: fixed 500, nothing named (INV-8).
+    exception ->
+      Logger.error(
+        "pending administrator list failed (tenant_id=#{inspect(record.tenant_id)}, " <>
+          "exception=#{inspect(exception.__struct__)})"
+      )
+
+      Response.internal_error(conn)
+  end
+
+  defp pending_admin_map(%{grant: %PendingAdminGrant{} = grant} = row, creators) do
+    %{
+      "id" => grant.id,
+      "email" => grant.email_key,
+      "state" => Atom.to_string(row.state),
+      "age_seconds" => row.age_seconds,
+      "created_at" => iso8601(grant.inserted_at),
+      "created_by_user_id" => Map.get(creators, grant.id),
+      "bound_at" => iso8601(grant.consumed_at),
+      "bound_user_id" => grant.consumed_by_user_id,
+      "revoked_at" => iso8601(grant.revoked_at)
+    }
+  end
+
+  defp handle_revoke_pending_admin(conn, id, grant_id) do
+    with {:ok, uuid} <- cast_uuid(id),
+         {:ok, grant_uuid} <- cast_uuid(grant_id),
+         {:ok, record} <- Identity.get_onboarding(uuid),
+         {:ok, platform_prefix} <- verified_platform_prefix(conn),
+         {:ok, prefix} <- PendingAdminGrants.registered_prefix(record.tenant_id) do
+      opts = [
+        prefix: prefix,
+        platform_prefix: platform_prefix,
+        trace_id: conn.assigns[:trace_id]
+      ]
+
+      actor = %{user_id: conn.assigns.auth_context.user_id}
+
+      case PendingAdminGrants.revoke(grant_uuid, actor, opts) do
+        :ok -> Response.no_content(conn)
+        {:error, :not_found} -> Response.not_found(conn)
+        {:error, :not_open} -> Response.conflict(conn, "grant is not open")
+        {:error, :audit_failed} -> Response.internal_error(conn)
+      end
+    else
+      :platform_prefix_mismatch ->
+        Logger.error("operator pending-admin revoke refused: platform prefix check failed")
+        Response.internal_error(conn)
+
+      _unknown_or_malformed_id ->
+        Response.not_found(conn)
+    end
+  end
+
   # ── GET /:id (design §8.3) ───────────────────────────────────────────────
   #
   # Plain 404 -- this route is authenticated/PLATFORM_ADMIN, not the
@@ -880,6 +1087,9 @@ defmodule Letflow.Routers.Onboarding do
   # Matches Letflow.Routers.Identity's own user_map/1 convention exactly (ISO
   # 8601 via DateTime.to_iso8601/1 over the NaiveDateTime-as-UTC assumption
   # already established elsewhere in this codebase).
+  defp iso8601(nil), do: nil
+  defp iso8601(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
+
   defp iso8601(%NaiveDateTime{} = naive) do
     naive
     |> DateTime.from_naive!("Etc/UTC")

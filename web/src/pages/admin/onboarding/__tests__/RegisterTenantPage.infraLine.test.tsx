@@ -66,7 +66,7 @@ describe('RegisterTenantPage ISS-1093', () => {
     expect(screen.queryByLabelText(/Service Account/)).toBeNull()
   })
 
-  it('submits without client_config, realm_config or redirect_uris, and keeps the admin_* fields', async () => {
+  it('submits without client_config, realm_config or redirect_uris, and sends only the optional admin_email', async () => {
     postWithHeaders.mockResolvedValue(RECORD)
     const user = userEvent.setup()
     renderRegister()
@@ -74,14 +74,12 @@ describe('RegisterTenantPage ISS-1093', () => {
     await user.type(screen.getByLabelText('Display Name'), 'Newco Corp')
     await user.type(screen.getByLabelText('Hostname'), 'newco.example.com')
     await user.type(screen.getByLabelText(/^Admin Email/), 'admin@newco.example.com')
-    await user.type(screen.getByLabelText(/^Admin Username/), 'newco-admin')
     await user.click(screen.getByRole('button', { name: 'Register Tenant' }))
     await waitFor(() => expect(postWithHeaders).toHaveBeenCalledTimes(1))
     const body = postWithHeaders.mock.calls[0]![1] as Record<string, unknown>
     expect(Object.keys(body).sort()).toEqual(
-      ['admin_email', 'admin_username', 'display_name', 'hostname', 'slug'].sort(),
+      ['admin_email', 'display_name', 'hostname', 'slug'].sort(),
     )
     expect(body['admin_email']).toBe('admin@newco.example.com')
-    expect(body['admin_username']).toBe('newco-admin')
   })
 })

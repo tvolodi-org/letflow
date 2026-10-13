@@ -249,6 +249,10 @@ defmodule Letflow.Supervisor.Infrastructure do
       # bucket behind Letflow.Plugs.LoginDiscoveryRateLimit. A leaf with no ordering
       # dependency; own table, shares no state with the sibling directly above.
       Letflow.Plugs.LoginDiscoveryRateLimit.Bucket,
+      # ISS-1030 (design iss1030-onboarding-administrator.md s7 step 11, OQ-16): the
+      # once-per-tenant-per-hour throttle for the pending-admin bind's fault WARNING.
+      # A leaf with no ordering dependency; nothing looks it up during its own init/1.
+      Letflow.Identity.PendingAdminGrants.FaultThrottle,
       # REQ-216 (design req216-admission-control-core.md §4): the global +
       # per-tenant admission-control counting semaphore. NO ordering
       # dependency in either direction -- see Letflow.Admission's own

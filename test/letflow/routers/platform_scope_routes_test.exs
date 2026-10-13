@@ -1,7 +1,7 @@
 defmodule Letflow.Routers.PlatformScopeRoutesTest do
   @moduledoc """
   ISS-0993 / ISS-0994 design section 12 items 5 and 14, A2 ENFORCING (spec
-  `test/specs/ISS-0993-A2.md`): the 22 platform-scope routes (design 7.1 plus ISS-1030's bind-realm) of the five platform
+  `test/specs/ISS-0993-A2.md`): the 24 platform-scope routes (design 7.1 plus ISS-1030's bind-realm and, in PR 2, pending-admins list and revoke) of the five platform
   routers (`tenants`, `onboarding`, `platform_migrations`, `event_retention`, `admin_services`).
   The uniform-403 behaviour of the prefixes and of the router catch-alls (item 19) lives in
   `test/letflow/api/platform_prefix_uniform_403_test.exs`.
@@ -45,6 +45,10 @@ defmodule Letflow.Routers.PlatformScopeRoutesTest do
     {Letflow.Routers.Onboarding, :post, "/:id/bind-realm", "/" <> @unused_uuid <> "/bind-realm",
      %{"idp_realm_id" => "iss1030-routes"}, :TenantsManage},
     {Letflow.Routers.Onboarding, :get, "/", "/", nil, :TenantsManage},
+    {Letflow.Routers.Onboarding, :get, "/:id/pending-admins",
+     "/" <> @unused_uuid <> "/pending-admins", nil, :TenantsManage},
+    {Letflow.Routers.Onboarding, :delete, "/:id/pending-admins/:grant_id",
+     "/" <> @unused_uuid <> "/pending-admins/" <> @unused_uuid, nil, :TenantsManage},
     {Letflow.Routers.PlatformMigrations, :post, "/rollouts", "/rollouts", %{}, :TenantsManage},
     {Letflow.Routers.PlatformMigrations, :get, "/rollouts/:id", "/rollouts/" <> @unused_uuid, nil,
      :TenantsManage},
@@ -113,8 +117,8 @@ defmodule Letflow.Routers.PlatformScopeRoutesTest do
   end
 
   describe "declared routes" do
-    test "the 22 snapshot rows declare the expected policy keys" do
-      assert length(@routes) == 22
+    test "the 24 snapshot rows declare the expected policy keys" do
+      assert length(@routes) == 24
 
       for {router, method, pattern, _path, _body, key} <- @routes do
         verb = method |> Atom.to_string() |> String.upcase()

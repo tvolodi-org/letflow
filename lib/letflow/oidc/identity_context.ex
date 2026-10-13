@@ -38,7 +38,11 @@ defmodule Letflow.Oidc.IdentityContext do
     :roles,
     :email,
     :preferred_username,
-    :display_name
+    :display_name,
+    # ISS-1030: true ONLY when the token's `email_verified` claim is the JSON
+    # boolean `true`. Not enforced, default false: every constructor that does
+    # not know about it means "not verified".
+    email_verified: false
   ]
 
   @type t :: %__MODULE__{
@@ -48,6 +52,7 @@ defmodule Letflow.Oidc.IdentityContext do
           roles: [String.t()],
           email: String.t(),
           preferred_username: String.t(),
-          display_name: String.t() | nil
+          display_name: String.t() | nil,
+          email_verified: boolean()
         }
 end

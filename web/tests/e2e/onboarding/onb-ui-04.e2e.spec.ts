@@ -44,8 +44,6 @@ async function runFullWizard(
   await page.locator('#slug').fill(slug)
   await page.locator('#display_name').fill(`Test Tenant ${uid}`)
   await page.locator('#admin_email').fill(`admin@test-${uid}.example.com`)
-  await page.locator('#admin_username').fill(`admin-${uid}`)
-  await page.locator('#admin_display_name').fill(`Admin ${uid}`)
   await page.locator('#hostname').fill(hostname)
 
   await page.getByRole('button', { name: /register tenant/i }).click()
@@ -140,8 +138,6 @@ test.describe('ONB-UI-04 — Onboarding result screen', () => {
     await page.locator('#slug').fill(slug)
     await page.locator('#display_name').fill(`Test Tenant ${uid}`)
     await page.locator('#admin_email').fill(`admin@test-${uid}.example.com`)
-    await page.locator('#admin_username').fill(`admin-${uid}`)
-    await page.locator('#admin_display_name').fill(`Admin ${uid}`)
     await page.locator('#hostname').fill(hostname)
 
     await page.getByRole('button', { name: /register tenant/i }).click()

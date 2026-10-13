@@ -164,6 +164,7 @@ defmodule Letflow.TenantFixture do
     "instance_sequence",
     "instance_state_snapshots",
     "lua_script_execution_audit",
+    "pending_tenant_admin_grants",
     "process_definitions",
     "promotion_assertion_runs",
     "promotion_reviews",

@@ -89,8 +89,6 @@ test.describe('ONB-UI-02 — Tenant registration form', () => {
     await page.locator('#slug').fill(`test-${uid}`)
     await page.locator('#display_name').fill(`Test Tenant ${uid}`)
     await page.locator('#admin_email').fill('notanemail')
-    await page.locator('#admin_username').fill(`admin-${uid}`)
-    await page.locator('#admin_display_name').fill(`Admin ${uid}`)
     await page.locator('#hostname').fill(`tenant-${uid}.example.com`)
 
     await page.getByRole('button', { name: /register tenant/i }).click()
@@ -112,8 +110,6 @@ test.describe('ONB-UI-02 — Tenant registration form', () => {
     await page.locator('#slug').fill(`test-${uid}`)
     await page.locator('#display_name').fill(`Test Tenant ${uid}`)
     await page.locator('#admin_email').fill(`admin@test-${uid}.example.com`)
-    await page.locator('#admin_username').fill(`admin-${uid}`)
-    await page.locator('#admin_display_name').fill(`Admin ${uid}`)
     // Provide hostname WITH a protocol prefix — must be rejected
     await page.locator('#hostname').fill(`https://tenant-${uid}.example.com`)
 
@@ -138,8 +134,6 @@ test.describe('ONB-UI-02 — Tenant registration form', () => {
     await page.locator('#slug').fill(slug)
     await page.locator('#display_name').fill(`Test Tenant ${uid}`)
     await page.locator('#admin_email').fill(`admin@test-${uid}.example.com`)
-    await page.locator('#admin_username').fill(`admin-${uid}`)
-    await page.locator('#admin_display_name').fill(`Admin ${uid}`)
     await page.locator('#hostname').fill(`tenant-${uid}.example.com`)
 
     await page.screenshot({ path: 'scratch/onb-ui-02-filled-form.png', fullPage: true })
@@ -185,8 +179,6 @@ test.describe('ONB-UI-02 — Tenant registration form', () => {
       await page.locator('#slug').fill(slug)
       await page.locator('#display_name').fill(`Test ${slug}`)
       await page.locator('#admin_email').fill(`admin@${slug}.example.com`)
-      await page.locator('#admin_username').fill(`admin-${slug}`)
-      await page.locator('#admin_display_name').fill(`Admin ${slug}`)
       await page.locator('#hostname').fill(`${slug}.localhost`)
       const uriInputs = await page.locator('input[placeholder*="callback"]').all()
       if (uriInputs.length > 0) await uriInputs[0].fill(`http://${slug}.localhost/*`)
