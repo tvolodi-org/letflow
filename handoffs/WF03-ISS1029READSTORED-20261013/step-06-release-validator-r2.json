@@ -1,0 +1,50 @@
+{
+  "handoff_id": "c4a7d1e0-1029-4b11-8c20-000000000026",
+  "run_id": "WF03-ISS1029READSTORED-20261013",
+  "workflow_id": "WF-03",
+  "step": "06",
+  "from_agent": "ORCH",
+  "to_agent": "RELEASE-VALIDATOR",
+  "file": "handoffs/WF03-ISS1029READSTORED-20261013/step-06-release-validator-r2.json",
+  "created_at": "2026-10-13T14:50:00Z",
+  "started_at": "2026-10-13T14:54:52Z",
+  "completed_at": "2026-10-13T15:18:07Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1011": "LOW (INV-10 family), GH #2311, local ISS-1029; revised 10 ACs + AC6 clarification 6146252089"
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-1029-4b11-8c20-000000000024"
+    ],
+    "artifacts_in": [
+      "handoffs/WF03-ISS1029READSTORED-20261013/step-05b-test-design-validator-r2.json",
+      "docs/issues/ISS-1029.yaml",
+      "test/specs/ISS-1029.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1029READSTORED-20261013",
+    "supersedes": "step-06-release-validator.json (validated the discarded rev1 implementation)"
+  },
+  "task": {
+    "description": "WF-03 Step 6/7 on the reworked implementation: independent re-verification of the revised 10 ACs, regression set, two mutants, CI-shaped gates, repro determinism; DOC-UPDATER resolution of ISS-1029."
+  },
+  "result": {
+    "status": "PASS",
+    "verdict": "PASS",
+    "summary": "RELEASE-VALIDATOR PASS on the reworked implementation (design rev3, party-based read predicate), merged tree HEAD beb61e398 (fix + origin/main 1b9d90e15), MIX_ENV=test, Postgres 5462, one mix process at a time, no push, queue lock and orchestrator.log untouched. ACCEPTANCE (revised 10 ACs of GH #2311, comments re-read fresh: only two exist, 6143951729 at 10:53Z and 6146252089 at 13:07Z; nothing newer than 13:00Z, no AC changed): AC1 party own-side view: 'party controls (a, b) and (b, a)' + unmodified T-8/T-11/T-13 pinning tests (promotion_context_shaping_test.exs and promotions_test.exs identical to origin/main); AC2 404 only for non-party non-operator: 'non-operator reader, non-party review', 1(i) pinned/unpinned/operator; AC3 never from the request: T5 x2 (all query/header/body channels); AC4 same bytes as nonexistent id, three routes: non-party describe, 1(a), 1(b), T6, T9; AC5 party keeps the existing 7-key run map: T7; AC6 list omits, no placeholder: T8, 1(g), 1(h); AC7 unreadable ids fail closed, operator visible, never 500: 1(f)/T9 (4 tests); AC8 no gaps/counts, page-boundary incl. all-hidden page: 1(c), 1(d), 1(e) (long_hidden_run, both run), store :row_visible? block; AC9 process gate: step-04-security-reviewer-r2 PASS precedes step-05b r2 PASS; AC10 re-seeded non-party failing case + party controls: first two describes. TESTS RUN: promotion_read_stored_ids_test.exs --include long_hidden_run 3 times: 'Result: 38 passed' each time (102.8 s, 94.3 s, 97.1 s), no non-determinism with the DB to myself. All other test/letflow/routers/promotion*_test.exs, promotions_test.exs, test/letflow/definitions/promotion*_test.exs and req077_promotion_pipeline_test.exs (20 files incl. promotion_review_store_test.exs): 'Result: 261/262 passed', sole red req077_promotion_pipeline_test.exs:1279 (VIEWER token, 500 instead of 403, known pre-existing). req446_cross_tenant_denial_test, tenant_admin_routes_test, api/roles_matrix_parity_test, api/promote_source_tenant_test, tenant_auditor_routes_test, authorization_tenant_auditor_test, platform_admin_role_binding_test, identity_roles_guard_test, role_registry_test: 'Result: 148/149 passed', sole red tenant_admin_routes_test AC2 (POST /identity/users 500, known pre-existing). These two are the only red in everything run; the REQ-448 role/matrix/auditor files show no interaction with the party read predicate. MUTANTS (applied alone to lib/letflow/routers/promotions.ex, repro file run, restored via git checkout, git diff HEAD -- lib empty after each): N3q request-decides (query param tenant_id additionally accepted as an own id, both predicate lines): 'Result: 35/38 passed', killed by T5 'a request naming the STORED source or target id never opens a non-party review' and both 1(f)/T9 list/per-review tests; N10b Jason.decode! restored in review_context_map: 'Result: 37/38 passed', killed by 1(f)/T9 operator reads of unparseable rows. GATES (all exit 0 on this tree): mix format --check-formatted; mix compile --warnings-as-errors --force; mix letflow.lint_handoffs (0 new violations); mix letflow.check_issue_refs (695 files OK); mix letflow.check_boundaries (1132 edges, 0 violations); mix letflow.check.static (0 violations). NOT RUN: mix letflow.check.test and the 16-partition scripts/test_parallel.sh (forbidden by the session's machine-load limit, 16 partitions exceed 4 processes); Dialyzer; web/ suites; the remaining mutants N1..N16 other than N3q and N10b (re-derived from test/specs/ISS-1029.md by the earlier steps, not re-applied here); CI remains the checkpoint for the rest of the tree. DOC-UPDATER: docs/issues/ISS-1029.yaml set to resolved (resolved_in_run, resolved_at, party-based resolution, ships-with-this-PR, 4 follow_ups: SEC-1029-M2, hand-crafted list-cursor 500, the two pre-existing 500s, all NOT in scope); ISS-1026.yaml follow-up pointer already reads RESOLVED, left unchanged; no requirement status flips.",
+    "findings": [],
+    "artifacts_out": [
+      "handoffs/WF03-ISS1029READSTORED-20261013/step-06-release-validator-r2.json",
+      "docs/issues/ISS-1029.yaml"
+    ],
+    "owned_modules": [],
+    "design_deviations": [],
+    "next_action": "ORCH: push, PR, CI, merge (the issue file ships with this PR). File the follow-ups listed in docs/issues/ISS-1029.yaml follow_ups."
+  }
+}

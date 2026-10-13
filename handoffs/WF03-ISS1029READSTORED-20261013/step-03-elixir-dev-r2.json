@@ -1,0 +1,68 @@
+{
+  "handoff_id": "c4a7d1e0-1029-4b11-8c20-000000000003r2",
+  "run_id": "WF03-ISS1029READSTORED-20261013",
+  "workflow_id": "WF-03",
+  "step": "03-r2",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF03-ISS1029READSTORED-20261013/step-03-elixir-dev-r2.json",
+  "created_at": "2026-10-13T13:35:00Z",
+  "started_at": "2026-10-13T13:36:00Z",
+  "completed_at": "2026-10-13T14:20:00Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1011": "LOW (INV-10 family), S3, GH #2311, local ISS-1029; REWORK of the rev1 implementation against the revised 10-point ACs (design rev3, validated PASS in step-02 r4)."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-1029-4b11-8c20-000000000001",
+      "c4a7d1e0-1029-4b11-8c20-000000000002e"
+    ],
+    "artifacts_in": [
+      "handoffs/WF03-ISS1029READSTORED-20261013/step-01-issue-fixer.json",
+      "handoffs/WF03-ISS1029READSTORED-20261013/step-02-code-design-validator-r4.json",
+      "docs/issues/ISS-1029.yaml"
+    ],
+    "owned_modules": [
+      "lib/letflow/routers/promotions.ex"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1029READSTORED-20261013"
+  },
+  "task": {
+    "description": "WF-03 Step 3 rework: implement design rev3 (party-based read predicate review_read_access/2, tolerant operator /context decode), revert the rev1-flipped pinning tests, rework the repro file, add T1..T11, update specs/decision note."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "IMPLEMENTED design rev3. lib (promotions.ex only; the store is UNCHANGED from rev1): review_tenants_authorized?/2 is kept strict and is used only by approve/reject/apply/run-assertions (via stored_tenants_authorized?/3); new private review_read_access(conn, review) :: :full | :own_side | :none (operator -> :full without decoding; otherwise the stored plan is decoded with the non-bang Jason.decode, each stored id goes through TenantTarget.authorize_target_tenant/2 against the authenticated auth_context: both own -> :full, one own -> :own_side, none/unreadable -> :none) is used by GET /:id (404 BEFORE any run read; :full and :own_side render the existing 7-key run map), GET /:id/context (:none -> Response.not_found; shape_plan/2 unchanged and live for a party) and the list (row_visible? = read_access != :none for non-operators; operator passes no predicate). New tolerant_plan/1 replaces Jason.decode! in review_context_map/2: an unparseable stored text renders serialised_plan null (200) for the operator. A moduledoc paragraph describes the read predicate. TESTS: REVERTED to origin/main: promotion_context_shaping_test.exs (whole file), promotions_test.exs (req397_sample_plan/2 helper); promotion_context_allowlist_test.exs restored for foreign_side_definition_id_omitted_own_side_kept (original table; (b,b) row now asserts the nonexistent 404), null_definition_id_..., envelope_has_nine_keys_for_both_views, pin_unset_would_be_operator_...; promotion_context_entries_scope_test.exs restored for one_foreign_side_is_enough_to_withhold_entries and SPLIT legacy_plans_with_missing_or_non_binary_tenant_ids_fail_closed (parties keep the original 200/entries [] loop; only both ids missing, both foreign, odd keys only assert the nonexistent 404); the stays-flipped set is unchanged. promotion_read_stored_ids_test.exs rewritten (38 tests): AC10 non-party (b,p) seed + party controls (a,b),(b,a) = 200; T1 party source/target context; T3 non-party 404 incl. P-held reader of (a,b) pinned/unpinned; T4 operator; T5 AC3 request-never-decides (params and headers, both directions, list included); T6 AC4 list byte-equal to the hidden-rows-deleted list; T7 party /:id 7-key map; T8 list own+party listed, non-party omitted; T9 AC7 unreadable texts (non-operator list, per-review 404 bytes; operator list/ :id / context 200, serialised_plan null for unparseable); T10 AC8 page boundaries with party rows, all-hidden page, 1100-row hidden run (tagged :long_hidden_run); 1(i) platform-tenant reader. DOCS: test/specs/ISS-1029.md rewritten to the final behaviour (no rev1 'both sides must be own' claims), notes in test/specs/ISS-1021.md and ISS-1023.md rewritten (shaping stays live for parties), decision 0046 closing note rewritten to the party rule. FAIL-FIRST: the reworked repro file against origin/main promotions.ex: 11/38 passed, 27 failed (all non-party, list, AC3, operator-unparseable tests; controls pass). POST-FIX: repro file 38/38; the four reworked context files + approve_reject + promotion_scope + promotions_test 80/80; definitions promotion* (9 files) + req446 + tenant_admin_routes 138/139; routers promotion* (12 files incl. req077) 177/178. The two failures are the KNOWN pre-existing 500s (tenant_admin_routes_test AC2 POST /identity/users; req077_promotion_pipeline_test.exs POST /promotions/plan VIEWER token, line 1279), not regressions. MUTANTS N1..N16 + N3b, N6b, N7a, N10b each applied alone, run against the files that can kill it, restored (git diff HEAD -- lib clean after each): N1 12+ failed (repro party controls/T5/T6/T7 + T-8 x2); N2 12+ failed; N3 2 failed (T5 x2); N3b 3 failed (T8, 1(c), T9 list); N4 3 failed (approve/reject stored-ids + promotion_scope file); N5 3 failed (T-8 x2, T-11 pin_unset); N6 3 failed (T7, party /:id, T-8 context_other_keys); N6b 3 failed (T5, 1(i) x2); N7 3 failed (T-8 operator, T9 operator half, 1(i) operator); N7a 3 failed (1(i), 1(c) all-hidden, 1(c)); N8 2 failed (T9); N9 2 failed (T9); N10 1 failed (T9 operator half); N10b 1 failed (T9 operator /:id/context, truncated JSON); N11 3 failed (1(c) x2, T9 list); N12 1 failed (1(e) 1100-row case; run with --only long_hidden_run); N13 3 failed (1(i) x2, T5); N14 2 failed (T6 cursor-less, 1(c) all-hidden; NOTE the first attempt of N14 matched the platform-events renderer, a harness error, corrected and re-run); N15 3 failed (1(c) x2, T9 list); N16 3 failed (1(g), 1(c) all-hidden, 1(d)). All 20 mutants killed. GATES: see git_evidence/notes below. NOT RUN: the 16-partition runner / mix letflow.check.test (forbidden by the task), the full suite, Dialyzer, dev-env compile. DEVIATIONS: (1) the two 1(e) long-hidden-run tests carry @tag :long_hidden_run so mutant runs can exclude them (no behaviour change); (2) the T5 header names (x-tenant-id, x-letflow-tenant) and query keys are my own choice of 'request-borne tenant' attacks; (3) T6 asserts the list with hidden rows equals the list after the hidden rows are deleted, via Scope.observable on the same conn fixture for a cursor-less page, and status+headers+items for a cursor page, as designed. RESIDUALS for SECURITY-REVIEWER: the 7-key run map for a party can carry free-text teardown_error / failing_assertion_ids (pre-existing; follow-up issue to be filed by ORCH); full keyset scan with a JSON decode per scanned row for a non-operator whose list hides rows, no cap.",
+    "artifacts_out": [
+      "lib/letflow/routers/promotions.ex",
+      "test/letflow/routers/promotion_read_stored_ids_test.exs",
+      "test/letflow/routers/promotion_context_shaping_test.exs",
+      "test/letflow/routers/promotion_context_allowlist_test.exs",
+      "test/letflow/routers/promotion_context_entries_scope_test.exs",
+      "test/letflow/routers/promotions_test.exs",
+      "test/specs/ISS-1029.md",
+      "test/specs/ISS-1021.md",
+      "test/specs/ISS-1023.md",
+      "docs/migration/decisions/0046-admin-scopes-and-role-charter.md"
+    ],
+    "owned_modules": [
+      "lib/letflow/routers/promotions.ex"
+    ],
+    "issues": [],
+    "git_evidence": {
+      "branch_name": "feature/WF03-ISS1029READSTORED-20261013",
+      "commit_sha_list": [],
+      "remote_branch": null,
+      "push_status": "skipped",
+      "pr_url": null,
+      "pr_create_error": null
+    },
+    "next_action": "ORCH: route to SECURITY-REVIEWER (re-review: party rule, tolerant decode, run-map residual, full-scan cost), then REVIEWER, TEST-DESIGN-VALIDATOR, RELEASE-VALIDATOR; file the run-map residual follow-up issue; tell the filer AC1 was preferred over a strict AC5."
+  }
+}

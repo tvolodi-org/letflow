@@ -1,0 +1,39 @@
+{
+  "handoff_id": "c4a7d1e0-1029-4b11-8c20-000000000006",
+  "run_id": "WF03-ISS1029READSTORED-20261013",
+  "workflow_id": "WF-03",
+  "step": "06",
+  "from_agent": "ORCH",
+  "to_agent": "RELEASE-VALIDATOR",
+  "file": "handoffs/WF03-ISS1029READSTORED-20261013/step-06-release-validator.json",
+  "created_at": "2026-10-13T12:35:00Z",
+  "started_at": "2026-10-13T12:36:00Z",
+  "completed_at": "2026-10-13T12:57:55Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1011": "LOW (INV-10 family), ISS-1026 follow-up, GH #2311, local ISS-1029."
+    },
+    "related_handoff_ids": ["c4a7d1e0-1029-4b11-8c20-000000000003"],
+    "artifacts_in": ["handoffs/WF03-ISS1029READSTORED-20261013/step-03-elixir-dev.json", "docs/issues/ISS-1029.yaml"],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1029READSTORED-20261013"
+  },
+  "task": {
+    "description": "WF-03 Step 6: independent re-verification of the six queue acceptance criteria of Q-1011 on the merged tree (HEAD 5d2309844), CI-shaped gates, mutants, regression set."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "RELEASE-VALIDATOR PASS. Re-run independently on the merged tree 5d2309844 (MIX_ENV=test, Postgres 5462, one mix at a time). TESTS: promotion_read_stored_ids_test.exs + promotion_review_store_test.exs = 'Result: 55 passed' (27 + 28). Every test/letflow/routers/promotion*.exs, req077_promotion_pipeline_test.exs and test/letflow/definitions/promotion*.exs other than those two (19 files; includes the flipped T-8/T-11/T-13 and promotions_test): 'Result: 233/234 passed', the single red is req077_promotion_pipeline_test.exs:1279 (known pre-existing 500). tenant_admin_routes_test + req446_cross_tenant_denial_test: 'Result: 16/17 passed', the single red is tenant_admin_routes_test AC2 (known pre-existing 500). These two are the only red in everything run. MUTANTS (applied alone to lib/letflow/routers/promotions.ex, route file run, restored via git checkout, git diff HEAD -- lib empty afterwards): M3 (list passes no row_visible?) 'Result: 9/27 passed' (18 killed); M11 (Jason.decode! in predicate) 'Result: 26/27 passed' (1(f) killed). GATES (exit 0 each): mix format --check-formatted; mix compile --warnings-as-errors; mix letflow.lint_handoffs (0 new violations); mix letflow.check_issue_refs; mix letflow.check_boundaries (1131 edges, 0 violations); mix letflow.check.static (0 violations). ACCEPTANCE (queue task 1011, fetched live): (1) context and /:id answer the nonexistent-review 404 for a non-operator: repro context + /:id tests, 1(a), 1(b), 1(i); (2) list omits foreign-named rows, page_size/next_cursor consistent: repro list, 1(c), 1(d), 1(e), 1(g); (3) operator unchanged: 1(h), 1(i) operator half, 1(f) operator list; (4) two-tenant platform-tenant reader test with byte-equal 404 baseline, list omission, own-tenant rows unaffected: repro tests and 1(i) pinned and unpinned; (5) T-8/T-11/T-13 and REQ-397 helper updated: flipped suites green; (6) SECURITY-REVIEWER verdict recorded: step-04 PASS handoff present. NOT RUN: mix letflow.check.test and the full 16-partition scripts/test_parallel.sh (the runner launches 16 partitions, over the 4-process-per-session limit; a first attempt was started by mistake as part of a combined command and was killed within about 10 minutes of starting, leftover erl/bash processes killed, no verdict drawn from it); Dialyzer; dev-env compile; the web/ suites. CI's own run of the full suite remains the checkpoint for the rest of the tree.",
+    "findings": [],
+    "artifacts_out": ["handoffs/WF03-ISS1029READSTORED-20261013/step-06-release-validator.json"],
+    "owned_modules": [],
+    "design_deviations": [],
+    "next_action": "ORCH: push, PR, CI, merge. DOC-UPDATER resolution of docs/issues/ISS-1029.yaml is included on this branch."
+  }
+}

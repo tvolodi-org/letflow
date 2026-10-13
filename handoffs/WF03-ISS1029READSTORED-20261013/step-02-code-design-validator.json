@@ -1,0 +1,89 @@
+{
+  "handoff_id": "c4a7d1e0-1029-4b11-8c20-000000000002b",
+  "run_id": "WF03-ISS1029READSTORED-20261013",
+  "workflow_id": "WF-03",
+  "step": "02b",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGN-VALIDATOR",
+  "file": "handoffs/WF03-ISS1029READSTORED-20261013/step-02-code-design-validator.json",
+  "created_at": "2026-10-13T11:33:00Z",
+  "started_at": "2026-10-13T11:34:46Z",
+  "completed_at": "2026-10-13T11:36:17Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1011": "LOW (INV-10 family), S3, ISS-1026 follow-up, GH #2311, local ISS-1029. Six acceptance criteria in queue task 1011."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-1029-4b11-8c20-000000000001"
+    ],
+    "artifacts_in": [
+      "handoffs/WF03-ISS1029READSTORED-20261013/step-01-issue-fixer.json",
+      "docs/issues/ISS-1029.yaml",
+      "lib/letflow/routers/promotions.ex",
+      "lib/letflow/definitions/promotion_review_store.ex"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1029READSTORED-20261013"
+  },
+  "task": {
+    "description": "WF-03 Step 2b hard gate on the ISSUE-FIXER fix design for Q-1011 / GH #2311 / ISS-1029 (commit 4daad8ca0). started_at is the first clock reading taken in the session, not the true start."
+  },
+  "result": {
+    "status": "FAIL",
+    "summary": "FAIL (1 BLOCKER, 3 MAJOR, 3 MINOR). Re-derived from lib/letflow/routers/promotions.ex (authz macros L225-260, handle_get_assertion_run L487, handle_context L526, stored_tenants_authorized? L678, tenant_view L1042, handle_list_reviews L1157), lib/letflow/definitions/promotion_review_store.ex (list_reviews/2, get_review/2), lib/letflow/api/tenant_target.ex, lib/letflow/api/pagination.ex, and a grep-and-read of the whole test tree, not from the ISSUE-FIXER summary. VERIFIED OK: (1) AC1/AC2/AC3 map to design elements B, C, D, E; AC6 is the SECURITY-REVIEWER gate (R6). (2) Predicate extraction: today's stored_tenants_authorized?/3 body (decode, non-map or malformed -> %{}, tenants_authorized? over the two ids, true on :review_not_found) is exactly what the design lifts into review_tenants_authorized?/2, so approve/reject/apply/run-assertions are unchanged in behaviour. (3) Per-review routes: non-UUID, nonexistent, foreign-named, malformed and legacy ids all end in the same Response.not_found(conn); the gate sits before get_latest_assertion_run and render_context (a malformed plan no longer 500s a non-operator through Jason.decode!); the operator path is untouched (tenant_view and the predicate both derive from PlatformTenant.scope_facts_for(...).platform_scope?). (4) List algorithm: keyset continuation from the last scanned row, next_cursor from the last EMITTED row on a full page, nil on exhaustion (an all-foreign remainder gives items [] / next_cursor nil, the same bytes as an empty list), SQL filters applied first, predicate cannot raise on malformed plans (non-bang Jason.decode plus nil ids fail closed), filter-in-store is the right place (router Enum.filter and a ::jsonb cast correctly rejected). REPRO MEASURED here (the fixer could not run it): LETFLOW_DEV_DB_CONFIRMED=1 MIX_ENV=test mix test test/letflow/routers/promotion_read_stored_ids_test.exs at HEAD 4daad8ca0 against Postgres 5462: 'Result: 2/5 passed, Failed: 3 tests'; the quoted failure is GET /:id/context answering 200 with the review body instead of the 404 baseline, i.e. the 3-red/2-green split the design expected. WHY FAIL: the enumerated test flips are not complete (BLOCKER: allowlist_test non_scalar_under_plain_key_omitted would go red but is listed Unchanged); AC4's platform-tenant-held reader is not covered for GET /:id and the list; the cap-hit cursor leaks a hidden row's id/inserted_at contrary to the design's own omit rationale; and the malformed-row list case has no test or mutant. Each is a gap a weak implementer would trip over or paper over; none requires re-diagnosis, so route back to the designer for an amendment and re-run this gate.",
+    "artifacts_out": [],
+    "owned_modules": [],
+    "issues": [
+      {
+        "severity": "BLOCKER",
+        "description": "Enumerated test flips are incomplete and one 'Unchanged' claim is wrong. test/letflow/routers/promotion_context_allowlist_test.exs `non_scalar_under_plain_key_omitted` (L129-152) builds `stored = %{process_key, base_version, entries: []}` (NO source_tenant_id/target_tenant_id), writes it with seed_and_overwrite!(ctx.a, ...) and reads it as the non-operator @reader via read_plan!/3, which asserts status == 200. After the fix the stored-tenant predicate sees nil ids, fails closed, and the route answers 404, so this test goes red. The design lists it under 'Unchanged'. It must be flipped (expect the nonexistent-review 404 bytes) or the JSON must carry own a/a tenant ids so the plain-key check survives. The design already caught the same trap for `entries_not_a_list_replaced_by_empty_list` (L265) but missed this sibling that uses the same seed_and_overwrite! recipe. My grep of every test touching the GET /promotions routes or Scope.seed_review!/insert_review found no other break: req077 R3/R4 (default PLATFORM_ADMIN pinned to target, operator), req446 identifier rows (b/b read by B's admin) and list baseline (a/a), tenant_admin_routes (a/a), promotion_approve_reject_stored_ids (writes only, no GET), promotion_scope_test (nonexistent ids and writes), platform-events tests (different route), and promotions_test.exs (only req397_sample_plan seeds; the a/a helper flip is sufficient, no assertion mentions source_tenant_id) are correctly judged unaffected.",
+        "affected_requirement": "AC5 (T-8/T-11/T-13 updated where they assert reads of foreign-named reviews)"
+      },
+      {
+        "severity": "MAJOR",
+        "description": "AC4's literal fixture is not exercised on two of the three routes. AC4 names a 'platform-tenant-held non-operator reader' (TENANT_ADMIN of P, review created by the operator in P's schema naming foreign tenants). The new regression tests 1(a)-(e) all use A's TENANT_ADMIN reading a review seeded in A's schema. The P-held reader is covered only for GET /:id/context (T-13 L400 flip); GET /:id and GET / for that caller (pinned and unpinned) have no listed test. Add to the extended regression file: a TENANT_ADMIN of P (pin on P and pin unset) reading an operator-seeded (ctx.p, a, b) review via GET /:id (404 bytes equal the nonexistent baseline) and GET / (omitted, an own-tenant P/P review still listed).",
+        "affected_requirement": "AC4"
+      },
+      {
+        "severity": "MAJOR",
+        "description": "The scan-cap resume cursor re-introduces the disclosure the 'omit' decision is meant to remove, and the design does not acknowledge it. Cursors are unsigned Base64 of 'PR:<mint_us>:<id>:<inserted_at_us>' (Pagination.encode_cursor is Base.url_encode64, no MAC). Design D says that on cap hit next_cursor = cursor of the LAST SCANNED row, which is by construction possibly a hidden (foreign-named) row: the caller can decode the id and inserted_at of a review that must be indistinguishable from nonexistent, and an empty/short page with a non-nil next_cursor is itself an observable difference from a list that never had the row. The rationale text in D ('indistinguishable from that review does not exist') is therefore false in the cap case. The design must decide explicitly: (a) accept as a documented residual (more than 1000 consecutive hidden rows; operator-created rows in the platform schema only) with SECURITY-REVIEWER sign-off, or (b) specify a cursor that carries no hidden-row id (e.g. position by the last scanned inserted_at only with a sentinel id, stating the re-scan implication) and a test that decodes the cap-case cursor and asserts the hidden id is absent. Silently shipping 'last scanned row' is not acceptable under INV-10.",
+        "affected_requirement": "AC2 (omission, next_cursor consistency) and the INV-10 intent of the issue"
+      },
+      {
+        "severity": "MAJOR",
+        "description": "The requirement that malformed/legacy rows must not 500 the list is argued in prose but has no list-level test and no matching mutant. Tests 1(c)-(e) and 2 (row_visible? nil / all hidden / boundary / cap) use well-formed seeds only; M10 ('predicate fails open on a malformed plan') maps to the single-review legacy cases and to a fail-open predicate, not a RAISING predicate (e.g. Jason.decode! or a ::jsonb cast) which would 500 GET /promotions for the whole schema. Add: a list test that seeds, in the reader's own schema, rows overwritten (overwrite_plan! recipe) to non-map JSON (\"x\", [1], null), truncated/invalid JSON text, and a plan missing the ids, plus normal own/own rows; assert 200, malformed rows omitted, own rows present and paging consistent; add mutant M11 'predicate raises on malformed plan (Jason.decode!)' killed by that test.",
+        "affected_requirement": "AC2 (and the malformed-legacy-row check)"
+      },
+      {
+        "severity": "MINOR",
+        "description": "Cap/chunk semantics are under-specified for a weak implementer: (a) is the cap checked before fetching a chunk or after (it can overshoot by up to page_size+1 = 201 rows), and does it count scanned rows or chunks; (b) precedence when a chunk is both short (exhausted) and the cap is reached (the design implies exhausted wins; state it); (c) the store's @spec/@type for list_reviews/2 opts (`[prefix: String.t()]`) must be widened to include `row_visible?: (PromotionReview.t() -> boolean())`, and the behaviour for a non-1-arity value stated; (d) R2 (empty page with non-nil next_cursor) should name the web client call site that was checked for stopping on an empty page, or state it was not checked.",
+        "affected_requirement": "AC2"
+      },
+      {
+        "severity": "MINOR",
+        "description": "Mutant M4 (gate placed after Definitions.get_latest_assertion_run) is effectively an equivalent mutant: get_latest_assertion_run is a pure read and the response bytes are identical, and the design's kill mechanism ('a run row whose lookup would raise or a count') names no concrete observable. Either drop M4 or specify the mechanism (e.g. count Ecto queries against promotion_assertion_runs via telemetry in the test). M1-M3 and M5-M10 verified to target real traps and be killed by the named tests: M5 by the (own source, foreign target) repro seed and one_foreign_side_is_enough; M6 by the operator list/context controls; M7 by the repro list test; M8/M9 by the 1(c) page-boundary cases.",
+        "affected_requirement": "AC4"
+      },
+      {
+        "severity": "MINOR",
+        "description": "Bookkeeping: docs/issues/ISS-1029.yaml affected_files omits files the design says will change (test/specs/ISS-1021.md, test/specs/ISS-1023.md, a new/updated test/specs/ISS-1029.md, the decision 0046 follow-up). The design lives only in the ISSUE-FIXER handoff string (no lib/letflow/design/ file); accepted here as in the Q-1054 run because ORCH routes the fixer design to this gate directly.",
+        "affected_requirement": null
+      }
+    ],
+    "git_evidence": {
+      "branch_name": "feature/WF03-ISS1029READSTORED-20261013",
+      "commit_sha_list": [],
+      "remote_branch": null,
+      "push_status": "skipped",
+      "pr_url": null,
+      "pr_create_error": null
+    },
+    "next_action": "ORCH: route back to ISSUE-FIXER/CODE-DESIGNER for a design amendment: (1) flip or re-seed allowlist_test non_scalar_under_plain_key_omitted (L129) and re-sweep the other seed_and_overwrite! callers; (2) add the P-held TENANT_ADMIN reader (pinned and unpinned) to the GET /:id and list tests; (3) decide and document the cap-hit cursor disclosure (accept with SECURITY-REVIEWER sign-off, or a cursor carrying no hidden id plus a decode test); (4) add the malformed/legacy-row list test and mutant M11; fold in the MINOR clarifications. Then re-run CODE-DESIGN-VALIDATOR. Do not start ELIXIR-DEV."
+  }
+}

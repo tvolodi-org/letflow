@@ -1,0 +1,58 @@
+{
+  "handoff_id": "c4a7d1e0-1029-4b11-8c20-000000000005b",
+  "run_id": "WF03-ISS1029READSTORED-20261013",
+  "workflow_id": "WF-03",
+  "step": "05b",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGN-VALIDATOR",
+  "file": "handoffs/WF03-ISS1029READSTORED-20261013/step-05b-test-design-validator.json",
+  "created_at": "2026-10-13T14:24:00Z",
+  "started_at": "2026-10-13T14:25:13Z",
+  "completed_at": "2026-10-13T14:39:30Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "related_handoff_ids": ["c4a7d1e0-1029-4b11-8c20-000000000003r2", "c4a7d1e0-1029-4b11-8c20-000000000004r2"],
+    "artifacts_in": [
+      "test/letflow/routers/promotion_read_stored_ids_test.exs",
+      "test/letflow/definitions/promotion_review_store_test.exs",
+      "test/specs/ISS-1029.md",
+      "handoffs/WF03-ISS1029READSTORED-20261013/step-03-elixir-dev-r2.json"
+    ],
+    "branch_name": "feature/WF03-ISS1029READSTORED-20261013"
+  },
+  "task": {
+    "description": "WF-03 step 05b: independent test-design gate over the ISS-1029 read-route tests against the revised 10 ACs and the AC6 clarification; independently apply mutants."
+  },
+  "result": {
+    "status": "FAIL",
+    "summary": "FAIL (0 BLOCKER, 1 MAJOR, 1 MINOR). COVERAGE CHECKS PASSED: every AC1-AC8 and AC10 has a runnable, non-skipped test (no @tag :skip, no TODO); AC9 is the process gate, satisfied (security r2 PASS bd9c8a4cb precedes this step). Repro file runs 38/38 by default (my run: 'Result: 38 passed', 128 s; ExUnit.start excludes only :keycloak/:wasm_hang/:lua_wallclock_race, so the @tag :long_hidden_run tests run in the default suite and I saw the 1100-row and 250/1/250 cases execute). Fixtures: use Letflow.DataCase, async: false, Fixture.three_tenants!/pin! in setup (platform pin restored by the fixture), reviews seeded through the real PromotionReviewStore.insert_review via Scope.seed_review!, no shared hardcoded state, no secrets. AC4: Scope.observable/1 = {status, body, headers minus x-request-id}; used byte-for-byte on GET /:id and GET /:id/context (non-party, run recorded, non-UUID id, every unreadable text, P-held reader) and for the list (cursor-less page byte-equal to the page after hidden rows are deleted; cursor page on status+headers+items). AC8: all-hidden page ({[], nil}, equal to an empty schema), V/H boundary matrix at page_size 1 and 2, cursor-decode test, 1100-row and 250/V/250 long hidden runs. AC10: repro describe seeds (b, p) in A's schema, caller is TENANT_ADMIN of A (non-party), expects the 404 path; party controls (a,b)/(b,a) expect 200. REVERTED PINNING TESTS: git diff origin/main on test/ touches only promotion_context_allowlist_test.exs and promotion_context_entries_scope_test.exs (plus the new repro/store tests and specs); promotion_context_shaping_test.exs and promotions_test.exs are byte-identical to origin/main. In the two touched files the hunks are exactly the declared stays-flipped set (non_scalar_under_plain_key_omitted, foreign_side (b,b) row, non_map_plan_fails_closed, legacy_plan_missing_keys, entries_not_a_list_replaced_by_empty_list; foreign_reviews_entries_are_empty..., withheld_entries_leave_the_rest..., tenant_admin_of_the_platform_tenant..., legacy_plans_with_missing_or_non_binary_tenant_ids split) plus a comment line; T-8/T-11/T-13 (context_omits_foreign_tenant_ids_for_non_operator, context_other_keys_and_status_unchanged, null_definition_id_..., envelope_has_nine_keys_..., pin_unset_..., one_foreign_side_is_enough_...) have no hunk, i.e. equal origin/main. MUTANTS I APPLIED MYSELF (each alone, run, then git checkout of the file): (1) N10b, tolerant_plan/1 body replaced by Jason.decode!(text) in lib/letflow/routers/promotions.ex: repro file 35/36 (--exclude long_hidden_run), 1 failed = 'the operator reads /:id and /:id/context of unparseable rows: 200, never a 500' -> KILLED, as claimed. (2) AC8 scan-cap mutant (promotion_review_store.ex scan_visible_reviews: the short-chunk clause replaced by `true -> acc`, i.e. only the first 100-row chunk is ever scanned): --only long_hidden_run 0/2 passed, both 1(e) tests failed -> KILLED, as claimed for N12. (3) AC3 request-decides mutant (review_read_access/2 {:tenant,_} branch: when query param tenant_id is a binary, the auth_context tenant_id used for the party comparison is replaced by it): repro file 36/36 PASSED, 2 excluded -> SURVIVED. The spec/handoff claim that T5 kills N3 is not reproduced by this mutant form. Probe (temporary copy of the file, deleted afterwards, never committed): changing the T5 first-half attack to name the STORED foreign tenant id (ctx.b) instead of the reader's own tenant makes the test pass on clean lib (2/2) and fail under the mutant (1/2) -> the discriminating attack is simply absent from the committed T5. REVERT VERIFIED: git status --porcelain lib/ test/ is empty and git diff HEAD -- lib is 0 bytes after every mutant; the repro file re-ran green after the last revert ('Result: 38 passed'). No erl/mix processes of mine left. Note: another mix test invocation of a sibling was connected to the same DB during my first run (TenantSchemaReaper deferral log); no effect on results.",
+    "issues": [
+      {
+        "severity": "MAJOR",
+        "ac": "AC3",
+        "description": "T5 'request params and headers naming the reader's tenant do not open a non-party review' (promotion_read_stored_ids_test.exs ~line 336) puts the READER's own tenant id (ctx.a) in tenant_id/source_tenant_id/target_tenant_id/tenant/tenantId and x-tenant-id/x-letflow-tenant, against a (b, p) review whose stored ids are b and p. An implementation that lets a request tenant_id param replace the authenticated tenant in the party comparison is not caught, because the request value (a) matches neither stored id. The attack that matters is a request naming the STORED foreign id (b or p) so that it would match the review: that is never sent for the non-party half. The second half names b only against a party (a, b) review, where the party verdict is :own_side either way, so it cannot discriminate either. Mutant applied and measured: 36/36 passed (survived). A probe naming ctx.b in the first half kills it (1 of 2 failed).",
+        "file": "test/letflow/routers/promotion_read_stored_ids_test.exs",
+        "route_to": "ELIXIR-DEV (no separate TEST-DESIGNER): in T5 first half send each of ctx.b.tenant_id and ctx.p.tenant_id (the stored source and target ids) in every param/header, for both suffixes and the list (non-party review must stay 404 / omitted). Optionally also a (b, p) review with target = reader to show a foreign-named request cannot flip a party review to :none. Then re-run, and re-apply the request-decides mutant to confirm it is killed."
+      },
+      {
+        "severity": "MINOR",
+        "ac": "AC4",
+        "description": "The list route has no 404 (AC4 says 'same status and body ... on all three routes'); the committed test compares the list-with-hidden-rows against the list-without byte for byte on a cursor-less page and on status+headers+items for a cursor page. That is a reasonable reading and is accepted; the cursor-page case does not compare next_cursor value (only that both are binary), which is acceptable because the cursor legitimately encodes the last emitted row and 1(d) checks it never encodes a hidden row.",
+        "file": "test/letflow/routers/promotion_read_stored_ids_test.exs",
+        "route_to": "none (informational)"
+      }
+    ],
+    "artifacts_out": ["handoffs/WF03-ISS1029READSTORED-20261013/step-05b-test-design-validator.json"],
+    "owned_modules": [],
+    "design_deviations": [],
+    "evidence": {
+      "default_run": "38 passed (repro file), long_hidden_run tests included",
+      "mutants_applied": ["N10b (killed, 1 failed)", "scan-cap/N12 (killed, 2 failed)", "request-decides/N3 (SURVIVED, 0 failed of 36)"],
+      "lib_clean_after": "git status --porcelain lib/ test/ empty; git diff HEAD -- lib 0 bytes; repro file 38 passed"
+    },
+    "next_action": "ORCH: route back to ELIXIR-DEV to strengthen T5 (name the stored foreign ids in the request), then re-run TEST-DESIGN-VALIDATOR step 05b r2 (one mutant re-application suffices) before RELEASE-VALIDATOR."
+  }
+}

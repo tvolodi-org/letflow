@@ -169,6 +169,12 @@ defmodule Letflow.Routers.Promotions do
   (R5/R6/R7/R8 re-check) goes through `Letflow.Api.TenantTarget.authorize_target_tenant/2`
   BEFORE any lookup: a foreign id is the same 404 as a nonexistent one.
 
+  The READ routes (`GET /:id`, `GET /:id/context`, `GET /`) use a separate,
+  party-based predicate (`review_read_access/2`, ISS-1029): a caller whose
+  tenant is the stored source OR target keeps the own-side view, a non-party
+  non-operator gets the nonexistent-id 404 (the list omits the row). The write
+  routes keep the strict both-sides predicate.
+
   ## The allowlist statement (design §7, AC6)
 
   Every response body below is a hand-built map with exactly the key set
@@ -491,8 +497,17 @@ defmodule Letflow.Routers.Promotions do
       {:error, :review_not_found} ->
         Response.not_found(conn)
 
-      {:ok, %PromotionReview{}} ->
-        render_assertion_run(conn, Definitions.get_latest_assertion_run(raw_id, opts))
+      {:ok, %PromotionReview{} = review} ->
+        # ISS-1029: a non-party gets the nonexistent-id 404 BEFORE any
+        # assertion-run data is read; a named party (:own_side) keeps the
+        # existing 7-key run map (no new shape; AC1/AC5).
+        case review_read_access(conn, review) do
+          :none ->
+            Response.not_found(conn)
+
+          _full_or_own_side ->
+            render_assertion_run(conn, Definitions.get_latest_assertion_run(raw_id, opts))
+        end
     end
   end
 
@@ -530,8 +545,25 @@ defmodule Letflow.Routers.Promotions do
 
   defp render_context(conn, {:error, :review_not_found}), do: Response.not_found(conn)
 
-  defp render_context(conn, {:ok, %PromotionReview{} = review}),
-    do: Response.ok(conn, review_context_map(review, tenant_view(conn)))
+  # ISS-1029: a NON-PARTY (neither stored id is the caller's tenant) answers the
+  # same zero-detail 404 as a nonexistent id; a named party keeps the ISS-1023
+  # own-side view (shape_plan/2 stays LIVE for it: foreign ids omitted).
+  defp render_context(conn, {:ok, %PromotionReview{} = review}) do
+    case review_read_access(conn, review) do
+      :none -> Response.not_found(conn)
+      _full_or_own_side -> Response.ok(conn, review_context_map(review, tenant_view(conn)))
+    end
+  end
+
+  # ISS-1029 (AC7): an unparseable stored text must not 500 the operator, who
+  # sees every row. Degraded context: serialised_plan renders as JSON null.
+  @spec tolerant_plan(String.t()) :: term()
+  defp tolerant_plan(text) do
+    case Jason.decode(text) do
+      {:ok, decoded} -> decoded
+      {:error, _} -> nil
+    end
+  end
 
   # PROVENANCE (historical, not current decision authority):
   # Exactly 9 keys (design §7.3), ported from promotion_review.zig:321-337.
@@ -546,7 +578,7 @@ defmodule Letflow.Routers.Promotions do
     %{
       "review_id" => review.id,
       "plan_digest" => review.plan_digest,
-      "serialised_plan" => shape_plan(Jason.decode!(review.serialised_plan), view),
+      "serialised_plan" => shape_plan(tolerant_plan(review.serialised_plan), view),
       "status" => Atom.to_string(review.status),
       "requested_by" => review.requested_by,
       "def_type" => review.def_type,
@@ -677,17 +709,54 @@ defmodule Letflow.Routers.Promotions do
   # `:review_not_found` -> 404 path, so the bytes are identical.
   defp stored_tenants_authorized?(conn, raw_review_id, opts) do
     case PromotionReviewStore.get_review(raw_review_id, opts) do
-      {:ok, %PromotionReview{serialised_plan: serialised}} ->
-        plan =
-          case Jason.decode(serialised) do
-            {:ok, %{} = decoded} -> decoded
-            _malformed -> %{}
-          end
+      {:ok, %PromotionReview{} = review} -> review_tenants_authorized?(conn, review)
+      {:error, :review_not_found} -> true
+    end
+  end
 
-        tenants_authorized?(conn, [plan["source_tenant_id"], plan["target_tenant_id"]])
+  # The strict WRITE predicate (ISS-1026): BOTH stored ids must be the
+  # caller's. Used by approve/reject/apply/run-assertions only; the read
+  # routes use review_read_access/2. A malformed or non-map stored plan
+  # decodes to %{} so its (absent) ids fail the check closed; never raises.
+  @spec review_tenants_authorized?(Plug.Conn.t(), PromotionReview.t()) :: boolean()
+  defp review_tenants_authorized?(conn, %PromotionReview{serialised_plan: serialised}) do
+    plan = stored_plan_ids(serialised)
+    tenants_authorized?(conn, [plan["source_tenant_id"], plan["target_tenant_id"]])
+  end
 
-      {:error, :review_not_found} ->
-        true
+  # ISS-1029 READ predicate (GET /:id, GET /:id/context, the list), separate
+  # from the write predicate above:
+  #   :full      operator, or both stored ids are the caller's tenant
+  #   :own_side  a named party (exactly one stored id is the caller's tenant):
+  #              the ISS-1023 own-side view
+  #   :none      non-party, or ids unreadable (fail closed): nonexistent-id 404
+  # The caller's tenant comes ONLY from the authenticated auth_context (via
+  # TenantTarget.authorize_target_tenant/2), never from the request (AC3).
+  # Never raises: non-bang decode, and the operator path never decodes.
+  @spec review_read_access(Plug.Conn.t(), PromotionReview.t()) :: :full | :own_side | :none
+  defp review_read_access(conn, %PromotionReview{serialised_plan: serialised}) do
+    case tenant_view(conn) do
+      :operator ->
+        :full
+
+      {:tenant, _own} ->
+        plan = stored_plan_ids(serialised)
+        own_source? = TenantTarget.authorize_target_tenant(conn, plan["source_tenant_id"]) == :ok
+        own_target? = TenantTarget.authorize_target_tenant(conn, plan["target_tenant_id"]) == :ok
+
+        cond do
+          own_source? and own_target? -> :full
+          own_source? or own_target? -> :own_side
+          true -> :none
+        end
+    end
+  end
+
+  @spec stored_plan_ids(String.t()) :: map()
+  defp stored_plan_ids(serialised) do
+    case Jason.decode(serialised) do
+      {:ok, %{} = decoded} -> decoded
+      _malformed -> %{}
     end
   end
 
@@ -1170,7 +1239,19 @@ defmodule Letflow.Routers.Promotions do
         page_size: page_size
       }
 
-      render_list_reviews(conn, PromotionReviewStore.list_reviews(filters, opts))
+      # ISS-1029: a non-operator never sees a review of which they are not a
+      # named party (omitted, no placeholder); the operator path passes no
+      # predicate (unchanged).
+      store_opts =
+        case tenant_view(conn) do
+          :operator ->
+            opts
+
+          _non_operator ->
+            Keyword.put(opts, :row_visible?, &(review_read_access(conn, &1) != :none))
+        end
+
+      render_list_reviews(conn, PromotionReviewStore.list_reviews(filters, store_opts))
     else
       {:error, :invalid_status} ->
         Response.bad_request(
