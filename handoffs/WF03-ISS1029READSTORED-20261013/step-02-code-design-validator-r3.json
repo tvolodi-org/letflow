@@ -1,0 +1,85 @@
+{
+  "handoff_id": "c4a7d1e0-1029-4b11-8c20-000000000002d",
+  "run_id": "WF03-ISS1029READSTORED-20261013",
+  "workflow_id": "WF-03",
+  "step": "02b-r3",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGN-VALIDATOR",
+  "file": "handoffs/WF03-ISS1029READSTORED-20261013/step-02-code-design-validator-r3.json",
+  "created_at": "2026-10-13T13:15:00Z",
+  "started_at": "2026-10-13T13:18:00Z",
+  "completed_at": "2026-10-13T13:16:08Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1011": "LOW (INV-10 family), S3, GH #2311, local ISS-1029; validation of design rev2 (commit 9a4b79a76) against the revised 10-point ACs."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-1029-4b11-8c20-000000000001",
+      "c4a7d1e0-1029-4b11-8c20-000000000002b",
+      "c4a7d1e0-1029-4b11-8c20-000000000002c"
+    ],
+    "artifacts_in": [
+      "handoffs/WF03-ISS1029READSTORED-20261013/step-01-issue-fixer.json",
+      "docs/issues/ISS-1029.yaml",
+      "GH #2311 comments 6143951729 and 6146252089"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1029READSTORED-20261013"
+  },
+  "task": {
+    "description": "WF-03 Step 2b validation of ISS-1029 design rev2 (party-based read predicate). started_at is approximate (first clock reading of this validation)."
+  },
+  "result": {
+    "status": "FAIL",
+    "summary": "FAIL (1 BLOCKER, 2 MAJOR, 3 MINOR). Validated against the revised 10 ACs read from GH #2311 (comment 6143951729 and the AC6 clarification 6146252089), the rev2 handoff and ISS-1029.yaml at 9a4b79a76, and a MEASURED experiment: the rev1 implementation on the branch was temporarily patched with a reference review_read_access (operator -> :full, else :full / :own_side / :none by authorize_target_tenant on source and target; reduced run map for :own_side; list via row_visible? != :none), the four original (origin/main) test files were restored, and the files were run (Postgres 5462, one mix process); lib/ and test/ were then reverted with git checkout HEAD, tree clean. RESULT of the revert experiment: 54/82 passed; the 10 failures in the four original files were exactly the design's STAYS-flipped set (withheld_entries_..., foreign_reviews_entries_..., tenant_admin_of_the_platform_tenant_..., foreign_side_definition_id_...(b,b row), entries_not_a_list_..., legacy_plan_missing_keys, non_scalar_under_plain_key_omitted, non_map_plan_fails_closed) PLUS two the design gets wrong: context_other_keys_and_status_unchanged (run-map shape, BLOCKER) and legacy_plans_with_missing_or_non_binary_tenant_ids_fail_closed (partial split, MAJOR). The design's REVERT set passed unmodified against the party predicate: context_omits_foreign_tenant_ids_for_non_operator, null_definition_id_omitted_..., envelope_has_nine_keys_for_both_views, pin_unset_would_be_operator_..., one_foreign_side_is_enough_to_withhold_entries, and every promotions_test.exs R12 test with the ORIGINAL req397_sample_plan helper (no helper change needed). The 18 further failures were all in the rev1 repro file, which still seeds (a, b) as 'hidden'; under rev2 that is a party, matching the design's T11 re-seed instruction (AC10). VERIFIED OK: AC1-AC10 -> tests -> mutants table is complete (AC9 is a process gate); read predicate is party-based from stored ids vs conn.assigns.auth_context only (AC3), write routes keep stored_tenants_authorized?/review_tenants_authorized? untouched and N4 is killed by the existing (b, a) cases in promotion_approve_reject_stored_ids_test.exs; 404 bytes on /:id and /:id/context come from the single Response.not_found path (non-UUID, nonexistent, non-party identical; Scope.observable includes headers); the rev1 chunked scan (max(page_size+1,100), no cap, cursor from the last emitted row, exhaustion -> nil) is predicate-agnostic and stays sound with the party-aware row_visible?; fail-closed for unreadable ids in the list/per-review routes for non-operators is correct (non-bang decode, nil ids -> :none). AC5 reduced map is within 'nothing of the foreign side' (see MINOR on the fallback). WHY FAIL: the BLOCKER makes the design contradict AC1 and itself, and the two MAJORs would send a failing test and an AC7 violation to implementation; each is a design correction, no re-diagnosis.",
+    "artifacts_out": [],
+    "owned_modules": [],
+    "issues": [
+      {
+        "severity": "BLOCKER",
+        "description": "AC5's reduced run map contradicts AC1 / the design's own revert list. The original (pre-ISS-1029) pinning test promotion_context_shaping_test.exs `context_other_keys_and_status_unchanged` (L115, T-8) seeds (b -> a), reads as A (a PARTY, :own_side) and then asserts GET /:id returns the SEVEN-key run map (run_id, status, sandbox_id, teardown_error, assertions_passed, assertions_failed, failing_assertion_ids). The design says this test reverts 'restore seed ctx.b -> ctx.a' and 'stays as it is' (AC1), but the AC5 decision returns a four-key map for :own_side, so the reverted test goes red. MEASURED: with a reference rev2 predicate applied temporarily and the original test restored, this test fails on the run-map key assertion (fix reverted afterwards, tree clean). The design must choose: (a) keep the 7-key map for :own_side (its stated fallback; then record the free-text teardown_error / failing_assertion_ids exposure as an AC5 risk for SECURITY-REVIEWER), or (b) reduce the map and EDIT the T-8 test's run-map assertion, which violates AC1's 'pinning tests stay as they are' and needs the filer's sign-off. As written the design is internally inconsistent and a weak implementer will fail one of the two.",
+        "affected_requirement": "AC1, AC5"
+      },
+      {
+        "severity": "MAJOR",
+        "description": "AC7 'never a 500 for any caller' is not met for the operator on GET /:id/context. review_context_map/2 (promotions.ex L563) calls Jason.decode!(review.serialised_plan); a row whose stored text is not parseable JSON (truncated '{\"a\":' is in T9's list) raises Jason.DecodeError and 500s the OPERATOR, who by AC7 must see the row (and T9 asserts 'operator /:id/context answers 200'). The design's review_read_access never decodes for the operator (:full without decoding), so nothing covers this; the existing non-map tests only use VALID JSON. Specify the operator context behaviour for unparseable text (e.g. serialised_plan null, or a non-raising decode in review_context_map) and add the mutant 'decode! left in review_context_map' killed by T9's operator half. For non-operators the case cannot occur (unreadable ids => :none => 404).",
+        "affected_requirement": "AC7"
+      },
+      {
+        "severity": "MAJOR",
+        "description": "Mis-classification: promotion_context_entries_scope_test.exs `legacy_plans_with_missing_or_non_binary_tenant_ids_fail_closed` (L292) is listed as STAYS flipped (non-operator 404 for every case). Under the party rule (source OR target == caller) most of its cases are PARTIES: 'source missing' / 'target missing' (one own id), 'foreign source, own target', 'own source, foreign target', every 'source <bad value>, target own' and 'target <bad value>, source own', and the whitespace/empty variants with the other side own. Those answer 200 with entries [] (the ORIGINAL assertions hold, they are an own-side read), and only 'both ids missing', 'both foreign' and 'odd keys only' become 404. MEASURED with the reference predicate: the original test fails only at the first non-party case (404 vs 200), consistent with this split; flipping the whole loop to 404 would fail on the party cases. The design must say: keep the loop for cases with at least one readable own id (revert), 404 for the three non-party cases; the positive own/own control and the operator half are unchanged. The same applies in spirit to non_map/legacy_plan_missing_keys (those have NO ids, so 404 is correct; verified).",
+        "affected_requirement": "AC1, AC7"
+      },
+      {
+        "severity": "MINOR",
+        "description": "entries_not_a_list_replaced_by_empty_list (allowlist_test L265): adding the reader's own source/target ids to the stored JSON (so the review is :full) changes the asserted body, because shape_plan keeps own ids: `plan == %{\"process_key\" => \"p\", \"entries\" => []}` must gain source_tenant_id and target_tenant_id (own). The design says only 'own ids added'. Likewise non_scalar_under_plain_key_omitted needs its other-key assertions re-checked (they survive: they index single keys).",
+        "affected_requirement": "AC1"
+      },
+      {
+        "severity": "MINOR",
+        "description": "AC5 fallback is not sound as stated. 'Return the 7-key map for :own_side' exposes teardown_error (sandbox free text) and failing_assertion_ids to a party, which can name the foreign side, i.e. it is NOT 'nothing of the foreign side beyond ISS-1023'. The primary decision (run_id, status, assertions_passed, assertions_failed) is within the AC: the run row lives in the caller's own schema, none of the four values is plan content, and counts are not foreign identifiers; run counts are slightly beyond the literal 'status' so SECURITY-REVIEWER should confirm. If the T-8 conflict (BLOCKER) is resolved by keeping the 7-key map, state the residual risk explicitly; a status-only fallback would be the sound minimum.",
+        "affected_requirement": "AC5"
+      },
+      {
+        "severity": "MINOR",
+        "description": "AC4 test precision: T3 uses Scope.observable (status, body, headers), which is right and covers the 'incl. headers' requirement for /:id and /:id/context. T6 (list) is described as a body comparison only; add status and headers to the comparison (same observable tuple) and note the body's trace_id must be equal (same conn fixture) as in the existing baseline helper. For a cursor page compare decoded ids and inserted_at as designed.",
+        "affected_requirement": "AC4"
+      }
+    ],
+    "git_evidence": {
+      "branch_name": "feature/WF03-ISS1029READSTORED-20261013",
+      "commit_sha_list": [],
+      "remote_branch": null,
+      "push_status": "skipped",
+      "pr_url": null,
+      "pr_create_error": null
+    },
+    "next_action": "ORCH: route back to ISSUE-FIXER/CODE-DESIGNER for rev3: (1) resolve the AC5 vs T-8 run-map conflict (keep 7-key map for :own_side with a recorded risk, or edit the pinning test with filer sign-off); (2) specify the operator /context behaviour for unparseable stored text and add the mutant; (3) split legacy_plans_with_missing_or_non_binary_tenant_ids_fail_closed into party cases (200, entries []) and the three non-party cases (404); (4) fix the MINORs. Then re-run CODE-DESIGN-VALIDATOR. Do not start ELIXIR-DEV."
+  }
+}
