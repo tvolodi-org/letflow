@@ -1,0 +1,175 @@
+{
+  "handoff_id": "5c40bc66-2a48-4ea5-afe2-f9a86df31e97",
+  "run_id": "WF02-REQ466-20261013",
+  "workflow_id": "WF-02",
+  "step": "02",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF02-REQ466-20261013/step-02-elixir-dev.json",
+  "created_at": "2026-10-13T01:52:33Z",
+  "started_at": "2026-10-13T01:52:33Z",
+  "completed_at": "2026-10-13T02:06:24Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": ["REQ-466"],
+    "queue_task": 1029,
+    "gh_issue": 2344,
+    "branch_name": "feat/Q-1029-vortex-swiftroute-distinct-from",
+    "base": "origin/main 8460399f (REQ-465, REQ-467, Q-1051, Q-1063, Q-1074 merged)",
+    "requirement_acceptance_criteria": [
+      "the run report lists every node that received distinct_from with listed ids and a one-line business reason; the REQ-464 validator reports status OK for both changed definitions",
+      "swiftroute: one user holding role-ops-manager and role-ceo is refused at ceo-approval after completing ops-review, and a second user holding role-ceo is accepted (two-roles-one-user test, real Postgres)",
+      "vortex: one user holding role-production-manager and role-controller is refused at budget-approval after completing capacity-review; the same user holding role-ceo is refused at escalate-budget-approval-to-ceo after completing capacity-review; a different user is accepted in both",
+      "capacity-review, escalate-to-ceo and ops-review carry no distinct_from; no other definition is changed (git diff --stat quoted)",
+      "every UAT or simulation scenario under swiftroute and vortex that would now be refused is listed in the run report with actor and step; none is edited",
+      "SECURITY-REVIEWER verdict recorded (mandatory)",
+      "mix compile --warnings-as-errors, mix format --check-formatted, scoped mix test over the vortex and swiftroute definition fixture tests and engine tests, and mix letflow.check_boundaries pass, real output quoted"
+    ],
+    "owned_modules": [
+      "test/fixtures/qa/vortex_production_order_release_process_definition.json",
+      "test/fixtures/qa/swiftroute_process_definition.json",
+      "scripts/seed_vortex_definition.sh",
+      "scripts/seed_swiftroute_definition.sh",
+      "test/letflow/engine/req466_swiftroute_distinct_from_test.exs",
+      "test/letflow/engine/req466_vortex_distinct_from_test.exs",
+      "test/letflow/scripts/req466_distinct_from_fixture_test.exs",
+      "test/letflow/definitions/req462_shipped_required_outputs_adoption_test.exs",
+      "test/letflow/definitions/vortex_production_order_release_fixture_test.exs",
+      "test/letflow/scripts/swiftroute_decision_forms_fixture_test.exs",
+      "test/letflow/scripts/swiftroute_d_esc_escalation_fixture_test.exs"
+    ],
+    "artifacts_in": [
+      "docs/agents/instructions/core-directives.md",
+      "lib/letflow/definitions/graph.ex",
+      "lib/letflow/definitions/role_binding.ex",
+      "lib/letflow/engine/separation_of_duties.ex",
+      "test/support/sod_support.ex",
+      "test/support/req462_adoption.ex",
+      "test/letflow/definitions/required_outputs_shipped_definitions_test.exs (read only, unchanged)",
+      "handoffs/WF02-REQ465-20261012/step-02-elixir-dev.json"
+    ]
+  },
+  "task": {
+    "description": "Adopt distinct_from (REQ-459 rule A, enforced by REQ-463) on the approval HUMAN_TASK nodes of the vortex Production Order Release and swiftroute Shipment Approval QA fixtures (1.6 to 1.7 each), keep the seed script headers and existing version pins in agreement, and write real-Postgres refusal tests. Full acceptance criteria are in context.requirement_acceptance_criteria.",
+    "acceptance_criteria": [
+      "node table, dropped id, git diff --stat and refused-scenario list in result",
+      "swiftroute ceo-approval refusal and second-CEO acceptance tested (HTTP 403, fixed body)",
+      "vortex budget-approval and escalate-budget-approval-to-ceo refusals tested, different users accepted in both",
+      "REQ-464 validator valid for both definitions; shipped-definition guard candidate_pairs=0 with its assertion unchanged",
+      "compile, format, scoped mix test, check_boundaries and static gate run and quoted"
+    ]
+  },
+  "result": {
+    "verdict": "PARTIAL",
+    "summary": "distinct_from adopted on 3 approval nodes (vortex budget-approval, vortex escalate-budget-approval-to-ceo, swiftroute ceo-approval). Both definitions bumped 1.6 to 1.7 with one appended description sentence each. escalate-budget-approval-to-ceo does not name escalate-to-ceo (deviation approved by the coordinator; the shipped-definition guard forbids the same-role pair). 10 new tests on real Postgres pass; scoped run over the definition, engine, script, router and simulation tests touching these two definitions passes (Result lines in verification). The REQ-464 validator reports valid for both definitions and the guard prints candidate_pairs=0 for both. SECURITY-REVIEWER and REVIEWER gates have not run; this step is not PASS.",
+    "issues": [
+      {
+        "severity": "MINOR",
+        "description": "Deviation from the queue candidate list: vortex escalate-budget-approval-to-ceo (role-ceo) does NOT name escalate-to-ceo (also role-ceo). Same-role pair; the shipped-definition guard (required_outputs_shipped_definitions_test.exs, candidate_pairs=0) forbids it and the guard was not weakened. Approved by the coordinator to follow the Q-1044 pattern. Residual: a CEO who decided the capacity escalation (escalate-to-ceo) can still decide the escalated budget (escalate-budget-approval-to-ceo); only capacity-review is listed for that node.",
+        "affected_requirement": "REQ-466"
+      },
+      {
+        "severity": "MINOR",
+        "description": "SECURITY-REVIEWER verdict not recorded. Mandatory per REQ-466 acceptance criteria; the change alters who may act on approval nodes (authorization path). Not run by ELIXIR-DEV. Routed next.",
+        "affected_requirement": "REQ-466"
+      },
+      {
+        "severity": "MINOR",
+        "description": "REVIEWER gate not run by ELIXIR-DEV (hard gate before TEST-DESIGNER). Routed after SECURITY-REVIEWER.",
+        "affected_requirement": "REQ-466"
+      },
+      {
+        "severity": "MINOR",
+        "description": "Simulation drift, not changed (out of scope for REQ-466; follow-up): test/fixtures/simulation/vortex/process_quality_check.yaml (budget-approval, escalate-budget-approval-to-ceo) and test/fixtures/simulation/swiftroute/process_route_approval.yaml (ceo-approval) carry no distinct_from and no 1.7 bump. Their scenarios are not refused by the QA change (see scenario_analysis), so the drift is a parity gap, not a behaviour change in the simulation.",
+        "affected_requirement": "REQ-466"
+      },
+      {
+        "severity": "MINOR",
+        "description": "Pre-existing stale comment, not changed: scripts/seed_swiftroute_definition.sh line 44 says the payload source of truth is test/fixtures/simulation/swiftroute/process_route_approval.yaml, but the script deploys test/fixtures/qa/swiftroute_process_definition.json (FIXTURE_PATH, line 62). Follow-up for the simulation-drift work.",
+        "affected_requirement": "REQ-466"
+      }
+    ],
+    "artifacts_out": [
+      "test/fixtures/qa/vortex_production_order_release_process_definition.json",
+      "test/fixtures/qa/swiftroute_process_definition.json",
+      "scripts/seed_vortex_definition.sh",
+      "scripts/seed_swiftroute_definition.sh",
+      "test/letflow/engine/req466_swiftroute_distinct_from_test.exs",
+      "test/letflow/engine/req466_vortex_distinct_from_test.exs",
+      "test/letflow/scripts/req466_distinct_from_fixture_test.exs",
+      "test/letflow/definitions/req462_shipped_required_outputs_adoption_test.exs",
+      "test/letflow/definitions/vortex_production_order_release_fixture_test.exs",
+      "test/letflow/scripts/swiftroute_decision_forms_fixture_test.exs",
+      "test/letflow/scripts/swiftroute_d_esc_escalation_fixture_test.exs"
+    ],
+    "files_changed": "8 modified (2 fixtures, 2 seed scripts, 4 existing test version pins), 3 new test files (2 engine, 1 fixture-shape). Nothing else touched: no Keycloak, no environment, no seed script run, no simulation copy, no vortex_supplier_quality_deviation or swiftroute_incident file, required_outputs_shipped_definitions_test.exs unchanged.",
+    "node_table": [
+      {
+        "node_id": "budget-approval (vortex, role-controller)",
+        "distinct_from": ["capacity-review", "escalate-to-ceo"],
+        "business_reason": "the controller who approves the budget of an order may not be the person who decided its capacity review or its CEO capacity escalation"
+      },
+      {
+        "node_id": "escalate-budget-approval-to-ceo (vortex, role-ceo)",
+        "distinct_from": ["capacity-review"],
+        "business_reason": "the CEO escalation of a budget decision may not be made by the person who decided the order's capacity review (escalate-to-ceo is not listed: same role, see issues)"
+      },
+      {
+        "node_id": "ceo-approval (swiftroute, role-ceo)",
+        "distinct_from": ["ops-review"],
+        "business_reason": "the CEO co-signature of a shipment may not be given by the person who completed its operations review"
+      },
+      {
+        "node_id": "capacity-review, escalate-to-ceo (vortex); ops-review (swiftroute)",
+        "distinct_from": [],
+        "business_reason": "first-level nodes; they are the earlier steps the rules above name, so they carry no distinct_from"
+      }
+    ],
+    "dropped_ids": [
+      {
+        "node_id": "escalate-budget-approval-to-ceo",
+        "dropped": "escalate-to-ceo",
+        "why": "both nodes route to role-ceo; the shipped-definition guard forbids same-role pairs (single_member_pairs). Coordinator-approved deviation following the Q-1044 pattern. The REQ-464 validator did not reject any listed id."
+      }
+    ],
+    "git_diff_stat": " scripts/seed_swiftroute_definition.sh | 2 +-; scripts/seed_vortex_definition.sh | 2 +-; test/fixtures/qa/swiftroute_process_definition.json | 5 +++--; test/fixtures/qa/vortex_production_order_release_process_definition.json | 6 ++++--; req462_shipped_required_outputs_adoption_test.exs | 6 +++---; vortex_production_order_release_fixture_test.exs | 4 ++--; swiftroute_d_esc_escalation_fixture_test.exs | 4 ++--; swiftroute_decision_forms_fixture_test.exs | 4 ++--; 8 files changed, 18 insertions(+), 15 deletions(-); new: req466_swiftroute_distinct_from_test.exs, req466_vortex_distinct_from_test.exs, req466_distinct_from_fixture_test.exs (this handoff file is in the same commit)",
+    "refused_scenarios": [],
+    "scenario_analysis": "grep -rn over test/fixtures/uat/scenarios/swiftroute, test/fixtures/uat/scenarios/vortex, test/fixtures/simulation/swiftroute and test/fixtures/simulation/vortex for ops-review, ceo-approval, capacity-review, budget-approval, escalate-to-ceo and escalate-budget-approval-to-ceo. Hits: UAT shipment-high-value-happy (ops-review by actor-swiftroute-marco, ceo-approval by actor-swiftroute-alice: different users, not refused); UAT shipment-ops-timeout-escalation (ops-review times out by timer, no completion; ceo-approval by alice: not refused); UAT vortex production-order-above-threshold (capacity-review by actor-vortex-sabine, budget-approval by actor-vortex-stefan: different users, not refused); UAT vortex production-order-ceo-escalation-approved and -rejected (capacity-review timed out by timer, escalate-to-ceo by actor-vortex-dirk; no budget-approval step, and escalate-to-ceo carries no distinct_from: not refused); UAT vortex refusal-production-order-release (timer only on capacity-review: not refused); simulation swiftroute shipment-high-value-happy (ops-review by actor-swiftroute-marco, ceo-approval by actor-swiftroute-alice: not refused); simulation swiftroute shipment-ops-timeout-escalation (marco only advances the ops-escalation-timer: not refused); simulation vortex production-order-above-threshold (capacity-review by actor-vortex-sabine, budget-approval by actor-vortex-stefan: not refused). Roster check (test/fixtures/uat/actors.yaml): no actor holds both roles of any changed pair (marco role-ops-manager, alice role-ceo, sabine role-production-manager, stefan role-controller, dirk role-ceo). Result: no UAT or simulation scenario is refused by this change; none edited.",
+    "simulation_drift": [
+      "test/fixtures/simulation/vortex/process_quality_check.yaml: budget-approval and escalate-budget-approval-to-ceo lack distinct_from; no version 1.7 (its top-level version is 1.0, a different scheme).",
+      "test/fixtures/simulation/swiftroute/process_route_approval.yaml: ceo-approval lacks distinct_from; no version 1.7 (top-level version 1.0).",
+      "scripts/seed_swiftroute_definition.sh line 44 comment names the simulation YAML as the payload source of truth; the script deploys the QA JSON (pre-existing)."
+    ],
+    "verification": {
+      "MIX_ENV=test mix compile --force --warnings-as-errors": "Compiling 360 files (.ex) / Generated letflow app / exit 0",
+      "mix format --check-formatted (7 changed or new .exs)": "exit 0 (vortex engine test was formatted once with mix format before the check)",
+      "bash -n scripts/seed_vortex_definition.sh and scripts/seed_swiftroute_definition.sh": "exit 0 (syntax only; no seed script was run)",
+      "jq -e .version on both fixtures": "\"1.7\" and \"1.7\"; distinct_from nodes listed by jq match the node table",
+      "MIX_ENV=test mix test (3 new files: req466 swiftroute, req466 vortex, req466 fixture-shape)": "Result: 10 passed",
+      "MIX_ENV=test mix test (engine and definition set: req466 x2, req462 vortex release, shipped_definition_variable_schemas engine, swiftroute and vortex escalation timers, req462 adoption, vortex fixture, required_outputs_shipped_definitions, distinct_from validation and warning, shipped definitions validation and default-edge scrutiny)": "Result: 182 passed",
+      "MIX_ENV=test mix test (scripts, identity, role registry, persona drift set: swiftroute and vortex fixture and seed tests, shipped definition variable schemas)": "Result: 329 passed",
+      "MIX_ENV=test mix test (routers/tasks_test.exs and simulation req206, req207, seed_idempotency, runner tests)": "Result: 101 passed",
+      "REQ-464 shipped-definition guard (required_outputs_shipped_definitions_test.exs, unchanged)": "REQ-464 shipped-definition findings: test/fixtures/qa/swiftroute_process_definition.json violations=0 candidate_pairs=0 nodes_using_distinct_from=1; test/fixtures/qa/vortex_production_order_release_process_definition.json violations=0 candidate_pairs=0 nodes_using_distinct_from=2; all other discovered definitions unchanged (candidate_pairs=0)",
+      "REQ-464 validator on the activated definitions (engine tests, Definitions.validate_definition_graph/2)": "{:ok, %{valid: true, violations: [], warnings}} for both definitions, no distinct_from_single_member_role warning (asserted and passing)",
+      "REQ-464 checks, pure (req466 fixture-shape test)": "Graph.validate_graph, validate_node_attributes, validate_edge_conditions, validate_flow, SemanticValidation.validate: no violations; RoleBinding.single_member_pairs == [] for both (passing)",
+      "MIX_ENV=test mix letflow.check_boundaries": "mix letflow.check_boundaries: OK -- 1124 edges checked, 0 violations",
+      "MIX_ENV=test mix letflow.check.static": "exit 0; 49 file(s) checked, 0 violation(s) across 0 file(s); actor roster 23 in roster, 0 unresolved, 0 missing",
+      "MIX_ENV=test mix letflow.check_async_sandbox_reachability": "letflow.check_async_sandbox_reachability: OK -- 152 async:true test file(s) scanned under \"test\", 0 reach Sandbox.mode/2, 0 new violations",
+      "mix letflow.lint_handoffs --dir handoffs/WF02-REQ466-20261013/step-02-elixir-dev.json": "run after this file was written; the result is in the ELIXIR-DEV final report, not in this file"
+    },
+    "not_run": [
+      "SECURITY-REVIEWER (mandatory gate; not run by ELIXIR-DEV)",
+      "REVIEWER (hard gate; not run by ELIXIR-DEV)",
+      "Commit SHA: recorded in the ELIXIR-DEV final report; this file is in the same commit",
+      "Seed scripts were not run; no Keycloak or environment was touched (per the run scope)"
+    ],
+    "mutex": "C:\\Users\\tvolo\\AppData\\Local\\Temp\\claude\\mixlock was taken with mkdir for every BEAM call and released with rmdir after each. It was held by another session at the start (directory present, no erl.exe running at that time); it was free at the first poll and was acquired then. One erl.exe was seen at the start of the second scoped run (under this session's mutex) and had exited on its own by the next check; nothing was killed.",
+    "interpretation": "The queue candidate list for escalate-budget-approval-to-ceo named escalate-to-ceo; that pair is same-role (role-ceo) and was dropped per the coordinator's deviation. The REQ-466 AC 'a user holding role-ceo refused at escalate-budget-approval-to-ceo after completing capacity-review' is tested with a user who also holds role-production-manager (who completed capacity-review).",
+    "design_vs_requirement_differences": [
+      "escalate-budget-approval-to-ceo: distinct_from is [capacity-review] only (REQ-466 candidate listed [capacity-review, escalate-to-ceo]); approved deviation."
+    ],
+    "next_action": "SECURITY-REVIEWER (mandatory: approval authorization path), then REVIEWER, then TEST-DESIGNER per WF-02. ORCH to decide whether the simulation drift is filed as a follow-up."
+  }
+}
