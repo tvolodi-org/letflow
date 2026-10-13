@@ -469,8 +469,13 @@ Remaining tracked item (read side, LOW): `GET /promotions/:id/context`,
 `GET /promotions/:id` and `GET /promotions` still lack the stored-tenant check;
 tracked as Q-1011 / GH #2311 / ISS-1029.
 
-Closed by Q-1011 / GH #2311 / ISS-1029: the three read routes now answer a
-non-operator with the same zero-detail 404 for a review whose stored source or
-target tenant id is not their own (`GET /promotions` omits such rows). The
+Closed by Q-1011 / GH #2311 / ISS-1029: the three read routes decide visibility
+from the review's stored source and target tenant ids against the authenticated
+tenant. A named PARTY (source or target is the caller's tenant) keeps the
+ISS-1023 own-side view (200, foreign ids omitted); only a NON-PARTY non-operator
+gets the same zero-detail 404 as a nonexistent id (`GET /promotions` omits such
+rows with no placeholder or count). Unreadable stored ids are non-party for a
+non-operator and stay visible to the operator. The approve / reject / apply /
+run-assertions write routes keep the strict both-sides predicate. The
 `:PromotionsRead` scope is therefore safe to grant below `PLATFORM_ADMIN`
 (REQ-447) as far as stored-id disclosure goes.
