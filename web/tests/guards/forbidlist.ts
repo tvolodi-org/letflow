@@ -47,8 +47,38 @@ export const PATTERNS: GuardPattern[] = [
     // Catches raw colour literals anywhere in TS/TSX source and the built bundle.
     // web/src/styles/tokens.css is allowedPaths-exempt. Negative lookbehind on rgba?/hsla?
     // prevents matching zero-arg calls from colour-manipulation libraries.
+    //
+    // GH #2451 (Q-1089): an issue reference in a comment is not a colour. Two exemptions, both
+    // needing the comment opener to start a token: the opener '//' or '/*' must be at the line
+    // start or follow whitespace, ';', '{' or '}' (so 'https://x', 'url(//cdn)' and 'image/*'
+    // are not openers; '{/* GH #2431 */}' in JSX is):
+    //  - a match after a '//' opener on the same line (line comment);
+    //  - a match after a '/* ... */' opener that is closed by a '*/' later in the file (single
+    //    or multi-line block comment), with no '*/' between the opener and the match.
+    // A JSDoc line is exempt only inside an enclosing '/** ... */' that closes later. A bare
+    // ' * #2432' line with no opener is NOT exempt (it cannot be told from a CSS universal
+    // selector '* { color: #fff }'), so put issue references after '//' or inside a block comment.
+    // A second '/*' between the match and its '*/' closer also refuses the exemption (conservative).
+    // Digit-only colours in code ('#000') are still matched.
+    // A match that is followed by another '/*' before its closing '*/' is flagged: the forward check
+    // stops at the next '/*', so a second opener between the match and its closer refuses the
+    // block exemption.
+    // Known limits (pinned by meta-control tests):
+    //  - a '//' inside a string that follows whitespace, ';', '{' or '}' hides a later colour on
+    //    the same line, e.g. "const s = \"a // b\"; const c = '#000';" (no '*/' is involved);
+    //  - a '/*' inside a string that follows the same characters hides a later colour when a
+    //    '*/' closes it later in the file, e.g. a three-line '" /* "' / colour / '" */"' sequence;
+    //  - a comment opener inside a comment: '/* see // x */ const c = '#fff';' and
+    //    '// see /* x' followed by a colour and a later '*/' are not flagged.
+    // Cost: the exemption lookarounds run only at a candidate position (the leading lookahead
+    // on '#', 'rgb(' and 'hsl('). A candidate's '//' check scans back to its line start. Its
+    // block check scans back to the nearest '*/' (or the file start); the forward check is greedy
+    // and runs to the next '/*' or the file end, then backs off to the last '*/' in that range, so a
+    // candidate inside a block comment in a file with no later '/*' scans to the end of the file.
+    // Measured: 80 KB of code with no candidates runs in under 1 ms. Candidate-heavy files are not
+    // measured.
     name: 'literal-colour',
-    regex: /#[0-9a-fA-F]{3,8}\b|(?<![.a-zA-Z0-9_$])rgba?\([^)]+\)|(?<![.a-zA-Z0-9_$])hsla?\([^)]+\)/,
+    regex: /(?=#|rgba?\(|hsla?\()(?<!(?:^|[\s;{}])\/\/[^\n]*)(?!(?<=(?:^|[\s;{}])\/\*(?:(?!\*\/)[\s\S])*)(?=(?:(?!\/\*)[\s\S])*\*\/))(?:#[0-9a-fA-F]{3,8}\b|(?<![.a-zA-Z0-9_$])rgba?\([^)]+\)|(?<![.a-zA-Z0-9_$])hsla?\([^)]+\))/,
     appliesTo: 'both',
     allowedPaths: [
       'web/src/styles/tokens.css',

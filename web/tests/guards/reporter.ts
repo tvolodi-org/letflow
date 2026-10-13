@@ -1,5 +1,6 @@
 // GRD-UI-05: Redacted violation reporter and YAML writer.
-// Violations are serialised as { file, line, patternName } only — no matched content.
+// Report files serialise { file, line, patternName } only: no matched content. Failure MESSAGES
+// may name a literal-colour token and the GH hint (GH #2451); those never enter a report.
 
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -9,6 +10,49 @@ export interface Violation {
   file: string
   line: number
   patternName: string
+}
+
+/**
+ * Hint printed in the failure MESSAGE for a literal-colour violation (GH #2451).
+ * Message text only: it and the matched token never enter a Violation or a report file.
+ */
+export const LITERAL_COLOUR_HINT =
+  'an issue reference like #NNNN in a comment matches the hex-colour pattern: write GH NNNN'
+
+/** The text the pattern matched, for the failure message only; undefined if no match. */
+export function matchedToken(text: string, regex: RegExp): string | undefined {
+  const m = text.match(regex)
+  return m ? m[0] : undefined
+}
+
+/**
+ * True for a '#' followed only by decimal digits (e.g. '#2431', '#000'): the shape of an issue
+ * reference, so the hint applies to it. Hex colours with letters ('#fa5252') get no hint.
+ * A character check, not a regex literal: forbidlist.ts is the only file with regex literals.
+ */
+function isDigitOnlyHashToken(token: string): boolean {
+  if (token.length < 2 || token[0] !== '#') return false
+  for (const c of token.slice(1)) {
+    if (c < '0' || c > '9') return false
+  }
+  return true
+}
+
+/**
+ * One failure-message line for a violation (GH #2451). For literal-colour the matched token is
+ * named, and the issue-reference hint is added when the token is digit-only; every other pattern
+ * keeps the plain form. `location` is 'file:line' for source files and 'file' for bundle assets.
+ */
+export function describeViolation(
+  v: Violation,
+  token: string | undefined,
+  location: string,
+): string {
+  const base = `  ${v.patternName} @ ${location}`
+  if (v.patternName !== 'literal-colour') return base
+  const tokenPart = token === undefined ? '' : `: matched '${token}'`
+  const hint = token !== undefined && isDigitOnlyHashToken(token) ? ` -- ${LITERAL_COLOUR_HINT}` : ''
+  return `${base}${tokenPart}${hint}`
 }
 
 interface RunReport {
