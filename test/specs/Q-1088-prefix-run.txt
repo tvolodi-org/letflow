@@ -31,3 +31,5 @@ changes (06:48Z). Static: `mix letflow.check.static` exit 0 on 27e5ba6c (06:50Z)
 No new tenant-data path: diff inspection (no migration, no Repo.query, no Keycloak call; ignored_fields and the
 administrator map unchanged), REVIEWER APPROVED on the final code, SECURITY-REVIEWER light gate PASS.
 Naming: this record and the test use Q-1088 / GH #2450. docs/issues/ISS-1088.yaml on main is a different issue (Q-1073).
+
+Dated gate on commit c58440bc (2026-10-13 07:06Z to 07:15Z; the test file and lib as committed there): format exit 0; compile --warnings-as-errors exit 0; mix letflow.check.static exit 0; the five onboarding files 63 passed, 0 failed. This entry is in the following commit; the tested content is c58440bc.
