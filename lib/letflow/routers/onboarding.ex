@@ -460,28 +460,28 @@ defmodule Letflow.Routers.Onboarding do
       # (SECURITY-REVIEWER MAJOR-2). Nothing fallible runs after a bind commits.
       created_with_realm(conn, tenant, record, extras, realm, bind_opts)
     else
-      # Reached only after the tenant is committed (a hostname taken in the race window after the
-      # pre-check). The detail says so: this is not "nothing was created" (SECURITY-REVIEWER R1).
+      # Every answer below is reached only after the tenant is committed. Each detail says so, and
+      # none implies that nothing was created (SECURITY-REVIEWER R1, F1). The details are fixed
+      # literals (INV-4): the failure itself is not threaded into them.
       {:error, :duplicate_hostname} ->
         Response.conflict(
           conn,
-          "hostname taken during the request; the tenant for this slug was created and is active; retry with the same slug or escalate to the platform owner"
+          "hostname taken during the request; the tenant for this slug was created and is active; do not retry with a new slug; escalate to the platform owner"
         )
 
       {:error, %Ecto.Changeset{}} ->
         Response.unprocessable(
           conn,
-          "onboarding record rejected after the tenant was created; escalate to the platform owner"
+          "onboarding record rejected after the tenant was created; do not retry with a new slug; escalate to the platform owner"
         )
 
-      {:error, {:provisioning_failed, _reason}} ->
-        Response.internal_error(conn)
-
-      {:error, {:migration_failed, _exception}} ->
-        Response.internal_error(conn)
-
-      _provisioning_or_replay_error ->
-        Response.internal_error(conn)
+      _after_commit_failure ->
+        # A provisioning or replay failure (the tenant stays `migrating`) and a database fault on the
+        # record insert (the tenant is `active` with no record) both leave a committed tenant behind.
+        Response.internal_error(
+          conn,
+          "an unexpected error occurred after the tenant for this slug was created; the tenant may exist; do not retry with a new slug; escalate to the platform owner"
+        )
     end
   end
 

@@ -197,6 +197,16 @@ defmodule Letflow.Api.ResponseTest do
 
   # ── AC3 / INV-4: the 500 body never varies with the exception ──────────────
 
+  # SECURITY-REVIEWER R1, F1: internal_error/2 sends the caller's fixed literal as the detail,
+  # and nothing else of the 500 document changes.
+  test "internal_error/2 sends the caller's fixed detail in the 500 document" do
+    body = Jason.decode!(Response.internal_error(req(), "the tenant may exist").resp_body)
+
+    assert body["type"] == @base <> "internal-error"
+    assert body["status"] == 500
+    assert body["detail"] == "the tenant may exist"
+  end
+
   # Per the design (§0.3) INV-4 is tested by calling internal_error/1 directly from a
   # rescue clause. No catch-all Plug.ErrorHandler is wired by this requirement (that
   # belongs to a later router-pipeline requirement), so there is no live crash path to

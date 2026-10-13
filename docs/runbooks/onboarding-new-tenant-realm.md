@@ -50,8 +50,9 @@ values belong in this file or in any evidence field.
 
 ## If the tenant stays migrating
 
-Provisioning can fail after the onboarding record is created. The tenant then stays `migrating`,
-and `POST .../bind-realm` answers 409 `tenant is not active`, writing nothing.
+Provisioning runs before the onboarding record is written. If it fails, `POST /api/v1/onboarding`
+answers 500 and the tenant for that slug stays `migrating` with no onboarding record, so there is no
+onboarding id to bind against.
 
 1. **Do not bind or edit the tenant row by hand.** A `migrating` tenant has a half-provisioned
    schema, and a hand-written status change would make it look ready when it is not.
@@ -59,9 +60,9 @@ and `POST .../bind-realm` answers 409 `tenant is not active`, writing nothing.
    with the tenant id from a release console. There is no HTTP route for it. The call is
    idempotent: it re-runs the same provisioning steps and flips the tenant to `active` only on
    success.
-3. **Bind again.** Once the tenant is `active`, run R3 unchanged.
-4. **If recovery fails, stop and escalate** to the platform owner with the onboarding id and the
-   error. Do not retry by changing the database.
+3. **Bind again.** Once the tenant is `active` and an onboarding record exists, run R3 unchanged.
+4. **If recovery fails, stop and escalate** to the platform owner with the slug, the time of the
+   call and the error. Do not retry by changing the database.
 
 If the onboarding call carried an `idp_realm_id` and provisioning failed, the realm is **not** bound:
 the realm is bound only after provisioning and the onboarding record succeed. The realm therefore
@@ -72,15 +73,22 @@ before any write. Retry with a free hostname.
 
 A 409 whose detail reads "hostname taken during the request; the tenant for this slug was created and is
 active" means the tenant **does** exist: a hostname was taken in the instant between that check and the
-insert. Retry with the **same** slug (a 409 "slug already exists" confirms the tenant), or escalate to the
-platform owner. Do not retry with a new slug, which creates a second tenant. Nobody binds a realm by hand.
+insert. A retry with the **same** slug only confirms it: the answer is 409 "slug already exists" and
+nothing is created. Do not retry with a new slug, which creates a second tenant. Escalate to the
+platform owner. Nobody binds a realm by hand.
+
+A 500 whose detail reads "an unexpected error occurred after the tenant for this slug was created", or a
+422 "onboarding record rejected after the tenant was created", from `POST /api/v1/onboarding` means the
+tenant for that slug **may** exist: `migrating` (provisioning failed) or `active` with no onboarding record
+and no realm. Do not retry with a new slug. Escalate to the platform owner with the slug and the time of
+the call.
 
 If the create call answers **201** with `realm_request.status = "not_bound"` (the realm was claimed by
 another tenant in a race, `reason = "taken"`, or the bind hit an audit fault, `reason =
 "unavailable"`), the tenant is active and the onboarding record exists (the body's `id`). The response
 says `login.loginable` is `false`. For `reason = "unavailable"` the realm may in fact be bound (an audit
 fault can fail after the commit): retry the bind with the same realm id first. A 200 means it is bound;
-a 409 means another tenant or a different realm holds it. Then retry the bind with
+a 409 means another tenant or a different realm holds it, or the tenant is no longer `active`. Then retry the bind with
 `POST /api/v1/onboarding/{id}/bind-realm` using the body's `id`. If `taken`, choose another realm
 first. If the bind fails again, escalate to the platform owner; do not bind by hand.
 

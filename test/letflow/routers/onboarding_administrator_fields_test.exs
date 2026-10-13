@@ -731,7 +731,33 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
 
     assert conn.status == 409, conn.resp_body
     assert json(conn)["detail"] =~ "the tenant for this slug was created and is active"
+    assert json(conn)["detail"] =~ "do not retry with a new slug"
     assert %Tenant{status: :active} = tenant
+  end
+
+  test "POST /onboarding answers 500 with the after-commit detail when provisioning fails after the tenant was committed",
+       ctx do
+    slug = TenantSlugFixture.unique_slug("iss1030")
+    hostname = "iss1030-post-commit-#{Ecto.UUID.generate()}.example.com"
+
+    # The tenant row is removed right after its committed insert, so provisioning finds no tenant
+    # and fails after the create's commit: the answer must say the tenant may exist (SECURITY-REVIEWER
+    # F1). The removal is the forced failure; the answer under test is the one the router gives for it.
+    conn =
+      with_tenant_removed_after_insert(slug, fn ->
+        call(
+          ctx,
+          :post,
+          "/api/v1/onboarding",
+          new_body(%{"slug" => slug, "hostname" => hostname})
+        )
+      end)
+
+    assert conn.status == 500, conn.resp_body
+    assert json(conn)["detail"] =~ "the tenant may exist"
+    assert json(conn)["detail"] =~ "do not retry with a new slug"
+    refute Repo.get_by(OnboardingRecord, hostname: hostname)
+    refute Repo.get_by(Tenant, slug: slug)
   end
 
   test "POST /onboarding answers 503 with a retry-after header of 5 and creates no tenant row when the realm probe is unreachable",
@@ -1232,6 +1258,35 @@ defmodule Letflow.Routers.OnboardingAdministratorFieldsTest do
           inserted_at: NaiveDateTime.truncate(NaiveDateTime.utc_now(), :second)
         }
       ])
+    end
+  end
+
+  # Removes the tenant right after the create's committed tenant insert, so provisioning fails after the
+  # commit. Calling process only. Runs once per test (the handler is detached in `after`).
+  defp with_tenant_removed_after_insert(slug, fun) do
+    handler_id = {__MODULE__, make_ref()}
+
+    :telemetry.attach(
+      handler_id,
+      [:letflow, :repo, :query],
+      &__MODULE__.remove_tenant_on_insert/4,
+      {self(), slug}
+    )
+
+    try do
+      fun.()
+    after
+      :telemetry.detach(handler_id)
+    end
+  end
+
+  @doc false
+  def remove_tenant_on_insert(_event, _measurements, metadata, {test_pid, slug}) do
+    query = to_string(Map.get(metadata, :query) || "")
+
+    if self() == test_pid and String.starts_with?(query, ~s(INSERT INTO "tenants")) and
+         match?({:ok, _}, Map.get(metadata, :result)) do
+      Repo.delete_all(from(t in Tenant, where: t.slug == ^slug))
     end
   end
 

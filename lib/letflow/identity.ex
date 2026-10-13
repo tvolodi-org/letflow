@@ -1760,11 +1760,16 @@ defmodule Letflow.Identity do
         end
     end
   rescue
-    # A database fault outside the changeset (for example a value longer than its column) is a typed
-    # result for the caller, not an exception (SECURITY-REVIEWER INV-8). The SQLSTATE is logged; the
-    # message is not, because it can carry the value.
-    error in Postgrex.Error ->
-      Logger.error("onboarding record insert failed (sqlstate=#{inspect(sqlstate(error))})")
+    # A database fault outside the changeset (a value longer than its column, or the database
+    # unreachable) is a typed result for the caller, not an exception (SECURITY-REVIEWER INV-8, F5).
+    # The exception class and the SQLSTATE are logged, and the tenant id, so an operator can tie the
+    # failure to the committed tenant (F6). The message is not logged: it can carry the value (INV-4).
+    error in [Postgrex.Error, DBConnection.ConnectionError] ->
+      Logger.error(
+        "onboarding record insert failed (tenant_id=#{inspect(Map.get(attrs, :tenant_id))}, " <>
+          "exception=#{inspect(error.__struct__)}, sqlstate=#{inspect(sqlstate(error))})"
+      )
+
       {:error, :database_error}
   end
 
