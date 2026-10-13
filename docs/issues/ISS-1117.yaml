@@ -1,0 +1,15 @@
+id: ISS-1117
+title: "Pending TENANT_ADMIN grant: four named tests are missing (lf_tok_ never binds, cross-tenant revoke, 401/403 on operator routes, idempotent membership)"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-13 follow-ups of PR #2493 (Q-1012 PR2), relayed by the supervisor"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: LOW
+owner: "TEST-DESIGNER"
+scope: tests
+description: >
+  Four behaviours named in the PR #2493 follow-ups have no test in onboarding_pending_admin_test.exs; no production change.
+resolution: >
+  Open. Filed GitHub-first (GH #2501), then registered with the queue (Q-1117) using that number.
+queue_ref: Q-1117
+github_ref: GH-2501
+status: open

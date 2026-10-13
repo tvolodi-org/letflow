@@ -35343,13 +35343,13 @@ requirements:
       with a grep and quotes it; if the web still sends the keys, stop and
       report to ORCH.
 
-      TODAY (read on main): lib/letflow/routers/onboarding.ex:594-609
+      TODAY (read on main): lib/letflow/routers/onboarding.ex:694-702
       (Q-1088 / GH #2450, PR #2453) defines @not_stored_keys
       ["client_config", "realm_config"], a fixed @not_stored_next text and
       dispositions/1, merged into the 201 body by response_extras/1
-      (onboarding.ex:571-590). The moduledoc names the same behaviour at
-      onboarding.ex:131-132. The keys are also already listed by name in
-      ignored_fields (onboarding.ex:680-692 rejects only @known_create_fields
+      (the Map.merge at onboarding.ex:675). The moduledoc names the same behaviour at
+      onboarding.ex:138-139. The keys are also already listed by name in
+      ignored_fields (ignored_fields/1 at onboarding.ex:797-809 rejects only @known_create_fields
       and @admin_fields), and the schema validator drops every undeclared key
       before the handler runs (lib/letflow/design/iss1030-onboarding-administrator.md
       C2, lib/letflow/api/validation.ex:234-235), exactly as it does for
@@ -35367,9 +35367,9 @@ requirements:
       no-echo channel the web renders (RegisterTenantPage.iss1030.test.tsx:194-219).
       REMOVES: @not_stored_keys, @not_stored_next, dispositions/1 and the
       Map.merge of its result in response_extras/1; the moduledoc bullet at
-      onboarding.ex:131-132 (replaced by one sentence saying the two keys are
+      onboarding.ex:138-139 (replaced by one sentence saying the two keys are
       undeclared and ignored by name); the runbook paragraph
-      docs/runbooks/onboarding-new-tenant-realm.md:129-131 (rewritten to say
+      docs/runbooks/onboarding-new-tenant-realm.md:188-191 (rewritten to say
       the keys are ignored and listed in ignored_fields only).
 
       OUT OF SCOPE: storing or applying client_config or realm_config
@@ -35382,8 +35382,8 @@ requirements:
       - "precondition quoted: grep over web/src (excluding __tests__) shows no client_config or realm_config, and the web test at RegisterTenantPage.infraLine.test.tsx asserts the five request keys; both with real output"
       - "test/letflow/routers/onboarding_client_config_test.exs is rewritten (the disposition assertions of the tests at :90, :107 and :120 are removed; the sentinel and ignored_fields assertions of :120-141 are kept): POST /onboarding with client_config and realm_config in the body returns 201, the body has no top-level client_config or realm_config key, both names appear in ignored_fields, and the tenant and onboarding record are created exactly as without the keys"
       - "no value is echoed: a request whose client_config and realm_config carry sentinel strings (including one inside client_config.redirect_uris) returns a 201 whose encoded body contains none of the sentinels (the existing sentinel test pattern at onboarding_client_config_test.exs:120-141 is kept in that form)"
-      - "a request without the keys is unchanged: the existing administrator, ignored_fields and login assertions in test/letflow/routers/onboarding_administrator_fields_test.exs pass unedited (including :322-331, ignored_fields == [client_config, realm_config, redirect_uris])"
-      - "grep proves the removal: no @not_stored_keys, @not_stored_next, dispositions( or the string not_stored remains in lib/letflow/routers/onboarding.ex; the moduledoc and the runbook paragraph no longer describe a disposition (grep quoted)"
+      - "a request without the keys is unchanged: the ignored_fields assertions in test/letflow/routers/onboarding_administrator_fields_test.exs pass unedited (including :337-346, ignored_fields == [client_config, realm_config, redirect_uris]); PR #2493 (pending administrator grant, Q-1012 PR2) already edited two OTHER tests in that file (admin-email now pending; the 255-character 422), and this requirement does not touch them"
+      - "grep proves the removal: no @not_stored_keys, @not_stored_next, dispositions( or '\"disposition\" => \"not_stored\"' remains in lib/letflow/routers/onboarding.ex (the unrelated administrator.state value `not_stored` added by PR #2493 stays and is not part of this check; the grep is for the per-key client_config/realm_config disposition only); the moduledoc and the runbook paragraph no longer describe a disposition (grep quoted)"
       - "git diff --stat is limited to lib/letflow/routers/onboarding.ex, the two onboarding router tests and docs/runbooks/onboarding-new-tenant-realm.md; no ADR or decision record changed (option D is not built)"
       - "SECURITY-REVIEWER verdict recorded (response-shaping change on a PLATFORM-scope route; confirms no input value reaches the response, INV-2)"
       - "mix compile --warnings-as-errors, mix format --check-formatted, scoped mix test over test/letflow/routers/onboarding*_test.exs, and mix letflow.check_boundaries pass, real output quoted"
