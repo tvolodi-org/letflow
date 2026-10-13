@@ -612,7 +612,7 @@ measured value, not before.
 
 **Verification (this addendum's own).** `test/scripts/test_parallel_pool_sizing_test.sh`
 (the existing regression suite, unmodified) — 5/5 passing, unchanged from
-before this change. Direct no-op check: extracted Step 1.5's arithmetic block
+before this change. (Historical: the suite was later removed as red on main by PR #2459, GH #2442; its coverage gap is tracked as GH #2460; the file is at commit a9af273a0.) Direct no-op check: extracted Step 1.5's arithmetic block
 from the pre- and post-change script and `eval`'d both at N ∈ {1, 2, 3, 4, 5,
 6, 7, 8, 9, 12, 16, 24, 32} with `TEST_PER_PARTITION_HEADROOM` unset — every
 `TEST_POOL_SIZE` output matched exactly (e.g. N=8: 10 both before and after).
