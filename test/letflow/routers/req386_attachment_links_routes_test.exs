@@ -389,12 +389,14 @@ defmodule Letflow.Routers.Req386AttachmentLinksRoutesTest do
   end
 
   # ══════════════════════════════════════════════════════════════════════
-  # Permission enforcement -- a caller without :AttachmentsRead is denied on
-  # both new routes, matching req212's own enforcement test pattern
+  # Permission enforcement -- a caller without :AttachmentLinksIssue (REQ-448,
+  # was :AttachmentsRead) is denied on POST .../link, and one without
+  # :AttachmentsRead on GET .../link-content, matching req212's own
+  # enforcement test pattern
   # ══════════════════════════════════════════════════════════════════════
 
-  describe "permission enforcement: 403 for a caller with no AttachmentsRead" do
-    test "POST .../link -- AGENT_RUNNER (holds neither AttachmentsRead nor AttachmentsManage) gets 403" do
+  describe "permission enforcement: 403 for a caller with no AttachmentLinksIssue / AttachmentsRead" do
+    test "POST .../link -- AGENT_RUNNER (holds neither AttachmentLinksIssue nor AttachmentsRead) gets 403" do
       tenant = provisioned_tenant("req386-403-post")
       instance_id = Ecto.UUID.generate()
       attachment = upload!(tenant, instance_id)

@@ -1,0 +1,16 @@
+# Ref clash: the queue's issue_ref for Q-1097 is ISS-1097, which is already used on main (or reserved for another record). This record takes the next free local id, ISS-1100. The queue and GH ids are unchanged: Q-1097 / GH #2471.
+id: ISS-1100
+title: "Exam session: the submit button has no in-flight guard, so a double click sends two submit requests"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-13 letflow-4 exam review, relayed by the supervisor"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: LOW
+owner: "FRONTEND-DEV (web)"
+scope: defect
+description: >
+  ExamSessionPage.tsx handleSubmit (lines 316-331) has no in-flight state and the exam-submit-action button has no disabled binding.
+resolution: >
+  Open. Filed GitHub-first (GH #2471), then registered with the queue (Q-1097) using that number.
+queue_ref: Q-1097
+github_ref: GH-2471
+status: open

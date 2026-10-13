@@ -128,7 +128,7 @@ defmodule Letflow.Identity.RoleBackfillTest do
   # ---------------------------------------------------------------------------------
 
   describe "run/0 seeds the five missing platform roles for a PLATFORM_ADMIN-only tenant (AC2)" do
-    test "converges the tenant to the legacy PLATFORM_ADMIN row (kept, REQ-447) plus the six seedable platform-role rows (seven in all), and the tenant_id appears under :seeded" do
+    test "converges the tenant to the legacy PLATFORM_ADMIN row (kept, REQ-447) plus the seedable platform-role rows (REQ-448: seven, eight in all), and the tenant_id appears under :seeded" do
       %{tenant_id: tenant_id, schema_name: schema_name} =
         platform_admin_only_tenant_fixture!("iss0886-ac2")
 
@@ -176,9 +176,11 @@ defmodule Letflow.Identity.RoleBackfillTest do
       assert tenant_id in unchanged_second
 
       # REQ-447: the fixture's pre-existing legacy PLATFORM_ADMIN group+binding is KEPT (the
-      # backfill never deletes it; the migration does) plus the six seedable roles.
-      assert Repo.aggregate(Group, :count, prefix: schema_name) == 7
-      assert Repo.aggregate(TenantRole, :count, prefix: schema_name) == 7
+      # backfill never deletes it; the migration does) plus the seedable roles (derived below).
+      # (REQ-448: the count is derived from seedable_role_names/1, never re-literalled.)
+      expected = 1 + length(RoleRegistry.seedable_role_names(schema_name))
+      assert Repo.aggregate(Group, :count, prefix: schema_name) == expected
+      assert Repo.aggregate(TenantRole, :count, prefix: schema_name) == expected
     end
   end
 
@@ -197,15 +199,16 @@ defmodule Letflow.Identity.RoleBackfillTest do
       # Mirrors TenantOnboarding.provision_and_migrate/1's own onboarding-time
       # call (ISS-0778) -- unchanged, reused as-is.
       assert {:ok, roles} = RoleRegistry.seed_default_platform_role_groups(prefix: schema_name)
-      assert length(roles) == 6
+      expected = length(RoleRegistry.seedable_role_names(schema_name))
+      assert length(roles) == expected
 
       assert {:ok, %{seeded: seeded, unchanged: unchanged}} = RoleBackfill.run()
 
       refute tenant_id in seeded
       assert tenant_id in unchanged
 
-      assert Repo.aggregate(Group, :count, prefix: schema_name) == 6
-      assert Repo.aggregate(TenantRole, :count, prefix: schema_name) == 6
+      assert Repo.aggregate(Group, :count, prefix: schema_name) == expected
+      assert Repo.aggregate(TenantRole, :count, prefix: schema_name) == expected
     end
   end
 
@@ -345,7 +348,7 @@ defmodule Letflow.Identity.RoleBackfillTest do
         )
 
       assert {:ok, roles} = RoleRegistry.seed_default_platform_role_groups(prefix: schema_name)
-      assert length(roles) == 6
+      assert length(roles) == length(RoleRegistry.seedable_role_names(schema_name))
 
       user = insert_user!(schema_name)
       original_marker = @a_past_timestamp
@@ -489,10 +492,10 @@ defmodule Letflow.Identity.RoleBackfillTest do
       assert "TENANT_ADMIN" in names
       # Not deleting the legacy binding is the migration's job (design 3.9 / 3.8 step 4).
       assert "PLATFORM_ADMIN" in names
-      assert length(names) == 7
+      assert length(names) == 1 + length(RoleRegistry.seedable_role_names(schema_name))
     end
 
-    test "an ordinary tenant with nothing seeded gets the six seedable roles including TENANT_ADMIN and NO PLATFORM_ADMIN" do
+    test "an ordinary tenant with nothing seeded gets the seedable roles (REQ-448: seven) including TENANT_ADMIN and NO PLATFORM_ADMIN" do
       %{tenant_id: tenant_id, schema_name: schema_name} =
         TenantFixture.provisioned_tenant!(slug_prefix: "req447-bf-empty")
 
@@ -502,10 +505,10 @@ defmodule Letflow.Identity.RoleBackfillTest do
       names = platform_role_names(schema_name)
       assert "TENANT_ADMIN" in names
       refute "PLATFORM_ADMIN" in names
-      assert length(names) == 6
+      assert length(names) == length(RoleRegistry.seedable_role_names(schema_name))
     end
 
-    test "the pinned platform tenant is seeded all seven roles, so an existing platform tenant obtains its TENANT_ADMIN binding" do
+    test "the pinned platform tenant is seeded every role of roles/0, so an existing platform tenant obtains its TENANT_ADMIN binding" do
       %{tenant_id: tenant_id, schema_name: schema_name} =
         TenantFixture.provisioned_tenant!(slug_prefix: "req447-bf-platform")
 
@@ -521,7 +524,7 @@ defmodule Letflow.Identity.RoleBackfillTest do
                Enum.sort(Enum.map(Letflow.Api.Authorization.roles(), &Atom.to_string/1))
     end
 
-    test "a tenant that already holds exactly its seedable set is :unchanged on a second run (ordinary: six, platform: seven)" do
+    test "a tenant that already holds exactly its seedable set is :unchanged on a second run (ordinary: roles/0 minus PLATFORM_ADMIN, platform: all of roles/0)" do
       %{tenant_id: ordinary_id, schema_name: ordinary_schema} =
         TenantFixture.provisioned_tenant!(slug_prefix: "req447-bf-idem-o")
 

@@ -75,7 +75,7 @@ defmodule Letflow.Routers.Help do
   REVIEWER to judge a narrower grant instead. `lib/letflow/api/authorization.ex`
   implements a **deliberate, flagged deviation** from that literal instruction:
   `:HelpRead` is granted to `PLATFORM_ADMIN`, `PROCESS_DESIGNER`,
-  `PROCESS_OPERATOR`, `TASK_WORKER`, and `AGENT_RUNNER`, but **not**
+  `PROCESS_OPERATOR`, `TASK_WORKER`, `AGENT_RUNNER`, `TENANT_ADMIN` and `TENANT_AUDITOR`, but **not**
   `CANDIDATE`. Reason: `test/letflow/api/authorization_test.exs`'s
   `"role_allows?/2 grants CANDIDATE exactly its six ExamSession*/ExamCertificateIssue
   permissions, denying every other live permission"` test enforces a

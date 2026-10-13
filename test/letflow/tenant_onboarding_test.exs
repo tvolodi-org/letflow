@@ -255,7 +255,7 @@ defmodule Letflow.TenantOnboardingTest do
       Repo.query!("DROP FUNCTION IF EXISTS \"#{schema_name}\".iss0778_sabotage_group_insert()")
     end
 
-    test "a freshly-provisioned ordinary tenant has its six tenant_role rows (TENANT_ADMIN, no PLATFORM_ADMIN; REQ-447)",
+    test "a freshly-provisioned ordinary tenant has its tenant_role rows (every role but PLATFORM_ADMIN; REQ-447/448)",
          %{tenant: tenant} do
       assert {:ok, %Registration{schema_name: schema_name}} =
                TenantOnboarding.provision_and_migrate(tenant.id)
@@ -267,7 +267,7 @@ defmodule Letflow.TenantOnboardingTest do
         |> Enum.map(&Atom.to_string/1)
         |> Enum.reject(&(&1 == "PLATFORM_ADMIN"))
 
-      assert length(rows) == 6
+      assert length(rows) == length(expected_names)
       assert Enum.map(rows, & &1.name) |> Enum.sort() == Enum.sort(expected_names)
       assert "TENANT_ADMIN" in Enum.map(rows, & &1.name)
       assert Enum.all?(rows, &(&1.kind == :platform_role))
@@ -324,7 +324,7 @@ defmodule Letflow.TenantOnboardingTest do
         |> Enum.map(&Atom.to_string/1)
         |> Enum.reject(&(&1 == "PLATFORM_ADMIN"))
 
-      assert length(rows) == 6
+      assert length(rows) == length(expected_names)
       assert Enum.map(rows, & &1.name) |> Enum.sort() == Enum.sort(expected_names)
 
       assert %Tenant{status: :active} = Repo.get(Tenant, tenant.id)

@@ -3,7 +3,7 @@ defmodule Letflow.Routers.IdentityRolesGuardTest do
   REQ-447 PR 1, H2 (`lib/letflow/design/req447-tenant-admin-role.md` section 3.6; spec
   `test/specs/REQ-447-PR1.md` PART C): `POST /roles` binds a role NAME to a group, and
   `RoleRegistry.upsert_role/4` overwrites `kind` and `group_id` on a name conflict. Binding ANY built-in
-  role name (all seven of `Authorization.roles/0`, either `kind`, after the same trim + upcase fold as
+  role name (all eight of `Authorization.roles/0`, either `kind`, after the same trim + upcase fold as
   H1) therefore needs `:UsersGroupsRolesManage` in the caller's tenant, decided BEFORE `upsert_role/4`;
   `:RolesManage` alone (`PROCESS_DESIGNER`) only covers a `process_routing_role` whose name is not a
   built-in name. H1 stays stricter for `PLATFORM_ADMIN` (recomputed platform scope).
@@ -12,7 +12,7 @@ defmodule Letflow.Routers.IdentityRolesGuardTest do
       kinds, case and whitespace variants, binding rows unchanged; the TENANT_ADMIN name with kind
       `process_routing_role` is the kind-overwrite case (403 and the existing `platform_role` binding
       keeps its kind and group); an ordinary routing role is still 2xx (no over-block).
-    * `TENANT_ADMIN` (A and P): may bind the six built-in platform roles other than `PLATFORM_ADMIN`
+    * `TENANT_ADMIN` (A and P): may bind the built-in platform roles other than `PLATFORM_ADMIN`
       (2xx), never `PLATFORM_ADMIN` (403, also on P where it has no platform scope).
     * Legacy tenant `PLATFORM_ADMIN` of A (REQ-447 PR 2, C6 removed): holds nothing, 403 for every name
       and kind. The platform operator may bind everything.
@@ -67,7 +67,7 @@ defmodule Letflow.Routers.IdentityRolesGuardTest do
   defp body(name, kind, group), do: %{"name" => name, "kind" => kind, "group_id" => group.id}
 
   describe "H2: PROCESS_DESIGNER cannot bind a built-in role name" do
-    test "all seven names, both kinds, case and whitespace variants, in A and in P: 403, no row changes",
+    test "every built-in name, both kinds, case and whitespace variants, in A and in P: 403, no row changes",
          ctx do
       for fixture <- [ctx.a, ctx.p] do
         group = group!(fixture)
@@ -136,7 +136,7 @@ defmodule Letflow.Routers.IdentityRolesGuardTest do
   end
 
   describe "H2: who may bind built-in names" do
-    test "TENANT_ADMIN of A and of P binds the six built-in names other than PLATFORM_ADMIN (platform_role) and refuses PLATFORM_ADMIN",
+    test "TENANT_ADMIN of A and of P binds the built-in names other than PLATFORM_ADMIN (platform_role) and refuses PLATFORM_ADMIN",
          ctx do
       for fixture <- [ctx.a, ctx.p] do
         for name <- @non_platform_admin do

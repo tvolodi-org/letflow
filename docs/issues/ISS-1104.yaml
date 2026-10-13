@@ -1,0 +1,15 @@
+id: ISS-1104
+title: "Attachment link issuing: a state-changing route is keyed to the READ permission and lazily creates the tenant signing key"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-13 review relayed by the supervisor (REQ-448 residual)"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: LOW
+owner: "SECURITY-REVIEWER, then ELIXIR-DEV"
+scope: defect
+description: >
+  POST /instances/:id/attachments/:attachment_id/link (routers/instances.ex:406) is keyed to :AttachmentsRead; AttachmentLinks.issue/3 lazily creates and persists the tenant link_signing_key via Secrets.put on first use. Decision wanted: limit issuing further, or provision the key at tenant creation.
+resolution: >
+  Open. Filed GitHub-first (GH #2480), then registered with the queue (Q-1104) using that number.
+queue_ref: Q-1104
+github_ref: GH-2480
+status: open

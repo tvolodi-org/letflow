@@ -1,0 +1,16 @@
+# Ref clash: the queue's issue_ref for Q-1098 is ISS-1098, which is already used on main (or reserved for another record). This record takes the next free local id, ISS-1101. The queue and GH ids are unchanged: Q-1098 / GH #2473.
+id: ISS-1101
+title: "Exam session: a late failed save can replace the result screen; the expired body is wrong when the session was closed by submit"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-13 REVIEWER notes on PR #2472 (Q-1078), relayed by the supervisor"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: LOW
+owner: "FRONTEND-DEV (web, exam module)"
+scope: defect
+description: >
+  ExamSessionPage.tsx save error handler sets phase expired on a deadline-passed error without checking the current phase, so a late failed save replaces the result screen; and the expired body text claims time ran out when the 422 'session is not in progress' also covers a submit-closed session.
+resolution: >
+  Open. Filed GitHub-first (GH #2473), then registered with the queue (Q-1098) using that number.
+queue_ref: Q-1098
+github_ref: GH-2473
+status: open

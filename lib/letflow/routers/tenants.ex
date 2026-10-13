@@ -183,6 +183,7 @@ defmodule Letflow.Routers.Tenants do
   alias Letflow.EventStore.PlatformEvents
   alias Letflow.Identity
   alias Letflow.Identity.Tenant
+  alias Letflow.PlatformTenant
   alias Letflow.TenantOnboarding
   alias Letflow.TenantProvisioning
 
@@ -365,6 +366,7 @@ defmodule Letflow.Routers.Tenants do
         {:ok, attrs} ->
           opts = [
             actor_id: conn.assigns.auth_context.user_id,
+            platform_prefix: verified_platform_prefix(conn),
             trace_id: conn.assigns[:trace_id]
           ]
 
@@ -377,6 +379,22 @@ defmodule Letflow.Routers.Tenants do
       end
     else
       {:error, :not_found} -> Response.not_found(conn)
+    end
+  end
+
+  # ISS-1032 / GH 2351: the platform chain's schema comes from ONE accessor and must equal the schema
+  # of the caller's database-resolved tenant (as Letflow.Routers.Onboarding's realm bind does). A
+  # mismatch or an unconfigured platform tenant yields nil: a login_disclosure_mode change then
+  # answers the fixed 500 with nothing written (Identity.patch_tenant/3 fails closed); a patch that
+  # needs no audit is unaffected.
+  defp verified_platform_prefix(conn) do
+    with {:ok, platform_prefix} <- PlatformTenant.platform_prefix(),
+         {:ok, caller_prefix} <-
+           TenantProvisioning.schema_name_for_tenant(conn.assigns.auth_context.tenant_id),
+         true <- platform_prefix == caller_prefix do
+      platform_prefix
+    else
+      _error_or_mismatch -> nil
     end
   end
 

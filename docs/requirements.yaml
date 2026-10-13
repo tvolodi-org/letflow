@@ -33853,7 +33853,7 @@ requirements:
   - id: REQ-448
     title: "Add the read-only TENANT_AUDITOR role and a parity test between docs/roles.md and the authorization matrix"
     owner: ELIXIR-DEV
-    status: pending
+    status: done
     stage: S4
     impl_order: 965  # letflow-queue task id, GH#2236. Registered 2026-10-05 by ORCH (role-system audit AUDIT-ROLES-20261005, model ratified by the user). Queue depends_on: Q-964.
     description: >
@@ -35319,3 +35319,432 @@ requirements:
       - "REQ-465 open_questions carries the decision (recorded by the Q-1028 PR); REQ-465 / Q-1028 is not flipped done and not released as done in the queue until this lands"
       - "SECURITY-REVIEWER verdict recorded (mandatory hard gate; covers acceptance criteria 2, 5 and 6); compile --warnings-as-errors, format --check-formatted, scoped mix test and mix letflow.check_boundaries, each with real output quoted"
     depends_on: [REQ-465]
+
+  - id: REQ-468
+    title: "Onboarding API: POST /onboarding stops answering the client_config and realm_config dispositions (the web no longer sends them); the keys are ignored by name, never echoed (ADR 0044 Phase 1)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S4
+    impl_order: 1099  # letflow-queue task id, GH #2464 (Q-1094). Registered 2026-10-13 by ORCH (WF-01 Step 3; registered in this PR because mix letflow.check_deferral_staleness requires 0 deferrals).
+    # Source: GH #2464 (Q-1094; requirement draft filed by letflow-2 from the 2026-10-13 batch Q2 decision, option C of GH #2454). The queue id is written back by ORCH at WF-01 Step 3 (register_task), not here.
+    description: >
+      Source: GH #2464 (Q-1094), the API half of the decision on GH #2454
+      (ISS-1098, option C): the web wizard stops sending client_config,
+      realm_config and redirect URIs, and the API then stops answering them.
+      ADR 0044 Phase 1 (docs/migration/decisions/0044-hybrid-identity-model.md,
+      realm-per-tenant, hand-provisioned) is unchanged.
+
+      PRECONDITION (verified on main 2026-10-13): the web change GH #2463 /
+      Q-1093 is merged as PR #2467 (commit 843da7a2). The submit-body test
+      web/src/pages/admin/onboarding/__tests__/RegisterTenantPage.infraLine.test.tsx:69-86
+      asserts the request keys are exactly admin_email, admin_username,
+      display_name, hostname, slug; a grep of web/src outside __tests__ finds
+      no client_config or realm_config. The ELIXIR-DEV run re-verifies this
+      with a grep and quotes it; if the web still sends the keys, stop and
+      report to ORCH.
+
+      TODAY (read on main): lib/letflow/routers/onboarding.ex:594-609
+      (Q-1088 / GH #2450, PR #2453) defines @not_stored_keys
+      ["client_config", "realm_config"], a fixed @not_stored_next text and
+      dispositions/1, merged into the 201 body by response_extras/1
+      (onboarding.ex:571-590). The moduledoc names the same behaviour at
+      onboarding.ex:131-132. The keys are also already listed by name in
+      ignored_fields (onboarding.ex:680-692 rejects only @known_create_fields
+      and @admin_fields), and the schema validator drops every undeclared key
+      before the handler runs (lib/letflow/design/iss1030-onboarding-administrator.md
+      C2, lib/letflow/api/validation.ex:234-235), exactly as it does for
+      redirect_uris.
+
+      CHANGE, decision recorded here (ELIXIR-DEV does not re-decide): IGNORE,
+      not reject. The two keys become ordinary undeclared body keys: they are
+      named (never valued) in ignored_fields and nothing else. Reasoning:
+      (1) the route already ignores every undeclared key by name, redirect_uris
+      included, so refusing exactly these two would be a special case with a
+      new 422 path on a route that writes a tenant and a record; (2) a refusal
+      would break any caller that still sends them (a cached SPA bundle, an
+      operator script) for no security gain, because no value is read, stored
+      or echoed either way; (3) ignored_fields already is the established
+      no-echo channel the web renders (RegisterTenantPage.iss1030.test.tsx:194-219).
+      REMOVES: @not_stored_keys, @not_stored_next, dispositions/1 and the
+      Map.merge of its result in response_extras/1; the moduledoc bullet at
+      onboarding.ex:131-132 (replaced by one sentence saying the two keys are
+      undeclared and ignored by name); the runbook paragraph
+      docs/runbooks/onboarding-new-tenant-realm.md:129-131 (rewritten to say
+      the keys are ignored and listed in ignored_fields only).
+
+      OUT OF SCOPE: storing or applying client_config or realm_config
+      (option D) needs its own ADR and is not scheduled; no schema, migration,
+      route, permission or other response key changes.
+    open_questions:
+      - "Response contract: the per-key 'client_config'/'realm_config' objects disappear from the 201 body. No in-repo reader of the client_config/realm_config disposition exists (grep of web/src, apps, docs outside the runbook and docs/issues finds none; quoted by the run; the unrelated not_stored states in lib/letflow/design/iss1030-onboarding-administrator.md are not this). Default: accepted, because the dispositions were introduced one day earlier (PR #2453) for the wizard that no longer sends the keys."
+      - "Whether to keep one release of compatibility (the disposition stays when a caller still sends the keys). Default: no; the decision on GH #2464 is that the API stops answering them once the web does."
+    acceptance_criteria:
+      - "precondition quoted: grep over web/src (excluding __tests__) shows no client_config or realm_config, and the web test at RegisterTenantPage.infraLine.test.tsx asserts the five request keys; both with real output"
+      - "test/letflow/routers/onboarding_client_config_test.exs is rewritten (the disposition assertions of the tests at :90, :107 and :120 are removed; the sentinel and ignored_fields assertions of :120-141 are kept): POST /onboarding with client_config and realm_config in the body returns 201, the body has no top-level client_config or realm_config key, both names appear in ignored_fields, and the tenant and onboarding record are created exactly as without the keys"
+      - "no value is echoed: a request whose client_config and realm_config carry sentinel strings (including one inside client_config.redirect_uris) returns a 201 whose encoded body contains none of the sentinels (the existing sentinel test pattern at onboarding_client_config_test.exs:120-141 is kept in that form)"
+      - "a request without the keys is unchanged: the existing administrator, ignored_fields and login assertions in test/letflow/routers/onboarding_administrator_fields_test.exs pass unedited (including :322-331, ignored_fields == [client_config, realm_config, redirect_uris])"
+      - "grep proves the removal: no @not_stored_keys, @not_stored_next, dispositions( or the string not_stored remains in lib/letflow/routers/onboarding.ex; the moduledoc and the runbook paragraph no longer describe a disposition (grep quoted)"
+      - "git diff --stat is limited to lib/letflow/routers/onboarding.ex, the two onboarding router tests and docs/runbooks/onboarding-new-tenant-realm.md; no ADR or decision record changed (option D is not built)"
+      - "SECURITY-REVIEWER verdict recorded (response-shaping change on a PLATFORM-scope route; confirms no input value reaches the response, INV-2)"
+      - "mix compile --warnings-as-errors, mix format --check-formatted, scoped mix test over test/letflow/routers/onboarding*_test.exs, and mix letflow.check_boundaries pass, real output quoted"
+    depends_on: []
+
+  - id: REQ-469
+    title: "Backend: tenant_type (test | production) on the tenant: migration, set at creation and changed only by a platform admin with an audit record, read by PromotionPlan.default_tenant_classifier/1"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S4
+    impl_order: 1100  # letflow-queue task id, GH #2465 (Q-1095), backend part. Registered 2026-10-13 by ORCH (WF-01 Step 3; registered in this PR because mix letflow.check_deferral_staleness requires 0 deferrals).
+    # Source: GH #2465 (Q-1095), priority 2; re-scoped feature gap GH #2444. Public tenant-config half is REQ-472, web half is REQ-470. The queue id is written back by ORCH at WF-01 Step 3, not here.
+    description: >
+      Source: GH #2465 (Q-1095, priority 2) and GH #2444 (feature gap: the web
+      expects tenant_type but the server never models it). Priority: this must
+      exist before a production tenant and a test tenant of the same customer
+      are used at once. Split: this entry is the column, the platform-scope
+      write path, the audit and the classifier; the public GET
+      /api/tenant-config key is REQ-472; the web is REQ-470.
+
+      FACTS (read on main 2026-10-13):
+      - There is no tenant_type column. Letflow.Identity.Tenant
+        (lib/letflow/identity/tenant.ex:77-94) has slug, display_name, status,
+        idp_realm_id, settings, storage_allowance_bytes, login_disclosure_mode.
+      - Letflow.Definitions.PromotionPlan.default_tenant_classifier/1 is
+        `def default_tenant_classifier(_tenant_id), do: :test`
+        (lib/letflow/definitions/promotion_plan.ex:174-175); the classifier is
+        called first after the permission check and a :production source is
+        {:error, :invalid_promotion_source} (promotion_plan.ex:121-127).
+      - tenant_map/1 in lib/letflow/routers/tenants.ex:530-539 is a hand-built
+        seven-key allowlist (INV-2); its comment at tenants.ex:~525 says
+        'Exactly 7 keys' and the moduledoc at tenants.ex:137 says 'exactly the
+        seven keys'.
+      - POST /tenants and PATCH /tenants/:slug are PLATFORM-scope
+        (:TenantsManage, tenants.ex:191-205; PLATFORM_ADMIN of the platform
+        tenant only). @create_schema is at tenants.ex:231-256 and @patch_schema
+        at tenants.ex:341-356. Identity.patch_tenant/3 already writes the
+        update and one audit entry in one transaction for
+        login_disclosure_mode (identity.ex:1156-1210, action
+        tenant.platform_setting.updated), and
+        Tenant.admin_patch_changeset/2 (tenant.ex:148-153) is the only
+        changeset that casts it.
+
+      BUILDS:
+      1. Migration on the public tenants table (version later than 20261008000001, which the pending-administrator-grants migration of GH #2312 PR2 takes; model:
+         priv/repo/migrations/20261005000001_add_login_disclosure_mode_to_tenants.exs;
+         not added to TenantProvisioning.tenant_scoped_migrations/0): add
+         column tenant_type, string, NOT NULL, DEFAULT 'test', with a check
+         constraint tenant_type IN ('test','production'). Existing rows take
+         'test' from the column default. Reversible (down drops the
+         constraint and the column).
+      2. Letflow.Identity.Tenant: field :tenant_type (string, default "test")
+         and a validated list function like login_disclosure_modes/0.
+         Creation: create_changeset/3 casts :tenant_type; POST /tenants
+         accepts an optional tenant_type (allowed_values test, production;
+         absent means test). Change: admin_patch_changeset/2 casts
+         :tenant_type; PATCH /tenants/:slug accepts it. No other changeset
+         casts it (settings, realm bind, status): a tenant admin cannot set
+         it through /tenant-settings.
+      3. Audit: a PATCH that actually changes tenant_type writes the update
+         and one audit entry in one transaction in the TARGET tenant's audit
+         chain, through the existing patch_tenant_with_audit path (the cond
+         at identity.ex:1164-1173 gains this field); a patch to the same value
+         writes no entry; no actor or no schema registration returns
+         {:error, :audit_failed} with nothing written. One PATCH writes at
+         most ONE audit entry (a single audit_attrs per call, identity.ex
+         patch_tenant_with_audit), even when it changes both
+         login_disclosure_mode and tenant_type: action stays
+         tenant.platform_setting.updated; before_state is nil unless
+         tenant_type changed, after_state is {changed: true}; when
+         tenant_type changed, before_state is {tenant_type: old} and
+         after_state adds {tenant_type: new} (the two values are
+         non-sensitive enumerations). The login_disclosure_mode value is
+         never in the payload (INV-2, unchanged).
+      4. tenant_map/1 gains tenant_type (eight keys); BOTH the moduledoc
+         sentence at tenants.ex:137 ('exactly the seven keys') and the
+         comment above the function at tenants.ex:~525 ('Exactly 7 keys')
+         are updated to eight. The value is returned by POST, GET list,
+         GET :slug and PATCH, all PLATFORM-scope.
+      5. PromotionPlan.default_tenant_classifier/1 reads the same column
+         (a global-table read by tenant id; INV-6: the lookup is by primary
+         key on the unprefixed tenants table and returns only the atom).
+         A missing or malformed id returns :test, so the existing
+         malformed-id behaviour after the classifier (promotion_plan_test.exs
+         around :401, {:error, :invalid_tenant_id}) is unchanged. The
+         docstring at promotion_plan.ex:165-173 is corrected.
+      6. Runbook line in docs/runbooks (the tenant onboarding runbook,
+         docs/runbooks/onboarding-new-tenant-realm.md): a platform admin sets
+         tenant_type to production by PATCH for each real production tenant
+         after this lands, because every existing row is 'test'.
+
+      NOT BUILT (each needs its own requirement with promotion between real
+      tenants): the test to production pairing, production_tenant_id and the
+      production display name.
+    open_questions:
+      - "Rollout: after the migration every existing tenant, the Bilimbaga production tenant included, is 'test' and the web (REQ-470, through REQ-472) will then show the TEST ENVIRONMENT banner for it. Default: REQ-470 is not deployed until a platform admin has PATCHed each production tenant to production; the runbook line (build item 6) states the order. ORCH sequences the deploy; the platform-admin PATCH calls are an operational step, not part of this entry."
+      - "Audit action name and payload. Default: keep tenant.platform_setting.updated for every PATCH (one entry per PATCH, so a combined PATCH needs one action) and add the tenant_type values to the payload as built in item 3. A distinct action name is rejected for that reason. If a test or registry over audit payload shapes (grep test for the closed list) forbids the added keys, ELIXIR-DEV reports it to ORCH before choosing another shape."
+      - "Whether POST /onboarding (REQ-076 path, also :TenantsManage) accepts tenant_type. Default: no; the onboarded tenant is created 'test' and set by PATCH. A tenant_type key sent there is an undeclared key and is listed in ignored_fields by name."
+    acceptance_criteria:
+      - "migration: after migrating, tenants.tenant_type exists, is NOT NULL with default 'test', and an insert of the value 'staging' fails the check constraint; rows inserted before the migration read 'test' (test over the Repo); rollback removes the column (quoted); the migration file version sorts after 20261008000001 (quoted ls of priv/repo/migrations)"
+      - "creation: POST /tenants by the platform admin with tenant_type production returns 201 and tenant_type production; without the field returns test; an invalid value returns 422 and writes nothing (three tests)"
+      - "change authorization: PATCH /tenants/:slug with tenant_type by a PLATFORM_ADMIN of the platform tenant returns 200 and persists it; the same call by a TENANT_ADMIN of that tenant, by a PLATFORM_ADMIN of another tenant and by a task worker returns 403 with the router's fixed body, and the row is unchanged (negative tests); a tenant_type key sent to the tenant-settings route does not change the column"
+      - "audit: a PATCH that changes tenant_type produces exactly one audit entry in the target tenant's chain naming the actor and the tenant, in the same transaction as the update (a forced audit failure leaves the column unchanged and returns 500); a PATCH to the same value writes no entry"
+      - "classifier: default_tenant_classifier/1 returns :production for a tenant set to production and :test for test, for an unknown id and for a malformed id; compute_promotion_plan/5 with the default classifier returns {:error, :invalid_promotion_source} for a production source and does not for a test source; the existing promotion_plan_test.exs and promotion_test.exs cases pass unedited"
+      - "audit, combined PATCH: one PATCH changing both login_disclosure_mode and tenant_type produces exactly one audit entry with the payload built in item 3 (the login_disclosure_mode value is absent from it); the existing req442_tenants_mode_test.exs assertions pass unedited"
+      - "tenant_map/1 allowlist test lists exactly eight keys including tenant_type; the moduledoc sentence and the comment above tenant_map/1 say eight (grep quoted, no 'exactly the seven keys' or 'Exactly 7 keys' remains in tenants.ex)"
+      - "SECURITY-REVIEWER verdict recorded (mandatory: migration and platform-scope write path; covers INV-1, INV-2, INV-6 and INV-10 by number)"
+      - "mix compile --warnings-as-errors, mix format --check-formatted, scoped mix test over test/letflow/routers/tenants*, test/letflow/routers/req442_tenants_mode_test.exs, test/letflow/identity and test/letflow/definitions/promotion*, and mix letflow.check_boundaries pass, real output quoted"
+    depends_on: []
+
+  - id: REQ-472
+    title: "Backend: GET /api/tenant-config carries tenant_type (test | production | null) as one new top-level key, non-null only on the branch that already resolves a real realm, never a production tenant name"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S4
+    impl_order: 1101  # letflow-queue task id, GH #2465 (Q-1095), public endpoint part, split from REQ-469 by REQ-VALIDATOR F3. Registered 2026-10-13 by ORCH (WF-01 Step 3; registered in this PR because mix letflow.check_deferral_staleness requires 0 deferrals).
+    # Source: GH #2465 (Q-1095), 'NON-PLATFORM DATA SOURCE' paragraph, split out of the original backend draft. The queue id is written back by ORCH at WF-01 Step 3, not here.
+    description: >
+      Source: GH #2465 (Q-1095): 'the public GET /api/tenant-config carries
+      tenant_type ONLY. The production tenant's name must never appear on an
+      unauthenticated endpoint.' Consumes the column REQ-469 adds; REQ-470
+      (web) reads it.
+
+      FACTS (read on main 2026-10-13, lib/letflow/routers/tenant_config.ex):
+      - The endpoint is public, never errors, and always answers 200
+        (moduledoc). Its response is the hand-built map in config_map/2
+        (:268-274), exactly three keys: oidc_authority, client_id, branding.
+        The moduledoc and the comment at :262-267 say a fourth top-level key
+        is a security change.
+      - resolve_realm/2 (:230-249) returns {realm_id, tenant} ONLY when the
+        slug resolves AND the tenant's idp_realm_id is a non-empty binary
+        (:232-234); every other case (unknown slug, lookup error, tenant with
+        a nil or empty idp_realm_id, a host, no parameter) returns
+        {@default_realm, nil} (:236-249). So an unknown slug and a real
+        tenant with no bound realm already produce the identical body
+        (INV-5, anti-oracle).
+
+      CHANGE:
+      1. config_map/2 gains exactly one new top-level key, tenant_type. Its
+         value is the resolved tenant's tenant_type ("test" or
+         "production") on the first resolve_realm/2 branch only, and null
+         whenever the tenant passed in is nil (every default branch). It is
+         read by an explicit named-key read of the %Tenant{} struct, as
+         branding is; the struct is never merged wholesale (INV-2).
+      2. No production tenant name, id, slug, display name or any pairing
+         field is returned, and no new lookup is made (the tenant is the one
+         resolve_realm/2 already fetched).
+      3. The moduledoc paragraph 'What this endpoint discloses, and what it
+         must never disclose' and the comment at :262-267 are updated to say
+         four top-level keys and why the fourth is safe (the same bounded
+         inference as a non-default realm id).
+      4. GET /api/mobile/tenant-config (lib/letflow/routers/mobile_tenant_config.ex)
+         is NOT changed.
+    open_questions:
+      - "Disclosure: tenant_type discloses one bounded extra bit for a tenant that already discloses a non-default realm id (null otherwise), the same kind of inference branding already allows (tenant_config.ex moduledoc). The user's design intent (GH #2465) is that the public endpoint carries it. SECURITY-REVIEWER confirms or rejects; if rejected, tenant_type is served only to authenticated callers and REQ-470 changes."
+      - "The value 'production' reaches an unauthenticated caller for a production tenant that has a bound realm. Default: accepted by the same decision. A stricter option (return only the string 'test' and null for production) is not built; REQ-470's banner needs only 'test', so it is available if SECURITY-REVIEWER prefers it."
+    acceptance_criteria:
+      - "a production tenant with a bound realm: GET /api/tenant-config?realm=<slug> returns tenant_type production; a test tenant with a bound realm returns test (two tests)"
+      - "anti-oracle byte equality: a real tenant whose idp_realm_id is nil (and one whose idp_realm_id is empty) returns a response byte-identical to the response for an unknown slug, with tenant_type null; likewise for a lookup failure, a ?host= request and a request with no parameter (assertion on the raw response body, not on decoded maps)"
+      - "no name leaks: the test tenant's idp_realm_id is a value different from its slug and from its display_name; a test creates a production tenant and a test tenant with distinctive display_name and slug strings and asserts neither string, nor any tenant id, appears anywhere in the encoded body of any response above (so the assertion cannot collide with oidc_authority, which embeds the realm id)"
+      - "the response has exactly the four top-level keys oidc_authority, client_id, branding, tenant_type (key list asserted), and branding keeps its three sub-keys"
+      - "the existing tenant_config tests and the mobile tenant-config tests pass unedited; GET /api/mobile/tenant-config is byte-identical to before"
+      - "SECURITY-REVIEWER verdict recorded (mandatory: unauthenticated response shaping; covers INV-2 and INV-5 by number)"
+      - "mix compile --warnings-as-errors, mix format --check-formatted, scoped mix test over test/letflow/routers/tenant_config* and mobile_tenant_config*, and mix letflow.check_boundaries pass, real output quoted"
+    depends_on: [REQ-469]
+
+  - id: REQ-470
+    title: "Web: read tenant_type from the public tenant-config, hide the test-environment banner when it is null, and remove the production pairing text and the unmodelled production_tenant fields"
+    owner: FRONTEND-DEV
+    status: pending
+    stage: S8
+    impl_order: 1102  # letflow-queue task id, GH #2465 (Q-1095), web part. Registered 2026-10-13 by ORCH (WF-01 Step 3; registered in this PR because mix letflow.check_deferral_staleness requires 0 deferrals).
+    # Source: GH #2465 (Q-1095, web part) and GH #2444. Its own queue row (a FRONTEND-DEV task, not folded into REQ-469 or REQ-472); the queue id is written back by ORCH at WF-01 Step 3, not here.
+    description: >
+      Source: GH #2465 (Q-1095), 'UNTIL IT SHIPS' paragraph, and GH #2444.
+      Web half of REQ-469 and REQ-472; it consumes the key REQ-472 adds to
+      the public tenant-config and is not deployed before the platform admin
+      has set tenant_type on existing production tenants (REQ-469 open
+      question 1).
+
+      FACTS (read on main 2026-10-13):
+      - web/src/api/tenants.ts:3-15 declares Tenant with tenant_type,
+        production_tenant_id and production_tenant_display_name; the server
+        has never sent the last two and never sent tenant_type (GH #2444).
+      - web/src/auth/AuthProvider.tsx:35-45 and
+        web/src/pages/OidcCallbackPage.tsx:85-93 read tenant_type and
+        production_tenant_display_name from GET /api/v1/tenants/:slug, which
+        only a PLATFORM_ADMIN session calls (Q-1074 / GH 2431), so a tenant
+        admin or task worker has tenant_type null on every login.
+      - web/src/components/layout/TestEnvironmentBanner.tsx renders only when
+        tenantType === 'test' and shows 'Paired with production: <name or
+        (unknown)>' (lines 5-16, 40-41).
+      - web/src/auth/tenantConfig.ts:19-23 types TenantConfig as
+        {oidc_authority, client_id, branding?}; fetchTenantConfig caches the
+        response and falls back to a default without tenant_type.
+      - web/src/auth/useTenantContext.ts:9,22-23 exposes
+        productionDisplayName; it is also read at
+        web/src/pages/definitions/DefinitionEditorPage.tsx:87,1095 and
+        web/src/components/ui/ConfirmPromoteModal.tsx:5-55.
+      - The Promote to Production button renders when hasDesignerRole
+        (DESIGNER_ROLES = PROCESS_DESIGNER or PLATFORM_ADMIN, :46,104) AND
+        tenantType === 'test' AND the definition is ACTIVE
+        (DefinitionEditorPage.tsx:731). Because tenant_type is null for
+        every non-platform session today, the button is in practice visible
+        to a PLATFORM_ADMIN session only; giving every session a non-null
+        tenant_type would widen it to PROCESS_DESIGNER unless gated.
+      - DefinitionEditorPage.tsx:277 maps the code production_tenant_inactive
+        to 'The paired production tenant is inactive. Contact your platform
+        administrator.' (pairing wording).
+
+      CHANGE:
+      1. TenantConfig gains tenant_type: 'test' | 'production' | null; the
+         session's tenant_type is taken from the tenant-config response for
+         every role (both AuthProvider.buildSessionFromToken and
+         OidcCallbackPage), not from the platform-only tenant record. A
+         missing key or null is null.
+      2. TestEnvironmentBanner renders only when tenant_type is 'test'
+         and shows 'TEST ENVIRONMENT' with no pairing text; with null or
+         'production' it renders nothing.
+      3. Remove production_tenant_id and production_tenant_display_name from
+         the Tenant type, the session type (web/src/types/api.ts:463), the
+         E2E session restore (AuthProvider.tsx:79) and useTenantContext; the
+         pairing text is not shown anywhere until its own requirement.
+      4. DefinitionEditorPage and ConfirmPromoteModal: wherever they print the
+         production tenant's name they print no name (a generic sentence);
+         the promote action itself is not changed or removed. The message at
+         DefinitionEditorPage.tsx:277 is reworded to 'The production tenant
+         is inactive. Contact your platform administrator.' (no 'paired').
+         The Promote button's visibility predicate (:731) gains an explicit
+         session-role check for PLATFORM_ADMIN, so its visibility is
+         unchanged by tenant_type becoming non-null for other roles.
+      5. Tenant.tenant_type stays on the platform tenants list
+         (web/src/pages/admin/tenants/TenantsPage.tsx:103,120, the [TEST]
+         marker) and now carries real data from REQ-469's tenant_map.
+      6. web/tests/specs/ENV-04.md is updated (its pairing-text cases are
+         removed or rewritten), and web/tests/e2e/env04.e2e.spec.ts where it
+         asserts pairing text.
+    open_questions:
+      - "Whether a platform admin gets a control to change tenant_type in the web (a select on the tenants page calling PATCH). Default: not in this entry; the platform admin uses the API (REQ-469 runbook line). A control is a new requirement."
+      - "BA lane, reported only, not edited here: test/fixtures/uat/scenarios/swiftroute/tenant-onboarding-happy.yaml:70 sends tenant_type: production to POST /onboarding; with REQ-469's default (onboarding ignores the key and creates 'test') that scenario's expectation changes. The run report lists it; BA-SWIFTROUTE decides."
+      - "Item 4 wording of the promote confirmation without a production name is a UX choice. Default: 'You are about to promote <definition> to the production tenant. This will create a DRAFT version that requires separate activation.' FRONTEND-DEV reports the final text."
+    acceptance_criteria:
+      - "TestEnvironmentBanner tests: tenant_type test renders the banner with the text TEST ENVIRONMENT and no 'Paired with production' text; null renders nothing; production renders nothing (three tests; TestEnvironmentBanner.test.tsx updated, its pairing assertions removed)"
+      - "a tenant-config response with tenant_type test for a non-platform session (TENANT_ADMIN, TASK_WORKER) puts tenant_type test in the session and the banner renders; a response without the key leaves it null and no banner (AuthProvider and OidcCallbackPage tests)"
+      - "grep over web/src quoted: no production_tenant_id, production_tenant_display_name, productionDisplayName, 'Paired with production' or 'paired production tenant' (including DefinitionEditorPage.tsx:277) remains outside the removed-text assertions; web/src/types/api.ts and web/src/api/tenants.ts compile without them"
+      - "Promote visibility unchanged: a session holding PLATFORM_ADMIN with tenant_type test and an ACTIVE definition sees the Promote to Production button; a session holding PROCESS_DESIGNER or TENANT_ADMIN (no PLATFORM_ADMIN) with tenant_type test sees the TEST ENVIRONMENT banner and no Promote button (negative test); a production session sees neither"
+      - "web/tests/specs/ENV-04.md no longer lists a pairing-text case (grep quoted)"
+      - "DefinitionEditorPage and ConfirmPromoteModal tests: the promote confirmation renders without a production tenant name and the promote request is unchanged"
+      - "no change to the callback's authorization behaviour: the Q-1074 / GH 2431 tests (a candidate login makes no tenants request) pass unedited"
+      - "npm run typecheck (or the project's tsc command), npm run lint and the scoped vitest run over web/src/auth, web/src/components/layout, web/src/pages/definitions and web/src/pages/admin/tenants pass, real output quoted"
+      - "grep of web/tests quoted: no 'paired production tenant' or 'Paired with production' remains in web/tests/e2e/env04.e2e.spec.ts or web/tests/specs/ENV-04.md (the e2e run itself is outside the scoped vitest list)"
+    depends_on: [REQ-472]
+
+  - id: REQ-471
+    title: "Vortex production order release: reroute the budget escalation off role-ceo to a new role-finance-director so it can name escalate-to-ceo as distinct (ISS-1086 decision a), new definition version, fail-closed timeout, simulation copy resynced, one UAT scenario"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S3
+    impl_order: 1103  # letflow-queue task id, GH #2447 (Q-1086 / ISS-1086); the queue row carries no depends_on edge because REQ-466 closes only through this requirement. Registered 2026-10-13 by ORCH (WF-01 Step 3; registered in this PR because mix letflow.check_deferral_staleness requires 0 deferrals).
+    # Source: GH #2447 (ISS-1086, Q-1086), decision (a) of 2026-10-13 (letflow-fc answer Q1). Priority 2, after the go-live items; STANDING RULE (Q-1050): no vortex definition goes to a production tenant before this version. The queue id is written back by ORCH at WF-01 Step 3, not here.
+    description: >
+      Source: GH #2447 (ISS-1086, Q-1086), the residual of REQ-466 (PR #2446).
+      DECIDED 2026-10-13 (letflow-fc answer Q1, option (a)): see the
+      CORRECTION entry in REQ-466 open_questions. The membership-aware-guard
+      premise of Q-1044 is wrong; the same-role guard stays unchanged.
+
+      GAP (read on main 2026-10-13, test/fixtures/qa/vortex_production_order_release_process_definition.json
+      v1.7): escalate-to-ceo and escalate-budget-approval-to-ceo both route to
+      role-ceo. The second names only [capacity-review] in distinct_from, and
+      naming escalate-to-ceo is impossible while both are role-ceo
+      (RoleBinding.single_member_pairs/1 compares roles, not holders,
+      asserted at test/letflow/definitions/required_outputs_shipped_definitions_test.exs:186-191).
+      The roster has one role-ceo holder, actor-vortex-dirk
+      (test/fixtures/uat/actors.yaml, scripts/seed_vortex_persona_actors.sh:46).
+      Path: capacity-review times out (PT4H) -> escalate-to-ceo ->
+      budget-gate (order_value_eur > 10000) -> budget-approval times out
+      (P2D) -> escalate-budget-approval-to-ceo; one holder can decide both CEO
+      steps on the same order. Runtime enforcement already exists
+      (Letflow.Engine.SeparationOfDuties.check/5 compares the acting user id
+      with the most recent completer of each distinct_from node, under row
+      locks); what is missing is the attribute and a role that makes it legal.
+
+      CHANGE, as decided (names below are this entry's, not ELIXIR-DEV's to change):
+      1. NEW ROLE: role-finance-director (checked: the name appears nowhere
+         in lib, scripts, test or the roster today; it follows the
+         role-<function> pattern of role-controller, role-production-manager).
+         It approves nothing else in any shipped definition.
+      2. Reroute the escalation node to role-finance-director and rename its
+         id to escalate-budget-approval-to-finance-director, as REQ-467 did for
+         the meridian disbursement escalation (an id naming the CEO on a
+         step the CEO no longer holds is a lasting trap). The incoming edge
+         timeout-budget-approval, the outgoing e7-escalated and
+         e8-escalated, and the timeout edge are retargeted by id; edge ids
+         that embed the old node id are renamed with it.
+      3. distinct_from on that node is exactly [capacity-review,
+         escalate-to-ceo, budget-approval]. escalation_role on the node is
+         changed to role-finance-director (top of chain, nominal, same
+         wording as the existing description) so it names no approver role.
+         budget-approval's own escalation_role (role-ceo today) is changed
+         to role-finance-director to agree with its timeout target.
+      4. FAIL CLOSED: the node keeps its own escalation_timer_duration (P2D)
+         and its single unconditioned timeout edge to auto-reject-order, so a
+         stall ends at end-rejected and the order is never released (the
+         Q-1047 / ISS-1051 shape: a timed-out escalation goes to a rejecting
+         terminal, never onward to a released state). The run quotes the
+         edge from the definition.
+      5. VERSION: the definition's version is incremented by one minor step
+         from the value found on the branch (a read value, not a number
+         written here), with one reason sentence in its description.
+      6. GUARD: test/letflow/definitions/required_outputs_shipped_definitions_test.exs
+         has zero diff; the vortex definition still prints candidate_pairs=0
+         (no pair of nodes shares a role and names the other).
+      7. SIMULATION COPY: test/fixtures/simulation/vortex/process_quality_check.yaml
+         (version "1.0" today, with no distinct_from on budget-approval or on
+         the escalation node, while the QA definition is at 1.7) is brought
+         to the same version and the same node set, roles, escalation
+         attributes and distinct_from lists as the QA definition. The drift
+         it already carries (REQ-462 required_outputs, REQ-466
+         distinct_from) is resynced in this same edit; the version string
+         must not be changed without the content.
+      8. ROSTER (BA lane): ONE new actor holding role-finance-director and
+         no other routing role, TASK_WORKER built-in (UAT-class). Proposed id
+         actor-vortex-greta (not in the roster today; BA-VORTEX confirms the
+         persona name). Added to scripts/seed_vortex_persona_actors.sh
+         (ROLES and PERSONAS arrays) and test/fixtures/uat/actors.yaml. NO
+         second role-ceo holder or account. The QA Keycloak account is a
+         UAT-class infra request that is sent only after letflow-2 issues a
+         written APPROVE for this entry; ELIXIR-DEV does not request it.
+      9. ONE UAT SCENARIO, authored by BA-VORTEX (BA lane; ELIXIR-DEV does not
+         write scenario files) under test/fixtures/uat/scenarios/vortex/: an
+         order of value above EUR 10000 reaches the budget escalation after
+         both timers; the CEO who decided escalate-to-ceo is refused at the
+         escalation node, and the finance director completes it.
+
+      10. REQ-466 CLOSURE (mirrors REQ-467): REQ-466 is in_progress and can
+         close only through this entry. The queue row for this entry carries
+         depends_on [] (registered with no queue dependency, so the
+         deadlock REQ-467 documents cannot arise); this entry's depends_on
+         below is the content dependency only.
+
+      OUT OF SCOPE: the sweep of same-role HUMAN_TASK pairs where neither node
+      names the other is folded into GH #2420 (ISS-1066) and is not repeated
+      here; no change to the guard, to the engine, or to any other
+      definition; vortex_supplier_quality_deviation stays untouched (REQ-466).
+    open_questions:
+      - "Node rename (item 2). Default: rename, per the REQ-467 precedent. It touches every test that names escalate-budget-approval-to-ceo (at least test/letflow/engine/req466_vortex_distinct_from_test.exs, req462_vortex_release_required_outputs_test.exs, vortex_escalation_timer_test.exs, test/letflow/definitions/req462_shipped_required_outputs_adoption_test.exs (lines 56 and 82), test/letflow/scripts/req466_distinct_from_fixture_test.exs, vortex_d_esc_escalation_fixture_test.exs, test/letflow/simulation/req207_vortex_test.exs); historical handoffs, uat-reports and ISS records are not edited. If ORCH prefers to keep the id, only item 2's rename is dropped; the reroute and distinct_from are unchanged."
+      - "Business owner of role-finance-director and whether a finance director, not the CEO, may be the top of the budget chain. Decided by option (a) of GH #2447 (a business decision made by the user's design intent); recorded here so a BA-VORTEX reviewer can see it."
+      - "The persona name and department in the simulation org structure (test/fixtures/simulation/vortex org_structure, if a SCHEMA check lists personas). Default: ELIXIR-DEV adds the persona wherever the existing six role holders are listed and reports each file."
+      - "The new scenario needs UAT-RUNNER timer injection for two timers and a new Keycloak account (UAT-class). Default: the scenario file is added now and marked blocked on the roster account in its header; it is not run by this entry."
+      - "Existing scenarios under test/fixtures/uat/scenarios/vortex and test/fixtures/simulation/vortex/scenarios that name the old node id or the CEO at the budget escalation. Default: listed in the run report with actor and step, not edited (BA lane)."
+    acceptance_criteria:
+      - "definition: grep quoted shows the escalation node id escalate-budget-approval-to-finance-director with role role-finance-director, escalation_role role-finance-director, distinct_from exactly [capacity-review, escalate-to-ceo, budget-approval], and its timeout edge targeting auto-reject-order; no node still routes to role-ceo at the budget escalation; the REQ-464 validator reports status OK with no violation and no distinct_from_single_member_role warning"
+      - "separation test, real Postgres, through the engine or the tasks router: the user who completed escalate-to-ceo and also holds role-finance-director is refused at the escalation node with HTTP 403 and body exactly {\"detail\":\"separation of duties\",\"status\":403}; a different holder of role-finance-director completes it and the order reaches end-released; the same refusal holds for the user who completed capacity-review"
+      - "role barrier: a user holding only role-ceo (not role-finance-director) is refused at the escalation node by the existing eligibility check, not the separation-of-duties body"
+      - "fail closed: with no action on the escalation node its P2D timer leads to auto-reject-order and end-rejected, never to assign-line or end-released (test)"
+      - "guard unchanged: git diff shows no change to test/letflow/definitions/required_outputs_shipped_definitions_test.exs, and the run prints candidate_pairs=0 for the vortex definition (quoted)"
+      - "version: the QA definition's version is the previous value plus one minor step (previous value quoted from the branch), with the reason in its description; scripts/seed_vortex_definition.sh deploys the same file; test/fixtures/simulation/vortex/process_quality_check.yaml carries the identical version and a node-by-node match of ids, roles, escalation_role, escalation_timer_duration and distinct_from to the QA definition, budget-approval and the escalation node included (a test asserts the match)"
+      - "escalation_role: budget-approval.escalation_role is role-finance-director in the QA definition and the simulation copy (grep quoted), matching its timeout target; if the run keeps role-ceo it states why in the report"
+      - "REQ-466 closure: in the same PR DOC-UPDATER flips REQ-466 to done citing REQ-471, and marks the third clause of REQ-466 acceptance criterion 3 (the refusal at escalate-budget-approval-to-ceo) superseded by this entry's separation test; REQ-466's CORRECTION open question is left as the record"
+      - "roster: scripts/seed_vortex_persona_actors.sh ROLES contains role-finance-director and PERSONAS has exactly one line holding it; test/fixtures/uat/actors.yaml has the one new actor with routing_roles [role-finance-director]; no second role-ceo entry (grep quoted); the report states the Keycloak account is UAT-class and unrequested"
+      - "exactly one new scenario file exists under test/fixtures/uat/scenarios/vortex/ (authored by BA-VORTEX, listed in the report); the scenarios that would now behave differently are listed with actor and step and none is edited"
+      - "SECURITY-REVIEWER verdict recorded (mandatory: authorization-adjacent change to who may act in a gated release path); it confirms the 403 body is constant and leaks no node id or user id"
+      - "mix compile --warnings-as-errors, mix format --check-formatted, scoped mix test over the vortex definition, engine and script tests named above, test/letflow/scripts/vortex_roster_ceo_test.exs, test/letflow/definitions/req462_shipped_required_outputs_adoption_test.exs and test/letflow/definitions/required_outputs_shipped_definitions_test.exs, and mix letflow.check_boundaries pass, real output quoted"
+    depends_on: [REQ-466]

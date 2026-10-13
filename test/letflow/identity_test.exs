@@ -1582,7 +1582,7 @@ defmodule Letflow.IdentityTest do
              ]
     end
 
-    test "seeding closes the gap for the six seedable platform-role literals of an ordinary tenant (design §2.1)" do
+    test "seeding closes the gap for the seedable platform-role literals of an ordinary tenant (design §2.1)" do
       %{tenant: tenant, schema_name: schema_name} = provisioned_tenant!()
       config = jit_config()
 
@@ -1592,7 +1592,7 @@ defmodule Letflow.IdentityTest do
                )
 
       seedable = Letflow.Identity.RoleRegistry.seedable_role_names(schema_name)
-      assert length(seedable) == 6
+      assert length(seedable) == length(Letflow.Api.Authorization.roles()) - 1
       refute "PLATFORM_ADMIN" in seedable
 
       for role_name <- seedable do

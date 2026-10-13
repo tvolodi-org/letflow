@@ -479,3 +479,35 @@ non-operator and stay visible to the operator. The approve / reject / apply /
 run-assertions write routes keep the strict both-sides predicate. The
 `:PromotionsRead` scope is therefore safe to grant below `PLATFORM_ADMIN`
 (REQ-447) as far as stored-id disclosure goes.
+
+## Closure of the TENANT_AUDITOR role (REQ-448 / Q-965 / GH #2236), 2026-10-13
+
+The `TENANT_AUDITOR` role is shipped as the eighth and last role of
+`Letflow.Api.Authorization.roles/0`, with its realm role and a seeded
+`auditor-user` in `priv/keycloak/realms/bpm-default.json`, and with the
+`docs/roles.md` matrix enforced against the code by
+`test/letflow/api/roles_matrix_parity_test.exs`. Seeding uses the existing
+`RoleRegistry` / `RoleBackfill` mechanism unchanged; the `RoleRegistry`
+name-collision guard now covers `TENANT_ADMIN` and `TENANT_AUDITOR`.
+
+Deliberate interim deviations from D6, recorded here so the charter and the code
+stay reconcilable:
+
+- `:PromotionsRead` is WITHHELD from `TENANT_AUDITOR` (13 effective grants, D6's
+  list minus `PromotionsRead`; the `docs/roles.md` cell is `no`). The read-side
+  stored-tenant check of Q-1011 / GH #2311 / ISS-1029 is not merged, and a new
+  role must not widen a surface whose check is open. Follow-up after Q-1011 merges:
+  add `:PromotionsRead` to the auditor's explicit list, flip the one matrix cell to
+  `yes`, flip the pinning test, and move the AC5 row of
+  `promotion_context_entries_scope_test.exs` to the allowed side.
+- `:EntitiesRecordsExport` is NOT granted (a supervisor decision).
+- New additive core permission `:AttachmentLinksIssue` (core permissions 40 -> 41)
+  now keys `POST /instances/:id/attachments/:attachment_id/link`. Issuing a link
+  persists state (lazy signing-key write) and mints a bearer capability, so the
+  read-only auditor must not reach it, while it shares `:AttachmentsRead` with
+  reads the auditor needs. It is granted to exactly the roles that reached the
+  route before: `PLATFORM_ADMIN`, `PROCESS_DESIGNER`, `PROCESS_OPERATOR`,
+  `TASK_WORKER`, `TENANT_ADMIN`; no existing role's behaviour changes (D7).
+- `is_task_worker_only?/1` excludes `TENANT_AUDITOR`, so an auditor who also holds
+  `TASK_WORKER` gets unfiltered task lists.
+- The missing `PlatformServicesManage` row (platform scope) was added to the matrix.

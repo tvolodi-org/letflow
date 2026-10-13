@@ -77,16 +77,16 @@ defmodule Letflow.Api.PlatformAdminRoleBindingTest do
   end
 
   describe "unit: Authorization.platform_admin_name?/1" do
-    test "agrees with roles_from_strings/1 for each of the seven role literals" do
+    test "agrees with roles_from_strings/1 for each of the eight role literals" do
       for literal <-
-            ~w(PLATFORM_ADMIN PROCESS_DESIGNER PROCESS_OPERATOR TASK_WORKER AGENT_RUNNER CANDIDATE TENANT_ADMIN) do
+            ~w(PLATFORM_ADMIN PROCESS_DESIGNER PROCESS_OPERATOR TASK_WORKER AGENT_RUNNER CANDIDATE TENANT_ADMIN TENANT_AUDITOR) do
         parser_says = :PLATFORM_ADMIN in Authorization.roles_from_strings([literal])
 
         assert Authorization.platform_admin_name?(literal) == parser_says,
                "#{literal}: predicate and parser disagree"
       end
 
-      assert length(Authorization.roles()) == 7
+      assert length(Authorization.roles()) == 8
     end
 
     test "any string the parser maps to :PLATFORM_ADMIN is a platform-admin name" do

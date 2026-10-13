@@ -1133,7 +1133,11 @@ defmodule Letflow.Identity do
       {:error, :lookup_failed}
   end
 
-  @type patch_opts :: [actor_id: Ecto.UUID.t() | nil, trace_id: String.t() | nil]
+  @type patch_opts :: [
+          actor_id: Ecto.UUID.t() | nil,
+          platform_prefix: String.t() | nil,
+          trace_id: String.t() | nil
+        ]
 
   @doc """
   Partial-update of a tenant's `display_name` and (REQ-442)
@@ -1141,11 +1145,17 @@ defmodule Letflow.Identity do
   changeset's own @doc for why `:status` is structurally excluded from this path.
 
   A `display_name`-only patch is a plain `Repo.update/1` (unaudited, as before).
-  When `login_disclosure_mode` actually changes, the update and one audit entry
-  (`tenant.platform_setting.updated`, value-free payload, INV-2) are written in a
-  single transaction in the TARGET tenant's audit chain, so both commit or both
-  roll back. A mode change with no binary `actor_id` in `opts`, a tenant with no
-  provisioned schema registration, or any audit/transaction failure returns
+  When `login_disclosure_mode` actually changes, the update and two audit
+  entries (value-free payloads, INV-2) are written in a single transaction, so
+  all three commit or all three roll back (ISS-1032 / GH 2351): a TARGET-tenant
+  chain entry `tenant.platform_setting.updated` with a NIL actor and the constant
+  actor class `platform_operator` (tenant administrators read that chain and must
+  not learn which operator acted), then a PLATFORM-chain entry
+  `platform.tenant_platform_setting.updated` carrying the operator's user id.
+  Lock order: tenant row, tenant chain, platform chain (as `bind_tenant_realm/3`).
+  `opts[:platform_prefix]` must be verified by the caller. A mode change with no
+  binary `actor_id` or `platform_prefix` in `opts`, a tenant with no provisioned
+  schema registration, or any audit/transaction failure returns
   `{:error, :audit_failed}` with nothing written.
   """
   @spec patch_tenant(slug :: String.t(), attrs :: map(), patch_opts()) ::
@@ -1177,22 +1187,37 @@ defmodule Letflow.Identity do
   defp patch_tenant_with_audit(changeset, %Tenant{} = tenant, opts) do
     actor_id = Keyword.get(opts, :actor_id)
 
-    with true <- is_binary(actor_id),
+    platform_prefix = Keyword.get(opts, :platform_prefix)
+
+    with true <- is_binary(actor_id) and is_binary(platform_prefix),
          %TenantProvisioning.Registration{schema_name: prefix} <-
            Repo.get_by(TenantProvisioning.Registration, tenant_id: tenant.id) do
-      audit_attrs = %{
-        actor_id: actor_id,
+      # The tenant chain is read by the tenant's own administrators: NIL actor, no
+      # operator-chosen trace id, a constant actor class (ISS-1032, as in the realm bind).
+      tenant_entry = %{
+        actor_id: nil,
         action: "tenant.platform_setting.updated",
+        resource_type: "tenant",
+        resource_id: tenant.id,
+        trace_id: nil,
+        before_state: nil,
+        after_state: %{"changed" => true, "actor_class" => "platform_operator"}
+      }
+
+      platform_entry = %{
+        actor_id: actor_id,
+        action: "platform.tenant_platform_setting.updated",
         resource_type: "tenant",
         resource_id: tenant.id,
         trace_id: Keyword.get(opts, :trace_id),
         before_state: nil,
-        after_state: %{"changed" => true}
+        after_state: %{"tenant_id" => tenant.id, "changed" => true}
       }
 
       Multi.new()
       |> Multi.update(:tenant, changeset)
-      |> Audit.append_multi(:audit, audit_attrs, prefix)
+      |> Audit.append_multi(:audit, tenant_entry, prefix)
+      |> Audit.append_multi(:platform_audit, platform_entry, platform_prefix)
       |> Repo.transaction()
       |> case do
         {:ok, %{tenant: updated}} -> {:ok, updated}
