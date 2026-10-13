@@ -67,7 +67,12 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useIntl } from 'react-intl'
 import { examApi } from './exam.api'
 import { createDwellClock, recordSaveTotal, switchQuestion } from './dwellTime'
-import { classifyStartError, isDeadlinePassedError, type ExamEligibilityErrorKind } from '@/utils/examErrors'
+import {
+  classifyStartError,
+  isDeadlinePassedError,
+  openSessionIdFromStartError,
+  type ExamEligibilityErrorKind,
+} from '@/utils/examErrors'
 import { useAntiCheatSignals } from './useAntiCheatSignals'
 import { PageLayout } from '@/components/ui/PageLayout'
 import { Button } from '@/components/ui/Button'
@@ -135,15 +140,30 @@ function ExamSessionPageInner() {
     if (!examId || startedRef.current) return
     startedRef.current = true
 
+    // The server's state is the only clock: a started session and a resumed one both carry the
+    // stored remaining_seconds, never a fresh deadline.
+    const enterSession = (state: ExamSessionStateResponse) => {
+      setSession(state)
+      setAnswers(state.answers)
+      setRemainingSeconds(state.remaining_seconds)
+      setPhase({ kind: 'in_progress' })
+    }
+
     examApi
       .startSession(examId)
-      .then((state) => {
-        setSession(state)
-        setAnswers(state.answers)
-        setRemainingSeconds(state.remaining_seconds)
-        setPhase({ kind: 'in_progress' })
-      })
-      .catch((err: unknown) => {
+      .then(enterSession)
+      .catch(async (err: unknown) => {
+        // Q-1076 / GH #2433: a reload mid-exam. The server refused a second session and named this
+        // candidate's own open one, so resume it. If that resume fails, show the start error.
+        const openSessionId = openSessionIdFromStartError(err)
+        if (openSessionId) {
+          try {
+            enterSession(await examApi.getSessionState(openSessionId))
+            return
+          } catch {
+            // fall through to the error screen
+          }
+        }
         setPhase({ kind: 'error', error: classifyStartError(err) })
       })
   }, [examId])
