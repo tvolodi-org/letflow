@@ -2,3 +2,10 @@
   color: var(--text-primary);
   background: var(--surface-page);
 }
+/* GH #2431: an issue reference in a comment is not a colour literal */
+/* (see #2432 and Q-1074 / GH #2440) */
+/*
+  multi-line block: GH #2441 is not a colour
+*/
+// GH #2440: a line-comment issue reference is not a colour literal
+{/* GH #2431: a JSX comment citing an issue is not a colour */}

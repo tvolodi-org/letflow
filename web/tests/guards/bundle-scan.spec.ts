@@ -15,15 +15,11 @@ import { join } from 'node:path'
 import { execSync } from 'node:child_process'
 import fg from 'fast-glob'
 import { PATTERNS } from './forbidlist'
-import { writeViolations, assertRedacted, type Violation } from './reporter'
+import { writeViolations, assertRedacted } from './reporter'
+import { scanBundle, summaryText, type ScanFile } from './scan-core'
 
 const WEB_DIR = join(__dirname, '..', '..')
 const DIST_DIR = join(WEB_DIR, 'dist')
-
-function isAllowed(filePath: string, allowedPaths: string[]): boolean {
-  const lc = filePath.toLowerCase()
-  return allowedPaths.some(a => lc.startsWith(a.toLowerCase()))
-}
 
 describe('bundle-scan', () => {
   it(
@@ -43,23 +39,12 @@ describe('bundle-scan', () => {
       const evaluatedPatterns = bundlePatterns.map(p => p.name)
 
       // Phase 4: Scan
-      const violations: Violation[] = []
-
-      for (const relFile of assetFiles) {
-        const wsPath = 'web/' + relFile.split('\\').join('/')
-        const absPath = join(WEB_DIR, relFile)
-        const content = readFileSync(absPath, 'utf8')
-
-        for (const pattern of bundlePatterns) {
-          if (isAllowed(wsPath, pattern.allowedPaths)) continue
-
-          pattern.regex.lastIndex = 0
-          if (pattern.regex.test(content)) {
-            // Bundle assets are minified — report line 0 (not applicable)
-            violations.push({ file: wsPath, line: 0, patternName: pattern.name })
-          }
-        }
-      }
+      const assets: ScanFile[] = assetFiles.map(relFile => ({
+        wsPath: 'web/' + relFile.split('\\').join('/'),
+        content: readFileSync(join(WEB_DIR, relFile), 'utf8'),
+      }))
+      const result = scanBundle(assets, bundlePatterns)
+      const { violations } = result
 
       const ts = new Date().toISOString().slice(0, 19).split(':').join('-')
       const runId = process.env.GUARD_RUN_ID ?? ts
@@ -67,9 +52,7 @@ describe('bundle-scan', () => {
       writeViolations(violations, evaluatedPatterns, runId)
 
       if (violations.length > 0) {
-        const summary = violations
-          .map(v => `  ${v.patternName} @ ${v.file}`)
-          .join('\n')
+        const summary = summaryText(result, v => v.file)
         expect.fail(`Bundle scan found ${violations.length} violation(s):\n${summary}`)
       }
 
@@ -91,13 +74,8 @@ describe('bundle-scan', () => {
       const content = readFileSync(fixturePath, 'utf8')
       const literalColour = PATTERNS.find(p => p.name === 'literal-colour')!
 
-      const violations: Violation[] = []
-      if (!isAllowed(wsPath, literalColour.allowedPaths)) {
-        literalColour.regex.lastIndex = 0
-        if (literalColour.regex.test(content)) {
-          violations.push({ file: wsPath, line: 0, patternName: literalColour.name })
-        }
-      }
+      // the same scan function the main test uses (scan-core.ts)
+      const { violations } = scanBundle([{ wsPath, content }], [literalColour])
 
       expect(violations).toHaveLength(1)
       expect(violations[0].patternName).toBe('literal-colour')
