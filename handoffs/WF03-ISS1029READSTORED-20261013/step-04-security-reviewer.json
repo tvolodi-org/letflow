@@ -1,0 +1,85 @@
+{
+  "handoff_id": "c4a7d1e0-1029-4b11-8c20-000000000004",
+  "run_id": "WF03-ISS1029READSTORED-20261013",
+  "workflow_id": "WF-03",
+  "step": "04",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF03-ISS1029READSTORED-20261013/step-04-security-reviewer.json",
+  "created_at": "2026-10-13T12:31:00Z",
+  "started_at": "2026-10-13T12:31:30Z",
+  "completed_at": "2026-10-13T12:35:00Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "source_text": {
+      "Q-1011": "LOW (INV-10 family), GH #2311, local ISS-1029."
+    },
+    "artifacts_in": [
+      "handoffs/WF03-ISS1029READSTORED-20261013/step-01-issue-fixer.json",
+      "handoffs/WF03-ISS1029READSTORED-20261013/step-03-elixir-dev.json"
+    ],
+    "reviewed_diff": "git diff e29356eb8..4b4662de4 -- lib (identical to ..HEAD; no lib change since)",
+    "branch_name": "feature/WF03-ISS1029READSTORED-20261013"
+  },
+  "task": {
+    "description": "WF-02 Step 2c security gate on the stored-tenant check added to GET /promotions/:id, /:id/context and GET /promotions (list)."
+  },
+  "result": {
+    "status": "PASS",
+    "verdict": "PASS",
+    "severity_counts": { "BLOCKER": 0, "MAJOR": 0, "MINOR": 3 },
+    "scope_test": "IN SCOPE: API routes reading tenant-scoped data (promotion_reviews) and response shaping for them.",
+    "invariants": {
+      "INV-1": "APPLIES, PASS. (a) Every read still goes through Repo.get/Repo.all with prefix: from conn.assigns.scoped_opts (get_review/2, fetch_list_reviews_chunk/4); the new chunked scan reuses the same prefix on every chunk. (b) no migration. (c) no tenant_id column written; plan ids are only compared, never accepted as input.",
+      "INV-2": "APPLIES, PASS. No new response fields or shapes. The new gate decides before assertion-run data is read (/:id) or review_context_map is built (/context). shape_plan/2 and the allowlist remain as defence in depth.",
+      "INV-3": "NOT-APPLICABLE (no Lua/WASM).",
+      "INV-4": "APPLIES, PASS. No secrets touched; no new logging; nothing hardcoded in the diff.",
+      "INV-5": "APPLIES, PASS. See question (a).",
+      "INV-6": "PASS. Scoping proof is this handoff plus the 27-test repro file.",
+      "INV-7": "APPLIES, PASS. No raw SQL; Ecto query composition only (grep Repo.query in the two files: no hits).",
+      "INV-8": "APPLIES, PASS. No new bare {:ok, _} = match on tenant input; the Jason.decode result is matched with a fallback clause; serialised_plan is NOT NULL text so the decode argument is never nil. See question (e).",
+      "INV-9": "NOT-APPLICABLE (no outbound URL).",
+      "INV-10": "APPLIES, PASS. Decision derives from PlatformTenant.scope_facts_for(auth_context) (database-resolved tenant) and the stored plan ids, never a path/query/body value. Closes the ISS-1026 read-side gap."
+    },
+    "questions": {
+      "a_indistinguishability": "PASS. GET /:id: get_review (1 query) then, for a foreign-named review, one in-memory Jason.decode + compare, then Response.not_found/1; a nonexistent id is 1 query then Response.not_found/1. Same status, same body and headers (same function), same DB round-trip count; the foreign branch skips get_latest_assertion_run exactly as the nonexistent branch does. /:id/context identical shape. The only delta is a microsecond-scale in-process JSON decode, not a DB-level or response-level signal. List: a hidden review is simply absent; no marker, count, or total in the page shape.",
+      "b_decision_source": "PASS. tenant_view/1 and TenantTarget.authorize_target_tenant/2 are unchanged and read only conn.assigns.auth_context via PlatformTenant.scope_facts_for/1 (stored flag not read). The list passes the predicate only when tenant_view != :operator; operator path passes no :row_visible? key (identical to prior behaviour). The same review_tenants_authorized?/2 backs the write routes, so read and write cannot diverge.",
+      "c_cursor_count_leak": "PASS. next_cursor is built only from the last EMITTED row (split_list_reviews_page on the filtered list); the between-chunk seek is a local variable never serialised. Response carries no total/count. A has-more signal is computed from visible rows only (page_size + 1 visible), so an empty next_cursor is not a hidden-row oracle. A client-forged cursor only moves the seek start and returns visible rows after that point; it discloses nothing about hidden ids/inserted_at.",
+      "d_scan_cost": "ACCEPTABLE (R2/R3/R7 accepted). Who can trigger: any caller holding PromotionsRead in their own tenant (TENANT-scope permission). Cost is bounded by the number of promotion_reviews in the CALLER's own schema, and a non-operator cannot create hidden rows there: submit/plan require both stored ids to be the caller's own (tenants_authorized? before any lookup, 404 otherwise), so hidden rows can only be created by platform operators acting on that tenant. The attacker therefore cannot self-inflate the scan. Work per request is sequential chunked keyset queries (index-friendly order inserted_at desc, id desc) with an in-memory decode per row; each chunk is its own short query so no long statement; memory is bounded by chunk + page_size + 1 rows. Concurrency is bounded by Plugs.Admission; per-actor rate limiting is the recorded decision 0040 (deferred to S4) and this change does not amplify request volume. Cost is incurred per request, not stored.",
+      "e_malformed_legacy": "PASS. Jason.decode error or a non-map JSON value (list/string/number/null) becomes %{} so both ids are nil and TenantTarget returns :not_found, i.e. hidden for non-operators, never raised; operators (platform scope) remain :ok and see them as before. Covered by tests 1(f)/1(h)/1(i) and T-11 non_map_plan_fails_closed (mutants M10/M11 killed).",
+      "f_write_routes_unchanged": "PASS. stored_tenants_authorized?/3 keeps the identical contract (review_not_found -> true so the downstream 404 stays byte-identical; found -> same decode-or-%{} then tenants_authorized?); the extracted review_tenants_authorized?/2 is the verbatim former body. approve_reject_stored_ids_test and the store tests were run: 55 passed across the three files (read_stored_ids, store, approve_reject_stored_ids), exit 0."
+    },
+    "evidence": {
+      "command": "LETFLOW_DEV_DB_CONFIRMED=1 MIX_ENV=test MIX_TEST_PARTITION=4 mix test test/letflow/routers/promotion_read_stored_ids_test.exs test/letflow/definitions/promotion_review_store_test.exs test/letflow/routers/approve_reject_stored_ids_test.exs",
+      "result": "Result: 55 passed, exit 0 (one mix process, 111 s)",
+      "lib_diff_since_step_03": "empty (git diff 4b4662de4..HEAD -- lib)"
+    },
+    "issues": [
+      {
+        "id": "SEC-1029-M1",
+        "severity": "MINOR",
+        "title": "Legacy or malformed stored plans are permanently invisible to non-operators on read routes",
+        "detail": "Fail-closed is the correct security posture and matches the write routes; the side effect is that a tenant admin cannot see such a row in the list or open it. Operators still can. Record as intended behaviour; no change requested.",
+        "route_to": "none"
+      },
+      {
+        "id": "SEC-1029-M2",
+        "severity": "MINOR",
+        "title": "Pre-existing: list cursor seek decode is a bare match / String.to_integer on a client-supplied, unsigned cursor",
+        "detail": "decode_list_reviews_seek/1 (unchanged by this diff) can raise MatchError/ArgumentError on a hand-crafted but well-prefixed, unexpired cursor, giving a 500 (INV-8) rather than 400 invalid cursor. Not a leak and not introduced here; worth a separate issue.",
+        "route_to": "file as separate issue"
+      },
+      {
+        "id": "SEC-1029-M3",
+        "severity": "MINOR",
+        "title": "Residual timing class",
+        "detail": "Non-operator list latency grows with the number of hidden rows in the caller's own schema, and a foreign-named review costs one in-memory JSON decode more than a nonexistent id. Neither is byte-observable nor a cross-tenant existence oracle (the rows are in the caller's own schema; a foreign tenant's review ids are never in it). Accepted per R2/R3/R7.",
+        "route_to": "none"
+      }
+    ],
+    "next_action": "ORCH: proceed (REVIEWER step-05 already PASS); TEST-RUNNER/RELEASE-VALIDATOR; DOC-UPDATER. File SEC-1029-M2 separately."
+  }
+}

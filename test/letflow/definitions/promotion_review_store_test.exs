@@ -745,4 +745,155 @@ defmodule Letflow.Definitions.PromotionReviewStoreTest do
                )
     end
   end
+
+  # ISS-1029: the `:row_visible?` predicate, applied inside the keyset scan.
+  describe "list_reviews/2 -- :row_visible? (ISS-1029)" do
+    defp seed_rows!(schema_name, tenant_id, n) do
+      for _ <- 1..n do
+        entries = [
+          %{
+            type: :graph_node,
+            id: "n1-#{System.unique_integer([:positive, :monotonic])}",
+            change_kind: :added,
+            before: nil,
+            after: %{"id" => "n1", "node_type" => "START"}
+          }
+        ]
+
+        %{review: review} =
+          insert_review_fixture!(schema_name, tenant_id, plan_overrides: %{entries: entries})
+
+        review
+      end
+    end
+
+    # Every review id of the schema in list order (newest first), unfiltered.
+    defp all_ids(schema_name, n) do
+      {:ok, %{items: items}} =
+        PromotionReviewStore.list_reviews(%{page_size: n + 10}, prefix: schema_name)
+
+      Enum.map(items, & &1.id)
+    end
+
+    defp walk_store(schema_name, page_size, pred) do
+      do_walk_store(schema_name, page_size, pred, nil, [])
+    end
+
+    defp do_walk_store(_schema, _ps, _pred, _cursor, acc) when length(acc) > 50,
+      do: flunk("paging did not terminate")
+
+    defp do_walk_store(schema_name, page_size, pred, cursor, acc) do
+      filters = %{page_size: page_size, cursor: cursor}
+
+      assert {:ok, %{items: items, next_cursor: next}} =
+               PromotionReviewStore.list_reviews(filters,
+                 prefix: schema_name,
+                 row_visible?: pred
+               )
+
+      acc = acc ++ [{Enum.map(items, & &1.id), next}]
+      if next, do: do_walk_store(schema_name, page_size, pred, next, acc), else: acc
+    end
+
+    test "nil and an absent option behave identically (no filtering)" do
+      %{tenant_id: tenant_id, schema_name: schema_name} = provisioned_tenant()
+      seed_rows!(schema_name, tenant_id, 3)
+
+      assert {:ok, %{items: absent, next_cursor: c1}} =
+               PromotionReviewStore.list_reviews(%{page_size: 2}, prefix: schema_name)
+
+      assert {:ok, %{items: with_nil, next_cursor: c2}} =
+               PromotionReviewStore.list_reviews(%{page_size: 2},
+                 prefix: schema_name,
+                 row_visible?: nil
+               )
+
+      assert Enum.map(absent, & &1.id) == Enum.map(with_nil, & &1.id)
+      assert is_binary(c1) and is_binary(c2)
+    end
+
+    test "all rows hidden -> empty page, nil cursor" do
+      %{tenant_id: tenant_id, schema_name: schema_name} = provisioned_tenant()
+      seed_rows!(schema_name, tenant_id, 3)
+
+      assert {:ok, %{items: [], next_cursor: nil}} =
+               PromotionReviewStore.list_reviews(%{page_size: 1},
+                 prefix: schema_name,
+                 row_visible?: fn _ -> false end
+               )
+    end
+
+    test "boundary pages hold only visible rows, each once, final cursor nil" do
+      %{tenant_id: tenant_id, schema_name: schema_name} = provisioned_tenant()
+      seed_rows!(schema_name, tenant_id, 6)
+      [_r1, r2, r3, _r4, _r5, r6] = all_ids(schema_name, 6)
+      visible = MapSet.new([r2, r3, r6])
+      pred = fn row -> MapSet.member?(visible, row.id) end
+
+      for page_size <- [1, 2] do
+        pages = walk_store(schema_name, page_size, pred)
+        assert Enum.flat_map(pages, &elem(&1, 0)) == [r2, r3, r6]
+        assert pages |> List.last() |> elem(1) == nil
+      end
+    end
+
+    test "a hidden run longer than two scan chunks never strands the visible row" do
+      %{tenant_id: tenant_id, schema_name: schema_name} = provisioned_tenant()
+      seed_rows!(schema_name, tenant_id, 251)
+      ids = all_ids(schema_name, 251)
+      oldest = List.last(ids)
+
+      assert {:ok, %{items: [row], next_cursor: nil}} =
+               PromotionReviewStore.list_reviews(%{page_size: 1},
+                 prefix: schema_name,
+                 row_visible?: fn r -> r.id == oldest end
+               )
+
+      assert row.id == oldest
+    end
+
+    test "a cursor from a filtered call encodes only the last emitted row" do
+      %{tenant_id: tenant_id, schema_name: schema_name} = provisioned_tenant()
+      seed_rows!(schema_name, tenant_id, 3)
+      [v1, hidden, v2] = all_ids(schema_name, 3)
+      pred = fn row -> row.id != hidden end
+
+      assert {:ok, %{items: [first], next_cursor: cursor}} =
+               PromotionReviewStore.list_reviews(%{page_size: 1},
+                 prefix: schema_name,
+                 row_visible?: pred
+               )
+
+      assert first.id == v1
+      {:ok, decoded} = Base.url_decode64(cursor, padding: false)
+      assert decoded =~ v1
+      refute decoded =~ hidden
+      refute decoded =~ v2
+    end
+
+    test "a predicate that raises propagates (the router's predicate never raises)" do
+      %{tenant_id: tenant_id, schema_name: schema_name} = provisioned_tenant()
+      seed_rows!(schema_name, tenant_id, 1)
+
+      assert_raise RuntimeError, "boom", fn ->
+        PromotionReviewStore.list_reviews(%{page_size: 1},
+          prefix: schema_name,
+          row_visible?: fn _ -> raise "boom" end
+        )
+      end
+    end
+
+    test "a value that is neither nil nor a 1-arity function raises ArgumentError" do
+      %{schema_name: schema_name} = provisioned_tenant()
+
+      for bad <- [:yes, true, fn _a, _b -> true end, "x"] do
+        assert_raise ArgumentError, fn ->
+          PromotionReviewStore.list_reviews(%{page_size: 1},
+            prefix: schema_name,
+            row_visible?: bad
+          )
+        end
+      end
+    end
+  end
 end

@@ -1,0 +1,69 @@
+{
+  "handoff_id": "c4a7d1e0-1029-4b11-8c20-000000000002c",
+  "run_id": "WF03-ISS1029READSTORED-20261013",
+  "workflow_id": "WF-03",
+  "step": "02b-r2",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGN-VALIDATOR",
+  "file": "handoffs/WF03-ISS1029READSTORED-20261013/step-02-code-design-validator-r2.json",
+  "created_at": "2026-10-13T11:37:00Z",
+  "started_at": "2026-10-13T11:37:30Z",
+  "completed_at": "2026-10-13T11:39:16Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1011": "LOW (INV-10 family), S3, GH #2311, local ISS-1029; re-validation of design revision 1 (commit 4a15b42b0)."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-1029-4b11-8c20-000000000001",
+      "c4a7d1e0-1029-4b11-8c20-000000000002b"
+    ],
+    "artifacts_in": [
+      "handoffs/WF03-ISS1029READSTORED-20261013/step-01-issue-fixer.json",
+      "docs/issues/ISS-1029.yaml",
+      "handoffs/WF03-ISS1029READSTORED-20261013/step-02-code-design-validator.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1029READSTORED-20261013"
+  },
+  "task": {
+    "description": "WF-03 Step 2b re-validation of ISS-1029 fix design revision 1 after the step-02 FAIL."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "PASS (0 BLOCKER, 0 MAJOR, 3 MINOR). Re-derived from the revision-1 handoff and docs/issues/ISS-1029.yaml at 4a15b42b0, with lib/letflow/definitions/promotion_review_store.ex list_reviews/2 (limit page_size+1, keyset on {inserted_at,id}), web/src/pages/promotions/PromotionReviewListPage.tsx and the affected test files re-read. PRIOR FINDINGS: F1 BLOCKER resolved (non_scalar_under_plain_key_omitted added; rewrite to own a/a ids specified, same for entries_not_a_list). F2 MAJOR resolved (test 1(i): TENANT_ADMIN of P, pinned and unpinned, GET /:id, /context and list, own P/P stays listed, operator 200). F3 MAJOR resolved by design change (no cap; see below). F4 MAJOR resolved (1(f): six malformed shapes, own/own rows, page_size 1, operator unfiltered; M11 added). F5 MINOR resolved (chunk = max(page_size+1,100) exact; exhaustion = short chunk; @spec widened; non-1-arity raises ArgumentError with a guard; web client call site PromotionReviewListPage.tsx L72/L155 verified to page on next_cursor presence). F6 MINOR resolved (M4 dropped as equivalent). F7 MINOR resolved (affected_files extended, AC list updated). CHUNKED FULL SCAN, checked: (a) Termination: each iteration seeks strictly past the last row of the previous chunk under the total order (inserted_at desc, id desc) over a finite table; it ends on a short chunk (including the 0-row chunk after an exactly-full last chunk) or on holding page_size+1 visible rows. (b) No hidden id/inserted_at in any cursor: the only cursor builder call is build_list_reviews_next_cursor(last EMITTED row); emitted rows are visible by construction; the in-memory seek never leaves the request. (c) No unreachable visible row: the next request seeks after the last emitted row and rescans any hidden rows between, so no visible row is skipped however long the hidden run (1(e): 250 hidden on one and on both sides). (d) Empty page => nil: an empty page means 0 visible rows accumulated < page_size+1, i.e. the exhausted branch, which sets next_cursor nil; exactly page_size visible plus a hidden remainder also gives nil. (e) Cost: worst case is a full keyset scan of the tenant's promotion_reviews with a JSON decode per row, only for non-operators and only after authz; a non-operator cannot create hidden rows (submit requires own ids), so they are operator-created or legacy rows; the typical request reads one chunk. Flagged for SECURITY-REVIEWER as R2/R3/R7 with a named remedy (stored visibility column, separate issue). Acceptable. MUTANTS: no reference implementation exists (design-only run, implementation_written=false), so none could be executed; assessed on paper against the proposed tests. M11 (Jason.decode! in the predicate) is killed by 1(f): the truncated-JSON and non-map rows raise inside the scan and 500 the list, the test asserts 200. M12 (stop after one chunk or N rows) is killed by 1(e): the lone visible row sits behind 250 hidden rows, so one chunk or N<250 returns an empty page. M14 is killed by the final-page next_cursor == nil assertion in 1(c) and 1(d)'s no-empty-page-with-cursor check. M8 is killed by 1(c) (a visible row is skipped), not by 1(d) as the design says (MINOR wording). M13 killed by the store test (ArgumentError). M1-M3, M5-M7, M9, M10 unchanged from the first review and still discriminated (1(i) added to M1-M3).",
+    "artifacts_out": [],
+    "owned_modules": [],
+    "issues": [
+      {
+        "severity": "MINOR",
+        "description": "M8's stated kill mechanism is wrong as written. With the exact algorithm (stop as soon as page_size+1 visible rows are held), the last SCANNED row on a full page is the (page_size+1)-th VISIBLE row, not a hidden one, so a cursor built from it encodes a visible id and 1(d) (no hidden id/inserted_at in any cursor) does not catch it. It IS killed by 1(c): with V H V at page_size 1 the mutant cursor sits on the second V, page 2 seeks after it, that V is never emitted and the 'union of pages == visible set' assertion fails. Correct the M8 text to name 1(c) (skipped row) as the killer; 1(d) only kills a chunk-granular variant.",
+        "affected_requirement": "AC2"
+      },
+      {
+        "severity": "MINOR",
+        "description": "An empty page is reachable only when ALL remaining rows are hidden from the first request (a normal sequence returns nil on the page that holds the last visible row). 1(c)'s 'hidden-only tail gives items [] and next_cursor nil' is only discriminating for the empty-page branch if the test includes a schema whose rows are ALL hidden for the reader (or a manually minted cursor positioned before a hidden-only remainder). Make that case explicit in 1(c)/1(d). M14 (non-nil cursor on exhaustion) is still killed by the final-page next_cursor == nil assertion of V H H.",
+        "affected_requirement": "AC2"
+      },
+      {
+        "severity": "MINOR",
+        "description": "Scan cost note: each scanned row loads the full serialised_plan text (entries can be large) and is JSON-decoded, and a non-operator request now reads max(page_size+1,100) rows even for page_size 1 when nothing is hidden. Acceptable and flagged (R2/R3/R7); say explicitly that the full row is loaded (the page items need the row anyway). Also M12 with a cap larger than the 1(e) fixture (more than ~500 rows) is not killed by 1(e); accepted, any cap is a design violation to be caught in REVIEW.",
+        "affected_requirement": "AC2"
+      }
+    ],
+    "git_evidence": {
+      "branch_name": "feature/WF03-ISS1029READSTORED-20261013",
+      "commit_sha_list": [],
+      "remote_branch": null,
+      "push_status": "skipped",
+      "pr_url": null,
+      "pr_create_error": null
+    },
+    "next_action": "ORCH: proceed to ELIXIR-DEV (promotions.ex, promotion_review_store.ex) and TEST-DESIGNER per the revision-1 test list; fold the three MINOR clarifications (M8 killer is 1(c); add an explicit all-hidden-schema list case; state that full rows are loaded). SECURITY-REVIEWER to confirm the R2/R3/R7 scan-cost trade-off."
+  }
+}

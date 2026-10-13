@@ -1,0 +1,104 @@
+id: ISS-1029
+title: "Promotion review READ routes (GET /promotions/:id/context, GET /promotions/:id, GET /promotions) do not re-check the stored source/target tenant ids for a non-operator (status disclosure of foreign-named reviews)"
+discovered_by: SECURITY-REVIEWER (ISS-1026, Q-1008)
+discovered_in_run: WF03-ISS1026-Q1008-20261006
+discovered_at: "2026-10-06T20:30:00Z"
+severity: MINOR
+failure_class: defect
+occurrence: 1
+owner: ELIXIR-DEV (after CODE-DESIGNER / CODE-DESIGN-VALIDATOR on the diagnosis handoff)
+description: >
+  In lib/letflow/routers/promotions.ex the approve, reject, apply and run-assertions handlers re-check
+  the review's STORED source/target tenant ids against the caller (stored_tenants_authorized?/3,
+  ISS-1026). The three read handlers do not: handle_context (~L526), handle_get_assertion_run (~L487)
+  and handle_list_reviews (~L1157) go straight to PromotionReviewStore.get_review/2 /
+  list_reviews/2. A non-operator holding :PromotionsRead can therefore read the status, requested_by,
+  def_type, def_id, created_at, row_version (context), the assertion-run counts and failing assertion
+  ids (GET /:id) and the status/metadata (list) of a review whose stored plan names foreign tenants,
+  when such a review sits in the caller's own schema (operator-created review in the platform
+  tenant's schema, or a legacy row). No cross-tenant plan content leaks (serialised_plan is
+  allowlisted, ISS-1021 / ISS-1023). INV-10 family (Q-981 / Q-1003 / Q-1005 / Q-1008). Real exposure:
+  platform-tenant pin unset, legacy rows, and after REQ-447 grants :PromotionsRead to
+  TENANT_ADMIN/TENANT_AUDITOR.
+  Diagnosis and fix design: handoffs/WF03-ISS1029READSTORED-20261013/step-01-issue-fixer.json
+  (revision 3; rev2: the read predicate is PARTY-based, source OR target == the authenticated tenant; the
+  write routes keep the strict both-sides predicate). List decision: omit, filter in the store's keyset
+  loop, no scan cap, cursors only ever encode emitted (visible) rows (mechanism accepted by the filer,
+  GH #2311 comment 6146252089). Repro measured 2/5 passed, 3 failed; it must be re-seeded with a non-party.
+acceptance_criteria:
+  # REVISED ACs (letflow-2, GH #2311 comment of 2026-10-13T10:53Z, AC6 clarified in comment 6146252089)
+  - "AC1: a tenant admin whose tenant is a named PARTY (source or target) of the review keeps the ISS-1023 own-side view: 200, own-side fields, entries [], foreign ids omitted; the four pinning tests (T-8/T-11/T-13) stay as they are"
+  - "AC2: a 404 is returned only to a non-operator caller who is NOT a named party"
+  - "AC3: party status is decided from the stored source and target ids compared with the authenticated tenant context, never from anything in the request"
+  - "AC4: the 404 has the same status and body as for a nonexistent id on GET /:id, GET /:id/context and the list (omission); a test compares the bodies byte for byte"
+  - "AC5: for a party, GET /:id may return the assertion run status; nothing of the foreign side beyond what ISS-1023 allows (rev3: the existing 7-key run map is kept, no new shape; the teardown_error / failing_assertion_ids residual is pre-existing, for SECURITY-REVIEWER and a separate follow-up issue)"
+  - "AC6: the list omits non-parties for non-operators (in SQL or in a chunked in-app filter); no placeholder row (mechanism accepted by the filer)"
+  - "AC7: a legacy row whose stored ids cannot be read as JSON is non-party for non-operators (fail closed) and stays visible to operators; never a 500 for any caller (operator /context uses a tolerant decode: 200, serialised_plan null)"
+  - "AC8: keyset pagination shows no gaps and no counts that reveal omitted rows; page-boundary test incl. an all-hidden page"
+  - "AC9: SECURITY-REVIEWER reviews before TEST-DESIGN-VALIDATOR"
+  - "AC10: the failing case is re-seeded with a non-party caller so the test exercises the 404 path, plus a party control expecting 200"
+  - "The approve/reject/apply/run-assertions write routes keep the strict both-sides predicate (behaviour unchanged)"
+affected_files:
+  - lib/letflow/routers/promotions.ex
+  - lib/letflow/definitions/promotion_review_store.ex
+  - test/letflow/routers/promotion_read_stored_ids_test.exs
+  - test/letflow/routers/promotion_context_shaping_test.exs
+  - test/letflow/routers/promotion_context_allowlist_test.exs
+  - test/letflow/routers/promotion_context_entries_scope_test.exs
+  - test/letflow/routers/promotions_test.exs
+  - test/letflow/definitions/promotion_review_store_test.exs
+  - test/specs/ISS-1029.md
+  - test/specs/ISS-1021.md
+  - test/specs/ISS-1023.md
+  - docs/migration/decisions/0046-admin-scopes-and-role-charter.md
+  - docs/issues/ISS-1029.yaml
+regression_test: test/letflow/routers/promotion_read_stored_ids_test.exs
+# The queue's own issue_ref for Q-1011 is ISS-1011, which clashes with local ISS-1011 (a SwiftRoute
+# roster issue). ISS-1029 is the local id: ISS-1026's follow_ups and decision 0046 (~L470) cite it.
+# The number may need renumbering at merge if another branch took it (none found at 2026-10-13).
+queue_ref: Q-1011
+github_ref: GH-2311
+status: resolved
+resolved_in_run: WF03-ISS1029READSTORED-20261013
+resolved_at: "2026-10-13T15:17:46Z"
+resolution: >
+  The three promotion READ routes (GET /promotions/:id, GET /promotions/:id/context, GET /promotions) now decide
+  visibility from the review's STORED source and target tenant ids against the authenticated tenant context
+  (review_read_access/2 in lib/letflow/routers/promotions.ex; never from a query param, header or body). The rule
+  is party-based: an operator, or a caller whose tenant is the stored source OR target, is a party and keeps the
+  ISS-1023 own-side view (context 200 with foreign ids omitted and entries []; GET /:id 200 with the existing
+  7-key run map, no new shape). A non-operator who is NOT a party gets the nonexistent-id 404 byte for byte on
+  both per-review routes, and the list omits the row in a chunked keyset filter (PromotionReviewStore.list_reviews/2
+  row_visible?, no placeholder, no count, cursors only ever encode emitted rows, no scan cap, an all-hidden page is
+  [] with a nil cursor). A legacy row whose stored ids are unreadable is non-party for non-operators (fail closed)
+  and stays visible to operators; the operator /:id/context uses a tolerant decode (200, serialised_plan null), so
+  no caller gets a 500. The approve / reject / apply / run-assertions write routes keep the strict both-sides
+  predicate, unchanged. Regression: test/letflow/routers/promotion_read_stored_ids_test.exs (38 tests incl. the
+  :long_hidden_run pair) plus the :row_visible? block in promotion_review_store_test.exs; the original ISS-1021 /
+  ISS-1023 pinning tests (T-8, T-11, T-13) pass unmodified. Design revision 3; the discarded revision 1 (which 404'd
+  parties) is not what ships.
+ships_with: >
+  This issue file ships with the fix PR itself (branch feature/WF03-ISS1029READSTORED-20261013); it is not a
+  separate docs-only PR.
+follow_ups:
+  - >
+    SEC-1029-M2 (LOW, INV-2 / INV-10 family; NOT in scope of this fix, from step-04-security-reviewer-r2.json):
+    GET /promotions/:id returns teardown_error (free text built from Exception.message on a crashed assertion
+    rerun, or a release reason) and failing_assertion_ids (ids from the caller-supplied artifact) to any party
+    of the review. For a promotion whose run was triggered by a platform operator these fields may quote the
+    other tenant's fixture or definition data. Decide: for non-operators return teardown_error as a fixed
+    per-status string (or null) and keep failing_assertion_ids only as opaque ids; keep full values for
+    operators. Acceptance: a test where an operator-run artifact with foreign-tenant text in an assertion id and
+    a crashing fixture is read by the party and the foreign text is absent; operator read unchanged.
+  - >
+    PRE-EXISTING, NOT in scope: decode_list_reviews_seek/1 can raise MatchError / ArgumentError on a hand-crafted
+    but well-prefixed, unexpired list cursor, answering 500 (INV-8) instead of 400 invalid cursor. Not a leak and
+    not introduced here (step-04-security-reviewer.json).
+  - >
+    PRE-EXISTING, NOT in scope: test/letflow/routers/tenant_admin_routes_test.exs "AC2: a TENANT_ADMIN of an
+    ordinary tenant is allowed (2xx), router by router" fails because POST /identity/users answers 500; red on
+    origin/main independently of this change.
+  - >
+    PRE-EXISTING, NOT in scope: test/letflow/routers/req077_promotion_pipeline_test.exs:1279 "design 12.9 ... POST
+    /promotions/plan with a real VIEWER token" answers 500 instead of 403; red on origin/main independently of
+    this change.

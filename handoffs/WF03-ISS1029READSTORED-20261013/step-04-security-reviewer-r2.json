@@ -1,0 +1,87 @@
+{
+  "handoff_id": "c4a7d1e0-1029-4b11-8c20-000000000024",
+  "run_id": "WF03-ISS1029READSTORED-20261013",
+  "workflow_id": "WF-03",
+  "step": "04",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF03-ISS1029READSTORED-20261013/step-04-security-reviewer-r2.json",
+  "created_at": "2026-10-13T14:18:00Z",
+  "started_at": "2026-10-13T14:19:00Z",
+  "completed_at": "2026-10-13T14:24:46Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "source_text": {"Q-1011": "LOW (INV-10 family), GH #2311, local ISS-1029; revised 10 ACs + AC6 clarification 6146252089"},
+    "artifacts_in": [
+      "handoffs/WF03-ISS1029READSTORED-20261013/step-01-issue-fixer.json",
+      "handoffs/WF03-ISS1029READSTORED-20261013/step-03-elixir-dev-r2.json"
+    ],
+    "reviewed_diff": "git diff e29356eb8..a558c5828 -- lib (promotions.ex, promotion_review_store.ex; the exam router/session hunks are a merge of origin/main Q-1076, not part of this change)",
+    "branch_name": "feature/WF03-ISS1029READSTORED-20261013",
+    "supersedes": "step-04-security-reviewer.json (rev1 implementation, discarded; used as background only)"
+  },
+  "task": {
+    "description": "WF-02 Step 2c security gate on the reworked (design rev3) party-based read predicate on GET /promotions/:id, /:id/context and GET /promotions."
+  },
+  "result": {
+    "status": "PASS",
+    "verdict": "PASS",
+    "severity_counts": {"BLOCKER": 0, "MAJOR": 0, "MINOR": 3},
+    "scope_test": "IN SCOPE: API routes reading tenant-scoped data (promotion_reviews) and response shaping for them.",
+    "invariants": {
+      "INV-1": "APPLIES, PASS. (a) every read is still Repo.get/Repo.all with prefix: from conn.assigns.scoped_opts (get_review/2, fetch_list_reviews_chunk/4, same prefix on every chunk); (b) no migration; (c) no tenant_id written, stored plan ids are only compared.",
+      "INV-2": "APPLIES, PASS. No new response keys or shapes. The decision is taken before assertion-run data is read (/:id) or review_context_map is built (/context); own-side shaping (shape_plan/2, ISS-1021/1023 allowlist) stays live for a party.",
+      "INV-3": "NOT-APPLICABLE.",
+      "INV-4": "APPLIES, PASS. No secrets, no new logging, nothing hardcoded.",
+      "INV-5": "APPLIES, PASS. See (a).",
+      "INV-6": "PASS. Scoping proof is this handoff plus the read_stored_ids repro file.",
+      "INV-7": "APPLIES, PASS. No Repo.query / raw SQL in the diff; Ecto composition only.",
+      "INV-8": "APPLIES, PASS. No Jason.decode! remains in promotions.ex or the store; both decodes are non-bang with a fallback. The single raise (ArgumentError for a non-function :row_visible?) is a programmer-error fail-closed guard, unreachable from request input (the router passes a closure or no key).",
+      "INV-9": "NOT-APPLICABLE (no outbound URL).",
+      "INV-10": "APPLIES, PASS. Party status = stored source/target ids vs auth_context via TenantTarget.authorize_target_tenant/2 and PlatformTenant.scope_facts_for/1; no request value selects it. Adds no violation; closes the read-side gap left by ISS-1026."
+    },
+    "questions": {
+      "a_indistinguishability": "PASS. Non-party GET /:id: get_review (1 query), in-process decode+compare, Response.not_found/1; get_latest_assertion_run is not called. Nonexistent id: get_review (1 query), Response.not_found/1. Same function, same status/headers/body, same DB round-trips (scope_facts_for and authorize_target_tenant are pure, no DB). /:id/context identical. Only delta is a microsecond in-process JSON decode, not a DB or response signal. The list has no per-id counterpart; hidden rows are simply absent. Tests: nonexistent-baseline byte compare on both per-id routes, header/param variants.",
+      "b_decision_source": "PASS. Caller tenant comes only from conn.assigns.auth_context (scope_facts_for for operator; Map.get(auth_context, :tenant_id) compared case-insensitively and UUID-validated) against ids read from the DB row. Tests 'request params and headers naming the reader's tenant do not open a non-party review' and '...naming a foreign tenant do not close a party review' pin it. Operator decision source unchanged (tenant_view/1 and authorize_target_tenant/2 are pre-existing and both use the same recomputed platform_scope?). The operator path never decodes on the read predicate.",
+      "c_party_learns_foreign_side": "PASS WITH ACCEPTED RESIDUAL. /context: a party gets review_context_map with shape_plan(plan, {:tenant, own}), the unchanged ISS-1021/1023 allowlist (foreign ids and foreign-side definition id omitted, entries [] unless BOTH ids are own); the 9-key map is unchanged. GET /:id: a party gets the unchanged 7-key run map. Ruling on the fields: run_id and sandbox_id are server-generated identifiers (no content). failing_assertion_ids comes from artifact.assertions[].id (fail_closed_counts / replay_assertions) and teardown_error is 'sandbox release failed: ' <> reason or 'assertion rerun crashed: ' <> Exception.message(e); BOTH derive from the artifact supplied in the body of POST /:review_id/run-assertions, a WRITE route gated by the strict both-sides predicate. Its author is therefore either a caller for whom both stored ids are their own tenant (no foreign side exists to leak) or a platform operator. Foreign-side content can reach these fields only if an operator authored such an artifact (or triggered an exception whose message quotes fixture/definition data) and a party then reads that run. This is a pre-existing property of the run record (the same 7 keys were returned to any PromotionsRead caller of the schema before this change; this change only narrows who can read), no tenant-authored path exists, and the writing authority already holds both sides. Decision: ACCEPT leaving it; file as follow-up SEC-1029-M2.",
+      "d_list_scan_cost": "ACCEPTABLE. Cursor: next_cursor is encoded only from the last EMITTED row (split_list_reviews_page over the filtered list); the between-chunk seek never leaves the call; a forged cursor only moves the seek start and returns visible rows. Count/gap: no total or count in the page; has-more is computed from page_size+1 VISIBLE rows, so a nil next_cursor is not a hidden-row oracle; an all-hidden page returns [] with nil cursor (tests: all-hidden schema, 1100 hidden then one visible, two 250-row hidden runs, page-size matrix). Cost: uncapped keyset scan, chunk = max(page_size+1,100) full rows, a JSON decode per row. Who can trigger: any holder of PromotionsRead in their own tenant; the scan is bounded by the CALLER's own schema row count, hidden rows cannot be created by a non-operator (submit requires both ids own, ISS-1026), so the caller cannot self-inflate it, and visible rows end the scan at page_size+1. Sequential short queries in index order (inserted_at desc, id desc), memory bounded by chunk + page_size+1; concurrency bounded by Plugs.Admission; per-actor rate limiting is the recorded decision 0040. Timing of a list call scales with hidden rows in the caller's own schema only; nothing cross-tenant.",
+      "e_unreadable_legacy": "PASS. Non-operators: stored_plan_ids/1 non-bang decode; malformed or non-map -> %{} -> ids nil -> authorize_target_tenant not_found -> :none -> nonexistent 404 / omitted from list, never a 500. Operators: review_read_access returns :full without decoding; /context uses tolerant_plan (decode error -> serialised_plan null, 200); the list item map reads no plan text and the store list does not decode. A legacy row with one readable own id and an unreadable counterpart is a party (own_side) and sees only the allowlisted own-side fields.",
+      "f_write_routes_unchanged": "PASS. stored_tenants_authorized?/3 keeps its contract (review_not_found -> true so the later 404 stays byte-identical); the new review_tenants_authorized?/2 is the former body verbatim (both stored ids required, malformed -> %{} -> deny); the read predicate is a separate function and shares no code path with it. promotion_approve_reject_stored_ids_test: 8 passed."
+    },
+    "evidence": {
+      "commands": [
+        "LETFLOW_DEV_DB_CONFIRMED=1 MIX_ENV=test mix test test/letflow/routers/promotion_read_stored_ids_test.exs test/letflow/routers/promotion_context_allowlist_test.exs test/letflow/routers/promotion_context_entries_scope_test.exs test/letflow/definitions/promotion_review_store_test.exs",
+        "LETFLOW_DEV_DB_CONFIRMED=1 MIX_ENV=test mix test test/letflow/routers/promotion_approve_reject_stored_ids_test.exs"
+      ],
+      "result": "89 passed (189 s); 8 passed. One mix process at a time.",
+      "grep_checks": "Repo.query in the two changed files: none; Jason.decode! in promotions.ex and promotion_review_store.ex: none."
+    },
+    "issues": [
+      {
+        "id": "SEC-1029-M1",
+        "severity": "MINOR",
+        "title": "Legacy or unparseable stored plans are invisible to non-operators on read routes",
+        "detail": "Fail-closed is the required posture (AC7) and matches the write routes; a tenant admin cannot list or open such a row. Operators still see it (context serialised_plan null). Intended behaviour; no change requested.",
+        "route_to": "none"
+      },
+      {
+        "id": "SEC-1029-M2",
+        "severity": "MINOR",
+        "title": "Assertion-run free text (teardown_error, failing_assertion_ids) could carry operator-supplied foreign-side content to a party reading GET /promotions/:id",
+        "detail": "Pre-existing property of the run record; the author is always a strict-predicate caller (own both sides, or operator). Follow-up issue text: 'GET /promotions/:id returns teardown_error (free text built from Exception.message on a crashed assertion rerun, or a release reason) and failing_assertion_ids (ids from the caller-supplied artifact) to any party of the review. For a promotion whose run was triggered by a platform operator these fields may quote the other tenant's fixture or definition data. Decide: for non-operators return teardown_error as a fixed per-status string (or null) and keep failing_assertion_ids only as opaque ids; keep full values for operators. INV-2 / INV-10 family, LOW. Acceptance: a test where an operator-run artifact with foreign-tenant text in an assertion id and a crashing fixture is read by the party and the foreign text is absent; operator read unchanged.'",
+        "route_to": "ORCH (file as follow-up issue; does not block ISS-1029)"
+      },
+      {
+        "id": "SEC-1029-M3",
+        "severity": "MINOR",
+        "title": "Uncapped list scan relies on 'a non-operator cannot create hidden rows' as its bound",
+        "detail": "Acceptable today (submit gates both ids; decision 0040 defers rate limits). If a later change lets a non-operator add rows naming foreign tenants, revisit adding a scan cap together with a non-disclosing continuation. Note only.",
+        "route_to": "none"
+      }
+    ],
+    "next_action": "Proceed to REVIEWER (step 05)."
+  }
+}
