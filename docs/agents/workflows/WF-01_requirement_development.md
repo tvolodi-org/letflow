@@ -28,32 +28,31 @@ requirements expanded into `docs/requirements.yaml`.
          │
          ▼
 ┌───────────────────┐
-│  STEP 3: REGISTER │ ← ORCH
-│  register_task    │
-│  in letflow-queue  │
+│  STEP 3: REGISTER │ ← ORCH / sole filer
+│  open the GitHub   │
+│  issue, write gh:  │
 └────────┬──────────┘
          │
          ▼
-[OUTPUT: requirement(s) registered in letflow-queue and ready for WF-02, status
- stays "pending" in docs/requirements.yaml — WF-01 only confirms it's
- well-formed, it does not change the pending/in_progress/done/blocked status
- field]
+[OUTPUT: requirement(s) on the work board (a GitHub issue each) and ready for
+ WF-02, status stays "pending" in docs/requirements.yaml — WF-01 only confirms
+ it's well-formed, it does not change the pending/in_progress/done/blocked
+ status field]
 ```
 
 **ISS-0221 (2026-08-22):** this Overview previously ended at Step 2's PASS with no
-registration step, and the Output section repeated that — but `TASK_QUEUE.md` makes
-`register_task` the thing that turns a validated requirement into claimable work
-(`get_next_task` is the only sanctioned way to pick work once the queue is reachable,
-and `impl_order` has no other source). A requirement that passed Step 2 but was never
-registered is well-formed, validated, and *permanently unclaimable* — no error, it
-simply never appears in `get_next_task`. Observed live 2026-08-22: `docs/requirements.yaml`
-held 35 such requirements while `get_next_task` returned `no_eligible_task`. Step 3 below
-closes that gap.
+registration step. A requirement that passed Step 2 but was never put on the work board
+(`docs/agents/protocols/WORK_BOARD.md`) is well-formed, validated, and *permanently
+unclaimable* — no error, the supervisor simply never sees it as work. Observed live
+2026-08-22: `docs/requirements.yaml` held 35 such requirements while the then-queue
+returned no eligible task. Step 3 below closes that gap, and
+`mix letflow.check_requirements_registration` fails a requirement that carries neither
+`gh:` nor a documented deferral.
 
 WF-01 skips the git wrapper (Step 00/Final) — it only writes to `docs/`, per
 `core-directives.md`'s File Placement Rules and the same exception R-Co uses. Step 3's
-`register_task` call is itself a `docs/requirements.yaml` edit (writing back
-`impl_order`), so it stays inside that same exception.
+`gh:` write-back is itself a `docs/requirements.yaml` edit, so it stays inside that same
+exception.
 
 ## Step 1 — Draft requirements
 
@@ -123,44 +122,45 @@ Same as `docs/agents/ORCHESTRATOR.md` §5: on FAIL, ORCH increments `rework_coun
 appends the issues to REQ-ANALYST's next task description, re-routes. Max 3 before
 escalation.
 
-## Step 3 — Register in letflow-queue
+## Step 3 — Put the requirement on the work board
 
-**Agent:** `ORCH` (only ORCH calls `register_task` — see `TASK_QUEUE.md`'s "who calls
-what" division; REQ-ANALYST/REQ-VALIDATOR never call the queue themselves).
+**Agent:** `ORCH` when it is the sole filer, otherwise ORCH hands the validated
+requirement to the sole filer (`WORK_BOARD.md` §7). REQ-ANALYST/REQ-VALIDATOR never file.
 
 ```
-1. For each requirement Step 2 just PASSed, call register_task per
-   docs/agents/protocols/TASK_QUEUE.md's "register_task" section:
+1. For each requirement Step 2 just PASSed, run the overlap check (open issues, open
+   PRs' changed files, main), then:
 
-     register_task(title, description, acceptance_criteria, depends_on, stage,
-       task_type: "requirement")
+     gh issue create --title "REQ-NNN: <title>" --template work_item.md \
+       --label state:ready --label prio:<1..3> --label type:requirement \
+       --label stage:S<n>
 
-2. The response's impl_order is the requirement's queue-claim sequence number and
-   its set_lock/release_lock id -- write it back into the requirement's
-   docs/requirements.yaml entry (an `impl_order:` field or comment, matching this
-   repo's existing convention -- see other REQ-NNN entries for the exact form).
-   Never guess or derive impl_order any other way; register_task is its only source.
-3. If letflow-queue is unreachable (checked both $QUEUE_AUTH_TOKEN and .env, per
-   TASK_QUEUE.md's "Before concluding the token is unavailable" check): state that
-   explicitly rather than silently leaving the requirement unregistered forever --
-   this step is not optional, only its timing can slip when the queue itself is down.
+   The body carries the requirement's acceptance criteria as a `- [ ]` checklist and a
+   `Depends on: #A, #B` line for its dependencies (their issue numbers).
+2. Write the issue number GitHub returned back into the requirement's
+   docs/requirements.yaml entry as a field-level line `gh: <number>` (4-space indent,
+   next to `stage:`). Never guess a number; GitHub is its only source. Legacy
+   `impl_order:` lines on older entries stay as history.
+3. If GitHub is unreachable: state that explicitly rather than silently leaving the
+   requirement unregistered forever -- this step is not optional, only its timing can
+   slip. A deliberate deferral uses the `# impl_order: UNREGISTERED -- <rationale>`
+   marker, as before.
 4. Complete the handoff (or report directly for a small ORCH-direct request): status
    PASS, artifacts_out: ["docs/requirements.yaml"], next_action: "Ready for WF-02
-   (queue-mediated selection via get_next_task)".
+   (supervisor claims the issue for a checkout; WORK_BOARD.md section 6)".
 ```
 
 ### Acceptance criteria for this step
-- [ ] Every requirement that passed Step 2 was actually registered — not just drafted
+- [ ] Every requirement that passed Step 2 has a GitHub issue — not just drafted
       and validated
-- [ ] `impl_order` in `docs/requirements.yaml` matches the queue's response for that
-      requirement, not a guess
-- [ ] If the queue was unreachable, that is stated explicitly rather than silently
+- [ ] `gh:` in `docs/requirements.yaml` is the number GitHub returned, not a guess
+- [ ] If GitHub was unreachable, that is stated explicitly rather than silently
       skipped
 
 ## Output
 
 A `pending` requirement in `docs/requirements.yaml` that REQ-VALIDATOR has confirmed is
-well-formed, testable, and consistent, AND that ORCH has registered in `letflow-queue`
-via Step 3 (its `impl_order` written back) — genuinely ready for WF-02 to pick up via
-`get_next_task`, not merely well-formed on disk. WF-01 does not flip `status`; it stays
+well-formed, testable, and consistent, AND that ORCH/the sole filer has put on the work
+board via Step 3 (its `gh:` number written back) — genuinely ready for the supervisor to
+claim for WF-02, not merely well-formed on disk. WF-01 does not flip `status`; it stays
 `pending` until WF-02 actually starts work (see WF-02 Step 00).

@@ -85,14 +85,17 @@ no human backstop to catch a skipped validator.
 
 `docs/requirements.yaml` is the content authority for work packages —
 each is sized to one agent turn with an explicit `owner`,
-`description`, and `acceptance_criteria`. **For task *selection* across
-multiple hosts, ORCH calls `letflow-queue`'s `get_next_task` instead of
-reading this file directly** — see
-[`docs/agents/protocols/TASK_QUEUE.md`](docs/agents/protocols/TASK_QUEUE.md).
-Single-host sessions (queue not deployed/reachable) fall back to reading
-the file directly: check it for the next `pending` requirement whose
-`depends_on` are all `done`. When told to work on a specific `REQ-XXX`,
-read its entry in full before touching code, same as always.
+`description`, and `acceptance_criteria`. **Task *selection* is the
+GitHub work board's, not this file's:** a work item is a GitHub issue, its
+number is the only machine id, labels carry state, and the supervisor
+coordinates claims — see
+[`docs/agents/protocols/WORK_BOARD.md`](docs/agents/protocols/WORK_BOARD.md).
+ORCH works only an issue claimed for its checkout (`scripts/gh_work.sh
+claims`); it never picks from this file, and never labels a claim. Each
+requirement entry carries `gh: <issue number>`. When told to work on a
+specific `REQ-XXX` or issue, read its entry in full before touching code,
+same as always. (`TASK_QUEUE.md` and `ISSUE_QUEUE.md` are superseded
+pointers; see decision 0049.)
 
 Every requirement carries a `stage` (S0–S8, tie back to
 `docs/migration/`). `docs/migration/stage-N-*.md` holds migration

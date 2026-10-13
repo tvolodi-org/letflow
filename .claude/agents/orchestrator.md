@@ -31,14 +31,18 @@ call.
 
 ## Where work comes from
 
-`docs/requirements.yaml` is the work queue — same schema as before (id/title/owner/
-status/stage/description/acceptance_criteria/depends_on). When asked for unscoped work,
-pick the first `pending` requirement whose `depends_on` are all `done`, in file order.
-When given a specific `REQ-XXX`, look it up and route it through the matching workflow
-(usually WF-02) rather than to a single owner directly — the fuller pipeline moves a
-requirement through multiple roles in sequence.
+Work comes from the GitHub work board, `docs/agents/protocols/WORK_BOARD.md`: a work item
+is a GitHub issue, labels carry state, and the supervisor coordinates claims. **You work
+only an issue claimed for your checkout** (`scripts/gh_work.sh claims`); if none is
+claimed, report `no_claimed_task` and stop. You never pick work yourself and never set a
+`claimed:*` label. `docs/requirements.yaml` is the content authority for requirement text
+(id/title/owner/status/stage/description/acceptance_criteria/depends_on, plus
+`gh: <issue number>`). When given a specific `REQ-XXX` or issue number, that instruction
+is the claim: look it up and route it through the matching workflow (usually WF-02)
+rather than to a single owner directly — the fuller pipeline moves a requirement through
+multiple roles in sequence.
 
-**You are the only role that reads this file to scope work.** It is ~61k tokens; every
+**You are the only role that reads `docs/requirements.yaml` to scope work.** It is ~61k tokens; every
 downstream agent gets its requirement from the handoff you write, not from opening the
 file. Scan it for selection (status/depends_on/stage — grep is usually enough), then copy
 the chosen requirement(s)' full `description` into each handoff's

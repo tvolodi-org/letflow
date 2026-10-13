@@ -1,4 +1,21 @@
-# ISSUE_QUEUE Protocol
+# ISSUE_QUEUE Protocol — SUPERSEDED by the work board
+
+> **Do not follow this file's filing procedure.** Incidental findings are filed as GitHub
+> issues by the sole filer, using `.github/ISSUE_TEMPLATE/work_item.md`, after the overlap
+> check: [`WORK_BOARD.md`](WORK_BOARD.md) section 7. A bare number is still never an
+> identifier, but the registries are now two: the **GH number** (machine id; new local
+> records are `docs/issues/GH-<n>.yaml`) and the legacy `ISS-NNNN` / `Q-N` ids, which stay
+> as history. `queue_ref` and `impl_order` lines are kept, not rewritten.
+> Decision: `docs/migration/decisions/0049-work-board-replaces-letflow-queue.md`.
+>
+> What below still describes a **local issue record** (the status vocabulary, and the rule
+> that closing needs evidence) remains the meaning of those yaml fields. Everything about
+> the queue's registration call, its locks and queue ids is history.
+
+## History (kept unedited; the queue-era procedure as it stood until cutover)
+
+---
+
 
 **Function:** `fn:enqueue-issue`
 **Read by:** every agent

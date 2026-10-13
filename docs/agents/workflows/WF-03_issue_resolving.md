@@ -66,11 +66,12 @@ isn't specified yet, that's a new requirement — WF-01 then WF-02.
 
 Before ISSUE-FIXER (or anyone) starts, ORCH confirms the issue is not already being fixed:
 `gh pr list` and each open PR's changed files, `main` (is it already fixed?), and sibling
-sessions' branches. Identify the work by **queue id + GH number** (the local `ISS-NNNN` may
-be a renumbered alias). Duplicates have happened (Q-926 was fixed twice in parallel; Q-935 was
-fixed by an unrelated PR), and a skipped check costs a whole pipeline run. If an in-flight PR
-covers the acceptance criteria, do not implement: release the lock, and close the GH issue
-against that PR after it merges.
+sessions' branches. Identify the work by its **GH issue number** (the local `ISS-NNNN` may
+be a renumbered alias and is history only). Duplicates have happened (Q-926 was fixed twice in
+parallel; Q-935 was fixed by an unrelated PR), and a skipped check costs a whole pipeline run.
+If an in-flight PR covers the acceptance criteria, do not implement: comment a `blocked`
+heartbeat naming that PR so the supervisor releases the claim, and let the issue close
+through that PR when it merges.
 
 ## Step 0.5 — Registry lookup
 
@@ -210,30 +211,27 @@ root cause was actually removed. A run that shipped verified work without removi
 root cause uses `instrumented` (with a required `superseded_by:` pointer) instead, and a
 run whose Step 1 reached a reasoned NO-CHANGE verdict — investigated and measured, no root
 cause there to remove — uses `no_defect`, which carries its own evidence bar and its own
-`verdict_in_run:`/`verdict_at:` keys. See `docs/agents/protocols/ISSUE_QUEUE.md`'s "Issue
-status vocabulary" for the definitions and the conditions; do not restate them here.
+`verdict_in_run:`/`verdict_at:` keys. The definitions and the conditions for each status
+are in the "Issue status vocabulary" section of `docs/agents/protocols/ISSUE_QUEUE.md`
+(still the meaning of those yaml fields; see its header); do not restate them here.
 
 **ORCH, immediately on this step's PASS** (same turn, before writing the `RUN_DONE` log
-line): if this issue has a real `letflow-queue` task (registered via `register_task`,
-`task_type: "issue"`), call `release_lock` against that task id — see
-`docs/agents/protocols/TASK_QUEUE.md`. The status BRANCHES ON THE SAME local
-`docs/issues/ISS-NNNN.yaml` status this step's §1 just wrote, mirroring the GitHub
-close-comment branch above:
+line): post the `done` heartbeat on the issue's GitHub issue (`WORK_BOARD.md` §6). What happens to the issue BRANCHES ON THE SAME local
+`docs/issues/ISS-NNNN.yaml` (or `GH-<n>.yaml`) status this step's §1 just wrote,
+mirroring the GitHub close-comment branch above:
 
-  resolved                -> release_lock(status: "done")
-  instrumented / no_defect -> release_lock(status: "blocked")
+  resolved                -> the PR says `Closes #N`; the merge closes the issue
+  instrumented / no_defect -> the PR says `Refs #N`; the issue stays open and the
+                              heartbeat names the verdict, so the supervisor re-triages
 
-`resolved` is the only outcome that best-effort-closes the linked GitHub Issue via the
-queue's own sync (see `TASK_QUEUE.md`'s release_lock section) — `instrumented` and
-`no_defect` reached a real terminal verdict but did not resolve the issue, so releasing
-either with `status: "done"` would falsely claim resolution, and releasing with no
-status at all would leave the task `open` and immediately re-claimable, producing a
-re-selection loop (see `TASK_QUEUE.md`'s release_lock section for the full mechanism and
-worked incident). Same rule as WF-02 Step Final: a task that stays `open`/locked in the
-queue past this step's PASS is a stale entry from the moment this step passes, not
-something to clean up in a later reconciliation pass. If the queue is unreachable
-(checked both `$QUEUE_AUTH_TOKEN` and `.env`), state that explicitly in the `RUN_DONE`
-line and flag the task id for next-session reconciliation.
+`resolved` is the only outcome that may close the issue — `instrumented` and
+`no_defect` reached a real terminal verdict but did not resolve the issue, so a
+`Closes #N` would falsely claim resolution, and leaving the issue claimed with no
+heartbeat would let it look re-claimable and produce a re-selection loop. Same rule as
+WF-02 Step Final: an item that stays claimed on the board past this step's PASS is a
+stale entry from the moment this step passes, not something to clean up in a later
+reconciliation pass. If GitHub is unreachable, state that explicitly in the `RUN_DONE`
+line and flag the issue number for the supervisor.
 
 ## Output
 
