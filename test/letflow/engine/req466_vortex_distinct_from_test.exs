@@ -6,7 +6,8 @@ defmodule Letflow.Engine.Req466VortexDistinctFromTest do
     * `budget-approval` (role-controller) names `capacity-review` and `escalate-to-ceo`.
     * `escalate-budget-approval-to-ceo` (role-ceo) names `capacity-review` only. It does not name
       `escalate-to-ceo`: both nodes route to role-ceo, and the shipped-definition guard forbids
-      same-role pairs (REQ-466 deviation, Q-1044 pattern).
+      same-role pairs. This narrows the REQ-466 candidate list; Q-1044 supports only keeping the
+      guard unchanged, not this narrowing (see the Q-1029 PR residual).
 
   Refusals are asserted on the HTTP surface (`Letflow.Routers.Tasks.call/2`): 403
   `application/problem+json` with the body exactly `{"detail":"separation of duties","status":403}`,
