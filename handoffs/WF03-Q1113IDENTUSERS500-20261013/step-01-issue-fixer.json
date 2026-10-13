@@ -1,0 +1,41 @@
+{
+  "handoff_id": "c4a7d1e0-1113-4a11-8c20-000000000001",
+  "run_id": "WF03-Q1113IDENTUSERS500-20261013",
+  "workflow_id": "WF-03",
+  "step": "01",
+  "from_agent": "ORCH",
+  "to_agent": "ISSUE-FIXER",
+  "file": "handoffs/WF03-Q1113IDENTUSERS500-20261013/step-01-issue-fixer.json",
+  "created_at": "2026-10-13T15:30:00Z",
+  "started_at": "2026-10-13T15:33:05Z",
+  "completed_at": "2026-10-13T15:34:31Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1113": "GH #2496, pre-existing red test, diagnosis only."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "test/letflow/routers/tenant_admin_routes_test.exs"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF03-Q1114VIEWER500-20261013"
+  },
+  "task": {
+    "description": "WF-03 step 1 diagnosis and classification for Q-1113 / GH #2496. No fix, no lib/ or test/ edits."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "DIAGNOSIS (reproduced, root cause confirmed; same root cause as Q-1114 / GH #2497): ENVIRONMENT (stale local database), not a code defect. The default test database `letflow_test` on this machine has public.tenant_login_directory WITHOUT the `key_id` column (and without the key_id_format check). Migration priv/repo/migrations/20261004000001_create_tenant_login_directory.exs was edited in place to add `key_id` before it merged (b01b785e4, 2026-10-05; its header says 'Edited in place: this migration is not on main'), so a DB migrated from the earlier branch state has version 20261004000001 recorded in schema_migrations and `mix ecto.migrate` never re-applies it. Schema Letflow.Identity.TenantLoginDirectoryEntry (lib/letflow/identity/tenant_login_directory_entry.ex L34) declares key_id, so LoginDirectory.upsert_entry/2 (lib/letflow/login_directory.ex L418-437) raises Postgrex undefined_column inside Repo.insert_all (log: false) and its blanket `rescue _exception -> {:error, :write_failed}` (L436) turns it into {:error, :write_failed}; the user INSERT is rolled back with it. DBs letflow_test1..16 and several others have the column (checked via information_schema); stale ones: letflow_test, letflow_test377, letflow_test9232, letflow_test9233, letflow_testr436a, letflow_testr436t (all lack key_id). Direct proof, psql on letflow_test: `insert into tenant_login_directory(email_key,key_id,tenant_id,inserted_at) ...` -> ERROR: column \"key_id\" of relation \"tenant_login_directory\" does not exist. Fails identically at e29356eb8: YES by construction (b01b785e4 is an ancestor of e29356eb8, same schema and code path; the failure depends on DB state, not on any commit since the key_id migration landed 2026-10-05). Not re-run in a worktree: the outcome is independent of code revision once key_id is in the schema (verified by ancestry and by reading the tree at e29356eb8). REPRO (default DB): `LETFLOW_DEV_DB_CONFIRMED=1 MIX_ENV=test mix test test/letflow/routers/tenant_admin_routes_test.exs:67` -> `1) test AC2: a TENANT_ADMIN of an ordinary tenant is allowed (2xx), router by router GET and POST /identity/users ... {\"status\":500,\"type\":\"https://bpm.example.com/problems/internal-error\",\"title\":\"Internal Server Error\",\"detail\":\"an unexpected error occurred\",...} code: assert conn.status == 201, conn.resp_body` (tenant_admin_routes_test.exs:77); the SQL log shows begin, INSERT INTO tenant_<id>.users, rollback. TRACE: POST /identity/users with an email -> Letflow.Routers.Identity.handle_create (lib/letflow/routers/identity.ex ~L283-298) -> Identity.create_user/2 (lib/letflow/identity.ex Multi step :login_directory, ~L281-282/L500) -> LoginDirectory.upsert_entry -> {:error, :write_failed} -> {:error, {:login_directory, :write_failed}} -> router clause `{:error, {:login_directory, _reason}} -> Response.internal_error(conn)` (identity.ex L298). The user insert is rolled back with the directory write, so no user is created. SEPARATION: the same unmodified test on a freshly created and migrated DB (MIX_TEST_PARTITION=dg1, dropped afterwards): `Result: 1 passed, 14 excluded` (201). The GET /users half passes on both. CLASSIFICATION: ENVIRONMENT (stale local DB), not a production defect. Production behavior if the table lacked key_id: any POST /identity/users with an eligible email (and any JIT) answers 500 -- a fail-closed response to a deployment whose DB was not migrated to the merged migration; no authz-path involvement (the TENANT_ADMIN was admitted; the 500 is after authorization), so INV-8 is not at stake. Severity LOW. FIX: none in code; repair or recreate the stale DB as in Q-1114 (one repair clears both issues); ORCH can close #2496 and #2497 together after the repair and one re-run of both tests. SECURITY-REVIEWER: not required. Optional residual: LoginDirectory deliberately swallows the exception text (INV-4), so diagnosing drift needs psql; a one-time preflight on tenant_login_directory columns would turn this class into a loud setup error.",
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "diagnosis_confirmed": true,
+    "implementation_written": false,
+    "classification": "ENVIRONMENT"
+  }
+}

@@ -1,0 +1,15 @@
+id: ISS-1111
+title: "Promotions: GET /promotions/:id returns teardown_error and failing_assertion_ids to every named party"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-13 Q-1011 follow-ups (PR #2474), relayed by letflow-9c"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: LOW
+owner: "ELIXIR-DEV, SECURITY-REVIEWER routed"
+scope: defect
+description: >
+  routers/promotions.ex:532-535 returns teardown_error (free text from Exception.message) and failing_assertion_ids (from the caller-supplied artifact) to any party; for operator-run artifacts they may quote the other tenant's data. SEC-1029-M2, pre-existing, accepted for Q-1011.
+resolution: >
+  Open. Filed GitHub-first (GH #2494), then registered with the queue (Q-1111) using that number.
+queue_ref: Q-1111
+github_ref: GH-2494
+status: open
