@@ -15,7 +15,13 @@ import { join } from 'node:path'
 import { execSync } from 'node:child_process'
 import fg from 'fast-glob'
 import { PATTERNS } from './forbidlist'
-import { writeViolations, assertRedacted, type Violation } from './reporter'
+import {
+  writeViolations,
+  assertRedacted,
+  describeViolation,
+  matchedToken,
+  type Violation,
+} from './reporter'
 
 const WEB_DIR = join(__dirname, '..', '..')
 const DIST_DIR = join(WEB_DIR, 'dist')
@@ -44,6 +50,8 @@ describe('bundle-scan', () => {
 
       // Phase 4: Scan
       const violations: Violation[] = []
+      // Failure-message detail only (GH #2451): the matched token, kept out of the Violation.
+      const tokens = new Map<Violation, string | undefined>()
 
       for (const relFile of assetFiles) {
         const wsPath = 'web/' + relFile.split('\\').join('/')
@@ -56,7 +64,11 @@ describe('bundle-scan', () => {
           pattern.regex.lastIndex = 0
           if (pattern.regex.test(content)) {
             // Bundle assets are minified — report line 0 (not applicable)
-            violations.push({ file: wsPath, line: 0, patternName: pattern.name })
+            const violation: Violation = { file: wsPath, line: 0, patternName: pattern.name }
+            violations.push(violation)
+            if (pattern.name === 'literal-colour') {
+              tokens.set(violation, matchedToken(content, pattern.regex))
+            }
           }
         }
       }
@@ -68,7 +80,7 @@ describe('bundle-scan', () => {
 
       if (violations.length > 0) {
         const summary = violations
-          .map(v => `  ${v.patternName} @ ${v.file}`)
+          .map(v => describeViolation(v, tokens.get(v), v.file))
           .join('\n')
         expect.fail(`Bundle scan found ${violations.length} violation(s):\n${summary}`)
       }

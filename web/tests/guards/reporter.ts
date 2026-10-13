@@ -11,6 +11,35 @@ export interface Violation {
   patternName: string
 }
 
+/**
+ * Hint printed in the failure MESSAGE for a literal-colour violation (GH #2451).
+ * Message text only: it and the matched token never enter a Violation or a report file.
+ */
+export const LITERAL_COLOUR_HINT =
+  'an issue reference like #NNNN in a comment matches the hex-colour pattern: write GH NNNN'
+
+/** The text the pattern matched, for the failure message only; undefined if no match. */
+export function matchedToken(text: string, regex: RegExp): string | undefined {
+  const m = text.match(regex)
+  return m ? m[0] : undefined
+}
+
+/**
+ * One failure-message line for a violation (GH #2451). For literal-colour the matched token
+ * and the issue-reference hint are added; every other pattern keeps the plain form.
+ * `location` is 'file:line' for source files and 'file' for minified bundle assets.
+ */
+export function describeViolation(
+  v: Violation,
+  token: string | undefined,
+  location: string,
+): string {
+  const base = `  ${v.patternName} @ ${location}`
+  if (v.patternName !== 'literal-colour') return base
+  const tokenPart = token === undefined ? '' : `: matched '${token}'`
+  return `${base}${tokenPart} -- ${LITERAL_COLOUR_HINT}`
+}
+
 interface RunReport {
   runId: string
   date: string

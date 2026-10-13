@@ -14,6 +14,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PATTERNS } from './forbidlist'
+import { describeViolation, LITERAL_COLOUR_HINT, matchedToken } from './reporter'
 
 const FIXTURES_DIR = join(__dirname, 'fixtures')
 
@@ -44,6 +45,38 @@ describe('meta-control: fixture coverage', () => {
       })
     })
   }
+})
+
+// GH #2451 (Q-1089): the documented limit of the literal-colour comment exemption. A colour
+// after '//' inside a string on the same line is NOT seen by the pattern. This fixture makes
+// that limit explicit: if the exemption is ever widened or narrowed, this test changes too.
+describe('meta-control: literal-colour known limit (GH #2451)', () => {
+  it('a colour that follows // inside a string on the same line is not matched (documented limit)', () => {
+    const content = readFileSync(join(FIXTURES_DIR, 'limit', 'literal-colour.txt'), 'utf8')
+    const literalColour = PATTERNS.find(p => p.name === 'literal-colour')!
+    literalColour.regex.lastIndex = 0
+    expect(literalColour.regex.test(content)).toBe(false)
+  })
+})
+
+// GH #2451: the failure message names the matched token and the hint for literal-colour only.
+// The Violation itself stays redacted (file, line, patternName).
+describe('meta-control: literal-colour failure message (GH #2451)', () => {
+  it('a literal-colour line names the matched token, the file:line and the GH hint', () => {
+    const literalColour = PATTERNS.find(p => p.name === 'literal-colour')!
+    const line = "const x = { color: '#000' }; // see GH #2431"
+    const token = matchedToken(line, literalColour.regex)
+    expect(token).toBe('#000')
+    const text = describeViolation({ file: 'web/src/x.ts', line: 3, patternName: 'literal-colour' }, token, 'web/src/x.ts:3')
+    expect(text).toContain("matched '#000'")
+    expect(text).toContain(LITERAL_COLOUR_HINT)
+    expect(text).toContain('write GH NNNN')
+  })
+
+  it('other patterns keep the plain message (no token, no hint)', () => {
+    const text = describeViolation({ file: 'web/src/x.ts', line: 3, patternName: 'native-confirm' }, 'window.confirm(', 'web/src/x.ts:3')
+    expect(text).toBe('  native-confirm @ web/src/x.ts:3')
+  })
 })
 
 describe('meta-control: single-source regex invariant', () => {

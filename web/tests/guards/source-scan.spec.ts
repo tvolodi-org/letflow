@@ -12,7 +12,13 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import fg from 'fast-glob'
 import { PATTERNS } from './forbidlist'
-import { writeViolations, assertRedacted, type Violation } from './reporter'
+import {
+  writeViolations,
+  assertRedacted,
+  describeViolation,
+  matchedToken,
+  type Violation,
+} from './reporter'
 
 const WEB_PREFIX = 'web/'
 
@@ -62,6 +68,8 @@ describe('source-scan', () => {
       const files = await fg('src/**/*.{ts,tsx,css}', { cwd: join(__dirname, '..', '..') })
 
       const violations: Violation[] = []
+      // Failure-message detail only (GH #2451): the matched token, kept out of the Violation.
+      const tokens = new Map<Violation, string | undefined>()
 
       for (const relFile of files) {
         const wsPath = normToWsPath(relFile)
@@ -75,6 +83,9 @@ describe('source-scan', () => {
           const violation = findViolationInFile(content, lines, pattern, wsPath)
           if (violation) {
             violations.push(violation)
+            if (pattern.name === 'literal-colour') {
+              tokens.set(violation, matchedToken(lines[violation.line - 1] ?? '', pattern.regex))
+            }
           }
         }
       }
@@ -87,7 +98,7 @@ describe('source-scan', () => {
       if (violations.length > 0) {
         const summary = violations
           .slice(0, 10)
-          .map(v => `  ${v.patternName} @ ${v.file}:${v.line}`)
+          .map(v => describeViolation(v, tokens.get(v), `${v.file}:${v.line}`))
           .join('\n')
         const more = violations.length > 10 ? `\n  ... and ${violations.length - 10} more` : ''
         expect.fail(
