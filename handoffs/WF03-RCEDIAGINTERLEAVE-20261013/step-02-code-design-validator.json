@@ -1,0 +1,36 @@
+{
+  "handoff_id": "c4a7d1e0-1083-4a11-8c20-000000000002",
+  "run_id": "WF03-RCEDIAGINTERLEAVE-20261013",
+  "workflow_id": "WF-03",
+  "step": "02",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGN-VALIDATOR",
+  "file": "handoffs/WF03-RCEDIAGINTERLEAVE-20261013/step-02-code-design-validator.json",
+  "created_at": "2026-10-13T03:00:00Z",
+  "started_at": null,
+  "completed_at": null,
+  "status": "PENDING",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1054": "MEDIUM, R1 from ISS-1042 follow_ups (SECURITY-REVIEWER F2), supervisor-assigned 2026-10-12. Queue Q-1054 / GH #2400, issue_ref ISS-1054. See task.description."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "test/scripts/test_parallel_watchdog_diag_test.exs",
+      "scripts/test_parallel.sh",
+      "handoffs/WF03-RCEDIAGINTERLEAVE-20261013/step-01-issue-fixer.json"
+    ],
+    "owned_modules": [
+      "test/support/tenant_fixture.ex"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1054DBGUARD-20261012"
+  },
+  "task": {
+    "description": "WF-03 Step 2 hard gate (.claude/agents/code-design-validator.md) on the ISSUE-FIXER's diagnosis and fix design for RC-E (Q-1087 / GH #2448): DIAG blocks of simultaneously firing partition watchdogs interleave mid-line on stderr. Design: handoffs/WF03-RCEDIAGINTERLEAVE-20261013/step-01-issue-fixer.json (read result in full). Branch feature/WF03-RCEDIAGINTERLEAVE-20261013, local only, do not push.\nIMPORTANT: the fix changes scripts/test_parallel.sh, the partition runner EVERY backend CI shard uses; a regression reddens every PR. Be strict. The previous round (Q-1053) found 4 MAJOR issues in the design at this gate; expect to find real ones.\nValidate independently (read the script and test files yourself; do not trust the report): (1) mechanism: is \"sed flushes 4096-byte chunks at arbitrary offsets to a shared pipe\" really the cause (check the byte arithmetic against the CI log lines quoted in the handoff; gh api repos/tvolodi/letflow/actions/jobs/<id>/logs for jobs 114960028887, 114986157916, 115074477292); is a single `cat file >&2` write truly one write(2) and atomic enough for a pipe when the file is larger than PIPE_BUF (4096): POSIX guarantees atomicity only up to PIPE_BUF for pipes; the block is ~13.4 KB. State clearly what is guaranteed on Linux for a >PIPE_BUF write to a pipe with several concurrent writers (it is NOT atomic in general; the lock is then what serialises), and what happens when stderr is a file (O_APPEND or not). Does the design rely on the lock for correctness and on cat only for fewer syscalls? Is the \"emit anyway after ~3 s\" fallback acceptable, and does it reintroduce the interleave only in the degenerate case? (2) the lock: mkdir spin, bounded; stale lock after a SIGKILLed holder; release on every path including `set -u`/errexit and TERM; nested runner invocations sharing the tmp dir name; interaction with the existing diag-host.lock; the EXIT trap rm -rf of tmp_dir (BASHPID guard from Q-1053 must still hold: the watchdog subshell must not remove the tmp dir); time budget: the watchdog sends TERM after the DIAG; worst-case added latency for N partitions x 3 s lock waits; does it break TEST_PARALLEL_PARTITION_TIMEOUT_S semantics or the asserted `elapsed < t+15` in test_parallel_watchdog_diag_test.exs; (3) the regression tests T1..T3 (sed shim with a file barrier, mkdir shim, rmdir shim): deterministic, fail on the unfixed script, pass on the fixed, no wall-clock windows of their own, async false, no leaks, follow test/scripts/test_parallel_race_regression_test.exs and test/support/test_parallel_capture.ex conventions, bash 5.1/5.2 on Linux CI and Windows git-bash host; does the barrier shim risk hanging (bounded?); (4) mutant list adequacy, and the non-killable M2 (variable + printf): is it really non-killable, would a stricter assertion kill it; (5) baseline/stress plan: loop shape, iteration counts, statistical meaning (P(0 failures)=0.94^N), mutex discipline, cap ~40 min; (6) any other concurrent multi-line emitter missed; (7) unambiguous enough for a weak model: the exact ELIXIR-DEV order and the mandatory local verification list (all test_parallel_* test files, fail-first, mutants, bash -n, shellcheck if present, format, check.static, check_async_sandbox_reachability, lint_handoffs, one end-to-end real-runner slice). No mix is needed for this step; if you must, use the machine mutex: L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2>/dev/null; do sleep 20; done; trap 'rmdir \"$L\" 2>/dev/null' EXIT; cd /c/Users/tvolo/dev/ai-dala/letflow && MIX_ENV=test <ONE mix invocation>. Container experiments ok (throwaway, remove after). Foreground only; no Monitors. Verdict PASS/FAIL (BLOCKER/MAJOR/MINOR with mechanical corrections numbered G1..Gn). Result into your handoff (COMPLETED, result.status, no BOM, LF, artifacts_out under result, no self-reference); commit locally, no push. Message ends: Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>. TIME BOX: report within ~20 minutes; a push deadline is near.\n"
+  }
+}
