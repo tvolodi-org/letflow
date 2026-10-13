@@ -675,7 +675,7 @@ defmodule Letflow.Identity.RoleRegistryTest do
       assert Enum.map(roles, & &1.name) == expected_names
       assert Enum.all?(roles, &(&1.kind == :platform_role))
 
-      # Exactly six Group rows and six TenantRole rows exist -- not merely that the
+      # Exactly one Group row and one TenantRole row per seeded name exist -- not merely that the
       # function's return value looked right, matching this project's established
       # "re-select from Postgres directly" persistence-test convention.
       assert Repo.aggregate(Group, :count, prefix: ctx.schema_name) == length(expected_names)

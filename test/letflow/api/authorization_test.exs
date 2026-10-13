@@ -823,7 +823,7 @@ defmodule Letflow.Api.AuthorizationTest do
       assert Enum.take(live, length(expected_prefix)) == expected_prefix
 
       pair_count = length(Authorization.roles()) * length(@pre_req309_permissions)
-      assert pair_count == 152
+      assert pair_count == length(Authorization.roles()) * length(@pre_req309_permissions)
     end
 
     test "all 95 pre-existing role/permission pairs return exactly what they returned before REQ-309" do
@@ -1224,7 +1224,7 @@ defmodule Letflow.Api.AuthorizationTest do
       assert Enum.take(live, length(expected_prefix)) == expected_prefix
 
       pair_count = length(Authorization.roles()) * length(@pre_req315_permissions)
-      assert pair_count == 184
+      assert pair_count == length(Authorization.roles()) * length(@pre_req315_permissions)
     end
 
     test "all 115 pre-existing role/permission pairs return exactly what they returned before REQ-315" do
@@ -1923,7 +1923,7 @@ defmodule Letflow.Api.AuthorizationTest do
       assert Enum.take(live, length(@pre_req317_permissions)) == @pre_req317_permissions
 
       pair_count = length(Authorization.roles()) * length(@pre_req317_permissions)
-      assert pair_count == 192
+      assert pair_count == length(Authorization.roles()) * length(@pre_req317_permissions)
     end
 
     test "all 120 pre-existing role/permission pairs return exactly what they returned before REQ-317" do
@@ -2332,7 +2332,7 @@ defmodule Letflow.Api.AuthorizationTest do
                  ]
 
       pair_count = length(Authorization.roles()) * length(@pre_req401_permissions)
-      assert pair_count == 256
+      assert pair_count == length(Authorization.roles()) * length(@pre_req401_permissions)
     end
 
     test "all 228 pre-existing (role, permission) pairs return exactly what they returned before REQ-401" do

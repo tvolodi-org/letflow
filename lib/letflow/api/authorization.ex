@@ -1161,9 +1161,10 @@ defmodule Letflow.Api.Authorization do
     end
   end
 
-  @doc "Ports `isTaskWorkerOnly/1` (L141-146) exactly."
+  @doc "Ports `isTaskWorkerOnly/1` (L141-146), extended by REQ-447 (`TENANT_ADMIN`) and REQ-448 (`TENANT_AUDITOR`) exclusions."
   @spec is_task_worker_only?([role()]) :: boolean()
   def is_task_worker_only?(roles) do
+    # REQ-448 (OQ-1): a read-only auditor who also holds TASK_WORKER sees all tasks.
     has_role?(roles, :TASK_WORKER) and
       not has_role?(roles, :PLATFORM_ADMIN) and
       not has_role?(roles, :PROCESS_DESIGNER) and

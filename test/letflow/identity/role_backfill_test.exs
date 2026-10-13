@@ -176,7 +176,7 @@ defmodule Letflow.Identity.RoleBackfillTest do
       assert tenant_id in unchanged_second
 
       # REQ-447: the fixture's pre-existing legacy PLATFORM_ADMIN group+binding is KEPT (the
-      # backfill never deletes it; the migration does) plus the six seedable roles.
+      # backfill never deletes it; the migration does) plus the seedable roles (derived below).
       # (REQ-448: the count is derived from seedable_role_names/1, never re-literalled.)
       expected = 1 + length(RoleRegistry.seedable_role_names(schema_name))
       assert Repo.aggregate(Group, :count, prefix: schema_name) == expected
