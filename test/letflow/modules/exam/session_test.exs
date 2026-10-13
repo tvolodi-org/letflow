@@ -1603,9 +1603,17 @@ defmodule Letflow.Modules.Exam.SessionTest do
          ctx do
       assert {:ok, _} = q1075_save_time(ctx, 999_999)
 
-      # The session was created moments ago, so the bound is small; the save is not rejected.
-      assert q1075_stored_time(ctx) < 999_999
-      assert q1075_stored_time(ctx) <= 30
+      # The stored value is clamped to the session's elapsed seconds at save time. That is at most
+      # the elapsed seconds measured now (the save happened earlier), so this is the upper bound.
+      assert {:ok, state} =
+               Session.get_session_state_for_user(ctx.session_id, ctx.candidate_id, ctx.schema)
+
+      elapsed_now = DateTime.diff(DateTime.utc_now(), state.session.started_at, :second)
+      stored = state.answers[ctx.question_id].time_spent_seconds
+
+      assert stored >= 0
+      assert stored <= elapsed_now
+      assert stored < 999_999
     end
   end
 end

@@ -1090,10 +1090,13 @@ defmodule Letflow.Modules.Exam.Session do
 
   # Q-1075 / GH #2432: the client reports the running total of time spent on a question
   # (client-reported, not server-measured: a per-question "shown" event is out of scope).
-  # The stored value never decreases (max with what is stored) and is CLAMPED to the
-  # session's own elapsed wall-clock time, so it cannot exceed the time the session has
-  # existed. A clamp, not a rejection: an over-large value must not lose the candidate's
-  # answer save mid-exam; the save still succeeds and the value is bounded.
+  # Each save takes max(stored, received), so within one save the value is monotonic. Then the
+  # value is CLAMPED to the session's own elapsed wall-clock time, so it cannot exceed the time
+  # the session has existed. Known limits: concurrent saves on the same question have no row
+  # lock, so one can overwrite a higher value; and legacy values above the bound can be lowered by
+  # the clamp on the next save. The bound is per question, so the sum across questions is not
+  # bounded (a client-reported value; no reader sums it). A clamp, not a rejection: an over-large
+  # value must not lose the candidate's answer save mid-exam; the save still succeeds.
   defp bounded_time_spent(received, stored, started_at, now) do
     elapsed = max(DateTime.diff(now, started_at, :second), 0)
     min(max(stored, received), elapsed)
