@@ -15,21 +15,11 @@ import { join } from 'node:path'
 import { execSync } from 'node:child_process'
 import fg from 'fast-glob'
 import { PATTERNS } from './forbidlist'
-import {
-  writeViolations,
-  assertRedacted,
-  describeViolation,
-  matchedToken,
-  type Violation,
-} from './reporter'
+import { writeViolations, assertRedacted, type Violation } from './reporter'
+import { isAllowed, scanBundle, summaryLines, type ScanFile } from './scan-core'
 
 const WEB_DIR = join(__dirname, '..', '..')
 const DIST_DIR = join(WEB_DIR, 'dist')
-
-function isAllowed(filePath: string, allowedPaths: string[]): boolean {
-  const lc = filePath.toLowerCase()
-  return allowedPaths.some(a => lc.startsWith(a.toLowerCase()))
-}
 
 describe('bundle-scan', () => {
   it(
@@ -49,29 +39,12 @@ describe('bundle-scan', () => {
       const evaluatedPatterns = bundlePatterns.map(p => p.name)
 
       // Phase 4: Scan
-      const violations: Violation[] = []
-      // Failure-message detail only (GH #2451): the matched token, kept out of the Violation.
-      const tokens = new Map<Violation, string | undefined>()
-
-      for (const relFile of assetFiles) {
-        const wsPath = 'web/' + relFile.split('\\').join('/')
-        const absPath = join(WEB_DIR, relFile)
-        const content = readFileSync(absPath, 'utf8')
-
-        for (const pattern of bundlePatterns) {
-          if (isAllowed(wsPath, pattern.allowedPaths)) continue
-
-          pattern.regex.lastIndex = 0
-          if (pattern.regex.test(content)) {
-            // Bundle assets are minified — report line 0 (not applicable)
-            const violation: Violation = { file: wsPath, line: 0, patternName: pattern.name }
-            violations.push(violation)
-            if (pattern.name === 'literal-colour') {
-              tokens.set(violation, matchedToken(content, pattern.regex))
-            }
-          }
-        }
-      }
+      const assets: ScanFile[] = assetFiles.map(relFile => ({
+        wsPath: 'web/' + relFile.split('\\').join('/'),
+        content: readFileSync(join(WEB_DIR, relFile), 'utf8'),
+      }))
+      const result = scanBundle(assets, bundlePatterns)
+      const { violations } = result
 
       const ts = new Date().toISOString().slice(0, 19).split(':').join('-')
       const runId = process.env.GUARD_RUN_ID ?? ts
@@ -79,9 +52,7 @@ describe('bundle-scan', () => {
       writeViolations(violations, evaluatedPatterns, runId)
 
       if (violations.length > 0) {
-        const summary = violations
-          .map(v => describeViolation(v, tokens.get(v), v.file))
-          .join('\n')
+        const summary = summaryLines(result, v => v.file).join('\n')
         expect.fail(`Bundle scan found ${violations.length} violation(s):\n${summary}`)
       }
 

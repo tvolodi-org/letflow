@@ -1,1 +1,2 @@
-const u = url('https://example.test') + '#000';
+const s = "a // b"; const c = '#000';
+const s2 = " /* "; const c2 = '#000'; const e = " */";

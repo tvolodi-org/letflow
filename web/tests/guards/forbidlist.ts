@@ -48,15 +48,20 @@ export const PATTERNS: GuardPattern[] = [
     // web/src/styles/tokens.css is allowedPaths-exempt. Negative lookbehind on rgba?/hsla?
     // prevents matching zero-arg calls from colour-manipulation libraries.
     //
-    // GH #2451 (Q-1089): an issue reference in a comment ("// Q-1074 / GH #2431", "/* #2440 */",
-    // a JSDoc " * #2432" line) is not a colour. The first two lookbehinds exempt a match that
-    // has a line comment or block-comment opener earlier on the same line, or that sits on a
-    // JSDoc continuation line. Digit-only colours in code ('#000') are still matched: the
-    // exemption needs a comment marker before the token, not a digit-only shape.
-    // Known limit: a colour that follows a '//' inside a string on the same line
-    // (e.g. "url('https://x') + '#000'") is exempted; it is not seen by this pattern.
+    // GH #2451 (Q-1089): an issue reference in a comment is not a colour. Two exemptions, both
+    // needing the comment opener to start a token: the opener '//' or '/*' must be at the line
+    // start or follow whitespace, ';' or '}' (so 'https://x' and 'url(//cdn)' are not openers):
+    //  - a match after a '//' opener on the same line (line comment);
+    //  - a match inside a '/* ... */' opener that is closed later in the file (single or
+    //    multi-line block comment), with no other '/*' in between.
+    // A JSDoc continuation line (' * #2432') is NOT exempt: it cannot be told from a CSS
+    // universal selector ('* { color: #fff }'), so use '//' or a block comment.
+    // Digit-only colours in code ('#000') are still matched.
+    // Known limits (pinned by meta-control's limit fixture): a colour after a comment-like
+    // marker inside a string that follows whitespace, ';' or '}' on the same line, e.g.
+    //  "const s = \"a // b\"; const c = '#000';"  and  "const s = \" /* \"; c = '#000'; e = \" */\";"
     name: 'literal-colour',
-    regex: /(?<!(?:\/\/|\/\*)[^\n]*)(?<!(?:^|\n)[ \t]*\*[^\n]*)(?:#[0-9a-fA-F]{3,8}\b|(?<![.a-zA-Z0-9_$])rgba?\([^)]+\)|(?<![.a-zA-Z0-9_$])hsla?\([^)]+\))/,
+    regex: /(?<!(?:^|[\s;}])\/\/[^\n]*)(?!(?<=(?:^|[\s;}])\/\*(?:(?!\*\/)[\s\S])*)(?=(?:(?!\/\*)[\s\S])*\*\/))(?:#[0-9a-fA-F]{3,8}\b|(?<![.a-zA-Z0-9_$])rgba?\([^)]+\)|(?<![.a-zA-Z0-9_$])hsla?\([^)]+\))/,
     appliesTo: 'both',
     allowedPaths: [
       'web/src/styles/tokens.css',

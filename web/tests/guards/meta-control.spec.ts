@@ -14,7 +14,8 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PATTERNS } from './forbidlist'
-import { describeViolation, LITERAL_COLOUR_HINT, matchedToken } from './reporter'
+import { describeViolation, LITERAL_COLOUR_HINT } from './reporter'
+import { scanBundle, scanSource, summaryLines } from './scan-core'
 
 const FIXTURES_DIR = join(__dirname, 'fixtures')
 
@@ -47,30 +48,96 @@ describe('meta-control: fixture coverage', () => {
   }
 })
 
-// GH #2451 (Q-1089): the documented limit of the literal-colour comment exemption. A colour
-// after '//' inside a string on the same line is NOT seen by the pattern. This fixture makes
-// that limit explicit: if the exemption is ever widened or narrowed, this test changes too.
-describe('meta-control: literal-colour known limit (GH #2451)', () => {
-  it('a colour that follows // inside a string on the same line is not matched (documented limit)', () => {
-    const content = readFileSync(join(FIXTURES_DIR, 'limit', 'literal-colour.txt'), 'utf8')
-    const literalColour = PATTERNS.find(p => p.name === 'literal-colour')!
-    literalColour.regex.lastIndex = 0
-    expect(literalColour.regex.test(content)).toBe(false)
+// GH #2451 (Q-1089): the scan functions the two scan specs run, applied to the fixtures and to
+// the inline cases that pin the literal-colour comment exemption and its documented limits.
+const literalColourPattern = PATTERNS.filter(p => p.name === 'literal-colour')
+const fixtureText = (kind: string) => readFileSync(join(FIXTURES_DIR, kind, 'literal-colour.txt'), 'utf8')
+const scanLiteralColour = (content: string) =>
+  scanSource([{ wsPath: 'web/src/fixture.ts', content }], literalColourPattern)
+
+describe('meta-control: literal-colour exemption (GH #2451)', () => {
+  it('bystander fixture (block and line comments citing GH numbers): no violation', () => {
+    expect(scanLiteralColour(fixtureText('bystander')).violations).toHaveLength(0)
+  })
+
+  it('offender fixture (colours in code, including digit-only #000): violations', () => {
+    expect(scanLiteralColour(fixtureText('offender')).violations.length).toBeGreaterThan(0)
+  })
+
+  it('a single-line /* GH #NNNN */ comment is exempt; a colour after it is not', () => {
+    expect(scanLiteralColour('/* GH #2431 */').violations).toHaveLength(0)
+    expect(scanLiteralColour("/* x */ const c = '#000';").violations).toHaveLength(1)
+  })
+
+  it("a '/*' inside a string does not exempt a colour after it (image/* in an attribute)", () => {
+    const src = `<input accept="image/*" style={{ color: '#000' }} />`
+    expect(scanLiteralColour(src).violations).toHaveLength(1)
+  })
+
+  it('a CSS universal selector line is not exempt (the JSDoc exemption is removed)', () => {
+    expect(scanLiteralColour('* { color: #fff }').violations).toHaveLength(1)
+    expect(scanLiteralColour('*color:#fff').violations).toHaveLength(1)
+  })
+
+  it('a multi-line block comment body with an issue reference is exempt (whole-file opener)', () => {
+    expect(scanLiteralColour('/*\n  see GH #2431\n*/').violations).toHaveLength(0)
+  })
+
+  it('after a multi-line block comment, a real colour is reported on ITS line, not the comment body', () => {
+    const result = scanLiteralColour("/*\n  see GH #2431\n*/\nconst c = '#000';")
+    expect(result.violations).toHaveLength(1)
+    expect(result.violations[0].line).toBe(4)
+  })
+
+  it("a colour after a URL's '//' is matched (the '//' is not a comment opener)", () => {
+    expect(scanLiteralColour(`<a href="https://x.test" style={{ color: '#fa5252' }}>`).violations).toHaveLength(1)
+  })
+
+  it("a colour after url(//cdn) is matched ('(//' is not a comment opener)", () => {
+    expect(scanLiteralColour('url(//cdn.x/a.png);color:#fff').violations).toHaveLength(1)
+  })
+
+  it('documented limit: a comment-like // after whitespace inside a string on the same line hides a later colour', () => {
+    expect(scanLiteralColour(fixtureText('limit').split('\n')[0]).violations).toHaveLength(0)
+  })
+
+  it('documented limit: a comment-like /* ... */ inside a string on the same line hides a later colour', () => {
+    expect(scanLiteralColour(fixtureText('limit').split('\n')[1]).violations).toHaveLength(0)
   })
 })
 
-// GH #2451: the failure message names the matched token and the hint for literal-colour only.
-// The Violation itself stays redacted (file, line, patternName).
+// GH #2451: the failure message names the matched token and the hint for literal-colour only,
+// produced by the same functions the two scan specs use. The Violation stays redacted.
 describe('meta-control: literal-colour failure message (GH #2451)', () => {
-  it('a literal-colour line names the matched token, the file:line and the GH hint', () => {
-    const literalColour = PATTERNS.find(p => p.name === 'literal-colour')!
-    const line = "const x = { color: '#000' }; // see GH #2431"
-    const token = matchedToken(line, literalColour.regex)
-    expect(token).toBe('#000')
-    const text = describeViolation({ file: 'web/src/x.ts', line: 3, patternName: 'literal-colour' }, token, 'web/src/x.ts:3')
-    expect(text).toContain("matched '#000'")
-    expect(text).toContain(LITERAL_COLOUR_HINT)
-    expect(text).toContain('write GH NNNN')
+  it('a source violation names the matched token, file:line and the GH hint', () => {
+    const result = scanLiteralColour("const d = { color: '#000' }; // see GH #2431")
+    expect(result.violations).toHaveLength(1)
+    const [violation] = result.violations
+    expect(Object.keys(violation).sort()).toEqual(['file', 'line', 'patternName'])
+    const [line] = summaryLines(result, v => `${v.file}:${v.line}`)
+    expect(line).toContain("literal-colour @ web/src/fixture.ts:1: matched '#000'")
+    expect(line).toContain(LITERAL_COLOUR_HINT)
+    expect(line).toContain('write GH NNNN')
+  })
+
+  it('a bundle violation names the matched token (line 0, file only); a hex colour gets no hint', () => {
+    const result = scanBundle(
+      [{ wsPath: 'web/dist/assets/x.js', content: '.btn{color:#ff0000;}' }],
+      literalColourPattern,
+    )
+    expect(result.violations).toHaveLength(1)
+    const [line] = summaryLines(result, v => v.file)
+    expect(line).toContain("literal-colour @ web/dist/assets/x.js: matched '#ff0000'")
+    expect(line).not.toContain(LITERAL_COLOUR_HINT)
+  })
+
+  it('a digit-only token (an issue-reference shape) gets the hint', () => {
+    const result = scanBundle(
+      [{ wsPath: 'web/dist/assets/y.js', content: '.btn{color:#000;}' }],
+      literalColourPattern,
+    )
+    const [line] = summaryLines(result, v => v.file)
+    expect(line).toContain(LITERAL_COLOUR_HINT)
   })
 
   it('other patterns keep the plain message (no token, no hint)', () => {
