@@ -1,0 +1,15 @@
+id: ISS-1094
+title: "REQUIREMENT DRAFT: onboarding API stops answering the client_config and realm_config dispositions once the web no longer sends them (ADR 0044 Phase 1)"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-12 / 2026-10-13 walk and CI review"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: MINOR
+owner: "REQ-ANALYST, then ELIXIR-DEV (onboarding API)"
+scope: defect
+description: >
+  Requirement draft. The disposition stays while the web sends the keys; after ISS-1093 ships a test asserts the chosen behaviour (reject or ignore). No value is echoed in any response; option D is not built.
+resolution: >
+  Open. Filed GitHub-first (GH #2464), then registered with the queue (Q-1094) using that number.
+queue_ref: Q-1094
+github_ref: GH-2464
+status: open

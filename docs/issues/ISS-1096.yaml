@@ -1,0 +1,16 @@
+# Ref clash: the queue's issue_ref for Q-1088 is ISS-1088, which is already used on main (or reserved for another record). This record takes the next free local id, ISS-1096. The queue and GH ids are unchanged: Q-1088 / GH #2450.
+id: ISS-1096
+title: "Onboarding wizard sends client_config (redirect_uris, service_account_enabled) and realm_config and nothing stores them"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-12 / 2026-10-13 walk and CI review"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: MINOR
+owner: "ELIXIR-DEV (onboarding)"
+scope: defect
+description: >
+  Fixed by #2453 (6f21a3d7): each key gets a not_stored disposition in the 201 body instead of a silent drop. The web-side removal is ISS-1093; the API-side follow-up is ISS-1094.
+resolution: >
+  Done. Merged as #2453 (feat(Q-1088), GH #2450).
+queue_ref: Q-1088
+github_ref: GH-2450
+status: done

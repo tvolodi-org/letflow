@@ -1,0 +1,15 @@
+id: ISS-1095
+title: "REQUIREMENT DRAFT: tenant_type (test | production) on the tenant, set at creation by a platform admin and changed only by a platform admin with an audit record"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-12 / 2026-10-13 walk and CI review"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: MINOR
+owner: "REQ-ANALYST, then ELIXIR-DEV and FRONTEND-DEV"
+scope: defect
+description: >
+  Requirement draft from decision Q3 (GH #2444), priority 2. tenant_type column, existing rows default to test, PromotionPlan classifier reads the same column, public GET /api/tenant-config returns tenant_type only (never a production name), web hides the banner when null and drops the pairing text. No pairing or production name now.
+resolution: >
+  Open. Filed GitHub-first (GH #2465), then registered with the queue (Q-1095) using that number.
+queue_ref: Q-1095
+github_ref: GH-2465
+status: open
