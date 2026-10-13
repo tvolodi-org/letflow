@@ -513,6 +513,7 @@ defmodule Letflow.Routers.PromotionReadStoredIdsTest do
   # The hidden runs are far larger than the 100-row minimum scan chunk and than any row budget
   # a capped implementation would plausibly use (a cap of 1000 rows is still killed).
   describe "1(e) a long hidden run never hides or strands a visible row" do
+    @tag :long_hidden_run
     test "one visible row behind 1100 newer hidden rows is returned by the first request", ctx do
       rows = seed_ordered!(ctx, ctx.a, List.duplicate(:hidden, 1100) ++ [:party_src])
       assert length(rows) == 1101
@@ -520,6 +521,7 @@ defmodule Letflow.Routers.PromotionReadStoredIdsTest do
       assert ids == ids_of(rows, :party_src)
     end
 
+    @tag :long_hidden_run
     test "a visible row in the middle of two 250-row hidden runs", ctx do
       spec = List.duplicate(:hidden, 250) ++ [:own] ++ List.duplicate(:hidden, 250)
       rows = seed_ordered!(ctx, ctx.a, spec)
