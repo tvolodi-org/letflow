@@ -1,0 +1,38 @@
+{
+  "handoff_id": "c4a7d1e0-1083-4a11-8c20-000000000003",
+  "run_id": "WF03-RCEDIAGINTERLEAVE-20261013",
+  "workflow_id": "WF-03",
+  "step": "03",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF03-RCEDIAGINTERLEAVE-20261013/step-03-elixir-dev.json",
+  "created_at": "2026-10-13T03:00:00Z",
+  "started_at": null,
+  "completed_at": null,
+  "status": "PENDING",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1054": "MEDIUM, R1 from ISS-1042 follow_ups (SECURITY-REVIEWER F2), supervisor-assigned 2026-10-12. Queue Q-1054 / GH #2400, issue_ref ISS-1054. See task.description."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "scripts/test_parallel.sh",
+      "test/scripts/test_parallel_watchdog_diag_test.exs",
+      "test/scripts/test_parallel_race_regression_test.exs",
+      "handoffs/WF03-RCEDIAGINTERLEAVE-20261013/step-01-issue-fixer.json",
+      "handoffs/WF03-RCEDIAGINTERLEAVE-20261013/step-02-code-design-validator.json"
+    ],
+    "owned_modules": [
+      "test/support/tenant_fixture.ex"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1054DBGUARD-20261012"
+  },
+  "task": {
+    "description": "WF-03 Step 3 implement RC-E (Q-1087 / GH #2448): per-partition watchdog DIAG blocks interleave mid-line on stderr. ELIXIR-DEV (.claude/agents/elixir-dev.md; scripts/test_parallel.sh and test/scripts/ are in scope). Branch feature/WF03-RCEDIAGINTERLEAVE-20261013 (local; the ORCH pushes). The design is handoffs/WF03-RCEDIAGINTERLEAVE-20261013/step-01-issue-fixer.json (mechanism, fix_design: assemble each block into a temp file outside any lock, emit with ONE `cat file >&2` under a bounded mkdir lock, host block through the same helper; regression test T1..T3 with sed/mkdir/rmdir shims; mutants). The CODE-DESIGN-VALIDATOR returned FAIL with 6 MAJOR + 5 MINOR mechanical corrections G1..G10 (+G11 already fixed by ORCH) in handoffs/WF03-RCEDIAGINTERLEAVE-20261013/step-02-code-design-validator.json (read result.findings in full, including G6's 11-step ELIXIR-DEV order and mandatory verification list). G1..G10 are BINDING and REPLACE conflicting parts of the step-01 design (ORCH rework decision: mechanical, experimentally verified, folded into this step; REVIEWER and RELEASE-VALIDATOR check every Gn).\nKey points (the validator handoff is authoritative where more detailed): G1 initialise `got=0 n=0` locals, explicit release `if [ \"$got\" -eq 1 ]`, `return 0` (script runs under set -u inside a ( ) watchdog whose death means no TERM); G2 helper is called for 3 partition blocks AND the host block = 4 emits: test counts 4*30 mkdir denials and 4 rmdirs; G3 per-attempt STUB_BARRIER/STUB_LOG created inside run_script under the attempt dir; G4 shims gated on their own env var and scan ALL args, REAL_PATH exported from inside bash; G5 no `|| sleep 1` fallback; G6 order + verification list; G7 fallback line when the block file cannot be written; G8 cat-shim mutant kills M2, leak assertions, mutants M9/M10; G9 atomicity statement in the script comment; G10 kill orphan loops after M5, `file.exs:LINE`.\nWORKING TREE RULE: another agent (baseline TEST-RUNNER) may still be finishing a stress loop on UNMODIFIED code in this working tree for a few minutes and holds the mutex between chunks; do NOT edit scripts/ or test/ until `git status` is clean and no `mix` BEAM of that loop is running (check the handoff step-02a-test-runner-baseline.json status COMPLETED, or poll briefly, bounded 10 min). Then proceed.\nVERIFY with real output: fail-first of the new tests against the UNMODIFIED script (quote), with fix all test/scripts/test_parallel_*_test.exs green (ONE mix invocation, quote counts), the hand-run .sh harnesses green, mutants table (each applied alone, restored, tree clean), bash -n, format, MIX_ENV=test mix letflow.check.static, mix letflow.check_async_sandbox_reachability, mix letflow.lint_handoffs, one end-to-end real-runner slice (TEST_PARALLEL_N=2 TEST_PARALLEL_SHARD=1/50 bash scripts/test_parallel.sh with a throwaway postgres on 5499 as in the earlier RC runs; quote the combined line). The post-fix stress loop (N=50, 2x ncores busy loops, capped ~25 min) goes in your report with the baseline from step 02a.\nMACHINE RULE: ONE BEAM at a time, one mutex acquisition per mix invocation: L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2>/dev/null; do sleep 20; done; trap 'rmdir \"$L\" 2>/dev/null' EXIT; cd /c/Users/tvolo/dev/ai-dala/letflow && LETFLOW_DB_PORT=5499 MIX_ENV=test <ONE mix invocation> 2>&1. Throwaway postgres only if needed (docker run -d --rm --name pg1087 -e POSTGRES_USER=letflow -e POSTGRES_PASSWORD=letflow -e POSTGRES_DB=letflow_dev -p 5499:5432 postgres:16 -c max_connections=200; remove afterwards). Never run a harness .sh that starts a real suite outside the mutex (the Q-1053 implementer slipped once). Foreground only; no Monitors. TIME BOX ~40 minutes: the push deadline is near; if the stress loop would exceed the cap, run fewer iterations and say so. Add an anti-patterns entry only if a real new lesson (e.g. \"stdio-buffered pipeline stages interleave on shared stderr; assemble then single write\"). Commit locally (message references [Q-1087 / GH #2448], ends Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>); NO push, no PR, never merge. Result into this handoff (COMPLETED, PASS/FAIL, no BOM, LF, artifacts_out under result, no self-reference).\n"
+  }
+}
