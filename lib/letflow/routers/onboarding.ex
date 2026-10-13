@@ -115,6 +115,12 @@ defmodule Letflow.Routers.Onboarding do
   `tenants` already give this simpler flow a comparable "can't silently
   double-create" property without the saga/idempotency-record machinery.
 
+  The `Idempotency-Key` header is therefore not read, and the web wizard no longer sends one
+  (ISS-1091 / GH 2437). A resubmit of a slug or hostname that was already created answers 409 with
+  the specific detail (for example "slug already exists") and creates nothing; it is NOT a replay of
+  the original 201. The one case a replay would have covered, a retry after the 201 was lost in
+  transit, is handled by looking the tenant up (`GET /onboarding?hostname=` or `GET /onboarding/:id`).
+
   ## Administrator and realm fields (ISS-1030)
 
   Design: `lib/letflow/design/iss1030-onboarding-administrator.md`. The request
