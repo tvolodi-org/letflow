@@ -185,8 +185,9 @@ This repository does not edit the infra repository; ORCH copies the line into
 - `admin_email` is validated and, when valid, stored as a pending `TENANT_ADMIN` grant (see
   "Pending administrator"). `admin_username` and `admin_display_name` are **echoed, not stored and
   not acted on**. Nothing creates a realm user from any of them.
-- `client_config` and `realm_config` are **not stored and not applied**. Each one sent gets
-  `{"disposition": "not_stored", "next": ...}` in the 201 body and is also listed in `ignored_fields`.
-  The `redirect_uris` inside `client_config` is not read. Any other unknown body key is listed by name in
-  `ignored_fields` only; its value is not read.
+- `client_config` and `realm_config` are **ignored by name**: the wizard no longer sends them (REQ-468), and
+  the API treats them like any other undeclared body key. They are listed in `ignored_fields` and nothing
+  else is answered for them; their values (including any `redirect_uris` inside `client_config`) are not
+  read, stored or echoed. The tenant's client and realm are set up by hand, as described above.
+  Any other unknown body key is listed by name in `ignored_fields` only; its value is not read.
 - A blank or null administrator field counts as not sent.
