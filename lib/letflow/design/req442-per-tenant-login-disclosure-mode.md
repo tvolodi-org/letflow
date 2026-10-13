@@ -89,7 +89,7 @@ Route (existing, extended; no new route): `PATCH /api/v1/tenants/:slug` -> `Rout
 `Identity.patch_tenant/3` (replaces `patch_tenant/2`; P3 shows no other caller, so no arity-2 delegate is kept):
 
 ```
-@type patch_opts :: [actor_id: Ecto.UUID.t() | nil, trace_id: String.t() | nil]
+@type patch_opts :: [actor_id: Ecto.UUID.t() | nil, platform_prefix: String.t() | nil, trace_id: String.t() | nil]
 @spec patch_tenant(slug :: String.t(), attrs :: map(), patch_opts()) ::
         {:ok, Tenant.t()}
         | {:error, :not_found}
@@ -111,6 +111,22 @@ Actor id and trace id source: `conn.assigns.auth_context.user_id` and `conn.assi
 When the mode is changing and `actor_id` is not a binary, `patch_tenant/3` returns `{:error, :audit_failed}` before any
 write (a security-attribute change with no attributable actor is refused, fail closed). A display_name-only patch does
 not need or check the actor.
+
+> **AMENDED 2026-10-13 (ISS-1032 / GH #2351, PR #2482, queue row 1032; GH #2484 records this doc fix).** The audit
+> actor description below this note, and the "FINAL audit decision" bullet's single-entry shape, are SUPERSEDED. A
+> mode change now writes TWO value-free entries in ONE transaction (lock order tenant row, tenant chain, platform
+> chain, as `bind_tenant_realm/3`):
+> - TARGET-tenant chain: `tenant.platform_setting.updated`, `actor_id` NIL, `trace_id` NIL,
+>   `after_state` `%{"changed" => true, "actor_class" => "platform_operator"}`. Tenant administrators read this chain
+>   (`:AuditRead`) and must not learn which platform operator acted (INV-2).
+> - PLATFORM chain: `platform.tenant_platform_setting.updated`, `actor_id` = the operator's user id, the passed
+>   `trace_id`, `after_state` `%{"tenant_id" => tenant.id, "changed" => true}`.
+> `patch_opts` gains `platform_prefix`, supplied by the router only when the platform tenant's schema equals the
+> caller's database-resolved tenant schema (`verified_platform_prefix/1` in `Routers.Tenants`); otherwise a mode
+> change fails closed with the fixed 500 and writes nothing. The nil-actor policy in the next paragraph now applies
+> to the OPERATOR actor of the platform entry only: the tenant entry's nil actor is by design. A `display_name`-only
+> patch is unchanged (unaudited). Tenant-chain entries written before PR #2482 still carry the operator id; that is
+> a separate decision item (GH #2485).
 - Behaviour: load by slug; build `admin_patch_changeset/2`; if the changeset is invalid return `{:error, changeset}`;
   if `login_disclosure_mode` is among the changes (value actually differs), run the tenant update and the audit insert
   in ONE `Repo.transaction` (`Ecto.Multi`: `:tenant` update, then `Audit.append_multi/4`), so the audit row and the

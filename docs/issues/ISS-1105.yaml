@@ -1,0 +1,15 @@
+id: ISS-1105
+title: "patch_tenant_with_audit lacks the catch :exit that bind_tenant_realm gained (identity.ex)"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-13 follow-ups of PR #2482 (Q-1032 / GH #2351), relayed by the supervisor"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: LOW
+owner: "ELIXIR-DEV, with SECURITY-REVIEWER"
+scope: defect
+description: >
+  Identity.patch_tenant_with_audit/3 (identity.ex:1177) has a rescue but no catch :exit; an exit from the DB checkout escapes instead of failing closed as bind_tenant_realm/3 does (identity.ex:~1877). Advisory follow-up of PR #2482.
+resolution: >
+  Open. Filed GitHub-first (GH #2483), then registered with the queue (Q-1105) using that number.
+queue_ref: Q-1105
+github_ref: GH-2483
+status: open

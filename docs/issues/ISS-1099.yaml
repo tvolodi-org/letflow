@@ -1,0 +1,16 @@
+# Ref clash: the queue's issue_ref for Q-1096 is ISS-1096, which is already used on main (or reserved for another record). This record takes the next free local id, ISS-1099. The queue and GH ids are unchanged: Q-1096 / GH #2470.
+id: ISS-1099
+title: "Exam: --radius-md is used by exam blocks and elsewhere but not defined in tokens.css"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-13 letflow-4 exam review, relayed by the supervisor"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: LOW
+owner: "FRONTEND-DEV (web)"
+scope: defect
+description: >
+  var(--radius-md) is used in ExamSessionPage.tsx, ExamListPage.tsx, BilimBagaAdminPage.tsx, EntityListBrowserPage.tsx and HelpPanel.tsx; tokens.css defines only --radius-sm and --radius-full, so the rounding silently does not render.
+resolution: >
+  Open. Filed GitHub-first (GH #2470), then registered with the queue (Q-1096) using that number.
+queue_ref: Q-1096
+github_ref: GH-2470
+status: open
