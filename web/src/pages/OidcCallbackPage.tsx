@@ -80,7 +80,10 @@ export default function OidcCallbackPage() {
         let tenantId: string | null = null
         let tenantType: 'production' | 'test' | null = null
         let productionTenantDisplayName: string | null = null
-        if (realmSlug) {
+        // Q-1074 / GH 2431: GET /api/v1/tenants/:slug is TENANTS_MANAGE (platform-only).
+        // Only a PLATFORM_ADMIN login asks for the record; every other login skips the
+        // call and shows the slug as its display name.
+        if (realmSlug && payload.roles.includes('PLATFORM_ADMIN')) {
           try {
             const tenantData = await tenantsApi.getBySlug(realmSlug)
             tenantDisplayName = tenantData?.display_name ?? null
@@ -88,7 +91,7 @@ export default function OidcCallbackPage() {
             tenantType = tenantData?.tenant_type ?? null
             productionTenantDisplayName = tenantData?.production_tenant_display_name ?? null
           } catch {
-            // non-fatal — workspace header will show slug as fallback
+            // non-fatal: a failed lookup leaves tenantDisplayName null, so the slug is shown below
           }
         }
         setSession({
@@ -97,7 +100,7 @@ export default function OidcCallbackPage() {
           roles: payload.roles,
           loginSource: 'oidc',
           tenant_slug: realmSlug,
-          tenant_display_name: tenantDisplayName,
+          tenant_display_name: tenantDisplayName ?? realmSlug,
           tenant_id: tenantId,
           tenant_type: tenantType,
           production_tenant_display_name: productionTenantDisplayName,
