@@ -27,7 +27,9 @@ values belong in this file or in any evidence field.
 
 1. **R1 Create the realm.** Clone the `bpm-default` realm definition
    (`priv/keycloak/realms/bpm-default.json`: the `letflow-web` client with its audience mapper and
-   the `realm-roles` mapper), including the realm role `TENANT_ADMIN`.
+   the `realm-roles` mapper), including the realm role `TENANT_ADMIN`. Set the `letflow-web` client's valid
+   redirect URIs for this tenant's hostname by hand. Letflow does not store the `client_config.redirect_uris`
+   the wizard sent.
 2. **R2 Create the first administrator.** Create the user with the e-mail set and the e-mail
    marked verified, and map the realm role `TENANT_ADMIN` to that user.
 3. **R3 Bind the realm.** Either give `idp_realm_id` when onboarding (the realm must already
@@ -124,6 +126,8 @@ This repository does not edit the infra repository; ORCH copies the line into
 
 - `admin_email`, `admin_username` and `admin_display_name` are **echoed, not stored and not
   acted on**. Nothing creates a realm user or a role grant from them.
-- `client_config`, `realm_config`, `redirect_uris` and any other unknown body key are listed by
-  name in `ignored_fields` of the response; their values are not read.
+- `client_config` and `realm_config` are **not stored and not applied**. Each one sent gets
+  `{"disposition": "not_stored", "next": ...}` in the 201 body and is also listed in `ignored_fields`.
+  The `redirect_uris` inside `client_config` is not read. Any other unknown body key is listed by name in
+  `ignored_fields` only; its value is not read.
 - A blank or null administrator field counts as not sent.
