@@ -7,9 +7,9 @@
   "to_agent": "CODE-DESIGN-VALIDATOR",
   "file": "handoffs/WF03-RCEDIAGINTERLEAVE-20261013/step-02-code-design-validator.json",
   "created_at": "2026-10-13T03:00:00Z",
-  "started_at": null,
-  "completed_at": null,
-  "status": "PENDING",
+  "started_at": "2026-10-13T03:04:59Z",
+  "completed_at": "2026-10-13T03:06:16Z",
+  "status": "COMPLETED",
   "priority": "NORMAL",
   "context": {
     "stage": "S1",
@@ -32,5 +32,109 @@
   },
   "task": {
     "description": "WF-03 Step 2 hard gate (.claude/agents/code-design-validator.md) on the ISSUE-FIXER's diagnosis and fix design for RC-E (Q-1087 / GH #2448): DIAG blocks of simultaneously firing partition watchdogs interleave mid-line on stderr. Design: handoffs/WF03-RCEDIAGINTERLEAVE-20261013/step-01-issue-fixer.json (read result in full). Branch feature/WF03-RCEDIAGINTERLEAVE-20261013, local only, do not push.\nIMPORTANT: the fix changes scripts/test_parallel.sh, the partition runner EVERY backend CI shard uses; a regression reddens every PR. Be strict. The previous round (Q-1053) found 4 MAJOR issues in the design at this gate; expect to find real ones.\nValidate independently (read the script and test files yourself; do not trust the report): (1) mechanism: is \"sed flushes 4096-byte chunks at arbitrary offsets to a shared pipe\" really the cause (check the byte arithmetic against the CI log lines quoted in the handoff; gh api repos/tvolodi/letflow/actions/jobs/<id>/logs for jobs 114960028887, 114986157916, 115074477292); is a single `cat file >&2` write truly one write(2) and atomic enough for a pipe when the file is larger than PIPE_BUF (4096): POSIX guarantees atomicity only up to PIPE_BUF for pipes; the block is ~13.4 KB. State clearly what is guaranteed on Linux for a >PIPE_BUF write to a pipe with several concurrent writers (it is NOT atomic in general; the lock is then what serialises), and what happens when stderr is a file (O_APPEND or not). Does the design rely on the lock for correctness and on cat only for fewer syscalls? Is the \"emit anyway after ~3 s\" fallback acceptable, and does it reintroduce the interleave only in the degenerate case? (2) the lock: mkdir spin, bounded; stale lock after a SIGKILLed holder; release on every path including `set -u`/errexit and TERM; nested runner invocations sharing the tmp dir name; interaction with the existing diag-host.lock; the EXIT trap rm -rf of tmp_dir (BASHPID guard from Q-1053 must still hold: the watchdog subshell must not remove the tmp dir); time budget: the watchdog sends TERM after the DIAG; worst-case added latency for N partitions x 3 s lock waits; does it break TEST_PARALLEL_PARTITION_TIMEOUT_S semantics or the asserted `elapsed < t+15` in test_parallel_watchdog_diag_test.exs; (3) the regression tests T1..T3 (sed shim with a file barrier, mkdir shim, rmdir shim): deterministic, fail on the unfixed script, pass on the fixed, no wall-clock windows of their own, async false, no leaks, follow test/scripts/test_parallel_race_regression_test.exs and test/support/test_parallel_capture.ex conventions, bash 5.1/5.2 on Linux CI and Windows git-bash host; does the barrier shim risk hanging (bounded?); (4) mutant list adequacy, and the non-killable M2 (variable + printf): is it really non-killable, would a stricter assertion kill it; (5) baseline/stress plan: loop shape, iteration counts, statistical meaning (P(0 failures)=0.94^N), mutex discipline, cap ~40 min; (6) any other concurrent multi-line emitter missed; (7) unambiguous enough for a weak model: the exact ELIXIR-DEV order and the mandatory local verification list (all test_parallel_* test files, fail-first, mutants, bash -n, shellcheck if present, format, check.static, check_async_sandbox_reachability, lint_handoffs, one end-to-end real-runner slice). No mix is needed for this step; if you must, use the machine mutex: L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2>/dev/null; do sleep 20; done; trap 'rmdir \"$L\" 2>/dev/null' EXIT; cd /c/Users/tvolo/dev/ai-dala/letflow && MIX_ENV=test <ONE mix invocation>. Container experiments ok (throwaway, remove after). Foreground only; no Monitors. Verdict PASS/FAIL (BLOCKER/MAJOR/MINOR with mechanical corrections numbered G1..Gn). Result into your handoff (COMPLETED, result.status, no BOM, LF, artifacts_out under result, no self-reference); commit locally, no push. Message ends: Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>. TIME BOX: report within ~20 minutes; a push deadline is near.\n"
+  },
+  "result": {
+    "status": "FAIL",
+    "summary": "FAIL (no partial credit): mechanism and fix direction CONFIRMED, but the design as written has 6 MAJOR spec/test defects (G1-G6) and 5 MINOR (G7-G11) that must be corrected before ELIXIR-DEV. None needs a new experiment; every correction is mechanical. The root-cause diagnosis (sed 4096-byte stdio flush mid-line on a pipe shared by 3 watchdog subshells) is correct and independently re-derived; the temp-file + single cat emitter is the right fix.",
+    "independent_verification": {
+      "mechanism": "CONFIRMED. gh api logs of job 114960028887 re-read: `test_parallel: DIAG partition 3:   P3-199974-` + 19 L, immediately followed by `test_parallel: DIAG partition 2:   P2-199962-` + a full 300-col line (total 399 = 64 + 35 + 300). Arithmetic re-derived from the stub: tail -n 40 = 39 long lines P-199962..P-200000 + the `....` line; P-199974 is the 13th, preceded by 12 x (35 prefix + 300 + LF = 336) = 4032 B; 35 + 10 + 19 = 64; 4032 + 64 = 4096 exactly = the glibc 4096 B stdio buffer of GNU sed with stdout a pipe (sed flushes per line only with -u or a non-stdout fp). The `echo` header is a separate builtin write and does not shift sed's buffer. The block is 39*336 + 40 + header/approx/running lines ~ 13.3 KB, so sed does 3 flushes + a final one; the `marked` case (< 4096 B) flushes once and cannot show it. Other partition's flush landing between two flushes of this partition = observed corruption. Not a harness splitter and not O_APPEND.",
+      "atomicity_statement_required_in_design": "POSIX guarantees atomicity ONLY for write(2) <= PIPE_BUF (4096) to a pipe. A ~13.3 KB write is NOT guaranteed atomic by any standard. On Linux pipe_write copies under pipe->mutex and only drops it (sleeps) when the pipe is full (default capacity 64 KB = 16 pages), so a 13.3 KB write onto a pipe with >= 13.3 KB free is contiguous in practice (3 blocks = 40 KB < 64 KB; measured 0/100 corrupt). If the pipe lacks space (reader stalled), the writer blocks mid-write with the mutex released and another writer (a WARNING echo, a job-control notice, a fall-through emitter) can land at a page boundary inside the block, i.e. mid-line. For a regular file as stderr: all writers inherit ONE open file description, so each write(2) is serialised by the f_pos lock (Linux >= 3.14) and appended in full; with O_APPEND likewise atomic; with separately opened non-O_APPEND descriptions writes would overwrite each other (not the case here: the description is inherited). So correctness rests PRIMARILY on the single write(2) (cat with a 128 KiB buffer on coreutils >= 8.x; busybox cat equivalent) PLUS the pipe having free space; the mkdir lock is defence in depth that serialises cooperating emitters even when a write blocks on a full pipe. The 3 s fall-through is acceptable (still one write; only a holder blocked > 3 s on a full pipe, i.e. a stalled reader, lets a second emitter overlap) but the design must say this, not 'the lock serialises'.",
+      "set_u_hazard_reproduced": "Reproduced on bash 5.2.37: under `set -u`, `f(){ [ \"$got\" = 1 ] && echo y; return 0; }; ( f; echo after )` prints `got: unbound variable` and the subshell EXITS before `echo after`. The watchdog runs `test_parallel_watchdog_diag` inside `( ... ) &` under the script's `set -u`; an uninitialised `got` on the lock-not-obtained path kills the watchdog subshell before `kill -TERM` => hung partition never killed (the exact RC-C class of harm). The design's helper text never initialises `got`.",
+      "shim_exec_semantics": "Verified bash 5.2: `PATH=\"$REAL_PATH\" exec sed \"$@\"` inside a PATH shim resolves the real sed (no exec loop). Bash 5.1 same semantics.",
+      "stats": "0.94^40 = 0.084, 0.94^50 = 0.045: arithmetic correct. Caveat accepted: the Windows git-bash host has different pipe/stdio semantics, a 0/40 baseline there is expected and is NOT evidence; the deterministic shim test is the real regression guard."
+    },
+    "findings": [
+      {
+        "id": "G1",
+        "severity": "MAJOR",
+        "where": "fix_design.helper (test_parallel_diag_emit)",
+        "defect": "`got` is never initialised. Under the script's `set -u` the not-obtained path (`[ \"$got\" = 1 ]`) aborts the WATCHDOG SUBSHELL before the TERM (reproduced). Design also does not state `local` for loop counter/`got`.",
+        "correction": "Specify the helper's first statement as `local blockfile=\"$1\" got=0 n=0` and the release as `if [ \"$got\" -eq 1 ]; then rmdir -- \"$tmp_dir/diag-emit.lock\" 2>/dev/null; fi` (never `[ ... ] && rmdir` as a last statement), function ends with explicit `return 0`. State: every variable the helper and watchdog function read is initialised before first use (the whole script runs under `set -u`, and the helper runs inside a `( )` watchdog whose death means no TERM)."
+      },
+      {
+        "id": "G2",
+        "severity": "MAJOR",
+        "where": "regression_test_design.test_2_stale_lock_bounded / test_3_lock_released / mutant M3",
+        "defect": "Wrong counts. The helper is called for the 3 partition blocks AND the host block (design says the host block uses the same helper), i.e. 4 emits. With the mkdir shim denying every attempt and 30 tries per emit, mkdir-denied appears 30 x 4 = 120 times, not 'exactly 3'; test_3 sees exactly 4 lock rmdirs, not 3. A faithful implementor writes a red-on-green test.",
+        "correction": "test_2: assert `count(mkdir-denied) == 4 * 30` (name the constant @lock_tries 30 in the test with a comment that it mirrors the helper), status == 1, all 3 blocks + 1 host block intact, no extra wall-clock bound beyond the existing run limit (30 shim forks x 2 sequential emits is slow on git-bash; do NOT reuse `elapsed < (t+15)*1000` here). test_3: assert exactly 4 `rmdir .../diag-emit.lock` log entries. M3 'killed by' becomes: test_2 count == 120 fails with 0 (killed behaviourally, not merely 'presence')."
+      },
+      {
+        "id": "G3",
+        "severity": "MAJOR",
+        "where": "regression_test_design (STUB_BARRIER / STUB_LOG location) vs run_until_premise",
+        "defect": "run_until_premise reruns the script up to 3 times with escalating t using a FIXED extra_env list. A STUB_BARRIER / STUB_LOG path computed once per test is shared by the attempts: stale barrier files from attempt 1 satisfy the '>= 3 files .k' condition instantly in attempt 2 (lock-step lost, T1 no longer red on the unfixed script), the non-vacuity check '>= 3 *.1 files' passes on leftovers, and mkdir-denied/rmdir counts accumulate across attempts (G2 counts wrong after any retry).",
+        "correction": "run_script/3 must create the per-attempt state itself: `state = Path.join(tmp, \"shimstate\"); File.mkdir_p!(Path.join(state, \"barrier\"))` and add `{\"STUB_BARRIER\", Path.join(state, \"barrier\")}` and `{\"STUB_LOG\", Path.join(state, \"calls.log\")}` to its env (tmp there is already the per-attempt `attempt-<t>` directory). Counting helpers read the LAST attempt's state only. Never pass barrier/log paths through the caller's extra_env."
+      },
+      {
+        "id": "G4",
+        "severity": "MAJOR",
+        "where": "regression_test_design shims (sed, mkdir, rmdir) in write_stubs",
+        "defect": "(a) The sed shim is installed in stubbin for EVERY test of the file but, as specified, its chunk/barrier branch is keyed only on the first argument; the existing 'marked'/'huge'/'quick' tests would pass through the barrier path (or `read -N \"\"` with an empty STUB_SED_CHUNK) unless gated. (b) It only intercepts when `$1` starts with `s/^/test_parallel: DIAG partition `, so M8 (`sed -u \"s/^/...\"`, or `stdbuf -oL sed ...`) is NOT intercepted (first arg is `-u`) and M8 is not deterministically killed as claimed. (c) `REAL_PATH via env` taken from Elixir `System.get_env(\"PATH\")` is a Windows-format list on the git-bash host; the in-bash PATH differs.",
+        "correction": "(a) Each shim begins `[ -n \"${STUB_SED_CHUNK:-}\" ] || { PATH=\"$REAL_PATH\" exec sed \"$@\"; }` (mkdir/rmdir shims: `[ -n \"${STUB_LOG:-}\" ]`-style gating on their own env var, pass-through otherwise) so every existing test is byte-for-byte unaffected. (b) The sed shim scans ALL arguments (`for a in \"$@\"; do case \"$a\" in 's/^/test_parallel: DIAG partition '*) part=...; break;; esac; done`), not only `$1`. (c) The launcher string in run_script exports the in-bash value before prefixing: `REAL_PATH=\"$PATH\"; export REAL_PATH; d=$(cygpath -u \"$1\" ...); PATH=\"$d:$PATH\"` (pass-through then does `PATH=\"$REAL_PATH\" exec <tool> \"$@\"`)."
+      },
+      {
+        "id": "G5",
+        "severity": "MAJOR",
+        "where": "fix_design.helper step (1) lock loop",
+        "defect": "`sleep 0.1 2>/dev/null || sleep 1` makes the 'hard ~3 s cap by iteration count' false: where fractional sleep is unsupported every iteration sleeps 1 s => 30 s before the TERM, which also exceeds the harness `elapsed` budgets. The script already requires fractional sleep unguarded (lines 569 `sleep 0.05`, 685 `sleep 0.2`), so the fallback adds risk, not portability.",
+        "correction": "Delete the `|| sleep 1` fallback: loop body is `mkdir \"$tmp_dir/diag-emit.lock\" 2>/dev/null && { got=1; break; }; n=$((n + 1)); sleep 0.1`, `while [ \"$n\" -lt 30 ]`. State in the script comment: worst case ~3 s of sleeping plus fork time (about 5 s on loaded git-bash), the bound is an iteration count, not wall clock, and stale lock costs each emit that long (partition emit then host emit, sequential => up to ~2 x bound before the TERM; still < the harness `elapsed < t+15` on Linux)."
+      },
+      {
+        "id": "G6",
+        "severity": "MAJOR",
+        "where": "design completeness for weak-model execution (task item 7)",
+        "defect": "The design has prose and a routing line but NO exact ELIXIR-DEV step order and NO mandatory local-verification list, no statement of where the helper is defined relative to test_parallel_diag_t/_run (it must precede first use and be defined before the watchdog function is CALLED, in the same top-level region), no statement that no new TEST_* knob may be introduced (test_parallel_env_test.exs greps the script for every `${TEST_...` read and fails when TestParallelEnv does not list it), and no instruction to update the test moduledoc case list.",
+        "correction": "Add this ordered list to fix_design: (1) write the regression tests + shims first (T1..T3, helper assert_blocks_intact, leak/cat-shim assertions of G8); (2) run the new tests against the UNMODIFIED script and record: T1 RED (barrier-forced interleave), T2/T3 RED (no lock exists: 0 denials / 0 rmdirs); (3) implement helper `test_parallel_diag_emit` placed immediately above `test_parallel_watchdog_diag`, change the two emitters to assemble-to-file-then-emit (partition block to `$tmp_dir/diag-block-$idx.txt`, host block to `$tmp_dir/diag-host-block.txt`), constants literal (30 tries, 0.1 s), NO new TEST_* knob; (4) `bash -n scripts/test_parallel.sh`; `shellcheck scripts/test_parallel.sh` only if installed (it is NOT installed on the host: record 'not available'); (5) mix format --check-formatted; (6) ONE mix invocation under the machine mutex running ALL of: test/scripts/test_parallel_watchdog_diag_test.exs, test_parallel_watchdog_orphan_test.exs, test_parallel_race_regression_test.exs, test_parallel_instrumentation_test.exs, test_parallel_shard_test.exs, test_parallel_env_test.exs, test_parallel_env_guard_test.exs, and the three test_parallel_*_test.sh via their own runners; (7) mutants M1..M8 + the G8 mutants, each: apply, run the single killing test, quote RED, revert (git diff clean after); kill orphan bash/sleep afterwards (G10); (8) one end-to-end real-runner slice: `TEST_PARALLEL_N=2 scripts/test_parallel.sh test/scripts/test_parallel_env_test.exs` (exit 0, `2/2 partitions reported`); (9) `mix letflow.check.static`; `mix letflow.check_async_sandbox_reachability`; `mix letflow.lint_handoffs --dir <own handoff>`; `mix letflow.check_boundaries`; `mix letflow.check_issue_refs`; (10) update the moduledoc case list (new cases 4-6) and add the script header paragraph naming RC-E, the single-write rationale and the atomicity statement (G9); (11) commit locally, no push."
+      },
+      {
+        "id": "G7",
+        "severity": "MINOR",
+        "where": "fix_design.watchdog_function",
+        "defect": "Assembly into a file replaces streaming emission. If the file cannot be created or written (tmp_dir removed under the watchdog: the RC-A shape; or ENOSPC, exactly the host condition a hung-partition DIAG exists to report) the old code still printed what it could; the new code prints NOTHING (cat fails, `|| true`).",
+        "correction": "After assembly: `[ -s \"$blk\" ] || echo \"${pfx}diagnostics unavailable: could not write $blk\" >&2` (one line < PIPE_BUF, atomic), then call the emitter only when the file exists. Same for the host block. The `|| true` / `return 0` contract and every `test_parallel_diag_t` timeout stay."
+      },
+      {
+        "id": "G8",
+        "severity": "MINOR",
+        "where": "mutants M2, M4, plus missing mutants",
+        "defect": "M2 (variable + printf) is declared non-killable; it IS killable deterministically by observing HOW the block is emitted, not by racing the write split. Also no mutant covers 'forgot rm -f of the block file' or 'lock left behind'.",
+        "correction": "Add a `cat` PATH shim (same gating/pass-through pattern as G4, env STUB_LOG) that logs `cat <args>` and execs the real cat; assert exactly 4 logged invocations whose argument matches `diag-block-<n>.txt` (3) / `diag-host-block.txt` (1), argument order `-- <file>`. M2 (printf of a variable), `echo \"$(cat f)\"`, and while-read re-emission then produce 0 matches => RED deterministically. Add post-run leak assertions on the preserved tmp tree (exit 1 preserves it): no `diag-block-*.txt`, no `diag-host-block.txt`, no `diag-emit.lock` directory remain (kills 'dropped rm -f' and M4 independently of the rmdir log). Add mutant M9 'drop rm -f' and M10 'release lock unconditionally (no got check)' (M10 is behaviourally equivalent: record as accepted, killed only by the code comment/review)."
+      },
+      {
+        "id": "G9",
+        "severity": "MINOR",
+        "where": "fix_design.what_is_atomic_and_why",
+        "defect": "States 'On Linux pipe_write holds the pipe mutex for the whole write unless the 64 KB pipe is full' as if guaranteed; the task requires an explicit guarantee statement. Also 'lock makes emits mutually exclusive' omits that the 3 s fall-through and non-lock writers (WARNING echo, bash job-control notices from `set -m`) are outside it.",
+        "correction": "Replace with the three-part statement recorded in result.independent_verification.atomicity_statement_required_in_design and copy it verbatim into the script comment above test_parallel_diag_emit (primary = single write(2) + free pipe space; secondary = lock for cooperating emitters; known residual = stalled reader > 3 s, or a WARNING/job-control line landing at a page boundary when the pipe is full; neither occurs in the harness, whose reader is `cat`). Test assertion (c) must therefore not claim more than 'no foreign line inside while the pipe has space'."
+      },
+      {
+        "id": "G10",
+        "severity": "MINOR",
+        "where": "mutant M5 procedure and baseline_plan",
+        "defect": "M5 (unbounded lock loop) with an always-denying mkdir shim spins forever: run_until_premise then escalates through 3 attempts (~40 s each) and Port.close does not kill the bash tree, leaving orphan bash/sleep loops on the host. Baseline loop uses `--only line:<n>`; the standard, line-shift-safe form is `file.exs:LINE`.",
+        "correction": "In the mutant procedure add: after M5 (and any :timeout), `pkill -f letflow_test_parallel` / kill every `sleep 0.1` loop and the stub `sleep 600`s; verify `ps` clean before the next mutant. Baseline: `mix test test/scripts/test_parallel_watchdog_diag_test.exs:<line of the huge test on UNMODIFIED main> --repeat-until-failure 10` (Elixir 1.20.3 per .tool-versions supports it), chunk loop as designed, N=40 baseline / N=50 fixed, and the baseline handoff must treat 'no reproduction on the Windows host' as expected (not a defect, not a pass of the fix); acceptance of the fix rests on T1..T3 + mutant RED + container numbers."
+      },
+      {
+        "id": "G11",
+        "severity": "MINOR",
+        "where": "handoffs/WF03-RCEDIAGINTERLEAVE-20261013/step-01-issue-fixer.json (bookkeeping)",
+        "defect": "started_at 2026-10-13T03:05:00Z is AFTER completed_at 2026-10-13T02:59:33Z (and after the wall clock at validation time, 03:04:59Z). core-directives 'completed_at must never precede started_at'.",
+        "correction": "ORCH (not the validator) sets step-01 started_at to a clock value <= completed_at (e.g. 02:55:00Z) in the next ORCH bookkeeping commit; run `mix letflow.lint_handoffs --dir` on it."
+      }
+    ],
+    "passed_checks": [
+      "Root cause and offsets re-derived from raw CI log of job 114960028887 (4096 = 12*336 + 64).",
+      "Third job (115074477292) text not re-fetched: the first two suffice for the same signature; the issue-fixer also recorded it as absent.",
+      "Temp-file + single cat is the correct fix direction; variable+printf and sed -u rejected correctly (stdio splits >4 KB; whole-line interleave remains).",
+      "EXIT-trap BASHPID guard unaffected: the helper adds no trap and only removes its own `$tmp_dir/diag-*` files; tmp_dir rm -rf stays main-shell only.",
+      "diag-host.lock (mkdir, never released, one winner) and diag-emit.lock are distinct names; a nested/other runner invocation has its own mktemp -d tmp_dir, so no sharing.",
+      "No errexit anywhere (only `set -u`): release-on-error concern reduces to G1 plus TERM/SIGKILL stale-lock, handled by the iteration-bounded fall-through.",
+      "TEST_PARALLEL_PARTITION_TIMEOUT_S semantics untouched; added latency on the normal path is one cat + rm (<1 ms); stale-lock worst case bounded by G5.",
+      "Other concurrent stderr emitters: only the watchdog WARNING echos (one line, < PIPE_BUF) and bash job-control notices (one write each) land between blocks; Step 3/4 summaries run in the main shell after the watchdogs are done. No additional multi-line concurrent emitter found (create-N.log, sampler, partition logs are files).",
+      "Baseline statistics 0.94^N correct; mutex discipline and ~40 min cap acceptable once G10 applied."
+    ],
+    "verdict": "FAIL",
+    "reroute": "CODE-DESIGNER (or ISSUE-FIXER amendment) applies G1..G10 to the design in a new handoff, then CODE-DESIGN-VALIDATOR re-gates. G11 is an ORCH bookkeeping edit. No part of the diagnosis needs redoing.",
+    "artifacts_out": []
   }
 }
