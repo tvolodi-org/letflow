@@ -16,12 +16,6 @@ import {
   type OnboardingFormValues,
 } from '@/api/onboarding'
 
-// NOTE: the Realm Config / Client Config disclosure buttons below stay
-// native <button> elements, not Button (REQ-272) -- Button's model is a
-// fixed-size inline-flex control (sm/md/lg padding, centred content); it
-// has no full-width / text-align:left mode, which this collapsible
-// section header requires. Colours are still fully tokenized.
-
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 interface FormState {
@@ -32,13 +26,6 @@ interface FormState {
   admin_display_name: string
   hostname: string
   idp_realm_id: string
-  redirect_uris: string[]
-  realm_default_token_lifetime_seconds: string
-  realm_min_password_length: string
-  realm_require_uppercase: boolean
-  realm_require_digit: boolean
-  realm_signing_key_algorithm: string
-  client_service_account_enabled: boolean
 }
 
 interface FormErrors {
@@ -49,7 +36,6 @@ interface FormErrors {
   admin_display_name?: string
   hostname?: string
   idp_realm_id?: string
-  redirect_uris?: string
 }
 
 // Client-side format HINT for the optional realm id (ISS-1030). The server
@@ -72,13 +58,6 @@ const EMPTY_FORM: FormState = {
   admin_display_name: '',
   hostname: '',
   idp_realm_id: '',
-  redirect_uris: [''],
-  realm_default_token_lifetime_seconds: '',
-  realm_min_password_length: '',
-  realm_require_uppercase: false,
-  realm_require_digit: false,
-  realm_signing_key_algorithm: '',
-  client_service_account_enabled: false,
 }
 
 // ── Validation ─────────────────────────────────────────────────────────────────
@@ -115,11 +94,6 @@ function validateForm(form: FormState): FormErrors {
     errors.hostname = 'Hostname is required'
   } else if (/^https?:\/\//i.test(form.hostname) || form.hostname.includes('/')) {
     errors.hostname = 'Enter a hostname only (no protocol or path)'
-  }
-
-  const nonEmptyUris = form.redirect_uris.filter((u) => u.trim().length > 0)
-  if (nonEmptyUris.length === 0) {
-    errors.redirect_uris = 'At least one redirect URI is required'
   }
 
   return errors
@@ -216,31 +190,6 @@ const fieldGroupStyle: React.CSSProperties = {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-function buildRealmConfig(form: FormState) {
-  const cfg: Record<string, unknown> = {}
-  if (form.realm_default_token_lifetime_seconds.trim()) {
-    const v = parseInt(form.realm_default_token_lifetime_seconds, 10)
-    if (!isNaN(v)) cfg['default_token_lifetime_seconds'] = v
-  }
-  if (form.realm_min_password_length.trim()) {
-    const v = parseInt(form.realm_min_password_length, 10)
-    if (!isNaN(v)) cfg['min_password_length'] = v
-  }
-  if (form.realm_require_uppercase) cfg['require_uppercase'] = true
-  if (form.realm_require_digit) cfg['require_digit'] = true
-  if (form.realm_signing_key_algorithm.trim()) {
-    cfg['signing_key_algorithm'] = form.realm_signing_key_algorithm.trim()
-  }
-  return Object.keys(cfg).length > 0 ? cfg : undefined
-}
-
-function buildClientConfig(form: FormState) {
-  if (form.client_service_account_enabled) {
-    return { service_account_enabled: true }
-  }
-  return undefined
-}
-
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export default function RegisterTenantPage() {
@@ -252,17 +201,13 @@ export default function RegisterTenantPage() {
 
   // All hooks must be called before any early return
   const [form, setForm] = useState<FormState>(() =>
-    prefill
-      ? { ...EMPTY_FORM, ...prefill, redirect_uris: (prefill.redirect_uris as string[] | undefined) ?? [''] }
-      : { ...EMPTY_FORM },
+    prefill ? { ...EMPTY_FORM, ...prefill } : { ...EMPTY_FORM },
   )
   const [errors, setErrors] = useState<FormErrors>({})
   const [idempotencyKey] = useState<string>(() => crypto.randomUUID())
   const [submitting, setSubmitting] = useState(false)
   const [apiError, setApiError] = useState<ApiErrorView | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
-  const [realmOpen, setRealmOpen] = useState(false)
-  const [clientOpen, setClientOpen] = useState(false)
 
   // Clear API error when form changes
   useEffect(() => {
@@ -284,25 +229,6 @@ export default function RegisterTenantPage() {
     }))
   }
 
-  function setRedirectUri(index: number, value: string) {
-    const updated = [...form.redirect_uris]
-    updated[index] = value
-    setForm((prev) => ({ ...prev, redirect_uris: updated }))
-    const draft = { ...form, redirect_uris: updated }
-    const fieldErrors = validateForm(draft)
-    setErrors((prev) => ({ ...prev, redirect_uris: fieldErrors.redirect_uris }))
-  }
-
-  function addRedirectUri() {
-    setForm((prev) => ({ ...prev, redirect_uris: [...prev.redirect_uris, ''] }))
-  }
-
-  function removeRedirectUri(index: number) {
-    const updated = form.redirect_uris.filter((_, i) => i !== index)
-    const final = updated.length === 0 ? [''] : updated
-    setForm((prev) => ({ ...prev, redirect_uris: final }))
-  }
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     const allErrors = validateForm(form)
@@ -322,9 +248,6 @@ export default function RegisterTenantPage() {
       admin_display_name: form.admin_display_name.trim(),
       hostname: form.hostname.trim(),
       idp_realm_id: form.idp_realm_id.trim(),
-      redirect_uris: form.redirect_uris.map((u) => u.trim()).filter((u) => u.length > 0),
-      realm_config: buildRealmConfig(form),
-      client_config: buildClientConfig(form),
     }
 
     try {
@@ -486,147 +409,13 @@ export default function RegisterTenantPage() {
           {apiError?.realmError && <div style={errorStyle}>{apiError.realmError}</div>}
         </div>
 
-        {/* Redirect URIs */}
-        <div style={fieldGroupStyle}>
-          <label style={labelStyle}>Redirect URIs</label>
-          {form.redirect_uris.map((uri, idx) => (
-            <div key={idx} style={{ display: 'flex', gap: '.5rem', marginBottom: '.4rem' }}>
-              <input
-                style={{
-                  ...inputStyle,
-                  flex: 1,
-                  borderColor: errors.redirect_uris && idx === 0 ? 'var(--border-error)' : 'var(--border-default)',
-                }}
-                value={uri}
-                onChange={(e) => setRedirectUri(idx, e.target.value)}
-                placeholder="https://app.example.com/callback"
-              />
-              {form.redirect_uris.length > 1 && (
-                <Button variant="danger" size="sm" onClick={() => removeRedirectUri(idx)}>
-                  Remove
-                </Button>
-              )}
-            </div>
-          ))}
-          {errors.redirect_uris && <div style={errorStyle}>{errors.redirect_uris}</div>}
-          <Button variant="secondary" size="sm" onClick={addRedirectUri}>
-            + Add URI
-          </Button>
-        </div>
-
-        {/* Realm config (collapsible) */}
-        <div style={{ marginBottom: '1rem', border: '1px solid var(--border-default)', borderRadius: '6px' }}>
-          <button
-            type="button"
-            onClick={() => setRealmOpen((v) => !v)}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              padding: '.65rem 1rem',
-              background: 'var(--surface-page)',
-              border: 'none',
-              borderRadius: realmOpen ? '6px 6px 0 0' : '6px',
-              cursor: 'pointer',
-              fontWeight: 600,
-              fontSize: '.87rem',
-              color: 'var(--text-primary)',
-            }}
-          >
-            {realmOpen ? '▾' : '▸'} Realm Config (optional)
-          </button>
-          {realmOpen && (
-            <div style={{ padding: '1rem', borderTop: '1px solid var(--border-default)' }}>
-              <div style={fieldGroupStyle}>
-                <label style={labelStyle} htmlFor="realm_token_lifetime">
-                  Default Token Lifetime (seconds)
-                </label>
-                <input
-                  id="realm_token_lifetime"
-                  type="number"
-                  style={inputStyle}
-                  value={form.realm_default_token_lifetime_seconds}
-                  onChange={(e) => setField('realm_default_token_lifetime_seconds', e.target.value)}
-                />
-              </div>
-              <div style={fieldGroupStyle}>
-                <label style={labelStyle} htmlFor="realm_min_pw">
-                  Minimum Password Length
-                </label>
-                <input
-                  id="realm_min_pw"
-                  type="number"
-                  style={inputStyle}
-                  value={form.realm_min_password_length}
-                  onChange={(e) => setField('realm_min_password_length', e.target.value)}
-                />
-              </div>
-              <div style={{ ...fieldGroupStyle, display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer', fontSize: '.87rem' }}>
-                  <input
-                    type="checkbox"
-                    checked={form.realm_require_uppercase}
-                    onChange={(e) => setField('realm_require_uppercase', e.target.checked)}
-                  />
-                  Require Uppercase
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer', fontSize: '.87rem' }}>
-                  <input
-                    type="checkbox"
-                    checked={form.realm_require_digit}
-                    onChange={(e) => setField('realm_require_digit', e.target.checked)}
-                  />
-                  Require Digit
-                </label>
-              </div>
-              <div style={fieldGroupStyle}>
-                <label style={labelStyle} htmlFor="realm_signing_alg">
-                  Signing Key Algorithm
-                </label>
-                <input
-                  id="realm_signing_alg"
-                  style={inputStyle}
-                  value={form.realm_signing_key_algorithm}
-                  onChange={(e) => setField('realm_signing_key_algorithm', e.target.value)}
-                  placeholder="RS256"
-                />
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Client config (collapsible) */}
-        <div style={{ marginBottom: '1.5rem', border: '1px solid var(--border-default)', borderRadius: '6px' }}>
-          <button
-            type="button"
-            onClick={() => setClientOpen((v) => !v)}
-            style={{
-              width: '100%',
-              textAlign: 'left',
-              padding: '.65rem 1rem',
-              background: 'var(--surface-page)',
-              border: 'none',
-              borderRadius: clientOpen ? '6px 6px 0 0' : '6px',
-              cursor: 'pointer',
-              fontWeight: 600,
-              fontSize: '.87rem',
-              color: 'var(--text-primary)',
-            }}
-          >
-            {clientOpen ? '▾' : '▸'} Client Config (optional)
-          </button>
-          {clientOpen && (
-            <div style={{ padding: '1rem', borderTop: '1px solid var(--border-default)' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer', fontSize: '.87rem' }}>
-                <input
-                  type="checkbox"
-                  checked={form.client_service_account_enabled}
-                  onChange={(e) => setField('client_service_account_enabled', e.target.checked)}
-                />
-                Service Account Enabled
-              </label>
-            </div>
-          )}
-        </div>
+        {/* ISS-1093 / GH 2463: realm and client are not collected here (ADR 0044 Phase 1). */}
+        <p
+          data-testid="realm-client-infra-note"
+          style={{ margin: '0 0 1.5rem', fontSize: '.87rem', color: 'var(--text-secondary)' }}
+        >
+          The realm and the client for this tenant are created by infra (ADR 0044 Phase 1).
+        </p>
 
         <Button
           variant="primary"

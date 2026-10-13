@@ -28,8 +28,8 @@ values belong in this file or in any evidence field.
 1. **R1 Create the realm.** Clone the `bpm-default` realm definition
    (`priv/keycloak/realms/bpm-default.json`: the `letflow-web` client with its audience mapper and
    the `realm-roles` mapper), including the realm role `TENANT_ADMIN`. Set the `letflow-web` client's valid
-   redirect URIs for this tenant's hostname by hand. Letflow does not store the `client_config.redirect_uris`
-   the wizard sent.
+   redirect URIs for this tenant's hostname by hand. The wizard no longer collects `client_config`,
+   `realm_config` or redirect URIs (GH 2463); it shows one line saying the realm and client are created by infra.
 2. **R2 Create the first administrator.** Create the user with the e-mail set and the e-mail
    marked verified, and map the realm role `TENANT_ADMIN` to that user.
 3. **R3 Bind the realm.** Either give `idp_realm_id` when onboarding (the realm must already

@@ -9,19 +9,6 @@ import type { ApiError } from '@/types/api'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-export interface RealmConfig {
-  default_token_lifetime_seconds?: number
-  min_password_length?: number
-  require_uppercase?: boolean
-  require_digit?: boolean
-  signing_key_algorithm?: string
-}
-
-export interface ClientConfig {
-  redirect_uris: string[]
-  service_account_enabled?: boolean
-}
-
 export interface OnboardingFormValues {
   slug: string
   display_name: string
@@ -30,11 +17,8 @@ export interface OnboardingFormValues {
   admin_username?: string
   admin_display_name?: string
   hostname: string
-  redirect_uris: string[]
   /** Optional (ISS-1030): blank after trim is omitted from the request. */
   idp_realm_id?: string
-  realm_config?: RealmConfig
-  client_config?: Omit<ClientConfig, 'redirect_uris'>
 }
 
 export interface OnboardingSubmitRequest {
@@ -46,8 +30,6 @@ export interface OnboardingSubmitRequest {
   admin_display_name?: string
   idp_realm_id?: string
   hostname: string
-  client_config: ClientConfig
-  realm_config?: RealmConfig
 }
 
 // ── Wire shape of the synchronous backend (ISS-1030) ──────────────────────────
@@ -169,15 +151,6 @@ export async function submitOnboarding(
     ...(adminDisplayName ? { admin_display_name: adminDisplayName } : {}),
     ...(realmId ? { idp_realm_id: realmId } : {}),
     hostname: formValues.hostname,
-    client_config: {
-      redirect_uris: formValues.redirect_uris,
-      ...(formValues.client_config?.service_account_enabled !== undefined
-        ? { service_account_enabled: formValues.client_config.service_account_enabled }
-        : {}),
-    },
-    ...(formValues.realm_config && Object.keys(formValues.realm_config).length > 0
-      ? { realm_config: formValues.realm_config }
-      : {}),
   }
 
   return client
