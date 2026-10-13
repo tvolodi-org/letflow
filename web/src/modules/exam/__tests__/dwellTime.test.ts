@@ -1,12 +1,12 @@
 /**
- * Q-1075 / GH #2432: client-reported time per question. Pins the accumulation across a
+ * Q-1075 / GH 2432: client-reported time per question. Pins the accumulation across a
  * revisit, the removed 0 default, the base-plus-measured total, and monotonicity.
  */
 
 import { describe, expect, it } from 'vitest'
 import { createDwellClock, recordSaveTotal, switchQuestion } from '@/modules/exam/dwellTime'
 
-describe('Q-1075 / GH #2432 -- dwellTime', () => {
+describe('Q-1075 / GH 2432 -- dwellTime', () => {
   it('accumulates time across a revisit, reported as whole seconds', () => {
     const clock = createDwellClock(0)
     switchQuestion(clock, 'q1', 0)

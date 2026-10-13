@@ -1,12 +1,12 @@
 /**
- * Q-1075 / GH #2432: client-reported time spent per question.
+ * Q-1075 / GH 2432: client-reported time spent per question.
  *
  * Time on a question is the wall-clock time it has been the current question, summed
  * across revisits within this page mount, and reported to the server as a whole-second
  * running total on every save. The stored value is the server's job to bound (it takes
  * the max with what is stored and clamps to the session's elapsed time).
  *
- * Known limit (GH #2432): this is client-reported. A per-question "shown" event on the
+ * Known limit (GH 2432): this is client-reported. A per-question "shown" event on the
  * server is out of scope, so the value is bounded, not server-measured.
  *
  * Pure functions over a mutable clock object, so the accounting can be unit-tested

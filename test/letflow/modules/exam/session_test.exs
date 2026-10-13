@@ -950,6 +950,9 @@ defmodule Letflow.Modules.Exam.SessionTest do
 
     test "the write path is the ordinary Records/Query path: a second save on the same question upserts, not duplicates",
          ctx do
+      # Q-1075 / GH #2432: let more than 10 seconds elapse so the stored-value bound does not bind.
+      Process.sleep(11_000)
+
       assert {:ok, _} =
                Session.autosave_answer(
                  ctx.session_id,
@@ -989,6 +992,9 @@ defmodule Letflow.Modules.Exam.SessionTest do
 
       assert [row] = rows
       assert row.field_values["selected_option_ids"] == [ctx.wrong_id]
+      # Q-1075 / GH #2432: this test pins the stored value exactly, so the session's elapsed
+      # bound must not bind here. The clamp (min with elapsed seconds) is covered separately by
+      # the clamp tests; this one waits past 10 seconds so that the reported 10 is stored as-is.
       assert row.field_values["time_spent_seconds"] == 10
     end
   end

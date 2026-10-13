@@ -159,7 +159,7 @@ function ExamSessionPageInner() {
 
   const currentQuestion: ExamQuestionState | undefined = session?.questions[questionIndex]
 
-  // Q-1075 / GH #2432: time on a question is measured here (client-reported; the server
+  // Q-1075 / GH 2432: time on a question is measured here (client-reported; the server
   // bounds it). The clock is charged to whichever question is on screen, and survives
   // revisits within this page mount.
   const [dwell] = useState(() => createDwellClock(Date.now()))
@@ -191,7 +191,7 @@ function ExamSessionPageInner() {
     (question: ExamQuestionState, selectedOptionIds: string[], textAnswer?: string): Promise<void> => {
       if (!session) return Promise.resolve()
       setSaveStatus('saving')
-      // Q-1075 / GH #2432: the running total for this question, not a 0 default.
+      // Q-1075 / GH 2432: the running total for this question, not a 0 default.
       const timeSpentSeconds = recordSaveTotal(
         dwell,
         question.question_id,
