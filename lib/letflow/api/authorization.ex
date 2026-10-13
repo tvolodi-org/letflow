@@ -749,6 +749,10 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("PATCH", "/users/:id"), do: :UsersManage
   def endpoint_policy_key("POST", "/users/:id/status"), do: :UsersManage
 
+  # ISS-1030 PR 2 (design 5.3): the tenant's own administrator READS its pending
+  # administrator grants, under the existing user-management permission. No write verb.
+  def endpoint_policy_key("GET", "/pending-admin-grants"), do: :UsersManage
+
   def endpoint_policy_key(method, "/groups" <> _rest)
       when method in ["POST", "DELETE", "GET"],
       do: :GroupsManage
@@ -823,6 +827,11 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("GET", "/onboarding"), do: :TenantsManage
   # ISS-1030 -- bind-once realm route; same gate as the three above.
   def endpoint_policy_key("POST", "/onboarding/:id/bind-realm"), do: :TenantsManage
+  # ISS-1030 PR 2 -- the operator list and revoke of pending administrator grants.
+  def endpoint_policy_key("GET", "/onboarding/:id/pending-admins"), do: :TenantsManage
+
+  def endpoint_policy_key("DELETE", "/onboarding/:id/pending-admins/:grant_id"),
+    do: :TenantsManage
 
   # REQ-374 -- platform-wide tenant-migration fanout runner
   # (Letflow.Routers.PlatformMigrations), a top-level sibling router mounted

@@ -22,6 +22,7 @@ import {
   fieldErrorConstraint,
   getOnboardingByHostname,
   OnboardingApiError,
+  type OnboardingAdministratorState,
   type OnboardingRecord,
 } from '@/api/onboarding'
 
@@ -173,6 +174,15 @@ const noteStyle: React.CSSProperties = {
   color: 'var(--text-secondary)',
 }
 
+// Fixed client-side headline per administrator state; the server's own message
+// and steps are rendered below it as plain text.
+const ADMIN_STATE_HEADLINE: Record<OnboardingAdministratorState, string> = {
+  none: 'No administrator set up',
+  pending: 'Administrator pending: becomes active at first sign-in',
+  not_stored: 'Administrator NOT stored',
+  not_provisioned: 'Administrator details not used',
+}
+
 function bindErrorMessage(err: unknown): string {
   if (!(err instanceof OnboardingApiError)) {
     return 'An unexpected error occurred. Please try again.'
@@ -302,6 +312,25 @@ function CompletedView({ record, fallbackId, onBack, onRecordChange }: Completed
       {admin && (
         <section aria-label="Administrator" style={{ marginBottom: '1.5rem' }}>
           <h3 style={sectionTitleStyle}>Administrator</h3>
+          <p
+            data-testid="administrator-state"
+            style={{
+              margin: '0 0 .5rem 0',
+              fontSize: '.87rem',
+              fontWeight: 600,
+              color:
+                admin.state === 'not_stored' || admin.state === 'none'
+                  ? 'var(--color-error-dark)'
+                  : 'var(--text-primary)',
+            }}
+          >
+            {ADMIN_STATE_HEADLINE[admin.state] ?? 'Administrator status unknown'}
+          </p>
+          {admin.state === 'pending' && admin.grant_id && (
+            <p style={noteStyle}>
+              Grant ID: <code>{admin.grant_id}</code>
+            </p>
+          )}
           <p style={noteStyle}>{admin.message}</p>
           {admin.not_provisioned.length > 0 && (
             <>

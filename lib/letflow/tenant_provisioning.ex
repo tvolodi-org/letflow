@@ -477,7 +477,9 @@ defmodule Letflow.TenantProvisioning do
   # (lib/letflow/design/req054-instance-state-snapshots.md §3), and REQ-109's
   # variable_schemas migration
   # (lib/letflow/design/req109-variable-schemas.md §2/§2.3) — thirty-one
-  # entries in total. That total also counts two entries this prose does not
+  # entries in total at that point (later entries, such as ISS-0979's
+  # `audit_chain_locks` and ISS-1030's `pending_tenant_admin_grants`, are
+  # appended in the list below, which is authoritative). That total also counts two entries this prose does not
   # enumerate by requirement id above: the sub-process parent-columns ALTER
   # (20260819045553) and the lua_script_execution_audit migration
   # (20260820000011); the list below, not this comment, is authoritative.
@@ -641,7 +643,9 @@ defmodule Letflow.TenantProvisioning do
     {20_260_926_010_001, Letflow.Repo.Migrations.BackfillExamTenantModules,
      "20260926010001_backfill_exam_tenant_modules.exs"},
     {20_261_003_000_001, Letflow.Repo.Migrations.CreateAuditChainLocks,
-     "20261003000001_create_audit_chain_locks.exs"}
+     "20261003000001_create_audit_chain_locks.exs"},
+    {20_261_008_000_001, Letflow.Repo.Migrations.CreatePendingTenantAdminGrants,
+     "20261008000001_create_pending_tenant_admin_grants.exs"}
   ]
 
   @doc """
@@ -687,7 +691,9 @@ defmodule Letflow.TenantProvisioning do
   (`lib/letflow/design/req402-tenant-modules-install-context.md` §1.2), and
   REQ-409 one more: `backfill_exam_tenant_modules` (the P2 data backfill that
   inserts an exam `tenant_modules` row for any tenant with a
-  `bilimbaga-question-bank` pack install) —
+  `bilimbaga-question-bank` pack install), ISS-0979 one more:
+  `audit_chain_locks`, and ISS-1030 one more: `pending_tenant_admin_grants`
+  (`lib/letflow/design/iss1030-onboarding-administrator.md` §4) —
   entries in total (see `@tenant_scoped_migration_manifest` itself for the
   authoritative, up-to-date count), ordered by version. Every future tenant-scoped migration must append its
   own entry to `@tenant_scoped_migration_manifest`, in addition to following the

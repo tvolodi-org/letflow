@@ -165,6 +165,7 @@ defmodule Letflow.Routers.Identity do
   alias Letflow.Api.Validation
   alias Letflow.Api.Validation.FieldConstraint
   alias Letflow.Identity
+  alias Letflow.Identity.PendingAdminGrants
   alias Letflow.Identity.RoleRegistry
   alias Letflow.PlatformTenant
 
@@ -237,6 +238,12 @@ defmodule Letflow.Routers.Identity do
 
   authz_post "/roles", :RolesManage do
     handle_upsert_role(conn, conn.assigns.scoped_opts)
+  end
+
+  # ISS-1030 PR 2 (design 5.3): the tenant's own administrator READS its pending
+  # administrator grants. GET only; the schema is the caller's own (`scoped_opts`).
+  authz_get "/pending-admin-grants", :UsersManage do
+    handle_list_pending_admin_grants(conn, conn.assigns.scoped_opts)
   end
 
   authz_unmatched(:ordinary)
@@ -836,6 +843,31 @@ defmodule Letflow.Routers.Identity do
         end
       end
     end)
+  end
+
+  # ── GET /pending-admin-grants (ISS-1030 PR 2, design 5.3) ────────────────
+
+  # Hand-built allowlist (INV-2). It deliberately omits every creator, revoker and
+  # operator id (none is stored in the tenant schema) and the bound user id: the
+  # creator is the constant class below. The e-mail is shown for an open grant only
+  # (null once bound or revoked), in the same sensitivity class as GET /users.
+  defp handle_list_pending_admin_grants(conn, opts) do
+    items =
+      [prefix: Keyword.fetch!(opts, :prefix)]
+      |> PendingAdminGrants.list()
+      |> Enum.map(fn %{grant: grant, state: state, age_seconds: age_seconds} ->
+        %{
+          "id" => grant.id,
+          "email" => grant.email_key,
+          "state" => Atom.to_string(state),
+          "age_seconds" => age_seconds,
+          "created_at" => iso8601_or_nil(grant.inserted_at),
+          "bound_at" => iso8601_or_nil(grant.consumed_at),
+          "created_via" => "platform_operator_onboarding"
+        }
+      end)
+
+    Response.ok(conn, %{"pending_admins" => items})
   end
 
   # ── GET /roles (design §6.1, AC6) ────────────────────────────────────────
