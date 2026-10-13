@@ -1,0 +1,45 @@
+{
+  "handoff_id": "c4a7d1e0-1029-4b11-8c20-000000000005",
+  "run_id": "WF03-ISS1029READSTORED-20261013",
+  "workflow_id": "WF-03",
+  "step": "05",
+  "from_agent": "ORCH",
+  "to_agent": "REVIEWER",
+  "file": "handoffs/WF03-ISS1029READSTORED-20261013/step-05-reviewer.json",
+  "created_at": "2026-10-13T12:10:00Z",
+  "started_at": "2026-10-13T12:12:00Z",
+  "completed_at": "2026-10-13T12:31:00Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "related_handoff_ids": ["c4a7d1e0-1029-4b11-8c20-000000000001", "c4a7d1e0-1029-4b11-8c20-000000000002c", "c4a7d1e0-1029-4b11-8c20-000000000003"],
+    "artifacts_in": ["git diff e29356eb8..4b4662de4"],
+    "branch_name": "feature/WF03-ISS1029READSTORED-20261013"
+  },
+  "task": {
+    "description": "WF-03 REVIEWER gate for Q-1011 / GH #2311 / ISS-1029: idiom, supervision, scope creep, decision-record consistency, design conformance, behaviour preservation, pre-existing-failure claim."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "PASS (0 BLOCKER, 0 MAJOR, 2 MINOR). IDIOM: plain Ecto context code, no process machinery added; supervision question is N/A (no process, no spawn; Letflow.InstanceSupervisor untouched, consistent with REQ-045 / CLAUDE.md). No gen_statem/GenServer introduced. SCOPE: lib/ diff is exactly promotions.ex and promotion_review_store.ex; no new behaviour/macro/plumbing; the new opt and typedoc are the single abstraction the design requires. Tests, test/specs (ISS-1029 new, ISS-1021/1023 notes), ISS-1029.yaml implementation note, handoff are all per design; no migration. DESIGN CONFORMANCE (step-01 rev1 + r2 PASS): predicate extracted as review_tenants_authorized?/2; context and GET /:id gate before data read, same Response.not_found bytes; list passes row_visible? only when tenant_view != :operator; chunk = max(page_size+1,100) via @min_scan_chunk; stop on page_size+1 visible or short chunk; no cap; next_cursor from last emitted row via the existing split_list_reviews_page; non-nil non-1-arity raises ArgumentError; shape_plan/2 left as defence in depth. BEHAVIOUR PRESERVATION: stored_tenants_authorized?/3 now delegates to review_tenants_authorized?/2 with the decode logic moved verbatim (same Jason.decode, non-map or malformed -> %{}, same tenants_authorized?/2 call over the same two keys); :review_not_found still true; approve/reject/apply/run-assertions call sites untouched. tenant_view/1 and TenantTarget.authorize_target_tenant/2 both key on PlatformTenant.scope_facts_for(...).platform_scope?, so the operator skip is consistent with the predicate. row_visible? OPTS VALIDATION: nil/absent -> no filter, 1-arity fun -> filter, anything else (including 0/2-arity) raises ArgumentError before any query; evaluated before the tenant-schema guard, fail-closed, covered by the store test. RECORDS: decision 0046 note is a factual closure of the ISS-1026 follow-up, no new decision, no contradiction of 0001..0046; no anti-patterns.md entry applies (grepped scan/Jason.decode/fail-closed/ISS-1021/1026). PRE-EXISTING FAILURES CLAIM VERIFIED: throwaway detached worktree at e29356eb8 (deps and _build copied, removed afterwards, git worktree list clean), one mix process at a time: tenant_admin_routes_test.exs -> 14/15, failure 'AC2: a TENANT_ADMIN of an ordinary tenant is allowed ... GET and POST /identity/users' (:67); req077_promotion_pipeline_test.exs -> 36/37, failure ':Unknown gate denies a real non-admin caller ... POST /api/v1/promotions/plan with a real VIEWER token' (:1279), left 500 right 403. Both fail identically before the fix, unrelated to read routes; step-03 recommended filing them separately (ORCH call). TYPE-SAFETY: nothing new; no issue filed.",
+    "issues": [
+      {
+        "severity": "MINOR",
+        "description": "scan_visible_reviews/7 accumulates with `acc ++ Enum.filter(...)` and calls length(acc) every iteration, quadratic in visible rows held. Bounded by page_size + 1 visible rows (page_size is validated and capped upstream) so it is not a defect; Enum.take plus a counter would be tidier.",
+        "file": "lib/letflow/definitions/promotion_review_store.ex",
+        "route_to": "ELIXIR-DEV (optional, no re-gate needed)"
+      },
+      {
+        "severity": "MINOR",
+        "description": "Two unrelated pre-existing failures on the branch base (tenant_admin_routes_test AC2 POST /identity/users 500; req077_promotion_pipeline_test:1279 VIEWER plan 500 instead of 403) are not yet filed as issues; TEST-RUNNER/RELEASE-VALIDATOR will see them red. They should be queued so the gate can classify them as known.",
+        "route_to": "ORCH"
+      }
+    ],
+    "artifacts_out": ["handoffs/WF03-ISS1029READSTORED-20261013/step-05-reviewer.json"],
+    "owned_modules": [],
+    "design_deviations": [],
+    "next_action": "ORCH: TEST-DESIGNER / TEST-RUNNER per WF-03; file the two pre-existing failures."
+  }
+}
