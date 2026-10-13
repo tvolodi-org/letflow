@@ -1,14 +1,9 @@
 defmodule Letflow.Routers.OnboardingClientConfigTest do
   @moduledoc """
-  Q-1088 / GH #2450 -- `POST /api/v1/onboarding` must not drop `client_config` and `realm_config` silently.
-  The wizard sends both (web/src/api/onboarding.ts). On main, `ignored_fields` names both keys, but the
-  response says nothing about where they went: `Map.take` keeps only `slug` and `display_name`
-  (lib/letflow/routers/onboarding.ex).
-
-  Tests 1 and 2 pin the decision recorded in test/specs/Q-1088-prefix-run.txt (option A): each key the
-  request carries gets a disposition in the response; non-storage is not asserted here. Tests 3 and 4 are design-neutral
-  about disposition values: they hold for any decision that keeps `ignored_fields`, echoes no client value, and
-  adds no key for an absent field.
+  REQ-468 (supersedes Q-1088 / GH #2450's disposition) -- `POST /api/v1/onboarding` ignores `client_config`
+  and `realm_config` BY NAME: they are ordinary undeclared body keys (like `redirect_uris`), listed in
+  `ignored_fields` and answered with nothing else. The web wizard no longer sends them (PR #2467). No value
+  is read, stored or echoed, and the tenant and onboarding record are created exactly as without the keys.
 
   `async: false`: tenant provisioning flips the SQL sandbox to `:auto`, and the platform tenant pin is
   VM-global.
@@ -17,7 +12,6 @@ defmodule Letflow.Routers.OnboardingClientConfigTest do
   use Letflow.DataCase, async: false
 
   import Ecto.Query, only: [from: 2]
-  import Plug.Test
 
   alias Letflow.Identity.OnboardingRecord
   alias Letflow.Identity.Tenant
@@ -83,29 +77,39 @@ defmodule Letflow.Routers.OnboardingClientConfigTest do
     call(ctx, :post, "/api/v1/onboarding", body)
   end
 
-  # Pinned to the production text (lib/letflow/routers/onboarding.ex, @not_stored_next). A change to the wording
-  # is a deliberate edit here too.
-  @not_stored_next "Not stored or applied by the platform. Set up this tenant's client and realm by hand, as the onboarding runbook describes (docs/runbooks/onboarding-new-tenant-realm.md, ADR 0044 Phase 1)."
-
-  test "POST /onboarding answers each of client_config and realm_config with disposition not_stored and the next step",
+  test "client_config and realm_config in the body: 201, no top-level key for them, both named in ignored_fields, tenant and record created as without them",
        ctx do
-    conn =
+    with_keys =
       post_onboarding(ctx, %{
         "client_config" => %{
           "redirect_uris" => ["https://app.example.test/callback"],
           "service_account_enabled" => false
         },
-        "realm_config" => %{"realm_display_name" => "Q-1088 realm"}
+        "realm_config" => %{"realm_display_name" => "REQ-468 realm"}
       })
 
-    assert conn.status == 201, conn.resp_body
-    body = json(conn)
-    assert body["client_config"] == %{"disposition" => "not_stored", "next" => @not_stored_next}
-    assert body["realm_config"] == %{"disposition" => "not_stored", "next" => @not_stored_next}
+    assert with_keys.status == 201, with_keys.resp_body
+    body = json(with_keys)
+    refute Map.has_key?(body, "client_config")
+    refute Map.has_key?(body, "realm_config")
+    assert "client_config" in body["ignored_fields"]
+    assert "realm_config" in body["ignored_fields"]
+
+    # the same request without the keys answers the same body shape (apart from ids and the ignored names)
+    without = post_onboarding(ctx, %{})
+    assert without.status == 201, without.resp_body
+    plain = json(without)
+    assert Enum.sort(Map.keys(plain)) == Enum.sort(Map.keys(body))
+    assert plain["ignored_fields"] == []
+    assert plain["administrator"] == body["administrator"]
+    assert plain["login"] == body["login"]
+
+    tenant = Repo.get_by!(Tenant, slug: body["slug"])
+    assert Repo.get_by(OnboardingRecord, tenant_id: tenant.id)
+    assert Repo.get_by(Registration, tenant_id: tenant.id)
   end
 
-  test "POST /onboarding with only client_config answers a disposition for client_config and none for realm_config",
-       ctx do
+  test "only client_config sent: no disposition key at all, named in ignored_fields only", ctx do
     conn =
       post_onboarding(ctx, %{
         "client_config" => %{"redirect_uris" => ["https://app.example.test/callback"]}
@@ -113,28 +117,29 @@ defmodule Letflow.Routers.OnboardingClientConfigTest do
 
     assert conn.status == 201, conn.resp_body
     body = json(conn)
-    assert body["client_config"] == %{"disposition" => "not_stored", "next" => @not_stored_next}
+    refute Map.has_key?(body, "client_config")
     refute Map.has_key?(body, "realm_config")
+    assert body["ignored_fields"] == ["client_config"]
   end
 
-  test "POST /onboarding names the keys of client_config and realm_config in ignored_fields and echoes no client string value",
+  test "no value is echoed: sentinels (also inside client_config.redirect_uris) appear nowhere in the body or headers",
        ctx do
     conn =
       post_onboarding(ctx, %{
         "client_config" => %{
-          "redirect_uris" => ["https://zz-q1088-sentinel.example.test/cb"],
+          "redirect_uris" => ["https://zz-req468-sentinel.example.test/cb"],
           "service_account_enabled" => true
         },
-        "realm_config" => %{"realm_display_name" => "ZZ-Q1088-SENTINEL"}
+        "realm_config" => %{"realm_display_name" => "ZZ-REQ468-SENTINEL"}
       })
 
     assert conn.status == 201, conn.resp_body
 
     # Case-insensitive, and the response headers too: an echo in any case or any header is a leak.
-    refute String.downcase(conn.resp_body) =~ "zz-q1088-sentinel"
+    refute String.downcase(conn.resp_body) =~ "zz-req468-sentinel"
 
     refute Enum.any?(conn.resp_headers, fn {_name, value} ->
-             String.downcase(value) =~ "zz-q1088-sentinel"
+             String.downcase(value) =~ "zz-req468-sentinel"
            end)
 
     body = json(conn)
@@ -142,7 +147,7 @@ defmodule Letflow.Routers.OnboardingClientConfigTest do
     assert "realm_config" in body["ignored_fields"]
   end
 
-  test "POST /onboarding without client_config or realm_config answers no disposition for them (existing callers unchanged)",
+  test "a request without the keys is unchanged: no client_config or realm_config key, empty ignored_fields",
        ctx do
     conn = post_onboarding(ctx, %{})
 
@@ -150,5 +155,14 @@ defmodule Letflow.Routers.OnboardingClientConfigTest do
     body = json(conn)
     refute Map.has_key?(body, "client_config")
     refute Map.has_key?(body, "realm_config")
+    assert body["ignored_fields"] == []
+  end
+
+  test "the per-key disposition is gone from the router source" do
+    source = File.read!("lib/letflow/routers/onboarding.ex")
+
+    for gone <- ["@not_stored_keys", "@not_stored_next", "dispositions(", ~s("disposition" =>)] do
+      refute source =~ gone, "lib/letflow/routers/onboarding.ex still contains #{inspect(gone)}"
+    end
   end
 end
