@@ -1,0 +1,104 @@
+{
+  "handoff_id": "d8cefd79-612a-410f-9155-82ef11e5e2b6",
+  "run_id": "WF02-Q1075-20261013",
+  "workflow_id": "WF-02",
+  "step": "03",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF02-Q1075-20261013/step-03-security-reviewer.json",
+  "created_at": "2026-10-13T06:03:54Z",
+  "started_at": "2026-10-13T06:03:54Z",
+  "completed_at": "2026-10-13T06:04:09Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "not resolved in this review (exam module; no requirement or issue entry for GH #2432 found under docs/)",
+    "requirement_ids": [],
+    "issue_ids": [],
+    "parent_requirement": "none resolved; queue task 1075 / GH #2432 (Q-1075) is the work item",
+    "queue_task": 1075,
+    "gh_issue": 2432,
+    "branch_name": "feat/Q-1075-exam-time-spent",
+    "base_commit": "bf304105f27b3d4e35d3756ca21b93b7e374fbe7",
+    "reviewed_commit": "d97f18a69b98a854be270cc5986e8c2b1440cd2b",
+    "artifacts_in": [
+      "docs/agents/instructions/security-invariants.md",
+      "docs/agents/instructions/core-directives.md",
+      ".claude/agents/security-reviewer.md",
+      "lib/letflow/modules/exam/session.ex",
+      "lib/letflow/modules/exam/router.ex",
+      "lib/letflow/routers/entities.ex",
+      "lib/letflow/api/authorization.ex",
+      "test/letflow/modules/exam/session_test.exs",
+      "web/src/modules/exam/ExamSessionPage.tsx",
+      "web/src/modules/exam/dwellTime.ts",
+      "web/src/modules/exam/__tests__/dwellTime.test.ts",
+      "handoffs/WF02-Q1051-20261012/step-03-security-reviewer.json"
+    ]
+  },
+  "task": {
+    "description": "SECURITY-REVIEWER hard gate for Q-1075 / GH #2432 on branch feat/Q-1075-exam-time-spent, HEAD d97f18a6, based on origin/main bf304105. Review git diff origin/main..HEAD (5 files). Read-only: no mix, no BEAM, no code edits. Determine APPLICABLE or NOT-APPLICABLE for INV-1..INV-10 against the diff, run the checks for each applicable invariant, and answer points (a)-(f): (a) the server bound cannot be bypassed by a client; (b) a clamp cannot reach a stored value above the session's wall-clock span; (c) no tenant-data path change beyond the upsert of the caller's own session answer, with check_owner and the existing guards still running first; (d) no response shaping change, no secret, no migration; (e) exam scoring and anti-cheat untouched; (f) the frontend change exposes no new data.",
+    "acceptance_criteria": [
+      "(a) client cannot supply started_at or otherwise move the bound; bound uses the server session row; value never trusted above elapsed",
+      "(b) stored value never exceeds the session's wall-clock span; aggregate behaviour across questions stated",
+      "(c) check_owner and all existing guards run before upsert_answer; new reads are scoped by session_id, question_id and prefix",
+      "(d) no response shaping change, no secret resolution change, no migration",
+      "(e) grep of lib/ for time_spent_seconds readers; scoring and anti-cheat untouched",
+      "(f) frontend change does not expose new data",
+      "INV-1..INV-10 applicability recorded with rationale; no applicable invariant FAIL",
+      "Verdict PASS, PASS_WITH_FINDINGS or FAIL recorded with file:line for every finding"
+    ]
+  },
+  "result": {
+    "status": "PASS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "PASS_WITH_FINDINGS (result.status PASS: no applicable invariant fails). Scope test: IN SCOPE by the tenant-data clause. The diff changes the value written by the autosave write path to session_answer, a tenant-scoped entity, reached through the existing PUT /exam-sessions/:id/answers/:question_id route. No route, migration, secret, response shape or lookup-by-ID handler is changed. APPLIES: INV-1 (PASS), INV-4 (PASS), INV-7 (PASS), INV-8 (PASS). NOT-APPLICABLE: INV-2, INV-3, INV-5, INV-6, INV-9, INV-10. Points (a)-(f) hold as stated for the per-value upper bound. The findings are: the bound is per question, so the sum across questions is not bounded by the span (F1); a comment overstates monotonicity for over-large legacy rows (F2); the over-large test asserts <= 30 rather than the exact bound (F3); plus INFO-level notes. None is an invariant violation. Read-only: no mix or BEAM was run; file reads, git and grep only. The lint of this handoff was not run (no mix); the file was checked by a JSON parse only.",
+    "evidence": {
+      "scope_test": "IN SCOPE (tenant-data clause, write path). Changed: lib/letflow/modules/exam/session.ex (upsert_answer and autosave helpers), test/letflow/modules/exam/session_test.exs, web/src/modules/exam/ExamSessionPage.tsx, web/src/modules/exam/dwellTime.ts (new), web/src/modules/exam/__tests__/dwellTime.test.ts (new). Not changed: lib/letflow/modules/exam/router.ex, any routers/, priv/, config/. Not triggered: API route added, migration, response shaping, lookup-by-ID handler, secret resolution.",
+      "a_client_cannot_move_bound": "PASS. The router schema (lib/letflow/modules/exam/router.ex:407-411) accepts only selected_option_ids, time_spent_seconds and text_answer; answer_attrs (router.ex:420-425) carries only those keys. autosave_answer (session.ex:510-519) reads only question_id, selected_option_ids, time_spent_seconds and Map.get of text_answer; no client started_at is read. started_at is the server row's value: session.ex:538 parse_dt!(fv(session, 'started_at')), where session comes from fetch_session (session.ex:523, 923-928, Latest.get by session_id under prefix). started_at is written only at create, from iso8601(utc_now()) (session.ex:750). The bound is session.ex:1097-1100: elapsed = max(DateTime.diff(now, started_at, :second), 0); min(max(stored, received), elapsed). The value is never above elapsed. Non-integer and negative input is rejected before the bound by check_non_negative (session.ex:522, 915-921: is_integer and >= 0, else :answer_shape_invalid). Residual dependency on the session row's integrity is recorded as F7.",
+      "b_clamp_vs_span": "PASS for the per-value bound. Each written value satisfies stored <= elapsed at its own compute time (session.ex:1099). Elapsed is non-decreasing, so a stored value never exceeds the session's wall-clock span at any later time. The aggregate across questions is NOT bounded by the span, because the bound applies per row (F1). Rows written before this change had no bound and can exceed elapsed; the next save lowers them (F2).",
+      "c_scoping_and_guards": "PASS. Guard order in autosave_answer (session.ex:522-541): check_non_negative, fetch_session (session_id and prefix), check_owner (session.ex:524; session.ex:931-933 compares user_id, else :not_owner), check_in_progress (525), check_deadline (526), fetch_session_question (527; session_id and question_id under prefix), fetch_question_for_autosave (528), check_answer_shape (529), check_options_belong (530), then upsert_answer (532). The new parse_dt! argument (538) is evaluated only after all guards succeed. The existing-row read is NOT new: query_all('session_answer', [session_id, question_id], prefix) at session.ex:1049-1053 is unchanged context in the diff, and stored_time_spent (session.ex:1102-1107) reads a field of that already-fetched row. All three writes carry prefix (session.ex:1049-1053, 1069, 1082). The diff adds no tenant_id attribute and no migration. The non-owner path returns at check_owner before any new code runs, so no new timing or response signal is added.",
+      "d_response_secret_migration": "PASS. Autosave success return is still {:ok, %{remaining_seconds: ...}} (session.ex:542). router.ex is not in the diff; answer_json (router.ex:862-874) is unchanged. No secret or config path: the added lines of the diff contain no System.get_env, token, password, secret, bearer or http reference (grep of '+' lines). No priv/ or config/ path in git diff origin/main..HEAD --name-only; no migration.",
+      "e_scoring_anticheat_untouched": "PASS. grep -rn time_spent_seconds lib/ returns only lib/letflow/modules/exam/session.ex (lines 175, 337, 478, 516-537, 915-921, 1019, 1058, 1065, 1075, 1080, 1103) and lib/letflow/modules/exam/router.ex (409 FieldConstraint, 423 Map.fetch!, 865 and 871 answer_json of the candidate's own state). No scoring or grading function reads it. lib/letflow/modules/exam/anti_cheat.ex has no time_spent reference. lib/letflow/design/req330-exam-live-session.md:473 is a design document only. Scoring and anti-cheat code are not in the diff.",
+      "f_frontend_no_new_data": "PASS. dwellTime.ts is pure accounting: no fetch, no storage, no logging, no new endpoint. ExamSessionPage.tsx reuses examApi.saveAnswer with the same payload key time_spent_seconds, which was already sent. The value is the candidate's own time on their own question, already returned to the same candidate by the get-state response (session.ex:478, router.ex:871). The added lines contain no console, localStorage, sessionStorage or fetch call. The client-reported limit is disclosed in the dwellTime.ts header comment.",
+      "invariants": {
+        "INV-1": {"applicability": "APPLIES", "verdict": "PASS", "check": "(a) every query and write in upsert_answer carries prefix: session.ex:1049-1053 query_all, 1069 Records.update_record prefix, 1082 write_record prefix. (b) no migration: priv/ unchanged. (c) the diff writes no tenant_id attribute; attrs carry session_id, question_id, selected_option_ids, saved_at, text_answer (conditional) and time_spent_seconds only."},
+        "INV-2": {"applicability": "NOT-APPLICABLE", "verdict": "n/a", "check": "No response type, serializer or allowlist changed. Autosave success response unchanged (session.ex:542). The state read (router.ex:862-874) is unchanged."},
+        "INV-3": {"applicability": "NOT-APPLICABLE", "verdict": "n/a", "check": "No Lua or WASM host function or capability change."},
+        "INV-4": {"applicability": "APPLIES", "verdict": "PASS", "check": "Repo-wide heuristic (password|secret|client_secret|token) = quoted 8+ char literal over lib/ and config/: 0 hits. System.get_env over config/ and lib/: 43 hits, unchanged by this diff (no added System.get_env line). No secret literal in any added line."},
+        "INV-5": {"applicability": "NOT-APPLICABLE", "verdict": "n/a", "check": "The diff does not change the autosave lookup or its error mapping. session_not_found and not_owner still return before the new code path (session.ex:523-524)."},
+        "INV-6": {"applicability": "NOT-APPLICABLE", "verdict": "n/a", "check": "No new route, host function, migration or business table. The change modifies the value written by an existing path; this record states its scoping (check c)."},
+        "INV-7": {"applicability": "APPLIES", "verdict": "PASS", "check": "grep Repo.query in lib/letflow/modules/exam/session.ex: 0 hits. Added lines of the diff containing Repo.query: 0. No fragment() or Ecto.Adapters.SQL added in lib (the test file's fragment is pre-existing context)."},
+        "INV-8": {"applicability": "APPLIES", "verdict": "PASS", "check": "New bare call parse_dt!(fv(session, 'started_at')) at session.ex:538 matches only a binary (session.ex:1398-1401). started_at is server-written at create (session.ex:750), so no realistic failure on external input. The same parse_dt! already runs on the same session row before the upsert (check_deadline, session.ex:944) and after it (remaining_seconds, session.ex:1110). A raise here would be a per-request crash, not a shared-process crash. The upsert case expressions (session.ex:1054-1088) are exhaustive over query_all's result and ok_or_error handles both write results."},
+        "INV-9": {"applicability": "NOT-APPLICABLE", "verdict": "n/a", "check": "No outbound HTTP or URL code added or changed."},
+        "INV-10": {"applicability": "NOT-APPLICABLE", "verdict": "n/a", "check": "No route or permission added or changed. The autosave route and its ExamSessionSave permission are unchanged."}
+      },
+      "invariant_note_inv5_inv6": "INV-5 and INV-6 are not applicable to this diff. The diff reuses the existing lookup and write path without changing either.",
+      "secret_grep_note": "The secret-literal heuristic is repo-wide, not diff-only; repo-wide hits are 0 and the env-sourced count is unchanged at 43."
+    },
+    "artifacts_out": ["handoffs/WF02-Q1075-20261013/step-03-security-reviewer.json"],
+    "issues": [
+      {"severity": "MINOR", "id": "F1", "description": "lib/letflow/modules/exam/session.ex:1097-1100 (bounded_time_spent) and the comment at 1091-1096: the bound applies per stored value, not per session. Each answered question can carry up to elapsed seconds, so the sum across k questions can reach k times the session's wall-clock span. The comment's claim that the value cannot exceed the time the session has existed is true per question only. No reader in lib/ sums the field and no scoring or anti-cheat reader exists (check e), so the impact is limited to the integrity of a reporting field. Not an invariant violation. Fix direction: if the value is ever summed, shown as a total or used as a timing signal, bound the cross-question sum (for example, cap each save at elapsed minus the other questions' stored totals), or record the per-question semantics in the exam design doc.", "affected_requirement": "Q-1075 / GH #2432", "owner": "ELIXIR-DEV / REVIEWER (metric semantics decision)"},
+      {"severity": "MINOR", "id": "F2", "description": "lib/letflow/modules/exam/session.ex:1093-1094 says the stored value never decreases (max with what is stored). In the code the min is applied after the max (session.ex:1099), so a stored value above elapsed is lowered on the next save. This can occur only for rows written before this change, which had no bound: the pre-change upsert stored any non-negative integer (session.ex:522 and 915-921). The direction of the change is correct, but the comment is inaccurate for that case. The added tests (test/letflow/modules/exam/session_test.exs:1590-1600) do not cover a legacy over-large row. Fix direction: correct the comment; optionally add a test that seeds an over-large row and checks the next save lowers it to elapsed.", "affected_requirement": "Q-1075 / GH #2432", "owner": "ELIXIR-DEV (comment); TEST-DESIGNER (optional test)"},
+      {"severity": "MINOR", "id": "F3", "description": "test/letflow/modules/exam/session_test.exs:1607-1608: the over-large test asserts stored < 999_999 and stored <= 30. A bound that is off by up to 30 seconds, for example elapsed + 30, would pass. The assertion does not pin the bound the test is named for. Fix direction: assert equality with the elapsed seconds at save time, computed from the session's started_at read back from the row, or assert stored <= DateTime.diff(DateTime.utc_now(), started_at, :second).", "affected_requirement": "Q-1075 / GH #2432", "owner": "TEST-DESIGNER / ELIXIR-DEV"},
+      {"severity": "INFO", "id": "F4", "description": "test/letflow/modules/exam/session_test.exs:954 (Process.sleep(11_000)) and :1593 (Process.sleep(2_100)): wall-clock waits add about 13 seconds to the suite. The 11-second wait is a precondition so that the existing exact assertion (== 10, line 998) still holds under the bound. The expected value is unchanged, so this is not a weakening of that test. A clock seam would avoid the wait.", "affected_requirement": "Q-1075 / GH #2432", "owner": "TEST-DESIGNER"},
+      {"severity": "INFO", "id": "F5", "description": "lib/letflow/modules/exam/session.ex:1049-1070: the upsert is read-then-write. Two concurrent autosaves on the same question can interleave so that the lower value wins, which defeats the max within that race. The upper bound still holds, because every written value is computed from its own now and started_at. The pattern is pre-existing and not introduced by this diff.", "affected_requirement": "Q-1075 / GH #2432", "owner": "ELIXIR-DEV, only if the monotonic claim is ever made a hard guarantee"},
+      {"severity": "INFO", "id": "F6", "description": "web/src/modules/exam/ExamSessionPage.tsx:204 and :216: the optimistic state stores the value that was sent, not the value the server stored after clamping. The next save sends the base plus measured time again and the server clamps again. The server stays authoritative; the UI can show a larger value than is stored until reload.", "affected_requirement": "Q-1075 / GH #2432", "owner": "FRONTEND-DEV (cosmetic)"},
+      {"severity": "INFO", "id": "F7", "description": "Pre-existing, not in this diff: the started_at bound depends on no candidate-reachable path writing the session record. CANDIDATE holds exactly six exam permissions (lib/letflow/api/authorization.ex:150-159; core_role_allows?(:CANDIDATE, _) is false at line 1479), none of them :EntitiesRecordsWrite, which gates PUT /entities/records/:entity_type/:record_id (lib/letflow/routers/entities.ex:297-298). This review did not enumerate every other role's grant. A future grant of :EntitiesRecordsWrite to a role a candidate can hold would let the candidate move started_at and defeat the bound. Re-check on any role-matrix change.", "affected_requirement": "Q-1075 / GH #2432", "owner": "REVIEWER / SECURITY-REVIEWER on any role-matrix change"}
+    ],
+    "git_evidence": {
+      "branch_name": "feat/Q-1075-exam-time-spent",
+      "reviewed_commit": "d97f18a69b98a854be270cc5986e8c2b1440cd2b",
+      "commit_sha_list": ["d97f18a69b98a854be270cc5986e8c2b1440cd2b"],
+      "commits_in_range": ["234199f4 (wip, short SHA)", "d97f18a6 (fix, short SHA)"],
+      "remote_branch": null,
+      "push_status": "not_pushed",
+      "pr_url": null,
+      "pr_create_error": null,
+      "untracked_not_staged": "letflow-3.code-workspace"
+    },
+    "next_action": "No applicable invariant fails, so the SECURITY-REVIEWER gate passes (result.status PASS, verdict PASS_WITH_FINDINGS). Before merge: (1) ELIXIR-DEV to correct the comment at session.ex:1093-1094 (F2) and decide whether the cross-question sum needs a bound or a documented per-question semantics (F1); (2) TEST-DESIGNER to tighten the over-large assertion at session_test.exs:1607-1608 (F3). Any later change to the bound, to started_at handling, to the autosave guard order, or to the role grant for :EntitiesRecordsWrite needs a new SECURITY-REVIEWER pass. TEST-RUNNER must run the new and changed tests; no mix was run here."
+  },
+  "rework_count": 0,
+  "max_rework": 3
+}

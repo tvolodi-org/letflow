@@ -950,6 +950,9 @@ defmodule Letflow.Modules.Exam.SessionTest do
 
     test "the write path is the ordinary Records/Query path: a second save on the same question upserts, not duplicates",
          ctx do
+      # Q-1075 / GH #2432: let more than 10 seconds elapse so the stored-value bound does not bind.
+      Process.sleep(11_000)
+
       assert {:ok, _} =
                Session.autosave_answer(
                  ctx.session_id,
@@ -989,6 +992,9 @@ defmodule Letflow.Modules.Exam.SessionTest do
 
       assert [row] = rows
       assert row.field_values["selected_option_ids"] == [ctx.wrong_id]
+      # Q-1075 / GH #2432: this test pins the stored value exactly, so the session's elapsed
+      # bound must not bind here: the wait above makes elapsed exceed 10 seconds, so the reported
+      # 10 is stored as-is. The bound itself is tested by the over-large clamp test further down.
       assert row.field_values["time_spent_seconds"] == 10
     end
   end
@@ -1538,6 +1544,80 @@ defmodule Letflow.Modules.Exam.SessionTest do
       assert reread.status == :grading_pending
       assert reread.score_pct == 0.0
       assert reread.passed == nil
+    end
+  end
+
+  # Q-1075 / GH #2432: the stored time per question is the bounded running total.
+  defp q1075_save_time(ctx, seconds) do
+    Session.autosave_answer(
+      ctx.session_id,
+      ctx.candidate_id,
+      %{
+        question_id: ctx.question_id,
+        selected_option_ids: [ctx.correct_id],
+        time_spent_seconds: seconds
+      },
+      ctx.schema
+    )
+  end
+
+  defp q1075_stored_time(ctx) do
+    assert {:ok, state} =
+             Session.get_session_state_for_user(ctx.session_id, ctx.candidate_id, ctx.schema)
+
+    state.answers[ctx.question_id].time_spent_seconds
+  end
+
+  describe "Q-1075 / GH #2432 -- time_spent_seconds is the bounded running total" do
+    setup do
+      %{schema_name: schema} = tenant("q1075-time-#{System.unique_integer([:positive])}")
+
+      %{exam: exam, questions: [{question_id, correct_id, _wrong_id}]} =
+        build_minimal_exam!(schema)
+
+      candidate_id = Ecto.UUID.generate()
+      assert {:ok, session_view} = Session.create(candidate_id, exam.record_id, schema)
+
+      %{
+        schema: schema,
+        session_id: session_view.id,
+        candidate_id: candidate_id,
+        question_id: question_id,
+        correct_id: correct_id
+      }
+    end
+
+    test "a delayed save stores a non-zero time, and a later lower report never lowers it", ctx do
+      # The stored value is clamped to the session's elapsed seconds, so wait long enough
+      # for two whole seconds to have elapsed before the first save.
+      Process.sleep(2_100)
+
+      assert {:ok, _} = q1075_save_time(ctx, 2)
+      assert q1075_stored_time(ctx) == 2
+
+      assert {:ok, _} = q1075_save_time(ctx, 1)
+      assert q1075_stored_time(ctx) == 2
+    end
+
+    test "an over-large report is clamped to the session's elapsed time, and the save still succeeds",
+         ctx do
+      # Wait so that at least 2 whole seconds have elapsed since started_at. Without the wait the
+      # elapsed bound is typically 0, and a store-0 mutant would then pass (TEST-DESIGN-VALIDATOR G1).
+      Process.sleep(2_100)
+
+      assert {:ok, _} = q1075_save_time(ctx, 999_999)
+
+      # The stored value is clamped to the session's elapsed seconds at save time: at least the 2
+      # seconds waited above, and at most the elapsed seconds measured now (the save happened earlier).
+      assert {:ok, state} =
+               Session.get_session_state_for_user(ctx.session_id, ctx.candidate_id, ctx.schema)
+
+      elapsed_now = DateTime.diff(DateTime.utc_now(), state.session.started_at, :second)
+      stored = state.answers[ctx.question_id].time_spent_seconds
+
+      assert stored >= 2
+      assert stored <= elapsed_now
+      assert stored < 999_999
     end
   end
 end
