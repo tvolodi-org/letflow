@@ -278,6 +278,12 @@ defmodule Letflow.Routers.Instances do
   flagged for REVIEWER, design §6.5): `PLATFORM_ADMIN` holds both
   (catch-all); `PROCESS_OPERATOR` holds both; `PROCESS_DESIGNER` and
   `TASK_WORKER` hold `AttachmentsRead` only; `AGENT_RUNNER` holds neither.
+  `TENANT_ADMIN` holds both (every tenant-scope permission); the read-only
+  `TENANT_AUDITOR` (REQ-448) holds `AttachmentsRead` only. Issuing a signed
+  link (`POST .../link`) persists state, so since REQ-448 it is keyed
+  `AttachmentLinksIssue`, held by exactly `PLATFORM_ADMIN`, `PROCESS_DESIGNER`,
+  `PROCESS_OPERATOR`, `TASK_WORKER` and `TENANT_ADMIN`; `GET .../link-content`
+  stays `AttachmentsRead`.
 
   ### Not validated by this route layer (design §5.1, §9 OQ-1)
 
@@ -403,7 +409,7 @@ defmodule Letflow.Routers.Instances do
   # grouped with the other attachment routes and above the bare
   # `authz_get "/:id"` below, matching this router's own "longer, more
   # specific suffixes first" convention (design §3.3).
-  authz_post "/:id/attachments/:attachment_id/link", :AttachmentsRead do
+  authz_post "/:id/attachments/:attachment_id/link", :AttachmentLinksIssue do
     handle_issue_attachment_link(conn, conn.params["id"], conn.params["attachment_id"])
   end
 

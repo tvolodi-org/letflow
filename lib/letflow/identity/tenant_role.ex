@@ -36,7 +36,7 @@ defmodule Letflow.Identity.TenantRole do
   not a Postgres-native enum type. `Ecto.Enum` rejects any value outside the
   two-member set at the changeset layer (same as `User.status`'s existing
   precedent); the additional "a `:platform_role`-kind row's `name` must be one
-  of the seven recognized literals" rule is enforced by
+  of the eight recognized literals" rule is enforced by
   `RoleRegistry.upsert_role/4` itself, before this changeset is ever built —
   not duplicated here, matching this module's existing division of labor with
   `RoleRegistry`.

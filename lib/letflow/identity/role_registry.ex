@@ -78,7 +78,7 @@ defmodule Letflow.Identity.RoleRegistry do
   @doc """
   Inserts or updates the `(name -> group_id)` binding for the given `kind` domain
   (ISS-0774): validates `name`'s format, `kind == :platform_role`'s membership in
-  `Letflow.Api.Authorization.roles/0`'s seven literal strings, and `group_id`'s UUID
+  `Letflow.Api.Authorization.roles/0`'s eight literal strings, and `group_id`'s UUID
   syntax before any DB round-trip, then confirms `group_id` references an existing
   group and upserts on `name` conflict (updating `group_id` and `kind`) inside one
   transaction.
@@ -87,7 +87,7 @@ defmodule Letflow.Identity.RoleRegistry do
   over the prior `upsert_role/3`, so every caller states which domain it is writing
   rather than falling through a default that could silently mis-tag a row (design
   §2.3). `kind == :platform_role` additionally requires `name` to be one of
-  `Letflow.Api.Authorization.roles/0`'s seven recognized literals — any other value
+  `Letflow.Api.Authorization.roles/0`'s eight recognized literals — any other value
   returns `{:error, :name_not_a_recognized_platform_role}` before any `Repo` call,
   loudly rejecting a typo'd platform-role grant instead of silently creating a dead
   role binding nothing ever resolves. REQ-447 PR 2: a `:platform_role` binding named
@@ -148,7 +148,7 @@ defmodule Letflow.Identity.RoleRegistry do
 
   @doc """
   ISS-0778 / REQ-447: seeds the group/role bindings for the platform roles the
-  tenant is entitled to, `seedable_role_names/1` (all seven roles of
+  tenant is entitled to, `seedable_role_names/1` (all eight roles of
   `Letflow.Api.Authorization.roles/0` in the platform tenant, every role except
   `PLATFORM_ADMIN` in any other tenant, so every tenant gets a `TENANT_ADMIN`
   binding; names come from this module's own
@@ -169,18 +169,19 @@ defmodule Letflow.Identity.RoleRegistry do
   `Letflow.TenantOnboarding`'s existing no-compensating-rollback precedent);
   a retried call converges via idempotency instead.
 
-  Name-collision guard (REQ-447, design F12): `tenant_role.name` is unique across
-  kinds and `upsert_role/4` overwrites `kind` on conflict, so when a
-  `:process_routing_role` row already holds the name `TENANT_ADMIN` the seed
-  returns `{:error, {:role_name_taken_by_routing_role, "TENANT_ADMIN"}}` before
-  writing anything, never silently converting the row.
+  Name-collision guard (REQ-447, design F12; widened by REQ-448): `tenant_role.name`
+  is unique across kinds and `upsert_role/4` overwrites `kind` on conflict, so
+  when a `:process_routing_role` row already holds the name `TENANT_ADMIN` or
+  `TENANT_AUDITOR` the seed returns
+  `{:error, {:role_name_taken_by_routing_role, name}}` (the colliding name, first
+  by name order) before writing anything, never silently converting the row.
   """
   @spec seed_default_platform_role_groups(opts :: [prefix: String.t()]) ::
           {:ok, [TenantRole.t()]} | {:error, term()}
   def seed_default_platform_role_groups(opts) do
     prefix = Keyword.fetch!(opts, :prefix)
 
-    with :ok <- check_tenant_admin_name_free(prefix) do
+    with :ok <- check_guarded_names_free(prefix) do
       seed_names(seedable_role_names(prefix), opts)
     end
   end
@@ -202,15 +203,25 @@ defmodule Letflow.Identity.RoleRegistry do
     end
   end
 
-  @spec check_tenant_admin_name_free(String.t()) ::
+  # REQ-447 / REQ-448: the built-in names introduced after ISS-0774 classified
+  # existing rows, so a `:process_routing_role` row may still hold them.
+  @guarded_role_names ["TENANT_ADMIN", "TENANT_AUDITOR"]
+
+  @spec check_guarded_names_free(String.t()) ::
           :ok | {:error, {:role_name_taken_by_routing_role, String.t()}}
-  defp check_tenant_admin_name_free(prefix) do
-    case Repo.one(
-           from(t in TenantRole, where: t.name == "TENANT_ADMIN", select: t.kind),
+  defp check_guarded_names_free(prefix) do
+    names = @guarded_role_names
+
+    case Repo.all(
+           from(t in TenantRole,
+             where: t.name in ^names and t.kind == :process_routing_role,
+             order_by: t.name,
+             select: t.name
+           ),
            prefix: prefix
          ) do
-      :process_routing_role -> {:error, {:role_name_taken_by_routing_role, "TENANT_ADMIN"}}
-      _none_or_platform_role -> :ok
+      [name | _rest] -> {:error, {:role_name_taken_by_routing_role, name}}
+      [] -> :ok
     end
   end
 

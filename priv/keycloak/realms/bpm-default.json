@@ -4,7 +4,7 @@
   "enabled": true,
   "displayName": "Letflow Default Realm",
   "attributes": {
-    "seedVersion": "2026-10-06",
+    "seedVersion": "2026-10-13",
     "tenant_id": "00000000-0000-0000-0000-000000000000"
   },
   "roles": {
@@ -15,7 +15,8 @@
       { "name": "TASK_WORKER" },
       { "name": "AGENT_RUNNER" },
       { "name": "CANDIDATE" },
-      { "name": "TENANT_ADMIN" }
+      { "name": "TENANT_ADMIN" },
+      { "name": "TENANT_AUDITOR" }
     ]
   },
   "clients": [
@@ -144,6 +145,19 @@
         { "type": "password", "value": "tenant-admin-pass", "temporary": false }
       ],
       "realmRoles": ["TENANT_ADMIN"]
+    },
+    {
+      "username": "auditor-user",
+      "email": "auditor@letflow.local",
+      "firstName": "Auditor",
+      "lastName": "User",
+      "enabled": true,
+      "emailVerified": true,
+      "requiredActions": [],
+      "credentials": [
+        { "type": "password", "value": "auditor-pass", "temporary": false }
+      ],
+      "realmRoles": ["TENANT_AUDITOR"]
     },
     {
       "username": "operator-user",

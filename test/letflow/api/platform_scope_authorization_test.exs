@@ -64,7 +64,9 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
     :ModulesManage,
     :TenantSettingsManage,
     :PromotionsRead,
-    :PromotionsManage
+    :PromotionsManage,
+    # REQ-448 (L1)
+    :AttachmentLinksIssue
   ]
 
   @new_permissions [
@@ -79,7 +81,7 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
     do: %AccessContext{user_id: "u", roles: roles, platform_tenant?: platform_tenant?}
 
   describe "scope table" do
-    test "every core permission has exactly one scope: the platform pair, and the 38 tenant-scope permissions" do
+    test "every core permission has exactly one scope: the platform pair, and the tenant-scope permissions" do
       core = Authorization.core_permissions()
 
       assert core == Enum.uniq(core)

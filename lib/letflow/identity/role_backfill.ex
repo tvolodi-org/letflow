@@ -94,7 +94,7 @@ defmodule Letflow.Identity.RoleBackfill do
 
   @doc """
   Sweeps every tenant registered in `Letflow.TenantProvisioning.list_registrations/0`,
-  seeding the platform-role bindings (REQ-447: seven roles, `PLATFORM_ADMIN` only in the
+  seeding the platform-role bindings (REQ-448: eight roles, `PLATFORM_ADMIN` only in the
   platform tenant) for each via
   `Letflow.Identity.RoleRegistry.seed_default_platform_role_groups/1`.
 
