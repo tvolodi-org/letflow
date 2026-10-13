@@ -500,6 +500,9 @@ describe('Q-1075 / GH 2432 -- the save reports the measured running total, not t
 
     renderPage()
     await screen.findByTestId('exam-session-page')
+    // Let the mount effect that starts the q1 clock run before the first advance. The effect reads
+    // Date.now when it runs, so an advance that landed before it would drop q1's first seconds.
+    await new Promise((resolve) => setImmediate(resolve))
 
     now += 3_000 // q1 shown for 3 s
     fireEvent.click(screen.getByRole('button', { name: 'Next' }))

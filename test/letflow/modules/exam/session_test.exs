@@ -1602,7 +1602,7 @@ defmodule Letflow.Modules.Exam.SessionTest do
     test "an over-large report is clamped to the session's elapsed time, and the save still succeeds",
          ctx do
       # Wait so that at least 2 whole seconds have elapsed since started_at. Without the wait the
-      # elapsed bound is 0 and a store-0 mutant would pass (TEST-DESIGN-VALIDATOR G1).
+      # elapsed bound is typically 0, and a store-0 mutant would then pass (TEST-DESIGN-VALIDATOR G1).
       Process.sleep(2_100)
 
       assert {:ok, _} = q1075_save_time(ctx, 999_999)
