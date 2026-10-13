@@ -1522,7 +1522,7 @@ defmodule Letflow.Api.Authorization do
   # `permission_scope == :tenant` rule, unlike TENANT_ADMIN); :MyModulesRead is
   # granted to every role by the first role_allows?/2 clause. :PromotionsRead
   # is granted (ISS-1109 / GH #2489) now that the stored-tenant check of
-  # Q-1011 / ISS-1029 gates the three promotion read routes. Withheld on
+  # Q-1011 / ISS-1029 gates the review-id read routes (GET /:id, /:id/context). Withheld on
   # purpose: :EntitiesRecordsExport and every write, manage, import, token,
   # user, role, module, settings, promotion-manage, rollback or link-issue
   # permission. Never a platform-scope permission.
