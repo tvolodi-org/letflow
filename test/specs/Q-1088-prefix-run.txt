@@ -22,9 +22,10 @@ The wizard's submit body is web/src/api/onboarding.ts (client_config { redirect_
 realm_config). The backend keeps only slug and display_name (lib/letflow/routers/onboarding.ex, Map.take).
 
 Mutant run (disposition dropped from the merge: `extras = Map.merge(base, %{})`), mix test, on the test file before the
-review-findings round (tests 1-2 unchanged by that round): 2 of 4 pass, both disposition tests fail. Killed.
-Note: the mutant also leaves @not_stored_keys, @not_stored_next and dispositions/1 unused, so
-`compile --warnings-as-errors` would also fail on it. That is a second gate, not the kill; the kill is the test run.
+review-findings round: 2 of 4 pass, both disposition tests fail. Killed. Since then the assertions of tests 1-2 are
+unchanged; the helper and one realm string changed.
+Note: the mutant also leaves dispositions/1 unused (its reads of @not_stored_keys and @not_stored_next still count),
+so `compile --warnings-as-errors` would also fail on it. That is a second gate, not the kill; the kill is the test run.
 Post-fix: the five onboarding files, 63 passed (2026-10-13 06:39Z), and the final gate, 63 passed after the documentation
 changes (06:48Z). Static: `mix letflow.check.static` exit 0 on 27e5ba6c (06:50Z).
 No new tenant-data path: diff inspection (no migration, no Repo.query, no Keycloak call; ignored_fields and the
