@@ -533,7 +533,7 @@ defmodule Letflow.Scripts.TestParallelWatchdogDiagTest do
       run_until_premise(
         tmp,
         "huge",
-        [{"STUB_LOCK_DENY", "1"}, {"STUB_LOG_RMDIR", "1"}],
+        [{"STUB_LOCK_DENY", "1"}, {"STUB_LOG_RMDIR", "1"}, {"STUB_LOG_CAT", "1"}],
         &approx4_premise?/1
       )
 
@@ -552,6 +552,23 @@ defmodule Letflow.Scripts.TestParallelWatchdogDiagTest do
       # non-owner rmdir would break exclusion for the emitter that does hold it
       rmdirs = Enum.filter(lines, &String.starts_with?(&1, "rmdir "))
       assert rmdirs == [], "fall-through removed a lock it never took: #{inspect(rmdirs)}"
+
+      # the fall-through still emits every block with ONE cat of its block file, and
+      # removes that file afterwards: no block file or lock may be left in the tmp dir
+      cats = lines
+      part = Enum.count(cats, &(&1 =~ ~r{^cat -- \S*diag-block-[123]\.txt$}))
+      host = Enum.count(cats, &(&1 =~ ~r{^cat -- \S*diag-host-block\.txt$}))
+      assert part == 3, inspect(cats)
+      assert host == 1, inspect(cats)
+
+      dirs = preserved_tmp_dirs(res, tmp)
+      assert dirs != [], "exit 1 must preserve the script tmp dir"
+
+      for d <- dirs do
+        assert Path.wildcard(Path.join(d, "diag-block-*.txt")) == []
+        assert Path.wildcard(Path.join(d, "diag-host-block.txt")) == []
+        refute File.exists?(Path.join(d, "diag-emit.lock")), "diag-emit.lock left behind"
+      end
     end)
   end
 

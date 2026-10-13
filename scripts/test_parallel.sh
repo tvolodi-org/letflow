@@ -798,27 +798,33 @@ test_parallel_diag_run() {
 # blocks are therefore assembled into a regular file first (the 4096-byte chunking
 # is then harmless) and emitted here with a single `cat`.
 #
-# What is guaranteed (do not claim more): POSIX makes write(2) atomic only up to
-# PIPE_BUF (4096) for a pipe; a block is ~13 KB. On Linux pipe_write copies under
-# the pipe mutex and only sleeps when the 64 KB pipe is full, so a single write
-# onto a pipe with free space is contiguous in practice: the PRIMARY guarantee is
-# one write(2) plus free pipe space (the harness reader is `cat`). SECONDARY: the
-# mkdir lock serialises cooperating emitters even when a write blocks on a full
-# pipe. KNOWN RESIDUAL: a reader stalled for more than the lock bound (~3 s), or a
-# WARNING/job-control line landing at a page boundary on a full pipe. A regular-file
-# stderr is safe: the inherited open file description serialises each write(2).
-# Never replace the cat by printf of a variable: bash printf goes through stdio and
-# splits a > 4 KB string into several writes (measured mid-line cuts).
+# What is guaranteed (do not claim more): the PRIMARY guarantee is the mkdir lock: the
+# whole `cat` runs inside it, so cooperating emitters (the partition and host blocks of
+# one runner) are serialised. SECONDARY: the single write(2) of `cat` is contiguous on
+# Linux pipe_write when the pipe has free space (a block is ~13 KB, above PIPE_BUF=4096,
+# so POSIX gives no atomicity guarantee for it). That secondary property is NOT verified
+# on the Windows git-bash host. A regular-file stderr is safe: the inherited open file
+# description serialises each write(2). Never replace the cat by printf of a variable:
+# bash printf goes through stdio and splits a > 4 KB string into several writes
+# (measured mid-line cuts).
+#
+# KNOWN RESIDUAL (not guaranteed by this helper):
+#  - a watchdog killed while it holds the lock (between mkdir and rmdir) leaves a stale
+#    lock; later emits then wait the full bound and then write unlocked;
+#  - a `cat` blocked on a stalled reader holds the lock with no timeout, which can delay
+#    the TERM that follows while the reader is stalled;
+#  - the lock lives under $tmp_dir, so a nested runner sharing the same stderr is not
+#    serialised with this one;
+#  - a WARNING/job-control line landing at a page boundary on a full pipe.
 #
 # Bounded, never waiting forever: 30 tries x 0.1 s (an iteration count, not wall clock:
-# about 3 s of sleeping plus fork time, ~5 s on a loaded git-bash). A stale lock (a
-# holder killed between mkdir and rmdir) costs that full bound on EVERY emit, so one
-# watchdog can spend up to ~6 s (partition block + host block) before its TERM. After
-# the bound the block is emitted anyway (still one write), so the TERM that follows is never
-# missed. Every variable is initialised (the script runs under `set -u` inside a
-# `( )` watchdog whose death would mean no TERM). No new TEST_* knob. Always 0.
+# about 3 s of sleeping plus fork time, ~5 s on a loaded git-bash). A stale lock costs
+# that full bound on EVERY emit, so one watchdog can spend up to ~6 s (partition block +
+# host block) before its TERM. After the bound the block is emitted anyway (still one
+# write). Every variable is initialised (the script runs under `set -u` inside a `( )`
+# watchdog whose death would mean no TERM). No new TEST_* knob. Always 0.
 test_parallel_diag_emit() {
-  local blockfile="$1" got=0 n=0
+  local blockfile="${1:-}" got=0 n=0
   while [ "$n" -lt 30 ]; do
     if mkdir "$tmp_dir/diag-emit.lock" 2>/dev/null; then
       got=1
