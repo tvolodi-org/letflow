@@ -1,0 +1,15 @@
+id: ISS-1110
+title: "ci.yml path filter: echo | grep -q under pipefail can SIGPIPE and yield backend=false on a large changed-file list"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-13 letflow-3 REVIEWER notes on PR #2491 (Q-1059), relayed by the supervisor"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: LOW
+owner: "letflow-16 (CI and test-infra)"
+scope: tooling
+description: >
+  .github/workflows/ci.yml:255,261,267 decide each gate with echo "$CHANGED" | grep -qE under set -uo pipefail (:191); grep -q exits early, echo gets SIGPIPE, the pipeline is non-zero and the gate output is false (tests skipped). Fix: grep -qE <<<"$CHANGED".
+resolution: >
+  Open. Filed GitHub-first (GH #2492), then registered with the queue (Q-1110) using that number.
+queue_ref: Q-1110
+github_ref: GH-2492
+status: open
