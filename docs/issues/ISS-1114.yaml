@@ -1,0 +1,15 @@
+id: ISS-1114
+title: "req077_promotion_pipeline_test:1279: POST /promotions/plan with a VIEWER token answers 500, expected 403 (red on main, pre-existing)"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-13 Q-1011 follow-ups (PR #2474), relayed by letflow-9c"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: MINOR
+owner: "ISSUE-FIXER, then ELIXIR-DEV"
+scope: defect
+description: >
+  test/letflow/routers/req077_promotion_pipeline_test.exs:1279: 500 where 403 is expected; same trail as ISS-1113. Filing only, no root cause diagnosed.
+resolution: >
+  Open. Filed GitHub-first (GH #2497), then registered with the queue (Q-1114) using that number.
+queue_ref: Q-1114
+github_ref: GH-2497
+status: open

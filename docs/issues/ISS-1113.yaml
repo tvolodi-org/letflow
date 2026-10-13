@@ -1,0 +1,15 @@
+id: ISS-1113
+title: "tenant_admin_routes_test AC2: POST /identity/users answers 500 for a TENANT_ADMIN (red on main, pre-existing)"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-13 Q-1011 follow-ups (PR #2474), relayed by letflow-9c"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: MINOR
+owner: "ISSUE-FIXER, then ELIXIR-DEV"
+scope: defect
+description: >
+  test/letflow/routers/tenant_admin_routes_test.exs AC2 (~L67): POST /identity/users answers 500; fails identically at e29356eb8 per letflow-9c. Filing only, no root cause diagnosed.
+resolution: >
+  Open. Filed GitHub-first (GH #2496), then registered with the queue (Q-1113) using that number.
+queue_ref: Q-1113
+github_ref: GH-2496
+status: open
