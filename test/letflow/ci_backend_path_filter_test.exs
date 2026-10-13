@@ -284,8 +284,57 @@ defmodule Letflow.CiBackendPathFilterTest do
       refute Regex.match?(~r/[*+?}]\?/, src), "lazy quantifier in filter"
     end
 
-    test "ci.yml feeds the changed-file list to that variable via grep -qE" do
-      assert File.read!(@ci_yml) =~ ~S|grep -qE "$BACKEND_PATHS_RE"|
+    test "ci.yml feeds the changed-file list to that variable via grep -qE and a here-string" do
+      assert File.read!(@ci_yml) =~ ~S|grep -qE "$BACKEND_PATHS_RE" <<<"$CHANGED"|
+    end
+
+    # Q-1110 / GH #2492: `echo "$CHANGED" | grep -q` under `set -o pipefail` is SIGPIPE-unsafe on a
+    # large list (grep -q exits at the first match, echo gets SIGPIPE, the pipeline is 141, the
+    # `if` is false, the gate is skipped). Each of the three filters must use a here-string.
+    test "no filter pipes the changed list into grep -q (SIGPIPE under pipefail)" do
+      offenders =
+        @ci_yml
+        |> File.read!()
+        |> String.split("\n")
+        |> Enum.with_index(1)
+        |> Enum.filter(fn {line, _} ->
+          not String.starts_with?(String.trim_leading(line), "#") and
+            Regex.match?(~r/\|\s*grep\s+(-[A-Za-z]*q[A-Za-z]*)/, line)
+        end)
+
+      assert offenders == [],
+             "pipe into `grep -q` found (use `grep -qE <re> <<<\"$CHANGED\"`): #{inspect(offenders)}"
+    end
+
+    test "the three path filters (backend, frontend, mobile) each use a here-string" do
+      src = File.read!(@ci_yml)
+
+      here =
+        Regex.scan(
+          ~r/grep -qE [^\n]*<<<"\$CHANGED"/,
+          src
+        )
+
+      assert length(here) == 3
+    end
+
+    test "the here-string form matches on a 20k-line list (control; the piped form is unsafe)" do
+      script = """
+      set -uo pipefail
+      C=$( { echo lib/a.ex; i=0; while [ $i -lt 20000 ]; do echo "docs/generated/some/long/path/segment/file-$i.md"; i=$((i+1)); done; } )
+      for n in 1 2 3 4 5; do
+        if grep -qE '^(lib/)' <<<"$C"; then printf t; else printf f; fi
+      done
+      """
+
+      case System.find_executable("bash") do
+        nil ->
+          :ok
+
+        bash ->
+          {out, 0} = System.cmd(bash, ["-c", script])
+          assert out == "ttttt"
+      end
     end
   end
 
