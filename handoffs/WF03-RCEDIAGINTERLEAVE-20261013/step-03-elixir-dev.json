@@ -8,7 +8,7 @@
   "file": "handoffs/WF03-RCEDIAGINTERLEAVE-20261013/step-03-elixir-dev.json",
   "created_at": "2026-10-13T03:00:00Z",
   "started_at": "2026-10-13T05:40:00Z",
-  "completed_at": "2026-10-13T06:05:00Z",
+  "completed_at": "2026-10-13T12:00:00Z",
   "status": "COMPLETED",
   "priority": "NORMAL",
   "context": {
@@ -54,15 +54,17 @@
     "fail_first_base_script": "4 of 8 fail (lock released, one cat, forced concurrency, stale lock)",
     "with_fix": "8 of 8 pass (diag file); family ExUnit 62 passed (env_guard, env, instrumentation, race_regression, shard, watchdog_diag, watchdog_orphan)",
     "mutants": {
-      "MU-L (no lock)": "killed: stale-lock test 1 of 8 fails",
-      "MU-R (lock never released)": "killed: 8 of 8 fail",
-      "MU-U (unconditional release)": "survived on first run; killed after the stale-lock rmdir assertion: 1 of 8 fails",
-      "MU-F (block files not removed)": "killed: lock-released test 1 of 8 fails",
-      "MU-B (unbounded lock loop)": "NOT RUN (would hang the run)",
-      "MU-P (printf variant)": "NOT RUN (documented non-goal)"
+      "MU-L no lock": "killed: stale-lock test",
+      "MU-R (rmdir deleted)": "INVALID mutant: deleting the rmdir left an empty then-branch (bash syntax error, exit 2); its 8/8 failure is that artefact, not a semantic kill",
+      "MU-R2 lock never released (rmdir -> true)": "killed: lock-released test (7 of 8 pass)",
+      "MU-U unconditional release": "killed: stale-lock non-owner rmdir assertion",
+      "MU-F block files not removed": "killed: lock-released test",
+      "MU-F0 block removal only when lock taken": "killed: stale-lock test (7 of 8 pass)",
+      "MU-B unbounded lock loop": "NOT RUN (would hang)",
+      "MU-P printf variant": "NOT RUN (documented non-goal)"
     },
     "tmpdir_cleanup_sh": "4 passed, 0 failed",
-    "stress": "huge-log test, real emitters, no synthetic load, --repeat-until-failure 20 in one BEAM: fixed 21/21 passed; base 21/21 passed. The flake did not reproduce without the CI load, so this does not measure the rate.",
+    "stress": "huge-log test --repeat-until-failure 50 (in one BEAM, no synthetic load): fixed 51/51 warm (median 6.8 s, max 7.5 s); base 51/51 (median 6.4 s). No regression shown; does NOT measure the flake rate.",
     "gates": {
       "bash -n": "OK",
       "mix format --check-formatted": "exit 0",
@@ -71,11 +73,52 @@
       "mix letflow.lint_handoffs": "exit 0 (0 new violations, 3557 files)",
       "shellcheck": "not installed on this host"
     },
-    "end_to_end": "TEST_PARALLEL_N=2 TEST_PARALLEL_SHARD=1/50 bash scripts/test_parallel.sh: combined: 132 tests, 0 properties, 0 failures (132/132 passed) -- 2/2 partitions reported (slice 1..2 of 100)",
+    "end_to_end": "TEST_PARALLEL_N=2 TEST_PARALLEL_SHARD=1/50 on f6952bc5d: combined: 95 tests, 1 properties, 0 failures (96/96 passed); tmpdir_cleanup.sh 4 passed",
     "not_run": [
       "test_parallel_create_burst_test.sh (starts a real 8-partition suite and postgres)",
       "test_parallel_pool_sizing_test.sh (stale, red on main, not in CI)"
     ],
-    "residue": "worktree /c/Users/tvolo/mt/RCE1087 (detached, outside the repo) left in place; its tmp/ dirs from preserved runs remain there"
+    "residue": "worktree /c/Users/tvolo/mt/RCE1087 (detached, outside the repo) left in place; its tmp/ dirs from preserved runs remain there",
+    "code_head": "03b48f97b (code); earlier commits 2bd43012d, 74a60936e, c369e3a92",
+    "base_failures_verbatim_on_3a4ca1200_script": {
+      "command": "mix test test/scripts/test_parallel_watchdog_diag_test.exs with scripts/test_parallel.sh = git cat-file -p d944083747 (base blob, origin/main 3a4ca1200)",
+      "result": "4 of 8 failed; 4 passed",
+      "forced_concurrency": "two DIAG fragments on one physical line (mid-line interleave): \"test_parallel: DIAG partition 3:   P3-199964-LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL ...",
+      "stale_emit_lock": "partition 1: DIAG block is not one contiguous run (foreign line inside)",
+      "lock_released": "rmdir list [] (no lock on base)",
+      "one_cat": "cat calls [\"cat \", \"cat /proc/loadavg\"] (no block-file cat on base)"
+    },
+    "fixed_results": {
+      "diag_file_after_last_edit": "8 passed (03b48f97b)",
+      "four_RC-E_tests_repeat_10": "11 of 11 runs passed (earlier head, 74a60936e; tests unchanged since)",
+      "stale_test_strengthened": "3 partition + 1 host cat, no leftovers; mutant MU-F0 fails it"
+    },
+    "family": {
+      "ExUnit family 7 files": "61 of 62 on 6f21a3d7e-merged heads f6952bc5d, 2bd43012d, 03b48f97b; the one failure is test_parallel_watchdog_orphan_test \"EXIT-trap path\" (40 s pipe-release timeout)",
+      "orphan_file_alone": "fixed script 4 of 5 (f6952bc5d rerun); base script 4 of 5 under the same host load (loadavg about 18) -> pre-existing host artefact, not introduced by this change",
+      "earlier_family_run_pre-merge_c369e3a92": "62 of 62 (orphan passed then)"
+    },
+    "gates_head_03b48f97b": {
+      "format": "0",
+      "check.static": "0 (1130 boundary edges, 0 violations)",
+      "check_async_sandbox_reachability": "0 (152 files, 0 new violations)",
+      "lint_handoffs": "0 (0 new violations, 3560 files)",
+      "bash -n": "OK",
+      "shellcheck": "not installed on this host"
+    },
+    "gate_verdicts": {
+      "SECURITY-REVIEWER (light)": "PASS on 2bd43012d, re-check PASS (comments and test only)",
+      "REVIEWER": "PASS on f6952bc5d with 8 MINOR; 2bd43012d: 3 MINOR; 03b48f97b quick re-verdict PASS (one non-blocking wording nit: test comment says starved host, script residual names stalled reader)",
+      "TEST-DESIGN-VALIDATOR": "FAIL on f6952bc5d (MAJOR-1: fall-through had no cat/leftover check; closed by 2bd43012d); 2bd43012d PASS with MINOR-3 documented in test; 03b48f97b quick re-verdict PASS"
+    },
+    "residuals": [
+      "stale emit lock after a watchdog killed while holding the lock (later emits wait the bound, then write unlocked)",
+      "reader stalled beyond ~3 s bound: waiters write unlocked, interleave possible again (accepted)",
+      "cat blocked on a stalled reader holds the lock with no timeout (TERM can be delayed)",
+      "lock under $tmp_dir: nested runner sharing stderr not serialised",
+      "exact rmdir count in lock-released test assumes an uncontended emit lock (spurious FAIL on starved host, never a false pass)",
+      "cold-container observation: one huge-log run took 21692 ms against a 21 s bound (not reproduced; 51/51 warm)",
+      "orphan EXIT-trap test host flake (pre-existing)"
+    ]
   }
 }
