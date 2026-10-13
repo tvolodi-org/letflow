@@ -15,8 +15,8 @@ import { join } from 'node:path'
 import { execSync } from 'node:child_process'
 import fg from 'fast-glob'
 import { PATTERNS } from './forbidlist'
-import { writeViolations, assertRedacted, type Violation } from './reporter'
-import { isAllowed, scanBundle, summaryLines, type ScanFile } from './scan-core'
+import { writeViolations, assertRedacted } from './reporter'
+import { scanBundle, summaryLines, type ScanFile } from './scan-core'
 
 const WEB_DIR = join(__dirname, '..', '..')
 const DIST_DIR = join(WEB_DIR, 'dist')
@@ -74,13 +74,8 @@ describe('bundle-scan', () => {
       const content = readFileSync(fixturePath, 'utf8')
       const literalColour = PATTERNS.find(p => p.name === 'literal-colour')!
 
-      const violations: Violation[] = []
-      if (!isAllowed(wsPath, literalColour.allowedPaths)) {
-        literalColour.regex.lastIndex = 0
-        if (literalColour.regex.test(content)) {
-          violations.push({ file: wsPath, line: 0, patternName: literalColour.name })
-        }
-      }
+      // the same scan function the main test uses (scan-core.ts)
+      const { violations } = scanBundle([{ wsPath, content }], [literalColour])
 
       expect(violations).toHaveLength(1)
       expect(violations[0].patternName).toBe('literal-colour')

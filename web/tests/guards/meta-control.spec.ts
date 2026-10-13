@@ -93,6 +93,32 @@ describe('meta-control: literal-colour exemption (GH #2451)', () => {
     expect(scanLiteralColour(`<a href="https://x.test" style={{ color: '#fa5252' }}>`).violations).toHaveLength(1)
   })
 
+  it('the opener boundary: a "/*" inside a string after a word character is not an opener (image/*)', () => {
+    expect(scanLiteralColour(`const s = "image/*"; const c = '#000'; const e = " */";`).violations).toHaveLength(1)
+  })
+
+  it('a colour after a closed block comment is matched even when a later */ exists', () => {
+    expect(scanLiteralColour(`/* x */ const c = '#000'; const e = " */";`).violations).toHaveLength(1)
+  })
+
+  it('a line comment exempts its own line only: a colour on the next line is matched and located there', () => {
+    const result = scanLiteralColour("// see GH #2431\nconst c = '#000';")
+    expect(result.violations).toHaveLength(1)
+    expect(result.violations[0].line).toBe(2)
+  })
+
+  it('a JSX comment {/* GH #NNNN */} is an opener (the boundary includes "{")', () => {
+    expect(scanLiteralColour('{/* GH #2431 */}').violations).toHaveLength(0)
+  })
+
+  it('an allowed path is not scanned (the allow branch of isAllowed)', () => {
+    const result = scanSource(
+      [{ wsPath: 'web/src/styles/tokens.css', content: '.a{color:#000}' }],
+      literalColourPattern,
+    )
+    expect(result.violations).toHaveLength(0)
+  })
+
   it("a colour after url(//cdn) is matched ('(//' is not a comment opener)", () => {
     expect(scanLiteralColour('url(//cdn.x/a.png);color:#fff').violations).toHaveLength(1)
   })
@@ -150,6 +176,7 @@ describe('meta-control: single-source regex invariant', () => {
   const scanFiles = [
     join(__dirname, 'source-scan.spec.ts'),
     join(__dirname, 'bundle-scan.spec.ts'),
+    join(__dirname, 'scan-core.ts'),
   ]
 
   for (const filePath of scanFiles) {

@@ -50,18 +50,21 @@ export const PATTERNS: GuardPattern[] = [
     //
     // GH #2451 (Q-1089): an issue reference in a comment is not a colour. Two exemptions, both
     // needing the comment opener to start a token: the opener '//' or '/*' must be at the line
-    // start or follow whitespace, ';' or '}' (so 'https://x' and 'url(//cdn)' are not openers):
+    // start or follow whitespace, ';', '{' or '}' (so 'https://x', 'url(//cdn)' and 'image/*'
+    // are not openers; '{/* GH #2431 */}' in JSX is):
     //  - a match after a '//' opener on the same line (line comment);
-    //  - a match inside a '/* ... */' opener that is closed later in the file (single or
-    //    multi-line block comment), with no other '/*' in between.
-    // A JSDoc continuation line (' * #2432') is NOT exempt: it cannot be told from a CSS
-    // universal selector ('* { color: #fff }'), so use '//' or a block comment.
+    //  - a match after a '/* ... */' opener that is closed by a '*/' later in the file (single
+    //    or multi-line block comment), with no '*/' between the opener and the match.
+    // A JSDoc line is exempt only inside an enclosing '/** ... */' that closes later. A bare
+    // ' * #2432' line with no opener is NOT exempt (it cannot be told from a CSS universal
+    // selector '* { color: #fff }'), so put issue references after '//' or inside a block comment.
     // Digit-only colours in code ('#000') are still matched.
-    // Known limits (pinned by meta-control's limit fixture): a colour after a comment-like
-    // marker inside a string that follows whitespace, ';' or '}' on the same line, e.g.
-    //  "const s = \"a // b\"; const c = '#000';"  and  "const s = \" /* \"; c = '#000'; e = \" */\";"
+    // Known limits (pinned by meta-control's limit fixture): a comment-like marker inside a
+    // string that follows whitespace, ';', '{' or '}', when the matching close (for '/*') is
+    // later in the file. E.g. "const s = \"a // b\"; const c = '#000';" and a three-line
+    // '" /* "' / colour / '" */"' sequence are not flagged.
     name: 'literal-colour',
-    regex: /(?<!(?:^|[\s;}])\/\/[^\n]*)(?!(?<=(?:^|[\s;}])\/\*(?:(?!\*\/)[\s\S])*)(?=(?:(?!\/\*)[\s\S])*\*\/))(?:#[0-9a-fA-F]{3,8}\b|(?<![.a-zA-Z0-9_$])rgba?\([^)]+\)|(?<![.a-zA-Z0-9_$])hsla?\([^)]+\))/,
+    regex: /(?<!(?:^|[\s;{}])\/\/[^\n]*)(?!(?<=(?:^|[\s;{}])\/\*(?:(?!\*\/)[\s\S])*)(?=(?:(?!\/\*)[\s\S])*\*\/))(?:#[0-9a-fA-F]{3,8}\b|(?<![.a-zA-Z0-9_$])rgba?\([^)]+\)|(?<![.a-zA-Z0-9_$])hsla?\([^)]+\))/,
     appliesTo: 'both',
     allowedPaths: [
       'web/src/styles/tokens.css',

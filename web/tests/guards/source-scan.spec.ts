@@ -48,7 +48,7 @@ describe('source-scan', () => {
       writeViolations(violations, evaluatedPatterns, runId)
 
       if (violations.length > 0) {
-        const summary = summaryLines(result, v => `${v.file}:${v.line}`).join('\n')
+        const summary = summaryLines(result, v => `${v.file}:${v.line}`).slice(0, 10).join('\n')
         const more = violations.length > 10 ? `\n  ... and ${violations.length - 10} more` : ''
         expect.fail(
           `Source scan found ${violations.length} violation(s):\n${summary}${more}`,

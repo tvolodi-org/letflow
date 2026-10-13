@@ -7,14 +7,14 @@ import { matchedToken, describeViolation, type Violation } from './reporter'
 import type { GuardPattern } from './forbidlist'
 
 export interface ScanFile {
-  /** Workspace-relative, forward-slash path, e.g. 'web/src/x.ts'. */
+  // Workspace-relative, forward-slash path, e.g. 'web/src/x.ts'.
   wsPath: string
   content: string
 }
 
 export interface ScanResult {
   violations: Violation[]
-  /** Matched token per violation, for the failure MESSAGE only (undefined when none). */
+  // Matched token per violation, for the failure MESSAGE only (undefined when none).
   tokens: Map<Violation, string | undefined>
 }
 
@@ -56,7 +56,7 @@ function findInSource(
   return { file: filePath, line: 1, patternName: pattern.name }
 }
 
-/** Scans source files (GRD-UI-02). Token recorded for literal-colour only. */
+// Scans source files (GRD-UI-02). Token recorded for literal-colour only.
 export function scanSource(files: ScanFile[], patterns: GuardPattern[]): ScanResult {
   const violations: Violation[] = []
   const tokens = new Map<Violation, string | undefined>()
@@ -80,7 +80,7 @@ export function scanSource(files: ScanFile[], patterns: GuardPattern[]): ScanRes
   return { violations, tokens }
 }
 
-/** Scans built bundle assets (GRD-UI-03). Minified, so line 0; token recorded for literal-colour. */
+// Scans built bundle assets (GRD-UI-03). Minified, so line 0; token recorded for literal-colour.
 export function scanBundle(assets: ScanFile[], patterns: GuardPattern[]): ScanResult {
   const violations: Violation[] = []
   const tokens = new Map<Violation, string | undefined>()
@@ -105,11 +105,9 @@ export function scanBundle(assets: ScanFile[], patterns: GuardPattern[]): ScanRe
 }
 
 /**
- * The failure-message lines for a scan (first 10, as the scan specs print them).
- * `locate` gives the location text: 'file:line' for sources, 'file' for bundles.
+ * The failure-message line for every violation, in order. `locate` gives the location text:
+ * 'file:line' for sources, 'file' for bundles. The source spec caps the printed list itself.
  */
 export function summaryLines(result: ScanResult, locate: (v: Violation) => string): string[] {
-  return result.violations
-    .slice(0, 10)
-    .map(v => describeViolation(v, result.tokens.get(v), locate(v)))
+  return result.violations.map(v => describeViolation(v, result.tokens.get(v), locate(v)))
 }

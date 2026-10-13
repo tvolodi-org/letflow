@@ -8,3 +8,4 @@
   multi-line block: GH #2441 is not a colour
 */
 // GH #2440: a line-comment issue reference is not a colour literal
+{/* GH #2431: a JSX comment citing an issue is not a colour */}
