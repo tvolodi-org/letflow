@@ -193,6 +193,10 @@ defmodule Letflow.Definitions.PromotionReviewStore do
   # other endpoint's decode call.
   @promotion_reviews_list_cursor_prefix "PR:"
 
+  # ISS-1029: minimum rows fetched per keyset chunk when a :row_visible?
+  # predicate is scanning (the chunk is max(page_size + 1, this)).
+  @min_scan_chunk 100
+
   @type status :: PromotionReview.status()
 
   @type list_reviews_filters :: %{
@@ -204,6 +208,15 @@ defmodule Letflow.Definitions.PromotionReviewStore do
         }
 
   @type list_reviews_result :: %{items: [PromotionReview.t()], next_cursor: String.t() | nil}
+
+  @typedoc """
+  `:row_visible?` (ISS-1029): optional 1-arity predicate applied to each row
+  inside the keyset scan; absent or nil means no filtering.
+  """
+  @type list_reviews_opts :: [
+          prefix: String.t(),
+          row_visible?: (PromotionReview.t() -> boolean()) | nil
+        ]
 
   @type list_reviews_error :: :invalid_cursor | :wrong_endpoint | :expired | :invalid_schema_name
 
@@ -228,34 +241,118 @@ defmodule Letflow.Definitions.PromotionReviewStore do
   already-validated input, the same split of responsibility
   `list_paginated/2` uses for `page_size`.
 
+  `opts[:row_visible?]` (ISS-1029, optional): a 1-arity predicate over the
+  loaded row. Rows for which it returns false are omitted from the page and
+  never contribute to `next_cursor` (a cursor only ever encodes an emitted
+  row). The scan walks the keyset in chunks of `max(page_size + 1, 100)`
+  full rows until `page_size + 1` visible rows are held or the table is
+  exhausted; there is deliberately no scan cap. A non-nil value that is not a
+  1-arity function raises `ArgumentError` (fail closed). The predicate is
+  expected not to raise; an exception propagates.
+
   Opens with the same `TenantProvisioning.tenant_id_for_schema_name/1` guard
   `list_paginated/2`/`insert_review/2` already use (see design §3.2): a list
   query with no `WHERE id = ...` clause against a schema whose
   `promotion_reviews` table doesn't exist would otherwise raise a raw
   `Postgrex.Error` instead of returning a typed error.
   """
-  @spec list_reviews(filters :: list_reviews_filters(), opts :: [prefix: String.t()]) ::
+  @spec list_reviews(filters :: list_reviews_filters(), opts :: list_reviews_opts()) ::
           {:ok, list_reviews_result()} | {:error, list_reviews_error()}
   def list_reviews(filters, opts) when is_map(filters) and is_list(opts) do
     prefix = Keyword.fetch!(opts, :prefix)
+    row_visible? = fetch_row_visible!(opts)
     page_size = Map.fetch!(filters, :page_size)
 
     with {:ok, _} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
          {:ok, cursor_seek} <- decode_list_reviews_cursor(Map.get(filters, :cursor)) do
-      query =
-        PromotionReview
-        |> where_review_status(Map.get(filters, :status))
-        |> where_review_def_id(Map.get(filters, :def_id))
-        |> where_review_def_type(Map.get(filters, :def_type))
-        |> filter_by_list_reviews_cursor(cursor_seek)
-        |> order_by([r], desc: r.inserted_at, desc: r.id)
-        |> limit(^(page_size + 1))
-
-      rows = Repo.all(query, prefix: prefix)
-      {page, next_cursor} = split_list_reviews_page(rows, page_size)
+      {page, next_cursor} =
+        collect_list_reviews_page(filters, prefix, row_visible?, cursor_seek, page_size)
 
       {:ok, %{items: page, next_cursor: next_cursor}}
     end
+  end
+
+  # `:row_visible?` contract: absent/nil = no filtering; a 1-arity function =
+  # per-row visibility decision; anything else fails closed (never silently
+  # unfiltered).
+  defp fetch_row_visible!(opts) do
+    case Keyword.get(opts, :row_visible?) do
+      nil ->
+        nil
+
+      fun when is_function(fun, 1) ->
+        fun
+
+      other ->
+        raise ArgumentError,
+              "list_reviews/2 :row_visible? must be nil or a 1-arity function, got: #{inspect(other)}"
+    end
+  end
+
+  # ISS-1029: without a predicate the single-query path is exactly the
+  # pre-existing behaviour. With one, scan the keyset in chunks (SQL filters
+  # first), keep only visible rows, and stop when page_size + 1 visible rows
+  # are held or the table is exhausted. No scan cap: a cap would force a cursor
+  # anchored on a hidden row (discloses it) or make visible rows unreachable.
+  # The in-memory seek between chunks never leaves this call, so every
+  # returned next_cursor encodes only an EMITTED (visible) row.
+  defp collect_list_reviews_page(filters, prefix, nil, cursor_seek, page_size) do
+    rows = fetch_list_reviews_chunk(filters, prefix, cursor_seek, page_size + 1)
+    split_list_reviews_page(rows, page_size)
+  end
+
+  defp collect_list_reviews_page(filters, prefix, row_visible?, cursor_seek, page_size) do
+    chunk_size = max(page_size + 1, @min_scan_chunk)
+
+    visible =
+      scan_visible_reviews(
+        filters,
+        prefix,
+        row_visible?,
+        cursor_seek,
+        chunk_size,
+        page_size + 1,
+        []
+      )
+
+    split_list_reviews_page(visible, page_size)
+  end
+
+  defp scan_visible_reviews(filters, prefix, row_visible?, seek, chunk_size, want, acc) do
+    chunk = fetch_list_reviews_chunk(filters, prefix, seek, chunk_size)
+    acc = acc ++ Enum.filter(chunk, row_visible?)
+
+    cond do
+      length(acc) >= want ->
+        Enum.take(acc, want)
+
+      length(chunk) < chunk_size ->
+        acc
+
+      true ->
+        %PromotionReview{id: id, inserted_at: inserted_at} = List.last(chunk)
+
+        scan_visible_reviews(
+          filters,
+          prefix,
+          row_visible?,
+          {id, DateTime.to_unix(inserted_at, :microsecond)},
+          chunk_size,
+          want,
+          acc
+        )
+    end
+  end
+
+  defp fetch_list_reviews_chunk(filters, prefix, cursor_seek, limit) do
+    PromotionReview
+    |> where_review_status(Map.get(filters, :status))
+    |> where_review_def_id(Map.get(filters, :def_id))
+    |> where_review_def_type(Map.get(filters, :def_type))
+    |> filter_by_list_reviews_cursor(cursor_seek)
+    |> order_by([r], desc: r.inserted_at, desc: r.id)
+    |> limit(^limit)
+    |> Repo.all(prefix: prefix)
   end
 
   # ---------------------------------------------------------------------

@@ -491,8 +491,14 @@ defmodule Letflow.Routers.Promotions do
       {:error, :review_not_found} ->
         Response.not_found(conn)
 
-      {:ok, %PromotionReview{}} ->
-        render_assertion_run(conn, Definitions.get_latest_assertion_run(raw_id, opts))
+      {:ok, %PromotionReview{} = review} ->
+        # ISS-1029: same stored-tenant gate as the write routes, decided
+        # BEFORE any assertion-run data is read.
+        if review_tenants_authorized?(conn, review) do
+          render_assertion_run(conn, Definitions.get_latest_assertion_run(raw_id, opts))
+        else
+          Response.not_found(conn)
+        end
     end
   end
 
@@ -530,8 +536,16 @@ defmodule Letflow.Routers.Promotions do
 
   defp render_context(conn, {:error, :review_not_found}), do: Response.not_found(conn)
 
-  defp render_context(conn, {:ok, %PromotionReview{} = review}),
-    do: Response.ok(conn, review_context_map(review, tenant_view(conn)))
+  # ISS-1029: a review whose stored source/target ids are not the caller's own
+  # answers the same zero-detail 404 as a nonexistent id. shape_plan/2 stays
+  # as defence in depth (operator with the pin unset, INV-2).
+  defp render_context(conn, {:ok, %PromotionReview{} = review}) do
+    if review_tenants_authorized?(conn, review) do
+      Response.ok(conn, review_context_map(review, tenant_view(conn)))
+    else
+      Response.not_found(conn)
+    end
+  end
 
   # PROVENANCE (historical, not current decision authority):
   # Exactly 9 keys (design §7.3), ported from promotion_review.zig:321-337.
@@ -677,18 +691,23 @@ defmodule Letflow.Routers.Promotions do
   # `:review_not_found` -> 404 path, so the bytes are identical.
   defp stored_tenants_authorized?(conn, raw_review_id, opts) do
     case PromotionReviewStore.get_review(raw_review_id, opts) do
-      {:ok, %PromotionReview{serialised_plan: serialised}} ->
-        plan =
-          case Jason.decode(serialised) do
-            {:ok, %{} = decoded} -> decoded
-            _malformed -> %{}
-          end
-
-        tenants_authorized?(conn, [plan["source_tenant_id"], plan["target_tenant_id"]])
-
-      {:error, :review_not_found} ->
-        true
+      {:ok, %PromotionReview{} = review} -> review_tenants_authorized?(conn, review)
+      {:error, :review_not_found} -> true
     end
+  end
+
+  # The one stored-tenant predicate shared by every per-review route (read and
+  # write, ISS-1026 / ISS-1029). A malformed or non-map stored plan decodes to
+  # %{} so its (absent) ids fail the check closed; never raises.
+  @spec review_tenants_authorized?(Plug.Conn.t(), PromotionReview.t()) :: boolean()
+  defp review_tenants_authorized?(conn, %PromotionReview{serialised_plan: serialised}) do
+    plan =
+      case Jason.decode(serialised) do
+        {:ok, %{} = decoded} -> decoded
+        _malformed -> %{}
+      end
+
+    tenants_authorized?(conn, [plan["source_tenant_id"], plan["target_tenant_id"]])
   end
 
   defp render_apply(conn, {:ok, %{review_id: review_id}}),
@@ -1170,7 +1189,15 @@ defmodule Letflow.Routers.Promotions do
         page_size: page_size
       }
 
-      render_list_reviews(conn, PromotionReviewStore.list_reviews(filters, opts))
+      # ISS-1029: a non-operator never sees a review whose stored ids are not
+      # their own; the operator path passes no predicate (unchanged).
+      store_opts =
+        case tenant_view(conn) do
+          :operator -> opts
+          _non_operator -> Keyword.put(opts, :row_visible?, &review_tenants_authorized?(conn, &1))
+        end
+
+      render_list_reviews(conn, PromotionReviewStore.list_reviews(filters, store_opts))
     else
       {:error, :invalid_status} ->
         Response.bad_request(
