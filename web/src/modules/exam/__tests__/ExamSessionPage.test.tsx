@@ -466,3 +466,58 @@ describe('ISS-0654 — forced anti-cheat submit flushes an uncommitted short_tex
     expect(mockedExamApi.saveAnswer).not.toHaveBeenCalled()
   })
 })
+
+/**
+ * Q-1075 / GH 2432: the page reports the measured running total on each save. It must never
+ * send the stored value or a 0 default when time has passed. Date.now is driven by hand here.
+ */
+describe('Q-1075 / GH 2432 -- the save reports the measured running total, not the 0 default', () => {
+  let dateNow: { mockRestore: () => void } | undefined
+
+  afterEach(() => {
+    dateNow?.mockRestore()
+    dateNow = undefined
+  })
+
+  it('a save after a delay reports the seconds measured on the question, and later saves add to them', async () => {
+    let now = 1_000_000
+    dateNow = vi.spyOn(Date, 'now').mockImplementation(() => now)
+
+    const q2 = {
+      question_id: 'q2',
+      sort_order: 2,
+      type: 'single' as const,
+      stem: { en: 'Question two' },
+      options: [
+        { id: 'opt-c', text: { en: 'Option C' } },
+        { id: 'opt-d', text: { en: 'Option D' } },
+      ],
+    }
+    mockedExamApi.startSession.mockResolvedValue(
+      sessionState({ remaining_seconds: 100, questions: [sessionState().questions[0], q2] }),
+    )
+    mockedExamApi.saveAnswer.mockResolvedValue({ remaining_seconds: 42 })
+
+    renderPage()
+    await screen.findByTestId('exam-session-page')
+    // Let the mount effect that starts the q1 clock run before the first advance. The effect reads
+    // Date.now when it runs, so an advance that landed before it would drop q1's first seconds.
+    await new Promise((resolve) => setImmediate(resolve))
+
+    now += 3_000 // q1 shown for 3 s
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    now += 2_000 // q2 shown for 2 s
+    fireEvent.click(screen.getByRole('button', { name: 'Previous' }))
+    now += 1_000 // q1 revisited for 1 s, then answered: 3 s + 1 s = 4 s
+    fireEvent.click(screen.getByTestId('exam-option-opt-a'))
+
+    await waitFor(() => expect(mockedExamApi.saveAnswer).toHaveBeenCalledTimes(1))
+    expect(mockedExamApi.saveAnswer.mock.calls[0][2]).toMatchObject({ time_spent_seconds: 4 })
+
+    now += 1_000 // one more second on q1 before a second save: 4 s + 1 s = 5 s
+    fireEvent.click(screen.getByTestId('exam-option-opt-b'))
+
+    await waitFor(() => expect(mockedExamApi.saveAnswer).toHaveBeenCalledTimes(2))
+    expect(mockedExamApi.saveAnswer.mock.calls[1][2]).toMatchObject({ time_spent_seconds: 5 })
+  })
+})

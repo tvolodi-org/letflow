@@ -1,0 +1,223 @@
+{
+  "handoff_id": "b6b24307-9e5a-4770-8dab-5a4ccc265947",
+  "run_id": "WF02-Q1075-20261013",
+  "workflow_id": "WF-02",
+  "step": "04",
+  "from_agent": "ORCH",
+  "to_agent": "REVIEWER",
+  "file": "handoffs/WF02-Q1075-20261013/step-04-reviewer.json",
+  "created_at": "2026-10-13T06:06:51Z",
+  "started_at": "2026-10-13T06:06:51Z",
+  "completed_at": "2026-10-13T06:07:45Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "not resolved in this review (exam module; no requirement entry for GH #2432 in docs/requirements.yaml, consistent with the SECURITY-REVIEWER handoff)",
+    "requirement_ids": [],
+    "queue_task": 1075,
+    "gh_issue": 2432,
+    "issue_refs": ["Q-1075 / GH #2432 (A2 time_spent_seconds, MAJOR per letflow-supervisor/reports/2026-10-13.md:37)"],
+    "decision_ref": "Not found. Searched docs/, lib/, test/, web/src, scripts/ and letflow-supervisor/reports/ for 2432 / Q-1075: no decision text for the clamp-not-reject choice or the shown-event exclusion. Decision D is checked against the wording in the dispatch brief and against the code's own comments.",
+    "branch_name": "feat/Q-1075-exam-time-spent",
+    "base_sha": "bf304105f27b3d4e35d3756ca21b93b7e374fbe7",
+    "reviewed_commits": [
+      "234199f4991bf4f72ecc14f405c2e5e813d91b48 (wip)",
+      "d97f18a69b98a854be270cc5986e8c2b1440cd2b (fix; last commit that changes code)"
+    ],
+    "head_at_review": "8cba3527893c2028a6611500b1858014ff044106",
+    "head_before_this_commit": "8cba3527893c2028a6611500b1858014ff044106",
+    "head_note": "The brief recorded HEAD as d97f18a6. HEAD was 8cba3527 when the diff was read: a SECURITY-REVIEWER chore commit (11:05:05 +05:00, after d97f18a6 at 11:00:53 +05:00) that adds only handoffs/WF02-Q1075-20261013/step-03-security-reviewer.json. git diff --stat d97f18a6 8cba3527 shows that one file and no code. The code under review is therefore unchanged from d97f18a6.",
+    "sibling_session_note": "No sibling state was modified. Only this handoff file is written and committed.",
+    "artifacts_in": [
+      ".claude/agents/reviewer.md",
+      "docs/agents/instructions/core-directives.md",
+      "git diff origin/main..HEAD (5 code files at d97f18a6; plus the security handoff at 8cba3527)",
+      "git diff 234199f4 d97f18a6 (WIP-to-final delta: session_test.exs +6, three web files 4 lines each, no lib/ change)",
+      "lib/letflow/modules/exam/session.ex (moduledoc 1-60; autosave_answer 490-545; upsert_answer 1014-1087; bounded_time_spent and stored_time_spent 1091-1107; answer_map 473-484; create 240-300; check_non_negative 915-921)",
+      "lib/letflow/modules/exam/router.ex (not in the diff; time_spent_seconds at 409, 423, 862-874 read only)",
+      "test/letflow/modules/exam/session_test.exs (module header 10; setup 111-135; touched test 950-999; new describe 1571-1610)",
+      "web/src/modules/exam/ExamSessionPage.tsx (doc 36-66; clock 162-167; saveAnswer 190-235; maybeSaveDraft and handleTextAnswerBlur 259-284; prev and next 438-446)",
+      "web/src/modules/exam/dwellTime.ts (full file)",
+      "web/src/modules/exam/__tests__/dwellTime.test.ts (full file)",
+      "lib/mix/tasks/letflow.check_issue_refs.ex (regex at 87-90: validates YAML github_ref fields, not code prose)",
+      "docs/agents/shared/HANDOFF_PROTOCOL.md:764-770 (legal result.status values)",
+      "handoffs/WF02-Q1075-20261013/step-03-security-reviewer.json (at 8cba3527; read for overlap, not re-derived)",
+      "handoffs/WF02-Q1051-20261012/step-04-reviewer.json (shape reference)",
+      "letflow-supervisor/reports/2026-10-13.md:37, :113-115 (walk item and assignment)"
+    ]
+  },
+  "task": {
+    "description": "STEP 2d REVIEWER gate for Q-1075 / GH #2432, branch feat/Q-1075-exam-time-spent, base origin/main bf304105, code head d97f18a6 (HEAD at 8cba3527 is a security-handoff-only commit). Read-only: no mix, no BEAM, no code edits. Check (A) OTP idiom of session.ex helpers, (B) scope, (C) test isolation including the touched existing assertion as a TEST-DESIGN-VALIDATOR call-out, (D) decision-record consistency, (E) comment accuracy, (F) stray or duplicated edits. Commit only this handoff file. Do not push.",
+    "acceptance_criteria": [
+      "(A) bounded_time_spent/4 and stored_time_spent/1 are pure; the existing row is read through the same query as before; no new process, state or spawn.",
+      "(B) changes limited to session.ex upsert and helpers, session_test.exs (new describe, module helpers, one touched existing assertion), ExamSessionPage.tsx, dwellTime.ts and its test; no change to scoring, anti-cheat, the router or entity definitions.",
+      "(C) new describe is async false (module is); the two Process.sleep calls are input timing for the clamp bound, not synchronisation; the touched existing test (sleep 11 s, assert == 10) is called out explicitly for TEST-DESIGN-VALIDATOR with the reason it is correct.",
+      "(D) per-question shown event out of scope; value client-reported and server-bounded with the limit stated in code comments; clamp replaces a rejection.",
+      "(E) code comments describe the code accurately.",
+      "(F) no stray or duplicated edit in the WIP commit 234199f4 or the final commit d97f18a6."
+    ]
+  },
+  "result": {
+    "status": "PASS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "PASS_WITH_FINDINGS. The OTP idiom is sound: the two helpers are pure, no process or state is added, and the existing-row query is unchanged. Scope is clean: five code files, with router.ex, anti_cheat.ex, the scoring path and entity definitions untouched; no code change between the WIP and final commits beyond one 11 s sleep and comments in session_test.exs and a spelling change in the web files. The touched existing assertion is correct as a precondition change (see tdv_callout). Findings are comment accuracy (stale upsert_answer/5 arity; the 'never decreases' claim is false under concurrent autosaves and legacy rows; the per-question sum limit is not stated), a decision-record question on whether dwell time for viewed-but-unsaved questions must be reported, a loose <= 30 bound, the sleeps' time cost, one type-safety observation routed to ORCH, and a spelling split. Overlaps with SECURITY-REVIEWER findings F1 to F5 are referenced by ID, not refiled. None blocks TEST-DESIGNER. Read-only: no mix or BEAM was run.",
+    "findings": [
+      {
+        "id": "F-01",
+        "severity": "MINOR",
+        "file": "lib/letflow/modules/exam/session.ex",
+        "line": "1091-1096 (comment); 1049-1070 (read then write); 1097-1100 (bound)",
+        "description": "The comment says the stored value never decreases. That holds only for serialised saves of one answer, and only for rows this code wrote while elapsed time was non-decreasing. (a) autosave_answer (510-545) has no Repo.transaction, and upsert_answer reads the stored value and writes with no row lock. The FOR UPDATE idiom named in the moduledoc (35-38) is used by create, submit and finalize only. Two in-flight saves for the same question can both read stored = S, and the later write can lower a higher value. The next save restores it, because the client resends a monotone base plus measured total. Nothing in lib/ sums or scores this field. (b) A legacy row above elapsed, or a backward wall-clock step, is lowered by the min at line 1100. Overlaps SECURITY-REVIEWER F2 and F5. Classed MINOR here because the comment states a guarantee the code does not enforce under concurrency.",
+        "recommendation": "Either correct the comment to state the per-serialised-save guarantee and both exceptions, or make it true: run the read and the write in one Repo.transaction with a FOR UPDATE lock on the session_answer row (or on the session row, as submit does). Choose one in the same ELIXIR-DEV pass.",
+        "affected_requirement": "Q-1075 / GH #2432",
+        "route": "ELIXIR-DEV",
+        "blocking": false
+      },
+      {
+        "id": "F-02",
+        "severity": "MINOR",
+        "file": "lib/letflow/modules/exam/session.ex",
+        "line": "58 and 1298",
+        "description": "Both comments name upsert_answer/5. The function now has arity 8 (1014-1023). The stale reference predates this branch: origin/main carries the same /5 text at lines 58 and 1263, when the function had arity 7. This branch moves it further from the code.",
+        "recommendation": "Comment-only: change both references to upsert_answer/8, or drop the arity.",
+        "affected_requirement": "Q-1075 / GH #2432",
+        "route": "ELIXIR-DEV",
+        "blocking": false
+      },
+      {
+        "id": "F-03",
+        "severity": "MINOR",
+        "file": "lib/letflow/modules/exam/session.ex; web/src/modules/exam/dwellTime.ts",
+        "line": "session.ex 1091-1096; dwellTime.ts 9-10",
+        "description": "The known limit is stated as client-reported and server-bounded, but not as a per-question bound. Each question's value is bounded by the session's elapsed time, so the sum across N questions can reach N times that span. The decision's limit statement should say so. Overlaps SECURITY-REVIEWER F1.",
+        "recommendation": "Comment-only: add 'bounded per question; the sum across questions is not bounded' to both comments. Whether a cross-question bound is wanted is a decision for ORCH, not this gate.",
+        "affected_requirement": "Q-1075 / GH #2432",
+        "route": "ELIXIR-DEV (session.ex); FRONTEND-DEV (dwellTime.ts)",
+        "blocking": false
+      },
+      {
+        "id": "F-04",
+        "severity": "MINOR",
+        "file": "web/src/modules/exam/ExamSessionPage.tsx",
+        "line": "438 and 446 (prev and next); 259-260 and 284 (maybeSaveDraft paths)",
+        "description": "Dwell time reaches the server only inside a save. Prev and next change questionIndex only and do not save. saveAnswer fires from an option toggle, from a blur on a changed draft (maybeSaveDraft returns early when the draft is unchanged), and from the anti-cheat flush. So time spent viewing a question and leaving it without changing its answer is never sent, and time after a question's last save is lost. The header comments say 'reported on every save', which is accurate. Whether GH #2432 requires per-question time for viewed-only questions cannot be checked here: the requirement text is not in the repo.",
+        "recommendation": "ORCH to confirm the requirement. If it requires that time, FRONTEND-DEV adds a flush on question switch. That adds a save per navigation, a design choice for ORCH and not a reviewer call. No change needed if the requirement only asks for time reported with saves.",
+        "affected_requirement": "Q-1075 / GH #2432",
+        "route": "ORCH (confirm requirement); FRONTEND-DEV only if confirmed",
+        "blocking": false
+      },
+      {
+        "id": "F-05",
+        "severity": "NIT",
+        "file": "test/letflow/modules/exam/session_test.exs",
+        "line": "1607-1608",
+        "description": "The clamp test asserts stored <= 30, an unexplained literal. Elapsed time is measured from started_at, which Session.create writes (session.ex:750) as the last step of setup, so the literal is not a flakiness risk. It is simply a loose bound that does not pin the clamp. Overlaps SECURITY-REVIEWER F3.",
+        "recommendation": "Read started_at back from the row and assert stored <= DateTime.diff(DateTime.utc_now(), started_at, :second), or assert equality with that value.",
+        "affected_requirement": "Q-1075 / GH #2432",
+        "route": "TEST-DESIGNER",
+        "blocking": false
+      },
+      {
+        "id": "F-06",
+        "severity": "MINOR",
+        "file": "test/letflow/modules/exam/session_test.exs",
+        "line": "954 (sleep 11_000) and 1593 (sleep 2_100)",
+        "description": "Both are input timing for the clamp bound, not synchronisation (see tdv_callout). Costs: about 13.1 s of serial wall-clock in a module that is async false (line 10), and dependence on the wall clock advancing with the sleep. Precedent: 63 non-zero Process.sleep calls across 39 test files in test/, so this is an existing pattern rather than a new class. A cleaner option for the new describe is to backdate started_at in its setup through the record path the file already uses, which removes the wall clock. Overlaps SECURITY-REVIEWER F4.",
+        "recommendation": "Non-blocking. TEST-DESIGNER may backdate started_at in the new describe's setup instead of sleeping. The touched existing test may keep its sleep.",
+        "affected_requirement": "Q-1075 / GH #2432",
+        "route": "TEST-DESIGNER",
+        "blocking": false
+      },
+      {
+        "id": "F-07",
+        "severity": "OBSERVATION (type-safety)",
+        "file": "lib/letflow/modules/exam/session.ex",
+        "line": "1102-1107 (stored_time_spent/1); 1097-1100 (bounded_time_spent/4); 915-921 (check_non_negative, the precondition)",
+        "description": "stored_time_spent/1 coerces any non-integer stored value to 0 with no signal, so a corrupt or legacy value reads as 0. bounded_time_spent/4 takes received as an unchecked term; its non-negative precondition is enforced one function away, at check_non_negative, called from autosave_answer at 522. A typed value (a validated non-negative integer, or the entity field's integer minimum) would make both the silent coercion and the distant precondition unrepresentable. This does not block the PASS (reviewer.md item 3).",
+        "recommendation": "ORCH to register a type-safety task under ISSUE_QUEUE.md and create the docs/issues record from the queue response. REVIEWER did not allocate an id or create the record: core-directives 'No Issue Left Local-Only' gives id allocation to ORCH, and this commit is restricted to this file. reviewer.md item 3's 'file it under docs/issues/' is read as ORCH filing it.",
+        "affected_requirement": "Q-1075 / GH #2432",
+        "route": "ORCH (file, tag type-safety)",
+        "blocking": false
+      },
+      {
+        "id": "F-08",
+        "severity": "NIT",
+        "file": "lib/letflow/modules/exam/session.ex; test/letflow/modules/exam/session_test.exs; web/src/modules/exam/dwellTime.ts; web/src/modules/exam/__tests__/dwellTime.test.ts; web/src/modules/exam/ExamSessionPage.tsx",
+        "line": "backend: session.ex 1055, 1091; session_test.exs 953, 995, 1550, 1571. web: dwellTime.ts 2, 9; dwellTime.test.ts 2, 9; ExamSessionPage.tsx 162, 194",
+        "description": "Backend comments write 'GH #2432'; web comments and titles write 'GH 2432'. d97f18a6 changed the web side. lib/mix/tasks/letflow.check_issue_refs.ex validates YAML github_ref fields (R3, GH-<n>), not prose in code, so the split does not touch a gate.",
+        "recommendation": "Use one form across the branch. Cosmetic.",
+        "affected_requirement": "Q-1075 / GH #2432",
+        "route": "ELIXIR-DEV or FRONTEND-DEV",
+        "blocking": false
+      }
+    ],
+    "idiom_and_isolation": {
+      "helpers_pure": "bounded_time_spent/4 (session.ex 1097-1100) and stored_time_spent/1 (1102-1107) use only DateTime.diff, max, min and map access. No I/O, no process, no state.",
+      "no_new_process_or_state": "The diff adds no spawn, Task, GenServer, Agent, ETS, registry or application env. The only new local is now (utc_now once), which also removes a second clock read between saved_at and the bound.",
+      "query_unchanged": "The query_all call for the existing session_answer row (1049-1053) is unchanged context in the diff. The change is limited to the write map and the two branches.",
+      "supervision": "Not touched. InstanceSupervisor is not referenced by any changed file.",
+      "frontend_idiom": "dwellTime.ts is a pure module with a mutable clock object held in useState (ExamSessionPage.tsx:165). Acceptable for a lazily-initialised stable object. No finding."
+    },
+    "tdv_callout": {
+      "for": "TEST-DESIGN-VALIDATOR",
+      "touched_test": "test/letflow/modules/exam/session_test.exs:950-999, test 'the write path is the ordinary Records/Query path: a second save on the same question upserts, not duplicates'. Changes: Process.sleep(11_000) at line 954 before the first save; comment at 995-997; the existing assertion at line 998 (row.field_values['time_spent_seconds'] == 10) is unchanged in value and in operator.",
+      "why_correct": [
+        "The stored value is min(max(stored, received), elapsed) with elapsed = max(DateTime.diff(now, started_at, :second), 0) (session.ex 1097-1100).",
+        "started_at is written by Session.create (session.ex:750) in the test's setup, before the test body runs. The sleep is the test body's first statement, so both saves happen with true elapsed of at least 11.0 s. DateTime.diff truncates to whole seconds, so the diff is at least 11.",
+        "First save: min(max(0, 5), >=11) = 5. Second save: min(max(5, 10), >=11) = 10. The assertion == 10 checks exactly the reported value. The bound does not bind, so the value asserted is the value that was asserted before this branch.",
+        "The assertion was not weakened: it is still exact equality and was not turned into <=, >= or removed. The test's purpose (one row, upsert not duplicate, option replaced) is unchanged.",
+        "Without the sleep the assertion would fail (elapsed about 0, so stored 0). The sleep is the precondition that makes the pinned value true, not a relaxation of it.",
+        "The clamp itself is covered by the new describe's two tests (session_test.exs 1590 and 1602), so this test does not need to cover it."
+      ],
+      "residual_risk": "The margin is 1 s over the bound. A wall-clock step backwards during the 11 s wait would break the precondition. Backdating started_at (F-06) removes that dependency. Both are non-blocking.",
+      "verdict_for_tdv": "Accept as a precondition change. The change is correct and the assertion still pins the stored value exactly."
+    },
+    "decision_record": {
+      "source_note": "The decision text is not in the repo. Checked against the dispatch brief's wording and the code's own comments.",
+      "shown_event_out_of_scope": "Met. No server-side per-question event is added. Stated at session.ex 1091-1092 and dwellTime.ts 9-10.",
+      "client_reported_server_bounded": "Met. The server takes max with stored and clamps to elapsed (session.ex 1097-1100). Stated at session.ex 1091-1096 and dwellTime.ts 4-7. The per-question qualifier is missing (F-03).",
+      "clamp_not_rejection": "Met. The upsert returns ok_or_error on the write result, with no rejection for an over-large value (session.ex 1054-1088). Stated at session.ex 1095-1096.",
+      "no_new_process": "Met. Consistent with CLAUDE.md's process-vs-row decision: concurrency here is arbitrated by row locks, not a process. The autosave path takes no row lock, which weakens the monotone claim (F-01).",
+      "open_question": "Whether viewed-but-unsaved dwell time must be reported (F-04). Not verifiable from the repo."
+    },
+    "scope": {
+      "files_changed_code": ["lib/letflow/modules/exam/session.ex", "test/letflow/modules/exam/session_test.exs", "web/src/modules/exam/ExamSessionPage.tsx", "web/src/modules/exam/dwellTime.ts", "web/src/modules/exam/__tests__/dwellTime.test.ts"],
+      "not_changed": "router.ex, anti_cheat.ex, the submit and finalize scoring path, entity definitions, migrations, priv/, config/.",
+      "scoring_readers": "No scoring or grading code reads time_spent_seconds. Readers are session.ex 478 (answer_map) and router.ex 865-871 (the candidate's own state echo), both unchanged.",
+      "abstractions": "None added. Two private helpers in session.ex; a small pure module in the frontend with three exported functions. No behaviour, macro or generic plumbing ahead of need."
+    },
+    "stray_edits_check": {
+      "result": "NO_STRAY_CONTENT",
+      "checks": [
+        "WIP-to-final delta (git diff 234199f4 d97f18a6): session_test.exs +6 (the 11 s sleep, its blank line and the comment lines); three web files 4 lines each (spelling). No lib/ change in the final commit.",
+        "Duplicates: bounded_time_spent, stored_time_spent, q1075_save_time and q1075_stored_time are each defined once. The two new test names are unique. ExamSessionPage.tsx has one new import line and one new dwell block.",
+        "Debug or leftover output in added lines: none (IO.inspect, IO.puts, dbg, console.log, TODO, FIXME, only.).",
+        "git diff --check origin/main..HEAD: exit 0 (no whitespace errors, no conflict markers).",
+        "letflow-3.code-workspace: untracked, not in any commit (git log --all empty, git ls-files count 0), not in the diff. It must not be staged.",
+        "The one non-code file in the branch range is handoffs/WF02-Q1075-20261013/step-03-security-reviewer.json (commit 8cba3527). It is a pipeline record, not code."
+      ],
+      "strays": []
+    },
+    "git_evidence": {
+      "branch_name": "feat/Q-1075-exam-time-spent",
+      "base_sha": "bf304105f27b3d4e35d3756ca21b93b7e374fbe7",
+      "code_head_reviewed": "d97f18a69b98a854be270cc5986e8c2b1440cd2b",
+      "head_when_diffed": "8cba3527893c2028a6611500b1858014ff044106",
+      "commit_sha_list": ["234199f4991bf4f72ecc14f405c2e5e813d91b48", "d97f18a69b98a854be270cc5986e8c2b1440cd2b", "8cba3527893c2028a6611500b1858014ff044106"],
+      "remote_branch": null,
+      "push_status": "not pushed (per brief)",
+      "pr_url": null,
+      "pr_create_error": null
+    },
+    "not_run": [
+      "mix compile, mix format --check-formatted, mix test, mix letflow.lint_handoffs, mix letflow.check_issue_refs, mix letflow.check_boundaries: not run. REVIEWER is read-only and runs no mix and no BEAM, per the dispatch.",
+      "Vitest for dwellTime.test.ts and ExamSessionPage.test.tsx: not run.",
+      "This file was checked by a JSON parse only, not by the handoff lint.",
+      "The DateTime.diff truncation claim rests on Elixir's documented DateTime.diff/3 semantics, not on a run.",
+      "Existing-test impact: the clamp changes the stored value for every pre-existing test that autosaves a value above the session's elapsed time (most of exam_sessions_test.exs sends 5 s into a fresh session). The only stored-value assertion found by grep is session_test.exs:998. Pattern-matched assertions were not exhaustively enumerated. The full-suite run by TEST-RUNNER is the real check."
+    ],
+    "next_action": "ORCH: (1) TEST-DESIGNER may start; no finding blocks it. (2) ELIXIR-DEV, same pass: F-01 (comment or lock), F-02, F-03 comment part, F-08 optional. (3) TEST-DESIGNER: F-05, and optionally F-06 backdating in the new describe. (4) ORCH: confirm F-04 against the GH #2432 requirement text; register F-07 as a type-safety task. (5) TEST-RUNNER must run the full suite, because the clamp changes stored values across the existing exam tests. (6) Any change to the bound, to started_at handling, to the autosave guard order or to the role grant for :EntitiesRecordsWrite needs a new SECURITY-REVIEWER pass, per the SECURITY-REVIEWER handoff."
+  },
+  "rework_count": 0,
+  "max_rework": 3
+}
