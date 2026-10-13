@@ -1,0 +1,15 @@
+id: ISS-1077
+title: "Exam session: submit failures are silent (no catch on submit)"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-12 / 2026-10-13 walk and CI review"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: MEDIUM
+owner: "FRONTEND-DEV"
+scope: defect
+description: >
+  ExamSessionPage.tsx:280-282 has no catch on submit. Found in the static walk.
+resolution: >
+  Open. Filed GitHub-first (GH #2434), then registered with the queue (Q-1077) using that number.
+queue_ref: Q-1077
+github_ref: GH-2434
+status: open

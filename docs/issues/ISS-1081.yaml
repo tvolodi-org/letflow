@@ -1,0 +1,15 @@
+id: ISS-1081
+title: "Onboarding: the banner never shows the server's detail (RegisterTenantPage reads title first; the backend always sets title 'Conflict')"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-12 / 2026-10-13 walk and CI review"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: MINOR
+owner: "FRONTEND-DEV"
+scope: defect
+description: >
+  RegisterTenantPage.tsx:156. Found in the static walk.
+resolution: >
+  Open. Filed GitHub-first (GH #2438), then registered with the queue (Q-1081) using that number.
+queue_ref: Q-1081
+github_ref: GH-2438
+status: open

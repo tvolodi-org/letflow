@@ -1,0 +1,15 @@
+id: ISS-1084
+title: "test/scripts/test_parallel_pool_sizing_test.sh is stale: red on main and not run by CI"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-12 / 2026-10-13 walk and CI review"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: LOW
+owner: "letflow-16 (CI and test-infra)"
+scope: tooling
+description: >
+  The file exists on main and no .github workflow references it. Red state is letflow-16's report; not re-run here.
+resolution: >
+  Open. Filed GitHub-first (GH #2442), then registered with the queue (Q-1084) using that number.
+queue_ref: Q-1084
+github_ref: GH-2442
+status: open

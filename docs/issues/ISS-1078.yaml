@@ -1,0 +1,15 @@
+id: ISS-1078
+title: "Exam session: a save after expiry shows a generic error, not the expired screen"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-12 / 2026-10-13 walk and CI review"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: MINOR
+owner: "FRONTEND-DEV"
+scope: defect
+description: >
+  The backend returns 422 'session is not in progress' (router.ex:453-454); examErrors.ts:41 matches only the 'expired' text. Whether the expiry sweep runs in production is not confirmed.
+resolution: >
+  Open. Filed GitHub-first (GH #2435), then registered with the queue (Q-1078) using that number.
+queue_ref: Q-1078
+github_ref: GH-2435
+status: open

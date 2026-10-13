@@ -1,0 +1,15 @@
+id: ISS-1086
+title: "distinct-from (REQ-466) is structural, not membership-aware: a single role-ceo holder can make both CEO decisions on one production order"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-12 / 2026-10-13 walk and CI review"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: MAJOR
+owner: "letflow-fc (letflow-9a) design-intent answer, then ELIXIR-DEV; unassigned until the answer"
+scope: defect
+description: >
+  Residual of PR #2446 (merged bf304105). Options (a), (b) and (c) are copied from the PR body. The Q-1044 membership premise is wrong: the guard compares roles only.
+resolution: >
+  Open. Filed GitHub-first (GH #2447), then registered with the queue (Q-1086) using that number.
+queue_ref: Q-1086
+github_ref: GH-2447
+status: open

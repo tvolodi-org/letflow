@@ -1,0 +1,15 @@
+id: ISS-1083
+title: "Reaper tests: tenant_schema_reaper_test.exs:274 concurrent-invocation liveness guard (ISS-0110) reclaims a row while another invocation's connection is open"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-12 / 2026-10-13 walk and CI review"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: MAJOR
+owner: "letflow-16 (CI and test-infra), after Q-1053"
+scope: defect
+description: >
+  One occurrence so far: CI run 38329075192, PR #2440 branch, shard 2 of 3, partition 6. Re-scoped on the GH issue. The earlier template_build_reaper claim was wrong and is retracted there.
+resolution: >
+  Open. Filed GitHub-first (GH #2441), then registered with the queue (Q-1083) using that number.
+queue_ref: Q-1083
+github_ref: GH-2441
+status: open
