@@ -9,7 +9,11 @@ scope: decision
 description: >
   Tenant.platform_setting.updated entries written before PR #2482 carry the platform operator id in each tenant's own hash-linked audit chain. Options: (a) redaction by policy, (b) leave and document, (c) re-chain with an ADR.
 resolution: >
-  Open. Filed GitHub-first (GH #2485), then registered with the queue (Q-1107) using that number.
+  Decided (b): leave and document; see the decision block. Filed GitHub-first (GH #2485), then registered with the queue (Q-1107) using that number.
 queue_ref: Q-1107
 github_ref: GH-2485
-status: open
+decision: >
+  Decided 2026-10-14 by the user via the supervisor: option (b), leave and document. No redaction, no re-chain, no ADR.
+  Documented in lib/letflow/design/req442-per-tenant-login-disclosure-mode.md (DECIDED note under the ISS-1032 amendment).
+  GH #2485 can be closed as decided once that note merges.
+status: closed-decided

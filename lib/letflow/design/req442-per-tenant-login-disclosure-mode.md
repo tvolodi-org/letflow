@@ -127,6 +127,11 @@ not need or check the actor.
 > to the OPERATOR actor of the platform entry only: the tenant entry's nil actor is by design. A `display_name`-only
 > patch is unchanged (unaudited). Tenant-chain entries written before PR #2482 still carry the operator id; that is
 > a separate decision item (GH #2485).
+> **DECIDED 2026-10-14 (GH #2485, option b: leave and document).** Tenant-chain entries with action
+> `tenant.platform_setting.updated` written before PR #2482 keep the platform operator's user id in `actor_id`.
+> They are not redacted and not re-chained: the chain is hash-linked, and a rewrite would break verification of every later
+> entry. A reader of a tenant's audit chain must treat a non-nil `actor_id` on that action as a platform operator id
+> (an INV-2 class leak of the operator identity into the tenant's own chain), not as a tenant user.
 - Behaviour: load by slug; build `admin_patch_changeset/2`; if the changeset is invalid return `{:error, changeset}`;
   if `login_disclosure_mode` is among the changes (value actually differs), run the tenant update and the audit insert
   in ONE `Repo.transaction` (`Ecto.Multi`: `:tenant` update, then `Audit.append_multi/4`), so the audit row and the

@@ -1,0 +1,15 @@
+id: ISS-1119
+title: "UAT-class note: seeded UAT users need email_verified=true for the first-login admin binding to fire (no infra request sent)"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-13 follow-ups of PR #2493 (Q-1012 PR2), relayed by the supervisor"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: LOW
+owner: "the user (APPROVE), then infra"
+scope: process
+description: >
+  The first-login binding fires only on email_verified == true through the tenant's own realm. No request has been sent to infra; it needs the user's written APPROVE for test accounts. Until then the binding UAT scenario is BLOCKED, not PASS.
+resolution: >
+  Open. Filed GitHub-first (GH #2503), then registered with the queue (Q-1119) using that number.
+queue_ref: Q-1119
+github_ref: GH-2503
+status: open

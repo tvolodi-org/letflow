@@ -1,0 +1,15 @@
+id: ISS-1115
+title: "Login directory: narrow the blanket rescue in upsert_entry/2 so schema drift is distinguishable, and add a test-DB schema-drift preflight"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-13 diagnosis of GH #2496/#2497 (letflow-9c), supervisor request"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: LOW
+owner: "ELIXIR-DEV and letflow-16 (test-DB preflight)"
+scope: tooling
+description: >
+  LoginDirectory.upsert_entry/2 (login_directory.ex:418-437) ends in a blanket rescue (L436) returning {:error, :write_failed}, so a missing column or table surfaces as an opaque 500; and no test-DB preflight detects schema drift after a migration edited in place (20261004000001). Not to be implemented unprompted.
+resolution: >
+  Open. Filed GitHub-first (GH #2498), then registered with the queue (Q-1115) using that number.
+queue_ref: Q-1115
+github_ref: GH-2498
+status: open

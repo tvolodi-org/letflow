@@ -1,0 +1,15 @@
+id: ISS-1116
+title: "Docs follow-ups of the pending TENANT_ADMIN grant (0048): roles.md TENANT_ADMIN note and a pointer from decision 0006 R5"
+discovered_by: letflow-2 (sole filer) at the request of the supervisor or of the reporting session
+discovered_in_run: "2026-10-13 follow-ups of PR #2493 (Q-1012 PR2), relayed by the supervisor"
+discovered_at: "2026-10-13T00:00:00Z"
+severity: LOW
+owner: "DOC-UPDATER"
+scope: docs
+description: >
+  docs/roles.md TENANT_ADMIN section gets a 2-line pending-grant conferral note citing 0048; decision 0006 R5 (line 132) gets a pointer 'narrowed by 0048 section 2'.
+resolution: >
+  Open. Filed GitHub-first (GH #2500), then registered with the queue (Q-1116) using that number.
+queue_ref: Q-1116
+github_ref: GH-2500
+status: open

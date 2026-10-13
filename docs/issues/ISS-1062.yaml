@@ -17,8 +17,12 @@ description: >
   without the backend gate running. Related: Q-1038 / GH #2365 (its local record on main is ISS-1059, resolved)
   covers scripts/*.sh only, and PR #2410 is letflow-16's change for that line.
 resolution: >
-  Open. Widen the backend path filter to every path the backend gate reads, with a check that fails when
-  a read path is missing from the filter. Queue Q-1059 / GH #2411.
+  The backend path filter now covers every path the backend gate reads (BACKEND_PATHS_RE), with the guard
+  test test/letflow/ci_backend_path_filter_test.exs that fails when a read path is missing. Known unclosable
+  gap: no_smtp_secret_guard_test greps the whole tree; push-to-main always runs all gates (ISS-0840).
+  Merged as PR #2491.
 queue_ref: Q-1059
 github_ref: GH-2411
-status: open
+status: resolved
+resolved_in_run: PR #2491 (366c33daacced86e102a727721289ee7659ae59c)
+resolved_at: "2026-10-13T15:46:07Z"
