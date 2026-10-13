@@ -40,8 +40,8 @@ defmodule Letflow.Routers.PromotionReadStoredIdsTest do
     {:ok, Map.put(tenants, :caller, Ecto.UUID.generate())}
   end
 
-  defp get_resp(fixture, path, roles, user_id, headers \\ []) do
-    conn = Fixture.router_conn(:get, path, fixture, roles, nil)
+  defp get_resp(fixture, path, roles, user_id, headers \\ [], body \\ nil) do
+    conn = Fixture.router_conn(:get, path, fixture, roles, body)
     ac = %{conn.assigns.auth_context | user_id: user_id}
     conn = Enum.reduce(headers, conn, fn {k, v}, c -> put_req_header(c, k, v) end)
 
@@ -53,14 +53,15 @@ defmodule Letflow.Routers.PromotionReadStoredIdsTest do
 
   # The bytes a non-operator sees for a nonexistent review id: the baseline a non-party review
   # must reproduce on each per-review read route.
-  defp baseline(ctx, suffix, fixture \\ nil, query \\ "", headers \\ []) do
+  defp baseline(ctx, suffix, fixture \\ nil, query \\ "", headers \\ [], body \\ nil) do
     resp =
       get_resp(
         fixture || ctx.a,
         "/#{Ecto.UUID.generate()}#{suffix}#{query}",
         @reader,
         ctx.caller,
-        headers
+        headers,
+        body
       )
 
     assert resp.status == 404
@@ -324,46 +325,74 @@ defmodule Letflow.Routers.PromotionReadStoredIdsTest do
   end
 
   # --- T5 / AC3: the party is decided from stored ids vs the authenticated tenant only --------
-
   describe "T5 AC3: nothing in the request decides who is a party" do
-    @attacks [
-      "?tenant_id=TENANT&source_tenant_id=TENANT&target_tenant_id=TENANT",
-      "?tenant=TENANT&tenantId=TENANT"
-    ]
+    # Every request-borne channel a GET can carry, each naming ONE tenant id: query keys,
+    # headers, a (body_params) body, and all of them together. A GET has no path-borne tenant.
+    defp channels(tenant_id) do
+      keys = ~w(tenant_id source_tenant_id target_tenant_id tenant tenantId)
+      query = "?" <> Enum.map_join(keys, "&", &"#{&1}=#{tenant_id}")
+      headers = [{"x-tenant-id", tenant_id}, {"x-letflow-tenant", tenant_id}]
+      body = Map.new(keys, &{&1, tenant_id})
 
-    test "request params and headers naming the reader's tenant do not open a non-party review",
+      [
+        {"query", query, [], nil},
+        {"headers", "", headers, nil},
+        {"body", "", [], body},
+        {"all", query, headers, body}
+      ]
+    end
+
+    defp request(ctx, review_id, suffix, {_label, q, headers, body}) do
+      get_resp(ctx.a, "/#{review_id}#{suffix}#{q}", @reader, ctx.caller, headers, body)
+    end
+
+    test "a request naming the STORED source or target id never opens a non-party review",
          ctx do
       %{review: review} = Scope.seed_review!(ctx.a, ctx.b.tenant_id, ctx.p.tenant_id)
-      headers = [{"x-tenant-id", ctx.a.tenant_id}, {"x-letflow-tenant", ctx.a.tenant_id}]
 
-      for suffix <- ["", "/context"], attack <- @attacks do
-        q = String.replace(attack, "TENANT", ctx.a.tenant_id)
-        resp = get_resp(ctx.a, "/#{review.id}#{suffix}#{q}", @reader, ctx.caller, headers)
-        assert resp.status == 404, "#{suffix}#{q}"
-        assert Scope.observable(resp) == baseline(ctx, suffix, nil, q, headers)
+      for named <- [ctx.b.tenant_id, ctx.p.tenant_id, ctx.a.tenant_id],
+          {label, q, headers, body} = channel <- channels(named),
+          suffix <- ["", "/context"] do
+        resp = request(ctx, review.id, suffix, channel)
+        assert resp.status == 404, "#{label} #{named} #{suffix}"
+
+        expected =
+          baseline(ctx, suffix, nil, q, headers, body)
+
+        assert Scope.observable(resp) == expected, "#{label} #{named} #{suffix}"
       end
 
-      {ids, _} = list_page(ctx, ctx.a, @reader, "tenant_id=#{ctx.a.tenant_id}&page_size=50")
+      # the list: the non-party row stays omitted under every channel and every named id
+      for named <- [ctx.b.tenant_id, ctx.p.tenant_id, ctx.a.tenant_id],
+          {label, q, headers, body} <- channels(named) do
+        resp = get_resp(ctx.a, "/" <> q, @reader, ctx.caller, headers, body)
+        assert list_ids(resp) == [], "list #{label} #{named}"
+      end
+
+      {ids, _} = list_page(ctx, ctx.a, @reader, "tenant_id=#{ctx.b.tenant_id}&page_size=50")
       refute review.id in ids
     end
 
-    test "request params and headers naming a foreign tenant do not close a party review", ctx do
-      %{review: review} = Scope.seed_review!(ctx.a, ctx.a.tenant_id, ctx.b.tenant_id)
-      headers = [{"x-tenant-id", ctx.b.tenant_id}]
+    test "a request naming a foreign tenant never closes or opens a party review", ctx do
+      for {src, tgt} <- [{ctx.a.tenant_id, ctx.b.tenant_id}, {ctx.b.tenant_id, ctx.a.tenant_id}] do
+        %{review: review} = Scope.seed_review!(ctx.a, src, tgt)
 
-      for suffix <- ["", "/context"] do
-        plain = get_resp(ctx.a, "/#{review.id}#{suffix}", @reader, ctx.caller)
-        assert plain.status == 200
+        for suffix <- ["", "/context"] do
+          plain = get_resp(ctx.a, "/#{review.id}#{suffix}", @reader, ctx.caller)
+          assert plain.status == 200
 
-        for attack <- @attacks do
-          q = String.replace(attack, "TENANT", ctx.b.tenant_id)
-          resp = get_resp(ctx.a, "/#{review.id}#{suffix}#{q}", @reader, ctx.caller, headers)
-          assert Scope.observable(resp) == Scope.observable(plain), "#{suffix}#{q}"
+          for named <- [ctx.b.tenant_id, ctx.p.tenant_id],
+              {label, _q, _h, _b} = channel <- channels(named) do
+            resp = request(ctx, review.id, suffix, channel)
+
+            assert Scope.observable(resp) == Scope.observable(plain),
+                   "#{label} #{named} #{suffix}"
+          end
         end
       end
 
       {ids, _} = list_page(ctx, ctx.a, @reader, "tenant_id=#{ctx.b.tenant_id}&page_size=50")
-      assert review.id in ids
+      assert length(ids) == 2
     end
   end
 
