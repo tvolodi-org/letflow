@@ -799,9 +799,9 @@ test_parallel_diag_run() {
 # is then harmless) and emitted here with a single `cat`.
 #
 # What is guaranteed (do not claim more): the PRIMARY guarantee is the mkdir lock: the
-# whole `cat` runs inside it, so cooperating emitters (the partition and host blocks of
-# one runner) are serialised. SECONDARY: the single write(2) of `cat` is contiguous on
-# Linux pipe_write when the pipe has free space (a block is ~13 KB, above PIPE_BUF=4096,
+# `cat` runs inside it whenever the lock is acquired, so cooperating emitters (the
+# partition and host blocks of one runner) are serialised. SECONDARY: the single
+# write(2) of `cat` is contiguous on Linux pipe_write when the pipe has free space (a block is ~13 KB, above PIPE_BUF=4096,
 # so POSIX gives no atomicity guarantee for it). That secondary property is NOT verified
 # on the Windows git-bash host. A regular-file stderr is safe: the inherited open file
 # description serialises each write(2). Never replace the cat by printf of a variable:
@@ -811,6 +811,8 @@ test_parallel_diag_run() {
 # KNOWN RESIDUAL (not guaranteed by this helper):
 #  - a watchdog killed while it holds the lock (between mkdir and rmdir) leaves a stale
 #    lock; later emits then wait the full bound and then write unlocked;
+#  - a reader stalled for more than the bound (~3 s) makes waiters give up and write
+#    unlocked, so blocks can interleave again (accepted: the bound keeps the TERM path alive);
 #  - a `cat` blocked on a stalled reader holds the lock with no timeout, which can delay
 #    the TERM that follows while the reader is stalled;
 #  - the lock lives under $tmp_dir, so a nested runner sharing the same stderr is not

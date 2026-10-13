@@ -527,7 +527,7 @@ defmodule Letflow.Scripts.TestParallelWatchdogDiagTest do
     end)
   end
 
-  test "RC-E stale emit lock: bounded fall-through, blocks intact, nothing leaked",
+  test "RC-E stale emit lock: bounded fall-through, blocks intact, no block file or emit lock left",
        %{tmp_dir: tmp} do
     res =
       run_until_premise(
@@ -554,7 +554,8 @@ defmodule Letflow.Scripts.TestParallelWatchdogDiagTest do
       assert rmdirs == [], "fall-through removed a lock it never took: #{inspect(rmdirs)}"
 
       # the fall-through still emits every block with ONE cat of its block file, and
-      # removes that file afterwards: no block file or lock may be left in the tmp dir
+      # removes that file afterwards: no block file or EMIT lock may be left in the tmp
+      # dir (diag-host.lock is the once-per-run host guard and is kept by design)
       cats = lines
       part = Enum.count(cats, &(&1 =~ ~r{^cat -- \S*diag-block-[123]\.txt$}))
       host = Enum.count(cats, &(&1 =~ ~r{^cat -- \S*diag-host-block\.txt$}))
@@ -577,6 +578,9 @@ defmodule Letflow.Scripts.TestParallelWatchdogDiagTest do
 
     TestParallelCapture.with_context(tmp, res.out, fn ->
       assert res.status == 1, res.out
+      # the exact count assumes the emit lock is not contended beyond the bound: on a
+      # starved host a waiter that falls through takes no lock and makes this count 3, a
+      # spurious FAIL (documented residual; never a false pass)
       rmdirs = Enum.filter(shim_lines(res, tmp), &String.starts_with?(&1, "rmdir "))
       assert length(rmdirs) == @emits, inspect(rmdirs)
 
