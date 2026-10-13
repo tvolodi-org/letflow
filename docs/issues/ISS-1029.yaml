@@ -20,13 +20,16 @@ description: >
   allowlisted, ISS-1021 / ISS-1023). INV-10 family (Q-981 / Q-1003 / Q-1005 / Q-1008). Real exposure:
   platform-tenant pin unset, legacy rows, and after REQ-447 grants :PromotionsRead to
   TENANT_ADMIN/TENANT_AUDITOR.
-  Diagnosis and fix design: handoffs/WF03-ISS1029READSTORED-20261013/step-01-issue-fixer.json.
+  Diagnosis and fix design: handoffs/WF03-ISS1029READSTORED-20261013/step-01-issue-fixer.json
+  (revision 1 after CODE-DESIGN-VALIDATOR step-02). List decision: omit, filter in the store's keyset
+  loop, no scan cap, cursors only ever encode emitted (visible) rows. Repro measured 2/5 passed, 3 failed.
 acceptance_criteria:
   - "GET /promotions/:id/context and GET /promotions/:id answer, for a non-operator, the exact zero-detail 404 bytes of a nonexistent review when the stored source or target tenant id is not the caller's own (stored_tenants_authorized? predicate reused)"
   - "GET /promotions omits such reviews for a non-operator; page_size / next_cursor stay consistent"
   - "The operator is unchanged"
   - "Two-tenant test: platform-tenant-held non-operator reader and an operator-created review naming foreign tenants: 404 bytes equal a nonexistent id, list omits it, own-tenant reviews unaffected"
-  - "T-8/T-11/T-13 tests of ISS-1021/ISS-1023 (and the REQ-397 list tests) updated where they assert reads of foreign-named reviews"
+  - "T-8/T-11/T-13 tests of ISS-1021/ISS-1023 (incl. non_scalar_under_plain_key_omitted) and the REQ-397 list helper updated where they assert reads of foreign-named or id-less reviews"
+  - "Also covered: TENANT_ADMIN of the platform tenant on /:id and list; list never 500s on malformed/legacy rows; no cursor encodes a hidden row"
   - "SECURITY-REVIEWER verdict recorded"
 affected_files:
   - lib/letflow/routers/promotions.ex
@@ -37,6 +40,10 @@ affected_files:
   - test/letflow/routers/promotion_context_entries_scope_test.exs
   - test/letflow/routers/promotions_test.exs
   - test/letflow/definitions/promotion_review_store_test.exs
+  - test/specs/ISS-1029.md
+  - test/specs/ISS-1021.md
+  - test/specs/ISS-1023.md
+  - docs/migration/decisions/0046-admin-scopes-and-role-charter.md
   - docs/issues/ISS-1029.yaml
 regression_test: test/letflow/routers/promotion_read_stored_ids_test.exs
 # The queue's own issue_ref for Q-1011 is ISS-1011, which clashes with local ISS-1011 (a SwiftRoute
