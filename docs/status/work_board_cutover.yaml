@@ -5,7 +5,6 @@
 # last_legacy_iss to the highest ISS-NNNN on main at that moment.
 
 cutover: false
-# 1119, not 1109: the highest docs/issues/ISS-*.yaml on this branch is ISS-1109, but the
-# docs bundle that adds ISS-1110..ISS-1119 is not merged here yet and those numbers already
-# exist as GitHub issues (see the migration note). The ceiling must cover them.
-last_legacy_iss: 1119
+# 1120: the highest docs/issues/ISS-*.yaml on main (ISS-1110..ISS-1120 landed in PR #2506). Re-check on
+# cutover day: any ISS-NNNN above this number is refused after the flip.
+last_legacy_iss: 1120

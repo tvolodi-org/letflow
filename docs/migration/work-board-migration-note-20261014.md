@@ -17,6 +17,7 @@ issue of the repo (state=all, paginated) for the GitHub state column.
 * Rows with a `depends_on`: 31.
 * The supervisor reported 94 non-done on 2026-10-13 (37 open, 57 blocked); the blocked
   count is unchanged (57), the open count grew because new work was filed since (61 now). The list below is the 2026-10-14 reading and is the one to diff.
+* Drift since this reading (2026-10-14, after the list was taken): Q-1120 (GH #2505, REQ-445 status drift) was filed and Q-1099 (REQ-468, GH #2475) went done with PR #2504. Rows are not re-counted here; the cutover export is diffed against this list by row id and these two appear as the expected differences.
 
 | Category | Rows |
 |---|---|
