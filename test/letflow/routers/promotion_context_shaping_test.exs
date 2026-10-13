@@ -54,22 +54,34 @@ defmodule Letflow.Routers.PromotionContextShapingTest do
   end
 
   describe "non-operator callers" do
-    # ISS-1029: a review naming a foreign tenant is no longer readable by a non-operator at all
-    # (the same 404 bytes as a nonexistent id); the per-key shaping below is defence in depth
-    # and is exercised through the routes only for own/own plans.
     test "context_omits_foreign_tenant_ids_for_non_operator", ctx do
-      %{review: review} =
+      %{review: review, plan: plan} =
         Scope.seed_review!(ctx.a, ctx.b.tenant_id, ctx.a.tenant_id, %{
           base_version: "1.0.0",
           target_definition_id: Ecto.UUID.generate()
         })
 
       resp = context(ctx.a, review.id)
-      assert resp.status == 404
+      assert resp.status == 200
+
       refute resp.resp_body =~ ctx.b.tenant_id
 
-      absent = context(ctx.a, Ecto.UUID.generate())
-      assert Scope.observable(resp) == Scope.observable(absent)
+      body = Jason.decode!(resp.resp_body)
+      shaped = body["serialised_plan"]
+
+      assert shaped["target_tenant_id"] == ctx.a.tenant_id
+      assert Map.has_key?(shaped, "source_tenant_id") == false
+
+      # ISS-1021: the source side is B (foreign), so its definition id is omitted too
+      assert Map.has_key?(shaped, "source_definition_id") == false
+      # the target side is A (own): kept, as are the plain scalars
+      assert shaped["target_definition_id"] == plan.target_definition_id
+      assert shaped["process_key"] == plan.process_key
+      assert shaped["base_version"] == "1.0.0"
+      # ISS-1023: the source side is foreign, so the whole diff is withheld
+      assert plan.entries != []
+      assert shaped["entries"] == []
+      assert body["requested_by"] == review.requested_by
     end
 
     test "context_unknown_top_level_keys_dropped_and_entries_not_descended", ctx do
@@ -101,7 +113,7 @@ defmodule Letflow.Routers.PromotionContextShapingTest do
     end
 
     test "context_other_keys_and_status_unchanged", ctx do
-      %{review: review} = Scope.seed_review!(ctx.a, ctx.a.tenant_id, ctx.a.tenant_id)
+      %{review: review} = Scope.seed_review!(ctx.a, ctx.b.tenant_id, ctx.a.tenant_id)
 
       body = ctx.a |> context(review.id) |> Map.fetch!(:resp_body) |> Jason.decode!()
 

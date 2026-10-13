@@ -374,9 +374,7 @@ defmodule Letflow.Routers.PromotionsTest do
 
   defp req397_sample_plan(tenant_id, overrides) do
     %{
-      # ISS-1029: both stored ids are the reader's own, so the list's stored-tenant filter
-      # (non-operator) keeps the row
-      source_tenant_id: tenant_id,
+      source_tenant_id: Ecto.UUID.generate(),
       target_tenant_id: tenant_id,
       process_key: req397_process_key(),
       source_definition_id: Ecto.UUID.generate(),
