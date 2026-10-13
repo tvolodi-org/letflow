@@ -468,3 +468,9 @@ The 0046 D3 binding condition for granting `:PromotionsManage` below
 Remaining tracked item (read side, LOW): `GET /promotions/:id/context`,
 `GET /promotions/:id` and `GET /promotions` still lack the stored-tenant check;
 tracked as Q-1011 / GH #2311 / ISS-1029.
+
+Closed by Q-1011 / GH #2311 / ISS-1029: the three read routes now answer a
+non-operator with the same zero-detail 404 for a review whose stored source or
+target tenant id is not their own (`GET /promotions` omits such rows). The
+`:PromotionsRead` scope is therefore safe to grant below `PLATFORM_ADMIN`
+(REQ-447) as far as stored-id disclosure goes.

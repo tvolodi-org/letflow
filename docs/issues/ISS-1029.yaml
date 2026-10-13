@@ -52,3 +52,7 @@ regression_test: test/letflow/routers/promotion_read_stored_ids_test.exs
 queue_ref: Q-1011
 github_ref: GH-2311
 status: open
+implementation: >
+  Implemented in run WF03-ISS1029READSTORED-20261013 (ELIXIR-DEV step 03): review_tenants_authorized?/2 shared by
+  all seven per-review routes; list_reviews/2 row_visible? keyset scan; tests and mutants in test/specs/ISS-1029.md.
+  Status stays open until SECURITY-REVIEWER, REVIEWER and RELEASE-VALIDATOR have passed it (DOC-UPDATER resolves).
