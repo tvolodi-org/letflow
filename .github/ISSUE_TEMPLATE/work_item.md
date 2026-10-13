@@ -6,7 +6,8 @@ title: "REQ-NNN: <short imperative title>   (or: ISS: <title>)"
 
 <!--
 Filing rules (docs/agents/protocols/WORK_BOARD.md):
-- Only the sole filer runs `gh issue create --template work_item.md` , and only after the
+- Only the sole filer runs `gh issue create --title ... --body-file <this file, front matter removed>` (the
+  `--template` flag is interactive-only), and only after the
   overlap check (open issues, open PRs' changed files, main).
 - The issue number GitHub assigns is the only machine id. REQ-NNN stays a title prefix.
 - Labels at filing: one of state:ready | state:blocked, one prio:1..3, one type:*, a stage:S<n>

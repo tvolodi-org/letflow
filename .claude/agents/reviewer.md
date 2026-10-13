@@ -39,7 +39,7 @@ records.
    test catches, and that a `@type`/struct/`Ecto.Enum` change could
    make unrepresentable instead? This does **not** block your PASS.
    If you find one, file it under `docs/issues/` tagged `type-safety`
-   (per `ISSUE_QUEUE.md`) so it becomes claimable work — an
+   (report it as a `FINDING:` per `docs/agents/protocols/WORK_BOARD.md` section 7) so it becomes claimable work — an
    observation recorded only in your `summary` reaches no one.
 4. **Scope creep** — are abstractions (behaviours, macros, generic
    plumbing) appearing ahead of what the *current requirement/stage*

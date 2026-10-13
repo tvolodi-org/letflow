@@ -7,6 +7,10 @@ sections are expected early on — this grows with the project.
 Format per entry: what happened, why it's wrong for this project
 specifically, the correct alternative.
 
+Entries below that mention `letflow-queue`, `register_task`, `get_next_task`, locks or `ISSUE_QUEUE.md`
+describe the queue era and are history after decision 0049; the live procedure is
+`docs/agents/protocols/WORK_BOARD.md`.
+
 <!-- Example shape, remove once the first real entry lands:
 
 ## Reporting `mix test` as passing without running it
@@ -172,6 +176,8 @@ timestamp is indistinguishable from one that was right all along, which
 defeats the audit trail the correction is meant to preserve.
 
 ## Task-selection fallback duplicating a run (ORCH)
+
+(superseded by WORK_BOARD.md as of decision 0049, history)
 
 On 2026-08-19, two separate ORCH sessions both selected REQ-048 as "the
 next eligible requirement" and independently ran full WF-02 pipelines
@@ -746,6 +752,8 @@ encourages — running producing agents in parallel.
 
 ## `ISS-NNNN` collisions keep recurring because documenting the hazard doesn't reserve the number
 
+(superseded by WORK_BOARD.md as of decision 0049, history)
+
 **Fired again on 2026-08-20**, during `WF02-REQ066-20260820`'s Step Final — the seventh
 recorded instance of this class (ISS-0034/0035, ISS-0036/0037/0039, ISS-0042/0043,
 ISS-0043/0044-0045, ISS-0051, ISS-0077/0079, and now ISS-0107). What makes this one worth
@@ -852,6 +860,8 @@ go looking for lost records.
 
 ## Working a user-named GitHub issue without ever locking it in letflow-queue
 
+(superseded by WORK_BOARD.md as of decision 0049, history)
+
 An ORCH session resolving ISS-0086/GH#303 (a user-named, directly-selected issue —
 exempt from the queue's Hard Rule *selection* requirement) treated that exemption as
 covering the queue entirely: it branched, fixed, tested, and merged the whole run
@@ -907,6 +917,8 @@ does not hold a lock on" invariant, and a task seen via `GET /tasks` still must 
 `set_lock`'d before work starts, exactly as before.
 
 ## Selecting from a visible queue without locking (pre-emptive)
+
+(superseded by WORK_BOARD.md as of decision 0049, history)
 
 **This is not a real incident.** No date, run-id, or `ISS-` number is attached because
 none has happened — this entry exists because `docs/migration/decisions/0017-task-queue-selection-model.md`
@@ -1413,6 +1425,8 @@ program, and the difference will be in the exit code rather than in anything pri
 
 ## A side-finding's filing-time queue task outlives its own resolution when `queue_task_id:` was never recorded
 
+(superseded by WORK_BOARD.md as of decision 0049, history)
+
 **Found:** 2026-08-22, ORCH fork, ISS-0286's own conditional trigger ("investigate on a
 third occurrence") — met by three cases in one session: queue task 22/ISS-0007
 (filed 2026-08-15T17:04:52Z, resolved 2026-08-16T10:43:18Z as a side effect of
@@ -1576,6 +1590,8 @@ lesson from this anti-patterns entry each time.
 ---
 
 ## Probing a write endpoint with a real POST creates real state
+
+(superseded by WORK_BOARD.md as of decision 0049, history)
 
 **2026-08-23, ORCH, S5 requirement registration (REQ-148..REQ-175).**
 
@@ -2590,6 +2606,8 @@ code path rather than from what the design document assumed. Both fixes are capt
 each also independently a bugfix in their own right, unrelated to the collision itself.
 ## Retrying a `register_task` POST after misreading its success response
 
+(superseded by WORK_BOARD.md as of decision 0049, history)
+
 On 2026-09-03, registering the requirement now numbered REQ-222 (drafted as REQ-219,
 renumbered on rebase -- see below) produced two queue tasks for one requirement: 449
 (GH#862, the real one) and 450 (GH#863, a duplicate), seconds apart. The first POST
@@ -2630,6 +2648,8 @@ issues does not go looking for a second requirement that never existed. This was
 dispatched to a workflow.
 
 ## Drafting new requirements with a blank `impl_order:`, then "fixing" it with a stale deferral marker
+
+(superseded by WORK_BOARD.md as of decision 0049, history)
 
 On 2026-09-05, REQ-ANALYST drafted 10 new requirements (REQ-232..242, ISS-0424 parts 2/3)
 directly into `docs/requirements.yaml` without registering them via `letflow-queue`'s
@@ -2796,6 +2816,8 @@ unless the volume is periodically reset.
 
 ## A bare number is not an identifier when three registries all number from 1
 
+(superseded by WORK_BOARD.md as of decision 0049, history)
+
 **Established 2026-09-09**, on user report of "constant confusion" between the three
 issue registries.
 
@@ -2932,6 +2954,8 @@ discipline "Inheriting a claim from a record" already asks for.
 
 ## Same-host concurrent ORCH sessions both drafted REQ-358, and `get_next_task`'s locking could not have caught it (2026-09-16)
 
+(superseded by WORK_BOARD.md as of decision 0049, history)
+
 Two Claude Code sessions ran on this workstation (hostname `tvolodi`) at
 overlapping times, both acting as `ORCH`. Session A drafted REQ-358 through
 REQ-362 locally (with the sanctioned `# impl_order: UNREGISTERED` deferral
@@ -3000,6 +3024,8 @@ hour of duplicated WF-01 effort.
 
 ## An issue whose confirmed root cause is a real, external-repo infra gap has
 ## no legal `ISS-NNNN.yaml` terminal status (2026-09-17)
+
+(superseded by WORK_BOARD.md as of decision 0049, history)
 
 **What happened.** ISS-0690 (queue task 690, GH#1445) alleged QA lacked a
 BilimBaga tenant/solution-pack/candidate seed needed for a real UAT scenario.
@@ -3443,6 +3469,8 @@ ext_action and H-SIZE-2 missing task blocks).
 
 ## Two hosts writing two differently-named issue records for one queue task
 
+(superseded by WORK_BOARD.md as of decision 0049, history)
+
 **Found:** 2026-09-25, during `WF03-ISS0765-20260924`'s post-merge reconciliation on
 `orch-main-20260924`.
 
@@ -3586,6 +3614,8 @@ suite itself is flaky.
 
 ## An issue's `queue_ref:` derived from its filename instead of taken from `register_task`'s response (2026-09-26, ORCH, ISS-0848)
 
+(superseded by WORK_BOARD.md as of decision 0049, history)
+
 `docs/issues/ISS-0832.yaml` through `ISS-0836.yaml` (and, discovered later in the
 same audit, `ISS-0824`/`ISS-0825`/`ISS-0827`/`ISS-0831`) all carried a `queue_ref:`
 computed by taking the issue's own filename number and prefixing it with `Q-` (e.g.
@@ -3620,6 +3650,8 @@ task is exactly as loud a signal as a queue task whose status disagrees with its
 yaml mirror, and the same check should assert both.
 
 ## `docs/requirements.yaml` flipped a requirement to `done` without releasing its matching `letflow-queue` task, so the queue silently drifted out of sync with the yaml it's supposed to mirror (2026-09-26, ORCH, ISS-0848)
+
+(superseded by WORK_BOARD.md as of decision 0049, history)
 
 A live audit of the queue (`GET /tasks`) against `docs/requirements.yaml` on
 2026-09-26 found 14 requirements/issues whose queue task was still `open` (or, in two
@@ -3684,6 +3716,8 @@ for push events; filtering applies only to pull_request events.
    a path-filter skip, not a passing run.
 
 ## Two concurrent sessions independently found, filed, and fixed the exact same test defects under different issue ids, and a follow-up filing collided on filename with the real, already-merged record (2026-09-26, ORCH)
+
+(superseded by WORK_BOARD.md as of decision 0049, history)
 
 While closing out ISS-0848 (a TEST-RUNNER full-suite run), 2 new-looking failure
 clusters were found (a stale `Letflow.Modules.CatalogTest` assertion, an

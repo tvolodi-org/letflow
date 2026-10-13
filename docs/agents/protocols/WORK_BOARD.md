@@ -25,19 +25,21 @@ This file is short on purpose. Follow it literally.
 
 | Role | May do | May NOT do |
 |---|---|---|
-| Supervisor (or the user) | set/remove `claimed:*`, `next:*`, `state:*`, `prio:*`; post the `CLAIM` comment; triage blocked items | — |
-| Worker (ORCH or any role in a checkout) | read issues; comment (`HEARTBEAT`, `BLOCKED`, `DONE`); open PRs | set or remove `claimed:*` / `next:*`; pick an unclaimed issue; close an issue by hand |
-| Sole filer (the checkout the supervisor designates) | `gh issue create` from the template after the overlap check | claim anything |
+| Supervisor (or the user) | set/remove `claimed:*`, `next:*`, `state:*`, `prio:*` at any time (the only one to change them after creation); post the `CLAIM` comment; triage blocked items; close an issue without a PR (section 8) | — |
+| Worker (ORCH or any role in a checkout) | read issues; comment (`HEARTBEAT`, `BLOCKED`, `DONE`); open PRs | set or remove any label (`claimed:*`, `next:*`, `state:*`, `prio:*`); pick an unclaimed issue; close an issue by hand |
+| Sole filer (the checkout the supervisor designates) | `gh issue create` from the template after the overlap check, setting `state:ready` or `state:blocked`, `prio:`, `type:`, `stage:` **at creation only** | claim anything; change any label afterwards |
 
 All sessions share one GitHub login, so **who set a label cannot be read from GitHub**.
 The claim label is a **convention, not a control**; `scripts/gh_work.sh check` reports
-claims that have no matching `CLAIM` comment (section 5).
+claims that have no matching `CLAIM` comment (section 5). That comment is itself
+self-attested: any session on the shared login can post one, so `check` catches accidents
+and label/comment mismatches, not forgery.
 
 ## 3. Labels (definitions: `.github/labels.yml`)
 
 | Family | Values | Meaning |
 |---|---|---|
-| `state:` | `ready`, `in-progress`, `blocked` | exactly one on every open item; a closed issue is done |
+| `state:` | `ready`, `in-progress`, `blocked` | exactly one on every open item; a closed issue is done. `state:in-progress` is always paired with `claimed:<checkout>` (and `claimed:*` always with `state:in-progress`); `check` reports either half alone |
 | `prio:` | `1`, `2`, `3` | lower first; within one prio the **lower issue number goes first** |
 | `lane:<name>` | free | optional grouping |
 | `claimed:<checkout>` | `letflow`, `letflow-2`, `letflow-3`, `letflow-4`, `remote` | this checkout holds the item; supervisor/user only |
@@ -62,7 +64,8 @@ line in the issue body (`blocked-on: #N` or one sentence) next to `state:blocked
 
 ## 5. Claim record, heartbeat, stale
 
-* **Claim record.** When the supervisor sets `claimed:<checkout>` it also posts one comment
+* **Claim record.** When the supervisor sets `claimed:<checkout>` it also sets
+  `state:in-progress` (removing `state:ready`) and posts one comment
   whose first line is exactly: `CLAIM <checkout> by supervisor <UTC>` (or `by user`).
   A claim label without that comment for the same checkout is a violation.
 * **Heartbeat.** The worker posts a comment on its issue at: start, PR open, blocked, done,
@@ -75,12 +78,13 @@ line in the issue body (`blocked-on: #N` or one sentence) next to `state:blocked
 
 1. Know your checkout name: the directory name of the repo checkout (`letflow`,
    `letflow-2`, ...; the autonomous remote host is `remote`).
-2. Find work: `scripts/gh_work.sh claims` and take an issue whose `claimed` column is your
+2. Never call the queue service (before or after cutover). Find work: `scripts/gh_work.sh claims` and take an issue whose `claimed` column is your
    checkout. **If there is none, report `no_claimed_task` and stop.** Do not run
    `gh_work.sh ready` to pick for yourself; `ready` is the supervisor's view. If the user
    names an issue directly, that is the claim; say so in your start comment.
 3. Read the whole issue with its comments: `gh issue view N --comments`. Every
-   `Depends on: #X` must be closed; if not, comment `HEARTBEAT ... blocked:` and stop.
+   `Depends on: #X` must be closed **as completed** (an issue closed as `not planned`, a pull
+   request number or a number that does not exist does not count); if not, comment `HEARTBEAT ... blocked:` and stop.
 4. Comment `HEARTBEAT <checkout> <UTC> start: <plan in one line>`.
 5. Do the work through the normal workflow (WF-01/02/03). When a PR opens, comment its
    number. The PR body says `Closes #N` or `Refs #N` (section 8).
@@ -102,9 +106,13 @@ Only the sole filer files. Before filing, the overlap check: `gh issue list -R <
 Then:
 
 ```
-gh issue create --title "REQ-NNN: <title>" --template work_item.md \
+# body: .github/ISSUE_TEMPLATE/work_item.md without its front matter, filled in
+gh issue create --title "REQ-NNN: <title>" --body-file <filled-body.md> \
   --label state:ready --label prio:2 --label type:requirement --label stage:S4
 ```
+
+`--body-file` is the non-interactive form; `--template` is interactive-only and must not
+be used from an agent shell.
 
 Fill every template section; acceptance criteria are a checklist; dependencies are the
 `Depends on:` line. The filer never sets `claimed:*`. A worker that finds a defect
@@ -115,6 +123,9 @@ filer; it is never left unfiled and never fixed inline unless the issue says so.
 
 * **Only a merged PR whose body contains `Closes #N` closes an issue**, and only when the PR
   fully resolves it. Nothing is closed as a side effect of anything else.
+* **Exception, supervisor only:** the supervisor (or the user) may close an issue without a
+  PR as `not planned`, `duplicate` or `no_defect`, with a one-line reason comment. A worker
+  never does.
 * A partial PR says `Refs #N`; the remainder is filed as a **new issue** linked from #N
   (`Depends on:` or a comment).
 * A requirement's `status: done` in `docs/requirements.yaml` is flipped by DOC-UPDATER
@@ -132,14 +143,16 @@ filer; it is never left unfiled and never fixed inline unless the issue says so.
 ## 10. Tools
 
 ```
-scripts/gh_work.sh ready [--for <checkout>]   # supervisor view: ready, unclaimed, deps closed
+scripts/gh_work.sh ready [--for <checkout>]   # supervisor view: ready, unclaimed, deps completed;
+                                               # held-back items listed under blocked-on
 scripts/gh_work.sh claims                      # who holds what, idle hours, linked PR
 scripts/gh_work.sh stale [--hours N]           # claims idle >= N h (default 4) with no PR
 scripts/gh_work.sh graph                       # Depends-on edges, cycles
 scripts/gh_work.sh check                       # label violations; exit 1 on any
 ```
 
-All five are read-only and paginated.
+All five are read-only and paginated. `check` = label rules plus the `CLAIM` comment test;
+`stale` = idle claims. They answer different questions.
 
 ## 11. Cutover
 
@@ -150,7 +163,8 @@ only a GH number go through `mix letflow.check.static`). Order: the board PR mer
 supervisor announces cutover; infra stops the queue service and exports it, keeps a
 one-week rollback window, deletes it later. Nothing in this repo stops or deletes the
 service. At cutover the cutover PR also deletes `letflow.check_queue_reconciliation` and
-its test. The migration list is `docs/migration/work-board-migration-note-20261014.md`.
+its test. The flip PR also sets `last_legacy_iss` to the highest `docs/issues/ISS-*.yaml`
+number on `main` at that moment (never lower than the value in the file). The migration list is `docs/migration/work-board-migration-note-20261014.md`.
 
 ## 12. History
 

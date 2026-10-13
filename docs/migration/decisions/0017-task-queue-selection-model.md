@@ -3,6 +3,8 @@
 Status: decided (2026-09-04). Owner: ORCH (the `letflow-queue` change and the matching
 `TASK_QUEUE.md` rewrite execute it).
 
+Superseded in part by 0049 (`0049-work-board-replaces-letflow-queue.md`): the queue and its selection model are replaced by the GitHub work board (in full).
+
 ## Question
 
 `letflow-queue` is the only load-bearing piece of pipeline infrastructure in this

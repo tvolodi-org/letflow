@@ -62,7 +62,7 @@ isn't specified yet, that's a new requirement — WF-01 then WF-02.
 [OUTPUT: ISS-NNNN resolved; fix merged to main with a regression test]
 ```
 
-## Step 0 — Overlap check (before any work, before claiming)
+## Step 0 — Overlap check (before any work)
 
 Before ISSUE-FIXER (or anyone) starts, ORCH confirms the issue is not already being fixed:
 `gh pr list` and each open PR's changed files, `main` (is it already fixed?), and sibling
@@ -216,7 +216,7 @@ are in the "Issue status vocabulary" section of `docs/agents/protocols/ISSUE_QUE
 (still the meaning of those yaml fields; see its header); do not restate them here.
 
 **ORCH, immediately on this step's PASS** (same turn, before writing the `RUN_DONE` log
-line): post the `done` heartbeat on the issue's GitHub issue (`WORK_BOARD.md` §6). What happens to the issue BRANCHES ON THE SAME local
+line): post the `done` heartbeat on the issue's GitHub issue (`WORK_BOARD.md` §6). Then branch on the local
 `docs/issues/ISS-NNNN.yaml` (or `GH-<n>.yaml`) status this step's §1 just wrote,
 mirroring the GitHub close-comment branch above:
 

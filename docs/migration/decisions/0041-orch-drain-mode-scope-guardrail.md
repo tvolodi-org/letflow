@@ -3,6 +3,8 @@
 Status: decided. Owner: ORCH (user-directed original fix; REQ-294/PR #2081 incident
 triggered this record's scope-creep closure).
 
+Superseded in part by 0049 (`0049-work-board-replaces-letflow-queue.md`): drain mode no longer loops `get_next_task`; it takes the next issue already claimed for the checkout (`WORK_BOARD.md` section 6). The scope guardrail stands.
+
 ## Question
 
 Two related questions, settled together because the second exists only because the

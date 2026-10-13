@@ -107,11 +107,18 @@ record and one issue record carrying only a GH number through
 * `TASK_QUEUE.md` and `ISSUE_QUEUE.md` become pointers with their old text kept under a
   History heading; `WORK_BOARD.md` is the live protocol.
 * ORCHESTRATOR.md, core-directives.md, WF-01/02/03, AGENT_SYSTEM.md, CLAUDE.md and
-  `.claude/agents/orchestrator.md` are rewritten to the board. 0017, 0041, 0044 and 0047
-  stay as written (history).
-* Autonomy is supervisor-paced. A worker with nothing claimed stops; there is no
-  self-service pick. Drain mode (0041) means "take the next issue already claimed for your
+  `.claude/agents/orchestrator.md` are rewritten to the board. 0017, 0041 and 0047 stay as
+  written apart from a one-line "Superseded in part by 0049" pointer under their header;
+  0044 stays as written (history).
+* **Autonomy is now bounded by supervisor availability.** A worker with nothing claimed
+  stops (`no_claimed_task`); there is no self-service pick, and nobody else can start work
+  while the supervisor is away. This is a deliberate trade the user decided, not a defect to
+  route around. Drain mode (0041) means "take the next issue already claimed for your
   checkout".
+* **The claim is a convention, not a control.** Every session shares one GitHub login, so
+  any session can set a `claimed:*` label and post a `CLAIM ... by supervisor` comment, and
+  `scripts/gh_work.sh check` cannot tell that apart from the supervisor's. The check catches
+  accidents and label/comment mismatches, not forgery.
 * A GitHub outage is a work outage. The queue was also a single point of failure; local
   `docs/requirements.yaml` and `docs/issues/` remain the content authority.
 * The repo-scoped `gh` token every worker host needs replaces the queue PAT and

@@ -7,6 +7,8 @@ confirmation: it still has to be confirmed by the named person. This record does
 Date: 2026-10-06. Owner: `ORCH`. Drafted by `ORCH` from the decisions relayed by the supervisor
 session.
 
+Superseded in part by 0049 (`0049-work-board-replaces-letflow-queue.md`): the remote host's "uses the queue and locks" (MQ, line 82-83) and the queue-id keys in P3 are replaced by the GitHub work board; the other decisions stand.
+
 Authority: the user (platform owner) said "All decision or up to business analyst". That
 delegation was relayed to `ORCH` by the supervisor session, and is treated here as relayed, not
 re-confirmed by the user in this session. Same form as `0043-email-first-login-ba-decisions.md`:

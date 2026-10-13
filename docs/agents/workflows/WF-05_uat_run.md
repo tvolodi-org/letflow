@@ -47,7 +47,7 @@ to validate against. In practice this does not become live until S7
       ├─ YES → no UAT result; back to Step 0 / ai-dala-infra. UAT gate NOT satisfied.
       └─ NO  → Any scenario FAIL?
       ├─ NO  → PASS, stage's UAT parity confirmed for this scenario batch
-      └─ YES → file per ISSUE_QUEUE.md (or, if it blocks the current stage gate,
+      └─ YES → file per WORK_BOARD.md section 7 (or, if it blocks the current stage gate,
                route directly to WF-03 for this specific run rather than
                forwarding — a UAT failure on a stage-defining scenario is this run's
                own blocker, not an incidental one)
@@ -79,7 +79,7 @@ realms/actors, deployed definitions, and specs needing local Postgres). Prepare 
      (`c:\Users\tvolo\dev\ai-dala\ai-dala-infra`, own orchestrator workflow + approval
      gate). Letflow never changes QA infrastructure directly.
    - feature-gap (missing/forward-reference spec, unbuilt feature): not environment; file
-     per `ISSUE_QUEUE.md`. The scenario is UNBUILT_FEATURE, not BLOCKED-by-environment.
+     per `WORK_BOARD.md` section 7. The scenario is UNBUILT_FEATURE, not BLOCKED-by-environment.
    - environment-structural (permanent): a
      `test/fixtures/uat/scenario-env-limitations/<scenario_id>.yaml` sidecar
      says this scenario cannot pass on this `--environment` slug for a
@@ -165,7 +165,7 @@ is included and follows the same rule. This keeps the gate off the per-run path 
      longer matches); ORCH never overrides a FAIL.
    - no artefact (step 7 failed twice): treat as `MISSING`; the scope is blocked as for `FAIL`.
    If the owner of a BLOCKER finding disputes it, the owner records the dispute with evidence in the filed issue; ORCH dispatches PROCESS-AUDITOR once more for that scope as a fresh agent that is not given the first report; the later artefact governs (step 4 already takes the latest generated_at). If the second audit repeats the finding, it stands; a further dispute goes to the user. ORCH itself still never overrides a verdict.
-9. File every BLOCKER and MAJOR finding of a NEW artefact per docs/agents/protocols/ISSUE_QUEUE.md
+9. File every BLOCKER and MAJOR finding of a NEW artefact per docs/agents/protocols/WORK_BOARD.md section 7
    (MINOR findings are not filed; they stay listed in the artefact only, as in REQ-458) (one issue per finding
    id; one issue for a cross-scope pair reported by two scopes). A finding's `suggested_owner` tells
    where it goes (BA-<VERTICAL> or REQ-ANALYST for business decisions, ELIXIR-DEV through WF-03 for a

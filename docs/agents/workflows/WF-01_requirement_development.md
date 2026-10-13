@@ -131,7 +131,7 @@ requirement to the sole filer (`WORK_BOARD.md` §7). REQ-ANALYST/REQ-VALIDATOR n
 1. For each requirement Step 2 just PASSed, run the overlap check (open issues, open
    PRs' changed files, main), then:
 
-     gh issue create --title "REQ-NNN: <title>" --template work_item.md \
+     gh issue create --title "REQ-NNN: <title>" --body-file <filled-body.md> \
        --label state:ready --label prio:<1..3> --label type:requirement \
        --label stage:S<n>
 

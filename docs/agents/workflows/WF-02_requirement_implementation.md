@@ -394,7 +394,7 @@ invariant checklist.
 ```
 1. scripts/test_parallel.sh — full suite, not just the new tests (Unblock-Everything: a
    pre-existing failure masking your results must be fixed too, unless it's unrelated
-   and gets forwarded per ISSUE_QUEUE.md). This runs the suite as N parallel
+   and is reported for filing per `WORK_BOARD.md` section 7). This runs the suite as N parallel
    `mix test --partitions N` processes (N from $TEST_PARALLEL_N if set, else
    nproc/getconf _NPROCESSORS_ONLN) and aggregates every partition's real ExUnit
    Result:/Failed: counts into one combined pass/fail total — exit 0 only if every
@@ -416,8 +416,8 @@ invariant checklist.
 ```
 
 Failures caused by this run's own implementation are reworked on this branch. Failures
-unrelated to this run's own acceptance criteria (pre-existing) are filed and forwarded
-per `ISSUE_QUEUE.md` — not fixed here, don't block this step's own PASS verdict.
+unrelated to this run's own acceptance criteria (pre-existing) are reported for filing
+per `WORK_BOARD.md` section 7 — not fixed here, don't block this step's own PASS verdict.
 
 **How "pre-existing" is established — structurally, never by count-matching.** This step
 previously said the sentence above without saying how the attribution is made, and in
@@ -440,10 +440,10 @@ Structural, Never By Count-Matching" — read it; the operative test here is:
    (Same commit, ten minutes apart, gave 13 then 15 in WF03-ISS0106-20260821 against a
    prior run's 14 — three runs, three sets. See core-directives.md for the measurement.)
 3. A failure with no existing issue record is called out AS SUCH and REPORTED FOR
-   FILING per ISSUE_QUEUE.md — never folded into "the known set". You report the
-   finding; you do NOT call the queue or  gh  yourself. Only ORCH allocates issue ids
-   (ISSUE_QUEUE.md, amended 2026-08-21) — a discovering agent filing directly is what
-   reintroduces the id-collision class that amendment exists to prevent.
+   FILING per `WORK_BOARD.md` section 7 — never folded into "the known set". You report the
+   finding as `FINDING:` to the sole filer; you do NOT run  gh issue create  yourself
+   and you do NOT call the queue service. There is no id allocation: the issue number
+   comes from GitHub when the sole filer files.
 4. A failing file that IS in the diff gets extra scrutiny, and is cleared only by a
    causal argument about mechanism, not by proximity (see the PinRebindTest worked
    example in core-directives.md).
