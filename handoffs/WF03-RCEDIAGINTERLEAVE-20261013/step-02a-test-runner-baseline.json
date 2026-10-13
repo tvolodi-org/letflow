@@ -1,0 +1,46 @@
+{
+  "handoff_id": "c4a7d1e0-1083-4a11-8c20-000000000002a",
+  "run_id": "WF03-RCEDIAGINTERLEAVE-20261013",
+  "workflow_id": "WF-03",
+  "step": "02a",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-RUNNER",
+  "file": "handoffs/WF03-RCEDIAGINTERLEAVE-20261013/step-02a-test-runner-baseline.json",
+  "created_at": "2026-10-13T03:00:00Z",
+  "started_at": "2026-10-13T03:05:00Z",
+  "completed_at": "2026-10-13T03:25:00Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1054": "MEDIUM, R1 from ISS-1042 follow_ups (SECURITY-REVIEWER F2), supervisor-assigned 2026-10-12. Queue Q-1054 / GH #2400, issue_ref ISS-1054. See task.description."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "test/scripts/test_parallel_watchdog_diag_test.exs"
+    ],
+    "owned_modules": [
+      "test/support/tenant_fixture.ex"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1054DBGUARD-20261012"
+  },
+  "task": {
+    "description": "WF-03 Step 2a TEST-RUNNER (.claude/agents/test-runner.md): measure the BASELINE failure rate of the RC-E flake on UNMODIFIED code for Q-1087 / GH #2448. Branch feature/WF03-RCEDIAGINTERLEAVE-20261013 is identical to origin/main (3a4ca1200) in scripts/ and test/; LOCAL ONLY, do not push, do not modify any tracked file (verify `git status` clean at the end; scratch output goes to the scratchpad dir C:/Users/tvolo/AppData/Local/Temp/claude/c--Users-tvolo-dev-ai-dala-letflow/cff9b391-6e4e-4701-8e39-85d2e7a6ea72/scratchpad).\nLoop: run `test/scripts/test_parallel_watchdog_diag_test.exs` (the \"huge partition log\" test, line 326 on this tree; find it) repeatedly: chunks of `mix test test/scripts/test_parallel_watchdog_diag_test.exs --only line:<huge test line> --repeat-until-failure 10` or an equivalent loop that counts iterations and failures separately (one ExUnit run per iteration is fine; --repeat-until-failure stops on first failure, so count per chunk and restart). Machine rule: ONE BEAM at a time machine-wide, ONE mutex acquisition per mix invocation: L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2>/dev/null; do sleep 20; done; trap 'rmdir \"$L\" 2>/dev/null' EXIT; cd /c/Users/tvolo/dev/ai-dala/letflow && LETFLOW_DB_PORT=5499 MIX_ENV=test <ONE mix invocation> 2>&1. This test uses stub mix and no DB. Load: 2x ncores busy loops (bash `while :; do :; done &`, kill them all afterwards and verify none left). Waiter floor: do not start while < 4 GB free RAM. Cap the whole loop at ~35 minutes wall clock; target N=40 iterations of the huge case; report N achieved, failures, the first failing assertion text verbatim (the \"DIAG line wider than cap\" line), per-iteration time, loadavg. Windows git-bash may under-reproduce (design predicts ~5-8% per huge run in a Linux container); say so honestly if 0 failures. Foreground polling only; no Monitors. Result into the handoff (COMPLETED, result.status PASS = loop completed and numbers recorded, no BOM, LF, artifacts_out under result, no self-reference); commit locally, no push. Message ends: Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>.\n"
+  },
+  "result": {
+    "status": "BLOCKED",
+    "summary": "Baseline loop NOT run: 0 iterations of the huge-partition case. The machine-wide mixlock directory (C:/Users/tvolo/AppData/Local/Temp/claude/mixlock, created 2026-10-13 07:18:11 +05) was held by another session for the entire ~17 minute attempt (two waits: ~9.7 min and 7 min); the mutex was never acquired, so no mix/BEAM was started by this agent in violation of the one-BEAM rule. Other sessions ran mix (e.g. erl.exe pid 25684 started 08:01:43) meanwhile.",
+    "iterations_achieved": 0,
+    "failures": 0,
+    "first_failing_assertion": null,
+    "per_iteration_seconds": null,
+    "huge_test_line": 326,
+    "free_ram_gb_observed": 4.0,
+    "notes": "Busy loops (32 bash while-loops) were started by the script and killed by its EXIT trap; CPU afterwards ~27%. Baseline rate remains unmeasured; design prediction ~5-8% per huge run on Linux. Re-run via scratchpad loop.sh when mutex is free.",
+    "artifacts_out": []
+  }
+}

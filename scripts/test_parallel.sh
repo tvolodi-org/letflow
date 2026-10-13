@@ -789,9 +789,64 @@ test_parallel_diag_run() {
   fi
 }
 
+# RC-E (Q-1087 / GH #2448): emit one finished DIAG block ($1, a file) to stderr as
+# ONE write, serialised by a bounded mkdir lock.
+#
+# Why: three partition watchdogs fire together and share one stderr pipe. A block
+# streamed through `tail | cut | sed` is written by sed in 4096-byte stdio chunks at
+# arbitrary (mid-line) offsets, so another watchdog's chunk landed inside it. The
+# blocks are therefore assembled into a regular file first (the 4096-byte chunking
+# is then harmless) and emitted here with a single `cat`.
+#
+# What is guaranteed (do not claim more): the PRIMARY guarantee is the mkdir lock: the
+# `cat` runs inside it whenever the lock is acquired, so cooperating emitters (the
+# partition and host blocks of one runner) are serialised. SECONDARY: the single
+# write(2) of `cat` is contiguous on Linux pipe_write when the pipe has free space (a block is ~13 KB, above PIPE_BUF=4096,
+# so POSIX gives no atomicity guarantee for it). That secondary property is NOT verified
+# on the Windows git-bash host. A regular-file stderr is safe: the inherited open file
+# description serialises each write(2). Never replace the cat by printf of a variable:
+# bash printf goes through stdio and splits a > 4 KB string into several writes
+# (measured mid-line cuts).
+#
+# KNOWN RESIDUAL (not guaranteed by this helper):
+#  - a watchdog killed while it holds the lock (between mkdir and rmdir) leaves a stale
+#    lock; later emits then wait the full bound and then write unlocked;
+#  - a reader stalled for more than the bound (~3 s) makes waiters give up and write
+#    unlocked, so blocks can interleave again (accepted: the bound keeps the TERM path alive);
+#  - a `cat` blocked on a stalled reader holds the lock with no timeout, which can delay
+#    the TERM that follows while the reader is stalled;
+#  - the lock lives under $tmp_dir, so a nested runner sharing the same stderr is not
+#    serialised with this one;
+#  - a WARNING/job-control line landing at a page boundary on a full pipe.
+#
+# Bounded, never waiting forever: 30 tries x 0.1 s (an iteration count, not wall clock:
+# about 3 s of sleeping plus fork time, ~5 s on a loaded git-bash). A stale lock costs
+# that full bound on EVERY emit, so one watchdog can spend up to ~6 s (partition block +
+# host block) before its TERM. After the bound the block is emitted anyway (still one
+# write). Every variable is initialised (the script runs under `set -u` inside a `( )`
+# watchdog whose death would mean no TERM). No new TEST_* knob. Always 0.
+test_parallel_diag_emit() {
+  local blockfile="${1:-}" got=0 n=0
+  while [ "$n" -lt 30 ]; do
+    if mkdir "$tmp_dir/diag-emit.lock" 2>/dev/null; then
+      got=1
+      break
+    fi
+    n=$((n + 1))
+    sleep 0.1
+  done
+  cat -- "$blockfile" >&2 || true
+  if [ "$got" -eq 1 ]; then
+    rmdir -- "$tmp_dir/diag-emit.lock" 2>/dev/null
+  fi
+  rm -f -- "$blockfile"
+  return 0
+}
+
 test_parallel_watchdog_diag() {
-  local idx="$1" log="$tmp_dir/partition-$1.log" pfx k now start
+  local idx="$1" log="$tmp_dir/partition-$1.log" pfx k now start blk
   pfx="test_parallel: DIAG partition $idx: "
+  blk="$tmp_dir/diag-block-$idx.txt"
   {
     echo "${pfx}last 40 lines of $log:"
     tail -n 40 "$log" 2>/dev/null | cut -c1-300 | sed "s/^/${pfx}  /"
@@ -800,8 +855,15 @@ test_parallel_watchdog_diag() {
     now=$(date +%s)
     start="${part_start_epoch[$idx]:-$now}"
     echo "${pfx}running for $((now - start))s of TEST_PARALLEL_PARTITION_TIMEOUT_S=${partition_timeout_s}s"
-  } >&2 || true
+  } > "$blk" 2>/dev/null || true
+  if [ -s "$blk" ]; then
+    test_parallel_diag_emit "$blk"
+  else
+    rm -f -- "$blk"
+    echo "${pfx}diagnostics unavailable: could not write $blk" >&2
+  fi
   if mkdir "$tmp_dir/diag-host.lock" 2>/dev/null; then
+    blk="$tmp_dir/diag-host-block.txt"
     {
       local h="test_parallel: DIAG host: "
       {
@@ -814,7 +876,13 @@ test_parallel_watchdog_diag() {
         fi
         command -v nproc >/dev/null 2>&1 && test_parallel_diag_run nproc
       } | cut -c1-300 | sed "s/^/${h}/"
-    } >&2 || true
+    } > "$blk" 2>/dev/null || true
+    if [ -s "$blk" ]; then
+      test_parallel_diag_emit "$blk"
+    else
+      rm -f -- "$blk"
+      echo "test_parallel: DIAG host: diagnostics unavailable: could not write $blk" >&2
+    fi
   fi
   return 0
 }

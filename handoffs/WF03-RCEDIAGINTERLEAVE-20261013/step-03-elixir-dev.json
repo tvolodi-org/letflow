@@ -1,0 +1,124 @@
+{
+  "handoff_id": "c4a7d1e0-1083-4a11-8c20-000000000003",
+  "run_id": "WF03-RCEDIAGINTERLEAVE-20261013",
+  "workflow_id": "WF-03",
+  "step": "03",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF03-RCEDIAGINTERLEAVE-20261013/step-03-elixir-dev.json",
+  "created_at": "2026-10-13T03:00:00Z",
+  "started_at": "2026-10-13T05:40:00Z",
+  "completed_at": "2026-10-13T12:00:00Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S1",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "Q-1054": "MEDIUM, R1 from ISS-1042 follow_ups (SECURITY-REVIEWER F2), supervisor-assigned 2026-10-12. Queue Q-1054 / GH #2400, issue_ref ISS-1054. See task.description."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "scripts/test_parallel.sh",
+      "test/scripts/test_parallel_watchdog_diag_test.exs",
+      "test/scripts/test_parallel_race_regression_test.exs",
+      "handoffs/WF03-RCEDIAGINTERLEAVE-20261013/step-01-issue-fixer.json",
+      "handoffs/WF03-RCEDIAGINTERLEAVE-20261013/step-02-code-design-validator.json"
+    ],
+    "owned_modules": [
+      "test/support/tenant_fixture.ex"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF03-ISS1054DBGUARD-20261012"
+  },
+  "task": {
+    "description": "WF-03 Step 3 implement RC-E (Q-1087 / GH #2448): per-partition watchdog DIAG blocks interleave mid-line on stderr. ELIXIR-DEV (.claude/agents/elixir-dev.md; scripts/test_parallel.sh and test/scripts/ are in scope). Branch feature/WF03-RCEDIAGINTERLEAVE-20261013 (local; the ORCH pushes). The design is handoffs/WF03-RCEDIAGINTERLEAVE-20261013/step-01-issue-fixer.json (mechanism, fix_design: assemble each block into a temp file outside any lock, emit with ONE `cat file >&2` under a bounded mkdir lock, host block through the same helper; regression test T1..T3 with sed/mkdir/rmdir shims; mutants). The CODE-DESIGN-VALIDATOR returned FAIL with 6 MAJOR + 5 MINOR mechanical corrections G1..G10 (+G11 already fixed by ORCH) in handoffs/WF03-RCEDIAGINTERLEAVE-20261013/step-02-code-design-validator.json (read result.findings in full, including G6's 11-step ELIXIR-DEV order and mandatory verification list). G1..G10 are BINDING and REPLACE conflicting parts of the step-01 design (ORCH rework decision: mechanical, experimentally verified, folded into this step; REVIEWER and RELEASE-VALIDATOR check every Gn).\nKey points (the validator handoff is authoritative where more detailed): G1 initialise `got=0 n=0` locals, explicit release `if [ \"$got\" -eq 1 ]`, `return 0` (script runs under set -u inside a ( ) watchdog whose death means no TERM); G2 helper is called for 3 partition blocks AND the host block = 4 emits: test counts 4*30 mkdir denials and 4 rmdirs; G3 per-attempt STUB_BARRIER/STUB_LOG created inside run_script under the attempt dir; G4 shims gated on their own env var and scan ALL args, REAL_PATH exported from inside bash; G5 no `|| sleep 1` fallback; G6 order + verification list; G7 fallback line when the block file cannot be written; G8 cat-shim mutant kills M2, leak assertions, mutants M9/M10; G9 atomicity statement in the script comment; G10 kill orphan loops after M5, `file.exs:LINE`.\nWORKING TREE RULE: another agent (baseline TEST-RUNNER) may still be finishing a stress loop on UNMODIFIED code in this working tree for a few minutes and holds the mutex between chunks; do NOT edit scripts/ or test/ until `git status` is clean and no `mix` BEAM of that loop is running (check the handoff step-02a-test-runner-baseline.json status COMPLETED, or poll briefly, bounded 10 min). Then proceed.\nVERIFY with real output: fail-first of the new tests against the UNMODIFIED script (quote), with fix all test/scripts/test_parallel_*_test.exs green (ONE mix invocation, quote counts), the hand-run .sh harnesses green, mutants table (each applied alone, restored, tree clean), bash -n, format, MIX_ENV=test mix letflow.check.static, mix letflow.check_async_sandbox_reachability, mix letflow.lint_handoffs, one end-to-end real-runner slice (TEST_PARALLEL_N=2 TEST_PARALLEL_SHARD=1/50 bash scripts/test_parallel.sh with a throwaway postgres on 5499 as in the earlier RC runs; quote the combined line). The post-fix stress loop (N=50, 2x ncores busy loops, capped ~25 min) goes in your report with the baseline from step 02a.\nMACHINE RULE: ONE BEAM at a time, one mutex acquisition per mix invocation: L=/c/Users/tvolo/AppData/Local/Temp/claude/mixlock; mkdir -p \"$(dirname \"$L\")\"; until mkdir \"$L\" 2>/dev/null; do sleep 20; done; trap 'rmdir \"$L\" 2>/dev/null' EXIT; cd /c/Users/tvolo/dev/ai-dala/letflow && LETFLOW_DB_PORT=5499 MIX_ENV=test <ONE mix invocation> 2>&1. Throwaway postgres only if needed (docker run -d --rm --name pg1087 -e POSTGRES_USER=letflow -e POSTGRES_PASSWORD=letflow -e POSTGRES_DB=letflow_dev -p 5499:5432 postgres:16 -c max_connections=200; remove afterwards). Never run a harness .sh that starts a real suite outside the mutex (the Q-1053 implementer slipped once). Foreground only; no Monitors. TIME BOX ~40 minutes: the push deadline is near; if the stress loop would exceed the cap, run fewer iterations and say so. Add an anti-patterns entry only if a real new lesson (e.g. \"stdio-buffered pipeline stages interleave on shared stderr; assemble then single write\"). Commit locally (message references [Q-1087 / GH #2448], ends Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>); NO push, no PR, never merge. Result into this handoff (COMPLETED, PASS/FAIL, no BOM, LF, artifacts_out under result, no self-reference).\n"
+  },
+  "result": {
+    "status": "PASS",
+    "executed_by": "ORCH (took over the stopped ELIXIR-DEV agent step by user instruction; ORCH wrote the implementation)",
+    "commit": "c369e3a92",
+    "branch": "feature/WF03-RCEDIAGINTERLEAVE-20261013 (local, not pushed)",
+    "changed_files": [
+      "scripts/test_parallel.sh",
+      "test/scripts/test_parallel_watchdog_diag_test.exs"
+    ],
+    "implementation": "test_parallel_diag_emit(): assemble each block to a file, emit with one cat under a bounded mkdir lock (30 x 0.1 s); fall-through never removes a lock it did not take; host block uses the same helper; all variables initialised (G1); explicit release (G1); no sleep fallback (G5); fallback line when the block file cannot be written (G7).",
+    "deviations": [
+      "RC-E tests were added to test/scripts/test_parallel_watchdog_diag_test.exs, not to test_parallel_race_regression_test.exs.",
+      "G3 per-attempt state and G4 shim gating are in the diag test file; the stale-lock test additionally asserts no non-owner rmdir (killed MU-U, which the validator did not list).",
+      "Step 02a baseline (TEST-RUNNER) was BLOCKED on the mutex and never ran; the baseline below was measured here.",
+      "Load rules (no busy loops, <=4 CPU-heavy, <=10 min) applied: no synthetic load was used."
+    ],
+    "fail_first_base_script": "4 of 8 fail (lock released, one cat, forced concurrency, stale lock)",
+    "with_fix": "8 of 8 pass (diag file); family ExUnit 62 passed (env_guard, env, instrumentation, race_regression, shard, watchdog_diag, watchdog_orphan)",
+    "mutants": {
+      "MU-L no lock": "killed: stale-lock test",
+      "MU-R (rmdir deleted)": "INVALID mutant: deleting the rmdir left an empty then-branch (bash syntax error, exit 2); its 8/8 failure is that artefact, not a semantic kill",
+      "MU-R2 lock never released (rmdir -> true)": "killed: lock-released test (7 of 8 pass)",
+      "MU-U unconditional release": "killed: stale-lock non-owner rmdir assertion",
+      "MU-F block files not removed": "killed: lock-released test",
+      "MU-F0 block removal only when lock taken": "killed: stale-lock test (7 of 8 pass)",
+      "MU-B unbounded lock loop": "NOT RUN (would hang)",
+      "MU-P printf variant": "NOT RUN (documented non-goal)"
+    },
+    "tmpdir_cleanup_sh": "4 passed, 0 failed",
+    "stress": "huge-log test --repeat-until-failure 50 (in one BEAM, no synthetic load): fixed 51/51 warm (median 6.8 s, max 7.5 s); base 51/51 (median 6.4 s). No regression shown; does NOT measure the flake rate.",
+    "gates": {
+      "bash -n": "OK",
+      "mix format --check-formatted": "exit 0",
+      "mix letflow.check.static": "exit 0 (49 files, 0 violations; 1124 boundary edges)",
+      "mix letflow.check_async_sandbox_reachability": "exit 0 (151 files, 0 violations)",
+      "mix letflow.lint_handoffs": "exit 0 (0 new violations, 3557 files)",
+      "shellcheck": "not installed on this host"
+    },
+    "end_to_end": "TEST_PARALLEL_N=2 TEST_PARALLEL_SHARD=1/50 on f6952bc5d: combined: 95 tests, 1 properties, 0 failures (96/96 passed); tmpdir_cleanup.sh 4 passed",
+    "not_run": [
+      "test_parallel_create_burst_test.sh (starts a real 8-partition suite and postgres)",
+      "test_parallel_pool_sizing_test.sh (stale, red on main, not in CI)"
+    ],
+    "residue": "worktree /c/Users/tvolo/mt/RCE1087 (detached, outside the repo) left in place; its tmp/ dirs from preserved runs remain there",
+    "code_head": "03b48f97b (code); earlier commits 2bd43012d, 74a60936e, c369e3a92",
+    "base_failures_verbatim_on_3a4ca1200_script": {
+      "command": "mix test test/scripts/test_parallel_watchdog_diag_test.exs with scripts/test_parallel.sh = git cat-file -p d944083747 (base blob, origin/main 3a4ca1200)",
+      "result": "4 of 8 failed; 4 passed",
+      "forced_concurrency": "two DIAG fragments on one physical line (mid-line interleave): \"test_parallel: DIAG partition 3:   P3-199964-LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL ...",
+      "stale_emit_lock": "partition 1: DIAG block is not one contiguous run (foreign line inside)",
+      "lock_released": "rmdir list [] (no lock on base)",
+      "one_cat": "cat calls [\"cat \", \"cat /proc/loadavg\"] (no block-file cat on base)"
+    },
+    "fixed_results": {
+      "diag_file_after_last_edit": "8 passed (03b48f97b)",
+      "four_RC-E_tests_repeat_10": "11 of 11 runs passed (earlier head, 74a60936e; tests unchanged since)",
+      "stale_test_strengthened": "3 partition + 1 host cat, no leftovers; mutant MU-F0 fails it"
+    },
+    "family": {
+      "ExUnit family 7 files": "61 of 62 on 6f21a3d7e-merged heads f6952bc5d, 2bd43012d, 03b48f97b; the one failure is test_parallel_watchdog_orphan_test \"EXIT-trap path\" (40 s pipe-release timeout)",
+      "orphan_file_alone": "fixed script 4 of 5 (f6952bc5d rerun); base script 4 of 5 under the same host load (loadavg about 18) -> pre-existing host artefact, not introduced by this change",
+      "earlier_family_run_pre-merge_c369e3a92": "62 of 62 (orphan passed then)"
+    },
+    "gates_head_03b48f97b": {
+      "format": "0",
+      "check.static": "0 (1130 boundary edges, 0 violations)",
+      "check_async_sandbox_reachability": "0 (152 files, 0 new violations)",
+      "lint_handoffs": "0 (0 new violations, 3560 files)",
+      "bash -n": "OK",
+      "shellcheck": "not installed on this host"
+    },
+    "gate_verdicts": {
+      "SECURITY-REVIEWER (light)": "PASS on 2bd43012d, re-check PASS (comments and test only)",
+      "REVIEWER": "PASS on f6952bc5d with 8 MINOR; 2bd43012d: 3 MINOR; 03b48f97b quick re-verdict PASS (one non-blocking wording nit: test comment says starved host, script residual names stalled reader)",
+      "TEST-DESIGN-VALIDATOR": "FAIL on f6952bc5d (MAJOR-1: fall-through had no cat/leftover check; closed by 2bd43012d); 2bd43012d PASS with MINOR-3 documented in test; 03b48f97b quick re-verdict PASS"
+    },
+    "residuals": [
+      "stale emit lock after a watchdog killed while holding the lock (later emits wait the bound, then write unlocked)",
+      "reader stalled beyond ~3 s bound: waiters write unlocked, interleave possible again (accepted)",
+      "cat blocked on a stalled reader holds the lock with no timeout (TERM can be delayed)",
+      "lock under $tmp_dir: nested runner sharing stderr not serialised",
+      "exact rmdir count in lock-released test assumes an uncontended emit lock (spurious FAIL on starved host, never a false pass)",
+      "cold-container observation: one huge-log run took 21692 ms against a 21 s bound (not reproduced; 51/51 warm)",
+      "orphan EXIT-trap test host flake (pre-existing)"
+    ]
+  }
+}
