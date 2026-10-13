@@ -447,6 +447,18 @@ cleanup_tmp_dir() {
                                # exit status; any earlier statement would
                                # clobber it before it can be read.
 
+  # ISS-1080 (RC-A): this trap is INHERITED by every `( ... ) &` subshell the
+  # script forks (the per-partition watchdogs, the connection sampler). A
+  # subshell that receives a fatal signal in the window between fork() and
+  # bash resetting its inherited handlers runs this function IN THE CHILD with
+  # $?=0, and the clean-exit branch at the bottom would `rm -rf "$tmp_dir"`
+  # under the still-running parent (seen on CI: every partition-N.log "No such
+  # file or directory", then "0/4 partitions reported"). Only the main shell
+  # may clean up. BASHPID is the real pid of the current (sub)shell; $$ would
+  # still be the main shell's pid inside a subshell. A killed subshell still
+  # dies by its signal -- only the cleanup body is skipped.
+  [ "${BASHPID:-$$}" = "$_tp_main_pid" ] || return 0
+
   # ISS-0287 §4.3: defensive kill of the opt-in connection sampler (started
   # in Step 2 below, if enabled) on ANY exit path, not just the normal one
   # after Step 3 -- so a background polling loop never outlives this script.
@@ -506,6 +518,7 @@ cleanup_tmp_dir() {
 }
 
 tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/letflow_test_parallel.XXXXXX")
+_tp_main_pid=${BASHPID:-$$}   # ISS-1080: plain variable, deliberately NOT exported
 trap cleanup_tmp_dir EXIT
 echo "test_parallel: partition logs in $tmp_dir"
 
@@ -520,21 +533,60 @@ echo "test_parallel: seeding+migrating $N partition databases (capped at $max_co
 declare -A create_pid_to_partition
 in_flight=0
 
+# ISS-1080 (RC-C): reaps exactly ONE finished create/migrate job (both wait
+# sites below call this, so there is a single copy of the logic). On CI
+# (shard 1/3, loadavg 11) `wait -n -p finished_pid` returned without setting
+# the variable and the `set -u` lookup aborted the whole run
+# ("finished_pid: unbound variable") before any partition launched. `wait -n -p`
+# also UNSETS the variable on a failed wait, hence the `:-` expansions. When the
+# variable is empty after the wait, do NOT wait again (a repeated wait -n on
+# bash < 5.1 prints its usage at 20 Hz): poll the tracked pids instead and take
+# the exit status from `wait <pid>` on the first one that is gone (bash keeps
+# the status of an already-collected job and returns it again). A pid reported
+# by wait -n that is not one of ours is ignored without touching in_flight.
+# A failed create/migrate is reported and ends the run (exit 1) exactly as before.
+reap_one_create() {
+  local finished_pid="" finished_exit finished_partition p
+  while :; do
+    finished_pid=""
+    wait -n -p finished_pid
+    finished_exit=$?
+    if [ -n "${finished_pid:-}" ]; then
+      if [ -n "${create_pid_to_partition[$finished_pid]:-}" ]; then
+        break
+      fi
+      continue
+    fi
+    while :; do
+      for p in "${!create_pid_to_partition[@]}"; do
+        if ! kill -0 "$p" 2>/dev/null; then
+          wait "$p"
+          finished_exit=$?
+          finished_pid=$p
+          break 2
+        fi
+      done
+      sleep 0.05
+    done
+    break
+  done
+
+  finished_partition="${create_pid_to_partition[$finished_pid]}"
+  unset 'create_pid_to_partition[$finished_pid]'
+  in_flight=$((in_flight - 1))
+  if [ "$finished_exit" -ne 0 ]; then
+    echo "test_parallel: ERROR partition $finished_partition ecto.create/ecto.migrate failed with exit $finished_exit -- no partition launched (see $tmp_dir/create-$finished_partition.log)" >&2
+    echo "test_parallel: ---- create-$finished_partition.log content (ISS-0779: printed inline since this dir is not a CI artifact) ----" >&2
+    cat "$tmp_dir/create-$finished_partition.log" >&2
+    echo "test_parallel: ---- end create-$finished_partition.log ----" >&2
+    exit 1
+  fi
+}
+
 i="$FIRST"
 while [ "$i" -le "$LAST" ]; do
   if [ "$in_flight" -ge "$max_concurrent_creates" ]; then
-    wait -n -p finished_pid
-    finished_exit=$?
-    finished_partition="${create_pid_to_partition[$finished_pid]}"
-    unset 'create_pid_to_partition[$finished_pid]'
-    in_flight=$((in_flight - 1))
-    if [ "$finished_exit" -ne 0 ]; then
-      echo "test_parallel: ERROR partition $finished_partition ecto.create/ecto.migrate failed with exit $finished_exit -- no partition launched (see $tmp_dir/create-$finished_partition.log)" >&2
-      echo "test_parallel: ---- create-$finished_partition.log content (ISS-0779: printed inline since this dir is not a CI artifact) ----" >&2
-      cat "$tmp_dir/create-$finished_partition.log" >&2
-      echo "test_parallel: ---- end create-$finished_partition.log ----" >&2
-      exit 1
-    fi
+    reap_one_create
   fi
 
   (
@@ -549,18 +601,7 @@ done
 
 # Drain remaining in-flight create/migrate jobs.
 while [ "$in_flight" -gt 0 ]; do
-  wait -n -p finished_pid
-  finished_exit=$?
-  finished_partition="${create_pid_to_partition[$finished_pid]}"
-  unset 'create_pid_to_partition[$finished_pid]'
-  in_flight=$((in_flight - 1))
-  if [ "$finished_exit" -ne 0 ]; then
-    echo "test_parallel: ERROR partition $finished_partition ecto.create/ecto.migrate failed with exit $finished_exit -- no partition launched (see $tmp_dir/create-$finished_partition.log)" >&2
-    echo "test_parallel: ---- create-$finished_partition.log content (ISS-0779: printed inline since this dir is not a CI artifact) ----" >&2
-    cat "$tmp_dir/create-$finished_partition.log" >&2
-    echo "test_parallel: ---- end create-$finished_partition.log ----" >&2
-    exit 1
-  fi
+  reap_one_create
 done
 
 echo "test_parallel: all $N partition databases created+migrated"
@@ -623,11 +664,18 @@ poll_template_ready_dir() {
   local idx pid
   for idx in "${!building_partition_pid[@]}"; do
     pid="${building_partition_pid[$idx]}"
+    # ISS-1080 (RC-B): sample liveness FIRST, test the ready-file SECOND. The old
+    # order (ready-file, then kill -0) could observe "no ready-file yet", get
+    # preempted while the partition wrote it AND exited, then see a dead pid and
+    # report a crash. A process that is dead at sample time wrote its ready-file
+    # earlier, so this order cannot miss it; a ready+dead partition is ready.
+    local alive=1
+    kill -0 "$pid" 2>/dev/null || alive=0
     if [ -e "$template_ready_dir/partition-$idx.ready" ]; then
       unset 'building_partition_pid[$idx]'
       in_flight_builders=$((in_flight_builders - 1))
       progressed=1
-    elif ! kill -0 "$pid" 2>/dev/null; then
+    elif [ "$alive" -eq 0 ]; then
       echo "test_parallel: ERROR partition $idx's process exited during its own template build, before producing a ready-file ($template_ready_dir/partition-$idx.ready) -- no further partitions admitted (see $tmp_dir/partition-$idx.log)" >&2
       exit 1
     fi
