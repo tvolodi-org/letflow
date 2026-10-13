@@ -126,7 +126,11 @@ defmodule Letflow.Test.FakeInvocationConnectionTest do
 
       assert text =~ "connection alive? true"
       assert text =~ "answers as backend pid"
-      assert text =~ tag
+      # the quoted form only appears in a backend row (the header has the bare tag), so
+      # this fails if the pg_stat_activity listing is broken or absent
+      assert text =~ "\"#{tag}\""
+      refute text =~ "query failed"
+      refute text =~ "query exited"
     end
   end
 

@@ -6,7 +6,8 @@ defmodule Letflow.Test.FakeInvocationConnection do
   tagged with a fake `application_name`, standing in for "another `mix test`
   invocation", and closes it again deterministically (Q-1037 / GH #2364).
 
-  Two CI flake classes this module removes:
+  Two CI flake classes this module removes (the guard-miss shape of GH #2441 is
+  diagnosed by `capture/2` and pre-checked by `assert_visible!/3`, see below):
 
   1. **Shed first query.** The fake connection was a plain `Postgrex.start_link/1`
      with DBConnection's default overload-shedding queue options (`:queue_target`
@@ -23,8 +24,10 @@ defmodule Letflow.Test.FakeInvocationConnection do
      still see the tag and defer. `stop_and_wait_gone!/3` polls, bounded, until the
      tag is really gone.
 
-  Both polls default to 100 attempts x 50 ms and are overridable with the
-  `:attempts` and `:interval_ms` options.
+  The polls (`start!/2`, `stop_and_wait_gone!/3`, `assert_visible!/3`) default to
+  100 attempts x 50 ms and are overridable with the `:attempts` and `:interval_ms`
+  options. `assert_visible!/3` checks through `Letflow.Repo` (the sweeper's session
+  type), and `capture/2` gathers failure-time evidence for a guard miss.
   """
 
   alias Letflow.Repo
@@ -103,16 +106,19 @@ defmodule Letflow.Test.FakeInvocationConnection do
   end
 
   @doc """
-  Asserts that `tag` is visible in `pg_stat_activity` through `Letflow.Repo` right now,
-  the same session type and view the reaper's own guard uses (ISS-1083 / GH #2441).
+  Asserts that `tag` is visible in `pg_stat_activity` through `Letflow.Repo` at the
+  moment of the call (ISS-1083 / GH #2441). It uses the sweeper's session type. The
+  sweeper's own guard is a `LIKE` query with group logic, so an exact-tag match here
+  implies the guard can see the tag, not the reverse.
 
   `start!/2` proves visibility once, through the fake connection itself, at setup time.
-  That proof does not carry to the sweep: the backend can disappear and reconnect in
-  between, so the sweep runs in the gap and reclaims. Callers must put the Repo session
-  in `:auto` mode first (`Ecto.Adapters.SQL.Sandbox.mode(Letflow.Repo, :auto)`): a
-  sandboxed transaction caches the `pg_stat_activity` snapshot until it ends. Polls,
-  bounded, and returns `:ok` once visible; otherwise raises, naming `tag` and carrying
-  `capture/2`'s failure-time evidence.
+  That proof does not carry to the sweep. This check narrows the window between the
+  proof and the sweep, but it does NOT close it: the sweep's own read is a separate
+  read after this one, and the backend can still drop in between. Callers must put the
+  Repo session in `:auto` mode first (`Ecto.Adapters.SQL.Sandbox.mode(Letflow.Repo,
+  :auto)`): a sandboxed transaction caches the `pg_stat_activity` snapshot until it
+  ends. Polls, bounded, and returns `:ok` at the first sighting; otherwise raises,
+  naming `tag` and carrying `capture/2`'s failure-time evidence.
   """
   @spec assert_visible!(pid(), String.t(), poll_opts()) :: :ok
   def assert_visible!(conn, tag, poll_opts \\ []) when is_binary(tag) do
@@ -129,7 +135,7 @@ defmodule Letflow.Test.FakeInvocationConnection do
   end
 
   defp poll_repo_visible(tag, attempts, interval_ms) do
-    %{rows: rows} = Repo.query!(@tag_sql, [tag])
+    %{rows: rows} = Repo.query!(@tag_sql, [tag], timeout: @query_timeout_ms)
 
     cond do
       rows != [] ->
@@ -147,9 +153,11 @@ defmodule Letflow.Test.FakeInvocationConnection do
   @doc """
   Failure-time evidence for a guard miss (ISS-1083 / GH #2441): the `letflow_mixtest_*`
   backends visible in `pg_stat_activity` (pid, application_name, state, backend_start),
-  whether `conn` is still alive, and the backend pid `conn` itself reports. Never raises,
-  and bounded by the query timeout. Call it only on an assertion-failure path so a
-  passing run pays nothing.
+  whether `conn` is still alive, and the backend pid `conn` itself reports. Never raises
+  (a raised error or an exit from either query is reported as text), and each query is
+  bounded by `@query_timeout_ms`. Call it only on an assertion-failure path so a passing
+  run pays nothing. Under the sandbox's `:manual` mode the Repo read can see a cached
+  snapshot, so a caller that wants a fresh listing sets `:auto` first.
   """
   @spec capture(pid(), String.t()) :: String.t()
   def capture(conn, tag) when is_binary(tag) do
@@ -160,12 +168,15 @@ defmodule Letflow.Test.FakeInvocationConnection do
             "SELECT pid, application_name, state, backend_start FROM pg_stat_activity " <>
               "WHERE application_name LIKE 'letflow_mixtest_%' OR application_name = $1 " <>
               "ORDER BY backend_start",
-            [tag]
+            [tag],
+            timeout: @query_timeout_ms
           )
 
         Enum.map_join(rows, "\n", &("    " <> inspect(&1)))
       rescue
         exception -> "    pg_stat_activity query failed: #{Exception.message(exception)}"
+      catch
+        :exit, reason -> "    pg_stat_activity query exited: #{inspect(reason)}"
       end
 
     conn_info =

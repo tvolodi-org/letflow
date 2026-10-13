@@ -290,20 +290,30 @@ defmodule Letflow.TenantSchemaReaperTest do
       # otherwise this test could pass for the wrong reason (Q-1037 / GH #2364).
       other_conn = FakeInvocationConnection.start!(fake_tag)
 
-      # ISS-1083 / GH #2441: start!/2 proved visibility once, through the fake connection,
-      # at setup time. Re-prove it through the sweeper's own session right before the
-      # sweep, so a backend that is between disconnect and reconnect cannot make the sweep
-      # reclaim while another invocation is still open.
+      # ISS-1083 / GH #2441 (diagnostic, not a root-cause fix): start!/2 proved visibility
+      # once, at setup time. assert_visible!/3 re-checks it through the sweeper's session
+      # type right before the sweep, which narrows the window in which the backend could be
+      # between disconnect and reconnect. It does not close the window: the sweep's own
+      # guard read is a separate read after this one. Sandbox :auto is needed so the
+      # re-check is not served from the transaction's cached snapshot.
       Ecto.Adapters.SQL.Sandbox.mode(Letflow.Repo, :auto)
       :ok = FakeInvocationConnection.assert_visible!(other_conn, fake_tag)
 
       result = TenantSchemaReaper.sweep_orphans(Repo, 1)
 
-      unless match?({:ok, %{reclaimed: 0, skipped_invalid_format: _}}, result) do
-        flunk(
-          "sweep_orphans/2 reclaimed while another invocation was open: #{inspect(result)}\n" <>
-            FakeInvocationConnection.capture(other_conn, fake_tag)
-        )
+      case result do
+        {:ok, %{reclaimed: 0, skipped_invalid_format: _}} ->
+          :ok
+
+        other ->
+          # the sweep's after-block restored :manual; set :auto so the failure-time listing
+          # is fresh, not a cached snapshot
+          Ecto.Adapters.SQL.Sandbox.mode(Letflow.Repo, :auto)
+
+          flunk(
+            "sweep_orphans/2 did not defer while another invocation was open: #{inspect(other)}\n" <>
+              FakeInvocationConnection.capture(other_conn, fake_tag)
+          )
       end
 
       Ecto.Adapters.SQL.Sandbox.mode(Letflow.Repo, :auto)
