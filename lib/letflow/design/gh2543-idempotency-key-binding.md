@@ -54,13 +54,21 @@ non-entity or wrong-command original fails on the event_type check, before any p
   - Two lists match when they have the same length and match element by element, in order.
   - Integer vs integer, or float vs float: `==`.
   - Integer `i` vs float `f`, in either order: match if `i == f`, or if
-    `abs(i) <= 1.7976931348623157e308 and :erlang.float(i) == f`.
+    `abs(i) <= 1.7976931348623157e308 and :erlang.binary_to_float(Integer.to_string(i) <> ".0") == f`.
     - The `abs`/`<=` guard compares a bignum with a float without converting it, so it cannot
-      raise. `:erlang.float/1` is only reached inside the finite double range, so it cannot
+      raise. The conversion is only reached inside the finite double range, so it cannot
       raise `badarg` (INV-8).
+    - Do NOT use `:erlang.float/1`. It truncates rather than rounds for large integers:
+      `:erlang.float(9099724907720628 * 10 ** 270)` gives `9.099724907720627e285`, but
+      the correctly rounded value is `9.099724907720628e285`. In a 20,018-payload
+      Jason → jsonb → Jason sweep (CODE-DESIGN-VALIDATOR), `:erlang.float/1` misjudged 42
+      identical replays (magnitudes 3.59e19 to 1.4e306); `binary_to_float` misjudged 0.
     - Why this is exact: Jason writes the shortest decimal that round-trips to `f`, and jsonb
-      keeps that decimal's exact value. Converting the decoded integer back to a float
-      therefore gives `f` again.
+      keeps that decimal's exact value. Parsing the decoded integer's decimal text as a float
+      rounds correctly, so it gives `f` again.
+    - Known, accepted false positive: a stored integer within half a float step of the
+      request's float matches (e.g. `10**23 + 1` vs `1.0e23`). It needs the same key, actor
+      and type, and returns only the caller's own original values, so INV-2 is unaffected.
   - Anything else (string, boolean, `nil`, or mismatched types): `==`, so a string `"1"` never
     matches the number `1`.
 - Why (a) rather than (b), a jsonb round-trip of the request side:
@@ -221,7 +229,7 @@ test/letflow/entities/records_test.exs (R*); router tests (H*) in test/letflow/r
 | No original data, fixed status | D6, section 5 | H `POST reuse -> 422, body is exactly the constant problem, contains neither the original record_id nor its field values`; H `PUT reuse -> 422 idempotency_key_reuse`; test/letflow/api/error_test.exs `idempotency_key_reuse/0 builds the 422 document` |
 | Same-request replay stays idempotent | D5, section 3 | Existing AC3 test (records_test.exs:253-273); existing `identical replay ...` (records_test.exs:945-960) |
 | | | R `replay with reordered keys and 1 vs 1.0 -> is_duplicate: true, one event` |
-| | | R `replay with a float >= 2^53 (1.0e23 and 12345678901234567890.5) -> is_duplicate: true, one event` (section 3) |
+| | | R `replay with a float >= 2^53 (1.0e23, 12345678901234567890.5 and 9.099724907720628e285) -> is_duplicate: true, one event` (section 3; the last value fails under `:erlang.float/1`) |
 | | | R `same values, different stale expected -> is_duplicate: true` |
 | | | R `oversized (> 4096 B payload) create replay -> is_duplicate: true, full field_values` (D3) |
 | | | H `POST replay -> 201 with the same record_id` |
@@ -271,9 +279,9 @@ constructing the same state independently" -- every `Records` caller is reviewed
 - **OQ-1:** client keys share a namespace with server-derived keys. A client could POST with
   `"timer_fired:<id>"` or `"certificate:issue:<sid>"` and squat a key that a server writer
   uses later; that writer would then see `is_duplicate: true` and skip its work. This exists
-  today; `EventStore` is not changed here. Tracked by follow-up issues filed via the supervisor.
+  today; `EventStore` is not changed here. Tracked by GH #2550.
 - **OQ-2:** squatting a Certificate key under `:target`.
-  - `EntitiesRecordsWrite` is tenant-wide, not per entity type (authorization.ex:79-94). So a
+  - `EntitiesRecordsWrite` is tenant-wide, not per entity type (tenant scope, authorization.ex:456-463). So a
     POST to **any** entity type with key `certificate:issue:<sid>` claims the key.
   - Squat by a different type with the same command (`ENTITY_RECORD_CREATED`): the event-type
     check passes, then the entity_type check fails. Squat by another actor: the actor check
@@ -287,4 +295,4 @@ constructing the same state independently" -- every `Records` caller is reviewed
   - Tracked with OQ-1.
 - **OQ-3:** import entries without `record_id` share one key per call. After this change,
   differing entries give a per-entry reuse error where today they are silently dropped.
-  Tracked by follow-up issues filed via the supervisor; not changed here.
+  Tracked by GH #2551; not changed here.
