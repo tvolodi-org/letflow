@@ -48,7 +48,7 @@ defmodule Letflow.RouterTest do
     conn = conn(:get, "/health") |> call()
 
     assert conn.status == 200
-    assert Jason.decode!(conn.resp_body) == %{"status" => "ok"}
+    assert Jason.decode!(conn.resp_body) == %{"status" => "ok", "sha" => Letflow.BuildInfo.sha()}
   end
 
   test "POST /instances now falls through to 404" do
@@ -97,7 +97,11 @@ defmodule Letflow.RouterTest do
     test "GET /health returns 200 without Ecto.Sandbox checkout" do
       conn = conn(:get, "/health") |> call()
       assert conn.status == 200
-      assert Jason.decode!(conn.resp_body) == %{"status" => "ok"}
+
+      assert Jason.decode!(conn.resp_body) == %{
+               "status" => "ok",
+               "sha" => Letflow.BuildInfo.sha()
+             }
     end
   end
 
@@ -353,7 +357,11 @@ defmodule Letflow.RouterTest do
       conn = conn(:get, "/health") |> call()
 
       assert conn.status == 200
-      assert Jason.decode!(conn.resp_body) == %{"status" => "ok"}
+
+      assert Jason.decode!(conn.resp_body) == %{
+               "status" => "ok",
+               "sha" => Letflow.BuildInfo.sha()
+             }
 
       # Letflow.Supervisor.Infrastructure's :one_for_one strategy restarts the killed
       # ProviderRegistry automatically — a new DynamicSupervisor process gets
