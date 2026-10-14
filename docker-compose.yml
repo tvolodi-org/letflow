@@ -1,6 +1,11 @@
 services:
   postgres:
     image: postgres:16
+    # Survive a host reboot / power loss: without a policy Docker leaves the
+    # container stopped and every test run fails with `connection refused`
+    # (GH #2513). A container created before this key existed keeps its old
+    # policy until recreated -- see README "After a reboot".
+    restart: unless-stopped
     environment:
       POSTGRES_USER: letflow
       POSTGRES_PASSWORD: letflow

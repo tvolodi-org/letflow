@@ -286,6 +286,25 @@ name takes precedence over `.env`; with neither set, the port is 5462 and
 behaviour is unchanged. `.env` is gitignored on purpose — the port is
 local state of a checkout, not of the project.
 
+### After a reboot
+
+After a reboot: `docker ps`; start the workspace DB containers; check ports
+5462 / 5472 / 5482.
+
+The `postgres` service sets `restart: unless-stopped`, so containers created
+from this file come back on their own. A container created before that key
+existed keeps `RestartPolicy=no` until it is changed. Either recreate it from
+its own checkout (`docker compose up -d postgres`; the named volume keeps the
+data) or update the policy in place, per container:
+
+```
+docker update --restart unless-stopped letflow-postgres-1
+docker update --restart unless-stopped letflow-3-postgres-1
+docker update --restart unless-stopped letflow-wt1012-postgres-1
+```
+
+Only run these for containers of your own workspace.
+
 ## QA deployment
 
 A live QA instance runs at [https://qa.bizdala.com](https://qa.bizdala.com)
