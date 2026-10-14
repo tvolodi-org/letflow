@@ -83,6 +83,27 @@ defmodule Letflow.Routers.Gh2552TokenIssuerTest do
     |> DateTime.truncate(:second)
   end
 
+  # Registers ONE on_exit that restores :platform_admin_token_max_ttl_days to its value at
+  # the time of the call (or deletes it if it was unset), so a test may put_env freely.
+  defp restore_ttl_env_on_exit do
+    previous = Application.fetch_env(:letflow, :platform_admin_token_max_ttl_days)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, value} -> Application.put_env(:letflow, :platform_admin_token_max_ttl_days, value)
+        :error -> Application.delete_env(:letflow, :platform_admin_token_max_ttl_days)
+      end
+    end)
+  end
+
+  defp post_pa_token(p, operator, expires_at) do
+    call_as(:post, "/tokens", p, operator.id, @operator, %{
+      "user_id" => operator.id,
+      "roles" => @operator,
+      "expires_at" => DateTime.to_iso8601(expires_at)
+    })
+  end
+
   defp list_items(fx, caller) do
     conn = call_as(:get, "/tokens", fx, caller.id, @admin, nil)
     assert conn.status == 200, conn.resp_body
@@ -329,6 +350,7 @@ defmodule Letflow.Routers.Gh2552TokenIssuerTest do
 
       encoded = Jason.encode!([entry.before_state, entry.after_state])
       refute encoded =~ token.token_hash
+      refute encoded =~ String.slice(token.token_hash, 0, 8)
       refute encoded =~ token.name
       refute encoded =~ "lf_tok_"
       refute encoded =~ plaintext
@@ -630,15 +652,8 @@ defmodule Letflow.Routers.Gh2552TokenIssuerTest do
 
     test "the cap is read from :platform_admin_token_max_ttl_days at call time", %{p: p} do
       operator = holder!(p, @operator)
-      previous = Application.fetch_env(:letflow, :platform_admin_token_max_ttl_days)
+      restore_ttl_env_on_exit()
       Application.put_env(:letflow, :platform_admin_token_max_ttl_days, 1)
-
-      on_exit(fn ->
-        case previous do
-          {:ok, value} -> Application.put_env(:letflow, :platform_admin_token_max_ttl_days, value)
-          :error -> Application.delete_env(:letflow, :platform_admin_token_max_ttl_days)
-        end
-      end)
 
       assert {:error, :platform_admin_token_expiry} =
                Identity.mint_token(
@@ -681,6 +696,110 @@ defmodule Letflow.Routers.Gh2552TokenIssuerTest do
                  now,
                  90
                )
+    end
+
+    # REVIEWER fix 8034c1a6: the private guard platform_admin_token_max_ttl_days/0 raises on a
+    # value outside 1..366 (or a non-integer). insert_token/5's rescue turns the raise into
+    # {:transaction_failed, _}, which the router maps to 500. Fail closed: never a token.
+    test "misconfigured :platform_admin_token_max_ttl_days (0, -1, \"90\", 367, 10_000) fails closed: raise -> :transaction_failed, HTTP 500, no row, no audit",
+         %{p: p} do
+      operator = holder!(p, @operator)
+      restore_ttl_env_on_exit()
+
+      for bad <- [0, -1, "90", 367, 10_000] do
+        Application.put_env(:letflow, :platform_admin_token_max_ttl_days, bad)
+
+        assert {:error, {:transaction_failed, %ArgumentError{message: message}}} =
+                 Identity.mint_token(
+                   operator.id,
+                   operator.id,
+                   %{roles: @operator, expires_at: in_days(1)},
+                   prefix: p.schema_name
+                 ),
+               "value #{inspect(bad)} did not raise"
+
+        assert message =~ ":platform_admin_token_max_ttl_days must be an integer in 1..366"
+        assert message =~ inspect(bad)
+
+        conn = post_pa_token(p, operator, in_days(1))
+        assert conn.status == 500, "value #{inspect(bad)}: #{conn.status} #{conn.resp_body}"
+      end
+
+      assert token_count(p) == 0
+      assert entries(p, "token.create") == []
+    end
+
+    test "valid :platform_admin_token_max_ttl_days bounds 1 and 366 mint; unset env uses the default 90",
+         %{p: p} do
+      operator = holder!(p, @operator)
+      restore_ttl_env_on_exit()
+
+      for days <- [1, 366] do
+        Application.put_env(:letflow, :platform_admin_token_max_ttl_days, days)
+        conn = post_pa_token(p, operator, in_days(days, -5))
+        assert conn.status == 201, "value #{days}: #{conn.resp_body}"
+      end
+
+      # Unset: the code default (config.exs pins 90 explicitly, so this is the only test of
+      # the get_env/3 fallback). 90 d - 5 s mints, 90 d + 60 s is refused, so the default is 90.
+      Application.delete_env(:letflow, :platform_admin_token_max_ttl_days)
+      assert post_pa_token(p, operator, in_days(90, -5)).status == 201
+
+      assert_422(
+        post_pa_token(p, operator, in_days(90, 60)),
+        "platform_admin_token_expiry_invalid"
+      )
+
+      assert token_count(p) == 3
+    end
+  end
+
+  # --- SoD identity (advisor condition 3) ------------------------------------------------------
+
+  describe "SoD identity" do
+    test "a minted token authenticates as its OWNER (the target) with its roles, never as the issuer",
+         %{a: a} do
+      minter = holder!(a, ["TENANT_ADMIN", "TASK_WORKER"])
+      target = holder!(a, ["TASK_WORKER"])
+
+      conn = post_token(a, minter, %{"user_id" => target.id, "roles" => ["TASK_WORKER"]})
+      assert conn.status == 201, conn.resp_body
+      body = Jason.decode!(conn.resp_body)
+
+      assert {:ok, %{user_id: acting_id, roles: ["TASK_WORKER"]}} =
+               Identity.verify_api_token(body["token"], prefix: a.schema_name)
+
+      assert acting_id == target.id
+      refute acting_id == minter.id
+    end
+  end
+
+  # --- structural: the HTTP mint path is mint_token/4 only (REVIEWER finding 7) ----------------
+
+  describe "structural" do
+    # create_token/3 is the trusted non-HTTP path (NULL issuer, no 0051 M2 checks). A router
+    # calling it would be a sibling mint path that bypasses the issuer and the subset rule
+    # (docs/anti-patterns.md, sibling-path). The lookbehind excludes this router's own
+    # handle_/validate_and_/do_create_token helpers and @create_token_schema.
+    @create_token_call ~r/(?<![A-Za-z0-9_])create_token\s*[(\/]|\.create_token\b|:create_token\b/
+
+    test "no file under lib/letflow/routers/ calls create_token; POST /tokens calls Identity.mint_token" do
+      root = Path.expand("../../../lib/letflow/routers", __DIR__)
+      files = Path.wildcard(Path.join(root, "**/*.{ex,exs}"))
+      assert Path.join(root, "identity.ex") in files, "router dir not found at #{root}"
+
+      hits =
+        for file <- files,
+            {line, n} <- file |> File.read!() |> String.split("\n") |> Enum.with_index(1),
+            Regex.match?(@create_token_call, line) do
+          "#{Path.relative_to_cwd(file)}:#{n}: #{String.trim(line)}"
+        end
+
+      assert hits == [],
+             "routers must mint through Identity.mint_token/4, not create_token:\n" <>
+               Enum.join(hits, "\n")
+
+      assert File.read!(Path.join(root, "identity.ex")) =~ "Identity.mint_token("
     end
   end
 
