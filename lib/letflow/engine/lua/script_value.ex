@@ -5,7 +5,7 @@ defmodule Letflow.Engine.Lua.ScriptValue do
 
     * `encode/1`: an Elixir input map -> a plain term `Lua.set!/3` turns into tables WITHOUT
       metatables. Unsupported terms are dropped and counted; it never raises.
-    * `decode/3`: a RAW VM result (`{:tref, id}` and scalars, from `Lua.VM.execute/2`) ->
+    * `decode/2`: a RAW VM result (`{:tref, id}` and scalars, from `Lua.VM.execute/2`) ->
       a JSON-safe term. It reads tables only through `Lua.VM.State.get_table/2` and
       `Lua.VM.Table.to_map/1` (raw storage: no `__index`, `__pairs`, `__len` or any other
       metamethod runs), runs under a node / depth / size budget checked at every node, and
@@ -30,10 +30,7 @@ defmodule Letflow.Engine.Lua.ScriptValue do
   valid UTF-8 strings, lists and string-keyed maps. Returns `{value, dropped_count}`.
   """
   @spec encode(term()) :: {map(), non_neg_integer()}
-  def encode(input) when is_map(input) and not is_struct(input) do
-    {value, dropped} = encode_map(input)
-    {value, dropped}
-  end
+  def encode(input) when is_map(input) and not is_struct(input), do: encode_map(input)
 
   def encode(_input), do: {%{}, 1}
 
@@ -56,10 +53,8 @@ defmodule Letflow.Engine.Lua.ScriptValue do
 
   defp encode_value(nil), do: {:ok, nil, 0}
   defp encode_value(value) when is_boolean(value), do: {:ok, value, 0}
-  defp encode_value(value) when is_integer(value), do: {:ok, value, 0}
-
-  # BEAM floats are always finite.
-  defp encode_value(value) when is_float(value), do: {:ok, value, 0}
+  # BEAM floats are always finite, so every number is accepted.
+  defp encode_value(value) when is_number(value), do: {:ok, value, 0}
 
   defp encode_value(value) when is_binary(value) do
     if String.valid?(value), do: {:ok, value, 0}, else: :drop

@@ -76,7 +76,7 @@ is NOT called by `new_script/1` [CDV 10]. 7c retires the old tenant-script path.
      delegate to the library function [SEC r2-1].
    * `string.gsub(s, pat, repl, n)`: ONLY a string `repl` is allowed (a function or table
      `repl` -> fixed-text error "string.gsub: only string replacement allowed"); bound =
-     `byte_size(s) + (byte_size(s) + 1) * byte_size(repl)` (capped by `n` matches when given).
+     `byte_size(s) + max_matches * (byte_size(repl) + refs * byte_size(s))`, `refs` = number of `%0`-`%9` in `repl` (each expands to a whole match or capture, at most `byte_size(s)`), `max_matches` = `n` when given else `byte_size(s) + 1` [SEC code B2].
      This deliberately narrows F-B's "string.gsub callback" to a test that the callback form is
      refused (no host re-entry); confirmed by SECURITY-REVIEWER. Known limit for authors: the
      bound is conservative (e.g. a 400 KiB subject with a 2-byte replacement is refused); a
@@ -104,7 +104,7 @@ stats :: %{duration_us, instructions_used, instructions_budget, heap_words_at_en
 detail :: %{} | %{fail: %{code: String.t(), details: map()}} | %{author: author_detail()}
 ```
 
-Required opts: `:tenant` (schema prefix), `:ctx` (`instance_id`, `node_id`, `token_id` as
+Invalid opts (missing or ill-typed `:tenant`/`:ctx`, non-positive limits) are a CALLER bug and raise `ArgumentError` before anything runs; nothing the script does raises. Required opts: `:tenant` (schema prefix), `:ctx` (`instance_id`, `node_id`, `token_id` as
 strings, `now` as `DateTime`). Optional (clamped): `:instructions` (default 1_000_000, max
 10_000_000), `:timeout_ms` (default 1_000, max 5_000), `:heap_words` (default 4_194_304, max
 8_388_608), `:fail_codes` (list of allowed `fail` codes; nil = any well-formed code; 7c passes
@@ -191,7 +191,7 @@ and never caught by host code [CDV r2-7].
   payload in the run's host state and `throw`s `{:script_fail, run_ref, payload}`, which
   `pcall` does not catch; the worker matches `run_ref`. A forged `error(...)` string can never
   produce `script_failed` [SEC B3].
-* `print(...)`: appends `tostring` of the args joined by tabs to the run's buffer, at most 20
+* `print(...)`: appends the args, tab-separated and collected only up to the line cap (never a full join) [SEC code B1], to the run's buffer, at most 20
   lines x 256 bytes (extra dropped, counted). NEVER sent to Logger or stdout; returned only
   in `author_detail`. Deliberate deviation from 0053's "capped host log line": stricter
   (no log at all) [CDV 17].

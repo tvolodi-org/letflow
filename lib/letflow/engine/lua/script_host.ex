@@ -98,8 +98,7 @@ defmodule Letflow.Engine.Lua.ScriptHost do
   @spec run_state(reference()) :: %{
           input_dropped: non_neg_integer(),
           prints: [String.t()],
-          prints_dropped: non_neg_integer(),
-          fail: map() | nil
+          prints_dropped: non_neg_integer()
         }
   def run_state(run_ref) do
     {lines, dropped} = Process.get({__MODULE__, run_ref, :print}, {[], 0})
@@ -107,8 +106,7 @@ defmodule Letflow.Engine.Lua.ScriptHost do
     %{
       input_dropped: Process.get({__MODULE__, run_ref, :input_dropped}, 0),
       prints: Enum.reverse(lines),
-      prints_dropped: dropped,
-      fail: Process.get({__MODULE__, run_ref, :fail})
+      prints_dropped: dropped
     }
   end
 
@@ -184,21 +182,35 @@ defmodule Letflow.Engine.Lua.ScriptHost do
     if length(lines) >= @print_max_lines do
       put(run, :print, {lines, dropped + 1})
     else
-      line =
-        args
-        |> Enum.map(&scalar_text/1)
-        |> Enum.join("\t")
-        |> binary_part_utf8(@print_max_line_bytes)
-
-      put(run, :print, {[line | lines], dropped})
+      put(run, :print, {[print_line(args) | lines], dropped})
     end
 
     []
   end
 
+  # SEC (code review) B1: never join the full arguments; collect at most the line cap, so a
+  # print of many 1 MiB strings never allocates more than @print_max_line_bytes.
+  defp print_line(args) do
+    args
+    |> Enum.reduce_while({[], @print_max_line_bytes, true}, fn arg, {acc, remaining, first?} ->
+      sep = if first?, do: "", else: "\t"
+      sep_part = binary_part(sep, 0, min(byte_size(sep), remaining))
+      remaining = remaining - byte_size(sep_part)
+      piece = scalar_text(arg)
+      piece_part = binary_part(piece, 0, min(byte_size(piece), remaining))
+      remaining = remaining - byte_size(piece_part)
+      acc = [piece_part, sep_part | acc]
+
+      if remaining <= 0, do: {:halt, {acc, 0, false}}, else: {:cont, {acc, remaining, false}}
+    end)
+    |> elem(0)
+    |> Enum.reverse()
+    |> IO.iodata_to_binary()
+    |> valid_utf8_prefix()
+  end
+
   defp scalar_text(value) when is_binary(value), do: value
-  defp scalar_text(value) when is_integer(value), do: Integer.to_string(value)
-  defp scalar_text(value) when is_float(value), do: Float.to_string(value)
+  defp scalar_text(value) when is_number(value), do: Lua.VM.Value.to_string(value)
   defp scalar_text(true), do: "true"
   defp scalar_text(false), do: "false"
   defp scalar_text(nil), do: "nil"
@@ -212,7 +224,6 @@ defmodule Letflow.Engine.Lua.ScriptHost do
   defp fail(run, args, lua) do
     case validate_fail(run, args, lua) do
       {:ok, payload} ->
-        put(run, :fail, payload)
         throw({:script_fail, run.run_ref, payload})
 
       :error ->
@@ -264,7 +275,8 @@ defmodule Letflow.Engine.Lua.ScriptHost do
     sep = Enum.at(rest, 0) || ""
     sep = if is_binary(sep), do: sep, else: raise(ArgumentError)
     first = Enum.at(rest, 1) || 1
-    last = Enum.at(rest, 2) || table.arr_n
+    # Lua's default end is #t (the border), not only the array part.
+    last = Enum.at(rest, 2) || Table.length(table)
 
     parts =
       if last < first do
@@ -273,8 +285,8 @@ defmodule Letflow.Engine.Lua.ScriptHost do
         Enum.map(first..last, fn i ->
           case Table.get(table, i) do
             v when is_binary(v) -> v
-            v when is_integer(v) -> Integer.to_string(v)
-            v when is_float(v) -> Float.to_string(v)
+            # Lua's own number formatting (%.14g for floats), as the library would print it
+            v when is_number(v) -> Lua.VM.Value.to_string(v)
             _ -> raise ArgumentError
           end
         end)
@@ -299,10 +311,21 @@ defmodule Letflow.Engine.Lua.ScriptHost do
         padding = digits(width) + digits(precision)
 
         case {conv, remaining} do
-          {"%", _} -> {acc + padding, remaining}
-          {_conv, []} -> {acc + padding, []}
-          {"q", [arg | tail]} -> {acc + padding + arg_size(arg) * 4 + 2, tail}
-          {_conv, [arg | tail]} -> {acc + padding + arg_size(arg), tail}
+          {"%", _} ->
+            {acc + padding, remaining}
+
+          {_conv, []} ->
+            {acc + padding, []}
+
+          {"q", [arg | tail]} ->
+            {acc + padding + arg_size(arg) * 4 + 2, tail}
+
+          # %f of 1e308 renders ~316 bytes, %.99f ~410 (SEC code review nb 1)
+          {c, [arg | tail]} when c in ["f", "F"] ->
+            {acc + padding + max(arg_size(arg), 420), tail}
+
+          {_conv, [arg | tail]} ->
+            {acc + padding + arg_size(arg), tail}
         end
       end)
 
@@ -327,13 +350,27 @@ defmodule Letflow.Engine.Lua.ScriptHost do
         _ -> byte_size(s) + 1
       end
 
-    if byte_size(s) + max_matches * byte_size(repl) > Sandbox.script_max_string_bytes(),
+    # SEC (code review) B2: each %0-%9 in the replacement expands to a whole match or a
+    # capture (at most byte_size(s)), not to its own 2 bytes.
+    capture_refs = count_capture_refs(repl, 0)
+    per_match = byte_size(repl) + capture_refs * byte_size(s)
+
+    if byte_size(s) + max_matches * per_match > Sandbox.script_max_string_bytes(),
       do: too_large!("string.gsub")
 
     call_original(original, [s, pattern, repl | rest], lua)
   end
 
   defp gsub(_args, _lua, _original), do: raise(ArgumentError)
+
+  # Counts `%<digit>` without allocating (a Regex.scan over a 512 KiB replacement of
+  # `%0`s would itself build a match list larger than the heap limit).
+  defp count_capture_refs(<<?%, digit, rest::binary>>, acc) when digit in ?0..?9,
+    do: count_capture_refs(rest, acc + 1)
+
+  defp count_capture_refs(<<?%, ?%, rest::binary>>, acc), do: count_capture_refs(rest, acc)
+  defp count_capture_refs(<<_byte, rest::binary>>, acc), do: count_capture_refs(rest, acc)
+  defp count_capture_refs(<<>>, acc), do: acc
 
   defp char(args, lua, original) do
     if length(args) > Sandbox.script_max_string_bytes(), do: too_large!("string.char")
@@ -352,14 +389,10 @@ defmodule Letflow.Engine.Lua.ScriptHost do
 
   # ── helpers ────────────────────────────────────────────────────────────────
 
-  defp binary_part_utf8(text, max) when byte_size(text) <= max, do: text
-
-  defp binary_part_utf8(text, max) do
-    text
-    |> binary_part(0, max)
-    |> String.chunk(:valid)
-    |> Enum.filter(&String.valid?/1)
-    |> Enum.join()
+  defp valid_utf8_prefix(text) do
+    if String.valid?(text),
+      do: text,
+      else: text |> String.chunk(:valid) |> Enum.filter(&String.valid?/1) |> Enum.join()
   end
 
   defp put(run, key, value), do: Process.put({__MODULE__, run.run_ref, key}, value)

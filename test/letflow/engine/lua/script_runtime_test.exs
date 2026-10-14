@@ -25,6 +25,10 @@ defmodule Letflow.Engine.Lua.ScriptRuntimeTest do
     now: ~U[2026-10-14 12:00:00Z]
   }
 
+  # Each iteration copies 1 MiB: far too slow to exhaust a 10M instruction budget before
+  # any wall clock used here, so it ends only by the watchdog (or a kill).
+  @slow_loop "while true do local s = string.rep('x', 1000000) end"
+
   defp run(source, input \\ %{}, opts \\ []) do
     ScriptRunner.run(
       source,
@@ -51,8 +55,6 @@ defmodule Letflow.Engine.Lua.ScriptRuntimeTest do
     |> Enum.sort()
   end
 
-  defp lua_task_children, do: length(Task.Supervisor.children(Letflow.Engine.Lua.TaskSupervisor))
-
   defp eventually(fun, tries \\ 50) do
     cond do
       fun.() -> true
@@ -63,19 +65,36 @@ defmodule Letflow.Engine.Lua.ScriptRuntimeTest do
 
   # ── AC1 / AC14: exact allow-list (equality, not subset) ────────────────────
 
+  # The D11 lists, spelled out literally here (NOT read from the module under test), so a
+  # name wrongly added to or dropped from Sandbox's constants fails this test.
+  @d11_globals ~w(assert ctx error fail getmetatable ipairs math next pairs pcall print rawequal
+                  rawget rawlen rawset select setmetatable string table tonumber tostring type
+                  unpack)
+  @string_members ~w(byte char find format gsub len lower match rep reverse sub upper)
+  @table_members ~w(concat insert remove sort unpack)
+  @math_members ~w(abs acos asin atan ceil cos deg exp floor fmod huge log max maxinteger min
+                   mininteger modf pi rad random randomseed sin sqrt tan tointeger type ult)
+
   describe "AC1/AC14 sandbox allow-list (equality)" do
-    test "the globals of a script VM equal the allow-list exactly, for every option set" do
+    test "the globals and the string/table/math members of a script VM equal the literal D11 lists, for every option set" do
       for instructions <- [1, 1_000, 1_000_000, 10_000_000] do
         lua = script_vm(instructions)
 
         keys = lua.state |> Lua.VM.State.globals() |> Map.keys() |> Enum.sort()
-        assert keys == Sandbox.script_globals(), "max_instructions=#{instructions}"
-
-        for {library, members} <- Sandbox.script_members() do
-          assert library_keys(lua, library) == members,
-                 "#{library} (max_instructions=#{instructions})"
-        end
+        assert keys == Enum.sort(@d11_globals), "max_instructions=#{instructions}"
+        assert library_keys(lua, "string") == Enum.sort(@string_members)
+        assert library_keys(lua, "table") == Enum.sort(@table_members)
+        assert library_keys(lua, "math") == Enum.sort(@math_members)
       end
+
+      # and the module's own published lists agree with them
+      assert Sandbox.script_globals() == Enum.sort(@d11_globals)
+
+      assert Sandbox.script_members() == %{
+               "string" => Enum.sort(@string_members),
+               "table" => Enum.sort(@table_members),
+               "math" => Enum.sort(@math_members)
+             }
     end
 
     test "named absences: os (incl. time_ms), io, debug, load*, require, package, collectgarbage, coroutine, utf8, _G, _ENV, xpcall, string.dump, string.pack, gmatch, table.pack, table.move" do
@@ -89,6 +108,8 @@ defmodule Letflow.Engine.Lua.ScriptRuntimeTest do
 
       refute "dump" in library_keys(lua, "string")
       refute "pack" in library_keys(lua, "string")
+      refute "unpack" in library_keys(lua, "string")
+      refute "packsize" in library_keys(lua, "string")
       refute "gmatch" in library_keys(lua, "string")
       refute "pack" in library_keys(lua, "table")
       refute "move" in library_keys(lua, "table")
@@ -119,28 +140,59 @@ defmodule Letflow.Engine.Lua.ScriptRuntimeTest do
       assert {:error, :script_error, _} = run("local s = string.rep('x', 2000000) return {}")
     end
 
-    test "table.concat, string.format (incl. %q at 4x), string.gsub and string.char refuse an oversized result before building it" do
+    test "table.concat, string.format (incl. %q at 4x and %f), string.gsub (incl. capture references with n) and string.char refuse an oversized result before building it" do
       cases = [
         "local s = string.rep('x', 1000000) local t = {} for i = 1, 300 do t[i] = s end return {n = #table.concat(t)}",
         "local s = string.rep('x', 1000000) local a = {} for i = 1, 200 do a[i] = s end return {n = #string.format(string.rep('%s', 200), unpack(a))}",
         "return {n = #string.format('%q', string.rep(string.char(1), 300000))}",
-        "return {n = #(string.gsub('aaaa', 'a', string.rep('x', 1000000)))}"
+        "local a = {} for i = 1, 3000 do a[i] = 1e308 end return {n = #string.format(string.rep('%f', 3000), unpack(a))}",
+        "return {n = #(string.gsub('aaaa', 'a', string.rep('x', 1000000)))}",
+        # SEC code review B2: %0 expands to the whole match; 1 match via n = 1
+        "return {n = #(string.gsub(string.rep('a', 524288), '.*', string.rep('%0', 262144), 1))}"
       ]
 
-      for source <- cases do
+      for {source, heap} <- Enum.map(cases, &{&1, 2_000_000}) do
         started = System.monotonic_time(:millisecond)
 
+        # A small heap: had the result been BUILT (hundreds of MB), the worker would be
+        # killed (memory_limit_exceeded) instead of returning the precheck's script_error.
         assert {:error, :script_error, %{author: %{message: msg}}} =
-                 run(source, %{}, author_detail: true, instructions: 10_000_000),
+                 run(source, %{},
+                   author_detail: true,
+                   instructions: 10_000_000,
+                   heap_words: heap,
+                   timeout_ms: 5_000
+                 ),
                source
 
         assert msg =~ "too large", source
-        assert System.monotonic_time(:millisecond) - started < 4_000, source
+        assert System.monotonic_time(:millisecond) - started < 6_000, source
       end
 
       # the same %q argument size passes as %s (counted at 1x)
       assert {:ok, %{output: %{"n" => 300_000}}} =
                run("return {n = #string.format('%s', string.rep(string.char(1), 300000))}")
+
+      # string.char: more than 1 MiB of arguments cannot even be unpacked under the maximum
+      # heap (the on-heap argument list trips max_heap_size first); either way nothing is
+      # built. The precheck is defence in depth for a larger heap.
+      char_case =
+        "local t = {} for i = 1, 1100000 do t[i] = 65 end return {n = #string.char(unpack(t))}"
+
+      result =
+        run(char_case, %{},
+          author_detail: true,
+          instructions: 10_000_000,
+          heap_words: 8_388_608,
+          timeout_ms: 5_000
+        )
+
+      assert match?({:error, :memory_limit_exceeded, _}, result) or
+               match?(
+                 {:error, :script_error, %{author: %{message: "resulting string too large"}}},
+                 result
+               ),
+             inspect(result)
     end
 
     test "string.gsub accepts a string replacement only (a function or table replacement is refused)" do
@@ -156,47 +208,71 @@ defmodule Letflow.Engine.Lua.ScriptRuntimeTest do
       assert {:error, :script_error, _} = run("return {v = (string.gsub('abc', 'b', {b = 'x'}))}")
     end
 
-    test "table.concat reads raw storage once: an __index that would supply huge strings is never consulted" do
+    test "table.concat reads raw storage once: a stateful __index that would supply huge strings is never consulted" do
+      # Raw elements 1..2 are short; indices 3..300 exist ONLY through __index. Raw reads see
+      # nil there -> the fixed-text argument error. Had __index been consulted, the result
+      # would be "too large" (or, with a lying second read, a success).
       source = """
-      local t = setmetatable({}, {__index = function(_, i) return string.rep('x', 1000000) end})
+      local calls = 0
+      local t = setmetatable({'a', 'b'}, {__index = function(_, i)
+        calls = calls + 1
+        if calls % 2 == 1 then return 'x' else return string.rep('x', 1000000) end
+      end})
       return {n = #table.concat(t, '', 1, 300)}
       """
 
-      assert {:error, :script_error, _} = run(source)
+      assert {:error, :script_error, %{author: %{message: "invalid argument to table.concat"}}} =
+               run(source, %{}, author_detail: true)
     end
 
     test "an instruction loop ends budget_exceeded" do
-      assert {:error, :budget_exceeded, %{}} = run("while true do end", %{}, instructions: 10_000)
+      assert {:error, :budget_exceeded, %{}} ==
+               run("while true do end", %{}, instructions: 10_000)
     end
 
-    test "pcall cannot outlive the wall clock: a pcall-wrapped busy loop ends timeout" do
-      source = "while true do pcall(function() while true do end end) end"
+    test "the watchdog deadline is the stop: a slow loop that cannot exhaust the budget ends exactly :timeout, no earlier" do
+      # each iteration copies 1 MiB, so 10M instructions take far longer than 300 ms
+      source = "while true do local s = string.rep('x', 1000000) end"
       started = System.monotonic_time(:millisecond)
 
-      assert {:error, code, _} = run(source, %{}, instructions: 10_000_000, timeout_ms: 300)
-      assert code in [:timeout, :budget_exceeded]
-      assert System.monotonic_time(:millisecond) - started < 3_000
+      assert {:error, :timeout, %{}} ==
+               run(source, %{}, instructions: 10_000_000, timeout_ms: 300)
+
+      elapsed = System.monotonic_time(:millisecond) - started
+      assert elapsed >= 300
+      assert elapsed < 3_000
     end
 
-    test "the wall clock defaults to 1 s and is clamped at 5 s" do
-      assert ScriptRunner.limits().default_timeout_ms == 1_000
-      assert ScriptRunner.limits().max_timeout_ms == 5_000
+    test "pcall cannot outlive the wall clock either" do
+      source = "while true do pcall(function() local s = string.rep('x', 1000000) end) end"
 
-      # an over-max request is clamped (the run below would otherwise wait 60 s)
+      assert {:error, :timeout, %{}} ==
+               run(source, %{}, instructions: 10_000_000, timeout_ms: 300)
+    end
+
+    test "the wall clock defaults to 1 s and a larger request is clamped at 5 s (applied, not just declared)" do
+      slow = "while true do local s = string.rep('x', 1000000) end"
+
+      started = System.monotonic_time(:millisecond)
+      assert {:error, :timeout, %{}} == run(slow, %{}, instructions: 10_000_000)
+      default_elapsed = System.monotonic_time(:millisecond) - started
+      assert default_elapsed >= 1_000 and default_elapsed < 4_000
+
       started = System.monotonic_time(:millisecond)
 
-      assert {:error, :timeout, _} =
-               run("local x = 0 while true do x = x + 1 end", %{},
-                 instructions: 10_000_000,
-                 timeout_ms: 60_000,
-                 heap_words: 8_388_608
-               )
-               |> then(fn
-                 {:error, :budget_exceeded, d} -> {:error, :timeout, d}
-                 other -> other
-               end)
+      assert {:error, :timeout, %{}} ==
+               run(slow, %{}, instructions: 10_000_000, timeout_ms: 60_000)
 
-      assert System.monotonic_time(:millisecond) - started < 9_000
+      clamped_elapsed = System.monotonic_time(:millisecond) - started
+      assert clamped_elapsed >= 5_000 and clamped_elapsed < 9_000
+    end
+
+    test "invalid opts are a caller bug and raise ArgumentError" do
+      assert_raise ArgumentError, fn -> ScriptRunner.run("return {}", %{}, ctx: @ctx) end
+
+      assert_raise ArgumentError, fn ->
+        ScriptRunner.run("return {}", %{}, tenant: "t", ctx: @ctx, timeout_ms: 0)
+      end
     end
 
     test "output over 64 KiB is output_invalid" do
@@ -213,12 +289,37 @@ defmodule Letflow.Engine.Lua.ScriptRuntimeTest do
                )
     end
 
-    test "the runtime modules contain no spawn_opt and no nil-heap path" do
+    test "the runtime modules contain no spawn_opt, no nil-heap path, and never build inspect/Exception.format text or log" do
       for file <- ~w(script_runner.ex script_host.ex script_value.ex) do
         source = File.read!(Path.join("lib/letflow/engine/lua", file))
         refute source =~ "spawn_opt", file
         refute source =~ ~r/max_heap_size.{0,40}nil/s, file
+        # AC6 / F-D: no inspect or Exception.format text can reach a result, history or log
+        refute source =~ ~r/\binspect\(/, file
+        refute source =~ ~r/Exception\.format(_\w+)?\(/, file
+        refute source =~ ~r/\bLogger\./, file
+        refute source =~ ~r/\bIO\.(puts|inspect|write)/, file
       end
+    end
+
+    test "print of many 1 MiB strings collects only the line cap (never a full join; SEC B1)" do
+      source = """
+      local s = string.rep('x', 1048576)
+      local t = {}
+      for i = 1, 10000 do t[i] = s end
+      print(unpack(t))
+      error('stop')
+      """
+
+      assert {:error, :script_error, %{author: %{prints: [line]}}} =
+               run(source, %{},
+                 author_detail: true,
+                 instructions: 10_000_000,
+                 heap_words: 8_388_608,
+                 timeout_ms: 5_000
+               )
+
+      assert byte_size(line) == 256
     end
   end
 
@@ -244,6 +345,8 @@ defmodule Letflow.Engine.Lua.ScriptRuntimeTest do
 
       refute log =~ "TENANTVALUE"
       refute log =~ "SSSSSSSSSS"
+      # error_logger: false: OTP's max-heap kill report is not logged at all
+      refute log =~ "maximum heap size"
     end
   end
 
@@ -304,11 +407,13 @@ defmodule Letflow.Engine.Lua.ScriptRuntimeTest do
     end
 
     test "string-metatable mutation does not survive to the next run" do
-      assert {:ok, _} =
+      # the mutation takes effect inside run 1 ...
+      assert {:ok, %{output: %{"v" => "pwned"}}} =
                run(
-                 "local mt = getmetatable('') mt.__index = {upper = function() return 'pwned' end} return {}"
+                 "local mt = getmetatable('') mt.__index = {upper = function() return 'pwned' end} return {v = ('a'):upper()}"
                )
 
+      # ... and is gone in run 2
       assert {:ok, %{output: %{"v" => "A"}}} = run("return {v = ('a'):upper()}")
     end
 
@@ -331,8 +436,10 @@ defmodule Letflow.Engine.Lua.ScriptRuntimeTest do
       assert {:ok, %{output: out}} = run("return {v = leak, s = string.leak}")
       assert out == %{}
 
-      assert {:ok, %{output: %{}}} =
+      assert {:ok, %{output: other_tenant}} =
                run("return {v = leak}", %{}, tenant: "tenant_script_other")
+
+      assert other_tenant == %{}
     end
   end
 
@@ -352,15 +459,15 @@ defmodule Letflow.Engine.Lua.ScriptRuntimeTest do
     test "error(<input value>), a host-function failure and a heap kill log nothing containing the value; results carry only the code" do
       log =
         capture_log(fn ->
-          assert {:error, :script_error, %{}} =
+          assert {:error, :script_error, %{}} ==
                    run("error(ctx.input.secret)", %{"secret" => "SECRET-VALUE-77"})
 
-          assert {:error, :script_error, %{}} =
+          assert {:error, :script_error, %{}} ==
                    run("return {v = string.format(ctx.input.secret, {})}", %{
                      "secret" => "%d SECRET-VALUE-77"
                    })
 
-          assert {:error, :memory_limit_exceeded, %{}} =
+          assert {:error, :memory_limit_exceeded, %{}} ==
                    run(
                      "local t = {} for i = 1, 400 do t[i] = string.rep(ctx.input.secret, 60000) end return {}",
                      %{"secret" => "SECRET-VALUE-77"},
@@ -385,7 +492,7 @@ defmodule Letflow.Engine.Lua.ScriptRuntimeTest do
               %{author: %{message: "script error (non-string error value)"}}} =
                run("error({})", %{}, author_detail: true)
 
-      assert {:error, :script_error, %{}} = run("error('x')")
+      assert {:error, :script_error, %{}} == run("error('x')")
     end
   end
 
@@ -455,19 +562,102 @@ defmodule Letflow.Engine.Lua.ScriptRuntimeTest do
     end
 
     test "killing the caller kills the worker: no script process is left running" do
-      baseline = lua_task_children()
+      caller =
+        spawn(fn ->
+          run(@slow_loop, %{}, instructions: 10_000_000, timeout_ms: 5_000)
+        end)
+
+      # this run's own processes (not a supervisor-wide count other suites can disturb)
+      watchdog = find_watchdog(caller)
+      worker = find_worker(watchdog)
+      assert is_pid(watchdog) and is_pid(worker)
+
+      Process.exit(caller, :kill)
+
+      # well before the 5 s deadline
+      assert eventually(
+               fn -> not Process.alive?(worker) and not Process.alive?(watchdog) end,
+               100
+             )
+    end
+
+    test "a killed watchdog releases its ScriptAdmission slot (and its linked worker dies)" do
+      {:ok, server} =
+        Admission.start_link(
+          name: :gh2534_wd,
+          pool_size: 2,
+          reserved_headroom: 1,
+          monitor_callers: true
+        )
+
+      test_pid = self()
 
       caller =
         spawn(fn ->
-          run("local x = 0 while true do x = x + 1 end", %{},
-            instructions: 10_000_000,
-            timeout_ms: 5_000
+          send(
+            test_pid,
+            {:result,
+             run(@slow_loop, %{},
+               admission: :gh2534_wd,
+               instructions: 10_000_000,
+               timeout_ms: 5_000
+             )}
           )
         end)
 
-      assert eventually(fn -> lua_task_children() >= baseline + 2 end)
-      Process.exit(caller, :kill)
-      assert eventually(fn -> lua_task_children() <= baseline end, 100)
+      watchdog = find_watchdog(caller)
+      assert is_pid(watchdog)
+      assert {:error, :script_busy, %{}} == run("return {}", %{}, admission: :gh2534_wd)
+
+      Process.exit(watchdog, :kill)
+
+      assert_receive {:result, {:error, :script_error, %{}}}, 3_000
+      assert eventually(fn -> match?({:ok, _}, run("return {}", %{}, admission: :gh2534_wd)) end)
+      GenServer.stop(server)
+    end
+
+    test "supervisor shutdown of the watchdog kills the worker" do
+      test_pid = self()
+
+      caller =
+        spawn(fn ->
+          send(
+            test_pid,
+            {:result, run(@slow_loop, %{}, instructions: 10_000_000, timeout_ms: 5_000)}
+          )
+        end)
+
+      watchdog = find_watchdog(caller)
+      worker = find_worker(watchdog)
+      assert is_pid(worker)
+
+      :ok = Task.Supervisor.terminate_child(Letflow.Engine.Lua.TaskSupervisor, watchdog)
+
+      assert eventually(fn -> not Process.alive?(worker) end)
+      assert_receive {:result, {:error, :script_error, %{}}}, 3_000
+    end
+  end
+
+  # The watchdog is the Lua TaskSupervisor child whose $callers names `caller`; the worker is
+  # the child whose $callers names the watchdog.
+  defp find_watchdog(caller), do: find_child_called_by(caller)
+  defp find_worker(watchdog), do: find_child_called_by(watchdog)
+
+  defp find_child_called_by(pid, tries \\ 100) do
+    found =
+      Letflow.Engine.Lua.TaskSupervisor
+      |> Task.Supervisor.children()
+      |> Enum.find(fn child ->
+        case Process.info(child, :dictionary) do
+          {:dictionary, dict} -> pid in Keyword.get(dict, :"$callers", [])
+          nil -> false
+        end
+      end)
+
+    cond do
+      found -> found
+      tries == 0 -> nil
+      true -> Process.sleep(10) && find_child_called_by(pid, tries - 1)
     end
   end
 

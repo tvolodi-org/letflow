@@ -88,11 +88,17 @@ defmodule Letflow.Engine.Lua.ScriptRunner do
   to the platform maxima: `:instructions`, `:timeout_ms`, `:heap_words`; `:fail_codes`
   (allowed `fail` codes, nil = any well-formed code); `:author_detail` (dry-run only);
   `:admission` (server name, default `Letflow.Engine.Lua.ScriptAdmission`).
+
+  Invalid opts are a CALLER bug (7b/7c), not a script outcome: they raise `ArgumentError`
+  before anything runs. Nothing the SCRIPT does makes `run/3` raise.
   """
   @spec run(String.t(), map(), keyword()) ::
           {:ok, %{output: map() | list(), stats: stats()}} | {:error, code(), map()}
   def run(source, input, opts) do
-    config = config!(source, input, opts)
+    source |> config!(input, opts) |> run_config()
+  end
+
+  defp run_config(config) do
     caller = self()
     watchdog = Task.Supervisor.async_nolink(@task_supervisor, fn -> watchdog(caller, config) end)
 
@@ -113,19 +119,18 @@ defmodule Letflow.Engine.Lua.ScriptRunner do
       {:exit, _reason} ->
         {:error, :script_error, %{}}
     end
-  rescue
-    _ -> {:error, :script_error, %{}}
   catch
     _kind, _reason -> {:error, :script_error, %{}}
   end
 
-  defp config!(source, input, opts) when is_binary(source) and is_map(input) do
-    %{instance_id: i, node_id: n, token_id: t, now: %DateTime{} = now} =
-      Keyword.fetch!(opts, :ctx)
+  defp config!(source, input, opts) do
+    ctx = Keyword.get(opts, :ctx)
+    tenant = Keyword.get(opts, :tenant)
 
-    true = is_binary(i) and is_binary(n) and is_binary(t)
-    tenant = Keyword.fetch!(opts, :tenant)
-    true = is_binary(tenant)
+    unless is_binary(source) and is_map(input) and is_binary(tenant) and valid_ctx?(ctx),
+      do: raise(ArgumentError, "ScriptRunner.run/3: invalid source, input, :tenant or :ctx")
+
+    %{instance_id: i, node_id: n, token_id: t, now: now} = ctx
 
     %{
       source: source,
@@ -142,8 +147,16 @@ defmodule Letflow.Engine.Lua.ScriptRunner do
     }
   end
 
+  defp valid_ctx?(%{instance_id: i, node_id: n, token_id: t, now: %DateTime{}}),
+    do: is_binary(i) and is_binary(n) and is_binary(t)
+
+  defp valid_ctx?(_ctx), do: false
+
   defp clamp(nil, default, _max), do: default
   defp clamp(value, _default, max) when is_integer(value) and value > 0, do: min(value, max)
+
+  defp clamp(_value, _default, _max),
+    do: raise(ArgumentError, "ScriptRunner.run/3: limits must be positive integers")
 
   # ── watchdog ───────────────────────────────────────────────────────────────
 
@@ -153,9 +166,7 @@ defmodule Letflow.Engine.Lua.ScriptRunner do
 
     result =
       try do
-        guard(caller, parent, config)
-      rescue
-        _ -> {:error, :script_error, %{}}
+        hold_slot_and_run(caller, parent, config)
       catch
         _kind, _reason -> {:error, :script_error, %{}}
       end
@@ -167,7 +178,7 @@ defmodule Letflow.Engine.Lua.ScriptRunner do
     end
   end
 
-  defp guard(caller, parent, config) do
+  defp hold_slot_and_run(caller, parent, config) do
     case Admission.try_acquire({:tenant, config.tenant}, config.admission) do
       {:error, :capacity} ->
         {:error, :script_busy, %{}}
@@ -328,11 +339,20 @@ defmodule Letflow.Engine.Lua.ScriptRunner do
 
   defp author_message(nil), do: nil
 
-  defp author_message(%{value: value}) when is_binary(value) do
-    value |> String.split("\n", parts: 2) |> hd() |> truncate(@author_message_bytes)
+  # Only a Lua VM error's own string is shown (dry-run); any other exception is fixed text.
+  defp author_message(%{__struct__: module, value: value}) when is_binary(value) do
+    if match?(["Lua", "VM" | _], Module.split(module)),
+      do: first_line(value),
+      else: "script error"
   end
 
+  # the worker's own fixed-text markers (e.g. "syntax error"), never an exception
+  defp author_message(%{value: value}) when is_binary(value), do: first_line(value)
   defp author_message(_exception), do: "script error (non-string error value)"
+
+  defp first_line(value) do
+    value |> String.split("\n", parts: 2) |> hd() |> truncate(@author_message_bytes)
+  end
 
   defp author_line(%{line: line}) when is_integer(line), do: line
   defp author_line(_exception), do: nil
