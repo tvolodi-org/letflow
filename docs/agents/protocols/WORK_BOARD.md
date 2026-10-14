@@ -6,7 +6,7 @@ changes on the day `docs/status/work_board_cutover.yaml` says `cutover: true` (s
 "Cutover"); until then the supervisor keeps the letflow-queue locks and rows in step with
 the board on the workers' behalf, so a worker never calls the queue. Decision record:
 `docs/migration/decisions/0049-work-board-replaces-letflow-queue.md` (supersedes 0017).
-Tracking issue: GH #2430 (ISS-1073).
+Tracking issue: GH #2430 (ISS-1073). Repository: `tvolodi-org/letflow` (since 2026-10-14).
 
 This file is short on purpose. Follow it literally.
 
@@ -119,10 +119,24 @@ Fill every template section; acceptance criteria are a checklist; dependencies a
 mid-run comments `FINDING: <one paragraph + evidence>` on its own issue and tells the
 filer; it is never left unfiled and never fixed inline unless the issue says so.
 
+## 7a. Landing a change (merge queue)
+
+The repository is `tvolodi-org/letflow` (moved 2026-10-14; the old `tvolodi/letflow` name
+redirects). The ruleset `main-queue` is the only protection on `main`: a PR lands **only through
+the merge queue** (squash, no bypass actors, a direct push to `main` is refused; required
+checks `Backend gate (mix letflow.check)` and `Frontend gate (npm run check)`). See
+`docs/merge-queue.md`. A worker reports the PR head sha when CI is green and waits for the
+supervisor's go before enqueueing; there is no `--admin` and no ruleset change by a worker.
+
 ## 8. Closing
 
 * **Only a merged PR whose body contains `Closes #N` closes an issue**, and only when the PR
   fully resolves it. Nothing is closed as a side effect of anything else.
+* **While the queue-to-GitHub sync is down (from 2026-10-14, accepted by the user):** a queue
+  row going `done` no longer closes its issue, and a new queue row no longer creates one. The
+  sole filer therefore files with `gh issue create` directly, and **closes by hand**: after the
+  merge, read every acceptance-criterion comment on the issue, and close it only if each one
+  is satisfied (S10); otherwise comment what is missing and leave it open.
 * **Exception, supervisor only:** the supervisor (or the user) may close an issue without a
   PR as `not planned`, `duplicate` or `no_defect`, with a one-line reason comment. A worker
   never does.

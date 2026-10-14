@@ -15,6 +15,8 @@ issue of the repo (state=all, paginated) for the GitHub state column.
 
 * Rows in the queue: **1119**; done: 1001; **not done: 118** (**61 open, 57 blocked**).
 * Rows with a `depends_on`: 31.
+* Repository path: `tvolodi-org/letflow` (moved 2026-10-14; the old `tvolodi/letflow` URL redirects). `#N` below are issue numbers in that repository.
+* The queue-to-GitHub sync is DOWN since 2026-10-14: rows created after this reading have no issue unless the sole filer filed one directly, and a row going done does not close its issue. The cutover export is diffed against this list by row id; a row whose issue was closed by hand shows as closed here only after it is re-read.
 * The supervisor reported 94 non-done on 2026-10-13 (37 open, 57 blocked); the blocked
   count is unchanged (57), the open count grew because new work was filed since (61 now). The list below is the 2026-10-14 reading and is the one to diff.
 * Drift since this reading (2026-10-14, after the list was taken): Q-1120 (GH #2505, REQ-445 status drift) was filed and Q-1099 (REQ-468, GH #2475) went done with PR #2504. Rows are not re-counted here; the cutover export is diffed against this list by row id and these two appear as the expected differences.

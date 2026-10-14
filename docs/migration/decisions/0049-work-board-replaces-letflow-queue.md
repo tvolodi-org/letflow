@@ -130,6 +130,15 @@ record and one issue record carrying only a GH number through
   the queue for writes restores the previous procedure; GitHub-side changes since cutover
   are replayed from the issue numbers, which map 1:1 to rows.
 
+## Transition facts, 2026-10-14
+
+* The repository moved to `tvolodi-org/letflow` the same day; `main` is governed by the ruleset
+  `main-queue` and a merge queue (`docs/merge-queue.md`), so a PR lands only through the queue.
+* The queue-to-GitHub sync is DOWN (accepted by the user): a new queue task no longer creates a
+  GitHub issue and a task going done no longer closes one. Until cutover the sole filer files
+  issues directly with `gh` and closes them by hand after checking every acceptance-criterion
+  comment. This makes the GitHub issue the de facto record before the formal cutover flip.
+
 ## Consistency with existing decision records
 
 | Record | Relationship |

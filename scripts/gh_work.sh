@@ -23,7 +23,7 @@
 #                                                label the supervisor/user did not set
 #
 # Environment:
-#   GH_REPO        owner/name (default: tvolodi/letflow)
+#   GH_REPO        owner/name (default: tvolodi-org/letflow)
 #   GH_BIN         the gh executable (default: gh; tests point it at a stub)
 #   GH_WORK_NOW    epoch seconds to use as "now" (tests only)
 #   STALE_HOURS    default for `stale --hours` (default 4)
@@ -36,7 +36,7 @@
 
 set -euo pipefail
 
-REPO="${GH_REPO:-tvolodi/letflow}"
+REPO="${GH_REPO:-tvolodi-org/letflow}"
 STALE_HOURS="${STALE_HOURS:-4}"
 CHECKOUTS="letflow letflow-2 letflow-3 letflow-4 remote"
 MAX_PAGES=100
