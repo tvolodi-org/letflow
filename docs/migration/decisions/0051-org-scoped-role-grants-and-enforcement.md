@@ -208,7 +208,7 @@ Fail-closed rules:
   (b) every minted token's roles must be a subset of the roles the NAMED user holds tenant-wide, else the mint
   is refused with 422 and the same code as `roles_invalid`, unless the user is explicitly flagged a service
   principal by an audited admin act;
-  (c) mint is audited (`token.created`, with roles and the tenant-wide statement, NEVER the token value) and
+  (c) mint is audited (the EXISTING `token.create` event, with roles and the tenant-wide statement, NEVER the token value) and
   each token listing used for the flip precondition is audited (`token.listed`);
   (d) the flip precondition (Rollout 4) is "no token holds a role beyond its owner's tenant-wide roles", not
   merely "list the tokens": tokens whose roles exceed their user's current tenant-wide roles are listed and must
@@ -327,8 +327,11 @@ Audited through the existing audit chain, each with actor, before/after, UTC tim
 (`trace_id`): `grant.created`, `grant.revoked`, `grant.made_tenant_wide`, `grant.self_grant_refused`,
 `org_unit.created`, `org_unit.moved`, `org_unit.retired`, `org_unit.renamed`, `org_membership.added`,
 `org_membership.removed`, `group_member.added`, `group_member.removed`, `scope.enforcement_enabled`,
-`scope.enforcement_disabled`, `scope.backfill_completed` (with counts), `grant.sync_suppressed`, `token.created`,
-`token.listed`, `role.rebound` (before/after group). `group_member.added/removed` record the resulting
+`scope.enforcement_disabled`, `scope.backfill_completed` (with counts), `grant.sync_suppressed`, `token.create`,
+`token.revoke`, `token.listed`, `role.rebound` (before/after group). Token events keep their EXISTING names
+`token.create` / `token.revoke` (`identity.ex` on main; supervisor ruling 2026-10-14): the issuer, actor and
+`trace_id` go into the metadata. Renaming an existing event is its own migration decision, because the hash-chained
+history would otherwise carry two names for one event. `token.listed` is new. `group_member.added/removed` record the resulting
 effective-scope delta (role, from, to). Audit writes are in the SAME transaction as the change they record,
 not best effort; token values never appear in audit or shadow logs. Scope-404s are counted in
 telemetry, NOT audited.
@@ -370,10 +373,10 @@ routing role.
 
 Approval authority follows the routing-role binding, so the binding is a scope-granting act (M8, PERMANENT, not
 only until F1). Until F1 (Q3) lands, ANY holder of the routing role can approve ANY department's request, and
-enabling enforcement does NOT protect approval authority beyond that. `POST /roles` upserts and overwrites
-`group_id` on conflict, and `:RolesManage` is held by `PROCESS_DESIGNER` (`authorization.ex:1396`; custom names
-need only that, `routers/identity.ex:239`), so today a designer could silently rebind an approver role to a
-group of their choosing. DEFECT, filed as GH #2524: that silent overwrite. Rule: `upsert_role` is split. Creating a
+enabling enforcement does NOT protect approval authority beyond that. `POST /roles` USED TO upsert and overwrite
+`group_id` on conflict while `:RolesManage` is held by `PROCESS_DESIGNER`, so a designer could silently rebind an
+approver role to a group of their choosing. That DEFECT (GH #2524) WAS FIXED by PR #2537 (merge 1465df2a):
+`POST /roles` no longer rebinds, and rebinding is the explicit `POST /roles/:id/rebind` action described below. Rule: `upsert_role` is split. Creating a
 binding stays as is (in an enforced tenant it requires a tenant-wide TENANT_ADMIN); rebinding an existing name to
 a different group is an explicit, separate action for a tenant-wide admin, audited with before/after
 group (`role.rebound`, D11).
