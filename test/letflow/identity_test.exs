@@ -1029,8 +1029,10 @@ defmodule Letflow.IdentityTest do
           prefix: schema_name
         )
 
-      assert {:ok, tokens} = Identity.list_tokens(prefix: schema_name)
-      assert Enum.map(tokens, & &1.id) |> Enum.sort() == Enum.sort([first.id, second.id])
+      # GH 2552: each item is %{token: token, owner_active: boolean}.
+      assert {:ok, items} = Identity.list_tokens(prefix: schema_name)
+      assert Enum.map(items, & &1.token.id) |> Enum.sort() == Enum.sort([first.id, second.id])
+      assert Enum.all?(items, &(&1.owner_active == true))
     end
 
     test "revoke_token/2 sets revoked_at and is idempotent -- re-revoking returns the same revoked_at, not a later one" do

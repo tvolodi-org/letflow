@@ -219,8 +219,9 @@ Option 3: deactivation revokes all the user's tokens in the same transaction; re
   `opts[:audit_context]`, which both functions start accepting (today `nil`, `:439`, `:445`).
 - **Zero-admin guard (0051 N1 `:558-565`; supervisor ruling on OQ2: in #2564):** after the writes, under the
   same lock, `count_tenant_wide_admins(prefix) == 0` -> rollback, `{:error, :last_tenant_wide_admin}` -> HTTP
-  409 `last_tenant_wide_admin` (fixed body). Then a `user.deactivation_refused` audit entry (actor, target user,
-  trace id) goes in its own transaction after the rollback, as for 0051's `grant.self_grant_refused`. The count
+  409 `last_tenant_wide_admin` (fixed body). Then a `tenant_admin.guard_refused` audit entry (supervisor ruling)
+  goes in its own transaction after the rollback, as for 0051's `grant.self_grant_refused`, with metadata
+  `{action, actor, target_user_id, reason: "last_tenant_wide_admin", counted_admins, trace_id}`. The count
   already excludes inactive users (`identity.ex:982-986`), so token revocation does not change its result.
 - **Consistency with #2552:** after #2564, an inactive owner's tokens are normally `revoked` (which wins);
   `owner_inactive` remains for rows from before #2564, for legacy data and for in-flight cases.

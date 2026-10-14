@@ -37,15 +37,17 @@ defmodule Letflow.Routers.IdentityGh2547AuditTest do
   alias Letflow.Identity.TenantRole
   alias Letflow.Identity.User
   alias Letflow.Support.PlatformTenantFixture, as: Fixture
+  alias Letflow.Support.TokenMintFixture
 
   @admin ["TENANT_ADMIN"]
   @trace "6f1c2b9e-2547-4a11-8c20-0000000000a1"
   @header_trace "gh2547-header-trace-0001"
 
-  # Pre-change `token.create` / `token.revoke` state keys (`Audit.struct_state(token,
-  # [:token_hash])` of `Letflow.Identity.ApiToken`), pinned as literals (T-30).
+  # `token.create` / `token.revoke` state keys, pinned as literals (T-30). GH 2552 (design
+  # section 5) changed them: `issuer_user_id` and `scope` added, `name` (a hash prefix)
+  # removed, `token_hash` still excluded.
   @token_state_keys Enum.sort(
-                      ~w(id user_id name roles expires_at revoked_at last_used_at inserted_at)
+                      ~w(id user_id issuer_user_id roles expires_at revoked_at last_used_at inserted_at scope)
                     )
 
   setup do
@@ -60,6 +62,16 @@ defmodule Letflow.Routers.IdentityGh2547AuditTest do
   defp call(method, path, fx, body) do
     method
     |> Fixture.router_conn(path, fx, @admin, body)
+    |> assign(:trace_id, @trace)
+    |> Letflow.Routers.Identity.call(Letflow.Routers.Identity.init([]))
+  end
+
+  # GH 2552: POST /tokens mints through Identity.mint_token/4, which needs a REAL caller
+  # holding the roles by group membership; this is `call/4` with that caller's id.
+  defp call_as(method, path, fx, user_id, body) do
+    method
+    |> Fixture.router_conn(path, fx, @admin, body)
+    |> assign(:auth_context, %{user_id: user_id, tenant_id: fx.tenant_id, roles: @admin})
     |> assign(:trace_id, @trace)
     |> Letflow.Routers.Identity.call(Letflow.Routers.Identity.init([]))
   end
@@ -503,11 +515,18 @@ defmodule Letflow.Routers.IdentityGh2547AuditTest do
   # --- (f, f') tokens --------------------------------------------------------------------------
 
   describe "tokens (paths f, f')" do
-    test "T-14a/T-30 POST /tokens with TENANT_ADMIN: token.create carries caller and trace; state keys unchanged, no token_hash",
+    test "T-14a/T-30 POST /tokens with TENANT_ADMIN: token.create carries caller and trace; GH 2552 state keys, no token_hash",
          %{a: a} do
       user = user!(a)
+      TokenMintFixture.grant_roles!(a.schema_name, user.id, @admin)
+      caller = TokenMintFixture.role_holder!(a.schema_name, @admin)
 
-      conn = call(:post, "/tokens", a, %{"user_id" => user.id, "roles" => ["TENANT_ADMIN"]})
+      conn =
+        call_as(:post, "/tokens", a, caller.id, %{
+          "user_id" => user.id,
+          "roles" => ["TENANT_ADMIN"]
+        })
+
       assert conn.status == 201, conn.resp_body
       body = Jason.decode!(conn.resp_body)
 
@@ -519,6 +538,7 @@ defmodule Letflow.Routers.IdentityGh2547AuditTest do
       assert entry.before_state == nil
       assert Enum.sort(Map.keys(entry.after_state)) == @token_state_keys
       assert entry.after_state["user_id"] == user.id
+      assert entry.after_state["issuer_user_id"] == caller.id
       assert entry.after_state["roles"] == ["TENANT_ADMIN"]
 
       stored = Repo.get!(ApiToken, body["id"], prefix: a.schema_name)
@@ -530,7 +550,7 @@ defmodule Letflow.Routers.IdentityGh2547AuditTest do
       assert_chain_valid(a)
     end
 
-    test "T-14b/T-30 DELETE /tokens/:id: token.revoke carries caller and trace; state keys unchanged",
+    test "T-14b/T-30 DELETE /tokens/:id: token.revoke carries caller and trace; GH 2552 state keys",
          %{a: a} do
       user = user!(a)
 

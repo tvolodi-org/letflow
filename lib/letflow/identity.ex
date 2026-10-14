@@ -1057,6 +1057,8 @@ defmodule Letflow.Identity do
   # whose only TENANT_ADMIN source is a scoped grant; until then this is the identity.
   # `count_tenant_wide_admins/1` and `tenant_wide_admin_user_ids/1` both pass through
   # here, so the predicate is added once. Applied as the LAST step before the select.
+  # Its role-name twin is `exclude_scoped_role_names/3` (GH 2552, used by
+  # `tenant_wide_role_names/2` for token minting): #2533 fills BOTH.
   @spec exclude_scoped_holders(query :: Ecto.Query.t(), prefix :: String.t()) :: Ecto.Query.t()
   defp exclude_scoped_holders(query, _prefix), do: query
 
@@ -1852,6 +1854,10 @@ defmodule Letflow.Identity do
   transaction first takes `lock_tenant_admins!/1` (always, whatever the roles), and the
   `token.create` audit entry carries the actor and trace id from `opts[:audit_context]`
   (actor `nil` when none is passed).
+
+  GH 2552 (design `gh2552-api-token-issuer-and-roles.md` section 3): this is the
+  TRUSTED, non-HTTP path (seeds, fixtures). It records no issuer (`issuer_user_id` NULL)
+  and applies none of the 0051 M2 minting rules. The HTTP mint path is `mint_token/4`.
   """
   @spec create_token(user_id :: Ecto.UUID.t(), attrs :: create_token_attrs(), opts :: opts()) ::
           {:ok, %{token: ApiToken.t(), plaintext: String.t()}}
@@ -1871,8 +1877,241 @@ defmodule Letflow.Identity do
         with :ok <- validate_issuable_roles(Map.get(attrs, :roles)),
              :ok <- reject_platform_admin_outside_platform_tenant(Map.get(attrs, :roles), prefix),
              :ok <- validate_expires_at(Map.get(attrs, :expires_at)) do
-          insert_token(user_id, attrs, prefix, AuditContext.from_opts(opts))
+          insert_token(user_id, attrs, prefix, AuditContext.from_opts(opts), nil)
         end
+    end
+  end
+
+  @typedoc "Every error `mint_token/4` returns."
+  @type mint_error ::
+          :issuer_not_authorized
+          | :user_not_found
+          | :user_inactive
+          | :invalid_role_set
+          | :expires_at_in_past
+          | :platform_admin_token_not_self
+          | :platform_admin_token_expiry
+          | :roles_not_held
+          | Ecto.Changeset.t()
+          | {:transaction_failed, Exception.t()}
+
+  @doc """
+  GH 2552 (decision 0051 M2; design `gh2552-api-token-issuer-and-roles.md` section 3):
+  the HTTP mint path. Issues a token for `user_id` on behalf of `issuer_user_id`, the
+  authenticated caller (never a request value), and records the issuer in
+  `api_tokens.issuer_user_id` and in the `token.create` audit entry.
+
+  One transaction. Every check runs AFTER `lock_tenant_admins!/1` (the first locking
+  step), in this order, so a caller without mint authority always gets
+  `:issuer_not_authorized` and learns nothing about the input or the target:
+
+    1. `lock_tenant_admins!/1`.
+    2. The issuer and target `users` rows, `ORDER BY id FOR SHARE` (the only row locks;
+       the role reads below are plain reads, kept stable by the advisory lock, which every
+       membership/binding writer takes).
+    3. Issuer missing, not active, or without mint authority -> `:issuer_not_authorized`.
+    4. Input: roles as in `create_token/3` (`:invalid_role_set`, `[]` included),
+       `PLATFORM_ADMIN` only in the platform tenant, `expires_at` in the future
+       (`:expires_at_in_past`).
+    5. Target missing -> `:user_not_found`; not active -> `:user_inactive`.
+    6. A token carrying `PLATFORM_ADMIN`: target must be the issuer
+       (`:platform_admin_token_not_self`) and must expire within
+       `:platform_admin_token_max_ttl_days` (`validate_platform_admin_expiry/4`).
+    7. Roles must be a subset of BOTH the issuer's and the target's
+       `tenant_wide_role_names/2` -> otherwise `:roles_not_held`.
+
+  Token roles never count as held: a token cannot justify the next token.
+
+  **Owner identity (advisor condition 3).** The token acts as its OWNER, `user_id`
+  (`verify_api_token/2`). Separation-of-duties checks (0053 D6) compare owners, never
+  `issuer_user_id`; the issuer is recorded for attribution only.
+  """
+  @spec mint_token(
+          issuer_user_id :: Ecto.UUID.t(),
+          user_id :: Ecto.UUID.t(),
+          attrs :: create_token_attrs(),
+          opts :: opts()
+        ) :: {:ok, %{token: ApiToken.t(), plaintext: String.t()}} | {:error, mint_error()}
+  def mint_token(issuer_user_id, user_id, attrs, opts) do
+    prefix = Keyword.fetch!(opts, :prefix)
+    ctx = AuditContext.from_opts(opts)
+
+    case Ecto.UUID.cast(issuer_user_id) do
+      {:ok, issuer_id} -> insert_token(user_id, attrs, prefix, ctx, issuer_id)
+      :error -> {:error, :issuer_not_authorized}
+    end
+  end
+
+  # GH 2552 design section 3, steps 2-7. Runs inside the mint transaction, after
+  # lock_tenant_admins!/1. The order is load-bearing: authorization (step 3) first.
+  defp run_mint_checks(issuer_id, user_id, attrs, prefix) do
+    target_id =
+      case Ecto.UUID.cast(user_id) do
+        {:ok, id} -> id
+        :error -> nil
+      end
+
+    users = lock_mint_users([issuer_id, target_id], prefix)
+    roles = Map.get(attrs, :roles)
+    expires_at = Map.get(attrs, :expires_at)
+
+    with {:ok, issuer_held} <- authorize_minter(Map.get(users, issuer_id), prefix),
+         :ok <- validate_issuable_roles(roles),
+         :ok <- reject_platform_admin_outside_platform_tenant(roles, prefix),
+         :ok <- validate_expires_at(expires_at),
+         :ok <- check_mint_target(target_id && Map.get(users, target_id)),
+         :ok <- check_platform_admin_token(roles, issuer_id, target_id, expires_at),
+         :ok <- check_roles_held(roles, issuer_held, target_id, prefix) do
+      {:ok, :passed}
+    end
+  end
+
+  # Step 2: the only row locks of the mint, users by id ascending.
+  defp lock_mint_users(ids, prefix) do
+    ids = ids |> Enum.reject(&is_nil/1) |> Enum.uniq()
+
+    from(u in User, where: u.id in ^ids, order_by: [asc: u.id], lock: "FOR SHARE")
+    |> Repo.all(prefix: prefix)
+    |> Map.new(&{&1.id, &1})
+  end
+
+  defp authorize_minter(%User{} = issuer, prefix) do
+    held = tenant_wide_role_names(issuer.id, prefix: prefix)
+
+    if active_user?(issuer) and mint_authority?(held, prefix),
+      do: {:ok, held},
+      else: {:error, :issuer_not_authorized}
+  end
+
+  defp authorize_minter(nil, _prefix), do: {:error, :issuer_not_authorized}
+
+  defp check_mint_target(nil), do: {:error, :user_not_found}
+
+  defp check_mint_target(%User{} = target),
+    do: if(active_user?(target), do: :ok, else: {:error, :user_inactive})
+
+  # Step 6, advisor conditions (1) and (2).
+  defp check_platform_admin_token(roles, issuer_id, target_id, expires_at) do
+    cond do
+      "PLATFORM_ADMIN" not in roles ->
+        :ok
+
+      target_id != issuer_id ->
+        {:error, :platform_admin_token_not_self}
+
+      true ->
+        validate_platform_admin_expiry(
+          roles,
+          expires_at,
+          DateTime.utc_now(),
+          Application.get_env(:letflow, :platform_admin_token_max_ttl_days, 90)
+        )
+    end
+  end
+
+  # Step 7: roles must be held by BOTH the minter and the target.
+  defp check_roles_held(roles, issuer_held, target_id, prefix) do
+    target_held = tenant_wide_role_names(target_id, prefix: prefix)
+
+    if MapSet.subset?(MapSet.new(roles), MapSet.intersection(issuer_held, target_held)),
+      do: :ok,
+      else: {:error, :roles_not_held}
+  end
+
+  # GH 2552 design section 3: who may mint.
+  defp mint_authority?(held, prefix) do
+    tenant_admin_mint_authority?(held) or platform_admin_mint_exception?(held, prefix)
+  end
+
+  # The 0051 M2 / D1(a) rule: a tenant-wide TENANT_ADMIN, held by group membership.
+  defp tenant_admin_mint_authority?(held), do: MapSet.member?(held, @tenant_admin_role)
+
+  # DEVIATION from 0051 M2/D1(a), confirmed by advisor 2026-10-15 with conditions
+  # (1)-(3) (design section 3). PLATFORM_ADMIN may mint, in the platform tenant only.
+  # Bounded by the subset rule, the PA-token self/expiry rules (step 6) and the same
+  # issuer/audit recording as every mint. Removing this function and its `or` term in
+  # mint_authority?/2 removes the exception with no other change.
+  defp platform_admin_mint_exception?(held, prefix) do
+    Letflow.PlatformTenant.platform_prefix?(prefix) and MapSet.member?(held, "PLATFORM_ADMIN")
+  end
+
+  @doc """
+  GH 2552 (design section 3): the user's tenant-wide platform-role names, as a `MapSet`.
+  Group-held roles only (`list_effective_role_names/2`), resolved by the one shared
+  `Letflow.Api.Authorization.effective_roles/2` rule, so `PLATFORM_ADMIN` is dropped
+  outside the platform tenant. Token roles never count. Org-scoped holders are removed
+  by the private `exclude_scoped_role_names/3` step, which #2533 fills in (today it
+  removes nothing).
+  """
+  @spec tenant_wide_role_names(user_id :: Ecto.UUID.t(), opts :: opts()) :: MapSet.t(String.t())
+  def tenant_wide_role_names(user_id, opts) do
+    prefix = Keyword.fetch!(opts, :prefix)
+
+    user_id
+    |> list_effective_role_names(opts)
+    |> Authorization.effective_roles(Letflow.PlatformTenant.platform_prefix?(prefix))
+    |> MapSet.new(&Atom.to_string/1)
+    |> exclude_scoped_role_names(user_id, prefix)
+  end
+
+  # 0051 / #2533: the role-name twin of `exclude_scoped_holders/2` (GH 2547). When
+  # `role_scope_grants` exists, drop a role the user holds only through a scoped grant;
+  # until then this is the identity. #2533 fills BOTH.
+  @spec exclude_scoped_role_names(
+          names :: MapSet.t(String.t()),
+          user_id :: Ecto.UUID.t(),
+          prefix :: String.t()
+        ) :: MapSet.t(String.t())
+  defp exclude_scoped_role_names(names, _user_id, _prefix), do: names
+
+  @doc """
+  GH 2552 (design section 3, advisor condition 2): a token whose `roles` contain
+  `"PLATFORM_ADMIN"` must expire, and no later than `now + max_ttl_days` days.
+  `expires_at` is truncated to whole seconds before the comparison; equal to the cap is
+  allowed. Any other role set is `:ok`. Pure.
+  """
+  @spec validate_platform_admin_expiry(
+          roles :: [String.t()],
+          expires_at :: DateTime.t() | nil,
+          now :: DateTime.t(),
+          max_ttl_days :: pos_integer()
+        ) :: :ok | {:error, :platform_admin_token_expiry}
+  def validate_platform_admin_expiry(roles, expires_at, now, max_ttl_days) do
+    cond do
+      "PLATFORM_ADMIN" not in roles ->
+        :ok
+
+      is_nil(expires_at) ->
+        {:error, :platform_admin_token_expiry}
+
+      DateTime.compare(
+        DateTime.truncate(expires_at, :second),
+        DateTime.add(now, max_ttl_days * 86_400, :second)
+      ) == :gt ->
+        {:error, :platform_admin_token_expiry}
+
+      true ->
+        :ok
+    end
+  end
+
+  @doc """
+  GH 2552 (design section 3): the effective status of a token, for the token list.
+  Precedence `:revoked` > `:expired` (`expires_at` not after `now`) > `:owner_inactive`
+  > `:active`. The permanent states win; `:owner_inactive` (the only reversible state)
+  shows only when the token would otherwise work. Pure.
+  """
+  @spec token_effective_status(
+          token :: ApiToken.t(),
+          owner_active :: boolean(),
+          now :: DateTime.t()
+        ) :: :revoked | :expired | :owner_inactive | :active
+  def token_effective_status(%ApiToken{} = token, owner_active, now) do
+    cond do
+      not is_nil(token.revoked_at) -> :revoked
+      not is_nil(token.expires_at) and DateTime.compare(token.expires_at, now) != :gt -> :expired
+      owner_active != true -> :owner_inactive
+      true -> :active
     end
   end
 
@@ -1904,7 +2143,10 @@ defmodule Letflow.Identity do
     end
   end
 
-  defp insert_token(user_id, attrs, prefix, ctx) do
+  # GH 2552: `issuer_user_id` nil is the trusted create_token/3 path (NULL issuer, no
+  # mint checks); non-nil is mint_token/4, whose :mint_checks run between the lock and
+  # the insert.
+  defp insert_token(user_id, attrs, prefix, ctx, issuer_user_id) do
     try do
       plaintext = generate_token_plaintext()
       token_hash = hash_token_value(plaintext)
@@ -1915,8 +2157,9 @@ defmodule Letflow.Identity do
           user_id: user_id,
           name: name,
           token_hash: token_hash,
-          roles: attrs.roles,
-          expires_at: Map.get(attrs, :expires_at)
+          roles: Map.get(attrs, :roles),
+          expires_at: Map.get(attrs, :expires_at),
+          issuer_user_id: issuer_user_id
         })
 
       # Wrapped in Ecto.Multi for the same-transaction guarantee (AC3).
@@ -1924,12 +2167,14 @@ defmodule Letflow.Identity do
       # actor_id: nil remains the fallback for a caller that passes none), and
       # the tenant admin lock is the first step, for any roles (design 6.6).
       # after_state excludes token_hash (INV-4 -- a hash is
-      # still a credential-adjacent secret with no audit value); the plaintext
-      # itself is never captured anywhere, per ApiToken's own moduledoc.
+      # still a credential-adjacent secret with no audit value) and, GH 2552, name
+      # (a hash prefix); the plaintext itself is never captured anywhere, per
+      # ApiToken's own moduledoc.
       Multi.new()
       |> Multi.run(:tenant_admin_lock, fn _repo, _changes ->
         {:ok, lock_tenant_admins!(prefix)}
       end)
+      |> maybe_mint_checks(issuer_user_id, user_id, attrs, prefix)
       |> Multi.insert(:token, changeset, prefix: prefix)
       |> Multi.merge(fn %{token: token} ->
         Audit.append_multi(
@@ -1941,7 +2186,7 @@ defmodule Letflow.Identity do
             resource_type: "api_token",
             resource_id: token.id,
             before_state: nil,
-            after_state: Audit.struct_state(token, [:token_hash]),
+            after_state: token_audit_state(token),
             trace_id: ctx.trace_id
           },
           prefix
@@ -1950,12 +2195,30 @@ defmodule Letflow.Identity do
       |> Repo.transaction()
       |> case do
         {:ok, %{token: token}} -> {:ok, %{token: token, plaintext: plaintext}}
+        {:error, :mint_checks, reason, _changes} -> {:error, reason}
         {:error, :token, %Ecto.Changeset{} = changeset, _changes} -> {:error, changeset}
         {:error, :audit, reason, _changes} -> {:error, reason}
       end
     rescue
       exception -> {:error, {:transaction_failed, exception}}
     end
+  end
+
+  defp maybe_mint_checks(multi, nil, _user_id, _attrs, _prefix), do: multi
+
+  defp maybe_mint_checks(multi, issuer_id, user_id, attrs, prefix) do
+    Multi.run(multi, :mint_checks, fn _repo, _changes ->
+      run_mint_checks(issuer_id, user_id, attrs, prefix)
+    end)
+  end
+
+  # GH 2552 design section 5: the audit state of a token row for `token.create` and
+  # `token.revoke`. Excludes token_hash and name (a hash prefix) -- the token value,
+  # hash and prefix never reach the audit log (INV-4). Adds the 0051 D1(c) scope.
+  defp token_audit_state(%ApiToken{} = token) do
+    token
+    |> Audit.struct_state([:token_hash, :name])
+    |> Map.put(:scope, "tenant_wide")
   end
 
   defp generate_token_plaintext do
@@ -1972,14 +2235,33 @@ defmodule Letflow.Identity do
   default for an admin scanning issued tokens. Unpaginated (design §3.2 —
   no acceptance criterion here calls for cursor pagination on this
   endpoint). Always `{:ok, _}` — an empty result is `{:ok, []}`.
+
+  GH 2552 (design section 3): each item is `%{token: token, owner_active: boolean}`,
+  the token joined to its owning user (inner join on the NOT NULL `user_id` FK, so no
+  row is lost) with the owner's activity read through `active_user_condition/1`, as in
+  `verify_api_token/2`. Feed it to `token_effective_status/3`.
   """
-  @spec list_tokens(opts :: opts()) :: {:ok, [ApiToken.t()]}
+  @spec list_tokens(opts :: opts()) :: {:ok, [%{token: ApiToken.t(), owner_active: boolean()}]}
   def list_tokens(opts) do
     prefix = Keyword.fetch!(opts, :prefix)
 
-    tokens = Repo.all(from(t in ApiToken, order_by: [desc: t.inserted_at]), prefix: prefix)
+    base =
+      from(t in ApiToken,
+        as: :token,
+        join: u in User,
+        as: :owner,
+        on: u.id == t.user_id,
+        order_by: [desc: t.inserted_at]
+      )
 
-    {:ok, tokens}
+    query =
+      select(
+        base,
+        [token: t],
+        ^%{token: dynamic([token: t], t), owner_active: active_user_condition(:owner)}
+      )
+
+    {:ok, Repo.all(query, prefix: prefix)}
   end
 
   @doc """
@@ -2098,8 +2380,8 @@ defmodule Letflow.Identity do
           action: "token.revoke",
           resource_type: "api_token",
           resource_id: updated.id,
-          before_state: Audit.struct_state(token, [:token_hash]),
-          after_state: Audit.struct_state(updated, [:token_hash]),
+          before_state: token_audit_state(token),
+          after_state: token_audit_state(updated),
           trace_id: ctx.trace_id
         }
 

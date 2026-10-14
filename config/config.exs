@@ -91,4 +91,9 @@ config :letflow, Letflow.LoginDiscovery.Notifier,
 # (default 15000) and writes the non-secret settings under
 # `config :letflow, Letflow.LoginDiscovery.Notifier.Smtp`. Defaults here are unchanged.
 
+# GH 2552 (decision 0051 M2, advisor condition 2): a token carrying PLATFORM_ADMIN minted
+# over HTTP (Letflow.Identity.mint_token/4) must expire within this many days. Read at
+# call time; the code default is also 90.
+config :letflow, :platform_admin_token_max_ttl_days, 90
+
 import_config "#{config_env()}.exs"

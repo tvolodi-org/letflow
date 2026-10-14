@@ -33,6 +33,7 @@ defmodule Letflow.Api.PlatformEscalationGuardTest do
   alias Letflow.Identity.TenantRole
   alias Letflow.Identity.User
   alias Letflow.Support.PlatformTenantFixture, as: Fixture
+  alias Letflow.Support.TokenMintFixture
 
   import Ecto.Query, only: [from: 2]
 
@@ -52,6 +53,21 @@ defmodule Letflow.Api.PlatformEscalationGuardTest do
       Fixture.router_conn(method, path, fixture, roles, body),
       Letflow.Routers.Identity.init([])
     )
+  end
+
+  # GH 2552: `call/5` as a REAL caller `user_id` (Identity.mint_token/4 checks the caller's
+  # group-held roles).
+  defp call_as(method, path, fixture, user_id, roles, body) do
+    conn =
+      method
+      |> Fixture.router_conn(path, fixture, roles, body)
+      |> Plug.Conn.assign(:auth_context, %{
+        user_id: user_id,
+        tenant_id: fixture.tenant_id,
+        roles: roles
+      })
+
+    Letflow.Routers.Identity.call(conn, Letflow.Routers.Identity.init([]))
   end
 
   defp opts(fixture), do: [prefix: fixture.schema_name]
@@ -254,13 +270,17 @@ defmodule Letflow.Api.PlatformEscalationGuardTest do
 
     test "CONTROL: the platform operator (PLATFORM_ADMIN of P) mints a PLATFORM_ADMIN token (201)",
          ctx do
-      user = insert_user!(ctx.p)
+      # GH 2552: the operator holds PLATFORM_ADMIN by membership; a PA token is self-targeted
+      # and expiring (advisor conditions 1 and 2).
+      operator = TokenMintFixture.role_holder!(ctx.p.schema_name, @operator)
       before = token_count(ctx.p)
+      expires_at = DateTime.utc_now() |> DateTime.add(86_400, :second) |> DateTime.to_iso8601()
 
       conn =
-        call(:post, "/tokens", ctx.p, @operator, %{
-          "user_id" => user.id,
-          "roles" => ["PLATFORM_ADMIN"]
+        call_as(:post, "/tokens", ctx.p, operator.id, @operator, %{
+          "user_id" => operator.id,
+          "roles" => ["PLATFORM_ADMIN"],
+          "expires_at" => expires_at
         })
 
       assert conn.status == 201, conn.resp_body
@@ -269,10 +289,18 @@ defmodule Letflow.Api.PlatformEscalationGuardTest do
 
     test "CONTROL: a TENANT_ADMIN of P still mints a TENANT_ADMIN token and an ordinary-role token (the guard is not over-broad)",
          ctx do
-      user = insert_user!(ctx.p)
+      # GH 2552: caller and target hold the token's roles by group membership.
+      held = ["TENANT_ADMIN", "TASK_WORKER", "PROCESS_DESIGNER"]
+      user = TokenMintFixture.role_holder!(ctx.p.schema_name, held)
+      minter = TokenMintFixture.role_holder!(ctx.p.schema_name, held)
 
       for roles <- [["TENANT_ADMIN"], ["TASK_WORKER", "PROCESS_DESIGNER"]] do
-        conn = call(:post, "/tokens", ctx.p, @admin, %{"user_id" => user.id, "roles" => roles})
+        conn =
+          call_as(:post, "/tokens", ctx.p, minter.id, @admin, %{
+            "user_id" => user.id,
+            "roles" => roles
+          })
+
         assert conn.status == 201, "#{inspect(roles)}: #{conn.resp_body}"
       end
     end
@@ -318,9 +346,13 @@ defmodule Letflow.Api.PlatformEscalationGuardTest do
       assert_forbidden(conn, "legacy PLATFORM_ADMIN of A, TENANT_ADMIN token")
       assert token_count(ctx.a) == before
 
-      # positive control: the TENANT_ADMIN of A holds the tenant-scope power
+      # positive control: the TENANT_ADMIN of A holds the tenant-scope power (GH 2552: a real
+      # caller; caller and target hold TENANT_ADMIN by group membership)
+      minter = TokenMintFixture.role_holder!(ctx.a.schema_name, @admin)
+      TokenMintFixture.grant_roles!(ctx.a.schema_name, user.id, @admin)
+
       conn =
-        call(:post, "/tokens", ctx.a, @admin, %{
+        call_as(:post, "/tokens", ctx.a, minter.id, @admin, %{
           "user_id" => user.id,
           "roles" => ["TENANT_ADMIN"]
         })

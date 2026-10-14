@@ -32,6 +32,7 @@ defmodule Letflow.Api.IdentityIdHardeningTest do
   alias Letflow.Identity.TenantRole
   alias Letflow.Identity.User
   alias Letflow.Support.PlatformTenantFixture, as: Fixture
+  alias Letflow.Support.TokenMintFixture
 
   import Ecto.Query, only: [from: 2]
 
@@ -76,6 +77,20 @@ defmodule Letflow.Api.IdentityIdHardeningTest do
       Fixture.router_conn(method, path, fixture, roles, body),
       Letflow.Routers.Identity.init([])
     )
+  end
+
+  # GH 2552: `call/5` as a REAL caller `user_id` holding TENANT_ADMIN (Identity.mint_token/4).
+  defp call_as(method, path, fixture, user_id, body) do
+    conn =
+      method
+      |> Fixture.router_conn(path, fixture, @admin, body)
+      |> Plug.Conn.assign(:auth_context, %{
+        user_id: user_id,
+        tenant_id: fixture.tenant_id,
+        roles: @admin
+      })
+
+    Letflow.Routers.Identity.call(conn, Letflow.Routers.Identity.init([]))
   end
 
   defp opts(fixture), do: [prefix: fixture.schema_name]
@@ -937,16 +952,22 @@ defmodule Letflow.Api.IdentityIdHardeningTest do
     test "T-33 POST /tokens: unknown-user 404 bytes; order is name guard 403, expires_at 422, user_id 404",
          ctx do
       user = insert_user!(ctx.p)
+      # GH 2552: a real minting caller; caller and target hold TASK_WORKER by membership.
+      minter = TokenMintFixture.role_holder!(ctx.p.schema_name, ["TENANT_ADMIN", "TASK_WORKER"])
+      TokenMintFixture.grant_roles!(ctx.p.schema_name, user.id, ["TASK_WORKER"])
       before = snapshot(ctx.p)
 
       ref =
-        call(:post, "/tokens", ctx.p, @admin, %{"user_id" => @unknown, "roles" => ["TASK_WORKER"]})
+        call_as(:post, "/tokens", ctx.p, minter.id, %{
+          "user_id" => @unknown,
+          "roles" => ["TASK_WORKER"]
+        })
 
       assert ref.status == 404, ref.resp_body
 
       for {label, segment} <- variants(@unknown) do
         conn =
-          call(:post, "/tokens", ctx.p, @admin, %{
+          call_as(:post, "/tokens", ctx.p, minter.id, %{
             "user_id" => body_value(segment),
             "roles" => ["TASK_WORKER"]
           })
@@ -961,7 +982,7 @@ defmodule Letflow.Api.IdentityIdHardeningTest do
       forbidden_bodies =
         for user_id <- [user.id, @unknown, "not-a-uuid"] do
           conn =
-            call(:post, "/tokens", ctx.p, @admin, %{
+            call_as(:post, "/tokens", ctx.p, minter.id, %{
               "user_id" => user_id,
               "roles" => ["PLATFORM_ADMIN"]
             })
@@ -976,7 +997,7 @@ defmodule Letflow.Api.IdentityIdHardeningTest do
       bad_expiry = "not-a-timestamp"
 
       conn =
-        call(:post, "/tokens", ctx.p, @admin, %{
+        call_as(:post, "/tokens", ctx.p, minter.id, %{
           "user_id" => @unknown,
           "roles" => ["PLATFORM_ADMIN"],
           "expires_at" => bad_expiry
@@ -986,7 +1007,7 @@ defmodule Letflow.Api.IdentityIdHardeningTest do
 
       for user_id <- [@unknown, "not-a-uuid"] do
         conn =
-          call(:post, "/tokens", ctx.p, @admin, %{
+          call_as(:post, "/tokens", ctx.p, minter.id, %{
             "user_id" => user_id,
             "roles" => ["TASK_WORKER"],
             "expires_at" => bad_expiry
@@ -1000,7 +1021,10 @@ defmodule Letflow.Api.IdentityIdHardeningTest do
 
       # control: the same request with a real user mints
       conn =
-        call(:post, "/tokens", ctx.p, @admin, %{"user_id" => user.id, "roles" => ["TASK_WORKER"]})
+        call_as(:post, "/tokens", ctx.p, minter.id, %{
+          "user_id" => user.id,
+          "roles" => ["TASK_WORKER"]
+        })
 
       assert conn.status == 201, conn.resp_body
     end

@@ -648,7 +648,10 @@ defmodule Letflow.TenantProvisioning do
      "20261008000001_create_pending_tenant_admin_grants.exs"},
     # GH 2534 PR 7b-1 (decision 0053 D1): tenant-script registry with its guard trigger.
     {20_261_014_000_001, Letflow.Repo.Migrations.CreateScriptRules,
-     "20261014000001_create_script_rules.exs"}
+     "20261014000001_create_script_rules.exs"},
+    # GH 2552 (decision 0051 M2): api_tokens.issuer_user_id, NULL for legacy rows.
+    {20_261_015_000_001, Letflow.Repo.Migrations.AddIssuerUserIdToApiTokens,
+     "20261015000001_add_issuer_user_id_to_api_tokens.exs"}
   ]
 
   @doc """
