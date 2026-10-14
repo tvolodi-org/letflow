@@ -1,7 +1,7 @@
 # 0049 — Work board on GitHub replaces letflow-queue: issues are the single store, the supervisor coordinates, labels carry state
 
-Status: PROPOSED — pending REVIEWER sign-off (no sign-off is claimed by this record; the
-sign-off section at the end is empty on purpose).
+Status: Accepted (decision source in the Sign-off section; no REVIEWER sign-off is claimed by
+this record).
 Supersedes: 0017 (task-queue selection model) in full.
 Amends the mechanism text of: 0041 (drain mode loops `get_next_task`), 0047 (the remote
 host "uses the queue and locks"). Their decisions stand; only the named mechanism changes.
@@ -92,8 +92,7 @@ issue; a partial PR says `Refs #N` and the residual is a new linked issue (answe
 `check_issue_refs` accept either legacy ids or `gh:` / `GH-<n>` while
 `docs/status/work_board_cutover.yaml` says `cutover: false`. After the switch is flipped
 to `true`, a non-terminal requirement needs `gh:` (R7), and a new `ISS-NNNN` above
-`last_legacy_iss` is refused. `check_queue_reconciliation` exits `SKIPPED` once flipped
-and is deleted, with its test, in the cutover PR.
+`last_legacy_iss` is refused. `check_queue_reconciliation` was deleted, with its test, in the cutover PR (2026-10-14).
 
 **H. Cutover order (not a date).** The board PR merges; the supervisor announces cutover;
 infra stops the queue service and exports it, keeps a one-week rollback window, and deletes
@@ -149,7 +148,7 @@ record and one issue record carrying only a GH number through
 | 0047 | the remote host now takes only what is `claimed:remote` |
 | 0004 | unchanged: commit/push/PR/merge stay pre-authorized. A human-paced *claim* is not a merge gate. REVIEWER should confirm that reading |
 
-## Open points for REVIEWER
+## Open points for REVIEWER (not reviewed; recorded as open)
 
 1. Whether supervisor-paced claiming conflicts with 0004's "no human gate" wording (this
    record reads it as scoped to commit/push/merge).
@@ -160,4 +159,6 @@ record and one issue record carrying only a GH number through
 
 ## Sign-off
 
-(empty — REVIEWER has not signed this record)
+Decided by the user 2026-10-14 (live, supervisor terminal); recorded by the supervisor, as relayed to the sole filer and not independently verified by the writer. Earlier statements: 2026-10-13 (supervisor terminal) and in the infra terminal ('Let delete queue. We have supervisor instead.').
+
+REVIEWER sign-off: not performed.
