@@ -20,6 +20,11 @@ acceptance_criteria:
   - "A test asserts that the route returns the SHA the release was built from"
 affected_files:
   - lib/letflow/router.ex
+  - lib/letflow/build_info.ex
+  - config/runtime.exs
+  - deploy/Dockerfile
+  - deploy/redeploy-qa.sh
+  - deploy/redeploy-test.sh
 queue_ref: Q-1043
 github_ref: GH-2384
 status: resolved
