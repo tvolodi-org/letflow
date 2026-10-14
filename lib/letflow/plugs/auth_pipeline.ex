@@ -134,8 +134,16 @@ defmodule Letflow.Plugs.AuthPipeline do
          {:ok, tenant} <- resolve_tenant(realm),
          :ok <- guard_realm_ownership(tenant.id, realm),
          {:ok, identity_context} <- map_claims(realm, claims),
-         {:ok, provisioned} <- provision_user(identity_context, tenant.id, realm),
-         :ok <- bind_pending_admin(tenant, provisioned, identity_context, realm),
+         {:ok, provisioned} <-
+           provision_user(identity_context, tenant.id, realm, conn.assigns[:trace_id]),
+         :ok <-
+           bind_pending_admin(
+             tenant,
+             provisioned,
+             identity_context,
+             realm,
+             conn.assigns[:trace_id]
+           ),
          {:ok, live_roles} <- verify_local_account_state(provisioned, tenant.id) do
       attach_auth_context(conn, tenant.id, provisioned.user.id, live_roles, :oidc)
     else
@@ -323,13 +331,18 @@ defmodule Letflow.Plugs.AuthPipeline do
   # tenant's physical schema name (pure, no extra DB round trip --
   # TenantProvisioning.schema_name_for_tenant/1 is confirmed no-I/O) and pass
   # it through as provision_oidc_user/4's new `prefix:` opt.
-  defp provision_user(identity_context, tenant_id, realm) do
+  #
+  # GH 2547 (design section 2.4): the request's trace id reaches the role-claim sync's
+  # `group_member.added` audit entries through `:audit_context`; the sync itself sets
+  # the actor to the user.
+  defp provision_user(identity_context, tenant_id, realm, trace_id) do
     jit_config = JitProvisioningConfig.for_realm(realm)
 
     case TenantProvisioning.schema_name_for_tenant(tenant_id) do
       {:ok, schema_name} ->
         case Identity.provision_oidc_user(identity_context, tenant_id, jit_config,
-               prefix: schema_name
+               prefix: schema_name,
+               audit_context: %{actor_id: nil, trace_id: trace_id, source: "idp_sync"}
              ) do
           {:ok, provisioned} -> {:ok, provisioned}
           {:error, reason} -> {:error, {:provision, reason}}
@@ -347,7 +360,8 @@ defmodule Letflow.Plugs.AuthPipeline do
   # the prefix is derived exactly as the neighbouring steps derive it. The result
   # is ignored on purpose: bind_on_login/5 never raises and never fails the
   # request, and the pipeline's outcome is identical with or without a grant.
-  defp bind_pending_admin(tenant, provisioned, identity_context, realm) do
+  # GH 2547: the request's trace id reaches both bound audit entries.
+  defp bind_pending_admin(tenant, provisioned, identity_context, realm, trace_id) do
     case TenantProvisioning.schema_name_for_tenant(tenant.id) do
       {:ok, schema_name} ->
         _ =
@@ -356,7 +370,8 @@ defmodule Letflow.Plugs.AuthPipeline do
             provisioned,
             identity_context,
             JitProvisioningConfig.for_realm(realm),
-            prefix: schema_name
+            prefix: schema_name,
+            trace_id: trace_id
           )
 
         :ok

@@ -48,7 +48,9 @@ defmodule Letflow.Identity.TenantAdminMigration do
   require Logger
 
   alias Letflow.Audit
+  alias Letflow.Identity
   alias Letflow.Identity.ApiToken
+  alias Letflow.Identity.AuditContext
   alias Letflow.Identity.Group
   alias Letflow.Identity.GroupMember
   alias Letflow.Identity.RoleRegistry
@@ -148,7 +150,11 @@ defmodule Letflow.Identity.TenantAdminMigration do
           ]
         ) :: {:ok, report()} | {:error, {:precondition_failed, refusal_tag()}}
   def run(opts \\ []) when is_list(opts) do
-    guarded(fn -> do_run(opts) end, {:error, {:precondition_failed, :unexpected_error}})
+    # GH 2547 (design 2.5): one generated trace id per run ties every audit row of
+    # the sweep to its log lines; the caller's own trace id is restored afterwards.
+    Letflow.Obs.Logger.with_trace(fn ->
+      guarded(fn -> do_run(opts) end, {:error, {:precondition_failed, :unexpected_error}})
+    end)
   end
 
   @doc """
@@ -301,6 +307,9 @@ defmodule Letflow.Identity.TenantAdminMigration do
   defp real_tenant(schema, tid, slug, realm) do
     result =
       Repo.transaction(fn ->
+        # GH 2547 (design 6.6): the tenant admin lock before any read or row lock.
+        Identity.lock_tenant_admins!(schema)
+
         case plan(schema) do
           {:error, tag} -> Repo.rollback(tag)
           {:ok, plan} -> apply_plan(plan, schema, tid, slug, realm)
@@ -336,11 +345,22 @@ defmodule Letflow.Identity.TenantAdminMigration do
   # it is called.
   defp ensure_binding(%TenantRole{group_id: group_id}, _schema), do: group_id
 
+  # GH 2547 (design 3.7): a TENANT_ADMIN group that already has members makes this a
+  # grant-relevant binding write, audited by upsert_role/4 in this same transaction.
   defp ensure_binding(nil, schema) do
+    audit_context = %{
+      actor_id: nil,
+      trace_id: AuditContext.current_trace_id(),
+      source: "tenant_admin_migration"
+    }
+
     with {:ok, %Group{id: group_id}} <-
            RoleRegistry.get_or_create_group_by_name(@target, prefix: schema),
          {:ok, %TenantRole{}} <-
-           RoleRegistry.upsert_role(@target, :platform_role, group_id, prefix: schema) do
+           RoleRegistry.upsert_role(@target, :platform_role, group_id,
+             prefix: schema,
+             audit_context: audit_context
+           ) do
       group_id
     else
       _error -> Repo.rollback(:unexpected_error)
@@ -407,7 +427,9 @@ defmodule Letflow.Identity.TenantAdminMigration do
       resource_type: resource_type,
       resource_id: resource_id,
       before_state: before_state,
-      after_state: after_state
+      after_state: after_state,
+      # GH 2547: the run's generated trace id (run/1's with_trace/1).
+      trace_id: AuditContext.current_trace_id()
     }
 
     case Audit.insert_entry(Repo, attrs, schema) do

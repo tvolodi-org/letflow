@@ -129,6 +129,27 @@ defmodule Letflow.Identity.PendingAdminBindingTest do
     holder
   end
 
+  # GH 2547 (fixture update, assertion intent unchanged): a binder now takes the tenant admin
+  # advisory lock (`Identity.lock_tenant_admins!/1`) BEFORE the grant row, so of two concurrent
+  # binders one queues on the grant row (`FOR UPDATE`) and the other on the advisory lock, never
+  # both on the row. "Both binders are blocked" therefore counts both kinds of waiter. Bounded
+  # exactly like `PendingAdminHelper.lock_waiters?/3` (round trips, no sleep).
+  defp binders_blocked?(count), do: binders_blocked?(count, 20_000)
+
+  defp binders_blocked?(_count, 0), do: false
+
+  defp binders_blocked?(count, attempts) do
+    %{rows: [[waiting]]} =
+      Repo.query!(
+        "SELECT count(*) FROM pg_stat_activity " <>
+          "WHERE datname = current_database() AND wait_event_type = 'Lock' " <>
+          "AND ((query ILIKE '%FOR UPDATE%' AND query ILIKE '%pending_tenant_admin_grants%') " <>
+          "OR query ILIKE '%pg_advisory_xact_lock%')"
+      )
+
+    waiting >= count or binders_blocked?(count, attempts - 1)
+  end
+
   # --- the happy path --------------------------------------------------------
 
   test "binds when a verified e-mail equals the pending key through the tenant's own realm",
@@ -433,8 +454,8 @@ defmodule Letflow.Identity.PendingAdminBindingTest do
         end)
       end
 
-    assert H.lock_waiters?("pending_tenant_admin_grants", 2),
-           "the two binders never both queued on the grant row lock"
+    assert binders_blocked?(2),
+           "the two binders never both blocked (grant row lock or tenant admin lock)"
 
     send(holder.pid, :release)
     assert {:ok, :released} = Task.await(holder, 10_000)
@@ -492,7 +513,7 @@ defmodule Letflow.Identity.PendingAdminBindingTest do
         end)
       end
 
-    assert H.lock_waiters?("pending_tenant_admin_grants", 2)
+    assert binders_blocked?(2)
     send(holder.pid, :release)
     assert {:ok, :released} = Task.await(holder, 10_000)
 
