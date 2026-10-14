@@ -565,17 +565,24 @@ export interface RolePermission {
   action: string
 }
 
+/** Effective token status from GET /identity/tokens (GH 2552, token_map/2 in
+ *  lib/letflow/routers/identity.ex): lowercase, precedence
+ *  revoked > expired > owner_inactive > active. */
+export type ApiTokenStatus = 'active' | 'revoked' | 'expired' | 'owner_inactive'
+
 export interface ApiToken {
   id?: string
   token_id?: string
   user_id?: string
+  /** The user who minted the token; null for legacy rows (GH 2552). */
+  issuer_user_id?: string | null
   user_display_name?: string
   name?: string
   roles?: string[]
   last_used_at?: string
   expires_at?: string
   revoked_at?: string
-  status?: 'ACTIVE' | 'REVOKED' | 'EXPIRED'
+  status?: ApiTokenStatus
   created_at: string
 }
 
