@@ -55,7 +55,9 @@ declares three callbacks:
   :ok | {:error, term()}`, run inside the install transaction after the
   module's pack installs.
 - `on_install/3` — **optional** (decision 0052 D3, GH 2531), `(prefix, settings,
-  ctx)` with `ctx = %{actor_id: installer_user_id, rationale: text}`. Use it when
+  ctx)` with `ctx = %{actor_id: installer_user_id, rationale: text,
+  pack_entity_definition_ids: %{name => id}}` (the definitions this install's own
+  pack inserted). Use it when
   `on_install` needs an actor and a justification, which activating entity
   definitions does (see §5a). **If a module exports both arities, ONLY
   `on_install/3` runs.**
@@ -232,10 +234,13 @@ def on_install(prefix, _settings, ctx) do
 end
 ```
 
-For each name it checks that the tenant has exactly the one definition the pack
-just inserted (otherwise `{:error, {:entity_name_conflict, name}}`, so install never
-supersedes a tenant's own type), activates it with the installer as activator and
-the rationale verbatim (an already-active one is skipped), and registers and runs
+For each name it checks, by id, that the tenant has exactly one definition of that
+name and that it is the one THIS install's pack just inserted, still `:inactive`
+(`ctx.pack_entity_definition_ids`). A name the pack did not ship is
+`{:entity_definition_missing, name}`; any other same-name definition, active or not, is
+`{:entity_name_conflict, name}`, so install never adopts or supersedes a tenant's own
+type. It activates the row with the installer as activator and the rationale verbatim,
+re-checks that the activated row is that one, and registers and runs
 the column promotions that create the table with its real `REFERENCES` and unique
 constraints. It then fails the install if any promotion row for these types is
 `pending` or `ddl_failed`. A test (`test/letflow/modules/install_activation_test.exs`,

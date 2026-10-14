@@ -201,5 +201,24 @@ defmodule Letflow.Routers.TenantModulesTest do
       assert conn.status == 201, conn.resp_body
       assert [%TenantModule{module_id: "fixture"}] = Installs.list_installed(prefix: prefix)
     end
+
+    test "the body's rationale reaches on_install/3 verbatim (never replaced or trimmed by the router)" do
+      %{tenant_id: tenant_id} = TenantFixture.provisioned_tenant!(slug_prefix: "gh2531-mod-ctx")
+      Process.delete({Letflow.Modules.FixtureCtxRecorder, :ctx})
+      rationale = "  turn on the recorder for the pilot  "
+
+      conn =
+        install_raw(tenant_id, ["TENANT_ADMIN"], %{
+          "module_id" => "fixture_ctx_recorder",
+          "rationale" => rationale
+        })
+
+      assert conn.status == 201, conn.resp_body
+
+      assert %{rationale: ^rationale, actor_id: actor_id} =
+               Process.get({Letflow.Modules.FixtureCtxRecorder, :ctx})
+
+      assert actor_id == conn.assigns.auth_context.user_id
+    end
   end
 end

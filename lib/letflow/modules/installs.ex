@@ -86,13 +86,17 @@ defmodule Letflow.Modules.Installs do
 
     with {:ok, rationale} <- fetch_rationale(opts),
          {:ok, entry_module} <- fetch_module(module_id) do
-      ctx = %{actor_id: actor_id, rationale: rationale}
-
       Repo.transaction(fn ->
         with :ok <- check_not_already_installed(module_id, prefix),
              :ok <- check_dependencies_installed(entry_module, prefix),
-             :ok <- maybe_install_pack(entry_module, actor_id, opts),
+             {:ok, pack_entity_definition_ids} <-
+               maybe_install_pack(entry_module, actor_id, opts),
              {:ok, tenant_module} <- insert_tenant_module(entry_module, prefix),
+             ctx = %{
+               actor_id: actor_id,
+               rationale: rationale,
+               pack_entity_definition_ids: pack_entity_definition_ids
+             },
              :ok <- maybe_run_on_install(entry_module, prefix, tenant_module.settings, ctx) do
           tenant_module
         else
@@ -213,15 +217,20 @@ defmodule Letflow.Modules.Installs do
     Repo.exists?(from(m in TenantModule, where: m.module_id == ^module_id), prefix: prefix)
   end
 
+  # Returns the entity definitions THIS install's pack inserted, `%{name => id}`
+  # (0052 D6: on_install/3 may activate only these; empty without a pack).
   defp maybe_install_pack(entry_module, actor_id, opts) do
     case entry_module.manifest().pack do
       nil ->
-        :ok
+        {:ok, %{}}
 
       pack_path ->
         with {:ok, document} <- read_pack_document(pack_path),
-             {:ok, _install_result} <- SolutionPack.install(document, actor_id, opts) do
-          :ok
+             {:ok, install_result} <- SolutionPack.install(document, actor_id, opts) do
+          {:ok,
+           Map.new(install_result.installed_entity_definitions, fn installed ->
+             {installed.name, installed.new_entity_definition_id}
+           end)}
         else
           {:error, reason} -> {:error, {:pack_install_failed, reason}}
         end

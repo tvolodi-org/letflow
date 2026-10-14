@@ -10,7 +10,11 @@ re-decide anything.
 (`priv/module_fixtures/fk_pair.json`: `fkp_parent` <- `fkp_child`, a foreign key and a
 unique constraint each) through `Installs.install/3`:
 
-* (a) after commit both `entity_fkp_*` tables exist, `entity_fkp_child` carries the
+Both tests run on the test's sandbox connection, so "commit" is the release of the install
+transaction inside it; what D7 asks (same-connection visibility of the activation and DDL,
+and that they roll back with the install) is what is exercised.
+
+* (a) after the install transaction completes both `entity_fkp_*` tables exist, `entity_fkp_child` carries the
   `REFERENCES` constraint to `entity_fkp_parent`, both have unique constraints, both
   definitions are `:active`, no promotion row is `pending`/`ddl_failed`;
 * (b) a fixture that activates and promotes, THEN fails, leaves no table, constraint,
@@ -35,20 +39,33 @@ Alternative C is not needed.
 
 `Letflow.Modules.EntityActivation.activate_and_promote(prefix, ctx, names)`, `names` in the
 pack's FK-DAG order as stated by the module (the order is pack content; not computed). Per
-name: D6 check, activate (or skip if already active), promote every `DDL.promoted_columns/1`
+name: D6 check by origin, activate, promote every `DDL.promoted_columns/1`
 column without a promotion row (`register_column_promotion/4` + `run_column_promotion/1`,
 same column spec as `Entities.Definitions.ensure_column_promotions/2`); then the D5 check
 over ALL `entity_column_promotions` rows of this tenant for these types.
 
-**D6 rule as implemented.** Entity definitions record no origin (no pack/module field;
-verified), and the pack inserts its rows inside the same install transaction just before
-`on_install/3`. So "this module's own inactive definition" = the tenant holds exactly ONE
-row of that name. Zero rows -> `{:entity_definition_missing, name}`; more than one row (a
-tenant-created or earlier definition of the same name, active or not) ->
-`{:entity_name_conflict, name}`; one `:active` row -> skip activation. Verified by test: a
-tenant-created active `fkp_parent` makes the install return exactly
-`{:error, {:on_install_failed, {:entity_name_conflict, "fkp_parent"}}}`, the tenant's
-definition untouched.
+**D6 rule as implemented (revised after CODE-DESIGN-VALIDATOR and REVIEWER).** Entity
+definitions record no origin field, so origin is taken from the pack install itself:
+`Installs` keeps `SolutionPack.install/3`'s `installed_entity_definitions` as
+`ctx.pack_entity_definition_ids` (`%{name => id}`, `%{}` without a pack). Per name:
+
+* not in the pack's ids -> `{:entity_definition_missing, name}` (a module can never adopt a
+  type its pack did not ship);
+* the tenant must hold exactly ONE row of that name, with that id, `:inactive`; anything
+  else (a tenant-created or earlier same-name row, active or inactive) ->
+  `{:entity_name_conflict, name}`. On first install the pack's own row is always
+  `:inactive`, so D6's "skip an already-active one" has no case here and is not
+  implemented (it would only ever adopt someone else's type);
+* `activate_definition/4` resolves the name again, so after it returns the helper checks
+  that the activated row IS the checked id and that the name still has exactly one row;
+  otherwise `{:entity_name_conflict, name}`, and the install rolls back.
+
+Residual race: a same-name definition committed by another transaction after that final
+check and before the install commits is not seen; the partial unique index on active
+names still prevents two active rows. Verified by tests: a tenant-created INACTIVE and a
+tenant-created ACTIVE `fkp_parent` each make the install return exactly
+`{:error, {:on_install_failed, {:entity_name_conflict, "fkp_parent"}}}` with the tenant's
+row untouched; the helper refuses an active row even when given its id.
 
 Errors: `{:entity_definition_missing, n}`, `{:entity_name_conflict, n}`,
 `{:activation_failed, n, reason}`, `{:promotion_failed, n, attr, reason}`,

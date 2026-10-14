@@ -31,9 +31,10 @@ defmodule Letflow.Modules.Module do
     callback's own contract, not the transaction that calls it (REQ-402).
 
   * `on_install/3` — **optional** (decision 0052 D3, GH 2531). Receives `prefix`,
-    `settings` and `ctx = %{actor_id: installer_user_id, rationale: text}`: the
-    installer's id and the installer-supplied, non-blank rationale (the router never
-    synthesises one). For modules whose `on_install` activates and promotes their own
+    `settings` and `ctx = %{actor_id: installer_user_id, rationale: text,
+    pack_entity_definition_ids: %{name => id}}`: the installer's id, the
+    installer-supplied, non-blank rationale (the router never synthesises one), and
+    the entity definitions this install's own pack inserted. For modules whose `on_install` activates and promotes their own
     entity definitions (0052 D2), which needs an activator and a rationale. Preferred
     over `on_install/2`: when a module exports both, ONLY `on_install/3` runs.
 
@@ -83,8 +84,17 @@ defmodule Letflow.Modules.Module do
   @callback router() :: module()
   @callback on_install(prefix :: String.t(), settings :: map()) :: :ok | {:error, term()}
 
-  @typedoc "The install context passed to `on_install/3` (0052 D3)."
-  @type install_ctx :: %{actor_id: Ecto.UUID.t(), rationale: String.t()}
+  @typedoc """
+  The install context passed to `on_install/3` (0052 D3): the installer, the
+  installer-supplied rationale (verbatim), and the entity definitions this install's
+  own pack inserted, `%{name => id}` (0052 D6: the only ones `on_install/3` may
+  activate; `%{}` for a module without a pack).
+  """
+  @type install_ctx :: %{
+          actor_id: Ecto.UUID.t(),
+          rationale: String.t(),
+          pack_entity_definition_ids: %{String.t() => Ecto.UUID.t()}
+        }
 
   @callback on_install(prefix :: String.t(), settings :: map(), ctx :: install_ctx()) ::
               :ok | {:error, term()}

@@ -8,15 +8,21 @@ defmodule Letflow.Modules.EntityActivation do
   which the caller states as its pack's FK-DAG order (FK targets before
   referrers; the order is pack content, not computed here). For each name:
 
-    1. **D6 precondition.** The tenant must hold exactly one entity definition of
-       that name: the one the module's pack just inserted, inside this same install
-       transaction. No row -> `{:error, {:entity_definition_missing, name}}`; more
-       than one row (a tenant-created definition of the same name, or an earlier
-       active one) -> `{:error, {:entity_name_conflict, name}}`, so install never
-       activates over, and never silently supersedes, a tenant's own type.
-    2. **Activate** an `:inactive` row with `Entities.Definitions.activate_definition/4`,
-       the installer as activator and the installer-supplied rationale verbatim
-       (`ctx`, 0052 D3). An already `:active` row is skipped (D6).
+    1. **D6 precondition, by origin.** `ctx.pack_entity_definition_ids` holds the
+       definitions this install's own pack inserted (`%{name => id}`, filled by
+       `Letflow.Modules.Installs`). A name the pack did not ship ->
+       `{:error, {:entity_definition_missing, name}}`. Otherwise the tenant must hold
+       exactly ONE row of that name, and it must be that id and `:inactive`; anything
+       else (a tenant-created or earlier definition of the same name, active or not)
+       -> `{:error, {:entity_name_conflict, name}}`. Install never activates over, and
+       never silently supersedes, a tenant's own type. (On first install the pack's
+       row is always `:inactive`, so D6's "skip an active one" has no case here.)
+    2. **Activate** that row with `Entities.Definitions.activate_definition/4`, the
+       installer as activator and the installer-supplied rationale verbatim (`ctx`,
+       0052 D3). `activate_definition/4` resolves the name again; if the row it
+       activated is not the checked one (a same-name definition committed in
+       between), or the name no longer has exactly one row afterwards, the result is
+       `{:error, {:entity_name_conflict, name}}` and the whole install rolls back.
     3. **Promote** every promoted column of the definition (FK fields and `queried`
        fields, `DDL.promoted_columns/1`) that has no `entity_column_promotions` row
        yet: `register_column_promotion/4`, then `run_column_promotion/1`, which
@@ -57,18 +63,21 @@ defmodule Letflow.Modules.EntityActivation do
           ctx :: Letflow.Modules.Module.install_ctx(),
           names :: [String.t()]
         ) :: :ok | {:error, error_reason()}
-  def activate_and_promote(prefix, %{actor_id: actor_id, rationale: rationale}, names)
+  def activate_and_promote(prefix, %{actor_id: _, rationale: _} = ctx, names)
       when is_binary(prefix) and is_list(names) do
+    pack_ids = Map.get(ctx, :pack_entity_definition_ids, %{})
+
     with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
-         :ok <- walk(names, prefix, tenant_id, actor_id, rationale) do
+         :ok <- walk(names, prefix, tenant_id, ctx, pack_ids) do
       check_promotions_complete(tenant_id, names)
     end
   end
 
-  defp walk(names, prefix, tenant_id, actor_id, rationale) do
+  defp walk(names, prefix, tenant_id, ctx, pack_ids) do
     Enum.reduce_while(names, :ok, fn name, :ok ->
-      with {:ok, definition} <- single_definition(name, prefix),
-           {:ok, active} <- ensure_active(definition, actor_id, rationale, prefix),
+      with {:ok, own_id} <- own_id(pack_ids, name),
+           :ok <- only_own_inactive_row(name, own_id, prefix),
+           {:ok, active} <- activate_own(name, own_id, ctx, prefix),
            :ok <- promote_columns(active, tenant_id) do
         {:cont, :ok}
       else
@@ -77,27 +86,41 @@ defmodule Letflow.Modules.EntityActivation do
     end)
   end
 
-  defp single_definition(name, prefix) do
-    case Repo.all(from(d in EntityDefinition, where: d.name == ^name), prefix: prefix) do
-      [] -> {:error, {:entity_definition_missing, name}}
-      [%EntityDefinition{} = definition] -> {:ok, definition}
-      [_ | _] -> {:error, {:entity_name_conflict, name}}
+  defp own_id(pack_ids, name) do
+    case Map.fetch(pack_ids, name) do
+      {:ok, id} -> {:ok, id}
+      :error -> {:error, {:entity_definition_missing, name}}
     end
   end
 
-  defp ensure_active(
-         %EntityDefinition{status: :active} = definition,
-         _actor,
-         _rationale,
-         _prefix
-       ),
-       do: {:ok, definition}
-
-  defp ensure_active(%EntityDefinition{name: name}, actor_id, rationale, prefix) do
-    case Definitions.activate_definition(name, actor_id, rationale, prefix) do
-      {:ok, %EntityDefinition{} = active} -> {:ok, active}
-      {:error, reason} -> {:error, {:activation_failed, name, reason}}
+  # D6: exactly one row of the name, and it is this install's own inactive row.
+  defp only_own_inactive_row(name, own_id, prefix) do
+    case rows_by_name(name, prefix) do
+      [%EntityDefinition{id: ^own_id, status: :inactive}] -> :ok
+      _other -> {:error, {:entity_name_conflict, name}}
     end
+  end
+
+  defp activate_own(name, own_id, %{actor_id: actor_id, rationale: rationale}, prefix) do
+    case Definitions.activate_definition(name, actor_id, rationale, prefix) do
+      {:ok, %EntityDefinition{id: ^own_id} = active} ->
+        # Narrow the check-then-activate window: a same-name row committed meanwhile
+        # (activate_definition/4 resolves the name again) fails the install.
+        case rows_by_name(name, prefix) do
+          [%EntityDefinition{id: ^own_id}] -> {:ok, active}
+          _other -> {:error, {:entity_name_conflict, name}}
+        end
+
+      {:ok, %EntityDefinition{}} ->
+        {:error, {:entity_name_conflict, name}}
+
+      {:error, reason} ->
+        {:error, {:activation_failed, name, reason}}
+    end
+  end
+
+  defp rows_by_name(name, prefix) do
+    Repo.all(from(d in EntityDefinition, where: d.name == ^name), prefix: prefix)
   end
 
   defp promote_columns(%EntityDefinition{name: entity_type} = definition, tenant_id) do

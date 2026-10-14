@@ -183,10 +183,16 @@ defmodule Letflow.Modules.InstallActivationTest do
 
       assert Process.get({FixtureFkPack, :on_install_2_called}) == nil
 
-      assert Process.get({FixtureFkPack, :on_install_3_ctx}) == %{
-               actor_id: actor_id,
-               rationale: @rationale
-             }
+      assert %{actor_id: ^actor_id, rationale: @rationale, pack_entity_definition_ids: ids} =
+               Process.get({FixtureFkPack, :on_install_3_ctx})
+
+      # D6 origin: exactly the definitions this install's pack inserted, by id.
+      assert ids |> Map.keys() |> Enum.sort() == ["fkp_child", "fkp_parent"]
+
+      for {name, id} <- ids do
+        assert %EntityDefinition{name: ^name, status: :active} =
+                 Repo.get!(EntityDefinition, id, prefix: schema)
+      end
     end
 
     test "the activation trail records the installer as activator and the rationale verbatim",
@@ -241,9 +247,15 @@ defmodule Letflow.Modules.InstallActivationTest do
       assert installed |> Enum.map(& &1.module_id) |> Enum.sort() ==
                ["fixture_ctx_recorder", "fixture_fk_pack"]
 
-      expected = %{actor_id: actor_id, rationale: @rationale}
-      assert Process.get({FixtureFkPack, :on_install_3_ctx}) == expected
-      assert Process.get({FixtureCtxRecorder, :ctx}) == expected
+      assert %{actor_id: ^actor_id, rationale: @rationale} =
+               Process.get({FixtureFkPack, :on_install_3_ctx})
+
+      # the pack-less module gets the same installer and rationale, and no pack ids
+      assert Process.get({FixtureCtxRecorder, :ctx}) == %{
+               actor_id: actor_id,
+               rationale: @rationale,
+               pack_entity_definition_ids: %{}
+             }
 
       rationales =
         Repo.all(
@@ -313,7 +325,39 @@ defmodule Letflow.Modules.InstallActivationTest do
   # --- D6 -----------------------------------------------------------------------------------------
 
   describe "D6: preconditions and idempotency" do
-    test "a tenant-created definition of the same name gives {:entity_name_conflict, name}, rolls back, and leaves the tenant's definition untouched",
+    test "a tenant-created INACTIVE definition of the same name gives {:entity_name_conflict, name}, rolls back, and leaves it inactive and untouched",
+         %{tenant: %{schema_name: schema, tenant_id: tenant_id}, actor_id: actor_id} do
+      tenant_definition = %{
+        name: "fkp_parent",
+        display_name: "Tenant's own parent (draft)",
+        fields: [%{name: "label", type: :string}]
+      }
+
+      assert {:ok, %EntityDefinition{id: own_id} = before} =
+               Definitions.create_definition(
+                 %{definition: tenant_definition, created_by: actor_id},
+                 schema
+               )
+
+      assert before.status == :inactive
+      stored_before = Repo.get!(EntityDefinition, own_id, prefix: schema)
+
+      assert {:error, {:on_install_failed, {:entity_name_conflict, "fkp_parent"}}} =
+               Installs.install("fixture_fk_pack", actor_id,
+                 prefix: schema,
+                 rationale: @rationale
+               )
+
+      assert tenant_modules(schema) == []
+      assert [{"fkp_parent", :inactive}] = definitions(schema)
+      after_row = Repo.get!(EntityDefinition, own_id, prefix: schema)
+      assert after_row.status == :inactive
+      assert after_row == stored_before
+      assert promotions(tenant_id) == []
+      refute table_exists?(schema, "entity_fkp_parent")
+    end
+
+    test "a tenant-created ACTIVE definition of the same name gives {:entity_name_conflict, name}, rolls back, and leaves the tenant's definition untouched",
          %{tenant: %{schema_name: schema, tenant_id: tenant_id}, actor_id: actor_id} do
       tenant_definition = %{
         name: "fkp_parent",
@@ -341,7 +385,7 @@ defmodule Letflow.Modules.InstallActivationTest do
       assert promotions(tenant_id) |> Enum.filter(&(elem(&1, 0) == "fkp_child")) == []
     end
 
-    test "activate_and_promote/3 skips an already-active definition (no second activation) and still promotes",
+    test "activate_and_promote/3 never adopts a definition the pack did not insert, even an active one with a matching id",
          %{tenant: %{schema_name: schema, tenant_id: tenant_id}, actor_id: actor_id} do
       definition = %{
         name: "fkp_parent",
@@ -350,7 +394,7 @@ defmodule Letflow.Modules.InstallActivationTest do
         constraints: [%{name: "uq_fkp_parent_code", type: :unique, fields: ["code"]}]
       }
 
-      assert {:ok, _} =
+      assert {:ok, %EntityDefinition{id: tenant_row_id}} =
                Definitions.create_definition(
                  %{definition: definition, created_by: actor_id},
                  schema
@@ -367,17 +411,33 @@ defmodule Letflow.Modules.InstallActivationTest do
       end
 
       before = history_count.()
+      table_before = table_exists?(schema, "entity_fkp_parent")
+      promotions_before = promotions(tenant_id)
 
-      assert :ok =
+      # not in the pack's ids at all
+      assert {:error, {:entity_definition_missing, "fkp_parent"}} =
                EntityActivation.activate_and_promote(
                  schema,
-                 %{actor_id: actor_id, rationale: "second"},
+                 %{actor_id: actor_id, rationale: "r", pack_entity_definition_ids: %{}},
                  ["fkp_parent"]
                )
 
+      # even if a caller passed that row's id, an active row is never the pack's own
+      assert {:error, {:entity_name_conflict, "fkp_parent"}} =
+               EntityActivation.activate_and_promote(
+                 schema,
+                 %{
+                   actor_id: actor_id,
+                   rationale: "r",
+                   pack_entity_definition_ids: %{"fkp_parent" => tenant_row_id}
+                 },
+                 ["fkp_parent"]
+               )
+
+      # nothing activated again, no new table or promotion
       assert history_count.() == before
-      assert table_exists?(schema, "entity_fkp_parent")
-      refute Enum.any?(promotions(tenant_id), fn {_, _, s} -> s in ["pending", "ddl_failed"] end)
+      assert table_exists?(schema, "entity_fkp_parent") == table_before
+      assert promotions(tenant_id) == promotions_before
     end
 
     test "activate_and_promote/3 with no definition of the name gives {:entity_definition_missing, name}",
