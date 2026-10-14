@@ -111,8 +111,8 @@ users by id `FOR SHARE` -> insert), so no cycle: every path that row-locks a use
   not the row; and reactivation adds an admin, which #2533 1b AC 12 (`requirements.yaml:36252`, N1 (e) `:36185`)
   requires to hold the lock. This PR delivers the `update_user_status` half of that AC; letflow-9c only tests it.
 - **Guard = transition to zero** (`admins_before > 0 and after == 0`), ADOPTED by the supervisor for both #2564 and
-  #2533 1b (cross-session ruling relayed by letflow-9c, 2026-10-15; to be recorded by letflow-2 in REQ-497 AC 9/10,
-  `docs/requirements.yaml:36251-36252`, which still say "refuses on 0"): measured, not predicted (#2547 §6.4 step 5). A bare `== 0` would refuse deactivating ANY user in a tenant
+  #2533 1b (supervisor ruling 2026-10-15, recorded in REQ-497 AC 9/10 and #2547 §6.4 step 5 by docs PR #2598,
+  merged b65f7378): measured, not predicted (#2547 §6.4 step 5). A bare `== 0` would refuse deactivating ANY user in a tenant
   with no counted admin (fresh tenants, most fixtures, 14 calls in `identity_login_directory_test.exs`).
 - **Token-only admins do not come back.** A user counted only through a live TA token (`:1050-1056`) loses it at
   deactivation (step 6), so after reactivation they are NOT counted. If that user and one group-held admin were the
