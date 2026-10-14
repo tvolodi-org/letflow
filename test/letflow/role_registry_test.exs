@@ -300,8 +300,10 @@ defmodule Letflow.Identity.RoleRegistryTest do
     end
   end
 
-  describe "upsert_role/3 — update existing binding (acceptance criterion 3)" do
-    test "called twice with the same name and a different group_id updates the binding, no duplicate row",
+  # GH 2524 replaced REQ-020 AC3's silent update: a different group is refused, the same
+  # group is a no-op. Moving a binding is RoleRegistry.rebind_role/4.
+  describe "upsert_role/4 on an existing binding (GH 2524)" do
+    test "a different group_id is refused with :role_already_bound and the binding is unchanged, no duplicate row",
          ctx do
       name = unique_name()
       group_a = insert_group!(ctx)
@@ -314,20 +316,57 @@ defmodule Letflow.Identity.RoleRegistryTest do
 
       assert first_group_id == group_a.id
 
-      assert {:ok, %TenantRole{group_id: second_group_id}} =
+      assert {:error, :role_already_bound} =
                RoleRegistry.upsert_role(name, :process_routing_role, group_b.id,
                  prefix: ctx.schema_name
                )
 
-      assert second_group_id == group_b.id
-
-      # Re-select from Postgres directly rather than trusting the in-memory reply,
-      # matching this project's established persistence-test convention
-      # (process_instance_test.exs / identity_test.exs's Repo.get/2 re-select pattern).
+      # Re-select from Postgres directly rather than trusting the in-memory reply.
       rows = TenantRole |> where(name: ^name) |> Repo.all()
 
       assert length(rows) == 1
-      assert hd(rows).group_id == group_b.id
+      assert hd(rows).group_id == group_a.id
+    end
+
+    test "the same group_id twice is idempotent: same row id, nothing changes", ctx do
+      name = unique_name()
+      group_a = insert_group!(ctx)
+
+      assert {:ok, %TenantRole{id: id}} =
+               RoleRegistry.upsert_role(name, :process_routing_role, group_a.id,
+                 prefix: ctx.schema_name
+               )
+
+      [before] = TenantRole |> where(name: ^name) |> Repo.all()
+
+      assert {:ok, %TenantRole{id: ^id, group_id: group_id}} =
+               RoleRegistry.upsert_role(name, :process_routing_role, group_a.id,
+                 prefix: ctx.schema_name
+               )
+
+      assert group_id == group_a.id
+      assert TenantRole |> where(name: ^name) |> Repo.all() == [before]
+    end
+
+    test "the same group_id written in upper case is the same group (canonical compare)", ctx do
+      name = unique_name()
+      group_a = insert_group!(ctx)
+
+      assert {:ok, %TenantRole{id: id}} =
+               RoleRegistry.upsert_role(name, :process_routing_role, group_a.id,
+                 prefix: ctx.schema_name
+               )
+
+      assert {:ok, %TenantRole{id: ^id}} =
+               RoleRegistry.upsert_role(
+                 name,
+                 :process_routing_role,
+                 String.upcase(group_a.id),
+                 prefix: ctx.schema_name
+               )
+
+      assert [%TenantRole{group_id: stored}] = TenantRole |> where(name: ^name) |> Repo.all()
+      assert stored == group_a.id
     end
   end
 

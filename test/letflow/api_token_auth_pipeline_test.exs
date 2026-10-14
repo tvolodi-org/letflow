@@ -161,4 +161,250 @@ defmodule Letflow.ApiTokenAuthPipelineTest do
       assert conn.status == 401
     end
   end
+
+  # ══════════════════════════════════════════════════════════════════════
+  # GH-2557 — a token whose owning user is inactive is refused exactly like a
+  # revoked token. Design: lib/letflow/design/gh2557-inactive-user-api-token.md
+  # §3/§4/§6. Spec: test/specs/GH-2557.md.
+  # ══════════════════════════════════════════════════════════════════════
+
+  @gh2557_admin_route "/api/v1/identity/tokens"
+  @gh2557_plain_route "/api/v1/me/memberships"
+
+  defp gh2557_admin_token!(tenant, user) do
+    {:ok, %{token: token, plaintext: plaintext}} =
+      Identity.create_token(user.id, %{roles: ["TENANT_ADMIN"], expires_at: nil},
+        prefix: tenant.schema_name
+      )
+
+    {token, plaintext}
+  end
+
+  defp gh2557_set_status!(tenant, user, status) do
+    {:ok, updated} =
+      Identity.update_user_status(user.id, status,
+        prefix: tenant.schema_name,
+        login_directory: :skip
+      )
+
+    assert updated.status == status
+    updated
+  end
+
+  defp gh2557_get(path, plaintext, tenant),
+    do: api_token_request(:get, path, plaintext, tenant.tenant.slug) |> dispatch()
+
+  defp gh2557_json_request(method, path, plaintext, tenant, body) do
+    conn(method, path, Jason.encode!(body))
+    |> put_req_header("content-type", "application/json")
+    |> put_req_header("authorization", "Bearer " <> plaintext)
+    |> put_req_header("x-tenant-slug", tenant.tenant.slug)
+    |> dispatch()
+  end
+
+  defp gh2557_audit_actions(tenant) do
+    import Ecto.Query, only: [from: 2]
+
+    Repo.all(
+      from(e in Letflow.Audit.Entry, order_by: [asc: e.inserted_at], select: e.action),
+      prefix: tenant.schema_name
+    )
+  end
+
+  # Status, body and every header are compared for equality. The one exception
+  # is the VALUE of `x-trace-id`: it is a fresh UUID minted per request (two
+  # revoked-token requests differ in it too), so it carries no token or user
+  # state. The header must be present on both, and both values must be UUIDs.
+  defp gh2557_assert_same_response!(left, right) do
+    assert List.keymember?(left.resp_headers, "x-trace-id", 0)
+    assert List.keymember?(right.resp_headers, "x-trace-id", 0)
+    assert left.status == right.status
+    assert left.resp_body == right.resp_body
+    assert gh2557_normalised_headers(left) == gh2557_normalised_headers(right)
+  end
+
+  defp gh2557_normalised_headers(conn) do
+    conn.resp_headers
+    |> Enum.map(fn
+      {"x-trace-id", value} ->
+        assert {:ok, _} = Ecto.UUID.cast(value)
+        {"x-trace-id", :per_request_uuid}
+
+      header ->
+        header
+    end)
+    |> Enum.sort()
+  end
+
+  # A revoked token's response on `path`, used as the byte-identity reference.
+  defp gh2557_revoked_reference(tenant, path) do
+    referee = insert_user!(tenant)
+    {token, plaintext} = gh2557_admin_token!(tenant, referee)
+    {:ok, _} = Identity.revoke_token(token.id, prefix: tenant.schema_name)
+    conn = gh2557_get(path, plaintext, tenant)
+    assert conn.status == 401
+    conn
+  end
+
+  describe "GH-2557 AC1: an inactive owner's token is refused like a revoked one" do
+    test "deactivated owner's TENANT_ADMIN token is refused 401 on GET /identity/tokens and GET /me/memberships" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2557-ac1-routes")
+      user = insert_user!(tenant)
+      {_token, plaintext} = gh2557_admin_token!(tenant, user)
+
+      # Positive control: the same token works on both routes while the owner is active.
+      assert gh2557_get(@gh2557_admin_route, plaintext, tenant).status == 200
+      assert gh2557_get(@gh2557_plain_route, plaintext, tenant).status == 200
+
+      gh2557_set_status!(tenant, user, :inactive)
+
+      assert gh2557_get(@gh2557_admin_route, plaintext, tenant).status == 401
+      assert gh2557_get(@gh2557_plain_route, plaintext, tenant).status == 401
+    end
+
+    test "inactive-owner rejection is byte-identical to a revoked token" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2557-ac1-bytes")
+      user = insert_user!(tenant)
+      {_token, plaintext} = gh2557_admin_token!(tenant, user)
+      gh2557_set_status!(tenant, user, :inactive)
+
+      for path <- [@gh2557_admin_route, @gh2557_plain_route] do
+        inactive_conn = gh2557_get(path, plaintext, tenant)
+        revoked_conn = gh2557_revoked_reference(tenant, path)
+
+        assert inactive_conn.status == 401
+        gh2557_assert_same_response!(inactive_conn, revoked_conn)
+      end
+    end
+  end
+
+  describe "GH-2557 AC3: reactivation, revoked and expired" do
+    test "reactivating the owner makes the same token authenticate again (200)" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2557-ac3-react")
+      user = insert_user!(tenant)
+      {_token, plaintext} = gh2557_admin_token!(tenant, user)
+
+      gh2557_set_status!(tenant, user, :inactive)
+      assert gh2557_get(@gh2557_admin_route, plaintext, tenant).status == 401
+
+      gh2557_set_status!(tenant, user, :active)
+      conn = gh2557_get(@gh2557_admin_route, plaintext, tenant)
+      assert conn.status == 200
+      assert conn.assigns.auth_context.user_id == user.id
+      assert conn.assigns.auth_context.roles == ["TENANT_ADMIN"]
+      assert gh2557_get(@gh2557_plain_route, plaintext, tenant).status == 200
+    end
+
+    test "reactivated owner with a revoked token stays 401" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2557-ac3-revoked")
+      user = insert_user!(tenant)
+      {token, plaintext} = gh2557_admin_token!(tenant, user)
+
+      gh2557_set_status!(tenant, user, :inactive)
+      {:ok, _} = Identity.revoke_token(token.id, prefix: tenant.schema_name)
+      gh2557_set_status!(tenant, user, :active)
+
+      assert gh2557_get(@gh2557_admin_route, plaintext, tenant).status == 401
+      assert gh2557_get(@gh2557_plain_route, plaintext, tenant).status == 401
+    end
+
+    test "reactivated owner with an expired token stays 401" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2557-ac3-expired")
+      user = insert_user!(tenant)
+      {token, plaintext} = gh2557_admin_token!(tenant, user)
+
+      gh2557_set_status!(tenant, user, :inactive)
+
+      past = DateTime.add(DateTime.utc_now(), -1, :second) |> DateTime.truncate(:second)
+
+      token
+      |> Ecto.Changeset.change(%{expires_at: past})
+      |> Repo.update!(prefix: tenant.schema_name)
+
+      gh2557_set_status!(tenant, user, :active)
+
+      assert gh2557_get(@gh2557_admin_route, plaintext, tenant).status == 401
+      assert gh2557_get(@gh2557_plain_route, plaintext, tenant).status == 401
+    end
+  end
+
+  describe "GH-2557 AC4: deactivation changes no token row and adds no token audit" do
+    test "deactivate via POST /users/:id/status: only user.update_status audit, revoked_at nil, revoked-token 401" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2557-ac4-status")
+      target = insert_user!(tenant)
+      actor = insert_user!(tenant)
+      {target_token, target_plaintext} = gh2557_admin_token!(tenant, target)
+      {_actor_token, actor_plaintext} = gh2557_admin_token!(tenant, actor)
+
+      assert gh2557_get(@gh2557_admin_route, target_plaintext, tenant).status == 200
+      audit_before = gh2557_audit_actions(tenant)
+
+      conn =
+        gh2557_json_request(
+          :post,
+          "/api/v1/identity/users/#{target.id}/status",
+          actor_plaintext,
+          tenant,
+          %{"status" => "inactive"}
+        )
+
+      assert conn.status == 200
+      assert Repo.get!(User, target.id, prefix: tenant.schema_name).status == :inactive
+
+      audit_after = gh2557_audit_actions(tenant)
+      assert audit_after -- audit_before == ["user.update_status"]
+      refute "token.revoke" in audit_after
+      refute "token.revoked" in audit_after
+
+      persisted = Repo.get!(Identity.ApiToken, target_token.id, prefix: tenant.schema_name)
+      assert persisted.revoked_at == nil
+
+      inactive_conn = gh2557_get(@gh2557_admin_route, target_plaintext, tenant)
+      assert inactive_conn.status == 401
+
+      gh2557_assert_same_response!(
+        inactive_conn,
+        gh2557_revoked_reference(tenant, @gh2557_admin_route)
+      )
+    end
+
+    test "deactivate via PATCH /users/:id status=inactive: only user.update_profile audit, revoked_at nil, revoked-token 401" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2557-ac4-patch")
+      target = insert_user!(tenant)
+      actor = insert_user!(tenant)
+      {target_token, target_plaintext} = gh2557_admin_token!(tenant, target)
+      {_actor_token, actor_plaintext} = gh2557_admin_token!(tenant, actor)
+
+      assert gh2557_get(@gh2557_admin_route, target_plaintext, tenant).status == 200
+      audit_before = gh2557_audit_actions(tenant)
+
+      conn =
+        gh2557_json_request(
+          :patch,
+          "/api/v1/identity/users/#{target.id}",
+          actor_plaintext,
+          tenant,
+          %{"status" => "inactive"}
+        )
+
+      assert conn.status == 200
+      assert Repo.get!(User, target.id, prefix: tenant.schema_name).status == :inactive
+
+      audit_after = gh2557_audit_actions(tenant)
+      assert audit_after -- audit_before == ["user.update_profile"]
+      refute "token.revoke" in audit_after
+      refute "token.revoked" in audit_after
+
+      persisted = Repo.get!(Identity.ApiToken, target_token.id, prefix: tenant.schema_name)
+      assert persisted.revoked_at == nil
+
+      inactive_conn = gh2557_get(@gh2557_admin_route, target_plaintext, tenant)
+      assert inactive_conn.status == 401
+
+      gh2557_assert_same_response!(
+        inactive_conn,
+        gh2557_revoked_reference(tenant, @gh2557_admin_route)
+      )
+    end
+  end
 end

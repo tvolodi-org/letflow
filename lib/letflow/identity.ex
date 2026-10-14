@@ -1681,15 +1681,26 @@ defmodule Letflow.Identity do
   this call path — exactly one `Repo` round trip per call, always against
   current data. This is what makes revocation take effect on the very next
   call: nothing between the revoking `UPDATE` and the next `verify_api_token/2`
-  call's `Repo.get_by/3` can observe a pre-revocation value, because there is
+  call's token lookup can observe a pre-revocation value, because there is
   no cache layer between them to be stale.
+
+  The lookup is one query that joins the token row to its owning `User` in the
+  same tenant schema and reads the owner's activity through
+  `active_user_condition/1` (GH-2557). A token whose owner is not active
+  (`active_user?/1` false) returns `{:error, :revoked}` — the exact term a
+  revoked token returns, so the caller renders a byte-identical 401 — and does
+  **not** write `last_used_at`. The owner check runs after the revoked check
+  and before the expiry check. Deactivating a user changes no token row:
+  reactivating the owner makes a non-revoked, non-expired token authenticate
+  again on the next call.
 
   On a successful verification, best-effort updates `last_used_at` — a failure
   on that one non-essential write does not fail the verification itself (logged
   and swallowed).
 
   Returns `{:ok, %{user_id: user_id, roles: roles}}`, or `{:error, :invalid}`
-  (no matching row), `{:error, :revoked}`, or `{:error, :expired}`.
+  (no matching row), `{:error, :revoked}` (revoked, or owner inactive), or
+  `{:error, :expired}`.
   """
   @spec verify_api_token(plaintext :: String.t(), opts :: opts()) ::
           {:ok, %{user_id: Ecto.UUID.t(), roles: [String.t()]}}
@@ -1700,23 +1711,75 @@ defmodule Letflow.Identity do
     prefix = Keyword.fetch!(opts, :prefix)
     token_hash = hash_token_value(plaintext)
 
-    case Repo.get_by(ApiToken, [token_hash: token_hash], prefix: prefix) do
+    base =
+      from(t in ApiToken,
+        as: :token,
+        join: u in User,
+        as: :owner,
+        on: u.id == t.user_id,
+        where: t.token_hash == ^token_hash
+      )
+
+    query =
+      select(
+        base,
+        [token: t],
+        ^%{token: dynamic([token: t], t), owner_active: active_user_condition(:owner)}
+      )
+
+    case Repo.one(query, prefix: prefix) do
       nil ->
         {:error, :invalid}
 
-      %ApiToken{revoked_at: revoked_at} when not is_nil(revoked_at) ->
+      %{token: %ApiToken{revoked_at: revoked_at}} when not is_nil(revoked_at) ->
         {:error, :revoked}
 
-      %ApiToken{expires_at: expires_at} = token when not is_nil(expires_at) ->
+      %{owner_active: false} ->
+        {:error, :revoked}
+
+      %{token: %ApiToken{expires_at: expires_at} = token, owner_active: true}
+      when not is_nil(expires_at) ->
         if DateTime.compare(expires_at, DateTime.utc_now()) != :gt do
           {:error, :expired}
         else
           touch_last_used_and_verify(token, prefix)
         end
 
-      %ApiToken{} = token ->
+      %{token: %ApiToken{} = token, owner_active: true} ->
         touch_last_used_and_verify(token, prefix)
     end
+  end
+
+  @doc """
+  Returns `true` if and only if `user` is active — `user.status == :active`
+  (GH-2557). This is the single in-memory definition of "active user"; the
+  OIDC path (`AuthPipeline.verify_local_account_state/2`) calls it, and
+  `active_user_condition/1` is its query-side twin (`users.status`, per tenant schema). Pure:
+  no I/O. Any other status, including `:inactive`, returns `false`.
+  """
+  @spec active_user?(User.t()) :: boolean()
+  def active_user?(%User{status: status}), do: status == :active
+
+  @doc """
+  Returns an `Ecto.Query.dynamic` expression that is true if and only if the
+  `Letflow.Identity.User` row bound by the **named binding** `binding` is
+  active (`status == :active`) — the query-side twin of `active_user?/1` and
+  the single definition `verify_api_token/2` and any tenant-wide admin count
+  (#2547) build on (GH-2557).
+
+  The caller must bind `User` with `as: binding` in the query that receives the
+  expression; Ecto raises at query build otherwise. No prefix is set or read
+  here — the caller's `Repo` call passes `prefix:`, as every tenant query does.
+  Parameterised Ecto only, no `fragment`, no I/O.
+
+  The binding must be a `User`: any other schema with a `status` field would
+  give a silently wrong predicate. Under a `left_join` with no matching user
+  the expression is SQL NULL, which fails closed in a `where` but is `nil` in a
+  `select`, so a caller selecting it must handle `nil`.
+  """
+  @spec active_user_condition(binding :: atom()) :: Ecto.Query.dynamic_expr()
+  def active_user_condition(binding) when is_atom(binding) do
+    dynamic([{^binding, u}], u.status == :active)
   end
 
   defp touch_last_used_and_verify(%ApiToken{} = token, prefix) do
