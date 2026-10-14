@@ -196,7 +196,7 @@ defmodule Letflow.Routers.SolutionPacksManagedByTest do
         conn = call_packs(ctx, "/#{@module_pack_id}/update-apply", body)
 
         assert conn.status == 403, "#{label}: #{conn.status} #{conn.resp_body}"
-        assert conn.resp_body == managed_body(), label
+        assert conn.resp_body == managed_body(), "#{label}: #{conn.resp_body}"
       end
 
       assert resolution_count(ctx.tenant_id) == resolutions_before
