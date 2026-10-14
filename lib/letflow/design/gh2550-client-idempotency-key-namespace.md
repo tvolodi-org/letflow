@@ -68,20 +68,20 @@ certificate can never be issued.
 ### D1. New module `Letflow.Idempotency` (`lib/letflow/idempotency.ex`)
 
 This is the **only** reader and shaper of caller keys. Everything is pure except
-`legacy_original/4`.
+`legacy_original/3`.
 
 | Element | Shape |
 |---|---|
 | `@type route :: :rec \| :inst_start \| :inst_cancel \| :inst_rebind` | tokens `"rec"`, `"inst_start"`, `"inst_cancel"`, `"inst_rebind"` |
 | `@spec raw_max(route() \| :script) :: 199 \| 162` | per route (ORCH): `rec`, `inst_start`, `:script` → 199; `inst_cancel`, `inst_rebind` → 162 = 255 - 93 (`"client:inst_cancel:"` 19 + actor 36 + `:` + instance 36 + `:`). The others' overhead is ≤ 56, so 199 fits. |
 | `@spec client_key(route(), actor_id :: Ecto.UUID.t(), instance_id :: Ecto.UUID.t() \| nil, raw :: String.t()) :: String.t()` | `rec`/`inst_start` (instance nil): `"client:" <> token <> ":" <> actor <> ":" <> raw`. `inst_cancel`/`inst_rebind` (instance required): `"client:" <> token <> ":" <> actor <> ":" <> instance_id <> ":" <> raw`. `FunctionClauseError` on a wrong instance arity, a non-36-byte uuid, or an empty raw value or one over `raw_max/1`. |
-| `@type resolved :: %{key: String.t(), legacy_raw: String.t() \| nil}` | `key` is stored; `legacy_raw` is K if supplied and not excluded by D3 (iv), else nil |
+| `@type resolved :: %{key: String.t(), legacy_raw: String.t() \| nil}` | `key` is stored; `legacy_raw` is K if supplied and not excluded by D3 (iv), else nil (`rec` only) |
 | `@spec from_body(map(), route(), Ecto.UUID.t()) :: {:ok, resolved()} \| {:error, :idempotency_key_too_long}` | reads `attrs["idempotency_key"]`: absent gives `key: Ecto.UUID.generate()` (bare), `legacy_raw: nil`; ≤ `raw_max(:rec)` bytes gives `client_key(:rec, actor, nil, raw)`; more gives the error |
-| `@spec from_header(Plug.Conn.t(), route(), Ecto.UUID.t(), Ecto.UUID.t() \| nil) :: {:ok, resolved()} \| {:error, :idempotency_key_too_long}` | first `idempotency-key` value; absent or `""` gives a bare UUID (today's rule, `instances.ex:1656`); otherwise limited by `raw_max(route)` and built by `client_key/4`. **No truncation** (N1). |
+| `@spec from_header(Plug.Conn.t(), route(), Ecto.UUID.t(), Ecto.UUID.t() \| nil) :: {:ok, String.t()} \| {:error, :idempotency_key_too_long}` | first `idempotency-key` value; absent or `""` gives a bare UUID (today's rule, `instances.ex:1656`); otherwise limited by `raw_max(route)` and built by `client_key/4`. **No truncation** (N1). |
 | `@spec script_key(term(), Ecto.UUID.t()) :: {:ok, String.t()} \| {:error, :invalid_idempotency_key}` | a non-empty binary of ≤ 199 bytes gives `"script:" <> actor_id <> ":" <> raw` |
-| `@spec legacy_original(resolved(), route(), Ecto.UUID.t(), [prefix: String.t(), instance_id: Ecto.UUID.t()]) :: {:ok, Event.t()} \| :none` | D3 |
+| `@spec legacy_original(resolved(), actor_id :: Ecto.UUID.t(), [prefix: String.t()]) :: {:ok, Event.t()} \| :none` | D3, `rec` only |
 | `@spec legacy_cutoff() :: DateTime.t()` | D3 (i) |
-| `@spec too_long_error(String.t()) :: Letflow.Api.Validation.FieldError.t()` | the stable 422: `Validation.problem/1` with `field` = `"idempotency_key"` (body) or `"idempotency-key"` (header), `constraint: "max_length"`, no `received` echo (`api/validation.ex:50`) |
+| `@spec too_long_error(:body \| :header) :: Letflow.Api.Validation.FieldError.t()` | the stable 422: `field` is `"idempotency_key"` for `:body` and `"idempotency-key"` for `:header`, with `constraint: "max_length"` and no `received` echo (`api/validation.ex:50`). The atom argument keeps both literals out of the routers, which the AC5 scan needs. |
 | `@spec caller_prefixes() :: [String.t()]` / `server_prefixes() :: [String.t()]` | `["client:", "script:"]` / §1b verbatim |
 
 The limit is counted in **bytes**. Since bytes ≥ codepoints ≥ graphemes and the overhead
@@ -95,12 +95,14 @@ is ASCII, a stored caller key never exceeds `varchar(255)` or `EventStore`'s che
 `session.ex:1328`, `anti_cheat.ex:258`, the import (`entities.ex:1254`) and the seed task
 (`:577`). The store cannot tell origin, so namespacing happens where caller input enters.
 
-Order at each boundary: actor, then D1 key (too long gives a 422 via
-`Validation.problem([too_long_error(field)])`), then `legacy_original/4`, then the D3 hit
-path or the domain call with `resolved.key`.
+Order at each boundary: resolve the actor; resolve the key with D1 (too long gives a 422 via
+`Validation.problem([too_long_error(:body | :header)])`); for `rec` only, run
+`legacy_original/3`; then make the domain call.
 
 - **C1/C2** `entities.ex`: delete `idempotency_key/1` (`:1090-1095`). Both handlers' `with`
   gains `{:ok, resolved} <- Idempotency.from_body(attrs, :rec, conn.assigns.auth_context.user_id)`.
+  The command attrs then get `idempotency_key: resolved.key`, plus `legacy_original: event`
+  when `legacy_original/3` returns `{:ok, event}` (D3).
   The `FieldConstraint` (`:939-944`) keeps its type and `reject_empty_string` checks, with
   no `max_length`.
 - **C3/C4/C5** `instances.ex`: delete `idempotency_key/1`, `truncate/2`,
@@ -116,63 +118,62 @@ path or the domain call with `resolved.key`.
   give `missing_idempotency_key`. There is no legacy lookup. The moduledoc must not quote
   `prefix: idempotency_key`, which `platform_test.exs:1624` greps for.
 
-### D3. Compatibility: constrained legacy lookup for one release (supervisor ruling)
+### D3. Compatibility: constrained legacy lookup, `rec` only, for one release
 
-An unconstrained lookup of bare K is rejected, because server keys are stored bare.
-`legacy_original/4` returns a hit **only if all** of these hold, checked in this order:
-- **(iv)** K starts with no `server_prefixes/0` entry. This is checked inside
-  `from_body`/`from_header` with no I/O, and a match sets `legacy_raw: nil`. The prefixes
-  are public source, so this leaks nothing.
-- **Lookup**: one query through the new
-  `@spec EventStore.get_by_idempotency_key(String.t(), [prefix: String.t()]) :: {:ok, Event.t()} | {:error, :not_found}`.
-  It is a single join of `event_idempotency` to `events` on `(event_id, event_created_at)`,
-  the shape of `resolve_duplicate/3` (`event_store.ex:678-692`). One round-trip whether or
-  not a row exists means no timing signal. Archived events give `:not_found`.
-- **(i)** `event.created_at < legacy_cutoff()`.
-- **(ii)** `event.actor_id == actor_id`.
-- **(iii)** `event.event_type` is one the route produces:
-  - `rec`: `ENTITY_RECORD_CREATED` or `ENTITY_RECORD_UPDATED`
-  - `inst_start`: `INSTANCE_STARTED` (`engine.ex:2108`)
-  - `inst_cancel`: `INSTANCE_CANCELLED` (`:6201`)
-  - `inst_rebind`: `INSTANCE_PINS_REBOUND` (`pin_rebind.ex:470`)
-- **(v)** cancel/rebind: `event.instance_id == opts[:instance_id]`. It is kept because bare
-  legacy keys, unlike namespaced ones, carry no instance.
+**Scope (N8).** Only C1/C2 have real duplicate semantics, through Records'
+`match_original/3`. C3-C5 do not, because the engine ignores `is_duplicate`. Start inserts
+the projection before its append (`engine.ex:1718,1770`), so a same-key replay creates a
+second instance with no `INSTANCE_STARTED` event. Cancel returns 409 on a replay. C3-C5 get
+no lookup, so a pre-deploy key replayed there is a first write. The engine gap is
+**pre-existing and out of scope**, tracked as **GH #2577**.
 
-On `:none`, the request is a first write under `resolved.key`.
+An unconstrained lookup of the bare key stays rejected, because server keys are stored
+bare. `legacy_original/3` hits only if all of these hold:
+- **(iv)** K starts with no `server_prefixes/0` entry and no `caller_prefixes/0` entry.
+  This is checked in `from_body/3` with no I/O; otherwise `legacy_raw` is nil. The
+  prefixes are public source, so the check leaks nothing.
+- **One query** through
+  `@spec EventStore.get_legacy_original(key :: String.t(), actor_id :: Ecto.UUID.t(), event_types :: [String.t()], before :: DateTime.t(), [prefix: String.t()]) :: {:ok, Event.t()} | {:error, :not_found}`.
+  It joins `event_idempotency` to `events` on `(event_id, event_created_at)`, the shape of
+  `resolve_duplicate/3` (`event_store.ex:678-692`), with these guards all in the `WHERE`:
+  - **(i)** `created_at < before`, where `before` = `legacy_cutoff()`;
+  - **(ii)** `actor_id = $actor`;
+  - **(iii)** `event_type IN ('ENTITY_RECORD_CREATED','ENTITY_RECORD_UPDATED')`.
 
-**Hit paths (pre-deploy semantics):**
-- **C1/C2**: Records gets a new optional attr, `optional(:legacy_original) => Event.t()`,
-  in `create_attrs`/`update_attrs` (`records.ex:155,178`). In `run_command/2`, right after
-  `request_fingerprint/2` (`:377`), where a namespaced duplicate would surface, a present
-  `legacy_original` skips the append and returns `match_original/3` (`:803-814`) mapped as
-  in `interpret_result/3` (`:727-737`). The #2543 binding applies unchanged.
-- **C3**: `Instances.get_by_id(event.instance_id, opts)` (`instances.ex:55`), then 201
-  `{instance_id, status_string(status), created_at: event.created_at}`.
-- **C4**: 200 `{instance_id, "CANCELLED"}`.
-- **C5**: 200 via the `rebind_result_map/1` shape (`routers/instances.ex:1697-1713`):
-  `changes` = `payload["entries"]` limited to `"kind"`, `"ref"`, `"prior_version"` and
-  `"new_version"` (the payload's own four keys, `pin_rebind.ex:461-463`), and
-  `rebound_at` = `event.created_at`.
+  It selects only `event_id, created_at, instance_id, event_type, actor_id, payload,
+  global_seq`, which is what `match_original/3` and `duplicate_result/1` read
+  (`records.ex:803-814,932-946`). Archived rows are not searched. It is one round-trip
+  either way; the remaining sub-millisecond difference is within one tenant and is
+  accepted.
+- Guard (v), the instance match, is dropped, since N8 removes cancel/rebind.
 
-**(i) Cutoff: a compile-time constant** `@legacy_cutoff`. ELIXIR-DEV sets it to 00:00 UTC
-on the day after the merge (for example `~U[2026-10-17 00:00:00.000000Z]`) and states it in
-the PR. It must be ≥ the deploy time.
-Erring later is safe: after deploy no bare caller key is written, and later bare server
-keys are excluded by (iv) or are minted UUIDs the caller never sees (`entities.ex:1051`,
-`tasks.ex:331`, absent header). Rejected: app-env (drifts per environment, fails silently);
-migration timestamp (this change has none, and it records authoring, not deploy, time).
+**Hit path.** Records gains `optional(:legacy_original) => Event.t()` in
+`create_attrs`/`update_attrs` (`records.ex:155,178`). In `run_command/2`, right after
+`request_fingerprint/2` (`:377`), a present `legacy_original` skips the append. It returns
+`match_original/3` mapped as in `interpret_result/3` (`:727-737`): the same result, or a
+422 reuse.
 
-**Transaction and race.** The lookup runs before the domain call, outside the append
-transaction. Legacy rows are immutable after deploy, so there is no check-then-act race;
-`uq_event_idempotency_key` still arbitrates the namespaced claim. Concurrent replays hit the
-same original. A row moved by `archive/1` (`event_store.ex:1215`) mid-request gives a first write.
+**(i) Cutoff = the planned removal date (N6)**: the compile-time constant
+`@legacy_cutoff ~U[2026-11-16 00:00:00.000000Z]`. A cutoff after deploy is safe: no bare
+caller key is written after deploy, (iv) excludes every server and caller prefix, and the
+other bare keys written after deploy are server-minted UUIDs that no caller sees
+(`entities.ex:1051`, `session.ex:1070,1269,1333`, `anti_cheat.ex:268`).
 
-**Cost.** One indexed lookup, only when a supplied K passes (iv).
+Rejected alternatives: an app-env value (drifts per environment, misconfigures silently)
+and a migration timestamp (there is no migration).
 
-**Removal.** After one release, delete `legacy_original/4`, `legacy_cutoff/0`,
-`get_by_idempotency_key/2`, the Records attr and the hit paths. ORCH files the follow-up
-"GH #2550 follow-up: remove the legacy idempotency-key lookup after one release". The test
-`"legacy cutoff is pinned"` asserts the exact literal.
+**N7 (removal, GH #2578).** Removal happens on or after #2550's production deploy date
+plus one release. 2026-11-16 is a placeholder that is moved once the deploy date is known.
+The `@legacy_cutoff` comment and the PR body cite #2578 and the date. The test
+`"legacy cutoff is pinned"` asserts the date. #2578 deletes `legacy_original/3`,
+`legacy_cutoff/0`, `get_legacy_original/5`, the Records attr, the hit path and the AC4
+tests.
+
+**Transaction, race, cost.** The read runs before the append transaction. Legacy rows
+never change after deploy, so there is no check-then-act race, and
+`uq_event_idempotency_key` still arbitrates the namespaced claim. A row moved by
+`archive/1` (`event_store.ex:1215`) mid-request gives a first write. Cost: one indexed
+query, only on `rec` with a supplied K that passes (iv).
 
 ### D4. #2543 binding
 
@@ -199,8 +200,8 @@ instance on cancel/rebind. A caller cannot name a server key (nor an import key,
 is minted per call, `entities.ex:1125`, never returned), cannot probe another user's keys,
 and instance routes cannot collide with each other, with records, or across instances.
 That matters because C3-C5 have no binding: the engine ignores `is_duplicate`, and cancel
-cancels the projection even when its append was a duplicate (`engine.ex:6186-6224`). D3 only returns same-actor
-rows of the route's own types, never server families, in one constant query.
+cancels the projection even when its append was a duplicate (`engine.ex:6186-6224`). D3 (`rec` only) returns only
+same-actor entity-record rows, never server or caller families, in one query.
 
 ## 3. AC map and tests
 
@@ -214,23 +215,24 @@ Files: `test/letflow/idempotency_test.exs` (unit, scan); `test/letflow/client_ke
 | AC1 certificate | §1b | `"another writer squats certificate:issue:<sid>, issuance still succeeds"`: a PROCESS_OPERATOR POSTs first; the candidate then gets 200 with server-computed values and a different record |
 | AC1 import | D6 | StreamData: `client_key/4` never starts with a `server_prefixes/0` entry. Then import an entry and POST its stored key as K: 201, new record. |
 | AC1 attachment (N3) | D2 | squat `attachment_removed:<id>`, remove the attachment, assert an `ATTACHMENT_REMOVED` event |
-| AC2 | D4 | POST twice with K: same `record_id`, +0 events. Cancel twice: second is 409 (`:661`), +0 events. `emit_event` twice: 1 event. |
+| AC2 | D4 | **`rec` only**; C3-C5 have no replay semantics (#2577). POST twice with K: same `record_id`, +0 events. PUT twice with K: same result, +0 events. C6 `emit_event` twice: 1 event (EventStore dedupe). |
 | AC3 | D2 | stay green: `scheduler_test`, `engine/timer_wiring_test`, `engine/human_task_escalation_test`, `engine/*escalation_timer_test`, `engine/service_task_dispatcher_test`, `engine/service_task_test`, `modules/exam/certificate_test`, `routers/entities_test` (`:2309`, `:3534`), `entities/records_test`, `repository/attachments_test`, `engine/pin_rebind_test`, `routers/instances_test`, `engine/lua/platform_test`, `engine_cancel_instance_test`, `simulation/seed_idempotency_test` |
-| AC4 hit | D3 | `"legacy key, same actor, in window → duplicate"`: insert with bare `legacy-k` (`created_at` before the cutoff), POST `legacy-k`: same `record_id`, +0 events. Likewise cancel → 200 with +0 events, and rebind → 200 with the original `changes`. |
-| AC4 server | D3 (iv) | `"legacy server key from a client is not a duplicate"`: a server `timer_fired:<id>` event exists; a client POSTs that K and gets 201 with a new record. The `event_idempotency` row for `timer_fired:<id>` is unchanged. |
+| AC4 fixture | D3 | EventStore stamps `created_at` with now (`event_store.ex:243`), so legacy rows are inserted **directly via Repo** with `prefix:`. Insert one `%Event{}` with an ENTITY_RECORD_CREATED payload (`entity_type`, `record_id`, `field_values`, `entity_def_version` as hex) and an `instance_id` from `EntityTypeInstance.get_or_create/2`. Insert one `IdempotencyRecord.insert_changeset/2` row. Set `created_at`/`event_created_at` to `legacy_cutoff()` ± 1 day. Out-of-range dates land in `events_default` (`20260922000002_create_events_p_initial_partitions.exs:62`). |
+| AC4 hit | D3 | `"legacy key, same actor, before cutoff → duplicate"` (cutoff − 1 day): POST `legacy-k`, get the fixture's `record_id`, +0 events |
+| AC4 server | D3 (iv) | `"legacy server key from a client is not a duplicate"`: a server `timer_fired:<id>` row exists; a client POSTs that K and gets 201 with a new record; the server row is untouched |
 | AC4 actor | D3 (ii) | `"legacy key from a different actor → not a duplicate"`: 201, +1 event |
-| AC4 cutoff | D3 (i) | `"legacy row after the cutoff → ignored"`: row `created_at` ≥ cutoff, so 201, +1 event. Plus `"cutoff on another instance → ignored"` (v) and `"legacy cutoff is pinned"` |
+| AC4 cutoff | D3 (i) | `"legacy row after the cutoff → ignored"` (cutoff + 1 day): 201, +1 event. Plus `"legacy cutoff is pinned"` (#2578 date). |
 | AC5 per entry | D2 | one test each, asserting the stored key exactly: C1/C2 `client:rec:<actor>:K`, C3 `client:inst_start:<actor>:K`, C4 `client:inst_cancel:<actor>:<instance>:K`, C5 `client:inst_rebind:<actor>:<instance>:K`, C6 `script:<actor>:K` |
 | cross-instance | D6 | `"same actor, same K, different instance on cancel → both cancels write INSTANCE_CANCELLED"`: cancel A then B with one K; each has its own `INSTANCE_CANCELLED` event and both return 200. Same shape for rebind: two `INSTANCE_PINS_REBOUND` events. |
-| AC5 scan | D1 | `"caller key is read only in Idempotency"`: scan `lib/**/*.ex` except `idempotency.ex` and `lib/letflow/design/`. Fail on `"idempotency-key"` except `plugs/cors.ex:78`. Fail on `Map.get(`/`Map.fetch(`/`[` reads of `"idempotency_key"` and on `get_req_header(`. A `FieldConstraint name:` is allowed. Each failure reports `file:line`. |
+| AC5 scan | D1 | `"caller key is read only in Idempotency"`: in `lib/**/*.ex` except `idempotency.ex` and `lib/letflow/design/`, fail on any **exact quoted literal** `"idempotency_key"` or `"idempotency-key"` (quotes included), reporting `file:line`. The allowlist holds only the `FieldConstraint` `name:` at `entities.ex:940`. Exact matching does not hit `"idempotency_key_reuse"`, `idempotency-key-reuse`, or the CORS header list (`cors.ex:78`, which is one longer string). It does catch `Map.get`, a `%{"idempotency_key" => k}` pattern match, and a `Map.take(…, ["idempotency_key"])` bypass. On main today it hits `entities.ex:1091` and `instances.ex:328`; D2 deletes both. |
 | AC5 prefixes | D1 | caller and server prefixes don't overlap in either direction; every §1b literal is still present in its file and is listed |
 | D5 | D5 | body 200 bytes → 422; 199-byte multibyte → 201 (stored ≤ 255 bytes). Start header 200 → 422. Cancel/rebind header 163 → 422 and 162 → 200 (stored ≤ 255 bytes). Each 422 has the same `max_length` problem body and appends no event. Script 300 → `invalid_arguments`. |
 
 ## 4. Blast radius, invariants, anti-patterns
 
 - Files: `lib/letflow/idempotency.ex` (new), `routers/entities.ex`, `routers/instances.ex`,
-  `engine/lua/platform.ex`, `event_store.ex` (one new read), `entities/records.ex` (one
-  optional attr). No migration.
+  `engine/lua/platform.ex`, `event_store.ex` (one read, removed by #2578),
+  `entities/records.ex` (one optional attr, removed by #2578). No migration.
 - **INV-1**: prefix and actor come from `auth_context` server-side (`entities.ex:948`,
   `instances.ex:544`); the legacy read uses the same prefix. **INV-5**: D6. **INV-8**: an
   over-long body key goes from a 500 to a 422.
@@ -245,4 +247,4 @@ Files: `test/letflow/idempotency_test.exs` (unit, scan); `test/letflow/client_ke
   `actor_id` ≠ the session's candidate (blocking squats). A candidate's own forgery could
   only be found by comparing record values with the session, and it cannot happen while
   `:CANDIDATE` lacks `EntitiesRecordsWrite`.
-- OQ-2 is closed by ORCH: cancel/rebind keys carry the instance id (D1, D6).
+- OQ-2 is closed (ORCH: cancel/rebind keys carry the instance id). Follow-ups: #2578, #2577.
