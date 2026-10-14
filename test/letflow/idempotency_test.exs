@@ -116,8 +116,10 @@ defmodule Letflow.IdempotencyTest do
       assert key == "client:rec:#{@actor}:legacy-k"
     end
 
-    test "a key in any server or caller family is namespaced and never a legacy candidate" do
-      for prefix <- Idempotency.server_prefixes() ++ Idempotency.caller_prefixes() do
+    test "a key in any server, reserved or caller family is namespaced and never a legacy candidate" do
+      for prefix <-
+            Idempotency.server_prefixes() ++
+              Idempotency.reserved_prefixes() ++ Idempotency.caller_prefixes() do
         raw = prefix <> "x"
 
         assert {:ok, %{key: key, legacy_raw: nil}} =
@@ -141,6 +143,41 @@ defmodule Letflow.IdempotencyTest do
 
       assert {:error, :idempotency_key_too_long} =
                Idempotency.from_body(%{"idempotency_key" => raw_200}, :rec, @actor)
+    end
+  end
+
+  describe "invalid keys (F1): not valid UTF-8 or containing NUL, refused before any I/O" do
+    @invalid_raws ["a" <> <<0>> <> "b", <<0xFF, 0xFE>>, "ok" <> <<0xC3>>]
+
+    test "from_body/3 refuses them, even when they would also be too long" do
+      for raw <- @invalid_raws ++ [String.duplicate("k", 250) <> <<0>>] do
+        assert {:error, :idempotency_key_invalid} =
+                 Idempotency.from_body(%{"idempotency_key" => raw}, :rec, @actor)
+      end
+    end
+
+    test "from_header/4 refuses them on every route" do
+      for raw <- @invalid_raws, route <- [:inst_start, :inst_cancel, :inst_rebind] do
+        c = conn(:post, "/") |> put_req_header("idempotency-key", raw)
+        instance = if route == :inst_start, do: nil, else: @instance
+
+        assert {:error, :idempotency_key_invalid} =
+                 Idempotency.from_header(c, route, @actor, instance)
+      end
+    end
+
+    test "script_key/2 refuses them" do
+      for raw <- @invalid_raws do
+        assert {:error, :invalid_idempotency_key} = Idempotency.script_key(raw, @actor)
+      end
+    end
+
+    test "invalid_error/1 is a stable format error with no received echo" do
+      assert %FieldError{field: "idempotency_key", constraint: "format", received: nil} =
+               Idempotency.invalid_error(:body)
+
+      assert %FieldError{field: "idempotency-key", constraint: "format", received: nil} =
+               Idempotency.invalid_error(:header)
     end
   end
 
@@ -191,6 +228,12 @@ defmodule Letflow.IdempotencyTest do
       end
     end
 
+    test "script_key/2 has client_key/4's 36-byte actor guard (F5)" do
+      for bad_actor <- ["short", @actor <> "x", nil, 42] do
+        assert {:error, :invalid_idempotency_key} = Idempotency.script_key("K", bad_actor)
+      end
+    end
+
     test "too_long_error names the body field or the header, max_length, no received echo" do
       assert %FieldError{
                field: "idempotency_key",
@@ -207,13 +250,26 @@ defmodule Letflow.IdempotencyTest do
   end
 
   describe "prefixes (AC5)" do
-    test "caller and server prefixes do not overlap in either direction" do
-      for c <- Idempotency.caller_prefixes(), s <- Idempotency.server_prefixes() do
-        refute String.starts_with?(c, s), "#{c} starts with server prefix #{s}"
-        refute String.starts_with?(s, c), "#{s} starts with caller prefix #{c}"
+    test "caller, server and reserved prefixes do not overlap in either direction" do
+      families = [
+        caller: Idempotency.caller_prefixes(),
+        server: Idempotency.server_prefixes(),
+        reserved: Idempotency.reserved_prefixes()
+      ]
+
+      for {fa, as} <- families, {fb, bs} <- families, fa != fb, a <- as, b <- bs do
+        refute String.starts_with?(a, b), "#{fa} #{a} starts with #{fb} prefix #{b}"
       end
 
       assert Idempotency.caller_prefixes() == ["client:", "script:"]
+      assert Idempotency.reserved_prefixes() == ["sys:"]
+    end
+
+    test "sys:step:x is namespaced like any caller key and never a legacy candidate" do
+      assert {:ok, %{key: key, legacy_raw: nil}} =
+               Idempotency.from_body(%{"idempotency_key" => "sys:step:x"}, :rec, @actor)
+
+      assert key == "client:rec:#{@actor}:sys:step:x"
     end
 
     test "server_prefixes/0 is exactly design §1b, and each literal is still built in its file" do

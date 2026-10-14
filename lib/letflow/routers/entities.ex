@@ -1023,6 +1023,9 @@ defmodule Letflow.Routers.Entities do
 
       {:error, :idempotency_key_too_long} ->
         Response.send_problem(conn, Validation.problem([Idempotency.too_long_error(:body)]))
+
+      {:error, :idempotency_key_invalid} ->
+        Response.send_problem(conn, Validation.problem([Idempotency.invalid_error(:body)]))
     end
   end
 
@@ -1095,6 +1098,9 @@ defmodule Letflow.Routers.Entities do
 
       {:error, :idempotency_key_too_long} ->
         Response.send_problem(conn, Validation.problem([Idempotency.too_long_error(:body)]))
+
+      {:error, :idempotency_key_invalid} ->
+        Response.send_problem(conn, Validation.problem([Idempotency.invalid_error(:body)]))
     end
   end
 

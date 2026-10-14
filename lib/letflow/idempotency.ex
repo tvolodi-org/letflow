@@ -29,7 +29,8 @@ defmodule Letflow.Idempotency do
   Keys written before this change were stored bare. For one release,
   `legacy_original/3` lets a same-actor replay of such a key on the record
   routes still be a duplicate, under guards: the key matches no server or
-  caller family (checked without I/O in `from_body/3`), the row was written
+  caller family nor the reserved `sys:` (checked without I/O in
+  `from_body/3`), the row was written
   before `legacy_cutoff/0`, by the same actor, as an entity-record create or
   update. Removal is tracked by GH #2578.
   """
@@ -47,6 +48,11 @@ defmodule Letflow.Idempotency do
   @header "idempotency-key"
 
   @caller_prefixes ["client:", "script:"]
+
+  # Reserved for server families not built yet: `sys:` is decision 0054 D4's
+  # process-step write key (GH #2587). Excluded from the legacy lookup like a
+  # server family; not in server_prefixes/0, because nothing produces it yet.
+  @reserved_prefixes ["sys:"]
 
   # Design §1b, verbatim. Derived `<base>::sub_process_*::<uuid>` keys keep the
   # base first, so they take the base's family and are not listed separately.
@@ -107,17 +113,24 @@ defmodule Letflow.Idempotency do
   Resolves the key for a record write from its validated body `attrs`. Absent
   gives a bare minted UUID; a supplied key within `raw_max/1` gives the
   namespaced key, plus `legacy_raw` when the key could be a pre-#2550 caller
-  key (it matches no server or caller family, guard (iv)).
+  key (it matches no server, reserved or caller family, guard (iv)). A key
+  that is not valid UTF-8 or contains NUL is refused before anything else.
   """
   @spec from_body(map(), :rec, Ecto.UUID.t()) ::
-          {:ok, resolved()} | {:error, :idempotency_key_too_long}
+          {:ok, resolved()} | {:error, :idempotency_key_too_long | :idempotency_key_invalid}
   def from_body(attrs, :rec, actor_id) when is_map(attrs) do
     case Map.get(attrs, @body_field) do
-      raw when is_binary(raw) and byte_size(raw) > @raw_max_long ->
-        {:error, :idempotency_key_too_long}
-
       raw when is_binary(raw) and byte_size(raw) > 0 ->
-        {:ok, %{key: client_key(:rec, actor_id, nil, raw), legacy_raw: legacy_raw(raw)}}
+        cond do
+          not valid_raw?(raw) ->
+            {:error, :idempotency_key_invalid}
+
+          byte_size(raw) > @raw_max_long ->
+            {:error, :idempotency_key_too_long}
+
+          true ->
+            {:ok, %{key: client_key(:rec, actor_id, nil, raw), legacy_raw: legacy_raw(raw)}}
+        end
 
       _absent ->
         {:ok, %{key: Ecto.UUID.generate(), legacy_raw: nil}}
@@ -126,16 +139,19 @@ defmodule Letflow.Idempotency do
 
   @doc """
   Resolves the key for an instance route from the first `idempotency-key`
-  header value. Absent or empty gives a bare minted UUID.
+  header value. Absent or empty gives a bare minted UUID; invalid UTF-8 or a
+  NUL byte is refused before the length check.
   """
   @spec from_header(Plug.Conn.t(), route(), Ecto.UUID.t(), Ecto.UUID.t() | nil) ::
-          {:ok, String.t()} | {:error, :idempotency_key_too_long}
+          {:ok, String.t()} | {:error, :idempotency_key_too_long | :idempotency_key_invalid}
   def from_header(%Plug.Conn{} = conn, route, actor_id, instance_id) do
     case Plug.Conn.get_req_header(conn, @header) do
       [raw | _rest] when byte_size(raw) > 0 ->
-        if byte_size(raw) > raw_max(route),
-          do: {:error, :idempotency_key_too_long},
-          else: {:ok, client_key(route, actor_id, instance_id, raw)}
+        cond do
+          not valid_raw?(raw) -> {:error, :idempotency_key_invalid}
+          byte_size(raw) > raw_max(route) -> {:error, :idempotency_key_too_long}
+          true -> {:ok, client_key(route, actor_id, instance_id, raw)}
+        end
 
       _absent_or_empty ->
         {:ok, Ecto.UUID.generate()}
@@ -147,8 +163,10 @@ defmodule Letflow.Idempotency do
           {:ok, String.t()} | {:error, :invalid_idempotency_key}
   def script_key(raw, actor_id)
       when is_binary(raw) and byte_size(raw) > 0 and byte_size(raw) <= @raw_max_long and
-             is_binary(actor_id) do
-    {:ok, "script:" <> actor_id <> ":" <> raw}
+             is_binary(actor_id) and byte_size(actor_id) == 36 do
+    if valid_raw?(raw),
+      do: {:ok, "script:" <> actor_id <> ":" <> raw},
+      else: {:error, :invalid_idempotency_key}
   end
 
   def script_key(_raw, _actor_id), do: {:error, :invalid_idempotency_key}
@@ -161,6 +179,15 @@ defmodule Letflow.Idempotency do
   def too_long_error(:body), do: too_long(@body_field)
   def too_long_error(:header), do: too_long(@header)
 
+  @doc """
+  The stable 422 field error for a key that is not valid UTF-8 or contains a
+  NUL byte (Postgres rejects both, which used to surface as a 500). No
+  `received` echo.
+  """
+  @spec invalid_error(:body | :header) :: FieldError.t()
+  def invalid_error(:body), do: invalid(@body_field)
+  def invalid_error(:header), do: invalid(@header)
+
   @doc "Caller-key families. Never produced by a server writer."
   @spec caller_prefixes() :: [String.t()]
   def caller_prefixes, do: @caller_prefixes
@@ -168,6 +195,10 @@ defmodule Letflow.Idempotency do
   @doc "Server-built key families (design §1b)."
   @spec server_prefixes() :: [String.t()]
   def server_prefixes, do: @server_prefixes
+
+  @doc "Reserved server families nothing builds yet (`sys:`, decision 0054 D4)."
+  @spec reserved_prefixes() :: [String.t()]
+  def reserved_prefixes, do: @reserved_prefixes
 
   @doc "Legacy guard (i): only rows written before this instant count. GH #2578."
   @spec legacy_cutoff() :: DateTime.t()
@@ -192,13 +223,23 @@ defmodule Letflow.Idempotency do
   end
 
   defp legacy_raw(raw) do
-    if String.starts_with?(raw, @server_prefixes ++ @caller_prefixes), do: nil, else: raw
+    if String.starts_with?(raw, @server_prefixes ++ @reserved_prefixes ++ @caller_prefixes),
+      do: nil,
+      else: raw
   end
 
   defp route_token(:rec), do: "rec"
   defp route_token(:inst_start), do: "inst_start"
   defp route_token(:inst_cancel), do: "inst_cancel"
   defp route_token(:inst_rebind), do: "inst_rebind"
+
+  # Checked before any length check or DB access: an invalid key never reaches
+  # the legacy SELECT or an append.
+  defp valid_raw?(raw), do: String.valid?(raw) and not String.contains?(raw, <<0>>)
+
+  defp invalid(field) do
+    %FieldError{field: field, constraint: "format", message: "must be valid UTF-8 without NUL"}
+  end
 
   defp too_long(field) do
     %FieldError{field: field, constraint: "max_length", message: "length must be ≤ maximum"}

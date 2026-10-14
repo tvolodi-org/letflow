@@ -491,6 +491,9 @@ defmodule Letflow.Routers.Instances do
 
       {:error, :idempotency_key_too_long} ->
         idempotency_key_too_long(conn)
+
+      {:error, :idempotency_key_invalid} ->
+        idempotency_key_invalid(conn)
     end
   end
 
@@ -563,6 +566,9 @@ defmodule Letflow.Routers.Instances do
 
       {:error, :idempotency_key_too_long} ->
         idempotency_key_too_long(conn)
+
+      {:error, :idempotency_key_invalid} ->
+        idempotency_key_invalid(conn)
     end
   end
 
@@ -653,6 +659,9 @@ defmodule Letflow.Routers.Instances do
 
       {:error, :idempotency_key_too_long} ->
         idempotency_key_too_long(conn)
+
+      {:error, :idempotency_key_invalid} ->
+        idempotency_key_invalid(conn)
     end
   end
 
@@ -1666,6 +1675,11 @@ defmodule Letflow.Routers.Instances do
   # nothing written. Same problem body on start, cancel and rebind.
   defp idempotency_key_too_long(conn),
     do: Response.send_problem(conn, Validation.problem([Idempotency.too_long_error(:header)]))
+
+  # GH #2550: an `idempotency-key` header that is not valid UTF-8 or contains
+  # NUL -- a stable 422 instead of the Postgres error (a 500) it used to reach.
+  defp idempotency_key_invalid(conn),
+    do: Response.send_problem(conn, Validation.problem([Idempotency.invalid_error(:header)]))
 
   # ── Response allowlist (INV-2) ────────────────────────────────────────────
 

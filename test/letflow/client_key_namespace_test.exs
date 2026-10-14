@@ -1038,6 +1038,148 @@ defmodule Letflow.ClientKeyNamespaceTest do
   end
 
   # ═══════════════════════════════════════════════════════════════════════
+  # F1 -- invalid UTF-8 / NUL keys are refused before any DB access
+  # (pre-existing 500s), F2 -- `sys:` is reserved
+  # ═══════════════════════════════════════════════════════════════════════
+
+  defp idempotency_row_count(schema),
+    do: Repo.aggregate(IdempotencyRecord, :count, prefix: schema)
+
+  defp assert_invalid_key!(conn, ctx, {events, rows}, field) do
+    assert conn.status == 422
+    body = body_of(conn)
+    assert body["detail"] == "validation failed"
+
+    assert [%{"field" => ^field, "constraint" => "format", "received" => nil}] = body["errors"]
+
+    assert event_count(ctx.schema_name) == events
+    assert idempotency_row_count(ctx.schema_name) == rows
+  end
+
+  defp write_counts(ctx),
+    do: {event_count(ctx.schema_name), idempotency_row_count(ctx.schema_name)}
+
+  describe "F1 invalid keys" do
+    test "body key with NUL -> 422 format on POST and PUT, nothing written" do
+      ctx = tenant_ctx("gh2550-nul-body")
+      record = seed_record!(ctx)
+      before = write_counts(ctx)
+
+      # Over HTTP the body's NUL is already refused by Letflow.Api.Validation's
+      # structural no_null_byte check, before Idempotency.from_body/3 (whose own
+      # refusal is unit-tested in idempotency_test.exs); either way a 422, never
+      # the legacy SELECT.
+      for conn <- [
+            post_record(ctx, "a" <> <<0>> <> "b"),
+            put_record(ctx, record.record_id, "a" <> <<0>> <> "b", %{"title" => "x"})
+          ] do
+        assert conn.status == 422
+
+        assert [
+                 %{
+                   "field" => "(root).idempotency_key",
+                   "constraint" => "no_null_byte",
+                   "received" => nil
+                 }
+               ] =
+                 body_of(conn)["errors"]
+
+        assert write_counts(ctx) == before
+      end
+    end
+
+    test "header with invalid UTF-8 or NUL -> 422 format on start, cancel and rebind, nothing written" do
+      ctx = tenant_ctx("gh2550-bad-hdr")
+      definition = active_process!(ctx.schema_name, human_task_graph())
+      instance_id = start!(ctx.schema_name, definition)
+      before = write_counts(ctx)
+
+      for raw <- [<<0xFF, 0xFE>>, "ok" <> <<0xC3>>, "a" <> <<0>> <> "b"] do
+        start =
+          request(
+            :post,
+            "/api/v1/instances",
+            ctx,
+            %{"definition_id" => definition.id, "initial_variables" => %{}},
+            [{"idempotency-key", raw}]
+          )
+
+        assert_invalid_key!(start, ctx, before, "idempotency-key")
+
+        cancel =
+          request(:post, "/api/v1/instances/#{instance_id}/cancel", ctx, nil, [
+            {"idempotency-key", raw}
+          ])
+
+        assert_invalid_key!(cancel, ctx, before, "idempotency-key")
+
+        assert_invalid_key!(
+          rebind(ctx, instance_id, definition, raw),
+          ctx,
+          before,
+          "idempotency-key"
+        )
+      end
+
+      assert status(ctx.schema_name, instance_id) == :active
+      assert Repo.aggregate(InstanceProjection, :count, prefix: ctx.schema_name) == 1
+    end
+
+    test "Lua emit_event with a NUL key -> invalid_arguments, nothing written" do
+      ctx = tenant_ctx("gh2550-nul-lua")
+      event_type = register_event_type!(ctx.tenant_id)
+      instance_id = seed_projection!(ctx.schema_name)
+      before = write_counts(ctx)
+
+      assert emit(ctx, instance_id, ctx.user_id, event_type, "'a\\0b'") ==
+               [nil, "invalid_arguments"]
+
+      assert write_counts(ctx) == before
+    end
+  end
+
+  describe "F2 reserved sys:" do
+    test "a client sys:step: key on POST/PUT is stored namespaced and never hits a bare sys: row" do
+      ctx = tenant_ctx("gh2550-sys")
+      values = %{"title" => "sys"}
+      fixture_record = Ecto.UUID.generate()
+
+      # A bare row that passes legacy guards (i)-(iii): only the reserved
+      # prefix keeps it from being a legacy hit.
+      event_id =
+        insert_legacy!(ctx, %{
+          key: "sys:step:x",
+          actor_id: ctx.user_id,
+          created_at: legacy_at(-1),
+          payload: legacy_payload(fixture_record, values)
+        })
+
+      count = event_count(ctx.schema_name)
+      conn = post_record(ctx, "sys:step:x", values)
+
+      assert conn.status == 201
+      assert body_of(conn)["record_id"] != fixture_record
+      assert event_count(ctx.schema_name) == count + 1
+
+      assert [%Event{event_type: "ENTITY_RECORD_CREATED"}] =
+               events_with_key(ctx.schema_name, "client:rec:#{ctx.user_id}:sys:step:x")
+
+      assert [%IdempotencyRecord{event_id: ^event_id}] =
+               Repo.all(from(i in IdempotencyRecord, where: i.idempotency_key == "sys:step:x"),
+                 prefix: ctx.schema_name
+               )
+
+      record = seed_record!(ctx)
+      assert put_record(ctx, record.record_id, "sys:step:y", %{"title" => "y"}).status == 200
+
+      assert [%Event{event_type: "ENTITY_RECORD_UPDATED"}] =
+               events_with_key(ctx.schema_name, "client:rec:#{ctx.user_id}:sys:step:y")
+
+      assert events_with_key(ctx.schema_name, "sys:step:y") == []
+    end
+  end
+
+  # ═══════════════════════════════════════════════════════════════════════
   # D5 -- over-long keys are refused, never truncated
   # ═══════════════════════════════════════════════════════════════════════
 
