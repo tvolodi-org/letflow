@@ -304,28 +304,55 @@ defmodule Letflow.Scheduler do
            |> Repo.update(prefix: tenant_schema),
          {:ok, _append_result} <-
            append_timer_fired_event(timer, now, fired_late, tenant_schema),
-         # REQ-396: escalation timers route to advance_after_escalation_timer_fired/3
-         # (cancel original task, create new task at escalation target).
-         # All other timer types follow the existing advance_after_timer_fired/3 path.
-         {:ok, :advanced} <-
-           (case timer.timer_type do
-              "escalation" ->
-                Letflow.Engine.advance_after_escalation_timer_fired(timer, Repo, tenant_schema)
-
-              _ ->
-                Letflow.Engine.advance_after_timer_fired(timer, Repo, tenant_schema)
-            end),
+         {:ok, fire_outcome} <- route_fire(timer, tenant_schema),
          # REQ-188 §1.2 -- the LAST step of this with chain, still inside
          # fire_timer/2's one transaction. `timer` here is the struct
          # captured BEFORE fire_changeset/2's update -- none of the
          # recurrence fields change on fire, so the pre-update struct is
          # equivalent and avoids a second read.
-         {:ok, _rearm_result} <- maybe_rearm_timer(timer, now, tenant_schema) do
+         {:ok, _rearm_result} <- rearm_unless_stale(fire_outcome, timer, now, tenant_schema) do
       {:ok, :fired}
     else
       {:error, reason} -> {:error, reason}
     end
   end
+
+  # REQ-396: escalation timers route to advance_after_escalation_timer_fired/3
+  # (cancel original task, create new task at escalation target).
+  # REQ-494 design §3.1: reminder timers route to record_reminder_fired/3,
+  # which never advances the instance (a stale one is a no-op, not an error).
+  # All other timer types follow the existing advance_after_timer_fired/3 path.
+  # For the two advancing branches only {:ok, :advanced} / {:error, _} are
+  # accepted, exactly as before; any other {:ok, _} still raises.
+  @spec route_fire(Timer.t(), tenant_schema :: String.t()) ::
+          {:ok, :advanced | :reminded | :reminder_stale} | {:error, term()}
+  defp route_fire(%Timer{} = timer, tenant_schema) do
+    case timer.timer_type do
+      "escalation" ->
+        timer
+        |> Letflow.Engine.advance_after_escalation_timer_fired(Repo, tenant_schema)
+        |> advanced_outcome()
+
+      "reminder" ->
+        Letflow.Engine.record_reminder_fired(timer, Repo, tenant_schema)
+
+      _ ->
+        timer
+        |> Letflow.Engine.advance_after_timer_fired(Repo, tenant_schema)
+        |> advanced_outcome()
+    end
+  end
+
+  defp advanced_outcome({:ok, :advanced}), do: {:ok, :advanced}
+  defp advanced_outcome({:error, reason}), do: {:error, reason}
+
+  # REQ-494 design §3.1 step 4: a stale reminder (its task is no longer
+  # pending) must not re-arm a recurring successor.
+  defp rearm_unless_stale(:reminder_stale, _timer, _now, _tenant_schema),
+    do: {:ok, :not_rearmed_stale}
+
+  defp rearm_unless_stale(_fire_outcome, timer, now, tenant_schema),
+    do: maybe_rearm_timer(timer, now, tenant_schema)
 
   # ===========================================================================
   # resolve_advance_target/3 -- ISS-0389 design §3

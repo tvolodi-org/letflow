@@ -1,0 +1,46 @@
+{
+  "run_id": "WF03-GH2325-REMINDER-20261014",
+  "workflow_id": "WF-03",
+  "step": "04",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF03-GH2325-REMINDER-20261014/step-04-elixir-dev.json",
+  "started_at": "2026-10-14T13:13:31Z",
+  "completed_at": "2026-10-14T13:22:07Z",
+  "status": "COMPLETED",
+  "result": {
+    "status": "PASS",
+    "summary": "Implemented lib/letflow/design/req494-human-task-reminder-timer.md (REQ-494 / GH #2325) as designed. Transition.dispatch_human_task/3 emits {:reminder_timer_armed, token_id, node_id} after any escalation event iff reminder_timer_duration is a non-empty binary AND reminder_role is a non-blank binary (OQ-5). Engine: prepare_timer_arms/4 resolves reminder arms (order escalation ++ reminder ++ deadline, reminder exempt from the single-deadline guard); new private resolve_reminder_timer_arm_attrs/4 (recurrence NULL when no interval; else repeat_expression verbatim, repeat_interval_us = seconds*1_000_000, fired_count 0, repeat_total 1+count or 51); build_timer_arms_multi/4 step name {:scheduler_reminder_timer, token_record_id}; :cancel_reminder_timers ('task_completed') right after :cancel_escalation_timers in build_complete_task_tail_multi/6; :cancel_reminder_timers ('task_escalated', OQ-2, same now as the task's cancelled_at) between :cancel_original_task and the task.cancel audit merge in persist_escalation_timer_fired_advance/7; new @doc false record_reminder_fired/3 (non-locking pending-task lookup by instance/token/node, stale -> {:ok, :reminder_stale} with no write; else one task.remind audit row via Audit.insert_entry/3 with the four-key after_state). TaskActivation.cancel_pending_reminder_timers/7 (new; escalation helper untouched). Scheduler.do_fire/2 routes via private route_fire/2 (reminder -> record_reminder_fired/3; existing branches still accept only {:ok, :advanced}/{:error, _}) and skips maybe_rearm_timer/3 when stale; fire_timer/2 spec unchanged. Graph: CHK-28 check_human_task_reminder/1 registered after CHK-21 with codes :invalid_reminder_timer, :missing_reminder_role, :missing_reminder_timer_duration, :invalid_reminder_repeat; new public parse_reminder_repeat_interval/1 (rejects Y and date-part M, zero, non-binary). RoleBinding.task_roles/1 adds reminder_role. Router advance-timer ambiguous 400 now sends Error.bad_request(...) with extensions %{\"code\" => \"ambiguous_pending_timers\"} via Response.send_problem/2; moduledoc row updated. No deviation from the design. ORCH decisions applied: OQ-1 accepted (no change), OQ-3 not in this PR, OQ-4 unchanged. Design doc not edited (section 2.3 wording nit A3 left, per instruction: only fix if the doc is touched). No migration, no tests written (TEST-DESIGNER's step). Handoff-shape note: the task description and acceptance criteria are recorded under result.task to keep the top-level keys identical to the GH2359 step-04 template. started_at is the mtime of the first edited file (transition.ex), the earliest real clock reading available.",
+    "task": {
+      "description": "WF-02 ELIXIR-DEV step for REQ-494 (GH #2325): implement an opt-in, non-cancelling HUMAN_TASK reminder timer exactly per the validated design lib/letflow/design/req494-human-task-reminder-timer.md -- arming on every HUMAN_TASK-creating path through prepare_timer_arms/4 and build_timer_arms_multi/4, a dedicated 'reminder' fire branch that writes one task.remind audit row and never advances the instance, stale-fire handling with no re-arm/DLQ, scoped cancellation on task completion and escalation fire, definition validator CHK-28, RoleBinding coverage of reminder_role, and a machine-readable code on the ambiguous advance-timer 400. Scope lib/ only; no tests, no migration, no other behaviour change; do not commit/push.",
+      "acceptance_criteria": [
+        "Definitions without reminder_* keys arm no reminder timer and behave exactly as before (no event emitted, no row armed).",
+        "A HUMAN_TASK with reminder_timer_duration + reminder_role arms exactly one pending 'reminder' timer per task row on create, complete-task, timer-fire, escalation-fire (and service/sub-process continuation) paths, with a distinct Multi step name so it never collides with a deadline or escalation arm.",
+        "Firing a pending reminder whose task is still pending appends TIMER_FIRED and exactly one task.remind audit row (platform actor, resource task.id, after_state task_id/node_id/reminder_role/fire_count) and changes nothing else.",
+        "Recurrence: interval -> repeat_expression/repeat_interval_us/fired_count 0/repeat_total 1+count (51 when count absent); no interval -> all four NULL.",
+        "A reminder firing after its task is no longer pending is {:ok, :fired} with no audit row, no re-arm, no DLQ.",
+        "Task completion cancels the task's pending reminders with cancel_reason 'task_completed'; escalation fire cancels them with 'task_escalated'; both run before the arm steps so a same-node re-entry keeps its fresh reminder; scoped by instance/token/node.",
+        "POST /instances/:id/advance-timer with >1 pending timer and no timer_id returns the generic 400 problem plus \"code\": \"ambiguous_pending_timers\".",
+        "CHK-28 validates the reminder pair and recurrence; Graph.parse_reminder_repeat_interval/1 rejects Y, date-part M, zero and non-binary values; RoleBinding.task_roles/1 includes reminder_role.",
+        "mix format --check-formatted and mix compile --warnings-as-errors clean; listed existing tests stay green."
+      ]
+    },
+    "files_changed": [
+      "lib/letflow/engine/transition.ex",
+      "lib/letflow/engine.ex",
+      "lib/letflow/engine/task_activation.ex",
+      "lib/letflow/scheduler.ex",
+      "lib/letflow/definitions/graph.ex",
+      "lib/letflow/definitions/role_binding.ex",
+      "lib/letflow/routers/instances.ex"
+    ],
+    "git_diff_stat": "lib/: 7 files changed, 504 insertions(+), 20 deletions(-) (engine.ex ~243, graph.ex 141, scheduler.ex 51, task_activation.ex 42, transition.ex 24, instances.ex 16, role_binding.ex 7)",
+    "checks": {
+      "mix format --check-formatted (7 files)": "OK (exit 0)",
+      "MIX_ENV=test mix compile --warnings-as-errors": "OK (exit 0), no warnings",
+      "mix test (gh2359_gateway_reentry_task_row, human_task_escalation, timer_wiring, task_activation, scheduler_test, scheduler_req188_test, test/letflow/scheduler/, meridian/swiftroute/vortex d_esc_escalation_fixture, definitions/graph_test (CHK-21), role_binding_test, role_binding_install_test, routers/instances_test (advance-timer))": "Result: 393 passed (Finished in 168.6 seconds), exit 0",
+      "line endings": "all 7 touched files i/lf w/lf"
+    },
+    "tests_written": false
+  }
+}

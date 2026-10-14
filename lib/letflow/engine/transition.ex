@@ -148,6 +148,11 @@ defmodule Letflow.Engine.Transition do
   caller re-resolves `node_id` against its own `Graph.t()`, parses the
   SERVICE_TASK config, renders/validates the URL, and INSERTs the first
   `service_task_dispatches` row. It carries no config and no HTTP detail.
+  `{:reminder_timer_armed, token_id, node_id}` is REQ-494's own addition
+  (`lib/letflow/design/req494-human-task-reminder-timer.md` §2.1) — emitted
+  by `dispatch_human_task/3` after any `{:escalation_timer_armed, ...}` when
+  the node carries both `reminder_timer_duration` and a non-blank
+  `reminder_role`; the impure caller arms a non-cancelling `"reminder"` timer.
   """
   @type pending_event ::
           {:parallel_split, origin_token_id :: String.t(), gateway_node_id :: String.t(),
@@ -159,6 +164,7 @@ defmodule Letflow.Engine.Transition do
           | {:timer_armed, token_id :: String.t(), node_id :: String.t()}
           | {:service_task_dispatch_requested, token_id :: String.t(), node_id :: String.t()}
           | {:escalation_timer_armed, token_id :: String.t(), node_id :: String.t()}
+          | {:reminder_timer_armed, token_id :: String.t(), node_id :: String.t()}
 
   @typedoc """
   Every failure `transition/3` can return. `:unknown_event_type` and
@@ -448,7 +454,23 @@ defmodule Letflow.Engine.Transition do
           []
       end
 
-    {:ok, new_state, escalation_events}
+    # REQ-494: a reminder is armed only when BOTH the duration and a
+    # non-blank reminder_role are present (design §2.1) -- a stray duration
+    # on a definition activated before CHK-28 stays inert.
+    attributes = Map.get(node, :attributes)
+
+    reminder_events =
+      with %{} <- attributes,
+           duration when is_binary(duration) and byte_size(duration) > 0 <-
+             Map.get(attributes, "reminder_timer_duration"),
+           role when is_binary(role) <- Map.get(attributes, "reminder_role"),
+           false <- String.trim(role) == "" do
+        [{:reminder_timer_armed, token.token_id, node.id}]
+      else
+        _ -> []
+      end
+
+    {:ok, new_state, escalation_events ++ reminder_events}
   end
 
   # --- {:complete_task, token_id} (REQ-048 design doc §5, EE-04) -------------

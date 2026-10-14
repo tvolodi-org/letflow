@@ -1,0 +1,74 @@
+{
+  "handoff_id": "c4a7d1e0-2325-4a11-8c20-000000000005",
+  "run_id": "WF03-GH2325-REMINDER-20261014",
+  "workflow_id": "WF-02",
+  "step": "05",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGNER",
+  "file": "handoffs/WF03-GH2325-REMINDER-20261014/step-05-test-designer.json",
+  "created_at": "2026-10-14T13:22:07Z",
+  "started_at": "2026-10-14T13:22:07Z",
+  "completed_at": "2026-10-14T13:30:17Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-494"],
+    "requirement_text": {
+      "REQ-494": "Engine: opt-in non-cancelling HUMAN_TASK reminder timer (reminder_timer_duration + reminder_role, optional repeat), audit-only on fire, cancelled on completion/escalation, CHK-28 validator, advance-timer ambiguity code. 12 ACs in docs/requirements.yaml."
+    },
+    "source_text": {
+      "GH#2325": "Opt-in reminder for long-running HUMAN_TASKs that records overdue state without cancelling the task."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "lib/letflow/design/req494-human-task-reminder-timer.md",
+      "handoffs/WF03-GH2325-REMINDER-20261014/step-04-elixir-dev.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF03-GH2325-REMINDER-20261014"
+  },
+  "task": {
+    "description": "WF-02 step TEST-DESIGNER for REQ-494 / GH #2325: tests per design section 9 test matrix with validator advisories A1 (no-DLQ via public Scheduler.attempt_fire/2 => :fired) and A2 (no git-grep of priv/ inside a test); mutation check M-a/M-b/M-c; no lib/ edits."
+  },
+  "result": {
+    "files": [
+      "test/letflow/engine/req494_human_task_reminder_timer_test.exs (new, 17 tests: AC1-AC8)",
+      "test/letflow/definitions/reminder_validation_test.exs (new, 11 tests: AC10 CHK-28 + parse_reminder_repeat_interval/1)",
+      "test/letflow/routers/instances_req494_advance_timer_test.exs (new, 3 tests: AC9; new file instead of extending instances_test.exs, still matched by the AC12 instances* glob)",
+      "test/letflow/definitions/role_binding_test.exs (1 test appended: AC10 reminder_role)",
+      "test/specs/REQ-494.md (new)"
+    ],
+    "tests": {
+      "AC1": "no reminder_* keys arms no reminder timer on create, complete, timer fire, escalation fire; no definition under test/fixtures carries a reminder_* key (priv/scripts grep left to TEST-RUNNER per A2; run here: grep -rln reminder_ test/fixtures priv scripts -> no output, exit 1)",
+      "AC2": "reminder-only node arms exactly one pending reminder (fire_at within 1s, recurrence NULL); reminder+escalation arms one of each; armed on complete-task, timer-fire and escalation-fire paths; reminder + deadline TIMER in one hop chain do not collide",
+      "AC3": "non-recurring fire: task row equal, tokens/projection status/variables/current_nodes equal, event count +1 (one TIMER_FIRED timer_type reminder), one task.remind with exact 4-key after_state fire_count 1, platform actor",
+      "AC4": "PT1H count 2: row PT1H/3600000000/0/3, successors fired_count 1,2 at fire_at+3600s, audit fire_counts [1,2,3], then no pending row, 3 rows total; P1W without count -> repeat_total 51",
+      "AC5": "stale after completion and after escalation: Scheduler.attempt_fire/2 == :fired, exactly 1 TIMER_FIRED, 0 task.remind, no new row, 0 pending reminders, 0 DLQ entries, fire_error_count 0",
+      "AC6": "completion cancels reminder with task_completed; sibling parallel token's reminder stays pending",
+      "AC7": "loop re-entry: old cancelled/task_completed, exactly one new pending reminder on the new task row; variant with escalation: exactly one pending of each",
+      "AC8": "reminder PT1H (repeating) + escalation PT4H: reminder fires, task pending, successor armed; escalation fire cancels task and successor (task_escalated, cancelled_at == task.cancelled_at); escalation re-entry keeps a fresh reminder",
+      "AC9": "ambiguous 400 body exactly {type,title,status,detail,trace_id,code}, problem+json; timer_id fires only the reminder (task and escalation stay pending); single pending reminder no timer_id -> 200 fired",
+      "AC10": "each CHK-28 code; P0D, PT0S, P1M, P1Y, NOT-ISO intervals and counts 51, 0, 2.0, \"2\", true rejected; pair, pair P0D, PT1H, P1W, PT1M intervals and count 50 accepted; parser table; RoleBinding collects reminder_role",
+      "AC11": "no AC11-listed file edited",
+      "AC12": "left to TEST-RUNNER"
+    },
+    "mutation_results": {
+      "M-a_stale_check_dropped (pending_reminder_task without status == :pending)": "2 failed of 17 (both AC5 stale tests); reverted",
+      "M-b_escalation_fire_reminder_cancel_dropped (Multi.run returns {:ok, 0})": "2 failed of 17 (both AC8 tests); reverted",
+      "M-c_completion_reminder_cancel_dropped (Multi.run returns {:ok, 0})": "5 failed of 17 (AC5 completed-stale, both AC6, both AC7); reverted"
+    },
+    "lib_diff_sha256_before_after_mutation": "9bd62447f399f155ad739e56a901a040618ce9056f195fac1c3b1e7578c38e6a (identical before and after; lib/: 7 files, 504 insertions, 20 deletions)",
+    "runs": [
+      "37 passed (random seed, 17.9s)",
+      "37 passed seed 31337 (19.2s)",
+      "37 passed seed 902211 (21.0s)",
+      "37 passed seed 554433 after mutant restore (16.3s)"
+    ],
+    "format_check": "mix format --check-formatted OK on all 4 test files; LF endings, ASCII",
+    "not_run": "mix letflow.check.test (full parallel suite; exceeds the per-session CPU limit); test files have no default arguments and the run logs contain no 'warning:' or 'default values for the optional arguments' line",
+    "summary": "REQ-494 tests written (31 new + 1 appended, 37 in the 4 files); 3+1 green runs; all three mutants killed; lib/ restored byte-for-byte.",
+    "agent_reported_status": "READY_FOR_TEST_DESIGN_VALIDATOR"
+  }
+}
