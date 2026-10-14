@@ -1119,7 +1119,8 @@ defmodule Letflow.Entities.RecordsTest do
     count
   end
 
-  defp gh2528_await_two_waiters!(schema, polls_left \\ 50)
+  # 200 x 20 ms = 4 s, under the holder's 5 s :release wait.
+  defp gh2528_await_two_waiters!(schema, polls_left \\ 200)
 
   defp gh2528_await_two_waiters!(_schema, 0),
     do: flunk("the two writers never both blocked on the held instance_sequence row")
