@@ -447,7 +447,7 @@ defmodule Letflow.Routers.Identity do
         Response.send_problem(conn, Validation.problem(field_errors))
 
       {:ok, attrs} ->
-        case Identity.update_user_profile(id, attrs, opts) do
+        case Identity.update_user_profile(id, attrs, audit_opts(conn, opts)) do
           {:ok, user} -> Response.ok(conn, user_map(user))
           {:error, %Ecto.Changeset{}} -> Response.unprocessable(conn, "validation failed")
           {:error, :not_found} -> Response.not_found(conn)
@@ -456,6 +456,9 @@ defmodule Letflow.Routers.Identity do
           {:error, :tenant_id_required} -> Response.internal_error(conn)
           {:error, :invalid_tenant_id} -> Response.internal_error(conn)
           {:error, :tenant_prefix_mismatch} -> Response.internal_error(conn)
+          # GH 2564: fixed bodies, naming no admin and no count (INV-2).
+          {:error, :last_tenant_wide_admin} -> Response.conflict(conn, "last_tenant_wide_admin")
+          {:error, {:token_revocation_failed, _reason}} -> Response.internal_error(conn)
         end
     end
   end
@@ -493,7 +496,7 @@ defmodule Letflow.Routers.Identity do
       {:ok, %{"status" => status_string}} ->
         status = String.to_existing_atom(status_string)
 
-        case Identity.update_user_status(id, status, opts) do
+        case Identity.update_user_status(id, status, audit_opts(conn, opts)) do
           {:ok, user} -> Response.ok(conn, user_map(user))
           {:error, %Ecto.Changeset{}} -> Response.unprocessable(conn, "validation failed")
           {:error, :not_found} -> Response.not_found(conn)
@@ -502,6 +505,9 @@ defmodule Letflow.Routers.Identity do
           {:error, :tenant_id_required} -> Response.internal_error(conn)
           {:error, :invalid_tenant_id} -> Response.internal_error(conn)
           {:error, :tenant_prefix_mismatch} -> Response.internal_error(conn)
+          # GH 2564: fixed bodies, naming no admin and no count (INV-2).
+          {:error, :last_tenant_wide_admin} -> Response.conflict(conn, "last_tenant_wide_admin")
+          {:error, {:token_revocation_failed, _reason}} -> Response.internal_error(conn)
         end
     end
   end

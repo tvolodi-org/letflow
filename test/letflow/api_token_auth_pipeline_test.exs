@@ -236,6 +236,14 @@ defmodule Letflow.ApiTokenAuthPipelineTest do
     |> Enum.sort()
   end
 
+  # GH-2564 (ruling: issue #2564 comment 6174049298, option 3; 0051 N1): deactivating
+  # the only tenant-wide admin is now refused 409. Tests that deactivate a sole
+  # token-held admin first add this second, unrelated tenant-wide admin.
+  defp gh2564_second_admin!(tenant) do
+    {_token, _plaintext} = gh2557_admin_token!(tenant, insert_user!(tenant))
+    :ok
+  end
+
   # A revoked token's response on `path`, used as the byte-identity reference.
   defp gh2557_revoked_reference(tenant, path) do
     referee = insert_user!(tenant)
@@ -251,6 +259,7 @@ defmodule Letflow.ApiTokenAuthPipelineTest do
       tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2557-ac1-routes")
       user = insert_user!(tenant)
       {_token, plaintext} = gh2557_admin_token!(tenant, user)
+      gh2564_second_admin!(tenant)
 
       # Positive control: the same token works on both routes while the owner is active.
       assert gh2557_get(@gh2557_admin_route, plaintext, tenant).status == 200
@@ -266,6 +275,7 @@ defmodule Letflow.ApiTokenAuthPipelineTest do
       tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2557-ac1-bytes")
       user = insert_user!(tenant)
       {_token, plaintext} = gh2557_admin_token!(tenant, user)
+      gh2564_second_admin!(tenant)
       gh2557_set_status!(tenant, user, :inactive)
 
       for path <- [@gh2557_admin_route, @gh2557_plain_route] do
@@ -279,26 +289,33 @@ defmodule Letflow.ApiTokenAuthPipelineTest do
   end
 
   describe "GH-2557 AC3: reactivation, revoked and expired" do
-    test "reactivating the owner makes the same token authenticate again (200)" do
+    # GH-2564 supersedes GH-2557's "reactivation restores the token" (ruling: issue
+    # #2564 comment 6174049298, option 3): deactivation revokes the token, so it stays
+    # 401 after the owner is reactivated.
+    test "reactivating the owner does not resurrect the token: still 401, revoked_at set" do
       tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2557-ac3-react")
       user = insert_user!(tenant)
-      {_token, plaintext} = gh2557_admin_token!(tenant, user)
+      {token, plaintext} = gh2557_admin_token!(tenant, user)
+      gh2564_second_admin!(tenant)
+
+      assert gh2557_get(@gh2557_admin_route, plaintext, tenant).status == 200
 
       gh2557_set_status!(tenant, user, :inactive)
       assert gh2557_get(@gh2557_admin_route, plaintext, tenant).status == 401
 
       gh2557_set_status!(tenant, user, :active)
-      conn = gh2557_get(@gh2557_admin_route, plaintext, tenant)
-      assert conn.status == 200
-      assert conn.assigns.auth_context.user_id == user.id
-      assert conn.assigns.auth_context.roles == ["TENANT_ADMIN"]
-      assert gh2557_get(@gh2557_plain_route, plaintext, tenant).status == 200
+      assert gh2557_get(@gh2557_admin_route, plaintext, tenant).status == 401
+      assert gh2557_get(@gh2557_plain_route, plaintext, tenant).status == 401
+
+      persisted = Repo.get!(Identity.ApiToken, token.id, prefix: tenant.schema_name)
+      assert %DateTime{} = persisted.revoked_at
     end
 
     test "reactivated owner with a revoked token stays 401" do
       tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2557-ac3-revoked")
       user = insert_user!(tenant)
       {token, plaintext} = gh2557_admin_token!(tenant, user)
+      gh2564_second_admin!(tenant)
 
       gh2557_set_status!(tenant, user, :inactive)
       {:ok, _} = Identity.revoke_token(token.id, prefix: tenant.schema_name)
@@ -312,6 +329,7 @@ defmodule Letflow.ApiTokenAuthPipelineTest do
       tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2557-ac3-expired")
       user = insert_user!(tenant)
       {token, plaintext} = gh2557_admin_token!(tenant, user)
+      gh2564_second_admin!(tenant)
 
       gh2557_set_status!(tenant, user, :inactive)
 
@@ -328,8 +346,12 @@ defmodule Letflow.ApiTokenAuthPipelineTest do
     end
   end
 
-  describe "GH-2557 AC4: deactivation changes no token row and adds no token audit" do
-    test "deactivate via POST /users/:id/status: only user.update_status audit, revoked_at nil, revoked-token 401" do
+  # GH-2564 supersedes GH-2557 AC4's "deactivation changes no token row" (ruling: issue
+  # #2564 comment 6174049298, option 3): deactivation now revokes the owner's tokens in
+  # the same transaction, with one token.revoke each. The target and the actor are both
+  # tenant-wide admins (token-held), so the 0051 N1 guard lets the deactivation through.
+  describe "GH-2557 AC4 as amended by GH-2564: deactivation revokes the owner's tokens" do
+    test "deactivate via POST /users/:id/status: token.revoke + user.update_status audit, revoked_at set, 401 like a revoked token" do
       tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2557-ac4-status")
       target = insert_user!(tenant)
       actor = insert_user!(tenant)
@@ -352,12 +374,11 @@ defmodule Letflow.ApiTokenAuthPipelineTest do
       assert Repo.get!(User, target.id, prefix: tenant.schema_name).status == :inactive
 
       audit_after = gh2557_audit_actions(tenant)
-      assert audit_after -- audit_before == ["user.update_status"]
-      refute "token.revoke" in audit_after
+      assert Enum.sort(audit_after -- audit_before) == ["token.revoke", "user.update_status"]
       refute "token.revoked" in audit_after
 
       persisted = Repo.get!(Identity.ApiToken, target_token.id, prefix: tenant.schema_name)
-      assert persisted.revoked_at == nil
+      assert %DateTime{} = persisted.revoked_at
 
       inactive_conn = gh2557_get(@gh2557_admin_route, target_plaintext, tenant)
       assert inactive_conn.status == 401
@@ -368,7 +389,7 @@ defmodule Letflow.ApiTokenAuthPipelineTest do
       )
     end
 
-    test "deactivate via PATCH /users/:id status=inactive: only user.update_profile audit, revoked_at nil, revoked-token 401" do
+    test "deactivate via PATCH /users/:id status=inactive: token.revoke + user.update_profile audit, revoked_at set, 401 like a revoked token" do
       tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2557-ac4-patch")
       target = insert_user!(tenant)
       actor = insert_user!(tenant)
@@ -391,12 +412,11 @@ defmodule Letflow.ApiTokenAuthPipelineTest do
       assert Repo.get!(User, target.id, prefix: tenant.schema_name).status == :inactive
 
       audit_after = gh2557_audit_actions(tenant)
-      assert audit_after -- audit_before == ["user.update_profile"]
-      refute "token.revoke" in audit_after
+      assert Enum.sort(audit_after -- audit_before) == ["token.revoke", "user.update_profile"]
       refute "token.revoked" in audit_after
 
       persisted = Repo.get!(Identity.ApiToken, target_token.id, prefix: tenant.schema_name)
-      assert persisted.revoked_at == nil
+      assert %DateTime{} = persisted.revoked_at
 
       inactive_conn = gh2557_get(@gh2557_admin_route, target_plaintext, tenant)
       assert inactive_conn.status == 401

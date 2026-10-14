@@ -201,6 +201,24 @@ defmodule Letflow.Plugs.Iss0736OidcLiveRevocationTest do
       granted_conn = oidc_request(:get, "/api/v1/identity/tokens") |> dispatch()
       assert granted_conn.status == 200
 
+      # GH-2564 (ruling: issue #2564 comment 6174049298; 0051 N1): deactivating the
+      # tenant's only tenant-wide admin is refused 409, so a second member of the same
+      # TENANT_ADMIN group keeps the tenant administered.
+      second_admin =
+        %User{}
+        |> Ecto.Changeset.change(%{
+          username: "iss0736-second-admin-#{Ecto.UUID.generate()}",
+          display_name: "ISS-0736 Second Admin",
+          email: "iss0736-second-admin-#{Ecto.UUID.generate()}@example.com",
+          password_hash: "__NO_PASSWORD_SET__",
+          status: :active,
+          auth_source: :internal
+        })
+        |> Repo.insert!(prefix: schema_name)
+
+      {:ok, %{member: _member, created: true}} =
+        Identity.add_group_member(group.id, second_admin.id, prefix: schema_name)
+
       # tenant_admin deactivates the account -- the same status-update write
       # PATCH /users/:id -> Identity.update_user_profile/3 (design §4's
       # table) performs on the same field; called directly here at the

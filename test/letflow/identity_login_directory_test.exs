@@ -834,7 +834,11 @@ defmodule Letflow.IdentityLoginDirectoryTest do
       assert log =~ "users"
 
       refute log =~ "tenant_login_directory"
-      refute log =~ "pg_advisory_xact_lock"
+      # The directory's (tenant_id, email_key) lock is never logged. GH 2564: a status
+      # write now also takes the tenant admin lock (`lock_tenant_admins!/1`, a single
+      # bigint derived from the schema prefix only, no address or key), which is logged
+      # like any other query; only the directory's two-int form is refused here.
+      refute log =~ "pg_advisory_xact_lock($1::int, $2::int)"
       refute log =~ "btrim"
 
       for k <- [key, key2, jit_key] do
