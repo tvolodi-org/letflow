@@ -959,6 +959,47 @@ defmodule Letflow.Entities.RecordsTest do
       assert replay.field_values == first.field_values
     end
 
+    test "replay with the same key but a different stale expected and different values returns the original" do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      {:ok, %{record: created}} = Records.create_record(create_attrs(), schema)
+      s1 = created.last_event_global_seq
+      key = Ecto.UUID.generate()
+
+      assert {:ok, %{record: first, is_duplicate: false}} =
+               Records.update_record(
+                 gh2528_update_attrs(created.record_id, "Original", %{
+                   expected_last_event_global_seq: s1,
+                   idempotency_key: key
+                 }),
+                 schema
+               )
+
+      events_before = gh2528_event_count(schema)
+      # s1 - 1 must stay a valid (non-negative) expected value.
+      assert s1 > 0
+
+      # s1 is stale now (first advanced the row) and the values differ: the
+      # idempotency short-circuit runs before the version check, so the key
+      # wins and nothing is re-validated, re-checked or written.
+      assert {:ok, %{record: replay, is_duplicate: true}} =
+               Records.update_record(
+                 gh2528_update_attrs(created.record_id, "Different", %{
+                   expected_last_event_global_seq: s1 - 1,
+                   idempotency_key: key
+                 }),
+                 schema
+               )
+
+      assert replay.field_values == first.field_values
+      assert replay.last_event_global_seq == first.last_event_global_seq
+
+      stored = gh2528_latest!(schema, created.record_id)
+      assert stored.field_values["customer_name"] == "Original"
+      assert stored.last_event_global_seq == first.last_event_global_seq
+      assert gh2528_event_count(schema) == events_before
+    end
+
     test "EventTypes unchanged: an opted-in update's stored UPDATED payload has exactly the four keys" do
       %{schema_name: schema} = provisioned_tenant()
       create_active_definition!(schema)

@@ -3104,6 +3104,12 @@ defmodule Letflow.Routers.EntitiesTest do
       assert {cross_tenant.status, cross_tenant.resp_body} == {absent.status, absent.resp_body}
       assert cross_tenant.status == 404
       assert normalise_problem(cross_tenant) == gh2528_not_found_body()
+
+      # Tenant B's record is untouched by tenant A's matching-seq attempt.
+      after_b = gh2528_stored!(ctx_b, b_record.record_id)
+      refute after_b.deleted
+      assert after_b.field_values == b_record.field_values
+      assert after_b.last_event_global_seq == b_record.last_event_global_seq
     end
 
     test "INV-5: DELETE with an expected value on a cross-tenant or absent record_id -> the same zero-detail 404" do
@@ -3136,6 +3142,64 @@ defmodule Letflow.Routers.EntitiesTest do
       assert {cross_tenant.status, cross_tenant.resp_body} == {absent.status, absent.resp_body}
       assert cross_tenant.status == 404
       assert normalise_problem(cross_tenant) == gh2528_not_found_body()
+
+      # Tenant B's record is untouched by tenant A's matching-seq attempt.
+      after_b = gh2528_stored!(ctx_b, b_record.record_id)
+      refute after_b.deleted
+      assert after_b.field_values == b_record.field_values
+      assert after_b.last_event_global_seq == b_record.last_event_global_seq
+    end
+
+    test "DELETE with an array or map expected_last_event_global_seq query param -> 400, record not deleted" do
+      ctx = tenant_ctx("gh2528-del-400-shape")
+      %{record_id: id, current: current} = gh2528_stale_record!(ctx)
+
+      for query <- [
+            "expected_last_event_global_seq[]=#{current}",
+            "expected_last_event_global_seq[a]=#{current}"
+          ] do
+        conn = request(:delete, "/api/v1/entities/records/widget/#{id}?#{query}", ctx)
+
+        assert conn.status == 400, "expected 400 for #{query}, got #{conn.status}"
+        assert body_of(conn)["detail"] == "invalid expected_last_event_global_seq"
+      end
+
+      stored = gh2528_stored!(ctx, id)
+      refute stored.deleted
+      assert stored.last_event_global_seq == current
+    end
+
+    test "PUT with expected_last_event_global_seq: null -> 200 (treated as absent, last-writer-wins)" do
+      ctx = tenant_ctx("gh2528-put-null")
+      %{record_id: id, current: current} = gh2528_stale_record!(ctx)
+
+      conn =
+        request(:put, "/api/v1/entities/records/widget/#{id}", ctx, %{
+          "field_values" => %{"title" => "null expected"},
+          "expected_last_event_global_seq" => nil
+        })
+
+      assert conn.status == 200
+      body = body_of(conn)
+      assert body["field_values"] == %{"title" => "null expected"}
+      assert body["last_event_global_seq"] > current
+    end
+
+    test "PUT with expected_last_event_global_seq one above max int8 -> 422, nothing written" do
+      ctx = tenant_ctx("gh2528-put-bignum")
+      %{record_id: id, current: current} = gh2528_stale_record!(ctx)
+
+      conn =
+        request(:put, "/api/v1/entities/records/widget/#{id}", ctx, %{
+          "field_values" => %{"title" => "bignum"},
+          "expected_last_event_global_seq" => 9_223_372_036_854_775_808
+        })
+
+      assert conn.status == 422
+
+      stored = gh2528_stored!(ctx, id)
+      assert stored.field_values == %{"title" => "moved on"}
+      assert stored.last_event_global_seq == current
     end
   end
 end
