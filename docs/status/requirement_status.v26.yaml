@@ -1162,3 +1162,12 @@ history:
       decisions 0050 D7/D8. Follow-ups filed from the PR's open points.
       Written by letflow-2 under the DOC-UPDATER agent id; lands in the
       wave-2 docs PR #2580.
+  - req: REQ-497
+    event: started
+    agent: REQ-ANALYST
+    at: "2026-10-14T19:40:34Z"
+    note: >
+      WF-02 for GH #2533 started on branch feature/WF02-GH2533-SCOPE-GRANTS-1A-20261015
+      (from main 4a911d40e). REQ-ANALYST drafted REQ-497 (id allocated by letflow-2,
+      sole allocator; stage S7; one REQ shipped as PR 1a + PR 1b, 16 ACs labelled
+      [1a]/[1b]; 1b depends on GH #2552 merged); next: REQ-VALIDATOR.

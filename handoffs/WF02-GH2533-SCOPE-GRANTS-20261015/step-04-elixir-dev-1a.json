@@ -1,0 +1,66 @@
+{
+  "handoff_id": "d2533a1a-0497-4c03-9e11-000000000004",
+  "run_id": "WF02-GH2533-SCOPE-GRANTS-20261015",
+  "workflow_id": "WF-02",
+  "step": "04",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF02-GH2533-SCOPE-GRANTS-20261015/step-04-elixir-dev-1a.json",
+  "created_at": "2026-10-14T20:10:56Z",
+  "started_at": "2026-10-14T20:11:00Z",
+  "completed_at": "2026-10-14T20:23:40Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-497"],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2533": "REQ-497 PR 1a only: implement lib/letflow/design/req497-1a-role-scope-grants-table-backfill-writers.md incl. Revision 1 (CDV PASS r2, SECURITY-REVIEWER PASS r2). Nothing from section 10 / 1b. Do not commit."
+    },
+    "related_handoff_ids": ["d2533a1a-0497-4c03-9e11-000000000003"],
+    "artifacts_in": [
+      "lib/letflow/design/req497-1a-role-scope-grants-table-backfill-writers.md",
+      "lib/letflow/identity/role_registry.ex",
+      "lib/letflow/identity.ex",
+      "lib/letflow/identity/tenant_admin_migration.ex",
+      "lib/letflow/tenant_provisioning.ex",
+      "test/support/tenant_fixture.ex",
+      "priv/repo/migrations/20260926010001_backfill_exam_tenant_modules.exs",
+      "priv/repo/migrations/20261014100002_create_scope_node_paths.exs",
+      "lib/mix/tasks/letflow.backfill_platform_roles.ex"
+    ],
+    "owned_modules": [
+      "Letflow.Repo.Migrations.CreateRoleScopeGrants",
+      "Letflow.Identity.RoleScopeGrant",
+      "Letflow.Identity.RoleScopeGrants",
+      "Letflow.Identity.RoleScopeGrants.Backfill",
+      "Mix.Tasks.Letflow.BackfillRoleScopeGrants"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2533-SCOPE-GRANTS-1A-20261015"
+  },
+  "task": {
+    "description": "WF-02 step 4 (ELIXIR-DEV), REQ-497 PR 1a: role_scope_grants migration (lock A first, frozen backfill SQL, T9 assert, scope.backfill_completed audit, no FK), RoleScopeGrant schema, RoleScopeGrants core module incl. repair_group_row!/3, Backfill.run/1 / run_tenant/2 + mix task, writer call sites W1-W6, manifest entry, TenantFixture table list. Uncommitted."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "IMPLEMENTED per design r1, uncommitted. Migration version re-checked after git fetch (origin/main f3b512d11 latest 20261014100002; only open PR with a near migration is #2565 20261014000002; grep 20261015 in test/lib/priv/config: none) -> 20261015025331 kept. NEW: priv/repo/migrations/20261015025331_create_role_scope_grants.exs (up/0 = execute(lock A) FIRST, create_objects/1, execute(run_backfill!/1); down/0 drops table; public lock_tenant_admins_in_migration!/1, create_objects/1, run_backfill!/1, assert_no_gap!/1; frozen INSERT...SELECT ON CONFLICT (principal_type, principal_id, role) WHERE tenant_wide DO NOTHING; T9 raise 'role_scope_grants backfill gap: <count>'; audit only for a real tenant schema with platform_role_bindings > 0, after_state exactly the 7 keys; no FK), lib/letflow/identity/role_scope_grant.ex, lib/letflow/identity/role_scope_grants.ex (reconcile_binding!/3, ensure_tenant_wide_group_row!/3, repair_group_row!/3, remove_group_rows!/3, move_group_rows!/4, delete_group_principal_rows!/2, bindings_without_row/1, bindings_without_row_count/1, orphan_group_rows/1, user_row_count/1), lib/letflow/identity/role_scope_grants/backfill.ex (run/1, run_tenant/2, types per design 4.1, to_regclass probe + undefined_table/invalid_schema_name skip), lib/mix/tasks/letflow.backfill_role_scope_grants.ex. EDITED: role_registry.ex (W1 insert_role before audit; W2 (a) after kind update before audit, (b) unchanged branch; W3 move_role before role.rebound audit, no rescue; W4 (b) existing platform branch), tenant_admin_migration.ex (W5 (b) ensure_binding existing, (c) remove_legacy_binding after delete_all before audit), identity.ex (W6 delete_group after {1,_}), tenant_provisioning.ex (manifest entry + @doc), test/support/tenant_fixture.ex (+role_scope_grants). DEVIATIONS: (1) reconcile_binding!/3 params named before_binding/after_binding (`after` is a reserved word). (2) migration audit failure raises RuntimeError 'role_scope_grants backfill audit failed' without the reason (INV-4). (3) mix task parses argv before app.start; unknown switch -> Mix.raise(usage). (4) run_tenant/2 tenant_id is nil and the audit resource_id falls back to the schema name for a schema that is not tenant_<hex> (unreachable for registrations). (5) tenant_fixture_test.exs count 52 NOT bumped (instructed; it is the one failing test). VERIFICATION: mix format (10 touched files) then mix format --check-formatted -> rc=0; MIX_ENV=test mix compile --warnings-as-errors -> 'Compiling 39 files (.ex) / Generated letflow app' rc=0; MIX_ENV=test mix test tenant_fixture_test, scope_node_paths/migration_test, role_registry_test, routers/identity_role_rebind_test, identity/role_backfill_test, identity/tenant_admin_migration_test, routers/identity_roles_guard_test, tenant_onboarding_test -> 'Result: 126/127 passed', only failure tenant_fixture_test.exs:324 'assert length(TenantFixture.expected_tenant_tables()) == 52, left: 53, right: 52' (expected). NOT RUN: mix letflow.check_boundaries; no new test files (TEST-DESIGNER's T-M/T-C/T-W/T-B); the populated-tenant backfill branch of the migration (T-M1/T-M5) was not exercised by these tests (test tenants replay with 0 bindings). ADVISORY FOLD-IN (after SECURITY-REVIEWER PASS and REVIEWER PASS, 2026-10-14T20:21-20:23Z, lib/ only): SEC adv 1: ensure_in_transaction! guard (ArgumentError outside a transaction) added to remove_group_rows!/3, move_group_rows!/4, delete_group_principal_rows!/2, docs updated; every existing caller already runs inside a transaction. SEC adv 2: Backfill {:audit_failed, reason} now carries reason_tag/1 only (exception module, atom tag, :invalid_changeset or :unexpected_error), never the raw term; run_tenant_error @type is {:audit_failed, atom()} with @typedoc; run_tenant/2 @doc updated. REVIEWER adv 4: Backfill moduledoc, run/1 @doc and the mix task moduledoc show `bin/letflow rpc \"IO.inspect(Letflow.Identity.RoleScopeGrants.Backfill.run([]))\"`. Re-verified: mix format --check-formatted (role_scope_grants.ex, role_scope_grants/backfill.ex, letflow.backfill_role_scope_grants.ex) -> rc=0 (after fixing one blank line the first check flagged); MIX_ENV=test mix compile --warnings-as-errors --force -> 'Compiling 393 files (.ex) / Generated letflow app' rc=0. Tests not re-run for the fold-in.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "priv/repo/migrations/20261015025331_create_role_scope_grants.exs",
+      "lib/letflow/identity/role_scope_grant.ex",
+      "lib/letflow/identity/role_scope_grants.ex",
+      "lib/letflow/identity/role_scope_grants/backfill.ex",
+      "lib/mix/tasks/letflow.backfill_role_scope_grants.ex",
+      "lib/letflow/identity/role_registry.ex",
+      "lib/letflow/identity/tenant_admin_migration.ex",
+      "lib/letflow/identity.ex",
+      "lib/letflow/tenant_provisioning.ex",
+      "test/support/tenant_fixture.ex"
+    ],
+    "diagnosis_confirmed": true,
+    "implementation_written": true,
+    "classification": "FEATURE"
+  }
+}
