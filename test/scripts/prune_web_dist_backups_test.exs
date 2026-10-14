@@ -126,7 +126,7 @@ defmodule Letflow.Scripts.PruneWebDistBackupsTest do
     names = stamps(5)
     mk_backups(dir, names)
 
-    for bad <- ["0", "-1", "abc", "2x", "1.5"] do
+    for bad <- ["12345678901234567890", "0", "-1", "abc", "2x", "1.5"] do
       assert {out, 0} = prune(dir, bad)
       assert out =~ "WARN", "no warning for keep=#{inspect(bad)}"
       assert remaining(dir) == names

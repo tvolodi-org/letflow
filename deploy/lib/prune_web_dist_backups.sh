@@ -16,7 +16,7 @@
 # zero-padded, so the glob's lexical order is chronological order.
 #
 # Never fails the caller: any problem is a warning on stderr and a 0 return. A bad <keep>
-# (empty, non-numeric, 0) prunes nothing.
+# (empty is the default; non-numeric, 0, more than 9 digits) prunes nothing.
 prune_web_dist_backups() {
   local app_dir="${1:-}" keep="${2:-20}"
   local -a found=()
@@ -26,7 +26,7 @@ prune_web_dist_backups() {
     echo "WARN: web-dist-backup prune skipped: app dir '${app_dir}' is not a directory" >&2
     return 0
   fi
-  if [[ ! "$keep" =~ ^[0-9]+$ ]] || (( 10#$keep < 1 )); then
+  if [[ ! "$keep" =~ ^[0-9]{1,9}$ ]] || (( 10#$keep < 1 )); then
     echo "WARN: web-dist-backup prune skipped: keep='${keep}' is not a positive integer" >&2
     return 0
   fi
