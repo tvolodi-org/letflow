@@ -91,6 +91,17 @@ defmodule Letflow.Scheduler.RecordDeadlineSweep do
   (that isolation lives in `Poller`'s own `run_sweep/4` `try/rescue`, not
   here).
 
+  ## Managed types (GH #2583)
+
+  The sweep writes through `Letflow.Entities.Records.update_record/2`, i.e.
+  with the `:tenant` authority, so it touches no managed type by
+  construction (decision 0054 D12: no entity write from timers). A rule on a
+  `managed_by` type makes `Records` answer `{:error, :entity_type_managed}`
+  for each due record: that record's transaction rolls back, the per-record
+  warning above logs ids and the reason atom only (never `field_values`), the
+  id joins `failed_ids` for the rest of the call, and the next tick retries
+  and is refused again. There is no rule pre-check.
+
   ## The completion-timestamp detail (AC-3/AC-5)
 
   When a `rule()` names a `:completion_field`, the transitioned record's

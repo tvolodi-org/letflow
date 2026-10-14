@@ -10,7 +10,9 @@ defmodule Letflow.Modules.FixtureManaged do
 
   The public `create_record/3`, `update_record/4` and `delete_record/3` helpers are
   the "owning module's own path": direct `Letflow.Entities.Records` calls, which
-  the router-level managed check never sees. No router and no permissions, so no
+  the router-level managed check never sees. Each passes
+  `ManagedTypes.owner_for!(__MODULE__)` as the `Records` `/3` authority (GH #2583),
+  so `Records` lets them write the seven managed types. No router and no permissions, so no
   permission or role counts change. Registered only in `config/test.exs`.
   """
 
@@ -18,6 +20,7 @@ defmodule Letflow.Modules.FixtureManaged do
 
   import Letflow.Modules.Module, only: [defmanifest: 1]
 
+  alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Records
   alias Letflow.Modules.EntityActivation
 
@@ -76,7 +79,8 @@ defmodule Letflow.Modules.FixtureManaged do
         actor_id: @actor_id,
         idempotency_key: Ecto.UUID.generate()
       },
-      prefix
+      prefix,
+      ManagedTypes.owner_for!(__MODULE__)
     )
   end
 
@@ -92,7 +96,8 @@ defmodule Letflow.Modules.FixtureManaged do
         actor_id: @actor_id,
         idempotency_key: Ecto.UUID.generate()
       },
-      prefix
+      prefix,
+      ManagedTypes.owner_for!(__MODULE__)
     )
   end
 
@@ -106,7 +111,8 @@ defmodule Letflow.Modules.FixtureManaged do
         actor_id: @actor_id,
         idempotency_key: Ecto.UUID.generate()
       },
-      prefix
+      prefix,
+      ManagedTypes.owner_for!(__MODULE__)
     )
   end
 end

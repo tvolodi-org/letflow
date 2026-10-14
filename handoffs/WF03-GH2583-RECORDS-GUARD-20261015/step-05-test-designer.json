@@ -1,0 +1,55 @@
+{
+  "handoff_id": "c4a7d1e0-2583-4a11-8c20-000000000005",
+  "run_id": "WF03-GH2583-RECORDS-GUARD-20261015",
+  "workflow_id": "WF-03",
+  "step": "05",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGNER",
+  "file": "handoffs/WF03-GH2583-RECORDS-GUARD-20261015/step-05-test-designer.json",
+  "created_at": "2026-10-14T21:49:26Z",
+  "started_at": "2026-10-14T21:49:26Z",
+  "completed_at": "2026-10-14T22:00:24Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2583": "managed_by write lock enforced inside Letflow.Entities.Records (design lib/letflow/design/gh2583-records-managed-type-guard.md, Revisions 1 and 2, section 10 T-01..T-29)."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-2583-4a11-8c20-000000000004"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/gh2583-records-managed-type-guard.md",
+      "lib/letflow/entities/records.ex",
+      "lib/letflow/entities/managed_types.ex",
+      "lib/letflow/routers/entities.ex",
+      "lib/letflow/scheduler/record_deadline_sweep.ex",
+      "test/support/modules/fixture_managed/fixture_managed.ex"
+    ],
+    "owned_modules": [],
+    "worktree": "C:/Users/tvolo/dev/ai-dala/letflow-wt2583",
+    "branch_name": "fix/WF03-GH2583-RECORDS-GUARD-20261015"
+  },
+  "task": {
+    "description": "WF-03 step 5: write the test spec and tests T-01..T-29 for GH #2583. No lib/ edits, no commit."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "TESTS WRITTEN for T-01..T-29 (T-21 is TEST-RUNNER/RELEASE-VALIDATOR's full mix test + mix letflow.check). NEW test/letflow/entities/records_managed_by_test.exs: T-01 (/2 and /3 :tenant create on all seven -> :entity_type_managed, no ENTITY_RECORD_* event, entity_record_latest unchanged), T-02 (update/delete existing + absent id, both arities), T-03 (owner_for!(FixtureManaged) /3 create/update/delete six + fxm_ledger create), T-04 (forged Owner other_module), T-05 (Owner naming only org_site refused on org_unit, accepted on org_site; :tenant on fxm_ledger -> managed not append_only, owner -> entity_append_only), T-06 (order pins vs record_payload_invalid, record_not_found, already-deleted no-op, record_version_conflict, each with the owner control showing the other outcome), T-07 (fxm_free control, three authorities), T-08 (string/plain map/nil/:owner -> FunctionClauseError on all three /3, zero queries via PlatformTenantFixture.capture_repo_queries, no write), T-09 (authority/owner/managed_by keys in attrs ignored), T-11 (refused create/update/delete SQL list == get_active_definition_by_name SQL list; accepted owner write issues strictly more). NEW test/letflow/scheduler/record_deadline_sweep_managed_test.exs: T-12 (asserts the tenant has 0 org_unit records, owner creates exactly one due record; run/2 :ok, record unchanged, no ENTITY_RECORD_UPDATED), T-13 (capture_log with metadata [:schema,:entity_type,:record_id,:reason] and an explicit format; asserts reason=:entity_type_managed, entity_type=org_unit, record_id, schema, logged once, field value absent), T-14 (fxm_free control transitions, +1 ENTITY_RECORD_UPDATED). EXTENDED test/letflow/routers/entities_managed_by_test.exs: T-15 (one-transaction DISABLE / UPDATE stamp+rename / ENABLE of entity_definitions_managed_by_no_update; asserts pg_trigger tgenabled='O' for BOTH no_update and no_delete, check_tenant_write(fxm_free)==:ok and the resolved row stamped; POST/PUT/DELETE -> 403 byte-identical to the guard's org_unit refusal; record and events unchanged), T-16 (raced import of 2 -> 200, both reasons %{type => entity_type_managed}, no record, no event, no 'entity record import entry failed' log). EXTENDED test/letflow/entities/managed_types_test.exs: T-10 (check_record_write/3 six rows + 4 bad authorities x {nil, stamp} FunctionClauseError; owner_for! == module_owner; ArgumentError 'declares no managed entity types' for Letflow.Modules.Fixture and 'not a registered Catalog entry module' for Letflow.Entities.Records; FunctionClauseError for a string), T-29 (premise P: every ArtifactVersion of each of seven maps to a stamped row of that name and vice versa; active row stamped; tenant create_definition/2 of a new org_unit shape -> :entity_type_managed with version and row counts unchanged; re-activation leaves the active row stamped). EDITED test/letflow/entities/managed_types_callers_test.exs per design 7.4, existing expectations kept (module_owner callers [managed_types.ex, installs.ex], Owner builders [managed_types.ex], create_definition/3 [{solution_pack.ex, owner}], install/4 [installs.ex]); scan set lib/**/*.ex + test/support/**/*.ex; normalize_pipes for ALL rules; calls/1 with atom receivers; R1 (direct/piped, /3 capture, Function.capture, apply/Kernel.apply/:erlang.apply), R1b (Records/Definitions/ManagedTypes import and alias-as ban; records.ex exactly only: [is_authority: 1], short or fully qualified), R2 (owner_for! by name; __MODULE__ in a defmanifest module or own-directory alias with Path.split segment compare; fail closed), R3 (module_owner by name + captures/applies), R4 (+ __struct__ map literal, map update, Map.put/put_new/replace/replace!), R5 (qualified only, normalised). Every rule is a pure function over [{path, ast}]; T-17..T-20 apply them to the real tree, T-22..T-28 to synthetic snippets through the SAME functions; T-27 input always includes a defmanifest file. T-20 also proves the qualified filter is load-bearing (the old unqualified match DID see script_policy_fixture.ex's local create_definition/3). SPEC test/specs/GH-2583.md: AC -> T -> file table with per-test rationale, and the design section 2 AC1 caller table verbatim for the PR body (fixture call lines now 75/91/107). VERIFICATION (real): free RAM was 1.78-2.11 GB for the whole step (below the 4 GB bar), so NO mix test and NO mix letflow.check.test was run; the DB-backed files (records_managed_by_test, record_deadline_sweep_managed_test, and the T-10/T-29 and T-15/T-16 extensions) are UNRUN and their compile warnings are unverified. mix format on all five test files: exit 0. The caller-scan file does pure file reads, so it was run under the mixlock mutex with a bare elixir process (no project compile, no DB): elixir -e 'ExUnit.start(autorun: false); Code.require_file(\"test/letflow/entities/managed_types_callers_test.exs\"); ExUnit.run()' -> 'Result: 25 passed', %{total: 25, failures: 0}. The first run was 24/25 because of a test bug: under records.ex, import Letflow.Entities.Records is the definer's self-import and is correctly allowed, so that case moved to a non-definer path. MUTANTS MEASURED (scratch copies of the test file in the scratchpad, worktree untouched): M-S1 normalize_pipes made identity -> 4/25 fail (T-22 x2, T-24 piped apply, T-26 piped Map forms); M-S2 under_dir? replaced by a string-prefix compare -> 1/25 fail (T-27 another-directory/prefix-sharing/core-code test). NOT MEASURED (memory): M1 check_write_authority/3 always :ok, expected red: T-01, T-02, T-04, T-05, T-06 tenant halves, T-09, T-12, T-13, T-15, T-16; M2 check moved after ensure_mutable -> T-05 fxm_ledger; M3 check moved after fetch_existing_record -> T-02 absent ids, T-06 absent/deleted; M4 check_record_write ignores manages -> T-05 narrow Owner, T-10; M5 ignores module_id -> T-04, T-10; M6 is_authority guard dropped from /3 -> T-08; M7 render_record_command :entity_type_managed clause removed -> T-15 (500); M8 import_reason_json(:entity_type_managed) removed -> T-16 (log + generic reason). TEST-RUNNER must, under the 4 GB rule: run mix letflow.check.test, then the new/changed files plus entities_managed_by_test, managed_types_test, record_deadline_sweep_test and test/letflow/modules/exam/{anti_cheat,certificate,session,exam_sessions}_test.exs, and measure M1. No lib/ edits, no commit, no Monitors/background jobs; mutex created and removed by this step; no BEAM left by this step (pid 33184 is another session's mix test).",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "test/letflow/entities/records_managed_by_test.exs",
+      "test/letflow/scheduler/record_deadline_sweep_managed_test.exs",
+      "test/letflow/entities/managed_types_test.exs (extended: T-10, T-29)",
+      "test/letflow/routers/entities_managed_by_test.exs (extended: T-15, T-16)",
+      "test/letflow/entities/managed_types_callers_test.exs (edited per design 7.4: T-17..T-20, T-22..T-28)",
+      "test/specs/GH-2583.md"
+    ],
+    "diagnosis_confirmed": true,
+    "implementation_written": false,
+    "classification": "TESTS_WRITTEN_PARTIALLY_RUN"
+  }
+}

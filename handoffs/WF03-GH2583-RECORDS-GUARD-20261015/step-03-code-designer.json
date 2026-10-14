@@ -1,0 +1,61 @@
+{
+  "handoff_id": "c4a7d1e0-2583-4a11-8c20-000000000003",
+  "run_id": "WF03-GH2583-RECORDS-GUARD-20261015",
+  "workflow_id": "WF-03",
+  "step": "03",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGNER",
+  "file": "handoffs/WF03-GH2583-RECORDS-GUARD-20261015/step-03-code-designer.json",
+  "created_at": "2026-10-14T21:27:45Z",
+  "started_at": "2026-10-14T21:27:45Z",
+  "completed_at": "2026-10-14T21:41:17Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2583": "managed_by: core Records callers bypass the route-level managed-type guard. ACs: (1) enumerate and classify every core caller of Records.create/update/delete; (2) move the enforcement point so no core path writes a managed type without an explicit typed ownership proof, with a boundaries/CI check against new unguarded callers; (3) RecordDeadlineSweep proves ownership or is shown to touch no managed type, with a test; (4) coordinate with REQ-484 / 0054 so step writes use the same check. ORCH rulings OQ1-OQ6 applied (see design section 1)."
+    },
+    "related_handoff_ids": ["c4a7d1e0-2583-4a11-8c20-000000000001"],
+    "artifacts_in": [
+      "handoffs/WF03-GH2583-RECORDS-GUARD-20261015/step-01-issue-fixer.json",
+      "lib/letflow/entities/records.ex",
+      "lib/letflow/entities/managed_types.ex",
+      "lib/letflow/routers/entities.ex",
+      "lib/letflow/scheduler/record_deadline_sweep.ex",
+      "lib/letflow/repository/activation.ex",
+      "lib/letflow/modules/catalog.ex",
+      "lib/letflow/design/req496-managed-by-and-scope-node-paths.md",
+      "test/support/modules/fixture_managed/fixture_managed.ex",
+      "test/letflow/entities/managed_types_callers_test.exs",
+      "test/letflow/routers/entities_managed_by_test.exs",
+      "priv/repo/migrations/20261014100001_add_managed_by_to_entity_definitions.exs",
+      "docs/migration/decisions/0054-process-step-writes-entity.md",
+      "docs/migration/decisions/0050-foundation-modules-org-catalog-and-reference-contract.md",
+      "docs/agents/instructions/security-invariants.md"
+    ],
+    "owned_modules": [
+      "Letflow.Entities.Records",
+      "Letflow.Entities.ManagedTypes",
+      "Letflow.Routers.Entities"
+    ],
+    "worktree": "C:/Users/tvolo/dev/ai-dala/letflow-wt2583",
+    "branch_name": "fix/WF03-GH2583-RECORDS-GUARD-20261015"
+  },
+  "task": {
+    "description": "WF-03 step 3: design the Records-level managed-type guard for GH #2583 per the ISSUE-FIXER diagnosis and ORCH rulings OQ1-OQ6. Design only: no code, no tests, no mix."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "REVISION 2 (2026-10-14T21:41Z, CDV PASS r1; SEC B2): owner_for! and module_owner matched BY NAME with any receiver in R2/R3 (no other file defines them); R1b bans import/alias-as of ManagedTypes except records.ex's exact `import ManagedTypes, only: [is_authority: 1]`; plain multi-alias without as: allowed; R2 'under D/' is a whole-segment compare; unresolvable EntryAlias fails closed; two-entry-module directory accepted (8.4); public-Owner-returning-function rule noted as follow-up idea (14); T-27 snippet input includes a defmanifest-defining file plus fixture_managed_x, unresolvable-alias and import+bare-call cases; T-18 covers ManagedTypes. REVISION 1(2026-10-14T21:39Z, after SECURITY-REVIEWER FAIL B1 and CODE-DESIGN-VALIDATOR FAIL B1/B2 on section 7; changelog at top of the design): caller scan now normalises pipes for ALL rules (incl. existing create_definition/3 and install/4 rules); matches ONLY qualified receivers (alias or atom :\"Elixir.Letflow.Entities.Records\"), never bare local calls (fixes script_policy_fixture.ex:25/36/40 false positives once test/support is scanned); R1 (named LOAD-BEARING) also flags /3 captures, Function.capture/3 and apply/Kernel.apply/:erlang.apply with literal Records module+function; R1b also covers Definitions; R4 flags %{__struct__: Owner} map literals and Map.put/put_new/replace(!) forgery; R2 becomes a directory rule: owner_for!(__MODULE__) in the defmanifest module or owner_for!(EntryAlias) in any file under that entry module's own lib/letflow/modules/<id>/ or test/support/modules/<id>/ directory (new section 8.4, #2596 then only extends @authority_callers; no owner/0). Uncovered forms listed as accepted limits (7.5); D6/I3 corrected (Owner flows as parameter via solution_pack.ex:1654 -> definitions.ex:137). Existing-test edits listed (7.4). Advisories folded: per-line check in command_multi (8.2 SEC A1); premise P named in D8 + T-29 (SEC A2); T-13 asserts reason=:entity_type_managed with metadata (SEC A3); T-15 asserts pg_trigger tgenabled='O' for both triggers and states DROP SCHEMA CASCADE teardown (SEC A4); 3.3 boundary claim corrected (new Entities->Catalog edge, allowed by check_boundaries Rule 0); I5 reworded (import race = 200 with per-entry entity_type_managed); T-12 asserts no other org_unit rows; follow-ups section 14 (SEC A5 sweep pre-check, SEC A6 attachments = #2582, exam generic-route exposure). New tests T-22..T-29. ORIGINAL: Design written: lib/letflow/design/gh2583-records-managed-type-guard.md. (1) Records gains create_record/3, update_record/3, delete_record/3 taking authority :: ManagedTypes.owner() (:tenant | %Owner{}), head guard is_authority/1 (new defguard in ManagedTypes) so a bad authority raises FunctionClauseError before any query; the /2 arities are one-line :tenant delegates (fail-closed); only FixtureManaged's 3 calls change. (2) One private Records.check_write_authority/3 runs immediately after fetch_active_definition and before validate_field_values (create) / ensure_mutable (update, delete), reading definition.managed_by from the already-loaded row: zero extra queries; it delegates to the new pure ManagedTypes.check_record_write/3 (managed_by, entity_type, authority) so the %Owner{} pattern stays in managed_types.ex (existing T-34 rule holds). Refusal {:error, :entity_type_managed} added to command_error. (3) Runtime Owner: new ManagedTypes.owner_for!/1 (registered Catalog entry module that declares managed types, else ArgumentError) callable only as owner_for!(__MODULE__) inside a defmanifest module in a statically allow-listed file (today only test/support/modules/fixture_managed/fixture_managed.ex). (4) Router: guard_tenant_write unchanged; new race-only render_record_command clause -> Error.entity_type_managed() (same constant 403 body) and import_reason_json(:entity_type_managed) -> type entity_type_managed; import keeps Records.create_record/2. (5) Sweep: no code change, per-record refusal + existing id-only warning; moduledoc paragraph. (6) Caller scan widened to lib/**/*.ex + test/support/**/*.ex with rules R1 (non-:tenant 3rd arg of Records.create/update/delete_record or command_multi only in @authority_callers), R1b (no import/alias-as of Records), R2 (owner_for! callers allow-listed, __MODULE__ only, inside defmanifest module), R3/R4 existing. (7) AC4: contract for REQ-499 PR A command_multi(command, prefix, authority) reusing check_write_authority, StepWrites passes :tenant, maps to write_not_permitted; REQ-501 hook documented, not built. (8) Tests T-01..T-21 incl. Owner mismatch, Owner-for-unmanaged-type, order pins, query-count, sweep AC3 + control, deterministic race simulation via in-transaction trigger toggle + entity_definitions rename (Activation.resolve keys by artifact_name, verified activation.ex:160-177). AC1 table (15 sites) must be copied into the PR body. Open questions: OQ-A defmanifest call form in R2; OQ-B fallback if trigger toggling in tests is rejected. No migration. Gates: SECURITY-REVIEWER (INV-6), REVIEWER.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "lib/letflow/design/gh2583-records-managed-type-guard.md"
+    ],
+    "diagnosis_confirmed": true,
+    "implementation_written": false,
+    "classification": "SECURITY_GAP"
+  }
+}

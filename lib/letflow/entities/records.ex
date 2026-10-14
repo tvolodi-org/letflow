@@ -45,6 +45,14 @@ defmodule Letflow.Entities.Records do
   then this module's own `:upsert_record_latest` step (design §5.1 steps
   4-5), then `:dual_write_promoted_columns` (REQ-297).
 
+  ## Managed types (GH #2583)
+
+  Each command has a `/3` arity taking `authority :: ManagedTypes.owner()`; the
+  `/2` arity is that call with `:tenant`. Right after the active definition is
+  resolved, `ManagedTypes.check_record_write/3` refuses a `managed_by` type with
+  `{:error, :entity_type_managed}` unless the authority is that module's `Owner`
+  naming the type. See `lib/letflow/design/gh2583-records-managed-type-guard.md`.
+
   ## Append-only entity types (GH #2529)
 
   `update_record/2` and `delete_record/2` refuse with
@@ -129,6 +137,7 @@ defmodule Letflow.Entities.Records do
   """
 
   import Ecto.Query, only: [where: 3, select: 3]
+  import Letflow.Entities.ManagedTypes, only: [is_authority: 1]
 
   alias Ecto.Multi
   alias Letflow.Entities.Definition.DDL
@@ -136,6 +145,7 @@ defmodule Letflow.Entities.Records do
   alias Letflow.Entities.Definitions
   alias Letflow.Entities.EntityDefinition
   alias Letflow.Entities.EntityTypeInstance
+  alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Record.Validator
   alias Letflow.EventStore
@@ -204,6 +214,7 @@ defmodule Letflow.Entities.Records do
           | {:error, :record_version_conflict}
           | {:error, {:entity_append_only, entity_type :: String.t()}}
           | {:error, :idempotency_key_reuse}
+          | {:error, :entity_type_managed}
           | {:error, :tenant_not_provisioned}
           | {:error, :invalid_schema_name}
           | {:error, {:payload_validation_failed, [term()]}}
@@ -236,14 +247,29 @@ defmodule Letflow.Entities.Records do
   (`Letflow.Idempotency.legacy_original/3`). It skips the append and is
   matched like a store duplicate: the original as `is_duplicate: true`, or
   `{:error, :idempotency_key_reuse}`.
+
+  Step 1a (GH #2583): `authority` must hold the type. A `managed_by` type is
+  written only with that module's `Owner` naming the type; `:tenant` (the `/2`
+  default) and any other `Owner` get `{:error, :entity_type_managed}` with
+  nothing read beyond the definition.
   """
   @spec create_record(create_attrs(), prefix :: String.t()) ::
           {:ok, command_result()} | command_error()
-  def create_record(%{entity_type: entity_type, field_values: field_values} = attrs, prefix)
-      when is_binary(prefix) do
+  def create_record(attrs, prefix) when is_binary(prefix),
+    do: create_record(attrs, prefix, :tenant)
+
+  @spec create_record(create_attrs(), prefix :: String.t(), ManagedTypes.owner()) ::
+          {:ok, command_result()} | command_error()
+  def create_record(
+        %{entity_type: entity_type, field_values: field_values} = attrs,
+        prefix,
+        authority
+      )
+      when is_binary(prefix) and is_authority(authority) do
     match = idempotency_match(attrs)
 
     with {:ok, definition} <- fetch_active_definition(entity_type, prefix),
+         :ok <- check_write_authority(definition, entity_type, authority),
          :ok <- validate_field_values(definition, field_values) do
       record_id = Ecto.UUID.generate()
 
@@ -297,17 +323,29 @@ defmodule Letflow.Entities.Records do
 
   GH #2543: the duplicate-key binding is always the full `:request` match;
   `idempotency_match` is create-only and is ignored here.
+
+  Step 1a (GH #2583): `authority` must hold the type. A `managed_by` type is
+  written only with that module's `Owner` naming the type; `:tenant` (the `/2`
+  default) and any other `Owner` get `{:error, :entity_type_managed}` with
+  nothing read beyond the definition.
   """
   @spec update_record(update_attrs(), prefix :: String.t()) ::
           {:ok, command_result()} | command_error()
+  def update_record(attrs, prefix) when is_binary(prefix),
+    do: update_record(attrs, prefix, :tenant)
+
+  @spec update_record(update_attrs(), prefix :: String.t(), ManagedTypes.owner()) ::
+          {:ok, command_result()} | command_error()
   def update_record(
         %{entity_type: entity_type, record_id: record_id, field_values: field_values} = attrs,
-        prefix
+        prefix,
+        authority
       )
-      when is_binary(prefix) do
+      when is_binary(prefix) and is_authority(authority) do
     expected = expected_seq(attrs)
 
     with {:ok, definition} <- fetch_active_definition(entity_type, prefix),
+         :ok <- check_write_authority(definition, entity_type, authority),
          :ok <- ensure_mutable(definition, entity_type),
          {:ok, existing_record} <- fetch_existing_record(record_id, entity_type, prefix),
          :ok <- ensure_not_deleted(existing_record, record_id),
@@ -346,14 +384,25 @@ defmodule Letflow.Entities.Records do
   `"append_only" => true`) returns `{:error, {:entity_append_only, entity_type}}`
   right after the definition is resolved, before the record lookup and the
   already-deleted no-op, for any `record_id`, with no event appended.
+
+  Step 1a (GH #2583): `authority` must hold the type. A `managed_by` type is
+  written only with that module's `Owner` naming the type; `:tenant` (the `/2`
+  default) and any other `Owner` get `{:error, :entity_type_managed}` with
+  nothing read beyond the definition.
   """
   @spec delete_record(delete_attrs(), prefix :: String.t()) ::
           {:ok, command_result()} | command_error()
-  def delete_record(%{entity_type: entity_type, record_id: record_id} = attrs, prefix)
-      when is_binary(prefix) do
+  def delete_record(attrs, prefix) when is_binary(prefix),
+    do: delete_record(attrs, prefix, :tenant)
+
+  @spec delete_record(delete_attrs(), prefix :: String.t(), ManagedTypes.owner()) ::
+          {:ok, command_result()} | command_error()
+  def delete_record(%{entity_type: entity_type, record_id: record_id} = attrs, prefix, authority)
+      when is_binary(prefix) and is_authority(authority) do
     expected = expected_seq(attrs)
 
     with {:ok, definition} <- fetch_active_definition(entity_type, prefix),
+         :ok <- check_write_authority(definition, entity_type, authority),
          :ok <- ensure_mutable(definition, entity_type),
          {:ok, existing_record} <- fetch_existing_record(record_id, entity_type, prefix) do
       if existing_record.deleted do
@@ -1009,6 +1058,19 @@ defmodule Letflow.Entities.Records do
         error
     end
   end
+
+  # GH #2583 design §4.3: the single ownership check every write runs right after
+  # the definition is resolved and before anything else; zero extra queries (it
+  # reads the stamp of the row `fetch_active_definition/2` already loaded).
+  # REQ-499's `command_multi/3` must reuse it per line (design §8.2).
+  @spec check_write_authority(
+          EntityDefinition.t(),
+          entity_type :: String.t(),
+          ManagedTypes.owner()
+        ) ::
+          :ok | {:error, :entity_type_managed}
+  defp check_write_authority(%EntityDefinition{managed_by: managed_by}, entity_type, authority),
+    do: ManagedTypes.check_record_write(managed_by, entity_type, authority)
 
   defp fetch_existing_record(record_id, entity_type, prefix) do
     case Latest.get(record_id, entity_type, prefix) do
