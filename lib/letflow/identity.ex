@@ -1047,7 +1047,7 @@ defmodule Letflow.Identity do
 
     from(u in User,
       as: :user,
-      where: u.status == :active,
+      where: ^active_user_condition(:user),
       where: exists(member_of_admin_group) or exists(owns_live_admin_token)
     )
     |> exclude_scoped_holders(prefix)
