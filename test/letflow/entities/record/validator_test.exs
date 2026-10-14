@@ -383,6 +383,9 @@ defmodule Letflow.Entities.Record.ValidatorTest do
                2.5
 
       assert gh2532_qty_subschema(%{type: :integer, min: 7, non_negative: true})["minimum"] == 7
+      # the clamp: a negative min with non_negative (corrupt stored data; Rule 12
+      # rejects it at definition time) still yields 0
+      assert gh2532_qty_subschema(%{type: :integer, min: -3, non_negative: true})["minimum"] == 0
       # (number m, not true) -> m
       assert gh2532_qty_subschema(%{type: :integer, min: -4})["minimum"] == -4
 
