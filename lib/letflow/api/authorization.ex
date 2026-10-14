@@ -14,10 +14,10 @@ defmodule Letflow.Api.Authorization do
   allowed a permission iff `permission_scope/1` of it is `:tenant`; never a
   platform-scope permission, never `:Unknown` (see the `TENANT_ADMIN` clause
   of `core_role_allows?/2`). `TENANT_AUDITOR` is read-only: a closed explicit
-  list of 12 core atoms plus the role-agnostic `:MyModulesRead` (13 effective
-  grants). `:PromotionsRead` is deliberately withheld until Q-1011's
-  stored-tenant check merges (decision 0046 D6, interim deviation), and the
-  link-issue route is denied through `:AttachmentLinksIssue`.
+  list of 13 core atoms plus the role-agnostic `:MyModulesRead` (14 effective
+  grants, decision 0046 D6). `:PromotionsRead` is granted since ISS-1109 (the
+  stored-tenant check of Q-1011 / ISS-1029 has merged), and the link-issue
+  route is denied through `:AttachmentLinksIssue`.
 
   ## Untrusted input: roles are caller-influenced strings, not R-Co's enum
 
@@ -1518,13 +1518,14 @@ defmodule Letflow.Api.Authorization do
   defp core_role_allows?(:CANDIDATE, _permission), do: false
 
   # REQ-448 (design req448-tenant-auditor-role.md section 2.2): TENANT_AUDITOR
-  # is read-only. A CLOSED explicit list of 12 core atoms (deliberately NOT a
+  # is read-only. A CLOSED explicit list of 13 core atoms (deliberately NOT a
   # `permission_scope == :tenant` rule, unlike TENANT_ADMIN); :MyModulesRead is
-  # granted to every role by the first role_allows?/2 clause. Withheld on
-  # purpose: :PromotionsRead (interim, until Q-1011's stored-tenant check
-  # merges; decision 0046 D6), :EntitiesRecordsExport and every write, manage,
-  # import, token, user, role, module, settings, promotion, rollback or
-  # link-issue permission. Never a platform-scope permission.
+  # granted to every role by the first role_allows?/2 clause. :PromotionsRead
+  # is granted (ISS-1109 / GH #2489) now that the stored-tenant check of
+  # Q-1011 / ISS-1029 gates the review-id read routes (GET /:id, /:id/context). Withheld on
+  # purpose: :EntitiesRecordsExport and every write, manage, import, token,
+  # user, role, module, settings, promotion-manage, rollback or link-issue
+  # permission. Never a platform-scope permission.
   defp core_role_allows?(:TENANT_AUDITOR, permission),
     do:
       permission in [
@@ -1539,6 +1540,7 @@ defmodule Letflow.Api.Authorization do
         :EntitiesAggregate,
         :EntitiesAttachmentsRead,
         :HelpRead,
-        :MembershipsRead
+        :MembershipsRead,
+        :PromotionsRead
       ]
 end

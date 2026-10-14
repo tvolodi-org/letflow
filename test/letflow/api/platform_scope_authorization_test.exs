@@ -133,10 +133,13 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
         assert Authorization.role_allows?(:PLATFORM_ADMIN, permission)
 
         # :PlatformServicesManage is platform scope (literal, not derived): TENANT_ADMIN is denied it.
+        # ISS-1109: TENANT_AUDITOR additionally holds :PromotionsRead (read-only grant).
         holders =
-          if permission == :PlatformServicesManage,
-            do: [:PLATFORM_ADMIN],
-            else: [:PLATFORM_ADMIN, :TENANT_ADMIN]
+          cond do
+            permission == :PlatformServicesManage -> [:PLATFORM_ADMIN]
+            permission == :PromotionsRead -> [:PLATFORM_ADMIN, :TENANT_ADMIN, :TENANT_AUDITOR]
+            true -> [:PLATFORM_ADMIN, :TENANT_ADMIN]
+          end
 
         assert Authorization.role_allows?(:TENANT_ADMIN, permission) == :TENANT_ADMIN in holders
 
@@ -277,7 +280,14 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
 
         assert Authorization.evaluate_access(ctx([:TENANT_ADMIN], flag), key).kind == :Allow
 
-        for role <- Authorization.roles() -- [:PLATFORM_ADMIN, :TENANT_ADMIN] do
+        # ISS-1109: TENANT_AUDITOR is the one other role that holds :PromotionsRead.
+        expected_auditor = if key == :PromotionsRead, do: :Allow, else: :Deny403
+
+        assert Authorization.evaluate_access(ctx([:TENANT_AUDITOR], flag), key).kind ==
+                 expected_auditor,
+               "TENANT_AUDITOR on #{key}"
+
+        for role <- Authorization.roles() -- [:PLATFORM_ADMIN, :TENANT_ADMIN, :TENANT_AUDITOR] do
           assert Authorization.evaluate_access(ctx([role], flag), key).kind == :Deny403,
                  "#{role} on #{key}"
         end

@@ -24,10 +24,9 @@ defmodule Letflow.Api.RolesMatrixParityTest do
 
   @roles_md Path.expand("../../../docs/roles.md", __DIR__)
 
-  # Decision 0046 D6 (14 atoms: 13 effective grants plus :PromotionsRead), MINUS :PromotionsRead,
-  # which is WITHHELD from TENANT_AUDITOR until Q-1011's stored-tenant check merges (the interim
-  # supervisor decision OQ-2). :MyModulesRead is the role-agnostic grant every role holds. The
-  # follow-up that grants :PromotionsRead must flip this list and the pinning test below on purpose.
+  # Decision 0046 D6: exactly 14 atoms. :PromotionsRead was withheld by REQ-448 until Q-1011's
+  # stored-tenant check merged and was granted by ISS-1109 / GH #2489. :MyModulesRead is the
+  # role-agnostic grant every role holds.
   @auditor_yes_literal [
     :DefinitionsRead,
     :InstancesRead,
@@ -41,6 +40,7 @@ defmodule Letflow.Api.RolesMatrixParityTest do
     :EntitiesAttachmentsRead,
     :HelpRead,
     :MembershipsRead,
+    :PromotionsRead,
     :MyModulesRead
   ]
 
@@ -319,13 +319,13 @@ defmodule Letflow.Api.RolesMatrixParityTest do
       end
     end
 
-    test "the TENANT_AUDITOR column is exactly the 13 literal atoms of D6 minus PromotionsRead" do
+    test "the TENANT_AUDITOR column is exactly the 14 literal atoms of D6, PromotionsRead included" do
       {:ok, %{rows: rows}} = parse(real_text())
 
       assert Enum.sort(yes_names(rows, "TENANT_AUDITOR")) ==
                Enum.sort(Enum.map(@auditor_yes_literal, &Atom.to_string/1))
 
-      assert length(@auditor_yes_literal) == 13
+      assert length(@auditor_yes_literal) == 14
 
       # and the code agrees with the same literal (not only with the doc)
       granted =
@@ -337,15 +337,15 @@ defmodule Letflow.Api.RolesMatrixParityTest do
       assert Enum.sort(granted) == Enum.sort(@auditor_yes_literal)
     end
 
-    test "PromotionsRead is no for TENANT_AUDITOR and yes for TENANT_ADMIN and PLATFORM_ADMIN (the interim withholding is pinned)" do
+    test "PromotionsRead is yes for TENANT_AUDITOR, TENANT_ADMIN and PLATFORM_ADMIN (the grant is pinned)" do
       {:ok, %{rows: rows}} = parse(real_text())
       row = Enum.find(rows, &(&1.permission == "PromotionsRead"))
 
-      refute row.cells["TENANT_AUDITOR"]
+      assert row.cells["TENANT_AUDITOR"]
       assert row.cells["TENANT_ADMIN"]
       assert row.cells["PLATFORM_ADMIN"]
 
-      refute Authorization.role_allows?(:TENANT_AUDITOR, :PromotionsRead)
+      assert Authorization.role_allows?(:TENANT_AUDITOR, :PromotionsRead)
       assert Authorization.role_allows?(:TENANT_ADMIN, :PromotionsRead)
       assert Authorization.has_permission_in_scope?([:PLATFORM_ADMIN], :PromotionsRead, true)
     end
@@ -388,11 +388,11 @@ defmodule Letflow.Api.RolesMatrixParityTest do
              ]
     end
 
-    test "flipping the TENANT_AUDITOR / PromotionsRead cell to yes is detected (the withholding cannot be undone in the doc alone)" do
-      mutated = replace_token(real_text(), "PromotionsRead", role_column("TENANT_AUDITOR"), "yes")
+    test "flipping the TENANT_AUDITOR / PromotionsRead cell to no is detected (the grant cannot be undone in the doc alone)" do
+      mutated = replace_token(real_text(), "PromotionsRead", role_column("TENANT_AUDITOR"), "no")
 
       assert new_violations(mutated) == [
-               {:cell_mismatch, "PromotionsRead", "TENANT_AUDITOR", true, false}
+               {:cell_mismatch, "PromotionsRead", "TENANT_AUDITOR", false, true}
              ]
     end
 

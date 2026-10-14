@@ -139,6 +139,8 @@ Status: the supervisor ACCEPTED this choice (OQ-8 option (a)): L1 is IN scope fo
 
 ## 3. `:PromotionsRead` is WITHHELD (interim deviation, OQ-2) and the follow-up
 
+> RESOLVED by ISS-1109 / GH #2489 / Q-1109: after Q-1011 (PR #2474) merged, `:PromotionsRead` is in the auditor's explicit list (14 effective atoms), the matrix cell is `yes`, the pins moved 13 -> 14 and 28 -> 27, and the AC5 row moved to the allowed side. The text below is the historical design as of REQ-448.
+
 Decision 0046 D6 and REQ-448 BUILD item 1 list `:PromotionsRead` for the auditor, "subject to the binding condition under D3". Status of the condition: the ownership proof on the promote route is met by REQ-446 (`lib/letflow/routers/tenants.ex` `handle_promote`, ~line 448, calling `TenantTarget.authorize_target_tenant/2`, `lib/letflow/api/tenant_target.ex:31-39`); plan and event payloads of `/context` and `/platform-events` are shaped by allowlists (ISS-0999, ISS-1021, ISS-1023); the stored-tenant check on `GET /promotions`, `GET /promotions/:id`, `GET /promotions/:id/context` is NOT done (Q-1011 / GH #2311 / ISS-1029; `handle_context` at `routers/promotions.ex:526` has no `stored_tenants_authorized?/3` call).
 
 Interim decision: a NEW role must not widen a surface whose stored-tenant check is open. Therefore:
