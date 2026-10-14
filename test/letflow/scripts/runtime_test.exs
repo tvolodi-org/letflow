@@ -18,6 +18,8 @@ defmodule Letflow.Scripts.RuntimeTest do
   import Ecto.Query
 
   alias Letflow.Definitions.ProcessDefinition
+  alias Letflow.Scripts
+  alias Letflow.Scripts.Policy
   alias Letflow.Scripts.Runtime
   alias Letflow.Support.ScriptPolicyFixture, as: SP
   alias Letflow.Support.ScriptTaskFixture, as: F
@@ -114,6 +116,80 @@ defmodule Letflow.Scripts.RuntimeTest do
         })
 
       assert prepare(t, manifest) == {:rejected, :restricted_opt_in_unsupported}
+    end
+  end
+
+  describe "REVIEWER F1: a match.field must be on the query allowlist" do
+    setup %{t: t} do
+      {:ok, definition} =
+        Letflow.Entities.Definitions.create_definition(
+          %{
+            definition: %{
+              name: "acct",
+              display_name: "Acct",
+              fields: [
+                %{name: "name", type: :string, queried: true},
+                %{name: "code", type: :string, queried: false}
+              ]
+            },
+            created_by: Ecto.UUID.generate()
+          },
+          t.schema_name
+        )
+
+      {:ok, _} =
+        Letflow.Entities.Definitions.activate_definition(
+          definition.name,
+          Ecto.UUID.generate(),
+          "go-live",
+          t.schema_name
+        )
+
+      SP.flag!(t.schema_name, "acct")
+
+      match_on = fn field ->
+        SP.field_read("r", "acct", field, %{"match" => %{"field" => field, "value_from" => "cid"}})
+      end
+
+      %{match_on: match_on}
+    end
+
+    test "refused at save, at publish (check_reads with lock: :share) and at run", %{
+      t: t,
+      match_on: match_on
+    } do
+      schema = t.schema_name
+      not_queried = manifest([match_on.("code")])
+      queried = manifest([match_on.("name")])
+
+      # positive control: the same read on a queried field passes every check
+      assert Policy.check_reads(schema, queried) == :ok
+      assert Policy.check_reads(schema, queried, lock: :share) == :ok
+      assert {:ok, _spec} = prepare(t, queried)
+
+      # publish runs check_reads (plain, then lock: :share inside its transaction)
+      assert Policy.check_reads(schema, not_queried) == {:error, :reads_not_allowed}
+      assert Policy.check_reads(schema, not_queried, lock: :share) == {:error, :reads_not_allowed}
+
+      body = %{
+        "hook_kind" => "service_task",
+        "source" => "return {n = 1}",
+        "manifest" => not_queried,
+        "test_cases" => [
+          %{"name" => "c1", "input" => %{}, "expect" => %{"output" => %{"n" => 1}}}
+        ]
+      }
+
+      assert Scripts.create_draft(
+               schema,
+               "k#{System.unique_integer([:positive])}",
+               body,
+               SP.actor()
+             ) ==
+               {:error, :reads_not_allowed}
+
+      # run (a version stored before the rule existed)
+      assert prepare(t, not_queried) == {:rejected, :reads_not_allowed}
     end
   end
 

@@ -231,6 +231,9 @@ defmodule Mix.Tasks.Letflow.CheckBoundaries do
   @spec classify_edge({String.t(), String.t()}, depends_on_map()) ::
           :ok | {:violation, String.t()}
   def classify_edge({source, target} = edge, depends_on_map) do
+    # Rule 6 is computed once per edge (nil = no layer rule broken).
+    layer_reason = layer_violation(edge)
+
     cond do
       # Scope gate: source not under lib/ → out of scope
       not String.starts_with?(source, "lib/") ->
@@ -241,8 +244,8 @@ defmodule Mix.Tasks.Letflow.CheckBoundaries do
         :ok
 
       # Rule 6: a forbidden layer edge (DIRECT edges only), before Rule 0
-      layer_violation(edge) != nil ->
-        {:violation, layer_violation(edge)}
+      layer_reason != nil ->
+        {:violation, layer_reason}
 
       # Rule 0: target not in a module subdir → always OK
       not path_in_module_subdir?(target) ->

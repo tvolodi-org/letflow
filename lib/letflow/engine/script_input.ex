@@ -34,19 +34,24 @@ defmodule Letflow.Engine.ScriptInput do
 
     input = Map.take(variables, declared)
 
-    cond do
-      not (is_map(input_schema) and JsonSchema.validate(input, input_schema) == []) ->
-        {:error, :input_invalid}
-
-      is_map(reads_result) ->
-        {:ok, Map.put(input, "reads", reads_result)}
-
-      true ->
-        {:ok, input}
-    end
+    if is_map(input_schema) and JsonSchema.validate(input, input_schema) == [],
+      do: {:ok, put_reads(input, reads_result)},
+      else: {:error, :input_invalid}
   end
 
   def build(_variables, _manifest, _reads_result), do: {:error, :input_invalid}
+
+  @doc """
+  Puts the pre-fetched rows under `input["reads"]` (`nil` = no reads: `input` unchanged). No
+  validation: `input` is a `build/3` result, already checked, and `"reads"` is reserved (an
+  `input_schema` cannot declare it). The dispatcher builds once, pre-fetches with the validated
+  variables, then calls this, so the input is validated exactly once. Pure.
+  """
+  @spec put_reads(map(), %{optional(String.t()) => [map()]} | nil) :: map()
+  def put_reads(input, %{} = reads_result) when is_map(input),
+    do: Map.put(input, "reads", reads_result)
+
+  def put_reads(input, nil) when is_map(input), do: input
 
   @doc """
   The canonical bytes the per-run HMAC covers (C14): the canonical JSON form

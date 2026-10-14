@@ -33,6 +33,7 @@ defmodule Letflow.Scripts.Policy do
 
   alias Letflow.Audit
   alias Letflow.Entities.Definitions
+  alias Letflow.Entities.Query.Allowlist
   alias Letflow.Identity
   alias Letflow.Repo
   alias Letflow.Scripts.ReadableMaster
@@ -130,8 +131,9 @@ defmodule Letflow.Scripts.Policy do
   @doc """
   The tenant check of a manifest's `reads` (section 3.2): for every entry, the type is
   flagged, has an ACTIVE definition and no `entity_type_restrictions` row; every `fields`,
-  `restricted_fields` and `match.field` name is a field of that active definition; and a
-  `match.field` that currently has an `entity_field_restrictions` row is listed in
+  `restricted_fields` and `match.field` name is a field of that active definition; a
+  `match.field` is on the entity query allowlist (`queried: true`, GH 2534 7c-2 REVIEWER F1:
+  otherwise the read could never run); and a `match.field` that currently has an `entity_field_restrictions` row is listed in
   `restricted_fields` (P12). One code for every cause. An empty `reads` answers `:ok`
   without a query.
 
@@ -165,7 +167,8 @@ defmodule Letflow.Scripts.Policy do
     with true <- master_present?(prefix, entity_type, lock),
          {:ok, definition} <- Definitions.get_active_definition_by_name(entity_type, prefix),
          false <- type_restricted?(prefix, entity_type),
-         true <- fields_known?(definition, read) do
+         true <- fields_known?(definition, read),
+         true <- match_field_queryable?(prefix, entity_type, read) do
       match_field_opted_in?(prefix, entity_type, read)
     else
       _ -> false
@@ -219,6 +222,22 @@ defmodule Letflow.Scripts.Policy do
   # `definition_json` is always read back from jsonb here (string keys).
   defp field_defs(%{"fields" => fields}) when is_list(fields), do: Enum.filter(fields, &is_map/1)
   defp field_defs(_definition_json), do: []
+
+  # GH 2534 7c-2 REVIEWER F1: a `match.field` must be on the entity query allowlist (a
+  # `queried: true` field the compiler can filter on), the SAME allowlist the read port compiles
+  # the equality query against. Otherwise the read could never run, so it is refused at save,
+  # at publish and at every run alike.
+  defp match_field_queryable?(prefix, entity_type, %{"match" => %{"field" => field}})
+       when is_binary(field) do
+    with {:ok, allowlist} <- Allowlist.load(entity_type, prefix),
+         {:ok, _allowlisted} <- Allowlist.resolve_field(allowlist, field) do
+      true
+    else
+      _not_queryable -> false
+    end
+  end
+
+  defp match_field_queryable?(_prefix, _entity_type, _id_match), do: true
 
   # P12 / SEC F1: the same table FieldGrants.load_restrictions/3 reads, WITHOUT its per-user
   # grant anti-join (the script principal has no user and no grants).

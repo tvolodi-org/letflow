@@ -7,6 +7,11 @@ defmodule Letflow.Entities.ScriptReads do
 
   ## Phase 1 (every read, before ANY record query)
 
+    0. The type is STILL flagged readable (`script_readable_masters`, read fresh): the port
+       re-checks the flag itself, closing the window between the dispatcher's
+       `check_reads` and this call (7b-2a P5 / residual R1) and protecting any caller that
+       skips `check_reads`. The table is read schemalessly by name: this module does not call
+       into the scripts context (no entities -> scripts code edge).
     1. The type has an ACTIVE definition and no `entity_type_restrictions` row; every `fields`
        name and the `match.field` is a field of that definition; `restricted_fields` is absent
        or empty (hook 1 has no restricted opt-in, C10).
@@ -29,7 +34,13 @@ defmodule Letflow.Entities.ScriptReads do
     * `field`/`value_from`: the compiled equality query plus `deleted = false`, ordered by
       `record_id`, `LIMIT min(limit, 50)`. A value of the wrong JSON type for the field (nil, a
       list, a map, a string for an integer field, an unparsable date) issues the SAME query with
-      a constant-false predicate.
+      a constant-false predicate. A datetime value must be ISO-8601 WITH an offset; it is
+      converted to UTC (stored values are compared as UTC timestamps).
+    * A record query that the database refuses (a STORED value that does not fit the SQL cast
+      of its field, e.g. a value written under an earlier definition version) is caught, nothing
+      is logged, and the whole prefetch is refused `{:error, :reads_not_allowed}`: the run ends
+      `script_rejected` / `reads_not_allowed` instead of leaving its row `running` until the
+      lease sweep.
 
   Each row is `%{"id" => record_id}` plus every declared field that is present in the record
   AND not in `R`; a restricted field is OMITTED (absent, same as never set; no sentinel).
@@ -67,11 +78,8 @@ defmodule Letflow.Entities.ScriptReads do
       end)
 
     case planned do
-      {:ok, plans} ->
-        {:ok, plans |> Enum.reverse() |> Map.new(&{&1.name, fetch(&1, prefix)})}
-
-      :refused ->
-        {:error, :reads_not_allowed}
+      {:ok, plans} -> fetch_all(Enum.reverse(plans), prefix)
+      :refused -> {:error, :reads_not_allowed}
     end
   end
 
@@ -87,6 +95,7 @@ defmodule Letflow.Entities.ScriptReads do
        )
        when is_binary(name) and is_binary(entity_type) and is_map(match) and is_list(fields) do
     with true <- Map.get(read, "restricted_fields", []) in [[], nil],
+         true <- readable_master?(prefix, entity_type),
          {:ok, definition} <- active_definition(entity_type, prefix),
          false <- type_restricted?(prefix, entity_type),
          true <- known_fields?(definition, fields, match),
@@ -106,6 +115,13 @@ defmodule Letflow.Entities.ScriptReads do
       {:ok, definition} -> {:ok, definition}
       {:error, _not_found_or_invalid_schema} -> :refused
     end
+  end
+
+  # Step 0: the flag, read fresh on every call (schemaless: no entities -> scripts code edge).
+  defp readable_master?(prefix, entity_type) do
+    Repo.exists?(from(m in "script_readable_masters", where: m.entity_type == ^entity_type),
+      prefix: prefix
+    )
   end
 
   defp type_restricted?(prefix, entity_type) do
@@ -219,10 +235,15 @@ defmodule Letflow.Entities.ScriptReads do
     end
   end
 
+  # REVIEWER F3: an offset is required and honoured (converted to UTC); a value without an
+  # offset, or an unparsable one, is a type mismatch (constant-false, still one query).
   defp coerce(:datetime, value) when is_binary(value) do
-    case NaiveDateTime.from_iso8601(value) do
-      {:ok, naive} -> {naive, true}
-      {:error, _} -> placeholder(:datetime)
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} ->
+        {datetime |> DateTime.shift_zone!("Etc/UTC") |> DateTime.to_naive(), true}
+
+      {:error, _} ->
+        placeholder(:datetime)
     end
   end
 
@@ -236,6 +257,15 @@ defmodule Letflow.Entities.ScriptReads do
   defp placeholder(_string_like), do: {"", false}
 
   # ── phase 2: exactly one record query per read ──────────────────────────────
+
+  # SECURITY F2: a record query the database refuses (a stored value that does not fit the
+  # field's SQL cast) refuses the whole prefetch. Nothing is bound or logged; there is no
+  # open transaction here, so nothing is left aborted.
+  defp fetch_all(plans, prefix) do
+    {:ok, Map.new(plans, &{&1.name, fetch(&1, prefix)})}
+  rescue
+    Postgrex.Error -> {:error, :reads_not_allowed}
+  end
 
   defp fetch(%{query: query, fields: fields, restricted: restricted}, prefix) do
     query

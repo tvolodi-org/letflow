@@ -189,7 +189,7 @@ Latest tenant migrations `20261014000001..3` (scripts), `20261014100001..2`
 
 | PR | Content | Merge |
 |---|---|---|
-| **7c-1** | route kind `:script`, graph check, `:script` pin kind, activation refusal (3 paths), retire block, `script_task_dispatches` + poller + lease + CAS apply + busy retry, kill switch at run, output validation + write-key refusal + VariableMerge with real validations, events + registry + replay clauses, per-run record + HMAC + missing-secret alert, LuaScriptAudit retirement, worked example, backfill re-run test, WASM route test. A version whose manifest declares non-empty `reads` is REFUSED at activation (`script_reads_unsupported`) and, as a backstop, at run time (`reads_not_allowed`). | first, after 7b-2b (#2593) |
+| **7c-1** | route kind `:script`, graph check, `:script` pin kind, activation refusal (3 paths), retire block, `script_task_dispatches` + poller + lease + CAS apply + busy retry, kill switch at run, output validation + write-key refusal + VariableMerge with real validations, events + registry + replay clauses, per-run record + HMAC + missing-secret alert, LuaScriptAudit retirement, worked example, backfill re-run test, WASM route test. A version whose manifest declares non-empty `reads` is REFUSED at activation (`script_reads_unsupported`) and, as a backstop, at run time (`reads_not_allowed`). (7c-2 lifted this refusal; see 19b.) | first, after 7b-2b (#2593) |
 | **7c-2** | `Letflow.Engine.ScriptReadPort` behaviour, `Letflow.Entities.ScriptReads` implementation, config injection, `check_boundaries` Rule 6, run-time `check_reads`, redaction, N1, row caps, no caching; lifts the 7c-1 `reads` refusal. Closes #2534. | second |
 
 7c-1 is safe on its own: no entity read path exists until 7c-2, and nothing a tenant can publish
@@ -359,7 +359,7 @@ changes nothing for that instance (D3).
 `Letflow.Scripts.Runtime.check_bindings(graph :: Graph.t(), prefix :: String.t()) :: :ok | {:error,
 {:script_binding_invalid, node_id :: String.t(), reason}}`, `reason ::
 :script_not_published | :script_version_conflict | :script_output_schema_open |
-:script_reads_unsupported (7c-1 only) | :script_restricted_opt_in_unsupported`. For every `{key,
+:script_reads_unsupported (7c-1 only; lifted by 7c-2, see 19b) | :script_restricted_opt_in_unsupported`. For every `{key,
 version}` bound by a SERVICE_TASK node, in this order: `SELECT ... FROM script_rules WHERE key = $1
 AND version = $2 FOR SHARE` (bound); refused unless `status == "published"` and `hook_kind ==
 "service_task"` (absent, draft, discarded, retired, revoked all -> `:script_not_published`); then
@@ -367,8 +367,8 @@ AND version = $2 FOR SHARE` (bound); refused unless `status == "published"` and 
 map, `"additionalProperties" == false`) else `:script_output_schema_open` [SEC S1]; then C10
 (non-empty `restricted_inputs` or any non-empty `reads[].restricted_fields`) else
 `:script_restricted_opt_in_unsupported`; then (7c-1 only) non-empty `reads` else
-`:script_reads_unsupported`. The first failing node (graph node order) is reported. Must run inside
-the caller's transaction (it takes row locks).
+`:script_reads_unsupported` (7c-2 removed this step; see 19b). The first failing node (graph node
+order) is reported. Must run inside the caller's transaction (it takes row locks).
 
 `closed_output_schema?(manifest :: map()) :: boolean()` and `declared_outputs(manifest :: map()) ::
 [String.t()]` (the top-level `properties` keys) are public pure functions of `Scripts.Runtime`,
@@ -1034,7 +1034,8 @@ false); a run with `true` -> `output_invalid` / `output_schema`, and the instanc
   version)` is refused with `{:script_binding_invalid, node_id, :script_not_published}` (422) in
   `Definitions.activate/2`, in promotion and in version rollback; a published version activates.
   Two versions of one key -> `:script_version_conflict`; non-empty `reads` ->
-  `:script_reads_unsupported`; restricted opt-in -> `:script_restricted_opt_in_unsupported`.
+  `:script_reads_unsupported` (7c-1 only; 7c-2 lifted it, see 19b); restricted opt-in ->
+  `:script_restricted_opt_in_unsupported`.
 * **AC2a [SEC S1]** A binding whose `output_schema` lacks top-level `properties` or
   `"additionalProperties": false` is refused at activation with `:script_output_schema_open` (all
   three paths); the same version, run through `prepare_run/3` directly, is rejected
@@ -1214,7 +1215,7 @@ AC -> suite / named test [CDV C7]:
 | AC21 | existing suites + `test/letflow/engine/service_task_engine_wiring_test.exs` (ext) | `http completion payload pinned` |
 | AC29 | `script_task_dispatcher_test.exs` | T-fair-round-robin, T-tick-budget, T-rotating-offset |
 | AC30 | `script_task_dispatcher_test.exs` | T-sweep-stuck, T-sweep-aggregated-log |
-| AC22 | `test/mix/tasks/letflow.check_boundaries_test.exs` (ext) | `rule 6 synthetic edge`, `real graph passes` |
+| AC22 | `test/mix/tasks/letflow.check_boundaries_test.exs` (ext) | `rule 6 synthetic edge`; `real graph passes` = `Mix.Tasks.Letflow.CheckBoundariesTaskTest` "exits 0 on the current branch tree (AC2)" (same file, line 411) |
 | AC23-AC25 | `test/letflow/entities/script_reads_test.exs` | `rows shape`, `miss equivalence one query`, `limit cap`, `run-time causes x4`, `restriction re-redacts next run` |
 | AC26, AC26a | `script_reads_test.exs`, `test/letflow/scripts/runtime_test.exs` | T-N1-after-publish, `opt-in backstop` |
 | AC27 | `script_task_dispatcher_test.exs` | `kill switch no port call` |
@@ -1397,6 +1398,26 @@ Gate follow-ups (SECURITY, REVIEWER, TDV on 7c-1):
   lists direct references only; on this branch the real graph passes with the indirect metadata
   path engine -> `Scripts.Runtime` -> `Scripts.Policy` -> `Entities.Definitions` present, which is
   the empirical proof that Rule 6 sees direct edges only.
+
+Gate follow-ups (SECURITY, REVIEWER, TDV on 7c-2):
+
+* [SEC F1 / REVIEWER F2] The port re-checks the readable-master flag itself in phase 1 (fresh,
+  before any record query), so a flag cleared between `check_reads` and `prefetch/3` is refused;
+  this narrows R1 to the gap between the port's own flag read and its record query. The table is
+  read schemalessly so `Letflow.Entities` gains no code edge to `Letflow.Scripts`.
+* [REVIEWER F1] `Policy.check_reads` refuses a `match.field` that is not on the entity query
+  allowlist (`Query.Allowlist`, i.e. `queried: true`), at save, at publish and at every run, so
+  a read that can never compile can never be published.
+* [REVIEWER F3] A datetime match value must carry an offset (`DateTime.from_iso8601/1`) and is
+  converted to UTC; a value without an offset is a type mismatch (constant-false, one query).
+  Residual (pre-existing, compiler-side): the compiler casts the STORED value with
+  `::timestamp`, which drops a stored non-UTC offset; records written with `Z` compare exactly.
+* [REVIEWER F4] `ScriptInput.put_reads/2`: the dispatcher validates the input once
+  (`build/3`), then only puts `"reads"`.
+* [SEC F2] A record query the database refuses (a stored value that does not fit its field's
+  cast) is rescued (`Postgrex.Error`, nothing bound or logged) and refuses the whole prefetch
+  `reads_not_allowed`; the run ends `script_rejected` / `reads_not_allowed` at once instead of
+  waiting for the lease sweep. No new detail code: it is a type/field-level data condition.
 
 ## 20. Open questions
 

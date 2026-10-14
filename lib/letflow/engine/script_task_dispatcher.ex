@@ -511,7 +511,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
 
     with {:ok, declared_vars} <- ScriptInput.build(variables, spec.manifest, nil),
          {:ok, reads_result} <- prefetch(spec.reads, declared_vars, prefix),
-         {:ok, input} <- ScriptInput.build(variables, spec.manifest, reads_result),
+         input = ScriptInput.put_reads(declared_vars, reads_result),
          ctx = hmac_ctx(row),
          {:ok, hmac} <- spec.hmac_fun.(ScriptInput.canonical(input, ctx)) do
       run_script(row, spec, input, hmac, prefix)

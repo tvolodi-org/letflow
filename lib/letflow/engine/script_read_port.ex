@@ -13,14 +13,19 @@ defmodule Letflow.Engine.ScriptReadPort do
   kill switch, tenant, version, manifest backstops (closed output schema, restricted opt-in
   refusal, `Letflow.Scripts.Policy.check_reads/2`) and the HMAC key, and before admission.
 
-  Contract for an implementation:
+  Contract for an implementation. These are guarantees the port gives ON ITS OWN: they hold
+  whether or not the caller ran `check_reads` first (the dispatcher does; a future caller might
+  not), and they are re-evaluated against the tenant's CURRENT state on every call:
 
-    * Phase 1, for EVERY read, before any record query: the type has an active definition and
-      no type restriction; every `fields` and `match.field` name is a field of it;
+    * Phase 1, for EVERY read, before any record query: the type is STILL flagged readable
+      (closing the window between the caller's `check_reads` and this call); the type has an
+      active definition and no type restriction; every `fields` and `match.field` name is a field of it;
       `restricted_fields` is absent or empty (hook 1 has no opt-in, C10); a `match.field` that
       is restricted NOW is refused (SEC N1). Any failure is `{:error, :reads_not_allowed}`.
     * Phase 2: exactly ONE record query per read, whether it hits or misses (no existence
       oracle); at most `limit` (<= 50) rows; a field restricted NOW is omitted from every row.
+      A record query the database refuses (a stored value that does not fit its field's cast)
+      refuses the whole call with `{:error, :reads_not_allowed}`; it never raises.
     * The tenant prefix is the caller's run-context prefix, never derived from manifest text.
     * Nothing survives a call: no cache across runs.
   """

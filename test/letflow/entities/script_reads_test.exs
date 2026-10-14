@@ -61,11 +61,11 @@ defmodule Letflow.Entities.ScriptReadsTest do
   defp tier_read(limit, fields \\ ["name"]),
     do: SP.field_read("r", @type_name, "tier", %{"limit" => limit, "fields" => fields})
 
-  defp record!(schema, values) do
+  defp record!(schema, values, entity_type \\ @type_name) do
     assert {:ok, %{record: record}} =
              Records.create_record(
                %{
-                 entity_type: @type_name,
+                 entity_type: entity_type,
                  field_values: values,
                  actor_id: Ecto.UUID.generate(),
                  idempotency_key: Ecto.UUID.generate()
@@ -102,13 +102,39 @@ defmodule Letflow.Entities.ScriptReadsTest do
     {F.reload(schema, row), result, queries}
   end
 
-  defp record_queries(queries) do
-    {:ok, table} = Letflow.TenantProvisioning.table_name_for_entity_type(@type_name)
+  # Record tables: the shared projection and the per-type tables of every type these tests use.
+  @record_table ~r/"entity_(record_latest|customer|member|person|event)"/
 
-    Enum.filter(queries, fn metadata ->
-      sql = Map.get(metadata, :query) || ""
-      String.contains?(sql, ~s("entity_record_latest")) or String.contains?(sql, ~s("#{table}"))
-    end)
+  defp record_queries(queries) do
+    Enum.filter(queries, &((Map.get(&1, :query) || "") =~ @record_table))
+  end
+
+  # TDV F2: a "zero record queries" assertion is only meaningful when the capture was live: it
+  # must have seen the run's own metadata queries in `schema`.
+  defp assert_capture_live(queries, schema) do
+    assert Enum.any?(queries, &((Map.get(&1, :query) || "") =~ schema)),
+           "query capture saw no query of #{schema}: the zero-record-query check would be vacuous"
+  end
+
+  defp entity_definition!(schema, name, fields) do
+    {:ok, definition} =
+      Letflow.Entities.Definitions.create_definition(
+        %{
+          definition: %{name: name, display_name: String.capitalize(name), fields: fields},
+          created_by: Ecto.UUID.generate()
+        },
+        schema
+      )
+
+    {:ok, _} =
+      Letflow.Entities.Definitions.activate_definition(
+        definition.name,
+        Ecto.UUID.generate(),
+        "go-live",
+        schema
+      )
+
+    :ok
   end
 
   defp output(schema, instance_id) do
@@ -123,6 +149,7 @@ defmodule Letflow.Entities.ScriptReadsTest do
     assert row.outcome == "script_rejected"
     assert row.outcome_detail == "reads_not_allowed"
     assert record_queries(queries) == []
+    assert_capture_live(queries, t.schema_name)
     refute_received {:script_runner_called, _pid, _in_tx}
     assert F.projection(t.schema_name, b.instance_id).status == :error
   end
@@ -228,10 +255,18 @@ defmodule Letflow.Entities.ScriptReadsTest do
       assert_rejected_before_any_record_query(ctx.t, b)
     end
 
-    test "definition inactive (a flagged type with no active definition)", ctx do
-      SP.inactive_definition!(ctx.schema, "ghost")
-      SP.flag_raw!(ctx.schema, "ghost")
-      b = bound!(ctx.t, [SP.id_read("r", "ghost")], %{"cid" => ctx.cid})
+    test "definition made inactive after activation", ctx do
+      b = bound!(ctx.t, [id_read()], %{"cid" => ctx.cid})
+
+      # the type's active pointer goes away AFTER publish and activation (the flag stays)
+      {1, _} =
+        Repo.delete_all(
+          from(a in Letflow.Repository.Activation,
+            where: a.artifact_kind == :entity and a.artifact_name == ^@type_name
+          ),
+          prefix: ctx.schema
+        )
+
       assert_rejected_before_any_record_query(ctx.t, b)
     end
 
@@ -241,8 +276,15 @@ defmodule Letflow.Entities.ScriptReadsTest do
       assert_rejected_before_any_record_query(ctx.t, b)
     end
 
-    test "a declared field no longer on the active definition", ctx do
-      b = bound!(ctx.t, [id_read(["name", "nickname"])], %{"cid" => ctx.cid})
+    test "a declared field removed by a later definition version", ctx do
+      field = &%{name: &1, type: :string, queried: true}
+      entity_definition!(ctx.schema, "member", [field.("name"), field.("nickname")])
+      SP.flag!(ctx.schema, "member")
+      mid = record!(ctx.schema, %{"name" => "M", "nickname" => "m"}, "member")
+      b = bound!(ctx.t, [SP.id_read("r", "member", ["name", "nickname"])], %{"cid" => mid})
+
+      # v2 of `member` drops `nickname`, activated AFTER the binding was published and activated
+      entity_definition!(ctx.schema, "member", [field.("name")])
       assert_rejected_before_any_record_query(ctx.t, b)
     end
   end
@@ -254,18 +296,26 @@ defmodule Letflow.Entities.ScriptReadsTest do
       cid = record!(ctx.schema, %{"name" => "Ann", "tier" => "gold", "ssn" => "111"})
       reads = [id_read(["name", "ssn"])]
 
-      run = fn ->
-        b = bound!(ctx.t, reads, %{"cid" => cid})
-        {_row, {:ok, :applied}, _queries} = run_capturing(ctx.schema)
-        {1, [delivered]} = output(ctx.schema, b.instance_id)
+      # ONE binding (one published version, one active definition), re-run on new instances
+      b = bound!(ctx.t, reads, %{"cid" => cid})
+
+      run = fn instance_id ->
+        {row, {:ok, :applied}, _queries} = run_capturing(ctx.schema)
+        assert row.instance_id == instance_id
+        {1, [delivered]} = output(ctx.schema, instance_id)
         delivered
       end
 
-      assert run.() == %{"id" => cid, "name" => "Ann", "ssn" => "111"}
+      again = fn ->
+        instance_id = F.start!(ctx.schema, b.definition, %{"cid" => cid}, Ecto.UUID.generate())
+        run.(instance_id)
+      end
+
+      assert run.(b.instance_id) == %{"id" => cid, "name" => "Ann", "ssn" => "111"}
 
       SP.restrict_field!(ctx.schema, @type_name, "ssn")
       # omitted, not a sentinel: absent is the same as never set
-      assert run.() == %{"id" => cid, "name" => "Ann"}
+      assert again.() == %{"id" => cid, "name" => "Ann"}
 
       Repo.delete_all(
         from(r in "entity_field_restrictions",
@@ -274,7 +324,7 @@ defmodule Letflow.Entities.ScriptReadsTest do
         prefix: ctx.schema
       )
 
-      assert run.() == %{"id" => cid, "name" => "Ann", "ssn" => "111"}
+      assert again.() == %{"id" => cid, "name" => "Ann", "ssn" => "111"}
     end
   end
 
@@ -303,6 +353,7 @@ defmodule Letflow.Entities.ScriptReadsTest do
 
       assert result == {:error, :reads_not_allowed}
       assert record_queries(queries) == []
+      assert_capture_live(queries, ctx.schema)
     end
 
     test "phase 1 covers EVERY read before the first record query", ctx do
@@ -317,6 +368,7 @@ defmodule Letflow.Entities.ScriptReadsTest do
 
       assert result == {:error, :reads_not_allowed}
       assert record_queries(queries) == []
+      assert_capture_live(queries, ctx.schema)
     end
 
     test "a restricted field listed in fields is redacted, not refused (port)", ctx do
@@ -368,6 +420,144 @@ defmodule Letflow.Entities.ScriptReadsTest do
       assert [record_query] = record_queries(queries)
       assert record_query.query =~ other.schema_name
       refute record_query.query =~ ctx.schema
+    end
+  end
+
+  # ── the port's own flag check (SECURITY F1 / REVIEWER F2) ───────────────────
+
+  defmodule ClearFlagThenReadPort do
+    @moduledoc "Clears the readable-master flag of every read's type, THEN calls the real port."
+    @behaviour Letflow.Engine.ScriptReadPort
+
+    @impl Letflow.Engine.ScriptReadPort
+    def prefetch(prefix, reads, input_vars) do
+      types = Enum.map(reads, & &1["entity_type"])
+
+      Letflow.Repo.delete_all(
+        Ecto.Query.from(m in "script_readable_masters", where: m.entity_type in ^types),
+        prefix: prefix
+      )
+
+      Letflow.Entities.ScriptReads.prefetch(prefix, reads, input_vars)
+    end
+  end
+
+  describe "port flag check" do
+    test "a flag cleared after check_reads but before prefetch is refused with 0 record queries",
+         ctx do
+      F.count_runner_calls!()
+      cid = record!(ctx.schema, %{"name" => "Ann"})
+      b = bound!(ctx.t, [id_read()], %{"cid" => cid})
+      # check_reads in prepare_run passes (flag set); the flag is cleared inside the port call
+      F.put_env!(:script_read_port, ClearFlagThenReadPort)
+      assert_rejected_before_any_record_query(ctx.t, b)
+    end
+
+    test "the port refuses an unflagged type on its own (direct call)", ctx do
+      cid = record!(ctx.schema, %{"name" => "Ann"})
+
+      Repo.delete_all(from(m in "script_readable_masters", where: m.entity_type == ^@type_name),
+        prefix: ctx.schema
+      )
+
+      {result, queries} =
+        QueryCapture.capture_repo_queries(fn ->
+          ScriptReads.prefetch(ctx.schema, [id_read()], %{"cid" => cid})
+        end)
+
+      assert result == {:error, :reads_not_allowed}
+      assert record_queries(queries) == []
+      assert_capture_live(queries, ctx.schema)
+    end
+  end
+
+  # ── datetime match values (REVIEWER F3) ─────────────────────────────────────
+
+  test "a datetime match value needs an offset and is compared in UTC", ctx do
+    entity_definition!(ctx.schema, "event", [
+      %{name: "name", type: :string, queried: true},
+      %{name: "at", type: :datetime, queried: true}
+    ])
+
+    SP.flag!(ctx.schema, "event")
+    record!(ctx.schema, %{"name" => "E", "at" => "2026-01-01T00:00:00Z"}, "event")
+    read = SP.field_read("r", "event", "at", %{"limit" => 5})
+
+    prefetch = fn value ->
+      QueryCapture.capture_repo_queries(fn ->
+        ScriptReads.prefetch(ctx.schema, [read], %{"tier" => value})
+      end)
+    end
+
+    # the same instant written with a +03:00 offset matches the UTC-stored value
+    for value <- ["2026-01-01T03:00:00+03:00", "2026-01-01T00:00:00Z"] do
+      {result, queries} = prefetch.(value)
+      assert {:ok, %{"r" => [%{"name" => "E"}]}} = result, value
+      assert length(record_queries(queries)) == 1
+    end
+
+    # no offset (an ambiguous instant) and garbage: a type mismatch, still exactly one query
+    for value <- ["2026-01-01T00:00:00", "not-a-date"] do
+      {result, queries} = prefetch.(value)
+      assert result == {:ok, %{"r" => []}}, value
+      assert length(record_queries(queries)) == 1
+    end
+  end
+
+  # ── a stored value that does not fit its SQL cast (SECURITY F2) ─────────────
+
+  describe "SECURITY F2" do
+    setup ctx do
+      entity_definition!(ctx.schema, "person", [
+        %{name: "name", type: :string, queried: true},
+        %{name: "age", type: :integer, queried: true}
+      ])
+
+      SP.flag!(ctx.schema, "person")
+      pid = record!(ctx.schema, %{"name" => "P", "age" => 30}, "person")
+
+      # a value the field's cast cannot take (as an earlier definition version could leave it)
+      {1, _} =
+        Repo.update_all(
+          from(r in Letflow.Entities.Record.Latest,
+            where: r.entity_type == "person" and r.record_id == ^pid
+          ),
+          [set: [field_values: %{"name" => "P", "age" => "not-a-number"}]],
+          prefix: ctx.schema
+        )
+
+      %{age_read: SP.field_read("r", "person", "age", %{"limit" => 5})}
+    end
+
+    test "the port refuses instead of raising", ctx do
+      assert ScriptReads.prefetch(ctx.schema, [ctx.age_read], %{"tier" => 5}) ==
+               {:error, :reads_not_allowed}
+    end
+
+    test "the run ends script_rejected / reads_not_allowed at once; the value is never logged",
+         ctx do
+      F.count_runner_calls!()
+
+      manifest =
+        put_in(manifest([ctx.age_read]), ["input_schema", "properties", "tier"], %{
+          "type" => "integer"
+        })
+
+      b = F.bound!(ctx.t, @source, manifest, %{"tier" => 5})
+
+      log =
+        ExUnit.CaptureLog.capture_log([level: :info], fn ->
+          {row, result} = F.run_next!(ctx.schema)
+          assert result == {:ok, :failed}
+          row = F.reload(ctx.schema, row)
+
+          assert {row.status, row.outcome, row.outcome_detail} ==
+                   {"failed", "script_rejected", "reads_not_allowed"}
+        end)
+
+      refute log =~ "not-a-number"
+      refute_received {:script_runner_called, _pid, _in_tx}
+      assert F.projection(ctx.schema, b.instance_id).status == :error
     end
   end
 
