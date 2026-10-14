@@ -207,8 +207,9 @@ defmodule Mix.Tasks.Letflow.CheckIssueRefs do
 
   # R7: after cutover the queue no longer allocates ISS numbers.
   defp legacy_name_violations(declared, path, opts) do
-    cutover = Keyword.get_lazy(opts, :cutover, &WorkBoardCutover.cutover?/0)
-    last = Keyword.get_lazy(opts, :last_legacy_iss, &WorkBoardCutover.last_legacy_iss/0)
+    # Pure: only run/1 reads the real switch file and passes it explicitly (hermetic callers).
+    cutover = Keyword.get(opts, :cutover, false)
+    last = Keyword.get(opts, :last_legacy_iss)
 
     "ISS-" <> digits = declared
 

@@ -6,5 +6,7 @@
 
 cutover: true
 # 1120: the highest docs/issues/ISS-*.yaml on the flip branch (ISS-1110..ISS-1120 landed in PR #2506).
-# Flipped 2026-10-14 (decision 0049): any ISS-NNNN above this number is refused.
+# Flipped 2026-10-14 (decision 0049), re-flipped after PR #2517 made the readers hermetic (the
+# first flip, PR #2512, broke five registration tests that read this real file and was reverted).
+# Any ISS-NNNN above this number is refused.
 last_legacy_iss: 1120

@@ -264,7 +264,9 @@ defmodule Mix.Tasks.Letflow.CheckRequirementsRegistration do
   """
   @spec scan(String.t(), keyword()) :: report()
   def scan(content, opts \\ []) when is_binary(content) and is_list(opts) do
-    cutover = Keyword.get_lazy(opts, :cutover, &WorkBoardCutover.cutover?/0)
+    # Pure: the real switch file is read only by run/1, which passes it explicitly. A caller that
+    # passes no option gets the pre-cutover behaviour whatever the repo's file says (hermetic tests).
+    cutover = Keyword.get(opts, :cutover, false)
 
     numbered =
       content
