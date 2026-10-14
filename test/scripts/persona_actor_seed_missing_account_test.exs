@@ -64,6 +64,16 @@ defmodule Letflow.Scripts.PersonaActorSeedMissingAccountTest do
       assert out =~ "actor-vortex-dirk has no account"
       assert out =~ "skipped: actor-vortex-dirk"
 
+      # GH 2345: the message says what to do, not only that Part A is missing.
+      assert out =~ "first authenticated request"
+      assert out =~ "sign in as actor-vortex-dirk"
+      assert out =~ "GET http://stub/api/v1/me/memberships"
+
+      assert out =~
+               "QA_URL=http://stub QA_AUTH_TOKEN=<token> bash scripts/seed_vortex_persona_actors.sh"
+
+      assert out =~ "already exist answer 200"
+
       calls = File.read!(log)
 
       member_posts =
