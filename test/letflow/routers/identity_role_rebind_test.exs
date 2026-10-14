@@ -220,7 +220,9 @@ defmodule Letflow.Routers.IdentityRoleRebindTest do
         "spoof\u202Eedoc",
         "zero\u200Bwidth",
         "bom\uFEFFhere",
-        "c1\u0085char"
+        "c1\u0085char",
+        "line\u2028sep",
+        "para\u2029sep"
       ]
 
       for reason <- bad do
@@ -232,10 +234,8 @@ defmodule Letflow.Routers.IdentityRoleRebindTest do
         conn = call(:post, "/roles/#{role.id}/rebind", ctx.a, @admin, body)
 
         assert conn.status == 422, "#{inspect(reason)}: #{conn.status} #{conn.resp_body}"
+        # The exact detail is what pins "no echo": the problem body has no other free field.
         assert detail(conn) == "invalid_reason"
-
-        if is_binary(reason) and String.trim(reason) != "",
-          do: refute(conn.resp_body =~ String.slice(reason, 0, 4))
 
         assert role_rows(ctx.a) == before
       end
@@ -321,6 +321,49 @@ defmodule Letflow.Routers.IdentityRoleRebindTest do
       assert conn.status == 404, conn.resp_body
     end
 
+    test "another tenant's group id is the same 404 as an unknown group; nothing changes in either tenant",
+         ctx do
+      legit = group!(ctx.a)
+      role = routing_role!(ctx.a, legit)
+      group_b = group!(ctx.b)
+      before_a = role_rows(ctx.a)
+      before_b = role_rows(ctx.b)
+
+      responses =
+        for group_id <- [group_b.id, Ecto.UUID.generate()] do
+          conn =
+            call(:post, "/roles/#{role.id}/rebind", ctx.a, @admin, %{
+              "group_id" => group_id,
+              "reason" => "r"
+            })
+
+          {conn.status, conn.resp_body}
+        end
+
+      assert [{404, same}, {404, same}] = responses
+      assert role_rows(ctx.a) == before_a
+      assert role_rows(ctx.b) == before_b
+      assert rebound_entries(ctx.a) == []
+    end
+
+    test "a legacy PLATFORM_ADMIN holder in an ordinary tenant cannot rebind (holds nothing there)",
+         ctx do
+      legit = group!(ctx.a)
+      other = group!(ctx.a)
+      role = routing_role!(ctx.a, legit)
+      before = role_rows(ctx.a)
+
+      conn =
+        call(:post, "/roles/#{role.id}/rebind", ctx.a, @operator, %{
+          "group_id" => other.id,
+          "reason" => "r"
+        })
+
+      assert conn.status == 403, conn.resp_body
+      assert role_rows(ctx.a) == before
+      assert rebound_entries(ctx.a) == []
+    end
+
     test "H1: the TENANT_ADMIN of P cannot rebind the PLATFORM_ADMIN binding; the operator can",
          ctx do
       legit = group!(ctx.p)
@@ -380,6 +423,28 @@ defmodule Letflow.Routers.IdentityRoleRebindTest do
                )
 
       assert Repo.get!(TenantRole, pa.id, prefix: ctx.a.schema_name).group_id == legit.id
+    end
+
+    test "returns distinct atoms: role_not_found, group_not_found, invalid_reason, invalid_group_id",
+         ctx do
+      legit = group!(ctx.a)
+      role = routing_role!(ctx.a, legit)
+      opts = [prefix: ctx.a.schema_name]
+      ok_attrs = %{actor_id: nil, reason: "r"}
+
+      assert {:error, :role_not_found} =
+               RoleRegistry.rebind_role(Ecto.UUID.generate(), legit.id, ok_attrs, opts)
+
+      assert {:error, :group_not_found} =
+               RoleRegistry.rebind_role(role.id, Ecto.UUID.generate(), ok_attrs, opts)
+
+      assert {:error, :invalid_reason} =
+               RoleRegistry.rebind_role(role.id, legit.id, %{actor_id: nil, reason: " "}, opts)
+
+      assert {:error, :invalid_group_id} =
+               RoleRegistry.rebind_role(role.id, "nope", ok_attrs, opts)
+
+      assert Repo.get!(TenantRole, role.id, prefix: ctx.a.schema_name).group_id == legit.id
     end
   end
 

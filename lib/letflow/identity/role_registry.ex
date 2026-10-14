@@ -44,8 +44,8 @@ defmodule Letflow.Identity.RoleRegistry do
           | :invalid_group_id
           | :invalid_reason
           | :platform_admin_outside_platform_tenant
+          | {:audit_failed, term()}
           | Ecto.Changeset.t()
-          | term()
 
   @type coverage_gap :: %{
           held_process_routing_roles: [String.t()],
@@ -55,11 +55,12 @@ defmodule Letflow.Identity.RoleRegistry do
   @max_name_codepoints 128
   @control_char_pattern ~r/[\x00-\x1F\x7F]/u
 
-  # GH 2524: a rebind reason is free text shown to audit readers. Cc (C0, DEL, C1) and Cf
+  # GH 2524: a rebind reason is free text shown to audit readers. Cc (C0, DEL, C1), Cf
   # (format/bidi characters such as U+200B..U+200F, U+202A..U+202E, U+2066..U+2069, U+FEFF)
-  # are refused so a reason cannot visually spoof an audit reader.
+  # and the line/paragraph separators Zl/Zp (U+2028, U+2029) are refused so a reason is one
+  # line and cannot visually spoof an audit reader.
   @max_reason_codepoints 500
-  @reason_forbidden_pattern ~r/[\p{Cc}\p{Cf}]/u
+  @reason_forbidden_pattern ~r/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u
 
   @doc """
   Returns every role binding sorted by `name` ascending. Returns `[]` (not an error)
@@ -177,10 +178,13 @@ defmodule Letflow.Identity.RoleRegistry do
   `platform_role_names/0` — no new literal list invented). For each name, in
   `Authorization.roles/0`'s own declared order: get-or-creates a `Group`
   named after that literal (`get_or_create_group_by_name/2`), then binds it
-  via the existing, unmodified `upsert_role/4` as `kind: :platform_role`.
+  as `kind: :platform_role` (`ensure_platform_role_binding/2`). GH 2524: a name
+  that already has a `:platform_role` binding keeps it, whatever group it points
+  at (an administrator may have moved it with `rebind_role/4`); the seed never
+  moves a binding.
 
   Idempotent under re-invocation against a tenant whose `groups`/`tenant_role`
-  rows may already exist (design §2.4) — a second call converges on the same
+  rows may already exist (design §2.4) — a second call keeps the existing
   bindings rather than erroring or duplicating rows. This is what makes
   it safe to call both from the normal onboarding-creation path and from
   `Letflow.TenantOnboarding.recover_provisioning/1`.
@@ -191,10 +195,9 @@ defmodule Letflow.Identity.RoleRegistry do
   `Letflow.TenantOnboarding`'s existing no-compensating-rollback precedent);
   a retried call converges via idempotency instead.
 
-  Name-collision guard (REQ-447, design F12; widened by REQ-448): `tenant_role.name`
-  is unique across kinds and `upsert_role/4` overwrites `kind` on conflict, so
-  when a `:process_routing_role` row already holds the name `TENANT_ADMIN` or
-  `TENANT_AUDITOR` the seed returns
+  Name-collision guard (REQ-447, design F12; widened by REQ-448, then by GH 2524 to
+  every seedable name): `tenant_role.name` is unique across kinds, so when a
+  `:process_routing_role` row already holds any name the seed would bind, the seed returns
   `{:error, {:role_name_taken_by_routing_role, name}}` (the colliding name, first
   by name order) before writing anything, never silently converting the row.
   """
@@ -528,13 +531,13 @@ defmodule Letflow.Identity.RoleRegistry do
   locks the role row by id (`{:error, :role_not_found}`); refuses the `PLATFORM_ADMIN`
   name unless `opts[:platform_scope]` is `true` (default `false`, fail closed;
   `{:error, :platform_admin_outside_platform_tenant}`); validates `reason` (a string,
-  trimmed, 1..500 codepoints, no `Cc`/`Cf` character; `{:error, :invalid_reason}`) and
+  trimmed, 1..500 codepoints, no `Cc`/`Cf`/`Zl`/`Zp` character; `{:error, :invalid_reason}`) and
   `group_id` (`{:error, :invalid_group_id}`); reads the target group with `FOR SHARE`
   (`{:error, :group_not_found}`). The same group is a no-op: `{:ok, role}`, nothing
   written, no audit entry. Otherwise it updates `group_id` only (`name` and `kind` stay)
   and appends one `role.rebound` audit entry in the same transaction, carrying the
   actor, the old and new group and the trimmed reason; an audit failure rolls the
-  update back.
+  update back and returns `{:error, {:audit_failed, reason}}`.
 
   `role_id` must already be canonical (the router casts it). `actor_id` may be `nil`
   only for a non-HTTP caller.
@@ -600,7 +603,7 @@ defmodule Letflow.Identity.RoleRegistry do
 
     case Audit.insert_entry(Repo, attrs, prefix) do
       {:ok, _entry} -> updated
-      {:error, reason} -> Repo.rollback(reason)
+      {:error, audit_error} -> Repo.rollback({:audit_failed, audit_error})
     end
   end
 

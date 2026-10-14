@@ -364,6 +364,9 @@ defmodule Letflow.Identity.RoleRegistryTest do
                  String.upcase(group_a.id),
                  prefix: ctx.schema_name
                )
+
+      assert [%TenantRole{group_id: stored}] = TenantRole |> where(name: ^name) |> Repo.all()
+      assert stored == group_a.id
     end
   end
 

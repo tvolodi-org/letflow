@@ -49,11 +49,11 @@ change who approves, with no trace.
      | 2 | `with_cast_id(conn, raw_id, ...)` | plain 404 (`Response.not_found/1`) |
      | 3 | lock the role row by id, tenant prefix | plain 404 (same as 2) |
      | 4 | H1 on the locked row's name (`Authorization.platform_admin_name?/1`) without platform scope | 403 `insufficient permissions` (`forbid_insufficient/1`) |
-     | 5 | `reason`: must be a binary; `String.trim/1`; 1..500 codepoints; no `Cc`/`Cf` character | 422 `Response.unprocessable(conn, "invalid_reason")` (missing, non-string, blank, too long, control/format char: one code) |
+     | 5 | `reason`: must be a binary; `String.trim/1`; 1..500 codepoints; no `Cc`/`Cf`/`Zl`/`Zp` character | 422 `Response.unprocessable(conn, "invalid_reason")` (missing, non-string, blank, too long, control/format char: one code) |
      | 6 | `group_id`: must be a binary castable by `Ecto.UUID.cast/1` | 422 `Response.unprocessable(conn, "invalid_group_id")` (missing, non-string, malformed: one code; same shape as `POST /roles` today) |
      | 7 | target group exists (read with `lock: "FOR SHARE"`, tenant prefix) | plain 404 |
      | 8 | the role's `group_id` equals the target | 200 with the role, nothing written, no audit |
-     | 9 | update `group_id` (changeset with `foreign_key_constraint(:group_id)`) and append the audit entry | changeset error or audit error: transaction rolled back, 422 `validation failed` (today's `POST /roles` shape for a changeset) |
+     | 9 | update `group_id` (changeset with `foreign_key_constraint(:group_id)`) and append the audit entry | changeset error: rolled back, 422 `validation failed` (today's `POST /roles` shape); audit error: rolled back, `{:error, {:audit_failed, reason}}`, 500 (server fault) |
 
      Steps 3-9 all run inside `RoleRegistry.rebind_role/4` in ONE `Repo.transaction/2`. The
      router does no body parsing beyond passing `conn.body_params["group_id"]` and
@@ -110,7 +110,7 @@ the canonical text from `Ecto.UUID.cast/1` (already done in `upsert_role/4`).
 
 Runs steps 3-9 of the table above, in that order, in one transaction. `role_id` is already
 canonical (the router cast it). `opts[:platform_scope]` defaults to `false` (fail closed). The
-reason check uses `~r/[\p{Cc}\p{Cf}]/u` (C0, DEL, C1, and format/bidi characters such as
+reason check uses `~r/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u` (C0, DEL, C1, U+2028/U+2029, and format/bidi characters such as
 U+200B..U+200F, U+202A..U+202E, U+2066..U+2069, U+FEFF), so a reason cannot visually spoof an
 audit reader. `actor_id` may be nil only for a non-HTTP caller; the router always passes the
 caller's id.

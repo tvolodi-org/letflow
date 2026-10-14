@@ -912,7 +912,8 @@ defmodule Letflow.Routers.Identity do
             forbid_insufficient(conn)
 
           # REQ-447 H2 (design section 3.6): binding ANY built-in role name, of
-          # any `kind` (upsert_role/4 overwrites kind and group_id on conflict),
+          # any `kind` (upsert_role/4 converts `kind` on a same-group conflict; since GH 2524
+          # it never moves the group),
           # needs :UsersGroupsRolesManage in this tenant, BEFORE upsert_role/4.
           Authorization.builtin_role_name?(name) and not users_groups_roles_manage?(conn) ->
             forbid_insufficient(conn)
@@ -990,7 +991,9 @@ defmodule Letflow.Routers.Identity do
         {:error, :platform_admin_outside_platform_tenant} -> forbid_insufficient(conn)
         {:error, :invalid_reason} -> Response.unprocessable(conn, "invalid_reason")
         {:error, :invalid_group_id} -> Response.unprocessable(conn, "invalid_group_id")
-        {:error, _changeset_or_audit_failure} -> Response.unprocessable(conn, "validation failed")
+        # Rolled back: a server fault, not a client one.
+        {:error, {:audit_failed, _reason}} -> Response.internal_error(conn)
+        {:error, %Ecto.Changeset{}} -> Response.unprocessable(conn, "validation failed")
       end
     end)
   end
