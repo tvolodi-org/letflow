@@ -1,5 +1,7 @@
 # 0014 — Scripting & plugin runtime strategy: bind Lua in pure Elixir, bind WASM via a NIF behind a process boundary
 
+Amended by 0053 (`0053-tenant-scripted-rules.md`): point (e) and point 4 (WASM host-API parity) as listed in 0053's supersession section.
+
 Status: decided (2026-08-23). Owner: CODE-DESIGNER (S5 requirement expansion executes it).
 
 ## Question

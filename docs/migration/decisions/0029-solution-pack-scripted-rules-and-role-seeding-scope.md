@@ -1,5 +1,7 @@
 # 0029 — SolutionPack scope: scripted rules and role seeding both stay OUT of the pack; the section set stays closed
 
+Superseded in part by 0053 (`0053-tenant-scripted-rules.md`): §1 (scripted rules stay out; no provisioning path) and the related §3/§4 sentences are superseded for tenant scripted rules; the pack `scripts` section itself is decided in a follow-up record (0053 'Record P'). §2 (role seeding) stands.
+
 Status: decided (2026-09-12, `CODE-DESIGNER`, REQ-325), pending its own
 `SECURITY-REVIEWER` and `REVIEWER` gates (sections below, left as explicit
 PENDING placeholders for those roles to fill in).

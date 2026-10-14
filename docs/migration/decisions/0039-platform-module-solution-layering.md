@@ -1,5 +1,7 @@
 # 0039 — Platform / module / solution / tenant-configuration layering, as a modular monolith
 
+Amended by 0053 (`0053-tenant-scripted-rules.md`): D7's 'Client scripts are not in scope ... a later decision once that registry exists' is superseded for tenant scripted rules. D8 is interpreted for the business suite by 0050 (`0050-foundation-modules-org-catalog-and-reference-contract.md`).
+
 Status: decided (2026-09-24, user-directed); `REVIEWER` PASS 2026-09-24 on
 second review (section at the end). Owner: `ORCH` (stage S11). Amends 0022 (where bucket-C code lives);
 leaves 0026, 0027 and 0029 standing unchanged.
