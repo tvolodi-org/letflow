@@ -10,7 +10,9 @@ scope: defect
 description: >
   web/src/api/onboarding.ts:114-117 sends the header; nothing reads it. Found in the static walk.
 resolution: >
-  Open. Filed GitHub-first (GH #2437), then registered with the queue (Q-1080) using that number.
+  Done 2026-10-14, option A (decided by letflow-fc via the supervisor): PR #2507 (merge b9e70028) - the onboarding create no longer sends an
+  Idempotency-Key, and a resubmit is documented as 409 'slug already exists', not a replay. Option B (server-side replay) only if the
+  lost-response case is seen in practice. GH #2437 closed by the PR. Filed GitHub-first (GH #2437), registered as Q-1080.
 queue_ref: Q-1080
 github_ref: GH-2437
-status: open
+status: resolved
