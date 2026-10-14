@@ -16,6 +16,9 @@ refused with a stable code (section 8.2).
 7c is split in two PRs (section 1). Both parts are designed here; their ACs are separate
 (section 14).
 
+Revision 2 (2026-10-15): split ACCEPTED and C10 CONFIRMED by the supervisor. SECURITY-REVIEWER
+S1-S6 and CODE-DESIGN-VALIDATOR C1-C12 resolved; each resolution is tagged [SEC Sn] / [CDV Cn].
+
 ## 0. Verified facts (this worktree, branch head cd5b5db5)
 
 ### 0.1 SERVICE_TASK today
@@ -124,6 +127,7 @@ refused with a stable code (section 8.2).
   (`identity.ex:961`), `Identity.get_user/2` (`:352`), `Identity.active_user?/1` (`:2198`),
   `Authorization.has_permission_in_scope?/3` (`api/authorization.ex:1411`); the publish route
   computes the publisher's `:EntitiesRestrictionsManage` the same way (`routers/script_rules.ex:329-337`).
+  NOT used by 7c (C10 removes every opt-in path, [CDV C3]); recorded for when C10 is lifted.
 
 ### 0.7 Runtime (7a)
 
@@ -163,6 +167,24 @@ refused with a stable code (section 8.2).
 Latest tenant migrations `20261014000001..3` (scripts), `20261014100001..2`
 (`tenant_provisioning.ex:666-680`).
 
+### 0.12 Boot order, cancel lock order, test-schema reset, tenant status [CDV C5, C6, C10, SEC S5]
+
+* `Letflow.Application` children: `Letflow.Supervisor.Infrastructure` FIRST, then the platform-tenant
+  check, then `Letflow.Supervisor.Pollers` (`application.ex:62-76`). `TenantProvisioning.
+  MigrationReplayBoot` is Infrastructure child 3 and runs `replay_all_pending/0` SYNCHRONOUSLY in
+  `start_link/1` (`tenant_provisioning/migration_replay_boot.ex` moduledoc; `supervisor/
+  infrastructure.ex:50,223`). Hence every existing tenant's event-type seed (0.3) completes before
+  any poller, including the new script poller, starts.
+* `cancel_instance` Multi order: `:timer_cancellations`, `:service_task_dispatch_cancellations`,
+  THEN `:instance_projection` (`engine.ex:5995-6025`); the comments state the rule "dispatch-table
+  lock before the projection lock" to avoid AB-BA deadlocks.
+* Pooled test schemas are reset by `TenantTemplate.reset_clone_schema!/3`, which TRUNCATEs dirty
+  tables and relies on "no BEFORE TRUNCATE trigger" on the immutable tables (`test/support/
+  tenant_template.ex:621-683`); a trigger change is treated as definition drift.
+* `Identity.Tenant.status :: :active | :migrating | :inactive` (`identity/tenant.ex:79`);
+  `Identity.get_tenant/1` (`identity.ex:1501`).
+* No file under `lib/letflow/engine*` references `Letflow.Obs` today (grep).
+
 ## 1. Split and merge order
 
 | PR | Content | Merge |
@@ -178,7 +200,7 @@ in 7c-1 reaches an entity.
 | # | Decision | Reason |
 |---|---|---|
 | C1 | NEW tenant table `script_task_dispatches`; `service_task_dispatches` is not reused. | The HTTP row commits `advanced` BEFORE the engine applies (two commits, `service_task_dispatcher.ex:1213`), has no lease, no `running` state and no attempt-keyed CAS, and its claim query takes any `pending` row (`:419-440`): reusing it would change the HTTP status CHECK, the claim query and the cancel step, all regression risk on the at-most-once HTTP path the issue says stays unchanged. A separate table keeps HTTP byte-unchanged and gives the script row the D2 shape (`running` + lease, CAS keyed by attempt, terminal status written in the SAME transaction as the instance effect, which also avoids anti-pattern "dispatch row committed terminal, then a rolled-back re-entry"). Cost: one arm branch and one cancel step in the engine. |
-| C2 | A separate `ScriptTaskDispatcher.Poller` GenServer (gated `:start_script_task_dispatcher`), claiming ONE row per claim transaction and running it before claiming the next. | Script runs (<= 7 s each with the caller margin) must not delay HTTP dispatch and vice versa; one-row claims keep every claimed row's lease alive (a batch claim would let queued rows' leases expire while earlier rows run). The poller process IS "the dispatcher" whose death the 7a watchdog observes. |
+| C2 | A separate `ScriptTaskDispatcher.Poller` GenServer (gated `:start_script_task_dispatcher`), claiming ONE row per claim transaction and running it before claiming the next; tenants are served ROUND-ROBIN, one row per tenant per pass, under a global wall-time budget per tick (5.1a) [SEC S2]. | Script runs (<= 7 s each with the caller margin) must not delay HTTP dispatch and vice versa; one-row claims keep every claimed row's lease alive; round-robin under a tick budget stops one tenant's backlog from delaying every other tenant. The poller process IS "the dispatcher" whose death the 7a watchdog observes. |
 | C3 | Lease = `5_000` (platform max wall clock) + `2_000` (7a caller margin) + `lease_margin_ms` (config, default 23_000, clamped >= 1_000) = 30 s by default, set at claim. | D2: "at least the maximum wall clock plus a margin". It is set before the manifest is loaded, so it uses the platform maximum, not the version's own timeout. |
 | C4 | The CAS key is the row id plus `(instance_id, node_id, attempt)` and `status = 'running'`, read `FOR UPDATE` in the apply transaction. | D2/F-E: a duplicate or late apply (or one racing the lease sweeper) finds no matching row and writes nothing. `attempt` increments at every claim, so an apply from an older claim never matches. |
 | C5 | Busy policy: on `script_busy` the row goes back to `pending` (same CAS) with `next_attempt_at = now + min(500 * 2^busy_retries, 30_000)` ms, no jitter, no instance event; after `busy_retry_limit` (default 10) rescheduled attempts the next busy outcome is terminal (`script_busy`, detail `busy_retries_exhausted`) and becomes an incident. Every other outcome is terminal on its first occurrence. | D7: only `script_busy` is retriable; a cap is needed so a permanently saturated node cannot loop forever. Deterministic backoff matches `ServiceTask.compute_service_task_backoff_ms/3`. |
@@ -188,13 +210,16 @@ in 7c-1 reaches an entity.
 | C9 | Instance variables are read by the ENGINE (projection, no lock) and only the 7c-2 master reads go through the port. | The instance's own variables are engine data; routing them through `Letflow.Entities` would invert ownership and add a needless edge. "Pre-fetch" = both sources assembled host-side before the run (section 5.3). |
 | C10 | A binding whose manifest opts into restricted data (non-empty `restricted_inputs`, or any `reads[].restricted_fields`) is REFUSED at activation (`script_restricted_opt_in_unsupported`) and rejected at run time as a backstop. | 0053 D5: "the host refuses activation/publish if [a derived output] maps to a target field with fewer restrictions". Hook 1's only targets are process variables, which carry NO field restrictions, so every target has fewer restrictions; the manifest has no key to declare derived outputs. Restricted fields listed only in `fields` remain readable-and-REDACTED (7b-2a P12), and run-time re-checks still apply (7c-2). Lifting this needs restricted variables or Record E. **CONFIRMED by the supervisor 2026-10-15** as an interim limit (narrows 0053 OP2's opt-in until variables can carry restrictions; recorded in 0053's notes by letflow-2). Split 7c-1 / 7c-2 ACCEPTED the same day. |
 | C11 | Write-command recognition: the top-level output key namespace `$` is reserved for host channels; ANY top-level key starting with `"$"` (the designated future channel is `"$writes"`) is refused: outcome `output_invalid`, detail `writes_not_allowed`. The same pure check runs at stored-test evaluation and dry-run, and the manifest refuses `output_schema.properties` names starting with `"$"` (422 `invalid_manifest`). | Supervisor fence: no entity writes; a precise, stable, cheap test that cannot collide with a legitimate variable (no shipped variable starts with `$`); refusing at save/publish/dry-run tells authors early. Nested `$` keys inside a variable's value are plain data and allowed. |
+| C11a | [SEC S1] A hook-1 binding requires a CLOSED output schema: `output_schema` is an object with a non-empty `properties` map and `"additionalProperties": false` at the top level; otherwise activation is refused (`script_output_schema_open`) and a run is rejected as a backstop (`script_rejected` / `output_schema_open`). At run time only the declared top-level properties are merged (`Map.take(output, declared)` after validation); an undeclared key fails validation first (`output_invalid` / `output_schema`). | Under SoD the publisher is not the definition author; an open schema would let a script overwrite ANY instance variable (gateway conditions, later HTTP body inputs). A closed schema makes the set of variables a script can write visible to, and accepted by, whoever activates the definition. |
 | C12 | The per-run record is an instance-stream event `SCRIPT_RUN_RECORDED` with a closed, value-free payload (section 7); the applied output is recorded separately in `SCRIPT_TASK_COMPLETED` (the replay source). | D9 places the per-run record on the instance stream and forbids values in it; D5 requires replay to apply RECORDED results, which needs the output somewhere; it is instance variable data, the same class as TASK_COMPLETED `output_variables` (and only ever lands in variables). |
 | C13 | One terminal attempt = one `SCRIPT_RUN_RECORDED` (applied or failed, including a pre-run rejection and a lease expiry, distinguished by `phase`). A busy attempt that is rescheduled writes none. An attempt whose instance is no longer active at apply writes no event (append refuses completed/cancelled instances, 0.2); its trace is the dispatch row's `outcome`/`outcome_detail`. | Every incident is attributable; no event for something that changed nothing. |
-| C14 | The HMAC covers `canonical({"ctx": {instance_id, node_id, token_id, now}, "input": input})`, HMAC-SHA256 under the tenant key resolved through `HmacSecret`, recorded as lowercase hex plus the secret `key_id` (`#n`). The key never leaves a closure (`HmacSecret.hmac_fun/1`). | ctx changes the output (uuid, now), so it belongs in "same inputs"; storing `key_id` lets an auditor recompute with the right key after rotation; a closure keeps the plaintext out of crash reports (function arguments in a `FunctionClauseError` are printed, closure captures are not). |
+| C14 | The HMAC covers `canonical({"ctx": {instance_id, node_id, token_id, now}, "input": input})`, HMAC-SHA256 under the tenant key resolved through `HmacSecret`, recorded as lowercase hex plus the secret `key_id` (`#n`). The key never leaves a closure (`HmacSecret.hmac_fun/1`); the closure catches every crypto failure and returns a fixed `:hmac_failed` (7.2) [SEC S3]. | ctx changes the output (uuid, now), so it belongs in "same inputs"; storing `key_id` lets an auditor recompute with the right key after rotation; a closure keeps the plaintext out of crash reports (function arguments in a `FunctionClauseError` are printed, closure captures are not). |
 | C15 | Missing secret: outcome `script_rejected`, detail `hmac_secret_missing`, plus ONE edge-triggered operator alert per tenant (new trigger `script_hmac_secret_missing`, re-armed by the next run that finds the key). Nothing creates a key on this path. | 0053 D9 / advisor Q11 ("never lazily"); "one alert" = edge-triggered, like the existing four triggers. |
 | C16 | Incidents use `error_type :script_task_failed`, `affected {:node, node_id}`, a FIXED reason sentence per outcome code, `details` = `%{outcome, detail, fail_code, script_key, script_version, attempt}` (codes and constants only). | INV-8 / D7: stable codes only; no rejected value (unlike the human-task merge path) and no fail `details` (a script can put input values there). |
-| C17 | `LuaScriptAudit` retirement: delete `execute_script_for_audit/6` and its insert path; keep `AuditRecord` (read) and the `Executor` behaviour (still implemented by `Lua.Executor`); a tenant migration adds a trigger refusing INSERT/UPDATE/DELETE and a statement trigger refusing TRUNCATE on `lua_script_execution_audit`. | Advisor Q11: no new writes, table stays read-only history. Defence in depth at the DB. |
-| C18 | Engine -> Scripts calls go through ONE facade, `Letflow.Scripts.Runtime`; engine -> Entities only through the port (7c-2), resolved from config at run time. | Minimises the new engine->scripts surface for REVIEWER; keeps 0053 F10 ("the engine names no `Letflow.Entities` module") mechanically checkable. |
+| C17 | `LuaScriptAudit` retirement: delete `execute_script_for_audit/6` and its insert path; keep `AuditRecord` (read) and the `Executor` behaviour (still implemented by `Lua.Executor`); a tenant migration adds a ROW trigger refusing INSERT/UPDATE/DELETE on `lua_script_execution_audit`. NO TRUNCATE trigger [CDV C6]. | Advisor Q11: no new writes, table stays read-only history. TRUNCATE is left open exactly like `audit_entries` (0.12): the pooled test-schema reset depends on it, and no `lib/` code truncates tenant tables. |
+| C18 | Engine -> Scripts calls go through ONE facade, `Letflow.Scripts.Runtime`; engine -> Entities only through the port (7c-2), resolved from config at run time. The DISPATCHER (engine) calls `Obs.Alerts`, never `Letflow.Scripts` [CDV C1, C8]. | Minimises the new engine->scripts surface for REVIEWER; keeps 0053 F10 ("the engine names no `Letflow.Entities` module") mechanically checkable; keeps Scripts free of an Obs edge. |
+| C20 | [SEC S5] `prepare_run/3` fails closed when the tenant is not `:active` (`:migrating` or `:inactive`): `script_rejected` / `tenant_inactive`. | A deactivated tenant's scripts must not keep running from pending rows; a distinct code keeps the operator's kill-switch signal (`scripts_disabled`) unambiguous. |
+| C21 | [CDV C9] A lease-sweep apply that keeps failing is bounded: column `sweep_failures`; each failed sweep apply increments it in its own tiny CAS update; at 5 the sweep stops selecting that row, logs ONE error line (dispatch id, tenant schema, tag `sweep_stuck`) and emits telemetry; per tick at most one aggregated warning per tenant with the failure count. | A permanently failing row must not produce unbounded logs or starve the sweep of other rows (the sweep is ordered by `lease_expires_at` and capped). A stuck row is visible (log, telemetry, row column) and is an operator matter. |
 | C19 | Retire of a version bound by an ACTIVE definition -> 409 `version_in_use`; revoke is never blocked. Activation locks the bound `script_rules` rows `FOR SHARE`; retire already locks the row `FOR UPDATE`, so the two serialise. | D3: "Retiring a script referenced by an active definition is blocked"; revoke is the incident action and fails pinned instances closed at run. |
 
 ## 3. Data model (7c-1)
@@ -217,6 +242,7 @@ but `prefix()` (INV-7).
 | `status` | text NOT NULL default `'pending'` | CHECK in `pending, running, applied, failed, cancelled` |
 | `attempt` | integer NOT NULL default 0 | CHECK `>= 0`; +1 at every claim |
 | `busy_retries` | integer NOT NULL default 0 | CHECK `>= 0` |
+| `sweep_failures` | integer NOT NULL default 0 | CHECK `>= 0`; C21 |
 | `next_attempt_at` | utc_datetime_usec NOT NULL | |
 | `claimed_at` | utc_datetime_usec NULL | |
 | `lease_expires_at` | utc_datetime_usec NULL | CHECK `status <> 'running' OR lease_expires_at IS NOT NULL` |
@@ -244,9 +270,10 @@ setting `updated_at`.
 
 ### 3.2 Tenant migration `20261015000002_lua_script_audit_read_only.exs`
 
-Function `lua_script_execution_audit_read_only()` raising `LF001`; `BEFORE INSERT OR UPDATE OR
-DELETE ... FOR EACH ROW` and `BEFORE TRUNCATE ... FOR EACH STATEMENT` on
-`lua_script_execution_audit`. Down drops both triggers and the function.
+Function `lua_script_execution_audit_read_only()` raising `LF001`; one trigger `BEFORE INSERT OR
+UPDATE OR DELETE ... FOR EACH ROW` on `lua_script_execution_audit`. No TRUNCATE trigger (C17,
+[CDV C6]): the pooled test reset (0.12) keeps working unchanged and the table's definition digest
+is simply re-baselined by the template build. Down drops the trigger and the function.
 
 ## 4. Route kind, graph check, pin, activation (7c-1)
 
@@ -331,12 +358,21 @@ changes nothing for that instance (D3).
 
 `Letflow.Scripts.Runtime.check_bindings(graph :: Graph.t(), prefix :: String.t()) :: :ok | {:error,
 {:script_binding_invalid, node_id :: String.t(), reason}}`, `reason ::
-:script_not_published | :script_version_conflict | :script_reads_unsupported (7c-1 only) |
-:script_restricted_opt_in_unsupported`. For every `{key, version}` bound by a SERVICE_TASK node:
-`SELECT ... FROM script_rules WHERE key = $1 AND version = $2 FOR SHARE` (bound); refused unless
-`status == "published"` and `hook_kind == "service_task"` (absent, draft, discarded, retired,
-revoked all -> `:script_not_published`); manifest checks per C10 and (7c-1) non-empty `reads`.
-Must run inside the caller's transaction (it takes row locks).
+:script_not_published | :script_version_conflict | :script_output_schema_open |
+:script_reads_unsupported (7c-1 only) | :script_restricted_opt_in_unsupported`. For every `{key,
+version}` bound by a SERVICE_TASK node, in this order: `SELECT ... FROM script_rules WHERE key = $1
+AND version = $2 FOR SHARE` (bound); refused unless `status == "published"` and `hook_kind ==
+"service_task"` (absent, draft, discarded, retired, revoked all -> `:script_not_published`); then
+`closed_output_schema?(manifest)` (C11a: top-level `"type": "object"`, `"properties"` a non-empty
+map, `"additionalProperties" == false`) else `:script_output_schema_open` [SEC S1]; then C10
+(non-empty `restricted_inputs` or any non-empty `reads[].restricted_fields`) else
+`:script_restricted_opt_in_unsupported`; then (7c-1 only) non-empty `reads` else
+`:script_reads_unsupported`. The first failing node (graph node order) is reported. Must run inside
+the caller's transaction (it takes row locks).
+
+`closed_output_schema?(manifest :: map()) :: boolean()` and `declared_outputs(manifest :: map()) ::
+[String.t()]` (the top-level `properties` keys) are public pure functions of `Scripts.Runtime`,
+shared by activation, `prepare_run/3` and the apply step.
 
 Called, inside the activating transaction, BEFORE the status write, from:
 1. `run_activate_transaction/4` after the service-scope validator and semantic validation;
@@ -350,7 +386,9 @@ graph). Promotion and rollback return the same tuple through their existing erro
 
 Retire: `Scripts.retire/5` (inside `transition/8`, after `lock_row!/3`, only for `to ==
 "retired"`) runs `Runtime.referenced_by_active_definition?(prefix, key, version) :: boolean()`: one
-query over `process_definitions WHERE status = 'active' AND graph @> $1` with `$1` = the jsonb
+query, through the leaf schema module `Letflow.Definitions.ProcessDefinition` (no call into the
+`Letflow.Definitions` context, so no file-level cycle with `definitions.ex`, see 17 item 4), over
+`process_definitions WHERE status = 'active' AND graph @> $1` with `$1` = the jsonb
 document `{"nodes": [{"attributes": {"script_key": key, "script_version": version}}]}` passed as a
 BOUND parameter (INV-7). True -> `Repo.rollback(:version_in_use)`; router 409 `{"error":
 "version_in_use"}`; nothing written or audited. Revoke unchanged.
@@ -363,32 +401,108 @@ BOUND parameter (INV-7). True -> `Repo.rollback(:version_in_use)`; router 409 `{
   context module, owns the table, the claim, the sweep, the per-row pipeline, the reschedule and
   cancel writes.
 * `Letflow.Engine.ScriptTaskDispatcher.Poller` (`.../script_task_dispatcher/poller.ex`), GenServer,
-  same shape as the HTTP poller: zero-delay first tick; per tick, for every provisioned tenant schema,
-  `poll_and_dispatch/1`. Child of `Letflow.Supervisor.Pollers`, gated
-  `Application.get_env(:letflow, :start_script_task_dispatcher, true)`; `config/test.exs` sets false.
-* `config :letflow, :script_task_dispatcher, poll_interval_ms: 1_000, max_dispatches_per_cycle: 16,
-  sweep_limit: 64, lease_margin_ms: 23_000, busy_retry_limit: 10, busy_backoff_base_ms: 500,
-  busy_backoff_cap_ms: 30_000` (read fresh per tick).
-* Test seam: `:script_task_runner` (default `Letflow.Engine.Lua.ScriptRunner`, a module with
-  `run/3`), honoured only when `Application.get_env(:letflow, :scripts_test_hooks, false) == true`
-  (the 7b-2a seam convention; set only in `config/test.exs`).
+  same shape as the HTTP poller: zero-delay first tick; per tick it lists the provisioned tenant
+  schemas (as the HTTP poller does) and calls `run_tick/2` (5.1a). Child of
+  `Letflow.Supervisor.Pollers`, gated `Application.get_env(:letflow, :start_script_task_dispatcher,
+  true)`; `config/test.exs` sets false. Its state holds only the round-robin offset
+  (`non_neg_integer()`). [CDV C10] It cannot start before the event types it appends exist: Pollers
+  starts after `Supervisor.Infrastructure`, whose child `MigrationReplayBoot` seeds every existing
+  tenant synchronously (0.12).
+* `config :letflow, :script_task_dispatcher, poll_interval_ms: 1_000, tick_budget_ms: 10_000,
+  max_dispatches_per_cycle: 16, sweep_limit: 64, sweep_failure_limit: 5, lease_margin_ms: 23_000,
+  busy_retry_limit: 10, busy_backoff_base_ms: 500, busy_backoff_cap_ms: 30_000` (read fresh per
+  tick; `max_dispatches_per_cycle` is the PER-TENANT cap per tick).
+* Test seams, ALL honoured only when `Application.get_env(:letflow, :scripts_test_hooks, false) ==
+  true` (the 7b-2a seam convention; set only in `config/test.exs`; a test asserts each is ignored
+  when the flag is false):
+  * `:script_task_runner` (default `Letflow.Engine.Lua.ScriptRunner`, a module with `run/3`);
+  * `:script_task_hmac_fun_override` (7.2);
+  * `:script_task_apply_pause` (a 1-arity function given `:after_cas`, called inside the apply
+    transaction between the CAS lock and the projection lock; AC18a);
+  * `:script_task_cancel_pause` (called inside `cancel_open_dispatches/4` after its update; AC18a);
+  * `:script_task_sweep_fault` (a 1-arity function given the dispatch id; returning `:fail` makes the
+    sweep treat that apply as `{:error, :forced}`; AC30).
 
-Public functions (`@spec` shapes):
+Types [CDV C1]:
 
 ```
-poll_and_dispatch(prefix :: String.t()) ::
-  %{tenant_schema, swept, claimed, applied, failed, rescheduled, stale, cancelled :: non_neg_integer()}
-sweep_expired_leases(prefix, limit :: pos_integer()) :: non_neg_integer()
+@type code      :: Letflow.Engine.Lua.ScriptRunner.code()
+                   # :script_error | :budget_exceeded | :memory_limit_exceeded | :output_invalid
+                   # | :timeout | :script_failed | :script_rejected | :script_busy
+@type outcome   :: :ok | code()
+@type detail    :: :scripts_disabled | :tenant_inactive | :reads_not_allowed | :script_unavailable
+                 | :script_revoked | :pin_mismatch | :restricted_opt_in_unsupported
+                 | :output_schema_open | :hmac_secret_missing | :hmac_failed | :input_invalid
+                 | :output_decode | :output_not_object | :writes_not_allowed | :output_schema
+                 | :variable_schema_rejected | :busy_retries_exhausted | :lease_expired | :apply_failed
+                 | :no_matching_gateway_edge | :instance_not_active | :instance_cancelled
+@type claim     :: %{dispatch_id: Ecto.UUID.t(), instance_id: Ecto.UUID.t(), node_id: String.t(),
+                     attempt: pos_integer()}
+@type run_facts :: %{row: ScriptTaskDispatch.t(), phase: :rejected | :ran | :lease_expired,
+                     outcome: outcome(), detail: detail() | nil, fail_code: String.t() | nil,
+                     hmac: {key_version :: pos_integer(), hex :: String.t()} | nil,
+                     stats: nil | %{duration_us: non_neg_integer(),
+                                    instructions_used: non_neg_integer() | nil,
+                                    heap_words: non_neg_integer() | nil,
+                                    input_dropped: non_neg_integer() | nil}}
+@type run_record :: %{required(String.t()) => String.t() | integer() | nil}   # exactly the 7.1 keys
+@type result    :: {:ok, output :: map(), run_facts()}
+                 | {:failed, code(), detail() | nil, run_facts()}
+@type tick_summary :: %{tenants: non_neg_integer(), passes: non_neg_integer(), swept: non_neg_integer(),
+                        sweep_failed: non_neg_integer(), ran: non_neg_integer(), applied: non_neg_integer(),
+                        failed: non_neg_integer(), rescheduled: non_neg_integer(),
+                        stale: non_neg_integer(), cancelled: non_neg_integer(),
+                        budget_exhausted: boolean()}
+```
+
+Public functions of `ScriptTaskDispatcher`:
+
+```
+run_tick(schemas :: [String.t()], offset :: non_neg_integer()) :: {tick_summary(), next_offset :: non_neg_integer()}
+sweep_expired_leases(prefix :: String.t(), limit :: pos_integer()) :: %{swept: non_neg_integer(), failed: non_neg_integer()}
 claim_next(prefix) :: {:ok, ScriptTaskDispatch.t()} | :none
 run_claimed(ScriptTaskDispatch.t(), prefix) ::
   {:ok, :applied | :failed | :rescheduled | :cancelled | :stale} | {:error, :apply_failed}
-cancel_open_dispatches(repo :: module(), instance_id, at :: DateTime.t(), prefix) :: {:ok, non_neg_integer()}
+reschedule_busy(claim(), run_facts(), prefix) ::
+  {:ok, :rescheduled | :failed | :stale} | {:error, term()}      # :failed = limit reached, applied as incident
+cancel_open_dispatches(repo :: module(), instance_id :: Ecto.UUID.t(), at :: DateTime.t(), prefix) ::
+  {:ok, non_neg_integer()}
 busy_backoff_ms(busy_retries :: non_neg_integer()) :: pos_integer()            # pure
-lease_ms() :: pos_integer()                                                      # 7_000 + clamp(lease_margin_ms)
+lease_ms() :: pos_integer()                                                      # 7_000 + max(lease_margin_ms, 1_000)
 ```
 
-`poll_and_dispatch/1` never raises (per-row `try/rescue/catch`, each catch maps to a count and one
-log line with dispatch id, tenant schema and a class tag only; never `inspect`).
+`ScriptTaskDispatcher.RunRecord.build(run_facts()) :: run_record()` (arity 1): reads ONLY the listed
+`run_facts` fields and the row's `id, node_id, attempt, script_key, script_version, script_sha256,
+triggering_user_id`; `principal` derived from key and version.
+
+`run_tick/2` never raises: every per-row step runs inside `try/rescue/catch`; a catch maps to a
+count and ONE log line whose only fields are dispatch id, tenant schema and a class tag (`raised |
+thrown | exited`). The rescue binds no `__STACKTRACE__`, never calls `inspect/1`,
+`Exception.message/1` or `Exception.format*/…` on the exception, and passes nothing caught to Logger
+metadata [SEC S3].
+
+### 5.1a Tick: round-robin under a budget [SEC S2]
+
+`run_tick(schemas, offset)`:
+1. Rotate `schemas` to start at `offset rem length(schemas)`; `deadline = monotonic now +
+   tick_budget_ms`.
+2. Sweep pass: `sweep_expired_leases(prefix, sweep_limit)` for each schema in the rotated order (no
+   script runs in a sweep; it is bounded by `sweep_limit` rows per tenant).
+3. Run passes: in the rotated order, for each tenant that still has budget left in this tick
+   (fewer than `max_dispatches_per_cycle` rows run for it) and was not found empty earlier in this
+   tick: if `monotonic now >= deadline` stop the tick (`budget_exhausted: true`); else
+   `claim_next(prefix)`; `:none` marks the tenant empty for this tick; `{:ok, row}` ->
+   `run_claimed/2` (AT MOST ONE row per tenant per pass). Repeat passes while at least one tenant ran
+   a row in the previous pass and the deadline is not reached.
+4. Return the summary and `next_offset = offset + 1` (the next tick starts one tenant later).
+
+Fairness guarantee (stated, tested; R4): within a tick, no tenant runs its k+1-th row before every
+other tenant that had a due row has run its k-th; a run takes at most `timeout_ms + 2_000 <= 7_000`
+ms plus the apply, so a tenant with a due row waits at most `(n_busy_tenants - 1) x 7 s` within a
+pass, and the deadline is checked only between rows, so a tick lasts at most `tick_budget_ms + 7 s`
+plus one apply. The rotating offset stops a fixed tenant order from always serving the same tenant
+last when the budget runs out. One tenant's backlog therefore delays another tenant by at most one
+row per pass, never by its whole backlog.
 
 ### 5.2 Claim (transaction A, short)
 
@@ -402,57 +516,83 @@ The run itself holds NO transaction and NO pooled connection (D2, F3).
 
 ### 5.3 Per-row pipeline (`run_claimed/2`, no transaction)
 
-Order is normative. Steps 1-4 run before admission and before any data read (D7 kill switch,
-7b-2a section 8). A refusal at any step jumps to apply (5.4) with `{:failed, :script_rejected,
-detail, record}` and `phase: "rejected"`.
+Order is normative. Steps 1-4 (all inside `Scripts.Runtime.prepare_run/3`) run before admission
+and before any data read (D7 kill switch, 7b-2a section 8). A refusal at any step jumps to apply
+(5.4) with `{:failed, :script_rejected, detail, facts}` and `phase: :rejected`.
 
-1. **Kill switch.** `Scripts.Runtime.prepare_run/3` first calls `Policy.kill_switch_on?(prefix)`;
-   true -> detail `scripts_disabled`.
+`Scripts.Runtime.prepare_run/3` [CDV C1]:
+
+```
+@spec prepare_run(prefix :: String.t(), tenant_id :: Ecto.UUID.t(), binding()) ::
+        {:ok, run_spec()} | {:rejected, ScriptTaskDispatcher.detail()}
+@type binding  :: %{script_key: String.t(), script_version: pos_integer(), script_sha256: String.t()}
+@type run_spec :: %{source: String.t(), manifest: map(),
+                    limits: %{instructions: pos_integer(), timeout_ms: pos_integer(), heap_words: pos_integer()},
+                    fail_codes: [String.t()], reads: [map()], declared_outputs: [String.t()],
+                    hmac_fun: HmacSecret.hmac_fun(), principal: String.t()}
+```
+
+`tenant_id` comes from `TenantProvisioning.tenant_id_for_schema_name(prefix)` (the dispatcher
+resolves it once per row; `{:error, _}` -> `tenant_inactive`). `prepare_run/3` never calls
+`Obs.Alerts`; the DISPATCHER does (step 4).
+
+1. **Kill switch, tenant.** `Policy.kill_switch_on?(prefix)` true -> `scripts_disabled`; then
+   `Identity.get_tenant(tenant_id)` with `status != :active` (or not found) -> `tenant_inactive`
+   [SEC S5].
 2. **Version.** Load `script_rules` by `(script_key, script_version)`: absent/draft/discarded ->
    `script_unavailable`; `revoked` -> `script_revoked`; `sha256 != script_sha256` or `hook_kind !=
    "service_task"` -> `pin_mismatch`; `published` and `retired` run (D1, T13).
-3. **Reads and restricted opt-in.** 7c-1: non-empty `reads`, non-empty `restricted_inputs` ->
-   `reads_not_allowed` / `restricted_opt_in_unsupported` (backstops of 4.5). 7c-2: section 11.
-4. **Secret.** `HmacSecret.hmac_fun(tenant_id)` (tenant id from
-   `TenantProvisioning.tenant_id_for_schema_name(prefix)`): `{:error, :missing}` ->
-   `hmac_secret_missing` + `Alerts.notify_script_hmac_secret_missing(prefix)` (section 7.3);
-   `{:ok, fun}` -> `Alerts.clear_script_hmac_secret_missing(prefix)` (re-arm, no-op when armed).
-   `prepare_run/3` returns `{:ok, run_spec} | {:rejected, detail}` with `run_spec :: %{source,
-   manifest, limits: %{instructions, timeout_ms, heap_words}, fail_codes, reads, restricted_allowed?,
-   hmac_fun, principal}`.
+3. **Manifest backstops and reads**, in this order:
+   a. `closed_output_schema?(manifest)` false -> `output_schema_open` [SEC S1];
+   b. non-empty `restricted_inputs` or any non-empty `reads[].restricted_fields` ->
+      `restricted_opt_in_unsupported` (C10; a REFUSAL, there is no restricted-allowed path in 7c
+      [CDV C3]);
+   c. 7c-1: non-empty `reads` -> `reads_not_allowed`. 7c-2: `Policy.check_reads(prefix, manifest)`
+      `{:error, :reads_not_allowed}` -> `reads_not_allowed` (11.3).
+4. **Secret.** `HmacSecret.hmac_fun(tenant_id)`: `{:error, :missing}` -> `hmac_secret_missing`.
+   On return the DISPATCHER calls `Obs.Alerts.notify_script_hmac_secret_missing(prefix)` for that
+   detail, and `Obs.Alerts.clear_script_hmac_secret_missing(prefix)` (re-arm; a no-op when armed)
+   for `{:ok, _}`.
 5. **Input.** Read the instance projection's `variables` (unlocked `Repo.get`). `ScriptInput.build(
    variables, manifest, reads_result) :: {:ok, input} | {:error, :input_invalid}`: input = the
    variables whose keys are in `manifest["input_schema"]["properties"]` (no undeclared variable
    enters, field-minimal), plus `"reads" => reads_result` when reads are declared (7c-2); validated
    with `JsonSchema.validate(input, input_schema) == []`. Invalid -> `script_rejected` /
    `input_invalid`.
-6. **HMAC.** `{key_version, hex} = run_spec.hmac_fun.(ScriptInput.canonical(input, ctx))` where
-   `ctx = %{"instance_id", "node_id", "token_id", "now" (ISO-8601 of event_time)}` and canonical =
-   `Canonicaliser.canonicalize_content("application/json", Jason.encode!(%{"ctx" => ctx, "input" =>
-   input}))` (C14).
+6. **HMAC.** `run_spec.hmac_fun.(ScriptInput.canonical(input, ctx))` returns `{:ok, {key_version,
+   hex}}` or `{:error, :hmac_failed}` (-> `script_rejected` / `hmac_failed`, nothing logged but the
+   tag) where `ctx = %{"instance_id", "node_id", "token_id", "now" (ISO-8601 of event_time)}` and
+   canonical = `Canonicaliser.canonicalize_content("application/json", Jason.encode!(%{"ctx" => ctx,
+   "input" => input}))` (C14). `ScriptInput.build(variables :: map(), manifest :: map(),
+   reads_result :: %{optional(String.t()) => [map()]} | nil) :: {:ok, map()} | {:error,
+   :input_invalid}`; `ScriptInput.canonical(input :: map(), ctx :: map()) :: binary()`.
 7. **Run.** `t0 = System.monotonic_time()`; `runner.run(source, input, tenant: prefix, ctx: %{
    instance_id, node_id, token_id, now: event_time}, fail_codes: manifest["fail_codes"],
    instructions:, timeout_ms:, heap_words:)` called FROM THE POLLER PROCESS (the watchdog monitors it;
    the slot holder is the watchdog, D8/F-E). `duration_us` measured around the call for every
    outcome; `instructions_used`, `heap_words`, `input_dropped` from `stats` on success, NULL
    otherwise.
-8. **Output check** (pure, `Scripts.Runtime.check_output(output, manifest) :: :ok | {:error,
-   detail}`): not a map -> `output_not_object`; any top-level key starting with `"$"` ->
-   `writes_not_allowed` (C11); `JsonSchema.validate(output, output_schema) != []` ->
-   `output_schema`. Each -> `output_invalid` with that detail.
-9. **Result.** `{:ok, output, record}` | `{:failed, code, detail, record}` | `{:busy, record}`
-   (runner `script_busy`). Runner error codes map 1:1 (`output_invalid` from the decoder -> detail
-   `output_decode`; `script_failed` -> `fail_code` = the validated fail code, `details` dropped).
+8. **Output check** (pure, `Scripts.Runtime.check_output(output :: term(), manifest :: map()) ::
+   {:ok, declared :: map()} | {:error, :output_not_object | :writes_not_allowed | :output_schema}`),
+   in this order: not a map -> `output_not_object`; any top-level key starting with `"$"` ->
+   `writes_not_allowed` (C11); any top-level key not in `declared_outputs(manifest)` or
+   `JsonSchema.validate(output, output_schema) != []` -> `output_schema` [SEC S1]; else `{:ok,
+   Map.take(output, declared_outputs(manifest))}`: ONLY declared properties ever reach the merge.
+   Each error -> `output_invalid` with that detail.
+9. **Result.** `{:ok, declared_output, facts}` | `{:failed, code, detail, facts}`; a runner
+   `script_busy` goes to 5.5 instead. Runner error codes map 1:1 (`output_invalid` from the decoder
+   -> detail `output_decode`; `script_failed` -> `fail_code` = the validated fail code, `details`
+   dropped).
 10. **Apply** (5.4) or **reschedule** (5.5).
 
 ### 5.4 Apply (transaction B, `Letflow.Engine.apply_script_task_result/3`)
 
 ```
-@spec apply_script_task_result(claim, result, prefix :: String.t()) ::
+@spec apply_script_task_result(ScriptTaskDispatcher.claim(), ScriptTaskDispatcher.result(), prefix :: String.t()) ::
         {:ok, :applied | :failed | :cancelled | :stale} | {:error, term()}
-claim  :: %{dispatch_id, instance_id, node_id, attempt}
-result :: {:ok, output :: map(), run_record()} | {:failed, code(), detail() | nil, run_record()}
 ```
+
+The engine turns `run_facts` into the payload with `RunRecord.build/1` inside the transaction.
 
 One `repo.transaction`:
 1. **CAS.** `SELECT ... FROM script_task_dispatches WHERE id = $1 AND instance_id = $2 AND node_id =
@@ -483,34 +623,71 @@ One `repo.transaction`:
    also fails, the row stays `running` and the lease sweep turns it into an incident (5.6): never a
    silent stall, never a re-run.
 
-HTTP regression guard: every existing `advance_after_service_task_outcome/4` test stays green and
-the generalisation is a pure refactor for HTTP (no change to merge validations, event, keys or row
-handling).
+**Completion descriptor [CDV C1].** The shared private pipeline (`persist_service_task_advance`,
+`persist_service_task_no_matching_edge`, `do_persist_service_task_advance`,
+`append_service_task_completed_event`) is changed to take a `dispatch_ref` and a `completion`
+instead of `%ServiceTaskDispatch{}` and `decoded_body`; the merge stays in each caller (HTTP:
+`advance_service_task_dispatch/4`, script: step 3 above):
+
+```
+@typep dispatch_ref :: %{id: Ecto.UUID.t(), instance_id: Ecto.UUID.t(), node_id: String.t(),
+                         token_id: Ecto.UUID.t()}
+@typep completion :: %{
+         event_type: String.t(),                 # "SERVICE_TASK_COMPLETED" | "SCRIPT_TASK_COMPLETED"
+         event_payload: map(),                   # appended as-is
+         idempotency_key: String.t(),            # also used for error args / sub-process children
+         on_advanced: (Ecto.Multi.t() -> Ecto.Multi.t()),          # appended before :projection
+         on_no_matching_edge: (Ecto.Multi.t() -> Ecto.Multi.t())   # appended after ExecutionError
+       }
+```
+
+HTTP contract (keeps HTTP byte-unchanged): `http_completion(dispatch, decoded_body)` =
+`%{event_type: "SERVICE_TASK_COMPLETED", event_payload: %{dispatch_id: dispatch.id, node_id:
+dispatch.node_id, decoded_body: decoded_body}, idempotency_key: "service_task_dispatch:" <>
+dispatch.id, on_advanced: &Function.identity/1, on_no_matching_edge: &Function.identity/1}`, and the
+HTTP merge keeps `nil` validations. Script: `event_type "SCRIPT_TASK_COMPLETED"`, payload of section
+6, `idempotency_key "script_task_dispatch:<id>:<attempt>"`, `on_advanced` = append
+SCRIPT_RUN_RECORDED + row `applied`, `on_no_matching_edge` = append SCRIPT_RUN_RECORDED + row
+`failed` / `no_matching_gateway_edge`. HTTP regression guard: every existing
+`advance_after_service_task_outcome/4` test stays green, plus one new assertion pinning the HTTP
+event payload keys and idempotency key.
 
 ### 5.5 Busy reschedule
 
-`ScriptTaskDispatcher.reschedule_busy(claim, prefix)`: one transaction, same CAS predicate; if
-`busy_retries < busy_retry_limit`: `status = 'pending'`, `busy_retries + 1`, `next_attempt_at = now
-+ busy_backoff_ms(busy_retries)`, `lease_expires_at = NULL`, `updated_at`; no event. Else it calls
-apply with `{:failed, :script_busy, :busy_retries_exhausted, record}` (`phase: "ran"`). Stale -> no-op.
+`ScriptTaskDispatcher.reschedule_busy(claim, facts, prefix)`: one transaction, same CAS predicate
+(no row -> `{:ok, :stale}`); if `busy_retries < busy_retry_limit`: `status = 'pending'`,
+`busy_retries + 1`, `next_attempt_at = now + busy_backoff_ms(busy_retries)`, `lease_expires_at =
+NULL`, `updated_at`; no event; `{:ok, :rescheduled}`. Else, after that transaction, it calls
+`apply_script_task_result(claim, {:failed, :script_busy, :busy_retries_exhausted, facts}, prefix)`
+(`phase: :ran`) and returns `{:ok, :failed}` (or `{:ok, :stale}`).
 
 ### 5.6 Lease sweep, cancellation, detail codes
 
-* Sweep (start of every tenant's poll): up to `sweep_limit` ids with `status = 'running' AND
-  lease_expires_at < now` (unlocked select), then per id `apply_script_task_result` with the row's
-  own `attempt` and `{:failed, :timeout, :lease_expired, record}` (`phase: "lease_expired"`, HMAC and
-  stats NULL). The CAS makes a concurrent live apply and the sweep mutually exclusive. Never
-  re-pends.
-* `Engine.cancel_instance`: after `cancel_pending_dispatches/4`, `ScriptTaskDispatcher.
-  cancel_open_dispatches/4` sets `pending` AND `running` rows of the instance to `cancelled`
-  (`finished_at`, `outcome_detail = "instance_cancelled"`) in the same transaction; a running script
-  finishes in its sandbox and its apply is `:stale`.
-* Closed detail-code list (`outcome_detail`, run record `detail`, incident `details.detail`):
-  `scripts_disabled, reads_not_allowed, script_unavailable, script_revoked, pin_mismatch,
-  restricted_opt_in_unsupported, hmac_secret_missing, input_invalid, output_decode,
-  output_not_object, writes_not_allowed, output_schema, variable_schema_rejected,
-  busy_retries_exhausted, lease_expired, apply_failed, no_matching_gateway_edge, instance_not_active,
-  instance_cancelled`. Runner outcomes `script_error, budget_exceeded, memory_limit_exceeded,
+* Sweep (5.1a step 2): up to `sweep_limit` ids with `status = 'running' AND lease_expires_at < now
+  AND sweep_failures < sweep_failure_limit`, ordered by `lease_expires_at` (unlocked select), then
+  per id `apply_script_task_result` with the row's own `attempt` and `{:failed, :timeout,
+  :lease_expired, facts}` (`phase: :lease_expired`, HMAC and stats NULL). The CAS makes a concurrent
+  live apply and the sweep mutually exclusive. Never re-pends. [CDV C9] An `{:error, _}` (or a
+  caught raise) increments `sweep_failures` in its own CAS update (`status = 'running' AND attempt =
+  $n`); the transition to `sweep_failure_limit` logs ONE error line (dispatch id, tenant schema, tag
+  `sweep_stuck`) and emits `[:letflow, :script_task, :sweep_stuck]`; otherwise failures are reported
+  as ONE aggregated warning per tenant per tick carrying only the count. A stuck row stays `running`
+  (visible), never re-run.
+* `Engine.cancel_instance` [CDV C5]: a new Multi step `:script_task_dispatch_cancellations`, calling
+  `ScriptTaskDispatcher.cancel_open_dispatches/4`, is inserted immediately AFTER
+  `:service_task_dispatch_cancellations` and BEFORE `:instance_projection` (lock order dispatch row
+  -> projection, the same order as the apply transaction and the existing timer/HTTP steps, 0.12). It
+  sets `pending` AND `running` rows of the instance to `cancelled` (`finished_at`, `outcome_detail =
+  "instance_cancelled"`, `updated_at`); an ineligible cancel rolls it back with the rest of the
+  Multi. A running script finishes in its sandbox and its apply is `:stale`.
+* Apply vs cancel [SEC S6]: both take the dispatch row lock before the projection lock, so they
+  serialise: cancel first -> the apply's CAS re-evaluates `status = 'running'` after the wait and
+  returns `:stale`; apply first -> the row is `applied` (not matched by the cancel update) and the
+  cancel then proceeds on the advanced instance. Should Postgres still report a deadlock (`40P01`) on
+  the apply, the apply transaction rolls back, B' runs with the same CAS and finds the row
+  `cancelled` -> `:stale`; on the cancel side the existing error path returns and nothing is written.
+* Closed detail-code list (`outcome_detail`, run record `detail`, incident `details.detail`): the
+  `detail()` type of 5.1. Runner outcomes `script_error, budget_exceeded, memory_limit_exceeded,
   timeout, script_failed` carry detail NULL.
 
 ## 6. Instance events, registry, replay (7c-1)
@@ -535,13 +712,18 @@ Both are appended with `actor_id = EventStore.platform_actor_id()`.
   then `Engine.advance_until_stable/4`). A merge rejection -> `{:error, {:variable_merge_rejected,
   event_id, key}}` as for TASK_COMPLETED.
 
-Replay never re-executes a script (D5, MUST 11): `reconstruction.ex` and everything it calls name
-neither `ScriptRunner`, `ScriptTaskDispatcher` nor `Letflow.Scripts` (source-scan test), and a
-runtime test proves it (15, T-R).
+Replay never re-executes a script (D5, MUST 11) [SEC S4]: the source scan is scoped to
+`lib/letflow/engine/reconstruction.ex` exactly: it names neither `ScriptRunner`,
+`ScriptTaskDispatcher`, `ScriptReadPort` nor `Letflow.Scripts`. The runtime proof (AC15) replays a
+definition with TWO CONSECUTIVE script tasks and no HTTP task (R6), asserting zero runner calls,
+zero queries against `script_rules` / `script_policy` / `script_readable_masters` (i.e. zero
+`Scripts.Runtime` lookups) and zero INSERTs into `script_task_dispatches` during the replay (Ecto
+telemetry, test-pid scoped). Replay folds events with `Engine.advance_until_stable/4`, which returns
+pending events but persists nothing, so arming never happens on that path.
 
 ## 7. Per-run record, HMAC secret, alert (7c-1)
 
-### 7.1 `SCRIPT_RUN_RECORDED` payload (exact key set; built by `ScriptTaskDispatcher.RunRecord.build/...`, an allowlist constructor)
+### 7.1 `SCRIPT_RUN_RECORDED` payload (exact key set; built by `ScriptTaskDispatcher.RunRecord.build/1` from `run_facts()`, 5.1, an allowlist constructor)
 
 `dispatch_id, node_id, attempt, script_key, script_version, script_sha256, phase ("rejected" |
 "ran" | "lease_expired"), outcome ("ok" | eight codes), detail (code | null), fail_code (manifest
@@ -555,17 +737,31 @@ dispatch id, tenant schema, outcome and detail codes.
 
 ### 7.2 HMAC (`Letflow.Scripts.HmacSecret`, changed)
 
-`hmac_fun(tenant_id :: Ecto.UUID.t()) :: {:ok, (binary() -> {key_version :: pos_integer(), hex ::
-String.t()})} | {:error, :missing}`: looks up the tenant slug, `Secrets.resolve("sec://tenant/<slug>/
-platform/script-input-hmac", tenant_id: tenant_id, consumer: :script_runner, platform: true)`
-(unpinned = newest active); any error -> `{:error, :missing}`. The returned closure computes
-`:crypto.mac(:hmac, :sha256, key, bytes)` lowercase hex and returns `key_id` from the resolve
-result. NEVER calls `ensure/1` or `Secrets.put`; still the ONLY `platform: true` caller.
+```
+@type hmac_fun :: (binary() -> {:ok, {key_version :: pos_integer(), hex :: String.t()}} | {:error, :hmac_failed})
+@spec hmac_fun(tenant_id :: Ecto.UUID.t()) :: {:ok, hmac_fun()} | {:error, :missing}
+```
+
+Looks up the tenant (`Identity.get_tenant/1`, matched with `case`) for its slug, then
+`Secrets.resolve("sec://tenant/<slug>/platform/script-input-hmac", tenant_id: tenant_id, consumer:
+:script_runner, platform: true)` (unpinned = newest active), matched with `case`: `{:ok, %{plaintext:
+key, key_id: n}}` -> the closure; every other return -> `{:error, :missing}` (never a bare match,
+so no `MatchError` can carry the plaintext into a log) [SEC S3]. The closure runs
+`:crypto.mac(:hmac, :sha256, key, bytes)` inside `try ... rescue _ -> {:error, :hmac_failed} catch
+_, _ -> {:error, :hmac_failed}` (no binding of the exception or stacktrace) and returns lowercase hex
+with `n`. NEVER calls `ensure/1` or `Secrets.put`; still the ONLY `platform: true` caller.
+
+The closure is built by `@doc false build_hmac_fun(key :: term(), key_id :: pos_integer()) ::
+hmac_fun()` (pure; `hmac_fun/1` is its only production caller). Test seam for AC12's crypto fault:
+the dispatcher uses `Application.get_env(:letflow, :script_task_hmac_fun_override)` (a 1-arity
+function `tenant_id -> {:ok, hmac_fun()}`) instead of `HmacSecret.hmac_fun/1` ONLY when
+`:scripts_test_hooks` is true; the test supplies `fn _ -> {:ok, HmacSecret.build_hmac_fun(<sentinel
+non-binary key>, 1)} end`, which makes `:crypto.mac` raise inside the closure.
 
 ### 7.3 Missing-secret alert (`Letflow.Obs.Alerts`, changed)
 
 `notify_script_hmac_secret_missing(prefix) :: :ok` and `clear_script_hmac_secret_missing(prefix) ::
-:ok`, edge-triggered through `alert_trigger_state` key `"script_hmac_secret_missing"`: ARMED -> one
+:ok`, called ONLY by `Letflow.Engine.ScriptTaskDispatcher` (5.3 step 4), edge-triggered through `alert_trigger_state` key `"script_hmac_secret_missing"`: ARMED -> one
 `Logger.error("script HMAC secret missing", component: "script_task", tenant_schema: prefix,
 trigger: "script_hmac_secret_missing")`, hooks fired when `alert_hooks` is enabled (payload `{"trigger",
 "tenant_schema"}`), state FIRED; FIRED -> nothing. `clear_` re-arms. Never raises. The trigger set
@@ -577,8 +773,12 @@ grows from four to five (closed-set change, section 17).
 
 The only effect of a successful run is `VariableMerge.merge/3` into the instance's variables, with
 real validations from the definition's variable schema (D2, this route only; HTTP unchanged,
-Deviation 2), inside the apply transaction (5.4). No entity, no other instance, no event other than
-the two of section 6, no audit-chain entry.
+Deviation 2), inside the apply transaction (5.4). Only the manifest's DECLARED output properties
+can be merged: the binding requires a closed output schema (C11a, checked at activation and before
+the run) and `check_output/2` hands only `Map.take(output, declared_outputs)` to the merge, after
+refusing any undeclared key [SEC S1]. The set of variables a binding can write is therefore exactly
+`declared_outputs(manifest)`, visible to whoever activates the definition. No entity, no other
+instance, no event other than the two of section 6, no audit-chain entry.
 
 ### 8.2 Write-command refusal
 
@@ -600,10 +800,17 @@ clock (7b-2a residual).
 
 C17. `lua_script_audit_test.exs` and the audit parts of `manifest_executor_audit_test.exs` are
 replaced by: `function_exported?(LuaScriptAudit, :execute_script_for_audit, 6) == false`; raw
-INSERT, UPDATE, DELETE and TRUNCATE on `lua_script_execution_audit` refused (`pg_code == "LF001"`);
-a pre-existing row (inserted in the test before the migration's trigger, or by disabling the
-trigger inside the test transaction) stays readable through `AuditRecord`; a source scan finds no
-`lua_script_execution_audit` writer in `lib/`. `Lua.Executor`'s own tests stay green.
+INSERT, UPDATE and DELETE on `lua_script_execution_audit` refused (`pg_code == "LF001"`) inside the
+test's sandbox transaction (rolled back, so the pooled schema is never dirtied); a source scan finds
+no `lua_script_execution_audit` writer in `lib/`. `Lua.Executor`'s own tests stay green.
+
+"History stays readable" [CDV C6] runs on a DEDICATED, non-pooled tenant schema created by the test
+(a bare schema from `TenantProvisioning.provision_tenant_schema/1`), never on a pooled clone: the
+test migrates that schema with `Ecto.Migrator.run(Repo, TenantProvisioning.tenant_scoped_migrations(),
+:up, to: <version before 20261015000002>, prefix: schema)`,
+inserts one row through `AuditRecord.insert_changeset/2`, migrates to the latest version, then reads
+the row back through `AuditRecord` and asserts a second insert is refused; `on_exit` drops the
+schema. No trigger is ever disabled and the pooled reset (no TRUNCATE trigger, C17) is untouched.
 
 ## 11. Pre-fetch port and reads (7c-2)
 
@@ -612,11 +819,11 @@ trigger inside the test transaction) stays readable through `AuditRecord`; a sou
 `Letflow.Engine.ScriptReadPort` (`lib/letflow/engine/script_read_port.ex`), a behaviour:
 
 ```
-@callback prefetch(prefix :: String.t(), reads :: [read_spec()], input_vars :: map(),
-                   opts :: %{restricted_allowed?: boolean()}) ::
+@callback prefetch(prefix :: String.t(), reads :: [read_spec()], input_vars :: map()) ::
             {:ok, %{optional(String.t()) => [row()]}} | {:error, :reads_not_allowed}
 read_spec :: %{"name", "entity_type", "match" => %{"id_from"} | %{"field", "value_from"},
-               "fields" => [String.t()], optional("restricted_fields") => [String.t()], optional("limit") => 1..50}
+               "fields" => [String.t()], optional("limit") => 1..50}
+             # restricted_fields is always empty here: C10 refuses it before the port is called
 row       :: %{required("id") => String.t(), optional(String.t()) => json_value()}
 ```
 
@@ -629,12 +836,12 @@ is non-empty, after 5.3 steps 1-4 and `check_reads` (11.3), before admission.
 
 Phase 1, for EVERY read, before any record query:
 1. `entity_type` has an active definition (`get_active_definition_by_name/2`) and no
-   `entity_type_restrictions` row; every name in `fields`, `restricted_fields`, `match.field` is a
-   field of that definition. Else `{:error, :reads_not_allowed}`.
+   `entity_type_restrictions` row; every name in `fields` and `match.field` is a field of that
+   definition; `restricted_fields` absent or empty. Else `{:error, :reads_not_allowed}`.
 2. `R` = the type's CURRENT restricted field names: `entity_field_restrictions WHERE entity_type =
    $1` (bound), with NO per-user grant anti-join (the script principal has no user, D5).
-3. **N1:** `match.field in R` and (`match.field not in restricted_fields` or not
-   `restricted_allowed?`) -> `{:error, :reads_not_allowed}` (the filter can never become an oracle).
+3. **N1:** `match.field in R` -> `{:error, :reads_not_allowed}` (no opt-in exists for hook 1, C10;
+   the filter can never become an oracle on a restricted field).
 
 Phase 2, exactly ONE query per read (INV-5, same round trips for hit, miss, malformed and unknown):
 * `id_from`: value = `input_vars[id_from]`; a non-UUID or nil value is replaced by the nil UUID
@@ -646,22 +853,29 @@ Phase 2, exactly ONE query per read (INV-5, same round trips for hit, miss, malf
   a compile error -> `{:error, :reads_not_allowed}` (deterministic, type/field level).
 
 Projection per row: `"id"` = record id; for each `f` in `fields`: included iff present in
-`field_values` AND (`f not in R` OR (`f in restricted_fields` AND `restricted_allowed?`)); otherwise
-OMITTED (absent = same as never set; no sentinel). Misses, deleted, unknown ids and redacted rows
+`field_values` AND `f not in R`; otherwise OMITTED (absent = same as never set; no sentinel). Misses, deleted, unknown ids and redacted rows
 are indistinguishable from "not set" (D5 read contract). The tenant prefix comes only from the
 caller's run context; no table or schema name is ever built from manifest text. No ETS, no
 persistent_term, no process-dictionary state survives a call (no caching across runs).
 
 ### 11.3 Run-time policy re-checks (dispatcher, 5.3 step 3 in 7c-2)
 
-1. `Policy.check_reads(prefix, manifest)` -> `{:error, :reads_not_allowed}` -> `script_rejected` /
-   `reads_not_allowed` (7b-2a section 8 item 2).
-2. `restricted_allowed?` = publisher re-check (7b-2a section 8 item 3): `Identity.get_user(
-   publisher_id, prefix:)` is active AND `Authorization.has_permission_in_scope?(effective_roles(
-   Identity.list_effective_role_names(publisher_id, prefix:), platform_tenant?),
-   :EntitiesRestrictionsManage, platform_tenant?)`; computed per run in `Scripts.Runtime.prepare_run/3`.
-3. C10 still refuses restricted opt-in at activation; 2 is the backstop and the gate for N1.
-4. Port `{:error, :reads_not_allowed}` -> `script_rejected` / `reads_not_allowed`; no partial input.
+[CDV C3] In 7c-2, 5.3 step 3 runs exactly, in this order, with the first failure winning:
+1. 3a `closed_output_schema?` (-> `output_schema_open`);
+2. 3b restricted opt-in present (non-empty `restricted_inputs` or any non-empty
+   `reads[].restricted_fields`) -> `restricted_opt_in_unsupported`: a REFUSAL backstop of C10 (the
+   manifest is immutable and activation already refused it). There is NO `restricted_allowed?`
+   value, NO publisher permission re-check and NO opt-in branch anywhere in 7c (no dead code). The
+   7b-2a section 8 item 3 publisher re-check becomes relevant only when C10 is lifted;
+3. 3c `Policy.check_reads(prefix, manifest)` -> `{:error, :reads_not_allowed}` -> `reads_not_allowed`
+   (7b-2a section 8 item 2, including P12: a `match.field` that is restricted NOW and not in
+   `restricted_fields`, which for hook 1 means ANY currently restricted `match.field`).
+
+Then step 4 (secret), step 5 builds variables and calls the port; a port `{:error,
+:reads_not_allowed}` (11.2 phase 1, which repeats the N1 check against the current restrictions) ->
+`script_rejected` / `reads_not_allowed`; no partial input, no run. Both N1 checks (check_reads and
+port phase 1) precede every record query, so a `match.field` restricted AFTER publish is refused
+before any record is read (AC26).
 
 ### 11.4 Boundary rule (`mix letflow.check_boundaries`, Rule 6)
 
@@ -670,6 +884,14 @@ A declarative table `@layer_rules [{source_prefixes: ["lib/letflow/engine.ex",
 "lib/letflow/entities/"], reason: "engine -> entities only via Letflow.Engine.ScriptReadPort (0053
 F10)"}]`, evaluated in `classify_edge/2` BEFORE Rule 0. Today the rule holds (0.9). Unit tests feed
 synthetic edges; the real task run is part of `mix letflow.check`.
+
+F10 interpretation [CDV C8], for REVIEWER to confirm: 0053 F10 says "the engine names no
+`Letflow.Entities` module", i.e. a DIRECT edge, and Rule 6 checks direct file edges only. One
+INDIRECT path exists and is accepted: engine -> `Scripts.Runtime` -> `Scripts.Policy` ->
+`Entities.Definitions` (definition METADATA: active definition and field names, for `check_reads`).
+Entity RECORDS are read only through the port. If REVIEWER reads F10 as transitive, the alternative
+is to move `check_reads`' metadata lookups behind the port as a second callback; this design does not
+do that.
 
 ## 12. Worked example (test fixture, 7c-1)
 
@@ -761,11 +983,21 @@ Definition: `START -> SERVICE_TASK "price_order" {"script_key": "purchase_reques
 second variable-schema variant restricts `approval_tier` to `["auto", "manager", "director"]` for
 the `variable_schema_rejected` test.
 
-Second fixture `purchase_request_writes_attempt` v1 (C11 test): input `{attempt_write: boolean,
-amount_cents: integer}`, output_schema `{"type": "object"}`; returns `{total_cents = amount}` and,
-only when `attempt_write` is true, also `["$writes"] = {{entity_type = "purchase_order", command =
-"create"}}`. Its stored test uses `attempt_write: false` so it publishes; a run with `true` is
-refused `output_invalid` / `writes_not_allowed`.
+Second fixture `purchase_request_writes_attempt` v1 (C11 test) [SEC S1]: input `{attempt_write:
+boolean, amount_cents: integer}`; output_schema CLOSED: `{"type": "object", "properties":
+{"total_cents": {"type": "integer"}}, "required": ["total_cents"], "additionalProperties": false}`
+(so it activates under C11a). It returns `{total_cents = amount}` and, only when `attempt_write` is
+true, also `["$writes"] = {{entity_type = "purchase_order", command = "create"}}`. Its stored test
+uses `attempt_write: false` so it publishes; a run with `true` is refused `output_invalid` /
+`writes_not_allowed` because the `$` check runs BEFORE the schema check (5.3 step 8), not
+`output_schema`.
+
+Third fixture `purchase_request_extra_output` v1 (C11a test): same closed schema; returns
+`{total_cents = amount, approval_tier = "auto"}` when input `add_extra` is true (stored test uses
+false); a run with `true` -> `output_invalid` / `output_schema`, and the instance's pre-existing
+`approval_tier` variable is unchanged. A variant `purchase_request_open_schema` v1 with
+`output_schema {"type": "object"}` publishes but its binding is refused at activation
+(`script_output_schema_open`).
 
 ## 13. Changed and new modules (summary)
 
@@ -777,8 +1009,8 @@ refused `output_invalid` / `writes_not_allowed`.
 | `Letflow.Engine` | 7c-1 | pin lookup, arm branch, binding error handling, cancel step, `apply_script_task_result/3`, generalised advance pipeline (4.4, 5.4, 5.6) |
 | `Engine.ScriptTaskDispatcher` (+ `.ScriptTaskDispatch`, `.RunRecord`, `.Poller`), `Engine.ScriptInput` | 7c-1 new | section 5 |
 | `Engine.Reconstruction` | 7c-1 | two clauses (6) |
-| `Scripts.Runtime` | 7c-1 new | `pin_lookup/1`, `check_bindings/2`, `referenced_by_active_definition?/3`, `prepare_run/3`, `check_output/2` |
-| `Scripts`, `Scripts.Validation`, `Scripts.HmacSecret` | 7c-1 | retire block, `check_output` in tests/dry-run, `$` names, `hmac_fun/1` |
+| `Scripts.Runtime` | 7c-1 new | `pin_lookup/1`, `check_bindings/2`, `referenced_by_active_definition?/3`, `prepare_run/3`, `check_output/2`, `closed_output_schema?/1`, `declared_outputs/1` |
+| `Scripts`, `Scripts.Validation`, `Scripts.HmacSecret` | 7c-1 | retire block, `check_output` in tests/dry-run, `$` names, `hmac_fun/1`, `build_hmac_fun/2` |
 | `Definitions`, `Definitions.Promotion` | 7c-1 | `check_bindings/2` in three activation paths |
 | `TenantProvisioning` | 7c-1 | two migrations, two event types |
 | `Obs.Alerts` | 7c-1 | fifth trigger (7.3) |
@@ -799,69 +1031,113 @@ refused `output_invalid` / `writes_not_allowed`.
   `Definitions.activate/2`, in promotion and in version rollback; a published version activates.
   Two versions of one key -> `:script_version_conflict`; non-empty `reads` ->
   `:script_reads_unsupported`; restricted opt-in -> `:script_restricted_opt_in_unsupported`.
-* **AC3** Retire of a version bound by an active definition -> 409 `version_in_use`, nothing written
-  or audited; after the definition is deprecated, retire succeeds; revoke is never blocked.
+* **AC2a [SEC S1]** A binding whose `output_schema` lacks top-level `properties` or
+  `"additionalProperties": false` is refused at activation with `:script_output_schema_open` (all
+  three paths); the same version, run through `prepare_run/3` directly, is rejected
+  `script_rejected` / `output_schema_open` before admission.
+* **AC2b [SEC S1]** A run whose output carries a key not declared in the closed output schema
+  (`purchase_request_extra_output`, `add_extra: true`) fails `output_invalid` / `output_schema`;
+  the targeted pre-existing variable is unchanged; on success, the set of keys merged into the
+  variables equals the declared properties present in the output, never more.
+* **AC3** Retire of a version bound by an ACTIVE definition -> 409 `version_in_use`, nothing written
+  or audited; after that definition is deprecated (no active binding left), the same retire
+  succeeds; revoke is never blocked.
 * **AC4** INSTANCE_STARTED carries the `:script` pin `(key, version, sha256, resolved_id)`; after
   version 2 is published and a new definition version binds it, the in-flight instance still runs
   version 1 (its run record shows version 1 and sha1). A retired version cannot be newly pinned
   (start refused `unresolved_script_ref`); a revoked pinned version fails closed (`script_rejected` /
-  `script_revoked`). `PinRebind` refuses kind `script`; a sub-process child neither inherits nor loses
-  a script pin.
+  `script_revoked`). `PinRebind` refuses kind `script`; a sub-process child neither inherits nor
+  loses a script pin.
 * **AC5** A due row is claimed (`running`, attempt 1, lease = `lease_ms()` from claim), the run holds
   no transaction, and the result is applied in ONE transaction: variables merged with real
   validations, `SCRIPT_TASK_COMPLETED` + `SCRIPT_RUN_RECORDED` appended, row `applied`, token advanced.
 * **AC6 (F-E)** The apply is a CAS on `(id, instance_id, node_id, attempt, status 'running')`: a
-  second apply of the same result, an apply with an older attempt, and an apply after the lease sweep
-  each return `:stale` and change nothing (events, variables, row, DLQ counts unchanged).
-* **AC7 (F-E)** Killing the poller (dispatcher) mid-run kills the worker and releases the
-  `ScriptAdmission` slot (slot count back to 0); killing the watchdog does the same; the row stays
-  `running` until its lease expires, then the sweep makes it a `timeout` / `lease_expired` incident
-  (ERROR + DLQ) and the script is NOT run again.
+  second apply of the same result, an apply with an older attempt, and an apply after the lease
+  sweep each return `:stale` and change nothing (events, variables, row, DLQ counts unchanged).
+* **AC7a (F-E, killed dispatcher) [CDV C2]** Killing the dispatcher process mid-run (the process
+  that called the runner) makes the watchdog kill the worker and exit; the `ScriptAdmission` slot is
+  released (count back to 0); NO apply happens, so the row stays `running`; after its lease expires
+  the sweep turns it into a `timeout` / `lease_expired` incident (ERROR + DLQ, `phase:
+  lease_expired`) and the script is NOT run again.
+* **AC7b (F-E, killed watchdog) [CDV C2]** Killing the watchdog mid-run kills the linked worker and
+  releases the slot (Admission `:DOWN`); the caller's `Task.yield` gets `{:exit, _}`, which 7a maps
+  to `script_error`; the dispatcher therefore applies IMMEDIATELY: row `failed`, outcome
+  `script_error`, `phase: ran`, incident written, no lease wait, never re-run.
 * **AC8** Only `script_busy` is retried: with all admission slots held the row returns to `pending`
   with `next_attempt_at = now + 500 ms`, `busy_retries 1`, no event; after release it is applied on a
   later claim (attempt 2). After `busy_retry_limit` reschedules the next busy outcome is a
   `script_busy` / `busy_retries_exhausted` incident. Each of `script_error`, `budget_exceeded`,
-  `memory_limit_exceeded`, `timeout`, `script_failed`, `output_invalid`, `script_rejected` ends the
-  row `failed` after exactly one run, with an incident, and is never re-claimed.
+  `memory_limit_exceeded`, `timeout`, `script_failed`, `output_invalid` ends the row `failed` after
+  exactly ONE run, with an incident, and the row is never claimed again. [CDV C11] A
+  `script_rejected` row (e.g. kill switch) ends `failed` after ZERO runs (the runner seam records no
+  call) and is never claimed again.
 * **AC9** Output failing the manifest output schema -> `output_invalid` / `output_schema`, instance
   ERROR, DLQ incident; output rejected by the definition's variable schema -> `output_invalid` /
   `variable_schema_rejected`, variables unchanged; a list output -> `output_not_object`.
-* **AC10 (fence)** An output with a top-level `$` key (the `$writes` fixture) -> `output_invalid` /
-  `writes_not_allowed`, no variable and no entity changed (entity table row counts unchanged); a
-  stored test and a dry-run returning `$writes` report `output_invalid`; an `output_schema` property
-  named `$x` is refused at save (422 `invalid_manifest`).
+* **AC10 (fence)** An output with a top-level `$` key (the `$writes` fixture, closed schema) ->
+  `output_invalid` / `writes_not_allowed`, no variable and no entity changed (entity table row counts
+  unchanged); a stored test and a dry-run returning `$writes` report `output_invalid`; an
+  `output_schema` property named `$x` is refused at save (422 `invalid_manifest`).
 * **AC11** Kill switch ON (tenant latch, and separately the platform latch): the claimed row fails
   closed `script_rejected` / `scripts_disabled` with an incident; the runner seam is never called and
-  no admission slot is acquired; it is not retried.
+  no admission slot is acquired; it is not retried. [SEC S5] A tenant set `:inactive` (and
+  separately `:migrating`) fails closed `script_rejected` / `tenant_inactive` the same way.
 * **AC12** The per-run record has EXACTLY the section 7.1 key set; for a run whose variables and
   output contain unique sentinel strings, neither the `SCRIPT_RUN_RECORDED` payload, nor the
   dispatch row, nor any captured log line contains a sentinel; `input_hmac` equals HMAC-SHA256 under
-  the tenant key of the canonical document and `input_hmac_key_version` equals the secret's `key_id`;
-  `principal` and `triggering_user_id` are set (user for a complete_task-triggered run, NULL for a
-  timer-triggered one).
+  the tenant key of the canonical document and `input_hmac_key_version` equals the secret's
+  `key_id`; `principal` and `triggering_user_id` are set (user for a complete_task-triggered run,
+  NULL for a timer-triggered one). [SEC S3] Forced-crypto-failure sentinel: with a closure from
+  `HmacSecret.build_hmac_fun/2` over a sentinel non-binary key, supplied through the
+  `:script_task_hmac_fun_override` seam (7.2), `:crypto.mac` raises inside the closure, the closure
+  returns `{:error, :hmac_failed}` and the row fails `script_rejected` / `hmac_failed`, and
+  neither the captured logs nor the payload contain the injected key bytes, an exception message or a
+  stacktrace frame; a forced raise inside the per-row pipeline likewise logs only dispatch id,
+  tenant schema and the class tag.
 * **AC13** A run finds the HMAC secret already present and creates none (secret row count and ids
-  unchanged). With the secret missing (disabled), the run fails `script_rejected` /
-  `hmac_secret_missing`, no secret is created, and exactly ONE alert/log line is emitted across two
-  failing runs; after the secret is restored a successful run re-arms the trigger.
+  unchanged). [CDV C12] With EVERY row of the tenant's `platform/script-input-hmac` secret set to
+  `:disabled` (all key versions, by a test-only `update_all` on `Secret` filtered by tenant,
+  namespace and name), the run fails `script_rejected` / `hmac_secret_missing`, no secret row is
+  created, and exactly ONE alert/log line is emitted across two failing runs; after one version is
+  re-activated, a successful run re-arms the trigger.
 * **AC14** HMAC backfill re-run: a second `backfill/1` over N tenants returns `{0, N, []}` and every
   secret row (id, key_id, ciphertext, status) is unchanged.
-* **AC15** Replay: `Reconstruction.reconstruct_instance/2` of a script instance reproduces the
-  projection's variables and nodes with the kill switch ON and the version revoked, and the runner
-  seam records zero calls; a source scan shows the replay path names no script runner module.
-* **AC16** `LuaScriptAudit`: no writer function, DB refuses INSERT/UPDATE/DELETE/TRUNCATE, history
-  readable (section 10).
+* **AC15 [SEC S4]** Replay of an instance of a definition with TWO CONSECUTIVE script tasks and NO
+  HTTP task: `Reconstruction.reconstruct_instance/2`, run with the kill switch ON and both versions
+  revoked, reproduces the projection's variables and nodes; during the replay the runner seam records
+  zero calls, Ecto telemetry shows zero queries against `script_rules`, `script_policy` and
+  `script_readable_masters` and zero INSERTs into `script_task_dispatches`. A source scan of
+  `lib/letflow/engine/reconstruction.ex` (that file only) finds none of `ScriptRunner`,
+  `ScriptTaskDispatcher`, `ScriptReadPort`, `Letflow.Scripts`.
+* **AC16** `LuaScriptAudit`: no writer function, DB refuses INSERT/UPDATE/DELETE, history readable on
+  a dedicated tenant (section 10).
 * **AC17** Both event types are registered for a newly provisioned tenant and, after
   `replay_migrations/1`, for a tenant provisioned before the change; both migrations replay
   idempotently.
 * **AC18** Instance cancel sets `pending` and `running` script rows `cancelled`; a later apply for the
   running one is `:stale`.
+* **AC18a [SEC S6]** Apply vs cancel race: with the apply transaction paused after its CAS lock (test
+  hook between CAS and projection lock) a concurrent `cancel_instance` blocks on the dispatch row and
+  completes after the apply commits (instance cancelled after advancing); with the cancel paused
+  after its dispatch-row step a concurrent apply blocks, then returns `:stale` and writes nothing.
+  Neither order raises or deadlocks; the pause hooks honour `:scripts_test_hooks` only.
 * **AC19** No tenant route can register a WASM plugin (source scan over `lib/letflow/routers/` and
   `lib/letflow/plugs/`: no reference to `PluginRegistry.register_plugin_handler`,
   `Wasm.ModuleRegistry.register` or `ModuleVersionRegistry.register_version`).
-* **AC20** The worked example publishes (all six stored cases pass) and, run end to end through the
-  poller pipeline, sets the four output variables and routes by `approval_tier`.
+* **AC20** The worked example publishes (all six stored cases pass) and, run end to end through
+  `run_tick/2`, sets the four output variables and routes by `approval_tier`.
 * **AC21** No regression: every existing HTTP SERVICE_TASK, dispatcher, pin, activation and
-  Lua/Executor test passes unchanged except the two LuaScriptAudit files replaced per section 10.
+  Lua/Executor test passes unchanged except the two LuaScriptAudit files replaced per section 10;
+  one new assertion pins the HTTP completion event payload keys and idempotency key (5.4).
+* **AC29 [SEC S2]** Fairness: tenant A with 6 due rows and tenant B with 1 due row, in one tick: B's
+  row is claimed before A's SECOND row (`claimed_at` order); with `tick_budget_ms` small and slow
+  rows the tick stops at the deadline (`budget_exhausted: true`) after at most one row past it, and
+  the next tick starts at the other tenant (rotating offset). A tenant with a due row never waits for
+  another tenant's full backlog.
+* **AC30 [CDV C9]** A sweep apply that fails (test hook forcing `{:error, _}`) increments
+  `sweep_failures`; at `sweep_failure_limit` the row is no longer selected, exactly one `sweep_stuck`
+  error line is logged and telemetry emitted; repeated ticks before the limit produce one aggregated
+  warning per tenant per tick, not one per row per tick.
 
 ### 7c-2
 
@@ -873,45 +1149,71 @@ refused `output_invalid` / `writes_not_allowed`.
   yield `[]` with exactly one entity query each (Ecto telemetry count); a field match is capped at
   its `limit`.
 * **AC24** Each 7b-2a section 8 item-2 cause at run time (flag cleared, definition inactive, type
-  restricted, field removed, `match.field` restricted and not opted in) fails closed
-  `script_rejected` / `reads_not_allowed` before any record query.
-* **AC25** A restriction added after activation on a field in `fields` (not opted in) is omitted
-  from the delivered row on the NEXT run (no caching); removing it restores the field on the run
-  after.
-* **AC26 (N1)** With a `restricted_fields` read (version inserted directly, bypassing C10's
-  activation refusal) and a publisher who lost `:EntitiesRestrictionsManage` (or was deactivated),
-  a restricted `match.field` fails closed before any record query and restricted fields are omitted.
+  restricted, field removed) fails closed `script_rejected` / `reads_not_allowed` before any record
+  query.
+* **AC25** A restriction added after activation on a field in `fields` is omitted from the delivered
+  row on the NEXT run (no caching); removing it restores the field on the run after.
+* **AC26 (N1, reachable) [CDV C3]** A published, activated version reads a master by `match.field
+  = "status"`; an `entity_field_restrictions` row on `status` is added AFTER publish (not opted in;
+  opt-in does not exist for hook 1). The next run fails closed `script_rejected` /
+  `reads_not_allowed` with ZERO queries against `entity_record_latest` or the type's table (Ecto
+  telemetry), and the port's phase 1 refuses the same read when called directly.
+* **AC26a** A version with non-empty `restricted_fields` inserted directly (bypassing activation)
+  is rejected by `prepare_run/3` with `restricted_opt_in_unsupported`, and the port is never called.
 * **AC27** Kill switch ON with declared reads: zero port calls (recording stub).
 * **AC28** A cross-tenant read is impossible: the port's queries carry only the run's prefix; a
   manifest naming another tenant's type behaves as an unknown type (`reads_not_allowed`).
 
 ## 15. Test brief (TEST-DESIGNER)
 
-Suites (new unless noted): `test/letflow/engine/script_task_dispatcher_test.exs`,
-`test/letflow/engine/script_task_apply_test.exs`, `test/letflow/engine/script_task_replay_test.exs`,
-`test/letflow/engine/pin_resolver_script_test.exs`, `test/letflow/scripts/runtime_test.exs`,
-`test/letflow/scripts/purchase_request_example_test.exs`, `test/letflow/engine/lua_script_audit_retired_test.exs`,
-extend `test/letflow/scripts/hmac_secret_test.exs`, `test/letflow/definitions/*activate*` and graph
-tests, `test/letflow/routers/script_rules_test.exs` (retire 409, dry-run `$`),
-`test/mix/tasks/letflow.check_boundaries_test.exs` (7c-2), `test/letflow/entities/script_reads_test.exs` (7c-2).
+Rules: tests call `ScriptTaskDispatcher.run_tick/2`, `claim_next/1` and `run_claimed/2` directly
+(the poller is off in test); the runner seam (`:script_task_runner` with `:scripts_test_hooks`) is
+used ONLY for call-count assertions and the AC12 crypto fault, never to fake outcomes the real runner
+can produce; real scripts drive every outcome (busy: hold all `ScriptAdmission` slots from helper
+processes; memory: the 7a refc fixture; timeout: `pcall` busy loop with `timeout_ms: 100`). Lease
+expiry is simulated by back-dating `lease_expires_at` (no sleeps on the lease). Kill tests (AC7a/b)
+run the pipeline in a spawned process standing in for the poller, kill it (or the watchdog, found via
+the Task.Supervisor's children), and wait with a monitor plus `assert_receive` with a generous
+timeout (anti-pattern 4709). Sentinel assertions use `ExUnit.CaptureLog` over the whole pipeline.
+Query counts use Ecto telemetry handlers scoped to the test pid. Concurrency tests (AC18a) use
+`Ecto.Adapters.SQL.Sandbox` shared mode with two processes and the pause hooks. Tenants follow the
+pooled-fixture rules (anti-pattern 4680); AC16's history test uses its own dedicated schema.
 
-Rules: tests call `ScriptTaskDispatcher.poll_and_dispatch/1` / `run_claimed/2` directly (the
-poller is off in test); the runner seam (`:script_task_runner` with `:scripts_test_hooks`) is used
-ONLY for call-count assertions (AC11, AC15) and never to fake outcomes that the real runner can
-produce; real scripts drive every outcome (busy: hold all `ScriptAdmission` slots from helper
-processes; memory: the 7a refc fixture; timeout: `pcall` busy loop with `timeout_ms: 100` in the
-manifest). Lease expiry is simulated by back-dating `lease_expires_at` (no sleeps on the lease).
-Kill tests (AC7) run the pipeline in a spawned process standing in for the poller, kill it, and
-poll `Admission` state until the slot count is 0 with a bounded wait (anti-pattern 4709: no timer
-shorter than load jitter; use a monitor plus `assert_receive` with a generous timeout). Sentinel
-assertions (AC12) use `ExUnit.CaptureLog` over the whole pipeline, including a forced failure. Query
-counts use Ecto telemetry handlers scoped to the test pid. Every test that creates tenants cleans up
-per the pooled-fixture rules (anti-pattern 4680).
+AC -> suite / named test [CDV C7]:
 
-Named tests: T-CAS-dup, T-CAS-old-attempt, T-CAS-after-sweep (AC6); T-kill-dispatcher,
-T-kill-watchdog (AC7); T-busy-reschedule, T-busy-exhausted, T-terminal-<code> x7 (AC8); T-R replay
-(AC15); T-secret-present-none-created, T-secret-missing-one-alert (AC13); T-backfill-rerun (AC14);
-T-writes-refused (AC10).
+| AC | Suite (new unless marked) | Named test(s) |
+|---|---|---|
+| AC1 | `test/letflow/engine/service_task_test.exs` (ext), `test/letflow/definitions/graph_test.exs` (ext) | `script route parses`, `conflicting routes refused`, `invalid script reference` |
+| AC2 | `test/letflow/definitions/script_bindings_activation_test.exs` | `refused per status x3 paths`, `version conflict`, `reads unsupported`, `restricted opt-in` |
+| AC2a | same | `open output schema refused x3 paths`, `prepare_run output_schema_open` |
+| AC2b | `test/letflow/engine/script_task_apply_test.exs` | `undeclared key refused`, `only declared keys merged` |
+| AC3 | `test/letflow/routers/script_rules_test.exs` (ext) | `retire bound -> 409`, `retire after deprecate ok`, `revoke never blocked` |
+| AC4 | `test/letflow/engine/pin_resolver_script_test.exs` | `pin frozen across publish`, `retired not pinnable`, `revoked fails closed`, `rebind refuses script`, `child no inherit` |
+| AC5 | `test/letflow/engine/script_task_dispatcher_test.exs` | `claim then apply one tx` |
+| AC6 | `script_task_apply_test.exs` | T-CAS-dup, T-CAS-old-attempt, T-CAS-after-sweep |
+| AC7a / AC7b | `script_task_dispatcher_test.exs` | T-kill-dispatcher, T-kill-watchdog |
+| AC8 | `script_task_dispatcher_test.exs` | T-busy-reschedule, T-busy-exhausted, T-terminal-<code> x6, T-rejected-zero-runs |
+| AC9 | `script_task_apply_test.exs` | `output_schema`, `variable_schema_rejected`, `output_not_object` |
+| AC10 | `script_task_apply_test.exs`, `test/letflow/scripts/validation_test.exs` (ext), `script_rules_test.exs` (ext) | T-writes-refused, `stored test $ fails`, `dry-run $`, `manifest $ name refused` |
+| AC11 | `script_task_dispatcher_test.exs` | `kill switch tenant latch`, `kill switch platform latch`, `tenant inactive`, `tenant migrating` |
+| AC12 | `test/letflow/engine/script_run_record_test.exs` | `exact key set`, `sentinels absent`, `hmac recomputes`, `principal and user`, T-crypto-fault, `raise logs tag only` |
+| AC13 | `test/letflow/scripts/hmac_secret_test.exs` (ext) | T-secret-present-none-created, T-secret-missing-one-alert, `rearm after restore` |
+| AC14 | `test/mix/tasks/letflow.backfill_script_hmac_secrets_test.exs` | T-backfill-rerun |
+| AC15 | `test/letflow/engine/script_task_replay_test.exs` | T-R-two-scripts, `reconstruction.ex source scan` |
+| AC16 | `test/letflow/engine/lua_script_audit_retired_test.exs` | `no writer`, `row trigger refuses`, `history readable (dedicated tenant)`, `no lib writer scan` |
+| AC17 | `test/letflow/tenant_provisioning_script_events_test.exs` | `new tenant seeded`, `existing tenant seeded on replay`, `migrations idempotent` |
+| AC18 | `script_task_dispatcher_test.exs` | `cancel pending and running`, `apply after cancel stale` |
+| AC18a | `test/letflow/engine/script_task_cancel_race_test.exs` | `apply first`, `cancel first` |
+| AC19 | `test/letflow/routers/no_tenant_wasm_registration_test.exs` | `source scan` |
+| AC20 | `test/letflow/scripts/purchase_request_example_test.exs` | `publishes`, `end to end routes by tier` |
+| AC21 | existing suites + `test/letflow/engine/service_task_engine_wiring_test.exs` (ext) | `http completion payload pinned` |
+| AC29 | `script_task_dispatcher_test.exs` | T-fair-round-robin, T-tick-budget, T-rotating-offset |
+| AC30 | `script_task_dispatcher_test.exs` | T-sweep-stuck, T-sweep-aggregated-log |
+| AC22 | `test/mix/tasks/letflow.check_boundaries_test.exs` (ext) | `rule 6 synthetic edge`, `real graph passes` |
+| AC23-AC25 | `test/letflow/entities/script_reads_test.exs` | `rows shape`, `miss equivalence one query`, `limit cap`, `run-time causes x4`, `restriction re-redacts next run` |
+| AC26, AC26a | `script_reads_test.exs`, `test/letflow/scripts/runtime_test.exs` | T-N1-after-publish, `opt-in backstop` |
+| AC27 | `script_task_dispatcher_test.exs` | `kill switch no port call` |
+| AC28 | `script_reads_test.exs` | `prefix only from run context` |
 
 ## 16. Security mapping (INV)
 
@@ -919,39 +1221,60 @@ T-writes-refused (AC10).
   every query (dispatch rows, `script_rules`, policy, projection, events, port) uses that prefix; the
   HMAC key is resolved by the tenant id derived from the prefix and `Secrets.resolve/2`'s own
   slug-to-id match. The port never accepts a prefix or type from anywhere but the run context and
-  the validated manifest.
-* **INV-2** Outputs land only in the instance's variables (8.1); run record and dispatch row are
-  value-free allowlists (7.1); restricted fields are omitted unless opted in, opt-in is refused at
-  activation for hook 1 (C10), and run-time re-checks re-redact (11.2-11.3).
+  the validated manifest. [SEC S2] Cross-tenant fairness: round-robin under a tick budget (5.1a).
+* **INV-2** Outputs land only in the instance's DECLARED variables (8.1, C11a); run record and
+  dispatch row are value-free allowlists (7.1); restricted fields are omitted, opt-in is refused for
+  hook 1 (C10), and run-time re-checks re-redact and refuse restricted match fields (11.2-11.3).
 * **INV-3** Every execution goes through 7a's sandbox, limits, watchdog and admission; the kill
-  switch and `revoked` stop runs before admission; no new host function; replay never executes.
-* **INV-4** The HMAC key is resolved by reference through the reserved namespace, kept in a closure,
-  never logged, returned or stored; only `key_id` is recorded; it is never created on the run path.
+  switch, an inactive tenant and `revoked` stop runs before admission; no new host function; replay
+  never executes.
+* **INV-4** The HMAC key is resolved by reference through the reserved namespace with `case`
+  matching, kept in a closure that catches crypto faults, never logged, returned or stored; only
+  `key_id` is recorded; it is never created on the run path.
 * **INV-5** Port misses, deleted, malformed and unknown ids and redacted rows are indistinguishable
-  and cost one query each; activation refusal codes are tenant-local (a tenant sees only its own
-  registry).
+  and cost one query each; activation refusal codes are tenant-local.
 * **INV-6** New data-access paths: `script_task_dispatches` (tenant schema, no route), the port
   (tenant schema, flagged masters only), the retire reference query (tenant schema). This section is
   the scoping statement.
 * **INV-7** All queries are Ecto with bound parameters, including the jsonb containment document and
   the field-match compile; migrations interpolate only `prefix()`.
 * **INV-8** Every failure maps to one of the eight codes plus a closed detail code; the poller never
-  raises; incidents carry fixed sentences; no `inspect`/`Exception.format` of run data on any surface.
+  raises; rescues bind no stacktrace and format nothing; incidents carry fixed sentences.
 * **INV-10** No platform authority is used; the platform kill-switch latch is honoured through
   `kill_switch_on?/1`.
 
-## 17. Closed-set changes needing REVIEWER sign-off
+## 17. Closed-set changes and edges needing REVIEWER sign-off
 
 1. Instance event types `SCRIPT_TASK_COMPLETED` and `SCRIPT_RUN_RECORDED` (seed list, 6).
 2. Pin kind `:script` with the extra `sha256` field; excluded from overrides, rebind and inheritance (C7).
-3. Route kind `:script` and config parse errors (4.1); graph CHK-10 widening and CHK-10s (4.2).
-4. New dependency edges: engine -> `Letflow.Scripts.Runtime` (facade, C18); `Letflow.Definitions` ->
-   `Letflow.Scripts.Runtime`; engine -> entities ONLY via `ScriptReadPort` (7c-2) with
-   `check_boundaries` Rule 6 enforcing it.
+3. Route kind `:script` and config parse errors (4.1); graph CHK-10 widening and CHK-10s (4.2);
+   the closed-output-schema binding rule (C11a).
+4. New dependency edges [CDV C8]:
+   * engine (`engine.ex`, `script_task_dispatcher.ex`) -> `Letflow.Scripts.Runtime` (facade, C18);
+   * engine (`script_task_dispatcher.ex`) -> `Letflow.Obs.Alerts` (new: no engine file references
+     Obs today, 0.12); `Letflow.Scripts` has NO edge to `Obs`;
+   * `Letflow.Definitions` (`definitions.ex`, `definitions/promotion.ex`) -> `Scripts.Runtime`
+     (`check_bindings/2`), and `Scripts.Runtime` -> `Definitions.Graph` and
+     `Definitions.ProcessDefinition` (leaf struct/schema modules, for `check_bindings/2` and the
+     retire reference query). Context-level this is Definitions <-> Scripts; file-level there is NO
+     cycle (`graph.ex` and `process_definition.ex` reference neither `definitions.ex` nor any Scripts
+     file). Justification: the activation check must run inside the definition's transaction
+     (Definitions calls Scripts), and the retire check must see definitions (Scripts reads the
+     schema); keeping the Scripts side on leaf modules avoids a compile or runtime call cycle.
+   * engine -> entities ONLY via `ScriptReadPort` (7c-2), enforced by `check_boundaries` Rule 6 on
+     DIRECT edges; the indirect metadata path engine -> `Scripts.Runtime` -> `Scripts.Policy` ->
+     `Entities.Definitions` is accepted under the direct reading of F10 (11.4).
 5. A fifth alert trigger `script_hmac_secret_missing` (7.3).
-6. A new gated poller child under `Letflow.Supervisor.Pollers` (C2).
+6. A new gated poller child under `Letflow.Supervisor.Pollers` (C2), started after
+   `MigrationReplayBoot` by construction (0.12).
 7. `error_type :script_task_failed` and `:script_task_pin_unresolved` (open atom set, listed for visibility).
 8. Removal of `LuaScriptAudit.execute_script_for_audit/6` (C17).
+9. [CDV C4] **C10, supervisor-ratified 2026-10-15**: restricted opt-in (`restricted_inputs`,
+   `reads[].restricted_fields`) is refused for hook-1 bindings, narrowing 0053 open point 2's opt-in
+   until process variables can carry restrictions (letflow-2 records it in 0053). REVIEWER signs the
+   narrowing as consistent with D5.
+10. `cancel_instance` gains the `:script_task_dispatch_cancellations` step before
+    `:instance_projection` (lock order, 5.6).
 
 ## 18. Deferred
 
@@ -972,8 +1295,13 @@ T-writes-refused (AC10).
 * **R2** A kill-switch flip does not stop a run already executing (<= 5 s, 7b-2a).
 * **R3** If the database stalls past the 30 s lease, a slow-but-alive run becomes a `lease_expired`
   incident and its result is discarded by the CAS (safe direction: never a double apply).
-* **R4** One poller per node runs scripts sequentially (<= 16 per tenant per tick): throughput, not
-  safety; HTTP dispatch is unaffected.
+* **R4 (fairness guarantee, not a residual risk) [SEC S2]** One poller per node runs scripts
+  sequentially, round-robin across tenants, one row per tenant per pass, under `tick_budget_ms`
+  (5.1a). Guarantee: a tenant with a due row runs it after at most one row of every other tenant
+  with a due row in the same pass (<= `(n - 1) x 7 s`); no tenant's backlog can delay another by more
+  than one row per pass; a tick overruns its budget by at most one row. What remains is throughput:
+  with many busy tenants on one node, latency grows linearly with the number of busy tenants (more
+  nodes add pollers, `SKIP LOCKED` spreads rows). HTTP dispatch is unaffected.
 * **R5** An attempt whose instance is no longer active at apply leaves its trace only on the dispatch
   row (append refuses terminal instances).
 * **R6** Pre-existing: HTTP `SERVICE_TASK_COMPLETED` has no replay clause, so replay of an instance
