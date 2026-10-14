@@ -72,6 +72,12 @@ while a second admin is appearing. The safety property still holds (D6 amendment
 marked `self_published` and appears on the pending-review list as soon as the count is >= 2,
 because the list is derived at read time. Deactivation only lowers the count (a concurrent refusal
 is the safe direction).
+**Update (supervisor ruling for GH #2564, coordinator 2026-10-15):** the DEACTIVATION window
+closes when GH #2564 merges: user deactivation then revokes all of the user's tokens under
+`lock_tenant_admins!/1` and adds the 0051 N1 zero-tenant-wide-admin guard (write, count with
+`count_tenant_wide_admins/1`, roll back on 0), so it serialises on the same lock as publish,
+the solo gate (`solo_gate/3`) and confirm. Reactivation and pending-grant revoke stay residual
+until GH #2533. Nothing in 7b-2b depends on #2564.
 
 **Residual inherent to D6 [SEC F6]: the sock-puppet second admin.** A sole tenant-wide admin can
 add a second account they control (or that a colluder controls) as TENANT_ADMIN and use it to
@@ -143,9 +149,16 @@ Rule changes against the 7b-1 function (everything else unchanged):
    `NEW.sod_excluded IS NOT NULL AND NEW.contributors <@ NEW.sod_excluded AND NEW.publisher_id =
    ANY(NEW.sod_excluded)`;
    - if `NEW.self_published = false`: `NOT (NEW.publisher_id = ANY(NEW.contributors))` (7b-1 rule);
-   - if `NEW.self_published = true`: the policy row (`script_policy WHERE id = 1`, schema-qualified
-     with the migration's `prefix()`) has `sod = 'solo_audited'` AND
-     `platform_solo_audited_allowed`; else raise (S9). Publisher in contributors is then permitted.
+   - if `NEW.self_published = true`: the policy row (`script_policy WHERE id = 1` of the ROW'S OWN
+     schema, read with `EXECUTE format('... FROM %I.script_policy ...', TG_TABLE_SCHEMA)`) has
+     `sod = 'solo_audited'` AND `platform_solo_audited_allowed`; else raise (S9). Publisher in
+     contributors is then permitted. [Implementation deviation, accepted by SECURITY-REVIEWER F1 /
+     REVIEWER F1] The first revision schema-qualified the read with the migration-time
+     `prefix()`; that bound the function body to the schema the migration ran in, so a schema
+     cloned from the test template (and any copied or renamed tenant schema) read the TEMPLATE's
+     policy row (the first test run failed with "relation tenant_template_build_...script_policy
+     does not exist"). `TG_TABLE_SCHEMA` is always the schema of the row being updated; `%I`
+     quotes it and nothing user-controlled is interpolated.
 4. `OLD.status IN ('published','retired')`: `self_published` and `sod_excluded` unchanged always.
    A third allowed shape beside retire and revoke, **confirmation**: status unchanged; all of
    `OLD.confirmed_*` NULL and all `NEW.confirmed_*` NOT NULL; `OLD.self_published`;
@@ -153,6 +166,10 @@ Rule changes against the 7b-1 function (everything else unchanged):
    ANY(OLD.sod_excluded))`; nothing else but `updated_at` changes. Retire and revoke require
    `confirmed_*` unchanged.
 5. `OLD.status IN ('revoked','discarded')`: unchanged (every UPDATE refused).
+6. [SECURITY F2] The trigger also fires `BEFORE INSERT` (re-created as `BEFORE INSERT OR UPDATE OR
+   DELETE`; rollback re-creates the 7b-1 `BEFORE UPDATE OR DELETE`): a new row must have status
+   `draft`, `self_published = false` and NULL `sod_excluded` / `confirmed_*`, else `LF001`. Every
+   other state is reachable only through the UPDATE rules above.
 
 ## 4. Context `Letflow.Scripts.Policy` additions
 
@@ -399,7 +416,10 @@ values.
 * INV-5: confirm on an unknown, discarded or foreign version is the plain 404, decided before any
   sha or membership check.
 * INV-6: one new route group (`/sod`, `/pending-review`, confirm, platform solo flag); this section.
-* INV-7: no new raw SQL beyond the trigger body (schema from `prefix()` only) and the helper's own.
+* INV-7: no new raw SQL beyond the trigger body and the helper's own. The migration interpolates only
+  `prefix()` (DDL); inside the trigger body the policy row is read through
+  `format('%I', TG_TABLE_SCHEMA)` (the updated row's own schema, quoted), never a migration-time
+  schema name and never a user value (see 3.3 rule 3).
 * INV-8: every refusal a stable atom (6.6); a helper raise inside a transaction rolls back and maps
   to 500.
 * INV-10: the solo flag is platform-scope (`:TenantsManage`, platform tenant, verified platform

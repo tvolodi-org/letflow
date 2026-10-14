@@ -36,7 +36,8 @@ defmodule Letflow.Routers.ScriptPolicyTest do
   @designer ["PROCESS_DESIGNER"]
   @trace "platform-scope-test-trace-id"
 
-  @policy_keys ["kill_switch_on", "platform", "tenant"]
+  # GH 2534 7b-2b added the sod object (S8: no admin count).
+  @policy_keys ["kill_switch_on", "platform", "sod", "tenant"]
   @tenant_keys ["on", "reason", "set_at", "set_by"]
   @platform_keys ["on", "reason", "set_at"]
   @master_keys ["entity_type", "reason", "set_at", "set_by"]

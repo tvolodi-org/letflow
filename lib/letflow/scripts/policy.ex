@@ -13,6 +13,14 @@ defmodule Letflow.Scripts.Policy do
       definition, no type restriction, known fields, a restricted match field opted in), called
       at save, at publish (twice, the second under `FOR SHARE`) and by 7c at every run
       (section 8, normative for 7c; nothing here may be cached across runs).
+    * GH 2534 PR 7b-2b (decision 0053 D6 + amendment; design
+      `lib/letflow/design/gh2534-7b2b-script-sod.md` sections 1, 2, 4): the declared
+      `scripts.sod` (`strict | solo_audited`), the platform flag allowing `solo_audited`
+      (default forbidden), the COMPUTED effective value (`effective_sod/1`), the locked
+      solo-publish decision with auto-strict (`solo_gate/3`) and the derived pending-review
+      list. The admin count and admin set come ONLY from `Letflow.Identity`'s GH #2547
+      helpers, and `Identity.lock_tenant_admins!/1` is the first lock of every 7b-2b
+      transaction (never taken while holding the script-key lock or a row lock).
 
   Every write requires `credential: :oidc` (P4, the 7b ruling), else `:api_token_not_allowed`,
   checked first. Every state change is audited in the same transaction (section 7); a no-op
@@ -25,6 +33,7 @@ defmodule Letflow.Scripts.Policy do
 
   alias Letflow.Audit
   alias Letflow.Entities.Definitions
+  alias Letflow.Identity
   alias Letflow.Repo
   alias Letflow.Scripts.ReadableMaster
   alias Letflow.Scripts.ScriptPolicy
@@ -61,7 +70,17 @@ defmodule Letflow.Scripts.Policy do
           | :reads_not_allowed
           | :scripts_disabled
           | :policy_missing
+          | :not_tenant_wide_admin
+          | :solo_audited_forbidden
+          | :multiple_tenant_admins
           | :audit_failed
+
+  @type sod :: :strict | :solo_audited
+  @type sod_reason :: :declared_strict | :multiple_admins | :solo_allowed
+  @type solo_gate_result :: :solo_allowed | {:refused, :auto_strict} | {:refused, :strict}
+
+  @sod_values ["strict", "solo_audited"]
+  @pending_review_cap 500
 
   # ── reads (6.1) ────────────────────────────────────────────────────────────
 
@@ -489,7 +508,298 @@ defmodule Letflow.Scripts.Policy do
     end
   end
 
+  # ── separation of duties (7b-2b, design gh2534-7b2b-script-sod.md section 4) ──
+  #
+  # Binding lock order (design section 1): in every transaction below,
+  # `Identity.lock_tenant_admins!/1` is the FIRST lock; then the policy row `FOR UPDATE`; then
+  # the audit chain. `solo_gate/3` with `admin_lock_held: true` is the one exception that skips
+  # the call: it runs inside the publish transaction, which took the admin lock first and must
+  # never take it again while it holds the per-key lock or a row lock.
+
+  @doc """
+  The effective sod (S1): declared `strict` -> `{:strict, :declared_strict}`; declared
+  `solo_audited` with `count_tenant_wide_admins/1 >= 2` -> `{:strict, :multiple_admins}`;
+  otherwise `{:solo_audited, :solo_allowed}`. A missing row is `{:strict, :declared_strict}`.
+  Authoritative only inside a transaction holding `Identity.lock_tenant_admins!/1`;
+  elsewhere display-only (the count is read without the lock).
+  """
+  @spec effective_sod(String.t()) :: {sod(), sod_reason()}
+  def effective_sod(prefix), do: effective_sod(prefix, Repo.get(ScriptPolicy, 1, prefix: prefix))
+
+  @doc """
+  `effective_sod/1` for an already-read policy row (so a response's declared and effective
+  values describe the same row); `nil` (a missing row) is `{:strict, :declared_strict}`.
+  """
+  @spec effective_sod(String.t(), ScriptPolicy.t() | nil) :: {sod(), sod_reason()}
+  def effective_sod(prefix, %ScriptPolicy{sod: "solo_audited"}) do
+    if Identity.count_tenant_wide_admins(prefix) >= 2,
+      do: {:strict, :multiple_admins},
+      else: {:solo_audited, :solo_allowed}
+  end
+
+  def effective_sod(_prefix, _strict_or_missing), do: {:strict, :declared_strict}
+
+  @doc """
+  The locked solo-publish decision (design 4, 5 steps B and D). MUST run inside a transaction:
+  with nothing locked yet (step B; this function takes `Identity.lock_tenant_admins!/1`
+  first), or inside the publish transaction right after its row locks, with the admin lock
+  already held (`opts[:admin_lock_held] == true`; the call is then skipped). Then the policy
+  row `FOR UPDATE` and the recount:
+
+    * declared `strict` -> `{:refused, :strict}` (no write);
+    * declared `solo_audited` and count >= 2 -> AUTO-STRICT: `sod = 'strict'`, class
+      `system`, `sod_set_by` nil, reason `auto_strict`, audited `script_policy.sod_auto_strict`
+      (actor = the publishing user, `admin_count`, `opts[:key]`, `opts[:version]`);
+      `{:refused, :auto_strict}`: the CALLER commits;
+    * declared `solo_audited`, count <= 1 and `actor.user_id` in
+      `Identity.tenant_wide_admin_user_ids/1` -> `:solo_allowed`;
+    * otherwise `{:refused, :strict}` (no write).
+  """
+  @spec solo_gate(String.t(), tenant_actor(), keyword()) :: solo_gate_result()
+  def solo_gate(prefix, actor, opts) do
+    if Keyword.get(opts, :admin_lock_held, false) != true do
+      Identity.lock_tenant_admins!(prefix)
+    end
+
+    policy = lock_policy!(prefix)
+
+    if policy.sod == "solo_audited" do
+      count = Identity.count_tenant_wide_admins(prefix)
+
+      cond do
+        count >= 2 ->
+          auto_strict!(prefix, policy, actor, count, opts)
+          {:refused, :auto_strict}
+
+        actor.user_id in Identity.tenant_wide_admin_user_ids(prefix) ->
+          :solo_allowed
+
+        true ->
+          {:refused, :strict}
+      end
+    else
+      {:refused, :strict}
+    end
+  end
+
+  defp auto_strict!(prefix, policy, actor, count, opts) do
+    policy
+    |> ScriptPolicy.sod_changeset(%{
+      sod: "strict",
+      sod_set_by: nil,
+      sod_set_by_class: "system",
+      sod_set_at: now(),
+      sod_reason: "auto_strict"
+    })
+    |> Repo.update!(prefix: prefix)
+
+    audit!(prefix, %{
+      actor_id: actor.user_id,
+      action: "script_policy.sod_auto_strict",
+      resource_type: "script_policy",
+      resource_id: "1",
+      trace_id: Map.get(actor, :trace_id),
+      before_state: %{"sod" => "solo_audited"},
+      after_state: %{
+        "sod" => "strict",
+        "set_by_class" => "system",
+        "cause" => "tenant_wide_admin_count",
+        "admin_count" => count,
+        "key" => Keyword.get(opts, :key),
+        "version" => Keyword.get(opts, :version)
+      }
+    })
+  end
+
+  @doc """
+  The tenant's declared sod (design 4, S5). Order: OIDC credential, `sod` in
+  `["strict", "solo_audited"]` (`:invalid_state`), reason. Transaction:
+  `Identity.lock_tenant_admins!/1` FIRST, the row `FOR UPDATE`, an equal declared value is a
+  no-op (P9). To `solo_audited` only: the platform must allow it (`:solo_audited_forbidden`),
+  the caller must be a counted tenant-wide admin (`:not_tenant_wide_admin`) and the count
+  must be <= 1 (`:multiple_tenant_admins`). To `strict` no count or admin set is read.
+  Audited `script_policy.sod_set`.
+  """
+  @spec set_sod(String.t(), term(), term(), tenant_actor()) ::
+          {:ok, ScriptPolicy.t()} | {:error, error()}
+  def set_sod(prefix, sod, reason, actor) do
+    with :ok <- require_interactive(actor),
+         :ok <- sod_value(sod),
+         {:ok, reason} <- Validation.reason(reason) do
+      transaction(prefix, fn ->
+        Identity.lock_tenant_admins!(prefix)
+        policy = lock_policy!(prefix)
+
+        if policy.sod == sod do
+          policy
+        else
+          if sod == "solo_audited", do: solo_switch_allowed!(prefix, policy, actor)
+
+          updated =
+            policy
+            |> ScriptPolicy.sod_changeset(%{
+              sod: sod,
+              sod_set_by: actor.user_id,
+              sod_set_by_class: "tenant_admin",
+              sod_set_at: now(),
+              sod_reason: reason
+            })
+            |> Repo.update!(prefix: prefix)
+
+          audit!(prefix, %{
+            actor_id: actor.user_id,
+            action: "script_policy.sod_set",
+            resource_type: "script_policy",
+            resource_id: "1",
+            trace_id: Map.get(actor, :trace_id),
+            before_state: %{"sod" => policy.sod},
+            after_state: %{"sod" => sod, "reason" => reason}
+          })
+
+          updated
+        end
+      end)
+    end
+  end
+
+  # Runs under the admin lock and the policy row lock (set_sod/4).
+  defp solo_switch_allowed!(prefix, policy, actor) do
+    cond do
+      policy.platform_solo_audited_allowed != true ->
+        Repo.rollback(:solo_audited_forbidden)
+
+      actor.user_id not in Identity.tenant_wide_admin_user_ids(prefix) ->
+        Repo.rollback(:not_tenant_wide_admin)
+
+      Identity.count_tenant_wide_admins(prefix) >= 2 ->
+        Repo.rollback(:multiple_tenant_admins)
+
+      true ->
+        :ok
+    end
+  end
+
+  @doc """
+  The PLATFORM flag allowing `solo_audited` for the tenant whose schema is `prefix` (design 4,
+  S2, S3). Order: credential, boolean `allowed` (`:invalid_state`), reason, a binary
+  `operator.platform_prefix` (else `:audit_failed`, nothing written). Transaction:
+  `Identity.lock_tenant_admins!/1` FIRST, the row `FOR UPDATE`, a no-op returns the row; a
+  forbid (true -> false) with a declared `solo_audited` also resets `sod` to `strict` (class
+  `platform_operator`, `sod_set_by` nil, the operator's reason). Then a tenant-chain entry with a
+  nil actor and nil trace id, then a platform-chain entry carrying the operator id (9a8aa7ca).
+  """
+  @spec set_platform_solo_audited(String.t(), Ecto.UUID.t(), term(), term(), operator()) ::
+          {:ok, ScriptPolicy.t()} | {:error, error()}
+  def set_platform_solo_audited(prefix, tenant_id, allowed, reason, operator) do
+    with :ok <- require_interactive(operator),
+         :ok <- boolean(allowed),
+         {:ok, reason} <- Validation.reason(reason),
+         platform_prefix when is_binary(platform_prefix) <-
+           Map.get(operator, :platform_prefix) || {:error, :audit_failed} do
+      transaction(prefix, fn ->
+        Identity.lock_tenant_admins!(prefix)
+        policy = lock_policy!(prefix)
+
+        if policy.platform_solo_audited_allowed == allowed do
+          policy
+        else
+          now = now()
+
+          reset =
+            if allowed == false and policy.sod == "solo_audited",
+              do: %{
+                sod: "strict",
+                sod_set_by: nil,
+                sod_set_by_class: "platform_operator",
+                sod_set_at: now,
+                sod_reason: reason
+              },
+              else: %{}
+
+          updated =
+            policy
+            |> ScriptPolicy.platform_solo_changeset(
+              Map.merge(
+                %{
+                  platform_solo_audited_allowed: allowed,
+                  platform_solo_audited_set_at: now,
+                  platform_solo_audited_reason: reason
+                },
+                reset
+              )
+            )
+            |> Repo.update!(prefix: prefix)
+
+          # Tenant administrators read this chain: no operator id, no operator trace id.
+          audit!(prefix, %{
+            actor_id: nil,
+            action: "script_policy.platform_solo_audited_set",
+            resource_type: "script_policy",
+            resource_id: "1",
+            trace_id: nil,
+            before_state: %{
+              "platform_solo_audited_allowed" => policy.platform_solo_audited_allowed,
+              "sod" => policy.sod
+            },
+            after_state: %{
+              "platform_solo_audited_allowed" => allowed,
+              "reason" => reason,
+              "sod" => updated.sod,
+              "actor_class" => "platform_operator"
+            }
+          })
+
+          audit!(platform_prefix, %{
+            actor_id: operator.user_id,
+            action: "platform.tenant_script_solo_audited.set",
+            resource_type: "tenant",
+            resource_id: tenant_id,
+            trace_id: Map.get(operator, :trace_id),
+            before_state: nil,
+            after_state: %{
+              "tenant_id" => tenant_id,
+              "platform_solo_audited_allowed" => allowed,
+              "reason" => reason
+            }
+          })
+
+          updated
+        end
+      end)
+    end
+  end
+
+  @doc """
+  The pending-review list, DERIVED at read time (S7): self-published, unconfirmed versions in
+  status `published` or `retired`, ordered by `(key, version)`, at most 500 plus a truncation
+  flag; `{[], false}` while `count_tenant_wide_admins/1 < 2` (count read WITHOUT the lock,
+  advisory). No identity hook maintains it.
+  """
+  @spec pending_review(String.t()) :: {[ScriptRule.t()], boolean()}
+  def pending_review(prefix) do
+    if Identity.count_tenant_wide_admins(prefix) >= 2 do
+      rows =
+        Repo.all(
+          from(r in ScriptRule,
+            where:
+              r.self_published and is_nil(r.confirmed_at) and
+                r.status in ["published", "retired"],
+            order_by: [asc: r.key, asc: r.version],
+            limit: ^(@pending_review_cap + 1)
+          ),
+          prefix: prefix
+        )
+
+      {Enum.take(rows, @pending_review_cap), length(rows) > @pending_review_cap}
+    else
+      {[], false}
+    end
+  end
+
   # ── helpers ────────────────────────────────────────────────────────────────
+
+  defp sod_value(sod) when sod in @sod_values, do: :ok
+  defp sod_value(_sod), do: {:error, :invalid_state}
 
   defp require_interactive(%{credential: :oidc}), do: :ok
   defp require_interactive(_actor), do: {:error, :api_token_not_allowed}

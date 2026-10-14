@@ -11,6 +11,8 @@ defmodule Letflow.Routers.ScriptPolicy do
   | `GET /readable-masters` | `:ScriptPolicyRead` -> `:ScriptsWrite` |
   | `PUT /readable-masters/:entity_type` (`{reason}`) | `:ScriptPolicyManage` -> `:ScriptsPublish` |
   | `POST /readable-masters/:entity_type/clear` (`{reason}`) | `:ScriptPolicyManage` -> `:ScriptsPublish` |
+  | `PUT /sod` (`{sod, reason}`, 7b-2b) | `:ScriptPolicyManage` -> `:ScriptsPublish` |
+  | `GET /pending-review` (7b-2b) | `:ScriptPolicyRead` -> `:ScriptsWrite` |
 
   The route keys are distinct from the permissions on purpose (P3): 0051 D11 classifies the
   admin plane by route key; the two `:ScriptPolicyManage` writes are admin-plane, the reads
@@ -22,18 +24,24 @@ defmodule Letflow.Routers.ScriptPolicy do
   requires an OIDC credential (403 `api_token_not_allowed`, P4). Responses are built by the
   allowlist functions `policy_map/1`, `master_map/1` and the clear map (INV-2); bodies never
   echo submitted values.
+
+  7b-2b (`lib/letflow/design/gh2534-7b2b-script-sod.md` sections 6.1, 6.6, S8): `policy_map/2`
+  gains `sod` (declared, effective, effective reason, writer, platform_allowed); no response
+  ever carries the tenant-wide admin count or the admin set. `PUT /sod` maps 403
+  `not_tenant_wide_admin`, 409 `solo_audited_forbidden` / `multiple_tenant_admins`.
   """
 
   use Letflow.Api.AuthorizedRouter
 
   alias Letflow.Api.Response
+  alias Letflow.Routers.ScriptRules
   alias Letflow.Scripts.Policy
   alias Letflow.Scripts.ReadableMaster
   alias Letflow.Scripts.ScriptPolicy
 
   authz_get "/", :ScriptPolicyRead do
     case Policy.get(prefix(conn)) do
-      {:ok, policy} -> Response.ok(conn, policy_map(policy))
+      {:ok, policy} -> Response.ok(conn, policy_map(policy, prefix(conn)))
       # A missing policy row is a provisioning defect: never fabricated.
       {:error, :not_found} -> Response.internal_error(conn)
     end
@@ -48,8 +56,30 @@ defmodule Letflow.Routers.ScriptPolicy do
         conn.body_params["reason"],
         actor(conn)
       ),
-      &policy_map/1
+      &policy_map(&1, prefix(conn))
     )
+  end
+
+  authz_put "/sod", :ScriptPolicyManage do
+    reply(
+      conn,
+      Policy.set_sod(
+        prefix(conn),
+        conn.body_params["sod"],
+        conn.body_params["reason"],
+        actor(conn)
+      ),
+      &policy_map(&1, prefix(conn))
+    )
+  end
+
+  authz_get "/pending-review", :ScriptPolicyRead do
+    {rows, truncated} = Policy.pending_review(prefix(conn))
+
+    Response.ok(conn, %{
+      "items" => Enum.map(rows, &ScriptRules.summary_map/1),
+      "truncated" => truncated
+    })
   end
 
   authz_get "/readable-masters", :ScriptPolicyRead do
@@ -90,8 +120,14 @@ defmodule Letflow.Routers.ScriptPolicy do
   defp reply(conn, {:ok, value}, builder), do: Response.ok(conn, builder.(value))
   defp reply(conn, {:error, :not_found}, _builder), do: Response.not_found(conn)
 
-  defp reply(conn, {:error, :api_token_not_allowed}, _builder),
-    do: Response.forbidden(conn, "api_token_not_allowed")
+  defp reply(conn, {:error, code}, _builder)
+       when code in [:api_token_not_allowed, :not_tenant_wide_admin],
+       do: Response.forbidden(conn, Atom.to_string(code))
+
+  # 7b-2b: the switch to solo_audited refused by the platform flag or a second admin.
+  defp reply(conn, {:error, code}, _builder)
+       when code in [:solo_audited_forbidden, :multiple_tenant_admins],
+       do: Response.conflict(conn, Atom.to_string(code))
 
   # :policy_missing: the policy row is absent (provisioning defect), as GET: 500.
   defp reply(conn, {:error, code}, _builder) when code in [:audit_failed, :policy_missing],
@@ -111,8 +147,21 @@ defmodule Letflow.Routers.ScriptPolicy do
 
   # ── allowlist builders (INV-2) ─────────────────────────────────────────────
 
-  defp policy_map(%ScriptPolicy{} = policy) do
+  # S8: the effective value and its reason, never the admin count.
+  defp policy_map(%ScriptPolicy{} = policy, prefix) do
+    {effective, effective_reason} = Policy.effective_sod(prefix, policy)
+
     %{
+      "sod" => %{
+        "declared" => policy.sod,
+        "effective" => Atom.to_string(effective),
+        "effective_reason" => Atom.to_string(effective_reason),
+        "set_by" => policy.sod_set_by,
+        "set_by_class" => policy.sod_set_by_class,
+        "set_at" => policy.sod_set_at,
+        "reason" => policy.sod_reason,
+        "platform_allowed" => policy.platform_solo_audited_allowed
+      },
       "kill_switch_on" => ScriptPolicy.effective?(policy),
       "tenant" => %{
         "on" => policy.tenant_kill_switch,

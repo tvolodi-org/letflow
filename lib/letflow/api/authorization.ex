@@ -395,6 +395,7 @@ defmodule Letflow.Api.Authorization do
           | :ScriptRulesRead
           | :ScriptPolicyRead
           | :ScriptPolicyManage
+          | :ScriptRulesConfirm
           | :UnmatchedPlatformPath
           | :UnmatchedRoute
           | :Unknown
@@ -829,6 +830,10 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("GET", "/tenants/:slug/script-policy"), do: :TenantsManage
   def endpoint_policy_key("PUT", "/tenants/:slug/script-policy/kill-switch"), do: :TenantsManage
 
+  # GH 2534 PR 7b-2b (decision 0053 D6): the platform flag allowing the tenant's solo_audited
+  # separation-of-duties mode. Platform scope.
+  def endpoint_policy_key("PUT", "/tenants/:slug/script-policy/solo-audited"), do: :TenantsManage
+
   # REQ-382 / ISS-0993 -- authenticated write path onto the caller's OWN
   # tenant.settings (Letflow.Routers.TenantSettings), mounted at /tenant/settings
   # (no target-tenant parameter: the tenant patched is always the caller's own,
@@ -1101,13 +1106,25 @@ defmodule Letflow.Api.Authorization do
 
   def endpoint_policy_key("POST", "/script-rules/:key/dry-run"), do: :ScriptsWrite
 
+  # GH 2534 PR 7b-2b (decision 0053 D6): confirming a self-published version. A distinct key
+  # over :ScriptsPublish; 0051 (GH #2533) classifies it admin-plane.
+  def endpoint_policy_key("POST", "/script-rules/:key/versions/:version/confirm"),
+    do: :ScriptRulesConfirm
+
   # GH 2534 PR 7b-2a (decision 0053 D5, D7): the tenant's script policy
   # (Letflow.Routers.ScriptPolicy, mounted at /script-policy). Distinct route keys over
   # existing permissions (design P3): reads -> :ScriptsWrite, writes -> :ScriptsPublish. 0051
   # D11 (GH #2533) classifies the two :ScriptPolicyManage writes as admin-plane.
   def endpoint_policy_key("GET", path)
-      when path in ["/script-policy", "/script-policy/readable-masters"],
+      when path in [
+             "/script-policy",
+             "/script-policy/readable-masters",
+             "/script-policy/pending-review"
+           ],
       do: :ScriptPolicyRead
+
+  # GH 2534 PR 7b-2b (decision 0053 D6): the tenant's declared sod; admin-plane under 0051.
+  def endpoint_policy_key("PUT", "/script-policy/sod"), do: :ScriptPolicyManage
 
   def endpoint_policy_key("PUT", "/script-policy/kill-switch"), do: :ScriptPolicyManage
 
@@ -1349,6 +1366,8 @@ defmodule Letflow.Api.Authorization do
   # GH 2534 PR 7b-2a (design P3): script policy route keys over the script permissions.
   def required_permission(:ScriptPolicyRead), do: :ScriptsWrite
   def required_permission(:ScriptPolicyManage), do: :ScriptsPublish
+  # GH 2534 PR 7b-2b (decision 0053 D6): confirm a self-published version.
+  def required_permission(:ScriptRulesConfirm), do: :ScriptsPublish
   def required_permission(:MyModulesRead), do: :MyModulesRead
 
   # REQ-496 (design D11): same holders as the tree-write permission (0050 D7);

@@ -235,6 +235,103 @@ defmodule Letflow.Support.ScriptPolicyFixture do
     :ok
   end
 
+  # ── 7b-2b: tenant-wide admins through the real GH #2547 paths ───────────────
+
+  @doc "Seeds the platform role groups (TENANT_ADMIN's group among them) into `schema`."
+  @spec seed_roles!(String.t()) :: :ok
+  def seed_roles!(schema) do
+    {:ok, _roles} =
+      Letflow.Identity.RoleRegistry.seed_default_platform_role_groups(prefix: schema)
+
+    :ok
+  end
+
+  @doc "An active internal user of `schema` (no role)."
+  @spec user!(String.t()) :: Ecto.UUID.t()
+  def user!(schema) do
+    n = System.unique_integer([:positive])
+
+    %Letflow.Identity.User{}
+    |> Ecto.Changeset.change(%{
+      username: "gh2534-sod-#{n}",
+      display_name: "SoD #{n}",
+      email: "gh2534-sod-#{n}@example.com",
+      password_hash: "__NO_PASSWORD_SET__",
+      status: :active,
+      auth_source: :internal
+    })
+    |> Repo.insert!(prefix: schema)
+    |> Map.fetch!(:id)
+  end
+
+  @doc "Makes `user_id` a TENANT_ADMIN group member via `Identity.add_group_member/3` (audited, locked)."
+  @spec make_admin!(String.t(), Ecto.UUID.t()) :: Ecto.UUID.t()
+  def make_admin!(schema, user_id) do
+    group_id =
+      Repo.one!(
+        from(t in Letflow.Identity.TenantRole,
+          where: t.name == "TENANT_ADMIN" and t.kind == :platform_role,
+          select: t.group_id
+        ),
+        prefix: schema
+      )
+
+    {:ok, %{created: true}} =
+      Letflow.Identity.add_group_member(group_id, user_id, prefix: schema)
+
+    user_id
+  end
+
+  @doc "A fresh active user made a tenant-wide admin through the group path."
+  @spec admin!(String.t()) :: Ecto.UUID.t()
+  def admin!(schema), do: make_admin!(schema, user!(schema))
+
+  @doc "A fresh active user owning a TENANT_ADMIN API token (`Identity.create_token/3`)."
+  @spec token_admin!(String.t()) :: {Ecto.UUID.t(), Ecto.UUID.t()}
+  def token_admin!(schema) do
+    user_id = user!(schema)
+
+    {:ok, %{token: token}} =
+      Letflow.Identity.create_token(user_id, %{roles: ["TENANT_ADMIN"], expires_at: nil},
+        prefix: schema
+      )
+
+    {user_id, token.id}
+  end
+
+  @doc "An operator map whose platform chain is `platform_schema`."
+  @spec operator(String.t()) :: map()
+  def operator(platform_schema),
+    do: %{
+      user_id: Ecto.UUID.generate(),
+      credential: :oidc,
+      trace_id: "operator-trace",
+      platform_prefix: platform_schema
+    }
+
+  @doc "The platform allows solo_audited for the tenant (context call)."
+  @spec allow_solo!(String.t(), Ecto.UUID.t(), String.t()) :: :ok
+  def allow_solo!(schema, tenant_id, platform_schema \\ nil) do
+    {:ok, _policy} =
+      Policy.set_platform_solo_audited(
+        schema,
+        tenant_id,
+        true,
+        "allow",
+        operator(platform_schema || schema)
+      )
+
+    :ok
+  end
+
+  @doc "Allows solo mode and declares it, as `admin_id` (who must be the sole admin)."
+  @spec solo!(String.t(), Ecto.UUID.t(), Ecto.UUID.t()) :: :ok
+  def solo!(schema, tenant_id, admin_id) do
+    allow_solo!(schema, tenant_id)
+    {:ok, _policy} = Policy.set_sod(schema, "solo_audited", "sole admin", actor(admin_id))
+    :ok
+  end
+
   @doc "Every `script_policy.*` entry in `schema`'s chain."
   @spec policy_entries(String.t()) :: [Entry.t()]
   def policy_entries(schema) do

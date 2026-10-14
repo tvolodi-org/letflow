@@ -387,6 +387,8 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
             # GH 2534 7b-2a
             {"GET", "/tenants/:slug/script-policy"},
             {"PUT", "/tenants/:slug/script-policy/kill-switch"},
+            # GH 2534 7b-2b
+            {"PUT", "/tenants/:slug/script-policy/solo-audited"},
             {"POST", "/onboarding"},
             {"GET", "/onboarding/:id"},
             {"POST", "/onboarding/:id/bind-realm"},

@@ -270,9 +270,9 @@ defmodule Letflow.Routers.TenantAdminRoutesTest do
   end
 
   describe "AC2: every platform-scope route answers 403 to a TENANT_ADMIN" do
-    test "the inventory is the 26 platform routes (GH 2534 7b-2a added the two script-policy routes under /tenants) and spans exactly the five platform prefixes" do
+    test "the inventory is the 27 platform routes (GH 2534 7b-2a added two and 7b-2b one script-policy route under /tenants) and spans exactly the five platform prefixes" do
       routes = platform_routes()
-      assert length(routes) == 26
+      assert length(routes) == 27
 
       prefixes =
         routes
@@ -292,11 +292,11 @@ defmodule Letflow.Routers.TenantAdminRoutesTest do
                ])
     end
 
-    test "all 26 routes answer 403 (ordinary and platform tenant TENANT_ADMIN), no row changes",
+    test "all 27 routes answer 403 (ordinary and platform tenant TENANT_ADMIN), no row changes",
          ctx do
       before = state_snapshot()
       routes = platform_routes()
-      assert length(routes) == 26
+      assert length(routes) == 27
 
       for {fixture, label} <- [{ctx.a, "ordinary tenant"}, {ctx.p, "platform tenant"}],
           {router, method, local, full} <- routes do
