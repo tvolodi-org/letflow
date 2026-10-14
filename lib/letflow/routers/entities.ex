@@ -57,8 +57,8 @@ defmodule Letflow.Routers.Entities do
   | get_definition_by_name | `GET /entities/definitions/by-name/:name` | `Letflow.Entities.Definitions.get_definition_by_name/2` | `EntitiesDefinitionsRead` | 200 / 404 |
   | get_definition | `GET /entities/definitions/:id` | `Letflow.Entities.Definitions.get_definition/2` | `EntitiesDefinitionsRead` | 200 / 404 |
   | list_definitions | `GET /entities/definitions` | `Letflow.Entities.Definitions.list_definitions/2` | `EntitiesDefinitionsRead` | 200 / 400 |
-  | create_record | `POST /entities/records/:entity_type` | `Letflow.Entities.Records.create_record/2` | `EntitiesRecordsWrite` | 201 / 404 / 422 (422 also `idempotency_key_reuse`, GH #2543) |
-  | update_record | `PUT /entities/records/:entity_type/:record_id` | `Letflow.Entities.Records.update_record/2` | `EntitiesRecordsWrite` | 200 / 404 / 409 / 422 (422 also `idempotency_key_reuse`, GH #2543) |
+  | create_record | `POST /entities/records/:entity_type` | `Letflow.Entities.Records.create_record/2` | `EntitiesRecordsWrite` | 201 / 404 / 422 (422 also `idempotency_key_reuse`, GH #2543; `idempotency_key` over 199 bytes -> 422 `max_length`, not valid UTF-8 or containing NUL -> 422 `format`, GH #2550) |
+  | update_record | `PUT /entities/records/:entity_type/:record_id` | `Letflow.Entities.Records.update_record/2` | `EntitiesRecordsWrite` | 200 / 404 / 409 / 422 (422 also `idempotency_key_reuse`, GH #2543; `idempotency_key` over 199 bytes -> 422 `max_length`, not valid UTF-8 or containing NUL -> 422 `format`, GH #2550) |
   | delete_record | `DELETE /entities/records/:entity_type/:record_id` | `Letflow.Entities.Records.delete_record/2` | `EntitiesRecordsWrite` | 200 / 400 / 404 / 409 / 422 (a fresh key per request, so never `idempotency_key_reuse`) |
   | query | `POST /entities/query` | `Letflow.Entities.Query.Compiler.compile/2` then `Letflow.Entities.Query.Allowlist.load/2` then `Letflow.Entities.Query.Cursor.paginate/5` then a `Letflow.Entities.Query.FieldGrants` redaction step | `EntitiesQuery` | 200 / 400 / 404 / 422 |
   | query_aggregate | `POST /entities/query/aggregate` | a `Letflow.Entities.Query.FieldGrants.load_restrictions/3` field-restriction check then `Letflow.Entities.Query.Compiler.run_aggregate/2` | `EntitiesAggregate` | 200 / 400 / 403 / 404 / 422 |
@@ -256,6 +256,7 @@ defmodule Letflow.Routers.Entities do
   alias Letflow.Entities.Restrictions
   alias Letflow.Entities.TypeAccess
   alias Letflow.EventStore.Registry.ValidationFailure
+  alias Letflow.Idempotency
   alias Letflow.Repository.Artifact
   alias Letflow.Repository.EntityAttachment
   alias Letflow.Repository.EntityAttachments
@@ -973,11 +974,14 @@ defmodule Letflow.Routers.Entities do
   # create_record/2's create_attrs() is
   # %{entity_type, field_values, actor_id, idempotency_key} -- `entity_type`
   # comes from the PATH segment (never a body field), `actor_id` from
-  # conn.assigns.auth_context.user_id (INV-1), `idempotency_key` from the
-  # body when the caller supplies one (the caller's own replay token, bound
-  # to (command, entity_type, record_id, field_values, actor) -- GH #2543)
-  # and otherwise freshly minted so the delegate's
-  # required key is always present.
+  # conn.assigns.auth_context.user_id (INV-1), `idempotency_key` resolved by
+  # Letflow.Idempotency.from_body/3 (GH #2550): the caller's own replay token
+  # stored as `client:rec:<actor>:<K>` (bound to (command, entity_type,
+  # record_id, field_values, actor) -- GH #2543), refused with a 422
+  # `max_length` over 199 bytes and a 422 `format` when not valid UTF-8 or
+  # containing NUL (checked before any DB access), and otherwise freshly
+  # minted so the delegate's required key is always present. A supplied key may also resolve to a pre-#2550 original
+  # (Idempotency.legacy_original/3, one release, GH #2578).
 
   @record_write_schema [
     %FieldConstraint{name: "field_values", required: true, type: :object},
@@ -996,14 +1000,19 @@ defmodule Letflow.Routers.Entities do
   defp create_record_unmanaged(conn, entity_type) do
     prefix = prefix!(conn)
 
+    actor_id = conn.assigns.auth_context.user_id
+
     with {:ok, body} <- object_body(conn),
-         {:ok, attrs} <- validate_schema(@record_write_schema, body) do
-      command_attrs = %{
-        entity_type: entity_type,
-        field_values: Map.fetch!(attrs, "field_values"),
-        actor_id: conn.assigns.auth_context.user_id,
-        idempotency_key: idempotency_key(attrs)
-      }
+         {:ok, attrs} <- validate_schema(@record_write_schema, body),
+         {:ok, resolved} <- Idempotency.from_body(attrs, :rec, actor_id) do
+      command_attrs =
+        %{
+          entity_type: entity_type,
+          field_values: Map.fetch!(attrs, "field_values"),
+          actor_id: actor_id,
+          idempotency_key: resolved.key
+        }
+        |> put_legacy_original(resolved, actor_id, prefix)
 
       render_record_command(conn, Records.create_record(command_attrs, prefix), :created)
     else
@@ -1012,6 +1021,12 @@ defmodule Letflow.Routers.Entities do
 
       {:errors, field_errors} ->
         Response.send_problem(conn, Validation.problem(field_errors))
+
+      {:error, :idempotency_key_too_long} ->
+        Response.send_problem(conn, Validation.problem([Idempotency.too_long_error(:body)]))
+
+      {:error, :idempotency_key_invalid} ->
+        Response.send_problem(conn, Validation.problem([Idempotency.invalid_error(:body)]))
     end
   end
 
@@ -1052,17 +1067,22 @@ defmodule Letflow.Routers.Entities do
   defp update_record_unmanaged(conn, entity_type, raw_record_id) do
     prefix = prefix!(conn)
 
+    actor_id = conn.assigns.auth_context.user_id
+
     with {:ok, record_id} <- cast_record_id(raw_record_id),
          {:ok, body} <- object_body(conn),
-         {:ok, attrs} <- validate_schema(@record_update_schema, body) do
-      command_attrs = %{
-        entity_type: entity_type,
-        record_id: record_id,
-        field_values: Map.fetch!(attrs, "field_values"),
-        actor_id: conn.assigns.auth_context.user_id,
-        idempotency_key: idempotency_key(attrs),
-        expected_last_event_global_seq: Map.get(attrs, "expected_last_event_global_seq")
-      }
+         {:ok, attrs} <- validate_schema(@record_update_schema, body),
+         {:ok, resolved} <- Idempotency.from_body(attrs, :rec, actor_id) do
+      command_attrs =
+        %{
+          entity_type: entity_type,
+          record_id: record_id,
+          field_values: Map.fetch!(attrs, "field_values"),
+          actor_id: actor_id,
+          idempotency_key: resolved.key,
+          expected_last_event_global_seq: Map.get(attrs, "expected_last_event_global_seq")
+        }
+        |> put_legacy_original(resolved, actor_id, prefix)
 
       render_record_command(conn, Records.update_record(command_attrs, prefix), :ok)
     else
@@ -1076,6 +1096,22 @@ defmodule Letflow.Routers.Entities do
 
       {:errors, field_errors} ->
         Response.send_problem(conn, Validation.problem(field_errors))
+
+      {:error, :idempotency_key_too_long} ->
+        Response.send_problem(conn, Validation.problem([Idempotency.too_long_error(:body)]))
+
+      {:error, :idempotency_key_invalid} ->
+        Response.send_problem(conn, Validation.problem([Idempotency.invalid_error(:body)]))
+    end
+  end
+
+  # GH #2550 (design D3), removed by GH #2578: a supplied key that passes the
+  # no-I/O guard and names a same-actor pre-cutoff record event becomes
+  # Records' `legacy_original`, matched instead of appended.
+  defp put_legacy_original(command_attrs, resolved, actor_id, prefix) do
+    case Idempotency.legacy_original(resolved, actor_id, prefix: prefix) do
+      {:ok, event} -> Map.put(command_attrs, :legacy_original, event)
+      :none -> command_attrs
     end
   end
 
@@ -1145,13 +1181,6 @@ defmodule Letflow.Routers.Entities do
     case Ecto.UUID.cast(raw) do
       {:ok, record_id} -> {:ok, record_id}
       :error -> {:error, :invalid_record_id}
-    end
-  end
-
-  defp idempotency_key(attrs) do
-    case Map.get(attrs, "idempotency_key") do
-      key when is_binary(key) -> key
-      nil -> Ecto.UUID.generate()
     end
   end
 

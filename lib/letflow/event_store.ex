@@ -943,6 +943,54 @@ defmodule Letflow.EventStore do
   end
 
   @doc """
+  GH #2550 (design D3), removed by GH #2578: the one-release legacy lookup for
+  a pre-namespacing caller key. One query joining `event_idempotency` to
+  `events` on `(event_id, event_created_at)`, with every guard in the
+  `WHERE`: the event was written before `before`, by `actor_id`, with an
+  `event_type` in `event_types`. Selects only the columns a duplicate result
+  reads. Archived rows are not searched. The caller (`Letflow.Idempotency`)
+  has already excluded server and caller key families.
+  """
+  @spec get_legacy_original(
+          key :: String.t(),
+          actor_id :: Ecto.UUID.t(),
+          event_types :: [String.t()],
+          before :: DateTime.t(),
+          opts :: [prefix: String.t()]
+        ) :: {:ok, Event.t()} | {:error, :not_found}
+  def get_legacy_original(key, actor_id, event_types, %DateTime{} = before, opts)
+      when is_binary(key) and is_binary(actor_id) and is_list(event_types) and is_list(opts) do
+    prefix = Keyword.fetch!(opts, :prefix)
+
+    IdempotencyRecord
+    |> join(:inner, [i], e in Event,
+      on: e.event_id == i.event_id and e.created_at == i.event_created_at
+    )
+    |> where(
+      [i, e],
+      i.idempotency_key == ^key and e.created_at < ^before and e.actor_id == ^actor_id and
+        e.event_type in ^event_types
+    )
+    |> select(
+      [_i, e],
+      struct(e, [
+        :event_id,
+        :created_at,
+        :instance_id,
+        :event_type,
+        :actor_id,
+        :payload,
+        :global_seq
+      ])
+    )
+    |> Repo.one(prefix: prefix)
+    |> case do
+      %Event{} = event -> {:ok, event}
+      nil -> {:error, :not_found}
+    end
+  end
+
+  @doc """
   Convenience wrapper over `read/2` with `opts[:up_to_timestamp]` set to
   `timestamp` (design doc §4.5). `opts[:up_to_sequence]`, if also supplied,
   is not stripped -- `read/2`'s ordinary precedence rule (`up_to_sequence`

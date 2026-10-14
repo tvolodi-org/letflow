@@ -194,7 +194,11 @@ defmodule Letflow.Engine.Lua.Platform do
   function's entire call path is the fold-level `event:emit` capability gate.
   `execution_context` gains one new field for this, `actor_id` — host-authored only,
   exactly like `trace_id`/`script_identity` (REQ-159 §2.3), never taken from a script
-  argument.
+  argument. GH #2550: the script's key is stored namespaced as `script:<actor_id>:<key>`
+  (`Letflow.Idempotency.script_key/2`), so it can never claim a server or client key;
+  an empty, non-string or over-199-byte key, a key that is not valid UTF-8 or contains
+  a NUL byte, and an `actor_id` that is not a 36-byte uuid string are all
+  `invalid_arguments`, before any database access.
 
   Every numeric value any of these three functions moves across the Elixir/Lua boundary
   goes through `Letflow.Engine.LuaNumberMarshalling.from_lua/1` (write direction) or
@@ -272,6 +276,7 @@ defmodule Letflow.Engine.Lua.Platform do
   alias Letflow.Engine.LuaNumberMarshalling
   alias Letflow.EventStore
   alias Letflow.EventStore.InstanceProjection
+  alias Letflow.Idempotency
   alias Letflow.Repo
 
   require Logger
@@ -802,8 +807,26 @@ defmodule Letflow.Engine.Lua.Platform do
     encode_error(lua, "no_execution_context")
   end
 
-  defp do_emit_event([event_type, payload, idempotency_key | _rest], execution_context, lua)
-       when is_binary(event_type) and is_binary(idempotency_key) do
+  defp do_emit_event([event_type, payload, raw_key | _rest], execution_context, lua)
+       when is_binary(event_type) do
+    # GH #2550: the script's key is stored as `script:<actor>:<K>`, so a script
+    # cannot claim a server or client key; an empty, non-string, over-199-byte,
+    # invalid-UTF-8 or NUL-containing key, or a non-36-byte actor_id, is
+    # invalid_arguments, before any database access.
+    case Idempotency.script_key(raw_key, execution_context.actor_id) do
+      {:ok, idempotency_key} ->
+        append_emitted_event(event_type, payload, idempotency_key, execution_context, lua)
+
+      {:error, :idempotency_key_invalid} ->
+        encode_error(lua, "invalid_arguments")
+    end
+  end
+
+  defp do_emit_event(_args, _execution_context, lua) do
+    encode_error(lua, "invalid_arguments")
+  end
+
+  defp append_emitted_event(event_type, payload, idempotency_key, execution_context, lua) do
     decoded_payload =
       payload
       |> decode_lua_payload(lua)
@@ -823,10 +846,6 @@ defmodule Letflow.Engine.Lua.Platform do
       {:ok, _append_result} -> {[true], lua}
       {:error, reason} -> encode_error(lua, stringify_reason(reason))
     end
-  end
-
-  defp do_emit_event(_args, _execution_context, lua) do
-    encode_error(lua, "invalid_arguments")
   end
 
   # `payload` arrives as whatever the Lua call passed -- `nil`/a string/number are

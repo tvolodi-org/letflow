@@ -10,9 +10,9 @@ defmodule Letflow.Routers.Instances do
 
   | Handler     | Method/path                        | Delegate                                                              | Permission | Response |
   |-------------|-------------------------------------|-------------------------------------------------------------------------|------------|----------|
-  | rebind      | `POST /instances/:id/rebind-pins`  | `Letflow.Engine.PinRebind.rebind_pins/3`                                | none in REQ-078 (REQ-131) | 200, `{instance_id, changes, rebound_at}` |
-  | create      | `POST /instances`                  | `Letflow.Engine.create/2`                                               | `InstancesStart` | 201, `{instance_id, status, created_at}` |
-  | cancel      | `POST /instances/:id/cancel`       | `Letflow.Engine.cancel_instance/3`                                      | `InstancesCancel` | 200, `{instance_id, status}`; 409 if already `COMPLETED` or already `CANCELLED` |
+  | rebind      | `POST /instances/:id/rebind-pins`  | `Letflow.Engine.PinRebind.rebind_pins/3`                                | none in REQ-078 (REQ-131) | 200, `{instance_id, changes, rebound_at}`; 422 `max_length` if the `idempotency-key` header is over 162 bytes, 422 `format` if it is not valid UTF-8 or contains NUL (GH #2550) |
+  | create      | `POST /instances`                  | `Letflow.Engine.create/2`                                               | `InstancesStart` | 201, `{instance_id, status, created_at}`; 422 `max_length` if the `idempotency-key` header is over 199 bytes, 422 `format` if it is not valid UTF-8 or contains NUL (GH #2550) |
+  | cancel      | `POST /instances/:id/cancel`       | `Letflow.Engine.cancel_instance/3`                                      | `InstancesCancel` | 200, `{instance_id, status}`; 409 if already `COMPLETED` or already `CANCELLED`; 422 `max_length` if the `idempotency-key` header is over 162 bytes, 422 `format` if it is not valid UTF-8 or contains NUL (GH #2550) |
   | reconstruct | `POST /instances/:id/reconstruct`  | `Letflow.Engine.Reconstruction.reconstruct_instance/2` (`write_back: true`, not caller-controllable) | none (REQ-079 — same precedent as rebind, a future policy decision) | 200, `{instance_id, status, tokens: [{node_id, branch_id}], variables}` |
   | advance-timer | `POST /instances/:id/advance-timer` | `Letflow.Scheduler.resolve_advance_target/3` (new) then `Letflow.Scheduler.fire_timer/2` (existing, unchanged) | `InstancesAdvanceTimer` (ISS-0389 — a real permission, fully wired, not the rebind-pins/reconstruct ad-hoc pattern) | 200, `{instance_id, timer_id, node_id, timer_status}`; 400 ambiguous pending timers (`code: ambiguous_pending_timers`); 404 no matching pending timer |
 
@@ -81,9 +81,13 @@ defmodule Letflow.Routers.Instances do
   `grep -rn "Idempotency-Key\|idempotency_key" lib/letflow/api/ lib/letflow/routers/`
   returned zero hits before REQ-078.
 
-  **The convention: read the `idempotency-key` request header; if present and
-  non-empty, use it truncated to 255 bytes; otherwise generate
-  `Ecto.UUID.generate/0`.**
+  **The convention: read the `idempotency-key` request header through
+  `Letflow.Idempotency.from_header/4`; if present and non-empty, refuse it with
+  a 422 `format` if it is not valid UTF-8 or contains a NUL byte (checked first,
+  before any database access), a 422 `max_length` over 199 bytes (162 on
+  cancel/rebind), otherwise store it namespaced by route, actor and, for
+  cancel/rebind, instance (GH #2550); if absent or empty, generate
+  `Ecto.UUID.generate/0`.** A key is never truncated.
 
   This is the first HTTP-layer idempotency convention in this codebase.
   **REQ-079 and REQ-080 must adopt this same convention rather than inventing
@@ -318,15 +322,13 @@ defmodule Letflow.Routers.Instances do
   alias Letflow.Engine.PinRebind
   alias Letflow.Engine.PinResolver
   alias Letflow.Engine.Reconstruction
+  alias Letflow.Idempotency
   alias Letflow.Instances
   alias Letflow.Repository.Artifact
   alias Letflow.Repository.Attachment
   alias Letflow.Repository.Attachments
   alias Letflow.Repository.AttachmentLinks
   alias Letflow.Scheduler
-
-  @idempotency_key_header "idempotency-key"
-  @max_idempotency_key_bytes 255
 
   # PROVENANCE (historical, not current decision authority):
   # Letflow.Engine.PinResolver.kind() rendered as the three strings R-Co's
@@ -462,12 +464,14 @@ defmodule Letflow.Routers.Instances do
          {:ok, attrs} <- validate_body(body),
          {:ok, entries} <- normalise_entries(Map.get(attrs, "entries")),
          {:ok, opts} <- scoped_repo_opts(conn),
-         {:ok, actor_id} <- actor_id(conn) do
+         {:ok, actor_id} <- actor_id(conn),
+         {:ok, idempotency_key} <-
+           Idempotency.from_header(conn, :inst_rebind, actor_id, instance_id) do
       rebind_attrs = %{
         entries: entries,
         reason: Map.get(attrs, "reason"),
         actor_id: actor_id,
-        idempotency_key: idempotency_key(conn)
+        idempotency_key: idempotency_key
       }
 
       render_rebind(conn, PinRebind.rebind_pins(instance_id, rebind_attrs, opts))
@@ -486,6 +490,12 @@ defmodule Letflow.Routers.Instances do
 
       {:error, :missing_scope_or_actor} ->
         Response.internal_error(conn)
+
+      {:error, :idempotency_key_too_long} ->
+        idempotency_key_too_long(conn)
+
+      {:error, :idempotency_key_invalid} ->
+        idempotency_key_invalid(conn)
     end
   end
 
@@ -545,8 +555,9 @@ defmodule Letflow.Routers.Instances do
     actor_id = conn.assigns.auth_context.user_id
 
     with {:ok, body} <- object_body(conn),
-         {:ok, attrs} <- validate_schema(@create_schema, body) do
-      create_attrs = create_attrs(attrs, actor_id, idempotency_key(conn))
+         {:ok, attrs} <- validate_schema(@create_schema, body),
+         {:ok, idempotency_key} <- Idempotency.from_header(conn, :inst_start, actor_id, nil) do
+      create_attrs = create_attrs(attrs, actor_id, idempotency_key)
       render_create(conn, Engine.create(create_attrs, opts))
     else
       {:error, :malformed_json} ->
@@ -554,6 +565,12 @@ defmodule Letflow.Routers.Instances do
 
       {:errors, field_errors} ->
         Response.send_problem(conn, Validation.problem(field_errors))
+
+      {:error, :idempotency_key_too_long} ->
+        idempotency_key_too_long(conn)
+
+      {:error, :idempotency_key_invalid} ->
+        idempotency_key_invalid(conn)
     end
   end
 
@@ -633,13 +650,20 @@ defmodule Letflow.Routers.Instances do
     opts = conn.assigns.scoped_opts
     actor_id = conn.assigns.auth_context.user_id
 
-    case cast_instance_id(raw_id) do
-      {:ok, instance_id} ->
-        cancel_attrs = %{actor_id: actor_id, idempotency_key: idempotency_key(conn)}
-        render_cancel(conn, Engine.cancel_instance(instance_id, cancel_attrs, opts))
-
+    with {:ok, instance_id} <- cast_instance_id(raw_id),
+         {:ok, idempotency_key} <-
+           Idempotency.from_header(conn, :inst_cancel, actor_id, instance_id) do
+      cancel_attrs = %{actor_id: actor_id, idempotency_key: idempotency_key}
+      render_cancel(conn, Engine.cancel_instance(instance_id, cancel_attrs, opts))
+    else
       {:error, :invalid_instance_id} ->
         Response.unprocessable(conn, "instance_id is not a valid UUID")
+
+      {:error, :idempotency_key_too_long} ->
+        idempotency_key_too_long(conn)
+
+      {:error, :idempotency_key_invalid} ->
+        idempotency_key_invalid(conn)
     end
   end
 
@@ -1649,47 +1673,15 @@ defmodule Letflow.Routers.Instances do
     end
   end
 
-  # The convention REQ-079/080 must adopt -- see this module's moduledoc.
-  defp idempotency_key(conn) do
-    case get_req_header(conn, @idempotency_key_header) do
-      [value | _rest] when byte_size(value) > 0 -> truncate(value, @max_idempotency_key_bytes)
-      _absent_or_empty -> Ecto.UUID.generate()
-    end
-  end
+  # GH #2550: the stable 422 for an over-long `idempotency-key` header, with
+  # nothing written. Same problem body on start, cancel and rebind.
+  defp idempotency_key_too_long(conn),
+    do: Response.send_problem(conn, Validation.problem([Idempotency.too_long_error(:header)]))
 
-  # The bound stays in BYTES, because the column is `varchar(255)` and Postgres
-  # counts that in characters -- a byte bound can never admit a value the column
-  # would reject, while a grapheme bound would let a 255-grapheme multibyte key
-  # exceed it.
-  #
-  # Do NOT "simplify" this back to a bare `binary_part/3`. A header value is
-  # arbitrary caller-supplied bytes, so byte 255 can land inside a multibyte
-  # UTF-8 sequence and leave an invalid binary. Nothing downstream catches it:
-  # Ecto's `:string` cast does not reject invalid UTF-8, and
-  # `Letflow.EventStore.Event`'s `validate_length(:idempotency_key, max: 255)`
-  # counts graphemes. Postgres is the first thing to object, with
-  # `invalid byte sequence for encoding UTF8` -> `Postgrex.Error` -> a bare 500.
-  # `trim_to_codepoint_boundary/1` walks back at most 3 bytes to the last whole
-  # codepoint, so the result is both valid UTF-8 and still <= max_bytes.
-  defp truncate(value, max_bytes) when byte_size(value) <= max_bytes, do: value
-
-  defp truncate(value, max_bytes) do
-    value
-    |> binary_part(0, max_bytes)
-    |> trim_to_codepoint_boundary()
-  end
-
-  defp trim_to_codepoint_boundary(binary) when byte_size(binary) == 0, do: binary
-
-  defp trim_to_codepoint_boundary(binary) do
-    if String.valid?(binary) do
-      binary
-    else
-      binary
-      |> binary_part(0, byte_size(binary) - 1)
-      |> trim_to_codepoint_boundary()
-    end
-  end
+  # GH #2550: an `idempotency-key` header that is not valid UTF-8 or contains
+  # NUL -- a stable 422 instead of the Postgres error (a 500) it used to reach.
+  defp idempotency_key_invalid(conn),
+    do: Response.send_problem(conn, Validation.problem([Idempotency.invalid_error(:header)]))
 
   # ── Response allowlist (INV-2) ────────────────────────────────────────────
 

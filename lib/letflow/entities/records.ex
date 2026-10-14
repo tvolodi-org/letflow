@@ -157,7 +157,8 @@ defmodule Letflow.Entities.Records do
           required(:field_values) => Validator.field_values(),
           required(:actor_id) => Ecto.UUID.t(),
           required(:idempotency_key) => String.t(),
-          optional(:idempotency_match) => idempotency_match()
+          optional(:idempotency_match) => idempotency_match(),
+          optional(:legacy_original) => Event.t()
         }
 
   @typep request_fingerprint :: %{
@@ -181,7 +182,8 @@ defmodule Letflow.Entities.Records do
           required(:field_values) => Validator.field_values(),
           required(:actor_id) => Ecto.UUID.t(),
           required(:idempotency_key) => String.t(),
-          optional(:expected_last_event_global_seq) => expected_seq()
+          optional(:expected_last_event_global_seq) => expected_seq(),
+          optional(:legacy_original) => Event.t()
         }
 
   @type delete_attrs :: %{
@@ -227,6 +229,13 @@ defmodule Letflow.Entities.Records do
        (GH #2543). The internal-only `idempotency_match: :target` skips the
        `field_values` compare; any value other than `:request`/`:target`
        raises `ArgumentError`.
+
+  GH #2550 (one release, removed by GH #2578): an optional
+  `legacy_original` (also on `update_record/2`) is a pre-namespacing
+  original event the router resolved for the caller's key
+  (`Letflow.Idempotency.legacy_original/3`). It skips the append and is
+  matched like a store duplicate: the original as `is_duplicate: true`, or
+  `{:error, :idempotency_key_reuse}`.
   """
   @spec create_record(create_attrs(), prefix :: String.t()) ::
           {:ok, command_result()} | command_error()
@@ -376,22 +385,40 @@ defmodule Letflow.Entities.Records do
       event_attrs = build_event_attrs(ctx, attrs, synthetic_instance_id)
       fingerprint = request_fingerprint(ctx, attrs)
 
-      case EventStore.append_multi(Multi.new(), event_attrs, prefix: prefix) do
-        {:ok, multi} ->
-          multi
-          |> maybe_check_record_version(ctx)
-          |> Multi.run(:upsert_record_latest, fn repo, changes ->
-            upsert_record_latest(repo, changes, ctx)
-          end)
-          |> Multi.run(:dual_write_promoted_columns, fn repo, changes ->
-            dual_write_promoted_columns(repo, changes, ctx)
-          end)
-          |> Repo.transaction()
-          |> interpret_result(fingerprint, prefix)
-
-        {:error, _reason} = error ->
-          error
+      case Map.get(attrs, :legacy_original) do
+        %Event{} = original -> original_result(original, fingerprint, prefix)
+        nil -> append_command(ctx, event_attrs, fingerprint, prefix)
       end
+    end
+  end
+
+  # A duplicate's original, matched against this request (GH #2543). Also
+  # GH #2550's legacy hit (design D3, removed by GH #2578): a pre-namespacing
+  # caller key the router already resolved to its original event takes this
+  # path with no append.
+  defp original_result(original, fingerprint, prefix) do
+    case match_original(original, fingerprint, prefix) do
+      {:ok, resolved} -> {:ok, duplicate_result(resolved)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp append_command(ctx, event_attrs, fingerprint, prefix) do
+    case EventStore.append_multi(Multi.new(), event_attrs, prefix: prefix) do
+      {:ok, multi} ->
+        multi
+        |> maybe_check_record_version(ctx)
+        |> Multi.run(:upsert_record_latest, fn repo, changes ->
+          upsert_record_latest(repo, changes, ctx)
+        end)
+        |> Multi.run(:dual_write_promoted_columns, fn repo, changes ->
+          dual_write_promoted_columns(repo, changes, ctx)
+        end)
+        |> Repo.transaction()
+        |> interpret_result(fingerprint, prefix)
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -729,12 +756,8 @@ defmodule Letflow.Entities.Records do
           _changes},
          fingerprint,
          prefix
-       ) do
-    case match_original(original_event, fingerprint, prefix) do
-      {:ok, resolved} -> {:ok, duplicate_result(resolved)}
-      {:error, _reason} = error -> error
-    end
-  end
+       ),
+       do: original_result(original_event, fingerprint, prefix)
 
   defp interpret_result(
          {:error, :insert_event, %Ecto.Changeset{} = changeset, _changes},
@@ -762,6 +785,15 @@ defmodule Letflow.Entities.Records do
     update: "ENTITY_RECORD_UPDATED",
     delete: "ENTITY_RECORD_DELETED"
   }
+
+  @doc """
+  GH #2550 (design D3 guard (iii)), removed by GH #2578: the event types a
+  record create/update route can have written under a pre-namespacing caller
+  key -- the only ones `Letflow.Idempotency.legacy_original/3` may match.
+  """
+  @spec legacy_lookup_event_types() :: [String.t()]
+  def legacy_lookup_event_types,
+    do: [@command_event_types.create, @command_event_types.update]
 
   # Read at create_record/2's entry, before any lookup, so a bad internal
   # value raises on every path (same posture as expected_seq/1).
