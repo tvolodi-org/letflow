@@ -219,6 +219,21 @@ defmodule Letflow.TenantProvisioning do
   end
 
   @doc """
+  GH 2534 7b-2a: the schema of a tenant that IS provisioned (its `tenant_schemas` row), or
+  `{:error, :not_found}`. Unlike `schema_name_for_tenant/1`, which only derives the name, this
+  reads the registration, so an unprovisioned tenant is not found (route modules may not call
+  `Repo` themselves).
+  """
+  @spec registered_schema(tenant_id :: Ecto.UUID.t()) ::
+          {:ok, schema_name :: String.t()} | {:error, :not_found}
+  def registered_schema(tenant_id) do
+    case Repo.get_by(Registration, tenant_id: tenant_id) do
+      %Registration{schema_name: schema_name} -> {:ok, schema_name}
+      nil -> {:error, :not_found}
+    end
+  end
+
+  @doc """
   The reverse of `schema_name_for_tenant/1`: derives `tenant_id` back out of an
   already-resolved physical schema name. Pure, no I/O — deliberately does
   **not** confirm the tenant is actually provisioned (no `Registration`

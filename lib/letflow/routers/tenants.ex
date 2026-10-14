@@ -192,7 +192,6 @@ defmodule Letflow.Routers.Tenants do
   alias Letflow.Identity
   alias Letflow.Identity.Tenant
   alias Letflow.PlatformTenant
-  alias Letflow.Repo
   alias Letflow.Scripts
   alias Letflow.TenantOnboarding
   alias Letflow.TenantProvisioning
@@ -476,8 +475,7 @@ defmodule Letflow.Routers.Tenants do
   defp script_policy_target(conn, slug) do
     with :ok <- TenantTarget.authorize_target_tenant(conn, slug),
          {:ok, tenant} <- Identity.get_tenant_by_slug(slug),
-         %TenantProvisioning.Registration{schema_name: prefix} <-
-           Repo.get_by(TenantProvisioning.Registration, tenant_id: tenant.id) do
+         {:ok, prefix} <- TenantProvisioning.registered_schema(tenant.id) do
       {:ok, tenant, prefix}
     else
       _not_found_or_unprovisioned -> {:error, :not_found}
