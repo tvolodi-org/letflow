@@ -171,9 +171,10 @@ All five are read-only and paginated. `check` = label rules plus the `CLAIM` com
 ## 11. Cutover
 
 **Done 2026-10-14.** The flip PR set `cutover: true`, set `last_legacy_iss` to 1120, and
-deleted `letflow.check_queue_reconciliation` and its test. The queue service was stopped by
-infra after the supervisor's announcement and its database is kept for one week; no worker
-calls the queue. The text below is the plan as it was written, kept for the record.
+deleted `letflow.check_queue_reconciliation` and its test. The queue service was STOPPED
+(not deleted) by infra on 2026-10-14 at about 06:10Z and now answers 502; GitHub issues are the
+source. Only infra restarts it, and only if a rollback is ever needed; deletion is a separate
+approval after the one-week window. No worker calls the queue. The text below is the plan as it was written, kept for the record.
 
 Cutover was **not a calendar date and is not tied to the repository transfer**. It was the
 day the PR that flips `cutover: true` in `docs/status/work_board_cutover.yaml` merges,
