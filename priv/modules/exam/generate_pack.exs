@@ -51,6 +51,9 @@ top_level_keys = %{
   "constraints" => :constraints
 }
 
+# Mirrors Letflow.Definitions.SolutionPack's @field_keys, except the GH #2532
+# range keys (min/max/non_negative): deliberately not mirrored -- exam types
+# declare no bounds (lib/letflow/design/gh2532-field-min-max-non-negative.md §2.2).
 field_keys = %{
   "name" => :name,
   "type" => :type,

@@ -1,11 +1,13 @@
 defmodule Letflow.Entities.Definition.Validator do
   @moduledoc """
-  The 13 structural validation rules for an `Letflow.Entities.Definition.t()`
-  document (REQ-225, extended by REQ-301). See
+  The 14 structural validation rules for an `Letflow.Entities.Definition.t()`
+  document (REQ-225, extended by REQ-301 and GH #2532). See
   `lib/letflow/design/req225-entity-definition-schema-validation.md` §3 for
-  the full design rules 1-9 implement, and
+  the full design rules 1-9 implement,
   `lib/letflow/design/req301-localized-text-field-type.md` §2 for rules 10
-  and 11 (the `:locales`/`:search_strategy` shape rules REQ-301 adds).
+  and 11 (the `:locales`/`:search_strategy` shape rules REQ-301 adds), and
+  `lib/letflow/design/gh2532-field-min-max-non-negative.md` §3 for rule 12
+  (`:invalid_range`, the `min`/`max`/`non_negative` numeric-range keys).
 
   This module validates one document's own **internal** structural
   consistency only -- it takes no `tenant_id`, performs no persistence
@@ -18,10 +20,10 @@ defmodule Letflow.Entities.Definition.Validator do
   Basic shape/type checking (the document is a map with the required
   top-level keys; `fields` is a list of maps; each field's `type` is one of
   the 9 known atoms; every string-typed field is actually a string) is a
-  precondition every one of the 11 numbered rules assumes has already
+  precondition every one of the 12 numbered rules assumes has already
   passed. A document that fails this precondition is rejected with
   `{:error, [%Violation{rule: :malformed, ...}]}` -- `:malformed` is not one
-  of the 11 numbered rules and is checked first, short-circuiting before any
+  of the 12 numbered rules and is checked first, short-circuiting before any
   numbered rule runs.
   """
 
@@ -34,7 +36,7 @@ defmodule Letflow.Entities.Definition.Validator do
 
   @typedoc """
   One structural-validation failure. `rule` identifies exactly which of the
-  11 rules fired; `path` locates the offending element inside the
+  12 rules fired; `path` locates the offending element inside the
   definition document as a list of keys/indices-by-name; `message` is a
   human-readable detail string, never used by callers to distinguish which
   rule fired (that is `rule`'s job).
@@ -64,7 +66,7 @@ defmodule Letflow.Entities.Definition.Validator do
   @max_fk_or_constraints 32
 
   @doc """
-  Runs the malformed-shape precondition check followed by all 11 numbered
+  Runs the malformed-shape precondition check followed by all 12 numbered
   rules against `definition`, collecting **every** violation found (not
   short-circuiting on the first) except that a `:malformed` failure
   short-circuits before any numbered rule runs. Returns `:ok` only when zero
@@ -82,6 +84,7 @@ defmodule Letflow.Entities.Definition.Validator do
             fk_field_coverage_violations(definition) ++
             enum_violations(definition) ++
             decimal_violations(definition) ++
+            range_violations(definition) ++
             localized_text_violations(definition) ++
             search_strategy_violations(definition) ++
             cardinality_violations(definition)
@@ -502,6 +505,76 @@ defmodule Letflow.Entities.Definition.Validator do
       end
     end)
   end
+
+  # --- Rule 12 -- numeric range keys (:invalid_range, GH #2532) ---------------
+  #
+  # `min`/`max`/`non_negative` are optional and only legal on :integer and
+  # :decimal fields. Presence is `Map.has_key?/2` (a JSON null that reached
+  # here as `min: nil` is present and rejected). Every comparison runs only
+  # after its operands passed a number guard -- no arithmetic, no conversion,
+  # so a malformed value yields a violation, never a crash (INV-8). Messages
+  # are fixed strings and never echo the submitted value.
+
+  @spec range_violations(Definition.t()) :: [violation()]
+  defp range_violations(definition) do
+    definition
+    |> get_list(:fields)
+    |> Enum.flat_map(fn field ->
+      case range_violation_message(field) do
+        nil ->
+          []
+
+        message ->
+          [
+            %Violation{
+              rule: :invalid_range,
+              path: [:fields, Map.get(field, :name)],
+              message: message
+            }
+          ]
+      end
+    end)
+  end
+
+  defp range_violation_message(field) do
+    type = Map.get(field, :type)
+    has_min? = Map.has_key?(field, :min)
+    has_max? = Map.has_key?(field, :max)
+    has_non_negative? = Map.has_key?(field, :non_negative)
+    min = Map.get(field, :min)
+    max = Map.get(field, :max)
+    non_negative = Map.get(field, :non_negative)
+
+    cond do
+      (has_min? or has_max? or has_non_negative?) and type not in [:integer, :decimal] ->
+        "min, max and non_negative are only allowed on :integer and :decimal fields"
+
+      has_non_negative? and not is_boolean(non_negative) ->
+        "non_negative must be a boolean"
+
+      has_min? and not valid_bound?(type, min) ->
+        "min must be an integer for :integer fields and a number for :decimal fields"
+
+      has_max? and not valid_bound?(type, max) ->
+        "max must be an integer for :integer fields and a number for :decimal fields"
+
+      has_min? and has_max? and min > max ->
+        "min must not exceed max"
+
+      non_negative == true and has_min? and min < 0 ->
+        "min must not be negative when non_negative is true"
+
+      non_negative == true and has_max? and max < 0 ->
+        "max must not be negative when non_negative is true"
+
+      true ->
+        nil
+    end
+  end
+
+  @spec valid_bound?(:integer | :decimal, term()) :: boolean()
+  defp valid_bound?(:integer, bound), do: is_integer(bound)
+  defp valid_bound?(:decimal, bound), do: is_number(bound)
 
   # --- Rule 10 -- locale-set shape (:invalid_localized_text) -------------------
 

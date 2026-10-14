@@ -1092,7 +1092,13 @@ defmodule Letflow.Definitions.SolutionPack do
     "decimal_scale" => :decimal_scale,
     "default" => :default,
     "locales" => :locales,
-    "search_strategy" => :search_strategy
+    "search_strategy" => :search_strategy,
+    # GH #2532: numeric range keys on :integer/:decimal fields; the
+    # Validator (Rule 12, :invalid_range) judges their values, including a
+    # JSON null, which reaches it as `nil` and is rejected.
+    "min" => :min,
+    "max" => :max,
+    "non_negative" => :non_negative
   }
 
   @field_types %{
