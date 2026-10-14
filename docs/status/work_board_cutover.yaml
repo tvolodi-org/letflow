@@ -4,9 +4,9 @@
 # Cutover day is one line: change `cutover: false` to `cutover: true` and set
 # last_legacy_iss to the highest ISS-NNNN on main at that moment.
 
-cutover: false
+cutover: true
 # 1120: the highest docs/issues/ISS-*.yaml on the flip branch (ISS-1110..ISS-1120 landed in PR #2506).
-# The flip is DEFERRED (2026-10-14): PR #2512 set cutover: true and main went red (five hermetic
-# registration tests read this real file). The flip returns after the readers are made hermetic.
-# While false, no ISS-NNNN ceiling is enforced; last_legacy_iss is kept for the re-flip.
+# Flipped 2026-10-14 (decision 0049), re-flipped after PR #2517 made the readers hermetic (the
+# first flip, PR #2512, broke five registration tests that read this real file and was reverted).
+# Any ISS-NNNN above this number is refused.
 last_legacy_iss: 1120
