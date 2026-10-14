@@ -283,8 +283,9 @@ defmodule Letflow.Api.Error do
   HTTP 422 — Entity Type Is Append-Only (GH #2529).
 
   Returned when an entity record update or delete targets an entity type whose
-  current active definition declares `append_only: true`: records of that type
-  are facts and are never changed or removed. 422 rather than 409 (the SPA
+  current active definition declares `append_only: true` (a tenant policy that
+  activating a version without the flag lifts; it is not a tamper-proof lock --
+  that is `managed_by`, decision 0050 D7). 422 rather than 409 (the SPA
   reads 409 as an edit conflict) or 403 (reserved for module ownership). The
   body carries the constant `code` `"entity_append_only"` and a fixed detail.
   Takes no argument, so no entity type, record id or field value can reach the

@@ -28,7 +28,10 @@ defmodule Letflow.Entities.Definition do
   definition and before any record lookup; creating records is unaffected.
   A present non-boolean value (including `nil`) is `:malformed` at
   `[:append_only]`. The key is part of the logical shape, so adopting it is a
-  new version to activate.
+  new version to activate. It is a reversible tenant policy: activating a
+  version without it lifts it, and it applies to commands that start after
+  the activation. Ledgers that must be tamper-proof use `managed_by`
+  (decision 0050 D7).
   """
 
   @typedoc "Top-level entity definition document. See moduledoc for the tenant-scoping decision."

@@ -258,7 +258,8 @@ defmodule Letflow.Entities.Records do
   Deletes an entity record (design §5.2): appends one `ENTITY_RECORD_DELETED`
   event and marks the `entity_record_latest` row `deleted: true`,
   `field_values` retained unchanged at its last pre-delete value. Deleting an
-  already-deleted record is a **no-op success** returning the existing
+  already-deleted record is a **no-op success** (except on an append-only
+  type, below) returning the existing
   (already-deleted) row with `is_duplicate: false` -- deletion is naturally
   idempotent at the domain level, independent of the idempotency-key
   mechanism.

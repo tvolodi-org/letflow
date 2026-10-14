@@ -71,6 +71,12 @@ Line numbers below are this branch's HEAD (59c16a20).
 Types: `command_error` (records.ex:144-153) gains
 `| {:error, {:entity_append_only, entity_type :: String.t()}}`. Public signatures unchanged.
 
+Timing (SECURITY-REVIEWER note): the flag is read from the active definition before the
+command's transaction begins. It therefore applies to commands that START after the
+activation. An update already past `fetch_active_definition` when a flagged version is
+activated may still commit. This is a single-tenant race with no security impact; no
+in-transaction re-check is added.
+
 New private helper (shape only):
 ```elixir
 @spec ensure_mutable(EntityDefinition.t(), entity_type :: String.t()) ::
