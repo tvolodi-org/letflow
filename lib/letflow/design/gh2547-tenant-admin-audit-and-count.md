@@ -727,10 +727,12 @@ Protocol for every count-REDUCING path, inside the one transaction that performs
 3. **Then** the business rows the path already locks or writes (the group `KEY SHARE`/`FOR UPDATE`
    of §3.0, the `users` row in `update_locked_user/5`, the `api_tokens` row, the pending grant row).
 4. **Then** the audit chain lock (taken last by `insert_entry/3`).
-5. **Write first, then count, then decide:** perform the reduction (delete the membership, set the
+5. **Count, write, count again, then decide** (transition rule, supervisor ruling 2026-10-15): call
+   `count_tenant_wide_admins/1` BEFORE the write, then perform the reduction (delete the membership, set the
    user inactive, revoke the token, move or convert the binding), then call
-   `count_tenant_wide_admins/1` in the same transaction, and if it returns 0, `Repo.rollback` with the
-   zero-admin error. The guard does not predict the effect of a write; it measures the state the
+   `count_tenant_wide_admins/1` again in the same transaction. Roll back with the zero-admin error ONLY if
+   the count was > 0 before AND is 0 after. A tenant already at 0 is never blocked by a bare "== 0", except
+   that revoking the last open pending admin grant is refused while the count is 0 (see the note above). The guard does not predict the effect of a write; it measures the state the
    write produced, so every interaction (a member who also holds a token, a role on two paths) is
    counted by the one definition of §6.2.
 
@@ -747,6 +749,8 @@ under the lock before. Passive token expiry cannot be locked; N1 evaluates at ac
 The `@doc` of `count_tenant_wide_admins/1` states this protocol in short form: "`lock_tenant_admins!/1`
 first, then the TENANT_ADMIN role row by name, then the group row, then business rows, then the
 audit chain; write, then count, then roll back on 0". This resolves former OQ-2.
+
+**Note (supervisor ruling, 2026-10-15).** The guard rule is a TRANSITION: count before the write > 0 AND count after the write == 0, then roll back. It is not a bare "after == 0", so a tenant that already has zero tenant-wide admins is not blocked from repairing itself. Exception: revoking the LAST OPEN pending admin grant is refused while the count is 0, because that grant is the recovery path. The rule applies to #2564 (deactivation) and #2533 PR 1b (REQ-497 AC9-AC11) alike. Both write `tenant_admin.guard_refused` through #2564's `Identity.record_guard_refused/2`, whichever merges second.
 
 ### 6.5 "Used by" (AC3)
 
