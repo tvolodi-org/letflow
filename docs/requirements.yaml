@@ -36036,3 +36036,223 @@ requirements:
       - "9. the scope_node_paths migration applies and rolls back on a populated tenant schema, and the path text_pattern_ops and node_id indexes exist (\\d or pg_indexes assertion, test)"
       - "10. mix compile --warnings-as-errors, mix format --check-formatted, the scoped mix test over test/letflow/routers/entities*, test/letflow/routers/solution_packs*, test/letflow/entities, test/letflow/definitions, test/letflow/modules and the new scope_node_paths and consistency-check tests, and mix letflow.check_boundaries pass, real output quoted"
     depends_on: []
+  - id: REQ-497
+    title: "Core: org-scoped role grants stage 1 (decision 0051): role_scope_grants table, backfill to explicit tenant_wide rows and every binding writer (PR 1a); allowed?/3, AuthPipeline grants load, per-tenant flag off|shadow with flip preconditions, shadow counters, N1 last-admin guard and the flip-precondition token listing (PR 1b)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 2533
+    # Source: GH #2533 (filed by letflow-2, sole filer, 2026-10-14) incl. the binding "Stage-1 cut" section, plus supervisor rulings 2026-10-15 (M2 minting moved to GH #2552; N1 path list; one REQ shipped as two PRs 1a/1b). Id REQ-497 allocated by letflow-2 (sole allocator). Issue comments read 2026-10-14: one heartbeat (two-PR split, M2 to #2552, deactivation N1 to #2564), no further AC revision.
+    description: >
+      Source: GH #2533; decision 0051 Rollout steps 1-3, D1, D3, D4, D8, D12
+      and "Security review pass 2" N1-N4; 0050 D8 (scope_node_paths and the
+      org consistency check, delivered by GH #2530 / REQ-496). ONE requirement
+      shipped as TWO PRs: PR 1a (no behaviour change, mergeable alone) and
+      PR 1b (on top of 1a). Every AC below is labelled [1a] or [1b] so each PR
+      is verified on its own.
+
+      STAGE-1 CUT (supervisor, 2026-10-14, binding): the per-tenant flag
+      accepts ONLY `off` and `shadow`; `on` does not exist until stage 2. No
+      scoped (non-`tenant_wide`) grant row is created by any route in this
+      requirement. Shadow mode computes `allowed?` using `tenant_wide` rows
+      only, validates the plumbing and the T9 precondition query, and denies
+      nothing.
+
+      DEPENDENCY OUTSIDE REQ IDS: PR 1b depends on GH #2552 (letflow-3, API
+      token issuer, minting rules, effective status `owner_inactive`) being
+      MERGED. The M2 token minting rules (minter is a tenant-wide
+      TENANT_ADMIN, roles a subset, 422 `roles_invalid`, issuer) are REMOVED
+      from this requirement (supervisor ruling 2026-10-15) and delivered by
+      #2552. The `tenant_admin.guard_refused` event is letflow-2's 0051 D8
+      amendment in docs PR #2580 (OPEN at drafting time).
+
+      FACTS (read on main 4a911d40e; the line numbers quoted in the GH #2533
+      body are stale and are replaced here):
+      - Roles reach users only through groups: a `tenant_roles` row binds a
+        role name to a group (`kind` :platform_role | :process_routing_role);
+        `Identity.list_effective_role_names/2` (lib/letflow/identity.ex:961)
+        joins group_members and tenant_roles. Only :platform_role names are
+        the closed role set (role_registry.ex:116-122).
+      - Binding writers on main: `RoleRegistry.upsert_role/4`
+        (lib/letflow/identity/role_registry.ex:145; route POST /roles,
+        lib/letflow/routers/identity.ex:242, call at :947);
+        `RoleRegistry.rebind_role/4` (role_registry.ex:668; POST
+        /roles/:id/rebind, routers/identity.ex:246, writes `role.rebound`);
+        `Identity.add_group_member/3` (identity.ex:653; POST
+        /groups/:id/members, routers/identity.ex:209);
+        `Identity.remove_group_member/3` (identity.ex:887; DELETE
+        /groups/:id/members/:user_id, routers/identity.ex:217);
+        `Identity.delete_group/2` (identity.ex:751; DELETE /groups/:id,
+        routers/identity.ex:205; already refuses a group with members and a
+        memberless role-bound group, ISS-1032);
+        `Identity.sync_role_claims_from_token/3` (identity.ex:1146);
+        `RoleBackfill.run/0` (lib/letflow/identity/role_backfill.ex:136);
+        `TenantAdminMigration.run/1`
+        (lib/letflow/identity/tenant_admin_migration.ex:152, member insert
+        :375); `PendingAdminGrants.bind_on_login/5`
+        (lib/letflow/identity/pending_admin_grants.ex:385); new-tenant
+        provisioning and seeds via
+        `RoleRegistry.seed_default_platform_role_groups/1`
+        (role_registry.ex:220), called from lib/letflow/tenant_onboarding.ex:201
+        (used by lib/mix/tasks/letflow.seed.ex) and role_backfill.ex:161.
+      - GH #2547 (merged) helpers: `Identity.count_tenant_wide_admins/1`
+        (identity.ex:1001; active users in the TENANT_ADMIN group or owning a
+        live TENANT_ADMIN token) and `Identity.lock_tenant_admins!/1`
+        (identity.ex:1094, advisory xact lock). The private
+        `exclude_scoped_holders/2` (identity.ex:1060-1061) is the identity
+        today and is documented as the hook #2533 fills when scopes exist.
+        No last-admin guard exists anywhere on main (no `count_tenant_wide_admins`
+        caller outside identity.ex).
+      - Paths that already take `lock_tenant_admins!/1`: upsert_role
+        (role_registry.ex:469), role seeding (:296), rebind_role (:675),
+        add_group_member (identity.ex:685), remove_group_member (:906),
+        delete_group (:766), sync (:1173), create_token (:1931), revoke_token
+        (:2076), bind_on_login (pending_admin_grants.ex:539),
+        TenantAdminMigration (tenant_admin_migration.ex:311). NOT taking it: reactivation via
+        `Identity.update_user_status/3` (identity.ex:403; POST
+        /users/:id/status, routers/identity.ex:193) and pending-grant revoke
+        `PendingAdminGrants.revoke/3` (pending_admin_grants.ex:275; DELETE
+        /api/v1/onboarding/:id/pending-admins/:grant_id,
+        lib/letflow/routers/onboarding.ex:205).
+      - AuthPipeline (lib/letflow/plugs/auth_pipeline.ex): OIDC path reads
+        roles with one uncached `list_effective_role_names/2` call (:407);
+        API-token path uses `verify_api_token/2` (:243) with its documented
+        single-uncached-query shape (AC1 comment :391-393); tokens carry their
+        own roles (:161).
+      - #2530 delivered `Letflow.ScopeNodePaths` (lib/letflow/scope_node_paths.ex:
+        ancestors/2 :147, descendants_of/2 :170) and the org consistency check
+        `Letflow.ScopeNodePaths.Consistency.check/1`
+        (lib/letflow/scope_node_paths/consistency.ex:56), exposed at GET
+        /api/v1/tenant/scope-node-paths/consistency
+        (lib/letflow/routers/tenant_scope_node_paths.ex:25).
+      - Tenant migrations need the `if prefix() do` guard and an entry in
+        `TenantProvisioning`'s `@tenant_scoped_migration_manifest`
+        (lib/letflow/tenant_provisioning.ex:491). Existing backfill mix-task
+        precedents: lib/mix/tasks/letflow.backfill_platform_roles.ex,
+        lib/mix/tasks/letflow.migrate_tenant_admins.ex.
+      - Entity-definition create/activate callers (N4): routers/entities.ex:463
+        (create) and :774 (activate); lib/letflow/definitions/solution_pack.ex:1654
+        (packed create);
+        lib/letflow/modules/entity_activation.ex:105 (activate).
+
+      PR 1a (no behaviour change): tenant migration `role_scope_grants`
+      (principal_type user|group, principal_id, role, scope_node_id nullable,
+      tenant_wide; CHECK exactly one of tenant_wide=true with NULL node or
+      tenant_wide=false with node set; index (principal_type, principal_id,
+      role)); in the same migration transaction the backfill, ending with the
+      T9 assert (zero bindings without a row) that aborts the migration, and
+      audit `scope.backfill_completed` with counts; the T9 query as a reusable
+      function; the binding writers (incl. rebind_role, provisioning and
+      seeds) create/remove the group row in the SAME transaction as the
+      binding; a backfill mix task (plus a function callable from a release)
+      that is idempotent.
+
+      PRINCIPAL MODEL (ORCH decision 2026-10-15, after REQ-VALIDATOR r1):
+      "every existing user and group role binding" maps to the `tenant_roles`
+      rows with kind :platform_role (identity.ex:961, role_registry.ex:116-122).
+      There are no user bindings in the current schema. The backfill writes ONE
+      tenant_wide GROUP row per such binding and NO user rows. Membership
+      writers (add/remove_group_member, sync_role_claims_from_token,
+      TenantAdminMigration, bind_on_login) write no row, because the group row
+      already covers the role; their AC is that T9 stays 0 and no user row is
+      created. :process_routing_role bindings get no row. Binding writers that
+      DO write the group row: upsert_role (new binding or kind change to/from
+      :platform_role), rebind_role (row follows the binding to the new group),
+      seed_default_platform_role_groups (provisioning, seeds, RoleBackfill),
+      and the TENANT_ADMIN binding ensured by TenantAdminMigration.
+
+      COORDINATION WITH GH #2552: the PR 1b token listing reuses #2552's
+      `Identity.token_effective_status/3` and #2552's per-token map shape
+      {"id", "name", "user_id", "issuer_user_id", "roles", "status",
+      "created_at", "expires_at", "revoked_at", "last_used_at"}, where status
+      is one of revoked | expired | owner_inactive | active.
+
+      PR 1b: `Letflow.Api.Scope.allowed?/3` (resource scope `:tenant_wide |
+      {:node, id} | :unresolvable`, tagged result, tree only via
+      scope_node_paths, called after the unchanged `evaluate_access/2`); the
+      per-request grants load in the AuthPipeline step (request-local memo);
+      the per-tenant flag `off | shadow` in the DB with flip preconditions and
+      audit; shadow counters; the N1 last-admin guard on the paths below;
+      the flip-precondition token listing; `exclude_scoped_holders/2` filled
+      in; the route-walk tests.
+
+      N1 PATHS (supervisor ruling 2026-10-15, binding): (a) unbinding the last
+      admin via POST /roles kind change of the TENANT_ADMIN binding; (b)
+      removing it from the TENANT_ADMIN group, or deleting that group; (c)
+      `role.rebound` of the TENANT_ADMIN binding; (d) revoking a pending
+      admin grant (refused when it is the LAST OPEN pending admin grant while
+      count_tenant_wide_admins/1 is 0, under lock_tenant_admins!/1); (e)
+      reactivation (update_user_status) and pending-grant revoke take
+      `lock_tenant_admins!/1` as the first locking statement; (f) supervisor
+      ruling 2026-10-15: `Identity.revoke_token/2` (identity.ex:2047), inside
+      its existing lock_tenant_admins!/1 transaction (:2076), writes, then
+      counts, and refuses on 0, i.e. only when the token's owner is the last
+      counted tenant-wide admin (not when the owner also holds TENANT_ADMIN
+      through the TENANT_ADMIN group). The existing structural refusal of
+      deleting the bound TENANT_ADMIN group (delete_group/2, identity.ex:751,
+      lock at :766) stays as it is and writes NO guard_refused event (it is not
+      a count refusal). Every count refusal rolls back the change and then writes
+      `tenant_admin.guard_refused` in its OWN transaction with metadata
+      {action, actor, target id, reason code, counted_admins, trace_id}.
+      Deactivation incl. PATCH /users/:id is GH #2564 (letflow-3), NOT here.
+      "Scoping the last admin" is dropped: stage 1 creates no scoped grants.
+
+      FLIP-PRECONDITION TOKEN LISTING (ruling 2026-10-15): a read-only
+      listing that emits `token.listed` (N2: actor, count, token ids only)
+      and lists (i) tokens whose roles exceed their owner's current
+      tenant-wide roles, (ii) non-expiring PLATFORM_ADMIN tokens (GH #2579),
+      (iii) legacy tokens with a NULL issuer. Its output shape is coordinated
+      with #2552's list endpoint (issuer, effective status incl.
+      `owner_inactive`). Ruling (b), 2026-10-15: ONLY category (i) blocks
+      off->shadow; (ii) and (iii) are listed for information only.
+
+      OUT OF SCOPE (GH #2533 Out list, later stages): scope predicate in
+      Compiler.compile / compile_aggregate (D6); 404 equivalence (D7); F1 task
+      `scope_node`; D10 escalation; grant CRUD routes and D11 admin-plane
+      classification of every route; the flag value `on`; any scoped grant
+      creation -- all stage 2, GH #2535. Also out: M2 minting rules and the
+      token issuer (GH #2552); deactivation N1 incl. PATCH /users/:id (GH
+      #2564); the PLATFORM_ADMIN token cap/revoke act itself (GH #2579, only
+      LISTED here); `role.rebound` itself (GH #2524, already merged as #2537).
+      MOVED to GH #2535 (ORCH decision 2026-10-15; they cannot trigger with
+      the flag off|shadow and no scoped rows): the enforced-tenant writer
+      branch (no row plus typed error), N3 `binding.pending_scope`,
+      `grant.sync_suppressed`, and the refusal to delete the last scoped row
+      of a (principal, role). The fail-closed cases "binding with zero rows is
+      denied" and "unresolvable node is denied" stay here as allowed?/3 unit
+      tests (AC5).
+      The issue's Tokens AC 'a service-principal flag is an audited admin act'
+      is MOVED to GH #2535 (stage 2), added there by letflow-2.
+
+      BLAST RADIUS: backward compatible; flag defaults to `off` everywhere and
+      shadow denies nothing. The migration touches every tenant schema (one
+      row per binding; assert aborts on a gap). Behaviour change in 1b: the N1
+      guard refuses admin changes that were previously allowed.
+
+      GATES: SECURITY-REVIEWER required (INV-1, INV-2, INV-4, INV-5, INV-6,
+      INV-7, INV-8, INV-10); REVIEWER required. Merge order: 1a, then 1b
+      after GH #2552 is merged (and #2580 for the guard_refused D8 entry).
+    open_questions:
+      - "Which flip runs the Rollout 4 preconditions in stage 1: read here as off->shadow refused unless all three hold (T9 zero, org consistency check ok, no token above its owner's tenant-wide roles); shadow->off needs a reason. Audit event names for shadow transitions (scope.enforcement_enabled/disabled with mode metadata vs new names) are for the designer within 0051 D8."
+      - "N4 wording ('the route-walk test also covers every route calling Definitions.create or activate') does not name what the walk asserts for those routes. Read here: the stage-1 route-walk includes them and asserts they write no role_scope_grants row and cannot alter a managed name (0050 D7, #2530). Designer confirms."
+      - "Where the integrity-check endpoint from the Stage-1 cut (T9 bindings-without-row) lives and its permission atom: designer (proposal: tenant-wide TENANT_ADMIN or platform scope, read-only, beside the #2530 consistency endpoint). Placed in PR 1b."
+      - "PR 1b sizing: allowed?/3, flag, shadow, N1 (six paths incl. revoke_token) and the token listing is large for one agent turn; ORCH may split 1b further only with a new id from the sole allocator."
+    acceptance_criteria:
+      - "1. [1a] migration: on a tenant with N :platform_role tenant_roles bindings (plus :process_routing_role bindings and group members), after migrating there are exactly N tenant_wide GROUP rows, 0 user rows and 0 rows for :process_routing_role bindings (T9 query returns 0); deleting one row and re-running the assert aborts the migration; the CHECK rejects a both-set and a neither-set row; the (principal_type, principal_id, role) index exists (pg_indexes assertion); one `scope.backfill_completed` audit entry with the counts; the migration is registered in the tenant-scoped migration manifest and applies and rolls back on a populated tenant schema (tests)"
+      - "2. [1a] writers, one test per writer. Binding writers (upsert_role new binding and kind change to/from :platform_role, rebind_role, seed_default_platform_role_groups via new-tenant provisioning / TenantOnboarding and RoleBackfill.run, the TENANT_ADMIN binding ensured by TenantAdminMigration.run): the binding and its tenant_wide GROUP row are written in one transaction (a forced rollback leaves neither); unbinding or a kind change away from :platform_role removes the row; rebind moves it to the new group; a :process_routing_role binding gets no row. Membership writers (add_group_member, remove_group_member, sync_role_claims_from_token, the TenantAdminMigration member copy, PendingAdminGrants.bind_on_login): no user row is created. After every writer the T9 query returns 0"
+      - "3. [1a] backfill task: the mix task (and its release-callable function) on an already-backfilled tenant inserts nothing and reports 0 new rows; on a tenant with a binding missing its row it inserts exactly that row; running it twice gives the same row count (idempotency test)"
+      - "4. [1a] no behaviour change: no route, response body or authorization decision changes; the existing identity, onboarding, auth pipeline and authorization_enforcement tests pass unedited"
+      - "5. [1b] allowed?/3: a table-driven test of 0051 D1 (own group; tenant-wide within a principal wins; union across principals; a user row for a role not held through a group has no effect; a binding with zero rows is denied; `:unresolvable` is denied; `{:node, id}` resolved only through ScopeNodePaths), returning the tagged result and never raising on a missing node (scoped and user rows in this test are inserted directly by the fixture, no route creates them)"
+      - "6. [1b] AuthPipeline: the OIDC path loads the caller's grants in the same step as list_effective_role_names/2 and memoises them in auth_context for the request only (a second lookup in the same request issues no query); the API-token path's query count is unchanged (query-count test), or the AC is restated in the PR"
+      - "7. [1b] flag: stored in the DB and read per request (a change takes effect on the next request without restart); not settable through the entities or tenant_config API; accepts exactly `off` and `shadow`, any other value incl. `on` is rejected with a stable error; a flip by a scoped or non-TENANT_ADMIN caller is refused; off->shadow is refused server-side inside the flip transaction when each precondition fails (T9 non-zero; org consistency check not ok; a token whose roles exceed its owner's tenant-wide roles), one test per precondition; ONLY that token category blocks: a seeded non-expiring PLATFORM_ADMIN token alone, and a seeded NULL-issuer token alone, each do not block the flip (two tests); shadow->off without a reason is refused; both flips are audited in the same transaction (tests)"
+      - "8. [1b] shadow: computes allowed? from tenant_wide rows only, denies nothing (every request allowed under off is allowed under shadow), increments a would-deny counter for a principal holding a role without a row, and its log lines carry no record contents and no token values (captured-log assertion); every binding and membership writer of AC2 behaves identically with the flag in `off` and in `shadow` (tests)"
+      - "9. [1b] N1: one in-transaction check (lock_tenant_admins!/1, then count_tenant_wide_admins/1 after the write, roll back on 0) with a test per path: POST /roles kind change of the TENANT_ADMIN binding; removing the last admin from the TENANT_ADMIN group; POST /roles/:id/rebind of the TENANT_ADMIN binding; revoking the LAST OPEN pending admin grant while count_tenant_wide_admins/1 is 0 (under lock_tenant_admins!/1) is refused and writes tenant_admin.guard_refused, while the same revoke with another open grant or a counted admin present succeeds; each refused change leaves the admin set unchanged and returns one stable error code; a non-last admin's removal still succeeds. Deleting the bound TENANT_ADMIN group (delete_group/2) is still refused by the existing structural refusal under the lock and writes NO guard_refused entry (test)"
+      - "10. [1b] N1 revoke_token: inside its existing lock_tenant_admins!/1 transaction, Identity.revoke_token/2 writes, then calls count_tenant_wide_admins/1, and refuses on 0 with tenant_admin.guard_refused in its own transaction. Tests: revoking the live TENANT_ADMIN token of an owner who is the last counted tenant-wide admin only through that token is refused and the token stays live; revoking the same token when the owner also holds TENANT_ADMIN through the TENANT_ADMIN group succeeds"
+      - "11. [1b] guard audit: every N1 count refusal (AC9, AC10) writes exactly one `tenant_admin.guard_refused` entry, committed in its own transaction after the rollback, with metadata exactly {action, actor, target id, reason code, counted_admins, trace_id} (test per path asserts the row survives the rollback)"
+      - "12. [1b] lock: update_user_status (reactivation) and PendingAdminGrants.revoke/3 take lock_tenant_admins!/1 as their first locking statement (test: a concurrent holder of the lock blocks them until released)"
+      - "13. [1b] exclude_scoped_holders/2: a user whose only TENANT_ADMIN source is a scoped row (inserted directly) is not counted by count_tenant_wide_admins/1 or tenant_wide_admin_user_ids/1; with only tenant_wide rows the counts equal today's (tests)"
+      - "14. [1b] token listing: read-only; lists categories (i) roles exceeding the owner's current tenant-wide roles (the only flip-blocking category), (ii) non-expiring PLATFORM_ADMIN tokens and (iii) NULL-issuer tokens (both for information only), each seeded and found, a compliant token absent; reuses #2552's Identity.token_effective_status/3 and its per-token map keys exactly {id, name, user_id, issuer_user_id, roles, status, created_at, expires_at, revoked_at, last_used_at} with status in revoked|expired|owner_inactive|active; never returns a token value, hash or prefix; every call writes one `token.listed` entry whose payload is actor, count and token ids only (N2 assertion: no value, hash or prefix); a caller without the permission gets 403 (tests)"
+      - "15. [1b] route-walk: a test walks every route and fails if any creates, updates or deletes a non-tenant_wide role_scope_grants row; it also covers every route calling Entities.Definitions.create_definition or activate_definition (N4), and tenant_provisioning.ex is under the managed-name immutability rule of 0050 D7 (test)"
+      - "16. [1b] integrity check: the T9 bindings-without-row query is exposed read-only (endpoint per the designer), reports 0 on a clean tenant and the seeded gap otherwise, takes the tenant from auth only, and returns 403 without the permission (tests)"
+      - "17. [1a][1b] each PR: mix compile --warnings-as-errors, mix format --check-formatted, the scoped mix test over test/letflow/identity*, test/letflow/routers/identity*, test/letflow/routers/onboarding*, test/letflow/plugs, test/letflow/api and the new role_scope_grants tests, and mix letflow.check_boundaries pass, real output quoted"
+    depends_on: [REQ-496]

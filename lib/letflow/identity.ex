@@ -69,6 +69,7 @@ defmodule Letflow.Identity do
   alias Letflow.Identity.Group
   alias Letflow.Identity.GroupMember
   alias Letflow.Identity.OnboardingRecord
+  alias Letflow.Identity.RoleScopeGrants
   alias Letflow.Identity.Tenant
   alias Letflow.Identity.TenantMembership
   alias Letflow.Identity.TenantRole
@@ -764,7 +765,16 @@ defmodule Letflow.Identity do
     Repo.transaction(
       fn ->
         lock_tenant_admins!(prefix)
-        Repo.delete_all(query, prefix: prefix)
+
+        # REQ-497 W6: no grant row outlives its group principal.
+        case Repo.delete_all(query, prefix: prefix) do
+          {1, _} = deleted ->
+            _count = RoleScopeGrants.delete_group_principal_rows!(id, prefix)
+            deleted
+
+          not_deleted ->
+            not_deleted
+        end
       end,
       prefix: prefix
     )

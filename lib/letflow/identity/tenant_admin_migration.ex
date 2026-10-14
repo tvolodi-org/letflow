@@ -54,6 +54,7 @@ defmodule Letflow.Identity.TenantAdminMigration do
   alias Letflow.Identity.Group
   alias Letflow.Identity.GroupMember
   alias Letflow.Identity.RoleRegistry
+  alias Letflow.Identity.RoleScopeGrants
   alias Letflow.Identity.Tenant
   alias Letflow.Identity.TenantRole
   alias Letflow.PlatformTenant
@@ -343,7 +344,11 @@ defmodule Letflow.Identity.TenantAdminMigration do
 
   # An existing binding keeps its group_id: the copy targets that group, whatever
   # it is called.
-  defp ensure_binding(%TenantRole{group_id: group_id}, _schema), do: group_id
+  # REQ-497 W5 (b): repair-only, inserts a grant row only for a binding with none.
+  defp ensure_binding(%TenantRole{group_id: group_id} = ta, schema) do
+    :ok = RoleScopeGrants.reconcile_binding!(ta, ta, schema)
+    group_id
+  end
 
   # GH 2547 (design 3.7): a TENANT_ADMIN group that already has members makes this a
   # grant-relevant binding write, audited by upsert_role/4 in this same transaction.
@@ -387,8 +392,10 @@ defmodule Letflow.Identity.TenantAdminMigration do
 
   defp remove_legacy_binding(nil, _schema), do: :ok
 
-  defp remove_legacy_binding(%TenantRole{id: id}, schema) do
+  defp remove_legacy_binding(%TenantRole{id: id} = pa, schema) do
     Repo.delete_all(from(t in TenantRole, where: t.id == ^id), prefix: schema)
+    # REQ-497 W5 (c): the binding's grant rows go with it, before its audit entry.
+    :ok = RoleScopeGrants.reconcile_binding!(pa, nil, schema)
 
     audit!(schema, "role_binding.removed", "tenant_role", id, %{"name" => @legacy}, nil)
   end
