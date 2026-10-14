@@ -5,8 +5,8 @@ defmodule Letflow.Engine.Lua.ScriptRuntimeTest do
   (`Sandbox.new_script/1`, `ScriptHost`, `ScriptValue`, `ScriptRunner`) and
   `Letflow.Admission`'s opt-in caller monitoring.
 
-  `async: false`: tests count children of `Letflow.Engine.Lua.TaskSupervisor`, read the VM-wide
-  atom count and capture logs.
+  `async: false`: tests count children of `Letflow.Engine.Lua.TaskSupervisor`, hold
+  `Letflow.Admission` slots and capture logs.
   """
 
   use ExUnit.Case, async: false
@@ -474,13 +474,26 @@ defmodule Letflow.Engine.Lua.ScriptRuntimeTest do
       assert existing_atoms(keys) == []
     end
 
-    test "negative control: the no-atoms check catches a decode that atomizes keys" do
+    test "string values, nested keys and values, and list items create no atoms either" do
+      [k, v, nk, nv, li] = strings = fresh_keys(5)
+
+      assert {:ok, %{output: out}} =
+               run(~s(return {#{k} = "#{v}", n = {#{nk} = "#{nv}"}, l = {"#{li}"}}))
+
+      assert out == %{k => v, "n" => %{nk => nv}, "l" => [li]}
+      assert existing_atoms(strings) == []
+    end
+
+    test "negative control: the no-atoms check catches a decode that atomizes the real output" do
       keys = fresh_keys(3)
+      body = keys |> Enum.map(&"#{&1} = 1") |> Enum.join(", ")
+      assert {:ok, %{output: out}} = run("return {#{body}}")
       assert existing_atoms(keys) == []
 
-      # what an atomizing decoder would do to the output keys
-      Enum.each(keys, &String.to_atom/1)
+      # an atomizing decoder, applied to the decoded output of this run
+      atomized = Map.new(out, fn {key, value} -> {String.to_atom(key), value} end)
 
+      assert map_size(atomized) == 3
       assert existing_atoms(keys) == keys
     end
 
