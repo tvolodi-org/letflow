@@ -40,8 +40,10 @@ defmodule Letflow.Entities.Records do
 
   ONE `Ecto.Multi` is still composed and committed via exactly one
   `Repo.transaction/1` call per command: `Letflow.EventStore.append_multi/3`'s
-  own M1-M6 steps, followed by this module's own `:upsert_record_latest`
-  step (design §5.1 steps 4-5).
+  own M1-M6 steps, then -- only when the caller passed
+  `expected_last_event_global_seq` (GH #2528) -- `:check_record_version`,
+  then this module's own `:upsert_record_latest` step (design §5.1 steps
+  4-5), then `:dual_write_promoted_columns` (REQ-297).
 
   ## `entity_def_version`'s atom/string key round-trip (a real gap the design
   doc does not address -- flagged here, not silently patched)
