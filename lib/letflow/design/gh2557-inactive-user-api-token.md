@@ -13,7 +13,7 @@ Issue #2557. Gates: SECURITY-REVIEWER (INV-5, INV-6), REVIEWER. Cross-references
 | F3 | The issue's OIDC citation (`identity.ex:832-846`) is wrong: that is `list_effective_role_names/2`, with no status check. The real OIDC inactive check is `verify_local_account_state/2`: `provisioned.user.status == :inactive` gives `{:error, {:account, :inactive}}`, rendered as 403 "account is inactive". | `lib/letflow/plugs/auth_pipeline.ex:386-401`, `:192-193` |
 | F4 | The only "active" notion for a user is `users.status`, `Ecto.Enum [:active, :inactive]`. There is no `deactivated_at`, no locked flag and no membership-level status. | `lib/letflow/identity/user.ex:41` |
 | F5 | `users` and `api_tokens` are both tenant-scoped, in the same tenant schema (Decision 0006). `api_tokens.user_id` is `references(:users)`, `null: false`, with an index. | `lib/letflow/identity/api_token.ex:3-6`, `priv/repo/migrations/20260823000001_create_api_tokens_tenant_scoped.exs:11,29,41` |
-| F6 | Deactivation is `Identity.update_user_status/3`. It writes `users.status` under `FOR UPDATE` and audits `"user.update_status"`. It does not touch `api_tokens`. | `lib/letflow/identity.ex:384-390`, `:398-404` |
+| F6 | There are **two** deactivation paths. Both go through `update_locked_user/5` (`users` row `FOR UPDATE`), and neither touches `api_tokens`. (a) `POST /users/:id/status` calls `Identity.update_user_status/3` and audits `"user.update_status"`. (b) `PATCH /users/:id` calls `Identity.update_user_profile/3` and audits `"user.update_profile"`; `User.profile_changeset/2` casts `:status`. | (a) `routers/identity.ex:190`, `identity.ex:384-390`. (b) `routers/identity.ex:186`, `:437`, `identity.ex:356-361`, `identity/user.ex:124-128`. Shared: `identity.ex:398-404` |
 | F7 | Every `{:error, {:api_token, _}}` renders the same 401 `"unauthorized"` / `"invalid or expired bearer token"`. | `lib/letflow/plugs/auth_pipeline.ex:189-190`, `:234-241` |
 | F8 | `verify_api_token/2` has one production caller. | `auth_pipeline.ex:235` (grep `verify_api_token(` over `lib/`) |
 | F9 | Nothing on main counts active tenant admins. The only admin count is the migration report `tenant_admin_member_count_after`. | `lib/letflow/identity/tenant_admin_migration.ex:93,294,331` |
@@ -72,10 +72,18 @@ No new atom reaches the plug or the logs.
 * `from ApiToken as :token`;
 * `inner join User as :owner on owner.id == token.user_id`;
 * `where token.token_hash == ^token_hash`;
-* `select {token, ^active_user_condition(:owner)}`, where the dynamic is selected as a
-  boolean. If Ecto rejects a dynamic in `select`, select `owner.status` and decide with
-  `active_user?/1` semantics on the status atom. ELIXIR-DEV records which variant
-  compiled.
+* the select is applied with `select/3` as a **top-level interpolated map of dynamics**:
+  `select(base, [token: t], ^%{token: dynamic([token: t], t), owner_active: active_user_condition(:owner)})`.
+
+The result is `%{token: %ApiToken{}, owner_active: boolean()}`, or `nil` when no row
+matches. CODE-DESIGN-VALIDATOR planned this exact shape on Ecto 3.14.1 to one query:
+`%{token: a0, owner_active: u1.status == "active"}`.
+
+Do not use the other forms. A tuple or literal map that contains a nested `^dynamic`
+compiles but fails at plan time ("dynamic expressions can only be interpolated at the
+top level of ... select").
+
+`active_user_condition/1` stays the only definition of "active".
 
 The single prefix applies to both sources, so both tables are read from the same tenant
 schema (INV-1, INV-6). `token_hash` keeps its unique index, and `users.id` is the primary
@@ -97,24 +105,21 @@ Doc updates, prose only:
 * the moduledoc list of byte-identical 401s at `auth_pipeline.ex:67-72`: add "a token
   whose owner is inactive".
 
-**Timing (AC2 / INV-5):** the revoked-token path and the inactive-owner path both run
-exactly one SELECT, the same SQL text with the same join, and no write. Only the
-active+valid path adds the `last_used_at` UPDATE, and it already did so before this
-change. There is no extra or differing query.
+**Timing (AC2 / INV-5):** revoked and inactive-owner both run one identical SELECT and
+no write. Only active+valid adds the pre-existing `last_used_at` UPDATE.
 
 ## 4. Deactivate and reactivate: no token-state change (AC3 / AC4)
 
-Decision: **do not revoke** token rows when a user is deactivated. `update_user_status/3`
-(F6) is unchanged. It emits no `token.revoked` audit, so revoke and deactivate audit
-events stay exactly as they are (AC4).
+Decision: **do not revoke** token rows when a user is deactivated, on either path (F6).
+`update_user_status/3` and `update_user_profile/3` are both unchanged, and neither
+touches `api_tokens`. They emit only `user.update_status` and `user.update_profile`,
+never `token.revoked`, so audit events are unchanged (AC4).
 
-Inactivity is evaluated live on every request. Setting `status: :active` again makes the
-token authenticate again on the next request, unless it is revoked or expired. Its
-stored `roles` snapshot is still used (unchanged REQ-076 semantics, `api_token.ex:16-19`).
-
-Rationale: revoking on deactivate would be irreversible, would add audit events and
-would race with concurrent verifies. The live join gives the same security effect with
-none of these costs.
+Both paths write the same `users.status` column, which the live join in §3 reads on
+every request. Reactivating the user makes the token work again on the next request,
+unless it is revoked or expired. Its stored `roles` snapshot still applies
+(`api_token.ex:16-19`). Revoking on deactivate would be irreversible, would add audit
+events and would race with concurrent verifies; the live join avoids all three.
 
 ## 5. Other consumers of `api_tokens` / `verify_api_token`
 
@@ -126,6 +131,7 @@ none of these costs.
 | `TenantAdminMigration` `:261,:377,:546` | No. It is a one-time role rewrite. |
 | `tenant_onboarding.ex:45`, `audit/entry.ex:5`, `public_read/handle.ex:9`, `webhooks/subscription.ex:5,41`, `tasks.ex:119` | No. These are prose references only. |
 | Scripting / 7b (`lib/letflow/scripting`) | No. Grep finds no reference to `api_token` or `verify_api_token`. |
+| Signed attachment links (REQ-386, `lib/letflow/repository/attachment_links.ex`) and public-read handles (`lib/letflow/public_read/handle.ex`) | **Out of scope.** These are time-limited capabilities, not user credentials, and they are not authenticated through `verify_api_token/2`. |
 
 ## 6. AC to design to test
 
@@ -139,13 +145,16 @@ New `describe "GH-2557 ..."` blocks go in `test/letflow/api_token_auth_pipeline_
 |---|---|---|
 | AC1 | §3, inactive gives `:revoked` | "deactivated owner's TENANT_ADMIN token is refused 401 on GET /identity/tokens and GET /me/memberships" (positive control first: 200 on both while active) |
 | AC1 | §3, F7 | "inactive-owner rejection is byte-identical to a revoked token": status, `resp_body` and `resp_headers` are equal to a revoked token's response on the same route |
-| AC2 | §3 query shape | "verify_api_token: inactive owner and revoked token issue the same single SELECT and no UPDATE" (telemetry `[:letflow, :repo, :query]` handler counts queries per call: both 1) |
+| AC2 | §3 query shape | "verify_api_token: inactive owner and revoked token each issue exactly 1 query and no UPDATE on api_tokens". The `[:letflow, :repo, :query]` telemetry handler keeps only events from the test's own process (`self()` captured at attach). It asserts a count of exactly 1 per call for both cases, and that no captured query is an UPDATE of `api_tokens`. |
 | AC2 | §3 step 3 | "verify_api_token: inactive owner returns {:error, :revoked} and leaves last_used_at unchanged" |
+| AC2 | §3 order | "verify_api_token: inactive owner with an expired token returns {:error, :revoked}" (step 3 comes before step 4) |
+| AC1/AC2 | §3 select shape | The §3 select shape is proven at runtime by the request-path tests in this table, which execute the real query. No separate compile probe. |
 | AC3 | §4 | "reactivating the owner makes the same token authenticate again (200)" |
 | AC3 | §3 order | "reactivated owner with a revoked token stays 401 / with an expired token stays 401" |
 | AC3 | unchanged | existing REQ-076 revoked/expired tests in both files stay green, unmodified |
-| AC4 | §4 | "deactivate emits only user.update_status; token row's revoked_at stays nil; no token.revoked audit" |
-| AC5 | §2 | "active_user?/1 truth table" and "active_user_condition/1 filters an inactive member out of a GroupMember-User join" |
+| AC4 | §4, F6(a) | "deactivate via POST /users/:id/status: only user.update_status audit; token revoked_at stays nil; no token.revoked; token gets the revoked-token 401" |
+| AC4 | §4, F6(b) | "deactivate via PATCH /users/:id status=inactive: token gets the same 401 as a revoked token; the only audit row is user.update_profile; no token.revoked; revoked_at stays nil" |
+| AC5 | §2 | This PR tests the **contract only**: "active_user?/1 truth table" and "active_user_condition/1 filters an inactive member out of a GroupMember-User join". The test that the admin count excludes inactive users lives in #2547's PR (letflow-9c), which owns `count_tenant_wide_admins/1`. |
 
 ## 7. Security invariants
 
@@ -173,8 +182,10 @@ grep `status: :inactive` near `create_token`).
   issue's `identity.ex:832-846` was re-derived to the real check at
   `auth_pipeline.ex:386-401` (F3).
 * "A gate-approved design fixing a shared write function missed a sibling write path
-  constructing the same state independently": the sibling paths are enumerated in §5.
-  The verifier has exactly one caller (F8).
+  constructing the same state independently":
+  - the verifier has exactly one caller (F8), and the other consumers are listed in §5;
+  - both writers of `users.status` (F6 a and b) are covered by the live join;
+  - each writer has its own test in §6.
 * "Duplicating an `Ecto.Query.fragment/1` SQL literal instead of sharing it": not
   applicable. No fragment is used, and the active condition is defined once (§2).
 
