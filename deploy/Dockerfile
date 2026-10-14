@@ -54,6 +54,16 @@ COPY --from=builder --chown=letflow:letflow /app/_build/prod/rel/letflow ./
 
 USER letflow
 
+# ISS-1043: the git commit this image was built from, reported by the public
+# GET /health as `sha` (config/runtime.exs -> Letflow.BuildInfo). Passed by
+# deploy/redeploy-*.sh as --build-arg GIT_SHA="$(git rev-parse HEAD)". Declared
+# here in the runtime stage, after the apt/locale/user layers and the release
+# COPY, because an ARG's value is part of the cache key of every RUN after it:
+# placed earlier, each new commit would bust the cached apt-get layers. Empty
+# when not passed; config/runtime.exs then reports null.
+ARG GIT_SHA=
+ENV LETFLOW_BUILD_SHA=${GIT_SHA}
+
 # RELEASE_NAME is exported automatically by the generated bin/letflow boot
 # script (standard Mix.Release behavior) — this is what
 # Letflow.Application.skip_migrations?/0 checks to run Ecto.Migrator only

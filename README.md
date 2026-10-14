@@ -178,7 +178,7 @@ ecto.reset`); safe to re-run.
 
 ```
 curl -s localhost:4000/health
-# {"status": "ok"}
+# {"sha": null, "status": "ok"}   (sha = the git commit baked into a Docker image, GH #2384)
 ```
 
 This is the only working HTTP endpoint today — see "What's here today"

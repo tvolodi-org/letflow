@@ -7,7 +7,7 @@ defmodule Letflow.Router do
 
   | Method | Path                | Handler                            | Auth      | DB        |
   |--------|---------------------|------------------------------------|-----------|-----------|
-  | GET    | /health             | inline 200 `{"status":"ok"}`       | none      | none      |
+  | GET    | /health             | inline 200 `{"status":"ok","sha":…}` | none    | none      |
   | GET    | /api/tenant-config  | `Letflow.Routers.TenantConfig`     | **none**  | global `tenants` |
   | GET    | /api/mobile/tenant-config | `Letflow.Routers.MobileTenantConfig` | **none** | global `tenants` |
   | GET    | /metrics            | `Letflow.Routers.MetricsExposition`| **none**  | none (ETS only)  |
@@ -17,8 +17,10 @@ defmodule Letflow.Router do
   | *      | _                   | `Letflow.Api.Response.not_found/1` | none      | none      |
 
   `GET /health` is handled before the `/api/v1` forward so it never enters the
-  tenant-scoped middleware pipeline. Contract preserved exactly for
-  `deploy/redeploy-test.sh`'s post-deploy health check.
+  tenant-scoped middleware pipeline. `status: "ok"` is preserved exactly for
+  `deploy/redeploy-test.sh`'s post-deploy health check (it reads `.status` only).
+  ISS-1043 added one more key, `sha`: the build's git commit from
+  `Letflow.BuildInfo.sha/0`, or `null` -- nothing else is reported.
 
   PROVENANCE (historical, not current decision authority):
   `GET /api/tenant-config` (REQ-078) is forwarded here, **not** from
@@ -103,8 +105,11 @@ defmodule Letflow.Router do
   # (re-triggered: the prior marker commit's own CI failed on the unrelated
   # ISS-0718 vocabulary bug, now fixed, so it never reached a real deploy
   # attempt -- this commit gives CI/CD a fresh backend-path diff to react to)
+  # ISS-1043: `sha` is the git commit the release was built from (or null when
+  # the image was built without GIT_SHA). Still no auth, no DB; `status` stays
+  # exactly "ok" for deploy/redeploy-*.sh. See Letflow.BuildInfo.
   get "/health" do
-    Letflow.Api.Response.send_json(conn, 200, %{status: "ok"})
+    Letflow.Api.Response.send_json(conn, 200, %{status: "ok", sha: Letflow.BuildInfo.sha()})
   end
 
   # Public by design (REQ-078) -- declared BEFORE the /api/v1 forward so it
