@@ -169,8 +169,10 @@ New `describe "GH-2557 ..."` blocks go in `test/letflow/api_token_auth_pipeline_
 ## 8. Blast radius
 
 Changed: `lib/letflow/identity.ex` (`verify_api_token/2`, plus two new public functions)
-and doc prose in `auth_pipeline.ex`. No migration, no schema change, no route change and
-no OIDC change.
+and `auth_pipeline.ex`. No migration, no schema change and no route change. Added after
+REVIEWER: OIDC's `verify_local_account_state/2` now calls `Identity.active_user?/1`
+instead of matching on `:inactive`, so both paths share one definition. The OIDC response
+(403 "account is inactive") is unchanged.
 
 Behaviour change: a token owned by an inactive user now gets 401. This is intended and
 can break any test fixture that issues tokens for `status: :inactive` users (TEST-RUNNER:
