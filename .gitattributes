@@ -44,3 +44,6 @@ handoffs/orchestrator.log merge=union
 # Shell scripts must stay LF or bash fails on CRLF checkouts (scripts/uat_preflight.sh).
 scripts/*.sh text eol=lf
 scripts/lib/*.sh text eol=lf
+# The QA redeploy script and its sourced helper run on the Linux host (GH 2352).
+deploy/*.sh text eol=lf
+deploy/lib/*.sh text eol=lf
