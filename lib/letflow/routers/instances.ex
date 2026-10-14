@@ -10,9 +10,9 @@ defmodule Letflow.Routers.Instances do
 
   | Handler     | Method/path                        | Delegate                                                              | Permission | Response |
   |-------------|-------------------------------------|-------------------------------------------------------------------------|------------|----------|
-  | rebind      | `POST /instances/:id/rebind-pins`  | `Letflow.Engine.PinRebind.rebind_pins/3`                                | none in REQ-078 (REQ-131) | 200, `{instance_id, changes, rebound_at}` |
-  | create      | `POST /instances`                  | `Letflow.Engine.create/2`                                               | `InstancesStart` | 201, `{instance_id, status, created_at}` |
-  | cancel      | `POST /instances/:id/cancel`       | `Letflow.Engine.cancel_instance/3`                                      | `InstancesCancel` | 200, `{instance_id, status}`; 409 if already `COMPLETED` or already `CANCELLED` |
+  | rebind      | `POST /instances/:id/rebind-pins`  | `Letflow.Engine.PinRebind.rebind_pins/3`                                | none in REQ-078 (REQ-131) | 200, `{instance_id, changes, rebound_at}`; 422 `max_length` if the `idempotency-key` header is over 162 bytes, 422 `format` if it is not valid UTF-8 or contains NUL (GH #2550) |
+  | create      | `POST /instances`                  | `Letflow.Engine.create/2`                                               | `InstancesStart` | 201, `{instance_id, status, created_at}`; 422 `max_length` if the `idempotency-key` header is over 199 bytes, 422 `format` if it is not valid UTF-8 or contains NUL (GH #2550) |
+  | cancel      | `POST /instances/:id/cancel`       | `Letflow.Engine.cancel_instance/3`                                      | `InstancesCancel` | 200, `{instance_id, status}`; 409 if already `COMPLETED` or already `CANCELLED`; 422 `max_length` if the `idempotency-key` header is over 162 bytes, 422 `format` if it is not valid UTF-8 or contains NUL (GH #2550) |
   | reconstruct | `POST /instances/:id/reconstruct`  | `Letflow.Engine.Reconstruction.reconstruct_instance/2` (`write_back: true`, not caller-controllable) | none (REQ-079 — same precedent as rebind, a future policy decision) | 200, `{instance_id, status, tokens: [{node_id, branch_id}], variables}` |
   | advance-timer | `POST /instances/:id/advance-timer` | `Letflow.Scheduler.resolve_advance_target/3` (new) then `Letflow.Scheduler.fire_timer/2` (existing, unchanged) | `InstancesAdvanceTimer` (ISS-0389 — a real permission, fully wired, not the rebind-pins/reconstruct ad-hoc pattern) | 200, `{instance_id, timer_id, node_id, timer_status}`; 400 ambiguous pending timers (`code: ambiguous_pending_timers`); 404 no matching pending timer |
 
@@ -83,9 +83,11 @@ defmodule Letflow.Routers.Instances do
 
   **The convention: read the `idempotency-key` request header through
   `Letflow.Idempotency.from_header/4`; if present and non-empty, refuse it with
-  a 422 over 199 bytes (162 on cancel/rebind), otherwise store it namespaced by
-  route, actor and, for cancel/rebind, instance (GH #2550); if absent or empty,
-  generate `Ecto.UUID.generate/0`.** A key is never truncated.
+  a 422 `format` if it is not valid UTF-8 or contains a NUL byte (checked first,
+  before any database access), a 422 `max_length` over 199 bytes (162 on
+  cancel/rebind), otherwise store it namespaced by route, actor and, for
+  cancel/rebind, instance (GH #2550); if absent or empty, generate
+  `Ecto.UUID.generate/0`.** A key is never truncated.
 
   This is the first HTTP-layer idempotency convention in this codebase.
   **REQ-079 and REQ-080 must adopt this same convention rather than inventing

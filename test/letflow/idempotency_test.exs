@@ -168,7 +168,7 @@ defmodule Letflow.IdempotencyTest do
 
     test "script_key/2 refuses them" do
       for raw <- @invalid_raws do
-        assert {:error, :invalid_idempotency_key} = Idempotency.script_key(raw, @actor)
+        assert {:error, :idempotency_key_invalid} = Idempotency.script_key(raw, @actor)
       end
     end
 
@@ -178,6 +178,20 @@ defmodule Letflow.IdempotencyTest do
 
       assert %FieldError{field: "idempotency-key", constraint: "format", received: nil} =
                Idempotency.invalid_error(:header)
+    end
+  end
+
+  describe "from_body/3 non-binary key (nit 5)" do
+    test "only a missing key or nil mints a UUID; any other non-binary is invalid" do
+      for attrs <- [%{}, %{"idempotency_key" => nil}] do
+        assert {:ok, %{key: key, legacy_raw: nil}} = Idempotency.from_body(attrs, :rec, @actor)
+        assert {:ok, _uuid} = Ecto.UUID.cast(key)
+      end
+
+      for bad <- [42, 1.5, true, false, [], ["k"], %{"k" => "v"}, ""] do
+        assert {:error, :idempotency_key_invalid} =
+                 Idempotency.from_body(%{"idempotency_key" => bad}, :rec, @actor)
+      end
     end
   end
 
@@ -224,13 +238,13 @@ defmodule Letflow.IdempotencyTest do
       assert {:ok, _} = Idempotency.script_key(String.duplicate("k", 199), @actor)
 
       for bad <- ["", 42, nil, String.duplicate("k", 200), String.duplicate("k", 300)] do
-        assert {:error, :invalid_idempotency_key} = Idempotency.script_key(bad, @actor)
+        assert {:error, :idempotency_key_invalid} = Idempotency.script_key(bad, @actor)
       end
     end
 
     test "script_key/2 has client_key/4's 36-byte actor guard (F5)" do
       for bad_actor <- ["short", @actor <> "x", nil, 42] do
-        assert {:error, :invalid_idempotency_key} = Idempotency.script_key("K", bad_actor)
+        assert {:error, :idempotency_key_invalid} = Idempotency.script_key("K", bad_actor)
       end
     end
 

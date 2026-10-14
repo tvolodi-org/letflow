@@ -57,8 +57,8 @@ defmodule Letflow.Routers.Entities do
   | get_definition_by_name | `GET /entities/definitions/by-name/:name` | `Letflow.Entities.Definitions.get_definition_by_name/2` | `EntitiesDefinitionsRead` | 200 / 404 |
   | get_definition | `GET /entities/definitions/:id` | `Letflow.Entities.Definitions.get_definition/2` | `EntitiesDefinitionsRead` | 200 / 404 |
   | list_definitions | `GET /entities/definitions` | `Letflow.Entities.Definitions.list_definitions/2` | `EntitiesDefinitionsRead` | 200 / 400 |
-  | create_record | `POST /entities/records/:entity_type` | `Letflow.Entities.Records.create_record/2` | `EntitiesRecordsWrite` | 201 / 404 / 422 (422 also `idempotency_key_reuse`, GH #2543) |
-  | update_record | `PUT /entities/records/:entity_type/:record_id` | `Letflow.Entities.Records.update_record/2` | `EntitiesRecordsWrite` | 200 / 404 / 409 / 422 (422 also `idempotency_key_reuse`, GH #2543) |
+  | create_record | `POST /entities/records/:entity_type` | `Letflow.Entities.Records.create_record/2` | `EntitiesRecordsWrite` | 201 / 404 / 422 (422 also `idempotency_key_reuse`, GH #2543; `idempotency_key` over 199 bytes -> 422 `max_length`, not valid UTF-8 or containing NUL -> 422 `format`, GH #2550) |
+  | update_record | `PUT /entities/records/:entity_type/:record_id` | `Letflow.Entities.Records.update_record/2` | `EntitiesRecordsWrite` | 200 / 404 / 409 / 422 (422 also `idempotency_key_reuse`, GH #2543; `idempotency_key` over 199 bytes -> 422 `max_length`, not valid UTF-8 or containing NUL -> 422 `format`, GH #2550) |
   | delete_record | `DELETE /entities/records/:entity_type/:record_id` | `Letflow.Entities.Records.delete_record/2` | `EntitiesRecordsWrite` | 200 / 400 / 404 / 409 / 422 (a fresh key per request, so never `idempotency_key_reuse`) |
   | query | `POST /entities/query` | `Letflow.Entities.Query.Compiler.compile/2` then `Letflow.Entities.Query.Allowlist.load/2` then `Letflow.Entities.Query.Cursor.paginate/5` then a `Letflow.Entities.Query.FieldGrants` redaction step | `EntitiesQuery` | 200 / 400 / 404 / 422 |
   | query_aggregate | `POST /entities/query/aggregate` | a `Letflow.Entities.Query.FieldGrants.load_restrictions/3` field-restriction check then `Letflow.Entities.Query.Compiler.run_aggregate/2` | `EntitiesAggregate` | 200 / 400 / 403 / 404 / 422 |
@@ -977,9 +977,10 @@ defmodule Letflow.Routers.Entities do
   # conn.assigns.auth_context.user_id (INV-1), `idempotency_key` resolved by
   # Letflow.Idempotency.from_body/3 (GH #2550): the caller's own replay token
   # stored as `client:rec:<actor>:<K>` (bound to (command, entity_type,
-  # record_id, field_values, actor) -- GH #2543), refused with a 422 over 199
-  # bytes, and otherwise freshly minted so the delegate's required key is
-  # always present. A supplied key may also resolve to a pre-#2550 original
+  # record_id, field_values, actor) -- GH #2543), refused with a 422
+  # `max_length` over 199 bytes and a 422 `format` when not valid UTF-8 or
+  # containing NUL (checked before any DB access), and otherwise freshly
+  # minted so the delegate's required key is always present. A supplied key may also resolve to a pre-#2550 original
   # (Idempotency.legacy_original/3, one release, GH #2578).
 
   @record_write_schema [

@@ -16,10 +16,14 @@ defmodule Letflow.Idempotency do
     * `client:inst_rebind:<actor>:<instance_id>:<K>` -- pin rebind (header)
     * `script:<actor>:<K>` -- Lua `platform.emit_event/3`
 
-  A raw key over `raw_max/1` bytes is refused (a stable 422, or
+  A raw key over `raw_max/1` bytes is refused (a stable 422 `max_length`, or
   `invalid_arguments` for a script), never truncated, so a stored key always
-  fits `varchar(255)`. An absent key (or an empty header) gives a bare
-  server-minted UUID, which no caller ever sees.
+  fits `varchar(255)`. A raw key that is not valid UTF-8 or contains a NUL
+  byte is refused first, before any database access (a stable 422 `format`,
+  or `invalid_arguments` for a script); both refusals are
+  `{:error, :idempotency_key_invalid}` / `{:error, :idempotency_key_too_long}`
+  here. An absent key (or an empty header) gives a bare server-minted UUID,
+  which no caller ever sees.
 
   Routers must not read the caller's key themselves; a source scan in
   `test/letflow/idempotency_test.exs` enforces that.
@@ -49,7 +53,7 @@ defmodule Letflow.Idempotency do
 
   @caller_prefixes ["client:", "script:"]
 
-  # Reserved for server families not built yet: `sys:` is decision 0054 D4's
+  # Reserved for server families not built yet: `sys:` is decision 0054 D9's
   # process-step write key (GH #2587). Excluded from the legacy lookup like a
   # server family; not in server_prefixes/0, because nothing produces it yet.
   @reserved_prefixes ["sys:"]
@@ -132,8 +136,14 @@ defmodule Letflow.Idempotency do
             {:ok, %{key: client_key(:rec, actor_id, nil, raw), legacy_raw: legacy_raw(raw)}}
         end
 
-      _absent ->
+      # Genuinely absent only: the key missing, or JSON null.
+      nil ->
         {:ok, %{key: Ecto.UUID.generate(), legacy_raw: nil}}
+
+      # Any other value (a non-binary, or ""): the validated schema never lets
+      # one through, but this module does not rely on that.
+      _other ->
+        {:error, :idempotency_key_invalid}
     end
   end
 
@@ -160,16 +170,16 @@ defmodule Letflow.Idempotency do
 
   @doc "Namespaces a Lua script's `emit_event` key. No legacy lookup."
   @spec script_key(term(), Ecto.UUID.t()) ::
-          {:ok, String.t()} | {:error, :invalid_idempotency_key}
+          {:ok, String.t()} | {:error, :idempotency_key_invalid}
   def script_key(raw, actor_id)
       when is_binary(raw) and byte_size(raw) > 0 and byte_size(raw) <= @raw_max_long and
              is_binary(actor_id) and byte_size(actor_id) == 36 do
     if valid_raw?(raw),
       do: {:ok, "script:" <> actor_id <> ":" <> raw},
-      else: {:error, :invalid_idempotency_key}
+      else: {:error, :idempotency_key_invalid}
   end
 
-  def script_key(_raw, _actor_id), do: {:error, :invalid_idempotency_key}
+  def script_key(_raw, _actor_id), do: {:error, :idempotency_key_invalid}
 
   @doc """
   The stable 422 field error for an over-long key. `field` names the body
@@ -196,7 +206,7 @@ defmodule Letflow.Idempotency do
   @spec server_prefixes() :: [String.t()]
   def server_prefixes, do: @server_prefixes
 
-  @doc "Reserved server families nothing builds yet (`sys:`, decision 0054 D4)."
+  @doc "Reserved server families nothing builds yet (`sys:`, decision 0054 D9)."
   @spec reserved_prefixes() :: [String.t()]
   def reserved_prefixes, do: @reserved_prefixes
 
