@@ -20,8 +20,8 @@ defmodule Letflow.Routers.Identity do
   * POST   /users                        -> Identity.create_user/2
   * GET    /users                        -> Identity.list_users/2
   * GET    /users/:id                    -> Identity.get_user/2
-  * PATCH  /users/:id                    -> Identity.get_user/2, then Identity.update_user_profile/3
-  * POST   /users/:id/status             -> Identity.get_user/2, then Identity.update_user_status/3
+  * PATCH  /users/:id                    -> Identity.get_user/2, then Identity.update_user_profile/3 (409 `last_tenant_wide_admin`, GH 2564)
+  * POST   /users/:id/status             -> Identity.get_user/2, then Identity.update_user_status/3 (409 `last_tenant_wide_admin`, GH 2564)
   * POST   /groups                       -> Identity.create_group/2
   * GET    /groups                       -> Identity.list_groups/1
   * DELETE /groups/:id                   -> Identity.delete_group/2 (409 `group is bound to a role` for a memberless role-bound group, ISS-1032)

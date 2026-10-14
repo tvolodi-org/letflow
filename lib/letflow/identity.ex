@@ -2349,7 +2349,9 @@ defmodule Letflow.Identity do
   GH 2552 (design section 3): the effective status of a token, for the token list.
   Precedence `:revoked` > `:expired` (`expires_at` not after `now`) > `:owner_inactive`
   > `:active`. The permanent states win; `:owner_inactive` (the only reversible state)
-  shows only when the token would otherwise work. Pure.
+  shows only when the token would otherwise work. Since GH 2564 a deactivation through
+  `Identity` revokes the tokens, so `:owner_inactive` arises only for rows changed by
+  other means (legacy rows, direct database edits). Pure.
   """
   @spec token_effective_status(
           token :: ApiToken.t(),
@@ -2675,9 +2677,10 @@ defmodule Letflow.Identity do
   (`active_user?/1` false) returns `{:error, :revoked}` — the exact term a
   revoked token returns, so the caller renders a byte-identical 401 — and does
   **not** write `last_used_at`. The owner check runs after the revoked check
-  and before the expiry check. Deactivating a user changes no token row:
-  reactivating the owner makes a non-revoked, non-expired token authenticate
-  again on the next call.
+  and before the expiry check. A deactivation through `update_user_status/3`
+  or `update_user_profile/3` revokes all the owner's tokens and reactivation
+  restores none (GH 2564); this owner check covers rows left live by other
+  means (legacy rows, direct database edits).
 
   On a successful verification, best-effort updates `last_used_at` — a failure
   on that one non-essential write does not fail the verification itself (logged

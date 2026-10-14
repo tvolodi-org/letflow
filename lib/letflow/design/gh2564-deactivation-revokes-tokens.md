@@ -44,8 +44,10 @@ Ruling: issue comment 6174049298 (option 3). Plan: `gh2552-api-token-issuer-and-
 @spec revoke_token_row(ApiToken.t(), prefix :: String.t(), ctx :: AuditContext.t(), cause :: String.t() | nil,
         now :: DateTime.t()) :: {:ok, ApiToken.t()} | {:error, Ecto.Changeset.t() | term()}
 @spec record_guard_refused(prefix :: String.t(), refusal :: %{action: String.t(), actor: Ecto.UUID.t() | nil,
-        target_id: Ecto.UUID.t(), reason_code: String.t(), counted_admins: non_neg_integer(),
+        target_id: Ecto.UUID.t(), optional(:reason_code) => String.t(), counted_admins: non_neg_integer(),
         trace_id: String.t() | nil}) :: :ok
+# reason_code defaults to "last_tenant_wide_admin" (the only N1 reason; the signature agreed with letflow-9c for
+# #2533 1b omits it). The stored entry always has exactly the six D8 keys.
 ```
 
 `user_write_opts` gains optional `audit_context` (as `AuditContext.from_opts/1`, `audit_context.ex:34-47`).
