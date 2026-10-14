@@ -11,9 +11,10 @@ defmodule Letflow.Modules.InstallActivationTest do
       the installer and the rationale; the activation trail records the installer
       as activator and the rationale verbatim. `opts[:rationale]` is required.
     * D5: a promotion left `pending` or `ddl_failed` fails the install and rolls back.
-    * D6: a same-name definition the tenant already has fails the install with
-      `{:entity_name_conflict, name}` and rolls back; an already-active definition
-      is not activated again.
+    * D6 (by origin, design note section 3): only this install's own pack row, still
+      `:inactive`, is activated; a same-name definition the tenant already has (active
+      or inactive) fails the install with `{:entity_name_conflict, name}` and rolls
+      back; the helper never adopts a row its pack did not insert.
 
   `async: false`: tenant provisioning and DDL (same reasoning as `installs_test.exs`).
   """
