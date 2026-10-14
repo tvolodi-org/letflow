@@ -1,0 +1,77 @@
+{
+  "handoff_id": "3b9e4c71-2530-4d96-a4e2-000000000004",
+  "run_id": "WF02-GH2530-MANAGED-BY-20261014",
+  "workflow_id": "WF-02",
+  "step": "04",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF02-GH2530-MANAGED-BY-20261014/step-04-elixir-dev.json",
+  "created_at": "2026-10-14T17:29:37Z",
+  "started_at": "2026-10-14T17:29:37Z",
+  "completed_at": "2026-10-14T17:49:50Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-496"],
+    "requirement_text": {
+      "REQ-496": "Core: managed_by write lock for module-managed entity types (uniform 403 on generic record routes, definitions API and solution-pack routes; stamped by module install, never from JSON) and the core-owned scope_node_paths security index (one in-transaction writer, ancestors/descendants reads, consistency check). Full text: docs/requirements.yaml REQ-496 (GH #2530)."
+    },
+    "source_text": {
+      "GH#2530": "Implement lib/letflow/design/req496-managed-by-and-scope-node-paths.md Revisions 1-2 (CDV r3 PASS, SEC r2 PASS) plus ORCH revision-3 addition: public Letflow.ScopeNodePaths.lock!/1."
+    },
+    "related_handoff_ids": ["fd6735de-cfd0-4a0a-be28-4c1987a36b01"],
+    "artifacts_in": [
+      "lib/letflow/design/req496-managed-by-and-scope-node-paths.md"
+    ],
+    "owned_modules": [
+      "Letflow.Entities.ManagedTypes",
+      "Letflow.ScopeNodePaths",
+      "Letflow.ScopeNodePaths.Node",
+      "Letflow.ScopeNodePaths.Consistency",
+      "Letflow.Routers.TenantScopeNodePaths",
+      "Mix.Tasks.Letflow.CheckScopeNodePathsWriters"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2530-MANAGED-BY-20261014"
+  },
+  "task": {
+    "description": "WF-02 step 4: implement the REQ-496 design (lib/, two tenant-scoped migrations, writer-scan mix task wired into @check_static_steps, test fixture module + pack). No tests, no commit."
+  },
+  "result": {
+    "status": "UNVERIFIED",
+    "summary": "IMPLEMENTATION WRITTEN, NOT COMPILED. No mix command ran: the mutex was held by another session for polls 1-9, and free memory stayed below the 1.5 GB floor for all 20 polls (0.28-1.23 GB; final 1.03 GB at 17:49Z). So format --check-formatted, MIX_ENV=test compile --warnings-as-errors, mix letflow.check_scope_node_paths_writers, migrations and tests were all SKIPPED. Before SECURITY-REVIEWER, re-dispatch ELIXIR-DEV (or TEST-RUNNER) to run them when >= 1.5 GB (compile/format) / >= 4 GB (tests) is free. Non-mix checks run: a grep of the scan's two rules over lib/letflow/modules and priv/modules finds 0 hits each; the files containing module_owner( under lib/**/*.ex are exactly managed_types.ex and installs.ex, and the Owner struct appears only in managed_types.ex (T-34 shape). DEVIATIONS: (1) migration versions 20261014100001/100002, not 20261014000001/000002 (OQ-1: origin/main already has 20261014000001_create_script_rules; open PR #2565 has 20261014000002_create_script_policy); a later rebase conflicts in the tenant_provisioning manifest tail and tenant_fixture.ex's table list (mechanical). (2) Added public ManagedTypes.managed_name?/1 (one copy of the name regex, shared by Catalog rule 7) and ScopeNodePaths.max_depth/0 (shared with Consistency). (3) The fixture pack holds 8 types and the manifest declares 7 as managed, per design 2.8 (the brief said six). (4) The advisory-lock and LOCK TABLE Repo.query! calls take no prefix: option, because a raw query's prefix is meaningless; every Ecto Repo call has prefix:. (5) Fixture record helpers use the fixed system actor 00000000-0000-0000-0000-000000000000 (RecordDeadlineSweep precedent), since the design's signatures carry no actor. ADVISORIES FOLDED: lock args cast `$1::int, hashtext($2)`; @lock_namespace 435_001 confirmed at login_directory.ex:75 (used at :508); the Definitions moduledoc states that {:repository,_}/{:validation,_} now roll back too. REVISION 3: lock!/1 added (raises ArgumentError with a fixed message outside a transaction or on an invalid prefix; re-entrant; write/2 shares the private lock_table/1); the moduledoc states the insert/move/retire call order. FOR TEST-DESIGNER: definitions_test.exs:272-295 is EXPECTED to fail (ArtifactVersion 2 -> 1, intended); test/letflow/support/tenant_fixture_test.exs:322 count 50 -> 51 (52 after rebasing onto main's script_rules); any test counting Catalog.entry_modules() sees one more (FixtureManaged).",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "lib/letflow/entities/managed_types.ex",
+      "lib/letflow/scope_node_paths.ex",
+      "lib/letflow/scope_node_paths/node.ex",
+      "lib/letflow/scope_node_paths/consistency.ex",
+      "lib/letflow/routers/tenant_scope_node_paths.ex",
+      "lib/mix/tasks/letflow.check_scope_node_paths_writers.ex",
+      "priv/repo/migrations/20261014100001_add_managed_by_to_entity_definitions.exs",
+      "priv/repo/migrations/20261014100002_create_scope_node_paths.exs",
+      "priv/module_fixtures/managed_foundation.json",
+      "test/support/modules/fixture_managed/fixture_managed.ex",
+      "lib/letflow/entities/entity_definition.ex (M)",
+      "lib/letflow/entities/definitions.ex (M)",
+      "lib/letflow/definitions/solution_pack.ex (M)",
+      "lib/letflow/modules/installs.ex (M)",
+      "lib/letflow/modules/module.ex (M)",
+      "lib/letflow/modules/catalog.ex (M)",
+      "lib/letflow/api/error.ex (M)",
+      "lib/letflow/api/authorization.ex (M)",
+      "lib/letflow/plugs/api_pipeline.ex (M)",
+      "lib/letflow/routers/entities.ex (M)",
+      "lib/letflow/routers/solution_packs.ex (M)",
+      "lib/letflow/tenant_provisioning.ex (M)",
+      "mix.exs (M)",
+      "config/test.exs (M)",
+      "priv/module_fixtures/README.md (M)",
+      "test/support/tenant_fixture.ex (M)"
+    ],
+    "diagnosis_confirmed": false,
+    "implementation_written": true,
+    "classification": "IMPLEMENTATION"
+  }
+}

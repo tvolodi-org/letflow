@@ -3638,4 +3638,128 @@ defmodule Letflow.Routers.EntitiesTest do
       assert record_count(ctx, "widget") == 1
     end
   end
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # GH #2532 -- min/max/non_negative over HTTP
+  # (lib/letflow/design/gh2532-field-min-max-non-negative.md §2.1, §5).
+  # ═══════════════════════════════════════════════════════════════════════
+
+  defp gh2532_definition_body(quantity_overrides) do
+    definition_body(%{
+      "fields" => [
+        %{"name" => "title", "type" => "string", "required" => true},
+        Map.merge(%{"name" => "quantity", "type" => "integer"}, quantity_overrides)
+      ]
+    })
+  end
+
+  defp gh2532_activate_via_http!(ctx, quantity_overrides) do
+    create_conn =
+      request(
+        :post,
+        "/api/v1/entities/definitions",
+        ctx,
+        gh2532_definition_body(quantity_overrides)
+      )
+
+    assert create_conn.status == 201
+
+    activate_conn =
+      request(:post, "/api/v1/entities/definitions/widget/activate", ctx, %{
+        "rationale" => "gh2532 go-live"
+      })
+
+    assert activate_conn.status == 200
+  end
+
+  describe "GH #2532 ranges" do
+    test "POST definition with bounds -> 201; GET active returns the keys" do
+      ctx = tenant_ctx("gh2532-def-keys")
+      gh2532_activate_via_http!(ctx, %{"min" => 0, "max" => 1000, "non_negative" => true})
+
+      active_conn = request(:get, "/api/v1/entities/definitions/active/widget", ctx)
+      assert active_conn.status == 200
+
+      quantity =
+        Enum.find(body_of(active_conn)["definition"]["fields"], &(&1["name"] == "quantity"))
+
+      assert quantity["min"] == 0
+      assert quantity["max"] == 1000
+      assert quantity["non_negative"] == true
+    end
+
+    test "min > max -> 422 invalid_range at [fields, quantity], nothing stored" do
+      ctx = tenant_ctx("gh2532-def-minmax")
+
+      conn =
+        request(
+          :post,
+          "/api/v1/entities/definitions",
+          ctx,
+          gh2532_definition_body(%{"min" => 987_654, "max" => 1})
+        )
+
+      assert conn.status == 422
+      body = body_of(conn)
+
+      assert Enum.any?(
+               body["errors"],
+               &(&1["code"] == "invalid_range" and &1["path"] == ["fields", "quantity"])
+             )
+
+      refute conn.resp_body =~ "987654"
+      assert {:error, :not_found} = Definitions.get_definition_by_name("widget", ctx.schema_name)
+    end
+
+    test "a JSON null bound is dropped (absent): 201 and no key stored" do
+      ctx = tenant_ctx("gh2532-def-null")
+
+      conn =
+        request(
+          :post,
+          "/api/v1/entities/definitions",
+          ctx,
+          gh2532_definition_body(%{"min" => nil, "max" => nil, "non_negative" => nil})
+        )
+
+      assert conn.status == 201
+      {:ok, stored} = Definitions.get_definition_by_name("widget", ctx.schema_name)
+      quantity = Enum.find(stored.definition_json["fields"], &(&1["name"] == "quantity"))
+      assert quantity == %{"name" => "quantity", "type" => "integer"}
+    end
+
+    test "out-of-range record POST -> 422 code minimum, value not echoed; in-range -> 201" do
+      ctx = tenant_ctx("gh2532-rec")
+      gh2532_activate_via_http!(ctx, %{"min" => 0, "max" => 1000})
+
+      conn =
+        request(:post, "/api/v1/entities/records/widget", ctx, %{
+          "field_values" => %{"title" => "t", "quantity" => -987_654}
+        })
+
+      assert conn.status == 422
+      body = body_of(conn)
+      assert [violation] = body["errors"]
+      assert violation["code"] == "minimum"
+      assert violation["path"] == "/quantity"
+      refute conn.resp_body =~ "987654"
+      assert record_count(ctx, "widget") == 0
+
+      high_conn =
+        request(:post, "/api/v1/entities/records/widget", ctx, %{
+          "field_values" => %{"title" => "t", "quantity" => 1001}
+        })
+
+      assert high_conn.status == 422
+      assert [%{"code" => "maximum"}] = body_of(high_conn)["errors"]
+
+      ok_conn =
+        request(:post, "/api/v1/entities/records/widget", ctx, %{
+          "field_values" => %{"title" => "t", "quantity" => 1000}
+        })
+
+      assert ok_conn.status == 201
+      assert record_count(ctx, "widget") == 1
+    end
+  end
 end

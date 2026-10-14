@@ -125,6 +125,17 @@ defmodule Letflow.Routers.SolutionPacks do
   `Letflow.Definitions.SolutionPack`, which cannot be reached without the
   prefix, because the prefix is the `opts` argument.
 
+  ## Managed entity types (REQ-496, decision 0050 D7)
+
+  `install` refuses a pack defining a module-managed entity type with the
+  uniform 403 `Letflow.Api.Error.entity_type_managed/0` (the refusal is decided
+  inside `SolutionPack.install/3`). `update-apply` also checks every
+  `"entity_definition"` entry's names through
+  `Letflow.Entities.ManagedTypes.check_tenant_write/2` (a read, after the prefix
+  is resolved) -- DEFENCE IN DEPTH ONLY: that route writes no entity definition
+  today, and if it ever does it must go through `create_definition/2`, which
+  refuses again.
+
   PROVENANCE (historical, not current decision authority):
   ## `sandbox_access.zig` is NOT ported by REQ-078
 
@@ -144,12 +155,14 @@ defmodule Letflow.Routers.SolutionPacks do
 
   use Letflow.Api.AuthorizedRouter
 
+  alias Letflow.Api.Error
   alias Letflow.Api.Response
   alias Letflow.Api.Validation
   alias Letflow.Api.Validation.FieldConstraint
   alias Letflow.Api.Validation.FieldError
   alias Letflow.Definitions
   alias Letflow.Definitions.SolutionPack
+  alias Letflow.Entities.ManagedTypes
   alias Letflow.Modules.Catalog
   alias Letflow.TenantProvisioning
 
@@ -332,6 +345,16 @@ defmodule Letflow.Routers.SolutionPacks do
   # blob into the response body. The limit is named instead.
   defp render_install(conn, {:error, {:variable_key_too_long, _index}}),
     do: Response.unprocessable(conn, "variable_key must not exceed 255 bytes")
+
+  # REQ-496 (0050 D7): a tenant pack defining a module-managed entity type gets
+  # the uniform 403; the whole install was rolled back.
+  defp render_install(conn, {:error, :entity_type_managed}),
+    do: Response.send_problem(conn, Error.entity_type_managed())
+
+  # Unreachable through this route (the tenant install never claims a name);
+  # mapped per the type-table-vs-error-map rule.
+  defp render_install(conn, {:error, {:managed_name_taken, _name}}),
+    do: Response.internal_error(conn)
 
   defp render_install(conn, {:error, :duplicate_pack_install}),
     do: Response.conflict(conn, "pack already installed")
@@ -521,17 +544,63 @@ defmodule Letflow.Routers.SolutionPacks do
             "theirs_artefacts and incoming_artefacts must not both be empty"
           )
         else
-          apply_with_actor(
-            conn,
-            pack_id,
-            target_version,
-            Enum.map(theirs_raw, &to_artefact_input/1),
-            Enum.map(incoming_raw, &to_artefact_input/1),
-            Enum.map(resolutions_raw, &to_resolution_input/1)
-          )
+          all_entries = theirs_raw ++ incoming_raw ++ resolutions_raw
+
+          case check_update_apply_unmanaged(all_entries, conn) do
+            :ok ->
+              apply_with_actor(
+                conn,
+                pack_id,
+                target_version,
+                Enum.map(theirs_raw, &to_artefact_input/1),
+                Enum.map(incoming_raw, &to_artefact_input/1),
+                Enum.map(resolutions_raw, &to_resolution_input/1)
+              )
+
+            {:error, :entity_type_managed} ->
+              Response.send_problem(conn, Error.entity_type_managed())
+
+            {:error, :invalid_schema_name} ->
+              Response.internal_error(conn)
+          end
         end
     end
   end
+
+  # REQ-496 (design §3.3): DEFENCE IN DEPTH ONLY -- update-apply writes no entity
+  # definition today (it records resolutions and advances bases). For every
+  # `"entity_definition"` entry, the candidate names are `artefact_id` and, when
+  # `content`/`resolved_content` is a binary decoding to a JSON object with a
+  # binary `"name"`, that name; any managed candidate refuses the whole call.
+  defp check_update_apply_unmanaged(entries, conn) do
+    entries
+    |> Enum.flat_map(&entity_definition_candidate_names/1)
+    |> Enum.uniq()
+    |> Enum.reduce_while(:ok, fn name, :ok ->
+      case ManagedTypes.check_tenant_write(name, prefix(conn)) do
+        :ok -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp entity_definition_candidate_names(%{"artefact_type" => "entity_definition"} = entry) do
+    ids = if is_binary(entry["artefact_id"]), do: [entry["artefact_id"]], else: []
+
+    ids ++
+      content_name(Map.get(entry, "content")) ++ content_name(Map.get(entry, "resolved_content"))
+  end
+
+  defp entity_definition_candidate_names(_entry), do: []
+
+  defp content_name(content) when is_binary(content) do
+    case Jason.decode(content) do
+      {:ok, %{"name" => name}} when is_binary(name) -> [name]
+      _not_an_object_with_a_name -> []
+    end
+  end
+
+  defp content_name(_absent_or_not_binary), do: []
 
   # `opts[:actor_id]` (`pack_update_resolutions.resolved_by`) is read from
   # this same actor_id/1 helper this router already has, not a

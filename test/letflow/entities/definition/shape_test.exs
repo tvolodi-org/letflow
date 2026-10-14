@@ -181,4 +181,56 @@ defmodule Letflow.Entities.Definition.ShapeTest do
       refute Shape.logical_shape_of(flagged) == Shape.logical_shape_of(@gh2529_keyless)
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # GH #2532 -- hash stability. The two digests below were captured by running
+  # this exact fixture through origin/main's (f7ce96f0, pre-change) Shape and
+  # Canonicaliser, loaded from `git show origin/main:...` into renamed scratch
+  # modules (`Gh2532Pre.*`). A key-less definition must keep hashing
+  # identically; `non_negative: true` and `min: 0` must be distinct logical
+  # shapes (design D4).
+  # ---------------------------------------------------------------------------
+
+  @gh2532_keyless %{
+    name: "stock",
+    display_name: "Stock",
+    description: "GH 2532 hash-stability fixture",
+    fields: [
+      %{name: "sku", type: :string, required: true, queried: true},
+      %{name: "qty", type: :integer, required: true, queried: true},
+      %{name: "price", type: :decimal, decimal_precision: 12, decimal_scale: 2}
+    ]
+  }
+
+  @gh2532_pinned_content_hash "ed5be3c22e6318c3afb3ef8da8d7c7f320c239cf14754ba1b22c5366431ab440"
+  @gh2532_pinned_logical_shape "ad32dffa260db4f984048ee63bff5ea5dc6e1e0f3e4c61819541ed535f159ec7"
+
+  defp gh2532_with_qty(extra) do
+    Map.update!(@gh2532_keyless, :fields, fn fields ->
+      Enum.map(fields, fn
+        %{name: "qty"} = qty -> Map.merge(qty, extra)
+        field -> field
+      end)
+    end)
+  end
+
+  describe "GH #2532 hash stability" do
+    test "a key-less definition's content_hash/1 equals the pinned pre-change digest" do
+      assert gh2529_hex(Shape.content_hash(@gh2532_keyless)) == @gh2532_pinned_content_hash
+    end
+
+    test "a key-less definition's logical_shape_of/1 equals the pinned pre-change digest" do
+      assert gh2529_hex(Shape.logical_shape_of(@gh2532_keyless)) ==
+               @gh2532_pinned_logical_shape
+    end
+
+    test "min: 0 and non_negative: true are distinct logical shapes, both distinct from key-less" do
+      min_zero = Shape.logical_shape_of(gh2532_with_qty(%{min: 0}))
+      non_negative = Shape.logical_shape_of(gh2532_with_qty(%{non_negative: true}))
+
+      refute min_zero == non_negative
+      refute gh2529_hex(min_zero) == @gh2532_pinned_logical_shape
+      refute gh2529_hex(non_negative) == @gh2532_pinned_logical_shape
+    end
+  end
 end

@@ -84,6 +84,7 @@ For reference, the fields of `field_def()` this design actually reads:
 | `:required` | `boolean()`, optional | whether `:name` is added to the derived schema's top-level `"required"` list |
 | `:enum_values` | `[String.t()]`, optional | the derived per-field subschema's `"enum"` keyword, only when `:type` is `:enum` |
 | `:queried`, `:decimal_precision`, `:decimal_scale`, `:default` | — | **not read by this design** — see §4's explicit note on why `decimal_precision`/`decimal_scale` do not produce `minimum`/`maximum`/`maxLength` keywords |
+| `:min`, `:max`, `:non_negative` (GH #2532) | `number()`, `number()`, `boolean()`, optional, `:integer`/`:decimal` only | the derived subschema's `"minimum"` (`max(min, 0)` under `non_negative: true`) and `"maximum"` — added by GH #2532, see `gh2532-field-min-max-non-negative.md` §4 |
 
 ### 2.2 Input: a record payload
 
@@ -186,13 +187,19 @@ validation first is a caller error, not a case this function defends against.
 | REQ-225 `field_def().type` | Derived `"type"` | Extra keywords on this field's subschema | Notes |
 |---|---|---|---|
 | `:string` | `"string"` | none | |
-| `:integer` | `"integer"` | none | |
-| `:decimal` | `"number"` | none | See note below — `decimal_precision`/`decimal_scale` are **not** translated into `"minimum"`/`"maximum"`/`"maxLength"`. |
+| `:integer` | `"integer"` | none; since GH #2532 `"minimum"`/`"maximum"` from `min`/`max`/`non_negative` when present | Superseded in part by GH #2532 (`gh2532-field-min-max-non-negative.md` §4). |
+| `:decimal` | `"number"` | none; since GH #2532 `"minimum"`/`"maximum"` from `min`/`max`/`non_negative` when present | See note below — `decimal_precision`/`decimal_scale` are **not** translated into `"minimum"`/`"maximum"`/`"maxLength"`. Range keys: superseded in part by GH #2532. |
 | `:boolean` | `"boolean"` | none | |
 | `:date` | `"string"` | none | No `"format"` keyword is emitted — `JsonSchema.validate/2`'s own moduledoc documents `format` as a keyword it silently ignores ("permitted and inert"), so emitting it would be a no-op; date-shape validation is not this requirement's scope. |
 | `:datetime` | `"string"` | none | Same rationale as `:date`. |
 | `:enum` | `"string"` | `"enum" => enum_values` (copied verbatim from the field's `enum_values` list) | REQ-225's Rule 6 already guarantees `enum_values` is a non-empty list of strings whenever `type == :enum` — no re-validation needed here. |
 | `:json` | *(key omitted entirely)* | none | Omitting `"type"` for this field's subschema means `JsonSchema.validate/2`'s `type_violation/3` short-circuits to `:ok` (its `nil` clause) for this field — any JSON value (object, array, string, number, boolean, null) is accepted, matching a `:json` field's own definition-level meaning (an opaque JSON blob, not a further-constrained shape). |
+
+> **Superseded by GH #2532** (`lib/letflow/design/gh2532-field-min-max-non-negative.md`):
+> `field_def()` now has explicit `min`/`max`/`non_negative` keys on `:integer`/`:decimal`
+> fields, and `build_record_schema/1` emits `"minimum"`/`"maximum"` from them when present.
+> The finding below still holds for `"maxLength"` and for `decimal_precision`/`decimal_scale`,
+> which are still never translated into any keyword.
 
 **Explicit, non-silent finding on `minimum`/`maximum`/`maxLength` (do not invent constraint
 kinds REQ-225 doesn't have):** REQ-227's own requirement text frames the derived schema's keyword
@@ -368,7 +375,9 @@ is pure, exactly like `Letflow.Entities.Definition.Validator` and `Letflow.Defin
 
 ## 8. Open questions — explicitly listed, not silently resolved
 
-**OQ-1 (MINOR).** §4.1 finds that `minimum`/`maximum`/`maxLength` are never emitted by
+**OQ-1 (MINOR).** *Superseded by GH #2532 for `minimum`/`maximum`*: `field_def()` gained
+`min`/`max`/`non_negative` and `build_record_schema/1` now emits both keywords from them (see
+`gh2532-field-min-max-non-negative.md`); `maxLength` remains unused. Original text: §4.1 finds that `minimum`/`maximum`/`maxLength` are never emitted by
 `build_record_schema/1` today, because `field_def()` (REQ-225) carries no length- or
 range-constraint attribute to translate. If a future requirement adds such an attribute to
 `field_def()` (e.g. a `max_length` or `min_value`/`max_value` key), `build_record_schema/1` must

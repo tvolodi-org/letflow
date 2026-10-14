@@ -1,0 +1,71 @@
+{
+  "handoff_id": "90f09171-db34-4ceb-8143-322a76bacb1a",
+  "run_id": "WF02-GH2530-MANAGED-BY-20261014",
+  "workflow_id": "WF-02",
+  "step": "05",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGNER",
+  "file": "handoffs/WF02-GH2530-MANAGED-BY-20261014/step-05-test-designer.json",
+  "created_at": "2026-10-14T18:16:36Z",
+  "started_at": "2026-10-14T18:16:36Z",
+  "completed_at": "2026-10-14T18:26:12Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [
+      "REQ-496"
+    ],
+    "requirement_text": {
+      "REQ-496": "Core: managed_by write lock for module-managed entity types and the core-owned scope_node_paths security index. Full text: docs/requirements.yaml REQ-496 (GH #2530)."
+    },
+    "source_text": {
+      "GH#2530": "TEST-DESIGNER: fix REVIEWER's two >98-char lines and advisory A (stale arity comments), update the four existing tests CI failed on #2568, write REQ-496 tests T-01..T-35 + Revision 1-3 additions and test/specs/REQ-496.md."
+    },
+    "related_handoff_ids": [
+      "3b9e4c71-2530-4d96-a4e2-000000000004"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/req496-managed-by-and-scope-node-paths.md",
+      "handoffs/WF02-GH2530-MANAGED-BY-20261014/step-04-elixir-dev.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2530-MANAGED-BY-20261014"
+  },
+  "task": {
+    "description": "WF-02 step 5 (TEST-DESIGNER) for REQ-496 / GH #2530. Only lib/ edits allowed: the two REVIEWER line-length fixes and advisory A comments. No commit."
+  },
+  "result": {
+    "status": "UNVERIFIED",
+    "summary": "TESTS WRITTEN, NOT RUN. Free memory stayed below 4 GB for the whole step (1.26-1.93 GB, last 1.64 GB at 18:24Z), so no mix test and no compile ran. Ran under the mutex (created and removed by this step, no BEAM left by it): `mix format <touched files>` exit 0, then `mix format --check-formatted` (whole project) exit 0. LIB EDITS (no behaviour change): lib/letflow/routers/solution_packs.ex:547 bound `all_entries = theirs_raw ++ incoming_raw ++ resolutions_raw` before the case; lib/letflow/scope_node_paths/consistency.ex:108 split `capped =` onto two lines; advisory A: solution_pack.ex:454 `create_definition/2` -> `/3 (with install/4's owner)`, and every `run_install/5` comment (1342, 1539, 1564, 1642) -> `run_install/6`. EXISTING TESTS UPDATED: definitions_test.exs:272 ArtifactVersion 2 -> 1 with the rollback comment (T-35, intended); catalog_test.exs entry_modules list + FixtureManaged + FixtureManagedNoPack; tenant_auditor_routes_test.exs @named_routes + {TenantScopeNodePaths, \"/tenant/scope-node-paths\", :get, \"/consistency\", :route} (only route is the GET under :UsersGroupsRolesManage, which TENANT_AUDITOR lacks, so the real route is named, not a probe), 24 -> 25 in the guard and two test names/moduledoc; tenant_fixture_test.exs 51 -> 52 with comment. TEST SUPPORT: new Letflow.Modules.FixtureManagedNoPack (pack nil, manages_entity_types [\"fxm_missing_type\"]) in test/support/modules/fixture_managed/fixture_managed.ex, registered in config/test.exs, to reach Installs' managed_type_not_in_pack branch (T-19). NEW TESTS (92): entities_managed_by_test 16 (T-01..T-12 HTTP, T-20; byte-identical 403 vs Error.serialise with pinned trace_id; B2 order pins + unmanaged control), managed_types_test 11 (T-12 trigger/changeset, T-33 lock/no-query/FunctionClauseError/rename, T-35 lock_names + pack locks, check_create table), managed_types_callers_test 5 (T-34 AST scan, widened: struct(/struct!( with Owner, create_definition/3 and SolutionPack.install/4 with non-:tenant owner), solution_pack_managed_by_test 2 (T-13), installs_managed_by_test 4 (T-14, T-15, T-18, T-19), catalog_test +4 (T-19 rule 7), solution_packs_managed_by_test 4 (T-16, T-17 + controls), scope_node_paths write_test 15 (T-21..T-26), read_test 7 (T-30), consistency_check_test 11 (T-28), tenant_scope_node_paths_test 6 (T-29 incl. full-pipeline mount), letflow.check_scope_node_paths_writers_test 5 (T-27; run/1 raise via a probe file under priv/modules removed in on_exit), migration_test 2 (T-31). All DB tests async: false; no cross-connection locks, no sleeps, no waits. No mutant measured (nothing could run); suggested M1-M6 listed in test/specs/REQ-496.md. RISKS for TEST-RUNNER: first execution of the FixtureManaged install path in any test; Ecto.Migrator :down/:up with prefix in migration_test; pg_locks oid casts.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "test/specs/REQ-496.md",
+      "test/letflow/routers/entities_managed_by_test.exs",
+      "test/letflow/entities/managed_types_test.exs",
+      "test/letflow/entities/managed_types_callers_test.exs",
+      "test/letflow/definitions/solution_pack_managed_by_test.exs",
+      "test/letflow/modules/installs_managed_by_test.exs",
+      "test/letflow/routers/solution_packs_managed_by_test.exs",
+      "test/letflow/scope_node_paths/write_test.exs",
+      "test/letflow/scope_node_paths/read_test.exs",
+      "test/letflow/scope_node_paths/consistency_check_test.exs",
+      "test/letflow/routers/tenant_scope_node_paths_test.exs",
+      "test/mix/tasks/letflow.check_scope_node_paths_writers_test.exs",
+      "test/letflow/scope_node_paths/migration_test.exs",
+      "test/letflow/modules/catalog_test.exs (M)",
+      "test/letflow/entities/definitions_test.exs (M)",
+      "test/letflow/routers/tenant_auditor_routes_test.exs (M)",
+      "test/letflow/support/tenant_fixture_test.exs (M)",
+      "test/support/modules/fixture_managed/fixture_managed.ex (M)",
+      "config/test.exs (M)",
+      "lib/letflow/routers/solution_packs.ex (M)",
+      "lib/letflow/scope_node_paths/consistency.ex (M)",
+      "lib/letflow/definitions/solution_pack.ex (M, comments only)"
+    ],
+    "diagnosis_confirmed": false,
+    "implementation_written": true,
+    "classification": "TEST_DESIGN"
+  }
+}
