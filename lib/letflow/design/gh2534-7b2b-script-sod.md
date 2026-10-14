@@ -72,6 +72,12 @@ while a second admin is appearing. The safety property still holds (D6 amendment
 marked `self_published` and appears on the pending-review list as soon as the count is >= 2,
 because the list is derived at read time. Deactivation only lowers the count (a concurrent refusal
 is the safe direction).
+**Update (supervisor ruling for GH #2564, coordinator 2026-10-15):** the DEACTIVATION window
+closes when GH #2564 merges: user deactivation then revokes all of the user's tokens under
+`lock_tenant_admins!/1` and adds the 0051 N1 zero-tenant-wide-admin guard (write, count with
+`count_tenant_wide_admins/1`, roll back on 0), so it serialises on the same lock as publish,
+the solo gate (`solo_gate/3`) and confirm. Reactivation and pending-grant revoke stay residual
+until GH #2533. Nothing in 7b-2b depends on #2564.
 
 **Residual inherent to D6 [SEC F6]: the sock-puppet second admin.** A sole tenant-wide admin can
 add a second account they control (or that a colluder controls) as TENANT_ADMIN and use it to

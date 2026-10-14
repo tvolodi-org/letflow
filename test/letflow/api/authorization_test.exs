@@ -974,6 +974,11 @@ defmodule Letflow.Api.AuthorizationTest do
         {"PUT", "/script-policy/readable-masters/:entity_type", :ScriptPolicyManage},
         {"POST", "/script-policy/readable-masters/:entity_type/clear", :ScriptPolicyManage},
         {"DELETE", "/script-policy/kill-switch", :Unknown},
+        # GH 2534 PR 7b-2b (decision 0053 D6): sod, pending review, confirm, platform solo flag
+        {"PUT", "/script-policy/sod", :ScriptPolicyManage},
+        {"GET", "/script-policy/pending-review", :ScriptPolicyRead},
+        {"POST", "/script-rules/:key/versions/:version/confirm", :ScriptRulesConfirm},
+        {"PUT", "/tenants/:slug/script-policy/solo-audited", :TenantsManage},
         {"POST", "/onboarding", :TenantsManage},
         {"GET", "/onboarding", :TenantsManage},
         {"GET", "/onboarding/:id", :TenantsManage},

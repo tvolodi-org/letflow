@@ -57,8 +57,16 @@ defmodule Letflow.Routers.TenantsScriptPolicyTest do
   defp stored(fixture), do: Repo.get!(ScriptPolicy, 1, prefix: fixture.schema_name)
 
   defp assert_platform_shape(body) do
-    assert body |> Map.keys() |> Enum.sort() == ["kill_switch_on", "platform", "tenant"]
+    # GH 2534 7b-2b added the platform-owned solo_audited object (S10).
+    assert body |> Map.keys() |> Enum.sort() == [
+             "kill_switch_on",
+             "platform",
+             "solo_audited",
+             "tenant"
+           ]
+
     assert body["platform"] |> Map.keys() |> Enum.sort() == ["on", "reason", "set_at"]
+    assert body["solo_audited"] |> Map.keys() |> Enum.sort() == ["allowed", "reason", "set_at"]
     assert body["tenant"] |> Map.keys() |> Enum.sort() == ["on", "set_at"]
   end
 

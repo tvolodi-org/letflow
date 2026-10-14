@@ -30,6 +30,13 @@ defmodule Letflow.Scripts.ScriptRule do
     field(:revoked_at, :utc_datetime_usec)
     field(:discarded_at, :utc_datetime_usec)
     field(:self_published, :boolean, default: false)
+    # GH 2534 PR 7b-2b (design gh2534-7b2b-script-sod.md 3.2): the publish-time SoD set plus
+    # the publisher (NULL on drafts, discarded rows and rows published before 7b-2b), and the
+    # D6 confirmation of a self-published version.
+    field(:sod_excluded, {:array, :binary_id})
+    field(:confirmed_by, :binary_id)
+    field(:confirmed_at, :utc_datetime_usec)
+    field(:confirmed_sha256, :string)
 
     timestamps()
   end

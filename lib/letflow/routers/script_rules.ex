@@ -14,6 +14,7 @@ defmodule Letflow.Routers.ScriptRules do
   | `POST /:key/versions/:version/publish` | `:ScriptsPublish` |
   | `POST /:key/versions/:version/retire` | `:ScriptsPublish` |
   | `POST /:key/versions/:version/revoke` | `:ScriptsPublish` |
+  | `POST /:key/versions/:version/confirm` (7b-2b) | `:ScriptRulesConfirm` -> `:ScriptsPublish` |
   | `POST /:key/dry-run` | `:ScriptsWrite` |
 
   The tenant comes only from `conn.assigns.scoped_opts` (INV-1); the actor and its credential
@@ -27,6 +28,12 @@ defmodule Letflow.Routers.ScriptRules do
   7b-2a (`lib/letflow/design/gh2534-7b2a-script-policy.md` sections 5, 10): dry-run takes an
   optional `reads` fixture; while the tenant's script kill switch is on, dry-run and publish
   answer 409 `scripts_disabled`.
+
+  7b-2b (`lib/letflow/design/gh2534-7b2b-script-sod.md` sections 6.2, 6.4, 6.6): confirm
+  (`{sha256}`, OIDC only) clears a self-published version: 403 `not_tenant_wide_admin` /
+  `confirmer_is_contributor`, 409 `not_pending_review` / `content_changed`, the plain 404 for
+  an unknown, foreign or discarded version. `summary_map/1` gains `confirmed_at`;
+  `version_map/1` gains `confirmed_by`, `confirmed_sha256` and `sod_excluded`.
   """
 
   use Letflow.Api.AuthorizedRouter
@@ -123,6 +130,20 @@ defmodule Letflow.Routers.ScriptRules do
     )
   end
 
+  authz_post "/:key/versions/:version/confirm", :ScriptRulesConfirm do
+    reply(
+      conn,
+      Scripts.confirm(
+        prefix(conn),
+        conn.params["key"],
+        conn.params["version"],
+        conn.body_params["sha256"],
+        actor(conn)
+      ),
+      &version_map/1
+    )
+  end
+
   authz_post "/:key/dry-run", :ScriptsWrite do
     reply(
       conn,
@@ -198,15 +219,23 @@ defmodule Letflow.Routers.ScriptRules do
   defp reply(conn, {:error, :restricted_inputs_not_allowed}, _builder),
     do: Response.forbidden(conn, "restricted_inputs_not_allowed")
 
-  # 7b-2a: :scripts_disabled (the effective kill switch is on) is a 409 beside these.
+  # 7b-2b (design 6.6): confirm's caller refusals.
   defp reply(conn, {:error, code}, _builder)
-       when code in [:version_immutable, :content_changed, :scripts_disabled],
+       when code in [:not_tenant_wide_admin, :confirmer_is_contributor],
+       do: Response.forbidden(conn, Atom.to_string(code))
+
+  # 7b-2a: :scripts_disabled (the effective kill switch is on) is a 409 beside these; 7b-2b
+  # adds :not_pending_review.
+  defp reply(conn, {:error, code}, _builder)
+       when code in [:version_immutable, :content_changed, :scripts_disabled, :not_pending_review],
        do: Response.conflict(conn, Atom.to_string(code))
 
   defp reply(conn, {:error, :script_busy}, _builder),
     do: Response.send_json(conn, 503, %{"error" => "script_busy", "detail" => "script_busy"})
 
   defp reply(conn, {:error, :audit_failed}, _builder), do: Response.internal_error(conn)
+  # A missing policy row is a provisioning defect (7b-2a P7): 500, as on the policy routes.
+  defp reply(conn, {:error, :policy_missing}, _builder), do: Response.internal_error(conn)
   defp reply(conn, {:error, {:audit_failed, _}}, _builder), do: Response.internal_error(conn)
 
   defp reply(conn, {:error, code}, _builder) when is_atom(code),
@@ -214,8 +243,12 @@ defmodule Letflow.Routers.ScriptRules do
 
   # ── allowlist builders (INV-2) ─────────────────────────────────────────────
 
-  # No source, manifest, test cases or contributors in the list (D9).
-  defp summary_map(%ScriptRule{} = rule) do
+  @doc """
+  The summary allowlist (INV-2): no source, manifest, test cases or contributors (D9). Public
+  only so `Letflow.Routers.ScriptPolicy`'s pending-review list (7b-2b) answers the same shape.
+  """
+  @spec summary_map(ScriptRule.t()) :: map()
+  def summary_map(%ScriptRule{} = rule) do
     %{
       "key" => rule.key,
       "version" => rule.version,
@@ -227,7 +260,8 @@ defmodule Letflow.Routers.ScriptRules do
       "retired_at" => rule.retired_at,
       "revoked_at" => rule.revoked_at,
       "discarded_at" => rule.discarded_at,
-      "self_published" => rule.self_published
+      "self_published" => rule.self_published,
+      "confirmed_at" => rule.confirmed_at
     }
   end
 
@@ -237,6 +271,9 @@ defmodule Letflow.Routers.ScriptRules do
       "manifest" => rule.manifest,
       "test_cases" => rule.test_cases,
       "contributors" => rule.contributors,
+      "sod_excluded" => rule.sod_excluded,
+      "confirmed_by" => rule.confirmed_by,
+      "confirmed_sha256" => rule.confirmed_sha256,
       "created_at" => rule.inserted_at,
       "updated_at" => rule.updated_at
     })

@@ -17,12 +17,21 @@ defmodule Letflow.Scripts do
   the effective kill switch is on, dry-run and publish are refused with `:scripts_disabled`;
   publish re-checks before every stored test case and inside its transaction. Draft
   create/save/discard, retire and revoke are unaffected (P2).
+
+  GH 2534 PR 7b-2b (`lib/letflow/design/gh2534-7b2b-script-sod.md` sections 5, 6.4): publish
+  decides separation of duties in steps A-D (see `publish/7`): a contributor publish is
+  refused under the declared `strict` policy, allowed as a visibly `self_published` version
+  only under an effective `solo_audited` (sole tenant-wide admin), and auto-flips a declared
+  `solo_audited` to `strict` when a second admin exists. Every publish stores `sod_excluded`;
+  `confirm/5` clears a self-published version by a counted admin outside that set.
+  `Letflow.Identity.lock_tenant_admins!/1` is the first lock of every such transaction.
   """
 
   import Ecto.Query
 
   alias Letflow.Audit
   alias Letflow.Engine.Lua.ScriptRunner
+  alias Letflow.Identity
   alias Letflow.Repo
   alias Letflow.Scripts.Hash
   alias Letflow.Scripts.Policy
@@ -46,6 +55,10 @@ defmodule Letflow.Scripts do
           | :version_immutable
           | :content_changed
           | :publisher_is_contributor
+          | :not_tenant_wide_admin
+          | :confirmer_is_contributor
+          | :not_pending_review
+          | :policy_missing
           | :restricted_inputs_not_allowed
           | :test_cases_required
           | :test_case_failed
@@ -225,6 +238,21 @@ defmodule Letflow.Scripts do
   pre-checks and again inside the transaction with the master rows `FOR SHARE` (P5).
   `may_publish_restricted?` also covers a read with a non-empty `restricted_fields`.
 
+  7b-2b (`lib/letflow/design/gh2534-7b2b-script-sod.md` section 5): the SoD outcome is no
+  longer a clause of `publishable/3`; it is decided in four steps.
+    * A (no transaction): a publisher in the SoD set with a declared `strict` policy is
+      refused (`:publisher_is_contributor`) at once: no lock, no write, no test run.
+    * B (declared `solo_audited` only): a short transaction runs
+      `Letflow.Scripts.Policy.solo_gate/3` (the tenant admin lock FIRST, the policy row,
+      the recount). A count >= 2 flips the declared policy to `strict` (auto-strict, audited)
+      and COMMITS before the refusal is returned. The stored tests have not run.
+    * C: the stored tests, outside every transaction.
+    * D: the publish transaction, locks in the binding order (tenant admin lock, per-key lock,
+      row, master rows `FOR SHARE`, policy row, audit chain). The SoD set is recomputed; a
+      publisher in it goes through `solo_gate/3` again (backstop: an auto-strict flip is
+      COMMITTED and the publish refused). An allowed solo publish writes `self_published`;
+      every publish writes `sod_excluded` (the SoD set plus the publisher).
+
   `opts[:before_case]` (a 1-arity function given the 1-based case index, called immediately
   before that case's kill-switch check) is a TEST seam, honoured only when
   `Application.get_env(:letflow, :scripts_test_hooks)` is `true` (set only in
@@ -237,10 +265,53 @@ defmodule Letflow.Scripts do
          {:ok, version} <- parse_version(version),
          {:ok, rule} <- fetch(prefix, key, version),
          :ok <- scripts_enabled(prefix),
-         :ok <- publishable(prefix, rule, reviewed_sha, actor, may_publish_restricted?),
+         :ok <- publishable(rule, reviewed_sha, may_publish_restricted?),
          :ok <- Policy.check_reads(prefix, rule.manifest),
+         :ok <- sod_precheck(prefix, rule, actor),
          :ok <- run_test_cases(prefix, rule, opts) do
+      publish_transaction(prefix, key, version, reviewed_sha, actor, may_publish_restricted?)
+    end
+  end
+
+  # Steps A and B. The stored tests are NOT run before this decision.
+  defp sod_precheck(prefix, rule, actor) do
+    {in_set, _set} = in_sod_set?(prefix, rule, actor)
+
+    cond do
+      not in_set ->
+        :ok
+
+      not declared_solo?(prefix) ->
+        {:error, :publisher_is_contributor}
+
+      true ->
+        gate =
+          transaction(prefix, fn ->
+            Policy.solo_gate(prefix, actor, key: rule.key, version: rule.version)
+          end)
+
+        case gate do
+          {:ok, :solo_allowed} -> :ok
+          # {:refused, :auto_strict}: the flip and its audit entry are committed.
+          {:ok, {:refused, _auto_strict_or_strict}} -> {:error, :publisher_is_contributor}
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
+
+  # Step A's plain read of the declared value (no lock). A missing row reads as strict.
+  defp declared_solo?(prefix) do
+    case Policy.get(prefix) do
+      {:ok, %{sod: "solo_audited"}} -> true
+      _strict_or_missing -> false
+    end
+  end
+
+  # Step D.
+  defp publish_transaction(prefix, key, version, reviewed_sha, actor, may_publish_restricted?) do
+    result =
       transaction(prefix, fn ->
+        Identity.lock_tenant_admins!(prefix)
         lock_key!(prefix, key)
         rule = lock_row!(prefix, key, version)
 
@@ -248,7 +319,7 @@ defmodule Letflow.Scripts do
         # it still cannot run (7c checks at run time).
         if Policy.kill_switch_on?(prefix), do: Repo.rollback(:scripts_disabled)
 
-        case publishable(prefix, rule, reviewed_sha, actor, may_publish_restricted?) do
+        case publishable(rule, reviewed_sha, may_publish_restricted?) do
           :ok -> :ok
           {:error, reason} -> Repo.rollback(reason)
         end
@@ -258,38 +329,71 @@ defmodule Letflow.Scripts do
           {:error, reason} -> Repo.rollback(reason)
         end
 
-        now = now()
+        {in_set, set} = in_sod_set?(prefix, rule, actor)
 
-        rule
-        |> Ecto.Changeset.change(
-          status: "published",
-          publisher_id: actor.user_id,
-          published_at: now
-        )
-        |> Repo.update!(prefix: prefix)
-        |> tap(fn published ->
-          audit!(
-            published,
-            "script_rule.published",
-            nil,
-            %{
-              "publisher_id" => actor.user_id,
-              "contributors" => published.contributors,
-              "test_cases_sha256" =>
-                :sha256
-                |> :crypto.hash(Hash.canon(published.test_cases))
-                |> Base.encode16(case: :lower),
-              "restricted_inputs_checked" => restricted_opt_in?(published)
-            },
-            actor,
-            prefix
-          )
-        end)
+        case sod_decision(prefix, actor, rule, in_set) do
+          # Backstop auto-strict: COMMIT the flip, refuse the publish.
+          :auto_strict -> {:refused, :publisher_is_contributor}
+          self_published -> publish_row!(prefix, rule, actor, self_published, set)
+        end
       end)
+
+    case result do
+      {:ok, {:refused, :publisher_is_contributor}} -> {:error, :publisher_is_contributor}
+      other -> other
     end
   end
 
-  defp publishable(prefix, rule, reviewed_sha, actor, may_publish_restricted?) do
+  defp sod_decision(_prefix, _actor, _rule, false), do: false
+
+  defp sod_decision(prefix, actor, rule, true) do
+    case Policy.solo_gate(prefix, actor,
+           admin_lock_held: true,
+           key: rule.key,
+           version: rule.version
+         ) do
+      :solo_allowed -> true
+      {:refused, :auto_strict} -> :auto_strict
+      {:refused, :strict} -> Repo.rollback(:publisher_is_contributor)
+    end
+  end
+
+  defp publish_row!(prefix, rule, actor, self_published, set) do
+    sod_excluded = Enum.uniq(set ++ [actor.user_id])
+
+    rule
+    |> Ecto.Changeset.change(
+      status: "published",
+      publisher_id: actor.user_id,
+      published_at: now(),
+      self_published: self_published,
+      sod_excluded: sod_excluded
+    )
+    |> Repo.update!(prefix: prefix)
+    |> tap(fn published ->
+      audit!(
+        published,
+        "script_rule.published",
+        nil,
+        %{
+          "publisher_id" => actor.user_id,
+          "contributors" => published.contributors,
+          "test_cases_sha256" =>
+            :sha256
+            |> :crypto.hash(Hash.canon(published.test_cases))
+            |> Base.encode16(case: :lower),
+          "restricted_inputs_checked" => restricted_opt_in?(published),
+          "self_published" => published.self_published,
+          "sod_excluded" => published.sod_excluded
+        },
+        actor,
+        prefix
+      )
+    end)
+  end
+
+  # [CDV 2] SoD is NOT a clause here (section 5); see sod_precheck/3 and sod_decision/4.
+  defp publishable(rule, reviewed_sha, may_publish_restricted?) do
     cond do
       rule.status != "draft" ->
         {:error, :version_immutable}
@@ -300,15 +404,18 @@ defmodule Letflow.Scripts do
       rule.test_cases == [] ->
         {:error, :test_cases_required}
 
-      actor.user_id in sod_set(prefix, rule) ->
-        {:error, :publisher_is_contributor}
-
       restricted_opt_in?(rule) and not may_publish_restricted? ->
         {:error, :restricted_inputs_not_allowed}
 
       true ->
         :ok
     end
+  end
+
+  # Whether the actor is in the D6 SoD set, and the set (stored as `sod_excluded` at publish).
+  defp in_sod_set?(prefix, rule, actor) do
+    set = sod_set(prefix, rule)
+    {actor.user_id in set, set}
   end
 
   # D6 strict: contributors of every version above the last published one (draft and
@@ -482,6 +589,74 @@ defmodule Letflow.Scripts do
             "script_rule.#{to}",
             nil,
             %{Atom.to_string(stamp) => now, "reason" => reason},
+            actor,
+            prefix
+          )
+        )
+      end)
+    end
+  end
+
+  # ── confirmation (7b-2b, design gh2534-7b2b-script-sod.md 6.4) ──────────────
+
+  @doc """
+  Confirms a self-published version (decision 0053 D6: "cleared by a non-contributor admin's
+  confirmation bound to the sha256"). Order: OIDC credential; version parse (else 404). One
+  transaction, locks in the binding order: `Identity.lock_tenant_admins!/1` FIRST, the
+  per-key lock, the row `FOR UPDATE` (unknown, foreign or discarded: the plain 404, INV-5,
+  decided before any sha or membership check); then status `published`/`retired`,
+  `self_published` and not yet confirmed (`:not_pending_review`); the stored sha256 equals
+  `reviewed_sha` (`:content_changed`); the caller is a counted tenant-wide admin
+  (`:not_tenant_wide_admin`); the caller is NOT in the stored publish-time SoD set
+  `sod_excluded` (`:confirmer_is_contributor`, SEC F2). Writes `confirmed_by`, `confirmed_at`,
+  `confirmed_sha256`; audited `script_rule.confirmed`. Does not require two admins (S6).
+  """
+  @spec confirm(String.t(), String.t(), term(), term(), actor()) ::
+          {:ok, ScriptRule.t()} | {:error, error()}
+  def confirm(prefix, key, version, reviewed_sha, actor) do
+    with :ok <- require_interactive(actor),
+         {:ok, version} <- parse_version(version) do
+      transaction(prefix, fn ->
+        Identity.lock_tenant_admins!(prefix)
+        lock_key!(prefix, key)
+        rule = lock_row!(prefix, key, version)
+
+        cond do
+          rule.status not in ["published", "retired"] or rule.self_published != true or
+              not is_nil(rule.confirmed_at) ->
+            Repo.rollback(:not_pending_review)
+
+          reviewed_sha != rule.sha256 ->
+            Repo.rollback(:content_changed)
+
+          actor.user_id not in Identity.tenant_wide_admin_user_ids(prefix) ->
+            Repo.rollback(:not_tenant_wide_admin)
+
+          actor.user_id in (rule.sod_excluded || []) ->
+            Repo.rollback(:confirmer_is_contributor)
+
+          true ->
+            :ok
+        end
+
+        rule
+        |> Ecto.Changeset.change(
+          confirmed_by: actor.user_id,
+          confirmed_at: now(),
+          confirmed_sha256: rule.sha256
+        )
+        |> Repo.update!(prefix: prefix)
+        |> tap(
+          &audit!(
+            &1,
+            "script_rule.confirmed",
+            nil,
+            %{
+              "confirmed_by" => &1.confirmed_by,
+              "confirmed_sha256" => &1.confirmed_sha256,
+              "publisher_id" => &1.publisher_id,
+              "sod_excluded" => &1.sod_excluded
+            },
             actor,
             prefix
           )

@@ -33,6 +33,12 @@ defmodule Letflow.Routers.Tenants do
   platform-chain entry with the operator id, as ISS-1032). Both answer the allowlist
   `platform_policy_map/1`, never the tenant admin's reason or user id.
 
+  GH 2534 PR 7b-2b (decision 0053 D6, `lib/letflow/design/gh2534-7b2b-script-sod.md` 6.3) adds
+  `PUT /tenants/:slug/script-policy/solo-audited` (`{allowed, reason}`, OIDC only): the
+  platform flag allowing the tenant's `solo_audited` mode
+  (`Letflow.Scripts.Policy.set_platform_solo_audited/5`, same audit split). The map gains
+  only the platform-owned `solo_audited` object, never the tenant's declared or effective sod.
+
   ## THIS IS THE HIGHEST-RISK ROUTE GROUP IN S4 (AC6)
 
   These six handlers operate on the global `tenants` table, entirely
@@ -230,6 +236,12 @@ defmodule Letflow.Routers.Tenants do
 
   authz_put "/:slug/script-policy/kill-switch", :TenantsManage do
     handle_put_script_kill_switch(conn, conn.params["slug"])
+  end
+
+  # GH 2534 PR 7b-2b (decision 0053 D6, design gh2534-7b2b-script-sod.md 6.3): the PLATFORM flag
+  # allowing the tenant's `solo_audited` separation-of-duties mode (default forbidden).
+  authz_put "/:slug/script-policy/solo-audited", :TenantsManage do
+    handle_put_script_solo_audited(conn, conn.params["slug"])
   end
 
   # REQ-077 R10 (ENV-03) -- the ONE route this requirement contributes to
@@ -438,19 +450,12 @@ defmodule Letflow.Routers.Tenants do
   defp handle_put_script_kill_switch(conn, slug) do
     case script_policy_target(conn, slug) do
       {:ok, tenant, prefix} ->
-        operator = %{
-          user_id: conn.assigns.auth_context.user_id,
-          credential: Map.get(conn.assigns.auth_context, :credential),
-          trace_id: conn.assigns[:trace_id],
-          platform_prefix: verified_platform_prefix(conn)
-        }
-
         case Scripts.Policy.set_platform_kill_switch(
                prefix,
                tenant.id,
                conn.body_params["on"],
                conn.body_params["reason"],
-               operator
+               script_operator(conn)
              ) do
           {:ok, policy} ->
             Response.ok(conn, platform_policy_map(policy))
@@ -472,6 +477,45 @@ defmodule Letflow.Routers.Tenants do
     end
   end
 
+  # 7b-2b (design 6.3): handler order and error mapping exactly as the kill-switch handler.
+  defp handle_put_script_solo_audited(conn, slug) do
+    case script_policy_target(conn, slug) do
+      {:ok, tenant, prefix} ->
+        case Scripts.Policy.set_platform_solo_audited(
+               prefix,
+               tenant.id,
+               conn.body_params["allowed"],
+               conn.body_params["reason"],
+               script_operator(conn)
+             ) do
+          {:ok, policy} ->
+            Response.ok(conn, platform_policy_map(policy))
+
+          {:error, :api_token_not_allowed} ->
+            Response.forbidden(conn, "api_token_not_allowed")
+
+          {:error, code} when code in [:invalid_reason, :invalid_state] ->
+            Response.unprocessable(conn, Atom.to_string(code))
+
+          # :policy_missing, :audit_failed or anything unexpected: 500, nothing written.
+          {:error, _policy_missing_audit_failed_or_unexpected} ->
+            Response.internal_error(conn)
+        end
+
+      {:error, :not_found} ->
+        Response.not_found(conn)
+    end
+  end
+
+  defp script_operator(conn) do
+    %{
+      user_id: conn.assigns.auth_context.user_id,
+      credential: Map.get(conn.assigns.auth_context, :credential),
+      trace_id: conn.assigns[:trace_id],
+      platform_prefix: verified_platform_prefix(conn)
+    }
+  end
+
   defp script_policy_target(conn, slug) do
     with :ok <- TenantTarget.authorize_target_tenant(conn, slug),
          {:ok, tenant} <- Identity.get_tenant_by_slug(slug),
@@ -482,9 +526,15 @@ defmodule Letflow.Routers.Tenants do
     end
   end
 
-  # Allowlist (exact key set, SEC F2): the tenant latch's on/off and time only.
+  # Allowlist (exact key set, SEC F2): the tenant latch's on/off and time only. 7b-2b (S10,
+  # SEC F4): plus the PLATFORM-owned solo flag only; never the declared or effective sod.
   defp platform_policy_map(%Scripts.ScriptPolicy{} = policy) do
     %{
+      "solo_audited" => %{
+        "allowed" => policy.platform_solo_audited_allowed,
+        "set_at" => policy.platform_solo_audited_set_at,
+        "reason" => policy.platform_solo_audited_reason
+      },
       "kill_switch_on" => Scripts.ScriptPolicy.effective?(policy),
       "platform" => %{
         "on" => policy.platform_kill_switch,
