@@ -113,19 +113,28 @@ defmodule Letflow.Entities.Records do
           required(:idempotency_key) => String.t()
         }
 
+  @typedoc """
+  GH #2528 optimistic-concurrency token: the `last_event_global_seq` the
+  caller last saw for the record. `nil` (or the key absent) keeps today's
+  last-writer-wins behaviour byte-for-byte.
+  """
+  @type expected_seq :: non_neg_integer() | nil
+
   @type update_attrs :: %{
           required(:entity_type) => String.t(),
           required(:record_id) => Ecto.UUID.t(),
           required(:field_values) => Validator.field_values(),
           required(:actor_id) => Ecto.UUID.t(),
-          required(:idempotency_key) => String.t()
+          required(:idempotency_key) => String.t(),
+          optional(:expected_last_event_global_seq) => expected_seq()
         }
 
   @type delete_attrs :: %{
           required(:entity_type) => String.t(),
           required(:record_id) => Ecto.UUID.t(),
           required(:actor_id) => Ecto.UUID.t(),
-          required(:idempotency_key) => String.t()
+          required(:idempotency_key) => String.t(),
+          optional(:expected_last_event_global_seq) => expected_seq()
         }
 
   @type command_result :: %{record: Latest.t(), is_duplicate: boolean()}
@@ -135,6 +144,7 @@ defmodule Letflow.Entities.Records do
           | {:error, {:record_payload_invalid, Validator.violations() | [Violation.t()]}}
           | {:error, {:record_not_found, record_id :: Ecto.UUID.t()}}
           | {:error, {:record_already_deleted, record_id :: Ecto.UUID.t()}}
+          | {:error, :record_version_conflict}
           | {:error, :tenant_not_provisioned}
           | {:error, :invalid_schema_name}
           | {:error, {:payload_validation_failed, [term()]}}
@@ -170,6 +180,7 @@ defmodule Letflow.Entities.Records do
         field_values: field_values,
         definition: definition,
         existing_record: nil,
+        expected_last_event_global_seq: nil,
         prefix: prefix
       }
 
@@ -186,6 +197,15 @@ defmodule Letflow.Entities.Records do
   Validates against `entity_type`'s **current** active definition, which may
   differ from the definition version the record was originally created
   under (design §5.2, an explicit non-goal to reconcile).
+
+  GH #2528: an optional `:expected_last_event_global_seq` makes the write
+  conditional. Inside the transaction, after the per-type sequence lock and
+  the idempotency check (so an identical replay still returns the original as
+  `is_duplicate: true`), the row is re-read `FOR UPDATE`; a mismatch (or a row
+  that vanished) returns `{:error, :record_version_conflict}` and rolls back
+  the whole command, idempotency claim included. Absent/`nil` adds no step at
+  all. A non-nil value that is not a non-negative integer raises
+  `ArgumentError` (programmer error from an internal caller).
   """
   @spec update_record(update_attrs(), prefix :: String.t()) ::
           {:ok, command_result()} | command_error()
@@ -194,6 +214,8 @@ defmodule Letflow.Entities.Records do
         prefix
       )
       when is_binary(prefix) do
+    expected = expected_seq(attrs)
+
     with {:ok, definition} <- fetch_active_definition(entity_type, prefix),
          {:ok, existing_record} <- fetch_existing_record(record_id, entity_type, prefix),
          :ok <- ensure_not_deleted(existing_record, record_id),
@@ -205,6 +227,7 @@ defmodule Letflow.Entities.Records do
         field_values: field_values,
         definition: definition,
         existing_record: existing_record,
+        expected_last_event_global_seq: expected,
         prefix: prefix
       }
 
@@ -220,11 +243,17 @@ defmodule Letflow.Entities.Records do
   (already-deleted) row with `is_duplicate: false` -- deletion is naturally
   idempotent at the domain level, independent of the idempotency-key
   mechanism.
+
+  GH #2528: the optional `:expected_last_event_global_seq` works as in
+  `update_record/2` for a live record. An already-deleted record keeps the
+  no-op success above regardless of the expected value (no check, no event).
   """
   @spec delete_record(delete_attrs(), prefix :: String.t()) ::
           {:ok, command_result()} | command_error()
   def delete_record(%{entity_type: entity_type, record_id: record_id} = attrs, prefix)
       when is_binary(prefix) do
+    expected = expected_seq(attrs)
+
     with {:ok, definition} <- fetch_active_definition(entity_type, prefix),
          {:ok, existing_record} <- fetch_existing_record(record_id, entity_type, prefix) do
       if existing_record.deleted do
@@ -237,6 +266,7 @@ defmodule Letflow.Entities.Records do
           field_values: existing_record.field_values,
           definition: definition,
           existing_record: existing_record,
+          expected_last_event_global_seq: expected,
           prefix: prefix
         }
 
@@ -256,6 +286,7 @@ defmodule Letflow.Entities.Records do
       case EventStore.append_multi(Multi.new(), event_attrs, prefix: prefix) do
         {:ok, multi} ->
           multi
+          |> maybe_check_record_version(ctx)
           |> Multi.run(:upsert_record_latest, fn repo, changes ->
             upsert_record_latest(repo, changes, ctx)
           end)
@@ -316,8 +347,13 @@ defmodule Letflow.Entities.Records do
     |> repo.insert(prefix: ctx.prefix)
   end
 
+  # GH #2528 design D5: when :check_record_version ran, the changeset is based
+  # on the row it locked (so Ecto's UPDATE diff is computed against the
+  # current row by construction); otherwise on the pre-transaction read, as
+  # before (D2: the nil path is unchanged).
   defp upsert_record_latest(repo, changes, %{kind: kind} = ctx) when kind in [:update, :delete] do
-    ctx.existing_record
+    changes
+    |> Map.get(:check_record_version, ctx.existing_record)
     |> Latest.update_changeset(%{
       field_values: ctx.field_values,
       deleted: kind == :delete,
@@ -330,6 +366,61 @@ defmodule Letflow.Entities.Records do
   defp fetch_global_seq(changes) do
     %Event{global_seq: global_seq} = Map.fetch!(changes, :insert_event)
     global_seq
+  end
+
+  # ---------------------------------------------------------------------
+  # GH #2528 -- optimistic concurrency (design
+  # lib/letflow/design/gh2528-record-version-conflict.md §3)
+  # ---------------------------------------------------------------------
+
+  # Called at the entry of update_record/2 and delete_record/2, before any
+  # lookup (in particular before delete_record/2's already-deleted early
+  # return), so a bad internal value raises on a live and a deleted record
+  # alike. The router validates before calling; the HTTP path never raises.
+  defp expected_seq(attrs) do
+    case Map.get(attrs, :expected_last_event_global_seq) do
+      nil ->
+        nil
+
+      seq when is_integer(seq) and seq >= 0 ->
+        seq
+
+      other ->
+        raise ArgumentError,
+              "expected_last_event_global_seq must be nil or a non-negative integer, " <>
+                "got: #{inspect(other)}"
+    end
+  end
+
+  # D2: nil adds no step at all (same idiom as
+  # EventStore.maybe_store_oversized_payload/2), so every existing caller gets
+  # an identical Multi. D3: otherwise the step is appended after every
+  # append_multi/3 step (under the sequence lock, after :idempotency) and
+  # before :upsert_record_latest.
+  @spec maybe_check_record_version(Ecto.Multi.t(), ctx :: map()) :: Ecto.Multi.t()
+  defp maybe_check_record_version(multi, %{expected_last_event_global_seq: nil}), do: multi
+
+  defp maybe_check_record_version(multi, ctx) do
+    Multi.run(multi, :check_record_version, fn repo, changes ->
+      check_record_version(repo, changes, ctx)
+    end)
+  end
+
+  # D4: re-reads the row FOR UPDATE; never compares against
+  # ctx.existing_record, which was read before the transaction and may be
+  # stale under a race (READ COMMITTED: only a statement run after the lock
+  # sees the winner's commit). D6: an absent row here can only be a
+  # concurrent projection rebuild -- the pre-read already proved the record
+  # exists in this tenant -- so it is a conflict too.
+  @spec check_record_version(Ecto.Repo.t(), changes :: map(), ctx :: map()) ::
+          {:ok, Latest.t()} | {:error, :record_version_conflict}
+  defp check_record_version(repo, _changes, ctx) do
+    expected = ctx.expected_last_event_global_seq
+
+    case Latest.get_for_update(repo, ctx.record_id, ctx.entity_type, ctx.prefix) do
+      %Latest{last_event_global_seq: ^expected} = locked -> {:ok, locked}
+      _stale_or_absent -> {:error, :record_version_conflict}
+    end
   end
 
   # ---------------------------------------------------------------------

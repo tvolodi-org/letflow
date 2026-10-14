@@ -36,10 +36,12 @@ defmodule Letflow.Routers.EntitiesTest do
   # write goes through a context module or through the HTTP routes themselves.
   import Ecto.Query, only: [from: 2]
 
+  alias Letflow.Api.Error
   alias Letflow.Entities.Definitions
   alias Letflow.Entities.EventTypes
   alias Letflow.Entities.Query.Cursor
   alias Letflow.Entities.Query.FieldGrants
+  alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Records
   alias Letflow.Identity
   alias Letflow.Identity.User
@@ -2885,6 +2887,255 @@ defmodule Letflow.Routers.EntitiesTest do
         request(:post, "/api/v1/entities/restrictions/import", ctx, ["not", "an", "object"])
 
       assert conn.status == 400
+    end
+  end
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # GH #2528 -- optimistic concurrency on PUT/DELETE
+  # (lib/letflow/design/gh2528-record-version-conflict.md §6, §8).
+  # ═══════════════════════════════════════════════════════════════════════
+
+  # Seeds a record and moves it on by one plain update, so its creation seq
+  # (`stale`) is no longer current (`current`).
+  defp gh2528_stale_record!(ctx) do
+    seed_active_definition!(ctx)
+    record = seed_record!(ctx)
+
+    {:ok, %{record: updated}} =
+      Records.update_record(
+        %{
+          entity_type: "widget",
+          record_id: record.record_id,
+          field_values: %{"title" => "moved on"},
+          actor_id: ctx.user_id,
+          idempotency_key: Ecto.UUID.generate()
+        },
+        ctx.schema_name
+      )
+
+    %{
+      record_id: record.record_id,
+      stale: record.last_event_global_seq,
+      current: updated.last_event_global_seq
+    }
+  end
+
+  defp gh2528_stored!(ctx, record_id) do
+    {:ok, record} = Latest.get(record_id, "widget", ctx.schema_name)
+    record
+  end
+
+  # The 409 body carries no record data and no sequence number: no
+  # `field_values`/`last_event_global_seq` member and no integer value equal to
+  # either seq anywhere in it.
+  defp gh2528_assert_conflict_body!(conn, seqs) do
+    assert conn.status == 409
+    assert [content_type] = get_resp_header(conn, "content-type")
+    assert content_type =~ "application/problem+json"
+
+    body = body_of(conn)
+    assert body["code"] == "record_version_conflict"
+    refute Map.has_key?(body, "field_values")
+    refute Map.has_key?(body, "last_event_global_seq")
+
+    # `status` (always 409) is excluded so a seq that happens to equal 409
+    # cannot false-fail; `detail` is the fixed constant string.
+    assert body["detail"] == "the record was changed by someone else; reload it and try again"
+
+    for {key, value} <- body, key != "status", seq <- seqs do
+      refute value == seq, "409 body member #{key} carries a sequence number"
+    end
+  end
+
+  defp gh2528_not_found_body,
+    do: Error.not_found() |> Error.serialise() |> Jason.decode!() |> Map.delete("trace_id")
+
+  describe "GH-2528 -- record version conflict" do
+    test "PUT with a stale expected_last_event_global_seq -> 409 problem+json, no record data, nothing written" do
+      ctx = tenant_ctx("gh2528-put-stale")
+      %{record_id: id, stale: stale, current: current} = gh2528_stale_record!(ctx)
+
+      conn =
+        request(:put, "/api/v1/entities/records/widget/#{id}", ctx, %{
+          "field_values" => %{"title" => "stale write"},
+          "expected_last_event_global_seq" => stale
+        })
+
+      gh2528_assert_conflict_body!(conn, [stale, current])
+
+      stored = gh2528_stored!(ctx, id)
+      assert stored.field_values == %{"title" => "moved on"}
+      assert stored.last_event_global_seq == current
+    end
+
+    test "PUT with the current expected_last_event_global_seq -> 200" do
+      ctx = tenant_ctx("gh2528-put-match")
+      %{record_id: id, current: current} = gh2528_stale_record!(ctx)
+
+      conn =
+        request(:put, "/api/v1/entities/records/widget/#{id}", ctx, %{
+          "field_values" => %{"title" => "fresh write"},
+          "expected_last_event_global_seq" => current
+        })
+
+      assert conn.status == 200
+      body = body_of(conn)
+      assert body["field_values"] == %{"title" => "fresh write"}
+      assert body["last_event_global_seq"] > current
+    end
+
+    test "PUT with a non-integer expected_last_event_global_seq -> 422, nothing written" do
+      ctx = tenant_ctx("gh2528-put-422")
+      %{record_id: id, current: current} = gh2528_stale_record!(ctx)
+
+      for bad <- ["abc", 1.5, true, -1] do
+        conn =
+          request(:put, "/api/v1/entities/records/widget/#{id}", ctx, %{
+            "field_values" => %{"title" => "typed wrong"},
+            "expected_last_event_global_seq" => bad
+          })
+
+        assert conn.status == 422, "expected 422 for #{inspect(bad)}, got #{conn.status}"
+      end
+
+      assert gh2528_stored!(ctx, id).last_event_global_seq == current
+    end
+
+    test "PUT with a stale If-Match header only -> 200 (If-Match stays ignored)" do
+      ctx = tenant_ctx("gh2528-put-ifmatch")
+      %{record_id: id, stale: stale} = gh2528_stale_record!(ctx)
+
+      conn =
+        conn(
+          :put,
+          "/api/v1/entities/records/widget/#{id}",
+          Jason.encode!(%{"field_values" => %{"title" => "if-match only"}})
+        )
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header("if-match", ~s("#{stale}"))
+        |> put_req_header("authorization", "Bearer " <> ctx.plaintext)
+        |> put_req_header("x-tenant-slug", ctx.slug)
+        |> dispatch()
+
+      assert conn.status == 200
+      assert body_of(conn)["field_values"] == %{"title" => "if-match only"}
+    end
+
+    test "DELETE ?expected_last_event_global_seq=<stale> -> 409, record not deleted" do
+      ctx = tenant_ctx("gh2528-del-stale")
+      %{record_id: id, stale: stale, current: current} = gh2528_stale_record!(ctx)
+
+      conn =
+        request(
+          :delete,
+          "/api/v1/entities/records/widget/#{id}?expected_last_event_global_seq=#{stale}",
+          ctx
+        )
+
+      gh2528_assert_conflict_body!(conn, [stale, current])
+      refute gh2528_stored!(ctx, id).deleted
+    end
+
+    test "DELETE ?expected_last_event_global_seq=<current> -> 200, record deleted" do
+      ctx = tenant_ctx("gh2528-del-match")
+      %{record_id: id, current: current} = gh2528_stale_record!(ctx)
+
+      conn =
+        request(
+          :delete,
+          "/api/v1/entities/records/widget/#{id}?expected_last_event_global_seq=#{current}",
+          ctx
+        )
+
+      assert conn.status == 200
+      assert gh2528_stored!(ctx, id).deleted
+    end
+
+    test "DELETE with a non-integer expected_last_event_global_seq query value -> 400, record not deleted" do
+      ctx = tenant_ctx("gh2528-del-400")
+      %{record_id: id} = gh2528_stale_record!(ctx)
+
+      for raw <- ["abc", "", "-1", "1.5", "1x", "9223372036854775808"] do
+        conn =
+          request(
+            :delete,
+            "/api/v1/entities/records/widget/#{id}?expected_last_event_global_seq=#{URI.encode_www_form(raw)}",
+            ctx
+          )
+
+        assert conn.status == 400, "expected 400 for #{inspect(raw)}, got #{conn.status}"
+        assert body_of(conn)["detail"] == "invalid expected_last_event_global_seq"
+      end
+
+      refute gh2528_stored!(ctx, id).deleted
+    end
+
+    test "INV-5: PUT with an expected value on a cross-tenant or absent record_id -> the same zero-detail 404" do
+      ctx_a = tenant_ctx("gh2528-inv5-put-a")
+      ctx_b = tenant_ctx("gh2528-inv5-put-b")
+      seed_active_definition!(ctx_a)
+      seed_active_definition!(ctx_b)
+      b_record = seed_record!(ctx_b)
+      pinned = [trace_id: "gh2528-inv5-put-fixed-trace"]
+
+      body = %{
+        "field_values" => %{"title" => "attempted"},
+        "expected_last_event_global_seq" => b_record.last_event_global_seq
+      }
+
+      cross_tenant =
+        request(
+          :put,
+          "/api/v1/entities/records/widget/#{b_record.record_id}",
+          ctx_a,
+          body,
+          pinned
+        )
+
+      absent =
+        request(
+          :put,
+          "/api/v1/entities/records/widget/#{Ecto.UUID.generate()}",
+          ctx_a,
+          body,
+          pinned
+        )
+
+      assert {cross_tenant.status, cross_tenant.resp_body} == {absent.status, absent.resp_body}
+      assert cross_tenant.status == 404
+      assert normalise_problem(cross_tenant) == gh2528_not_found_body()
+    end
+
+    test "INV-5: DELETE with an expected value on a cross-tenant or absent record_id -> the same zero-detail 404" do
+      ctx_a = tenant_ctx("gh2528-inv5-del-a")
+      ctx_b = tenant_ctx("gh2528-inv5-del-b")
+      seed_active_definition!(ctx_a)
+      seed_active_definition!(ctx_b)
+      b_record = seed_record!(ctx_b)
+      pinned = [trace_id: "gh2528-inv5-del-fixed-trace"]
+      query = "?expected_last_event_global_seq=#{b_record.last_event_global_seq}"
+
+      cross_tenant =
+        request(
+          :delete,
+          "/api/v1/entities/records/widget/#{b_record.record_id}#{query}",
+          ctx_a,
+          nil,
+          pinned
+        )
+
+      absent =
+        request(
+          :delete,
+          "/api/v1/entities/records/widget/#{Ecto.UUID.generate()}#{query}",
+          ctx_a,
+          nil,
+          pinned
+        )
+
+      assert {cross_tenant.status, cross_tenant.resp_body} == {absent.status, absent.resp_body}
+      assert cross_tenant.status == 404
+      assert normalise_problem(cross_tenant) == gh2528_not_found_body()
     end
   end
 end
