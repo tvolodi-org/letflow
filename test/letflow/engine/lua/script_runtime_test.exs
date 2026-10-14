@@ -631,7 +631,12 @@ defmodule Letflow.Engine.Lua.ScriptRuntimeTest do
       worker = find_worker(watchdog)
       assert is_pid(worker)
 
+      # terminate_child is synchronous: it returns only once the watchdog has exited. Without
+      # the watchdog's {:EXIT, ^parent, _} handling it would wait the supervisor's 5 s
+      # shutdown timeout, so a fast return proves the watchdog itself reacted.
+      started = System.monotonic_time(:millisecond)
       :ok = Task.Supervisor.terminate_child(Letflow.Engine.Lua.TaskSupervisor, watchdog)
+      assert System.monotonic_time(:millisecond) - started < 1_000
 
       assert eventually(fn -> not Process.alive?(worker) end)
       assert_receive {:result, {:error, :script_error, %{}}}, 3_000
@@ -649,7 +654,8 @@ defmodule Letflow.Engine.Lua.ScriptRuntimeTest do
       |> Task.Supervisor.children()
       |> Enum.find(fn child ->
         case Process.info(child, :dictionary) do
-          {:dictionary, dict} -> pid in Keyword.get(dict, :"$callers", [])
+          # the DIRECT caller only (the worker's $callers is [watchdog, caller])
+          {:dictionary, dict} -> List.first(Keyword.get(dict, :"$callers", [])) == pid
           nil -> false
         end
       end)
