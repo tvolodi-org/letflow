@@ -774,4 +774,149 @@ defmodule Letflow.Routers.ScriptRulesTest do
 
     assert freed
   end
+
+  # ── GH 2534 PR 7c-1 (design gh2534-7c-script-handler.md 4.5, 8.2; C11, C19) ───────────
+
+  @closed_manifest %{
+    "input_schema" => %{"type" => "object", "properties" => %{"x" => %{"type" => "integer"}}},
+    "output_schema" => %{
+      "type" => "object",
+      "properties" => %{"y" => %{"type" => "integer"}},
+      "additionalProperties" => false
+    },
+    "fail_codes" => ["too_big"]
+  }
+
+  defp published_closed!(fixture, key) do
+    v =
+      json(
+        call(
+          :post,
+          "/#{key}/versions",
+          fixture,
+          @designer,
+          body(%{"manifest" => @closed_manifest})
+        )
+      )
+
+    assert publish(fixture, key, v["version"], v["sha256"], Ecto.UUID.generate()).status == 200
+    v["version"]
+  end
+
+  defp bind_active!(fixture, key, version) do
+    Letflow.Support.ScriptTaskFixture.definition!(
+      fixture.schema_name,
+      Letflow.Support.ScriptTaskFixture.script_graph(key, version),
+      []
+    )
+  end
+
+  describe "7c-1 AC3: retire block (D3)" do
+    test "retire bound -> 409", ctx do
+      k = key()
+      version = published_closed!(ctx.a, k)
+      bind_active!(ctx.a, k, version)
+
+      conn =
+        call(:post, "/#{k}/versions/#{version}/retire", ctx.a, @admin, %{"reason" => "superseded"})
+
+      assert conn.status == 409
+      assert detail(conn) == "version_in_use"
+      # nothing written or audited
+      assert row(ctx.a, k, version).status == "published"
+      refute "script_rule.retired" in audit_actions(ctx.a, k, version)
+    end
+
+    test "retire after deprecate ok", ctx do
+      k = key()
+      version = published_closed!(ctx.a, k)
+      definition = bind_active!(ctx.a, k, version)
+      assert {:ok, _} = Letflow.Definitions.deprecate(definition.id, prefix: ctx.a.schema_name)
+
+      conn =
+        call(:post, "/#{k}/versions/#{version}/retire", ctx.a, @admin, %{"reason" => "superseded"})
+
+      assert conn.status == 200, conn.resp_body
+      assert row(ctx.a, k, version).status == "retired"
+    end
+
+    test "revoke never blocked", ctx do
+      k = key()
+      version = published_closed!(ctx.a, k)
+      bind_active!(ctx.a, k, version)
+
+      conn =
+        call(:post, "/#{k}/versions/#{version}/revoke", ctx.a, @admin, %{"reason" => "vulnerable"})
+
+      assert conn.status == 200, conn.resp_body
+      assert row(ctx.a, k, version).status == "revoked"
+    end
+  end
+
+  describe "7c-1 AC10: the `$` write channel is refused before any run reaches an instance" do
+    test "manifest $ name refused", ctx do
+      manifest =
+        put_in(@closed_manifest, ["output_schema", "properties"], %{
+          "$x" => %{"type" => "integer"}
+        })
+
+      conn = call(:post, "/#{key()}/versions", ctx.a, @designer, body(%{"manifest" => manifest}))
+      assert conn.status == 422
+      assert detail(conn) == "invalid_manifest"
+    end
+
+    test "dry-run $", ctx do
+      k = key()
+
+      source =
+        ~s|return { y = ctx.input.x, ["$writes"] = { { entity_type = "po", command = "create" } } }|
+
+      # an OPEN output schema: without the `$` check this output would be "ok"
+      assert call(
+               :post,
+               "/#{k}/versions",
+               ctx.a,
+               @designer,
+               body(%{"source" => source, "test_cases" => [hd(@test_cases)]})
+             ).status ==
+               201
+
+      result =
+        json(
+          call(:post, "/#{k}/dry-run", ctx.a, @designer, %{"version" => 1, "input" => %{"x" => 3}})
+        )
+
+      assert result["outcome"] == "output_invalid"
+      assert result["output"] == nil
+    end
+
+    test "stored test $ fails", ctx do
+      k = key()
+      source = ~s|return { y = ctx.input.x * 2, ["$writes"] = {} }|
+
+      cases = [
+        %{
+          "name" => "writes",
+          "input" => %{"x" => 2},
+          "expect" => %{"output" => %{"y" => 4, "$writes" => []}}
+        }
+      ]
+
+      v =
+        json(
+          call(
+            :post,
+            "/#{k}/versions",
+            ctx.a,
+            @designer,
+            body(%{"source" => source, "test_cases" => cases})
+          )
+        )
+
+      conn = publish(ctx.a, k, 1, v["sha256"], Ecto.UUID.generate())
+      assert conn.status == 422
+      assert json(conn)["outcome"] == "output_invalid"
+      assert row(ctx.a, k, 1).status == "draft"
+    end
+  end
 end

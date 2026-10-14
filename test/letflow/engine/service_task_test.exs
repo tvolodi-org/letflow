@@ -310,4 +310,59 @@ defmodule Letflow.Engine.ServiceTaskTest do
       refute {:append_multi, 3} in exported
     end
   end
+
+  # ---------------------------------------------------------------------------------
+  # GH 2534 PR 7c-1 AC1 (design gh2534-7c-script-handler.md 4.1): route :script
+  # ---------------------------------------------------------------------------------
+
+  describe "GH 2534 7c-1 AC1 -- the :script route" do
+    test "script route parses" do
+      assert {:ok, %Config{} = config} =
+               ServiceTask.parse_config_from_node_attributes(
+                 svc_node(%{"script_key" => "pricing_v", "script_version" => 3})
+               )
+
+      assert config.route_kind == :script
+      assert config.script_key == "pricing_v"
+      assert config.script_version == 3
+      assert config.url_template == nil and config.service_id == nil
+    end
+
+    test "conflicting routes refused" do
+      for other <- [%{"endpoint" => "http://x"}, %{"service_id" => "svc"}] do
+        attrs = Map.merge(%{"script_key" => "k", "script_version" => 1}, other)
+
+        assert ServiceTask.parse_config_from_node_attributes(svc_node(attrs)) ==
+                 {:error, :conflicting_routes}
+      end
+    end
+
+    test "invalid script reference" do
+      for key <- ["Bad", "1abc", "has-dash", String.duplicate("a", 65)] do
+        assert ServiceTask.parse_config_from_node_attributes(
+                 svc_node(%{"script_key" => key, "script_version" => 1})
+               ) == {:error, {:invalid_script_reference, :key}}
+      end
+
+      for version <- [nil, 0, -1, "1", 1.0] do
+        attrs = %{"script_key" => "k", "script_version" => version}
+
+        assert ServiceTask.parse_config_from_node_attributes(svc_node(attrs)) ==
+                 {:error, {:invalid_script_reference, :version}}
+      end
+    end
+
+    test "HTTP parse unchanged (an empty script_key is not a script binding)" do
+      assert {:ok, %Config{route_kind: :inline_url, script_key: nil}} =
+               ServiceTask.parse_config_from_node_attributes(
+                 svc_node(%{"endpoint" => "http://x", "script_key" => ""})
+               )
+
+      assert {:ok, %Config{route_kind: :catalog_service}} =
+               ServiceTask.parse_config_from_node_attributes(svc_node(%{"service_id" => "s"}))
+
+      assert ServiceTask.parse_config_from_node_attributes(svc_node(%{})) ==
+               {:error, :missing_url_and_service_id}
+    end
+  end
 end

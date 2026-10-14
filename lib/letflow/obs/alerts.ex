@@ -14,7 +14,7 @@ defmodule Letflow.Obs.Alerts do
   |---|---|---|
   | Audience | Platform operator diagnostics | Tenant-facing event delivery |
   | Configuration | Application config — no API, no route | Tenant API (`POST /webhooks/subscriptions`) |
-  | Triggers | Fixed set of four: `instance_error_stuck`, `dlq_depth_threshold`, `scheduler_lag_threshold`, `webhook_subscription_paused` | Any domain event type |
+  | Triggers | Fixed set of five: `instance_error_stuck`, `dlq_depth_threshold`, `scheduler_lag_threshold`, `webhook_subscription_paused`, `script_hmac_secret_missing` (GH 2534 7c, fired by the script dispatcher, not by `run_detection/2`) | Any domain event type |
   | Signing | None (optional `auth_secret_ref` via REQ-190) | HMAC-SHA256 `X-Letflow-Signature` mandatory |
   | Auto-pause | No | Yes — `consecutive_failures >= 5` → PAUSED |
   | Delivery failure terminal action | Log via REQ-193 and drop | Land in `dlq_entries` |
@@ -672,6 +672,90 @@ defmodule Letflow.Obs.Alerts do
 
   defp format_datetime(%DateTime{} = dt) do
     DateTime.to_iso8601(dt)
+  end
+
+  # ---------------------------------------------------------------------------
+  # GH 2534 PR 7c-1: the fifth trigger, script_hmac_secret_missing (design
+  # lib/letflow/design/gh2534-7c-script-handler.md 7.3, C15). Called ONLY by
+  # Letflow.Engine.ScriptTaskDispatcher. Edge-triggered through the same
+  # alert_trigger_state row machinery as the four detection triggers above:
+  # ARMED -> one error line (+ hooks when alert_hooks is enabled) -> FIRED;
+  # FIRED -> nothing; clear_ re-arms (a no-op when already armed). The payload
+  # and the log carry only the trigger name and the tenant schema. Never raises.
+  # ---------------------------------------------------------------------------
+
+  @script_hmac_trigger "script_hmac_secret_missing"
+
+  @doc """
+  A run found the tenant's script HMAC key missing: fires the edge-triggered operator alert
+  once (log line, plus the alert hooks when enabled) and disarms it until
+  `clear_script_hmac_secret_missing/1`. Never raises.
+  """
+  @spec notify_script_hmac_secret_missing(tenant_schema :: String.t()) :: :ok
+  def notify_script_hmac_secret_missing(tenant_schema) when is_binary(tenant_schema) do
+    state = load_trigger_state(@script_hmac_trigger, tenant_schema)
+
+    if state.is_armed do
+      now = DateTime.utc_now()
+
+      Logger.error("script HMAC secret missing",
+        component: "script_task",
+        tenant_schema: tenant_schema,
+        trigger: @script_hmac_trigger
+      )
+
+      cfg = Application.get_env(:letflow, :alert_hooks, [])
+
+      if Keyword.get(cfg, :enabled, false) do
+        fire_hooks(
+          build_hooks(cfg),
+          @script_hmac_trigger,
+          %{"trigger" => @script_hmac_trigger, "tenant_schema" => tenant_schema},
+          tenant_schema
+        )
+      end
+
+      upsert_trigger_state(
+        %{
+          trigger_key: @script_hmac_trigger,
+          is_armed: false,
+          last_sample_value: 1,
+          last_fired_at: now,
+          last_correlation_id: nil,
+          updated_at: now
+        },
+        tenant_schema
+      )
+    end
+
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  @doc "A run found the key: re-arms the trigger (a no-op when already armed). Never raises."
+  @spec clear_script_hmac_secret_missing(tenant_schema :: String.t()) :: :ok
+  def clear_script_hmac_secret_missing(tenant_schema) when is_binary(tenant_schema) do
+    state = load_trigger_state(@script_hmac_trigger, tenant_schema)
+
+    unless state.is_armed do
+      rearm_and_clear_emissions(
+        %{
+          trigger_key: @script_hmac_trigger,
+          is_armed: true,
+          last_sample_value: 0,
+          last_fired_at: state.last_fired_at,
+          last_correlation_id: nil,
+          updated_at: DateTime.utc_now()
+        },
+        @script_hmac_trigger,
+        tenant_schema
+      )
+    end
+
+    :ok
+  rescue
+    _ -> :ok
   end
 
   # ---------------------------------------------------------------------------

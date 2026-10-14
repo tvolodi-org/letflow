@@ -1502,4 +1502,62 @@ defmodule Letflow.Definitions.GraphTest do
       assert codes(result) == [:missing_role]
     end
   end
+
+  # ---------------------------------------------------------------------------------
+  # GH 2534 PR 7c-1 AC1 (design gh2534-7c-script-handler.md 4.2): CHK-10 widened, CHK-10s
+  # ---------------------------------------------------------------------------------
+
+  defp script_svc(attrs), do: graph([attr_node("svc", :SERVICE_TASK, attrs)], [])
+
+  describe "GH 2534 7c-1 AC1 -- script bindings in validate_node_attributes/1" do
+    test "a well-formed script binding passes (no endpoint, no timeout needed)" do
+      result =
+        Graph.validate_node_attributes(
+          script_svc(%{"script_key" => "pricing", "script_version" => 1})
+        )
+
+      assert codes(result) == []
+    end
+
+    test "conflicting routes refused" do
+      for other <- [%{"endpoint" => "http://x"}, %{"service_id" => "svc"}] do
+        attrs = Map.merge(%{"script_key" => "pricing", "script_version" => 1}, other)
+        result = Graph.validate_node_attributes(script_svc(attrs))
+        assert :conflicting_service_task_routes in codes(result)
+        refute :missing_endpoint in codes(result)
+      end
+    end
+
+    test "invalid script reference" do
+      for attrs <- [
+            %{"script_key" => "Bad", "script_version" => 1},
+            %{"script_key" => "ok_key", "script_version" => 0},
+            %{"script_key" => "ok_key", "script_version" => "1"},
+            %{"script_key" => "ok_key"},
+            %{"script_key" => 42, "script_version" => 1}
+          ] do
+        result = Graph.validate_node_attributes(script_svc(attrs))
+        assert :invalid_script_reference in codes(result), inspect(attrs)
+        refute :missing_endpoint in codes(result)
+      end
+    end
+
+    test "messages name the node id only, never the attribute values" do
+      result =
+        Graph.validate_node_attributes(
+          script_svc(%{"script_key" => "SECRET_VALUE_X", "endpoint" => "http://leak"})
+        )
+
+      for v <- result.violations do
+        refute v.message =~ "SECRET_VALUE_X"
+        refute v.message =~ "http://leak"
+        assert v.message =~ "'svc'"
+      end
+    end
+
+    test "a node without script_key sees no change (CHK-10 and CHK-11 as before)" do
+      result = Graph.validate_node_attributes(script_svc(%{}))
+      assert codes(result) == [:missing_endpoint, :invalid_timeout]
+    end
+  end
 end

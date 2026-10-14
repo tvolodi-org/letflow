@@ -1,0 +1,30 @@
+{
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "line_items": {"type": "array", "items": {
+        "type": "object",
+        "properties": {
+          "sku": {"type": "string", "minLength": 1, "maxLength": 64},
+          "qty": {"type": "integer", "minimum": 1},
+          "unit_price_cents": {"type": "integer", "minimum": 0}
+        },
+        "required": ["sku", "qty", "unit_price_cents"], "additionalProperties": false}},
+      "tax_rate_bp": {"type": "integer", "minimum": 0, "maximum": 10000}
+    },
+    "required": ["line_items", "tax_rate_bp"]
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "subtotal_cents": {"type": "integer", "minimum": 0},
+      "tax_cents": {"type": "integer", "minimum": 0},
+      "total_cents": {"type": "integer", "minimum": 0},
+      "approval_tier": {"type": "string", "enum": ["auto", "manager", "director", "board"]}
+    },
+    "required": ["subtotal_cents", "tax_cents", "total_cents", "approval_tier"],
+    "additionalProperties": false
+  },
+  "fail_codes": ["empty_order", "quantity_too_large"],
+  "limits": {"instructions": 200000, "timeout_ms": 500, "heap_words": 1048576}
+}

@@ -23,6 +23,7 @@ defmodule Letflow.Scripts.HmacSecretTest do
   alias Letflow.TenantProvisioning
   alias Letflow.TenantProvisioning.Registration
   alias Mix.Tasks.Letflow.BackfillScriptHmacSecrets
+  alias Letflow.Support.ScriptTaskFixture, as: F
 
   setup do
     fixture = TenantFixture.provisioned_tenant!(slug_prefix: "gh2534-hmac")
@@ -142,5 +143,108 @@ defmodule Letflow.Scripts.HmacSecretTest do
 
     assert {:ok, %Registration{}} = TenantOnboarding.provision_and_migrate(tenant.id)
     assert [%Secret{purpose: :script_hmac}] = rows(tenant.id)
+  end
+
+  # ── GH 2534 PR 7c-1 AC13 (design gh2534-7c-script-handler.md 7.2, 7.3, C15) ─────────────
+
+  defp secret_rows(tenant_id) do
+    Repo.all(
+      from(s in Secret,
+        where: s.tenant_id == ^tenant_id and s.namespace == "platform",
+        order_by: s.key_id
+      )
+    )
+    |> Enum.map(&Map.take(&1, [:id, :key_id, :status, :ciphertext]))
+  end
+
+  defp disable_all!(tenant_id) do
+    from(s in Secret,
+      where:
+        s.tenant_id == ^tenant_id and s.namespace == "platform" and
+          s.name == "script-input-hmac"
+    )
+    |> Repo.update_all(set: [status: :disabled])
+  end
+
+  defp start_bound(fixture) do
+    F.bound!(fixture, F.doubling_source(), F.closed_manifest(), %{"amount" => 1})
+  end
+
+  defp alert_lines(log),
+    do: log |> String.split("script HMAC secret missing") |> length() |> Kernel.-(1)
+
+  describe "7c-1 AC13: the run path resolves the key, never creates one" do
+    test "T-secret-present-none-created", %{fixture: f} do
+      :ok = HmacSecret.ensure(%{id: f.tenant_id})
+      before = secret_rows(f.tenant_id)
+      assert [_one] = before
+
+      b = start_bound(f)
+      {_row, {:ok, :applied}} = F.run_next!(f.schema_name)
+      assert F.projection(f.schema_name, b.instance_id).variables["total"] == 2
+      assert secret_rows(f.tenant_id) == before
+    end
+
+    test "T-secret-missing-one-alert", %{fixture: f} do
+      :ok = HmacSecret.ensure(%{id: f.tenant_id})
+      {1, _} = disable_all!(f.tenant_id)
+      before = secret_rows(f.tenant_id)
+      first = start_bound(f)
+      second = start_bound(f)
+
+      log =
+        ExUnit.CaptureLog.capture_log([level: :error], fn ->
+          {_r1, {:ok, :failed}} = F.run_next!(f.schema_name)
+          {_r2, {:ok, :failed}} = F.run_next!(f.schema_name)
+        end)
+
+      for b <- [first, second] do
+        row = F.row!(f.schema_name, b.instance_id)
+        assert {row.outcome, row.outcome_detail} == {"script_rejected", "hmac_secret_missing"}
+      end
+
+      assert alert_lines(log) == 1
+      assert secret_rows(f.tenant_id) == before
+      refute HmacSecret.exists?(f.tenant_id)
+    end
+
+    test "rearm after restore", %{fixture: f} do
+      :ok = HmacSecret.ensure(%{id: f.tenant_id})
+      {1, _} = disable_all!(f.tenant_id)
+      start_bound(f)
+
+      log1 =
+        ExUnit.CaptureLog.capture_log([level: :error], fn ->
+          {_r, {:ok, :failed}} = F.run_next!(f.schema_name)
+        end)
+
+      assert alert_lines(log1) == 1
+
+      {1, _} =
+        from(s in Secret, where: s.tenant_id == ^f.tenant_id and s.namespace == "platform")
+        |> Repo.update_all(set: [status: :active])
+
+      ok = start_bound(f)
+      {_r, {:ok, :applied}} = F.run_next!(f.schema_name)
+      assert F.projection(f.schema_name, ok.instance_id).variables["total"] == 2
+
+      state =
+        Repo.get(Letflow.Obs.AlertTriggerState, "script_hmac_secret_missing",
+          prefix: f.schema_name
+        )
+
+      assert state.is_armed
+
+      # re-armed: the next missing-key run alerts again, once
+      {1, _} = disable_all!(f.tenant_id)
+      start_bound(f)
+
+      log2 =
+        ExUnit.CaptureLog.capture_log([level: :error], fn ->
+          {_r, {:ok, :failed}} = F.run_next!(f.schema_name)
+        end)
+
+      assert alert_lines(log2) == 1
+    end
   end
 end

@@ -721,8 +721,71 @@ defmodule Letflow.Engine.Reconstruction do
     end
   end
 
+  # GH 2534 PR 7c-1 (decision 0053 D5, MUST 11; design gh2534-7c-script-handler.md section 6):
+  # the per-run record changes no state.
+  defp apply_event(
+         _graph,
+         %InstanceState{} = state,
+         %{event_type: "SCRIPT_RUN_RECORDED"},
+         _prefix
+       ) do
+    {:ok, state}
+  end
+
+  # GH 2534 PR 7c-1: a script SERVICE_TASK's RECORDED output is applied, never re-computed --
+  # replay re-executes no script (this file references no script runtime). Mirrors the live
+  # path: merge the recorded output (validations already ran live, as for TASK_COMPLETED),
+  # drop the token from pending_service_task_nodes, advance off the node, then drain.
+  defp apply_event(
+         graph,
+         %InstanceState{} = state,
+         %{event_type: "SCRIPT_TASK_COMPLETED"} = event,
+         _prefix
+       ) do
+    with {:ok, node_id} <- fetch_string_field(event, "node_id"),
+         {:ok, output} <- fetch_map_field(event, "output"),
+         {:ok, token} <- find_task_completion_token(state.tokens, node_id) do
+      case VariableMerge.merge(state.variables, output, nil) do
+        {:ok, new_variables, _merge_events} ->
+          state_with_merged_variables = %InstanceState{
+            state
+            | variables: new_variables,
+              pending_service_task_nodes:
+                Enum.reject(state.pending_service_task_nodes, &(&1.token_id == token.token_id))
+          }
+
+          dispatch_service_task_completion(graph, state_with_merged_variables, token)
+
+        {:rejected, _unchanged_variables,
+         [{:execution_error, key, _rejected_value, :variable_schema_rejected, _failures}]} ->
+          {:error, {:variable_merge_rejected, event.event_id, key}}
+      end
+    end
+  end
+
   defp apply_event(_graph, _state, %{event_type: event_type, event_id: event_id}, _prefix) do
     {:error, {:unrecognized_event_type, event_type, event_id}}
+  end
+
+  # GH 2534 PR 7c-1: the live SERVICE_TASK completion hop (Engine.persist_service_task_advance)
+  # dispatches Transition.advance_off_completed_node/4 on the node's outgoing edges, then
+  # drains with Engine.advance_until_stable/4 -- which returns pending events but persists
+  # nothing, so no dispatch row is ever armed on this path.
+  defp dispatch_service_task_completion(graph, state, token) do
+    outgoing_edges = Enum.filter(graph.edges, &(&1.source == token.node_id))
+
+    case Transition.advance_off_completed_node(graph, state, token, outgoing_edges) do
+      {:ok, new_state, _pending_events} ->
+        newly_pending =
+          Engine.tokens_needing_dispatch(state.tokens, new_state.tokens, token.token_id)
+
+        resolve_pending_events(
+          Engine.advance_until_stable(graph, new_state, newly_pending, hop_limit(graph) - 1)
+        )
+
+      {:error, reason} ->
+        {:error, {:transition_error, reason}}
+    end
   end
 
   # design doc §5.3 TASK_COMPLETED row -- position match (by node_id), not

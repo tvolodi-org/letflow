@@ -226,8 +226,15 @@ defmodule Letflow.Routers.ScriptRules do
 
   # 7b-2a: :scripts_disabled (the effective kill switch is on) is a 409 beside these; 7b-2b
   # adds :not_pending_review.
+  # 7c-1 (D3, C19): :version_in_use, a retire of a version an ACTIVE definition binds.
   defp reply(conn, {:error, code}, _builder)
-       when code in [:version_immutable, :content_changed, :scripts_disabled, :not_pending_review],
+       when code in [
+              :version_immutable,
+              :content_changed,
+              :scripts_disabled,
+              :not_pending_review,
+              :version_in_use
+            ],
        do: Response.conflict(conn, Atom.to_string(code))
 
   defp reply(conn, {:error, :script_busy}, _builder),

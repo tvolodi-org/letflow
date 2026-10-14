@@ -210,7 +210,7 @@ in 7c-1 reaches an entity.
 | C9 | Instance variables are read by the ENGINE (projection, no lock) and only the 7c-2 master reads go through the port. | The instance's own variables are engine data; routing them through `Letflow.Entities` would invert ownership and add a needless edge. "Pre-fetch" = both sources assembled host-side before the run (section 5.3). |
 | C10 | A binding whose manifest opts into restricted data (non-empty `restricted_inputs`, or any `reads[].restricted_fields`) is REFUSED at activation (`script_restricted_opt_in_unsupported`) and rejected at run time as a backstop. | 0053 D5: "the host refuses activation/publish if [a derived output] maps to a target field with fewer restrictions". Hook 1's only targets are process variables, which carry NO field restrictions, so every target has fewer restrictions; the manifest has no key to declare derived outputs. Restricted fields listed only in `fields` remain readable-and-REDACTED (7b-2a P12), and run-time re-checks still apply (7c-2). Lifting this needs restricted variables or Record E. **CONFIRMED by the supervisor 2026-10-15** as an interim limit (narrows 0053 OP2's opt-in until variables can carry restrictions; recorded in 0053's notes by letflow-2). Split 7c-1 / 7c-2 ACCEPTED the same day. |
 | C11 | Write-command recognition: the top-level output key namespace `$` is reserved for host channels; ANY top-level key starting with `"$"` (the designated future channel is `"$writes"`) is refused: outcome `output_invalid`, detail `writes_not_allowed`. The same pure check runs at stored-test evaluation and dry-run, and the manifest refuses `output_schema.properties` names starting with `"$"` (422 `invalid_manifest`). | Supervisor fence: no entity writes; a precise, stable, cheap test that cannot collide with a legitimate variable (no shipped variable starts with `$`); refusing at save/publish/dry-run tells authors early. Nested `$` keys inside a variable's value are plain data and allowed. |
-| C11a | [SEC S1] A hook-1 binding requires a CLOSED output schema: `output_schema` is an object with a non-empty `properties` map and `"additionalProperties": false` at the top level; otherwise activation is refused (`script_output_schema_open`) and a run is rejected as a backstop (`script_rejected` / `output_schema_open`). At run time only the declared top-level properties are merged (`Map.take(output, declared)` after validation); an undeclared key fails validation first (`output_invalid` / `output_schema`). | Under SoD the publisher is not the definition author; an open schema would let a script overwrite ANY instance variable (gateway conditions, later HTTP body inputs). A closed schema makes the set of variables a script can write visible to, and accepted by, whoever activates the definition. |
+| C11a | [SEC S1] A hook-1 binding requires a CLOSED output schema: `output_schema` has top-level `"type": "object"`, a NON-EMPTY `properties` map and `"additionalProperties": false` (ONE predicate, `Scripts.Runtime.closed_output_schema?/1`, identical to 4.5 and shared by activation, `prepare_run/3` and the apply step; late gate note b); otherwise activation is refused (`script_output_schema_open`) and a run is rejected as a backstop (`script_rejected` / `output_schema_open`). At run time only the declared top-level properties are merged (`Map.take(output, declared)` after validation); an undeclared key fails validation first (`output_invalid` / `output_schema`). | Under SoD the publisher is not the definition author; an open schema would let a script overwrite ANY instance variable (gateway conditions, later HTTP body inputs). A closed schema makes the set of variables a script can write visible to, and accepted by, whoever activates the definition. |
 | C12 | The per-run record is an instance-stream event `SCRIPT_RUN_RECORDED` with a closed, value-free payload (section 7); the applied output is recorded separately in `SCRIPT_TASK_COMPLETED` (the replay source). | D9 places the per-run record on the instance stream and forbids values in it; D5 requires replay to apply RECORDED results, which needs the output somewhere; it is instance variable data, the same class as TASK_COMPLETED `output_variables` (and only ever lands in variables). |
 | C13 | One terminal attempt = one `SCRIPT_RUN_RECORDED` (applied or failed, including a pre-run rejection and a lease expiry, distinguished by `phase`). A busy attempt that is rescheduled writes none. An attempt whose instance is no longer active at apply writes no event (append refuses completed/cancelled instances, 0.2); its trace is the dispatch row's `outcome`/`outcome_detail`. | Every incident is attributable; no event for something that changed nothing. |
 | C14 | The HMAC covers `canonical({"ctx": {instance_id, node_id, token_id, now}, "input": input})`, HMAC-SHA256 under the tenant key resolved through `HmacSecret`, recorded as lowercase hex plus the secret `key_id` (`#n`). The key never leaves a closure (`HmacSecret.hmac_fun/1`); the closure catches every crypto failure and returns a fixed `:hmac_failed` (7.2) [SEC S3]. | ctx changes the output (uuid, now), so it belongs in "same inputs"; storing `key_id` lets an auditor recompute with the right key after rotation; a closure keeps the plaintext out of crash reports (function arguments in a `FunctionClauseError` are printed, closure captures are not). |
@@ -224,7 +224,7 @@ in 7c-1 reaches an entity.
 
 ## 3. Data model (7c-1)
 
-### 3.1 Tenant migration `20261015000001_create_script_task_dispatches.exs`
+### 3.1 Tenant migration `20261015100001_create_script_task_dispatches.exs` (next free slot, 19a)
 
 `if prefix()` guard; entry in `@tenant_scoped_migration_manifest` after `20261014100002`
 (ELIXIR-DEV takes the next free timestamp if a sibling PR claims it). No SQL interpolates anything
@@ -268,7 +268,7 @@ call passes `prefix:`), changesets: `arm_changeset/2` (identity columns, `event_
 claim, reschedule, finish and cancel writes are explicit `update_all` with full predicates, each
 setting `updated_at`.
 
-### 3.2 Tenant migration `20261015000002_lua_script_audit_read_only.exs`
+### 3.2 Tenant migration `20261015100002_lua_script_audit_read_only.exs`
 
 Function `lua_script_execution_audit_read_only()` raising `LF001`; one trigger `BEFORE INSERT OR
 UPDATE OR DELETE ... FOR EACH ROW` on `lua_script_execution_audit`. No TRUNCATE trigger (C17,
@@ -414,7 +414,8 @@ BOUND parameter (INV-7). True -> `Repo.rollback(:version_in_use)`; router 409 `{
   tick; `max_dispatches_per_cycle` is the PER-TENANT cap per tick).
 * Test seams, ALL honoured only when `Application.get_env(:letflow, :scripts_test_hooks, false) ==
   true` (the 7b-2a seam convention; set only in `config/test.exs`; a test asserts each is ignored
-  when the flag is false):
+  when the flag is false; the application refuses to boot in `:prod` with it set, 19a late gate
+  note c):
   * `:script_task_runner` (default `Letflow.Engine.Lua.ScriptRunner`, a module with `run/3`);
   * `:script_task_hmac_fun_override` (7.2);
   * `:script_task_apply_pause` (a 1-arity function given `:after_cas`, called inside the apply
@@ -496,13 +497,16 @@ metadata [SEC S3].
    a row in the previous pass and the deadline is not reached.
 4. Return the summary and `next_offset = offset + 1` (the next tick starts one tenant later).
 
-Fairness guarantee (stated, tested; R4): within a tick, no tenant runs its k+1-th row before every
-other tenant that had a due row has run its k-th; a run takes at most `timeout_ms + 2_000 <= 7_000`
-ms plus the apply, so a tenant with a due row waits at most `(n_busy_tenants - 1) x 7 s` within a
-pass, and the deadline is checked only between rows, so a tick lasts at most `tick_budget_ms + 7 s`
-plus one apply. The rotating offset stops a fixed tenant order from always serving the same tenant
-last when the budget runs out. One tenant's backlog therefore delays another tenant by at most one
-row per pass, never by its whole backlog.
+Fairness guarantee (stated, tested; R4) [late gate note d]: WITHIN a tick, no tenant runs its
+k+1-th row before every other tenant that had a due row has run its k-th, so a tenant with a due
+row waits for at most `n - 1` rows (one per other busy tenant) before its own row runs; a run takes
+at most `timeout_ms + 2_000 <= 7_000` ms plus the apply, i.e. at most `(n - 1) x 7 s`. The
+deadline is checked only between rows, so a tick lasts at most `tick_budget_ms + 7 s` plus one
+apply. ACROSS ticks, when the budget runs out every tick, the rotating start offset (one tenant
+later per tick) bounds how long a tenant can be passed over: it is served first after at most
+about `n / 2` ticks on average (at most `n - 1` ticks), instead of a fixed order always serving the
+same tenant last. One tenant's backlog therefore delays another tenant by at most one row per pass,
+never by its whole backlog.
 
 ### 5.2 Claim (transaction A, short)
 
@@ -807,7 +811,7 @@ no `lua_script_execution_audit` writer in `lib/`. `Lua.Executor`'s own tests sta
 "History stays readable" [CDV C6] runs on a DEDICATED, non-pooled tenant schema created by the test
 (a bare schema from `TenantProvisioning.provision_tenant_schema/1`), never on a pooled clone: the
 test migrates that schema with `Ecto.Migrator.run(Repo, TenantProvisioning.tenant_scoped_migrations(),
-:up, to: <version before 20261015000002>, prefix: schema)`,
+:up, to: <version before 20261015100002>, prefix: schema)`,
 inserts one row through `AuditRecord.insert_changeset/2`, migrates to the latest version, then reads
 the row back through `AuditRecord` and asserts a second insert is refused; `on_exit` drops the
 schema. No trigger is ever disabled and the pooled reset (no TRUNCATE trigger, C17) is untouched.
@@ -1133,7 +1137,8 @@ false); a run with `true` -> `output_invalid` / `output_schema`, and the instanc
   row is claimed before A's SECOND row (`claimed_at` order); with `tick_budget_ms` small and slow
   rows the tick stops at the deadline (`budget_exhausted: true`) after at most one row past it, and
   the next tick starts at the other tenant (rotating offset). A tenant with a due row never waits for
-  another tenant's full backlog.
+  another tenant's full backlog: within a tick it waits at most `n - 1` rows; across ticks whose
+  budget runs out, the rotating offset bounds the wait at about `n / 2` ticks (late gate note d).
 * **AC30 [CDV C9]** A sweep apply that fails (test hook forcing `{:error, _}`) increments
   `sweep_failures`; at `sweep_failure_limit` the row is no longer selected, exactly one `sweep_stuck`
   error line is logged and telemetry emitted; repeated ticks before the limit produce one aggregated
@@ -1297,9 +1302,11 @@ AC -> suite / named test [CDV C7]:
   incident and its result is discarded by the CAS (safe direction: never a double apply).
 * **R4 (fairness guarantee, not a residual risk) [SEC S2]** One poller per node runs scripts
   sequentially, round-robin across tenants, one row per tenant per pass, under `tick_budget_ms`
-  (5.1a). Guarantee: a tenant with a due row runs it after at most one row of every other tenant
-  with a due row in the same pass (<= `(n - 1) x 7 s`); no tenant's backlog can delay another by more
-  than one row per pass; a tick overruns its budget by at most one row. What remains is throughput:
+  (5.1a). Guarantee [late gate note d]: within a tick, a tenant with a due row waits at most `n - 1`
+  rows, one of every other tenant with a due row in the same pass (<= `(n - 1) x 7 s`); across
+  ticks, when the budget runs out every tick, the rotating start offset bounds the wait at about
+  `n / 2` ticks (at most `n - 1`); no tenant's backlog can delay another by more than one row per
+  pass; a tick overruns its budget by at most one row. What remains is throughput:
   with many busy tenants on one node, latency grows linearly with the number of busy tenants (more
   nodes add pollers, `SKIP LOCKED` spreads rows). HTTP dispatch is unaffected.
 * **R5** An attempt whose instance is no longer active at apply leaves its trace only on the dispatch
@@ -1311,6 +1318,38 @@ AC -> suite / named test [CDV C7]:
   not by a separate spike (12).
 * **R8** The triggering-user value depends on each hop site's existing actor; sites without one store
   NULL (4.4).
+* **R9 [late gate note a]** An apply that commits while a `cancel_instance` waits on the dispatch row
+  can leave an orphan `pending` script row on the cancelled instance: the apply's hop chain may arm
+  the NEXT script node's row, which the cancel's already-running `UPDATE` statement cannot see
+  (READ COMMITTED re-checks only rows in its snapshot). The row is inert: the claim joins
+  `instance_projections.status = :active`, so it is never claimed, run or applied. The AC18a
+  "apply first" test asserts any leftover row is never claimed. A future instance purge removes it
+  (DELETE is not refused, 3.1).
+
+## 19a. Implementation notes (7c-1, ELIXIR-DEV)
+
+* [late gate note c, SECURITY] Boot guard: `Letflow.Application.start/2` refuses to start when
+  `config :letflow, :config_env` (set from `config_env()` in `config/config.exs`) is `:prod` and
+  `:scripts_test_hooks` is `true` (`Letflow.Scripts.Runtime.boot_check/2`, fixed-text raise). Every
+  7b/7c test seam is honoured only while that flag is true. Test:
+  `test/letflow/scripts/runtime_boot_check_test.exs`.
+* Migration timestamps: main already carries tenant migration `20261015025331` (role scope grants),
+  so the two 7c-1 migrations take the next free, ordered slots `20261015100001` (dispatch table)
+  and `20261015100002` (LuaScriptAudit read-only), per 3.1 "next free timestamp".
+* CHK-11 (`timeout_ms` required on every SERVICE_TASK) does not apply to a script-bound node: its
+  `timeout_ms` is ignored (4.1), and the worked example's node (12) carries none.
+* Stored-test evaluation and dry-run apply the C11 `$` refusal only (`Scripts.Runtime.writes_key?/1`
+  -> `output_invalid`); the C11a undeclared-key refusal is a hook-1 BINDING rule (activation and
+  run), so a draft with an open output schema keeps its 7b test/dry-run behaviour otherwise.
+* The `script_busy` exhaustion, sweep and B' follow-up all reuse `apply_script_task_result/3`; the
+  engine normalises the run facts' `outcome`/`detail` from the result tuple, so the run record and
+  the row always agree.
+* A missing/unusable `:script` pin at a non-create hop is handled exactly like the catalog case:
+  `complete_task/3` routes it to an ExecutionError (`:script_task_pin_unresolved`); the timer,
+  HTTP-advance, script-advance and sub-process hops roll back with a typed error (their existing
+  catalog behaviour), which on the script-advance hop becomes a B' `apply_failed` incident.
+* The 409 for a blocked retire uses the script-rules router's existing conflict family (`detail:
+  "version_in_use"`), like `version_immutable`.
 
 ## 20. Open questions
 

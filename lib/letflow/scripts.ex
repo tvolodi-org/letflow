@@ -72,6 +72,7 @@ defmodule Letflow.Scripts do
           | :invalid_input
           | :invalid_reason
           | :audit_failed
+          | :version_in_use
           | {:audit_failed, term()}
 
   # ── reads ──────────────────────────────────────────────────────────────────
@@ -514,26 +515,31 @@ defmodule Letflow.Scripts do
 
       result ->
         case {result, test_case["expect"]} do
-          {{:ok, %{output: output}}, %{"output" => expected}} ->
-            if Hash.canon(output) == Hash.canon(expected) and
-                 Letflow.EventStore.Registry.JsonSchema.validate(
-                   output,
-                   rule.manifest["output_schema"]
-                 ) == [],
-               do: :pass,
-               else: {:fail, "output_mismatch"}
+          # GH 2534 PR 7c-1 (C11, design 8.2): an output carrying a top-level `$` key (the
+          # reserved host-channel namespace, e.g. `$writes`) fails as `output_invalid`.
+          {{:ok, %{output: output}}, expect} ->
+            if Letflow.Scripts.Runtime.writes_key?(output),
+              do: {:fail, "output_invalid"},
+              else: compare_case_output(output, expect, rule)
 
           {{:error, :script_failed, %{fail: %{code: code}}}, %{"fail" => code}} ->
             :pass
-
-          {{:ok, _}, _} ->
-            {:fail, "unexpected_output"}
 
           {{:error, code, _}, _} ->
             {:fail, Atom.to_string(code)}
         end
     end
   end
+
+  defp compare_case_output(output, %{"output" => expected}, rule) do
+    if Hash.canon(output) == Hash.canon(expected) and
+         Letflow.EventStore.Registry.JsonSchema.validate(output, rule.manifest["output_schema"]) ==
+           [],
+       do: :pass,
+       else: {:fail, "output_mismatch"}
+  end
+
+  defp compare_case_output(_output, _expect, _rule), do: {:fail, "unexpected_output"}
 
   defp runner_opts(prefix, rule, ctx) do
     limits = Map.get(rule.manifest, "limits", %{})
@@ -579,6 +585,18 @@ defmodule Letflow.Scripts do
       transaction(prefix, fn ->
         rule = lock_row!(prefix, key, version)
         if rule.status not in from, do: Repo.rollback(:version_immutable)
+
+        # GH 2534 PR 7c-1 (D3, C19): retiring a version an ACTIVE definition binds is blocked;
+        # the row lock above serialises with activation's FOR SHARE read. Revoke (the incident
+        # action) is never blocked.
+        if to == "retired" and
+             Letflow.Scripts.Runtime.referenced_by_active_definition?(
+               prefix,
+               rule.key,
+               rule.version
+             ),
+           do: Repo.rollback(:version_in_use)
+
         now = now()
 
         rule
@@ -703,9 +721,12 @@ defmodule Letflow.Scripts do
     end
   end
 
+  # GH 2534 PR 7c-1 (C11, design 8.2): a top-level `$` key is `output_invalid` before the
+  # schema check (the output is not echoed).
   defp dry_run_response({:ok, %{output: output, stats: stats} = ok}, rule) do
-    if Letflow.EventStore.Registry.JsonSchema.validate(output, rule.manifest["output_schema"]) ==
-         [] do
+    if not Letflow.Scripts.Runtime.writes_key?(output) and
+         Letflow.EventStore.Registry.JsonSchema.validate(output, rule.manifest["output_schema"]) ==
+           [] do
       %{outcome: "ok", output: output, stats: stats, author: Map.get(ok, :author)}
     else
       %{outcome: "output_invalid", stats: stats, author: Map.get(ok, :author)}

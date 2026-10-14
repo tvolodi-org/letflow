@@ -96,4 +96,22 @@ config :letflow, Letflow.LoginDiscovery.Notifier,
 # call time; the code default is also 90.
 config :letflow, :platform_admin_token_max_ttl_days, 90
 
+# GH 2534 PR 7c-1 (design lib/letflow/design/gh2534-7c-script-handler.md 5.1): the script
+# SERVICE_TASK dispatcher, read fresh per tick. max_dispatches_per_cycle is the PER-TENANT cap
+# per tick; tick_budget_ms bounds a tick (checked between rows, round-robin across tenants).
+config :letflow, :script_task_dispatcher,
+  poll_interval_ms: 1_000,
+  tick_budget_ms: 10_000,
+  max_dispatches_per_cycle: 16,
+  sweep_limit: 64,
+  sweep_failure_limit: 5,
+  lease_margin_ms: 23_000,
+  busy_retry_limit: 10,
+  busy_backoff_base_ms: 500,
+  busy_backoff_cap_ms: 30_000
+
+# GH 2534 PR 7c-1 SECURITY note: the build environment, read by Letflow.Application.start/2's
+# boot guard (Letflow.Scripts.Runtime.boot_check/2 refuses :scripts_test_hooks in :prod).
+config :letflow, :config_env, config_env()
+
 import_config "#{config_env()}.exs"

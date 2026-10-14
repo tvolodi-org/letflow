@@ -99,7 +99,9 @@ defmodule Letflow.Supervisor.Pollers do
   def init(_init_arg) do
     maybe_run_pollers_init_probe()
 
-    children = scheduler_children() ++ service_task_dispatcher_children()
+    children =
+      scheduler_children() ++
+        service_task_dispatcher_children() ++ script_task_dispatcher_children()
 
     Supervisor.init(children, strategy: :one_for_one, max_restarts: 5, max_seconds: 60)
   end
@@ -156,6 +158,18 @@ defmodule Letflow.Supervisor.Pollers do
   defp service_task_dispatcher_children do
     if Application.get_env(:letflow, :start_service_task_dispatcher, true) do
       [{Letflow.Engine.ServiceTaskDispatcher.Poller, []}]
+    else
+      []
+    end
+  end
+
+  # GH 2534 PR 7c-1 (design gh2534-7c-script-handler.md C2): the script SERVICE_TASK route's
+  # own poller, independent of the HTTP one (a script run must not delay HTTP dispatch).
+  # Gated by its own key, :start_script_task_dispatcher (false in config/test.exs: the same
+  # zero-delay-first-tick OwnershipError hazard as the two pollers above).
+  defp script_task_dispatcher_children do
+    if Application.get_env(:letflow, :start_script_task_dispatcher, true) do
+      [{Letflow.Engine.ScriptTaskDispatcher.Poller, []}]
     else
       []
     end

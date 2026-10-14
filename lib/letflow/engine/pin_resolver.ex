@@ -187,7 +187,7 @@ defmodule Letflow.Engine.PinResolver do
   alias Letflow.EventStore.Registry.ValidationFailure
 
   @typedoc "The dependency category a `pinned_version()`/`effective_pin()` entry names."
-  @type kind :: :catalog_entry | :variable_schema | :module
+  @type kind :: :catalog_entry | :variable_schema | :module | :script
 
   @typedoc "How a `pinned_version()`/`effective_pin()` entry's version was obtained."
   @type source :: :resolved | :override | :inherited | :rebound
@@ -195,13 +195,20 @@ defmodule Letflow.Engine.PinResolver do
   @typedoc """
   One resolved (or override-substituted, or inherited) dependency pin,
   exactly as embedded into an `INSTANCE_STARTED` (or child) event payload.
+
+  GH 2534 PR 7c-1 (design gh2534-7c-script-handler.md 4.3, C7): a `:script` pin (`ref` = the
+  script key, `version` = the integer version as a string, `resolved_id` = the
+  `script_rules` row id) also carries `sha256`, present iff the kind is `:script`. Script pins
+  are never overridable, never rebindable and never inherited (D3: the frozen
+  `(key, version, sha256)` never changes for an in-flight instance).
   """
   @type pinned_version :: %{
-          kind: kind(),
-          ref: String.t(),
-          resolved_id: String.t() | nil,
-          version: String.t(),
-          source: source()
+          required(:kind) => kind(),
+          required(:ref) => String.t(),
+          required(:resolved_id) => String.t() | nil,
+          required(:version) => String.t(),
+          required(:source) => source(),
+          optional(:sha256) => String.t()
         }
 
   @typedoc """
@@ -229,12 +236,13 @@ defmodule Letflow.Engine.PinResolver do
   itself written back into a freshly-built child `pinned_version()` entry.
   """
   @type effective_pin :: %{
-          kind: kind(),
-          ref: String.t(),
-          resolved_id: String.t() | nil,
-          version: String.t(),
-          source: source(),
-          source_event_id: Ecto.UUID.t()
+          required(:kind) => kind(),
+          required(:ref) => String.t(),
+          required(:resolved_id) => String.t() | nil,
+          required(:version) => String.t(),
+          required(:source) => source(),
+          required(:source_event_id) => Ecto.UUID.t(),
+          optional(:sha256) => String.t()
         }
 
   @typedoc "One PIN-04 AC3 inheritance conflict record."
@@ -249,6 +257,8 @@ defmodule Letflow.Engine.PinResolver do
           {:error, {:unresolved_catalog_ref, ref :: String.t()}}
           | {:error, {:unresolved_module_ref, ref :: String.t()}}
           | {:error, {:unresolved_pin_override, ref :: String.t()}}
+          | {:error, {:unresolved_script_ref, key :: String.t()}}
+          | {:error, {:script_version_conflict, key :: String.t()}}
           | {:error, {:graph_structure_invalid, term()}}
 
   defmodule Lookup do
@@ -257,10 +267,13 @@ defmodule Letflow.Engine.PinResolver do
     concrete catalog/module registry — mirrors
     `Letflow.Definitions.ServiceScopeValidator.Lookup`'s shape exactly,
     three fields instead of two. Plain struct, not `Ecto.Schema`.
+
+    GH 2534 PR 7c-1: a fourth, NON-enforced field `script_lookup` resolves a `(key, version)`
+    script binding; `nil` (every existing `%Lookup{}` literal) behaves as not found.
     """
 
     @enforce_keys [:catalog_lookup, :module_lookup, :variable_schema_lookup]
-    defstruct [:catalog_lookup, :module_lookup, :variable_schema_lookup]
+    defstruct [:catalog_lookup, :module_lookup, :variable_schema_lookup, script_lookup: nil]
 
     @type catalog_lookup_result ::
             {:ok, %{resolved_id: String.t(), version: String.t()}} | {:error, :not_found}
@@ -268,13 +281,18 @@ defmodule Letflow.Engine.PinResolver do
             {:ok, %{resolved_id: String.t(), version: String.t()}} | {:error, :not_found}
     @type variable_schema_lookup_result ::
             {:ok, %{version: String.t(), json_schema: map() | nil}}
+    @type script_lookup_result ::
+            {:ok, %{resolved_id: String.t(), version: String.t(), sha256: String.t()}}
+            | {:error, :not_found}
 
     @type t :: %__MODULE__{
             catalog_lookup: (service_id :: String.t() -> catalog_lookup_result()),
             module_lookup: (module_ref :: String.t() -> module_lookup_result()),
             variable_schema_lookup: (tenant_id :: Ecto.UUID.t() | nil,
                                      process_key :: String.t() ->
-                                       variable_schema_lookup_result())
+                                       variable_schema_lookup_result()),
+            script_lookup:
+              nil | (key :: String.t(), version :: pos_integer() -> script_lookup_result())
           }
   end
 
@@ -298,7 +316,8 @@ defmodule Letflow.Engine.PinResolver do
       module_lookup: fn _module_ref -> {:error, :not_found} end,
       variable_schema_lookup: fn _tenant_id, _process_key ->
         {:ok, %{version: "unversioned", json_schema: nil}}
-      end
+      end,
+      script_lookup: fn _key, _version -> {:error, :not_found} end
     }
   end
 
@@ -335,19 +354,83 @@ defmodule Letflow.Engine.PinResolver do
     catalog_refs = collect_refs(graph, "SERVICE_TASK", "service_id")
     module_refs = collect_refs(graph, "SUB_PROCESS", "module_ref")
 
-    with {:ok, catalog_pins} <-
+    with {:ok, script_bindings} <- collect_script_bindings(graph),
+         {:ok, catalog_pins} <-
            resolve_refs(catalog_refs, :catalog_entry, lookup.catalog_lookup, overrides),
          {:ok, module_pins} <-
            resolve_refs(module_refs, :module, lookup.module_lookup, overrides),
+         {:ok, script_pins} <- resolve_script_bindings(script_bindings, lookup.script_lookup),
          {:ok, variable_schema_pin, json_schema} <-
            resolve_variable_schema(definition, lookup.variable_schema_lookup, overrides) do
+      # A :script override is never applied: no script pin is consulted by
+      # check_no_stray_overrides/2, so a :script override is reported as stray (C7).
       pins = catalog_pins ++ module_pins ++ [variable_schema_pin]
 
       with :ok <- check_no_stray_overrides(pins, overrides) do
-        {:ok, sort_pins(pins), json_schema}
+        {:ok, sort_pins(pins ++ script_pins), json_schema}
       end
     end
   end
+
+  # GH 2534 PR 7c-1 (design 4.3): every {script_key, script_version} bound by a SERVICE_TASK
+  # node (node order, deduped); two different versions of one key are refused.
+  defp collect_script_bindings(%Graph{nodes: nodes}) do
+    bindings =
+      nodes
+      |> Enum.filter(&(&1.node_type == :SERVICE_TASK))
+      |> Enum.flat_map(fn node ->
+        case {ref_id(node.attributes, "script_key"), script_version(node.attributes)} do
+          {nil, _version} -> []
+          {key, version} -> [{key, version}]
+        end
+      end)
+      |> Enum.uniq()
+
+    case bindings |> Enum.group_by(&elem(&1, 0)) |> Enum.find(fn {_k, v} -> length(v) > 1 end) do
+      nil -> {:ok, bindings}
+      {key, _versions} -> {:error, {:script_version_conflict, key}}
+    end
+  end
+
+  defp script_version(attributes) when is_map(attributes) do
+    case Map.get(attributes, "script_version") do
+      version when is_integer(version) and version >= 1 -> version
+      _other -> nil
+    end
+  end
+
+  defp script_version(_attributes), do: nil
+
+  defp resolve_script_bindings(bindings, lookup_fun) do
+    Enum.reduce_while(bindings, {:ok, []}, fn {key, version}, {:ok, acc} ->
+      case lookup_script(lookup_fun, key, version) do
+        {:ok, %{resolved_id: resolved_id, version: pinned_version, sha256: sha256}} ->
+          pin = %{
+            kind: :script,
+            ref: key,
+            resolved_id: resolved_id,
+            version: pinned_version,
+            source: :resolved,
+            sha256: sha256
+          }
+
+          {:cont, {:ok, [pin | acc]}}
+
+        _not_found ->
+          {:halt, {:error, {:unresolved_script_ref, key}}}
+      end
+    end)
+    |> case do
+      {:ok, pins} -> {:ok, Enum.reverse(pins)}
+      error -> error
+    end
+  end
+
+  defp lookup_script(nil, _key, _version), do: {:error, :not_found}
+  defp lookup_script(_lookup_fun, _key, nil), do: {:error, :not_found}
+
+  defp lookup_script(lookup_fun, key, version) when is_function(lookup_fun, 2),
+    do: lookup_fun.(key, version)
 
   # §4.1 -- walk nodes in original list order, keep only non-empty string
   # attribute values, dedupe by ref (first occurrence kept for lookup-order
@@ -557,14 +640,22 @@ defmodule Letflow.Engine.PinResolver do
       when is_list(instance_started_pinned_versions) and is_list(pins_rebound_events) do
     base =
       Enum.map(instance_started_pinned_versions, fn pin ->
-        %{
-          kind: normalize_kind(pin[:kind] || pin["kind"]),
+        kind = normalize_kind(pin[:kind] || pin["kind"])
+
+        effective = %{
+          kind: kind,
           ref: pin[:ref] || pin["ref"],
           resolved_id: pin[:resolved_id] || pin["resolved_id"],
           version: pin[:version] || pin["version"],
           source: normalize_source(pin[:source] || pin["source"]),
           source_event_id: started_event_id
         }
+
+        # GH 2534 PR 7c-1: a :script pin carries its frozen sha256 (string or atom key).
+        case kind do
+          :script -> Map.put(effective, :sha256, pin[:sha256] || pin["sha256"])
+          _other -> effective
+        end
       end)
 
     Enum.reduce(pins_rebound_events, base, &apply_rebind_event/2)
@@ -578,32 +669,39 @@ defmodule Letflow.Engine.PinResolver do
       ref = entry["ref"] || entry[:ref]
       new_version = entry["new_version"] || entry[:new_version]
 
-      if Enum.any?(acc, &(&1.kind == kind and &1.ref == ref)) do
-        Enum.map(acc, fn pin ->
-          if pin.kind == kind and pin.ref == ref do
-            %{
+      cond do
+        # GH 2534 PR 7c-1 (C7): a script pin is never rebindable; PinRebind cannot write such an
+        # entry, and one found anyway is ignored rather than raising or changing the pin.
+        kind == :script ->
+          acc
+
+        Enum.any?(acc, &(&1.kind == kind and &1.ref == ref)) ->
+          Enum.map(acc, fn pin ->
+            if pin.kind == kind and pin.ref == ref do
+              %{
+                pin
+                | version: new_version,
+                  resolved_id: nil,
+                  source: :rebound,
+                  source_event_id: event_id
+              }
+            else
               pin
-              | version: new_version,
+            end
+          end)
+
+        true ->
+          acc ++
+            [
+              %{
+                kind: kind,
+                ref: ref,
                 resolved_id: nil,
+                version: new_version,
                 source: :rebound,
                 source_event_id: event_id
-            }
-          else
-            pin
-          end
-        end)
-      else
-        acc ++
-          [
-            %{
-              kind: kind,
-              ref: ref,
-              resolved_id: nil,
-              version: new_version,
-              source: :rebound,
-              source_event_id: event_id
-            }
-          ]
+              }
+            ]
       end
     end)
   end
@@ -612,6 +710,7 @@ defmodule Letflow.Engine.PinResolver do
   defp normalize_kind("catalog_entry"), do: :catalog_entry
   defp normalize_kind("module"), do: :module
   defp normalize_kind("variable_schema"), do: :variable_schema
+  defp normalize_kind("script"), do: :script
 
   defp normalize_source(source) when is_atom(source), do: source
   defp normalize_source("resolved"), do: :resolved
@@ -710,8 +809,10 @@ defmodule Letflow.Engine.PinResolver do
 
     {merged_own, conflicts} =
       Enum.reduce(own_pins, {[], []}, fn own_pin, {acc, conflicts_acc} ->
-        case find_parent_pin(parent_pins, own_pin.kind, own_pin.ref) do
-          nil ->
+        # GH 2534 PR 7c-1 (C7): a child's own :script pin is never replaced or recorded as a
+        # conflict, and a parent's :script pin is never added to a child (below).
+        case own_pin.kind != :script && find_parent_pin(parent_pins, own_pin.kind, own_pin.ref) do
+          falsy when falsy in [nil, false] ->
             {[own_pin | acc], conflicts_acc}
 
           parent_pin when parent_pin.version == own_pin.version ->
@@ -739,6 +840,7 @@ defmodule Letflow.Engine.PinResolver do
 
     inherited_additions =
       parent_pins
+      |> Enum.reject(&(&1.kind == :script))
       |> Enum.reject(fn parent_pin ->
         Map.has_key?(own_by_key, {parent_pin.kind, parent_pin.ref})
       end)

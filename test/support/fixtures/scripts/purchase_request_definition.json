@@ -1,0 +1,17 @@
+{
+  "nodes": [
+    {"id": "start", "node_type": "START"},
+    {"id": "price_order", "node_type": "SERVICE_TASK",
+     "attributes": {"script_key": "purchase_request_pricing", "script_version": 1}},
+    {"id": "route", "node_type": "EXCLUSIVE_GATEWAY"},
+    {"id": "approve", "node_type": "HUMAN_TASK", "attributes": {"role": "APPROVER"}},
+    {"id": "end", "node_type": "END"}
+  ],
+  "edges": [
+    {"id": "e1", "source": "start", "target": "price_order"},
+    {"id": "e2", "source": "price_order", "target": "route"},
+    {"id": "e3", "source": "route", "target": "end", "condition": "variables.approval_tier == 'auto'"},
+    {"id": "e4", "source": "route", "target": "approve", "is_default": true},
+    {"id": "e5", "source": "approve", "target": "end"}
+  ]
+}

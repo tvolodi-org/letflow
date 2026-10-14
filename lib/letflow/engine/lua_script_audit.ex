@@ -1,49 +1,24 @@
 defmodule Letflow.Engine.LuaScriptAudit do
   @moduledoc """
-  REQ-058 (LUA-07) — Lua script execution audit persistence path. Implements
-  `lib/letflow/design/req058-lua-script-audit.md` exactly.
+  REQ-058 (LUA-07) -- the Lua script execution audit table, RETIRED by GH 2534 PR 7c-1
+  (advisor Q11, decision C17; design `lib/letflow/design/gh2534-7c-script-handler.md`
+  sections 3.2 and 10).
 
-  This module is a MINIMAL, deliberately narrow engine-side call path that (a) invokes an
-  injected script executor and (b) persists the resulting manifest hash to a queryable
-  audit record.
+  Its only writer, `execute_script_for_audit/6`, had no production caller and has been
+  removed: tenant-script runs are recorded per run on the instance stream instead
+  (`SCRIPT_RUN_RECORDED`, built by `Letflow.Engine.ScriptTaskDispatcher.RunRecord`). The
+  tenant table `lua_script_execution_audit` stays as READ-ONLY history: a ROW trigger
+  (migration `20261015100002_lua_script_audit_read_only`) refuses every INSERT, UPDATE and
+  DELETE with SQLSTATE `LF001`. There is deliberately no TRUNCATE trigger (the pooled
+  test-schema reset depends on TRUNCATE, exactly as for `audit_entries`).
 
-  It is NOT the SERVICE_TASK script-execution handler and must not be called from
-  processServiceTaskRuntimeInTx or any other normal process-execution flow. The general
-  SERVICE_TASK-with-script integration (R-Co's src/design/lua-integration.md section 25)
-  remains unbuilt; when it lands, that work supersedes this function rather than building
-  on it.
+  Kept:
 
-  The LUA EXECUTION RUNTIME ITSELF is S5 scope (docs/migration/stage-5-scripting-plugins.md).
-  This module ports only the audit-persistence path, against an injected Executor behaviour
-  (see Executor below) -- not a real Lua interpreter. mix.exs gains no Lua/NIF dependency
-  here. S5's build-vs-bind decision is settled: docs/migration/decisions/0014-scripting-plugin-runtime-strategy.md
-  adopted tv-labs/lua (pure-BEAM Lua 5.3, no NIF). A real Executor implementation
-  can now be built; this module does not implement one.
-
-  ## Ordering (design §5, INV-LSA-1)
-
-  `instance_id` is validated (non-`nil`, well-formed UUID) BEFORE `executor` is ever
-  invoked. An invalid `instance_id` short-circuits with `{:error, :invalid_instance_id}`
-  and results in zero executor calls and zero audit rows.
-
-  ## Manifest hash mismatch (design §5 step 3, INV-LSA-2)
-
-  A mismatch between the executor's reported `manifest_hash` and the caller-supplied
-  `registered_hash` returns a distinct, pattern-matchable
-  `{:manifest_hash_mismatch, registered_hash, actual_hash}` error and writes no audit
-  row — this is the whole point of persisting a manifest hash; a mismatch must never be
-  silently recorded as if it were a normal, trusted execution.
-
-  ## No caller yet (design §1, §9 OQ-4)
-
-  As of this requirement, nothing in this codebase calls `execute_script_for_audit/6` —
-  this requirement builds the audit-path function and its storage only.
+    * `AuditRecord` -- the read schema for the existing history rows (its
+      `insert_changeset/2` is kept only so a dedicated test can seed history before the
+      read-only migration runs; no `lib/` code inserts).
+    * `Executor` -- the behaviour the concrete Lua executor module still implements.
   """
-
-  import Ecto.Changeset
-
-  alias Letflow.Engine.LuaScriptAudit.{AuditRecord, Executor}
-  alias Letflow.Repo
 
   defmodule AuditRecord do
     @moduledoc """
@@ -54,6 +29,7 @@ defmodule Letflow.Engine.LuaScriptAudit do
     """
 
     use Ecto.Schema
+    import Ecto.Changeset
 
     @primary_key {:id, :binary_id, autogenerate: true}
     schema "lua_script_execution_audit" do
@@ -100,102 +76,10 @@ defmodule Letflow.Engine.LuaScriptAudit do
 
     @doc """
     Executes `script_ref` and reports the manifest hash it produced.
-    `execute_script_for_audit/6` independently compares the returned `manifest_hash`
-    against its own caller-supplied `registered_hash` regardless of what this callback
-    does with `registered_hash` itself (design §4) — a lazy/non-conforming
-    implementation cannot bypass the mismatch check.
+    (The removed `execute_script_for_audit/6` compared the returned `manifest_hash`
+    against its caller-supplied `registered_hash`; GH 2534 7c-1 retired that writer.)
     """
     @callback execute_with_manifest(script_ref(), registered_hash :: String.t()) ::
                 {:ok, manifest_result()} | {:error, term()}
-  end
-
-  @typedoc "Every distinct, pattern-matchable failure `execute_script_for_audit/6` returns."
-  @type error_reason ::
-          :missing_prefix
-          | :invalid_instance_id
-          | {:manifest_hash_mismatch, registered_hash :: String.t(), actual_hash :: String.t()}
-          | {:executor_failed, term()}
-          | {:insert_failed, Ecto.Changeset.t()}
-
-  @doc """
-  Invokes `executor.execute_with_manifest/2` and persists the resulting manifest hash to
-  a queryable `AuditRecord` row (design §5). `instance_id` is validated strictly before
-  `executor` is ever touched (INV-LSA-1). A manifest hash mismatch is a distinct,
-  pattern-matchable error and writes no row (INV-LSA-2). `opts[:prefix]` (the tenant
-  Postgres schema name) is required — there is no `public`-schema fallback (INV-LSA-6).
-  """
-  @spec execute_script_for_audit(
-          executor :: module(),
-          instance_id :: String.t() | nil,
-          script_ref :: Executor.script_ref(),
-          registered_hash :: String.t(),
-          actor_id :: Ecto.UUID.t(),
-          opts :: [prefix: String.t()]
-        ) :: {:ok, AuditRecord.t()} | {:error, error_reason()}
-  def execute_script_for_audit(executor, instance_id, script_ref, registered_hash, actor_id, opts)
-      when is_atom(executor) do
-    with {:ok, prefix} <- validate_prefix(opts),
-         {:ok, validated_instance_id} <- validate_instance_id(instance_id),
-         {:ok, %{manifest_hash: actual_hash}} <-
-           executor_result(executor, script_ref, registered_hash),
-         :ok <- verify_manifest_hash(registered_hash, actual_hash) do
-      insert_audit_record(validated_instance_id, actual_hash, actor_id, prefix)
-    end
-  end
-
-  # Step 0 (INV-LSA-6) -- opts[:prefix] must be present and non-nil BEFORE the executor
-  # is ever invoked or any insert happens. There is no public-schema fallback: unlike
-  # `Repo.insert(prefix: opts[:prefix])`, which silently resolves a missing/nil
-  # `:prefix` to Ecto's default schema (see lib/letflow/event_store.ex:176's identical
-  # fail-closed precedent), this fails closed with a distinct typed error and performs
-  # zero writes.
-  defp validate_prefix(opts) do
-    case Keyword.fetch(opts, :prefix) do
-      {:ok, prefix} when is_binary(prefix) and prefix != "" -> {:ok, prefix}
-      _ -> {:error, :missing_prefix}
-    end
-  end
-
-  # Step 1 (design §5) -- executor is never touched on this path (INV-LSA-1).
-  defp validate_instance_id(nil), do: {:error, :invalid_instance_id}
-
-  defp validate_instance_id(instance_id) when is_binary(instance_id) do
-    case Ecto.UUID.cast(instance_id) do
-      {:ok, cast_id} -> {:ok, cast_id}
-      :error -> {:error, :invalid_instance_id}
-    end
-  end
-
-  defp validate_instance_id(_other), do: {:error, :invalid_instance_id}
-
-  # Step 2 (design §5) -- the sole I/O this function delegates to something outside
-  # itself.
-  defp executor_result(executor, script_ref, registered_hash) do
-    case executor.execute_with_manifest(script_ref, registered_hash) do
-      {:ok, %{manifest_hash: _} = result} -> {:ok, result}
-      {:error, reason} -> {:error, {:executor_failed, reason}}
-    end
-  end
-
-  # Step 3 (design §5) -- distinct, pattern-matchable mismatch error (INV-LSA-2). No
-  # audit row is written on this path.
-  defp verify_manifest_hash(registered_hash, actual_hash) when actual_hash == registered_hash,
-    do: :ok
-
-  defp verify_manifest_hash(registered_hash, actual_hash),
-    do: {:error, {:manifest_hash_mismatch, registered_hash, actual_hash}}
-
-  # Step 3 continued -- exactly one insert path (INV-LSA-3). `prefix` was already
-  # validated present/non-nil by `validate_prefix/1` above.
-  defp insert_audit_record(instance_id, manifest_hash, actor_id, prefix) do
-    attrs = %{instance_id: instance_id, manifest_hash: manifest_hash, actor_id: actor_id}
-
-    %AuditRecord{}
-    |> AuditRecord.insert_changeset(attrs)
-    |> Repo.insert(prefix: prefix)
-    |> case do
-      {:ok, record} -> {:ok, record}
-      {:error, changeset} -> {:error, {:insert_failed, changeset}}
-    end
   end
 end
