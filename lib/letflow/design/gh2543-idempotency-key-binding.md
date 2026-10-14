@@ -67,7 +67,7 @@ non-entity or wrong-command original fails on the event_type check, before any p
       keeps that decimal's exact value. Parsing the decoded integer's decimal text as a float
       rounds correctly, so it gives `f` again.
     - Known, accepted false positive: a stored integer within half a float step of the
-      request's float matches (e.g. `10**23 + 1` vs `1.0e23`). It needs the same key, actor
+      request's float matches (e.g. `99999999999999991611393` vs `1.0e23`). It needs the same key, actor
       and type, and returns only the caller's own original values, so INV-2 is unaffected.
   - Anything else (string, boolean, `nil`, or mismatched types): `==`, so a string `"1"` never
     matches the number `1`.
