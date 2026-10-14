@@ -3202,4 +3202,313 @@ defmodule Letflow.Routers.EntitiesTest do
       assert stored.last_event_global_seq == current
     end
   end
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # GH #2529 -- append-only entity types
+  # (lib/letflow/design/gh2529-append-only-entity-types.md §2.1, §4).
+  # ═══════════════════════════════════════════════════════════════════════
+
+  # Creates + activates an append-only "ledger" type through the context
+  # module (the real string-keyed JSONB round-trip), plus one record.
+  defp gh2529_append_only_record!(ctx) do
+    {:ok, _row} =
+      Definitions.create_definition(
+        %{
+          definition: %{
+            name: "ledger",
+            display_name: "Ledger",
+            append_only: true,
+            fields: [%{name: "title", type: :string, required: true}]
+          },
+          created_by: ctx.user_id
+        },
+        ctx.schema_name
+      )
+
+    {:ok, _activated} =
+      Definitions.activate_definition("ledger", ctx.user_id, "gh2529", ctx.schema_name)
+
+    seed_record!(ctx, "ledger", %{"title" => "entry"})
+  end
+
+  defp gh2529_assert_append_only_body!(conn) do
+    assert conn.status == 422
+    assert [content_type] = get_resp_header(conn, "content-type")
+    assert content_type =~ "application/problem+json"
+
+    body = body_of(conn)
+    assert body["code"] == "entity_append_only"
+    assert body["status"] == 422
+
+    assert body["detail"] ==
+             "records of this entity type are append-only and cannot be updated or deleted"
+
+    refute Map.has_key?(body, "field_values")
+    refute conn.resp_body =~ "entry"
+  end
+
+  defp gh2529_stored!(ctx, record_id) do
+    {:ok, record} = Latest.get(record_id, "ledger", ctx.schema_name)
+    record
+  end
+
+  # Creates + activates one more "ledger" version through the context module.
+  # `overrides` is merged into the base document (e.g. the append_only flag and
+  # an extra field, so a second version has a distinct logical shape).
+  defp gh2529_activate_ledger!(ctx, overrides) do
+    document =
+      Map.merge(
+        %{
+          name: "ledger",
+          display_name: "Ledger",
+          fields: [%{name: "title", type: :string, required: true}]
+        },
+        overrides
+      )
+
+    {:ok, _row} =
+      Definitions.create_definition(
+        %{definition: document, created_by: ctx.user_id},
+        ctx.schema_name
+      )
+
+    {:ok, activated} =
+      Definitions.activate_definition("ledger", ctx.user_id, "gh2529", ctx.schema_name)
+
+    activated
+  end
+
+  describe "append_only (GH #2529)" do
+    test "PUT on an append-only type -> 422 entity_append_only, nothing written" do
+      ctx = tenant_ctx("gh2529-put")
+      record = gh2529_append_only_record!(ctx)
+
+      conn =
+        request(:put, "/api/v1/entities/records/ledger/#{record.record_id}", ctx, %{
+          "field_values" => %{"title" => "changed"}
+        })
+
+      gh2529_assert_append_only_body!(conn)
+
+      stored = gh2529_stored!(ctx, record.record_id)
+      assert stored.field_values == %{"title" => "entry"}
+      assert stored.last_event_global_seq == record.last_event_global_seq
+    end
+
+    test "DELETE on an append-only type -> 422 entity_append_only, nothing written" do
+      ctx = tenant_ctx("gh2529-delete")
+      record = gh2529_append_only_record!(ctx)
+
+      conn = request(:delete, "/api/v1/entities/records/ledger/#{record.record_id}", ctx)
+
+      gh2529_assert_append_only_body!(conn)
+
+      stored = gh2529_stored!(ctx, record.record_id)
+      refute stored.deleted
+      assert stored.last_event_global_seq == record.last_event_global_seq
+    end
+
+    test "PUT and DELETE on a non-existent record id of an append-only type -> the same 422" do
+      ctx = tenant_ctx("gh2529-missing")
+      gh2529_append_only_record!(ctx)
+      missing = Ecto.UUID.generate()
+
+      put_conn =
+        request(:put, "/api/v1/entities/records/ledger/#{missing}", ctx, %{
+          "field_values" => %{"title" => "ghost"}
+        })
+
+      gh2529_assert_append_only_body!(put_conn)
+
+      delete_conn = request(:delete, "/api/v1/entities/records/ledger/#{missing}", ctx)
+      gh2529_assert_append_only_body!(delete_conn)
+    end
+
+    # SECURITY-REVIEWER finding 1 (INV-5): the refusal must not reveal whether
+    # an id is unknown, was deleted before the flag went on, or belongs to
+    # another tenant. trace_id is pinned so resp_body equality is byte-for-byte.
+    test "PUT and DELETE give byte-identical 422s for random, pre-flag-deleted and cross-tenant ids" do
+      ctx = tenant_ctx("gh2529-ident-a")
+      other = tenant_ctx("gh2529-ident-b")
+
+      # (b) caller tenant: a record deleted while "ledger" was mutable, then
+      # the flag is activated in a second version with a distinct shape.
+      gh2529_activate_ledger!(ctx, %{})
+      deleted = seed_record!(ctx, "ledger", %{"title" => "gone"})
+
+      {:ok, %{record: deleted}} =
+        Records.delete_record(
+          %{
+            entity_type: "ledger",
+            record_id: deleted.record_id,
+            actor_id: ctx.user_id,
+            idempotency_key: Ecto.UUID.generate()
+          },
+          ctx.schema_name
+        )
+
+      assert deleted.deleted
+
+      flagged =
+        gh2529_activate_ledger!(ctx, %{
+          append_only: true,
+          fields: [
+            %{name: "title", type: :string, required: true},
+            %{name: "note", type: :string}
+          ]
+        })
+
+      assert flagged.definition_json["append_only"] == true
+
+      # (c) tenant B: same type name, MUTABLE, so a request that leaked across
+      # the tenant boundary would succeed and change this row.
+      gh2529_activate_ledger!(other, %{})
+      foreign = seed_record!(other, "ledger", %{"title" => "tenant b"})
+
+      # (a) a random id.
+      ids = %{
+        random: Ecto.UUID.generate(),
+        deleted: deleted.record_id,
+        foreign: foreign.record_id
+      }
+
+      trace = "gh2529-ident-#{Ecto.UUID.generate()}"
+
+      responses =
+        for {label, id} <- ids, method <- [:put, :delete] do
+          body = if method == :put, do: %{"field_values" => %{"title" => "changed"}}
+
+          conn =
+            request(method, "/api/v1/entities/records/ledger/#{id}", ctx, body, trace_id: trace)
+
+          gh2529_assert_append_only_body!(conn)
+          {{label, method}, conn}
+        end
+
+      [{_first_key, reference} | rest] = responses
+
+      for {key, conn} <- rest do
+        assert conn.status == reference.status, "status differs for #{inspect(key)}"
+
+        assert get_resp_header(conn, "content-type") ==
+                 get_resp_header(reference, "content-type"),
+               "content-type differs for #{inspect(key)}"
+
+        assert conn.resp_body == reference.resp_body, "body differs for #{inspect(key)}"
+      end
+
+      # Tenant B's record is untouched.
+      {:ok, foreign_after} = Latest.get(foreign.record_id, "ledger", other.schema_name)
+      assert foreign_after.field_values == %{"title" => "tenant b"}
+      refute foreign_after.deleted
+      assert foreign_after.last_event_global_seq == foreign.last_event_global_seq
+
+      # The caller's deleted record is untouched (no new event).
+      deleted_after = gh2529_stored!(ctx, deleted.record_id)
+      assert deleted_after.deleted
+      assert deleted_after.field_values == deleted.field_values
+      assert deleted_after.last_event_global_seq == deleted.last_event_global_seq
+
+      # Nothing was written into the caller's schema under the other ids.
+      assert {:error, :not_found} = Latest.get(ids.random, "ledger", ctx.schema_name)
+      assert {:error, :not_found} = Latest.get(ids.foreign, "ledger", ctx.schema_name)
+    end
+
+    test "POST record on an append-only type -> 201" do
+      ctx = tenant_ctx("gh2529-post")
+      gh2529_append_only_record!(ctx)
+
+      conn =
+        request(:post, "/api/v1/entities/records/ledger", ctx, %{
+          "field_values" => %{"title" => "second entry"}
+        })
+
+      assert conn.status == 201
+      assert body_of(conn)["field_values"] == %{"title" => "second entry"}
+    end
+
+    test "a normal type is unchanged: PUT 200 and DELETE 200" do
+      ctx = tenant_ctx("gh2529-normal")
+      seed_active_definition!(ctx)
+      record = seed_record!(ctx)
+
+      put_conn =
+        request(:put, "/api/v1/entities/records/widget/#{record.record_id}", ctx, %{
+          "field_values" => %{"title" => "edited"}
+        })
+
+      assert put_conn.status == 200
+      assert body_of(put_conn)["field_values"] == %{"title" => "edited"}
+
+      delete_conn = request(:delete, "/api/v1/entities/records/widget/#{record.record_id}", ctx)
+      assert delete_conn.status == 200
+      assert body_of(delete_conn)["deleted"] == true
+    end
+
+    test "definition POST with append_only true -> 201; after activate, GET active echoes it" do
+      ctx = tenant_ctx("gh2529-def-true")
+
+      create_conn =
+        request(
+          :post,
+          "/api/v1/entities/definitions",
+          ctx,
+          definition_body(%{"append_only" => true})
+        )
+
+      assert create_conn.status == 201
+
+      activate_conn =
+        request(:post, "/api/v1/entities/definitions/widget/activate", ctx, %{
+          "rationale" => "gh2529 go-live"
+        })
+
+      assert activate_conn.status == 200
+
+      active_conn = request(:get, "/api/v1/entities/definitions/active/widget", ctx)
+      assert active_conn.status == 200
+      assert body_of(active_conn)["definition"]["append_only"] == true
+    end
+
+    test "definition POST with append_only null -> 201 and no key stored" do
+      ctx = tenant_ctx("gh2529-def-null")
+
+      conn =
+        request(
+          :post,
+          "/api/v1/entities/definitions",
+          ctx,
+          definition_body(%{"append_only" => nil})
+        )
+
+      assert conn.status == 201
+
+      {:ok, stored} = Definitions.get_definition_by_name("widget", ctx.schema_name)
+      refute Map.has_key?(stored.definition_json, "append_only")
+    end
+
+    test "definition POST with append_only \"yes\" -> 422 malformed at [\"append_only\"]" do
+      ctx = tenant_ctx("gh2529-def-yes")
+
+      conn =
+        request(
+          :post,
+          "/api/v1/entities/definitions",
+          ctx,
+          definition_body(%{"append_only" => "yes"})
+        )
+
+      assert conn.status == 422
+      body = body_of(conn)
+      assert is_list(body["errors"])
+
+      assert Enum.any?(
+               body["errors"],
+               &(&1["code"] == "malformed" and &1["path"] == ["append_only"])
+             ),
+             "errors: #{inspect(body["errors"])}"
+
+      assert {:error, :not_found} = Definitions.get_definition_by_name("widget", ctx.schema_name)
+    end
+  end
 end

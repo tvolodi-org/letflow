@@ -48,7 +48,7 @@ defmodule Letflow.Routers.Entities do
   | list_definitions | `GET /entities/definitions` | `Letflow.Entities.Definitions.list_definitions/2` | `EntitiesDefinitionsRead` | 200 / 400 |
   | create_record | `POST /entities/records/:entity_type` | `Letflow.Entities.Records.create_record/2` | `EntitiesRecordsWrite` | 201 / 404 / 422 |
   | update_record | `PUT /entities/records/:entity_type/:record_id` | `Letflow.Entities.Records.update_record/2` | `EntitiesRecordsWrite` | 200 / 404 / 409 / 422 |
-  | delete_record | `DELETE /entities/records/:entity_type/:record_id` | `Letflow.Entities.Records.delete_record/2` | `EntitiesRecordsWrite` | 200 / 400 / 404 / 409 |
+  | delete_record | `DELETE /entities/records/:entity_type/:record_id` | `Letflow.Entities.Records.delete_record/2` | `EntitiesRecordsWrite` | 200 / 400 / 404 / 409 / 422 |
   | query | `POST /entities/query` | `Letflow.Entities.Query.Compiler.compile/2` then `Letflow.Entities.Query.Allowlist.load/2` then `Letflow.Entities.Query.Cursor.paginate/5` then a `Letflow.Entities.Query.FieldGrants` redaction step | `EntitiesQuery` | 200 / 400 / 404 / 422 |
   | query_aggregate | `POST /entities/query/aggregate` | a `Letflow.Entities.Query.FieldGrants.load_restrictions/3` field-restriction check then `Letflow.Entities.Query.Compiler.run_aggregate/2` | `EntitiesAggregate` | 200 / 400 / 403 / 404 / 422 |
   | create_record_attachment | `POST /entities/records/:entity_type/:record_id/attachments` | `Letflow.Repository.EntityAttachments.upload/2` | `EntitiesAttachmentsManage` | 201 / 404 / 422 |
@@ -518,6 +518,7 @@ defmodule Letflow.Routers.Entities do
       |> maybe_put_document_list(:indexes, body, "indexes", &index_document/1)
       |> maybe_put_document_list(:foreign_keys, body, "foreign_keys", &fk_document/1)
       |> maybe_put_document_list(:constraints, body, "constraints", &constraint_document/1)
+      |> maybe_put_optional(:append_only, body, "append_only")
 
     {:ok, document}
   end
@@ -975,6 +976,9 @@ defmodule Letflow.Routers.Entities do
   # treats as absent. `max_value` keeps a JSON bignum away from Postgrex's
   # int8 encoder (INV-8). The value is passed through untouched -- no cast.
   # `If-Match` stays ignored.
+  #
+  # GH #2529: an append-only entity type gives 422 entity-append-only for any
+  # record id (the domain refuses before the record lookup, INV-5).
 
   @max_int8 9_223_372_036_854_775_807
 
@@ -1031,6 +1035,8 @@ defmodule Letflow.Routers.Entities do
   # 400 (query-string errors are 400 in this router, like `page_size`),
   # checked after the record id cast (malformed id -> 404 first) and before
   # any lookup, so it does not depend on record existence (INV-5).
+  # GH #2529: an append-only entity type gives 422 entity-append-only for any
+  # record id, live, deleted or absent (refused before the record lookup).
 
   defp handle_delete_record(conn, entity_type, raw_record_id) do
     with {:ok, record_id} <- cast_record_id(raw_record_id),
@@ -1358,6 +1364,8 @@ defmodule Letflow.Routers.Entities do
   #   {:record_already_deleted, _}   -> 409
   #   :record_version_conflict       -> 409 (record-version-conflict, GH #2528;
   #                                     constant body, no record data/seq)
+  #   {:entity_append_only, _}       -> 422 (entity-append-only, GH #2529;
+  #                                     constant body)
   #   :tenant_not_provisioned        -> 500  (unreachable, INV-1)
   #   :invalid_schema_name           -> 500  (unreachable, INV-1)
   #   any other term()               -> 500  (INV-8 catch-all, no detail)
@@ -1403,6 +1411,9 @@ defmodule Letflow.Routers.Entities do
 
   defp render_record_command(conn, {:error, :record_version_conflict}, _status),
     do: Response.send_problem(conn, Error.record_version_conflict())
+
+  defp render_record_command(conn, {:error, {:entity_append_only, _entity_type}}, _status),
+    do: Response.send_problem(conn, Error.entity_append_only())
 
   defp render_record_command(conn, {:error, reason}, _status)
        when reason in [:tenant_not_provisioned, :invalid_schema_name],

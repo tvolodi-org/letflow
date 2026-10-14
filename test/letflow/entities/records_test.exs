@@ -1256,4 +1256,289 @@ defmodule Letflow.Entities.RecordsTest do
       assert gh2528_event_count(schema) == events_before + 1
     end
   end
+
+  # ---------------------------------------------------------------------------------
+  # GH #2529 -- append-only entity types. Every fixture goes through the real
+  # Definitions.create_definition/2 + activate_definition/4 round-trip, so the
+  # flag Records reads is the string-keyed JSONB read back from Postgres.
+  # ---------------------------------------------------------------------------------
+
+  defp gh2529_activate!(schema, overrides) do
+    assert {:ok, row} =
+             Definitions.create_definition(
+               %{definition: valid_definition(overrides), created_by: Ecto.UUID.generate()},
+               schema
+             )
+
+    assert {:ok, activated} =
+             Definitions.activate_definition(row.name, Ecto.UUID.generate(), "gh2529", schema)
+
+    activated
+  end
+
+  defp gh2529_update_attrs(record_id, name) do
+    %{
+      entity_type: "customer",
+      record_id: record_id,
+      field_values: %{"customer_name" => name, "age" => 7},
+      actor_id: Ecto.UUID.generate(),
+      idempotency_key: Ecto.UUID.generate()
+    }
+  end
+
+  defp gh2529_delete_attrs(record_id) do
+    %{
+      entity_type: "customer",
+      record_id: record_id,
+      actor_id: Ecto.UUID.generate(),
+      idempotency_key: Ecto.UUID.generate()
+    }
+  end
+
+  defp gh2529_type_event_count(schema) do
+    {:ok, instance_id} = EntityTypeInstance.get_or_create("customer", schema)
+
+    Event
+    |> where([e], e.instance_id == ^instance_id)
+    |> Repo.aggregate(:count, prefix: schema)
+  end
+
+  # Shaped like Letflow.Scheduler.RecordDeadlineSweep's
+  # claim_and_transition_one/3 + apply_transition/3 (record_deadline_sweep.ex
+  # 199-216, 254): a `case` over update_record/2 inside Repo.transaction/1,
+  # rolling back on any `{:error, _}` -- never an unconditional `{:ok, _} =`.
+  defp gh2529_sweep_like_transition(record_id, schema) do
+    Repo.transaction(fn ->
+      case Records.update_record(gh2529_update_attrs(record_id, "Swept"), schema) do
+        {:ok, _result} -> {:transitioned, record_id}
+        {:error, reason} -> Repo.rollback({record_id, reason})
+      end
+    end)
+    |> case do
+      {:ok, result} -> result
+      {:error, {id, reason}} -> {:record_error, id, reason}
+    end
+  end
+
+  describe "append_only" do
+    test "the flag survives the real create/activate round-trip as string-keyed JSONB" do
+      %{schema_name: schema} = provisioned_tenant()
+      activated = gh2529_activate!(schema, %{append_only: true})
+
+      {:ok, reloaded} = Definitions.get_active_definition_by_name("customer", schema)
+      assert reloaded.id == activated.id
+      assert reloaded.definition_json["append_only"] == true
+      refute Map.has_key?(reloaded.definition_json, :append_only)
+    end
+
+    test "create succeeds on an append-only type" do
+      %{schema_name: schema} = provisioned_tenant()
+      gh2529_activate!(schema, %{append_only: true})
+
+      assert {:ok, %{record: record, is_duplicate: false}} =
+               Records.create_record(create_attrs(), schema)
+
+      assert record.field_values == %{"customer_name" => "Acme", "age" => 42}
+      assert gh2529_type_event_count(schema) == 1
+    end
+
+    test "update refused, record and event count unchanged" do
+      %{schema_name: schema} = provisioned_tenant()
+      gh2529_activate!(schema, %{append_only: true})
+      {:ok, %{record: created}} = Records.create_record(create_attrs(), schema)
+      events_before = gh2529_type_event_count(schema)
+      all_events_before = Repo.aggregate(Event, :count, prefix: schema)
+
+      assert {:error, {:entity_append_only, "customer"}} =
+               Records.update_record(gh2529_update_attrs(created.record_id, "Changed"), schema)
+
+      stored = gh2528_latest!(schema, created.record_id)
+      assert stored.field_values == created.field_values
+      refute stored.deleted
+      assert stored.last_event_global_seq == created.last_event_global_seq
+      assert gh2529_type_event_count(schema) == events_before
+      assert Repo.aggregate(Event, :count, prefix: schema) == all_events_before
+    end
+
+    test "delete refused, record and event count unchanged" do
+      %{schema_name: schema} = provisioned_tenant()
+      gh2529_activate!(schema, %{append_only: true})
+      {:ok, %{record: created}} = Records.create_record(create_attrs(), schema)
+      events_before = gh2529_type_event_count(schema)
+
+      assert {:error, {:entity_append_only, "customer"}} =
+               Records.delete_record(gh2529_delete_attrs(created.record_id), schema)
+
+      stored = gh2528_latest!(schema, created.record_id)
+      assert stored.field_values == created.field_values
+      refute stored.deleted
+      assert stored.last_event_global_seq == created.last_event_global_seq
+      assert gh2529_type_event_count(schema) == events_before
+    end
+
+    test "random non-existent record_id gets entity_append_only, not record_not_found" do
+      %{schema_name: schema} = provisioned_tenant()
+      gh2529_activate!(schema, %{append_only: true})
+      missing = Ecto.UUID.generate()
+
+      assert {:error, {:entity_append_only, "customer"}} =
+               Records.update_record(gh2529_update_attrs(missing, "Ghost"), schema)
+
+      assert {:error, {:entity_append_only, "customer"}} =
+               Records.delete_record(gh2529_delete_attrs(missing), schema)
+
+      assert Repo.aggregate(Event, :count, prefix: schema) == 0
+    end
+
+    test "append_only: false behaves as mutable incl. delete idempotency" do
+      %{schema_name: schema} = provisioned_tenant()
+      activated = gh2529_activate!(schema, %{append_only: false})
+      assert activated.definition_json["append_only"] == false
+      {:ok, %{record: created}} = Records.create_record(create_attrs(), schema)
+
+      assert {:ok, %{record: updated, is_duplicate: false}} =
+               Records.update_record(gh2529_update_attrs(created.record_id, "Changed"), schema)
+
+      assert updated.field_values["customer_name"] == "Changed"
+
+      assert {:ok, %{record: deleted, is_duplicate: false}} =
+               Records.delete_record(gh2529_delete_attrs(created.record_id), schema)
+
+      assert deleted.deleted
+      events_after_delete = gh2529_type_event_count(schema)
+
+      assert {:ok, %{record: again, is_duplicate: false}} =
+               Records.delete_record(gh2529_delete_attrs(created.record_id), schema)
+
+      assert again.deleted
+      assert gh2529_type_event_count(schema) == events_after_delete
+    end
+
+    # Behaviour change pinned on purpose (records.ex delete_record/2 @doc): the
+    # append-only check runs before the already-deleted no-op, so a record
+    # deleted while the type was mutable is refused, not answered with the
+    # 200 no-op success, once the flag is active.
+    test "delete of an already-deleted record is refused once the flag is active" do
+      %{schema_name: schema} = provisioned_tenant()
+      gh2529_activate!(schema, %{})
+      {:ok, %{record: created}} = Records.create_record(create_attrs(), schema)
+
+      assert {:ok, %{record: deleted}} =
+               Records.delete_record(gh2529_delete_attrs(created.record_id), schema)
+
+      assert deleted.deleted
+
+      # Premise: while mutable, a second delete is the no-op success.
+      assert {:ok, %{record: %{deleted: true}, is_duplicate: false}} =
+               Records.delete_record(gh2529_delete_attrs(created.record_id), schema)
+
+      gh2529_activate!(schema, %{
+        append_only: true,
+        fields: [
+          %{name: "customer_name", type: :string, required: true},
+          %{name: "age", type: :integer},
+          %{name: "loyalty_tier", type: :string}
+        ]
+      })
+
+      events_before = gh2529_type_event_count(schema)
+
+      assert {:error, {:entity_append_only, "customer"}} =
+               Records.delete_record(gh2529_delete_attrs(created.record_id), schema)
+
+      stored = gh2528_latest!(schema, created.record_id)
+      assert stored.deleted
+      assert stored.last_event_global_seq == deleted.last_event_global_seq
+      assert gh2529_type_event_count(schema) == events_before
+    end
+
+    test "activating a version without the flag unlocks; re-adding it locks again" do
+      %{schema_name: schema} = provisioned_tenant()
+      gh2529_activate!(schema, %{append_only: true})
+      {:ok, %{record: created}} = Records.create_record(create_attrs(), schema)
+
+      assert {:error, {:entity_append_only, "customer"}} =
+               Records.update_record(gh2529_update_attrs(created.record_id, "V1"), schema)
+
+      # v2: no flag -> mutable again.
+      v2 = gh2529_activate!(schema, %{})
+      refute Map.has_key?(v2.definition_json, "append_only")
+
+      assert {:ok, %{record: updated}} =
+               Records.update_record(gh2529_update_attrs(created.record_id, "V2"), schema)
+
+      assert updated.field_values["customer_name"] == "V2"
+
+      # v3: flag again plus one extra optional field (a logical shape distinct
+      # from v1, else the per-name shape unique index rejects the row).
+      v3 =
+        gh2529_activate!(schema, %{
+          append_only: true,
+          fields: [
+            %{name: "customer_name", type: :string, required: true},
+            %{name: "age", type: :integer},
+            %{name: "loyalty_tier", type: :string}
+          ]
+        })
+
+      assert v3.definition_json["append_only"] == true
+      events_before = gh2529_type_event_count(schema)
+
+      assert {:error, {:entity_append_only, "customer"}} =
+               Records.update_record(gh2529_update_attrs(created.record_id, "V3"), schema)
+
+      assert {:error, {:entity_append_only, "customer"}} =
+               Records.delete_record(gh2529_delete_attrs(created.record_id), schema)
+
+      assert gh2528_latest!(schema, created.record_id).field_values["customer_name"] == "V2"
+      assert gh2529_type_event_count(schema) == events_before
+    end
+
+    test "a deadline-sweep-shaped caller gets the refusal without crashing" do
+      %{schema_name: schema} = provisioned_tenant()
+      gh2529_activate!(schema, %{append_only: true})
+      {:ok, %{record: created}} = Records.create_record(create_attrs(), schema)
+      record_id = created.record_id
+
+      assert {:record_error, ^record_id, {:entity_append_only, "customer"}} =
+               gh2529_sweep_like_transition(record_id, schema)
+
+      assert gh2528_latest!(schema, record_id).field_values == created.field_values
+    end
+
+    test "no new write path: only three lib files name the update/delete event types" do
+      git =
+        System.find_executable("git") ||
+          flunk("git is not available; this test must fail, not skip")
+
+      repo_root = Path.expand("../../..", __DIR__)
+
+      {out, status} =
+        System.cmd(
+          git,
+          [
+            "grep",
+            "--untracked",
+            "-l",
+            "-E",
+            "ENTITY_RECORD_UPDATED|ENTITY_RECORD_DELETED",
+            "--",
+            "lib",
+            ":!lib/letflow/design"
+          ],
+          cd: repo_root,
+          stderr_to_stdout: true
+        )
+
+      assert status == 0, "git grep failed: #{out}"
+
+      files = out |> String.split(["\r\n", "\n"], trim: true) |> Enum.sort()
+
+      assert files == [
+               "lib/letflow/entities/event_types.ex",
+               "lib/letflow/entities/record/projector.ex",
+               "lib/letflow/entities/records.ex"
+             ]
+    end
+  end
 end

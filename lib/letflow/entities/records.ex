@@ -45,6 +45,15 @@ defmodule Letflow.Entities.Records do
   then this module's own `:upsert_record_latest` step (design §5.1 steps
   4-5), then `:dual_write_promoted_columns` (REQ-297).
 
+  ## Append-only entity types (GH #2529)
+
+  `update_record/2` and `delete_record/2` refuse with
+  `{:error, {:entity_append_only, entity_type}}` when the entity type's
+  **current** active definition has `"append_only" => true` (literal `true`
+  only). The check runs right after the active definition is resolved and
+  before any record lookup, so it is existence-independent and appends no
+  event. `create_record/2` is unaffected.
+
   ## `entity_def_version`'s atom/string key round-trip (a real gap the design
   doc does not address -- flagged here, not silently patched)
 
@@ -147,6 +156,7 @@ defmodule Letflow.Entities.Records do
           | {:error, {:record_not_found, record_id :: Ecto.UUID.t()}}
           | {:error, {:record_already_deleted, record_id :: Ecto.UUID.t()}}
           | {:error, :record_version_conflict}
+          | {:error, {:entity_append_only, entity_type :: String.t()}}
           | {:error, :tenant_not_provisioned}
           | {:error, :invalid_schema_name}
           | {:error, {:payload_validation_failed, [term()]}}
@@ -208,6 +218,12 @@ defmodule Letflow.Entities.Records do
   the whole command, idempotency claim included. Absent/`nil` adds no step at
   all. A non-nil value that is not a non-negative integer raises
   `ArgumentError` (programmer error from an internal caller).
+
+  GH #2529: if the current active definition carries `"append_only" => true`,
+  returns `{:error, {:entity_append_only, entity_type}}` right after the
+  definition is resolved -- before the record lookup, payload validation and
+  idempotency -- so the answer is the same for any `record_id` and no event is
+  appended.
   """
   @spec update_record(update_attrs(), prefix :: String.t()) ::
           {:ok, command_result()} | command_error()
@@ -219,6 +235,7 @@ defmodule Letflow.Entities.Records do
     expected = expected_seq(attrs)
 
     with {:ok, definition} <- fetch_active_definition(entity_type, prefix),
+         :ok <- ensure_mutable(definition, entity_type),
          {:ok, existing_record} <- fetch_existing_record(record_id, entity_type, prefix),
          :ok <- ensure_not_deleted(existing_record, record_id),
          :ok <- validate_field_values(definition, field_values) do
@@ -241,7 +258,8 @@ defmodule Letflow.Entities.Records do
   Deletes an entity record (design §5.2): appends one `ENTITY_RECORD_DELETED`
   event and marks the `entity_record_latest` row `deleted: true`,
   `field_values` retained unchanged at its last pre-delete value. Deleting an
-  already-deleted record is a **no-op success** returning the existing
+  already-deleted record is a **no-op success** (except on an append-only
+  type, below) returning the existing
   (already-deleted) row with `is_duplicate: false` -- deletion is naturally
   idempotent at the domain level, independent of the idempotency-key
   mechanism.
@@ -249,6 +267,11 @@ defmodule Letflow.Entities.Records do
   GH #2528: the optional `:expected_last_event_global_seq` works as in
   `update_record/2` for a live record. An already-deleted record keeps the
   no-op success above regardless of the expected value (no check, no event).
+
+  GH #2529: an append-only type (current active definition carries
+  `"append_only" => true`) returns `{:error, {:entity_append_only, entity_type}}`
+  right after the definition is resolved, before the record lookup and the
+  already-deleted no-op, for any `record_id`, with no event appended.
   """
   @spec delete_record(delete_attrs(), prefix :: String.t()) ::
           {:ok, command_result()} | command_error()
@@ -257,6 +280,7 @@ defmodule Letflow.Entities.Records do
     expected = expected_seq(attrs)
 
     with {:ok, definition} <- fetch_active_definition(entity_type, prefix),
+         :ok <- ensure_mutable(definition, entity_type),
          {:ok, existing_record} <- fetch_existing_record(record_id, entity_type, prefix) do
       if existing_record.deleted do
         {:ok, %{record: existing_record, is_duplicate: false}}
@@ -707,6 +731,19 @@ defmodule Letflow.Entities.Records do
       {:ok, record} -> {:ok, record}
       {:error, :not_found} -> {:error, {:record_not_found, record_id}}
       {:error, :invalid_schema_name} = error -> error
+    end
+  end
+
+  # GH #2529: reads the CURRENT active definition's string-keyed JSONB; only a
+  # literal `true` locks the type (the definition validator guarantees a stored
+  # value is a boolean).
+  @spec ensure_mutable(EntityDefinition.t(), String.t()) ::
+          :ok | {:error, {:entity_append_only, String.t()}}
+  defp ensure_mutable(%EntityDefinition{definition_json: json}, entity_type) do
+    if Map.get(json, "append_only") == true do
+      {:error, {:entity_append_only, entity_type}}
+    else
+      :ok
     end
   end
 
