@@ -264,8 +264,17 @@ defmodule Letflow.Entities.ScriptReads do
   defp fetch_all(plans, prefix) do
     {:ok, Map.new(plans, &{&1.name, fetch(&1, prefix)})}
   rescue
-    Postgrex.Error -> {:error, :reads_not_allowed}
+    # Only a data exception (SQLSTATE class 22, e.g. a stored value the cast cannot read) is a
+    # refusal; any other database error (timeout, lock, missing table) is re-raised so the
+    # dispatcher's handler treats it as transient (SECURITY D1).
+    error in Postgrex.Error ->
+      if data_exception?(error),
+        do: {:error, :reads_not_allowed},
+        else: reraise(error, __STACKTRACE__)
   end
+
+  defp data_exception?(%Postgrex.Error{postgres: %{pg_code: "22" <> _}}), do: true
+  defp data_exception?(_error), do: false
 
   defp fetch(%{query: query, fields: fields, restricted: restricted}, prefix) do
     query

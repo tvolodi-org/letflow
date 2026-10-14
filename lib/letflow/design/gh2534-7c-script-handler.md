@@ -1270,6 +1270,12 @@ AC -> suite / named test [CDV C7]:
    * engine -> entities ONLY via `ScriptReadPort` (7c-2), enforced by `check_boundaries` Rule 6 on
      DIRECT edges; the indirect metadata path engine -> `Scripts.Runtime` -> `Scripts.Policy` ->
      `Entities.Definitions` is accepted under the direct reading of F10 (11.4).
+   * [7c-2 gate follow-up] `Scripts.Policy` -> `Entities.Query.Allowlist` (module edge, same
+     direction as the existing `Entities.Definitions` edge; `check_reads` refuses a non-queried
+     `match.field`).
+   * [7c-2 gate follow-up] DATA-level `Entities.ScriptReads` -> the `script_readable_masters` table,
+     read by table name (no module edge, invisible to xref): the port re-checks the flag itself
+     (19b). Renaming that table breaks the port's flag tests.
 5. A fifth alert trigger `script_hmac_secret_missing` (7.3).
 6. A new gated poller child under `Letflow.Supervisor.Pollers` (C2), started after
    `MigrationReplayBoot` by construction (0.12).

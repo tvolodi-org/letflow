@@ -534,6 +534,21 @@ defmodule Letflow.Entities.ScriptReadsTest do
                {:error, :reads_not_allowed}
     end
 
+    # SECURITY D1 / REVIEWER: only a data exception (SQLSTATE class 22) is a refusal; any other
+    # database error is re-raised, so the dispatcher treats it as transient instead of as a
+    # permanent script_rejected.
+    test "a non-data database error (here: undefined_table, 42P01) is re-raised, not refused",
+         ctx do
+      Repo.query!(~s(DROP TABLE "#{ctx.schema}".entity_record_latest CASCADE))
+
+      error =
+        assert_raise Postgrex.Error, fn ->
+          ScriptReads.prefetch(ctx.schema, [ctx.age_read], %{"tier" => 5})
+        end
+
+      assert error.postgres.pg_code == "42P01"
+    end
+
     test "the run ends script_rejected / reads_not_allowed at once; the value is never logged",
          ctx do
       F.count_runner_calls!()
