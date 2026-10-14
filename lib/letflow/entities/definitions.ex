@@ -29,11 +29,25 @@ defmodule Letflow.Entities.Definitions do
 
   No independent canonicalisation, hashing, or dedup logic lives in this
   module -- REQ-202's `create/2` pipeline is called, not reimplemented, per
-  REQ-226's own text. A known, accepted cost of this reuse (design §6 OQ-1):
-  a same-name/same-shape resubmission mints a redundant `artifact_versions`
+  REQ-226's own text. REQ-226 accepted a cost of this reuse (design §6 OQ-1):
+  a same-name/same-shape resubmission minted a redundant `artifact_versions`
   row before being rejected at the `entity_definitions` layer by the
   `(tenant_id, name, logical_shape_version)` UNIQUE constraint (design §4
-  Scenario B).
+  Scenario B). Since REQ-496 (Revision 2) that cost is gone: the whole create
+  runs in one transaction and every error branch rolls it back, so the
+  rejected attempt's `artifact_versions` row is rolled back with it. This
+  applies to EVERY error, `{:repository, _}` and `{:validation, _}` included,
+  not only `{:persistence, _}`; the returned `{:error, reason}` terms are
+  unchanged.
+
+  ## `managed_by` (REQ-496, decision 0050 D7)
+
+  `create_definition/3` takes the caller's `Letflow.Entities.ManagedTypes.owner()`
+  (`create_definition/2` means `:tenant`). Inside the create transaction it
+  first takes the per-(tenant, name) advisory lock, then asks
+  `ManagedTypes.check_create/3` whether this owner may create the name and
+  whether the new row is stamped; see
+  `lib/letflow/design/req496-managed-by-and-scope-node-paths.md` §2.5.
 
   ## Activation reuses REQ-203's existing machinery -- no new mechanism
   (design §3.4)
@@ -55,6 +69,7 @@ defmodule Letflow.Entities.Definitions do
   alias Letflow.Entities.Definition.Shape
   alias Letflow.Entities.Definition.Validator
   alias Letflow.Entities.EntityDefinition
+  alias Letflow.Entities.ManagedTypes
   alias Letflow.Api.Pagination
   alias Letflow.Repo
   alias Letflow.Repository
@@ -73,6 +88,8 @@ defmodule Letflow.Entities.Definitions do
           | {:error, {:repository, term()}}
           | {:error, {:persistence, Ecto.Changeset.t()}}
           | {:error, :invalid_schema_name}
+          | {:error, :entity_type_managed}
+          | {:error, {:managed_name_taken, String.t()}}
 
   @typedoc "REQ-067's opts shape for `list_definitions/2` -- see design §3.3."
   @type list_definitions_filters :: %{
@@ -82,64 +99,91 @@ defmodule Letflow.Entities.Definitions do
 
   @doc """
   Creates a new `entity_definitions` row (design §3.3), scoped to the tenant
-  schema named by `prefix`. Steps, in this exact order:
+  schema named by `prefix`, as the tenant: `create_definition(attrs, prefix,
+  :tenant)`. See `create_definition/3`.
+  """
+  @spec create_definition(create_attrs(), prefix :: String.t()) ::
+          {:ok, EntityDefinition.t()} | create_error()
+  def create_definition(attrs, prefix), do: create_definition(attrs, prefix, :tenant)
 
+  @doc """
+  Creates a new `entity_definitions` row (design §3.3) on behalf of `owner`,
+  scoped to the tenant schema named by `prefix`. Steps 0a-4 run inside one
+  `Repo.transaction/1` (joining the caller's transaction when there is one),
+  and every error branch rolls it back with the unchanged error term (REQ-496
+  design §2.5, Revision 2):
+
+    0a. When the definition's `:name` is in the managed-name format, takes the
+        per-(tenant, name) advisory lock (`ManagedTypes.lock_names/2`).
+    0. `ManagedTypes.check_create/3` -- on an error, returns it immediately:
+       no Validator call, no write.
     1. `Letflow.Entities.Definition.Validator.validate/1` -- on
-       `{:error, violations}`, returns `{:error, {:validation, violations}}`
-       immediately. No `Letflow.Repository.create/2` call, no
-       `entity_definitions` insert attempt, no DB write of any kind happens
-       on this branch.
+       `{:error, violations}`, returns `{:error, {:validation, violations}}`.
     2. On `:ok`, computes `content_hash`/`logical_shape_version` via
        `Letflow.Entities.Definition.Shape`.
     3. Calls `Letflow.Repository.create/2` with `artifact_kind: :entity` --
        REQ-202's existing canonicalise-hash-dedup-version pipeline, not
        reimplemented. A `{:error, reason}` here is returned as
-       `{:error, {:repository, reason}}` immediately -- no `entity_definitions`
-       row is written on this branch either.
-    4. On success, inserts one `entity_definitions` row referencing the
-       returned `artifact_version_id`, `status: :inactive`. A UNIQUE-constraint
-       failure here is returned as `{:error, {:persistence, changeset}}` --
-       at this point step 3 has already run and may have written or reused a
-       `repository_artifacts`/`artifact_versions` row (design §4's Scenario
-       B, an accepted cost of reusing `create/2` unmodified).
+       `{:error, {:repository, reason}}`.
+    4. Inserts one `entity_definitions` row referencing the returned
+       `artifact_version_id`, `status: :inactive`, stamped with `managed_by`
+       when step 0 returned a module id. A UNIQUE-constraint failure here is
+       returned as `{:error, {:persistence, changeset}}`, and step 3's
+       `repository_artifacts`/`artifact_versions` writes roll back with it.
     5. On success, returns `{:ok, %Letflow.Entities.EntityDefinition{}}`.
   """
-  @spec create_definition(create_attrs(), prefix :: String.t()) ::
+  @spec create_definition(create_attrs(), prefix :: String.t(), ManagedTypes.owner()) ::
           {:ok, EntityDefinition.t()} | create_error()
-  def create_definition(%{definition: definition, created_by: created_by}, prefix)
+  def create_definition(%{definition: definition, created_by: created_by}, prefix, owner)
       when is_binary(prefix) do
+    Repo.transaction(fn ->
+      case do_create_definition(definition, created_by, prefix, owner) do
+        {:ok, entity_definition} -> entity_definition
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  defp do_create_definition(definition, created_by, prefix, owner) do
+    name = Map.get(definition, :name)
+
+    with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
+         :ok <- ManagedTypes.lock_names([name], prefix),
+         {:ok, stamp} <- ManagedTypes.check_create(name, owner, prefix),
+         :ok <- validate_definition(definition) do
+      content_hash = Shape.content_hash(definition)
+      logical_shape_version = Shape.logical_shape_of(definition)
+
+      repository_attrs = %{
+        artifact_kind: :entity,
+        artifact_name: Map.fetch!(definition, :name),
+        content_type: "application/json",
+        content: Jason.encode!(definition),
+        created_by: created_by
+      }
+
+      case Repository.create(repository_attrs, prefix) do
+        {:error, reason} ->
+          {:error, {:repository, reason}}
+
+        {:ok, %Repository.ArtifactVersion{version_id: artifact_version_id}} ->
+          insert_entity_definition(
+            tenant_id,
+            definition,
+            content_hash,
+            logical_shape_version,
+            artifact_version_id,
+            stamp,
+            prefix
+          )
+      end
+    end
+  end
+
+  defp validate_definition(definition) do
     case Validator.validate(definition) do
-      {:error, violations} ->
-        {:error, {:validation, violations}}
-
-      :ok ->
-        with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix) do
-          content_hash = Shape.content_hash(definition)
-          logical_shape_version = Shape.logical_shape_of(definition)
-
-          repository_attrs = %{
-            artifact_kind: :entity,
-            artifact_name: Map.fetch!(definition, :name),
-            content_type: "application/json",
-            content: Jason.encode!(definition),
-            created_by: created_by
-          }
-
-          case Repository.create(repository_attrs, prefix) do
-            {:error, reason} ->
-              {:error, {:repository, reason}}
-
-            {:ok, %Repository.ArtifactVersion{version_id: artifact_version_id}} ->
-              insert_entity_definition(
-                tenant_id,
-                definition,
-                content_hash,
-                logical_shape_version,
-                artifact_version_id,
-                prefix
-              )
-          end
-        end
+      :ok -> :ok
+      {:error, violations} -> {:error, {:validation, violations}}
     end
   end
 
@@ -149,6 +193,7 @@ defmodule Letflow.Entities.Definitions do
          content_hash,
          logical_shape_version,
          artifact_version_id,
+         stamp,
          prefix
        ) do
     attrs = %{
@@ -164,12 +209,18 @@ defmodule Letflow.Entities.Definitions do
 
     %EntityDefinition{}
     |> EntityDefinition.changeset(attrs)
+    |> maybe_put_managed_by(stamp)
     |> Repo.insert(prefix: prefix)
     |> case do
       {:ok, entity_definition} -> {:ok, entity_definition}
       {:error, changeset} -> {:error, {:persistence, changeset}}
     end
   end
+
+  defp maybe_put_managed_by(changeset, nil), do: changeset
+
+  defp maybe_put_managed_by(changeset, module_id) when is_binary(module_id),
+    do: EntityDefinition.put_managed_by(changeset, module_id)
 
   @doc """
   Fetches one `entity_definitions` row by `id`, scoped to the tenant schema
@@ -384,7 +435,7 @@ defmodule Letflow.Entities.Definitions do
   and demotes every OTHER row under the same `(tenant_id, name)` back to
   `:inactive` BEFORE promoting the target row to `:active`. This ordering is
   load-bearing, not stylistic: newly inserted rows default to `status:
-  :inactive` (`insert_entity_definition/6`), so at most one sibling can be
+  :inactive` (`insert_entity_definition/7`), so at most one sibling can be
   `:active` before this function runs; demoting that sibling first drops the
   active count for `(tenant_id, name)` to 0 before promote-self raises it
   back to exactly 1, so the partial unique index

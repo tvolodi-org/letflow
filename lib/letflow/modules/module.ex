@@ -67,6 +67,9 @@ defmodule Letflow.Modules.Module do
     * `:settings_schema` — a JSON-Schema-shaped map describing the module's
       configurable settings, or `nil` if it has none.
     * `:route_policies` — see `t:route_policy/0`.
+    * `:manages_entity_types` — **optional**; entity type names this module owns;
+      the install step stamps `managed_by` on them (0050 D7, REQ-496). Absent
+      means `[]`. Each name must match `^[a-z][a-z0-9_]{0,63}$`.
   """
   @type manifest :: %{
           required(:id) => String.t(),
@@ -77,7 +80,8 @@ defmodule Letflow.Modules.Module do
           required(:role_grants) => %{atom() => [atom()]},
           required(:required_roles) => [String.t()],
           required(:settings_schema) => map() | nil,
-          required(:route_policies) => [route_policy()]
+          required(:route_policies) => [route_policy()],
+          optional(:manages_entity_types) => [String.t()]
         }
 
   @callback manifest() :: manifest()

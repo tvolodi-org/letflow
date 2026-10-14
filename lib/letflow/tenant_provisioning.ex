@@ -648,7 +648,13 @@ defmodule Letflow.TenantProvisioning do
      "20261008000001_create_pending_tenant_admin_grants.exs"},
     # GH 2534 PR 7b-1 (decision 0053 D1): tenant-script registry with its guard trigger.
     {20_261_014_000_001, Letflow.Repo.Migrations.CreateScriptRules,
-     "20261014000001_create_script_rules.exs"}
+     "20261014000001_create_script_rules.exs"},
+    # REQ-496 / GH #2530 (decision 0050 D7, D8): `entity_definitions.managed_by` with its
+    # immutability trigger, and the `scope_node_paths` security index.
+    {20_261_014_100_001, Letflow.Repo.Migrations.AddManagedByToEntityDefinitions,
+     "20261014100001_add_managed_by_to_entity_definitions.exs"},
+    {20_261_014_100_002, Letflow.Repo.Migrations.CreateScopeNodePaths,
+     "20261014100002_create_scope_node_paths.exs"}
   ]
 
   @doc """
@@ -696,7 +702,9 @@ defmodule Letflow.TenantProvisioning do
   inserts an exam `tenant_modules` row for any tenant with a
   `bilimbaga-question-bank` pack install), ISS-0979 one more:
   `audit_chain_locks`, and ISS-1030 one more: `pending_tenant_admin_grants`
-  (`lib/letflow/design/iss1030-onboarding-administrator.md` §4) —
+  (`lib/letflow/design/iss1030-onboarding-administrator.md` §4), and REQ-496
+  two more: `entity_definitions.managed_by` and `scope_node_paths`
+  (`lib/letflow/design/req496-managed-by-and-scope-node-paths.md` §2.1, §5) —
   entries in total (see `@tenant_scoped_migration_manifest` itself for the
   authoritative, up-to-date count), ordered by version. Every future tenant-scoped migration must append its
   own entry to `@tenant_scoped_migration_manifest`, in addition to following the

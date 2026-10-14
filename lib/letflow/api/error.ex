@@ -325,6 +325,27 @@ defmodule Letflow.Api.Error do
     }
   end
 
+  @doc """
+  HTTP 403 — Entity Type Is Managed by a Module (REQ-496, decision 0050 D7, M4).
+
+  The ONE uniform refusal for a tenant write to a module-managed entity type, on
+  the generic record routes, the entity-definition routes and both
+  solution-pack routes. Constant: takes no argument, so no type name, module id,
+  record id, field value or append-only status can reach the body (INV-2, INV-4);
+  the only per-request member is `trace_id`.
+  """
+  @spec entity_type_managed() :: t()
+  def entity_type_managed do
+    %__MODULE__{
+      type: @problems_base <> "entity-type-managed",
+      title: "Entity Type Is Managed by a Module",
+      status: 403,
+      detail:
+        "this entity type is managed by an installed module and cannot be changed through this route",
+      extensions: %{"code" => "entity_type_managed"}
+    }
+  end
+
   @doc "HTTP 415 — Unsupported Media Type."
   @spec unsupported_media_type(String.t()) :: t()
   def unsupported_media_type(detail) do

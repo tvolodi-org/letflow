@@ -317,10 +317,11 @@ defmodule Letflow.Support.TenantFixtureTest do
       # from 45 to 47 -- REQ-402 added tenant_modules, bumping it from 47
       # to 48 -- ISS-0979 added audit_chain_locks, bumping it from 48 to 49 --
       # ISS-1030 added pending_tenant_admin_grants, bumping it from 49 to 50 --
-      # GH 2534 7b-1 added script_rules, bumping it from 50 to 51.
+      # GH 2534 7b-1 added script_rules, bumping it from 50 to 51 -- REQ-496
+      # (GH #2530) added scope_node_paths, bumping it from 51 to 52.
       # test/support/tenant_fixture.ex's own @expected_tenant_tables
-      # list already carries all 51.)
-      assert length(TenantFixture.expected_tenant_tables()) == 51
+      # list already carries all 52.)
+      assert length(TenantFixture.expected_tenant_tables()) == 52
       assert length(state.manifest_versions) > 0
     end
 

@@ -37,6 +37,15 @@ defmodule Letflow.Modules.Installs do
   constant naming the cause. All of this happens in ONE `Repo.transaction/1` — any step
   failing rolls back every write, including the pack install (design §3.4).
 
+  ## Managed entity types (REQ-496, decision 0050 D7)
+
+  The pack is installed with the module's `Letflow.Entities.ManagedTypes.Owner`,
+  built from its compiled manifest by `ManagedTypes.module_owner/1` -- this is the
+  ONLY caller of that function and of `SolutionPack.install/4` with an `Owner`.
+  Every name the manifest lists in `manages_entity_types` must be among the entity
+  definitions the pack inserted, else `{:error, {:pack_install_failed,
+  {:managed_type_not_in_pack, name}}}` and everything rolls back.
+
   OUT OF SCOPE (0039 D5, REQ-402's own BUILDS): installing several modules
   in dependency order in one request (solution install, REQ-415); settings
   writes to an already-installed module (REQ-414); uninstall.
@@ -45,6 +54,7 @@ defmodule Letflow.Modules.Installs do
   import Ecto.Query, only: [from: 2]
 
   alias Letflow.Definitions.SolutionPack
+  alias Letflow.Entities.ManagedTypes
   alias Letflow.EventStore.Registry.JsonSchema
   alias Letflow.Modules.Catalog
   alias Letflow.Modules.TenantModule
@@ -57,7 +67,9 @@ defmodule Letflow.Modules.Installs do
           | {:error, :rationale_required}
           | {:error, :already_installed}
           | {:error, {:dependency_not_installed, module_id :: String.t()}}
-          | {:error, {:pack_install_failed, SolutionPack.install_error()}}
+          | {:error,
+             {:pack_install_failed,
+              SolutionPack.install_error() | {:managed_type_not_in_pack, String.t()}}}
           | {:error, {:on_install_failed, term()}}
           | {:error, Ecto.Changeset.t()}
 
@@ -86,11 +98,14 @@ defmodule Letflow.Modules.Installs do
 
     with {:ok, rationale} <- fetch_rationale(opts),
          {:ok, entry_module} <- fetch_module(module_id) do
+      owner = ManagedTypes.module_owner(entry_module)
+
       Repo.transaction(fn ->
         with :ok <- check_not_already_installed(module_id, prefix),
              :ok <- check_dependencies_installed(entry_module, prefix),
              {:ok, pack_entity_definition_ids} <-
-               maybe_install_pack(entry_module, actor_id, opts),
+               maybe_install_pack(entry_module, actor_id, opts, owner),
+             :ok <- check_managed_types_in_pack(owner, pack_entity_definition_ids),
              {:ok, tenant_module} <- insert_tenant_module(entry_module, prefix),
              ctx = %{
                actor_id: actor_id,
@@ -219,14 +234,14 @@ defmodule Letflow.Modules.Installs do
 
   # Returns the entity definitions THIS install's pack inserted, `%{name => id}`
   # (0052 D6: on_install/3 may activate only these; empty without a pack).
-  defp maybe_install_pack(entry_module, actor_id, opts) do
+  defp maybe_install_pack(entry_module, actor_id, opts, owner) do
     case entry_module.manifest().pack do
       nil ->
         {:ok, %{}}
 
       pack_path ->
         with {:ok, document} <- read_pack_document(pack_path),
-             {:ok, install_result} <- SolutionPack.install(document, actor_id, opts) do
+             {:ok, install_result} <- SolutionPack.install(document, actor_id, opts, owner) do
           {:ok,
            Map.new(install_result.installed_entity_definitions, fn installed ->
              {installed.name, installed.new_entity_definition_id}
@@ -234,6 +249,19 @@ defmodule Letflow.Modules.Installs do
         else
           {:error, reason} -> {:error, {:pack_install_failed, reason}}
         end
+    end
+  end
+
+  # REQ-496 (design §2.7): a declared managed type the pack did not insert (or any
+  # declared type when the module has no pack) fails the install. Sorted, so the
+  # reported name is deterministic.
+  defp check_managed_types_in_pack(owner, pack_entity_definition_ids) do
+    owner.manages
+    |> Enum.sort()
+    |> Enum.find(&(not Map.has_key?(pack_entity_definition_ids, &1)))
+    |> case do
+      nil -> :ok
+      name -> {:error, {:pack_install_failed, {:managed_type_not_in_pack, name}}}
     end
   end
 

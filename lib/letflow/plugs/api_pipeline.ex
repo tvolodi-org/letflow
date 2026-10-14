@@ -149,6 +149,11 @@ defmodule Letflow.Plugs.ApiPipeline do
   # catalog id happens to be literally "install".
   forward("/tenant/modules", to: Letflow.Routers.TenantModules)
 
+  # REQ-496 (design lib/letflow/design/req496-managed-by-and-scope-node-paths.md
+  # §6.5) -- read-only scope_node_paths consistency check for the caller's own
+  # tenant.
+  forward("/tenant/scope-node-paths", to: Letflow.Routers.TenantScopeNodePaths)
+
   # REQ-415 -- solution install: POST /api/v1/tenant/solutions. Mounted at
   # /tenant/solutions (a sibling prefix to /tenant/modules, not a sub-path
   # of it) so the route collision the modules mount guards against doesn't

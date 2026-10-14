@@ -383,6 +383,7 @@ defmodule Letflow.Api.Authorization do
           | :MembershipsRead
           | :ModulesManage
           | :MyModulesRead
+          | :ScopeNodePathsConsistencyRead
           | :TenantSettingsManage
           | :PromotionsRead
           | :PromotionsManage
@@ -1101,6 +1102,11 @@ defmodule Letflow.Api.Authorization do
   # route above (PLATFORM_ADMIN-only, per REQ-401/D5).
   def endpoint_policy_key("POST", "/tenant/solutions"), do: :ModulesManage
 
+  # REQ-496 (decision 0050 D8, design D11) — Letflow.Routers.TenantScopeNodePaths'
+  # read-only consistency check, mounted at /tenant/scope-node-paths.
+  def endpoint_policy_key("GET", "/tenant/scope-node-paths/consistency"),
+    do: :ScopeNodePathsConsistencyRead
+
   # REQ-403 — Letflow.Routers.Me's new route, mounted at /me (full path
   # /api/v1/me/modules). See this module's moduledoc "MyModulesRead" section
   # and lib/letflow/design/req403-module-install-route.md §5.3.
@@ -1318,6 +1324,10 @@ defmodule Letflow.Api.Authorization do
   def required_permission(:ScriptsWrite), do: :ScriptsWrite
   def required_permission(:ScriptsPublish), do: :ScriptsPublish
   def required_permission(:MyModulesRead), do: :MyModulesRead
+
+  # REQ-496 (design D11): same holders as the tree-write permission (0050 D7);
+  # tenant scope, so no new permission atom.
+  def required_permission(:ScopeNodePathsConsistencyRead), do: :UsersGroupsRolesManage
 
   def required_permission(:Unknown), do: :MetricsRead
 

@@ -183,6 +183,7 @@ defmodule Letflow.Definitions.SolutionPack do
   alias Letflow.Definitions.ValidationWarnings
   alias Letflow.Engine.VariableSchema
   alias Letflow.Entities.EntityDefinition
+  alias Letflow.Entities.ManagedTypes
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
 
@@ -292,6 +293,8 @@ defmodule Letflow.Definitions.SolutionPack do
           | {:error, :missing_prefix}
           | Definitions.create_error()
           | Letflow.Entities.Definitions.create_error()
+          | {:error, :entity_type_managed}
+          | {:error, {:managed_name_taken, String.t()}}
           | Definitions.common_error()
 
   @typedoc """
@@ -448,8 +451,8 @@ defmodule Letflow.Definitions.SolutionPack do
        `ProcessDefinition.id`, `base_content` = canonicalized
        `packed.graph`), sharing this install's single `captured_at` instant
        with the `solution_pack_installs` row from step 5. Then
-       `Letflow.Entities.Definitions.create_definition/2` per packed entity
-       definition (`:inactive`-only, 0026 §2).
+       `Letflow.Entities.Definitions.create_definition/3` (with `install/4`'s
+       `owner`) per packed entity definition (`:inactive`-only, 0026 §2).
     REQ-411: step 6a (`seed_pack_specific_field_restrictions/2`) is removed.
        Answer-key field restrictions for the exam pack are now seeded by
        `Letflow.Modules.Exam.on_install/2`, called by
@@ -470,19 +473,46 @@ defmodule Letflow.Definitions.SolutionPack do
 
   Any error in steps 5-7 rolls the whole transaction back, so a rejected
   variable schema also un-creates the definitions the same install made.
+
+  REQ-496 (0050 D7): installs as the tenant, `install(document, actor_id, opts,
+  :tenant)`; see `install/4`.
   """
   @spec install(
           document :: map(),
           actor_id :: Ecto.UUID.t(),
           opts :: Definitions.opts()
         ) :: {:ok, install_result()} | install_error()
-  def install(document, actor_id, opts) when is_list(opts) do
+  def install(document, actor_id, opts) when is_list(opts),
+    do: install(document, actor_id, opts, :tenant)
+
+  @doc """
+  `install/3` on behalf of `owner` (REQ-496, design
+  `lib/letflow/design/req496-managed-by-and-scope-node-paths.md` §2.5-§2.6).
+  `owner` is passed to `Letflow.Entities.Definitions.create_definition/3` for
+  every packed entity definition: `:tenant` is refused a module-managed name with
+  `{:error, :entity_type_managed}`; a module `Owner` (built only by
+  `Letflow.Modules.Installs.install/3`) stamps the names it manages.
+
+  A `"managed_by"` key at the document top level, on an `entity_definitions[]`
+  entry, or inside its `definition_json` is `{:error, :invalid_pack_document}`,
+  before any query. As the first step of the install transaction, the create lock
+  of every packed entity-definition name is taken in sorted order
+  (`Letflow.Entities.ManagedTypes.lock_names/2`), so concurrent installs cannot
+  deadlock.
+  """
+  @spec install(
+          document :: map(),
+          actor_id :: Ecto.UUID.t(),
+          opts :: Definitions.opts(),
+          owner :: ManagedTypes.owner()
+        ) :: {:ok, install_result()} | install_error()
+  def install(document, actor_id, opts, owner) when is_list(opts) do
     with {:ok, parsed} <- parse_document(document),
          :ok <- check_unsupported_sections(parsed),
          :ok <- check_schema_version(parsed),
          {:ok, decoded_schemas} <- decode_variable_schemas(parsed.variable_schemas),
          {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix(opts)) do
-      run_install(parsed, decoded_schemas, tenant_id, actor_id, opts)
+      run_install(parsed, decoded_schemas, tenant_id, actor_id, opts, owner)
     end
   end
 
@@ -937,7 +967,8 @@ defmodule Letflow.Definitions.SolutionPack do
   # ── install/3 parsing (step 0) ────────────────────────────────────────────
 
   defp parse_document(document) when is_map(document) and not is_struct(document) do
-    with {:ok, pack_id} <- fetch_string(document, "pack_id"),
+    with :ok <- reject_managed_by_key(document),
+         {:ok, pack_id} <- fetch_string(document, "pack_id"),
          {:ok, version} <- fetch_string(document, "version"),
          {:ok, schema_version} <- fetch_string(document, "bpm_export_schema_version"),
          {:ok, raw_definitions} <- fetch_list(document, "definitions"),
@@ -963,6 +994,12 @@ defmodule Letflow.Definitions.SolutionPack do
   end
 
   defp parse_document(_not_an_object), do: {:error, :invalid_pack_document}
+
+  # REQ-496 (design §2.6): `managed_by` is set only from a module's compiled
+  # manifest, never from pack data, so a pack carrying the key is malformed.
+  defp reject_managed_by_key(map) do
+    if Map.has_key?(map, "managed_by"), do: {:error, :invalid_pack_document}, else: :ok
+  end
 
   defp fetch_string(map, key) do
     case Map.get(map, key) do
@@ -1026,7 +1063,8 @@ defmodule Letflow.Definitions.SolutionPack do
   end
 
   defp parse_entity_definition(raw) when is_map(raw) and not is_struct(raw) do
-    with {:ok, entity_definition_id} <- fetch_string(raw, "entity_definition_id"),
+    with :ok <- reject_managed_by_key(raw),
+         {:ok, entity_definition_id} <- fetch_string(raw, "entity_definition_id"),
          {:ok, name} <- fetch_string(raw, "name"),
          {:ok, display_name} <- fetch_string(raw, "display_name"),
          {:ok, logical_shape_version} <- fetch_string(raw, "logical_shape_version"),
@@ -1307,7 +1345,7 @@ defmodule Letflow.Definitions.SolutionPack do
   # joint `%{service_catalog_entries: [], entity_definitions: []}` passing
   # clause -- i.e. requiring entity_definitions to ALSO be empty. Implemented
   # literally that would make `entity_definitions` un-installable through
-  # `install/3` forever (this clause runs before `run_install/5`, so
+  # `install/3` forever (this clause runs before `run_install/6`, so
   # `create_packed_entity_definitions/3`, §4, would be permanently
   # unreachable), directly contradicting AC1 and the design doc's own §4.
   # `entity_definitions` is a newly *supported* section (that is this whole
@@ -1369,11 +1407,12 @@ defmodule Letflow.Definitions.SolutionPack do
 
   # ── install/3 steps 5-8 (transactional) ───────────────────────────────────
 
-  defp run_install(parsed, decoded_schemas, tenant_id, actor_id, opts) do
+  defp run_install(parsed, decoded_schemas, tenant_id, actor_id, opts, owner) do
     captured_at = DateTime.truncate(DateTime.utc_now(), :microsecond)
 
     Repo.transaction(fn ->
-      with {:ok, install} <- insert_install_row(parsed, tenant_id, captured_at),
+      with :ok <- lock_packed_entity_names(parsed.entity_definitions, opts),
+           {:ok, install} <- insert_install_row(parsed, tenant_id, captured_at),
            {:ok, installed} <- create_packed_definitions(parsed.definitions, actor_id, opts),
            {:ok, _bases} <-
              capture_artefact_bases(
@@ -1384,7 +1423,7 @@ defmodule Letflow.Definitions.SolutionPack do
                captured_at
              ),
            {:ok, installed_entities} <-
-             create_packed_entity_definitions(parsed.entity_definitions, actor_id, opts),
+             create_packed_entity_definitions(parsed.entity_definitions, actor_id, opts, owner),
            {:ok, written, warnings} <- register_packed_schemas(installed, decoded_schemas, opts) do
         %{
           pack_id: parsed.pack_id,
@@ -1416,6 +1455,16 @@ defmodule Letflow.Definitions.SolutionPack do
       end)
 
     ValidationWarnings.for_definitions(definitions, opts)
+  end
+
+  # REQ-496 (design §2.5, lock order): every create lock this install needs, taken
+  # up front in sorted order; `lock_names/2` dedups, sorts and skips names failing
+  # the managed-name format. The managed check uses the stored `definition_json`
+  # name, not the entry-level `name`.
+  defp lock_packed_entity_names(packed_entity_definitions, opts) do
+    packed_entity_definitions
+    |> Enum.map(&Map.get(&1.definition_json, :name))
+    |> ManagedTypes.lock_names(prefix(opts))
   end
 
   defp insert_install_row(parsed, tenant_id, captured_at) do
@@ -1493,7 +1542,7 @@ defmodule Letflow.Definitions.SolutionPack do
   (REQ-379 design §5.1), insert-if-absent.
 
   Must run inside the caller's already-open `Repo.transaction/1` (called from
-  `run_install/5`) -- this function opens no transaction of its own.
+  `run_install/6`) -- this function opens no transaction of its own.
 
   For each snapshot, in order: canonicalizes `content` (identical algorithm to
   `Letflow.Definitions.PromotionDigest.canonicalize/1` -- recursively sort map
@@ -1518,7 +1567,7 @@ defmodule Letflow.Definitions.SolutionPack do
 
   A genuine changeset error (e.g. a future value exceeding `artefact_type`'s
   or `artefact_id`'s 255-byte column limits) returns `{:error, changeset}`,
-  which `run_install/5`'s existing `with`/`else` -> `Repo.rollback/1` clause
+  which `run_install/6`'s existing `with`/`else` -> `Repo.rollback/1` clause
   turns into a full install rollback, consistent with every other step.
   """
   @spec capture_artefact_bases(
@@ -1594,15 +1643,15 @@ defmodule Letflow.Definitions.SolutionPack do
   # `opts[:prefix]` and nowhere else -- no `tenant_id`, `schema_name`, or
   # `slug` parameter appears anywhere in this helper (INV-1). `:inactive`-only
   # (0026 §2): no `Letflow.Entities.Definitions.activate_definition/4` call
-  # anywhere -- `create_definition/2` already defaults every inserted row to
+  # anywhere -- `create_definition/3` already defaults every inserted row to
   # `status: :inactive`. All-or-nothing: the first failure aborts, halting
-  # this reduce and flowing into `run_install/5`'s single shared
+  # this reduce and flowing into `run_install/6`'s single shared
   # `with`/`else` -> `Repo.rollback/1` path (no new rollback path).
-  defp create_packed_entity_definitions(packed_entity_definitions, actor_id, opts) do
+  defp create_packed_entity_definitions(packed_entity_definitions, actor_id, opts, owner) do
     Enum.reduce_while(packed_entity_definitions, {:ok, []}, fn packed, {:ok, acc} ->
       create_attrs = %{definition: packed.definition_json, created_by: actor_id}
 
-      case Letflow.Entities.Definitions.create_definition(create_attrs, prefix(opts)) do
+      case Letflow.Entities.Definitions.create_definition(create_attrs, prefix(opts), owner) do
         {:ok, %EntityDefinition{} = created} ->
           {:cont, {:ok, [{packed, created} | acc]}}
 
