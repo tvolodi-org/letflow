@@ -35887,3 +35887,152 @@ requirements:
       - "11. unchanged and green, unedited: gh2359_gateway_reentry_task_row_test.exs, human_task_escalation_test.exs, timer_wiring_test.exs, scheduler_test.exs, scheduler_req188_test.exs, swiftroute_escalation_timer_test.exs, vortex_escalation_timer_test.exs and the three *_d_esc_escalation_fixture_test.exs"
       - "12. mix compile --warnings-as-errors, mix format --check-formatted, the scoped mix test over test/letflow/engine, test/letflow/scheduler*, test/letflow/definitions, test/letflow/routers/instances* and test/letflow/scripts, and mix letflow.check_boundaries pass, real output quoted"
     depends_on: [REQ-396]
+  - id: REQ-496
+    title: "Core: managed_by write lock for module-managed entity types (generic record routes and definitions API refuse with a uniform 403; stamped by install, never from JSON) and the core-owned scope_node_paths security index (one in-transaction writer, ancestors/descendants reads, consistency check)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 2530
+    # Source: GH #2530 (filed by letflow-2, sole filer, 2026-10-14; decision records on main 5b347567); 9 ACs mirrored 1:1 below. Id REQ-496 allocated by letflow-2 (sole allocator). Issue comments read 2026-10-14: heartbeat only, no AC revision.
+    description: >
+      Source: GH #2530; decision 0050 D7 (module-managed write lock), D8
+      (scope_node_paths projection), Deviation 1 (the ONE allowed new core
+      table) and security MUST M4 (tamper-proofing), confirmed by the advisor
+      (letflow-ec Q9/Q10). Both pieces are core changes that the foundation
+      modules (org, catalog_items) and decision 0051 depend on.
+
+      FACTS (read on main fde30dcab):
+      - Nothing stops generic writes to module-owned types: generic record
+        writes are gated only by :EntitiesRecordsWrite / :EntitiesRecordsImport
+        (lib/letflow/routers/entities.ex:293 create, :297 update, :301 delete,
+        :314 import); lib/letflow/entities/type_access.ex is read-side only.
+        No managed_by field or code exists; the only mentions are
+        comments/docs at lib/letflow/api/error.ex:288,
+        lib/letflow/entities/definition.ex:33 and
+        lib/letflow/design/gh2529-append-only-entity-types.md.
+      - Modules write records by calling Letflow.Entities.Records directly
+        (create_record/2 records.ex:182, update_record :230, delete_record :278;
+        exam: lib/letflow/modules/exam/anti_cheat.ex:258, session.ex:1064), so
+        the lock cannot be an unconditional refusal inside Records.*; it sits at
+        the generic HTTP handlers at minimum, owner identified by caller, never
+        by request data (0050 D7 placement notes).
+      - Entity-definition write routes on main are POST /entities/definitions
+        (entities.ex:261, Definitions.create_definition/2, definitions.ex:109)
+        and POST /entities/definitions/:name/activate (entities.ex:257,
+        activate_definition/4, definitions.ex:411). Activating a same-name
+        definition demotes the existing one (definitions.ex:376-393). No
+        entity-definition update/deprecate/delete HTTP route exists today
+        (lib/letflow/routers/definitions.ex is the PROCESS-definitions router);
+        the refusal must cover "every other definitions write route", i.e. any
+        that exists when this lands.
+      - Two more HTTP routes write entity definitions: POST
+        /solution-packs/install (lib/letflow/routers/solution_packs.ex:171,
+        :DefinitionsCreate) and POST /solution-packs/:pack_id/update-apply
+        (solution_packs.ex:186, :DefinitionsCreate). Both reach
+        Entities.Definitions.create_definition/2 via
+        SolutionPack.create_packed_entity_definitions
+        (solution_pack.ex:1595-1599); creating under an existing name adds a
+        new inactive version (definitions.ex:94-104).
+        CORRECTION (CODE-DESIGNER + CODE-DESIGN-VALIDATOR, 2026-10-14): only
+        /install reaches create_definition/2 today; update-apply
+        (apply_pack_update/6, solution_pack.ex:608-646, 804-818) writes
+        resolution rows and advances bases, never entity definitions. AC3's
+        update-apply refusal is defence in depth (a router guard).
+      - The pack entity-definition shape is closed: SolutionPack parses a fixed
+        key map (lib/letflow/definitions/solution_pack.ex:1047-1082, incl.
+        "append_only") and returns {:error, :invalid_pack_document} on a bad
+        shape. Install/activation of packed definitions runs through
+        lib/letflow/modules/installs.ex and
+        lib/letflow/modules/entity_activation.ex (decision 0052, GH #2531,
+        merged). Module entry modules declare a manifest via
+        Letflow.Modules.Module.manifest/0 (lib/letflow/modules/module.ex:83).
+      - append_only (GH #2529, merged) returns
+        {:error, {:entity_append_only, type}} from Records and renders 422
+        via Error.entity_append_only/0 (api/error.ex:295,
+        entities.ex:1415-1416). A generic 403 builder exists:
+        Error.forbidden/1 (api/error.ex:182).
+      - Tenant-schema migrations live in priv/repo/migrations with the
+        mandatory `if prefix() do` guard and registration in
+        Letflow.TenantProvisioning.tenant_scoped_migration_manifest/0
+        (precedent: 20261003000001_create_audit_chain_locks.exs:14-16).
+      - :UsersGroupsRolesManage exists (lib/letflow/api/authorization.ex:298,414;
+        docs/roles.md:86, TENANT_ADMIN and PLATFORM_ADMIN).
+      - Test fixture modules live in test/support/modules/ (fixture,
+        fixture_dependent, fixture_failing_install, fixture_fk_pack).
+
+      CHANGE (scope as given by GH #2530):
+      1. managed_by: <module_id> on an entity definition, declared by module
+         code/manifest (the module declares the type names it manages) and
+         stamped by the install step; NEVER taken from tenant-writable
+         definition JSON or pack JSON (a pack carrying the key is rejected);
+         immutable once set.
+      2. Generic create/update/delete/import handlers (entities.ex:293,297,
+         301,314) return a uniform 403 for a managed type; the owning
+         module's own Records calls succeed; the owner is identified by
+         caller, not by request data. Applies to ALL six foundation types:
+         org_legal_entity, org_site, org_unit, org_unit_membership,
+         catalog_item, catalog_uom, declared by a fixture module under
+         test/support/modules/ (the real org / catalog_items modules adopt it
+         in their own requirements). The 403 is decided before Records is
+         called, so a non-owner never reaches the append_only 422.
+      3. Tamper-proofing (M4): the definitions API (POST /definitions
+         entities.ex:261, POST /definitions/:name/activate :257, and every
+         other definitions write route) refuses with a uniform 403 body
+         create/update/activate/deprecate/delete of a definition whose name
+         is held by a managed type; refuses creating a NEW type whose name
+         collides with a managed type of ANY installed module; refuses
+         setting, removing or altering managed_by. This includes the
+         solution-pack install and update-apply routes: a tenant pack that
+         defines a managed type name is refused. Design constraint: module
+         install (lib/letflow/modules/installs.ex) may share the SolutionPack
+         path, so the owning module is distinguished by caller, never by
+         pack content.
+      4. scope_node_paths (tenant schema; node id, materialised path, depth;
+         indexes `path text_pattern_ops` and `node_id`): one migration; ONE
+         core write function (insert / move / retire; subtree paths rewritten
+         on move; depth bound 12; cycle refused) callable inside the caller's
+         transaction; read functions "ancestors of node" and "descendants of
+         node set" whose path predicates use bound parameters with `%` and
+         `_` escaped (INV-7).
+      5. Consistency check (orphans, cycles, depth over 12) shipped as a mix
+         check test AND a read-only admin endpoint (permission atom for the
+         designer; proposal :UsersGroupsRolesManage per 0050 D8).
+
+      OUT OF SCOPE (GH #2530): the org / catalog_items modules themselves and
+      the move_org_unit action (slice 0); managed_by checks on process-step
+      entity writes (REQ-484) and on 0053 hook 2 (must be added when those
+      exist, 0050 D7 F2); 0051 scope-column / tenant_wide declarations (same
+      refusal rule, added in 0051 stage 2). No other new core table
+      (Deviation 1). exam is not retrofitted.
+
+      BLAST RADIUS: backward compatible. No existing definition has
+      managed_by; only types installed by a module that declares it are
+      locked; new refusals apply only to managed names; scope_node_paths is
+      empty until org exists.
+
+      GATES: SECURITY-REVIEWER required (INV-1, INV-2, INV-5, INV-7, INV-8);
+      REVIEWER required. Merge order: after #2528 and #2529 (shared
+      routers/entities.ex) -- both are merged on main, so the constraint is
+      satisfied.
+
+      DOWNSTREAM CONSUMERS: GH #2533 (0051 stage 1) depends on this issue;
+      letflow-2's REQ-473 (interim) and REQ-495, which calls the
+      scope_node_paths write function.
+    open_questions:
+      - "Sizing: ten ACs across two subsystems (write lock; projection + check) plus a gate. WF-01 4c would split it, but only one id (REQ-496) was allocated by the sole allocator. RESOLVED (ORCH, 2026-10-14): kept as one entry, one PR per issue; REQ-VALIDATOR r2 PASS."
+      - "Entity-definition update/deprecate/delete routes do not exist on main (only create and activate). AC2 is read as: tests cover every entity-definition write route that exists when this lands; the refusal is in a shared check so a later route inherits it. Not decided here."
+      - "Where managed_by is stored and how the manifest declares it (validator field vs. pack-schema/installs.ex stamp; a new manifest key on Letflow.Modules.Module) is for CODE-DESIGNER (0050 D7: NOT VERIFIED)."
+      - "Admin endpoint permission atom: proposal :UsersGroupsRolesManage (0050 D8); designer confirms. A new atom would need its own roles.md entry."
+      - "How the owner is identified by caller (e.g. a module-side call path vs. the HTTP handler) is a design choice constrained only by 'never by request data'."
+    acceptance_criteria:
+      - "1. generic routes: per route (create, update, delete, import), a non-owner with EntitiesRecordsWrite/EntitiesRecordsImport gets 403 on a managed type; the same call on an unmanaged type is unchanged; a body field or header naming the owner module does not bypass; the owning module's Records.create_record/2 succeeds; the 403 body is byte-identical for an existing and an absent record id (test/letflow/routers/entities_test.exs)"
+      - "2. definitions API: for EACH of the six foundation types (org_legal_entity, org_site, org_unit, org_unit_membership, catalog_item, catalog_uom), a PROCESS_DESIGNER is refused with the uniform 403 on create, update, activate, deprecate and delete (each such route that exists), and the active definition is unchanged afterwards; creating a new type named like a managed type of any installed module is refused; setting, changing or removing managed_by via the API is refused (tests)"
+      - "3. pack: a pack document containing managed_by gives {:error, :invalid_pack_document}; after install the stamp is present on the definition, and a re-install/upgrade path cannot clear it; a tenant pack that DEFINES an entity type whose name is held by a managed type is refused on both POST /solution-packs/install and POST /solution-packs/:pack_id/update-apply, with either the uniform 403 or :invalid_pack_document (designer picks; the test asserts the chosen outcome), and afterwards no new entity_definitions version exists under that name (tests)"
+      - "4. ordering with append_only (#2529): on a type that is both managed and append_only, a non-owner gets 403 first and its body does not reveal the append-only status; the owner gets the 422 entity_append_only (tests)"
+      - "5. scope_node_paths write function: insert, move and retire run in the caller's transaction; rolling back the caller removes the projection change; a Repo.rollback after an org_unit write leaves no divergence between record and projection (test); a transitive move updates all descendant paths; a direct and a transitive cycle are each refused; depth 13 is refused"
+      - "6. a mix check test (mix letflow.check shape) fails if any module under lib/letflow/modules or priv/modules writes scope_node_paths other than via the core function (test proves both the pass and a seeded-violation fail)"
+      - "7. consistency check: seeded orphan, cycle and depth-13 rows are each reported by the mix check test and by the admin endpoint; clean data reports ok; the endpoint is read-only, returns 403 without the permission, takes the tenant from auth only, and never returns cross-tenant data (tests)"
+      - "8. ancestors / descendants_of return the correct node sets, and an input containing % or _ matches literally, not as a wildcard (INV-7, tests)"
+      - "9. the scope_node_paths migration applies and rolls back on a populated tenant schema, and the path text_pattern_ops and node_id indexes exist (\\d or pg_indexes assertion, test)"
+      - "10. mix compile --warnings-as-errors, mix format --check-formatted, the scoped mix test over test/letflow/routers/entities*, test/letflow/routers/solution_packs*, test/letflow/entities, test/letflow/definitions, test/letflow/modules and the new scope_node_paths and consistency-check tests, and mix letflow.check_boundaries pass, real output quoted"
+    depends_on: []

@@ -50,6 +50,7 @@ defmodule Letflow.Modules.Catalog do
   """
 
   alias Letflow.Api.Authorization
+  alias Letflow.Entities.ManagedTypes
   alias Letflow.Modules.Module
 
   @modules Application.compile_env(:letflow, :modules, [])
@@ -155,6 +156,12 @@ defmodule Letflow.Modules.Catalog do
       known set (plus `manifest` itself) shares `manifest.id`.
     * `{:undeclared_route_permission, permission}` — a `route_policies` entry
       naming a permission absent from the manifest's own `:permissions`.
+
+  A seventh rule (REQ-496, 0050 D7) runs after those six:
+
+    * `{:invalid_manages_entity_types, value}` — the optional
+      `:manages_entity_types` key is present but not a list of distinct
+      binaries each matching `^[a-z][a-z0-9_]{0,63}$`. Absent is valid.
   """
   @spec validate(Module.manifest(), [Module.manifest()]) :: :ok | {:error, {atom(), term()}}
   def validate(manifest, known_manifests) do
@@ -163,7 +170,8 @@ defmodule Letflow.Modules.Catalog do
          :ok <- validate_no_core_permission_collision(manifest),
          :ok <- validate_depends_on_registered(manifest, known_manifests),
          :ok <- validate_unique_id(manifest, known_manifests),
-         :ok <- validate_route_policy_permissions_declared(manifest) do
+         :ok <- validate_route_policy_permissions_declared(manifest),
+         :ok <- validate_manages_entity_types(manifest) do
       :ok
     end
   end
@@ -253,6 +261,24 @@ defmodule Letflow.Modules.Catalog do
 
       {_method, _path_pattern, bad_permission} ->
         {:error, {:undeclared_route_permission, bad_permission}}
+    end
+  end
+
+  defp validate_manages_entity_types(manifest) do
+    case Map.fetch(manifest, :manages_entity_types) do
+      :error ->
+        :ok
+
+      {:ok, names} when is_list(names) ->
+        if Enum.all?(names, &ManagedTypes.managed_name?/1) and
+             length(Enum.uniq(names)) == length(names) do
+          :ok
+        else
+          {:error, {:invalid_manages_entity_types, names}}
+        end
+
+      {:ok, other} ->
+        {:error, {:invalid_manages_entity_types, other}}
     end
   end
 end

@@ -1139,3 +1139,12 @@ history:
       replacement deferred to GH #2553). Follow-ups GH #2553-#2556. Written by
       letflow-2 under the DOC-UPDATER agent id; lands in the docs bundle branch
       docs/bundle-20261014-core-followups.
+
+  - req: REQ-496
+    event: started
+    agent: REQ-ANALYST
+    at: "2026-10-14T17:00:09Z"
+    note: >
+      WF-02 for GH #2530 started on branch feature/WF02-GH2530-MANAGED-BY-20261014
+      (from main fde30dcab). REQ-ANALYST drafted REQ-496 (id allocated by letflow-2,
+      sole allocator; stage S7, 9 ACs mirrored from the issue); next: REQ-VALIDATOR.

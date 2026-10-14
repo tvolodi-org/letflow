@@ -1,0 +1,112 @@
+defmodule Letflow.Modules.FixtureManaged do
+  @moduledoc """
+  Test-only entry module (REQ-496, decision 0050 D7; design
+  `lib/letflow/design/req496-managed-by-and-scope-node-paths.md` §2.8). Its pack
+  (`priv/module_fixtures/managed_foundation.json`) holds eight entity definitions,
+  each with one `name :: string` field and no FKs; its manifest declares the first
+  seven in `manages_entity_types`, so installing it stamps `managed_by:
+  "fixture_managed"` on them. `fxm_ledger` is also `append_only`; `fxm_free` is NOT
+  managed (the control). `on_install/3` activates and promotes all eight.
+
+  The public `create_record/3`, `update_record/4` and `delete_record/3` helpers are
+  the "owning module's own path": direct `Letflow.Entities.Records` calls, which
+  the router-level managed check never sees. No router and no permissions, so no
+  permission or role counts change. Registered only in `config/test.exs`.
+  """
+
+  @behaviour Letflow.Modules.Module
+
+  import Letflow.Modules.Module, only: [defmanifest: 1]
+
+  alias Letflow.Entities.Records
+  alias Letflow.Modules.EntityActivation
+
+  # Same fixed system actor `Letflow.Scheduler.RecordDeadlineSweep` uses.
+  @actor_id "00000000-0000-0000-0000-000000000000"
+
+  @all_types [
+    "org_legal_entity",
+    "org_site",
+    "org_unit",
+    "org_unit_membership",
+    "catalog_item",
+    "catalog_uom",
+    "fxm_ledger",
+    "fxm_free"
+  ]
+
+  @impl true
+  defmanifest(
+    id: "fixture_managed",
+    version: "0.1.0",
+    depends_on: [],
+    pack: "module_fixtures/managed_foundation.json",
+    permissions: [],
+    role_grants: %{},
+    required_roles: [],
+    settings_schema: nil,
+    route_policies: [],
+    manages_entity_types: [
+      "org_legal_entity",
+      "org_site",
+      "org_unit",
+      "org_unit_membership",
+      "catalog_item",
+      "catalog_uom",
+      "fxm_ledger"
+    ]
+  )
+
+  @doc "Every entity type this fixture's pack defines, managed or not."
+  @spec all_types() :: [String.t()]
+  def all_types, do: @all_types
+
+  @impl true
+  def on_install(prefix, _settings, ctx) do
+    EntityActivation.activate_and_promote(prefix, ctx, @all_types)
+  end
+
+  @doc "Creates a record of `entity_type` through the owner's own path."
+  @spec create_record(String.t(), map(), String.t()) :: {:ok, term()} | {:error, term()}
+  def create_record(entity_type, field_values, prefix) do
+    Records.create_record(
+      %{
+        entity_type: entity_type,
+        field_values: field_values,
+        actor_id: @actor_id,
+        idempotency_key: Ecto.UUID.generate()
+      },
+      prefix
+    )
+  end
+
+  @doc "Replaces a record's `field_values` through the owner's own path."
+  @spec update_record(String.t(), Ecto.UUID.t(), map(), String.t()) ::
+          {:ok, term()} | {:error, term()}
+  def update_record(entity_type, record_id, field_values, prefix) do
+    Records.update_record(
+      %{
+        entity_type: entity_type,
+        record_id: record_id,
+        field_values: field_values,
+        actor_id: @actor_id,
+        idempotency_key: Ecto.UUID.generate()
+      },
+      prefix
+    )
+  end
+
+  @doc "Deletes a record through the owner's own path."
+  @spec delete_record(String.t(), Ecto.UUID.t(), String.t()) :: {:ok, term()} | {:error, term()}
+  def delete_record(entity_type, record_id, prefix) do
+    Records.delete_record(
+      %{
+        entity_type: entity_type,
+        record_id: record_id,
+        actor_id: @actor_id,
+        idempotency_key: Ecto.UUID.generate()
+      },
+      prefix
+    )
+  end
+end

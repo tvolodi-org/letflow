@@ -1,0 +1,56 @@
+{
+  "handoff_id": "fd6735de-cfd0-4a0a-be28-4c1987a36b01",
+  "run_id": "WF02-GH2530-MANAGED-BY-20261014",
+  "workflow_id": "WF-02",
+  "step": "03",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGNER",
+  "file": "handoffs/WF02-GH2530-MANAGED-BY-20261014/step-03-code-designer.json",
+  "created_at": "2026-10-14T17:10:23Z",
+  "started_at": "2026-10-14T17:10:23Z",
+  "completed_at": "2026-10-14T17:33:04Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-496"],
+    "requirement_text": {
+      "REQ-496": "Core: managed_by write lock for module-managed entity types (generic record routes and definitions API refuse with a uniform 403; stamped by install, never from JSON) and the core-owned scope_node_paths security index (one in-transaction writer, ancestors/descendants reads, consistency check). Full description and 10 ACs: docs/requirements.yaml REQ-496 (GH #2530)."
+    },
+    "source_text": {
+      "GH#2530": "Decision 0050 D7 (managed_by lock), D8 (scope_node_paths projection), Deviation 1, M4. Issue comments: heartbeat only, no AC revision."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "docs/requirements.yaml",
+      "docs/migration/decisions/0050-foundation-modules-org-catalog-and-reference-contract.md",
+      "docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md",
+      "lib/letflow/routers/entities.ex",
+      "lib/letflow/routers/solution_packs.ex",
+      "lib/letflow/definitions/solution_pack.ex",
+      "lib/letflow/entities/definitions.ex",
+      "lib/letflow/entities/records.ex",
+      "lib/letflow/modules/installs.ex",
+      "lib/letflow/modules/catalog.ex",
+      "lib/letflow/modules/module.ex",
+      "lib/letflow/design/gh2529-append-only-entity-types.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2530-MANAGED-BY-20261014"
+  },
+  "task": {
+    "description": "WF-02 step 3: write lib/letflow/design/req496-managed-by-and-scope-node-paths.md. Design only, no implementation code, no tests, no mix runs."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "Design written. managed_by: nullable text column on entity_definitions (not definition_json), stamped only at INSERT, DB trigger refuses any UPDATE changing it and DELETE of a managed row; declared by optional manifest key manages_entity_types (Catalog.validate rule 7). Owner identified by caller: Definitions.create_definition/3 and SolutionPack.install/4 take an explicit owner argument (:tenant | ManagedTypes.Owner built only by ManagedTypes.module_owner/1 from a Catalog entry module, called only by Installs.install/3); HTTP routes use the /2 and /3 arities = :tenant. Refusals: ManagedTypes.check_tenant_write/2 as the first step of entities.ex handlers for :293/:297/:301/:314 (before record-id cast, so 403 is independent of record existence and Records/append_only 422 is never reached by a non-owner) and :257 activate; :261 create refused for a managed_by body key (router) and a managed name (core step 0); /solution-packs/install refused in core (rollback) and update-apply via a router guard on entity_definition artefacts (FACT: update-apply writes no entity definition on main). Uniform 403 Error.entity_type_managed/0 (constant, code entity_type_managed). Pack carrying managed_by -> :invalid_pack_document. scope_node_paths: migration (node_id text PK, path text unique text_pattern_ops index, depth smallint, retired_at, timestamps); one writer Letflow.ScopeNodePaths.write/2 ({:insert|:move|:retire, ...}, prefix) with LOCK TABLE SHARE ROW EXCLUSIVE held to the caller's commit, depth 12, direct/transitive cycle refusal, refusals detected before any write so the caller's transaction stays usable; reads ancestors/2, descendants_of/2, like_prefix_pattern/1 (escapes backslash, %, _; bound params). Consistency.check/1 shared by the ExUnit mix-check test and GET /api/v1/tenant/scope-node-paths/consistency (policy key :ScopeNodePathsConsistencyRead -> :UsersGroupsRolesManage). Writer scan: new static task mix letflow.check_scope_node_paths_writers in @check_static_steps. All 10 ACs mapped to T-01..T-32; 10 OQs with defaults. REVISION 1 (2026-10-14T17:25:09Z, after SEC PASS / CDV FAIL): B1 router check of body name on POST /entities/definitions after object_body/1 and before validate_schema (entities.ex:445-446), core check kept as backstop, T-09 restated (managed name -> 403 for any body; unmanaged invalid -> 422); B2 managed check is the first statement in all four record handlers, table fixed, T-05 pins malformed-body/over-cap/bad-query -> 403; A1 create_definition/3 runs in a joined transaction and takes pg_advisory_xact_lock(496_001, hashtext(tenant_id:name)) (two-int4 key space, objsubid 2, distinct from single-bigint keys incl. #2547 and from namespace 435_001), T-33; A2 squat recovery procedure in OQ-2; A3 write/2 first is a MUST for REQ-495, no lock_timeout, deadlock/timeouts raise; A4 name format ^[a-z][a-z0-9_]{0,63}$ short-circuit and Catalog rule; A5 is_binary before Jason.decode; A6 %Owner{} struct clauses only; A7 explicit consistency body map; A9 trigger refuses name/tenant_id change on stamped rows; CDV: install_error types extended, AC3 key-rejection level table, test file globs, boundary rule documented as advisory (check_boundaries has no per-function caller rule) plus textual test T-34, moduledoc notes (3.5). Writer name unchanged: Letflow.ScopeNodePaths.write/2. REVISION 2 (2026-10-14T17:27:14Z, CDV r2 blocker on 2.5): create_definition/3's transaction now calls Repo.rollback(error) on every error branch, so {:error, reason} shapes and the HTTP mapping (entities.ex:652, 409) are unchanged; intended behaviour change: a failed step-4 insert also rolls back step 3's artifact_versions row (no orphan), so definitions_test.exs:272-295 changes ArtifactVersion count 2 -> 1 (T-35). Callers verified: lib has only entities.ex:450 (no outer tx) and solution_pack.ex:1599 (inside run_install's tx, which Repo.rollbacks on error, itself inside Installs.install's tx, which also rolls back); solution_pack_test.exs:574-590 unchanged; no seed task calls it. SEC r2 advisory 4: run_install takes all name locks up front, sorted and deduplicated, via ManagedTypes.lock_names/2 before insert_install_row; 435_001 cited at login_directory.ex:75/:508. REVISION 3 (2026-10-14T17:33:04Z, ORCH option (ii)): verified create_record/2 takes FOR UPDATE on the shared per-type instance_sequence row (event_store.ex:606-640 via records.ex:308-329), so insert-after-record deadlocks with a lock-first move. Added Letflow.ScopeNodePaths.lock!(prefix) :: :ok (LOCK TABLE SHARE ROW EXCLUSIVE, ArgumentError outside a transaction, re-entrant). Insert: lock!/1 -> create_record/2 -> write/2 (caller MUST Repo.rollback on refusal); move/retire: write/2 first. Table lock precedes every seq-row/org-row lock, so no cycle. Option (a) rejected, option (b) withdrawn; writer scan unchanged; T-26 extended.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "lib/letflow/design/req496-managed-by-and-scope-node-paths.md"
+    ],
+    "diagnosis_confirmed": null,
+    "implementation_written": false,
+    "classification": "DESIGN"
+  }
+}
