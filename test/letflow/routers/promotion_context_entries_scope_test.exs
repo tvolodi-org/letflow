@@ -13,7 +13,8 @@ defmodule Letflow.Routers.PromotionContextEntriesScopeTest do
   platform tenant holds nothing, so an ordinary tenant's admin identity is `TENANT_ADMIN`): of an
   ordinary tenant, or of P with the pin cleared (`Fixture.unpin!/0`), where it is a non-operator
   (`tenant_view/1`). The operator is the `PLATFORM_ADMIN` of the pinned P (`@operator`).
-  `TENANT_AUDITOR` does not exist in `lib/` yet.
+  `TENANT_AUDITOR` (ISS-1109) holds `:PromotionsRead` and is the same kind of non-operator
+  reader; the AC5 describe block exercises it next to `TENANT_ADMIN`.
 
   Reviews are seeded through the real `PromotionReviewStore.insert_review/2`
   (`Scope.seed_review!/4`); legacy shapes use ONE recipe, `overwrite_plan!/3` (seed, then
@@ -385,11 +386,9 @@ defmodule Letflow.Routers.PromotionContextEntriesScopeTest do
   # --- AC5 tripwire ------------------------------------------------------------------------
 
   describe "AC5" do
-    # The platform tenant's PLATFORM_ADMIN and (REQ-447 PR 1) TENANT_ADMIN hold :PromotionsRead; the string
-    # TENANT_AUDITOR still resolves to no role (`role_from_string/1`). When REQ-448 adds
-    # TENANT_AUDITOR with :PromotionsRead this test fails: MOVE that row to the allowed side
-    # (next test) and re-assert it against the new rule (a non-operator reader of P's
-    # operator-created reviews naming foreign tenants must get the nonexistent 404, ISS-1029).
+    # The platform tenant's PLATFORM_ADMIN, TENANT_ADMIN (REQ-447 PR 1) and TENANT_AUDITOR
+    # (ISS-1109, which moved that row to the allowed side in the next test) hold
+    # :PromotionsRead. Every role listed here still gets 403.
     test "non_admin_core_roles_in_the_platform_tenant_are_denied_promotions_read", ctx do
       %{review: review} =
         Scope.seed_review!(
@@ -405,7 +404,6 @@ defmodule Letflow.Routers.PromotionContextEntriesScopeTest do
             ["TASK_WORKER"],
             ["AGENT_RUNNER"],
             ["CANDIDATE"],
-            ["TENANT_AUDITOR"],
             []
           ] do
         resp = context_resp(ctx.p, review.id, roles)
@@ -415,11 +413,12 @@ defmodule Letflow.Routers.PromotionContextEntriesScopeTest do
       end
     end
 
-    # REQ-447 PR 1 (D3's binding condition for :PromotionsRead being tenant scope): the platform
-    # tenant's own TENANT_ADMIN holds :PromotionsRead, is NOT an operator (no PLATFORM_ADMIN), and
-    # therefore reads an operator-created review naming foreign tenants B and C with `entries == []`
+    # REQ-447 PR 1 (D3's binding condition for :PromotionsRead being tenant scope) and ISS-1109:
+    # the platform tenant's own TENANT_ADMIN and TENANT_AUDITOR hold :PromotionsRead, are NOT
+    # operators (no PLATFORM_ADMIN), and therefore read an operator-created review naming foreign tenants B and C with `entries == []`
     # and none of B's or C's graph content or ids, with the pin on P and with no pin.
-    test "tenant_admin_of_the_platform_tenant_reads_a_foreign_review_without_entries", ctx do
+    test "tenant_admin_and_tenant_auditor_of_the_platform_tenant_read_a_foreign_review_without_entries",
+         ctx do
       src_def = Ecto.UUID.generate()
       tgt_def = Ecto.UUID.generate()
 
@@ -432,14 +431,15 @@ defmodule Letflow.Routers.PromotionContextEntriesScopeTest do
         )
 
       # ISS-1029: with the pin on P and with no pin the review is the nonexistent 404
-      for pinned? <- [true, false] do
+      for pinned? <- [true, false], reader <- [["TENANT_ADMIN"], ["TENANT_AUDITOR"]] do
         if pinned?, do: Fixture.pin!(ctx.p.tenant_id), else: Fixture.unpin!()
 
-        resp = context_resp(ctx.p, review.id, ["TENANT_ADMIN"])
-        assert resp.status == 404, "pinned=#{pinned?}"
+        resp = context_resp(ctx.p, review.id, reader)
+        assert resp.status == 404, "pinned=#{pinned?} #{inspect(reader)}"
 
         assert Scope.observable(resp) ==
-                 Scope.observable(context_resp(ctx.p, Ecto.UUID.generate(), ["TENANT_ADMIN"]))
+                 Scope.observable(context_resp(ctx.p, Ecto.UUID.generate(), reader)),
+               "pinned=#{pinned?} #{inspect(reader)}"
 
         refute_markers!(resp.resp_body, markers(ctx) ++ [src_def, tgt_def])
       end

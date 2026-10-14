@@ -54,9 +54,8 @@ configuration; if that is missing, no tenant is the platform tenant (0046 D1, D2
 ## TENANT_AUDITOR
 - Scope: tenant, read-only.
 - Who holds it: compliance officers, auditors, managers.
-- Does: read definitions, instances, all tasks, audit, metrics, attachments, entity data.
+- Does: read definitions, instances, all tasks, audit, metrics, attachments, entity data, promotion reads (`PromotionsRead`, own-tenant, read-only; the stored-tenant check of ISS-1029 applies as for a tenant admin).
 - Must not: write, export, import, issue attachment links, manage tokens, users, roles, modules or settings.
-- Promotion reads (`PromotionsRead`) are withheld until the stored-tenant check of Q-1011 merges; a follow-up then grants them.
 
 ## Matrix
 
@@ -71,8 +70,8 @@ REQ-446 classified `GET /promotions/platform-events` as tenant scope under `Prom
 Module (Catalog) permissions are all tenant scope and are not listed.
 Conditional cells: the 0046 D3 binding condition (source-tenant ownership proven) is met by REQ-446
 (`lib/letflow/routers/tenants.ex:451`, `lib/letflow/api/tenant_target.ex:31-39`); the TENANT_ADMIN `yes`
-cells for PromotionsRead and PromotionsManage stand. The TENANT_AUDITOR `PromotionsRead` cell is `no`
-(interim deviation from 0046 D6 until Q-1011's stored-tenant check merges; see the closure note of 0046).
+cells for PromotionsRead and PromotionsManage stand. The TENANT_AUDITOR `PromotionsRead` cell is `yes`
+(0046 D6; the stored-tenant check of Q-1011 / ISS-1029 has merged, see the closure note of 0046).
 
 ```
 permission                      PLATFORM_ADMIN PROCESS_DESIGNER PROCESS_OPERATOR TASK_WORKER AGENT_RUNNER CANDIDATE TENANT_ADMIN TENANT_AUDITOR scope
@@ -111,7 +110,7 @@ MembershipsRead                 yes            yes              yes             
 ModulesManage                   yes            no               no               no          no           no        yes          no             tenant
 MyModulesRead                   yes            yes              yes              yes         yes          yes       yes          yes            tenant
 EntitiesRestrictionsManage      yes            no               no               no          no           no        yes          no             tenant
-PromotionsRead                  yes            no               no               no          no           no        yes          no             tenant
+PromotionsRead                  yes            no               no               no          no           no        yes          yes            tenant
 PromotionsManage                yes            no               no               no          no           no        yes          no             tenant
 DefinitionsRollback             yes            no               no               no          no           no        yes          no             tenant
 TenantSettingsManage            yes            no               no               no          no           no        yes          no             tenant

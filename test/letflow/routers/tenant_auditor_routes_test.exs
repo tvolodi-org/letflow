@@ -13,8 +13,10 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
       mounted set is parsed from the pipeline source so a new router fails this test until it is
       named here); for the four read-only routers (Audit, Services, Help, Me) the named non-GET
       probe, which is NOT a real route and answers 403 through the `:UnmatchedRoute` marker.
-    * `GET /promotions`, `GET /promotions/platform-events`: 403, because `:PromotionsRead` is
-      WITHHELD from the auditor (interim decision OQ-2, pinned).
+    * `GET /promotions`, `GET /promotions/platform-events`: 200 (ISS-1109: `:PromotionsRead` is
+      granted); every `:PromotionsManage` route stays 403 (the 403 body is asserted); a non-party
+      auditor gets the same 404 on `GET /:id` and `GET /:id/context` as for a nonexistent id and
+      as a `TENANT_ADMIN` does (the ISS-1029 stored-tenant check applies to the auditor).
     * Item L1: `POST .../attachments/:id/link` is `:AttachmentLinksIssue`: 200 for the five roles
       that reached it before REQ-448, 403 for the auditor, `AGENT_RUNNER` and `CANDIDATE`, and a
       403 writes no signing secret. `GET .../link-content` still answers 200 for the auditor.
@@ -47,6 +49,7 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
   alias Letflow.Repository.Attachments
   alias Letflow.Secrets.Secret
   alias Letflow.Support.PlatformTenantFixture, as: Fixture
+  alias Letflow.Support.PromotionScopeFixture, as: Scope
 
   @pipeline_source File.read!("lib/letflow/plugs/api_pipeline.ex")
   @unused_uuid "00000000-0000-4000-8000-000000000004"
@@ -94,10 +97,11 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
     {Letflow.Routers.Definitions, :post, "/:process_key/rollback"},
     {Letflow.Routers.Tasks, :post, "/:id/claim"},
     {Letflow.Routers.Tasks, :post, "/:id/assign"},
-    {Letflow.Routers.Promotions, :get, "/"},
-    {Letflow.Routers.Promotions, :get, "/platform-events"},
-    {Letflow.Routers.Promotions, :get, "/:id"},
-    {Letflow.Routers.Promotions, :get, "/:id/context"},
+    {Letflow.Routers.Promotions, :post, "/plan"},
+    {Letflow.Routers.Promotions, :post, "/:id/approve"},
+    {Letflow.Routers.Promotions, :post, "/:id/reject"},
+    {Letflow.Routers.Promotions, :post, "/:id/apply"},
+    {Letflow.Routers.Promotions, :post, "/:review_id/run-assertions"},
     {Letflow.Routers.SolutionPacks, :post, "/:pack_id/update-apply"},
     {Letflow.Routers.Dlq, :get, "/"},
     {Letflow.Routers.Dlq, :get, "/:id"},
@@ -643,8 +647,6 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
             {:get, "/api/v1/onboarding"},
             {:get, "/api/v1/event-retention/summary"},
             {:get, "/api/v1/admin/services"},
-            {:get, "/api/v1/promotions"},
-            {:get, "/api/v1/promotions/platform-events"},
             {:post, "/api/v1/definitions"},
             {:get, "/api/v1/identity/no-such-route-req448"}
           ] do
@@ -815,17 +817,88 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
       assert_unchanged(before, ctx)
     end
 
-    test "GET /promotions and GET /promotions/platform-events are 403: :PromotionsRead is withheld (interim, pinned)",
+    test "GET /promotions and GET /promotions/platform-events are 200 for the auditor (ISS-1109: :PromotionsRead is granted)",
          ctx do
-      refute Authorization.role_allows?(:TENANT_AUDITOR, :PromotionsRead)
+      assert Authorization.role_allows?(:TENANT_AUDITOR, :PromotionsRead)
+      before = snapshot(ctx)
 
-      for path <- ["/", "/platform-events", "/#{@unused_uuid}", "/#{@unused_uuid}/context"] do
+      for path <- ["/", "/platform-events"] do
         conn = call(Letflow.Routers.Promotions, :get, path, ctx.a, @auditor)
-        assert conn.status == 403, "GET /promotions#{path}: #{conn.status}"
+        assert conn.status == 200, "GET /promotions#{path}: #{conn.status} #{conn.resp_body}"
       end
 
-      # Control: a TENANT_ADMIN of the same tenant reads the list, so the 403 above is the role.
-      assert %{status: 200} = call(Letflow.Routers.Promotions, :get, "/", ctx.a, ["TENANT_ADMIN"])
+      assert_unchanged(before, ctx)
+
+      # through the full pipeline too (a token login JIT-provisions the user, so no snapshot)
+      token = Fixture.mint_token!(ctx.a, @auditor)
+
+      for path <- ["/api/v1/promotions", "/api/v1/promotions/platform-events"] do
+        conn = api(:get, path, ctx.a, token, nil)
+        assert conn.status == 200, "GET #{path}: #{conn.status} #{conn.resp_body}"
+      end
+    end
+
+    test "every :PromotionsManage route is 403 for the auditor with the generic forbidden problem body",
+         ctx do
+      refute Authorization.role_allows?(:TENANT_AUDITOR, :PromotionsManage)
+      before = snapshot(ctx)
+
+      routes = [
+        {:post, "/"},
+        {:post, "/plan"},
+        {:post, "/#{@unused_uuid}/approve"},
+        {:post, "/#{@unused_uuid}/reject"},
+        {:post, "/#{@unused_uuid}/apply"},
+        {:post, "/#{@unused_uuid}/run-assertions"}
+      ]
+
+      for {method, path} <- routes do
+        conn = call(Letflow.Routers.Promotions, method, path, ctx.a, @auditor, body: %{})
+
+        assert conn.status == 403,
+               "#{method} /promotions#{path}: #{conn.status} #{conn.resp_body}"
+
+        body = Jason.decode!(conn.resp_body)
+
+        assert %{"title" => "Forbidden", "status" => 403, "detail" => "insufficient permissions"} =
+                 body,
+               "#{method} /promotions#{path}: #{conn.resp_body}"
+
+        assert String.ends_with?(body["type"], "/forbidden"), conn.resp_body
+      end
+
+      assert_unchanged(before, ctx)
+    end
+
+    test "a non-party auditor gets the SAME 404 on GET /promotions/:id and /:id/context as for a nonexistent id and as a TENANT_ADMIN (ISS-1029 applies to the auditor)",
+         ctx do
+      # Held in A's schema, naming B and P (neither is A): A is not a party.
+      %{review: review} = Scope.seed_review!(ctx.a, ctx.b.tenant_id, ctx.p.tenant_id)
+      absent = Ecto.UUID.generate()
+      promotions = Letflow.Routers.Promotions
+
+      for suffix <- ["", "/context"] do
+        auditor = call(promotions, :get, "/#{review.id}#{suffix}", ctx.a, @auditor)
+        admin = call(promotions, :get, "/#{review.id}#{suffix}", ctx.a, ["TENANT_ADMIN"])
+        missing = call(promotions, :get, "/#{absent}#{suffix}", ctx.a, @auditor)
+
+        assert auditor.status == 404, "#{suffix}: #{auditor.status} #{auditor.resp_body}"
+        assert Scope.observable(auditor) == Scope.observable(missing), suffix
+        assert Scope.observable(auditor) == Scope.observable(admin), suffix
+        refute auditor.resp_body =~ review.id
+        refute auditor.resp_body =~ ctx.b.tenant_id
+        refute auditor.resp_body =~ ctx.p.tenant_id
+      end
+    end
+
+    test "positive control: the auditor reads a review that names its own tenant on both sides with 200",
+         ctx do
+      %{review: review} = Scope.seed_review!(ctx.a, ctx.a.tenant_id, ctx.a.tenant_id)
+
+      for suffix <- ["", "/context"] do
+        conn = call(Letflow.Routers.Promotions, :get, "/#{review.id}#{suffix}", ctx.a, @auditor)
+        assert conn.status == 200, "#{suffix}: #{conn.status} #{conn.resp_body}"
+      end
     end
 
     test "exhaustive sweep: for every route of every mounted router the answer is 403 exactly when the auditor lacks the permission",
