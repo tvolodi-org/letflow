@@ -10,15 +10,17 @@ The table covers each core item: the decision record it needs (DR), the gates, a
 
 | Step | Item | DR | Gates | Notes |
 |---|---|---|---|---|
-| W1a | Optimistic concurrency on entity update/delete (expected version, 409 on mismatch) | none expected | SECURITY-REVIEWER (tenant-data write path) | Prerequisite for the client API contract and for safe stock. Issue #2528. |
-| W1b | Append-only entity types (update/delete refused) | none expected | SECURITY-REVIEWER | Needed by ledgers (stock, audit-like records). Issue #2529. |
-| W2a | Pack install activates definitions, per module `on_install` | **0052** | REVIEWER | Unblocks the `org`/`catalog` foundation modules. Issue #2531. |
+| W1a | Optimistic concurrency on entity update/delete (expected version, 409 on mismatch) | none expected | SECURITY-REVIEWER (tenant-data write path) | Prerequisite for the client API contract and for safe stock. Issue #2528. **Merged**: PR #2542, 78cc6574. |
+| W1b | Append-only entity types (update/delete refused) | none expected | SECURITY-REVIEWER | Needed by ledgers (stock, audit-like records). Issue #2529. **Merged**: PR #2546, 2be0d51d. |
+| W2a | Pack install activates definitions, per module `on_install` | **0052** | REVIEWER | Unblocks the `org`/`catalog` foundation modules. Issue #2531. **Merged**: PR #2539, 5d6ead53. |
 | W2b | Field min/max and non-negative | none expected | SECURITY-REVIEWER | Issue #2532. |
 | W3a | Org-scoped role grants and enforcement | **0051** (+ backfill) | REVIEWER, SECURITY-REVIEWER, advisor ruling Q9 | Fail-closed; backfill before enforcement. Issues: #2533 (stage 1), #2535 (stage 2). |
 | W3b | Task carries `scope_node`; candidate resolution filters by it | in 0051 (follow-up) | SECURITY-REVIEWER | Closes the pilot limit "any approver approves any department". Starts after 0051 stage 2 (GH #2535); not yet an issue. |
 | W4a | Tenant scripted rules: decision record | **0053** | REVIEWER, SECURITY-REVIEWER | Supersedes 0029 §1 and 0039 D7 on scripts. |
-| W4b | Script registry (`script_rules`, versions, publish with SoD, stored tests) | 0053 | SECURITY-REVIEWER | Issue #2534. |
-| W4c | SERVICE_TASK `script` handler (first invocation point) | 0053 | SECURITY-REVIEWER | The answer to the row-lock question decides inline vs async. Issue #2534. |
+| W4-7a | Tenant script runtime: exact allow-list sandbox, supervised watchdog, `ScriptAdmission` | 0053 | SECURITY-REVIEWER | Issue #2534. **Merged**: PR #2544, 02c682e0. Dependency hazards: last section of 0053. |
+| W4-7b-1 | Script registry (`script_rules`, versions, publish with SoD, stored tests) | 0053 | SECURITY-REVIEWER | Issue #2534. Not merged. |
+| W4-7b-2 | Policies: `script_policy` and `script_readable_master` tenant tables | 0053 | SECURITY-REVIEWER | Issue #2534. Not merged. |
+| W4-7c | SERVICE_TASK `script` handler (first invocation point) | 0053 | SECURITY-REVIEWER | Closes #2534. Not merged. |
 | W4d | Dry-run endpoint and per-run audit (wire `LuaScriptAudit`) | 0053 | SECURITY-REVIEWER | Issue #2534. |
 
 **Foundation modules alongside wave 1** (decision 0050; issue #2530):
@@ -30,6 +32,25 @@ The table covers each core item: the decision record it needs (DR), the gates, a
 - Procurement task and line status.
 
 Neither slice needs a core change.
+
+### New issues (2026-10-14)
+
+| Issue | Subject | Wave / precedes |
+|---|---|---|
+| #2547 | TENANT_ADMIN grant-path audit and admin count (0053 D6 amendment) | W3a: precedes 0051 stage 1 (#2533) |
+| #2552 | API token issuer not recorded (`api_tokens`) | W3a: 0051 M2 |
+| #2548 | `AuditRead` holders reading script source | W4 (7b) |
+| #2543 | Idempotency key reuse | W1 follow-up |
+| #2550 | Idempotency key squatting | W1 follow-up |
+| #2551 | Import with a nil key | W1 follow-up |
+| #2540, #2541 | Module install follow-ups (after #2539) | W2a follow-up |
+| #2545 | 7a structs | W4 (7a follow-up) |
+| #2553 | Vortex 8D waiver to reminder | HUMAN_TASK reminder follow-up (PR #2549) |
+| #2554 | Reminder re-arm race | HUMAN_TASK reminder follow-up (PR #2549) |
+| #2555 | `timer_type` enum | HUMAN_TASK reminder follow-up (PR #2549) |
+| #2556 | Simulation runner and two timers | HUMAN_TASK reminder follow-up (PR #2549) |
+| #2557 | A deactivated user's API token still authenticates (incl. TENANT_ADMIN) | W3 (precedes 0051 stage 1 enforcement; security prio 1) |
+| #2558 | RoleBackfill resets the IdP sync marker for every user and can re-grant a revoked TENANT_ADMIN | W3 (after #2547; semantic decision needed) |
 
 ## Wave 2: transactional processes and lifecycle
 

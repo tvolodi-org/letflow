@@ -203,6 +203,8 @@ does all of this inside **one** `Repo.transaction/1`:
 
 Any step failing rolls back every write, pack install included.
 
+> **BREAKING (PR #2539, GH #2531).** `POST /api/v1/tenant/modules` and `POST /api/v1/tenant/solutions` now REQUIRE a non-blank `rationale` in the body; a missing or blank one is 422 `rationale is required` and nothing is installed (`lib/letflow/routers/tenant_modules.ex:66-76`, `lib/letflow/routers/tenant_solutions.ex:44-51`). A solution install applies ONE rationale to each of its modules. Internal, non-HTTP callers of `Installs.install/3` pass a fixed, reviewed constant (`lib/letflow/modules/installs.ex:31-35`, `fetch_rationale/1` at `:267`). `on_install/3` receives `ctx = %{actor_id: installer_user_id, rationale: text, ...}` (`lib/letflow/modules/module.ex:34-38`). A module whose `on_install/3` calls `Letflow.Modules.EntityActivation.activate_and_promote/3` activates and promotes its own pack's entity definitions (`entity_activation.ex:61-67`; activation is not automatic: a module that does not call the helper gets none). If a same-name definition already exists in the tenant, active or not, the install fails with `{:entity_name_conflict, name}` and rolls back (`entity_activation.ex:98-100`; section 5a).
+
 **The install rationale is required (decision 0052 D3, breaking).** `install/3`
 takes `opts[:rationale]`: a non-blank string, the installer's own justification.
 Missing, non-string or blank returns `{:error, :rationale_required}` before anything
