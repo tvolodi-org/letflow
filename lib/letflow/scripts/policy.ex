@@ -556,7 +556,7 @@ defmodule Letflow.Scripts.Policy do
     * otherwise `{:refused, :strict}` (no write).
   """
   @spec solo_gate(String.t(), tenant_actor(), keyword()) :: solo_gate_result()
-  def solo_gate(prefix, actor, opts \\ []) do
+  def solo_gate(prefix, actor, opts) do
     if Keyword.get(opts, :admin_lock_held, false) != true do
       Identity.lock_tenant_admins!(prefix)
     end

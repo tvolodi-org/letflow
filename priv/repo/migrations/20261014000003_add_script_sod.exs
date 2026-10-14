@@ -10,8 +10,9 @@
 #     `inserted_at` and DELETE, so it already covers these columns (design 3.1, CDV 7).
 #   * `script_rules` gains `sod_excluded` (the publish-time SoD set plus the publisher, SEC F2)
 #     and the three `confirmed_*` columns of the D6 confirmation.
-#   * `script_rules_guard()` is replaced (same name, same SQLSTATE 'LF001') with the design 3.3
-#     rules: `self_published` may become true only at draft -> published while the policy row
+#   * `script_rules_guard()` is replaced (same name, same SQLSTATE 'LF001') and its trigger now
+#     also fires BEFORE INSERT (SECURITY F2: a new row must be a draft with self_published
+#     false and NULL sod_excluded / confirmed_*). The design 3.3 rules: `self_published` may become true only at draft -> published while the policy row
 #     says `sod = 'solo_audited' AND platform_solo_audited_allowed`; `sod_excluded` is written at
 #     publish (covering the contributors and the publisher) and immutable afterwards; a
 #     confirmation is a third allowed shape on a published/retired row. The `down` direction
@@ -100,6 +101,26 @@ defmodule Letflow.Repo.Migrations.AddScriptSod do
              )
 
       execute(sod_guard(schema), v7b1_guard(schema))
+
+      # SECURITY F2: the guard also fires on INSERT (a new row must be a plain draft). The 7b-1
+      # trigger is BEFORE UPDATE OR DELETE; rollback re-creates exactly that.
+      execute(
+        ~s(DROP TRIGGER IF EXISTS script_rules_guard ON "#{schema}".script_rules),
+        """
+        CREATE TRIGGER script_rules_guard
+          BEFORE UPDATE OR DELETE ON "#{schema}".script_rules
+          FOR EACH ROW EXECUTE FUNCTION "#{schema}".script_rules_guard()
+        """
+      )
+
+      execute(
+        """
+        CREATE TRIGGER script_rules_guard
+          BEFORE INSERT OR UPDATE OR DELETE ON "#{schema}".script_rules
+          FOR EACH ROW EXECUTE FUNCTION "#{schema}".script_rules_guard()
+        """,
+        ~s(DROP TRIGGER IF EXISTS script_rules_guard ON "#{schema}".script_rules)
+      )
     end
   end
 
@@ -114,6 +135,19 @@ defmodule Letflow.Repo.Migrations.AddScriptSod do
     BEGIN
       IF TG_OP = 'DELETE' THEN
         RAISE EXCEPTION 'script_rules: versions are never deleted' USING ERRCODE = 'LF001';
+      END IF;
+
+      -- SECURITY F2: a new row is always a plain draft (every other state is reached through
+      -- the UPDATE rules below).
+      IF TG_OP = 'INSERT' THEN
+        IF NEW.status IS DISTINCT FROM 'draft'
+           OR NEW.self_published IS DISTINCT FROM false
+           OR NEW.sod_excluded IS NOT NULL
+           OR NEW.confirmed_by IS NOT NULL OR NEW.confirmed_at IS NOT NULL
+           OR NEW.confirmed_sha256 IS NOT NULL THEN
+          RAISE EXCEPTION 'script_rules: a new version must be a draft' USING ERRCODE = 'LF001';
+        END IF;
+        RETURN NEW;
       END IF;
 
       IF NEW.id IS DISTINCT FROM OLD.id

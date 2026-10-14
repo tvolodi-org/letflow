@@ -334,7 +334,7 @@ defmodule Letflow.Scripts do
         case sod_decision(prefix, actor, rule, in_set) do
           # Backstop auto-strict: COMMIT the flip, refuse the publish.
           :auto_strict -> {:refused, :publisher_is_contributor}
-          self_published -> publish_row!(prefix, rule, actor, self_published, set)
+          {:publish, self_published?} -> publish_row!(prefix, rule, actor, self_published?, set)
         end
       end)
 
@@ -344,7 +344,8 @@ defmodule Letflow.Scripts do
     end
   end
 
-  defp sod_decision(_prefix, _actor, _rule, false), do: false
+  # {:publish, self_published?} | :auto_strict (a refused :strict rolls back here).
+  defp sod_decision(_prefix, _actor, _rule, false), do: {:publish, false}
 
   defp sod_decision(prefix, actor, rule, true) do
     case Policy.solo_gate(prefix, actor,
@@ -352,7 +353,7 @@ defmodule Letflow.Scripts do
            key: rule.key,
            version: rule.version
          ) do
-      :solo_allowed -> true
+      :solo_allowed -> {:publish, true}
       {:refused, :auto_strict} -> :auto_strict
       {:refused, :strict} -> Repo.rollback(:publisher_is_contributor)
     end

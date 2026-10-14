@@ -543,8 +543,13 @@ defmodule Letflow.Scripts.PolicyTest do
     end
   end
 
+  # GH 2534 7b-2b (SECURITY F2): the guard trigger admits only a fresh draft on INSERT, so a row
+  # in another status is inserted as a draft and moved there with raw updates the trigger
+  # accepts (a valid non-self publish carries `sod_excluded`).
   defp insert_rule!(schema, key, status, manifest) do
     now = DateTime.utc_now()
+    author = Ecto.UUID.generate()
+    publisher = Ecto.UUID.generate()
 
     Repo.insert!(
       %ScriptRule{
@@ -552,16 +557,38 @@ defmodule Letflow.Scripts.PolicyTest do
         key: key,
         version: 1,
         hook_kind: "service_task",
-        status: status,
+        status: "draft",
         source: @source,
         manifest: manifest,
         test_cases: @cases,
         sha256: "x",
-        contributors: [Ecto.UUID.generate()],
-        publisher_id: if(status in ["published", "retired", "revoked"], do: Ecto.UUID.generate()),
-        published_at: if(status in ["published", "retired", "revoked"], do: now)
+        contributors: [author]
       },
       prefix: schema
     )
+
+    steps =
+      case status do
+        "draft" -> []
+        "discarded" -> [[status: "discarded", discarded_at: now]]
+        "published" -> [publish_set(publisher, author, now)]
+        "retired" -> [publish_set(publisher, author, now), [status: "retired", retired_at: now]]
+        "revoked" -> [publish_set(publisher, author, now), [status: "revoked", revoked_at: now]]
+      end
+
+    for set <- steps do
+      {1, _} =
+        Repo.update_all(from(r in ScriptRule, where: r.key == ^key), [set: set], prefix: schema)
+    end
+
+    :ok
   end
+
+  defp publish_set(publisher, author, now),
+    do: [
+      status: "published",
+      publisher_id: publisher,
+      published_at: now,
+      sod_excluded: [author, publisher]
+    ]
 end

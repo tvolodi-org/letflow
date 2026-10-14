@@ -24,6 +24,11 @@ defmodule Letflow.Scripts.SodTest do
   `create_token/3`), so the count is the helper's. Real committed state (`:auto` sandbox);
   every cross-process wait is bounded.
 
+  TDV 6: the cross-process tests (AC6, AC10, AC11) rely on `TenantFixture.provisioned_tenant!/1`
+  switching the sandbox to `:auto` (`test/support/tenant_fixture.ex:247`,
+  `Sandbox.mode(Letflow.Repo, :auto)`), so each `Task` checks out its own connection and sees
+  committed state.
+
   `async: false`: real committed state, cross-connection advisory locks.
   """
 
@@ -334,6 +339,8 @@ defmodule Letflow.Scripts.SodTest do
       base = [status: "published", published_at: now]
 
       for set <- [
+            # TDV 1: a contributor publishing NOT self-published, sod_excluded valid
+            base ++ [publisher_id: author, self_published: false, sod_excluded: [author]],
             # self_published while the policy is strict
             base ++ [publisher_id: author, self_published: true, sod_excluded: [author]],
             # without sod_excluded
@@ -367,6 +374,60 @@ defmodule Letflow.Scripts.SodTest do
                  k,
                  base ++ [publisher_id: other, sod_excluded: [author, other]]
                )
+    end
+
+    test "TDV 1: under a declared, allowed solo policy a contributor publish NOT marked self_published is still refused",
+         ctx do
+      a = SP.admin!(ctx.schema)
+      SP.solo!(ctx.schema, ctx.tenant_id, a)
+      k = key()
+      draft!(ctx.schema, k, a)
+
+      assert_lf001(fn ->
+        raw_update(ctx.schema, k,
+          status: "published",
+          published_at: DateTime.utc_now(),
+          publisher_id: a,
+          self_published: false,
+          sod_excluded: [a]
+        )
+      end)
+
+      assert row(ctx.schema, k).status == "draft"
+    end
+
+    test "SECURITY F2: a raw INSERT must be a plain draft (status, self_published, sod_excluded, confirmed_*)",
+         ctx do
+      now = DateTime.utc_now()
+      who = Ecto.UUID.generate()
+
+      base = %ScriptRule{
+        key: key(),
+        version: 1,
+        hook_kind: "service_task",
+        status: "draft",
+        source: "return {y = 1}",
+        manifest: @manifest,
+        test_cases: @passing,
+        sha256: "x",
+        contributors: [who]
+      }
+
+      for {label, rule} <- [
+            {"published", %{base | status: "published", publisher_id: who, published_at: now}},
+            {"retired", %{base | status: "retired"}},
+            {"self_published", %{base | self_published: true}},
+            {"sod_excluded", %{base | sod_excluded: [who]}},
+            {"confirmed", %{base | confirmed_by: who, confirmed_at: now, confirmed_sha256: "x"}}
+          ] do
+        error = assert_raise Postgrex.Error, fn -> Repo.insert!(rule, prefix: ctx.schema) end
+        assert error.postgres.pg_code == "LF001", label
+      end
+
+      assert Repo.all(ScriptRule, prefix: ctx.schema) == []
+
+      # control: a plain draft inserts
+      assert %ScriptRule{} = Repo.insert!(base, prefix: ctx.schema)
     end
 
     test "self_published is accepted only while solo is declared and allowed", ctx do
@@ -578,6 +639,17 @@ defmodule Letflow.Scripts.SodTest do
 
       assert Scripts.confirm(ctx.schema, key(), 1, ctx.sha, SP.actor(ctx.b)) ==
                {:error, :not_found}
+    end
+
+    test "TDV 2: a RETIRED self-published version is confirmable (S6) and leaves the list", ctx do
+      {:ok, _} = Scripts.retire(ctx.schema, ctx.key, 2, "superseded", SP.actor(ctx.a))
+      assert {[pending], false} = Policy.pending_review(ctx.schema)
+      assert {pending.key, pending.status} == {ctx.key, "retired"}
+
+      assert {:ok, confirmed} = Scripts.confirm(ctx.schema, ctx.key, 2, ctx.sha, SP.actor(ctx.b))
+      assert {confirmed.status, confirmed.confirmed_by} == {"retired", ctx.b}
+      assert row(ctx.schema, ctx.key, 2).confirmed_sha256 == ctx.sha
+      assert Policy.pending_review(ctx.schema) == {[], false}
     end
 
     test "a counted admin outside sod_excluded confirms; audited; then not pending; non-self-published not pending",

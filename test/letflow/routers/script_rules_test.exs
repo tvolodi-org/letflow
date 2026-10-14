@@ -436,12 +436,35 @@ defmodule Letflow.Routers.ScriptRulesTest do
          ctx do
       k = key()
       author = Ecto.UUID.generate()
+      other = Ecto.UUID.generate()
       create!(ctx.a, k, author)
+      now = DateTime.utc_now()
 
+      # GH 2534 7b-2b (TDV 1): every case carries a valid sod_excluded and self_published false,
+      # so each is refused for its stated reason only (not for a missing sod_excluded).
       for set <- [
-            [status: "published", publisher_id: author, published_at: DateTime.utc_now()],
-            [status: "published", publisher_id: nil, published_at: DateTime.utc_now()],
-            [status: "published", publisher_id: Ecto.UUID.generate(), published_at: nil]
+            # the contributor-publish rule (non-self-published publish by a contributor)
+            [
+              status: "published",
+              publisher_id: author,
+              published_at: now,
+              self_published: false,
+              sod_excluded: [author]
+            ],
+            [
+              status: "published",
+              publisher_id: nil,
+              published_at: now,
+              self_published: false,
+              sod_excluded: [author, other]
+            ],
+            [
+              status: "published",
+              publisher_id: other,
+              published_at: nil,
+              self_published: false,
+              sod_excluded: [author, other]
+            ]
           ] do
         assert_lf001(fn ->
           Repo.update_all(from(r in ScriptRule, where: r.key == ^k), [set: set],
@@ -451,6 +474,22 @@ defmodule Letflow.Routers.ScriptRulesTest do
       end
 
       assert row(ctx.a, k, 1).status == "draft"
+
+      # control: the same shape with a non-contributor publisher passes the trigger
+      assert {1, _} =
+               Repo.update_all(
+                 from(r in ScriptRule, where: r.key == ^k),
+                 [
+                   set: [
+                     status: "published",
+                     publisher_id: other,
+                     published_at: now,
+                     self_published: false,
+                     sod_excluded: [author, other]
+                   ]
+                 ],
+                 prefix: ctx.a.schema_name
+               )
     end
 
     test "a NULL contributor is refused by the table constraint", ctx do
