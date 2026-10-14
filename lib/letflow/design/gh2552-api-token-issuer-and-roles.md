@@ -204,12 +204,15 @@ green; `web/src/types/api.ts:578` types status as uppercase. File a FRONTEND-DEV
 
 ## 9. Follow-on: #2564 (PLAN FOR THE NEXT PR, not part of #2552's implementation)
 
+**Superseded in detail by `gh2564-deactivation-revokes-tokens.md`** (the lock is taken only by writes that carry
+`status`; the guard refuses only a transition to zero; a status write on an inactive row also revokes leftover
+tokens; the refusal keys are corrected below).
+
 Option 3: deactivation revokes all the user's tokens in the same transaction; reactivation restores none.
 - **Where:** `update_locked_user/5` (`identity.ex:417-457`), shared by `update_user_status/3` (`:403-409`) and
   `update_user_profile/3` (`:375-381`). Trigger: locked `:active` -> updated not `:active`.
-- **Order:** `lock_tenant_admins!(prefix)` becomes the first step of EVERY `update_locked_user/5` call (every
-  profile edit, not only deactivations: lock-first precedes reading the row; per-tenant serialisation of user
-  edits is accepted). Then the user `FOR UPDATE` (`:423`), then the user's `revoked_at IS NULL` tokens
+- **Order:** `lock_tenant_admins!(prefix)` becomes the first step of every `update_locked_user/5` call that writes
+  `status` (a PATCH without `status` takes no lock; gh2564 §3). Then the user `FOR UPDATE` (`:423`), then the user's `revoked_at IS NULL` tokens
   `ORDER BY id FOR UPDATE`, each revoked through a private `revoke_token_row/4` extracted from
   `revoke_locked_token/3` (`:2087-2109`) and shared with it (changeset per row, not `update_all`). Role and group
   rows are deliberately not row-locked: every binding writer holds the advisory lock. Same order as
@@ -221,7 +224,8 @@ Option 3: deactivation revokes all the user's tokens in the same transaction; re
   same lock, `count_tenant_wide_admins(prefix) == 0` -> rollback, `{:error, :last_tenant_wide_admin}` -> HTTP
   409 `last_tenant_wide_admin` (fixed body). Then a `tenant_admin.guard_refused` audit entry (supervisor ruling)
   goes in its own transaction after the rollback, as for 0051's `grant.self_grant_refused`, with metadata
-  `{action, actor, target_user_id, reason: "last_tenant_wide_admin", counted_admins, trace_id}`. The count
+  exactly `{action: "deactivate_user", actor, target_id, reason_code: "last_tenant_wide_admin", counted_admins,
+  trace_id}` (0051 D8 `:339`; `target_id` is the user id). The count
   already excludes inactive users (`identity.ex:982-986`), so token revocation does not change its result.
 - **Consistency with #2552:** after #2564, an inactive owner's tokens are normally `revoked` (which wins);
   `owner_inactive` remains for rows from before #2564, for legacy data and for in-flight cases.
