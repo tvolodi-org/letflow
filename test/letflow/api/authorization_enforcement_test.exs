@@ -99,7 +99,10 @@ defmodule Letflow.Api.AuthorizationEnforcementTest do
     # clause (module_route_permission/3) once mounted at /modules/fixture,
     # so it resolves through the normal path above and is not (and may not
     # be) added to @allowlist.
-    Letflow.Modules.Fixture.Router
+    Letflow.Modules.Fixture.Router,
+    # GH 2534 PR 7b-2a -- Letflow.Routers.ScriptPolicy's five routes declare :ScriptPolicyRead /
+    # :ScriptPolicyManage, each backed by an endpoint_policy_key/2 clause.
+    Letflow.Routers.ScriptPolicy
   ]
 
   # `Letflow.Plugs.ApiPipeline`'s own `forward/2` mount prefix per router
@@ -135,7 +138,8 @@ defmodule Letflow.Api.AuthorizationEnforcementTest do
     Letflow.Routers.Help => "/help",
     Letflow.Routers.Me => "/me",
     Letflow.Routers.TenantSettings => "/tenant/settings",
-    Letflow.Modules.Fixture.Router => "/modules/fixture"
+    Letflow.Modules.Fixture.Router => "/modules/fixture",
+    Letflow.Routers.ScriptPolicy => "/script-policy"
   }
 
   # {method, path_template, reason} -- a route whose declared policy key is

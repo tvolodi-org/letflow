@@ -393,6 +393,8 @@ defmodule Letflow.Api.Authorization do
           | :ScriptsPublish
           | :ScriptRulesList
           | :ScriptRulesRead
+          | :ScriptPolicyRead
+          | :ScriptPolicyManage
           | :UnmatchedPlatformPath
           | :UnmatchedRoute
           | :Unknown
@@ -822,6 +824,11 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("POST", "/tenants/:slug/deactivate"), do: :TenantsManage
   def endpoint_policy_key("POST", "/tenants/:slug/reactivate"), do: :TenantsManage
 
+  # GH 2534 PR 7b-2a (decision 0053 D7): the operator's view of a tenant's script policy and
+  # its PLATFORM kill-switch latch (Letflow.Routers.Tenants). Platform scope.
+  def endpoint_policy_key("GET", "/tenants/:slug/script-policy"), do: :TenantsManage
+  def endpoint_policy_key("PUT", "/tenants/:slug/script-policy/kill-switch"), do: :TenantsManage
+
   # REQ-382 / ISS-0993 -- authenticated write path onto the caller's OWN
   # tenant.settings (Letflow.Routers.TenantSettings), mounted at /tenant/settings
   # (no target-tenant parameter: the tenant patched is always the caller's own,
@@ -1094,6 +1101,22 @@ defmodule Letflow.Api.Authorization do
 
   def endpoint_policy_key("POST", "/script-rules/:key/dry-run"), do: :ScriptsWrite
 
+  # GH 2534 PR 7b-2a (decision 0053 D5, D7): the tenant's script policy
+  # (Letflow.Routers.ScriptPolicy, mounted at /script-policy). Distinct route keys over
+  # existing permissions (design P3): reads -> :ScriptsWrite, writes -> :ScriptsPublish. 0051
+  # D11 (GH #2533) classifies the two :ScriptPolicyManage writes as admin-plane.
+  def endpoint_policy_key("GET", path)
+      when path in ["/script-policy", "/script-policy/readable-masters"],
+      do: :ScriptPolicyRead
+
+  def endpoint_policy_key("PUT", "/script-policy/kill-switch"), do: :ScriptPolicyManage
+
+  def endpoint_policy_key("PUT", "/script-policy/readable-masters/:entity_type"),
+    do: :ScriptPolicyManage
+
+  def endpoint_policy_key("POST", "/script-policy/readable-masters/:entity_type/clear"),
+    do: :ScriptPolicyManage
+
   # REQ-414 — settings write for an installed module.
   def endpoint_policy_key("PUT", "/tenant/modules/:module_id/settings"), do: :ModulesManage
 
@@ -1323,6 +1346,9 @@ defmodule Letflow.Api.Authorization do
   def required_permission(key) when key in [:ScriptRulesList, :ScriptRulesRead], do: :ScriptsWrite
   def required_permission(:ScriptsWrite), do: :ScriptsWrite
   def required_permission(:ScriptsPublish), do: :ScriptsPublish
+  # GH 2534 PR 7b-2a (design P3): script policy route keys over the script permissions.
+  def required_permission(:ScriptPolicyRead), do: :ScriptsWrite
+  def required_permission(:ScriptPolicyManage), do: :ScriptsPublish
   def required_permission(:MyModulesRead), do: :MyModulesRead
 
   # REQ-496 (design D11): same holders as the tree-write permission (0050 D7);

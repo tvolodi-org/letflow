@@ -23,6 +23,10 @@ defmodule Letflow.Routers.ScriptRules do
   answer the same plain 404 (INV-5). Responses are built by the allowlist functions
   `summary_map/1` and `version_map/1` (INV-2); bodies never echo submitted values.
   Deferred: the auditor source read (`:AuditRead`, D9) is GH 2548.
+
+  7b-2a (`lib/letflow/design/gh2534-7b2a-script-policy.md` sections 5, 10): dry-run takes an
+  optional `reads` fixture; while the tenant's script kill switch is on, dry-run and publish
+  answer 409 `scripts_disabled`.
   """
 
   use Letflow.Api.AuthorizedRouter
@@ -127,6 +131,7 @@ defmodule Letflow.Routers.ScriptRules do
         conn.params["key"],
         conn.body_params["version"],
         conn.body_params["input"],
+        conn.body_params["reads"],
         actor(conn)
       ),
       &dry_run_map/1
@@ -193,8 +198,10 @@ defmodule Letflow.Routers.ScriptRules do
   defp reply(conn, {:error, :restricted_inputs_not_allowed}, _builder),
     do: Response.forbidden(conn, "restricted_inputs_not_allowed")
 
-  defp reply(conn, {:error, code}, _builder) when code in [:version_immutable, :content_changed],
-    do: Response.conflict(conn, Atom.to_string(code))
+  # 7b-2a: :scripts_disabled (the effective kill switch is on) is a 409 beside these.
+  defp reply(conn, {:error, code}, _builder)
+       when code in [:version_immutable, :content_changed, :scripts_disabled],
+       do: Response.conflict(conn, Atom.to_string(code))
 
   defp reply(conn, {:error, :script_busy}, _builder),
     do: Response.send_json(conn, 503, %{"error" => "script_busy", "detail" => "script_busy"})

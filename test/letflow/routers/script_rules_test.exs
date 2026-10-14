@@ -8,7 +8,8 @@ defmodule Letflow.Routers.ScriptRulesTest do
       publish; cross-tenant key = the exact missing-key 404 (INV-5); source absent from lists.
     * Token rule (advisor + SECURITY-REVIEWER B1): every write via an API token is refused,
       including a token minted for a non-contributor; reads and dry-run are allowed.
-    * Q3: a non-empty `reads` is refused. Permissions per D6. Dry-run (D10). Concurrency.
+    * Q3 (as relaxed by 7b-2a): a read of an unflagged type is refused (`reads_not_allowed`),
+      a malformed read is `invalid_manifest`. Permissions per D6. Dry-run (D10). Concurrency.
 
   `async: false`: the platform tenant pin is VM-global.
   """
@@ -167,14 +168,25 @@ defmodule Letflow.Routers.ScriptRulesTest do
       assert create!(ctx.a, k, Ecto.UUID.generate())["version"] == 2
     end
 
-    test "manifest rules: unknown key, capabilities, non-empty reads (Q3), oversize limits, malformed schema",
+    test "manifest rules: unknown key, capabilities, reads (malformed; unflagged type), oversize limits, malformed schema",
          ctx do
       k = key()
 
       for {manifest, code} <- [
             {Map.put(@manifest, "extra", 1), "invalid_manifest"},
             {Map.put(@manifest, "capabilities", ["read_variable"]), "invalid_manifest"},
-            {Map.put(@manifest, "reads", [%{"entity_type" => "customer"}]), "reads_not_allowed"},
+            # 7b-2a: a malformed read is a shape error; a well-formed read of an unflagged type
+            # is refused by the tenant check (reads_not_allowed)
+            {Map.put(@manifest, "reads", [%{"entity_type" => "customer"}]), "invalid_manifest"},
+            {Map.put(@manifest, "reads", [
+               %{
+                 "name" => "c",
+                 "entity_type" => "customer",
+                 "match" => %{"field" => "tier", "value_from" => "x"},
+                 "fields" => ["name"],
+                 "limit" => 1
+               }
+             ]), "reads_not_allowed"},
             {Map.put(@manifest, "limits", %{"timeout_ms" => 60_000}), "invalid_manifest"},
             {Map.put(@manifest, "input_schema", %{"type" => "object", "$ref" => "#/x"}),
              "invalid_manifest"},

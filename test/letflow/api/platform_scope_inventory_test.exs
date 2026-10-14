@@ -21,7 +21,7 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       of the two sets (core scope table or Catalog rule), otherwise the runtime fail-closed
       fallback (`:platform`) would apply and the test fails.
     * **G3** -- platform pinning. The set of routes whose permission is platform scope equals a
-      literal snapshot of the 24 rows (design 7.1 plus ISS-1030's POST /onboarding/:id/bind-realm and, in PR 2, GET /onboarding/:id/pending-admins and DELETE /onboarding/:id/pending-admins/:grant_id), and the pure `evaluate_access/2` grid for the
+      literal snapshot of the 26 rows (design 7.1 plus ISS-1030's POST /onboarding/:id/bind-realm, GH 2534 7b-2a's two /tenants/:slug/script-policy routes and, in PR 2, GET /onboarding/:id/pending-admins and DELETE /onboarding/:id/pending-admins/:grant_id), and the pure `evaluate_access/2` grid for the
       platform keys is as designed.
     * **G4** -- tenant-identifier scan (design 11, A2). Router files that read a tenant identifier
       from the request (a field constraint naming a tenant or slug, a `params["..."]` read of one,
@@ -484,6 +484,9 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
     {"PATCH", "/tenants/:slug"},
     {"POST", "/tenants/:slug/deactivate"},
     {"POST", "/tenants/:slug/reactivate"},
+    # GH 2534 7b-2a (decision 0053 D7): the operator's script policy view and platform latch.
+    {"GET", "/tenants/:slug/script-policy"},
+    {"PUT", "/tenants/:slug/script-policy/kill-switch"},
     {"POST", "/onboarding"},
     {"GET", "/onboarding/:id"},
     {"POST", "/onboarding/:id/bind-realm"},
@@ -505,13 +508,13 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
   ]
 
   describe "G3: platform pinning" do
-    test "the routes whose permission is platform scope are exactly the 24 snapshot rows" do
+    test "the routes whose permission is platform scope are exactly the 26 snapshot rows" do
       actual =
         for {_router, method, path, key} <- all_routes(),
             Authorization.permission_scope(Authorization.required_permission(key)) == :platform,
             do: {method, path}
 
-      assert length(@platform_routes) == 24
+      assert length(@platform_routes) == 26
       assert Enum.sort(actual) == Enum.sort(@platform_routes)
     end
 
@@ -519,7 +522,8 @@ defmodule Letflow.Api.PlatformScopeInventoryTest do
       tenants_routes =
         for {Letflow.Routers.Tenants, method, path, key} <- all_routes(), do: {method, path, key}
 
-      assert length(tenants_routes) == 7
+      # GH 2534 7b-2a added GET /:slug/script-policy and PUT /:slug/script-policy/kill-switch.
+      assert length(tenants_routes) == 9
 
       non_platform =
         for {method, path, key} <- tenants_routes,

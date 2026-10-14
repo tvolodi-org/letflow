@@ -649,6 +649,10 @@ defmodule Letflow.TenantProvisioning do
     # GH 2534 PR 7b-1 (decision 0053 D1): tenant-script registry with its guard trigger.
     {20_261_014_000_001, Letflow.Repo.Migrations.CreateScriptRules,
      "20261014000001_create_script_rules.exs"},
+    # GH 2534 PR 7b-2a (decision 0053 D5, D7): script policy singleton (kill switch latches)
+    # and the interim readable-master flags.
+    {20_261_014_000_002, Letflow.Repo.Migrations.CreateScriptPolicy,
+     "20261014000002_create_script_policy.exs"},
     # REQ-496 / GH #2530 (decision 0050 D7, D8): `entity_definitions.managed_by` with its
     # immutability trigger, and the `scope_node_paths` security index.
     {20_261_014_100_001, Letflow.Repo.Migrations.AddManagedByToEntityDefinitions,

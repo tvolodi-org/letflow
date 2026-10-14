@@ -384,6 +384,9 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
             {"PATCH", "/tenants/:slug"},
             {"POST", "/tenants/:slug/deactivate"},
             {"POST", "/tenants/:slug/reactivate"},
+            # GH 2534 7b-2a
+            {"GET", "/tenants/:slug/script-policy"},
+            {"PUT", "/tenants/:slug/script-policy/kill-switch"},
             {"POST", "/onboarding"},
             {"GET", "/onboarding/:id"},
             {"POST", "/onboarding/:id/bind-realm"},
