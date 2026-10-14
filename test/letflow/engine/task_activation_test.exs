@@ -468,4 +468,88 @@ defmodule Letflow.Engine.TaskActivationTest do
                [token("task", "t1")]
     end
   end
+
+  # ---------------------------------------------------------------------------------
+  # GH #2359 (T-13) -- consume_completed_position/3
+  # ---------------------------------------------------------------------------------
+
+  describe "consume_completed_position/3 (GH #2359)" do
+    test "removes exactly the matching {token_id, node_id} pair" do
+      state = instance_state([], pending_task_nodes: [token("a", "t1"), token("b", "t2")])
+
+      assert TaskActivation.consume_completed_position(state, "t1", "a").pending_task_nodes ==
+               [token("b", "t2")]
+    end
+
+    test "keeps a sibling token pending at the SAME node" do
+      state = instance_state([], pending_task_nodes: [token("a", "t1"), token("a", "t2")])
+
+      assert TaskActivation.consume_completed_position(state, "t1", "a").pending_task_nodes ==
+               [token("a", "t2")]
+    end
+
+    test "keeps the same token pending at a DIFFERENT node" do
+      state = instance_state([], pending_task_nodes: [token("a", "t1"), token("b", "t1")])
+
+      assert TaskActivation.consume_completed_position(state, "t1", "a").pending_task_nodes ==
+               [token("b", "t1")]
+    end
+
+    test "an empty list stays empty" do
+      state = instance_state([], pending_task_nodes: [])
+
+      assert TaskActivation.consume_completed_position(state, "t1", "a") == state
+    end
+
+    test "an absent pair returns the state unchanged" do
+      state = instance_state([], pending_task_nodes: [token("a", "t2"), token("b", "t1")])
+
+      assert TaskActivation.consume_completed_position(state, "t1", "a") == state
+    end
+
+    test "order of the remaining entries is preserved and other fields are untouched" do
+      state =
+        instance_state([token("a", "t1")],
+          variables: %{"k" => "v"},
+          pending_task_nodes: [token("c", "t3"), token("a", "t1"), token("b", "t2")]
+        )
+
+      result = TaskActivation.consume_completed_position(state, "t1", "a")
+
+      assert result.pending_task_nodes == [token("c", "t3"), token("b", "t2")]
+      assert %{result | pending_task_nodes: state.pending_task_nodes} == state
+    end
+
+    test "end to end: a -> gw -[default]-> a yields exactly one new entry for the re-entering token" do
+      g =
+        graph(
+          [node("a", :HUMAN_TASK), node("gw", :EXCLUSIVE_GATEWAY)],
+          [edge("e1", "a", "gw"), edge("e2", "gw", "a", is_default: true)]
+        )
+
+      seed = instance_state([token("a", "t1")], pending_task_nodes: [token("a", "t1")])
+      stripped = TaskActivation.consume_completed_position(seed, "t1", "a")
+
+      # complete_task moves the token off `a` onto `gw`; the engine's hop chain then
+      # advances it through the gateway back into `a` (HUMAN_TASK dispatch appends).
+      assert {:ok, mid, _} = Transition.transition(g, stripped, {:complete_task, "t1"})
+      assert {:ok, via_gw, _} = Transition.transition(g, mid, {:advance_token, "t1"})
+
+      assert {:ok, final, _pending_events} =
+               Transition.transition(g, via_gw, {:advance_token, "t1"})
+
+      assert final.pending_task_nodes == [token("a", "t1")]
+
+      assert TaskActivation.newly_pending_tokens(
+               stripped.pending_task_nodes,
+               final.pending_task_nodes
+             ) == [token("a", "t1")]
+
+      # the unstripped seed is exactly the pre-fix masking: the diff drops the re-entry
+      assert TaskActivation.newly_pending_tokens(
+               seed.pending_task_nodes,
+               final.pending_task_nodes
+             ) == []
+    end
+  end
 end

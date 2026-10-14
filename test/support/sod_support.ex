@@ -177,7 +177,9 @@ defmodule Letflow.SodSupport do
   through a node creates a NEW task row. The loop deliberately passes through a DIFFERENT
   node (`triage-review`, or `second-review` for the redo loop): a token looping straight back to the
   node it just completed is not re-activated as a new task by the engine (observed while writing
-  these tests; out of REQ-463's scope).
+  these tests; out of REQ-463's scope). Fixed by GH #2359 -- the direct loop is now covered by
+  `test/letflow/engine/gh2359_gateway_reentry_task_row_test.exs`; this graph keeps its detour
+  because it predates the fix.
   """
   @spec rework_graph() :: map()
   def rework_graph do
