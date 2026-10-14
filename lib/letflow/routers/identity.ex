@@ -32,7 +32,10 @@ defmodule Letflow.Routers.Identity do
   * GET    /tokens                       -> Identity.list_tokens/2 (REQ-076)
   * DELETE /tokens/:id                   -> Identity.revoke_token/2 (REQ-076)
   * GET    /roles                        -> Letflow.Identity.RoleRegistry.list_roles/1 (REQ-076, ISS-0768)
-  * POST   /roles                        -> Letflow.Identity.RoleRegistry.upsert_role/4 (REQ-076, ISS-0768, ISS-0774)
+  * POST   /roles                        -> Letflow.Identity.RoleRegistry.upsert_role/4 (REQ-076, ISS-0768, ISS-0774;
+                                            GH 2524: a name bound to another group answers 409 role_already_bound)
+  * POST   /roles/:id/rebind             -> Letflow.Identity.RoleRegistry.rebind_role/4 (GH 2524: explicit,
+                                            audited `role.rebound`, mandatory reason, :UsersGroupsRolesManage)
 
   ## Id handling order (ISS-1033)
 
@@ -238,6 +241,10 @@ defmodule Letflow.Routers.Identity do
 
   authz_post "/roles", :RolesManage do
     handle_upsert_role(conn, conn.assigns.scoped_opts)
+  end
+
+  authz_post "/roles/:id/rebind", :RolesRebind do
+    handle_rebind_role(conn, conn.params["id"], conn.assigns.scoped_opts)
   end
 
   # ISS-1030 PR 2 (design 5.3): the tenant's own administrator READS its pending
@@ -905,7 +912,8 @@ defmodule Letflow.Routers.Identity do
             forbid_insufficient(conn)
 
           # REQ-447 H2 (design section 3.6): binding ANY built-in role name, of
-          # any `kind` (upsert_role/4 overwrites kind and group_id on conflict),
+          # any `kind` (upsert_role/4 converts `kind` on a same-group conflict; since GH 2524
+          # it never moves the group),
           # needs :UsersGroupsRolesManage in this tenant, BEFORE upsert_role/4.
           Authorization.builtin_role_name?(name) and not users_groups_roles_manage?(conn) ->
             forbid_insufficient(conn)
@@ -942,6 +950,11 @@ defmodule Letflow.Routers.Identity do
       {:error, :name_not_a_recognized_platform_role} ->
         Response.unprocessable(conn, "name_not_a_recognized_platform_role")
 
+      # GH 2524: the name is bound to another group. Nothing changed; moving it is the
+      # explicit POST /roles/:id/rebind. Fixed code, the body names no group.
+      {:error, :role_already_bound} ->
+        Response.conflict(conn, "role_already_bound")
+
       # REQ-447 PR 2 (design 3.4): defence in depth behind H1 (which already
       # answers 403 first); the wire contract gains no new public code.
       {:error, :platform_admin_outside_platform_tenant} ->
@@ -950,6 +963,39 @@ defmodule Letflow.Routers.Identity do
       {:error, %Ecto.Changeset{}} ->
         Response.unprocessable(conn, "validation failed")
     end
+  end
+
+  # ── POST /roles/:id/rebind (GH 2524) ────────────────────────────────────
+  #
+  # Order (design gh2524-role-rebind-explicit.md section 3): permission gate (macro) ->
+  # cast id (404) -> RoleRegistry.rebind_role/4, which locks the row (404), applies H1 on
+  # the locked name (403), validates reason and group_id (422, one code each), reads the
+  # group (404), and updates + audits in one transaction. The body values are passed
+  # through unparsed so exactly one place decides each 422.
+  defp handle_rebind_role(conn, raw_id, opts) do
+    with_cast_id(conn, raw_id, fn id ->
+      body = conn.body_params
+
+      attrs = %{
+        actor_id: conn.assigns.auth_context.user_id,
+        reason: Map.get(body, "reason")
+      }
+
+      opts = Keyword.put(opts, :platform_scope, platform_scope?(conn))
+
+      case RoleRegistry.rebind_role(id, Map.get(body, "group_id"), attrs, opts) do
+        {:ok, role} -> Response.ok(conn, role_map(role))
+        {:error, :role_not_found} -> Response.not_found(conn)
+        {:error, :group_not_found} -> Response.not_found(conn)
+        # Not the POST /roles mapping (422): on this route H1 is an authorization refusal.
+        {:error, :platform_admin_outside_platform_tenant} -> forbid_insufficient(conn)
+        {:error, :invalid_reason} -> Response.unprocessable(conn, "invalid_reason")
+        {:error, :invalid_group_id} -> Response.unprocessable(conn, "invalid_group_id")
+        # Rolled back: a server fault, not a client one.
+        {:error, {:audit_failed, _reason}} -> Response.internal_error(conn)
+        {:error, %Ecto.Changeset{}} -> Response.unprocessable(conn, "validation failed")
+      end
+    end)
   end
 
   # ── Response allowlist (design §3, AC5, INV-2) ──────────────────────────

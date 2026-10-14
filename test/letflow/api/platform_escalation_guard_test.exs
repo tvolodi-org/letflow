@@ -775,8 +775,17 @@ defmodule Letflow.Api.PlatformEscalationGuardTest do
 
       other = insert_group!(ctx.p)
 
+      # GH 2524: moving a binding is the explicit rebind (upsert_role/4 refuses it).
+      [%{id: role_id}] =
+        Enum.filter(RoleRegistry.list_roles(opts(ctx.p)), &(&1.name == "PLATFORM_ADMIN"))
+
       {:ok, _} =
-        RoleRegistry.upsert_role("PLATFORM_ADMIN", :platform_role, other.id, opts(ctx.p))
+        RoleRegistry.rebind_role(
+          role_id,
+          other.id,
+          %{actor_id: nil, reason: "test: move the operator binding"},
+          Keyword.put(opts(ctx.p), :platform_scope, true)
+        )
 
       # the old group no longer confers the operator role, so its members are ordinary users now
       conn = call(:patch, "/users/#{operator.id}", ctx.p, @admin, %{"display_name" => "y"})
@@ -851,12 +860,28 @@ defmodule Letflow.Api.PlatformEscalationGuardTest do
 
       assert {"PLATFORM_ADMIN", :platform_role, group.id} in role_rows(ctx.p)
 
+      # GH 2524: the explicit rebind route keeps H1 for the TENANT_ADMIN of P ...
+      [%{id: role_id}] =
+        Enum.filter(RoleRegistry.list_roles(opts(ctx.p)), &(&1.name == "PLATFORM_ADMIN"))
+
+      rebind = %{"group_id" => attacker_group.id, "reason" => "move it"}
+
+      assert_forbidden(call(:post, "/roles/#{role_id}/rebind", ctx.p, @admin, rebind), "rebind")
+      assert role_rows(ctx.p) == before
+
+      # ... while POST /roles no longer moves a binding for anyone (the operator gets 409) ...
       conn =
         call(:post, "/roles", ctx.p, @operator, %{
           "name" => "PLATFORM_ADMIN",
           "kind" => "platform_role",
           "group_id" => attacker_group.id
         })
+
+      assert conn.status == 409, conn.resp_body
+      assert role_rows(ctx.p) == before
+
+      # ... and the operator rebinds through the explicit route (control).
+      conn = call(:post, "/roles/#{role_id}/rebind", ctx.p, @operator, rebind)
 
       assert conn.status == 200, conn.resp_body
       assert {"PLATFORM_ADMIN", :platform_role, attacker_group.id} in role_rows(ctx.p)

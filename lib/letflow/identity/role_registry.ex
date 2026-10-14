@@ -20,6 +20,7 @@ defmodule Letflow.Identity.RoleRegistry do
   import Ecto.Query
 
   alias Letflow.Api.Authorization
+  alias Letflow.Audit
   alias Letflow.Identity.Group
   alias Letflow.Identity.GroupMember
   alias Letflow.Identity.TenantRole
@@ -34,6 +35,16 @@ defmodule Letflow.Identity.RoleRegistry do
           | :group_not_found
           | :name_not_a_recognized_platform_role
           | :platform_admin_outside_platform_tenant
+          | :role_already_bound
+          | Ecto.Changeset.t()
+
+  @type rebind_error ::
+          :role_not_found
+          | :group_not_found
+          | :invalid_group_id
+          | :invalid_reason
+          | :platform_admin_outside_platform_tenant
+          | {:audit_failed, term()}
           | Ecto.Changeset.t()
 
   @type coverage_gap :: %{
@@ -43,6 +54,13 @@ defmodule Letflow.Identity.RoleRegistry do
 
   @max_name_codepoints 128
   @control_char_pattern ~r/[\x00-\x1F\x7F]/u
+
+  # GH 2524: a rebind reason is free text shown to audit readers. Cc (C0, DEL, C1), Cf
+  # (format/bidi characters such as U+200B..U+200F, U+202A..U+202E, U+2066..U+2069, U+FEFF)
+  # and the line/paragraph separators Zl/Zp (U+2028, U+2029) are refused so a reason is one
+  # line and cannot visually spoof an audit reader.
+  @max_reason_codepoints 500
+  @reason_forbidden_pattern ~r/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u
 
   @doc """
   Returns every role binding sorted by `name` ascending. Returns `[]` (not an error)
@@ -80,8 +98,13 @@ defmodule Letflow.Identity.RoleRegistry do
   (ISS-0774): validates `name`'s format, `kind == :platform_role`'s membership in
   `Letflow.Api.Authorization.roles/0`'s eight literal strings, and `group_id`'s UUID
   syntax before any DB round-trip, then confirms `group_id` references an existing
-  group and upserts on `name` conflict (updating `group_id` and `kind`) inside one
-  transaction.
+  group and binds `name` inside one transaction.
+
+  GH 2524: this never moves an existing binding to another group. A name that is not
+  bound is inserted; a name already bound to the same group is returned unchanged (a
+  different `kind` is still converted, as before); a name bound to a different group
+  returns `{:error, :role_already_bound}` and writes nothing. Moving a binding is the
+  explicit, audited `rebind_role/4`. Design: `lib/letflow/design/gh2524-role-rebind-explicit.md`.
 
   `kind` is a required, non-defaulted parameter — deliberately call-site-breaking
   over the prior `upsert_role/3`, so every caller states which domain it is writing
@@ -155,10 +178,13 @@ defmodule Letflow.Identity.RoleRegistry do
   `platform_role_names/0` — no new literal list invented). For each name, in
   `Authorization.roles/0`'s own declared order: get-or-creates a `Group`
   named after that literal (`get_or_create_group_by_name/2`), then binds it
-  via the existing, unmodified `upsert_role/4` as `kind: :platform_role`.
+  as `kind: :platform_role` (`ensure_platform_role_binding/2`). GH 2524: a name
+  that already has a `:platform_role` binding keeps it, whatever group it points
+  at (an administrator may have moved it with `rebind_role/4`); the seed never
+  moves a binding.
 
   Idempotent under re-invocation against a tenant whose `groups`/`tenant_role`
-  rows may already exist (design §2.4) — a second call converges on the same
+  rows may already exist (design §2.4) — a second call keeps the existing
   bindings rather than erroring or duplicating rows. This is what makes
   it safe to call both from the normal onboarding-creation path and from
   `Letflow.TenantOnboarding.recover_provisioning/1`.
@@ -169,10 +195,9 @@ defmodule Letflow.Identity.RoleRegistry do
   `Letflow.TenantOnboarding`'s existing no-compensating-rollback precedent);
   a retried call converges via idempotency instead.
 
-  Name-collision guard (REQ-447, design F12; widened by REQ-448): `tenant_role.name`
-  is unique across kinds and `upsert_role/4` overwrites `kind` on conflict, so
-  when a `:process_routing_role` row already holds the name `TENANT_ADMIN` or
-  `TENANT_AUDITOR` the seed returns
+  Name-collision guard (REQ-447, design F12; widened by REQ-448, then by GH 2524 to
+  every seedable name): `tenant_role.name` is unique across kinds, so when a
+  `:process_routing_role` row already holds any name the seed would bind, the seed returns
   `{:error, {:role_name_taken_by_routing_role, name}}` (the colliding name, first
   by name order) before writing anything, never silently converting the row.
   """
@@ -203,14 +228,14 @@ defmodule Letflow.Identity.RoleRegistry do
     end
   end
 
-  # REQ-447 / REQ-448: the built-in names introduced after ISS-0774 classified
-  # existing rows, so a `:process_routing_role` row may still hold them.
-  @guarded_role_names ["TENANT_ADMIN", "TENANT_AUDITOR"]
-
+  # REQ-447 / REQ-448 guarded TENANT_ADMIN and TENANT_AUDITOR here. GH 2524 widens it to
+  # every seedable name: the seed no longer moves a binding, so converting a
+  # `:process_routing_role` row with a built-in name to `:platform_role` would hand the
+  # group someone chose for it that built-in role. The seed refuses instead.
   @spec check_guarded_names_free(String.t()) ::
           :ok | {:error, {:role_name_taken_by_routing_role, String.t()}}
   defp check_guarded_names_free(prefix) do
-    names = @guarded_role_names
+    names = seedable_role_names(prefix)
 
     case Repo.all(
            from(t in TenantRole,
@@ -229,10 +254,8 @@ defmodule Letflow.Identity.RoleRegistry do
           {:ok, [TenantRole.t()]} | {:error, term()}
   defp seed_names(names, opts) do
     Enum.reduce_while(names, {:ok, []}, fn name, {:ok, acc} ->
-      with {:ok, %Group{id: group_id}} <- get_or_create_group_by_name(name, opts),
-           {:ok, %TenantRole{} = role} <- upsert_role(name, :platform_role, group_id, opts) do
-        {:cont, {:ok, [role | acc]}}
-      else
+      case ensure_platform_role_binding(name, opts) do
+        {:ok, %TenantRole{} = role} -> {:cont, {:ok, [role | acc]}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
@@ -240,6 +263,39 @@ defmodule Letflow.Identity.RoleRegistry do
       {:ok, roles} -> {:ok, Enum.reverse(roles)}
       {:error, _reason} = error -> error
     end
+  end
+
+  # GH 2524 (design 4.3): one transaction with the name's row locked, so a concurrent
+  # rebind cannot slip between the read and the write. An existing `:platform_role`
+  # binding keeps its group (an admin may have rebound it); a `:process_routing_role`
+  # row with this name fails closed (check_guarded_names_free/1 normally catches it
+  # first); no row binds the group named after the role, as before.
+  @spec ensure_platform_role_binding(String.t(), prefix: String.t()) ::
+          {:ok, TenantRole.t()} | {:error, term()}
+  defp ensure_platform_role_binding(name, opts) do
+    prefix = Keyword.fetch!(opts, :prefix)
+
+    Repo.transaction(
+      fn ->
+        case lock_role_by_name(name, prefix) do
+          %TenantRole{kind: :platform_role} = role ->
+            role
+
+          %TenantRole{kind: :process_routing_role} ->
+            Repo.rollback({:role_name_taken_by_routing_role, name})
+
+          nil ->
+            with {:ok, %Group{id: group_id}} <- get_or_create_group_by_name(name, opts),
+                 {:ok, %TenantRole{} = role} <-
+                   upsert_role(name, :platform_role, group_id, opts) do
+              role
+            else
+              {:error, reason} -> Repo.rollback(reason)
+            end
+        end
+      end,
+      prefix: prefix
+    )
   end
 
   @doc """
@@ -404,21 +460,177 @@ defmodule Letflow.Identity.RoleRegistry do
           group_id :: Ecto.UUID.t(),
           opts :: [prefix: String.t()]
         ) :: TenantRole.t()
+  # GH 2524 (design 4.1): never moves an existing binding. Must run inside a transaction
+  # (the row lock is held until it ends).
   defp insert_or_update_role(name, kind, group_id, opts) do
     prefix = Keyword.fetch!(opts, :prefix)
 
+    case lock_role_by_name(name, prefix) do
+      nil -> insert_role(name, kind, group_id, prefix)
+      %TenantRole{} = existing -> converge_existing_role(existing, kind, group_id, prefix)
+    end
+  end
+
+  # TenantRole autogenerates its id client-side, so an insert that lost a race against a
+  # concurrent insert of the same name still returns {:ok, struct} with an id that is not
+  # in the table. Re-read by name under the lock and compare ids (insert_group/2's
+  # precedent); a lost race continues with the winner's row.
+  defp insert_role(name, kind, group_id, prefix) do
     case %TenantRole{}
          |> TenantRole.changeset(%{name: name, group_id: group_id, kind: kind})
          |> Repo.insert(
            conflict_target: :name,
-           on_conflict: [set: [group_id: group_id, kind: kind]],
+           on_conflict: :nothing,
            returning: true,
            prefix: prefix
          ) do
-      {:ok, role} -> role
-      {:error, changeset} -> Repo.rollback(changeset)
+      {:ok, %TenantRole{id: inserted_id}} ->
+        case lock_role_by_name(name, prefix) do
+          %TenantRole{id: ^inserted_id} = role -> role
+          %TenantRole{} = winner -> converge_existing_role(winner, kind, group_id, prefix)
+          nil -> Repo.rollback(:unexpected_missing_role)
+        end
+
+      {:error, changeset} ->
+        Repo.rollback(changeset)
     end
   end
+
+  defp converge_existing_role(%TenantRole{group_id: bound} = role, kind, group_id, prefix) do
+    cond do
+      not same_id?(bound, group_id) ->
+        Repo.rollback(:role_already_bound)
+
+      role.kind == kind ->
+        role
+
+      true ->
+        case role |> Ecto.Changeset.change(kind: kind) |> Repo.update(prefix: prefix) do
+          {:ok, updated} -> updated
+          {:error, changeset} -> Repo.rollback(changeset)
+        end
+    end
+  end
+
+  defp lock_role_by_name(name, prefix) do
+    Repo.one(from(t in TenantRole, where: t.name == ^name, lock: "FOR UPDATE"), prefix: prefix)
+  end
+
+  # Both sides through Ecto.UUID.cast/1: canonical lower-case text compare (INV-10).
+  defp same_id?(a, b) do
+    case {Ecto.UUID.cast(a), Ecto.UUID.cast(b)} do
+      {{:ok, x}, {:ok, x}} -> true
+      _ -> false
+    end
+  end
+
+  @doc """
+  GH 2524: the explicit, audited rebind of an existing role binding to another group.
+
+  Runs in one transaction (design `gh2524-role-rebind-explicit.md` section 3, steps 3-9):
+  locks the role row by id (`{:error, :role_not_found}`); refuses the `PLATFORM_ADMIN`
+  name unless `opts[:platform_scope]` is `true` (default `false`, fail closed;
+  `{:error, :platform_admin_outside_platform_tenant}`); validates `reason` (a string,
+  trimmed, 1..500 codepoints, no `Cc`/`Cf`/`Zl`/`Zp` character; `{:error, :invalid_reason}`) and
+  `group_id` (`{:error, :invalid_group_id}`); reads the target group with `FOR SHARE`
+  (`{:error, :group_not_found}`). The same group is a no-op: `{:ok, role}`, nothing
+  written, no audit entry. Otherwise it updates `group_id` only (`name` and `kind` stay)
+  and appends one `role.rebound` audit entry in the same transaction, carrying the
+  actor, the old and new group and the trimmed reason; an audit failure rolls the
+  update back and returns `{:error, {:audit_failed, reason}}`.
+
+  `role_id` must already be canonical (the router casts it). `actor_id` may be `nil`
+  only for a non-HTTP caller.
+  """
+  @spec rebind_role(
+          role_id :: Ecto.UUID.t(),
+          group_id :: term(),
+          attrs :: %{actor_id: Ecto.UUID.t() | nil, reason: term()},
+          opts :: [prefix: String.t(), platform_scope: boolean()]
+        ) :: {:ok, TenantRole.t()} | {:error, rebind_error()}
+  def rebind_role(role_id, group_id, %{actor_id: actor_id, reason: reason}, opts) do
+    prefix = Keyword.fetch!(opts, :prefix)
+    platform_scope? = Keyword.get(opts, :platform_scope, false) == true
+
+    Repo.transaction(
+      fn ->
+        role = lock_role_by_id(role_id, prefix) || Repo.rollback(:role_not_found)
+
+        if Authorization.platform_admin_name?(role.name) and not platform_scope? do
+          Repo.rollback(:platform_admin_outside_platform_tenant)
+        end
+
+        trimmed_reason = validate_reason(reason) || Repo.rollback(:invalid_reason)
+
+        target =
+          case Ecto.UUID.cast(group_id) do
+            {:ok, canonical} -> canonical
+            :error -> Repo.rollback(:invalid_group_id)
+          end
+
+        share_lock_group(target, prefix) || Repo.rollback(:group_not_found)
+
+        if same_id?(role.group_id, target) do
+          role
+        else
+          move_role(role, target, actor_id, trimmed_reason, prefix)
+        end
+      end,
+      prefix: prefix
+    )
+  end
+
+  defp move_role(role, target, actor_id, reason, prefix) do
+    updated =
+      role
+      |> Ecto.Changeset.change(group_id: target)
+      |> Ecto.Changeset.foreign_key_constraint(:group_id)
+      |> Repo.update(prefix: prefix)
+      |> case do
+        {:ok, updated} -> updated
+        {:error, changeset} -> Repo.rollback(changeset)
+      end
+
+    attrs = %{
+      actor_id: actor_id,
+      action: "role.rebound",
+      resource_type: "tenant_role",
+      resource_id: role.id,
+      before_state: role_state(role),
+      after_state: Map.put(role_state(updated), "reason", reason),
+      trace_id: nil
+    }
+
+    case Audit.insert_entry(Repo, attrs, prefix) do
+      {:ok, _entry} -> updated
+      {:error, audit_error} -> Repo.rollback({:audit_failed, audit_error})
+    end
+  end
+
+  defp role_state(%TenantRole{} = role) do
+    %{"name" => role.name, "kind" => Atom.to_string(role.kind), "group_id" => role.group_id}
+  end
+
+  defp lock_role_by_id(role_id, prefix) do
+    Repo.one(from(t in TenantRole, where: t.id == ^role_id, lock: "FOR UPDATE"), prefix: prefix)
+  end
+
+  defp share_lock_group(group_id, prefix) do
+    Repo.one(from(g in Group, where: g.id == ^group_id, lock: "FOR SHARE"), prefix: prefix)
+  end
+
+  # nil when the reason is not acceptable; the trimmed reason otherwise.
+  defp validate_reason(reason) when is_binary(reason) do
+    trimmed = String.trim(reason)
+
+    # Codepoints, not graphemes (String.length/1 counts graphemes).
+    if String.valid?(trimmed) and length(String.codepoints(trimmed)) in 1..@max_reason_codepoints and
+         not String.match?(trimmed, @reason_forbidden_pattern) do
+      trimmed
+    end
+  end
+
+  defp validate_reason(_reason), do: nil
 
   defp validate_role_name(name) do
     cond do

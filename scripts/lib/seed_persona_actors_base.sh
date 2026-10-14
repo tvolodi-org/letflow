@@ -113,7 +113,9 @@ ensure_group() {
   echo "${group_id}"
 }
 
-# Upsert tenant_role binding (POST /roles is an upsert -- no pre-check needed).
+# Bind a tenant_role (POST /roles). A re-run with the same group is a no-op (200). GH 2524:
+# a name already bound to ANOTHER group answers 409 and is not moved; moving it is the
+# explicit, audited POST /roles/:id/rebind (TENANT_ADMIN), never this script.
 upsert_role() {
   local name="$1"
   local group_id="$2"

@@ -97,29 +97,33 @@ defmodule Letflow.Routers.IdentityRolesGuardTest do
         before = role_rows(fixture)
         assert {"TENANT_ADMIN", :platform_role, legit.id} in before
 
-        conn =
-          post_role(
-            fixture,
-            ["PROCESS_DESIGNER"],
-            body("TENANT_ADMIN", "process_routing_role", attacker)
-          )
+        # GH 2524: a different group would now be refused by upsert_role/4 anyway (409), so
+        # the same group (`legit`) is the case only the H2 guard protects.
+        for group <- [legit, attacker] do
+          conn =
+            post_role(
+              fixture,
+              ["PROCESS_DESIGNER"],
+              body("TENANT_ADMIN", "process_routing_role", group)
+            )
 
-        assert conn.status == 403, conn.resp_body
-        assert role_rows(fixture) == before
+          assert conn.status == 403, conn.resp_body
+          assert role_rows(fixture) == before
+        end
       end
     end
 
     test "CONTROL: the kind overwrite is real (a holder of :UsersGroupsRolesManage converts the binding), so the 403 above is what protects it",
          ctx do
       legit = group!(ctx.a)
-      other = group!(ctx.a)
       bind!(ctx.a, "TENANT_ADMIN", :platform_role, legit)
 
+      # GH 2524: same group (a different group is now 409 role_already_bound for everyone).
       conn =
-        post_role(ctx.a, ["TENANT_ADMIN"], body("TENANT_ADMIN", "process_routing_role", other))
+        post_role(ctx.a, ["TENANT_ADMIN"], body("TENANT_ADMIN", "process_routing_role", legit))
 
       assert conn.status == 200, conn.resp_body
-      assert {"TENANT_ADMIN", :process_routing_role, other.id} in role_rows(ctx.a)
+      assert {"TENANT_ADMIN", :process_routing_role, legit.id} in role_rows(ctx.a)
     end
 
     test "a PROCESS_DESIGNER still gets 2xx for an ordinary routing role, including names that merely contain a built-in name",
