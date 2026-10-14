@@ -91,3 +91,7 @@ These are requirement candidates listed in the 0053 appendix, not yet scheduled:
 - Anything on a tenant-data path goes through SECURITY-REVIEWER.
 - Anything that changes a decision record or a documented contract needs its own decision record and REVIEWER.
 - The sole filer files the requirements GitHub-first (work board, decision 0049).
+
+## Operational notes
+
+- **Role binding seeds (PR #2537, GH #2524, merge 1465df2a).** The platform-role seed no longer "repairs" a built-in role binding that an administrator moved with `POST /roles/:id/rebind`. Instead it keeps the existing binding. A tenant with a ROUTING row named like any built-in role now fails closed: tenant onboarding and recovery fail, and `RoleBackfill` halts for that tenant. Before running onboarding, recovery or `RoleBackfill` on an existing environment, check for routing rows that carry a built-in role name (infra is running a read-only QA inventory). Rename them through the rebind or role flow first.

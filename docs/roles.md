@@ -18,7 +18,7 @@ configuration; if that is missing, no tenant is the platform tenant (0046 D1, D2
 ## PROCESS_DESIGNER
 - Scope: tenant.
 - Who holds it: people who model processes and entities for their organisation.
-- Does: create and change definitions and entity definitions, start instances, manage custom roles.
+- Does: create and change definitions and entity definitions, start instances, create custom role bindings (`POST /roles`). Re-posting an existing role name with a different group is refused; moving a role to another group is the TENANT_ADMIN's rebind action (PR #2537).
 - Must not: cancel instances, complete tasks, manage users or tokens, read the audit log.
 
 ## PROCESS_OPERATOR
@@ -48,7 +48,7 @@ configuration; if that is missing, no tenant is the platform tenant (0046 D1, D2
 ## TENANT_ADMIN
 - Scope: tenant. The owner role of one customer organisation.
 - Who holds it: the customer's administrators (existing tenant admins are migrated here, 0046 D8).
-- Does: every tenant-scope permission in its own tenant: users, groups, role bindings, API tokens, settings, modules and solutions, audit log.
+- Does: every tenant-scope permission in its own tenant: users, groups, role bindings, API tokens, settings, modules and solutions, audit log. Only this role rebinds an existing role to another group: `POST /roles/:id/rebind` with `{group_id, reason}` (`:UsersGroupsRolesManage`). It needs a mandatory reason and writes one `role.rebound` audit entry with the old and new group. PROCESS_DESIGNER gets 403 (PR #2537, GH #2524).
 - Must not: hold any platform-scope permission, or bypass the deactivated-tenant gate.
 
 ## TENANT_AUDITOR
