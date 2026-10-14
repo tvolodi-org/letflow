@@ -451,8 +451,8 @@ defmodule Letflow.Definitions.SolutionPack do
        `ProcessDefinition.id`, `base_content` = canonicalized
        `packed.graph`), sharing this install's single `captured_at` instant
        with the `solution_pack_installs` row from step 5. Then
-       `Letflow.Entities.Definitions.create_definition/2` per packed entity
-       definition (`:inactive`-only, 0026 §2).
+       `Letflow.Entities.Definitions.create_definition/3` (with `install/4`'s
+       `owner`) per packed entity definition (`:inactive`-only, 0026 §2).
     REQ-411: step 6a (`seed_pack_specific_field_restrictions/2`) is removed.
        Answer-key field restrictions for the exam pack are now seeded by
        `Letflow.Modules.Exam.on_install/2`, called by
@@ -1339,7 +1339,7 @@ defmodule Letflow.Definitions.SolutionPack do
   # joint `%{service_catalog_entries: [], entity_definitions: []}` passing
   # clause -- i.e. requiring entity_definitions to ALSO be empty. Implemented
   # literally that would make `entity_definitions` un-installable through
-  # `install/3` forever (this clause runs before `run_install/5`, so
+  # `install/3` forever (this clause runs before `run_install/6`, so
   # `create_packed_entity_definitions/3`, §4, would be permanently
   # unreachable), directly contradicting AC1 and the design doc's own §4.
   # `entity_definitions` is a newly *supported* section (that is this whole
@@ -1536,7 +1536,7 @@ defmodule Letflow.Definitions.SolutionPack do
   (REQ-379 design §5.1), insert-if-absent.
 
   Must run inside the caller's already-open `Repo.transaction/1` (called from
-  `run_install/5`) -- this function opens no transaction of its own.
+  `run_install/6`) -- this function opens no transaction of its own.
 
   For each snapshot, in order: canonicalizes `content` (identical algorithm to
   `Letflow.Definitions.PromotionDigest.canonicalize/1` -- recursively sort map
@@ -1561,7 +1561,7 @@ defmodule Letflow.Definitions.SolutionPack do
 
   A genuine changeset error (e.g. a future value exceeding `artefact_type`'s
   or `artefact_id`'s 255-byte column limits) returns `{:error, changeset}`,
-  which `run_install/5`'s existing `with`/`else` -> `Repo.rollback/1` clause
+  which `run_install/6`'s existing `with`/`else` -> `Repo.rollback/1` clause
   turns into a full install rollback, consistent with every other step.
   """
   @spec capture_artefact_bases(
@@ -1639,7 +1639,7 @@ defmodule Letflow.Definitions.SolutionPack do
   # (0026 §2): no `Letflow.Entities.Definitions.activate_definition/4` call
   # anywhere -- `create_definition/3` already defaults every inserted row to
   # `status: :inactive`. All-or-nothing: the first failure aborts, halting
-  # this reduce and flowing into `run_install/5`'s single shared
+  # this reduce and flowing into `run_install/6`'s single shared
   # `with`/`else` -> `Repo.rollback/1` path (no new rollback path).
   defp create_packed_entity_definitions(packed_entity_definitions, actor_id, opts, owner) do
     Enum.reduce_while(packed_entity_definitions, {:ok, []}, fn packed, {:ok, acc} ->

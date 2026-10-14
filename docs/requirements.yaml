@@ -35888,7 +35888,7 @@ requirements:
       - "12. mix compile --warnings-as-errors, mix format --check-formatted, the scoped mix test over test/letflow/engine, test/letflow/scheduler*, test/letflow/definitions, test/letflow/routers/instances* and test/letflow/scripts, and mix letflow.check_boundaries pass, real output quoted"
     depends_on: [REQ-396]
   - id: REQ-496
-    title: "Core: managed_by write lock for module-managed entity types (generic record routes and definitions API refuse with a uniform 403; stamped by install, never from JSON) and the core-owned scope_node_paths security index (one in-transaction writer, ancestors/descendants reads, consistency check)"
+    title: "Core: managed_by write lock for module-managed record types (generic record routes and definitions API refuse with a uniform 403; stamped by install, never from JSON) and the core-owned scope_node_paths security index (one in-transaction writer, ancestors/descendants reads, consistency check)"
     owner: ELIXIR-DEV
     status: pending
     stage: S7

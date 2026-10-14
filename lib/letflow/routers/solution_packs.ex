@@ -544,7 +544,9 @@ defmodule Letflow.Routers.SolutionPacks do
             "theirs_artefacts and incoming_artefacts must not both be empty"
           )
         else
-          case check_update_apply_unmanaged(theirs_raw ++ incoming_raw ++ resolutions_raw, conn) do
+          all_entries = theirs_raw ++ incoming_raw ++ resolutions_raw
+
+          case check_update_apply_unmanaged(all_entries, conn) do
             :ok ->
               apply_with_actor(
                 conn,

@@ -105,7 +105,9 @@ defmodule Letflow.ScopeNodePaths.Consistency do
     }
 
     counts = Map.new(lists, fn {key, ids} -> {key, length(ids)} end)
-    capped = Map.new(lists, fn {key, ids} -> {key, ids |> Enum.sort() |> Enum.take(@list_cap)} end)
+
+    capped =
+      Map.new(lists, fn {key, ids} -> {key, ids |> Enum.sort() |> Enum.take(@list_cap)} end)
 
     Map.merge(capped, %{
       status: if(Enum.all?(Map.values(counts), &(&1 == 0)), do: :ok, else: :inconsistent),

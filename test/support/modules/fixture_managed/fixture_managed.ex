@@ -110,3 +110,31 @@ defmodule Letflow.Modules.FixtureManaged do
     )
   end
 end
+
+defmodule Letflow.Modules.FixtureManagedNoPack do
+  @moduledoc """
+  Test-only entry module (REQ-496 design §2.7, test T-19): declares a managed entity
+  type but ships NO pack, so `Letflow.Modules.Installs.install/3` must fail with
+  `{:error, {:pack_install_failed, {:managed_type_not_in_pack, "fxm_missing_type"}}}`
+  and roll back. No router, no permissions, no `on_install`. Registered only in
+  `config/test.exs`.
+  """
+
+  @behaviour Letflow.Modules.Module
+
+  import Letflow.Modules.Module, only: [defmanifest: 1]
+
+  @impl true
+  defmanifest(
+    id: "fixture_managed_no_pack",
+    version: "0.1.0",
+    depends_on: [],
+    pack: nil,
+    permissions: [],
+    role_grants: %{},
+    required_roles: [],
+    settings_schema: nil,
+    route_policies: [],
+    manages_entity_types: ["fxm_missing_type"]
+  )
+end

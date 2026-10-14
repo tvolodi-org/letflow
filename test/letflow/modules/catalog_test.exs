@@ -39,8 +39,11 @@ defmodule Letflow.Modules.CatalogTest do
       # config/test.exs's :modules list, alongside REQ-400's original
       # Fixture entry. REQ-408 prepends Letflow.Modules.Exam (the real
       # exam module). GH 2531 (decision 0052 D3/D7) appends FixtureFkPack,
-      # FixtureFkPackFailing and FixtureCtxRecorder (on_install/3 coverage), so
-      # the full list in config order is:
+      # FixtureFkPackFailing and FixtureCtxRecorder (on_install/3 coverage), and
+      # REQ-496 (GH #2530) appends FixtureManaged (the managed_by write-lock
+      # fixture declaring manages_entity_types) and FixtureManagedNoPack (a
+      # declared managed type with no pack, T-19), so the full list in config
+      # order is:
       assert Catalog.entry_modules() == [
                Letflow.Modules.Exam,
                Letflow.Modules.Fixture,
@@ -48,7 +51,9 @@ defmodule Letflow.Modules.CatalogTest do
                Letflow.Modules.FixtureFailingInstall,
                Letflow.Modules.FixtureFkPack,
                Letflow.Modules.FixtureFkPackFailing,
-               Letflow.Modules.FixtureCtxRecorder
+               Letflow.Modules.FixtureCtxRecorder,
+               Letflow.Modules.FixtureManaged,
+               Letflow.Modules.FixtureManagedNoPack
              ]
     end
 
@@ -142,6 +147,46 @@ defmodule Letflow.Modules.CatalogTest do
 
       assert Catalog.validate(manifest) ==
                {:error, {:core_permission_collision, :DefinitionsRead}}
+    end
+  end
+
+  # REQ-496 (GH #2530) design §2.3 rule 7 and §9 T-19: the optional manages_entity_types key.
+  describe "REQ-496 T-19 — manages_entity_types (rule 7)" do
+    test "accepts the key absent, an empty list, and distinct names in the managed-name format" do
+      assert Catalog.validate(valid_manifest()) == :ok
+      assert Catalog.validate(Map.put(valid_manifest(), :manages_entity_types, [])) == :ok
+
+      assert Catalog.validate(
+               Map.put(valid_manifest(), :manages_entity_types, ["org_unit", "catalog_uom"])
+             ) == :ok
+    end
+
+    test "rejects a value that is not a list" do
+      for value <- ["org_unit", :org_unit, %{"org_unit" => true}, nil] do
+        assert Catalog.validate(Map.put(valid_manifest(), :manages_entity_types, value)) ==
+                 {:error, {:invalid_manages_entity_types, value}}
+      end
+    end
+
+    test "rejects an empty string, a name outside the format, a non-string and a duplicate" do
+      for names <- [
+            [""],
+            ["Org Unit"],
+            ["org-unit"],
+            ["1org"],
+            [String.duplicate("a", 65)],
+            [:org_unit],
+            ["org_unit", "org_unit"]
+          ] do
+        assert Catalog.validate(Map.put(valid_manifest(), :manages_entity_types, names)) ==
+                 {:error, {:invalid_manages_entity_types, names}},
+               inspect(names)
+      end
+    end
+
+    test "the registered managed fixtures declare valid lists" do
+      assert Catalog.validate(Letflow.Modules.FixtureManaged.manifest()) == :ok
+      assert Catalog.validate(Letflow.Modules.FixtureManagedNoPack.manifest()) == :ok
     end
   end
 end
