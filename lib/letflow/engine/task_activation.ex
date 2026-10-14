@@ -125,6 +125,36 @@ defmodule Letflow.Engine.TaskActivation do
   end
 
   @doc """
+  Returns `instance_state` with the completing token's own
+  `{token_id, node_id}` entry removed from `pending_task_nodes` (GH #2359).
+
+  The task being completed (or escalated off) is still `:pending` when the
+  seed state is read, so its entry would otherwise sit in the diff's
+  "previous" list and mask a same-node re-entry (`A -> gateway -> A`) as
+  "unchanged". Only the exact pair is removed: sibling tokens pending at the
+  same `node_id` keep their entries, in order, and every other field is
+  untouched. Pure and total -- an absent pair returns the state unchanged.
+  """
+  @spec consume_completed_position(
+          InstanceState.t(),
+          completing_token_id :: String.t(),
+          completed_node_id :: String.t()
+        ) :: InstanceState.t()
+  def consume_completed_position(
+        %InstanceState{pending_task_nodes: pending} = instance_state,
+        completing_token_id,
+        completed_node_id
+      ) do
+    %InstanceState{
+      instance_state
+      | pending_task_nodes:
+          Enum.reject(pending, fn %Token{token_id: token_id, node_id: node_id} ->
+            token_id == completing_token_id and node_id == completed_node_id
+          end)
+    }
+  end
+
+  @doc """
   Resolves `assignee_type`/`assignee_ref` from `node.attributes`, with zero
   group/role-membership resolution (design §4.3, INV-EE47-4). `assignee_ref`
   is `node.attributes["role"]` (guaranteed present and non-empty on a

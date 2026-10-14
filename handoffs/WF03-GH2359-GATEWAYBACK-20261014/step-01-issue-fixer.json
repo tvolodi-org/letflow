@@ -1,0 +1,45 @@
+{
+  "handoff_id": "c4a7d1e0-2359-4a11-8c20-000000000001",
+  "run_id": "WF03-GH2359-GATEWAYBACK-20261014",
+  "workflow_id": "WF-03",
+  "step": "01",
+  "from_agent": "ORCH",
+  "to_agent": "ISSUE-FIXER",
+  "file": "handoffs/WF03-GH2359-GATEWAYBACK-20261014/step-01-issue-fixer.json",
+  "created_at": "2026-10-14T09:44:00Z",
+  "started_at": "2026-10-14T09:44:30Z",
+  "completed_at": "2026-10-14T09:53:00Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2359": "ISS-1035/Q-1035: a gateway that routes a token straight back to the just-completed HUMAN_TASK creates no new task row. Diagnosis only."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "lib/letflow/engine/task_activation.ex",
+      "lib/letflow/engine.ex",
+      "lib/letflow/engine/transition.ex"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF03-GH2359-GATEWAY-BACK-20261014"
+  },
+  "task": {
+    "description": "WF-03 step 1 diagnosis for GH #2359. No fix, no lib/ edits."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "DIAGNOSIS (REPRODUCED, root cause confirmed by execution). Engine defect, pre-existing, S3. Definition A(HUMAN_TASK) -> gw(EXCLUSIVE) -[variables.approved == true]-> end, gw -[default]-> A: completing A with approved=false leaves the instance :active with its token on A and ZERO pending tasks (only A's completed row); nothing can ever complete it again (only cancel_instance). CONTROL (A -> B -> gw -> A; the graph validator forces a gateway into every cycle, so a literal 'gateway -> B -> A' with B->A direct is rejected with cycle_without_gateway): completing A then B creates a new pending task for A, so the harness is valid. STEPS/OUTPUT (throwaway test/letflow/engine/gh2359_gateway_back_repro_test.exs, LETFLOW_DEV_DB_CONFIRMED=1 MIX_ENV=test mix test <file>, Postgres 5462): DIRECT: Engine.complete_task -> {:ok, %{current_nodes: [\"a\"], instance_status: :active}}; tasks: [{\"a\", :completed}]; projection {:active, [\"a\"]}; tokens [{\"a\", :active}]; 'pending A tasks after loop-back: 0'. CONTROL via_b: tasks [{\"a\",:completed},{\"b\",:completed},{\"a\",:pending}]; projection {:active,[\"a\"]}. ROOT CAUSE: not a DB constraint (tasks has only idx_task_instance and idx_task_token, no unique index: priv/repo/migrations/20260818110003_create_tasks.exs:87-88) and not an idempotency key. It is the pure set difference Letflow.Engine.TaskActivation.newly_pending_tokens/2 (lib/letflow/engine/task_activation.ex:119-125), keyed on the {token_id, node_id} pair (ISS-0057 fix, doc L91-116): a token is newly pending only if its {token_id,node_id} is absent from the PREVIOUS pending list. complete_task passes previous = seed_state.pending_task_nodes (loaded BEFORE the completion; lib/letflow/engine.ex:4793; same for timer path ~2851, ~3155, ~3729), which contains {token, A} because the task being completed is still pending at seed time. Transition.advance_off_completed_node (lib/letflow/engine/transition.ex ~L535-560) advances the token A->gw->A in memory; dispatch_human_task (transition.ex:438-439) re-appends the SAME token at node A to pending_task_nodes, so final pair {token,A} equals previous pair {token,A}; newly_pending_tokens/2 filters it out, TaskActivation.append_multi_from_existing_records (task_activation.ex:374-393) receives [] and inserts nothing. ISS-0057's pair-keyed fix handled A->B but not the same node re-entered within one hop chain. State is internally consistent but dead: old task row :completed, token record reconciled to :active at A. VALIDATOR: Graph cycle_without_gateway (lib/letflow/definitions/graph.ex:925-945) accepts A->gw->A (cycle goes through a gateway), so the definition publishes and activates cleanly. Why tests missed it: test/support/sod_support.ex rework_graph doc records the REQ-463 author observed this and routed around it (out of REQ-463 scope). SHIPPED DEFINITIONS: scanned every tracked process graph (test/fixtures/qa/*process_definition*.json x7, test/fixtures/simulation/{meridian,swiftroute,vortex}/process_*.yaml x6; priv/ holds only exam entity packs, no process graphs) for a HUMAN_TASK reachable back to itself through gateway/service/timer-only nodes: ZERO hits, none stalls (AC3 holds at this commit). Inline graphs in test/*.exs were not exhaustively enumerated; rework_graph in test/support/sod_support.ex loops via triage-review and is safe. RECOMMENDATION: option A, engine fix. Compute 'previous' for activation as the seed pending list MINUS the completing token's own {token_id,node_id} entry (strip at the complete_task call site, or pass an explicit consumed pair), so a same-pair re-entry after a completion is newly pending. Only the completing token's pair is stripped: sibling tokens still pending at the same node must not be re-inserted. BLAST RADIUS: lib/letflow/engine/task_activation.ex (newly_pending_tokens/2 and append_multi_from_existing_records/7 callers) and lib/letflow/engine.ex call sites ~4793 (complete_task chain), ~2851 (timer fired), ~3155, ~3729 (service-task and sub-process outcome); timer and service paths need the same treatment only if a loop-back can occur there. Behaviours to preserve and test: create/2 (previous=[]); parallel-split cohort semantics; idempotent re-delivery of complete_task (replay returns before activation, verify); join counters (joins mint new token ids, unaffected); escalation timers: a re-entry arms a fresh escalation timer ({:escalation_timer_armed,...}) while completion cancels the old one via cancel_pending_escalation_timers (task_activation.ex:533, scoped by instance,token_id,node_id), so ordering must not cancel the NEW timer; GH #2325 (escalation timer always cancels) is adjacent and the two should be sequenced together. distinct_from/REQ-463 (separation_of_duties.ex:127-140, DISTINCT ON node_id newest completion) needs NO change: a re-entry yields a new task row that becomes the newest completion; add a direct-loop rework+distinct_from test and flip the rework_graph doc note. Option B (new graph validator CHK rejecting gateway edge back to its own predecessor HUMAN_TASK, lib/letflow/definitions/graph.ex): cheap, breaks no shipped definition, but forbids a natural model and cannot help already-activated definitions (immutable) that would still stall; acceptable only as a complement. Option C (document only): not recommended, silent unrecoverable stall. SECURITY: INV-8 (no silent/unhandled failure on realistic paths) is the relevant invariant; INV-1/INV-6 untouched (all writes stay in existing prefix-scoped Multi steps, no new data-access path, no API change). SECURITY-REVIEWER not required for option A; REVIEWER required. MIGRATION: none (no schema change, no unique index). Severity LOW (no shipped definition affected) but silent and unrecoverable for authors. ARTIFACT: throwaway repro left UNCOMMITTED at test/letflow/engine/gh2359_gateway_back_repro_test.exs; its direct-loop test fails by design now and should pass after the fix (TEST-DESIGNER can adopt it).",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "test/letflow/engine/gh2359_gateway_back_repro_test.exs (uncommitted, throwaway)"
+    ],
+    "diagnosis_confirmed": true,
+    "implementation_written": false,
+    "classification": "ENGINE_DEFECT"
+  }
+}

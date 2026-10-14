@@ -1,0 +1,68 @@
+{
+  "handoff_id": "c4a7d1e0-2359-4a11-8c20-000000000005",
+  "run_id": "WF03-GH2359-GATEWAYBACK-20261014",
+  "workflow_id": "WF-03",
+  "step": "05",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGNER",
+  "file": "handoffs/WF03-GH2359-GATEWAYBACK-20261014/step-05-test-designer.json",
+  "created_at": "2026-10-14T10:06:16Z",
+  "started_at": "2026-10-14T10:06:16Z",
+  "completed_at": "2026-10-14T10:12:29Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2359": "ISS-1035/Q-1035: a gateway that routes a token straight back to the just-completed HUMAN_TASK creates no new task row. Diagnosis only."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "lib/letflow/design/gh2359-gateway-reentry-task-row.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF03-GH2359-GATEWAY-BACK-20261014"
+  },
+  "task": {
+    "description": "WF-03 step 5 TEST-DESIGNER for GH #2359: permanent regression suite per design section 8 with a mutation check; no lib/ edits."
+  },
+  "result": {
+    "files": [
+      "test/letflow/engine/gh2359_gateway_reentry_task_row_test.exs (new, replaces untracked throwaway repro)",
+      "test/letflow/engine/task_activation_test.exs (T-13 describe appended)",
+      "test/support/sod_support.ex (comment-only note on rework_graph)"
+    ],
+    "tests": {
+      "T-1": "direct loop A -> gw -> A creates a new pending task for A",
+      "T-2": "control A -> B -> gw -> A still creates a new A row",
+      "T-4": "create/2 still materializes exactly one row per initial HUMAN_TASK",
+      "T-5": "parallel sibling pending at same node is not re-inserted (split->gw1->a, split->gw2->a, a->gwr-default->a; join added because activation needs a matching join)",
+      "T-6": "replaying complete_task on the old row creates no duplicate",
+      "T-7": "escalation fire with default edge back to A creates a new A task",
+      "T-8": "re-entry arms a fresh escalation timer",
+      "T-9": "cancel_pending_escalation_timers does not cancel the new timer (+ ISS-0925 plain A->B guard)",
+      "T-10": "timer completion TIMER -> gw -> A still creates the A row",
+      "T-11": "A -> SUB_PROCESS(sync child) -> gw -> A creates a new A row",
+      "T-12": "distinct_from compares against the re-entered (newest) completion",
+      "T-13": "7 pure tests for consume_completed_position/3 in task_activation_test.exs",
+      "T-14": "execution_error leaves the task pending and untouched (legacy graph via stored-graph overwrite, since CHK-24 rejects a gateway without a default at create)"
+    },
+    "mutation_results": {
+      "M1_helper_returns_input": "12 failed of 51 (incl. direct loop, replay, escalation fire, fresh-timer, cancel-new-timer, parallel sibling, distinct_from, 5 pure T-13); reverted",
+      "M2_cancel_after_arm_old_order": "2 failed of 13 (fresh escalation timer, cancel does not cancel the new timer); reverted"
+    },
+    "lib_diff_sha256_before_after_mutation": "6b6c4e92f7a8218ee7e0d3a7a3b0cec3252866bc30cf0da2e2b35d228e53af7e (identical; git diff --stat lib/: 2 files, 81 insertions, 16 deletions)",
+    "runs": [
+      "51 passed seed 975374",
+      "51 passed seed 85808",
+      "51 passed seed 826417"
+    ],
+    "format_check": "mix format --check-formatted OK on test file, task_activation_test.exs, sod_support.ex",
+    "not_run": "mix letflow.check.test and 16-partition runner (per instruction)",
+    "summary": "Permanent regression suite for GH #2359 written (T-1..T-14, T-3 withdrawn); 51/51 on 3 seeds; both mutants killed (helper-identity 12/51, cancel-after-arm 2/13); lib/ restored byte-for-byte.",
+    "agent_reported_status": "READY_FOR_TEST_DESIGN_VALIDATOR"
+  }
+}

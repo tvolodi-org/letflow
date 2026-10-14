@@ -2547,6 +2547,18 @@ defmodule Letflow.Engine do
          %{
            graph: graph,
            seed_instance_state: seed_instance_state,
+           # GH #2359: the seed minus the completing token's own {token_id,
+           # node_id} entry -- the task being completed is no longer pending
+           # once this transaction commits. Used as BOTH the Transition input
+           # and the activation diff's `previous` (same value, INV-3b) so a
+           # same-node re-entry (A -> gateway -> A) gets a fresh tasks row.
+           # `seed_instance_state` stays unstripped for the error-path snapshot.
+           post_completion_seed:
+             TaskActivation.consume_completed_position(
+               seed_instance_state,
+               own_token.token_id,
+               task.node_id
+             ),
            original_active_tokens: active_token_records,
            own_token_id: own_token.token_id
          }}
@@ -2970,6 +2982,19 @@ defmodule Letflow.Engine do
         # different node -- the timer is simply consumed as a no-op.
         {:ok, :advanced}
       else
+        # GH #2359: the original task is cancelled in this same transaction, so
+        # its {token, node} entry must not mask a same-node re-entry. Replace
+        # the seed in place (no error-snapshot reader exists on this path).
+        snapshot_and_state = %{
+          snapshot_and_state
+          | seed_instance_state:
+              TaskActivation.consume_completed_position(
+                snapshot_and_state.seed_instance_state,
+                snapshot_and_state.own_token_id,
+                timer.node_id
+              )
+        }
+
         with {:ok, advanced_state, pending_events} <-
                dispatch_escalation_timer_fired_hop_chain(snapshot_and_state),
              {:ok, _changes} <-
@@ -4170,7 +4195,7 @@ defmodule Letflow.Engine do
   defp dispatch_task_completion_hop_chain(
          %{
            graph: graph,
-           seed_instance_state: %InstanceState{} = seed_state,
+           post_completion_seed: %InstanceState{} = seed_state,
            own_token_id: own_token_id,
            original_active_tokens: original_active_tokens
          },
@@ -4515,8 +4540,30 @@ defmodule Letflow.Engine do
         prepared.child_initial_state.status == :completed
       end)
 
-    normalized_changes
-    |> build_task_activation_and_reconciliation_multi(completed_at, prefix, skip_task_activation?)
+    # GH #2359: runs BEFORE the timer-arm steps below (status-guarded only on
+    # "pending"), so a same-node re-entry's freshly armed escalation timer is
+    # not cancelled along with the completed task's own.
+    Multi.new()
+    |> Multi.run(:cancel_escalation_timers, fn repo, _changes ->
+      # ISS-0925: a normally-completed HUMAN_TASK must not leave its escalation
+      # timer pending (it would fire later against whatever node the token is on).
+      TaskActivation.cancel_pending_escalation_timers(
+        repo,
+        normalized_changes.task.instance_id,
+        normalized_changes.task.token_id,
+        normalized_changes.task.node_id,
+        completed_at,
+        prefix
+      )
+    end)
+    |> Multi.append(
+      build_task_activation_and_reconciliation_multi(
+        normalized_changes,
+        completed_at,
+        prefix,
+        skip_task_activation?
+      )
+    )
     |> Multi.merge(fn changes ->
       # REQ-187 design doc §3.2 -- positioned immediately after
       # :token_reconciliation (the step that resolves real TokenRecord ids
@@ -4587,18 +4634,6 @@ defmodule Letflow.Engine do
         normalized_changes.task,
         actor_id,
         output_variables,
-        completed_at,
-        prefix
-      )
-    end)
-    |> Multi.run(:cancel_escalation_timers, fn repo, _changes ->
-      # ISS-0925: a normally-completed HUMAN_TASK must not leave its escalation
-      # timer pending (it would fire later against whatever node the token is on).
-      TaskActivation.cancel_pending_escalation_timers(
-        repo,
-        normalized_changes.task.instance_id,
-        normalized_changes.task.token_id,
-        normalized_changes.task.node_id,
         completed_at,
         prefix
       )
@@ -4750,7 +4785,7 @@ defmodule Letflow.Engine do
       task: task,
       snapshot_and_state: %{
         graph: graph,
-        seed_instance_state: seed_state,
+        post_completion_seed: seed_state,
         original_active_tokens: original_active_tokens
       },
       transition: final_instance_state
