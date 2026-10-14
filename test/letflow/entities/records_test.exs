@@ -1414,6 +1414,44 @@ defmodule Letflow.Entities.RecordsTest do
       assert gh2529_type_event_count(schema) == events_after_delete
     end
 
+    # Behaviour change pinned on purpose (records.ex delete_record/2 @doc): the
+    # append-only check runs before the already-deleted no-op, so a record
+    # deleted while the type was mutable is refused, not answered with the
+    # 200 no-op success, once the flag is active.
+    test "delete of an already-deleted record is refused once the flag is active" do
+      %{schema_name: schema} = provisioned_tenant()
+      gh2529_activate!(schema, %{})
+      {:ok, %{record: created}} = Records.create_record(create_attrs(), schema)
+
+      assert {:ok, %{record: deleted}} =
+               Records.delete_record(gh2529_delete_attrs(created.record_id), schema)
+
+      assert deleted.deleted
+
+      # Premise: while mutable, a second delete is the no-op success.
+      assert {:ok, %{record: %{deleted: true}, is_duplicate: false}} =
+               Records.delete_record(gh2529_delete_attrs(created.record_id), schema)
+
+      gh2529_activate!(schema, %{
+        append_only: true,
+        fields: [
+          %{name: "customer_name", type: :string, required: true},
+          %{name: "age", type: :integer},
+          %{name: "loyalty_tier", type: :string}
+        ]
+      })
+
+      events_before = gh2529_type_event_count(schema)
+
+      assert {:error, {:entity_append_only, "customer"}} =
+               Records.delete_record(gh2529_delete_attrs(created.record_id), schema)
+
+      stored = gh2528_latest!(schema, created.record_id)
+      assert stored.deleted
+      assert stored.last_event_global_seq == deleted.last_event_global_seq
+      assert gh2529_type_event_count(schema) == events_before
+    end
+
     test "activating a version without the flag unlocks; re-adding it locks again" do
       %{schema_name: schema} = provisioned_tenant()
       gh2529_activate!(schema, %{append_only: true})
