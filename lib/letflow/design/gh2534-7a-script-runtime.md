@@ -216,8 +216,9 @@ the watchdog [SEC nb 2]:
   (keys + scalars + punctuation) checked at every node against 64 KiB; any table id seen
   twice on the current path -> `output_invalid` (cycle); total nodes bound shared subtables
   [CDV 3];
-* strings stay binaries; no atom is ever created (named test via
-  `:erlang.system_info(:atom_count)`).
+* strings stay binaries; no atom is ever created (named test: fresh unique keys, string
+  values, nested keys and list items are not existing atoms after the run; GH 2561 replaced
+  the VM-global `atom_count` check, which code loading also moves).
 
 Author detail (dry-run only) [SEC nb 4]: an ALLOW-LIST shape: the first line of the Lua
 error message when the error value is a string, otherwise the fixed text "script error
