@@ -1366,6 +1366,12 @@ defmodule Letflow.Routers.Entities do
     %{"type" => "idempotency_key_reuse"}
   end
 
+  # GH #2583: race only (the guard already refused managed types before the
+  # body was read); constant, no detail, and not logged as an internal error.
+  defp import_reason_json(:entity_type_managed) do
+    %{"type" => "entity_type_managed"}
+  end
+
   defp import_reason_json(reason)
        when reason in [:tenant_not_provisioned, :invalid_schema_name] do
     %{"type" => Atom.to_string(reason)}
@@ -1441,6 +1447,8 @@ defmodule Letflow.Routers.Entities do
   #                                     constant body)
   #   :idempotency_key_reuse         -> 422 (idempotency-key-reuse, GH #2543;
   #                                     constant body, no original data)
+  #   :entity_type_managed           -> 403 (race only; same body as the guard,
+  #                                     GH #2583)
   #   :tenant_not_provisioned        -> 500  (unreachable, INV-1)
   #   :invalid_schema_name           -> 500  (unreachable, INV-1)
   #   any other term()               -> 500  (INV-8 catch-all, no detail)
@@ -1492,6 +1500,11 @@ defmodule Letflow.Routers.Entities do
 
   defp render_record_command(conn, {:error, :idempotency_key_reuse}, _status),
     do: Response.send_problem(conn, Error.idempotency_key_reuse())
+
+  # GH #2583: reachable only when `guard_tenant_write/3`'s read and the row
+  # `Records` resolved disagree (a race); answers the guard's constant 403.
+  defp render_record_command(conn, {:error, :entity_type_managed}, _status),
+    do: Response.send_problem(conn, Error.entity_type_managed())
 
   defp render_record_command(conn, {:error, reason}, _status)
        when reason in [:tenant_not_provisioned, :invalid_schema_name],

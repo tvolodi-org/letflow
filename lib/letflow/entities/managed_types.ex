@@ -9,15 +9,26 @@ defmodule Letflow.Entities.ManagedTypes do
   `Owner` whose `manages` set names the type, and the DB trigger keeps it
   immutable (D3).
 
-  ## Who may hold an `Owner` (design D5, §3.5)
+  ## Who may hold an `Owner` (design D5, §3.5; GH #2583 §3.4)
 
-  An `Owner` is built only by `module_owner/1`, from a Catalog entry module's
-  compiled manifest, and only `Letflow.Modules.Installs.install/3` calls it. No
-  request field, header, opts key or pack key can produce one: the HTTP routers
-  call the arities that hard-code `:tenant`. `mix letflow.check_boundaries` cannot
-  express a per-function caller allow-list, so this restriction is pinned by a
-  textual test instead (T-34): `module_owner(` appears only here and in
-  `installs.ex`, and the `Owner` struct is constructed only here.
+  An `Owner` is built only from a Catalog entry module's compiled manifest, by
+  `module_owner/1` (callers: this module and `Letflow.Modules.Installs`) or by
+  `owner_for!/1` (callers: this module, and files under an entry module's own
+  directory naming that entry module; today only
+  `test/support/modules/fixture_managed/fixture_managed.ex`). No request field,
+  header, opts key or pack key can produce one: the HTTP routers call the arities
+  that hard-code `:tenant`. An `Owner` reaches `Letflow.Entities.Records` only from
+  the caller-scan test's `@authority_callers` files. `mix letflow.check_boundaries`
+  cannot express a per-function caller allow-list, so these restrictions are
+  pinned by an AST caller-scan test instead
+  (`test/letflow/entities/managed_types_callers_test.exs`), and the `Owner` struct
+  is constructed only here.
+
+  ## Record writes (GH #2583)
+
+  `Letflow.Entities.Records` checks every create/update/delete against the
+  resolved definition's `managed_by` stamp with `check_record_write/3`; see
+  `lib/letflow/design/gh2583-records-managed-type-guard.md`.
 
   ## Name format
 
@@ -39,6 +50,7 @@ defmodule Letflow.Entities.ManagedTypes do
   import Ecto.Query
 
   alias Letflow.Entities.EntityDefinition
+  alias Letflow.Modules.Catalog
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
 
@@ -50,7 +62,8 @@ defmodule Letflow.Entities.ManagedTypes do
   defmodule Owner do
     @moduledoc """
     A module's ownership claim, built only by
-    `Letflow.Entities.ManagedTypes.module_owner/1` from a compiled manifest.
+    `Letflow.Entities.ManagedTypes.module_owner/1` (or `owner_for!/1`, which
+    delegates to it) from a compiled manifest.
     """
     @enforce_keys [:module_id, :manages]
     defstruct [:module_id, :manages]
@@ -60,10 +73,14 @@ defmodule Letflow.Entities.ManagedTypes do
 
   @type owner :: :tenant | Owner.t()
 
+  @doc "Guard: `term` is a valid write authority (`:tenant` or an `%Owner{}`)."
+  defguard is_authority(term) when term == :tenant or is_struct(term, Owner)
+
   @doc """
   Builds the `Owner` for a Catalog entry module from its compiled manifest:
   `module_id` is the manifest `:id`, `manages` its `:manages_entity_types` (absent
-  means none). Only `Letflow.Modules.Installs.install/3` may call this.
+  means none). Only `Letflow.Modules.Installs.install/3` and `owner_for!/1` may
+  call this.
   """
   @spec module_owner(entry_module :: module()) :: Owner.t()
   def module_owner(entry_module) when is_atom(entry_module) do
@@ -74,6 +91,58 @@ defmodule Letflow.Entities.ManagedTypes do
       manages: MapSet.new(Map.get(manifest, :manages_entity_types, []))
     }
   end
+
+  @doc """
+  The `Owner` a module's own code passes to `Letflow.Entities.Records` (GH #2583
+  design §3.3). `entry_module` is a compile-time atom, never request data: it must
+  be a registered `Letflow.Modules.Catalog` entry module (checked before its
+  manifest is read) whose manifest declares at least one managed entity type;
+  otherwise raises `ArgumentError`. A non-atom raises `FunctionClauseError`.
+  Returns the same struct as `module_owner/1`.
+
+  Callers outside this module: `owner_for!(__MODULE__)` inside a `defmanifest`
+  module, or `owner_for!(EntryAlias)` in a file under that entry module's own
+  directory, pinned by `test/letflow/entities/managed_types_callers_test.exs`.
+  """
+  @spec owner_for!(entry_module :: module()) :: Owner.t()
+  def owner_for!(entry_module) when is_atom(entry_module) do
+    if entry_module not in Catalog.entry_modules() do
+      raise ArgumentError,
+            "#{inspect(entry_module)} is not a registered Catalog entry module"
+    end
+
+    case Map.get(entry_module.manifest(), :manages_entity_types, []) do
+      [_ | _] ->
+        module_owner(entry_module)
+
+      _none ->
+        raise ArgumentError,
+              "#{inspect(entry_module)} declares no managed entity types"
+    end
+  end
+
+  @doc """
+  The record-write ownership check (GH #2583 design §3.2), pure, no query.
+  `managed_by` is the resolved definition row's stamp. An unmanaged type (`nil`)
+  is writable by any authority; a managed type only by an `Owner` whose
+  `module_id` equals the stamp and whose `manages` names `entity_type`. Every
+  other combination is `{:error, :entity_type_managed}`. A third argument that is
+  neither `:tenant` nor an `%Owner{}` raises `FunctionClauseError`.
+  """
+  @spec check_record_write(managed_by :: String.t() | nil, entity_type :: String.t(), owner()) ::
+          :ok | {:error, :entity_type_managed}
+  def check_record_write(nil, _entity_type, authority) when is_authority(authority), do: :ok
+
+  def check_record_write(managed_by, _entity_type, :tenant) when is_binary(managed_by),
+    do: {:error, :entity_type_managed}
+
+  def check_record_write(module_id, entity_type, %Owner{module_id: module_id, manages: manages})
+      when is_binary(module_id) do
+    if MapSet.member?(manages, entity_type), do: :ok, else: {:error, :entity_type_managed}
+  end
+
+  def check_record_write(managed_by, _entity_type, %Owner{}) when is_binary(managed_by),
+    do: {:error, :entity_type_managed}
 
   @doc "True when `name` is a binary in the managed-name format `^[a-z][a-z0-9_]{0,63}$`."
   @spec managed_name?(term()) :: boolean()
