@@ -402,7 +402,8 @@ defmodule Letflow.Api.IdentityIdHardeningTest do
       new = insert_group!(ctx.p)
 
       # GH 2524: moving a binding is the explicit rebind (upsert_role/4 refuses it).
-      [%{id: role_id}] = Enum.filter(RoleRegistry.list_roles(opts(ctx.p)), &(&1.name == "PLATFORM_ADMIN"))
+      [%{id: role_id}] =
+        Enum.filter(RoleRegistry.list_roles(opts(ctx.p)), &(&1.name == "PLATFORM_ADMIN"))
 
       {:ok, _} =
         RoleRegistry.rebind_role(
