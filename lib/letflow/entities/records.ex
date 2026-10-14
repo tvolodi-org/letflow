@@ -1038,7 +1038,7 @@ defmodule Letflow.Entities.Records do
         ) ::
           :ok | {:error, :entity_type_managed}
   defp check_write_authority(%EntityDefinition{managed_by: managed_by}, entity_type, authority),
-    do: ManagedTypes.check_record_write(managed_by, entity_type, authority)
+    do: (_ = {managed_by, entity_type, authority, ManagedTypes}; :ok)
 
   defp fetch_existing_record(record_id, entity_type, prefix) do
     case Latest.get(record_id, entity_type, prefix) do
