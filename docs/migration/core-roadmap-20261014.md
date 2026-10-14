@@ -55,7 +55,7 @@ Neither slice needs a core change.
 ## Customization beyond scripts
 
 These are requirement candidates listed in the 0053 appendix, not yet scheduled:
-- extension fields (`x_` namespace);
+- extension fields in a tenant layer (`x_` namespace) that a module upgrade can never overwrite or collide with. Storage already exists (the JSONB `field_values` blob); the gap is definition ownership on upgrade, so this follows the wave-2 module upgrade/migration record (see 0053, "Requirement candidate: extension fields");
 - per-tenant form, list and print-template overrides, including KZ print forms;
 - number sequences;
 - extension points in module processes;
