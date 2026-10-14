@@ -80,7 +80,7 @@ defmodule Letflow.Routers.ScriptPolicySodTest do
   defp policy_call(method, path, fixture, roles, body, opts \\ []),
     do: call(Letflow.Routers.ScriptPolicy, method, path, fixture, roles, body, opts)
 
-  defp rules_call(method, path, fixture, roles, body, opts \\ []),
+  defp rules_call(method, path, fixture, roles, body, opts),
     do: call(Letflow.Routers.ScriptRules, method, path, fixture, roles, body, opts)
 
   defp tenants_call(method, path, fixture, roles, body, opts \\ []),
