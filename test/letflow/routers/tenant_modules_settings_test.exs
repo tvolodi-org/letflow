@@ -57,7 +57,9 @@ defmodule Letflow.Routers.TenantModulesSettingsTest do
         TenantFixture.provisioned_tenant!(slug_prefix: "req414-ac1")
 
       actor_id = Ecto.UUID.generate()
-      {:ok, _} = Installs.install("fixture", actor_id, prefix: prefix)
+
+      {:ok, _} =
+        Installs.install("fixture", actor_id, prefix: prefix, rationale: "test: module install")
 
       conn = put_settings(tenant_id, ["TENANT_ADMIN"], "fixture", %{"greeting" => "hello"})
 
@@ -73,7 +75,9 @@ defmodule Letflow.Routers.TenantModulesSettingsTest do
         TenantFixture.provisioned_tenant!(slug_prefix: "req414-ac1-empty")
 
       actor_id = Ecto.UUID.generate()
-      {:ok, _} = Installs.install("fixture", actor_id, prefix: prefix)
+
+      {:ok, _} =
+        Installs.install("fixture", actor_id, prefix: prefix, rationale: "test: module install")
 
       conn = put_settings(tenant_id, ["TENANT_ADMIN"], "fixture", %{})
 
@@ -92,7 +96,9 @@ defmodule Letflow.Routers.TenantModulesSettingsTest do
         TenantFixture.provisioned_tenant!(slug_prefix: "req414-ac2")
 
       actor_id = Ecto.UUID.generate()
-      {:ok, _} = Installs.install("fixture", actor_id, prefix: prefix)
+
+      {:ok, _} =
+        Installs.install("fixture", actor_id, prefix: prefix, rationale: "test: module install")
 
       # Set a known-good value first
       put_settings(tenant_id, ["TENANT_ADMIN"], "fixture", %{"greeting" => "original"})
@@ -116,7 +122,9 @@ defmodule Letflow.Routers.TenantModulesSettingsTest do
         TenantFixture.provisioned_tenant!(slug_prefix: "req414-ac3")
 
       actor_id = Ecto.UUID.generate()
-      {:ok, _} = Installs.install("fixture", actor_id, prefix: prefix)
+
+      {:ok, _} =
+        Installs.install("fixture", actor_id, prefix: prefix, rationale: "test: module install")
 
       put_settings(tenant_id, ["TENANT_ADMIN"], "fixture", %{"greeting" => "original"})
 
@@ -143,7 +151,9 @@ defmodule Letflow.Routers.TenantModulesSettingsTest do
         TenantFixture.provisioned_tenant!(slug_prefix: "req414-ac4-roles")
 
       actor_id = Ecto.UUID.generate()
-      {:ok, _} = Installs.install("fixture", actor_id, prefix: prefix)
+
+      {:ok, _} =
+        Installs.install("fixture", actor_id, prefix: prefix, rationale: "test: module install")
 
       # REQ-447: TENANT_ADMIN holds :ModulesManage (tenant scope); its 200 is the next test.
       # PR 2: PLATFORM_ADMIN is NOT excluded any more: outside the platform tenant it is dropped
@@ -165,7 +175,11 @@ defmodule Letflow.Routers.TenantModulesSettingsTest do
       %{tenant_id: tenant_id, schema_name: prefix} =
         TenantFixture.provisioned_tenant!(slug_prefix: "req447-settings")
 
-      {:ok, _} = Installs.install("fixture", Ecto.UUID.generate(), prefix: prefix)
+      {:ok, _} =
+        Installs.install("fixture", Ecto.UUID.generate(),
+          prefix: prefix,
+          rationale: "test: module install"
+        )
 
       conn = put_settings(tenant_id, ["TENANT_ADMIN"], "fixture", %{"greeting" => "hi"})
       assert conn.status == 200
@@ -195,8 +209,12 @@ defmodule Letflow.Routers.TenantModulesSettingsTest do
         TenantFixture.provisioned_tenant!(slug_prefix: "req414-ac5-b")
 
       actor_id = Ecto.UUID.generate()
-      {:ok, _} = Installs.install("fixture", actor_id, prefix: prefix_a)
-      {:ok, _} = Installs.install("fixture", actor_id, prefix: prefix_b)
+
+      {:ok, _} =
+        Installs.install("fixture", actor_id, prefix: prefix_a, rationale: "test: module install")
+
+      {:ok, _} =
+        Installs.install("fixture", actor_id, prefix: prefix_b, rationale: "test: module install")
 
       # Only authenticate as tenant A — the prefix derives server-side from
       # tenant_id_a, never from anything in the body (INV-1).

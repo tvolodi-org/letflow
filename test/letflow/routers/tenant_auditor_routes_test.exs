@@ -758,7 +758,10 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
     test "through the full pipeline with a real auditor token, all 23 mounts (and the Modules router with the exam module installed)",
          ctx do
       {:ok, _tenant_module} =
-        Installs.install("exam", Ecto.UUID.generate(), prefix: ctx.a.schema_name)
+        Installs.install("exam", Ecto.UUID.generate(),
+          prefix: ctx.a.schema_name,
+          rationale: "test: module install"
+        )
 
       # The exam install registers a solution pack: GLOBAL rows with an FK onto the tenant, which
       # must go before the fixture's own teardown deletes the tenant (on_exit runs LIFO).

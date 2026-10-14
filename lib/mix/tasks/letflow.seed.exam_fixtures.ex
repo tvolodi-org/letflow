@@ -120,6 +120,13 @@ defmodule Mix.Tasks.Letflow.Seed.ExamFixtures do
 
   use Mix.Task
 
+  # Decision 0052 D3 (GH 2531): an internal, non-HTTP install caller passes a FIXED,
+  # code-reviewed rationale naming its cause (never a synthesised or user-facing default).
+  @install_rationale "seed: exam fixtures (mix letflow.seed.exam_fixtures)"
+
+  @doc false
+  def install_rationale, do: @install_rationale
+
   import Plug.Test
   import Plug.Conn
 
@@ -178,7 +185,7 @@ defmodule Mix.Tasks.Letflow.Seed.ExamFixtures do
     # REQ-410: ensure the exam module is installed for the bpm-default tenant
     # so the D5 gate in Letflow.Routers.Modules passes /modules/exam/exam-sessions
     # requests. Idempotent: already_installed is silently accepted.
-    case Installs.install("exam", candidate.id, prefix: prefix) do
+    case Installs.install("exam", candidate.id, prefix: prefix, rationale: @install_rationale) do
       {:ok, _} ->
         Mix.shell().info("exam module installed for tenant #{prefix}")
 

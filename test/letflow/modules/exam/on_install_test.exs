@@ -58,7 +58,12 @@ defmodule Letflow.Modules.Exam.OnInstallTest do
 
       # AC2: a real Installs.install/3 call -- on_install/2 is NOT called
       # directly anywhere in this test.
-      assert {:ok, tenant_module} = Installs.install("exam", actor_id, prefix: ctx.schema_name)
+      assert {:ok, tenant_module} =
+               Installs.install("exam", actor_id,
+                 prefix: ctx.schema_name,
+                 rationale: "test: module install"
+               )
+
       assert tenant_module.module_id == "exam"
 
       # Pack's entity definitions exist (created as :inactive by SolutionPack.install/3).
@@ -105,10 +110,17 @@ defmodule Letflow.Modules.Exam.OnInstallTest do
       ctx = tenant_ctx()
       actor_id = Ecto.UUID.generate()
 
-      assert {:ok, _} = Installs.install("exam", actor_id, prefix: ctx.schema_name)
+      assert {:ok, _} =
+               Installs.install("exam", actor_id,
+                 prefix: ctx.schema_name,
+                 rationale: "test: module install"
+               )
 
       assert {:error, :already_installed} =
-               Installs.install("exam", actor_id, prefix: ctx.schema_name)
+               Installs.install("exam", actor_id,
+                 prefix: ctx.schema_name,
+                 rationale: "test: module install"
+               )
     end
   end
 end

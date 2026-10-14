@@ -99,7 +99,10 @@ defmodule Letflow.Routers.ModulesTest do
 
   defp install_fixture!(ctx) do
     {:ok, _tenant_module} =
-      Installs.install("fixture", Ecto.UUID.generate(), prefix: ctx.schema_name)
+      Installs.install("fixture", Ecto.UUID.generate(),
+        prefix: ctx.schema_name,
+        rationale: "test: module install"
+      )
 
     ctx
   end

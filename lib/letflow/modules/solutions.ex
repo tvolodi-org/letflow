@@ -131,6 +131,8 @@ defmodule Letflow.Modules.Solutions do
   If any step fails, the entire transaction is rolled back.
 
   Error returns:
+  - `{:error, :rationale_required}` — `opts[:rationale]` missing, non-string or blank
+    (decision 0052 D3); nothing is read or written.
   - `{:error, :not_found}` — solution file absent or id fails validation.
   - `{:error, {:unknown_module, id}}` — solution references an unregistered module.
   - `{:error, {:version_mismatch, id, expected, given}}` — solution's version
@@ -147,7 +149,10 @@ defmodule Letflow.Modules.Solutions do
   @spec install(String.t(), term(), keyword()) ::
           {:ok, [Letflow.Modules.TenantModule.t()]} | {:error, term()}
   def install(solution_id, actor_id, opts \\ []) do
-    with {:ok, solution} <- load(solution_id) do
+    # Decision 0052 D3: one installer-supplied rationale, checked before anything is
+    # read or written, then passed unchanged (in `opts`) to every Installs.install/3.
+    with {:ok, _rationale} <- Installs.fetch_rationale(opts),
+         {:ok, solution} <- load(solution_id) do
       prefix = Keyword.fetch!(opts, :prefix)
 
       Repo.transaction(fn ->

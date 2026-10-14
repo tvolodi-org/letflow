@@ -186,7 +186,10 @@ defmodule Letflow.Modules.BilimbagaSolutionE2ETest do
       admin_ctx = user_ctx(schema_name, slug, ["TENANT_ADMIN"], "admin")
 
       install_conn =
-        request(:post, "/api/v1/tenant/solutions", admin_ctx, %{"solution_id" => "bilimbaga"})
+        request(:post, "/api/v1/tenant/solutions", admin_ctx, %{
+          "solution_id" => "bilimbaga",
+          "rationale" => "test: bilimbaga e2e install"
+        })
 
       assert install_conn.status == 201,
              "expected 201 from POST /tenant/solutions, got #{install_conn.status}: #{install_conn.resp_body}"

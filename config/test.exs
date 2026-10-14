@@ -284,7 +284,12 @@ config :letflow, :modules, [
   Letflow.Modules.Exam,
   Letflow.Modules.Fixture,
   Letflow.Modules.FixtureDependent,
-  Letflow.Modules.FixtureFailingInstall
+  Letflow.Modules.FixtureFailingInstall,
+  # GH 2531 / decision 0052 D2, D3, D7: on_install/3 activates and promotes a
+  # two-entity FK pack (test/support/modules/fixture_fk_pack/).
+  Letflow.Modules.FixtureFkPack,
+  Letflow.Modules.FixtureFkPackFailing,
+  Letflow.Modules.FixtureCtxRecorder
 ]
 
 # REQ-439: explicit test default -- no proxy is trusted, so Letflow.Plugs.ClientIp
