@@ -17,12 +17,14 @@ defmodule Letflow.Routers.ScriptRulesTest do
 
   import Ecto.Query
 
+  alias Letflow.Admission
   alias Letflow.Audit.Entry
   alias Letflow.Scripts.ScriptRule
   alias Letflow.Support.PlatformTenantFixture, as: Fixture
 
   @admin ["TENANT_ADMIN"]
   @designer ["PROCESS_DESIGNER"]
+  @script_admission Letflow.Engine.Lua.ScriptAdmission
 
   @manifest %{
     "input_schema" => %{"type" => "object", "properties" => %{"x" => %{"type" => "integer"}}},
@@ -186,6 +188,34 @@ defmodule Letflow.Routers.ScriptRulesTest do
       conn = call(:post, "/#{k}/versions", ctx.a, @designer, body(%{"test_cases" => []}))
       assert conn.status == 422
       assert detail(conn) == "invalid_test_case"
+
+      # a missing field answers the code of that field
+      for {field, code} <- [
+            {"source", "invalid_source"},
+            {"hook_kind", "invalid_hook_kind"},
+            {"test_cases", "invalid_test_case"},
+            {"manifest", "invalid_manifest"}
+          ] do
+        conn = call(:post, "/#{k}/versions", ctx.a, @designer, Map.delete(body(), field))
+        assert {conn.status, detail(conn)} == {422, code}, field
+      end
+    end
+
+    test "two concurrent creates of one key get versions 1 and 2", ctx do
+      k = key()
+
+      versions =
+        1..2
+        |> Enum.map(fn _ ->
+          Task.async(fn -> call(:post, "/#{k}/versions", ctx.a, @designer, body()) end)
+        end)
+        |> Enum.map(&Task.await(&1, 15_000))
+        |> Enum.map(fn conn ->
+          assert conn.status == 201, conn.resp_body
+          json(conn)["version"]
+        end)
+
+      assert Enum.sort(versions) == [1, 2]
     end
   end
 
@@ -198,14 +228,24 @@ defmodule Letflow.Routers.ScriptRulesTest do
       v1 = create!(ctx.a, k, Ecto.UUID.generate())
       token = [credential: :api_token]
 
-      assert detail(call(:post, "/#{k}/versions", ctx.a, @designer, body(), token)) ==
-               "api_token_not_allowed"
+      # retire / revoke need a published version to be meaningful
+      k2 = key()
+      v2 = create!(ctx.a, k2, Ecto.UUID.generate())
+      assert publish(ctx.a, k2, 1, v2["sha256"], Ecto.UUID.generate()).status == 200
 
-      assert detail(call(:put, "/#{k}/versions/1", ctx.a, @designer, body(), token)) ==
-               "api_token_not_allowed"
+      for {method, path, roles, payload} <- [
+            {:post, "/#{k}/versions", @designer, body()},
+            {:put, "/#{k}/versions/1", @designer, body()},
+            {:delete, "/#{k}/versions/1", @designer, nil},
+            {:post, "/#{k2}/versions/1/retire", @admin, %{"reason" => "r"}},
+            {:post, "/#{k2}/versions/1/revoke", @admin, %{"reason" => "r"}}
+          ] do
+        conn = call(method, path, ctx.a, roles, payload, token)
+        assert {conn.status, detail(conn)} == {403, "api_token_not_allowed"}, path
+      end
 
-      assert detail(call(:delete, "/#{k}/versions/1", ctx.a, @designer, nil, token)) ==
-               "api_token_not_allowed"
+      assert row(ctx.a, k, 1).status == "draft"
+      assert row(ctx.a, k2, 1).status == "published"
 
       # a token minted for a user who is NOT a contributor still cannot publish
       conn = publish(ctx.a, k, 1, v1["sha256"], Ecto.UUID.generate(), token)
@@ -282,7 +322,7 @@ defmodule Letflow.Routers.ScriptRulesTest do
     test "a stale sha256 is 409 content_changed; a failing stored test is 422 test_case_failed",
          ctx do
       k = key()
-      v1 = create!(ctx.a, k, Ecto.UUID.generate())
+      create!(ctx.a, k, Ecto.UUID.generate())
 
       conn = publish(ctx.a, k, 1, String.duplicate("0", 64), Ecto.UUID.generate())
       assert conn.status == 409
@@ -299,9 +339,25 @@ defmodule Letflow.Routers.ScriptRulesTest do
 
       conn = publish(ctx.a, k2, 1, json(conn)["sha256"], Ecto.UUID.generate())
       assert conn.status == 422
+      assert detail(conn) == "test_case_failed"
       assert json(conn)["case"] == "wrong"
       assert row(ctx.a, k2, 1).status == "draft"
-      assert v1["status"] == "draft"
+      assert row(ctx.a, k, 1).status == "draft"
+    end
+
+    test "no free script slot while the stored tests run is 503 script_busy, not a test failure",
+         ctx do
+      k = key()
+      v1 = create!(ctx.a, k, Ecto.UUID.generate())
+      holder = hold_all_script_slots!(ctx.a.schema_name)
+
+      try do
+        conn = publish(ctx.a, k, 1, v1["sha256"], Ecto.UUID.generate())
+        assert {conn.status, detail(conn)} == {503, "script_busy"}
+        assert row(ctx.a, k, 1).status == "draft"
+      after
+        release_script_slots!(holder, ctx.a.schema_name)
+      end
     end
 
     test "a process designer cannot publish (authorization)", ctx do
@@ -314,53 +370,87 @@ defmodule Letflow.Routers.ScriptRulesTest do
       assert conn.status == 403
     end
 
-    test "published, retired and revoked rows are immutable at the DB level (raw writes refused, LF001)",
+    test "published, retired, revoked and discarded rows are immutable at the DB level (raw writes refused, LF001)",
          ctx do
-      k = key()
-      v1 = create!(ctx.a, k, Ecto.UUID.generate())
-      assert publish(ctx.a, k, 1, v1["sha256"], Ecto.UUID.generate()).status == 200
-      schema = ctx.a.schema_name
+      published = key()
+      retired = key()
+      revoked = key()
+      discarded = key()
 
-      for update <- [
+      for k <- [published, retired, revoked] do
+        v1 = create!(ctx.a, k, Ecto.UUID.generate())
+        assert publish(ctx.a, k, 1, v1["sha256"], Ecto.UUID.generate()).status == 200
+      end
+
+      assert call(:post, "/#{retired}/versions/1/retire", ctx.a, @admin, %{"reason" => "r"}).status ==
+               200
+
+      assert call(:post, "/#{revoked}/versions/1/revoke", ctx.a, @admin, %{"reason" => "r"}).status ==
+               200
+
+      create!(ctx.a, discarded, Ecto.UUID.generate())
+      assert call(:delete, "/#{discarded}/versions/1", ctx.a, @designer, nil).status == 204
+
+      for {k, status} <- [
+            {published, "published"},
+            {retired, "retired"},
+            {revoked, "revoked"},
+            {discarded, "discarded"}
+          ],
+          update <- [
             [source: "return {}"],
             [contributors: []],
             [status: "draft"],
-            [published_at: nil]
+            [published_at: nil],
+            [discarded_at: nil]
           ] do
-        error =
-          assert_raise Postgrex.Error, fn ->
-            Repo.update_all(from(r in ScriptRule, where: r.key == ^k), [set: update],
-              prefix: schema
-            )
-          end
+        assert_lf001(fn ->
+          Repo.update_all(from(r in ScriptRule, where: r.key == ^k), [set: update],
+            prefix: ctx.a.schema_name
+          )
+        end)
 
-        assert error.postgres.pg_code == "LF001", inspect(update)
+        assert row(ctx.a, k, 1).status == status, "#{status} #{inspect(update)}"
       end
 
-      error =
-        assert_raise Postgrex.Error, fn ->
-          Repo.delete_all(from(r in ScriptRule, where: r.key == ^k), prefix: schema)
-        end
-
-      assert error.postgres.pg_code == "LF001"
+      for k <- [published, retired, revoked, discarded] do
+        assert_lf001(fn ->
+          Repo.delete_all(from(r in ScriptRule, where: r.key == ^k), prefix: ctx.a.schema_name)
+        end)
+      end
     end
 
-    test "the trigger itself refuses draft -> published with the publisher among the contributors",
+    test "the trigger refuses draft -> published with the publisher among the contributors, or without a publisher or timestamp",
          ctx do
       k = key()
       author = Ecto.UUID.generate()
       create!(ctx.a, k, author)
 
-      error =
-        assert_raise Postgrex.Error, fn ->
-          Repo.update_all(
-            from(r in ScriptRule, where: r.key == ^k),
-            [set: [status: "published", publisher_id: author, published_at: DateTime.utc_now()]],
+      for set <- [
+            [status: "published", publisher_id: author, published_at: DateTime.utc_now()],
+            [status: "published", publisher_id: nil, published_at: DateTime.utc_now()],
+            [status: "published", publisher_id: Ecto.UUID.generate(), published_at: nil]
+          ] do
+        assert_lf001(fn ->
+          Repo.update_all(from(r in ScriptRule, where: r.key == ^k), [set: set],
             prefix: ctx.a.schema_name
           )
-        end
+        end)
+      end
 
-      assert error.postgres.pg_code == "LF001"
+      assert row(ctx.a, k, 1).status == "draft"
+    end
+
+    test "a NULL contributor is refused by the table constraint", ctx do
+      k = key()
+      create!(ctx.a, k, Ecto.UUID.generate())
+
+      assert_raise Postgrex.Error, ~r/script_rules_contributors_no_null/, fn ->
+        Repo.query!(
+          ~s(UPDATE "#{ctx.a.schema_name}".script_rules SET contributors = contributors || NULL::uuid WHERE key = $1),
+          [k]
+        )
+      end
     end
   end
 
@@ -417,38 +507,89 @@ defmodule Letflow.Routers.ScriptRulesTest do
       assert full["source"] == @source
     end
 
-    test "another tenant's key, an unknown version and a malformed version all give the same plain 404",
+    test "the list pages by (key, version) and follows the cursor; a bad cursor is 422", ctx do
+      [k1, k2] = Enum.sort([key(), key()])
+      create!(ctx.a, k1, Ecto.UUID.generate())
+      create!(ctx.a, k1, Ecto.UUID.generate())
+      create!(ctx.a, k2, Ecto.UUID.generate())
+
+      first = json(call(:get, "/?page_size=2", ctx.a, @designer, nil))
+      assert Enum.map(first["items"], &{&1["key"], &1["version"]}) == [{k1, 1}, {k1, 2}]
+      assert is_binary(first["next_cursor"])
+
+      second =
+        json(call(:get, "/?page_size=2&cursor=#{first["next_cursor"]}", ctx.a, @designer, nil))
+
+      assert Enum.map(second["items"], &{&1["key"], &1["version"]}) == [{k2, 1}]
+      assert second["next_cursor"] == nil
+
+      huge = Base.url_encode64("script-rules:#{k1}\n3000000000", padding: false)
+
+      for cursor <- ["not-a-cursor", huge] do
+        assert call(:get, "/?cursor=#{cursor}", ctx.a, @designer, nil).status == 422, cursor
+      end
+    end
+
+    test "another tenant's key, an unknown key or version, a malformed or out-of-range version and a discarded version all give the same plain 404",
          ctx do
       k = key()
       create!(ctx.a, k, Ecto.UUID.generate())
+      gone = key()
+      create!(ctx.a, gone, Ecto.UUID.generate())
+      assert call(:delete, "/#{gone}/versions/1", ctx.a, @designer, nil).status == 204
 
       responses =
-        for path <- ["/#{k}/versions/1", "/#{k}/versions/99", "/#{k}/versions/abc"] do
-          fixture = if path == "/#{k}/versions/1", do: ctx.b, else: ctx.a
+        for {fixture, path} <- [
+              {ctx.b, "/#{k}/versions/1"},
+              {ctx.a, "/#{k}/versions/99"},
+              {ctx.a, "/#{k}/versions/abc"},
+              {ctx.a, "/#{k}/versions/3000000000"},
+              {ctx.a, "/#{key()}/versions/1"},
+              {ctx.a, "/#{gone}/versions/1"}
+            ] do
           conn = call(:get, path, fixture, @designer, nil)
           {conn.status, conn.resp_body}
         end
 
-      assert [{404, same}, {404, same}, {404, same}] = responses
+      [{404, same} | _] = responses
+      assert Enum.all?(responses, &(&1 == {404, same})), inspect(responses)
 
-      conn = call(:post, "/#{k}/dry-run", ctx.a, @designer, %{"version" => "abc", "input" => %{}})
-      assert {conn.status, conn.resp_body} == {404, same}
+      # the same body on the write and dry-run routes (body version too)
+      for {method, path, roles, payload} <- [
+            {:post, "/#{k}/dry-run", @designer, %{"version" => "abc", "input" => %{}}},
+            {:post, "/#{k}/dry-run", @designer, %{"version" => 3_000_000_000, "input" => %{}}},
+            {:post, "/#{gone}/dry-run", @designer, %{"version" => 1, "input" => %{"x" => 1}}},
+            {:put, "/#{gone}/versions/1", @designer, body()},
+            {:delete, "/#{gone}/versions/1", @designer, nil},
+            {:post, "/#{gone}/versions/1/retire", @admin, %{"reason" => "r"}},
+            {:post, "/#{gone}/versions/1/revoke", @admin, %{"reason" => "r"}}
+          ] do
+        conn = call(method, path, ctx.a, roles, payload)
+        assert {conn.status, conn.resp_body} == {404, same}, "#{method} #{path}"
+      end
     end
 
     test "the auditor and the other non-script roles get 403 on every route", ctx do
       k = key()
-      create!(ctx.a, k, Ecto.UUID.generate())
+      v1 = create!(ctx.a, k, Ecto.UUID.generate())
 
       for roles <- [["TENANT_AUDITOR"], ["PROCESS_OPERATOR"], ["TASK_WORKER"]],
           {method, path, payload} <- [
             {:get, "/", nil},
             {:get, "/#{k}/versions/1", nil},
             {:post, "/#{k}/versions", body()},
+            {:put, "/#{k}/versions/1", body()},
+            {:delete, "/#{k}/versions/1", nil},
+            {:post, "/#{k}/versions/1/publish", %{"sha256" => v1["sha256"]}},
+            {:post, "/#{k}/versions/1/retire", %{"reason" => "r"}},
+            {:post, "/#{k}/versions/1/revoke", %{"reason" => "r"}},
             {:post, "/#{k}/dry-run", %{"version" => 1, "input" => %{"x" => 1}}}
           ] do
         assert call(method, path, ctx.a, roles, payload).status == 403,
-               "#{inspect(roles)} #{path}"
+               "#{inspect(roles)} #{method} #{path}"
       end
+
+      assert row(ctx.a, k, 1).status == "draft"
     end
   end
 
@@ -483,6 +624,7 @@ defmodule Letflow.Routers.ScriptRulesTest do
 
       assert failed["outcome"] == "script_failed"
       assert failed["fail"]["code"] == "too_big"
+      assert failed["author"]["prints"] == ["seen 50"]
 
       conn =
         call(:post, "/#{k}/dry-run", ctx.a, @designer, %{
@@ -502,5 +644,83 @@ defmodule Letflow.Routers.ScriptRulesTest do
       refute Enum.any?(entries, &(inspect(&1.after_state) =~ "seen"))
       assert row(ctx.a, k, 1).status == "draft"
     end
+
+    test "writes no event or entity record; a revoked version can still be dry-run", ctx do
+      k = key()
+      v1 = create!(ctx.a, k, Ecto.UUID.generate())
+      assert publish(ctx.a, k, 1, v1["sha256"], Ecto.UUID.generate()).status == 200
+
+      assert call(:post, "/#{k}/versions/1/revoke", ctx.a, @admin, %{"reason" => "r"}).status ==
+               200
+
+      before = data_row_counts(ctx.a.schema_name)
+
+      conn =
+        call(:post, "/#{k}/dry-run", ctx.a, @designer, %{"version" => 1, "input" => %{"x" => 4}})
+
+      assert conn.status == 200, conn.resp_body
+      assert json(conn)["output"] == %{"y" => 8}
+
+      assert data_row_counts(ctx.a.schema_name) == before
+      assert row(ctx.a, k, 1).status == "revoked"
+    end
+  end
+
+  # ── fixtures ───────────────────────────────────────────────────────────────
+
+  defp assert_lf001(fun) do
+    error = assert_raise Postgrex.Error, fun
+    assert error.postgres.pg_code == "LF001"
+  end
+
+  defp data_row_counts(schema) do
+    for table <- ["events", "entity_record_latest", "instance_projections"] do
+      %{rows: [[count]]} = Repo.query!(~s[SELECT count(*) FROM "#{schema}"."#{table}"])
+      {table, count}
+    end
+  end
+
+  # Takes every script-admission slot this tenant can get (per-tenant or global cap,
+  # whichever is hit first) from a holder process; `release_script_slots!/2` kills it and
+  # waits until ScriptAdmission's caller monitor has freed the slots.
+  defp hold_all_script_slots!(schema) do
+    test_pid = self()
+
+    holder =
+      spawn(fn ->
+        held =
+          Enum.reduce_while(1..1_000, 0, fn _, n ->
+            case Admission.try_acquire({:tenant, schema}, @script_admission) do
+              {:ok, _ref} -> {:cont, n + 1}
+              _ -> {:halt, n}
+            end
+          end)
+
+        send(test_pid, {:holding, held})
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive {:holding, held}, 5_000
+    assert held > 0
+    holder
+  end
+
+  defp release_script_slots!(holder, schema) do
+    Process.exit(holder, :kill)
+
+    freed =
+      Enum.reduce_while(1..100, false, fn _, _ ->
+        case Admission.try_acquire({:tenant, schema}, @script_admission) do
+          {:ok, ref} ->
+            Admission.release(ref, @script_admission)
+            {:halt, true}
+
+          _ ->
+            Process.sleep(20)
+            {:cont, false}
+        end
+      end)
+
+    assert freed
   end
 end

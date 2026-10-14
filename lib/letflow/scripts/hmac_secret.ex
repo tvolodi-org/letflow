@@ -20,10 +20,6 @@ defmodule Letflow.Scripts.HmacSecret do
   @name "script-input-hmac"
   @created_by "system:provisioning"
 
-  @doc "The secret's name segments (for 7c and the tests)."
-  @spec namespace_and_name() :: {String.t(), String.t()}
-  def namespace_and_name, do: {@namespace, @name}
-
   @doc """
   Creates the tenant's HMAC key if it has no active one. Idempotent and safe under
   concurrency (a per-tenant advisory lock; existence is checked by tenant id, never by the

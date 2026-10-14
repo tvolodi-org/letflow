@@ -76,6 +76,13 @@ defmodule Letflow.Repo.Migrations.CreateScriptRules do
                prefix: schema
              )
 
+      # A NULL contributor would make the trigger's `publisher_id = ANY(contributors)` NULL,
+      # silently passing the separation-of-duties check.
+      create constraint(:script_rules, :script_rules_contributors_no_null,
+               check: "array_position(contributors, NULL) IS NULL",
+               prefix: schema
+             )
+
       execute(
         """
         CREATE OR REPLACE FUNCTION "#{schema}".script_rules_guard() RETURNS trigger AS $$

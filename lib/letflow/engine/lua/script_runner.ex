@@ -23,7 +23,8 @@ defmodule Letflow.Engine.Lua.ScriptRunner do
 
   ## Outcomes (0053 D7, the eight stable codes)
 
-  `{:ok, %{output, stats}}` or `{:error, code, detail}`, `code` one of `:script_error`,
+  `{:ok, %{output, stats}}` (plus `:author` when `author_detail: true`, GH 2534 7b-1) or
+  `{:error, code, detail}`, `code` one of `:script_error`,
   `:budget_exceeded`, `:memory_limit_exceeded`, `:output_invalid`, `:timeout`,
   `:script_failed`, `:script_rejected` (never produced here; 7b/7c), `:script_busy`.
   `detail` is `%{}`, or `%{fail: %{code, details}}` for `:script_failed`, plus `:author`
@@ -93,7 +94,13 @@ defmodule Letflow.Engine.Lua.ScriptRunner do
   before anything runs. Nothing the SCRIPT does makes `run/3` raise.
   """
   @spec run(String.t(), map(), keyword()) ::
-          {:ok, %{output: map() | list(), stats: stats()}} | {:error, code(), map()}
+          {:ok,
+           %{
+             required(:output) => map() | list(),
+             required(:stats) => stats(),
+             optional(:author) => map()
+           }}
+          | {:error, code(), map()}
   def run(source, input, opts) do
     source |> config!(input, opts) |> run_config()
   end

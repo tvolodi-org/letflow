@@ -14,8 +14,6 @@ defmodule Letflow.Scripts.ScriptRule do
   @primary_key {:id, :binary_id, autogenerate: true}
   @timestamps_opts [type: :utc_datetime_usec]
 
-  @statuses ~w(draft discarded published retired revoked)
-
   schema "script_rules" do
     field(:key, :string)
     field(:version, :integer)
@@ -37,8 +35,4 @@ defmodule Letflow.Scripts.ScriptRule do
   end
 
   @type t :: %__MODULE__{}
-
-  @doc "The statuses of the status machine."
-  @spec statuses() :: [String.t()]
-  def statuses, do: @statuses
 end

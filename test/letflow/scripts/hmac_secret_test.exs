@@ -89,8 +89,13 @@ defmodule Letflow.Scripts.HmacSecretTest do
   end
 
   test "only Letflow.Scripts.HmacSecret passes platform: true (source scan)" do
+    sources = Path.wildcard("lib/**/*.ex")
+    # guard against a vacuous scan (wrong working directory)
+    assert "lib/letflow/scripts/hmac_secret.ex" in sources
+    assert File.read!("lib/letflow/scripts/hmac_secret.ex") =~ ~r/platform:\s*true/
+
     offenders =
-      Path.wildcard("lib/**/*.ex")
+      sources
       |> Enum.reject(&String.ends_with?(&1, "lib/letflow/scripts/hmac_secret.ex"))
       |> Enum.filter(fn path ->
         path

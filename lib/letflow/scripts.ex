@@ -22,6 +22,7 @@ defmodule Letflow.Scripts do
 
   @hook_kinds ["service_task"]
   @test_budget_ms 30_000
+  @max_version 2_147_483_647
   @zero_instance "00000000-0000-0000-0000-000000000000"
 
   @type actor :: %{required(:user_id) => Ecto.UUID.t(), required(:credential) => atom()}
@@ -43,6 +44,8 @@ defmodule Letflow.Scripts do
           | :reads_not_allowed
           | :invalid_input
           | :invalid_reason
+          | :audit_failed
+          | {:audit_failed, term()}
 
   # ── reads ──────────────────────────────────────────────────────────────────
 
@@ -489,13 +492,27 @@ defmodule Letflow.Scripts do
     end
   end
 
+  # A missing field gets the code of that field.
+  defp content(body) when is_map(body) do
+    cond do
+      not Map.has_key?(body, "hook_kind") -> {:error, :invalid_hook_kind}
+      not Map.has_key?(body, "source") -> {:error, :invalid_source}
+      not Map.has_key?(body, "test_cases") -> {:error, :invalid_test_case}
+      true -> {:error, :invalid_manifest}
+    end
+  end
+
   defp content(_body), do: {:error, :invalid_manifest}
 
-  defp parse_version(version) when is_integer(version) and version > 0, do: {:ok, version}
+  # `version` is an int4 column: anything outside 1..2^31-1 is an unknown version (404), never
+  # a driver error.
+  defp parse_version(version)
+       when is_integer(version) and version > 0 and version <= @max_version,
+       do: {:ok, version}
 
   defp parse_version(version) when is_binary(version) do
     case Integer.parse(version) do
-      {n, ""} when n > 0 and n < 2_147_483_648 -> {:ok, n}
+      {n, ""} -> parse_version(n)
       _ -> {:error, :not_found}
     end
   end
@@ -518,8 +535,9 @@ defmodule Letflow.Scripts do
     query =
       from(r in ScriptRule, where: r.key == ^key and r.version == ^version, lock: "FOR UPDATE")
 
+    # A discarded version answers 404 on every route, like the reads (INV-5 consistency).
     case Validation.key?(key) && Repo.one(query, prefix: prefix) do
-      %ScriptRule{} = rule -> rule
+      %ScriptRule{status: status} = rule when status != "discarded" -> rule
       _ -> Repo.rollback(:not_found)
     end
   end
