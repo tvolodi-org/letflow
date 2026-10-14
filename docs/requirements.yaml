@@ -35759,3 +35759,131 @@ requirements:
       - "SECURITY-REVIEWER verdict recorded (mandatory: authorization-adjacent change to who may act in a gated release path); it confirms the 403 body is constant and leaks no node id or user id"
       - "mix compile --warnings-as-errors, mix format --check-formatted, scoped mix test over the vortex definition, engine and script tests named above, test/letflow/scripts/vortex_roster_ceo_test.exs, test/letflow/definitions/req462_shipped_required_outputs_adoption_test.exs and test/letflow/definitions/required_outputs_shipped_definitions_test.exs, and mix letflow.check_boundaries pass, real output quoted"
     depends_on: [REQ-466]
+
+  - id: REQ-494
+    title: "Engine: opt-in non-cancelling HUMAN_TASK reminder timer (reminder_timer_duration + reminder_role, optional repeat), audit-only on fire (TIMER_FIRED reminder + task.remind), cancelled on completion/escalation, CHK-28 validator, advance-timer ambiguity code"
+    owner: ELIXIR-DEV
+    status: done
+    stage: S7
+    gh: 2325
+    # Source: GH #2325 (legacy title ISS-1035, queue Q-1017), AC1 and AC2; diagnosis handoffs/WF03-GH2325-REMINDER-20261014/step-01-issue-fixer.json (hazards h1-h4). Scope (audit-only, opt-in) set by the supervisor 2026-10-14. Queue service stopped; the queue row is written back later by ORCH, not here.
+    description: >
+      Source: GH #2325. A HUMAN_TASK escalation timer always cancels the task
+      (engine.ex:3105-3158, transition.ex:699-718), so a long-running task can
+      only carry an E6 "Waiver:" description
+      (test/fixtures/qa/vortex_8d_corrective_action_definition.json:16,
+      docs/issues/ISS-1002.yaml:52-65). This entry adds an opt-in reminder
+      that records that a task is overdue and changes nothing else.
+
+      FACTS (read on the branch, cut from main incl. 05a0dfeb1 / GH #2359):
+      - "reminder" is already in Timer @timer_types (scheduler/timer.ex:48);
+        timers.timer_type is a plain string with no DB check
+        (20260829020001_create_timers.exs:26-29) => NO migration.
+      - Recurrence exists: repeat_expression / repeat_interval_us /
+        repeat_total / fired_count, Scheduler.maybe_rearm_timer/3
+        (scheduler.ex:445-486); repeat_total is the total number of fires.
+      - Scheduler.do_fire/2 appends TIMER_FIRED for every type
+        (scheduler.ex:373-393), routes "escalation" to
+        advance_after_escalation_timer_fired and every other type to
+        advance_after_timer_fired (:311-317), then re-arms unconditionally
+        (:323). h1: a "reminder" row today would fail with
+        {:token_not_at_timer, ...} and go to the DLQ. h2: a stale recurring
+        reminder would re-arm forever.
+      - Complete-task Multi cancels escalation timers BEFORE the arm steps so
+        a re-entered task keeps its fresh timer (engine.ex:4543-4558,
+        task_activation.ex:555-577; GH #2359).
+      - Escalation fire cancels the task but no other timer (h4,
+        engine.ex:3116-3133). Instance completion/cancel cancels every pending
+        timer, untyped (engine.ex:2045-2052, 5768-5774).
+      - POST /instances/:id/advance-timer with >1 pending timer and no
+        timer_id returns 400, detail "instance has more than one pending
+        timer; specify timer_id" (routers/instances.ex:757-758), and no
+        endpoint lists timer ids (h3).
+      - CHK-21 (graph.ex:1071-1131) checks the escalation pair; highest check
+        number is CHK-27, so the new check is CHK-28. RoleBinding collects
+        ["role", "escalation_role"] (role_binding.ex:26-41).
+
+      CHANGE:
+      1. ATTRIBUTES (HUMAN_TASK, all optional; null = absent):
+         reminder_timer_duration (ISO-8601 via valid_iso8601_duration?/1, P0D
+         accepted as in CHK-21) and reminder_role (non-blank string) are a
+         pair: both or neither. reminder_repeat_interval and
+         reminder_repeat_count (integer 1..50) require the pair; count
+         requires interval. reminder_repeat_interval allows ONLY fixed-length
+         units, PnW or PnDTnHnMnS (weeks, days, hours, minutes, seconds), and
+         must be > 0; calendar units (Y, or M before T, e.g. P1M) are
+         invalid. Interval without count = repeat until the task closes,
+         capped at 50 repeats.
+      2. ARM: whenever a HUMAN_TASK row is created for a node carrying the
+         pair (create, complete-task, timer fire, escalation fire paths,
+         incl. same-node re-entry), one "reminder" timer row is armed for that
+         token+node with fire_at = DateTime.add(now, reminder seconds) using
+         the same `now` as the escalation arm (engine.ex:802-827), beside
+         (not instead of) any escalation timer. Each new task row gets a
+         fresh reminder. Row shape:
+         - no interval: repeat_expression, repeat_interval_us, repeat_total
+           and fired_count all NULL (first branch of
+           chk_timers_recurrence_shape, create_timers.exs:111-121);
+         - interval: repeat_expression = the reminder_repeat_interval string
+           verbatim (NOT NULL), repeat_interval_us = that interval converted
+           to microseconds (NOT NULL, > 0), fired_count = 0 (NOT NULL,
+           >= 0), repeat_total = 1 + count, or 51 when count is absent
+           (>= 1, and fired_count 0 <= repeat_total): the second branch of
+           the check (create_timers.exs:113-117) holds for every field.
+      3. FIRE: do_fire/2 gets a dedicated "reminder" branch (h1).
+         TIMER_FIRED (existing payload, timer_type "reminder") is appended on
+         every fire, stale or not, because do_fire/2 appends it before
+         routing (scheduler.ex:304-306), as for every other timer type. If
+         the task row for token+node is still pending: one audit_entries
+         row, action "task.remind", actor system, resource the task, payload
+         {task_id, node_id, reminder_role, fire_count}, where fire_count = 1
+         for a non-recurring row (fired_count NULL) and fired_count + 1 for a
+         recurring row; then re-arm per the series. Task, token, instance
+         status and variables are unchanged and no edge is followed. If the
+         task is no longer pending: the timer is marked fired, no task.remind
+         row is written, it is NOT re-armed and it never goes to the DLQ (h2).
+      4. CANCEL: (a) complete-task: reminder timers for token+node are
+         cancelled in the same pre-arm position as :cancel_escalation_timers
+         (reason "task_completed"); (b) escalation fire: the reminder of the
+         cancelled task is cancelled in the same Multi as
+         :cancel_original_task, before any arm (h4); (c) instance
+         completion/cancel: already generic, unchanged.
+      5. ADVANCE-TIMER (h3): >1 pending timer and no timer_id keeps HTTP 400
+         and the same detail text, and adds exactly one RFC 9457 extension
+         member, "code": "ambiguous_pending_timers", via Error extensions
+         (api/error.ex:70,128-132). Single-pending and timer_id behaviour
+         unchanged. The body carries a constant code and no entity data, so
+         SECURITY-REVIEWER stays n/a.
+      6. VALIDATOR CHK-28 (check_human_task_reminder/1, beside CHK-21): codes
+         :missing_reminder_role, :missing_reminder_timer_duration,
+         :invalid_reminder_timer (bad duration), :invalid_reminder_repeat
+         (repeat field without the pair, count without interval, bad or zero
+         interval, interval with a calendar unit, count not an integer in
+         1..50). RoleBinding collects
+         "reminder_role".
+
+      OUT OF SCOPE: a role notification item/table/API/SPA, email (a follow-up
+      requirement once a general notifier exists; REQ-441's notifier is
+      login-discovery only), and replacing the vortex 8D waiver plus its
+      waiver?/pair? test (GH #2325 AC3, separate issue), and listing pending
+      timer ids to advance-timer callers (a possible future requirement). No
+      new event type, no migration. SECURITY-REVIEWER n/a (GH #2325 AC4: no
+      new route, no cross-tenant read, no entity data in a response body).
+    open_questions:
+      - "Cap value: 50 repeats (51 fires) is this entry's default; any cap closes h2's unbounded series. ORCH may change the number before WF-02."
+      - "A validator warning when reminder_timer_duration >= escalation_timer_duration on the same node. Default: not built."
+      - "UAT scenarios that call advance-timer without timer_id (uat/scenarios/swiftroute/shipment-ops-timeout-escalation.yaml:67) are unaffected while no shipped definition opts in; listed, not edited."
+    acceptance_criteria:
+      - "1. backward compatible: no file under test/fixtures, priv or scripts gains reminder_* keys (grep quoted); a HUMAN_TASK without reminder_* arms no reminder timer on create, complete-task, timer fire and escalation fire (test asserts zero rows with timer_type reminder)"
+      - "2. arm: a node with the pair produces exactly one pending reminder timer for token+node on task creation, with |fire_at - (task.inserted_at + reminder_timer_duration)| <= 1 second; asserted both for a reminder-only node and for a node that also arms an escalation timer, which is still armed (tests)"
+      - "3. fire (non-recurring row): after advancing the reminder, the task row is pending and unchanged, token node_id and instance status and variables are byte-identical to before, one TIMER_FIRED with timer_type reminder and one audit row action task.remind with exactly task_id, node_id, reminder_role and fire_count 1 exist, and no edge was followed (test)"
+      - "4. repeat: the armed row for interval PT1H count 2 has repeat_expression \"PT1H\", repeat_interval_us 3600000000, fired_count 0, repeat_total 3; its fires yield fire_count 1, 2, 3, then series_complete and no further row; interval without count yields repeat_total 51; a row without interval has all four recurrence columns NULL (tests)"
+      - "5. stale: a reminder fired after its task is completed or cancelled yields exactly 1 TIMER_FIRED (timer_type reminder), 0 task.remind audit rows, no new pending timer row, and no DLQ entry (test)"
+      - "6. cancel on completion: completing the task leaves its reminder cancelled with reason task_completed (test)"
+      - "7. re-entry: a gateway routing back to the same node after completion yields a NEW pending reminder for the new task row, the old one cancelled (test modelled on gh2359_gateway_reentry_task_row_test.exs)"
+      - "8. coexistence: with reminder PT1H and escalation PT4H, the reminder fires and the task stays pending; the escalation then fires, cancels the task as today and cancels the reminder in the same transaction; no pending reminder remains (test)"
+      - "9. advance-timer: two pending timers and no timer_id -> 400 whose decoded body is exactly the existing type, title, status, detail (text unchanged) and trace_id plus code ambiguous_pending_timers, with no other member; with timer_id the named timer fires; one pending timer behaves as before (router tests)"
+      - "10. CHK-28: each code in item 6 is produced by its own failing definition and a valid pair, a pair with interval only (PT1H and P1W), and a pair with interval+count 50 pass; count 51, count 0, interval P0D, interval P1M, interval P1Y and count without interval fail with :invalid_reminder_repeat (tests); role_binding returns reminder_role"
+      - "11. unchanged and green, unedited: gh2359_gateway_reentry_task_row_test.exs, human_task_escalation_test.exs, timer_wiring_test.exs, scheduler_test.exs, scheduler_req188_test.exs, swiftroute_escalation_timer_test.exs, vortex_escalation_timer_test.exs and the three *_d_esc_escalation_fixture_test.exs"
+      - "12. mix compile --warnings-as-errors, mix format --check-formatted, the scoped mix test over test/letflow/engine, test/letflow/scheduler*, test/letflow/definitions, test/letflow/routers/instances* and test/letflow/scripts, and mix letflow.check_boundaries pass, real output quoted"
+    depends_on: [REQ-396]

@@ -38,12 +38,17 @@ defmodule Letflow.Modules.CatalogTest do
       # rollback coverage, design §9 open question 1 option (a)) to
       # config/test.exs's :modules list, alongside REQ-400's original
       # Fixture entry. REQ-408 prepends Letflow.Modules.Exam (the real
-      # exam module), so the full list in config order is:
+      # exam module). GH 2531 (decision 0052 D3/D7) appends FixtureFkPack,
+      # FixtureFkPackFailing and FixtureCtxRecorder (on_install/3 coverage), so
+      # the full list in config order is:
       assert Catalog.entry_modules() == [
                Letflow.Modules.Exam,
                Letflow.Modules.Fixture,
                Letflow.Modules.FixtureDependent,
-               Letflow.Modules.FixtureFailingInstall
+               Letflow.Modules.FixtureFailingInstall,
+               Letflow.Modules.FixtureFkPack,
+               Letflow.Modules.FixtureFkPackFailing,
+               Letflow.Modules.FixtureCtxRecorder
              ]
     end
 

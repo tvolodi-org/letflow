@@ -28,7 +28,9 @@ defmodule Letflow.Modules.InstallsPutSettingsTest do
         TenantFixture.provisioned_tenant!(slug_prefix: "req414-ps-ok")
 
       actor_id = Ecto.UUID.generate()
-      {:ok, _} = Installs.install("fixture", actor_id, prefix: prefix)
+
+      {:ok, _} =
+        Installs.install("fixture", actor_id, prefix: prefix, rationale: "test: module install")
 
       assert {:ok, tm} =
                Installs.put_settings("fixture", %{"greeting" => "hello"}, prefix: prefix)
@@ -41,7 +43,9 @@ defmodule Letflow.Modules.InstallsPutSettingsTest do
         TenantFixture.provisioned_tenant!(slug_prefix: "req414-ps-empty")
 
       actor_id = Ecto.UUID.generate()
-      {:ok, _} = Installs.install("fixture", actor_id, prefix: prefix)
+
+      {:ok, _} =
+        Installs.install("fixture", actor_id, prefix: prefix, rationale: "test: module install")
 
       assert {:ok, tm} = Installs.put_settings("fixture", %{}, prefix: prefix)
       assert tm.settings == %{}
@@ -52,7 +56,9 @@ defmodule Letflow.Modules.InstallsPutSettingsTest do
         TenantFixture.provisioned_tenant!(slug_prefix: "req414-ps-type")
 
       actor_id = Ecto.UUID.generate()
-      {:ok, _} = Installs.install("fixture", actor_id, prefix: prefix)
+
+      {:ok, _} =
+        Installs.install("fixture", actor_id, prefix: prefix, rationale: "test: module install")
 
       assert {:error, {:settings_validation_failed, failures}} =
                Installs.put_settings("fixture", %{"greeting" => 99}, prefix: prefix)
@@ -66,7 +72,9 @@ defmodule Letflow.Modules.InstallsPutSettingsTest do
         TenantFixture.provisioned_tenant!(slug_prefix: "req414-ps-addl")
 
       actor_id = Ecto.UUID.generate()
-      {:ok, _} = Installs.install("fixture", actor_id, prefix: prefix)
+
+      {:ok, _} =
+        Installs.install("fixture", actor_id, prefix: prefix, rationale: "test: module install")
 
       assert {:error, {:settings_validation_failed, failures}} =
                Installs.put_settings("fixture", %{"unknown_key" => "value"}, prefix: prefix)
@@ -87,8 +95,14 @@ defmodule Letflow.Modules.InstallsPutSettingsTest do
 
       actor_id = Ecto.UUID.generate()
       # fixture_dependent depends on fixture; install both
-      {:ok, _} = Installs.install("fixture", actor_id, prefix: prefix)
-      {:ok, _} = Installs.install("fixture_dependent", actor_id, prefix: prefix)
+      {:ok, _} =
+        Installs.install("fixture", actor_id, prefix: prefix, rationale: "test: module install")
+
+      {:ok, _} =
+        Installs.install("fixture_dependent", actor_id,
+          prefix: prefix,
+          rationale: "test: module install"
+        )
 
       assert {:ok, tm} =
                Installs.put_settings("fixture_dependent", %{}, prefix: prefix)
@@ -101,8 +115,15 @@ defmodule Letflow.Modules.InstallsPutSettingsTest do
         TenantFixture.provisioned_tenant!(slug_prefix: "req414-ac6-nil-err")
 
       actor_id = Ecto.UUID.generate()
-      {:ok, _} = Installs.install("fixture", actor_id, prefix: prefix)
-      {:ok, _} = Installs.install("fixture_dependent", actor_id, prefix: prefix)
+
+      {:ok, _} =
+        Installs.install("fixture", actor_id, prefix: prefix, rationale: "test: module install")
+
+      {:ok, _} =
+        Installs.install("fixture_dependent", actor_id,
+          prefix: prefix,
+          rationale: "test: module install"
+        )
 
       assert {:error, {:settings_validation_failed, :no_schema}} =
                Installs.put_settings("fixture_dependent", %{"some_key" => "value"},

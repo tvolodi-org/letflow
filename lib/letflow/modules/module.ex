@@ -30,7 +30,15 @@ defmodule Letflow.Modules.Module do
     after the module's pack is installed (D4) — REQ-400 defines only the
     callback's own contract, not the transaction that calls it (REQ-402).
 
-  `router/0` and `on_install/2` are declared `@optional_callbacks` — Elixir's
+  * `on_install/3` — **optional** (decision 0052 D3, GH 2531). Receives `prefix`,
+    `settings` and `ctx = %{actor_id: installer_user_id, rationale: text,
+    pack_entity_definition_ids: %{name => id}}`: the installer's id, the
+    installer-supplied, non-blank rationale (the router never synthesises one), and
+    the entity definitions this install's own pack inserted. For modules whose `on_install` activates and promotes their own
+    entity definitions (0052 D2), which needs an activator and a rationale. Preferred
+    over `on_install/2`: when a module exports both, ONLY `on_install/3` runs.
+
+  `router/0`, `on_install/2` and `on_install/3` are declared `@optional_callbacks` — Elixir's
   `@callback`/`@optional_callbacks` machinery auto-generates
   `behaviour_info/1`, so no separate introspection function is written here.
   """
@@ -76,7 +84,22 @@ defmodule Letflow.Modules.Module do
   @callback router() :: module()
   @callback on_install(prefix :: String.t(), settings :: map()) :: :ok | {:error, term()}
 
-  @optional_callbacks router: 0, on_install: 2
+  @typedoc """
+  The install context passed to `on_install/3` (0052 D3): the installer, the
+  installer-supplied rationale (verbatim), and the entity definitions this install's
+  own pack inserted, `%{name => id}` (0052 D6: the only ones `on_install/3` may
+  activate; `%{}` for a module without a pack).
+  """
+  @type install_ctx :: %{
+          actor_id: Ecto.UUID.t(),
+          rationale: String.t(),
+          pack_entity_definition_ids: %{String.t() => Ecto.UUID.t()}
+        }
+
+  @callback on_install(prefix :: String.t(), settings :: map(), ctx :: install_ctx()) ::
+              :ok | {:error, term()}
+
+  @optional_callbacks router: 0, on_install: 2, on_install: 3
 
   @doc """
   Compile-time manifest declaration macro — opt-in syntactic sugar that

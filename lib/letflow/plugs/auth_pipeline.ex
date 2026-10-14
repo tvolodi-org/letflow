@@ -137,7 +137,7 @@ defmodule Letflow.Plugs.AuthPipeline do
          {:ok, provisioned} <- provision_user(identity_context, tenant.id, realm),
          :ok <- bind_pending_admin(tenant, provisioned, identity_context, realm),
          {:ok, live_roles} <- verify_local_account_state(provisioned, tenant.id) do
-      attach_auth_context(conn, tenant.id, provisioned.user.id, live_roles)
+      attach_auth_context(conn, tenant.id, provisioned.user.id, live_roles, :oidc)
     else
       error -> handle_auth_error(conn, error)
     end
@@ -150,7 +150,7 @@ defmodule Letflow.Plugs.AuthPipeline do
          {:ok, tenant} <- resolve_tenant_by_slug(slug),
          {:ok, schema_name} <- resolve_schema_name(tenant.id),
          {:ok, verified} <- verify_token_credential(raw_token, schema_name) do
-      attach_auth_context(conn, tenant.id, verified.user_id, verified.roles)
+      attach_auth_context(conn, tenant.id, verified.user_id, verified.roles, :api_token)
     else
       error -> handle_auth_error(conn, error)
     end
@@ -400,7 +400,12 @@ defmodule Letflow.Plugs.AuthPipeline do
     end
   end
 
-  defp attach_auth_context(conn, tenant_id, user_id, roles) do
+  # GH 2534 7b-1: `credential` records which branch authenticated the caller (:oidc or
+  # :api_token). Set here by each branch, never from the request. The script registry refuses
+  # every write from :api_token (a tenant admin can mint a token for any user, so a token write
+  # could launder authorship past the separation-of-duties check).
+  defp attach_auth_context(conn, tenant_id, user_id, roles, credential)
+       when credential in [:oidc, :api_token] do
     # ISS-0993 (design section 4): the two scope facts are stored as a
     # CACHE/assertion only. No authorization decision reads them; consumers
     # recompute via Letflow.PlatformTenant from tenant_id and roles.
@@ -416,7 +421,8 @@ defmodule Letflow.Plugs.AuthPipeline do
       tenant_id: tenant_id,
       roles: roles,
       platform_tenant?: facts.platform_tenant?,
-      platform_scope?: facts.platform_scope?
+      platform_scope?: facts.platform_scope?,
+      credential: credential
     })
   end
 

@@ -44,6 +44,15 @@ defmodule Letflow.Definitions.RoleBindingTest do
       assert RoleBinding.task_roles(g) == []
     end
 
+    test "REQ-494: collects reminder_role of human tasks" do
+      g = graph([human("a", %{"role" => "role-a", "reminder_role" => "role-r"})])
+
+      assert RoleBinding.task_roles(g) == [
+               %{role_name: "role-a", node_ids: ["a"]},
+               %{role_name: "role-r", node_ids: ["a"]}
+             ]
+    end
+
     test "role names are used raw (not trimmed), matching the exact-name tenant_role index" do
       g = graph([human("t", %{"role" => " padded "})])
       assert [%{role_name: " padded "}] = RoleBinding.task_roles(g)

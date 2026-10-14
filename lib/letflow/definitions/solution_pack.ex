@@ -1077,7 +1077,9 @@ defmodule Letflow.Definitions.SolutionPack do
     "fields" => :fields,
     "indexes" => :indexes,
     "foreign_keys" => :foreign_keys,
-    "constraints" => :constraints
+    "constraints" => :constraints,
+    # GH #2529: optional boolean; the Validator rejects a non-boolean value.
+    "append_only" => :append_only
   }
 
   @field_keys %{

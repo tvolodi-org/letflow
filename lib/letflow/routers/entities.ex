@@ -46,9 +46,9 @@ defmodule Letflow.Routers.Entities do
   | get_definition_by_name | `GET /entities/definitions/by-name/:name` | `Letflow.Entities.Definitions.get_definition_by_name/2` | `EntitiesDefinitionsRead` | 200 / 404 |
   | get_definition | `GET /entities/definitions/:id` | `Letflow.Entities.Definitions.get_definition/2` | `EntitiesDefinitionsRead` | 200 / 404 |
   | list_definitions | `GET /entities/definitions` | `Letflow.Entities.Definitions.list_definitions/2` | `EntitiesDefinitionsRead` | 200 / 400 |
-  | create_record | `POST /entities/records/:entity_type` | `Letflow.Entities.Records.create_record/2` | `EntitiesRecordsWrite` | 201 / 404 / 422 |
-  | update_record | `PUT /entities/records/:entity_type/:record_id` | `Letflow.Entities.Records.update_record/2` | `EntitiesRecordsWrite` | 200 / 404 / 409 / 422 |
-  | delete_record | `DELETE /entities/records/:entity_type/:record_id` | `Letflow.Entities.Records.delete_record/2` | `EntitiesRecordsWrite` | 200 / 404 |
+  | create_record | `POST /entities/records/:entity_type` | `Letflow.Entities.Records.create_record/2` | `EntitiesRecordsWrite` | 201 / 404 / 422 (422 also `idempotency_key_reuse`, GH #2543) |
+  | update_record | `PUT /entities/records/:entity_type/:record_id` | `Letflow.Entities.Records.update_record/2` | `EntitiesRecordsWrite` | 200 / 404 / 409 / 422 (422 also `idempotency_key_reuse`, GH #2543) |
+  | delete_record | `DELETE /entities/records/:entity_type/:record_id` | `Letflow.Entities.Records.delete_record/2` | `EntitiesRecordsWrite` | 200 / 400 / 404 / 409 / 422 (a fresh key per request, so never `idempotency_key_reuse`) |
   | query | `POST /entities/query` | `Letflow.Entities.Query.Compiler.compile/2` then `Letflow.Entities.Query.Allowlist.load/2` then `Letflow.Entities.Query.Cursor.paginate/5` then a `Letflow.Entities.Query.FieldGrants` redaction step | `EntitiesQuery` | 200 / 400 / 404 / 422 |
   | query_aggregate | `POST /entities/query/aggregate` | a `Letflow.Entities.Query.FieldGrants.load_restrictions/3` field-restriction check then `Letflow.Entities.Query.Compiler.run_aggregate/2` | `EntitiesAggregate` | 200 / 400 / 403 / 404 / 422 |
   | create_record_attachment | `POST /entities/records/:entity_type/:record_id/attachments` | `Letflow.Repository.EntityAttachments.upload/2` | `EntitiesAttachmentsManage` | 201 / 404 / 422 |
@@ -518,6 +518,7 @@ defmodule Letflow.Routers.Entities do
       |> maybe_put_document_list(:indexes, body, "indexes", &index_document/1)
       |> maybe_put_document_list(:foreign_keys, body, "foreign_keys", &fk_document/1)
       |> maybe_put_document_list(:constraints, body, "constraints", &constraint_document/1)
+      |> maybe_put_optional(:append_only, body, "append_only")
 
     {:ok, document}
   end
@@ -928,8 +929,9 @@ defmodule Letflow.Routers.Entities do
   # %{entity_type, field_values, actor_id, idempotency_key} -- `entity_type`
   # comes from the PATH segment (never a body field), `actor_id` from
   # conn.assigns.auth_context.user_id (INV-1), `idempotency_key` from the
-  # body when the caller supplies one (it is the caller's own replay token,
-  # carrying no authority) and otherwise freshly minted so the delegate's
+  # body when the caller supplies one (the caller's own replay token, bound
+  # to (command, entity_type, record_id, field_values, actor) -- GH #2543)
+  # and otherwise freshly minted so the delegate's
   # required key is always present.
 
   @record_write_schema [
@@ -968,19 +970,43 @@ defmodule Letflow.Routers.Entities do
   #
   # Full replacement of `field_values` (update_record/2's own whole-document
   # semantics).
+  #
+  # GH #2528: PUT alone accepts the optional `expected_last_event_global_seq`
+  # (POST keeps @record_write_schema byte-for-byte). `type: :integer` rejects
+  # 1.0 / "5" / true with 422; JSON null arrives as nil, which the domain
+  # treats as absent. `max_value` keeps a JSON bignum away from Postgrex's
+  # int8 encoder (INV-8). The value is passed through untouched -- no cast.
+  # `If-Match` stays ignored.
+  #
+  # GH #2529: an append-only entity type gives 422 entity-append-only for any
+  # record id (the domain refuses before the record lookup, INV-5).
+
+  @max_int8 9_223_372_036_854_775_807
+
+  @record_update_schema @record_write_schema ++
+                          [
+                            %FieldConstraint{
+                              name: "expected_last_event_global_seq",
+                              required: false,
+                              type: :integer,
+                              min_value: 0,
+                              max_value: @max_int8
+                            }
+                          ]
 
   defp handle_update_record(conn, entity_type, raw_record_id) do
     prefix = prefix!(conn)
 
     with {:ok, record_id} <- cast_record_id(raw_record_id),
          {:ok, body} <- object_body(conn),
-         {:ok, attrs} <- validate_schema(@record_write_schema, body) do
+         {:ok, attrs} <- validate_schema(@record_update_schema, body) do
       command_attrs = %{
         entity_type: entity_type,
         record_id: record_id,
         field_values: Map.fetch!(attrs, "field_values"),
         actor_id: conn.assigns.auth_context.user_id,
-        idempotency_key: idempotency_key(attrs)
+        idempotency_key: idempotency_key(attrs),
+        expected_last_event_global_seq: Map.get(attrs, "expected_last_event_global_seq")
       }
 
       render_record_command(conn, Records.update_record(command_attrs, prefix), :ok)
@@ -1001,26 +1027,56 @@ defmodule Letflow.Routers.Entities do
   # ══ DELETE /entities/records/:entity_type/:record_id ══════════════════
   #
   # Bodyless. delete_record/2 treats an already-deleted record as a no-op
-  # success (its own documented domain-level idempotency), so no 409 branch
-  # is reachable through this route -- {:record_already_deleted, _} is still
-  # mapped below, on the shared renderer, for completeness.
+  # success (its own documented domain-level idempotency), so
+  # {:record_already_deleted, _} is unreachable through this route (still
+  # mapped below, on the shared renderer, for completeness). A 409 IS
+  # reachable (GH #2528): an optional
+  # `?expected_last_event_global_seq=<n>` query param that no longer matches
+  # the stored row gives 409 record-version-conflict. An invalid value is a
+  # 400 (query-string errors are 400 in this router, like `page_size`),
+  # checked after the record id cast (malformed id -> 404 first) and before
+  # any lookup, so it does not depend on record existence (INV-5).
+  # GH #2529: an append-only entity type gives 422 entity-append-only for any
+  # record id, live, deleted or absent (refused before the record lookup).
 
   defp handle_delete_record(conn, entity_type, raw_record_id) do
-    case cast_record_id(raw_record_id) do
-      {:ok, record_id} ->
-        command_attrs = %{
-          entity_type: entity_type,
-          record_id: record_id,
-          actor_id: conn.assigns.auth_context.user_id,
-          idempotency_key: Ecto.UUID.generate()
-        }
+    with {:ok, record_id} <- cast_record_id(raw_record_id),
+         conn = fetch_query_params(conn),
+         {:ok, expected} <-
+           parse_expected_seq_param(Map.get(conn.query_params, "expected_last_event_global_seq")) do
+      command_attrs = %{
+        entity_type: entity_type,
+        record_id: record_id,
+        actor_id: conn.assigns.auth_context.user_id,
+        idempotency_key: Ecto.UUID.generate(),
+        expected_last_event_global_seq: expected
+      }
 
-        render_record_command(conn, Records.delete_record(command_attrs, prefix!(conn)), :ok)
-
+      render_record_command(conn, Records.delete_record(command_attrs, prefix!(conn)), :ok)
+    else
       {:error, :invalid_record_id} ->
         Response.not_found(conn)
+
+      {:error, :invalid_expected_seq} ->
+        Response.bad_request(conn, "invalid expected_last_event_global_seq")
     end
   end
+
+  # Absent -> {:ok, nil}; a string Integer.parse/1 consumes fully, within
+  # 0..max int8 -> {:ok, n}; anything else ("abc", "", "-1", "1.5", "1x",
+  # overflow, a repeated/array param) -> {:error, :invalid_expected_seq}.
+  @spec parse_expected_seq_param(nil | String.t() | list() | map()) ::
+          {:ok, non_neg_integer() | nil} | {:error, :invalid_expected_seq}
+  defp parse_expected_seq_param(nil), do: {:ok, nil}
+
+  defp parse_expected_seq_param(raw) when is_binary(raw) do
+    case Integer.parse(raw) do
+      {n, ""} when n >= 0 and n <= @max_int8 -> {:ok, n}
+      _other -> {:error, :invalid_expected_seq}
+    end
+  end
+
+  defp parse_expected_seq_param(_other), do: {:error, :invalid_expected_seq}
 
   # Casting here (rather than letting Latest.get/3 receive a non-UUID string)
   # keeps a malformed id on the same zero-detail 404 path as an absent one.
@@ -1180,7 +1236,8 @@ defmodule Letflow.Routers.Entities do
   # in handle_import_records/2, NEVER read from the document or the entry --
   # so two entries sharing a `record_id` WITHIN one call collide onto the
   # same key (intra-call dedup, via create_record/2's own duplicate-key
-  # contract), while two separate calls -- even a byte-identical re-POST --
+  # contract; GH #2543: only identical field_values dedupe, differing ones
+  # give a per-entry idempotency_key_reuse), while two separate calls -- even a byte-identical re-POST --
   # each mint their own import_request_id and share no relationship at all.
   defp import_one_entry(entry, entity_type, actor_id, import_request_id, prefix) do
     source_record_id = Map.get(entry, "record_id")
@@ -1236,6 +1293,12 @@ defmodule Letflow.Routers.Entities do
 
   defp import_reason_json({:payload_validation_failed, _errors}) do
     %{"type" => "payload_validation_failed"}
+  end
+
+  # GH #2543: two entries in one call sharing a `record_id` (so a key) but
+  # with different field_values -- the second is refused, not dropped.
+  defp import_reason_json(:idempotency_key_reuse) do
+    %{"type" => "idempotency_key_reuse"}
   end
 
   defp import_reason_json(reason)
@@ -1307,6 +1370,12 @@ defmodule Letflow.Routers.Entities do
   #   {:record_payload_invalid, v}   -> 422 with the violation list
   #   {:payload_validation_failed,_} -> 422
   #   {:record_already_deleted, _}   -> 409
+  #   :record_version_conflict       -> 409 (record-version-conflict, GH #2528;
+  #                                     constant body, no record data/seq)
+  #   {:entity_append_only, _}       -> 422 (entity-append-only, GH #2529;
+  #                                     constant body)
+  #   :idempotency_key_reuse         -> 422 (idempotency-key-reuse, GH #2543;
+  #                                     constant body, no original data)
   #   :tenant_not_provisioned        -> 500  (unreachable, INV-1)
   #   :invalid_schema_name           -> 500  (unreachable, INV-1)
   #   any other term()               -> 500  (INV-8 catch-all, no detail)
@@ -1349,6 +1418,15 @@ defmodule Letflow.Routers.Entities do
 
   defp render_record_command(conn, {:error, {:record_already_deleted, _record_id}}, _status),
     do: Response.conflict(conn, "entity record is already deleted")
+
+  defp render_record_command(conn, {:error, :record_version_conflict}, _status),
+    do: Response.send_problem(conn, Error.record_version_conflict())
+
+  defp render_record_command(conn, {:error, {:entity_append_only, _entity_type}}, _status),
+    do: Response.send_problem(conn, Error.entity_append_only())
+
+  defp render_record_command(conn, {:error, :idempotency_key_reuse}, _status),
+    do: Response.send_problem(conn, Error.idempotency_key_reuse())
 
   defp render_record_command(conn, {:error, reason}, _status)
        when reason in [:tenant_not_provisioned, :invalid_schema_name],

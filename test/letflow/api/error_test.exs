@@ -141,6 +141,26 @@ defmodule Letflow.Api.ErrorTest do
     end
   end
 
+  describe "idempotency_key_reuse/0 (GH #2543)" do
+    # Design D6: a constant 422 body with a fixed code; no argument, so no
+    # original record data can ever reach it (INV-2, INV-4).
+    test "idempotency_key_reuse/0 builds the 422 document" do
+      decoded =
+        Error.idempotency_key_reuse()
+        |> assert_problem(
+          "idempotency-key-reuse",
+          "Idempotency Key Reused",
+          422,
+          "this idempotency_key was already used for a different request; send a new key"
+        )
+
+      assert decoded["code"] == "idempotency_key_reuse"
+
+      assert decoded |> Map.keys() |> Enum.sort() ==
+               ["code", "detail", "status", "title", "trace_id", "type"]
+    end
+  end
+
   describe "serialisation contract" do
     # REQ-066 — spec §2 case 11. errors.zig's ProblemDetails carries a "" default for
     # trace_id and the requirement text calls it out explicitly. The ten constructor

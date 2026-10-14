@@ -328,6 +328,8 @@ defmodule Letflow.Api.Authorization do
           | :PromotionsManage
           | :DefinitionsRollback
           | :AttachmentLinksIssue
+          | :ScriptsWrite
+          | :ScriptsPublish
 
   @type access_decision_kind :: :Allow | :Deny403 | :AllowWithRowFilter
 
@@ -386,6 +388,10 @@ defmodule Letflow.Api.Authorization do
           | :PromotionsManage
           | :DefinitionsRollback
           | :AttachmentLinksIssue
+          | :ScriptsWrite
+          | :ScriptsPublish
+          | :ScriptRulesList
+          | :ScriptRulesRead
           | :UnmatchedPlatformPath
           | :UnmatchedRoute
           | :Unknown
@@ -446,7 +452,10 @@ defmodule Letflow.Api.Authorization do
     :PromotionsManage,
     :DefinitionsRollback,
     # REQ-448 (design req448-tenant-auditor-role.md section 2.6, item L1)
-    :AttachmentLinksIssue
+    :AttachmentLinksIssue,
+    # GH 2534 PR 7b-1 (decision 0053 D6): tenant-script registry. Both tenant scope.
+    :ScriptsWrite,
+    :ScriptsPublish
   ]
 
   # ISS-0993 section 5: every core permission has exactly one scope. A test
@@ -469,7 +478,7 @@ defmodule Letflow.Api.Authorization do
   def roles, do: @roles
 
   @doc """
-  All forty-one core `Permission` values — R-Co's fourteen, plus REQ-075's
+  All forty-three core `Permission` values — R-Co's fourteen, plus REQ-075's
   `:TenantsManage`, plus REQ-076's `:RolesManage`, plus REQ-212's
   `:AttachmentsManage`/`:AttachmentsRead`, plus ISS-0389's
   `:InstancesAdvanceTimer`, plus REQ-309's four entity-subsystem permissions
@@ -490,7 +499,9 @@ defmodule Letflow.Api.Authorization do
   `:TenantSettingsManage`, `:PromotionsRead`, `:PromotionsManage` and
   `:DefinitionsRollback`, plus REQ-448's `:AttachmentLinksIssue` (the
   `POST .../attachments/:attachment_id/link` route, split from
-  `:AttachmentsRead` so the read-only `TENANT_AUDITOR` can be denied it).
+  `:AttachmentsRead` so the read-only `TENANT_AUDITOR` can be denied it), plus GH 2534's
+  `:ScriptsWrite` (PROCESS_DESIGNER, TENANT_ADMIN) and `:ScriptsPublish` (TENANT_ADMIN), the
+  tenant-script registry permissions of decision 0053 D6.
   Each has exactly one scope, see `permission_scope/1`.
 
   The stated core count is asserted against `length(core_permissions())` by
@@ -1067,6 +1078,21 @@ defmodule Letflow.Api.Authorization do
   # lib/letflow/design/req403-module-install-route.md §5.3.
   def endpoint_policy_key("POST", "/tenant/modules"), do: :ModulesManage
 
+  # GH 2534 PR 7b-1 (decision 0053 D6): tenant-script registry (Letflow.Routers.ScriptRules,
+  # mounted at /script-rules). Reads and writes need :ScriptsWrite; publish, retire and revoke
+  # need :ScriptsPublish.
+  def endpoint_policy_key("GET", "/script-rules"), do: :ScriptRulesList
+  def endpoint_policy_key("GET", "/script-rules/:key/versions/:version"), do: :ScriptRulesRead
+  def endpoint_policy_key("POST", "/script-rules/:key/versions"), do: :ScriptsWrite
+  def endpoint_policy_key("PUT", "/script-rules/:key/versions/:version"), do: :ScriptsWrite
+  def endpoint_policy_key("DELETE", "/script-rules/:key/versions/:version"), do: :ScriptsWrite
+
+  def endpoint_policy_key("POST", "/script-rules/:key/versions/:version/" <> action)
+      when action in ["publish", "retire", "revoke"],
+      do: :ScriptsPublish
+
+  def endpoint_policy_key("POST", "/script-rules/:key/dry-run"), do: :ScriptsWrite
+
   # REQ-414 — settings write for an installed module.
   def endpoint_policy_key("PUT", "/tenant/modules/:module_id/settings"), do: :ModulesManage
 
@@ -1286,6 +1312,11 @@ defmodule Letflow.Api.Authorization do
   # REQ-403 — identity clauses (policy-key name == permission name), same
   # shape as HelpRead/MembershipsRead above.
   def required_permission(:ModulesManage), do: :ModulesManage
+  # GH 2534 PR 7b-1: the two read policy keys need :ScriptsWrite (source is shown only to
+  # :ScriptsWrite holders; the auditor read is GH 2548).
+  def required_permission(key) when key in [:ScriptRulesList, :ScriptRulesRead], do: :ScriptsWrite
+  def required_permission(:ScriptsWrite), do: :ScriptsWrite
+  def required_permission(:ScriptsPublish), do: :ScriptsPublish
   def required_permission(:MyModulesRead), do: :MyModulesRead
 
   def required_permission(:Unknown), do: :MetricsRead
@@ -1402,6 +1433,9 @@ defmodule Letflow.Api.Authorization do
         :InstancesRead,
         :TasksRead,
         :RolesManage,
+        # GH 2534 PR 7b-1 (decision 0053 D6): a designer authors scripts; only a tenant
+        # admin publishes (:ScriptsPublish is not here).
+        :ScriptsWrite,
         :AttachmentsRead,
         # REQ-448 L1: the link-issue route was keyed :AttachmentsRead before.
         :AttachmentLinksIssue,

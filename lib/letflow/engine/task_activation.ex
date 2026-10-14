@@ -575,4 +575,46 @@ defmodule Letflow.Engine.TaskActivation do
 
     {:ok, count}
   end
+
+  @doc """
+  REQ-494 -- cancels the pending REMINDER timer(s) armed for one specific
+  `(token, node)`, including any re-armed recurring successor (they keep the
+  same token, node and type). Called when that node's HUMAN_TASK completes
+  (`"task_completed"`) or is cancelled by its escalation timer firing
+  (`"task_escalated"`). A sibling of `cancel_pending_escalation_timers/6`
+  rather than a widening of it; same scoping and status guard. Runs on the
+  caller's transaction-scoped `repo`.
+  """
+  @spec cancel_pending_reminder_timers(
+          repo :: Ecto.Repo.t(),
+          instance_id :: Ecto.UUID.t(),
+          token_id :: Ecto.UUID.t(),
+          node_id :: String.t(),
+          cancelled_at :: DateTime.t(),
+          cancel_reason :: String.t(),
+          prefix :: String.t()
+        ) :: {:ok, non_neg_integer()}
+  def cancel_pending_reminder_timers(
+        repo,
+        instance_id,
+        token_id,
+        node_id,
+        cancelled_at,
+        cancel_reason,
+        prefix
+      ) do
+    {count, _updated} =
+      Letflow.Scheduler.Timer
+      |> where(
+        [t],
+        t.instance_id == ^instance_id and t.token_id == ^token_id and t.node_id == ^node_id and
+          t.timer_type == "reminder" and t.status == "pending"
+      )
+      |> repo.update_all(
+        [set: [status: "cancelled", cancelled_at: cancelled_at, cancel_reason: cancel_reason]],
+        prefix: prefix
+      )
+
+    {:ok, count}
+  end
 end

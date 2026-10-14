@@ -154,7 +154,10 @@ defmodule Letflow.Routers.SolutionPacksModuleOwnedPackTest do
       actor_id = Ecto.UUID.generate()
 
       assert {:ok, tenant_module} =
-               Installs.install("exam", actor_id, prefix: tenant.schema_name)
+               Installs.install("exam", actor_id,
+                 prefix: tenant.schema_name,
+                 rationale: "test: module install"
+               )
 
       assert tenant_module.module_id == "exam"
     end

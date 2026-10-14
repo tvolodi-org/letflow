@@ -130,7 +130,10 @@ defmodule Letflow.Routers.TenantAdminRoutesTest do
 
     test "POST /tenant/modules", ctx do
       conn =
-        call(Letflow.Routers.TenantModules, :post, "/", ctx.a, @admin, %{"module_id" => "fixture"})
+        call(Letflow.Routers.TenantModules, :post, "/", ctx.a, @admin, %{
+          "module_id" => "fixture",
+          "rationale" => "test: module install"
+        })
 
       assert conn.status == 201, conn.resp_body
     end
@@ -138,7 +141,8 @@ defmodule Letflow.Routers.TenantAdminRoutesTest do
     test "POST /tenant/solutions", ctx do
       conn =
         call(Letflow.Routers.TenantSolutions, :post, "/", ctx.a, @admin, %{
-          "solution_id" => "fixture-bundle"
+          "solution_id" => "fixture-bundle",
+          "rationale" => "test: solution install"
         })
 
       assert conn.status == 201, conn.resp_body

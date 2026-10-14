@@ -73,7 +73,10 @@ defmodule Mix.Tasks.Letflow.Seed.ExamFixtures do
     exam/category/question/answer_option/exam_question_rule records (each
     create_record/2 call carries a fixed, content-derived idempotency_key, and
     Letflow.Entities.Records.create_record/2 returns the ORIGINAL record for a
-    repeated key — design doc req228, AC3) and creates zero new sessions (the
+    repeated key — design doc req228, AC3; GH #2543: only when the request is
+    the same, so editing seed content between runs in one tenant makes the task
+    raise with :idempotency_key_reuse instead of keeping the old content) and
+    creates zero new sessions (the
     task queries for an existing session against Exam 1 for the seed candidate
     before calling POST /modules/exam/exam-sessions at all, and skips straight to reporting
     its already-persisted outcome if one is found).
@@ -119,6 +122,13 @@ defmodule Mix.Tasks.Letflow.Seed.ExamFixtures do
   """
 
   use Mix.Task
+
+  # Decision 0052 D3 (GH 2531): an internal, non-HTTP install caller passes a FIXED,
+  # code-reviewed rationale naming its cause (never a synthesised or user-facing default).
+  @install_rationale "seed: exam fixtures (mix letflow.seed.exam_fixtures)"
+
+  @doc false
+  def install_rationale, do: @install_rationale
 
   import Plug.Test
   import Plug.Conn
@@ -178,7 +188,7 @@ defmodule Mix.Tasks.Letflow.Seed.ExamFixtures do
     # REQ-410: ensure the exam module is installed for the bpm-default tenant
     # so the D5 gate in Letflow.Routers.Modules passes /modules/exam/exam-sessions
     # requests. Idempotent: already_installed is silently accepted.
-    case Installs.install("exam", candidate.id, prefix: prefix) do
+    case Installs.install("exam", candidate.id, prefix: prefix, rationale: @install_rationale) do
       {:ok, _} ->
         Mix.shell().info("exam module installed for tenant #{prefix}")
 

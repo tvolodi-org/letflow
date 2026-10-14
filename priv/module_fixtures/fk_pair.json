@@ -1,0 +1,84 @@
+{
+  "pack_id": "fixture-fk-pair",
+  "version": "0.1.0",
+  "bpm_export_schema_version": "bpm/definition/v1",
+  "exported_at": "2026-10-14T00:00:00Z",
+  "manifest": {
+    "required_roles": []
+  },
+  "definitions": [],
+  "variable_schemas": [],
+  "service_catalog_entries": [],
+  "entity_definitions": [
+    {
+      "entity_definition_id": "6b1f2c3a-0d4e-4f5a-8b6c-7d8e9f0a1b2c",
+      "name": "fkp_parent",
+      "display_name": "FK Pair Parent",
+      "logical_shape_version": "0000000000000000000000000000000000000000000000000000000000000000",
+      "definition_json": {
+        "name": "fkp_parent",
+        "display_name": "FK Pair Parent",
+        "description": "GH 2531 / decision 0052 D7 test fixture: FK target.",
+        "fields": [
+          {
+            "name": "code",
+            "type": "string",
+            "queried": true,
+            "required": true
+          }
+        ],
+        "constraints": [
+          {
+            "name": "uq_fkp_parent_code",
+            "type": "unique",
+            "fields": [
+              "code"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "entity_definition_id": "7c2a3d4b-1e5f-4a6b-9c7d-8e9f0a1b2c3d",
+      "name": "fkp_child",
+      "display_name": "FK Pair Child",
+      "logical_shape_version": "1111111111111111111111111111111111111111111111111111111111111111",
+      "definition_json": {
+        "name": "fkp_child",
+        "display_name": "FK Pair Child",
+        "description": "GH 2531 / decision 0052 D7 test fixture: FK referrer.",
+        "fields": [
+          {
+            "name": "parent_id",
+            "type": "string",
+            "queried": true,
+            "required": true
+          },
+          {
+            "name": "code",
+            "type": "string",
+            "queried": true,
+            "required": true
+          }
+        ],
+        "foreign_keys": [
+          {
+            "name": "fk_fkp_child_parent_id",
+            "field": "parent_id",
+            "references_entity": "fkp_parent"
+          }
+        ],
+        "constraints": [
+          {
+            "name": "uq_fkp_child_parent_id_code",
+            "type": "unique",
+            "fields": [
+              "parent_id",
+              "code"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

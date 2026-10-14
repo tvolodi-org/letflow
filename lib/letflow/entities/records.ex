@@ -40,8 +40,44 @@ defmodule Letflow.Entities.Records do
 
   ONE `Ecto.Multi` is still composed and committed via exactly one
   `Repo.transaction/1` call per command: `Letflow.EventStore.append_multi/3`'s
-  own M1-M6 steps, followed by this module's own `:upsert_record_latest`
-  step (design §5.1 steps 4-5).
+  own M1-M6 steps, then -- only when the caller passed
+  `expected_last_event_global_seq` (GH #2528) -- `:check_record_version`,
+  then this module's own `:upsert_record_latest` step (design §5.1 steps
+  4-5), then `:dual_write_promoted_columns` (REQ-297).
+
+  ## Append-only entity types (GH #2529)
+
+  `update_record/2` and `delete_record/2` refuse with
+  `{:error, {:entity_append_only, entity_type}}` when the entity type's
+  **current** active definition has `"append_only" => true` (literal `true`
+  only). The check runs right after the active definition is resolved and
+  before any record lookup, so it is existence-independent and appends no
+  event. `create_record/2` is unaffected.
+
+  ## Idempotency key binding (GH #2543)
+
+  See `lib/letflow/design/gh2543-idempotency-key-binding.md`. An
+  `idempotency_key` is bound to the request that first used it. On a
+  duplicate key the new request is compared against the **original event**
+  (its `event_type` and `actor_id` columns and its stored payload; no hash
+  column, no `Letflow.EventStore` change):
+
+    * bound: the command (`event_type`), the `actor_id`, `entity_type`, the
+      target `record_id` (update, delete) and `field_values` (create,
+      update), compared as JSON values (`1` matches `1.0`; key order is
+      irrelevant);
+    * not bound: `expected_last_event_global_seq`, `entity_def_version`,
+      metadata, and the `record_id` a create mints per call.
+
+  The same request returns the original as `is_duplicate: true`; anything
+  else returns `{:error, :idempotency_key_reuse}` with no event appended. An
+  oversized original (`%{"$ref" => event_id}`) is read back from
+  `event_payload_store` first. `create_record/2` accepts the internal-only
+  option `idempotency_match: :target` (default `:request`), which drops the
+  `field_values` compare for a fetch-or-create by natural key
+  (`Letflow.Modules.Exam.Certificate`); no request field can set it. The
+  step order is unchanged: the GH #2529 append-only check runs before the
+  claim and the GH #2528 version check after it.
 
   ## `entity_def_version`'s atom/string key round-trip (a real gap the design
   doc does not address -- flagged here, not silently patched)
@@ -92,6 +128,8 @@ defmodule Letflow.Entities.Records do
   table too, not be skipped.
   """
 
+  import Ecto.Query, only: [where: 3, select: 3]
+
   alias Ecto.Multi
   alias Letflow.Entities.Definition.DDL
   alias Letflow.Entities.Definition.Validator.Violation
@@ -102,30 +140,56 @@ defmodule Letflow.Entities.Records do
   alias Letflow.Entities.Record.Validator
   alias Letflow.EventStore
   alias Letflow.EventStore.Event
+  alias Letflow.EventStore.StoredPayload
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
   alias Letflow.TenantProvisioning.ColumnPromotion
+
+  @typedoc """
+  GH #2543: how strictly a duplicate `idempotency_key` must match the
+  original request. `:request` (default) binds every element; `:target`
+  (internal-only, create only) skips the `field_values` compare.
+  """
+  @type idempotency_match :: :request | :target
 
   @type create_attrs :: %{
           required(:entity_type) => String.t(),
           required(:field_values) => Validator.field_values(),
           required(:actor_id) => Ecto.UUID.t(),
-          required(:idempotency_key) => String.t()
+          required(:idempotency_key) => String.t(),
+          optional(:idempotency_match) => idempotency_match()
         }
+
+  @typep request_fingerprint :: %{
+           event_type: String.t(),
+           actor_id: Ecto.UUID.t(),
+           entity_type: String.t(),
+           record_id: Ecto.UUID.t() | :not_compared,
+           field_values: map() | :not_compared
+         }
+
+  @typedoc """
+  GH #2528 optimistic-concurrency token: the `last_event_global_seq` the
+  caller last saw for the record. `nil` (or the key absent) keeps today's
+  last-writer-wins behaviour byte-for-byte.
+  """
+  @type expected_seq :: non_neg_integer() | nil
 
   @type update_attrs :: %{
           required(:entity_type) => String.t(),
           required(:record_id) => Ecto.UUID.t(),
           required(:field_values) => Validator.field_values(),
           required(:actor_id) => Ecto.UUID.t(),
-          required(:idempotency_key) => String.t()
+          required(:idempotency_key) => String.t(),
+          optional(:expected_last_event_global_seq) => expected_seq()
         }
 
   @type delete_attrs :: %{
           required(:entity_type) => String.t(),
           required(:record_id) => Ecto.UUID.t(),
           required(:actor_id) => Ecto.UUID.t(),
-          required(:idempotency_key) => String.t()
+          required(:idempotency_key) => String.t(),
+          optional(:expected_last_event_global_seq) => expected_seq()
         }
 
   @type command_result :: %{record: Latest.t(), is_duplicate: boolean()}
@@ -135,6 +199,9 @@ defmodule Letflow.Entities.Records do
           | {:error, {:record_payload_invalid, Validator.violations() | [Violation.t()]}}
           | {:error, {:record_not_found, record_id :: Ecto.UUID.t()}}
           | {:error, {:record_already_deleted, record_id :: Ecto.UUID.t()}}
+          | {:error, :record_version_conflict}
+          | {:error, {:entity_append_only, entity_type :: String.t()}}
+          | {:error, :idempotency_key_reuse}
           | {:error, :tenant_not_provisioned}
           | {:error, :invalid_schema_name}
           | {:error, {:payload_validation_failed, [term()]}}
@@ -152,13 +219,21 @@ defmodule Letflow.Entities.Records do
     4. Resolve-or-create the synthetic per-type instance.
     5. Append exactly one `ENTITY_RECORD_CREATED` event and insert the
        `entity_record_latest` row, in one transaction (AC2).
-    6. A duplicate `idempotency_key` returns the **original** record (AC3),
-       decoded from the original event's own stored payload.
+    6. Replaying **the same request** with the same `idempotency_key` returns
+       the **original** record (AC3, `is_duplicate: true`), decoded from the
+       original event's own stored payload. The same key with a different
+       request (another command, entity type, actor or `field_values`)
+       returns `{:error, :idempotency_key_reuse}` with no event appended
+       (GH #2543). The internal-only `idempotency_match: :target` skips the
+       `field_values` compare; any value other than `:request`/`:target`
+       raises `ArgumentError`.
   """
   @spec create_record(create_attrs(), prefix :: String.t()) ::
           {:ok, command_result()} | command_error()
   def create_record(%{entity_type: entity_type, field_values: field_values} = attrs, prefix)
       when is_binary(prefix) do
+    match = idempotency_match(attrs)
+
     with {:ok, definition} <- fetch_active_definition(entity_type, prefix),
          :ok <- validate_field_values(definition, field_values) do
       record_id = Ecto.UUID.generate()
@@ -170,6 +245,8 @@ defmodule Letflow.Entities.Records do
         field_values: field_values,
         definition: definition,
         existing_record: nil,
+        expected_last_event_global_seq: nil,
+        idempotency_match: match,
         prefix: prefix
       }
 
@@ -186,6 +263,31 @@ defmodule Letflow.Entities.Records do
   Validates against `entity_type`'s **current** active definition, which may
   differ from the definition version the record was originally created
   under (design §5.2, an explicit non-goal to reconcile).
+
+  GH #2543: the `idempotency_key` is bound to the request, as in
+  `create_record/2` step 6 -- replaying the same request (same command,
+  `entity_type`, `record_id`, `field_values` and actor) returns the original
+  as `is_duplicate: true`; the same key with a different request returns
+  `{:error, :idempotency_key_reuse}`. The expected sequence below is not part
+  of the binding.
+
+  GH #2528: an optional `:expected_last_event_global_seq` makes the write
+  conditional. Inside the transaction, after the per-type sequence lock and
+  the idempotency check (so a replay of the same request still returns the
+  original as `is_duplicate: true`), the row is re-read `FOR UPDATE`; a mismatch (or a row
+  that vanished) returns `{:error, :record_version_conflict}` and rolls back
+  the whole command, idempotency claim included. Absent/`nil` adds no step at
+  all. A non-nil value that is not a non-negative integer raises
+  `ArgumentError` (programmer error from an internal caller).
+
+  GH #2529: if the current active definition carries `"append_only" => true`,
+  returns `{:error, {:entity_append_only, entity_type}}` right after the
+  definition is resolved -- before the record lookup, payload validation and
+  idempotency -- so the answer is the same for any `record_id` and no event is
+  appended.
+
+  GH #2543: the duplicate-key binding is always the full `:request` match;
+  `idempotency_match` is create-only and is ignored here.
   """
   @spec update_record(update_attrs(), prefix :: String.t()) ::
           {:ok, command_result()} | command_error()
@@ -194,7 +296,10 @@ defmodule Letflow.Entities.Records do
         prefix
       )
       when is_binary(prefix) do
+    expected = expected_seq(attrs)
+
     with {:ok, definition} <- fetch_active_definition(entity_type, prefix),
+         :ok <- ensure_mutable(definition, entity_type),
          {:ok, existing_record} <- fetch_existing_record(record_id, entity_type, prefix),
          :ok <- ensure_not_deleted(existing_record, record_id),
          :ok <- validate_field_values(definition, field_values) do
@@ -205,6 +310,8 @@ defmodule Letflow.Entities.Records do
         field_values: field_values,
         definition: definition,
         existing_record: existing_record,
+        expected_last_event_global_seq: expected,
+        idempotency_match: :request,
         prefix: prefix
       }
 
@@ -216,16 +323,29 @@ defmodule Letflow.Entities.Records do
   Deletes an entity record (design §5.2): appends one `ENTITY_RECORD_DELETED`
   event and marks the `entity_record_latest` row `deleted: true`,
   `field_values` retained unchanged at its last pre-delete value. Deleting an
-  already-deleted record is a **no-op success** returning the existing
+  already-deleted record is a **no-op success** (except on an append-only
+  type, below) returning the existing
   (already-deleted) row with `is_duplicate: false` -- deletion is naturally
   idempotent at the domain level, independent of the idempotency-key
   mechanism.
+
+  GH #2528: the optional `:expected_last_event_global_seq` works as in
+  `update_record/2` for a live record. An already-deleted record keeps the
+  no-op success above regardless of the expected value (no check, no event).
+
+  GH #2529: an append-only type (current active definition carries
+  `"append_only" => true`) returns `{:error, {:entity_append_only, entity_type}}`
+  right after the definition is resolved, before the record lookup and the
+  already-deleted no-op, for any `record_id`, with no event appended.
   """
   @spec delete_record(delete_attrs(), prefix :: String.t()) ::
           {:ok, command_result()} | command_error()
   def delete_record(%{entity_type: entity_type, record_id: record_id} = attrs, prefix)
       when is_binary(prefix) do
+    expected = expected_seq(attrs)
+
     with {:ok, definition} <- fetch_active_definition(entity_type, prefix),
+         :ok <- ensure_mutable(definition, entity_type),
          {:ok, existing_record} <- fetch_existing_record(record_id, entity_type, prefix) do
       if existing_record.deleted do
         {:ok, %{record: existing_record, is_duplicate: false}}
@@ -237,6 +357,8 @@ defmodule Letflow.Entities.Records do
           field_values: existing_record.field_values,
           definition: definition,
           existing_record: existing_record,
+          expected_last_event_global_seq: expected,
+          idempotency_match: :request,
           prefix: prefix
         }
 
@@ -252,10 +374,12 @@ defmodule Letflow.Entities.Records do
   defp run_command(%{entity_type: entity_type, prefix: prefix} = ctx, attrs) do
     with {:ok, synthetic_instance_id} <- EntityTypeInstance.get_or_create(entity_type, prefix) do
       event_attrs = build_event_attrs(ctx, attrs, synthetic_instance_id)
+      fingerprint = request_fingerprint(ctx, attrs)
 
       case EventStore.append_multi(Multi.new(), event_attrs, prefix: prefix) do
         {:ok, multi} ->
           multi
+          |> maybe_check_record_version(ctx)
           |> Multi.run(:upsert_record_latest, fn repo, changes ->
             upsert_record_latest(repo, changes, ctx)
           end)
@@ -263,7 +387,7 @@ defmodule Letflow.Entities.Records do
             dual_write_promoted_columns(repo, changes, ctx)
           end)
           |> Repo.transaction()
-          |> interpret_result()
+          |> interpret_result(fingerprint, prefix)
 
         {:error, _reason} = error ->
           error
@@ -316,8 +440,13 @@ defmodule Letflow.Entities.Records do
     |> repo.insert(prefix: ctx.prefix)
   end
 
+  # GH #2528 design D5: when :check_record_version ran, the changeset is based
+  # on the row it locked (so Ecto's UPDATE diff is computed against the
+  # current row by construction); otherwise on the pre-transaction read, as
+  # before (D2: the nil path is unchanged).
   defp upsert_record_latest(repo, changes, %{kind: kind} = ctx) when kind in [:update, :delete] do
-    ctx.existing_record
+    changes
+    |> Map.get(:check_record_version, ctx.existing_record)
     |> Latest.update_changeset(%{
       field_values: ctx.field_values,
       deleted: kind == :delete,
@@ -330,6 +459,61 @@ defmodule Letflow.Entities.Records do
   defp fetch_global_seq(changes) do
     %Event{global_seq: global_seq} = Map.fetch!(changes, :insert_event)
     global_seq
+  end
+
+  # ---------------------------------------------------------------------
+  # GH #2528 -- optimistic concurrency (design
+  # lib/letflow/design/gh2528-record-version-conflict.md §3)
+  # ---------------------------------------------------------------------
+
+  # Called at the entry of update_record/2 and delete_record/2, before any
+  # lookup (in particular before delete_record/2's already-deleted early
+  # return), so a bad internal value raises on a live and a deleted record
+  # alike. The router validates before calling; the HTTP path never raises.
+  defp expected_seq(attrs) do
+    case Map.get(attrs, :expected_last_event_global_seq) do
+      nil ->
+        nil
+
+      seq when is_integer(seq) and seq >= 0 ->
+        seq
+
+      other ->
+        raise ArgumentError,
+              "expected_last_event_global_seq must be nil or a non-negative integer, " <>
+                "got: #{inspect(other)}"
+    end
+  end
+
+  # D2: nil adds no step at all (same idiom as
+  # EventStore.maybe_store_oversized_payload/2), so every existing caller gets
+  # an identical Multi. D3: otherwise the step is appended after every
+  # append_multi/3 step (under the sequence lock, after :idempotency) and
+  # before :upsert_record_latest.
+  @spec maybe_check_record_version(Ecto.Multi.t(), ctx :: map()) :: Ecto.Multi.t()
+  defp maybe_check_record_version(multi, %{expected_last_event_global_seq: nil}), do: multi
+
+  defp maybe_check_record_version(multi, ctx) do
+    Multi.run(multi, :check_record_version, fn repo, changes ->
+      check_record_version(repo, changes, ctx)
+    end)
+  end
+
+  # D4: re-reads the row FOR UPDATE; never compares against
+  # ctx.existing_record, which was read before the transaction and may be
+  # stale under a race (READ COMMITTED: only a statement run after the lock
+  # sees the winner's commit). D6: an absent row here can only be a
+  # concurrent projection rebuild -- the pre-read already proved the record
+  # exists in this tenant -- so it is a conflict too.
+  @spec check_record_version(Ecto.Repo.t(), changes :: map(), ctx :: map()) ::
+          {:ok, Latest.t()} | {:error, :record_version_conflict}
+  defp check_record_version(repo, _changes, ctx) do
+    expected = ctx.expected_last_event_global_seq
+
+    case Latest.get_for_update(repo, ctx.record_id, ctx.entity_type, ctx.prefix) do
+      %Latest{last_event_global_seq: ^expected} = locked -> {:ok, locked}
+      _stale_or_absent -> {:error, :record_version_conflict}
+    end
   end
 
   # ---------------------------------------------------------------------
@@ -534,17 +718,29 @@ defmodule Letflow.Entities.Records do
     end)
   end
 
-  defp interpret_result({:ok, %{upsert_record_latest: %Latest{} = record}}) do
+  @spec interpret_result(tx_result :: term(), request_fingerprint(), prefix :: String.t()) ::
+          {:ok, command_result()} | command_error()
+  defp interpret_result({:ok, %{upsert_record_latest: %Latest{} = record}}, _fp, _prefix) do
     {:ok, %{record: record, is_duplicate: false}}
   end
 
   defp interpret_result(
-         {:error, :idempotency, {:duplicate_idempotency_key, %Event{} = original_event}, _changes}
+         {:error, :idempotency, {:duplicate_idempotency_key, %Event{} = original_event},
+          _changes},
+         fingerprint,
+         prefix
        ) do
-    {:ok, duplicate_result(original_event)}
+    case match_original(original_event, fingerprint, prefix) do
+      {:ok, resolved} -> {:ok, duplicate_result(resolved)}
+      {:error, _reason} = error -> error
+    end
   end
 
-  defp interpret_result({:error, :insert_event, %Ecto.Changeset{} = changeset, _changes}) do
+  defp interpret_result(
+         {:error, :insert_event, %Ecto.Changeset{} = changeset, _changes},
+         _fp,
+         _prefix
+       ) do
     if sequence_conflict?(changeset) do
       {:error, {:sequence_conflict, changeset}}
     else
@@ -552,14 +748,187 @@ defmodule Letflow.Entities.Records do
     end
   end
 
-  defp interpret_result({:error, _failed_operation, reason, _changes}) do
+  defp interpret_result({:error, _failed_operation, reason, _changes}, _fp, _prefix) do
     {:error, reason}
+  end
+
+  # ---------------------------------------------------------------------
+  # GH #2543 -- idempotency key binding (design
+  # lib/letflow/design/gh2543-idempotency-key-binding.md §2-§4)
+  # ---------------------------------------------------------------------
+
+  @command_event_types %{
+    create: "ENTITY_RECORD_CREATED",
+    update: "ENTITY_RECORD_UPDATED",
+    delete: "ENTITY_RECORD_DELETED"
+  }
+
+  # Read at create_record/2's entry, before any lookup, so a bad internal
+  # value raises on every path (same posture as expected_seq/1).
+  @spec idempotency_match(map()) :: idempotency_match()
+  defp idempotency_match(attrs) do
+    case Map.get(attrs, :idempotency_match, :request) do
+      match when match in [:request, :target] ->
+        match
+
+      other ->
+        raise ArgumentError,
+              "idempotency_match must be :request or :target, got: #{inspect(other)}"
+    end
+  end
+
+  # Built once, before the transaction. canonical_json/1 cannot raise here:
+  # build_event_attrs/3 has already Jason-encoded the same field_values.
+  @spec request_fingerprint(ctx :: map(), attrs :: map()) :: request_fingerprint()
+  defp request_fingerprint(%{kind: kind} = ctx, attrs) do
+    %{
+      event_type: Map.fetch!(@command_event_types, kind),
+      actor_id: attrs.actor_id,
+      entity_type: ctx.entity_type,
+      record_id: if(kind == :create, do: :not_compared, else: ctx.record_id),
+      field_values: fingerprint_field_values(ctx)
+    }
+  end
+
+  defp fingerprint_field_values(%{kind: :delete}), do: :not_compared
+  defp fingerprint_field_values(%{idempotency_match: :target}), do: :not_compared
+  defp fingerprint_field_values(%{field_values: field_values}), do: canonical_json(field_values)
+
+  # §2 check order: event_type, then actor (no reads), then $ref resolution,
+  # then the payload fields.
+  @spec match_original(Event.t(), request_fingerprint(), prefix :: String.t()) ::
+          {:ok, Event.t()}
+          | {:error, :idempotency_key_reuse}
+          | {:error, {:payload_resolution_failed, Ecto.UUID.t()}}
+  defp match_original(%Event{} = original, fingerprint, prefix) do
+    if original.event_type == fingerprint.event_type and
+         same_uuid?(original.actor_id, fingerprint.actor_id) do
+      with {:ok, resolved} <- resolve_original_payload(original, prefix) do
+        if same_request?(resolved, fingerprint),
+          do: {:ok, resolved},
+          else: {:error, :idempotency_key_reuse}
+      end
+    else
+      {:error, :idempotency_key_reuse}
+    end
+  end
+
+  # D3: an oversized original carries exactly the single-key `$ref` map
+  # EventStore writes (event_store.ex insert_event/3); its full payload lives
+  # in event_payload_store. Mirrors Reconstruction.resolve_live_payloads/2
+  # (EventStore.resolve_payloads/2 is private). Runs after the rolled-back
+  # transaction; the original event is already committed.
+  @spec resolve_original_payload(Event.t(), prefix :: String.t()) ::
+          {:ok, Event.t()} | {:error, {:payload_resolution_failed, Ecto.UUID.t()}}
+  defp resolve_original_payload(%Event{payload: %{"$ref" => ref} = payload} = event, prefix)
+       when map_size(payload) == 1 and is_binary(ref) do
+    StoredPayload
+    |> where([sp], sp.event_id == ^ref)
+    |> select([sp], sp.payload)
+    |> Repo.one(prefix: prefix)
+    |> case do
+      %{} = full_payload -> {:ok, %Event{event | payload: full_payload}}
+      nil -> {:error, {:payload_resolution_failed, ref}}
+    end
+  end
+
+  defp resolve_original_payload(%Event{} = event, _prefix), do: {:ok, event}
+
+  # §2: Map.fetch/2 on the payload, so a missing key means "not the same".
+  @spec same_request?(resolved :: Event.t(), request_fingerprint()) :: boolean()
+  defp same_request?(%Event{payload: payload}, fingerprint) when is_map(payload) do
+    with {:ok, entity_type} <- Map.fetch(payload, "entity_type"),
+         true <- entity_type == fingerprint.entity_type,
+         true <- same_record_id?(payload, fingerprint.record_id),
+         true <- same_field_values?(payload, fingerprint.field_values) do
+      true
+    else
+      _ -> false
+    end
+  end
+
+  defp same_request?(%Event{}, _fingerprint), do: false
+
+  defp same_record_id?(_payload, :not_compared), do: true
+
+  defp same_record_id?(payload, record_id) do
+    case Map.fetch(payload, "record_id") do
+      {:ok, stored} -> same_uuid?(stored, record_id)
+      :error -> false
+    end
+  end
+
+  defp same_field_values?(_payload, :not_compared), do: true
+
+  defp same_field_values?(payload, field_values) do
+    case Map.fetch(payload, "field_values") do
+      {:ok, stored} -> json_equal?(stored, field_values)
+      :error -> false
+    end
+  end
+
+  # §3: the same transform the original write went through
+  # (to_append_attrs/4's Jason.encode!, EventStore's Jason.decode!).
+  @spec canonical_json(term()) :: term()
+  defp canonical_json(value), do: value |> Jason.encode!() |> Jason.decode!()
+
+  # §3: recursive JSON-value equality, never bare ==. jsonb prints an
+  # exponent float as a plain decimal that Jason then decodes as an integer,
+  # so an integer and a float are compared as JSON numbers. Never raises: the
+  # abs/<= guard compares a bignum with a float without converting it, and
+  # the conversion is only reached inside the finite double range.
+  # :erlang.binary_to_float/1 rounds correctly; :erlang.float/1 truncates
+  # large integers and must not be used here.
+  @max_finite_double 1.7976931348623157e308
+
+  @spec json_equal?(stored :: term(), request :: term()) :: boolean()
+  defp json_equal?(stored, request) when is_map(stored) and is_map(request) do
+    map_size(stored) == map_size(request) and
+      Enum.all?(stored, fn {key, stored_value} ->
+        case Map.fetch(request, key) do
+          {:ok, request_value} -> json_equal?(stored_value, request_value)
+          :error -> false
+        end
+      end)
+  end
+
+  defp json_equal?(stored, request) when is_list(stored) and is_list(request) do
+    length(stored) == length(request) and
+      stored |> Enum.zip(request) |> Enum.all?(fn {s, r} -> json_equal?(s, r) end)
+  end
+
+  defp json_equal?(stored, request) when is_integer(stored) and is_float(request),
+    do: int_float_equal?(stored, request)
+
+  defp json_equal?(stored, request) when is_float(stored) and is_integer(request),
+    do: int_float_equal?(request, stored)
+
+  # Integer/integer, float/float, and everything else (strings, booleans,
+  # nil, mismatched types -- "1" never matches 1): plain ==.
+  defp json_equal?(stored, request), do: stored == request
+
+  defp int_float_equal?(int, float) do
+    int == float or
+      (abs(int) <= @max_finite_double and
+         :erlang.binary_to_float(Integer.to_string(int) <> ".0") == float)
+  end
+
+  # Both sides through Ecto.UUID.cast/1 (lowercase canonical); a cast error
+  # on either side means "not the same".
+  @spec same_uuid?(term(), term()) :: boolean()
+  defp same_uuid?(a, b) do
+    case {Ecto.UUID.cast(a), Ecto.UUID.cast(b)} do
+      {{:ok, same}, {:ok, same}} -> true
+      _ -> false
+    end
   end
 
   # Design §5.4/§5.1 step 6 -- the original-record lookup happens by
   # decoding the ORIGINAL EVENT's own stored `payload`, not by a fresh
   # `entity_record_latest` SELECT. Mirrors `Letflow.EventStore.Event.payload`
-  # already being a decoded `:map` (no re-parse of a JSON string).
+  # already being a decoded `:map` (no re-parse of a JSON string). GH #2543:
+  # it only ever receives an original that match_original/3 resolved and
+  # matched, so a `$ref` or non-entity payload never reaches it.
   defp duplicate_result(%Event{payload: payload, event_type: event_type, global_seq: global_seq}) do
     entity_def_version_hex = Map.fetch!(payload, "entity_def_version")
 
@@ -614,6 +983,19 @@ defmodule Letflow.Entities.Records do
       {:ok, record} -> {:ok, record}
       {:error, :not_found} -> {:error, {:record_not_found, record_id}}
       {:error, :invalid_schema_name} = error -> error
+    end
+  end
+
+  # GH #2529: reads the CURRENT active definition's string-keyed JSONB; only a
+  # literal `true` locks the type (the definition validator guarantees a stored
+  # value is a boolean).
+  @spec ensure_mutable(EntityDefinition.t(), String.t()) ::
+          :ok | {:error, {:entity_append_only, String.t()}}
+  defp ensure_mutable(%EntityDefinition{definition_json: json}, entity_type) do
+    if Map.get(json, "append_only") == true do
+      {:error, {:entity_append_only, entity_type}}
+    else
+      :ok
     end
   end
 

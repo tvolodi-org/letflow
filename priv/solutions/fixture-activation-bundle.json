@@ -1,0 +1,7 @@
+{
+  "id": "fixture-activation-bundle",
+  "modules": [
+    {"module_id": "fixture_fk_pack", "version": "0.1.0", "settings": {}},
+    {"module_id": "fixture_ctx_recorder", "version": "0.1.0", "settings": {}}
+  ]
+}

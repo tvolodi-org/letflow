@@ -136,7 +136,12 @@ defmodule Letflow.Definitions.SolutionPackBilimbagaFieldRestrictionsTest do
       # `Letflow.Modules.Exam.on_install/2` is NOT called anywhere in this
       # test file. If it happens at all, it happens because
       # `Installs.install/3`'s own transaction calls it (D5).
-      assert {:ok, tenant_module} = Installs.install("exam", actor_id, prefix: ctx.schema_name)
+      assert {:ok, tenant_module} =
+               Installs.install("exam", actor_id,
+                 prefix: ctx.schema_name,
+                 rationale: "test: module install"
+               )
+
       assert tenant_module.module_id == "exam"
 
       # ---- 2. ACTIVATE just the FK chain the answer-key data sits on ----

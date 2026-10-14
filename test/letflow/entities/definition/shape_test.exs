@@ -138,4 +138,47 @@ defmodule Letflow.Entities.Definition.ShapeTest do
       refute Shape.logical_shape_of(@base_definition) == Shape.logical_shape_of(fewer_fields)
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # GH #2529 -- hash stability. The two digests below were captured by running
+  # this exact fixture through origin/main's (pre-change) Shape and
+  # Canonicaliser, loaded from `git show origin/main:...` into renamed scratch
+  # modules. A key-less definition must keep hashing identically; adding
+  # `append_only: true` must change the logical shape version.
+  # ---------------------------------------------------------------------------
+
+  @gh2529_keyless %{
+    name: "ledger",
+    display_name: "Ledger",
+    description: "GH 2529 hash-stability fixture",
+    fields: [
+      %{name: "title", type: :string, required: true, queried: true},
+      %{name: "amount", type: :decimal, decimal_precision: 12, decimal_scale: 2},
+      %{name: "kind", type: :enum, enum_values: ["credit", "debit"]}
+    ],
+    indexes: [%{name: "title_idx", fields: ["title"], unique: false}]
+  }
+
+  @gh2529_pinned_content_hash "db44ca2b364844178062af7fc0e52c1f1be4cd9851254492970999967bbb1c70"
+  @gh2529_pinned_logical_shape "eec9060400f298473d0b8182764b366888798a59b07ba7cf83cc98a4accea8bc"
+
+  defp gh2529_hex(digest), do: Base.encode16(digest, case: :lower)
+
+  describe "GH #2529 hash stability" do
+    test "a key-less definition's content_hash/1 equals the pinned pre-change digest" do
+      assert gh2529_hex(Shape.content_hash(@gh2529_keyless)) == @gh2529_pinned_content_hash
+    end
+
+    test "a key-less definition's logical_shape_of/1 equals the pinned pre-change digest" do
+      assert gh2529_hex(Shape.logical_shape_of(@gh2529_keyless)) ==
+               @gh2529_pinned_logical_shape
+    end
+
+    test "adding append_only: true changes the logical shape version" do
+      flagged = Map.put(@gh2529_keyless, :append_only, true)
+
+      refute gh2529_hex(Shape.logical_shape_of(flagged)) == @gh2529_pinned_logical_shape
+      refute Shape.logical_shape_of(flagged) == Shape.logical_shape_of(@gh2529_keyless)
+    end
+  end
 end

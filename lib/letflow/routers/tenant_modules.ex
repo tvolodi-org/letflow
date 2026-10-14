@@ -13,6 +13,14 @@ defmodule Letflow.Routers.TenantModules do
   One route: `POST /` (full path `POST /api/v1/tenant/modules`), gated by
   `:ModulesManage` (tenant scope: `TENANT_ADMIN`, and the platform tenant's `PLATFORM_ADMIN`, per the roles matrix).
 
+  Request body (decision 0052 D3, GH 2531; BREAKING since then):
+  `{"module_id": "<id>", "rationale": "<non-blank text>"}`. `rationale` is
+  REQUIRED for every module, including ones with only `on_install/2`; it is the
+  installer's justification, recorded verbatim in the activation trail when the
+  module's `on_install/3` activates its entity definitions. Missing, non-string or
+  blank answers 422 `rationale is required` and installs nothing; the router never
+  synthesises a default.
+
   Deliberately mounted at `/tenant/modules`, NOT under `/api/v1/modules/`
   (REQ-404's future per-module mount) — so this route can never collide
   with a future module whose catalog id happens to be `install`.
@@ -55,9 +63,17 @@ defmodule Letflow.Routers.TenantModules do
     prefix = Keyword.fetch!(conn.assigns.scoped_opts, :prefix)
     actor_id = conn.assigns.auth_context.user_id
 
-    case Installs.install(module_id, actor_id, prefix: prefix) do
+    # Decision 0052 D3 (GH 2531): `rationale` is REQUIRED in the body and passed through
+    # unchanged; Installs.install/3 is the one place that decides it (missing, non-string
+    # or blank -> 422). The router never synthesises one.
+    rationale = Map.get(conn.body_params, "rationale")
+
+    case Installs.install(module_id, actor_id, prefix: prefix, rationale: rationale) do
       {:ok, tenant_module} ->
         Response.created(conn, install_response_map(tenant_module))
+
+      {:error, :rationale_required} ->
+        Response.unprocessable(conn, "rationale is required")
 
       {:error, :unknown_module} ->
         Response.not_found(conn)

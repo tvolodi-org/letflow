@@ -258,6 +258,73 @@ defmodule Letflow.Api.Error do
     }
   end
 
+  @doc """
+  HTTP 409 — Record Version Conflict (GH #2528).
+
+  Returned when an entity record update or delete carried an
+  `expected_last_event_global_seq` that no longer matches the stored row: the
+  record was changed by someone else since the caller loaded it. The body
+  carries the constant `code` `"record_version_conflict"` and a fixed detail.
+  Takes no argument, so no record data, field value or sequence number can
+  reach the body (INV-2, INV-4).
+  """
+  @spec record_version_conflict() :: t()
+  def record_version_conflict do
+    %__MODULE__{
+      type: @problems_base <> "record-version-conflict",
+      title: "Record Version Conflict",
+      status: 409,
+      detail: "the record was changed by someone else; reload it and try again",
+      extensions: %{"code" => "record_version_conflict"}
+    }
+  end
+
+  @doc """
+  HTTP 422 — Entity Type Is Append-Only (GH #2529).
+
+  Returned when an entity record update or delete targets an entity type whose
+  current active definition declares `append_only: true` (a tenant policy that
+  activating a version without the flag lifts; it is not a tamper-proof lock --
+  that is `managed_by`, decision 0050 D7). 422 rather than 409 (the SPA
+  reads 409 as an edit conflict) or 403 (reserved for module ownership). The
+  body carries the constant `code` `"entity_append_only"` and a fixed detail.
+  Takes no argument, so no entity type, record id or field value can reach the
+  body (INV-2, INV-4).
+  """
+  @spec entity_append_only() :: t()
+  def entity_append_only do
+    %__MODULE__{
+      type: @problems_base <> "entity-append-only",
+      title: "Entity Type Is Append-Only",
+      status: 422,
+      detail: "records of this entity type are append-only and cannot be updated or deleted",
+      extensions: %{"code" => "entity_append_only"}
+    }
+  end
+
+  @doc """
+  HTTP 422 — Idempotency Key Reused (GH #2543, design D6).
+
+  Returned when an entity record command reuses an `idempotency_key` that was
+  already used for a different request (another command, entity type, target
+  record, field values or actor). 422 rather than 409: the SPA reads 409 as
+  "reload and retry", and reloading does not fix a reused key -- the client
+  must send a new one. The body carries the constant `code`
+  `"idempotency_key_reuse"` and a fixed detail. Takes no argument, so no
+  record id, field value, entity type or event data of the original request
+  can reach the body (INV-2, INV-4).
+  """
+  @spec idempotency_key_reuse() :: t()
+  def idempotency_key_reuse do
+    %__MODULE__{
+      type: @problems_base <> "idempotency-key-reuse",
+      title: "Idempotency Key Reused",
+      status: 422,
+      detail: "this idempotency_key was already used for a different request; send a new key",
+      extensions: %{"code" => "idempotency_key_reuse"}
+    }
+  end
+
   @doc "HTTP 415 — Unsupported Media Type."
   @spec unsupported_media_type(String.t()) :: t()
   def unsupported_media_type(detail) do

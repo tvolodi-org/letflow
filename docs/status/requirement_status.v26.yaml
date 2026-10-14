@@ -1123,3 +1123,19 @@ history:
       them in PR #2467. Written by letflow-2 under the DOC-UPDATER agent id, as
       in earlier events; lands in the docs bundle branch
       docs/iss-1110-20261013, not yet pushed.
+
+  - req: REQ-494
+    event: done
+    agent: DOC-UPDATER
+    at: "2026-10-14T15:34:56Z"
+    note: >
+      Status flipped from pending to done. Delivered by PR #2549 (merge
+      ee6cb26b6418d3d882d33219de223c10231e038f, GH #2325, closed by the PR):
+      opt-in, audit-only HUMAN_TASK reminder timer (reminder_timer_duration +
+      reminder_role, optional repeat), TIMER_FIRED reminder + task.remind on
+      fire, cancelled on completion, escalation fire and instance end, CHK-28
+      validator, advance-timer ambiguity code. Backend shards 2991 + 2557 +
+      3088 tests, 0 failures. S10 AC check on GH #2325 2026-10-14 (AC3 waiver
+      replacement deferred to GH #2553). Follow-ups GH #2553-#2556. Written by
+      letflow-2 under the DOC-UPDATER agent id; lands in the docs bundle branch
+      docs/bundle-20261014-core-followups.

@@ -169,6 +169,7 @@ defmodule Letflow.TenantFixture do
     "promotion_assertion_runs",
     "promotion_reviews",
     "repository_artifacts",
+    "script_rules",
     "service_task_dispatches",
     "tasks",
     "tenant_modules",

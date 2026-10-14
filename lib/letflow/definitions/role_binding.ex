@@ -24,8 +24,9 @@ defmodule Letflow.Definitions.RoleBinding do
   @type task_role :: %{role_name: String.t(), node_ids: [String.t()]}
 
   @doc """
-  Every role a HUMAN_TASK routes to (`attributes["role"]` and
-  `attributes["escalation_role"]`, each when a non-blank binary, used raw),
+  Every role a HUMAN_TASK routes to (`attributes["role"]`,
+  `attributes["escalation_role"]` and `attributes["reminder_role"]`
+  (REQ-494), each when a non-blank binary, used raw),
   grouped by role name. `role_name` and `node_ids` are sorted ascending and
   deduplicated. Total on malformed attributes.
   """
@@ -34,7 +35,7 @@ defmodule Letflow.Definitions.RoleBinding do
     nodes
     |> Enum.filter(&(&1.node_type == :HUMAN_TASK and is_map(&1.attributes)))
     |> Enum.flat_map(fn node ->
-      for key <- ["role", "escalation_role"],
+      for key <- ["role", "escalation_role", "reminder_role"],
           name = Map.get(node.attributes, key),
           is_binary(name) and String.trim(name) != "",
           do: {name, node.id}

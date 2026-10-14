@@ -45,7 +45,15 @@ defmodule Letflow.Routers.TenantModulesTest do
     |> assign(:trace_id, "req403-tenant-modules-test-trace-id")
   end
 
-  defp install(tenant_id, roles, body) do
+  # GH 2531 (decision 0052 D3): `rationale` is required; the existing tests are about
+  # other things, so this helper supplies one unless the body already carries the key.
+  defp install(tenant_id, roles, body) when is_map(body) do
+    install_raw(tenant_id, roles, Map.put_new(body, "rationale", "test: module install"))
+  end
+
+  defp install(tenant_id, roles, body), do: install_raw(tenant_id, roles, body)
+
+  defp install_raw(tenant_id, roles, body) do
     build_conn(tenant_id, roles, body)
     |> Letflow.Routers.TenantModules.call(@opts)
   end
@@ -159,6 +167,58 @@ defmodule Letflow.Routers.TenantModulesTest do
 
       assert install(tenant_id, ["TENANT_ADMIN"], %{}).status == 422
       assert install(tenant_id, ["TENANT_ADMIN"], %{"module_id" => 123}).status == 422
+    end
+  end
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # GH 2531 / decision 0052 D3 — `rationale` is REQUIRED (breaking contract)
+  # ═══════════════════════════════════════════════════════════════════════
+
+  describe "GH 2531 -- required rationale" do
+    test "missing, null, non-string and blank rationale give 422 'rationale is required' and install nothing; a valid one gives 201" do
+      %{tenant_id: tenant_id, schema_name: prefix} =
+        TenantFixture.provisioned_tenant!(slug_prefix: "gh2531-mod")
+
+      for body <- [
+            %{"module_id" => "fixture"},
+            %{"module_id" => "fixture", "rationale" => nil},
+            %{"module_id" => "fixture", "rationale" => 7},
+            %{"module_id" => "fixture", "rationale" => ""},
+            %{"module_id" => "fixture", "rationale" => "   "}
+          ] do
+        conn = install_raw(tenant_id, ["TENANT_ADMIN"], body)
+        assert conn.status == 422, "#{inspect(body)}: #{conn.status} #{conn.resp_body}"
+        assert json(conn)["detail"] == "rationale is required"
+        assert Installs.list_installed(prefix: prefix) == []
+      end
+
+      conn =
+        install_raw(tenant_id, ["TENANT_ADMIN"], %{
+          "module_id" => "fixture",
+          "rationale" => "enable the fixture module for the pilot"
+        })
+
+      assert conn.status == 201, conn.resp_body
+      assert [%TenantModule{module_id: "fixture"}] = Installs.list_installed(prefix: prefix)
+    end
+
+    test "the body's rationale reaches on_install/3 verbatim (never replaced or trimmed by the router)" do
+      %{tenant_id: tenant_id} = TenantFixture.provisioned_tenant!(slug_prefix: "gh2531-mod-ctx")
+      Process.delete({Letflow.Modules.FixtureCtxRecorder, :ctx})
+      rationale = "  turn on the recorder for the pilot  "
+
+      conn =
+        install_raw(tenant_id, ["TENANT_ADMIN"], %{
+          "module_id" => "fixture_ctx_recorder",
+          "rationale" => rationale
+        })
+
+      assert conn.status == 201, conn.resp_body
+
+      assert %{rationale: ^rationale, actor_id: actor_id} =
+               Process.get({Letflow.Modules.FixtureCtxRecorder, :ctx})
+
+      assert actor_id == conn.assigns.auth_context.user_id
     end
   end
 end

@@ -435,6 +435,9 @@ defmodule Letflow.Definitions.Graph do
   `Letflow.Definitions.FormSchemaExpressions`)
   plus CHK-21 (`check_human_task_escalation/1`, REQ-396 — HUMAN_TASK's
   optional co-required `escalation_timer_duration`/`escalation_role` pair)
+  plus CHK-28 (`check_human_task_reminder/1`, REQ-494 — HUMAN_TASK's optional
+  co-required `reminder_timer_duration`/`reminder_role` pair and its optional
+  `reminder_repeat_interval`/`reminder_repeat_count` recurrence)
   plus CHK-25 (`check_required_outputs/1`, REQ-461 — the optional
   `required_outputs` attribute is a duplicate-free list of non-empty strings,
   and only on a HUMAN_TASK)
@@ -459,6 +462,7 @@ defmodule Letflow.Definitions.Graph do
         &check_sub_process_interface/1,
         &check_form_schema_expressions/1,
         &check_human_task_escalation/1,
+        &check_human_task_reminder/1,
         &check_required_outputs/1,
         &check_distinct_from/1,
         &check_distinct_from_position/1
@@ -1130,6 +1134,112 @@ defmodule Letflow.Definitions.Graph do
 
   defp human_task_escalation_violations(_node, _attrs), do: []
 
+  # CHK-28 (REQ-494 design §6.1): a HUMAN_TASK node's optional reminder
+  # attributes. Two independent parts, each yielding at most one violation
+  # (first matching rule wins): the co-required
+  # reminder_timer_duration/reminder_role pair (stricter than CHK-21 -- a
+  # non-binary duration is invalid), and the optional
+  # reminder_repeat_interval/reminder_repeat_count recurrence, which needs the
+  # pair, a fixed-length positive interval (parse_reminder_repeat_interval/1)
+  # and an integer count in 1..50. `nil` is treated as absent. Reminder keys on
+  # other node types are ignored (the emitter is HUMAN_TASK-only).
+  @spec check_human_task_reminder(t()) :: [Violation.t()]
+  defp check_human_task_reminder(%__MODULE__{nodes: nodes}) do
+    nodes
+    |> Enum.filter(&(&1.node_type == :HUMAN_TASK))
+    |> Enum.flat_map(&human_task_reminder_violations(&1, &1.attributes || %{}))
+  end
+
+  # Non-map attributes -> [] for the same totality reason as
+  # human_task_escalation_violations/2 above.
+  @spec human_task_reminder_violations(Node.t(), map() | nil | term()) :: [Violation.t()]
+  defp human_task_reminder_violations(node, attrs) when is_map(attrs) do
+    reminder_pair_violations(node, attrs) ++ reminder_repeat_violations(node, attrs)
+  end
+
+  defp human_task_reminder_violations(_node, _attrs), do: []
+
+  @spec reminder_pair_violations(Node.t(), map()) :: [Violation.t()]
+  defp reminder_pair_violations(node, attrs) do
+    raw_duration = Map.get(attrs, "reminder_timer_duration")
+    raw_role = Map.get(attrs, "reminder_role")
+    has_role = is_binary(raw_role) and String.trim(raw_role) != ""
+
+    cond do
+      not is_nil(raw_duration) and
+          not (is_binary(raw_duration) and valid_iso8601_duration?(raw_duration)) ->
+        [
+          %Violation{
+            code: :invalid_reminder_timer,
+            message:
+              "Node '#{node.id}' (HUMAN_TASK) has an invalid 'reminder_timer_duration' attribute (#{inspect(raw_duration)}); must be a valid ISO-8601 duration string"
+          }
+        ]
+
+      not is_nil(raw_duration) and not has_role ->
+        [
+          %Violation{
+            code: :missing_reminder_role,
+            message:
+              "Node '#{node.id}' (HUMAN_TASK) has 'reminder_timer_duration' but is missing a non-empty 'reminder_role' attribute"
+          }
+        ]
+
+      is_nil(raw_duration) and not is_nil(raw_role) ->
+        [
+          %Violation{
+            code: :missing_reminder_timer_duration,
+            message:
+              "Node '#{node.id}' (HUMAN_TASK) has 'reminder_role' but is missing 'reminder_timer_duration'"
+          }
+        ]
+
+      true ->
+        []
+    end
+  end
+
+  @spec reminder_repeat_violations(Node.t(), map()) :: [Violation.t()]
+  defp reminder_repeat_violations(node, attrs) do
+    interval = Map.get(attrs, "reminder_repeat_interval")
+    count = Map.get(attrs, "reminder_repeat_count")
+
+    reason =
+      cond do
+        is_nil(interval) and is_nil(count) ->
+          nil
+
+        is_nil(Map.get(attrs, "reminder_timer_duration")) or
+            is_nil(Map.get(attrs, "reminder_role")) ->
+          "'reminder_repeat_interval'/'reminder_repeat_count' require both 'reminder_timer_duration' and 'reminder_role'"
+
+        not is_nil(count) and is_nil(interval) ->
+          "has 'reminder_repeat_count' but is missing 'reminder_repeat_interval'"
+
+        not is_nil(interval) and parse_reminder_repeat_interval(interval) == :error ->
+          "has an invalid 'reminder_repeat_interval' (#{inspect(interval)}); only fixed-length units (W, D, H, M after T, S) greater than zero are allowed"
+
+        not is_nil(count) and not (is_integer(count) and count in 1..50) ->
+          "has an invalid 'reminder_repeat_count' (#{inspect(count)}); must be an integer from 1 to 50"
+
+        true ->
+          nil
+      end
+
+    case reason do
+      nil ->
+        []
+
+      reason ->
+        [
+          %Violation{
+            code: :invalid_reminder_repeat,
+            message: "Node '#{node.id}' (HUMAN_TASK) #{reason}"
+          }
+        ]
+    end
+  end
+
   # CHK-25 (REQ-461 check 1, REQ-459 design section 1.2): the optional
   # "required_outputs" attribute is a list of non-empty strings without
   # duplicates, and is only legal on a HUMAN_TASK. One violation per defect;
@@ -1508,6 +1618,37 @@ defmodule Letflow.Definitions.Graph do
   end
 
   def parse_iso8601_duration(_str), do: :error
+
+  @doc """
+  REQ-494 design §6.2 -- parses a HUMAN_TASK's `reminder_repeat_interval`
+  into a positive number of seconds. Returns `{:ok, seconds}` iff the value
+  is a binary that `valid_iso8601_duration?/1` accepts, whose date part (the
+  text between `P` and the first `T`, or after `P` when there is no `T`)
+  contains neither `"Y"` nor `"M"`, and whose total is greater than zero;
+  `:error` otherwise. The explicit Y/M rejection is load-bearing:
+  `parse_iso8601_duration/1` silently maps `Y` to 365 days and date-part `M`
+  to 30 days, which a recurrence interval must not do. `"PT1M"` (minutes)
+  is accepted. The single shared source for CHK-28 and
+  `Letflow.Engine`'s reminder arm, so the two cannot drift. Pure.
+  """
+  @spec parse_reminder_repeat_interval(term()) :: {:ok, pos_integer()} | :error
+  def parse_reminder_repeat_interval(value) when is_binary(value) do
+    date_part =
+      value
+      |> String.slice(1, String.length(value))
+      |> String.split("T", parts: 2)
+      |> hd()
+
+    with true <- valid_iso8601_duration?(value),
+         false <- String.contains?(date_part, ["Y", "M"]),
+         {:ok, seconds} when seconds > 0 <- parse_iso8601_duration(value) do
+      {:ok, seconds}
+    else
+      _ -> :error
+    end
+  end
+
+  def parse_reminder_repeat_interval(_value), do: :error
 
   @spec wrap_seconds(non_neg_integer() | :error) :: {:ok, non_neg_integer()} | :error
   defp wrap_seconds(:error), do: :error
