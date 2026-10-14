@@ -129,20 +129,24 @@ defmodule Letflow.Scripts.Validation do
 
   defp reads(list, input_schema) when is_list(list) and length(list) <= @max_reads do
     properties = Map.get(input_schema, "properties", %{})
-    names = Enum.map(list, &(is_map(&1) && Map.get(&1, "name")))
 
-    with true <- Enum.all?(list, &read_entry?(&1, properties)),
-         true <- Enum.uniq(names) == names,
-         true <- list |> Enum.map(&row_cap/1) |> Enum.sum() <= @max_read_rows,
-         # Reserved: read results are delivered under input["reads"][name].
-         false <- Map.has_key?(properties, "reads") do
-      :ok
-    else
-      _ -> :error
+    cond do
+      not Enum.all?(list, &read_entry?(&1, properties)) -> :error
+      # From here on every entry is a valid map with a "name".
+      not unique_names?(list) -> :error
+      list |> Enum.map(&row_cap/1) |> Enum.sum() > @max_read_rows -> :error
+      # Reserved: read results are delivered under input["reads"][name].
+      Map.has_key?(properties, "reads") -> :error
+      true -> :ok
     end
   end
 
   defp reads(_other, _input_schema), do: :error
+
+  defp unique_names?(entries) do
+    names = Enum.map(entries, &Map.fetch!(&1, "name"))
+    Enum.uniq(names) == names
+  end
 
   defp read_entry?(
          %{"name" => name, "entity_type" => entity_type, "match" => match, "fields" => fields} =

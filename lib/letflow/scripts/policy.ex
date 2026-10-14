@@ -60,6 +60,7 @@ defmodule Letflow.Scripts.Policy do
           | :too_many_masters
           | :reads_not_allowed
           | :scripts_disabled
+          | :policy_missing
           | :audit_failed
 
   # ── reads (6.1) ────────────────────────────────────────────────────────────
@@ -188,7 +189,7 @@ defmodule Letflow.Scripts.Policy do
     definition.definition_json
     |> field_defs()
     |> Enum.flat_map(fn field ->
-      case Map.get(field, "name") || Map.get(field, :name) do
+      case Map.get(field, "name") do
         name when is_binary(name) -> [name]
         _ -> []
       end
@@ -196,8 +197,8 @@ defmodule Letflow.Scripts.Policy do
     |> MapSet.new()
   end
 
+  # `definition_json` is always read back from jsonb here (string keys).
   defp field_defs(%{"fields" => fields}) when is_list(fields), do: Enum.filter(fields, &is_map/1)
-  defp field_defs(%{fields: fields}) when is_list(fields), do: Enum.filter(fields, &is_map/1)
   defp field_defs(_definition_json), do: []
 
   # P12 / SEC F1: the same table FieldGrants.load_restrictions/3 reads, WITHOUT its per-user
@@ -249,7 +250,7 @@ defmodule Letflow.Scripts.Policy do
 
   @doc """
   Flips the TENANT latch. Order: OIDC credential, boolean `on` (`:invalid_state`), reason
-  (`:invalid_reason`); then, under `FOR UPDATE` on the row, a no-op returns the row unchanged
+  (`:invalid_reason`); then, under `FOR UPDATE` on the row (absent: `:policy_missing`), a no-op returns the row unchanged
   (P9), else the latch, its user, time and reason are written and audited.
   """
   @spec set_tenant_kill_switch(String.t(), term(), term(), tenant_actor()) ::
@@ -298,7 +299,7 @@ defmodule Letflow.Scripts.Policy do
   Flips the PLATFORM latch of the tenant whose schema is `prefix` (`tenant_id` is that
   tenant's id, from the DB-resolved target). Same order as the tenant latch, plus a binary
   `operator.platform_prefix` (else `:audit_failed`, nothing written: the ISS-1032 fail-closed
-  rule). In one transaction: the row `FOR UPDATE`, the update, a TENANT-chain entry with a nil
+  rule). In one transaction: the row `FOR UPDATE` (absent: `:policy_missing`), the update, a TENANT-chain entry with a nil
   actor, nil trace id and `actor_class: platform_operator`, then a PLATFORM-chain entry
   carrying the operator id (lock order: policy row, tenant chain, platform chain).
   """
@@ -516,7 +517,8 @@ defmodule Letflow.Scripts.Policy do
 
     case Repo.one(query, prefix: prefix) do
       %ScriptPolicy{} = policy -> policy
-      nil -> Repo.rollback(:not_found)
+      # A missing row is a provisioning defect (P7): 500 on every route, never a 404.
+      nil -> Repo.rollback(:policy_missing)
     end
   end
 

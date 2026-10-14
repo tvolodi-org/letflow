@@ -93,7 +93,9 @@ defmodule Letflow.Routers.ScriptPolicy do
   defp reply(conn, {:error, :api_token_not_allowed}, _builder),
     do: Response.forbidden(conn, "api_token_not_allowed")
 
-  defp reply(conn, {:error, :audit_failed}, _builder), do: Response.internal_error(conn)
+  # :policy_missing: the policy row is absent (provisioning defect), as GET: 500.
+  defp reply(conn, {:error, code}, _builder) when code in [:audit_failed, :policy_missing],
+    do: Response.internal_error(conn)
 
   defp reply(conn, {:error, code}, _builder)
        when code in [

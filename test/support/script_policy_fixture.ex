@@ -188,6 +188,53 @@ defmodule Letflow.Support.ScriptPolicyFixture do
     |> Repo.all(prefix: schema)
   end
 
+  # ── query probe (test-only; no production seam) ─────────────────────────────
+
+  @probe_key {__MODULE__, :probe}
+
+  @doc """
+  Attaches a `[:letflow, :repo, :query]` handler for the calling test (detached `on_exit`).
+  Ecto emits the event in the process that ran the query, AFTER the query returned (so a lock
+  it took is held). In a process armed with `arm_probe/2`, the first query whose SQL satisfies
+  the armed predicate sends `{:probe_hit, pid}` to the test and blocks that process (inside its
+  transaction, if any) until it receives `:probe_continue`.
+  """
+  @spec attach_probe!() :: :ok
+  def attach_probe! do
+    handler_id = {__MODULE__, make_ref()}
+
+    :ok =
+      :telemetry.attach(handler_id, [:letflow, :repo, :query], &__MODULE__.handle_probe/4, nil)
+
+    ExUnit.Callbacks.on_exit(fn -> :telemetry.detach(handler_id) end)
+    :ok
+  end
+
+  @doc "Arms the probe in the CALLING process (the one whose query must be caught)."
+  @spec arm_probe(pid(), (String.t() -> boolean())) :: :ok
+  def arm_probe(test_pid, predicate) when is_function(predicate, 1) do
+    Process.put(@probe_key, {test_pid, predicate})
+    :ok
+  end
+
+  @doc false
+  def handle_probe(_event, _measurements, metadata, _config) do
+    with {test_pid, predicate} <- Process.get(@probe_key),
+         query when is_binary(query) <- Map.get(metadata, :query),
+         true <- predicate.(query) do
+      Process.delete(@probe_key)
+      send(test_pid, {:probe_hit, self()})
+
+      receive do
+        :probe_continue -> :ok
+      after
+        15_000 -> :ok
+      end
+    end
+
+    :ok
+  end
+
   @doc "Every `script_policy.*` entry in `schema`'s chain."
   @spec policy_entries(String.t()) :: [Entry.t()]
   def policy_entries(schema) do

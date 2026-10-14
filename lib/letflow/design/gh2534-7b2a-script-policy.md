@@ -222,7 +222,7 @@ Actor maps (built only from the DB-resolved auth context):
 
 Errors (stable atoms, nothing echoes input): `:not_found | :api_token_not_allowed |
 :invalid_reason | :invalid_state | :unknown_entity_type | :entity_type_restricted |
-:too_many_masters | :reads_not_allowed | :scripts_disabled | :audit_failed`.
+:too_many_masters | :reads_not_allowed | :scripts_disabled | :policy_missing | :audit_failed`.
 
 ### 6.1 Reads
 
@@ -243,7 +243,7 @@ Errors (stable atoms, nothing echoes input): `:not_found | :api_token_not_allowe
 * `set_tenant_kill_switch(prefix, on :: boolean(), reason, tenant_actor) :: {:ok, ScriptPolicy.t()} | {:error, error}`
   Order: `credential == :oidc` (else `:api_token_not_allowed`); `on` boolean (else
   `:invalid_state`); `Validation.reason/1`. One transaction: `SELECT ... FOR UPDATE` row 1 (absent
-  -> rollback `:not_found`); equal state -> return row, no write (P9); else update
+  -> rollback `:policy_missing`, see the missing-row rule in 9.1); equal state -> return row, no write (P9); else update
   `tenant_kill_switch`, `_set_by = user_id`, `_set_at = now`, `_reason`; audit (section 7).
 * `set_platform_kill_switch(prefix, tenant_id, on, reason, operator) :: same`
   Same order plus `operator.platform_prefix` binary (else `:audit_failed`, nothing written: the
@@ -326,6 +326,11 @@ retried; D7) and carry a stable DETAIL code [CDV 1]:
 * Status mapping: `:api_token_not_allowed` 403; `:invalid_reason`, `:invalid_state`,
   `:unknown_entity_type`, `:entity_type_restricted`, `:too_many_masters` 422 with the code;
   `:not_found` plain 404; `:audit_failed` 500. Bodies never echo values.
+* Missing-row rule (REVIEWER F1, 2026-10-14): a missing `script_policy` row is a provisioning
+  defect (P7), never an unknown resource: it answers **500** on every route that needs the row,
+  the GET (`get/1` `:not_found`) AND the latch writes (`lock_policy!` rolls back
+  `:policy_missing`), on the tenant route and the platform route alike, with nothing written or
+  audited. Never a 404 (which would read as "no such tenant"), never a fabricated row.
 
 ### 9.2 Platform: added to `Letflow.Routers.Tenants` (mount `/tenants`)
 
@@ -339,7 +344,12 @@ retried; D7) and carry a stable DETAIL code [CDV 1]:
 `tenant_kill_switch_set_by`.
 
 Handler order (both): `TenantTarget.authorize_target_tenant/2` -> `Identity.get_tenant_by_slug/1`
--> `TenantProvisioning.schema_name_for_tenant(tenant.id)` (any failure: the existing plain 404);
+-> the tenant's `TenantProvisioning.Registration` row (its `schema_name`), looked up as
+`Identity.patch_tenant/3` does (any failure: the existing plain 404). Implementation note
+(2026-10-14): NOT `schema_name_for_tenant/1`, which is pure (derives a name from the id) and so
+would "succeed" for a tenant row with no provisioned schema; the Registration lookup makes an
+unprovisioned tenant the same plain 404 as an unknown slug instead of a query against a missing
+schema. A provisioned tenant whose policy row is missing is 500 (missing-row rule, 9.1);
 PUT then builds `operator` with `platform_prefix: verified_platform_prefix(conn)` (existing private
 function) and calls `set_platform_kill_switch/5`. Unchanged `authz_unmatched(:platform_prefix)`.
 

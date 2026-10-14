@@ -462,10 +462,9 @@ defmodule Letflow.Routers.Tenants do
           {:error, code} when code in [:invalid_reason, :invalid_state] ->
             Response.unprocessable(conn, Atom.to_string(code))
 
-          {:error, :not_found} ->
-            Response.not_found(conn)
-
-          {:error, _audit_failed_or_unexpected} ->
+          # :policy_missing (a provisioned tenant without its policy row, a provisioning
+          # defect, as the GET), :audit_failed or anything unexpected: 500, nothing written.
+          {:error, _policy_missing_audit_failed_or_unexpected} ->
             Response.internal_error(conn)
         end
 

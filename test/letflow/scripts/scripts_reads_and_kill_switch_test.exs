@@ -358,6 +358,31 @@ defmodule Letflow.Scripts.ScriptsReadsAndKillSwitchTest do
       assert status(ctx.schema, rule) == "draft"
     end
 
+    test "a switch committed after the stored tests, while the publish holds its row lock, is caught inside the publish transaction",
+         ctx do
+      # ONE case: the per-case check runs once, BEFORE the switch flips, so only the check
+      # inside the transaction (after lock_row!/3) can refuse this publish.
+      rule = draft!(ctx.schema, [cust()], %{"test_cases" => [hd(@two_cases)]})
+      SP.attach_probe!()
+      test_pid = self()
+
+      publisher =
+        Task.async(fn ->
+          SP.arm_probe(test_pid, &(&1 =~ ~s("script_rules") and &1 =~ "FOR UPDATE"))
+          publish(ctx.schema, rule)
+        end)
+
+      assert_receive {:probe_hit, publisher_pid}, 15_000
+
+      # flipped and COMMITTED by another process while the publisher holds the row lock
+      Task.async(fn -> SP.kill_switch!(ctx.schema, true) end) |> Task.await(15_000)
+      assert Policy.kill_switch_on?(ctx.schema)
+
+      send(publisher_pid, :probe_continue)
+      assert Task.await(publisher, 15_000) == {:error, :scripts_disabled}
+      assert status(ctx.schema, rule) == "draft"
+    end
+
     test "the :before_case seam is ignored unless :scripts_test_hooks is true", ctx do
       original = Application.fetch_env(:letflow, :scripts_test_hooks)
 

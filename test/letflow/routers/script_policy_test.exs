@@ -201,7 +201,8 @@ defmodule Letflow.Routers.ScriptPolicyTest do
       assert SP.policy_entries(ctx.a.schema_name) == []
     end
 
-    test "a missing policy row is a 500 on GET (never fabricated)", ctx do
+    test "a missing policy row is a 500 on GET and on the PUT (never fabricated, never a 404), nothing audited",
+         ctx do
       schema = ctx.a.schema_name
       Repo.query!(~s(ALTER TABLE "#{schema}".script_policy DISABLE TRIGGER script_policy_guard))
 
@@ -210,7 +211,9 @@ defmodule Letflow.Routers.ScriptPolicyTest do
         assert policy_call(:get, "/", ctx.a, @admin, nil).status == 500
 
         assert policy_call(:put, "/kill-switch", ctx.a, @admin, %{"on" => true, "reason" => "r"}).status ==
-                 404
+                 500
+
+        assert SP.policy_entries(schema) == []
       after
         Repo.query!(
           ~s|INSERT INTO "#{schema}".script_policy (id, inserted_at, updated_at) VALUES (1, now(), now()) ON CONFLICT DO NOTHING|

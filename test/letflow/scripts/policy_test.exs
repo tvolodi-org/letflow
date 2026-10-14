@@ -63,6 +63,18 @@ defmodule Letflow.Scripts.PolicyTest do
   # ── AC1 ────────────────────────────────────────────────────────────────────
 
   describe "AC1: migration" do
+    test "SEC F1: a tenant provisioned through the REAL migration replay (no template clone) has the singleton row" do
+      replayed =
+        Letflow.TenantFixture.provisioned_tenant!(slug_prefix: "gh2534-replay", template: :replay)
+
+      assert {:ok, %ScriptPolicy{id: 1, tenant_kill_switch: false, platform_kill_switch: false}} =
+               Policy.get(replayed.schema_name)
+
+      assert Repo.aggregate(ScriptPolicy, :count, prefix: replayed.schema_name) == 1
+      refute Policy.kill_switch_on?(replayed.schema_name)
+      assert Policy.list_readable_masters(replayed.schema_name) == []
+    end
+
     test "the singleton row exists after provisioning with both latches off; replay is idempotent",
          ctx do
       assert {:ok, %ScriptPolicy{id: 1} = row} = Policy.get(ctx.a.schema_name)
@@ -328,7 +340,8 @@ defmodule Letflow.Scripts.PolicyTest do
   # ── AC13 ───────────────────────────────────────────────────────────────────
 
   describe "AC13: fail closed" do
-    test "kill_switch_on?/1 is true and get/1 is :not_found when the row is absent", ctx do
+    test "kill_switch_on?/1 is true, get/1 is :not_found and both latch writes are :policy_missing when the row is absent",
+         ctx do
       schema = ctx.a.schema_name
 
       Repo.query!(~s(ALTER TABLE "#{schema}".script_policy DISABLE TRIGGER script_policy_guard))
@@ -339,7 +352,18 @@ defmodule Letflow.Scripts.PolicyTest do
         assert Policy.get(schema) == {:error, :not_found}
 
         assert Policy.set_tenant_kill_switch(schema, true, "x", SP.actor()) ==
-                 {:error, :not_found}
+                 {:error, :policy_missing}
+
+        operator = %{
+          user_id: Ecto.UUID.generate(),
+          credential: :oidc,
+          platform_prefix: ctx.b.schema_name
+        }
+
+        assert Policy.set_platform_kill_switch(schema, ctx.a.tenant_id, true, "x", operator) ==
+                 {:error, :policy_missing}
+
+        assert SP.policy_entries(schema) == []
       after
         Repo.query!(
           ~s|INSERT INTO "#{schema}".script_policy (id, inserted_at, updated_at) VALUES (1, now(), now()) ON CONFLICT DO NOTHING|
@@ -480,37 +504,20 @@ defmodule Letflow.Scripts.PolicyTest do
                  SP.actor()
                )
 
+      # The REAL Scripts.publish/7 runs in a task; the query probe stops it right after its
+      # in-transaction `script_readable_masters ... FOR SHARE` read (the lock is then held).
+      # Without `lock: :share` that query never appears and the probe never fires.
+      SP.attach_probe!()
       test_pid = self()
 
       publisher =
         Task.async(fn ->
-          Repo.transaction(fn ->
-            :ok = Policy.check_reads(schema, draft.manifest, lock: :share)
-
-            {1, _} =
-              Repo.update_all(
-                from(r in ScriptRule, where: r.key == ^k and r.version == 1),
-                [
-                  set: [
-                    status: "published",
-                    publisher_id: Ecto.UUID.generate(),
-                    published_at: DateTime.utc_now()
-                  ]
-                ],
-                prefix: schema
-              )
-
-            send(test_pid, :share_lock_held)
-
-            receive do
-              :commit -> :ok
-            after
-              10_000 -> Repo.rollback(:timeout)
-            end
-          end)
+          SP.arm_probe(test_pid, &(&1 =~ "script_readable_masters" and &1 =~ "FOR SHARE"))
+          Scripts.publish(schema, k, 1, draft.sha256, SP.actor(), true)
         end)
 
-      assert_receive :share_lock_held, 10_000
+      assert_receive {:probe_hit, publisher_pid}, 15_000
+      assert publisher_pid == publisher.pid
 
       clearer =
         Task.async(fn ->
@@ -520,8 +527,8 @@ defmodule Letflow.Scripts.PolicyTest do
       # still waiting on the share lock
       assert Task.yield(clearer, 500) == nil
 
-      send(publisher.pid, :commit)
-      assert {:ok, :ok} = Task.await(publisher, 10_000)
+      send(publisher_pid, :probe_continue)
+      assert {:ok, %ScriptRule{status: "published"}} = Task.await(publisher, 15_000)
 
       assert {:ok, %{referenced_by: refs, referenced_total: 1}} = Task.await(clearer, 10_000)
       assert refs == [%{key: k, version: 1, status: "published"}]

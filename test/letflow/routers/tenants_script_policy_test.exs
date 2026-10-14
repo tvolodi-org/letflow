@@ -175,6 +175,38 @@ defmodule Letflow.Routers.TenantsScriptPolicyTest do
       assert SP.policy_entries(ctx.a.schema_name) == []
     end
 
+    test "a provisioned tenant without its policy row is a 500 on the GET and the PUT, nothing written",
+         ctx do
+      schema = ctx.a.schema_name
+      Repo.query!(~s(ALTER TABLE "#{schema}".script_policy DISABLE TRIGGER script_policy_guard))
+
+      try do
+        Repo.delete_all(ScriptPolicy, prefix: schema)
+
+        assert call(:get, "/#{ctx.a.tenant.slug}/script-policy", ctx.p, @operator, nil).status ==
+                 500
+
+        put =
+          call(
+            :put,
+            "/#{ctx.a.tenant.slug}/script-policy/kill-switch",
+            ctx.p,
+            @operator,
+            %{"on" => true, "reason" => "r"}
+          )
+
+        assert put.status == 500
+        assert SP.policy_entries(schema) == []
+        assert SP.entries(ctx.p.schema_name, "platform.tenant_script_kill_switch.set") == []
+      after
+        Repo.query!(
+          ~s|INSERT INTO "#{schema}".script_policy (id, inserted_at, updated_at) VALUES (1, now(), now()) ON CONFLICT DO NOTHING|
+        )
+
+        Repo.query!(~s(ALTER TABLE "#{schema}".script_policy ENABLE TRIGGER script_policy_guard))
+      end
+    end
+
     test "an unknown slug and an unprovisioned tenant are the plain 404", ctx do
       {:ok, unprovisioned} =
         Identity.create_tenant(%{
