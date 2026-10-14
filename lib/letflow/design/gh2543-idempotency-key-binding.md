@@ -42,10 +42,35 @@ non-entity or wrong-command original fails on the event_type check, before any p
   raise at compare time, because this call's own `Jason.encode!` already succeeded before the
   transaction. Keys become strings (atom and string keys match); `Date`/`DateTime`/`Decimal`
   and atom values become the strings Jason emits; `true`/`false`/`nil` stay.
-- The stored side is used as decoded from jsonb (Postgrex/Jason).
-- Equality is Erlang `==` (never `===`, never a pattern match): map key order is irrelevant;
-  JSON numbers compare numerically (`1 == 1.0` is the same request; jsonb may return `1e2` as
-  `100`); keys, strings, list order and the key set are compared exactly.
+- The stored side is used as decoded from jsonb (Postgrex/Jason). It is **not** the same as
+  `canonical/1`: jsonb prints exponent floats as plain decimals. For example, Jason writes
+  `12345678901234567890.5` as `1.2345678901234567e19`, jsonb returns `12345678901234567000`,
+  and Jason decodes that as an **integer**. Plain `==` would then call an identical replay
+  different (`1.0e23` vs `100000000000000000000000` is also `false`).
+- **Equality is the recursive comparator `json_equal?(stored, request)`, never bare `==`.**
+  This is option (a); the rules are below.
+  - Two maps match when they have the same key set (keys compared with `==`) and every value
+    matches under `json_equal?`. Key order is irrelevant.
+  - Two lists match when they have the same length and match element by element, in order.
+  - Integer vs integer, or float vs float: `==`.
+  - Integer `i` vs float `f`, in either order: match if `i == f`, or if
+    `abs(i) <= 1.7976931348623157e308 and :erlang.float(i) == f`.
+    - The `abs`/`<=` guard compares a bignum with a float without converting it, so it cannot
+      raise. `:erlang.float/1` is only reached inside the finite double range, so it cannot
+      raise `badarg` (INV-8).
+    - Why this is exact: Jason writes the shortest decimal that round-trips to `f`, and jsonb
+      keeps that decimal's exact value. Converting the decoded integer back to a float
+      therefore gives `f` again.
+  - Anything else (string, boolean, `nil`, or mismatched types): `==`, so a string `"1"` never
+    matches the number `1`.
+- Why (a) rather than (b), a jsonb round-trip of the request side:
+  - (a) is pure and needs no DB call, no SQL fragment (INV-7 trivially satisfied) and no
+    transaction.
+  - (b) would add a query on the duplicate path. The transaction has already rolled back by
+    then (`:idempotency` halts it), so (b) would need a new query outside it for a purely
+    numeric difference that (a) handles exactly.
+  - What (a) treats as the same request: `1` and `1.0`, and `1.0e23` and
+    `100000000000000000000000`. Each pair is the same JSON number.
 - UUIDs (`record_id`, `actor_id`): both sides through `Ecto.UUID.cast/1` (lowercase canonical);
   a cast `:error` on either side means "not same". `entity_type`/`event_type`: exact `==`.
 
@@ -75,6 +100,7 @@ function heads stay the same.
         {:ok, Event.t()} | {:error, {:payload_resolution_failed, Ecto.UUID.t()}}
 @spec same_request?(resolved :: Event.t(), request_fingerprint()) :: boolean()
 @spec canonical_json(term()) :: term()
+@spec json_equal?(stored :: term(), request :: term()) :: boolean()   # section 3 rules; never raises
 @spec same_uuid?(term(), term()) :: boolean()
 ```
 
@@ -101,7 +127,9 @@ Steps:
    calls `resolve_original_payload/2`, then `same_request?/2`, which returns `false` on a
    mismatch.
 5. `resolve_original_payload/2`:
-   - A payload that is not `%{"$ref" => ref}` comes back unchanged.
+   - The ref pattern is exactly the single-key map the EventStore writes
+     (event_store.ex:720): `%{"$ref" => ref} = payload when map_size(payload) == 1 and
+     is_binary(ref)`. Any other payload, including an entity payload, comes back unchanged.
    - For a `$ref` payload it runs one Ecto query on `Letflow.EventStore.StoredPayload` with
      `event_id == ^ref`, selects `payload`, and passes `prefix: prefix` (INV-7: no
      interpolation). This mirrors `Reconstruction.resolve_live_payloads/2`
@@ -112,7 +140,8 @@ Steps:
      catch-all turns that into a 500 with no detail (INV-8). It is not reachable while the FK
      holds.
 6. `same_request?/2` uses `Map.fetch/2` on the payload, so a missing key means "not same".
-   It applies the section 2/3 rules.
+   It applies the section 2 rules and compares `field_values` with
+   `json_equal?(payload["field_values"], fp.field_values)` (section 3).
 7. The moduledoc gains a section "Idempotency key binding (GH #2543)" that restates D1-D8. The
    `@doc` of `create_record/2` (step 6, records.ex:177-178) and of `update_record/2`
    (records.ex:213-218) are reworded: "the same request" instead of "a duplicate key".
@@ -183,6 +212,8 @@ test/letflow/entities/records_test.exs (R*); router tests (H*) in test/letflow/r
 |---|---|---|
 | Binding plus stable error | D1, D4, section 2 | R `update key reused for a different record_id -> idempotency_key_reuse, target unchanged, no event` |
 | | | R `create key reused for update -> reuse`; R `create key reused for delete -> reuse` |
+| | | R `delete key reused against a different record_id -> reuse, second record not deleted, no event` |
+| | | R `oversized original reused with different field_values -> reuse, no event` (D3) |
 | | | R `create key reused with different field_values -> reuse`; R `update key reused with different field_values -> reuse` |
 | | | R `create key reused on another entity type with identical field_values -> reuse` |
 | | | R `same key and payload from another actor -> reuse` |
@@ -190,11 +221,12 @@ test/letflow/entities/records_test.exs (R*); router tests (H*) in test/letflow/r
 | No original data, fixed status | D6, section 5 | H `POST reuse -> 422, body is exactly the constant problem, contains neither the original record_id nor its field values`; H `PUT reuse -> 422 idempotency_key_reuse`; test/letflow/api/error_test.exs `idempotency_key_reuse/0 builds the 422 document` |
 | Same-request replay stays idempotent | D5, section 3 | Existing AC3 test (records_test.exs:253-273); existing `identical replay ...` (records_test.exs:945-960) |
 | | | R `replay with reordered keys and 1 vs 1.0 -> is_duplicate: true, one event` |
+| | | R `replay with a float >= 2^53 (1.0e23 and 12345678901234567890.5) -> is_duplicate: true, one event` (section 3) |
 | | | R `same values, different stale expected -> is_duplicate: true` |
 | | | R `oversized (> 4096 B payload) create replay -> is_duplicate: true, full field_values` (D3) |
 | | | H `POST replay -> 201 with the same record_id` |
 | Backward compatibility | D7, section 6 | R `:target create with different values -> original, is_duplicate: true`; R `:target create on another type -> reuse`; R `invalid idempotency_match raises ArgumentError` |
-| | | Unchanged suites: certificate_test, session_test, anti_cheat_test, record_deadline_sweep_test, entities_test import dedup |
+| | | Unchanged suites: certificate_test, session_test, anti_cheat_test, record_deadline_sweep_test, test/mix/tasks/letflow.seed.exam_fixtures_test.exs, entities_test import dedup |
 | | | H `import: same record_id with different values -> per-entry idempotency_key_reuse` |
 | Payload compared, choice named | D2 | PR body: "existing stored payload compared, no hash, no migration" |
 | Order unchanged | D8 | R `reused key on an append-only type -> entity_append_only` |
@@ -239,11 +271,20 @@ constructing the same state independently" -- every `Records` caller is reviewed
 - **OQ-1:** client keys share a namespace with server-derived keys. A client could POST with
   `"timer_fired:<id>"` or `"certificate:issue:<sid>"` and squat a key that a server writer
   uses later; that writer would then see `is_duplicate: true` and skip its work. This exists
-  today; `EventStore` is not changed here. Recommend a follow-up: prefix client keys in the router.
-- **OQ-2:** squatting a Certificate key under `:target`. A different actor gets reuse, then a
-  500 for the candidate: a denial, not a forgery. The same actor would get the squatted record
-  back, which already happens today. This needs `EntitiesRecordsWrite` on `certificate`.
-  SECURITY-REVIEWER should confirm candidates lack it.
+  today; `EventStore` is not changed here. Tracked by follow-up issues filed via the supervisor.
+- **OQ-2:** squatting a Certificate key under `:target`.
+  - `EntitiesRecordsWrite` is tenant-wide, not per entity type (authorization.ex:79-94). So a
+    POST to **any** entity type with key `certificate:issue:<sid>` claims the key.
+  - Squat by a different type with the same command (`ENTITY_RECORD_CREATED`): the event-type
+    check passes, then the entity_type check fails. Squat by another actor: the actor check
+    fails.
+  - Either way the candidate's issue call gets `:idempotency_key_reuse`, rendered by the exam
+    router's catch-all as a 500. That is a denial, not a forgery, and it is better than today,
+    where the squatted record would be returned as the certificate.
+  - Only a same-actor, same-type squat returns the squatted record. That needs the candidate
+    to hold `EntitiesRecordsWrite`, which only admin roles hold (`PLATFORM_ADMIN` catch-all,
+    and tenant-scope `TENANT_ADMIN`; authorization.ex:1378-1386), not candidates.
+  - Tracked with OQ-1.
 - **OQ-3:** import entries without `record_id` share one key per call. After this change,
   differing entries give a per-entry reuse error where today they are silently dropped.
-  Recommendation: a follow-up keys such entries by entry index; not changed here.
+  Tracked by follow-up issues filed via the supervisor; not changed here.
