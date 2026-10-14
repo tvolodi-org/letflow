@@ -1,0 +1,54 @@
+{
+  "handoff_id": "c4a7d1e0-2583-4a11-8c20-000000000004",
+  "run_id": "WF03-GH2583-RECORDS-GUARD-20261015",
+  "workflow_id": "WF-03",
+  "step": "04",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF03-GH2583-RECORDS-GUARD-20261015/step-04-elixir-dev.json",
+  "created_at": "2026-10-14T21:41:23Z",
+  "started_at": "2026-10-14T21:41:23Z",
+  "completed_at": "2026-10-14T21:45:31Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2583": "managed_by write lock enforced inside Letflow.Entities.Records (design lib/letflow/design/gh2583-records-managed-type-guard.md, Revisions 1 and 2; CODE-DESIGN-VALIDATOR r2 PASS, SECURITY-REVIEWER r3 PASS)."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-2583-4a11-8c20-000000000003"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/gh2583-records-managed-type-guard.md"
+    ],
+    "owned_modules": [
+      "Letflow.Entities.Records",
+      "Letflow.Entities.ManagedTypes",
+      "Letflow.Routers.Entities",
+      "Letflow.Scheduler.RecordDeadlineSweep"
+    ],
+    "worktree": "C:/Users/tvolo/dev/ai-dala/letflow-wt2583",
+    "branch_name": "fix/WF03-GH2583-RECORDS-GUARD-20261015"
+  },
+  "task": {
+    "description": "WF-03 step 4: implement the lib/ and test/support changes of the GH #2583 design. No tests (TEST-DESIGNER), no commit."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "IMPLEMENTED per design sections 3, 4, 5, 6, 11. ManagedTypes: defguard is_authority/1 (:tenant or is_struct(Owner)); check_record_write/3 (pure, four clauses = the section 3.2 table; non-authority third arg -> FunctionClauseError); owner_for!/1 (is_atom guard; ArgumentError if not in Catalog.entry_modules() checked before manifest(); ArgumentError if manages_entity_types absent/[]; else module_owner/1); alias Letflow.Modules.Catalog (new ManagedTypes->Catalog edge); moduledoc 'Who may hold an Owner' + 'Record writes' updated; module_owner doc names owner_for!/1 as caller. Records: create/update/delete_record/3 with head guard `is_binary(prefix) and is_authority(authority)`; /2 = one-line delegate with :tenant; private check_write_authority/3 (@spec, delegates to ManagedTypes.check_record_write/3) placed immediately after fetch_active_definition in all three with-chains (before validate_field_values / ensure_mutable); command_error gains {:error, :entity_type_managed}; each @doc gains the Step 1a paragraph; moduledoc 'Managed types (GH #2583)'. Import is `import Letflow.Entities.ManagedTypes, only: [is_authority: 1]` (fully qualified form, allowed by R1b; placed beside the Ecto.Query import), so T-18 must accept the qualified spelling. Router: render_record_command(:entity_type_managed) -> Error.entity_type_managed() before the catch-alls, mapping-comment row added; import_reason_json(:entity_type_managed) -> %{\"type\" => \"entity_type_managed\"} before the catch-all. RecordDeadlineSweep: moduledoc paragraph only. FixtureManaged: alias ManagedTypes; three Records calls pass ManagedTypes.owner_for!(__MODULE__) as /3 authority; moduledoc says so. VERIFIED: mix deps.get rc=0 (project deps only, worktree had none); MIX_ENV=test mix compile --warnings-as-errors rc=0 (full build 'Compiling 400 files ... Generated letflow app', then incremental 'Compiling 5 files' rc=0 after a format fix); mix format --check-formatted on the 5 touched files fmt_rc=0 (first run flagged the check_write_authority @spec line, fixed); mix letflow.check_boundaries: 'OK -- 1304 edges checked, 0 violations'. NOT RUN: tests. Free RAM was 2.20-2.26 GB, below the 4 GB floor for tests, so entities_managed_by_test, managed_types_test, managed_types_callers_test, record_deadline_sweep_test and exam anti_cheat/certificate/session/exam_sessions tests are unverified; TEST-RUNNER must run them. Risk to flag: existing managed_types_callers_test T-34 (module_owner callers by name) now sees the local module_owner call inside owner_for!/1 in managed_types.ex, which is in its allowed set. No migration, no new route. One foreign BEAM (pid 30892, mix test entities_test.exs, another session) left untouched; no BEAM of mine remains.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "lib/letflow/entities/managed_types.ex",
+      "lib/letflow/entities/records.ex",
+      "lib/letflow/routers/entities.ex",
+      "lib/letflow/scheduler/record_deadline_sweep.ex",
+      "test/support/modules/fixture_managed/fixture_managed.ex"
+    ],
+    "diagnosis_confirmed": true,
+    "implementation_written": true,
+    "classification": "SECURITY_HARDENING"
+  }
+}

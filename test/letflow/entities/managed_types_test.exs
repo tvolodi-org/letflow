@@ -33,6 +33,7 @@ defmodule Letflow.Entities.ManagedTypesTest do
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Modules.FixtureManaged
   alias Letflow.Modules.Installs
+  alias Letflow.Repository.ArtifactVersion
   alias Letflow.Support.PlatformTenantFixture
   alias Letflow.TenantFixture
   alias Letflow.TenantProvisioning.ColumnPromotion
@@ -389,5 +390,180 @@ defmodule Letflow.Entities.ManagedTypesTest do
 
       assert MapSet.size(none) == 0
     end
+  end
+
+  # ── GH #2583 T-10 / T-29 ────────────────────────────────────────────────────────────────────
+  #
+  # Design `lib/letflow/design/gh2583-records-managed-type-guard.md` sections 1 (D8, premise P),
+  # 3.1-3.3 and 10 (T-10, T-29); spec `test/specs/GH-2583.md`.
+
+  @seven [
+    "org_legal_entity",
+    "org_site",
+    "org_unit",
+    "org_unit_membership",
+    "catalog_item",
+    "catalog_uom",
+    "fxm_ledger"
+  ]
+
+  describe "GH #2583 T-10 (AC2): check_record_write/3 and owner_for!/1" do
+    test "check_record_write/3 follows the design section 3.2 table row by row" do
+      owner = ManagedTypes.owner_for!(FixtureManaged)
+      other = %ManagedTypes.Owner{module_id: "other_module", manages: MapSet.new(["org_unit"])}
+
+      # nil + :tenant / nil + any Owner
+      assert ManagedTypes.check_record_write(nil, "fxm_free", :tenant) == :ok
+      assert ManagedTypes.check_record_write(nil, "fxm_free", owner) == :ok
+      assert ManagedTypes.check_record_write(nil, "fxm_free", other) == :ok
+
+      # m + :tenant
+      assert ManagedTypes.check_record_write("fixture_managed", "org_unit", :tenant) ==
+               {:error, :entity_type_managed}
+
+      # m + %Owner{module_id: m} naming the type
+      assert ManagedTypes.check_record_write("fixture_managed", "org_unit", owner) == :ok
+
+      # m + %Owner{module_id: m} NOT naming the type
+      assert ManagedTypes.check_record_write("fixture_managed", "fxm_free", owner) ==
+               {:error, :entity_type_managed}
+
+      # m + %Owner{module_id: other} (even though it names the type)
+      assert ManagedTypes.check_record_write("fixture_managed", "org_unit", other) ==
+               {:error, :entity_type_managed}
+    end
+
+    test "check_record_write/3 raises FunctionClauseError for a non-authority third argument" do
+      bad = [
+        "fixture_managed",
+        %{module_id: "fixture_managed", manages: MapSet.new(["org_unit"])},
+        nil,
+        :owner
+      ]
+
+      for authority <- bad, managed_by <- [nil, "fixture_managed"] do
+        assert_raise FunctionClauseError, fn ->
+          ManagedTypes.check_record_write(managed_by, "org_unit", authority)
+        end
+      end
+    end
+
+    test "owner_for!/1 returns module_owner/1's struct for a registered module declaring managed types" do
+      assert ManagedTypes.owner_for!(FixtureManaged) == ManagedTypes.module_owner(FixtureManaged)
+      assert ManagedTypes.owner_for!(FixtureManaged).module_id == "fixture_managed"
+    end
+
+    test "owner_for!/1 raises for an unregistered module, a module without managed types and a non-atom" do
+      # Registered, but its manifest declares no managed types.
+      assert_raise ArgumentError, ~r/declares no managed entity types/, fn ->
+        ManagedTypes.owner_for!(Letflow.Modules.Fixture)
+      end
+
+      # Not a Catalog entry module: refused BEFORE manifest/0 is called (Records has none, so
+      # reversing the two checks would raise UndefinedFunctionError instead).
+      assert_raise ArgumentError, ~r/not a registered Catalog entry module/, fn ->
+        ManagedTypes.owner_for!(Letflow.Entities.Records)
+      end
+
+      assert_raise FunctionClauseError, fn -> ManagedTypes.owner_for!("fixture_managed") end
+    end
+  end
+
+  describe "GH #2583 T-29 (AC2): premise P, the row Records resolves for a managed name carries its stamp" do
+    test "every version under a managed artifact name is a stamped row of that name; tenant creates cannot add one" do
+      %{schema_name: schema} = installed_tenant!("gh2583-premise")
+
+      for name <- @seven do
+        version_ids =
+          Repo.all(
+            from(v in ArtifactVersion,
+              where: v.artifact_kind == :entity and v.artifact_name == ^name,
+              select: v.version_id
+            ),
+            prefix: schema
+          )
+
+        assert version_ids != [], "#{name}: no artifact version"
+
+        rows =
+          Repo.all(
+            from(d in EntityDefinition, where: d.artifact_version_id in ^version_ids),
+            prefix: schema
+          )
+
+        assert length(rows) == length(version_ids), "#{name}: a version without its row"
+
+        for row <- rows do
+          assert row.managed_by == "fixture_managed", "#{name}: unstamped version row"
+          assert row.name == name
+        end
+
+        # P1 in the other direction: every row named `name` sits under the artifact `name`.
+        named_versions =
+          Repo.all(
+            from(d in EntityDefinition,
+              join: v in ArtifactVersion,
+              on: v.version_id == d.artifact_version_id,
+              where: d.name == ^name,
+              select: {v.artifact_kind, v.artifact_name}
+            ),
+            prefix: schema
+          )
+
+        assert Enum.uniq(named_versions) == [{:entity, name}]
+
+        {:ok, active} = Definitions.get_active_definition_by_name(name, schema)
+        assert active.managed_by == "fixture_managed", "#{name}: active row unstamped"
+      end
+
+      # P2: a tenant create of a NEW shape under a managed name adds neither a version nor a row.
+      versions_before = artifact_version_count(schema, "org_unit")
+
+      rows_before =
+        Repo.aggregate(from(d in EntityDefinition, where: d.name == "org_unit"), :count,
+          prefix: schema
+        )
+
+      new_shape = %{
+        definition: %{
+          name: "org_unit",
+          display_name: "Tenant org unit",
+          fields: [
+            %{name: "name", type: :string, required: true},
+            %{name: "tenant_extra", type: :string}
+          ]
+        },
+        created_by: Ecto.UUID.generate()
+      }
+
+      assert Definitions.create_definition(new_shape, schema) == {:error, :entity_type_managed}
+      assert artifact_version_count(schema, "org_unit") == versions_before
+
+      assert Repo.aggregate(from(d in EntityDefinition, where: d.name == "org_unit"), :count,
+               prefix: schema
+             ) == rows_before
+
+      # Re-activating the name can only (re)activate a stamped row.
+      case Definitions.activate_definition(
+             "org_unit",
+             Ecto.UUID.generate(),
+             "gh2583 t-29",
+             schema
+           ) do
+        {:ok, %EntityDefinition{} = promoted} -> assert promoted.managed_by == "fixture_managed"
+        {:error, _reason} -> :ok
+      end
+
+      {:ok, active} = Definitions.get_active_definition_by_name("org_unit", schema)
+      assert active.managed_by == "fixture_managed"
+    end
+  end
+
+  defp artifact_version_count(schema, name) do
+    Repo.aggregate(
+      from(v in ArtifactVersion, where: v.artifact_kind == :entity and v.artifact_name == ^name),
+      :count,
+      prefix: schema
+    )
   end
 end

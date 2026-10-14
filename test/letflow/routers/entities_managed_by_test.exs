@@ -30,7 +30,9 @@ defmodule Letflow.Routers.EntitiesManagedByTest do
   alias Letflow.Entities.Definitions
   alias Letflow.Entities.EntityDefinition
   alias Letflow.Entities.EventTypes
+  alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Record.Latest
+  alias Letflow.EventStore.Event
   alias Letflow.Identity.User
   alias Letflow.Modules.FixtureManaged
   alias Letflow.Modules.Installs
@@ -678,6 +680,130 @@ defmodule Letflow.Routers.EntitiesManagedByTest do
 
       assert Error.entity_append_only().status == 422
       assert stored(ctx, "fxm_ledger", record.record_id) == before
+    end
+  end
+
+  # ── GH #2583 T-15/T-16: the race-only router clauses ────────────────────────────────────────
+  #
+  # Design `lib/letflow/design/gh2583-records-managed-type-guard.md` section 5, T-15/T-16 (spec
+  # `test/specs/GH-2583.md`). The race (the guard's `owner_of/2` read and the row `Records`
+  # resolves disagree) is simulated deterministically: with the no-update trigger disabled inside
+  # ONE transaction, fxm_free's definition row is stamped AND renamed, so the guard (keyed by
+  # `entity_definitions.name`) sees no stamped `fxm_free` row while `Records` resolves `fxm_free`
+  # through `Activation.resolve/3` (keyed by artifact name) to the stamped row. Teardown: the
+  # tenant fixture's `DROP SCHEMA ... CASCADE` fires no row-level trigger, so the stamped row does
+  # not block it.
+
+  @guard_triggers [
+    "entity_definitions_managed_by_no_delete",
+    "entity_definitions_managed_by_no_update"
+  ]
+
+  defp race_stamp_fxm_free!(schema) do
+    table = ~s|"#{schema}".entity_definitions|
+
+    {:ok, updated} =
+      Repo.transaction(fn ->
+        Repo.query!(
+          "ALTER TABLE #{table} DISABLE TRIGGER entity_definitions_managed_by_no_update"
+        )
+
+        %{num_rows: n} =
+          Repo.query!(
+            "UPDATE #{table} SET managed_by = 'fixture_managed', name = 'fxm_free_raced' " <>
+              "WHERE name = 'fxm_free'"
+          )
+
+        Repo.query!("ALTER TABLE #{table} ENABLE TRIGGER entity_definitions_managed_by_no_update")
+        n
+      end)
+
+    assert updated >= 1
+
+    # SEC A4: both guard triggers are enabled ('O' = origin/local) after the toggle.
+    %{rows: rows} =
+      Repo.query!(
+        "SELECT tgname::text, tgenabled::text FROM pg_trigger " <>
+          "WHERE tgrelid = $1::text::regclass AND tgname::text = ANY($2::text[]) " <>
+          "ORDER BY tgname",
+        [table, @guard_triggers]
+      )
+
+    assert rows == Enum.map(@guard_triggers, &[&1, "O"])
+
+    # The race precondition: the guard now sees fxm_free as unmanaged ...
+    assert ManagedTypes.check_tenant_write("fxm_free", schema) == :ok
+    # ... while the definition Records resolves for fxm_free carries the stamp.
+    {:ok, resolved} = Definitions.get_active_definition_by_name("fxm_free", schema)
+    assert resolved.managed_by == "fixture_managed"
+  end
+
+  defp record_event_count(schema) do
+    Repo.one!(
+      from(e in Event, where: like(e.event_type, "ENTITY_RECORD_%"), select: count(e.event_id)),
+      prefix: schema
+    )
+  end
+
+  describe "GH #2583 T-15/T-16 (AC2): Records' refusal in a guard race renders the guard's answer" do
+    test "T-15: POST/PUT/DELETE on a raced fxm_free -> the guard's constant 403 bytes, no write",
+         ctx do
+      {:ok, %{record: record}} =
+        FixtureManaged.create_record("fxm_free", %{"name" => "before race"}, ctx.schema)
+
+      race_stamp_fxm_free!(ctx.schema)
+      before = stored(ctx, "fxm_free", record.record_id)
+      events = record_event_count(ctx.schema)
+      body = %{"field_values" => %{"name" => "tenant write"}}
+
+      conns = [
+        post: call_entities(ctx, @admin, :post, "/records/fxm_free", body, []),
+        put: call_entities(ctx, @admin, :put, "/records/fxm_free/#{record.record_id}", body, []),
+        delete:
+          call_entities(ctx, @admin, :delete, "/records/fxm_free/#{record.record_id}", nil, [])
+      ]
+
+      for {route, conn} <- conns, do: assert_managed!(conn, "raced #{route} fxm_free")
+
+      # Byte-identical to the guard's own refusal of a plainly managed type (REQ-496 T-01 body).
+      guarded = call_entities(ctx, @admin, :post, "/records/org_unit", body, [])
+      assert_managed!(guarded, "guarded org_unit")
+      for {_route, conn} <- conns, do: assert(conn.resp_body == guarded.resp_body)
+
+      assert stored(ctx, "fxm_free", record.record_id) == before
+      assert record_count(ctx.schema, "fxm_free") == 1
+      assert record_event_count(ctx.schema) == events
+    end
+
+    test "T-16: import on a raced fxm_free -> 200, every entry entity_type_managed, no record, no internal-error log",
+         ctx do
+      race_stamp_fxm_free!(ctx.schema)
+      events = record_event_count(ctx.schema)
+
+      {conn, log} =
+        ExUnit.CaptureLog.with_log(fn ->
+          call_entities(
+            ctx,
+            @admin,
+            :post,
+            "/records/fxm_free/import",
+            import_document("fxm_free", 2),
+            []
+          )
+        end)
+
+      assert conn.status == 200, conn.resp_body
+      results = Jason.decode!(conn.resp_body)["results"]
+      assert length(results) == 2
+
+      for result <- results do
+        assert %{"status" => "error", "reason" => %{"type" => "entity_type_managed"}} = result
+        assert result["reason"] == %{"type" => "entity_type_managed"}
+      end
+
+      refute log =~ "entity record import entry failed"
+      assert record_count(ctx.schema, "fxm_free") == 0
+      assert record_event_count(ctx.schema) == events
     end
   end
 end
