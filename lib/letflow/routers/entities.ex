@@ -256,6 +256,7 @@ defmodule Letflow.Routers.Entities do
   alias Letflow.Entities.Restrictions
   alias Letflow.Entities.TypeAccess
   alias Letflow.EventStore.Registry.ValidationFailure
+  alias Letflow.Idempotency
   alias Letflow.Repository.Artifact
   alias Letflow.Repository.EntityAttachment
   alias Letflow.Repository.EntityAttachments
@@ -973,11 +974,13 @@ defmodule Letflow.Routers.Entities do
   # create_record/2's create_attrs() is
   # %{entity_type, field_values, actor_id, idempotency_key} -- `entity_type`
   # comes from the PATH segment (never a body field), `actor_id` from
-  # conn.assigns.auth_context.user_id (INV-1), `idempotency_key` from the
-  # body when the caller supplies one (the caller's own replay token, bound
-  # to (command, entity_type, record_id, field_values, actor) -- GH #2543)
-  # and otherwise freshly minted so the delegate's
-  # required key is always present.
+  # conn.assigns.auth_context.user_id (INV-1), `idempotency_key` resolved by
+  # Letflow.Idempotency.from_body/3 (GH #2550): the caller's own replay token
+  # stored as `client:rec:<actor>:<K>` (bound to (command, entity_type,
+  # record_id, field_values, actor) -- GH #2543), refused with a 422 over 199
+  # bytes, and otherwise freshly minted so the delegate's required key is
+  # always present. A supplied key may also resolve to a pre-#2550 original
+  # (Idempotency.legacy_original/3, one release, GH #2578).
 
   @record_write_schema [
     %FieldConstraint{name: "field_values", required: true, type: :object},
@@ -996,14 +999,19 @@ defmodule Letflow.Routers.Entities do
   defp create_record_unmanaged(conn, entity_type) do
     prefix = prefix!(conn)
 
+    actor_id = conn.assigns.auth_context.user_id
+
     with {:ok, body} <- object_body(conn),
-         {:ok, attrs} <- validate_schema(@record_write_schema, body) do
-      command_attrs = %{
-        entity_type: entity_type,
-        field_values: Map.fetch!(attrs, "field_values"),
-        actor_id: conn.assigns.auth_context.user_id,
-        idempotency_key: idempotency_key(attrs)
-      }
+         {:ok, attrs} <- validate_schema(@record_write_schema, body),
+         {:ok, resolved} <- Idempotency.from_body(attrs, :rec, actor_id) do
+      command_attrs =
+        %{
+          entity_type: entity_type,
+          field_values: Map.fetch!(attrs, "field_values"),
+          actor_id: actor_id,
+          idempotency_key: resolved.key
+        }
+        |> put_legacy_original(resolved, actor_id, prefix)
 
       render_record_command(conn, Records.create_record(command_attrs, prefix), :created)
     else
@@ -1012,6 +1020,9 @@ defmodule Letflow.Routers.Entities do
 
       {:errors, field_errors} ->
         Response.send_problem(conn, Validation.problem(field_errors))
+
+      {:error, :idempotency_key_too_long} ->
+        Response.send_problem(conn, Validation.problem([Idempotency.too_long_error(:body)]))
     end
   end
 
@@ -1052,17 +1063,22 @@ defmodule Letflow.Routers.Entities do
   defp update_record_unmanaged(conn, entity_type, raw_record_id) do
     prefix = prefix!(conn)
 
+    actor_id = conn.assigns.auth_context.user_id
+
     with {:ok, record_id} <- cast_record_id(raw_record_id),
          {:ok, body} <- object_body(conn),
-         {:ok, attrs} <- validate_schema(@record_update_schema, body) do
-      command_attrs = %{
-        entity_type: entity_type,
-        record_id: record_id,
-        field_values: Map.fetch!(attrs, "field_values"),
-        actor_id: conn.assigns.auth_context.user_id,
-        idempotency_key: idempotency_key(attrs),
-        expected_last_event_global_seq: Map.get(attrs, "expected_last_event_global_seq")
-      }
+         {:ok, attrs} <- validate_schema(@record_update_schema, body),
+         {:ok, resolved} <- Idempotency.from_body(attrs, :rec, actor_id) do
+      command_attrs =
+        %{
+          entity_type: entity_type,
+          record_id: record_id,
+          field_values: Map.fetch!(attrs, "field_values"),
+          actor_id: actor_id,
+          idempotency_key: resolved.key,
+          expected_last_event_global_seq: Map.get(attrs, "expected_last_event_global_seq")
+        }
+        |> put_legacy_original(resolved, actor_id, prefix)
 
       render_record_command(conn, Records.update_record(command_attrs, prefix), :ok)
     else
@@ -1076,6 +1092,19 @@ defmodule Letflow.Routers.Entities do
 
       {:errors, field_errors} ->
         Response.send_problem(conn, Validation.problem(field_errors))
+
+      {:error, :idempotency_key_too_long} ->
+        Response.send_problem(conn, Validation.problem([Idempotency.too_long_error(:body)]))
+    end
+  end
+
+  # GH #2550 (design D3), removed by GH #2578: a supplied key that passes the
+  # no-I/O guard and names a same-actor pre-cutoff record event becomes
+  # Records' `legacy_original`, matched instead of appended.
+  defp put_legacy_original(command_attrs, resolved, actor_id, prefix) do
+    case Idempotency.legacy_original(resolved, actor_id, prefix: prefix) do
+      {:ok, event} -> Map.put(command_attrs, :legacy_original, event)
+      :none -> command_attrs
     end
   end
 
@@ -1145,13 +1174,6 @@ defmodule Letflow.Routers.Entities do
     case Ecto.UUID.cast(raw) do
       {:ok, record_id} -> {:ok, record_id}
       :error -> {:error, :invalid_record_id}
-    end
-  end
-
-  defp idempotency_key(attrs) do
-    case Map.get(attrs, "idempotency_key") do
-      key when is_binary(key) -> key
-      nil -> Ecto.UUID.generate()
     end
   end
 
