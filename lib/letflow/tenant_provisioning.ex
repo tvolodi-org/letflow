@@ -673,7 +673,11 @@ defmodule Letflow.TenantProvisioning do
     {20_261_014_100_001, Letflow.Repo.Migrations.AddManagedByToEntityDefinitions,
      "20261014100001_add_managed_by_to_entity_definitions.exs"},
     {20_261_014_100_002, Letflow.Repo.Migrations.CreateScopeNodePaths,
-     "20261014100002_create_scope_node_paths.exs"}
+     "20261014100002_create_scope_node_paths.exs"},
+    # REQ-497 / GH #2533 PR 1a (decision 0051 D1): role_scope_grants with its backfill and
+    # T9 assert.
+    {20_261_015_025_331, Letflow.Repo.Migrations.CreateRoleScopeGrants,
+     "20261015025331_create_role_scope_grants.exs"}
   ]
 
   @doc """
@@ -723,7 +727,9 @@ defmodule Letflow.TenantProvisioning do
   `audit_chain_locks`, and ISS-1030 one more: `pending_tenant_admin_grants`
   (`lib/letflow/design/iss1030-onboarding-administrator.md` §4), and REQ-496
   two more: `entity_definitions.managed_by` and `scope_node_paths`
-  (`lib/letflow/design/req496-managed-by-and-scope-node-paths.md` §2.1, §5) —
+  (`lib/letflow/design/req496-managed-by-and-scope-node-paths.md` §2.1, §5), and REQ-497
+  one more: `role_scope_grants`
+  (`lib/letflow/design/req497-1a-role-scope-grants-table-backfill-writers.md` §1) —
   entries in total (see `@tenant_scoped_migration_manifest` itself for the
   authoritative, up-to-date count), ordered by version. Every future tenant-scoped migration must append its
   own entry to `@tenant_scoped_migration_manifest`, in addition to following the

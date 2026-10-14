@@ -1,0 +1,60 @@
+{
+  "handoff_id": "d2533a1a-0497-4c03-9e11-000000000003",
+  "run_id": "WF02-GH2533-SCOPE-GRANTS-20261015",
+  "workflow_id": "WF-02",
+  "step": "03",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGNER",
+  "file": "handoffs/WF02-GH2533-SCOPE-GRANTS-20261015/step-03-code-designer-1a.json",
+  "created_at": "2026-10-14T19:54:00Z",
+  "started_at": "2026-10-14T19:54:00Z",
+  "completed_at": "2026-10-14T20:10:46Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-497"],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2533": "REQ-497 PR 1a only: role_scope_grants table, backfill to tenant_wide GROUP rows with T9 assert and scope.backfill_completed audit, every binding writer in the same transaction, idempotent backfill mix task and release function. ACs [1a] 1-4 and AC17 for 1a."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "docs/requirements.yaml",
+      "docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md",
+      "docs/migration/decisions/0050-foundation-modules-org-catalog-and-reference-contract.md",
+      "docs/agents/instructions/security-invariants.md",
+      "docs/anti-patterns.md",
+      "lib/letflow/identity/role_registry.ex",
+      "lib/letflow/identity.ex",
+      "lib/letflow/identity/tenant_admin_migration.ex",
+      "lib/letflow/identity/role_backfill.ex",
+      "lib/letflow/identity/pending_admin_grants.ex",
+      "lib/letflow/tenant_provisioning.ex",
+      "lib/letflow/tenant_onboarding.ex",
+      "lib/letflow/audit.ex",
+      "lib/mix/tasks/letflow.backfill_platform_roles.ex",
+      "priv/repo/migrations/20261014100002_create_scope_node_paths.exs",
+      "priv/repo/migrations/20260926010001_backfill_exam_tenant_modules.exs",
+      "test/support/tenant_fixture.ex",
+      "test/support/tenant_template.ex"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2533-SCOPE-GRANTS-1A-20261015"
+  },
+  "task": {
+    "description": "WF-02 step 03 (CODE-DESIGNER) for REQ-497 PR 1a: write lib/letflow/design/req497-1a-role-scope-grants-table-backfill-writers.md. Design only, no implementation code, no tests, no mix."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "REVISION r1 (2026-10-14T20:10:46Z, ORCH decisions after CDV FAIL + SECURITY-REVIEWER FAIL; changelog in the design). B1 (SEC): new RoleScopeGrants.repair_group_row!/3 inserts a tenant_wide row ONLY when no row of ANY tenant_wide value exists for (:group, group, role) (T9 predicate, serialised by lock A); used for P->P same group (W2(b), W4(b), W5(b)), move_group_rows! gap repair and Backfill.run_tenant; ensure_tenant_wide_group_row!/3 stays unconditional only for nil->P and notP->P. New T-C1 cases (j) scoped-only row unchanged/no tenant_wide row, (k), (l); T-B8. B2 (CDV): FK scope_node_id->scope_node_paths DEFERRED to stage 2 #2535 (item S2-1); 1a keeps column, CHECK and scope_node_id index; T-M3(e) now pins absence of FK; T-N1 adds test/letflow/scope_node_paths/migration_test.exs; section 1.6 updated. Migration up/0 takes lock A as its FIRST execute (lock_tenant_admins_in_migration!/1). Advisories: run_tenant_error = :gap_remains | {:audit_failed, term()}, tenant_report / dry_run_tenant_report / report (with skipped) types named (CDV A2, T-B4, T-B7); precedent cite :50-77 (CDV A3); Backfill.run/1 skips and reports missing-schema registrations and continues (SEC, T-B6). OQ-3 resolved: no rescue in 1a, T-W8 R2 assert_raise Postgrex.Error then group_id and row on A. OQ-4: ORCH asks letflow-2 to file. New section 10 'For 1b and stage 2': 1b-1 allowed?/3 never consults grants for platform scope (test); 1b-2 the three D1 tenant_wide-creating binding writes (routing->platform, nil->P enforced, sync into tenant-wide group); 1b-3 rebind_role rescue; S2-1 FK. --- r0 SUMMARY: Design written for REQ-497 PR 1a.MIGRATION priv/repo/migrations/20261015025331_create_role_scope_grants.exs (Letflow.Repo.Migrations.CreateRoleScopeGrants, version 20_261_015_025_331; checked against origin/main latest 20261014100002, open PR #2565's 20261014000002, no #2552 branch pushed, no test/lib literal collision). up/0 + down/0 under the if prefix() guard; public create_objects/1, run_backfill!/1, assert_no_gap!/1. Table role_scope_grants: id uuid, principal_type text CHECK user|group, principal_id uuid (no FK: polymorphic), role text (closed set enforced in changeset, no DB CHECK), scope_node_id text FK scope_node_paths(node_id) ON DELETE RESTRICT, tenant_wide boolean NOT NULL no default, timestamps usec. CHECK role_scope_grants_tenant_wide_xor_node; index role_scope_grants_principal_role_idx (principal_type, principal_id, role); partial unique role_scope_grants_tenant_wide_uniq WHERE tenant_wide and role_scope_grants_scoped_uniq WHERE NOT tenant_wide. Backfill inside the migration transaction (Ecto.Migrator runs each migration in repo.transaction in one Task; zero-arity execute/1): tenant admin advisory lock first (same key as every binding writer), frozen INSERT...SELECT one tenant_wide GROUP row per kind=platform_role tenant_role row ON CONFLICT DO NOTHING, frozen T9 assert raising with count only, then Letflow.Audit.insert_entry scope.backfill_completed with counts only (source, migration_version, platform_role_bindings, group_rows_inserted, user_rows_inserted 0, process_routing_bindings_skipped, bindings_without_row_after 0) only for a real tenant schema with >0 bindings (new tenants replay before seeding, so they get rows from the seeding writers and no entry; residual Entry-schema replay risk stated). Manifest entry after CreateScopeNodePaths; @expected_tenant_tables + count 52->53 in tenant_fixture_test.exs:324 (only existing test edit, outside AC4's set). CORE: schema Letflow.Identity.RoleScopeGrant; module Letflow.Identity.RoleScopeGrants with reconcile_binding!/3 (single writer entry point, raises outside a transaction, 9-row decision table), ensure_tenant_wide_group_row!/3, remove_group_rows!/3, move_group_rows!/4, delete_group_principal_rows!/2, T9 bindings_without_row/1 and bindings_without_row_count/1, orphan_group_rows/1, user_row_count/1. WRITERS: W1 insert_role role_registry.ex:521 before audit :522; W2 converge_existing_role kind-change :555 and unchanged :550 (ensure); W3 move_role after :709 before :723; W4 ensure_platform_role_binding existing branch :299 (ensure), nil branch via W1; W5 TenantAdminMigration ensure_binding :346/:350 and remove_legacy_binding after :391 before :393; W6 delete_group after delete_all :767 returning {1,_}. All rows are lock rank B after A/R/G and before C per the #2547 proof; no new lock. Membership writers unchanged (no user rows). BACKFILL Letflow.Identity.RoleScopeGrants.Backfill.run/1 and run_tenant/2 (per-tenant transaction under lock_tenant_admins!, inserts exactly the T9 gap, audits only when it inserted, dry_run read-only), mix letflow.backfill_role_scope_grants [--dry-run], release via bin/letflow rpc. TESTS T-M1..T-M6 (incl. migration-level abort via test-support gap migration), T-C1..T-C4, T-W1..T-W14 (rollback R1 forced outer rollback, R2 injected trigger failure, per writer), T-B1..T-B5, T-N1/T-N2. OVERLAP: #2565 append-only manifest/oracle conflict (count 54 after both); #2552 touches token functions only, 1a touches identity.ex only in delete_group; #2564 untouched. OQ-1 PLATFORM_ADMIN gets a tenant_wide row under the binding principal model, 1b must not consult grants for platform scope; OQ-2 direct tenant_role fixture inserts make T9 gaps (matters in 1b); OQ-3 rebind_role has no rescue; OQ-4 sole-writer mix check deferred; OQ-5 post-rolling-deploy backfill run.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "lib/letflow/design/req497-1a-role-scope-grants-table-backfill-writers.md"
+    ],
+    "diagnosis_confirmed": false,
+    "implementation_written": false,
+    "classification": "DESIGN"
+  }
+}
