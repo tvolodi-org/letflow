@@ -748,6 +748,8 @@ The `@doc` of `count_tenant_wide_admins/1` states this protocol in short form: "
 first, then the TENANT_ADMIN role row by name, then the group row, then business rows, then the
 audit chain; write, then count, then roll back on 0". This resolves former OQ-2.
 
+**Note (supervisor ruling, 2026-10-15).** The guard rule is a TRANSITION: count before the write > 0 AND count after the write == 0, then roll back. It is not a bare "after == 0", so a tenant that already has zero tenant-wide admins is not blocked from repairing itself. Exception: revoking the LAST OPEN pending admin grant is refused while the count is 0, because that grant is the recovery path. The rule applies to #2564 (deactivation) and #2533 PR 1b (REQ-497 AC9-AC11) alike. Both write `tenant_admin.guard_refused` through #2564's `Identity.record_guard_refused/2`, whichever merges second.
+
 ### 6.5 "Used by" (AC3)
 
 Neither consumer exists (no `last_admin`/`solo_audited`/`scripts.sod` code on this branch; #2533
