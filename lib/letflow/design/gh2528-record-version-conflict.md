@@ -52,7 +52,10 @@ Type changes (signatures of the three public functions are unchanged):
 `create_record/2` sets it to `nil` (create never checks). A non-nil value that is not a
 non-negative integer is a programmer error from an internal caller: guard in a private
 `expected_seq/1` helper that raises `ArgumentError` (the router validates before calling, so the
-HTTP path can never reach it).
+HTTP path can never reach it). `expected_seq/1` is called at the **entry** of `update_record/2`
+and `delete_record/2`, before any lookup -- in particular before `delete_record/2`'s
+already-deleted early return -- so a bad internal value raises on both a live and an
+already-deleted record.
 
 Private additions (shapes only):
 
@@ -119,7 +122,9 @@ Router changes:
   "expected_last_event_global_seq", required: false, type: :integer, min_value: 0, max_value:
   9_223_372_036_854_775_807}]`. `max_value` keeps a JSON bignum from reaching Postgrex's int8
   encoder (INV-8: would raise -> 500). JSON `null` = absent (`validate_field/2` treats nil as not
-  present); router passes `Map.get(attrs, "expected_last_event_global_seq")` through as-is.
+  present); router passes `Map.get(attrs, "expected_last_event_global_seq")` through untouched
+  -- no cast, no rounding. `type: :integer` (`is_integer/1`) already rejects `1.0`, `"5"` and
+  `true` with 422; JSON `null` arrives as `nil`, which the domain treats as absent.
 - `handle_update_record/3`: validate with `@record_update_schema`; add the key to
   `command_attrs`.
 - `handle_delete_record/3`: after `cast_record_id/1` (malformed id -> 404 first), call
@@ -156,7 +161,7 @@ Domain tests go in `test/letflow/entities/records_test.exs` (already `async: fal
 | Match -> `{:ok, %{record: r}}`, `r.last_event_global_seq > S1` | D3, D4, D5 | "matching expected updates" |
 | Mismatch atomic: conflict; field_values/seq unchanged; event count unchanged; key not claimed (retry same key + correct expected -> `is_duplicate: false`) | D3 (rollback), D6 | "stale expected is refused atomically" |
 | Delete match/mismatch; mismatch leaves `deleted: false` | D3, D4 on `:delete` ctx | "delete with matching / stale expected" |
-| Race (see 8.1) | D4 | "concurrent updates with the same expected" + control |
+| Race (see 8.1) | D4 | describe "expected_last_event_global_seq -- concurrency": Test 1 (barrier, 20 iterations), Test 2 (control), Test 3 (deterministic lock-holder, carries the mutation-kill) |
 | Replay precedence: key K + S1 twice -> `is_duplicate: true` | D3 (after `:idempotency`) | "identical replay returns the original, not a conflict" |
 | Router: stale PUT 409 problem+json, `code`, no `field_values`, no seq; correct 200; `"abc"` 422; stale `If-Match` only 200; stale DELETE 409; non-integer DELETE param 400 | section 6, D8, D9, D10 | router describe, one test per bullet; body assertion: `Map.keys(body)` has no `"field_values"`, `"last_event_global_seq"`, and no integer equal to either seq |
 | INV-5: cross-tenant / absent record with any valid expected -> zero-detail 404 | pre-tx `fetch_existing_record` precedes the check | router describe: both cases, body byte-identical to `Error.not_found/0` |
@@ -165,24 +170,61 @@ Domain tests go in `test/letflow/entities/records_test.exs` (already `async: fal
 
 ### 8.1 Race test design
 
-`describe "expected_last_event_global_seq"`, loop `for i <- 1..20` (bounded; each Task await
+**Sandbox mode (load-bearing).** The file's existing `provisioned_tenant/0`
+(`records_test.exs`, `SandboxAutoMode.provision!/2`) restores `:manual` + `checkout` on return
+(`test/support/sandbox_auto_mode.ex`, `provision!/2`), so `Task.async` children would share the
+test's single sandbox connection: no real race, and the lock-holder below would deadlock. The
+three concurrency tests therefore live in their own
+`describe "expected_last_event_global_seq -- concurrency"` whose tenant helper
+(`provisioned_tenant_auto/0`, new, test-local) follows `test/letflow/engine_concurrency_test.exs`'s
+`provisioned_tenant/0` exactly: `SandboxAutoMode.enter_auto_mode!(Letflow.Repo)`; then
+`on_exit(fn -> SandboxAutoMode.exit_auto_mode!(Letflow.Repo) end)` registered **first** (LIFO: it
+runs last); then `TenantFixture.provisioned_tenant!(teardown: false)` and the file's existing
+schema-drop / tenant-row cleanup `on_exit` registered **second** (runs first, while `:auto` is
+still active). `:auto` stays in effect for the whole test, so every Task gets its own real
+connection.
+
+**State and cleanup.** In `:auto` mode every write commits for real. Each test provisions one
+fresh tenant (unique schema), dropped by the cleanup `on_exit`; nothing is rolled back between
+iterations. Each iteration creates a **fresh record** in that tenant and every count assertion is
+a **delta** (event count for the entity type before vs. after the iteration), never an absolute
+count.
+
+**Test 1 (AC barrier race).** Loop `for i <- 1..20` (bounded; each Task await
 5000 ms). Each iteration: create a fresh record (seq S1); two `Task.async` closures each send
 `{:ready, self()}`, wait for `:go` (5000 ms `after` -> flunk), then call `update_record/2` with
 `expected: S1`, distinct `field_values` (`"A#{i}"` vs `"B#{i}"`) and distinct idempotency keys.
 Parent: `assert_receive {:ready, p1}/{:ready, p2}`, send `:go` to both, await both. Assert exactly
 one `{:ok, _}` and one `{:error, :record_version_conflict}`; a fresh `Latest.get/3` shows the
-winner's value and the winner's seq; entity-type event count rose by exactly 1. Control
-(same loop shape, no expected): two `{:ok, _}`, event count +2.
+winner's value and the winner's seq; entity-type event count rose by exactly 1.
 
-Mutation-kill property: if the check compared against `ctx.existing_record`, any iteration where
-both tasks finished their pre-transaction `Latest.get/3` before the first commit yields two
-`{:ok, _}`, failing the assertion. To make that interleaving certain rather than probable, add one
-deterministic variant (TEST-DESIGNER's call on mechanics): a third task holds the synthetic
-instance's `instance_sequence` row `FOR UPDATE` (Ecto query, inside `Repo.transaction`) while the
-two writers start; the parent waits (bounded poll, max 50 x 20 ms) until two backends are waiting
-on a lock (`pg_stat_activity.wait_event_type == "Lock"` via a schemaless Ecto query), then
-releases the holder. Both writers have then pre-read S1, so only the locked re-read can refuse
-the loser.
+**Test 2 (control).** Same loop shape, no expected value: two `{:ok, _}` per iteration, event
+count delta +2.
+
+**Test 3 (deterministic lock-holder -- MANDATORY; this is the test that carries "must fail if the
+check reads `ctx.existing_record`").** Test 1 only catches that mutation on iterations where both
+writers pre-read before the first commit, which is probable, not certain. Test 3 forces it:
+1. Create a fresh record (S1); resolve the synthetic instance id with
+   `EntityTypeInstance.get_or_create("customer", schema)` (row already exists after the create).
+2. Holder `Task.async`: inside `Repo.transaction`, run an Ecto query
+   `from s in Letflow.EventStore.InstanceSequence, where: s.instance_id == ^instance_id, lock: "FOR UPDATE"` with
+   `prefix: schema`, send `{:locked, self()}` to the parent, then `receive :release` (5000 ms
+   `after` -> flunk). Parent `assert_receive {:locked, holder}, 5000`.
+3. Start the two writer tasks (expected S1, values `"A"`/`"B"`, distinct keys) with no barrier;
+   each completes its pre-transaction `Latest.get/3` (sees S1) and then blocks in
+   `:assign_sequence`'s `FOR UPDATE` on the held row.
+4. Parent polls, bounded (max 50 polls, 20 ms apart via `receive ... after 20`, flunk on
+   exhaustion), until exactly two backends wait on that row, filtered by target query text as in
+   `test/letflow/event_store/partition_maintenance_test.exs` (`alter_partition_backend_active?/2`)
+   and `test/letflow/identity/tenant_realm_bind_test.exs`:
+   `SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query ILIKE $1`
+   with `$1 = "%\"#{schema}\".\"instance_sequence\"%FOR UPDATE%"`. The schema name is unique to
+   this test's tenant and the holder itself is idle-in-transaction (not `Lock`), so only the two
+   writers match.
+5. `send(holder, :release)`; await holder and both writers (5000 ms each).
+6. Assert exactly one `{:ok, _}` and one `{:error, :record_version_conflict}`, stored value is the
+   winner's, event count delta +1. Under the mutation both writers pass a check against their own
+   pre-read S1 and the test gets two `{:ok, _}`, so it fails deterministically.
 
 ## 9. Blast radius for existing tenants
 
@@ -207,7 +249,11 @@ Deploy backend before frontend.
 
 ## 11. Anti-patterns checked
 
-`docs/anti-patterns.md` "sibling write path" entries (2306, 2518, 2554): the only other writer to
+`docs/anti-patterns.md` sibling-path entries ("An established template-substitution mechanism
+applied to two of three sibling code paths, not all three"; "A gate-approved design fixing a
+shared write function missed a sibling write path constructing the same state independently";
+"ISS-0397's own join_counters fix still missed a THIRD sibling read/write path, in a different
+module — plus a Multi-step-ordering bug only that path exposed"): the only other writer to
 `entity_record_latest` is `Letflow.Entities.Record.Projector.rebuild_projection/2` (rebuild from
 the event log, same seqs); it does not need the check, and D6 covers it deleting a row under us.
 All three record commands still funnel through `run_command/2`; create never adds the step.
