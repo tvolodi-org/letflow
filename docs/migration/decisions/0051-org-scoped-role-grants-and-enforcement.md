@@ -54,7 +54,8 @@ an advisor-ruled or relayed position and is written into the decisions as stated
    same code as `roles_invalid`) unless the user is an admin-flagged service principal (audited act), mint and
    listing are audited, and the flip precondition lists tokens whose roles exceed their user's current
    tenant-wide roles, which must be revoked or re-minted before enforcement. Scoped integration tokens: later
-   follow-up (D1).
+   follow-up (D1). Advisor-confirmed exception 2026-10-15: PLATFORM_ADMIN may mint in the platform tenant
+   only, self-only, expiry <= 90 days (D1 (a); `lib/letflow/design/gh2552-api-token-issuer-and-roles.md` §3).
 6. M3 (SUPERSEDES open point 5 "tenant-wide wins" as a sync default): tenant-wide wins only WITHIN a principal.
    Before enforcement, IdP/JIT sync writes a `tenant_wide` row. After enforcement, sync writes NO row (the user is
    denied until an admin grants scope) and emits an audited "binding pending scope" event; sync never adds or
@@ -139,6 +140,9 @@ NULL, or `tenant_wide = false` with `scope_node_id` set. A role granted with sco
 inside the union of those rows' subtrees. The role set stays closed (0046 D10, 0013); a grant never
 creates a role or a permission. `PLATFORM_ADMIN` and platform-scope permissions are out of scope for
 grants (0046 D2). This SUPERSEDES the relayed "no row = tenant-wide".
+Clarification (REVIEWER on REQ-497 PR 1a, 2026-10-15): `role_scope_grants` rows may exist for the
+`PLATFORM_ADMIN` binding (the stage-1 backfill mirrors every `:platform_role` binding); they are never
+consulted: grants never decide `PLATFORM_ADMIN` or platform-scope access (INV-10).
 
 **Principal types.** Grant rows exist for `user` and `group` only. Two more principal kinds are defined by
 rule, with no rows: a `token` principal (below) and a `script` principal, the identity under which an engine
@@ -204,7 +208,9 @@ Fail-closed rules:
   come from the request body, and `Identity.create_token/3` (`identity.ex:1454-1478`) checks only that roles
   are in the closed issuable set and the PLATFORM_ADMIN rule, NOT the owner's roles or the minter's scope. So,
   unbounded, a token converts a scoped user's access into tenant-wide. Required:
-  (a) minting requires a TENANT_ADMIN holding the role tenant-wide (D11);
+  (a) minting requires a TENANT_ADMIN holding the role tenant-wide (D11); advisor-confirmed exception
+  2026-10-15: PLATFORM_ADMIN may mint in the platform tenant only, self-only, expiry <= 90 days; see
+  `lib/letflow/design/gh2552-api-token-issuer-and-roles.md` §3 (GH #2552);
   (b) every minted token's roles must be a subset of the roles the NAMED user holds tenant-wide, else the mint
   is refused with 422 and the same code as `roles_invalid`, unless the user is explicitly flagged a service
   principal by an audited admin act;
