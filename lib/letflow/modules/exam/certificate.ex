@@ -144,6 +144,10 @@ defmodule Letflow.Modules.Exam.Certificate do
   original row both times, with no read-then-write race at any point --
   the DB uniqueness check and the row creation are the SAME atomic insert
   attempt, exactly like the source's `ON CONFLICT (session_id) DO NOTHING`.
+  GH #2543: the second call's `field_values` differ (`issued_at`, live
+  branding, candidate name), so it passes the internal-only
+  `idempotency_match: :target` -- the key stays bound to the command, the
+  `certificate` entity type and the candidate actor, but not to the values.
 
   **Guarantee level, stated precisely**: this is not literally
   `UNIQUE (session_id)` at the storage layer the way the source's column
@@ -333,7 +337,8 @@ defmodule Letflow.Modules.Exam.Certificate do
                entity_type: "certificate",
                field_values: field_values,
                actor_id: candidate_id,
-               idempotency_key: "certificate:issue:" <> session.id
+               idempotency_key: "certificate:issue:" <> session.id,
+               idempotency_match: :target
              },
              prefix
            ) do

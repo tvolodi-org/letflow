@@ -959,18 +959,22 @@ defmodule Letflow.Entities.RecordsTest do
       assert replay.field_values == first.field_values
     end
 
-    test "replay with the same key but a different stale expected and different values returns the original" do
+    # GH #2543 split this #2528 test in two: the expected sequence is not part
+    # of the idempotency binding (design D5), the field values are.
+    test "same values, different stale expected -> is_duplicate: true" do
       %{schema_name: schema} = provisioned_tenant()
       create_active_definition!(schema)
       {:ok, %{record: created}} = Records.create_record(create_attrs(), schema)
       s1 = created.last_event_global_seq
       key = Ecto.UUID.generate()
+      actor_id = Ecto.UUID.generate()
 
       assert {:ok, %{record: first, is_duplicate: false}} =
                Records.update_record(
                  gh2528_update_attrs(created.record_id, "Original", %{
                    expected_last_event_global_seq: s1,
-                   idempotency_key: key
+                   idempotency_key: key,
+                   actor_id: actor_id
                  }),
                  schema
                )
@@ -979,20 +983,60 @@ defmodule Letflow.Entities.RecordsTest do
       # s1 - 1 must stay a valid (non-negative) expected value.
       assert s1 > 0
 
-      # s1 is stale now (first advanced the row) and the values differ: the
-      # idempotency short-circuit runs before the version check, so the key
-      # wins and nothing is re-validated, re-checked or written.
+      # s1 is stale now (first advanced the row): the idempotency short-circuit
+      # runs before the version check, so the same request is a replay and
+      # nothing is re-checked or written.
       assert {:ok, %{record: replay, is_duplicate: true}} =
                Records.update_record(
-                 gh2528_update_attrs(created.record_id, "Different", %{
+                 gh2528_update_attrs(created.record_id, "Original", %{
                    expected_last_event_global_seq: s1 - 1,
-                   idempotency_key: key
+                   idempotency_key: key,
+                   actor_id: actor_id
                  }),
                  schema
                )
 
       assert replay.field_values == first.field_values
       assert replay.last_event_global_seq == first.last_event_global_seq
+
+      stored = gh2528_latest!(schema, created.record_id)
+      assert stored.field_values["customer_name"] == "Original"
+      assert stored.last_event_global_seq == first.last_event_global_seq
+      assert gh2528_event_count(schema) == events_before
+    end
+
+    test "different values, same key -> idempotency_key_reuse, nothing written" do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      {:ok, %{record: created}} = Records.create_record(create_attrs(), schema)
+      s1 = created.last_event_global_seq
+      key = Ecto.UUID.generate()
+      actor_id = Ecto.UUID.generate()
+
+      assert {:ok, %{record: first, is_duplicate: false}} =
+               Records.update_record(
+                 gh2528_update_attrs(created.record_id, "Original", %{
+                   expected_last_event_global_seq: s1,
+                   idempotency_key: key,
+                   actor_id: actor_id
+                 }),
+                 schema
+               )
+
+      events_before = gh2528_event_count(schema)
+      assert s1 > 0
+
+      # The key is reused for a different request: refused before the version
+      # check, so neither the stale expected nor the new values are applied.
+      assert {:error, :idempotency_key_reuse} =
+               Records.update_record(
+                 gh2528_update_attrs(created.record_id, "Different", %{
+                   expected_last_event_global_seq: s1 - 1,
+                   idempotency_key: key,
+                   actor_id: actor_id
+                 }),
+                 schema
+               )
 
       stored = gh2528_latest!(schema, created.record_id)
       assert stored.field_values["customer_name"] == "Original"
@@ -1539,6 +1583,445 @@ defmodule Letflow.Entities.RecordsTest do
                "lib/letflow/entities/record/projector.ex",
                "lib/letflow/entities/records.ex"
              ]
+    end
+  end
+
+  # ---------------------------------------------------------------------------------
+  # GH #2543 -- an idempotency_key is bound to the request that first used it
+  # (lib/letflow/design/gh2543-idempotency-key-binding.md §2, §3, §8).
+  # ---------------------------------------------------------------------------------
+
+  @gh2543_json_fields [
+    %{name: "customer_name", type: :string, required: true},
+    %{name: "age", type: :integer},
+    %{name: "data", type: :json}
+  ]
+
+  defp gh2543_definition!(schema, name \\ "customer") do
+    create_active_definition!(schema, %{
+      name: name,
+      display_name: String.capitalize(name),
+      fields: @gh2543_json_fields
+    })
+  end
+
+  defp gh2543_update_attrs(record_id, actor_id, key, name \\ "Updated") do
+    %{
+      entity_type: "customer",
+      record_id: record_id,
+      field_values: %{"customer_name" => name, "age" => 1},
+      actor_id: actor_id,
+      idempotency_key: key
+    }
+  end
+
+  defp gh2543_delete_attrs(record_id, actor_id, key) do
+    %{entity_type: "customer", record_id: record_id, actor_id: actor_id, idempotency_key: key}
+  end
+
+  defp gh2543_event_count(schema), do: Repo.aggregate(Event, :count, prefix: schema)
+
+  defp gh2543_stored_payload(schema, key) do
+    Event
+    |> where([e], e.idempotency_key == ^key)
+    |> select([e], e.payload)
+    |> Repo.one!(prefix: schema)
+  end
+
+  # > 4096 bytes of payload, so EventStore stores it in event_payload_store
+  # and the event row carries %{"$ref" => event_id}.
+  defp gh2543_big_name(char), do: String.duplicate(char, 5_000)
+
+  describe "GH #2543 -- idempotency key bound to the request" do
+    test "update key reused for a different record_id -> idempotency_key_reuse, target unchanged, no event" do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      {:ok, %{record: a}} = Records.create_record(create_attrs(), schema)
+      {:ok, %{record: b}} = Records.create_record(create_attrs(), schema)
+      actor_id = Ecto.UUID.generate()
+      key = Ecto.UUID.generate()
+
+      assert {:ok, %{is_duplicate: false}} =
+               Records.update_record(gh2543_update_attrs(a.record_id, actor_id, key), schema)
+
+      events_before = gh2543_event_count(schema)
+
+      assert {:error, :idempotency_key_reuse} =
+               Records.update_record(gh2543_update_attrs(b.record_id, actor_id, key), schema)
+
+      stored_b = gh2528_latest!(schema, b.record_id)
+      assert stored_b.field_values == b.field_values
+      assert stored_b.last_event_global_seq == b.last_event_global_seq
+      assert gh2543_event_count(schema) == events_before
+    end
+
+    test "create key reused for update -> reuse" do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      attrs = create_attrs()
+      {:ok, %{record: created}} = Records.create_record(attrs, schema)
+      events_before = gh2543_event_count(schema)
+
+      assert {:error, :idempotency_key_reuse} =
+               Records.update_record(
+                 %{
+                   entity_type: "customer",
+                   record_id: created.record_id,
+                   field_values: attrs.field_values,
+                   actor_id: attrs.actor_id,
+                   idempotency_key: attrs.idempotency_key
+                 },
+                 schema
+               )
+
+      stored = gh2528_latest!(schema, created.record_id)
+      assert stored.last_event_global_seq == created.last_event_global_seq
+      assert gh2543_event_count(schema) == events_before
+    end
+
+    test "create key reused for delete -> reuse" do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      attrs = create_attrs()
+      {:ok, %{record: created}} = Records.create_record(attrs, schema)
+      events_before = gh2543_event_count(schema)
+
+      assert {:error, :idempotency_key_reuse} =
+               Records.delete_record(
+                 gh2543_delete_attrs(created.record_id, attrs.actor_id, attrs.idempotency_key),
+                 schema
+               )
+
+      refute gh2528_latest!(schema, created.record_id).deleted
+      assert gh2543_event_count(schema) == events_before
+    end
+
+    test "delete key reused against a different record_id -> reuse, second record not deleted, no event" do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      {:ok, %{record: a}} = Records.create_record(create_attrs(), schema)
+      {:ok, %{record: b}} = Records.create_record(create_attrs(), schema)
+      actor_id = Ecto.UUID.generate()
+      key = Ecto.UUID.generate()
+
+      assert {:ok, %{record: %{deleted: true}}} =
+               Records.delete_record(gh2543_delete_attrs(a.record_id, actor_id, key), schema)
+
+      events_before = gh2543_event_count(schema)
+
+      assert {:error, :idempotency_key_reuse} =
+               Records.delete_record(gh2543_delete_attrs(b.record_id, actor_id, key), schema)
+
+      stored_b = gh2528_latest!(schema, b.record_id)
+      refute stored_b.deleted
+      assert stored_b.last_event_global_seq == b.last_event_global_seq
+      assert gh2543_event_count(schema) == events_before
+    end
+
+    test "update replay of the same request with an upper-case record_id -> is_duplicate: true" do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      {:ok, %{record: b}} = Records.create_record(create_attrs(), schema)
+      actor_id = Ecto.UUID.generate()
+      key = Ecto.UUID.generate()
+
+      assert {:ok, %{is_duplicate: false}} =
+               Records.update_record(gh2543_update_attrs(b.record_id, actor_id, key), schema)
+
+      events_before = gh2543_event_count(schema)
+
+      # Design §3: UUIDs are compared after Ecto.UUID.cast/1 on both sides.
+      assert {:ok, %{is_duplicate: true}} =
+               Records.update_record(
+                 gh2543_update_attrs(String.upcase(b.record_id), actor_id, key),
+                 schema
+               )
+
+      assert gh2543_event_count(schema) == events_before
+    end
+
+    test "oversized original reused with different field_values -> reuse, no event" do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      attrs = create_attrs(%{field_values: %{"customer_name" => gh2543_big_name("a")}})
+      {:ok, %{record: created}} = Records.create_record(attrs, schema)
+
+      assert %{"$ref" => _event_id} = gh2543_stored_payload(schema, attrs.idempotency_key)
+      events_before = gh2543_event_count(schema)
+
+      assert {:error, :idempotency_key_reuse} =
+               Records.create_record(
+                 %{attrs | field_values: %{"customer_name" => gh2543_big_name("b")}},
+                 schema
+               )
+
+      assert gh2543_event_count(schema) == events_before
+      assert Repo.aggregate(Latest, :count, prefix: schema) == 1
+      assert gh2528_latest!(schema, created.record_id).field_values == attrs.field_values
+    end
+
+    test "create key reused with different field_values -> reuse" do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      attrs = create_attrs()
+      {:ok, _} = Records.create_record(attrs, schema)
+
+      assert {:error, :idempotency_key_reuse} =
+               Records.create_record(
+                 %{attrs | field_values: %{"customer_name" => "Other", "age" => 42}},
+                 schema
+               )
+
+      assert gh2543_event_count(schema) == 1
+      assert Repo.aggregate(Latest, :count, prefix: schema) == 1
+    end
+
+    test "update key reused with different field_values -> reuse" do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      {:ok, %{record: created}} = Records.create_record(create_attrs(), schema)
+      actor_id = Ecto.UUID.generate()
+      key = Ecto.UUID.generate()
+
+      {:ok, %{record: first}} =
+        Records.update_record(
+          gh2543_update_attrs(created.record_id, actor_id, key, "One"),
+          schema
+        )
+
+      events_before = gh2543_event_count(schema)
+
+      assert {:error, :idempotency_key_reuse} =
+               Records.update_record(
+                 gh2543_update_attrs(created.record_id, actor_id, key, "Two"),
+                 schema
+               )
+
+      stored = gh2528_latest!(schema, created.record_id)
+      assert stored.field_values["customer_name"] == "One"
+      assert stored.last_event_global_seq == first.last_event_global_seq
+      assert gh2543_event_count(schema) == events_before
+    end
+
+    test "create key reused on another entity type with identical field_values -> reuse" do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      create_active_definition!(schema, %{name: "supplier", display_name: "Supplier"})
+      attrs = create_attrs()
+      {:ok, _} = Records.create_record(attrs, schema)
+
+      assert {:error, :idempotency_key_reuse} =
+               Records.create_record(%{attrs | entity_type: "supplier"}, schema)
+
+      assert gh2543_event_count(schema) == 1
+
+      assert Repo.aggregate(from(l in Latest, where: l.entity_type == "supplier"), :count,
+               prefix: schema
+             ) == 0
+    end
+
+    test "same key and payload from another actor -> reuse" do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      attrs = create_attrs()
+      {:ok, _} = Records.create_record(attrs, schema)
+
+      assert {:error, :idempotency_key_reuse} =
+               Records.create_record(%{attrs | actor_id: Ecto.UUID.generate()}, schema)
+
+      assert gh2543_event_count(schema) == 1
+    end
+
+    test "key first used by a non-entity event -> reuse, no raise" do
+      %{schema_name: schema, tenant_id: tenant_id} = provisioned_tenant()
+      create_active_definition!(schema)
+      {:ok, instance_id} = EntityTypeInstance.get_or_create("customer", schema)
+
+      event_type = "GH2543_FOREIGN_" <> to_string(System.unique_integer([:positive]))
+
+      assert {:ok, _} =
+               Registry.register_type(
+                 %{
+                   "name" => event_type,
+                   "schema_version" => 1,
+                   "json_schema" => %{"type" => "object"},
+                   "description" => "GH #2543 test fixture"
+                 },
+                 tenant_id
+               )
+
+      attrs = create_attrs()
+
+      assert {:ok, _event} =
+               EventStore.append(
+                 %{
+                   instance_id: instance_id,
+                   event_type: event_type,
+                   payload: Jason.encode!(%{"something" => "else"}),
+                   actor_id: attrs.actor_id,
+                   idempotency_key: attrs.idempotency_key
+                 },
+                 prefix: schema
+               )
+
+      events_before = gh2543_event_count(schema)
+
+      assert {:error, :idempotency_key_reuse} = Records.create_record(attrs, schema)
+      assert gh2543_event_count(schema) == events_before
+      assert Repo.aggregate(Latest, :count, prefix: schema) == 0
+    end
+
+    test "replay with reordered keys and 1 vs 1.0 -> is_duplicate: true, one event" do
+      %{schema_name: schema} = provisioned_tenant()
+      gh2543_definition!(schema)
+
+      attrs =
+        create_attrs(%{
+          field_values: %{
+            "customer_name" => "Acme",
+            "data" => %{"z" => 1, "aa" => %{"n" => [1, 2.0], "m" => true}}
+          }
+        })
+
+      assert {:ok, %{record: first, is_duplicate: false}} = Records.create_record(attrs, schema)
+
+      replay_values = %{
+        "data" => %{"aa" => %{"m" => true, "n" => [1.0, 2]}, "z" => 1.0},
+        "customer_name" => "Acme"
+      }
+
+      assert {:ok, %{record: replay, is_duplicate: true}} =
+               Records.create_record(%{attrs | field_values: replay_values}, schema)
+
+      assert replay.record_id == first.record_id
+      assert gh2543_event_count(schema) == 1
+
+      # A string "1" never matches the number 1.
+      assert {:error, :idempotency_key_reuse} =
+               Records.create_record(
+                 %{
+                   attrs
+                   | field_values: %{
+                       "customer_name" => "Acme",
+                       "data" => %{"z" => "1", "aa" => %{"n" => [1, 2.0], "m" => true}}
+                     }
+                 },
+                 schema
+               )
+    end
+
+    test "replay with a float >= 2^53 (1.0e23, 12345678901234567890.5 and 9.099724907720628e285) -> is_duplicate: true, one event" do
+      %{schema_name: schema} = provisioned_tenant()
+      gh2543_definition!(schema)
+
+      data = %{
+        "f1" => 1.0e23,
+        "f2" => 12_345_678_901_234_567_890.5,
+        "f3" => 9.099724907720628e285
+      }
+
+      attrs = create_attrs(%{field_values: %{"customer_name" => "Acme", "data" => data}})
+
+      assert {:ok, %{record: first, is_duplicate: false}} = Records.create_record(attrs, schema)
+
+      # Premise: jsonb printed each float as a plain decimal that Jason decodes
+      # as an INTEGER, so plain == would call this identical replay different.
+      stored = gh2543_stored_payload(schema, attrs.idempotency_key)["field_values"]["data"]
+      assert is_integer(stored["f1"]) and is_integer(stored["f2"]) and is_integer(stored["f3"])
+      refute stored == data
+      # ... and :erlang.float/1 truncates the last one (design §3).
+      refute :erlang.float(stored["f3"]) == data["f3"]
+
+      assert {:ok, %{record: replay, is_duplicate: true}} = Records.create_record(attrs, schema)
+      assert replay.record_id == first.record_id
+      assert gh2543_event_count(schema) == 1
+    end
+
+    test "oversized (> 4096 B payload) create replay -> is_duplicate: true, full field_values" do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+
+      attrs =
+        create_attrs(%{field_values: %{"customer_name" => gh2543_big_name("q"), "age" => 3}})
+
+      assert {:ok, %{record: first, is_duplicate: false}} = Records.create_record(attrs, schema)
+      assert %{"$ref" => _event_id} = gh2543_stored_payload(schema, attrs.idempotency_key)
+
+      assert {:ok, %{record: replay, is_duplicate: true}} = Records.create_record(attrs, schema)
+      assert replay.record_id == first.record_id
+      assert replay.field_values == attrs.field_values
+      assert replay.entity_def_version == first.entity_def_version
+      assert gh2543_event_count(schema) == 1
+    end
+
+    test ":target create with different values -> original, is_duplicate: true" do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      attrs = create_attrs(%{idempotency_match: :target})
+
+      assert {:ok, %{record: first, is_duplicate: false}} = Records.create_record(attrs, schema)
+
+      assert {:ok, %{record: replay, is_duplicate: true}} =
+               Records.create_record(
+                 %{attrs | field_values: %{"customer_name" => "Changed", "age" => 1}},
+                 schema
+               )
+
+      assert replay.record_id == first.record_id
+      assert replay.field_values == first.field_values
+      assert gh2543_event_count(schema) == 1
+    end
+
+    test ":target create on another type -> reuse" do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      create_active_definition!(schema, %{name: "supplier", display_name: "Supplier"})
+      attrs = create_attrs(%{idempotency_match: :target})
+      {:ok, _} = Records.create_record(attrs, schema)
+
+      assert {:error, :idempotency_key_reuse} =
+               Records.create_record(%{attrs | entity_type: "supplier"}, schema)
+
+      assert {:error, :idempotency_key_reuse} =
+               Records.create_record(%{attrs | actor_id: Ecto.UUID.generate()}, schema)
+
+      assert gh2543_event_count(schema) == 1
+    end
+
+    test "invalid idempotency_match raises ArgumentError" do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+
+      for bad <- [:bogus, "target"] do
+        assert_raise ArgumentError, ~r/idempotency_match/, fn ->
+          Records.create_record(create_attrs(%{idempotency_match: bad}), schema)
+        end
+
+        # Raised before the definition lookup, so on every path.
+        assert_raise ArgumentError, ~r/idempotency_match/, fn ->
+          Records.create_record(
+            create_attrs(%{entity_type: "no_such_type", idempotency_match: bad}),
+            schema
+          )
+        end
+      end
+
+      assert gh2543_event_count(schema) == 0
+    end
+
+    test "reused key on an append-only type -> entity_append_only" do
+      %{schema_name: schema} = provisioned_tenant()
+      gh2529_activate!(schema, %{})
+      {:ok, %{record: created}} = Records.create_record(create_attrs(), schema)
+      attrs = gh2543_update_attrs(created.record_id, Ecto.UUID.generate(), Ecto.UUID.generate())
+      assert {:ok, %{is_duplicate: false}} = Records.update_record(attrs, schema)
+
+      gh2529_activate!(schema, %{append_only: true})
+      events_before = gh2543_event_count(schema)
+
+      # The same request would be a replay, but ensure_mutable runs first.
+      assert {:error, {:entity_append_only, "customer"}} = Records.update_record(attrs, schema)
+      assert gh2543_event_count(schema) == events_before
     end
   end
 end
