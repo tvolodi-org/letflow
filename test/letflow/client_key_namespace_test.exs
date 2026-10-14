@@ -487,28 +487,80 @@ defmodule Letflow.ClientKeyNamespaceTest do
     end
   end
 
-  describe "AC1 squat: service_task_dispatch: and service_task:" do
-    test "squat both service-task families (attempt 0) -- the dispatcher still completes the give-up" do
-      ctx = tenant_ctx("gh2550-sq-svc")
+  defp service_task_graph(endpoint) do
+    graph(
+      [
+        %{"id" => "start", "node_type" => "START"},
+        %{
+          "id" => "svc",
+          "node_type" => "SERVICE_TASK",
+          "attributes" => %{"endpoint" => endpoint, "timeout_ms" => 5_000}
+        },
+        %{"id" => "end", "node_type" => "END"}
+      ],
+      [
+        %{"id" => "e1", "source" => "start", "target" => "svc"},
+        %{"id" => "e2", "source" => "svc", "target" => "end"}
+      ]
+    )
+  end
 
-      graph =
-        graph(
-          [
-            %{"id" => "start", "node_type" => "START"},
-            %{
-              "id" => "svc",
-              "node_type" => "SERVICE_TASK",
-              "attributes" => %{"endpoint" => "https://127.0.0.1/hook", "timeout_ms" => 5_000}
-            },
-            %{"id" => "end", "node_type" => "END"}
-          ],
-          [
-            %{"id" => "e1", "source" => "start", "target" => "svc"},
-            %{"id" => "e2", "source" => "svc", "target" => "end"}
-          ]
+  describe "AC1 squat: service_task_dispatch: (success path)" do
+    # The bare `service_task_dispatch:<dispatch.id>` key is written only when
+    # the dispatch succeeds (SERVICE_TASK_COMPLETED). The SSRF test seam plus
+    # a real local WebhookTestServer reaches that path.
+    setup do
+      previous = Application.fetch_env(:letflow, :service_task_ssrf_validation_enabled)
+      Application.put_env(:letflow, :service_task_ssrf_validation_enabled, false)
+
+      on_exit(fn ->
+        case previous do
+          {:ok, value} ->
+            Application.put_env(:letflow, :service_task_ssrf_validation_enabled, value)
+
+          :error ->
+            Application.delete_env(:letflow, :service_task_ssrf_validation_enabled)
+        end
+      end)
+
+      :ok
+    end
+
+    test "squat service_task_dispatch:<id> via a record POST -- the dispatch still completes and advances" do
+      ctx = tenant_ctx("gh2550-sq-svc-ok")
+      %{url: server_url} = Letflow.WebhookTestServer.start(200, ~s({"ok":true}))
+
+      instance_id =
+        start!(ctx.schema_name, active_process!(ctx.schema_name, service_task_graph(server_url)))
+
+      [dispatch] =
+        Repo.all(from(d in ServiceTaskDispatch, where: d.instance_id == ^instance_id),
+          prefix: ctx.schema_name
         )
 
-      instance_id = start!(ctx.schema_name, active_process!(ctx.schema_name, graph))
+      server_key = "service_task_dispatch:#{dispatch.id}"
+
+      assert post_record(ctx, server_key).status == 201
+
+      assert %{claimed: 1, advanced: 1, given_up: 0} =
+               ServiceTaskDispatcher.poll_and_dispatch(ctx.schema_name)
+
+      assert [%Event{event_type: "SERVICE_TASK_COMPLETED", instance_id: ^instance_id}] =
+               events_with_key(ctx.schema_name, server_key)
+
+      assert status(ctx.schema_name, instance_id) == :completed
+    end
+  end
+
+  describe "AC1 squat: service_task:" do
+    test "squat service_task: (attempt 0) -- the dispatcher still completes the give-up" do
+      ctx = tenant_ctx("gh2550-sq-svc")
+
+      instance_id =
+        start!(
+          ctx.schema_name,
+          active_process!(ctx.schema_name, service_task_graph("https://127.0.0.1/hook"))
+        )
 
       [dispatch] =
         Repo.all(from(d in ServiceTaskDispatch, where: d.instance_id == ^instance_id),
@@ -524,7 +576,6 @@ defmodule Letflow.ClientKeyNamespaceTest do
         )
 
       assert dispatch.attempt_index == 0
-      assert post_record(ctx, "service_task_dispatch:#{dispatch.id}").status == 201
       assert post_record(ctx, give_up_key).status == 201
 
       assert %{claimed: 1, given_up: 1} = ServiceTaskDispatcher.poll_and_dispatch(ctx.schema_name)
@@ -1223,6 +1274,30 @@ defmodule Letflow.ClientKeyNamespaceTest do
       assert_too_long!(conn, ctx.schema_name, before, "idempotency-key", too_long)
 
       assert Repo.aggregate(InstanceProjection, :count, prefix: ctx.schema_name) == 0
+    end
+
+    test "start header: 199 bytes -> 201 stored as client:inst_start:<actor>:K at 254 bytes" do
+      ctx = tenant_ctx("gh2550-len-start-ok")
+      definition = active_process!(ctx.schema_name, human_task_graph())
+      fits = String.duplicate("k", 199)
+
+      conn =
+        request(
+          :post,
+          "/api/v1/instances",
+          ctx,
+          %{"definition_id" => definition.id, "initial_variables" => %{}},
+          [{"idempotency-key", fits}]
+        )
+
+      assert conn.status == 201
+      instance_id = body_of(conn)["instance_id"]
+      expected_key = "client:inst_start:#{ctx.user_id}:" <> fits
+
+      assert [%Event{event_type: "INSTANCE_STARTED", instance_id: ^instance_id} = stored] =
+               events_with_key(ctx.schema_name, expected_key)
+
+      assert byte_size(stored.idempotency_key) == 18 + 36 + 1 + 199
     end
 
     test "cancel/rebind header: 163 -> 422, 162 -> 200 stored within 255 bytes" do
