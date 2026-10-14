@@ -35,6 +35,9 @@ Line numbers below are this branch's HEAD (59c16a20).
    every other unknown key with `{:error, :invalid_pack_document}`. Export already ships the stored
    string-keyed `definition_json` verbatim (`pack_entity_definition/1`, solution_pack.ex:904-912), so
    no export change. Install goes `atomize_definition_json/1` -> `Definitions.create_definition/2`.
+   `priv/modules/exam/generate_pack.exs` keeps its own mirror of this whitelist (line 44); it is
+   **deliberately not updated**: exam types must not adopt the flag (section 5), so the exam pack
+   generator rejecting `append_only` is the desired behaviour.
 3. **Type** -- `Letflow.Entities.Definition.t()` (entities/definition.ex:23-31) gains
    `optional(:append_only) => boolean()`; moduledoc gets one paragraph (semantics, D3/D4).
 4. **Validator** -- `malformed_violations/1` (definition/validator.ex:105-125): add one step
@@ -125,12 +128,14 @@ Router (routers/entities.ex):
 |---|---|---|
 | `modules/exam/session.ex:1064` (`session_answer`) | `write_result = ...; ok_or_error(write_result)` (1075; `ok_or_error/1` 1339-1340 handles `{:error, _}`) | error returned, no crash |
 | `modules/exam/session.ex:1263` (`session`) | `ok_or_error(Records.update_record(...))` | error returned, no crash |
-| `scheduler/record_deadline_sweep.ex:254` (`apply_transition/3`) | `case` at 207-210: `{:error, reason} -> Repo.rollback(...)` -> logged warning, id added to `failed_ids` (180-189) | no crash, record skipped per sweep |
+| `scheduler/record_deadline_sweep.ex:254` (`apply_transition/3`) | `case` at 207-210: `{:error, reason} -> Repo.rollback(...)` -> logged warning, id added to `failed_ids` (180-189) | no crash, but every due record of that type fails and logs a warning on **every** sweep run, forever (the record never transitions, so it stays due) |
 | `routers/entities.ex:1007`, `:1048` | `render_record_command/3` | 422 per section 4 |
 
 None matches `{:ok, _} =` unconditionally. Exam types (`priv/modules/exam/entity_definitions/*.json`)
 and any type a deadline rule targets **must not** adopt the flag (both update their records by
-design); no file in this change touches them. Nothing deletes records outside the router.
+design; for a deadline type the sweep would fail and warn for every due record on every run); no
+file in this change touches them, and `priv/modules/exam/generate_pack.exs`'s mirror whitelist is
+deliberately left without the key. Nothing deletes records outside the router.
 
 ## 6. AC -> design element -> test
 
@@ -141,14 +146,17 @@ design); no file in this change touches them. Nothing deletes records outside th
 | 3 default off | D1/D3 | existing describes unmodified; plus "append_only: false behaves as mutable incl. delete idempotency" |
 | 4 real round-trip | sec 2.5, D3 | all "append_only" fixtures built via `Definitions.create_definition/2` + `activate_definition/4`; one test asserts the reloaded `definition_json["append_only"] == true` |
 | 5 version flip | D3 (current active) | "activating a version without the flag unlocks; re-adding it locks again" -- v1 `true`, v2 absent, v3 `true` **plus one extra optional field** (v3 must differ in logical shape from v1, else the unique index rejects it) |
-| 6 HTTP | sec 2.1, sec 4 | `test/letflow/routers/entities_test.exs` :: describe "append_only (GH #2529)": PUT 422 + DELETE 422 (`code == "entity_append_only"`, content-type problem+json, no `field_values` key), POST record 201, normal type PUT 200, definition POST `true` 201 + GET active echoes `"append_only" => true`, `"yes"` 422 with an `errors` entry `code "malformed"`, `path ["append_only"]` |
+| 6 HTTP | sec 2.1, sec 4 | `test/letflow/routers/entities_test.exs` :: describe "append_only (GH #2529)": PUT 422 + DELETE 422 (`code == "entity_append_only"`, content-type problem+json, no `field_values` key), POST record 201, normal type PUT 200, definition POST `true` 201, then `POST /entities/definitions/:name/activate` with a non-blank `rationale`, then GET active echoes `"append_only" => true`; definition POST `"append_only": null` 201 with no `append_only` key stored, `"yes"` 422 with an `errors` entry `code "malformed"`, `path ["append_only"]` |
 | 7 validator | sec 2.4 | `test/letflow/entities/definition/validator_test.exs` :: describe "append_only": `true`/`false`/absent `:ok`; `"true"`, `1`, `"x"`, `nil` -> `%Violation{rule: :malformed, path: [:append_only]}` |
 | 8 pack | sec 2.2 | `test/letflow/definitions/solution_pack_test.exs` :: describe "append_only round-trip (GH #2529)": export from tenant A, install into tenant B, `definition_json["append_only"] == true`; a pack with `"definition_json": {..., "frozen": true}` still `{:error, :invalid_pack_document}` |
 | 9 hash stability | sec 2.6 | `test/letflow/entities/definition/shape_test.exs` :: describe "GH #2529 hash stability": key-less fixture's `content_hash/1` and `logical_shape_of/1` equal pinned lowercase-hex literals captured by running the same fixture on `origin/main` before the change; the fixture plus `append_only: true` gives a different `logical_shape_of/1` |
 | 10 funnel | sec 5 | records_test.exs "append_only": a test-local function shaped like `apply_transition/3` (a `case` over `Records.update_record/2` inside `Repo.transaction/1`, rolling back on `{:error, _}`) returns the refusal; no `MatchError` |
-| 11 no new write path | D8 | `test/letflow/entities/records_test.exs` :: "no new write path": `git grep -l` for the two event-type names under `lib`, excluding `lib/letflow/design/`, equals exactly `event_types.ex`, `records.ex`, `record/projector.ex` (skips with a message if git is unavailable) |
+| 11 no new write path | D8 | `test/letflow/entities/records_test.exs` :: "no new write path": `git grep -l` for the two event-type names under `lib`, excluding `lib/letflow/design/`, equals exactly `event_types.ex`, `records.ex`, `record/projector.ex` (FAILS, does not skip, if git is unavailable) |
 
 ## 7. Blast radius
+
+`priv/modules/exam/generate_pack.exs`'s mirror of the pack whitelist is deliberately not updated
+(exam types must not adopt the flag; see sections 2.2 and 5).
 
 Opt-in only. No stored definition has the key (`git grep append_only -- lib priv` finds none), so
 existing hashes, shapes, payload validation and every existing caller are unchanged; no migration.

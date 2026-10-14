@@ -17,6 +17,18 @@ defmodule Letflow.Entities.Definition do
   lookups -- tenant scoping is enforced by REQ-226's context module, the
   same division of responsibility `Letflow.Repository.Canonicaliser` already
   has relative to `Letflow.Repository`.
+
+  ## `append_only` (GH #2529)
+
+  Optional top-level boolean, never defaulted or inserted by any layer
+  (absent means mutable, and keeps the stored JSON and its hashes unchanged).
+  When the entity type's **current** active definition carries `true`,
+  `Letflow.Entities.Records.update_record/2` and `delete_record/2` refuse with
+  `{:error, {:entity_append_only, entity_type}}` right after resolving the
+  definition and before any record lookup; creating records is unaffected.
+  A present non-boolean value (including `nil`) is `:malformed` at
+  `[:append_only]`. The key is part of the logical shape, so adopting it is a
+  new version to activate.
   """
 
   @typedoc "Top-level entity definition document. See moduledoc for the tenant-scoping decision."
@@ -27,7 +39,8 @@ defmodule Letflow.Entities.Definition do
           required(:fields) => [field_def()],
           optional(:indexes) => [index_def()],
           optional(:foreign_keys) => [fk_def()],
-          optional(:constraints) => [constraint_def()]
+          optional(:constraints) => [constraint_def()],
+          optional(:append_only) => boolean()
         }
 
   @typedoc "One field in an entity definition's `fields` list."

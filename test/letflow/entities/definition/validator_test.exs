@@ -580,4 +580,32 @@ defmodule Letflow.Entities.Definition.ValidatorTest do
       assert rules == [:name_format, :queried_json_conflict]
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # GH #2529 -- optional top-level `append_only` boolean.
+  # ---------------------------------------------------------------------------
+
+  defp gh2529_definition(extra) do
+    Map.merge(
+      %{name: "ledger", display_name: "Ledger", fields: [%{name: "title", type: :string}]},
+      extra
+    )
+  end
+
+  describe "append_only" do
+    test "true, false and absent are all :ok" do
+      assert Validator.validate(gh2529_definition(%{append_only: true})) == :ok
+      assert Validator.validate(gh2529_definition(%{append_only: false})) == :ok
+      assert Validator.validate(gh2529_definition(%{})) == :ok
+    end
+
+    test "a present non-boolean (including nil) is malformed at [:append_only]" do
+      for bad <- ["true", 1, "x", nil] do
+        assert {:error, violations} = Validator.validate(gh2529_definition(%{append_only: bad})),
+               "expected #{inspect(bad)} to be rejected"
+
+        assert [%Violation{rule: :malformed, path: [:append_only]}] = violations
+      end
+    end
+  end
 end

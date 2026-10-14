@@ -279,6 +279,28 @@ defmodule Letflow.Api.Error do
     }
   end
 
+  @doc """
+  HTTP 422 — Entity Type Is Append-Only (GH #2529).
+
+  Returned when an entity record update or delete targets an entity type whose
+  current active definition declares `append_only: true`: records of that type
+  are facts and are never changed or removed. 422 rather than 409 (the SPA
+  reads 409 as an edit conflict) or 403 (reserved for module ownership). The
+  body carries the constant `code` `"entity_append_only"` and a fixed detail.
+  Takes no argument, so no entity type, record id or field value can reach the
+  body (INV-2, INV-4).
+  """
+  @spec entity_append_only() :: t()
+  def entity_append_only do
+    %__MODULE__{
+      type: @problems_base <> "entity-append-only",
+      title: "Entity Type Is Append-Only",
+      status: 422,
+      detail: "records of this entity type are append-only and cannot be updated or deleted",
+      extensions: %{"code" => "entity_append_only"}
+    }
+  end
+
   @doc "HTTP 415 — Unsupported Media Type."
   @spec unsupported_media_type(String.t()) :: t()
   def unsupported_media_type(detail) do

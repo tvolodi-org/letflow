@@ -1191,4 +1191,54 @@ defmodule Letflow.Definitions.SolutionPackTest do
       end
     end
   end
+
+  # ── GH #2529 -- append_only survives export -> install ─────────────────────
+
+  describe "append_only round-trip (GH #2529)" do
+    test "export from tenant A, install into tenant B: definition_json[\"append_only\"] == true" do
+      tenant_a = TenantFixture.provisioned_tenant!(slug_prefix: "gh2529-pack-a")
+      tenant_b = TenantFixture.provisioned_tenant!(slug_prefix: "gh2529-pack-b")
+      cleanup_solution_pack_installs!(tenant_b.tenant_id)
+
+      source = create_entity_definition!(tenant_a.schema_name, %{append_only: true})
+
+      assert {:ok, source} =
+               EntityDefinitions.get_definition_by_name(source.name, tenant_a.schema_name)
+
+      assert source.definition_json["append_only"] == true
+
+      assert {:ok, exported} =
+               SolutionPack.export([], [source.name], "1.0.0", prefix: tenant_a.schema_name)
+
+      wire_document = stringify_keys(exported)
+
+      assert {:ok, %{installed_entity_definitions: [_installed]}} =
+               SolutionPack.install(wire_document, Ecto.UUID.generate(),
+                 prefix: tenant_b.schema_name
+               )
+
+      assert {:ok, installed_row} =
+               EntityDefinitions.get_definition_by_name(source.name, tenant_b.schema_name)
+
+      assert installed_row.definition_json["append_only"] == true
+      assert installed_row.definition_json == source.definition_json
+      assert installed_row.logical_shape_version == source.logical_shape_version
+    end
+
+    test "any other unknown top-level key still gives {:error, :invalid_pack_document}" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2529-pack-unknown")
+
+      entry = packed_entity_definition_json()
+
+      bad_entry =
+        Map.update!(entry, "definition_json", &Map.put(&1, "frozen", true))
+
+      document = pack_document(%{entity_definitions: [bad_entry]})
+
+      assert SolutionPack.install(document, Ecto.UUID.generate(), prefix: tenant.schema_name) ==
+               {:error, :invalid_pack_document}
+
+      assert Repo.aggregate(EntityDefinition, :count, :id, prefix: tenant.schema_name) == 0
+    end
+  end
 end

@@ -111,6 +111,7 @@ defmodule Letflow.Entities.Definition.Validator do
     |> check_optional_list_of_maps(definition, :indexes)
     |> check_optional_list_of_maps(definition, :foreign_keys)
     |> check_optional_list_of_maps(definition, :constraints)
+    |> check_optional_boolean(definition, :append_only)
     |> then(fn violations ->
       if violations == [] do
         violations
@@ -137,6 +138,18 @@ defmodule Letflow.Entities.Definition.Validator do
       nil -> violations
       value when is_binary(value) -> violations
       _other -> [malformed([key], "#{key} must be a string") | violations]
+    end
+  end
+
+  # GH #2529: `Map.fetch/2`, not `Map.get/2`, so a present `nil` (JSON null
+  # arriving through a pack) is malformed rather than treated as absent -- a
+  # stored null would change the content hash of a mutable type.
+  @spec check_optional_boolean([violation()], Definition.t() | map(), atom()) :: [violation()]
+  defp check_optional_boolean(violations, definition, key) do
+    case Map.fetch(definition, key) do
+      :error -> violations
+      {:ok, value} when is_boolean(value) -> violations
+      {:ok, _other} -> [malformed([key], "#{key} must be a boolean") | violations]
     end
   end
 
