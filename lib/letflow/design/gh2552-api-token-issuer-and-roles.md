@@ -221,7 +221,8 @@ Option 3: deactivation revokes all the user's tokens in the same transaction; re
   "owner_deactivated"`); the user entry's after_state adds `revoked_token_count`; actor and trace from
   `opts[:audit_context]`, which both functions start accepting (today `nil`, `:439`, `:445`).
 - **Zero-admin guard (0051 N1 `:558-565`; supervisor ruling on OQ2: in #2564):** after the writes, under the
-  same lock, `count_tenant_wide_admins(prefix) == 0` -> rollback, `{:error, :last_tenant_wide_admin}` -> HTTP
+  same lock, count before the write `> 0` AND `count_tenant_wide_admins(prefix) == 0` after it (transition rule,
+  supervisor-adopted for #2564 and #2533 1b) -> rollback, `{:error, :last_tenant_wide_admin}` -> HTTP
   409 `last_tenant_wide_admin` (fixed body). Then a `tenant_admin.guard_refused` audit entry (supervisor ruling)
   goes in its own transaction after the rollback, as for 0051's `grant.self_grant_refused`, with metadata
   exactly `{action: "deactivate_user", actor, target_id, reason_code: "last_tenant_wide_admin", counted_admins,

@@ -28,19 +28,21 @@ Ruling: issue comment 6174049298 (option 3). Plan: `gh2552-api-token-issuer-and-
 ## 2. Domain API (`Letflow.Identity`)
 
 ```
-@type status_write_error :: :last_tenant_wide_admin
-@spec update_user_profile(Ecto.UUID.t(), map(), user_write_opts()) ::
-        {:ok, User.t()} | {:error, :not_found | Ecto.Changeset.t() | directory_guard_error() | status_write_error()}
+@type user_write_result ::
+        {:ok, User.t()} | {:error, :not_found} | {:error, Ecto.Changeset.t()} | {:error, directory_guard_error()}
         | {:error, {:login_directory, term()}} | {:error, {:transaction_failed, Exception.t()}}
-@spec update_user_status(Ecto.UUID.t(), :active | :inactive, user_write_opts()) :: (same as above)
+        | {:error, :last_tenant_wide_admin}                       # NEW
+        | {:error, {:token_revocation_failed, term()}}            # NEW
+@spec update_user_profile(Ecto.UUID.t(), map(), user_write_opts()) :: user_write_result()
+@spec update_user_status(Ecto.UUID.t(), :active | :inactive, user_write_opts()) :: user_write_result()
 # private
 @spec status_write?(attrs :: map()) :: boolean()      # Map.has_key?(attrs, "status") or Map.has_key?(attrs, :status)
 @spec update_locked_user(Ecto.UUID.t(), user_write_opts(), term(), String.t(), (User.t() -> Ecto.Changeset.t()),
-        status_write :: boolean()) :: same result union
+        status_write :: boolean()) :: user_write_result()
 @spec revoke_owner_tokens(user_id :: Ecto.UUID.t(), prefix :: String.t(), ctx :: AuditContext.t()) ::
         {:ok, [ApiToken.t()]} | {:error, Ecto.Changeset.t() | term()}
-@spec revoke_token_row(ApiToken.t(), prefix :: String.t(), ctx :: AuditContext.t(), cause :: String.t() | nil) ::
-        {:ok, ApiToken.t()} | {:error, Ecto.Changeset.t() | term()}
+@spec revoke_token_row(ApiToken.t(), prefix :: String.t(), ctx :: AuditContext.t(), cause :: String.t() | nil,
+        now :: DateTime.t()) :: {:ok, ApiToken.t()} | {:error, Ecto.Changeset.t() | term()}
 @spec record_guard_refused(prefix :: String.t(), refusal :: %{action: String.t(), actor: Ecto.UUID.t() | nil,
         target_id: Ecto.UUID.t(), reason_code: String.t(), counted_admins: non_neg_integer(),
         trace_id: String.t() | nil}) :: :ok
@@ -49,23 +51,27 @@ Ruling: issue comment 6174049298 (option 3). Plan: `gh2552-api-token-issuer-and-
 `user_write_opts` gains optional `audit_context` (as `AuditContext.from_opts/1`, `audit_context.ex:34-47`).
 `update_user_status/3` passes `status_write: true`; `update_user_profile/3` passes `status_write?(attrs)`.
 
-**`revoke_token_row/4`** is extracted from `revoke_locked_token/3` (`:2395-2417`) and shared by it (cause `nil`,
-so `DELETE /tokens/:id` audit is byte-for-byte unchanged): changeset update (never `update_all`), then `token.revoke`
-with `before_state: token_audit_state(token)`, `after_state: token_audit_state(updated)` plus `cause` when non-nil,
-actor/trace from `ctx`. Returns tagged tuples; `revoke_locked_token/3` maps `{:error, r}` to `Repo.rollback(r)` as today.
+**`revoke_token_row/5`** is the body of `revoke_locked_token/3`'s live-token branch (`:2395-2417`) minus the `now`
+computation: `revoke_changeset(token, %{revoked_at: now})` update (never `update_all`), then `token.revoke` with
+`before_state: token_audit_state(token)`, `after_state: token_audit_state(updated)` plus `cause` when non-nil,
+actor/trace from `ctx`. `revoke_locked_token/3` keeps computing `now` once as today (`:2396`, second-truncated) and
+calls it with cause `nil`, so `DELETE /tokens/:id` is byte-for-byte unchanged; it maps `{:error, r}` to
+`Repo.rollback(r)` as today (`:2401`, `:2416`).
 
-**`revoke_owner_tokens/3`**: `from t in ApiToken, where t.user_id == ^id and is_nil(t.revoked_at), order_by t.id,
-lock "FOR UPDATE"`, then `revoke_token_row(t, prefix, ctx, "owner_deactivated")` per row in id order, one `now`
-(second-truncated) for all; first error stops and is returned. Expired-but-unrevoked tokens are revoked too ("every
-non-revoked token", ruling AC1).
+**`revoke_owner_tokens/3`**: computes ONE `now = DateTime.utc_now() |> DateTime.truncate(:second)`, then `from t in
+ApiToken, where t.user_id == ^id and is_nil(t.revoked_at), order_by t.id, lock "FOR UPDATE"`, then
+`revoke_token_row(t, prefix, ctx, "owner_deactivated", now)` per row in id order, so all rows share one `revoked_at`;
+the first error stops and is returned. Expired-but-unrevoked tokens are revoked too ("every non-revoked token", AC1).
 
-**`record_guard_refused/2`** (`@doc false` public, so #2533 1b can reuse it, OQ-2): `Audit.insert_entry(Repo, attrs,
-prefix)` OUTSIDE any transaction, `action: "tenant_admin.guard_refused"`, `resource_type: "user"`, `resource_id:
+**`record_guard_refused/2`** (`@doc false` public, so #2533 1b can reuse it, OQ-2): first, if `Repo.in_transaction?()`
+it raises `ArgumentError` (a refusal row written inside the refused transaction would roll back with it, `0051:339`;
+this is a programming error, so it is NOT caught by the rescue below). Then `Audit.insert_entry(Repo, attrs, prefix)`
+in its own transaction, `action: "tenant_admin.guard_refused"`, `resource_type: "user"`, `resource_id:
 target_id`, `actor_id`/`trace_id` columns = refusal actor/trace, `before_state: nil`, `after_state:` the refusal map,
 EXACTLY `{action, actor, target_id, reason_code, counted_admins, trace_id}` (0051 D8 `:339`). Never raises: an
 `{:error, _}` or a rescued exception -> `Logger.error("tenant_admin.guard_refused audit write failed")` with metadata
-`action`, `target_id`, `trace_id` and `error_kind` (the exception module or the error atom, never a message or a
-value), then `:ok`. **Decision: the response stays 409.** The refused change is already rolled back, so the state
+`action`, `target_id`, `trace_id` and `error_kind`: for an exception or other struct its module (`e.__struct__`), for
+an atom the atom itself, otherwise `:unknown`; never a message or a value. Then `:ok`. **Decision: the response stays 409.** The refused change is already rolled back, so the state
 the 409 reports is true; a 500 would invite a retry that refuses again. D8's same-transaction rule covers successful
 changes only (`0051:339`); the log line is the fallback record.
 
@@ -86,7 +92,14 @@ changes only (`0051:339`); the log line is the fallback record.
 9. Result `case` adds: `{:error, :admin_guard, {:last_tenant_wide_admin, n}, _}` -> (transaction already rolled back)
    `record_guard_refused(prefix, %{action: "deactivate_user", actor: ctx.actor_id, target_id: id, reason_code:
    "last_tenant_wide_admin", counted_admins: n, trace_id: ctx.trace_id})`, then `{:error, :last_tenant_wide_admin}`;
-   `{:error, :revoked_tokens, reason, _}` -> `{:error, reason}`. The `rescue` stays and does NOT write the refusal.
+   `{:error, :revoked_tokens, reason, _}` -> `{:error, {:token_revocation_failed, reason}}` (dedicated tag, so a
+   token changeset is never mistaken for a user-validation 422). The `rescue` stays and does NOT write the refusal.
+   Existing, unchanged: `{:error, :audit, reason, _}` -> `{:error, reason}` (`:457`) can surface a non-changeset
+   reason the router has no clause for; out of scope here.
+
+Count drift (fails safe): the two counts read `DateTime.utc_now()` separately (`:1013`), so a TA token expiring
+between steps 3 and 8 can lower `after` without the write. The result is at worst an extra refusal (a 409 the next
+request does not repeat), never a missed one.
 
 Lock order (agreed with letflow-9c #2547 and letflow-4 7b-2b): advisory -> user row -> token rows by id -> audit
 chain (`insert_entry`) -> count. Same prefix as `revoke_token/2` (advisory -> token) and `mint_token/4` (advisory ->
@@ -97,9 +110,13 @@ users by id `FOR SHARE` -> insert), so no cycle: every path that row-locks a use
   carrying any `status` (`active` too) takes it: the lock must precede the row read, so it is chosen from the request,
   not the row; and reactivation adds an admin, which #2533 1b AC 12 (`requirements.yaml:36252`, N1 (e) `:36185`)
   requires to hold the lock. This PR delivers the `update_user_status` half of that AC; letflow-9c only tests it.
-- **Guard = transition to zero** (`admins_before > 0`): measured, not predicted (#2547 §6.4 step 5). A bare `== 0`
-  would refuse deactivating ANY user in a tenant that has no counted admin (fresh tenants, most fixtures, 14 calls in
-  `identity_login_directory_test.exs`). Deactivating a non-admin cannot lower the count. OQ-1 aligns letflow-9c.
+- **Guard = transition to zero** (`admins_before > 0 and after == 0`), ADOPTED by the supervisor for both #2564 and
+  #2533 1b: measured, not predicted (#2547 §6.4 step 5). A bare `== 0` would refuse deactivating ANY user in a tenant
+  with no counted admin (fresh tenants, most fixtures, 14 calls in `identity_login_directory_test.exs`).
+- **Token-only admins do not come back.** A user counted only through a live TA token (`:1050-1056`) loses it at
+  deactivation (step 6), so after reactivation they are NOT counted. If that user and one group-held admin were the
+  admins, deactivating the group-held admin afterwards is refused (409) unless another group-held admin, or a newly
+  minted TA token, exists. Intended (ruling: re-mint under #2552); stated in the PR body and the runbook.
 - **Reactivation restores none, legacy included:** step 6 also runs when the locked row is inactive, so tokens left
   live by a pre-#2564 deactivation (or by `create_token/3` for an inactive user) are revoked before the user becomes
   active, with `cause: "owner_deactivated"`. A reactivation of a user deactivated after #2564 finds none (count 0).
@@ -109,9 +126,12 @@ users by id `FOR SHARE` -> insert), so no cycle: every path that row-locks a use
 ## 4. HTTP (router)
 
 `do_patch/3` and `do_status_update/3` call Identity with `audit_opts(conn, opts)` (`:1060-1067`); the
-`with_platform_admin_member_guard` helpers keep the unchanged opts (`:1059`). Both add
-`{:error, :last_tenant_wide_admin} -> Response.conflict(conn, "last_tenant_wide_admin")`: 409, fixed body naming no
-admin and no count (INV-2). No route, schema or response map changes.
+`with_platform_admin_member_guard` helpers keep the unchanged opts (`:1059`). Both `case` blocks (`:450-459`,
+`:496-505`) add two explicit clauses:
+- `{:error, :last_tenant_wide_admin} -> Response.conflict(conn, "last_tenant_wide_admin")`: 409, fixed body naming no
+  admin and no count (INV-2);
+- `{:error, {:token_revocation_failed, _reason}} -> Response.internal_error(conn)`: 500, no detail in the body.
+No route, schema or response map changes.
 
 ## 5. Audit summary
 
@@ -135,7 +155,10 @@ admin and no count (INV-2). No route, schema or response map changes.
 
 **Existing integrations (ruling AC 6).** Repo-wide grep for token minting outside tests: only
 `lib/mix/tasks/letflow.seed.exam_fixtures.ex:181` (CANDIDATE token for a seeded candidate, never deactivated: no
-migration) and `test/support/platform_tenant_fixture.ex:169` (test-only). No `lf_tok_`/`/identity/tokens` caller in
+migration) and `test/support/platform_tenant_fixture.ex:169` (test-only). `test/support/token_mint_fixture.ex`
+grants roles by group membership and mints nothing itself (its moduledoc). `Letflow.IdentityMigration`
+(`lib/letflow/identity_migration.ex`) copies `users` rows, `status` included (`:182`), without going through
+`Identity`, so it would revoke nothing; it cannot run any more (source tables dropped, `gh2547-...md:88-92`). No `lf_tok_`/`/identity/tokens` caller in
 `deploy/`, `scripts/`, `config/`, `priv/`, `apps/`. Operational migration: an integration whose owner is deactivated
 must be re-minted after reactivation by a tenant-wide TENANT_ADMIN under #2552's rules. The PR body lists this.
 
@@ -145,10 +168,11 @@ must be re-minted after reactivation by a tenant-wide TENANT_ADMIN under #2552's
 |---|---|---|
 | revoke all in same tx; forced failure rolls back both | §3 6 | "POST status inactive revokes all N unrevoked tokens (TA, plain, expired), leaves already-revoked revoked_at unchanged"; same via PATCH; "audit table dropped -> 500, user active, every token revoked_at nil" (both paths) |
 | one `token.revoke` per token, metadata | §2, §5 | "N tokens -> N token.revoke with cause owner_deactivated, actor = caller, user_id, id, roles, trace_id = x-trace-id; no token_hash, name, lf_tok_ in any state"; "user entry revoked_token_count == N, actor set" |
-| reactivation resurrects none | §3 | "deactivate TA-token holder, reactivate (both paths, 4 combinations): token revoked, old plaintext 401"; "legacy: Repo.update! inactive, live token, POST active -> token revoked, 401" |
+| revoke-step failure | §3 9, §4 | domain: "revoke step returns {:error, r} (synthetic prefix without a tenants row, so the first token.revoke insert_entry errors) -> {:error, {:token_revocation_failed, _}}, user active, token unrevoked"; router clauses checked by REVIEWER (no HTTP way to force it) |
+| reactivation resurrects none | §3 | "deactivate TA-token holder, reactivate (both paths, 4 combinations): token revoked, old plaintext 401"; "legacy: Repo.update! inactive, live token, POST active -> token revoked, 401"; "POST inactive on an already-inactive user with a leftover live token -> token revoked, one token.revoke" |
 | list shows `revoked` | §1 | "GET /tokens after deactivation: status revoked, not owner_inactive; after reactivation still revoked" |
-| N1 counts across deactivation/reactivation | §3 8 | "last tenant-wide admin (group) deactivated -> 409 last_tenant_wide_admin, user active, tokens unrevoked, no token.revoke/user entry, exactly one guard_refused with the 6 keys, counted_admins 0" (POST and PATCH); same for a token-only admin; "two admins: first deactivation 200, second 409; reactivate first -> second 200"; "tenant with no admin: deactivating a plain user 200"; "guard_refused write forced to fail -> still 409, log captured, no value logged" |
-| lock order | §3 | "test holds lock_tenant_admins! in another tx: POST status and PATCH status block until release"; "PATCH display_name only does not block"; "concurrent deactivation of U and DELETE /tokens of U's token: both complete, one token.revoke for that token" |
+| N1 counts across deactivation/reactivation | §3 8 | "last tenant-wide admin (group) deactivated -> 409 last_tenant_wide_admin, user active, tokens unrevoked, no token.revoke/user entry, exactly one guard_refused with the 6 keys, counted_admins 0" (POST and PATCH); same for a token-only admin; "two GROUP-held admins: first deactivation 200, second 409; reactivate first -> second 200"; "token-only admin T plus group admin G: deactivate T 200 (T's TA token revoked), reactivate T, count == 1 (T not counted), deactivate G -> 409"; "tenant with no admin: deactivating a plain user 200"; "guard_refused write forced to fail -> still 409, log captured with error_kind, no value logged"; "record_guard_refused/2 inside Repo.transaction raises ArgumentError, no row written" |
+| lock order | §3 | "test holds lock_tenant_admins! in another tx: POST status inactive, PATCH status inactive and PATCH status active each block until release"; "PATCH display_name only does not block, and its user.update_profile after_state has no revoked_token_count key"; "concurrent deactivation of U and DELETE /tokens of U's token: both complete, one token.revoke for that token" |
 | integrations listed | §6 | PR body (no test) |
 
 ## 8. Security, blast radius, anti-patterns
@@ -167,7 +191,6 @@ must be re-minted after reactivation by a tenant-wide TENANT_ADMIN under #2552's
 
 ## 9. Open questions
 
-- OQ-1 (letflow-9c): guard rule "refuse iff count before > 0 and after == 0". #2533 1b's `revoke_token` guard
-  needs the same rule, or revoking a TA token in an admin-less tenant is refused.
+- Resolved: OQ-1, the transition rule is adopted by the supervisor for #2564 and #2533 1b (§3). OQ-3, legacy tokens
+  revoked at reactivation reuse `cause: "owner_deactivated"`.
 - OQ-2 (letflow-9c): `record_guard_refused/2` is shared; whichever PR merges second reuses it, not a copy.
-- OQ-3: `cause` for legacy tokens revoked at reactivation is `"owner_deactivated"` (no new value). Confirm.
