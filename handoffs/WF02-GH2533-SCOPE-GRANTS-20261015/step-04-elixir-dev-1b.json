@@ -1,0 +1,60 @@
+{
+  "handoff_id": "d2533a1b-0497-4c03-9e11-000000000014",
+  "run_id": "WF02-GH2533-SCOPE-GRANTS-20261015",
+  "workflow_id": "WF-02",
+  "step": "04",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF02-GH2533-SCOPE-GRANTS-20261015/step-04-elixir-dev-1b.json",
+  "created_at": "2026-10-14T21:40:00Z",
+  "started_at": "2026-10-14T21:40:00Z",
+  "completed_at": "2026-10-14T22:06:27Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [
+      "REQ-497"
+    ],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2533": "REQ-497 PR 1b: implement lib/letflow/design/req497-1b-allowed-flag-shadow-n1.md (r1; CDV PASS r2, SECURITY-REVIEWER PASS r2) on main 9d95d4335 (#2594 merged). Closes #2575. Supervisor ruling 2026-10-15: N1 transition rule for unbind/remove/rebind; integrity finding zero_tenant_wide_admins (informational); event write behind TenantAdminGuard.refuse."
+    },
+    "related_handoff_ids": [
+      "d2533a1b-0497-4c03-9e11-000000000013"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/req497-1b-allowed-flag-shadow-n1.md",
+      "handoffs/WF02-GH2533-SCOPE-GRANTS-20261015/step-03-code-designer-1b.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2533-SCOPE-GRANTS-1B-20261015"
+  },
+  "task": {
+    "description": "WF-02 step 4 implementation of REQ-497 PR 1b (lib/, priv/repo/migrations, test/support/token_mint_fixture.ex). No tests, no commit."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "IMPLEMENTED, uncommitted. Section 16 vs merged #2594: no delta (token_effective_status/3, list_tokens/1 {token, owner_active}, tenant_wide_role_names/2 MapSet, private exclude_scoped_role_names/3, private token_map/2, revoke_locked_token/3, TokenMintFixture.binding_group_id!/2 all as assumed). Recorded in design section 18. NEW: Letflow.Api.Scope (Grants, Principal, allowed?/3, effective_scope/2, load_grants/2, principal_from_conn/1, require_tenant_wide/2); Letflow.Api.Scope.Shadow (observe/3, telemetry [:letflow,:scope,:shadow,:would_deny]) + ShadowLog (sampled, AuthzDenyLog sanitisers only); Letflow.Api.TokenView.token_map/2 (moved verbatim); Letflow.Audit.Reason.validate/1 (extracted from rebind); Letflow.Identity.TenantAdminGuard (lock_admin_binding!/1, admin_group_id/1, count_before!/1, ensure_admins_remain!/3,/4, refuse/3,/4 with platform_companion); Letflow.Identity.TokenPreconditions (findings/1, exceeding_owner_count/1); Letflow.ScopeEnforcement (modes/0, parse_mode/1, get_mode/1, preconditions/1, flip/4, integrity/1); Letflow.Routers.TenantScopeEnforcement (GET/PUT /, GET /integrity, GET /token-preconditions; token.listed audit, 500 with no data on audit failure) mounted at /tenant/scope-enforcement; migration 20261015025332_add_scope_enforcement_to_tenants (public, CHECK off|shadow, version checked free on origin/main and open PRs). CHANGED: Tenant (scope_enforcement Ecto.Enum + scope_enforcement_changeset/2); RoleScopeGrants.applicable_rows_for_user/2; AuthPipeline (flag from the tenant row, OIDC grants loaded every request in verify_local_account_state, Postgrex.Error -> :not_loaded + constant line scope_grants_load_failed, token path :token); Authorize (observer after assigns, shadow only); Authorization (4 policy keys -> :UsersGroupsRolesManage); Metrics registry/exposition family letflow_scope_shadow_would_deny_total{reason}; Identity (exclude_scoped_holders/2 on the TA-membership subquery only, exclude_scoped_role_names/3 filled, remove_group_member R lock + transition guard, update_locked_user lock A first, revoke_token R lock unconditional + counted-token guard); RoleRegistry (POST /roles kind-change guard, rebind guard, rebind_role/4 rescue -> {:transaction_failed, e}, Audit.Reason); PendingAdminGrants.revoke/3 (lock A first, last-open-grant guard, refuse with platform_companion); Routers.Identity/Onboarding 409 last_tenant_wide_admin clauses + rebind transaction_failed -> 500 (Closes #2575); ScopeNodePaths moduledoc lock-order sentence; test/support/token_mint_fixture.ex new-binding branch writes the tenant-wide group row in one transaction. SUPERVISOR RULING applied: transition rule in ONE helper (ensure_admins_remain!/4 before_count; revoke_token keeps the state rule); integrity finding zero_tenant_wide_admins (informational, moduledoc names it a stage-2 on-flip precondition, #2535); event write only via TenantAdminGuard.refuse. T-G1's already-zero 409 case is obsolete under the ruling (noted in section 18). VERIFIED (real output): mix format (touched files) then mix format --check-formatted rc=0; MIX_ENV=test mix compile --warnings-as-errors 'Compiling 410 files (.ex) / Generated letflow app' rc=0; mix letflow.check_boundaries 'OK -- 1353 edges checked, 0 violations' rc=0. NOT RUN: mix test (free memory 1.52 GB, below the 4 GB floor); TEST-RUNNER must run the identity, role_registry, pending_admin_grants, auth_pipeline, authorize, tenant_wide_admins, token (#2552) and tenant_fixture tests. Expected test breakage by design: 1a T-W8 R2 assert_raise (now {:error, {:transaction_failed, _}}); T-34 tripwire in tenant_wide_admins_test.exs (replaced by T-X1..T-X5). Next: SECURITY-REVIEWER, then REVIEWER. POST-REVIEW ADVISORIES (2026-10-14T22:06Z, after SEC and REVIEWER PASS): SEC adv 1 load_scope_grants/2 also rescues DBConnection.ConnectionError (same :not_loaded + constant line); REVIEWER adv 1 GET /token-preconditions rescues a raise from findings/1 or the token.listed insert into Response.internal_error with one constant line, no token data; REVIEWER adv 5 metrics registry.ex:40 / exposition.ex:17 say seven families. mix format --check-formatted (4 files) rc=0; MIX_ENV=test mix compile --warnings-as-errors 'Compiling 8 files (.ex)' rc=0 (run at 1.43 GB free, just under the 1.5 GB floor).",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "lib/letflow/api/scope.ex",
+      "lib/letflow/api/scope/shadow.ex",
+      "lib/letflow/api/scope/shadow_log.ex",
+      "lib/letflow/api/token_view.ex",
+      "lib/letflow/audit/reason.ex",
+      "lib/letflow/identity/tenant_admin_guard.ex",
+      "lib/letflow/identity/token_preconditions.ex",
+      "lib/letflow/scope_enforcement.ex",
+      "lib/letflow/routers/tenant_scope_enforcement.ex",
+      "priv/repo/migrations/20261015025332_add_scope_enforcement_to_tenants.exs",
+      "lib/letflow/design/req497-1b-allowed-flag-shadow-n1.md (section 18 appended)",
+      "test/support/token_mint_fixture.ex",
+      "modified: lib/letflow/{identity.ex, identity/role_registry.ex, identity/pending_admin_grants.ex, identity/role_scope_grants.ex, identity/tenant.ex, plugs/auth_pipeline.ex, plugs/authorize.ex, plugs/api_pipeline.ex, api/authorization.ex, routers/identity.ex, routers/onboarding.ex, metrics/registry.ex, metrics/exposition.ex, scope_node_paths.ex}"
+    ],
+    "diagnosis_confirmed": null,
+    "implementation_written": true,
+    "classification": "IMPLEMENTATION"
+  }
+}

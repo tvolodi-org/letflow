@@ -51,7 +51,8 @@ defmodule Letflow.Routers.Identity do
   plaintext into a response body (`token_created_map/2`) — never re-derivable
   from a persisted row, since the row never holds the plaintext at all
   (`Letflow.Identity.ApiToken`'s own moduledoc). `GET /tokens` and `DELETE
-  /tokens/:id` both respond with `token_map/2`, which structurally excludes
+  /tokens/:id` both respond with `Letflow.Api.TokenView.token_map/2` (moved there by
+  REQ-497 PR 1b, unchanged), which structurally excludes
   `token_hash` and has no parameter through which a plaintext could ever reach
   it. See `lib/letflow/design/req076-identity-tokens-roles-onboarding.md` §6
   for the full design.
@@ -171,6 +172,7 @@ defmodule Letflow.Routers.Identity do
   alias Letflow.Api.Authorization
   alias Letflow.Api.Pagination
   alias Letflow.Api.Response
+  alias Letflow.Api.TokenView
   alias Letflow.Api.Validation
   alias Letflow.Api.Validation.FieldConstraint
   alias Letflow.Identity
@@ -770,6 +772,8 @@ defmodule Letflow.Routers.Identity do
           case Identity.remove_group_member(group_id, user_id, audit_opts(conn, opts)) do
             :ok -> Response.no_content(conn)
             {:error, :group_not_found} -> Response.not_found(conn)
+            # REQ-497 PR 1b N1: removing the last tenant-wide admin; nothing changed.
+            {:error, :last_tenant_wide_admin} -> last_admin_conflict(conn)
             # GH 2547: rolled back with its audit entry; a server fault.
             {:error, {:audit_failed, _reason}} -> Response.internal_error(conn)
             {:error, {:transaction_failed, _exception}} -> Response.internal_error(conn)
@@ -882,7 +886,7 @@ defmodule Letflow.Routers.Identity do
     Response.ok(conn, %{
       "items" =>
         Enum.map(items, fn %{token: token, owner_active: owner_active} ->
-          token_map(token, Identity.token_effective_status(token, owner_active, now))
+          TokenView.token_map(token, Identity.token_effective_status(token, owner_active, now))
         end)
     })
   end
@@ -899,6 +903,8 @@ defmodule Letflow.Routers.Identity do
         case Identity.revoke_token(id, audit_opts(conn, opts)) do
           {:ok, token} -> Response.ok(conn, revoked_token_map(token))
           {:error, :not_found} -> Response.not_found(conn)
+          # REQ-497 PR 1b N1 (Option A): the owner is the last counted admin through tokens.
+          {:error, :last_tenant_wide_admin} -> last_admin_conflict(conn)
           {:error, {:transaction_failed, _exception}} -> Response.internal_error(conn)
         end
       end
@@ -1008,6 +1014,11 @@ defmodule Letflow.Routers.Identity do
       {:error, :role_already_bound} ->
         Response.conflict(conn, "role_already_bound")
 
+      # REQ-497 PR 1b N1: converting the TENANT_ADMIN binding away from platform would leave
+      # no tenant-wide admin; nothing changed.
+      {:error, :last_tenant_wide_admin} ->
+        last_admin_conflict(conn)
+
       # REQ-447 PR 2 (design 3.4): defence in depth behind H1 (which already
       # answers 403 first); the wire contract gains no new public code.
       {:error, :platform_admin_outside_platform_tenant} ->
@@ -1051,12 +1062,20 @@ defmodule Letflow.Routers.Identity do
         {:error, :platform_admin_outside_platform_tenant} -> forbid_insufficient(conn)
         {:error, :invalid_reason} -> Response.unprocessable(conn, "invalid_reason")
         {:error, :invalid_group_id} -> Response.unprocessable(conn, "invalid_group_id")
+        # REQ-497 PR 1b N1: the rebind would leave no tenant-wide admin; nothing changed.
+        {:error, :last_tenant_wide_admin} -> last_admin_conflict(conn)
         # Rolled back: a server fault, not a client one.
         {:error, {:audit_failed, _reason}} -> Response.internal_error(conn)
+        # GH #2575: a raise inside the transaction, rolled back and caught.
+        {:error, {:transaction_failed, _exception}} -> Response.internal_error(conn)
         {:error, %Ecto.Changeset{}} -> Response.unprocessable(conn, "validation failed")
       end
     end)
   end
+
+  # REQ-497 PR 1b (design 6.1, pinned with GH #2564): every N1 count refusal answers 409
+  # with the one stable code; the body names no user, group or role (INV-2).
+  defp last_admin_conflict(conn), do: Response.conflict(conn, "last_tenant_wide_admin")
 
   # ── Audit context (GH 2547, design gh2547-tenant-admin-audit-and-count.md 2.3) ──
   #
@@ -1128,34 +1147,13 @@ defmodule Letflow.Routers.Identity do
     }
   end
 
-  # Metadata only -- used by GET /tokens and DELETE /tokens/:id. Structurally
-  # excludes token_hash and has no parameter through which a plaintext could
-  # ever reach it (design §6.2, AC1/AC2, INV-4). GH 2552: adds "issuer_user_id"
-  # (always present, null for a legacy row), and "status" is the effective status
-  # from Identity.token_effective_status/3 (revoked > expired > owner_inactive > active).
-  @spec token_map(
-          Letflow.Identity.ApiToken.t(),
-          :revoked | :expired | :owner_inactive | :active
-        ) :: map()
-  defp token_map(%Letflow.Identity.ApiToken{} = token, status) do
-    %{
-      "id" => token.id,
-      "name" => token.name,
-      "user_id" => token.user_id,
-      "issuer_user_id" => token.issuer_user_id,
-      "roles" => token.roles,
-      "status" => Atom.to_string(status),
-      "created_at" => iso8601(token.inserted_at),
-      "expires_at" => iso8601_or_nil(token.expires_at),
-      "revoked_at" => iso8601_or_nil(token.revoked_at),
-      "last_used_at" => iso8601_or_nil(token.last_used_at)
-    }
-  end
-
+  # GET /tokens and DELETE /tokens/:id respond with Letflow.Api.TokenView.token_map/2
+  # (metadata only, INV-4; moved there unchanged by REQ-497 PR 1b).
+  #
   # DELETE /tokens/:id: the returned token always has revoked_at, so `revoked` wins;
   # owner_active: true is passed only because the precedence never reaches it.
   defp revoked_token_map(%Letflow.Identity.ApiToken{} = token) do
-    token_map(token, Identity.token_effective_status(token, true, DateTime.utc_now()))
+    TokenView.token_map(token, Identity.token_effective_status(token, true, DateTime.utc_now()))
   end
 
   @spec role_map(Letflow.Identity.TenantRole.t()) :: map()

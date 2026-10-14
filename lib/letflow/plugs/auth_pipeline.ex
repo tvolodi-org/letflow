@@ -92,8 +92,10 @@ defmodule Letflow.Plugs.AuthPipeline do
 
   import Plug.Conn
 
+  alias Letflow.Api.Scope
   alias Letflow.Identity
   alias Letflow.Identity.PendingAdminGrants
+  alias Letflow.Identity.Tenant
   alias Letflow.Oidc.ClaimMapping
   alias Letflow.Oidc.ClaimMappingConfig
   alias Letflow.Oidc.JitProvisioningConfig
@@ -144,8 +146,8 @@ defmodule Letflow.Plugs.AuthPipeline do
              realm,
              conn.assigns[:trace_id]
            ),
-         {:ok, live_roles} <- verify_local_account_state(provisioned, tenant.id) do
-      attach_auth_context(conn, tenant.id, provisioned.user.id, live_roles, :oidc)
+         {:ok, {live_roles, scope_grants}} <- verify_local_account_state(provisioned, tenant) do
+      attach_auth_context(conn, tenant, provisioned.user.id, live_roles, :oidc, scope_grants)
     else
       error -> handle_auth_error(conn, error)
     end
@@ -158,7 +160,9 @@ defmodule Letflow.Plugs.AuthPipeline do
          {:ok, tenant} <- resolve_tenant_by_slug(slug),
          {:ok, schema_name} <- resolve_schema_name(tenant.id),
          {:ok, verified} <- verify_token_credential(raw_token, schema_name) do
-      attach_auth_context(conn, tenant.id, verified.user_id, verified.roles, :api_token)
+      # REQ-497 PR 1b (design section 2): a token principal has no grant rows (0051 D1), so
+      # no grants query is added; the flag rides on the tenant row already read.
+      attach_auth_context(conn, tenant, verified.user_id, verified.roles, :api_token, :token)
     else
       error -> handle_auth_error(conn, error)
     end
@@ -398,14 +402,18 @@ defmodule Letflow.Plugs.AuthPipeline do
   # `schema_name_for_tenant/1` is re-derived here (not threaded through as a
   # new provision_user/3 arg) to avoid changing that function's signature —
   # same no-extra-I/O derivation provision_user/3 itself already calls.
-  defp verify_local_account_state(provisioned, tenant_id) do
+  # REQ-497 PR 1b (design section 2, 0051 D3; r1 CDV B1): in the SAME step, right after the
+  # role read and whatever the tenant's flag, the user's applicable scope grants are loaded
+  # with exactly one more query and returned as the request memo. An inactive user still
+  # short-circuits before both reads.
+  defp verify_local_account_state(provisioned, %Tenant{id: tenant_id}) do
     case TenantProvisioning.schema_name_for_tenant(tenant_id) do
       {:ok, schema_name} ->
         # GH-2557: the same "active" definition the API-token path uses, so
         # the two cannot drift if `User.status` gains a value.
         if Identity.active_user?(provisioned.user) do
           roles = Identity.list_effective_role_names(provisioned.user.id, prefix: schema_name)
-          {:ok, roles}
+          {:ok, {roles, load_scope_grants(provisioned.user.id, schema_name)}}
         else
           {:error, {:account, :inactive}}
         end
@@ -415,11 +423,36 @@ defmodule Letflow.Plugs.AuthPipeline do
     end
   end
 
+  # REQ-497 PR 1b (SECURITY-REVIEWER r2 availability advisory): if `role_scope_grants`
+  # cannot be read, the request is not failed. The memo becomes `:not_loaded`, which still
+  # fails closed: `Letflow.Api.Scope.allowed?/3` denies with `:grants_unavailable` (and the
+  # shadow observer counts it); `principal_from_conn/1` does not retry a `:not_loaded` memo.
+  # One constant log line, no id and no SQL.
+  defp load_scope_grants(user_id, schema_name) do
+    Scope.load_grants(user_id, schema_name)
+  rescue
+    _db_error in [Postgrex.Error, DBConnection.ConnectionError] ->
+      Logger.warning("scope_grants_load_failed credential=oidc")
+      :not_loaded
+  end
+
   # GH 2534 7b-1: `credential` records which branch authenticated the caller (:oidc or
   # :api_token). Set here by each branch, never from the request. The script registry refuses
   # every write from :api_token (a tenant admin can mint a token for any user, so a token write
   # could launder authorship past the separation-of-duties check).
-  defp attach_auth_context(conn, tenant_id, user_id, roles, credential)
+  #
+  # REQ-497 PR 1b (design section 2): adds `scope_enforcement` (`:off | :shadow`, from the
+  # tenant row the branch already loaded: zero extra queries, read per request) and
+  # `scope_grants` (`Grants.t() | :token | :not_loaded`, the request memo). A context built
+  # elsewhere without these keys reads as `:off` / not loaded (fail closed).
+  defp attach_auth_context(
+         conn,
+         %Tenant{id: tenant_id} = tenant,
+         user_id,
+         roles,
+         credential,
+         scope_grants
+       )
        when credential in [:oidc, :api_token] do
     # ISS-0993 (design section 4): the two scope facts are stored as a
     # CACHE/assertion only. No authorization decision reads them; consumers
@@ -437,9 +470,14 @@ defmodule Letflow.Plugs.AuthPipeline do
       roles: roles,
       platform_tenant?: facts.platform_tenant?,
       platform_scope?: facts.platform_scope?,
-      credential: credential
+      credential: credential,
+      scope_enforcement: scope_enforcement(tenant),
+      scope_grants: scope_grants
     })
   end
+
+  defp scope_enforcement(%Tenant{scope_enforcement: :shadow}), do: :shadow
+  defp scope_enforcement(%Tenant{}), do: :off
 
   defp reject(conn, status, error, detail) do
     body = Jason.encode!(%{error: error, detail: detail})

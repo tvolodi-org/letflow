@@ -39,6 +39,7 @@ defmodule Letflow.Identity.PendingAdminGrants do
   alias Letflow.Identity.PendingAdminGrants.FaultThrottle
   alias Letflow.Identity.RoleRegistry
   alias Letflow.Identity.Tenant
+  alias Letflow.Identity.TenantAdminGuard
   alias Letflow.Identity.TenantMembership
   alias Letflow.Identity.User
   alias Letflow.Oidc.IdentityContext
@@ -269,9 +270,21 @@ defmodule Letflow.Identity.PendingAdminGrants do
   transaction with the TENANT-chain entry `tenant.admin_grant.revoked` (NIL
   actor) and the PLATFORM-chain entry `platform.tenant_admin_grant.revoked` (the
   operator). A bound or already revoked grant is refused (`:not_open`).
+
+  REQ-497 PR 1b (design `req497-1b-allowed-flag-shadow-n1.md` 6.2 (d), 0051 AC12): the
+  tenant admin lock is the FIRST step. Revoking the last OPEN grant of a tenant that has no
+  counted tenant-wide admin is refused with `{:error, :last_tenant_wide_admin}`: the grant
+  stays open, and one `tenant_admin.guard_refused` entry (action `revoke_pending_grant`) is
+  written to the tenant chain with a nil actor and trace, plus a companion entry with the
+  operator and the trace written last on the platform chain, both in one transaction of
+  their own after the rollback (no operator id ever enters the tenant chain).
   """
   @spec revoke(grant_id :: Ecto.UUID.t(), actor :: creator(), write_opts()) ::
-          :ok | {:error, :not_found} | {:error, :not_open} | {:error, :audit_failed}
+          :ok
+          | {:error, :not_found}
+          | {:error, :not_open}
+          | {:error, :last_tenant_wide_admin}
+          | {:error, :audit_failed}
   def revoke(grant_id, %{user_id: user_id}, opts) do
     prefix = Keyword.fetch!(opts, :prefix)
     platform_prefix = Keyword.fetch!(opts, :platform_prefix)
@@ -279,6 +292,9 @@ defmodule Letflow.Identity.PendingAdminGrants do
     with {:ok, tenant_id} <- tenant_id_for(prefix),
          true <- is_binary(user_id) do
       Multi.new()
+      |> Multi.run(:tenant_admin_lock, fn _repo, _changes ->
+        {:ok, Identity.lock_tenant_admins!(prefix)}
+      end)
       |> Multi.run(:grant, fn repo, _changes -> lock_grant_by_id(repo, grant_id, prefix) end)
       |> Multi.run(:revoke, fn repo, %{grant: grant} ->
         {count, _rows} =
@@ -291,6 +307,9 @@ defmodule Letflow.Identity.PendingAdminGrants do
           )
 
         if count == 1, do: {:ok, :revoked}, else: {:error, :not_open}
+      end)
+      |> Multi.run(:tenant_admin_guard, fn repo, _changes ->
+        last_grant_guard(repo, grant_id, prefix)
       end)
       |> Multi.run(:tenant_audit, fn repo, _changes ->
         Audit.insert_entry(
@@ -324,6 +343,10 @@ defmodule Letflow.Identity.PendingAdminGrants do
         {:error, :grant, reason, _changes} when reason in [:not_found, :not_open] ->
           {:error, reason}
 
+        {:error, :tenant_admin_guard, refusal, _changes} ->
+          ctx = %{actor_id: user_id, trace_id: Keyword.get(opts, :trace_id), source: "api"}
+          TenantAdminGuard.refuse(prefix, refusal, ctx, platform_companion: platform_prefix)
+
         {:error, _step, _reason, _changes} ->
           {:error, :audit_failed}
       end
@@ -349,6 +372,24 @@ defmodule Letflow.Identity.PendingAdminGrants do
     case repo.one(locked, prefix: prefix) do
       nil -> {:error, :not_found}
       %PendingAdminGrant{} = grant -> if open?(grant), do: {:ok, grant}, else: {:error, :not_open}
+    end
+  end
+
+  # REQ-497 PR 1b N1 (design 6.2 (d)): after the revoke, under lock A. Refused only when NO
+  # other open grant remains AND the tenant counts 0 tenant-wide admins (the count runs only
+  # when no open grant is left).
+  defp last_grant_guard(repo, grant_id, prefix) do
+    open_left =
+      repo.aggregate(
+        from(g in PendingAdminGrant, where: is_nil(g.consumed_at) and is_nil(g.revoked_at)),
+        :count,
+        prefix: prefix
+      )
+
+    if open_left == 0 and Identity.count_tenant_wide_admins(prefix) == 0 do
+      {:error, %{action: :revoke_pending_grant, target_id: grant_id, counted_admins: 0}}
+    else
+      {:ok, :admins_remain}
     end
   end
 

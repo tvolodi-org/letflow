@@ -859,6 +859,13 @@ defmodule Letflow.Api.PlatformEscalationGuardTest do
           prefix: ctx.p.schema_name
         )
 
+      # REQ-497 PR 1b N1: another counted admin (a second TA token owner), so revoking this
+      # counted TA token is not refused as the removal of the last tenant-wide admin.
+      {:ok, _remaining_admin} =
+        Identity.create_token(insert_user!(ctx.p).id, %{roles: ["TENANT_ADMIN"], expires_at: nil},
+          prefix: ctx.p.schema_name
+        )
+
       conn = call(:delete, "/tokens/#{token.id}", ctx.p, @admin, nil)
       assert conn.status == 200, conn.resp_body
       assert {%DateTime{}, _} = token_row(ctx.p, token.id)

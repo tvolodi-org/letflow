@@ -44,6 +44,19 @@ defmodule Letflow.Identity.PendingAdminBindingTest do
 
   defp user!(w, user_id), do: Repo.get!(User, user_id, prefix: w.tenant.schema_name)
 
+  # REQ-497 PR 1b N1: a counted tenant-wide admin through a live TENANT_ADMIN token only (no
+  # group membership, so `H.member_count/1` is unchanged).
+  defp token_admin!(w) do
+    owner = H.insert_user!(w, email: "token.admin.#{System.unique_integer([:positive])}@example.com")
+
+    {:ok, _created} =
+      Identity.create_token(owner.id, %{roles: ["TENANT_ADMIN"], expires_at: nil},
+        prefix: w.tenant.schema_name
+      )
+
+    owner
+  end
+
   # `bind_on_login/5` on a row that did not come through JIT (an inactive user, a user whose
   # stored e-mail is empty), with the context a token for that user would carry.
   defp bind_raw(w, user, attrs) do
@@ -373,6 +386,8 @@ defmodule Letflow.Identity.PendingAdminBindingTest do
 
   test "a revoked grant does not bind", %{w: w} do
     grant = H.create_grant!(w, "owner@example.com")
+    # REQ-497 PR 1b N1: a second open grant, so revoking this one is not the refused last-open-grant revoke of a 0-admin tenant.
+    _other_open = H.create_grant!(w, "other.owner@example.com")
 
     assert :ok =
              PendingAdminGrants.revoke(grant.id, %{user_id: w.operator_id},
@@ -423,6 +438,9 @@ defmodule Letflow.Identity.PendingAdminBindingTest do
 
     assert_bound(w, grant, user.id)
 
+    # REQ-497 PR 1b N1: another counted admin (a token-only TA owner, no membership), so this
+    # removal is not refused as the removal of the last tenant-wide admin.
+    _remaining_admin = token_admin!(w)
     assert :ok = Identity.remove_group_member(group_id, user.id, prefix: w.tenant.schema_name)
     assert H.roles(w, user.id) == []
 
@@ -663,6 +681,9 @@ defmodule Letflow.Identity.PendingAdminBindingTest do
     assert %{result: :bound, provisioned: %{user: user}} = H.login(w, email: "owner@example.com")
     assert H.grant(w, grant.id).consumed_by_user_id == user.id
 
+    # REQ-497 PR 1b N1: another counted admin (a token-only TA owner, no membership), so this
+    # removal is not refused as the removal of the last tenant-wide admin.
+    _remaining_admin = token_admin!(w)
     # The operational erasure: membership first (its own FK), then the user row.
     assert :ok = Identity.remove_group_member(group_id, user.id, prefix: w.tenant.schema_name)
     Repo.delete!(user, prefix: w.tenant.schema_name)
@@ -1169,6 +1190,8 @@ defmodule Letflow.Identity.PendingAdminBindingTest do
   test "revoked: a forced failure of the platform write leaves the grant open, the e-mail present and no tenant entry",
        %{w: w} do
     grant = H.create_grant!(w, "owner@example.com")
+    # REQ-497 PR 1b N1: a second open grant, so revoking this one is not the refused last-open-grant revoke of a 0-admin tenant.
+    _other_open = H.create_grant!(w, "other.owner@example.com")
 
     {result, _log} =
       with_log(fn ->
@@ -1407,6 +1430,8 @@ defmodule Letflow.Identity.PendingAdminBindingTest do
   test "L3: with no open grant because the grant is already revoked the bind is still only the probe",
        %{w: w} do
     grant = H.create_grant!(w, "owner@example.com")
+    # REQ-497 PR 1b N1: a second open grant, so revoking this one is not the refused last-open-grant revoke of a 0-admin tenant.
+    _other_open = H.create_grant!(w, "someone.else@example.com")
 
     :ok =
       PendingAdminGrants.revoke(grant.id, %{user_id: w.operator_id},

@@ -141,7 +141,18 @@ defmodule Letflow.Plugs.Authorize do
             conn
             |> assign(:scoped_opts, opts)
             |> assign(:access_decision, decision)
+            |> observe_scope_shadow(ctx, policy_key)
         end
     end
+  end
+
+  # REQ-497 PR 1b (design section 4.1, 0051 Rollout 3): in a tenant whose flag is `shadow`,
+  # the scope decision is computed AFTER the coarse allow and only observed (counter + sampled
+  # log); it never halts or changes the response. Runs after the assigns, so the observer
+  # uses this plug's own `scoped_opts[:prefix]`. A context without the key reads as `:off`.
+  defp observe_scope_shadow(conn, ctx, policy_key) do
+    if Map.get(conn.assigns.auth_context, :scope_enforcement) == :shadow,
+      do: Letflow.Api.Scope.Shadow.observe(conn, ctx, policy_key),
+      else: conn
   end
 end

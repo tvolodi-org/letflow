@@ -44,6 +44,9 @@ defmodule Letflow.Identity.RoleScopeGrantsWritersTest do
   alias Letflow.TenantProvisioning
   alias Letflow.TenantProvisioning.Registration
 
+  # REQ-497 PR 1b: T-W8 R2 changed from assert_raise to the GH #2575 error tuple (spec
+  # test/specs/REQ-497-1b.md, "Existing tests changed").
+
   # --- fixtures --------------------------------------------------------------------------------
 
   defp tenant!(slug_prefix), do: TenantFixture.provisioned_tenant!(slug_prefix: slug_prefix)
@@ -385,7 +388,10 @@ defmodule Letflow.Identity.RoleScopeGrantsWritersTest do
       assert rows(s) == [tw(a.id, "PROCESS_OPERATOR")]
     end
 
-    test "R2: a failing grant update raises Postgrex.Error (no rescue in 1a) and leaves group_id and the row on A" do
+    # REQ-497 PR 1b (GH #2575, design 1b 6.2 (c)): rebind_role/4 now rescues a raise inside its
+    # transaction, so the injected fault comes back as an error tuple instead of a raise. The
+    # intent (the failing grant write rolls the binding move back) is unchanged.
+    test "R2: a failing grant update returns {:error, {:transaction_failed, %Postgrex.Error{}}} and leaves group_id and the row on A" do
       %{schema_name: s} = tenant!("req497-w8-r2")
       a = fresh_group!(s)
       b = fresh_group!(s)
@@ -393,7 +399,7 @@ defmodule Letflow.Identity.RoleScopeGrantsWritersTest do
       rebound_before = length(entries(s, "role.rebound"))
 
       with_fault(s, "UPDATE", fn ->
-        assert_raise Postgrex.Error, fn -> rebind(s, role.id, b.id) end
+        assert {:error, {:transaction_failed, %Postgrex.Error{}}} = rebind(s, role.id, b.id)
       end)
 
       assert binding(s, "PROCESS_OPERATOR").group_id == a.id

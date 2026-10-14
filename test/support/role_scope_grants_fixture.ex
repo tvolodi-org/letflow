@@ -110,7 +110,30 @@ defmodule Letflow.Support.RoleScopeGrantsFixture do
   def raw_scoped_row!(schema, group_id, role, node_id),
     do: raw_row!(schema, group_id, role, node_id, false)
 
-  defp raw_row!(schema, group_id, role, node_id, tenant_wide) do
+  @doc """
+  A USER row inserted RAW (REQ-497 PR 1b tests; stage-2 data, no route writes one):
+  tenant-wide when `node_id` is nil, scoped to `node_id` otherwise.
+  """
+  @spec raw_user_row!(String.t(), Ecto.UUID.t(), String.t(), String.t() | nil) :: :ok
+  def raw_user_row!(schema, user_id, role, node_id),
+    do: insert_raw_row!(schema, :user, user_id, role, node_id, is_nil(node_id))
+
+  @doc """
+  REQ-497 PR 1b tests: replaces every row of (`:group`, `group_id`, `role`) by ONE scoped row on
+  a fresh root node, i.e. the group holds `role` only at that node. Returns the node id.
+  """
+  @spec make_group_scoped_only!(String.t(), Ecto.UUID.t(), String.t()) :: String.t()
+  def make_group_scoped_only!(schema, group_id, role) do
+    node_id = node!(schema)
+    _deleted = raw_delete_rows!(schema, group_id, role)
+    :ok = raw_scoped_row!(schema, group_id, role, node_id)
+    node_id
+  end
+
+  defp raw_row!(schema, group_id, role, node_id, tenant_wide),
+    do: insert_raw_row!(schema, :group, group_id, role, node_id, tenant_wide)
+
+  defp insert_raw_row!(schema, principal_type, principal_id, role, node_id, tenant_wide) do
     now = DateTime.utc_now()
 
     {1, _} =
@@ -119,8 +142,8 @@ defmodule Letflow.Support.RoleScopeGrantsFixture do
         [
           %{
             id: Ecto.UUID.generate(),
-            principal_type: :group,
-            principal_id: group_id,
+            principal_type: principal_type,
+            principal_id: principal_id,
             role: role,
             scope_node_id: node_id,
             tenant_wide: tenant_wide,

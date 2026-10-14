@@ -452,6 +452,10 @@ defmodule Letflow.Routers.OnboardingPendingAdminTest do
     control_resp = onboard!(ctx, %{"admin_email" => email, "idp_realm_id" => realm()})
     [grant] = grants_of(revoked_resp["tenant_id"])
 
+    # REQ-497 PR 1b N1: a second open grant, so this is not the refused last-open-grant revoke
+    # of a tenant with no counted admin (that refusal is T-G5).
+    _other_open = H.create_grant!(world_of(ctx, revoked_resp), "other.owner@example.com")
+
     conn =
       call(
         ctx,
@@ -561,6 +565,8 @@ defmodule Letflow.Routers.OnboardingPendingAdminTest do
     # An already revoked grant answers the same way.
     second = onboard!(ctx, %{"admin_email" => "second@example.com"})
     [open] = grants_of(second["tenant_id"])
+    # REQ-497 PR 1b N1: a second open grant, so the first revoke is not the refused last one.
+    _other_open = H.create_grant!(world_of(ctx, second), "other.second@example.com")
     second_path = "/api/v1/onboarding/#{second["id"]}/pending-admins/#{open.id}"
     assert call(ctx, :delete, second_path, nil).status == 204
 

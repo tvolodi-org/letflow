@@ -1232,6 +1232,15 @@ defmodule Letflow.IdentityTest do
         )
 
       gh2557_deactivate!(schema_name, inactive_owner)
+
+      # REQ-497 PR 1b N1: another counted admin, so revoking the counted TA token is allowed.
+      remaining_owner = insert_identity_user!(schema_name)
+
+      {:ok, _remaining_admin} =
+        Identity.create_token(remaining_owner.id, %{roles: ["TENANT_ADMIN"], expires_at: nil},
+          prefix: schema_name
+        )
+
       {:ok, _} = Identity.revoke_token(revoked_token.id, prefix: schema_name)
 
       {inactive_result, inactive_queries} =

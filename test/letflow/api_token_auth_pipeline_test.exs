@@ -74,6 +74,10 @@ defmodule Letflow.ApiTokenAuthPipelineTest do
       # PLATFORM_ADMIN token cannot be minted for a non-platform schema any more).
       assert first_conn.assigns.auth_context.roles == ["TENANT_ADMIN"]
 
+      # REQ-497 PR 1b N1: another counted admin, so revoking this (counted) TA token is not
+      # refused as the removal of the last tenant-wide admin.
+      _remaining_admin = gh2557_admin_token!(tenant, insert_user!(tenant))
+
       {:ok, _revoked} = Identity.revoke_token(token.id, prefix: tenant.schema_name)
 
       # No Process.sleep/1, no cache-clear call, no process restart between the
@@ -248,6 +252,8 @@ defmodule Letflow.ApiTokenAuthPipelineTest do
   defp gh2557_revoked_reference(tenant, path) do
     referee = insert_user!(tenant)
     {token, plaintext} = gh2557_admin_token!(tenant, referee)
+    # REQ-497 PR 1b N1: another counted admin, so this revoke is not the refused last one.
+    _remaining_admin = gh2557_admin_token!(tenant, insert_user!(tenant))
     {:ok, _} = Identity.revoke_token(token.id, prefix: tenant.schema_name)
     conn = gh2557_get(path, plaintext, tenant)
     assert conn.status == 401

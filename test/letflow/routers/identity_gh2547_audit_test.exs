@@ -292,6 +292,8 @@ defmodule Letflow.Routers.IdentityGh2547AuditTest do
     } do
       ta_group = group_of!(a, "TENANT_ADMIN")
       user = raw_member!(a, ta_group, user!(a))
+      # REQ-497 PR 1b N1: a second counted admin, so this removal is not the refused last one.
+      _remaining_admin = raw_member!(a, ta_group, user!(a))
 
       conn = call(:delete, "/groups/#{ta_group}/members/#{user.id}", a, nil)
       assert conn.status == 204, conn.resp_body
@@ -559,6 +561,9 @@ defmodule Letflow.Routers.IdentityGh2547AuditTest do
           prefix: a.schema_name
         )
 
+      # REQ-497 PR 1b N1: another counted admin, so revoking this counted TA token is allowed.
+      _remaining_admin = raw_member!(a, group_of!(a, "TENANT_ADMIN"), user!(a))
+
       conn = call(:delete, "/tokens/#{token.id}", a, nil)
       assert conn.status == 200, conn.resp_body
 
@@ -597,6 +602,8 @@ defmodule Letflow.Routers.IdentityGh2547AuditTest do
     test "remove: 500 and the row is still there", %{a: a} do
       ta_group = group_of!(a, "TENANT_ADMIN")
       user = raw_member!(a, ta_group, user!(a))
+      # REQ-497 PR 1b N1: a second counted admin, so the N1 guard passes and the audit fault fires.
+      _remaining_admin = raw_member!(a, ta_group, user!(a))
       create_fault_trigger!(a, "gh2547_fail_removed", "group_member.removed")
 
       try do

@@ -103,6 +103,26 @@ defmodule Letflow.Plugs.Iss0736OidcLiveRevocationTest do
     group
   end
 
+  # REQ-497 PR 1b N1: another active member of the TENANT_ADMIN group (raw rows, no audit).
+  defp second_admin_member!(group_id, schema_name) do
+    n = Ecto.UUID.generate()
+
+    user =
+      %User{}
+      |> Ecto.Changeset.change(%{
+        username: "iss0736-other-admin-#{n}",
+        display_name: "ISS-0736 Other Admin",
+        email: "iss0736-other-admin-#{n}@example.com",
+        password_hash: "__NO_PASSWORD_SET__",
+        status: :active,
+        auth_source: :internal
+      })
+      |> Repo.insert!(prefix: schema_name)
+
+    Repo.insert!(%GroupMember{group_id: group_id, user_id: user.id}, prefix: schema_name)
+    user
+  end
+
   # REWORK 1 (§2.2 one-time sync coverage): swaps in
   # Iss0736RoleClaimTokenVerifierDouble for the caller's own test, restoring
   # config/test.exs's default Letflow.Oidc.TokenVerifierDouble via on_exit/1
@@ -165,6 +185,9 @@ defmodule Letflow.Plugs.Iss0736OidcLiveRevocationTest do
       assert is_binary(user_id)
 
       group = grant_tenant_admin!(user_id, schema_name)
+      # REQ-497 PR 1b N1: a second counted admin, so the revocation below is not refused as
+      # the removal of the last tenant-wide admin.
+      _remaining_admin = second_admin_member!(group.id, schema_name)
 
       # Same bearer token, same route: now succeeds, proving the live role
       # query (not the JWT's own claims) is what authenticate_oidc/2 hands to

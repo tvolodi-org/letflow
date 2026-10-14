@@ -69,8 +69,10 @@ defmodule Letflow.Identity do
   alias Letflow.Identity.Group
   alias Letflow.Identity.GroupMember
   alias Letflow.Identity.OnboardingRecord
+  alias Letflow.Identity.RoleScopeGrant
   alias Letflow.Identity.RoleScopeGrants
   alias Letflow.Identity.Tenant
+  alias Letflow.Identity.TenantAdminGuard
   alias Letflow.Identity.TenantMembership
   alias Letflow.Identity.TenantRole
   alias Letflow.Identity.User
@@ -1109,6 +1111,12 @@ defmodule Letflow.Identity do
   writes nothing. A non-raising audit failure rolls back and returns
   `{:error, {:audit_failed, reason}}`; a raise returns
   `{:error, {:transaction_failed, exception}}`.
+
+  REQ-497 PR 1b (design `req497-1b-allowed-flag-shadow-n1.md` 6.2 (b)): the `TENANT_ADMIN`
+  binding row is locked right after the tenant admin lock. Removing a member of the group
+  that binding points to must leave a tenant-wide admin; otherwise the removal rolls back
+  and `{:error, :last_tenant_wide_admin}` is returned after one `tenant_admin.guard_refused`
+  entry (action `remove_tenant_admin_member`) is written in its own transaction.
   """
   @spec remove_group_member(
           group_id :: Ecto.UUID.t(),
@@ -1117,6 +1125,7 @@ defmodule Letflow.Identity do
         ) ::
           :ok
           | {:error, :group_not_found}
+          | {:error, :last_tenant_wide_admin}
           | {:error, {:audit_failed, term()}}
           | {:error, {:transaction_failed, Exception.t()}}
   def remove_group_member(group_id, user_id, opts) do
@@ -1130,6 +1139,7 @@ defmodule Letflow.Identity do
       )
       |> case do
         {:ok, :ok} -> :ok
+        {:error, {:tenant_admin_guard, refusal}} -> TenantAdminGuard.refuse(prefix, refusal, ctx)
         {:error, reason} -> {:error, reason}
       end
     rescue
@@ -1140,15 +1150,37 @@ defmodule Letflow.Identity do
   defp do_remove_group_member(group_id, user_id, prefix, ctx) do
     lock_tenant_admins!(prefix)
 
+    # REQ-497 PR 1b (design 6.2 (b)): rank R, the TENANT_ADMIN binding row, before the group.
+    admin_group_id =
+      prefix |> TenantAdminGuard.lock_admin_binding!() |> TenantAdminGuard.admin_group_id()
+
     # A delete of a referencing row takes no parent lock by itself; KEY SHARE makes a
     # concurrent binding write on this group (FOR UPDATE) serialise with this removal.
     if is_nil(key_share_lock_group(group_id, prefix)), do: Repo.rollback(:group_not_found)
 
     before_roles = sorted_effective_role_names(user_id, prefix)
 
+    # N1 transition rule: the before-count, under lock A and the row locks, before the
+    # delete, only for the group the TENANT_ADMIN platform binding points to.
+    admin_before =
+      if same_uuid_text?(group_id, admin_group_id),
+        do: TenantAdminGuard.count_before!(prefix)
+
     {count, _rows} =
       from(m in GroupMember, where: m.group_id == ^group_id and m.user_id == ^user_id)
       |> Repo.delete_all(prefix: prefix)
+
+    # N1: after the delete, before the membership audit; rolls back when the removal took
+    # the count from above 0 to 0.
+    if count == 1 and is_integer(admin_before) do
+      :ok =
+        TenantAdminGuard.ensure_admins_remain!(
+          prefix,
+          :remove_tenant_admin_member,
+          user_id,
+          admin_before
+        )
+    end
 
     if count == 1 do
       case insert_membership_audit(:removed, group_id, user_id, before_roles, prefix, ctx) do
@@ -1159,6 +1191,11 @@ defmodule Letflow.Identity do
 
     :ok
   end
+
+  defp same_uuid_text?(a, b) when is_binary(a) and is_binary(b),
+    do: String.downcase(a) == String.downcase(b)
+
+  defp same_uuid_text?(_a, _b), do: false
 
   defp key_share_lock_group(group_id, prefix) do
     Repo.one(from(g in Group, where: g.id == ^group_id, lock: "FOR KEY SHARE"), prefix: prefix)
@@ -1219,8 +1256,9 @@ defmodule Letflow.Identity do
   row whose `roles` contain `"TENANT_ADMIN"`, not revoked, and not expired
   (`expires_at` nil or after now). A user who is both counts once; `PLATFORM_ADMIN` does
   not count; tokens of a deactivated user do not count. Holders limited to an org scope
-  are removed by the private `exclude_scoped_holders/2` step, which #2533 fills in when
-  0051 scopes exist (today it removes no one).
+  are removed by the private `exclude_scoped_holders/2` step (REQ-497 PR 1b): a group
+  member whose TENANT_ADMIN rows (user or group) are all scoped is not counted; a token
+  owner is never removed by it, and a binding with zero rows is still counted in stage 1.
 
   One read query: opens no transaction, takes no lock, writes nothing. Inside a
   caller's `Repo.transaction` it sees that transaction's own uncommitted writes. Raises
@@ -1265,12 +1303,15 @@ defmodule Letflow.Identity do
 
     member_of_admin_group =
       from(gm in GroupMember,
+        as: :admin_member,
         join: tr in TenantRole,
+        as: :admin_binding,
         on: tr.group_id == gm.group_id,
         where:
           gm.user_id == parent_as(:user).id and tr.name == ^@tenant_admin_role and
             tr.kind == :platform_role
       )
+      |> exclude_scoped_holders(prefix)
 
     owns_live_admin_token =
       from(t in ApiToken,
@@ -1285,17 +1326,37 @@ defmodule Letflow.Identity do
       where: ^active_user_condition(:user),
       where: exists(member_of_admin_group) or exists(owns_live_admin_token)
     )
-    |> exclude_scoped_holders(prefix)
   end
 
-  # 0051 / #2533: when `role_scope_grants` exists, add the predicate that removes a user
-  # whose only TENANT_ADMIN source is a scoped grant; until then this is the identity.
-  # `count_tenant_wide_admins/1` and `tenant_wide_admin_user_ids/1` both pass through
-  # here, so the predicate is added once. Applied as the LAST step before the select.
-  # Its role-name twin is `exclude_scoped_role_names/3` (GH 2552, used by
-  # `tenant_wide_role_names/2` for token minting): #2533 fills BOTH.
+  # REQ-497 PR 1b (design `req497-1b-allowed-flag-shadow-n1.md` 5.1, 0051 D1): applied to
+  # the TENANT_ADMIN group-membership subquery ONLY (bindings `:admin_member` and
+  # `:admin_binding`), never to the token half: a token principal is tenant-wide by rule, so a
+  # TA token owner is always counted (the Option A ruling for revoke_token relies on it).
+  # A member is dropped when they are a SCOPED-ONLY holder: at least one TENANT_ADMIN row with
+  # `tenant_wide = false` exists for (user, the member) or (group, the bound group), and no
+  # `tenant_wide = true` row exists for either. Consequences: with only tenant-wide rows
+  # (every stage-1 tenant) nothing is dropped; a binding with ZERO rows (a T9 gap) is still
+  # counted in stage 1 (OQ-4 ruling; #2535 revisits it for enforced tenants). Both
+  # `count_tenant_wide_admins/1` and `tenant_wide_admin_user_ids/1` pass through here. Its
+  # role-name twin is `exclude_scoped_role_names/3`. Values are bound (INV-7); the caller's
+  # Repo call carries the prefix.
   @spec exclude_scoped_holders(query :: Ecto.Query.t(), prefix :: String.t()) :: Ecto.Query.t()
-  defp exclude_scoped_holders(query, _prefix), do: query
+  defp exclude_scoped_holders(query, _prefix) do
+    scoped_rows = admin_member_ta_rows(false)
+    tenant_wide_rows = admin_member_ta_rows(true)
+
+    where(query, [], not (exists(scoped_rows) and not exists(tenant_wide_rows)))
+  end
+
+  defp admin_member_ta_rows(tenant_wide?) do
+    from(g in RoleScopeGrant,
+      where:
+        g.role == ^@tenant_admin_role and g.tenant_wide == ^tenant_wide? and
+          ((g.principal_type == ^:user and g.principal_id == parent_as(:admin_member).user_id) or
+             (g.principal_type == ^:group and
+                g.principal_id == parent_as(:admin_binding).group_id))
+    )
+  end
 
   @doc """
   GH 2547 (design section 6.6): the 64-bit advisory-lock key of the tenant admin lock
@@ -2289,9 +2350,9 @@ defmodule Letflow.Identity do
   GH 2552 (design section 3): the user's tenant-wide platform-role names, as a `MapSet`.
   Group-held roles only (`list_effective_role_names/2`), resolved by the one shared
   `Letflow.Api.Authorization.effective_roles/2` rule, so `PLATFORM_ADMIN` is dropped
-  outside the platform tenant. Token roles never count. Org-scoped holders are removed
-  by the private `exclude_scoped_role_names/3` step, which #2533 fills in (today it
-  removes nothing).
+  outside the platform tenant. Token roles never count. A role the user holds only through
+  scoped rows is removed by the private `exclude_scoped_role_names/3` step (REQ-497 PR 1b);
+  in stage 1, where every row is tenant-wide, it removes nothing.
   """
   @spec tenant_wide_role_names(user_id :: Ecto.UUID.t(), opts :: opts()) :: MapSet.t(String.t())
   def tenant_wide_role_names(user_id, opts) do
@@ -2304,15 +2365,49 @@ defmodule Letflow.Identity do
     |> exclude_scoped_role_names(user_id, prefix)
   end
 
-  # 0051 / #2533: the role-name twin of `exclude_scoped_holders/2` (GH 2547). When
-  # `role_scope_grants` exists, drop a role the user holds only through a scoped grant;
-  # until then this is the identity. #2533 fills BOTH.
+  # REQ-497 PR 1b (design 5.2): the role-name twin of `exclude_scoped_holders/2`, same rule
+  # per role. From `names`, drop a role R when (user, U, R) or (group, the group bound to R
+  # as a `:platform_role`, R) has at least one scoped row and neither has a tenant-wide row.
+  # One query for the whole set (none for an empty set); identity in stage 1.
   @spec exclude_scoped_role_names(
           names :: MapSet.t(String.t()),
           user_id :: Ecto.UUID.t(),
           prefix :: String.t()
         ) :: MapSet.t(String.t())
-  defp exclude_scoped_role_names(names, _user_id, _prefix), do: names
+  defp exclude_scoped_role_names(names, user_id, prefix) do
+    if MapSet.size(names) == 0 do
+      names
+    else
+      role_names = MapSet.to_list(names)
+
+      bound_group_row =
+        from(t in TenantRole,
+          where:
+            t.kind == ^:platform_role and t.name == parent_as(:grant).role and
+              t.group_id == parent_as(:grant).principal_id
+        )
+
+      rows =
+        from(g in RoleScopeGrant,
+          as: :grant,
+          where: g.role in ^role_names,
+          where:
+            (g.principal_type == ^:user and g.principal_id == ^user_id) or
+              (g.principal_type == ^:group and exists(bound_group_row)),
+          distinct: true,
+          select: {g.role, g.tenant_wide}
+        )
+        |> Repo.all(prefix: prefix)
+
+      scoped_only =
+        rows
+        |> Enum.group_by(fn {role, _wide} -> role end, fn {_role, wide} -> wide end)
+        |> Enum.filter(fn {_role, wides} -> false in wides and true not in wides end)
+        |> Enum.map(fn {role, _wides} -> role end)
+
+      MapSet.difference(names, MapSet.new(scoped_only))
+    end
+  end
 
   @doc """
   GH 2552 (design section 3, advisor condition 2): a token whose `roles` contain
@@ -2573,10 +2668,19 @@ defmodule Letflow.Identity do
   token revoked concurrently in between is returned unchanged. The `token.revoke` audit
   entry carries the actor and trace id from `opts[:audit_context]` (actor `nil` when none
   is passed).
+
+  REQ-497 PR 1b (design `req497-1b-allowed-flag-shadow-n1.md` 6.2 (f), Option A): the
+  `TENANT_ADMIN` binding row is locked right after the tenant admin lock, whatever the
+  token. When the locked token was COUNTED as a tenant-wide admin source (not revoked, not
+  expired, owner active, roles contain `TENANT_ADMIN`), the revoke must leave a tenant-wide
+  admin; otherwise it rolls back and `{:error, :last_tenant_wide_admin}` is returned after
+  one `tenant_admin.guard_refused` entry (action `revoke_token`) is written in its own
+  transaction. An uncounted token revokes without a count.
   """
   @spec revoke_token(token_id :: Ecto.UUID.t() | String.t(), opts :: opts()) ::
           {:ok, ApiToken.t()}
           | {:error, :not_found}
+          | {:error, :last_tenant_wide_admin}
           | {:error, {:transaction_failed, Exception.t()}}
   def revoke_token(token_id, opts) do
     prefix = Keyword.fetch!(opts, :prefix)
@@ -2593,6 +2697,13 @@ defmodule Letflow.Identity do
 
         try do
           Repo.transaction(fn -> revoke_locked_token(id, prefix, ctx) end, prefix: prefix)
+          |> case do
+            {:error, {:tenant_admin_guard, refusal}} ->
+              TenantAdminGuard.refuse(prefix, refusal, ctx)
+
+            other ->
+              other
+          end
         rescue
           exception -> {:error, {:transaction_failed, exception}}
         end
@@ -2609,6 +2720,8 @@ defmodule Letflow.Identity do
   # (INV-4), plus issuer_user_id and scope (GH 2552).
   defp revoke_locked_token(token_id, prefix, ctx) do
     lock_tenant_admins!(prefix)
+    # REQ-497 PR 1b (design 6.2 (f), CDV B3/SEC A3): rank R unconditionally, A -> R -> B.
+    _binding = TenantAdminGuard.lock_admin_binding!(prefix)
 
     case Repo.one(from(t in ApiToken, where: t.id == ^token_id, lock: "FOR UPDATE"),
            prefix: prefix
@@ -2621,11 +2734,35 @@ defmodule Letflow.Identity do
 
       %ApiToken{} = token ->
         now = DateTime.utc_now() |> DateTime.truncate(:second)
+        counted? = counted_admin_token?(token, now, prefix)
 
         case revoke_token_row(token, prefix, ctx, nil, now) do
-          {:ok, updated} -> updated
+          {:ok, updated} ->
+            # N1 (Option A, REQ-497 PR 1b): only a token counted at lock time is guarded.
+            if counted?,
+              do: :ok = TenantAdminGuard.ensure_admins_remain!(prefix, :revoke_token, token.id)
+
+            updated
           {:error, reason} -> Repo.rollback(reason)
         end
+    end
+  end
+
+  # REQ-497 PR 1b (design 6.2 (f), CDV B2): whether the token row read FOR UPDATE is a
+  # source `count_tenant_wide_admins/1` counts: not revoked, `expires_at` nil or after the
+  # second-truncated `now`, a TENANT_ADMIN role, and an active owner (read in the same
+  # transaction, only when the other three hold).
+  defp counted_admin_token?(%ApiToken{} = token, now, prefix) do
+    is_nil(token.revoked_at) and
+      (is_nil(token.expires_at) or DateTime.compare(token.expires_at, now) == :gt) and
+      @tenant_admin_role in (token.roles || []) and
+      owner_active?(token.user_id, prefix)
+  end
+
+  defp owner_active?(user_id, prefix) do
+    case Repo.get(User, user_id, prefix: prefix) do
+      %User{} = user -> active_user?(user)
+      nil -> false
     end
   end
 

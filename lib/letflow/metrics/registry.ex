@@ -37,7 +37,7 @@ defmodule Letflow.Metrics.Registry do
   §6), which is about the *data source* being temporarily unreachable while this
   process stays up.
 
-  ## The six OBS-02 families this registry maintains (design §3)
+  ## The seven families this registry maintains (six OBS-02, design §3; one REQ-497 PR 1b)
 
   | # | Prometheus name | Kind | Label allow-list | `:telemetry` event | Fed by |
   |---|---|---|---|---|---|
@@ -48,6 +48,7 @@ defmodule Letflow.Metrics.Registry do
   | 4 | `letflow_db_query_duration_seconds` | histogram | `query_type` (5-value closed enum) | `[:letflow, :repo, :query]` (Ecto's own, already emitted -- attachment only, no new call site) | Ecto/`ecto_sql` |
   | 5 | `letflow_http_requests_total` | counter | `method`, `route_template`, `status` | `[:letflow, :http, :request]` | `Letflow.Plugs.HttpMetrics` |
   | 6 | `letflow_http_errors_total` | counter | `route_template` | same event as #5 (registry increments only when `status >= 500`) | `Letflow.Plugs.HttpMetrics` |
+  | 7 | `letflow_scope_shadow_would_deny_total` | counter | `reason` (closed 6-value enum) | `[:letflow, :scope, :shadow, :would_deny]` | `Letflow.Api.Scope.Shadow` (REQ-497 PR 1b) |
 
   **Family 1 is deliberately NOT `:telemetry`-driven** (design §5/§6): "how many
   instances are active, platform-wide, right now" is not an event Letflow already
@@ -105,7 +106,8 @@ defmodule Letflow.Metrics.Registry do
         [:letflow, :task, :completed],
         [:letflow, :event_store, :append, :stop],
         [:letflow, :repo, :query],
-        [:letflow, :http, :request]
+        [:letflow, :http, :request],
+        [:letflow, :scope, :shadow, :would_deny]
       ],
       &__MODULE__.dispatch/4,
       nil
@@ -141,6 +143,31 @@ defmodule Letflow.Metrics.Registry do
   def dispatch([:letflow, :http, :request], measurements, metadata, config) do
     handle_http_request(measurements, metadata, config)
   end
+
+  def dispatch([:letflow, :scope, :shadow, :would_deny], measurements, metadata, config) do
+    handle_scope_shadow_would_deny(measurements, metadata, config)
+  end
+
+  # Family 7 -- letflow_scope_shadow_would_deny_total (REQ-497 PR 1b, design 4.3). Label
+  # allow-list: `reason` ONLY, from the closed six-value `Letflow.Api.Scope.deny_reason()`
+  # set; any other value is dropped. Never a tenant, user, policy or role label.
+  @scope_shadow_reasons [
+    :role_not_held,
+    :no_grant_rows,
+    :not_tenant_wide,
+    :out_of_scope,
+    :unresolvable,
+    :grants_unavailable
+  ]
+
+  @spec handle_scope_shadow_would_deny(map(), map(), term()) :: :ok
+  def handle_scope_shadow_would_deny(measurements, %{reason: reason}, _config)
+      when reason in @scope_shadow_reasons do
+    count = Map.get(measurements, :count, 1)
+    incr_counter(:scope_shadow_would_deny_total, %{reason: Atom.to_string(reason)}, count)
+  end
+
+  def handle_scope_shadow_would_deny(_measurements, _metadata, _config), do: :ok
 
   # Family 2 -- letflow_task_completions_total. Label allow-list: definition_status
   # ONLY (a closed 4-value enum), never definition_id (design §1's restatement of
