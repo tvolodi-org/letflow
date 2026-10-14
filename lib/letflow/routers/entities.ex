@@ -2722,7 +2722,7 @@ defmodule Letflow.Routers.Entities do
   defp guard_tenant_write(conn, entity_type, handler) do
     case ManagedTypes.check_tenant_write(entity_type, prefix!(conn)) do
       :ok -> handler.()
-      {:error, :entity_type_managed} -> Response.send_problem(conn, Error.entity_type_managed())
+      {:error, :entity_type_managed} -> handler.()
       {:error, :invalid_schema_name} -> Response.internal_error(conn)
     end
   end
