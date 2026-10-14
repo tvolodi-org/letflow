@@ -63,6 +63,22 @@ defmodule Letflow.Engine.Lua.ScriptRuntimeTest do
     end
   end
 
+  # Unique per call, so no earlier run (or test) can have made them atoms.
+  defp fresh_keys(n),
+    do: for(i <- 1..n, do: "zz_gh2534_key_#{System.unique_integer([:positive])}_#{i}")
+
+  # The keys that exist as atoms (String.to_existing_atom/1 raises for the others).
+  defp existing_atoms(keys) do
+    Enum.filter(keys, fn key ->
+      try do
+        String.to_existing_atom(key)
+        true
+      rescue
+        ArgumentError -> false
+      end
+    end)
+  end
+
   # ── AC1 / AC14: exact allow-list (equality, not subset) ────────────────────
 
   # The D11 lists, spelled out literally here (NOT read from the module under test), so a
@@ -446,14 +462,26 @@ defmodule Letflow.Engine.Lua.ScriptRuntimeTest do
   # ── AC6 / F-D: atoms, error text, logs ─────────────────────────────────────
 
   describe "AC6 (F-D) values, error text and logs" do
+    # GH 2561: checks the property itself (no key became an atom), not the VM-global
+    # atom_count, which code loading and other processes also move.
     test "decoding creates no atoms" do
-      keys = for i <- 1..300, do: "zz_gh2534_key_#{System.unique_integer([:positive])}_#{i}"
+      keys = fresh_keys(300)
+      assert existing_atoms(keys) == []
       body = keys |> Enum.map(&"#{&1} = 1") |> Enum.join(", ")
-      before = :erlang.system_info(:atom_count)
 
       assert {:ok, %{output: out}} = run("return {#{body}}")
-      assert map_size(out) == 300
-      assert :erlang.system_info(:atom_count) - before < 50
+      assert Map.keys(out) |> Enum.sort() == Enum.sort(keys)
+      assert existing_atoms(keys) == []
+    end
+
+    test "negative control: the no-atoms check catches a decode that atomizes keys" do
+      keys = fresh_keys(3)
+      assert existing_atoms(keys) == []
+
+      # what an atomizing decoder would do to the output keys
+      Enum.each(keys, &String.to_atom/1)
+
+      assert existing_atoms(keys) == keys
     end
 
     test "error(<input value>), a host-function failure and a heap kill log nothing containing the value; results carry only the code" do
