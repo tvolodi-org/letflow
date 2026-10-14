@@ -143,4 +143,18 @@ if ! curl -sf -o /dev/null "https://qa.bizdala.com/"; then
 fi
 echo "Frontend health check passed"
 
+# 10. Retention for the web-dist backups made in step 7 (GH 2352). Last on purpose: a deploy
+#     that fails a health check exits before this, so every backup stays available for a
+#     rollback until the next successful deploy. Keep-last-N, N from WEB_DIST_BACKUP_KEEP
+#     (qa.env or the environment), default 20 (infra T-0179). A prune problem, or a missing
+#     helper, is a warning only and never fails the deploy.
+WEB_DIST_BACKUP_KEEP="${WEB_DIST_BACKUP_KEEP:-20}"
+if [[ -r "$APP_DIR/deploy/lib/prune_web_dist_backups.sh" ]]; then
+  # shellcheck disable=SC1091
+  source "$APP_DIR/deploy/lib/prune_web_dist_backups.sh"
+  prune_web_dist_backups "$APP_DIR" "$WEB_DIST_BACKUP_KEEP" || echo "WARN: web-dist-backup prune failed (ignored)" >&2
+else
+  echo "WARN: deploy/lib/prune_web_dist_backups.sh not found; web-dist backups not pruned" >&2
+fi
+
 echo "=== Done. Deployed ref: $CURRENT_REF ==="
