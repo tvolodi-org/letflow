@@ -49,11 +49,16 @@ declares three callbacks:
 
 - `manifest/0` — **required**, returns the `t:Letflow.Modules.Module.manifest/0`
   map (see §3 below for its fields).
-- `router/0` — **optional** (`@optional_callbacks router: 0, on_install: 2`),
+- `router/0` — **optional** (`@optional_callbacks router: 0, on_install: 2, on_install: 3`),
   returns the `Plug.Router`-implementing module itself, not a started process.
 - `on_install/2` — **optional**, `(prefix :: String.t(), settings :: map()) ::
   :ok | {:error, term()}`, run inside the install transaction after the
   module's pack installs.
+- `on_install/3` — **optional** (decision 0052 D3, GH 2531), `(prefix, settings,
+  ctx)` with `ctx = %{actor_id: installer_user_id, rationale: text}`. Use it when
+  `on_install` needs an actor and a justification, which activating entity
+  definitions does (see §5a). **If a module exports both arities, ONLY
+  `on_install/3` runs.**
 
 Rather than hand-writing `def manifest/0`, import and call the
 `defmanifest/1` macro (`Letflow.Modules.Module.defmanifest/1`), which both
@@ -173,7 +178,7 @@ module's own `AuthorizedRouter`-based router, reached only after all three
 checks above pass; its routes live at
 `/api/v1/modules/exam/exam-sessions/…`.
 
-## 5. Pack location and `on_install/2`
+## 5. Pack location and `on_install/2` / `on_install/3`
 
 A module's solution-pack document lives under `priv/modules/<id>/`, e.g.
 `priv/modules/exam/pack.json` (`pack_id` `"bilimbaga-question-bank"`), with
@@ -191,14 +196,52 @@ does all of this inside **one** `Repo.transaction/1`:
 2. if `manifest.pack` is set, install it through the **existing**
    `Letflow.Definitions.SolutionPack.install/3` (no second pack installer);
 3. insert the `tenant_modules` row;
-4. call the module's `on_install/2` if exported
-   (`function_exported?(entry_module, :on_install, 2)`).
+4. call the module's `on_install/3` if exported, otherwise its `on_install/2` if
+   exported (never both).
 
 Any step failing rolls back every write, pack install included.
+
+**The install rationale is required (decision 0052 D3, breaking).** `install/3`
+takes `opts[:rationale]`: a non-blank string, the installer's own justification.
+Missing, non-string or blank returns `{:error, :rationale_required}` before anything
+is written. The HTTP routes require it in the body and never synthesise one:
+`POST /api/v1/tenant/modules` `{"module_id": "...", "rationale": "..."}` and
+`POST /api/v1/tenant/solutions` `{"solution_id": "...", "rationale": "..."}` (one
+rationale for every module of the solution); a missing or blank value is 422
+`rationale is required`. An internal, non-HTTP caller passes a fixed, reviewed
+constant naming its cause (for example `mix letflow.seed.exam_fixtures`:
+`"seed: exam fixtures (mix letflow.seed.exam_fixtures)"`). This applies to every
+module, including ones that only export `on_install/2`.
 `Letflow.Modules.Exam.on_install/2` (`lib/letflow/modules/exam/exam.ex:97-120`)
 is the worked example: it seeds four `entity_field_restrictions` rows,
 idempotently (`on_conflict: :nothing`), so calling it twice against the same
 tenant schema is a safe no-op.
+
+### 5a. Making packed entity types writable at install (decision 0052 D2, D5, D6)
+
+A pack installs entity definitions `:inactive`, and activation alone creates no
+table or constraint. A module whose entity types must be writable and constrained
+right after install does that in its reviewed `on_install/3`, inside the install
+transaction, with the shared helper:
+
+```elixir
+@impl true
+def on_install(prefix, _settings, ctx) do
+  # FK-DAG order: FK targets before referrers (pack content; state it explicitly).
+  Letflow.Modules.EntityActivation.activate_and_promote(prefix, ctx, ["parent", "child"])
+end
+```
+
+For each name it checks that the tenant has exactly the one definition the pack
+just inserted (otherwise `{:error, {:entity_name_conflict, name}}`, so install never
+supersedes a tenant's own type), activates it with the installer as activator and
+the rationale verbatim (an already-active one is skipped), and registers and runs
+the column promotions that create the table with its real `REFERENCES` and unique
+constraints. It then fails the install if any promotion row for these types is
+`pending` or `ddl_failed`. A test (`test/letflow/modules/install_activation_test.exs`,
+D7) proves that on a failure everything rolls back: no table, constraint,
+definition, promotion or `tenant_modules` row survives. Process definitions are NOT
+activated this way (0052 D4).
 
 ## 6. Registration: `config/config.exs`, `config/test.exs`, and `catalog_test.exs`
 
@@ -308,7 +351,7 @@ writes each module's declared default `settings`. A solution has no runtime
 identity of its own after install — the tenant simply ends up with the
 modules. If your new module ships as part of a client solution, add or
 extend a `priv/solutions/<id>.json` file; if it's meant to be installed
-standalone (`POST /api/v1/tenant/modules` with just `module_id`), no solution
+standalone (`POST /api/v1/tenant/modules` with `module_id` and the required `rationale`), no solution
 manifest is required at all.
 
 ## 10. Frontend `ModuleDefinition` and the registry
@@ -386,8 +429,8 @@ only reaches the modules its own `depends_on` lists — and both run in CI:
   "Open items" section records it as open, not assigned.
 - **Client scripts.** 0039 D7: tenant-attached Lua extension points need a
   runtime invocation path and an audit path that do not exist yet (0029 §1).
-  A module's `on_install/2` is reviewed **code**, not pack content, and does
-  not reopen this.
+  A module's `on_install/2` / `on_install/3` is reviewed **code**, not pack
+  content, and does not reopen this.
 - **The `CANDIDATE` role.** It is exam-specific but stays a **platform** role
   atom in `Letflow.Api.Authorization.roles/0` (`@roles`,
   `role_from_string("CANDIDATE")`) — moving it into the exam module is an

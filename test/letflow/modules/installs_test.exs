@@ -23,7 +23,10 @@ defmodule Letflow.Modules.InstallsTest do
       actor_id = Ecto.UUID.generate()
 
       assert {:ok, %TenantModule{module_id: "fixture", version: "0.1.0"}} =
-               Installs.install("fixture", actor_id, prefix: prefix)
+               Installs.install("fixture", actor_id,
+                 prefix: prefix,
+                 rationale: "test: module install"
+               )
 
       assert [%TenantModule{module_id: "fixture", version: "0.1.0"}] =
                Installs.list_installed(prefix: prefix)
@@ -38,7 +41,11 @@ defmodule Letflow.Modules.InstallsTest do
       %{schema_name: prefix_b} = TenantFixture.provisioned_tenant!(slug_prefix: "req402-ac3-b")
       actor_id = Ecto.UUID.generate()
 
-      assert {:ok, _} = Installs.install("fixture", actor_id, prefix: prefix_a)
+      assert {:ok, _} =
+               Installs.install("fixture", actor_id,
+                 prefix: prefix_a,
+                 rationale: "test: module install"
+               )
 
       assert length(Installs.list_installed(prefix: prefix_a)) == 1
       assert Installs.list_installed(prefix: prefix_b) == []
@@ -51,7 +58,10 @@ defmodule Letflow.Modules.InstallsTest do
       actor_id = Ecto.UUID.generate()
 
       assert {:error, :unknown_module} =
-               Installs.install("does_not_exist", actor_id, prefix: prefix)
+               Installs.install("does_not_exist", actor_id,
+                 prefix: prefix,
+                 rationale: "test: module install"
+               )
 
       assert Installs.list_installed(prefix: prefix) == []
     end
@@ -60,8 +70,17 @@ defmodule Letflow.Modules.InstallsTest do
       %{schema_name: prefix} = TenantFixture.provisioned_tenant!(slug_prefix: "req402-ac4-dup")
       actor_id = Ecto.UUID.generate()
 
-      assert {:ok, _} = Installs.install("fixture", actor_id, prefix: prefix)
-      assert {:error, :already_installed} = Installs.install("fixture", actor_id, prefix: prefix)
+      assert {:ok, _} =
+               Installs.install("fixture", actor_id,
+                 prefix: prefix,
+                 rationale: "test: module install"
+               )
+
+      assert {:error, :already_installed} =
+               Installs.install("fixture", actor_id,
+                 prefix: prefix,
+                 rationale: "test: module install"
+               )
 
       assert length(Installs.list_installed(prefix: prefix)) == 1
     end
@@ -71,7 +90,10 @@ defmodule Letflow.Modules.InstallsTest do
       actor_id = Ecto.UUID.generate()
 
       assert {:error, {:dependency_not_installed, "fixture"}} =
-               Installs.install("fixture_dependent", actor_id, prefix: prefix)
+               Installs.install("fixture_dependent", actor_id,
+                 prefix: prefix,
+                 rationale: "test: module install"
+               )
 
       assert Installs.list_installed(prefix: prefix) == []
     end
@@ -80,10 +102,17 @@ defmodule Letflow.Modules.InstallsTest do
       %{schema_name: prefix} = TenantFixture.provisioned_tenant!(slug_prefix: "req402-ac4-ok")
       actor_id = Ecto.UUID.generate()
 
-      assert {:ok, _} = Installs.install("fixture", actor_id, prefix: prefix)
+      assert {:ok, _} =
+               Installs.install("fixture", actor_id,
+                 prefix: prefix,
+                 rationale: "test: module install"
+               )
 
       assert {:ok, %TenantModule{module_id: "fixture_dependent"}} =
-               Installs.install("fixture_dependent", actor_id, prefix: prefix)
+               Installs.install("fixture_dependent", actor_id,
+                 prefix: prefix,
+                 rationale: "test: module install"
+               )
 
       assert length(Installs.list_installed(prefix: prefix)) == 2
     end
@@ -103,7 +132,10 @@ defmodule Letflow.Modules.InstallsTest do
       actor_id = Ecto.UUID.generate()
 
       assert {:error, {:on_install_failed, :boom}} =
-               Installs.install("fixture_failing_install", actor_id, prefix: prefix)
+               Installs.install("fixture_failing_install", actor_id,
+                 prefix: prefix,
+                 rationale: "test: module install"
+               )
 
       assert Installs.list_installed(prefix: prefix) == []
     end

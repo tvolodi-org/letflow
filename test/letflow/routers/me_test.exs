@@ -185,7 +185,10 @@ defmodule Letflow.Routers.MeTest do
       assert list_modules(Ecto.UUID.generate(), tenant_id, ["PLATFORM_ADMIN"]).status == 403
 
       assert {:ok, _tenant_module} =
-               Installs.install("fixture", Ecto.UUID.generate(), prefix: prefix)
+               Installs.install("fixture", Ecto.UUID.generate(),
+                 prefix: prefix,
+                 rationale: "test: module install"
+               )
 
       for role <- Authorization.roles(), role != :PLATFORM_ADMIN do
         conn = list_modules(Ecto.UUID.generate(), tenant_id, [Atom.to_string(role)])
@@ -215,7 +218,10 @@ defmodule Letflow.Routers.MeTest do
         TenantFixture.provisioned_tenant!(slug_prefix: "req403-ac8-b-#{suffix}")
 
       assert {:ok, _tenant_module} =
-               Installs.install("fixture", Ecto.UUID.generate(), prefix: prefix_a)
+               Installs.install("fixture", Ecto.UUID.generate(),
+                 prefix: prefix_a,
+                 rationale: "test: module install"
+               )
 
       # Plain request, no spoofing attempt.
       conn = list_modules(Ecto.UUID.generate(), tenant_id_b, ["TENANT_ADMIN"])

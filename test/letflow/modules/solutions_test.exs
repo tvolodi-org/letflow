@@ -33,7 +33,10 @@ defmodule Letflow.Modules.SolutionsTest do
       actor_id = Ecto.UUID.generate()
 
       assert {:ok, tenant_modules} =
-               Solutions.install("fixture-bundle", actor_id, prefix: prefix)
+               Solutions.install("fixture-bundle", actor_id,
+                 prefix: prefix,
+                 rationale: "test: module install"
+               )
 
       assert length(tenant_modules) == 2
 
@@ -68,10 +71,19 @@ defmodule Letflow.Modules.SolutionsTest do
       actor_id = Ecto.UUID.generate()
 
       # Pre-install fixture so the solution's check_none_already_installed fires
-      assert {:ok, _} = Installs.install("fixture", actor_id, prefix: prefix)
+      assert {:ok, _} =
+               Installs.install("fixture", actor_id,
+                 prefix: prefix,
+                 rationale: "test: module install"
+               )
+
       count_before = length(Installs.list_installed(prefix: prefix))
 
-      result = Solutions.install("fixture-bundle", actor_id, prefix: prefix)
+      result =
+        Solutions.install("fixture-bundle", actor_id,
+          prefix: prefix,
+          rationale: "test: module install"
+        )
 
       assert {:error, {:already_installed, _module_id}} = result
       # No new rows written

@@ -8,6 +8,11 @@ defmodule Letflow.Routers.TenantSolutions do
   `:ModulesManage` (tenant scope: `TENANT_ADMIN`, and the platform tenant's `PLATFORM_ADMIN`), delegating to
   `Letflow.Modules.Solutions.install/3`.
 
+  Request body (decision 0052 D3, GH 2531; BREAKING since then):
+  `{"solution_id": "<id>", "rationale": "<non-blank text>"}`. ONE required
+  rationale, applied to every module the solution installs. Missing, non-string or
+  blank answers 422 `rationale is required` and installs nothing; never synthesised.
+
   Tenant scoping (INV-1): `prefix` comes ONLY from
   `conn.assigns.scoped_opts` (set by `Letflow.Plugs.Authorize`, itself
   derived server-side from `conn.assigns.auth_context.tenant_id` via
@@ -36,7 +41,15 @@ defmodule Letflow.Routers.TenantSolutions do
     prefix = Keyword.fetch!(conn.assigns.scoped_opts, :prefix)
     actor_id = conn.assigns.auth_context.user_id
 
-    case Solutions.install(solution_id, actor_id, prefix: prefix) do
+    # Decision 0052 D3 (GH 2531): one REQUIRED `rationale` for the whole solution, applied
+    # to every module install; decided by Solutions.install/3 (missing, non-string or
+    # blank -> 422, nothing installed). The router never synthesises one.
+    rationale = Map.get(conn.body_params, "rationale")
+
+    case Solutions.install(solution_id, actor_id, prefix: prefix, rationale: rationale) do
+      {:error, :rationale_required} ->
+        Response.unprocessable(conn, "rationale is required")
+
       {:ok, tenant_modules} ->
         Response.created(conn, %{
           "installed_modules" => Enum.map(tenant_modules, &module_response_map/1)

@@ -39,7 +39,19 @@ defmodule Letflow.Routers.TenantSolutionsTest do
     |> assign(:trace_id, "req415-tenant-solutions-test-trace-id")
   end
 
-  defp install_solution(tenant_id, roles, body) do
+  # GH 2531 (decision 0052 D3): `rationale` is required; the existing tests are about
+  # other things, so this helper supplies one unless the body already carries the key.
+  defp install_solution(tenant_id, roles, body) when is_map(body) do
+    install_solution_raw(
+      tenant_id,
+      roles,
+      Map.put_new(body, "rationale", "test: solution install")
+    )
+  end
+
+  defp install_solution(tenant_id, roles, body), do: install_solution_raw(tenant_id, roles, body)
+
+  defp install_solution_raw(tenant_id, roles, body) do
     build_conn(tenant_id, roles, body)
     |> Letflow.Routers.TenantSolutions.call(@opts)
   end
@@ -112,7 +124,12 @@ defmodule Letflow.Routers.TenantSolutionsTest do
       end)
 
       actor_id = Ecto.UUID.generate()
-      assert {:ok, _} = Installs.install("exam", actor_id, prefix: prefix)
+
+      assert {:ok, _} =
+               Installs.install("exam", actor_id,
+                 prefix: prefix,
+                 rationale: "test: module install"
+               )
 
       conn = install_solution(tenant_id, ["TENANT_ADMIN"], %{"solution_id" => "bilimbaga"})
       assert conn.status == 409
@@ -193,6 +210,39 @@ defmodule Letflow.Routers.TenantSolutionsTest do
 
       conn = install_solution(tenant_id, ["TENANT_ADMIN"], %{"solution_id" => 42})
       assert conn.status == 422
+    end
+  end
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # GH 2531 / decision 0052 D3 — ONE required `rationale` (breaking contract)
+  # ═══════════════════════════════════════════════════════════════════════
+
+  describe "GH 2531 -- required rationale" do
+    test "missing, null, non-string and blank rationale give 422 'rationale is required' and install nothing; a valid one gives 201" do
+      %{tenant_id: tenant_id, schema_name: prefix} =
+        TenantFixture.provisioned_tenant!(slug_prefix: "gh2531-sol")
+
+      for body <- [
+            %{"solution_id" => "fixture-bundle"},
+            %{"solution_id" => "fixture-bundle", "rationale" => nil},
+            %{"solution_id" => "fixture-bundle", "rationale" => ["x"]},
+            %{"solution_id" => "fixture-bundle", "rationale" => ""},
+            %{"solution_id" => "fixture-bundle", "rationale" => " 	 "}
+          ] do
+        conn = install_solution_raw(tenant_id, ["TENANT_ADMIN"], body)
+        assert conn.status == 422, "#{inspect(body)}: #{conn.status} #{conn.resp_body}"
+        assert json(conn)["detail"] == "rationale is required"
+        assert Installs.list_installed(prefix: prefix) == []
+      end
+
+      conn =
+        install_solution_raw(tenant_id, ["TENANT_ADMIN"], %{
+          "solution_id" => "fixture-bundle",
+          "rationale" => "pilot bundle"
+        })
+
+      assert conn.status == 201, conn.resp_body
+      assert length(Installs.list_installed(prefix: prefix)) == 2
     end
   end
 end

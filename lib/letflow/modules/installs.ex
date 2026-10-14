@@ -23,8 +23,18 @@ defmodule Letflow.Modules.Installs do
   a module whose `depends_on` is not fully satisfied; if the manifest names
   a `pack`, installs it through the EXISTING
   `Letflow.Definitions.SolutionPack.install/3` (no second pack installer);
-  inserts the `tenant_modules` row; then calls the module's `on_install/2`
-  if exported. All of this happens in ONE `Repo.transaction/1` — any step
+  inserts the `tenant_modules` row; then calls the module's `on_install/3`
+  if exported, else its `on_install/2` if exported (never both; decision 0052 D3).
+
+  ## Rationale (decision 0052 D3, GH 2531)
+
+  `opts[:rationale]` is REQUIRED for every install: a non-blank string, the
+  installer's own justification, passed VERBATIM to `on_install/3` as
+  `ctx.rationale` and from there to `activate_definition/4`'s append-only
+  activation trail. Missing, non-string or blank returns
+  `{:error, :rationale_required}` before anything is written. The HTTP layer
+  never synthesises one; internal non-HTTP callers pass a fixed, reviewed
+  constant naming the cause. All of this happens in ONE `Repo.transaction/1` — any step
   failing rolls back every write, including the pack install (design §3.4).
 
   OUT OF SCOPE (0039 D5, REQ-402's own BUILDS): installing several modules
@@ -40,10 +50,11 @@ defmodule Letflow.Modules.Installs do
   alias Letflow.Modules.TenantModule
   alias Letflow.Repo
 
-  @type opts :: [prefix: String.t()]
+  @type opts :: [prefix: String.t(), rationale: String.t()]
 
   @type install_error ::
           {:error, :unknown_module}
+          | {:error, :rationale_required}
           | {:error, :already_installed}
           | {:error, {:dependency_not_installed, module_id :: String.t()}}
           | {:error, {:pack_install_failed, SolutionPack.install_error()}}
@@ -73,13 +84,16 @@ defmodule Letflow.Modules.Installs do
   def install(module_id, actor_id, opts) do
     prefix = Keyword.fetch!(opts, :prefix)
 
-    with {:ok, entry_module} <- fetch_module(module_id) do
+    with {:ok, rationale} <- fetch_rationale(opts),
+         {:ok, entry_module} <- fetch_module(module_id) do
+      ctx = %{actor_id: actor_id, rationale: rationale}
+
       Repo.transaction(fn ->
         with :ok <- check_not_already_installed(module_id, prefix),
              :ok <- check_dependencies_installed(entry_module, prefix),
              :ok <- maybe_install_pack(entry_module, actor_id, opts),
              {:ok, tenant_module} <- insert_tenant_module(entry_module, prefix),
-             :ok <- maybe_run_on_install(entry_module, prefix, tenant_module.settings) do
+             :ok <- maybe_run_on_install(entry_module, prefix, tenant_module.settings, ctx) do
           tenant_module
         else
           {:error, reason} -> Repo.rollback(reason)
@@ -235,14 +249,42 @@ defmodule Letflow.Modules.Installs do
     |> Repo.insert(prefix: prefix)
   end
 
-  defp maybe_run_on_install(entry_module, prefix, settings) do
-    if function_exported?(entry_module, :on_install, 2) do
-      case entry_module.on_install(prefix, settings) do
-        :ok -> :ok
-        {:error, reason} -> {:error, {:on_install_failed, reason}}
+  @doc """
+  Decision 0052 D3: the install rationale from `opts`, verbatim once it is known to be non-blank. Shared with
+  `Letflow.Modules.Solutions.install/3`, which checks it before installing any
+  module so a solution install with no rationale writes nothing.
+  """
+  @spec fetch_rationale(keyword()) :: {:ok, String.t()} | {:error, :rationale_required}
+  def fetch_rationale(opts) do
+    case Keyword.get(opts, :rationale) do
+      rationale when is_binary(rationale) ->
+        case String.trim(rationale) do
+          "" -> {:error, :rationale_required}
+          _non_blank -> {:ok, rationale}
+        end
+
+      _other ->
+        {:error, :rationale_required}
+    end
+  end
+
+  # 0052 D3: `on_install/3` is preferred; a module exporting both arities runs ONLY /3.
+  defp maybe_run_on_install(entry_module, prefix, settings, ctx) do
+    result =
+      cond do
+        function_exported?(entry_module, :on_install, 3) ->
+          entry_module.on_install(prefix, settings, ctx)
+
+        function_exported?(entry_module, :on_install, 2) ->
+          entry_module.on_install(prefix, settings)
+
+        true ->
+          :ok
       end
-    else
-      :ok
+
+    case result do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:on_install_failed, reason}}
     end
   end
 end
