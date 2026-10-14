@@ -20,6 +20,22 @@ acceptance_criteria:
   - "A test asserts that the route returns the SHA the release was built from"
 affected_files:
   - lib/letflow/router.ex
+  - lib/letflow/build_info.ex
+  - config/runtime.exs
+  - deploy/Dockerfile
+  - deploy/redeploy-qa.sh
+  - deploy/redeploy-test.sh
 queue_ref: Q-1043
 github_ref: GH-2384
-status: open
+status: resolved
+resolved_at: "2026-10-14T10:38:09Z"
+resolution: >
+  GET /health now returns {"status":"ok","sha":<build SHA or null>}; status is unchanged and no other key is
+  reported. deploy/redeploy-qa.sh and deploy/redeploy-test.sh pass --build-arg GIT_SHA="$(git rev-parse HEAD)";
+  deploy/Dockerfile's runtime stage sets ENV LETFLOW_BUILD_SHA from it (declared after the apt layers so a new
+  commit does not bust their cache); config/runtime.exs stores it as config :letflow, :build_sha through
+  Letflow.BuildInfo.normalize_sha/1 (7..40 lowercase hex after trimming, anything else nil). scripts/uat_preflight.sh
+  already reads the `sha` key from /health, so no preflight change. Tests: test/letflow/iss1043_health_build_sha_test.exs
+  (spec test/specs/ISS-1043.md); router_test.exs and plugs/cors_test.exs exact-body /health assertions updated to the
+  new shape. AC4 (preflight reports deployed_sha OK on QA) can only be confirmed after the next QA redeploy; it was not
+  run from this change.

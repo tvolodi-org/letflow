@@ -56,7 +56,12 @@ defmodule Letflow.Plugs.CorsTest do
         |> call()
 
       assert conn.status == 200
-      assert Jason.decode!(conn.resp_body) == %{"status" => "ok"}
+
+      assert Jason.decode!(conn.resp_body) == %{
+               "status" => "ok",
+               "sha" => Letflow.BuildInfo.sha()
+             }
+
       assert get_resp_header(conn, "access-control-allow-origin") == [@allowed_origin]
     end
 
@@ -98,7 +103,11 @@ defmodule Letflow.Plugs.CorsTest do
         |> call()
 
       assert conn.status == 200
-      assert Jason.decode!(conn.resp_body) == %{"status" => "ok"}
+
+      assert Jason.decode!(conn.resp_body) == %{
+               "status" => "ok",
+               "sha" => Letflow.BuildInfo.sha()
+             }
     end
 
     test "an unlisted-origin request is not halted -- a 404 route still 404s normally" do
@@ -257,7 +266,12 @@ defmodule Letflow.Plugs.CorsTest do
       conn = conn(:get, "/health") |> call()
 
       assert conn.status == 200
-      assert Jason.decode!(conn.resp_body) == %{"status" => "ok"}
+
+      assert Jason.decode!(conn.resp_body) == %{
+               "status" => "ok",
+               "sha" => Letflow.BuildInfo.sha()
+             }
+
       assert get_resp_header(conn, "access-control-allow-origin") == []
       assert get_resp_header(conn, "vary") == []
     end

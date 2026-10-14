@@ -411,6 +411,13 @@ case Letflow.LoginDiscovery.BootCheck.check(
   {:error, reason} -> raise Letflow.LoginDiscovery.BootCheck.message(reason)
 end
 
+# ISS-1043 (GH #2384): the git commit SHA the release was built from, reported by the
+# public GET /health as `sha`. deploy/Dockerfile's runtime stage sets LETFLOW_BUILD_SHA
+# from the GIT_SHA build arg that deploy/redeploy-*.sh pass. Only 7..40 lowercase hex
+# characters are kept (Letflow.BuildInfo.normalize_sha/1); unset, empty or junk -> nil,
+# which /health reports as null. Not fatal when absent: a local or test build has no SHA.
+config :letflow, :build_sha, Letflow.BuildInfo.normalize_sha(System.get_env("LETFLOW_BUILD_SHA"))
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||
