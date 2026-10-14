@@ -276,6 +276,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcherTest do
             Map.merge(%{"timeout_ms" => 1_000}, unquote(Macro.escape(limits)))
           )
 
+        dlq_before = F.dlq_count(t.schema_name)
         {row, result} = F.run_next!(t.schema_name)
 
         assert result == {:ok, :failed}
@@ -285,6 +286,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcherTest do
         done = F.reload(t.schema_name, row)
         assert {done.status, done.outcome} == {"failed", unquote(code)}
         assert F.projection(t.schema_name, b.instance_id).status == :error
+        assert F.dlq_count(t.schema_name) == dlq_before + 1
 
         assert ["EXECUTION_ERROR"] =
                  F.event_types(t.schema_name, b.instance_id) --
@@ -435,21 +437,26 @@ defmodule Letflow.Engine.ScriptTaskDispatcherTest do
     end
 
     test "T-tick-budget: the tick stops at the deadline, at most one row past it", %{t: a} do
-      b_tenant = F.tenant!("gh2534-7c-budget-b")
+      # four tenants, one slow row each (>= 100 ms: the 100 ms wall clock ends it). With a
+      # 150 ms budget checked BETWEEN rows, at most ceil(150 / 100) + 1 = 3 rows run; a check
+      # made only once per pass would run all four rows of the first pass.
+      others = for i <- 1..3, do: F.tenant!("gh2534-7c-budget-#{i}")
       slow = "while true do pcall(function() local s = string.rep('x', 1000000) end) end"
       limits = %{"instructions" => 10_000_000, "timeout_ms" => 100}
-      for _ <- 1..4, do: bound(a, slow, limits)
-      for _ <- 1..4, do: bound(b_tenant, slow, limits)
-      F.put_dispatcher_config!(:tick_budget_ms, 250)
+      tenants = [a | others]
+      for t <- tenants, do: bound(t, slow, limits)
+      F.put_dispatcher_config!(:tick_budget_ms, 150)
 
       started = System.monotonic_time(:millisecond)
-      {summary, _next} = ScriptTaskDispatcher.run_tick([a.schema_name, b_tenant.schema_name], 0)
+      {summary, _next} = ScriptTaskDispatcher.run_tick(Enum.map(tenants, & &1.schema_name), 0)
       elapsed = System.monotonic_time(:millisecond) - started
 
       assert summary.budget_exhausted
-      assert summary.ran >= 2 and summary.ran < 8
-      # the deadline is checked between rows: at most one row (~100 ms + apply) past it
-      assert elapsed < 250 + 2_000
+      assert summary.ran >= 1
+      assert summary.ran <= 3
+      assert summary.passes == 1
+      # at most one row (~100 ms + apply) past the deadline
+      assert elapsed < 150 + 2_000
     end
 
     test "T-rotating-offset: the next tick starts one tenant later", %{t: a} do

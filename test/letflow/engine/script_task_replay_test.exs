@@ -54,6 +54,8 @@ defmodule Letflow.Engine.ScriptTaskReplayTest do
     test_pid = self()
     handler = {__MODULE__, make_ref()}
 
+    on_exit(fn -> :telemetry.detach(handler) end)
+
     :telemetry.attach(
       handler,
       [:letflow, :repo, :query],

@@ -40,4 +40,45 @@ defmodule Letflow.Scripts.ValidationTest do
     input = put_in(@manifest, ["input_schema", "properties", "$in"], %{"type" => "integer"})
     assert Validation.manifest(input) == :ok
   end
+
+  test "REVIEWER R5: one script-key rule for registry, engine parse and graph check" do
+    alias Letflow.Definitions.Graph
+
+    for key <- [
+          "k",
+          "a_1",
+          "z" <> String.duplicate("9", 63),
+          "A",
+          "1a",
+          "a-b",
+          "",
+          "a" <> String.duplicate("b", 64),
+          7
+        ] do
+      canonical = Validation.key?(key)
+      assert Letflow.Scripts.Runtime.script_key?(key) == canonical
+
+      node = %Graph.Node{
+        id: "svc",
+        node_type: :SERVICE_TASK,
+        attributes: %{"script_key" => key, "script_version" => 1}
+      }
+
+      graph_ok =
+        :invalid_script_reference not in Enum.map(
+          Graph.validate_node_attributes(%Graph{nodes: [node], edges: []}).violations,
+          & &1.code
+        )
+
+      assert graph_ok == canonical, inspect(key)
+
+      if is_binary(key) and key != "" do
+        parse_ok =
+          Letflow.Engine.ServiceTask.parse_config_from_node_attributes(node) !=
+            {:error, {:invalid_script_reference, :key}}
+
+        assert parse_ok == canonical, inspect(key)
+      end
+    end
+  end
 end

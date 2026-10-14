@@ -472,6 +472,10 @@ defmodule Letflow.Support.ScriptTaskFixture do
     end)
     |> Enum.take_while(&(&1 != :full))
     |> Enum.map(fn {:held, pid} -> pid end)
+    |> tap(fn holders ->
+      # never leave a holder behind (and its slot held) when a test fails before killing it
+      ExUnit.Callbacks.on_exit(fn -> Enum.each(holders, &Process.exit(&1, :kill)) end)
+    end)
   end
 
   @doc "Slots of `schema` currently in use in the real `ScriptAdmission`."

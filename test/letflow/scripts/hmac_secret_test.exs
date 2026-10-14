@@ -246,5 +246,40 @@ defmodule Letflow.Scripts.HmacSecretTest do
 
       assert alert_lines(log2) == 1
     end
+
+    test "two key versions: every version disabled fails closed; re-activating one runs under it",
+         %{fixture: f} do
+      # v1, then (v1 disabled) a rotated v2 -- ensure/1 creates only when no ACTIVE key exists
+      :ok = HmacSecret.ensure(%{id: f.tenant_id})
+      {1, _} = disable_all!(f.tenant_id)
+      :ok = HmacSecret.ensure(%{id: f.tenant_id})
+
+      assert [%{key_id: 1, status: :disabled}, %{key_id: 2, status: :active}] =
+               secret_rows(f.tenant_id)
+
+      {2, _} = disable_all!(f.tenant_id)
+      before = secret_rows(f.tenant_id)
+      missing = start_bound(f)
+
+      ExUnit.CaptureLog.capture_log([level: :error], fn ->
+        {_r, {:ok, :failed}} = F.run_next!(f.schema_name)
+      end)
+
+      row = F.row!(f.schema_name, missing.instance_id)
+      assert row.outcome_detail == "hmac_secret_missing"
+      assert secret_rows(f.tenant_id) == before
+
+      {1, _} =
+        from(s in Secret,
+          where: s.tenant_id == ^f.tenant_id and s.namespace == "platform" and s.key_id == 1
+        )
+        |> Repo.update_all(set: [status: :active])
+
+      ok = start_bound(f)
+      {_r, {:ok, :applied}} = F.run_next!(f.schema_name)
+      [record] = F.payloads(f.schema_name, ok.instance_id, "SCRIPT_RUN_RECORDED")
+      assert record["input_hmac_key_version"] == 1
+      assert length(secret_rows(f.tenant_id)) == 2
+    end
   end
 end

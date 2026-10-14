@@ -24,6 +24,8 @@ defmodule Letflow.IdempotencyTest do
     "escalation_timer_fired:" => ["lib/letflow/engine.ex"],
     "service_task_dispatch:" => ["lib/letflow/engine.ex"],
     "service_task:" => ["lib/letflow/engine/service_task.ex"],
+    "script_task_dispatch:" => ["lib/letflow/engine.ex"],
+    "script_run:" => ["lib/letflow/engine.ex"],
     "certificate:issue:" => ["lib/letflow/modules/exam/certificate.ex"],
     "entities-record-import:" => ["lib/letflow/routers/entities.ex"],
     "attachment_attached:" => ["lib/letflow/repository/attachments.ex"],

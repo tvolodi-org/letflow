@@ -808,35 +808,7 @@ defmodule Letflow.Engine.PinResolver do
     own_by_key = Map.new(own_pins, &{{&1.kind, &1.ref}, &1})
 
     {merged_own, conflicts} =
-      Enum.reduce(own_pins, {[], []}, fn own_pin, {acc, conflicts_acc} ->
-        # GH 2534 PR 7c-1 (C7): a child's own :script pin is never replaced or recorded as a
-        # conflict, and a parent's :script pin is never added to a child (below).
-        case own_pin.kind != :script && find_parent_pin(parent_pins, own_pin.kind, own_pin.ref) do
-          falsy when falsy in [nil, false] ->
-            {[own_pin | acc], conflicts_acc}
-
-          parent_pin when parent_pin.version == own_pin.version ->
-            {[own_pin | acc], conflicts_acc}
-
-          parent_pin ->
-            inherited_pin = %{
-              kind: own_pin.kind,
-              ref: own_pin.ref,
-              resolved_id: parent_pin.resolved_id,
-              version: parent_pin.version,
-              source: :inherited
-            }
-
-            conflict = %{
-              kind: own_pin.kind,
-              ref: own_pin.ref,
-              child_resolved_version: own_pin.version,
-              inherited_version: parent_pin.version
-            }
-
-            {[inherited_pin | acc], [conflict | conflicts_acc]}
-        end
-      end)
+      Enum.reduce(own_pins, {[], []}, &inherit_own_pin(&1, parent_pins, &2))
 
     inherited_additions =
       parent_pins
@@ -857,6 +829,39 @@ defmodule Letflow.Engine.PinResolver do
     merged = sort_pins(Enum.reverse(merged_own) ++ inherited_additions)
 
     {:ok, merged, Enum.reverse(conflicts)}
+  end
+
+  # GH 2534 PR 7c-1 (C7): a child's own :script pin is never replaced or recorded as a
+  # conflict (and a parent's :script pin is never added to a child, apply_inheritance/2).
+  defp inherit_own_pin(%{kind: :script} = own_pin, _parent_pins, {acc, conflicts_acc}),
+    do: {[own_pin | acc], conflicts_acc}
+
+  defp inherit_own_pin(own_pin, parent_pins, {acc, conflicts_acc}) do
+    case find_parent_pin(parent_pins, own_pin.kind, own_pin.ref) do
+      nil ->
+        {[own_pin | acc], conflicts_acc}
+
+      parent_pin when parent_pin.version == own_pin.version ->
+        {[own_pin | acc], conflicts_acc}
+
+      parent_pin ->
+        inherited_pin = %{
+          kind: own_pin.kind,
+          ref: own_pin.ref,
+          resolved_id: parent_pin.resolved_id,
+          version: parent_pin.version,
+          source: :inherited
+        }
+
+        conflict = %{
+          kind: own_pin.kind,
+          ref: own_pin.ref,
+          child_resolved_version: own_pin.version,
+          inherited_version: parent_pin.version
+        }
+
+        {[inherited_pin | acc], [conflict | conflicts_acc]}
+    end
   end
 
   defp find_parent_pin(parent_pins, kind, ref) do

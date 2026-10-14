@@ -169,7 +169,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
   @doc """
   One poller tick over `schemas`, starting at `offset rem length(schemas)`: a sweep pass, then
   run passes serving each tenant at most one row per pass (and at most
-  `max_dispatches_per_cycle` rows per tick), stopping once `tick_budget_ms` has elapsed (the
+  `max_dispatches_per_cycle` rows PER TENANT per tick), stopping once `tick_budget_ms` has elapsed (the
   deadline is checked between rows). Returns the summary and `offset + 1`. Never raises.
   """
   @spec run_tick([String.t()], non_neg_integer()) :: {tick_summary(), non_neg_integer()}
@@ -433,8 +433,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
         facts = result_facts(result)
 
         followup =
-          {:failed, :script_rejected, :apply_failed,
-           %{facts | phase: followup_phase(facts.phase), outcome: :script_rejected}}
+          {:failed, :script_rejected, :apply_failed, %{facts | outcome: :script_rejected}}
 
         case Letflow.Engine.apply_script_task_result(claim, followup, prefix) do
           {:ok, outcome} ->
@@ -453,9 +452,6 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
     end
   end
 
-  defp followup_phase(:lease_expired), do: :lease_expired
-  defp followup_phase(phase), do: phase
-
   defp result_facts({:ok, _output, facts}), do: facts
   defp result_facts({:failed, _code, _detail, facts}), do: facts
 
@@ -468,16 +464,19 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
 
     prepared =
       case TenantProvisioning.tenant_id_for_schema_name(prefix) do
-        {:ok, tenant_id} -> {Runtime.prepare_run(prefix, tenant_id, binding), tenant_id}
-        _error -> {{:rejected, :tenant_inactive}, nil}
+        {:ok, tenant_id} -> Runtime.prepare_run(prefix, tenant_id, binding)
+        _error -> {:rejected, :tenant_inactive}
       end
 
     case prepared do
-      {{:rejected, detail}, _tenant_id} ->
-        if detail == :hmac_secret_missing, do: Alerts.notify_script_hmac_secret_missing(prefix)
+      {:rejected, :hmac_secret_missing} ->
+        Alerts.notify_script_hmac_secret_missing(prefix)
+        rejected(row, :hmac_secret_missing)
+
+      {:rejected, detail} ->
         rejected(row, detail)
 
-      {{:ok, spec}, _tenant_id} ->
+      {:ok, spec} ->
         Alerts.clear_script_hmac_secret_missing(prefix)
         run_with_spec(row, spec, prefix)
     end

@@ -8,6 +8,8 @@ defmodule Letflow.Engine.ScriptTaskApplyTest do
 
   use Letflow.DataCase, async: false
 
+  import Ecto.Query, only: [from: 2]
+
   alias Letflow.Engine
   alias Letflow.Engine.ScriptTaskDispatcher
   alias Letflow.Support.ScriptTaskFixture, as: F
@@ -245,6 +247,89 @@ defmodule Letflow.Engine.ScriptTaskApplyTest do
                {:error, :output_schema}
 
       refute Letflow.Scripts.Runtime.writes_key?(%{"total" => %{"$nested" => 1}})
+    end
+  end
+
+  # ── gate findings (SECURITY S2, S3) ───────────────────────────────────────────
+
+  describe "SEC S2: fail_codes is never nil" do
+    test "a manifest without fail_codes allows NO fail code (not any code)", %{t: t} do
+      manifest = Map.delete(F.closed_manifest(), "fail_codes")
+      b = F.bound!(t, "fail('anything')", manifest, %{"amount" => 1})
+
+      assert {:ok, %{fail_codes: []}} =
+               Letflow.Scripts.Runtime.prepare_run(t.schema_name, t.tenant_id, %{
+                 script_key: b.rule.key,
+                 script_version: b.rule.version,
+                 script_sha256: b.rule.sha256
+               })
+
+      {row, {:ok, :failed}} = F.run_next!(t.schema_name)
+      # with nil the script would end script_failed carrying fail_code "anything"
+      assert F.reload(t.schema_name, row).outcome == "script_error"
+      [record] = F.payloads(t.schema_name, b.instance_id, "SCRIPT_RUN_RECORDED")
+      assert record["fail_code"] == nil
+    end
+  end
+
+  describe "SEC S3: no matching gateway edge after a script" do
+    test "the incident records the CURRENT variables, unchanged (C16)", %{t: t} do
+      gateway_graph = fn key, version ->
+        %{
+          "nodes" => [
+            %{"id" => "start", "node_type" => "START"},
+            %{
+              "id" => "svc",
+              "node_type" => "SERVICE_TASK",
+              "attributes" => %{"script_key" => key, "script_version" => version}
+            },
+            %{"id" => "xg", "node_type" => "EXCLUSIVE_GATEWAY"},
+            %{"id" => "end", "node_type" => "END"}
+          ],
+          "edges" => [
+            %{"id" => "e1", "source" => "start", "target" => "svc"},
+            %{"id" => "e2", "source" => "svc", "target" => "xg"},
+            %{
+              "id" => "e3",
+              "source" => "xg",
+              "target" => "end",
+              "condition" => "variables.total == 999"
+            },
+            %{"id" => "e4", "source" => "xg", "target" => "end", "is_default" => true}
+          ]
+        }
+      end
+
+      key = "k#{System.unique_integer([:positive])}"
+      rule = F.published!(t.schema_name, key, F.doubling_source(), manifest())
+      definition = F.definition!(t.schema_name, gateway_graph.(key, rule.version), [])
+
+      # a legacy definition stored before CHK-24 (no default edge) still runs (REQ-455 OQ-1)
+      no_default = Map.update!(gateway_graph.(key, rule.version), "edges", &Enum.drop(&1, -1))
+
+      {1, _} =
+        from(d in Letflow.Definitions.ProcessDefinition, where: d.id == ^definition.id)
+        |> Repo.update_all([set: [graph: no_default]], prefix: t.schema_name)
+
+      instance_id = F.start!(t.schema_name, definition, %{"amount" => 21}, Ecto.UUID.generate())
+      {row, {:ok, :failed}} = F.run_next!(t.schema_name)
+
+      done = F.reload(t.schema_name, row)
+
+      assert {done.status, done.outcome, done.outcome_detail} ==
+               {"failed", "ok", "no_matching_gateway_edge"}
+
+      assert [%{"variables" => %{"amount" => 21} = error_variables}] =
+               F.payloads(t.schema_name, instance_id, "EXECUTION_ERROR")
+
+      refute Map.has_key?(error_variables, "total")
+      projection = F.projection(t.schema_name, instance_id)
+      assert projection.status == :error
+      assert projection.variables == %{"amount" => 21}
+      assert F.payloads(t.schema_name, instance_id, "SCRIPT_TASK_COMPLETED") == []
+
+      assert [%{"outcome" => "ok", "detail" => "no_matching_gateway_edge"}] =
+               F.payloads(t.schema_name, instance_id, "SCRIPT_RUN_RECORDED")
     end
   end
 end

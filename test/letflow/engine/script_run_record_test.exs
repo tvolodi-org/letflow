@@ -233,4 +233,19 @@ defmodule Letflow.Engine.ScriptRunRecordTest do
     # the row stays running for the lease sweep (never re-run)
     assert F.reload(t.schema_name, b.row).status == "running"
   end
+
+  test "T4: the platform actor is stored as NULL triggering user", %{t: t} do
+    rule = F.published!(t.schema_name, "plat_k", F.doubling_source(), F.closed_manifest())
+    definition = F.definition!(t.schema_name, F.script_graph("plat_k", rule.version), [])
+
+    instance_id =
+      F.start!(
+        t.schema_name,
+        definition,
+        %{"amount" => 1},
+        Letflow.EventStore.platform_actor_id()
+      )
+
+    assert F.row!(t.schema_name, instance_id).triggering_user_id == nil
+  end
 end

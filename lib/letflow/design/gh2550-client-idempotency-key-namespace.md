@@ -41,6 +41,7 @@ sweep (`record_deadline_sweep.ex:260`); onboarding/promotions ignore the header
 | `escalation_timer_fired:` | `engine.ex:3278` |
 | `service_task_dispatch:` | `engine.ex:3869,3927` |
 | `service_task:` | `engine/service_task.ex:495-499` (used by `service_task_dispatcher.ex:1265`) |
+| `script_task_dispatch:`, `script_run:` | `engine.ex` `apply_script_task_result/3` (GH 2534 7c-1: SCRIPT_TASK_COMPLETED and EXECUTION_ERROR keyed `script_task_dispatch:<id>:<attempt>`, SCRIPT_RUN_RECORDED keyed `script_run:<id>:<attempt>`) |
 | `certificate:issue:` | `modules/exam/certificate.ex:340` |
 | `entities-record-import:` | `routers/entities.ex:1263-1265` |
 | `attachment_attached:`, `attachment_removed:` | `repository/attachments.ex:371,409` |

@@ -3861,11 +3861,12 @@ defmodule Letflow.Engine do
            token_id: Ecto.UUID.t()
          }
   @typep completion :: %{
-           event_type: String.t(),
-           event_payload: map(),
-           idempotency_key: String.t(),
-           on_advanced: (Multi.t() -> Multi.t()),
-           on_no_matching_edge: (Multi.t() -> Multi.t())
+           required(:event_type) => String.t(),
+           required(:event_payload) => map(),
+           required(:idempotency_key) => String.t(),
+           required(:on_advanced) => (Multi.t() -> Multi.t()),
+           required(:on_no_matching_edge) => (Multi.t() -> Multi.t()),
+           optional(:incident_variables) => map()
          }
 
   @spec dispatch_ref(map()) :: dispatch_ref()
@@ -4048,7 +4049,7 @@ defmodule Letflow.Engine do
         projection.instance_id,
         node_id,
         evaluated_conditions,
-        state_with_merged_variables.variables,
+        Map.get(completion, :incident_variables, state_with_merged_variables.variables),
         EventStore.platform_actor_id(),
         completion.idempotency_key
       )
@@ -4416,9 +4417,13 @@ defmodule Letflow.Engine do
                   %InstanceState{seed_state | variables: merged_variables},
                   active_token_records,
                   own_token,
-                  script_completion(row, output, facts, prefix),
+                  script_completion(row, projection, output, facts, prefix),
                   prefix
                 )
+                # R7: these three clauses are EXHAUSTIVE -- persist_service_task_advance/10
+                # returns only {:ok, :advanced}, {:ok, :error_set} or {:error, _} (its rescue
+                # folds any raise). The Elixir type checker proves it: a catch-all clause here
+                # fails compile --warnings-as-errors as unreachable.
                 |> case do
                   {:ok, :advanced} -> {:ok, :applied}
                   {:ok, :error_set} -> {:ok, :failed}
@@ -4448,7 +4453,7 @@ defmodule Letflow.Engine do
 
   # Section 6 payload; on_advanced/on_no_matching_edge add the run record and the row's
   # terminal status to the same Multi (5.4 step 3).
-  defp script_completion(row, output, facts, prefix) do
+  defp script_completion(row, projection, output, facts, prefix) do
     record = RunRecord.build(facts)
 
     %{
@@ -4462,6 +4467,9 @@ defmodule Letflow.Engine do
         "output" => output
       },
       idempotency_key: "script_task_dispatch:#{row.id}:#{row.attempt}",
+      # C16 (SEC S3): the no-matching-edge incident records the CURRENT variables, unchanged
+      # (the script output is not committed on that path).
+      incident_variables: projection.variables,
       on_advanced: fn multi ->
         multi
         |> append_script_run_record_step(row, record, prefix)

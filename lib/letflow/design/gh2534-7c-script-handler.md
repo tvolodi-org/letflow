@@ -532,8 +532,8 @@ and before any data read (D7 kill switch, 7b-2a section 8). A refusal at any ste
 @type binding  :: %{script_key: String.t(), script_version: pos_integer(), script_sha256: String.t()}
 @type run_spec :: %{source: String.t(), manifest: map(),
                     limits: %{instructions: pos_integer(), timeout_ms: pos_integer(), heap_words: pos_integer()},
-                    fail_codes: [String.t()], reads: [map()], declared_outputs: [String.t()],
-                    hmac_fun: HmacSecret.hmac_fun(), principal: String.t()}
+                    fail_codes: [String.t()],   # never nil (19a SEC S2)
+                    hmac_fun: HmacSecret.hmac_fun()}   # principal, declared outputs, reads: 19a R3
 ```
 
 `tenant_id` comes from `TenantProvisioning.tenant_id_for_schema_name(prefix)` (the dispatcher
@@ -1350,6 +1350,29 @@ AC -> suite / named test [CDV C7]:
   catalog behaviour), which on the script-advance hop becomes a B' `apply_failed` incident.
 * The 409 for a blocked retire uses the script-rules router's existing conflict family (`detail:
   "version_in_use"`), like `version_immutable`.
+
+Gate follow-ups (SECURITY, REVIEWER, TDV on 7c-1):
+
+* [SEC S1] The server idempotency families `script_task_dispatch:` (SCRIPT_TASK_COMPLETED and the
+  EXECUTION_ERROR of a failed attempt, `script_task_dispatch:<id>:<attempt>`) and `script_run:`
+  (SCRIPT_RUN_RECORDED, `script_run:<id>:<attempt>`) are registered in
+  `Letflow.Idempotency.server_prefixes/0` and in gh2550 design section 1b.
+* [SEC S2] `run_spec.fail_codes` is `manifest["fail_codes"] || []`, never nil (nil would let the
+  runtime accept ANY well-formed fail code).
+* [SEC S3] A success whose hop chain finds no matching gateway edge records the instance's CURRENT
+  variables in the EXECUTION_ERROR (C16), not the merged ones: the script output is not committed
+  on that path (no SCRIPT_TASK_COMPLETED). The completion descriptor carries an optional
+  `incident_variables`; the HTTP route omits it and keeps its merged-variables behaviour unchanged.
+* [REVIEWER R3] `run_spec` (5.3) holds only what the pipeline reads: `source, manifest, limits,
+  fail_codes, hmac_fun`. The principal is derived by `RunRecord.build/1` from the row (5.1), the
+  declared outputs by `check_output/2` from the manifest, and the declared reads join with 7c-2.
+* [REVIEWER R5] The one script-key rule is `Letflow.Scripts.Validation.key?/1`. The engine reaches
+  it through the facade (`Scripts.Runtime.script_key?/1`); `Definitions.Graph` calls
+  `Scripts.Validation` directly (a leaf module with no edge back to Definitions, so no cycle; this
+  amends 17 item 4's "graph.ex references no Scripts file").
+* [REVIEWER R7] The apply's result match on `persist_service_task_advance/10` is exhaustive by
+  construction and the compiler's type checker proves it (a catch-all clause is refused as
+  unreachable under `--warnings-as-errors`).
 
 ## 20. Open questions
 

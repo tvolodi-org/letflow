@@ -49,6 +49,9 @@ defmodule Letflow.Scripts.Runtime do
           script_sha256: String.t()
         }
 
+  # Only what the pipeline reads (REVIEWER R3): the principal is derived by RunRecord from the
+  # row (key, version), the declared outputs by check_output/2 from the manifest, and the
+  # declared reads join with 7c-2's port.
   @type run_spec :: %{
           source: String.t(),
           manifest: map(),
@@ -58,10 +61,7 @@ defmodule Letflow.Scripts.Runtime do
             heap_words: pos_integer() | nil
           },
           fail_codes: [String.t()],
-          reads: [map()],
-          declared_outputs: [String.t()],
-          hmac_fun: HmacSecret.hmac_fun(),
-          principal: String.t()
+          hmac_fun: HmacSecret.hmac_fun()
         }
 
   @type rejection ::
@@ -239,11 +239,9 @@ defmodule Letflow.Scripts.Runtime do
            timeout_ms: limits["timeout_ms"],
            heap_words: limits["heap_words"]
          },
-         fail_codes: manifest["fail_codes"],
-         reads: Validation.declared_reads(manifest),
-         declared_outputs: declared_outputs(manifest),
-         hmac_fun: hmac_fun,
-         principal: principal(rule.key, rule.version)
+         # never nil: a nil :fail_codes would make ScriptRunner accept ANY well-formed code
+         fail_codes: manifest["fail_codes"] || [],
+         hmac_fun: hmac_fun
        }}
     end
   end
@@ -303,11 +301,16 @@ defmodule Letflow.Scripts.Runtime do
     end
   end
 
+  @doc """
+  The script-key rule (`^[a-z][a-z0-9_]{0,63}$`) for the engine side: delegates to the canonical
+  `Letflow.Scripts.Validation.key?/1` (REVIEWER R5). Pure.
+  """
+  @spec script_key?(term()) :: boolean()
+  def script_key?(key), do: Validation.key?(key)
+
   @doc "Whether the 7b/7c test seams are honoured (`:scripts_test_hooks` exactly `true`)."
   @spec test_hooks?() :: boolean()
   def test_hooks?, do: Application.get_env(:letflow, :scripts_test_hooks, false) == true
-
-  defp principal(key, version), do: "script:#{key}@#{version}"
 
   # C10: a non-empty `restricted_inputs`, or any read with a non-empty `restricted_fields`.
   defp restricted_opt_in?(manifest) when is_map(manifest) do

@@ -211,8 +211,6 @@ defmodule Letflow.Engine.ServiceTask do
     end
   end
 
-  @script_key_pattern ~r/\A[a-z][a-z0-9_]{0,63}\z/
-
   # method/timeout_ms/retry_limit/headers/body_template are ignored for :script; the struct's
   # enforced keys get the HTTP defaults (never read on this route).
   defp parse_script_config(node_id, script_key, attrs) do
@@ -223,7 +221,7 @@ defmodule Letflow.Engine.ServiceTask do
         ref_id(attrs, "endpoint") != nil or ref_id(attrs, "service_id") != nil ->
           {:error, :conflicting_routes}
 
-        not Regex.match?(@script_key_pattern, script_key) ->
+        not Letflow.Scripts.Runtime.script_key?(script_key) ->
           {:error, {:invalid_script_reference, :key}}
 
         not (is_integer(version) and version >= 1) ->

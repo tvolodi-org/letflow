@@ -1003,7 +1003,8 @@ defmodule Letflow.Definitions.Graph do
   # carrying "script_key" binds a tenant script: the key must match ^[a-z][a-z0-9_]{0,63}$, the
   # "script_version" must be an integer >= 1, and the node must not also carry a non-empty
   # "endpoint" or "service_id". Messages name the node id only (never the attribute values).
-  @script_key_pattern ~r/\A[a-z][a-z0-9_]{0,63}\z/
+  # The ONE script-key rule is Letflow.Scripts.Validation.key?/1 (a leaf module: no back-edge
+  # to Definitions, so no cycle; REVIEWER R5).
 
   @spec check_service_task_script_reference(t()) :: [Violation.t()]
   defp check_service_task_script_reference(%__MODULE__{nodes: nodes}) do
@@ -1015,7 +1016,7 @@ defmodule Letflow.Definitions.Graph do
       version = attribute_value(node.attributes, "script_version")
 
       reference =
-        if is_binary(key) and Regex.match?(@script_key_pattern, key) and is_integer(version) and
+        if Letflow.Scripts.Validation.key?(key) and is_integer(version) and
              version >= 1 do
           []
         else
