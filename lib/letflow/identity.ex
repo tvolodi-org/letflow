@@ -1737,7 +1737,8 @@ defmodule Letflow.Identity do
       %{owner_active: false} ->
         {:error, :revoked}
 
-      %{token: %ApiToken{expires_at: expires_at} = token} when not is_nil(expires_at) ->
+      %{token: %ApiToken{expires_at: expires_at} = token, owner_active: true}
+      when not is_nil(expires_at) ->
         if DateTime.compare(expires_at, DateTime.utc_now()) != :gt do
           {:error, :expired}
         else
@@ -1769,6 +1770,11 @@ defmodule Letflow.Identity do
   expression; Ecto raises at query build otherwise. No prefix is set or read
   here — the caller's `Repo` call passes `prefix:`, as every tenant query does.
   Parameterised Ecto only, no `fragment`, no I/O.
+
+  The binding must be a `User`: any other schema with a `status` field would
+  give a silently wrong predicate. Under a `left_join` with no matching user
+  the expression is SQL NULL, which fails closed in a `where` but is `nil` in a
+  `select`, so a caller selecting it must handle `nil`.
   """
   @spec active_user_condition(binding :: atom()) :: Ecto.Query.dynamic_expr()
   def active_user_condition(binding) when is_atom(binding) do
