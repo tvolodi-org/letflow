@@ -101,6 +101,7 @@ defmodule Letflow.CiBackendPathFilterTest do
     {"docs/requirements.yaml", true, true},
     {"docs/issues/ISS-1059.yaml", true, false},
     {"docs/status/requirement_status.index.yaml", true, true},
+    {"docs/status/work_board_cutover.yaml", true, true},
     {"docs/roles.md", true, true},
     {"docs/runbooks/x.md", true, false},
     {"docs/frontend/x-ui-widget-vocabulary.md", true, true},
