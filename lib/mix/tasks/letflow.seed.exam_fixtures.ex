@@ -73,7 +73,10 @@ defmodule Mix.Tasks.Letflow.Seed.ExamFixtures do
     exam/category/question/answer_option/exam_question_rule records (each
     create_record/2 call carries a fixed, content-derived idempotency_key, and
     Letflow.Entities.Records.create_record/2 returns the ORIGINAL record for a
-    repeated key — design doc req228, AC3) and creates zero new sessions (the
+    repeated key — design doc req228, AC3; GH #2543: only when the request is
+    the same, so editing seed content between runs in one tenant makes the task
+    raise with :idempotency_key_reuse instead of keeping the old content) and
+    creates zero new sessions (the
     task queries for an existing session against Exam 1 for the seed candidate
     before calling POST /modules/exam/exam-sessions at all, and skips straight to reporting
     its already-persisted outcome if one is found).

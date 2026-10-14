@@ -645,7 +645,10 @@ defmodule Letflow.TenantProvisioning do
     {20_261_003_000_001, Letflow.Repo.Migrations.CreateAuditChainLocks,
      "20261003000001_create_audit_chain_locks.exs"},
     {20_261_008_000_001, Letflow.Repo.Migrations.CreatePendingTenantAdminGrants,
-     "20261008000001_create_pending_tenant_admin_grants.exs"}
+     "20261008000001_create_pending_tenant_admin_grants.exs"},
+    # GH 2534 PR 7b-1 (decision 0053 D1): tenant-script registry with its guard trigger.
+    {20_261_014_000_001, Letflow.Repo.Migrations.CreateScriptRules,
+     "20261014000001_create_script_rules.exs"}
   ]
 
   @doc """

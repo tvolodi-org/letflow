@@ -116,4 +116,6 @@ DefinitionsRollback             yes            no               no              
 TenantSettingsManage            yes            no               no               no          no           no        yes          no             tenant
 PlatformServicesManage          yes            no               no               no          no           no        no           no             platform
 AttachmentLinksIssue            yes            yes              yes              yes         no           no        yes          no             tenant
+ScriptsWrite                    yes            yes              no               no          no           no        yes          no             tenant
+ScriptsPublish                  yes            no               no               no          no           no        yes          no             tenant
 ```

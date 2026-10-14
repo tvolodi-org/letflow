@@ -67,7 +67,11 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
     :TenantSettingsManage,
     :PromotionsManage,
     :DefinitionsRollback,
-    :AttachmentLinksIssue
+    :AttachmentLinksIssue,
+    # GH 2534 PR 7b-1 (decision 0053 D6): the auditor holds neither script permission
+    # (the auditor source read is GH 2548).
+    :ScriptsWrite,
+    :ScriptsPublish
   ]
 
   @link_route {"POST", "/instances/:id/attachments/:attachment_id/link"}
@@ -111,12 +115,12 @@ defmodule Letflow.Api.AuthorizationTenantAuditorTest do
       assert length(granted) == 14
     end
 
-    test "the refused core set is the literal 27, EntitiesRecordsExport among them (PromotionsRead is granted), and it partitions core_permissions/0 together with the granted set" do
+    test "the refused core set is the literal 29, EntitiesRecordsExport among them (PromotionsRead is granted), and it partitions core_permissions/0 together with the granted set" do
       core = Authorization.core_permissions()
       granted_core = Enum.filter(core, &Authorization.role_allows?(:TENANT_AUDITOR, &1))
       refused_core = core -- granted_core
 
-      assert length(@auditor_refused_core) == 27
+      assert length(@auditor_refused_core) == 29
       assert Enum.sort(refused_core) == Enum.sort(@auditor_refused_core)
       assert Enum.sort(granted_core ++ @auditor_refused_core) == Enum.sort(core)
 

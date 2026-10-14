@@ -41,8 +41,19 @@ defmodule Letflow.Secrets do
   alias Letflow.Repo
   alias Letflow.Secrets.Secret
 
-  @typedoc "Reserved for call-shape consistency with this codebase's other context modules — currently accepts no keys (`Letflow.Secrets` has no `:prefix` to thread, design §3.1)."
-  @type put_opts :: []
+  @typedoc """
+  `put/2` options. `:platform` (GH 2534 7b-1): `true` only for the platform-owned secrets of
+  the reserved `platform` namespace (decision 0053 D9, advisor Q2); every other caller is
+  refused that namespace (`{:error, :reserved_namespace}`).
+  """
+  @type put_opts :: [platform: boolean()]
+
+  # GH 2534 7b-1 (decision 0053 D9, advisor Q2): the `platform` namespace is reserved for
+  # platform-owned per-tenant secrets (the script-input HMAC key). put/2, resolve/2 and
+  # disable/2 refuse it unless the caller passes `platform: true`; only
+  # Letflow.Scripts.HmacSecret does (source-scan tested). No tenant-facing secrets route
+  # exists today; this keeps a future one from borrowing the key.
+  @reserved_namespace "platform"
 
   @name_format ~r/^[a-z0-9_-]+$/
   @reference_format ~r/^sec:\/\/tenant\/([a-z0-9_-]+)\/([a-z0-9_-]+)\/([a-z0-9_-]+)(?:#(\d+))?$/
@@ -55,7 +66,7 @@ defmodule Letflow.Secrets do
           required(:tenant_id) => Ecto.UUID.t(),
           required(:namespace) => String.t(),
           required(:name) => String.t(),
-          required(:purpose) => :webhook_hmac | :generic,
+          required(:purpose) => :webhook_hmac | :generic | :script_hmac,
           required(:plaintext) => binary(),
           required(:created_by) => String.t()
         }
@@ -82,10 +93,12 @@ defmodule Letflow.Secrets do
           {:ok, %{reference: String.t(), key_id: pos_integer(), created_at: DateTime.t()}}
           | {:error, :invalid_namespace}
           | {:error, :invalid_name}
+          | {:error, :reserved_namespace}
           | {:error, Ecto.Changeset.t()}
   def put(attrs, opts \\ []) when is_map(attrs) and is_list(opts) do
     with :ok <- validate_segment(Map.get(attrs, :namespace), :invalid_namespace),
-         :ok <- validate_segment(Map.get(attrs, :name), :invalid_name) do
+         :ok <- validate_segment(Map.get(attrs, :name), :invalid_name),
+         :ok <- check_reserved(Map.get(attrs, :namespace), opts) do
       do_put(attrs, retry?: true)
     end
   end
@@ -224,7 +237,11 @@ defmodule Letflow.Secrets do
   # resolve/2 (design §3.2)
   # ===========================================================================
 
-  @type resolve_opts :: [tenant_id: Ecto.UUID.t(), consumer: :webhook_dispatcher | :generic]
+  @type resolve_opts :: [
+          tenant_id: Ecto.UUID.t(),
+          consumer: :webhook_dispatcher | :generic | :script_runner,
+          platform: boolean()
+        ]
 
   @doc """
   Resolves a `sec://tenant/...` reference to its current plaintext.
@@ -256,8 +273,14 @@ defmodule Letflow.Secrets do
   Returns `{:ok, %{plaintext: plaintext, key_id: key_id, purpose: purpose}}`.
   """
   @spec resolve(reference :: String.t(), resolve_opts()) ::
-          {:ok, %{plaintext: binary(), key_id: pos_integer(), purpose: :webhook_hmac | :generic}}
+          {:ok,
+           %{
+             plaintext: binary(),
+             key_id: pos_integer(),
+             purpose: :webhook_hmac | :generic | :script_hmac
+           }}
           | {:error, :invalid_reference}
+          | {:error, :reserved_namespace}
           | {:error, :tenant_mismatch}
           | {:error, :not_found}
           | {:error, :purpose_not_allowed}
@@ -268,12 +291,19 @@ defmodule Letflow.Secrets do
     consumer = Keyword.get(opts, :consumer, :generic)
 
     with {:ok, tenant_slug, namespace, name, key_id_segment} <- parse_reference(reference),
+         :ok <- check_reserved(namespace, opts),
          :ok <- check_tenant_match(tenant_slug, caller_tenant_id),
          {:ok, secret} <- fetch_secret(caller_tenant_id, namespace, name, key_id_segment),
          :ok <- check_purpose_allowed(consumer, secret.purpose) do
       decrypt(secret)
     end
   end
+
+  defp check_reserved(@reserved_namespace, opts) do
+    if Keyword.get(opts, :platform) == true, do: :ok, else: {:error, :reserved_namespace}
+  end
+
+  defp check_reserved(_namespace, _opts), do: :ok
 
   defp parse_reference(reference) do
     case Regex.run(@reference_format, reference) do
@@ -332,6 +362,9 @@ defmodule Letflow.Secrets do
        do: :ok
 
   defp check_purpose_allowed(:generic, :generic), do: :ok
+  # GH 2534 7b-1: only the script runner may resolve the script-input HMAC key, and it may
+  # resolve nothing else.
+  defp check_purpose_allowed(:script_runner, :script_hmac), do: :ok
   defp check_purpose_allowed(_consumer, _purpose), do: {:error, :purpose_not_allowed}
 
   defp decrypt(%Secret{} = secret) do
@@ -378,7 +411,7 @@ defmodule Letflow.Secrets do
   # disable/2 (design §3.3)
   # ===========================================================================
 
-  @type disable_opts :: [tenant_id: Ecto.UUID.t()]
+  @type disable_opts :: [tenant_id: Ecto.UUID.t(), platform: boolean()]
 
   @doc """
   Disables a specific **pinned** secret version (`#<key_id>` required in
@@ -395,6 +428,7 @@ defmodule Letflow.Secrets do
   @spec disable(reference_pinned :: String.t(), disable_opts()) ::
           {:ok, %{key_id: pos_integer(), disabled_at: DateTime.t()}}
           | {:error, :invalid_reference}
+          | {:error, :reserved_namespace}
           | {:error, :tenant_mismatch}
           | {:error, :not_found}
           | {:error, :already_disabled}
@@ -403,6 +437,7 @@ defmodule Letflow.Secrets do
 
     with {:ok, tenant_slug, namespace, name, key_id} when is_integer(key_id) <-
            parse_reference(reference_pinned),
+         :ok <- check_reserved(namespace, opts),
          :ok <- check_tenant_match(tenant_slug, caller_tenant_id),
          {:ok, secret} <- fetch_pinned_for_disable(caller_tenant_id, namespace, name, key_id),
          :ok <- check_not_already_disabled(secret) do

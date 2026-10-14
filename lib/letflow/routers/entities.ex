@@ -46,9 +46,9 @@ defmodule Letflow.Routers.Entities do
   | get_definition_by_name | `GET /entities/definitions/by-name/:name` | `Letflow.Entities.Definitions.get_definition_by_name/2` | `EntitiesDefinitionsRead` | 200 / 404 |
   | get_definition | `GET /entities/definitions/:id` | `Letflow.Entities.Definitions.get_definition/2` | `EntitiesDefinitionsRead` | 200 / 404 |
   | list_definitions | `GET /entities/definitions` | `Letflow.Entities.Definitions.list_definitions/2` | `EntitiesDefinitionsRead` | 200 / 400 |
-  | create_record | `POST /entities/records/:entity_type` | `Letflow.Entities.Records.create_record/2` | `EntitiesRecordsWrite` | 201 / 404 / 422 |
-  | update_record | `PUT /entities/records/:entity_type/:record_id` | `Letflow.Entities.Records.update_record/2` | `EntitiesRecordsWrite` | 200 / 404 / 409 / 422 |
-  | delete_record | `DELETE /entities/records/:entity_type/:record_id` | `Letflow.Entities.Records.delete_record/2` | `EntitiesRecordsWrite` | 200 / 400 / 404 / 409 / 422 |
+  | create_record | `POST /entities/records/:entity_type` | `Letflow.Entities.Records.create_record/2` | `EntitiesRecordsWrite` | 201 / 404 / 422 (422 also `idempotency_key_reuse`, GH #2543) |
+  | update_record | `PUT /entities/records/:entity_type/:record_id` | `Letflow.Entities.Records.update_record/2` | `EntitiesRecordsWrite` | 200 / 404 / 409 / 422 (422 also `idempotency_key_reuse`, GH #2543) |
+  | delete_record | `DELETE /entities/records/:entity_type/:record_id` | `Letflow.Entities.Records.delete_record/2` | `EntitiesRecordsWrite` | 200 / 400 / 404 / 409 / 422 (a fresh key per request, so never `idempotency_key_reuse`) |
   | query | `POST /entities/query` | `Letflow.Entities.Query.Compiler.compile/2` then `Letflow.Entities.Query.Allowlist.load/2` then `Letflow.Entities.Query.Cursor.paginate/5` then a `Letflow.Entities.Query.FieldGrants` redaction step | `EntitiesQuery` | 200 / 400 / 404 / 422 |
   | query_aggregate | `POST /entities/query/aggregate` | a `Letflow.Entities.Query.FieldGrants.load_restrictions/3` field-restriction check then `Letflow.Entities.Query.Compiler.run_aggregate/2` | `EntitiesAggregate` | 200 / 400 / 403 / 404 / 422 |
   | create_record_attachment | `POST /entities/records/:entity_type/:record_id/attachments` | `Letflow.Repository.EntityAttachments.upload/2` | `EntitiesAttachmentsManage` | 201 / 404 / 422 |
@@ -929,8 +929,9 @@ defmodule Letflow.Routers.Entities do
   # %{entity_type, field_values, actor_id, idempotency_key} -- `entity_type`
   # comes from the PATH segment (never a body field), `actor_id` from
   # conn.assigns.auth_context.user_id (INV-1), `idempotency_key` from the
-  # body when the caller supplies one (it is the caller's own replay token,
-  # carrying no authority) and otherwise freshly minted so the delegate's
+  # body when the caller supplies one (the caller's own replay token, bound
+  # to (command, entity_type, record_id, field_values, actor) -- GH #2543)
+  # and otherwise freshly minted so the delegate's
   # required key is always present.
 
   @record_write_schema [
@@ -1235,7 +1236,8 @@ defmodule Letflow.Routers.Entities do
   # in handle_import_records/2, NEVER read from the document or the entry --
   # so two entries sharing a `record_id` WITHIN one call collide onto the
   # same key (intra-call dedup, via create_record/2's own duplicate-key
-  # contract), while two separate calls -- even a byte-identical re-POST --
+  # contract; GH #2543: only identical field_values dedupe, differing ones
+  # give a per-entry idempotency_key_reuse), while two separate calls -- even a byte-identical re-POST --
   # each mint their own import_request_id and share no relationship at all.
   defp import_one_entry(entry, entity_type, actor_id, import_request_id, prefix) do
     source_record_id = Map.get(entry, "record_id")
@@ -1291,6 +1293,12 @@ defmodule Letflow.Routers.Entities do
 
   defp import_reason_json({:payload_validation_failed, _errors}) do
     %{"type" => "payload_validation_failed"}
+  end
+
+  # GH #2543: two entries in one call sharing a `record_id` (so a key) but
+  # with different field_values -- the second is refused, not dropped.
+  defp import_reason_json(:idempotency_key_reuse) do
+    %{"type" => "idempotency_key_reuse"}
   end
 
   defp import_reason_json(reason)
@@ -1366,6 +1374,8 @@ defmodule Letflow.Routers.Entities do
   #                                     constant body, no record data/seq)
   #   {:entity_append_only, _}       -> 422 (entity-append-only, GH #2529;
   #                                     constant body)
+  #   :idempotency_key_reuse         -> 422 (idempotency-key-reuse, GH #2543;
+  #                                     constant body, no original data)
   #   :tenant_not_provisioned        -> 500  (unreachable, INV-1)
   #   :invalid_schema_name           -> 500  (unreachable, INV-1)
   #   any other term()               -> 500  (INV-8 catch-all, no detail)
@@ -1414,6 +1424,9 @@ defmodule Letflow.Routers.Entities do
 
   defp render_record_command(conn, {:error, {:entity_append_only, _entity_type}}, _status),
     do: Response.send_problem(conn, Error.entity_append_only())
+
+  defp render_record_command(conn, {:error, :idempotency_key_reuse}, _status),
+    do: Response.send_problem(conn, Error.idempotency_key_reuse())
 
   defp render_record_command(conn, {:error, reason}, _status)
        when reason in [:tenant_not_provisioned, :invalid_schema_name],

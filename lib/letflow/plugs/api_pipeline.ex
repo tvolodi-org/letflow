@@ -156,6 +156,10 @@ defmodule Letflow.Plugs.ApiPipeline do
   # communicates "this operates on the authenticated caller's own tenant."
   forward("/tenant/solutions", to: Letflow.Routers.TenantSolutions)
 
+  # GH 2534 PR 7b-1 (decision 0053): the tenant-script registry (draft, publish, retire,
+  # revoke, dry-run). Tenant scope; :ScriptsWrite / :ScriptsPublish.
+  forward("/script-rules", to: Letflow.Routers.ScriptRules)
+
   # REQ-404 (design lib/letflow/design/req404-module-router-mount.md) -- the
   # per-module dispatch mount 0039 D4/D5 and REQ-403's own comment above
   # named as "REQ-404's future per-module mount". Distinct prefix from

@@ -302,6 +302,29 @@ defmodule Letflow.Api.Error do
     }
   end
 
+  @doc """
+  HTTP 422 — Idempotency Key Reused (GH #2543, design D6).
+
+  Returned when an entity record command reuses an `idempotency_key` that was
+  already used for a different request (another command, entity type, target
+  record, field values or actor). 422 rather than 409: the SPA reads 409 as
+  "reload and retry", and reloading does not fix a reused key -- the client
+  must send a new one. The body carries the constant `code`
+  `"idempotency_key_reuse"` and a fixed detail. Takes no argument, so no
+  record id, field value, entity type or event data of the original request
+  can reach the body (INV-2, INV-4).
+  """
+  @spec idempotency_key_reuse() :: t()
+  def idempotency_key_reuse do
+    %__MODULE__{
+      type: @problems_base <> "idempotency-key-reuse",
+      title: "Idempotency Key Reused",
+      status: 422,
+      detail: "this idempotency_key was already used for a different request; send a new key",
+      extensions: %{"code" => "idempotency_key_reuse"}
+    }
+  end
+
   @doc "HTTP 415 — Unsupported Media Type."
   @spec unsupported_media_type(String.t()) :: t()
   def unsupported_media_type(detail) do

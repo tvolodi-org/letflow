@@ -3511,4 +3511,131 @@ defmodule Letflow.Routers.EntitiesTest do
       assert {:error, :not_found} = Definitions.get_definition_by_name("widget", ctx.schema_name)
     end
   end
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # GH #2543 -- an idempotency_key is bound to the request that first used it
+  # (lib/letflow/design/gh2543-idempotency-key-binding.md §5, §8).
+  # ═══════════════════════════════════════════════════════════════════════
+
+  defp gh2543_reuse_problem do
+    Error.idempotency_key_reuse()
+    |> Error.serialise()
+    |> Jason.decode!()
+    |> Map.delete("trace_id")
+  end
+
+  defp gh2543_assert_reuse!(conn) do
+    assert conn.status == 422
+    assert [content_type] = get_resp_header(conn, "content-type")
+    assert content_type =~ "application/problem+json"
+    assert normalise_problem(conn) == gh2543_reuse_problem()
+  end
+
+  describe "idempotency key binding (GH #2543)" do
+    test "POST reuse -> 422, body is exactly the constant problem, contains neither the original record_id nor its field values" do
+      ctx = tenant_ctx("gh2543-post")
+      seed_active_definition!(ctx)
+      key = "gh2543-" <> Ecto.UUID.generate()
+
+      first =
+        request(:post, "/api/v1/entities/records/widget", ctx, %{
+          "field_values" => %{"title" => "original-secret-title"},
+          "idempotency_key" => key
+        })
+
+      assert first.status == 201
+      original_id = body_of(first)["record_id"]
+
+      conn =
+        request(:post, "/api/v1/entities/records/widget", ctx, %{
+          "field_values" => %{"title" => "another"},
+          "idempotency_key" => key
+        })
+
+      gh2543_assert_reuse!(conn)
+      refute conn.resp_body =~ original_id
+      refute conn.resp_body =~ "original-secret-title"
+      assert record_count(ctx, "widget") == 1
+    end
+
+    test "PUT reuse -> 422 idempotency_key_reuse" do
+      ctx = tenant_ctx("gh2543-put")
+      seed_active_definition!(ctx)
+      a = seed_record!(ctx)
+      b = seed_record!(ctx)
+      key = "gh2543-" <> Ecto.UUID.generate()
+
+      first =
+        request(:put, "/api/v1/entities/records/widget/#{a.record_id}", ctx, %{
+          "field_values" => %{"title" => "a-secret"},
+          "idempotency_key" => key
+        })
+
+      assert first.status == 200
+
+      conn =
+        request(:put, "/api/v1/entities/records/widget/#{b.record_id}", ctx, %{
+          "field_values" => %{"title" => "a-secret"},
+          "idempotency_key" => key
+        })
+
+      gh2543_assert_reuse!(conn)
+      refute conn.resp_body =~ a.record_id
+
+      {:ok, stored_b} = Latest.get(b.record_id, "widget", ctx.schema_name)
+      assert stored_b.field_values == b.field_values
+      assert stored_b.last_event_global_seq == b.last_event_global_seq
+    end
+
+    test "POST replay -> 201 with the same record_id" do
+      ctx = tenant_ctx("gh2543-replay")
+      seed_active_definition!(ctx)
+
+      body = %{
+        "field_values" => %{"title" => "same", "quantity" => 3},
+        "idempotency_key" => "gh2543-" <> Ecto.UUID.generate()
+      }
+
+      first = request(:post, "/api/v1/entities/records/widget", ctx, body)
+      second = request(:post, "/api/v1/entities/records/widget", ctx, body)
+
+      assert first.status == 201
+      assert second.status == 201
+      assert body_of(first)["record_id"] == body_of(second)["record_id"]
+      assert record_count(ctx, "widget") == 1
+    end
+
+    test "import: same record_id with different values -> per-entry idempotency_key_reuse" do
+      ctx = tenant_ctx("gh2543-import")
+      seed_active_definition!(ctx)
+      repeated_id = Ecto.UUID.generate()
+
+      records = [
+        %{
+          "record_id" => repeated_id,
+          "field_values" => %{"title" => "first"},
+          "deleted" => false
+        },
+        %{
+          "record_id" => repeated_id,
+          "field_values" => %{"title" => "second"},
+          "deleted" => false
+        }
+      ]
+
+      resp = import_records(ctx, "widget", import_document("widget", records))
+
+      assert resp.status == 200
+      [first, second] = body_of(resp)["results"]
+      assert first["status"] == "ok"
+
+      assert second == %{
+               "status" => "error",
+               "source_record_id" => repeated_id,
+               "reason" => %{"type" => "idempotency_key_reuse"}
+             }
+
+      assert record_count(ctx, "widget") == 1
+    end
+  end
 end
