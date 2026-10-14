@@ -34,6 +34,7 @@ defmodule Letflow.Identity.PendingAdminGrants do
   alias Ecto.Multi
   alias Letflow.Audit
   alias Letflow.Identity
+  alias Letflow.Identity.AuditContext
   alias Letflow.Identity.PendingAdminGrant
   alias Letflow.Identity.PendingAdminGrants.FaultThrottle
   alias Letflow.Identity.RoleRegistry
@@ -368,13 +369,18 @@ defmodule Letflow.Identity.PendingAdminGrants do
   existed (same status, same body, no hint). Every log line is fixed text plus
   the tenant id only; expected no-ops log at `:debug`, real faults at `:warning`
   at most once per tenant per hour.
+
+  GH 2547: `opts[:trace_id]` (the request's, default `nil`) is written into both bound
+  audit entries, after `Letflow.Identity.AuditContext.normalize_trace_id/1`. The bind
+  takes the tenant admin lock (`Letflow.Identity.lock_tenant_admins!/1`) right after its
+  bounded `lock_timeout`; a timeout there is a fault and a `:noop`.
   """
   @spec bind_on_login(
           tenant :: Tenant.t(),
           provisioned :: %{user: User.t(), created: boolean()},
           identity_context :: IdentityContext.t(),
           jit_config :: JitProvisioningConfig.t(),
-          opts :: [prefix: String.t()]
+          opts :: [prefix: String.t(), trace_id: String.t() | nil]
         ) :: :bound | :noop
   def bind_on_login(tenant, provisioned, identity_context, jit_config, opts) do
     case precheck(tenant, provisioned, identity_context, jit_config) do
@@ -386,7 +392,8 @@ defmodule Letflow.Identity.PendingAdminGrants do
           key,
           basis,
           platform_prefix,
-          Keyword.fetch!(opts, :prefix)
+          Keyword.fetch!(opts, :prefix),
+          AuditContext.normalize_trace_id(Keyword.get(opts, :trace_id))
         )
 
       :skip ->
@@ -494,9 +501,9 @@ defmodule Letflow.Identity.PendingAdminGrants do
 
   defp ascii?(value), do: for(<<byte <- value>>, byte > 0x7F, do: byte) == []
 
-  defp run_bind(tenant, user, created, key, basis, platform_prefix, prefix) do
+  defp run_bind(tenant, user, created, key, basis, platform_prefix, prefix, trace_id) do
     if open_grant_exists?(key, prefix) do
-      transact_bind(tenant, user, created, key, basis, platform_prefix, prefix)
+      transact_bind(tenant, user, created, key, basis, platform_prefix, prefix, trace_id)
     else
       # The common login: no grant waits for this address. No transaction, no
       # `SET LOCAL`, no lock; the locked re-check below stays authoritative.
@@ -515,7 +522,7 @@ defmodule Letflow.Identity.PendingAdminGrants do
     |> Repo.exists?(prefix: prefix)
   end
 
-  defp transact_bind(tenant, user, created, key, basis, platform_prefix, prefix) do
+  defp transact_bind(tenant, user, created, key, basis, platform_prefix, prefix, trace_id) do
     Multi.new()
     |> Multi.run(:lock_timeout, fn repo, _changes ->
       # Bounded wait on the contended platform chain lock: a login never queues
@@ -525,6 +532,12 @@ defmodule Letflow.Identity.PendingAdminGrants do
         {:error, _reason} -> {:error, :lock_timeout_setting}
       end
     end)
+    # GH 2547 (design 6.6): the tenant admin lock, before any row lock and bounded by
+    # the lock_timeout above. A timeout raises into bind_on_login/5's rescue: `:noop`,
+    # marker still NIL, the next login retries. add_group_member/3 below re-enters it.
+    |> Multi.run(:tenant_admin_lock, fn _repo, _changes ->
+      {:ok, Identity.lock_tenant_admins!(prefix)}
+    end)
     |> Multi.run(:grant, fn repo, _changes -> lock_open_grant(repo, key, prefix) end)
     |> Multi.run(:user, fn repo, _changes -> lock_user(repo, user, created, key, prefix) end)
     |> Multi.run(:duplicates, fn repo, _changes ->
@@ -532,7 +545,12 @@ defmodule Letflow.Identity.PendingAdminGrants do
     end)
     |> Multi.run(:group, fn _repo, _changes -> admin_group_id(prefix) end)
     |> Multi.run(:membership, fn _repo, %{group: group_id} ->
-      case Identity.add_group_member(group_id, user.id, prefix: prefix) do
+      # GH 2547 (AC4): this bind writes its own two events below, so the membership's
+      # `group_member.added` row is suppressed. The one opt-out caller; literal only.
+      case Identity.add_group_member(group_id, user.id,
+             prefix: prefix,
+             group_member_audit: :caller_audits
+           ) do
         {:ok, _member} -> {:ok, :member}
         {:error, _reason} -> {:error, :membership}
       end
@@ -542,7 +560,7 @@ defmodule Letflow.Identity.PendingAdminGrants do
     |> Multi.run(:tenant_audit, fn repo, %{grant: grant} ->
       Audit.insert_entry(
         repo,
-        grant_entry("tenant.admin_grant.bound", user.id, grant.id, nil, %{
+        grant_entry("tenant.admin_grant.bound", user.id, grant.id, trace_id, %{
           "grant_id" => grant.id,
           "role" => @role,
           "bound_user_id" => user.id,
@@ -555,7 +573,7 @@ defmodule Letflow.Identity.PendingAdminGrants do
     |> Multi.run(:platform_audit, fn repo, %{grant: grant} ->
       Audit.insert_entry(
         repo,
-        grant_entry("platform.tenant_admin_grant.bound", user.id, grant.id, nil, %{
+        grant_entry("platform.tenant_admin_grant.bound", user.id, grant.id, trace_id, %{
           "grant_id" => grant.id,
           "tenant_id" => tenant.id,
           "bound_user_id" => user.id

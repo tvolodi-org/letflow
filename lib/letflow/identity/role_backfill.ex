@@ -81,10 +81,17 @@ defmodule Letflow.Identity.RoleBackfill do
   their next login (`Letflow.Identity.sync_role_claims_from_token/3`) or an
   explicit `Letflow.Identity.add_group_member/3` call to actually gain a
   grant.
+
+  GH 2547 (FU-1, known limitation): the marker reset runs in its own transaction after
+  the seed committed. If it fails (now also on an audit failure), a re-run classifies
+  the tenant `:unchanged` (its bindings exist) and never resets its markers. Same shape
+  as any earlier reset failure; tracked as a follow-up, not handled here.
   """
 
   import Ecto.Query
 
+  alias Letflow.Audit
+  alias Letflow.Identity.AuditContext
   alias Letflow.Identity.RoleRegistry
   alias Letflow.Identity.TenantRole
   alias Letflow.Identity.User
@@ -127,14 +134,18 @@ defmodule Letflow.Identity.RoleBackfill do
            }}
           | {:error, {:backfill_failed, tenant_id :: Ecto.UUID.t(), reason :: term()}}
   def run do
-    TenantProvisioning.list_registrations()
-    |> Enum.reduce_while(
-      {:ok, %{seeded: [], unchanged: [], role_claims_markers_reset: 0}},
-      fn registration, {:ok, acc} ->
-        process_registration(registration, acc)
-      end
-    )
-    |> finalize()
+    # GH 2547 (design 2.5): one generated trace id per run, shared by every
+    # `role_claims_sync.reset` audit row of the sweep and its log lines.
+    Letflow.Obs.Logger.with_trace(fn ->
+      TenantProvisioning.list_registrations()
+      |> Enum.reduce_while(
+        {:ok, %{seeded: [], unchanged: [], role_claims_markers_reset: 0}},
+        fn registration, {:ok, acc} ->
+          process_registration(registration, acc)
+        end
+      )
+      |> finalize()
+    end)
   end
 
   @spec process_registration(Registration.t(), %{
@@ -146,12 +157,12 @@ defmodule Letflow.Identity.RoleBackfill do
   defp process_registration(%Registration{tenant_id: tenant_id, schema_name: schema_name}, acc) do
     held_platform_role_names_before = held_platform_role_names(schema_name)
 
-    case RoleRegistry.seed_default_platform_role_groups(prefix: schema_name) do
-      {:ok, _tenant_roles} ->
-        {:cont, {:ok, classify(acc, tenant_id, schema_name, held_platform_role_names_before)}}
-
-      {:error, reason} ->
-        {:halt, {:error, {:backfill_failed, tenant_id, reason}}}
+    with {:ok, _tenant_roles} <-
+           RoleRegistry.seed_default_platform_role_groups(prefix: schema_name),
+         {:ok, acc} <- classify(acc, tenant_id, schema_name, held_platform_role_names_before) do
+      {:cont, {:ok, acc}}
+    else
+      {:error, reason} -> {:halt, {:error, {:backfill_failed, tenant_id, reason}}}
     end
   rescue
     # See this module's moduledoc "Deviation from the design doc" section --
@@ -169,7 +180,8 @@ defmodule Letflow.Identity.RoleBackfill do
   # reset -- design §2 shape (a): the gate stays visible here, at the same
   # call site classify/3 already uses, rather than hidden inside
   # reset_role_claims_sync_markers/1 itself.
-  @spec classify(map(), Ecto.UUID.t(), String.t(), [String.t()]) :: map()
+  @spec classify(map(), Ecto.UUID.t(), String.t(), [String.t()]) ::
+          {:ok, map()} | {:error, {:audit_failed, term()}}
   defp classify(acc, tenant_id, schema_name, held_platform_role_names_before) do
     # REQ-447: no hard-coded count; PLATFORM_ADMIN is only seedable in the
     # platform tenant, so the entitled set differs per tenant.
@@ -179,15 +191,16 @@ defmodule Letflow.Identity.RoleBackfill do
       end)
 
     if missing? do
-      reset_count = reset_role_claims_sync_markers(schema_name)
-
-      %{
-        acc
-        | seeded: [tenant_id | acc.seeded],
-          role_claims_markers_reset: acc.role_claims_markers_reset + reset_count
-      }
+      with {:ok, reset_count} <- reset_role_claims_sync_markers(schema_name, tenant_id) do
+        {:ok,
+         %{
+           acc
+           | seeded: [tenant_id | acc.seeded],
+             role_claims_markers_reset: acc.role_claims_markers_reset + reset_count
+         }}
+      end
     else
-      %{acc | unchanged: [tenant_id | acc.unchanged]}
+      {:ok, %{acc | unchanged: [tenant_id | acc.unchanged]}}
     end
   end
 
@@ -205,12 +218,55 @@ defmodule Letflow.Identity.RoleBackfill do
   # tenant's own Postgres schema is the entire scoping mechanism, so no
   # `where` clause is needed (design §0/§1). Naturally idempotent at the SQL
   # level (design §3): re-nulling an already-nil column is a no-op write.
-  @spec reset_role_claims_sync_markers(schema_name :: String.t()) :: non_neg_integer()
-  defp reset_role_claims_sync_markers(schema_name) do
-    {reset_count, nil} =
-      Repo.update_all(User, [set: [role_claims_synced_at: nil]], prefix: schema_name)
+  #
+  # GH 2547 (design 3.8): the reset re-opens the one-time IdP sync, which can re-grant
+  # a TENANT_ADMIN membership an admin removed, so it is audited: one
+  # `role_claims_sync.reset` row per tenant (one operator act; per-user rows would take
+  # the chain lock once per user), in the same transaction as the update. A non-raising
+  # audit failure rolls back; a raise reaches process_registration/2's rescue. Either
+  # way the markers are unchanged. Same update, same count as before.
+  @spec reset_role_claims_sync_markers(schema_name :: String.t(), tenant_id :: Ecto.UUID.t()) ::
+          {:ok, non_neg_integer()} | {:error, {:audit_failed, term()}}
+  defp reset_role_claims_sync_markers(schema_name, tenant_id) do
+    Repo.transaction(
+      fn ->
+        with_marker =
+          from(u in User,
+            where: not is_nil(u.role_claims_synced_at),
+            select: u.id,
+            order_by: u.id
+          )
+          |> Repo.all(prefix: schema_name)
 
-    reset_count
+        {reset_count, reset_ids} =
+          Repo.update_all(from(u in User, select: u.id), [set: [role_claims_synced_at: nil]],
+            prefix: schema_name
+          )
+
+        reset_ids = Enum.sort(reset_ids)
+
+        attrs = %{
+          actor_id: nil,
+          action: "role_claims_sync.reset",
+          resource_type: "tenant",
+          resource_id: tenant_id,
+          trace_id: AuditContext.current_trace_id(),
+          before_state: %{"users_with_marker" => with_marker, "count" => length(with_marker)},
+          after_state: %{
+            "reset_user_ids" => reset_ids,
+            "reset_count" => reset_count,
+            "source" => "role_backfill",
+            "effect" => "next_login_resyncs_idp_role_claims"
+          }
+        }
+
+        case Audit.insert_entry(Repo, attrs, schema_name) do
+          {:ok, _entry} -> reset_count
+          {:error, reason} -> Repo.rollback({:audit_failed, reason})
+        end
+      end,
+      prefix: schema_name
+    )
   end
 
   @spec finalize({:ok, map()} | {:error, term()}) ::

@@ -1,0 +1,63 @@
+{
+  "handoff_id": "c4a7d1e0-2547-4a11-8c20-000000000004",
+  "run_id": "WF03-GH2547-TA-AUDIT-20261014",
+  "workflow_id": "WF-03",
+  "step": "04",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF03-GH2547-TA-AUDIT-20261014/step-04-elixir-dev.json",
+  "created_at": "2026-10-14T16:06:24Z",
+  "started_at": "2026-10-14T16:06:24Z",
+  "completed_at": "2026-10-14T16:18:16Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2547": "Implement lib/letflow/design/gh2547-tenant-admin-audit-and-count.md (Revision 1 + 1b, passed CODE-DESIGN-VALIDATOR and SECURITY-REVIEWER round 2), matching the #2533 / 7b-2b contract exactly, plus advisories SEC-A4, SEC-A5, SEC-A6, CDV-A2, CDV-A3. lib/ only plus design section 10c. No tests (TEST-DESIGNER). Do not commit (ORCH commits). Branch stacked on unmerged PR #2537 head 4560e623a."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-2547-4a11-8c20-000000000001"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/gh2547-tenant-admin-audit-and-count.md",
+      "handoffs/WF03-GH2547-TA-AUDIT-20261014/step-01-issue-fixer.json"
+    ],
+    "owned_modules": [
+      "lib/letflow/identity.ex",
+      "lib/letflow/identity/audit_context.ex",
+      "lib/letflow/routers/identity.ex",
+      "lib/letflow/plugs/auth_pipeline.ex",
+      "lib/letflow/identity/role_registry.ex",
+      "lib/letflow/identity/pending_admin_grants.ex",
+      "lib/letflow/identity/tenant_admin_migration.ex",
+      "lib/letflow/identity/role_backfill.ex"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF03-GH2547-TA-AUDIT-20261014"
+  },
+  "task": {
+    "description": "WF-03 step 4 implementation for GH #2547 per the approved design. Next: SECURITY-REVIEWER (tenant-data path), then REVIEWER, then TEST-DESIGNER."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "IMPLEMENTED, uncommitted. New Letflow.Identity.AuditContext (from_opts/1, current_trace_id/0, normalize_trace_id/1 incl. SEC-A4 Cc rejection). Letflow.Identity: contract functions count_tenant_wide_admins/1, tenant_wide_admin_user_ids/1, tenant_admin_lock_key/1 (SHA-256 v1 label, bit 62 flipped inside int32 range), lock_tenant_admins!/1 (ArgumentError outside a transaction, bound param), private tenant_wide_admins_query/2 + exclude_scoped_holders/2 (identity); add_group_member/3 (transaction, lock first, group_member.added on real insert only, :caller_audits opt-out refused outside a transaction, unknown value = :emit, rescue -> transaction_failed); remove_group_member/3 (lock, FOR KEY SHARE group, group_member.removed on count 1); sync_role_claims_from_token/3 (SET LOCAL lock_timeout 2s + lock when group_ids != [], reduce_while with per-insert audit actor=user source idp_sync, rescue returns original user, audit_failed logged as tag only); insert_or_fetch_group_member/3 via insert_all count; create_token (lock step, actor/trace from ctx); revoke_token (SEC-A5: lock, re-read FOR UPDATE, before_state from locked row); delete_group (lock in a transaction, FK rescue unchanged). RoleRegistry: do_upsert_role lock -> role by name -> group FOR UPDATE, rescue; role_binding.created / role_binding.kind_changed only over a populated group; ensure_platform_role_binding and rebind_role take the lock first; move_role/6 writes trace. PendingAdminGrants: trace_id opt (normalized) into both bound events, :tenant_admin_lock step after :lock_timeout, membership with group_member_audit: :caller_audits (one literal occurrence). TenantAdminMigration: run/1 under with_trace/1, lock first in real_tenant, audit!/6 trace, ensure_binding(nil) passes audit_context. RoleBackfill: run/0 under with_trace/1, marker reset in a transaction with one role_claims_sync.reset row, classify returns {:ok,_}|{:error,_}, FU-1 moduledoc note. Router: private audit_opts/2 on the six handlers; audit_failed / transaction_failed -> 500 on add, remove, upsert. AuthPipeline: provision_user/4 and bind_pending_admin/5 carry conn.assigns[:trace_id]. Design doc section 10c records the advisories, the CDV-A2 deadlock note and three small deviations (insert_or_fetch_group_member returns {:error, :unexpected_missing_member} instead of rolling back itself; role row locked in do_upsert_role and re-locked as a no-op; add_group_member existence checks now inside its transaction). VERIFICATION: mix format --check-formatted on the 8 touched .ex files rc=0; MIX_ENV=test mix compile --warnings-as-errors: 'Compiling 370 files (.ex) ... Generated letflow app', rc=0. TESTS NOT RUN: free memory 2.22 / 2.26 / 2.18 GB at three checks, below the 4 GB threshold set for this dispatch. TEST-RUNNER must run the at-risk suites (identity_role_rebind, role_registry, pending_admin_grants, pending_admin_binding, identity_pending_admin_grants, tenant_admin_migration, role_backfill, identity router, identity_test and every test calling add_group_member/remove_group_member/sync_role_claims, 25 files under test/). Predicted fixture failures (design section 8 note): any test that calls add_group_member/remove_group_member, a populated-group upsert_role, or RoleBackfill.run on a prefix without audit_entries or not of the form tenant_<32 hex>. Not a behaviour change. Not touched: README diagram (no workflow transition changed), process_instance.ex, migrations. POST-GATE (REVIEWER + SECURITY-REVIEWER PASS) REVIEWER advisories folded in, no behaviour change: add_group_member/3 reads before_roles only in :emit mode; GH 2547 @doc paragraph added to create_token/3 and revoke_token/2; design section 10c line appended. Re-verified 2026-10-14T16:18Z under mixlock: mix format --check-formatted lib/letflow/identity.ex rc=0; MIX_ENV=test mix compile --warnings-as-errors 'Compiling 5 files (.ex)' rc=0. No tests run.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "lib/letflow/identity/audit_context.ex (new)",
+      "lib/letflow/identity.ex",
+      "lib/letflow/routers/identity.ex",
+      "lib/letflow/plugs/auth_pipeline.ex",
+      "lib/letflow/identity/role_registry.ex",
+      "lib/letflow/identity/pending_admin_grants.ex",
+      "lib/letflow/identity/tenant_admin_migration.ex",
+      "lib/letflow/identity/role_backfill.ex",
+      "lib/letflow/design/gh2547-tenant-admin-audit-and-count.md (section 10c)"
+    ],
+    "diagnosis_confirmed": true,
+    "implementation_written": true,
+    "classification": "IMPLEMENTATION"
+  }
+}
