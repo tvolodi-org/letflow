@@ -27,6 +27,7 @@ defmodule Letflow.Routers.TenantAdminRoutesTest do
   alias Letflow.Identity.User
   alias Letflow.Support.PlatformTenantFixture, as: Fixture
   alias Letflow.Support.PromotionScopeFixture, as: Scope
+  alias Letflow.Support.TokenMintFixture
 
   @pipeline_source File.read!("lib/letflow/plugs/api_pipeline.ex")
   @unused_uuid "00000000-0000-4000-8000-000000000003"
@@ -103,14 +104,24 @@ defmodule Letflow.Routers.TenantAdminRoutesTest do
     end
 
     test "GET and POST /identity/tokens (a TENANT_ADMIN may mint a TENANT_ADMIN token)", ctx do
+      # GH 2552: a REAL caller; caller and target hold TENANT_ADMIN by group membership.
       user = insert_user!(ctx.a)
+      TokenMintFixture.grant_roles!(ctx.a.schema_name, user.id, @admin)
+      minter = TokenMintFixture.role_holder!(ctx.a.schema_name, @admin)
       assert %{status: 200} = call(Letflow.Routers.Identity, :get, "/tokens", ctx.a, @admin, nil)
 
       conn =
-        call(Letflow.Routers.Identity, :post, "/tokens", ctx.a, @admin, %{
+        :post
+        |> Fixture.router_conn("/tokens", ctx.a, @admin, %{
           "user_id" => user.id,
           "roles" => ["TENANT_ADMIN"]
         })
+        |> Plug.Conn.assign(:auth_context, %{
+          user_id: minter.id,
+          tenant_id: ctx.a.tenant_id,
+          roles: @admin
+        })
+        |> Letflow.Routers.Identity.call(Letflow.Routers.Identity.init([]))
 
       assert conn.status == 201, conn.resp_body
     end

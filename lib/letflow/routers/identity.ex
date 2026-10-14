@@ -28,8 +28,8 @@ defmodule Letflow.Routers.Identity do
   * POST   /groups/:id/members           -> Identity.add_group_member/3
   * GET    /groups/:id/members           -> Identity.list_group_members/3 (cursor-paginated — see "Group member listing" below)
   * DELETE /groups/:id/members/:user_id  -> Identity.remove_group_member/3
-  * POST   /tokens                       -> Identity.create_token/3 (REQ-076)
-  * GET    /tokens                       -> Identity.list_tokens/2 (REQ-076)
+  * POST   /tokens                       -> Identity.mint_token/4 (REQ-076, GH 2552)
+  * GET    /tokens                       -> Identity.list_tokens/1 (REQ-076)
   * DELETE /tokens/:id                   -> Identity.revoke_token/2 (REQ-076)
   * GET    /roles                        -> Letflow.Identity.RoleRegistry.list_roles/1 (REQ-076, ISS-0768)
   * POST   /roles                        -> Letflow.Identity.RoleRegistry.upsert_role/4 (REQ-076, ISS-0768, ISS-0774;
@@ -51,10 +51,16 @@ defmodule Letflow.Routers.Identity do
   plaintext into a response body (`token_created_map/2`) — never re-derivable
   from a persisted row, since the row never holds the plaintext at all
   (`Letflow.Identity.ApiToken`'s own moduledoc). `GET /tokens` and `DELETE
-  /tokens/:id` both respond with `token_map/1`, which structurally excludes
+  /tokens/:id` both respond with `token_map/2`, which structurally excludes
   `token_hash` and has no parameter through which a plaintext could ever reach
   it. See `lib/letflow/design/req076-identity-tokens-roles-onboarding.md` §6
   for the full design.
+
+  GH 2552 (decision 0051 M2, `lib/letflow/design/gh2552-api-token-issuer-and-roles.md`
+  section 4): `POST /tokens` mints through `Identity.mint_token/4` with the
+  authenticated caller as issuer; a body `issuer_user_id` is a 422
+  `issuer_user_id_not_allowed`. Both token maps carry `issuer_user_id` (null for a
+  legacy row), and `GET /tokens` reports the effective status, `owner_inactive` included.
 
   ## Role registry constraint (REQ-076 AC6)
 
@@ -776,6 +782,17 @@ defmodule Letflow.Routers.Identity do
   ]
 
   defp handle_create_token(conn, opts) do
+    # GH 2552 design section 4.1: the issuer is the authenticated caller, never a body
+    # value. Rejected, not ignored (Validation would drop it silently), before schema
+    # validation and any DB access.
+    if is_map(conn.body_params) and Map.has_key?(conn.body_params, "issuer_user_id") do
+      Response.unprocessable(conn, "issuer_user_id_not_allowed")
+    else
+      validate_and_create_token(conn, opts)
+    end
+  end
+
+  defp validate_and_create_token(conn, opts) do
     case Validation.validate(@create_token_schema, conn.body_params) do
       {:errors, field_errors} ->
         Response.send_problem(conn, Validation.problem(field_errors))
@@ -783,7 +800,7 @@ defmodule Letflow.Routers.Identity do
       {:ok, %{"roles" => roles} = attrs} ->
         # REQ-447 design section 3.6b (F1 / INV-10): issuing a token that carries
         # PLATFORM_ADMIN is a platform-scope action, decided on recomputed scope
-        # BEFORE Identity.create_token/3 (which stays unchanged); fixed 403 body.
+        # BEFORE Identity.mint_token/4; fixed 403 body.
         if Enum.any?(roles, &Authorization.platform_admin_name?/1) and not platform_scope?(conn) do
           forbid_insufficient(conn)
         else
@@ -799,8 +816,12 @@ defmodule Letflow.Routers.Identity do
 
       {:ok, parsed_expires_at} ->
         # ISS-1033: uncastable body user_id is the same 404 as an unknown user.
+        # GH 2552 design section 4.3-4.4: the issuer is the authenticated caller (the
+        # same value as the audit actor). Fixed bodies that name no role or principal
+        # (INV-2); the domain atoms tell the cases apart.
         with_cast_id(conn, raw_user_id, fn user_id ->
-          case Identity.create_token(
+          case Identity.mint_token(
+                 conn.assigns.auth_context.user_id,
                  user_id,
                  %{roles: roles, expires_at: parsed_expires_at},
                  audit_opts(conn, opts)
@@ -808,11 +829,21 @@ defmodule Letflow.Routers.Identity do
             {:ok, %{token: token, plaintext: plaintext}} ->
               Response.created(conn, token_created_map(token, plaintext))
 
+            {:error, :issuer_not_authorized} ->
+              forbid_insufficient(conn)
+
             {:error, :user_not_found} ->
               Response.not_found(conn)
 
-            {:error, :invalid_role_set} ->
+            {:error, :user_inactive} ->
+              Response.unprocessable(conn, "user_inactive")
+
+            {:error, reason}
+            when reason in [:invalid_role_set, :roles_not_held, :platform_admin_token_not_self] ->
               Response.unprocessable(conn, "roles_invalid")
+
+            {:error, :platform_admin_token_expiry} ->
+              Response.unprocessable(conn, "platform_admin_token_expiry_invalid")
 
             {:error, :expires_at_in_past} ->
               Response.unprocessable(conn, "expires_at_in_past")
@@ -839,9 +870,15 @@ defmodule Letflow.Routers.Identity do
   # ── GET /tokens (design §6.1, AC1/AC2) ───────────────────────────────────
 
   defp handle_list_tokens(conn, opts) do
-    {:ok, tokens} = Identity.list_tokens(opts)
+    {:ok, items} = Identity.list_tokens(opts)
+    now = DateTime.utc_now()
 
-    Response.ok(conn, %{"items" => Enum.map(tokens, &token_map/1)})
+    Response.ok(conn, %{
+      "items" =>
+        Enum.map(items, fn %{token: token, owner_active: owner_active} ->
+          token_map(token, Identity.token_effective_status(token, owner_active, now))
+        end)
+    })
   end
 
   # ── DELETE /tokens/:id (design §6.1, AC4) ────────────────────────────────
@@ -854,7 +891,7 @@ defmodule Letflow.Routers.Identity do
         forbid_insufficient(conn)
       else
         case Identity.revoke_token(id, audit_opts(conn, opts)) do
-          {:ok, token} -> Response.ok(conn, token_map(token))
+          {:ok, token} -> Response.ok(conn, revoked_token_map(token))
           {:error, :not_found} -> Response.not_found(conn)
           {:error, {:transaction_failed, _exception}} -> Response.internal_error(conn)
         end
@@ -1078,6 +1115,7 @@ defmodule Letflow.Routers.Identity do
       "token" => plaintext,
       "name" => token.name,
       "user_id" => token.user_id,
+      "issuer_user_id" => token.issuer_user_id,
       "roles" => token.roles,
       "expires_at" => iso8601_or_nil(token.expires_at),
       "created_at" => iso8601(token.inserted_at)
@@ -1086,15 +1124,21 @@ defmodule Letflow.Routers.Identity do
 
   # Metadata only -- used by GET /tokens and DELETE /tokens/:id. Structurally
   # excludes token_hash and has no parameter through which a plaintext could
-  # ever reach it (design §6.2, AC1/AC2, INV-4).
-  @spec token_map(Letflow.Identity.ApiToken.t()) :: map()
-  defp token_map(%Letflow.Identity.ApiToken{} = token) do
+  # ever reach it (design §6.2, AC1/AC2, INV-4). GH 2552: adds "issuer_user_id"
+  # (always present, null for a legacy row), and "status" is the effective status
+  # from Identity.token_effective_status/3 (revoked > expired > owner_inactive > active).
+  @spec token_map(
+          Letflow.Identity.ApiToken.t(),
+          :revoked | :expired | :owner_inactive | :active
+        ) :: map()
+  defp token_map(%Letflow.Identity.ApiToken{} = token, status) do
     %{
       "id" => token.id,
       "name" => token.name,
       "user_id" => token.user_id,
+      "issuer_user_id" => token.issuer_user_id,
       "roles" => token.roles,
-      "status" => token_status(token),
+      "status" => Atom.to_string(status),
       "created_at" => iso8601(token.inserted_at),
       "expires_at" => iso8601_or_nil(token.expires_at),
       "revoked_at" => iso8601_or_nil(token.revoked_at),
@@ -1102,16 +1146,11 @@ defmodule Letflow.Routers.Identity do
     }
   end
 
-  defp token_status(%Letflow.Identity.ApiToken{revoked_at: revoked_at})
-       when not is_nil(revoked_at),
-       do: "revoked"
-
-  defp token_status(%Letflow.Identity.ApiToken{expires_at: expires_at})
-       when not is_nil(expires_at) do
-    if DateTime.compare(expires_at, DateTime.utc_now()) == :gt, do: "active", else: "expired"
+  # DELETE /tokens/:id: the returned token always has revoked_at, so `revoked` wins;
+  # owner_active: true is passed only because the precedence never reaches it.
+  defp revoked_token_map(%Letflow.Identity.ApiToken{} = token) do
+    token_map(token, Identity.token_effective_status(token, true, DateTime.utc_now()))
   end
-
-  defp token_status(%Letflow.Identity.ApiToken{}), do: "active"
 
   @spec role_map(Letflow.Identity.TenantRole.t()) :: map()
   defp role_map(%Letflow.Identity.TenantRole{} = role) do

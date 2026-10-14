@@ -25,6 +25,7 @@ defmodule Letflow.Routers.IdentityTest do
   alias Letflow.Identity.Group
   alias Letflow.Identity.GroupMember
   alias Letflow.Identity.User
+  alias Letflow.Support.TokenMintFixture
   alias Letflow.TenantFixture
 
   @opts Letflow.Routers.Identity.init([])
@@ -34,6 +35,8 @@ defmodule Letflow.Routers.IdentityTest do
   defp build_conn(method, path, tenant, fields) do
     roles = Keyword.get(fields, :roles, [])
     body = Keyword.get(fields, :body, nil)
+    # GH 2552: POST /tokens needs a real caller (Identity.mint_token/4); `user_id:` names one.
+    user_id = Keyword.get_lazy(fields, :user_id, &Ecto.UUID.generate/0)
 
     conn = conn(method, path)
 
@@ -47,11 +50,23 @@ defmodule Letflow.Routers.IdentityTest do
 
     conn
     |> assign(:auth_context, %{
-      user_id: Ecto.UUID.generate(),
+      user_id: user_id,
       tenant_id: tenant.tenant_id,
       roles: roles
     })
     |> assign(:trace_id, "fixed-test-trace-id")
+  end
+
+  # GH 2552 (design section 7): a TENANT_ADMIN caller that also holds TASK_WORKER by group
+  # membership, so it may mint a TASK_WORKER token for a target that holds it too.
+  defp token_minter!(tenant) do
+    TokenMintFixture.role_holder!(tenant.schema_name, ["TENANT_ADMIN", "TASK_WORKER"])
+  end
+
+  defp task_worker!(tenant, username) do
+    user = insert_user!(tenant, username: username)
+    TokenMintFixture.grant_roles!(tenant.schema_name, user.id, ["TASK_WORKER"])
+    user
   end
 
   defp dispatch(conn), do: Letflow.Routers.Identity.call(conn, @opts)
@@ -465,11 +480,12 @@ defmodule Letflow.Routers.IdentityTest do
     test "DELETE /tokens/:id -> 403 for TASK_WORKER (lacks :TokensManage), token not revoked", %{
       tenant: tenant
     } do
-      user = insert_user!(tenant, username: "req131-token-owner-denied")
+      user = task_worker!(tenant, "req131-token-owner-denied")
 
       created =
         build_conn(:post, "/tokens", tenant,
           roles: ["TENANT_ADMIN"],
+          user_id: token_minter!(tenant).id,
           body: %{"user_id" => user.id, "roles" => ["TASK_WORKER"]}
         )
         |> dispatch()
@@ -1157,11 +1173,13 @@ defmodule Letflow.Routers.IdentityTest do
 
     test "POST /tokens returns 201 with a plaintext token field matching the lf_tok_ shape (AC1a)",
          %{tenant: tenant} do
-      user = insert_user!(tenant, username: "token-owner-1")
+      user = task_worker!(tenant, "token-owner-1")
+      minter = token_minter!(tenant)
 
       conn =
         build_conn(:post, "/tokens", tenant,
           roles: ["TENANT_ADMIN"],
+          user_id: minter.id,
           body: %{"user_id" => user.id, "roles" => ["TASK_WORKER"]}
         )
         |> dispatch()
@@ -1178,10 +1196,14 @@ defmodule Letflow.Routers.IdentityTest do
       assert body["expires_at"] == nil
       assert is_binary(body["created_at"])
 
+      # GH 2552: "issuer_user_id" (the caller) joins the created key set.
+      assert body["issuer_user_id"] == minter.id
+
       assert Map.keys(body) |> Enum.sort() == [
                "created_at",
                "expires_at",
                "id",
+               "issuer_user_id",
                "name",
                "roles",
                "token",
@@ -1191,11 +1213,13 @@ defmodule Letflow.Routers.IdentityTest do
 
     test "GET /tokens after creation has no token field and no value equal to the plaintext anywhere in the response (AC1b)",
          %{tenant: tenant} do
-      user = insert_user!(tenant, username: "token-owner-2")
+      user = task_worker!(tenant, "token-owner-2")
+      minter = token_minter!(tenant)
 
       create_conn =
         build_conn(:post, "/tokens", tenant,
           roles: ["TENANT_ADMIN"],
+          user_id: minter.id,
           body: %{"user_id" => user.id, "roles" => ["TASK_WORKER"]}
         )
         |> dispatch()
@@ -1220,10 +1244,12 @@ defmodule Letflow.Routers.IdentityTest do
       # AC5, INV-2-equivalent -- full key-set assertion, so a stray leaked field
       # under any other name is caught here too.
       for item <- body["items"] do
+        # GH 2552: "issuer_user_id" joins the list key set.
         assert Map.keys(item) |> Enum.sort() == [
                  "created_at",
                  "expires_at",
                  "id",
+                 "issuer_user_id",
                  "last_used_at",
                  "name",
                  "revoked_at",
@@ -1236,11 +1262,13 @@ defmodule Letflow.Routers.IdentityTest do
 
     test "DELETE /tokens/:id's response also has no token field and no plaintext value (AC1b companion)",
          %{tenant: tenant} do
-      user = insert_user!(tenant, username: "token-owner-3")
+      user = task_worker!(tenant, "token-owner-3")
+      minter = token_minter!(tenant)
 
       create_conn =
         build_conn(:post, "/tokens", tenant,
           roles: ["TENANT_ADMIN"],
+          user_id: minter.id,
           body: %{"user_id" => user.id, "roles" => ["TASK_WORKER"]}
         )
         |> dispatch()
@@ -1265,11 +1293,13 @@ defmodule Letflow.Routers.IdentityTest do
 
     test "the persisted row's own columns never equal the plaintext, checked across every field (AC2, router-level)",
          %{tenant: tenant} do
-      user = insert_user!(tenant, username: "token-owner-4")
+      user = task_worker!(tenant, "token-owner-4")
+      minter = token_minter!(tenant)
 
       conn =
         build_conn(:post, "/tokens", tenant,
           roles: ["TENANT_ADMIN"],
+          user_id: minter.id,
           body: %{"user_id" => user.id, "roles" => ["TASK_WORKER"]}
         )
         |> dispatch()
@@ -1289,13 +1319,15 @@ defmodule Letflow.Routers.IdentityTest do
 
     test "a token's plaintext never appears in captured logs or in either response body, across a successful creation and a deliberately failed one (AC3)",
          %{tenant: tenant} do
-      user = insert_user!(tenant, username: "token-owner-5")
+      user = task_worker!(tenant, "token-owner-5")
+      minter = token_minter!(tenant)
 
       log =
         ExUnit.CaptureLog.capture_log(fn ->
           success_conn =
             build_conn(:post, "/tokens", tenant,
               roles: ["TENANT_ADMIN"],
+              user_id: minter.id,
               body: %{"user_id" => user.id, "roles" => ["TASK_WORKER"]}
             )
             |> dispatch()
@@ -1310,6 +1342,7 @@ defmodule Letflow.Routers.IdentityTest do
           failed_conn =
             build_conn(:post, "/tokens", tenant,
               roles: ["TENANT_ADMIN"],
+              user_id: minter.id,
               body: %{"user_id" => user.id, "roles" => ["NOT_A_REAL_ROLE"]}
             )
             |> dispatch()

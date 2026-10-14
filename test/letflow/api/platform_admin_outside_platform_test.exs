@@ -52,6 +52,7 @@ defmodule Letflow.Api.PlatformAdminOutsidePlatformTest do
   alias Letflow.Identity.User
   alias Letflow.Oidc.IdentityContext
   alias Letflow.Support.PlatformTenantFixture, as: Fixture
+  alias Letflow.Support.TokenMintFixture
 
   @unused_uuid "00000000-0000-4000-8000-000000000005"
 
@@ -65,6 +66,20 @@ defmodule Letflow.Api.PlatformAdminOutsidePlatformTest do
 
   defp call(router, method, path, fixture, roles, body) do
     router.call(Fixture.router_conn(method, path, fixture, roles, body), router.init([]))
+  end
+
+  # GH 2552: `call/6` as a REAL caller `user_id` (Identity.mint_token/4 checks the caller).
+  defp call_as(router, method, path, fixture, user_id, roles, body) do
+    conn =
+      method
+      |> Fixture.router_conn(path, fixture, roles, body)
+      |> Plug.Conn.assign(:auth_context, %{
+        user_id: user_id,
+        tenant_id: fixture.tenant_id,
+        roles: roles
+      })
+
+    router.call(conn, router.init([]))
   end
 
   defp insert_user!(fixture) do
@@ -325,13 +340,27 @@ defmodule Letflow.Api.PlatformAdminOutsidePlatformTest do
 
     test "POST /identity/tokens with PLATFORM_ADMIN by the platform operator in the platform tenant is 201 (control)",
          ctx do
-      user = insert_user!(ctx.p)
+      # GH 2552: the operator holds PLATFORM_ADMIN by membership; a PA token is self-targeted
+      # and expiring (advisor conditions 1 and 2).
+      operator = TokenMintFixture.role_holder!(ctx.p.schema_name, ["PLATFORM_ADMIN"])
+
+      expires_at =
+        DateTime.utc_now() |> DateTime.add(7 * 86_400, :second) |> DateTime.to_iso8601()
 
       resp =
-        call(Letflow.Routers.Identity, :post, "/tokens", ctx.p, ["PLATFORM_ADMIN"], %{
-          "user_id" => user.id,
-          "roles" => ["PLATFORM_ADMIN"]
-        })
+        call_as(
+          Letflow.Routers.Identity,
+          :post,
+          "/tokens",
+          ctx.p,
+          operator.id,
+          ["PLATFORM_ADMIN"],
+          %{
+            "user_id" => operator.id,
+            "roles" => ["PLATFORM_ADMIN"],
+            "expires_at" => expires_at
+          }
+        )
 
       assert resp.status == 201, resp.resp_body
     end

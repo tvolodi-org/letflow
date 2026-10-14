@@ -674,6 +674,9 @@ defmodule Letflow.TenantProvisioning do
      "20261014100001_add_managed_by_to_entity_definitions.exs"},
     {20_261_014_100_002, Letflow.Repo.Migrations.CreateScopeNodePaths,
      "20261014100002_create_scope_node_paths.exs"},
+    # GH 2552 (decision 0051 M2): api_tokens.issuer_user_id, NULL for legacy rows.
+    {20_261_015_000_001, Letflow.Repo.Migrations.AddIssuerUserIdToApiTokens,
+     "20261015000001_add_issuer_user_id_to_api_tokens.exs"},
     # REQ-497 / GH #2533 PR 1a (decision 0051 D1): role_scope_grants with its backfill and
     # T9 assert.
     {20_261_015_025_331, Letflow.Repo.Migrations.CreateRoleScopeGrants,
