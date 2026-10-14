@@ -713,6 +713,12 @@ defmodule Letflow.Engine do
     escalation_arms =
       Enum.filter(pending_events, &match?({:escalation_timer_armed, _token_id, _node_id}, &1))
 
+    # REQ-494 design §2.2: reminder arms ride beside escalation arms, with their
+    # own compound step name ({:scheduler_reminder_timer, token_record_id}), so
+    # they are exempt from the single-deadline guard below as well.
+    reminder_arms =
+      Enum.filter(pending_events, &match?({:reminder_timer_armed, _token_id, _node_id}, &1))
+
     # CODE-DESIGN-VALIDATOR's own resolution of design doc §13 OQ-3
     # (handoff task description item "REQUIRED ADDITION"): Letflow.Scheduler.create/2's
     # Multi branch hardcodes the literal step name :scheduler_timer
@@ -749,7 +755,28 @@ defmodule Letflow.Engine do
           {:error, reason} -> {:error, reason}
         end
 
-      with {:ok, escalation_prepared} <- escalation_result do
+      reminder_result =
+        reminder_arms
+        |> Enum.reduce_while({:ok, []}, fn {:reminder_timer_armed, token_id, node_id},
+                                           {:ok, acc} ->
+          case Enum.find(graph.nodes, &(&1.id == node_id)) do
+            nil ->
+              {:halt, {:error, {:graph_structure_invalid, {:unknown_node_id, node_id}}}}
+
+            node ->
+              case resolve_reminder_timer_arm_attrs(node, node_id, instance_id, now) do
+                {:ok, arm_attrs} -> {:cont, {:ok, [{token_id, arm_attrs} | acc]}}
+                {:error, reason} -> {:halt, {:error, reason}}
+              end
+          end
+        end)
+        |> case do
+          {:ok, acc} -> {:ok, Enum.reverse(acc)}
+          {:error, reason} -> {:error, reason}
+        end
+
+      with {:ok, escalation_prepared} <- escalation_result,
+           {:ok, reminder_prepared} <- reminder_result do
         timer_arms
         |> Enum.reduce_while({:ok, []}, fn {:timer_armed, token_id, node_id}, {:ok, acc} ->
           case Enum.find(graph.nodes, &(&1.id == node_id)) do
@@ -764,7 +791,7 @@ defmodule Letflow.Engine do
           end
         end)
         |> case do
-          {:ok, acc} -> {:ok, escalation_prepared ++ Enum.reverse(acc)}
+          {:ok, acc} -> {:ok, escalation_prepared ++ reminder_prepared ++ Enum.reverse(acc)}
           {:error, reason} -> {:error, reason}
         end
       end
@@ -826,6 +853,89 @@ defmodule Letflow.Engine do
     end
   end
 
+  # REQ-494 design §2.3: mirrors resolve_escalation_timer_arm_attrs/4 for
+  # timer_type "reminder", plus the optional recurrence quartet. Interval
+  # absent -> all four recurrence keys omitted (NULL); present ->
+  # repeat_total = 1 + reminder_repeat_count, or 51 (50-repeat cap) when the
+  # count is absent. Every error is defensive-only after CHK-28.
+  @spec resolve_reminder_timer_arm_attrs(
+          Graph.Node.t(),
+          node_id :: String.t(),
+          instance_id :: Ecto.UUID.t(),
+          now :: DateTime.t()
+        ) ::
+          {:ok, Scheduler.arm_attrs()}
+          | {:error, {:invalid_timer_duration, node_id :: String.t(), value :: term()}}
+  defp resolve_reminder_timer_arm_attrs(
+         %Graph.Node{attributes: attributes},
+         node_id,
+         instance_id,
+         now
+       ) do
+    attributes = attributes || %{}
+    duration = Map.get(attributes, "reminder_timer_duration")
+
+    with {:ok, seconds} <- parse_reminder_duration(duration, node_id),
+         {:ok, recurrence} <-
+           resolve_reminder_recurrence(
+             Map.get(attributes, "reminder_repeat_interval"),
+             Map.get(attributes, "reminder_repeat_count"),
+             node_id
+           ) do
+      {:ok,
+       Map.merge(
+         %{
+           instance_id: instance_id,
+           timer_type: "reminder",
+           node_id: node_id,
+           fire_at: DateTime.add(now, seconds, :second)
+         },
+         recurrence
+       )}
+    end
+  end
+
+  defp parse_reminder_duration(value, node_id) when is_binary(value) do
+    case Graph.parse_iso8601_duration(value) do
+      {:ok, seconds} -> {:ok, seconds}
+      :error -> {:error, {:invalid_timer_duration, node_id, value}}
+    end
+  end
+
+  defp parse_reminder_duration(other, node_id),
+    do: {:error, {:invalid_timer_duration, node_id, other}}
+
+  defp resolve_reminder_recurrence(nil, nil, _node_id), do: {:ok, %{}}
+
+  defp resolve_reminder_recurrence(nil, count, node_id),
+    do: {:error, {:invalid_timer_duration, node_id, count}}
+
+  defp resolve_reminder_recurrence(interval, count, node_id) do
+    case Graph.parse_reminder_repeat_interval(interval) do
+      :error ->
+        {:error, {:invalid_timer_duration, node_id, interval}}
+
+      {:ok, interval_seconds} when is_nil(count) ->
+        {:ok, reminder_recurrence(interval, interval_seconds, 51)}
+
+      {:ok, interval_seconds} when is_integer(count) and count in 1..50 ->
+        {:ok, reminder_recurrence(interval, interval_seconds, 1 + count)}
+
+      {:ok, _interval_seconds} ->
+        {:error, {:invalid_timer_duration, node_id, count}}
+    end
+  end
+
+  # `repeat_total` is the total number of fires (Scheduler.maybe_rearm_timer/3).
+  defp reminder_recurrence(interval, interval_seconds, repeat_total) do
+    %{
+      repeat_expression: interval,
+      repeat_interval_us: interval_seconds * 1_000_000,
+      fired_count: 0,
+      repeat_total: repeat_total
+    }
+  end
+
   # REQ-187 design doc §3.2 -- wires prepare_timer_arms/4's own output into
   # the caller's already-open Multi, reusing Letflow.Scheduler.create/2's
   # own documented Multi.t()-accepting branch (one Multi.insert/4 step per
@@ -849,6 +959,11 @@ defmodule Letflow.Engine do
         case arm_attrs.timer_type do
           "escalation" ->
             [prefix: prefix, step_name: {:scheduler_escalation_timer, token_record_id}]
+
+          # REQ-494 design §2.4: without its own step name a reminder would
+          # collide with a deadline timer's :scheduler_timer in the same chain.
+          "reminder" ->
+            [prefix: prefix, step_name: {:scheduler_reminder_timer, token_record_id}]
 
           _ ->
             [prefix: prefix]
@@ -2960,6 +3075,100 @@ defmodule Letflow.Engine do
   end
 
   # =========================================================================
+  # record_reminder_fired/3 (REQ-494, design §3.2)
+  # =========================================================================
+
+  # Called from Letflow.Scheduler.do_fire/2 when timer_type == "reminder",
+  # still inside fire_timer/2's already-open Repo.transaction/1. A reminder
+  # never advances the instance: it only appends one `task.remind` audit row
+  # for the still-pending task at (instance, token, node). No pending task
+  # there means the reminder outlived its task (race with completion or
+  # escalation) -- `{:ok, :reminder_stale}`, nothing written, and the caller
+  # skips the re-arm. Deliberately takes no task/projection row lock: the
+  # caller holds the timer row, and complete_task/3 locks task -> projection
+  # -> timers, so locking here would add a lock-order inversion (design §3.2).
+  @doc false
+  @spec record_reminder_fired(Timer.t(), Ecto.Repo.t(), prefix :: String.t()) ::
+          {:ok, :reminded}
+          | {:ok, :reminder_stale}
+          | {:error, :snapshot_not_found}
+          | {:error, {:graph_structure_invalid, {:unknown_node_id, String.t()}}}
+          | {:error, {:invalid_reminder_role, node_id :: String.t()}}
+          | {:error, term()}
+  def record_reminder_fired(%Timer{} = timer, repo, prefix) do
+    case pending_reminder_task(timer, repo, prefix) do
+      nil ->
+        {:ok, :reminder_stale}
+
+      %Task{} = task ->
+        with {:ok, graph} <- fetch_graph(timer.instance_id, prefix),
+             {:ok, reminder_role} <- reminder_role_for_node(graph, timer.node_id) do
+          # `timer` is the pre-fire struct: a non-recurring row has
+          # fired_count nil (first and only fire), a recurring one counts up.
+          fire_count = if is_nil(timer.fired_count), do: 1, else: timer.fired_count + 1
+
+          case Audit.insert_entry(
+                 repo,
+                 %{
+                   actor_id: EventStore.platform_actor_id(),
+                   action: "task.remind",
+                   resource_type: "task",
+                   resource_id: task.id,
+                   before_state: nil,
+                   after_state: %{
+                     "task_id" => task.id,
+                     "node_id" => timer.node_id,
+                     "reminder_role" => reminder_role,
+                     "fire_count" => fire_count
+                   },
+                   trace_id: nil
+                 },
+                 prefix
+               ) do
+            {:ok, _entry} -> {:ok, :reminded}
+            {:error, reason} -> {:error, reason}
+          end
+        end
+    end
+  end
+
+  # Stale detection by task-row status (no task id on the timer row): every
+  # pending reminder for (token, node) belongs to the one pending task there,
+  # because a completed/escalated task's reminders are cancelled before a
+  # re-entered task is armed (design §4).
+  defp pending_reminder_task(%Timer{token_id: nil}, _repo, _prefix), do: nil
+
+  defp pending_reminder_task(%Timer{} = timer, repo, prefix) do
+    Task
+    |> where(
+      [t],
+      t.instance_id == ^timer.instance_id and t.token_id == ^timer.token_id and
+        t.node_id == ^timer.node_id and t.status == :pending
+    )
+    |> order_by([t], desc: t.inserted_at, desc: t.id)
+    |> limit(1)
+    |> repo.one(prefix: prefix)
+  end
+
+  defp reminder_role_for_node(graph, node_id) do
+    case Enum.find(graph.nodes, &(&1.id == node_id)) do
+      nil ->
+        {:error, {:graph_structure_invalid, {:unknown_node_id, node_id}}}
+
+      %Graph.Node{attributes: attributes} ->
+        case Map.get(attributes || %{}, "reminder_role") do
+          role when is_binary(role) ->
+            if String.trim(role) == "",
+              do: {:error, {:invalid_reminder_role, node_id}},
+              else: {:ok, role}
+
+          _ ->
+            {:error, {:invalid_reminder_role, node_id}}
+        end
+    end
+  end
+
+  # =========================================================================
   # advance_after_escalation_timer_fired/3 (REQ-396, design doc §4.3)
   # =========================================================================
 
@@ -3131,6 +3340,22 @@ defmodule Letflow.Engine do
                       {:error, reason} -> {:error, reason}
                     end
                 end
+              end)
+              # REQ-494 design §4.3: cancel the escalated task's pending reminders
+              # (incl. re-armed successors) with the task's own cancelled_at. Runs
+              # before the arm merge below so a re-entry's fresh reminder
+              # survives, and before the audit merge so reminder-row locks are
+              # taken before the audit-chain lock (the order a reminder fire uses).
+              |> Multi.run(:cancel_reminder_timers, fn inner_repo, _changes ->
+                TaskActivation.cancel_pending_reminder_timers(
+                  inner_repo,
+                  timer.instance_id,
+                  timer.token_id,
+                  timer.node_id,
+                  now,
+                  "task_escalated",
+                  prefix
+                )
               end)
               # ISS-0906: audit the cancellation (task.cancel), mirroring
               # record_task_complete_audit/4 / record_task_assign_audit/2.
@@ -4553,6 +4778,20 @@ defmodule Letflow.Engine do
         normalized_changes.task.token_id,
         normalized_changes.task.node_id,
         completed_at,
+        prefix
+      )
+    end)
+    # REQ-494 design §4.2: same position argument -- the completed task's
+    # pending reminders (incl. re-armed successors) are cancelled before the
+    # arm steps, so a same-node re-entry's fresh reminder survives.
+    |> Multi.run(:cancel_reminder_timers, fn repo, _changes ->
+      TaskActivation.cancel_pending_reminder_timers(
+        repo,
+        normalized_changes.task.instance_id,
+        normalized_changes.task.token_id,
+        normalized_changes.task.node_id,
+        completed_at,
+        "task_completed",
         prefix
       )
     end)

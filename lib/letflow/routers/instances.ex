@@ -14,7 +14,7 @@ defmodule Letflow.Routers.Instances do
   | create      | `POST /instances`                  | `Letflow.Engine.create/2`                                               | `InstancesStart` | 201, `{instance_id, status, created_at}` |
   | cancel      | `POST /instances/:id/cancel`       | `Letflow.Engine.cancel_instance/3`                                      | `InstancesCancel` | 200, `{instance_id, status}`; 409 if already `COMPLETED` or already `CANCELLED` |
   | reconstruct | `POST /instances/:id/reconstruct`  | `Letflow.Engine.Reconstruction.reconstruct_instance/2` (`write_back: true`, not caller-controllable) | none (REQ-079 — same precedent as rebind, a future policy decision) | 200, `{instance_id, status, tokens: [{node_id, branch_id}], variables}` |
-  | advance-timer | `POST /instances/:id/advance-timer` | `Letflow.Scheduler.resolve_advance_target/3` (new) then `Letflow.Scheduler.fire_timer/2` (existing, unchanged) | `InstancesAdvanceTimer` (ISS-0389 — a real permission, fully wired, not the rebind-pins/reconstruct ad-hoc pattern) | 200, `{instance_id, timer_id, node_id, timer_status}`; 400 ambiguous pending timers; 404 no matching pending timer |
+  | advance-timer | `POST /instances/:id/advance-timer` | `Letflow.Scheduler.resolve_advance_target/3` (new) then `Letflow.Scheduler.fire_timer/2` (existing, unchanged) | `InstancesAdvanceTimer` (ISS-0389 — a real permission, fully wired, not the rebind-pins/reconstruct ad-hoc pattern) | 200, `{instance_id, timer_id, node_id, timer_status}`; 400 ambiguous pending timers (`code: ambiguous_pending_timers`); 404 no matching pending timer |
 
   ## Route ordering — `rebind-pins`/`cancel`/`reconstruct` MUST precede any future `POST /instances/:id`
 
@@ -755,8 +755,20 @@ defmodule Letflow.Routers.Instances do
         Response.not_found(conn)
 
       {:error, :ambiguous_pending_timers} ->
-        Response.bad_request(conn, "instance has more than one pending timer; specify timer_id")
+        Response.send_problem(conn, ambiguous_pending_timers_problem())
     end
+  end
+
+  # REQ-494 design §5: the generic bad-request problem plus a machine-readable
+  # `code` extension, so a client can tell this 400 apart (an instance with a
+  # HUMAN_TASK reminder and escalation always has two pending timers).
+  # `type`/`title` stay the generic bad-request ones.
+  @spec ambiguous_pending_timers_problem() :: Error.t()
+  defp ambiguous_pending_timers_problem do
+    %Error{
+      Error.bad_request("instance has more than one pending timer; specify timer_id")
+      | extensions: %{"code" => "ambiguous_pending_timers"}
+    }
   end
 
   defp render_advance_timer(conn, instance_id, timer, {:ok, fire_result})
