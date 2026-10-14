@@ -490,27 +490,55 @@ defmodule Letflow.Identity.TenantWideAdminsTest do
   end
 
   # --- T-34 ------------------------------------------------------------------------------------
+  #
+  # Retargeted by REQ-497 PR 1a (#2533): role_scope_grants now exists, but in stage 1 no
+  # route or function writes a `tenant_wide = false` (scoped) row, so the private
+  # `exclude_scoped_holders/2` may still be the identity. Filling it in is REQ-497 AC12
+  # (PR 1b); scoped rows become writable in stage 2 (#2535). The tripwire fires on the
+  # first scoped row in a freshly provisioned tenant.
 
-  test "T-34 tripwire: no role_scope_grants table exists in a provisioned tenant schema yet" do
+  test "T-34 tripwire: role_scope_grants holds no scoped rows yet, so exclude_scoped_holders/2 is still the identity" do
     fx = tenant!("gh2547-t34")
+    ta_group = group_of!(fx, "TENANT_ADMIN")
 
-    tables = fn name ->
-      %{rows: [[n]]} =
-        Repo.query!(
-          "SELECT count(*) FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2",
-          [fx.schema_name, name]
-        )
+    # {user, active?, TA member?, owns a live TA token?} -- written down as the fixture is built.
+    holders = [
+      {member!(fx, ta_group, user!(fx, :active)), true, true, false},
+      {token!(fx, user!(fx, :active), ["TENANT_ADMIN"], %{}), true, false, true},
+      {member!(fx, ta_group, user!(fx, :inactive)), false, true, false}
+    ]
 
-      n
-    end
+    %{rows: [[tables]]} =
+      Repo.query!(
+        "SELECT count(*) FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2",
+        [fx.schema_name, "role_scope_grants"]
+      )
 
-    # Control: the probe finds a table that does exist.
-    assert tables.("users") == 1
+    assert tables == 1
 
-    assert tables.("role_scope_grants") == 0,
-           "role_scope_grants now exists in tenant schemas: 0051 / #2533 must fill in " <>
-             "Letflow.Identity.exclude_scoped_holders/2 (today the identity) so that " <>
-             "count_tenant_wide_admins/1 and tenant_wide_admin_user_ids/1 drop scoped holders"
+    %{rows: [[scoped]]} =
+      Repo.query!(
+        "SELECT count(*) FROM \"#{fx.schema_name}\".role_scope_grants WHERE NOT tenant_wide",
+        []
+      )
+
+    message =
+      "scoped role_scope_grants rows (tenant_wide = false) can now exist: once scoped rows " <>
+        "are writable (stage 2, #2535) or REQ-497 PR 1b (AC12) lands, " <>
+        "Letflow.Identity.exclude_scoped_holders/2 must drop scoped holders from " <>
+        "count_tenant_wide_admins/1 and tenant_wide_admin_user_ids/1, and this T-34 " <>
+        "tripwire must be replaced by a test of that behaviour"
+
+    assert scoped == 0, message
+
+    oracle =
+      for {user, active?, member?, live_token?} <- holders,
+          active? and (member? or live_token?),
+          do: user.id
+
+    assert length(oracle) == 2
+    assert ids(fx) == Enum.sort(oracle), message
+    assert count(fx) == length(oracle), message
   end
 
   # --- T-35 ------------------------------------------------------------------------------------
