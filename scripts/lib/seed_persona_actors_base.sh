@@ -226,6 +226,8 @@ persona_run() {
     uid=$(lookup_user_id_optional "${username}")
     if [[ -z "${uid}" ]]; then
       echo "  WARNING: ${username} has no account (Part A missing) -- skipping its memberships." >&2
+      echo "           letflow creates a user on that person's first authenticated request: sign in as ${username}" >&2
+      echo "           once (or send one authenticated GET ${QA_URL}/api/v1/me/memberships with its token), then re-run." >&2
       missing_personas+=("${username}")
     else
       echo "  ${username} : ${uid}"
@@ -293,6 +295,11 @@ persona_run() {
     echo "" >&2
     echo "ERROR: ${#missing_personas[@]} persona(s) had no account and were skipped: ${missing_personas[*]}" >&2
     echo "       Memberships were seeded for all other personas. Complete Part A for the missing ones and re-run." >&2
+    echo "       Part A = the Keycloak account (ai-dala-infra/scripts/qa-login.sh). letflow only creates the user when that" >&2
+    echo "       account makes its first authenticated request: sign in as it once, or send one authenticated" >&2
+    echo "       GET ${QA_URL}/api/v1/me/memberships with its token." >&2
+    echo "       Then re-run: QA_AUTH_TOKEN=<token> bash scripts/seed_${tenant_label}_persona_actors.sh" >&2
+    echo "       (safe to repeat: memberships that already exist answer 200 and are left alone)." >&2
     return 1
   fi
 }

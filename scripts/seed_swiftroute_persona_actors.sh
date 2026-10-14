@@ -16,7 +16,10 @@
 #   realm, and those accounts must have synced into letflow's users table before
 #   this script runs. A persona with no account is skipped with a warning naming
 #   it, every other persona is still seeded, and the script then exits non-zero
-#   naming the missing actors (Part A guard).
+#   naming the missing actors (Part A guard). letflow creates a user on that account's
+#   first authenticated request, so a Keycloak account that has never signed in counts as
+#   missing: sign in as it once (or send one authenticated GET /api/v1/me/memberships with
+#   its token), then re-run this script. Re-running is safe (GH 2345).
 #
 # Persona -> group mapping (§4 of the design doc; TASK_WORKER is implicit for all):
 #   actor-swiftroute-lena   (Dispatcher)  -> TASK_WORKER only
