@@ -1,5 +1,7 @@
 # ISS-0848 — queue/yaml reconciliation check (design)
 
+> REMOVED at cutover 2026-10-14 (decision 0049): the task and its test were deleted; this design is kept as history.
+
 Queue task 848 (`Q-848`), GH-1846, S11, BLOCKER. This design covers **AC2** only
 (step 1/AC1 and AC4 are already done directly by ORCH — see the issue's own
 `progress_2026_09_26:` note and `docs/anti-patterns.md`'s two ISS-0848 entries).

@@ -1,10 +1,10 @@
 # WORK_BOARD Protocol — GitHub issues are the work queue
 
-Status: the worker rules below are binding now: a worker has always been told which item
-to work by the supervisor, and the board makes that the only way. The *system of record*
-changes on the day `docs/status/work_board_cutover.yaml` says `cutover: true` (see
-"Cutover"); until then the supervisor keeps the letflow-queue locks and rows in step with
-the board on the workers' behalf, so a worker never calls the queue. Decision record:
+Status: cutover happened 2026-10-14 (`docs/status/work_board_cutover.yaml` says
+`cutover: true`). The queue service was stopped by infra after the supervisor's
+announcement; its database is kept for one week as the rollback window. The worker rules
+below are binding: a worker is told which item to work by the supervisor, and the board is
+the only way. Still no worker calls the queue (none did before the flip either). Decision record:
 `docs/migration/decisions/0049-work-board-replaces-letflow-queue.md` (supersedes 0017).
 Tracking issue: GH #2430 (ISS-1073). Repository: `tvolodi-org/letflow` (since 2026-10-14).
 
@@ -170,7 +170,12 @@ All five are read-only and paginated. `check` = label rules plus the `CLAIM` com
 
 ## 11. Cutover
 
-Cutover is **not a calendar date and is not tied to the repository transfer**. It is the
+**Done 2026-10-14.** The flip PR set `cutover: true`, set `last_legacy_iss` to 1120, and
+deleted `letflow.check_queue_reconciliation` and its test. The queue service was stopped by
+infra after the supervisor's announcement and its database is kept for one week; no worker
+calls the queue. The text below is the plan as it was written, kept for the record.
+
+Cutover was **not a calendar date and is not tied to the repository transfer**. It was the
 day the PR that flips `cutover: true` in `docs/status/work_board_cutover.yaml` merges,
 after one CI-shaped dry run passed (a requirement record and an issue record that carry
 only a GH number go through `mix letflow.check.static`). Order: the board PR merges; the
