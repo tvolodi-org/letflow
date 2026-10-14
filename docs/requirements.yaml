@@ -35763,7 +35763,7 @@ requirements:
   - id: REQ-494
     title: "Engine: opt-in non-cancelling HUMAN_TASK reminder timer (reminder_timer_duration + reminder_role, optional repeat), audit-only on fire (TIMER_FIRED reminder + task.remind), cancelled on completion/escalation, CHK-28 validator, advance-timer ambiguity code"
     owner: ELIXIR-DEV
-    status: pending
+    status: done
     stage: S7
     gh: 2325
     # Source: GH #2325 (legacy title ISS-1035, queue Q-1017), AC1 and AC2; diagnosis handoffs/WF03-GH2325-REMINDER-20261014/step-01-issue-fixer.json (hazards h1-h4). Scope (audit-only, opt-in) set by the supervisor 2026-10-14. Queue service stopped; the queue row is written back later by ORCH, not here.

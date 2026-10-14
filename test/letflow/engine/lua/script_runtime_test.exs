@@ -5,8 +5,8 @@ defmodule Letflow.Engine.Lua.ScriptRuntimeTest do
   (`Sandbox.new_script/1`, `ScriptHost`, `ScriptValue`, `ScriptRunner`) and
   `Letflow.Admission`'s opt-in caller monitoring.
 
-  `async: false`: tests count children of `Letflow.Engine.Lua.TaskSupervisor`, read the VM-wide
-  atom count and capture logs.
+  `async: false`: tests count children of `Letflow.Engine.Lua.TaskSupervisor`, hold
+  `Letflow.Admission` slots and capture logs.
   """
 
   use ExUnit.Case, async: false
@@ -61,6 +61,22 @@ defmodule Letflow.Engine.Lua.ScriptRuntimeTest do
       tries == 0 -> false
       true -> Process.sleep(20) && eventually(fun, tries - 1)
     end
+  end
+
+  # Unique per call, so no earlier run (or test) can have made them atoms.
+  defp fresh_keys(n),
+    do: for(i <- 1..n, do: "zz_gh2534_key_#{System.unique_integer([:positive])}_#{i}")
+
+  # The keys that exist as atoms (String.to_existing_atom/1 raises for the others).
+  defp existing_atoms(keys) do
+    Enum.filter(keys, fn key ->
+      try do
+        String.to_existing_atom(key)
+        true
+      rescue
+        ArgumentError -> false
+      end
+    end)
   end
 
   # ── AC1 / AC14: exact allow-list (equality, not subset) ────────────────────
@@ -446,14 +462,39 @@ defmodule Letflow.Engine.Lua.ScriptRuntimeTest do
   # ── AC6 / F-D: atoms, error text, logs ─────────────────────────────────────
 
   describe "AC6 (F-D) values, error text and logs" do
+    # GH 2561: checks the property itself (no key became an atom), not the VM-global
+    # atom_count, which code loading and other processes also move.
     test "decoding creates no atoms" do
-      keys = for i <- 1..300, do: "zz_gh2534_key_#{System.unique_integer([:positive])}_#{i}"
+      keys = fresh_keys(300)
+      assert existing_atoms(keys) == []
       body = keys |> Enum.map(&"#{&1} = 1") |> Enum.join(", ")
-      before = :erlang.system_info(:atom_count)
 
       assert {:ok, %{output: out}} = run("return {#{body}}")
-      assert map_size(out) == 300
-      assert :erlang.system_info(:atom_count) - before < 50
+      assert Map.keys(out) |> Enum.sort() == Enum.sort(keys)
+      assert existing_atoms(keys) == []
+    end
+
+    test "string values, nested keys and values, and list items create no atoms either" do
+      [k, v, nk, nv, li] = strings = fresh_keys(5)
+
+      assert {:ok, %{output: out}} =
+               run(~s(return {#{k} = "#{v}", n = {#{nk} = "#{nv}"}, l = {"#{li}"}}))
+
+      assert out == %{k => v, "n" => %{nk => nv}, "l" => [li]}
+      assert existing_atoms(strings) == []
+    end
+
+    test "negative control: the no-atoms check catches a decode that atomizes the real output" do
+      keys = fresh_keys(3)
+      body = keys |> Enum.map(&"#{&1} = 1") |> Enum.join(", ")
+      assert {:ok, %{output: out}} = run("return {#{body}}")
+      assert existing_atoms(keys) == []
+
+      # an atomizing decoder, applied to the decoded output of this run
+      atomized = Map.new(out, fn {key, value} -> {String.to_atom(key), value} end)
+
+      assert map_size(atomized) == 3
+      assert existing_atoms(keys) == keys
     end
 
     test "error(<input value>), a host-function failure and a heap kill log nothing containing the value; results carry only the code" do
