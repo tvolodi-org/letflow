@@ -3,6 +3,12 @@ defmodule Letflow.Scripts.Validation do
   GH 2534 PR 7b-1 (decision 0053 D1, D5, D10; advisor Q3): validation of a script version's
   manifest, stored test cases, dry-run input and reason text. Design sections 3, 4, 5, 7.
 
+  GH 2534 PR 7b-2a (`lib/letflow/design/gh2534-7b2a-script-policy.md` sections 3.1 and 4): the
+  manifest's `reads` SHAPE is validated here (pure, no DB; a shape error is
+  `:invalid_manifest`), and stored test cases and dry-run carry optional `reads` fixtures. The
+  tenant checks of a read (flagged type, active definition, known fields) are
+  `Letflow.Scripts.Policy.check_reads/2`'s (`:reads_not_allowed`).
+
   Every function returns `:ok` / `{:ok, value}` or `{:error, code}` with a stable code; no
   submitted value is ever echoed.
   """
@@ -31,10 +37,20 @@ defmodule Letflow.Scripts.Validation do
   @max_dry_run_input_bytes 65_536
   @max_reason_codepoints 500
   @reason_forbidden ~r/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u
+  @read_keys ~w(name entity_type match fields restricted_fields limit)
+  @max_reads 8
+  @max_read_fields 64
+  @max_read_limit 50
+  @max_read_rows 200
+  @max_fixture_bytes 16_384
+  @value_from_types ~w(string integer number boolean)
 
   # ── manifest (section 3) ───────────────────────────────────────────────────
 
-  @doc "Validates a manifest map. Q3: `reads` must be empty in 7b-1."
+  @doc """
+  Validates a manifest map, including the SHAPE of `reads` (7b-2a section 3.1; every shape
+  violation is `:invalid_manifest`).
+  """
   @spec manifest(term()) :: :ok | {:error, atom()}
   def manifest(manifest) when is_map(manifest) do
     keys = Map.keys(manifest)
@@ -46,9 +62,6 @@ defmodule Letflow.Scripts.Validation do
       not Enum.all?(@required_manifest_keys, &Map.has_key?(manifest, &1)) ->
         {:error, :invalid_manifest}
 
-      not reads_empty?(Map.get(manifest, "reads", [])) ->
-        {:error, :reads_not_allowed}
-
       true ->
         manifest_parts(manifest)
     end
@@ -56,15 +69,13 @@ defmodule Letflow.Scripts.Validation do
 
   def manifest(_other), do: {:error, :invalid_manifest}
 
-  defp reads_empty?([]), do: true
-  defp reads_empty?(_), do: false
-
   defp manifest_parts(manifest) do
     with :ok <- schema(manifest["input_schema"]),
          :ok <- schema(manifest["output_schema"]),
          :ok <- codes(manifest["fail_codes"], @max_fail_codes),
          :ok <- limits(Map.get(manifest, "limits", %{})),
-         :ok <- restricted(Map.get(manifest, "restricted_inputs", []), manifest["input_schema"]) do
+         :ok <- restricted(Map.get(manifest, "restricted_inputs", []), manifest["input_schema"]),
+         :ok <- reads(Map.get(manifest, "reads", []), manifest["input_schema"]) do
       :ok
     else
       _ -> {:error, :invalid_manifest}
@@ -111,6 +122,134 @@ defmodule Letflow.Scripts.Validation do
   end
 
   defp restricted(_other, _schema), do: :error
+
+  # ── reads (7b-2a section 3.1) ──────────────────────────────────────────────
+
+  defp reads([], _input_schema), do: :ok
+
+  defp reads(list, input_schema) when is_list(list) and length(list) <= @max_reads do
+    properties = Map.get(input_schema, "properties", %{})
+
+    cond do
+      not Enum.all?(list, &read_entry?(&1, properties)) -> :error
+      # From here on every entry is a valid map with a "name".
+      not unique_names?(list) -> :error
+      list |> Enum.map(&row_cap/1) |> Enum.sum() > @max_read_rows -> :error
+      # Reserved: read results are delivered under input["reads"][name].
+      Map.has_key?(properties, "reads") -> :error
+      true -> :ok
+    end
+  end
+
+  defp reads(_other, _input_schema), do: :error
+
+  defp unique_names?(entries) do
+    names = Enum.map(entries, &Map.fetch!(&1, "name"))
+    Enum.uniq(names) == names
+  end
+
+  defp read_entry?(
+         %{"name" => name, "entity_type" => entity_type, "match" => match, "fields" => fields} =
+           entry,
+         properties
+       ) do
+    Enum.all?(Map.keys(entry), &(&1 in @read_keys)) and code?(name) and code?(entity_type) and
+      field_list?(fields, 1) and
+      restricted_fields?(Map.get(entry, "restricted_fields", []), fields) and
+      match_and_limit?(match, Map.get(entry, "limit", :absent), properties)
+  end
+
+  defp read_entry?(_entry, _properties), do: false
+
+  defp field_list?(list, min) when is_list(list) do
+    length(list) >= min and length(list) <= @max_read_fields and Enum.uniq(list) == list and
+      Enum.all?(list, &read_field?/1)
+  end
+
+  defp field_list?(_other, _min), do: false
+
+  defp restricted_fields?(list, fields),
+    do: field_list?(list, 0) and Enum.all?(list, &(&1 in fields))
+
+  # P13: "id" is never a readable field name (every delivered row carries the record id there).
+  defp read_field?(name), do: code?(name) and name != "id"
+
+  defp match_and_limit?(%{"id_from" => prop} = match, limit, properties)
+       when map_size(match) == 1,
+       do: limit in [:absent, 1] and input_prop?(properties, prop, ["string"])
+
+  defp match_and_limit?(%{"field" => field, "value_from" => prop} = match, limit, properties)
+       when map_size(match) == 2 do
+    read_field?(field) and is_integer(limit) and limit >= 1 and limit <= @max_read_limit and
+      input_prop?(properties, prop, @value_from_types)
+  end
+
+  defp match_and_limit?(_match, _limit, _properties), do: false
+
+  defp input_prop?(properties, prop, types) do
+    code?(prop) and
+      case Map.get(properties, prop) do
+        %{"type" => type} -> type in types
+        _ -> false
+      end
+  end
+
+  # The row cap of one (valid) read entry: its limit, or 1 for an id match.
+  defp row_cap(%{"match" => %{"field" => _}, "limit" => limit}), do: limit
+  defp row_cap(_entry), do: 1
+
+  defp code?(value), do: is_binary(value) and Regex.match?(@code_pattern, value)
+
+  @doc "The declared reads of a (valid) manifest; `[]` when it declares none."
+  @spec declared_reads(map()) :: [map()]
+  def declared_reads(manifest), do: Map.get(manifest, "reads", [])
+
+  @doc """
+  `input` as the script sees it: when the manifest declares reads, `input["reads"]` maps every
+  declared read name to its fixture rows (`[]` when absent from `fixture`); otherwise `input`
+  is returned unchanged (7b-1 behaviour). `fixture` must already be valid (`reads_fixture/2`).
+  """
+  @spec with_reads(map(), map() | nil, map()) :: map()
+  def with_reads(input, fixture, manifest) do
+    case declared_reads(manifest) do
+      [] ->
+        input
+
+      declared ->
+        fixture = fixture || %{}
+        rows = Map.new(declared, &{&1["name"], Map.get(fixture, &1["name"], [])})
+        Map.put(input, "reads", rows)
+    end
+  end
+
+  @doc """
+  A `reads` fixture (stored test case or dry-run, 7b-2a section 4): an object whose keys are
+  declared read names, each a list of at most that read's row cap row objects whose keys are a
+  subset of `["id" | fields]`; canonical size at most 16 KiB. Refused when the manifest declares
+  no reads.
+  """
+  @spec reads_fixture(term(), map()) :: :ok | :error
+  def reads_fixture(fixture, manifest) when is_map(fixture) do
+    by_name = Map.new(declared_reads(manifest), &{&1["name"], &1})
+
+    if by_name != %{} and byte_size(Hash.canon(fixture)) <= @max_fixture_bytes and
+         Enum.all?(fixture, fn {name, rows} -> fixture_rows?(Map.get(by_name, name), rows) end),
+       do: :ok,
+       else: :error
+  end
+
+  def reads_fixture(_fixture, _manifest), do: :error
+
+  defp fixture_rows?(nil, _rows), do: false
+
+  defp fixture_rows?(read, rows) when is_list(rows) do
+    allowed = ["id" | read["fields"]]
+
+    length(rows) <= row_cap(read) and
+      Enum.all?(rows, &(is_map(&1) and Enum.all?(Map.keys(&1), fn key -> key in allowed end)))
+  end
+
+  defp fixture_rows?(_read, _rows), do: false
 
   # A schema is well-formed when it uses only the keywords JsonSchema implements (plus
   # title/description), is an object at the top level, and stays within depth and size.
@@ -178,12 +317,15 @@ defmodule Letflow.Scripts.Validation do
 
   def test_cases(_cases, _manifest), do: {:error, :invalid_test_case}
 
+  # 7b-2a section 4: an optional 4th key `reads` carries the case's read fixtures.
   defp valid_case?(%{"name" => name, "input" => input, "expect" => expect} = case, manifest)
-       when map_size(case) == 3 and is_binary(name) and is_map(input) do
+       when map_size(case) in [3, 4] and is_binary(name) and is_map(input) do
     String.length(name) in 1..@max_case_name and
       byte_size(Hash.canon(input)) <= @max_case_input_bytes and
       JsonSchema.validate(input, manifest["input_schema"]) == [] and
-      valid_expect?(expect, manifest)
+      valid_expect?(expect, manifest) and
+      (map_size(case) == 3 or
+         (Map.has_key?(case, "reads") and reads_fixture(case["reads"], manifest) == :ok))
   end
 
   defp valid_case?(_case, _manifest), do: false
@@ -199,16 +341,20 @@ defmodule Letflow.Scripts.Validation do
 
   # ── dry-run input, reason, key ─────────────────────────────────────────────
 
-  @doc "A dry-run input: a JSON object within the size cap satisfying `input_schema`."
-  @spec dry_run_input(term(), map()) :: :ok | {:error, :invalid_input}
-  def dry_run_input(input, manifest) when is_map(input) do
+  @doc """
+  A dry-run input: a JSON object within the size cap satisfying `input_schema`, plus an optional
+  `reads` fixture (`nil` = absent) under the stored-test-case fixture rules (7b-2a section 4).
+  """
+  @spec dry_run_input(term(), term(), map()) :: :ok | {:error, :invalid_input}
+  def dry_run_input(input, reads_fixture, manifest) when is_map(input) do
     if byte_size(Hash.canon(input)) <= @max_dry_run_input_bytes and
-         JsonSchema.validate(input, manifest["input_schema"]) == [],
+         JsonSchema.validate(input, manifest["input_schema"]) == [] and
+         (is_nil(reads_fixture) or reads_fixture(reads_fixture, manifest) == :ok),
        do: :ok,
        else: {:error, :invalid_input}
   end
 
-  def dry_run_input(_input, _manifest), do: {:error, :invalid_input}
+  def dry_run_input(_input, _reads_fixture, _manifest), do: {:error, :invalid_input}
 
   @doc "Retire/revoke reason: trimmed 1..500 codepoints, no Cc/Cf/Zl/Zp character."
   @spec reason(term()) :: {:ok, String.t()} | {:error, :invalid_reason}

@@ -965,6 +965,15 @@ defmodule Letflow.Api.AuthorizationTest do
         {"PATCH", "/tenants/:slug", :TenantsManage},
         {"POST", "/tenants/:slug/deactivate", :TenantsManage},
         {"POST", "/tenants/:slug/reactivate", :TenantsManage},
+        # GH 2534 PR 7b-2a (decision 0053 D5, D7): the seven script-policy paths
+        {"GET", "/tenants/:slug/script-policy", :TenantsManage},
+        {"PUT", "/tenants/:slug/script-policy/kill-switch", :TenantsManage},
+        {"GET", "/script-policy", :ScriptPolicyRead},
+        {"GET", "/script-policy/readable-masters", :ScriptPolicyRead},
+        {"PUT", "/script-policy/kill-switch", :ScriptPolicyManage},
+        {"PUT", "/script-policy/readable-masters/:entity_type", :ScriptPolicyManage},
+        {"POST", "/script-policy/readable-masters/:entity_type/clear", :ScriptPolicyManage},
+        {"DELETE", "/script-policy/kill-switch", :Unknown},
         {"POST", "/onboarding", :TenantsManage},
         {"GET", "/onboarding", :TenantsManage},
         {"GET", "/onboarding/:id", :TenantsManage},
@@ -2570,6 +2579,48 @@ defmodule Letflow.Api.AuthorizationTest do
       assert per_role_lines_mentioning_it == [],
              "expected no `def role_allows?(:` line to mention :MyModulesRead, found: " <>
                "#{inspect(per_role_lines_mentioning_it)}"
+    end
+  end
+
+  # GH 2534 PR 7b-2a (design gh2534-7b2a-script-policy.md P3, section 9.3): the script policy
+  # route keys are distinct keys over EXISTING permissions -- no new permission.
+  describe "GH 2534 7b-2a: script policy route keys" do
+    test "the two keys map to the script permissions and are not permissions themselves" do
+      assert Authorization.required_permission(:ScriptPolicyRead) == :ScriptsWrite
+      assert Authorization.required_permission(:ScriptPolicyManage) == :ScriptsPublish
+
+      for key <- [:ScriptPolicyRead, :ScriptPolicyManage] do
+        refute key in Authorization.permissions()
+        refute key in Authorization.core_permissions()
+      end
+    end
+
+    test "TENANT_ADMIN holds both; PROCESS_DESIGNER only the read key; no other tenant role holds either" do
+      for {roles, read?, manage?} <- [
+            {[:TENANT_ADMIN], true, true},
+            {[:PROCESS_DESIGNER], true, false},
+            {[:TENANT_AUDITOR], false, false},
+            {[:PROCESS_OPERATOR], false, false},
+            {[:TASK_WORKER], false, false},
+            {[:AGENT_RUNNER], false, false},
+            {[:CANDIDATE], false, false}
+          ] do
+        for {key, expected} <- [{:ScriptPolicyRead, read?}, {:ScriptPolicyManage, manage?}] do
+          permission = Authorization.required_permission(key)
+
+          assert Authorization.has_permission_in_scope?(roles, permission, false) == expected,
+                 "#{inspect(roles)} #{key}"
+        end
+      end
+
+      # PLATFORM_ADMIN outside the platform tenant holds neither (INV-10)
+      for key <- [:ScriptPolicyRead, :ScriptPolicyManage] do
+        refute Authorization.has_permission_in_scope?(
+                 [:PLATFORM_ADMIN],
+                 Authorization.required_permission(key),
+                 false
+               )
+      end
     end
   end
 end

@@ -66,6 +66,11 @@ config :letflow, start_scheduler: false
 # explicitly.
 config :letflow, start_service_task_dispatcher: false
 
+# GH 2534 PR 7b-2a (design gh2534-7b2a-script-policy.md section 5, CDV 2): honours the
+# `:before_case` test seam of `Letflow.Scripts.publish/7`. Set ONLY here: no route, runtime or
+# prod config reaches it, so the seam is inert outside the test suite.
+config :letflow, scripts_test_hooks: true
+
 # Same per-workspace host port as config/dev.exs (this repo's config files
 # don't cascade — each env file loads independently). See config/db_port.exs.
 {db_port, _bindings} = Code.eval_file(Path.expand("db_port.exs", __DIR__))

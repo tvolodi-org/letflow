@@ -25,6 +25,14 @@ defmodule Letflow.Routers.Tenants do
   | deactivate  | `POST /tenants/:slug/deactivate`      | `Identity.deactivate_tenant/1`                                                                           | `:TenantsManage` | 200, `tenant_map/1`         |
   | reactivate  | `POST /tenants/:slug/reactivate`      | `Identity.reactivate_tenant/1`                                                                           | `:TenantsManage` | 200, `tenant_map/1`         |
 
+  GH 2534 PR 7b-2a (decision 0053 D7, `lib/letflow/design/gh2534-7b2a-script-policy.md`
+  section 9.2) adds two `:TenantsManage` routes: `GET /tenants/:slug/script-policy` and
+  `PUT /tenants/:slug/script-policy/kill-switch` (`{on, reason}`, OIDC only), the operator's
+  view of a tenant's script policy and its PLATFORM kill-switch latch
+  (`Letflow.Scripts.Policy.set_platform_kill_switch/5`; tenant-chain entry with a nil actor,
+  platform-chain entry with the operator id, as ISS-1032). Both answer the allowlist
+  `platform_policy_map/1`, never the tenant admin's reason or user id.
+
   ## THIS IS THE HIGHEST-RISK ROUTE GROUP IN S4 (AC6)
 
   These six handlers operate on the global `tenants` table, entirely
@@ -184,6 +192,7 @@ defmodule Letflow.Routers.Tenants do
   alias Letflow.Identity
   alias Letflow.Identity.Tenant
   alias Letflow.PlatformTenant
+  alias Letflow.Scripts
   alias Letflow.TenantOnboarding
   alias Letflow.TenantProvisioning
 
@@ -211,6 +220,16 @@ defmodule Letflow.Routers.Tenants do
 
   authz_post "/:slug/reactivate", :TenantsManage do
     handle_reactivate(conn, conn.params["slug"])
+  end
+
+  # GH 2534 PR 7b-2a (decision 0053 D7, design gh2534-7b2a-script-policy.md section 9.2): the
+  # operator's view of a tenant's script policy and its PLATFORM kill-switch latch.
+  authz_get "/:slug/script-policy", :TenantsManage do
+    handle_get_script_policy(conn, conn.params["slug"])
+  end
+
+  authz_put "/:slug/script-policy/kill-switch", :TenantsManage do
+    handle_put_script_kill_switch(conn, conn.params["slug"])
   end
 
   # REQ-077 R10 (ENV-03) -- the ONE route this requirement contributes to
@@ -396,6 +415,87 @@ defmodule Letflow.Routers.Tenants do
     else
       _error_or_mismatch -> nil
     end
+  end
+
+  # ── GET/PUT /tenants/:slug/script-policy (GH 2534 7b-2a section 9.2) ───
+  #
+  # Order (both): authorize_target_tenant/2, the tenant by slug, then its PROVISIONED schema
+  # (any failure: the plain 404). The responses are `platform_policy_map/1` only: never the
+  # tenant admin's reason or user id (P10, SEC F2, 0046 D4).
+
+  defp handle_get_script_policy(conn, slug) do
+    with {:ok, _tenant, prefix} <- script_policy_target(conn, slug) do
+      case Scripts.Policy.get(prefix) do
+        {:ok, policy} -> Response.ok(conn, platform_policy_map(policy))
+        # A provisioned tenant without its policy row is a provisioning defect (design 6.1).
+        {:error, :not_found} -> Response.internal_error(conn)
+      end
+    else
+      {:error, :not_found} -> Response.not_found(conn)
+    end
+  end
+
+  defp handle_put_script_kill_switch(conn, slug) do
+    case script_policy_target(conn, slug) do
+      {:ok, tenant, prefix} ->
+        operator = %{
+          user_id: conn.assigns.auth_context.user_id,
+          credential: Map.get(conn.assigns.auth_context, :credential),
+          trace_id: conn.assigns[:trace_id],
+          platform_prefix: verified_platform_prefix(conn)
+        }
+
+        case Scripts.Policy.set_platform_kill_switch(
+               prefix,
+               tenant.id,
+               conn.body_params["on"],
+               conn.body_params["reason"],
+               operator
+             ) do
+          {:ok, policy} ->
+            Response.ok(conn, platform_policy_map(policy))
+
+          {:error, :api_token_not_allowed} ->
+            Response.forbidden(conn, "api_token_not_allowed")
+
+          {:error, code} when code in [:invalid_reason, :invalid_state] ->
+            Response.unprocessable(conn, Atom.to_string(code))
+
+          # :policy_missing (a provisioned tenant without its policy row, a provisioning
+          # defect, as the GET), :audit_failed or anything unexpected: 500, nothing written.
+          {:error, _policy_missing_audit_failed_or_unexpected} ->
+            Response.internal_error(conn)
+        end
+
+      {:error, :not_found} ->
+        Response.not_found(conn)
+    end
+  end
+
+  defp script_policy_target(conn, slug) do
+    with :ok <- TenantTarget.authorize_target_tenant(conn, slug),
+         {:ok, tenant} <- Identity.get_tenant_by_slug(slug),
+         {:ok, prefix} <- TenantProvisioning.registered_schema(tenant.id) do
+      {:ok, tenant, prefix}
+    else
+      _not_found_or_unprovisioned -> {:error, :not_found}
+    end
+  end
+
+  # Allowlist (exact key set, SEC F2): the tenant latch's on/off and time only.
+  defp platform_policy_map(%Scripts.ScriptPolicy{} = policy) do
+    %{
+      "kill_switch_on" => Scripts.ScriptPolicy.effective?(policy),
+      "platform" => %{
+        "on" => policy.platform_kill_switch,
+        "set_at" => policy.platform_kill_switch_set_at,
+        "reason" => policy.platform_kill_switch_reason
+      },
+      "tenant" => %{
+        "on" => policy.tenant_kill_switch,
+        "set_at" => policy.tenant_kill_switch_set_at
+      }
+    }
   end
 
   # ── POST /tenants/:slug/deactivate and /reactivate (design §6.5) ───────

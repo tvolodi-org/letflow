@@ -165,6 +165,10 @@ defmodule Letflow.Plugs.ApiPipeline do
   # revoke, dry-run). Tenant scope; :ScriptsWrite / :ScriptsPublish.
   forward("/script-rules", to: Letflow.Routers.ScriptRules)
 
+  # GH 2534 PR 7b-2a (decision 0053 D5, D7): the tenant's script policy (kill switch tenant
+  # latch, readable masters). Tenant scope; :ScriptPolicyRead / :ScriptPolicyManage.
+  forward("/script-policy", to: Letflow.Routers.ScriptPolicy)
+
   # REQ-404 (design lib/letflow/design/req404-module-router-mount.md) -- the
   # per-module dispatch mount 0039 D4/D5 and REQ-403's own comment above
   # named as "REQ-404's future per-module mount". Distinct prefix from
