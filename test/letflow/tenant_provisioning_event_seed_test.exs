@@ -260,7 +260,7 @@ defmodule Letflow.TenantProvisioningEventSeedTest do
   # ---------------------------------------------------------------------------------
 
   describe "OQ-1: replay_migrations/2 re-run against an already-seeded tenant stays idempotent" do
-    test "a second replay_migrations/2 call for the same tenant still returns :ok overall, and the 18 rows are not duplicated" do
+    test "a second replay_migrations/2 call for the same tenant still returns :ok overall, and the 20 rows are not duplicated" do
       %{tenant_id: tenant_id, schema_name: schema_name} = provisioned_tenant()
 
       assert {:ok, _} = TenantProvisioning.replay_migrations(tenant_id)
@@ -277,8 +277,9 @@ defmodule Letflow.TenantProvisioningEventSeedTest do
       # (lib/letflow/design/iss0721-entity-event-type-seeding.md) adds the 3
       # ENTITY_RECORD_* types on top of that, raising the total to 16. REQ-391
       # adds ATTACHMENT_ATTACHED/ATTACHMENT_REMOVED on top of that, raising
-      # the total to 18.
-      assert count == 18
+      # the total to 18. GH 2534 7c-1 adds SCRIPT_TASK_COMPLETED/SCRIPT_RUN_RECORDED,
+      # raising it to 20.
+      assert count == 20
 
       # And the seeded types are still all usable after the re-seed no-op.
       attrs = append_attrs("TASK_COMPLETED", minimal_payload_for("TASK_COMPLETED"))
@@ -338,8 +339,9 @@ defmodule Letflow.TenantProvisioningEventSeedTest do
       # tenant at provisioning time, and REQ-391 adds
       # ATTACHMENT_ATTACHED/ATTACHMENT_REMOVED on top of that, so the
       # pre-REQ-140 (6-row) state reproduced above by deleting the 3 REQ-140
-      # rows leaves 15 rows here (18 total - 3 deleted), not 10.
-      assert count_before == 15
+      # rows leaves 15 rows here (18 total - 3 deleted), not 10; GH 2534 7c-1 adds the two
+      # SCRIPT_* types, so 17 (20 - 3).
+      assert count_before == 17
 
       # First replay_migrations/2 call after the simulated pre-existing state --
       # backfills the 3 missing rows.
@@ -379,7 +381,10 @@ defmodule Letflow.TenantProvisioningEventSeedTest do
                  # the backfill (same shape as the ENTITY_RECORD_* trio
                  # above).
                  "ATTACHMENT_ATTACHED",
-                 "ATTACHMENT_REMOVED"
+                 "ATTACHMENT_REMOVED",
+                 # GH 2534 7c-1: the script SERVICE_TASK route's two instance event types.
+                 "SCRIPT_TASK_COMPLETED",
+                 "SCRIPT_RUN_RECORDED"
                ])
 
       # The 3 backfilled types are usable via append_platform_event/2 --
@@ -407,14 +412,14 @@ defmodule Letflow.TenantProvisioningEventSeedTest do
       assert event.event_type == "DEFINITION_PROMOTED"
 
       # Second replay_migrations/2 call: a no-op, still returns success, and
-      # does NOT duplicate any of the 18 rows (13 platform + 3 ISS-0721
+      # does NOT duplicate any of the 20 rows (13 platform + 3 ISS-0721
       # ENTITY_RECORD_* entity types + 2 REQ-391 ATTACHMENT_* types).
       assert {:ok, _applied_versions} = TenantProvisioning.replay_migrations(tenant_id)
 
       count_after_second_call =
         Repo.aggregate(EventType, :count, prefix: schema_name)
 
-      assert count_after_second_call == 18
+      assert count_after_second_call == 20
     end
   end
 end

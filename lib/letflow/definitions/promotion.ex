@@ -392,6 +392,14 @@ defmodule Letflow.Definitions.Promotion do
         |> Repo.insert(prefix: target_prefix)
         |> case do
           {:ok, new_row} ->
+            # GH 2534 PR 7c-1 (decision 0053 D2, F8; design 4.5): the promoted graph's script
+            # bindings are checked in the TARGET prefix, inside this transaction, before the
+            # status write.
+            case Letflow.Definitions.check_script_bindings(new_row, target_prefix) do
+              :ok -> :ok
+              {:error, reason} -> Repo.rollback(reason)
+            end
+
             deprecate_previous_active(process_key, target_prefix)
             activated_row = activate_new_definition(new_row, target_prefix)
 

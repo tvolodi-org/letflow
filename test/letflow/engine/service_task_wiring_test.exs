@@ -2104,4 +2104,51 @@ defmodule Letflow.Engine.ServiceTaskWiringTest do
       assert [%ServiceTaskDispatch{status: "advanced"}] = dispatches_for(schema_name, instance_id)
     end
   end
+
+  # GH 2534 PR 7c-1 AC21 (design gh2534-7c-script-handler.md 5.4): the shared advance pipeline
+  # is generalised by a completion descriptor; the HTTP route's completion event stays
+  # byte-identical in shape -- SERVICE_TASK_COMPLETED, exactly the keys dispatch_id, node_id,
+  # decoded_body, idempotency key "service_task_dispatch:<dispatch id>".
+  describe "GH 2534 7c-1 AC21: http completion payload pinned" do
+    test "http completion payload pinned" do
+      enable_ssrf_bypass()
+      %{url: server_url} = WebhookTestServer.start(200, ~s({"credit_score":720}))
+
+      %{schema_name: schema_name} = provisioned_tenant()
+      definition = active_definition!(schema_name, graph_service_task_end(server_url))
+
+      assert {:ok, %{instance_id: instance_id}} =
+               Engine.create(base_attrs(definition), prefix: schema_name)
+
+      assert [dispatch] = dispatches_for(schema_name, instance_id)
+
+      assert Engine.http_completion_shape(dispatch, %{"credit_score" => 720}) ==
+               {"SERVICE_TASK_COMPLETED", [:decoded_body, :dispatch_id, :node_id],
+                "service_task_dispatch:" <> dispatch.id}
+
+      assert {:ok, {:advance, decoded_body}} =
+               ServiceTaskDispatcher.attempt_dispatch(dispatch.id, schema_name)
+
+      assert {:ok, :advanced} =
+               Engine.advance_after_service_task_outcome(
+                 dispatch.id,
+                 {:advance, decoded_body},
+                 Repo,
+                 schema_name
+               )
+
+      assert {:ok, events} = EventStore.read(instance_id, prefix: schema_name)
+      assert [event] = Enum.filter(events, &(&1.event_type == "SERVICE_TASK_COMPLETED"))
+      assert event.idempotency_key == "service_task_dispatch:" <> dispatch.id
+      payload = if is_binary(event.payload), do: Jason.decode!(event.payload), else: event.payload
+      assert Enum.sort(Map.keys(payload)) == ["decoded_body", "dispatch_id", "node_id"]
+      assert payload["decoded_body"] == %{"credit_score" => 720}
+      assert payload["dispatch_id"] == dispatch.id
+
+      refute Enum.any?(
+               events,
+               &(&1.event_type in ["SCRIPT_TASK_COMPLETED", "SCRIPT_RUN_RECORDED"])
+             )
+    end
+  end
 end

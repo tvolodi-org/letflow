@@ -72,13 +72,15 @@ defmodule Letflow.Engine.ServiceTask do
       :service_id,
       :method,
       :body_template,
+      :script_key,
+      :script_version,
       headers: %{},
       timeout_ms: 30_000,
       retry_limit: 3,
       warnings: []
     ]
 
-    @type route_kind :: :inline_url | :catalog_service
+    @type route_kind :: :inline_url | :catalog_service | :script
     @type http_method :: :GET | :POST | :PUT | :PATCH | :DELETE
     @type warning :: :both_url_and_service_id_provided_url_ignored
 
@@ -89,6 +91,8 @@ defmodule Letflow.Engine.ServiceTask do
             service_id: String.t() | nil,
             method: http_method(),
             body_template: String.t() | nil,
+            script_key: String.t() | nil,
+            script_version: pos_integer() | nil,
             headers: %{optional(String.t()) => String.t()},
             timeout_ms: pos_integer(),
             retry_limit: non_neg_integer(),
@@ -145,6 +149,8 @@ defmodule Letflow.Engine.ServiceTask do
           | {:invalid_method, term()}
           | {:invalid_timeout_ms, term()}
           | {:invalid_retry_limit, term()}
+          | :conflicting_routes
+          | {:invalid_script_reference, :key | :version}
 
   @type empty_url_context :: %{
           required(:instance_id) => Ecto.UUID.t(),
@@ -197,6 +203,46 @@ defmodule Letflow.Engine.ServiceTask do
   def parse_config_from_node_attributes(%Graph.Node{id: node_id, attributes: attributes}) do
     attrs = attributes || %{}
 
+    # GH 2534 PR 7c-1 (design gh2534-7c-script-handler.md 4.1): a node binding a tenant
+    # script (non-empty "script_key") is route :script; the HTTP branch is unchanged.
+    case ref_id(attrs, "script_key") do
+      nil -> parse_http_config(node_id, attrs)
+      script_key -> parse_script_config(node_id, script_key, attrs)
+    end
+  end
+
+  # method/timeout_ms/retry_limit/headers/body_template are ignored for :script; the struct's
+  # enforced keys get the HTTP defaults (never read on this route).
+  defp parse_script_config(node_id, script_key, attrs) do
+    with {:ok, node_id} <- fetch_node_id(node_id) do
+      version = Map.get(attrs, "script_version")
+
+      cond do
+        ref_id(attrs, "endpoint") != nil or ref_id(attrs, "service_id") != nil ->
+          {:error, :conflicting_routes}
+
+        not Letflow.Scripts.Runtime.script_key?(script_key) ->
+          {:error, {:invalid_script_reference, :key}}
+
+        not (is_integer(version) and version >= 1) ->
+          {:error, {:invalid_script_reference, :version}}
+
+        true ->
+          {:ok,
+           %Config{
+             node_id: node_id,
+             route_kind: :script,
+             method: @default_method,
+             timeout_ms: @default_timeout_ms,
+             retry_limit: 0,
+             script_key: script_key,
+             script_version: version
+           }}
+      end
+    end
+  end
+
+  defp parse_http_config(node_id, attrs) do
     with {:ok, node_id} <- fetch_node_id(node_id),
          {:ok, method} <- parse_method(attrs),
          {:ok, timeout_ms} <- parse_timeout_ms(attrs),

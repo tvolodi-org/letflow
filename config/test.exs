@@ -71,6 +71,12 @@ config :letflow, start_service_task_dispatcher: false
 # prod config reaches it, so the seam is inert outside the test suite.
 config :letflow, scripts_test_hooks: true
 
+# GH 2534 PR 7c-1 (design gh2534-7c-script-handler.md 5.1): don't start the script SERVICE_TASK
+# poller under test (the same zero-delay-first-tick OwnershipError hazard as the two pollers
+# above). Tests call Letflow.Engine.ScriptTaskDispatcher.run_tick/2, claim_next/1 and
+# run_claimed/2 directly.
+config :letflow, start_script_task_dispatcher: false
+
 # Same per-workspace host port as config/dev.exs (this repo's config files
 # don't cascade — each env file loads independently). See config/db_port.exs.
 {db_port, _bindings} = Code.eval_file(Path.expand("db_port.exs", __DIR__))

@@ -7,6 +7,21 @@ defmodule Letflow.Application do
 
   @impl true
   def start(_type, _args) do
+    # GH 2534 PR 7c-1 SECURITY note (design gh2534-7c-script-handler.md 5.1): every 7b/7c
+    # script test seam is honoured only while :scripts_test_hooks is true, so a :prod node
+    # refuses to start with it set (fixed text, no value echoed).
+    case Letflow.Scripts.Runtime.boot_check(
+           Application.get_env(:letflow, :config_env),
+           Application.get_env(:letflow, :scripts_test_hooks, false)
+         ) do
+      :ok ->
+        :ok
+
+      {:error, :scripts_test_hooks_in_prod} ->
+        raise "config :letflow, :scripts_test_hooks is true in :prod: refusing to start " <>
+                "(it enables test-only script seams)."
+    end
+
     # REQ-190 (design req190-secrets-core.md §6.2): redacts every log
     # event's metadata map via Letflow.Secrets.Redaction.redact_map/1
     # before it reaches any handler. Registered first, ahead of every

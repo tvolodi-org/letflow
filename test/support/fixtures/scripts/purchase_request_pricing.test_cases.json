@@ -1,0 +1,38 @@
+[
+  {
+    "name": "manager_tier_two_lines",
+    "input": {
+      "line_items": [
+        {"sku": "A-1", "qty": 2, "unit_price_cents": 125000},
+        {"sku": "B-2", "qty": 1, "unit_price_cents": 50000}
+      ],
+      "tax_rate_bp": 1200
+    },
+    "expect": {"output": {"subtotal_cents": 300000, "tax_cents": 36000, "total_cents": 336000, "approval_tier": "manager"}}
+  },
+  {
+    "name": "auto_tier_rounding",
+    "input": {"line_items": [{"sku": "C-3", "qty": 3, "unit_price_cents": 333}], "tax_rate_bp": 1250},
+    "expect": {"output": {"subtotal_cents": 999, "tax_cents": 125, "total_cents": 1124, "approval_tier": "auto"}}
+  },
+  {
+    "name": "director_tier",
+    "input": {"line_items": [{"sku": "E-5", "qty": 4, "unit_price_cents": 500000}], "tax_rate_bp": 800},
+    "expect": {"output": {"subtotal_cents": 2000000, "tax_cents": 160000, "total_cents": 2160000, "approval_tier": "director"}}
+  },
+  {
+    "name": "board_tier_zero_tax",
+    "input": {"line_items": [{"sku": "D-4", "qty": 10, "unit_price_cents": 1000000}], "tax_rate_bp": 0},
+    "expect": {"output": {"subtotal_cents": 10000000, "tax_cents": 0, "total_cents": 10000000, "approval_tier": "board"}}
+  },
+  {
+    "name": "empty_order",
+    "input": {"line_items": [], "tax_rate_bp": 1200},
+    "expect": {"fail": "empty_order"}
+  },
+  {
+    "name": "quantity_too_large",
+    "input": {"line_items": [{"sku": "F-6", "qty": 10001, "unit_price_cents": 1}], "tax_rate_bp": 1200},
+    "expect": {"fail": "quantity_too_large"}
+  }
+]

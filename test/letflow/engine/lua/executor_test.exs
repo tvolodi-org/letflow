@@ -111,65 +111,32 @@ defmodule Letflow.Engine.Lua.ExecutorTest do
   end
 
   # ---------------------------------------------------------------------------------
-  # AC5 -- INV-LSA-1: invalid instance_id short-circuits before executor is invoked
+  # AC5/AC6 -- GH 2534 PR 7c-1 (design gh2534-7c-script-handler.md section 10, C17):
+  # LuaScriptAudit.execute_script_for_audit/6, the only consumer of the INV-LSA-1/2
+  # checks these blocks exercised, is retired (the table is read-only history). What
+  # remains of the contract is the executor's own: it reports the COMPUTED hash, never
+  # the caller's registered one, so a mismatch stays detectable by any caller.
   # ---------------------------------------------------------------------------------
 
-  describe "INV-LSA-1 with real executor (AC5)" do
-    test "nil instance_id short-circuits and the real executor is never called" do
-      result =
-        LuaScriptAudit.execute_script_for_audit(
-          Executor,
-          nil,
-          "return 1",
-          "any-hash",
-          Ecto.UUID.generate(),
-          prefix: "test_schema"
-        )
-
-      assert result == {:error, :invalid_instance_id}
+  describe "INV-LSA-2 successor with the real executor (GH 2534 7c-1)" do
+    test "the audit writer no longer exists" do
+      Code.ensure_loaded!(LuaScriptAudit)
+      refute function_exported?(LuaScriptAudit, :execute_script_for_audit, 6)
     end
 
-    test "malformed instance_id short-circuits and the real executor is never called" do
-      result =
-        LuaScriptAudit.execute_script_for_audit(
-          Executor,
-          "not-a-uuid",
-          "return 1",
-          "any-hash",
-          Ecto.UUID.generate(),
-          prefix: "test_schema"
-        )
-
-      assert result == {:error, :invalid_instance_id}
-    end
-  end
-
-  # ---------------------------------------------------------------------------------
-  # AC6 -- INV-LSA-2: manifest hash mismatch with real executor
-  # ---------------------------------------------------------------------------------
-
-  describe "INV-LSA-2 with real executor (AC6)" do
-    test "a registered_hash that does not match the script's manifest+script hash returns mismatch error" do
+    test "execute_with_manifest reports the computed hash, not the registered one" do
       script = "return 2 + 2"
-      # REQ-158: a bare-binary script_ref is paired with an empty manifest
-      # (script_id: "", capabilities: []) -- the hash is Manifest.compute_hash/2's
-      # output, not the bare SHA-256 of the script source alone.
       real_hash = Manifest.compute_hash(%Manifest{script_id: "", capabilities: []}, script)
       wrong_hash = "0000000000000000000000000000000000000000000000000000000000000000"
 
       assert wrong_hash != real_hash
 
-      result =
-        LuaScriptAudit.execute_script_for_audit(
-          Executor,
-          Ecto.UUID.generate(),
-          script,
-          wrong_hash,
-          Ecto.UUID.generate(),
-          prefix: "test_schema"
-        )
-
-      assert {:error, {:manifest_hash_mismatch, ^wrong_hash, ^real_hash}} = result
+      assert {:ok, %{manifest_hash: ^real_hash}} =
+               Executor.execute_with_manifest(script, wrong_hash,
+                 max_instructions: 100_000,
+                 timeout_ms: 5_000,
+                 max_heap_words: nil
+               )
     end
   end
 

@@ -384,6 +384,9 @@ defmodule Letflow.Engine do
   alias Letflow.Engine.ServiceTask
   alias Letflow.Engine.ServiceTaskDispatcher
   alias Letflow.Engine.ServiceTaskDispatcher.ServiceTaskDispatch
+  alias Letflow.Engine.ScriptTaskDispatcher
+  alias Letflow.Engine.ScriptTaskDispatcher.RunRecord
+  alias Letflow.Engine.ScriptTaskDispatcher.ScriptTaskDispatch
   alias Letflow.Engine.SubProcess
   alias Letflow.Engine.Task
   alias Letflow.Engine.TaskActivation
@@ -559,7 +562,7 @@ defmodule Letflow.Engine do
            PinResolver.resolve(
              graph,
              definition,
-             pin_lookup(attrs, tenant_id),
+             pin_lookup(attrs, tenant_id, prefix),
              pin_overrides(attrs)
            ),
          :ok <- PinResolver.validate_initial_variables(initial_variables, variable_json_schema),
@@ -585,7 +588,11 @@ defmodule Letflow.Engine do
              instance_id,
              new_instance_state.variables,
              now,
-             %{pin_source: {:pins, pins}, tenant_id: tenant_id}
+             %{
+               pin_source: {:pins, pins},
+               tenant_id: tenant_id,
+               actor_id: Map.get(attrs, :actor_id)
+             }
            ) do
       persist(
         instance_id,
@@ -639,6 +646,10 @@ defmodule Letflow.Engine do
 
       {:catalog_resolution_error, node_id, reason, _variables} ->
         {:error, {:activation_failed, {:service_task_catalog_unresolved, node_id, reason}}}
+
+      # GH 2534 PR 7c-1 (design 4.4): a script SERVICE_TASK without a usable :script pin.
+      {:script_binding_error, node_id, reason, _variables} ->
+        {:error, {:activation_failed, {:script_binding_unresolved, node_id, reason}}}
     end
   end
 
@@ -1005,10 +1016,15 @@ defmodule Letflow.Engine do
           | {:empty_url_error, node_id :: String.t(), variables :: map()}
           | {:catalog_resolution_error, node_id :: String.t(), catalog_resolution_reason(),
              variables :: map()}
+          | {:script_binding_error, node_id :: String.t(), :pin_missing | :pin_mismatch,
+             variables :: map()}
+  # GH 2534 PR 7c-1 (design 4.4): `kind` says which table the row goes to -- `:http`
+  # (`service_task_dispatches`, every pre-7c row) or `:script` (`script_task_dispatches`).
   @type prepared_service_task_dispatch :: %{
-          token_id: String.t(),
-          node_id: String.t(),
-          arm_attrs: map()
+          required(:token_id) => String.t(),
+          required(:node_id) => String.t(),
+          required(:arm_attrs) => map(),
+          optional(:kind) => :http | :script
         }
   # ISS-0917 (design D2) -- where the instance's effective pins come from and
   # which tenant's visibility applies when a `route_kind: :catalog_service`
@@ -1020,9 +1036,13 @@ defmodule Letflow.Engine do
   @typep catalog_pin_source ::
            {:pins, [PinResolver.pinned_version() | PinResolver.effective_pin()]}
            | {:reconstruct, instance_id :: Ecto.UUID.t(), prefix :: String.t() | nil}
+  # GH 2534 PR 7c-1 (design 4.4): optional `actor_id`, the hop chain's command actor (create/2:
+  # the starting actor; complete_task/3: the completing user), stored on a script dispatch row
+  # as `triggering_user_id`; timer, HTTP-advance, script-advance and sub-process hops pass none.
   @typep catalog_dispatch_ctx :: %{
-           pin_source: catalog_pin_source(),
-           tenant_id: Ecto.UUID.t() | {:schema_prefix, String.t()}
+           required(:pin_source) => catalog_pin_source(),
+           required(:tenant_id) => Ecto.UUID.t() | {:schema_prefix, String.t()},
+           optional(:actor_id) => Ecto.UUID.t() | nil
          }
   @typep catalog_resolution_reason ::
            {:pin_missing, :catalog_entry, String.t()}
@@ -1058,6 +1078,16 @@ defmodule Letflow.Engine do
               {:cont,
                {:ok, [%{token_id: token_id, node_id: node_id, arm_attrs: arm_attrs} | acc], ctx}}
 
+            {:ok_script, arm_attrs, ctx} ->
+              prepared = %{
+                token_id: token_id,
+                node_id: node_id,
+                arm_attrs: arm_attrs,
+                kind: :script
+              }
+
+              {:cont, {:ok, [prepared | acc], ctx}}
+
             {:error, reason} ->
               {:halt, {:error, reason}}
 
@@ -1066,6 +1096,9 @@ defmodule Letflow.Engine do
 
             {:catalog_resolution_error, ^node_id, reason} ->
               {:halt, {:catalog_resolution_error, node_id, reason, variables}}
+
+            {:script_binding_error, ^node_id, reason} ->
+              {:halt, {:script_binding_error, node_id, reason, variables}}
           end
       end
     end)
@@ -1074,6 +1107,7 @@ defmodule Letflow.Engine do
       {:error, reason} -> {:error, reason}
       {:empty_url_error, node_id, variables} -> {:empty_url_error, node_id, variables}
       {:catalog_resolution_error, _node_id, _reason, _variables} = error -> error
+      {:script_binding_error, _node_id, _reason, _variables} = error -> error
     end
   end
 
@@ -1140,6 +1174,63 @@ defmodule Letflow.Engine do
           {:error, reason} ->
             {:catalog_resolution_error, node_id, reason}
         end
+
+      # GH 2534 PR 7c-1 (design 4.4): the instance's OWN frozen :script pin for the node's
+      # key (from the same pin source the catalog route uses). A missing pin, a pin whose
+      # version differs from the node's, or a pin without sha256 is a typed binding error.
+      {:ok, %ServiceTask.Config{route_kind: :script} = config} ->
+        case resolve_script_pin(config, ctx) do
+          {:ok, sha256, ctx} ->
+            arm_attrs = %{
+              instance_id: instance_id,
+              node_id: node_id,
+              script_key: config.script_key,
+              script_version: config.script_version,
+              script_sha256: sha256,
+              event_time: now,
+              next_attempt_at: now,
+              triggering_user_id: triggering_user_id(ctx)
+            }
+
+            {:ok_script, arm_attrs, ctx}
+
+          {:error, reason} ->
+            {:script_binding_error, node_id, reason}
+        end
+    end
+  end
+
+  defp resolve_script_pin(%ServiceTask.Config{script_key: key, script_version: version}, ctx) do
+    case catalog_pins(ctx.pin_source) do
+      {:ok, pins, pin_source} ->
+        ctx = %{ctx | pin_source: pin_source}
+        expected_version = Integer.to_string(version)
+
+        case PinResolver.pin_for(pins, :script, key) do
+          {:ok, %{version: ^expected_version, sha256: sha256}}
+          when is_binary(sha256) and byte_size(sha256) == 64 ->
+            {:ok, sha256, ctx}
+
+          {:ok, _mismatched_or_unhashed} ->
+            {:error, :pin_mismatch}
+
+          {:error, _missing} ->
+            {:error, :pin_missing}
+        end
+
+      {:error, _pins_unavailable} ->
+        {:error, :pin_missing}
+    end
+  end
+
+  # The platform actor (and anything not a UUID) is stored as NULL (design 4.4, R8).
+  defp triggering_user_id(ctx) do
+    with actor when is_binary(actor) <- Map.get(ctx, :actor_id),
+         true <- actor != EventStore.platform_actor_id(),
+         {:ok, uuid} <- Ecto.UUID.cast(actor) do
+      uuid
+    else
+      _ -> nil
     end
   end
 
@@ -1435,23 +1526,41 @@ defmodule Letflow.Engine do
           prefix :: String.t()
         ) :: Multi.t()
   defp build_service_task_dispatch_multi(multi, prepared_dispatches, id_map, tenant_id, prefix) do
-    Enum.reduce(prepared_dispatches, multi, fn %{token_id: token_id, arm_attrs: arm_attrs},
+    Enum.reduce(prepared_dispatches, multi, fn %{token_id: token_id, arm_attrs: arm_attrs} =
+                                                 prepared,
                                                acc_multi ->
       token_record_id = Map.fetch!(id_map, token_id)
       row_id = Ecto.UUID.generate()
 
-      attrs =
-        arm_attrs
-        |> Map.put(:id, row_id)
-        |> Map.put(:token_id, token_record_id)
-        |> Map.put(:tenant_id, tenant_id)
+      case Map.get(prepared, :kind, :http) do
+        :http ->
+          attrs =
+            arm_attrs
+            |> Map.put(:id, row_id)
+            |> Map.put(:token_id, token_record_id)
+            |> Map.put(:tenant_id, tenant_id)
 
-      Multi.insert(
-        acc_multi,
-        {:service_task_dispatch, token_record_id},
-        ServiceTaskDispatch.arm_changeset(%ServiceTaskDispatch{}, attrs),
-        prefix: prefix
-      )
+          Multi.insert(
+            acc_multi,
+            {:service_task_dispatch, token_record_id},
+            ServiceTaskDispatch.arm_changeset(%ServiceTaskDispatch{}, attrs),
+            prefix: prefix
+          )
+
+        # GH 2534 PR 7c-1 (design 4.4): a script binding's row (no tenant_id column, 0006 D2).
+        :script ->
+          attrs =
+            arm_attrs
+            |> Map.put(:id, row_id)
+            |> Map.put(:token_id, token_record_id)
+
+          Multi.insert(
+            acc_multi,
+            {:script_task_dispatch, token_record_id},
+            ScriptTaskDispatch.arm_changeset(%ScriptTaskDispatch{}, attrs),
+            prefix: prefix
+          )
+      end
     end)
   end
 
@@ -1467,9 +1576,16 @@ defmodule Letflow.Engine do
   # this wiring -- only a catalog_entry (SERVICE_TASK service_id) reference's
   # resolution outcome can differ. tenant_id (ISS-0922) scopes the catalog
   # lookup to services visible to the starting tenant.
-  @spec pin_lookup(attrs :: map(), tenant_id :: Ecto.UUID.t()) :: PinResolver.Lookup.t()
-  defp pin_lookup(attrs, tenant_id) do
-    Map.get(attrs, :pin_lookup, PinLookup.build(tenant_id))
+  #
+  # GH 2534 PR 7c-1 (design 4.3): the default lookup also carries the script registry's
+  # `script_lookup` closure for `prefix`; a caller-supplied `attrs[:pin_lookup]` is still
+  # returned unchanged (its nil `script_lookup` resolves no script binding).
+  @spec pin_lookup(attrs :: map(), tenant_id :: Ecto.UUID.t(), prefix :: String.t()) ::
+          PinResolver.Lookup.t()
+  defp pin_lookup(attrs, tenant_id, prefix) do
+    Map.get_lazy(attrs, :pin_lookup, fn ->
+      %{PinLookup.build(tenant_id) | script_lookup: Letflow.Scripts.Runtime.pin_lookup(prefix)}
+    end)
   end
 
   # design doc §8 -- attrs[:pin_overrides] surface, [] when absent.
@@ -3513,6 +3629,10 @@ defmodule Letflow.Engine do
 
       {:catalog_resolution_error, node_id, reason, _variables} ->
         {:error, {:service_task_catalog_unresolved_not_supported_for_timer_fire, node_id, reason}}
+
+      # GH 2534 PR 7c-1 (design 4.4): same treatment as the catalog case above.
+      {:script_binding_error, node_id, reason, _variables} ->
+        {:error, {:script_task_pin_unresolved_not_supported_for_timer_fire, node_id, reason}}
     end
   end
 
@@ -3694,14 +3814,14 @@ defmodule Letflow.Engine do
 
             persist_service_task_advance(
               repo,
-              dispatch,
+              dispatch_ref(dispatch),
               projection,
               graph,
               seed_state,
               state_with_merged_variables,
               active_token_records,
               own_token,
-              decoded_body,
+              http_completion(dispatch, decoded_body),
               prefix
             )
 
@@ -3729,9 +3849,69 @@ defmodule Letflow.Engine do
     end
   end
 
+  # GH 2534 PR 7c-1 (design 5.4, CDV C1): the shared advance pipeline below takes a
+  # `dispatch_ref` and a `completion` descriptor instead of `%ServiceTaskDispatch{}` and the
+  # decoded body. The HTTP call site passes exactly today's values (`http_completion/2`); the
+  # script call site (`apply_script_task_result/3`) passes its own event, idempotency key and
+  # the two extra Multi steps (run record + row terminal status) in the SAME transaction.
+  @typep dispatch_ref :: %{
+           id: Ecto.UUID.t(),
+           instance_id: Ecto.UUID.t(),
+           node_id: String.t(),
+           token_id: Ecto.UUID.t()
+         }
+  @typep completion :: %{
+           required(:event_type) => String.t(),
+           required(:event_payload) => map(),
+           required(:idempotency_key) => String.t(),
+           required(:on_advanced) => (Multi.t() -> Multi.t()),
+           required(:on_no_matching_edge) => (Multi.t() -> Multi.t()),
+           optional(:incident_variables) => map()
+         }
+
+  @spec dispatch_ref(map()) :: dispatch_ref()
+  defp dispatch_ref(dispatch) do
+    %{
+      id: dispatch.id,
+      instance_id: dispatch.instance_id,
+      node_id: dispatch.node_id,
+      token_id: dispatch.token_id
+    }
+  end
+
+  # The HTTP contract, byte-unchanged: SERVICE_TASK_COMPLETED with
+  # `%{dispatch_id, node_id, decoded_body}`, idempotency key "service_task_dispatch:<id>", no
+  # extra Multi steps.
+  @spec http_completion(ServiceTaskDispatch.t(), map()) :: completion()
+  defp http_completion(%ServiceTaskDispatch{} = dispatch, decoded_body) do
+    %{
+      event_type: "SERVICE_TASK_COMPLETED",
+      event_payload: %{
+        dispatch_id: dispatch.id,
+        node_id: dispatch.node_id,
+        decoded_body: decoded_body
+      },
+      idempotency_key: "service_task_dispatch:#{dispatch.id}",
+      on_advanced: &Function.identity/1,
+      on_no_matching_edge: &Function.identity/1
+    }
+  end
+
+  @doc false
+  # AC21 regression guard: the HTTP completion's event type, payload keys and idempotency key
+  # (pure; exposed only for the pin test).
+  @spec http_completion_shape(ServiceTaskDispatch.t(), map()) ::
+          {String.t(), [atom()], String.t()}
+  def http_completion_shape(%ServiceTaskDispatch{} = dispatch, decoded_body) do
+    completion = http_completion(dispatch, decoded_body)
+
+    {completion.event_type, completion.event_payload |> Map.keys() |> Enum.sort(),
+     completion.idempotency_key}
+  end
+
   # Mirrors find_token_for_timer/2's own defensive shape -- should be
   # unreachable given the same TokenRecord-never-deleted invariant.
-  defp find_token_for_service_task(%ServiceTaskDispatch{token_id: token_id}, tokens) do
+  defp find_token_for_service_task(%{token_id: token_id}, tokens) do
     case Enum.find(tokens, &(&1.token_id == to_string(token_id))) do
       nil -> {:error, {:unknown_token_id, token_id}}
       token -> {:ok, token}
@@ -3750,14 +3930,14 @@ defmodule Letflow.Engine do
   # domain event carrying the VariableMerge.merge/3 output.
   defp persist_service_task_advance(
          repo,
-         %ServiceTaskDispatch{} = dispatch,
+         dispatch,
          %InstanceProjection{} = projection,
          graph,
          seed_state,
          %InstanceState{} = state_with_merged_variables,
          original_active_tokens,
          own_token,
-         decoded_body,
+         completion,
          prefix
        ) do
     outgoing_edges = Enum.filter(graph.edges, &(&1.source == own_token.node_id))
@@ -3800,18 +3980,18 @@ defmodule Letflow.Engine do
               original_active_tokens,
               advanced_state,
               pending_events ++ pending_events2,
-              decoded_body,
+              completion,
               prefix
             )
 
           {:error, {:activation_failed, {:no_matching_edge, node_id, evaluated_conditions}}} ->
             persist_service_task_no_matching_edge(
               repo,
-              dispatch,
               projection,
               state_with_merged_variables,
               node_id,
               evaluated_conditions,
+              completion,
               prefix
             )
 
@@ -3822,11 +4002,11 @@ defmodule Letflow.Engine do
       {:error, {:no_matching_edge, node_id, evaluated_conditions}} ->
         persist_service_task_no_matching_edge(
           repo,
-          dispatch,
           projection,
           state_with_merged_variables,
           node_id,
           evaluated_conditions,
+          completion,
           prefix
         )
 
@@ -3850,13 +4030,18 @@ defmodule Letflow.Engine do
   # merge persistence; the dispatch row stays "advanced" (never re-armed, so
   # at-most-once HTTP dispatch is preserved). No snapshot (log replay is
   # authoritative).
+  #
+  # GH 2534 PR 7c-1: the idempotency key comes from the completion descriptor (HTTP:
+  # "service_task_dispatch:<id>", unchanged), and `on_no_matching_edge` appends the script
+  # route's run record and terminal row status AFTER the ExecutionError steps, in the same
+  # transaction (identity for HTTP).
   defp persist_service_task_no_matching_edge(
          repo,
-         %ServiceTaskDispatch{} = dispatch,
          %InstanceProjection{} = projection,
          %InstanceState{} = state_with_merged_variables,
          node_id,
          evaluated_conditions,
+         completion,
          prefix
        ) do
     error_args =
@@ -3864,14 +4049,15 @@ defmodule Letflow.Engine do
         projection.instance_id,
         node_id,
         evaluated_conditions,
-        state_with_merged_variables.variables,
+        Map.get(completion, :incident_variables, state_with_merged_variables.variables),
         EventStore.platform_actor_id(),
-        "service_task_dispatch:#{dispatch.id}"
+        completion.idempotency_key
       )
 
     multi =
       Multi.new()
       |> ExecutionError.append_multi(error_args, prefix: prefix, locked_projection: projection)
+      |> completion.on_no_matching_edge.()
 
     case repo.transaction(multi) do
       {:ok, _changes} -> {:ok, :error_set}
@@ -3913,18 +4099,18 @@ defmodule Letflow.Engine do
 
   defp do_persist_service_task_advance(
          repo,
-         %ServiceTaskDispatch{} = dispatch,
+         dispatch,
          %InstanceProjection{} = projection,
          graph,
          seed_state,
          original_active_tokens,
          %InstanceState{} = advanced_state,
          pending_events,
-         decoded_body,
+         completion,
          prefix
        ) do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
-    idempotency_key = "service_task_dispatch:#{dispatch.id}"
+    idempotency_key = completion.idempotency_key
 
     try do
       with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
@@ -4029,13 +4215,12 @@ defmodule Letflow.Engine do
                 prefix
               )
               |> Multi.run(:service_task_completed_event, fn _repo, _changes ->
-                append_service_task_completed_event(
-                  dispatch,
-                  decoded_body,
-                  idempotency_key,
-                  prefix
-                )
+                append_service_task_completed_event(dispatch, completion, prefix)
               end)
+              # GH 2534 PR 7c-1: the script route's run record and terminal row status, before
+              # :projection (the event appends need the instance still non-terminal). Identity
+              # for HTTP.
+              |> completion.on_advanced.()
               |> Multi.run(:projection, fn inner_repo, _changes ->
                 reconcile_projection(inner_repo, projection, final_instance_state, now, prefix)
               end)
@@ -4076,25 +4261,19 @@ defmodule Letflow.Engine do
   # is seeded per-tenant via tenant_provisioning.ex's own
   # @platform_event_type_seed_attrs (see that module for the seed entry
   # itself), the same mechanism TIMER_FIRED already uses.
-  defp append_service_task_completed_event(
-         %ServiceTaskDispatch{} = dispatch,
-         decoded_body,
-         idempotency_key,
-         prefix
-       ) do
-    payload =
-      Jason.encode!(%{
-        dispatch_id: dispatch.id,
-        node_id: dispatch.node_id,
-        decoded_body: decoded_body
-      })
+  #
+  # GH 2534 PR 7c-1: generalised by the completion descriptor -- HTTP passes
+  # SERVICE_TASK_COMPLETED with `%{dispatch_id, node_id, decoded_body}` (unchanged), the
+  # script route SCRIPT_TASK_COMPLETED with its section-6 payload.
+  defp append_service_task_completed_event(dispatch, completion, prefix) do
+    payload = Jason.encode!(completion.event_payload)
 
     event_attrs = %{
       instance_id: dispatch.instance_id,
-      event_type: "SERVICE_TASK_COMPLETED",
+      event_type: completion.event_type,
       payload: payload,
       actor_id: EventStore.platform_actor_id(),
-      idempotency_key: idempotency_key
+      idempotency_key: completion.idempotency_key
     }
 
     case EventStore.append(event_attrs, prefix: prefix) do
@@ -4120,6 +4299,300 @@ defmodule Letflow.Engine do
       {:error, {:instance_terminal, _status}} -> {:ok, :error_set}
       {:error, {:instance_already_error, _error_detail}} -> {:ok, :error_set}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # =========================================================================
+  # apply_script_task_result/3 (GH 2534 PR 7c-1, decision 0053 D2/F-E; design
+  # lib/letflow/design/gh2534-7c-script-handler.md 5.4, C4, C13, C16) -- the
+  # script SERVICE_TASK route's re-entry. ONE transaction: the CAS on the dispatch
+  # row (FOR UPDATE), then the projection lock (dispatch row -> projection, the
+  # order cancel_instance/3 also takes), then the instance effect AND the row's
+  # terminal status. Unlike the HTTP route (two commits), nothing here is ever
+  # committed terminal without its instance effect.
+  # =========================================================================
+
+  @doc """
+  Applies one script run's result (design 5.4). Returns `{:ok, :stale}` and writes NOTHING
+  when the CAS `(id, instance_id, node_id, attempt, status = 'running')` matches no row
+  (duplicate, late, swept or cancelled apply). An instance no longer `:active` marks the row
+  `cancelled` / `instance_not_active` with no event (C13). A success merges ONLY the declared
+  output with the definition's real variable validations and advances the token, appending
+  `SCRIPT_TASK_COMPLETED` and `SCRIPT_RUN_RECORDED` and setting the row `applied`; a failure
+  (or a merge rejection) writes the ExecutionError incident (ERROR + DLQ), the run record and
+  the row `failed`. Any `{:error, _}` rolls the whole transaction back (row stays `running`).
+  Never raises.
+  """
+  @spec apply_script_task_result(
+          ScriptTaskDispatcher.claim(),
+          ScriptTaskDispatcher.result(),
+          prefix :: String.t()
+        ) :: {:ok, :applied | :failed | :cancelled | :stale} | {:error, term()}
+  def apply_script_task_result(claim, result, prefix) when is_binary(prefix) do
+    Repo.transaction(fn ->
+      case do_apply_script_task_result(Repo, claim, normalize_script_result(result), prefix) do
+        {:ok, outcome} -> outcome
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  rescue
+    # SEC S3: nothing caught is bound, formatted or logged (a 40P01 deadlock lands here too;
+    # the dispatcher's follow-up B' then re-evaluates the same CAS).
+    _ -> {:error, :raised}
+  end
+
+  defp normalize_script_result({:ok, output, facts}),
+    do: {:ok, output, %{facts | outcome: :ok, detail: nil}}
+
+  defp normalize_script_result({:failed, code, detail, facts}),
+    do: {:failed, code, detail, %{facts | outcome: code, detail: detail}}
+
+  defp do_apply_script_task_result(repo, claim, result, prefix) do
+    ScriptTaskDispatch
+    |> ScriptTaskDispatcher.cas_query(claim)
+    |> lock("FOR UPDATE")
+    |> repo.one(prefix: prefix)
+    |> case do
+      nil ->
+        {:ok, :stale}
+
+      %ScriptTaskDispatch{} = row ->
+        # AC18a test seam (honoured only under :scripts_test_hooks): between the CAS lock and
+        # the projection lock.
+        ScriptTaskDispatcher.pause(:script_task_apply_pause, :after_cas)
+
+        case fetch_and_lock_instance_projection(repo, row.instance_id, prefix) do
+          {:ok, projection} ->
+            apply_locked_script_result(repo, row, projection, result, prefix)
+
+          {:error, _not_active_or_missing} ->
+            with {:ok, _} <-
+                   finish_script_row(
+                     repo,
+                     row,
+                     "cancelled",
+                     script_outcome_string(result),
+                     "instance_not_active",
+                     prefix
+                   ) do
+              {:ok, :cancelled}
+            end
+        end
+    end
+  end
+
+  defp script_outcome_string({:ok, _output, _facts}), do: "ok"
+  defp script_outcome_string({:failed, code, _detail, _facts}), do: Atom.to_string(code)
+
+  defp apply_locked_script_result(repo, row, projection, {:ok, output, facts}, prefix) do
+    with {:ok, graph} <- fetch_graph(row.instance_id, prefix) do
+      active_token_records = load_active_tokens(repo, row.instance_id, prefix)
+      active_tokens = Enum.map(active_token_records, &to_pure_token/1)
+
+      with {:ok, own_token} <- find_token_for_service_task(row, active_tokens) do
+        pending_task_tokens = load_pending_task_tokens(repo, row.instance_id, prefix)
+        seed_state = build_instance_state(projection, active_tokens, pending_task_tokens)
+
+        # D2: real validations from the definition's variable schema (this route only; the
+        # HTTP merge keeps nil validations).
+        case VariableSchema.variable_validations(
+               repo,
+               projection.definition_id,
+               seed_state.variables,
+               output,
+               prefix: prefix
+             ) do
+          {:error, _reason} ->
+            script_failure(repo, row, projection, :script_rejected, :apply_failed, facts, prefix)
+
+          {:ok, validations} ->
+            case VariableMerge.merge(seed_state.variables, output, validations) do
+              {:ok, merged_variables, _merge_events} ->
+                persist_service_task_advance(
+                  repo,
+                  dispatch_ref(row),
+                  projection,
+                  graph,
+                  seed_state,
+                  %InstanceState{seed_state | variables: merged_variables},
+                  active_token_records,
+                  own_token,
+                  script_completion(row, projection, output, facts, prefix),
+                  prefix
+                )
+                # R7: these three clauses are EXHAUSTIVE -- persist_service_task_advance/10
+                # returns only {:ok, :advanced}, {:ok, :error_set} or {:error, _} (its rescue
+                # folds any raise). The Elixir type checker proves it: a catch-all clause here
+                # fails compile --warnings-as-errors as unreachable.
+                |> case do
+                  {:ok, :advanced} -> {:ok, :applied}
+                  {:ok, :error_set} -> {:ok, :failed}
+                  {:error, reason} -> {:error, reason}
+                end
+
+              # The rejected value is NOT recorded anywhere (C16).
+              {:rejected, _unchanged_variables, _events} ->
+                script_failure(
+                  repo,
+                  row,
+                  projection,
+                  :output_invalid,
+                  :variable_schema_rejected,
+                  facts,
+                  prefix
+                )
+            end
+        end
+      end
+    end
+  end
+
+  defp apply_locked_script_result(repo, row, projection, {:failed, code, detail, facts}, prefix) do
+    script_failure(repo, row, projection, code, detail, facts, prefix)
+  end
+
+  # Section 6 payload; on_advanced/on_no_matching_edge add the run record and the row's
+  # terminal status to the same Multi (5.4 step 3).
+  defp script_completion(row, projection, output, facts, prefix) do
+    record = RunRecord.build(facts)
+
+    %{
+      event_type: "SCRIPT_TASK_COMPLETED",
+      event_payload: %{
+        "dispatch_id" => row.id,
+        "node_id" => row.node_id,
+        "attempt" => row.attempt,
+        "script_key" => row.script_key,
+        "script_version" => row.script_version,
+        "output" => output
+      },
+      idempotency_key: "script_task_dispatch:#{row.id}:#{row.attempt}",
+      # C16 (SEC S3): the no-matching-edge incident records the CURRENT variables, unchanged
+      # (the script output is not committed on that path).
+      incident_variables: projection.variables,
+      on_advanced: fn multi ->
+        multi
+        |> append_script_run_record_step(row, record, prefix)
+        |> finish_script_row_step(row, "applied", "ok", nil, prefix)
+      end,
+      on_no_matching_edge: fn multi ->
+        multi
+        |> append_script_run_record_step(
+          row,
+          %{record | "detail" => "no_matching_gateway_edge"},
+          prefix
+        )
+        |> finish_script_row_step(row, "failed", "ok", "no_matching_gateway_edge", prefix)
+      end
+    }
+  end
+
+  # 5.4 step 4: ExecutionError (instance ERROR + DLQ) with the C16 args -- the CURRENT
+  # variables (unchanged), a fixed reason sentence per outcome code, codes and constants only
+  # in details -- plus SCRIPT_RUN_RECORDED and the row `failed`, one nested Multi.
+  defp script_failure(repo, row, projection, code, detail, facts, prefix) do
+    facts = %{facts | outcome: code, detail: detail}
+    detail_string = detail && Atom.to_string(detail)
+
+    error_args = %{
+      instance_id: row.instance_id,
+      error_type: :script_task_failed,
+      affected: {:node, row.node_id},
+      reason: script_failure_sentence(code),
+      variables: projection.variables,
+      details: %{
+        outcome: Atom.to_string(code),
+        detail: detail_string,
+        fail_code: facts.fail_code,
+        script_key: row.script_key,
+        script_version: row.script_version,
+        attempt: row.attempt
+      },
+      actor_id: EventStore.platform_actor_id(),
+      idempotency_key: "script_task_dispatch:#{row.id}:#{row.attempt}"
+    }
+
+    multi =
+      Multi.new()
+      |> ExecutionError.append_multi(error_args, prefix: prefix, locked_projection: projection)
+      |> append_script_run_record_step(row, RunRecord.build(facts), prefix)
+      |> finish_script_row_step(row, "failed", Atom.to_string(code), detail_string, prefix)
+
+    case repo.transaction(multi) do
+      {:ok, _changes} -> {:ok, :failed}
+      {:error, _step, reason, _changes} -> {:error, reason}
+    end
+  end
+
+  defp script_failure_sentence(:script_error), do: "script service task failed: script error"
+
+  defp script_failure_sentence(:budget_exceeded),
+    do: "script service task failed: instruction budget exceeded"
+
+  defp script_failure_sentence(:memory_limit_exceeded),
+    do: "script service task failed: memory limit exceeded"
+
+  defp script_failure_sentence(:output_invalid),
+    do: "script service task failed: invalid output"
+
+  defp script_failure_sentence(:timeout), do: "script service task failed: timeout"
+
+  defp script_failure_sentence(:script_failed),
+    do: "script service task failed: the script reported a declared failure"
+
+  defp script_failure_sentence(:script_rejected),
+    do: "script service task failed: the run was rejected"
+
+  defp script_failure_sentence(:script_busy),
+    do: "script service task failed: no script capacity available"
+
+  defp append_script_run_record_step(multi, row, record, prefix) do
+    Multi.run(multi, :script_run_recorded, fn _repo, _changes ->
+      EventStore.append(
+        %{
+          instance_id: row.instance_id,
+          event_type: "SCRIPT_RUN_RECORDED",
+          payload: Jason.encode!(record),
+          actor_id: EventStore.platform_actor_id(),
+          idempotency_key: "script_run:#{row.id}:#{row.attempt}"
+        },
+        prefix: prefix
+      )
+      |> case do
+        {:ok, appended} -> {:ok, appended}
+        {:error, reason} -> {:error, {:event_append_failed, reason}}
+      end
+    end)
+  end
+
+  defp finish_script_row_step(multi, row, status, outcome, detail, prefix) do
+    Multi.run(multi, :script_task_dispatch_finish, fn repo, _changes ->
+      finish_script_row(repo, row, status, outcome, detail, prefix)
+    end)
+  end
+
+  # Under the CAS lock already held: the row's terminal status, guarded again by
+  # (id, attempt, status = 'running').
+  defp finish_script_row(repo, row, status, outcome, detail, prefix) do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    ScriptTaskDispatch
+    |> where([d], d.id == ^row.id and d.attempt == ^row.attempt and d.status == "running")
+    |> repo.update_all(
+      [
+        set: [
+          status: status,
+          outcome: outcome,
+          outcome_detail: detail,
+          finished_at: now,
+          updated_at: now
+        ]
+      ],
+      prefix: prefix
+    )
+    |> case do
+      {1, _} -> {:ok, 1}
+      _other -> {:error, :script_task_dispatch_not_running}
     end
   end
 
@@ -4493,6 +4966,9 @@ defmodule Letflow.Engine do
               {:error, {:catalog_resolution_error, error_args}} ->
                 {:ok, {:execution_error, error_args}}
 
+              {:error, {:script_binding_error, error_args}} ->
+                {:ok, {:execution_error, error_args}}
+
               {:error, reason} ->
                 {:error, reason}
             end
@@ -4559,7 +5035,8 @@ defmodule Letflow.Engine do
     # derived from the schema prefix, never from caller input (INV-PD-7).
     catalog_ctx = %{
       pin_source: {:reconstruct, projection.instance_id, prefix},
-      tenant_id: {:schema_prefix, prefix}
+      tenant_id: {:schema_prefix, prefix},
+      actor_id: actor_id
     }
 
     case prepare_service_task_dispatch(
@@ -4575,6 +5052,23 @@ defmodule Letflow.Engine do
 
       {:error, reason} ->
         {:error, reason}
+
+      # GH 2534 PR 7c-1 (design 4.4): routed into an ExecutionError like the catalog case
+      # below (the projection is already locked on this path); fixed reason sentence, the
+      # reason atom only in details.
+      {:script_binding_error, node_id, reason, variables} ->
+        error_args = %{
+          instance_id: projection.instance_id,
+          error_type: :script_task_pin_unresolved,
+          affected: {:node, node_id},
+          reason: "script service task has no usable script pin recorded for this instance",
+          variables: variables,
+          details: %{reason: reason},
+          actor_id: actor_id,
+          idempotency_key: idempotency_key
+        }
+
+        {:error, {:script_binding_error, error_args}}
 
       {:catalog_resolution_error, node_id, reason, variables} ->
         error_args =
@@ -6019,6 +6513,12 @@ defmodule Letflow.Engine do
         # before the instance_projections lock, matching every other code
         # path's lock order (avoids an AB-BA Postgres deadlock).
         ServiceTaskDispatcher.cancel_pending_dispatches(repo, instance_id, cancelled_at, prefix)
+      end)
+      |> Multi.run(:script_task_dispatch_cancellations, fn repo, _changes ->
+        # GH 2534 PR 7c-1 (design 5.6, CDV C5): the script route's pending AND running rows,
+        # same lock-order rule (dispatch row before the projection), the order
+        # apply_script_task_result/3 takes too; an ineligible cancel rolls it back.
+        ScriptTaskDispatcher.cancel_open_dispatches(repo, instance_id, cancelled_at, prefix)
       end)
       |> Multi.run(:instance_projection, fn repo, _changes ->
         fetch_and_lock_instance_projection_for_cancel(repo, instance_id, prefix)

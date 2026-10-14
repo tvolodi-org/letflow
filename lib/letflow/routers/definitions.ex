@@ -1003,7 +1003,21 @@ defmodule Letflow.Routers.Definitions do
     )
   end
 
+  # GH 2534 PR 7c-1 (decision 0053 D2; design gh2534-7c-script-handler.md 4.5): a graph binding a
+  # tenant script that is not runnable as bound. The node id is the caller's own graph; the
+  # reason is a closed code.
+  defp render_activate(conn, {:error, {:script_binding_invalid, node_id, reason}}),
+    do: script_binding_invalid(conn, node_id, reason)
+
   defp render_activate(conn, {:error, _common_error}), do: Response.internal_error(conn)
+
+  defp script_binding_invalid(conn, node_id, reason),
+    do:
+      Response.send_json(conn, 422, %{
+        "error" => "script_binding_invalid",
+        "node_id" => node_id,
+        "reason" => Atom.to_string(reason)
+      })
 
   # ── POST /definitions/:id/deprecate (REQ-082) ───────────────────────────
 
@@ -1205,6 +1219,10 @@ defmodule Letflow.Routers.Definitions do
 
   defp render_rollback(conn, {:error, :already_active}),
     do: Response.unprocessable(conn, "target_version is already the active version")
+
+  # GH 2534 PR 7c-1 (design 4.5): the re-activated graph's script bindings.
+  defp render_rollback(conn, {:error, {:script_binding_invalid, node_id, reason}}),
+    do: script_binding_invalid(conn, node_id, reason)
 
   defp render_rollback(conn, {:error, :invalid_schema_name}), do: Response.internal_error(conn)
   defp render_rollback(conn, {:error, _other}), do: Response.internal_error(conn)

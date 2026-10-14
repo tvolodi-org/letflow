@@ -174,6 +174,7 @@ defmodule Letflow.TenantFixture do
     "script_policy",
     "script_readable_masters",
     "script_rules",
+    "script_task_dispatches",
     "service_task_dispatches",
     "tasks",
     "tenant_modules",

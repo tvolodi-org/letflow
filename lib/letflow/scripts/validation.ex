@@ -72,6 +72,7 @@ defmodule Letflow.Scripts.Validation do
   defp manifest_parts(manifest) do
     with :ok <- schema(manifest["input_schema"]),
          :ok <- schema(manifest["output_schema"]),
+         :ok <- no_reserved_output_names(manifest["output_schema"]),
          :ok <- codes(manifest["fail_codes"], @max_fail_codes),
          :ok <- limits(Map.get(manifest, "limits", %{})),
          :ok <- restricted(Map.get(manifest, "restricted_inputs", []), manifest["input_schema"]),
@@ -81,6 +82,14 @@ defmodule Letflow.Scripts.Validation do
       _ -> {:error, :invalid_manifest}
     end
   end
+
+  # GH 2534 PR 7c-1 (C11): the top-level output key namespace `$` is reserved for host channels
+  # (the designated future channel is `$writes`), so no output property may be named `$...`.
+  defp no_reserved_output_names(%{"properties" => props}) when is_map(props) do
+    if Enum.any?(Map.keys(props), &match?("$" <> _, &1)), do: :error, else: :ok
+  end
+
+  defp no_reserved_output_names(_schema), do: :ok
 
   defp codes(list, max) when is_list(list) do
     if length(list) <= max and Enum.uniq(list) == list and

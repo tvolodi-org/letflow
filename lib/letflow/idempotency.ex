@@ -65,6 +65,9 @@ defmodule Letflow.Idempotency do
     "escalation_timer_fired:",
     "service_task_dispatch:",
     "service_task:",
+    # GH 2534 PR 7c-1: the script SERVICE_TASK route (engine.ex apply_script_task_result/3).
+    "script_task_dispatch:",
+    "script_run:",
     "certificate:issue:",
     "entities-record-import:",
     "attachment_attached:",

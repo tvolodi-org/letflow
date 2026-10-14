@@ -684,7 +684,13 @@ defmodule Letflow.TenantProvisioning do
     # REQ-497 / GH #2533 PR 1a (decision 0051 D1): role_scope_grants with its backfill and
     # T9 assert.
     {20_261_015_025_331, Letflow.Repo.Migrations.CreateRoleScopeGrants,
-     "20261015025331_create_role_scope_grants.exs"}
+     "20261015025331_create_role_scope_grants.exs"},
+    # GH 2534 PR 7c-1 (decision 0053 D2, F-E): the script SERVICE_TASK dispatch table, and the
+    # read-only trigger retiring lua_script_execution_audit (C17).
+    {20_261_015_100_001, Letflow.Repo.Migrations.CreateScriptTaskDispatches,
+     "20261015100001_create_script_task_dispatches.exs"},
+    {20_261_015_100_002, Letflow.Repo.Migrations.LuaScriptAuditReadOnly,
+     "20261015100002_lua_script_audit_read_only.exs"}
   ]
 
   @doc """
@@ -1276,6 +1282,100 @@ defmodule Letflow.TenantProvisioning do
           "byte_size" => %{"type" => "integer"}
         },
         "required" => ["attachment_id", "file_name", "content_type", "byte_size"]
+      }
+    },
+    # GH 2534 PR 7c-1 (decision 0053 D5, D9; design gh2534-7c-script-handler.md section 6):
+    # the applied output of a tenant-script SERVICE_TASK (the replay source) and the value-free
+    # per-run record. Both closed (additionalProperties false, every key required).
+    %{
+      name: "SCRIPT_TASK_COMPLETED",
+      schema_version: 1,
+      description:
+        "Emitted by Letflow.Engine.apply_script_task_result/3 (GH 2534 7c) when a script " <>
+          "SERVICE_TASK's declared output is merged into the instance variables.",
+      json_schema: %{
+        "type" => "object",
+        "properties" => %{
+          "dispatch_id" => %{"type" => "string"},
+          "node_id" => %{"type" => "string"},
+          "attempt" => %{"type" => "integer"},
+          "script_key" => %{"type" => "string"},
+          "script_version" => %{"type" => "integer"},
+          "output" => %{"type" => "object"}
+        },
+        "required" => [
+          "dispatch_id",
+          "node_id",
+          "attempt",
+          "script_key",
+          "script_version",
+          "output"
+        ],
+        "additionalProperties" => false
+      }
+    },
+    %{
+      name: "SCRIPT_RUN_RECORDED",
+      schema_version: 1,
+      description:
+        "Emitted by Letflow.Engine.apply_script_task_result/3 (GH 2534 7c): the value-free " <>
+          "per-run record of one terminal script SERVICE_TASK attempt.",
+      json_schema: %{
+        "type" => "object",
+        "properties" => %{
+          "dispatch_id" => %{"type" => "string"},
+          "node_id" => %{"type" => "string"},
+          "attempt" => %{"type" => "integer"},
+          "script_key" => %{"type" => "string"},
+          "script_version" => %{"type" => "integer"},
+          "script_sha256" => %{"type" => "string"},
+          "phase" => %{"type" => "string", "enum" => ["rejected", "ran", "lease_expired"]},
+          "outcome" => %{
+            "type" => "string",
+            "enum" => [
+              "ok",
+              "script_error",
+              "budget_exceeded",
+              "memory_limit_exceeded",
+              "output_invalid",
+              "timeout",
+              "script_failed",
+              "script_rejected",
+              "script_busy"
+            ]
+          },
+          "detail" => %{"type" => ["string", "null"]},
+          "fail_code" => %{"type" => ["string", "null"]},
+          "input_hmac" => %{"type" => ["string", "null"]},
+          "input_hmac_key_version" => %{"type" => ["integer", "null"]},
+          "duration_us" => %{"type" => ["integer", "null"]},
+          "instructions_used" => %{"type" => ["integer", "null"]},
+          "heap_words" => %{"type" => ["integer", "null"]},
+          "input_dropped" => %{"type" => ["integer", "null"]},
+          "principal" => %{"type" => "string"},
+          "triggering_user_id" => %{"type" => ["string", "null"]}
+        },
+        "required" => [
+          "dispatch_id",
+          "node_id",
+          "attempt",
+          "script_key",
+          "script_version",
+          "script_sha256",
+          "phase",
+          "outcome",
+          "detail",
+          "fail_code",
+          "input_hmac",
+          "input_hmac_key_version",
+          "duration_us",
+          "instructions_used",
+          "heap_words",
+          "input_dropped",
+          "principal",
+          "triggering_user_id"
+        ],
+        "additionalProperties" => false
       }
     }
   ]

@@ -231,6 +231,8 @@ defmodule Letflow.Definitions.Graph do
             | :edge_limit_exceeded
             | :missing_role
             | :missing_endpoint
+            | :invalid_script_reference
+            | :conflicting_service_task_routes
             | :invalid_timeout
             | :invalid_duration
             | :missing_edge_condition
@@ -457,6 +459,7 @@ defmodule Letflow.Definitions.Graph do
       [
         &check_human_task_role/1,
         &check_service_task_endpoint/1,
+        &check_service_task_script_reference/1,
         &check_service_task_timeout/1,
         &check_timer_duration/1,
         &check_sub_process_interface/1,
@@ -983,6 +986,9 @@ defmodule Letflow.Definitions.Graph do
     |> Enum.filter(&(&1.node_type == :SERVICE_TASK))
     |> Enum.filter(&blank_or_missing_string?(&1.attributes, "endpoint"))
     |> Enum.filter(&blank_or_missing_string?(&1.attributes, "service_id"))
+    # GH 2534 PR 7c-1 (design gh2534-7c-script-handler.md 4.2): a script binding is the third
+    # alternative route; its own shape is CHK-10s below.
+    |> Enum.filter(&(attribute_value(&1.attributes, "script_key") == nil))
     |> Enum.map(fn node ->
       %Violation{
         code: :missing_endpoint,
@@ -993,6 +999,56 @@ defmodule Letflow.Definitions.Graph do
     end)
   end
 
+  # CHK-10s (GH 2534 PR 7c-1, design gh2534-7c-script-handler.md 4.2): a SERVICE_TASK node
+  # carrying "script_key" binds a tenant script: the key must match ^[a-z][a-z0-9_]{0,63}$, the
+  # "script_version" must be an integer >= 1, and the node must not also carry a non-empty
+  # "endpoint" or "service_id". Messages name the node id only (never the attribute values).
+  # The ONE script-key rule is Letflow.Scripts.Validation.key?/1 (a leaf module: no back-edge
+  # to Definitions, so no cycle; REVIEWER R5).
+
+  @spec check_service_task_script_reference(t()) :: [Violation.t()]
+  defp check_service_task_script_reference(%__MODULE__{nodes: nodes}) do
+    nodes
+    |> Enum.filter(&(&1.node_type == :SERVICE_TASK))
+    |> Enum.reject(&(attribute_value(&1.attributes, "script_key") == nil))
+    |> Enum.flat_map(fn node ->
+      key = attribute_value(node.attributes, "script_key")
+      version = attribute_value(node.attributes, "script_version")
+
+      reference =
+        if Letflow.Scripts.Validation.key?(key) and is_integer(version) and
+             version >= 1 do
+          []
+        else
+          [
+            %Violation{
+              code: :invalid_script_reference,
+              message:
+                "Node '#{node.id}' (SERVICE_TASK) has an invalid 'script_key'/'script_version' " <>
+                  "pair (key ^[a-z][a-z0-9_]{0,63}$, version an integer >= 1)"
+            }
+          ]
+        end
+
+      conflict =
+        if blank_or_missing_string?(node.attributes, "endpoint") and
+             blank_or_missing_string?(node.attributes, "service_id") do
+          []
+        else
+          [
+            %Violation{
+              code: :conflicting_service_task_routes,
+              message:
+                "Node '#{node.id}' (SERVICE_TASK) binds a script and also carries an " <>
+                  "'endpoint' or 'service_id'"
+            }
+          ]
+        end
+
+      reference ++ conflict
+    end)
+  end
+
   # CHK-11: a SERVICE_TASK node's "timeout_ms" attribute must be an integer
   # (no numeric-string/float coercion, design doc §2's pinned value-type
   # table) in the inclusive range 1..300_000 (design doc §4.2).
@@ -1000,6 +1056,9 @@ defmodule Letflow.Definitions.Graph do
   defp check_service_task_timeout(%__MODULE__{nodes: nodes}) do
     nodes
     |> Enum.filter(&(&1.node_type == :SERVICE_TASK))
+    # GH 2534 PR 7c-1: a script-bound node ignores timeout_ms (the manifest's limits govern,
+    # design 4.1), so CHK-11 does not apply to it.
+    |> Enum.filter(&(attribute_value(&1.attributes, "script_key") == nil))
     |> Enum.filter(&invalid_timeout?(&1.attributes))
     |> Enum.map(fn node ->
       value = attribute_value(node.attributes, "timeout_ms")

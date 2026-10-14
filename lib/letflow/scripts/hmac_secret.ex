@@ -67,4 +67,66 @@ defmodule Letflow.Scripts.HmacSecret do
       )
     )
   end
+
+  # ── 7c-1: the run-time HMAC (design gh2534-7c-script-handler.md 7.2, C14, C15) ──────────
+
+  @typedoc """
+  HMAC-SHA256 of `bytes` under the tenant key, as lowercase hex plus the secret's `key_id`.
+  Every crypto failure inside is a fixed `{:error, :hmac_failed}`.
+  """
+  @type hmac_fun :: (binary() ->
+                       {:ok, {key_version :: pos_integer(), hex :: String.t()}}
+                       | {:error, :hmac_failed})
+
+  @doc """
+  The tenant's newest active HMAC key, kept inside a closure (`build_hmac_fun/2`) so the
+  plaintext never appears as a function argument (a crash report prints arguments, not closure
+  captures). Every non-`{:ok, _}` outcome of the lookups, and any raise, is
+  `{:error, :missing}`: never a bare match, so no `MatchError` can carry the plaintext into a
+  log (SEC S3). NEVER calls `ensure/1` or `Letflow.Secrets.put/2` (D9 / advisor Q11: a key is
+  never created lazily on the run path). Still the ONLY `platform: true` caller.
+  """
+  @spec hmac_fun(Ecto.UUID.t()) :: {:ok, hmac_fun()} | {:error, :missing}
+  def hmac_fun(tenant_id) when is_binary(tenant_id) do
+    case Letflow.Identity.get_tenant(tenant_id) do
+      {:ok, %{slug: slug}} when is_binary(slug) -> resolve_key(tenant_id, slug)
+      _not_found -> {:error, :missing}
+    end
+  rescue
+    _ -> {:error, :missing}
+  end
+
+  def hmac_fun(_tenant_id), do: {:error, :missing}
+
+  defp resolve_key(tenant_id, slug) do
+    case Secrets.resolve("sec://tenant/#{slug}/#{@namespace}/#{@name}",
+           tenant_id: tenant_id,
+           consumer: :script_runner,
+           platform: true
+         ) do
+      {:ok, %{plaintext: key, key_id: key_id}} when is_binary(key) and is_integer(key_id) ->
+        {:ok, build_hmac_fun(key, key_id)}
+
+      _disabled_deleted_or_absent ->
+        {:error, :missing}
+    end
+  end
+
+  @doc false
+  # Pure: the closure over `key`. `hmac_fun/1` is its only production caller; the AC12
+  # crypto-fault test builds one over a non-binary key through the dispatcher's test seam. The
+  # rescue binds neither the exception nor the stacktrace.
+  @spec build_hmac_fun(term(), pos_integer()) :: hmac_fun()
+  def build_hmac_fun(key, key_id) do
+    fn bytes ->
+      try do
+        mac = :crypto.mac(:hmac, :sha256, key, bytes)
+        {:ok, {key_id, Base.encode16(mac, case: :lower)}}
+      rescue
+        _ -> {:error, :hmac_failed}
+      catch
+        _, _ -> {:error, :hmac_failed}
+      end
+    end
+  end
 end

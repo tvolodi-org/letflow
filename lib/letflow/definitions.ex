@@ -746,6 +746,8 @@ defmodule Letflow.Definitions do
           | {:error, {:service_scope_violation, reason :: term()}}
           | {:error, {:semantic_validation_failed, [Graph.Violation.t()]}}
           | {:error, {:semantic_validation_precondition_failed, term()}}
+          | {:error,
+             {:script_binding_invalid, String.t(), Letflow.Scripts.Runtime.binding_reason()}}
           | common_error()
   def activate(id, opts) when is_list(opts) do
     prefix = Keyword.get(opts, :prefix)
@@ -2326,8 +2328,10 @@ defmodule Letflow.Definitions do
         %ProcessDefinition{status: :draft} = definition ->
           case run_service_scope_validator(definition, tenant_id, validator) do
             :ok ->
-              case run_semantic_validation(definition, prefix) do
-                :ok -> activate_draft(definition, prefix, tenant_id)
+              with :ok <- run_semantic_validation(definition, prefix),
+                   :ok <- check_script_bindings(definition, prefix) do
+                activate_draft(definition, prefix, tenant_id)
+              else
                 {:error, reason} -> Repo.rollback(reason)
               end
 
@@ -2336,6 +2340,24 @@ defmodule Letflow.Definitions do
           end
       end
     end)
+  end
+
+  # GH 2534 PR 7c-1 (decision 0053 D2; design gh2534-7c-script-handler.md 4.5, C8): every
+  # tenant-script binding of the graph must be a published service_task version with a closed
+  # output schema, no restricted opt-in and (7c-1) no reads. Runs INSIDE the activating
+  # transaction (it reads the bound script_rules rows FOR SHARE, serialising with a retire),
+  # before the status write. Shared by activate/2, promotion and version rollback.
+  @doc false
+  @spec check_script_bindings(ProcessDefinition.t() | map(), String.t()) ::
+          :ok
+          | {:error, :graph_structure_invalid}
+          | {:error,
+             {:script_binding_invalid, String.t(), Letflow.Scripts.Runtime.binding_reason()}}
+  def check_script_bindings(%{graph: graph_map}, prefix) do
+    case Graph.from_map(graph_map) do
+      {:ok, graph} -> Letflow.Scripts.Runtime.check_bindings(graph, prefix)
+      :error -> {:error, :graph_structure_invalid}
+    end
   end
 
   defp run_service_scope_validator(_definition, _tenant_id, nil), do: :ok
@@ -2486,6 +2508,10 @@ defmodule Letflow.Definitions do
   # on activate/2's own outer rescue to catch a FunctionClauseError here
   # (INV-8 -- typed, not incidental).
   defp interpret_activate_result({:error, {:sequence_conflict, _reason}} = error), do: error
+
+  # GH 2534 PR 7c-1 (design 4.5): the script-binding refusal, a pure pass-through.
+  defp interpret_activate_result({:error, {:script_binding_invalid, _node_id, _reason}} = error),
+    do: error
 
   # -----------------------------------------------------------------------------------
   # deprecate/2 & archive/2 helpers (design §6.3) -- identical shape, different
@@ -2654,7 +2680,12 @@ defmodule Letflow.Definitions do
           if is_nil(target_row) do
             Repo.rollback(:version_never_active)
           else
-            swap_active_pointer(current_active, target_row, prefix)
+            # GH 2534 PR 7c-1 (design 4.5): the re-activated graph's script bindings, inside
+            # this transaction, before the pointer swap.
+            case check_script_bindings(target_row, prefix) do
+              :ok -> swap_active_pointer(current_active, target_row, prefix)
+              {:error, reason} -> Repo.rollback(reason)
+            end
           end
       end
     end)

@@ -45,6 +45,7 @@ defmodule Letflow.Supervisor.PollersTest do
   test "AC7: Letflow.Supervisor.Pollers has zero children under config/test.exs's current gates" do
     refute Application.get_env(:letflow, :start_scheduler, true)
     refute Application.get_env(:letflow, :start_service_task_dispatcher, true)
+    refute Application.get_env(:letflow, :start_script_task_dispatcher, true)
 
     assert Process.whereis(Letflow.Supervisor.Pollers) != nil
     assert Supervisor.which_children(Letflow.Supervisor.Pollers) == []
@@ -80,6 +81,26 @@ defmodule Letflow.Supervisor.PollersTest do
 
     ids = Enum.map(children, & &1.id)
     assert ids == [Letflow.Scheduler.Poller, Letflow.Engine.ServiceTaskDispatcher.Poller]
+  end
+
+  test "GH 2534 7c-1: the script poller is a third, independently gated child (pure init/1)" do
+    keys = [:start_scheduler, :start_service_task_dispatcher, :start_script_task_dispatcher]
+    originals = Map.new(keys, &{&1, Application.get_env(:letflow, &1, true)})
+
+    on_exit(fn -> Enum.each(originals, fn {k, v} -> Application.put_env(:letflow, k, v) end) end)
+
+    Enum.each(keys, &Application.put_env(:letflow, &1, true))
+    {:ok, {_flags, children}} = Letflow.Supervisor.Pollers.init(nil)
+
+    assert Enum.map(children, & &1.id) == [
+             Letflow.Scheduler.Poller,
+             Letflow.Engine.ServiceTaskDispatcher.Poller,
+             Letflow.Engine.ScriptTaskDispatcher.Poller
+           ]
+
+    Application.put_env(:letflow, :start_script_task_dispatcher, false)
+    {:ok, {_flags, children}} = Letflow.Supervisor.Pollers.init(nil)
+    refute Letflow.Engine.ScriptTaskDispatcher.Poller in Enum.map(children, & &1.id)
   end
 
   describe "AC4: crash-loop isolation" do
