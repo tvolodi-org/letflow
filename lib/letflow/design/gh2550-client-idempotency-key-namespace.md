@@ -1,6 +1,6 @@
 # GH #2550 — client idempotency keys get their own namespace
 
-Status: design, rework 1 (validator B1-B4, N1-N4; supervisor ruling on legacy keys). Base:
+Status: design, rework 2 (validator B1-B4, N1-N4, NB1-NB2, N5-N8; supervisor ruling on legacy keys); CODE-DESIGN-VALIDATOR PASS round 3. Base:
 origin/main 1465df2a (contains #2543). Gates: SECURITY-REVIEWER (INV-1, INV-5), REVIEWER.
 
 ## 0. Problem, verified
