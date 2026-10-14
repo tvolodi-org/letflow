@@ -129,6 +129,13 @@ A script is `function(input) -> output`. Input is schema-validated JSON built by
 * Drafts are never hard-deleted: DELETE discards, version numbers are never reused, and the contributors of discarded drafts still count for SoD.
 * Source read by `AuditRead` holders (D9) is tracked as GH #2548.
 
+**7c rulings (2026-10-15, ruled by the supervisor/advisor from letflow-4's 7c design).**
+
+* **C10 interim limit (amends the D5 "Input redaction" bullet until lifted).** A script that opts into RESTRICTED entity fields is refused at activation, because process variables carry no field restrictions. Restricted fields that are not opted in are omitted from the delivered row. The limit lifts when variables can carry restrictions.
+* **7c ships as two PRs under GH #2534.**
+  * **7c-1:** the dispatcher, CAS, pin, run record, kill switch, output and write checks, events and replay, `LuaScriptAudit` retirement, the example, and the backfill re-run test. A script that declares reads is refused at activation until 7c-2.
+  * **7c-2:** the read port, run-time `check_reads`, redaction and N1. 7c-2 closes #2534.
+
 ### D7. Limits and failure (hook 1 binding)
 
 Per run, from the manifest, clamped by platform maxima (figures stay targets, ruled by the advisor, Q11: the implementing requirement measures `Sandbox.new` plus spawn cost and sets defaults, and must not exceed the D7 maxima without a new ruling; F11): instruction budget; wall clock, default 1_000 ms, maximum 5_000 ms (pure computation needs no more; this deliberately does not raise the held-connection budget of F3); heap `max_heap_size` mandatory, never nil; `max_string_bytes` passed to `Lua.new` at default 1 MiB (platform max set by the requirement; the library default is 256 MiB); output byte cap default 64 KiB; row and call caps for reads. `max_heap_size` by default does not count off-heap refc binaries; the task sets `include_shared_binaries => true` in the flag map when the OTP supports it. Checked: `.tool-versions` pins erlang 29.0.5 (CI reads it, `ci.yml:68-69`), and `erlang:process_flag(max_heap_size, #{..., include_shared_binaries => true})` was ACCEPTED by the local OTP 29 (no `badarg`). That it actually bounds a refc-binary-heavy script was NOT run: NOT VERIFIED, acceptance test required. Whatever the flag does, the HOST enforces `max_string_bytes` and the output cap anyway (MUST 2). A test: a doubling `string.rep` loop is rejected far below host memory.
