@@ -64,6 +64,14 @@ Neither slice needs a core change.
 
 **WMS slice 5 (stock ledger) starts after "process step writes entity" (0054, Accepted).**
 
+**Hard ordering blocker for slice 5** (supervisor ruling, 2026-10-15): no stock-ledger implementation starts, and no ledger entity type is installed in any tenant, until all four hold:
+1. REQ-499 (GH #2587, process step writes entity, 0054) has merged; it replaces the local WMS draft REQ-484;
+2. REQ-501 (GH #2590, module write handlers; 0054 option A: a managed type is written by a step only through a handler its module registers) has merged;
+3. GH #2583 (core `Records` callers bypass the `managed_by` route guard) has merged;
+4. the ledger type declares `managed_by` (`manages_entity_types`), and its posting runs in a write handler of its module, never as a declarative `entity_write`.
+
+A stock ledger writable through the generic route would bypass every module check.
+
 ## Wave 3: breadth of configuration
 
 | Item | DR | Notes |
