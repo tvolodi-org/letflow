@@ -1992,7 +1992,9 @@ defmodule Letflow.Entities.RecordsTest do
       %{schema_name: schema} = provisioned_tenant()
       create_active_definition!(schema)
 
-      for bad <- [:bogus, "target"] do
+      # nil is not the default: an explicit nil is not :request (Map.get/3
+      # only defaults a missing key), so it raises like any other value.
+      for bad <- [:bogus, "target", nil] do
         assert_raise ArgumentError, ~r/idempotency_match/, fn ->
           Records.create_record(create_attrs(%{idempotency_match: bad}), schema)
         end
@@ -2007,6 +2009,47 @@ defmodule Letflow.Entities.RecordsTest do
       end
 
       assert gh2543_event_count(schema) == 0
+    end
+
+    test "update/delete ignore idempotency_match: :target still binds update field_values, :bogus does not raise" do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      {:ok, %{record: created}} = Records.create_record(create_attrs(), schema)
+      actor_id = Ecto.UUID.generate()
+      key = Ecto.UUID.generate()
+
+      first =
+        created.record_id
+        |> gh2543_update_attrs(actor_id, key, "One")
+        |> Map.put(:idempotency_match, :target)
+
+      assert {:ok, %{record: one, is_duplicate: false}} = Records.update_record(first, schema)
+      events_before = gh2543_event_count(schema)
+
+      # :target is create-only: an update with the same key and other values
+      # is still a reuse, never the original returned as a duplicate.
+      assert {:error, :idempotency_key_reuse} =
+               Records.update_record(
+                 %{first | field_values: %{"customer_name" => "Two", "age" => 1}},
+                 schema
+               )
+
+      stored = gh2528_latest!(schema, created.record_id)
+      assert stored.field_values["customer_name"] == "One"
+      assert stored.last_event_global_seq == one.last_event_global_seq
+
+      # Not read at all: a value create_record/2 rejects does not raise here.
+      assert {:ok, %{is_duplicate: true}} =
+               Records.update_record(%{first | idempotency_match: :bogus}, schema)
+
+      assert gh2543_event_count(schema) == events_before
+
+      delete_attrs =
+        created.record_id
+        |> gh2543_delete_attrs(actor_id, Ecto.UUID.generate())
+        |> Map.put(:idempotency_match, :bogus)
+
+      assert {:ok, %{record: %{deleted: true}}} = Records.delete_record(delete_attrs, schema)
     end
 
     test "reused key on an append-only type -> entity_append_only" do
