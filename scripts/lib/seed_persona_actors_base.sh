@@ -298,7 +298,8 @@ persona_run() {
     echo "       Part A = the Keycloak account (ai-dala-infra/scripts/qa-login.sh). letflow only creates the user when that" >&2
     echo "       account makes its first authenticated request: sign in as it once, or send one authenticated" >&2
     echo "       GET ${QA_URL}/api/v1/me/memberships with its token." >&2
-    echo "       Then re-run: QA_AUTH_TOKEN=<token> bash scripts/seed_${tenant_label}_persona_actors.sh" >&2
+    echo "       Then re-run, with the PLATFORM_ADMIN token (not the persona's):" >&2
+    echo "       QA_URL=${QA_URL} QA_AUTH_TOKEN=<token> bash scripts/seed_${tenant_label}_persona_actors.sh" >&2
     echo "       (safe to repeat: memberships that already exist answer 200 and are left alone)." >&2
     return 1
   fi
