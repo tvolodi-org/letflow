@@ -75,7 +75,7 @@ defmodule Letflow.Supervisor.InfrastructureTest do
     refute Letflow.Scheduler.Poller in ids
   end
 
-  test "Letflow.Supervisor.Infrastructure owns the 23 expected children, in order" do
+  test "Letflow.Supervisor.Infrastructure owns the 24 expected children, in order" do
     children = Supervisor.which_children(Letflow.Supervisor.Infrastructure)
 
     ids =
@@ -115,6 +115,9 @@ defmodule Letflow.Supervisor.InfrastructureTest do
              Letflow.Engine.Wasm.InvocationLease,
              Letflow.Engine.PluginRegistry,
              Letflow.Engine.Lua.TaskSupervisor,
+             # GH 2534 (decision 0053 D8): the tenant-script admission server, a second
+             # Letflow.Admission with monitor_callers: true, beside the Lua TaskSupervisor.
+             Letflow.Engine.Lua.ScriptAdmission,
              Letflow.Engine.Wasm.ModuleRegistryTaskSupervisor,
              Letflow.Engine.Wasm.CapabilityGateTaskSupervisor,
              Letflow.Engine.Wasm.ModuleVersionRegistry,
@@ -130,7 +133,7 @@ defmodule Letflow.Supervisor.InfrastructureTest do
              Letflow.Obs.Alerts.TaskSupervisor
            ]
 
-    assert length(ids) == 23
+    assert length(ids) == 24
   end
 
   test "ISS-0224: SandboxPool.TaskSupervisor precedes SandboxPool" do

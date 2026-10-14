@@ -67,14 +67,16 @@ defmodule Letflow.Supervisor.Infrastructure do
   14. `Letflow.Engine.Wasm.InvocationLease`
   15. `Letflow.Engine.PluginRegistry`
   16. `Letflow.Engine.Lua.TaskSupervisor`
-  17. `Letflow.Engine.Wasm.ModuleRegistryTaskSupervisor`
-  18. `Letflow.Engine.Wasm.CapabilityGateTaskSupervisor`
-  19. `Letflow.Engine.Wasm.ModuleVersionRegistry`
-  20. `Letflow.Engine.Wasm.ModuleVersionRegistryTaskSupervisor`
-  21. `Letflow.EventStore.RetirementTaskSupervisor`
-  22. `Letflow.LoginDiscovery.TaskSupervisor` (REQ-437: off-request-path
+  17. `Letflow.Engine.Lua.ScriptAdmission` (GH 2534: a `Letflow.Admission` instance with
+      `monitor_callers: true` for tenant scripts, decision 0053 D8)
+  18. `Letflow.Engine.Wasm.ModuleRegistryTaskSupervisor`
+  19. `Letflow.Engine.Wasm.CapabilityGateTaskSupervisor`
+  20. `Letflow.Engine.Wasm.ModuleVersionRegistry`
+  21. `Letflow.Engine.Wasm.ModuleVersionRegistryTaskSupervisor`
+  22. `Letflow.EventStore.RetirementTaskSupervisor`
+  23. `Letflow.LoginDiscovery.TaskSupervisor` (REQ-437: off-request-path
       notifier tasks of the login-discovery endpoint)
-  23. `Letflow.Obs.Alerts.TaskSupervisor`
+  24. `Letflow.Obs.Alerts.TaskSupervisor`
 
   ## Ordering guarantees preserved (both load-bearing, unchanged from
   `Letflow.Application`'s own prior flat list)
@@ -85,7 +87,7 @@ defmodule Letflow.Supervisor.Infrastructure do
       `Task.Supervisor.async_nolink/3`; registering it after its dependant
       would leave a window in which a `claim/2` call exits `:noproc` inside
       a pool callback and kills the pool.
-    * ISS-0429: child 23 (`Obs.Alerts.TaskSupervisor`) is the LAST child of
+    * ISS-0429: child 24 (`Obs.Alerts.TaskSupervisor`) is the LAST child of
       this supervisor. Its "must precede either Poller's first tick"
       guarantee is now a SUPERVISOR-BOUNDARY guarantee, not merely a
       list-position fact: `Letflow.Supervisor.Pollers` is started only
@@ -290,6 +292,11 @@ defmodule Letflow.Supervisor.Infrastructure do
       # for why sharing it would conflate two independently-reasoned-about
       # subsystems. No other child depends on start order here.
       {Task.Supervisor, name: Letflow.Engine.Lua.TaskSupervisor},
+      # GH 2534 / decision 0053 D8: the tenant-script admission server, a second
+      # Letflow.Admission instance with opt-in caller monitoring (the per-run watchdog is
+      # the slot holder; its death releases the slot). Distinct name and child id; sized
+      # below the Repo pool; no start-order dependency (it makes no Repo call).
+      script_admission_child_spec(),
       # REQ-166: dedicated Task.Supervisor for ModuleRegistry.register/1's
       # stage-2 real instantiation attempt (design
       # req166-wasm-module-abi-validation.md §2.2/§1.5) -- an unresolved-import
@@ -382,4 +389,23 @@ defmodule Letflow.Supervisor.Infrastructure do
   # already covers local dev/test via README's `mix ecto.setup` /
   # the `test` alias in mix.exs, and RELEASE_NAME is unset in both.
   defp skip_migrations?, do: System.get_env("RELEASE_NAME") == nil
+
+  # GH 2534 / 0053 D8: slots = min(configured || 8, repo_pool - 2), at least 1. Started with
+  # reserved_headroom 1 and pool_size slots + 1 so global_cap == slots (Admission computes
+  # global_cap = pool_size - reserved_headroom) and reserved_headroom stays a pos_integer.
+  @doc false
+  def script_admission_child_spec do
+    repo_pool = Application.fetch_env!(:letflow, Letflow.Repo)[:pool_size] || 10
+    configured = Application.get_env(:letflow, :script_admission_slots) || 8
+    slots = max(min(configured, repo_pool - 2), 1)
+
+    Supervisor.child_spec(
+      {Letflow.Admission,
+       name: Letflow.Engine.Lua.ScriptAdmission,
+       monitor_callers: true,
+       pool_size: slots + 1,
+       reserved_headroom: 1},
+      id: Letflow.Engine.Lua.ScriptAdmission
+    )
+  end
 end
