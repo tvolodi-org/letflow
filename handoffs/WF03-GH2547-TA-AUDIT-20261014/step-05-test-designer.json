@@ -1,0 +1,67 @@
+{
+  "handoff_id": "c4a7d1e0-2547-4a11-8c20-000000000005",
+  "run_id": "WF03-GH2547-TA-AUDIT-20261014",
+  "workflow_id": "WF-03",
+  "step": "05",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGNER",
+  "file": "handoffs/WF03-GH2547-TA-AUDIT-20261014/step-05-test-designer.json",
+  "created_at": "2026-10-14T16:18:16Z",
+  "started_at": "2026-10-14T16:25:35Z",
+  "completed_at": "2026-10-14T16:52:25Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2547": "Write the tests lib/letflow/design/gh2547-tenant-admin-audit-and-count.md specifies (T-01..T-36 incl. T-19, T-19b, T-19c, plus section 10c), fix existing tests broken by the new audit writes (fixture only), write test/specs/GH-2547.md. Do not edit lib/ (ELIXIR-DEV is editing identity.ex). Memory-gated test runs."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-2547-4a11-8c20-000000000001",
+      "c4a7d1e0-2547-4a11-8c20-000000000004"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/gh2547-tenant-admin-audit-and-count.md",
+      "handoffs/WF03-GH2547-TA-AUDIT-20261014/step-04-elixir-dev.json",
+      "lib/letflow/identity.ex",
+      "lib/letflow/identity/audit_context.ex",
+      "lib/letflow/routers/identity.ex",
+      "lib/letflow/plugs/auth_pipeline.ex",
+      "lib/letflow/identity/role_registry.ex",
+      "lib/letflow/identity/pending_admin_grants.ex",
+      "lib/letflow/identity/tenant_admin_migration.ex",
+      "lib/letflow/identity/role_backfill.ex"
+    ],
+    "owned_modules": [
+      "test/letflow/routers/identity_gh2547_audit_test.exs",
+      "test/letflow/identity/gh2547_ta_audit_paths_test.exs",
+      "test/letflow/identity/tenant_wide_admins_test.exs",
+      "test/letflow/identity/audit_context_test.exs",
+      "test/letflow/identity/pending_admin_binding_test.exs",
+      "test/specs/GH-2547.md"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF03-GH2547-TA-AUDIT-20261014"
+  },
+  "task": {
+    "description": "WF-03 step 5 test design for GH #2547. Next: TEST-DESIGN-VALIDATOR (re-apply one reported mutant), then TEST-RUNNER (including T-29 batch B, not run here)."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "TESTS WRITTEN AND RUN (uncommitted; lib/ untouched). 76 new tests in 4 files covering design section 8 T-01..T-36 (incl. T-19, T-19b, T-19c) and section 10c (SEC-A4, SEC-A5, SEC-A6, delete_group/2): routers/identity_gh2547_audit_test.exs 18 (T-01 router_conn + full pipeline with x-trace-id header, T-02..T-09, T-14a/b + T-30 key pins, T-19 HTTP raise via audit_entries trigger -> 500 with nothing changed, T-19c HTTP 300-byte and mid-codepoint headers -> 201 with 255-char / nil trace); identity/gh2547_ta_audit_paths_test.exs 25 (T-10 and T-11 through the real Letflow.Router pipeline with x-trace-id, T-12 RoleBackfill incl. return shape and Logger trace restore, T-13 migration one generated trace + role_binding.created over a pre-populated TA group, T-15/T-16 no-strip, T-17 exactly one event per chain, T-18 opt-out + lib source scan, T-19 non-raising via a real schema rename (renamed back in after) for add/remove/upsert/sync and raising via trigger for sync (i), (ii) SEC-A3 second-audit fault, marker reset, T-19b group FOR UPDATE pins for add and remove plus the open-transaction binding pin, T-31, T-36 bind under a held lock -> :noop then binds, SEC-A5 concurrent revoke returned unchanged with no token.revoke, SEC-A6 sync lock timeout, delete_group results); identity/tenant_wide_admins_test.exs 19 (T-20..T-28 incl. T-27 membership-only + token-only admins in tenant B, T-26 TA binding converted to routing kind, T-32 pinned keys computed outside Elixir + 1,000-name range and uniqueness, T-33 held lock blocks / other tenant does not / ArgumentError / re-entrant, T-34 tripwire, T-35 oracle); identity/audit_context_test.exs 14 (pure, async). Lock tests: Task + bounded pg_stat_activity poll (10 ms steps, max ~5 s) + Task.yield 300 ms / 5 s; tasks stopped in after blocks. RUNS (LETFLOW_DEV_DB_CONFIRMED=1 MIX_ENV=test timeout 540 mix test, under the machine mixlock, free memory checked >= 4 GB before each): 4 new files: 'Finished in 128.9 seconds (1.6s async, 127.2s sync)' / 'Result: 76 passed', no compile warning in the output. T-29 batch A (pending_admin_binding, pending_admin_grants, role_backfill, tenant_admin_migration, tenant_auditor_seeding, identity_test, identity_login_directory, role_registry, identity_role_rebind, identity_roles_guard): 'Finished in 372.9 seconds' / 'Result: 294 passed'. T-29 batch B (api/identity_id_hardening, api/platform_admin_outside_platform, api/platform_escalation_guard, api/platform_scope_not_conferred, plugs/iss0736_oidc_live_revocation, plugs/iss0778_platform_role_seeding_e2e, routers/identity_test, audit_dispositions, audit_capture, api_token_auth_pipeline, plugs/pending_admin_login_response, routers/onboarding_pending_admin, simulation/req208_meridian) NOT RUN: free memory fell to 2.8-3.2 GB and stayed there; TEST-RUNNER/CI must run it. mix format --check-formatted on the 5 touched test files rc=0; MIX_ENV=test mix compile --warnings-as-errors rc=0. MUTANTS (non-existence case; applied in an isolated scratch copy of lib/config/priv/test/deps/_build because lib/ must not be edited while ELIXIR-DEV works there; each reverted and the revert checked; copy deleted): M1 tenant_wide_admins_query/2 'where: u.status == :active' removed -> tenant_wide_admins_test 2 failures (T-21, T-35); M3 lock_tenant_admins!/1 does not issue pg_advisory_xact_lock -> tenant_wide_admins_test 'Result: 17/19 passed' (T-25 outside-transaction control, T-33 held lock blocks add); M4 AuditContext.normalize_trace_id/1 control-character check removed -> audit_context_test 3 failures (SEC-A4 x2, current_trace_id/0). M1 and M4 were measured in one run on disjoint files: 'Result: 28/33 passed'. FIXTURE FIX (assertion intent unchanged): test/letflow/identity/pending_admin_binding_test.exs, the two concurrent-binder tests. The bind now takes the tenant admin advisory lock before the grant row, so the second binder waits on the advisory lock and PendingAdminHelper.lock_waiters?(pending_tenant_admin_grants, 2) can never reach 2 (the binders then hit their 2s lock_timeout). Replaced at both call sites by a local binders_blocked?/1 counting grant-row FOR UPDATE waiters OR pg_advisory_xact_lock waiters, same 20,000 round-trip bound; the file passes in batch A. Not run against the unfixed helper (memory); the need follows from the lock order in transact_bind/8. No other existing test needed a change in the runs above. NOTES: the bit-62 flip branch of tenant_admin_lock_key/1 cannot be reached by a practical fixture (needs a SHA-256 prefix inside int32), so only its effect (range) is tested; T-31 uses RoleRegistry.seed_default_platform_role_groups/1 (the seed onboarding runs), not the onboarding router. started_at is the first test artifact write still on disk. Spec: test/specs/GH-2547.md.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "test/letflow/routers/identity_gh2547_audit_test.exs (new, 18 tests)",
+      "test/letflow/identity/gh2547_ta_audit_paths_test.exs (new, 25 tests)",
+      "test/letflow/identity/tenant_wide_admins_test.exs (new, 19 tests)",
+      "test/letflow/identity/audit_context_test.exs (new, 14 tests)",
+      "test/letflow/identity/pending_admin_binding_test.exs (fixture fix: binders_blocked?/1)",
+      "test/specs/GH-2547.md (new)"
+    ],
+    "diagnosis_confirmed": true,
+    "implementation_written": false,
+    "classification": "TEST_DESIGN"
+  }
+}

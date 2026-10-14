@@ -65,6 +65,7 @@ defmodule Letflow.Identity do
   alias Letflow.Api.Pagination
   alias Letflow.Audit
   alias Letflow.Identity.ApiToken
+  alias Letflow.Identity.AuditContext
   alias Letflow.Identity.Group
   alias Letflow.Identity.GroupMember
   alias Letflow.Identity.OnboardingRecord
@@ -91,8 +92,26 @@ defmodule Letflow.Identity do
   String.t()]` convention. `:prefix` is required (no default) — see
   `provision_oidc_user/4`'s own @doc for why a missing prefix must never silently
   fall back to the (post-REQ-063) no-longer-authoritative `public` schema.
+
+  GH 2547: `:audit_context` (optional, `Letflow.Identity.AuditContext.t()`, possibly
+  partial) carries actor, trace id and source into the audited identity writes.
+  `:group_member_audit` (`:emit`, the default, or `:caller_audits`) is honoured only by
+  `add_group_member/3`; see its @doc.
   """
-  @type opts :: [prefix: String.t(), login_directory: :enabled | :skip]
+  @type opts :: [
+          prefix: String.t(),
+          login_directory: :enabled | :skip,
+          audit_context: AuditContext.t(),
+          group_member_audit: :emit | :caller_audits
+        ]
+
+  # GH 2547 (design section 6.6): the IdP sync bounds its wait on the tenant admin lock
+  # exactly like the pending-admin-grant bind (`PendingAdminGrants`' @lock_timeout).
+  @sync_lock_timeout "2s"
+  @tenant_admin_role "TENANT_ADMIN"
+  @tenant_admin_lock_label "letflow:tenant_admin_lock:v1:"
+  @int32_min -2_147_483_648
+  @int32_limit 2_147_483_648
 
   @doc """
   Idempotent upsert keyed on `(tenant_id, external_realm, external_id)`:
@@ -609,23 +628,81 @@ defmodule Letflow.Identity do
 
   Returns `{:ok, %{member: GroupMember.t(), created: created?}}` —
   `created?` is `false` when the membership already existed.
+
+  GH 2547 (design `gh2547-tenant-admin-audit-and-count.md` sections 3.2, 6.6): runs in
+  one transaction whose first statement is `lock_tenant_admins!/1` (always, any group).
+  A row this call actually inserted writes one `group_member.added` audit entry in the
+  same transaction (actor, trace and source from `opts[:audit_context]`); a re-add
+  writes nothing. A non-raising audit failure rolls back and returns
+  `{:error, {:audit_failed, reason}}`; a raise returns
+  `{:error, {:transaction_failed, exception}}`.
+
+  `opts[:group_member_audit]` is `:emit` by default; any value other than
+  `:caller_audits` is treated as `:emit`. `:caller_audits` suppresses only the audit
+  row, for the one caller that writes its own event in the same, already-open
+  transaction (the pending-admin-grant bind); outside a transaction it returns
+  `{:error, :caller_audit_requires_transaction}` before any query.
   """
   @spec add_group_member(group_id :: Ecto.UUID.t(), user_id :: Ecto.UUID.t(), opts :: opts()) ::
           {:ok, %{member: GroupMember.t(), created: boolean()}}
           | {:error, :group_not_found}
           | {:error, :user_not_found}
+          | {:error, :caller_audit_requires_transaction}
+          | {:error, {:audit_failed, term()}}
+          | {:error, {:transaction_failed, Exception.t()}}
   def add_group_member(group_id, user_id, opts) do
     prefix = Keyword.fetch!(opts, :prefix)
+    mode = group_member_audit_mode(opts)
 
-    case Repo.get(Group, group_id, prefix: prefix) do
-      nil ->
-        {:error, :group_not_found}
+    if mode == :caller_audits and not Repo.in_transaction?() do
+      {:error, :caller_audit_requires_transaction}
+    else
+      ctx = AuditContext.from_opts(opts)
 
-      %Group{} ->
-        case Repo.get(User, user_id, prefix: prefix) do
-          nil -> {:error, :user_not_found}
-          %User{} -> insert_or_fetch_group_member(group_id, user_id, prefix)
+      try do
+        Repo.transaction(
+          fn -> do_add_group_member(group_id, user_id, prefix, mode, ctx) end,
+          prefix: prefix
+        )
+      rescue
+        exception -> {:error, {:transaction_failed, exception}}
+      end
+    end
+  end
+
+  # Fail to auditing: only the exact literal opts out.
+  defp group_member_audit_mode(opts) do
+    case Keyword.get(opts, :group_member_audit, :emit) do
+      :caller_audits -> :caller_audits
+      _emit_or_unknown -> :emit
+    end
+  end
+
+  # Runs inside add_group_member/3's transaction. Lock order (design section 3.0): the
+  # tenant admin lock first; the group row is then locked by the membership insert's FK
+  # check (KEY SHARE).
+  defp do_add_group_member(group_id, user_id, prefix, mode, ctx) do
+    lock_tenant_admins!(prefix)
+
+    if is_nil(Repo.get(Group, group_id, prefix: prefix)), do: Repo.rollback(:group_not_found)
+    if is_nil(Repo.get(User, user_id, prefix: prefix)), do: Repo.rollback(:user_not_found)
+
+    # Read only when an audit row may be written (`:caller_audits` writes none).
+    before_roles = if mode == :emit, do: sorted_effective_role_names(user_id, prefix), else: []
+
+    case insert_or_fetch_group_member(group_id, user_id, prefix) do
+      {:ok, %{member: member, created: created, inserted: inserted}} ->
+        if inserted and mode == :emit do
+          case insert_membership_audit(:added, group_id, user_id, before_roles, prefix, ctx) do
+            {:ok, _entry} -> :ok
+            {:error, reason} -> Repo.rollback({:audit_failed, reason})
+          end
         end
+
+        %{member: member, created: created}
+
+      {:error, reason} ->
+        Repo.rollback(reason)
     end
   end
 
@@ -681,9 +758,19 @@ defmodule Letflow.Identity do
         where: not exists(from(m in GroupMember, where: parent_as(:group).id == m.group_id))
       )
 
-    case Repo.delete_all(query, prefix: prefix) do
-      {1, _} -> :ok
-      {0, _} -> {:error, :not_found_or_has_members}
+    # GH 2547 (design section 6.6): the tenant admin lock is the transaction's first
+    # statement. An FK violation raises out of the transaction (after its rollback) into
+    # the rescue below, so the ISS-1032 mapping is unchanged.
+    Repo.transaction(
+      fn ->
+        lock_tenant_admins!(prefix)
+        Repo.delete_all(query, prefix: prefix)
+      end,
+      prefix: prefix
+    )
+    |> case do
+      {:ok, {1, _}} -> :ok
+      {:ok, {0, _}} -> {:error, :not_found_or_has_members}
     end
   rescue
     # ISS-1032: a memberless group that a `tenant_role` row points to hits the
@@ -780,25 +867,66 @@ defmodule Letflow.Identity do
   is still `:ok`: the caller's intent ("this user should not be a member")
   is already satisfied whether or not a row existed to delete, so there is
   no "member didn't exist" error variant.
+
+  GH 2547 (design sections 3.3, 6.6): one transaction; `lock_tenant_admins!/1` first
+  (always, any group), then the group row `FOR KEY SHARE`. A deleted row writes one
+  `group_member.removed` audit entry in the same transaction; removing a non-member
+  writes nothing. A non-raising audit failure rolls back and returns
+  `{:error, {:audit_failed, reason}}`; a raise returns
+  `{:error, {:transaction_failed, exception}}`.
   """
   @spec remove_group_member(
           group_id :: Ecto.UUID.t(),
           user_id :: Ecto.UUID.t(),
           opts :: opts()
-        ) :: :ok | {:error, :group_not_found}
+        ) ::
+          :ok
+          | {:error, :group_not_found}
+          | {:error, {:audit_failed, term()}}
+          | {:error, {:transaction_failed, Exception.t()}}
   def remove_group_member(group_id, user_id, opts) do
     prefix = Keyword.fetch!(opts, :prefix)
+    ctx = AuditContext.from_opts(opts)
 
-    case Repo.get(Group, group_id, prefix: prefix) do
-      nil ->
-        {:error, :group_not_found}
-
-      %Group{} ->
-        from(m in GroupMember, where: m.group_id == ^group_id and m.user_id == ^user_id)
-        |> Repo.delete_all(prefix: prefix)
-
-        :ok
+    try do
+      Repo.transaction(
+        fn -> do_remove_group_member(group_id, user_id, prefix, ctx) end,
+        prefix: prefix
+      )
+      |> case do
+        {:ok, :ok} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
+    rescue
+      exception -> {:error, {:transaction_failed, exception}}
     end
+  end
+
+  defp do_remove_group_member(group_id, user_id, prefix, ctx) do
+    lock_tenant_admins!(prefix)
+
+    # A delete of a referencing row takes no parent lock by itself; KEY SHARE makes a
+    # concurrent binding write on this group (FOR UPDATE) serialise with this removal.
+    if is_nil(key_share_lock_group(group_id, prefix)), do: Repo.rollback(:group_not_found)
+
+    before_roles = sorted_effective_role_names(user_id, prefix)
+
+    {count, _rows} =
+      from(m in GroupMember, where: m.group_id == ^group_id and m.user_id == ^user_id)
+      |> Repo.delete_all(prefix: prefix)
+
+    if count == 1 do
+      case insert_membership_audit(:removed, group_id, user_id, before_roles, prefix, ctx) do
+        {:ok, _entry} -> :ok
+        {:error, reason} -> Repo.rollback({:audit_failed, reason})
+      end
+    end
+
+    :ok
+  end
+
+  defp key_share_lock_group(group_id, prefix) do
+    Repo.one(from(g in Group, where: g.id == ^group_id, lock: "FOR KEY SHARE"), prefix: prefix)
   end
 
   @doc """
@@ -846,6 +974,135 @@ defmodule Letflow.Identity do
   end
 
   @doc """
+  GH 2547 (design `gh2547-tenant-admin-audit-and-count.md` section 6, the "Contract for
+  #2533 / 7b-2b"): the number of tenant-wide administrators in the tenant schema
+  `prefix`. This is the single required source for the 0051 N1 last-admin guard and
+  the 0053 D6 / open point 9 eligible-publisher check.
+
+  Counts DISTINCT users with `status == :active` who are (a) a member of the group the
+  `TENANT_ADMIN` `:platform_role` binding points to, or (b) the owner of an `api_tokens`
+  row whose `roles` contain `"TENANT_ADMIN"`, not revoked, and not expired
+  (`expires_at` nil or after now). A user who is both counts once; `PLATFORM_ADMIN` does
+  not count; tokens of a deactivated user do not count. Holders limited to an org scope
+  are removed by the private `exclude_scoped_holders/2` step, which #2533 fills in when
+  0051 scopes exist (today it removes no one).
+
+  One read query: opens no transaction, takes no lock, writes nothing. Inside a
+  caller's `Repo.transaction` it sees that transaction's own uncommitted writes. Raises
+  on a DB error.
+
+  Lock protocol for a caller that changes the admin set and then guards on this count,
+  all in one transaction: `lock_tenant_admins!/1` first, then the TENANT_ADMIN role row
+  by name (`FOR UPDATE`, no `kind` filter), then the group row, then business rows,
+  then the audit chain; write, then count, then roll back on 0. Because every admin-adding
+  path takes that lock, first logins that carry role claims serialise per tenant.
+  """
+  @spec count_tenant_wide_admins(prefix :: String.t()) :: non_neg_integer()
+  def count_tenant_wide_admins(prefix) when is_binary(prefix) do
+    prefix
+    |> tenant_wide_admins_query(DateTime.utc_now())
+    |> select([u], count(u.id, :distinct))
+    |> Repo.one(prefix: prefix)
+  end
+
+  @doc """
+  GH 2547: exactly the set `count_tenant_wide_admins/1` counts, as canonical UUID
+  strings sorted ascending. Same transaction properties (no transaction, no lock, no
+  write; sees the caller's uncommitted writes). Lets 0053 D6 ask whether the single
+  tenant-wide admin IS the publishing author, from the same definition.
+  """
+  @spec tenant_wide_admin_user_ids(prefix :: String.t()) :: [Ecto.UUID.t()]
+  def tenant_wide_admin_user_ids(prefix) when is_binary(prefix) do
+    prefix
+    |> tenant_wide_admins_query(DateTime.utc_now())
+    |> select([u], u.id)
+    |> order_by([u], asc: u.id)
+    |> Repo.all(prefix: prefix)
+  end
+
+  # GH 2547 (design section 6.2): the one definition both public helpers share, so the
+  # count and the id list can never diverge. `now` is taken once per call; truncating it
+  # to the second keeps verify_api_token/2's strict `expires_at > now` result unchanged
+  # (`expires_at` is whole seconds). The role name is a bound parameter (INV-7).
+  @spec tenant_wide_admins_query(prefix :: String.t(), now :: DateTime.t()) :: Ecto.Query.t()
+  defp tenant_wide_admins_query(prefix, now) do
+    now = DateTime.truncate(now, :second)
+
+    member_of_admin_group =
+      from(gm in GroupMember,
+        join: tr in TenantRole,
+        on: tr.group_id == gm.group_id,
+        where:
+          gm.user_id == parent_as(:user).id and tr.name == ^@tenant_admin_role and
+            tr.kind == :platform_role
+      )
+
+    owns_live_admin_token =
+      from(t in ApiToken,
+        where:
+          t.user_id == parent_as(:user).id and
+            fragment("? = ANY(?)", ^@tenant_admin_role, t.roles) and is_nil(t.revoked_at) and
+            (is_nil(t.expires_at) or t.expires_at > ^now)
+      )
+
+    from(u in User,
+      as: :user,
+      where: ^active_user_condition(:user),
+      where: exists(member_of_admin_group) or exists(owns_live_admin_token)
+    )
+    |> exclude_scoped_holders(prefix)
+  end
+
+  # 0051 / #2533: when `role_scope_grants` exists, add the predicate that removes a user
+  # whose only TENANT_ADMIN source is a scoped grant; until then this is the identity.
+  # `count_tenant_wide_admins/1` and `tenant_wide_admin_user_ids/1` both pass through
+  # here, so the predicate is added once. Applied as the LAST step before the select.
+  @spec exclude_scoped_holders(query :: Ecto.Query.t(), prefix :: String.t()) :: Ecto.Query.t()
+  defp exclude_scoped_holders(query, _prefix), do: query
+
+  @doc """
+  GH 2547 (design section 6.6): the 64-bit advisory-lock key of the tenant admin lock
+  for the tenant schema `prefix`. Pure, no DB access.
+
+  The first 8 bytes of SHA-256 over a fixed, versioned label plus `prefix`, read as a
+  signed big-endian integer: stable across calls, nodes, releases and Postgres
+  versions, and different per tenant schema (a collision only over-serialises two
+  tenants). A value inside [-2^31, 2^31), where every other single-bigint advisory key
+  of this codebase lies, gets bit 62 flipped, so the key never equals one in use today.
+  """
+  @spec tenant_admin_lock_key(prefix :: String.t()) :: integer()
+  def tenant_admin_lock_key(prefix) when is_binary(prefix) do
+    <<key::signed-big-integer-size(64), _rest::binary>> =
+      :crypto.hash(:sha256, @tenant_admin_lock_label <> prefix)
+
+    if key >= @int32_min and key < @int32_limit,
+      do: Bitwise.bxor(key, 0x4000_0000_0000_0000),
+      else: key
+  end
+
+  @doc """
+  GH 2547 (design section 6.6): takes the tenant admin lock,
+  `pg_advisory_xact_lock(tenant_admin_lock_key(prefix))`, held until the surrounding
+  transaction ends. Every path that adds or removes a tenant-wide admin takes it as the
+  first locking statement of its transaction. Re-entrant within one transaction. Blocks
+  until acquired and honours a caller's `SET LOCAL lock_timeout`.
+
+  Raises `ArgumentError` when called outside a transaction (a session-level wait with no
+  release point would be a bug, not a lock).
+  """
+  @spec lock_tenant_admins!(prefix :: String.t()) :: :ok
+  def lock_tenant_admins!(prefix) when is_binary(prefix) do
+    if not Repo.in_transaction?() do
+      raise ArgumentError, "lock_tenant_admins!/1 must run inside a transaction"
+    end
+
+    # Bound parameter, nothing interpolated (INV-7).
+    Repo.query!("SELECT pg_advisory_xact_lock($1::bigint)", [tenant_admin_lock_key(prefix)])
+
+    :ok
+  end
+
+  @doc """
   One-time sync of a JWT's claimed role names into `group_members`, closing
   the JIT-provisioning gap `list_effective_role_names/2` alone cannot close
   (REQ-378 §2.2 —
@@ -868,6 +1125,18 @@ defmodule Letflow.Identity do
   marker, so calling it a second time for an already-synced user would
   needlessly re-run the sync (harmless, since step 2 below is idempotent, but
   wasteful and not this function's job to guard against).
+
+  The sync never removes a membership: a claim that disappears from a later token has
+  no effect (GH 2547 design section 5, consistent with 0051 M3); revocation is the
+  explicit, audited `remove_group_member/3`.
+
+  GH 2547 (design sections 3.6, 6.6): when there is anything to write, the transaction
+  first sets `SET LOCAL lock_timeout` (2s, as the pending-admin-grant bind) and takes
+  `lock_tenant_admins!/1`. Every membership this call actually inserts writes one
+  `group_member.added` audit entry (actor = the user, source `"idp_sync"`, trace from
+  `opts[:audit_context]`). Any failure, an audit failure, a lock timeout or a raise
+  included, rolls back every membership of this call and leaves the marker `nil`, and
+  the original `user` is returned, so the next login retries.
   """
   @spec sync_role_claims_from_token(
           user :: User.t(),
@@ -876,6 +1145,7 @@ defmodule Letflow.Identity do
         ) :: User.t()
   def sync_role_claims_from_token(%User{} = user, %IdentityContext{} = identity_context, opts) do
     prefix = Keyword.fetch!(opts, :prefix)
+    ctx = %{AuditContext.from_opts(opts) | actor_id: user.id, source: "idp_sync"}
     group_ids = resolve_group_ids_for_role_names(identity_context.roles, opts)
 
     if identity_context.roles != [] and group_ids == [] do
@@ -886,9 +1156,28 @@ defmodule Letflow.Identity do
       )
     end
 
+    # GH 2547 (design section 6.6, SEC-A6): the tenant admin lock is the first locking
+    # statement, under a bounded wait so a login never queues indefinitely; nothing is
+    # locked when there is nothing to write.
     multi =
-      Multi.new()
-      |> Multi.run(:memberships, fn _repo, _changes ->
+      if group_ids != [] do
+        Multi.new()
+        |> Multi.run(:lock_timeout, fn repo, _changes ->
+          # Fixed statement, nothing interpolated at runtime (INV-7).
+          case repo.query("SET LOCAL lock_timeout = '#{@sync_lock_timeout}'") do
+            {:ok, _result} -> {:ok, :set}
+            {:error, _reason} -> {:error, :lock_timeout_setting}
+          end
+        end)
+        |> Multi.run(:tenant_admin_lock, fn _repo, _changes ->
+          {:ok, lock_tenant_admins!(prefix)}
+        end)
+      else
+        Multi.new()
+      end
+
+    multi =
+      Multi.run(multi, :memberships, fn _repo, _changes ->
         # Reuses insert_or_fetch_group_member/3 (backs add_group_member/3)
         # directly at its lean private arity, per §2.2.2 step 2 — not
         # add_group_member/3's own public wrapper, which would add two
@@ -897,9 +1186,9 @@ defmodule Letflow.Identity do
         # tenant_role row, and `user` is the struct this function was
         # called with). Already on_conflict: :nothing / conflict_target:
         # [:group_id, :user_id] — idempotent, safe even if called twice.
-        Enum.each(group_ids, &insert_or_fetch_group_member(&1, user.id, prefix))
-
-        {:ok, group_ids}
+        # GH 2547: every result is checked and every inserted row audited; the
+        # first failure halts and aborts the whole Multi.
+        insert_synced_memberships(group_ids, user.id, prefix, ctx)
       end)
 
     # ISS-0773: only stamp role_claims_synced_at when >=1 grant was actually
@@ -926,13 +1215,30 @@ defmodule Letflow.Identity do
         multi
       end
 
-    result = Repo.transaction(multi)
+    # GH 2547 (design section 3.0): a raise (a DB error inside the audit insert, a lock
+    # timeout) is caught after Ecto rolled back; the sync runs outside any transaction,
+    # so nothing aborted is hidden. Only the exception module is logged (INV-4/INV-8).
+    result =
+      try do
+        Repo.transaction(multi)
+      rescue
+        exception -> {:raised, exception.__struct__}
+      end
 
     case result do
       {:ok, %{user: synced_user}} ->
         synced_user
 
       {:ok, %{memberships: _}} ->
+        user
+
+      {:error, step, {:audit_failed, _reason}, _changes} ->
+        # The reason holds the audit payload; the tag is enough.
+        Logger.error(
+          "sync_role_claims_from_token/3: failed at step #{inspect(step)} " <>
+            "for user_id=#{user.id}: :audit_failed"
+        )
+
         user
 
       {:error, step, reason, _changes} ->
@@ -942,8 +1248,106 @@ defmodule Letflow.Identity do
         )
 
         user
+
+      {:raised, exception_module} ->
+        Logger.error(
+          "sync_role_claims_from_token/3: transaction raised (tenant=#{inspect(prefix)}, " <>
+            "user_id=#{user.id}, exception=#{inspect(exception_module)})"
+        )
+
+        user
     end
   end
+
+  # GH 2547 (design section 3.6): one group at a time, in resolution order. Only a row
+  # this call inserted is audited; the first failure halts with an error tuple, which
+  # aborts the Multi and rolls back every earlier membership of this call.
+  @spec insert_synced_memberships(
+          group_ids :: [Ecto.UUID.t()],
+          user_id :: Ecto.UUID.t(),
+          prefix :: String.t(),
+          ctx :: AuditContext.t()
+        ) :: {:ok, [Ecto.UUID.t()]} | {:error, term()}
+  defp insert_synced_memberships(group_ids, user_id, prefix, ctx) do
+    Enum.reduce_while(group_ids, {:ok, group_ids}, fn group_id, acc ->
+      before_roles = sorted_effective_role_names(user_id, prefix)
+
+      case insert_or_fetch_group_member(group_id, user_id, prefix) do
+        {:ok, %{inserted: true}} ->
+          case insert_membership_audit(:added, group_id, user_id, before_roles, prefix, ctx) do
+            {:ok, _entry} -> {:cont, acc}
+            {:error, reason} -> {:halt, {:error, {:audit_failed, reason}}}
+          end
+
+        {:ok, %{inserted: false}} ->
+          {:cont, acc}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  # ── GH 2547: group_member.added / group_member.removed audit payload ─────
+  #
+  # Design section 3.1 (0051 D8 names). Ids, role names and fixed strings only: no
+  # e-mail, username, display name, claim value or token data (INV-4, 0051 N3).
+  # `before_roles` is read by the caller just before the write; `group_roles` and the
+  # after roles are read here, AFTER the write, under the group lock (CDV-2 / SEC-B1).
+  @spec insert_membership_audit(
+          event :: :added | :removed,
+          group_id :: Ecto.UUID.t(),
+          user_id :: Ecto.UUID.t(),
+          before_roles :: [String.t()],
+          prefix :: String.t(),
+          ctx :: AuditContext.t()
+        ) :: {:ok, Audit.Entry.t()} | {:error, term()}
+  defp insert_membership_audit(event, group_id, user_id, before_roles, prefix, ctx) do
+    after_roles = sorted_effective_role_names(user_id, prefix)
+
+    base = %{
+      "group_id" => group_id,
+      "user_id" => user_id,
+      "group_roles" => group_roles(group_id, prefix)
+    }
+
+    {action, was_member?, delta} =
+      case event do
+        :added -> {"group_member.added", false, %{"roles_gained" => after_roles -- before_roles}}
+        :removed -> {"group_member.removed", true, %{"roles_lost" => before_roles -- after_roles}}
+      end
+
+    attrs = %{
+      actor_id: ctx.actor_id,
+      action: action,
+      resource_type: "group_member",
+      resource_id: user_id,
+      before_state:
+        Map.merge(base, %{"member" => was_member?, "user_platform_roles" => before_roles}),
+      after_state:
+        base
+        |> Map.merge(%{"member" => not was_member?, "user_platform_roles" => after_roles})
+        |> Map.merge(delta)
+        |> Map.put("source", ctx.source),
+      trace_id: ctx.trace_id
+    }
+
+    Audit.insert_entry(Repo, attrs, prefix)
+  end
+
+  # Every tenant_role row bound to the group (any kind), sorted by name.
+  defp group_roles(group_id, prefix) do
+    from(t in TenantRole,
+      where: t.group_id == ^group_id,
+      order_by: [asc: t.name],
+      select: %{"name" => t.name, "kind" => t.kind}
+    )
+    |> Repo.all(prefix: prefix)
+    |> Enum.map(fn %{"kind" => kind} = role -> %{role | "kind" => Atom.to_string(kind)} end)
+  end
+
+  defp sorted_effective_role_names(user_id, prefix),
+    do: user_id |> list_effective_role_names(prefix: prefix) |> Enum.sort()
 
   # Resolves claimed role names to the group ids that grant them, per §2.2.2
   # step 1. Lives in Letflow.Identity, not RoleRegistry, for the identical
@@ -1443,6 +1847,11 @@ defmodule Letflow.Identity do
   never assigned to any struct field, never persisted, never logged (INV-4).
   This is the single call site in the whole codebase that ever holds the
   plaintext after generation.
+
+  GH 2547 (design `gh2547-tenant-admin-audit-and-count.md` sections 3.9, 6.6): the
+  transaction first takes `lock_tenant_admins!/1` (always, whatever the roles), and the
+  `token.create` audit entry carries the actor and trace id from `opts[:audit_context]`
+  (actor `nil` when none is passed).
   """
   @spec create_token(user_id :: Ecto.UUID.t(), attrs :: create_token_attrs(), opts :: opts()) ::
           {:ok, %{token: ApiToken.t(), plaintext: String.t()}}
@@ -1462,7 +1871,7 @@ defmodule Letflow.Identity do
         with :ok <- validate_issuable_roles(Map.get(attrs, :roles)),
              :ok <- reject_platform_admin_outside_platform_tenant(Map.get(attrs, :roles), prefix),
              :ok <- validate_expires_at(Map.get(attrs, :expires_at)) do
-          insert_token(user_id, attrs, prefix)
+          insert_token(user_id, attrs, prefix, AuditContext.from_opts(opts))
         end
     end
   end
@@ -1495,7 +1904,7 @@ defmodule Letflow.Identity do
     end
   end
 
-  defp insert_token(user_id, attrs, prefix) do
+  defp insert_token(user_id, attrs, prefix, ctx) do
     try do
       plaintext = generate_token_plaintext()
       token_hash = hash_token_value(plaintext)
@@ -1510,25 +1919,30 @@ defmodule Letflow.Identity do
           expires_at: Map.get(attrs, :expires_at)
         })
 
-      # REQ-195 -- actor_id: nil, §3.1b (same disposition/reasoning as
-      # create_user/2 above). Wrapped in Ecto.Multi for the same-transaction
-      # guarantee (AC3). after_state excludes token_hash (INV-4 -- a hash is
+      # Wrapped in Ecto.Multi for the same-transaction guarantee (AC3).
+      # GH 2547: actor and trace come from opts[:audit_context] (REQ-195's
+      # actor_id: nil remains the fallback for a caller that passes none), and
+      # the tenant admin lock is the first step, for any roles (design 6.6).
+      # after_state excludes token_hash (INV-4 -- a hash is
       # still a credential-adjacent secret with no audit value); the plaintext
       # itself is never captured anywhere, per ApiToken's own moduledoc.
       Multi.new()
+      |> Multi.run(:tenant_admin_lock, fn _repo, _changes ->
+        {:ok, lock_tenant_admins!(prefix)}
+      end)
       |> Multi.insert(:token, changeset, prefix: prefix)
       |> Multi.merge(fn %{token: token} ->
         Audit.append_multi(
           Multi.new(),
           :audit,
           %{
-            actor_id: nil,
+            actor_id: ctx.actor_id,
             action: "token.create",
             resource_type: "api_token",
             resource_id: token.id,
             before_state: nil,
             after_state: Audit.struct_state(token, [:token_hash]),
-            trace_id: nil
+            trace_id: ctx.trace_id
           },
           prefix
         )
@@ -1618,6 +2032,13 @@ defmodule Letflow.Identity do
   accurate one, and a second call must not erase it. Returns
   `{:error, :not_found}` if no token with that id exists in
   `opts[:prefix]`'s schema.
+
+  GH 2547 (design `gh2547-tenant-admin-audit-and-count.md` sections 3.9, 6.6, SEC-A5):
+  the transaction first takes `lock_tenant_admins!/1` (always, whatever the roles), then
+  re-reads the token row `FOR UPDATE` and builds `before_state` from that locked row; a
+  token revoked concurrently in between is returned unchanged. The `token.revoke` audit
+  entry carries the actor and trace id from `opts[:audit_context]` (actor `nil` when none
+  is passed).
   """
   @spec revoke_token(token_id :: Ecto.UUID.t() | String.t(), opts :: opts()) ::
           {:ok, ApiToken.t()}
@@ -1633,42 +2054,58 @@ defmodule Letflow.Identity do
       %ApiToken{revoked_at: revoked_at} = token when not is_nil(revoked_at) ->
         {:ok, token}
 
-      %ApiToken{} = token ->
-        try do
-          now = DateTime.utc_now() |> DateTime.truncate(:second)
+      %ApiToken{id: id} ->
+        ctx = AuditContext.from_opts(opts)
 
-          # REQ-195 -- actor_id: nil, §3.1b (same disposition/reasoning as
-          # create_user/2 above). Wrapped in Ecto.Multi for the
-          # same-transaction guarantee (AC3). before_state/after_state both
-          # exclude token_hash (INV-4).
-          Multi.new()
-          |> Multi.update(:token, ApiToken.revoke_changeset(token, %{revoked_at: now}),
-            prefix: prefix
-          )
-          |> Multi.merge(fn %{token: updated} ->
-            Audit.append_multi(
-              Multi.new(),
-              :audit,
-              %{
-                actor_id: nil,
-                action: "token.revoke",
-                resource_type: "api_token",
-                resource_id: updated.id,
-                before_state: Audit.struct_state(token, [:token_hash]),
-                after_state: Audit.struct_state(updated, [:token_hash]),
-                trace_id: nil
-              },
-              prefix
-            )
-          end)
-          |> Repo.transaction()
-          |> case do
-            {:ok, %{token: updated}} -> {:ok, updated}
-            {:error, :token, reason, _changes} -> {:error, reason}
-            {:error, :audit, reason, _changes} -> {:error, reason}
-          end
+        try do
+          Repo.transaction(fn -> revoke_locked_token(id, prefix, ctx) end, prefix: prefix)
         rescue
           exception -> {:error, {:transaction_failed, exception}}
+        end
+    end
+  end
+
+  # GH 2547 (design 3.9, 6.6, SEC-A5): the tenant admin lock first (always, whatever
+  # the roles), then the token row re-read FOR UPDATE, so before_state is the row as it
+  # is under the lock, not the unlocked read above. A token revoked concurrently in
+  # between is returned unchanged, as the idempotent path does. Same error shapes as
+  # before: a changeset or audit failure comes back as a bare {:error, reason} (FU-2).
+  # REQ-195's actor_id: nil remains the fallback when no audit context is passed.
+  # before_state/after_state both exclude token_hash (INV-4).
+  defp revoke_locked_token(token_id, prefix, ctx) do
+    lock_tenant_admins!(prefix)
+
+    case Repo.one(from(t in ApiToken, where: t.id == ^token_id, lock: "FOR UPDATE"),
+           prefix: prefix
+         ) do
+      nil ->
+        Repo.rollback(:not_found)
+
+      %ApiToken{revoked_at: revoked_at} = token when not is_nil(revoked_at) ->
+        token
+
+      %ApiToken{} = token ->
+        now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+        updated =
+          case Repo.update(ApiToken.revoke_changeset(token, %{revoked_at: now}), prefix: prefix) do
+            {:ok, updated} -> updated
+            {:error, changeset} -> Repo.rollback(changeset)
+          end
+
+        attrs = %{
+          actor_id: ctx.actor_id,
+          action: "token.revoke",
+          resource_type: "api_token",
+          resource_id: updated.id,
+          before_state: Audit.struct_state(token, [:token_hash]),
+          after_state: Audit.struct_state(updated, [:token_hash]),
+          trace_id: ctx.trace_id
+        }
+
+        case Audit.insert_entry(Repo, attrs, prefix) do
+          {:ok, _entry} -> updated
+          {:error, reason} -> Repo.rollback(reason)
         end
     end
   end
@@ -2131,18 +2568,25 @@ defmodule Letflow.Identity do
     end)
   end
 
+  # GH 2547 (design section 3.2.1): `created` keeps its meaning (no membership seen
+  # before this call); `inserted` says whether THIS call wrote the row, so a lost race
+  # is never audited twice. insert_all/3 returns that count (it autogenerates no
+  # timestamp, hence the explicit inserted_at, tenant_admin_migration.ex's precedent).
+  @spec insert_or_fetch_group_member(Ecto.UUID.t(), Ecto.UUID.t(), String.t()) ::
+          {:ok, %{member: GroupMember.t(), created: boolean(), inserted: boolean()}}
+          | {:error, :unexpected_missing_member}
   defp insert_or_fetch_group_member(group_id, user_id, prefix) do
     case get_group_member(group_id, user_id, prefix) do
       %GroupMember{} = existing ->
-        {:ok, %{member: existing, created: false}}
+        {:ok, %{member: existing, created: false, inserted: false}}
 
       nil ->
-        changeset =
-          %GroupMember{}
-          |> Ecto.Changeset.change(%{group_id: group_id, user_id: user_id})
+        now = NaiveDateTime.truncate(NaiveDateTime.utc_now(), :second)
 
-        {:ok, inserted} =
-          Repo.insert(changeset,
+        {count, _rows} =
+          Repo.insert_all(
+            GroupMember,
+            [%{group_id: group_id, user_id: user_id, inserted_at: now}],
             on_conflict: :nothing,
             conflict_target: [:group_id, :user_id],
             prefix: prefix
@@ -2150,12 +2594,13 @@ defmodule Letflow.Identity do
 
         # Race window between the existence check above and this insert: if
         # a concurrent caller won it, our own insert was suppressed by
-        # on_conflict: :nothing and `inserted` doesn't reflect a real row --
-        # re-select to return the authoritative one, still `created: true`
-        # from THIS caller's perspective (it observed no prior membership).
+        # on_conflict: :nothing (count 0) -- re-select to return the
+        # authoritative row either way, still `created: true` from THIS
+        # caller's perspective (it observed no prior membership). A missing
+        # row cannot happen inside the transaction; it is an error, not assumed.
         case get_group_member(group_id, user_id, prefix) do
-          %GroupMember{} = member -> {:ok, %{member: member, created: true}}
-          nil -> {:ok, %{member: inserted, created: true}}
+          %GroupMember{} = member -> {:ok, %{member: member, created: true, inserted: count == 1}}
+          nil -> {:error, :unexpected_missing_member}
         end
     end
   end

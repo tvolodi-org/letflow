@@ -21,6 +21,8 @@ defmodule Letflow.Identity.RoleRegistry do
 
   alias Letflow.Api.Authorization
   alias Letflow.Audit
+  alias Letflow.Identity
+  alias Letflow.Identity.AuditContext
   alias Letflow.Identity.Group
   alias Letflow.Identity.GroupMember
   alias Letflow.Identity.TenantRole
@@ -36,6 +38,8 @@ defmodule Letflow.Identity.RoleRegistry do
           | :name_not_a_recognized_platform_role
           | :platform_admin_outside_platform_tenant
           | :role_already_bound
+          | {:audit_failed, term()}
+          | {:transaction_failed, Exception.t()}
           | Ecto.Changeset.t()
 
   @type rebind_error ::
@@ -120,12 +124,22 @@ defmodule Letflow.Identity.RoleRegistry do
   literal-set check — that domain is open-ended by design (any
   process-definition-chosen string), only `validate_role_name/1`'s existing format
   checks apply.
+
+  GH 2547 (design `gh2547-tenant-admin-audit-and-count.md` sections 3.4, 6.6): the
+  transaction takes `Letflow.Identity.lock_tenant_admins!/1`, then the role row by name,
+  then the group row `FOR UPDATE`. A binding write that grants someone (a new binding,
+  or a `kind` conversion, over a group with at least one member) writes one
+  `role_binding.created` / `role_binding.kind_changed` audit entry listing the members,
+  with actor, trace and source from `opts[:audit_context]`; over an empty group it
+  writes none. A non-raising audit failure rolls back and returns
+  `{:error, {:audit_failed, reason}}`; a raise returns
+  `{:error, {:transaction_failed, exception}}`.
   """
   @spec upsert_role(
           name :: String.t(),
           kind :: kind(),
           group_id :: Ecto.UUID.t() | String.t(),
-          opts :: [prefix: String.t()]
+          opts :: [prefix: String.t(), audit_context: AuditContext.t()]
         ) ::
           {:ok, TenantRole.t()} | {:error, upsert_error()}
   def upsert_role(name, kind, group_id, opts)
@@ -277,6 +291,10 @@ defmodule Letflow.Identity.RoleRegistry do
 
     Repo.transaction(
       fn ->
+        # GH 2547 (design 6.6): the tenant admin lock before the role row, so the nested
+        # upsert_role/4 re-enters it instead of taking it after a row lock.
+        Identity.lock_tenant_admins!(prefix)
+
         case lock_role_by_name(name, prefix) do
           %TenantRole{kind: :platform_role} = role ->
             role
@@ -437,37 +455,49 @@ defmodule Letflow.Identity.RoleRegistry do
           group_id :: Ecto.UUID.t(),
           opts :: [prefix: String.t()]
         ) :: {:ok, TenantRole.t()} | {:error, upsert_error()}
+  # GH 2547 (design 3.0, 3.4, 6.6): lock order is the tenant admin lock, the role row by
+  # name, then the group row FOR UPDATE (taken on BOTH branches, so a concurrent member
+  # insert on that group, which needs KEY SHARE, waits for this write or this waits for
+  # it). A raise is caught after Ecto's rollback.
   defp do_upsert_role(name, kind, group_id, opts) do
     prefix = Keyword.fetch!(opts, :prefix)
+    ctx = AuditContext.from_opts(opts)
 
-    Repo.transaction(
-      fn ->
-        case Repo.get(Group, group_id, prefix: prefix) do
-          nil ->
-            Repo.rollback(:group_not_found)
+    try do
+      Repo.transaction(
+        fn ->
+          Identity.lock_tenant_admins!(prefix)
+          _role_or_nil = lock_role_by_name(name, prefix)
 
-          %Group{} ->
-            insert_or_update_role(name, kind, group_id, opts)
-        end
-      end,
-      prefix: prefix
-    )
+          case lock_group_for_update(group_id, prefix) do
+            nil -> Repo.rollback(:group_not_found)
+            %Group{} -> insert_or_update_role(name, kind, group_id, prefix, ctx)
+          end
+        end,
+        prefix: prefix
+      )
+    rescue
+      exception -> {:error, {:transaction_failed, exception}}
+    end
+  end
+
+  defp lock_group_for_update(group_id, prefix) do
+    Repo.one(from(g in Group, where: g.id == ^group_id, lock: "FOR UPDATE"), prefix: prefix)
   end
 
   @spec insert_or_update_role(
           name :: String.t(),
           kind :: kind(),
           group_id :: Ecto.UUID.t(),
-          opts :: [prefix: String.t()]
+          prefix :: String.t(),
+          ctx :: AuditContext.t()
         ) :: TenantRole.t()
   # GH 2524 (design 4.1): never moves an existing binding. Must run inside a transaction
   # (the row lock is held until it ends).
-  defp insert_or_update_role(name, kind, group_id, opts) do
-    prefix = Keyword.fetch!(opts, :prefix)
-
+  defp insert_or_update_role(name, kind, group_id, prefix, ctx) do
     case lock_role_by_name(name, prefix) do
-      nil -> insert_role(name, kind, group_id, prefix)
-      %TenantRole{} = existing -> converge_existing_role(existing, kind, group_id, prefix)
+      nil -> insert_role(name, kind, group_id, prefix, ctx)
+      %TenantRole{} = existing -> converge_existing_role(existing, kind, group_id, prefix, ctx)
     end
   end
 
@@ -475,7 +505,9 @@ defmodule Letflow.Identity.RoleRegistry do
   # concurrent insert of the same name still returns {:ok, struct} with an id that is not
   # in the table. Re-read by name under the lock and compare ids (insert_group/2's
   # precedent); a lost race continues with the winner's row.
-  defp insert_role(name, kind, group_id, prefix) do
+  @spec insert_role(String.t(), kind(), Ecto.UUID.t(), String.t(), AuditContext.t()) ::
+          TenantRole.t()
+  defp insert_role(name, kind, group_id, prefix, ctx) do
     case %TenantRole{}
          |> TenantRole.changeset(%{name: name, group_id: group_id, kind: kind})
          |> Repo.insert(
@@ -486,9 +518,15 @@ defmodule Letflow.Identity.RoleRegistry do
          ) do
       {:ok, %TenantRole{id: inserted_id}} ->
         case lock_role_by_name(name, prefix) do
-          %TenantRole{id: ^inserted_id} = role -> role
-          %TenantRole{} = winner -> converge_existing_role(winner, kind, group_id, prefix)
-          nil -> Repo.rollback(:unexpected_missing_role)
+          %TenantRole{id: ^inserted_id} = role ->
+            :ok = audit_binding_write(:created, role, prefix, ctx)
+            role
+
+          %TenantRole{} = winner ->
+            converge_existing_role(winner, kind, group_id, prefix, ctx)
+
+          nil ->
+            Repo.rollback(:unexpected_missing_role)
         end
 
       {:error, changeset} ->
@@ -496,7 +534,15 @@ defmodule Letflow.Identity.RoleRegistry do
     end
   end
 
-  defp converge_existing_role(%TenantRole{group_id: bound} = role, kind, group_id, prefix) do
+  @spec converge_existing_role(
+          TenantRole.t(),
+          kind(),
+          Ecto.UUID.t(),
+          String.t(),
+          AuditContext.t()
+        ) ::
+          TenantRole.t()
+  defp converge_existing_role(%TenantRole{group_id: bound} = role, kind, group_id, prefix, ctx) do
     cond do
       not same_id?(bound, group_id) ->
         Repo.rollback(:role_already_bound)
@@ -506,10 +552,77 @@ defmodule Letflow.Identity.RoleRegistry do
 
       true ->
         case role |> Ecto.Changeset.change(kind: kind) |> Repo.update(prefix: prefix) do
-          {:ok, updated} -> updated
-          {:error, changeset} -> Repo.rollback(changeset)
+          {:ok, updated} ->
+            :ok = audit_binding_write({:kind_changed, role.kind}, updated, prefix, ctx)
+            updated
+
+          {:error, changeset} ->
+            Repo.rollback(changeset)
         end
     end
+  end
+
+  # GH 2547 (design 3.4, ruling 5 b'): only a grant-relevant binding write is audited,
+  # i.e. one over a group with at least one member (any user status). The member list is
+  # read after the write, under the group lock, so it is exactly who gains (or, for a
+  # kind change, gains/loses) the role at commit. A raise propagates to do_upsert_role/4.
+  @spec audit_binding_write(
+          event :: :created | {:kind_changed, old_kind :: kind()},
+          role :: TenantRole.t(),
+          prefix :: String.t(),
+          ctx :: AuditContext.t()
+        ) :: :ok
+  defp audit_binding_write(event, %TenantRole{} = role, prefix, ctx) do
+    case group_member_ids(role.group_id, prefix) do
+      [] ->
+        :ok
+
+      member_ids ->
+        attrs =
+          Map.merge(binding_audit_states(event, role, member_ids, ctx.source), %{
+            actor_id: ctx.actor_id,
+            resource_type: "tenant_role",
+            resource_id: role.id,
+            trace_id: ctx.trace_id
+          })
+
+        case Audit.insert_entry(Repo, attrs, prefix) do
+          {:ok, _entry} -> :ok
+          {:error, reason} -> Repo.rollback({:audit_failed, reason})
+        end
+    end
+  end
+
+  defp binding_audit_states(:created, role, member_ids, source) do
+    %{
+      action: "role_binding.created",
+      before_state: nil,
+      after_state:
+        Map.merge(role_state(role), %{
+          "granted_user_ids" => member_ids,
+          "granted_count" => length(member_ids),
+          "source" => source
+        })
+    }
+  end
+
+  defp binding_audit_states({:kind_changed, old_kind}, role, member_ids, source) do
+    %{
+      action: "role_binding.kind_changed",
+      before_state: %{role_state(role) | "kind" => Atom.to_string(old_kind)},
+      after_state:
+        Map.merge(role_state(role), %{
+          "affected_user_ids" => member_ids,
+          "affected_count" => length(member_ids),
+          "source" => source
+        })
+    }
+  end
+
+  @spec group_member_ids(group_id :: Ecto.UUID.t(), prefix :: String.t()) :: [Ecto.UUID.t()]
+  defp group_member_ids(group_id, prefix) do
+    from(m in GroupMember, where: m.group_id == ^group_id, select: m.user_id, order_by: m.user_id)
+    |> Repo.all(prefix: prefix)
   end
 
   defp lock_role_by_name(name, prefix) do
@@ -541,19 +654,25 @@ defmodule Letflow.Identity.RoleRegistry do
 
   `role_id` must already be canonical (the router casts it). `actor_id` may be `nil`
   only for a non-HTTP caller.
+
+  GH 2547 (design 3.4b, 6.6): the transaction first takes
+  `Letflow.Identity.lock_tenant_admins!/1`; the `role.rebound` entry carries the trace id
+  from `opts[:audit_context]` (the actor stays `attrs.actor_id`).
   """
   @spec rebind_role(
           role_id :: Ecto.UUID.t(),
           group_id :: term(),
           attrs :: %{actor_id: Ecto.UUID.t() | nil, reason: term()},
-          opts :: [prefix: String.t(), platform_scope: boolean()]
+          opts :: [prefix: String.t(), platform_scope: boolean(), audit_context: AuditContext.t()]
         ) :: {:ok, TenantRole.t()} | {:error, rebind_error()}
   def rebind_role(role_id, group_id, %{actor_id: actor_id, reason: reason}, opts) do
     prefix = Keyword.fetch!(opts, :prefix)
     platform_scope? = Keyword.get(opts, :platform_scope, false) == true
+    trace_id = AuditContext.from_opts(opts).trace_id
 
     Repo.transaction(
       fn ->
+        Identity.lock_tenant_admins!(prefix)
         role = lock_role_by_id(role_id, prefix) || Repo.rollback(:role_not_found)
 
         if Authorization.platform_admin_name?(role.name) and not platform_scope? do
@@ -573,14 +692,14 @@ defmodule Letflow.Identity.RoleRegistry do
         if same_id?(role.group_id, target) do
           role
         else
-          move_role(role, target, actor_id, trimmed_reason, prefix)
+          move_role(role, target, actor_id, trimmed_reason, prefix, trace_id)
         end
       end,
       prefix: prefix
     )
   end
 
-  defp move_role(role, target, actor_id, reason, prefix) do
+  defp move_role(role, target, actor_id, reason, prefix, trace_id) do
     updated =
       role
       |> Ecto.Changeset.change(group_id: target)
@@ -598,7 +717,7 @@ defmodule Letflow.Identity.RoleRegistry do
       resource_id: role.id,
       before_state: role_state(role),
       after_state: Map.put(role_state(updated), "reason", reason),
-      trace_id: nil
+      trace_id: trace_id
     }
 
     case Audit.insert_entry(Repo, attrs, prefix) do

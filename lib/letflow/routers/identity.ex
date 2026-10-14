@@ -659,7 +659,7 @@ defmodule Letflow.Routers.Identity do
             # Body user id is cast here (after the guard and validation, so 403/422 still
             # win); an uncastable one is the same 404 as an unknown user.
             with_cast_id(conn, raw_user_id, fn user_id ->
-              case Identity.add_group_member(group_id, user_id, opts) do
+              case Identity.add_group_member(group_id, user_id, audit_opts(conn, opts)) do
                 {:ok, %{member: _member, created: created?}} ->
                   status = if created?, do: 201, else: 200
                   Response.send_json(conn, status, member_result_map(group_id, user_id, created?))
@@ -669,6 +669,13 @@ defmodule Letflow.Routers.Identity do
 
                 {:error, :user_not_found} ->
                   Response.not_found(conn)
+
+                # GH 2547: rolled back with its audit entry; a server fault.
+                {:error, {:audit_failed, _reason}} ->
+                  Response.internal_error(conn)
+
+                {:error, {:transaction_failed, _exception}} ->
+                  Response.internal_error(conn)
               end
             end)
         end
@@ -748,9 +755,12 @@ defmodule Letflow.Routers.Identity do
     with_cast_id(conn, raw_group_id, fn group_id ->
       with_cast_id(conn, raw_user_id, fn user_id ->
         with_platform_admin_group_guard(conn, group_id, opts, fn ->
-          case Identity.remove_group_member(group_id, user_id, opts) do
+          case Identity.remove_group_member(group_id, user_id, audit_opts(conn, opts)) do
             :ok -> Response.no_content(conn)
             {:error, :group_not_found} -> Response.not_found(conn)
+            # GH 2547: rolled back with its audit entry; a server fault.
+            {:error, {:audit_failed, _reason}} -> Response.internal_error(conn)
+            {:error, {:transaction_failed, _exception}} -> Response.internal_error(conn)
           end
         end)
       end)
@@ -793,7 +803,7 @@ defmodule Letflow.Routers.Identity do
           case Identity.create_token(
                  user_id,
                  %{roles: roles, expires_at: parsed_expires_at},
-                 opts
+                 audit_opts(conn, opts)
                ) do
             {:ok, %{token: token, plaintext: plaintext}} ->
               Response.created(conn, token_created_map(token, plaintext))
@@ -843,7 +853,7 @@ defmodule Letflow.Routers.Identity do
       if not platform_scope?(conn) and Identity.token_carries_platform_admin?(id, opts) do
         forbid_insufficient(conn)
       else
-        case Identity.revoke_token(id, opts) do
+        case Identity.revoke_token(id, audit_opts(conn, opts)) do
           {:ok, token} -> Response.ok(conn, token_map(token))
           {:error, :not_found} -> Response.not_found(conn)
           {:error, {:transaction_failed, _exception}} -> Response.internal_error(conn)
@@ -934,7 +944,7 @@ defmodule Letflow.Routers.Identity do
     # Letflow.Identity.TenantRole's own Ecto.Enum field).
     kind = String.to_existing_atom(kind_string)
 
-    case RoleRegistry.upsert_role(name, kind, group_id, opts) do
+    case RoleRegistry.upsert_role(name, kind, group_id, audit_opts(conn, opts)) do
       {:ok, role} ->
         Response.ok(conn, role_map(role))
 
@@ -962,6 +972,13 @@ defmodule Letflow.Routers.Identity do
 
       {:error, %Ecto.Changeset{}} ->
         Response.unprocessable(conn, "validation failed")
+
+      # GH 2547: a grant-relevant binding write rolled back with its audit entry.
+      {:error, {:audit_failed, _reason}} ->
+        Response.internal_error(conn)
+
+      {:error, {:transaction_failed, _exception}} ->
+        Response.internal_error(conn)
     end
   end
 
@@ -981,7 +998,7 @@ defmodule Letflow.Routers.Identity do
         reason: Map.get(body, "reason")
       }
 
-      opts = Keyword.put(opts, :platform_scope, platform_scope?(conn))
+      opts = conn |> audit_opts(opts) |> Keyword.put(:platform_scope, platform_scope?(conn))
 
       case RoleRegistry.rebind_role(id, Map.get(body, "group_id"), attrs, opts) do
         {:ok, role} -> Response.ok(conn, role_map(role))
@@ -996,6 +1013,20 @@ defmodule Letflow.Routers.Identity do
         {:error, %Ecto.Changeset{}} -> Response.unprocessable(conn, "validation failed")
       end
     end)
+  end
+
+  # ── Audit context (GH 2547, design gh2547-tenant-admin-audit-and-count.md 2.3) ──
+  #
+  # The actor is the DB-resolved authenticated user (an API-token caller's token owner),
+  # never a request value; the trace id is the request's own (correlation data only).
+  # The guard helpers keep receiving the unchanged opts.
+  @spec audit_opts(conn :: Plug.Conn.t(), opts :: keyword()) :: keyword()
+  defp audit_opts(conn, opts) do
+    Keyword.put(opts, :audit_context, %{
+      actor_id: conn.assigns.auth_context.user_id,
+      trace_id: conn.assigns[:trace_id],
+      source: "api"
+    })
   end
 
   # ── Response allowlist (design §3, AC5, INV-2) ──────────────────────────
