@@ -1752,8 +1752,9 @@ defmodule Letflow.Identity do
 
   @doc """
   Returns `true` if and only if `user` is active — `user.status == :active`
-  (GH-2557). This is the single in-memory definition of "active user", the
-  same notion the OIDC path checks (`users.status`, per tenant schema). Pure:
+  (GH-2557). This is the single in-memory definition of "active user"; the
+  OIDC path (`AuthPipeline.verify_local_account_state/2`) calls it, and
+  `active_user_condition/1` is its query-side twin (`users.status`, per tenant schema). Pure:
   no I/O. Any other status, including `:inactive`, returns `false`.
   """
   @spec active_user?(User.t()) :: boolean()

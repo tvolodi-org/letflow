@@ -216,6 +216,8 @@ defmodule Letflow.ApiTokenAuthPipelineTest do
   # revoked-token requests differ in it too), so it carries no token or user
   # state. The header must be present on both, and both values must be UUIDs.
   defp gh2557_assert_same_response!(left, right) do
+    assert List.keymember?(left.resp_headers, "x-trace-id", 0)
+    assert List.keymember?(right.resp_headers, "x-trace-id", 0)
     assert left.status == right.status
     assert left.resp_body == right.resp_body
     assert gh2557_normalised_headers(left) == gh2557_normalised_headers(right)
