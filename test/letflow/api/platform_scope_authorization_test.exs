@@ -66,7 +66,10 @@ defmodule Letflow.Api.PlatformScopeAuthorizationTest do
     :PromotionsRead,
     :PromotionsManage,
     # REQ-448 (L1)
-    :AttachmentLinksIssue
+    :AttachmentLinksIssue,
+    # GH 2534 PR 7b-1
+    :ScriptsWrite,
+    :ScriptsPublish
   ]
 
   @new_permissions [

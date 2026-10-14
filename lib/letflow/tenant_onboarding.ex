@@ -168,10 +168,12 @@ defmodule Letflow.TenantOnboarding do
           | {:error, {:provisioning_failed, term()}}
           | {:error, {:migration_failed, Exception.t()}}
           | {:error, {:role_seeding_failed, term()}}
+          | {:error, {:script_hmac_failed, term()}}
   def provision_and_migrate(tenant_id) do
     with {:ok, registration} <- provision(tenant_id),
          {:ok, _applied_versions} <- TenantProvisioning.replay_migrations(tenant_id),
-         {:ok, _tenant_roles} <- seed_platform_roles(registration.schema_name) do
+         {:ok, _tenant_roles} <- seed_platform_roles(registration.schema_name),
+         :ok <- ensure_script_hmac(tenant_id) do
       activate_tenant(tenant_id)
       {:ok, Repo.get_by(Registration, tenant_id: tenant_id)}
     end
@@ -182,6 +184,16 @@ defmodule Letflow.TenantOnboarding do
       {:ok, _registration} = ok -> ok
       {:error, :tenant_not_found} = error -> error
       {:error, reason} -> {:error, {:provisioning_failed, reason}}
+    end
+  end
+
+  # GH 2534 7b-1 (decision 0053 D9, advisor Q2): the per-tenant script-input HMAC key is
+  # created at provisioning (idempotent, so recover_provisioning/1 re-runs it safely); a
+  # failure leaves the tenant :migrating, like role seeding.
+  defp ensure_script_hmac(tenant_id) do
+    case Letflow.Scripts.HmacSecret.ensure(%{id: tenant_id}) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:script_hmac_failed, reason}}
     end
   end
 

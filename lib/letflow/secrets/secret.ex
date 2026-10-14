@@ -32,7 +32,7 @@ defmodule Letflow.Secrets.Secret do
     field(:name, :string)
     field(:key_id, :integer)
 
-    field(:purpose, Ecto.Enum, values: [:webhook_hmac, :generic])
+    field(:purpose, Ecto.Enum, values: [:webhook_hmac, :generic, :script_hmac])
     field(:status, Ecto.Enum, values: [:active, :disabled, :deleted], default: :active)
 
     field(:algorithm, Ecto.Enum, values: [:aes_256_gcm])
@@ -61,7 +61,7 @@ defmodule Letflow.Secrets.Secret do
           namespace: String.t(),
           name: String.t(),
           key_id: pos_integer(),
-          purpose: :webhook_hmac | :generic,
+          purpose: :webhook_hmac | :generic | :script_hmac,
           status: :active | :disabled | :deleted,
           algorithm: :aes_256_gcm,
           wrapped_key_algorithm: :aes_256_gcm,
