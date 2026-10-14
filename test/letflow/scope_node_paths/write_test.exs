@@ -136,6 +136,28 @@ defmodule Letflow.ScopeNodePaths.WriteTest do
       assert node(schema, "c").path == "/r/c/"
     end
 
+    test "rolling back the caller removes a move and a retire as well", %{schema: schema} do
+      chain!(schema, ["r", "a", "b"])
+      insert!(schema, "x", "r")
+      before = snapshot(schema)
+
+      assert {:error, :undo} =
+               Repo.transaction(fn ->
+                 assert {:ok, %Node{path: "/r/x/a/"}} =
+                          ScopeNodePaths.write({:move, "a", "x"}, schema)
+
+                 assert {:ok, %Node{retired_at: %DateTime{}}} =
+                          ScopeNodePaths.write({:retire, "b"}, schema)
+
+                 assert node(schema, "a").path == "/r/x/a/"
+                 assert node(schema, "b").path == "/r/x/a/b/"
+                 assert node(schema, "b").retired_at != nil
+                 Repo.rollback(:undo)
+               end)
+
+      assert snapshot(schema) == before
+    end
+
     test "outside a transaction write/2 commits on its own", %{schema: schema} do
       refute Repo.in_transaction?()
       insert!(schema, "standalone", nil)
