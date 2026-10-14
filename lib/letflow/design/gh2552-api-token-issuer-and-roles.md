@@ -213,7 +213,7 @@ Option 3: deactivation revokes all the user's tokens in the same transaction; re
   `update_user_profile/3` (`:375-381`). Trigger: locked `:active` -> updated not `:active`.
 - **Order:** `lock_tenant_admins!(prefix)` becomes the first step of every `update_locked_user/5` call that writes
   `status` (a PATCH without `status` takes no lock; gh2564 §3). Then the user `FOR UPDATE` (`:423`), then the user's `revoked_at IS NULL` tokens
-  `ORDER BY id FOR UPDATE`, each revoked through a private `revoke_token_row/4` extracted from
+  `ORDER BY id FOR UPDATE`, each revoked through a private `revoke_token_row/5` extracted from
   `revoke_locked_token/3` (`:2087-2109`) and shared with it (changeset per row, not `update_all`). Role and group
   rows are deliberately not row-locked: every binding writer holds the advisory lock. Same order as
   `revoke_token/2` and `mint_token/4`.
