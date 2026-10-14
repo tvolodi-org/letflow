@@ -91,16 +91,15 @@ defmodule Letflow.Entities.Record.Validator do
     JsonSchema.validate(field_values, schema)
   end
 
-  @doc false
   # GH #2532: the effective JSON Schema "minimum" for a field's `min` and
   # `non_negative`. Only a literal `true` turns `non_negative` on; a
   # non-number `min` (a corrupt stored definition) is ignored, never
   # compared or computed with (INV-8). Tested through `build_record_schema/1`.
   @spec effective_minimum(min :: term(), non_negative :: term()) :: number() | nil
-  def effective_minimum(min, true) when is_number(min), do: max(min, 0)
-  def effective_minimum(min, _non_negative) when is_number(min), do: min
-  def effective_minimum(_min, true), do: 0
-  def effective_minimum(_min, _non_negative), do: nil
+  defp effective_minimum(min, true) when is_number(min), do: max(min, 0)
+  defp effective_minimum(min, _non_negative) when is_number(min), do: min
+  defp effective_minimum(_min, true), do: 0
+  defp effective_minimum(_min, _non_negative), do: nil
 
   # --- per-field type mapping (design §4.1) -----------------------------------
 

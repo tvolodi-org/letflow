@@ -515,8 +515,6 @@ defmodule Letflow.Entities.Definition.Validator do
   # so a malformed value yields a violation, never a crash (INV-8). Messages
   # are fixed strings and never echo the submitted value.
 
-  @range_keys [:min, :max, :non_negative]
-
   @spec range_violations(Definition.t()) :: [violation()]
   defp range_violations(definition) do
     definition
@@ -548,7 +546,7 @@ defmodule Letflow.Entities.Definition.Validator do
     non_negative = Map.get(field, :non_negative)
 
     cond do
-      Enum.any?(@range_keys, &Map.has_key?(field, &1)) and type not in [:integer, :decimal] ->
+      (has_min? or has_max? or has_non_negative?) and type not in [:integer, :decimal] ->
         "min, max and non_negative are only allowed on :integer and :decimal fields"
 
       has_non_negative? and not is_boolean(non_negative) ->
