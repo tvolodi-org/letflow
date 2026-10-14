@@ -117,7 +117,7 @@ Returned map, every key (no `:token_id`; filled by `build_timer_arms_multi/4` as
 | `repeat_total` | `1 + reminder_repeat_count` when the count is present (count 2 -> 3); `51` when the count is absent (50 repeats cap) |
 
 Check-constraint proof for the interval branch (migration `:116-118`): `repeat_expression` not
-null; `repeat_interval_us` not null and > 0; `fired_count = 0 >= 0`; `repeat_total` in 2..51,
+null; `repeat_interval_us` not null (the constraint does not check > 0; the value is positive because `Graph.parse_reminder_repeat_interval/1` rejects zero or negative intervals at CHK-28); `fired_count = 0 >= 0`; `repeat_total` in 2..51,
 so `>= 1` and `fired_count (0) <= repeat_total`. Re-armed successors keep `repeat_total` and have
 `fired_count` 1..`repeat_total - 1` (`maybe_rearm_timer/3` inserts only while
 `new_fired_count < repeat_total`, `scheduler.ex:454`), so `fired_count <= repeat_total` holds for
