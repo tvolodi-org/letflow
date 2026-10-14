@@ -75,7 +75,7 @@ defmodule Letflow.Entities.Records do
   `event_payload_store` first. `create_record/2` accepts the internal-only
   option `idempotency_match: :target` (default `:request`), which drops the
   `field_values` compare for a fetch-or-create by natural key
-  (`Letflow.Modules.Exam.Certificate`); the HTTP router never sets it. The
+  (`Letflow.Modules.Exam.Certificate`); no request field can set it. The
   step order is unchanged: the GH #2529 append-only check runs before the
   claim and the GH #2528 version check after it.
 
@@ -285,6 +285,9 @@ defmodule Letflow.Entities.Records do
   definition is resolved -- before the record lookup, payload validation and
   idempotency -- so the answer is the same for any `record_id` and no event is
   appended.
+
+  GH #2543: the duplicate-key binding is always the full `:request` match;
+  `idempotency_match` is create-only and is ignored here.
   """
   @spec update_record(update_attrs(), prefix :: String.t()) ::
           {:ok, command_result()} | command_error()
