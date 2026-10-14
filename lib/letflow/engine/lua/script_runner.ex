@@ -261,8 +261,10 @@ defmodule Letflow.Engine.Lua.ScriptRunner do
 
       case ScriptValue.decode(List.first(results), state) do
         {:ok, output} ->
-          {:ok,
-           %{output: output, stats: stats(config, started, state.instruction_count, run_ref)}}
+          # GH 2534 7b-1: with author_detail (dry-run) the print buffer is returned on
+          # success too (author message and line are nil: there is no error).
+          ok = %{output: output, stats: stats(config, started, state.instruction_count, run_ref)}
+          {:ok, Map.merge(ok, author(config, run_ref, nil))}
 
         :error ->
           {:error, :output_invalid, author(config, run_ref, nil)}

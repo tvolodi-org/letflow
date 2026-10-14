@@ -76,7 +76,10 @@ defmodule Letflow.Api.AuthorizationTest do
       :PromotionsRead,
       :PromotionsManage,
       :DefinitionsRollback,
-      :AttachmentLinksIssue
+      :AttachmentLinksIssue,
+      # GH 2534 PR 7b-1
+      :ScriptsWrite,
+      :ScriptsPublish
     ]
 
     test "core_permissions/0 returns the closed core list through ISS-0935's :EntitiesRestrictionsManage, no Catalog atoms" do
@@ -458,7 +461,9 @@ defmodule Letflow.Api.AuthorizationTest do
           38 => "thirty-eight",
           39 => "thirty-nine",
           40 => "forty",
-          41 => "forty-one"
+          41 => "forty-one",
+          42 => "forty-two",
+          43 => "forty-three"
         }
         |> Map.get(actual_count)
 
@@ -1028,7 +1033,9 @@ defmodule Letflow.Api.AuthorizationTest do
           38 => "thirty-eight",
           39 => "thirty-nine",
           40 => "forty",
-          41 => "forty-one"
+          41 => "forty-one",
+          42 => "forty-two",
+          43 => "forty-three"
         }
         |> Map.get(actual_count)
 
@@ -1519,7 +1526,9 @@ defmodule Letflow.Api.AuthorizationTest do
           38 => "thirty-eight",
           39 => "thirty-nine",
           40 => "forty",
-          41 => "forty-one"
+          41 => "forty-one",
+          42 => "forty-two",
+          43 => "forty-three"
         }
         |> Map.get(actual_count)
 
@@ -2328,7 +2337,10 @@ defmodule Letflow.Api.AuthorizationTest do
                    :PromotionsManage,
                    :DefinitionsRollback,
                    # REQ-448 (L1)
-                   :AttachmentLinksIssue
+                   :AttachmentLinksIssue,
+                   # GH 2534 PR 7b-1 (decision 0053 D6)
+                   :ScriptsWrite,
+                   :ScriptsPublish
                  ]
 
       pair_count = length(Authorization.roles()) * length(@pre_req401_permissions)
