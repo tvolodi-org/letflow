@@ -314,4 +314,52 @@ defmodule Mix.Tasks.Letflow.WorkBoardGatesTest do
       end
     end
   end
+
+  describe "readers are hermetic and survive the flip (main went red on 2026-10-14)" do
+    # A scan/audit with no :cutover option must give the pre-cutover answer whatever the
+    # repo's own docs/status/work_board_cutover.yaml says, so a flip can never change the
+    # verdict of a fixture test (the five registration tests that read the real file).
+    test "scan/2 without options does not read the real switch file" do
+      legacy_only = req("REQ-001", ["status: pending", "impl_order: 42", "stage: S4"])
+
+      assert Registration.scan(doc(legacy_only)).violations == []
+      assert rules(scan(legacy_only, true)) == ["R7"]
+    end
+
+    test "issue_refs audit/3 without options does not apply the post-cutover ceiling" do
+      content = "id: ISS-9999
+queue_ref: Q-9999
+github_ref: GH-1
+status: open
+"
+      assert IssueRefs.audit(content, "ISS-9999") == []
+    end
+
+    # The flip itself must be safe: the real tree under cutover: true passes all three checks.
+    test "the real requirements file passes the registration check with cutover: true" do
+      report = Registration.scan(File.read!("docs/requirements.yaml"), cutover: true)
+      assert report.violations == []
+    end
+
+    test "the real requirements file passes the staleness audit with cutover: true" do
+      result = Staleness.audit(File.read!("docs/requirements.yaml"), cutover: true)
+      assert result.violations == []
+    end
+
+    test "every real issue record passes issue_refs with cutover: true and the file's ceiling" do
+      last = WorkBoardCutover.load!().last_legacy_iss
+
+      violations =
+        "docs/issues/*.yaml"
+        |> Path.wildcard()
+        |> Enum.flat_map(fn path ->
+          IssueRefs.audit(File.read!(path), Path.basename(path, ".yaml"),
+            cutover: true,
+            last_legacy_iss: last
+          )
+        end)
+
+      assert violations == []
+    end
+  end
 end
