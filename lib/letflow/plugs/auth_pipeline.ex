@@ -65,8 +65,8 @@ defmodule Letflow.Plugs.AuthPipeline do
        reference an existing row, so there is nothing to provision.
 
   A missing header, an unresolvable slug, a garbage token, a revoked token,
-  and an expired token are all byte-identical 401s (`"invalid or expired
-  bearer token"`) — the same anti-oracle discipline the OIDC branch already
+  an expired token, and a token whose owner is inactive (GH-2557) are all
+  byte-identical 401s (`"invalid or expired bearer token"`) — the same anti-oracle discipline the OIDC branch already
   applies to its own five failure tags, extended here rather than inventing a
   differently-worded message that would let a caller distinguish "your slug
   is wrong" from "your token is revoked" by response text. No
@@ -386,13 +386,13 @@ defmodule Letflow.Plugs.AuthPipeline do
   defp verify_local_account_state(provisioned, tenant_id) do
     case TenantProvisioning.schema_name_for_tenant(tenant_id) do
       {:ok, schema_name} ->
-        case provisioned.user.status do
-          :inactive ->
-            {:error, {:account, :inactive}}
-
-          :active ->
-            roles = Identity.list_effective_role_names(provisioned.user.id, prefix: schema_name)
-            {:ok, roles}
+        # GH-2557: the same "active" definition the API-token path uses, so
+        # the two cannot drift if `User.status` gains a value.
+        if Identity.active_user?(provisioned.user) do
+          roles = Identity.list_effective_role_names(provisioned.user.id, prefix: schema_name)
+          {:ok, roles}
+        else
+          {:error, {:account, :inactive}}
         end
 
       {:error, :invalid_tenant_id} ->

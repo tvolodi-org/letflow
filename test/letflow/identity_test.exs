@@ -1131,6 +1131,174 @@ defmodule Letflow.IdentityTest do
     end
   end
 
+  # GH-2557 — design lib/letflow/design/gh2557-inactive-user-api-token.md §2/§3,
+  # spec test/specs/GH-2557.md.
+
+  defp gh2557_deactivate!(schema_name, user) do
+    user
+    |> Ecto.Changeset.change(%{status: :inactive})
+    |> Repo.update!(prefix: schema_name)
+  end
+
+  # Runs `fun` and returns `{result, queries}` where `queries` are the SQL
+  # strings of every `[:letflow, :repo, :query]` event emitted by THIS test
+  # process only (pid captured at attach), so unrelated concurrent queries
+  # never inflate the count.
+  defp gh2557_capture_queries(fun) do
+    test_pid = self()
+    handler_id = {__MODULE__, :gh2557_queries, make_ref()}
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:letflow, :repo, :query],
+        fn _event, _measurements, metadata, _config ->
+          if self() == test_pid, do: send(test_pid, {:gh2557_query, handler_id, metadata.query})
+        end,
+        nil
+      )
+
+    try do
+      result = fun.()
+      {result, gh2557_drain(handler_id, [])}
+    after
+      :telemetry.detach(handler_id)
+    end
+  end
+
+  defp gh2557_drain(handler_id, acc) do
+    receive do
+      {:gh2557_query, ^handler_id, sql} -> gh2557_drain(handler_id, [sql | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
+  describe "verify_api_token/2 — inactive owner (GH-2557 AC2)" do
+    test "inactive owner returns {:error, :revoked} and leaves last_used_at unchanged" do
+      %{schema_name: schema_name} = req076_tenant!("gh2557-verify-inactive")
+      user = insert_identity_user!(schema_name)
+
+      {:ok, %{token: token, plaintext: plaintext}} =
+        Identity.create_token(user.id, %{roles: ["TENANT_ADMIN"], expires_at: nil},
+          prefix: schema_name
+        )
+
+      gh2557_deactivate!(schema_name, user)
+
+      assert {:error, :revoked} = Identity.verify_api_token(plaintext, prefix: schema_name)
+      assert Repo.get!(ApiToken, token.id, prefix: schema_name).last_used_at == nil
+    end
+
+    test "inactive owner with an expired token returns {:error, :revoked}" do
+      %{schema_name: schema_name} = req076_tenant!("gh2557-verify-inactive-exp")
+      user = insert_identity_user!(schema_name)
+      future = DateTime.add(DateTime.utc_now(), 60, :second) |> DateTime.truncate(:second)
+
+      {:ok, %{token: token, plaintext: plaintext}} =
+        Identity.create_token(user.id, %{roles: ["TASK_WORKER"], expires_at: future},
+          prefix: schema_name
+        )
+
+      past = DateTime.add(DateTime.utc_now(), -1, :second) |> DateTime.truncate(:second)
+
+      token
+      |> Ecto.Changeset.change(%{expires_at: past})
+      |> Repo.update!(prefix: schema_name)
+
+      # Premise: with the owner still active, this token is :expired.
+      assert {:error, :expired} = Identity.verify_api_token(plaintext, prefix: schema_name)
+
+      gh2557_deactivate!(schema_name, user)
+
+      assert {:error, :revoked} = Identity.verify_api_token(plaintext, prefix: schema_name)
+    end
+
+    test "inactive owner and revoked token each issue exactly 1 query and no UPDATE on api_tokens" do
+      %{schema_name: schema_name} = req076_tenant!("gh2557-verify-querycount")
+      inactive_owner = insert_identity_user!(schema_name)
+      revoked_owner = insert_identity_user!(schema_name)
+
+      {:ok, %{plaintext: inactive_plaintext}} =
+        Identity.create_token(inactive_owner.id, %{roles: ["TENANT_ADMIN"], expires_at: nil},
+          prefix: schema_name
+        )
+
+      {:ok, %{token: revoked_token, plaintext: revoked_plaintext}} =
+        Identity.create_token(revoked_owner.id, %{roles: ["TENANT_ADMIN"], expires_at: nil},
+          prefix: schema_name
+        )
+
+      gh2557_deactivate!(schema_name, inactive_owner)
+      {:ok, _} = Identity.revoke_token(revoked_token.id, prefix: schema_name)
+
+      {inactive_result, inactive_queries} =
+        gh2557_capture_queries(fn ->
+          Identity.verify_api_token(inactive_plaintext, prefix: schema_name)
+        end)
+
+      {revoked_result, revoked_queries} =
+        gh2557_capture_queries(fn ->
+          Identity.verify_api_token(revoked_plaintext, prefix: schema_name)
+        end)
+
+      assert inactive_result == {:error, :revoked}
+      assert revoked_result == {:error, :revoked}
+      assert length(inactive_queries) == 1, inspect(inactive_queries)
+      assert length(revoked_queries) == 1, inspect(revoked_queries)
+
+      for sql <- inactive_queries ++ revoked_queries do
+        refute sql =~ ~r/^\s*UPDATE\b.*api_tokens/is, sql
+      end
+    end
+  end
+
+  describe "active_user?/1 and active_user_condition/1 (GH-2557 AC5 contract)" do
+    test "active_user?/1 truth table" do
+      assert Identity.active_user?(%User{status: :active})
+      refute Identity.active_user?(%User{status: :inactive})
+      refute Identity.active_user?(%User{status: nil})
+
+      assert_raise FunctionClauseError, fn -> Identity.active_user?(%{status: :active}) end
+      assert_raise FunctionClauseError, fn -> Identity.active_user?(nil) end
+    end
+
+    test "active_user_condition/1 filters an inactive member out of a GroupMember-User join" do
+      import Ecto.Query, only: [from: 2]
+
+      alias Letflow.Identity.GroupMember
+
+      %{schema_name: schema_name} = req076_tenant!("gh2557-active-condition")
+      active_member = insert_identity_user!(schema_name, "gh2557-active")
+      inactive_member = insert_identity_user!(schema_name, "gh2557-inactive")
+
+      {:ok, group} =
+        Identity.create_group(%{"name" => "gh2557-group-#{Ecto.UUID.generate()}"},
+          prefix: schema_name
+        )
+
+      {:ok, _} = Identity.add_group_member(group.id, active_member.id, prefix: schema_name)
+      {:ok, _} = Identity.add_group_member(group.id, inactive_member.id, prefix: schema_name)
+      gh2557_deactivate!(schema_name, inactive_member)
+
+      base =
+        from(gm in GroupMember,
+          join: u in User,
+          as: :member,
+          on: u.id == gm.user_id,
+          where: gm.group_id == ^group.id,
+          select: u.id
+        )
+
+      # Premise: without the condition, both members are joined.
+      assert Enum.sort(Repo.all(base, prefix: schema_name)) ==
+               Enum.sort([active_member.id, inactive_member.id])
+
+      filtered = Ecto.Query.where(base, ^Identity.active_user_condition(:member))
+      assert Repo.all(filtered, prefix: schema_name) == [active_member.id]
+    end
+  end
+
   describe "Onboarding: create_onboarding/1, get_onboarding/1, get_onboarding_by_hostname/1 (REQ-076)" do
     test "create_onboarding/1 inserts a row and get_onboarding/1 finds it by id" do
       %{tenant_id: tenant_id, tenant: tenant} = req076_tenant!("req076-onboard-create")
