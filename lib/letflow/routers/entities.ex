@@ -551,6 +551,11 @@ defmodule Letflow.Routers.Entities do
     |> maybe_put_optional(:decimal_scale, field, "decimal_scale")
     |> maybe_put_optional(:default, field, "default")
     |> maybe_put_optional(:locales, field, "locales")
+    # GH #2532: numeric range keys. A JSON null is dropped (absent); any
+    # other value passes through unchanged for Validator Rule 12 to judge.
+    |> maybe_put_optional(:min, field, "min")
+    |> maybe_put_optional(:max, field, "max")
+    |> maybe_put_optional(:non_negative, field, "non_negative")
     |> maybe_put_search_strategy(field)
   end
 

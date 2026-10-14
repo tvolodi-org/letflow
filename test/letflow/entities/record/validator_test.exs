@@ -317,4 +317,96 @@ defmodule Letflow.Entities.Record.ValidatorTest do
              } == violation
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # GH #2532 -- "minimum"/"maximum" from min/max/non_negative.
+  # See lib/letflow/design/gh2532-field-min-max-non-negative.md §4.
+  # ---------------------------------------------------------------------------
+
+  defp gh2532_definition(qty_field) do
+    %{name: "stock", display_name: "Stock", fields: [Map.put(qty_field, :name, "qty")]}
+  end
+
+  defp gh2532_qty_subschema(qty_field) do
+    gh2532_definition(qty_field)
+    |> Validator.build_record_schema()
+    |> get_in(["properties", "qty"])
+  end
+
+  describe "GH #2532 range keywords" do
+    test ~s({integer, min 1, max 5} yields "minimum" => 1, "maximum" => 5) do
+      assert gh2532_qty_subschema(%{type: :integer, min: 1, max: 5}) ==
+               %{"type" => "integer", "minimum" => 1, "maximum" => 5}
+    end
+
+    test ~s(non_negative yields "minimum" => 0) do
+      assert gh2532_qty_subschema(%{type: :integer, non_negative: true}) ==
+               %{"type" => "integer", "minimum" => 0}
+
+      assert gh2532_qty_subschema(%{type: :decimal, non_negative: true, max: 9.5}) ==
+               %{"type" => "number", "minimum" => 0, "maximum" => 9.5}
+    end
+
+    test "key-less subschema is exactly the type map" do
+      assert gh2532_qty_subschema(%{type: :integer}) == %{"type" => "integer"}
+
+      assert gh2532_qty_subschema(%{type: :decimal, decimal_precision: 10, decimal_scale: 2}) ==
+               %{"type" => "number"}
+    end
+
+    test "0 with min 1 gives minimum at /qty, 6 with max 5 gives maximum, 1 and 5 pass" do
+      definition = gh2532_definition(%{type: :integer, min: 1, max: 5})
+
+      assert [%ValidationFailure{field_path: "/qty", constraint: "minimum", actual: 0}] =
+               Validator.validate_record_payload(definition, %{"qty" => 0})
+
+      assert [%ValidationFailure{field_path: "/qty", constraint: "maximum", actual: 6}] =
+               Validator.validate_record_payload(definition, %{"qty" => 6})
+
+      assert Validator.validate_record_payload(definition, %{"qty" => 1}) == []
+      assert Validator.validate_record_payload(definition, %{"qty" => 5}) == []
+    end
+
+    test "decimal 0.5 with min 0.1 passes; 0.05 does not; 0.1 itself passes" do
+      definition = gh2532_definition(%{type: :decimal, min: 0.1})
+
+      assert Validator.validate_record_payload(definition, %{"qty" => 0.5}) == []
+      assert Validator.validate_record_payload(definition, %{"qty" => 0.1}) == []
+
+      assert [%ValidationFailure{constraint: "minimum"}] =
+               Validator.validate_record_payload(definition, %{"qty" => 0.05})
+    end
+
+    test "effective_minimum/2 table, through build_record_schema/1" do
+      # (number m, true) -> max(m, 0)
+      assert gh2532_qty_subschema(%{type: :decimal, min: 2.5, non_negative: true})["minimum"] ==
+               2.5
+
+      assert gh2532_qty_subschema(%{type: :integer, min: 7, non_negative: true})["minimum"] == 7
+      # (number m, not true) -> m
+      assert gh2532_qty_subschema(%{type: :integer, min: -4})["minimum"] == -4
+
+      assert gh2532_qty_subschema(%{type: :integer, min: -4, non_negative: false})["minimum"] ==
+               -4
+
+      assert gh2532_qty_subschema(%{type: :integer, min: -4, non_negative: "yes"})["minimum"] ==
+               -4
+
+      # (non-number, true) -> 0
+      assert gh2532_qty_subschema(%{type: :integer, min: "a", non_negative: true})["minimum"] == 0
+      # (non-number, not true) -> no "minimum"
+      refute Map.has_key?(gh2532_qty_subschema(%{type: :integer, min: "a"}), "minimum")
+      refute Map.has_key?(gh2532_qty_subschema(%{type: :integer, non_negative: "yes"}), "minimum")
+      refute Map.has_key?(gh2532_qty_subschema(%{type: :integer, min: nil}), "minimum")
+    end
+
+    test "a non-number stored bound is ignored, never a crash (INV-8)" do
+      definition = gh2532_definition(%{type: :integer, min: "a", max: "b", non_negative: "yes"})
+
+      assert Validator.build_record_schema(definition)["properties"]["qty"] ==
+               %{"type" => "integer"}
+
+      assert Validator.validate_record_payload(definition, %{"qty" => -1}) == []
+    end
+  end
 end

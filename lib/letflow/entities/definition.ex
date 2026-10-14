@@ -32,6 +32,27 @@ defmodule Letflow.Entities.Definition do
   version without it lifts it, and it applies to commands that start after
   the activation. Ledgers that must be tamper-proof use `managed_by`
   (decision 0050 D7).
+
+  ## Numeric ranges (GH #2532)
+
+  `:integer` and `:decimal` fields take three optional keys, never defaulted
+  or inserted by any layer (absent means unbounded, and keeps the stored JSON,
+  the record subschema and the shape hashes unchanged): `min` and `max`
+  (inclusive bounds; an integer on `:integer`, any number on `:decimal`) and
+  `non_negative` (boolean; `true` means an effective minimum of
+  `max(min, 0)`). `non_negative: true` is stored as written, never rewritten
+  to `min: 0`, so the two hash differently and are distinct logical shapes.
+  `Letflow.Entities.Definition.Validator` Rule 12 (`:invalid_range`) rejects
+  the keys on any other type, a non-number/non-integer bound, `min > max`,
+  a negative bound alongside `non_negative: true`, and a non-boolean
+  `non_negative`. `Letflow.Entities.Record.Validator` turns them into JSON
+  Schema `"minimum"`/`"maximum"`, enforced on every record create and update.
+
+  A JSON `null` bound is treated as **absent** when a definition is submitted
+  over HTTP (the router drops `nil` field keys), but is **rejected** with
+  `:invalid_range` when it arrives in a solution pack (the pack installer
+  carries `null` through as `nil`, which Rule 12 sees as a present,
+  non-number bound).
   """
 
   @typedoc "Top-level entity definition document. See moduledoc for the tenant-scoping decision."
@@ -57,7 +78,10 @@ defmodule Letflow.Entities.Definition do
           optional(:decimal_scale) => non_neg_integer(),
           optional(:default) => term(),
           optional(:locales) => [String.t(), ...],
-          optional(:search_strategy) => :plain | :fulltext
+          optional(:search_strategy) => :plain | :fulltext,
+          optional(:min) => number(),
+          optional(:max) => number(),
+          optional(:non_negative) => boolean()
         }
 
   @typedoc """

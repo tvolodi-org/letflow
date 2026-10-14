@@ -1241,4 +1241,88 @@ defmodule Letflow.Definitions.SolutionPackTest do
       assert Repo.aggregate(EntityDefinition, :count, :id, prefix: tenant.schema_name) == 0
     end
   end
+
+  # ── GH #2532 -- min/max/non_negative survive export -> install ─────────────
+
+  defp gh2532_packed_entry_with_qty(qty_field) do
+    entry = packed_entity_definition_json()
+
+    Map.update!(entry, "definition_json", fn json ->
+      Map.update!(json, "fields", &(&1 ++ [Map.merge(%{"name" => "qty"}, qty_field)]))
+    end)
+  end
+
+  describe "GH #2532 bounds round-trip" do
+    test "export from tenant A, install into tenant B: bounds kept" do
+      tenant_a = TenantFixture.provisioned_tenant!(slug_prefix: "gh2532-pack-a")
+      tenant_b = TenantFixture.provisioned_tenant!(slug_prefix: "gh2532-pack-b")
+      cleanup_solution_pack_installs!(tenant_b.tenant_id)
+
+      source =
+        create_entity_definition!(tenant_a.schema_name, %{
+          fields: [
+            %{name: "email", type: :string, required: true, queried: true},
+            %{name: "qty", type: :integer, min: 1, max: 50},
+            %{
+              name: "price",
+              type: :decimal,
+              decimal_precision: 12,
+              decimal_scale: 2,
+              non_negative: true,
+              max: 99.5
+            }
+          ]
+        })
+
+      # Reload so definition_json is the string-keyed JSONB read back from Postgres.
+      assert {:ok, source} =
+               EntityDefinitions.get_definition_by_name(source.name, tenant_a.schema_name)
+
+      assert {:ok, exported} =
+               SolutionPack.export([], [source.name], "1.0.0", prefix: tenant_a.schema_name)
+
+      assert {:ok, %{installed_entity_definitions: [_installed]}} =
+               SolutionPack.install(stringify_keys(exported), Ecto.UUID.generate(),
+                 prefix: tenant_b.schema_name
+               )
+
+      assert {:ok, installed_row} =
+               EntityDefinitions.get_definition_by_name(source.name, tenant_b.schema_name)
+
+      fields = Map.new(installed_row.definition_json["fields"], &{&1["name"], &1})
+      assert fields["qty"]["min"] == 1
+      assert fields["qty"]["max"] == 50
+      assert fields["price"]["non_negative"] == true
+      assert fields["price"]["max"] == 99.5
+      refute Map.has_key?(fields["price"], "min")
+      assert installed_row.definition_json == source.definition_json
+      assert installed_row.logical_shape_version == source.logical_shape_version
+    end
+
+    test ~s(unknown field key "minimum" still gives {:error, :invalid_pack_document}) do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2532-pack-unknown")
+
+      entry = gh2532_packed_entry_with_qty(%{"type" => "integer", "minimum" => 0})
+      document = pack_document(%{entity_definitions: [entry]})
+
+      assert SolutionPack.install(document, Ecto.UUID.generate(), prefix: tenant.schema_name) ==
+               {:error, :invalid_pack_document}
+
+      assert Repo.aggregate(EntityDefinition, :count, :id, prefix: tenant.schema_name) == 0
+    end
+
+    test "a JSON null bound in a pack is rejected (:invalid_range), nothing written" do
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2532-pack-null")
+      cleanup_solution_pack_installs!(tenant.tenant_id)
+
+      entry = gh2532_packed_entry_with_qty(%{"type" => "integer", "min" => nil})
+      document = pack_document(%{entity_definitions: [entry]})
+
+      assert {:error, {:validation, violations}} =
+               SolutionPack.install(document, Ecto.UUID.generate(), prefix: tenant.schema_name)
+
+      assert Enum.any?(violations, &(&1.rule == :invalid_range and &1.path == [:fields, "qty"]))
+      assert Repo.aggregate(EntityDefinition, :count, :id, prefix: tenant.schema_name) == 0
+    end
+  end
 end
