@@ -901,4 +901,34 @@ defmodule Letflow.Entities.Definition.DDLTest do
       Repo.query!(~s|SET search_path TO public|)
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # GH #2532 -- range keys add no DB CHECK (design §1 D7, §6).
+  # ---------------------------------------------------------------------------
+
+  describe "GH #2532 bounds add no CHECK" do
+    test "a promoted bounded integer/decimal gives the same DDL as the unbounded one" do
+      unbounded = %{
+        name: "stock",
+        display_name: "Stock",
+        fields: [
+          %{name: "qty", type: :integer, queried: true},
+          %{name: "price", type: :decimal, decimal_precision: 12, decimal_scale: 2, queried: true}
+        ]
+      }
+
+      bounded =
+        Map.update!(unbounded, :fields, fn [qty, price] ->
+          [
+            Map.merge(qty, %{min: 0, max: 100, non_negative: true}),
+            Map.merge(price, %{min: 0.5, max: 99.5})
+          ]
+        end)
+
+      assert {:ok, unbounded_sql} = DDL.generate_table_ddl(unbounded, "stock_table", %{})
+      assert {:ok, bounded_sql} = DDL.generate_table_ddl(bounded, "stock_table", %{})
+      assert bounded_sql == unbounded_sql
+      refute bounded_sql =~ "CHECK"
+    end
+  end
 end

@@ -286,9 +286,10 @@ defmodule Letflow.Test.TenantTemplate do
   # unchanged by `rebuild_clone_schema!/1`.
   # ---------------------------------------------------------------------------
 
-  # The two tables that legitimately hold rows in a pristine clone. `do_clone/2`
+  # The tables that legitimately hold rows in a pristine clone (GH 2534 7b-2a added
+  # script_policy: its singleton row is inserted by its migration). `do_clone/2`
   # steps 7-8 copy them from the live template; a reset restores them the same way.
-  @seed_tables ["event_type_registry", "schema_migrations"]
+  @seed_tables ["event_type_registry", "schema_migrations", "script_policy"]
 
   # Bounds for the reset transaction (design 3.5): a test that died holding a lock
   # must make the reset time out (-> unprovable -> rebuild), not hang the module.
@@ -1377,6 +1378,12 @@ defmodule Letflow.Test.TenantTemplate do
       # Step 7: seed-data copy (event_type_registry).
       Repo.query!(
         ~s(INSERT INTO "#{clone_schema}".event_type_registry SELECT * FROM "#{@template_schema}".event_type_registry)
+      )
+
+      # Step 7b (GH 2534 7b-2a): the script_policy singleton row, which its migration inserts
+      # (a missing row reads as "kill switch on", design gh2534-7b2a-script-policy.md P7).
+      Repo.query!(
+        ~s(INSERT INTO "#{clone_schema}".script_policy SELECT * FROM "#{@template_schema}".script_policy)
       )
 
       # Step 8: schema_migrations row copy. schema_migrations itself is the

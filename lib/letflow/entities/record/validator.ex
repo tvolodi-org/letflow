@@ -55,9 +55,14 @@ defmodule Letflow.Entities.Record.Validator do
   constraint map: `"type" => "object"`, one per-field subschema under
   `"properties"`, the `"required"` list (fields with `required: true`), and
   `"additionalProperties" => false`. See the design doc §4.1 for the full
-  per-field-type keyword mapping and §4's explicit finding that
-  `"minimum"`/`"maximum"`/`"maxLength"` are never emitted -- `field_def()`
-  (REQ-225) carries no length- or range-constraint attribute to translate.
+  per-field-type keyword mapping. `:integer`/`:decimal` subschemas carry
+  `"minimum"`/`"maximum"` when the field declares `min`/`max`/`non_negative`
+  (GH #2532, `lib/letflow/design/gh2532-field-min-max-non-negative.md` §4;
+  the effective minimum is `max(min, 0)` under `non_negative: true`), and are
+  exactly `%{"type" => "integer"}`/`%{"type" => "number"}` when it declares
+  none. A non-number stored bound is ignored, never a crash (INV-8).
+  `"maxLength"` is still never emitted -- `field_def()` carries no length
+  attribute to translate.
   """
   @spec build_record_schema(definition :: Definition.t()) :: record_schema()
   def build_record_schema(definition) do
@@ -86,11 +91,21 @@ defmodule Letflow.Entities.Record.Validator do
     JsonSchema.validate(field_values, schema)
   end
 
+  # GH #2532: the effective JSON Schema "minimum" for a field's `min` and
+  # `non_negative`. Only a literal `true` turns `non_negative` on; a
+  # non-number `min` (a corrupt stored definition) is ignored, never
+  # compared or computed with (INV-8). Tested through `build_record_schema/1`.
+  @spec effective_minimum(min :: term(), non_negative :: term()) :: number() | nil
+  defp effective_minimum(min, true) when is_number(min), do: max(min, 0)
+  defp effective_minimum(min, _non_negative) when is_number(min), do: min
+  defp effective_minimum(_min, true), do: 0
+  defp effective_minimum(_min, _non_negative), do: nil
+
   # --- per-field type mapping (design §4.1) -----------------------------------
 
   defp field_subschema(%{type: :string}), do: %{"type" => "string"}
-  defp field_subschema(%{type: :integer}), do: %{"type" => "integer"}
-  defp field_subschema(%{type: :decimal}), do: %{"type" => "number"}
+  defp field_subschema(%{type: :integer} = field), do: put_range(%{"type" => "integer"}, field)
+  defp field_subschema(%{type: :decimal} = field), do: put_range(%{"type" => "number"}, field)
   defp field_subschema(%{type: :boolean}), do: %{"type" => "boolean"}
   defp field_subschema(%{type: :date}), do: %{"type" => "string"}
   defp field_subschema(%{type: :datetime}), do: %{"type" => "string"}
@@ -146,5 +161,21 @@ defmodule Letflow.Entities.Record.Validator do
       "properties" => Map.new(locales, &{&1, %{"type" => "string"}}),
       "additionalProperties" => false
     }
+  end
+
+  # GH #2532: adds "minimum"/"maximum" only for number bounds; with no range
+  # keys the subschema is returned unchanged (byte-identical to pre-#2532).
+  @spec put_range(map(), Definition.field_def()) :: map()
+  defp put_range(subschema, field) do
+    max = Map.get(field, :max)
+
+    subschema
+    |> then(fn acc ->
+      case effective_minimum(Map.get(field, :min), Map.get(field, :non_negative)) do
+        nil -> acc
+        minimum -> Map.put(acc, "minimum", minimum)
+      end
+    end)
+    |> then(fn acc -> if is_number(max), do: Map.put(acc, "maximum", max), else: acc end)
   end
 end

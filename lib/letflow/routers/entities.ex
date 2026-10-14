@@ -38,6 +38,17 @@ defmodule Letflow.Routers.Entities do
   REQ-318, the same "added ahead of its consuming route" state REQ-309's own
   four `Entities*` atoms sat in before REQ-310 created this module.
 
+  REQ-496 (decision 0050 D7, design
+  `lib/letflow/design/req496-managed-by-and-scope-node-paths.md` §3.1-§3.2):
+  `create_record`, `update_record`, `delete_record`, `import_records` and
+  `activate_definition` refuse a module-managed entity type as their FIRST step
+  (`guard_tenant_write/3`, before the body, path id or query string is read),
+  and `create_definition` right after the body parse; every refusal is the one
+  constant 403 `Letflow.Api.Error.entity_type_managed/0`. **Inheritance rule:**
+  any future entity-definition write route, or generic record write route, MUST
+  call `Letflow.Entities.ManagedTypes.check_tenant_write/2` first. The attachment
+  routes are not guarded (design OQ-3).
+
   | Handler | Method/path | Delegate | Permission | Response |
   |---|---|---|---|---|
   | create_definition | `POST /entities/definitions` | `Letflow.Entities.Definitions.create_definition/2` | `EntitiesDefinitionsWrite` | 201 / 422 / 409 |
@@ -234,6 +245,7 @@ defmodule Letflow.Routers.Entities do
   alias Letflow.Entities.Definition.Validator.Violation, as: DefinitionViolation
   alias Letflow.Entities.Definitions
   alias Letflow.Entities.EntityDefinition
+  alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Query.Allowlist
   alias Letflow.Entities.Query.Compiler
   alias Letflow.Entities.Query.Cursor
@@ -443,6 +455,7 @@ defmodule Letflow.Routers.Entities do
     actor_id = conn.assigns.auth_context.user_id
 
     with {:ok, body} <- object_body(conn),
+         :ok <- check_definition_body_unmanaged(body, prefix),
          {:ok, _attrs} <- validate_schema(@create_definition_schema, body),
          {:ok, document} <- build_definition_document(body) do
       render_create_definition(
@@ -455,8 +468,26 @@ defmodule Letflow.Routers.Entities do
 
       {:errors, field_errors} ->
         Response.send_problem(conn, Validation.problem(field_errors))
+
+      {:error, :entity_type_managed} ->
+        Response.send_problem(conn, Error.entity_type_managed())
+
+      {:error, :invalid_schema_name} ->
+        Response.internal_error(conn)
     end
   end
+
+  # REQ-496 (design §3.2, Revision 1 B1): decided before schema validation, so a
+  # managed name gets the uniform 403 whatever else the body holds. A body
+  # carrying `managed_by` (any value, null included) is refused outright; a
+  # non-binary or absent `name` skips the lookup and the existing 422 path answers.
+  defp check_definition_body_unmanaged(%{"managed_by" => _any}, _prefix),
+    do: {:error, :entity_type_managed}
+
+  defp check_definition_body_unmanaged(%{"name" => name}, prefix) when is_binary(name),
+    do: ManagedTypes.check_tenant_write(name, prefix)
+
+  defp check_definition_body_unmanaged(_body, _prefix), do: :ok
 
   # `Letflow.Entities.Definition.t()` is an ATOM-keyed document whose `type`
   # members are atoms from closed sets -- but a JSON body decodes
@@ -551,6 +582,11 @@ defmodule Letflow.Routers.Entities do
     |> maybe_put_optional(:decimal_scale, field, "decimal_scale")
     |> maybe_put_optional(:default, field, "default")
     |> maybe_put_optional(:locales, field, "locales")
+    # GH #2532: numeric range keys. A JSON null is dropped (absent); any
+    # other value passes through unchanged for Validator Rule 12 to judge.
+    |> maybe_put_optional(:min, field, "min")
+    |> maybe_put_optional(:max, field, "max")
+    |> maybe_put_optional(:non_negative, field, "non_negative")
     |> maybe_put_search_strategy(field)
   end
 
@@ -656,6 +692,11 @@ defmodule Letflow.Routers.Entities do
         "an entity definition with this name and logical shape already exists"
       )
 
+  # REQ-496 backstop: the core check in `create_definition/2` (reachable only on a
+  # race with a module install).
+  defp render_create_definition(conn, {:error, :entity_type_managed}),
+    do: Response.send_problem(conn, Error.entity_type_managed())
+
   defp render_create_definition(conn, {:error, {:repository, reason}}) do
     Logger.warning("entity definition create failed in repository pipeline: #{inspect(reason)}")
     Response.internal_error(conn)
@@ -718,6 +759,10 @@ defmodule Letflow.Routers.Entities do
   # so it serialises through the identical `Validation.problem/1` path and a
   # caller cannot tell which of the two produced it.
   defp handle_activate_definition(conn, name) do
+    guard_tenant_write(conn, name, fn -> activate_definition_unmanaged(conn, name) end)
+  end
+
+  defp activate_definition_unmanaged(conn, name) do
     prefix = prefix!(conn)
     actor_id = conn.assigns.auth_context.user_id
 
@@ -945,6 +990,10 @@ defmodule Letflow.Routers.Entities do
   ]
 
   defp handle_create_record(conn, entity_type) do
+    guard_tenant_write(conn, entity_type, fn -> create_record_unmanaged(conn, entity_type) end)
+  end
+
+  defp create_record_unmanaged(conn, entity_type) do
     prefix = prefix!(conn)
 
     with {:ok, body} <- object_body(conn),
@@ -995,6 +1044,12 @@ defmodule Letflow.Routers.Entities do
                           ]
 
   defp handle_update_record(conn, entity_type, raw_record_id) do
+    guard_tenant_write(conn, entity_type, fn ->
+      update_record_unmanaged(conn, entity_type, raw_record_id)
+    end)
+  end
+
+  defp update_record_unmanaged(conn, entity_type, raw_record_id) do
     prefix = prefix!(conn)
 
     with {:ok, record_id} <- cast_record_id(raw_record_id),
@@ -1040,6 +1095,12 @@ defmodule Letflow.Routers.Entities do
   # record id, live, deleted or absent (refused before the record lookup).
 
   defp handle_delete_record(conn, entity_type, raw_record_id) do
+    guard_tenant_write(conn, entity_type, fn ->
+      delete_record_unmanaged(conn, entity_type, raw_record_id)
+    end)
+  end
+
+  defp delete_record_unmanaged(conn, entity_type, raw_record_id) do
     with {:ok, record_id} <- cast_record_id(raw_record_id),
          conn = fetch_query_params(conn),
          {:ok, expected} <-
@@ -1115,6 +1176,10 @@ defmodule Letflow.Routers.Entities do
   @record_export_schema_version "entities/record-export/v1"
 
   defp handle_import_records(conn, entity_type) do
+    guard_tenant_write(conn, entity_type, fn -> import_records_unmanaged(conn, entity_type) end)
+  end
+
+  defp import_records_unmanaged(conn, entity_type) do
     prefix = prefix!(conn)
     actor_id = conn.assigns.auth_context.user_id
 
@@ -2652,6 +2717,20 @@ defmodule Letflow.Routers.Entities do
   # silent default would be a tenant-scoping bug, not a recoverable one.
   @spec prefix!(Plug.Conn.t()) :: String.t()
   defp prefix!(conn), do: Keyword.fetch!(conn.assigns.scoped_opts, :prefix)
+
+  # REQ-496 (design D6, §3.1-§3.2): the managed-type refusal, run as the FIRST step
+  # of every guarded write handler, before the body, path id or query string is
+  # read. A managed type gets the constant 403 (`Error.entity_type_managed/0`), so
+  # the answer cannot depend on the record id, body or record state, and `Records`
+  # (with its append-only 422) is never reached. Any future entity-definition or
+  # generic record write route MUST go through this too.
+  defp guard_tenant_write(conn, entity_type, handler) do
+    case ManagedTypes.check_tenant_write(entity_type, prefix!(conn)) do
+      :ok -> handler.()
+      {:error, :entity_type_managed} -> Response.send_problem(conn, Error.entity_type_managed())
+      {:error, :invalid_schema_name} -> Response.internal_error(conn)
+    end
+  end
 
   defp object_body(conn) do
     case conn.body_params do

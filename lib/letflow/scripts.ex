@@ -9,6 +9,14 @@ defmodule Letflow.Scripts do
   write could launder authorship); reads and dry-run do not.
 
   Errors are stable atoms; nothing returned echoes a submitted value.
+
+  GH 2534 PR 7b-2a (`lib/letflow/design/gh2534-7b2a-script-policy.md` sections 3, 4, 5, 10):
+  a manifest may declare `reads`, checked against the tenant's readable masters by
+  `Letflow.Scripts.Policy.check_reads/2` at save and at publish (the second time under
+  `FOR SHARE`); stored test cases and dry-run carry `reads` fixtures (no entity is read). While
+  the effective kill switch is on, dry-run and publish are refused with `:scripts_disabled`;
+  publish re-checks before every stored test case and inside its transaction. Draft
+  create/save/discard, retire and revoke are unaffected (P2).
   """
 
   import Ecto.Query
@@ -17,6 +25,7 @@ defmodule Letflow.Scripts do
   alias Letflow.Engine.Lua.ScriptRunner
   alias Letflow.Repo
   alias Letflow.Scripts.Hash
+  alias Letflow.Scripts.Policy
   alias Letflow.Scripts.ScriptRule
   alias Letflow.Scripts.Validation
 
@@ -25,10 +34,15 @@ defmodule Letflow.Scripts do
   @max_version 2_147_483_647
   @zero_instance "00000000-0000-0000-0000-000000000000"
 
-  @type actor :: %{required(:user_id) => Ecto.UUID.t(), required(:credential) => atom()}
+  @type actor :: %{
+          required(:user_id) => Ecto.UUID.t(),
+          required(:credential) => atom(),
+          optional(:trace_id) => String.t() | nil
+        }
   @type error ::
           :not_found
           | :api_token_not_allowed
+          | :scripts_disabled
           | :version_immutable
           | :content_changed
           | :publisher_is_contributor
@@ -101,7 +115,8 @@ defmodule Letflow.Scripts do
   def create_draft(prefix, key, body, actor) do
     with :ok <- require_interactive(actor),
          true <- Validation.key?(key) || {:error, :not_found},
-         {:ok, content} <- content(body) do
+         {:ok, content} <- content(body),
+         :ok <- Policy.check_reads(prefix, content.manifest) do
       transaction(
         prefix,
         fn ->
@@ -146,7 +161,8 @@ defmodule Letflow.Scripts do
   def save_draft(prefix, key, version, body, actor) do
     with :ok <- require_interactive(actor),
          {:ok, version} <- parse_version(version),
-         {:ok, content} <- content(body) do
+         {:ok, content} <- content(body),
+         :ok <- Policy.check_reads(prefix, content.manifest) do
       transaction(prefix, fn ->
         rule = lock_row!(prefix, key, version)
         if rule.status != "draft", do: Repo.rollback(:version_immutable)
@@ -203,20 +219,41 @@ defmodule Letflow.Scripts do
   caller holds `:EntitiesRestrictionsManage` (recomputed by the router). Cheap refusals run
   first; the stored test cases run with no connection held; the final checks repeat under
   the per-key lock and the row lock.
+
+  7b-2a: the kill switch is checked after the fetch (before SoD and the tests), before EVERY
+  stored test case and once inside the transaction; the manifest's reads are checked in the
+  pre-checks and again inside the transaction with the master rows `FOR SHARE` (P5).
+  `may_publish_restricted?` also covers a read with a non-empty `restricted_fields`.
+
+  `opts[:before_case]` (a 1-arity function given the 1-based case index, called immediately
+  before that case's kill-switch check) is a TEST seam, honoured only when
+  `Application.get_env(:letflow, :scripts_test_hooks)` is `true` (set only in
+  `config/test.exs`); no route passes it.
   """
-  @spec publish(String.t(), String.t(), term(), term(), actor(), boolean()) ::
+  @spec publish(String.t(), String.t(), term(), term(), actor(), boolean(), keyword()) ::
           {:ok, ScriptRule.t()} | {:error, error()} | {:error, :test_case_failed, map()}
-  def publish(prefix, key, version, reviewed_sha, actor, may_publish_restricted?) do
+  def publish(prefix, key, version, reviewed_sha, actor, may_publish_restricted?, opts \\ []) do
     with :ok <- require_interactive(actor),
          {:ok, version} <- parse_version(version),
          {:ok, rule} <- fetch(prefix, key, version),
+         :ok <- scripts_enabled(prefix),
          :ok <- publishable(prefix, rule, reviewed_sha, actor, may_publish_restricted?),
-         :ok <- run_test_cases(prefix, rule) do
+         :ok <- Policy.check_reads(prefix, rule.manifest),
+         :ok <- run_test_cases(prefix, rule, opts) do
       transaction(prefix, fn ->
         lock_key!(prefix, key)
         rule = lock_row!(prefix, key, version)
 
+        # Plain read, no lock: a flip committing after it only means a version got published;
+        # it still cannot run (7c checks at run time).
+        if Policy.kill_switch_on?(prefix), do: Repo.rollback(:scripts_disabled)
+
         case publishable(prefix, rule, reviewed_sha, actor, may_publish_restricted?) do
+          :ok -> :ok
+          {:error, reason} -> Repo.rollback(reason)
+        end
+
+        case Policy.check_reads(prefix, rule.manifest, lock: :share) do
           :ok -> :ok
           {:error, reason} -> Repo.rollback(reason)
         end
@@ -242,7 +279,7 @@ defmodule Letflow.Scripts do
                 :sha256
                 |> :crypto.hash(Hash.canon(published.test_cases))
                 |> Base.encode16(case: :lower),
-              "restricted_inputs_checked" => restricted_inputs(published) != []
+              "restricted_inputs_checked" => restricted_opt_in?(published)
             },
             actor,
             prefix
@@ -266,7 +303,7 @@ defmodule Letflow.Scripts do
       actor.user_id in sod_set(prefix, rule) ->
         {:error, :publisher_is_contributor}
 
-      restricted_inputs(rule) != [] and not may_publish_restricted? ->
+      restricted_opt_in?(rule) and not may_publish_restricted? ->
         {:error, :restricted_inputs_not_allowed}
 
       true ->
@@ -298,36 +335,72 @@ defmodule Letflow.Scripts do
     since |> List.flatten() |> Kernel.++(rule.contributors) |> Enum.uniq()
   end
 
-  defp restricted_inputs(rule), do: Map.get(rule.manifest, "restricted_inputs", [])
+  # 7b-1 restricted inputs, or (7b-2a section 3.1) any read opting in restricted fields: both
+  # need the publisher's :EntitiesRestrictionsManage.
+  defp restricted_opt_in?(rule) do
+    Map.get(rule.manifest, "restricted_inputs", []) != [] or
+      Enum.any?(
+        Validation.declared_reads(rule.manifest),
+        &(Map.get(&1, "restricted_fields", []) != [])
+      )
+  end
 
-  # Section 4: every case in order under a 30 s total budget; no connection is held.
-  defp run_test_cases(prefix, rule) do
+  defp scripts_enabled(prefix) do
+    if Policy.kill_switch_on?(prefix), do: {:error, :scripts_disabled}, else: :ok
+  end
+
+  # Section 4: every case in order under a 30 s total budget; no connection is held. 7b-2a:
+  # the kill switch is re-checked before each case (no further case runs once it is on).
+  defp run_test_cases(prefix, rule, opts) do
     deadline = System.monotonic_time(:millisecond) + @test_budget_ms
+    before_case = before_case_hook(opts)
 
     rule.test_cases
     |> Enum.with_index(1)
     |> Enum.reduce_while(:ok, fn {test_case, index}, :ok ->
-      if System.monotonic_time(:millisecond) >= deadline do
-        {:halt, {:error, :test_budget_exceeded}}
-      else
-        case run_case(prefix, rule, test_case, index) do
-          :pass ->
-            {:cont, :ok}
+      before_case.(index)
 
-          {:fail, code} ->
-            {:halt, {:error, :test_case_failed, %{name: test_case["name"], outcome: code}}}
+      cond do
+        Policy.kill_switch_on?(prefix) ->
+          {:halt, {:error, :scripts_disabled}}
 
-          :busy ->
-            {:halt, {:error, :script_busy}}
-        end
+        System.monotonic_time(:millisecond) >= deadline ->
+          {:halt, {:error, :test_budget_exceeded}}
+
+        true ->
+          case run_case(prefix, rule, test_case, index) do
+            :pass ->
+              {:cont, :ok}
+
+            {:fail, code} ->
+              {:halt, {:error, :test_case_failed, %{name: test_case["name"], outcome: code}}}
+
+            :busy ->
+              {:halt, {:error, :script_busy}}
+          end
       end
     end)
   end
 
+  # [CDV 2] the test seam is honoured only when :scripts_test_hooks is exactly true
+  # (config/test.exs); anywhere else it is ignored.
+  defp before_case_hook(opts) do
+    case Keyword.get(opts, :before_case) do
+      hook when is_function(hook, 1) ->
+        if Application.get_env(:letflow, :scripts_test_hooks, false) == true,
+          do: hook,
+          else: fn _index -> :ok end
+
+      _none ->
+        fn _index -> :ok end
+    end
+  end
+
   defp run_case(prefix, rule, test_case, index) do
     ctx = %{instance_id: @zero_instance, node_id: "test", token_id: "case-#{index}", now: now()}
+    input = Validation.with_reads(test_case["input"], test_case["reads"], rule.manifest)
 
-    case ScriptRunner.run(rule.source, test_case["input"], runner_opts(prefix, rule, ctx)) do
+    case ScriptRunner.run(rule.source, input, runner_opts(prefix, rule, ctx)) do
       {:error, :script_busy, _} ->
         :busy
 
@@ -422,18 +495,23 @@ defmodule Letflow.Scripts do
   @doc """
   Runs a version on caller input (no reads, no writes except the audit entry). Returns a map
   `%{outcome, output?, fail?, stats?, author}`.
+
+  7b-2a: `reads_fixture` (`nil` = absent) supplies the declared reads' rows under the stored
+  test-case fixture rules; still NO entity is read. While the kill switch is on the version is
+  not run (`:scripts_disabled`, not audited as a dry-run); an unknown version stays the 404.
   """
-  @spec dry_run(String.t(), String.t(), term(), term(), actor()) ::
+  @spec dry_run(String.t(), String.t(), term(), term(), term(), actor()) ::
           {:ok, map()} | {:error, error()}
-  def dry_run(prefix, key, version, input, actor) do
+  def dry_run(prefix, key, version, input, reads_fixture, actor) do
     with {:ok, rule} <- get(prefix, key, version),
-         :ok <- Validation.dry_run_input(input, rule.manifest) do
+         :ok <- scripts_enabled(prefix),
+         :ok <- Validation.dry_run_input(input, reads_fixture, rule.manifest) do
       ctx = %{instance_id: @zero_instance, node_id: "dry-run", token_id: "dry-run", now: now()}
 
       result =
         ScriptRunner.run(
           rule.source,
-          input,
+          Validation.with_reads(input, reads_fixture, rule.manifest),
           [author_detail: true] ++ runner_opts(prefix, rule, ctx)
         )
 

@@ -288,10 +288,12 @@ defmodule Letflow.Entities.DefinitionsTest do
       assert %{name: ["has already been taken"]} = errors_on(changeset)
 
       # Only one entity_definitions row exists despite the rejected second
-      # attempt; a second artifact_versions row WAS created though (design §4
-      # Scenario B's accepted cost of reusing create/2 unmodified).
+      # attempt, and the rejected attempt's artifact_versions row is rolled
+      # back with it (REQ-496 Revision 2, design T-35: create_definition/3 runs
+      # in one transaction and rolls back every error, so the old design §4
+      # Scenario B orphan version no longer exists).
       assert Repo.aggregate(EntityDefinition, :count, prefix: schema) == 1
-      assert Repo.aggregate(ArtifactVersion, :count, prefix: schema) == 2
+      assert Repo.aggregate(ArtifactVersion, :count, prefix: schema) == 1
     end
   end
 

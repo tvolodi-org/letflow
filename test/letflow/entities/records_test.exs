@@ -2067,4 +2067,177 @@ defmodule Letflow.Entities.RecordsTest do
       assert gh2543_event_count(schema) == events_before
     end
   end
+
+  # ---------------------------------------------------------------------------------
+  # GH #2532 -- min/max/non_negative enforced on create and update. Every
+  # fixture goes through the real Definitions.create_definition/2 +
+  # activate_definition/4 round-trip, so the bounds Records enforces are the
+  # string-keyed JSONB read back from Postgres via field_document/1.
+  # ---------------------------------------------------------------------------------
+
+  defp gh2532_activate!(schema, qty_overrides) do
+    definition =
+      valid_definition(%{
+        fields: [
+          %{name: "customer_name", type: :string, required: true},
+          Map.merge(%{name: "qty", type: :integer}, qty_overrides)
+        ]
+      })
+
+    assert {:ok, row} =
+             Definitions.create_definition(
+               %{definition: definition, created_by: Ecto.UUID.generate()},
+               schema
+             )
+
+    assert {:ok, activated} =
+             Definitions.activate_definition(row.name, Ecto.UUID.generate(), "gh2532", schema)
+
+    activated
+  end
+
+  defp gh2532_create_attrs(qty) do
+    create_attrs(%{field_values: %{"customer_name" => "Acme", "qty" => qty}})
+  end
+
+  defp gh2532_update_attrs(record_id, qty) do
+    %{
+      entity_type: "customer",
+      record_id: record_id,
+      field_values: %{"customer_name" => "Acme", "qty" => qty},
+      actor_id: Ecto.UUID.generate(),
+      idempotency_key: Ecto.UUID.generate()
+    }
+  end
+
+  defp gh2532_event_count(schema), do: Repo.aggregate(Event, :count, prefix: schema)
+
+  describe "GH #2532 non_negative qty" do
+    test "the key is stored string-keyed and survives the round-trip" do
+      %{schema_name: schema} = provisioned_tenant()
+      gh2532_activate!(schema, %{non_negative: true})
+
+      {:ok, reloaded} = Definitions.get_active_definition_by_name("customer", schema)
+      qty = Enum.find(reloaded.definition_json["fields"], &(&1["name"] == "qty"))
+      assert qty["non_negative"] == true
+      refute Map.has_key?(qty, "min")
+      refute Map.has_key?(qty, "max")
+    end
+
+    test "create with -1 is refused with zero events; 0 succeeds" do
+      %{schema_name: schema} = provisioned_tenant()
+      gh2532_activate!(schema, %{non_negative: true})
+
+      assert {:error, {:record_payload_invalid, [_ | _] = violations}} =
+               Records.create_record(gh2532_create_attrs(-1), schema)
+
+      assert Enum.any?(violations, &(&1.field_path == "/qty" and &1.constraint == "minimum"))
+      assert gh2532_event_count(schema) == 0
+      assert Repo.all(Latest, prefix: schema) == []
+
+      assert {:ok, %{record: created}} = Records.create_record(gh2532_create_attrs(0), schema)
+      assert created.field_values["qty"] == 0
+      assert gh2532_event_count(schema) == 1
+    end
+
+    test "update to -3 is refused and the row is unchanged" do
+      %{schema_name: schema} = provisioned_tenant()
+      gh2532_activate!(schema, %{non_negative: true})
+      {:ok, %{record: created}} = Records.create_record(gh2532_create_attrs(4), schema)
+      events_before = gh2532_event_count(schema)
+
+      assert {:error, {:record_payload_invalid, [_ | _]}} =
+               Records.update_record(gh2532_update_attrs(created.record_id, -3), schema)
+
+      stored = gh2528_latest!(schema, created.record_id)
+      assert stored.field_values == created.field_values
+      assert stored.last_event_global_seq == created.last_event_global_seq
+      assert gh2532_event_count(schema) == events_before
+
+      assert {:ok, %{record: updated}} =
+               Records.update_record(gh2532_update_attrs(created.record_id, 0), schema)
+
+      assert updated.field_values["qty"] == 0
+    end
+  end
+
+  # Each key on its own: if Records' private field_document/1 dropped any one
+  # of min/max/non_negative, that key's test would accept the value.
+  describe "GH #2532 read-back carries each key" do
+    test "min only: below min refused, at min accepted" do
+      %{schema_name: schema} = provisioned_tenant()
+      gh2532_activate!(schema, %{min: 3})
+
+      assert {:error, {:record_payload_invalid, [%{constraint: "minimum"}]}} =
+               Records.create_record(gh2532_create_attrs(2), schema)
+
+      assert {:ok, _} = Records.create_record(gh2532_create_attrs(3), schema)
+    end
+
+    test "max only: above max refused, at max accepted" do
+      %{schema_name: schema} = provisioned_tenant()
+      gh2532_activate!(schema, %{max: 10})
+
+      assert {:error, {:record_payload_invalid, [%{constraint: "maximum"}]}} =
+               Records.create_record(gh2532_create_attrs(11), schema)
+
+      assert {:ok, _} = Records.create_record(gh2532_create_attrs(10), schema)
+    end
+
+    test "non_negative only: negative refused" do
+      %{schema_name: schema} = provisioned_tenant()
+      gh2532_activate!(schema, %{non_negative: true})
+
+      assert {:error, {:record_payload_invalid, [%{constraint: "minimum"}]}} =
+               Records.create_record(gh2532_create_attrs(-1), schema)
+    end
+
+    test "a key-less definition still accepts any integer" do
+      %{schema_name: schema} = provisioned_tenant()
+      gh2532_activate!(schema, %{})
+
+      assert {:ok, _} = Records.create_record(gh2532_create_attrs(-1_000_000), schema)
+    end
+  end
+
+  # INV-8: a definition_json written directly (bypassing the Validator) with a
+  # malformed bound must not crash a write; the malformed key is ignored.
+  describe "GH #2532 corrupt stored bound" do
+    for {label, corrupt} <- [
+          {"min \"a\"", %{"min" => "a"}},
+          {"non_negative \"yes\"", %{"non_negative" => "yes"}},
+          {"max nil", %{"max" => nil}}
+        ] do
+      @gh2532_corrupt corrupt
+      test "stored #{label}: create_record accepts -1 and nothing raises" do
+        %{schema_name: schema} = provisioned_tenant()
+        activated = gh2532_activate!(schema, %{})
+
+        fields =
+          Enum.map(activated.definition_json["fields"], fn
+            %{"name" => "qty"} = field -> Map.merge(field, @gh2532_corrupt)
+            field -> field
+          end)
+
+        corrupted = Map.put(activated.definition_json, "fields", fields)
+
+        {1, _} =
+          Repo.update_all(
+            from(d in Letflow.Entities.EntityDefinition, where: d.id == ^activated.id),
+            [set: [definition_json: corrupted]],
+            prefix: schema
+          )
+
+        {:ok, reloaded} = Definitions.get_active_definition_by_name("customer", schema)
+        qty = Enum.find(reloaded.definition_json["fields"], &(&1["name"] == "qty"))
+        assert Map.take(qty, Map.keys(@gh2532_corrupt)) == @gh2532_corrupt
+
+        assert {:ok, %{record: created}} = Records.create_record(gh2532_create_attrs(-1), schema)
+        assert created.field_values["qty"] == -1
+
+        assert {:ok, _} =
+                 Records.update_record(gh2532_update_attrs(created.record_id, -2), schema)
+      end
+    end
+  end
 end

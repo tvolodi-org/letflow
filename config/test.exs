@@ -66,6 +66,11 @@ config :letflow, start_scheduler: false
 # explicitly.
 config :letflow, start_service_task_dispatcher: false
 
+# GH 2534 PR 7b-2a (design gh2534-7b2a-script-policy.md section 5, CDV 2): honours the
+# `:before_case` test seam of `Letflow.Scripts.publish/7`. Set ONLY here: no route, runtime or
+# prod config reaches it, so the seam is inert outside the test suite.
+config :letflow, scripts_test_hooks: true
+
 # Same per-workspace host port as config/dev.exs (this repo's config files
 # don't cascade — each env file loads independently). See config/db_port.exs.
 {db_port, _bindings} = Code.eval_file(Path.expand("db_port.exs", __DIR__))
@@ -289,7 +294,13 @@ config :letflow, :modules, [
   # two-entity FK pack (test/support/modules/fixture_fk_pack/).
   Letflow.Modules.FixtureFkPack,
   Letflow.Modules.FixtureFkPackFailing,
-  Letflow.Modules.FixtureCtxRecorder
+  Letflow.Modules.FixtureCtxRecorder,
+  # REQ-496 / decision 0050 D7: declares manages_entity_types for seven of its
+  # eight pack types (test/support/modules/fixture_managed/).
+  Letflow.Modules.FixtureManaged,
+  # REQ-496 T-19: declares a managed type but ships no pack, so its install fails with
+  # {:managed_type_not_in_pack, _} (same file as FixtureManaged).
+  Letflow.Modules.FixtureManagedNoPack
 ]
 
 # REQ-439: explicit test default -- no proxy is trusted, so Letflow.Plugs.ClientIp

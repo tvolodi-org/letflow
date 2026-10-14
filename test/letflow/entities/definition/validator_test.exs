@@ -608,4 +608,122 @@ defmodule Letflow.Entities.Definition.ValidatorTest do
       end
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # GH #2532 -- Rule 12 :invalid_range (min/max/non_negative on numeric fields).
+  # See lib/letflow/design/gh2532-field-min-max-non-negative.md §3.
+  # ---------------------------------------------------------------------------
+
+  defp gh2532_definition(field_overrides, type \\ :integer) do
+    base =
+      case type do
+        :decimal -> %{name: "qty", type: :decimal, decimal_precision: 12, decimal_scale: 2}
+        other -> %{name: "qty", type: other}
+      end
+
+    %{
+      name: "stock",
+      display_name: "Stock",
+      fields: [%{name: "sku", type: :string}, Map.merge(base, field_overrides)]
+    }
+  end
+
+  defp gh2532_range_violation(definition) do
+    assert {:error, violations} = Validator.validate(definition)
+    assert [%Violation{rule: :invalid_range, path: [:fields, "qty"]} = v] = violations
+    v
+  end
+
+  describe "GH #2532 :invalid_range" do
+    test "{integer, min 0, max 10} is :ok" do
+      assert Validator.validate(gh2532_definition(%{min: 0, max: 10})) == :ok
+    end
+
+    test "other well-formed range combinations are :ok" do
+      assert Validator.validate(gh2532_definition(%{non_negative: true})) == :ok
+      assert Validator.validate(gh2532_definition(%{non_negative: false, min: -5})) == :ok
+      assert Validator.validate(gh2532_definition(%{min: 3, max: 3})) == :ok
+      assert Validator.validate(gh2532_definition(%{min: 0.1, max: 9.5}, :decimal)) == :ok
+      assert Validator.validate(gh2532_definition(%{min: 1, max: 2.5}, :decimal)) == :ok
+    end
+
+    test "min 5 max 1 is :invalid_range" do
+      v = gh2532_range_violation(gh2532_definition(%{min: 5, max: 1}))
+      assert v.message == "min must not exceed max"
+    end
+
+    test ~s(min "a" is :invalid_range) do
+      gh2532_range_violation(gh2532_definition(%{min: "a"}))
+    end
+
+    test "min 1.5 (and 2.0) on an :integer field is :invalid_range" do
+      gh2532_range_violation(gh2532_definition(%{min: 1.5}))
+      gh2532_range_violation(gh2532_definition(%{max: 2.0}))
+    end
+
+    test "min on a :string field is :invalid_range" do
+      v = gh2532_range_violation(gh2532_definition(%{min: 1}, :string))
+      assert v.message =~ "only allowed on :integer and :decimal"
+    end
+
+    test "max or non_negative on other non-numeric types is :invalid_range" do
+      for type <- [:boolean, :date, :datetime, :json] do
+        gh2532_range_violation(gh2532_definition(%{max: 1}, type))
+        gh2532_range_violation(gh2532_definition(%{non_negative: true}, type))
+      end
+    end
+
+    test "non_negative true with min -1 (or max -1) is :invalid_range" do
+      gh2532_range_violation(gh2532_definition(%{non_negative: true, min: -1}))
+      gh2532_range_violation(gh2532_definition(%{non_negative: true, max: -1}))
+      gh2532_range_violation(gh2532_definition(%{non_negative: true, min: -0.5}, :decimal))
+    end
+
+    test ~s(non_negative "yes" is :invalid_range) do
+      v = gh2532_range_violation(gh2532_definition(%{non_negative: "yes"}))
+      assert v.message == "non_negative must be a boolean"
+    end
+
+    test "a present nil bound or non_negative is :invalid_range" do
+      gh2532_range_violation(gh2532_definition(%{min: nil}))
+      gh2532_range_violation(gh2532_definition(%{max: nil}))
+      gh2532_range_violation(gh2532_definition(%{non_negative: nil}))
+    end
+
+    test "malformed values never crash (INV-8)" do
+      for bad <- ["NaN", "Infinity", %{}, [1], :a] do
+        gh2532_range_violation(gh2532_definition(%{min: bad, max: 1}))
+        gh2532_range_violation(gh2532_definition(%{min: 1, max: bad}))
+      end
+
+      huge = Integer.pow(10, 400)
+      assert Validator.validate(gh2532_definition(%{min: huge})) == :ok
+      assert Validator.validate(gh2532_definition(%{max: huge})) == :ok
+      gh2532_range_violation(gh2532_definition(%{min: huge, max: 1}))
+    end
+
+    test "messages never echo the submitted value (INV-2)" do
+      for overrides <- [
+            %{min: "secret-987654"},
+            %{min: 987_654, max: 1},
+            %{non_negative: "secret-987654"},
+            %{non_negative: true, min: -987_654}
+          ] do
+        v = gh2532_range_violation(gh2532_definition(overrides))
+        refute v.message =~ "987654"
+      end
+    end
+
+    test "at most one :invalid_range violation per field" do
+      assert {:error, violations} =
+               Validator.validate(gh2532_definition(%{min: "a", max: "b", non_negative: "c"}))
+
+      assert [%Violation{rule: :invalid_range}] = violations
+    end
+
+    test "key-less numeric fields are still :ok" do
+      assert Validator.validate(gh2532_definition(%{})) == :ok
+      assert Validator.validate(gh2532_definition(%{}, :decimal)) == :ok
+    end
+  end
 end

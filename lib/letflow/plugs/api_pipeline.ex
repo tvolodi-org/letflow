@@ -149,6 +149,11 @@ defmodule Letflow.Plugs.ApiPipeline do
   # catalog id happens to be literally "install".
   forward("/tenant/modules", to: Letflow.Routers.TenantModules)
 
+  # REQ-496 (design lib/letflow/design/req496-managed-by-and-scope-node-paths.md
+  # §6.5) -- read-only scope_node_paths consistency check for the caller's own
+  # tenant.
+  forward("/tenant/scope-node-paths", to: Letflow.Routers.TenantScopeNodePaths)
+
   # REQ-415 -- solution install: POST /api/v1/tenant/solutions. Mounted at
   # /tenant/solutions (a sibling prefix to /tenant/modules, not a sub-path
   # of it) so the route collision the modules mount guards against doesn't
@@ -159,6 +164,10 @@ defmodule Letflow.Plugs.ApiPipeline do
   # GH 2534 PR 7b-1 (decision 0053): the tenant-script registry (draft, publish, retire,
   # revoke, dry-run). Tenant scope; :ScriptsWrite / :ScriptsPublish.
   forward("/script-rules", to: Letflow.Routers.ScriptRules)
+
+  # GH 2534 PR 7b-2a (decision 0053 D5, D7): the tenant's script policy (kill switch tenant
+  # latch, readable masters). Tenant scope; :ScriptPolicyRead / :ScriptPolicyManage.
+  forward("/script-policy", to: Letflow.Routers.ScriptPolicy)
 
   # REQ-404 (design lib/letflow/design/req404-module-router-mount.md) -- the
   # per-module dispatch mount 0039 D4/D5 and REQ-403's own comment above

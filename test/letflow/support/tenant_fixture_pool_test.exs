@@ -148,7 +148,7 @@ defmodule Letflow.Support.TenantFixturePoolTest do
     schema
     |> row_counts()
     |> Enum.reject(fn {table, n} ->
-      n == 0 or table in ["event_type_registry", "schema_migrations"]
+      n == 0 or table in ["event_type_registry", "schema_migrations", "script_policy"]
     end)
     |> Enum.sort()
   end

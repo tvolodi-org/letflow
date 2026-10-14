@@ -159,6 +159,10 @@ defmodule Letflow.MixProject do
     # fast, non-compiling structural scans (no shared parse target with any
     # neighbor, so no ordering dependency either direction).
     "letflow.check_uat_scenario_schema",
+    # REQ-496 (design lib/letflow/design/req496-managed-by-and-scope-node-paths.md
+    # §7): non-compiling textual scan, same class as check_issue_refs -- module
+    # code may not name the scope_node_paths table or its internal modules.
+    "letflow.check_scope_node_paths_writers",
     "format --check-formatted",
     "compile --warnings-as-errors",
     # REQ-405: D3 backend boundary check (xref-based module boundary enforcement).

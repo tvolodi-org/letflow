@@ -1051,6 +1051,16 @@ defmodule Letflow.Entities.Records do
   # own `field_document/1`/`field_from_persisted/1` conversions, which
   # already carry `locales`/`search_strategy` correctly -- this was the one
   # sibling left behind.
+  #
+  # GH #2532: `min`, `max` and `non_negative` are carried too -- dropping
+  # any of them here would silently disable that bound on every record
+  # write (the same ISS-0624 key-drop shape). They are put only when present
+  # in the stored JSON (so a key-less definition rebuilds exactly as before)
+  # and copied verbatim: no atom conversion, no arithmetic.
+  # `Record.Validator` ignores a non-number bound, so a corrupt stored value
+  # can never crash a write (INV-8). `Query.Allowlist` and
+  # `TenantProvisioning` deliberately do not carry them: neither reads a
+  # bound (see lib/letflow/design/gh2532-field-min-max-non-negative.md §2.5).
   defp field_document(field) do
     %{
       name: Map.fetch!(field, "name"),
@@ -1063,6 +1073,16 @@ defmodule Letflow.Entities.Records do
       locales: Map.get(field, "locales"),
       search_strategy: field |> Map.get("search_strategy") |> search_strategy_atom()
     }
+    |> put_present(:min, field, "min")
+    |> put_present(:max, field, "max")
+    |> put_present(:non_negative, field, "non_negative")
+  end
+
+  @spec put_present(map(), atom(), map(), String.t()) :: map()
+  defp put_present(document, atom_key, field, string_key) do
+    if Map.has_key?(field, string_key),
+      do: Map.put(document, atom_key, Map.fetch!(field, string_key)),
+      else: document
   end
 
   # Same decode posture as `type`'s `String.to_existing_atom/1` above: both

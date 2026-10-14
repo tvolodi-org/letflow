@@ -9,7 +9,7 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
       held), the inbox, audit, `POST /entities/query` (and aggregate), the attachment reads, and
       the read-class POSTs that persist nothing (validate, solution-packs export and
       update-review), the last three proved state-free by a whole-schema row-count snapshot.
-    * 403: one named write route per router mounted in `Letflow.Plugs.ApiPipeline` (24; the
+    * 403: one named write route per router mounted in `Letflow.Plugs.ApiPipeline` (26; the
       mounted set is parsed from the pipeline source so a new router fails this test until it is
       named here); for the four read-only routers (Audit, Services, Help, Me) the named non-GET
       probe, which is NOT a real route and answers 403 through the `:UnmatchedRoute` marker.
@@ -83,7 +83,13 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
     {Letflow.Routers.PlatformMigrations, "/platform-migrations", :post, "/rollouts", :route},
     {Letflow.Routers.EventRetention, "/event-retention", :post, "/retirements", :route},
     {Letflow.Routers.Me, "/me", :post, "/memberships", :probe},
-    {Letflow.Routers.ScriptRules, "/script-rules", :post, "/:key/versions", :route}
+    {Letflow.Routers.ScriptRules, "/script-rules", :post, "/:key/versions", :route},
+    # REQ-496 (GH #2530): this router's ONLY route is the read-only GET; it requires
+    # :UsersGroupsRolesManage (tenant-admin class), which TENANT_AUDITOR does not hold, so the
+    # real route (not a probe) is named and must answer the auditor 403.
+    {Letflow.Routers.TenantScopeNodePaths, "/tenant/scope-node-paths", :get, "/consistency",
+     :route},
+    {Letflow.Routers.ScriptPolicy, "/script-policy", :put, "/kill-switch", :route}
   ]
 
   # Additional named routes (design 7.2 "also" column and the supervisor's decisions).
@@ -680,13 +686,13 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
   # --- AC2: 403 block --------------------------------------------------------------------------
 
   describe "AC2 completeness guards" do
-    test "the routers mounted in ApiPipeline are exactly the 24 named in the table: a new router fails here" do
+    test "the routers mounted in ApiPipeline are exactly the 26 named in the table: a new router fails here" do
       mounted = mounted_routers()
       named = Enum.map(@named_routes, &elem(&1, 0))
 
       assert length(mounted) == length(Enum.uniq(mounted))
       assert Enum.sort(mounted) == Enum.sort(named)
-      assert length(named) == 24
+      assert length(named) == 26
     end
 
     test "every named :route exists in its router and the auditor does NOT hold its permission (a row cannot pass by naming a permitted route)" do
@@ -756,7 +762,7 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
       assert_unchanged(before, ctx)
     end
 
-    test "through the full pipeline with a real auditor token, all 24 mounts (and the Modules router with the exam module installed)",
+    test "through the full pipeline with a real auditor token, all 26 mounts (and the Modules router with the exam module installed)",
          ctx do
       {:ok, _tenant_module} =
         Installs.install("exam", Ecto.UUID.generate(),

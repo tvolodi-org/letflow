@@ -48,6 +48,9 @@ defmodule Letflow.Entities.EntityDefinition do
     field(:logical_shape_version, :binary)
     field(:artifact_version_id, :binary_id)
     field(:status, Ecto.Enum, values: [:active, :inactive])
+    # REQ-496 (0050 D7): the owning module id, or nil. Never cast; set only by
+    # `put_managed_by/2` on a new row, and immutable in the DB (trigger).
+    field(:managed_by, :string)
 
     timestamps(type: :utc_datetime_usec, updated_at: false)
   end
@@ -98,5 +101,21 @@ defmodule Letflow.Entities.EntityDefinition do
     |> unique_constraint(:name, name: @unique_tenant_name_shape_constraint_name)
     |> unique_constraint(:status, name: @unique_tenant_name_active_constraint_name)
     |> foreign_key_constraint(:artifact_version_id)
+  end
+
+  @doc """
+  Stamps `managed_by` with `module_id` on a changeset for a NEW row (REQ-496,
+  `lib/letflow/design/req496-managed-by-and-scope-node-paths.md` §2.2) -- the only
+  code that can set the column; `changeset/2` never casts it. On a changeset over a
+  row already loaded from the DB it adds an `"is immutable"` error on `:managed_by`
+  instead (the DB trigger refuses such an update anyway).
+  """
+  @spec put_managed_by(Ecto.Changeset.t(), module_id :: String.t()) :: Ecto.Changeset.t()
+  def put_managed_by(%Ecto.Changeset{data: data} = changeset, module_id)
+      when is_binary(module_id) do
+    case Ecto.get_meta(data, :state) do
+      :built -> put_change(changeset, :managed_by, module_id)
+      _loaded -> add_error(changeset, :managed_by, "is immutable")
+    end
   end
 end
