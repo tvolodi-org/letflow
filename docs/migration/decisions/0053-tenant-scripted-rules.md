@@ -161,9 +161,33 @@ T1 sandbox escape: D11 allow-list and equality test. T2 resource exhaustion: D7 
 
 Architect: (1) budgets: all figures in D7 are targets; measure `Sandbox.new` plus spawn cost and set defaults from data (F11); (2) manifest opt-in for restricted fields (D5); (3) retire `LuaScriptAudit` or keep as hash check; (4) `coroutine` (D11); (5) WASM-12 parity waiver (D0); (6) `ctx.now` for hooks 2/3 (request time captured once per command, Records E/F); (7) per-tenant script kill switch and `revoked` expiry plan (SECURITY SHOULD 7, 8); (8) IdP subject recording (SHOULD 5). SECURITY-REVIEWER: re-review of the amended text, D5 principal/redaction, D6 SoD, D7 caps, D11 list.
 
+**Open point (8), for the advisor to rule: separation of duties with a single eligible publisher.** Question from the user (relayed by the supervisor, 2026-10-14): what if the author is the tenant's only user? Under D6 such a tenant cannot publish at all.
+
+Recommended default (supervisor): a tenant policy `scripts.sod` = `strict` (the default) | `solo_audited`.
+
+- **When `solo_audited` is allowed:** only when the tenant has exactly one eligible publisher, meaning one tenant-wide TENANT_ADMIN user.
+- **How it is set:** explicitly by that admin, with a mandatory reason, audited.
+- **What it marks:** every self-published version carries a visible `self_published` flag and an audit event.
+- **Where it may run:** a self-published version is never allowed in a promoted or production target unless the tenant policy says so.
+- **Strict tenants with one user:** they cannot publish. They add a second user, or obtain a platform-operator co-sign.
+- **Not yet decided:** the co-sign mechanism, how `solo_audited` is revoked automatically when a second admin appears, and how the policy flip is gated (0051 D11, tenant-wide admin only).
+
 ## Customization beyond scripts (non-binding note)
 
-Not decided or scheduled here. The roadmap/backlog is the home for these candidates: extension fields (`x_` namespace), form/list/print-template overrides, number sequences, module-process extension slots, integration mappings, scheduled jobs, notification templates, label overrides, data import, configuration export/import, report builder. Each needs its own record or requirement.
+Not decided or scheduled here. The roadmap/backlog is the home for these candidates: form/list/print-template overrides, number sequences, module-process extension slots, integration mappings, scheduled jobs, notification templates, label overrides, data import, configuration export/import, report builder. Each needs its own record or requirement.
+
+**Requirement candidate: extension fields (tenant layer).** Storage is not the gap. Entity records already keep fields in a JSONB `field_values` blob, and only constraint-named fields are promoted to columns.
+
+The gap is **definition ownership on module upgrade**. A module upgrade replaces the module's entity definition, so a field a tenant added to that definition would be overwritten or would collide with a field the module adds later.
+
+Tenant-added fields therefore live in a separate **tenant layer** of the definition:
+- Names use a reserved `x_` namespace that modules may not use.
+- The layer is stored apart from the module-owned definition and merged over it at read and validation time.
+- A module upgrade never writes to it.
+- The upgrade fails with a named conflict if the module introduces a field with the same name.
+- Tenant fields get the normal validation, field restrictions and (if constrained) column promotion.
+
+This depends on the module upgrade/migration record (roadmap wave 2) and needs its own record.
 
 ## Sign-off
 
