@@ -361,6 +361,7 @@ defmodule Letflow.Api.Authorization do
           | :AdminServicesRead
           | :TenantsManage
           | :RolesManage
+          | :RolesRebind
           | :AttachmentsManage
           | :AttachmentsRead
           | :InstancesAdvanceTimer
@@ -896,6 +897,9 @@ defmodule Letflow.Api.Authorization do
   # (design doc §4 point 2).
   def endpoint_policy_key("GET", "/roles"), do: :RolesManage
   def endpoint_policy_key("POST", "/roles"), do: :RolesManage
+  # GH 2524: moving an existing role binding to another group is a separate, audited
+  # action for the tenant admin permission (see required_permission(:RolesRebind)).
+  def endpoint_policy_key("POST", "/roles/:id/rebind"), do: :RolesRebind
 
   # REQ-212 — instance-attachment routes (Letflow.Routers.Instances), mounted
   # under /instances/:id/attachments... See design §6.3.
@@ -1237,6 +1241,10 @@ defmodule Letflow.Api.Authorization do
   def required_permission(:PromotionsManage), do: :PromotionsManage
   def required_permission(:DefinitionsRollback), do: :DefinitionsRollback
   def required_permission(:RolesManage), do: :RolesManage
+  # GH 2524: REQUIRED clause. Without it the identity fallback below would return
+  # :RolesRebind itself, which permission_scope/1 classifies as platform. Mapped to the
+  # tenant admin permission (TENANT_ADMIN; PLATFORM_ADMIN inside the platform tenant).
+  def required_permission(:RolesRebind), do: :UsersGroupsRolesManage
   def required_permission(:AttachmentsManage), do: :AttachmentsManage
   def required_permission(:AttachmentsRead), do: :AttachmentsRead
   def required_permission(:AttachmentLinksIssue), do: :AttachmentLinksIssue
