@@ -1127,7 +1127,10 @@ defmodule Letflow.Routers.Identity do
   # ever reach it (design §6.2, AC1/AC2, INV-4). GH 2552: adds "issuer_user_id"
   # (always present, null for a legacy row), and "status" is the effective status
   # from Identity.token_effective_status/3 (revoked > expired > owner_inactive > active).
-  @spec token_map(Letflow.Identity.ApiToken.t(), atom()) :: map()
+  @spec token_map(
+          Letflow.Identity.ApiToken.t(),
+          :revoked | :expired | :owner_inactive | :active
+        ) :: map()
   defp token_map(%Letflow.Identity.ApiToken{} = token, status) do
     %{
       "id" => token.id,

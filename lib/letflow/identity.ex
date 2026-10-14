@@ -1847,8 +1847,8 @@ defmodule Letflow.Identity do
   Returns `{:ok, %{token: token, plaintext: plaintext}}` on success —
   `plaintext` is a bare local value that exists only in this return tuple,
   never assigned to any struct field, never persisted, never logged (INV-4).
-  This is the single call site in the whole codebase that ever holds the
-  plaintext after generation.
+  The shared `insert_token/5` is the only place that generates the plaintext;
+  it is returned through this function and `mint_token/4` (GH 2552) only.
 
   GH 2547 (design `gh2547-tenant-admin-audit-and-count.md` sections 3.9, 6.6): the
   transaction first takes `lock_tenant_admins!/1` (always, whatever the roles), and the
@@ -2004,8 +2004,22 @@ defmodule Letflow.Identity do
           roles,
           expires_at,
           DateTime.utc_now(),
-          Application.get_env(:letflow, :platform_admin_token_max_ttl_days, 90)
+          platform_admin_token_max_ttl_days()
         )
+    end
+  end
+
+  # The PLATFORM_ADMIN token cap (advisor condition 2). A misconfigured value (not a
+  # positive integer) fails closed by raising, never silently widening the cap.
+  defp platform_admin_token_max_ttl_days do
+    case Application.get_env(:letflow, :platform_admin_token_max_ttl_days, 90) do
+      days when is_integer(days) and days > 0 and days <= 366 ->
+        days
+
+      other ->
+        raise ArgumentError,
+              ":platform_admin_token_max_ttl_days must be an integer in 1..366, got: " <>
+                inspect(other)
     end
   end
 
@@ -2030,7 +2044,8 @@ defmodule Letflow.Identity do
   # (1)-(3) (design section 3). PLATFORM_ADMIN may mint, in the platform tenant only.
   # Bounded by the subset rule, the PA-token self/expiry rules (step 6) and the same
   # issuer/audit recording as every mint. Removing this function and its `or` term in
-  # mint_authority?/2 removes the exception with no other change.
+  # mint_authority?/2 removes the exception; mint_authority?/2's `prefix` argument then
+  # becomes unused and must be renamed `_prefix` (compile runs with warnings as errors).
   defp platform_admin_mint_exception?(held, prefix) do
     Letflow.PlatformTenant.platform_prefix?(prefix) and MapSet.member?(held, "PLATFORM_ADMIN")
   end
@@ -2353,7 +2368,8 @@ defmodule Letflow.Identity do
   # between is returned unchanged, as the idempotent path does. Same error shapes as
   # before: a changeset or audit failure comes back as a bare {:error, reason} (FU-2).
   # REQ-195's actor_id: nil remains the fallback when no audit context is passed.
-  # before_state/after_state both exclude token_hash (INV-4).
+  # before_state/after_state come from token_audit_state/1: no token_hash and no name
+  # (INV-4), plus issuer_user_id and scope (GH 2552).
   defp revoke_locked_token(token_id, prefix, ctx) do
     lock_tenant_admins!(prefix)
 
