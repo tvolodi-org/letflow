@@ -6,6 +6,11 @@ import { useAuth } from '@/auth/AuthContext'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { Button } from '@/components/ui/Button'
 import { StatusBadge } from '@/components/ui/StatusBadge'
+import {
+  isSeparationOfDuties,
+  SEPARATION_OF_DUTIES_MESSAGE,
+  SEPARATION_OF_DUTIES_CLAIM_MESSAGE,
+} from '@/api/client'
 import { classifyError, type RendererState } from '@/utils/classifyError'
 import { getRetryAfterSeconds } from '@/utils/getRetryAfterSeconds'
 import { formatDate, formatDateTime, formatTime } from '@/i18n/format'
@@ -410,6 +415,20 @@ function TaskDetailPanel({ taskId, onClose }: { taskId: string; onClose: () => v
             })}
           </div>
         </div>
+      )}
+
+      {/* GH 2355 -- separation-of-duties refusal (REQ-463) on complete/claim.
+          Other errors render as before (not at all here). */}
+      {(isSeparationOfDuties(complete.error) || isSeparationOfDuties(claim.error)) && (
+        <p
+          role="alert"
+          data-testid="task-sod-error"
+          style={{ color: 'var(--color-error-dark)', marginTop: '1rem', fontSize: '.9rem' }}
+        >
+          {isSeparationOfDuties(complete.error)
+            ? SEPARATION_OF_DUTIES_MESSAGE
+            : SEPARATION_OF_DUTIES_CLAIM_MESSAGE}
+        </p>
       )}
 
       {/* Action buttons */}

@@ -76,6 +76,21 @@ function buildRequestHeaders(extraHeaders?: Record<string, string>): Record<stri
   return headers
 }
 
+/** Backend constant `detail` of the REQ-463 distinct-person refusal. */
+export const SEPARATION_OF_DUTIES_DETAIL = 'separation of duties'
+export const SEPARATION_OF_DUTIES_CODE = 'SEPARATION_OF_DUTIES'
+export const SEPARATION_OF_DUTIES_MESSAGE =
+  'You cannot complete this step: a different person must do it (separation of duties).'
+/** Claim/assign variant of the same refusal (TaskInboxPage). */
+export const SEPARATION_OF_DUTIES_CLAIM_MESSAGE =
+  'You cannot take this task: a different person must do it (separation of duties).'
+
+/** True when `err` is the ApiError produced for the separation-of-duties 403. */
+export function isSeparationOfDuties(err: unknown): boolean {
+  const e = err as { status?: unknown; code?: unknown } | null | undefined
+  return !!e && typeof e === 'object' && e.status === 403 && e.code === SEPARATION_OF_DUTIES_CODE
+}
+
 /** Shared non-2xx handling for both request() (json/text) and getBlob()
  *  (binary). Throws the same ApiError shape either way — callers branch on
  *  err.status, not on a blob-specific error type (design §2.2). Returns
@@ -133,6 +148,19 @@ async function throwOnErrorResponse(
       typeof body['errors'] === 'object' && body['errors'] !== null
         ? (body['errors'] as Record<string, unknown>)
         : (Object.keys(body).length > 0 ? body : undefined)
+
+    // GH 2355 / ISS-1034 -- REQ-463 distinct-person refusal. The backend
+    // answers it with the constant body {"detail":"separation of duties",
+    // "status":403} (no title/type). Exact match only; every other 403 keeps
+    // today's message/code.
+    if (response.status === 403 && body['detail'] === SEPARATION_OF_DUTIES_DETAIL) {
+      throw buildError(response, {
+        status: 403,
+        message: SEPARATION_OF_DUTIES_MESSAGE,
+        code: SEPARATION_OF_DUTIES_CODE,
+        details,
+      })
+    }
 
     throw buildError(response, {
       status: response.status,
