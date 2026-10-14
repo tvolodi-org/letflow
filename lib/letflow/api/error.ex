@@ -258,6 +258,27 @@ defmodule Letflow.Api.Error do
     }
   end
 
+  @doc """
+  HTTP 409 — Record Version Conflict (GH #2528).
+
+  Returned when an entity record update or delete carried an
+  `expected_last_event_global_seq` that no longer matches the stored row: the
+  record was changed by someone else since the caller loaded it. The body
+  carries the constant `code` `"record_version_conflict"` and a fixed detail.
+  Takes no argument, so no record data, field value or sequence number can
+  reach the body (INV-2, INV-4).
+  """
+  @spec record_version_conflict() :: t()
+  def record_version_conflict do
+    %__MODULE__{
+      type: @problems_base <> "record-version-conflict",
+      title: "Record Version Conflict",
+      status: 409,
+      detail: "the record was changed by someone else; reload it and try again",
+      extensions: %{"code" => "record_version_conflict"}
+    }
+  end
+
   @doc "HTTP 415 — Unsupported Media Type."
   @spec unsupported_media_type(String.t()) :: t()
   def unsupported_media_type(detail) do

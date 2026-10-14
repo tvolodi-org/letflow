@@ -222,6 +222,16 @@ defmodule Letflow.Api.ValidationTest do
                Validation.validate(schema, body)
     end
 
+    # GH #2528 mixed-version safety: an old server (POST's @record_write_schema)
+    # receiving the new expected_last_event_global_seq key ignores it.
+    test "GH #2528: an unknown body key does not break validate/2 and is dropped from the result" do
+      schema = [%FieldConstraint{name: "field_values", required: true, type: :object}]
+      body = %{"field_values" => %{}, "expected_last_event_global_seq" => 7}
+
+      assert {:ok, %{"field_values" => %{}} = attrs} = Validation.validate(schema, body)
+      refute Map.has_key?(attrs, "expected_last_event_global_seq")
+    end
+
     test "SQL metacharacters in a string value are ordinary values, not rejected (design doc §0.9 point 5)" do
       schema = [%FieldConstraint{name: "name", type: :string}]
       body = %{"name" => "Robert'); DROP TABLE students;--"}

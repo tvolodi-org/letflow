@@ -27,6 +27,7 @@ defmodule Letflow.Entities.RecordsTest do
   alias Letflow.EventStore
   alias Letflow.EventStore.Event
   alias Letflow.EventStore.InstanceProjection
+  alias Letflow.EventStore.InstanceSequence
   alias Letflow.EventStore.Registry
   alias Letflow.EventStore.Registry.EventType
   alias Letflow.Identity.Tenant
@@ -748,6 +749,511 @@ defmodule Letflow.Entities.RecordsTest do
 
       assert created.field_values["bio"] == %{"en" => "Hello"}
       assert created.field_values["price"] == 5.5
+    end
+  end
+
+  # ---------------------------------------------------------------------------------
+  # GH #2528 -- optimistic concurrency on update_record/2 / delete_record/2
+  # (lib/letflow/design/gh2528-record-version-conflict.md §8).
+  # ---------------------------------------------------------------------------------
+
+  defp gh2528_update_attrs(record_id, name, overrides \\ %{}) do
+    Map.merge(
+      %{
+        entity_type: "customer",
+        record_id: record_id,
+        field_values: %{"customer_name" => name, "age" => 1},
+        actor_id: Ecto.UUID.generate(),
+        idempotency_key: Ecto.UUID.generate()
+      },
+      overrides
+    )
+  end
+
+  defp gh2528_delete_attrs(record_id, overrides \\ %{}) do
+    Map.merge(
+      %{
+        entity_type: "customer",
+        record_id: record_id,
+        actor_id: Ecto.UUID.generate(),
+        idempotency_key: Ecto.UUID.generate()
+      },
+      overrides
+    )
+  end
+
+  defp gh2528_event_count(schema), do: Repo.aggregate(Event, :count, prefix: schema)
+
+  defp gh2528_latest!(schema, record_id) do
+    {:ok, record} = Latest.get(record_id, "customer", schema)
+    record
+  end
+
+  describe "expected_last_event_global_seq" do
+    test "absent expected keeps last-writer-wins: two updates both succeed, the second value is stored" do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      {:ok, %{record: created}} = Records.create_record(create_attrs(), schema)
+
+      assert {:ok, %{is_duplicate: false}} =
+               Records.update_record(gh2528_update_attrs(created.record_id, "First"), schema)
+
+      assert {:ok, %{is_duplicate: false}} =
+               Records.update_record(gh2528_update_attrs(created.record_id, "Second"), schema)
+
+      assert gh2528_latest!(schema, created.record_id).field_values["customer_name"] == "Second"
+    end
+
+    test "an explicit nil expected behaves exactly like an absent one" do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      {:ok, %{record: created}} = Records.create_record(create_attrs(), schema)
+
+      {:ok, _} = Records.update_record(gh2528_update_attrs(created.record_id, "First"), schema)
+
+      assert {:ok, %{is_duplicate: false}} =
+               Records.update_record(
+                 gh2528_update_attrs(created.record_id, "Second", %{
+                   expected_last_event_global_seq: nil
+                 }),
+                 schema
+               )
+    end
+
+    test "matching expected updates and advances last_event_global_seq" do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      {:ok, %{record: created}} = Records.create_record(create_attrs(), schema)
+      s1 = created.last_event_global_seq
+
+      assert {:ok, %{record: updated, is_duplicate: false}} =
+               Records.update_record(
+                 gh2528_update_attrs(created.record_id, "Matched", %{
+                   expected_last_event_global_seq: s1
+                 }),
+                 schema
+               )
+
+      assert updated.last_event_global_seq > s1
+      assert updated.field_values["customer_name"] == "Matched"
+
+      stored = gh2528_latest!(schema, created.record_id)
+      assert stored.field_values["customer_name"] == "Matched"
+      assert stored.last_event_global_seq == updated.last_event_global_seq
+    end
+
+    test "stale expected is refused atomically and does not claim the idempotency key" do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      {:ok, %{record: created}} = Records.create_record(create_attrs(), schema)
+      s1 = created.last_event_global_seq
+
+      {:ok, %{record: %{last_event_global_seq: s2}}} =
+        Records.update_record(gh2528_update_attrs(created.record_id, "Winner"), schema)
+
+      events_before = gh2528_event_count(schema)
+      key = Ecto.UUID.generate()
+
+      assert {:error, :record_version_conflict} =
+               Records.update_record(
+                 gh2528_update_attrs(created.record_id, "Stale", %{
+                   expected_last_event_global_seq: s1,
+                   idempotency_key: key
+                 }),
+                 schema
+               )
+
+      stored = gh2528_latest!(schema, created.record_id)
+      assert stored.field_values["customer_name"] == "Winner"
+      assert stored.last_event_global_seq == s2
+      assert gh2528_event_count(schema) == events_before
+
+      # The rolled-back attempt did not claim `key`: a retry with the same key
+      # and the correct expected value is a fresh write, not a replay.
+      assert {:ok, %{record: retried, is_duplicate: false}} =
+               Records.update_record(
+                 gh2528_update_attrs(created.record_id, "Retried", %{
+                   expected_last_event_global_seq: s2,
+                   idempotency_key: key
+                 }),
+                 schema
+               )
+
+      assert retried.field_values["customer_name"] == "Retried"
+      assert gh2528_event_count(schema) == events_before + 1
+    end
+
+    test "delete with matching expected deletes" do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      {:ok, %{record: created}} = Records.create_record(create_attrs(), schema)
+
+      assert {:ok, %{record: deleted, is_duplicate: false}} =
+               Records.delete_record(
+                 gh2528_delete_attrs(created.record_id, %{
+                   expected_last_event_global_seq: created.last_event_global_seq
+                 }),
+                 schema
+               )
+
+      assert deleted.deleted
+      assert gh2528_latest!(schema, created.record_id).deleted
+    end
+
+    test "delete with stale expected is refused atomically and leaves deleted: false" do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      {:ok, %{record: created}} = Records.create_record(create_attrs(), schema)
+      s1 = created.last_event_global_seq
+
+      {:ok, %{record: %{last_event_global_seq: s2}}} =
+        Records.update_record(gh2528_update_attrs(created.record_id, "Winner"), schema)
+
+      events_before = gh2528_event_count(schema)
+
+      assert {:error, :record_version_conflict} =
+               Records.delete_record(
+                 gh2528_delete_attrs(created.record_id, %{expected_last_event_global_seq: s1}),
+                 schema
+               )
+
+      stored = gh2528_latest!(schema, created.record_id)
+      refute stored.deleted
+      assert stored.last_event_global_seq == s2
+      assert stored.field_values["customer_name"] == "Winner"
+      assert gh2528_event_count(schema) == events_before
+    end
+
+    test "delete of an already-deleted record stays a no-op success regardless of the expected value (D7)" do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      {:ok, %{record: created}} = Records.create_record(create_attrs(), schema)
+      {:ok, _} = Records.delete_record(gh2528_delete_attrs(created.record_id), schema)
+      events_before = gh2528_event_count(schema)
+
+      assert {:ok, %{record: %{deleted: true}, is_duplicate: false}} =
+               Records.delete_record(
+                 gh2528_delete_attrs(created.record_id, %{
+                   expected_last_event_global_seq: created.last_event_global_seq
+                 }),
+                 schema
+               )
+
+      assert gh2528_event_count(schema) == events_before
+    end
+
+    test "identical replay returns the original, not a conflict" do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      {:ok, %{record: created}} = Records.create_record(create_attrs(), schema)
+
+      attrs =
+        gh2528_update_attrs(created.record_id, "Once", %{
+          expected_last_event_global_seq: created.last_event_global_seq
+        })
+
+      assert {:ok, %{record: first, is_duplicate: false}} = Records.update_record(attrs, schema)
+      assert {:ok, %{record: replay, is_duplicate: true}} = Records.update_record(attrs, schema)
+
+      assert replay.last_event_global_seq == first.last_event_global_seq
+      assert replay.field_values == first.field_values
+    end
+
+    test "replay with the same key but a different stale expected and different values returns the original" do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      {:ok, %{record: created}} = Records.create_record(create_attrs(), schema)
+      s1 = created.last_event_global_seq
+      key = Ecto.UUID.generate()
+
+      assert {:ok, %{record: first, is_duplicate: false}} =
+               Records.update_record(
+                 gh2528_update_attrs(created.record_id, "Original", %{
+                   expected_last_event_global_seq: s1,
+                   idempotency_key: key
+                 }),
+                 schema
+               )
+
+      events_before = gh2528_event_count(schema)
+      # s1 - 1 must stay a valid (non-negative) expected value.
+      assert s1 > 0
+
+      # s1 is stale now (first advanced the row) and the values differ: the
+      # idempotency short-circuit runs before the version check, so the key
+      # wins and nothing is re-validated, re-checked or written.
+      assert {:ok, %{record: replay, is_duplicate: true}} =
+               Records.update_record(
+                 gh2528_update_attrs(created.record_id, "Different", %{
+                   expected_last_event_global_seq: s1 - 1,
+                   idempotency_key: key
+                 }),
+                 schema
+               )
+
+      assert replay.field_values == first.field_values
+      assert replay.last_event_global_seq == first.last_event_global_seq
+
+      stored = gh2528_latest!(schema, created.record_id)
+      assert stored.field_values["customer_name"] == "Original"
+      assert stored.last_event_global_seq == first.last_event_global_seq
+      assert gh2528_event_count(schema) == events_before
+    end
+
+    test "EventTypes unchanged: an opted-in update's stored UPDATED payload has exactly the four keys" do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      {:ok, %{record: created}} = Records.create_record(create_attrs(), schema)
+
+      {:ok, _} =
+        Records.update_record(
+          gh2528_update_attrs(created.record_id, "Checked", %{
+            expected_last_event_global_seq: created.last_event_global_seq
+          }),
+          schema
+        )
+
+      [event] =
+        Repo.all(from(e in Event, where: e.event_type == "ENTITY_RECORD_UPDATED"), prefix: schema)
+
+      assert event.payload |> Map.keys() |> Enum.sort() ==
+               ~w(entity_def_version entity_type field_values record_id)
+    end
+
+    test "a non-nil expected that is not a non-negative integer raises ArgumentError, live or deleted" do
+      %{schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      {:ok, %{record: live}} = Records.create_record(create_attrs(), schema)
+      {:ok, %{record: gone}} = Records.create_record(create_attrs(), schema)
+      {:ok, _} = Records.delete_record(gh2528_delete_attrs(gone.record_id), schema)
+
+      for bad <- [-1, "5", 1.0] do
+        assert_raise ArgumentError, fn ->
+          Records.update_record(
+            gh2528_update_attrs(live.record_id, "x", %{expected_last_event_global_seq: bad}),
+            schema
+          )
+        end
+
+        assert_raise ArgumentError, fn ->
+          Records.delete_record(
+            gh2528_delete_attrs(gone.record_id, %{expected_last_event_global_seq: bad}),
+            schema
+          )
+        end
+      end
+    end
+  end
+
+  # ---------------------------------------------------------------------------------
+  # GH #2528 design §8.1 -- real concurrency. :auto sandbox mode for the whole
+  # test (not SandboxAutoMode.provision!/2, which restores :manual + checkout on
+  # return and would make every Task share the test's single connection: no
+  # real race, and the lock-holder test would deadlock). Mirrors
+  # test/letflow/engine_concurrency_test.exs's provisioned_tenant/0. Every write
+  # commits for real; each iteration uses a fresh record and asserts deltas.
+  # ---------------------------------------------------------------------------------
+
+  defp provisioned_tenant_auto do
+    SandboxAutoMode.enter_auto_mode!(Letflow.Repo)
+
+    # Registered FIRST so it runs LAST (LIFO): the cleanup below still needs
+    # :auto mode active to commit its DROP SCHEMA/delete_all.
+    on_exit(fn -> SandboxAutoMode.exit_auto_mode!(Letflow.Repo) end)
+
+    %{tenant_id: tenant_id, schema_name: schema_name} =
+      TenantFixture.provisioned_tenant!(
+        slug_prefix: "gh2528-race",
+        display_name: "GH-2528 Record Version Race Tenant",
+        teardown: false
+      )
+
+    on_exit(fn ->
+      case TenantProvisioning.schema_name_for_tenant(tenant_id) do
+        {:ok, schema_name} -> drop_schema!(schema_name)
+        {:error, :invalid_tenant_id} -> :ok
+      end
+
+      Repo.delete_all(from(r in Registration, where: r.tenant_id == ^tenant_id))
+      Repo.delete_all(from(t in Tenant, where: t.id == ^tenant_id))
+    end)
+
+    assert {:ok, _seed_result} = EventTypes.seed!(schema_name)
+
+    %{tenant_id: tenant_id, schema_name: schema_name}
+  end
+
+  # Starts a Task that announces itself, waits for :go, then runs `fun`.
+  defp gh2528_barrier_task(fun) do
+    parent = self()
+
+    Task.async(fn ->
+      send(parent, {:ready, self()})
+
+      receive do
+        :go -> fun.()
+      after
+        5_000 -> flunk("writer task never received :go")
+      end
+    end)
+  end
+
+  defp gh2528_race_outcome!(results) do
+    oks = for {:ok, %{record: record}} <- results, do: record
+    conflicts = for {:error, :record_version_conflict} = c <- results, do: c
+
+    assert length(oks) == 1 and length(conflicts) == 1,
+           "expected exactly one {:ok, _} and one {:error, :record_version_conflict}, got: " <>
+             inspect(results)
+
+    hd(oks)
+  end
+
+  defp gh2528_waiting_on_sequence_lock(schema) do
+    %Postgrex.Result{rows: [[count]]} =
+      Repo.query!(
+        "SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query ILIKE $1",
+        ["%\"#{schema}\".\"instance_sequence\"%FOR UPDATE%"]
+      )
+
+    count
+  end
+
+  # 200 x 20 ms = 4 s, under the holder's 5 s :release wait.
+  defp gh2528_await_two_waiters!(schema, polls_left \\ 200)
+
+  defp gh2528_await_two_waiters!(_schema, 0),
+    do: flunk("the two writers never both blocked on the held instance_sequence row")
+
+  defp gh2528_await_two_waiters!(schema, polls_left) do
+    if gh2528_waiting_on_sequence_lock(schema) == 2 do
+      :ok
+    else
+      receive do
+      after
+        20 -> gh2528_await_two_waiters!(schema, polls_left - 1)
+      end
+    end
+  end
+
+  describe "expected_last_event_global_seq -- concurrency" do
+    test "barrier race, same expected, different values: exactly one wins, the other conflicts (20 iterations)" do
+      %{schema_name: schema} = provisioned_tenant_auto()
+      create_active_definition!(schema)
+
+      for i <- 1..20 do
+        {:ok, %{record: created}} = Records.create_record(create_attrs(), schema)
+        s1 = created.last_event_global_seq
+        events_before = gh2528_event_count(schema)
+
+        tasks =
+          for name <- ["A#{i}", "B#{i}"] do
+            gh2528_barrier_task(fn ->
+              Records.update_record(
+                gh2528_update_attrs(created.record_id, name, %{
+                  expected_last_event_global_seq: s1
+                }),
+                schema
+              )
+            end)
+          end
+
+        assert_receive {:ready, p1}, 5_000
+        assert_receive {:ready, p2}, 5_000
+        send(p1, :go)
+        send(p2, :go)
+
+        winner = tasks |> Enum.map(&Task.await(&1, 5_000)) |> gh2528_race_outcome!()
+
+        stored = gh2528_latest!(schema, created.record_id)
+        assert stored.field_values == winner.field_values
+        assert stored.last_event_global_seq == winner.last_event_global_seq
+        assert gh2528_event_count(schema) == events_before + 1
+      end
+    end
+
+    test "control: the same race without expected gives two {:ok, _} (20 iterations)" do
+      %{schema_name: schema} = provisioned_tenant_auto()
+      create_active_definition!(schema)
+
+      for i <- 1..20 do
+        {:ok, %{record: created}} = Records.create_record(create_attrs(), schema)
+        events_before = gh2528_event_count(schema)
+
+        tasks =
+          for name <- ["A#{i}", "B#{i}"] do
+            gh2528_barrier_task(fn ->
+              Records.update_record(gh2528_update_attrs(created.record_id, name), schema)
+            end)
+          end
+
+        assert_receive {:ready, p1}, 5_000
+        assert_receive {:ready, p2}, 5_000
+        send(p1, :go)
+        send(p2, :go)
+
+        results = Enum.map(tasks, &Task.await(&1, 5_000))
+        assert [{:ok, _}, {:ok, _}] = results
+        assert gh2528_event_count(schema) == events_before + 2
+      end
+    end
+
+    # MANDATORY (design §8.1 Test 3): forces both writers to pre-read S1 before
+    # either commits, so a check against ctx.existing_record would let both
+    # through. Deterministic, not probabilistic.
+    test "deterministic lock-holder: both writers pre-read S1, only the locked re-read decides" do
+      %{schema_name: schema} = provisioned_tenant_auto()
+      create_active_definition!(schema)
+      {:ok, %{record: created}} = Records.create_record(create_attrs(), schema)
+      s1 = created.last_event_global_seq
+      {:ok, instance_id} = EntityTypeInstance.get_or_create("customer", schema)
+      events_before = gh2528_event_count(schema)
+      parent = self()
+
+      holder =
+        Task.async(fn ->
+          Repo.transaction(fn ->
+            Repo.one!(
+              from(s in InstanceSequence,
+                where: s.instance_id == ^instance_id,
+                lock: "FOR UPDATE"
+              ),
+              prefix: schema
+            )
+
+            send(parent, {:locked, self()})
+
+            receive do
+              :release -> :ok
+            after
+              5_000 -> flunk("lock holder never received :release")
+            end
+          end)
+        end)
+
+      assert_receive {:locked, holder_pid}, 5_000
+
+      writers =
+        for name <- ["A", "B"] do
+          Task.async(fn ->
+            Records.update_record(
+              gh2528_update_attrs(created.record_id, name, %{expected_last_event_global_seq: s1}),
+              schema
+            )
+          end)
+        end
+
+      gh2528_await_two_waiters!(schema)
+
+      send(holder_pid, :release)
+      assert {:ok, :ok} = Task.await(holder, 5_000)
+
+      winner = writers |> Enum.map(&Task.await(&1, 5_000)) |> gh2528_race_outcome!()
+
+      stored = gh2528_latest!(schema, created.record_id)
+      assert stored.field_values == winner.field_values
+      assert stored.last_event_global_seq == winner.last_event_global_seq
+      assert gh2528_event_count(schema) == events_before + 1
     end
   end
 end

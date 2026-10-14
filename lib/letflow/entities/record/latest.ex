@@ -96,4 +96,35 @@ defmodule Letflow.Entities.Record.Latest do
       end
     end
   end
+
+  @doc """
+  Re-reads the current-state row for `(entity_type, record_id)` with a row
+  lock (`SELECT ... FOR UPDATE`), inside the caller's transaction (GH #2528,
+  `lib/letflow/design/gh2528-record-version-conflict.md` §4). Returns `nil`
+  when the row is absent.
+
+  Does not re-validate `prefix` via `tenant_id_for_schema_name/1`: the only
+  caller (`Letflow.Entities.Records`' `:check_record_version` step) passes the
+  same `prefix` that `get/3` already validated in the same command call,
+  before the transaction. Scoping comes from `prefix` plus the
+  `entity_type`+`record_id` predicate on the unique index
+  `entity_record_latest_entity_type_record_id_idx` (INV-6); the lock is
+  Ecto query composition, no SQL string (INV-7).
+  """
+  @spec get_for_update(
+          repo :: Ecto.Repo.t(),
+          record_id :: Ecto.UUID.t(),
+          entity_type :: String.t(),
+          prefix :: String.t()
+        ) :: t() | nil
+  def get_for_update(repo, record_id, entity_type, prefix)
+      when is_binary(entity_type) and is_binary(prefix) do
+    query =
+      from(r in __MODULE__,
+        where: r.entity_type == ^entity_type and r.record_id == ^record_id,
+        lock: "FOR UPDATE"
+      )
+
+    repo.one(query, prefix: prefix)
+  end
 end
