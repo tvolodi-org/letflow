@@ -401,7 +401,16 @@ defmodule Letflow.Api.IdentityIdHardeningTest do
       old = bound_group!(ctx.p)
       new = insert_group!(ctx.p)
 
-      {:ok, _} = RoleRegistry.upsert_role("PLATFORM_ADMIN", :platform_role, new.id, opts(ctx.p))
+      # GH 2524: moving a binding is the explicit rebind (upsert_role/4 refuses it).
+      [%{id: role_id}] = Enum.filter(RoleRegistry.list_roles(opts(ctx.p)), &(&1.name == "PLATFORM_ADMIN"))
+
+      {:ok, _} =
+        RoleRegistry.rebind_role(
+          role_id,
+          new.id,
+          %{actor_id: nil, reason: "test: move the operator binding"},
+          Keyword.put(opts(ctx.p), :platform_scope, true)
+        )
 
       # the old group is no longer bound, so it is an ordinary empty group
       conn = call(:delete, "/groups/#{old.id}", ctx.p, @admin, nil)
