@@ -1,7 +1,8 @@
 # WORK_BOARD Protocol — GitHub issues are the work queue
 
-Status: cutover happened 2026-10-14 (`docs/status/work_board_cutover.yaml` says
-`cutover: true`). The queue service was stopped by infra after the supervisor's
+Status: the work board is the source since 2026-10-14; the gate-check switch
+`docs/status/work_board_cutover.yaml` says `cutover: true` (flipped, reverted after it broke
+main through non-hermetic readers, re-flipped after PR #2517). The queue service was stopped by infra after the supervisor's
 announcement; its database is kept for one week as the rollback window. The worker rules
 below are binding: a worker is told which item to work by the supervisor, and the board is
 the only way. Still no worker calls the queue (none did before the flip either). Decision record:
@@ -170,10 +171,10 @@ All five are read-only and paginated. `check` = label rules plus the `CLAIM` com
 
 ## 11. Cutover
 
-**Done 2026-10-14.** The flip PR set `cutover: true`, set `last_legacy_iss` to 1120, and
+**2026-10-14.** The flip PR set `cutover: true` and `last_legacy_iss` 1120 and
 deleted `letflow.check_queue_reconciliation` and its test. The queue service was STOPPED
 (not deleted) by infra on 2026-10-14 at about 06:10Z and now answers 502; GitHub issues are the
-source. Only infra restarts it, and only if a rollback is ever needed; deletion is a separate
+source. The switch value is `cutover: true` (see the file; the first flip broke main and was reverted, PR #2516, then re-flipped after PR #2517 made the readers hermetic). Only infra restarts it, and only if a rollback is ever needed; deletion is a separate
 approval after the one-week window. No worker calls the queue. The text below is the plan as it was written, kept for the record.
 
 Cutover was **not a calendar date and is not tied to the repository transfer**. It was the
