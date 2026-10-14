@@ -23,11 +23,10 @@ vi.mock('@/auth/AuthContext', () => ({
   })),
 }))
 
-const postWithHeaders = vi.fn()
+const createOnboarding = vi.fn()
 vi.mock('@/api/client', () => ({
   client: {
-    postWithHeaders: (...args: unknown[]) => postWithHeaders(...args),
-    post: vi.fn(),
+    post: (...args: unknown[]) => createOnboarding(...args),
     get: vi.fn(),
   },
 }))
@@ -51,14 +50,14 @@ async function fillRequired(user: ReturnType<typeof userEvent.setup>) {
 }
 
 beforeEach(() => {
-  postWithHeaders.mockReset()
+  createOnboarding.mockReset()
 })
 afterEach(cleanup)
 
 describe('GH 2438 -- the register banner shows the server detail for a 409', () => {
   it('a duplicate-slug 409 shows the specific detail, not the generic title "Conflict"', async () => {
     // The shape the client hands the onboarding module for a 409 problem+json body.
-    postWithHeaders.mockRejectedValue({
+    createOnboarding.mockRejectedValue({
       status: 409,
       message: 'Conflict',
       code: 'https://letflow.example/problems/conflict',
@@ -80,7 +79,7 @@ describe('GH 2438 -- the register banner shows the server detail for a 409', () 
   })
 
   it('fallback: a 409 with no detail shows its title', async () => {
-    postWithHeaders.mockRejectedValue({
+    createOnboarding.mockRejectedValue({
       status: 409,
       message: 'Conflict',
       code: 'https://letflow.example/problems/conflict',
@@ -96,7 +95,7 @@ describe('GH 2438 -- the register banner shows the server detail for a 409', () 
   })
 
   it('fallback: a 409 with neither detail nor title shows the generic text', async () => {
-    postWithHeaders.mockRejectedValue({
+    createOnboarding.mockRejectedValue({
       status: 409,
       message: '',
       code: 'https://letflow.example/problems/conflict',

@@ -159,44 +159,4 @@ test.describe('ONB-UI-02 — Tenant registration form', () => {
     ).toBe(true)
   })
 
-  test('each submission attempt generates a distinct Idempotency-Key header', async ({ page, request }) => {
-    const token = await getKeycloakToken(request, 'admin-user', 'admin-pass')
-    await loginWithToken(page, token)
-    await navigateSpa(page, '/admin/onboarding/new')
-    await page.waitForSelector('form', { timeout: 15_000 })
-
-    const capturedKeys: string[] = []
-    await page.route('**/api/v1/onboarding', async (route) => {
-      const headers = route.request().headers()
-      const key = headers['idempotency-key'] ?? headers['Idempotency-Key'] ?? ''
-      if (key) capturedKeys.push(key)
-      await route.continue()
-    })
-
-    const id1 = randomUUID().slice(0, 8)
-    const fillAndSubmit = async (slug: string) => {
-      // Use id-based selectors matching RegisterTenantPage's DOM structure
-      await page.locator('#slug').fill(slug)
-      await page.locator('#display_name').fill(`Test ${slug}`)
-      await page.locator('#admin_email').fill(`admin@${slug}.example.com`)
-      await page.locator('#hostname').fill(`${slug}.localhost`)
-      const uriInputs = await page.locator('input[placeholder*="callback"]').all()
-      if (uriInputs.length > 0) await uriInputs[0].fill(`http://${slug}.localhost/*`)
-      await page.click('button[type="submit"]')
-      await page.waitForTimeout(500)
-    }
-
-    await fillAndSubmit(id1)
-    // Navigate back to form for second attempt
-    await navigateSpa(page, '/admin/onboarding/new')
-    await page.waitForSelector('form', { timeout: 10_000 })
-    const id2 = randomUUID().slice(0, 8)
-    await fillAndSubmit(id2)
-
-    await page.screenshot({ path: 'scratch/onb-ui-02-idempotency-keys.png', fullPage: true })
-
-    expect(capturedKeys.length).toBeGreaterThanOrEqual(2)
-    expect(capturedKeys[0]).not.toBe(capturedKeys[1])
-  })
-
 })

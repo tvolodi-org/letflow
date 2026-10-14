@@ -104,13 +104,8 @@ function resolveApiErrorMessage(
   err: OnboardingApiError,
 ): ApiErrorView {
   const { httpStatus, body } = err
-  const errorCode = body['error'] as string | undefined
-  const problemType = body['type'] as string | undefined
 
   if (httpStatus === 409) {
-    if (problemType?.includes('idempotency-conflict')) {
-      return { banner: 'A conflicting submission was detected. Please start over.' }
-    }
     // The 409s from the onboarding endpoint (slug, hostname and realm conflicts, and a tenant that
     // is not active). Error.conflict/1 sets title to the fixed "Conflict" and carries the specific
     // reason in detail, so detail is read first (GH 2438). Title is only a fallback.
@@ -120,9 +115,6 @@ function resolveApiErrorMessage(
   }
 
   if (httpStatus === 422) {
-    if (errorCode === 'idempotency_key_required') {
-      return { banner: 'Internal error: idempotency key missing. Please reload and try again.' }
-    }
     const realmConstraint = fieldErrorConstraint(body, 'idp_realm_id')
     if (realmConstraint) {
       return {
@@ -197,7 +189,6 @@ export default function RegisterTenantPage() {
     prefill ? { ...EMPTY_FORM, ...prefill } : { ...EMPTY_FORM },
   )
   const [errors, setErrors] = useState<FormErrors>({})
-  const [idempotencyKey] = useState<string>(() => crypto.randomUUID())
   const [submitting, setSubmitting] = useState(false)
   const [apiError, setApiError] = useState<ApiErrorView | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
@@ -242,7 +233,7 @@ export default function RegisterTenantPage() {
     }
 
     try {
-      const created = await submitOnboarding(formValues, idempotencyKey)
+      const created = await submitOnboarding(formValues)
       // The backend is synchronous: the 201 already carries the final record,
       // so go straight to the result page (no progress polling).
       navigate(

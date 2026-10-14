@@ -191,3 +191,7 @@ This repository does not edit the infra repository; ORCH copies the line into
   read, stored or echoed. The tenant's client and realm are set up by hand, as described above.
   Any other unknown body key is listed by name in `ignored_fields` only; its value is not read.
 - A blank or null administrator field counts as not sent.
+- **Resubmitting is not a replay.** The wizard sends no `Idempotency-Key` and the API reads none (ISS-1091).
+  If the same slug or hostname is submitted again, the answer is 409 with the specific reason (for example
+  "slug already exists") and nothing is created twice. If the first answer was lost, look the tenant up
+  (`GET /api/v1/onboarding?hostname=...`) instead of retrying the create.

@@ -18,11 +18,10 @@ vi.mock('@/auth/AuthContext', () => ({
   })),
 }))
 
-const postWithHeaders = vi.fn()
+const createOnboarding = vi.fn()
 vi.mock('@/api/client', () => ({
   client: {
-    postWithHeaders: (...args: unknown[]) => postWithHeaders(...args),
-    post: vi.fn(),
+    post: (...args: unknown[]) => createOnboarding(...args),
     get: vi.fn(),
   },
 }))
@@ -51,7 +50,7 @@ function renderRegister() {
   )
 }
 
-beforeEach(() => postWithHeaders.mockReset())
+beforeEach(() => createOnboarding.mockReset())
 afterEach(cleanup)
 
 describe('RegisterTenantPage ISS-1093', () => {
@@ -67,7 +66,7 @@ describe('RegisterTenantPage ISS-1093', () => {
   })
 
   it('submits without client_config, realm_config or redirect_uris, and sends only the optional admin_email', async () => {
-    postWithHeaders.mockResolvedValue(RECORD)
+    createOnboarding.mockResolvedValue(RECORD)
     const user = userEvent.setup()
     renderRegister()
     await user.type(screen.getByLabelText('Slug'), 'newco')
@@ -75,8 +74,8 @@ describe('RegisterTenantPage ISS-1093', () => {
     await user.type(screen.getByLabelText('Hostname'), 'newco.example.com')
     await user.type(screen.getByLabelText(/^Admin Email/), 'admin@newco.example.com')
     await user.click(screen.getByRole('button', { name: 'Register Tenant' }))
-    await waitFor(() => expect(postWithHeaders).toHaveBeenCalledTimes(1))
-    const body = postWithHeaders.mock.calls[0]![1] as Record<string, unknown>
+    await waitFor(() => expect(createOnboarding).toHaveBeenCalledTimes(1))
+    const body = createOnboarding.mock.calls[0]![1] as Record<string, unknown>
     expect(Object.keys(body).sort()).toEqual(
       ['admin_email', 'display_name', 'hostname', 'slug'].sort(),
     )
