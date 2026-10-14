@@ -635,5 +635,46 @@ defmodule Letflow.Routers.Gh2564DeactivationRevokesTokensTest do
       assert [entry] = entries(fx, "token.revoke")
       assert entry.resource_id == token.id
     end
+
+    test "race: concurrent deactivations of the only two group-held admins A and B -> one 200, one 409, one admin left" do
+      fx = committed_tenant!()
+      # The caller holds no admin source, so exactly A and B are counted.
+      caller = caller!(fx)
+      a = group_admin!(fx)
+      b = group_admin!(fx)
+      assert Identity.count_tenant_wide_admins(fx.schema_name) == 2
+
+      tasks =
+        for target <- [a, b] do
+          Task.async(fn -> set_status(fx, caller, target, "inactive", :post) end)
+        end
+
+      results =
+        tasks
+        |> Task.yield_many(10_000)
+        |> Enum.map(fn {task, res} ->
+          case res || Task.shutdown(task, :brutal_kill) do
+            {:ok, conn} -> conn
+            other -> flunk("deactivation did not complete within 10 s: #{inspect(other)}")
+          end
+        end)
+
+      [a_conn, b_conn] = results
+
+      assert Enum.sort(Enum.map(results, & &1.status)) == [200, 409],
+             "statuses #{a_conn.status} / #{b_conn.status}"
+
+      [refused] = Enum.filter(results, &(&1.status == 409))
+      assert detail(refused) == "last_tenant_wide_admin"
+
+      {winner, loser} = if a_conn.status == 200, do: {a, b}, else: {b, a}
+      assert reload(fx, winner).status == :inactive
+      assert reload(fx, loser).status == :active
+      assert Identity.count_tenant_wide_admins(fx.schema_name) == 1
+      assert Identity.tenant_wide_admin_user_ids(fx.schema_name) == [loser.id]
+
+      assert [refusal] = entries(fx, "tenant_admin.guard_refused")
+      assert refusal.resource_id == loser.id
+    end
   end
 end

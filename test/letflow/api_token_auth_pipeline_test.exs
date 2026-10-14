@@ -311,13 +311,19 @@ defmodule Letflow.ApiTokenAuthPipelineTest do
       assert %DateTime{} = persisted.revoked_at
     end
 
-    test "reactivated owner with a revoked token stays 401" do
+    # GH-2564: deactivation already revokes the token, so the explicit revoke below lands
+    # on an already-revoked row; this no longer isolates "revoked" from "inactive owner".
+    test "token revoked by deactivation, explicitly revoked again, owner reactivated: still 401" do
       tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2557-ac3-revoked")
       user = insert_user!(tenant)
       {token, plaintext} = gh2557_admin_token!(tenant, user)
       gh2564_second_admin!(tenant)
 
       gh2557_set_status!(tenant, user, :inactive)
+
+      assert %DateTime{} =
+               Repo.get!(Identity.ApiToken, token.id, prefix: tenant.schema_name).revoked_at
+
       {:ok, _} = Identity.revoke_token(token.id, prefix: tenant.schema_name)
       gh2557_set_status!(tenant, user, :active)
 
@@ -325,13 +331,18 @@ defmodule Letflow.ApiTokenAuthPipelineTest do
       assert gh2557_get(@gh2557_plain_route, plaintext, tenant).status == 401
     end
 
-    test "reactivated owner with an expired token stays 401" do
+    # GH-2564: deactivation already revokes the token, so the expiry below is set on an
+    # already-revoked row; this no longer isolates "expired" from "inactive owner".
+    test "token revoked by deactivation, then expired, owner reactivated: still 401" do
       tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2557-ac3-expired")
       user = insert_user!(tenant)
       {token, plaintext} = gh2557_admin_token!(tenant, user)
       gh2564_second_admin!(tenant)
 
       gh2557_set_status!(tenant, user, :inactive)
+
+      assert %DateTime{} =
+               Repo.get!(Identity.ApiToken, token.id, prefix: tenant.schema_name).revoked_at
 
       past = DateTime.add(DateTime.utc_now(), -1, :second) |> DateTime.truncate(:second)
 
