@@ -65,7 +65,8 @@ defmodule Letflow.Plugs.AuthPipeline do
        reference an existing row, so there is nothing to provision.
 
   A missing header, an unresolvable slug, a garbage token, a revoked token,
-  and an expired token are all byte-identical 401s (`"invalid or expired
+  an expired token, and a token whose owner is inactive (GH-2557) are all
+  byte-identical 401s (`"invalid or expired
   bearer token"`) — the same anti-oracle discipline the OIDC branch already
   applies to its own five failure tags, extended here rather than inventing a
   differently-worded message that would let a caller distinguish "your slug
