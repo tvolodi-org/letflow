@@ -2,7 +2,11 @@
 /**
  * GH 2355 / ISS-1034 -- the REQ-463 separation-of-duties refusal on task
  * complete / claim renders a worker-readable alert in TaskDetailPanel.
- * Harness follows TaskInboxPage.test.tsx (mock @/api/tasks, mount the page).
+ *
+ * End to end: @/api/tasks and the api client are REAL; only window.fetch is
+ * stubbed (URL router returning the backend's literal 403 body), so these
+ * tests fail if the client.ts mapping is removed. (vi.mock is file-wide, so
+ * the earlier isolated cases that mocked @/api/tasks were dropped.)
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
@@ -17,22 +21,7 @@ import {
 
 expect.extend(jestDomMatchers)
 
-const inbox = vi.fn()
-const getTask = vi.fn()
 const events = vi.fn()
-const completeFn = vi.fn()
-const assignFn = vi.fn()
-
-vi.mock('@/api/tasks', () => ({
-  tasksApi: {
-    inbox: (...args: unknown[]) => inbox(...args),
-    list: (...args: unknown[]) => inbox(...args),
-    get: (...args: unknown[]) => getTask(...args),
-    complete: (...args: unknown[]) => completeFn(...args),
-    assign: (...args: unknown[]) => assignFn(...args),
-    reassign: vi.fn(),
-  },
-}))
 
 vi.mock('@/api/instances', () => ({
   instancesApi: {
@@ -88,6 +77,49 @@ function row(assignee_ref: string, assignee_type: string) {
   }
 }
 
+type Route = { ok: boolean; status: number; statusText: string; body: unknown }
+type PostRoute = { suffix: string; response: Route }
+
+const ok200 = (body: unknown): Route => ({ ok: true, status: 200, statusText: 'OK', body })
+const forbidden = (body: unknown): Route => ({
+  ok: false,
+  status: 403,
+  statusText: 'Forbidden',
+  body,
+})
+const SOD_BODY = { detail: 'separation of duties', status: 403 }
+
+function stubFetch(task: ReturnType<typeof row>, postRoute: PostRoute) {
+  const calls: string[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      const path = String(url).split('?')[0]
+      calls.push(`${method} ${path}`)
+      let r: Route
+      if (method === 'POST' && path.endsWith(postRoute.suffix)) {
+        r = postRoute.response
+      } else if (method === 'GET' && path.endsWith('/api/v1/tasks/inbox')) {
+        r = ok200({ items: [task], next_cursor: null, count: 1 })
+      } else if (method === 'GET' && path.endsWith(`/api/v1/tasks/${TASK_ID}`)) {
+        r = ok200(task)
+      } else {
+        r = ok200({ items: [], next_cursor: null, count: 0 })
+      }
+      return {
+        ok: r.ok,
+        status: r.status,
+        statusText: r.statusText,
+        json: async () => r.body,
+        text: async () => JSON.stringify(r.body),
+        headers: { get: () => null },
+      }
+    }),
+  )
+  return calls
+}
+
 function renderPage() {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -101,60 +133,65 @@ function renderPage() {
   )
 }
 
-async function openPanel(task: ReturnType<typeof row>) {
-  inbox.mockResolvedValue({ items: [task], next_cursor: null, count: 1 })
-  getTask.mockResolvedValue(task)
+async function openPanel(task: ReturnType<typeof row>, postRoute: PostRoute) {
+  const calls = stubFetch(task, postRoute)
   events.mockResolvedValue({ items: [], next_cursor: null, count: 0 })
   renderPage()
   const user = userEvent.setup()
   await waitFor(() => expect(screen.getByTestId('task-row')).toBeInTheDocument())
   await user.click(screen.getByTestId('task-row'))
   await waitFor(() => expect(screen.getByTestId('task-detail-panel')).toBeInTheDocument())
-  return user
-}
-
-const sodError = {
-  status: 403,
-  code: 'SEPARATION_OF_DUTIES',
-  message: SEPARATION_OF_DUTIES_MESSAGE,
+  return { user, calls }
 }
 
 afterEach(() => {
   cleanup()
+  vi.unstubAllGlobals()
   vi.clearAllMocks()
 })
 
-describe('TaskDetailPanel -- separation-of-duties refusal (GH 2355)', () => {
-  it('complete refused with SoD shows the alert with the message', async () => {
-    completeFn.mockRejectedValue(sodError)
-    const user = await openPanel(row('marco-id', 'USER'))
+describe('TaskDetailPanel -- separation-of-duties refusal, end to end (GH 2355)', () => {
+  it('complete refused with the backend SoD body shows the complete message', async () => {
+    const { user } = await openPanel(row('marco-id', 'USER'), {
+      suffix: `/api/v1/tasks/${TASK_ID}/complete`,
+      response: forbidden(SOD_BODY),
+    })
     await user.click(await screen.findByTestId('task-complete-button'))
     const alert = await screen.findByTestId('task-sod-error')
     expect(alert).toHaveAttribute('role', 'alert')
     expect(alert).toHaveTextContent(SEPARATION_OF_DUTIES_MESSAGE)
   })
 
-  it('claim refused with SoD shows the claim-specific alert', async () => {
-    assignFn.mockRejectedValue(sodError)
-    const user = await openPanel(row('some-group', 'GROUP'))
+  it('claim refused with the backend SoD body shows the claim message', async () => {
+    const { user } = await openPanel(row('some-group', 'GROUP'), {
+      suffix: `/api/v1/tasks/${TASK_ID}/assign`,
+      response: forbidden(SOD_BODY),
+    })
     await user.click(await screen.findByTestId('task-claim-button'))
     const alert = await screen.findByTestId('task-sod-error')
     expect(alert).toHaveTextContent(SEPARATION_OF_DUTIES_CLAIM_MESSAGE)
   })
 
-  it('a plain 403 Forbidden shows no SoD alert', async () => {
-    completeFn.mockRejectedValue({ status: 403, code: '403', message: 'Forbidden' })
-    const user = await openPanel(row('marco-id', 'USER'))
+  it('a plain 403 {title: Forbidden} shows no SoD alert', async () => {
+    const { user, calls } = await openPanel(row('marco-id', 'USER'), {
+      suffix: `/api/v1/tasks/${TASK_ID}/complete`,
+      response: forbidden({ title: 'Forbidden', status: 403 }),
+    })
     await user.click(await screen.findByTestId('task-complete-button'))
-    await waitFor(() => expect(completeFn).toHaveBeenCalled())
+    await waitFor(() => expect(calls).toContain(`POST /api/v1/tasks/${TASK_ID}/complete`))
+    await waitFor(() =>
+      expect(screen.getByTestId('task-complete-button')).toHaveTextContent('Complete Task'),
+    )
     expect(screen.queryByTestId('task-sod-error')).not.toBeInTheDocument()
   })
 
   it('a successful complete shows no SoD alert', async () => {
-    completeFn.mockResolvedValue(row('marco-id', 'USER'))
-    const user = await openPanel(row('marco-id', 'USER'))
+    const { user, calls } = await openPanel(row('marco-id', 'USER'), {
+      suffix: `/api/v1/tasks/${TASK_ID}/complete`,
+      response: ok200(row('marco-id', 'USER')),
+    })
     await user.click(await screen.findByTestId('task-complete-button'))
-    await waitFor(() => expect(completeFn).toHaveBeenCalled())
+    await waitFor(() => expect(calls).toContain(`POST /api/v1/tasks/${TASK_ID}/complete`))
     expect(screen.queryByTestId('task-sod-error')).not.toBeInTheDocument()
   })
 })
