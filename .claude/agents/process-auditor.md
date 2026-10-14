@@ -236,7 +236,7 @@ Rules the report must satisfy before you save it:
 - `suggested_owner` is one of the five values. A finding about a platform-scope scenario is owned by
   `REQ-ANALYST` (no business persona owns platform scope, `.claude/agents/ba-analyst.md`).
 - Findings are handed to ORCH, which files the BLOCKER and MAJOR ones per
-  `docs/agents/protocols/ISSUE_QUEUE.md`; MINOR findings stay listed in the artefact only. You do not
+  `docs/agents/protocols/WORK_BOARD.md` section 7; MINOR findings stay listed in the artefact only. You do not
   file an issue yourself.
 
 ## Language rule

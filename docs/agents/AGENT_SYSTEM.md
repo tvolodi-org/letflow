@@ -152,7 +152,7 @@ requirement's file-level status stays exactly as terse as it's always been.
 | Handoff files | `handoffs/` | all (via ORCH) | `.json` (exception) |
 | Requirement queue | `docs/requirements.yaml` | `ORCH`/`DOC-UPDATER` (status field) | `.yaml` (pre-existing schema, unchanged) |
 | Requirement event history | `docs/status/requirement_status*.yaml` (index + all volumes) | `DOC-UPDATER` | `.yaml` |
-| Issue registry | `docs/issues/` | `ORCH` (queue calls) / any agent (finding content), via ISSUE_QUEUE protocol | `.yaml` (`queue_task_id` cross-refs `letflow-queue`, added 2026-08-20) |
+| Issue registry | `docs/issues/` | any agent (finding content); filed on the board by the sole filer per `WORK_BOARD.md` | `.yaml` (`ISS-NNNN.yaml` and `queue_ref` are history; new records are `GH-<n>.yaml`) |
 | Release decisions | `docs/status/` | `RELEASE-VALIDATOR` | `.yaml` |
 | Migration decision records | `docs/migration/decisions/` | any agent, REVIEWER sign-off | `.md` |
 | Stage detail + REVIEWER sign-off | `docs/migration/stage-N-*.md` | `REVIEWER` | `.md` |
@@ -194,8 +194,8 @@ Default, if none is stated: `ORCH` — same default as the earlier 4-agent syste
 | Security invariants | `docs/agents/instructions/security-invariants.md` |
 | Handoff lifecycle mechanics | `docs/agents/shared/HANDOFF_PROTOCOL.md` |
 | Git branch/merge mechanics | `docs/agents/protocols/GIT_SETUP.md`, `GIT_MERGE.md` |
-| Incidental-issue forwarding | `docs/agents/protocols/ISSUE_QUEUE.md` |
-| Multi-host task selection/locking (`letflow-queue`) | `docs/agents/protocols/TASK_QUEUE.md` |
+| Work coordination: issues as the work queue, labels, claims, filing, closing | `docs/agents/protocols/WORK_BOARD.md` |
+| Superseded queue-era protocols (history; pointers to `WORK_BOARD.md`) | `docs/agents/protocols/ISSUE_QUEUE.md`, `docs/agents/protocols/TASK_QUEUE.md` |
 | Standard workflow step chains | `docs/agents/workflows/WF-*.md` |
 | Roster, handoff schema, capability matrix, artifact locations | this document |
 | Orchestration decision logic, stage gates | `docs/agents/ORCHESTRATOR.md` |

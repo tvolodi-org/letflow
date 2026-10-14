@@ -67,6 +67,27 @@ defmodule Mix.Tasks.Letflow.CheckRequirementsRegistration do
       scan that finds zero entries must never be a silent green pass.
     * **R6** -- `docs/requirements.yaml` is readable and contains a
       top-level `requirements:` key.
+    * **R7** -- *after the work-board cutover only* (ISS-1073 / GH #2430,
+      `docs/status/work_board_cutover.yaml`): a requirement that is not
+      terminal (`done` / `cancelled`) and is registered only by a legacy
+      `impl_order: <n>` line carries no `gh: <number>`, so it has no work-board
+      issue. Before cutover this rule never fires.
+
+  ## The work-board registration form (ISS-1073 / GH #2430)
+
+  The letflow-queue is replaced by GitHub issues
+  (`docs/agents/protocols/WORK_BOARD.md`). A requirement is registered by an
+  attributed, field-level (exactly four spaces) line
+
+      gh: <positive integer>   # the GitHub issue number; optional `# comment`
+
+  A `gh:` line classifies as `:registered`, alone or next to a legacy
+  `impl_order: <n>` line (history is kept). During the transition either form
+  registers a requirement; legacy `impl_order` lines on terminal requirements
+  remain valid history after cutover (R7). The deliberate-deferral marker is
+  unchanged. A malformed `gh:` line, more than one `gh:` line, or a `gh:` line
+  next to the deferral marker is `:unclassified`, so a surface form this
+  module does not recognise still fails by name.
 
   ## Always printed, never gating
 
@@ -92,9 +113,10 @@ defmodule Mix.Tasks.Letflow.CheckRequirementsRegistration do
   ## What this task never does
 
   It never writes to `docs/requirements.yaml`, never assigns or suggests
-  an `impl_order` value, and makes no network call -- in particular none
-  to letflow-queue. `register_task` is the only source of `impl_order`
-  values; an unregistered requirement carries no `impl_order` at all,
+  an `impl_order` or `gh:` value, and makes no network call -- in particular
+  none to the (retired) letflow-queue or to GitHub. Legacy `impl_order`
+  values came only from the queue's registration call and `gh:` values only
+  from the GitHub issue; an unregistered requirement carries neither at all,
   never a guessed one.
 
   It scans `docs/requirements.yaml` **only** -- never `lib/`. That is
@@ -137,6 +159,8 @@ defmodule Mix.Tasks.Letflow.CheckRequirementsRegistration do
 
   use Mix.Task
 
+  alias Mix.Letflow.WorkBoardCutover
+
   @requirements_file "docs/requirements.yaml"
 
   @rule String.duplicate("=", 72)
@@ -150,6 +174,11 @@ defmodule Mix.Tasks.Letflow.CheckRequirementsRegistration do
   @field_form_re ~r/^\s+impl_order:\s+(\d+)\s*(#.*)?$/
   @marker_form_re ~r/^\s+#\s*impl_order:\s*UNREGISTERED\b\s*(\S.*)?$/
   @well_formed_id_re ~r/^REQ-\d+$/
+  # Work-board registration (ISS-1073): field level, exactly four spaces, so a
+  # prose line inside a folded block (6+ spaces) is never read as a field.
+  @gh_token_re ~r/^ {4}gh:/
+  @gh_form_re ~r/^ {4}gh:[ \t]+([1-9]\d*)\s*(#.*)?$/
+  @terminal_statuses ["done", "cancelled"]
   @stage_re ~r/^\s+stage:\s*(\S+)/
   # First whitespace-delimited token only, mirroring @stage_re: 8 real `status:`
   # lines carry a trailing `# ...` comment, which a rest-of-line capture would
@@ -166,6 +195,7 @@ defmodule Mix.Tasks.Letflow.CheckRequirementsRegistration do
           status: String.t() | nil,
           state: state(),
           impl_order: non_neg_integer() | nil,
+          gh: pos_integer() | nil,
           rationale: String.t() | nil,
           detail: String.t() | nil
         }
@@ -208,7 +238,7 @@ defmodule Mix.Tasks.Letflow.CheckRequirementsRegistration do
           )
       end
 
-    report = scan(content)
+    report = scan(content, cutover: WorkBoardCutover.cutover?())
 
     report |> render() |> IO.write()
 
@@ -232,8 +262,10 @@ defmodule Mix.Tasks.Letflow.CheckRequirementsRegistration do
   Never raises on content -- a malformed file is expressed as violations
   in the returned report. Raises only on a non-binary argument.
   """
-  @spec scan(String.t()) :: report()
-  def scan(content) when is_binary(content) do
+  @spec scan(String.t(), keyword()) :: report()
+  def scan(content, opts \\ []) when is_binary(content) and is_list(opts) do
+    cutover = Keyword.get_lazy(opts, :cutover, &WorkBoardCutover.cutover?/0)
+
     numbered =
       content
       |> String.split("\n")
@@ -272,7 +304,7 @@ defmodule Mix.Tasks.Letflow.CheckRequirementsRegistration do
           entries: entries,
           entry_count: entry_count,
           counts: counts,
-          violations: collect_violations(entries, counts, entry_count)
+          violations: collect_violations(entries, counts, entry_count, cutover)
         }
     end
   end
@@ -296,21 +328,81 @@ defmodule Mix.Tasks.Letflow.CheckRequirementsRegistration do
       status: extract_status(attributed),
       state: :unclassified,
       impl_order: nil,
+      gh: nil,
       rationale: nil,
       detail: nil
     }
 
     if Regex.match?(@well_formed_id_re, id) do
-      classify_registration(base, Enum.filter(attributed, fn {_n, l} -> token?(l) end))
+      classify_registration(
+        base,
+        # A `gh:` line is classified as a gh line only, even when its trailing
+        # comment mentions `impl_order` (the backfilled lines say "impl_order above
+        # is history").
+        Enum.filter(attributed, fn {_n, l} ->
+          token?(l) and not Regex.match?(@gh_token_re, l)
+        end),
+        Enum.filter(body, fn {_n, l} -> Regex.match?(@gh_token_re, l) end)
+      )
     else
       %{base | detail: "id #{inspect(id)} is not a well-formed REQ-NNN"}
     end
   end
 
-  @spec classify_registration(entry(), [{pos_integer(), String.t()}]) :: entry()
-  defp classify_registration(base, []), do: %{base | state: :neither}
+  @spec classify_registration(
+          entry(),
+          [{pos_integer(), String.t()}],
+          [{pos_integer(), String.t()}]
+        ) :: entry()
+  defp classify_registration(base, impl_lines, []), do: classify_legacy(base, impl_lines)
 
-  defp classify_registration(base, [{_n, line}]) do
+  defp classify_registration(base, impl_lines, [{_n, gh_line}]) do
+    case Regex.run(@gh_form_re, gh_line) do
+      nil ->
+        %{
+          base
+          | detail:
+              "attributed gh line is not `gh: <positive integer>`: " <>
+                inspect(String.trim(gh_line))
+        }
+
+      [_, number | _] ->
+        gh_registered(%{base | gh: String.to_integer(number)}, classify_legacy(base, impl_lines))
+    end
+  end
+
+  defp classify_registration(base, _impl_lines, gh_lines) do
+    %{
+      base
+      | detail:
+          "#{length(gh_lines)} attributed gh lines (ambiguous), at line(s) " <>
+            Enum.map_join(gh_lines, ", ", fn {n, _} -> Integer.to_string(n) end)
+    }
+  end
+
+  # A `gh:` line registers the entry. Beside it, a legacy field-form
+  # `impl_order: <n>` is kept as history and a bare absence is fine; the
+  # deferral marker (or any unrecognised/ambiguous impl_order shape) contradicts
+  # a real work-board issue and stays unclassified.
+  @spec gh_registered(entry(), entry()) :: entry()
+  defp gh_registered(with_gh, %{state: :neither}), do: %{with_gh | state: :registered}
+
+  defp gh_registered(with_gh, %{state: :registered, impl_order: n}),
+    do: %{with_gh | state: :registered, impl_order: n}
+
+  defp gh_registered(with_gh, legacy) do
+    reason =
+      if legacy.state == :deferred,
+        do: "deferral marker -- a requirement with a GitHub issue is not deferred",
+        else: "registration form this check does not recognise: #{legacy.detail}"
+
+    %{with_gh | detail: "`gh:` line sits beside a " <> reason}
+  end
+
+  @spec classify_legacy(entry(), [{pos_integer(), String.t()}]) :: entry()
+  defp classify_legacy(base, []), do: %{base | state: :neither}
+
+  defp classify_legacy(base, [{_n, line}]) do
     field = Regex.run(@field_form_re, line)
     marker = Regex.run(@marker_form_re, line)
 
@@ -331,7 +423,7 @@ defmodule Mix.Tasks.Letflow.CheckRequirementsRegistration do
     end
   end
 
-  defp classify_registration(base, lines) do
+  defp classify_legacy(base, lines) do
     %{
       base
       | detail:
@@ -433,9 +525,10 @@ defmodule Mix.Tasks.Letflow.CheckRequirementsRegistration do
 
   # -- rules ----------------------------------------------------------------
 
-  @spec collect_violations([entry()], counts(), non_neg_integer()) :: [violation()]
-  defp collect_violations(entries, counts, entry_count) do
+  @spec collect_violations([entry()], counts(), non_neg_integer(), boolean()) :: [violation()]
+  defp collect_violations(entries, counts, entry_count, cutover) do
     Enum.flat_map(entries, &entry_violations/1) ++
+      Enum.flat_map(entries, &cutover_violations(&1, cutover)) ++
       duplicate_id_violations(entries) ++
       totality_violations(counts, entry_count)
   end
@@ -447,8 +540,8 @@ defmodule Mix.Tasks.Letflow.CheckRequirementsRegistration do
         "R1",
         e.id,
         e.line,
-        "carries no `impl_order` line of any form -- a deliberate deferral must be " <>
-          "recorded as `# impl_order: UNREGISTERED -- <rationale>`; bare absence is " <>
+        "carries no `impl_order` line of any form and no `gh:` issue -- a deliberate " <>
+          "deferral must be recorded as `# impl_order: UNREGISTERED -- <rationale>`; bare absence is " <>
           "indistinguishable from an oversight"
       )
     ]
@@ -471,6 +564,28 @@ defmodule Mix.Tasks.Letflow.CheckRequirementsRegistration do
   end
 
   defp entry_violations(_entry), do: []
+
+  # R7: after cutover a live (non-terminal) requirement needs its work-board
+  # issue; a legacy impl_order alone is history for terminal entries only.
+  @spec cutover_violations(entry(), boolean()) :: [violation()]
+  defp cutover_violations(
+         %{state: :registered, gh: nil, impl_order: n, status: status} = e,
+         true
+       )
+       when is_integer(n) and status not in @terminal_statuses do
+    [
+      violation(
+        "R7",
+        e.id,
+        e.line,
+        "work board is live (docs/status/work_board_cutover.yaml) and this " <>
+          "#{inspect(status)} requirement carries only the legacy `impl_order: #{n}`; add " <>
+          "`gh: <issue number>` (legacy impl_order stays as history)"
+      )
+    ]
+  end
+
+  defp cutover_violations(_entry, _cutover), do: []
 
   @spec duplicate_id_violations([entry()]) :: [violation()]
   defp duplicate_id_violations(entries) do

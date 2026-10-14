@@ -96,7 +96,7 @@ On reaching a gui_screen expected outcome:
      at its own default threshold. PASS/FAIL is mechanical from here — you do
      NOT judge whether a detected diff "counts" before it fails; any diff
      fails the expected outcome. On FAIL, report the finding to ORCH per
-     ISSUE_QUEUE.md exactly as any other discovered defect (title/severity
+     `docs/agents/protocols/WORK_BOARD.md` section 7 exactly as any other discovered defect (title/severity
      per the design's §6), with the new and baseline screenshots as evidence.
 ```
 

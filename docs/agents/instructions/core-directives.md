@@ -74,10 +74,10 @@ loop. This is a deliberate project decision, not an oversight — see
   this as an excuse to skip a validator step — the validators exist so mistakes are
   *caught*, not so they never occur.
 - **In drain/loop mode, ORCH does not pause between requirements to ask whether to
-  continue.** When told to process the backlog/queue continuously, ORCH takes the next
-  eligible task itself (via `get_next_task`, including its own mechanical unblock steps)
-  and keeps going until the queue is actually drained or a genuine blocker/escalation
-  occurs — see `ORCHESTRATOR.md` §4a for the full rule and its stop conditions. A status
+  continue.** When told to process the backlog continuously, ORCH takes the next issue
+  already claimed for its checkout (`WORK_BOARD.md` §6, including its own mechanical
+  unblock steps) and keeps going until nothing is claimed for it or a genuine
+  blocker/escalation occurs — see `ORCHESTRATOR.md` §4a for the full rule and its stop conditions. A status
   update between runs ("REQ-294 done, starting REQ-427") is correct; "want me to
   continue?" is the pattern this rule exists to stop. **Drain mode licenses continuous
   task *dispatch* only — it is never a license for ORCH (or any agent) to itself author,
@@ -85,7 +85,7 @@ loop. This is a deliberate project decision, not an oversight — see
   `ORCHESTRATOR.md`, `AGENT_SYSTEM.md`, any `.claude/agents/*.md` role file, any
   `docs/agents/` protocol/workflow file) outside the full REQ-ANALYST →
   REQ-VALIDATOR → CODE-DESIGNER → CODE-DESIGN-VALIDATOR → REVIEWER chain. Discovering a
-  governance gap mid-drain is filed as new work (`ISSUE_QUEUE.md`), not written inline —
+  governance gap mid-drain is filed as new work (`WORK_BOARD.md` §7), not written inline —
   see `ORCHESTRATOR.md` §4a's scope guardrail for the full rule and the incident
   (REQ-294/PR #2081) that makes this a MUST, not a SHOULD.**
 - **Weak-model tolerance is a design constraint, not a caveat.** This pipeline must
@@ -315,30 +315,27 @@ in `HANDOFF_PROTOCOL.md` §2 ("What goes in `task.description`, and what goes in
 
 ---
 
-## ⛔ No Agent Discretion Over Task Selection or Locking (multi-host)
+## ⛔ No Agent Discretion Over Task Selection or Claiming (work board)
 
-**Once `letflow-queue` is deployed and reachable** (see
-`docs/agents/protocols/TASK_QUEUE.md`), no agent — including ORCH's own delegated
-subagents — may read `docs/requirements.yaml` and independently decide which
-requirement to work on, or hand-edit any status/lock field to route around the queue.
-Task selection and locking are **service-mediated, not agent-discretionary**: an agent
-that could "put a lock, or may not put a lock, or may select what they want" defeats
-the entire point of multi-host coordination — two hosts reading the same file at
-nearly the same moment can both see a requirement as available and both start it. Only
-the queue's atomic claim (`get_next_task`) prevents this.
+The work board (`docs/agents/protocols/WORK_BOARD.md`) is the only source of work. No
+agent — including ORCH's own delegated subagents — may read `docs/requirements.yaml`
+(or browse open issues) and independently decide which item to work on, or set any
+`claimed:*` / `next:*` / `state:*` label to route around the supervisor. **Claiming is
+coordinated by the supervisor, not agent-discretionary**: two checkouts reading the same
+list at nearly the same moment can both see an item as available and both start it. The
+supervisor's claim label and its `CLAIM <checkout> by supervisor` comment are what
+prevent this. All sessions share one GitHub login, so the label is a **convention, not
+a control**: nobody but the supervisor or the user sets it, and
+`scripts/gh_work.sh check` reports claims that lack the matching comment.
 
-Only `ORCH` calls the queue's four functions (`register_task`, `get_next_task`,
-`set_lock`, `release_lock`); every other role receives its work via the handoff ORCH
-already writes — this is unchanged from how handoffs already work, it just means the
-*source* of what goes into that handoff is now the queue, not a direct file read, once
-multi-host coordination is live. See `TASK_QUEUE.md` for the full protocol. **There is
-no fallback for task *selection*:** if the queue is unreachable (network down, not
-deployed, `$QUEUE_AUTH_TOKEN` unavailable — including a session that believes itself
-single-host), ORCH reports blocked rather than reading `docs/requirements.yaml` to pick
-work itself. This was tightened 2026-08-19 after a permitted fallback caused two
+Only `ORCH` reads the claim list; every other role receives its work via the handoff ORCH
+already writes. **There is no fallback for task *selection*:** if GitHub is unreachable
+or nothing is claimed for the checkout (including a session that believes itself
+single-host), ORCH reports `no_claimed_task` rather than reading `docs/requirements.yaml`
+to pick work itself. This was tightened 2026-08-19 after a permitted fallback caused two
 concurrent sessions to both select and fully implement REQ-048 (see
-`docs/anti-patterns.md`); a directly human-named `REQ-XXX` is not affected, since that
-is not agent discretion over selection.
+`docs/anti-patterns.md`); a directly human-named `REQ-XXX` or issue number is not
+affected, since that is not agent discretion over selection — it is the claim.
 
 ---
 
@@ -357,11 +354,12 @@ even if the problem is unrelated to the current task's original scope.
 **Scope boundary.** This covers what stands in your way. A defect you merely *notice*
 while working — unrelated, not blocking your acceptance criteria — is filed and
 forwarded, not fixed here: report the finding to ORCH per
-`docs/agents/protocols/ISSUE_QUEUE.md`, which is what makes it visible work (see "No
-Issue Left Local-Only" below). You do **not** call the queue or `gh` yourself and you do
-**not** choose an issue id; only ORCH allocates ids, and a discovering agent filing
-directly is what reintroduces the id-collision class that rule exists to prevent. It
-becomes its own later run, not an unbounded scope creep on this one. **For a test
+`docs/agents/protocols/WORK_BOARD.md` §7, which is what makes it visible work (see "No
+Issue Left Local-Only" below). You do **not** run `gh issue create` or label anything and
+you do **not** choose an issue id; the sole filer files it after the overlap check, and a
+discovering agent filing directly is what reintroduces the duplicate-filing class that
+rule exists to prevent. It becomes its own later run, not an unbounded scope creep on
+this one. **For a test
 failure, which side of this line it falls on is decided by "Failure Attribution Is
 Structural, Never By Count-Matching" below, not by judgement.**
 
@@ -374,22 +372,21 @@ Flag those for ORCH escalation instead of touching them.
 
 A defect that lives only in `docs/issues/*.yaml` and never becomes visible work is
 invisible to the next run. Any newly discovered issue — whether it's the task at hand
-or an incidental finding — must end up registered in `letflow-queue` **and** mirrored as
-a GitHub issue, so it is claimable the same way any other queued work is.
+or an incidental finding — must end up as a GitHub issue on the work board, so it is
+claimable the same way any other work is.
 
-The mechanism is `docs/agents/protocols/ISSUE_QUEUE.md`, and it is not yours to
+The mechanism is `docs/agents/protocols/WORK_BOARD.md` §7, and it is not yours to
 shortcut. The discovering agent **reports the finding to ORCH** — title, description,
-severity, affected files — and stops there. ORCH calls `register_task`, which allocates
-the id atomically (returned as `issue_ref`) and best-effort creates the mirrored GitHub
-issue itself; `docs/issues/<issue_ref>.yaml` is written afterwards, *from* that response.
-So: you do not call `gh issue create`, you do not choose or write an id, and you do not
-create the local record ahead of the allocation.
+severity, affected files — and stops there; ORCH passes it to the sole filer, who runs the
+overlap check and `gh issue create` from the template. The number GitHub assigns is the
+id. So: you do not run `gh issue create`, you do not choose or write an id, and you do
+not create the local record (`docs/issues/GH-<n>.yaml`, when one is useful) ahead of the
+issue existing.
 
-If the queue is genuinely unreachable, the finding is still not dropped — `ISSUE_QUEUE.md`
-step 2b covers exactly that case, and covering it there is deliberate: it also carries the
-adoption path that keeps an interim GitHub issue from becoming a duplicate. Follow that
-section rather than improvising a substitute here. What does **not** vary is the
-obligation: "couldn't file it right now" is never "didn't need filing."
+If GitHub is genuinely unreachable, the finding is still not dropped: write it into your
+handoff as `FINDING (unfiled)` with the evidence, and the filer files it when the board
+is reachable. What does **not** vary is the obligation: "couldn't file it right now" is
+never "didn't need filing."
 
 "Out of scope for the current fix" is a reason to file the finding as its own issue —
 never a reason to leave it undocumented.
@@ -555,7 +552,7 @@ criterion, its own first run would have scored as simultaneously a regression **
 fix.
 
 **A failure not covered by an existing issue record is called out as such and filed**
-(per `ISSUE_QUEUE.md` and "No Issue Left Local-Only" above) — never folded into "the
+(per `WORK_BOARD.md` §7 and "No Issue Left Local-Only" above) — never folded into "the
 known set."
 
 ### In the diff is not the same as caused by the diff
@@ -707,10 +704,10 @@ account, not an organization.)*
    when their slot comes, and are merged one at a time.
 3. **Batch filings.** Issue/requirement filings, RUN_DONE log lines and registry bookkeeping
    go into the next functional PR of the same session, or into ONE batched docs PR per slot,
-   never one PR per filing. Because the local `docs/issues` record may land later than the queue
-   task, the `register_task` description must be self-sufficient (evidence, fix direction,
-   acceptance criteria); a worker that claims a task whose local record is not on `main` yet
-   works from the queue text and does not re-file.
+   never one PR per filing. Because the local `docs/issues` record may land later than the GitHub
+   issue, the issue body must be self-sufficient (evidence, fix direction, acceptance criteria);
+   a worker that is handed an issue whose local record is not on `main` yet works from the issue
+   text and does not re-file.
 4. **Update-branch only when the line is quiet.** If `main` moves under your in-flight PR from a
    source you do not control, tell the supervisor instead of restarting your run in a loop.
    Never `--admin`-merge to get around staleness.

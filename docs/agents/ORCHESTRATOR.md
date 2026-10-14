@@ -34,41 +34,31 @@
 
 ## 1. Where work comes from
 
-**If `letflow-queue` (the multi-host coordination service) is deployed and reachable —
-see `docs/agents/protocols/TASK_QUEUE.md` — call `get_next_task` rather than reading
-`docs/requirements.yaml` directly.** This is a hard rule once multiple hosts are
-running Letflow agents concurrently: reading the file yourself to pick work is exactly
-the race condition the queue service exists to close. `docs/requirements.yaml` remains
-the content authority (id/title/owner/status/stage/description/acceptance_criteria/
-depends_on — unchanged schema) but is a mirror for task-selection purposes once the
-queue is live, kept in sync via `register_task` and DOC-UPDATER's normal status-flip
-step.
+**Work comes from the GitHub work board** — see `docs/agents/protocols/WORK_BOARD.md`.
+A work item is a GitHub issue; its number is the only machine id; labels carry state;
+**the supervisor coordinates**, so no agent picks work for itself and no agent labels a
+claim. `docs/requirements.yaml` remains the content authority for requirement text
+(id/title/owner/status/stage/description/acceptance_criteria/depends_on) and carries
+`gh: <issue number>` linking each entry to its board issue.
 
-**`get_next_task` remains the default path.** Per decision 0017, selection may also go
-through `GET /tasks` + `set_lock` — reading full queue state and choosing among eligible
-tasks, provided the choice is realized through `set_lock` and its `409`/`:not_eligible`
-answers are obeyed — as a sanctioned alternative when ORCH has a reason to prefer a
-specific eligible task over whatever `get_next_task` would hand out. Full procedure and
-the still-binding lock invariant: `TASK_QUEUE.md`'s Hard Rule and `GET /tasks` sections.
+**ORCH works only a claimed issue.** Run `scripts/gh_work.sh claims` and take an issue
+whose `claimed` column is this checkout (`letflow`, `letflow-2`, `letflow-3`, `letflow-4`
+or `remote`). If there is none, report `no_claimed_task` and stop. `scripts/gh_work.sh
+ready` is the supervisor's view of what could be claimed; it is not a menu for ORCH.
 
-**No fallback selection.** If `letflow-queue` is not deployed, unreachable, or
-`$QUEUE_AUTH_TOKEN` is unavailable, ORCH MUST NOT pick a requirement itself by reading
-`docs/requirements.yaml` — even in a session that believes itself single-host. Report
-`no_eligible_task (queue unreachable)` and stop. See `TASK_QUEUE.md`'s Hard Rule section
-for why: on 2026-08-19, two concurrent sessions both selected REQ-048 because one was
-in (the then-permitted) fallback mode and couldn't see the other's in-flight claim,
-producing a fully duplicated WF-02 run that had to be discovered and cancelled
-afterward — see `docs/anti-patterns.md`.
+**No fallback selection.** If GitHub is unreachable, or nothing is claimed for this
+checkout, ORCH MUST NOT pick a requirement by reading `docs/requirements.yaml` — even in
+a session that believes itself single-host. Report `no_claimed_task` and stop. This rule
+exists because on 2026-08-19 two concurrent sessions both selected REQ-048 and produced a
+fully duplicated WF-02 run that had to be cancelled afterward — see
+`docs/anti-patterns.md`. The supervisor's claim is what now prevents it.
 
-When given a specific `REQ-XXX` directly by the user, look it up and route by workflow
-(see §3 below), not by a single `owner` field — the fuller pipeline routes a
-requirement through multiple roles in sequence, not to one owner. This is not
-"fallback selection" (the human already made the choice, not ORCH), so it remains
-allowed even when the queue is unreachable — but still attempt `set_lock`/
-`register_task` against the queue once reachable, and state plainly that the queue
-wasn't consulted for selection. (A directly-named REQ-XXX may still need `set_lock`
-called against its queue task, if one exists, before starting — check `TASK_QUEUE.md`
-for the recovery-path shape.)
+When given a specific `REQ-XXX` or issue number directly by the user, look it up and
+route by workflow (see §3 below), not by a single `owner` field — the fuller pipeline
+routes a requirement through multiple roles in sequence, not to one owner. A direct
+instruction **is** the claim (the human made the choice, not ORCH); say so in the
+start comment. Heartbeat comments, the claim record and closing rules are in
+`WORK_BOARD.md` §5, §6 and §8.
 
 ## 2. Standard workflows
 
@@ -101,7 +91,7 @@ INPUT: trigger
 │     ├─ Is it the failing step's OWN acceptance criteria?
 │     │     └─► Rework the responsible agent within the active run (§5)
 │     └─ Is it an incidental finding alongside what the step was checking?
-│           └─► File it via docs/agents/protocols/ISSUE_QUEUE.md and forward.
+│           └─► File it via docs/agents/protocols/WORK_BOARD.md §7 and forward.
 │                 Do NOT extend this run; do NOT launch a nested WF-03.
 │
 ├─ Pre-stage-gate or scheduled full-suite check?
@@ -148,19 +138,18 @@ the remainder of that instruction's scope, not just for the first requirement it
 **In drain mode, ORCH MUST NOT stop at a requirement/batch boundary to ask whether to
 continue.** The batch cap in §4 limits how many requirements one *WF-02 run* covers —
 it is not a license to pause between runs for confirmation. On a run's Step Final PASS
-(queue task released `done`), ORCH immediately:
-1. Calls `get_next_task` (or, per `TASK_QUEUE.md`'s §B/§C, `GET /tasks` + `set_lock` if
-   there's a concrete reason to prefer a specific eligible task) again.
+(PR merged, `done` heartbeat posted), ORCH immediately:
+1. Runs `scripts/gh_work.sh claims` again and takes the next issue already claimed for
+   this checkout (never one it chose itself; `WORK_BOARD.md` §6).
 2. Classifies whatever comes back against the §3 decision tree and launches the
    matching workflow — without a "should I continue?" pause, and without waiting for a
-   human turn in between. This includes a task that needs its own mechanical unblock
-   first (a `blocked`-status queue task with a documented reopen path, the way REQ-294's
-   task 585 did) — drain mode means doing that unblock step yourself too, not treating
-   it as a reason to stop and ask.
+   human turn in between. This includes an item that needs its own mechanical unblock
+   first (a documented reopen path, the way REQ-294's item did) — drain mode means
+   doing that unblock step yourself too, not treating it as a reason to stop and ask.
 3. Repeats until one of these genuine stop conditions is hit — and only these:
-   - `get_next_task` returns `no_eligible_task` (the queue is actually drained, or the
-     queue is unreachable — see `TASK_QUEUE.md`'s Hard Rule; unreachable is reported and
-     stopped on, same as always, but that is a real blocker, not a courtesy pause).
+   - No issue is claimed for this checkout (`no_claimed_task`: the supervisor has handed
+     out everything, or GitHub is unreachable — `WORK_BOARD.md` §6; reported and stopped
+     on, same as always, but that is a real blocker, not a courtesy pause).
    - A run reaches `rework_count >= max_rework` and is `ESCALATED` (§5) — a genuine
      ambiguity or repeated failure that needs a different session/approach, not routine
      progress to narrate a stop for.
@@ -175,12 +164,12 @@ it is not a license to pause between runs for confirmation. On a run's Step Fina
      session's own prior turn. Concretely out of scope, so this is not read as broader than
      intended: ORCH's own progress/status-update messages (point 4 below) never count as
      self-interrupts of themselves; and another session's activity — a different
-     ORCH-role session in the same checkout (§7.1), a different host racing the queue
-     (`TASK_QUEUE.md`), a scheduled/looped invocation per the `loop` skill, or an
+     ORCH-role session in the same checkout (§7.1), a different host working the board
+     (`WORK_BOARD.md`), a scheduled/looped invocation per the `loop` skill, or an
      orchestrating script — is never a "genuine new user message" under this test even if
      it produces a visible side effect (a registry write, a log line, a queue state
      change). Those scenarios are already governed separately, by the `owned_modules` lock
-     (§7) and the queue's own locking (`TASK_QUEUE.md`), not by this stop condition. This
+     (§7) and the supervisor's claim record (`WORK_BOARD.md` §5), not by this stop condition. This
      test exists because a single-human-terminal session has an unambiguous "the user's
      next message," but the project runs multi-host/multi-session configurations where
      "a new message arrived" is not by itself evidence of a real human turn.
@@ -195,7 +184,7 @@ full to each run drain mode launches — "don't ask between runs" is about the l
 control flow, not about skipping a producer/validator pair or merging on a red,
 unattributed pipeline. Nor does it license drifting into unrelated work: drain mode
 processes the backlog the instruction actually scoped (the named chain, or the whole
-`letflow-queue` backlog if that's what was asked for) — it is still bounded by whatever
+claimed backlog if that's what was asked for) — it is still bounded by whatever
 scope the triggering instruction named, per `core-directives.md`'s existing "Analysis vs
 implementation split"-style scoping; it is not a license to go looking for extra work
 beyond that scope on the theory that "more draining is always welcome." **A
@@ -224,8 +213,8 @@ any agent dispatched under drain mode) to itself author, edit, or merge a change
 canonical governance surface. "Canonical governance surface" means every item in
 `AGENT_SYSTEM.md` §9's "Canonical instruction surfaces" table: `ORCHESTRATOR.md` itself,
 `core-directives.md`, any `.claude/agents/*.md` role file, `security-invariants.md`,
-`HANDOFF_PROTOCOL.md`, any `docs/agents/protocols/*.md` (including `TASK_QUEUE.md` and
-`ISSUE_QUEUE.md`), any `docs/agents/workflows/WF-*.md`, and `AGENT_SYSTEM.md` itself.
+`HANDOFF_PROTOCOL.md`, any `docs/agents/protocols/*.md` (including `WORK_BOARD.md`,
+and the superseded `TASK_QUEUE.md` and `ISSUE_QUEUE.md`), any `docs/agents/workflows/WF-*.md`, and `AGENT_SYSTEM.md` itself.
 
 **MUST NOT.** ORCH MUST NOT author, edit, or merge a change to any surface in that list
 as a side effect of draining the backlog, regardless of how the perceived need was
@@ -236,7 +225,7 @@ having been discovered while draining.
 
 **The correct behavior: file it, don't write it.** When a drain-mode session concludes,
 mid-run, that a governance change is warranted, the correct action is to **file that
-need** — as a queue task/issue/requirement per `docs/agents/protocols/ISSUE_QUEUE.md` —
+need** — as a board issue per `docs/agents/protocols/WORK_BOARD.md` §7 (reported to the sole filer) —
 and report it as a stop-worthy finding in the session's own status update, not to author
 or merge it inline. REQ-294's session should have filed "drain mode needs a documented
 continuous-processing policy" as an issue and continued draining the actual backlog;
@@ -491,7 +480,7 @@ one of these is true**:
    would change, this is not a direct-action change.
 7. **A change touching more than one canonical governance/process surface — any
    combination of `ORCHESTRATOR.md`, `core-directives.md`, `AGENT_SYSTEM.md`,
-   `TASK_QUEUE.md`, or any other file under `docs/agents/`, per the surface list
+   `WORK_BOARD.md`, or any other file under `docs/agents/`, per the surface list
    `AGENT_SYSTEM.md` §9 names — with no cited `docs/requirements.yaml` entry or
    `docs/migration/decisions/` record automatically fails check 1 ("touches exactly one
    file") on its face and requires the full producer/validator chain (REQ-ANALYST →
@@ -532,5 +521,5 @@ mode this whole system exists to prevent. When a check is ambiguous, it is a "no
 Merging follows the serial-slot protocol in `docs/agents/instructions/core-directives.md`
 ("Merge Discipline"): one PR per issue; no docs/chore merges while a functional PR is in CI;
 filings batched; CI failures classified and a repeat treated as a defect; CI-shaped local run
-before every push. Overlap checks (queue id + GH number + open PRs + `main`) precede both
-filing (`ISSUE_QUEUE.md`) and WF-03 (Step 0).
+before every push. Overlap checks (open issues + open PRs + `main`) precede both
+filing (`WORK_BOARD.md` §7) and WF-03 (Step 0).

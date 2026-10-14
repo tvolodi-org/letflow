@@ -1,0 +1,10 @@
+# Work-board cutover switch (ISS-1073 / GH #2430). Read by
+# Mix.Letflow.WorkBoardCutover; see docs/agents/protocols/WORK_BOARD.md.
+#
+# Cutover day is one line: change `cutover: false` to `cutover: true` and set
+# last_legacy_iss to the highest ISS-NNNN on main at that moment.
+
+cutover: false
+# 1120: the highest docs/issues/ISS-*.yaml on main (ISS-1110..ISS-1120 landed in PR #2506). Re-check on
+# cutover day: any ISS-NNNN above this number is refused after the flip.
+last_legacy_iss: 1120

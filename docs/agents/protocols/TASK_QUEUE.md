@@ -1,4 +1,20 @@
-# TASK_QUEUE Protocol — multi-host coordination
+# TASK_QUEUE Protocol — SUPERSEDED by the work board
+
+> **Do not follow this file's procedure.** Work coordination is the GitHub work board:
+> [`WORK_BOARD.md`](WORK_BOARD.md). A work item is a GitHub issue, its number is the only
+> machine id, labels carry state, and the supervisor coordinates claims. Workers never
+> call the queue (its four operations -- register, claim-next, lock, release -- are retired).
+> Decision: `docs/migration/decisions/0049-work-board-replaces-letflow-queue.md`
+> (supersedes 0017). Tracking issue: GH #2430 (ISS-1073).
+>
+> Cutover state is the single switch `docs/status/work_board_cutover.yaml`. Until it says
+> `cutover: true`, the supervisor still keeps the queue's rows and locks in step with the
+> board; infra stops the queue service only after the supervisor announces cutover.
+
+## History (kept unedited; the queue-era procedure as it stood until cutover)
+
+---
+
 
 **Service:** `letflow-queue` — a small standalone Elixir/Phoenix + SQLite service,
 deployed independently of Letflow itself (own repo: `tvolodi/letflow-queue`). Deployed

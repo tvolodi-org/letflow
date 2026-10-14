@@ -394,7 +394,7 @@ invariant checklist.
 ```
 1. scripts/test_parallel.sh — full suite, not just the new tests (Unblock-Everything: a
    pre-existing failure masking your results must be fixed too, unless it's unrelated
-   and gets forwarded per ISSUE_QUEUE.md). This runs the suite as N parallel
+   and is reported for filing per `WORK_BOARD.md` section 7). This runs the suite as N parallel
    `mix test --partitions N` processes (N from $TEST_PARALLEL_N if set, else
    nproc/getconf _NPROCESSORS_ONLN) and aggregates every partition's real ExUnit
    Result:/Failed: counts into one combined pass/fail total — exit 0 only if every
@@ -416,8 +416,8 @@ invariant checklist.
 ```
 
 Failures caused by this run's own implementation are reworked on this branch. Failures
-unrelated to this run's own acceptance criteria (pre-existing) are filed and forwarded
-per `ISSUE_QUEUE.md` — not fixed here, don't block this step's own PASS verdict.
+unrelated to this run's own acceptance criteria (pre-existing) are reported for filing
+per `WORK_BOARD.md` section 7 — not fixed here, don't block this step's own PASS verdict.
 
 **How "pre-existing" is established — structurally, never by count-matching.** This step
 previously said the sentence above without saying how the attribution is made, and in
@@ -440,10 +440,10 @@ Structural, Never By Count-Matching" — read it; the operative test here is:
    (Same commit, ten minutes apart, gave 13 then 15 in WF03-ISS0106-20260821 against a
    prior run's 14 — three runs, three sets. See core-directives.md for the measurement.)
 3. A failure with no existing issue record is called out AS SUCH and REPORTED FOR
-   FILING per ISSUE_QUEUE.md — never folded into "the known set". You report the
-   finding; you do NOT call the queue or  gh  yourself. Only ORCH allocates issue ids
-   (ISSUE_QUEUE.md, amended 2026-08-21) — a discovering agent filing directly is what
-   reintroduces the id-collision class that amendment exists to prevent.
+   FILING per `WORK_BOARD.md` section 7 — never folded into "the known set". You report the
+   finding as `FINDING:` to the sole filer; you do NOT run  gh issue create  yourself
+   and you do NOT call the queue service. There is no id allocation: the issue number
+   comes from GitHub when the sole filer files.
 4. A failing file that IS in the diff gets extra scrutiny, and is cleared only by a
    causal argument about mechanism, not by proximity (see the PinRebindTest worked
    example in core-directives.md).
@@ -510,17 +510,18 @@ ORCH supplies `context.branch_name` and `context.requirement_ids`. Use DOC-UPDAT
 
 **Immediately on PASS** (same turn, before writing the `RUN_DONE` log line or
 considering the run finished): for every requirement this run just flipped to `done` in
-Step 6 that has a real queue task (an `impl_order:` comment in its
-`docs/requirements.yaml` entry), call `release_lock` with `status: "done"` against that
-task id — see `docs/agents/protocols/TASK_QUEUE.md`. This is not deferred bookkeeping;
-a requirement that is `done` in the yaml but still `open`/locked in `letflow-queue` is a
-stale queue entry the instant Step Final returns PASS, and a stale entry is exactly what
-let two sessions both build REQ-048 on 2026-08-19 (see `docs/anti-patterns.md`'s
-"Task-selection fallback duplicating a run" entry) — do not let a new one accumulate
-between merge and some later reconciliation pass. If the queue is unreachable at this
-exact moment (already checked both `$QUEUE_AUTH_TOKEN` and `.env`, per
-`TASK_QUEUE.md`), state that explicitly in the `RUN_DONE` log line and flag the task id
-for reconciliation next session — do not silently skip it.
+Step 6, post the `done` heartbeat on its GitHub issue (the `gh:` number in its
+`docs/requirements.yaml` entry) with the PR url and evidence — see
+`docs/agents/protocols/WORK_BOARD.md` §6. The issue itself closes only through the merged
+PR's `Closes #N` (§8); a PR that only partly resolves it says `Refs #N` and the residual
+is filed as a new linked issue. This is not deferred bookkeeping; a requirement that is
+`done` in the yaml but still open and claimed on the board is a stale entry the instant
+Step Final returns PASS, and a stale entry is exactly what let two sessions both build
+REQ-048 on 2026-08-19 (see `docs/anti-patterns.md`'s "Task-selection fallback duplicating
+a run" entry) — do not let a new one accumulate between merge and some later
+reconciliation pass. If GitHub is unreachable at this exact moment, state that
+explicitly in the `RUN_DONE` log line and flag the issue number for the supervisor —
+do not silently skip it.
 
 ## Parallel execution rule
 
