@@ -19,8 +19,12 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
   ## Per-row pipeline (section 5.3, order normative)
 
   1-4 `Letflow.Scripts.Runtime.prepare_run/3` (kill switch, tenant status, version, manifest
-  backstops, HMAC key) BEFORE admission and before any data read; 5 the input from the
-  instance's own variables (field-minimal); 6 the HMAC of the canonical `{ctx, input}`; 7 the
+  backstops incl. the run-time `check_reads` re-check, HMAC key) BEFORE admission and before
+  any data read; 5 the input from the instance's own variables (field-minimal), plus, when the
+  manifest declares `reads` (7c-2), the rows pre-fetched through the engine-defined
+  `Letflow.Engine.ScriptReadPort` (implementation from `config :letflow, :script_read_port`,
+  resolved per run; a port refusal is `script_rejected` / `reads_not_allowed` with no run);
+  6 the HMAC of the canonical `{ctx, input}`; 7 the
   run, called FROM THE CALLING (poller) PROCESS so the 7a watchdog monitors it; 8 the output
   check (`$` keys refused, only declared properties kept); 9-10 apply or reschedule.
 
@@ -505,13 +509,31 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
         _missing -> %{}
       end
 
-    with {:ok, input} <- ScriptInput.build(variables, spec.manifest, nil),
+    with {:ok, declared_vars} <- ScriptInput.build(variables, spec.manifest, nil),
+         {:ok, reads_result} <- prefetch(spec.reads, declared_vars, prefix),
+         {:ok, input} <- ScriptInput.build(variables, spec.manifest, reads_result),
          ctx = hmac_ctx(row),
          {:ok, hmac} <- spec.hmac_fun.(ScriptInput.canonical(input, ctx)) do
       run_script(row, spec, input, hmac, prefix)
     else
       {:error, :input_invalid} -> rejected(row, :input_invalid)
+      {:error, :reads_not_allowed} -> rejected(row, :reads_not_allowed)
       _hmac_failed -> rejected(row, :hmac_failed)
+    end
+  end
+
+  # 7c-2 (design 11.1): the read port is called only when the manifest declares reads, with the
+  # run's own prefix and the script's declared input variables. Its implementation is resolved
+  # from config on every run, so no engine file names it. Anything but `{:ok, map}` is a
+  # refusal: no partial input, no run.
+  defp prefetch([], _declared_vars, _prefix), do: {:ok, nil}
+
+  defp prefetch(reads, declared_vars, prefix) when is_list(reads) do
+    port = Application.fetch_env!(:letflow, :script_read_port)
+
+    case port.prefetch(prefix, reads, declared_vars) do
+      {:ok, %{} = rows} -> {:ok, rows}
+      _refused -> {:error, :reads_not_allowed}
     end
   end
 

@@ -9,14 +9,19 @@ defmodule Letflow.Scripts.Runtime do
       three activation paths (`Definitions.activate/2`, promotion, version rollback).
     * `referenced_by_active_definition?/3` - the retire block (D3).
     * `prepare_run/3` - steps 1-4 of the per-row pipeline: kill switch, tenant status, version,
-      manifest backstops, HMAC key. Every refusal is a closed detail code; nothing is cached
-      across runs (7b-2a section 8).
+      manifest backstops and the run-time read re-check (`Policy.check_reads/2`), HMAC key.
+      Every refusal is a closed detail code; nothing is cached across runs (7b-2a section 8).
     * `check_output/2`, `closed_output_schema?/1`, `declared_outputs/1` - pure output rules
       (C11, C11a).
     * `boot_check/2` - refuses `:scripts_test_hooks` in `:prod` (SECURITY note on the 7c gate).
 
-  7c-1 refuses any binding whose manifest declares `reads` (`:script_reads_unsupported` at
-  activation, `:reads_not_allowed` at run time); 7c-2 lifts that with the read port.
+  7c-2 (design 11.3): a binding may declare `reads`. Activation no longer refuses them; every
+  run re-checks them against the tenant's CURRENT policy (`Policy.check_reads/2`: flagged type,
+  active definition, no type restriction, known fields, and SEC N1 / P12: a `match.field`
+  restricted now is refused), after the closed-output-schema and restricted-opt-in refusals.
+  The rows themselves are pre-fetched by the dispatcher through `Letflow.Engine.ScriptReadPort`
+  (`run_spec.reads`). The restricted opt-in stays REFUSED at activation and at run time (C10):
+  there is no opt-in path.
 
   This module never calls `Letflow.Obs.Alerts` (C18: the dispatcher does) and holds no state.
   Every query is Ecto with bound parameters (INV-7), always in the caller's tenant prefix.
@@ -40,7 +45,6 @@ defmodule Letflow.Scripts.Runtime do
           :script_not_published
           | :script_version_conflict
           | :script_output_schema_open
-          | :script_reads_unsupported
           | :script_restricted_opt_in_unsupported
 
   @type binding :: %{
@@ -50,8 +54,8 @@ defmodule Letflow.Scripts.Runtime do
         }
 
   # Only what the pipeline reads (REVIEWER R3): the principal is derived by RunRecord from the
-  # row (key, version), the declared outputs by check_output/2 from the manifest, and the
-  # declared reads join with 7c-2's port.
+  # row (key, version), the declared outputs by check_output/2 from the manifest; `reads` is
+  # the manifest's declared reads, handed to the read port (7c-2, `[]` = no port call).
   @type run_spec :: %{
           source: String.t(),
           manifest: map(),
@@ -61,6 +65,7 @@ defmodule Letflow.Scripts.Runtime do
             heap_words: pos_integer() | nil
           },
           fail_codes: [String.t()],
+          reads: [map()],
           hmac_fun: HmacSecret.hmac_fun()
         }
 
@@ -107,8 +112,9 @@ defmodule Letflow.Scripts.Runtime do
   node order: a key already bound with a different version is `:script_version_conflict`;
   the row is read `FOR SHARE` (so a concurrent retire, which locks it `FOR UPDATE`, waits);
   anything but a `published` `service_task` version is `:script_not_published`; then the
-  closed output schema (C11a), the restricted opt-in (C10) and (7c-1) any declared `reads`.
-  The first failing node is reported. MUST run inside the caller's transaction.
+  closed output schema (C11a) and the restricted opt-in (C10). Declared `reads` are allowed
+  (7c-2) and re-checked on every run (`prepare_run/3`). The first failing node is reported.
+  MUST run inside the caller's transaction.
   """
   @spec check_bindings(Graph.t(), String.t()) ::
           :ok | {:error, {:script_binding_invalid, String.t(), binding_reason()}}
@@ -170,7 +176,6 @@ defmodule Letflow.Scripts.Runtime do
         cond do
           not closed_output_schema?(manifest) -> {:error, :script_output_schema_open}
           restricted_opt_in?(manifest) -> {:error, :script_restricted_opt_in_unsupported}
-          Validation.declared_reads(manifest) != [] -> {:error, :script_reads_unsupported}
           true -> :ok
         end
 
@@ -212,9 +217,11 @@ defmodule Letflow.Scripts.Runtime do
     2. the version by `(key, version)`: absent/draft/discarded `script_unavailable`, revoked
        `script_revoked`, a sha256 or hook-kind mismatch `pin_mismatch` (published and retired
        run, D1);
-    3. manifest backstops: open output schema `output_schema_open`, restricted opt-in
-       `restricted_opt_in_unsupported` (C10, a refusal), any declared reads
-       `reads_not_allowed` (7c-1);
+    3. manifest backstops, in this order (design 11.3, first failure wins): open output schema
+       `output_schema_open`; restricted opt-in `restricted_opt_in_unsupported` (C10, a
+       refusal: there is no opt-in path); then `Policy.check_reads/2` against the CURRENT
+       policy `reads_not_allowed` (including SEC N1: a `match.field` restricted after publish
+       is refused here, before any record query);
     4. the tenant HMAC key: `hmac_secret_missing` when absent. Nothing creates a key here.
 
   Read fresh on every call; nothing is cached.
@@ -225,7 +232,7 @@ defmodule Letflow.Scripts.Runtime do
     with :ok <- check_enabled(prefix),
          :ok <- check_tenant_active(tenant_id),
          {:ok, rule} <- load_version(prefix, binding),
-         :ok <- check_manifest(rule.manifest),
+         :ok <- check_manifest(prefix, rule.manifest),
          {:ok, hmac_fun} <- resolve_hmac_fun(tenant_id) do
       manifest = rule.manifest
       limits = Map.get(manifest, "limits", %{})
@@ -241,6 +248,7 @@ defmodule Letflow.Scripts.Runtime do
          },
          # never nil: a nil :fail_codes would make ScriptRunner accept ANY well-formed code
          fail_codes: manifest["fail_codes"] || [],
+         reads: Validation.declared_reads(manifest),
          hmac_fun: hmac_fun
        }}
     end
@@ -276,11 +284,13 @@ defmodule Letflow.Scripts.Runtime do
     end
   end
 
-  defp check_manifest(manifest) do
+  # Design 11.3 step order: 3a closed output schema, 3b restricted opt-in (a refusal, C10),
+  # 3c the run-time read re-check against the CURRENT policy (never cached).
+  defp check_manifest(prefix, manifest) do
     cond do
       not closed_output_schema?(manifest) -> {:rejected, :output_schema_open}
       restricted_opt_in?(manifest) -> {:rejected, :restricted_opt_in_unsupported}
-      Validation.declared_reads(manifest) != [] -> {:rejected, :reads_not_allowed}
+      Policy.check_reads(prefix, manifest) != :ok -> {:rejected, :reads_not_allowed}
       true -> :ok
     end
   end

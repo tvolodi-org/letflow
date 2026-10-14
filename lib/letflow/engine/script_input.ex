@@ -6,8 +6,11 @@ defmodule Letflow.Engine.ScriptInput do
 
   Field-minimal: only the instance variables whose keys are declared in
   `manifest["input_schema"]["properties"]` enter the input (no undeclared variable is ever
-  handed to a script). When the manifest declares reads (7c-2), their pre-fetched rows go under
-  `input["reads"]`. The assembled input must satisfy `input_schema`.
+  handed to a script). The declared variables must satisfy `input_schema`. When the manifest
+  declares reads (7c-2), their pre-fetched rows go under `input["reads"]` AFTER that check: the
+  manifest validation reserves `"reads"` (an `input_schema` may not declare it), exactly as
+  stored test cases and dry-run add their read fixtures after validating the input (7b-2a
+  section 4), so a closed `input_schema` keeps its meaning.
   """
 
   alias Letflow.EventStore.Registry.JsonSchema
@@ -15,7 +18,8 @@ defmodule Letflow.Engine.ScriptInput do
 
   @doc """
   `{:ok, input}` with only the declared variables (plus `"reads"` when `reads_result` is a
-  map), or `{:error, :input_invalid}` when the result does not satisfy `input_schema`.
+  map), or `{:error, :input_invalid}` when the declared variables do not satisfy
+  `input_schema`.
   """
   @spec build(map(), map(), %{optional(String.t()) => [map()]} | nil) ::
           {:ok, map()} | {:error, :input_invalid}
@@ -30,15 +34,16 @@ defmodule Letflow.Engine.ScriptInput do
 
     input = Map.take(variables, declared)
 
-    input =
-      case reads_result do
-        %{} = reads -> Map.put(input, "reads", reads)
-        nil -> input
-      end
+    cond do
+      not (is_map(input_schema) and JsonSchema.validate(input, input_schema) == []) ->
+        {:error, :input_invalid}
 
-    if is_map(input_schema) and JsonSchema.validate(input, input_schema) == [],
-      do: {:ok, input},
-      else: {:error, :input_invalid}
+      is_map(reads_result) ->
+        {:ok, Map.put(input, "reads", reads_result)}
+
+      true ->
+        {:ok, input}
+    end
   end
 
   def build(_variables, _manifest, _reads_result), do: {:error, :input_invalid}

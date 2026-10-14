@@ -1374,6 +1374,30 @@ Gate follow-ups (SECURITY, REVIEWER, TDV on 7c-1):
   construction and the compiler's type checker proves it (a catch-all clause is refused as
   unreachable under `--warnings-as-errors`).
 
+## 19b. Implementation notes (7c-2, ELIXIR-DEV)
+
+* Activation: `check_bindings/2` drops the 7c-1 `:script_reads_unsupported` clause and does NOT
+  add a `check_reads` call (4.5's reason set has no such code; publish already ran `check_reads`
+  under `FOR SHARE`, and every run re-checks it, 11.3). A binding with reads activates; a read
+  that has become disallowed fails the run closed.
+* `ScriptInput.build/3` validates the declared variables against `input_schema` and only THEN adds
+  `"reads"`: `Validation` reserves `"reads"` (an `input_schema` may not declare it), so validating
+  the combined map would refuse every closed `input_schema`. This is the same order stored tests and
+  dry-run use (`Validation.with_reads/3`). The dispatcher pre-validates the variables before the
+  port call, so an invalid input never costs a record query.
+* The port receives the script's declared input variables only (field-minimal), not every
+  instance variable.
+* Field-match values are coerced to the matched field's allowlisted type before
+  `Query.Compiler.compile/2` (decimal -> `Decimal`, date/datetime ISO strings -> `Date` /
+  `NaiveDateTime`); a value of the wrong JSON type is bound as a type-correct placeholder under a
+  constant-false predicate, so the single query is still issued and matches nothing. A
+  `match.field` that is not `queried: true` is not on the compiler's allowlist: the run fails closed
+  `reads_not_allowed` deterministically (type/field level, not value level).
+* Rule 6 is evaluated after the scope gate and before Rule 0. `mix xref graph --format plain`
+  lists direct references only; on this branch the real graph passes with the indirect metadata
+  path engine -> `Scripts.Runtime` -> `Scripts.Policy` -> `Entities.Definitions` present, which is
+  the empirical proof that Rule 6 sees direct edges only.
+
 ## 20. Open questions
 
 None blocking. Items marked NOT VERIFIED above (R7, the exact actor value at each hop site) are

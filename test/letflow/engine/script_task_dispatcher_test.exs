@@ -575,4 +575,40 @@ defmodule Letflow.Engine.ScriptTaskDispatcherTest do
       assert {:ok, _} = cancel!(t.schema_name, d.instance_id)
     end
   end
+
+  # ── AC27 (GH 2534 PR 7c-2) ──────────────────────────────────────────────────
+
+  describe "AC27" do
+    test "kill switch no port call: declared reads are never pre-fetched", %{t: t} do
+      schema = t.schema_name
+      ScriptPolicyFixture.active_definition!(schema, "customer")
+      ScriptPolicyFixture.flag!(schema, "customer")
+      F.record_read_port_calls!()
+      F.count_runner_calls!()
+
+      manifest =
+        Map.merge(F.closed_manifest(), %{
+          "input_schema" => %{
+            "type" => "object",
+            "properties" => %{"amount" => %{"type" => "integer"}, "cid" => %{"type" => "string"}}
+          },
+          "reads" => [ScriptPolicyFixture.id_read("r", "customer")]
+        })
+
+      b = F.bound!(t, F.doubling_source(), manifest, %{"amount" => 1, "cid" => "x"})
+      ScriptPolicyFixture.kill_switch!(schema, true)
+
+      {row, {:ok, :failed}} = F.run_next!(schema)
+      row = F.reload(schema, row)
+      assert {row.outcome, row.outcome_detail} == {"script_rejected", "scripts_disabled"}
+      refute_received {:script_read_port_called, _, _, _}
+      refute_received {:script_runner_called, _, _}
+
+      # the same binding with the switch off does call the port (the stub is live)
+      ScriptPolicyFixture.kill_switch!(schema, false)
+      F.start!(schema, b.definition, %{"amount" => 1, "cid" => "x"}, Ecto.UUID.generate())
+      {_row, {:ok, :applied}} = F.run_next!(schema)
+      assert_received {:script_read_port_called, ^schema, [_read], _vars}
+    end
+  end
 end
