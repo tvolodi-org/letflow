@@ -35890,7 +35890,7 @@ requirements:
   - id: REQ-496
     title: "Core: managed_by write lock for module-managed record types (generic record routes and definitions API refuse with a uniform 403; stamped by install, never from JSON) and the core-owned scope_node_paths security index (one in-transaction writer, ancestors/descendants reads, consistency check)"
     owner: ELIXIR-DEV
-    status: pending
+    status: done
     stage: S7
     gh: 2530
     # Source: GH #2530 (filed by letflow-2, sole filer, 2026-10-14; decision records on main 5b347567); 9 ACs mirrored 1:1 below. Id REQ-496 allocated by letflow-2 (sole allocator). Issue comments read 2026-10-14: heartbeat only, no AC revision.
