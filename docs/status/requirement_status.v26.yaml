@@ -1148,3 +1148,17 @@ history:
       WF-02 for GH #2530 started on branch feature/WF02-GH2530-MANAGED-BY-20261014
       (from main fde30dcab). REQ-ANALYST drafted REQ-496 (id allocated by letflow-2,
       sole allocator; stage S7, 9 ACs mirrored from the issue); next: REQ-VALIDATOR.
+
+  - req: REQ-496
+    event: done
+    agent: DOC-UPDATER
+    at: "2026-10-14T19:35:47Z"
+    note: >
+      Status flipped to done. Delivered by PR #2568 (merge 4a911d40e,
+      GH #2530): managed_by write lock for module-managed entity types
+      (manifest key manages_entity_types, error entity_type_managed) and the
+      scope_node_paths core security index (Letflow.ScopeNodePaths write/2,
+      lock!/1, ancestors/2, descendants_of/2, Consistency.check/1), per
+      decisions 0050 D7/D8. Follow-ups filed from the PR's open points.
+      Written by letflow-2 under the DOC-UPDATER agent id; lands in the
+      wave-2 docs PR #2580.

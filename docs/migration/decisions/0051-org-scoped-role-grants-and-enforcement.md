@@ -336,6 +336,8 @@ effective-scope delta (role, from, to). Audit writes are in the SAME transaction
 not best effort; token values never appear in audit or shadow logs. Scope-404s are counted in
 telemetry, NOT audited.
 
+**`tenant_admin.guard_refused` (supervisor ruling 2026-10-15).** One single refusal event is used by EVERY N1 zero-tenant-wide-admin refusal path, so no path invents its own name: the deactivation path (#2564) and the grant, unbind and rebind paths (#2533), plus the other N1 paths listed under "Security review pass 2". Metadata: `action` (which guarded action was refused, e.g. deactivate, grant, unbind, rebind), `actor`, `target_id`, `reason_code`, `counted_admins` (the active tenant-wide admin count the guard saw) and `trace_id`. It is written in its OWN transaction AFTER the guarded transaction has rolled back, because an audit row written inside the refused transaction would roll back with it (this is a deliberate exception to the same-transaction rule above, which applies to successful changes). Like the other D8 events it carries no token values and no IdP claim values.
+
 VERIFIED: the chain accepts new event types without a code change. The `action` is a free-form string
 (`lib/letflow/audit.ex:123` type `action: String.t()`, `lib/letflow/audit/entry.ex:30` `field(:action,
 :string)`, required but not enumerated at `entry.ex:44-52`); the table column is `:string, null: false`
@@ -562,7 +564,7 @@ SECURITY-REVIEWER pass 2: PASS_WITH_FINDINGS, no remaining MUST. These become ac
   - `role.rebound` of the TENANT_ADMIN binding;
   - revoking a pending admin grant.
 
-  Each path gets a test.
+  Each path gets a test. Every refusal on these paths writes the single `tenant_admin.guard_refused` event (D8).
 - **N2.** `token.listed` carries the actor, the count and the token ids only, never token values, hashes or prefixes.
 - **N3.** `binding.pending_scope` joins the D8 event list. Its payload is user, group, role and trace_id only, with no IdP claim values, deduplicated per (user, role).
 - **N4.** The route-walk test also covers every route that calls `Entities.Definitions.create` or `activate`. System provisioning (`tenant_provisioning.ex`) comes under the managed-name immutability rule.

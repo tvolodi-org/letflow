@@ -56,13 +56,13 @@ Neither slice needs a core change.
 
 | Item | DR | Notes |
 |---|---|---|
-| Process step writes entity in the same transaction | yes (new) | Prerequisite for script commands and for stock posting. |
-| Module upgrade and migration of installed modules (entity definitions included) | yes (new) | Without it, shipped applications are frozen at their first install. |
+| Process step writes entity in the same transaction | **0054** (Accepted 2026-10-15, advisor letflow-ec under the user's delegation) | Prerequisite for script commands and for stock posting. MVP: steps create records on append-only types only (0054 D1a.4). |
+| Module upgrade and migration of installed modules (entity definitions included) | **0055** (Accepted 2026-10-15, advisor letflow-ec under the user's delegation) | Without it, shipped applications are frozen at their first install. Module uninstall (wave 3) and the tenant `x_` layer are NOT part of 0055; each gets its own follow-up record. |
 | Entity pre-write validation and derived-field scripts (second invocation point) | 0053 | |
-| Versioned documents (numbering, versions, signing hooks) | yes (new) | Needed by every domain; KZ legal documents depend on it. |
+| Versioned documents (numbering, versions, signing hooks) | **0056** (Accepted 2026-10-15, advisor letflow-ec under the user's delegation; CUSTOMER DECISION REQUIRED items remain open for Kazakhmys) | Needed by every domain; KZ legal documents depend on it. Slice 1 = model, numbering, versions, `verify_binding`. Slice 2 = signatures, PDF, retention, legal hold, each with its own record. |
 | Org-relative task assignment (resolver via the module Catalog, not in the engine) | yes (new) | For example "the requester's department head". |
 
-**WMS slice 5 (stock ledger) starts after "process step writes entity".**
+**WMS slice 5 (stock ledger) starts after "process step writes entity" (0054, Accepted).**
 
 ## Wave 3: breadth of configuration
 
@@ -70,14 +70,14 @@ Neither slice needs a core change.
 |---|---|---|
 | Generic list, pivot and graph views and a report builder over entities | yes (new) | Odoo's main breadth lever. |
 | Solution versioning and per-tenant overrides | yes (amends 0039 D7) | |
-| Module uninstall | yes (new) | |
+| Module uninstall | yes (new): follow-up record to 0055, after `managed_by` (#2530) | Split out of 0055 (D11). 0039 D5 "No uninstall" stands until that record is ratified. |
 | Form-hook scripts (server-side form validation) and after-commit entity-event triggers via outbox | 0053 | Invocation points 3 and 4. |
 
 ## Customization beyond scripts
 
 These are requirement candidates listed in the 0053 appendix, not yet scheduled:
 - tenant-owned entity types: runtime definitions already exist. Missing are module references by id under 0050, relations and lookups in the UI, form and list generation, per-type write permissions, and 0051 scope declarations. Depends on 0050 and 0051 stage 2 (see 0053, "Requirement candidates");
-- tenant extensions to module entities: an `x_` tenant layer of fields, validations and list/form/print overrides that module upgrades never overwrite. Depends on the wave-2 module upgrade record;
+- tenant extensions to module entities: an `x_` tenant layer of fields, validations and list/form/print overrides that module upgrades never overwrite. Depends on the wave-2 module upgrade record (0055, Accepted); its own follow-up record (0055 D4 keeps only the constraints an upgrade imposes);
 - per-tenant form, list and print-template overrides, including KZ print forms;
 - number sequences;
 - extension points in module processes;
