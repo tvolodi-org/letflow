@@ -271,7 +271,89 @@ defmodule Letflow.Engine.Lua.Sandbox do
         :error -> lua_opts
       end
 
-    Lua.new(lua_opts)
+    lua_opts
+    |> lua_new()
     |> Letflow.Engine.Lua.Platform.install()
+  end
+
+  # ── Tenant scripts: exact allow-list (GH 2534, decision 0053 D11, F-C) ──────
+  #
+  # Design: lib/letflow/design/gh2534-7a-script-runtime.md section 2. Unlike `new/1`
+  # (a deny list: `Lua.sandbox/2` only REPLACES a path with a raising function, so the
+  # path stays in `_G`), `new_script/1` builds the global environment by REMOVAL: every
+  # global and library member not on these lists is deleted, so `_G` of a script VM
+  # equals the list exactly (equality-tested). `Platform.install/1` is NOT called.
+
+  @script_globals ~w(string table math pairs ipairs next select type tostring tonumber
+                     pcall error assert setmetatable getmetatable rawget rawset rawequal
+                     rawlen unpack)
+  @script_host_globals ~w(ctx fail print)
+  @script_members %{
+    "string" => ~w(lower upper len sub rep reverse byte char format find match gsub),
+    "table" => ~w(insert remove concat sort unpack),
+    "math" => ~w(abs acos asin atan ceil cos deg exp floor fmod log max min modf pi rad sin
+                 sqrt tan tointeger type ult huge maxinteger mininteger random randomseed)
+  }
+
+  # 0053 D7: platform constants for tenant scripts in stage 1 (not caller-settable).
+  @script_max_string_bytes 1_048_576
+  @script_max_call_depth 200
+
+  @doc "GH 2534: the exact global names of a script VM (host globals included)."
+  @spec script_globals() :: [String.t()]
+  def script_globals, do: Enum.sort(@script_globals ++ @script_host_globals)
+
+  @doc "GH 2534: the exact members of the `string`, `table` and `math` libraries."
+  @spec script_members() :: %{String.t() => [String.t()]}
+  def script_members,
+    do: Map.new(@script_members, fn {lib, members} -> {lib, Enum.sort(members)} end)
+
+  @doc "GH 2534: the per-string ceiling of a script VM (0053 D7, 1 MiB)."
+  @spec script_max_string_bytes() :: pos_integer()
+  def script_max_string_bytes, do: @script_max_string_bytes
+
+  @doc """
+  GH 2534 (0053 D11): a FRESH tenant-script VM. Required `opts`: `:max_instructions`
+  (positive integer) and `:host` (a function `(Lua.t() -> Lua.t())` that installs the host
+  globals `ctx`, `fail`, `print` and the host library members, see
+  `Letflow.Engine.Lua.ScriptHost.install/2`). Built for every run, never cached (F-C).
+  """
+  @spec new_script(keyword()) :: Lua.t()
+  def new_script(opts) do
+    install_host = Keyword.fetch!(opts, :host)
+
+    lua_new(
+      sandboxed: [],
+      max_string_bytes: @script_max_string_bytes,
+      max_instructions: Keyword.fetch!(opts, :max_instructions),
+      max_call_depth: @script_max_call_depth
+    )
+    |> remove_globals_not_in(@script_globals)
+    |> trim_libraries()
+    |> install_host.()
+  end
+
+  # INV-SBX-1: the ONLY `Lua.new/1` call site under lib/ (both builders go through it).
+  defp lua_new(lua_opts), do: Lua.new(lua_opts)
+
+  defp remove_globals_not_in(lua, keep) do
+    lua.state
+    |> Lua.VM.State.globals()
+    |> Map.keys()
+    |> Enum.reject(&(is_binary(&1) and &1 in keep))
+    |> Enum.reduce(lua, fn key, acc -> Lua.set!(acc, [key], nil) end)
+  end
+
+  defp trim_libraries(lua) do
+    Enum.reduce(@script_members, lua, fn {library, members}, acc ->
+      globals = Lua.VM.State.globals(acc.state)
+      table = Lua.VM.State.get_table(acc.state, Map.fetch!(globals, library))
+
+      table
+      |> Lua.VM.Table.to_map()
+      |> Map.keys()
+      |> Enum.reject(&(is_binary(&1) and &1 in members))
+      |> Enum.reduce(acc, fn key, inner -> Lua.set!(inner, [library, key], nil) end)
+    end)
   end
 end

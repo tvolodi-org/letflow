@@ -101,10 +101,20 @@ defmodule Letflow.Admission do
   direction: it can only under-count (transiently widen admission), never
   over-count (permanently wedge admission shut). A caller-side crash (a
   process that acquired a ref and dies without releasing it) is a
-  DIFFERENT, explicitly out-of-scope scenario: this module does not monitor
-  callers, unlike `Letflow.SandboxPool`'s owner-monitor mechanism — a leaked
-  ref stays counted against its budget until this process itself restarts
-  or the ref is explicitly released.
+  DIFFERENT scenario: by default this module does not monitor callers,
+  unlike `Letflow.SandboxPool`'s owner-monitor mechanism — a leaked ref stays
+  counted against its budget until this process itself restarts or the ref is
+  explicitly released.
+
+  ## Opt-in caller monitoring (GH 2534, decision 0053 D8)
+
+  `start_link(monitor_callers: true)` makes every successful `try_acquire/2`
+  monitor the acquiring pid; that pid's `:DOWN` releases its slot (and
+  `release/2` demonitors), the same shape as
+  `Letflow.Engine.Wasm.InvocationLease`. Used by the tenant-script admission
+  server `Letflow.Engine.Lua.ScriptAdmission`, whose slot holder is the per-run
+  watchdog: a killed watchdog (and so a dead dispatcher) can never leak a slot.
+  The HTTP admission keeps the default (`false`), unchanged.
 
   ## Supervision-tree placement — no ordering dependency (AC6)
 
@@ -150,7 +160,8 @@ defmodule Letflow.Admission do
 
   @doc """
   Starts the admission-control server. `opts` accepts `:name` (default
-  `__MODULE__`), and `:pool_size`/`:reserved_headroom` overrides for test
+  `__MODULE__`), `:monitor_callers` (default `false`; see "Opt-in caller
+  monitoring"), and `:pool_size`/`:reserved_headroom` overrides for test
   isolation (mirrors `Letflow.SandboxPool.start_link/1`'s
   `Keyword.get_lazy/3` idiom). Absent overrides fall back to
   `Application.fetch_env!(:letflow, Letflow.Repo)[:pool_size]` and
@@ -174,7 +185,11 @@ defmodule Letflow.Admission do
 
     GenServer.start_link(
       __MODULE__,
-      %{pool_size: pool_size, reserved_headroom: reserved_headroom},
+      %{
+        pool_size: pool_size,
+        reserved_headroom: reserved_headroom,
+        monitor_callers: Keyword.get(opts, :monitor_callers, false)
+      },
       name: name
     )
   end
@@ -288,7 +303,7 @@ defmodule Letflow.Admission do
   #     tenant_generations: %{optional(String.t()) => non_neg_integer()}  # never deleted, only incremented (forget_tenant/2)
   #   }
   @impl true
-  def init(%{pool_size: pool_size, reserved_headroom: reserved_headroom}) do
+  def init(%{pool_size: pool_size, reserved_headroom: reserved_headroom} = args) do
     global_cap = max(pool_size - reserved_headroom, 1)
 
     {:ok,
@@ -298,12 +313,19 @@ defmodule Letflow.Admission do
        tenants: %{},
        refs: %{},
        reserved_headroom: reserved_headroom,
-       tenant_generations: %{}
+       tenant_generations: %{},
+       # GH 2534 / decision 0053 D8: opt-in caller monitoring. When true, every
+       # acquire monitors the acquiring pid and its :DOWN releases the slot, so a
+       # killed holder cannot leak budget. `monitors` maps monitor ref -> admission
+       # id, `ref_monitors` the reverse. Default false: the HTTP admission is unchanged.
+       monitor_callers: Map.get(args, :monitor_callers, false),
+       monitors: %{},
+       ref_monitors: %{}
      }}
   end
 
   @impl true
-  def handle_call({:try_acquire, :global}, _from, state) do
+  def handle_call({:try_acquire, :global}, from, state) do
     if state.global_in_use < state.global_cap do
       id = make_ref()
       ref = %Ref{id: id, pool: :global}
@@ -314,13 +336,13 @@ defmodule Letflow.Admission do
           refs: Map.put(state.refs, id, {:global, nil})
       }
 
-      {:reply, {:ok, ref}, new_state}
+      {:reply, {:ok, ref}, maybe_monitor(new_state, from, id)}
     else
       {:reply, {:error, :capacity}, state}
     end
   end
 
-  def handle_call({:try_acquire, {:tenant, schema} = pool}, _from, state) do
+  def handle_call({:try_acquire, {:tenant, schema} = pool}, from, state) do
     # Lazy tenant-entry creation happens BEFORE the admission decision, and
     # regardless of whether that decision ultimately succeeds -- an attempt
     # itself, not only a successful one, is what counts a tenant into the
@@ -342,7 +364,7 @@ defmodule Letflow.Admission do
           refs: Map.put(state.refs, id, {pool, tenant_entry.generation})
       }
 
-      {:reply, {:ok, ref}, new_state}
+      {:reply, {:ok, ref}, maybe_monitor(new_state, from, id)}
     else
       {:reply, {:error, :capacity}, state}
     end
@@ -357,28 +379,7 @@ defmodule Letflow.Admission do
   end
 
   def handle_call({:release, %Ref{id: id}}, _from, state) do
-    # The server's own `refs` entry (keyed by the unforgeable `id`) is the
-    # sole source of truth for which pool (and, for a tenant pool, which
-    # generation) to free -- the caller-supplied struct's `pool` field is
-    # never trusted here, so a mismatched or hand-altered `pool` field on an
-    # otherwise-valid ref cannot under- or over-release, and cannot crash
-    # this clause.
-    case Map.pop(state.refs, id) do
-      {nil, _refs} ->
-        # Already released, never acquired, or a hand-constructed struct --
-        # documented idempotent no-op (moduledoc's "release/2").
-        {:reply, :ok, state}
-
-      {{stored_pool, captured_generation}, refs} ->
-        new_state = %{
-          state
-          | global_in_use: state.global_in_use - 1,
-            tenants: release_tenant(state.tenants, stored_pool, captured_generation),
-            refs: refs
-        }
-
-        {:reply, :ok, new_state}
-    end
+    {:reply, :ok, release_id(state, id)}
   end
 
   def handle_call({:forget_tenant, schema}, _from, state) do
@@ -389,6 +390,63 @@ defmodule Letflow.Admission do
     }
 
     {:reply, :ok, new_state}
+  end
+
+  # GH 2534 / 0053 D8: a monitored holder that exits releases its slot.
+  @impl true
+  def handle_info({:DOWN, monitor_ref, :process, _pid, _reason}, state) do
+    case Map.fetch(state.monitors, monitor_ref) do
+      {:ok, id} -> {:noreply, release_id(state, id)}
+      :error -> {:noreply, state}
+    end
+  end
+
+  def handle_info(_message, state), do: {:noreply, state}
+
+  # The server's own `refs` entry (keyed by the unforgeable `id`) is the sole
+  # source of truth for which pool (and, for a tenant pool, which generation) to
+  # free -- the caller-supplied struct's `pool` field is never trusted, so a
+  # mismatched or hand-altered `pool` field on an otherwise-valid ref cannot under-
+  # or over-release. An unknown id (already released, never acquired, or a
+  # hand-constructed struct) is a documented idempotent no-op.
+  defp release_id(state, id) do
+    state = drop_monitor(state, id)
+
+    case Map.pop(state.refs, id) do
+      {nil, _refs} ->
+        state
+
+      {{stored_pool, captured_generation}, refs} ->
+        %{
+          state
+          | global_in_use: state.global_in_use - 1,
+            tenants: release_tenant(state.tenants, stored_pool, captured_generation),
+            refs: refs
+        }
+    end
+  end
+
+  defp maybe_monitor(%{monitor_callers: true} = state, {pid, _tag}, id) do
+    monitor_ref = Process.monitor(pid)
+
+    %{
+      state
+      | monitors: Map.put(state.monitors, monitor_ref, id),
+        ref_monitors: Map.put(state.ref_monitors, id, monitor_ref)
+    }
+  end
+
+  defp maybe_monitor(state, _from, _id), do: state
+
+  defp drop_monitor(state, id) do
+    case Map.pop(state.ref_monitors, id) do
+      {nil, _} ->
+        state
+
+      {monitor_ref, ref_monitors} ->
+        Process.demonitor(monitor_ref, [:flush])
+        %{state | ref_monitors: ref_monitors, monitors: Map.delete(state.monitors, monitor_ref)}
+    end
   end
 
   defp ensure_tenant_tracked(state, schema) do

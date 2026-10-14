@@ -426,6 +426,8 @@ defmodule Letflow.Routers.Tenants do
         # router's own established pattern elsewhere.
         {:ok, schema} = TenantProvisioning.schema_name_for_tenant(tenant.id)
         :ok = Admission.forget_tenant(schema)
+        # GH 2534 / 0053 D8: the tenant-script admission server keeps its own fair share.
+        :ok = Admission.forget_tenant(schema, Letflow.Engine.Lua.ScriptAdmission)
         Response.ok(conn, tenant_map(tenant))
 
       {:error, :not_found} ->
