@@ -104,6 +104,7 @@ defmodule Letflow.Api.PermissionMatrix do
           | {:removed, role_name(), perm_name()}
           | {:owner_changed, perm_name(), owner(), owner()}
           | {:module_removed, module_id()}
+          | {:via_changed, role_name(), perm_name(), via(), via()}
   @type report :: %{
           labels: [:pre_approved | :narrowing | :core_change | :bootstrap],
           evaluated_modules: [module_id()],
@@ -215,9 +216,17 @@ defmodule Letflow.Api.PermissionMatrix do
   `lib/letflow/modules/<id>/` directory exists).
   """
   @spec current_context(module_dirs_present :: MapSet.t(module_id())) :: context()
-  def current_context(module_dirs_present) do
-    manifests = Catalog.all_manifests()
+  def current_context(module_dirs_present),
+    do: context_from_manifests(Catalog.all_manifests(), module_dirs_present)
 
+  @doc """
+  `current_context/1` over explicit manifests. Never raises on a malformed
+  `widens_grants` (a non-list counts as `[]`, a non-`{atom, atom}` entry is
+  skipped): `Catalog.validate/1` reports it as `{:invalid_manifest, id, _}` and
+  the task fails the run with that collected message.
+  """
+  @spec context_from_manifests([map()], MapSet.t(module_id())) :: context()
+  def context_from_manifests(manifests, module_dirs_present) do
     route_refs =
       manifests
       |> Enum.flat_map(fn manifest ->
@@ -233,7 +242,7 @@ defmodule Letflow.Api.PermissionMatrix do
     declarations =
       Map.new(manifests, fn manifest ->
         entries =
-          for {role, permission} <- Map.get(manifest, :widens_grants, []),
+          for {role, permission} <- declared_list(Map.get(manifest, :widens_grants, [])),
               is_atom(role) and is_atom(permission),
               do: {Atom.to_string(role), Atom.to_string(permission)}
 
@@ -247,6 +256,9 @@ defmodule Letflow.Api.PermissionMatrix do
       module_dirs_present: module_dirs_present
     }
   end
+
+  defp declared_list(entries) when is_list(entries), do: entries
+  defp declared_list(_not_a_list), do: []
 
   # ---------------------------------------------------------------------------
   # Golden file format 1 (design section 2)
@@ -535,6 +547,35 @@ defmodule Letflow.Api.PermissionMatrix do
     match?(%{allowed: true}, Map.get(matrix.rows, key))
   end
 
+  @doc """
+  The `--check` verdict over the two inputs it must keep apart (design D4, I1):
+  FRESHNESS compares the working-tree `golden` with `computed`; CLASSIFICATION
+  compares the trusted `baseline` (the golden committed at the base ref, or
+  `:absent` for an allowed bootstrap) with `computed`. The working-tree golden
+  is never classified against, so regenerating it in the change under check
+  cannot hide a widening. `golden` may be `{:error, failure}` when the file is
+  missing or unparsable; that failure is carried through. Returns the report
+  and every failure (freshness first, then classification).
+  """
+  @spec check_result(golden :: t() | {:error, term()}, baseline :: t() | :absent, t(), context()) ::
+          %{report: report(), failures: [term()]}
+  def check_result(golden, baseline, computed, ctx) do
+    freshness_failures =
+      case golden do
+        {:error, failure} ->
+          [failure]
+
+        golden ->
+          case freshness(golden, computed) do
+            :ok -> []
+            {:error, failure} -> [failure]
+          end
+      end
+
+    report = classify(baseline, computed, ctx)
+    %{report: report, failures: freshness_failures ++ report.failures}
+  end
+
   # ---------------------------------------------------------------------------
   # Classification (design section 4.3, normative)
   # ---------------------------------------------------------------------------
@@ -597,6 +638,15 @@ defmodule Letflow.Api.PermissionMatrix do
           baseline_owners[perm] != computed_owners[perm],
           do: {:owner_changed, perm, baseline_owners[perm], computed_owners[perm]}
 
+    # Step 5b (SEC F2): a row true on both sides whose `via` changed (grant <-> core)
+    # is a core change: only an edit to authorization.ex or a manifest's role_grants
+    # alongside a core rule can move a row between the two.
+    via_changes =
+      for {key, %{allowed: true, via: from}} <- baseline.rows,
+          %{allowed: true, via: to} <- [Map.get(computed.rows, key)],
+          from != to,
+          do: {:via_changed, elem(key, 0), elem(key, 1), from, to}
+
     # Step 6: declarations.
     added_set = MapSet.new(added)
     narrowing_set = MapSet.new(step4.narrowings)
@@ -629,7 +679,9 @@ defmodule Letflow.Api.PermissionMatrix do
           not MapSet.member?(matched_set, narrowing),
           do: {:unmatched_narrowing, role, perm, id}
 
-    core_changes = sorted_unique(step3.core_changes ++ step4.core_changes ++ owner_changes)
+    core_changes =
+      sorted_unique(step3.core_changes ++ step4.core_changes ++ owner_changes ++ via_changes)
+
     pre_approved = sorted_unique(step3.pre_approved)
     narrowings = sorted_unique(step6.matched)
 
@@ -854,6 +906,11 @@ defmodule Letflow.Api.PermissionMatrix do
 
   defp sets_modules?([:letflow, :modules, _value]), do: true
 
+  # SEC F1: a key that is neither a literal atom nor a module alias (a variable,
+  # `String.to_atom/1`, ...) may evaluate to :modules.
+  defp sets_modules?([:letflow, key, _value]) when not is_atom(key),
+    do: not match?({:__aliases__, _, _}, key)
+
   defp sets_modules?([:letflow, keyword]) when is_list(keyword) do
     Enum.any?(keyword, fn
       {:modules, _value} -> true
@@ -1051,6 +1108,9 @@ defmodule Letflow.Api.PermissionMatrix do
     do: "owner of #{p}: #{render_owner(from)} -> #{render_owner(to)}"
 
   defp format_core_change({:module_removed, id}), do: "module #{id} removed"
+
+  defp format_core_change({:via_changed, r, p, from, to}),
+    do: "via of #{r} #{p}: #{render_via(from)} -> #{render_via(to)}"
 
   defp format_failure({:unmatched_narrowing, _r, _p, id} = failure, evaluated) do
     hint =

@@ -114,6 +114,11 @@ defmodule Mix.Tasks.Letflow.PermissionMatrix do
       opts[:check] && opts[:write] ->
         Mix.raise("letflow.permission_matrix: pass --check or --write, not both")
 
+      opts[:write] && opts[:baseline_ref] ->
+        Mix.raise(
+          "letflow.permission_matrix: --baseline-ref applies to --check only, not --write"
+        )
+
       opts[:write] ->
         :write
 
@@ -190,25 +195,26 @@ defmodule Mix.Tasks.Letflow.PermissionMatrix do
 
   defp write!(_computed, failures), do: raise_failures(failures)
 
-  # Steps 6-11 (design section 5).
+  # Steps 6-11 (design section 5). The freshness-vs-classification decision is the
+  # pure PermissionMatrix.check_result/4: the working-tree golden goes ONLY to
+  # freshness, the git baseline ONLY to classification (I1).
   defp check!(computed, preflight, ref_option) do
-    freshness_failures = freshness_failures(computed)
+    golden = load_golden()
 
-    {baseline_failures, classification} =
-      case resolve_baseline(ref_option, File.cwd!()) do
-        {:ok, resolved} -> classify_against(resolved, computed)
-        {:error, failure} -> {[failure], nil}
+    {failures, outcome} =
+      with {:ok, resolved} <- resolve_baseline(ref_option, File.cwd!()),
+           {:ok, baseline} <- baseline_at(resolved, File.cwd!()) do
+        ctx = PermissionMatrix.current_context(module_dirs(baseline))
+        result = PermissionMatrix.check_result(golden, baseline, computed, ctx)
+        publish_report(result.report)
+        {result.failures, {resolved, result.report}}
+      else
+        {:error, failure} -> {golden_failures(golden, computed) ++ [failure], nil}
       end
 
-    report_failures =
-      case classification do
-        {_resolved, report} -> report.failures
-        nil -> []
-      end
-
-    case preflight ++ freshness_failures ++ baseline_failures ++ report_failures do
+    case preflight ++ failures do
       [] ->
-        {resolved, report} = classification
+        {resolved, report} = outcome
 
         Mix.shell().info(
           PermissionMatrix.report_marker(resolved.ref_sha, resolved.head_sha, report)
@@ -216,51 +222,31 @@ defmodule Mix.Tasks.Letflow.PermissionMatrix do
 
         :ok
 
-      failures ->
-        raise_failures(failures)
+      all ->
+        raise_failures(all)
     end
   end
 
-  defp freshness_failures(computed) do
-    with {:ok, text} <- read_golden(),
-         {:ok, golden} <- parse_golden(text),
-         :ok <- PermissionMatrix.freshness(golden, computed) do
-      []
-    else
+  # Without a baseline there is no classification; freshness still runs.
+  defp golden_failures({:error, failure}, _computed), do: [failure]
+
+  defp golden_failures(golden, computed) do
+    case PermissionMatrix.freshness(golden, computed) do
+      :ok -> []
       {:error, failure} -> [failure]
     end
   end
 
-  defp read_golden do
+  defp load_golden do
     case File.read(@golden_path) do
-      {:ok, text} -> {:ok, text}
-      {:error, reason} -> {:error, {:golden_missing, @golden_path, reason}}
-    end
-  end
+      {:ok, text} ->
+        case PermissionMatrix.parse(text) do
+          {:ok, golden} -> golden
+          {:error, error} -> {:error, {:golden_unparsable, @golden_path, error}}
+        end
 
-  defp parse_golden(text) do
-    case PermissionMatrix.parse(text) do
-      {:ok, golden} -> {:ok, golden}
-      {:error, error} -> {:error, {:golden_unparsable, @golden_path, error}}
-    end
-  end
-
-  # Steps 8-9: read B from git at the resolved ref, classify, print the report.
-  defp classify_against(resolved, computed) do
-    case baseline_at(resolved, File.cwd!()) do
-      {:ok, baseline} ->
-        report =
-          PermissionMatrix.classify(
-            baseline,
-            computed,
-            PermissionMatrix.current_context(module_dirs(baseline))
-          )
-
-        publish_report(report)
-        {[], {resolved, report}}
-
-      {:error, failure} ->
-        {[failure], nil}
+      {:error, reason} ->
+        {:error, {:golden_missing, @golden_path, reason}}
     end
   end
 

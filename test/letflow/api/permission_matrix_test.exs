@@ -355,11 +355,9 @@ defmodule Letflow.Api.PermissionMatrixTest do
 
       assert PermissionMatrix.freshness(regenerated_golden, computed) == :ok
 
-      assert {:widening, @cand, "ModX", :module_grant} in PermissionMatrix.classify(
-               baseline(),
-               computed,
-               ctx()
-             ).failures
+      assert PermissionMatrix.classify(baseline(), computed, ctx()).failures == [
+               {:widening, @cand, "ModX", :module_grant}
+             ]
     end
 
     test "T11: a core-only change with a regenerated golden passes and is reported as a core change" do
@@ -379,6 +377,90 @@ defmodule Letflow.Api.PermissionMatrixTest do
 
       assert PermissionMatrix.format_report(report) =~
                ~r/\ACORE MATRIX CHANGE: mandatory SECURITY-REVIEWER trigger/
+    end
+  end
+
+  describe "check_result/4 (TDV F1): golden -> freshness only, git baseline -> classification only" do
+    test "a module widening with the golden regenerated to match still fails against the baseline" do
+      computed = mx(%{"m" => "2"}, base_owners(), Map.put(base_trues(), {@cand, "ModX"}, :grant))
+      regenerated_golden = computed
+
+      result = PermissionMatrix.check_result(regenerated_golden, baseline(), computed, ctx())
+
+      assert result.failures == [{:widening, @cand, "ModX", :module_grant}]
+      assert result.report.failures == [{:widening, @cand, "ModX", :module_grant}]
+    end
+
+    test "an unchanged matrix passes; a stale golden fails freshness even with a clean baseline" do
+      assert PermissionMatrix.check_result(baseline(), baseline(), baseline(), ctx()).failures ==
+               []
+
+      stale = mx(%{"m" => "1"}, base_owners(), Map.delete(base_trues(), {@tw, "ModX"}))
+
+      assert [{:golden_stale, %{added: ["TASK_WORKER ModX true module:m grant"]}}] =
+               PermissionMatrix.check_result(stale, baseline(), baseline(), ctx()).failures
+    end
+
+    test "an unreadable golden is carried through; :absent is the bootstrap classification" do
+      result =
+        PermissionMatrix.check_result(
+          {:error, {:golden_missing, "x", :enoent}},
+          :absent,
+          baseline(),
+          ctx()
+        )
+
+      assert result.failures == [{:golden_missing, "x", :enoent}]
+      assert result.report.labels == [:bootstrap]
+    end
+  end
+
+  describe "REVIEWER F4: switch combinations" do
+    test "--write with --baseline-ref, and --check with --write, are refused before any work" do
+      assert_raise Mix.Error, ~r/--baseline-ref applies to --check only/, fn ->
+        MatrixTask.run(["--write", "--baseline-ref", "HEAD~1"])
+      end
+
+      assert_raise Mix.Error, ~r/pass --check or --write, not both/, fn ->
+        MatrixTask.run(["--check", "--write"])
+      end
+    end
+  end
+
+  describe "SEC F2: a via change alone is a core change" do
+    test "grant -> core on a row true on both sides is {:via_changed, ...} with the banner" do
+      computed = mx(%{"m" => "1"}, base_owners(), Map.put(base_trues(), {@tw, "ModX"}, :core))
+      report = PermissionMatrix.classify(baseline(), computed, ctx())
+
+      assert report.failures == []
+      assert report.labels == [:core_change]
+      assert report.core_changes == [{:via_changed, @tw, "ModX", :grant, :core}]
+      text = PermissionMatrix.format_report(report)
+      assert text =~ ~r/\ACORE MATRIX CHANGE: mandatory SECURITY-REVIEWER trigger/
+      assert text =~ "via of TASK_WORKER ModX: grant -> core"
+
+      back = PermissionMatrix.classify(computed, baseline(), ctx())
+      assert back.core_changes == [{:via_changed, @tw, "ModX", :core, :grant}]
+    end
+  end
+
+  describe "REVIEWER F1: context_from_manifests/2 never crashes on a malformed widens_grants" do
+    test "a non-list counts as [], a non-{atom, atom} entry is skipped" do
+      manifest = fn id, widens ->
+        %{id: id, route_policies: [{"GET", "/x", :ModX}], widens_grants: widens}
+      end
+
+      context =
+        PermissionMatrix.context_from_manifests(
+          [
+            manifest.("bad", :not_a_list),
+            manifest.("mixed", ["x", {:TASK_WORKER, :A}, {"R", :B}])
+          ],
+          MapSet.new()
+        )
+
+      assert context.declarations == %{"bad" => [], "mixed" => [{"TASK_WORKER", "A"}]}
+      assert context.route_refs == %{"ModX" => ["bad", "mixed"]}
     end
   end
 
@@ -414,8 +496,10 @@ defmodule Letflow.Api.PermissionMatrixTest do
           ctx(%{declarations: %{"n" => [{@tw, "ModX"}]}})
         )
 
-      assert {:unmatched_narrowing, @tw, "ModX", "m"} in report.failures
-      assert {:unmatched_declaration, "n", @tw, "ModX"} in report.failures
+      assert report.failures == [
+               {:unmatched_declaration, "n", @tw, "ModX"},
+               {:unmatched_narrowing, @tw, "ModX", "m"}
+             ]
     end
 
     test "T14: a declaration that matches no diff row fails" do
@@ -470,8 +554,11 @@ defmodule Letflow.Api.PermissionMatrixTest do
             ctx(%{declarations: %{"m" => [{@cand, "ModX"}]}})
           )
 
-        assert {:widening, @cand, "ModX", :module_grant} in report.failures
-        assert {:declaration_authorises_widening, "m", @cand, "ModX"} in report.failures
+        assert report.failures == [
+                 {:declaration_authorises_widening, "m", @cand, "ModX"},
+                 {:widening, @cand, "ModX", :module_grant}
+               ]
+
         assert report.narrowings == []
       end
     end
@@ -827,6 +914,19 @@ defmodule Letflow.Api.PermissionMatrixTest do
       assert PermissionMatrix.check_module_list([exam], ok, [qualified]) ==
                {:error, [{:modules_set_outside_allowed_files, "config/prod.exs", 1}]}
 
+      for key_source <- ["key", "String.to_atom(\"modules\")"] do
+        computed_key = {"config/prod.exs", "import Config\nconfig :letflow, #{key_source}, [X]\n"}
+
+        assert PermissionMatrix.check_module_list([exam], ok, [computed_key]) ==
+                 {:error, [{:modules_set_outside_allowed_files, "config/prod.exs", 2}]},
+               key_source
+      end
+
+      alias_key =
+        {"config/prod.exs", "import Config\nconfig :letflow, Letflow.Repo, pool_size: 1\n"}
+
+      assert PermissionMatrix.check_module_list([exam], ok, [alias_key]) == :ok
+
       non_literal = {"config/prod.exs", "import Config\nconfig :letflow, opts\n"}
 
       assert PermissionMatrix.check_module_list([exam], ok, [non_literal]) ==
@@ -980,7 +1080,13 @@ defmodule Letflow.Api.PermissionMatrixTest do
            tmp_dir: dir
          } do
       git = fn args ->
-        {out, 0} = System.cmd("git", args, cd: dir, stderr_to_stdout: true)
+        {out, 0} =
+          System.cmd("git", args,
+            cd: dir,
+            stderr_to_stdout: true,
+            env: [{"GIT_DIR", nil}, {"GIT_INDEX_FILE", nil}, {"GIT_WORK_TREE", nil}]
+          )
+
         String.trim(out)
       end
 
@@ -993,6 +1099,8 @@ defmodule Letflow.Api.PermissionMatrixTest do
           "user.name=t",
           "-c",
           "user.email=t@example.invalid",
+          "-c",
+          "commit.gpgsign=false",
           "commit",
           "-q",
           "-m",
@@ -1014,6 +1122,8 @@ defmodule Letflow.Api.PermissionMatrixTest do
         "user.name=t",
         "-c",
         "user.email=t@example.invalid",
+        "-c",
+        "commit.gpgsign=false",
         "merge",
         "-q",
         "--no-ff",

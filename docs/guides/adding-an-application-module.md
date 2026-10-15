@@ -540,8 +540,9 @@ only reaches the modules its own `depends_on` lists — and both run in CI:
    assertions (`entry_modules/0` literal list; the `config/config.exs` regex).
 6a. [ ] Regenerate the effective-permission golden
    (`MIX_ENV=dev mix letflow.permission_matrix --write`) and run `--check`
-   (section 6a): new atoms only for PLATFORM_ADMIN/TENANT_ADMIN unless
-   granted to no other role; any `role_grants` widening is refused.
+   (section 6a): a new atom is pre-approved only when it is true for exactly
+   PLATFORM_ADMIN and TENANT_ADMIN and named only by its own module's
+   `route_policies`; any `role_grants` widening is refused.
 7. [ ] If existing tenants need to be backfilled onto this module (replacing
    prior ad hoc functionality), write a tenant-scoped backfill migration,
    `if prefix() do` guarded, registered in
