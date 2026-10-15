@@ -27,6 +27,7 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
 
   alias Letflow.Audit
   alias Letflow.Definitions
+  alias Letflow.Definitions.ProcessDefinition
   alias Letflow.Engine
   alias Letflow.Engine.PinResolver.Lookup
   alias Letflow.Engine.ServiceTaskDispatcher
@@ -61,6 +62,28 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
              )
 
     assert {:ok, %{definition: activated}} = Definitions.activate(definition.id, prefix: schema)
+    activated
+  end
+
+  # A definition stored BEFORE PR A1b: inserted directly as ACTIVE, bypassing the save-time check
+  # and the activation refusal (CHK-29/CHK-30, `expression_references_reserved_variable`), which
+  # now reject a reserved name in a sub-process interface. The run-time guards (design 2.2) must
+  # keep holding for such a row, so these tests seed it the way an old row exists.
+  defp legacy_active_definition!(schema, graph) do
+    row =
+      %ProcessDefinition{}
+      |> ProcessDefinition.create_changeset(%{
+        name: uniq("gh2587-legacy"),
+        version: "1.0.0",
+        graph: graph,
+        created_by: Ecto.UUID.generate()
+      })
+      |> Repo.insert!(prefix: schema)
+
+    {1, [activated]} =
+      from(d in ProcessDefinition, where: d.id == ^row.id, select: d)
+      |> Repo.update_all([set: [status: :active]], prefix: schema)
+
     activated
   end
 
@@ -183,7 +206,7 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
   # Parent started and its `gate` completed, so the child is running. Returns ids.
   defp running_child!(schema, interface) do
     child_def = active_definition!(schema, human_task_graph())
-    parent_def = active_definition!(schema, parent_graph(child_def.name, interface))
+    parent_def = legacy_active_definition!(schema, parent_graph(child_def.name, interface))
     parent_id = start!(schema, parent_def, %{"seed" => 1})
     gate = pending_task!(schema, parent_id)
     assert {:ok, _} = Engine.complete_task(gate.id, complete_attrs(%{}), prefix: schema)
@@ -484,7 +507,7 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
       }
 
       child_def = active_definition!(schema, human_task_graph())
-      parent_def = active_definition!(schema, parent_graph(child_def.name, interface))
+      parent_def = legacy_active_definition!(schema, parent_graph(child_def.name, interface))
       parent_id = start!(schema, parent_def, %{"seed" => 1})
       hold_engine_values!(schema, parent_id, %{"_sys.a" => Ecto.UUID.generate()})
 
