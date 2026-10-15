@@ -58,6 +58,12 @@
 #      STATIC=SHARDS=success. Anything else (failure, cancelled, skipped by mistake,
 #      empty -- including a failed `changes` job) is red. This is stricter than the old
 #      single job, which ran its gate even if `changes` failed.
+#    - GH #2586 / REQ-498: `backend_static` also runs "Effective permission matrix
+#      (MIX_ENV=dev, production module list)", `mix letflow.permission_matrix --check
+#      --baseline-ref <base sha>`, with its own `_build/dev` cache step. It is NOT inside
+#      `mix letflow.check.static`: that alias is pinned to MIX_ENV=test (mix.exs `cli/0`),
+#      where config/test.exs registers the test fixture modules, and the task refuses
+#      MIX_ENV=test by design. Locally: `MIX_ENV=dev mix letflow.permission_matrix --check`.
 #    - THE ONE KNOB: `matrix.shard` in `backend_shard`. M comes from
 #      `strategy.job-total`; edit only that list to change the shard count.
 #    - Concurrency: with M=3 a PR run keeps 6 long jobs busy (frontend, mobile, static,
@@ -474,6 +480,79 @@ jobs:
         env:
           MIX_ENV: test
           WASMEX_BUILD: true
+
+      # GH #2586 / REQ-498 (design lib/letflow/design/gh2586-permission-matrix-golden.md
+      # section 8): the effective-permission golden check runs under MIX_ENV=dev, i.e. the
+      # PRODUCTION module list (config/test.exs registers the test fixtures, and the task
+      # refuses MIX_ENV=test). It also has its own _build/dev cache key. The shared entry above
+      # deliberately still includes _build/dev: the remaining MIX_ENV=dev subprocess tests (GH #2611)
+      # rely on a warm dev build there; excluding it made them cold-compile and time out on #2612.
+      - name: Cache _build/dev (permission matrix)
+        if: needs.changes.outputs.backend != 'false'
+        uses: actions/cache@v4
+        with:
+          path: _build/dev
+          key: ${{ runner.os }}-mix-dev-${{ hashFiles('mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-dev-
+
+      # The baseline is the golden as committed at the BASE commit (never the PR's own copy):
+      # pull_request -> HEAD^1 of the synthetic merge (2 parents required); merge_group ->
+      # base_sha; push -> before. The step computes ref_sha and head_sha itself and then
+      # requires, in the task output, the `# modules: ` header line and the exact
+      # PERMISSION-MATRIX-REPORT marker for THOSE shas ending in ` result=pass`, so an alias
+      # or stub task that shadows the real one and exits 0 still fails the step.
+      - name: Effective permission matrix (MIX_ENV=dev, production module list)
+        if: needs.changes.outputs.backend != 'false'
+        env:
+          MIX_ENV: dev
+          WASMEX_BUILD: true
+          EVENT_NAME: ${{ github.event_name }}
+          MERGE_GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          case "$EVENT_NAME" in
+            pull_request)
+              parents=$(git rev-list --parents -n 1 HEAD | wc -w)
+              if [ "$parents" -ne 3 ]; then
+                echo "::error::expected the pull_request merge ref (HEAD with 2 parents), got $((parents - 1)) parent(s)"
+                exit 1
+              fi
+              ref=$(git rev-parse HEAD^1)
+              ;;
+            merge_group)
+              if [ -z "$MERGE_GROUP_BASE" ]; then
+                echo "::error::merge_group event without merge_group.base_sha"
+                exit 1
+              fi
+              ref="$MERGE_GROUP_BASE"
+              ;;
+            push)
+              if [ -z "$PUSH_BEFORE" ] || [ -z "${PUSH_BEFORE//0/}" ]; then
+                echo "::error::push event without a usable github.event.before ('$PUSH_BEFORE')"
+                exit 1
+              fi
+              ref="$PUSH_BEFORE"
+              ;;
+            *)
+              echo "::error::permission matrix check: unsupported event '$EVENT_NAME'"
+              exit 1
+              ;;
+          esac
+          ref_sha=$(git rev-parse --verify "$ref^{commit}")
+          head_sha=$(git rev-parse HEAD)
+          echo "event=$EVENT_NAME baseline=$ref_sha head=$head_sha"
+          out="$RUNNER_TEMP/permission_matrix.out"
+          mix letflow.permission_matrix --check --baseline-ref "$ref_sha" | tee "$out"
+          if ! grep -q '^# modules: ' "$out"; then
+            echo "::error::permission matrix output has no '# modules: ' header line"
+            exit 1
+          fi
+          if ! grep -q "^PERMISSION-MATRIX-REPORT v1 baseline=$ref_sha head=$head_sha .* result=pass\$" "$out"; then
+            echo "::error::permission matrix output has no PERMISSION-MATRIX-REPORT v1 pass marker for baseline=$ref_sha head=$head_sha"
+            exit 1
+          fi
 
       - name: Run isolated tails (mix letflow.check.test --tails-only)
         if: needs.changes.outputs.backend != 'false'

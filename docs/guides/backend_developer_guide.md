@@ -210,6 +210,16 @@ Design: `lib/letflow/design/iss0993-platform-scope-separation.md`.
   deactivated (`Identity.deactivate_tenant/1` returns `:platform_tenant_protected`).
 - Never log tenant ids, role names or tokens; denial responses are fixed shapes.
 
+**Effective-permission golden (GH #2586 / REQ-498).** Any change to
+`Authorization.core_permissions/0`, `@roles` or a `core_role_allows?/2` clause
+changes the effective permission matrix: regenerate
+`priv/permission_matrix/effective.golden` in the same PR
+(`MIX_ENV=dev mix letflow.permission_matrix --write`, then `--check`). CI's
+`backend_static` step fails on a stale golden, and the check reports the change
+as a `CORE MATRIX CHANGE`, which SECURITY-REVIEWER must review. Module grants
+follow a stricter rule (a widening is refused); see
+`docs/guides/adding-an-application-module.md` section 6a.
+
 ---
 
 ## 6. OIDC / identity — ueberauth_oidcc (partial adoption, decided)

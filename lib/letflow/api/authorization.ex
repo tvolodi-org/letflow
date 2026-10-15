@@ -1466,6 +1466,13 @@ defmodule Letflow.Api.Authorization do
     core_role_allows?(role, permission) or permission in Letflow.Modules.Catalog.role_grants(role)
   end
 
+  @doc "role_allows?/2 minus the Catalog.role_grants/1 fallback: the :MyModulesRead clause, then core_role_allows?/2. For the permission matrix's `via` column only (GH #2586, `Letflow.Api.PermissionMatrix`); never an access decision (it can only under-grant)."
+  @spec role_allows_without_module_grants?(role(), permission() | atom()) :: boolean()
+  def role_allows_without_module_grants?(_role, :MyModulesRead), do: true
+
+  def role_allows_without_module_grants?(role, permission),
+    do: core_role_allows?(role, permission)
+
   @spec core_role_allows?(role(), permission()) :: boolean()
   defp core_role_allows?(role, permission)
 

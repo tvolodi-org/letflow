@@ -125,6 +125,7 @@ The manifest map shape (`t:Letflow.Modules.Module.manifest/0`,
 | `:required_roles` | `[String.t()]` | advisory only (0029 §2), not enforced |
 | `:settings_schema` | `map() \| nil` | JSON-Schema-shaped description of the module's configurable settings |
 | `:route_policies` | `[{method, path_pattern, permission}]` | maps each of the module's own routes, relative to its own mount, to the permission that gates it |
+| `:widens_grants` (optional) | `[{role, permission}]` | declares a NARROWING (a role losing one of this module's atoms) in this version; never authorises a widening. See section 6a |
 
 A module **declares its own permission atoms and grants them only to
 existing platform roles** — it cannot create a role and cannot grant a core
@@ -280,6 +281,72 @@ that pins their contents:
 Forgetting either edit does not fail compilation — it fails exactly these
 two assertions the next time `mix test` runs, which is why ISS-0846 calls
 this out by name.
+
+## 6a. The effective-permission golden file (GH #2586 / REQ-498)
+
+`priv/permission_matrix/effective.golden` is the committed effective
+permission matrix: one line per role x permission atom
+(`Authorization.roles/0` x `Authorization.permissions/0`) with `allowed`,
+the atom's `owner` (`core` or `module:<id>`) and `via` (`core` when the row
+is true without any manifest `role_grants`, `grant` when only a manifest's
+`role_grants` makes it true, `-` when false). Grants are compiled code
+evaluated without a tenant, so a module version that adds a role grant
+takes effect for every tenant at deploy; this file is the control
+(decision 0055 D7).
+
+`mix letflow.permission_matrix --check` runs two checks. FRESHNESS: the
+working-tree golden must equal the matrix the code computes. CLASSIFICATION:
+the golden as committed at the BASE commit (read from git, never your copy)
+against the computed matrix. The diff rule:
+
+- The only pre-approved change: a NEW atom of your module that only your
+  module's `route_policies` name (no core route policy, no other module),
+  true for exactly `PLATFORM_ADMIN` and `TENANT_ADMIN`.
+- WIDENING `role_grants` (any role gaining an atom it did not hold, an
+  existing atom granted to a new role, a new atom granted to any role
+  other than PLATFORM_ADMIN/TENANT_ADMIN, an atom a core route policy uses)
+  is REFUSED, with no override, until per-tenant grant snapshots exist.
+  Regenerating the golden in the same PR does not help: classification
+  never reads the working-tree golden.
+- NARROWING (a role losing one of your atoms, or an atom removed) is allowed
+  but must be declared exactly in the manifest as
+  `widens_grants: [{:ROLE, :Atom}]` AND the manifest `version` must change in
+  the same PR (a declaration is only evaluated for a module whose version
+  changed; otherwise it is inert). An undeclared narrowing fails, and so does
+  a declaration that matches no narrowing. A declaration naming a widening
+  row is itself a failure. Clear the list at the next version bump.
+- A CORE change (a new core atom, a `core_role_allows?/2` clause, `@roles`)
+  is not refused but must regenerate the golden in the same PR; the report
+  prints `CORE MATRIX CHANGE` and SECURITY-REVIEWER must review it.
+- Fail closed: a CORE rule that makes a module atom true for any role other
+  than PLATFORM_ADMIN/TENANT_ADMIN is refused as `:core_rule_on_module_atom`
+  (such a core role cannot land until per-tenant grant snapshots exist).
+
+Commands (run `git fetch origin main` first; the local baseline is
+`git merge-base HEAD origin/main`):
+
+- check: `MIX_ENV=dev mix letflow.permission_matrix --check`
+  (PowerShell: `$env:MIX_ENV='dev'; mix letflow.permission_matrix --check`);
+- regenerate: `MIX_ENV=dev mix letflow.permission_matrix --write`.
+
+It never runs under `MIX_ENV=test` (the task refuses it): `config/test.exs`
+registers the `test/support/modules` fixtures, so that would not be the
+production matrix. For the same reason it is not part of
+`mix letflow.check.static`; CI runs it as its own `backend_static` step.
+
+Rules the check enforces on the module list and manifests:
+
+- `config :letflow, :modules` may be set only in `config/config.exs` and
+  `config/test.exs`, and the lists `Config.Reader` yields for `:prod` and for
+  `:dev` must both equal the compiled one (no override in `prod.exs`,
+  `dev.exs` or `runtime.exs`).
+- One permission atom may be declared by only one module
+  (`Catalog.validate/1` rule 9, `{:permission_declared_by_other_module, _, _}`).
+- Every production manifest must pass `Catalog.validate/1`, even when it is
+  not registered in `config/test.exs`.
+- Removing a module: drop it from `config/config.exs` AND delete
+  `lib/letflow/modules/<id>/` in the same PR (a module dropped from the list
+  while its directory remains fails the check).
 
 ## 7. `tenant_modules` backfill migrations
 
@@ -471,6 +538,11 @@ only reaches the modules its own `depends_on` lists — and both run in CI:
    `config/test.exs` if it needs test-env coverage.
 6. [ ] Update `test/letflow/modules/catalog_test.exs`'s two hardcoded
    assertions (`entry_modules/0` literal list; the `config/config.exs` regex).
+6a. [ ] Regenerate the effective-permission golden
+   (`MIX_ENV=dev mix letflow.permission_matrix --write`) and run `--check`
+   (section 6a): a new atom is pre-approved only when it is true for exactly
+   PLATFORM_ADMIN and TENANT_ADMIN and named only by its own module's
+   `route_policies`; any `role_grants` widening is refused.
 7. [ ] If existing tenants need to be backfilled onto this module (replacing
    prior ad hoc functionality), write a tenant-scoped backfill migration,
    `if prefix() do` guarded, registered in

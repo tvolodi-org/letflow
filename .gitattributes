@@ -47,3 +47,9 @@ scripts/lib/*.sh text eol=lf
 # The QA redeploy script and its sourced helper run on the Linux host (GH 2352).
 deploy/*.sh text eol=lf
 deploy/lib/*.sh text eol=lf
+
+# GH #2586 / REQ-498: the effective-permission golden file is compared line by line
+# (`mix letflow.permission_matrix --check`) and read from git at the base commit; the
+# writer always emits LF, so pin LF on every checkout (the parser also strips a
+# trailing CR, but a CRLF working copy would still show as a whole-file diff).
+priv/permission_matrix/*.golden text eol=lf
