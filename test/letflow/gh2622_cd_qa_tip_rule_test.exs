@@ -61,9 +61,18 @@ defmodule Letflow.Gh2622CdQaTipRuleTest do
 
     assert d["env"] == %{
              "QA_URL" => "https://qa.bizdala.com",
-             "RUN_SHA" => "${{ github.event.workflow_run.head_sha }}",
-             "GH_TOKEN" => "${{ github.token }}"
+             "RUN_SHA" => "${{ github.event.workflow_run.head_sha }}"
            }
+
+    # GH_TOKEN is scoped to the one step that calls the GitHub API (least privilege:
+    # the third-party SSH action must not receive it).
+    steps = d["steps"]
+    inputs = Enum.find(steps, &(&1["id"] == "inputs"))
+    assert inputs["env"] == %{"GH_TOKEN" => "${{ github.token }}"}
+
+    for step <- steps, step["id"] != "inputs" do
+      refute Map.has_key?(step["env"] || %{}, "GH_TOKEN"), "GH_TOKEN leaked into #{step["name"]}"
+    end
   end
 
   test "skip-log: no permissions, no secrets, no concurrency, no checkout, HEAD_REPO not printed" do
@@ -168,7 +177,11 @@ defmodule Letflow.Gh2622CdQaTipRuleTest do
     {fetch, _} = :binary.match(run, "git fetch --no-tags --quiet origin main")
     {resolve, _} = :binary.match(run, ~s|git rev-parse --verify --quiet "${q}^{commit}"|)
     {ancestor, _} = :binary.match(run, ~s|git merge-base --is-ancestor "$TIP" "$full"|)
-    assert fetch < resolve and resolve < ancestor
+    # The deployed sha must also be on main (a same-repo non-main branch descending from
+    # TIP is refused): SECURITY-REVIEWER nit N2.
+    {on_main, _} = :binary.match(run, ~s|git merge-base --is-ancestor "$full" origin/main|)
+    assert fetch < resolve and resolve < ancestor and ancestor < on_main
+    assert run =~ ~s|echo "cd-qa: verify failed, deployed sha $q is not on main"|
     assert run =~ ~s|echo "cd-qa: deployed $q"|
     assert run =~ ~s|echo "cd-qa: main moved during deploy (verified $TIP, deployed $q)"|
     assert run =~ "for attempt in 1 2 3 4 5 6 7 8 9 10; do"

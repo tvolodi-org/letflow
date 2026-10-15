@@ -51,7 +51,6 @@ jobs:
     env:
       QA_URL: https://qa.bizdala.com
       RUN_SHA: ${{ github.event.workflow_run.head_sha }}
-      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Check out main (trusted merged code only)
         uses: actions/checkout@v4
@@ -64,6 +63,10 @@ jobs:
       # /health body goes to a file under $RUNNER_TEMP, never to $GITHUB_OUTPUT or the log.
       - name: Resolve main tip, the tip's CI push run, and QA's /health
         id: inputs
+        # Least privilege: the token is scoped to the only step that calls the GitHub API,
+        # so the third-party SSH action never receives it.
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
           safe() { if [[ $1 =~ ^[A-Za-z0-9_]{0,64}$ ]]; then printf '%s' "$1"; fi; }
@@ -174,6 +177,10 @@ jobs:
           fi
           if ! git merge-base --is-ancestor "$TIP" "$full"; then
             echo "cd-qa: verify failed, deployed sha $q is not tip $TIP or a descendant"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$full" origin/main; then
+            echo "cd-qa: verify failed, deployed sha $q is not on main"
             exit 1
           fi
           echo "cd-qa: deployed $q"
