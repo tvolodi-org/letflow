@@ -2483,6 +2483,37 @@ defmodule Letflow.Definitions do
     end
   end
 
+  # GH #2587 PR B1 (REVIEWER F2): on the PROMOTION paths the activator is resolved in the TARGET
+  # tenant's schema. A graph with lines whose activator has no users row there (a source or test
+  # tenant actor, a platform operator in another tenant) is refused with a DISTINCT code rather
+  # than the misleading :entity_write_activator_required. Nothing is written; the graph can be
+  # created as a draft in the target and activated by a target-tenant principal. Reveals only
+  # that the activator is not a user of the target tenant.
+  @doc false
+  @spec check_activator_in_tenant(
+          ProcessDefinition.t() | map(),
+          String.t(),
+          EntityPort.activator() | nil
+        ) :: :ok | {:error, :entity_write_activator_not_in_target_tenant}
+  def check_activator_in_tenant(%{graph: graph_map}, prefix, activator) do
+    with {:ok, [_ | _], _nodes} <- entity_write_nodes(graph_map),
+         %{user_id: user_id} <- activator,
+         true <- is_binary(user_id) do
+      case Ecto.UUID.cast(user_id) do
+        {:ok, uuid} ->
+          case Letflow.Identity.get_user(uuid, prefix: prefix) do
+            {:ok, _user} -> :ok
+            {:error, :not_found} -> {:error, :entity_write_activator_not_in_target_tenant}
+          end
+
+        :error ->
+          {:error, :entity_write_activator_not_in_target_tenant}
+      end
+    else
+      _no_lines_or_no_activator -> :ok
+    end
+  end
+
   # The `activated_by` document recorded on the row an activation path makes ACTIVE: the
   # activator's authority plus the (entity_type, "create") pairs of the graph's lines; nil when
   # the graph has no lines (the column stays NULL) or no activator is given (such a graph was
@@ -2607,7 +2638,8 @@ defmodule Letflow.Definitions do
   defp declared_variable_keys(_definition, _prefix), do: MapSet.new()
 
   # Variable names the graph itself pre-seeds from authored data: a HUMAN_TASK form property
-  # a `required_outputs` entry or a `variable_schemas` key. An `output_record_id_var` must not be one (0054 D1).
+  # or a `required_outputs` entry (the `variable_schemas` keys are added by
+  # declared_variable_keys/2). An `output_record_id_var` must not be one (0054 D1).
   defp preseeded_variable_names(nodes) do
     nodes
     |> Enum.flat_map(fn

@@ -728,4 +728,179 @@ defmodule Letflow.Definitions.EntityWritesActivationTest do
                promote(source, t, graph, activator(t.user))
     end
   end
+
+  # ── review follow-ups: input robustness and type lifecycle (TDV F4/F7/F8) ───────────────────
+
+  describe "input robustness and type lifecycle (gate ON)" do
+    setup do
+      with_env(:entity_writes_execution_enabled, true)
+      :ok
+    end
+
+    test "non-map fields, an atom-key line, a 65-byte type name, missing or upper-case op",
+         %{t: t} do
+      assert codes(check(t, [line("stock_move", %{"fields" => "label"})])) ==
+               [v(0, :entity_write_field_source_invalid)]
+
+      assert codes(check(t, [%{op: "create", entity_type: "stock_move"}])) ==
+               [v(0, :entity_write_line_malformed)]
+
+      assert codes(check(t, [line(String.duplicate("a", 65))])) ==
+               [v(0, :entity_type_name_invalid)]
+
+      assert codes(check(t, [line(String.duplicate("a", 64))])) ==
+               [v(0, :entity_type_not_found)]
+
+      assert codes(check(t, [%{"entity_type" => "stock_move"}])) ==
+               [v(0, :entity_write_op_unsupported)]
+
+      assert codes(check(t, [line("stock_move", %{"op" => "CREATE"})])) ==
+               [v(0, :entity_write_op_unsupported)]
+    end
+
+    test "a type definition with no append_only key is not append-only", %{t: t} do
+      definition = Map.delete(type_definition("no_flag_type", %{}), :append_only)
+
+      {:ok, row} =
+        EntityDefinitions.create_definition(
+          %{definition: definition, created_by: Ecto.UUID.generate()},
+          t.schema
+        )
+
+      {:ok, _} =
+        EntityDefinitions.activate_definition(row.name, Ecto.UUID.generate(), "go", t.schema)
+
+      refute Map.has_key?(row.definition_json, "append_only")
+
+      assert codes(check(t, [line("no_flag_type")])) == [v(0, :entity_type_not_append_only)]
+    end
+
+    test "a once-active type whose activation is gone is not found", %{t: t} do
+      type!(t.schema, "retired_type")
+      assert check(t, [line("retired_type")]) == :ok
+
+      Repo.delete_all(
+        from(a in Letflow.Repository.Activation, where: a.artifact_name == "retired_type"),
+        prefix: t.schema
+      )
+
+      assert codes(check(t, [line("retired_type")])) == [v(0, :entity_type_not_found)]
+    end
+
+    test "a node type that is neither HUMAN_TASK nor SERVICE_TASK is refused", %{t: t} do
+      g = %{
+        "nodes" => [
+          %{"id" => "start", "node_type" => "START"},
+          %{
+            "id" => "sp",
+            "node_type" => "SUB_PROCESS",
+            "attributes" => %{"entity_writes" => [line("stock_move")]}
+          },
+          %{"id" => "end", "node_type" => "END"}
+        ],
+        "edges" => []
+      }
+
+      assert codes(Definitions.check_entity_writes(%{graph: g}, t.schema, activator(t.user))) ==
+               [v(0, :entity_writes_node_type_not_supported, "sp")]
+    end
+
+    test "a refusal on activate/2 leaves the prior ACTIVE version active", %{t: t} do
+      name = unique("prior")
+      prior = raw_definition!(t.schema, name, "1", trivial_graph(), :active)
+      draft = raw_definition!(t.schema, name, "2", graph([line("ghost")]), :draft)
+
+      assert {:error, {:entity_writes_invalid, [%{code: :entity_type_not_found}]}} =
+               Definitions.activate(draft.id, prefix: t.schema, activator: activator(t.user))
+
+      assert %{status: :active} = row(t.schema, prior.id)
+      assert %{status: :draft} = row(t.schema, draft.id)
+    end
+  end
+
+  # ── activated_by clearing and no-copy (TDV F2) ──────────────────────────────────────────────
+
+  describe "a stale or forged activated_by never survives re-activation (gate ON)" do
+    setup do
+      with_env(:entity_writes_execution_enabled, true)
+      %{forged: %{"user_id" => Ecto.UUID.generate(), "roles" => ["PLATFORM_ADMIN"]}}
+    end
+
+    test "activate/2 of a no-lines draft clears a planted value", %{t: t, forged: forged} do
+      draft =
+        raw_definition!(t.schema, unique("clr"), "1", trivial_graph(), :draft, %{
+          activated_by: forged
+        })
+
+      assert %{activated_by: ^forged} = row(t.schema, draft.id)
+      assert {:ok, _} = Definitions.activate(draft.id, prefix: t.schema)
+      assert %{status: :active, activated_by: nil} = row(t.schema, draft.id)
+    end
+
+    test "rollback to a no-lines version clears a planted value", %{t: t, forged: forged} do
+      key = unique("clr-rb")
+
+      v1 =
+        raw_definition!(t.schema, key, "1", trivial_graph(), :deprecated, %{activated_by: forged})
+
+      raw_definition!(t.schema, key, "2", trivial_graph(), :active)
+
+      assert {:ok, _} =
+               Definitions.rollback_definition_version(key, "1", Ecto.UUID.generate(),
+                 prefix: t.schema,
+                 activator: activator(t.user),
+                 permission_checker: fn _a, _t -> true end,
+                 event_appender: fn _a, _p -> {:ok, %{event_id: Ecto.UUID.generate()}} end
+               )
+
+      assert %{status: :active, activated_by: nil} = row(t.schema, v1.id)
+    end
+
+    test "promotion never copies the source row's activated_by", %{t: t, forged: forged} do
+      source = tenant!("gh2587-b1-clr-src")
+
+      for {g, expect_user} <- [{trivial_graph(), nil}, {graph([line("stock_move")]), t.user.id}] do
+        key = unique("clr-promo")
+        src = raw_definition!(source.schema, key, "1.0.0", g, :active, %{activated_by: forged})
+
+        plan = %{
+          source_tenant_id: source.tenant_id,
+          target_tenant_id: t.tenant_id,
+          process_key: key,
+          source_definition_id: src.id,
+          target_definition_id: nil,
+          base_version: nil,
+          entries: []
+        }
+
+        review =
+          struct(PromotionReview, %{
+            id: Ecto.UUID.generate(),
+            plan_digest: PromotionDigest.compute_plan_digest(plan),
+            def_id: key,
+            serialised_plan: Jason.encode!(plan),
+            requested_by: Ecto.UUID.generate(),
+            status: :approved,
+            row_version: 2
+          })
+
+        assert {:ok, _} =
+                 Promotion.promote_definition(Ecto.UUID.generate(), review,
+                   activator: activator(t.user),
+                   permission_checker: fn _a, _t -> true end,
+                   event_appender: fn _a, _p -> {:ok, %{event_id: Ecto.UUID.generate()}} end
+                 )
+
+        [target_row] =
+          Repo.all(from(d in ProcessDefinition, where: d.name == ^key), prefix: t.schema)
+
+        case expect_user do
+          nil -> assert target_row.activated_by == nil
+          id -> assert %{"user_id" => ^id} = target_row.activated_by
+        end
+
+        refute target_row.activated_by == forged
+      end
+    end
+  end
 end

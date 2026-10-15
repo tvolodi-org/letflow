@@ -77,7 +77,7 @@ defmodule Letflow.Definitions.Activator do
     %{
       "user_id" => user_id,
       "roles" => Enum.sort(Map.get(activator, :roles, [])),
-      "permissions" => Enum.sort(Map.get(activator, :permissions, [])),
+      "permissions" => Enum.sort(activator.permissions),
       "authorized" =>
         pairs
         |> Enum.uniq()

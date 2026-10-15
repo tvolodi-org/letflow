@@ -79,7 +79,7 @@ defmodule Letflow.Engine.EntityPort do
           required(:user_id) => Ecto.UUID.t(),
           required(:roles) => [String.t()],
           required(:entities_records_write?) => boolean(),
-          optional(:permissions) => [String.t()]
+          required(:permissions) => [String.t()]
         }
 
   @typedoc """

@@ -841,6 +841,14 @@ defmodule Letflow.Routers.Promotions do
        ),
        do: Response.expression_references_reserved_variable(conn, references)
 
+  # GH #2587 PR B1 (F2): a graph with entity_writes whose promoting principal is not a user of
+  # the target tenant is refused with a distinct code; nothing is written.
+  defp render_apply(
+         conn,
+         {:error, {:promotion_failed, :entity_write_activator_not_in_target_tenant}}
+       ),
+       do: Response.entity_write_activator_not_in_target_tenant(conn)
+
   # GH #2587 PR B1: the promoted graph's entity_writes were refused in the TARGET tenant.
   defp render_apply(
          conn,

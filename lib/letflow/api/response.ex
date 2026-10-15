@@ -280,6 +280,15 @@ defmodule Letflow.Api.Response do
       })
 
   @doc """
+  HTTP 422 — a graph with `entity_writes` promoted by a principal who is not a user of the
+  TARGET tenant (GH #2587 PR B1, REVIEWER F2). Nothing is written; the graph is created as a
+  draft in the target and activated by a target-tenant principal. The body reveals only that.
+  """
+  @spec entity_write_activator_not_in_target_tenant(Plug.Conn.t()) :: Plug.Conn.t()
+  def entity_write_activator_not_in_target_tenant(conn),
+    do: send_json(conn, 422, %{"error" => "entity_write_activator_not_in_target_tenant"})
+
+  @doc """
   HTTP 422 — a definition's `entity_writes` were refused at activation (GH #2587 PR B1, design
   gh2587-req499-pr-b-human-task-writes.md 5.3, 6.2). One body for every route that activates a
   definition (activate, version rollback, review promotion apply, review-free tenant

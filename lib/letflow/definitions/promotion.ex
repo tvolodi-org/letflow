@@ -142,6 +142,7 @@ defmodule Letflow.Definitions.Promotion do
           | {:expression_references_reserved_variable,
              [Letflow.Definitions.ReservedReferences.reserved_reference()]}
           | {:entity_writes_invalid, [Letflow.Definitions.entity_writes_violation()]}
+          | :entity_write_activator_not_in_target_tenant
           | Ecto.Changeset.t()
           | term()
 
@@ -417,6 +418,12 @@ defmodule Letflow.Definitions.Promotion do
             # status write. GH #2587 PR A1b (design 2A.3): the reserved-namespace references
             # first, so a refused graph takes no script-row lock.
             with :ok <- Letflow.Definitions.check_reserved_references(new_row),
+                 :ok <-
+                   Letflow.Definitions.check_activator_in_tenant(
+                     new_row,
+                     target_prefix,
+                     activator
+                   ),
                  :ok <- Letflow.Definitions.check_entity_writes(new_row, target_prefix, activator),
                  :ok <- Letflow.Definitions.check_script_bindings(new_row, target_prefix) do
               :ok
