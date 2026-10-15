@@ -156,9 +156,14 @@ defmodule Letflow.Entities.CommandMultiCallersTest do
   defp names_step_namespace?(ast) do
     {_ast, found?} =
       Macro.prewalk(ast, false, fn
-        :step_namespace = node, _acc -> {node, true}
-        "step_namespace" = node, _acc -> {node, true}
-        node, acc -> {node, acc}
+        :step_namespace = node, _acc ->
+          {node, true}
+
+        node, acc when is_binary(node) ->
+          {node, acc or String.contains?(node, "step_namespace")}
+
+        node, acc ->
+          {node, acc}
       end)
 
     found?
@@ -247,6 +252,9 @@ defmodule Letflow.Entities.CommandMultiCallersTest do
       "opts = [prefix: p] ++ [step_namespace: ns]",
       "%{step_namespace: ns}",
       ~s|key = String.to_existing_atom("step_namespace")|,
+      ~s|key = String.to_atom("my_step_namespace_key")|,
+      ~s|key = ~s(step_namespace)|,
+      ~s|key = "x_" <> y <> "_step_namespace"|,
       "Keyword.fetch(opts, :step_namespace)"
     ]
 
@@ -266,7 +274,8 @@ defmodule Letflow.Entities.CommandMultiCallersTest do
       for source <- [
             "EventStore.append_multi(m, a, prefix: p)",
             "step_namespace = {:line, 0}",
-            ~s|doc = "the step_namespace option"|,
+            ~s|doc = "the step namespace option"|,
+            ~s|key = "step_" <> "x"|,
             "fetch_step_namespace(opts)"
           ] do
         assert c2_violations(synthetic([{@fake, source}])) == [], source

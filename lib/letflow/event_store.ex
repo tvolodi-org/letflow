@@ -638,8 +638,6 @@ defmodule Letflow.EventStore do
     for {{:line, ^i, step}, value} <- changes, into: %{}, do: {step, value}
   end
 
-  defp maybe_store_oversized_payload(multi, ctx, namespace \\ nil)
-
   defp maybe_store_oversized_payload(multi, %{payload_bytes: payload_bytes} = ctx, namespace)
        when payload_bytes > @payload_inline_max_bytes do
     run_step(multi, namespace, :store_oversized_payload, fn repo, changes ->
@@ -654,7 +652,7 @@ defmodule Letflow.EventStore do
   # simply never added: no instance_projections row ever exists for the
   # platform sentinel, so both are structurally inapplicable, not a judgement
   # call. M2/M3/M4 are the exact same call shape as build_multi/1's own steps
-  # (same private functions, reused verbatim). M5 (maybe_store_oversized_payload/2)
+  # (same private functions, reused verbatim). M5 (maybe_store_oversized_payload/3)
   # stays in for structural symmetry with append/2 -- it is unconditional on
   # instance_projections (a pure function of ctx's payload_bytes/decoded_payload
   # plus the just-inserted events row), so including it costs nothing and
@@ -665,7 +663,7 @@ defmodule Letflow.EventStore do
     |> Multi.run(:assign_sequence, fn repo, changes -> assign_sequence(repo, changes, ctx) end)
     |> Multi.run(:idempotency, fn repo, changes -> claim_idempotency(repo, changes, ctx) end)
     |> Multi.run(:insert_event, fn repo, changes -> insert_event(repo, changes, ctx) end)
-    |> maybe_store_oversized_payload(ctx)
+    |> maybe_store_oversized_payload(ctx, nil)
   end
 
   # M1 -- active-instance guard (invariant 10, ES-01). A plain, unlocked read
@@ -835,7 +833,7 @@ defmodule Letflow.EventStore do
 
   # M5 -- store the oversized payload (invariant 7, design doc §6.2.5). Only
   # included in the Multi pipeline at all when payload_bytes > 4096 (see
-  # maybe_store_oversized_payload/2 above). Must run after M4: the composite
+  # maybe_store_oversized_payload/3 above). Must run after M4: the composite
   # FK requires the events row to exist first.
   defp store_oversized_payload(repo, %{insert_event: %Event{} = event}, %{
          payload_bytes: payload_bytes,

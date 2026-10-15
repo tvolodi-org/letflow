@@ -371,12 +371,29 @@ defmodule Letflow.Entities.RecordsCommandMultiTest do
       ]
 
       for overrides <- bad do
-        assert Records.command_multi(command(@type_a, 0, task_id, overrides), schema, :tenant) ==
-                 {:error, :invalid_step_source},
-               inspect(overrides)
+        {result, queries} =
+          PlatformTenantFixture.capture_repo_queries(fn ->
+            Records.command_multi(command(@type_a, 0, task_id, overrides), schema, :tenant)
+          end)
+
+        assert result == {:error, :invalid_step_source}, inspect(overrides)
+        assert queries == [], inspect(overrides)
       end
 
       assert Records.command_multi(:not_a_map, schema, :tenant) == {:error, :invalid_step_source}
+    end
+
+    test "a missing required field is {:record_payload_invalid, _} and nothing is written", %{
+      schema: schema,
+      task_id: task_id
+    } do
+      before = counts(schema)
+      cmd = command(@type_a, 0, task_id, %{field_values: %{"note" => "no title"}})
+
+      assert {:error, {:record_payload_invalid, _violations}} =
+               Records.command_multi(cmd, schema, :tenant)
+
+      assert counts(schema) == before
     end
 
     test "an authority that is neither :tenant nor an Owner raises FunctionClauseError", %{
@@ -604,6 +621,8 @@ defmodule Letflow.Entities.RecordsCommandMultiTest do
         {{:line, 1, :insert_event}, changeset, {:entity_write_failed, 1, :insert_event}},
         {{:line, 1, :idempotency}, {:idempotency_lookup_failed, :sidecar_row_missing},
          {:entity_write_failed, 1, :idempotency}},
+        {{:line, 4, :recheck_definition}, :invalid_schema_name,
+         {:entity_write_failed, 4, :recheck_definition}},
         {:transition, :whatever, :not_a_line_failure},
         {{:line, -1, :build}, :entity_type_managed, :not_a_line_failure}
       ]
@@ -623,6 +642,15 @@ defmodule Letflow.Entities.RecordsCommandMultiTest do
 
       assert Records.classify_step_error({:entity_append_only, "t"}) ==
                {:refused, :entity_append_only}
+
+      assert Records.classify_step_error({:record_payload_invalid, [:v]}) ==
+               {:refused, :validation_failed}
+
+      assert Records.classify_step_error(:record_version_conflict) ==
+               {:refused, :record_version_conflict}
+
+      assert Records.classify_step_error({:duplicate_idempotency_key, %Event{}}) ==
+               {:refused, :idempotency_conflict}
 
       assert Records.classify_step_error(:idempotency_key_reuse) ==
                {:refused, :idempotency_conflict}

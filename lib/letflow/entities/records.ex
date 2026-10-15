@@ -151,7 +151,7 @@ defmodule Letflow.Entities.Records do
       `check_write_authority/3` the single-command path uses (GH #2583
       section 8.2). It accepts only a `"sys:step:"` idempotency key and
       carries the step's `source` as flat `source.*` event-metadata keys.
-      Its one allow-listed caller is `Letflow.Entities.StepWrites` (static
+      Its one allow-listed caller is `Letflow.Entities.StepWrites` (added in PR B; static
       test `test/letflow/entities/command_multi_callers_test.exs`).
     * `interpret_in_multi/1` maps a failed `{:line, i, step}` to a refusal
       code or an internal fault. It has NO success clause: a duplicate key is
@@ -679,6 +679,8 @@ defmodule Letflow.Entities.Records do
           | {:error, {:definition_not_found, String.t()}}
           | {:error, :entity_type_managed}
           | {:error, :invalid_schema_name}
+  # The repeated authority check is defensive: managed_by is immutable (DB trigger), so it
+  # cannot differ from the build-time row (GH #2583 section 8.2).
   defp recheck_definition(%EntityDefinition{id: built_id}, entity_type, prefix, authority) do
     case fetch_active_definition(entity_type, prefix) do
       {:ok, %EntityDefinition{id: ^built_id} = current} ->

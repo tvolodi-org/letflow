@@ -147,6 +147,17 @@ defmodule Letflow.Entities.RecordsReservedKeysTest do
   # ── (a) sys:step: ───────────────────────────────────────────────────────────────────────────
 
   describe "(a) a raw sys:step: key on the single-command entry points" do
+    test "positive control: a successful create_record issues queries, so the zero-query asserts bite",
+         ctx do
+      {result, queries} =
+        PlatformTenantFixture.capture_repo_queries(fn ->
+          Records.create_record(create_attrs(ctx), ctx.schema)
+        end)
+
+      assert {:ok, %{is_duplicate: false}} = result
+      assert queries != []
+    end
+
     test "is :reserved_idempotency_key on all six, with zero queries and nothing written", ctx do
       assert_refused_without_query(
         ctx,
