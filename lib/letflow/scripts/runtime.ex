@@ -19,7 +19,7 @@ defmodule Letflow.Scripts.Runtime do
   run re-checks them against the tenant's CURRENT policy (`Policy.check_reads/2`: flagged type,
   active definition, no type restriction, known fields, and SEC N1 / P12: a `match.field`
   restricted now is refused), after the closed-output-schema and restricted-opt-in refusals.
-  The rows themselves are pre-fetched by the dispatcher through `Letflow.Engine.ScriptReadPort`
+  The rows themselves are pre-fetched by the dispatcher through `Letflow.Engine.EntityPort`
   (`run_spec.reads`). The restricted opt-in stays REFUSED at activation and at run time (C10):
   there is no opt-in path.
 

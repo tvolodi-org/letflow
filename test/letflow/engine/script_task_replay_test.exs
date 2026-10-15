@@ -90,7 +90,13 @@ defmodule Letflow.Engine.ScriptTaskReplayTest do
     source = File.read!("lib/letflow/engine/reconstruction.ex")
     assert source =~ "SCRIPT_TASK_COMPLETED"
 
-    for forbidden <- ["ScriptRunner", "ScriptTaskDispatcher", "ScriptReadPort", "Letflow.Scripts"] do
+    for forbidden <- [
+          "ScriptRunner",
+          "ScriptTaskDispatcher",
+          "EntityPort",
+          "StepWrites",
+          "Letflow.Scripts"
+        ] do
       refute source =~ forbidden, forbidden
     end
   end

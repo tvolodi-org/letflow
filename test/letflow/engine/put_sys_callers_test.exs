@@ -39,7 +39,8 @@ defmodule Letflow.Engine.PutSysCallersTest do
 
   # Reviewed allow-lists (adding a file is a reviewed diff).
   @put_sys_callers [@variable_merge, @reconstruction]
-  @event_literal_files [@variable_merge, @reconstruction, @tenant_provisioning]
+  @entity_port "lib/letflow/engine/entity_port.ex"
+  @event_literal_files [@variable_merge, @reconstruction, @tenant_provisioning, @entity_port]
   @reserved_literal_files [@variable_merge]
 
   @event_literals ["INSTANCE_SYS_VARIABLES_SET", "TASK_ENTITY_WRITES_APPLIED"]

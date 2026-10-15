@@ -284,9 +284,16 @@ defmodule Letflow.Engine do
 
   ## EE-12 (REQ-055) — lock inventory and cross-instance isolation
 
-  Every `lock("FOR UPDATE")` acquired anywhere in `create/2`, `complete_task/3`,
-  and `cancel_instance/3` (this module) plus `Letflow.EventStore.append/2`'s own
-  transitive lock is scoped to a single `instance_id`, never wider:
+  Every `lock("FOR UPDATE")` the engine itself acquires in `create/2`,
+  `complete_task/3`, and `cancel_instance/3` (this module) plus
+  `Letflow.EventStore.append/2`'s own transitive lock on the instance's stream
+  is scoped to a single `instance_id`, never wider. A completion whose node
+  declares `entity_writes` (decision 0054) additionally takes, through
+  `Letflow.Engine.EntityPort`, each written entity type's `instance_sequences`
+  row and its synthetic per-type `instance_projections` row (PER TYPE,
+  therefore shared with every writer of that type in the tenant, across
+  instances), the record rows it reads `FOR UPDATE`, and, for org-tree and
+  scoped types only, the `scope_node_paths` table lock:
 
     * `fetch_and_lock_task/3` (`complete_task/3`) — locks `tasks`, filtered
       `where t.id == ^task_id`. **Single-row**: exactly the one `tasks` row
@@ -321,7 +328,10 @@ defmodule Letflow.Engine do
       of its own — its `Multi.run(:instance_projection, ...)` step only
       inserts fresh rows, so L6 above is its only shared contention point.
 
-  **No global or table-level lock is held anywhere in these write paths.**
+  **No global or table-level lock is held anywhere in these write paths,
+  except the `scope_node_paths` table lock (`Letflow.ScopeNodePaths.lock!/1`,
+  decision 0054 D3 rule 3a), taken only by a completion whose `entity_writes`
+  lines write an org-tree type or a scoped type.**
   Every lock above is acquired via a `where` clause keyed on `instance_id`
   (directly, or transitively via `task_id`/`token_id` FK-scoped to one
   `instance_id`) — Postgres's `SELECT ... FOR UPDATE` locks exactly the
@@ -330,7 +340,8 @@ defmodule Letflow.Engine do
   `lib/letflow/engine/task_activation.ex`, or `lib/letflow/event_store.ex`
   locks any row outside the `instance_id` it was given, and none of those
   three modules holds a `:global`/`Registry`-backed singleton, a
-  `Mutex`/`:mutex` dependency, a `LOCK TABLE`, or any
+  `Mutex`/`:mutex` dependency, a `LOCK TABLE` (other than
+  `ScopeNodePaths.lock!/1` reached through `entity_writes`, see above), or any
   `GenServer`/`:gen_statem`/`DynamicSupervisor.start_child` call.
   **This finding does not extend to every file under `lib/letflow/engine/*.ex`
   as a blanket claim**: `lib/letflow/engine/plugin_registry.ex`
@@ -350,7 +361,15 @@ defmodule Letflow.Engine do
   `instance_projections` before `tokens`. Both orderings are
   same-instance-scoped (every lock in a given call carries the same
   `instance_id`), so this is a same-instance deadlock-avoidance discipline,
-  not a cross-instance one.
+  not a cross-instance one. A completion whose node declares `entity_writes`
+  extends this with the cross-instance order of decision 0054 D3, after the two
+  locks above: (3) the instance's own `instance_sequences` row; (3a) the
+  `scope_node_paths` table lock, only for org-tree or scoped types; (4) per
+  line, in `(entity_type, declared index)` order, that type's
+  `instance_sequences` row and synthetic projection row, then its record rows;
+  (5) `:transition` and the tail. Entity-type locks are cross-instance and are
+  taken only in this order, so two completions writing types (A, B) and (B, A)
+  cannot deadlock on them.
 
   REQ-045 resolved this engine to row-based state (`create/2` is a plain
   function under `Ecto.Multi`, not a supervised `:gen_statem`/
@@ -358,8 +377,11 @@ defmodule Letflow.Engine do
   "Process-vs-row decision" section above), so there is no per-instance
   process for a supervised-isolation/process-kill scenario to apply to.
   Isolation instead rests entirely on the row-locking discipline documented
-  above, verified under real concurrency by
-  `test/letflow/engine_concurrency_test.exs` (REQ-055). See
+  above. Instance isolation is verified under real concurrency by
+  `test/letflow/engine_concurrency_test.exs` (REQ-055), which covers
+  completions without `entity_writes` only; cross-instance entity-type
+  contention is covered by the decision 0054 lock-order tests (AC 6). A
+  completion with org-type lines serialises other org writers by design. See
   `lib/letflow/design/req-055-concurrent-instance-isolation.md` for the full
   design this section implements.
   """

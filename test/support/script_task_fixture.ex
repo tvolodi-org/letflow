@@ -415,27 +415,36 @@ defmodule Letflow.Support.ScriptTaskFixture do
 
   defmodule RecordingReadPort do
     @moduledoc """
-    GH 2534 PR 7c-2: a `Letflow.Engine.ScriptReadPort` stub for call-count assertions only. It
+    GH 2534 PR 7c-2: a `Letflow.Engine.EntityPort` stub for call-count assertions only. It
     tells the registered test pid, then delegates to the real `Letflow.Entities.ScriptReads`.
     """
-    @behaviour Letflow.Engine.ScriptReadPort
+    @behaviour Letflow.Engine.EntityPort
 
-    @impl Letflow.Engine.ScriptReadPort
+    @impl Letflow.Engine.EntityPort
     def prefetch(prefix, reads, input_vars) do
-      case Application.get_env(:letflow, :script_read_port_test_pid) do
+      case Application.get_env(:letflow, :entity_port_test_pid) do
         pid when is_pid(pid) -> send(pid, {:script_read_port_called, prefix, reads, input_vars})
         _ -> :ok
       end
 
       Letflow.Entities.ScriptReads.prefetch(prefix, reads, input_vars)
     end
+
+    @impl Letflow.Engine.EntityPort
+    defdelegate prepare(lines, ctx), to: Letflow.Entities.EntityPortImpl
+
+    @impl Letflow.Engine.EntityPort
+    defdelegate validate_lines(lines, ctx), to: Letflow.Entities.EntityPortImpl
+
+    @impl Letflow.Engine.EntityPort
+    defdelegate multi(multi, lines, ctx), to: Letflow.Entities.EntityPortImpl
   end
 
   @doc "Selects `RecordingReadPort` as the configured read port for the test (restored on exit)."
   @spec record_read_port_calls!() :: :ok
   def record_read_port_calls! do
-    put_env!(:script_read_port, RecordingReadPort)
-    put_env!(:script_read_port_test_pid, self())
+    put_env!(:entity_port, RecordingReadPort)
+    put_env!(:entity_port_test_pid, self())
     :ok
   end
 

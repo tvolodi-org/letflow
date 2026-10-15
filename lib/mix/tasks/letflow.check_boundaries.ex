@@ -29,8 +29,8 @@ defmodule Mix.Tasks.Letflow.CheckBoundaries do
     (`lib/letflow/engine.ex`, `lib/letflow/engine/**`) may not reference the
     entities context (`lib/letflow/entities.ex`, `lib/letflow/entities/**`);
     entity records reach the engine only through the engine-defined
-    `Letflow.Engine.ScriptReadPort`, whose implementation is selected from
-    `config :letflow, :script_read_port` at run time (a config value, not a
+    `Letflow.Engine.EntityPort` (0054 D2; it subsumed 0053's `ScriptReadPort`), whose
+    implementation is selected from `config :letflow, :entity_port` at run time (a config value, not a
     file edge).
 
     **Rule 6 checks DIRECT file edges ONLY.** `mix xref graph --format plain`
@@ -286,7 +286,7 @@ defmodule Mix.Tasks.Letflow.CheckBoundaries do
     %{
       source_prefixes: ["lib/letflow/engine.ex", "lib/letflow/engine/"],
       forbidden_target_prefixes: ["lib/letflow/entities.ex", "lib/letflow/entities/"],
-      reason: "engine -> entities only via Letflow.Engine.ScriptReadPort (0053 F10)"
+      reason: "engine -> entities only via Letflow.Engine.EntityPort (0053 F10, 0054 D2)"
     }
   ]
 

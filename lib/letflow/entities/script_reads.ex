@@ -1,8 +1,8 @@
 defmodule Letflow.Entities.ScriptReads do
   @moduledoc """
   GH 2534 PR 7c-2 (decision 0053 D5; 7b-2a section 8, SEC F1/N1): the entity-record
-  implementation of `Letflow.Engine.ScriptReadPort`, selected by the engine through
-  `config :letflow, :script_read_port`. Design `lib/letflow/design/gh2534-7c-script-handler.md`
+  read half of `Letflow.Engine.EntityPort` (`prefetch/3`), reached through the delegating
+  adapter `Letflow.Entities.EntityPortImpl` (`config :letflow, :entity_port`). Design `lib/letflow/design/gh2534-7c-script-handler.md`
   section 11.2.
 
   ## Phase 1 (every read, before ANY record query)
@@ -52,8 +52,6 @@ defmodule Letflow.Entities.ScriptReads do
   across runs.
   """
 
-  @behaviour Letflow.Engine.ScriptReadPort
-
   import Ecto.Query
 
   alias Letflow.Entities.Definitions
@@ -65,7 +63,6 @@ defmodule Letflow.Entities.ScriptReads do
   @max_rows 50
   @nil_uuid "00000000-0000-0000-0000-000000000000"
 
-  @impl Letflow.Engine.ScriptReadPort
   def prefetch(prefix, reads, input_vars)
       when is_binary(prefix) and is_list(reads) and is_map(input_vars) do
     # Phase 1 for EVERY read before the first record query.

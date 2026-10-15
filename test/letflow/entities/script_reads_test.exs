@@ -427,9 +427,9 @@ defmodule Letflow.Entities.ScriptReadsTest do
 
   defmodule ClearFlagThenReadPort do
     @moduledoc "Clears the readable-master flag of every read's type, THEN calls the real port."
-    @behaviour Letflow.Engine.ScriptReadPort
+    @behaviour Letflow.Engine.EntityPort
 
-    @impl Letflow.Engine.ScriptReadPort
+    @impl Letflow.Engine.EntityPort
     def prefetch(prefix, reads, input_vars) do
       types = Enum.map(reads, & &1["entity_type"])
 
@@ -440,6 +440,15 @@ defmodule Letflow.Entities.ScriptReadsTest do
 
       Letflow.Entities.ScriptReads.prefetch(prefix, reads, input_vars)
     end
+
+    @impl Letflow.Engine.EntityPort
+    defdelegate prepare(lines, ctx), to: Letflow.Entities.EntityPortImpl
+
+    @impl Letflow.Engine.EntityPort
+    defdelegate validate_lines(lines, ctx), to: Letflow.Entities.EntityPortImpl
+
+    @impl Letflow.Engine.EntityPort
+    defdelegate multi(multi, lines, ctx), to: Letflow.Entities.EntityPortImpl
   end
 
   describe "port flag check" do
@@ -449,7 +458,7 @@ defmodule Letflow.Entities.ScriptReadsTest do
       cid = record!(ctx.schema, %{"name" => "Ann"})
       b = bound!(ctx.t, [id_read()], %{"cid" => cid})
       # check_reads in prepare_run passes (flag set); the flag is cleared inside the port call
-      F.put_env!(:script_read_port, ClearFlagThenReadPort)
+      F.put_env!(:entity_port, ClearFlagThenReadPort)
       assert_rejected_before_any_record_query(ctx.t, b)
     end
 

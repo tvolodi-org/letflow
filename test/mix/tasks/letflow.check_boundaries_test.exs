@@ -282,7 +282,7 @@ defmodule Mix.Tasks.Letflow.CheckBoundariesTest do
 
       assert reason =~ "lib/letflow/engine/x.ex"
       assert reason =~ "lib/letflow/entities/y.ex"
-      assert reason =~ "Letflow.Engine.ScriptReadPort"
+      assert reason =~ "Letflow.Engine.EntityPort"
     end
 
     test "every source and target prefix of the row is covered" do
@@ -295,7 +295,7 @@ defmodule Mix.Tasks.Letflow.CheckBoundariesTest do
     test "only the forbidden direction and only the listed layers" do
       for edge <- [
             # entities may depend on the engine (it implements the engine's port)
-            {"lib/letflow/entities/script_reads.ex", "lib/letflow/engine/script_read_port.ex"},
+            {"lib/letflow/entities/script_reads.ex", "lib/letflow/engine/entity_port.ex"},
             # the engine's facade into scripts is allowed (C18)
             {"lib/letflow/engine/script_task_dispatcher.ex", "lib/letflow/scripts/runtime.ex"},
             # look-alike paths are not the engine
@@ -362,27 +362,25 @@ defmodule Mix.Tasks.Letflow.CheckBoundariesTest do
       assert offenders == []
     end
 
-    test "the port implementation is selected only through :script_read_port" do
+    test "the port implementation is selected only through :entity_port" do
       root = Path.expand("../../..", __DIR__)
-      assert Application.fetch_env!(:letflow, :script_read_port) == Letflow.Entities.ScriptReads
+      assert Application.fetch_env!(:letflow, :entity_port) == Letflow.Entities.EntityPortImpl
 
       behaviours =
-        Letflow.Entities.ScriptReads.module_info(:attributes)
+        Letflow.Entities.EntityPortImpl.module_info(:attributes)
         |> Keyword.get_values(:behaviour)
         |> List.flatten()
 
-      assert Letflow.Engine.ScriptReadPort in behaviours
+      assert Letflow.Engine.EntityPort in behaviours
 
       readers =
         root
         |> Path.join("lib/**/*.ex")
         |> Path.wildcard()
-        |> Enum.filter(
-          &(File.read!(&1) =~ ~r/(get_env|fetch_env!?)\(:letflow, :script_read_port/)
-        )
+        |> Enum.filter(&(File.read!(&1) =~ ~r/(get_env|fetch_env!?)\(:letflow, :entity_port/))
         |> Enum.map(&Path.relative_to(&1, root))
 
-      assert readers == ["lib/letflow/engine/script_task_dispatcher.ex"]
+      assert readers == ["lib/letflow/engine/entity_port.ex"]
     end
   end
 end
