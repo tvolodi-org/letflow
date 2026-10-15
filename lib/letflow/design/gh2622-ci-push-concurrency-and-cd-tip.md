@@ -1,173 +1,200 @@
-# GH #2622: per-sha CI concurrency for main pushes + CD "tip rule"
+# GH #2622: per-sha CI concurrency for main pushes + CD "tip rule" + job timeouts
 
-Author: CODE-DESIGNER. Branch `fix/GH-2622-ci-push-concurrency` (off `06bd6b34`). Supersedes the CD gate in
+Author: CODE-DESIGNER. Branch `fix/GH-2622-ci-push-concurrency` (off `06bd6b34`). Rev 2: after validator FAIL (B1-B6) and supervisor rulings (OQ-1, OQ-3 = (b), OQ-4 folded in).
+No required check, job name, or ruleset changes (`docs/merge-queue.md:6-10`; aggregator name `ci.yml:46-50`).
+
+**REQ-367's CD path gate is superseded: CD deploys the tested main tip whenever QA differs.** This replaces
 `lib/letflow/design/req367-cd-qa-deploy.md` §2 "How the gate reuses `ci.yml`'s `changes` job" (:221) and §3 (:313).
-No required check, job name, or ruleset changes (`docs/merge-queue.md:6-10`; aggregator names `ci.yml:46-50`).
 
 ## 0. Verified facts (2026-10-15)
 
 | # | Fact | Source |
 |---|---|---|
-| F1 | One concurrency group for every push to `refs/heads/main`; cancel-in-progress only on `pull_request`. A third arrival cancels the PENDING run regardless. | `ci.yml:162-171`; issue #2622 |
-| F2 | Trigger of today's burst: run 38665714603 (`9974a3a4`, push) has `Backend shard 2/3` `in_progress` since 01:35:48Z (all other jobs done by 01:45:48Z). It holds the single slot; `fe06bdd9` and `048a4253` were cancelled while pending; `a1033b8e` has no push run in the list. No job in `ci.yml` sets `timeout-minutes` (grep: 0 hits), so the 360-min default applies. | `gh run view 38665714603`; `gh run list --workflow CI --branch main` |
-| F3 | The deploy cannot be pinned to a sha from CD: the key is a forced command (`cd.yml:65-70`) and the script deploys whatever `git pull` yields (`deploy/redeploy-qa.sh:41-43`). Pinning would need the script to parse `SSH_ORIGINAL_COMMAND` (OpenSSH exports it for `command=` keys) or an infra change to the key; both widen the restricted key's input surface and are rejected (§7). The tip is the only deployable target. | as cited |
-| F4 | The orchestrator's "docs-only B hides A" case cannot happen today: on `push` the `changes` job always writes `backend=true`/`frontend=true` (`ci.yml:210-215`), so `should_deploy` (`cd.yml:48-56`) is always true for a push run. The real loss is cancellation (F1/F2). The new gate (§3) diffs against QA's deployed sha, so a per-commit view is never used again. | as cited |
-| F5 | `https://qa.bizdala.com/health` is public and unauthenticated; returned `{"status":"ok","sha":"0f1a7fa1…"}` while `main` = `06bd6b34`. Host is already hard-coded in `redeploy-qa.sh:143`; no secret needed. Body is only status+sha (`lib/letflow/router.ex:111-113`, `lib/letflow/build_info.ex:14-18`); `sha` may be JSON null (`build_info.ex:16`). | `curl`, as cited |
-| F6 | In a `workflow_run` run, `github.sha` is main's tip at trigger time, NOT the triggering commit: the CD run started 22:45:51Z by `b65f7378`'s CI reports headSha `90e5f2be`. Use `github.event.workflow_run.head_sha` for the run sha and an explicit API read for the tip. | `gh run list --workflow "CD (QA)"` |
-| F7 | Repo is public, default token permission `read`, fork PRs need approval for first-time contributors only. `workflow_run.branches: [main]` (`cd.yml:25-28`) filters on `head_branch`, so a fork PR whose branch is named `main` also fires CD; today's CD then `source`s that run's artifact (`cd.yml:41-51`): fork-controlled shell in a privileged context. | `gh api …/actions/permissions/workflow`, `…/fork-pr-contributor-approval`, `gh api repos/:owner/:repo` |
-| F8 | Every main commit passed the required checks on a `gh-readonly-queue` merge_group run of the exact squash tree; no bypass actors. | `docs/merge-queue.md:6-18`; `ci.yml:154-160` |
+| F1 | One concurrency group for all pushes to `refs/heads/main`; cancel-in-progress only on `pull_request`. A third arrival cancels the PENDING run regardless. | `ci.yml:162-171`; issue #2622 |
+| F2 | Today's trigger: run 38665714603 (`9974a3a4`, push) has `Backend shard 2/3` `in_progress` since 01:35:48Z (other jobs done by 01:45:48Z). It holds the slot; `fe06bdd9`, `048a4253` were cancelled while pending; `a1033b8e` has no push run. No job sets `timeout-minutes` (grep: 0 hits), so the 360-min default applies. | `gh run view 38665714603 --json jobs`; `gh run list --workflow CI --branch main` |
+| F3 | The deploy cannot be pinned to a sha: the key is a forced command (`cd.yml:65-70`), the script deploys whatever `git pull` yields (`deploy/redeploy-qa.sh:41-43`). Pinning would mean parsing `SSH_ORIGINAL_COMMAND` (OpenSSH exports it for `command=` keys) or an infra change; both widen the restricted key and are rejected (§8). | as cited |
+| F4 | The current CD gate is effectively always true on push: the `changes` job writes `backend=true`/`frontend=true` for every `push` (`ci.yml:210-215`), so `should_deploy` (`cd.yml:48-56`) is true for every push run. Dropping it changes no behaviour except cancellation handling. | as cited |
+| F5 | `https://qa.bizdala.com/health` is public; returned `{"status":"ok","sha":"0f1a7fa1…"}` while `main` = `06bd6b34`. Host already hard-coded at `redeploy-qa.sh:143`; no secret needed. Body is status+sha only (`lib/letflow/router.ex:111-113`); `sha` is 7-40 lowercase hex or JSON null (`lib/letflow/build_info.ex:14-21`). | `curl`, as cited |
+| F6 | In a `workflow_run` run, `github.sha` is main's tip at trigger time, not the triggering commit (CD run 22:45:51Z fired by `b65f7378`'s CI reports headSha `90e5f2be`). Run sha = `github.event.workflow_run.head_sha`; tip = explicit API read. | `gh run list --workflow "CD (QA)"` |
+| F7 | Public repo, default token `read`, fork-PR approval `first_time_contributors`. `branches: [main]` (`cd.yml:25-28`) matches `head_branch`, so a fork PR from a branch named `main` fires CD, which then `source`s that fork run's artifact (`cd.yml:41-51`): fork-controlled shell in a privileged context. **Confirmed real and pre-existing; fixed inside #2622** (§3 job `if`, artifact removed §2). | `gh api` repo, workflow permissions, fork approval |
+| F8 | Every main commit passed the required checks on a merge_group run of its exact squash tree; no bypass actors. | `docs/merge-queue.md:6-18`; `ci.yml:154-160` |
+| F9 | `scripts/uat_preflight.sh` treats a `/health` sha != `origin/main` as GAP and exits 1 (`:51-52`, `:103`, `:435-438`, `:758`); a path-gated QA would block UAT after every docs-only merge. Reason for option (b). | as cited |
 
-## 1. CI change: per-sha group for main pushes (`ci.yml:162-171`)
+## 1. CI: per-sha group for main pushes (`ci.yml:162-171`)
 
-`concurrency.group` becomes `${{ github.workflow }}-${{ github.event.pull_request.number || (github.event_name == 'push' && format('{0}-{1}', github.ref, github.sha)) || github.ref }}`.
-`cancel-in-progress` is unchanged (`== 'pull_request'`). Effects: `pull_request` = same group as today (per PR number, cancels);
-`push` = one group per commit, so no push run is ever queued behind or cancelled by another; `merge_group` = `github.ref`
-(the per-entry `gh-readonly-queue/main/...` ref) exactly as today. The ISS-0840 comment block (:164-170) gets one added line citing GH #2622.
+`group: ${{ github.workflow }}-${{ github.event.pull_request.number || (github.event_name == 'push' && format('{0}-{1}', github.ref, github.sha)) || github.ref }}`;
+`cancel-in-progress` unchanged. `pull_request`: same group and cancelling as today; `push`: one group per commit, never
+queued behind or cancelled by another push; `merge_group`: `github.ref` as today. The ISS-0840 comment (:164-170) gains a
+GH #2622 line; the comment at `ci.yml:157-159` is updated to say CD fires only for same-repo `push` runs on `main` (§3).
 
-**Cost.** Push-run wall time over the last 11 successful runs: 7.8-13.0 min. Runner minutes per push run (job durations of
-run 38665714603): changes 0.2 + static 3.3 + shards 10.0/8.9/~10 + mobile 4.7 + frontend 2.0 + aggregator ~0.2 = ~39.
-Today a burst of N merges runs at most 2 push runs (1 running + the last pending); after: N. Extra = (N-2) x ~39 runner-min,
-e.g. the 4-commit burst `fe06bdd9..06bd6b34` = ~80 extra. Public repo on standard runners (F7), so the cost is queueing,
-not money: each push run holds 6 long jobs, 3 overlapping = 18 of the 20 concurrent jobs (`ci.yml:69-72`), so PR and
-merge_group jobs may wait during a burst. Accepted; the same load occurred before ISS-0840 in steady state.
+**Cost.** Push-run wall time over the last 11 successful push runs: 7.8-13.0 min. Runner minutes per push run (run
+38665714603): changes 0.2 + static 3.3 + shards 10.0/8.9/~10 + mobile 4.7 + frontend 2.0 + aggregator ~0.2 = ~39. A burst
+of N merges ran at most 2 push runs (1 running + the last pending); now N. Extra = (N-2) x ~39 runner-min, e.g. ~80 for the
+4-commit burst `fe06bdd9..06bd6b34`. Public repo, standard runners: the cost is queueing, not money; 3 overlapping push runs
+hold 18 of the 20 concurrent jobs (`ci.yml:69-72`), so PR/merge_group jobs may wait during a burst. Accepted.
 
-## 2. Single source for path rules: `scripts/ci_changed_paths.sh` (new)
+## 2. CI: path rules in `scripts/ci_changed_paths.sh` (new; CI is its only consumer)
 
-Placed under `scripts/` because `scripts/.*\.sh$` is already in `BACKEND_PATHS_RE` (`ci.yml:270`); `.github/scripts/`
-is not, so a change there would skip the backend gate. Contract (no code here, shape only):
-- Input: newline-separated repo paths on stdin (may be empty). No arguments, no environment reads.
-- Output: exactly three lines on stdout, `backend=true|false`, `frontend=true|false`, `mobile=true|false`; exit 0.
-  Any internal error: exit non-zero, nothing guaranteed on stdout (callers fail open to "all true").
-- Holds the three regexes as single-quoted assignment lines `BACKEND_PATHS_RE='…'`, `FRONTEND_PATHS_RE='…'`,
-  `MOBILE_PATHS_RE='…'`, moved verbatim from `ci.yml:270,281,287`, matched with `grep -qE "$X" <<<"$CHANGED"` (Q-1110
-  here-string rule, `ci.yml:271-274`). Frontend and mobile regexes gain `|scripts/ci_changed_paths\.sh$` beside
-  `\.github/workflows/ci\.yml`, so editing the shared rules runs every gate.
-- `ci.yml` "Compute changed paths" (:193-291) keeps its event/SHA/fail-safe branching, but takes the shas from step
-  `env:` instead of `${{ }}` inside `run:` (:210-229), and replaces lines 270-291 with one call appending the script's stdout
-  to `$GITHUB_OUTPUT`. The fallback step (:293-300) is unchanged. Steps "Write path-filter outputs for cd.yml" and "Upload
-  path-filter outputs" (:302-321) are deleted: nothing consumes the artifact any more (§3), which also removes the F7 vector.
-- `test/letflow/ci_backend_path_filter_test.exs` `@ci_yml` (:35) and the here-string assertions (:288-310) are retargeted to
-  the script; layers 2-3 unchanged. Add `scripts/ci_changed_paths.sh` to the WF-02 trust-boundary list
-  (`WF-02_requirement_implementation.md:276-285`), since a PR runs its own copy of it exactly as of `ci.yml`.
+Under `scripts/` because `scripts/.*\.sh$` is in `BACKEND_PATHS_RE` (`ci.yml:270`); `.github/scripts/` is not. Contract:
+- Reads ALL of stdin into a variable first (no early-exiting reader on a pipe, so no SIGPIPE under `pipefail`), then matches
+  with `grep -qE "$X" <<<"$CHANGED"` (Q-1110, `ci.yml:271-274`). No arguments, no environment reads.
+- Holds `BACKEND_PATHS_RE='…'`, `FRONTEND_PATHS_RE='…'`, `MOBILE_PATHS_RE='…'`, each one single-quoted line, moved verbatim
+  from `ci.yml:270,281,287`; frontend and mobile gain `|scripts/ci_changed_paths\.sh$`, so editing the rules runs every gate.
+- Output: exactly three lines `backend=true|false`, `frontend=true|false`, `mobile=true|false`; exit 0. Error: non-zero.
+- Caller contract in "Compute changed paths" (`ci.yml:193-291`): capture stdout into a variable; require exit 0 AND exactly three
+  lines, each matching `^(backend|frontend|mobile)=(true|false)$`, each key once; only then append to `$GITHUB_OUTPUT`;
+  otherwise `exit 1`, so the step's `continue-on-error` (:195) hands over to the fail-safe step (:293-300, unchanged: all true).
+  Event SHAs move from `${{ }}` inside `run:` (:210-229) to step `env:`. Steps "Write path-filter outputs for cd.yml" and
+  "Upload path-filter outputs" (:302-321) are deleted: CD no longer reads them (removes the F7 artifact vector).
+- Supervisor condition (2) holds trivially: CD has no path rules. The script joins the WF-02 trust-boundary list
+  (`WF-02_requirement_implementation.md:276-285`): a PR runs its own copy, as for `ci.yml`.
 
-## 3. CD change: the tip rule (`cd.yml`, rewritten)
+## 3. CD: the tip rule (`cd.yml`, rewritten)
 
-**Trigger** unchanged (`cd.yml:24-28`). **Job `deploy`:**
-- `if:` `workflow_run.conclusion == 'success'` (kept, `cd.yml:39`) AND `workflow_run.event == 'push'` AND
-  `workflow_run.head_repository.full_name == github.repository` (closes F7).
-- `permissions: { contents: read, actions: read }`. Job-level `concurrency: { group: cd-qa, cancel-in-progress: false }`
-  (job level, so a CD run whose job is skipped by `if:` never enters the group and cannot cancel a pending real deploy; see OQ-2).
-- `env:` `QA_URL: https://qa.bizdala.com` (constant), `RUN_SHA: ${{ github.event.workflow_run.head_sha }}`, `GH_TOKEN: ${{ github.token }}`.
+Trigger unchanged (`cd.yml:24-28`). No workflow-level concurrency. Two jobs:
 
-**Steps:**
+**Job `deploy`** (name "Deploy to QA" kept). `if:` = `github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository`.
+`permissions: { contents: read, actions: read }`. Job-level `concurrency: { group: cd-qa, cancel-in-progress: false }`: a running
+deploy is never cut off; a queued one superseded by a newer arrival is harmless because every run decides from the CURRENT tip
+and QA sha, so the newest run reaches the same or a fresher decision (idempotent; a duplicate hits "QA already at tip").
+`timeout-minutes: 20`. `env:` `QA_URL: https://qa.bizdala.com`, `RUN_SHA: ${{ github.event.workflow_run.head_sha }}`,
+`GH_TOKEN: ${{ github.token }}`. In `run:` the repo is `$GITHUB_REPOSITORY`, never `${{ }}`.
 1. `actions/checkout@v4`, `ref: main`, `fetch-depth: 0`, `persist-credentials: false` (trusted merged code only).
-2. `inputs` (id): `TIP` = `gh api repos/${{ github.repository }}/commits/main --jq .sha`; `git fetch origin main` and
-   require `TIP == git rev-parse origin/main` (else re-read once; still unequal: `deploy=true`, reason "tip unstable").
-   `TIP_RUN` = conclusion of the CI `push` run for `head_sha=TIP` on `main` (`gh api …/actions/workflows/ci.yml/runs`),
-   or `none`. `QA_HEALTH` = body of `curl -sf -m 10 "$QA_URL/health"`, or empty on any failure.
-3. `decide` (id): runs `scripts/cd_qa_decide.sh` (new) with env `RUN_SHA TIP TIP_RUN QA_HEALTH`. Contract: reads only
-   those env vars and the local git repo; prints `deploy=true|false` and `reason=<one line>` to stdout (appended to
-   `$GITHUB_OUTPUT` and `$GITHUB_STEP_SUMMARY`), each reason prefixed `cd-qa:`; exit non-zero on an internal error, which the
-   step maps to `deploy=true` (fail toward deploying the tested tip). Decision table, first match wins:
+2. `inputs`: `TIP` = `gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha` (empty on error). `git fetch origin main`
+   (always, before any ancestry check); `TIP_GIT` = `git rev-parse origin/main`. If `TIP != TIP_GIT`, re-read both once.
+   `TIP_RUN` = the CI `push` run on `main` for `head_sha=$TIP` with the latest `created_at` (`gh api
+   "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=…&event=push&branch=main"`): its `conclusion` if completed,
+   else its `status`; `none` if no run; `error` if the call failed. Skipped (not needed) when `RUN_SHA == TIP`.
+   `QA_HEALTH` = body of `curl -sf -m 10 "$QA_URL/health"`, empty on any failure. All passed to step 3 via `env:` only.
+3. `decide`: runs `scripts/cd_qa_decide.sh` (new) with env `RUN_SHA TIP TIP_GIT TIP_RUN QA_HEALTH`. It reads only those and the
+   local repo; prints exactly `deploy=true|false` and `reason=cd-qa: <text>`. The step applies the §2 caller contract (exit 0,
+   exactly those two well-formed lines), then appends to `$GITHUB_OUTPUT` and echoes the reason to the log and
+   `$GITHUB_STEP_SUMMARY`. Script error or malformed output: step red, `cd-qa: decide error`; deploy never runs. First match
+   wins; rows 1-4 are the tip/run checks; only the HEALTH signal fails toward deploying (supervisor condition 1):
 
-| # | Condition | deploy | reason (logged) |
+| # | Condition | Result | `reason` (fixed text; `X`,`Y` = validated 40-hex, `Q` = validated 7-40 hex) |
 |---|---|---|---|
-| D1 | `RUN_SHA` or `TIP` not 40 lowercase hex | false | `invalid sha input (run X, tip Y)` (step fails red) |
-| D2 | `RUN_SHA != TIP` and `TIP_RUN != success` | false | `not tip (run sha X, tip Y); tip run is <TIP_RUN>, its own CD will decide` |
-| D3 | `QA_HEALTH` empty / not JSON / `sha` null / not 7-40 lowercase hex | true | `QA sha unknown (<why>), deploying tip Y` |
-| D4 | QA sha not resolvable or `git merge-base --is-ancestor QA TIP` fails | true | `QA sha X not an ancestor of tip Y, deploying tip` |
-| D5 | QA sha == TIP (prefix match of the reported length) | false | `QA already at tip Y` |
-| D6 | `git diff --name-only QA TIP` piped to `scripts/ci_changed_paths.sh`: backend or frontend true (or script non-zero) | true | `deploy-relevant paths since QA sha X (tip Y)` |
-| D7 | otherwise | false | `no deploy-relevant paths since QA sha X (tip Y)` |
+| 1 | `RUN_SHA` not 40 lowercase hex | red | `invalid run sha` |
+| 2 | `TIP` empty / not 40-hex, or `TIP != TIP_GIT` after the retry | red | `tip unreadable` / `tip unstable (api Y, git Z)` |
+| 3 | `RUN_SHA != TIP` and `TIP_RUN == error` | red | `tip run unreadable (tip Y)` |
+| 4 | `RUN_SHA != TIP` and `TIP_RUN != success` | skip | `not tip (run sha X, tip Y); tip run <conclusion-or-status>` |
+| 5 | `QA_HEALTH` empty / not JSON / `sha` null / not 7-40 lowercase hex | deploy | `QA sha unknown (unreachable|not-json|null|not-hex), deploying tip Y` |
+| 6 | `git rev-parse --verify --quiet "Q^{commit}"` fails or is ambiguous (short sha) | deploy | `QA sha Q unresolvable, deploying tip Y` |
+| 7 | resolved QA sha == `TIP` | skip | `QA already at tip Y` |
+| 8 | `git merge-base --is-ancestor QA TIP` fails | deploy | `QA sha Q not an ancestor of tip Y, deploying tip` |
+| 9 | otherwise (QA behind tip) | deploy | `QA sha Q behind tip Y, deploying tip` |
 
-   Why D2 deviates from a plain "skip unless run sha == tip": CD runs queue in one group, and a third arrival cancels the
-   PENDING one (F1 applies to CD too). If the tip's CD is pending and an older run's CD arrives, the tip's CD is cancelled and
-   the older one would skip, so QA never gets the tip. With D2 the older run deploys the tip when the tip's own push run is
-   already green. Invariant: the last CI push run to complete fires the last CD event, which is never cancelled; when it runs,
-   every push run is complete, so it deploys the tip iff the tip's run is green. Duplicate deploys are impossible: the second
-   run hits D5.
-4. SSH deploy, `if: steps.decide.outputs.deploy == 'true'`: inputs byte-identical to `cd.yml:58-70` (same 3 secrets, same
-   `script`). Nothing passed over SSH changes; the forced command still deploys main's tip only.
-5. `verify`, `if:` step 4 ran: read `/health` (retry 10 x 6 s); log `cd-qa: deployed <sha>`. If it differs from `TIP` and
-   `TIP` is an ancestor of it, log `cd-qa: main moved during deploy (verified Y, deployed Z); Z passed merge_group, its own CD
-   will re-check` (warning, green). Unreachable or not a descendant of `TIP`: fail the step red.
+   Short shas: `/health` may report 7-39 hex (`build_info.ex:21`); it is only resolved against the fetched repo (row 6), never
+   compared by string prefix. `<conclusion-or-status>` is one of GitHub's enum words, checked against a fixed list (else `other`).
+   Raw `/health` text never reaches `$GITHUB_OUTPUT` or the log. Rows 1-4 are checked BEFORE 5-9 on purpose: a reachable or
+   unreachable QA must never turn a non-green or unknown tip into a deploy. Row 4 deviates from "skip unless run sha == tip":
+   queued CD runs cancel each other like F1, so if the tip's CD is pending and an older run's CD arrives, the tip's CD is
+   cancelled; with row 4 the older run deploys the tip whenever the tip's own push run is green. Invariant: the last CI push run
+   to complete fires the last CD event, which is never cancelled; at that point every push run is complete, so it deploys the
+   tip iff the tip's run is green and QA differs.
+4. SSH deploy: `if: steps.decide.outputs.deploy == 'true'` (string equality; a missing output never deploys, and a failed
+   decide step stops the job). Inputs byte-identical to `cd.yml:58-70`: same 3 secrets, same `script`. No sha or argument
+   is sent over SSH; the forced command still deploys main's tip only; the key's restricted command is not widened.
+5. `verify`, `if:` step 4 ran: read `/health` (10 x 6 s); log `cd-qa: deployed Q`. Q descendant of `TIP` but != `TIP`: log
+   `cd-qa: main moved during deploy (verified Y, deployed Q)`, green (§3 race). Unreachable or not a descendant: red.
 
-**(iv)** A non-success CI run never deploys: the job `if:` is evaluated before any step (kept from `cd.yml:39`).
-Evidence it holds today: CD for cancelled `048a4253` and `06bd6b34` show `skipped`.
+**Job `skip-log`.** `if:` = `!(<the deploy job's if, verbatim>)`, so it runs exactly when `deploy` is skipped by its job `if`.
+No secrets, `permissions: {}`, no concurrency group, no checkout, `timeout-minutes: 5`. `env:` `CONCLUSION`, `EVENT`, `HEAD_REPO`
+(from `github.event.workflow_run.*`) and the run uses `$GITHUB_REPOSITORY`; it computes `same-repo=true|false` in shell and prints
+`cd-qa: skipped (conclusion=$CONCLUSION, event=$EVENT, same-repo=…)` with `printf '%s'`. It never prints `HEAD_REPO`.
 
-**(v) Race between step 2 and `git pull` (`redeploy-qa.sh:42`).** Main may move from Y to Z. The script deploys Z, whose own
-push run may still be running. Guarantee: Z reached `main` only through the merge queue, which ran the required checks
-(`Backend gate (mix letflow.check)`, `Frontend gate (npm run check)`) green on the squash tree, with no bypass (F8). So the
-deployed tree is never untested; it may lack its own green PUSH run at deploy time. If Z's push run is later red (flake, or
-the merge_group path filter skipped a gate `ci.yml:221-229`, which the push run backstops), QA carries Z until the next green
-tip deploys; Z's CD is skipped by the job `if:` and the runbook shows how to see this. This is a narrowing of the AC wording
-"never deploys a commit whose CI run is … missing" (OQ-1); it is unavoidable without pinning the sha (F3).
+**(iv)** A non-success CI run never deploys: the job `if` precedes every step (CD for cancelled `048a4253`/`06bd6b34`: `skipped`).
 
-## 4. Runbook: `docs/runbooks/qa-lag.md` (new; matches `BACKEND_PATHS_RE` `docs/runbooks/`)
+**(v) Race between step 2 and `git pull` (`redeploy-qa.sh:42`).** Main may move from Y to Z, so Z is deployed while its own
+push run may still be running. **Accepted ruling (OQ-1): for this git-pull race only, "passed the merge queue" is the reading of
+"never deploys red/cancelled/missing".** Z reached `main` only via the merge queue, which ran `Backend gate (mix
+letflow.check)` and `Frontend gate (npm run check)` green on Z's exact tree with no bypass (F8), so the deployed tree is never
+untested. If Z's push run is later red (flake, or a gate the merge_group path filter skipped, `ci.yml:221-229`), QA carries Z
+until the next green tip; Z's CD is skipped by the job `if`. The forced command is not widened to close this. Stated in the PR and runbook.
 
+## 4. Timeouts on every CI and CD job (separate commit, OQ-4 folded in)
+
+Measured: last 30 successful CI runs (all events) via `gh run view --json jobs`, whole minutes (floor), skipped jobs show 0;
+last 30 successful CD runs. Values give >= 4x headroom over the observed max and cover cold caches.
+
+| Job | Observed (min, max) | p95 approx | timeout-minutes |
+|---|---|---|---|
+| `backend_shard` (90 legs) | 5, 11 | 10-11 | 45 |
+| `backend_static` | 2, 3 | 3 | 30 (cold `_build/dev` permission-matrix compile, `ci.yml:61-66`) |
+| `backend` aggregator | 0, 0 | 0 | 15 |
+| `frontend` | 0, 2 | 2 | 30 (cold `npm ci`) |
+| `mobile` | 0, 6 | 5-6 | 45 (cold Flutter build) |
+| `changes` | 0, 0 | 0 | 10 |
+| CD `deploy` | 94 s, 183 s | ~173 s | 20 (remote docker build + node:22 `npm ci`) |
+| CD `skip-log` | n/a (new) | n/a | 5 |
+
+A timeout ends the job non-success; it never becomes a skip: static/shards feed the aggregator's fail-closed rule (any result
+other than `success`/expected `skipped` is red, `ci.yml:55-60`); `frontend`, `mobile` and the aggregator are their own contexts;
+a non-success run fails CD's job `if`. OQ-A asks which conclusion string the API reports; both possible values are non-success.
+
+## 5. Runbook: `docs/runbooks/qa-lag.md` (new)
+
+Starts with the verbatim line "REQ-367's CD path gate is superseded: CD deploys the tested main tip whenever QA differs".
 Sections: (1) symptom: `curl https://qa.bizdala.com/health` sha != `gh api repos/:owner/:repo/commits/main --jq .sha`;
-(2) `gh run list --workflow CI --branch main --event push` and `gh run list --workflow "CD (QA)"`: read conclusion per sha;
-(3) cancel vs failure: `cancelled` push run (should no longer occur after #2622, except manual), `failure` (real red),
-`in_progress` for > 20 min (hung, F2: `gh run view <id>` shows the stuck job; cancel it, rerun); a `cancelled` CD run is a
-superseded pending run and is harmless; (4) read the reason: `gh run view <cd id> --log | grep 'cd-qa:'`; (5) the
-merge_group run for that PR is green (`gh run list --workflow CI --event merge_group`) means not a code failure; (6) what to
-do: rerun the tip's push run (`gh run rerun <id>`), which fires CD; never deploy manually around a red tip.
+(2) `gh run list --workflow CI --branch main --event push` and `--workflow "CD (QA)"`: conclusion per sha; (3) cancel vs
+failure: a cancelled push run should no longer occur (manual only); `failure` is real red; a timed-out job (§4) is red; a
+cancelled CD run is a superseded queued run, harmless; (4) read the reason: `gh run view <cd id> --log | grep 'cd-qa:'`, with the
+table rows of §3, including "TIP unreadable → red" (rows 2-3: GitHub API or fetch trouble; rerun the CD run); (5) green merge_group
+run for that PR (`gh run list --workflow CI --event merge_group`) means not a code failure; (6) the race ruling of §3 (v);
+(7) action: rerun the tip's push run (`gh run rerun <id>`), which fires CD; never deploy manually around a red tip.
 
-## 5. Tests (TEST-DESIGNER; ExUnit, the repo's precedent for workflow/script checks: `ci_backend_path_filter_test.exs`,
-`test/scripts/prune_web_dist_backups_test.exs`)
+## 6. Tests (TEST-DESIGNER; ExUnit, precedent `test/letflow/ci_backend_path_filter_test.exs`, `test/scripts/prune_web_dist_backups_test.exs`)
 
-- T1 single source (`test/letflow/ci_path_rules_single_source_test.exs`): `ci.yml` and `scripts/cd_qa_decide.sh` each invoke
-  `scripts/ci_changed_paths.sh`; no `_PATHS_RE=` assignment and no `grep -[a-zA-Z]*E '^(` literal in `.github/workflows/*.yml`
-  or `scripts/cd_qa_decide.sh`; the script holds exactly one assignment line per regex.
-- T2 `ci_changed_paths.sh` table: run via `System.cmd("bash", …)` with stdin cases (empty, docs-only, `lib/x.ex`, `web/a.tsx`,
-  the script itself, > 64 KiB list for the SIGPIPE case) and assert the three output lines.
-- T3 `cd_qa_decide.sh` table D1-D7 in a temp git repo (linear A-B-C plus an unrelated root), asserting `deploy=` and the reason prefix.
-- T4 static `cd.yml`: job `if` holds all three clauses; job-level concurrency `cd-qa`, cancel false; permissions exactly
-  `contents: read, actions: read`; no `${{ github.event.` inside any `run:` value; SSH step `with:` keys and secret names unchanged;
-  no `download-artifact`.
-- T5 static `ci.yml`: the concurrency expression of §1 verbatim; `cancel-in-progress` expression unchanged; no `path-filter-outputs`.
+- T0 retarget `ci_backend_path_filter_test.exs`: `@ci_yml` (:35) regex extraction now reads `scripts/ci_changed_paths.sh`; the
+  here-string and pipe-into-`grep -q` guards (:288-310) scan all four files (`ci.yml`, `cd.yml`, `scripts/ci_changed_paths.sh`,
+  `scripts/cd_qa_decide.sh`); `@decision_table` adds `{"scripts/ci_changed_paths.sh", true, true}` and
+  `{"scripts/cd_qa_decide.sh", true, false}`.
+- T1 single source: `ci.yml` is the only file that invokes `scripts/ci_changed_paths.sh`; no `_PATHS_RE=` assignment and no
+  `grep -…E '^(` literal in `.github/workflows/*.yml` or `scripts/cd_qa_decide.sh`; the script has one assignment line per regex.
+- T2 `ci_changed_paths.sh` via `System.cmd("bash", …)`: empty, docs-only, `lib/x.ex`, `web/a.tsx`, itself, > 64 KiB list: exit 0, 3 lines.
+- T3 `cd_qa_decide.sh` rows 1-9 in a temp git repo (linear A-B-C plus an unrelated root; a 7-hex short sha; an ambiguous one),
+  asserting exit, `deploy=`, the reason prefix, and that a junk `QA_HEALTH` string never appears in stdout.
+- T4 static `cd.yml`: deploy `if` has the three clauses; `skip-log` `if` is exactly `!(` + deploy `if` + `)`; `cd-qa` group, cancel
+  false, on the job; permissions as §3; no `${{ github.` inside any `run:`; SSH step `with:` keys/secret names unchanged; no
+  `download-artifact`; every job has `timeout-minutes`.
+- T5 static `ci.yml`: §1 group expression verbatim; cancel expression unchanged; no `path-filter-outputs`; every job's
+  `timeout-minutes` equals §4.
 
-## 6. Security notes (SECURITY-REVIEWER mandatory: `ci.yml`/`cd.yml`, WF-02:276-285)
+## 7. Security notes (SECURITY-REVIEWER mandatory: `ci.yml`/`cd.yml`, WF-02:276-285)
 
-- Secrets: same three secrets, same step, same forced command (`cd.yml:58-70`); no new secret; QA URL is public (F5). The
-  restricted key is not widened; no sha or argument is sent over SSH. `GITHUB_TOKEN` scoped read-only (§3).
-- Privilege: `pull_request` runs (untrusted code) get no secrets and produce nothing CD consumes now (artifact removed, §2).
-  `workflow_run` (privileged) only runs trusted `main` code (`ref: main`) and only for same-repo `push` runs (F7 fix).
-- Injection: every event field reaches shells through `env:`, never `${{ }}` in `run:`; only `head_sha` is used and it is
-  hex-validated (D1). `head_branch`, `display_title`, `head_commit.message` are never read. QA `/health` body is untrusted
-  input: parsed as JSON, sha hex-validated before any git call (D3).
-- INV-4 (secrets by reference) holds; INV-1/2/5-7/9/10 not touched (no app code). New trust-boundary file: §2 last bullet.
+- Secrets: same three, same step, same forced command (`cd.yml:58-70`); no new secret; QA URL is public (F5); no sha over SSH;
+  the CD key's restricted command is not widened. `GITHUB_TOKEN` read-only; `skip-log` has no permissions.
+- Privilege: `pull_request` (untrusted) gets no secrets and produces nothing CD consumes (artifact removed). `workflow_run`
+  (privileged) runs only `main` code and only for same-repo `push` runs: this fixes the pre-existing fork-branch-`main` hole (F7).
+- Injection: event fields reach shells only via `env:`; `head_sha` is hex-validated; `head_branch`, `display_title`,
+  `head_commit.message` are never read; `head_repository.full_name` is compared, never printed. `/health` is untrusted: parsed
+  with `jq`, hex-validated before any git call, never echoed. Reasons use a fixed vocabulary.
+- INV-4 holds; INV-1/2/5-7/9/10 not touched (no app code). New trust-boundary file: §2.
 
-## 7. Alternatives rejected
+## 8. Alternatives rejected
 
-- Option (b) alone (keep one CI group, CD deploys the tip whenever any green run lands): a hung run (F2) still starves the
-  group for hours and middle commits never get a push run, losing ISS-0840's backstop (`ci.yml:199-209`).
-- Pin the deployed sha via `SSH_ORIGINAL_COMMAND` in `redeploy-qa.sh`: network input into the forced-command key; detached
-  HEAD on the host breaks manual `git pull` deploys; the key contract is owned by ai-dala-infra (T-0111).
-- Cron-triggered CD: adds lag and still needs the same tip/health logic.
+- One CI group, deploy the tip on any green run: a hung run (F2) starves the group; middle commits lose ISS-0840's backstop (`ci.yml:199-209`).
+- Pin the sha via `SSH_ORIGINAL_COMMAND`: network input into the forced-command key; breaks manual `git pull` deploys (T-0111).
+- Path-gated CD (REQ-367 shape): `/health` != tip after docs-only merges = UAT GAP (F9). Cron CD: more lag, same logic.
 
-## 8. AC -> verification
+## 9. AC -> verification
 
 | AC (#2622) | Element | Verification |
 |---|---|---|
-| Choose one fix, reason + cost | §1 (option a) + §3 | PR body quotes §1 cost |
-| Never deploy red/cancelled/missing | job `if` (§3 iv), D2, race §3 v | T4; existing skipped CD runs for cancelled runs; dry run T3; OQ-1 |
-| Burst of 3+ ends with /health = tip | §1 + D2-D7 | Post-merge evidence plan below |
-| Runbook | §4 | file exists; reviewer reads |
-| No required-check/ruleset change | §1 keeps job names | `gh api repos/:owner/:repo/rulesets` before/after identical, quoted in PR |
-| Supervisor (1)-(3) | D3/D4, §2+T1, reason column | T1, T3 |
+| One fix, reason + cost | §1 + §3 | PR body quotes §1 cost |
+| Never deploy red/cancelled/missing | deploy `if`, rows 1-4, §3 (v) ruling | T3, T4; skipped CD runs for cancelled 048a4253/06bd6b34 |
+| Burst of 3+ ends with /health = tip | §1 + §3 | evidence plan below, in the PR body |
+| Runbook | §5 | file exists with the verbatim line |
+| No required-check/ruleset change | §1, §4 keep names | `gh api repos/:owner/:repo/rulesets/<id>` before/after identical, in PR |
+| Supervisor (1)-(4) | rows 5-9; §2; reason column + `skip-log`; §1 | T1-T4 |
+| Timeouts (OQ-4) | §4 | T4, T5 |
 
-**Evidence plan (post-merge, ORCH).** This PR touches `.github/workflows/` (matches `BACKEND_PATHS_RE`), so its own merge
-deploys via D4/D6 from QA `0f1a7fa1`. Then on the next burst of >= 3 queue merges (or 3 small enqueued PRs whose last
-touches a deploy-relevant path such as `docs/status/`), after the last CD completes ORCH records in an issue comment:
-`gh run list --workflow CI --branch main --event push -L 6`, `gh run list --workflow "CD (QA)" -L 6`, the `cd-qa:` line of
-each CD log, `gh api repos/:owner/:repo/commits/main --jq .sha`, and `curl -s https://qa.bizdala.com/health`. Pass: health sha == tip.
+**Evidence plan (post-merge, ORCH).** This PR's merge itself deploys (row 9, from QA `0f1a7fa1`). After the next burst of >= 3
+queue merges (or 3 small enqueued PRs), once the last CD completes, ORCH captures `gh run list --workflow CI --branch main --event
+push -L 6`, `gh run list --workflow "CD (QA)" -L 6`, each CD's `cd-qa:` line, `gh api repos/:owner/:repo/commits/main --jq .sha`
+and `curl -s https://qa.bizdala.com/health`, and quotes them in the PR body (edit) and an issue comment. Pass: health sha == tip.
 
-## 9. Open questions
+## 10. Open questions
 
-- OQ-1: §3 (v) means a deployed commit may have a pending (rarely later red) push run. Accept as "merge_group-green" or not?
-- OQ-2: Job-level concurrency on a job skipped by `if:` is assumed not to enter the group. Verify on the first live burst
-  (a skipped CD run must not show the deploy job as cancelled); fallback: keep the gate, accept it, D2 still self-heals on the next event.
-- OQ-3: D7 leaves `/health` != tip when the tip only changed non-deploy paths; the AC says "/health reports the main tip". The
-  evidence plan picks a deploy-relevant last commit. Alternatively drop D6/D7 and always deploy when QA != tip (as today, F4).
-- OQ-4 (out of scope, follow-up issue): no `timeout-minutes` on any CI job (F2); a hung shard holds a runner up to 6 h.
+OQ-A: API conclusion of a timed-out job (`failure` vs `cancelled`); both non-success (§4). OQ-B: a job skipped by `if:` is
+assumed not to enter its job-level group; if it does, row 4 self-heals on the next CD event. Check both on the first burst.
