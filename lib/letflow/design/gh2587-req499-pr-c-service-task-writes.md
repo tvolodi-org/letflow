@@ -11,6 +11,20 @@ Design only. Signatures, type shapes, step lists, tables and test briefs; no fun
 
 ## Changelog
 
+### Revision 1 (2026-10-16): CDV FAIL (4 majors, 4 minors) and supervisor rulings applied
+
+| Id | Change | Where |
+|---|---|---|
+| M1 | The duplicate-apply read moves to immediately after the dispatch/CAS row and projection locks, BEFORE graph and token reads; key present + token missing and `instance_not_active` + key present both answer `already_final` | 7.1, 7.2, D-C.10, C-4, 9 |
+| M2 | The ERROR landing gets the same bounded contention retry; a completion-key collision is `already_final`; I-C2 is qualified with the crash window; residual stated | D-C.8, D-C.9, 7.5, 8, 12 |
+| M3 | Inventory (a) moves to C2's merge gate and covers in-flight instances' PINNED snapshots; "no window" claim corrected for pre-B1 rows | 1.3, 6, 14 |
+| M4 | C0 re-stated to match the implemented `StepSource` (atom-keyed map only, optional `kind`, no `new!/1`, `origin/1` kept because C2 needs it, `step_source_callers_test.exs`, build-failure mapping) | 5.1, 5.2, D-C.2, I-C8, C-16 |
+| m1 | Script route plan-only contention rescue sits inside the existing blanket rescue; HTTP entry rescue is new | 7.5 |
+| m2 | Re-apply total deadline tied to the lease; lease-sweep interaction analysed | D-C.9, 9, C-14 |
+| m3 | C-8 gains the "lines but no plan" case | 11.1 |
+| m4 | Non-entity-write apply stall keeps its ISS-0928 reference | 8, 16 |
+| Rulings | OQ-C1..OQ-C8 closed per supervisor | 15 |
+
 ### Revision 0 (2026-10-16): first design
 
 First version. Written against `main` `53ad1cd9`; every file:line below was re-read on that tree
@@ -49,8 +63,17 @@ a coherent review unit.
 | PR | Name | Contents | Independent value | Depends on | Gate before merge |
 |---|---|---|---|---|---|
 | **C0** | `%StepSource{}` struct (#2627) | New `Letflow.Entities.StepSource` (`@enforce_keys`, `new/1`, `idempotency_key/1`, `to_metadata/1`); `command_multi/3` and `StepWrites` accept and build only the struct; `line_key` and `idempotency_key` derived from it; git-grep test that no literal source map remains; flat `source.*` metadata byte-identical | Type safety of provenance before the second producer origin exists; removes a real gap (today nothing checks that the `sys:step:` key embeds the same id as `source.task_id`); zero behaviour change | none | REVIEWER (SECURITY optional) |
-| **C2** | Dispatch-time composition | Everything in section 7 for both routes: plan phase, SET LOCAL, `:entity_writes` inside the nested Multi, `_sys` fold, tail events and audit, contention re-apply, ERROR landing, sentinel-actor proof test, lock-order and replay tests. The activation fence of C1 is still in place, so no definition can reach it except a hand-built ACTIVE row | Reviewed "dark": the whole security-sensitive composition lands before anything can switch it on; fails closed for every row without a valid `activated_by` | C0 | SECURITY-REVIEWER, REVIEWER (engine -> entities edge unchanged; EE-12 reword) |
+| **C2** | Dispatch-time composition | Everything in section 7 for both routes: plan phase, SET LOCAL, `:entity_writes` inside the nested Multi, `_sys` fold, tail events and audit, contention re-apply, ERROR landing, sentinel-actor proof test, lock-order and replay tests. The activation fence of C1 is still in place, so no NEW definition can reach it; but see the pre-B1 window below | Reviewed "dark": the whole security-sensitive composition lands before anything can switch it on; fails closed for every row without a valid `activated_by` | C0, the OQ-C8 confirmation test, inventory (a) result zero | SECURITY-REVIEWER, REVIEWER (engine -> entities edge unchanged; EE-12 reword) |
 | **C1** | Activation switch-on | `check_entity_writes/3` accepts `:SERVICE_TASK`; test flips; pre-merge inventory; docs paragraph | The feature, for definitions | C0, C2 merged | SECURITY-REVIEWER (activation is the authorization gate), REVIEWER |
+
+**Pre-B1 window (CDV M3, corrected).** C2 is NOT behaviour-neutral for every existing row. A SERVICE
+node that carries an `entity_writes` attribute from BEFORE B1 (when the attribute was silently
+inert) is ACTIVE today and its lines are ignored. After C2, P0 reads those lines: an ACTIVE row
+without `activated_by`, or any in-flight instance whose PINNED snapshot has such a node, lands in
+ERROR + DLQ at its next apply. Therefore inventory (a) of section 14 is C2's merge gate (not C1's),
+and it counts both definition rows (any status) and the pinned snapshots of non-terminal instances.
+The required result is zero; a non-zero row is cancelled, repaired or re-versioned first. The result
+is quoted in C2's PR body.
 
 Why C2 before C1 (the requester's order was C1 validation, then C2): if C1 merged first, a
 definition with SERVICE_TASK lines would ACTIVATE while the apply path silently ignored the
@@ -142,15 +165,15 @@ exactly one of the three composing paths, selected by the completion path that o
 ## 4. Decisions (one-line rationale each)
 
 * **D-C.1 Three PRs, order C0 -> C2 -> C1.** The switch-on is the last, smallest, separately gated step; no flag or seam is needed. (Section 1.3, OQ-C1.)
-* **D-C.2 `%Letflow.Entities.StepSource{}` (C0):** a struct with `@enforce_keys` for the always-required fields, `new/1 :: {:ok, t} | {:error, :invalid_step_source}` validating every invariant of the A2 design, `to_metadata/1` producing the flat `source.*` map byte-identically, `idempotency_key/1`, and `origin/1`. `command_multi/3` accepts ONLY the struct. `line_key` and `idempotency_key` are DERIVED from it and removed from `step_command` (the `line_index == line_key` invariant then cannot disagree, and key and source cannot name different ids). Rationale: #2627; OQ-C7 for the minimal alternative.
+* **D-C.2 `%Letflow.Entities.StepSource{}` (C0, as implemented on `feat/GH-2627-step-source-struct`):** `@enforce_keys` on the always-present fields (`kind` included, the constructor supplies it), `new/1` taking an ATOM-keyed map only (closed key set, `kind` optional and defaulting to `"process_step"`, any other kind refused) and returning `{:ok, t} | {:error, :invalid_step_source}`, `to_metadata/1` producing the flat `source.*` map byte-identically, `idempotency_key/1`, and `origin/1` (kept: C2 needs the tagged origin for `multi_ctx`). No keyword input, no `new!/1`. `command_multi/3` accepts ONLY the struct, and re-runs `new/1` on it so a hand-built literal cannot skip validation. `line_key` and the `sys:step:` key are DERIVED from the struct and removed from `step_command` (OQ-C7 ruled). Build-failure mapping: an invalid source is `{:error, :invalid_step_source}` from `command_multi/3`, becomes `Multi.error({:line, i, :build}, :invalid_step_source)` in `StepWrites`, and `Records.classify_step_error/1` has no clause for it, so it falls to `:internal` -> `{:entity_write_failed, i, :build}` (500 on the human path, `entity_write_failed` landing on the service path); ELIXIR-DEV verifies in `records.ex` and the C0 test pins it.
 * **D-C.3 Source identity on the service origin is the dispatch row id:** `source.dispatch_id`, idempotency key `sys:step:<dispatch_id>:<declared index>`. HTTP: `service_task_dispatches.id`; script: `script_task_dispatches.id` (a different table, same key shape; the two id spaces are UUIDv4 and `source.node_id` plus `source.instance_id` disambiguate). `attempt` is NOT in the key: at most one apply commits per dispatch id, by the `"advanced"` status plus `SERVICE_TASK_COMPLETED` key (HTTP) or the CAS `status = 'running'` (script). Rationale: 0054 D9.
 * **D-C.4 Actor and subject.** The entity event `actor_id`, the instance events' actor and the audit entry's `actor_id` are `EventStore.platform_actor_id()` (there is no human completer, and the activator did not act at that time; 0054 D4). The activator is recorded in `source.activator_id` and in the audit `after_state`. The write-side field-restriction subject (D4c) is the ACTIVATOR (new `subject_id` in the port context). The sentinel proof test (C-1) gates C2.
 * **D-C.5 Authority at run time is the recorded `activated_by`, re-validated as untrusted data in the plan phase** with the SAME private functions as B2 (`recorded_activator/1`: UUID user id, `EntitiesRecordsWrite` in the recorded permissions, well-formed pairs; `check_activator_active/2`: absent or inactive user row fails closed). A failure is NOT a 409 stub (nothing stays pending): it is the ERROR landing with public code `entity_write_needs_reactivation`. Rationale: F-C1; D4a.1, D4a.4.
 * **D-C.6 One plan phase before the outer transaction, one descriptor key, one inline composition.** HTTP: in the head clause of `advance_after_service_task_outcome/4` (unlocked read of the dispatch row, graph, node, definition row, then `prepare/2`); script: in `apply_script_task_result/3` before `Repo.transaction`, from the claim. The plan rides in the descriptor as `entity_plan`. `SET LOCAL lock_timeout/statement_timeout` (2 s / 5 s, the B2 constants) are the FIRST statements of the OUTER transaction when a plan exists, so the dispatch-row and projection waits are bounded too. Rationale: F-C3, F-C12; D-B.11.
-* **D-C.7 Values.** Field sources are the B shapes `{"var": name}` and `{"const": value}`, `var` read from the merged variables after the apply's merge (HTTP: body keys merged into variables; script: the declared output merged). No new source kind (`{"response": key}` is deferred). Run-time size caps on the service origin only: 64 KiB per field value and 256 KiB per line, measured on the JSON encoding, refusal `validation_failed` (no field name, INV-2). `var` naming a reserved key is omitted exactly as in B (`resolve_values`), so a missing required field is the type's own `validation_failed`. Rationale: F-C8, F-C9; OQ-C4 for the numbers.
-* **D-C.8 Refusal and internal failure of the entity step land the instance in ERROR + DLQ, never a stall.** The first transaction rolls back (nothing committed, dispatch row still `"advanced"` or CAS row still `running`); then the entry function runs a second transaction: HTTP: re-lock dispatch row (status `"advanced"` still) then projection, `ExecutionError.append_multi` with `error_type: :entity_write_refused`, `affected: {:node, node_id}`, fixed reason sentence, `variables` = the PRE-merge projection variables, `details: %{"line_index", "code", "dispatch_id"}`, idempotency key `service_task_dispatch:<id>` (mutually exclusive with the completed event); script: the engine re-enters `do_apply_script_task_result/4` with `{:failed, :script_rejected, :entity_write_refused, facts}` (the existing `script_failure/7` landing, run record and row `failed`). One best-effort tenant audit entry `entity_write.refused` (action shared with B; `resource_type "instance"`, `after_state` node, dispatch id, index, closed detail atom, no value). Rationale: F-C1, F-C2, F-C6, F-C7; OQ-C3.
-* **D-C.9 Contention is re-applied by the engine, bounded, then lands as ERROR.** Contention (`55P03`, `57014`, `40P01`, connection error, the 10 s guard, `prepare/2` contention) rolls back; the entry function re-runs the whole apply (plan included) up to 3 attempts total with constant 100 ms and 300 ms backoffs (zero under the `:engine_test_seams` flag); exhausted -> D-C.8 with public code `entity_write_contention`. The external call is NEVER repeated (at-most-once, ruling open point 6). There is no HTTP status on this path; the "503, retryable" of B maps to "re-applied, then incident".
-* **D-C.10 A duplicate apply is detected before the lines.** With a plan, after the dispatch re-lock, a read of `event_idempotency` for the descriptor's completion key (`service_task_dispatch:<id>`, or `script_task_dispatch:<id>:<attempt>`) answers `{:ok, :already_final}` and writes nothing. An `idempotency_conflict` that still occurs inside the Multi is treated as "a prior apply committed" (a `sys:step:` key cannot be claimed by a client, #2550 plus A2) and answers `:already_final` too, NEVER ERROR (moving an advanced instance to ERROR would be wrong). Rationale: F-C5.
+* **D-C.7 Values.** Field sources are the B shapes `{"var": name}` and `{"const": value}`, `var` read from the merged variables after the apply's merge (HTTP: body keys merged into variables; script: the declared output merged). No new source kind (`{"response": key}` is deferred). Run-time size caps on the service origin only, as NAMED CONFIG CONSTANTS (module attributes of `StepWrites`: `@service_value_max_bytes 65_536` per field value and `@service_line_max_bytes 262_144` per line, measured on the JSON encoding; a unit test pins the two numbers so a change is a reviewed diff): refusal `validation_failed` (no field name, INV-2). The HUMAN path is NOT widened in PR C (supervisor ruling); the follow-up is an entity-side per-record cap that replaces both origin-specific caps (section 16). `var` naming a reserved key is omitted exactly as in B (`resolve_values`), so a missing required field is the type's own `validation_failed`. Rationale: F-C8, F-C9.
+* **D-C.8 Refusal and internal failure of the entity step land the instance in ERROR + DLQ, never a stall.** NEW PRODUCT BEHAVIOUR (supervisor ruling OQ-C3): a data-dependent refusal of a service task's entity write moves the instance to ERROR; it is stated as such in C2's PR body and in the operator runbook. The first transaction rolls back (nothing committed, dispatch row still `"advanced"` or CAS row still `running`); then the entry function runs a second transaction: HTTP: re-lock dispatch row (status `"advanced"` still) then projection, `ExecutionError.append_multi` with `error_type: :entity_write_refused`, `affected: {:node, node_id}`, fixed reason sentence, `variables` = the PRE-merge projection variables, `details: %{"line_index", "code", "dispatch_id"}`, idempotency key `service_task_dispatch:<id>` (mutually exclusive with the completed event); script: the engine re-enters `do_apply_script_task_result/4` with `{:failed, :script_rejected, :entity_write_refused, facts}` (the existing `script_failure/7` landing, run record and row `failed`). One best-effort tenant audit entry `entity_write.refused` (action shared with B; `resource_type "instance"`, `after_state` node, dispatch id, index, closed detail atom, no value). **The landing can itself fail (CDV M2).** (a) Contention in the landing transaction (lock wait on the dispatch or projection row, or a deadlock with a concurrent cancel) is re-run under the SAME bounded budget and deadline as D-C.9 (`SET LOCAL lock_timeout '2s'` is issued first in the landing too). (b) A collision on the completion key `service_task_dispatch:<id>` (a concurrent apply won and committed `SERVICE_TASK_COMPLETED`) or an `instance_already_error` / `instance_terminal` eligibility result from `ExecutionError` answers `{:ok, :already_final}`: the instance is already advanced or already ERROR, so nothing is lost. (c) `{:error, {:instance_not_active, _}}` at the projection lock is benign (cancel won). (d) Residual, stated: if the landing exhausts its budget, or the process crashes between the rollback and the landing commit, the dispatch row is still `"advanced"` and the instance ACTIVE with a lost token (the pre-existing F-C1 stall class); the entry function logs a classified atom and writes the `service_task.advance_failed` audit entry. Closing it needs the stuck-`"advanced"` sweeper deferred in section 16. Rationale: F-C1, F-C2, F-C6, F-C7.
+* **D-C.9 Contention is re-applied by the engine, bounded, then lands as ERROR.** Contention (`55P03`, `57014`, `40P01`, connection error, the 10 s guard, `prepare/2` contention) rolls back; the entry function re-runs the whole apply (plan included) up to 3 attempts total with constant 100 ms and 300 ms backoffs (zero under the `:engine_test_seams` flag); exhausted -> D-C.8 with public code `entity_write_contention`. The same budget covers the landing transaction (D-C.8 a). **Total deadline (CDV m2):** the loop also stops at a wall-clock deadline measured from the entry of the function: HTTP route 20 s; script route `min(20 s, remaining lease - 2 s)` where the lease is `ScriptTaskDispatcher.lease_ms/0` (30 s by default, `script_task_dispatcher.ex:157`) measured from the claim. A worst-case attempt is P1 <= 2 s + lock wait 2 s + 10 s guard + backoff, so three full attempts could exceed 30 s; the deadline cuts the loop and lands the ERROR instead. Interaction with the lease sweep: the sweep applies `{:failed, :timeout, :lease_expired}` through the same CAS under `FOR UPDATE`; whichever of the sweep and a late re-apply commits first wins and the loser sees `{:ok, :stale}` and writes nothing, so exceeding the lease is wasteful but never a double write or a lost incident. The external call is NEVER repeated (at-most-once, ruling open point 6). There is no HTTP status on this path; the "503, retryable" of B maps to "re-applied, then incident".
+* **D-C.10 A duplicate apply is detected before any other read of instance state (CDV M1).** The `event_idempotency` read for the descriptor's completion key (`service_task_dispatch:<id>`, or `script_task_dispatch:<id>:<attempt>`) is the FIRST step after the dispatch/CAS row and the projection are locked, BEFORE the graph and token reads. A first apply that committed has already moved the token (`find_token_for_service_task/2` would return `{:error, {:unknown_token_id, _}}`, `engine.ex:4443-4448`) and may have terminated the instance (`{:instance_not_active, _}` at the projection lock), so the check order matters. Results: key present (token present, token missing, or instance terminated alike) -> `{:ok, :already_final}`, nothing written, no log, no `advance_failed` audit. The projection lock is still taken first when the instance is active; when `fetch_and_lock_instance_projection/3` returns `{:instance_not_active, _}`, the entry function performs the same key read WITHOUT a lock before returning that error, and answers `{:ok, :already_final}` if the key is present, else today's `{:error, {:instance_not_active, _}}`. An `idempotency_conflict` that still occurs inside the Multi is treated as "a prior apply committed" (a `sys:step:` key cannot be claimed by a client, #2550 plus A2) and answers `:already_final` too, NEVER ERROR. The read is added only when a plan exists (a node without lines keeps today's order and today's error values). Rationale: F-C5.
 * **D-C.11 Order inside the nested Multi:** existing hop-chain, timer, dispatch and child-creation steps, then `:entity_writes`, then `:sys_variables_event`, then `:entity_writes_applied_event`, then `:service_task_completed_event`, then `completion.on_advanced`, then `:projection` (its closure folds the `_sys` values with strict `put_sys/3`), then the per-line audit steps `{:entity_write_audit, i}` LAST so the tenant-wide audit chain lock is held for the least time. No snapshot is taken on this path today and none is added. Rationale: D-A1.10, D-B.10, D-B.13; 7.3.
 * **D-C.12 Activation (C1):** the node-type fence accepts `:SERVICE_TASK` and keeps `:entity_writes_node_type_not_supported` for every other type. Allowed source kinds are exactly B's (`var`, `const`). No new violation code. A script-bound node (`script_key` attribute) is allowed (OQ-C2). The `check_entity_writes/3` position, the three activation paths, the activator requirement and `activated_by` recording are unchanged. The `preseeded_variable_names` rule needs no SERVICE_TASK clause (a response or script output cannot carry a `_sys` key, A1).
 * **D-C.13 No new response surface; the existing shaping covers it.** Nothing new is returned to a client: the apply has no response. History shows the APPLIED event through the existing allowlist (it already carries `dispatch_id`), the SYS event stays hidden, EXECUTION_ERROR `variables` stays stripped, the DLQ entry is value-free by construction (D-C.8). Section 10.
@@ -161,13 +184,13 @@ exactly one of the three composing paths, selected by the completion path that o
 
 ## 5. Interfaces, specs and shapes (no bodies)
 
-### 5.1 `Letflow.Entities.StepSource` (new, C0; `entities/step_source.ex`)
+### 5.1 `Letflow.Entities.StepSource` (C0, as implemented on `feat/GH-2627-step-source-struct`; `entities/step_source.ex`)
 
 ```
 @type origin :: {:task, Ecto.UUID.t()} | {:dispatch, Ecto.UUID.t()}
 
 %Letflow.Entities.StepSource{
-  kind: String.t(),                  # default "process_step"; new/1 refuses any other value
+  kind: String.t(),                  # always "process_step"; supplied by new/1, optional input
   instance_id: Ecto.UUID.t(),
   task_id: Ecto.UUID.t() | nil,      # exactly one of task_id / dispatch_id is non-nil
   dispatch_id: Ecto.UUID.t() | nil,
@@ -177,23 +200,25 @@ exactly one of the three composing paths, selected by the completion path that o
   line_index: non_neg_integer(),
   activator_id: Ecto.UUID.t()
 }
-@enforce_keys [:instance_id, :node_id, :definition_id, :definition_version, :line_index, :activator_id]
+@enforce_keys [:kind, :instance_id, :node_id, :definition_id, :definition_version, :line_index, :activator_id]
 
-@spec new(map() | keyword()) :: {:ok, t()} | {:error, :invalid_step_source}
-@spec new!(map() | keyword()) :: t()                          # fixtures and tests; raises ArgumentError
+@spec new(term()) :: {:ok, t()} | {:error, :invalid_step_source}   # atom-keyed, non-struct map only
 @spec origin(t()) :: origin()
-@spec idempotency_key(t()) :: String.t()                      # "sys:step:" <> origin id <> ":" <> index, <= 255 bytes
+@spec idempotency_key(t()) :: String.t()                      # "sys:step:" <> origin id <> ":" <> line_index
 @spec to_metadata(t()) :: %{required(String.t()) => String.t()}   # the eight flat source.* keys, integers as decimal strings
 ```
 
-`new/1` is the only place the invariants live: UUIDs are cast to canonical lowercase text, unknown
-keys are refused, both-or-neither origin is refused, the byte and UTF-8 bounds above, `line_index` a
-non-negative integer. `to_metadata/1` emits exactly: `source.kind`, `source.instance_id`,
-`source.task_id` XOR `source.dispatch_id`, `source.node_id`, `source.definition_id`,
-`source.definition_version`, `source.line_index`, `source.activator_id`: eight keys for a task or
-a dispatch origin (B-11's "nine" counted one too many; the C0 test pins the real set).
+`new/1` is the only place the invariants live: closed atom key set (an unknown key, a string key or
+a non-map is refused), `kind` optional and equal to `"process_step"`, both-or-neither origin
+refused, UUIDs cast to canonical form, the byte and UTF-8 bounds above, `line_index` a non-negative
+integer. There is no keyword input and no `new!/1`; tests and fixtures use `{:ok, s} = new(map)`.
+`to_metadata/1` emits exactly: `source.kind`, `source.instance_id`, `source.task_id` XOR
+`source.dispatch_id`, `source.node_id`, `source.definition_id`, `source.definition_version`,
+`source.line_index`, `source.activator_id`: eight keys for either origin (B-11's "nine" counted one
+too many; the C0 test pins the real set). C2 adds nothing to this module: it calls `new/1` with a
+`dispatch_id`, which the implemented constructor already accepts.
 
-### 5.2 `Letflow.Entities.Records` (C0 edit; `entities/records.ex`)
+### 5.2 `Letflow.Entities.Records` (C0, as implemented; `entities/records.ex`)
 
 ```
 @type step_command :: %{
@@ -203,11 +228,14 @@ a dispatch origin (B-11's "nine" counted one too many; the C0 test pins the real
         required(:actor_id) => Ecto.UUID.t(),
         required(:source) => StepSource.t()               # the ONLY source shape
       }
-# line_key and idempotency_key are no longer command fields: line_key = source.line_index,
-# idempotency_key = StepSource.idempotency_key(source).
+# line_key and idempotency_key are no longer command fields: the namespace index is
+# source.line_index and the key is StepSource.idempotency_key(source). check_line_key/1 collapses
+# into that derivation (no separate equality check can fail).
 @spec command_multi(step_command(), prefix :: String.t(), ManagedTypes.owner()) ::
         {:ok, Ecto.Multi.t()} | command_multi_error()
-# a non-struct source, or a source with a non-"process_step" kind: {:error, :invalid_step_source}.
+# a non-struct source, an invalid struct (re-validated through StepSource.new/1) or a foreign kind:
+# {:error, :invalid_step_source}. Records.classify_step_error/1 has no clause for it, so a build
+# failure reaches the engine as :internal -> {:entity_write_failed, i, :build} (see D-C.2).
 ```
 
 `check_line_key/1`, `check_step_key/1`, `step_source_metadata/1`, `step_source_origin/1`,
@@ -308,10 +336,14 @@ line-validation branch (`:2594`) widened the same way. `validate_lines/2` alread
 activation paths and the cross-tenant promotion refusal (`check_activator_in_tenant/3`) are
 unchanged and apply to SERVICE_TASK nodes identically.
 
-Pre-merge inventory for C1 (operator-run, read-only, constant SQL, quoted tenant schema): the count
-of ACTIVE or DRAFT `process_definitions` rows whose graph has a node of type `SERVICE_TASK` with a
-non-empty `entity_writes` attribute. Required: zero (the fence has refused them since B1; a row that
-predates B1 must be reviewed). Result in C1's PR body.
+Inventory (a) is NOT a C1 gate: it moved to C2's merge gate (section 1.3, CDV M3; section 14). C1's
+PR body re-quotes the C2 result and adds only the node-type-specific recount at C1 time.
+
+**Script-bound nodes (supervisor ruling OQ-C2).** Script-bound SERVICE_TASK nodes (`script_key`
+attribute) are accepted by the widened fence only once C2b has merged. If C2b slips, C1 keeps the
+fence CLOSED for a node that carries `script_key` (`:entity_writes_node_type_not_supported`
+unchanged for that node) and opens it for HTTP-route nodes only; a later one-line PR opens it when
+C2b lands. The fence therefore never admits a route whose apply path cannot compose lines.
 
 ## 7. Dispatch-time composition (C2)
 
@@ -326,8 +358,10 @@ P1  EntityPort.impl().prepare    (its own short transaction, SET LOCAL 2 s / 2 s
 S0  SET LOCAL lock_timeout = '2s'; SET LOCAL statement_timeout = '5s'   (plan only)
 S1  dispatch row FOR UPDATE      [script: CAS row FOR UPDATE]
 S2  instance_projections row FOR UPDATE
-S3  fetch_graph, tokens, find_token_for_service_task                     (unchanged)
-S4  guards (plan only): duplicate-apply read (D-C.10); "node has lines but no plan" fail-closed
+S3  duplicate-apply read (D-C.10, plan only): event_idempotency by the completion key; present
+    -> {:ok, :already_final} (also when the projection lock above returned instance_not_active)
+S3a fetch_graph, tokens, find_token_for_service_task                     (unchanged)
+S4  guard (plan only): "node has lines but no plan" fail-closed
 S5  VariableMerge.merge(...)                                             (unchanged; every
                                   rejection lands as today BEFORE any entity step)
 S6  hop chain + persist_service_task_advance prepares                    (unchanged, no lock)
@@ -346,7 +380,7 @@ M6  {:entity_write_audit, i} per applied line                              (audi
 R   classify; contention -> re-apply (<= 3); refusal / failure -> second-transaction ERROR landing
 ```
 
-An apply without a plan: P0/P1, S0, S4 (both guards), M2, M3, M6 and the descriptor key are absent;
+An apply without a plan: P0/P1, S0, S3, S4, M2, M3, M6 and the descriptor key are absent;
 the Multi is byte-identical to today (regression criterion C-15, golden step-name test).
 
 ### 7.2 The plan phase and the in-transaction guards
@@ -360,12 +394,14 @@ the Multi is byte-identical to today (regression criterion C-15, golden step-nam
    the performance note in 9) and otherwise runs today's code.
 2. **P1** `prepare/2` is unchanged (it filters by `ProcessWritable.writable?/1`, B CO-3). Its
    `{:error, :entity_write_contention}` is the contention class of D-C.9.
-3. **S4 guard (fail-closed):** inside the lock, after the graph and token are read, a node whose
+3. **S4 guard (fail-closed, after the graph and token reads):** inside the lock, after the graph and token are read, a node whose
    `entity_writes` attribute is a non-empty list while the descriptor has no `entity_plan` (a read
    problem in P0, or a snapshot that changed shape) -> `{:error, {:entity_write_failed, 0,
    :not_planned}}` -> ERROR landing. A plan whose `lines` differ from the locked node's lines is the
    same refusal (the snapshot is immutable, so this is defence in depth against a hand edit).
-4. **S4 guard (duplicate apply):** D-C.10.
+4. **S3 guard (duplicate apply):** D-C.10; runs before the graph and token reads, so a committed
+   first apply (token moved, instance possibly terminal) is `already_final`, never `unknown_token_id`
+   or `instance_not_active`.
 5. **Run-time re-checks inside the step** are B's, unchanged: `normalize_line` on the pinned line,
    recorded `(entity_type, "create")` pair, write-side restrictions (subject = activator), the
    `:recheck_definition` step and `:process_policy` (writable flag re-read from the row under the
@@ -451,6 +487,21 @@ The contention rescue wraps exactly the outer `repo.transaction` call and only w
 (B 7.6 rule); the post-commit stages here are only the return value, so no post-commit contention
 mapping exists. A step inside `StepWrites` still never rescues a database error.
 
+**Where the rescue sits per route (CDV m1).** HTTP: `advance_after_service_task_outcome/4` has NO
+function-level rescue today (a lock wait that times out at S1/S2 raises out to the dispatcher's
+poll loop), so the plan-only rescue of contention classes is NEW and wraps the outer
+`repo.transaction`; it re-raises every other exception unchanged (a no-plan apply keeps today's
+raise). Script: `apply_script_task_result/3` already has a blanket `rescue _ -> {:error, :raised}`
+(`engine.ex:4896-4905`) that discards the exception class; the plan-only contention rescue sits
+INSIDE it, around the `Repo.transaction` call, so a contention class is classified before the
+blanket clause can erase it; every other exception still falls to the blanket clause.
+
+**Landing failure rows.** The landing transaction (D-C.8) is classified with the same table: a
+contention class -> re-run under the shared budget and deadline; completion-key collision,
+`instance_already_error`, `instance_terminal`, `instance_not_active` -> `{:ok, :already_final}`;
+budget exhausted or any other error -> the residual of D-C.8 (d): log, `service_task.advance_failed`
+audit, return `{:error, reason}`.
+
 ## 8. Error and refusal table (SERVICE_TASK apply)
 
 "Public code" is what the DLQ entry's `error_detail` and the `EXECUTION_ERROR` payload carry; the
@@ -463,13 +514,13 @@ path; the outcome column states what happens to the instance and the dispatch ro
 | 2 | Field validation failure, malformed pinned line, `expected`/`record` present, value over the cap | `:validation_failed` | `validation_failed` | ERROR + DLQ | no |
 | 3 | update/delete op in a pinned line | `:entity_append_only` | `entity_append_only` | ERROR + DLQ | no |
 | 4 | Type inactive or definition changed between build and recheck | `:entity_type_inactive` | `entity_type_inactive` | ERROR + DLQ | no |
-| 5 | Duplicate `sys:step:` key inside the Multi | treated as "prior apply committed" | none | `{:ok, :already_final}`, nothing written (D-C.10) | n/a |
+| 5 | Completion key already present (duplicate apply, ambiguous commit re-apply, landing collision), or a duplicate `sys:step:` key inside the Multi | treated as "prior apply committed" | none | `{:ok, :already_final}`, nothing written (D-C.10), also when the token is gone or the instance is terminal | n/a |
 | 6 | `55P03`, `57014`, `40P01`, connection error, 10 s guard, `prepare/2` contention | contention | `entity_write_contention` after exhaustion | re-applied up to 3 times, then ERROR + DLQ | yes, bounded |
 | 7 | Activator absent, inactive, or recorded authority malformed | `:entity_write_needs_reactivation` | `entity_write_needs_reactivation` | ERROR + DLQ; recovery is cancel plus rollback/promotion re-activation (B 7.3); the external call already happened | no |
 | 8 | Internal fault in a line step, `:sys_value`, `:applied_event` | `{:failed, i, step}` | `entity_write_failed` | ERROR + DLQ; step atom logged | no |
 | 9 | "Lines but no plan" (S4 guard) | `{:entity_write_failed, 0, :not_planned}` | `entity_write_failed` | ERROR + DLQ | no |
 | 10 | HTTP body carries a reserved `_sys` key | existing `persist_service_task_reserved_key_error/6` | `reserved_variable_key` | ERROR (as today), NO entity step ran | n/a |
-| 11 | Merge rejected otherwise | existing `{:error, {:variable_merge_rejected, _}}` | n/a | as today (log + audit); NO entity step ran | no |
+| 11 | Merge rejected otherwise (and the other non-entity-write apply failures: `transition_failed`, `unknown_token_id`, `event_append_failed`) | existing `{:error, _}` | n/a | as today (ISS-0928: log + `service_task.advance_failed` audit, instance stays ACTIVE; stall class deferred, section 16); NO entity step ran | no |
 | 12 | Hop chain: no matching edge / execution error / transition failure | existing landings | n/a | as today; NO entity step ran (no records orphaned) | n/a |
 | 13 | Instance cancelled or not active before the lock | `{:error, {:instance_not_active, s}}` | n/a | benign debug log; nothing written | no |
 | 14 | Script route: lease sweep or a result of `{:failed, ...}` | existing `script_failure/7` | n/a | as today; NO entity step ran | n/a |
@@ -500,7 +551,7 @@ The ERROR landing of rows 1-4, 6-9 for the script route is `script_failure/7` wi
 * **Retried dispatch (transient failure of the HTTP call).** Attempts happen BEFORE `"advanced"` is
   committed and never reach the apply; the retried attempt reuses the dispatch id and `attempt_index`
   advances (`handle_retry/3`). No record can be written by a failed attempt.
-* **Duplicate completion.** D-C.10. The pre-check reads `event_idempotency` by the completion key
+* **Duplicate completion.** D-C.10. The pre-check (S3, BEFORE the graph and token reads) reads `event_idempotency` by the completion key
   under the dispatch/CAS lock; a duplicate therefore cannot race a first apply (the first holds the
   same lock to commit).
 * **Replay safety.** Rebuilding never calls `StepWrites`. `INSTANCE_SYS_VARIABLES_SET` precedes
@@ -514,7 +565,10 @@ The ERROR landing of rows 1-4, 6-9 for the script route is `script_failure/7` wi
   (CO-4) applies to every module that asserts the no-SET-LOCAL property.
 * **Ambiguous commit.** `DBConnection.ConnectionError` mapped to contention may follow a server-side
   COMMIT whose acknowledgement was lost. The re-apply then finds the completion key present
-  (D-C.10) and answers `already_final`: no double write, no ERROR.
+  (D-C.10, S3) and answers `already_final`: no double write, no ERROR. P0 of the re-apply runs first
+  and may itself refuse (activator deactivated meanwhile); that refusal reaches the landing, whose
+  completion-key collision answers `already_final` (D-C.8 b), so a committed first apply is never
+  turned into an ERROR.
 * **Performance.** A SERVICE node without lines costs one extra graph read in P0 (the apply already
   reads the same snapshot). A node with lines holds the type sequence rows for the apply; cross-
   instance contention per type is the B consequence and is bounded by 20 lines, 2 s lock, 5 s
@@ -550,19 +604,19 @@ Test files are the issue's names where it gives one. "DB" = tenant fixture; comp
 | **C-1** Sentinel proof FIRST (0054 AC 22 / N8) | C2 (first commit) | D-C.4, F-C11 | `test/letflow/engine/service_task_entity_writes_sentinel_test.exs`: create an entity record through `Records.command_multi/3` with `actor_id = EventStore.platform_actor_id()` on a synthetic type stream; assert the event row, `entity_record_latest` row, projection and the `Records` result are accepted and readable; a read of the record through the entity API shows no user lookup failure; if any layer refuses, the test asserts the stable code and C2 stops (the fence stays). Also asserts the audit entry with the sentinel actor and `activator_id` in `after_state`. |
 | **C-2** Nested Multi atomicity (AC 18) | C2 | 7.1, 7.4, 9 | `service_task_entity_writes_test.exs`: HTTP SERVICE_TASK with two lines; success commits both records, both entity events, SYS, APPLIED, `SERVICE_TASK_COMPLETED`, projection, new task/dispatch rows and audit rows; force line 2 invalid -> zero records, zero entity events, zero `sys:step:` idempotency rows, no completed event, the dispatch row still `"advanced"`, then the instance is ERROR with one DLQ entry whose `error_detail` is exactly `{"line_index", "code", "dispatch_id"}` and the refusal audit entry exists AFTER the rollback; the hop-chain no-matching-edge, reserved-key body and merge-rejection cases write NO record. |
 | **C-3** Contention on the service path (AC 19) | C2 | 7.5, D-C.9 | `service_task_entity_writes_contention_test.exs` (`:auto` sandbox, zero backoff via the seam): force `55P03` (a second connection holds the type sequence row), `57014`, `40P01`, connection error and the 10 s guard (`now_fun`) -> nothing committed, re-applied, and on the first re-apply success the apply commits once; exhaustion after 3 -> ERROR + DLQ with public code `entity_write_contention`; the outbound call count is exactly 1; `SET LOCAL` statements are the first two statements of the outer transaction (CO-4 helper) and absent for an apply without a plan; a contention raised by the P1 `prepare/2` transaction is the same class. |
-| **C-4** Dispatch-row idempotency and retry (AC 23 first part) | C2 | D-C.3, D-C.10, 9 | `service_task_entity_writes_retry_test.exs`: keys are `sys:step:<dispatch_id>:<i>`; a transient HTTP failure then success yields exactly one record per line and `attempt_index` advanced; calling `advance_after_service_task_outcome/4` a second time for the same dispatch returns `{:ok, :already_final}`, record count unchanged, instance not ERROR; a raw duplicate `sys:step:` row inserted in `event_idempotency` BEFORE the first apply -> treated as prior commit (`already_final`) not ERROR; ambiguous-commit stub -> re-apply `already_final`. Script route: a second apply of the same claim returns `{:ok, :stale}`. |
+| **C-4** Dispatch-row idempotency and retry (AC 23 first part) | C2 | D-C.3, D-C.10, 9 | `service_task_entity_writes_retry_test.exs`: keys are `sys:step:<dispatch_id>:<i>`; a transient HTTP failure then success yields exactly one record per line and `attempt_index` advanced; **after a committed first apply the token has moved and the instance may be terminal: calling `advance_after_service_task_outcome/4` a second time for the same dispatch returns `{:ok, :already_final}` in each of three states (token moved and instance active; instance COMPLETED; instance CANCELLED after the apply), with record count unchanged, no ERROR, no `service_task.advance_failed` audit entry and no error log line;** a raw duplicate `sys:step:` row inserted in `event_idempotency` BEFORE the first apply -> treated as prior commit (`already_final`) not ERROR; ambiguous-commit stub -> re-apply `already_final`; deactivating the activator between the first apply and the re-apply still answers `already_final`. Script route: a second apply of the same claim returns `{:ok, :stale}`. |
 | **C-5** Lock order (service cases) | C2 | 7.3 | `entity_writes_lock_order_test.exs` service cases (`:auto`): statement log of one service apply lists SET LOCAL, dispatch lock, projection lock, type sequence rows ascending, then audit chain; service (A,B) vs `complete_task` (B,A) vs service (A,B) N-parallel (N <= 4, machine load rules) finish without `40P01`; the cascade case of B-3 extended with a parent SERVICE apply as the partner: every round ends with both committed or one victim re-applied/503 with nothing partial, asserted by record counts; source-level assertion that no `FOR UPDATE` is reachable from `prepare_timer_arms/4`, `prepare_service_task_dispatch_abort_on_empty_url/6`, `prepare_sub_process_children_for_completion/8` (same grep as D-B.2). |
 | **C-6** Platform-actor scope ceiling (AC 10, 21) | C2 | D-C.17 | `entity_writes_scope_test.exs` service cases: with `:entity_writes_scope_keys` set in `setup` and a fixture type carrying the key, a service line is refused in `:process_policy` with the same public code as the human path (`write_not_permitted`), ERROR + DLQ, nothing written; production list empty -> predicates false (pilot limit stated in the PR body, OQ-B6). |
-| **C-7** Activation accepts SERVICE_TASK | C1 | 6, D-C.12 | edit `entity_writes_activation_test.exs`: the SERVICE_TASK refusal case flips to "activates and records `activated_by`" on all three paths; every code of B 6.2 asserted at the exact `{node_id, index}` for a SERVICE node; a non-HUMAN/non-SERVICE node type still gets `:entity_writes_node_type_not_supported`; missing activator -> `:entity_write_activator_required` for a SERVICE node; script-bound node accepted (or refused per OQ-C2). |
-| **C-8** Refusal lands ERROR, never stall (F-C1) | C2 | D-C.8, 8 | in `service_task_entity_writes_test.exs`: one case per row 1-4, 7-9 of section 8 asserting instance `:error`, one DLQ entry, one audit entry, the dispatch row `"advanced"`, zero records; the instance is never `:active` with a lost token; a second apply returns `already_final` or `instance_not_active`; script route: the row is `failed` with detail `entity_write_refused`, a run record exists, no second run. |
+| **C-7** Activation accepts SERVICE_TASK | C1 | 6, D-C.12 | edit `entity_writes_activation_test.exs`: the SERVICE_TASK refusal case flips to "activates and records `activated_by`" on all three paths; every code of B 6.2 asserted at the exact `{node_id, index}` for a SERVICE node; a non-HUMAN/non-SERVICE node type still gets `:entity_writes_node_type_not_supported`; missing activator -> `:entity_write_activator_required` for a SERVICE node; a script-bound node is accepted only when C2b has merged, else still `:entity_writes_node_type_not_supported` (section 6). |
+| **C-8** Refusal lands ERROR, never stall (F-C1) | C2 | D-C.8, 8 | in `service_task_entity_writes_test.exs`: one case per row 1-4, 7-9 of section 8 asserting instance `:error`, one DLQ entry, one audit entry, the dispatch row `"advanced"`, zero records; the instance is never `:active` with a lost token; a second apply returns `already_final`; **the "lines but no plan" guard (S4): a node whose pinned `entity_writes` list is non-empty while the descriptor carries no `entity_plan` (P0 forced to `{:ok, nil}` through a read problem) lands ERROR with public code `entity_write_failed` and writes zero records; a node WITHOUT lines under the same condition applies exactly as today;** a failing ERROR landing (contention injected into the landing transaction) is re-run, and a landing whose completion key collides answers `already_final`; script route: the row is `failed` with detail `entity_write_refused`, a run record exists, no second run. |
 | **C-9** Activator authority at run time (D4a) | C2 | D-C.5 | `service_task_entity_writes_activator_test.exs`: `activated_by` NULL, missing `EntitiesRecordsWrite`, malformed `authorized`, non-UUID `user_id` -> ERROR landing public `entity_write_needs_reactivation`, nothing written; activator user `:inactive` and row deleted -> same; a pair absent from `authorized` (hand-edited snapshot) -> `write_not_permitted`; the activator's field restriction is honoured and a `user_entity_grants` row for the ACTIVATOR allows it; a grant for nobody else matters (no completer exists); event `actor_id` is the sentinel and `source.activator_id` the activator. |
 | **C-10** Values: typing, injection, size (F-C8, F-C9) | C2 | D-C.7 | `service_task_entity_writes_values_test.exs`: a body key mapped by `var` lands in the typed field; a wrongly typed value -> `validation_failed`; a 70 KiB string field -> `validation_failed` with no field name, nothing written; a 300 KiB line aggregate likewise; a body key not named by any line is merged but not written; a `var` naming `_sys` never activates and, hand-edited, is omitted; no value appears in event metadata, audit, DLQ or log capture. |
 | **C-11** Replay (AC 15) | C2 | 9 | extend `entity_writes_replay_test.exs`: port double with zero `multi/3`, `prepare/2`, `validate_lines/2`, `interpret_failure/2` calls during `Reconstruction.reconstruct_instance/2`, projection rebuild, timer fire, escalation and cancel for an instance that went through a service apply; rebuilt variables equal live ones including `_sys.*`; wide-tier stored SYS event before a service completed event replays byte-identically. |
 | **C-12** Source, event and audit shape | C0, C2 | 5.1, 7.4 | edit `records_command_multi_test.exs`, `entity_writes_gates_test.exs:236`: flat `source.*` metadata byte-identical to the pre-C0 fixture for a task origin; for a dispatch origin exactly `source.dispatch_id` replaces `source.task_id`; APPLIED event has `dispatch_id` set and `task_id` null, `lines_hash` equals `StepWrites.lines_hash/1`; one `entity_write.process_step` audit row per line, hash chain verifies (`Audit.verify_chain/2`). |
 | **C-13** API gating (INV-2) | C2 | 10 | `service_task_entity_writes_surfaces_test.exs`: after a service apply, on instance read, reconstruct, history, timeline: no reserved key and no `record_id`/`event_global_seq` in history; DLQ list and get contain no record id, field name, entity type or value; `error_detail` key set asserted exactly. |
-| **C-14** Script route | C2 (C2b) | D-C.8, D-C.9 | `script_task_entity_writes_test.exs`: script output feeds a line; success commits records, SYS, APPLIED, `SCRIPT_TASK_COMPLETED`, `SCRIPT_RUN_RECORDED`, row `applied`; refusal -> row `failed`, detail `entity_write_refused`, ERROR + DLQ, the dispatcher follow-up NEVER invoked (call count asserted); contention re-applied inside the engine, exhaustion -> detail `entity_write_contention`; lease sweep unaffected. |
+| **C-14** Script route | C2 (C2b) | D-C.8, D-C.9 | `script_task_entity_writes_test.exs`: script output feeds a line; success commits records, SYS, APPLIED, `SCRIPT_TASK_COMPLETED`, `SCRIPT_RUN_RECORDED`, row `applied`; refusal -> row `failed`, detail `entity_write_refused`, ERROR + DLQ, the dispatcher follow-up NEVER invoked (call count asserted); contention re-applied inside the engine, exhaustion -> detail `entity_write_contention`; **lease interaction (D-C.9): with the lease shortened to a few hundred ms and an injected contention longer than the deadline, the re-apply loop stops at `min(20 s, remaining lease - 2 s)`; a concurrent lease sweep and a late re-apply produce exactly one winner (the other is `{:ok, :stale}`), never two run records and never a record written after the sweep's `timeout` incident.** |
 | **C-15** Regression | all | 7.1 | Full `mix test` green, quoted in each PR body; golden step-name tests: HUMAN (`__complete_task_multi_step_names__`) unchanged and a new service seam asserting a no-lines apply yields exactly today's names; `engine_concurrency_test.exs` and existing `Records`/service-task suites unedited. |
-| **C-16** `%StepSource{}` (#2627) | C0 | 5.1, 5.2, D-C.2 | `test/letflow/entities/step_source_test.exs`: new/1 accepts the full valid shape; refuses missing keys, both/neither origin, non-UUID, node_id 0/1025 bytes and invalid UTF-8, version 0/256 bytes, negative or non-integer line_index, foreign kind, unknown key; property: `to_metadata/1` keys and string values equal the pre-C0 golden for generated valid inputs; `command_multi/3` with a plain map source -> `{:error, :invalid_step_source}`; git-grep test (`step_source_literal_test.exs`) over `lib/**` and `test/support/**` for `kind: "process_step"` or `"source.kind"` outside `step_source.ex`, with non-vacuity on a synthetic snippet; flat metadata on a real event byte-identical; replay of a stored event unchanged (the metadata is write-only provenance). |
+| **C-16** `%StepSource{}` (#2627) | C0 | 5.1, 5.2, D-C.2 | `test/letflow/entities/step_source_test.exs`: `new/1` accepts the full valid atom-keyed shape (with and without `kind`, with `task_id` or `dispatch_id`); refuses missing keys, both/neither origin, string keys, keyword lists, non-UUID, node_id 0/1025 bytes and invalid UTF-8, version 0/256 bytes, negative or non-integer line_index, foreign kind, unknown key; `idempotency_key/1` equals the pre-C0 `"sys:step:<id>:<index>"` for both origins; `to_metadata/1` keys and string values equal the pre-C0 golden; `command_multi/3` with a plain map source, a foreign-kind struct or a hand-built invalid struct -> `{:error, :invalid_step_source}`, and through `StepWrites` that reaches `{:entity_write_failed, i, :build}` (pins the `classify_step_error/1` fall-through); `test/letflow/entities/step_source_callers_test.exs`: git-grep/AST test that no literal source map (`kind: "process_step"`, `"source.kind"`) exists outside `step_source.ex`, with non-vacuity on a synthetic snippet; flat metadata on a real event byte-identical; replay of a stored event unchanged. |
 | **C-17** `activated_by` still not forgeable | C1 | I-B11 | existing B-19 case re-run against a SERVICE definition; no new writer. |
 | **C-18** REQ-501 seams unaffected | C0 | D-C.16 | `module_write_*` tests belong to #2590; PR C asserts only that `StepSource` accepts no `handler` key yet (refused as unknown) so the extension is an explicit later edit. |
 
@@ -583,13 +637,13 @@ Test files are the issue's names where it gives one. "DB" = tenant fixture; comp
 ## 12. Invariants
 
 * **I-C1** A SERVICE_TASK apply with lines writes nothing unless every line, `_sys`, both events, the completed event, the projection and the audit commit in ONE transaction; every execution error, no-matching-edge and merge rejection of the apply writes no record.
-* **I-C2** The entity step's refusal never leaves the instance ACTIVE with a lost token: it lands ERROR + DLQ in a separate, later transaction, or the apply was a duplicate and answers `already_final`.
+* **I-C2** The entity step's refusal does not leave the instance ACTIVE with a lost token: it lands ERROR + DLQ in a separate, later transaction, or the apply was a duplicate and answers `already_final`. QUALIFIED: between the rollback and the landing commit there is a crash window (and a landing that exhausts its budget), in which the pre-existing F-C1 stall class remains; closing it needs the stuck-`"advanced"` sweeper deferred in section 16.
 * **I-C3** The external call is never repeated by the entity-write machinery (at-most-once); a re-apply reuses the in-memory result only.
 * **I-C4** `_sys` values are set only by strict `put_sys/3` (engine step) or `put_sys_replayed/3`; never from line data, a response body or a script output.
 * **I-C5** The event actor on the service origin is the platform sentinel and the activator is recorded in `source.activator_id`; the restriction subject is the activator; no entity event is attributed to a human who did not act.
 * **I-C6** Authority is the literal `:tenant`; a managed type is never a declarative target; the recorded `activated_by` is untrusted data re-validated before each apply.
 * **I-C7** Entity-type locks are taken only inside `:entity_writes`, in `(entity_type, declared index)` order, after the dispatch/CAS row and the projection, and before the audit chain lock.
-* **I-C8** The line idempotency key is derived from the same `%StepSource{}` that supplies `source.*`; no caller supplies a key or a `line_key`.
+* **I-C8** The line idempotency key and the namespace index are derived from the same `%StepSource{}` that supplies `source.*` (`StepSource.idempotency_key/1`, `line_index`); no caller supplies a key or a `line_key`, and `command_multi/3` re-validates the struct through `StepSource.new/1`.
 * **I-C9** No client-visible map, DLQ entry, audit entry, log line or event metadata carries a field value, field name, entity type name or record id beyond the allowlists of section 10.
 * **I-C10** Replay never invokes the entity port; a service apply's `_sys` values replay from the SYS event before the completed event.
 
@@ -617,7 +671,7 @@ by D-C.4, D-C.5, C-1, C-9.
 
 **C0**: `entities/step_source.ex` (new), `entities/records.ex` (types, `command_multi/3`, deletion of
 the map checks), `entities/step_writes.ex` (`build_line/4` builds the struct), tests
-`step_source_test.exs`, `step_source_literal_test.exs` (new); edits `records_command_multi_test.exs`,
+`step_source_test.exs`, `step_source_callers_test.exs` (new, C0), `service_task_subprocess_cascade_probe_test.exs` (new, C2 prerequisite); edits `records_command_multi_test.exs`,
 `records_reserved_keys_test.exs`, `entity_writes_gates_test.exs`, `command_multi_callers_test.exs`
 only if its fixture builds a source.
 
@@ -647,20 +701,20 @@ Docs: DOC-UPDATER bookkeeping; the REQ-499 entry notes OQ-B5 (stale `expected` u
 | Flat `source.*` metadata | C0 | byte-identical (test C-12/C-16); no stored event changes |
 | `ScriptTaskDispatcher.detail()` | C2 | two additive atoms; DB regex already admits them |
 | EE-12 moduledoc | C2 | one sentence (7.3) |
-| Pre-merge inventories | C1 | (a) SERVICE_TASK nodes with `entity_writes` per tenant (section 6); (b) none for `_sys` (B's CO-8 stays valid) |
+| Pre-merge inventories | C2 (gate), C1 | **C2 gate (a):** count, per tenant, of (1) `process_definitions` rows of ANY status whose graph has a node of type `SERVICE_TASK` with a non-empty `entity_writes` attribute, and (2) non-terminal instances whose PINNED snapshot (`SnapshotStore` graph) has such a node, including instances of definitions since deprecated or archived; required zero, any hit cancelled, repaired or re-versioned first; result in C2's PR body. **C1:** the same count re-run at C1 time. (b) none for `_sys` (B's CO-8 stays valid). Operator-run, read-only, constant SQL, quoted tenant schema from the registry |
 | Anti-pattern check | C2 | "a validator that began refusing at activate broke already-merged tests" does not apply (C1 relaxes); the tests that hand-build ACTIVE definitions for C2 insert the row with a recorded `activated_by` directly |
 | Tenant-template staleness | none | no migration |
 
-## 15. Open questions needing a supervisor ruling
+## 15. Open questions: rulings (supervisor, 2026-10-16, binding)
 
-* **OQ-C1 Merge order.** Recommended C0 -> C2 -> C1 (no flag, no seam, activation last). The literal order C0 -> C1 -> C2 needs a run-time fail-closed refusal in C1 that C2 deletes. Ruling needed on which.
-* **OQ-C2 Script route.** Include script-bound SERVICE_TASK nodes (shared seam, cut line C2b, recommended) or refuse them at activation in C1 with a new code (`:entity_writes_script_route_not_supported`) and defer. The script route's own follow-up and lease semantics are the extra surface.
-* **OQ-C3 Refusal landing.** D-C.8 makes a data-dependent refusal (for example a response that lacks a required field) put the INSTANCE in ERROR. That is new product behaviour for service tasks and the only alternative that avoids a silent stall (the HTTP row cannot be re-queued without repeating the external call). Confirm, or name an alternative (for example a distinct non-terminal "needs attention" status, which does not exist).
-* **OQ-C4 Size caps.** 64 KiB per field value and 256 KiB per line on the service origin are proposed, not derived. Also decide whether the same cap belongs on the HUMAN path (form values, B) as a follow-up, and whether a record-level cap on the entity side should replace both.
-* **OQ-C5 Pre-call activator check.** Refusing before the external call when the activator is already deactivated avoids an unrecoverable external effect, but the dispatcher is forbidden from calling the engine and the check is advisory (D4a.4 race). Recommended: defer.
-* **OQ-C6 Event actor.** The sentinel is ruled by 0054 D4; this design follows it and proves it first (C-1). If C-1 shows an entity-side consumer that resolves `actor_id` to a user, the fallback is a ruling to use the activator id as `actor_id` (with `source` unchanged). Confirm the fallback in advance or reopen after C-1.
-* **OQ-C7 `StepSource` scope.** D-C.2 derives `line_key` and `idempotency_key` from the struct and deletes them from the command. The minimal reading of #2627 keeps both fields and adds equality checks (`line_key == line_index`, key embeds the origin id) inside `StepSource`. Recommended: derive (fewer ways to be wrong, one fewer hand-written check, as #2627 asks). Ruling needed because it edits A2/B2 tests.
-* **OQ-C8 Pre-existing sub-process gap (F-C10).** The service apply has no cascade, so a SERVICE_TASK that ends a sub-process child does not wake the parent. Verified by absence of a call, not by a running test. Recommended: file an ISS and confirm with a test before C2 relies on the cascade analysis in 7.3 (the analysis is conservative either way).
+* **OQ-C1 CLOSED: YES.** Merge order C0 -> C2 -> C1.
+* **OQ-C2 CLOSED: YES.** Script-bound SERVICE_TASK nodes are C2b. If C2b slips, the activation fence stays closed for script-bound nodes (section 6).
+* **OQ-C3 CLOSED: YES.** A refusal lands ERROR + DLQ. It is stated as NEW product behaviour in C2's PR body and in the operator runbook (D-C.8).
+* **OQ-C4 CLOSED.** 64 KiB per value and 256 KiB per line as named constants with a pinning test (D-C.7). HUMAN is NOT widened in PR C; the follow-up is the entity-side per-record cap (section 16).
+* **OQ-C5 CLOSED: defer.** Reason: the check would run in the dispatcher, which the boundary forbids from calling the engine, and it is advisory anyway (the D4a.4 deactivation race exists between the check and the call). The consequence (an external effect whose result cannot be applied for a deactivated activator) is the accepted incident of the 0054 open point 6 ruling.
+* **OQ-C6 CLOSED.** The sentinel actor stays. Pre-approved fallback (activator id as `actor_id`, `source` unchanged) ONLY if C-1 shows a consumer resolving `actor_id` to a user; in that case C2 STOPS and this design reopens.
+* **OQ-C7 CLOSED.** `StepSource` derives `line_key` and the `sys:step:` key from the struct (D-C.2).
+* **OQ-C8 CLOSED.** File an ISS for the missing service-path sub-process cascade, and CONFIRM it with a running test BEFORE C2 relies on 7.3: `test/letflow/engine/service_task_subprocess_cascade_probe_test.exs` (a child instance whose last node is a SERVICE_TASK; apply it; assert whether the parent token wakes). The test is a C2 prerequisite; its result and the ISS id go in C2's PR body. If the cascade turns out to exist elsewhere, 7.3 is re-derived before C2 proceeds.
 
 ## 16. Deferred (not PR C)
 
@@ -669,4 +723,6 @@ Docs: DOC-UPDATER bookkeeping; the REQ-499 entry notes OQ-B5 (stale `expected` u
 * Persisting the decoded response body (or a hash) for an operator re-apply from the DLQ, and a stuck-`"advanced"` sweeper (a crash between the `"advanced"` commit and the apply loses the body today; pre-existing).
 * The remaining silent-stall classes of the HTTP apply (`transition_failed`, `invalid_form_schema`, `variable_merge_rejected`, `unknown_token_id`): ISS-0928 made them loud, not terminal; PR C changes only the entity-write class.
 * A `{"response": key}` source kind and a declared-output-keys check for script-bound nodes at activation.
-* Real `needs_reactivation` status and in-place re-activation (B follow-up), a per-record cap on the entity side (OQ-C4), scoped types and the rule-3a lock (0051), pre-call activator check (OQ-C5).
+* **Entity-side per-record cap (follow-up to file with C2):** a size cap enforced inside `Records`/the entity validator that REPLACES the origin-specific service caps of D-C.7 and also covers the HUMAN path, instead of widening HUMAN in PR C.
+* **Stuck-`"advanced"` sweeper** (closes the residual of D-C.8 d and I-C2): finds `"advanced"` dispatch rows whose projection is ACTIVE and whose completion key is absent, and lands them as ERROR; also the pre-existing non-entity-write stall classes of ISS-0928.
+* Real `needs_reactivation` status and in-place re-activation (B follow-up), scoped types and the rule-3a lock (0051), pre-call activator check (OQ-C5).
