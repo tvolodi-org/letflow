@@ -686,7 +686,7 @@ defmodule Letflow.Routers.Tasks do
       "instance_id" => instance_id,
       "instance_status" => instance_status |> Atom.to_string() |> String.upcase(),
       "current_nodes" => current_nodes,
-      "variables" => variables,
+      "variables" => Response.public_variables(variables),
       "completed_at" => DateTime.to_iso8601(completed_at)
     }
   end

@@ -55,10 +55,88 @@ defmodule Letflow.Api.Response do
   import Plug.Conn
 
   alias Letflow.Api.Error
+  alias Letflow.Engine.EntityPort
+  alias Letflow.Engine.VariableMerge
 
   @json_content_type "application/json"
   @problem_content_type "application/problem+json"
   @separation_of_duties_body ~s({"detail":"separation of duties","status":403})
+
+  # ── Client-visible variable and event-payload shaping (GH #2587 PR B3, CO-1, INV-2) ──
+
+  @variable_payload_keys ["variables", "output_variables", "initial_variables"]
+
+  @doc """
+  The ONE helper every router uses before a process-variable map reaches a client
+  (GH #2587 PR B3, decision 0054 CO-1, INV-2): `variables` without its top-level reserved
+  (`_sys`, `_sys.*`) keys. A STRIP, not a permission gate: nothing client-side reads engine
+  bookkeeping, and the stored projection, events and audit entries are untouched. Delegates to
+  `Letflow.Engine.VariableMerge.drop_reserved/1` (the single reserved-key predicate). Nested keys
+  are never touched; a non-map input is returned as `%{}` so a malformed value cannot leak.
+  """
+  @spec public_variables(term()) :: map()
+  def public_variables(variables) when is_map(variables),
+    do: VariableMerge.drop_reserved(variables)
+
+  def public_variables(_other), do: %{}
+
+  @doc """
+  The client-visible form of one stored instance event payload (history, GH #2587 PR B3):
+
+    * the engine-only `VariableMerge.sys_event_type/0` payload is never shown (`%{}`; history and
+      timeline also exclude the row server-side);
+    * the `EntityPort.applied_event_type/0` payload is reduced to `node_id`, `task_id`, `dispatch_id`,
+      `lines_hash` and `lines` as `[%{"line_index", "entity_type"}]` (no record id, no event
+      sequence; the hash-chained audit entry keeps them);
+    * any top-level `variables`, `output_variables` or `initial_variables` map (for example
+      `EXECUTION_ERROR`'s full variable snapshot) passes through `public_variables/1`.
+
+  The stored event is never changed; this shapes the response only.
+  """
+  @spec public_event_payload(String.t() | nil, term()) :: term()
+  def public_event_payload(event_type, payload) when is_map(payload) do
+    cond do
+      event_type == VariableMerge.sys_event_type() ->
+        %{}
+
+      event_type == EntityPort.applied_event_type() ->
+        applied_payload(payload)
+
+      true ->
+        Enum.reduce(@variable_payload_keys, payload, fn key, acc ->
+          case acc do
+            %{^key => vars} when is_map(vars) -> Map.put(acc, key, public_variables(vars))
+            _ -> acc
+          end
+        end)
+    end
+  end
+
+  def public_event_payload(_event_type, payload), do: payload
+
+  defp applied_payload(payload) do
+    lines =
+      case Map.get(payload, "lines") do
+        lines when is_list(lines) ->
+          for %{} = line <- lines do
+            %{
+              "line_index" => Map.get(line, "line_index"),
+              "entity_type" => Map.get(line, "entity_type")
+            }
+          end
+
+        _other ->
+          []
+      end
+
+    %{
+      "node_id" => Map.get(payload, "node_id"),
+      "task_id" => Map.get(payload, "task_id"),
+      "dispatch_id" => Map.get(payload, "dispatch_id"),
+      "lines_hash" => Map.get(payload, "lines_hash"),
+      "lines" => lines
+    }
+  end
 
   # ── Success helpers ────────────────────────────────────────────────────────
 

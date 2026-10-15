@@ -19,6 +19,7 @@ defmodule Letflow.Instances do
   import Ecto.Query
 
   alias Letflow.Api.Pagination
+  alias Letflow.Engine.VariableMerge
   alias Letflow.EventStore.Event
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.Identity.User
@@ -137,6 +138,7 @@ defmodule Letflow.Instances do
       query =
         Event
         |> where([e], e.instance_id == ^id)
+        |> exclude_hidden_event_types()
         |> filter_by_event_type(Map.get(params, :event_type))
         |> filter_by_created_after(Map.get(params, :from))
         |> filter_by_created_before(Map.get(params, :to))
@@ -191,6 +193,7 @@ defmodule Letflow.Instances do
       query =
         Event
         |> where([e], e.instance_id == ^id)
+        |> exclude_hidden_event_types()
         |> filter_by_seq_cursor(cursor_seek)
         |> order_by([e], asc: e.sequence_number)
         |> limit(^(page_size + 1))
@@ -442,6 +445,14 @@ defmodule Letflow.Instances do
   end
 
   # ── history/timeline shared: event-log filters + sequence-number cursor ──
+
+  # GH #2587 PR B3 (CO-1, INV-2): engine-only bookkeeping events never appear in the client
+  # history or timeline. Excluded in the query (not after the page is cut), so `page_size`
+  # and the sequence cursor stay exact; the stored event is untouched.
+  defp exclude_hidden_event_types(query) do
+    hidden = [VariableMerge.sys_event_type()]
+    from(e in query, where: e.event_type not in ^hidden)
+  end
 
   defp filter_by_event_type(query, nil), do: query
 
