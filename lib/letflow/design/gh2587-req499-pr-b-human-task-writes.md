@@ -11,11 +11,24 @@ Design only. Signatures, type shapes, step lists, tables and test briefs; no fun
 
 ## Changelog
 
+### Revision 1 (2026-10-15): CDV FAIL (6 blockers) and supervisor rulings applied
+
+| Id | Change | Where |
+|---|---|---|
+| CDV-1 | F-2 harm restated: orphan records plus an ERROR instance; a retry gets `{:instance_not_active, :error}` (409), NOT `idempotency_conflict`; test B-2 replaced | 3 F-2, 11.1 B-2 |
+| CDV-2 | Lock inventory gains the sub-process completion cascade (child tasks -> child projection -> type sequence, then parent token -> parent projection) vs a parallel-branch parent completion: a real `40P01` cycle; outcome stated; B-3 case added | 7.2, 9, 11.1 B-3 |
+| CDV-3 | Activator status: absent user row fails closed; reader `Letflow.Identity.get_user/2` (`identity.ex:353`); `check_boundaries` has no engine -> identity rule; stub recovery path (cancel, or rollback re-activation) and a cancel test; real status deferred | 7.3, 11.1 B-13, 16 |
+| CDV-4 | Fail-closed "lines but no plan" guard lives in the existing `:completion_guards` step as a pure branch (no extra step) | 4 D-B.3 |
+| CDV-5 | B1 test seam: app-env flag `:entity_writes_execution_enabled` (default off) read by `validate_lines/2`; named B1 tests flip it; B2 deletes it | 4 D-B.6, 11.1 B-1 |
+| CDV-6 | D4a.3 completer-scope: `Tasks.authorize_completion/3` is the existing authorization; scope ceilings vacuous before 0051; non-assignee test B-18 | 4 D-B.23, 11.1 |
+| CDV-7..16 | Scope-predicate seam named; `activated_by` forge invariant and test B-19; step names and tuple/atom routing (D-B.25); INV labelling; `Activator` takes `platform_tenant?`; line drift; ONE refusal envelope; create defaults; ambiguous-commit retry (B-17); Lua row; OQ-B4 asymmetry | 4, 5, 8, 9, 10, 11, 12 |
+| Rulings | OQ-B1..OQ-B6 closed per supervisor | 15 |
+
 ### Revision 0 (2026-10-15): first design
 
 First version. Written against `main` `26e6cdbd`; every file:line below was re-read on that
 tree (section 2). Eleven findings (section 3) change or sharpen the issue text; the questions that
-need a supervisor ruling are in section 15 (OQ-B1..OQ-B6).
+were ruled by the supervisor (section 15, OQ-B1..OQ-B6, all closed).
 
 ## 1. Summary, sizing and proposed split
 
@@ -71,7 +84,7 @@ the smallest, is a hard prerequisite of B2's first `_sys` write, and carries no 
 | `maybe_snapshot_after_complete_task/2` reads `changes.transition` final state | `engine.ex:2718-2754` |
 | Router completion: `idempotency_key = Ecto.UUID.generate()` per request; `handle_complete_result` catch-all `{:error, _reason}` -> 500 | `routers/tasks.ex:326-327`, `:443-445` |
 | `complete_result_map/1` serialises `"variables"` verbatim | `routers/tasks.ex:676-690` |
-| `instance_map/1` `"variables"`; `render_reconstruct/2` `"variables"`; `history_item_map/2` `"payload"` verbatim; `timeline_item_map/1` | `routers/instances.ex:844`, `:723`, `:952`, `:988` |
+| `instance_map/1` `"variables"`; `render_reconstruct/2` `"variables"`; `history_item_map/2` `"payload"` verbatim; `timeline_item_map/1` | `routers/instances.ex:850`, `:730`, `:952`, `:988` |
 | `Instances.history/3` and `timeline/3` query `events` by `instance_id` only (`filter_by_event_type`, no type exclusion) | `instances.ex:129-152`, `:183-208` |
 | `EXECUTION_ERROR` payload carries the full `variables` map | `engine/execution_error.ex:295-318` |
 | `Definitions.activate/2` opts: `prefix` and `service_scope_validator` ONLY (no actor); lifecycle audit uses `actor_id: nil` | `definitions.ex:194-197`, `:741-768`, `:1930-1960` |
@@ -110,7 +123,7 @@ refusal and state so"), PR B lands NO rule-3a code.
 | Id | Finding | Consequence |
 |---|---|---|
 | **F-1** | `Records.step_source.definition_version` is `pos_integer()` and `step_source_metadata/1` refuses anything else (`records.ex:263`, `:773`), but `ProcessDefinition.version` is a free string up to 255 bytes (`"1"`, `"1.0.0"`, `"v2"`). The A2 contract cannot carry a real definition version. | D-B.9: PR B widens `definition_version` to a 1..255-byte string in `records.ex`; `records_command_multi_test.exs` is edited. |
-| **F-2** | 0054 D3 places `:entity_writes` BEFORE `:transition` and AC 13 names only `:merge` execution errors. But `:transition` itself returns `{:ok, {:execution_error, _}}` (no matching edge, empty URL, catalog, script binding, sub-process activation: `engine.ex:5075-5123`); the tail then commits the instance as `:error` and leaves the task `pending`. Entity records written before it would COMMIT while the task stays pending, and the retry would hit `idempotency_conflict` on the same `sys:step:<task>:<i>` key (a wedge). | D-B.2: `:entity_writes` runs AFTER `:transition` (which only prepares, takes no lock) and before the tail, and skips on either execution error. |
+| **F-2** | 0054 D3 places `:entity_writes` BEFORE `:transition` and AC 13 names only `:merge` execution errors. But `:transition` itself returns `{:ok, {:execution_error, _}}` (no matching edge, empty URL, catalog, script binding, sub-process activation: `engine.ex:5075-5123`); the tail then commits the instance as `:error` and leaves the task `pending` (`engine.ex:5327-5340`). Entity records written before it would COMMIT: orphan records for a completion that never completed, on an instance now in ERROR. The instance projection is `:error`, so any retry gets `{:instance_not_active, :error}` (`engine.ex:2773-2781`, 409): the completion can never succeed and the records stay orphaned. | D-B.2: `:entity_writes` runs AFTER `:transition` (which only prepares, takes no lock) and before the tail, and skips on either execution error. |
 | **F-3** | `maybe_snapshot_after_complete_task/2` and `interpret_complete_result/3` read the final state from `changes.transition`. A `_sys` fold done only in the tail would leave the snapshot (taken at the `TASK_COMPLETED` sequence number, AFTER the SYS event) without `_sys` keys, so snapshot-based replay would lose them. | D-B.10: one pure fold of the `_sys` values into `changes.transition` right after the transaction returns, before snapshot, telemetry and interpret; the tail folds the same values for the projection write. |
 | **F-4** | `Definitions.activate/2` has no actor input and writes `actor_id: nil` audit rows (`definitions.ex:194`, `:1930`). 0054 D4a needs `activated_by`, the evaluated permissions and the authorised pairs recorded at activation, and `source.activator_id` is required on every line. | D-B.14: new `activator` option on the three activation paths, one nullable jsonb column, refuse-when-absent for graphs with lines. |
 | **F-5** | A new `{:error, {:entity_write_refused, _, _}}` result would hit the tasks router catch-all (`routers/tasks.ex:443`, 500) and has NO matching `interpret_complete_result/3` clause (the catch-all expects a 4-tuple). | Explicit clauses in both (section 7.6, 8). |
@@ -125,10 +138,10 @@ refusal and state so"), PR B lands NO rule-3a code.
 
 * **D-B.1 Three PRs, order B3 -> B1 -> B2.** B3 closes an exposure that has no writer yet and is a prerequisite of B2; B1 closes the activation hole; B2 turns the feature on. (Section 1.3.)
 * **D-B.2 `:entity_writes` sits after `:transition` and before the tail `Multi.merge`; it skips when `changes.transition` is `{:execution_error, _}` (which also covers a `:merge` execution error, passed through).** Rationale: F-2. Lock order is unchanged: `:transition` only prepares (reads, no `FOR UPDATE`; ELIXIR-DEV greps `lock(` over the call tree `prepare_timer_arms/4`, `prepare_service_task_dispatch_for_completion/8`, `prepare_sub_process_children_for_completion/8`, `SubProcess.prepare_child_activation/4` and the statement-log test asserts it), so entity locks still precede every tail write. EE-12 sentence 4 ("(5) `:transition` and the tail") is reworded in B2 to "(5) the tail (the `:transition` step only computes)".
-* **D-B.3 A read-only pre-transaction plan phase decides "has lines", runs `prepare/2` and never fails the completion by itself.** It reads the task row (unlocked), the instance's `definition_id`, the pinned snapshot graph and the node; any read error yields `:none` so the in-transaction flow produces today's canonical error. Because the snapshot and `task.node_id` are immutable, the in-transaction lines equal the planned lines; the `:entity_writes` step fails closed (`entity_write_failed`, nothing committed) if the graph holds lines but no plan ran. Rationale: 0054 D2.3 / D3 step 0 and no new lock edge.
+* **D-B.3 A read-only pre-transaction plan phase decides "has lines", runs `prepare/2` and never fails the completion by itself.** It reads the task row (unlocked), the instance's `definition_id`, the pinned snapshot graph and the node; any read error yields `:none` so the in-transaction flow produces today's canonical error. Because the snapshot and `task.node_id` are immutable, the in-transaction lines equal the planned lines; when P0 returned `:none` there is no `:entity_writes` step (and the golden Multi-name test forbids an extra step), so the fail-closed check is a pure branch INSIDE the existing `:completion_guards` step (`check_completion_guards/6`, `engine.ex:4823`): it already receives the graph and the task; if the node carries a non-empty `entity_writes` attribute and the completion has no plan, it returns `{:error, {:completion_refused, :entity_writes_not_planned}}`, mapped to `{:entity_write_failed, 0, :not_planned}` (500, nothing committed). A node without lines takes no new branch and behaves as today. Rationale: 0054 D2.3 / D3 step 0 and no new lock edge.
 * **D-B.4 Lines are built in a `Multi.merge/2` after `:transition`, from the merge outcome, through closures in the port context.** The engine hands `StepWrites` two closures (`variables`, `skip?`) so Entities never learns engine step names. Rationale: F-10; the fields may name form outputs (D1a.5).
 * **D-B.5 Line shape: `op`, `entity_type`, `fields`, optional `output_record_id_var`; field sources are tagged `{"var": name}` or `{"const": value}`.** Tagged so a constant map is never mistaken for a reference. `record` and `expected` are refused on a `create` line. Rationale: 0054 D1/D1a; create-only MVP (ruling, D1a.4).
-* **D-B.6 `validate_lines/2` reports ALL violations, sorted `{index, code}`, and a B1-only gate appends `:entity_writes_execution_not_enabled` per line after every real check passes.** The gate is a one-function constant in `StepWrites` that B2 deletes with its test. Rationale: B1 must not let an activated definition silently ignore lines (no write path until B2).
+* **D-B.6 `validate_lines/2` reports ALL violations, sorted `{index, code}`, and a B1-only gate appends `:entity_writes_execution_not_enabled` per line after every real check passes.** The gate is a seam, not a constant: `StepWrites.execution_enabled?/0` reads `Application.get_env(:letflow, :entity_writes_execution_enabled, false)` (default OFF in every environment, never set in `config/*.exs`). B1 tests that need a definition to ACTIVATE (the `activated_by` recording, rollback and promotion re-recording, activator cases) set it true in `setup` and restore it in `on_exit` (`async: false`); the case "valid definition is refused with `:entity_writes_execution_not_enabled`" runs with it off. B2 deletes the function, the env key and that case (execution is then always enabled). Rationale: B1 must ship `record_activator`/`activated_by` code that is testable, while production activation stays refused until B2. Rationale: B1 must not let an activated definition silently ignore lines (no write path until B2).
 * **D-B.7 `prepare/2` stays lenient (skips a missing or non-binary type) and gains the `writable?/1` filter; `multi/3` re-normalises every line and refuses a malformed one.** Rationale: #2633 AC 3 option "keep lenient, document it, pin it"; `prepare/2` is not the guard, `validate_lines/2` (activation) and `multi/3` (run time, hand-edited snapshot) are. CO-3 satisfied inside `prepare/2` because the engine cannot name `ProcessWritable`.
 * **D-B.8 New port callback `interpret_failure(step, reason)`.** F-9. Returns `{:refused, index, code, detail}`, `{:failed, index, step}` or `:not_a_line_failure`; `detail` is a closed atom for the tenant audit only.
 * **D-B.9 `step_source.definition_version` becomes a 1..255-byte string.** F-1; the flat metadata value `source.definition_version` is the string as stored. Edits `records.ex` (type, guard) and `records_command_multi_test.exs`.
@@ -136,14 +149,17 @@ refusal and state so"), PR B lands NO rule-3a code.
 * **D-B.11 SET LOCAL timeouts are the FIRST Multi step, only when the plan has lines; a 10 s wall-clock guard step precedes each line; a guard trip is `entity_write_contention` with audit detail `:deadline`.** Rationale: 0054 D3 "Timeouts"; the public code set stays closed (OQ-B3).
 * **D-B.12 The contention `try/rescue` wraps exactly the `Repo.transaction()` call and only when the plan has lines; the tagged result skips the post-commit stages through an explicit `interpret_complete_result/3` clause.** 0054 D3; F-5.
 * **D-B.13 Audit: one `Audit.insert_entry/3` per applied line, in the tail beside `record_task_complete_audit/4`, after-state without field values.** F-11.
-* **D-B.14 Activator authority: nullable jsonb `process_definitions.activated_by`, written at the three activation paths only for graphs that carry lines; `activator` option built by a pure router-side builder; absent or lacking `:EntitiesRecordsWrite` -> refused; a deactivated activator -> refusal-only stub (no new task status).** F-4; 0054 D4a and open point 9 (OQ-B2 on the stub).
-* **D-B.15 Write-side field restrictions are checked at build time with the completer as subject.** D4c; create-only so no hidden-field carry-over exists (a create reads no row).
+* **D-B.14 Activator authority: nullable jsonb `process_definitions.activated_by`, written at the three activation paths only for graphs that carry lines; `activator` option built by `Activator.from_auth_context/2` (the router passes `platform_tenant?` in); absent or lacking `:EntitiesRecordsWrite` -> refused; a deactivated activator -> refusal-only stub (no new task status).** F-4; 0054 D4a and open point 9 (OQ-B2 on the stub).
+* **D-B.15 Write-side field restrictions are checked at build time with the completer as subject.** D4c; create-only so no hidden-field carry-over from a row exists (a create reads no row). A restricted field the line does NOT name is simply absent from `field_values`: the type's own create semantics decide (a required field gives `validation_failed`; otherwise it is stored unset); PR B applies no extra default for it, and 0054 D4c's "carried over from the defaults of a create" is satisfied because the engine adds nothing the subject could not already see.
 * **D-B.16 API gating (CO-1): STRIP, do not permission-gate.** No consumer needs engine bookkeeping (A1b ruled no expression, binding or interface may read `_sys`); a new permission would add an INV-10 classification, role-matrix and golden-file change for nothing; reopening later is cheap, closing later is not.
 * **D-B.17 One uniform refusal body per code, `Response.entity_write_refused/3`; `write_not_permitted` is byte-identical for every cause.** INV-5, D8.
 * **D-B.18 Scoped-type and scope-column refusals are named predicates, vacuously false today.** F-7; they are the single hook for 0051.
 * **D-B.19 `%StepSource{}` struct (#2627): PR B does NOT introduce it.** B2 has exactly ONE constructor of a source (the engine-side line builder in `StepWrites`); PR C adds the second (`dispatch_id`), which is when a struct earns its keep. Recommendation: #2627 is picked up as the first commit of PR C (or standalone right after B2), after the shape on `main` is proven. State stays `blocked`.
 * **D-B.20 `entity_writes` on a SERVICE_TASK node is refused at activation until PR C** (`:entity_writes_node_type_not_supported`), so a SERVICE_TASK can never carry a line that is silently ignored.
 * **D-B.21 `expected` never reaches `Records`:** `command_multi/3` accepts only `:create` and no expectation; a line carrying `expected` is refused at activation and at run time.
+* **D-B.23 Completer scope (0054 D4a.3).** The completer-scope check is `Tasks.authorize_completion/3` (`tasks.ex:549`), which the router already runs BEFORE `Engine.complete_task/3` (`routers/tasks.ex:323-335`); a non-assignee never reaches the transaction, so no line is built. The "scope ceiling of the instance" half is vacuous until 0051 `scope_node` (F-7). No new design element beyond test B-18.
+* **D-B.24 `activated_by` is written only by the activation set.** The `create_changeset/2` and `update_changeset/2` casts (`process_definition.ex:122`, `:141`) do not list it; the only writer is the activation write of the three paths. Invariant I-B11, test B-19.
+* **D-B.25 Step names and failure routing.** Per-line steps are tuples `{:line, i, step}` and route to `interpret_failure/2` (the engine matches the `{:line, _, _}` tuple shape only). Steps with ATOM names stay on the existing generic path: `:entity_write_timeouts`, `:entity_writes_started`, `:entity_writes`, `:sys_variables_event`, `:entity_writes_applied_event`. The per-line audit step is the 2-tuple `{:entity_write_audit, i}` (deliberately NOT `{:line, _, _}`; its failure is an internal 500 through the generic clause). `interpret_failure/2` therefore receives only `{:line, i, step}` names.
 * **D-B.22 Instance-event keys:** `<completion idempotency_key>::sys_vars` and `<completion idempotency_key>::entity_writes`. Rationale: F-8.
 
 ## 5. Interfaces, specs and shapes (no bodies)
@@ -269,9 +285,10 @@ step result"). A refusal there rolls the whole transaction back; nothing committ
 New pure module `Letflow.Definitions.Activator` (`definitions/activator.ex`):
 
 ```
-@spec from_auth_context(auth_context :: map()) :: EntityPort.activator() | nil
-# nil when user_id is missing. roles = the principal's effective role names (derived exactly as
-# Letflow.Plugs.Authorize does, plugs/authorize.ex:123); entities_records_write? =
+@spec from_auth_context(auth_context :: map(), platform_tenant? :: boolean()) :: EntityPort.activator() | nil
+# Pure in its arguments only: the router passes platform_tenant? in (recomputed there, as
+# Letflow.Plugs.Authorize does at plugs/authorize.ex:109-123, from PlatformTenant.platform_tenant?/1).
+# nil when user_id is missing. roles = Authorization.effective_roles(auth_context.roles, platform_tenant?); entities_records_write? =
 # Authorization.has_permission?(effective_roles, :EntitiesRecordsWrite).
 ```
 
@@ -421,6 +438,7 @@ byte-identical to today (regression criterion B-15).
 | 4c | the record row | none (create-only) | n/a |
 | 5 | audit chain sentinel row (`audit_chain_locks`) | tail: task audit, per-line audit | commit |
 | 6 | the instance's own `instance_sequences` row | tail events (SYS, APPLIED, `TASK_COMPLETED`) | commit |
+| 7 | **cascade, when the completing instance is a sub-process child that reaches `:completed`:** the parent's waiting token row `FOR UPDATE` (`SubProcess.find_waiting_parent_token/3`, `sub_process.ex:718`), then the parent projection (reconcile) | tail `append_sub_process_completion_cascade_multi` (`engine.ex:5565-5610`) | commit |
 
 Order 1, 2, 4 (types ascending), then 5, 6 for EVERY completion with lines. The instance
 sequence row (6) now follows 4 (0054 numbered it 3): harmless, as 0054 itself argued, because every
@@ -434,6 +452,21 @@ unbounded (accepted by 0054 D3 "Timeouts").
 Two completions with line sets (A,B) and (B,A): both execute A then B (sorted), so the second
 waits at A's type sequence row while the first holds it. No cycle. Test AC B-3.
 
+**Cascade cycle (found in review; NOT closed by ordering).** A child instance's completion with
+lines holds [child `tasks`, child projection, type-A sequence] and then, in the tail cascade, wants
+[parent token, parent projection]. A parent-instance completion (a parallel-branch task of the
+parent) holds [parent projection] and, with lines on type A, wants [type-A sequence]. That is a
+real cycle: the parent holds its projection and wants A; the child holds A and wants the parent
+projection. Postgres resolves it with `40P01` on one side (either may be the victim) or, because
+`lock_timeout` is 2 s, `55P03`. Outcome: the victim's whole transaction rolls back, nothing is
+committed (the tail is in the same transaction), and the result maps to
+`entity_write_contention` (503, retryable); the retry re-runs from a clean state. The cycle needs a
+parent with a parallel branch AND lines on the same type in child and parent, so it is rare, but it
+is reachable and is stated, not excluded. Taking the parent locks before the lines would invert the
+order for every completion and is rejected. EE-12 gains one sentence in B2: "a sub-process
+child's completion cascade takes the parent token and projection after its entity-type locks; a
+deadlock there is reported as contention".
+
 ### 7.3 Pre-transaction phase (P0, P1)
 
 * P0 `plan_entity_writes/2` reads: the task (unlocked, by id), the instance projection's
@@ -441,10 +474,24 @@ waits at A's type sequence row while the first holds it. No cycle. Test AC B-3.
   same helpers `fetch_graph/2` uses, `engine.ex:2824`), the node by `task.node_id`, and the
   definition row's `activated_by`. No lock, no write. Any error -> `:none` (the transaction's own
   steps return today's errors).
-* Activator status stub (D-B.14): when `activated_by.user_id` resolves to a user whose `status`
-  is `:inactive` (`identity/user.ex:41`, tenant schema), P0 returns `{:error,
-  :entity_write_needs_reactivation}`; nothing is opened or written, the task stays `pending`. The
-  exact user lookup is the existing identity read (ELIXIR-DEV names it; verification item, section 15).
+* Activator status stub (D-B.14): P0 reads the activator with the existing
+  `Letflow.Identity.get_user/2` (`identity.ex:353`, `{:ok, %User{}} | {:error, :not_found}`, scoped
+  by `opts[:prefix]` to the tenant `users` table; `identity/user.ex:41` `status :: :active |
+  :inactive`). `{:ok, %User{status: :active}}` proceeds; `{:ok, %User{status: :inactive}}` AND
+  `{:error, :not_found}` (row absent) both return `{:error, :entity_write_needs_reactivation}`
+  (FAIL CLOSED: an unresolvable activator is treated as deactivated); nothing is opened or
+  written, the task stays `pending`. Boundary: `check_boundaries` has one layer rule only (engine ->
+  entities, `letflow.check_boundaries.ex:285-290`), so an engine -> `Letflow.Identity` edge is
+  permitted; ELIXIR-DEV runs the task and quotes the result. (If REVIEWER prefers the engine
+  identity-free, the read moves behind a fifth port callback `activator_active?/2`; nothing else
+  changes.)
+* **Recovery path for the stub.** `Definitions.activate/2` accepts DRAFT rows only
+  (`definitions.ex:2328`), so an ACTIVE definition cannot be re-activated in place. Operators
+  recover by (a) cancelling the affected instances (`POST /instances/:id/cancel`, unaffected by
+  the stub), or (b) a version rollback or promotion that re-activates a row under a live principal
+  (`activated_by` is re-recorded, 6.3), after which NEW instances pin that row. An instance already
+  pinned to the old row stays refused until cancelled. The real `needs_reactivation` task status and
+  an in-place re-activation flow are a FOLLOW-UP (section 16).
 * P1 `prepare/2`: unchanged mechanism (A3), new filter. For each distinct binary type, sorted:
   `get_active_definition_by_name/2`, then `ProcessWritable.writable?/1` on that row; only a writable
   type reaches `get_or_create/2` (CO-3, SEC F7). `{:error, :entity_write_contention}` becomes
@@ -481,7 +528,7 @@ waits at A's type sequence row while the first holds it. No cycle. Test AC B-3.
 
 ### 7.5 Tail additions (S6) and the `_sys` fold
 
-* `:sys_variables_event`: only when `sys_values` is non-empty. Built by folding every pair through
+* `:sys_variables_event` (atom name): only when `sys_values` is non-empty. Built by folding every pair through
   strict `VariableMerge.put_sys/3` (an `{:error, _}` -> `{:error, {:entity_write_failed, 0,
   :sys_value}}`, rollback). Appended with `EventStore.append/2`: type
   `VariableMerge.sys_event_type()`, payload `%{"node_id", "cause" => "entity_writes", "values"}`,
@@ -491,7 +538,7 @@ waits at A's type sequence row while the first holds it. No cycle. Test AC B-3.
   `EntityPort.applied_event_type()`, payload per A1 section 2.4 with `task_id` set and
   `dispatch_id` null, `lines` = `applied` (ids and sequences only, INV-2), key
   `<completion key>::entity_writes`. Placed after the SYS event, before `:event`.
-* Per-line audit: `Audit.insert_entry/3`, `action: "entity_write.process_step"`,
+* Per-line audit: step `{:entity_write_audit, i}` (declared index; D-B.25) running `Audit.insert_entry/3`, `action: "entity_write.process_step"`,
   `resource_type: "entity_record"`, `resource_id: record_id`, `before_state: nil`,
   `after_state: %{"entity_type", "record_id", "task_id", "instance_id", "node_id",
   "definition_id", "line_index", "lines_hash"}` (no field value), `actor_id: completer`.
@@ -536,8 +583,10 @@ waits at A's type sequence row while the first holds it. No cycle. Test AC B-3.
 | `:merge` or `:transition` execution error with lines | nothing written; existing `{:instance_execution_error, ...}` -> 409 | 409 | n/a | AC B-2, F-2 |
 | `output_refused`, `separation_of_duties` | unchanged | 422, 403 | | evaluated BEFORE the lines (guards run at `:completion_guards`) |
 
-Body for the refusals (`Response.entity_write_refused/3`): `{"error": "<code>", "line_index":
-<declared index> | null}` in the existing problem envelope; `write_not_permitted` is byte-identical
+Body for the refusals (`Response.entity_write_refused/3`): ONE envelope, `send_json/3` with the
+flat map `{"error": "<code>", "line_index": <declared index> | null}` (the
+`script_binding_invalid/3` precedent, `response.ex:196`), NOT `send_problem/2`, so the bytes are a
+function of `(status, code, index)` alone; `write_not_permitted` is byte-identical
 for every cause at the same index (test B-7). `record_version_conflict` (409) is mapped for
 completeness but is unreachable in PR B (no update line exists).
 
@@ -558,6 +607,10 @@ completeness but is unreachable in PR B (no update line exists).
 * **SET LOCAL scope.** `SET LOCAL` lasts to the end of the transaction, so the 2 s lock timeout
   also bounds the `tasks` and projection waits and the tail's writes, for lines-completions only.
   A completion without a plan issues no `SET LOCAL` (B-5).
+* **Ambiguous commit.** `DBConnection.ConnectionError` mapped to contention can follow a server-side
+  COMMIT whose acknowledgement was lost. The client sees 503 and retries; the retry finds the task
+  `completed` and returns `{:task_not_pending, :completed}` (409) before any line: safe, no double
+  write. Rescued `40P01`/`55P03` cannot be ambiguous (Postgres re-raises only after rollback).
 * **Cross-instance contention.** The type sequence row is per TYPE, so every writer of that type
   in the tenant serialises behind a completion with lines (0054 Consequences). Bounded by 20 lines,
   2 s lock timeout, 5 s statement timeout, 10 s guard.
@@ -574,13 +627,16 @@ no opt-in. Single helper `Response.public_variables/1` (wraps `VariableMerge.dro
 
 | # | Route | Site | Change |
 |---|---|---|---|
-| 1 | `GET /instances/:id` | `routers/instances.ex:844` `instance_map/1`, key `"variables"` | `Response.public_variables(projection.variables)` |
-| 2 | `POST /instances/:id/reconstruct` | `instances.ex:723` `render_reconstruct/2`, key `"variables"` (and the `write_back` persists the full state; only the RESPONSE is stripped) | same |
+| 1 | `GET /instances/:id` | `routers/instances.ex:850` `instance_map/1`, key `"variables"` | `Response.public_variables(projection.variables)` |
+| 2 | `POST /instances/:id/reconstruct` | `instances.ex:730` `render_reconstruct/2`, key `"variables"` (and the `write_back` persists the full state; only the RESPONSE is stripped) | same |
 | 3 | `POST /tasks/:id/complete` | `routers/tasks.ex:676-690` `complete_result_map/1`, key `"variables"` | same |
 | 4 | `GET /instances/:id/history` | `instances.ex:952` `history_item_map/2` and `Instances.history/3` | server-side exclusion of `INSTANCE_SYS_VARIABLES_SET` rows (cursor and `next_cursor` unaffected); `TASK_ENTITY_WRITES_APPLIED` payload reduced to `node_id`, `task_id`, `dispatch_id`, `lines_hash` and `lines` as `[{line_index, entity_type}]` (OQ-B4); `EXECUTION_ERROR` payload `"variables"` passed through `public_variables/1` |
 | 5 | `GET /instances/:id/timeline` | `Instances.timeline/3` | the same exclusion of `INSTANCE_SYS_VARIABLES_SET` |
 | - | `GET /instances` (list), `GET /tasks/:id` | `list_item_map/1`, `task_detail_map` | no `variables` key; unchanged |
+| - | Lua `get_instance_state` / `read_variable` (`lua/platform.ex:70`, `:92`) | unwired for node dispatch (A1b I-13); when first wired they must pass the result through `VariableMerge.drop_reserved/1` | none now; I-13 extended in the B3 moduledoc |
 | - | webhooks, DLQ, service-task templates | grep: no `variables` serialisation; template/binding reads refused at activation (A1b) | none; pinned by the static test |
+
+Asymmetry (OQ-B4, ruled): the instance history drops `record_id` and `event_global_seq`, but the hash-chained tenant AUDIT entry per line keeps them in `after_state` (actor = completer, `definition_version`, `record_id`), so `AuditRead` holders see the full trail; acceptable because audit access is the stronger permission and the ids are not field values. Test B-11.
 
 Response shapes: the `"variables"` object simply lacks the reserved keys; no placeholder key and
 no marker. Non-reserved keys and nested maps are untouched. A client that stored a variable named
@@ -602,9 +658,9 @@ composition tests run `async: false`. All new unless marked "edit".
 
 | AC | PR | Design | Test brief |
 |---|---|---|---|
-| **B-1** Declaration and activation validation | B1 | 6, 6.3 | `test/letflow/definitions/entity_writes_activation_test.exs`: one case per code of 6.2 with the code asserted at the exact `{node_id, index}`: unknown/inactive type, unknown field, type without the flag, managed type (also a plain tenant definition with a stamp-like field), update/delete line, non-append-only type, field mapped onto a scope column (predicate stubbed true through the fixture seam), 21 lines, `record`/`expected` from a form output, scoped type (predicate stubbed), `output_record_id_var` not `_sys.<seg>`, dotted, pre-seeded, key over 160 bytes (id and `.seq`), duplicate var; SERVICE_TASK node; missing activator; all reported together for a multi-defect line; deterministic order. B1 gate: a fully valid definition is refused with `:entity_writes_execution_not_enabled`. At B2 the gate case is replaced by "valid definition activates and `activated_by` is recorded". The activation cases run on all three paths (activate, rollback, promotion apply). Runtime cap and append-only recheck on a hand-edited snapshot: `entity_writes_runtime_refusals_test.exs` (B2). |
-| **B-2** Atomicity | B2 | 7.1, 9 | `test/letflow/engine/complete_task_entity_writes_test.exs`: two `create` lines commit both records, both entity events, `INSTANCE_SYS_VARIABLES_SET`, `TASK_ENTITY_WRITES_APPLIED`, `TASK_COMPLETED` and the task completion; force line 2 to fail (invalid field value) -> task `pending`, zero records, zero entity events, zero instance events, zero `event_idempotency` rows with the `sys:step:` prefix, zero audit rows; the `:merge` execution-error case writes no record; **the `:transition` no-matching-edge case (F-2) writes no record, instance enters ERROR, task stays pending, and a corrected re-completion later succeeds (no `idempotency_conflict`)**; a form-schema-rejected output (`output_refused`) writes nothing. |
-| **B-3** Execution and lock order | B2 | 7.2 | `entity_writes_lock_order_test.exs` (`:auto` sandbox): statement log of one completion lists type sequence rows ascending, tail locks after; (A,B) vs (B,A) completions N-parallel (N <= 4, bounded by the machine load rules) finish without `40P01`; a source-level assertion that no `FOR UPDATE` is reachable from `dispatch_task_completion_hop_chain/7`'s prepare functions; rule-3a note: `ScopeNodePaths.lock!/1` is not called (asserted via statement log). |
+| **B-1** Declaration and activation validation | B1 | 6, 6.3 | `test/letflow/definitions/entity_writes_activation_test.exs`: one case per code of 6.2 with the code asserted at the exact `{node_id, index}`: unknown/inactive type, unknown field, type without the flag, managed type (also a plain tenant definition with a stamp-like field), update/delete line, non-append-only type, field mapped onto a scope column (seam: `scope_column_field?/2` and `scoped_type?/1` are pure functions of the definition ROW and read the closed key list `Application.get_env(:letflow, :entity_writes_scope_keys, [])`; a test sets e.g. `["scope_node"]` and uses a fixture definition carrying that key; the production list stays empty until 0051), 21 lines, `record`/`expected` from a form output, scoped type (predicate stubbed), `output_record_id_var` not `_sys.<seg>`, dotted, pre-seeded, key over 160 bytes (id and `.seq`), duplicate var; SERVICE_TASK node; missing activator; all reported together for a multi-defect line; deterministic order. B1 gate (flag off, the default): a fully valid definition is refused with `:entity_writes_execution_not_enabled`; with the flag on in `setup` the same definition activates and `activated_by` is recorded. B2 deletes the flag, its env key and the "flag off" case. The activation cases run on all three paths (activate, rollback, promotion apply). Runtime cap and append-only recheck on a hand-edited snapshot: `entity_writes_runtime_refusals_test.exs` (B2). |
+| **B-2** Atomicity | B2 | 7.1, 9 | `test/letflow/engine/complete_task_entity_writes_test.exs`: two `create` lines commit both records, both entity events, `INSTANCE_SYS_VARIABLES_SET`, `TASK_ENTITY_WRITES_APPLIED`, `TASK_COMPLETED` and the task completion; force line 2 to fail (invalid field value) -> task `pending`, zero records, zero entity events, zero instance events, zero `event_idempotency` rows with the `sys:step:` prefix, zero audit rows; the `:merge` execution-error case writes no record; **the `:transition` no-matching-edge case (F-2): nothing written (zero records, zero entity events, zero `sys:step:` idempotency rows), the instance is `:error`, the task stays `pending`, and a second completion returns `{:error, {:instance_not_active, :error}}` (HTTP 409)**; a form-schema-rejected output (`output_refused`) writes nothing. |
+| **B-3** Execution and lock order | B2 | 7.2 | `entity_writes_lock_order_test.exs` (`:auto` sandbox): statement log of one completion lists type sequence rows ascending, tail locks after; (A,B) vs (B,A) completions N-parallel (N <= 4, bounded by the machine load rules) finish without `40P01`; a source-level assertion that no `FOR UPDATE` is reachable from `dispatch_task_completion_hop_chain/7`'s prepare functions; rule-3a note: `ScopeNodePaths.lock!/1` is not called (asserted via statement log); **cascade case:** a child instance (sub-process) with lines on type A completes concurrently with a parent parallel-branch task with lines on type A, N rounds (N <= 4): every round ends with both committed or one `entity_write_contention` (503) with nothing committed for the victim, never a hang and never a partial write, asserted by record counts. |
 | **B-4** Contention mapping | B2 | 7.6 | `entity_write_contention_test.exs`: force each of `55P03` (a second connection holds the type sequence row), `57014` (statement timeout injected), `40P01` (two-connection cycle), `DBConnection.ConnectionError` (checkout timeout) -> `{:error, {:entity_write_refused, :contention, :entity_write_contention}}`, HTTP 503, nothing committed; a contention code raised from `maybe_snapshot_after_complete_task/2` or telemetry AFTER commit (injected) is NOT mapped, task shown completed; a completion without lines raising the same code inside the transaction keeps today's `{:transaction_failed, _}`. |
 | **B-5** Timeouts only when lines exist | B2 | 7.1 S0, 4 D-B.11 | statement-log capture per call (CO-4 helper): lines-completion issues exactly `SET LOCAL lock_timeout`, `SET LOCAL statement_timeout` as the FIRST two statements of the transaction; no-lines completion issues none; injected `now_fun` trips the 10 s guard between lines -> full rollback, `entity_write_contention`, audit detail `:deadline`. |
 | **B-6** Bad `expected` never crashes | B2 | 7.4 step 1, D-B.21 | `entity_writes_expected_test.exs`: a hand-edited pinned line with `expected: "x"`, `1.5`, `-1`, `%{}` -> `validation_failed`, no raise, nothing written; with `expected: 5` on a create line -> `validation_failed`; documented deviation (OQ-B5): the "stale `expected` -> `record_version_conflict`" half is not reachable in the create-only MVP; the `:check_record_version` -> `record_version_conflict` mapping stays covered by A2's `interpret_in_multi/1` tests, referenced in the PR body. |
@@ -612,9 +668,12 @@ composition tests run `async: false`. All new unless marked "edit".
 | **B-8** Run-time `writable_by_process` re-check | B2 | 7.4 step 6 | `writable_by_process_test.exs` (edit/extend): activate with the flag, create a pending task, remove the flag by a new type version, complete -> `write_not_permitted`, nothing written; `prepare/2` creates no synthetic instance for a non-writable type (CO-3). |
 | **B-9** Write-side field restrictions | B2 | 7.4 step 4 | `entity_writes_field_restrictions_test.exs`: restricted field, completer without grant -> refused (`write_not_permitted`, no field name); with a `user_entity_grants` row -> allowed; `:EntitiesRestrictionsManage` alone grants nothing; the entity event and instance events carry no field value; the `Records` result is not in the response. |
 | **B-10** Idempotency key and conflict | B2 | 9 | `entity_writes_idempotency_test.exs`: keys are `sys:step:<task_id>:<i>`; a client posting `idempotency_key: "sys:step:<task_id>:0"` through `POST /entities/records` is stored namespaced and the completion still succeeds; a manually inserted duplicate key (raw `event_idempotency` row) -> `idempotency_conflict`, rollback; retry after rollback succeeds. |
-| **B-11** Actor, event shape, audit | B2 | 7.4, 7.5 | `entity_writes_audit_test.exs`: entity event `actor_id` is the completer; metadata has exactly the nine `source.*` keys with `definition_version` the string; instance stream has ONE APPLIED event with `(line_index, entity_type, record_id, event_global_seq)` per line and `lines_hash` equal to `StepWrites.lines_hash/1`; no field value anywhere; one `entity_write.process_step` audit row per line; hash chain verifies (`Audit.verify_chain/2`). |
+| **B-11** Actor, event shape, audit | B2 | 7.4, 7.5 | `entity_writes_audit_test.exs`: history shows the APPLIED event WITHOUT `record_id`/`event_global_seq`, while an `AuditRead` principal's audit page shows the per-line entries WITH `record_id`, the completer as actor and `definition_version` in `after_state`; entity event `actor_id` is the completer; metadata has exactly the nine `source.*` keys with `definition_version` the string; instance stream has ONE APPLIED event with `(line_index, entity_type, record_id, event_global_seq)` per line and `lines_hash` equal to `StepWrites.lines_hash/1`; no field value anywhere; one `entity_write.process_step` audit row per line; hash chain verifies (`Audit.verify_chain/2`). |
 | **B-12** Managed types never a target | B1, B2 | 6.2, 7.4 | `test/letflow/definitions/entity_writes_managed_type_test.exs`: activation refused for a managed type, for a definition carrying a stamp-like field and for a plain definition alike; run time: hand-edited pinned snapshot -> `write_not_permitted`; type becomes managed after activation (create the managed version through the fixture owner) -> refused by the recheck authority; response byte-identical to B-7; no event, record or idempotency row. |
-| **B-13** Activator authority recorded | B1, B2 | 5.3, 7.3 | `entity_writes_activator_test.exs`: activation by a principal with `:EntitiesDefinitionsWrite`+`:DefinitionsActivate` but without `:EntitiesRecordsWrite` -> `:entity_write_activator_required`; with it, `activated_by` holds user, roles, permissions, authorised pairs; a line whose pair is absent from `authorized` (hand-edited snapshot) is refused; activator user set `:inactive` -> `{:error, :entity_write_needs_reactivation}` (409), task `pending`, nothing written; rollback and promotion re-record the new activator; a graph without lines leaves `activated_by` NULL. |
+| **B-13** Activator authority recorded | B1, B2 | 5.3, 7.3 | `entity_writes_activator_test.exs` (flag `:entity_writes_execution_enabled` on in `setup`): activation by a principal with `:EntitiesDefinitionsWrite`+`:DefinitionsActivate` but without `:EntitiesRecordsWrite` -> `:entity_write_activator_required`; with it, `activated_by` holds user, roles, permissions, authorised pairs; a line whose pair is absent from `authorized` (hand-edited snapshot) is refused; activator user set `:inactive`, AND activator user row deleted (`:not_found`) -> `{:error, :entity_write_needs_reactivation}` (409), task `pending`, nothing written, and `POST /instances/:id/cancel` on that instance succeeds (recovery path); rollback and promotion re-record the new activator; a graph without lines leaves `activated_by` NULL. |
+| **B-17** Ambiguous commit | B2 | 9 | in `entity_write_contention_test.exs`: a `DBConnection.ConnectionError` injected AFTER the commit statement (stub) -> 503; the retry returns `{:task_not_pending, :completed}` (409), record count unchanged. |
+| **B-18** Completer scope (D4a.3) | B2 | D-B.23 | `entity_writes_completer_scope_test.exs`: a user who is not the task's assignee gets 403 from `Tasks.authorize_completion/3`; a port test double records ZERO `prepare/2`/`multi/3` calls and no `entity_type_instances` row is created. |
+| **B-19** `activated_by` not forgeable | B1 | D-B.24, I-B11 | `entity_writes_activator_test.exs`: `POST /definitions` and `PUT /definitions/:id` with a body key `activated_by` (also nested in `graph`) store NULL; `Definitions.create/2` with the attr in the map -> NULL; only an activation (flag on) sets it. |
 | **B-14** Replay never re-executes | B2 | 9 | `entity_writes_replay_test.exs` (AC 15, moved from A1): a `StepWrites`/port test double (configured through `:entity_port`) asserts zero `multi/3`, `prepare/2`, `validate_lines/2`, `interpret_failure/2` calls during `Reconstruction.reconstruct_instance/2`, projection rebuild, timer fire, escalation and cancel; rebuilt variables equal the live ones including `_sys.*`; snapshot-based rebuild (F-3) equals event-only rebuild. |
 | **B-15** Regression | all | 7.1 | Full `mix test` green, quoted in each PR body; the existing `Records`, `complete_task`, `engine_concurrency_test.exs` suites unedited and green; a golden Multi-name test: a completion without lines yields exactly today's step names. |
 | **B-16** Expressions referencing `_sys` | B1 | 6.1, A1b | `entity_writes_activation_test.exs` case: a `fields` `{"var": "_sys.r"}` and `{"var": "_sys"}` -> `:entity_write_sys_reference`; A1b's `reserved_references_*` suites unchanged and green. |
@@ -627,7 +686,7 @@ composition tests run `async: false`. All new unless marked "edit".
 | **CO-2** | Projection-seeded tests use the real writer | B2 | tests retire `hold_engine_values!/3` (`sys_namespace_sources_test.exs:145`) and `sys_event!/3` (`reconstruction_sys_test.exs:98`) in favour of a fixture `EntityWritesFixture.complete_with_lines!/1` that activates a definition with an append-only writable type and completes the task through `Engine.complete_task/3` | `sys_namespace_sources_test.exs` sources (3a), (3b), (4) and `reconstruction_sys_test.exs` re-driven; a grep test asserts neither helper name remains and no test calls `Repo.update_all` on `variables` with a `_sys` key outside the one B3 fixture. The raw-insert helper `insert_raw_event!/4` stays ONLY for malformed/wide-tier cases (#2621). |
 | **CO-3** | `writable?/1` filter before `prepare/2` | B2 | 7.3 P1 (inside `prepare/2`, because the engine cannot name `ProcessWritable`) | `step_writes_prepare_test.exs` (edit): type with active definition but no flag -> no `entity_type_instances` row; with flag -> row; managed type with the flag key present -> no row. |
 | **CO-4** | `SET LOCAL` in sandbox savepoints | B2 | 9 "SET LOCAL scope"; test-support helper `reset_local_timeouts!/0` (`RESET lock_timeout; RESET statement_timeout`) in `setup` of every module that asserts the no-SET-LOCAL property; statement-log capture filters by call window; contention/timeout modules `:auto` mode, `async: false` | the "no lines issues none" case runs first in its module and after `reset_local_timeouts!/0`; a meta-test runs it AFTER a lines-completion in the same sandbox test to prove the capture window (not the global session state) is what is asserted. |
-| **CO-5** | `validate_lines/2` refuses a missing/non-string `entity_type` before `prepare/2` (#2633) | B1 | 6.1, 6.2 (`:entity_type_missing`); D-B.7 keeps `prepare/2` lenient and documents it | `entity_type_missing_test.exs`: key absent, `nil`, integer, `""`, `"   "` each -> `%{index: i, code: :entity_type_missing}`; ordering test: definition with one valid and one missing-type line -> activation fails, a spy port records ZERO `prepare/2` calls and no `entity_type_instances` row exists; `prepare/2` with the missing-type line returns `:ok` and creates nothing for it (pins "lenient"); valid lines behave as before. |
+| **CO-5** | `validate_lines/2` refuses a missing/non-string `entity_type` before `prepare/2` (#2633) | B1 | 6.1, 6.2 (`:entity_type_missing`); D-B.7 keeps `prepare/2` lenient and documents it | `entity_type_missing_test.exs`: key absent, `nil`, integer, `""`, `"   "` each -> `%{index: i, code: :entity_type_missing}`; ordering test: definition with one valid and one missing-type line -> activation fails, a spy port (configured through `:entity_port`) records ZERO `prepare/2` calls and no `entity_type_instances` row exists; `prepare/2` with the missing-type line returns `:ok` and creates nothing for it (pins "lenient"); valid lines behave as before. |
 | **CO-6** | Dotted `output_record_id_var` refused (#2621 constraint 1) | B1 | 6.1 strict shape, both keys <= 160 bytes | cases `_sys.a.b`, `_sys.a.seq`, `_sys.`, `_sys`, `x`, name of 152 bytes (id key 157 ok, `.seq` key 161 refused), 151 bytes accepted; and an engine test (B2) that a 151-byte name's two keys both pass the strict `put_sys/3` and the registry guard. |
 | **CO-7** | Replayed `_sys` state is wide-tier | B2 | 9 "Replay"; moduledoc note in `StepWrites` and `VariableMerge`: "a replayed `_sys.<name>` may hold a non-UUID string or any non-negative integer; a reader must apply `check_sys_entry/2` and treat failure as a refusal, never assume UUID/int64"; PR B has no reader (update/delete refused), so the note and the test are the deliverable | `reconstruction_sys_test.exs` new case: raw-inserted pre-change wide event `%{"_sys.line_0.id" => "any string", "_sys.r.seq" => 3}` -> rebuilt variables byte-identical to the committed golden map; event count before == after (no append, repair or rewrite); a second case for the 41-key event stays. |
 | **CO-8** | QA `_sys` re-count gate | B2 (before merge) | Not code. Operator-run read-only counts, per tenant schema, exactly as in A design 16 OQ-1 (instances with a top-level `_sys` key in projections, in the five payload maps of `INSTANCE_STARTED`/`TASK_COMPLETED`/`SUB_PROCESS_COMPLETED`/`SERVICE_TASK_COMPLETED`/`SCRIPT_TASK_COMPLETED`, and the `$ref` payloads in `event_payload_store`) and the 2A.5 queries (`definitions_mentioning_sys`, `scripts_with_reserved_inputs`). Required result: all zero. Result recorded in B2's PR body with the QA run record id. The supervisor requests the run (OQ-B1); B2 does not open its PR without it. A non-zero result blocks B2 until each instance/definition is cancelled, repaired or re-versioned. | PR-body statement; no test. |
@@ -645,6 +704,7 @@ composition tests run `async: false`. All new unless marked "edit".
 * **I-B7** Entity-type locks are taken only inside `:entity_writes` in `(entity_type, declared index)` order, after `tasks` and `instance_projections`, before every tail write.
 * **I-B8** No client-visible variable map, history item or timeline item carries a reserved key or the two engine event payloads' record ids (CO-1).
 * **I-B9** A replayed `_sys` value is never assumed to be a UUID or an int64 by any reader.
+* **I-B11** `process_definitions.activated_by` is written only by the three activation paths; no create/update changeset casts it (a `POST`/`PUT /definitions` body key `activated_by` is dropped).
 * **I-B10** A refusal body is one stable code plus the declared line index; no field name, field value, entity name or managed/scope detail.
 
 ### 12.1 Security invariants (`security-invariants.md` numbering)
@@ -654,7 +714,9 @@ composition tests run `async: false`. All new unless marked "edit".
 | INV-1 | `prefix` from `scoped_opts` (server context) everywhere; the activator and completer ids come from `auth_context`; no line field selects a schema or tenant |
 | INV-2 | No field value in any event, audit entry, log or refusal; B3 strips `_sys` from every client-visible variable map and history payload; allowlist maps preserved |
 | INV-3 | Lines are definition data, not scripts; write callbacks unreachable from `lib/letflow/scripts/**` (CO-10) |
-| INV-4 | Rescues map to atoms; `entity_write_failed` logs a step atom only; no exception text in a response |
+| INV-4 | Secrets by reference only: PR B stores and returns no secret (`activated_by` holds ids, role names and permission names) |
+| INV-9 | N/A: no outbound URL is validated or stored |
+| (error hygiene) | Not INV-4: rescues map to atoms, `entity_write_failed` logs a step atom only, no exception text reaches a response (INV-8) |
 | INV-5 | One `write_not_permitted` body for managed, not-writable, not-append-only, scoped, not-authorised, field-restricted and not-found (D-B.17); detail only in the tenant audit entry |
 | INV-6 | New data-access paths stated for SECURITY-REVIEWER: pre-transaction plan reads, `activated_by` write/read, `check_entity_writes` reads, per-line writes via `command_multi/3`, history filter |
 | INV-7 | SET LOCAL statements are compile-time constants (A3 mechanism reused); no interpolation; `ScopeNodePaths.lock!/1` not called |
@@ -709,34 +771,15 @@ and entity_writes" paragraph (B1); `docs/status` and requirement bookkeeping by 
 | Pre-merge inventories | B1, B2 | (a) count of definition rows (any status) with a node attribute `entity_writes` per tenant, must be zero or each reviewed; (b) CO-8 `_sys` counts, must be zero. Operator-run, read-only, constant SQL, quoted tenant schema from the registry; results in the PR bodies |
 | EE-12 moduledoc | B2 | one sentence reworded (D-B.2); `engine_concurrency_test.exs` unedited |
 
-## 15. Open questions needing a supervisor ruling
+## 15. Open questions: rulings (supervisor, 2026-10-15, binding)
 
-* **OQ-B1 CO-8 count.** Supervisor to request the infra QA run of the CO-8 counts and name the
-  record; B2 cannot open its PR without it. Recommendation: request it when B1 merges (so the data
-  is fresh and any non-zero finding is cancelled/repaired while B2 is built).
-* **OQ-B2 `needs_reactivation` as a refusal stub.** 0054 open point 9 says a deactivated activator
-  "moves the task to a `needs_reactivation` status"; the issue puts the build-out out of scope
-  "beyond the stub". Recommendation: the stub is a refusal (`entity_write_needs_reactivation`, 409,
-  task stays `pending`), no `tasks.status` enum value, no inbox change. A real status needs a tasks
-  migration, inbox/UI filtering and a re-activation flow; file it as a follow-up. Confirm.
-* **OQ-B3 Public code for a guard trip and HTTP codes.** Recommendation: the 10 s wall-clock guard
-  trip is `entity_write_contention` (503, retryable, audit detail `:deadline`) so D8's closed set is
-  not extended; and `entity_write_contention` is 503 (D8 says "503/409"). Confirm both.
-* **OQ-B4 History redaction of the APPLIED event.** Recommendation: `InstancesRead` holders see
-  `entity_type` and `lines_hash` per line but not `record_id`/`event_global_seq`; the records are
-  discoverable through the entity events' `source.*` metadata under entity read permissions.
-  Alternative: keep record ids (they are not field values). Confirm one.
-* **OQ-B5 B-6 half unreachable.** The issue's "stale `expected` returns `record_version_conflict`"
-  has no code path in a create-only MVP. Recommendation: accept the deviation recorded in 11.1 B-6.
-* **OQ-B6 Scoped types and rule 3a.** No scoped-type declaration exists on `main` (F-7). Confirm
-  that D-B.18's named predicates (false today) are an acceptable fail-closed implementation of
-  0054 D4b.5 until 0051 `scope_node` lands, and that the lock mode for the ceiling read (SHARE vs
-  SHARE ROW EXCLUSIVE) is decided with 0051, not here.
-* **Verification items (not rulings).** ELIXIR-DEV names the existing tenant-schema user-status
-  read for P0 (confirm `identity/user.ex:41` is the tenant `users` table and which function reads
-  it); confirms with a `lock(` grep that the `:transition` prepare call tree takes no `FOR UPDATE`
-  (D-B.2); confirms `Response` problem envelope can carry the `line_index` field the way
-  `output_refused/3` carries key lists.
+* **OQ-B1 CLOSED: yes.** The infra QA `_sys` re-count run (CO-8) is requested before B2's PR; B2's body quotes the record id.
+* **OQ-B2 CLOSED:** `needs_reactivation` is a refusal stub only (409, task stays pending, no new task status). Recovery path in 7.3; the real status and in-place re-activation are a follow-up (16).
+* **OQ-B3 CLOSED:** a 10 s guard trip is `entity_write_contention`, HTTP 503, retryable.
+* **OQ-B4 CLOSED:** history drops `record_id` and `event_global_seq`; the audit entry keeps them (section 10, test B-11).
+* **OQ-B5 CLOSED:** a stale `expected` is unreachable in the create-only MVP; B2's `StepWrites` moduledoc and the REQ-499 entry in `docs/requirements.yaml` (DOC-UPDATER) say so.
+* **OQ-B6 CLOSED:** vacuous named predicates for scoped types until 0051; B2's PR body states this as the pilot limit.
+* **Verification items (not rulings).** ELIXIR-DEV confirms with a `lock(` grep that the `:transition` prepare call tree takes no `FOR UPDATE` (D-B.2); confirms `check_boundaries` is green with the engine -> `Letflow.Identity` edge (7.3); confirms the `send_json` envelope carries `line_index` as designed.
 
 ## 16. Deferred (not PR B)
 
@@ -750,7 +793,8 @@ and entity_writes" paragraph (B1); `docs/status` and requirement bookkeeping by 
 * update/delete lines, `expected`/`record` from `_sys`, hook 2, script outputs as commands
   (#2534 7c), after-commit triggers, org-relative assignment, the `(instance, node, attempt)` stock
   business key (WMS slice 5).
-* A real `needs_reactivation` task status and re-activation flow (OQ-B2).
+* **Follow-up (file with B2):** a real `needs_reactivation` task status, inbox/UI filtering and an in-place re-activation flow for an ACTIVE definition (the stub's recovery today is cancel or rollback re-activation, 7.3).
+* `%StepSource{}` (#2627) as PR C's first commit.
 * Save-time structural check (Graph CHK-31), solution-pack path to a process-writable type (#2619),
   type classification replacing the denied-name list (#2618).
 * Rule 3a lock code and scoped-type ceiling read (0051 `scope_node`, OQ-B6).
