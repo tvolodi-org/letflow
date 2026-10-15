@@ -126,15 +126,21 @@ defmodule Letflow.Engine.SubProcess do
   `parent_variables` map unchanged (EXT-05); an interface with `inputs: []`
   produces `%{}` — zero declared inputs means zero copied, never a fallback
   to EXT-05.
+
+  GH #2587 (decision 0054 D1a.4, design D-A1.6): the result never carries a
+  reserved engine key (`Letflow.Engine.VariableMerge.drop_reserved/1`) on
+  either clause: engine-written values belong only to the instance that wrote
+  them, so a parent holding them can still start children.
   """
   @spec build_child_initial_variables(SubProcessInterface.parsed_interface() | nil, map()) ::
           {:ok, map()} | {:error, activation_failure()}
-  def build_child_initial_variables(nil, parent_variables), do: {:ok, parent_variables}
+  def build_child_initial_variables(nil, parent_variables),
+    do: {:ok, VariableMerge.drop_reserved(parent_variables)}
 
   def build_child_initial_variables(%{inputs: inputs}, parent_variables) do
     case filter_entries(inputs, parent_variables) do
       {:ok, result} ->
-        {:ok, result}
+        {:ok, VariableMerge.drop_reserved(result)}
 
       {:error, {:missing_required, name}} ->
         {:error, {:missing_required_input, name}}
@@ -150,10 +156,17 @@ defmodule Letflow.Engine.SubProcess do
   already-parsed `interface` (§3.2.2). `interface == nil` merges the full
   `child_variables` map (EXT-05); a child variable not named in `outputs` is
   structurally absent from the returned map, never filtered post-merge.
+
+  GH #2587 (design D-A1.5): with no interface the child's own reserved engine
+  keys are dropped (`Letflow.Engine.VariableMerge.drop_reserved/1`), so they
+  never reach the parent and never fail its merge. An explicit `outputs`
+  entry naming a reserved key is NOT dropped: the parent's merge refuses it
+  into instance ERROR (`:reserved_variable_key`), a definition error.
   """
   @spec build_parent_merge_variables(SubProcessInterface.parsed_interface() | nil, map()) ::
           {:ok, map()} | {:error, completion_failure()}
-  def build_parent_merge_variables(nil, child_variables), do: {:ok, child_variables}
+  def build_parent_merge_variables(nil, child_variables),
+    do: {:ok, VariableMerge.drop_reserved(child_variables)}
 
   def build_parent_merge_variables(%{outputs: outputs}, child_variables) do
     case filter_entries(outputs, child_variables) do
@@ -941,6 +954,23 @@ defmodule Letflow.Engine.SubProcess do
            reason: "variable '#{key}' failed schema validation",
            variables: seed_state.variables,
            details: %{rejected_value: rejected_value, failures: failures},
+           actor_id: actor_id,
+           idempotency_key: error_idempotency_key
+         }}
+
+      # GH #2587 (D-A1.5): reached only through an explicit interface `outputs` entry
+      # naming a reserved key (a no-interface merge map has its reserved keys dropped
+      # in build_parent_merge_variables/2). The value is never carried.
+      {:rejected, _unchanged_variables,
+       [{:execution_error, key, _rejected_value, :reserved_variable_key, _failures}]} ->
+        {:error,
+         %{
+           instance_id: parent_token.instance_id,
+           error_type: :reserved_variable_key,
+           affected: {:field, key},
+           reason: "variable '#{key}' is reserved",
+           variables: seed_state.variables,
+           details: %{},
            actor_id: actor_id,
            idempotency_key: error_idempotency_key
          }}

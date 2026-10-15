@@ -3825,6 +3825,21 @@ defmodule Letflow.Engine do
               prefix
             )
 
+          # GH #2587 (SECURITY F2): a tenant endpoint answering a reserved `_sys` key
+          # would otherwise roll back with the dispatch row left "advanced" -- a
+          # silent stall. It is a terminal, value-free instance ERROR instead, the
+          # way an explicit sub-process mapping onto the namespace is.
+          {:rejected, unchanged_variables,
+           [{:execution_error, key, _value, :reserved_variable_key, _failures}]} ->
+            persist_service_task_reserved_key_error(
+              repo,
+              projection,
+              unchanged_variables,
+              key,
+              "service_task_dispatch:#{dispatch.id}",
+              prefix
+            )
+
           {:rejected, _unchanged_variables, _events} = rejection ->
             {:error, {:variable_merge_rejected, rejection}}
         end
@@ -4058,6 +4073,42 @@ defmodule Letflow.Engine do
       Multi.new()
       |> ExecutionError.append_multi(error_args, prefix: prefix, locked_projection: projection)
       |> completion.on_no_matching_edge.()
+
+    case repo.transaction(multi) do
+      {:ok, _changes} -> {:ok, :error_set}
+      {:error, _step, reason, _changes} -> {:error, reason}
+    end
+  end
+
+  # GH #2587 (SECURITY F2): the HTTP SERVICE_TASK body carried a reserved `_sys` key.
+  # Mirrors persist_service_task_no_matching_edge/7: ExecutionError records inside the
+  # already-open outer transaction (projection already locked), committed; no merge, no
+  # SERVICE_TASK_COMPLETED, the dispatch row stays "advanced" (at-most-once). The value is
+  # never carried (details %{}).
+  defp persist_service_task_reserved_key_error(
+         repo,
+         %InstanceProjection{} = projection,
+         unchanged_variables,
+         key,
+         idempotency_key,
+         prefix
+       ) do
+    error_args = %{
+      instance_id: projection.instance_id,
+      error_type: :reserved_variable_key,
+      affected: {:field, key},
+      reason: "variable '#{key}' is reserved",
+      variables: unchanged_variables,
+      details: %{},
+      actor_id: EventStore.platform_actor_id(),
+      idempotency_key: idempotency_key
+    }
+
+    multi =
+      ExecutionError.append_multi(Multi.new(), error_args,
+        prefix: prefix,
+        locked_projection: projection
+      )
 
     case repo.transaction(multi) do
       {:ok, _changes} -> {:ok, :error_set}
@@ -4430,17 +4481,12 @@ defmodule Letflow.Engine do
                   {:error, reason} -> {:error, reason}
                 end
 
-              # The rejected value is NOT recorded anywhere (C16).
-              {:rejected, _unchanged_variables, _events} ->
-                script_failure(
-                  repo,
-                  row,
-                  projection,
-                  :output_invalid,
-                  :variable_schema_rejected,
-                  facts,
-                  prefix
-                )
+              # The rejected value is NOT recorded anywhere (C16). The merge reason is
+              # the fail code (GH #2587 D-A1.11): :variable_schema_rejected or
+              # :reserved_variable_key.
+              {:rejected, _unchanged_variables,
+               [{:execution_error, _key, _value, reason, _failures}]} ->
+                script_failure(repo, row, projection, :output_invalid, reason, facts, prefix)
             end
         end
       end
@@ -4671,6 +4717,40 @@ defmodule Letflow.Engine do
          prefix,
          %{required: required, allowed: allowed}
        ) do
+    # GH #2587 (decision 0054 D1a, design D-A1.3): a reserved key in the CORRECTED
+    # output is a caller error, refused as a retryable 422 before the schema read and
+    # before merge/3 (which would refuse it too, but into instance ERROR). Key names
+    # only; the value is never carried.
+    case VariableMerge.reserved_keys(output_variables) do
+      [] ->
+        merge_unreserved_output_variables(
+          projection,
+          actor_id,
+          idempotency_key,
+          current_variables,
+          output_variables,
+          repo,
+          prefix,
+          required,
+          allowed
+        )
+
+      reserved ->
+        {:error, {:completion_refused, {:output_refused, [], reserved}}}
+    end
+  end
+
+  defp merge_unreserved_output_variables(
+         projection,
+         actor_id,
+         idempotency_key,
+         current_variables,
+         output_variables,
+         repo,
+         prefix,
+         required,
+         allowed
+       ) do
     with {:ok, variable_validations} <-
            VariableSchema.variable_validations(
              repo,
@@ -4793,6 +4873,23 @@ defmodule Letflow.Engine do
           reason: "variable '#{key}' failed schema validation",
           variables: unchanged_variables,
           details: %{rejected_value: rejected_value, failures: failures},
+          actor_id: actor_id,
+          idempotency_key: idempotency_key
+        }
+
+        {:ok, {:execution_error, error_args}}
+
+      # GH #2587: equally unreachable from merge_output_variables/8, which refuses a
+      # reserved key first. The value is never carried (D-A1.2).
+      {:rejected, unchanged_variables,
+       [{:execution_error, key, _rejected_value, :reserved_variable_key, _failures}]} ->
+        error_args = %{
+          instance_id: projection.instance_id,
+          error_type: :reserved_variable_key,
+          affected: {:field, key},
+          reason: "variable '#{key}' is reserved",
+          variables: unchanged_variables,
+          details: %{},
           actor_id: actor_id,
           idempotency_key: idempotency_key
         }

@@ -183,6 +183,7 @@ defmodule Letflow.Engine.PinResolver do
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.ProcessDefinition
   alias Letflow.Engine.Reconstruction
+  alias Letflow.Engine.VariableMerge
   alias Letflow.EventStore.Registry.JsonSchema
   alias Letflow.EventStore.Registry.ValidationFailure
 
@@ -582,7 +583,14 @@ defmodule Letflow.Engine.PinResolver do
   reusing `Letflow.EventStore.Registry.JsonSchema.validate/2` directly
   (REQ-024) rather than a second implementation. `variable_json_schema ==
   nil` (no schema registered — the `default_lookup/0` case) is `:ok`
-  unconditionally, no constraint.
+  unconditionally, no constraint, apart from the reserved-key check below.
+
+  GH #2587 (decision 0054 D1a, design D-A1.7): on BOTH clauses, before any
+  schema check, a top-level reserved engine key
+  (`Letflow.Engine.VariableMerge.reserved_keys/1`) refuses the start with
+  the same reason shape as a schema rejection: one `ValidationFailure` per
+  reserved key, sorted, `constraint: "reserved_variable_key"`, `actual: nil`
+  (the value is never carried), `field_path` the RFC 6901 pointer of the key.
   """
   @spec validate_initial_variables(
           initial_variables :: map(),
@@ -590,16 +598,30 @@ defmodule Letflow.Engine.PinResolver do
         ) ::
           :ok
           | {:error, {:variable_schema_violation, [ValidationFailure.t()]}}
-  def validate_initial_variables(initial_variables, nil) when is_map(initial_variables) do
-    :ok
+  def validate_initial_variables(initial_variables, variable_json_schema)
+      when is_map(initial_variables) and
+             (is_nil(variable_json_schema) or is_map(variable_json_schema)) do
+    case VariableMerge.reserved_keys(initial_variables) do
+      [] -> validate_unreserved_initial_variables(initial_variables, variable_json_schema)
+      reserved -> {:error, {:variable_schema_violation, Enum.map(reserved, &reserved_failure/1)}}
+    end
   end
 
-  def validate_initial_variables(initial_variables, variable_json_schema)
-      when is_map(initial_variables) and is_map(variable_json_schema) do
+  defp validate_unreserved_initial_variables(_initial_variables, nil), do: :ok
+
+  defp validate_unreserved_initial_variables(initial_variables, variable_json_schema) do
     case JsonSchema.validate(initial_variables, variable_json_schema) do
       [] -> :ok
       failures -> {:error, {:variable_schema_violation, failures}}
     end
+  end
+
+  defp reserved_failure(key) do
+    %ValidationFailure{
+      field_path: "/" <> (key |> String.replace("~", "~0") |> String.replace("/", "~1")),
+      constraint: "reserved_variable_key",
+      actual: nil
+    }
   end
 
   @doc """

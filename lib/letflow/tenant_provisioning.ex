@@ -1377,6 +1377,63 @@ defmodule Letflow.TenantProvisioning do
         ],
         "additionalProperties" => false
       }
+    },
+    # GH #2587 (decision 0054 D1, D11; design gh2587-req499-pr-a-prerequisites.md 2.3, 2.4):
+    # the engine-only record of reserved values the engine set (applied on replay only
+    # through VariableMerge.put_sys/3), and the value-free record of one step's entity
+    # writes (changes no state on replay). Registered by PR A; appended from PR B/C. Both
+    # closed (additionalProperties false, every key required); the engine constrains the
+    # reserved keys and values the registry subset cannot (no propertyNames/pattern).
+    %{
+      name: "INSTANCE_SYS_VARIABLES_SET",
+      schema_version: 1,
+      description:
+        "Emitted by Letflow.Engine (decision 0054, GH #2587) in the same transaction and " <>
+          "before the completion event of a step whose entity writes minted record ids: the " <>
+          "engine-only reserved variable values (record ids and event_global_seq) it set.",
+      json_schema: %{
+        "type" => "object",
+        "properties" => %{
+          "node_id" => %{"type" => "string"},
+          "cause" => %{"type" => "string", "enum" => ["entity_writes"]},
+          "values" => %{"type" => "object"}
+        },
+        "required" => ["node_id", "cause", "values"],
+        "additionalProperties" => false
+      }
+    },
+    %{
+      name: "TASK_ENTITY_WRITES_APPLIED",
+      schema_version: 1,
+      description:
+        "Emitted by Letflow.Engine (decision 0054, GH #2587) when a HUMAN_TASK or " <>
+          "SERVICE_TASK step's declared entity writes commit: ids and sequences only, no " <>
+          "field value. Replay changes no state for it and never re-executes a write.",
+      json_schema: %{
+        "type" => "object",
+        "properties" => %{
+          "node_id" => %{"type" => "string"},
+          "task_id" => %{"type" => ["string", "null"]},
+          "dispatch_id" => %{"type" => ["string", "null"]},
+          "lines_hash" => %{"type" => "string"},
+          "lines" => %{
+            "type" => "array",
+            "items" => %{
+              "type" => "object",
+              "properties" => %{
+                "line_index" => %{"type" => "integer", "minimum" => 0},
+                "entity_type" => %{"type" => "string"},
+                "record_id" => %{"type" => "string"},
+                "event_global_seq" => %{"type" => "integer", "minimum" => 0}
+              },
+              "required" => ["line_index", "entity_type", "record_id", "event_global_seq"],
+              "additionalProperties" => false
+            }
+          }
+        },
+        "required" => ["node_id", "task_id", "dispatch_id", "lines_hash", "lines"],
+        "additionalProperties" => false
+      }
     }
   ]
 
