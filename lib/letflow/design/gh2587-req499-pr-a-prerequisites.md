@@ -1246,6 +1246,8 @@ REQ-499 / GH #2587, this design, and the split reason.
   (c) Type safety: `sys_value()` is any binary and the event's `values` schema is
   `{"type": "object"}`; PR B narrows ids to UUIDs and seqs to non-negative integers (in
   `sys_key?/1`/`sys_value?/1` or a per-key shape) before it starts writing.
+  Done by GH #2621 (`gh2621-sys-value-types.md`): strict `put_sys/3` plus an append guard in
+  `Registry.validate_payload/3`; PR B's hard constraints are in that doc's section 9.
 * PR B also (SEC F2 on the A1b gate, record only): once the engine writes reserved values they
   would appear in API responses: instance reads (`routers/instances.ex` ~730, the reconstruct
   body's `"variables"`, and ~850, the projection map's `"variables"`) and the task-completion

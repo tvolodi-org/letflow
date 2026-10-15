@@ -69,6 +69,7 @@ defmodule Letflow.EventStore.Registry do
 
   import Ecto.Query
 
+  alias Letflow.Engine.VariableMerge
   alias Letflow.EventStore.Registry.{EventType, JsonSchema, ValidationFailure}
   alias Letflow.Repo
   alias Letflow.TenantProvisioning.Registration
@@ -117,6 +118,12 @@ defmodule Letflow.EventStore.Registry do
   always targets the most recently registered version, resolved via
   `getType`'s `ORDER BY schema_version DESC LIMIT 1` result).
 
+  GH #2621: after the schema step passes, a new payload of the engine-only sys-variables event
+  additionally goes through `Letflow.Engine.VariableMerge.check_sys_values/1` (strict key
+  shapes and value types, at most 40 keys); a refusal is the same
+  `{:payload_validation_failed, [...]}` envelope, constraints `sys_key_shape`,
+  `sys_value_type`, `sys_values_count`, never echoing a value.
+
   PROVENANCE (historical, not current decision authority):
   `payload` is a raw, not-yet-decoded JSON string, matching this function's
   realistic caller — an HTTP request body before any decoding happens.
@@ -150,7 +157,7 @@ defmodule Letflow.EventStore.Registry do
         case get_type(event_type, tenant_id) do
           {:ok, %EventType{json_schema: schema}} ->
             case JsonSchema.validate(decoded, schema) do
-              [] -> :ok
+              [] -> sys_values_guard(event_type, decoded)
               failures -> {:error, {:payload_validation_failed, failures}}
             end
 
@@ -159,6 +166,52 @@ defmodule Letflow.EventStore.Registry do
         end
     end
   end
+
+  # GH #2621 (design D-2, D-9, D-10): a code guard, not a schema keyword (the JSON-Schema
+  # subset ignores `patternProperties`, and a seed edit would not reach existing tenants).
+  # Runs only after the schema step passed, and only for the engine-only
+  # INSTANCE_SYS_VARIABLES_SET event, so it covers every append entry point with one
+  # change. No failure echoes a value (`actual: nil`).
+  defp sys_values_guard(event_type, decoded) do
+    if event_type == VariableMerge.sys_event_type() do
+      case VariableMerge.check_sys_values(Map.get(decoded, "values")) do
+        :ok ->
+          :ok
+
+        {:error, :not_a_map} ->
+          {:error,
+           {:payload_validation_failed,
+            [%ValidationFailure{field_path: "/values", constraint: "type", actual: nil}]}}
+
+        {:error, offending} ->
+          {:error, {:payload_validation_failed, Enum.map(offending, &sys_failure/1)}}
+      end
+    else
+      :ok
+    end
+  end
+
+  defp sys_failure({:values, :too_many_keys}),
+    do: %ValidationFailure{field_path: "/values", constraint: "sys_values_count", actual: nil}
+
+  defp sys_failure({key, reason}) do
+    %ValidationFailure{
+      field_path: sys_failure_path(key),
+      constraint: sys_constraint(reason),
+      actual: nil
+    }
+  end
+
+  defp sys_constraint(:invalid_sys_key_shape), do: "sys_key_shape"
+  defp sys_constraint(:invalid_sys_value_type), do: "sys_value_type"
+
+  # RFC 6901 escaping; an over-long or non-binary key is reported at "/values" only.
+  defp sys_failure_path(key) when is_binary(key) and byte_size(key) <= 160 do
+    escaped = key |> String.replace("~", "~0") |> String.replace("/", "~1")
+    "/values/" <> escaped
+  end
+
+  defp sys_failure_path(_key), do: "/values"
 
   @doc """
   Fetches `event_type`'s most recently registered version (highest
