@@ -206,7 +206,7 @@ defmodule Letflow.Routers.TasksEntityWritesTest do
             Fx.define_type!(ctx.schema, "stock_move", %{append_only: false})
 
           :managed ->
-            Fx.make_managed!(ctx.schema, "fxm_ledger")
+            Fx.install_managed_fixture!(ctx.schema)
 
             {:ok, _} =
               Letflow.Entities.EntityTypeInstance.get_or_create("fxm_ledger", ctx.schema)

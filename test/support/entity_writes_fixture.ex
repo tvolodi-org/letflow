@@ -17,7 +17,6 @@ defmodule Letflow.EntityWritesFixture do
   alias Letflow.Definitions.Activator
   alias Letflow.Engine
   alias Letflow.Engine.Task, as: EngineTask
-  alias Letflow.Entities.Definitions, as: EntityDefinitions
   alias Letflow.Entities.EventTypes
   alias Letflow.Entities.Record.Latest
   alias Letflow.EventStore.Event
@@ -131,13 +130,18 @@ defmodule Letflow.EntityWritesFixture do
       )
 
     {:ok, row} =
-      EntityDefinitions.create_definition(
+      Letflow.Entities.Definitions.create_definition(
         %{definition: definition, created_by: Ecto.UUID.generate()},
         schema
       )
 
     {:ok, active} =
-      EntityDefinitions.activate_definition(row.name, Ecto.UUID.generate(), "go", schema)
+      Letflow.Entities.Definitions.activate_definition(
+        row.name,
+        Ecto.UUID.generate(),
+        "go",
+        schema
+      )
 
     active
   end
@@ -299,32 +303,37 @@ defmodule Letflow.EntityWritesFixture do
   end
 
   @doc """
-  Makes `name` MANAGED by the fixture module after activation (a new active version stamped
-  `managed_by`), the way a module install would.
+  Installs the `fixture_managed` test module through the REAL install route
+  (`Letflow.Modules.Installs.install/3`), which stamps `managed_by: "fixture_managed"` on its
+  entity types (`fxm_ledger` among them, append-only). The fixture builds no `Owner` and calls
+  no module-owner call: the managed-types caller scans cover `test/support`.
   """
-  @spec make_managed!(String.t(), String.t()) :: :ok
-  def make_managed!(schema, name) do
-    owner = Letflow.Entities.ManagedTypes.module_owner(Letflow.Modules.FixtureManaged)
+  @spec install_managed_fixture!(String.t()) :: :ok
+  def install_managed_fixture!(schema) do
+    {:ok, tenant_id} = Letflow.TenantProvisioning.tenant_id_for_schema_name(schema)
 
-    {:ok, row} =
-      EntityDefinitions.create_definition(
-        %{
-          definition: %{
-            name: name,
-            display_name: name,
-            fields: [
-              %{name: "label", type: :string, required: true},
-              %{name: "note", type: :string}
-            ],
-            append_only: true
-          },
-          created_by: Ecto.UUID.generate()
-        },
-        schema,
-        owner
+    # the install writes platform-level rows that reference the tenant (FKs): remove them
+    # BEFORE the tenant fixture's own teardown (on_exit callbacks run last-registered first)
+    ExUnit.Callbacks.on_exit(fn ->
+      Repo.delete_all(
+        from(i in Letflow.Definitions.SolutionPackInstall, where: i.tenant_id == ^tenant_id)
       )
 
-    {:ok, _} = EntityDefinitions.activate_definition(row.name, Ecto.UUID.generate(), "go", schema)
+      Repo.delete_all(
+        from(b in Letflow.Definitions.SolutionPackArtefactBase, where: b.tenant_id == ^tenant_id)
+      )
+
+      Repo.delete_all(
+        from(cp in Letflow.TenantProvisioning.ColumnPromotion, where: cp.tenant_id == ^tenant_id)
+      )
+    end)
+
+    {:ok, _result} =
+      Letflow.Modules.Installs.install("fixture_managed", Ecto.UUID.generate(),
+        prefix: schema,
+        rationale: "entity writes fixture"
+      )
+
     :ok
   end
 

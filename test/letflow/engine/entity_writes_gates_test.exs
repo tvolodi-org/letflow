@@ -278,7 +278,7 @@ defmodule Letflow.Engine.EntityWritesGatesTest do
       # are a hand-edited pinned snapshot (and recorded authorization) naming a type a module
       # already manages. `fxm_ledger` is in the fixture module's manages list.
       ctx = distinct!()
-      Fx.make_managed!(ctx.schema, "fxm_ledger")
+      Fx.install_managed_fixture!(ctx.schema)
 
       assert {:ok, _} =
                Letflow.Entities.EntityTypeInstance.get_or_create("fxm_ledger", ctx.schema)
