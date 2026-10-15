@@ -329,4 +329,100 @@ defmodule Letflow.Routers.SysVariablesResponseTest do
     assert item["payload"]["reason"] == "no edge"
     refute conn.resp_body =~ "_sys"
   end
+
+  test "history strips reserved keys from initial_variables and output_variables payloads",
+       %{tenant: tenant} do
+    id = start_instance!(tenant)
+    leaked = Ecto.UUID.generate()
+
+    append!(tenant.schema_name, id, "INSTANCE_STARTED", %{
+      "definition_id" => Ecto.UUID.generate(),
+      "initial_variables" => %{"customer" => "acme", "_sys.line_0" => leaked}
+    })
+
+    append!(tenant.schema_name, id, "TASK_COMPLETED", %{
+      "task_id" => Ecto.UUID.generate(),
+      "node_id" => "task",
+      "output_variables" => %{"decision" => "ok", "_sys.line_0.seq" => 9},
+      "activated_nodes" => []
+    })
+
+    conn = instances(:get, "/#{id}/history", tenant)
+    assert conn.status == 200
+    items = body(conn)["items"]
+
+    started =
+      items |> Enum.filter(&(&1["event_type"] == "INSTANCE_STARTED")) |> List.last()
+
+    completed = Enum.find(items, &(&1["event_type"] == "TASK_COMPLETED"))
+    assert started["payload"]["initial_variables"] == %{"customer" => "acme"}
+    assert completed["payload"]["output_variables"] == %{"decision" => "ok"}
+    refute conn.resp_body =~ "_sys"
+    refute conn.resp_body =~ leaked
+  end
+
+  test "an APPLIED event with empty lines keeps no record id or sequence", %{tenant: tenant} do
+    id = start_instance!(tenant)
+
+    append!(tenant.schema_name, id, "TASK_ENTITY_WRITES_APPLIED", %{
+      "node_id" => "task",
+      "task_id" => nil,
+      "dispatch_id" => Ecto.UUID.generate(),
+      "lines_hash" => String.duplicate("b", 64),
+      "lines" => []
+    })
+
+    conn = instances(:get, "/#{id}/history", tenant)
+    item = Enum.find(body(conn)["items"], &(&1["event_type"] == "TASK_ENTITY_WRITES_APPLIED"))
+    assert item["payload"]["lines"] == []
+    refute inspect(item["payload"]) =~ "record_id"
+    refute inspect(item["payload"]) =~ "event_global_seq"
+  end
+
+  test "public_event_payload/2 tolerates a missing or malformed lines value" do
+    for payload <- [
+          %{"node_id" => "n", "record_id" => "x", "event_global_seq" => 1},
+          %{"node_id" => "n", "lines" => "nope", "record_id" => "x"},
+          %{"node_id" => "n", "lines" => [1, %{"line_index" => 0, "record_id" => "x"}]}
+        ] do
+      shaped =
+        Letflow.Api.Response.public_event_payload("TASK_ENTITY_WRITES_APPLIED", payload)
+
+      refute inspect(shaped) =~ "record_id"
+      refute inspect(shaped) =~ "event_global_seq"
+      assert is_list(shaped["lines"])
+    end
+  end
+
+  test "timeline page_size=1 walk shows each visible event once and the APPLIED row has no ids",
+       %{tenant: tenant, instance_id: id, seeded: seeded} do
+    full = body(instances(:get, "/#{id}/timeline", tenant))["items"]
+    types = Enum.map(full, & &1["event_type"])
+
+    walked = walk_timeline(tenant, id, nil, [])
+    assert Enum.map(walked, & &1["event_type"]) == types
+    assert Enum.map(walked, & &1["event_id"]) == Enum.map(full, & &1["event_id"])
+    refute VariableMerge.sys_event_type() in types
+
+    applied = Enum.find(walked, &(&1["event_type"] == "TASK_ENTITY_WRITES_APPLIED"))
+    assert applied
+    refute inspect(applied["description"]) =~ seeded.record_id
+    refute inspect(applied["metadata"]) =~ seeded.record_id
+    refute inspect(applied) =~ "event_global_seq"
+  end
+
+  defp walk_timeline(tenant, id, cursor, acc) do
+    qs =
+      if cursor, do: "?page_size=1&cursor=#{URI.encode_www_form(cursor)}", else: "?page_size=1"
+
+    conn = instances(:get, "/#{id}/timeline#{qs}", tenant)
+    assert conn.status == 200
+    b = body(conn)
+    acc = acc ++ b["items"]
+
+    case b["next_cursor"] do
+      nil -> acc
+      next -> walk_timeline(tenant, id, next, acc)
+    end
+  end
 end

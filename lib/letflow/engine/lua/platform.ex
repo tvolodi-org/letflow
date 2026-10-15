@@ -280,6 +280,7 @@ defmodule Letflow.Engine.Lua.Platform do
   alias Letflow.Engine.Lua.Platform.TimeSource
   alias Letflow.Engine.LuaNumberMarshalling
   alias Letflow.Engine.Reconstruction
+  alias Letflow.Engine.VariableMerge
   alias Letflow.EventStore
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.Idempotency
@@ -607,7 +608,8 @@ defmodule Letflow.Engine.Lua.Platform do
   @spec do_read_variable(args :: [term()], execution_context :: execution_context(), Lua.t()) ::
           {[term()], Lua.t()}
   defp do_read_variable([name | _rest], %{variables: variables}, lua) when is_binary(name) do
-    case Map.fetch(variables, name) do
+    # GH #2587 PR B3 (INV-2): engine-written `_sys.*` bookkeeping is never readable by a script.
+    case variables |> VariableMerge.drop_reserved() |> Map.fetch(name) do
       {:ok, value} ->
         {encoded, lua} = Lua.encode!(lua, LuaNumberMarshalling.to_lua(value))
         {[encoded], lua}
@@ -669,8 +671,11 @@ defmodule Letflow.Engine.Lua.Platform do
           |> Ecto.Enum.mappings(:status)
           |> Keyword.fetch!(projection.status)
 
+        # GH #2587 PR B3 (INV-2): reserved `_sys.*` keys are dropped before the script sees them.
         variables =
-          Map.new(projection.variables, fn {key, value} ->
+          projection.variables
+          |> VariableMerge.drop_reserved()
+          |> Map.new(fn {key, value} ->
             {key, LuaNumberMarshalling.to_lua(value)}
           end)
 

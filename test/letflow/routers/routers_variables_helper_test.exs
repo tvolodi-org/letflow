@@ -14,6 +14,18 @@ defmodule Letflow.Routers.RoutersVariablesHelperTest do
     * rule 3: a `.payload` field read may appear only in the files of `@payload_readers`
       (a new reader must be added here deliberately, with its shaping reviewed).
 
+  ## Accepted limits (reviewed, deliberate)
+
+  This is a literal-key scan, not a taint analysis. It does NOT see: a key added through
+  `Map.put(m, "variables", ...)`; atom or keyword keys; the update form
+  `%{m | "variables" => x}`; a whole struct or map returned without a literal entry; or a
+  receiver whose LAST alias segment is `Response` but is not `Letflow.Api.Response`
+  (`Foo.Response`). Rule 3 deliberately SUBSTITUTES the design's "list the event types
+  history_item_map may emit verbatim" with a pinned set of `.payload` reader files, because
+  the shaping function (`public_event_payload/2`) is an allowlist by event type and key. A new
+  map-valued event key therefore needs a unit update in the response test; B2 must also keep
+  `_sys`-derived values out of instance-event `metadata`.
+
   Non-vacuity: synthetic offending and conforming snippets, plus a floor on the number of
   real guarded sites so a rename of a router cannot silently empty the scan.
   """
@@ -88,10 +100,12 @@ defmodule Letflow.Routers.RoutersVariablesHelperTest do
     # promotions.ex: platform event payload.
     assert guarded >= 5, "scan found only #{guarded} guarded sites; a router moved?"
 
-    for {file, r} <- results, r.payload_reads > 0 do
-      assert file in @payload_readers,
-             "#{file} reads `.payload`; add it to @payload_readers with its shaping reviewed"
-    end
+    assert unlisted_readers(results) == [],
+           "a router reads `.payload` outside @payload_readers; add it deliberately"
+  end
+
+  defp unlisted_readers(results) do
+    for {file, r} <- results, r.payload_reads > 0, file not in @payload_readers, do: file
   end
 
   test "the known real sites are present (positive control on the real tree)" do
@@ -134,6 +148,29 @@ defmodule Letflow.Routers.RoutersVariablesHelperTest do
   test "a call to a lookalike function with the same arity is not accepted" do
     r = scan_source(~S|defp m(p), do: %{"variables" => Other.public_variables(p.variables)}|)
     assert [{"variables", _}] = r.violations
+  end
+
+  test "a .payload reader outside the allow-listed files is detected (rule 3)" do
+    r = scan_source(~S|defp m(e), do: Response.public_event_payload(e.event_type, e.payload)|)
+    assert r.payload_reads == 1
+
+    assert unlisted_readers([{"lib/letflow/routers/new_router.ex", r}]) ==
+             ["lib/letflow/routers/new_router.ex"]
+
+    assert unlisted_readers([{"lib/letflow/routers/instances.ex", r}]) == []
+  end
+
+  test "a local public_variables/1 defined in the router is not accepted" do
+    r = scan_source(~S|defp m(p), do: %{"variables" => public_variables(p.variables)}|)
+    assert r.violations == []
+    assert r.guarded == 1
+
+    # The scan accepts an unqualified call by name and arity only; a router that DEFINES its own
+    # public_variables/1 would pass it, so the real-tree test forbids such a definition:
+    for file <- Path.wildcard(@routers_glob) do
+      refute File.read!(file) =~ ~r/defp?\s+public_variables\(/,
+             "#{file} defines its own public_variables/1; it must resolve to Response"
+    end
   end
 
   # -- the helper itself uses the single reserved-key predicate ---------------------------------

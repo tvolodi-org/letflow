@@ -164,6 +164,7 @@ defmodule Letflow.Engine.Wasm.HostApi do
 
   alias Letflow.Engine.Lua.Platform
   alias Letflow.Engine.LuaNumberMarshalling
+  alias Letflow.Engine.VariableMerge
   alias Letflow.Engine.Wasm.MemoryGuard
 
   require Logger
@@ -249,7 +250,8 @@ defmodule Letflow.Engine.Wasm.HostApi do
   def do_read_variable(context, name_ptr, name_len, out_ptr, out_cap, execution_context) do
     with {:ok, name_bytes} <- MemoryGuard.read(context.caller, context.memory, name_ptr, name_len),
          {:ok, name} <- validate_utf8(name_bytes) do
-      case Map.fetch(execution_context.variables, name) do
+      # GH #2587 PR B3 (INV-2): engine-written `_sys.*` bookkeeping is never readable by a guest.
+      case execution_context.variables |> VariableMerge.drop_reserved() |> Map.fetch(name) do
         {:ok, value} ->
           json_bytes =
             value

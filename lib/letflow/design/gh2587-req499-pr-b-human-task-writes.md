@@ -630,10 +630,10 @@ no opt-in. Single helper `Response.public_variables/1` (wraps `VariableMerge.dro
 | 1 | `GET /instances/:id` | `routers/instances.ex:850` `instance_map/1`, key `"variables"` | `Response.public_variables(projection.variables)` |
 | 2 | `POST /instances/:id/reconstruct` | `instances.ex:730` `render_reconstruct/2`, key `"variables"` (and the `write_back` persists the full state; only the RESPONSE is stripped) | same |
 | 3 | `POST /tasks/:id/complete` | `routers/tasks.ex:676-690` `complete_result_map/1`, key `"variables"` | same |
-| 4 | `GET /instances/:id/history` | `instances.ex:952` `history_item_map/2` and `Instances.history/3` | server-side exclusion of `INSTANCE_SYS_VARIABLES_SET` rows (cursor and `next_cursor` unaffected); `TASK_ENTITY_WRITES_APPLIED` payload reduced to `node_id`, `task_id`, `dispatch_id`, `lines_hash` and `lines` as `[{line_index, entity_type}]` (OQ-B4); `EXECUTION_ERROR` payload `"variables"` passed through `public_variables/1` |
+| 4 | `GET /instances/:id/history` | `instances.ex:952` `history_item_map/2` and `Instances.history/3` | server-side exclusion of `INSTANCE_SYS_VARIABLES_SET` rows (cursor and `next_cursor` unaffected); `TASK_ENTITY_WRITES_APPLIED` payload reduced to `node_id`, `task_id`, `dispatch_id`, `lines_hash` and `lines` as `[{line_index, entity_type}]` (OQ-B4); `EXECUTION_ERROR` payload `"variables"` passed through `public_variables/1`; B3 amendment: any top-level `variables`, `output_variables` or `initial_variables` map of any event payload is passed through `public_variables/1` defensively (no-op today, `_sys` is refused at write) |
 | 5 | `GET /instances/:id/timeline` | `Instances.timeline/3` | the same exclusion of `INSTANCE_SYS_VARIABLES_SET` |
 | - | `GET /instances` (list), `GET /tasks/:id` | `list_item_map/1`, `task_detail_map` | no `variables` key; unchanged |
-| - | Lua `get_instance_state` / `read_variable` (`lua/platform.ex:70`, `:92`) | unwired for node dispatch (A1b I-13); when first wired they must pass the result through `VariableMerge.drop_reserved/1` | none now; I-13 extended in the B3 moduledoc |
+| - | Lua `get_instance_state` / `read_variable` (`lua/platform.ex`) and the Wasm `host_api` `read_variable` | B3 amendment (SEC F1): closed in B3 itself; `fetch_instance_state`, `do_read_variable` and the Wasm read pass the variables through `VariableMerge.drop_reserved/1` | `platform_test.exs` cases |
 | - | webhooks, DLQ, service-task templates | grep: no `variables` serialisation; template/binding reads refused at activation (A1b) | none; pinned by the static test |
 
 Asymmetry (OQ-B4, ruled): the instance history drops `record_id` and `event_global_seq`, but the hash-chained tenant AUDIT entry per line keeps them in `after_state` (actor = completer, `definition_version`, `record_id`), so `AuditRead` holders see the full trail; acceptable because audit access is the stronger permission and the ids are not field values. Test B-11.
@@ -798,3 +798,5 @@ and entity_writes" paragraph (B1); `docs/status` and requirement bookkeeping by 
 * Save-time structural check (Graph CHK-31), solution-pack path to a process-writable type (#2619),
   type classification replacing the denied-name list (#2618).
 * Rule 3a lock code and scoped-type ceiling read (0051 `scope_node`, OQ-B6).
+
+* **B3 follow-ups (from the B3 gates).** (F2) `Response.public_event_payload/2` is an allowlist by event type and key: a new map-valued event payload key carrying variables needs the helper and a test update. (F3) B2 must keep `_sys`-derived values out of instance-event `metadata` (history/timeline emit `metadata` verbatim).
