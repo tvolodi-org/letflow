@@ -266,7 +266,9 @@ document. Absent or `false` means a process step may NOT write records of the ty
 - **A solution pack cannot carry it.** A pack install (`:DefinitionsCreate`) containing
   `writable_by_process: true` is refused and nothing is installed (GH #2619 tracks a
   reviewed pack path). Until then an administrator sets the flag AFTER install, by
-  creating and activating a new version under `:EntitiesDefinitionsWrite`.
+  creating and activating a new version under `:EntitiesDefinitionsWrite`. Pack export
+  emits `definition_json` verbatim, so an exported pack that carries the flag is refused
+  on re-import until #2619.
 - **Denied names (interim, fail closed).** No metadata classifies entity types yet, so
   `true` is also refused when the type name (compared lower-cased) matches one of these
   (`Letflow.Entities.ProcessWritable`; adding an entry is a reviewed diff; GH #2618

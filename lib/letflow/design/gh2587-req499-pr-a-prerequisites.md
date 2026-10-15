@@ -8,6 +8,10 @@ Design only. Signatures, types, step lists and test briefs; no function bodies.
 
 ## Changelog
 
+### Revision 1c (2026-10-15): A4 implementation notes (ELIXIR-DEV)
+
+A4 also edits `routers/solution_packs.ex` (`render_install({:error, {:validation, _}})` -> 422 `validation failed`; was the 500 catch-all) and adds `"writable_by_process"` to `solution_pack.ex` `@top_level_keys` (otherwise the parser rejected it as `invalid_pack_document` before the refusal ran). An exported pack carrying the flag is refused on re-import until GH #2619.
+
 ### Revision 1b (2026-10-15): supervisor ruling on PR B carry-over (a); PR A1b added (CODE-DESIGNER)
 
 | Id | Change | Where |
@@ -1192,7 +1196,7 @@ definition policy), each with its own validator focus; one combined diff would e
 | **A1b** | section 2A (revision 1b): reserved-name references refused at save (CHK-29/30) and at all three activation paths; L9 in `check_bindings`; 422 renderers; `ServiceTask.template_placeholder/0` | files in 2A.8 (no file shared with A2) | stacked on A1 | after A1; serial with A2 (either order, no overlap); before A3 (CDV F2: A1b and A3 both edit `engine.ex` and `scripts/runtime.ex`, so they merge sequentially) |
 | **A2** | sections 3.1-3.4: `append_multi` namespace, un-namespaced `sys:step:` refusal in EventStore, `fetch_instance_id/2`, `command_multi/3` with `:recheck_definition`, `interpret_in_multi/1`, `classify_step_error/1`, `sys:step:`/`source` refusals, caller tests | `event_store.ex`, `records.ex`, `entity_type_instance.ex` | merges after A1 | 2nd |
 | **A3** | sections 4, 10: `EntityPort` (subsumes `ScriptReadPort`), `EntityPortImpl`, `StepWrites` (`prepare/2` complete, write callbacks fail-closed), config key, Rule 6 text, 7c test renames (same tests green), script-path prefetch-only assertion, EE-12 text; `entity_port.ex` added to the event-literal allow-list | `engine/entity_port.ex` (new), `engine/script_read_port.ex` (deleted), `engine/script_task_dispatcher.ex`, `engine.ex` (moduledoc only), `entities/*`, `config/config.exs`, `check_boundaries.ex`, 7c tests | merges after A2 (A1's allow-list file) | 3rd |
-| **A4** | section 5: `writable_by_process`, module-guide section, F6 count | `entities/definition.ex`, `definition/validator.ex`, `definitions.ex`, `process_writable.ex` (new), `routers/entities.ex`, `definitions/solution_pack.ex`, `docs/guides/adding-an-application-module.md` | merges after A3 | 4th |
+| **A4** | section 5: `writable_by_process`, module-guide section, F6 count | `entities/definition.ex`, `definition/validator.ex`, `definitions.ex`, `process_writable.ex` (new), `routers/entities.ex`, `definitions/solution_pack.ex` (also: `"writable_by_process"` added to `@top_level_keys`, so a pack with `false` is accepted and `true` is refused by name), `routers/solution_packs.ex` (`render_install` `{:validation, _}` -> 422, previously a 500), `docs/guides/adding-an-application-module.md` | merges after A3 | 4th |
 
 Supervisor ruling (revision 1): the split is ACCEPTED, SERIAL A1 -> A2 -> A3 -> A4; A3 subsuming 7c-2's
 port is accepted as a refactor with the same 7c tests green.

@@ -266,6 +266,50 @@ defmodule Letflow.Entities.WritableByProcessTest do
       end
     end
 
+    test "JSON null for the flag is dropped by the router (treated as absent): 201, key not stored" do
+      ctx = tenant_ctx("gh2587-a4-null", ["PROCESS_DESIGNER"])
+
+      conn =
+        request(
+          :post,
+          "/api/v1/entities/definitions",
+          ctx,
+          http_definition("flag_null", %{"writable_by_process" => nil})
+        )
+
+      assert conn.status == 201, conn.resp_body
+
+      refute Map.has_key?(
+               stored_row(ctx.schema, "flag_null").definition_json,
+               "writable_by_process"
+             )
+    end
+
+    test "a mixed-case denied exact name with the flag is refused through the write path" do
+      %{schema: schema} = tenant_ctx("gh2587-a4-case", ["PROCESS_DESIGNER"])
+
+      # The name format is lower-case only, so the validator refuses "Role" first (malformed
+      # name); the policy itself is case-insensitive and is pinned at pure level below.
+      assert {:error, {:validation, [%Violation{} | _]}} =
+               Definitions.create_definition(
+                 attrs("Role", %{writable_by_process: true}),
+                 schema
+               )
+
+      assert row_count(schema, "Role") == 0
+    end
+
+    test "PROCESS_OPERATOR gets a real 403 on the activate route" do
+      ctx = tenant_ctx("gh2587-a4-act403", ["PROCESS_OPERATOR"])
+
+      conn =
+        request(:post, "/api/v1/entities/definitions/anything/activate", ctx, %{
+          "rationale" => "x"
+        })
+
+      assert conn.status == 403
+    end
+
     test "the same denied names WITHOUT the flag (and with false) still create" do
       ctx = tenant_ctx("gh2587-a4-noflag", ["PROCESS_DESIGNER"])
 
@@ -346,9 +390,9 @@ defmodule Letflow.Entities.WritableByProcessTest do
       )
     end
 
-    defp pack_document(entity_json) do
-      name = entity_json["name"]
+    defp pack_document(entity_json) when is_map(entity_json), do: pack_document([entity_json])
 
+    defp pack_document(entity_jsons) when is_list(entity_jsons) do
       %{
         "pack_id" => "gh2587-a4-pack-#{System.unique_integer([:positive])}",
         "version" => "1.0.0",
@@ -358,16 +402,34 @@ defmodule Letflow.Entities.WritableByProcessTest do
         "definitions" => [],
         "variable_schemas" => [],
         "service_catalog_entries" => [],
-        "entity_definitions" => [
-          %{
-            "entity_definition_id" => Ecto.UUID.generate(),
-            "name" => name,
-            "display_name" => "A4 #{name}",
-            "logical_shape_version" => Base.encode16(:crypto.hash(:sha256, name), case: :lower),
-            "definition_json" => entity_json
-          }
-        ]
+        "entity_definitions" =>
+          Enum.map(entity_jsons, fn entity_json ->
+            name = entity_json["name"]
+
+            %{
+              "entity_definition_id" => Ecto.UUID.generate(),
+              "name" => name,
+              "display_name" => "A4 #{name}",
+              "logical_shape_version" => Base.encode16(:crypto.hash(:sha256, name), case: :lower),
+              "definition_json" => entity_json
+            }
+          end)
       }
+    end
+
+    test "all-or-nothing: a clean entity followed by a flagged one installs neither (422)" do
+      ctx = tenant_ctx("gh2587-a4-pack-aon", ["TENANT_ADMIN"])
+
+      doc =
+        pack_document([
+          pack_entity("pack_clean_first", %{}),
+          pack_entity("pack_flagged_second", %{"writable_by_process" => true})
+        ])
+
+      conn = request(:post, "/api/v1/solution-packs/install", ctx, doc)
+      assert conn.status == 422, conn.resp_body
+      assert row_count(ctx.schema, "pack_clean_first") == 0
+      assert row_count(ctx.schema, "pack_flagged_second") == 0
     end
 
     test "a pack entity definition carrying writable_by_process: true is refused, nothing installed" do
@@ -408,6 +470,12 @@ defmodule Letflow.Entities.WritableByProcessTest do
       conn = request(:post, "/api/v1/solution-packs/install", ctx, doc)
       assert conn.status == 422, conn.resp_body
       assert row_count(ctx.schema, "pack_http_flagged") == 0
+
+      # The generic install-route body: neither the rule, the property name nor the
+      # entity name is echoed.
+      assert conn.resp_body =~ "validation failed"
+      refute conn.resp_body =~ "writable_by_process"
+      refute conn.resp_body =~ "pack_http_flagged"
     end
   end
 
@@ -449,6 +517,22 @@ defmodule Letflow.Entities.WritableByProcessTest do
                %{name: "org_unit", writable_by_process: false},
                nil
              ) == :ok
+    end
+
+    test "check_settable/2 refuses a string-keyed definition and a mixed-case exact name" do
+      assert {:error, {:validation, [%Violation{message: m}]}} =
+               ProcessWritable.check_settable(
+                 %{"name" => "org_unit", "writable_by_process" => true},
+                 nil
+               )
+
+      assert m =~ ~s(denied prefix "org_")
+
+      assert {:error, {:validation, [%Violation{message: m2}]}} =
+               ProcessWritable.check_settable(%{name: "Role", writable_by_process: true}, nil)
+
+      assert m2 == ~s(writable_by_process cannot be set: the name "role" is denied)
+      assert ProcessWritable.matched_rule("ROLES") == {:exact, "roles"}
     end
 
     test "check_settable/2 messages are the three closed templates" do
