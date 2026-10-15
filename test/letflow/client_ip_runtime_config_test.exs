@@ -30,6 +30,10 @@ defmodule Letflow.ClientIpRuntimeConfigTest do
   use ExUnit.Case, async: true
 
   @moduletag :slow
+  # GH #2611: the remaining `mix run` subprocess smoke tests boot a child VM on the already
+  # compiled build; 180 s is a backstop well above the measured child boot, never a
+  # cold-compile allowance (no test here compiles _build/dev any more).
+  @moduletag timeout: 180_000
 
   # Same fix as test/letflow/admission_runtime_config_test.exs (ISS-0908 follow-up): the first
   # MIX_ENV=prod child boot otherwise absorbs a full _build/prod compile, which on a loaded

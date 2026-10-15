@@ -37,6 +37,10 @@ defmodule Letflow.LoginDiscoveryRuntimeConfigTest do
   use ExUnit.Case, async: false
 
   @moduletag :slow
+  # GH #2611: the remaining `mix run` subprocess smoke tests boot a child VM on the already
+  # compiled build; 180 s is a backstop well above the measured child boot, never a
+  # cold-compile allowance (no test here compiles _build/dev any more).
+  @moduletag timeout: 180_000
 
   alias Letflow.Test.RuntimeConfigEval, as: R
 
