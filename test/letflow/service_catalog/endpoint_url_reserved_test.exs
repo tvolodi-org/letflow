@@ -8,6 +8,7 @@ defmodule Letflow.ServiceCatalog.EndpointUrlReservedTest do
   """
 
   use Letflow.DataCase, async: false
+  use ExUnitProperties
 
   import Ecto.Query
 
@@ -156,6 +157,48 @@ defmodule Letflow.ServiceCatalog.EndpointUrlReservedTest do
     end
   end
 
+  describe "order of checks (D-9)" do
+    test "a URL over 2048 bytes holding a reserved reference gets the length error" do
+      url = "https://example.test/{{variables._sys}}/" <> String.duplicate("a", 2100)
+
+      assert {:error, %Ecto.Changeset{} = cs} =
+               ServiceCatalog.register(attrs(%{endpoint_url: url}))
+
+      refute reserved_error?(cs)
+      assert {_msg, opts} = cs.errors[:endpoint_url]
+      assert opts[:validation] == :length
+    end
+  end
+
+  describe "publish/3 bare form and near-misses" do
+    test "refuses the bare and whitespace forms" do
+      entry = register!()
+
+      for {url, v} <- [
+            {"https://example.test/{{variables._sys}}", "2"},
+            {"https://example.test/{{  variables._sys  }}", "3"}
+          ] do
+        assert {:error, %Ecto.Changeset{} = cs} =
+                 ServiceCatalog.publish(entry.service_id, v, %{endpoint_url: url})
+
+        assert reserved_error?(cs)
+      end
+
+      assert Repo.get!(Entry, entry.service_id).version == "1"
+    end
+
+    test "accepts _SYS and a._sys" do
+      entry = register!()
+
+      for {url, v} <- [
+            {"https://example.test/{{variables._SYS}}", "2"},
+            {"https://example.test/{{variables.a._sys}}", "3"}
+          ] do
+        assert {:ok, _} = ServiceCatalog.publish(entry.service_id, v, %{endpoint_url: url})
+      end
+    end
+  end
+
   describe "existing rows are not altered at dispatch resolution" do
     test "resolve_pinned_version/3 still returns a stored reserved URL unchanged" do
       entry = register!()
@@ -217,6 +260,24 @@ defmodule Letflow.ServiceCatalog.EndpointUrlReservedTest do
 
       assert String.replace(Regex.source(derived), "[a-zA-Z0-9_.]+", "[a-zA-Z0-9_]+") ==
                Regex.source(ServiceTask.template_placeholder())
+
+      # A future flag on the strict pattern is inherited.
+      assert Regex.opts(derived) == Regex.opts(ServiceTask.template_placeholder())
+    end
+
+    test "strict KEYs are a subsequence of derived KEYs over random templates" do
+      key = StreamData.string([?a..?z, ?A..?Z, ?0..?9, ?_, ?.], min_length: 1, max_length: 8)
+
+      check all(
+              keys <- StreamData.list_of(key, max_length: 5),
+              pad <- StreamData.string([?a..?z, ?/], max_length: 6)
+            ) do
+        template = Enum.map_join(keys, pad, &"{{ variables.#{&1} }}")
+        strict = ServiceTask.template_variable_keys(template)
+        derived = ServiceTask.template_reference_keys(template)
+
+        assert Enum.filter(derived, &(&1 in strict)) == strict
+      end
     end
   end
 
@@ -228,11 +289,18 @@ defmodule Letflow.ServiceCatalog.EndpointUrlReservedTest do
       assert length(files) > 1
 
       for file <- files do
-        src = File.read!(file)
-        refute src =~ "~r", "#{file} holds a regex sigil"
-        refute src =~ "Regex.", "#{file} calls Regex"
-        refute src =~ ~s("_sys), "#{file} holds a _sys literal"
+        assert forbidden_tokens(File.read!(file)) == [], "#{file} holds a forbidden token"
       end
     end
+
+    test "the scan predicate flags each forbidden token (positive control)" do
+      assert "~r" in forbidden_tokens("x = ~r/a/")
+      assert "Regex." in forbidden_tokens("Regex.match?(a, b)")
+      assert ~s("_sys) in forbidden_tokens(~s(k = "_sys.x"))
+      assert forbidden_tokens("plain text") == []
+    end
+
+    defp forbidden_tokens(src),
+      do: Enum.filter(["~r", "Regex.", ~s("_sys)], &String.contains?(src, &1))
   end
 end

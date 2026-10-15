@@ -24,6 +24,9 @@ defmodule Letflow.Definitions.ReservedReferences do
   L9 (a bound script's `manifest.input_schema.properties` keys) needs the script row, so it is
   checked in `Letflow.Scripts.Runtime.check_bindings/2`, which builds the same `reserved_reference()`.
 
+  `reserved_template_names/1` exposes the same predicate over the dot-widened placeholder grammar
+  to the service-catalog `endpoint_url` refusal (GH #2623).
+
   Callers: `Graph`'s CHK-29 (`node_references/1`) and CHK-30 (`edge_references/1`) at save, and
   `Letflow.Definitions.check_reserved_references/1` at every activation path (activate, version
   rollback, promotion apply).

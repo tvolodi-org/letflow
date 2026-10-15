@@ -388,7 +388,7 @@ defmodule Letflow.Engine.ServiceTask do
     template_placeholder()
     |> Regex.source()
     |> String.replace("[a-zA-Z0-9_]+", "[a-zA-Z0-9_.]+")
-    |> Regex.compile!()
+    |> Regex.compile!(Regex.opts(template_placeholder()))
   end
 
   @doc """

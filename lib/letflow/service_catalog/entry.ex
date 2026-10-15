@@ -91,6 +91,10 @@ defmodule Letflow.ServiceCatalog.Entry do
   `pin_resolver.ex`'s own "SCOPE GAP — service_catalog (S6) and PLC-01
   (unscoped) are not built" section names `module_ref` resolution against
   PLC-01 as unscoped to any stage; this requirement does not change that.
+
+  **Reserved variable namespace (GH #2623):** `endpoint_url` may not reference the engine's
+  reserved `_sys` namespace; see `check_endpoint_url_references/1`. The refusal carries
+  `validation: :endpoint_url_reserved_variable`, distinct from `:endpoint_url_not_allowed`.
   """
 
   use Ecto.Schema

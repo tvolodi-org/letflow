@@ -213,6 +213,11 @@ defmodule Letflow.ServiceCatalog do
   placeholder before the path); otherwise the changeset carries an
   `:endpoint_url` error. Advisory fast feedback -- the dispatch-time INV-9 gate
   remains binding.
+
+  An `endpoint_url` that references the reserved engine variable namespace
+  (`{{variables._sys}}`, `{{variables._sys.<anything>}}`) is refused with an
+  `:endpoint_url` error carrying `validation: :endpoint_url_reserved_variable`
+  (GH #2623); nothing is inserted.
   """
   @spec register(register_attrs()) ::
           {:ok, Entry.t()}
@@ -336,6 +341,11 @@ defmodule Letflow.ServiceCatalog do
   is omitted) must pass `Letflow.ServiceCatalog.Entry.check_endpoint_url/1`
   (ISS-0950); a failure returns `{:error, %Ecto.Changeset{}}` and rolls back the
   archive insert. Advisory -- the dispatch-time INV-9 gate remains binding.
+
+  An effective `endpoint_url` (supplied or inherited) that references the reserved engine
+  variable namespace is refused with `validation: :endpoint_url_reserved_variable` on
+  `:endpoint_url` (GH #2623) and rolls back the archive insert; publishing a clean
+  `endpoint_url` is the repair path.
   """
   @spec publish(service_id :: String.t(), version :: String.t(), publish_attrs()) ::
           {:ok, Entry.t()}
