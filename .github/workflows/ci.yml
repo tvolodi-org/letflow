@@ -180,8 +180,9 @@ concurrency:
 
 # GH #2622 (OQ-4): every job sets timeout-minutes (>= 4x the observed max over the last 30
 # successful runs; design lib/letflow/design/gh2622-ci-push-concurrency-and-cd-tip.md §4). A timed-out
-# job is cancelled by GitHub (conclusion `cancelled`): non-success, so the aggregator turns a
-# timed-out leg into red and CD never deploys the run. See docs/runbooks/qa-lag.md.
+# job is cancelled by GitHub (conclusion `cancelled`): non-success. The `backend` aggregator turns a
+# timed-out backend leg into red; a timed-out `frontend` or `mobile` job makes the run non-success
+# directly. Either way CD never deploys the run. See docs/runbooks/qa-lag.md.
 jobs:
   # Not a required status check. Computes whether backend-relevant /
   # frontend-relevant paths changed so the backend legs (skipped at job level) and

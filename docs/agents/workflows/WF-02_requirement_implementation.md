@@ -284,9 +284,11 @@ Runs after both 2a and 2b return PASS (or whichever applies), before Step 2d.
      lib/letflow/modules/catalog.ex; to anything under priv/permission_matrix/; and
      any run of `mix letflow.permission_matrix --check` whose report contains a core
      matrix change (`:core_change`, printed as CORE MATRIX CHANGE) is IN SCOPE. These
-     paths are the trust boundary of the golden-file check; the pull request runs its
-     own copy of all of them, so the CI check alone cannot stop a PR that edits them,
-     and the review is the control. A YES here forces "continue", never the
+     paths (except the two CD files) are the trust boundary of the golden-file check;
+     the pull request runs its own copy of them, so the CI check alone cannot stop a PR
+     that edits them, and the review is the control. The CD files never run from a PR
+     (only from main via workflow_run); they are triggers because of the deploy secrets
+     and the deploy decision. A YES here forces "continue", never the
      out-of-scope PASS; read the PR's CI step output (the PERMISSION-MATRIX-REPORT
      line, and CORE MATRIX CHANGE when present). A permission-matrix run reporting
      `labels=bootstrap` after REQ-498 has merged is itself a mandatory

@@ -39,9 +39,11 @@ the path script decides which CI gates run); to `mix.exs` aliases (`aliases/0`,
 `lib/letflow/modules/catalog.ex`; to anything under `priv/permission_matrix/`; and
 any run of `mix letflow.permission_matrix --check` whose report contains a core
 matrix change (`:core_change`, printed as `CORE MATRIX CHANGE`) is IN SCOPE. These
-paths are the trust boundary of the effective-permission golden-file check; the
-pull request runs its own copy of all of them, so the CI check alone cannot stop a
-PR that edits them, and the review is the control.
+paths (except the two CD files) are the trust boundary of the effective-permission
+golden-file check; the pull request runs its own copy of them, so the CI check alone
+cannot stop a PR that edits them, and the review is the control. The CD files never
+run from a PR (only from main via `workflow_run`); they are triggers because of the
+deploy secrets and the deploy decision.
 
 If the diff touches none of the above, record that explicitly ("out of scope — no
 tenant-data path touched") and complete with `status: PASS` — don't block a change that
