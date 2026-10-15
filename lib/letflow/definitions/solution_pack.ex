@@ -184,6 +184,7 @@ defmodule Letflow.Definitions.SolutionPack do
   alias Letflow.Engine.VariableSchema
   alias Letflow.Entities.EntityDefinition
   alias Letflow.Entities.ManagedTypes
+  alias Letflow.Entities.ProcessWritable
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
 
@@ -1117,7 +1118,10 @@ defmodule Letflow.Definitions.SolutionPack do
     "foreign_keys" => :foreign_keys,
     "constraints" => :constraints,
     # GH #2529: optional boolean; the Validator rejects a non-boolean value.
-    "append_only" => :append_only
+    "append_only" => :append_only,
+    # GH #2587: recognised ONLY so the installer can refuse it by name
+    # (`create_packed_entity_definitions/4`); a pack never carries `true`.
+    "writable_by_process" => :writable_by_process
   }
 
   @field_keys %{
@@ -1651,12 +1655,20 @@ defmodule Letflow.Definitions.SolutionPack do
     Enum.reduce_while(packed_entity_definitions, {:ok, []}, fn packed, {:ok, acc} ->
       create_attrs = %{definition: packed.definition_json, created_by: actor_id}
 
-      case Letflow.Entities.Definitions.create_definition(create_attrs, prefix(opts), owner) do
-        {:ok, %EntityDefinition{} = created} ->
-          {:cont, {:ok, [{packed, created} | acc]}}
+      # GH #2587 D-A4.6: a pack (`:DefinitionsCreate`) never carries
+      # `writable_by_process: true`; the flag is an `:EntitiesDefinitionsWrite`
+      # decision. Refused before this entity is written, flowing into the same
+      # all-or-nothing rollback.
+      if ProcessWritable.declared?(packed.definition_json) do
+        {:halt, ProcessWritable.pack_refusal()}
+      else
+        case Letflow.Entities.Definitions.create_definition(create_attrs, prefix(opts), owner) do
+          {:ok, %EntityDefinition{} = created} ->
+            {:cont, {:ok, [{packed, created} | acc]}}
 
-        {:error, _reason} = error ->
-          {:halt, error}
+          {:error, _reason} = error ->
+            {:halt, error}
+        end
       end
     end)
     |> case do

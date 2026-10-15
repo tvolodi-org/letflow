@@ -551,6 +551,7 @@ defmodule Letflow.Routers.Entities do
       |> maybe_put_document_list(:foreign_keys, body, "foreign_keys", &fk_document/1)
       |> maybe_put_document_list(:constraints, body, "constraints", &constraint_document/1)
       |> maybe_put_optional(:append_only, body, "append_only")
+      |> maybe_put_optional(:writable_by_process, body, "writable_by_process")
 
     {:ok, document}
   end

@@ -115,6 +115,7 @@ defmodule Letflow.Entities.Definition.Validator do
     |> check_optional_list_of_maps(definition, :foreign_keys)
     |> check_optional_list_of_maps(definition, :constraints)
     |> check_optional_boolean(definition, :append_only)
+    |> check_optional_boolean(definition, :writable_by_process)
     |> then(fn violations ->
       if violations == [] do
         violations
