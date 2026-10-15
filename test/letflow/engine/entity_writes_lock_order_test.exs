@@ -65,6 +65,22 @@ defmodule Letflow.Engine.EntityWritesLockOrderTest do
     end
   end
 
+  defp pin_instance!(schema, type, id) do
+    %Letflow.Entities.EntityTypeInstance{}
+    |> Letflow.Entities.EntityTypeInstance.insert_changeset(%{entity_type: type, instance_id: id})
+    |> Repo.insert!(prefix: schema)
+
+    %Letflow.EventStore.InstanceProjection{}
+    |> Letflow.EventStore.InstanceProjection.insert_changeset(%{
+      instance_id: id,
+      status: :active,
+      definition_id: id
+    })
+    |> Repo.insert!(prefix: schema)
+
+    :ok
+  end
+
   defp type_instance_ids(schema) do
     EntityTypeInstance
     |> Repo.all(prefix: schema)
@@ -79,6 +95,11 @@ defmodule Letflow.Engine.EntityWritesLockOrderTest do
         Fx.activate!(base.schema, base.user, Fx.graph([line("stock_note"), line("stock_move")]))
 
       ctx = start(base, definition)
+
+      # Pin the synthetic instance ids so they sort OPPOSITE to the type names: a "sort by
+      # instance id" mutant would lock stock_note first and fail the assertion below.
+      pin_instance!(base.schema, "stock_move", "ffffffff-ffff-4fff-8fff-ffffffffffff")
+      pin_instance!(base.schema, "stock_note", "00000000-0000-4000-8000-000000000000")
 
       {result, queries} =
         PlatformTenantFixture.capture_repo_queries(fn -> Fx.complete(ctx, %{}) end)
@@ -137,6 +158,54 @@ defmodule Letflow.Engine.EntityWritesLockOrderTest do
 
   defp normalize(param), do: param
 
+  # A second connection locking the stock_move type sequence row until told to release.
+  defp hold_first_type_row(base) do
+    type_instance = type_instance_ids(base.schema)["stock_move"]
+    schema = base.schema
+    test_pid = self()
+
+    task =
+      Task.async(fn ->
+        Repo.transaction(fn ->
+          Repo.query!(
+            ~s(SELECT 1 FROM "#{schema}"."instance_sequence" WHERE instance_id = $1 FOR UPDATE),
+            [Ecto.UUID.dump!(type_instance)]
+          )
+
+          send(test_pid, :held)
+
+          receive do
+            :release -> :ok
+          after
+            20_000 -> :ok
+          end
+        end)
+      end)
+
+    assert_receive :held, 10_000
+    task
+  end
+
+  # Polls pg_locks (<= 30 x 50 ms, under the 2 s lock_timeout) for a waiting row-lock request.
+  defp release_when_waiting(holder) do
+    Enum.reduce_while(1..30, nil, fn _, _ ->
+      %{rows: [[waiting]]} =
+        Repo.query!(
+          "SELECT count(*) FROM pg_locks WHERE NOT granted AND locktype IN ('transactionid', 'tuple')"
+        )
+
+      if waiting >= 1 do
+        {:halt, :ok}
+      else
+        Process.sleep(50)
+        {:cont, nil}
+      end
+    end)
+
+    send(holder.pid, :release)
+    Task.await(holder, 30_000)
+  end
+
   describe "B-3 parallel completions (A,B) vs (B,A)" do
     test "no raw 40P01; a contention victim commits nothing and its retry succeeds",
          %{base: base} do
@@ -146,14 +215,24 @@ defmodule Letflow.Engine.EntityWritesLockOrderTest do
       ba =
         Fx.activate!(base.schema, base.user, Fx.graph([line("stock_note"), line("stock_move")]))
 
-      for _round <- 1..3 do
+      # sequential warm-up: the FIRST creation of a type's synthetic instance is not part of
+      # the race under test
+      for definition <- [ab, ba] do
+        assert {:ok, _} = Fx.complete(start(base, definition), %{})
+      end
+
+      for round <- 1..3 do
         pair = [start(base, ab), start(base, ba)]
         before = record_total(base.schema)
 
-        results =
-          pair
-          |> Enum.map(fn ctx -> {ctx, Task.async(fn -> Fx.complete(ctx, %{}) end)} end)
-          |> Enum.map(fn {ctx, task} -> {ctx, Task.await(task, 30_000)} end)
+        # round 1: make the overlap deterministic. A second connection holds the first type's
+        # sequence row; both completions are started, and the holder releases only once pg_locks
+        # shows a waiting request (bounded poll, no busy loop).
+        holder = if round == 1, do: hold_first_type_row(base), else: nil
+
+        asyncs = Enum.map(pair, fn ctx -> {ctx, Task.async(fn -> Fx.complete(ctx, %{}) end)} end)
+        if holder, do: release_when_waiting(holder)
+        results = Enum.map(asyncs, fn {ctx, task} -> {ctx, Task.await(task, 30_000)} end)
 
         for {ctx, result} <- results do
           case result do

@@ -271,6 +271,16 @@ defmodule Letflow.Entities.StepWritesPrepareTest do
       assert is_function(fun, 1)
     end
 
+    test "multi/3 refuses more than 20 lines as a build error at index 20 (I-B6 defence)" do
+      m = Ecto.Multi.new()
+      out = StepWrites.multi(m, List.duplicate(line("a"), 21), %{prefix: "x"})
+      assert [{{:line, 20, :build}, {:error, :line_malformed}}] = Ecto.Multi.to_list(out)
+
+      # exactly 20 is accepted (one lazy merge)
+      ok = StepWrites.multi(m, List.duplicate(line("a"), 20), %{prefix: "x"})
+      assert [{:merge, {:merge, _fun}}] = Ecto.Multi.to_list(ok)
+    end
+
     test "interpret_failure/2 answers :not_a_line_failure for any step that is not {:line, i, _}" do
       assert StepWrites.interpret_failure(:task, :boom) == :not_a_line_failure
       assert StepWrites.interpret_failure({:entity_write_audit, 0}, :boom) == :not_a_line_failure

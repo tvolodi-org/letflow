@@ -324,3 +324,6 @@ config :letflow, Letflow.LoginDiscovery.Notifier,
 # override (a DER CA list replacing the OS store). Set to true here and nowhere else;
 # in every other build the override branch is not compiled.
 config :letflow, Letflow.LoginDiscovery.Notifier.Smtp, allow_test_cacerts: true
+
+# GH #2587 PR B2: compiles the engine's step-name test seam (test builds only).
+config :letflow, :engine_test_seams, true

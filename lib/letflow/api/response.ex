@@ -284,7 +284,9 @@ defmodule Letflow.Api.Response do
   D-B.17 / section 8). ONE envelope, `{"error": "<code>", "line_index": <declared index> |
   null}`, so the bytes are a function of `(status, code, index)` alone: `write_not_permitted`
   is byte-identical for every cause (INV-5), and no field name, entity name or managed/scope
-  detail can reach it. `line_index` is `null` for a contention refusal.
+  detail can reach it. `line_index` is `null` for a contention refusal. `line_index: 20`
+  with `validation_failed` means "line cap exceeded" (the first index past the 20-line cap),
+  not a declared line.
   """
   @spec entity_write_refused(Plug.Conn.t(), atom(), non_neg_integer() | nil) :: Plug.Conn.t()
   def entity_write_refused(conn, code, index)

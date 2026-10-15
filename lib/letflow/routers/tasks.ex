@@ -429,7 +429,8 @@ defmodule Letflow.Routers.Tasks do
   end
 
   # GH #2587 PR B2: a declarative entity write was refused. One stable code and the declared
-  # line index (null for contention); the status is a function of the code alone.
+  # line index (null for contention); the status is a function of the code alone. Index 20 with
+  # `validation_failed` means "the 20-line cap was exceeded", not a declared line.
   defp handle_complete_result({:error, {:entity_write_refused, :contention, code}}, conn)
        when is_atom(code) do
     Response.entity_write_refused(conn, code, nil)

@@ -128,9 +128,14 @@ defmodule Letflow.Engine.EntityWritesGatesTest do
   end
 
   defp install_trigger!(schema, table, event, condition, code) do
+    install_trigger!(schema, table, event, condition, code, "injected")
+  end
+
+  # `message` makes the injected error distinguishable (the test asserts it was OBSERVED).
+  defp install_trigger!(schema, table, event, condition, code, message) do
     Repo.query!("""
     CREATE OR REPLACE FUNCTION "#{schema}".ew_boom() RETURNS trigger LANGUAGE plpgsql AS $$
-    BEGIN RAISE EXCEPTION 'injected' USING ERRCODE = '#{code}'; END $$
+    BEGIN RAISE EXCEPTION '#{message}' USING ERRCODE = '#{code}'; END $$
     """)
 
     Repo.query!("""
@@ -360,6 +365,59 @@ defmodule Letflow.Engine.EntityWritesGatesTest do
   end
 
   describe "failure atomicity (TDV HIGH 7, 8)" do
+    test "a form-expression error forces the :merge execution-error branch (deterministic)" do
+      ctx = distinct!()
+      baseline = written(ctx)
+
+      # a cross_field_validation rule the submitted output violates: the pinned task
+      # form_schema makes FormExpressionReevaluation.reevaluate/3 return an error, so the
+      # :merge step yields {:execution_error, _} and the instance parks in ERROR
+      form_schema = %{
+        "type" => "object",
+        "properties" => %{
+          "label" => %{"type" => "string"},
+          "note" => %{"type" => "string"},
+          "amount" => %{"type" => "number"},
+          "confirm" => %{
+            "type" => "boolean",
+            "x-ui" => %{
+              "cross_field_validation" => %{
+                "expression" => "amount > 0",
+                "message" => "amount must be positive"
+              }
+            }
+          }
+        }
+      }
+
+      {1, _} =
+        from(t in Letflow.Engine.Task, where: t.id == ^ctx.task.id)
+        |> Repo.update_all([set: [form_schema: form_schema]], prefix: ctx.schema)
+
+      assert {:error,
+              {:instance_execution_error, :form_cross_field_validation_failed,
+               {:field, "confirm"}}} =
+               Fx.complete(
+                 ctx,
+                 Map.merge(out(), %{"amount" => -5, "confirm" => true})
+               )
+
+      assert Fx.projection!(ctx.schema, ctx.instance_id).status == :error
+      assert Fx.task!(ctx.schema, ctx.task.id).status == :pending
+      assert written(ctx).records == 0
+      assert written(ctx).entity_events == 0
+      assert written(ctx).step_keys == 0
+      assert written(ctx).line_audit == 0
+      assert written(ctx).sys_events == baseline.sys_events
+      assert written(ctx).applied_events == baseline.applied_events
+      assert Fx.instance_events(ctx.schema, ctx.instance_id, "EXECUTION_ERROR") != []
+
+      # NOTE (stated): `:transition` passes a merge execution error straight through
+      # (dispatch_task_completion_hop_chain/7, first clause), so `changes.transition` is ALSO
+      # `{:execution_error, _}` and the `skip?` merge clause is redundant defence in depth.
+      # This case would stay green if that one clause were deleted.
+    end
+
     test "a :merge execution error is pinned: error shape, instance :error, nothing written" do
       ctx = distinct!()
       baseline = written(ctx)
@@ -424,21 +482,49 @@ defmodule Letflow.Engine.EntityWritesGatesTest do
     test "a contention code raised AFTER the commit is not mapped; the task stays completed" do
       ctx = distinct!()
 
+      # `SnapshotWriter.maybe_take_snapshot/4` inserts only when the event sequence is at
+      # least 1000 past the last snapshot. Move the instance's sequence counter so this
+      # completion's events land at >= 1000 and the post-commit snapshot INSERT is attempted.
+      {1, _} =
+        from(s in "instance_sequence", where: s.instance_id == type(^ctx.instance_id, Ecto.UUID))
+        |> Repo.update_all([set: [next_seq: 1000]], prefix: ctx.schema)
+
       install_trigger!(
         ctx.schema,
         "instance_state_snapshots",
         "INSERT",
         "TRUE",
-        "55P03"
+        "55P03",
+        "post_commit_snapshot_marker"
       )
 
       result = Fx.complete(ctx, out())
 
-      refute match?({:error, {:entity_write_refused, :contention, _}}, result), inspect(result)
+      # ACTUAL shape: the snapshot INSERT raises AFTER the transaction committed. The raise is
+      # NOT inside `run_transaction/2` (the contention rescue wraps only `Repo.transaction/1`),
+      # so it surfaces through the function-level blanket rescue as `{:transaction_failed, _}`,
+      # never as the 503 contention refusal. The distinguishable message proves the trigger
+      # fired (a vacuous test would have returned `{:ok, _}`).
+      assert {:error,
+              {:transaction_failed,
+               %Postgrex.Error{
+                 postgres: %{code: :lock_not_available, message: "post_commit_snapshot_marker"}
+               }}} = result
+
+      # the transaction DID commit: the task is completed and the records exist
       assert Fx.task!(ctx.schema, ctx.task.id).status == :completed
       assert length(Fx.records(ctx.schema, "stock_move")) == 1
+      assert length(Fx.records(ctx.schema, "stock_note")) == 1
+      assert Fx.projection!(ctx.schema, ctx.instance_id).status == :completed
     end
 
+    # B-17 (ambiguous commit): the window "the server committed but the client saw a
+    # connection error" cannot be produced here without a seam in Letflow.Repo / the driver.
+    # A trigger or `pg_terminate_backend` fires BEFORE the COMMIT is acknowledged, which makes
+    # the transaction NOT committed (a plain failure), not ambiguous; and a deferred constraint
+    # trigger never fires under the SQL sandbox's outer transaction. What IS asserted is the
+    # client-visible consequence the design relies on: after a committed completion a retry is
+    # `task_not_pending` and duplicates nothing.
     test "a retry after a committed completion is task_not_pending and duplicates nothing (B-17)" do
       ctx = distinct!()
       assert {:ok, _} = Fx.complete(ctx, out())

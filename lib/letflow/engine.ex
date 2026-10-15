@@ -2631,31 +2631,33 @@ defmodule Letflow.Engine do
     |> interpret_complete_result(actor_id, prefix)
   end
 
-  @doc false
-  # Test seam (design B-15): the ordered step names of the completion Multi for a REAL pending
-  # task, built from the REAL plan (`plan_entity_writes/3`, which also runs `prepare/2`).
-  # Nothing of the Multi is run.
-  @spec __complete_task_multi_step_names__(Ecto.UUID.t(), Ecto.UUID.t(), String.t()) ::
-          {:ok, [term()]} | {:error, term()}
-  def __complete_task_multi_step_names__(task_id, actor_id, prefix) do
-    with {:ok, plan} <- plan_entity_writes(task_id, actor_id, prefix) do
-      names =
-        plan
-        |> build_complete_task_multi(
-          task_id,
-          %{},
-          actor_id,
-          "step-names-probe",
-          DateTime.utc_now(),
-          prefix
-        )
-        |> Multi.to_list()
-        |> Enum.map(fn
-          {:merge, {:merge, _fun}} -> :__merge__
-          {name, _op} -> name
-        end)
+  # Test seam (design B-15), compiled ONLY when `config :letflow, :engine_test_seams` is true
+  # (set in `config/test.exs`; absent from every other build). It takes a prefix and runs
+  # `prepare/2` through the real plan, so it must not exist in a production build.
+  if Application.compile_env(:letflow, :engine_test_seams, false) do
+    @doc false
+    @spec __complete_task_multi_step_names__(Ecto.UUID.t(), Ecto.UUID.t(), String.t()) ::
+            {:ok, [term()]} | {:error, term()}
+    def __complete_task_multi_step_names__(task_id, actor_id, prefix) do
+      with {:ok, plan} <- plan_entity_writes(task_id, actor_id, prefix) do
+        names =
+          plan
+          |> build_complete_task_multi(
+            task_id,
+            %{},
+            actor_id,
+            "step-names-probe",
+            DateTime.utc_now(),
+            prefix
+          )
+          |> Multi.to_list()
+          |> Enum.map(fn
+            {:merge, {:merge, _fun}} -> :__merge__
+            {name, _op} -> name
+          end)
 
-      {:ok, names}
+        {:ok, names}
+      end
     end
   end
 
@@ -2950,6 +2952,8 @@ defmodule Letflow.Engine do
   defp entity_write_variables(%{merge: {:merged, %{new_variables: variables}}}), do: variables
   defp entity_write_variables(_changes), do: %{}
 
+  # Redundant TODAY (defence in depth): `:transition` passes a merge execution error through
+  # (`dispatch_task_completion_hop_chain/7`), so the transition clause below also matches.
   defp entity_write_skip?(%{merge: {:execution_error, _}}), do: true
   defp entity_write_skip?(%{transition: {:execution_error, _}}), do: true
   defp entity_write_skip?(_changes), do: false
