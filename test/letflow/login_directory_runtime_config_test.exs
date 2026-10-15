@@ -6,33 +6,33 @@ defmodule Letflow.LoginDirectoryRuntimeConfigTest do
   `lib/letflow/design/req434-email-first-login-directory.md` §2.2 and §15.1
   item 5. See `test/specs/REQ-435.md`.
 
-  Same technique and for the same reason as `secrets_runtime_config_test.exs`:
-  `config/runtime.exs` runs once, at BEAM boot, so the only way to observe a
-  boot-time `raise` is a child `mix run` with a controlled environment. The
-  child uses `--no-start` (config is evaluated, no application or database is
-  started) and `MIX_ENV=dev`, because `config/test.exs` injects fallback values
-  for the pepper and the key id when they are unset, which would silently turn
-  every "absent" case into a success.
+  Same technique and for the same reason as `secrets_runtime_config_test.exs`
+  (GH #2609): the real `config/runtime.exs` is evaluated in-process with
+  `Config.Reader.read!("config/runtime.exs", env: :dev, target: :host)`, so a
+  boot-time `raise` is an exception from that call and a successful boot is the
+  returned config keyword list. `env: :dev` because `config/test.exs` injects
+  fallback values for the pepper and the key id when they are unset; it is not read
+  here, so every "absent" case stays observable. This replaces one `MIX_ENV=dev`
+  `mix run` child per case, which paid a cold dev compile inside ExUnit's per-test
+  timeout in CI. The real boot-path wiring of `runtime.exs` is proved by the single
+  subprocess smoke test in `secrets_runtime_config_test.exs`.
 
-  `System.cmd/3`'s `env:` MERGES onto this process's environment, so every
-  variable under test is explicitly set or explicitly `nil`-ed in every case
-  (never left to inherit, and never an empty string: an empty value is
-  indistinguishable from an unset one on this host). `MIX_TEST_PARTITION` and
-  `MIX_BUILD_PATH` are nil-ed so `config/dev.exs`'s ISS-0015 guard does not fire.
+  The OS environment is process-global, hence `async: false`: every variable in
+  `@managed` is explicitly set or deleted in every case (never inherited), and an
+  `on_exit` restores each to its value from before the test. Optional variables
+  (`LOG_LEVEL`, `LETFLOW_TRUSTED_PROXIES`, mail, platform tenant, ...) are deleted so an
+  ambient host value cannot make evaluation raise for an unrelated reason.
 
   Every non-fixed pepper is generated at run time; no secret-shaped literal is
-  written in this file (the no-secret guard scans `test/` too). The probe prints
-  key ids only, never a pepper. Each failing case asserts a non-zero exit, a
-  message naming the offending variable, and that NO value that was supplied
-  appears in the output (INV-4).
-
-  `@moduletag :slow` (run with `--include slow`): each case boots a fresh `mix run`.
-  `async: false` so the child VMs do not pile up on a memory-limited host.
+  written in this file (the no-secret guard scans `test/` too). Each failing case
+  asserts a raise, a message naming the offending variable, and that NO value that was
+  supplied appears in the message, the formatted exception (stack trace included) or
+  captured stderr (INV-4).
   """
 
   use ExUnit.Case, async: false
 
-  @moduletag :slow
+  import ExUnit.CaptureIO, only: [with_io: 2]
 
   @pepper "LETFLOW_LOGIN_DIRECTORY_PEPPER"
   @pepper_id "LETFLOW_LOGIN_DIRECTORY_PEPPER_ID"
@@ -40,54 +40,83 @@ defmodule Letflow.LoginDirectoryRuntimeConfigTest do
   @previous_id "LETFLOW_LOGIN_DIRECTORY_PEPPER_PREVIOUS_ID"
   @master "LETFLOW_SECRETS_MASTER_KEY"
 
-  @probe ~s|k = Application.fetch_env!(:letflow, :login_directory_keys); | <>
-           ~s|IO.puts("PROBE current=" <> k[:current].id <> " previous=" <> | <>
-           ~s|inspect(k[:previous] && k[:previous].id))|
+  # Every variable a case controls: set or deleted per case, restored on exit.
+  @managed [@master, @pepper, @pepper_id, @previous, @previous_id] ++
+             ~w(LETFLOW_LOGIN_DIRECTORY_LEGAL_CONFIRMATION LOG_LEVEL LETFLOW_TRUSTED_PROXIES
+                LETFLOW_LOGIN_DISCOVERY_ENABLED LETFLOW_LOGIN_DISCOVERY_MODE
+                LETFLOW_OIDC_ADMIN_BIND_UNVERIFIED_REALMS LETFLOW_MAIL_ADAPTER
+                LETFLOW_PLATFORM_TENANT_ID LETFLOW_BUILD_SHA)
+
+  setup do
+    originals = Map.new(@managed, &{&1, System.get_env(&1)})
+
+    on_exit(fn ->
+      for {name, original} <- originals do
+        if original, do: System.put_env(name, original), else: System.delete_env(name)
+      end
+    end)
+
+    :ok
+  end
 
   defp hex32, do: Base.encode16(:crypto.strong_rand_bytes(32), case: :lower)
 
-  # Runs the probe in a child with a fully controlled environment. `overrides`
-  # is a map of variable name -> value | nil, applied over a valid baseline
-  # (fresh master key, fresh current pepper, id "cur-1", no previous pair).
+  # Evaluates the real config/runtime.exs under config_env() == :dev with a fully
+  # controlled environment. `overrides` is a map of variable name -> value | nil,
+  # applied over a valid baseline (fresh master key, fresh current pepper, id "cur-1",
+  # no previous pair, every optional managed variable deleted).
   defp boot(overrides) do
-    baseline = %{
-      @master => hex32(),
-      @pepper => hex32(),
-      @pepper_id => "cur-1",
-      @previous => nil,
-      @previous_id => nil
-    }
+    baseline =
+      Map.merge(Map.new(@managed, &{&1, nil}), %{
+        @master => hex32(),
+        @pepper => hex32(),
+        @pepper_id => "cur-1"
+      })
 
-    env =
-      baseline
-      |> Map.merge(overrides)
-      |> Map.merge(%{"MIX_ENV" => "dev", "MIX_TEST_PARTITION" => nil, "MIX_BUILD_PATH" => nil})
-      |> Enum.to_list()
+    for {name, value} <- Map.merge(baseline, overrides) do
+      if value, do: System.put_env(name, value), else: System.delete_env(name)
+    end
 
-    {output, status} =
-      System.cmd("mix", ["run", "--no-start", "-e", @probe],
-        env: env,
-        stderr_to_stdout: true,
-        cd: File.cwd!()
-      )
+    {result, stderr} =
+      with_io(:stderr, fn ->
+        try do
+          {:ok, Config.Reader.read!("config/runtime.exs", env: :dev, target: :host)}
+        rescue
+          exception ->
+            {:raised, Exception.message(exception),
+             Exception.format(:error, exception, __STACKTRACE__)}
+        end
+      end)
 
     supplied = for {_name, value} <- overrides, is_binary(value), do: value
-    %{output: output, status: status, supplied: supplied}
+    %{result: result, stderr: stderr, supplied: supplied}
   end
 
   defp assert_boot_fails(overrides, variable, fragment) do
-    %{output: output, status: status, supplied: supplied} = boot(overrides)
+    %{result: result, stderr: stderr, supplied: supplied} = boot(overrides)
 
-    refute status == 0, "expected non-zero exit, got 0 with output:\n#{output}"
-    refute output =~ "PROBE", "boot must not reach the probe:\n#{output}"
-    assert output =~ variable, "message must name #{variable}:\n#{output}"
-    assert output =~ fragment, "message must contain #{inspect(fragment)}:\n#{output}"
+    assert {:raised, message, formatted} = result,
+           "expected config/runtime.exs to raise, it returned: #{inspect(result)}"
 
-    for value <- supplied, String.trim(value) != "" do
-      refute output =~ String.trim(value), "output must not echo a supplied value"
+    assert message =~ variable, "message must name #{variable}:
+#{message}"
+    assert message =~ fragment, "message must contain #{inspect(fragment)}:
+#{message}"
+
+    for value <- supplied, String.trim(value) != "", text <- [message, formatted, stderr] do
+      refute text =~ String.trim(value), "output must not echo a supplied value"
     end
 
     :ok
+  end
+
+  defp keys!(overrides) do
+    %{result: result} = boot(overrides)
+
+    assert {:ok, config} = result,
+           "expected config/runtime.exs to evaluate, got: #{inspect(result)}"
+
+    Keyword.fetch!(config[:letflow], :login_directory_keys)
   end
 
   describe "required current pair" do
@@ -214,24 +243,23 @@ defmodule Letflow.LoginDirectoryRuntimeConfigTest do
 
   describe "valid configurations boot" do
     test "current only: boots with previous: nil" do
-      %{output: output, status: status} = boot(%{})
+      keys = keys!(%{})
 
-      assert status == 0, output
-      assert output =~ ~s|PROBE current=cur-1 previous=nil|
+      assert keys[:current].id == "cur-1"
+      assert keys[:previous] == nil
     end
 
-    test "current plus previous: boots and both ids are visible to the probe" do
-      %{output: output, status: status} = boot(%{@previous => hex32(), @previous_id => "prev-1"})
+    test "current plus previous: boots and both ids are in the config" do
+      keys = keys!(%{@previous => hex32(), @previous_id => "prev-1"})
 
-      assert status == 0, output
-      assert output =~ ~s|PROBE current=cur-1 previous="prev-1"|
+      assert keys[:current].id == "cur-1"
+      assert keys[:previous].id == "prev-1"
     end
 
     test "a whitespace-only previous pair counts as unset (D19)" do
-      %{output: output, status: status} = boot(%{@previous => "   ", @previous_id => "  "})
+      keys = keys!(%{@previous => "   ", @previous_id => "  "})
 
-      assert status == 0, output
-      assert output =~ "previous=nil"
+      assert keys[:previous] == nil
     end
   end
 end
