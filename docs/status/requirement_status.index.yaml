@@ -6030,7 +6030,7 @@ volumes:
     path: docs/status/requirement_status.v26.yaml
     status: current
     opened: 2026-10-03
-    entries: 55
+    entries: 56
     note: >
       Opened by DOC-UPDATER's own ISS-0983 closing SCOPE-CHANGE append,
       successor to volume 25 (closed at 29 entries / 1211 frozen-prefix
@@ -6197,6 +6197,12 @@ volumes:
       2026-10-12T05:41:30Z, partial adoption: status in_progress, not done) --
       recounted from the file: 45 on-disk `- req:` entries; 1042 lines / 59164
       bytes, under the 1200-line/120000-byte roll ceiling, no roll triggered.
+
+      Set to 56 by DOC-UPDATER (letflow-2) REQ-498 done event, 2026-10-15T02:56:01Z.
+      Recounted from the file: 56 on-disk `- req:` entries (entries 46-55 were appended
+      by earlier runs without a note here); 1192 lines / 66909 bytes working tree, under
+      the 1200-line/120000-byte roll ceiling, no roll triggered. The NEXT append will
+      likely exceed 1200 lines and must roll to volume 27 per roll_rule.on_exceed.
 
 known_anomalies:
   # Entries that do not conform to the documented vocabulary and are LEFT AS

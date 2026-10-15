@@ -62,6 +62,18 @@ Neither slice needs a core change.
 | Versioned documents (numbering, versions, signing hooks) | **0056** (Accepted 2026-10-15, advisor letflow-ec under the user's delegation; CUSTOMER DECISION REQUIRED items remain open for Kazakhmys) | Needed by every domain; KZ legal documents depend on it. Slice 1 = model, numbering, versions, `verify_binding`. Slice 2 = signatures, PDF, retention, legal hold, each with its own record. |
 | Org-relative task assignment (resolver via the module Catalog, not in the engine) | yes (new) | For example "the requester's department head". |
 
+**Filed requirements and their state (2026-10-15, filer letflow-2; GitHub is the work board):**
+
+| Record | Requirement | Issue | State |
+|---|---|---|---|
+| 0055 D12 step 2a | REQ-498 effective-permission golden file in CI | #2586 | **done** (merged #2612, fe06bdd9) |
+| 0054 | REQ-499 process step writes entity (3 PRs) | #2587 | ready; prerequisite #2550 merged (90e5f2be); the 0054 option-A amendment is on main (75724bbb) |
+| 0054 option A | REQ-501 module write handlers for managed types (2 PRs) | #2590 | ready; depends on #2587 PR A and #2583 (merged 4242547e) |
+| 0056 slice 1 | REQ-500 versioned documents (3 PRs) | #2588 | ready; pluggable OrgResolver accepted, so the org module is not a prerequisite of slice 1 |
+| 0051 stage 1 | REQ-497 (PR 1a merged #2592, c55baa4f; PR 1b open #2601) | #2533 | in flight |
+| 0053 hook 1 | scripts stage 1 (7a, 7b-1, 7b-2a, 7b-2b, 7c-1 #2605, 7c-2 #2607) | #2534 | closed |
+
+
 **WMS slice 5 (stock ledger) starts after "process step writes entity" (0054, Accepted).**
 
 **Hard ordering blocker for slice 5** (supervisor ruling, 2026-10-15): no stock-ledger implementation starts, and no ledger entity type is installed in any tenant, until all four hold:

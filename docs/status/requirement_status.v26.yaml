@@ -1182,3 +1182,11 @@ history:
       passed CODE-DESIGN-VALIDATOR and SECURITY-REVIEWER; ELIXIR-DEV wrote the
       REQ-498 entry (stage S7, gh 2586, the 11 ACs of the issue) with the
       implementation; next: SECURITY-REVIEWER and REVIEWER.
+
+  - req: REQ-498
+    event: done
+    agent: DOC-UPDATER
+    at: "2026-10-15T02:56:01Z"
+    note: >
+      GH #2586 merged as #2612 (fe06bdd9). S10 by RELEASE-VALIDATOR on main:
+      11/11 ACs delivered (issue comment). Flipped by letflow-2, sole filer.
