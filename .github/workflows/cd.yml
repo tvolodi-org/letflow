@@ -35,10 +35,12 @@ on:
     branches: [main]
     types: [completed]
 
+# GH #2622 (OQ-4): every job sets timeout-minutes (deploy 20: today 94-183 s; skip-log 5).
 jobs:
   deploy:
     name: Deploy to QA
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository
     permissions:
       contents: read
@@ -188,6 +190,7 @@ jobs:
   skip-log:
     name: Log why CD did not deploy
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     if: ${{ !(github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository) }}
     permissions: {}
     env:

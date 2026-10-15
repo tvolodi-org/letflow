@@ -178,6 +178,10 @@ concurrency:
   # REQ-401..REQ-416's backend runs all being cancelled or skipped.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# GH #2622 (OQ-4): every job sets timeout-minutes (>= 4x the observed max over the last 30
+# successful runs; design lib/letflow/design/gh2622-ci-push-concurrency-and-cd-tip.md §4). A timed-out
+# job is cancelled by GitHub (conclusion `cancelled`): non-success, so the aggregator turns a
+# timed-out leg into red and CD never deploys the run. See docs/runbooks/qa-lag.md.
 jobs:
   # Not a required status check. Computes whether backend-relevant /
   # frontend-relevant paths changed so the backend legs (skipped at job level) and
@@ -190,6 +194,7 @@ jobs:
   changes:
     name: Detect changed paths
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       backend: ${{ steps.filter.outputs.backend || steps.fallback.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend || steps.fallback.outputs.frontend }}
@@ -337,6 +342,7 @@ jobs:
   backend_static:
     name: Backend static checks + isolated tails
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.backend != 'false' }}
 
@@ -583,6 +589,7 @@ jobs:
   backend_shard:
     name: Backend shard ${{ matrix.shard }}/${{ strategy.job-total }}
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.backend != 'false' }}
     strategy:
@@ -704,6 +711,7 @@ jobs:
   backend:
     name: Backend gate (mix letflow.check)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [changes, backend_static, backend_shard]
     if: ${{ always() }}
     steps:
@@ -765,6 +773,7 @@ jobs:
     # setup is needed here.
     name: Frontend gate (npm run check)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: changes
     # NOT `always()` (unlike the aggregator `backend`, which needs it; see its note).
     if: ${{ !cancelled() }}
@@ -810,6 +819,7 @@ jobs:
   mobile:
     name: Mobile gate (flutter analyze + test + build)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     needs: changes
     # NOT `always()` -- same reasoning as `frontend` (see this design's §3 and
     # the ISS-0591/ISS-0592 design doc's job-block note): `!cancelled()` keeps this job
