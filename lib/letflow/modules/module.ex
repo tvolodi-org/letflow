@@ -70,6 +70,11 @@ defmodule Letflow.Modules.Module do
     * `:manages_entity_types` — **optional**; entity type names this module owns;
       the install step stamps `managed_by` on them (0050 D7, REQ-496). Absent
       means `[]`. Each name must match `^[a-z][a-z0-9_]{0,63}$`.
+    * `:widens_grants` — **optional**; `[{role_atom, permission_atom}]`
+      declaring a NARROWING (a role losing one of this module's atoms) in this
+      version, matched exactly by `mix letflow.permission_matrix --check`
+      (GH #2586 / REQ-498, decision 0055 D7). Never authorises a widening.
+      Absent means `[]`; clear it at the next version bump.
   """
   @type manifest :: %{
           required(:id) => String.t(),
@@ -81,7 +86,8 @@ defmodule Letflow.Modules.Module do
           required(:required_roles) => [String.t()],
           required(:settings_schema) => map() | nil,
           required(:route_policies) => [route_policy()],
-          optional(:manages_entity_types) => [String.t()]
+          optional(:manages_entity_types) => [String.t()],
+          optional(:widens_grants) => [{atom(), atom()}]
         }
 
   @callback manifest() :: manifest()
@@ -147,6 +153,7 @@ defmodule Letflow.Modules.Module do
   | `:required_roles` | `[String.t()]` literal list |
   | `:settings_schema` | `map()` literal or `nil` |
   | `:route_policies` | `[{String.t(), String.t(), atom()}]` literal list |
+  | `:widens_grants` (optional) | `[{atom(), atom()}]` literal list (narrowing declarations, GH #2586) |
 
   If any `role_grants` value atom is absent from `permissions`, a
   `CompileError` is raised at the call site during compilation. Non-literal

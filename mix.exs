@@ -116,6 +116,13 @@ defmodule Letflow.MixProject do
 
   # The `letflow.check` steps up to and including the boundary check -- everything
   # except the test run. See the `letflow.check.static` / `letflow.check` aliases.
+  #
+  # GH #2586 / REQ-498: `mix letflow.permission_matrix --check` is deliberately NOT a
+  # step here. These aliases are pinned to MIX_ENV=test (`cli/0` above), where
+  # config/test.exs registers the test fixture modules, and the task refuses
+  # MIX_ENV=test by design (it must see the PRODUCTION module list). CI runs it as its
+  # own `backend_static` step under MIX_ENV=dev; locally run
+  # `MIX_ENV=dev mix letflow.permission_matrix --check`.
   @check_static_steps [
     "letflow.check_toolchain",
     "letflow.check_requirements_registration",

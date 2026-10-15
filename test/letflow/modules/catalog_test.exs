@@ -189,4 +189,73 @@ defmodule Letflow.Modules.CatalogTest do
       assert Catalog.validate(Letflow.Modules.FixtureManagedNoPack.manifest()) == :ok
     end
   end
+
+  # GH #2586 / REQ-498 (design gh2586-permission-matrix-golden.md section 7 and section
+  # 13 C1-C6): rule 8, the optional widens_grants key, and rule 9, one permission atom per
+  # module.
+  describe "GH 2586 widens_grants (rule 8)" do
+    test "C1: absent, empty, a known role, and an atom outside the manifest's own permissions are valid" do
+      assert Catalog.validate(valid_manifest()) == :ok
+      assert Catalog.validate(Map.put(valid_manifest(), :widens_grants, [])) == :ok
+
+      assert Catalog.validate(
+               Map.put(valid_manifest(), :widens_grants, [{:TASK_WORKER, :FixtureRead}])
+             ) ==
+               :ok
+
+      assert Catalog.validate(
+               Map.put(valid_manifest(), :widens_grants, [{:CANDIDATE, :GoneAtom}])
+             ) ==
+               :ok
+    end
+
+    test "C2: an unknown role is rejected" do
+      assert Catalog.validate(Map.put(valid_manifest(), :widens_grants, [{:NOT_A_ROLE, :X}])) ==
+               {:error, {:unknown_widens_grants_role, :NOT_A_ROLE}}
+    end
+
+    test "C3: a non-atom permission is rejected" do
+      assert Catalog.validate(Map.put(valid_manifest(), :widens_grants, [{:TASK_WORKER, "X"}])) ==
+               {:error, {:invalid_widens_grants_permission, "X"}}
+    end
+
+    test "C4: a non-list value and a non-2-tuple element are rejected with the whole value" do
+      for value <- [:not_a_list, [:TASK_WORKER], [{:TASK_WORKER, :X, :Y}], %{TASK_WORKER: :X}] do
+        assert Catalog.validate(Map.put(valid_manifest(), :widens_grants, value)) ==
+                 {:error, {:invalid_widens_grants, value}},
+               inspect(value)
+      end
+    end
+
+    test "C5: every registered manifest still validates" do
+      for manifest <- Catalog.all_manifests() do
+        assert Catalog.validate(manifest) == :ok, manifest.id
+      end
+    end
+  end
+
+  describe "GH 2586 one permission atom per module (rule 9)" do
+    test "C6: an atom declared by another module of the known set is rejected; the real set passes" do
+      manifest_a = %{valid_manifest() | id: "a", permissions: [:OwnA, :SharedX], role_grants: %{}}
+
+      manifest_b = %{
+        valid_manifest()
+        | id: "b",
+          permissions: [:SharedX],
+          role_grants: %{},
+          route_policies: []
+      }
+
+      manifest_a = %{manifest_a | route_policies: []}
+
+      assert Catalog.validate(manifest_a, [manifest_a, manifest_b]) ==
+               {:error, {:permission_declared_by_other_module, :SharedX, "b"}}
+
+      assert Catalog.validate(manifest_a, [manifest_a]) == :ok
+
+      for manifest <- Catalog.all_manifests() do
+        assert Catalog.validate(manifest, Catalog.all_manifests()) == :ok
+      end
+    end
+  end
 end

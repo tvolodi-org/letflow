@@ -157,11 +157,32 @@ defmodule Letflow.Modules.Catalog do
     * `{:undeclared_route_permission, permission}` — a `route_policies` entry
       naming a permission absent from the manifest's own `:permissions`.
 
-  A seventh rule (REQ-496, 0050 D7) runs after those six:
+  Rules seven to nine run after those six, in this order:
 
-    * `{:invalid_manages_entity_types, value}` — the optional
-      `:manages_entity_types` key is present but not a list of distinct
-      binaries each matching `^[a-z][a-z0-9_]{0,63}$`. Absent is valid.
+    * `{:invalid_manages_entity_types, value}` — rule 7 (REQ-496, 0050 D7):
+      the optional `:manages_entity_types` key is present but not a list of
+      distinct binaries each matching `^[a-z][a-z0-9_]{0,63}$`. Absent is
+      valid.
+    * rule 8 (GH #2586 / REQ-498, decision 0055 D7): the optional
+      `:widens_grants` key, a list of `{role, permission}` declarations of a
+      NARROWING (a role losing a module atom) between two versions of this
+      module. Absent is valid. Errors, first one returned:
+      `{:invalid_widens_grants, value}` (not a list, or an element not a
+      2-tuple; `value` is the whole key value),
+      `{:unknown_widens_grants_role, role}` (first element not in
+      `Letflow.Api.Authorization.roles/0`),
+      `{:invalid_widens_grants_permission, permission}` (second element not an
+      atom). Deliberately not checked: that the permission is in this
+      manifest's own `:permissions` (a narrowing may remove the atom), and
+      duplicates. The declaration is informational only: it can match a
+      narrowing in `mix letflow.permission_matrix --check`, never authorise a
+      widening (`Letflow.Api.PermissionMatrix`).
+    * `{:permission_declared_by_other_module, permission, other_id}` — rule 9
+      (GH #2586 F4): an atom in this manifest's `:permissions` that another
+      manifest of the known set (a different `id`) also declares. Checked
+      against the raw per-manifest lists, not `permissions/0` (which
+      deduplicates); first offending atom in this manifest's order, first
+      other manifest in known-set order.
   """
   @spec validate(Module.manifest(), [Module.manifest()]) :: :ok | {:error, {atom(), term()}}
   def validate(manifest, known_manifests) do
@@ -171,7 +192,9 @@ defmodule Letflow.Modules.Catalog do
          :ok <- validate_depends_on_registered(manifest, known_manifests),
          :ok <- validate_unique_id(manifest, known_manifests),
          :ok <- validate_route_policy_permissions_declared(manifest),
-         :ok <- validate_manages_entity_types(manifest) do
+         :ok <- validate_manages_entity_types(manifest),
+         :ok <- validate_widens_grants(manifest),
+         :ok <- validate_permissions_not_declared_elsewhere(manifest, known_manifests) do
       :ok
     end
   end
@@ -280,5 +303,47 @@ defmodule Letflow.Modules.Catalog do
       {:ok, other} ->
         {:error, {:invalid_manages_entity_types, other}}
     end
+  end
+
+  # Rule 8 (GH #2586 / REQ-498, design gh2586-permission-matrix-golden.md section 7).
+  defp validate_widens_grants(manifest) do
+    case Map.fetch(manifest, :widens_grants) do
+      :error ->
+        :ok
+
+      {:ok, entries} ->
+        if is_list(entries) and Enum.all?(entries, &match?({_, _}, &1)) do
+          validate_widens_grants_entries(entries)
+        else
+          {:error, {:invalid_widens_grants, entries}}
+        end
+    end
+  end
+
+  defp validate_widens_grants_entries(entries) do
+    roles = Authorization.roles()
+
+    cond do
+      bad = Enum.find(entries, fn {role, _} -> role not in roles end) ->
+        {:error, {:unknown_widens_grants_role, elem(bad, 0)}}
+
+      bad = Enum.find(entries, fn {_, permission} -> not is_atom(permission) end) ->
+        {:error, {:invalid_widens_grants_permission, elem(bad, 1)}}
+
+      true ->
+        :ok
+    end
+  end
+
+  # Rule 9 (GH #2586 F4): raw per-manifest lists, never permissions/0 (Enum.uniq/1).
+  defp validate_permissions_not_declared_elsewhere(manifest, known_manifests) do
+    others = Enum.reject(known_manifests, &(&1.id == manifest.id))
+
+    Enum.find_value(manifest.permissions, :ok, fn permission ->
+      case Enum.find(others, &(permission in &1.permissions)) do
+        nil -> nil
+        other -> {:error, {:permission_declared_by_other_module, permission, other.id}}
+      end
+    end)
   end
 end

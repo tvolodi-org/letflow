@@ -1171,3 +1171,14 @@ history:
       (from main 4a911d40e). REQ-ANALYST drafted REQ-497 (id allocated by letflow-2,
       sole allocator; stage S7; one REQ shipped as PR 1a + PR 1b, 16 ACs labelled
       [1a]/[1b]; 1b depends on GH #2552 merged); next: REQ-VALIDATOR.
+
+  - req: REQ-498
+    event: started
+    agent: ELIXIR-DEV
+    at: "2026-10-15T01:05:07Z"
+    note: >
+      WF-02 for GH #2586 on branch feat/GH-2586-permission-matrix-golden (from
+      main ec8b9dee). Design gh2586-permission-matrix-golden.md revision 2
+      passed CODE-DESIGN-VALIDATOR and SECURITY-REVIEWER; ELIXIR-DEV wrote the
+      REQ-498 entry (stage S7, gh 2586, the 11 ACs of the issue) with the
+      implementation; next: SECURITY-REVIEWER and REVIEWER.

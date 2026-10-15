@@ -36256,3 +36256,62 @@ requirements:
       - "16. [1b] integrity check: the T9 bindings-without-row query is exposed read-only (endpoint per the designer), reports 0 on a clean tenant and the seeded gap otherwise, takes the tenant from auth only, and returns 403 without the permission (tests)"
       - "17. [1a][1b] each PR: mix compile --warnings-as-errors, mix format --check-formatted, the scoped mix test over test/letflow/identity*, test/letflow/routers/identity*, test/letflow/routers/onboarding*, test/letflow/plugs, test/letflow/api and the new role_scope_grants tests, and mix letflow.check_boundaries pass, real output quoted"
     depends_on: [REQ-496]
+  - id: REQ-498
+    title: "Effective-permission golden file in CI: a committed matrix of every role x Authorization.permissions(), diffed both ways (freshness against the working tree, classification against the base commit's golden), so a module version cannot silently widen a role's grants (decision 0055 D7 / D12 step 2a)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 2586
+    # Source: GH #2586 (11 ACs, normative diff rule incl. "Scope of the widening rule" and "Non-circumvention"); decision 0055 D7, D12 step (2a), AC10, AC26. Design lib/letflow/design/gh2586-permission-matrix-golden.md revision 2 (CODE-DESIGN-VALIDATOR and SECURITY-REVIEWER passed). Entry written by the implementing PR, as the issue asks.
+    description: >
+      Source: GH #2586; decision 0055 D7 ("Permissions and role grants", the
+      open-point-1 ruling: a module version that WIDENS role_grants is refused
+      until per-tenant grant snapshots exist; NARROWING is allowed when
+      declared) and D12 step (2a) (the golden file ships as its own PR).
+
+      Grants are compiled code evaluated without a tenant, so a module version
+      that adds a role grant, or a new atom, takes effect for every tenant at
+      deploy. This requirement adds `mix letflow.permission_matrix`
+      (--check / --write / --baseline-ref), the committed golden
+      priv/permission_matrix/effective.golden (one line per role x
+      permission: allowed, owner core|module:<id>, via core|grant|-), a
+      backend_static CI step that runs the check under MIX_ENV=dev (the
+      production module list) and requires the task's header and pass
+      marker, the optional manifest key `widens_grants` (Catalog.validate/1
+      rule 8) and rule 9 (one permission atom per module).
+
+      Two checks: FRESHNESS (working-tree golden == computed matrix, two-way;
+      every matrix change, core included, is a reviewable golden diff) and
+      CLASSIFICATION (the golden committed at the base commit, read from git,
+      against the computed matrix; never the working-tree golden, so
+      regenerating the golden in the PR cannot satisfy it). The only
+      pre-approved diff is a new module atom referenced only by its owner's
+      route_policies, true for exactly PLATFORM_ADMIN and TENANT_ADMIN. A
+      module widening fails with no override; a narrowing must match an exact
+      widens_grants entry (checked both ways); a core change is reported as a
+      CORE MATRIX CHANGE for SECURITY-REVIEWER.
+
+      D7.2 core_policy_atoms/0 is not built: the classifier uses
+      core_permissions/0 (a fail-closed superset) and a test proves every core
+      route policy resolves to a core permission (design section 6).
+
+      OUT OF SCOPE (rest of 0055): the upgrade runner, tenant_module_upgrades,
+      the plan endpoint, the plan_hash matrix digest (AC23), per-tenant grant
+      snapshots, any change to what role_allows?/2 returns.
+
+      GATES: SECURITY-REVIEWER required (INV-3 as cited by the issue, INV-10;
+      the diff rule must not be satisfiable by an author-written declaration
+      alone); REVIEWER required (scope, 0055 D7 wording).
+    acceptance_criteria:
+      - "1. mix letflow.permission_matrix --check exits 0 on unmodified main against the committed golden; the golden has 8 roles x length(Authorization.permissions()) entries; a pure-function test asserts that cardinality with injected role and permission lists (test/letflow/api/permission_matrix_test.exs)"
+      - "2. The CI check runs under the production module list: Exam's six atoms present and no test/support/modules fixture atom present, with a distinct failure under MIX_ENV=test; tests with a fixture atom and with the Exam atoms missing (0055 AC26)"
+      - "3. A new module atom with only a route_policies entry (no role_grants) produces exactly two added rows (PLATFORM_ADMIN, TENANT_ADMIN), classified pre_approved (pure-function test)"
+      - "4. Any other row added or flipped to true fails: (a) an existing atom granted to a role that lacked it; (b) a new atom granted to a role other than PLATFORM_ADMIN/TENANT_ADMIN; (c) a module grant or new module atom on an atom referenced by a core route policy. Three cases"
+      - "5. Non-circumvention: a module widening with the golden regenerated in the same change still fails; a core-only change with a regenerated golden passes the widening rule and is reported as a core matrix change. Two cases"
+      - "6. Narrowing is checked both ways: without an exact widens_grants entry it fails; with one it passes; an entry that matches no computed diff row fails. Three cases"
+      - "7. A widens_grants entry naming a WIDENING row is still a failure (test)"
+      - "8. Catalog.validate/1 accepts widens_grants: [{role, perm}] with role in Authorization.roles/0, rejects an unknown role or a non-atom permission with a stable error tuple; manifests without the key stay valid (test/letflow/modules/catalog_test.exs)"
+      - "9. CI wiring: a backend_static step in .github/workflows/ci.yml runs the check under MIX_ENV=dev (not MIX_ENV=test); the same invocation is documented locally; mix.exs documents why it is not in letflow.check.static; mix letflow.check_requirements_registration passes with this entry; the PR's CI run shows the step executing"
+      - "10. Changing core_role_allows? for any role, or adding a core permission atom, without regenerating the golden fails the check (test with an injected permission list containing an atom absent from the golden fixture)"
+      - "11. --write regenerates the file deterministically (byte-identical twice; ordered by role then permission) (test)"
+    depends_on: []
