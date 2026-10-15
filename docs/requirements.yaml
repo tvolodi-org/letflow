@@ -26812,6 +26812,7 @@ requirements:
     title: CD to QA on merge — .github/workflows/cd.yml + deploy/redeploy-qa.sh, triggered on push to main when backend or frontend paths changed, reusing letflow-queue's proven SSH-restricted-key pattern
     owner: ELIXIR-DEV
     impl_order: 693  # letflow-queue task id, GH#1450
+    # Superseded in part by GH #2622 (PR #2625, 00b406e0), noted 2026-10-15: the CD path gate described below (deploy only when backend or frontend paths changed) is GONE. CD deploys the tested main tip whenever QA's /health sha differs from the tip. scripts/ci_changed_paths.sh is CI-only. See docs/runbooks/qa-lag.md.
     status: done
     stage: S7
     description: >
