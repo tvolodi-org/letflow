@@ -11,6 +11,22 @@ Design only. Signatures, type shapes, step lists, tables and test briefs; no fun
 
 ## Changelog
 
+### Revision 1 (2026-10-16): CDV FAIL (3 HIGH, mediums) and supervisor rulings applied
+
+| Id | Change | Where |
+|---|---|---|
+| F-1 | `TASK_ENTITY_WRITES_APPLIED` v1 seed has `additionalProperties: false` on line items, so the handler keys would be refused at append: a `schema_version` 2 seed entry (v1 untouched) is specified with reach, replay and pins; prerequisite step added to R4a | 4.11, 9, 14, 1.2 |
+| F-2 | `HandlerWrites.step/3` DROPPED (no raw `repo` to module code; create-only MVP has no consumer); the API is `create/3` only, so INV-R3/INV-1/INV-8 hold for the whole API; a read facade is deferred | 4.6, 6, 7.4, 11, D-R.4/5 |
+| F-3 | Interim guard rewritten: any node with a non-empty `module_writes` is refused until R4b, INDEPENDENT of the plan; mixed-node test | 6.3, 11 |
+| F-4 | `authority` removed from `HandlerContext`; `create/3` re-derives the Owner through `owner_for_handler/2` and ignores any supplied value | 4.6, 7.2 |
+| F-5 | R4a/R4b use `{:task, task_id}` and `subject == actor` on today's `multi_ctx`; C2's origin/subject union lands on top; rebase ownership stated; D-C.16(a) reconciled (three flat keys, not one `source.handler`) | 4.4, 4.5, 1.2 |
+| F-6 | `write_handler/2` re-checks shape, targets and `function_exported?` itself (validate/2 runs only in tests and the mix task) | 4.1 |
+| F-7 | `create/3` asserts the target's resolved definition has `managed_by == module_id` | 4.6, 8 |
+| F-8 | PinRebind guard narrowed to "the instance's pinned definition is stamped AND its snapshot graph has `module_writes`"; both options presented with a recommendation | 4.9, OQ-R1 |
+| F-9 | `graph_hash` is defined over the PERSISTED (JSONB round-tripped) form; float/integer test | 4.2, 11 |
+| F-10 | Run-time `authorize_module_writes` also re-checks arg names/required args; the `activated_by` API refusal is labelled a scope extension; `module_owner/1` hash cost addressed; fixture-registration pins stay NOT VERIFIED | 4.1, 4.5, 4.8, 14 |
+| Rulings | R1-R5 split accepted; OQ-R1..R11 ruled (section 15); `sys` argument source, its codes and the run-time `VariableMerge` path REMOVED; OQ-R3 pilot limit and operator-visible symptom stated; OQ-R9 test added | 5, 15 |
+
 ### Revision 0 (2026-10-16): first design
 
 Supervisor correction applied before the first draft: GH #2583 is CLOSED (merged `4242547e`); section 7
@@ -25,8 +41,8 @@ files) belong to #2596: section 7.5 states the single one-line edit this design 
 A module M (compiled into the build, listed in `config :letflow, :modules`) declares write handlers
 in its manifest. A process definition VERSION that the module's install stamped with
 `owner_module = M` may declare, on a HUMAN_TASK node, `module_writes` lines naming M's handlers. At
-completion the handler runs INSIDE the step transaction, appends Multi steps that write only M's
-registered target types through `Records.command_multi/3` with an `%Owner{}` authority the PLATFORM
+completion the handler runs INSIDE the step transaction, appends Multi steps (through the platform's
+`create/3` only) that write only M's registered target types through `Records.command_multi/3` with an `%Owner{}` authority the PLATFORM
 builds from the Catalog-resolved registration (never request data, never the handler's choice). The
 completer stays the event actor; the activator stays provenance. A managed type is still never the
 target of a declarative `entity_writes` line (REQ-499 refuses every one).
@@ -40,13 +56,23 @@ Six serial PRs, each independently mergeable and reviewed, none leaving a half-o
 | **R1** | Catalog: `:write_handlers` manifest key, `validate/2` rule 10, `Catalog.write_handler/2`, `Catalog.manifest_hash/1`, `ManifestHash`, `WriteHandler` struct, `call_write_handler/4`; `Module` typedoc | Mechanism and its validation exist and are tested; nothing can call a handler yet (no execution path); manifests are hash-able | main |
 | **R2** | Stamp STORAGE: two tenant migrations (`process_definitions.owner_*`, `tenant_modules.manifest_hash`) + TenantProvisioning entries; `Owner` gains `version`/`manifest_hash`; `Installs` stamps pack definitions via `Definitions.create_owned/3`; API refusal of the fields (POST/PUT/PATCH/import/export); stamped-row immutability; DB trigger; forge tests | Stamp can exist only by install and cannot be forged or edited; no consumer yet | R1 |
 | **R3** | Declaration + ACTIVATION: node attribute `module_writes`, `EntityPort.validate_module_writes/2` and `authorize_module_writes/2`, activation checks on the three paths (stamp, line shape, hash), `activated_by` extension, PinRebind guard | A definition that cannot legitimately call a handler is refused at activation; a legitimate one activates but its handler lines are NOT executed (fail-closed guard refuses a completion, see 6.1) | R2 |
-| **R4a** | Entities core: `StepSource` `handler`/`write_ordinal`, `Records` line-key derivation, `EventStore` lock-only primitive, `ManagedTypes.owner_for_handler/2`, `HandlerContext`, `HandlerWrites` (create/step/lock/recheck), the handler contract and its static scans, fixture module | The write path is complete and unit-testable below the engine; engine still refuses | R3 |
+| **R4a** | Entities core: `StepSource` `handler`/`write_ordinal`, `Records` line-key derivation, `EventStore` lock-only primitive, `ManagedTypes.owner_for_handler/2`, `HandlerContext`, `HandlerWrites` (`create/3`, lock, recheck), the handler contract and its static scans, the `TASK_ENTITY_WRITES_APPLIED` v2 seed (4.11), fixture module | The write path is complete and unit-testable below the engine; engine still refuses | R3 |
 | **R4b** | Engine HUMAN_TASK integration: plan phase, `prepare/2` extension, `multi/3` composition, failure mapping, audit/event shape, replay/atomicity/lock-order/contention tests, EE-12 moduledoc | First end-to-end handler write from a process | R4a |
 | **R5** | SERVICE_TASK composition AFTER PR C2/C1: plan carries `module_writes`/`owner`, activation fence opens for `module_writes` on SERVICE_TASK, platform-actor tests | Same handlers from a service result | R4b, C2, C1 |
 
 R1 and R2 can be built while PR C0/C2 are in flight (no shared file except `step_source.ex`, which
 R1-R3 do not touch). R4a edits `step_source.ex`: it merges after C0 (already on main) and must be
 rebased over C2 only if C2 touches `step_source.ex` (it does not, per PR C section 13).
+
+**Engine/port overlap with PR C2 (F-5).** R4a/R4b merge BEFORE C2 and are written against TODAY'S
+`multi_ctx` (`task_id`, `actor_id`; `entity_port.ex:106-120`): the handler context's origin is
+`{:task, task_id}` and the restriction subject equals the actor. C2 later replaces `:task_id` by its
+`origin` union and adds `subject_id` (PR C 5.3). C2 is the later merger of three shared files:
+`engine.ex` (plan phase, `check_entity_writes_planned`), `engine/entity_port.ex` (`multi_ctx`) and
+`entities/step_writes.ex` (`build_line/4`, `prepare/2`); therefore C2 rebases over R4b and updates
+`HandlerWrites`'s context construction (one function) and the `module_writes` plan keys. R5 then only
+adds the SERVICE_TASK plan keys and opens the activation fence. If C2 merges first instead, R4b
+rebases and uses its union; section 4.5 lists the exact sites either way.
 Merge order is serial (one functional PR in CI at a time): R1 -> R2 -> R3 -> R4a -> R4b -> (C2, C1 per
 their own order) -> R5. WMS slice 5 needs R4b plus a separate update-kind prerequisite (OQ-R4).
 
@@ -82,7 +108,7 @@ their own order) -> R5. WMS slice 5 needs R4b plus a separate update-kind prereq
 | **F-R3** | PinRebind cannot move an instance to another definition version, and its `:module` kind is the sub-process reference pin. 0054 D6 property 4 (written against a different mental model) has no direct operation to guard. | Section 4.9 / D-R.14: the rule becomes a fail-closed structural guard on `:module` entries plus a regression test pinning "PinRebind cannot change `definition_id`". Flagged OQ-R1. |
 | **F-R4** | The `defmanifest` macro `Macro.escape`s the evaluated map, so a handler MFA must be `{Module, :fun}` data; the handler module lives under `lib/letflow/modules/<id>/` where Rule 1 lets ONLY `catalog.ex` reference it as a file edge. | The call goes through `Catalog.call_write_handler/4` (an `apply/3` on registered data): no file edge from entities or engine to a module file. |
 | **F-R5** | `command_multi/3` supports only `kind: :create`. A ledger handler that must update a balance or enforce "no negative stock under lock" needs update support. | REQ-501 ships create-only handler writes (inherits REQ-499 MVP); update-kind is a separate prerequisite of WMS slice 5 (OQ-R4). The mechanism, lock order and stamp are complete without it. |
-| **F-R6** | `plan_entity_writes/3` and `check_entity_writes_planned/3` match only the `"entity_writes"` attribute. A node with only `module_writes` would today run with NO plan and NO fail-closed guard. | R3 must extend `check_entity_writes_planned/3` in the same PR that lets such a graph activate (section 6.1); otherwise an activated module-writes graph would silently skip its writes. |
+| **F-R6** | `plan_entity_writes/3` and `check_entity_writes_planned/3` match only the `"entity_writes"` attribute. A node with only `module_writes` would today run with NO plan and NO fail-closed guard. | R3 adds a plan-INDEPENDENT guard (section 6.3): a MIXED node (declarative AND module lines) HAS a plan, and the existing `plan != nil -> :ok` clause would run the declarative lines and silently skip the handler lines until R4b. |
 | **F-R7** | `prepare/2` skips types that are not process-writable, and a managed type can never be (D4a.2(b)); `command_multi` never inserts the synthetic instance. | `prepare/2` ctx gains `module_writes`/`owner`; the impl creates instances for the REGISTERED targets of a verified handler (4.5). |
 | **F-R8** | `check_record_write(nil, ...)` makes the Owner a universal key for unmanaged types, and `managed_types_callers_test` R1 pins the Owner-passing callers by EQUALITY. A new Owner-passing file is a closed-set change in a test #2596 owns. | One-line allow-list entry, called out in 7.5; all new scan rules live in a NEW test file so #2596's file otherwise stays untouched. |
 | **F-R9** | `source.*` metadata is 8 flat keys; a handler write needs the module id, handler name and a per-write ordinal for the idempotency key and namespace uniqueness (`{:line, key}` must be unique per write). | `StepSource` gains optional `handler` + `write_ordinal`; declarative lines stay byte-identical (4.4). |
@@ -92,8 +118,8 @@ their own order) -> R5. WMS slice 5 needs R4b plus a separate update-kind prereq
 * **D-R.1 Registration is manifest data, resolved only by `Catalog`.** A closed `:write_handlers` list of maps `{name, function: {Mod, :fun}, targets, args}`; the Catalog is the single resolver and the single `apply` site, so no engine/entities file names a module file (Rule 1, F-R4). Rationale: 0039 D3, issue scope 1.
 * **D-R.2 Resolution is string comparison over the compiled list.** `write_handler(module_id, name)` compares binaries with manifest values (`fetch/1` precedent); non-binaries answer `:not_found`; no `String.to_atom`, `Module.concat`, `binary_to_term` on request data. Rationale: threat list "no string -> atom".
 * **D-R.3 Handler MFA must live in the registering module's own namespace.** Validation refuses a handler whose module is not the entry module or nested under it. Rationale: a manifest cannot point at `Letflow.Repo` or another module's code.
-* **D-R.4 The handler contract is `fun(multi, ctx, args) :: {:ok, multi} | {:error, closed_atom}`.** It receives a fresh Multi, an opaque `HandlerContext`, and resolved args only (no instance variables). Rationale: least privilege; closed error vocabulary cannot leak detail (INV-4/5).
-* **D-R.5 The handler never touches `Records`, `Repo`, `Owner` or `StepSource`.** It writes through `HandlerWrites.create/3` and `HandlerWrites.step/4` (section 4.6). The platform derives source, key, authority, namespace. Rationale: the owner path is "identified by the caller" = the platform, not module code (7.2); a handler cannot supply or override a key (AC).
+* **D-R.4 The handler contract is `fun(multi, ctx, args) :: {:ok, multi} | {:error, closed_atom}`.** It receives a fresh Multi, a `HandlerContext` (ids and names only, no authority), and resolved args only (no instance variables). Rationale: least privilege; closed error vocabulary cannot leak detail (INV-4/5).
+* **D-R.5 The handler never touches `Records`, `Repo`, `Owner` or `StepSource`.** It writes through `HandlerWrites.create/3` only (section 4.6); it is given no `repo`, no step API and no read API in the create-only MVP (F-2), so every platform check lives in ONE function and "enforced twice" (writer assertion + narrowed Owner) holds for the whole API. The platform derives source, key, authority, namespace. Rationale: the owner path is "identified by the caller" = the platform, not module code (7.2); a handler cannot supply or override a key (AC).
 * **D-R.6 `module_writes` is a node attribute of its own, not a line kind inside `entity_writes`.** B's `entity_writes` line schema is closed (`@line_keys`, `op` create-only, `entity_write_*` codes); REQ-499 refuses every managed-type line there. A separate attribute leaves declarative bytes, hashes, caps' semantics and `activated_by` pairs untouched. Rationale: byte-identity (F-R9), smaller diff. Flagged OQ-R5.
 * **D-R.7 Engine orders the type locks; the handler cannot reorder them.** For a node with `module_writes` the port impl emits one lock step per type in the ASCENDING union of declarative line types and registered handler targets BEFORE any write step (6.2). Rationale: 0054 D3 rule 4 for opaque code.
 * **D-R.8 The stamp is four columns on the version row; the install hash lives on `tenant_modules`.** `owner_module`, `owner_module_version`, `owner_manifest_hash` (compared to `tenant_modules.manifest_hash` and, strictly, to the current compiled manifest), `owner_body_hash` (canonical hash of the definition graph at stamping, compared to the pinned snapshot at run time). Rationale: ruling "hash lives on the version row beside owner_module"; the body hash is what makes "verified at run time from the pinned snapshot" bite a hand-edited snapshot (S14). Flagged OQ-R2.
@@ -101,10 +127,10 @@ their own order) -> R5. WMS slice 5 needs R4b plus a separate update-kind prereq
 * **D-R.10 Owner for a handler is built by `ManagedTypes.owner_for_handler/2` from a `WriteHandler` the Catalog resolved.** `owner_for!` stays for a module's own files; a platform file may not call it with a variable (R2). Rationale: section 7.
 * **D-R.11 Handler writes carry `%StepSource{}` with `handler` and `write_ordinal`.** Idempotency key `sys:step:<origin>:<line_index>:<ordinal>`, namespace key `20 + line_index*50 + ordinal`, metadata +3 keys only when set. Rationale: F-R9, PR C D-C.16(a)(c).
 * **D-R.12 Declarative lines run first (sorted), then handler calls in declared order.** All type locks are already held (D-R.7). Rationale: deterministic, one result, one hash.
-* **D-R.13 The completer is the actor and the field-restriction subject on the HUMAN path; the platform sentinel is the actor and the activator the subject on the service path.** Same `multi_ctx` fields PR C introduces (`origin`, `actor_id`, `subject_id`). Rationale: D4c, 0054 D4.
-* **D-R.14 PinRebind refuses `:module` entries for an instance whose pinned definition is stamped.** Fail-closed until PLC-01 gives module pins a resolver; plus a pin test that no rebind can change `definition_id`. Flagged OQ-R1.
+* **D-R.13 The completer is the actor and the field-restriction subject on the HUMAN path; the platform sentinel is the actor and the activator the subject on the service path.** R4 uses today's `task_id`/`actor_id` (subject == actor); C2's `origin`/`subject_id` union lands on top (1.2). Rationale: D4c, 0054 D4.
+* **D-R.14 PinRebind refuses a `:module` entry only for an instance whose pinned definition is stamped AND whose pinned snapshot graph declares `module_writes`** (the issue AC: "when the source has handler calls"); plus a tripwire test that no rebind can change `definition_id`. Rationale: F-R3. Ruled OQ-R1; the test-only alternative is recorded in 4.9.
 * **D-R.15 A module-owned version is immutable to the tenant API.** `update/3` of a stamped row is refused; the DB trigger refuses a raw change of `owner_*` or `graph` on a stamped row. Rationale: 0054 D6 property 2; precedent `managed_by` trigger (0050 D3).
-* **D-R.16 Activation requires the same activator authority as declarative lines.** A graph with `module_writes` records `activated_by` through the existing function (pairs possibly empty, plus an additive `"module_handlers"` list) and needs `:EntitiesRecordsWrite` + an active user. Rationale: reuse `recorded_activator/1` unchanged. Flagged OQ-R6.
+* **D-R.16 Activation requires the same activator authority as declarative lines.** A graph with `module_writes` records `activated_by` through the existing function (pairs possibly empty, plus an additive `"module_handlers"` list) and needs `:EntitiesRecordsWrite` + an active user. Rationale: reuse `recorded_activator/1` unchanged. Ruled OQ-R6.
 * **D-R.17 Handler writes are create-only.** F-R5 / OQ-R4.
 * **D-R.18 No handler on the script paths.** A script output is never a command (0053/0054 D2); `module_writes` is refused on any node type other than HUMAN_TASK until PR C1/R5 admits SERVICE_TASK. Rationale: scope.
 * **D-R.19 Replay never runs a handler.** No handler call site exists outside the completion Multi build; a test double fails the test if invoked (AC).
@@ -120,7 +146,7 @@ Manifest addition (optional key; absent means `[]`):
         required(:name) => String.t(),                 # ^[a-z][a-z0-9_]{0,63}$
         required(:function) => {module(), atom()},     # exported arity 3
         required(:targets) => [String.t()],            # non-empty, each in manages_entity_types
-        required(:args) => %{String.t() => %{kind: :value | :sys_ref, required: boolean()}}
+        required(:args) => %{String.t() => %{required: boolean()}}   # names only; every value is a plain value
       }
 optional(:write_handlers) => [write_handler_spec()]
 ```
@@ -154,16 +180,31 @@ New functions (Catalog is the only file that resolves or calls a handler):
   module_id: String.t(), name: String.t(),
   entry_module: module(), function: {module(), atom()},
   targets: [String.t()],                    # sorted, unique
-  args: %{String.t() => %{kind: :value | :sys_ref, required: boolean()}}
+  args: %{String.t() => %{required: boolean()}}
 }
 ```
 
 `call_write_handler/4` is an `apply/3` on the registered data of a `WriteHandler` it just built; it
-is the only `apply` of handler code. `Letflow.Modules.ManifestHash` (R1, one file, pure):
+is the only `apply` of handler code.
+
+**Resolution re-validates (F-6).** `Catalog.validate/2` runs only in tests and the mix task, never at
+boot or per request. `write_handler/2` therefore re-checks on EVERY resolution, from the manifest it
+reads: the entry has exactly the four keys with the expected types, the name format, every target is
+a member of THAT manifest's `manages_entity_types`, the handler module is the entry module or nested
+under it, and `Code.ensure_loaded?/1` plus `function_exported?(mod, fun, 3)`; any failure is
+`{:error, :not_found}` (fail closed, no distinct code to a caller). Test: a registered module whose
+manifest was never passed through `validate/2` (inline map via the existing test seam) resolves to
+`:not_found` for each broken shape. `Letflow.Modules.ManifestHash` (R1, one file, pure):
 
 ```
 @spec compute(Module.manifest()) :: String.t()     # lowercase hex SHA-256
 ```
+
+Cost (F-10): `module_owner/1` (install path) and `authorize_module_writes/2` (once per handler
+completion, P0b) need the hash. The manifest is a small map; ELIXIR-DEV either computes it per call or
+evaluates it once per entry module at compile time inside `catalog.ex` (a module attribute built from
+the entry module's manifest when it is already compiled). No ETS/`:persistent_term` state (REQ-045
+spirit). The contract is "no per-request hash over a large term"; ELIXIR-DEV states which.
 
 Hashed surface, canonical JSON with sorted object keys (the `PromotionDigest.canonicalize/1`
 algorithm: keys sorted, arrays keep order, atoms by `Atom.to_string/1`, tuples as lists): `id`,
@@ -183,9 +224,17 @@ no environment).
 @spec from_row(row :: map()) :: {:ok, t()} | :none        # all four present, else :none
 ```
 
-`graph_hash/1` canonicalizes the persisted `graph` map exactly as `PromotionDigest` does
-(NOT the numeric-normalising `Repository.Canonicaliser`; the two must not be merged, per that
-module's moduledoc). The same function hashes the PINNED snapshot graph at run time.
+**Input form (F-9).** `graph_hash/1` is defined over the PERSISTED, JSONB round-tripped form, never
+over the pre-insert in-memory map: at stamping `create_owned/3` inserts the row and hashes the
+`graph` value Postgres returned (`returning: true`), and at run time the pinned snapshot's `graph`
+(S14) is passed to the same function. The function first normalises the term to its JSON-decoded
+shape (string keys, atoms as strings, numbers as decoded) and then canonicalizes exactly as
+`PromotionDigest.canonicalize/1` does (sorted object keys, array order kept). It does NOT use the
+numeric-normalising `Repository.Canonicaliser` (the two must not be merged, per that module's
+moduledoc). A row graph and a snapshot graph of the same definition therefore hash equal; a test uses
+floats (`1.0`, `0.1`), large integers and key-order variants (11). Whether the snapshot writer
+transforms the graph at the byte level is NOT VERIFIED (S14 is a copy); if it does, the stamp is
+computed over the snapshot form and R2 states which.
 
 ### 4.3 `Letflow.Entities.ManagedTypes` (R2, R4a)
 
@@ -209,7 +258,8 @@ R4a adds the platform-side builder (the only new Owner-producing function):
 It re-resolves `Catalog.write_handler(module_id, handler_name)` itself (so a forged
 `WriteHandler` cannot reach it) and returns `%Owner{module_id, manages: MapSet.new(handler.targets)}`
 (narrowed to the handler's targets, `version`/`manifest_hash` nil). Callers: `managed_types.ex` and
-`handler_writes.ex` only (scan H1, 7.4).
+`handler_writes.ex` only (scan H1, 7.4). `HandlerWrites.create/3` calls it on EVERY write; no Owner is
+carried in the context (F-4).
 
 ### 4.4 `StepSource`, `Records`, `EventStore` (R4a)
 
@@ -236,6 +286,12 @@ source.line_index` becomes `StepSource.line_key(source)` (S4). `interpret_in_mul
 KEY; `StepWrites`/`HandlerWrites.interpret_failure` maps a key `>= 20` back to
 `div(key - 20, 50)` (the call's `line_index`) so the public `line_index` is always the declared
 index. PR C's test C-18 ("`StepSource` accepts no `handler` key") is edited in R4a to its negation.
+
+**Reconciliation with PR C D-C.16(a) (F-5).** D-C.16(a) anticipated "a flat `source.handler`". This
+design chooses three flat string keys (`source.handler_module`, `source.handler_name`,
+`source.write_ordinal`) because `to_metadata/1` is string -> string and a module id / handler name pair
+needs no separator convention; the 8 declarative keys stay byte-identical. D-C.16 is superseded for
+the key NAME only; C2 is unaffected (it never sets either field).
 
 `EventStore` gains one lock-only primitive (R4a, one function plus its test):
 
@@ -273,6 +329,7 @@ Additive callbacks and context keys; existing ones unchanged:
 
 `prepare_ctx` gains `optional(:module_writes) => [module_write_line()]` and `optional(:owner)`;
 `multi_ctx` gains `optional(:module_writes)`, `optional(:owner)`, `optional(:entity_write_count)`.
+`multi_ctx` is TODAY'S shape plus these keys (`task_id`, `actor_id`; no `origin`/`subject_id`, F-5).
 The implementation (`EntityPortImpl`) delegates to `HandlerWrites`. The engine never names a module,
 a Catalog function or a handler: it carries the stamp as opaque strings read from the definition row.
 
@@ -283,8 +340,13 @@ into the same sorted type list and the same short transaction as the declarative
 process-writable filter does not apply to a registered target of a verified handler (a managed
 type can never carry the flag, F-R7); it applies unchanged to declarative lines.
 
+`authorize_module_writes/2` ALSO re-checks the line's `args` against the CURRENT registration (F-10):
+arg names are a subset of the handler's declared names and every `required` arg is present, so a
+handler whose argument contract changed in a newer build cannot be called with a stale pinned line
+(detail atoms `:arg_unknown`/`:arg_missing`, public code `write_not_permitted`).
+
 `applied_line` gains optional `handler_module`, `handler`, `write_ordinal` (strings/integers, ids
-and names only). `failure()`/`refusal_code()` are unchanged (no new public code).
+and names only; permitted by the v2 event schema of 4.11). `failure()`/`refusal_code()` are unchanged (no new public code).
 
 ### 4.6 `Letflow.Entities.HandlerWrites` and `HandlerContext` (R4a)
 
@@ -292,16 +354,17 @@ and names only). `failure()`/`refusal_code()` are unchanged (no new public code)
 %Letflow.Entities.HandlerContext{          # built only in handler_writes.ex (scan H2)
   prefix: String.t(),
   instance_id: Ecto.UUID.t(),
-  origin: {:task, Ecto.UUID.t()} | {:dispatch, Ecto.UUID.t()},
+  origin: {:task, Ecto.UUID.t()},          # R4: always {:task, task_id}; C2 widens to {:dispatch, id}
   node_id: String.t(),
   definition_id: Ecto.UUID.t(),
   definition_version: String.t(),
   line_index: non_neg_integer(),
-  actor_id: Ecto.UUID.t(),                 # completer | platform sentinel
-  subject_id: Ecto.UUID.t(),               # completer | activator (restriction subject)
+  actor_id: Ecto.UUID.t(),                 # completer (platform sentinel from C2/R5)
+  subject_id: Ecto.UUID.t(),               # R4: == actor_id; C2: the activator on the service path
   activator_id: Ecto.UUID.t(),
-  handler: %{module_id: String.t(), name: String.t(), targets: [String.t()]},
-  authority: ManagedTypes.Owner.t()        # never read by handler code (opaque), see 7.2
+  handler: %{module_id: String.t(), name: String.t(), targets: [String.t()]}
+  # NO authority field (F-4): create/3 re-derives the Owner on every call through
+  # ManagedTypes.owner_for_handler/2 from handler.module_id/name and ignores anything else.
 }
 
 @type write_command :: %{required(:entity_type) => String.t(), required(:field_values) => map()}
@@ -309,11 +372,12 @@ and names only). `failure()`/`refusal_code()` are unchanged (no new public code)
 
 @spec create(Ecto.Multi.t(), HandlerContext.t(), write_command()) ::
         {:ok, Ecto.Multi.t()} | {:error, :target_not_registered | :too_many_writes | :invalid_write_command}
-@spec step(Ecto.Multi.t(), HandlerContext.t(),
-           fun :: (Ecto.Repo.t(), view :: %{non_neg_integer() => term()} ->
-                     {:ok, term()} | {:error, handler_error()})) ::
-        {:ok, Ecto.Multi.t()} | {:error, :too_many_writes}
 ```
+
+There is NO `step/3` and no read function in this MVP (F-2): a raw `repo` in module code would let a
+handler pick any table, prefix, lock order or `SET LOCAL statement_timeout`, defeating INV-R3, INV-1
+and INV-8, and nothing consumes a read until an update kind exists (OQ-R4). A narrow read facade
+(read one registered-target record by id, no lock, no raw query) is deferred (16).
 
 The handler function registered in the manifest has the shape:
 
@@ -324,21 +388,23 @@ The handler function registered in the manifest has the shape:
 
 Contract (moduledoc of `HandlerContext`, pinned by tests):
 
-1. The handler BUILDS steps; it does no work at build time other than computing arguments for them.
-   Database reads happen only inside a `step/3` function, through the `repo` argument it is given,
-   in the step transaction. It never calls `Repo.transaction`, `Repo.rollback`, never rescues a
-   database error and continues (a failed statement aborts the transaction: `25P02`), never starts
-   a process or performs network/file I/O, never writes a table other than through `create/3`.
+1. The handler BUILDS Multi steps by calling `create/3` and does nothing else: it reads no table,
+   holds no `repo`, never calls `Repo.transaction`/`Repo.rollback`, never rescues a database error,
+   never starts a process or performs network/file I/O, never writes a table other than through
+   `create/3`. Pure argument checking (returning `:invalid_arguments`) is its only logic.
 2. `create/3` is the ONLY writer: it builds the `%StepSource{}` (with `handler`, next
    `write_ordinal`), derives the key and namespace, refuses a type not in `ctx.handler.targets`
-   (`:target_not_registered`) and a call with more than 49 `create`/`step` additions
-   (`:too_many_writes`), applies the completer-subject field restrictions (D-R.13), then calls
-   `Records.command_multi/3` with `ctx.authority`, then appends a `:policy` step (scoped types
-   refused until 0051) and the engine-readable `applied` bookkeeping.
-3. `step/3` adds one named read/check step. Its `view` carries only this call's own earlier results
-   by ordinal (no instance variables, no other call). It returns `{:ok, term}` or a closed error.
-4. The handler receives resolved argument VALUES, never the instance variables map.
-5. Step names are assigned by `HandlerWrites`; a returned Multi containing a name outside the call's
+   (`:target_not_registered`) and a call with more than 49 `create` additions (`:too_many_writes`),
+   applies the field restrictions of `ctx.subject_id` (D-R.13), derives the Owner through
+   `ManagedTypes.owner_for_handler/2`, then calls `Records.command_multi/3` with it, then appends a
+   `:policy` step (scoped types refused until 0051) and the engine-readable `applied` bookkeeping.
+   **Managed-by assertion (F-7):** rule 10 validates the MANIFEST, not the tenant's entity row, so the
+   `:policy` step (which re-reads the resolved definition row under the type's sequence lock) also
+   requires `row.managed_by == handler.module_id` (not `nil`, not another module); a mismatch is
+   `{:error, :target_not_managed_by_module}` -> `write_not_permitted`, nothing commits. The
+   `prepare/2` instance creation for a registered target applies the same check first.
+3. The handler receives resolved argument VALUES, never the instance variables map.
+4. Step names are assigned by `HandlerWrites`; a returned Multi containing a name outside the call's
    own `{:line, key, _}` range is a contract violation (`:handler_shape`, internal).
 
 `HandlerWrites` also owns (all pure functions of the registered data and the context):
@@ -398,7 +464,9 @@ field :owner_manifest_hash, :string; field :owner_body_hash, :string
 * Routers (`routers/definitions.ex`): POST, PUT, PATCH, import and `/rollback` bodies containing any
   of `owner_module`, `owner_module_version`, `owner_manifest_hash`, `owner_body_hash` (also
   `activated_by`, same defect class) answer 422 with a field error, before any write; the key is
-  refused even when the value is null. `definition_map/1` exposes `owner_module` and
+  refused even when the value is null. **Scope extension (F-10):** refusing `activated_by` is not
+  required by REQ-501's ACs; it is included because it is the same defect class and one line in the
+  same helper. If the supervisor wants REQ-501 strictly minimal, drop it from the list (no other effect). `definition_map/1` exposes `owner_module` and
   `owner_module_version` read-only; the hashes are never serialised. Export omits all stamp fields.
   `Definitions.update` of a stamped row (including `variable_schemas` of PATCH) is 409
   `module_owned_definition`. Activate/deprecate/archive/rollback-to of a stamped row are allowed
@@ -406,19 +474,31 @@ field :owner_manifest_hash, :string; field :owner_body_hash, :string
 
 ### 4.9 `PinRebind` (R3)
 
-Refusal point: `run_rebind_pins/9`, a new `Multi.run(:owner_guard, ...)` between `:eligibility`
-(`pin_rebind.ex:329-352`) and `:effective_pins`. It runs only when the request contains at least one
-`:module` entry; it reads `projection.definition_id` (already locked by `:instance_projection`),
-the definition row's `owner_module`, and if non-nil refuses:
+Facts (F-R3): PinRebind rebinds PIN entries only; it never writes `instance_projections.definition_id`
+(`pin_rebind.ex:329-376` has no definition write); `:module` is the sub-process `module_ref` pin with no
+engine consumer. Two options, with the trade-off (OQ-R1):
+
+| | Option N (RECOMMENDED, consistent with the ruling): narrowed guard | Option T: test-only tripwire |
+|---|---|---|
+| Code | one `Multi.run(:owner_guard, ...)` in `run_rebind_pins/9` | none in `pin_rebind.ex` |
+| Behaviour | a `:module` entry is refused ONLY when the instance's pinned definition row has `owner_module` AND the pinned snapshot graph declares a non-empty `module_writes` on any node (the issue AC: "when the source has handler calls"); every other request is byte-identical | no behaviour change |
+| Cost | one read of the definition row and snapshot, only on requests containing a `:module` entry (rare admin action) | none |
+| Protects | a future PLC-01 consumer that resolves a module pin to a definition version cannot silently swap a handler-calling flow for a tenant copy | only a test that fails if PinRebind ever starts to write `definition_id` or the engine starts to consume `:module` pins |
+| Risk | refusing a legitimate sub-process pin rebind for a module-shipped HANDLER-CALLING flow (not for every stamped one) | an unguarded future consumer between the tripwire and its fix |
+
+Option N refusal point: `run_rebind_pins/9`, a `Multi.run(:owner_guard, ...)` between `:eligibility`
+(`pin_rebind.ex:329-352`) and `:effective_pins`; it runs only when the request contains at least one
+`:module` entry, reads `projection.definition_id` (already locked by `:instance_projection`), the
+definition row's `owner_module` and the pinned snapshot, and refuses:
 
 ```
 {:error, {:rebind_refused_owned_definition, :module, ref :: String.t()}}
 ```
 
-All other entry kinds and instances with an unstamped definition are unchanged (byte-identical
-event, same codes). Rationale and the vacuity finding are F-R3; the router maps the new tuple to
-the existing 409/422 pin-rebind refusal family (ELIXIR-DEV picks the renderer used for
-`:instance_not_rebindable`). Test brief: 9, row PR-1.
+mapped by the router to the existing pin-rebind refusal family (ELIXIR-DEV picks the renderer used for
+`:instance_not_rebindable`). Both options ship the tripwire test (11, PR-1). N is recommended because
+narrowing to handler-calling graphs removes the objection that every stamped instance's sub-process
+pins become unrebindable.
 
 ### 4.10 Migrations (R2)
 
@@ -432,6 +512,43 @@ Both: `if prefix() do` guard, constant SQL (INV-7), registered in
 ~`:697`), reversible. The trigger is a belt for raw SQL and `update_all`; the application guard
 (4.8) is the primary one.
 
+### 4.11 `TASK_ENTITY_WRITES_APPLIED` schema v2 (R4a, prerequisite of R4b; F-1)
+
+Facts: the platform seed registers the event with `schema_version: 1` whose line items are
+`additionalProperties: false` with exactly `line_index`, `entity_type`, `record_id`,
+`event_global_seq` (`tenant_provisioning.ex:1410-1440`); `EventStore.append` validates every payload
+through `Registry.validate_payload/3`, which uses the HIGHEST registered `schema_version`
+(`ORDER BY schema_version DESC LIMIT 1`, `registry.ex:232-244`). The seed loop treats
+`:duplicate_event_type_version` as success (`tenant_provisioning.ex:1446-1450`), so an EDIT of the v1
+entry reaches only tenants provisioned afterwards (the finding of #2621). A handler line carrying
+`handler_module`/`handler`/`write_ordinal` would be refused at append, and the AC requires the handler
+name in this event.
+
+Specification:
+
+* A second seed entry for the same name with `schema_version: 2`; the v1 entry is left byte-for-byte
+  unchanged. v2's JSON schema is v1's with three OPTIONAL line-item properties added
+  (`handler_module` string, `handler` string, `write_ordinal` integer minimum 1), `required` unchanged
+  and `additionalProperties: false` kept: every v1 payload is also a valid v2 payload and an unknown
+  key is still refused. Only the registry's supported JSON-Schema subset is used (as v1).
+* Reach: `(name, 2)` is not a duplicate, so the existing seed loop registers it for every tenant that
+  passes through `replay_migrations/2` with the default manifest: new tenants at provisioning, existing
+  tenants at the next boot-time replay. NOT VERIFIED that every existing tenant's replay takes the
+  default-manifest path (`using_default_manifest?`, `tenant_provisioning.ex:406`); ELIXIR-DEV confirms
+  and, if some do not, adds an idempotent data migration inserting the v2 row (`on conflict do
+  nothing`), registered in the manifest like R2's migrations.
+* Ordering: the v2 seed merges in R4a, before R4b makes the engine emit the keys. Because a tenant
+  without v2 would refuse a handler completion at append, R4b's P0 plan phase also checks, when the
+  node has `module_writes`, that the tenant's highest registered `TASK_ENTITY_WRITES_APPLIED` version
+  is >= 2 (one read) and otherwise refuses `write_not_permitted` with detail `:event_schema_outdated`;
+  test in R4b.
+* Replay: `reconstruction.ex` (`:585`, `:832`) matches the event by NAME and changes no state for it, so
+  v1 and v2 payloads replay identically; no code reads `lines[*].handler*`. The history/response
+  allowlist (B3) is not extended: handler keys are not exposed to API consumers (NOT VERIFIED which
+  keys the allowlist passes; ELIXIR-DEV confirms it drops unknown line keys or extends it deliberately
+  and says so).
+* Pins: a seed-count assertion gains one row (14); `task_entity_writes_applied_v2_test.exs` (11).
+
 ## 5. Declaration and activation validation (R3)
 
 ### 5.1 Node attribute
@@ -442,16 +559,14 @@ attributes["module_writes"] :: [ %{
     "handler" => String.t(),                     # a registered handler name
     "args"    => %{ String.t() => arg_source }   # closed: only names the handler declares
 } ]
-arg_source :: %{"var" => String.t()} | %{"const" => json} | %{"sys" => String.t()}
+arg_source :: %{"var" => String.t()} | %{"const" => json}
 ```
 
 Closed keys per line (`module`, `handler`, `args`); each `arg_source` has exactly one key.
-`var`/`const` are admissible for a `kind: :value` arg; `sys` only for a `kind: :sys_ref` arg and
-only naming an `output_record_id_var` (or its `.seq`) declared by a declarative line of the same
-graph; at run time the value is read with `VariableMerge.check_sys_entry/2` and a failure is a
-refusal (CO-7), never assumed to be a UUID or int64. A `var` naming a reserved `_sys` key keeps
-the A1 refusal (`:module_write_arg_sys_reference`). Values from a form output may feed a `var`
-arg; the handler validates it (`:invalid_arguments`).
+Only `var` and `const` exist: a `_sys` argument source was removed (ruling OQ-R10), so there is no
+`VariableMerge.check_sys_entry/2` path and no `_sys` read for module writes. A `var` naming a
+reserved `_sys` key keeps the A1 refusal (`:module_write_arg_sys_reference`). Values from a form
+output may feed a `var` arg; the handler validates it (`:invalid_arguments`).
 
 Position/caps: HUMAN_TASK only (R3; SERVICE_TASK opens in R5). `entity_writes` count + `module_writes`
 count <= 20 (`:entity_writes_too_many_lines` at index 20, as today). Handler call `j` has
@@ -473,13 +588,11 @@ import) = unstamped. Reads only, no lock.
 | `:module_write_stamp_mismatch` | line `module` differs from the row's `owner_module` (M2's stamp, or a line naming another module) |
 | `:module_write_module_not_installed` | no `tenant_modules` row for the stamp's module in this tenant |
 | `:module_write_handler_unknown` | `Catalog.write_handler(module, handler)` is `:not_found` (module not compiled in, or handler removed) |
-| `:module_write_hash_mismatch` | stamp `owner_manifest_hash` differs from `tenant_modules.manifest_hash`, or (strict, OQ-R3) the installed hash differs from the current compiled manifest hash, or the installed hash is NULL |
+| `:module_write_hash_mismatch` | stamp `owner_manifest_hash` differs from `tenant_modules.manifest_hash`, or (strict, ruled OQ-R3) the installed hash differs from the current compiled manifest hash, or the installed hash is NULL |
 | `:module_write_body_changed` | `graph_hash(row.graph)` differs from `owner_body_hash` |
 | `:module_write_arg_unknown` / `:module_write_arg_missing` | arg name not declared / declared `required` arg absent |
-| `:module_write_arg_source_invalid` | `arg_source` not exactly one of `var`/`const`/`sys`, or a blank `var` |
+| `:module_write_arg_source_invalid` | `arg_source` not exactly one of `var`/`const`, or a blank `var` |
 | `:module_write_arg_sys_reference` | `var` names a reserved `_sys` key |
-| `:module_write_sys_source_not_allowed` | `sys` source on a `:value` arg, or `var`/`const` on a `:sys_ref` arg |
-| `:module_write_sys_ref_unknown` | `sys` names no declared `output_record_id_var`/`.seq` of the graph |
 | `:entity_write_activator_required` | reuse (D-R.16): the activator lacks `:EntitiesRecordsWrite` or is not an active user |
 
 The activation response reveals module/handler presence to a definition author only; run-time
@@ -499,8 +612,9 @@ ignores unknown keys, so no run-time reader changes.
 P0  plan_entity_writes: task pending, snapshot graph, node, cap, definition row,
     recorded_activator + check_activator_active                         (as B2)
 P0b EntityPort.authorize_module_writes: stamp present, line.module == stamp, module installed,
-    handler registered NOW, stamp hash == tenant_modules hash [== compiled hash, OQ-R3],
-    graph_hash(snapshot graph) == owner_body_hash                       (reads only; INV-3)
+    handler registered NOW, args vs CURRENT registration, stamp hash == tenant_modules hash
+    == compiled hash (strict, ruled OQ-R3), graph_hash(snapshot graph) == owner_body_hash
+                                                                        (reads only; INV-3)
 P1  EntityPort.prepare: synthetic instances for declarative types (process-writable) and for the
     REGISTERED targets of the verified handlers, sorted ascending, one short transaction
 -- one Repo.transaction ----------------------------------------------------------------
@@ -514,7 +628,7 @@ M4  per handler call j ascending:
       {:line, k0, :deadline}            call-level guard (k0 = line key with ordinal 0)
       {:line, k0, :owner_recheck}       tenant_modules.manifest_hash re-read, no lock (TOCTOU)
       handler build (rescue ONLY build-time exceptions) -> returned Multi
-      handler steps/writes, each {:line, key, ...}, then {:line, k0, :policy}
+      each create/3 write: A2 steps {:line, key, ...}, then {:line, key, :policy}
 M5  :entity_writes   (applied list incl. handler lines; lines_hash as 4.7)
 ... tail: per-line audit, sys event, APPLIED event, TASK_COMPLETED (unchanged order) ...
 ```
@@ -526,8 +640,8 @@ A handler call that errors at build time (`{:error, atom}`, shape violation, rai
 
 * New cross-instance locks: exactly the type `instance_sequences` rows for the registered targets
   (`M2`), the same row class and the same ascending `(entity_type)` position as 0054 D3 rule 4. A
-  handler cannot take a lock earlier or in another order: it receives no `repo` outside `step/3`,
-  and `create/3` goes through `command_multi/3`, which re-takes only already-held rows.
+  handler cannot take a lock earlier or in another order: it receives no `repo` at all (F-2), and
+  `create/3` goes through `command_multi/3`, which re-takes only already-held rows.
 * Union sorting makes (A,B) vs (B,A) completions, declarative-vs-handler mixes and handler-vs-handler
   mixes acquire in one global order. Locks of types the handler never writes are held longer
   (accepted; documented in the EE-12 sentence).
@@ -536,10 +650,32 @@ A handler call that errors at build time (`{:error, atom}`, shape violation, rai
 * `SET LOCAL` and the contention rescue (`run_transaction/2`) apply unchanged because a plan exists.
 * The 10 s wall-clock guard runs per call (`{:line, k0, :deadline}`) in addition to the
   declarative per-line guards.
-* A handler `step/3` that triggers a database error aborts the transaction; the mapping is the
-  contention rescue around exactly `Repo.transaction` (0054 D3), never inside the step.
+* A database error raised by a `create/3` step aborts the transaction; the mapping is the contention
+  rescue around exactly `Repo.transaction` (0054 D3), never inside a step.
 * REQ-045: no process per instance, no new process, no ETS, no GenServer anywhere in R1-R5
   (`Catalog` stays a plain module; handlers are called inline).
+
+### 6.3 Interim guard between R3 and R4b (F-3)
+
+`check_entity_writes_planned/3` returns `:ok` whenever a plan exists, so it cannot protect a MIXED
+node (declarative lines AND `module_writes`): the plan comes from `entity_writes`, the declarative
+lines would run and the handler lines would be skipped silently. R3 therefore adds a SEPARATE guard in
+the same composition as `check_entity_writes_planned/3` (`existing_completion_guards/6` caller),
+independent of the plan:
+
+```
+@spec check_module_writes_unsupported(graph, task) ::
+        :ok | {:error, {:completion_refused, :module_writes_not_enabled}}
+# refuses when the node's attributes["module_writes"] is a non-empty list, plan or no plan
+```
+
+It is DELETED in R4b in the same diff that adds the plan keys and real execution, so a mixed node can
+never run half-executed. A graph with `module_writes` can already activate in R3, so this guard is what
+keeps its completions failing closed (nothing committed, task pending, existing `completion_refused`
+mapping). R4b keeps a plan-independent fail-closed check as well: a node that declares `module_writes`
+while the plan is `nil` (unreadable definition row, e.g. a deleted stamped definition, OQ-R9) is
+refused, never executed. Tests (R3): `engine/module_writes_guard_test.exs`: module-only node, MIXED
+node (declarative record NOT written), node without `module_writes` byte-identical (golden step names).
 
 ## 7. The managed-type guard owner path (builds on merged #2583)
 
@@ -559,14 +695,15 @@ directory; the AST scan (S16). Everything below keeps that guard exactly as is.
    Catalog-resolved strings; output is an `%Owner{}` whose `manages` is the handler's registered
    target set. `owner_for!/1` is NOT used by the platform (its argument must be a compile-time
    alias in the module's own directory, R2).
-3. The Owner lives inside the opaque `HandlerContext` (`authority` field). The handler cannot
-   read it by contract and cannot construct one (scan R4: `%Owner{}` literals only in
-   managed_types.ex; scan H2: `%HandlerContext{}` only in handler_writes.ex). It cannot pass a
-   different authority to `Records` because it does not call `Records` (D-R.5; scan H4 forbids it
-   in handler files).
-4. `HandlerWrites.create/3` calls `Records.command_multi(command, prefix, ctx.authority)`: the
-   third argument is a non-literal, which is why `handler_writes.ex` is an `@authority_callers`
-   file (7.5).
+3. No Owner exists in the handler-visible context (F-4): `create/3` calls
+   `owner_for_handler(ctx.handler.module_id, ctx.handler.name)` on every write and uses only its
+   result. The handler cannot construct an Owner (scan R4: `%Owner{}` literals only in
+   managed_types.ex; scan H2: `%HandlerContext{}` only in handler_writes.ex) and cannot pass a
+   different authority to `Records` because it does not call `Records` (D-R.5; scan H4 forbids it in
+   handler files). A context naming another module still resolves against the Catalog and must equal
+   the verified stamp's module (checked in P0b and again by `create/3`).
+4. `HandlerWrites.create/3` calls `Records.command_multi(command, prefix, owner)`: the third argument
+   is a non-literal, which is why `handler_writes.ex` is an `@authority_callers` file (7.5).
 5. Declarative lines are untouched: `StepWrites` keeps the LITERAL `:tenant` (S6). Because
    `step_writes.ex` stays OUT of `@authority_callers`, the existing R1 scan keeps proving that no
    declarative path can ever pass an Owner. This is the reason the handler logic is a separate
@@ -601,13 +738,15 @@ accepted limits as the three existing scans; each rule has a synthetic non-vacui
   activation path goes through the port).
 * **H4** handler-purity: the set of handler FILES is derived at test time from
   `Catalog.all_manifests()` (module -> compile source path); in each such file no reference to
-  `Repo` (outside a `step/3` closure is not statically separable, so: any `Repo.`/`Ecto.Multi.insert|
-  update|delete|insert_all|update_all|delete_all|merge`), `Records`, `Owner`, `StepSource`,
+  `Repo` or any variable named `repo`, any `Ecto.Multi.insert|update|delete|insert_all|update_all|
+  delete_all|merge|run|inspect`, `Ecto.Query`, `from/2`, `Records`, `Owner`, `StepSource`,
   `ManagedTypes`, `EventStore`, `Task`, `Process`, `GenServer`, `spawn`, `send`, `:httpc`, `Req`,
   `Finch`, `HTTPoison`, `System`, `File`, `IO`, `Code`, `String.to_atom`, `Module.concat`,
   `apply/3` with a non-literal module. Allowed: `Ecto.Multi` constructors that only compose
-  (`new/0`, `append/2`, `run/3` is NOT allowed: use `HandlerWrites.step/3`). Non-vacuity: the
-  fixture handler file is in the set; a synthetic violating snippet is flagged.
+  (`new/0`, `append/2`) and `HandlerWrites.create/3`. The scan is a tripwire, not the boundary: the
+  boundary is that the API hands the handler nothing dangerous (F-2). Non-vacuity: the fixture
+  handler file is in the set; a synthetic violating snippet (including a lowercase `repo.` call) is
+  flagged.
 * **H5** `create_owned(` callers only in `solution_pack.ex`.
 
 ### 7.5 Reviewed closed-set changes (state in the R4a PR body)
@@ -631,7 +770,7 @@ index)` alone. `write_not_permitted` is therefore byte-identical to REQ-499's fo
 |---|---|---|---|---|
 | Stamp missing/foreign, module not installed, handler unknown now, hash or body mismatch (P0b) | pre-transaction | `write_not_permitted` | 403 | `:stamp_missing`, `:stamp_mismatch`, `:module_not_installed`, `:handler_unknown`, `:hash_mismatch`, `:body_changed` |
 | `owner_recheck` hash drift inside the transaction | `{:line,k0,:owner_recheck}` | `write_not_permitted` | 403 | `:hash_mismatch` |
-| Write outside registered targets, managed authority refusal, scoped type, field restricted for subject, instance missing | `create/3`, `:recheck_definition`, `:policy` | `write_not_permitted` | 403 | `:target_not_registered`, `:managed`, `:scoped`, `:field_restricted`, `:not_writable` |
+| Write outside registered targets, managed authority refusal, scoped type, field restricted for subject, instance missing | `create/3`, `:recheck_definition`, `:policy` | `write_not_permitted` | 403 | `:target_not_registered`, `:target_not_managed_by_module` (F-7), `:managed`, `:scoped`, `:field_restricted`, `:not_writable`, `:event_schema_outdated` (4.11) |
 | Handler `{:error, :not_permitted}` | `{:line,k0,:build}` or handler step | `write_not_permitted` | 403 | `:handler_not_permitted` |
 | Handler `{:error, :invalid_arguments}`; type payload invalid | build / `command_multi` | `validation_failed` | 422 | `:handler_invalid_arguments` |
 | `record_version_conflict` (not reachable in create-only MVP) | `Records.interpret_in_multi/1` | `record_version_conflict` | 409 | `:step` |
@@ -652,7 +791,8 @@ the internal failure; a database error inside a step is never rescued by `Handle
 * **Entity event** (each `create/3`): `actor_id` = completer; metadata = the 8 flat keys + `source.handler_module`,
   `source.handler_name`, `source.write_ordinal`; `source.line_index` = the call's declared index;
   metadata set by the platform only (`Records` already refuses client `source`/`metadata`, S4).
-* **Instance stream**: ONE `TASK_ENTITY_WRITES_APPLIED` event; lines carry `(line_index, entity_type,
+* **Instance stream**: ONE `TASK_ENTITY_WRITES_APPLIED` event, appended against the v2 schema of 4.11
+  (the v1 line-item schema is closed and would refuse the handler keys); lines carry `(line_index, entity_type,
   record_id, event_global_seq)` and, for handler lines, `handler_module`, `handler`, `write_ordinal`;
   `lines_hash` as 4.7; no field values. The SYS event is unchanged (handlers produce no `_sys` output).
 * **Tenant audit**: `Audit.insert_entry` per applied line, action `entity_write.process_step`
@@ -703,17 +843,22 @@ inside H4's scanned set.
 | Stamp required; forged/copied refused; API refuses fields | D-R.8/15; 4.8; 5.2 | `definitions/owner_module_stamp_test.exs`: tenant create/edit/import/rollback copy of a stamped definition has no stamp and its handler line is refused; POST/PUT/PATCH/import with each of the four keys and `activated_by` -> 422; forge test at `ProcessDefinition` changeset level (`cast` of the four keys is a no-op); raw `update_all` of a stamped row refused by the trigger; stamped `update/3` -> 409 |
 | Hash check at activation | 4.1 hash, 5.2 | `owner_module_stamp_test.exs`: row hash != installed hash; installed NULL; installed != compiled (strict); body edited via raw SQL on an unstamped path is not possible (trigger), covered by the trigger test |
 | Stamp check at run time from the pinned snapshot | 6.1 P0b, `owner_recheck`; 4.2 | `engine/module_write_runtime_stamp_test.exs`: hand-edited snapshot graph (body hash), nulled/foreign stamp on the row, tampered `tenant_modules.manifest_hash`, handler removed from the compiled manifest (test seam swaps the compiled list via the existing config pattern) -> `write_not_permitted`, task `pending`, nothing committed, refusal audit entry |
-| PinRebind | 4.9, F-R3 | `engine/pin_rebind_owner_module_test.exs`: `:module` entry on an instance of a stamped definition refused (exact tuple); same on unstamped unchanged (golden event bytes); non-`:module` kinds unchanged; pin that no rebind changes `instance_projections.definition_id` |
+| PinRebind | 4.9, F-R3 | `engine/pin_rebind_owner_module_test.exs` (PR-1): `:module` entry on an instance whose stamped definition's snapshot declares `module_writes` is refused (exact tuple); a stamped definition WITHOUT `module_writes`, and an unstamped one, unchanged (golden event bytes); non-`:module` kinds unchanged; tripwire: no rebind changes `instance_projections.definition_id` |
+| Deleted stamped definition (OQ-R9) | 6.3, P0 | `engine/module_write_deleted_definition_test.exs`: an instance pinned to a stamped definition whose row is later removed: the completion fails closed (`write_not_permitted` or the guard refusal, task `pending`, no record), never executing a handler without a readable stamp |
 | Same-name supersession cannot transfer the stamp | D-R.15; new version is a new row | `owner_module_stamp_test.exs`: create version "1.1" under the key of a stamped definition: no stamp, handler line refused at activation, running pinned instance still executes |
 | Handler runs inside the step Multi with the D3 lock order | 6.1, 6.2, D-R.7/12 | `engine/module_write_atomicity_test.exs` (records, entity events, audit, instance event, task completion in one transaction; failing handler step leaves task pending); `engine/module_write_lock_order_test.exs` (N-parallel completions, handler + declarative lines on (A,B) and (B,A), no deadlock; step-name probe asserts the `{:type_lock, _}` steps are ascending and precede every write) |
-| No I/O, no nested transaction | D-R.4/5; 4.6 contract; scan H4 | `entities/module_write_contract_test.exs`: a fixture handler variant calling `Repo.transaction`, performing an HTTP/process call, or rescuing a DB error is flagged by H4 (synthetic) and, for the rescue case, aborts with `25P02` -> internal failure, nothing committed |
+| No I/O, no nested transaction | D-R.4/5; 4.6 contract; scan H4 | `entities/module_write_contract_test.exs`: the `HandlerWrites` API exposes no `repo`/step/read function (reflection on exported functions pins the closed handler-facing set `create/3`); a handler variant calling `Repo.transaction`, `repo.query`, an HTTP/process call is flagged by H4 (synthetic); a handler returning an unexpected shape, an out-of-range step name, or raising at build time fails the completion with nothing committed |
 | SERVICE_TASK path | R5; 4.6 `origin`/`subject_id` | `engine/module_write_service_task_test.exs`: created in R4b as `@tag :skip` with the reason "PR C2/C1 not merged"; un-skipped in R5 |
 | Actor and scope | D-R.13 | `engine/module_write_actor_test.exs`: event `actor_id` = completer; a completer outside the role scope is refused before the handler; `source.activator_id` = activator; field restriction applied with the completer as subject |
+| Interim guard (F-3) | 6.3 | `engine/module_writes_guard_test.exs` (R3): module-only and MIXED node completions refused, declarative record not written; unchanged without `module_writes` |
+| Event schema v2 (F-1) | 4.11 | `event_store/task_entity_writes_applied_v2_test.exs` (R4a): v2 accepts every v1 payload and the handler keys; v2 refuses an unknown line key; a tenant provisioned before the seed entry receives v2 after a replay; row counts pinned |
+| Hash input form (F-9) | 4.2 | `owner_module_stamp_test.exs`: graph with floats `1.0`/`0.1`, large integers, key-order variants: stamp-time hash == hash of the persisted row == hash of the snapshot copy |
+| Resolution re-validation (F-6) | 4.1 | `catalog_write_handlers_test.exs`: manifest never passed through `validate/2` with each broken shape resolves to `:not_found` |
 | Codes | section 8 | `engine/module_write_failure_codes_test.exs`: one case per row; response byte-compare for `write_not_permitted` against a REQ-499 declarative refusal; handler raise -> 500 with no text; contention via held lock |
 | Owner path through `Records.*` | section 7 | `entities/module_write_owner_path_test.exs` (handler of M writes M's target; declarative line, M2 handler, plain core caller, and a `create/3` for an unregistered/unmanaged type are refused), `entities/handler_writes_callers_test.exs` (H1-H5), the three updated allow-list tests |
-| A handler cannot widen privilege | 7.3, F-R2, D-R.9 | `entities/module_write_privilege_test.exs`: unmanaged type without `writable_by_process`, inactive type, invalid field values, restricted field for the subject, scoped type (seam list) |
+| A handler cannot widen privilege | 7.3, F-R2, F-7, D-R.9 | `entities/module_write_privilege_test.exs`: unmanaged type without `writable_by_process`, a registered target whose tenant entity row has `managed_by` nil or another module (F-7), inactive type, invalid field values, restricted field for the subject, scoped type (seam list) |
 | Audit and event shape | 4.4, 9 | `engine/module_write_audit_test.exs`: metadata keys and values exact; declarative line metadata byte-identical to a pre-R4a golden; one APPLIED event; audit entry per line; no field value anywhere |
-| Idempotency key | D-R.11, 4.4 | `engine/module_write_idempotency_test.exs`: ordinals 1..n keys exact, handler cannot supply a key, a key outside the task namespace is unrepresentable, duplicate -> `idempotency_conflict`, 50th addition -> `:too_many_writes` |
+| Idempotency key | D-R.11, 4.4 | `engine/module_write_idempotency_test.exs`: ordinals 1..n keys exact, handler cannot supply a key, a key outside the task namespace is unrepresentable, duplicate -> `idempotency_conflict`, 50th `create/3` -> `:too_many_writes` |
 | Replay never re-runs | D-R.19 | `engine/module_write_replay_test.exs` with a handler test double that fails if invoked (rebuild, `rebuild_projection`, timers, cancel, PinRebind) |
 | Regression | byte-identity | REQ-499 B/C0 suites, `Records`, `complete_task`, `engine_concurrency_test.exs` unchanged and green; golden step-name test for a node without `module_writes` unchanged |
 
@@ -775,9 +920,9 @@ tests `definitions/owner_module_stamp_test.exs`, trigger test, `tenant_fixture` 
 `engine/pin_rebind.ex` (`:owner_guard`), `engine.ex` (`check_entity_writes_planned/3`: fail-closed
 guard only; no execution), `routers/pin_rebind` renderer;
 tests `definitions/module_write_activation_test.exs`, `engine/pin_rebind_owner_module_test.exs`,
-`entity_writes_gates_test.exs` edit (guard case).
+`entity_writes_gates_test.exs` edit (guard case), `engine/module_writes_guard_test.exs` (mixed-node guard, 6.3).
 
-**R4a**: `entities/step_source.ex`, `entities/records.ex` (one line), `event_store.ex`
+**R4a**: `tenant_provisioning.ex` (`TASK_ENTITY_WRITES_APPLIED` v2 seed entry, 4.11), `entities/step_source.ex`, `entities/records.ex` (one line), `event_store.ex`
 (`lock_instance_sequence/3`), `entities/managed_types.ex` (`owner_for_handler/2`),
 `entities/handler_context.ex` (new), `entities/handler_writes.ex` (execution half), fixture modules and
 pack (`test/support/modules/fixture_ledger/**`, `priv/module_fixtures/ledger_foundation.json`),
@@ -803,49 +948,47 @@ Docs: DOC-UPDATER bookkeeping; 0050's consistency list and 0054 get the D6 amend
 |---|---|---|
 | Tenant migrations | R2 | two new files; manifest entries; tenant-template staleness (anti-pattern 3396) resolved by the boot replay; versions chosen against open branches (anti-pattern 574) |
 | `@expected_tenant_tables` oracle | R2 | no new table; ELIXIR-DEV greps for any column-set pin of `process_definitions`/`tenant_modules` (NOT VERIFIED) |
-| Event types / seed counts | none | `TASK_ENTITY_WRITES_APPLIED` exists; payload keys additive |
-| Registered-module list pins | R4a | `config/test.exs` +2 modules; `catalog_test.exs` and any golden updated |
+| Event types / seed counts | R4a | NEW `TASK_ENTITY_WRITES_APPLIED` `schema_version` 2 seed entry (4.11): one added row of the same name; any test pinning the platform event-type row count (PR C 14 quotes 22/19) gains one per provisioned tenant; ELIXIR-DEV greps and quotes (NOT VERIFIED) |
+| Registered-module list pins | R4a | `config/test.exs` +2 modules; `catalog_test.exs` and any golden updated (NOT VERIFIED exhaustively; ELIXIR-DEV greps and quotes) |
 | `source.*` metadata | R4a | declarative: byte-identical (golden); handler: +3 keys |
 | `lines_hash` | R4b | unchanged without `module_writes` |
 | Allow-lists | R4a | three one-line edits (7.5) |
 | Existing installs | R2 | `tenant_modules.manifest_hash` NULL: such a tenant cannot activate a handler-calling definition until reinstall or the 0055 upgrade path (OQ-R7) |
 | Pre-merge inventory (R3) | R3 | count of non-terminal instances and definitions whose graph already carries a `module_writes` attribute (should be zero: no code reads it today); result in the PR body |
 
-## 15. Open questions needing a supervisor ruling
+## 15. Open questions: rulings (supervisor, 2026-10-16, binding) and what remains
 
-* **OQ-R1 PinRebind semantics (F-R3).** D6 property 4 has no operation to guard: PinRebind cannot
-  change an instance's definition; `:module` is the sub-process reference pin with no consumer.
-  Recommend D-R.14 (fail-closed refusal of `:module` entries for stamped instances + a pin test).
-  Alternative: test-only, no PinRebind code change. Ruling needed because this edits PinRebind.
-* **OQ-R2 Body hash (D-R.8).** Four stamp columns instead of three. Recommend yes: without
-  `owner_body_hash` the stamp does not detect a hand-edited snapshot or graph, contradicting "re-verified
-  at run time from the pinned snapshot". Alternative: three columns plus row/graph immutability only.
-* **OQ-R3 Strict compiled-hash equality.** Recommend requiring `installed hash == current compiled
-  hash` at activation and run time (a module build whose handler surface changed fails closed until the
-  0055 upgrade path re-stamps). Cost: after a deploy that changes a module's manifest, handler flows
-  refuse until upgrade. Alternative: require only `row == installed`, and let the compiled registry
-  decide (a removed handler is still refused).
-* **OQ-R4 Create-only handlers.** `command_multi/3` supports only create (F-R5). A handler that
-  updates a balance or checks stock under lock needs `command_multi` update support, with its own lock
-  and `expected` rules. Recommend a separate requirement before WMS slice 5; REQ-501 ships the
-  mechanism with create-only writes.
-* **OQ-R5 Declaration shape (D-R.6).** Separate `module_writes` attribute (recommended) versus a
-  line kind inside `entity_writes`.
-* **OQ-R6 Activator authority (D-R.16).** Recommend reusing `:EntitiesRecordsWrite` + active-user for a
-  graph with `module_writes`. Alternative: `:DefinitionsActivate` only, which changes
-  `recorded_activator/1` (it requires `EntitiesRecordsWrite` in the recorded set).
-* **OQ-R7 Pre-existing installs.** Tenants that installed a module before R2 have no installed hash
-  and cannot call handlers until reinstall or 0055. Acceptable? (No handler ships before WMS slice 5.)
-* **OQ-R8 Allow-list edit in #2596's test.** One line in `managed_types_callers_test.exs`. Confirm the
-  ordering with #2596 (whichever merges second resolves the one-line union), or authorise R4a to hold the
-  scan inside the new file by splitting R1 out of the shared helper (larger diff; not recommended).
-* **OQ-R9 Stamped-row lifecycle.** Hard delete of a stamped DRAFT, and deprecation/archival, are left
-  to the tenant (a tenant owns its tenant). Confirm.
-* **OQ-R10 `sys` argument source.** Included (kind `:sys_ref`) because the issue lists it in scope;
-  with create-only handlers it has no consumer except reading a minted id. Veto allowed: dropping it
-  removes `:module_write_sys_*` codes and the `sys` source from 5.1 with no other effect.
-* **OQ-R11 Read access of stamp fields.** `owner_module`/`owner_module_version` are returned by
-  `GET /definitions` (read-only); hashes are not. Confirm.
+* **OQ-R1 CLOSED: guard.** Fail-closed guard plus tripwire test; narrowed to "pinned definition stamped
+  AND its snapshot has `module_writes`" (F-8, 4.9). Option T (test-only) is recorded in 4.9 with the
+  trade-off; if the supervisor prefers T, R3 loses one `Multi.run`.
+* **OQ-R2 CLOSED: four stamp columns** including `owner_body_hash` (D-R.8, 4.2, F-9).
+* **OQ-R3 CLOSED: strict equality** (`installed == compiled manifest hash`) at activation AND run time.
+  **Pilot limit, stated in R3's PR body and the operator runbook:** no production tenant uses handlers
+  yet. After ANY module deploy that changes a module's manifest surface (a `version` bump, a handler or
+  target change), EVERY in-flight task of a stamped, handler-calling definition refuses at completion
+  until the 0055 upgrade path re-stamps. Operator-visible symptom: the completion answers 403
+  `write_not_permitted` with the `line_index` of the handler call and the task stays `pending`; the
+  tenant audit log carries an `entity_write.refused` entry with detail atom `hash_mismatch`; activating
+  a new version of such a definition answers 422 with `module_write_hash_mismatch`. The tasks are not
+  lost: they complete after the upgrade. Until 0055 exists the recovery is reverting the deploy, so any
+  deploy touching a handler-bearing module must be coordinated with its operators.
+* **OQ-R4 CLOSED: create-only.** `step/3` dropped (F-2); update kind is a separate prerequisite.
+* **OQ-R5 CLOSED: separate `module_writes` attribute.**
+* **OQ-R6 CLOSED: reuse `:EntitiesRecordsWrite` + active-user activator.**
+* **OQ-R7 CLOSED: accepted** (pre-existing installs need reinstall/0055).
+* **OQ-R8 CLOSED, coordinated with letflow-9c.** #2596 is not started; its plan appends the exam writer
+  files to `@authority_callers`. R4a adds `@handler_writes` to the same list; whichever merges second
+  unions the list (one-line conflict). Nothing else in that file is touched.
+* **OQ-R9 CLOSED: YES (tenant owns lifecycle) plus a test** that a deleted stamped definition's pinned
+  running instances fail closed (11; 6.3 states the plan-independent guard that makes it so).
+* **OQ-R10 CLOSED: VETOED.** The `sys` argument source, its activation codes
+  (`:module_write_sys_source_not_allowed`, `:module_write_sys_ref_unknown`, the sys part of
+  `:module_write_arg_source_invalid`) and the run-time `VariableMerge` path are removed (5.1, 5.2).
+* **OQ-R11 CLOSED: yes** (4.8).
+
+Left for ELIXIR-DEV to state with evidence (not blocking the design): the snapshot byte form for
+`graph_hash` (4.2), whether a boot-time replay reaches every existing tenant for the v2 seed (4.11), and
+the NOT VERIFIED pins of section 14.
 
 ## 16. Deferred (not REQ-501)
 
@@ -855,5 +998,6 @@ Docs: DOC-UPDATER bookkeeping; 0050's consistency list and 0054 get the D6 amend
 * module upgrade/re-stamp and migration semantics (0055); uninstall; per-module hash recording of
   handler CODE (only the declared surface is hashed);
 * a tenant-defined handler of any kind; `{"response": key}` sources; handler `_sys` outputs;
+* a narrow read facade for handlers (read one registered-target record by id, no lock, no raw query), together with update-kind support (OQ-R4);
 * scoped types and the `scope_node_paths` rule-3a lock (0051);
 * cross-tenant promotion of stamped definitions (refused by construction: the promoted row is unstamped).
