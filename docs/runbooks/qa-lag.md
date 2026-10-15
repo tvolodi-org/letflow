@@ -88,7 +88,9 @@ If main moved in between, QA receives the newer commit Z, whose own push run may
 running. Accepted: "CD never deploys a red, cancelled or missing run" is read, for this race
 only, as "every deployed commit passed the merge queue's required checks", and Z reached `main`
 only through the merge queue (`docs/merge-queue.md`). The verify step logs
-`cd-qa: main moved during deploy (verified Y, deployed Z)`. If Z's push run later turns red,
+`cd-qa: main moved during deploy (verified Y, deployed Z)`. A `cd-qa: main moved during deploy (verified Y, deployed Q)`
+line is a normal race, not a failure (supervisor ruling on #2622 R6): the step stays green, and it goes red only if QA
+is unreachable or NOT on a descendant of the checked tip. If Z's push run later turns red,
 QA carries Z until the next green tip; Z's own CD is skipped. The forced command is not widened
 to pin a sha.
 
