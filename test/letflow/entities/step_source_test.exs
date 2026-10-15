@@ -60,9 +60,40 @@ defmodule Letflow.Entities.StepSourceTest do
     assert StepSource.to_metadata(source)["source.kind"] == "process_step"
   end
 
-  test "UUIDs are stored in cast (lowercase) form, as the metadata always carried" do
-    assert {:ok, source} = StepSource.new(attrs(%{instance_id: String.upcase(@instance)}))
-    assert source.instance_id == @instance
+  test "every UUID field is stored in cast (lowercase) form, as the metadata always carried" do
+    for {field, uuid} <- [
+          instance_id: @instance,
+          definition_id: @definition,
+          activator_id: @activator,
+          task_id: @task
+        ] do
+      assert {:ok, source} = StepSource.new(attrs(%{field => String.upcase(uuid)}))
+      assert Map.fetch!(source, field) == uuid, inspect(field)
+      assert StepSource.to_metadata(source)["source." <> Atom.to_string(field)] == uuid
+    end
+
+    assert {:ok, source} =
+             StepSource.new(attrs(%{task_id: nil, dispatch_id: String.upcase(@dispatch)}))
+
+    assert source.dispatch_id == @dispatch
+    assert StepSource.to_metadata(source)["source.dispatch_id"] == @dispatch
+  end
+
+  test "the origin and the step idempotency key are derived from the struct" do
+    assert {:ok, task} = StepSource.new(attrs(%{line_index: 7}))
+    assert StepSource.origin(task) == {:task, @task}
+    assert StepSource.idempotency_key(task) == "sys:step:" <> @task <> ":7"
+
+    assert {:ok, dispatch} = StepSource.new(attrs(%{task_id: nil, dispatch_id: @dispatch}))
+    assert StepSource.origin(dispatch) == {:dispatch, @dispatch}
+    assert StepSource.idempotency_key(dispatch) == "sys:step:" <> @dispatch <> ":2"
+  end
+
+  test "an absent task_id key with dispatch_id set is a dispatch origin" do
+    dispatch_only = attrs() |> Map.delete(:task_id) |> Map.put(:dispatch_id, @dispatch)
+    assert {:ok, source} = StepSource.new(dispatch_only)
+    assert source.task_id == nil
+    assert source.dispatch_id == @dispatch
   end
 
   test "boundaries: node_id 1 and 1024 bytes, version 1 and 255 bytes, line_index 0" do
@@ -80,6 +111,8 @@ defmodule Letflow.Entities.StepSourceTest do
   test "every invalid input is {:error, :invalid_step_source}, never a raise" do
     invalid = [
       attrs(%{kind: "client"}),
+      attrs(%{kind: nil}),
+      attrs(%{dispatch_id: "nope", task_id: nil}),
       attrs(%{dispatch_id: @dispatch}),
       attrs(%{task_id: nil}),
       attrs(%{task_id: "nope"}),

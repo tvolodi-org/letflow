@@ -19,14 +19,18 @@ defmodule Letflow.Entities.StepSource do
       `ProcessDefinition.version`, #2587 D-B.9);
     * `line_index` is a non-negative integer.
 
-  The `line_index == line_key` invariant needs the command, so it lives in ONE
-  place: `Records.command_multi/3`'s shape check (see its doc).
+  The line key and the `sys:step:` idempotency key of the write are DERIVED
+  from the struct (`line_index/1` is the field itself, `idempotency_key/1`
+  builds `"sys:step:<origin id>:<line_index>"`), so a key that disagrees with
+  the source's origin id or line index cannot be expressed (#2627, OQ-C7).
 
   The struct is built server-side from recorded values, never from a request
   body, so a malformed input is an internal-API refusal (`{:error,
   :invalid_step_source}`), never a raise (INV-8).
   """
 
+  # :kind is enforced on the struct (a literal always names it) although new/1
+  # takes it as optional input and supplies it: the struct is always complete.
   @enforce_keys [
     :kind,
     :instance_id,
@@ -83,7 +87,7 @@ defmodule Letflow.Entities.StepSource do
   def new(attrs) when is_map(attrs) and not is_struct(attrs) do
     with true <- Enum.all?(Map.keys(attrs), &(&1 in @keys)),
          true <- Map.get(attrs, :kind, @kind) == @kind,
-         {:ok, task_id, dispatch_id} <- origin(attrs),
+         {:ok, task_id, dispatch_id} <- origin_ids(attrs),
          {:ok, instance_id} <- uuid(Map.get(attrs, :instance_id)),
          {:ok, definition_id} <- uuid(Map.get(attrs, :definition_id)),
          {:ok, activator_id} <- uuid(Map.get(attrs, :activator_id)),
@@ -114,6 +118,21 @@ defmodule Letflow.Entities.StepSource do
 
   def new(_other), do: {:error, :invalid_step_source}
 
+  @doc "The tagged origin: `{:task, id}` or `{:dispatch, id}` (exactly one is set)."
+  @spec origin(t()) :: {:task, Ecto.UUID.t()} | {:dispatch, Ecto.UUID.t()}
+  def origin(%__MODULE__{task_id: id, dispatch_id: nil}) when is_binary(id), do: {:task, id}
+  def origin(%__MODULE__{task_id: nil, dispatch_id: id}) when is_binary(id), do: {:dispatch, id}
+
+  @doc """
+  The step idempotency key of this line: `"sys:step:" <> origin id <> ":" <>
+  line_index` (decision 0054 D9.2), the exact format `StepWrites` always built.
+  """
+  @spec idempotency_key(t()) :: String.t()
+  def idempotency_key(%__MODULE__{line_index: line_index} = source) do
+    {_tag, id} = origin(source)
+    "sys:step:" <> id <> ":" <> Integer.to_string(line_index)
+  end
+
   @doc """
   The flat string -> string `source.*` event metadata (D-A2.5): the integer
   `line_index` as a decimal string, `task_id` XOR `dispatch_id`.
@@ -138,7 +157,7 @@ defmodule Letflow.Entities.StepSource do
     }
   end
 
-  defp origin(attrs) do
+  defp origin_ids(attrs) do
     case {Map.get(attrs, :task_id), Map.get(attrs, :dispatch_id)} do
       {id, nil} when not is_nil(id) -> with {:ok, uuid} <- uuid(id), do: {:ok, uuid, nil}
       {nil, id} when not is_nil(id) -> with {:ok, uuid} <- uuid(id), do: {:ok, nil, uuid}

@@ -128,12 +128,11 @@ defmodule Letflow.Entities.RecordsCommandMultiTest do
     Map.merge(
       %{
         kind: :create,
-        line_key: line_key,
         entity_type: type,
         field_values: %{"title" => "line #{line_key}"},
         actor_id: @actor_id,
-        idempotency_key: "sys:step:#{task_id}:#{line_key}",
-        source: source(line_key)
+        # line_key and the sys:step: key are derived from the source (#2627)
+        source: source(line_key, %{task_id: task_id})
       },
       overrides
     )
@@ -184,7 +183,7 @@ defmodule Letflow.Entities.RecordsCommandMultiTest do
     } do
       commands = [
         command(@type_a, 0, task_id),
-        command(@type_b, 1, task_id, %{source: source(1, %{node_id: "n-1"})}),
+        command(@type_b, 1, task_id, %{source: source(1, %{node_id: "n-1", task_id: task_id})}),
         command(@type_a, 2, task_id)
       ]
 
@@ -309,60 +308,73 @@ defmodule Letflow.Entities.RecordsCommandMultiTest do
       end
     end
 
-    test "keys outside the anchored sys:step: charset are :invalid_step_key, with no query", %{
+    test "the line key and the sys:step: key are derived from the source", %{
       schema: schema,
       task_id: task_id
     } do
-      bad_keys = [
-        "certificate:issue:x",
-        "sys:step:a b",
-        "sys:step:",
-        # \z, not $: a trailing newline is refused.
-        "sys:step:abc\n",
-        # \A: the family must be the head of the key.
-        "xsys:step:abc",
-        "SYS:STEP:abc",
-        "sys:step:" <> String.duplicate("a", 247),
-        nil,
-        42
-      ]
+      assert {:ok, multi} = Records.command_multi(command(@type_a, 7, task_id), schema, :tenant)
+      assert {:line, 7, :insert_event} in names(multi)
+      assert {:ok, changes} = Repo.transaction(multi)
 
-      assert byte_size("sys:step:" <> String.duplicate("a", 247)) == 256
-
-      for key <- bad_keys do
-        {result, queries} =
-          PlatformTenantFixture.capture_repo_queries(fn ->
-            Records.command_multi(
-              command(@type_a, 0, task_id, %{idempotency_key: key}),
-              schema,
-              :tenant
-            )
-          end)
-
-        assert result == {:error, :invalid_step_key}, inspect(key)
-        assert queries == [], inspect(key)
-      end
-
-      # Boundary control: exactly 255 bytes and the full charset are accepted.
-      ok_key = "sys:step:Az09:_.-" <> String.duplicate("a", 255 - 17)
-      assert byte_size(ok_key) == 255
-
-      assert {:ok, _} =
-               Records.command_multi(
-                 command(@type_a, 0, task_id, %{idempotency_key: ok_key}),
-                 schema,
-                 :tenant
-               )
+      assert %Event{idempotency_key: key} = changes[{:line, 7, :insert_event}]
+      assert key == "sys:step:#{task_id}:7"
+      assert key == StepSource.idempotency_key(source(7, %{task_id: task_id}))
     end
 
-    test "malformed sources and a line_index that differs from line_key are :invalid_step_source",
+    test "a dispatch origin derives sys:step:<dispatch_id>:<i>", %{schema: schema} do
+      dispatch_id = Ecto.UUID.generate()
+      src = source(3, %{task_id: nil, dispatch_id: dispatch_id})
+
+      assert {:ok, changes} =
+               Repo.transaction(build!(command(@type_a, 3, dispatch_id, %{source: src}), schema))
+
+      assert changes[{:line, 3, :insert_event}].idempotency_key == "sys:step:#{dispatch_id}:3"
+    end
+
+    test "a command that carries its own line_key or idempotency_key is refused, no query", %{
+      schema: schema,
+      task_id: task_id
+    } do
+      for extra <- [
+            %{line_key: 0},
+            %{idempotency_key: "sys:step:#{task_id}:0"},
+            %{idempotency_key: "sys:step:somebody-else:0"},
+            %{idempotency_key: nil}
+          ] do
+        {result, queries} =
+          PlatformTenantFixture.capture_repo_queries(fn ->
+            Records.command_multi(command(@type_a, 0, task_id, extra), schema, :tenant)
+          end)
+
+        assert result == {:error, :invalid_step_source}, inspect(extra)
+        assert queries == [], inspect(extra)
+      end
+    end
+
+    test "a derived key over 255 bytes (absurd line_index) is :invalid_step_key, no query", %{
+      schema: schema,
+      task_id: task_id
+    } do
+      {result, queries} =
+        PlatformTenantFixture.capture_repo_queries(fn ->
+          Records.command_multi(
+            command(@type_a, 0, task_id, %{source: source(10 ** 300, %{task_id: task_id})}),
+            schema,
+            :tenant
+          )
+        end)
+
+      assert result == {:error, :invalid_step_key}
+      assert queries == []
+    end
+
+    test "malformed sources are :invalid_step_source",
          %{schema: schema, task_id: task_id} do
       both = source(0, %{dispatch_id: Ecto.UUID.generate()})
       neither = source(0, %{task_id: nil})
 
       bad = [
-        %{source: source(1)},
-        %{line_key: -1, source: source(-1)},
+        %{source: source(-1)},
         %{source: both},
         %{source: neither},
         %{source: source(0, %{kind: "client"})},
@@ -379,6 +391,9 @@ defmodule Letflow.Entities.RecordsCommandMultiTest do
         %{source: source_attrs(0)},
         %{source: Map.from_struct(source(0))},
         %{actor_id: "not-a-uuid"},
+        %{actor_id: nil},
+        %{actor_id: 5},
+        %{actor_id: String.duplicate("a", 40)},
         %{field_values: "nope"}
       ]
 

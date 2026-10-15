@@ -253,11 +253,9 @@ defmodule Letflow.Entities.Records do
   @typedoc "GH #2587: one process-step line (only `kind: :create` is accepted, D-A2.10)."
   @type step_command :: %{
           required(:kind) => :create | :update | :delete,
-          required(:line_key) => non_neg_integer(),
           required(:entity_type) => String.t(),
           required(:field_values) => Validator.field_values(),
           required(:actor_id) => Ecto.UUID.t(),
-          required(:idempotency_key) => String.t(),
           required(:source) => StepSource.t()
         }
 
@@ -517,9 +515,10 @@ defmodule Letflow.Entities.Records do
 
   Build order:
 
-    1. Shape, no query: `kind`; `line_key` a non-negative integer equal to
-       `source.line_index` (else `:invalid_step_source`); `idempotency_key`
-       matches `\\Asys:step:[A-Za-z0-9:_.-]+\\z` and is at most 255 bytes (else
+    1. Shape, no query: `kind`; the command carries NO `line_key` or
+       `idempotency_key` (else `:invalid_step_source`): the line key is
+       `source.line_index` and the step key is `StepSource.idempotency_key/1`
+       (#2627), which matches `\\Asys:step:[A-Za-z0-9:_.-]+\\z` and is at most 255 bytes (else
        `:invalid_step_key`); `source` is a `Letflow.Entities.StepSource` struct (a
        bare map is refused; the shape is `StepSource.new/1`'s single validation, else
        `:invalid_step_source`). `entity_type` must be a binary, `field_values`
@@ -565,7 +564,10 @@ defmodule Letflow.Entities.Records do
 
       event_attrs =
         ctx
-        |> build_event_attrs(command, instance_id)
+        |> build_event_attrs(
+          Map.put(command, :idempotency_key, line.idempotency_key),
+          instance_id
+        )
         |> Map.put(:metadata, line.metadata)
 
       namespace = {:line, line.line_key}
@@ -685,11 +687,15 @@ defmodule Letflow.Entities.Records do
     end)
   end
 
-  # Design 3.3 build step 1: pure shape checks, in the design's order.
+  # Design 3.3 build step 1: pure shape checks. The line key and the step
+  # idempotency key are DERIVED from the source (#2627, OQ-C7): a command that
+  # carries its own `line_key` / `idempotency_key` is refused, so they cannot
+  # disagree with `source`.
   @spec check_step_command(term()) ::
           {:ok,
            %{
              line_key: non_neg_integer(),
+             idempotency_key: String.t(),
              entity_type: String.t(),
              field_values: map(),
              metadata: %{String.t() => String.t()}
@@ -698,16 +704,18 @@ defmodule Letflow.Entities.Records do
           | {:error, :invalid_step_key}
           | {:error, :invalid_step_source}
   defp check_step_command(%{kind: :create} = command) when not is_struct(command) do
-    with {:ok, line_key, source} <- check_line_key(command),
-         :ok <- check_step_key(Map.get(command, :idempotency_key)),
-         {:ok, metadata} <- step_metadata(source),
+    with :ok <- reject_caller_keys(command),
+         {:ok, source} <- check_source(command),
+         key = StepSource.idempotency_key(source),
+         :ok <- check_step_key(key),
          {:ok, entity_type, field_values} <- check_step_target(command) do
       {:ok,
        %{
-         line_key: line_key,
+         line_key: source.line_index,
+         idempotency_key: key,
          entity_type: entity_type,
          field_values: field_values,
-         metadata: metadata
+         metadata: StepSource.to_metadata(source)
        }}
     end
   end
@@ -718,39 +726,35 @@ defmodule Letflow.Entities.Records do
 
   defp check_step_command(_command), do: {:error, :invalid_step_source}
 
-  # The ONE place the line_index == line_key invariant is checked (#2627).
-  defp check_line_key(%{line_key: line_key, source: %StepSource{line_index: line_key} = source})
-       when is_integer(line_key) and line_key >= 0,
-       do: {:ok, line_key, source}
+  defp reject_caller_keys(command) do
+    if Map.has_key?(command, :line_key) or Map.has_key?(command, :idempotency_key),
+      do: {:error, :invalid_step_source},
+      else: :ok
+  end
 
-  defp check_line_key(_command), do: {:error, :invalid_step_source}
+  # A literal %StepSource{} could skip new/1: re-run the constructor, the only
+  # validation of the shape (no second hand-written check here).
+  defp check_source(%{source: %StepSource{} = source}),
+    do: StepSource.new(Map.from_struct(source))
 
-  # D-A2.3: anchored, exact bytes, closed charset, at most 255 bytes.
-  defp check_step_key(key) when is_binary(key) and byte_size(key) <= @step_key_max_bytes do
+  defp check_source(_command), do: {:error, :invalid_step_source}
+
+  # Defence in depth on the DERIVED key (D-A2.3): anchored, closed charset, at
+  # most 255 bytes. Only an absurdly large line_index can fail it.
+  defp check_step_key(key) when byte_size(key) <= @step_key_max_bytes do
     if Regex.match?(@step_key_format, key), do: :ok, else: {:error, :invalid_step_key}
   end
 
   defp check_step_key(_key), do: {:error, :invalid_step_key}
 
-  # A literal %StepSource{} could skip new/1: re-run the constructor, the only
-  # validation of the shape (no second hand-written check here).
-  defp step_metadata(%StepSource{} = source) do
-    with {:ok, valid} <- StepSource.new(Map.from_struct(source)),
-         do: {:ok, StepSource.to_metadata(valid)}
-  end
-
   defp check_step_target(%{entity_type: entity_type, field_values: field_values} = command)
        when is_binary(entity_type) and byte_size(entity_type) > 0 and is_map(field_values) and
               not is_struct(field_values) do
-    case Map.get(command, :actor_id) do
-      actor_id when is_binary(actor_id) ->
-        case Ecto.UUID.cast(actor_id) do
-          {:ok, _actor_id} -> {:ok, entity_type, field_values}
-          :error -> {:error, :invalid_step_source}
-        end
-
-      _other ->
-        {:error, :invalid_step_source}
+    with actor_id when is_binary(actor_id) <- Map.get(command, :actor_id),
+         {:ok, _actor_id} <- Ecto.UUID.cast(actor_id) do
+      {:ok, entity_type, field_values}
+    else
+      _invalid -> {:error, :invalid_step_source}
     end
   end
 

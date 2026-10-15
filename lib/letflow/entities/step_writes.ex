@@ -549,11 +549,9 @@ defmodule Letflow.Entities.StepWrites do
            }) do
       command = %{
         kind: :create,
-        line_key: index,
         entity_type: normalized.entity_type,
         field_values: resolve_values(normalized.fields, variables),
         actor_id: ctx.actor_id,
-        idempotency_key: "sys:step:" <> ctx.task_id <> ":" <> Integer.to_string(index),
         source: source
       }
 
