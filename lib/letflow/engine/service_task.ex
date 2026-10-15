@@ -375,6 +375,35 @@ defmodule Letflow.Engine.ServiceTask do
     |> Enum.map(fn [key] -> key end)
   end
 
+  @doc """
+  The strict `template_placeholder/0` with its KEY class widened to admit a dot (GH #2623,
+  invariant I-13). DERIVED from `Regex.source(template_placeholder())`, never hand-copied, so
+  the braces, the `variables.` literal and the whitespace handling cannot drift. It exists only
+  for the service-catalog `endpoint_url` reserved-name refusal: the renderer does NOT use it, so
+  rendering output is unchanged. If the strict KEY class is edited so the replacement matches
+  nothing, the derived pattern equals the strict one.
+  """
+  @spec template_reference_placeholder() :: Regex.t()
+  def template_reference_placeholder do
+    template_placeholder()
+    |> Regex.source()
+    |> String.replace("[a-zA-Z0-9_]+", "[a-zA-Z0-9_.]+")
+    |> Regex.compile!(Regex.opts(template_placeholder()))
+  end
+
+  @doc """
+  The KEYs captured by `template_reference_placeholder/0` in `template`, in order (duplicates
+  kept); `nil` and a non-binary -> `[]`. Pure, total.
+  """
+  @spec template_reference_keys(String.t() | nil) :: [String.t()]
+  def template_reference_keys(template) when is_binary(template) do
+    template_reference_placeholder()
+    |> Regex.scan(template, capture: :all_but_first)
+    |> Enum.map(fn [key] -> key end)
+  end
+
+  def template_reference_keys(_not_a_template), do: []
+
   # ===========================================================================
   # validate_rendered_url/1 (AC6)
   # ===========================================================================

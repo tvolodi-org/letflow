@@ -24,6 +24,9 @@ defmodule Letflow.Definitions.ReservedReferences do
   L9 (a bound script's `manifest.input_schema.properties` keys) needs the script row, so it is
   checked in `Letflow.Scripts.Runtime.check_bindings/2`, which builds the same `reserved_reference()`.
 
+  `reserved_template_names/1` exposes the same predicate over the dot-widened placeholder grammar
+  to the service-catalog `endpoint_url` refusal (GH #2623).
+
   Callers: `Graph`'s CHK-29 (`node_references/1`) and CHK-30 (`edge_references/1`) at save, and
   `Letflow.Definitions.check_reserved_references/1` at every activation path (activate, version
   rollback, promotion apply).
@@ -142,6 +145,20 @@ defmodule Letflow.Definitions.ReservedReferences do
   end
 
   defp node_refs(_other_type, _id, _attrs), do: []
+
+  @doc """
+  The reserved KEYs referenced by a template, as the DOT-widened grammar
+  (`ServiceTask.template_reference_keys/1`) sees them, in order, duplicates kept (GH #2623).
+  Used by the service-catalog `endpoint_url` refusal so the catalog and definitions share one
+  predicate (`VariableMerge.reserved_key?/1`). `[]` for nil, a non-binary, or no reference.
+  Pure, total.
+  """
+  @spec reserved_template_names(String.t() | nil) :: [String.t()]
+  def reserved_template_names(template) do
+    template
+    |> ServiceTask.template_reference_keys()
+    |> Enum.filter(&VariableMerge.reserved_key?/1)
+  end
 
   # ── L5-L6 templates ───────────────────────────────────────────────────────
 

@@ -202,6 +202,18 @@ defmodule Letflow.Api.Response do
       })
 
   @doc """
+  HTTP 422 — a service-catalog `endpoint_url` references the reserved engine variable
+  namespace (GH #2623). The body echoes neither the URL nor the matched name.
+  """
+  @spec endpoint_url_reserved_variable(Plug.Conn.t()) :: Plug.Conn.t()
+  def endpoint_url_reserved_variable(conn),
+    do:
+      send_json(conn, 422, %{
+        "error" => "endpoint_url_reserved_variable",
+        "field" => "endpoint_url"
+      })
+
+  @doc """
   HTTP 422 — the graph names the reserved engine namespace (GH #2587 PR A1b, design
   gh2587-req499-pr-a-prerequisites.md 2A.4). `references` are
   `Letflow.Definitions.ReservedReferences.reserved_reference()` maps; every echoed value comes
