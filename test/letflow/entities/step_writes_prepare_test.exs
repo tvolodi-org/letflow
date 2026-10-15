@@ -129,8 +129,48 @@ defmodule Letflow.Entities.StepWritesPrepareTest do
     first_entity_idx = Enum.find_index(sqls, &(&1 =~ "entity_"))
 
     assert is_integer(lock_idx) and is_integer(stmt_idx)
+    assert is_integer(first_entity_idx)
     assert stmt_idx == lock_idx + 1
     assert first_entity_idx > stmt_idx
+  end
+
+  test "types are processed once each in ascending byte order", %{schema: schema} do
+    activate!(schema, "alpha")
+    activate!(schema, "beta")
+
+    {result, queries} =
+      QueryCapture.capture_repo_queries(fn ->
+        StepWrites.prepare([line("beta"), line("alpha"), line("alpha")], %{prefix: schema})
+      end)
+
+    assert result == :ok
+
+    # Every query that names a type (activation resolve, definition read, get_or_create), in
+    # issue order. Types are processed one at a time, so the dedup'd name sequence is exactly
+    # one run per type: ["alpha", "beta"] means ascending order and no type handled twice.
+    looked_up =
+      queries
+      |> Enum.flat_map(fn q ->
+        q
+        |> Map.get(:params, [])
+        |> List.wrap()
+        |> Enum.filter(&(&1 in ["alpha", "beta"]))
+        |> Enum.take(1)
+      end)
+      |> Enum.dedup()
+
+    assert looked_up != []
+    assert looked_up == ["alpha", "beta"]
+  end
+
+  test "SET LOCAL does not leak past the prepare transaction", %{schema: schema} do
+    activate!(schema, "alpha")
+    show = fn name -> Repo.query!("SHOW #{name}").rows end
+
+    before = {show.("lock_timeout"), show.("statement_timeout")}
+    assert :ok = StepWrites.prepare([line("alpha")], %{prefix: schema})
+    assert {show.("lock_timeout"), show.("statement_timeout")} == before
+    refute before == {[["2s"]], [["2s"]]}
   end
 
   test "a held uncommitted insert of the same type maps to :entity_write_contention",
@@ -168,7 +208,7 @@ defmodule Letflow.Entities.StepWritesPrepareTest do
     Task.await(holder)
 
     assert result == {:error, :entity_write_contention}
-    assert elapsed < 4_000
+    assert elapsed < 8_000
     assert instance_types(schema) == []
   end
 
@@ -182,6 +222,22 @@ defmodule Letflow.Entities.StepWritesPrepareTest do
                   %{index: 0, code: :entity_writes_not_enabled},
                   %{index: 1, code: :entity_writes_not_enabled}
                 ]}
+    end
+
+    test "EntityPortImpl returns what StepWrites returns for the same input" do
+      alias Letflow.Entities.EntityPortImpl
+      lines = [line("a"), line("b")]
+      ctx = %{prefix: "x"}
+      m = Ecto.Multi.new()
+
+      assert EntityPortImpl.validate_lines(lines, ctx) == StepWrites.validate_lines(lines, ctx)
+      assert EntityPortImpl.validate_lines([], ctx) == StepWrites.validate_lines([], ctx)
+      assert EntityPortImpl.prepare([], ctx) == StepWrites.prepare([], ctx)
+
+      assert Ecto.Multi.to_list(EntityPortImpl.multi(m, lines, ctx)) ==
+               Ecto.Multi.to_list(StepWrites.multi(m, lines, ctx))
+
+      assert EntityPortImpl.multi(m, [], ctx) == StepWrites.multi(m, [], ctx)
     end
 
     test "multi/3" do

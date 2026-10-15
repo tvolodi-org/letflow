@@ -2,8 +2,8 @@ defmodule Letflow.Entities.ScriptReads do
   @moduledoc """
   GH 2534 PR 7c-2 (decision 0053 D5; 7b-2a section 8, SEC F1/N1): the entity-record
   read half of `Letflow.Engine.EntityPort` (`prefetch/3`), reached through the delegating
-  adapter `Letflow.Entities.EntityPortImpl` (`config :letflow, :entity_port`). Design `lib/letflow/design/gh2534-7c-script-handler.md`
-  section 11.2.
+  adapter `Letflow.Entities.EntityPortImpl` (`config :letflow, :entity_port`). Design
+  `lib/letflow/design/gh2534-7c-script-handler.md` section 11.2.
 
   ## Phase 1 (every read, before ANY record query)
 

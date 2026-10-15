@@ -3,7 +3,7 @@ defmodule Letflow.Engine.EntityPort do
   GH 2587 / REQ-499 PR A3 (decision 0054 D2 and open point 8): the ONE engine-defined port
   through which the engine reaches entity records. It subsumes the 0053 `ScriptReadPort`
   (GH 2534 PR 7c-2): one behaviour, one injected implementation
-  (an adapter in the entities context), one config key (`:entity_port`), one
+  (see the `:entity_port` config key), one config key, one
   `mix letflow.check_boundaries` allowance. Design
   `lib/letflow/design/gh2587-req499-pr-a-prerequisites.md` section 4.
 

@@ -17,6 +17,7 @@ defmodule Letflow.Engine.EntityPortBoundaryTest do
   @root Path.expand("../../..", __DIR__)
   @dispatcher "lib/letflow/engine/script_task_dispatcher.ex"
   @write_names [:prepare, :validate_lines, :multi]
+  @forbidden_aliases [:StepWrites, :EntityPortImpl]
 
   defp lib_files(pattern), do: Path.wildcard(Path.join(@root, pattern))
 
@@ -29,11 +30,20 @@ defmodule Letflow.Engine.EntityPortBoundaryTest do
   test "EntityPort.impl/0 is the only :entity_port reader in lib/" do
     readers =
       lib_files("lib/**/*.ex")
-      |> Enum.filter(&(File.read!(&1) =~ ~r/(get_env|fetch_env!?)\(:letflow, :entity_port/))
+      |> Enum.filter(&(env_readers(File.read!(&1)) > 0))
       |> Enum.map(&Path.relative_to(&1, @root))
 
     assert readers == ["lib/letflow/engine/entity_port.ex"]
     assert EntityPort.impl() == Letflow.Entities.EntityPortImpl
+  end
+
+  test "the reader scan is AST-based: a multi-line fetch_env! is found" do
+    assert env_readers("Application.fetch_env!(
+  :letflow,
+  :entity_port
+)") == 1
+    assert env_readers("Application.get_env(:letflow, :entity_port, nil)") == 1
+    assert env_readers("Application.fetch_env!(:letflow, :other)") == 0
   end
 
   test "the adapter implements the behaviour and ScriptReadPort is gone" do
@@ -91,35 +101,75 @@ defmodule Letflow.Engine.EntityPortBoundaryTest do
     end
   end
 
-  # A remote call named prepare/validate_lines/multi whose receiver is NOT a bare alias, or an
-  # `EntityPort.impl()` call that is not the receiver of `prefetch`.
+  # Violations (SEC F8 / TDV F3):
+  #   * a remote call named prepare/validate_lines/multi whose receiver is NOT a bare alias;
+  #   * any alias whose last segment is `StepWrites` or `EntityPortImpl`, however it is spelled
+  #     (direct, `alias ..., as: P`, multi-alias);
+  #   * any `EntityPort` alias reference beyond the single allowed shape
+  #     `EntityPort.impl().prefetch(...)` (one per call) and a plain `alias Letflow.Engine.EntityPort`.
   defp violations(source) do
     ast = Code.string_to_quoted!(source)
 
     {_, found} =
       Macro.prewalk(ast, [], fn
+        {:alias, _, [{:__aliases__, _, segs} | rest]}, acc when segs != [] ->
+          last = List.last(segs)
+
+          cond do
+            last in @forbidden_aliases ->
+              {{:alias_seen, [], []}, [{:alias, last} | acc]}
+
+            last == :EntityPort and rest != [] ->
+              {{:alias_seen, [], []}, [{:alias_as, last} | acc]}
+
+            true ->
+              {{:alias_seen, [], []}, acc}
+          end
+
         {{:., _, [recv, name]}, _, _args} = node, acc when name in @write_names ->
           if match?({:__aliases__, _, _}, recv),
             do: {node, acc},
             else: {node, [{:write, name} | acc]}
 
-        {{:., _, [{:__aliases__, _, _}, :impl]}, _, []} = node, acc ->
-          {node, [:impl_call | acc]}
+        {:__aliases__, _, segs} = node, acc when is_list(segs) and segs != [] ->
+          last = List.last(segs)
+
+          cond do
+            last in @forbidden_aliases -> {node, [{:alias, last} | acc]}
+            last == :EntityPort -> {node, [:entity_port_ref | acc]}
+            true -> {node, acc}
+          end
 
         node, acc ->
           {node, acc}
       end)
 
-    impl_calls = Enum.count(found, &(&1 == :impl_call))
-    others = Enum.reject(found, &(&1 == :impl_call))
+    refs = Enum.count(found, &(&1 == :entity_port_ref))
+    others = Enum.reject(found, &(&1 == :entity_port_ref))
 
-    if impl_calls > count_prefetch_receivers(ast), do: [:impl_call | others], else: others
+    if refs > count_prefetch_receivers(ast), do: [:entity_port_ref | others], else: others
   end
 
   defp count_prefetch_receivers(ast) do
     {_, n} =
       Macro.prewalk(ast, 0, fn
         {{:., _, [{{:., _, [{:__aliases__, _, _}, :impl]}, _, []}, :prefetch]}, _, _} = node, n ->
+          {node, n + 1}
+
+        node, n ->
+          {node, n}
+      end)
+
+    n
+  end
+
+  defp env_readers(source) do
+    {_, n} =
+      Macro.prewalk(Code.string_to_quoted!(source), 0, fn
+        {{:., _, [{:__aliases__, _, [:Application]}, fun]}, _, [:letflow, :entity_port | _]} =
+            node,
+        n
+        when fun in [:get_env, :fetch_env, :fetch_env!] ->
           {node, n + 1}
 
         node, n ->
