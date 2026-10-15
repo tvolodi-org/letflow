@@ -30,6 +30,17 @@ revision).
 | CDV 7 | One sentence on `merge_group.base_sha` and queue-ahead PRs | 1 (D2) |
 | SEC F5/F6 | No change (F6 confirms D2/D18) | - |
 
+### Revision 2 (2026-10-15, both gates PASS_WITH_FINDINGS on r1 = `65ec31c7`)
+
+| Finding | Change | Sections |
+|---|---|---|
+| SEC R1 | Baseline must be an ancestor of HEAD's FIRST parent when HEAD is a merge (rejects `HEAD^2`, the PR tip); single-parent HEAD keeps the strict-ancestor rule; the "impossible" claim corrected to state what is and is not prevented; `check_baseline_ref/4`; T33 extended (incl. a temp-repo `--no-ff` case) | 4.2, 5 step 7, 13 |
+| SEC R2 | 4.4a states the scan matches the literal `config(...)` and `Config.config(...)` call forms only; the value check covers every evaluated file | 4.4a |
+| CDV 1 | D15 and 4.5 say ⊇, not equals | 1, 4.5 |
+| CDV 2 | 4.2 Semantics names `current_context/1` | 4.2 |
+| CDV 3 | Verdict lists every pass condition (9 items) | 4.3 |
+| SEC checklist | Implementation-review checklist (4 items) recorded | 12 |
+
 ## 0. Acceptance criteria (verbatim intent, numbered for the test brief)
 
 | AC | Short form |
@@ -64,7 +75,7 @@ revision).
 | D12 | Pure logic in `Letflow.Api.PermissionMatrix` (`lib/letflow/api/permission_matrix.ex`); IO (env, files, git, exit) in `Mix.Tasks.Letflow.PermissionMatrix` (`lib/mix/tasks/letflow.permission_matrix.ex`) | AC tests call pure functions with injected inputs; the task stays thin like the precedent `letflow.check_scope_node_paths_writers` |
 | D13 | Not in `@check_static_steps`. Separate CI step `MIX_ENV=dev mix letflow.permission_matrix --check` in `backend_static`; locally the same command | `letflow.check.static` is pinned to `:test` (`mix.exs:20`), where the task deliberately refuses (AC2) |
 | D14 | The task refuses `MIX_ENV=test` (distinct error) and any env other than `:dev`/`:prod`, in both `--check` and `--write` | A golden written or checked over fixtures is the exact failure 0055 S3-3 names |
-| D15 | Fixture atoms enumerated by a static AST scan (`Code.string_to_quoted/2`) of `test/support/modules/**/*.{ex,exs}`, collecting every `permissions:` literal atom list; a non-literal value or zero scanned files is an error; a test in the test env asserts scan == union of the compiled fixture manifests' permissions | No compile of test support in dev; self-maintaining (a committed list drifts silently); the test-env equality turns the scan's completeness into a checked fact |
+| D15 | Fixture atoms enumerated by a static AST scan (`Code.string_to_quoted/2`) of `test/support/modules/**/*.{ex,exs}`, collecting every `permissions:` literal atom list; a non-literal value or zero scanned files is an error; a test in the test env asserts scan ⊇ union of the compiled fixture manifests' permissions | No compile of test support in dev; self-maintaining (a committed list drifts silently); the test-env superset assertion turns the scan's completeness into a checked fact |
 | D16 | The dev-env step also runs `Catalog.validate/1` over every PRODUCTION manifest and fails on any error | A production module need not be registered in `config/test.exs` (guide section 6), so without this the validate rules (incl. `core_permission_collision`, `widens_grants` shape) might never run on it |
 | D17 | Dev compile in CI: `WASMEX_BUILD: true` (same toolchain policy as the test-env steps) and a dedicated cache step for `_build/dev` keyed `${{ runner.os }}-mix-dev-${{ hashFiles('mix.lock') }}`; no database, no app start | One toolchain policy; the shared `_build` cache entry is saved first by whichever job wins (`ci.yml:501-502`), so `_build/dev` would be cached nondeterministically; a cold dev build is paid once per `mix.lock` change |
 | D18 | Bootstrap (no baseline golden at the base ref) is accepted ONLY when the base ref also lacks `lib/mix/tasks/letflow.permission_matrix.ex`; otherwise it is a failure | Accepting "no baseline" generally would let a PR that moves or renames the golden path skip classification |
@@ -228,7 +239,8 @@ All list fields in `report` and in error payloads are sorted (deterministic outp
 @spec classify(baseline :: t() | :absent, computed :: t(), context()) :: report()
 @spec check_production_list(t(), fixture_atoms :: MapSet.t(perm_name()), env :: atom()) :: :ok | {:error, [production_error()]}
 @spec fixture_permissions([{Path.t(), String.t()}]) :: {:ok, MapSet.t(perm_name())} | {:error, scan_error()}
-@spec check_baseline_ref(ref_sha :: String.t(), head_sha :: String.t(), strict_ancestor? :: boolean()) :: :ok | {:error, :baseline_is_head | :baseline_not_ancestor}
+@spec check_baseline_ref(ref_sha :: String.t(), head_sha :: String.t(), head_parent_count :: non_neg_integer(), ancestor_of_anchor? :: boolean()) :: :ok | {:error, :baseline_is_head | :baseline_not_ancestor}
+# anchor = HEAD^1 when head_parent_count >= 2, else HEAD; the task computes ancestor_of_anchor? with git (section 5 step 7)
 @spec report_marker(ref_sha :: String.t(), head_sha :: String.t(), report()) :: String.t()
 @spec bootstrap_allowed?(baseline_golden_present? :: boolean(), baseline_task_present? :: boolean()) :: boolean()
 @spec format_report(report()) :: String.t()
@@ -249,7 +261,7 @@ Semantics:
   `module_permissions` = `[{m.id, m.permissions}]` over `Catalog.all_manifests/0` in config
   order, `modules` from each manifest's `id`/`version`.
 - `check_module_list/3`: see 4.4a.
-- `current_context/0`: `core_policy_atoms` = strings of `Authorization.core_permissions/0`
+- `current_context/1` (argument: `module_dirs_present`): `core_policy_atoms` = strings of `Authorization.core_permissions/0`
   (D7); `route_refs` from every registered manifest's `route_policies`; `declarations` from
   `Map.get(manifest, :widens_grants, [])` per manifest id; `module_dirs_present` is set by the
   task from `File.dir?("lib/letflow/modules/<id>")` for every id in the BASELINE header and
@@ -331,8 +343,25 @@ permission set, `PA = "PLATFORM_ADMIN"`, `TA = "TENANT_ADMIN"`.
 8. `labels`: `:pre_approved` if any pre-approved row, `:narrowing` if any matched narrowing,
    `:core_change` if any core change; sorted, unique. `failures` sorted.
 
-Verdict: the run passes iff `failures == []` AND freshness is `:ok` AND
-`check_production_list/3` is `:ok` AND every production manifest validates (D16).
+Verdict (`--check`): the run passes iff ALL of the following hold, and the task collects
+every violation before raising (section 5):
+
+1. `PermissionMatrix.current/0` returned `{:ok, C}` (no `build_error`, incl.
+   `{:duplicate_module_permission, _, _}`);
+2. every production manifest validates (`Catalog.validate/1`, D16; else
+   `{:invalid_manifest, id, error}`);
+3. `fixture_permissions/1` returned `{:ok, _}` (no `scan_error`);
+4. `check_production_list/3` is `:ok` (env, sentinel atoms, fixture atoms);
+5. `check_module_list/3` is `:ok` (value proof for `:prod` and `:dev`, `:modules` source scan; section 4.4a);
+6. the working-tree golden exists, parses, and `freshness(G, C)` is `:ok`;
+7. the baseline ref resolves (no `{:baseline_unavailable, _, _}`) and passes
+   `check_baseline_ref/4` (no `:baseline_is_head`, no `:baseline_not_ancestor`);
+8. the baseline golden is present and parses, or bootstrap is allowed (no
+   `{:baseline_missing, _}`, no baseline parse error);
+9. `classify/3` returned `failures == []`.
+
+Only then is the `PERMISSION-MATRIX-REPORT ... result=pass` marker printed. `--write` requires
+items 1-5.
 
 Mapping of the normative diff rule: "only pre-approved diff" = step 3.2's last branch;
 "widening refused, no override" = steps 3.1 and 3.2's failure branches and step 6's first
@@ -383,6 +412,13 @@ Errors (all collected):
    `{:modules_set_outside_allowed_files, path, line}`. Covers `config/runtime.exs`, which
    `Config.Reader` for `config.exs` never evaluates.
 
+Scope of the scan (SEC R2): it matches the literal call forms `config(:letflow, ...)` and
+`Config.config(:letflow, ...)` (with or without parentheses, i.e. any AST call node whose
+function is `:config` locally or `{:., _, [{:__aliases__, _, [:Config]}, :config]}`). It
+does not evaluate code, so a setting reached through a computed app name, a macro or
+`Application.put_env/3` in a config file is not matched; the VALUE check covers every file
+`Config.Reader` actually evaluates for `:prod` and `:dev`, which is what the build uses.
+
 Why both (F1): the value check is the proof that matters but cannot see `runtime.exs` or a
 setting hidden behind evaluation the reader does not perform; the source scan sees every file
 but cannot evaluate `import_config` chains or computed values. Together: a `:modules`
@@ -403,8 +439,9 @@ can only make check 3 stricter. On `ec8b9dee` the result is `MapSet.new(["Fixtur
 
 Why a static scan, not the alternatives: compiling `test/support` under dev changes
 `elixirc_paths(:dev)` (`mix.exs:26-27`) and drags test-only dependencies into a dev build; a
-committed list silently misses a new fixture atom. T9 (test env) asserts the scan equals the
-union of the compiled fixture manifests' `:permissions`, so a scanner gap fails the suite.
+committed list silently misses a new fixture atom. T9 (test env) asserts the scan ⊇ the
+union of the compiled fixture manifests' `:permissions` (superset, since over-approximation
+is allowed), so a scanner gap fails the suite.
 
 ## 5. `Mix.Tasks.Letflow.PermissionMatrix` (`lib/mix/tasks/letflow.permission_matrix.ex`)
 
@@ -438,13 +475,27 @@ exit 0 otherwise):
 7. Resolve the baseline ref: `--baseline-ref` if given; else `git merge-base HEAD origin/main`.
    Any git failure (no git, unknown ref, no `origin/main`) -> failure
    `{:baseline_unavailable, ref, stderr_first_line}` with the hint "git fetch origin main".
-   Never a silent pass. Then (F2 b) resolve `ref` and `HEAD` to full commit shas
-   (`git rev-parse --verify <x>^{commit}`); `ref_sha == head_sha` -> failure
-   `{:baseline_is_head, ref}`; `git merge-base --is-ancestor <ref_sha> HEAD` non-zero ->
-   failure `{:baseline_not_ancestor, ref}`. Applies to the default ref too: on a checkout
-   equal to `origin/main` the hint says "nothing to classify at origin/main; run on a branch,
-   or pass --baseline-ref HEAD~1". This makes `--baseline-ref HEAD` (classify against the
-   PR's own golden) impossible.
+   Never a silent pass. Then (F2 b, tightened by SEC R1) resolve `ref` and `HEAD` to full
+   commit shas (`git rev-parse --verify <x>^{commit}`) and count HEAD's parents
+   (`git rev-list --parents -n 1 HEAD`). The ANCHOR is `HEAD^1` (HEAD's first parent) when
+   HEAD has two or more parents, else HEAD itself. Rules: `ref_sha == head_sha` -> failure
+   `{:baseline_is_head, ref}`; with a merge HEAD, `git merge-base --is-ancestor <ref_sha> HEAD^1`
+   non-zero (ref not the first parent nor one of its ancestors) -> failure
+   `{:baseline_not_ancestor, ref}`; with a single-parent HEAD,
+   `git merge-base --is-ancestor <ref_sha> HEAD` non-zero -> the same failure. Why the first
+   parent: on `pull_request` HEAD is the synthetic merge, and its SECOND parent (the PR's own
+   tip, which carries the PR's regenerated golden) is a strict ancestor of HEAD; anchoring on
+   `HEAD^1` rejects it. The rule holds for every CI event: `pull_request` (ref = `HEAD^1`),
+   `merge_group` (`base_sha` is HEAD's first parent, or HEAD's only parent for a
+   single-parent queue commit), `push` (`before` is HEAD's first parent for a merge or squash
+   commit). Applies to the default ref too: on a checkout equal to `origin/main` the hint says
+   "nothing to classify at origin/main; run on a branch, or pass --baseline-ref HEAD~1".
+   What this does and does not prevent: it makes `--baseline-ref HEAD` and
+   `--baseline-ref HEAD^2` (the PR tip) fail. It does NOT make a self-chosen baseline
+   impossible in general: with a single-parent HEAD (local branches only; CI's
+   `pull_request` guard requires two parents) an earlier commit of the same branch is an
+   ancestor and is accepted; and a PR that edits `ci.yml` or this task can bypass the rule
+   itself (trust boundary, I2; covered by section 9a and the section 12 residual).
 8. Read B: `git show <ref>:priv/permission_matrix/effective.golden`. Path absent at ref ->
    check `git cat-file -e <ref>:lib/mix/tasks/letflow.permission_matrix.ex`;
    `bootstrap_allowed?(false, task_present?)` true -> B = `:absent`; false -> failure
@@ -706,6 +757,21 @@ it. `mix letflow.check_boundaries` is unaffected (`lib/letflow/api` is core; onl
   a repository setting and the user's decision; the supervisor has put it on the user's
   list. This PR does not change repository settings and does not claim to close the residual.
 
+SECURITY-REVIEWER checklist for the IMPLEMENTATION review (recorded from the design gate so
+the implementation gate applies it):
+
+1. Commit B (section 9a) contains only the two doc edits, its path list matches I2
+   (section 11) exactly, and the task prints `CORE MATRIX CHANGE` as the FIRST line of the
+   report whenever `labels` contains `:core_change`.
+2. The CI step computes `ref_sha` and `head_sha` itself (`git rev-parse`) and compares the
+   marker's `baseline=` / `head=` values against those, not against values read from the
+   task output.
+3. The CI log of the PR run shows the dev-env proof ran: the `MIX_ENV=dev` step executed,
+   printed the `# modules: exam@...` header and passed the `:prod`/`:dev` value check and
+   the `:modules` source scan (section 4.4a).
+4. Read the PR's own `PERMISSION-MATRIX-REPORT` (and step summary): expected `labels=bootstrap`
+   on the introducing PR's pull_request run, and no failures.
+
 Why an author-written declaration alone can never satisfy the rule:
 
 1. The only declaration is `widens_grants`, and by step 6 it can only MATCH a narrowing row;
@@ -763,7 +829,7 @@ T24, T28, T29.
 | T30 | F3 | existing module atom X (in B and C); C row `{TASK_WORKER, X}` true with `via core` (injected `core_allows?`) -> `{:widening, "TASK_WORKER", X, :core_rule_on_module_atom}`; the same atom's PA/TA rows unchanged -> no failure; a core atom flipping true `via core` for TASK_WORKER -> core change (contrast) |
 | T31 | F4 | B row owner `:core`, `via grant`, C false -> `{:unattributable_narrowing, r, p}` even when every evaluated module declares `{r, p}` (and that declaration is then `{:unmatched_declaration, ...}`) |
 | T32 | F4 | `build/3` with `module_permissions: [{"a", [:X]}, {"b", [:X]}]` -> `{:error, {:duplicate_module_permission, :X, ["a", "b"]}}` |
-| T33 | F2 b, F2 c | `check_baseline_ref(s, s, false)` -> `{:error, :baseline_is_head}`; `(a, h, false)` -> `{:error, :baseline_not_ancestor}`; `(a, h, true)` -> `:ok`; `report_marker/3` renders exactly `PERMISSION-MATRIX-REPORT v1 baseline=<a> head=<h> labels=<...> result=pass` with labels `-` when empty |
+| T33 | F2 b, F2 c, SEC R1 | `check_baseline_ref(s, s, 1, true)` and `(s, s, 2, true)` -> `{:error, :baseline_is_head}`; `(a, h, 1, false)` -> `{:error, :baseline_not_ancestor}`; `(a, h, 1, true)` -> `:ok`; merge HEAD, ref = the PR tip (an ancestor of HEAD but not of `HEAD^1`): `(tip, h, 2, false)` -> `{:error, :baseline_not_ancestor}`; merge HEAD, ref = `HEAD^1`: `(p1, h, 2, true)` -> `:ok`. Plus one git-backed case in a temp repo (`System.cmd("git", ...)` in `tmp_dir`): build base commit, PR commit, `git merge --no-ff`; the task's step-7 helper rejects `HEAD^2` and accepts `HEAD^1`; `report_marker/3` renders exactly `PERMISSION-MATRIX-REPORT v1 baseline=<a> head=<h> labels=<...> result=pass` with labels `-` when empty |
 
 File `test/letflow/modules/catalog_test.exs` (extend; new `describe "GH 2586 widens_grants (rule 8)"`):
 
