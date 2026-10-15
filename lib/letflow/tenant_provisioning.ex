@@ -690,7 +690,11 @@ defmodule Letflow.TenantProvisioning do
     {20_261_015_100_001, Letflow.Repo.Migrations.CreateScriptTaskDispatches,
      "20261015100001_create_script_task_dispatches.exs"},
     {20_261_015_100_002, Letflow.Repo.Migrations.LuaScriptAuditReadOnly,
-     "20261015100002_lua_script_audit_read_only.exs"}
+     "20261015100002_lua_script_audit_read_only.exs"},
+    # GH #2587 / REQ-499 PR B1 (decision 0054 D4a): process_definitions.activated_by, the
+    # activator authority recorded for a graph with `entity_writes`; NULL otherwise.
+    {20_261_015_200_001, Letflow.Repo.Migrations.AddActivatedByToProcessDefinitions,
+     "20261015200001_add_activated_by_to_process_definitions.exs"}
   ]
 
   @doc """

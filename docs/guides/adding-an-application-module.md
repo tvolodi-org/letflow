@@ -285,6 +285,31 @@ document. Absent or `false` means a process step may NOT write records of the ty
   "<prefix>"` or `the name "<name>" is denied`. A false positive such as `user_feedback`
   therefore explains itself; rename the type or wait for GH #2618.
 
+**`entity_writes` on a HUMAN_TASK node (GH #2587 / REQ-499 PR B1: validation only).** A
+HUMAN_TASK node may declare up to 20 `create` lines in its `entity_writes` attribute
+(`op`, `entity_type`, `fields` as `{"var": name}` / `{"const": value}` sources, optional
+`output_record_id_var` of the strict shape `_sys.<one [A-Za-z0-9_]+ segment>`). Every line is
+validated at each activation path (activate, version rollback, promotion apply) by
+`Letflow.Entities.StepWrites.validate_lines/2`, and a refusal is 422 `entity_writes_invalid`
+(node id, line index, stable code; no field name or value). A line may target only a type that
+is ACTIVE, non-managed, `writable_by_process` and `append_only`; a `managed_by` type is never a
+declarative target (a module writes its own types through its own handler). The activating
+principal must hold `:EntitiesRecordsWrite` and be an active user of the tenant: its authority
+is recorded in `process_definitions.activated_by` (never settable through a request body).
+Until PR B2 no completion executes a line, so a definition carrying valid lines is still
+refused at activation (`entity_writes_execution_not_enabled`); nothing is silently ignored.
+
+Pilot limits: (a) the activation-time activator check requires `:EntitiesRecordsWrite`, not
+`:DefinitionsActivate`, so a rollback or promotion activator legitimately omits the latter; (b)
+promotion and tenant promote resolve the activator in the TARGET tenant, so a promoting
+principal who is not a user of the target tenant (a test-tenant actor, a platform operator in
+another tenant) gets 422 `entity_write_activator_not_in_target_tenant` and nothing is written:
+create the graph as a draft in the target tenant and activate it there; (c)
+`process_definitions.activated_by` is part of the `definition.activate` audit entry's
+`after_state` (the whole row is serialised), so it travels with any wholesale `after_state`
+fan-out; (d) treat `activated_by` as untrusted data in any consumer (a sandbox fixture loader
+can set any column in a sandbox schema).
+
 ## 6. Registration: `config/config.exs`, `config/test.exs`, and `catalog_test.exs`
 
 `Letflow.Modules.Catalog` reads its module list once, at compile time, via

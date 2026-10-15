@@ -634,6 +634,7 @@ defmodule Letflow.Routers.Tenants do
         test_tenant_id,
         target_tenant_id,
         process_key,
+        activator: Letflow.Api.Context.activator(conn),
         permission_checker: PromotionAccess.checker_for(conn.assigns.auth_context),
         event_appender: &PlatformEvents.append_definition_promoted/2
       )
@@ -679,6 +680,14 @@ defmodule Letflow.Routers.Tenants do
 
   defp render_promote(conn, {:error, {:expression_references_reserved_variable, references}}),
     do: Response.expression_references_reserved_variable(conn, references)
+
+  # GH #2587 PR B1 (F2): the promoting principal is not a user of the target tenant.
+  defp render_promote(conn, {:error, :entity_write_activator_not_in_target_tenant}),
+    do: Response.entity_write_activator_not_in_target_tenant(conn)
+
+  # GH #2587 PR B1: the promoted graph's entity_writes were refused in the target tenant.
+  defp render_promote(conn, {:error, {:entity_writes_invalid, violations}}),
+    do: Response.entity_writes_invalid(conn, violations)
 
   defp render_promote(conn, {:error, _other}), do: Response.internal_error(conn)
 

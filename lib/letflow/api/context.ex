@@ -229,6 +229,27 @@ defmodule Letflow.Api.Context do
     end
   end
 
+  @doc """
+  GH #2587 PR B1 (decision 0054 D4a): the activator authority of the authenticated caller, for
+  a route that activates a definition (activate, version rollback, promotion apply, tenant
+  promote). Built from the server-side `auth_context` ONLY; `platform_tenant?` is RECOMPUTED
+  from the database-resolved tenant id (as `Letflow.Plugs.Authorize` does), never read from a
+  stored flag. `nil` when the context has no user id.
+  """
+  @spec activator(Plug.Conn.t()) :: Letflow.Engine.EntityPort.activator() | nil
+  def activator(conn) do
+    case conn.assigns[:auth_context] do
+      %{} = auth_context ->
+        platform_tenant? =
+          Letflow.PlatformTenant.platform_tenant?(Map.get(auth_context, :tenant_id))
+
+        Letflow.Definitions.Activator.from_auth_context(auth_context, platform_tenant?)
+
+      _no_context ->
+        nil
+    end
+  end
+
   defp tenant_id_from_auth_context(conn) do
     case conn.assigns[:auth_context] do
       %{tenant_id: tenant_id} when not is_nil(tenant_id) -> {:ok, tenant_id}

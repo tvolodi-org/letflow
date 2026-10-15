@@ -939,7 +939,12 @@ defmodule Letflow.Routers.Definitions do
 
   defp handle_activate(conn, raw_id) do
     validator = Application.get_env(:letflow, :definitions_service_scope_validator, nil)
-    activate_opts = Keyword.put(conn.assigns.scoped_opts, :service_scope_validator, validator)
+
+    activate_opts =
+      conn.assigns.scoped_opts
+      |> Keyword.put(:service_scope_validator, validator)
+      |> Keyword.put(:activator, Letflow.Api.Context.activator(conn))
+
     render_activate(conn, Definitions.activate(raw_id, activate_opts))
   end
 
@@ -1014,6 +1019,11 @@ defmodule Letflow.Routers.Definitions do
   # property name of a script the same tenant published); no variable value.
   defp render_activate(conn, {:error, {:expression_references_reserved_variable, references}}),
     do: Response.expression_references_reserved_variable(conn, references)
+
+  # GH #2587 PR B1: declared entity_writes refused at activation; node ids, line indexes and
+  # stable codes only.
+  defp render_activate(conn, {:error, {:entity_writes_invalid, violations}}),
+    do: Response.entity_writes_invalid(conn, violations)
 
   defp render_activate(conn, {:error, _common_error}), do: Response.internal_error(conn)
 
@@ -1191,6 +1201,7 @@ defmodule Letflow.Routers.Definitions do
             attrs["target_version"],
             actor_id,
             Keyword.merge(opts,
+              activator: Letflow.Api.Context.activator(conn),
               permission_checker:
                 Letflow.Definitions.PromotionAccess.checker_for(conn.assigns.auth_context),
               event_appender:
@@ -1225,6 +1236,10 @@ defmodule Letflow.Routers.Definitions do
   # GH #2587 PR A1b (design 2A.4): the re-activated graph names the reserved namespace.
   defp render_rollback(conn, {:error, {:expression_references_reserved_variable, references}}),
     do: Response.expression_references_reserved_variable(conn, references)
+
+  # GH #2587 PR B1: the re-activated graph's entity_writes were refused.
+  defp render_rollback(conn, {:error, {:entity_writes_invalid, violations}}),
+    do: Response.entity_writes_invalid(conn, violations)
 
   defp render_rollback(conn, {:error, :invalid_schema_name}), do: Response.internal_error(conn)
   defp render_rollback(conn, {:error, _other}), do: Response.internal_error(conn)

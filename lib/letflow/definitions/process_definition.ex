@@ -107,6 +107,14 @@ defmodule Letflow.Definitions.ProcessDefinition do
     # lib/letflow/design/req125-definitions-delta-sync.md §5.1.
     field(:sequence_number, :integer, default: 0)
 
+    # GH #2587 / REQ-499 PR B1 (decision 0054 D4a, design D-B.24, invariant I-B11): the
+    # activator authority recorded when a graph with `entity_writes` is activated (user id,
+    # roles, evaluated permissions, authorised (entity_type, op) pairs); NULL otherwise.
+    # Never castable from caller input: neither changeset below lists it, and the only
+    # writer is the activation write of `Letflow.Definitions.activate/2`, version rollback
+    # and promotion (a raw `Repo.update_all/3` `set:` list).
+    field(:activated_by, :map)
+
     timestamps(inserted_at: :created_at, type: :utc_datetime_usec)
   end
 
