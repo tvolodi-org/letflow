@@ -13,6 +13,13 @@ Design only. Signatures, types, step lists and test briefs; no function bodies.
 | Id | Change | Where |
 |---|---|---|
 | Ruling (a) | Refuse at activation (activate, version rollback, promotion apply) and at save any definition whose edge conditions, form `x-ui` expressions, service-task URL/body templates, sub-process interface entries or bound script inputs name the reserved namespace; stable code `expression_references_reserved_variable`, 422; detection by parsing (Expr AST head segment, template placeholder grammar, parsed interface, manifest keys) with `VariableMerge.reserved_key?/1`; no `Expr` change; read-only count gate before PR B; opening later needs its own decision record. Closes the section-15 follow-up "activation refusal for SUB_PROCESS interface inputs/outputs". OQ-A1b-1 (catalog `endpoint_url`) open with a recommendation. | 2A, 14, 15 |
+| CDV F1 (A1b gate) | WASM host `read_variable` (`engine/wasm/host_api.ex:252`, `do_read_variable/6`, exact `Map.fetch`, not wired to node dispatch) added to the 2A.1 inventory next to Lua's; I-13 names both as future locations that must use `ReservedReferences` (or `reserved_key?/1`) when wired. | 2A.1, 2A.7 |
+| SEC F1 (A1b gate) | I-13: any change to `ServiceTask.template_placeholder/0` ships the catalog-version reserved-name check in the same PR (the check itself is GH #2623, filed). A test pins the placeholder pattern (source string) and its dot-free KEY class. | 2A.6, 2A.7 |
+| SEC F2 (A1b gate, record only, PR B) | Engine-written reserved values would appear in API responses: instance reads (`routers/instances.ex` ~730 reconstruct, ~850 projection map) and the task-completion response (`routers/tasks.ex` ~681 `complete_result_map/1`). PR B decides strip vs permission-gate (INV-2). | 15 |
+| CDV F2 (A1b gate) | A1b and A3 both edit `engine.ex` and `scripts/runtime.ex`: they merge sequentially, never in parallel. | 14 |
+| OQ-A1b-1 | CLOSED: supervisor agreed to defer catalog `endpoint_url` templates to GH #2623. | 2A.10 |
+| 2A.5 count | Infra QA result (record `runs/2026-10-15-inv-sys-refs-defs-scripts-001`, 2026-10-15): `definitions_mentioning_sys = 0`, `scripts_with_reserved_inputs = 0` for all six tenants; superset 0, no exact check needed; no production app DB. A1b PR-body note. | 2A.5 |
+| A1b impl notes (ELIXIR-DEV) | (1) The type is `ReservedReferences.reserved_reference()`, not `reference()` (`reference/0` is a built-in type and cannot be redefined). (2) A name read twice by ONE expression or template is reported once (`Enum.uniq` per expression/template); distinct expressions still report separately. (3) `Promotion.promote_definition/3` returns the bare `{:error, {:expression_references_reserved_variable, refs}}` (like `script_binding_invalid`); the `{:promotion_failed, _}` wrapper is the apply path's, rendered 422 by `render_apply`. (4) L2-L4 walk any map `form_schema.properties` (no `JsonSchemaShape` precondition): a fail-closed superset of what CHK-20 inspects. (5) L5/L6 read the raw `endpoint` / `body_template` attributes of every SERVICE_TASK (including a node whose `endpoint` is ignored because `service_id` is set). | 2A.2 |
 
 ### Revision 1a (2026-10-15): CDV R1 applied during A1 implementation (ELIXIR-DEV)
 
@@ -360,6 +367,7 @@ dots (A1 note, revision 1a). Branch `feat/GH-2587-req499-pr-a1b-sys-expr-refusal
 | -- | HUMAN_TASK `role` (CHK-09 `graph.ex:965`), `distinct_from` (node ids), `required_outputs` (output key DECLARATIONS) | task activation / completion | no read reference (`required_outputs` declares a written key; a reserved one is refused at completion by A1 D-A1.3) | none in A1b (deferred, 2A.9) |
 | -- | Service-catalog version `endpoint_url` (rendered by the same renderer, `engine.ex:1158`) | catalog route | yes, but it is catalog data, not the definition | OQ-A1b-1 (2A.10) |
 | -- | Lua `read_variable(name)` (`lua/platform.ex:609-617`) | Lua executor | yes, but unwired for node dispatch (0.2) and named at run time, not in a definition | invariant I-13 (2A.7) |
+| -- | WASM host `read_variable` (`engine/wasm/host_api.ex:252`, `do_read_variable/6`: exact `Map.fetch(execution_context.variables, name)`) (CDV F1) | WASM executor | yes, but not wired to node dispatch and named at run time, not in a definition | invariant I-13 (2A.7) |
 
 No other `Expr` consumer exists in `lib/` (`grep Engine.Expr`: `graph.ex`, `semantic_validation.ex`,
 `form_schema_expressions.ex`, `form_expression_reevaluation.ex`, `transition.ex`; `entities/query/types.ex`
@@ -511,6 +519,12 @@ result shape `tenant_slug, count` as OQ-1:
 
 Constant SQL, no interpolation beyond the registry-quoted schema (INV-7); not shipped code.
 
+A1b PR-body note (infra, QA, record `runs/2026-10-15-inv-sys-refs-defs-scripts-001`,
+2026-10-15): `definitions_mentioning_sys = 0` and `scripts_with_reserved_inputs = 0` for all six
+tenants (bilimbaga, bpm-default, meridian, req384-eo001-b-740d4d13, swiftroute, vortex). The
+coarse superset (query 1's `strpos` filter) is 0, so no exact definition check is needed. No
+production application database exists. The same count is re-run as a GATE before PR B (15 (a)).
+
 ### 2A.6 Tests (`test/letflow/definitions/reserved_references_test.exs`, `async: true`, pure; and
 `test/letflow/definitions/reserved_references_activation_test.exs`, DB)
 
@@ -565,7 +579,11 @@ case fails; (6) remove CHK-29/30 -> the save cases fail; (7) call `check_reserve
 * I-13 No definition activated after A1b (activate, rollback, promotion) contains an expression,
   template placeholder, interface entry or bound script input naming the reserved namespace;
   any FUTURE location that reads variables by a definition-authored name (incl. the first wiring
-  of Lua `read_variable`) adds itself to `ReservedReferences` in the same PR.
+  of Lua `read_variable` or of the WASM host `read_variable`, `engine/wasm/host_api.ex:252`,
+  CDV F1) adds itself to `ReservedReferences` (or checks `VariableMerge.reserved_key?/1`) in the
+  same PR. Any change to `ServiceTask.template_placeholder/0` (e.g. a KEY class admitting a dot)
+  must ship, in the same PR, the service-catalog-version `endpoint_url` reserved-name check
+  (GH #2623, filed; SEC F1); `reserved_references_test.exs` pins the pattern as dot-free.
 * INV-5: not an indistinguishability surface. The 422 echoes only ids, field names and names from
   the caller's OWN graph (or, for L9, the property names of a script the same tenant published),
   under the same permission that submitted it; no record, other tenant or variable value.
@@ -597,7 +615,8 @@ case fails; (6) remove CHK-29/30 -> the save cases fail; (7) call `check_reserve
 
 ### 2A.10 Open question
 
-* **OQ-A1b-1 Catalog `endpoint_url` templates.** A service-catalog version's `endpoint_url` is
+* **OQ-A1b-1 Catalog `endpoint_url` templates. CLOSED (supervisor, 2026-10-15): deferred to
+  GH #2623, as recommended below; A1b does not touch the catalog.** A service-catalog version's `endpoint_url` is
   rendered by the same `{{variables.KEY}}` renderer (`engine.ex:1158`) but is catalog data, not
   part of the definition, and is resolved from the instance's pin at arm time, so definition
   activation cannot see it. Today it can name only the bare reserved key, which never holds a
@@ -1157,7 +1176,7 @@ definition policy), each with its own validator focus; one combined diff would e
 | PR | Contents | Touches | Depends on | Merge order |
 |---|---|---|---|---|
 | **A1** | sections 2.1-2.7: `_sys` refusal and all sources (incl. no-interface sub-process output strip, script run detail, SERVICE_TASK reserved-key ERROR), `put_sys/3`, both event types registered, reconstruction clauses and `folded_event_types/0`, static test (put_sys, event literals, `"_sys"` literals), Lua emit_event refusal of folded types | `variable_merge.ex`, `engine.ex` (code only), `sub_process.ex`, `pin_resolver.ex`, `reconstruction.ex`, `tenant_provisioning.ex`, `lua/platform.ex`, `script_task_dispatcher.ex` (fail-code type), `validation_failure.ex` (doc) | none | 1st |
-| **A1b** | section 2A (revision 1b): reserved-name references refused at save (CHK-29/30) and at all three activation paths; L9 in `check_bindings`; 422 renderers; `ServiceTask.template_placeholder/0` | files in 2A.8 (no file shared with A2) | stacked on A1 | after A1; serial with A2 (either order, no overlap) |
+| **A1b** | section 2A (revision 1b): reserved-name references refused at save (CHK-29/30) and at all three activation paths; L9 in `check_bindings`; 422 renderers; `ServiceTask.template_placeholder/0` | files in 2A.8 (no file shared with A2) | stacked on A1 | after A1; serial with A2 (either order, no overlap); before A3 (CDV F2: A1b and A3 both edit `engine.ex` and `scripts/runtime.ex`, so they merge sequentially) |
 | **A2** | sections 3.1-3.4: `append_multi` namespace, un-namespaced `sys:step:` refusal in EventStore, `fetch_instance_id/2`, `command_multi/3` with `:recheck_definition`, `interpret_in_multi/1`, `classify_step_error/1`, `sys:step:`/`source` refusals, caller tests | `event_store.ex`, `records.ex`, `entity_type_instance.ex` | merges after A1 | 2nd |
 | **A3** | sections 4, 10: `EntityPort` (subsumes `ScriptReadPort`), `EntityPortImpl`, `StepWrites` (`prepare/2` complete, write callbacks fail-closed), config key, Rule 6 text, 7c test renames (same tests green), script-path prefetch-only assertion, EE-12 text; `entity_port.ex` added to the event-literal allow-list | `engine/entity_port.ex` (new), `engine/script_read_port.ex` (deleted), `engine/script_task_dispatcher.ex`, `engine.ex` (moduledoc only), `entities/*`, `config/config.exs`, `check_boundaries.ex`, 7c tests | merges after A2 (A1's allow-list file) | 3rd |
 | **A4** | section 5: `writable_by_process`, module-guide section, F6 count | `entities/definition.ex`, `definition/validator.ex`, `definitions.ex`, `process_writable.ex` (new), `routers/entities.ex`, `definitions/solution_pack.ex`, `docs/guides/adding-an-application-module.md` | merges after A3 | 4th |
@@ -1210,13 +1229,19 @@ REQ-499 / GH #2587, this design, and the split reason.
   (c) Type safety: `sys_value()` is any binary and the event's `values` schema is
   `{"type": "object"}`; PR B narrows ids to UUIDs and seqs to non-negative integers (in
   `sys_key?/1`/`sys_value?/1` or a per-key shape) before it starts writing.
+* PR B also (SEC F2 on the A1b gate, record only): once the engine writes reserved values they
+  would appear in API responses: instance reads (`routers/instances.ex` ~730, the reconstruct
+  body's `"variables"`, and ~850, the projection map's `"variables"`) and the task-completion
+  response (`routers/tasks.ex` ~681, `complete_result_map/1`'s `variables`). PR B must decide
+  whether to strip them (`VariableMerge.drop_reserved/1`) or gate them by permission (INV-2),
+  and test the choice on all three surfaces.
 * PR C: sentinel-actor proof, SERVICE_TASK nested Multi, dispatch-keyed `sys:step:<dispatch_id>:<i>`,
   service-path contention mapping and `SET LOCAL` in the nested call, lock-order proof.
 * REQ-501: module write handlers, `owner_module` stamp, manifest hash, PinRebind rule.
 * Follow-ups: share AST scan helpers between `managed_types_callers_test.exs` and
   `command_multi_callers_test.exs` after #2596; (DONE in A1b, section 2A: activation and save
   refusal of a SUB_PROCESS interface whose `inputs` OR `outputs` name a `_sys.` key); the 2A.9
-  deferrals and OQ-A1b-1; GH #2618 (type classification
+  deferrals and GH #2623 (OQ-A1b-1, catalog `endpoint_url`, CLOSED as deferred); GH #2618 (type classification
   replacing the 9.2 name list); GH #2619 (solution-pack path to a process-writable unmanaged type).
 
 ## 16. Open questions: all CLOSED by supervisor rulings (revision 1)

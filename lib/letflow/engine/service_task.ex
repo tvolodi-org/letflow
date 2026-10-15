@@ -344,6 +344,38 @@ defmodule Letflow.Engine.ServiceTask do
   end
 
   # ===========================================================================
+  # Template placeholder grammar (GH #2587 PR A1b, design 2A.2 L5-L6)
+  # ===========================================================================
+
+  @doc """
+  The ONE source of the `{{variables.KEY}}` placeholder grammar: `Letflow.Engine`'s URL and
+  body renderers substitute with it and `Letflow.Definitions.ReservedReferences` parses
+  templates with it. KEY is `[a-zA-Z0-9_]+`: it has no dot, so a placeholder can only ever
+  name a flat top-level key.
+
+  Invariant I-13 (SEC F1 on the A1b gate): any change to this pattern must ship, in the same
+  PR, the service-catalog-version `endpoint_url` reserved-name check (GH #2623), because a
+  catalog template is rendered with this grammar but is not part of a definition, so
+  activation-time checks cannot see it. A function, not a module attribute, so the compiled
+  regex is never stored in a module attribute.
+  """
+  @spec template_placeholder() :: Regex.t()
+  def template_placeholder, do: ~r/\{\{\s*variables\.([a-zA-Z0-9_]+)\s*\}\}/
+
+  @doc """
+  The KEYs captured by `template_placeholder/0` in `template`, in order (duplicates kept);
+  `nil` -> `[]`. Pure.
+  """
+  @spec template_variable_keys(String.t() | nil) :: [String.t()]
+  def template_variable_keys(nil), do: []
+
+  def template_variable_keys(template) when is_binary(template) do
+    template_placeholder()
+    |> Regex.scan(template, capture: :all_but_first)
+    |> Enum.map(fn [key] -> key end)
+  end
+
+  # ===========================================================================
   # validate_rendered_url/1 (AC6)
   # ===========================================================================
 

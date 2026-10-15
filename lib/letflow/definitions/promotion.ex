@@ -136,6 +136,8 @@ defmodule Letflow.Definitions.Promotion do
           | :source_definition_missing
           | :duplicate_version
           | {:conflicts, [PromotionConflict.conflict_detail()]}
+          | {:expression_references_reserved_variable,
+             [Letflow.Definitions.ReservedReferences.reserved_reference()]}
           | Ecto.Changeset.t()
           | term()
 
@@ -394,9 +396,12 @@ defmodule Letflow.Definitions.Promotion do
           {:ok, new_row} ->
             # GH 2534 PR 7c-1 (decision 0053 D2, F8; design 4.5): the promoted graph's script
             # bindings are checked in the TARGET prefix, inside this transaction, before the
-            # status write.
-            case Letflow.Definitions.check_script_bindings(new_row, target_prefix) do
-              :ok -> :ok
+            # status write. GH #2587 PR A1b (design 2A.3): the reserved-namespace references
+            # first, so a refused graph takes no script-row lock.
+            with :ok <- Letflow.Definitions.check_reserved_references(new_row),
+                 :ok <- Letflow.Definitions.check_script_bindings(new_row, target_prefix) do
+              :ok
+            else
               {:error, reason} -> Repo.rollback(reason)
             end
 

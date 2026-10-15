@@ -748,6 +748,9 @@ defmodule Letflow.Definitions do
           | {:error, {:semantic_validation_precondition_failed, term()}}
           | {:error,
              {:script_binding_invalid, String.t(), Letflow.Scripts.Runtime.binding_reason()}}
+          | {:error,
+             {:expression_references_reserved_variable,
+              [Letflow.Definitions.ReservedReferences.reserved_reference()]}}
           | common_error()
   def activate(id, opts) when is_list(opts) do
     prefix = Keyword.get(opts, :prefix)
@@ -928,6 +931,9 @@ defmodule Letflow.Definitions do
           | {:error, :process_key_not_found}
           | {:error, :version_never_active}
           | {:error, :already_active}
+          | {:error,
+             {:expression_references_reserved_variable,
+              [Letflow.Definitions.ReservedReferences.reserved_reference()]}}
           | {:error, term()}
           | common_error()
 
@@ -2329,6 +2335,7 @@ defmodule Letflow.Definitions do
           case run_service_scope_validator(definition, tenant_id, validator) do
             :ok ->
               with :ok <- run_semantic_validation(definition, prefix),
+                   :ok <- check_reserved_references(definition),
                    :ok <- check_script_bindings(definition, prefix) do
                 activate_draft(definition, prefix, tenant_id)
               else
@@ -2353,10 +2360,39 @@ defmodule Letflow.Definitions do
           | {:error, :graph_structure_invalid}
           | {:error,
              {:script_binding_invalid, String.t(), Letflow.Scripts.Runtime.binding_reason()}}
+          | {:error,
+             {:expression_references_reserved_variable,
+              [Letflow.Definitions.ReservedReferences.reserved_reference()]}}
   def check_script_bindings(%{graph: graph_map}, prefix) do
     case Graph.from_map(graph_map) do
       {:ok, graph} -> Letflow.Scripts.Runtime.check_bindings(graph, prefix)
       :error -> {:error, :graph_structure_invalid}
+    end
+  end
+
+  # GH #2587 PR A1b (decision 0054; design gh2587-req499-pr-a-prerequisites.md 2A.3): no
+  # expression, template placeholder or sub-process interface entry of the graph may name the
+  # reserved engine namespace (L1-L8; L9, a bound script's input, is checked inside
+  # check_script_bindings/2). Shared by the three activation paths (activate/2, version
+  # rollback, promotion apply) and run BEFORE check_script_bindings/2, so a refused graph takes
+  # no FOR SHARE script-row lock. Pure: no query.
+  @doc false
+  @spec check_reserved_references(ProcessDefinition.t() | map()) ::
+          :ok
+          | {:error, :graph_structure_invalid}
+          | {:error,
+             {:expression_references_reserved_variable,
+              [Letflow.Definitions.ReservedReferences.reserved_reference()]}}
+  def check_reserved_references(%{graph: graph_map}) do
+    case Graph.from_map(graph_map) do
+      {:ok, graph} ->
+        case Letflow.Definitions.ReservedReferences.find(graph) do
+          [] -> :ok
+          references -> {:error, {:expression_references_reserved_variable, references}}
+        end
+
+      :error ->
+        {:error, :graph_structure_invalid}
     end
   end
 
@@ -2512,6 +2548,12 @@ defmodule Letflow.Definitions do
   # GH 2534 PR 7c-1 (design 4.5): the script-binding refusal, a pure pass-through.
   defp interpret_activate_result({:error, {:script_binding_invalid, _node_id, _reason}} = error),
     do: error
+
+  # GH #2587 PR A1b (design 2A.4): the reserved-namespace refusal, a pure pass-through.
+  defp interpret_activate_result(
+         {:error, {:expression_references_reserved_variable, _references}} = error
+       ),
+       do: error
 
   # -----------------------------------------------------------------------------------
   # deprecate/2 & archive/2 helpers (design §6.3) -- identical shape, different
@@ -2681,9 +2723,12 @@ defmodule Letflow.Definitions do
             Repo.rollback(:version_never_active)
           else
             # GH 2534 PR 7c-1 (design 4.5): the re-activated graph's script bindings, inside
-            # this transaction, before the pointer swap.
-            case check_script_bindings(target_row, prefix) do
-              :ok -> swap_active_pointer(current_active, target_row, prefix)
+            # this transaction, before the pointer swap. GH #2587 PR A1b (design 2A.3): the
+            # reserved-namespace references first.
+            with :ok <- check_reserved_references(target_row),
+                 :ok <- check_script_bindings(target_row, prefix) do
+              swap_active_pointer(current_active, target_row, prefix)
+            else
               {:error, reason} -> Repo.rollback(reason)
             end
           end
