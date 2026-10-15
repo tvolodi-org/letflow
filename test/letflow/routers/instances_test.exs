@@ -574,6 +574,92 @@ defmodule Letflow.Routers.InstancesTest do
 
       assert conn.status == 403
     end
+
+    # GH #2595: an instance that ran an HTTP SERVICE_TASK to :advance used to fail replay
+    # with {:unrecognized_event_type, "SERVICE_TASK_COMPLETED", _}.
+    test "reconstructing an instance past an HTTP service task returns 200 with the merged response body" do
+      Application.put_env(:letflow, :service_task_ssrf_validation_enabled, false)
+      on_exit(fn -> Application.delete_env(:letflow, :service_task_ssrf_validation_enabled) end)
+      %{url: server_url} = Letflow.WebhookTestServer.start(200, ~s({"approved":true}))
+
+      tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2595-recon")
+      schema_name = tenant.schema_name
+
+      graph = %{
+        "nodes" => [
+          %{"id" => "start", "node_type" => "START"},
+          %{
+            "id" => "svc",
+            "node_type" => "SERVICE_TASK",
+            "attributes" => %{"endpoint" => server_url, "timeout_ms" => 5_000}
+          },
+          %{"id" => "task", "node_type" => "HUMAN_TASK", "attributes" => %{"role" => "approver"}},
+          %{"id" => "end", "node_type" => "END"}
+        ],
+        "edges" => [
+          %{"id" => "e1", "source" => "start", "target" => "svc"},
+          %{"id" => "e2", "source" => "svc", "target" => "task"},
+          %{"id" => "e3", "source" => "task", "target" => "end"}
+        ]
+      }
+
+      assert {:ok, definition} =
+               Definitions.create(
+                 %{
+                   name: unique_name("gh2595-def"),
+                   version: "1.0.0",
+                   graph: graph,
+                   created_by: Ecto.UUID.generate()
+                 },
+                 prefix: schema_name
+               )
+
+      assert {:ok, %{definition: activated}} =
+               Definitions.activate(definition.id, prefix: schema_name)
+
+      assert {:ok, %{instance_id: instance_id}} =
+               Engine.create(
+                 %{
+                   definition_id: activated.id,
+                   initial_variables: %{},
+                   actor_id: Ecto.UUID.generate(),
+                   idempotency_key: unique_idempotency_key("gh2595-start")
+                 },
+                 prefix: schema_name
+               )
+
+      [row] =
+        Repo.all(
+          from(d in Letflow.Engine.ServiceTaskDispatcher.ServiceTaskDispatch,
+            where: d.instance_id == ^instance_id
+          ),
+          prefix: schema_name
+        )
+
+      assert {:ok, {:advance, decoded_body}} =
+               Letflow.Engine.ServiceTaskDispatcher.attempt_dispatch(row.id, schema_name)
+
+      assert {:ok, :advanced} =
+               Engine.advance_after_service_task_outcome(
+                 row.id,
+                 {:advance, decoded_body},
+                 Repo,
+                 schema_name
+               )
+
+      conn =
+        build_conn("POST", "/#{instance_id}/reconstruct", tenant, %{
+          roles: ["PROCESS_OPERATOR"]
+        })
+        |> dispatch()
+
+      assert conn.status == 200
+      body = Jason.decode!(conn.resp_body)
+      assert body["instance_id"] == instance_id
+      assert body["status"] == "ACTIVE"
+      assert [%{"node_id" => "task"}] = body["tokens"]
+      assert body["variables"] == %{"approved" => true}
+    end
   end
 
   # ══════════════════════════════════════════════════════════════════════
