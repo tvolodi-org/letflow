@@ -96,6 +96,7 @@ defmodule Letflow.ServiceCatalog.Entry do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias Letflow.Definitions.ReservedReferences
   alias Letflow.Webhooks.UrlValidator
 
   @primary_key {:service_id, :string, autogenerate: false}
@@ -241,6 +242,7 @@ defmodule Letflow.ServiceCatalog.Entry do
     |> validate_required([:status, :retired_at, :updated_at])
   end
 
+  @endpoint_url_reserved_message "must not reference the reserved engine variable namespace"
   @endpoint_url_message "must be an https URL whose host is not a private, loopback or link-local address; template placeholders are allowed only after the host"
 
   @doc """
@@ -262,6 +264,21 @@ defmodule Letflow.ServiceCatalog.Entry do
       :ok
     else
       _ -> {:error, :endpoint_url_not_allowed}
+    end
+  end
+
+  @doc """
+  Pure refusal of a catalog `endpoint_url` that references the reserved engine variable
+  namespace (`{{variables._sys}}`, `{{variables._sys.<anything>}}`, any whitespace in the
+  braces; GH #2623, invariant I-13). Uses `ReservedReferences.reserved_template_names/1`, the
+  same predicate as the definition check. Independent of `check_endpoint_url/1`.
+  """
+  @spec check_endpoint_url_references(endpoint_url :: String.t()) ::
+          :ok | {:error, :endpoint_url_reserved_variable}
+  def check_endpoint_url_references(endpoint_url) do
+    case ReservedReferences.reserved_template_names(endpoint_url) do
+      [] -> :ok
+      [_ | _] -> {:error, :endpoint_url_reserved_variable}
     end
   end
 
@@ -296,6 +313,11 @@ defmodule Letflow.ServiceCatalog.Entry do
 
       Keyword.has_key?(changeset.errors, :endpoint_url) ->
         changeset
+
+      check_endpoint_url_references(value) != :ok ->
+        add_error(changeset, :endpoint_url, @endpoint_url_reserved_message,
+          validation: :endpoint_url_reserved_variable
+        )
 
       check_endpoint_url(value) == :ok ->
         changeset

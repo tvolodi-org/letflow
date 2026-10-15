@@ -143,6 +143,20 @@ defmodule Letflow.Definitions.ReservedReferences do
 
   defp node_refs(_other_type, _id, _attrs), do: []
 
+  @doc """
+  The reserved KEYs referenced by a template, as the DOT-widened grammar
+  (`ServiceTask.template_reference_keys/1`) sees them, in order, duplicates kept (GH #2623).
+  Used by the service-catalog `endpoint_url` refusal so the catalog and definitions share one
+  predicate (`VariableMerge.reserved_key?/1`). `[]` for nil, a non-binary, or no reference.
+  Pure, total.
+  """
+  @spec reserved_template_names(String.t() | nil) :: [String.t()]
+  def reserved_template_names(template) do
+    template
+    |> ServiceTask.template_reference_keys()
+    |> Enum.filter(&VariableMerge.reserved_key?/1)
+  end
+
   # ── L5-L6 templates ───────────────────────────────────────────────────────
 
   defp template_refs(id, location, template) when is_binary(template) do

@@ -98,6 +98,15 @@ defmodule Letflow.Routers.AdminServices do
   nothing to list beyond the one conflicting id already named in the
   request body).
 
+  ## 422 `endpoint_url_reserved_variable` (GH #2623)
+
+  `POST /` (register) and `POST /:service_id/versions` (publish) answer 422
+  `{"error": "endpoint_url_reserved_variable", "field": "endpoint_url"}` when the supplied (or,
+  on publish, inherited) `endpoint_url` references the reserved engine variable namespace
+  (`{{variables._sys}}`, `{{variables._sys.<anything>}}`). The body echoes neither the URL nor
+  the matched name. Every other changeset error on these two routes keeps the generic 422
+  "validation failed" (including `:endpoint_url_not_allowed`).
+
   ## Cross-tenant-404 (design §10)
 
   None of the four routes here is tenant-filtered — every row is visible
@@ -226,8 +235,10 @@ defmodule Letflow.Routers.AdminServices do
         {:error, :duplicate_service_id} ->
           Response.conflict(conn, "service_id already registered")
 
-        {:error, %Ecto.Changeset{}} ->
-          Response.unprocessable(conn, "validation failed")
+        {:error, %Ecto.Changeset{} = changeset} ->
+          if reserved_endpoint_url?(changeset),
+            do: Response.endpoint_url_reserved_variable(conn),
+            else: Response.unprocessable(conn, "validation failed")
       end
     else
       {:error, :malformed_json} ->
@@ -308,8 +319,10 @@ defmodule Letflow.Routers.AdminServices do
         {:error, :duplicate_version} ->
           Response.conflict(conn, "version already exists for this service_id")
 
-        {:error, %Ecto.Changeset{}} ->
-          Response.unprocessable(conn, "validation failed")
+        {:error, %Ecto.Changeset{} = changeset} ->
+          if reserved_endpoint_url?(changeset),
+            do: Response.endpoint_url_reserved_variable(conn),
+            else: Response.unprocessable(conn, "validation failed")
       end
     else
       {:error, :malformed_json} ->
@@ -350,6 +363,14 @@ defmodule Letflow.Routers.AdminServices do
       body when is_map(body) -> {:ok, body}
       _other -> {:error, :malformed_json}
     end
+  end
+
+  # GH #2623: the changeset carries the stable reserved-variable code on :endpoint_url.
+  defp reserved_endpoint_url?(%Ecto.Changeset{errors: errors}) do
+    Enum.any?(errors, fn
+      {:endpoint_url, {_msg, opts}} -> opts[:validation] == :endpoint_url_reserved_variable
+      _other -> false
+    end)
   end
 
   defp maybe_put(attrs, body, body_key, attrs_key) do
