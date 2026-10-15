@@ -684,6 +684,42 @@ jobs:
             fi
           done
 
+      # MEASUREMENT ONLY (GH #2630) -- DO NOT MERGE
+      # Throwaway: samples pg_stat_activity every 0.25 s in the background while the shard
+      # runs; the report step below prints peaks. Bounded: the loop self-exits after 2400 s
+      # and the report step kills it. Steps only, no job added.
+      - name: "MEASURE GH2630: start pg_stat_activity sampler"
+        if: needs.changes.outputs.backend != 'false'
+        timeout-minutes: 2
+        env:
+          PGPASSWORD: letflow
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/pgsample.sql" <<'EOSQL'
+          select to_char(clock_timestamp() at time zone 'utc','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') || '|' || coalesce(sum(c),0) || '|' || coalesce(string_agg(an || ':' || st || ':' || un || '=' || c, ',' order by c desc),'') from (select coalesce(application_name,'') an, coalesce(state,'') st, coalesce(usename,'') un, count(*) c from pg_stat_activity group by 1,2,3) s;
+          EOSQL
+          cat > "$RUNNER_TEMP/pgsample.sh" <<'EOSH'
+          #!/usr/bin/env bash
+          # one line per sample: <utc ts>|<total>|<app:state:user=count,...>; a failed connect is logged as ERR
+          out="$RUNNER_TEMP/pgsample.log"
+          : > "$out"
+          while [ "$SECONDS" -lt 2400 ]; do
+            line=$(psql -h 127.0.0.1 -p 5462 -U letflow -d postgres -At -X -f "$RUNNER_TEMP/pgsample.sql" 2>&1 | tr '\n' ' ') || true
+            case "$line" in
+              20*) echo "$line" >> "$out" ;;
+              *) echo "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)|ERR|$line" >> "$out" ;;
+            esac
+            sleep 0.25
+          done
+          EOSH
+          chmod +x "$RUNNER_TEMP/pgsample.sh"
+          bash -n "$RUNNER_TEMP/pgsample.sh"
+          nohup setsid "$RUNNER_TEMP/pgsample.sh" > /dev/null 2>&1 &
+          echo $! > "$RUNNER_TEMP/pgsample.pid"
+          sleep 1
+          echo "sampler pid $(cat "$RUNNER_TEMP/pgsample.pid") started; first samples:"
+          head -n 3 "$RUNNER_TEMP/pgsample.log" || true
+
       - name: Run test shard
         if: needs.changes.outputs.backend != 'false'
         run: mix letflow.check.test --shard ${{ matrix.shard }}/${{ strategy.job-total }}
@@ -691,6 +727,54 @@ jobs:
           MIX_ENV: test
           WASMEX_BUILD: true
           TEST_PARALLEL_N: 4
+
+      # MEASUREMENT ONLY (GH #2630) -- DO NOT MERGE
+      # Test output is not captured to a file by the step above, so FATAL timestamps are taken
+      # from the server side: `docker logs` of the postgres service container (server log lines
+      # carry UTC timestamps joinable with the sampler). Client-side "FATAL 53300" lines are in
+      # the "Run test shard" step log of this job; grep it with the same strict pattern.
+      - name: "MEASURE GH2630: report connection peaks"
+        if: always()
+        timeout-minutes: 5
+        env:
+          PGPASSWORD: letflow
+        run: |
+          set -uo pipefail
+          log="$RUNNER_TEMP/pgsample.log"
+          if [ -f "$RUNNER_TEMP/pgsample.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/pgsample.pid")" 2>/dev/null || true
+            pkill -f pgsample.sh 2>/dev/null || true
+          fi
+          sleep 1
+          echo "===== GH2630 server settings ====="
+          q() { psql -h 127.0.0.1 -p 5462 -U letflow -d postgres -At -X -c "$1" 2>&1; }
+          echo "max_connections=$(q 'show max_connections')"
+          echo "superuser_reserved_connections=$(q 'show superuser_reserved_connections')"
+          echo "rolsuper(current_user)=$(q 'select rolsuper from pg_roles where rolname = current_user')"
+          if [ -s "$log" ]; then
+            echo "===== GH2630 samples ====="
+            echo "sample_count=$(wc -l < "$log")"
+            echo "failed_connect_samples=$(grep -c '|ERR|' "$log" || true)"
+            ok=$(mktemp)
+            grep -v '|ERR|' "$log" > "$ok" || true
+            echo "peak_total=$(sort -t'|' -k2,2 -n -r "$ok" | head -n 1 | cut -d'|' -f2)"
+            echo "samples_total_ge_95=$(awk -F'|' '$2>=95' "$ok" | wc -l)"
+            echo "----- top 5 samples (ts|total|app:state:user=count) -----"
+            sort -t'|' -k2,2 -n -r "$ok" | head -n 5
+            echo "----- ERR samples (first 10) -----"
+            grep '|ERR|' "$log" | head -n 10 || true
+          else
+            echo "no sampler log at $log"
+          fi
+          echo "===== GH2630 FATAL 53300 (server log of postgres service container) ====="
+          cid=$(docker ps -a --filter ancestor=postgres:16 -q | head -n 1)
+          if [ -n "$cid" ]; then
+            docker logs "$cid" 2>&1 | grep -E 'FATAL 53300 \(too_many_connections\)|sorry, too many clients already' > "$RUNNER_TEMP/fatal.txt" || true
+            echo "fatal_count=$(wc -l < "$RUNNER_TEMP/fatal.txt")"
+            head -n 50 "$RUNNER_TEMP/fatal.txt"
+          else
+            echo "postgres container not found"
+          fi
 
   # This job's `name:` string is a required-status-check `context` on main's branch
   # protection (docs/migration/decisions/0018-branch-protection-posture.md). Do not
