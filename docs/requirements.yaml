@@ -36317,3 +36317,30 @@ requirements:
       - "10. Changing core_role_allows? for any role, or adding a core permission atom, without regenerating the golden fails the check (test with an injected permission list containing an atom absent from the golden fixture)"
       - "11. --write regenerates the file deterministically (byte-identical twice; ordered by role then permission) (test)"
     depends_on: []
+
+  - id: REQ-499
+    title: "Process step writes records in the same transaction as the task completion (decision 0054): declarative entity_writes on HUMAN_TASK (done: PR A, PR B) and SERVICE_TASK (PR C remaining)"
+    owner: ELIXIR-DEV
+    status: in_progress
+    stage: S7
+    gh: 2587
+    # Source: GH #2587 (filed by letflow-2, sole filer; the body is the content authority incl. the appended ruling and PR B sections). Decision 0054 (option A: a managed type is never a declarative target; amendment D4a.5). Id REQ-499 allocated by letflow-2 (sole allocator). Entry written by DOC-UPDATER (letflow-2) 2026-10-16; none of the implementing PRs wrote it.
+    description: >
+      A HUMAN_TASK or SERVICE_TASK node may declare `entity_writes`; the engine
+      applies them in the same transaction as the completion, create-only on
+      append-only types in the MVP, bound by the activator's recorded authority
+      (`activated_by`) and the completer's scope. Delivered on main: PR A1 #2620,
+      A1b #2626, A2 #2629, A3 #2631, A4 #2634 (prerequisites: reserved `_sys`
+      namespace, `Records.command_multi/3`, `EntityPort`, `writable_by_process`);
+      PR B3 #2640, B1 #2642, B2 #2645 (the HUMAN_TASK path end to end). Remaining:
+      PR C, the SERVICE_TASK path, after its C0 step and REQ-501 / GH #2590
+      (module write handlers); PR C's first commit is `%StepSource{}` (GH #2627).
+      Status stays in_progress until PR C merges and RELEASE-VALIDATOR re-verifies.
+      The issue body of GH #2587 is the full acceptance-criteria list; the progress
+      check against main 53ad1cd9 is its comment of 2026-10-16.
+    acceptance_criteria:
+      - "1. PR A (prerequisites) delivered: reserved `_sys` namespace and `put_sys` (A1 #2620), no definition expression may reference `_sys` (A1b #2626), `Records.command_multi/3` and server step keys (A2 #2629), one `EntityPort` with `StepWrites.prepare/2` (A3 #2631), `writable_by_process` with the interim denied-name list (A4 #2634)."
+      - "2. PR B (HUMAN_TASK path) delivered: B3 strips `_sys` from instance, task, history, timeline, Lua and Wasm reads (#2640); B1 validates `entity_writes` at activation and records `activated_by` (#2642); B2 applies the writes on completion (#2645)."
+      - "3. PR C (SERVICE_TASK path) is delivered by its own PR(s), after C0 and REQ-501 / GH #2590, with `%StepSource{}` (GH #2627) as its first commit. NOT DELIVERED."
+      - "4. Follow-ups tracked, not blocking this requirement: GH #2618, #2619 (writable_by_process classification, packs), #2624, #2628, #2632, #2635, #2638, #2644 (activated_by hardening), #2646 (test gaps)."
+    depends_on: [REQ-496]

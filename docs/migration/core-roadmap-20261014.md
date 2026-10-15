@@ -67,12 +67,14 @@ Neither slice needs a core change.
 | Record | Requirement | Issue | State |
 |---|---|---|---|
 | 0055 D12 step 2a | REQ-498 effective-permission golden file in CI | #2586 | **done** (merged #2612, fe06bdd9) |
-| 0054 | REQ-499 process step writes entity (3 PRs) | #2587 | ready; prerequisite #2550 merged (90e5f2be); the 0054 option-A amendment is on main (75724bbb) |
+| 0054 | REQ-499 process step writes entity | #2587 | **in progress**: PR A (A1..A4) and PR B (B3 #2640, B1 #2642, B2 #2645) delivered; remaining PR C (SERVICE_TASK) after C0 and REQ-501 (#2590); #2587 stays open |
 | 0054 option A | REQ-501 module write handlers for managed types (2 PRs) | #2590 | ready; depends on #2587 PR A and #2583 (merged 4242547e) |
 | 0056 slice 1 | REQ-500 versioned documents (3 PRs) | #2588 | ready; pluggable OrgResolver accepted, so the org module is not a prerequisite of slice 1 |
 | 0051 stage 1 | REQ-497 (PR 1a merged #2592, c55baa4f; PR 1b open #2601) | #2533 | in flight |
 | 0053 hook 1 | scripts stage 1 (7a, 7b-1, 7b-2a, 7b-2b, 7c-1 #2605, 7c-2 #2607) | #2534 | closed |
 
+
+Engine test seam note (PR B2, #2645): the B1 execution flag was deleted, and the engine's test seams are now gated by the compile-time test flag `:engine_test_seams` (`config/test.exs`), so no seam is compiled outside the test environment.
 
 **WMS slice 5 (stock ledger) starts after "process step writes entity" (0054, Accepted).**
 

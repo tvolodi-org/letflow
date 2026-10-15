@@ -6028,9 +6028,14 @@ volumes:
 
   - volume: 26
     path: docs/status/requirement_status.v26.yaml
-    status: current
+    status: closed
     opened: 2026-10-03
-    entries: 56
+    closed: 2026-10-16
+    entries: 57
+    lines: 1218
+    bytes_working_tree: 68273
+    frozen_prefix_lines: 1206
+    frozen_prefix_sha256: "daf66b598ad2e2994a4357d83a8e43081b6bce672c1dd9a119d934c24fd400af"
     note: >
       Opened by DOC-UPDATER's own ISS-0983 closing SCOPE-CHANGE append,
       successor to volume 25 (closed at 29 entries / 1211 frozen-prefix
@@ -6203,6 +6208,18 @@ volumes:
       by earlier runs without a note here); 1192 lines / 66909 bytes working tree, under
       the 1200-line/120000-byte roll ceiling, no roll triggered. The NEXT append will
       likely exceed 1200 lines and must roll to volume 27 per roll_rule.on_exceed.
+
+  - volume: 27
+    path: docs/status/requirement_status.v27.yaml
+    status: current
+    opened: 2026-10-16
+    entries: 0
+    note: >
+      Opened by DOC-UPDATER (letflow-2) at the roll triggered by the REQ-499
+      `started` append, successor to volume 26 (closed at 57 entries / 1206
+      frozen-prefix lines, over the 1200-line roll ceiling). Created with volume
+      26's header text verbatim (volume number and predecessor path updated) and
+      an empty entry list, per this index's `roll_rule.on_exceed` procedure.
 
 known_anomalies:
   # Entries that do not conform to the documented vocabulary and are LEFT AS

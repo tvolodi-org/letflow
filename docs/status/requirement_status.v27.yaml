@@ -1,0 +1,44 @@
+# Letflow — Requirement run history — VOLUME 27 (CURRENT)
+#
+# docs/requirements.yaml's `status:` field is the current state of each
+# requirement (pending/in_progress/done/blocked) — read that first. This file is
+# the history behind it: one entry per time an agent picked up, finished, or got
+# blocked on a piece of work.
+#
+# APPEND ONE ENTRY PER EVENT. NEVER REWRITE, REORDER, EDIT OR DELETE A PAST
+# ENTRY — in this volume or any closed one. An agent once rewrote this history
+# from scratch with different field names and silently destroyed prior entries;
+# see docs/anti-patterns.md, "Overwriting docs/status/requirement_status.yaml
+# instead of appending". That is what this rule exists to prevent, and it is not
+# negotiable.
+#
+# VOLUMES. The history is split across volumes because a file too large to read
+# cannot show you its own schema. Index (start here):
+#   docs/status/requirement_status.index.yaml
+# Predecessor: docs/status/requirement_status.v26.yaml (volume 26, closed,
+#   1206 frozen-prefix lines / 1218 total lines with closure footer --
+#   over its own roll ceiling, so targeted reads only; see the index).
+#
+# ENTRY SCHEMA. Five fields, in this order, one entry per `- req:` list item:
+#   - req: <REQ-NNN | SCOPE-CHANGE>
+#     event: <started | done | blocked | cancelled | revised | verified>
+#     agent: <AGENT_ID that generated this entry>
+#     at: <real UTC timestamp from the clock, ISO-8601, e.g. 2026-09-26T12:03:14Z>
+#     note: >
+#       <short free-text — what happened, what's next, real evidence quoted>
+#
+# `req: SCOPE-CHANGE` is for work not tied to a single requirement id (a
+# multi-requirement reconciliation, a cross-cutting fix) — name the real scope
+# in `note:`. SCOPE-CHANGE is a `req:` value, never an `event:` value.
+#
+# ROLL RULE: this volume closes and a new one opens once it exceeds 1200 lines
+# or 120000 bytes, whichever comes first — see the index's `roll_rule:`. Stated
+# two ways so both a human skim and the mechanical check find it: this volume
+# stays under 1,200 lines / 120,000 bytes; the exact rule is closure once
+# lines > 1200 OR bytes > 120000.
+#
+# A closed volume may carry known-anomaly declarations in the index under two
+# keys: `known_anomalies:` (vocabulary) and `known_shape_anomalies:` (field
+# set/order). A roll must never drop the `known_shape_anomalies:` declaration.
+
+history:

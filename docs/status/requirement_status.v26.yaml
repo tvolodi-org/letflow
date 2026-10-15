@@ -1190,3 +1190,29 @@ history:
     note: >
       GH #2586 merged as #2612 (fe06bdd9). S10 by RELEASE-VALIDATOR on main:
       11/11 ACs delivered (issue comment). Flipped by letflow-2, sole filer.
+
+  - req: REQ-499
+    event: started
+    agent: DOC-UPDATER
+    at: "2026-10-16T00:00:00Z"
+    note: >
+      GH #2587 (REQ-499, filed by letflow-2). Requirement entry written to
+      docs/requirements.yaml by DOC-UPDATER with status in_progress: none of the
+      implementing PRs wrote it. Delivered on main 53ad1cd9: PR A1 #2620, A1b
+      #2626, A2 #2629, A3 #2631, A4 #2634, PR B3 #2640, B1 #2642, B2 #2645 (the
+      HUMAN_TASK path). Remaining: PR C (SERVICE_TASK) after C0 and REQ-501 /
+      GH #2590. The progress check of the series is the comment of 2026-10-16 on
+      GH #2587. Status stays in_progress until PR C; this entry is the volume's
+      closing append and triggers the roll to volume 27.
+# VOLUME 26 — CLOSED 2026-10-16. DO NOT APPEND TO THIS FILE.
+# This volume holds the complete requirement run history from 2026-10-03 through
+# 2026-10-16 (57 entries, 1206 frozen-prefix lines before this closure footer).
+# It is frozen: every line above this comment is preserved byte-for-byte. Closed
+# by DOC-UPDATER's REQ-499 `started` append, which took this file over the
+# declared roll_rule ceiling (1200 lines / 120000 bytes). No entry above this
+# footer was moved, edited or deleted.
+#
+# Successor:
+#   docs/status/requirement_status.v27.yaml
+#
+# KNOWN ANOMALIES IN THIS VOLUME: none introduced by this closure.
