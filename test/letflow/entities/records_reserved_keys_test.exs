@@ -205,7 +205,7 @@ defmodule Letflow.Entities.RecordsReservedKeysTest do
           task_id: task_id,
           node_id: "n",
           definition_id: Ecto.UUID.generate(),
-          definition_version: 1,
+          definition_version: "1",
           line_index: 0,
           activator_id: ctx.user_id
         }

@@ -4,7 +4,7 @@ defmodule Letflow.Entities.EntityPortImpl do
   `Letflow.Engine.EntityPort`, injected through `config :letflow, :entity_port`.
 
   A delegating adapter: the read callback `prefetch/3` goes to `Letflow.Entities.ScriptReads`
-  and the three write callbacks (`prepare/2`, `validate_lines/2`, `multi/3`) go to
+  and the write callbacks (`prepare/2`, `validate_lines/2`, `multi/3`, `interpret_failure/2`) go to
   `Letflow.Entities.StepWrites`, so each keeps a single responsibility while the engine still
   sees exactly one behaviour, one injected module and one config key.
   """
@@ -25,4 +25,7 @@ defmodule Letflow.Entities.EntityPortImpl do
 
   @impl Letflow.Engine.EntityPort
   defdelegate multi(multi, lines, ctx), to: StepWrites
+
+  @impl Letflow.Engine.EntityPort
+  defdelegate interpret_failure(step, reason), to: StepWrites
 end

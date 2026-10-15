@@ -4,9 +4,32 @@ defmodule Letflow.Entities.StepWrites do
   reached through `Letflow.Entities.EntityPortImpl`. Design
   `lib/letflow/design/gh2587-req499-pr-a-prerequisites.md` section 4.3.
 
-  `prepare/2` is real (PR A3) and `validate_lines/2` is real (PR B1). `multi/3` still FAILS
-  CLOSED on any non-empty line list so nothing can reach a write before PR B2 replaces its
-  body; nothing in the engine calls it yet.
+  `prepare/2` is real (PR A3), `validate_lines/2` is real (PR B1) and `multi/3` is real (PR B2):
+  the engine's HUMAN_TASK completion composes the lines into its own transaction through it.
+
+  ## `multi/3` (PR B2; design `gh2587-req499-pr-b-human-task-writes.md` sections 5.2, 7.4)
+
+  Lines are built lazily, in one `Multi.merge/2`, after the engine's `:transition` step (so a
+  form output can feed a field, and an execution error skips every write). Execution order
+  is `(entity_type, declared index)`. Per line: a 10 s wall-clock guard, the run-time
+  re-normalization of the PINNED line, the recorded `(entity_type, "create")` authorization,
+  the write-side field restrictions of the completer, `Records.command_multi/3` with the
+  LITERAL authority `:tenant` and server-built `source` metadata, then a `:process_policy`
+  step re-reading the type's row under its sequence lock (writable-by-process flag,
+  append-only, scoped). The multi ends with the named step `:entity_writes`.
+
+  A stale `expected` is UNREACHABLE in this create-only MVP (OQ-B5): a `create` line carries
+  no `expected` and no `record`, and a pinned line that does is refused as
+  `:validation_failed` before anything is written. The `:record_version_conflict` mapping
+  stays covered by `Records.interpret_in_multi/1`'s own tests.
+
+  A replayed `_sys.<name>` value may hold a non-UUID string or any non-negative integer (the
+  stored, wide tier): a reader must apply `Letflow.Engine.VariableMerge.check_sys_entry/2`
+  and treat a failure as a refusal, never assume a UUID or an int64 (CO-7). PR B has no
+  reader: update and delete lines are refused.
+
+  Until decision 0051 `scope_node` exists the scoped-type and scope-column predicates are
+  vacuous (OQ-B6): a pilot limit, not a guarantee.
 
   ## `validate_lines/2` (PR B1; design `gh2587-req499-pr-b-human-task-writes.md` section 6)
 
@@ -17,11 +40,6 @@ defmodule Letflow.Entities.StepWrites do
   read the type's CURRENT active definition. `validate_lines/2` is the guard for a missing or
   non-string `entity_type` (GH #2633): `prepare/2` stays lenient and silently SKIPS such a line,
   so it assumes validated lines and must never be relied on as the guard.
-
-  A B1-only gate (`execution_enabled?/0`, default OFF, never set in `config/*.exs`) appends
-  `:entity_writes_execution_not_enabled` for every line once every real check passed, because
-  no write path exists until PR B2; B2 deletes the gate. It is a seam for the named B1 tests,
-  not a feature flag.
 
   ## Scope-predicate seam (design D-B.18, F-7)
 
@@ -36,20 +54,27 @@ defmodule Letflow.Entities.StepWrites do
 
   Runs ONE short transaction, BEFORE the completion transaction, creating the synthetic
   per-type instance (`EntityTypeInstance.get_or_create/2`) of every distinct line type that has
-  an ACTIVE definition, in ascending byte order of the type name. The first two statements are
+  an ACTIVE, process-writable definition (`ProcessWritable.writable?/1`, so a type without
+  the flag, or a managed one, gets no synthetic instance), in ascending byte order of the
+  type name. The first two statements are
   the constant `SET LOCAL lock_timeout`/`statement_timeout` (2 s each), so a contended wait is
   bounded; exactly the contention exceptions (lock not available, query canceled, deadlock,
   connection error) map to `{:error, :entity_write_contention}`; any other exception is
   re-raised. It refuses to run inside a caller's transaction, because a `SET LOCAL` there would
-  leak into the rest of it.
+  leak into the rest of it. Under the SQL sandbox (a savepoint, not a real transaction) the
+  previous session values are restored before the transaction ends (CO-4).
   """
 
+  alias Ecto.Multi
   alias Letflow.Engine.EntityPort
   alias Letflow.Engine.VariableMerge
   alias Letflow.Entities.Definitions
   alias Letflow.Entities.EntityDefinition
   alias Letflow.Entities.EntityTypeInstance
   alias Letflow.Entities.ProcessWritable
+  alias Letflow.Entities.Query.FieldGrants
+  alias Letflow.Entities.Record.Latest
+  alias Letflow.Entities.Records
   alias Letflow.Repo
 
   @max_lines 20
@@ -96,9 +121,20 @@ defmodule Letflow.Entities.StepWrites do
     result =
       try do
         Repo.transaction(fn ->
+          # CO-4: under a SQL-sandbox savepoint a `SET LOCAL` survives RELEASE until the
+          # sandbox's outer transaction ends, so the session's previous values are read
+          # first and put back (parameterized `set_config(.., true)`, no interpolation) once
+          # the instances exist. In a real top-level transaction the restore is a no-op.
+          %{rows: [[previous_lock, previous_statement]]} =
+            Repo.query!(
+              "SELECT current_setting('lock_timeout'), current_setting('statement_timeout')"
+            )
+
           Repo.query!(@set_lock_timeout)
           Repo.query!(@set_statement_timeout)
           Enum.each(types, &ensure_instance(&1, prefix))
+          Repo.query!("SELECT set_config('lock_timeout', $1, true)", [previous_lock])
+          Repo.query!("SELECT set_config('statement_timeout', $1, true)", [previous_statement])
         end)
       rescue
         e in Postgrex.Error ->
@@ -118,10 +154,15 @@ defmodule Letflow.Entities.StepWrites do
 
   defp ensure_instance(type, prefix) do
     case Definitions.get_active_definition_by_name(type, prefix) do
-      {:ok, _definition} ->
-        case EntityTypeInstance.get_or_create(type, prefix) do
-          {:ok, _instance_id} -> :ok
-          {:error, _} -> Repo.rollback({:entity_type_prepare_failed, type})
+      {:ok, %EntityDefinition{} = definition} ->
+        # CO-3 / SEC F7: only a process-writable type gets a synthetic instance.
+        if ProcessWritable.writable?(definition) do
+          case EntityTypeInstance.get_or_create(type, prefix) do
+            {:ok, _instance_id} -> :ok
+            {:error, _} -> Repo.rollback({:entity_type_prepare_failed, type})
+          end
+        else
+          :ok
         end
 
       # No active definition: skip (D-A3.2); `command_multi/3` refuses the line later.
@@ -177,34 +218,12 @@ defmodule Letflow.Entities.StepWrites do
 
     real = cap ++ per_line
 
-    violations =
-      cond do
-        real != [] ->
-          real
-
-        execution_enabled?() ->
-          []
-
-        true ->
-          Enum.map(checked, fn {_line, index} ->
-            %{index: index, code: :entity_writes_execution_not_enabled}
-          end)
-      end
+    violations = real
 
     case Enum.sort_by(violations, &{&1.index, &1.code}) do
       [] -> :ok
       sorted -> {:error, sorted}
     end
-  end
-
-  @doc """
-  The B1 execution gate: `false` unless `config :letflow, :entity_writes_execution_enabled`
-  is `true`. Default OFF in every environment (never set in `config/*.exs`); named B1 tests
-  set it in `setup` and restore it in `on_exit`. PR B2 deletes this function and the key.
-  """
-  @spec execution_enabled?() :: boolean()
-  def execution_enabled? do
-    Application.get_env(:letflow, :entity_writes_execution_enabled, false) == true
   end
 
   @doc """
@@ -431,10 +450,289 @@ defmodule Letflow.Entities.StepWrites do
 
   defp truthy?(value), do: value not in [nil, false]
 
-  @spec multi(Ecto.Multi.t(), [EntityPort.line()], EntityPort.multi_ctx()) :: Ecto.Multi.t()
-  def multi(%Ecto.Multi{} = multi, [], _ctx), do: multi
+  # ---------------------------------------------------------------------
+  # multi/3 (PR B2)
+  # ---------------------------------------------------------------------
 
-  def multi(%Ecto.Multi{} = multi, lines, _ctx) when is_list(lines) do
-    Ecto.Multi.error(multi, {:line, 0, :build}, :entity_writes_not_enabled)
+  @guard_budget_ms 10_000
+
+  @doc """
+  Appends the per-line write steps and the closing `:entity_writes` step to `multi`. With no
+  lines it is the identity. See the moduledoc.
+  """
+  @spec multi(Ecto.Multi.t(), [EntityPort.line()], EntityPort.multi_ctx()) :: Ecto.Multi.t()
+  def multi(%Multi{} = multi, [], _ctx), do: multi
+
+  def multi(%Multi{} = multi, lines, ctx) when is_list(lines) and is_map(ctx) do
+    Multi.merge(multi, fn changes ->
+      if ctx.skip?.(changes) do
+        Multi.run(Multi.new(), :entity_writes, fn _repo, _changes -> {:ok, :skipped} end)
+      else
+        build_lines(lines, ctx, ctx.variables.(changes))
+      end
+    end)
+  end
+
+  defp build_lines(lines, ctx, variables) do
+    now_fun = Map.get(ctx, :now_fun, fn -> System.monotonic_time(:millisecond) end)
+
+    indexed =
+      lines
+      |> Enum.with_index()
+      |> Enum.sort_by(fn {line, index} -> {sort_type(line), index} end)
+
+    started =
+      Multi.run(Multi.new(), :entity_writes_started, fn _repo, _changes ->
+        {:ok, now_fun.()}
+      end)
+
+    indexed
+    |> Enum.reduce_while({:ok, started}, fn {line, index}, {:ok, acc} ->
+      case build_line(line, index, ctx, variables) do
+        {:ok, line_multi} ->
+          guard = fn _repo, changes ->
+            if now_fun.() - Map.fetch!(changes, :entity_writes_started) > @guard_budget_ms,
+              do: {:error, :deadline_exceeded},
+              else: {:ok, :within_budget}
+          end
+
+          acc =
+            acc
+            |> Multi.run({:line, index, :deadline}, guard)
+            |> Multi.append(line_multi)
+            |> Multi.run({:line, index, :process_policy}, fn _repo, changes ->
+              process_policy(Map.fetch!(changes, {:line, index, :recheck_definition}))
+            end)
+
+          {:cont, {:ok, acc}}
+
+        {:error, reason} ->
+          {:halt, {:error, index, reason}}
+      end
+    end)
+    |> case do
+      {:ok, acc} ->
+        Multi.run(acc, :entity_writes, fn _repo, changes ->
+          {:ok, assemble_result(indexed, lines, changes)}
+        end)
+
+      {:error, index, reason} ->
+        # Build-time errors are RETURNED by command_multi/3 (nothing ran): surface the first as
+        # a failing step so the whole transaction rolls back (design F-10).
+        Multi.error(Multi.new(), {:line, index, :build}, reason)
+    end
+  end
+
+  defp sort_type(%{"entity_type" => type}) when is_binary(type), do: type
+  defp sort_type(_line), do: ""
+
+  # One line: run-time re-normalization of the pinned line, authorization, field
+  # restrictions, then the A2 command.
+  defp build_line(line, index, ctx, variables) do
+    with {:ok, normalized} <- run_time_line(line),
+         :ok <- check_authorized(normalized.entity_type, ctx.authorized),
+         :ok <- check_restrictions(normalized.fields, normalized.entity_type, ctx) do
+      command = %{
+        kind: :create,
+        line_key: index,
+        entity_type: normalized.entity_type,
+        field_values: resolve_values(normalized.fields, variables),
+        actor_id: ctx.actor_id,
+        idempotency_key: "sys:step:" <> ctx.task_id <> ":" <> Integer.to_string(index),
+        source: %{
+          kind: "process_step",
+          instance_id: ctx.instance_id,
+          task_id: ctx.task_id,
+          node_id: ctx.node_id,
+          definition_id: ctx.definition_id,
+          definition_version: ctx.definition_version,
+          line_index: index,
+          activator_id: ctx.activator_id
+        }
+      }
+
+      # The authority is the LITERAL :tenant (A2 D-A2.9).
+      Records.command_multi(command, ctx.prefix, :tenant)
+    end
+  end
+
+  # A pinned line is re-checked at run time (a hand-edited snapshot): `expected`/`record`
+  # present is a validation failure BEFORE any op check; an op other than "create" is
+  # append-only (D7/D8).
+  defp run_time_line(line) when is_map(line) and not is_struct(line) do
+    cond do
+      Map.has_key?(line, "expected") or Map.has_key?(line, "record") ->
+        {:error, :line_malformed}
+
+      is_binary(Map.get(line, "op")) and Map.get(line, "op") != "create" ->
+        {:error, :op_unsupported}
+
+      true ->
+        case normalize_line(line) do
+          {:ok, normalized} -> {:ok, normalized}
+          {:error, _code} -> {:error, :line_malformed}
+        end
+    end
+  end
+
+  defp run_time_line(_line), do: {:error, :line_malformed}
+
+  defp check_authorized(entity_type, authorized) when is_list(authorized) do
+    if {entity_type, "create"} in authorized, do: :ok, else: {:error, :line_not_authorized}
+  end
+
+  defp check_authorized(_entity_type, _authorized), do: {:error, :line_not_authorized}
+
+  # `var` from the merged variables (absent or reserved -> omitted, so the type's own
+  # validation refuses a missing required field); `const` as is. Never `_sys`.
+  defp resolve_values(fields, variables) do
+    Enum.reduce(fields, %{}, fn
+      {name, {:const, value}}, acc ->
+        Map.put(acc, name, value)
+
+      {name, {:var, var}}, acc ->
+        if VariableMerge.reserved_key?(var) do
+          acc
+        else
+          case Map.fetch(variables, var) do
+            {:ok, value} -> Map.put(acc, name, value)
+            :error -> acc
+          end
+        end
+    end)
+  end
+
+  defp check_restrictions(fields, entity_type, ctx) do
+    case FieldGrants.load_restrictions(ctx.actor_id, entity_type, ctx.prefix) do
+      {:ok, restricted} ->
+        if Enum.any?(Map.keys(fields), &MapSet.member?(restricted, &1)),
+          do: {:error, :field_restricted},
+          else: :ok
+
+      {:error, _reason} ->
+        {:error, :field_restricted}
+    end
+  end
+
+  # Reads the row `:recheck_definition` returned under the type's sequence lock.
+  defp process_policy(%EntityDefinition{} = row) do
+    append_only? =
+      is_map(row.definition_json) and Map.get(row.definition_json, "append_only") == true
+
+    cond do
+      not ProcessWritable.writable?(row) -> {:error, :not_writable_by_process}
+      not append_only? -> {:error, :not_append_only}
+      scoped_type?(row) -> {:error, :scoped_type}
+      true -> {:ok, :allowed}
+    end
+  end
+
+  defp process_policy(_other), do: {:error, :not_writable_by_process}
+
+  defp assemble_result(indexed, lines, changes) do
+    applied =
+      indexed
+      |> Enum.map(fn {line, index} ->
+        %Latest{record_id: record_id} = Map.fetch!(changes, {:line, index, :upsert_record_latest})
+        %{global_seq: seq} = Map.fetch!(changes, {:line, index, :insert_event})
+
+        %{
+          line_index: index,
+          entity_type: Map.fetch!(line, "entity_type"),
+          record_id: record_id,
+          event_global_seq: seq,
+          output_var: declared_output_var(line)
+        }
+      end)
+      |> Enum.sort_by(& &1.line_index)
+
+    sys_values =
+      applied
+      |> Enum.filter(&is_binary(&1.output_var))
+      |> Enum.reduce(%{}, fn %{output_var: var, record_id: id, event_global_seq: seq}, acc ->
+        acc |> Map.put(var, id) |> Map.put(var <> ".seq", seq)
+      end)
+
+    %{applied: applied, lines_hash: lines_hash(lines), sys_values: sys_values}
+  end
+
+  @doc """
+  Canonical SHA-256 (lowercase hex) of the declared `lines`: key-sorted JSON, so it is a
+  function of the line content alone.
+  """
+  @spec lines_hash([EntityPort.line()]) :: String.t()
+  def lines_hash(lines) when is_list(lines) do
+    :sha256 |> :crypto.hash(canonical(lines)) |> Base.encode16(case: :lower)
+  end
+
+  defp canonical(map) when is_map(map) and not is_struct(map) do
+    body =
+      map
+      |> Enum.sort_by(fn {k, _v} -> to_string(k) end)
+      |> Enum.map_join(",", fn {k, v} -> Jason.encode!(to_string(k)) <> ":" <> canonical(v) end)
+
+    "{" <> body <> "}"
+  end
+
+  defp canonical(list) when is_list(list),
+    do: "[" <> Enum.map_join(list, ",", &canonical/1) <> "]"
+
+  defp canonical(other), do: Jason.encode!(other)
+
+  # ---------------------------------------------------------------------
+  # interpret_failure/2 (design D-B.8)
+  # ---------------------------------------------------------------------
+
+  @doc """
+  Maps a failed Multi step of this module's lines to the engine's outcome. Only `{:line, i,
+  step}` names are line failures; anything else is `:not_a_line_failure`. The `detail` atom
+  is a closed class for the tenant audit entry only (INV-5): the public body never carries it.
+  """
+  @spec interpret_failure(term(), term()) :: EntityPort.failure()
+  def interpret_failure({:line, i, :deadline}, _reason) when is_integer(i),
+    do: {:refused, i, :entity_write_contention, :deadline}
+
+  def interpret_failure({:line, i, :build}, reason) when is_integer(i) do
+    case reason do
+      :line_malformed -> {:refused, i, :validation_failed, :malformed}
+      :op_unsupported -> {:refused, i, :entity_append_only, :op_unsupported}
+      :line_not_authorized -> {:refused, i, :write_not_permitted, :not_authorized}
+      :field_restricted -> {:refused, i, :write_not_permitted, :field_restricted}
+      :entity_type_managed -> {:refused, i, :write_not_permitted, :managed}
+      # `prepare/2` skips a type that is not process-writable, so it has no synthetic
+      # instance: the same refusal as the `:process_policy` check (uniform body, INV-5).
+      {:entity_type_instance_missing, _type} -> {:refused, i, :write_not_permitted, :not_writable}
+      other -> classify(i, :build, other)
+    end
+  end
+
+  def interpret_failure({:line, i, :process_policy}, reason) when is_integer(i) do
+    case reason do
+      :not_writable_by_process -> {:refused, i, :write_not_permitted, :not_writable}
+      :not_append_only -> {:refused, i, :write_not_permitted, :not_append_only}
+      :scoped_type -> {:refused, i, :write_not_permitted, :scoped}
+      _other -> {:failed, i, :process_policy}
+    end
+  end
+
+  def interpret_failure({:line, i, step} = name, reason) when is_integer(i) and is_atom(step) do
+    if reason == :entity_type_managed do
+      {:refused, i, :write_not_permitted, :managed}
+    else
+      case Records.interpret_in_multi({:error, name, reason, %{}}) do
+        {:entity_write_refused, ^i, code} -> {:refused, i, code, :step}
+        {:entity_write_failed, ^i, failed_step} -> {:failed, i, failed_step}
+        :not_a_line_failure -> :not_a_line_failure
+      end
+    end
+  end
+
+  def interpret_failure(_step, _reason), do: :not_a_line_failure
+
+  defp classify(i, step, reason) do
+    case Records.classify_step_error(reason) do
+      {:refused, code} -> {:refused, i, code, :build}
+      :internal -> {:failed, i, step}
+    end
   end
 end

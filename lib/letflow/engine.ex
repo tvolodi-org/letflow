@@ -363,13 +363,28 @@ defmodule Letflow.Engine do
   `instance_id`), so this is a same-instance deadlock-avoidance discipline,
   not a cross-instance one. A completion whose node declares `entity_writes`
   extends this with the cross-instance order of decision 0054 D3, after the two
-  locks above: (3) the instance's own `instance_sequences` row; (3a) the
-  `scope_node_paths` table lock, only for org-tree or scoped types; (4) per
-  line, in `(entity_type, declared index)` order, that type's
-  `instance_sequences` row and synthetic projection row, then its record rows;
-  (5) `:transition` and the tail. Entity-type locks are cross-instance and are
-  taken only in this order, so two completions writing types (A, B) and (B, A)
-  cannot deadlock on them.
+  locks above: (4) per line, in `(entity_type, declared index)` order, that
+  type's `instance_sequences` row and synthetic projection row (no record row is
+  locked: create-only); (5) the audit chain row (task audit, per-line audit); (6)
+  the instance's own `instance_sequences` row (the SYS, APPLIED and
+  `TASK_COMPLETED` events). The `:transition` step only computes (it takes no
+  `FOR UPDATE`), so the entity locks precede every tail write. The
+  `scope_node_paths` table lock (rule 3a) is NOT taken in PR B: no scoped type
+  exists yet. Entity-type locks are cross-instance and are taken only in this
+  order, so two completions writing types (A, B) and (B, A) cannot deadlock on
+  them.
+
+  A sub-process child's completion cascade takes the parent token and projection
+  after its entity-type locks; a deadlock there is reported as contention. The
+  cascade outcome is stated only for a completion WITH a plan (a completion
+  without lines keeps today's locks and today's `transaction_failed`): the
+  victim's whole transaction rolls back, nothing is committed, and the result is
+  `entity_write_contention` (503, retryable). The cascade recurses ancestor-ward
+  (child to parent to grandparent), never downward.
+
+  `SET LOCAL lock_timeout`/`statement_timeout` (2 s / 5 s) are issued as the
+  FIRST statements of a completion with lines only, and bound the whole
+  transaction, the tail's waits included.
 
   REQ-045 resolved this engine to row-based state (`create/2` is a plain
   function under `Ecto.Multi`, not a supervised `:gen_statem`/
@@ -395,6 +410,7 @@ defmodule Letflow.Engine do
   alias Letflow.Definitions
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.SnapshotStore
+  alias Letflow.Engine.EntityPort
   alias Letflow.Engine.ExecutionError
   alias Letflow.Engine.FormExpressionReevaluation
   alias Letflow.Engine.InstanceState
@@ -2432,6 +2448,14 @@ defmodule Letflow.Engine do
           | {:error,
              {:output_refused, %{missing_keys: [String.t()], rejected_keys: [String.t()]}}}
           | {:error, :separation_of_duties}
+          # GH #2587 PR B2 (design section 5.4): a declarative entity write refused (a stable
+          # code and the declared line index, or `:contention` for a lock/timeout/deadlock
+          # or the 10 s guard), failed internally (a step atom only), or the activator is
+          # deactivated (the refusal stub, 409).
+          | {:error,
+             {:entity_write_refused, index :: non_neg_integer() | :contention, code :: atom()}}
+          | {:error, {:entity_write_failed, index :: non_neg_integer(), step :: atom()}}
+          | {:error, :entity_write_needs_reactivation}
           | {:error, Ecto.Changeset.t()}
           | {:error, term()}
 
@@ -2444,6 +2468,7 @@ defmodule Letflow.Engine do
   @typep completion_refusal ::
            {:separation_of_duties, blocking_node_ids :: [String.t()]}
            | {:output_refused, missing_keys :: [String.t()], rejected_keys :: [String.t()]}
+           | :entity_writes_not_planned
 
   @typep refusal_context :: %{required: [String.t()], allowed: [String.t()]}
 
@@ -2555,113 +2580,557 @@ defmodule Letflow.Engine do
          prefix
        ) do
     try do
-      Multi.new()
-      |> Multi.run(:task, fn repo, _changes -> fetch_and_lock_task(repo, task_id, prefix) end)
-      |> Multi.run(:instance_projection, fn repo, %{task: task} ->
-        fetch_and_lock_instance_projection(repo, task.instance_id, prefix)
-      end)
-      |> Multi.run(:snapshot_and_state, fn repo, %{task: task, instance_projection: projection} ->
-        build_snapshot_and_state(repo, task, projection, prefix)
-      end)
-      # REQ-460 (design req459 §2.2 step 4): caller-error guards, after BOTH row
-      # locks and the snapshot read, before any step that can commit. Pure.
-      |> Multi.run(:completion_guards, fn repo,
-                                          %{
-                                            task: task,
-                                            snapshot_and_state: %{graph: graph}
-                                          } ->
-        check_completion_guards(repo, graph, task, output_variables, actor_id, prefix)
-      end)
-      |> Multi.run(:form_expression_reevaluation, fn _repo,
-                                                     %{
-                                                       task: task,
-                                                       snapshot_and_state: %{
-                                                         seed_instance_state: seed_state
-                                                       }
-                                                     } ->
-        # Multi.run/3's own contract: the callback itself must always succeed
-        # structurally -- reevaluate/3's domain result (which can itself be an
-        # {:error, reevaluation_error()} rejection) is carried INSIDE this
-        # {:ok, _} payload and inspected explicitly by the :merge step below,
-        # the same discipline merge_output_variables/7's own
-        # {:execution_error, _} tagging already uses (design doc §2).
-        {:ok,
-         FormExpressionReevaluation.reevaluate(
-           task.form_schema,
-           seed_state.variables,
-           output_variables
-         )}
-      end)
-      |> Multi.run(:merge, fn repo,
-                              %{
-                                task: task,
-                                snapshot_and_state: %{
-                                  graph: graph,
-                                  seed_instance_state: seed_state
-                                },
-                                instance_projection: projection,
-                                form_expression_reevaluation: reevaluation_result
-                              } ->
-        case reevaluation_result do
-          {:error, reevaluation_error} ->
-            error_args =
-              build_reevaluation_execution_error_args(
-                reevaluation_error,
-                projection,
-                actor_id,
-                idempotency_key,
-                seed_state.variables
-              )
+      # GH #2587 PR B2 (design 7.3, P0/P1): the read-only plan phase and `prepare/2` run
+      # BEFORE the transaction. `nil` plan = no lines = today's Multi, step for step.
+      case plan_entity_writes(task_id, actor_id, prefix) do
+        {:ok, plan} ->
+          run_complete_task_transaction(
+            plan,
+            task_id,
+            output_variables,
+            actor_id,
+            idempotency_key,
+            completed_at,
+            prefix
+          )
 
-            {:ok, {:execution_error, error_args}}
-
-          {:ok, %{output_variables: corrected_output_variables, events: form_events}} ->
-            projection
-            |> merge_output_variables(
-              actor_id,
-              idempotency_key,
-              seed_state.variables,
-              corrected_output_variables,
-              repo,
-              prefix,
-              refusal_context(graph, task)
-            )
-            |> prepend_form_expression_events(form_events)
-        end
-      end)
-      |> Multi.run(:transition, fn _repo,
-                                   %{
-                                     snapshot_and_state: snapshot_and_state,
-                                     merge: merge_outcome,
-                                     instance_projection: projection
-                                   } ->
-        dispatch_task_completion_hop_chain(
-          snapshot_and_state,
-          projection,
-          actor_id,
-          idempotency_key,
-          merge_outcome,
-          completed_at,
-          prefix
-        )
-      end)
-      |> Multi.merge(fn changes ->
-        build_complete_task_tail_multi(
-          changes,
-          actor_id,
-          output_variables,
-          completed_at,
-          idempotency_key,
-          prefix
-        )
-      end)
-      |> Repo.transaction()
-      |> maybe_snapshot_after_complete_task(prefix)
-      |> emit_task_completed_telemetry(prefix)
-      |> interpret_complete_result(actor_id, prefix)
+        {:error, _reason} = error ->
+          error
+      end
     rescue
       exception -> {:error, {:transaction_failed, exception}}
     end
+  end
+
+  defp run_complete_task_transaction(
+         plan,
+         task_id,
+         output_variables,
+         actor_id,
+         idempotency_key,
+         completed_at,
+         prefix
+       ) do
+    plan
+    |> build_complete_task_multi(
+      task_id,
+      output_variables,
+      actor_id,
+      idempotency_key,
+      completed_at,
+      prefix
+    )
+    |> run_transaction(plan)
+    |> fold_sys_into_transition()
+    |> maybe_snapshot_after_complete_task(prefix)
+    |> emit_task_completed_telemetry(prefix)
+    |> interpret_complete_result(actor_id, prefix)
+  end
+
+  @doc false
+  # Test seam (design B-15): the ordered step names of the completion Multi, with and without
+  # an entity-write plan. Built with inert arguments; nothing is run.
+  @spec __complete_task_multi_step_names__(boolean()) :: [term()]
+  def __complete_task_multi_step_names__(planned?) do
+    plan =
+      if planned? do
+        %{
+          lines: [%{}],
+          node_id: "n",
+          task_id: Ecto.UUID.generate(),
+          instance_id: Ecto.UUID.generate(),
+          definition_id: Ecto.UUID.generate(),
+          definition_version: "1",
+          activator_id: Ecto.UUID.generate(),
+          authorized: []
+        }
+      end
+
+    plan
+    |> build_complete_task_multi(
+      Ecto.UUID.generate(),
+      %{},
+      Ecto.UUID.generate(),
+      "k",
+      DateTime.utc_now(),
+      "tenant_x"
+    )
+    |> Multi.to_list()
+    |> Enum.map(fn
+      {:merge, {:merge, _fun}} -> :__merge__
+      {name, _op} -> name
+    end)
+  end
+
+  defp build_complete_task_multi(
+         plan,
+         task_id,
+         output_variables,
+         actor_id,
+         idempotency_key,
+         completed_at,
+         prefix
+       ) do
+    Multi.new()
+    |> maybe_entity_write_timeouts(plan)
+    |> Multi.run(:task, fn repo, _changes -> fetch_and_lock_task(repo, task_id, prefix) end)
+    |> Multi.run(:instance_projection, fn repo, %{task: task} ->
+      fetch_and_lock_instance_projection(repo, task.instance_id, prefix)
+    end)
+    |> Multi.run(:snapshot_and_state, fn repo, %{task: task, instance_projection: projection} ->
+      build_snapshot_and_state(repo, task, projection, prefix)
+    end)
+    # REQ-460 (design req459 §2.2 step 4): caller-error guards, after BOTH row
+    # locks and the snapshot read, before any step that can commit. Pure.
+    # GH #2587 PR B2 (D-B.3): the fail-closed "node has lines but no plan" check is a
+    # pure branch of this same step, evaluated AFTER separation of duties and required
+    # outputs (so those refusals are unchanged), receiving the plan through the closure.
+    |> Multi.run(:completion_guards, fn repo,
+                                        %{
+                                          task: task,
+                                          snapshot_and_state: %{graph: graph}
+                                        } ->
+      check_completion_guards(repo, graph, task, output_variables, actor_id, prefix, plan)
+    end)
+    |> Multi.run(:form_expression_reevaluation, fn _repo,
+                                                   %{
+                                                     task: task,
+                                                     snapshot_and_state: %{
+                                                       seed_instance_state: seed_state
+                                                     }
+                                                   } ->
+      # Multi.run/3's own contract: the callback itself must always succeed
+      # structurally -- reevaluate/3's domain result (which can itself be an
+      # {:error, reevaluation_error()} rejection) is carried INSIDE this
+      # {:ok, _} payload and inspected explicitly by the :merge step below,
+      # the same discipline merge_output_variables/7's own
+      # {:execution_error, _} tagging already uses (design doc §2).
+      {:ok,
+       FormExpressionReevaluation.reevaluate(
+         task.form_schema,
+         seed_state.variables,
+         output_variables
+       )}
+    end)
+    |> Multi.run(:merge, fn repo,
+                            %{
+                              task: task,
+                              snapshot_and_state: %{
+                                graph: graph,
+                                seed_instance_state: seed_state
+                              },
+                              instance_projection: projection,
+                              form_expression_reevaluation: reevaluation_result
+                            } ->
+      case reevaluation_result do
+        {:error, reevaluation_error} ->
+          error_args =
+            build_reevaluation_execution_error_args(
+              reevaluation_error,
+              projection,
+              actor_id,
+              idempotency_key,
+              seed_state.variables
+            )
+
+          {:ok, {:execution_error, error_args}}
+
+        {:ok, %{output_variables: corrected_output_variables, events: form_events}} ->
+          projection
+          |> merge_output_variables(
+            actor_id,
+            idempotency_key,
+            seed_state.variables,
+            corrected_output_variables,
+            repo,
+            prefix,
+            refusal_context(graph, task)
+          )
+          |> prepend_form_expression_events(form_events)
+      end
+    end)
+    |> Multi.run(:transition, fn _repo,
+                                 %{
+                                   snapshot_and_state: snapshot_and_state,
+                                   merge: merge_outcome,
+                                   instance_projection: projection
+                                 } ->
+      dispatch_task_completion_hop_chain(
+        snapshot_and_state,
+        projection,
+        actor_id,
+        idempotency_key,
+        merge_outcome,
+        completed_at,
+        prefix
+      )
+    end)
+    # GH #2587 PR B2 (D-B.2): AFTER :transition (which only computes) and before the tail,
+    # skipped on either execution error, so a failed completion writes no record.
+    |> maybe_entity_writes(plan, actor_id, prefix)
+    |> Multi.merge(fn changes ->
+      build_complete_task_tail_multi(
+        changes,
+        actor_id,
+        output_variables,
+        completed_at,
+        idempotency_key,
+        plan,
+        prefix
+      )
+    end)
+  end
+
+  # ---------------------------------------------------------------------
+  # GH #2587 PR B2: process-step entity writes on a HUMAN_TASK completion
+  # (design lib/letflow/design/gh2587-req499-pr-b-human-task-writes.md).
+  # ---------------------------------------------------------------------
+
+  @typep entity_plan :: %{
+           lines: [EntityPort.line()],
+           node_id: String.t(),
+           task_id: Ecto.UUID.t(),
+           instance_id: Ecto.UUID.t(),
+           definition_id: Ecto.UUID.t(),
+           definition_version: String.t(),
+           activator_id: Ecto.UUID.t(),
+           authorized: [{String.t(), String.t()}]
+         }
+
+  # Compile-time constants (INV-7): bounds every wait of a completion WITH lines, the tail's
+  # included. A completion without a plan issues neither statement.
+  @entity_write_set_lock_timeout "SET LOCAL lock_timeout = '2s'"
+  @entity_write_set_statement_timeout "SET LOCAL statement_timeout = '5s'"
+
+  @contention_error_codes [:lock_not_available, :query_canceled, :deadlock_detected]
+
+  # P0 + P1 (design 7.3). Read-only except `prepare/2`'s own short transaction. Never fails the
+  # completion by itself for a read problem (`{:ok, nil}`: the in-transaction steps return
+  # today's canonical errors, and the fail-closed guard refuses "lines but no plan").
+  @spec plan_entity_writes(Ecto.UUID.t(), term(), String.t()) ::
+          {:ok, entity_plan() | nil} | {:error, term()}
+  defp plan_entity_writes(task_id, actor_id, prefix) do
+    with %Task{status: :pending} = task <- Repo.get(Task, task_id, prefix: prefix),
+         {:ok, graph} <- fetch_graph(task.instance_id, prefix),
+         %{attributes: %{"entity_writes" => [_ | _] = lines}} <- find_node(graph, task.node_id) do
+      resolve_entity_plan(task, lines, actor_id, prefix)
+    else
+      _no_lines_or_unreadable -> {:ok, nil}
+    end
+  end
+
+  defp resolve_entity_plan(%Task{} = task, lines, actor_id, prefix) do
+    with {:actor, true} <- {:actor, is_binary(actor_id)},
+         %InstanceProjection{definition_id: definition_id} <-
+           Repo.get_by(InstanceProjection, [instance_id: task.instance_id], prefix: prefix),
+         {:ok, definition} <- Definitions.get_by_id(definition_id, prefix: prefix),
+         {:ok, activator_id, authorized} <- recorded_activator(definition.activated_by),
+         :ok <- check_activator_active(activator_id, prefix) do
+      plan = %{
+        lines: lines,
+        node_id: task.node_id,
+        task_id: task.id,
+        instance_id: task.instance_id,
+        definition_id: definition_id,
+        definition_version: definition.version,
+        activator_id: activator_id,
+        authorized: authorized
+      }
+
+      case EntityPort.impl().prepare(lines, %{prefix: prefix}) do
+        :ok ->
+          {:ok, plan}
+
+        {:error, :entity_write_contention} ->
+          {:error, {:entity_write_refused, :contention, :entity_write_contention}}
+
+        {:error, _prepare_failure} ->
+          {:error, {:entity_write_failed, 0, :prepare}}
+      end
+    else
+      {:actor, false} -> {:error, :missing_actor_id}
+      {:error, :entity_write_needs_reactivation} = refusal -> refusal
+      _unreadable -> {:ok, nil}
+    end
+  end
+
+  # SEC INFO-1: `activated_by` is UNTRUSTED data at run time (a stored jsonb document). It is
+  # re-validated here: a UUID user id, the `EntitiesRecordsWrite` permission recorded, and
+  # well-formed `(entity_type, op)` pairs. `DefinitionsActivate` is NOT assumed (a rollback
+  # or promotion may record a different permission set). Anything else is the
+  # re-activation refusal stub (fail closed).
+  defp recorded_activator(%{
+         "user_id" => user_id,
+         "permissions" => permissions,
+         "authorized" => authorized
+       })
+       when is_binary(user_id) and is_list(permissions) and is_list(authorized) do
+    with {:ok, uuid} <- Ecto.UUID.cast(user_id),
+         true <- "EntitiesRecordsWrite" in permissions,
+         {:ok, pairs} <- authorized_pairs(authorized) do
+      {:ok, uuid, pairs}
+    else
+      _invalid -> {:error, :entity_write_needs_reactivation}
+    end
+  end
+
+  defp recorded_activator(_activated_by), do: {:error, :entity_write_needs_reactivation}
+
+  defp authorized_pairs(authorized) do
+    Enum.reduce_while(authorized, {:ok, []}, fn
+      %{"entity_type" => type, "op" => op}, {:ok, acc} when is_binary(type) and is_binary(op) ->
+        {:cont, {:ok, [{type, op} | acc]}}
+
+      _other, _acc ->
+        {:halt, :error}
+    end)
+    |> case do
+      {:ok, pairs} -> {:ok, Enum.reverse(pairs)}
+      :error -> :error
+    end
+  end
+
+  # An absent user row is treated as deactivated (fail closed).
+  defp check_activator_active(activator_id, prefix) do
+    case Letflow.Identity.get_user(activator_id, prefix: prefix) do
+      {:ok, %{status: :active}} -> :ok
+      _inactive_or_absent -> {:error, :entity_write_needs_reactivation}
+    end
+  end
+
+  defp maybe_entity_write_timeouts(multi, nil), do: multi
+
+  defp maybe_entity_write_timeouts(multi, _plan) do
+    Multi.run(multi, :entity_write_timeouts, fn repo, _changes ->
+      repo.query!(@entity_write_set_lock_timeout)
+      repo.query!(@entity_write_set_statement_timeout)
+      {:ok, :set}
+    end)
+  end
+
+  defp maybe_entity_writes(multi, nil, _actor_id, _prefix), do: multi
+
+  defp maybe_entity_writes(multi, plan, actor_id, prefix) do
+    ctx = %{
+      prefix: prefix,
+      task_id: plan.task_id,
+      instance_id: plan.instance_id,
+      node_id: plan.node_id,
+      definition_id: plan.definition_id,
+      definition_version: plan.definition_version,
+      actor_id: actor_id,
+      activator_id: plan.activator_id,
+      authorized: plan.authorized,
+      variables: &entity_write_variables/1,
+      skip?: &entity_write_skip?/1
+    }
+
+    EntityPort.impl().multi(multi, plan.lines, ctx)
+  end
+
+  defp entity_write_variables(%{merge: {:merged, %{new_variables: variables}}}), do: variables
+  defp entity_write_variables(_changes), do: %{}
+
+  defp entity_write_skip?(%{merge: {:execution_error, _}}), do: true
+  defp entity_write_skip?(%{transition: {:execution_error, _}}), do: true
+  defp entity_write_skip?(_changes), do: false
+
+  # Only a completion with a plan maps contention; the post-commit stages and a completion
+  # without lines stay under the function-level blanket rescue (design 7.6, B-4).
+  defp run_transaction(multi, nil), do: Repo.transaction(multi)
+
+  defp run_transaction(multi, _plan) do
+    Repo.transaction(multi)
+  rescue
+    error in Postgrex.Error ->
+      case error do
+        %Postgrex.Error{postgres: %{code: code}} when code in @contention_error_codes ->
+          {:error, {:entity_write_refused, :contention, :entity_write_contention}}
+
+        _other ->
+          reraise error, __STACKTRACE__
+      end
+
+    _error in DBConnection.ConnectionError ->
+      {:error, {:entity_write_refused, :contention, :entity_write_contention}}
+  end
+
+  # F-3: the snapshot, the telemetry and the result read the final state from
+  # `changes.transition`; the tail folded the same `_sys` values into the projection write.
+  # Strict `put_sys/3`, engine-minted ids only. A fold failure cannot occur here (the
+  # transaction already validated the same pairs); the state is then left unfolded.
+  defp fold_sys_into_transition(
+         {:ok,
+          %{
+            entity_writes: %{sys_values: values},
+            transition: {:advanced, %InstanceState{} = state, children, timers, dispatches}
+          } = changes}
+       )
+       when map_size(values) > 0 do
+    case fold_sys_values(state, values) do
+      {:ok, folded} ->
+        {:ok, %{changes | transition: {:advanced, folded, children, timers, dispatches}}}
+
+      {:error, _reason} ->
+        {:ok, changes}
+    end
+  end
+
+  defp fold_sys_into_transition(result), do: result
+
+  defp fold_sys_values(%InstanceState{} = state, values) do
+    with {:ok, variables} <- fold_sys_map(state.variables, values) do
+      {:ok, %InstanceState{state | variables: variables}}
+    end
+  end
+
+  defp fold_sys_map(variables, values) do
+    values
+    |> Enum.sort()
+    |> Enum.reduce_while({:ok, variables}, fn {key, value}, {:ok, acc} ->
+      case VariableMerge.put_sys(acc, key, value) do
+        {:ok, next} -> {:cont, {:ok, next}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  # Tail additions (design 7.5): per-line audit beside the task audit, then the SYS event
+  # (BEFORE TASK_COMPLETED so replay folds the values first), then the APPLIED event. No
+  # instance-event `metadata` is set (B3 SEC F3: nothing `_sys`-derived in metadata).
+  defp append_entity_write_tail(
+         multi,
+         %{applied: applied, lines_hash: lines_hash, sys_values: sys_values},
+         plan,
+         %Task{} = task,
+         actor_id,
+         idempotency_key,
+         prefix
+       )
+       when is_map(plan) do
+    multi
+    |> append_entity_write_audits(applied, lines_hash, plan, task, actor_id, prefix)
+    |> append_sys_variables_event(sys_values, task, actor_id, idempotency_key, prefix)
+    |> append_entity_writes_applied_event(
+      applied,
+      lines_hash,
+      task,
+      actor_id,
+      idempotency_key,
+      prefix
+    )
+  end
+
+  defp append_entity_write_tail(
+         multi,
+         _not_applied,
+         _plan,
+         _task,
+         _actor_id,
+         _idempotency_key,
+         _prefix
+       ),
+       do: multi
+
+  defp append_entity_write_audits(multi, applied, lines_hash, plan, task, actor_id, prefix) do
+    Enum.reduce(applied, multi, fn line, acc ->
+      attrs = %{
+        actor_id: actor_id,
+        action: "entity_write.process_step",
+        resource_type: "entity_record",
+        resource_id: line.record_id,
+        before_state: nil,
+        after_state: %{
+          "entity_type" => line.entity_type,
+          "record_id" => line.record_id,
+          "task_id" => task.id,
+          "instance_id" => task.instance_id,
+          "node_id" => task.node_id,
+          "definition_id" => plan.definition_id,
+          "definition_version" => plan.definition_version,
+          "line_index" => line.line_index,
+          "lines_hash" => lines_hash
+        },
+        trace_id: nil
+      }
+
+      Multi.run(acc, {:entity_write_audit, line.line_index}, fn repo, _changes ->
+        Audit.insert_entry(repo, attrs, prefix)
+      end)
+    end)
+  end
+
+  defp append_sys_variables_event(multi, sys_values, _task, _actor_id, _key, _prefix)
+       when map_size(sys_values) == 0,
+       do: multi
+
+  defp append_sys_variables_event(multi, sys_values, task, actor_id, idempotency_key, prefix) do
+    Multi.run(multi, :sys_variables_event, fn _repo, _changes ->
+      # Validation by the strict writer: nothing reaches the event that put_sys/3 refuses.
+      with {:ok, _folded} <- fold_sys_map(%{}, sys_values),
+           {:ok, result} <-
+             EventStore.append(
+               %{
+                 instance_id: task.instance_id,
+                 event_type: VariableMerge.sys_event_type(),
+                 payload:
+                   Jason.encode!(%{
+                     "node_id" => task.node_id,
+                     "cause" => "entity_writes",
+                     "values" => sys_values
+                   }),
+                 actor_id: actor_id,
+                 idempotency_key: idempotency_key <> "::sys_vars"
+               },
+               prefix: prefix
+             ) do
+        {:ok, result}
+      else
+        {:error, _reason} -> {:error, {:entity_write_failed, 0, :sys_value}}
+      end
+    end)
+  end
+
+  defp append_entity_writes_applied_event(
+         multi,
+         applied,
+         lines_hash,
+         task,
+         actor_id,
+         idempotency_key,
+         prefix
+       ) do
+    Multi.run(multi, :entity_writes_applied_event, fn _repo, _changes ->
+      payload = %{
+        "node_id" => task.node_id,
+        "task_id" => task.id,
+        "dispatch_id" => nil,
+        "lines_hash" => lines_hash,
+        "lines" =>
+          Enum.map(applied, fn line ->
+            %{
+              "line_index" => line.line_index,
+              "entity_type" => line.entity_type,
+              "record_id" => line.record_id,
+              "event_global_seq" => line.event_global_seq
+            }
+          end)
+      }
+
+      case EventStore.append(
+             %{
+               instance_id: task.instance_id,
+               event_type: EntityPort.applied_event_type(),
+               payload: Jason.encode!(payload),
+               actor_id: actor_id,
+               idempotency_key: idempotency_key <> "::entity_writes"
+             },
+             prefix: prefix
+           ) do
+        {:ok, result} -> {:ok, result}
+        {:error, _reason} -> {:error, {:entity_write_failed, 0, :applied_event}}
+      end
+    end)
   end
 
   # REQ-194 (design req194-prometheus-metrics.md §7, OBS-02 family 2): fires
@@ -4816,11 +5285,44 @@ defmodule Letflow.Engine do
           Task.t(),
           map(),
           Ecto.UUID.t() | nil,
-          String.t()
+          String.t(),
+          entity_plan() | nil
         ) ::
           {:ok, :guards_passed | :no_guards}
           | {:error, {:completion_refused, completion_refusal()}}
-  defp check_completion_guards(repo, graph, %Task{} = task, output_variables, actor_id, prefix) do
+  defp check_completion_guards(
+         repo,
+         graph,
+         %Task{} = task,
+         output_variables,
+         actor_id,
+         prefix,
+         plan
+       ) do
+    # GH #2587 PR B2 (CDV M1, D-B.3): AFTER separation of duties and required outputs, a
+    # node that declares `entity_writes` while this completion has NO plan is refused
+    # fail-closed (nothing committed, 500 through `entity_write_failed`). A node without
+    # lines takes no new branch, so a completion without lines is byte-identical to before.
+    with {:ok, _passed} = passed <-
+           existing_completion_guards(repo, graph, task, output_variables, actor_id, prefix),
+         :ok <- check_entity_writes_planned(graph, task, plan) do
+      passed
+    end
+  end
+
+  defp check_entity_writes_planned(_graph, _task, plan) when not is_nil(plan), do: :ok
+
+  defp check_entity_writes_planned(graph, %Task{} = task, nil) do
+    case find_node(graph, task.node_id) do
+      %{attributes: %{"entity_writes" => writes}} when writes not in [nil, []] ->
+        {:error, {:completion_refused, :entity_writes_not_planned}}
+
+      _no_entity_writes ->
+        :ok
+    end
+  end
+
+  defp existing_completion_guards(repo, graph, %Task{} = task, output_variables, actor_id, prefix) do
     case SeparationOfDuties.check(repo, graph, task, actor_id, prefix) do
       {:error, {:separation_of_duties, _blocking_node_ids} = refusal} ->
         {:error, {:completion_refused, refusal}}
@@ -5330,6 +5832,7 @@ defmodule Letflow.Engine do
          _output_variables,
          _completed_at,
          _idempotency_key,
+         _plan,
          prefix
        ) do
     Multi.new()
@@ -5343,15 +5846,32 @@ defmodule Letflow.Engine do
          %{
            merge: {:merged, merge_outcome},
            transition:
-             {:advanced, final_instance_state, prepared_children, prepared_timers,
+             {:advanced, unfolded_instance_state, prepared_children, prepared_timers,
               prepared_service_task_dispatches}
          } = changes,
          actor_id,
          output_variables,
          completed_at,
          idempotency_key,
+         plan,
          prefix
        ) do
+    # GH #2587 PR B2 (F-3, D-B.10): the engine-only `_sys` values of this completion's
+    # entity writes are folded (strict put_sys/3) into the final state the projection write
+    # and the sub-process cascade read. A failed fold leaves it unfolded; the
+    # :sys_variables_event step re-validates the same pairs and rolls the transaction back.
+    final_instance_state =
+      case Map.get(changes, :entity_writes) do
+        %{sys_values: values} when map_size(values) > 0 ->
+          case fold_sys_values(unfolded_instance_state, values) do
+            {:ok, folded} -> folded
+            {:error, _reason} -> unfolded_instance_state
+          end
+
+        _no_sys_values ->
+          unfolded_instance_state
+      end
+
     normalized_changes =
       changes
       |> Map.put(:merge, merge_outcome)
@@ -5493,6 +6013,14 @@ defmodule Letflow.Engine do
     |> Multi.merge(fn changes ->
       record_task_complete_audit(normalized_changes.task, changes, actor_id, prefix)
     end)
+    |> append_entity_write_tail(
+      Map.get(changes, :entity_writes),
+      plan,
+      normalized_changes.task,
+      actor_id,
+      idempotency_key,
+      prefix
+    )
     |> Multi.run(:event, fn _repo, _changes ->
       append_task_completed_event(
         normalized_changes,
@@ -6445,6 +6973,56 @@ defmodule Letflow.Engine do
     {:error, :separation_of_duties}
   end
 
+  # GH #2587 PR B2: the guard's fail-closed "lines but no plan" refusal. Nothing committed.
+  defp interpret_complete_result(
+         {:error, _failed_step, {:completion_refused, :entity_writes_not_planned}, _changes},
+         _actor_id,
+         _prefix
+       ) do
+    {:error, {:entity_write_failed, 0, :not_planned}}
+  end
+
+  # GH #2587 PR B2: the contention result of `run_transaction/2` is a 2-tuple (no Multi
+  # envelope); it must not reach the 4-tuple catch-all.
+  defp interpret_complete_result(
+         {:error, {:entity_write_refused, :contention, _code}} = result,
+         _actor_id,
+         _prefix
+       ) do
+    result
+  end
+
+  # GH #2587 PR B2: a failed `{:line, i, step}` is routed through the port's interpreter
+  # (engine -> entities is forbidden, so it cannot call Records directly). A refusal writes
+  # one best-effort audit entry AFTER the rollback, ids and a closed detail atom only.
+  defp interpret_complete_result(
+         {:error, {:line, _index, _step} = failed_step, reason, changes},
+         actor_id,
+         prefix
+       ) do
+    case EntityPort.impl().interpret_failure(failed_step, reason) do
+      {:refused, index, code, detail} ->
+        task = Map.fetch!(changes, :task)
+
+        record_entity_write_refusal_audit(task, actor_id, index, code, detail, prefix)
+
+        if code == :entity_write_contention,
+          do: {:error, {:entity_write_refused, :contention, code}},
+          else: {:error, {:entity_write_refused, index, code}}
+
+      {:failed, index, step} ->
+        Logger.error(
+          "entity write line #{index} failed internally at step #{inspect(step)} " <>
+            "(task #{Map.fetch!(changes, :task).id})"
+        )
+
+        {:error, {:entity_write_failed, index, step}}
+
+      :not_a_line_failure ->
+        {:error, reason}
+    end
+  end
+
   # Catch-all -- every Multi step's own callback above already maps its
   # failure to the exact error shape complete_error() promises (or passes a
   # raw changeset/term() through, matching those catch-all clauses); this
@@ -6480,6 +7058,48 @@ defmodule Letflow.Engine do
     end
 
     {:error, reason}
+  end
+
+  # GH #2587 PR B2: the best-effort tenant audit record of a refused entity write, written
+  # AFTER the rolled-back transaction (its own transaction, like
+  # record_completion_refusal_audit/6). The public body is one code per refusal (INV-5);
+  # the closed `detail` class lives only here. Ids, an index and atoms only: no field name,
+  # no field value, no entity type.
+  defp record_entity_write_refusal_audit(%Task{} = task, actor_id, index, code, detail, prefix) do
+    attrs = %{
+      actor_id: actor_id,
+      action: "entity_write.refused",
+      resource_type: "task",
+      resource_id: task.id,
+      before_state: nil,
+      after_state: %{
+        "instance_id" => task.instance_id,
+        "node_id" => task.node_id,
+        "line_index" => index,
+        "code" => Atom.to_string(code),
+        "detail" => Atom.to_string(detail)
+      },
+      trace_id: nil
+    }
+
+    case Repo.transaction(fn -> Audit.insert_entry(Repo, attrs, prefix) end) do
+      {:ok, {:ok, _entry}} ->
+        :ok
+
+      other ->
+        Logger.warning(
+          "could not record entity_write.refused for task #{task.id}: #{inspect(other)}"
+        )
+
+        :ok
+    end
+  rescue
+    exception ->
+      Logger.warning(
+        "recording entity_write.refused for task #{task.id} raised: #{inspect(exception)}"
+      )
+
+      :ok
   end
 
   # =========================================================================

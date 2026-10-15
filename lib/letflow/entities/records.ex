@@ -260,7 +260,7 @@ defmodule Letflow.Entities.Records do
           optional(:dispatch_id) => Ecto.UUID.t(),
           required(:node_id) => String.t(),
           required(:definition_id) => Ecto.UUID.t(),
-          required(:definition_version) => pos_integer(),
+          required(:definition_version) => String.t(),
           required(:line_index) => non_neg_integer(),
           required(:activator_id) => Ecto.UUID.t()
         }
@@ -770,7 +770,9 @@ defmodule Letflow.Entities.Records do
          node_id when is_binary(node_id) and byte_size(node_id) in 1..@step_node_id_max_bytes <-
            Map.get(source, :node_id),
          true <- String.valid?(node_id),
-         version when is_integer(version) and version > 0 <- Map.get(source, :definition_version) do
+         version when is_binary(version) and byte_size(version) in 1..255 <-
+           Map.get(source, :definition_version),
+         true <- String.valid?(version) do
       {:ok,
        %{
          "source.kind" => "process_step",
@@ -778,7 +780,7 @@ defmodule Letflow.Entities.Records do
          origin_key => origin_id,
          "source.node_id" => node_id,
          "source.definition_id" => definition_id,
-         "source.definition_version" => Integer.to_string(version),
+         "source.definition_version" => version,
          "source.line_index" => Integer.to_string(source.line_index),
          "source.activator_id" => activator_id
        }}

@@ -438,6 +438,9 @@ defmodule Letflow.Support.ScriptTaskFixture do
 
     @impl Letflow.Engine.EntityPort
     defdelegate multi(multi, lines, ctx), to: Letflow.Entities.EntityPortImpl
+
+    @impl Letflow.Engine.EntityPort
+    defdelegate interpret_failure(step, reason), to: Letflow.Entities.EntityPortImpl
   end
 
   @doc "Selects `RecordingReadPort` as the configured read port for the test (restored on exit)."

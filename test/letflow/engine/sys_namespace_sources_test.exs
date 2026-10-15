@@ -13,10 +13,10 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
     6. script output -- the 7c route (`ScriptTaskDispatcher.run_claimed/2`)
     7. no admin variable-patch route exists (recorded grep of the routers)
 
-  The engine writer of reserved values is PR B, so where a test needs an instance that ALREADY
-  holds one (3a, 3b, 4) it writes the projection row directly -- the stand-in for that writer --
-  and then drives the real completion / start path. Values are never asserted to appear in an
-  error, audit row or log line.
+  Where a test needs an instance that ALREADY holds a reserved value (3a, 3b, 4) it is produced
+  by the REAL writer (PR B2, CO-2): a HUMAN_TASK completion whose node declares `entity_writes`
+  with an `output_record_id_var`, through `Letflow.EntityWritesFixture`. Nothing hand-writes a
+  `_sys` key. Values are never asserted to appear in an error, audit row or log line.
   """
 
   use Letflow.DataCase, async: false
@@ -27,7 +27,6 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
 
   alias Letflow.Audit
   alias Letflow.Definitions
-  alias Letflow.Definitions.ProcessDefinition
   alias Letflow.Engine
   alias Letflow.Engine.PinResolver.Lookup
   alias Letflow.Engine.ServiceTaskDispatcher
@@ -36,6 +35,7 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
   alias Letflow.Engine.TokenRecord
   alias Letflow.EventStore.Event
   alias Letflow.EventStore.InstanceProjection
+  alias Letflow.EntityWritesFixture, as: Fx
   alias Letflow.EventStore.Registry.ValidationFailure
   alias Letflow.Support.ScriptTaskFixture, as: F
   alias Letflow.TenantFixture
@@ -62,28 +62,6 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
              )
 
     assert {:ok, %{definition: activated}} = Definitions.activate(definition.id, prefix: schema)
-    activated
-  end
-
-  # A definition stored BEFORE PR A1b: inserted directly as ACTIVE, bypassing the save-time check
-  # and the activation refusal (CHK-29/CHK-30, `expression_references_reserved_variable`), which
-  # now reject a reserved name in a sub-process interface. The run-time guards (design 2.2) must
-  # keep holding for such a row, so these tests seed it the way an old row exists.
-  defp legacy_active_definition!(schema, graph) do
-    row =
-      %ProcessDefinition{}
-      |> ProcessDefinition.create_changeset(%{
-        name: uniq("gh2587-legacy"),
-        version: "1.0.0",
-        graph: graph,
-        created_by: Ecto.UUID.generate()
-      })
-      |> Repo.insert!(prefix: schema)
-
-    {1, [activated]} =
-      from(d in ProcessDefinition, where: d.id == ^row.id, select: d)
-      |> Repo.update_all([set: [status: :active]], prefix: schema)
-
     activated
   end
 
@@ -135,16 +113,34 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
     |> Repo.one!(prefix: schema)
   end
 
-  # Stand-in for PR B's engine writer: the instance already holds engine-written values.
-  defp hold_engine_values!(schema, instance_id, values) do
-    current = projection(schema, instance_id).variables
+  # A tenant with event types seeded, an active user and the entity type the lines write.
+  defp writer_tenant!(prefix) do
+    base = Fx.tenant_case!(prefix)
+    Fx.define_type!(base.schema, "stock_move", %{})
+    base
+  end
 
-    {1, _} =
-      InstanceProjection
-      |> where([p], p.instance_id == ^instance_id)
-      |> Repo.update_all([set: [variables: Map.merge(current, values)]], prefix: schema)
+  defp lines(output_var) do
+    [
+      Map.put(
+        Fx.line("stock_move", %{"label" => %{"const" => "L"}}),
+        "output_record_id_var",
+        output_var
+      )
+    ]
+  end
 
-    :ok
+  # Adds `entity_writes` lines to the node `node_id` of `graph`.
+  defp with_lines(graph, node_id, the_lines) do
+    update_in(graph, ["nodes"], fn nodes ->
+      Enum.map(nodes, fn
+        %{"id" => ^node_id} = node ->
+          put_in(node, ["attributes", "entity_writes"], the_lines)
+
+        node ->
+          node
+      end)
+    end)
   end
 
   defp human_task_graph do
@@ -203,10 +199,18 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
     }
   end
 
-  # Parent started and its `gate` completed, so the child is running. Returns ids.
-  defp running_child!(schema, interface) do
-    child_def = active_definition!(schema, human_task_graph())
-    parent_def = legacy_active_definition!(schema, parent_graph(child_def.name, interface))
+  # Parent started and its `gate` completed, so the child is running. The child's HUMAN_TASK
+  # declares `entity_writes` (output var `_sys.x`): its own completion mints the reserved value
+  # through the real writer, in the same transaction that completes the child (CO-2).
+  defp running_writing_child!(base, interface) do
+    schema = base.schema
+
+    child_def =
+      Fx.activate!(schema, base.user, with_lines(human_task_graph(), "task", lines("_sys.x")))
+
+    parent_def =
+      Fx.legacy_activate!(schema, base.user, parent_graph(child_def.name, interface), [])
+
     parent_id = start!(schema, parent_def, %{"seed" => 1})
     gate = pending_task!(schema, parent_id)
     assert {:ok, _} = Engine.complete_task(gate.id, complete_attrs(%{}), prefix: schema)
@@ -422,12 +426,14 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
 
   describe "(3) sub-process output" do
     test "(3a) no interface: the child's reserved values are dropped, the rest merges, no ERROR" do
-      %{schema_name: schema} = tenant("gh2587-src-spo")
-      {parent_id, child_id} = running_child!(schema, nil)
-
-      hold_engine_values!(schema, child_id, %{"_sys.x" => 5})
+      base = writer_tenant!("gh2587-src-spo")
+      schema = base.schema
+      {parent_id, child_id} = running_writing_child!(base, nil)
       child_task = pending_task!(schema, child_id)
 
+      # Cascade outcome (design 7.2, M2): the child completion WITH a plan holds its entity-type
+      # locks, writes `_sys.x`, completes the child and cascades the parent's completion in the
+      # SAME transaction; the parent receives the child's variables with reserved keys dropped.
       assert {:ok, %{instance_status: :completed}} =
                Engine.complete_task(child_task.id, complete_attrs(%{"y" => 2}), prefix: schema)
 
@@ -440,12 +446,13 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
       assert [event] = events_of_type(schema, parent_id, "SUB_PROCESS_COMPLETED")
       refute Map.has_key?(event.payload["output_variables"], "_sys.x")
 
-      # non-vacuity (TDV F3): the child really still held the reserved value at completion
-      assert projection(schema, child_id).variables["_sys.x"] == 5
+      # non-vacuity (TDV F3): the child really held the reserved value, written by the engine
+      assert {:ok, _uuid} = Ecto.UUID.cast(projection(schema, child_id).variables["_sys.x"])
     end
 
     test "(3b) an explicit interface output naming a reserved key: parent ERROR reserved_variable_key, no value" do
-      %{schema_name: schema} = tenant("gh2587-src-spo2")
+      base = writer_tenant!("gh2587-src-spo2")
+      schema = base.schema
 
       interface = %{
         "outputs" => [
@@ -454,12 +461,14 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
         ]
       }
 
-      {parent_id, child_id} = running_child!(schema, interface)
-      hold_engine_values!(schema, child_id, %{"_sys.x" => @secret})
+      {parent_id, child_id} = running_writing_child!(base, interface)
       child_task = pending_task!(schema, child_id)
 
       assert {:ok, _} =
                Engine.complete_task(child_task.id, complete_attrs(%{"y" => 2}), prefix: schema)
+
+      secret = projection(schema, child_id).variables["_sys.x"]
+      assert is_binary(secret)
 
       parent = projection(schema, parent_id)
       assert parent.status == :error
@@ -469,7 +478,7 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
       assert event.payload["error_type"] == "reserved_variable_key"
       assert event.payload["affected"] == %{"kind" => "field", "key" => "_sys.x"}
       assert event.payload["details"] == %{}
-      refute inspect(event.payload, limit: :infinity) =~ @secret
+      refute inspect(event.payload, limit: :infinity) =~ secret
       assert events_of_type(schema, parent_id, "SUB_PROCESS_COMPLETED") == []
     end
   end
@@ -478,11 +487,19 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
 
   describe "(4) sub-process child start" do
     test "no interface: the child's initial variables lack the parent's reserved values" do
-      %{schema_name: schema} = tenant("gh2587-src-sps")
+      base = writer_tenant!("gh2587-src-sps")
+      schema = base.schema
       child_def = active_definition!(schema, human_task_graph())
-      parent_def = active_definition!(schema, parent_graph(child_def.name, nil))
+
+      # the parent's gate declares the lines: ITS completion mints `_sys.a`, then spawns the child
+      parent_def =
+        Fx.activate!(
+          schema,
+          base.user,
+          parent_graph(child_def.name, nil) |> with_lines("gate", lines("_sys.a"))
+        )
+
       parent_id = start!(schema, parent_def, %{"seed" => 1})
-      hold_engine_values!(schema, parent_id, %{"_sys.a" => Ecto.UUID.generate()})
 
       gate = pending_task!(schema, parent_id)
       assert {:ok, _} = Engine.complete_task(gate.id, complete_attrs(%{}), prefix: schema)
@@ -497,7 +514,8 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
     end
 
     test "an interface input naming a reserved key: stripped at run time, the parent step succeeds" do
-      %{schema_name: schema} = tenant("gh2587-src-sps2")
+      base = writer_tenant!("gh2587-src-sps2")
+      schema = base.schema
 
       interface = %{
         "inputs" => [
@@ -507,9 +525,16 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
       }
 
       child_def = active_definition!(schema, human_task_graph())
-      parent_def = legacy_active_definition!(schema, parent_graph(child_def.name, interface))
+
+      parent_def =
+        Fx.legacy_activate!(
+          schema,
+          base.user,
+          parent_graph(child_def.name, interface) |> with_lines("gate", lines("_sys.a")),
+          [{"stock_move", "create"}]
+        )
+
       parent_id = start!(schema, parent_def, %{"seed" => 1})
-      hold_engine_values!(schema, parent_id, %{"_sys.a" => Ecto.UUID.generate()})
 
       gate = pending_task!(schema, parent_id)
       assert {:ok, _} = Engine.complete_task(gate.id, complete_attrs(%{}), prefix: schema)

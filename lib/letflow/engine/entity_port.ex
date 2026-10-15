@@ -36,12 +36,13 @@ defmodule Letflow.Engine.EntityPort do
 
   ## Write half (0054 D2)
 
-  `prepare/2`, `validate_lines/2` and `multi/3` carry the process-step entity writes.
-  `prepare/2` is real (PR A3); `validate_lines/2` is real from PR B1 (activation-time
-  validation; it never writes); `multi/3` still fails closed on a non-empty line list (PR B2
-  replaces it). Nothing in the engine calls the write half yet; `Letflow.Definitions` calls
-  `validate_lines/2` at the three activation paths. Script paths (the dispatcher and
-  `Letflow.Scripts.*`) call `prefetch/3` ONLY, and a static test asserts it.
+  `prepare/2`, `validate_lines/2`, `multi/3` and `interpret_failure/2` carry the
+  process-step entity writes. `prepare/2` is real (PR A3); `validate_lines/2` is real from PR
+  B1 (activation-time validation; it never writes); `multi/3` and `interpret_failure/2` are
+  real from PR B2, called by the HUMAN_TASK completion transaction (`Letflow.Engine`).
+  `Letflow.Definitions` calls `validate_lines/2` at the three activation paths. Script paths
+  (the dispatcher and `Letflow.Scripts.*`) call `prefetch/3` ONLY, and a static test asserts
+  it.
   """
 
   @typedoc """
@@ -95,8 +96,63 @@ defmodule Letflow.Engine.EntityPort do
           optional(atom()) => term()
         }
 
-  @typedoc "Context for `multi/3`; PR B extends it."
-  @type multi_ctx :: %{required(:prefix) => String.t(), optional(atom()) => term()}
+  @typedoc """
+  Context for `multi/3` (PR B2). `variables` and `skip?` are closures over the transaction's
+  accumulated changes, so the entity side never learns the engine's step names: `variables`
+  returns the merged instance variables after the engine's merge, `skip?` is true when the
+  merge or transition ended in an execution error (nothing is written then). `now_fun` is a
+  monotonic-millisecond test seam for the 10 s wall-clock guard.
+  """
+  @type multi_ctx :: %{
+          required(:prefix) => String.t(),
+          required(:task_id) => Ecto.UUID.t(),
+          required(:instance_id) => Ecto.UUID.t(),
+          required(:node_id) => String.t(),
+          required(:definition_id) => Ecto.UUID.t(),
+          required(:definition_version) => String.t(),
+          required(:actor_id) => Ecto.UUID.t(),
+          required(:activator_id) => Ecto.UUID.t(),
+          required(:authorized) => [{String.t(), String.t()}],
+          required(:variables) => (map() -> map()),
+          required(:skip?) => (map() -> boolean()),
+          optional(:now_fun) => (-> integer())
+        }
+
+  @typedoc "One applied line: ids and sequences only (INV-2)."
+  @type applied_line :: %{
+          required(:line_index) => non_neg_integer(),
+          required(:entity_type) => String.t(),
+          required(:record_id) => Ecto.UUID.t(),
+          required(:event_global_seq) => non_neg_integer(),
+          optional(:output_var) => String.t() | nil
+        }
+
+  @typedoc "The value of the `:entity_writes` step `multi/3` ends with."
+  @type entity_writes_result ::
+          :skipped
+          | %{
+              required(:applied) => [applied_line()],
+              required(:lines_hash) => String.t(),
+              required(:sys_values) => %{optional(String.t()) => String.t() | non_neg_integer()}
+            }
+
+  @typedoc """
+  The outcome of a failed line step: a refusal (`detail` is a closed atom for the tenant
+  audit entry only), an internal fault, or "not a line step".
+  """
+  @type failure ::
+          {:refused, non_neg_integer(), refusal_code(), detail :: atom()}
+          | {:failed, non_neg_integer(), step :: atom()}
+          | :not_a_line_failure
+
+  @type refusal_code ::
+          :write_not_permitted
+          | :validation_failed
+          | :entity_append_only
+          | :idempotency_conflict
+          | :record_version_conflict
+          | :entity_type_inactive
+          | :entity_write_contention
 
   @event_type "TASK_ENTITY_WRITES_APPLIED"
 
@@ -118,8 +174,18 @@ defmodule Letflow.Engine.EntityPort do
   @callback validate_lines(lines :: [line()], definition_ctx()) ::
               :ok | {:error, [line_violation()]}
 
-  @doc "Adds the per-line write steps to the Multi. PR A: fail closed."
+  @doc """
+  Adds the per-line write steps to the Multi and ENDS with the named step `:entity_writes`
+  whose value is `entity_writes_result()`. With no lines it returns the Multi unchanged.
+  """
   @callback multi(Ecto.Multi.t(), lines :: [line()], multi_ctx()) :: Ecto.Multi.t()
+
+  @doc """
+  Maps a failed `{:line, i, step}` Multi step (and its reason) to a `failure()`. The engine
+  cannot call the entity layer's own interpreter (engine -> entities is forbidden), so this
+  is the one door. Never carries a field value or name.
+  """
+  @callback interpret_failure(failed_step :: term(), reason :: term()) :: failure()
 
   @doc """
   The injected implementation module, read from `config :letflow, :entity_port`. The single

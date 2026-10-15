@@ -2,7 +2,7 @@ defmodule Letflow.Entities.StepWritesPrepareTest do
   @moduledoc """
   GH 2587 / REQ-499 PR A3 (design `gh2587-req499-pr-a-prerequisites.md` sections 4.3, 11 A3):
   `Letflow.Entities.StepWrites.prepare/2`, the real `validate_lines/2` (PR B1, covered in depth by
-  `entity_writes_activation_test.exs`) and the still fail-closed `multi/3`.
+  `entity_writes_activation_test.exs`) and `multi/3` (PR B2, covered in depth by `complete_task_entity_writes_test.exs`).
 
   Runs in Sandbox `:auto` mode (real transactions, explicit cleanup) exactly as
   `engine_concurrency_test.exs` does: under the sandbox a `Repo.transaction/1` is a savepoint,
@@ -49,12 +49,20 @@ defmodule Letflow.Entities.StepWritesPrepareTest do
     {:ok, schema: schema}
   end
 
-  defp activate!(schema, name) do
-    definition = %{
-      name: name,
-      display_name: name,
-      fields: [%{name: "label", type: :string}]
-    }
+  # A process-writable (flagged), append-only type, the only kind `prepare/2` serves (CO-3).
+  defp activate!(schema, name), do: activate!(schema, name, %{writable_by_process: true})
+
+  defp activate!(schema, name, extra) do
+    definition =
+      Map.merge(
+        %{
+          name: name,
+          display_name: name,
+          fields: [%{name: "label", type: :string}],
+          append_only: true
+        },
+        extra
+      )
 
     assert {:ok, row} =
              Definitions.create_definition(
@@ -102,6 +110,15 @@ defmodule Letflow.Entities.StepWritesPrepareTest do
     lines = [line("alpha"), line("ghost"), %{"entity_type" => 5}, %{}]
     assert :ok = StepWrites.prepare(lines, %{prefix: schema})
     assert instance_types(schema) == ["alpha"]
+  end
+
+  test "CO-3: a type without the process-writable flag gets no instance row; with it, one",
+       %{schema: schema} do
+    activate!(schema, "plain", %{})
+    activate!(schema, "flagged")
+
+    assert :ok = StepWrites.prepare([line("plain"), line("flagged")], %{prefix: schema})
+    assert instance_types(schema) == ["flagged"]
   end
 
   test "inside a caller's transaction it refuses and writes nothing", %{schema: schema} do
@@ -245,14 +262,19 @@ defmodule Letflow.Entities.StepWritesPrepareTest do
       assert EntityPortImpl.multi(m, [], ctx) == StepWrites.multi(m, [], ctx)
     end
 
-    test "multi/3 still fails closed until PR B2" do
+    test "multi/3 (PR B2): no lines is the identity; lines add ONE lazy merge, nothing runs" do
       m = Ecto.Multi.new()
       assert StepWrites.multi(m, [], %{prefix: "x"}) == m
 
       out = StepWrites.multi(m, [line("a")], %{prefix: "x"})
+      assert [{:merge, {:merge, fun}}] = Ecto.Multi.to_list(out)
+      assert is_function(fun, 1)
+    end
 
-      assert [{{:line, 0, :build}, {:error, :entity_writes_not_enabled}}] =
-               Ecto.Multi.to_list(out)
+    test "interpret_failure/2 answers :not_a_line_failure for any step that is not {:line, i, _}" do
+      assert StepWrites.interpret_failure(:task, :boom) == :not_a_line_failure
+      assert StepWrites.interpret_failure({:entity_write_audit, 0}, :boom) == :not_a_line_failure
+      assert StepWrites.interpret_failure(:entity_writes, :boom) == :not_a_line_failure
     end
   end
 end

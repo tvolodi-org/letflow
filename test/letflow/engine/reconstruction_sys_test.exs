@@ -5,12 +5,13 @@ defmodule Letflow.Engine.ReconstructionSysTest do
   decision 0054 instance event types, through the REAL `Reconstruction.reconstruct_instance/2`
   over a REAL instance (`Engine.create/2`, `Engine.complete_task/3`).
 
-  The engine writer of `INSTANCE_SYS_VARIABLES_SET` is PR B, so this file appends the event
-  directly with `EventStore.append/2` (the type is registered by the tenant seed), in the
-  D-A1.10 order: before the step's `TASK_COMPLETED`. The live projection therefore does not
-  hold the reserved values (no live writer yet); the rebuilt state must equal it PLUS exactly
-  those values, with the same token positions after a gateway evaluated on the completion.
-  (The "replay invokes no EntityPort write callback" case is PR B's, CDV-2.)
+  GH #2587 PR B2 (CO-2): the engine writer of `INSTANCE_SYS_VARIABLES_SET` is real, so the
+  main case completes a HUMAN_TASK whose node declares `entity_writes` through
+  `Engine.complete_task/3` (`Letflow.EntityWritesFixture`); the rebuilt state must equal the
+  live projection, `_sys` values included, with the same token positions after a gateway
+  evaluated on the completion. Raw-inserted events (`insert_raw_event!/4`) stay ONLY for
+  malformed and wide-tier cases (GH #2621, CO-7). The "replay invokes no EntityPort write
+  callback" case is in `complete_task_entity_writes_test.exs` (B-14).
   """
 
   use Letflow.DataCase, async: false
@@ -95,14 +96,6 @@ defmodule Letflow.Engine.ReconstructionSysTest do
     event
   end
 
-  defp sys_event!(schema, instance_id, values) do
-    append!(schema, instance_id, "INSTANCE_SYS_VARIABLES_SET", %{
-      "node_id" => "t1",
-      "cause" => "entity_writes",
-      "values" => values
-    })
-  end
-
   # GH #2621 (design F1/F-A): inserts one `events` row directly, so neither EventStore.append/2
   # nor Registry.validate_payload/3 (and the strict append guard) is traversed: it stands for an
   # event stored BEFORE the guard existed. Explicit columns: event_id and created_at (the
@@ -165,31 +158,61 @@ defmodule Letflow.Engine.ReconstructionSysTest do
 
   defp nodes(state), do: state.tokens |> Enum.map(& &1.node_id) |> Enum.sort()
 
-  test "SYS event before TASK_COMPLETED: rebuilt variables hold both reserved keys; the gateway after the completion takes the live edge" do
-    {schema, instance_id} = started_instance!()
-    record_id = Ecto.UUID.generate()
-    values = %{"_sys.r" => record_id, "_sys.r.seq" => 7}
+  test "real writer: the SYS event precedes TASK_COMPLETED; rebuilt variables equal the live ones; the gateway takes the live edge" do
+    alias Letflow.EntityWritesFixture, as: Fx
 
-    sys = sys_event!(schema, instance_id, values)
-    complete_t1!(schema, instance_id, %{"ok" => true})
+    base = Fx.tenant_case!("gh2587-rc-b2")
+    Fx.define_type!(base.schema, "stock_move", %{})
 
+    lines = [
+      Map.put(
+        Fx.line("stock_move", %{"label" => %{"const" => "L"}}),
+        "output_record_id_var",
+        "_sys.r"
+      )
+    ]
+
+    lines_graph =
+      update_in(graph(), ["nodes"], fn nodes ->
+        Enum.map(nodes, fn
+          %{"id" => "t1"} = node -> put_in(node, ["attributes", "entity_writes"], lines)
+          node -> node
+        end)
+      end)
+
+    definition = Fx.activate!(base.schema, base.user, lines_graph)
+    {instance_id, task} = Fx.start!(base.schema, definition)
+
+    assert {:ok, _} =
+             Engine.complete_task(
+               task.id,
+               %{
+                 output_variables: %{"ok" => true},
+                 actor_id: base.user.id,
+                 idempotency_key: uniq("c")
+               },
+               prefix: base.schema
+             )
+
+    schema = base.schema
     live = projection(schema, instance_id)
     assert live.current_nodes == ["a"]
+    assert Map.has_key?(live.variables, "_sys.r")
+    assert is_integer(live.variables["_sys.r.seq"])
 
     assert {:ok, %{instance_state: state}} =
              Reconstruction.reconstruct_instance(instance_id, prefix: schema)
 
-    assert state.variables == Map.merge(live.variables, values)
-    assert state.variables["_sys.r"] == record_id
-    assert state.variables["_sys.r.seq"] == 7
+    assert state.variables == live.variables
     assert nodes(state) == Enum.sort(live.current_nodes)
     assert state.status == live.status
 
     # D-A1.10 order: the SYS event precedes the step's completion event.
     {:ok, events} = EventStore.read(instance_id, prefix: schema)
     types = Enum.map(events, & &1.event_type)
-    sys_index = Enum.find_index(events, &(&1.event_id == sys.event_id))
+    sys_index = Enum.find_index(types, &(&1 == "INSTANCE_SYS_VARIABLES_SET"))
     assert sys_index < Enum.find_index(types, &(&1 == "TASK_COMPLETED"))
+    assert Enum.count(types, &(&1 == "TASK_ENTITY_WRITES_APPLIED")) == 1
   end
 
   test "the same stream without the SYS event rebuilds without reserved keys (control)" do
@@ -226,10 +249,21 @@ defmodule Letflow.Engine.ReconstructionSysTest do
     values = %{"_sys.line_0.id" => "any string", "_sys.r.seq" => 3}
     raw_sys_event!(schema, instance_id, values)
 
+    count = fn ->
+      Repo.aggregate(from(e in Event, where: e.instance_id == ^instance_id), :count,
+        prefix: schema
+      )
+    end
+
+    before = count.()
+
     assert {:ok, %{instance_state: state}} =
              Reconstruction.reconstruct_instance(instance_id, prefix: schema)
 
     assert state.variables == %{"n" => 1, "_sys.line_0.id" => "any string", "_sys.r.seq" => 3}
+
+    # CO-7: replay appends, repairs and rewrites nothing
+    assert count.() == before
   end
 
   test "a stored 41-key v1 event replays unchanged: the append cap does not touch replay (GH #2621)" do
