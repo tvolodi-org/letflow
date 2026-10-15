@@ -11,7 +11,12 @@ defmodule Letflow.ClientIpRuntimeConfigTest do
   exit status and output. Every case passes `MIX_TEST_PARTITION`/`MIX_BUILD_PATH`
   as nil (`System.cmd/3` merges `env:` onto the inherited environment, and
   `config/dev.exs` refuses a set `MIX_TEST_PARTITION`) and supplies the committed,
-  non-secret test master key because `MIX_ENV=dev`/`prod` has no fallback.
+  non-secret test master key because `MIX_ENV=prod` has no fallback.
+
+  The `MIX_ENV=dev` cases are no longer subprocesses: they live in
+  `Letflow.ClientIpRuntimeConfigTest.Dev` at the end of this file and evaluate the real
+  `config/runtime.exs` in-process with `Config.Reader` and `env: :dev` (GH #2611), so this
+  file never builds `_build/dev`.
 
   The `MIX_ENV=prod` cases additionally carry `@tag :prod_build` (they need a
   prod-compiled build, slow and possibly absent in a lean CI). The same decision
@@ -25,6 +30,10 @@ defmodule Letflow.ClientIpRuntimeConfigTest do
   use ExUnit.Case, async: true
 
   @moduletag :slow
+  # GH #2611: the remaining `mix run` subprocess smoke tests boot a child VM on the already
+  # compiled build; 180 s is a backstop well above the measured child boot, never a
+  # cold-compile allowance (no test here compiles _build/dev any more).
+  @moduletag timeout: 180_000
 
   # Same fix as test/letflow/admission_runtime_config_test.exs (ISS-0908 follow-up): the first
   # MIX_ENV=prod child boot otherwise absorbs a full _build/prod compile, which on a loaded
@@ -52,7 +61,7 @@ defmodule Letflow.ClientIpRuntimeConfigTest do
   @trust_warning "LETFLOW_LOGIN_DISCOVERY_ENABLED is true with LETFLOW_TRUSTED_PROXIES empty"
   @zero_warning "LETFLOW_TRUSTED_PROXIES contains a /0 CIDR"
 
-  # mix_env: "test" | "dev" | "prod"; proxies/enabled: a string or nil (unset).
+  # mix_env: "test" | "prod"; proxies/enabled: a string or nil (unset).
   defp boot(mix_env, proxies, enabled), do: boot(mix_env, proxies, enabled, [])
 
   defp boot(mix_env, proxies, enabled, extra_env) do
@@ -171,35 +180,7 @@ defmodule Letflow.ClientIpRuntimeConfigTest do
     end
   end
 
-  # --- MIX_ENV=dev ----------------------------------------------------------
-
-  describe "MIX_ENV=dev" do
-    test "defaults to enabled true; the empty list only prints the fixed warning, once" do
-      {output, status} = boot("dev", nil, nil)
-      assert_boots(output, status)
-      assert output =~ "RESULT {[trusted_proxies: []], [enabled: true]}"
-      assert count(output, @trust_warning) == 1
-    end
-
-    test "explicitly enabled with an empty list also boots with the warning" do
-      {output, status} = boot("dev", "", "true")
-      assert_boots(output, status)
-      assert count(output, @trust_warning) == 1
-    end
-
-    test "disabled prints no warning" do
-      {output, status} = boot("dev", nil, "false")
-      assert_boots(output, status)
-      assert output =~ "[enabled: false]"
-      refute output =~ @trust_warning
-    end
-
-    test "enabled with a non-empty list prints no warning" do
-      {output, status} = boot("dev", "172.16.0.0/12", "true")
-      assert_boots(output, status)
-      refute output =~ @trust_warning
-    end
-  end
+  # --- MIX_ENV=dev: see Letflow.ClientIpRuntimeConfigTest.Dev below (in-process) ---
 
   # --- MIX_ENV=prod ---------------------------------------------------------
 
@@ -273,6 +254,81 @@ defmodule Letflow.ClientIpRuntimeConfigTest do
       assert_refused(output, status)
       assert output =~ "LETFLOW_TRUSTED_PROXIES"
       refute output =~ sentinel
+    end
+  end
+end
+
+defmodule Letflow.ClientIpRuntimeConfigTest.Dev do
+  @moduledoc """
+  REQ-439, the `config_env() == :dev` cases of `Letflow.ClientIpRuntimeConfigTest`,
+  evaluated in-process (GH #2611, the pattern of GH #2609 / PR #2610): the real
+  `config/runtime.exs` is read with `Config.Reader` and `env: :dev` through
+  `Letflow.Test.RuntimeConfigEval`, so these cases no longer spawn a `MIX_ENV=dev`
+  `mix run` that paid a cold `_build/dev` compile inside ExUnit's per-test timeout.
+  `env: :dev` keeps the dev semantics: `parse_enabled/2` defaults to true outside `:prod`
+  and `boot_check/3` warns (not refuses) on an enabled mount with an empty trust list.
+
+  A separate module because the OS environment is process-global: this one is
+  `async: false` (every variable `runtime.exs` reads is snapshotted in `setup` and restored
+  in `on_exit`; each case sets explicit inputs, with a valid master key and pepper pair so
+  an earlier refusal cannot mask the case), while the subprocess cases above stay
+  `async: true`. Those subprocess cases (`MIX_ENV=test` and `prod`) remain this file's
+  real boot-path checks.
+  """
+
+  use ExUnit.Case, async: false
+
+  alias Letflow.Test.RuntimeConfigEval, as: R
+
+  @trust_warning "LETFLOW_LOGIN_DISCOVERY_ENABLED is true with LETFLOW_TRUSTED_PROXIES empty"
+
+  setup do
+    R.isolate_env()
+  end
+
+  # proxies/enabled: a string or nil (unset). -> {client_ip_env, mount_env, stderr}
+  defp boot_dev(proxies, enabled) do
+    vars =
+      Map.merge(R.valid_base(), %{
+        "LETFLOW_TRUSTED_PROXIES" => proxies,
+        "LETFLOW_LOGIN_DISCOVERY_ENABLED" => enabled
+      })
+
+    {result, stderr} = R.evaluate(vars, :dev)
+
+    assert {:ok, config} = result,
+           "expected config/runtime.exs to evaluate, got: #{inspect(result)}"
+
+    {config[:letflow][Letflow.Plugs.ClientIp], config[:letflow][Letflow.Routers.LoginDiscovery],
+     stderr}
+  end
+
+  defp count(output, needle), do: length(String.split(output, needle)) - 1
+
+  describe "MIX_ENV=dev" do
+    test "defaults to enabled true; the empty list only prints the fixed warning, once" do
+      {client_ip, mount, stderr} = boot_dev(nil, nil)
+      assert {client_ip, mount} == {[trusted_proxies: []], [enabled: true]}
+      assert count(stderr, @trust_warning) == 1
+    end
+
+    test "explicitly enabled with an empty list also boots with the warning" do
+      {_client_ip, mount, stderr} = boot_dev("", "true")
+      assert mount == [enabled: true]
+      assert count(stderr, @trust_warning) == 1
+    end
+
+    test "disabled prints no warning" do
+      {_client_ip, mount, stderr} = boot_dev(nil, "false")
+      assert mount == [enabled: false]
+      refute stderr =~ @trust_warning
+    end
+
+    test "enabled with a non-empty list prints no warning" do
+      {client_ip, mount, stderr} = boot_dev("172.16.0.0/12", "true")
+      assert client_ip == [trusted_proxies: [{{172, 16, 0, 0}, 12}]]
+      assert mount == [enabled: true]
+      refute stderr =~ @trust_warning
     end
   end
 end

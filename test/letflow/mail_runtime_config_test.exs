@@ -15,7 +15,9 @@ defmodule Letflow.MailRuntimeConfigTest do
   A few cases additionally run a child `mix run --no-start` (the technique of
   `login_discovery_runtime_config_test.exs`) because the M1 requirement is about what
   reaches real boot OUTPUT (stdout/stderr), and because only a child shows the config as
-  the application sees it.
+  the application sees it. Every child runs under `MIX_ENV=test` on the already-compiled
+  test build, with `@tag timeout: 180_000` as a backstop; the former `MIX_ENV=dev` child
+  (shipped Noop default) is evaluated in-process since GH #2611.
 
   INV-4: every raise names the variable and never a value; the credential markers are
   built at compile time, set only in the OS environment, and must appear nowhere: not in
@@ -514,6 +516,7 @@ defmodule Letflow.MailRuntimeConfigTest do
       refute formatted =~ S.user()
     end
 
+    @tag timeout: 180_000
     test "child VM: a failing boot prints the variable name and neither credential marker, on stdout or stderr" do
       {output, status} =
         child_boot(
@@ -529,6 +532,7 @@ defmodule Letflow.MailRuntimeConfigTest do
       refute output =~ "not-a-port"
     end
 
+    @tag timeout: 180_000
     test "child VM: an unknown adapter value stops boot without echoing it" do
       {output, status} = child_boot("test", mail_env(LETFLOW_MAIL_ADAPTER: "leaky-adapter-7731"))
 
@@ -538,6 +542,7 @@ defmodule Letflow.MailRuntimeConfigTest do
       refute output =~ S.pass()
     end
 
+    @tag timeout: 180_000
     test "child VM: after a complete boot the application sees the Smtp adapter and NO credential anywhere in its env" do
       {output, status} = child_boot("test", complete([]))
 
@@ -548,11 +553,16 @@ defmodule Letflow.MailRuntimeConfigTest do
       refute output =~ S.user()
     end
 
-    test "child VM (dev): nothing set boots and the shipped default adapter is Noop" do
-      {output, status} = child_boot("dev", mail_env(LETFLOW_MAIL_ADAPTER: nil))
+    # In-process since GH #2611 (it was a MIX_ENV=dev child that paid a cold _build/dev
+    # compile and timed out on PR #2612): what the old child's probe printed is the adapter
+    # in config.exs (+ dev.exs) merged with runtime.exs, which is what effective_adapter/2
+    # computes from the same files. The test-environment child cases above stay the real
+    # boot-output checks.
+    test "dev (in-process, formerly a child VM): nothing set boots and the shipped default adapter is Noop" do
+      vars = mail_env(LETFLOW_MAIL_ADAPTER: nil)
 
-      assert status == 0, "expected exit 0, got #{status}:\n#{output}"
-      assert output =~ "ADAPTER Letflow.LoginDiscovery.Notifier.Noop"
+      assert is_list(boots!(:dev, vars))
+      assert effective_adapter(:dev, vars) == Letflow.LoginDiscovery.Notifier.Noop
     end
   end
 
@@ -597,12 +607,15 @@ defmodule Letflow.MailRuntimeConfigTest do
 
   @probe ~S|IO.puts("ADAPTER " <> inspect(Application.get_env(:letflow, Letflow.LoginDiscovery.Notifier)[:adapter])); IO.puts("TIMEOUT " <> inspect(Application.get_env(:letflow, Letflow.LoginDiscovery.Notifier)[:timeout_ms])); IO.puts("ENV " <> inspect(Application.get_all_env(:letflow), limit: :infinity, printable_limit: :infinity))|
 
-  # Child `mix run --no-start`: config is evaluated, no application and no database
-  # started. `System.cmd`'s env MERGES onto this VM's, so every variable under test is
-  # explicitly set or nil-ed; MIX_TEST_PARTITION and MIX_BUILD_PATH are nil-ed.
-  defp child_boot(mix_env, vars) do
+  # Child `mix run --no-start` under MIX_ENV=test: config is evaluated, no application and
+  # no database started. `System.cmd`'s env MERGES onto this VM's, so every variable under
+  # test is explicitly set or nil-ed. MIX_TEST_PARTITION and MIX_BUILD_PATH are INHERITED
+  # (GH #2611, as in secrets_runtime_config_test.exs): under scripts/test_parallel.sh
+  # MIX_BUILD_PATH is this partition's warm build, so the child only loads .beam files.
+  # Only config/dev.exs refuses MIX_TEST_PARTITION, and no child runs under dev any more.
+  defp child_boot("test" = mix_env, vars) do
     env =
-      [{"MIX_ENV", mix_env}, {"MIX_TEST_PARTITION", nil}, {"MIX_BUILD_PATH", nil}] ++
+      [{"MIX_ENV", mix_env}] ++
         Enum.map(@managed, &{&1, nil}) ++
         base_env() ++ vars
 

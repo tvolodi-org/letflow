@@ -12,9 +12,19 @@ defmodule Letflow.LoginDiscoveryRuntimeConfigTest do
   under test is explicitly set or explicitly `nil`-ed in every case (never left to
   inherit; an empty string is indistinguishable from unset on this host, so
   "blank" is whitespace-only). `MIX_TEST_PARTITION` and `MIX_BUILD_PATH` are
-  `nil`-ed. Cases run as `MIX_ENV=test` (warm build); ONE case runs as
-  `MIX_ENV=dev` because `config/test.exs` replaces the notifier adapter with the
-  test double and the shipped default (`Noop`) is only visible outside it.
+  `nil`-ed. Cases run as `MIX_ENV=test` (warm build) and are this file's real
+  boot-path checks; ONE case needs `config_env() == :dev` because `config/test.exs`
+  replaces the notifier adapter with the test double and the shipped default
+  (`Noop`) is only visible outside it.
+
+  That dev case is evaluated in-process (GH #2611), not as a `MIX_ENV=dev` child,
+  which paid a cold `_build/dev` compile inside ExUnit's per-test timeout: the real
+  `config/runtime.exs` is read with `Config.Reader` and `env: :dev` through
+  `Letflow.Test.RuntimeConfigEval` (the pattern of `secrets_runtime_config_test.exs`,
+  GH #2609) and merged over `config/config.exs` (`env: :dev`, so `config/dev.exs`)
+  exactly as Mix applies them, which is what the old child's probe printed. Every
+  variable `runtime.exs` reads is set explicitly for it (a valid master key and pepper
+  pair, the rest deleted) and restored in `on_exit`.
 
   Asserts, per case: exit status, the evaluated `Letflow.LoginDiscovery` env, that
   `Letflow.Routers.LoginDiscovery` is still exactly `[enabled: boolean]` (REQ-439's
@@ -27,23 +37,24 @@ defmodule Letflow.LoginDiscoveryRuntimeConfigTest do
   use ExUnit.Case, async: false
 
   @moduletag :slow
+  # GH #2611: the remaining `mix run` subprocess smoke tests boot a child VM on the already
+  # compiled build; 180 s is a backstop well above the measured child boot, never a
+  # cold-compile allowance (no test here compiles _build/dev any more).
+  @moduletag timeout: 180_000
+
+  alias Letflow.Test.RuntimeConfigEval, as: R
 
   @var "LETFLOW_LOGIN_DISCOVERY_MODE"
   @enabled_var "LETFLOW_LOGIN_DISCOVERY_ENABLED"
   @master "LETFLOW_SECRETS_MASTER_KEY"
-  @pepper "LETFLOW_LOGIN_DIRECTORY_PEPPER"
-  @pepper_id "LETFLOW_LOGIN_DIRECTORY_PEPPER_ID"
-  @previous "LETFLOW_LOGIN_DIRECTORY_PEPPER_PREVIOUS"
-  @previous_id "LETFLOW_LOGIN_DIRECTORY_PEPPER_PREVIOUS_ID"
   # built at compile time, not a 64-hex literal (the no-secret guard scans tracked files)
   @master_key String.duplicate("3f1c9a2e7b4d6081", 4)
 
   @probe ~S|IO.puts("RESULT " <> inspect({Enum.sort(Application.get_env(:letflow, Letflow.LoginDiscovery)), Application.get_env(:letflow, Letflow.Routers.LoginDiscovery), Application.get_env(:letflow, Letflow.LoginDiscovery.Notifier)[:adapter]}))|
 
-  defp hex32, do: Base.encode16(:crypto.strong_rand_bytes(32), case: :lower)
-
-  # mode / enabled: a string or nil (unset). Returns {output, exit_status}.
-  defp boot(mix_env, mode, enabled) do
+  # mode / enabled: a string or nil (unset). Returns {output, exit_status}. MIX_ENV=test
+  # only: the one dev case is evaluated in-process (see the moduledoc).
+  defp boot("test" = mix_env, mode, enabled) do
     env = [
       {"MIX_ENV", mix_env},
       {"MIX_TEST_PARTITION", nil},
@@ -54,14 +65,6 @@ defmodule Letflow.LoginDiscoveryRuntimeConfigTest do
       {"LETFLOW_TRUSTED_PROXIES", nil},
       {"DATABASE_URL", "ecto://dummy:dummy@localhost/dummy"}
     ]
-
-    # dev has no pepper fallback (config/test.exs injects one): supply a fresh pair
-    env =
-      if mix_env == "dev" do
-        env ++ [{@pepper, hex32()}, {@pepper_id, "cur-1"}, {@previous, nil}, {@previous_id, nil}]
-      else
-        env
-      end
 
     System.cmd("mix", ["run", "--no-start", "-e", @probe],
       env: env,
@@ -140,12 +143,25 @@ defmodule Letflow.LoginDiscoveryRuntimeConfigTest do
   end
 
   describe "shipped default outside the test config" do
-    test "MIX_ENV=dev, nothing set: boots, mode :redirect_single, notifier adapter Letflow.LoginDiscovery.Notifier.Noop" do
-      {output, status} = boot("dev", nil, nil)
-      assert_boots(output, status)
+    # In-process (GH #2611): the real config/runtime.exs under config_env() == :dev, merged
+    # over config/config.exs as the application would see it; see the moduledoc.
+    setup do
+      R.isolate_env()
+    end
 
-      assert output =~
-               "RESULT {[max_body_bytes: 2048, mode: :redirect_single], [enabled: true], Letflow.LoginDiscovery.Notifier.Noop}"
+    test "MIX_ENV=dev, nothing set: boots, mode :redirect_single, notifier adapter Letflow.LoginDiscovery.Notifier.Noop" do
+      vars = Map.merge(R.valid_base(), %{@var => nil, @enabled_var => nil})
+      {result, _stderr} = R.evaluate(vars, :dev)
+
+      assert {:ok, config} = result,
+             "expected config/runtime.exs to evaluate, got: #{inspect(result)}"
+
+      app = config |> R.merged(:dev) |> Keyword.fetch!(:letflow)
+
+      assert {Enum.sort(app[Letflow.LoginDiscovery]), app[Letflow.Routers.LoginDiscovery],
+              app[Letflow.LoginDiscovery.Notifier][:adapter]} ==
+               {[max_body_bytes: 2048, mode: :redirect_single], [enabled: true],
+                Letflow.LoginDiscovery.Notifier.Noop}
     end
   end
 end

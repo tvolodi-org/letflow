@@ -23,31 +23,45 @@ defmodule Letflow.PlatformTenantRuntimeConfigTest do
       not echoed, the value itself never appears in the output, the probe is never reached.
 
   The master key is built at compile time, never a 64-hex literal (the no-secret guard scans
-  tracked files); the pepper pair is supplied for `dev` (no fallback there).
+  tracked files).
 
-  `@moduletag :slow` (run with `--include slow`), `async: false`.
+  ## The `MIX_ENV=dev` cases are evaluated in-process (GH #2611)
+
+  The four dev cases no longer spawn a `MIX_ENV=dev` child, which paid a cold `_build/dev`
+  compile inside ExUnit's per-test timeout. They evaluate the real `config/runtime.exs` with
+  `Config.Reader` and `env: :dev` through `Letflow.Test.RuntimeConfigEval` (the pattern of
+  `secrets_runtime_config_test.exs`, GH #2609): a `raise` is an exception from the call, the
+  warning is captured from standard error, and the pin is read from `config/config.exs`
+  merged with the result, as the application would see it. Each case sets explicit inputs
+  (a valid master key and pepper pair, every other variable `runtime.exs` reads deleted) and
+  `setup` snapshots and restores all of them. The `MIX_ENV=test` subprocess cases stay as
+  this file's real boot-path checks.
+
+  `@moduletag :slow` (run with `--include slow`), `async: false` (the in-process cases
+  change the process-global OS environment).
   """
 
   use ExUnit.Case, async: false
 
   @moduletag :slow
+  # GH #2611: the remaining `mix run` subprocess smoke tests boot a child VM on the already
+  # compiled build; 180 s is a backstop well above the measured child boot, never a
+  # cold-compile allowance (no test here compiles _build/dev any more).
+  @moduletag timeout: 180_000
+
+  alias Letflow.Test.RuntimeConfigEval, as: R
 
   @var "LETFLOW_PLATFORM_TENANT_ID"
   @master "LETFLOW_SECRETS_MASTER_KEY"
-  @pepper "LETFLOW_LOGIN_DIRECTORY_PEPPER"
-  @pepper_id "LETFLOW_LOGIN_DIRECTORY_PEPPER_ID"
-  @previous "LETFLOW_LOGIN_DIRECTORY_PEPPER_PREVIOUS"
-  @previous_id "LETFLOW_LOGIN_DIRECTORY_PEPPER_PREVIOUS_ID"
   @master_key String.duplicate("3f1c9a2e7b4d6081", 4)
 
   @warning "LETFLOW_PLATFORM_TENANT_ID is unset: platform-scope operations are denied for every caller."
 
   @probe ~S|IO.puts("RESULT " <> inspect(Application.get_env(:letflow, Letflow.PlatformTenant)))|
 
-  defp hex32, do: Base.encode16(:crypto.strong_rand_bytes(32), case: :lower)
-
-  # value: a string or nil (unset). Returns {output, exit_status}.
-  defp boot(mix_env, value) do
+  # value: a string or nil (unset). Returns {output, exit_status}. MIX_ENV=test only: the
+  # dev cases are evaluated in-process (see the moduledoc).
+  defp boot("test" = mix_env, value) do
     env = [
       {"MIX_ENV", mix_env},
       {"MIX_TEST_PARTITION", nil},
@@ -57,14 +71,6 @@ defmodule Letflow.PlatformTenantRuntimeConfigTest do
       {"LETFLOW_TRUSTED_PROXIES", nil},
       {"DATABASE_URL", "ecto://dummy:dummy@localhost/dummy"}
     ]
-
-    # dev has no pepper fallback (config/test.exs injects one): supply a fresh pair
-    env =
-      if mix_env == "dev" do
-        env ++ [{@pepper, hex32()}, {@pepper_id, "cur-1"}, {@previous, nil}, {@previous_id, nil}]
-      else
-        env
-      end
 
     System.cmd("mix", ["run", "--no-start", "-e", @probe],
       env: env,
@@ -98,32 +104,57 @@ defmodule Letflow.PlatformTenantRuntimeConfigTest do
   end
 
   describe "unset under a non-test environment" do
+    # In-process (GH #2611): the real config/runtime.exs under config_env() == :dev, see the
+    # moduledoc. -> {{:ok, config} | {:raised, message, formatted}, stderr}
+    setup do
+      R.isolate_env()
+    end
+
+    defp eval_dev(value) do
+      R.evaluate(Map.put(R.valid_base(), @var, value), :dev)
+    end
+
+    # What the application sees: config.exs (default tenant_id: nil) merged with runtime.exs.
+    defp pin_env!(result) do
+      assert {:ok, config} = result,
+             "expected config/runtime.exs to evaluate, got: #{inspect(result)}"
+
+      config |> R.merged(:dev) |> get_in([:letflow, Letflow.PlatformTenant])
+    end
+
     test "MIX_ENV=dev, unset: boots, no pin, and the fixed A1 warning is printed" do
-      {output, status} = boot("dev", nil)
-      assert_boots(output, status)
-      assert output =~ "RESULT [tenant_id: nil]"
-      assert output =~ @warning
+      {result, stderr} = eval_dev(nil)
+      assert pin_env!(result) == [tenant_id: nil]
+      assert stderr =~ @warning
     end
 
     test "MIX_ENV=dev, whitespace-only: same as unset" do
-      {output, status} = boot("dev", "   ")
-      assert_boots(output, status)
-      assert output =~ "RESULT [tenant_id: nil]"
-      assert output =~ @warning
+      {result, stderr} = eval_dev("   ")
+      assert pin_env!(result) == [tenant_id: nil]
+      assert stderr =~ @warning
     end
 
     test "MIX_ENV=dev, a valid UUID: boots with the pin set and no warning" do
       uuid = Ecto.UUID.generate()
-      {output, status} = boot("dev", uuid)
-      assert_boots(output, status)
-      assert output =~ ~s|RESULT [tenant_id: "#{uuid}"]|
-      refute output =~ @warning
+      {result, stderr} = eval_dev(uuid)
+      assert pin_env!(result) == [tenant_id: uuid]
+      refute stderr =~ @warning
     end
 
     test "MIX_ENV=dev, a malformed value stops boot without echoing it" do
       value = "leaky-platform-value-7731"
-      {output, status} = boot("dev", value)
-      assert_refused(output, status, value)
+      {result, stderr} = eval_dev(value)
+
+      assert {:raised, message, formatted} = result,
+             "expected config/runtime.exs to raise, it returned: #{inspect(result)}"
+
+      assert message =~ @var, "the message must name #{@var}:\n#{message}"
+      assert message =~ "UUID", "the message must state the accepted form:\n#{message}"
+      assert message =~ "not echoed", "the message must say the value is not echoed:\n#{message}"
+
+      for text <- [message, formatted, stderr] do
+        refute text =~ value, "output must not echo the supplied value:\n#{text}"
+      end
     end
   end
 
