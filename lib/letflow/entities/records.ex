@@ -134,6 +134,33 @@ defmodule Letflow.Entities.Records do
   applied to two of three sibling paths, not all three," a deleted record's
   promoted-column row must still carry `deleted: true` in the per-entity-type
   table too, not be skipped.
+
+  ## Process-step writes (decision 0054, GH #2587)
+
+  See `lib/letflow/design/gh2587-req499-pr-a-prerequisites.md` section 3.3.
+
+    * `command_multi/3` builds, without writing, the `Ecto.Multi` of ONE
+      process-step create line for the caller to compose into its own
+      transaction. Its steps are named `{:line, i, step}` (`i` = the line's
+      `line_key`): the namespaced `Letflow.EventStore.append_multi/3` steps,
+      then `{:line, i, :recheck_definition}` (re-resolves the active
+      definition under the type's sequence lock, refuses a changed row and
+      repeats the authority check), `{:line, i, :upsert_record_latest}` and
+      `{:line, i, :dual_write_promoted_columns}`. The authority is the third,
+      positional argument and is checked per line with the same private
+      `check_write_authority/3` the single-command path uses (GH #2583
+      section 8.2). It accepts only a `"sys:step:"` idempotency key and
+      carries the step's `source` as flat `source.*` event-metadata keys.
+      Its one allow-listed caller is `Letflow.Entities.StepWrites` (added in PR B; static
+      test `test/letflow/entities/command_multi_callers_test.exs`).
+    * `interpret_in_multi/1` maps a failed `{:line, i, step}` to a refusal
+      code or an internal fault. It has NO success clause: a duplicate key is
+      `:idempotency_conflict`, never the original record.
+    * The single-command entry points refuse, before any query, a
+      `"sys:step:"` key (`{:error, :reserved_idempotency_key}`) and a
+      top-level `source` / `metadata` attribute (`{:error,
+      :reserved_attribute}`). Their Multi, step names and result
+      interpretation are unchanged.
   """
 
   import Ecto.Query, only: [where: 3, select: 3]
@@ -218,7 +245,72 @@ defmodule Letflow.Entities.Records do
           | {:error, :tenant_not_provisioned}
           | {:error, :invalid_schema_name}
           | {:error, {:payload_validation_failed, [term()]}}
+          | {:error, :reserved_idempotency_key}
+          | {:error, :reserved_attribute}
           | {:error, term()}
+
+  @typedoc """
+  GH #2587 (D-A2.5): who caused a process-step write. Recorded as flat
+  `source.*` event-metadata keys, set only by `command_multi/3`.
+  """
+  @type step_source :: %{
+          required(:kind) => String.t(),
+          required(:instance_id) => Ecto.UUID.t(),
+          optional(:task_id) => Ecto.UUID.t(),
+          optional(:dispatch_id) => Ecto.UUID.t(),
+          required(:node_id) => String.t(),
+          required(:definition_id) => Ecto.UUID.t(),
+          required(:definition_version) => pos_integer(),
+          required(:line_index) => non_neg_integer(),
+          required(:activator_id) => Ecto.UUID.t()
+        }
+
+  @typedoc "GH #2587: one process-step line (only `kind: :create` is accepted, D-A2.10)."
+  @type step_command :: %{
+          required(:kind) => :create | :update | :delete,
+          required(:line_key) => non_neg_integer(),
+          required(:entity_type) => String.t(),
+          required(:field_values) => Validator.field_values(),
+          required(:actor_id) => Ecto.UUID.t(),
+          required(:idempotency_key) => String.t(),
+          required(:source) => step_source()
+        }
+
+  @type step_refusal_code ::
+          :record_version_conflict
+          | :entity_append_only
+          | :write_not_permitted
+          | :validation_failed
+          | :idempotency_conflict
+          | :entity_type_inactive
+
+  @type command_multi_error ::
+          {:error, {:command_kind_not_supported, atom()}}
+          | {:error, :invalid_step_key}
+          | {:error, :invalid_step_source}
+          | {:error, {:definition_not_found, String.t()}}
+          | {:error, :entity_type_managed}
+          | {:error, {:record_payload_invalid, Validator.violations() | [Violation.t()]}}
+          | {:error, {:entity_type_instance_missing, String.t()}}
+          | {:error, :invalid_schema_name}
+          | EventStore.append_error()
+
+  @step_key_prefix "sys:step:"
+  @step_key_max_bytes 255
+  @step_key_format ~r/\Asys:step:[A-Za-z0-9:_.-]+\z/
+  @step_source_keys [
+    :kind,
+    :instance_id,
+    :task_id,
+    :dispatch_id,
+    :node_id,
+    :definition_id,
+    :definition_version,
+    :line_index,
+    :activator_id
+  ]
+  @step_node_id_max_bytes 1024
+  @reserved_attribute_keys [:source, "source", :metadata, "metadata"]
 
   @doc """
   Creates a new entity record (design §5.1). Step order:
@@ -268,7 +360,9 @@ defmodule Letflow.Entities.Records do
       when is_binary(prefix) and is_authority(authority) do
     match = idempotency_match(attrs)
 
-    with {:ok, definition} <- fetch_active_definition(entity_type, prefix),
+    with :ok <- reject_reserved_attributes(attrs),
+         :ok <- reject_step_key(attrs),
+         {:ok, definition} <- fetch_active_definition(entity_type, prefix),
          :ok <- check_write_authority(definition, entity_type, authority),
          :ok <- validate_field_values(definition, field_values) do
       record_id = Ecto.UUID.generate()
@@ -344,7 +438,9 @@ defmodule Letflow.Entities.Records do
       when is_binary(prefix) and is_authority(authority) do
     expected = expected_seq(attrs)
 
-    with {:ok, definition} <- fetch_active_definition(entity_type, prefix),
+    with :ok <- reject_reserved_attributes(attrs),
+         :ok <- reject_step_key(attrs),
+         {:ok, definition} <- fetch_active_definition(entity_type, prefix),
          :ok <- check_write_authority(definition, entity_type, authority),
          :ok <- ensure_mutable(definition, entity_type),
          {:ok, existing_record} <- fetch_existing_record(record_id, entity_type, prefix),
@@ -401,7 +497,9 @@ defmodule Letflow.Entities.Records do
       when is_binary(prefix) and is_authority(authority) do
     expected = expected_seq(attrs)
 
-    with {:ok, definition} <- fetch_active_definition(entity_type, prefix),
+    with :ok <- reject_reserved_attributes(attrs),
+         :ok <- reject_step_key(attrs),
+         {:ok, definition} <- fetch_active_definition(entity_type, prefix),
          :ok <- check_write_authority(definition, entity_type, authority),
          :ok <- ensure_mutable(definition, entity_type),
          {:ok, existing_record} <- fetch_existing_record(record_id, entity_type, prefix) do
@@ -424,6 +522,315 @@ defmodule Letflow.Entities.Records do
       end
     end
   end
+
+  # ---------------------------------------------------------------------
+  # GH #2587 / REQ-499 -- process-step writes (design
+  # lib/letflow/design/gh2587-req499-pr-a-prerequisites.md section 3.3)
+  # ---------------------------------------------------------------------
+
+  @doc """
+  The server step-key prefix (`"sys:step:"`, decision 0054 D9.2). Only
+  `command_multi/3` accepts a key with it; the single-command entry points and
+  every un-namespaced `Letflow.EventStore` append refuse it.
+  """
+  @spec step_key_prefix() :: String.t()
+  def step_key_prefix, do: @step_key_prefix
+
+  @doc """
+  Builds, WITHOUT writing, the `Ecto.Multi` of one process-step line (design
+  3.3; decision 0054 D2). The caller composes it into its own transaction.
+  Only `kind: :create` is supported (`{:error, {:command_kind_not_supported,
+  kind}}` otherwise, no query).
+
+  Build order:
+
+    1. Shape, no query: `kind`; `line_key` a non-negative integer equal to
+       `source.line_index` (else `:invalid_step_source`); `idempotency_key`
+       matches `\\Asys:step:[A-Za-z0-9:_.-]+\\z` and is at most 255 bytes (else
+       `:invalid_step_key`); `source` is a `t:step_source/0` (exactly one of
+       `task_id` / `dispatch_id`, `kind == "process_step"`, no other key, else
+       `:invalid_step_source`). `entity_type` must be a binary, `field_values`
+       a map and `actor_id` a UUID (else `:invalid_step_source`).
+    2. The active definition (query), then `authority` through the same
+       `check_write_authority/3` as `create_record/3` (managed type ->
+       `{:error, :entity_type_managed}`, nothing else read), then the inner
+       payload check.
+    3. The synthetic instance, read-only (`{:error,
+       {:entity_type_instance_missing, type}}` when the caller's preparation did
+       not create it; never inserted here).
+    4. `Letflow.EventStore.append_multi/3` with `step_namespace: {:line, line_key}`;
+       the event carries the flat `source.*` metadata keys.
+    5. `{:line, i, :recheck_definition}`: under the type's sequence lock,
+       re-resolves the active definition, refuses `{:definition_changed, type}`
+       when its row differs from the build-time row, repeats the authority check
+       and returns the row.
+    6. `{:line, i, :upsert_record_latest}`, `{:line, i, :dual_write_promoted_columns}`.
+
+  `authority` is the third, positional argument (GH #2583 section 8.2); a value
+  that is neither `:tenant` nor an `Owner` raises `FunctionClauseError`.
+  """
+  @spec command_multi(step_command(), prefix :: String.t(), ManagedTypes.owner()) ::
+          {:ok, Ecto.Multi.t()} | command_multi_error()
+  def command_multi(command, prefix, authority)
+      when is_binary(prefix) and is_authority(authority) do
+    with {:ok, line} <- check_step_command(command),
+         {:ok, definition} <- fetch_active_definition(line.entity_type, prefix),
+         :ok <- check_write_authority(definition, line.entity_type, authority),
+         :ok <- validate_field_values(definition, line.field_values),
+         {:ok, instance_id} <- fetch_step_instance_id(line.entity_type, prefix) do
+      ctx = %{
+        kind: :create,
+        entity_type: line.entity_type,
+        record_id: Ecto.UUID.generate(),
+        field_values: line.field_values,
+        definition: definition,
+        existing_record: nil,
+        expected_last_event_global_seq: nil,
+        idempotency_match: :request,
+        prefix: prefix
+      }
+
+      event_attrs =
+        ctx
+        |> build_event_attrs(command, instance_id)
+        |> Map.put(:metadata, line.metadata)
+
+      namespace = {:line, line.line_key}
+
+      with {:ok, multi} <-
+             EventStore.append_multi(Multi.new(), event_attrs,
+               prefix: prefix,
+               step_namespace: namespace
+             ) do
+        {:ok,
+         multi
+         |> run_line_step(namespace, :recheck_definition, fn _repo, _changes ->
+           recheck_definition(definition, line.entity_type, prefix, authority)
+         end)
+         |> run_line_step(namespace, :upsert_record_latest, fn repo, changes ->
+           upsert_record_latest(repo, changes, ctx)
+         end)
+         |> run_line_step(namespace, :dual_write_promoted_columns, fn repo, changes ->
+           dual_write_promoted_columns(repo, changes, ctx)
+         end)}
+      end
+    end
+  end
+
+  @doc """
+  Maps a failed transaction of a Multi built from `command_multi/3` lines to the
+  line's outcome (design 3.3). `{:entity_write_refused, i, code}` for a refusal,
+  `{:entity_write_failed, i, step}` for an internal fault, `:not_a_line_failure`
+  for a step that is not `{:line, i, _}`. There is no success clause: a duplicate
+  `idempotency_key` is `:idempotency_conflict`, never the original record. The
+  result never carries a field value or field name.
+  """
+  @spec interpret_in_multi({:error, Ecto.Multi.name(), term(), map()}) ::
+          {:entity_write_refused, non_neg_integer(), step_refusal_code()}
+          | {:entity_write_failed, non_neg_integer(), atom()}
+          | :not_a_line_failure
+  def interpret_in_multi({:error, {:line, i, step}, reason, _changes})
+      when is_integer(i) and i >= 0 and is_atom(step),
+      do: line_failure(i, step, reason)
+
+  def interpret_in_multi({:error, _name, _reason, _changes}), do: :not_a_line_failure
+
+  @doc """
+  Classifies a `command_multi/3` build error or a `{:line, i, :build}` /
+  `{:line, i, :recheck_definition}` step reason (design 3.3 table). Managed,
+  not-found and already-deleted all answer `:write_not_permitted` (INV-5).
+  """
+  @spec classify_step_error(term()) :: {:refused, step_refusal_code()} | :internal
+  def classify_step_error({:definition_not_found, _type}), do: {:refused, :entity_type_inactive}
+  def classify_step_error({:definition_changed, _type}), do: {:refused, :entity_type_inactive}
+  def classify_step_error(:entity_type_managed), do: {:refused, :write_not_permitted}
+  def classify_step_error({:record_payload_invalid, _}), do: {:refused, :validation_failed}
+  def classify_step_error({:entity_append_only, _type}), do: {:refused, :entity_append_only}
+  def classify_step_error(:record_version_conflict), do: {:refused, :record_version_conflict}
+  def classify_step_error({:record_not_found, _id}), do: {:refused, :write_not_permitted}
+  def classify_step_error({:record_already_deleted, _id}), do: {:refused, :write_not_permitted}
+  def classify_step_error(:idempotency_key_reuse), do: {:refused, :idempotency_conflict}
+  def classify_step_error({:duplicate_idempotency_key, _}), do: {:refused, :idempotency_conflict}
+  def classify_step_error(_other), do: :internal
+
+  defp line_failure(i, step, reason) when step in [:build, :recheck_definition] do
+    case classify_step_error(reason) do
+      {:refused, code} -> {:entity_write_refused, i, code}
+      :internal -> {:entity_write_failed, i, step}
+    end
+  end
+
+  defp line_failure(i, :idempotency, {:duplicate_idempotency_key, %Event{}}),
+    do: {:entity_write_refused, i, :idempotency_conflict}
+
+  defp line_failure(i, :check_record_version, :record_version_conflict),
+    do: {:entity_write_refused, i, :record_version_conflict}
+
+  defp line_failure(i, :dual_write_promoted_columns, {:record_payload_invalid, _}),
+    do: {:entity_write_refused, i, :validation_failed}
+
+  defp line_failure(i, step, _reason), do: {:entity_write_failed, i, step}
+
+  # D-A2.15 (CDV-4): runs after the namespaced append steps, so the type's
+  # instance_sequences row is locked from {:line, i, :assign_sequence} to commit.
+  @spec recheck_definition(EntityDefinition.t(), String.t(), String.t(), ManagedTypes.owner()) ::
+          {:ok, EntityDefinition.t()}
+          | {:error, {:definition_changed, String.t()}}
+          | {:error, {:definition_not_found, String.t()}}
+          | {:error, :entity_type_managed}
+          | {:error, :invalid_schema_name}
+  # The repeated authority check is defensive: managed_by is immutable (DB trigger), so it
+  # cannot differ from the build-time row (GH #2583 section 8.2).
+  defp recheck_definition(%EntityDefinition{id: built_id}, entity_type, prefix, authority) do
+    case fetch_active_definition(entity_type, prefix) do
+      {:ok, %EntityDefinition{id: ^built_id} = current} ->
+        with :ok <- check_write_authority(current, entity_type, authority), do: {:ok, current}
+
+      {:ok, %EntityDefinition{}} ->
+        {:error, {:definition_changed, entity_type}}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp fetch_step_instance_id(entity_type, prefix) do
+    case EntityTypeInstance.fetch_instance_id(entity_type, prefix) do
+      {:ok, instance_id} -> {:ok, instance_id}
+      {:error, :not_found} -> {:error, {:entity_type_instance_missing, entity_type}}
+    end
+  end
+
+  # Names the step {:line, i, step} and hands it only this line's changes, keyed
+  # by the bare step atom (the same view Letflow.EventStore gives its own
+  # namespaced steps), so upsert_record_latest/3 and dual_write_promoted_columns/3
+  # keep their fixed-key reads.
+  defp run_line_step(multi, {:line, i}, step, fun) do
+    Multi.run(multi, {:line, i, step}, fn repo, changes ->
+      local = for {{:line, ^i, name}, value} <- changes, into: %{}, do: {name, value}
+      fun.(repo, local)
+    end)
+  end
+
+  # Design 3.3 build step 1: pure shape checks, in the design's order.
+  @spec check_step_command(term()) ::
+          {:ok,
+           %{
+             line_key: non_neg_integer(),
+             entity_type: String.t(),
+             field_values: map(),
+             metadata: %{String.t() => String.t()}
+           }}
+          | {:error, {:command_kind_not_supported, atom()}}
+          | {:error, :invalid_step_key}
+          | {:error, :invalid_step_source}
+  defp check_step_command(%{kind: :create} = command) when not is_struct(command) do
+    with {:ok, line_key, source} <- check_line_key(command),
+         :ok <- check_step_key(Map.get(command, :idempotency_key)),
+         {:ok, metadata} <- step_source_metadata(source),
+         {:ok, entity_type, field_values} <- check_step_target(command) do
+      {:ok,
+       %{
+         line_key: line_key,
+         entity_type: entity_type,
+         field_values: field_values,
+         metadata: metadata
+       }}
+    end
+  end
+
+  defp check_step_command(%{kind: kind} = command)
+       when is_atom(kind) and not is_struct(command),
+       do: {:error, {:command_kind_not_supported, kind}}
+
+  defp check_step_command(_command), do: {:error, :invalid_step_source}
+
+  defp check_line_key(%{line_key: line_key, source: %{line_index: line_key} = source})
+       when is_integer(line_key) and line_key >= 0 and not is_struct(source),
+       do: {:ok, line_key, source}
+
+  defp check_line_key(_command), do: {:error, :invalid_step_source}
+
+  # D-A2.3: anchored, exact bytes, closed charset, at most 255 bytes.
+  defp check_step_key(key) when is_binary(key) and byte_size(key) <= @step_key_max_bytes do
+    if Regex.match?(@step_key_format, key), do: :ok, else: {:error, :invalid_step_key}
+  end
+
+  defp check_step_key(_key), do: {:error, :invalid_step_key}
+
+  # D-A2.5: the flat string -> string metadata map EventStore.validate_metadata/1
+  # accepts; integers rendered as decimal strings.
+  defp step_source_metadata(source) do
+    with true <- Enum.all?(Map.keys(source), &(&1 in @step_source_keys)),
+         "process_step" <- Map.get(source, :kind),
+         {:ok, origin_key, origin_id} <- step_source_origin(source),
+         {:ok, instance_id} <- source_uuid(source, :instance_id),
+         {:ok, definition_id} <- source_uuid(source, :definition_id),
+         {:ok, activator_id} <- source_uuid(source, :activator_id),
+         node_id when is_binary(node_id) and byte_size(node_id) in 1..@step_node_id_max_bytes <-
+           Map.get(source, :node_id),
+         true <- String.valid?(node_id),
+         version when is_integer(version) and version > 0 <- Map.get(source, :definition_version) do
+      {:ok,
+       %{
+         "source.kind" => "process_step",
+         "source.instance_id" => instance_id,
+         origin_key => origin_id,
+         "source.node_id" => node_id,
+         "source.definition_id" => definition_id,
+         "source.definition_version" => Integer.to_string(version),
+         "source.line_index" => Integer.to_string(source.line_index),
+         "source.activator_id" => activator_id
+       }}
+    else
+      _invalid -> {:error, :invalid_step_source}
+    end
+  end
+
+  defp step_source_origin(source) do
+    case {Map.has_key?(source, :task_id), Map.has_key?(source, :dispatch_id)} do
+      {true, false} -> tagged_uuid(source, :task_id, "source.task_id")
+      {false, true} -> tagged_uuid(source, :dispatch_id, "source.dispatch_id")
+      _neither_or_both -> :error
+    end
+  end
+
+  defp tagged_uuid(source, key, metadata_key) do
+    with {:ok, uuid} <- source_uuid(source, key), do: {:ok, metadata_key, uuid}
+  end
+
+  defp source_uuid(source, key) do
+    case Map.get(source, key) do
+      value when is_binary(value) -> Ecto.UUID.cast(value)
+      _other -> :error
+    end
+  end
+
+  defp check_step_target(%{entity_type: entity_type, field_values: field_values} = command)
+       when is_binary(entity_type) and byte_size(entity_type) > 0 and is_map(field_values) and
+              not is_struct(field_values) do
+    case source_uuid(command, :actor_id) do
+      {:ok, _actor_id} -> {:ok, entity_type, field_values}
+      :error -> {:error, :invalid_step_source}
+    end
+  end
+
+  defp check_step_target(_command), do: {:error, :invalid_step_source}
+
+  # D-A2.4: the single-command entry points never take a caller-supplied
+  # source/metadata (decision 0054 D10). A record FIELD named "source" lives
+  # inside field_values and is unaffected.
+  defp reject_reserved_attributes(attrs) do
+    if Enum.any?(@reserved_attribute_keys, &Map.has_key?(attrs, &1)),
+      do: {:error, :reserved_attribute},
+      else: :ok
+  end
+
+  # D-A2.1: exact bytes; only command_multi/3 accepts the step-key family.
+  defp reject_step_key(%{idempotency_key: @step_key_prefix <> _rest}),
+    do: {:error, :reserved_idempotency_key}
+
+  defp reject_step_key(_attrs), do: :ok
 
   # ---------------------------------------------------------------------
   # Shared pipeline (design §5.1 steps 4-7)
