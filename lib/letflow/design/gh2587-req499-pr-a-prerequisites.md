@@ -18,6 +18,8 @@ Design only. Signatures, types, step lists and test briefs; no function bodies.
 | SEC F2 (A1b gate, record only, PR B) | Engine-written reserved values would appear in API responses: instance reads (`routers/instances.ex` ~730 reconstruct, ~850 projection map) and the task-completion response (`routers/tasks.ex` ~681 `complete_result_map/1`). PR B decides strip vs permission-gate (INV-2). | 15 |
 | CDV F2 (A1b gate) | A1b and A3 both edit `engine.ex` and `scripts/runtime.ex`: they merge sequentially, never in parallel. | 14 |
 | OQ-A1b-1 | CLOSED: supervisor agreed to defer catalog `endpoint_url` templates to GH #2623. | 2A.10 |
+| REVIEWER F1 / F2 (A1b gate) | `POST /tenants/:id/promote/:key` (`render_promote`) gained 422 clauses for `expression_references_reserved_variable` AND `script_binding_invalid` (was 500); both 422 body builders moved to `Letflow.Api.Response` and shared by the definitions, promotions and tenants routers. | 2A.4, 2A.8 |
+| TDV F1 / F2 (A1b gate) | Rollback tests also assert v1 stays `:deprecated` and no audit row; the HTTP activate test asserts no audit row; form-path non-references (`x == '_sys'`, `_system`, `contains(z, "_sys.r")`) accepted, mutation-checked against a raw-text scan. | 2A.6 |
 | 2A.5 count | Infra QA result (record `runs/2026-10-15-inv-sys-refs-defs-scripts-001`, 2026-10-15): `definitions_mentioning_sys = 0`, `scripts_with_reserved_inputs = 0` for all six tenants; superset 0, no exact check needed; no production app DB. A1b PR-body note. | 2A.5 |
 | A1b impl notes (ELIXIR-DEV) | (1) The type is `ReservedReferences.reserved_reference()`, not `reference()` (`reference/0` is a built-in type and cannot be redefined). (2) A name read twice by ONE expression or template is reported once (`Enum.uniq` per expression/template); distinct expressions still report separately. (3) `Promotion.promote_definition/3` returns the bare `{:error, {:expression_references_reserved_variable, refs}}` (like `script_binding_invalid`); the `{:promotion_failed, _}` wrapper is the apply path's, rendered 422 by `render_apply`. (4) L2-L4 walk any map `form_schema.properties` (no `JsonSchemaShape` precondition): a fail-closed superset of what CHK-20 inspects. (5) L5/L6 read the raw `endpoint` / `body_template` attributes of every SERVICE_TASK (including a node whose `endpoint` is ignored because `service_id` is set). | 2A.2 |
 
@@ -495,6 +497,16 @@ violation surface. L9 is activation-only (it needs the script row in the activat
   "id": <string>, "location": <closed string = Atom.to_string(location)>, "field": <string | null>,
   "name": <string>}]}`
 
+* Found omission (REVIEWER F1 on the A1b gate): the review-free promotion
+  `POST /tenants/:test_tenant_id/promote/:process_key` (`routers/tenants.ex` `render_promote`)
+  reaches the same activation checks through `Promotion.promote_active_definition/5` ->
+  `do_promote_definition` -> `write_target_definition/5`, but had no clause for either refusal,
+  so it answered 500. It now answers both `expression_references_reserved_variable` and the
+  pre-existing `script_binding_invalid` (same gap since 7c-1) with the same 422 bodies. The two
+  body builders live once, in `Letflow.Api.Response.expression_references_reserved_variable/2`
+  and `Response.script_binding_invalid/3`, used by the definitions, promotions and tenants
+  routers (REVIEWER F2).
+
 ### 2A.5 Existing definitions
 
 An already-ACTIVE (or DEPRECATED, still pinned by running instances) definition referencing a
@@ -601,7 +613,8 @@ case fails; (6) remove CHK-29/30 -> the save cases fail; (7) call `check_reserve
 `definitions.ex` (`check_reserved_references/1`, two call sites, spec, interpret clause),
 `definitions/promotion.ex` (call site), `scripts/runtime.ex` (L9, spec), `engine/service_task.ex`
 (`template_placeholder/0`, `template_variable_keys/1`), `engine.ex` (two renderer lines),
-`routers/definitions.ex`, `routers/promotions.ex` (422 clauses), the two test files.
+`routers/definitions.ex`, `routers/promotions.ex`, `routers/tenants.ex` (422 clauses),
+`api/response.ex` (the shared 422 bodies), the two test files.
 
 ### 2A.9 Deferred (not A1b)
 

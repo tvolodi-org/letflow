@@ -244,6 +244,35 @@ defmodule Letflow.Definitions.ReservedReferencesTest do
       end
     end
 
+    # TDV F2: the form path parses too; a raw-text scan of these expressions would flag them.
+    test "form expressions: a string literal and an identifier that merely starts alike" do
+      graph =
+        node_graph(
+          form(%{
+            "_system" => %{"type" => "string"},
+            "x" => %{"type" => "string", "x-ui" => %{"visible_when" => "x == '_sys'"}},
+            "y" => %{"type" => "string", "x-ui" => %{"computed" => "_system"}},
+            "z" => %{
+              "type" => "string",
+              "x-ui" => %{
+                "cross_field_validation" => %{
+                  "expression" => ~s[contains(z, "_sys.r")],
+                  "message" => "m"
+                }
+              }
+            }
+          })
+        )
+
+      assert ReservedReferences.find(graph) == []
+
+      # each one parses, so [] comes from the AST, not from a parse failure
+      for expression <- ["x == '_sys'", "_system", ~s[contains(z, "_sys.r")]] do
+        assert {:ok, source} = Letflow.Engine.Expr.translate_cel_to_expr(expression)
+        assert {:ok, _ast} = Letflow.Engine.Expr.parse_strict(source)
+      end
+    end
+
     test "a non-binary condition is no reference (total)" do
       graph = conditioned_graph(gateway(), 42)
       assert ReservedReferences.find(graph) == []

@@ -187,6 +187,51 @@ defmodule Letflow.Api.Response do
     do: send_problem(conn, Error.output_refused(missing_keys, rejected_keys))
 
   @doc """
+  HTTP 422 — a definition binding a tenant script that is not runnable as bound (GH 2534 PR
+  7c-1, design gh2534-7c-script-handler.md 4.5). The node id is the caller's own graph; the
+  reason is a closed code. One body for every route that activates a definition (activate,
+  version rollback, review promotion apply, review-free tenant promotion).
+  """
+  @spec script_binding_invalid(Plug.Conn.t(), String.t(), atom()) :: Plug.Conn.t()
+  def script_binding_invalid(conn, node_id, reason) when is_atom(reason),
+    do:
+      send_json(conn, 422, %{
+        "error" => "script_binding_invalid",
+        "node_id" => node_id,
+        "reason" => Atom.to_string(reason)
+      })
+
+  @doc """
+  HTTP 422 — the graph names the reserved engine namespace (GH #2587 PR A1b, design
+  gh2587-req499-pr-a-prerequisites.md 2A.4). `references` are
+  `Letflow.Definitions.ReservedReferences.reserved_reference()` maps; every echoed value comes
+  from the caller's own graph (or a property name of a script the same tenant published), never
+  a variable value. One body for every route that activates a definition.
+  """
+  @spec expression_references_reserved_variable(Plug.Conn.t(), [map()]) :: Plug.Conn.t()
+  def expression_references_reserved_variable(conn, references) when is_list(references),
+    do:
+      send_json(conn, 422, %{
+        "error" => "expression_references_reserved_variable",
+        "references" => Enum.map(references, &reserved_reference_map/1)
+      })
+
+  defp reserved_reference_map(%{
+         element: element,
+         id: id,
+         location: location,
+         field: field,
+         name: name
+       }),
+       do: %{
+         "element" => Atom.to_string(element),
+         "id" => id,
+         "location" => Atom.to_string(location),
+         "field" => field,
+         "name" => name
+       }
+
+  @doc """
   HTTP 403 — Separation of Duties (REQ-463). A constant two-member body
   (`{"detail":"separation of duties","status":403}`): no trace_id, type, title,
   node id, user id or name, so every cause answers byte-identically (design

@@ -27,6 +27,7 @@ defmodule Letflow.Definitions.ReservedReferencesActivationTest do
   @code :expression_references_reserved_variable
   @promotions_opts Letflow.Routers.Promotions.init([])
   @definitions_opts Letflow.Routers.Definitions.init([])
+  @tenants_opts Letflow.Routers.Tenants.init([])
 
   defp unique(prefix), do: "#{prefix}-#{System.unique_integer([:positive])}"
 
@@ -192,7 +193,7 @@ defmodule Letflow.Definitions.ReservedReferencesActivationTest do
 
   defp rollback_path(schema, graph) do
     key = unique("a1b-rb")
-    raw_definition!(schema, key, "1", graph, :deprecated)
+    v1 = raw_definition!(schema, key, "1", graph, :deprecated)
     v2 = raw_definition!(schema, key, "2", trivial_graph(), :active)
     test_pid = self()
 
@@ -206,8 +207,12 @@ defmodule Letflow.Definitions.ReservedReferencesActivationTest do
         end
       )
 
-    {result, status(schema, v2.id)}
+    {result, status(schema, v2.id), status(schema, v1.id), audit_rows(schema, [v1.id, v2.id])}
   end
+
+  # Every audit row about any of `ids` (TDV F1: a refused rollback writes none).
+  defp audit_rows(schema, ids),
+    do: Repo.all(from(e in Entry, where: e.resource_id in ^ids), prefix: schema)
 
   defp promote_path(source, target, graph) do
     key = unique("a1b-promo")
@@ -300,7 +305,10 @@ defmodule Letflow.Definitions.ReservedReferencesActivationTest do
 
     test "version rollback to an L1 version is refused; v2 stays active; no event", %{target: t} do
       [{_label, graph, expected} | _] = locations()
-      assert {{:error, {@code, [^expected]}}, :active} = rollback_path(t.schema_name, graph)
+
+      assert {{:error, {@code, [^expected]}}, :active, :deprecated, []} =
+               rollback_path(t.schema_name, graph)
+
       refute_received :event_appender_called
     end
 
@@ -331,7 +339,7 @@ defmodule Letflow.Definitions.ReservedReferencesActivationTest do
       expected = {:error, {@code, [ref(:node, "svc", :script_input, "_sys.r", "_sys.r")]}}
 
       assert {^expected, :draft, :active, []} = activate_path(t.schema_name, graph)
-      assert {^expected, :active} = rollback_path(t.schema_name, graph)
+      assert {^expected, :active, :deprecated, []} = rollback_path(t.schema_name, graph)
       assert {^expected, []} = promote_path(s, t, graph)
     end
 
@@ -340,7 +348,7 @@ defmodule Letflow.Definitions.ReservedReferencesActivationTest do
       graph = F.script_graph(key, version)
 
       assert {{:ok, _}, :active, :deprecated, [_]} = activate_path(t.schema_name, graph)
-      assert {{:ok, _}, :deprecated} = rollback_path(t.schema_name, graph)
+      assert {{:ok, _}, :deprecated, :active, _audit} = rollback_path(t.schema_name, graph)
       assert {{:ok, _}, [%{status: :active}]} = promote_path(s, t, graph)
     end
 
@@ -369,7 +377,7 @@ defmodule Letflow.Definitions.ReservedReferencesActivationTest do
       expected = {:error, {@code, [ref(:edge, "e3", :edge_condition, nil, "_sys")]}}
 
       assert {^expected, :draft, :active, []} = activate_path(t.schema_name, graph)
-      assert {^expected, :active} = rollback_path(t.schema_name, graph)
+      assert {^expected, :active, :deprecated, []} = rollback_path(t.schema_name, graph)
       assert {^expected, []} = promote_path(s, t, graph)
     end
   end
@@ -397,6 +405,7 @@ defmodule Letflow.Definitions.ReservedReferencesActivationTest do
 
   defp definitions(conn), do: Letflow.Routers.Definitions.call(conn, @definitions_opts)
   defp promotions(conn), do: Letflow.Routers.Promotions.call(conn, @promotions_opts)
+  defp tenants(conn), do: Letflow.Routers.Tenants.call(conn, @tenants_opts)
 
   defp assert_422(resp, reference) do
     assert resp.status == 422, resp.resp_body
@@ -436,6 +445,7 @@ defmodule Letflow.Definitions.ReservedReferencesActivationTest do
       |> assert_422(@l1_body)
 
       assert status(t.schema_name, draft.id) == :draft
+      assert activate_audit_rows(t.schema_name, draft.id) == []
     end
 
     test "POST /definitions/:process_key/rollback", %{target: t} do
@@ -487,6 +497,50 @@ defmodule Letflow.Definitions.ReservedReferencesActivationTest do
       build_conn(:post, "/#{review_id}/apply", target, %{"plan_digest" => digest})
       |> promotions()
       |> assert_422(@l1_body)
+
+      assert rows_named(target.schema_name, key) == []
+    end
+
+    # REVIEWER F1 (A1b gate): the review-free promotion reached both refusals but answered 500.
+    test "POST /tenants/:id/promote/:key -> 422 expression_references_reserved_variable", %{
+      source: source,
+      target: target
+    } do
+      key = unique("a1b-http-tpromo")
+      raw_definition!(source.schema_name, key, "1.0.0", l1_graph(), :active)
+
+      build_conn(:post, "/#{source.tenant_id}/promote/#{key}", target, nil)
+      |> tenants()
+      |> assert_422(@l1_body)
+
+      assert rows_named(target.schema_name, key) == []
+    end
+
+    test "POST /tenants/:id/promote/:key -> 422 script_binding_invalid", %{
+      source: source,
+      target: target
+    } do
+      key = unique("a1b-http-tpromo-sb")
+
+      raw_definition!(
+        source.schema_name,
+        key,
+        "1.0.0",
+        F.script_graph("a1b_absent_key", 1),
+        :active
+      )
+
+      resp =
+        build_conn(:post, "/#{source.tenant_id}/promote/#{key}", target, nil)
+        |> tenants()
+
+      assert resp.status == 422, resp.resp_body
+
+      assert Jason.decode!(resp.resp_body) == %{
+               "error" => "script_binding_invalid",
+               "node_id" => "svc",
+               "reason" => "script_not_published"
+             }
 
       assert rows_named(target.schema_name, key) == []
     end
