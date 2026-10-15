@@ -28,7 +28,10 @@ A change is "a tenant-data path" if it does any of:
 
 Mandatory trigger, regardless of the tenant-data-path bullets above (GH #2586,
 decision 0055 D7; approved by the supervisor 2026-10-15): any change to
-`.github/workflows/ci.yml`; to `mix.exs` aliases (`aliases/0`,
+`.github/workflows/ci.yml`; to `.github/workflows/cd.yml`, `scripts/cd_qa_decide.sh` or
+`scripts/ci_changed_paths.sh` (GH #2622, supervisor 2026-10-15: cd.yml holds the QA deploy
+secrets and the forced-command deploy path, the decide script chooses whether it deploys, and
+the path script decides which CI gates run); to `mix.exs` aliases (`aliases/0`,
 `@check_static_steps`, `cli/0` `preferred_envs`) or `elixirc_paths/1`; to a
 `config :letflow, :modules` setting in any `config/*.exs`; to
 `lib/mix/tasks/letflow.permission_matrix.ex` or
