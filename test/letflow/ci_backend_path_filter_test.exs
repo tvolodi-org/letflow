@@ -3,13 +3,14 @@ defmodule Letflow.CiBackendPathFilterTest do
   Q-1059 / GH #2411 (ISS-1059), acceptance criterion 2: a check fails when a path read by the
   backend gate is missing from the filter, so the gap cannot silently return.
 
-  `.github/workflows/ci.yml`, step "Compute changed paths", sets `backend=true` iff a changed
-  file matches `BACKEND_PATHS_RE`. A change confined to a path the backend gate READS but the
+  `.github/workflows/ci.yml`, step "Compute changed paths", feeds the changed-file list to
+  `scripts/ci_changed_paths.sh` (GH #2622: the one source of CI's path rules), which prints
+  `backend=true` iff a changed file matches `BACKEND_PATHS_RE`. A change confined to a path the backend gate READS but the
   regex omits (for example `.formatter.exs`, `docs/roles.md`, `docs/requirements.yaml`) would
   merge without the gate ever running on it. Three layers here:
 
-    1. the regex is extracted from ci.yml (one single-quoted assignment line, else a clear
-       failure) and compiled;
+    1. the regex is extracted from scripts/ci_changed_paths.sh (one single-quoted assignment
+       line, else a clear failure) and compiled;
     2. a literal decision table: representative paths per class that MUST / must NOT trigger;
     3. the real guard: a scan of the files the gate executes (`test/**/*.exs`, `test/support`,
        `lib/mix/tasks/*.ex`, `mix.exs`) for string literals naming repo paths under the gate's
@@ -32,7 +33,18 @@ defmodule Letflow.CiBackendPathFilterTest do
 
   use ExUnit.Case, async: true
 
-  @ci_yml ".github/workflows/ci.yml"
+  # GH #2622: the path rules moved out of ci.yml into this script (the one source).
+  @rules_sh "scripts/ci_changed_paths.sh"
+
+  # GH #2622: the four files of the CI/CD path and decision logic, and how many
+  # `grep -qE ... <<<"$CHANGED"` here-string matches each must hold: the three rules live
+  # only in the script; ci.yml feeds it, cd.yml and the decide script have no path rules.
+  @here_string_files %{
+    ".github/workflows/ci.yml" => 0,
+    ".github/workflows/cd.yml" => 0,
+    "scripts/ci_changed_paths.sh" => 3,
+    "scripts/cd_qa_decide.sh" => 0
+  }
 
   # Roots the backend gate may read, plus root-level files.
   @root_dirs ~w(docs handoffs web apps priv deploy .claude .github)
@@ -93,6 +105,8 @@ defmodule Letflow.CiBackendPathFilterTest do
     {"deploy/Dockerfile", true, true},
     {".github/workflows/ci.yml", true, true},
     {".github/workflows/cd.yml", true, true},
+    {"scripts/ci_changed_paths.sh", true, true},
+    {"scripts/cd_qa_decide.sh", true, false},
     {".claude/agents/uat-runner.md", true, true},
     {"web/.env.example", true, true},
     {"web/vite.config.ts", true, true},
@@ -127,17 +141,17 @@ defmodule Letflow.CiBackendPathFilterTest do
 
   defp regex_source do
     lines =
-      @ci_yml
+      @rules_sh
       |> File.read!()
       |> String.split("\n")
       |> Enum.filter(&Regex.match?(~r/^\s*BACKEND_PATHS_RE=/, &1))
 
     assert [line] = lines,
-           "#{@ci_yml} must contain exactly ONE `BACKEND_PATHS_RE=` assignment line " <>
+           "#{@rules_sh} must contain exactly ONE `BACKEND_PATHS_RE=` assignment line " <>
              "(found #{length(lines)}); the guard test parses that line."
 
     assert [_, src] = Regex.run(~r/^\s*BACKEND_PATHS_RE='([^']+)'\s*$/, line),
-           "BACKEND_PATHS_RE in #{@ci_yml} must be a single-quoted value alone on its line: " <>
+           "BACKEND_PATHS_RE in #{@rules_sh} must be a single-quoted value alone on its line: " <>
              "BACKEND_PATHS_RE='^(...)'  -- got: #{line}"
 
     src
@@ -268,7 +282,7 @@ defmodule Letflow.CiBackendPathFilterTest do
 
   # --- tests -----------------------------------------------------------------------------
 
-  describe "layer 1: the filter in ci.yml" do
+  describe "layer 1: the filter in scripts/ci_changed_paths.sh" do
     test "is one single-quoted assignment line and compiles as a regex" do
       src = regex_source()
       assert String.starts_with?(src, "^(") and String.ends_with?(src, ")")
@@ -285,38 +299,33 @@ defmodule Letflow.CiBackendPathFilterTest do
       refute Regex.match?(~r/[*+?}]\?/, src), "lazy quantifier in filter"
     end
 
-    test "ci.yml feeds the changed-file list to that variable via grep -qE and a here-string" do
-      assert File.read!(@ci_yml) =~ ~S|grep -qE "$BACKEND_PATHS_RE" <<<"$CHANGED"|
+    test "the script feeds the changed-file list to that variable via grep -qE and a here-string" do
+      assert File.read!(@rules_sh) =~ ~S|grep -qE "$BACKEND_PATHS_RE" <<<"$CHANGED"|
     end
 
     # Q-1110 / GH #2492: `echo "$CHANGED" | grep -q` under `set -o pipefail` is SIGPIPE-unsafe on a
     # large list (grep -q exits at the first match, echo gets SIGPIPE, the pipeline is 141, the
     # `if` is false, the gate is skipped). Each of the three filters must use a here-string.
-    test "no filter pipes the changed list into grep -q (SIGPIPE under pipefail)" do
+    # GH #2622: scanned in all four files of the CI/CD path and decision logic.
+    test "no file pipes into grep -q (SIGPIPE under pipefail)" do
       offenders =
-        @ci_yml
-        |> File.read!()
-        |> String.split("\n")
-        |> Enum.with_index(1)
-        |> Enum.filter(fn {line, _} ->
-          not String.starts_with?(String.trim_leading(line), "#") and
-            Regex.match?(~r/\|\s*grep\s[^\n]*(\s-[A-Za-z]*q|--quiet|--silent)/, line)
-        end)
+        for {file, _} <- @here_string_files,
+            {line, n} <- file |> File.read!() |> String.split("\n") |> Enum.with_index(1),
+            not String.starts_with?(String.trim_leading(line), "#"),
+            Regex.match?(~r/\|\s*grep\s[^\n]*(\s-[A-Za-z]*q|--quiet|--silent)/, line),
+            do: {file, n, line}
 
       assert offenders == [],
              "pipe into `grep -q` found (use `grep -qE <re> <<<\"$CHANGED\"`): #{inspect(offenders)}"
     end
 
-    test "the three path filters (backend, frontend, mobile) each use a here-string" do
-      src = File.read!(@ci_yml)
+    test "the three path filters use a here-string, all in the script and nowhere else" do
+      counts =
+        Map.new(@here_string_files, fn {file, _} ->
+          {file, length(Regex.scan(~r/grep -qE [^\n]*<<<"\$CHANGED"/, File.read!(file)))}
+        end)
 
-      here =
-        Regex.scan(
-          ~r/grep -qE [^\n]*<<<"\$CHANGED"/,
-          src
-        )
-
-      assert length(here) == 3
+      assert counts == @here_string_files
     end
 
     test "the here-string form matches on a 20k-line list (control; the piped form is unsafe)" do
@@ -391,7 +400,7 @@ defmodule Letflow.CiBackendPathFilterTest do
       vs = violations(re)
 
       assert vs == [],
-             "paths the backend gate reads are missing from BACKEND_PATHS_RE in #{@ci_yml} " <>
+             "paths the backend gate reads are missing from BACKEND_PATHS_RE in #{@rules_sh} " <>
                "(a change confined to them would skip the backend job). Add them to the " <>
                "filter, or -- only if they are not read as input -- to @not_read_allowlist " <>
                "with a reason:\n" <> format_violations(vs)

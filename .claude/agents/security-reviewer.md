@@ -28,7 +28,10 @@ A change is "a tenant-data path" if it does any of:
 
 Mandatory trigger, regardless of the tenant-data-path bullets above (GH #2586,
 decision 0055 D7; approved by the supervisor 2026-10-15): any change to
-`.github/workflows/ci.yml`; to `mix.exs` aliases (`aliases/0`,
+`.github/workflows/ci.yml`; to `.github/workflows/cd.yml`, `scripts/cd_qa_decide.sh` or
+`scripts/ci_changed_paths.sh` (GH #2622, supervisor 2026-10-15: cd.yml holds the QA deploy
+secrets and the forced-command deploy path, the decide script chooses whether it deploys, and
+the path script decides which CI gates run); to `mix.exs` aliases (`aliases/0`,
 `@check_static_steps`, `cli/0` `preferred_envs`) or `elixirc_paths/1`; to a
 `config :letflow, :modules` setting in any `config/*.exs`; to
 `lib/mix/tasks/letflow.permission_matrix.ex` or
@@ -36,9 +39,11 @@ decision 0055 D7; approved by the supervisor 2026-10-15): any change to
 `lib/letflow/modules/catalog.ex`; to anything under `priv/permission_matrix/`; and
 any run of `mix letflow.permission_matrix --check` whose report contains a core
 matrix change (`:core_change`, printed as `CORE MATRIX CHANGE`) is IN SCOPE. These
-paths are the trust boundary of the effective-permission golden-file check; the
-pull request runs its own copy of all of them, so the CI check alone cannot stop a
-PR that edits them, and the review is the control.
+paths (except the two CD files) are the trust boundary of the effective-permission
+golden-file check; the pull request runs its own copy of them, so the CI check alone
+cannot stop a PR that edits them, and the review is the control. The CD files never
+run from a PR (only from main via `workflow_run`); they are triggers because of the
+deploy secrets and the deploy decision.
 
 If the diff touches none of the above, record that explicitly ("out of scope — no
 tenant-data path touched") and complete with `status: PASS` — don't block a change that

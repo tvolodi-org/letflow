@@ -274,16 +274,21 @@ Runs after both 2a and 2b return PASS (or whichever applies), before Step 2d.
    clause; its checklist is MOB-5's acceptance criteria in
    docs/mobile/requirements.md, applied alongside INV-4/INV-5.
    - Permission-matrix trust boundary (GH #2586, decision 0055 D7): any change to
-     .github/workflows/ci.yml; to mix.exs aliases (aliases/0, @check_static_steps,
+     .github/workflows/ci.yml or scripts/ci_changed_paths.sh (CI's path rules, GH #2622);
+     to .github/workflows/cd.yml or scripts/cd_qa_decide.sh (GH #2622: cd.yml holds the
+     QA deploy secrets and the forced-command deploy path; the decide script chooses
+     whether it deploys); to mix.exs aliases (aliases/0, @check_static_steps,
      cli/0 preferred_envs) or elixirc_paths/1; to a `config :letflow, :modules`
      setting in any config/*.exs; to lib/mix/tasks/letflow.permission_matrix.ex or
      lib/letflow/api/permission_matrix.ex; to lib/letflow/api/authorization.ex; to
      lib/letflow/modules/catalog.ex; to anything under priv/permission_matrix/; and
      any run of `mix letflow.permission_matrix --check` whose report contains a core
      matrix change (`:core_change`, printed as CORE MATRIX CHANGE) is IN SCOPE. These
-     paths are the trust boundary of the golden-file check; the pull request runs its
-     own copy of all of them, so the CI check alone cannot stop a PR that edits them,
-     and the review is the control. A YES here forces "continue", never the
+     paths (except the two CD files) are the trust boundary of the golden-file check;
+     the pull request runs its own copy of them, so the CI check alone cannot stop a PR
+     that edits them, and the review is the control. The CD files never run from a PR
+     (only from main via workflow_run); they are triggers because of the deploy secrets
+     and the deploy decision. A YES here forces "continue", never the
      out-of-scope PASS; read the PR's CI step output (the PERMISSION-MATRIX-REPORT
      line, and CORE MATRIX CHANGE when present). A permission-matrix run reporting
      `labels=bootstrap` after REQ-498 has merged is itself a mandatory
