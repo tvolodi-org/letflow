@@ -33,6 +33,23 @@ defmodule Letflow.Entities.Definition do
   the activation. Ledgers that must be tamper-proof use `managed_by`
   (decision 0050 D7).
 
+  ## `writable_by_process` (GH #2587, decision 0054 D4a.2)
+
+  Optional top-level boolean, never defaulted or inserted by any layer.
+  Absent (or `false`) means a process step may NOT write records of this type;
+  `true` declares that it may. A present non-boolean value is `:malformed` at
+  `[:writable_by_process]`. The key is part of the logical shape, so adopting
+  it is a new version to activate, exactly like `append_only`.
+
+  Only a principal holding `:EntitiesDefinitionsWrite` can set it (through
+  `POST /entities/definitions` and `POST /entities/definitions/:name/activate`).
+  `Letflow.Entities.Definitions.create_definition/3` refuses `true` on a
+  module-managed type and on a type whose name matches the interim denied list
+  (`Letflow.Entities.ProcessWritable`; the list is documented in
+  `docs/guides/adding-an-application-module.md`), and a solution pack never
+  carries it. The process-step write path (PR B) re-reads the flag from the
+  CURRENT active definition at run time; nothing caches it.
+
   ## Numeric ranges (GH #2532)
 
   `:integer` and `:decimal` fields take three optional keys, never defaulted
@@ -64,7 +81,8 @@ defmodule Letflow.Entities.Definition do
           optional(:indexes) => [index_def()],
           optional(:foreign_keys) => [fk_def()],
           optional(:constraints) => [constraint_def()],
-          optional(:append_only) => boolean()
+          optional(:append_only) => boolean(),
+          optional(:writable_by_process) => boolean()
         }
 
   @typedoc "One field in an entity definition's `fields` list."

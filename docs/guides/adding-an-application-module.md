@@ -251,6 +251,38 @@ D7) proves that on a failure everything rolls back: no table, constraint,
 definition, promotion or `tenant_modules` row survives. Process definitions are NOT
 activated this way (0052 D4).
 
+### 5b. Process-writable entity types (`writable_by_process`, GH #2587, decision 0054 D4a.2)
+
+`writable_by_process` is an optional top-level boolean of an entity definition
+document. Absent or `false` means a process step may NOT write records of the type;
+`true` declares that it may (the write path itself is a later PR). Rules:
+
+- **Who may set it.** Only a principal holding `:EntitiesDefinitionsWrite`, through
+  `POST /entities/definitions` followed by `POST /entities/definitions/:name/activate`.
+  It is part of the logical shape, so setting or clearing it is a new version to activate.
+- **Module-managed types never carry it.** `Letflow.Entities.Definitions.create_definition/3`
+  refuses `true` on a type with a `managed_by` stamp, so a module's packed types must
+  not declare it.
+- **A solution pack cannot carry it.** A pack install (`:DefinitionsCreate`) containing
+  `writable_by_process: true` is refused and nothing is installed (GH #2619 tracks a
+  reviewed pack path). Until then an administrator sets the flag AFTER install, by
+  creating and activating a new version under `:EntitiesDefinitionsWrite`.
+- **Denied names (interim, fail closed).** No metadata classifies entity types yet, so
+  `true` is also refused when the type name (compared lower-cased) matches one of these
+  (`Letflow.Entities.ProcessWritable`; adding an entry is a reviewed diff; GH #2618
+  replaces the list with a type classification):
+  - prefixes: `org_`, `user_`, `users_`, `role_`, `roles_`, `permission_`,
+    `permissions_`, `principal_`, `principals_`, `group_`, `groups_`, `membership_`,
+    `attachment_`, `attachments_`;
+  - exact names: `org`, `orgs`, `user`, `users`, `role`, `roles`, `permission`,
+    `permissions`, `principal`, `principals`, `group`, `groups`, `membership`,
+    `memberships`, `attachment`, `attachments`.
+- **The refusal message names the matched rule.** The stable rule code is
+  `writable_by_process_not_permitted` (HTTP 422, path `writable_by_process`); the message
+  is one of `the entity type is managed by a module`, `the name matches the denied prefix
+  "<prefix>"` or `the name "<name>" is denied`. A false positive such as `user_feedback`
+  therefore explains itself; rename the type or wait for GH #2618.
+
 ## 6. Registration: `config/config.exs`, `config/test.exs`, and `catalog_test.exs`
 
 `Letflow.Modules.Catalog` reads its module list once, at compile time, via

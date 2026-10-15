@@ -381,6 +381,13 @@ defmodule Letflow.Routers.SolutionPacks do
   defp render_install(conn, {:error, {:graph_validation_failed, _violations}}),
     do: Response.unprocessable(conn, "validation failed")
 
+  # `Letflow.Entities.Definitions.create_error()`'s `{:validation, violations}`
+  # (an entity definition the Validator or `ProcessWritable` refused, GH #2587
+  # D-A4.6). No violation text is echoed: the pack document is the caller's own,
+  # but the install route reports every refusal with the same generic body.
+  defp render_install(conn, {:error, {:validation, _violations}}),
+    do: Response.unprocessable(conn, "validation failed")
+
   defp render_install(conn, {:error, %Ecto.Changeset{}}),
     do: Response.unprocessable(conn, "validation failed")
 

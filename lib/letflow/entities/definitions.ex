@@ -70,6 +70,7 @@ defmodule Letflow.Entities.Definitions do
   alias Letflow.Entities.Definition.Validator
   alias Letflow.Entities.EntityDefinition
   alias Letflow.Entities.ManagedTypes
+  alias Letflow.Entities.ProcessWritable
   alias Letflow.Api.Pagination
   alias Letflow.Repo
   alias Letflow.Repository
@@ -119,6 +120,11 @@ defmodule Letflow.Entities.Definitions do
        no Validator call, no write.
     1. `Letflow.Entities.Definition.Validator.validate/1` -- on
        `{:error, violations}`, returns `{:error, {:validation, violations}}`.
+    1a. `Letflow.Entities.ProcessWritable.check_settable/2` (GH #2587) -- a
+        definition declaring `writable_by_process: true` on a module-managed
+        type or a denied name returns `{:error, {:validation, [violation]}}`
+        (rule `:writable_by_process_not_permitted`, message names the matched
+        rule); no write.
     2. On `:ok`, computes `content_hash`/`logical_shape_version` via
        `Letflow.Entities.Definition.Shape`.
     3. Calls `Letflow.Repository.create/2` with `artifact_kind: :entity` --
@@ -150,7 +156,8 @@ defmodule Letflow.Entities.Definitions do
     with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
          :ok <- ManagedTypes.lock_names([name], prefix),
          {:ok, stamp} <- ManagedTypes.check_create(name, owner, prefix),
-         :ok <- validate_definition(definition) do
+         :ok <- validate_definition(definition),
+         :ok <- ProcessWritable.check_settable(definition, stamp) do
       content_hash = Shape.content_hash(definition)
       logical_shape_version = Shape.logical_shape_of(definition)
 
