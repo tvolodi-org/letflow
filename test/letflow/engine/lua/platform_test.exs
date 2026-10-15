@@ -1988,7 +1988,8 @@ defmodule Letflow.Engine.Lua.PlatformTest do
       lua: lua
     } do
       folded = Letflow.Engine.Reconstruction.folded_event_types()
-      assert length(folded) == 11
+      # the list itself (and its non-emptiness) is pinned to the replay clause heads by
+      # put_sys_callers_test.exs R4
 
       idempotency_rows = fn ->
         Repo.aggregate("event_idempotency", :count, prefix: schema_name)

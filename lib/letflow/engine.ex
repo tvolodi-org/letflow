@@ -3825,6 +3825,21 @@ defmodule Letflow.Engine do
               prefix
             )
 
+          # GH #2587 (SECURITY F2): a tenant endpoint answering a reserved `_sys` key
+          # would otherwise roll back with the dispatch row left "advanced" -- a
+          # silent stall. It is a terminal, value-free instance ERROR instead, the
+          # way an explicit sub-process mapping onto the namespace is.
+          {:rejected, unchanged_variables,
+           [{:execution_error, key, _value, :reserved_variable_key, _failures}]} ->
+            persist_service_task_reserved_key_error(
+              repo,
+              projection,
+              unchanged_variables,
+              key,
+              "service_task_dispatch:#{dispatch.id}",
+              prefix
+            )
+
           {:rejected, _unchanged_variables, _events} = rejection ->
             {:error, {:variable_merge_rejected, rejection}}
         end
@@ -4058,6 +4073,42 @@ defmodule Letflow.Engine do
       Multi.new()
       |> ExecutionError.append_multi(error_args, prefix: prefix, locked_projection: projection)
       |> completion.on_no_matching_edge.()
+
+    case repo.transaction(multi) do
+      {:ok, _changes} -> {:ok, :error_set}
+      {:error, _step, reason, _changes} -> {:error, reason}
+    end
+  end
+
+  # GH #2587 (SECURITY F2): the HTTP SERVICE_TASK body carried a reserved `_sys` key.
+  # Mirrors persist_service_task_no_matching_edge/7: ExecutionError records inside the
+  # already-open outer transaction (projection already locked), committed; no merge, no
+  # SERVICE_TASK_COMPLETED, the dispatch row stays "advanced" (at-most-once). The value is
+  # never carried (details %{}).
+  defp persist_service_task_reserved_key_error(
+         repo,
+         %InstanceProjection{} = projection,
+         unchanged_variables,
+         key,
+         idempotency_key,
+         prefix
+       ) do
+    error_args = %{
+      instance_id: projection.instance_id,
+      error_type: :reserved_variable_key,
+      affected: {:field, key},
+      reason: "variable '#{key}' is reserved",
+      variables: unchanged_variables,
+      details: %{},
+      actor_id: EventStore.platform_actor_id(),
+      idempotency_key: idempotency_key
+    }
+
+    multi =
+      ExecutionError.append_multi(Multi.new(), error_args,
+        prefix: prefix,
+        locked_projection: projection
+      )
 
     case repo.transaction(multi) do
       {:ok, _changes} -> {:ok, :error_set}

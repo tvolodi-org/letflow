@@ -12,10 +12,13 @@ defmodule Letflow.Engine.PutSysCallersTest do
     * R2: a binary literal CONTAINING `"INSTANCE_SYS_VARIABLES_SET"` or
       `"TASK_ENTITY_WRITES_APPLIED"` occurs only in `@event_literal_files` (A3 adds
       `lib/letflow/engine/entity_port.ex`; `lib/letflow/engine/lua/platform.ex` is never on it).
-    * R3 (SEC F5): a binary literal (doc strings and interpolation segments included) STARTING
-      with the reserved prefix occurs only in `lib/letflow/engine/variable_merge.ex`.
+    * R3 (SEC F5, hardened for SECURITY F1): a binary literal (doc strings and interpolation
+      segments included) STARTING with the reserved prefix, an atom literal whose name starts
+      with it, or a `<>` chain whose leading literal operands start with it or are a non-empty
+      prefix of it, occurs only in `lib/letflow/engine/variable_merge.ex`.
     * R4 (CDV-1): `Reconstruction.folded_event_types/0` equals the set of string literals in the
-      `event_type:` patterns of the `apply_event/4` clause heads of `reconstruction.ex`, so a new
+      `event_type:` patterns of the `apply_event/4` clause heads (`def` or `defp`) of
+      `reconstruction.ex`, so a new
       fold clause cannot be added without the Lua `emit_event` refusal following it.
 
   Every rule's real-tree assertion is an EXACT file-set equality (non-vacuous: each set is
@@ -90,12 +93,54 @@ defmodule Letflow.Engine.PutSysCallersTest do
   defp event_literal?(binary), do: Enum.any?(@event_literals, &String.contains?(binary, &1))
   defp reserved_literal?(binary), do: String.starts_with?(binary, @reserved_prefix)
 
+  # R3 (hardened, SECURITY F1): a binary literal starting with the prefix, an atom literal whose
+  # name starts with it (`:"_sys.x"`, keyword key `_sys:`), or a `<>` chain whose leading
+  # literal operands join to a string that starts with the prefix or is a non-empty prefix of
+  # it (`"_" <> "sys.x"`, `"_s" <> rest`).
+  def reserved_files(files) do
+    for {path, ast} <- files, reserved_mention?(ast), uniq: true, do: path
+  end
+
+  defp reserved_mention?(ast) do
+    {_ast, found?} =
+      Macro.prewalk(ast, false, fn
+        binary = node, acc when is_binary(binary) ->
+          {node, acc or reserved_literal?(binary)}
+
+        atom = node, acc when is_atom(atom) ->
+          {node, acc or reserved_literal?(Atom.to_string(atom))}
+
+        {:<>, _, [_, _]} = node, acc ->
+          {node, acc or reserved_concat?(node)}
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    found?
+  end
+
+  defp reserved_concat?(node) do
+    head = node |> concat_operands() |> Enum.take_while(&is_binary/1) |> Enum.join()
+
+    head != "" and
+      (String.starts_with?(head, @reserved_prefix) or String.starts_with?(@reserved_prefix, head))
+  end
+
+  defp concat_operands({:<>, _, [left, right]}),
+    do: concat_operands(left) ++ concat_operands(right)
+
+  defp concat_operands(other), do: [other]
+
   # R4: the event_type: literals of every apply_event clause head.
   def apply_event_head_literals(ast) do
     {_ast, acc} =
       Macro.prewalk(ast, [], fn
-        {:defp, _, [head | _]} = node, acc -> {node, head_literals(head) ++ acc}
-        node, acc -> {node, acc}
+        {kind, _, [head | _]} = node, acc when kind in [:def, :defp] ->
+          {node, head_literals(head) ++ acc}
+
+        node, acc ->
+          {node, acc}
       end)
 
     acc |> Enum.uniq() |> Enum.sort()
@@ -131,7 +176,7 @@ defmodule Letflow.Engine.PutSysCallersTest do
 
     test "R3: binary literals starting with the reserved prefix occur only in variable_merge.ex",
          %{files: files} do
-      assert literal_files(files, &reserved_literal?/1) == @reserved_literal_files
+      assert reserved_files(files) == @reserved_literal_files
     end
 
     test "R4: folded_event_types/0 equals the apply_event/4 clause-head literals", %{
@@ -195,16 +240,31 @@ defmodule Letflow.Engine.PutSysCallersTest do
         ~s|defmodule Fake do\n  @doc "#{p}.x is set here"\n  def k, do: 1\nend\n|,
         ~s|defmodule Fake do\n  def k, do: ~s(#{p}.x)\nend\n|,
         ~s|defmodule Fake do\n  def k(n), do: "#{p}.\#{n}"\nend\n|,
-        ~s|defmodule Fake do\n  def k(n), do: "a\#{n}#{p}"\nend\n|
+        ~s|defmodule Fake do\n  def k(n), do: "a\#{n}#{p}"\nend\n|,
+        # SECURITY F1 hardening: atom literals and `<>` chains with a literal prefix head
+        ~s|defmodule Fake do\n  def k, do: :"#{p}.x"\nend\n|,
+        ~s|defmodule Fake do\n  def k, do: [#{p}: 1]\nend\n|,
+        ~s|defmodule Fake do\n  def k, do: "_" <> "sys.x"\nend\n|,
+        ~s|defmodule Fake do\n  def k(rest), do: "_s" <> rest\nend\n|,
+        ~s|defmodule Fake do\n  def k(n), do: ("_" <> "sy") <> n\nend\n|,
+        ~s|defmodule Fake do\n  def k(n), do: "a" <> "_" <> n\nend\n|
       ]
 
       for source <- sources do
-        assert literal_files(synthetic(source), &reserved_literal?/1) == [@fake],
+        assert reserved_files(synthetic(source)) == [@fake],
                "not flagged: #{source}"
       end
 
-      clean = ~s|defmodule Fake do\n  def k, do: "x#{p}.y"\nend\n|
-      assert literal_files(synthetic(clean), &reserved_literal?/1) == []
+      clean = [
+        ~s|defmodule Fake do\n  def k, do: "x#{p}.y"\nend\n|,
+        ~s|defmodule Fake do\n  def k, do: :system_x\nend\n|,
+        ~s|defmodule Fake do\n  def k(n), do: "_x" <> n\nend\n|,
+        ~s|defmodule Fake do\n  def k(n), do: n <> "sys"\nend\n|
+      ]
+
+      for source <- clean do
+        assert reserved_files(synthetic(source)) == [], "false positive: #{source}"
+      end
     end
 
     test "R4: a new apply_event clause literal is seen by the head scan" do
@@ -213,12 +273,13 @@ defmodule Letflow.Engine.PutSysCallersTest do
         defp apply_event(_g, s, %{event_type: "A_NEW_TYPE"} = _e, _p), do: {:ok, s}
         defp apply_event(_g, s, %{event_type: "B_TYPE"}, _p) when is_map(s), do: {:ok, s}
         defp apply_event(_g, _s, %{event_type: t}, _p), do: {:error, t}
+        def apply_event(_g, s, %{event_type: "C_PUBLIC_TYPE"}, _p), do: {:ok, s}
         defp other(%{event_type: "NOT_A_FOLD"}), do: :ok
       end
       """
 
       [{@fake, ast}] = synthetic(source)
-      assert apply_event_head_literals(ast) == ["A_NEW_TYPE", "B_TYPE"]
+      assert apply_event_head_literals(ast) == ["A_NEW_TYPE", "B_TYPE", "C_PUBLIC_TYPE"]
     end
   end
 end

@@ -201,6 +201,22 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
     }
   end
 
+  defp post_instance(tenant, definition, initial_variables) do
+    conn("POST", "/")
+    |> Map.put(:body_params, %{
+      "definition_id" => definition.id,
+      "initial_variables" => initial_variables
+    })
+    |> put_req_header("content-type", "application/json")
+    |> assign(:auth_context, %{
+      user_id: Ecto.UUID.generate(),
+      tenant_id: tenant.tenant_id,
+      roles: ["PROCESS_OPERATOR"]
+    })
+    |> assign(:trace_id, "gh2587-trace")
+    |> Letflow.Routers.Instances.call(Letflow.Routers.Instances.init([]))
+  end
+
   defp instance_count(schema), do: Repo.aggregate(InstanceProjection, :count, prefix: schema)
 
   defp sys_manifest do
@@ -283,7 +299,10 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
   # ── (2) SERVICE_TASK HTTP body ─────────────────────────────────────────────────────────────
 
   describe "(2) SERVICE_TASK HTTP body" do
-    test "poll path: advance refused (variable_merge_rejected), one log line and one audit row, no value anywhere" do
+    # SECURITY F2: a reserved key in the body is a terminal, value-free instance ERROR
+    # (never a silent stall with the dispatch row left "advanced"). The HTTP route merges
+    # with nil validations, so an ordinary schema rejection cannot occur on this path.
+    test "poll path: instance ERROR reserved_variable_key, field affected, no value anywhere; no stall" do
       enable_ssrf_bypass()
       %{url: url} = WebhookTestServer.start(200, ~s({"_sys.x":"#{@secret}","y":2}))
       %{schema_name: schema} = tenant("gh2587-src-svc")
@@ -296,30 +315,40 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
       {_, entries} =
         Letflow.Test.LoggerCollector.capture(
           fn ->
-            assert %{claimed: 1, advanced: 0} = ServiceTaskDispatcher.poll_and_dispatch(schema)
+            assert %{claimed: 1, advanced: 0, given_up: 1} =
+                     ServiceTaskDispatcher.poll_and_dispatch(schema)
           end,
           attribute_to: self()
         )
 
-      log = Letflow.Test.LoggerCollector.text(entries)
-      assert log =~ "dispatch_id=#{dispatch.id}"
-      assert log =~ "reason=variable_merge_rejected"
-      refute log =~ @secret
-
-      assert [entry] = audit_rows(schema, "service_task.advance_failed")
-      assert entry.after_state == %{"node_id" => "svc", "reason" => "variable_merge_rejected"}
-      refute inspect(entry, limit: :infinity) =~ @secret
+      refute Letflow.Test.LoggerCollector.text(entries) =~ @secret
 
       p = projection(schema, id)
+      assert p.status == :error
       assert p.variables == %{"seed" => 1}
-      assert p.status == :active
+      refute inspect(p, limit: :infinity) =~ @secret
+
+      assert [event] = events_of_type(schema, id, "EXECUTION_ERROR")
+      assert event.payload["error_type"] == "reserved_variable_key"
+      assert event.payload["affected"] == %{"kind" => "field", "key" => "_sys.x"}
+      assert event.payload["details"] == %{}
+      assert event.payload["variables"] == %{"seed" => 1}
+      assert event.idempotency_key == "service_task_dispatch:#{dispatch.id}"
+      refute inspect(event, limit: :infinity) =~ @secret
+
       assert events_of_type(schema, id, "SERVICE_TASK_COMPLETED") == []
+      # no residual-error path taken: the failure is recorded as an instance ERROR instead
+      assert audit_rows(schema, "service_task.advance_failed") == []
+
+      # at-most-once: the dispatch row stays "advanced"; the token stays parked
+      assert [%ServiceTaskDispatch{status: "advanced"}] =
+               Repo.all(where(ServiceTaskDispatch, [d], d.instance_id == ^id), prefix: schema)
 
       assert [%TokenRecord{node_id: "svc", status: :active}] =
                Repo.all(where(TokenRecord, [t], t.instance_id == ^id), prefix: schema)
     end
 
-    test "advance_after_service_task_outcome/4 returns {:error, {:variable_merge_rejected, _}} without the value" do
+    test "advance_after_service_task_outcome/4 -> {:ok, :error_set}; a redelivery writes nothing more" do
       enable_ssrf_bypass()
       %{url: url} = WebhookTestServer.start(200, ~s({"_sys.x":"#{@secret}"}))
       %{schema_name: schema} = tenant("gh2587-src-svc2")
@@ -331,7 +360,7 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
 
       assert {:ok, {:advance, body}} = ServiceTaskDispatcher.attempt_dispatch(dispatch.id, schema)
 
-      assert {:error, {:variable_merge_rejected, rejection}} =
+      assert {:ok, :error_set} =
                Engine.advance_after_service_task_outcome(
                  dispatch.id,
                  {:advance, body},
@@ -339,11 +368,30 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
                  schema
                )
 
-      assert {:rejected, _, [{:execution_error, "_sys.x", nil, :reserved_variable_key, []}]} =
-               rejection
-
-      refute inspect(rejection) =~ @secret
+      assert projection(schema, id).status == :error
       assert projection(schema, id).variables == %{}
+
+      assert {:error, {:instance_not_active, :error}} =
+               Engine.advance_after_service_task_outcome(
+                 dispatch.id,
+                 {:advance, body},
+                 Repo,
+                 schema
+               )
+
+      assert [_one] = events_of_type(schema, id, "EXECUTION_ERROR")
+    end
+
+    test "control: an ordinary body still advances" do
+      enable_ssrf_bypass()
+      %{url: url} = WebhookTestServer.start(200, ~s({"y":2}))
+      %{schema_name: schema} = tenant("gh2587-src-svc3")
+      definition = active_definition!(schema, service_task_graph(url))
+      id = start!(schema, definition, %{"seed" => 1})
+
+      assert %{claimed: 1, advanced: 1} = ServiceTaskDispatcher.poll_and_dispatch(schema)
+      assert projection(schema, id).status == :completed
+      assert projection(schema, id).variables == %{"seed" => 1, "y" => 2}
     end
   end
 
@@ -368,6 +416,9 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
 
       assert [event] = events_of_type(schema, parent_id, "SUB_PROCESS_COMPLETED")
       refute Map.has_key?(event.payload["output_variables"], "_sys.x")
+
+      # non-vacuity (TDV F3): the child really still held the reserved value at completion
+      assert projection(schema, child_id).variables["_sys.x"] == 5
     end
 
     test "(3b) an explicit interface output naming a reserved key: parent ERROR reserved_variable_key, no value" do
@@ -489,29 +540,19 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
       assert instance_count(schema) == before
     end
 
-    test "POST /instances with a reserved initial variable is 422" do
+    test "POST /instances with a reserved initial variable is 422; the same request with an ordinary key is 201" do
       tenant = tenant("gh2587-src-http")
       definition = active_definition!(tenant.schema_name, human_task_graph())
-      opts = Letflow.Routers.Instances.init([])
 
-      conn =
-        conn("POST", "/")
-        |> Map.put(:body_params, %{
-          "definition_id" => definition.id,
-          "initial_variables" => %{"_sys.r" => @secret}
-        })
-        |> put_req_header("content-type", "application/json")
-        |> assign(:auth_context, %{
-          user_id: Ecto.UUID.generate(),
-          tenant_id: tenant.tenant_id,
-          roles: ["PROCESS_OPERATOR"]
-        })
-        |> assign(:trace_id, "gh2587-trace")
-        |> Letflow.Routers.Instances.call(opts)
-
+      conn = post_instance(tenant, definition, %{"_sys.r" => @secret})
       assert conn.status == 422
       refute conn.resp_body =~ @secret
       assert instance_count(tenant.schema_name) == 0
+
+      # TDV F1 control: identical request, ordinary key
+      conn = post_instance(tenant, definition, %{"r" => @secret})
+      assert conn.status == 201
+      assert instance_count(tenant.schema_name) == 1
     end
   end
 
@@ -539,7 +580,9 @@ defmodule Letflow.Engine.SysNamespaceSourcesTest do
       [record] = F.payloads(t.schema_name, b.instance_id, "SCRIPT_RUN_RECORDED")
       assert record["outcome"] == "output_invalid"
       assert record["detail"] == "reserved_variable_key"
-      refute 4417 in Map.values(record)
+      # TDV F2: the value is nowhere in the run record nor on the dispatch row
+      refute inspect(record, limit: :infinity) =~ "4417"
+      refute inspect(done, limit: :infinity) =~ "4417"
       assert F.payloads(t.schema_name, b.instance_id, "SCRIPT_TASK_COMPLETED") == []
     end
 
