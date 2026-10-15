@@ -175,6 +175,7 @@ defmodule Letflow.Entities.Records do
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Record.Validator
+  alias Letflow.Entities.StepSource
   alias Letflow.EventStore
   alias Letflow.EventStore.Event
   alias Letflow.EventStore.StoredPayload
@@ -249,22 +250,6 @@ defmodule Letflow.Entities.Records do
           | {:error, :reserved_attribute}
           | {:error, term()}
 
-  @typedoc """
-  GH #2587 (D-A2.5): who caused a process-step write. Recorded as flat
-  `source.*` event-metadata keys, set only by `command_multi/3`.
-  """
-  @type step_source :: %{
-          required(:kind) => String.t(),
-          required(:instance_id) => Ecto.UUID.t(),
-          optional(:task_id) => Ecto.UUID.t(),
-          optional(:dispatch_id) => Ecto.UUID.t(),
-          required(:node_id) => String.t(),
-          required(:definition_id) => Ecto.UUID.t(),
-          required(:definition_version) => String.t(),
-          required(:line_index) => non_neg_integer(),
-          required(:activator_id) => Ecto.UUID.t()
-        }
-
   @typedoc "GH #2587: one process-step line (only `kind: :create` is accepted, D-A2.10)."
   @type step_command :: %{
           required(:kind) => :create | :update | :delete,
@@ -273,7 +258,7 @@ defmodule Letflow.Entities.Records do
           required(:field_values) => Validator.field_values(),
           required(:actor_id) => Ecto.UUID.t(),
           required(:idempotency_key) => String.t(),
-          required(:source) => step_source()
+          required(:source) => StepSource.t()
         }
 
   @type step_refusal_code ::
@@ -298,18 +283,6 @@ defmodule Letflow.Entities.Records do
   @step_key_prefix "sys:step:"
   @step_key_max_bytes 255
   @step_key_format ~r/\Asys:step:[A-Za-z0-9:_.-]+\z/
-  @step_source_keys [
-    :kind,
-    :instance_id,
-    :task_id,
-    :dispatch_id,
-    :node_id,
-    :definition_id,
-    :definition_version,
-    :line_index,
-    :activator_id
-  ]
-  @step_node_id_max_bytes 1024
   @reserved_attribute_keys [:source, "source", :metadata, "metadata"]
 
   @doc """
@@ -547,8 +520,8 @@ defmodule Letflow.Entities.Records do
     1. Shape, no query: `kind`; `line_key` a non-negative integer equal to
        `source.line_index` (else `:invalid_step_source`); `idempotency_key`
        matches `\\Asys:step:[A-Za-z0-9:_.-]+\\z` and is at most 255 bytes (else
-       `:invalid_step_key`); `source` is a `t:step_source/0` (exactly one of
-       `task_id` / `dispatch_id`, `kind == "process_step"`, no other key, else
+       `:invalid_step_key`); `source` is a `Letflow.Entities.StepSource` struct (a
+       bare map is refused; the shape is `StepSource.new/1`'s single validation, else
        `:invalid_step_source`). `entity_type` must be a binary, `field_values`
        a map and `actor_id` a UUID (else `:invalid_step_source`).
     2. The active definition (query), then `authority` through the same
@@ -727,7 +700,7 @@ defmodule Letflow.Entities.Records do
   defp check_step_command(%{kind: :create} = command) when not is_struct(command) do
     with {:ok, line_key, source} <- check_line_key(command),
          :ok <- check_step_key(Map.get(command, :idempotency_key)),
-         {:ok, metadata} <- step_source_metadata(source),
+         {:ok, metadata} <- step_metadata(source),
          {:ok, entity_type, field_values} <- check_step_target(command) do
       {:ok,
        %{
@@ -745,8 +718,9 @@ defmodule Letflow.Entities.Records do
 
   defp check_step_command(_command), do: {:error, :invalid_step_source}
 
-  defp check_line_key(%{line_key: line_key, source: %{line_index: line_key} = source})
-       when is_integer(line_key) and line_key >= 0 and not is_struct(source),
+  # The ONE place the line_index == line_key invariant is checked (#2627).
+  defp check_line_key(%{line_key: line_key, source: %StepSource{line_index: line_key} = source})
+       when is_integer(line_key) and line_key >= 0,
        do: {:ok, line_key, source}
 
   defp check_line_key(_command), do: {:error, :invalid_step_source}
@@ -758,62 +732,25 @@ defmodule Letflow.Entities.Records do
 
   defp check_step_key(_key), do: {:error, :invalid_step_key}
 
-  # D-A2.5: the flat string -> string metadata map EventStore.validate_metadata/1
-  # accepts; integers rendered as decimal strings.
-  defp step_source_metadata(source) do
-    with true <- Enum.all?(Map.keys(source), &(&1 in @step_source_keys)),
-         "process_step" <- Map.get(source, :kind),
-         {:ok, origin_key, origin_id} <- step_source_origin(source),
-         {:ok, instance_id} <- source_uuid(source, :instance_id),
-         {:ok, definition_id} <- source_uuid(source, :definition_id),
-         {:ok, activator_id} <- source_uuid(source, :activator_id),
-         node_id when is_binary(node_id) and byte_size(node_id) in 1..@step_node_id_max_bytes <-
-           Map.get(source, :node_id),
-         true <- String.valid?(node_id),
-         version when is_binary(version) and byte_size(version) in 1..255 <-
-           Map.get(source, :definition_version),
-         true <- String.valid?(version) do
-      {:ok,
-       %{
-         "source.kind" => "process_step",
-         "source.instance_id" => instance_id,
-         origin_key => origin_id,
-         "source.node_id" => node_id,
-         "source.definition_id" => definition_id,
-         "source.definition_version" => version,
-         "source.line_index" => Integer.to_string(source.line_index),
-         "source.activator_id" => activator_id
-       }}
-    else
-      _invalid -> {:error, :invalid_step_source}
-    end
-  end
-
-  defp step_source_origin(source) do
-    case {Map.has_key?(source, :task_id), Map.has_key?(source, :dispatch_id)} do
-      {true, false} -> tagged_uuid(source, :task_id, "source.task_id")
-      {false, true} -> tagged_uuid(source, :dispatch_id, "source.dispatch_id")
-      _neither_or_both -> :error
-    end
-  end
-
-  defp tagged_uuid(source, key, metadata_key) do
-    with {:ok, uuid} <- source_uuid(source, key), do: {:ok, metadata_key, uuid}
-  end
-
-  defp source_uuid(source, key) do
-    case Map.get(source, key) do
-      value when is_binary(value) -> Ecto.UUID.cast(value)
-      _other -> :error
-    end
+  # A literal %StepSource{} could skip new/1: re-run the constructor, the only
+  # validation of the shape (no second hand-written check here).
+  defp step_metadata(%StepSource{} = source) do
+    with {:ok, valid} <- StepSource.new(Map.from_struct(source)),
+         do: {:ok, StepSource.to_metadata(valid)}
   end
 
   defp check_step_target(%{entity_type: entity_type, field_values: field_values} = command)
        when is_binary(entity_type) and byte_size(entity_type) > 0 and is_map(field_values) and
               not is_struct(field_values) do
-    case source_uuid(command, :actor_id) do
-      {:ok, _actor_id} -> {:ok, entity_type, field_values}
-      :error -> {:error, :invalid_step_source}
+    case Map.get(command, :actor_id) do
+      actor_id when is_binary(actor_id) ->
+        case Ecto.UUID.cast(actor_id) do
+          {:ok, _actor_id} -> {:ok, entity_type, field_values}
+          :error -> {:error, :invalid_step_source}
+        end
+
+      _other ->
+        {:error, :invalid_step_source}
     end
   end
 

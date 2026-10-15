@@ -75,6 +75,7 @@ defmodule Letflow.Entities.StepWrites do
   alias Letflow.Entities.Query.FieldGrants
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Records
+  alias Letflow.Entities.StepSource
   alias Letflow.Repo
 
   @max_lines 20
@@ -535,7 +536,17 @@ defmodule Letflow.Entities.StepWrites do
   defp build_line(line, index, ctx, variables) do
     with {:ok, normalized} <- run_time_line(line),
          :ok <- check_authorized(normalized.entity_type, ctx.authorized),
-         :ok <- check_restrictions(normalized.fields, normalized.entity_type, ctx) do
+         :ok <- check_restrictions(normalized.fields, normalized.entity_type, ctx),
+         {:ok, source} <-
+           StepSource.new(%{
+             instance_id: ctx.instance_id,
+             task_id: ctx.task_id,
+             node_id: ctx.node_id,
+             definition_id: ctx.definition_id,
+             definition_version: ctx.definition_version,
+             line_index: index,
+             activator_id: ctx.activator_id
+           }) do
       command = %{
         kind: :create,
         line_key: index,
@@ -543,16 +554,7 @@ defmodule Letflow.Entities.StepWrites do
         field_values: resolve_values(normalized.fields, variables),
         actor_id: ctx.actor_id,
         idempotency_key: "sys:step:" <> ctx.task_id <> ":" <> Integer.to_string(index),
-        source: %{
-          kind: "process_step",
-          instance_id: ctx.instance_id,
-          task_id: ctx.task_id,
-          node_id: ctx.node_id,
-          definition_id: ctx.definition_id,
-          definition_version: ctx.definition_version,
-          line_index: index,
-          activator_id: ctx.activator_id
-        }
+        source: source
       }
 
       # The authority is the LITERAL :tenant (A2 D-A2.9).

@@ -36,6 +36,7 @@ defmodule Letflow.Entities.RecordsCommandMultiTest do
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Records
+  alias Letflow.Entities.StepSource
   alias Letflow.EventStore
   alias Letflow.EventStore.Event
   alias Letflow.EventStore.IdempotencyRecord
@@ -101,7 +102,13 @@ defmodule Letflow.Entities.RecordsCommandMultiTest do
     active
   end
 
+  # A literal struct (bypassing StepSource.new/1) so an invalid value reaches
+  # command_multi/3, which must re-run the constructor (#2627).
   defp source(line_key, overrides \\ %{}) do
+    struct!(StepSource, source_attrs(line_key, overrides))
+  end
+
+  defp source_attrs(line_key, overrides \\ %{}) do
     Map.merge(
       %{
         kind: "process_step",
@@ -245,8 +252,7 @@ defmodule Letflow.Entities.RecordsCommandMultiTest do
 
       src =
         0
-        |> source(%{dispatch_id: dispatch_id})
-        |> Map.delete(:task_id)
+        |> source(%{dispatch_id: dispatch_id, task_id: nil})
 
       cmd = command(@type_a, 0, dispatch_id, %{source: src})
       assert {:ok, _} = Repo.transaction(build!(cmd, schema))
@@ -352,7 +358,7 @@ defmodule Letflow.Entities.RecordsCommandMultiTest do
     test "malformed sources and a line_index that differs from line_key are :invalid_step_source",
          %{schema: schema, task_id: task_id} do
       both = source(0, %{dispatch_id: Ecto.UUID.generate()})
-      neither = Map.delete(source(0), :task_id)
+      neither = source(0, %{task_id: nil})
 
       bad = [
         %{source: source(1)},
@@ -369,6 +375,9 @@ defmodule Letflow.Entities.RecordsCommandMultiTest do
         %{source: source(0, %{definition_version: String.duplicate("v", 256)})},
         %{source: Map.put(source(0), :extra, "x")},
         %{source: "nope"},
+        # a bare map is refused: only the struct is accepted (#2627)
+        %{source: source_attrs(0)},
+        %{source: Map.from_struct(source(0))},
         %{actor_id: "not-a-uuid"},
         %{field_values: "nope"}
       ]
