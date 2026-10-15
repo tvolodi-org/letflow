@@ -15,7 +15,7 @@ Design only. Signatures, type shapes, step lists, tables and test briefs; no fun
 
 | Id | Change | Where |
 |---|---|---|
-| F-1 | `TASK_ENTITY_WRITES_APPLIED` v1 seed has `additionalProperties: false` on line items, so the handler keys would be refused at append: a `schema_version` 2 seed entry (v1 untouched) is specified with reach, replay and pins; prerequisite step added to R4a | 4.11, 9, 14, 1.2 |
+| F-1 | `TASK_ENTITY_WRITES_APPLIED` v1 seed has `additionalProperties: false` on line items, so the handler keys would be refused at append: the seed entry is bumped IN PLACE to `schema_version` 2 (a v1 entry kept beside v2 breaks tenant replay with `:schema_version_not_monotonic`, N-1), specified with reach, replay, replay-twice test and pins; prerequisite step added to R4a | 4.11, 9, 14, 1.2 |
 | F-2 | `HandlerWrites.step/3` DROPPED (no raw `repo` to module code; create-only MVP has no consumer); the API is `create/3` only, so INV-R3/INV-1/INV-8 hold for the whole API; a read facade is deferred | 4.6, 6, 7.4, 11, D-R.4/5 |
 | F-3 | Interim guard rewritten: any node with a non-empty `module_writes` is refused until R4b, INDEPENDENT of the plan; mixed-node test | 6.3, 11 |
 | F-4 | `authority` removed from `HandlerContext`; `create/3` re-derives the Owner through `owner_for_handler/2` and ignores any supplied value | 4.6, 7.2 |
@@ -224,16 +224,21 @@ no environment).
 @spec from_row(row :: map()) :: {:ok, t()} | :none        # all four present, else :none
 ```
 
-**Input form (F-9).** `graph_hash/1` is defined over the PERSISTED, JSONB round-tripped form, never
-over the pre-insert in-memory map: at stamping `create_owned/3` inserts the row and hashes the
-`graph` value Postgres returned (`returning: true`), and at run time the pinned snapshot's `graph`
-(S14) is passed to the same function. The function first normalises the term to its JSON-decoded
+**Input form and ONE stamping mechanism (F-9, N-2).** `graph_hash/1` is defined over the
+JSON-NORMALISED form of the graph, i.e. the value a JSONB column returns. The stamp is computed
+BEFORE the insert, from the `graph` in the attrs, by this same function, and written by `put_change` of
+all four columns in the one INSERT (so the all-or-none CHECK and the immutability trigger hold with no
+UPDATE ever needed: the trigger has no "one-time stamp" exception). At run time the pinned snapshot's
+`graph` (S14) is passed to the same function. Equality of the pre-insert hash and the JSONB read-back
+hash is a PROVEN property, not an assumption: the F-9 test (floats `1.0`/`0.1`, large integers,
+atom/string keys, key order) inserts, reads the row and the snapshot back, and asserts all three hashes
+equal; if it fails for some input class the function's normalisation is extended until it passes.
+The function first normalises the term to its JSON-decoded
 shape (string keys, atoms as strings, numbers as decoded) and then canonicalizes exactly as
 `PromotionDigest.canonicalize/1` does (sorted object keys, array order kept). It does NOT use the
 numeric-normalising `Repository.Canonicaliser` (the two must not be merged, per that module's
-moduledoc). A row graph and a snapshot graph of the same definition therefore hash equal; a test uses
-floats (`1.0`, `0.1`), large integers and key-order variants (11). Whether the snapshot writer
-transforms the graph at the byte level is NOT VERIFIED (S14 is a copy); if it does, the stamp is
+moduledoc). A row graph and a snapshot graph of the same definition therefore hash equal. Whether the
+snapshot writer transforms the graph at the byte level is NOT VERIFIED (S14 is a copy); if it does, the stamp is
 computed over the snapshot form and R2 states which.
 
 ### 4.3 `Letflow.Entities.ManagedTypes` (R2, R4a)
@@ -449,8 +454,8 @@ field :owner_manifest_hash, :string; field :owner_body_hash, :string
 @spec Definitions.create_owned(attrs :: map(), opts :: keyword(), ManagedTypes.owner()) ::
         {:ok, ProcessDefinition.t()} | Definitions.create_error()
 # :tenant owner -> identical to create/2 (no stamp); %Owner{} with non-nil version/manifest_hash ->
-# the row is stamped: put_change of the four fields, body_hash = OwnerStamp.graph_hash(graph).
-# callers: solution_pack.ex only (scan H6).
+# the row is stamped: put_change of the four fields in the SAME insert; body_hash = OwnerStamp.graph_hash(attrs.graph) computed BEFORE the insert (4.2); no later UPDATE stamps a row.
+# callers: solution_pack.ex only (scan H5).
 @spec Definitions.update(...) :: ... | {:error, :module_owned_definition}      # stamped row
 ```
 
@@ -526,14 +531,24 @@ name in this event.
 
 Specification:
 
-* A second seed entry for the same name with `schema_version: 2`; the v1 entry is left byte-for-byte
-  unchanged. v2's JSON schema is v1's with three OPTIONAL line-item properties added
+* **In-place bump (N-1).** The single seed entry for `TASK_ENTITY_WRITES_APPLIED` is changed from
+  `schema_version: 1` to `schema_version: 2`; there is NO second entry. Keeping v1 beside v2 would make
+  the seed loop (`tenant_provisioning.ex:1446-1454`, which treats only
+  `:duplicate_event_type_version` as success and halts on any other error) fail for a tenant that
+  already holds v2: `Registry.insert_with_monotonicity_check` (`registry.ex:318-330`) answers
+  `:schema_version_not_monotonic` for a version below the current maximum, so `replay_migrations/2`
+  would fail at every subsequent boot replay. The repo precedent is the in-place bump
+  (`TASK_COMPLETED` at `schema_version: 3`, `tenant_provisioning.ex:935`; `DEFINITION_PROMOTED` v2,
+  `:1108`). Outcomes: a fresh tenant gets v2 directly; an existing tenant at v1 gets v2 inserted on
+  replay (version greater than max); a tenant already at v2 gets `:duplicate_event_type_version` =
+  success. Stored v1 events stay valid and replay unchanged because v2 is a strict superset. v2's JSON
+  schema is v1's with three OPTIONAL line-item properties added
   (`handler_module` string, `handler` string, `write_ordinal` integer minimum 1), `required` unchanged
-  and `additionalProperties: false` kept: every v1 payload is also a valid v2 payload and an unknown
-  key is still refused. Only the registry's supported JSON-Schema subset is used (as v1).
-* Reach: `(name, 2)` is not a duplicate, so the existing seed loop registers it for every tenant that
-  passes through `replay_migrations/2` with the default manifest: new tenants at provisioning, existing
-  tenants at the next boot-time replay. NOT VERIFIED that every existing tenant's replay takes the
+  and `additionalProperties: false` kept: every v1 payload is also a valid v2 payload (stored v1
+  events still validate and replay) and an unknown key is still refused. Only the registry's supported JSON-Schema subset is used (as v1).
+* Reach: the existing seed loop registers v2 for every tenant that passes through
+  `replay_migrations/2` with the default manifest: new tenants at provisioning, existing tenants at the
+  next boot-time replay. NOT VERIFIED that every existing tenant's replay takes the
   default-manifest path (`using_default_manifest?`, `tenant_provisioning.ex:406`); ELIXIR-DEV confirms
   and, if some do not, adds an idempotent data migration inserting the v2 row (`on conflict do
   nothing`), registered in the manifest like R2's migrations.
@@ -547,7 +562,7 @@ Specification:
   allowlist (B3) is not extended: handler keys are not exposed to API consumers (NOT VERIFIED which
   keys the allowlist passes; ELIXIR-DEV confirms it drops unknown line keys or extends it deliberately
   and says so).
-* Pins: a seed-count assertion gains one row (14); `task_entity_writes_applied_v2_test.exs` (11).
+* Pins: a seed-count assertion gains one row (14); `task_entity_writes_applied_v2_test.exs` (11), including the replay-twice test.
 
 ## 5. Declaration and activation validation (R3)
 
@@ -851,7 +866,7 @@ inside H4's scanned set.
 | SERVICE_TASK path | R5; 4.6 `origin`/`subject_id` | `engine/module_write_service_task_test.exs`: created in R4b as `@tag :skip` with the reason "PR C2/C1 not merged"; un-skipped in R5 |
 | Actor and scope | D-R.13 | `engine/module_write_actor_test.exs`: event `actor_id` = completer; a completer outside the role scope is refused before the handler; `source.activator_id` = activator; field restriction applied with the completer as subject |
 | Interim guard (F-3) | 6.3 | `engine/module_writes_guard_test.exs` (R3): module-only and MIXED node completions refused, declarative record not written; unchanged without `module_writes` |
-| Event schema v2 (F-1) | 4.11 | `event_store/task_entity_writes_applied_v2_test.exs` (R4a): v2 accepts every v1 payload and the handler keys; v2 refuses an unknown line key; a tenant provisioned before the seed entry receives v2 after a replay; row counts pinned |
+| Event schema v2 (F-1) | 4.11 | `event_store/task_entity_writes_applied_v2_test.exs` (R4a): v2 accepts every v1 payload and the handler keys; v2 refuses an unknown line key; REPLAY TWICE: a fresh tenant replayed twice (second replay is a no-op, no `:schema_version_not_monotonic`), and a tenant seeded at v1 then upgraded by replay then replayed again; row counts pinned |
 | Hash input form (F-9) | 4.2 | `owner_module_stamp_test.exs`: graph with floats `1.0`/`0.1`, large integers, key-order variants: stamp-time hash == hash of the persisted row == hash of the snapshot copy |
 | Resolution re-validation (F-6) | 4.1 | `catalog_write_handlers_test.exs`: manifest never passed through `validate/2` with each broken shape resolves to `:not_found` |
 | Codes | section 8 | `engine/module_write_failure_codes_test.exs`: one case per row; response byte-compare for `write_not_permitted` against a REQ-499 declarative refusal; handler raise -> 500 with no text; contention via held lock |
@@ -917,8 +932,8 @@ tests `definitions/owner_module_stamp_test.exs`, trigger test, `tenant_fixture` 
 **R3**: `definitions.ex` (`check_entity_writes/3`, `entity_write_nodes/1`, `entity_writes_activated_by/3`),
 `engine/entity_port.ex` (callbacks, types, moduledoc), `entities/entity_port_impl.ex` (delegation),
 `entities/handler_writes.ex` (validation + authorization halves; execution half arrives in R4a),
-`engine/pin_rebind.ex` (`:owner_guard`), `engine.ex` (`check_entity_writes_planned/3`: fail-closed
-guard only; no execution), `routers/pin_rebind` renderer;
+`engine/pin_rebind.ex` (`:owner_guard`), `engine.ex` (NEW `check_module_writes_unsupported/2` of 6.3 wired beside
+`check_entity_writes_planned/3`, which is unchanged; no execution), `routers/pin_rebind` renderer;
 tests `definitions/module_write_activation_test.exs`, `engine/pin_rebind_owner_module_test.exs`,
 `entity_writes_gates_test.exs` edit (guard case), `engine/module_writes_guard_test.exs` (mixed-node guard, 6.3).
 
@@ -930,7 +945,7 @@ pack (`test/support/modules/fixture_ledger/**`, `priv/module_fixtures/ledger_fou
 and PR C's C-18 case edited, `module_write_owner_path_test.exs`, `module_write_privilege_test.exs`,
 `module_write_contract_test.exs`, `module_write_idempotency_test.exs` (below-engine level).
 
-**R4b**: `engine.ex` (plan, P0b, ctx, tail copies, EE-12 sentence), `engine/entity_port.ex` (`prepare`/`multi`
+**R4b**: `engine.ex` (plan, P0b, ctx, tail copies, EE-12 sentence, DELETION of `check_module_writes_unsupported/2` and its wiring, plan-independent fail-closed check for `module_writes` with a nil plan), `engine/entity_port.ex` (`prepare`/`multi`
 ctx), `entities/step_writes.ex` (delegation of `prepare`/`multi`/`interpret_failure`/`lines_hash` when
 `module_writes` present), `routers/tasks.ex` (no change expected), tests of section 11 rows
 engine/*.
