@@ -12,8 +12,7 @@ defmodule Letflow.Definitions.EntityWritesActivatorTest do
       `activated_by` body key (also nested in `graph`) store NULL; only an activation sets it.
 
   Driven through the real `Letflow.Routers.Definitions` (dispatch helpers mirror
-  `script_binding_routes_test.exs`). The B1 execution gate is application env: set in `setup`
-  and restored in `on_exit`; `async: false`.
+  `script_binding_routes_test.exs`). `async: false`.
   """
 
   use Letflow.DataCase, async: false
@@ -33,16 +32,6 @@ defmodule Letflow.Definitions.EntityWritesActivatorTest do
   defp unique(prefix), do: "#{prefix}-#{System.unique_integer([:positive])}"
 
   setup do
-    previous = Application.fetch_env(:letflow, :entity_writes_execution_enabled)
-    Application.put_env(:letflow, :entity_writes_execution_enabled, true)
-
-    on_exit(fn ->
-      case previous do
-        {:ok, old} -> Application.put_env(:letflow, :entity_writes_execution_enabled, old)
-        :error -> Application.delete_env(:letflow, :entity_writes_execution_enabled)
-      end
-    end)
-
     tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2587-b1-http")
     schema = tenant.schema_name
     {:ok, _} = EventTypes.seed!(schema)

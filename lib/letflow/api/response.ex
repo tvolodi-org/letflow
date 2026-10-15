@@ -280,6 +280,38 @@ defmodule Letflow.Api.Response do
       })
 
   @doc """
+  A declarative entity write of a HUMAN_TASK completion was refused (GH #2587 PR B2, design
+  D-B.17 / section 8). ONE envelope, `{"error": "<code>", "line_index": <declared index> |
+  null}`, so the bytes are a function of `(status, code, index)` alone: `write_not_permitted`
+  is byte-identical for every cause (INV-5), and no field name, entity name or managed/scope
+  detail can reach it. `line_index` is `null` for a contention refusal. `line_index: 20`
+  with `validation_failed` means "line cap exceeded" (the first index past the 20-line cap),
+  not a declared line.
+  """
+  @spec entity_write_refused(Plug.Conn.t(), atom(), non_neg_integer() | nil) :: Plug.Conn.t()
+  def entity_write_refused(conn, code, index)
+      when is_atom(code) and (is_nil(index) or is_integer(index)) do
+    send_json(conn, entity_write_status(code), %{
+      "error" => Atom.to_string(code),
+      "line_index" => index
+    })
+  end
+
+  defp entity_write_status(:write_not_permitted), do: 403
+  defp entity_write_status(:record_version_conflict), do: 409
+  defp entity_write_status(:entity_write_contention), do: 503
+  defp entity_write_status(_validation_class), do: 422
+
+  @doc """
+  HTTP 409 -- the activator of the definition is no longer an active user, so its delegated
+  entity writes cannot run (GH #2587 PR B2, decision 0054 D4a; a refusal stub). The task
+  stays pending; recovery is cancelling the instance or re-activating the definition.
+  """
+  @spec entity_write_needs_reactivation(Plug.Conn.t()) :: Plug.Conn.t()
+  def entity_write_needs_reactivation(conn),
+    do: send_json(conn, 409, %{"error" => "entity_write_needs_reactivation"})
+
+  @doc """
   HTTP 422 — a graph with `entity_writes` promoted by a principal who is not a user of the
   TARGET tenant (GH #2587 PR B1, REVIEWER F2). Nothing is written; the graph is created as a
   draft in the target and activated by a target-tenant principal. The body reveals only that.

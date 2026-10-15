@@ -4,11 +4,13 @@ defmodule Letflow.Routers.SysVariablesResponseTest do
   reach a client through an instance read, a reconstruct, a task-completion response, the
   instance history or the timeline. A STRIP, not a permission gate.
 
-  CO-2: the `_sys` values are produced by the REAL writer `VariableMerge.put_sys/3` (strict),
-  appended as the real `INSTANCE_SYS_VARIABLES_SET` event through `EventStore.append/2` (so
-  `Registry.validate_payload/3` runs), and held on the projection the way the engine will.
-  Nothing here hand-writes a `_sys` map. Until B2 lands no engine path writes them, so this
-  helper is the only seeding path; B2 replaces it with a real completion (design CO-1/CO-2).
+  CO-2 (PR B2): the `_sys` values are produced by the REAL writer, a HUMAN_TASK completion whose
+  node declares `entity_writes` (`Letflow.EntityWritesFixture`, `Engine.complete_task/3`): the
+  engine itself appends the `INSTANCE_SYS_VARIABLES_SET` and `TASK_ENTITY_WRITES_APPLIED` events
+  and holds the values on the projection. Nothing here hand-writes a `_sys` map or a projection
+  column. The few fabricated EVENTS below (an `EXECUTION_ERROR`, an `INSTANCE_STARTED` carrying
+  a reserved key, an `APPLIED` event with empty lines) are defensive-stripping cases for payload
+  shapes no engine path produces today.
   """
 
   use Letflow.DataCase, async: false
@@ -21,6 +23,7 @@ defmodule Letflow.Routers.SysVariablesResponseTest do
   alias Letflow.Engine
   alias Letflow.Engine.Reconstruction
   alias Letflow.Engine.VariableMerge
+  alias Letflow.EntityWritesFixture, as: Fx
   alias Letflow.EventStore
   alias Letflow.EventStore.Event
   alias Letflow.EventStore.InstanceProjection
@@ -28,7 +31,6 @@ defmodule Letflow.Routers.SysVariablesResponseTest do
   alias Letflow.Identity.GroupMember
   alias Letflow.Identity.TenantRole
   alias Letflow.Identity.User
-  alias Letflow.TenantFixture
 
   @sys_keys ["_sys.line_0", "_sys.line_0.seq"]
 
@@ -115,43 +117,68 @@ defmodule Letflow.Routers.SysVariablesResponseTest do
     event
   end
 
-  # The real writer: strict put_sys/3 builds the values, the SYS event goes through
-  # EventStore.append/2 (registry guard), the projection holds them as the engine will.
-  defp seed_sys!(schema, instance_id) do
-    record_id = Ecto.UUID.generate()
-    {:ok, vars} = VariableMerge.put_sys(%{}, "_sys.line_0", record_id)
-    {:ok, vars} = VariableMerge.put_sys(vars, "_sys.line_0.seq", 41)
-    assert Map.keys(vars) |> Enum.sort() == @sys_keys
-
-    append!(schema, instance_id, VariableMerge.sys_event_type(), %{
-      "node_id" => "task",
-      "cause" => "entity_writes",
-      "values" => vars
-    })
-
-    append!(schema, instance_id, "TASK_ENTITY_WRITES_APPLIED", %{
-      "node_id" => "task",
-      "task_id" => Ecto.UUID.generate(),
-      "dispatch_id" => nil,
-      "lines_hash" => String.duplicate("a", 64),
-      "lines" => [
+  defp writing_graph do
+    %{
+      "nodes" => [
+        %{"id" => "start", "node_type" => "START"},
         %{
-          "line_index" => 0,
-          "entity_type" => "order_line",
-          "record_id" => record_id,
-          "event_global_seq" => 41
-        }
+          "id" => "task",
+          "node_type" => "HUMAN_TASK",
+          "attributes" => %{
+            "role" => "approver",
+            "entity_writes" => [
+              %{
+                "op" => "create",
+                "entity_type" => "order_line",
+                "fields" => %{"label" => %{"const" => "L"}},
+                "output_record_id_var" => "_sys.line_0"
+              }
+            ]
+          }
+        },
+        %{"id" => "end", "node_type" => "END"}
+      ],
+      "edges" => [
+        %{"id" => "e1", "source" => "start", "target" => "task"},
+        %{"id" => "e2", "source" => "task", "target" => "end"}
       ]
-    })
+    }
+  end
 
-    current = Repo.get!(InstanceProjection, instance_id, prefix: schema).variables
+  defp start_writing!(base, definition) do
+    assert {:ok, result} =
+             Engine.create(
+               %{
+                 definition_id: definition.id,
+                 initial_variables: %{"customer" => "acme", "amount" => 7},
+                 actor_id: Ecto.UUID.generate(),
+                 idempotency_key: Fx.unique("gh2587-b3-start")
+               },
+               prefix: base.schema
+             )
 
-    {1, _} =
-      InstanceProjection
-      |> where([p], p.instance_id == ^instance_id)
-      |> Repo.update_all([set: [variables: Map.merge(current, vars)]], prefix: schema)
+    result.instance_id
+  end
 
-    %{record_id: record_id, values: vars}
+  # The real writer: the completion mints the `_sys` values, events and projection state.
+  defp complete_writing!(base, instance_id) do
+    task = Fx.pending_task!(base.schema, instance_id)
+
+    assert {:ok, _} =
+             Engine.complete_task(
+               task.id,
+               %{
+                 output_variables: %{},
+                 actor_id: base.user.id,
+                 idempotency_key: Fx.unique("gh2587-b3-complete")
+               },
+               prefix: base.schema
+             )
+
+    variables = Repo.get!(InstanceProjection, instance_id, prefix: base.schema).variables
+    values = Map.take(variables, @sys_keys)
+    assert Map.keys(values) |> Enum.sort() == @sys_keys
+    %{record_id: values["_sys.line_0"], values: values}
   end
 
   defp refute_sys_anywhere(json_body, record_id) do
@@ -160,10 +187,19 @@ defmodule Letflow.Routers.SysVariablesResponseTest do
   end
 
   setup do
-    tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2587-b3")
-    instance_id = start_instance!(tenant)
-    seeded = seed_sys!(tenant.schema_name, instance_id)
-    %{tenant: tenant, instance_id: instance_id, seeded: seeded}
+    base = Fx.tenant_case!("gh2587-b3")
+    Fx.define_type!(base.schema, "order_line", %{})
+    definition = Fx.activate!(base.schema, base.user, writing_graph())
+    instance_id = start_writing!(base, definition)
+    seeded = complete_writing!(base, instance_id)
+
+    %{
+      tenant: base.tenant,
+      base: base,
+      definition: definition,
+      instance_id: instance_id,
+      seeded: seeded
+    }
   end
 
   test "seeded projection really holds the _sys values (non-vacuity of every case below)",
@@ -202,13 +238,13 @@ defmodule Letflow.Routers.SysVariablesResponseTest do
 
   test "POST /tasks/:id/complete response strips _sys", %{
     tenant: tenant,
-    instance_id: id,
+    base: base,
+    definition: definition,
     seeded: seeded
   } do
-    [task] =
-      Letflow.Engine.Task
-      |> where([t], t.instance_id == ^id and t.status == :pending)
-      |> Repo.all(prefix: tenant.schema_name)
+    # a fresh instance: this very completion is the one that mints the `_sys` values
+    id = start_writing!(base, definition)
+    task = Fx.pending_task!(base.schema, id)
 
     # an assignee: a user in a group bound to the task's routing role "approver"
     prefix = tenant.schema_name
@@ -248,6 +284,11 @@ defmodule Letflow.Routers.SysVariablesResponseTest do
     resp = body(conn)
     assert resp["variables"]["customer"] == "acme"
     refute_sys_anywhere(conn.resp_body, seeded.record_id)
+
+    # non-vacuity: the engine really held `_sys` values for THIS completion
+    stored = Repo.get!(InstanceProjection, id, prefix: tenant.schema_name).variables
+    assert Map.keys(Map.take(stored, @sys_keys)) |> Enum.sort() == @sys_keys
+    refute conn.resp_body =~ stored["_sys.line_0"]
   end
 
   test "GET /instances/:id/history hides the SYS event, reduces APPLIED, keeps paging exact",
@@ -272,7 +313,7 @@ defmodule Letflow.Routers.SysVariablesResponseTest do
     applied = Enum.find(items, &(&1["event_type"] == "TASK_ENTITY_WRITES_APPLIED"))
 
     assert applied["payload"]["lines"] == [%{"line_index" => 0, "entity_type" => "order_line"}]
-    assert applied["payload"]["lines_hash"] == String.duplicate("a", 64)
+    assert applied["payload"]["lines_hash"] =~ ~r/\A[0-9a-f]{64}\z/
     refute inspect(applied["payload"]) =~ "event_global_seq"
 
     # page_size 1: the cursor walks every visible event exactly once, none of them the SYS one

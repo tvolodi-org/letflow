@@ -9,8 +9,8 @@ defmodule Letflow.Definitions.EntityWritesActivationTest do
   `Definitions.check_entity_writes/3` is exercised directly for the code table (it is the one
   function the three paths share) and the three paths are then driven end to end.
 
-  `async: false`: tenant provisioning switches the sandbox to `:auto`; the B1 execution gate
-  and the scope-predicate seam are application env, set per test and restored in `on_exit`.
+  `async: false`: tenant provisioning switches the sandbox to `:auto`; the scope-predicate
+  seam is application env, set per test and restored in `on_exit`.
   """
 
   use Letflow.DataCase, async: false
@@ -193,9 +193,9 @@ defmodule Letflow.Definitions.EntityWritesActivationTest do
 
   # ── B-1: one case per code, at the exact {node_id, index} ───────────────────────────────────
 
-  describe "validation codes (execution gate OFF, the default)" do
-    test "the gate is off and never set by config" do
-      refute StepWrites.execution_enabled?()
+  describe "validation codes (execution is enabled by activation validation alone, B2)" do
+    test "the B1 execution seam is gone: no function, no env key" do
+      refute function_exported?(StepWrites, :execution_enabled?, 0)
       assert Application.get_env(:letflow, :entity_writes_execution_enabled, :unset) == :unset
     end
 
@@ -210,25 +210,12 @@ defmodule Letflow.Definitions.EntityWritesActivationTest do
       end
     end
 
-    test "a fully valid definition is refused only by the B1 gate, once per line", %{t: t} do
-      assert codes(check(t, [line("stock_move"), line("stock_move")])) == [
-               v(0, :entity_writes_execution_not_enabled),
-               v(1, :entity_writes_execution_not_enabled)
-             ]
-    end
-
-    test "with the gate ON the same definition passes", %{t: t} do
-      with_env(:entity_writes_execution_enabled, true)
+    test "a fully valid definition passes", %{t: t} do
       assert check(t, [line("stock_move"), line("stock_move")]) == :ok
     end
   end
 
-  describe "validation codes (execution gate ON)" do
-    setup %{t: t} do
-      with_env(:entity_writes_execution_enabled, true)
-      %{t: t}
-    end
-
+  describe "validation codes" do
     test "unknown, draft-only and absent types are :entity_type_not_found", %{t: t} do
       assert codes(check(t, [line("ghost"), line("draft_type")])) ==
                [v(0, :entity_type_not_found), v(1, :entity_type_not_found)]
@@ -367,11 +354,6 @@ defmodule Letflow.Definitions.EntityWritesActivationTest do
   end
 
   describe "output_record_id_var (CO-6)" do
-    setup do
-      with_env(:entity_writes_execution_enabled, true)
-      :ok
-    end
-
     test "only _sys.<one segment> with both keys within 160 bytes", %{t: t} do
       for ok <- ["_sys.r", "_sys.line_0", "_sys." <> String.duplicate("a", 151)] do
         assert check(t, [line("stock_move", %{"output_record_id_var" => ok})]) == :ok, ok
@@ -471,11 +453,6 @@ defmodule Letflow.Definitions.EntityWritesActivationTest do
   end
 
   describe "node level" do
-    setup do
-      with_env(:entity_writes_execution_enabled, true)
-      :ok
-    end
-
     test "entity_writes that is not a list", %{t: t} do
       g = graph("x")
 
@@ -508,11 +485,6 @@ defmodule Letflow.Definitions.EntityWritesActivationTest do
   end
 
   describe "activator authority" do
-    setup do
-      with_env(:entity_writes_execution_enabled, true)
-      :ok
-    end
-
     test "no activator, an activator without :EntitiesRecordsWrite, an inactive user, an absent user row",
          %{t: t} do
       refused = [v(0, :entity_write_activator_required)]
@@ -551,12 +523,7 @@ defmodule Letflow.Definitions.EntityWritesActivationTest do
 
   # ── the three activation paths ──────────────────────────────────────────────────────────────
 
-  describe "activate/2 (gate ON)" do
-    setup do
-      with_env(:entity_writes_execution_enabled, true)
-      :ok
-    end
-
+  describe "activate/2 " do
     test "records activated_by; refusal leaves the draft untouched and writes no audit", %{t: t} do
       graph = graph([line("stock_move"), line("stock_move")])
       draft = raw_definition!(t.schema, unique("act"), "1", graph, :draft)
@@ -600,26 +567,9 @@ defmodule Letflow.Definitions.EntityWritesActivationTest do
 
       assert %{status: :active, activated_by: nil} = row(t.schema, draft.id)
     end
-
-    test "with the gate OFF (default) a valid graph is refused and stays a draft", %{t: t} do
-      Application.delete_env(:letflow, :entity_writes_execution_enabled)
-      draft = raw_definition!(t.schema, unique("act"), "1", graph([line("stock_move")]), :draft)
-
-      assert {:error,
-              {:entity_writes_invalid,
-               [%{node_id: "ht", index: 0, code: :entity_writes_execution_not_enabled}]}} =
-               Definitions.activate(draft.id, prefix: t.schema, activator: activator(t.user))
-
-      assert %{status: :draft} = row(t.schema, draft.id)
-    end
   end
 
-  describe "version rollback (gate ON)" do
-    setup do
-      with_env(:entity_writes_execution_enabled, true)
-      :ok
-    end
-
+  describe "version rollback " do
     defp rollback(schema, key, activator) do
       Definitions.rollback_definition_version(key, "1", Ecto.UUID.generate(),
         prefix: schema,
@@ -662,9 +612,8 @@ defmodule Letflow.Definitions.EntityWritesActivationTest do
     end
   end
 
-  describe "promotion apply (gate ON)" do
+  describe "promotion apply " do
     setup do
-      with_env(:entity_writes_execution_enabled, true)
       %{source: tenant!("gh2587-b1-src")}
     end
 
@@ -731,12 +680,7 @@ defmodule Letflow.Definitions.EntityWritesActivationTest do
 
   # ── review follow-ups: input robustness and type lifecycle (TDV F4/F7/F8) ───────────────────
 
-  describe "input robustness and type lifecycle (gate ON)" do
-    setup do
-      with_env(:entity_writes_execution_enabled, true)
-      :ok
-    end
-
+  describe "input robustness and type lifecycle " do
     test "non-map fields, an atom-key line, a 65-byte type name, missing or upper-case op",
          %{t: t} do
       assert codes(check(t, [line("stock_move", %{"fields" => "label"})])) ==
@@ -820,9 +764,8 @@ defmodule Letflow.Definitions.EntityWritesActivationTest do
 
   # ── activated_by clearing and no-copy (TDV F2) ──────────────────────────────────────────────
 
-  describe "a stale or forged activated_by never survives re-activation (gate ON)" do
+  describe "a stale or forged activated_by never survives re-activation " do
     setup do
-      with_env(:entity_writes_execution_enabled, true)
       %{forged: %{"user_id" => Ecto.UUID.generate(), "roles" => ["PLATFORM_ADMIN"]}}
     end
 

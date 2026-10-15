@@ -428,6 +428,29 @@ defmodule Letflow.Routers.Tasks do
     Response.conflict(conn, "instance entered ERROR status: " <> Atom.to_string(error_type))
   end
 
+  # GH #2587 PR B2: a declarative entity write was refused. One stable code and the declared
+  # line index (null for contention); the status is a function of the code alone. Index 20 with
+  # `validation_failed` means "the 20-line cap was exceeded", not a declared line.
+  defp handle_complete_result({:error, {:entity_write_refused, :contention, code}}, conn)
+       when is_atom(code) do
+    Response.entity_write_refused(conn, code, nil)
+  end
+
+  defp handle_complete_result({:error, {:entity_write_refused, index, code}}, conn)
+       when is_integer(index) and is_atom(code) do
+    Response.entity_write_refused(conn, code, index)
+  end
+
+  # The activator is deactivated: a refusal stub, the task stays pending.
+  defp handle_complete_result({:error, :entity_write_needs_reactivation}, conn) do
+    Response.entity_write_needs_reactivation(conn)
+  end
+
+  # An internal fault of a line step: the step atom is logged by the engine, never rendered.
+  defp handle_complete_result({:error, {:entity_write_failed, _index, _step}}, conn) do
+    Response.internal_error(conn)
+  end
+
   # Catch-all: every other complete_error() member (:invalid_schema_name,
   # :instance_not_found, :snapshot_not_found,
   # {:graph_structure_invalid, _}, {:missing_token_record, _},

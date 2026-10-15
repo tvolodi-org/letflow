@@ -4,7 +4,7 @@ defmodule Letflow.Routers.EntityWritesPromotionRoutesTest do
   on the two promotion routes and `Letflow.Api.Context.activator/1`.
 
     * `POST /promotions/:id/apply` and `POST /tenants/:test_tenant_id/promote/:process_key`
-      with a graph WITH lines (execution gate ON): the activator recorded is the calling
+      with a graph WITH lines: the activator recorded is the calling
       principal when it is a user of the TARGET tenant; a principal that is not (an actor with no
       users row in the target) gets 422 `entity_write_activator_not_in_target_tenant` and nothing
       is written; the same graph WITHOUT lines promotes as before; a refused line set is 422
@@ -206,16 +206,6 @@ defmodule Letflow.Routers.EntityWritesPromotionRoutesTest do
   end
 
   setup do
-    previous = Application.fetch_env(:letflow, :entity_writes_execution_enabled)
-    Application.put_env(:letflow, :entity_writes_execution_enabled, true)
-
-    on_exit(fn ->
-      case previous do
-        {:ok, old} -> Application.put_env(:letflow, :entity_writes_execution_enabled, old)
-        :error -> Application.delete_env(:letflow, :entity_writes_execution_enabled)
-      end
-    end)
-
     source = tenant!("gh2587-b1-rsrc", false)
     target = tenant!("gh2587-b1-rtgt", true)
     # the target is THE platform tenant: its PLATFORM_ADMIN is the operator

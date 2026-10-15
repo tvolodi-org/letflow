@@ -16,7 +16,7 @@ defmodule Letflow.Engine.EntityPortBoundaryTest do
 
   @root Path.expand("../../..", __DIR__)
   @dispatcher "lib/letflow/engine/script_task_dispatcher.ex"
-  @write_names [:prepare, :validate_lines, :multi]
+  @write_names [:prepare, :validate_lines, :multi, :interpret_failure]
   @forbidden_aliases [:StepWrites, :EntityPortImpl]
 
   defp lib_files(pattern), do: Path.wildcard(Path.join(@root, pattern))
@@ -57,7 +57,7 @@ defmodule Letflow.Engine.EntityPortBoundaryTest do
     assert EntityPort in behaviours
 
     callbacks = EntityPort.behaviour_info(:callbacks)
-    assert length(callbacks) == 4
+    assert length(callbacks) == 5
 
     for {name, arity} <- callbacks do
       assert function_exported?(Letflow.Entities.EntityPortImpl, name, arity), "#{name}/#{arity}"
@@ -92,6 +92,10 @@ defmodule Letflow.Engine.EntityPortBoundaryTest do
 
       assert violations("defmodule F do\n  def f, do: EntityPort.impl().prepare([], %{})\nend") !=
                []
+
+      assert violations(
+               "defmodule F do\n  def f(port, s, r), do: port.interpret_failure(s, r)\nend"
+             ) != []
 
       assert violations("defmodule F do\n  def f, do: EntityPort.impl()\nend") != []
       assert violations("defmodule F do\n  def f, do: Ecto.Multi.new()\nend") == []

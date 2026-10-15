@@ -285,7 +285,7 @@ document. Absent or `false` means a process step may NOT write records of the ty
   "<prefix>"` or `the name "<name>" is denied`. A false positive such as `user_feedback`
   therefore explains itself; rename the type or wait for GH #2618.
 
-**`entity_writes` on a HUMAN_TASK node (GH #2587 / REQ-499 PR B1: validation only).** A
+**`entity_writes` on a HUMAN_TASK node (GH #2587 / REQ-499 PR B1 validation, PR B2 execution).** A
 HUMAN_TASK node may declare up to 20 `create` lines in its `entity_writes` attribute
 (`op`, `entity_type`, `fields` as `{"var": name}` / `{"const": value}` sources, optional
 `output_record_id_var` of the strict shape `_sys.<one [A-Za-z0-9_]+ segment>`). Every line is
@@ -296,8 +296,22 @@ is ACTIVE, non-managed, `writable_by_process` and `append_only`; a `managed_by` 
 declarative target (a module writes its own types through its own handler). The activating
 principal must hold `:EntitiesRecordsWrite` and be an active user of the tenant: its authority
 is recorded in `process_definitions.activated_by` (never settable through a request body).
-Until PR B2 no completion executes a line, so a definition carrying valid lines is still
-refused at activation (`entity_writes_execution_not_enabled`); nothing is silently ignored.
+Activated lines RUN when the task is completed (PR B2): in the same transaction as the task
+completion, through `Records` with the tenant authority, as the delegated privilege recorded in
+`activated_by` (the completer's own role is not what authorises the write; the completer's
+field restrictions are still applied). At completion the engine re-checks, on the pinned graph
+and the CURRENT type definition: the 20-line cap, create-only, the recorded `(entity_type,
+"create")` pair, `writable_by_process`, `append_only`, not managed, and that the activator is
+still an active user (checked before the transaction, so a deactivation is honoured one
+completion late). A refusal rolls everything back, the task stays pending, and the response is
+one code and the declared line index: 403 `write_not_permitted` (one body for every cause),
+422 `validation_failed`/`entity_append_only`/`idempotency_conflict`/`entity_type_inactive`, 503
+`entity_write_contention` (retryable), 409 `entity_write_needs_reactivation` (the activator was
+deactivated: cancel the instance or re-activate through a rollback or promotion). The
+engine-written `_sys.*` values are never returned to a client. `line_index: 20` with
+`validation_failed` means the 20-line cap was exceeded (a hand-edited snapshot), not a declared
+line. Pilot limit: scoped-type and
+scope-column refusals are vacuous until decision 0051 `scope_node` exists.
 
 Pilot limits: (a) the activation-time activator check requires `:EntitiesRecordsWrite`, not
 `:DefinitionsActivate`, so a rollback or promotion activator legitimately omits the latter; (b)

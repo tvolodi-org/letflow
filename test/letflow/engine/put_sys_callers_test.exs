@@ -39,7 +39,8 @@ defmodule Letflow.Engine.PutSysCallersTest do
   @fake "lib/letflow/fake.ex"
 
   # Reviewed allow-lists (adding a file is a reviewed diff).
-  @put_sys_callers [@variable_merge, @reconstruction]
+  @engine "lib/letflow/engine.ex"
+  @put_sys_callers [@variable_merge, @reconstruction, @engine]
   @put_sys_names [:put_sys, :put_sys_replayed]
   @entity_port "lib/letflow/engine/entity_port.ex"
   @event_literal_files [@variable_merge, @reconstruction, @tenant_provisioning, @entity_port]

@@ -53,10 +53,13 @@ defmodule Letflow.Entities.EntityTypeMissingTest do
       report(:multi)
       EntityPortImpl.multi(multi, lines, ctx)
     end
+
+    @impl true
+    def interpret_failure(step, reason), do: EntityPortImpl.interpret_failure(step, reason)
   end
 
   setup do
-    env = [:entity_writes_execution_enabled, :entity_port]
+    env = [:entity_port]
     previous = Enum.map(env, &{&1, Application.fetch_env(:letflow, &1)})
 
     on_exit(fn ->
@@ -69,8 +72,6 @@ defmodule Letflow.Entities.EntityTypeMissingTest do
 
       :persistent_term.erase({SpyPort, :pid})
     end)
-
-    Application.put_env(:letflow, :entity_writes_execution_enabled, true)
 
     tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2587-b1-co5")
     schema = tenant.schema_name

@@ -109,7 +109,7 @@ defmodule Letflow.Entities.RecordsCommandMultiTest do
         task_id: Ecto.UUID.generate(),
         node_id: "approve_order",
         definition_id: Ecto.UUID.generate(),
-        definition_version: 3,
+        definition_version: "3",
         line_index: line_key,
         activator_id: Ecto.UUID.generate()
       },
@@ -364,6 +364,9 @@ defmodule Letflow.Entities.RecordsCommandMultiTest do
         %{source: source(0, %{node_id: ""})},
         %{source: source(0, %{node_id: String.duplicate("n", 1025)})},
         %{source: source(0, %{definition_version: 0})},
+        %{source: source(0, %{definition_version: 3})},
+        %{source: source(0, %{definition_version: ""})},
+        %{source: source(0, %{definition_version: String.duplicate("v", 256)})},
         %{source: Map.put(source(0), :extra, "x")},
         %{source: "nope"},
         %{actor_id: "not-a-uuid"},
