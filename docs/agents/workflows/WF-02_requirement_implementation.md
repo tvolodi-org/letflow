@@ -285,7 +285,9 @@ Runs after both 2a and 2b return PASS (or whichever applies), before Step 2d.
      own copy of all of them, so the CI check alone cannot stop a PR that edits them,
      and the review is the control. A YES here forces "continue", never the
      out-of-scope PASS; read the PR's CI step output (the PERMISSION-MATRIX-REPORT
-     line, and CORE MATRIX CHANGE when present).
+     line, and CORE MATRIX CHANGE when present). A permission-matrix run reporting
+     `labels=bootstrap` after REQ-498 has merged is itself a mandatory
+     SECURITY-REVIEWER trigger.
    NO  → PASS, summary: "out of scope — no tenant-data path touched",
          next_action: "Route to REVIEWER (2d)"
    YES → continue
