@@ -43,7 +43,8 @@ defmodule Letflow.Modules.CatalogTest do
       # REQ-496 (GH #2530) appends FixtureManaged (the managed_by write-lock
       # fixture declaring manages_entity_types) and FixtureManagedNoPack (a
       # declared managed type with no pack, T-19), so the full list in config
-      # order is:
+      # order is (GH #2590 R1 then appends FixtureLedger and FixtureLedgerOther,
+      # the registered write-handler fixtures):
       assert Catalog.entry_modules() == [
                Letflow.Modules.Exam,
                Letflow.Modules.Fixture,
@@ -53,7 +54,9 @@ defmodule Letflow.Modules.CatalogTest do
                Letflow.Modules.FixtureFkPackFailing,
                Letflow.Modules.FixtureCtxRecorder,
                Letflow.Modules.FixtureManaged,
-               Letflow.Modules.FixtureManagedNoPack
+               Letflow.Modules.FixtureManagedNoPack,
+               Letflow.Modules.FixtureLedger,
+               Letflow.Modules.FixtureLedgerOther
              ]
     end
 

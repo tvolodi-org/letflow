@@ -306,7 +306,11 @@ config :letflow, :modules, [
   Letflow.Modules.FixtureManaged,
   # REQ-496 T-19: declares a managed type but ships no pack, so its install fails with
   # {:managed_type_not_in_pack, _} (same file as FixtureManaged).
-  Letflow.Modules.FixtureManagedNoPack
+  Letflow.Modules.FixtureManagedNoPack,
+  # GH #2590 / REQ-501 R1: registered write handlers (Catalog mechanism tests);
+  # test/support/modules/fixture_ledger/ and fixture_ledger_other/.
+  Letflow.Modules.FixtureLedger,
+  Letflow.Modules.FixtureLedgerOther
 ]
 
 # REQ-439: explicit test default -- no proxy is trusted, so Letflow.Plugs.ClientIp
