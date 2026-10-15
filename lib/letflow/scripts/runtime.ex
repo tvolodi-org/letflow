@@ -31,6 +31,7 @@ defmodule Letflow.Scripts.Runtime do
 
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.ProcessDefinition
+  alias Letflow.Engine.VariableMerge
   alias Letflow.EventStore.Registry.JsonSchema
   alias Letflow.Identity
   alias Letflow.Repo
@@ -113,11 +114,19 @@ defmodule Letflow.Scripts.Runtime do
   the row is read `FOR SHARE` (so a concurrent retire, which locks it `FOR UPDATE`, waits);
   anything but a `published` `service_task` version is `:script_not_published`; then the
   closed output schema (C11a) and the restricted opt-in (C10). Declared `reads` are allowed
-  (7c-2) and re-checked on every run (`prepare_run/3`). The first failing node is reported.
-  MUST run inside the caller's transaction.
+  (7c-2) and re-checked on every run (`prepare_run/3`). Last (GH #2587 PR A1b, design 2A.2
+  L9): a declared `input_schema` property in the reserved engine namespace
+  (`VariableMerge.reserved_key?/1`) is `{:expression_references_reserved_variable, [ref]}`,
+  `ref` naming the node and the property (`location: :script_input`), because
+  `ScriptInput.build/3` reads declared inputs as exact flat keys. The first failing node is
+  reported. MUST run inside the caller's transaction.
   """
   @spec check_bindings(Graph.t(), String.t()) ::
-          :ok | {:error, {:script_binding_invalid, String.t(), binding_reason()}}
+          :ok
+          | {:error, {:script_binding_invalid, String.t(), binding_reason()}}
+          | {:error,
+             {:expression_references_reserved_variable,
+              [Letflow.Definitions.ReservedReferences.reserved_reference()]}}
   def check_bindings(%Graph{nodes: nodes}, prefix) when is_binary(prefix) do
     nodes
     |> Enum.filter(&(&1.node_type == :SERVICE_TASK))
@@ -130,6 +139,12 @@ defmodule Letflow.Scripts.Runtime do
           case check_one_binding(seen, key, version, prefix) do
             :ok ->
               {:cont, {:ok, Map.put(seen, key, version)}}
+
+            {:reserved_input, property} ->
+              {:halt,
+               {:error,
+                {:expression_references_reserved_variable,
+                 [reserved_input_reference(node.id, property)]}}}
 
             {:error, reason} ->
               {:halt, {:error, {:script_binding_invalid, node.id, reason}}}
@@ -176,13 +191,41 @@ defmodule Letflow.Scripts.Runtime do
         cond do
           not closed_output_schema?(manifest) -> {:error, :script_output_schema_open}
           restricted_opt_in?(manifest) -> {:error, :script_restricted_opt_in_unsupported}
-          true -> :ok
+          true -> check_reserved_inputs(manifest)
         end
 
       _absent_or_not_published ->
         {:error, :script_not_published}
     end
   end
+
+  # GH #2587 PR A1b (design 2A.2 L9): the sorted input_schema property names, the first
+  # reserved one refuses the binding. A missing or non-object properties map has no names.
+  defp check_reserved_inputs(manifest) do
+    properties =
+      case manifest do
+        %{"input_schema" => %{"properties" => %{} = properties}} -> properties
+        _no_properties -> %{}
+      end
+
+    properties
+    |> Map.keys()
+    |> Enum.sort()
+    |> Enum.find(&VariableMerge.reserved_key?/1)
+    |> case do
+      nil -> :ok
+      property -> {:reserved_input, property}
+    end
+  end
+
+  defp reserved_input_reference(node_id, property),
+    do: %{
+      element: :node,
+      id: node_id,
+      location: :script_input,
+      field: property,
+      name: property
+    }
 
   # ── retire block (design 4.5, C19) ───────────────────────────────────────────
 

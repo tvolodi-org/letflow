@@ -1396,7 +1396,7 @@ defmodule Letflow.Engine do
   defp render_service_task_template(nil, _variables), do: nil
 
   defp render_service_task_template(template, variables) when is_binary(template) do
-    Regex.replace(~r/\{\{\s*variables\.([a-zA-Z0-9_]+)\s*\}\}/, template, fn _match, key ->
+    Regex.replace(ServiceTask.template_placeholder(), template, fn _match, key ->
       variables |> Map.get(key) |> render_service_task_value()
     end)
   end
@@ -1424,7 +1424,7 @@ defmodule Letflow.Engine do
   defp render_service_task_body_template(nil, _variables), do: nil
 
   defp render_service_task_body_template(template, variables) when is_binary(template) do
-    Regex.replace(~r/\{\{\s*variables\.([a-zA-Z0-9_]+)\s*\}\}/, template, fn _match, key ->
+    Regex.replace(ServiceTask.template_placeholder(), template, fn _match, key ->
       variables |> Map.get(key) |> render_service_task_value() |> json_string_escape()
     end)
   end

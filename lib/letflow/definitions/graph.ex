@@ -87,6 +87,16 @@ defmodule Letflow.Definitions.Graph do
   `lib/letflow/design/req291-x-ui-logic-keys.md` for the gate-approved
   design.
 
+  ## Reserved-namespace references (CHK-29, CHK-30, GH #2587 PR A1b)
+
+  CHK-29 (`check_reserved_node_references/1`, in `validate_node_attributes/1`)
+  and CHK-30 (`check_reserved_edge_references/1`, in
+  `validate_edge_conditions/1`) refuse, with
+  `:expression_references_reserved_variable`, any expression, template
+  placeholder or sub-process interface entry naming the reserved engine
+  namespace. Both delegate to `Letflow.Definitions.ReservedReferences`; see its
+  moduledoc and `lib/letflow/design/gh2587-req499-pr-a-prerequisites.md` 2A.
+
   ## CHK-17 grammar tightening (REQ-288)
 
   `check_cel_syntax/1` routes each edge's non-blank `condition` through
@@ -269,6 +279,7 @@ defmodule Letflow.Definitions.Graph do
             | :distinct_from_unknown_node
             | :distinct_from_not_human_task
             | :distinct_from_downstream_only
+            | :expression_references_reserved_variable
 
     @type t :: %__MODULE__{
             code: code(),
@@ -447,6 +458,10 @@ defmodule Letflow.Definitions.Graph do
   `distinct_from` attribute's shape and the existence/type of every listed
   node) and CHK-27 (`check_distinct_from_position/1`, REQ-464 check 3 -- a
   listed node must not be reachable only after the node that lists it)
+  plus CHK-29 (`check_reserved_node_references/1`, GH #2587 PR A1b -- no form
+  x-ui expression, service-task template placeholder or sub-process interface
+  entry may name the reserved engine namespace, delegated to
+  `Letflow.Definitions.ReservedReferences`)
   against every node in `graph`
   and returns every violation found — never short-circuits, same
   unconditional-concatenation construction as `validate_graph/1`. Does not
@@ -468,7 +483,8 @@ defmodule Letflow.Definitions.Graph do
         &check_human_task_reminder/1,
         &check_required_outputs/1,
         &check_distinct_from/1,
-        &check_distinct_from_position/1
+        &check_distinct_from_position/1,
+        &check_reserved_node_references/1
       ]
       |> Enum.flat_map(& &1.(graph))
 
@@ -476,7 +492,10 @@ defmodule Letflow.Definitions.Graph do
   end
 
   @doc """
-  Runs the 6 edge-condition/CEL checks (CHK-13..17 and CHK-19, PD-06) against
+  Runs the 7 edge-condition/CEL checks (CHK-13..17, CHK-19 and CHK-30, PD-06;
+  CHK-30 `check_reserved_edge_references/1`, GH #2587 PR A1b: no condition may
+  name the reserved engine namespace, delegated to
+  `Letflow.Definitions.ReservedReferences`) against
   every edge in `graph` and returns every violation found — never
   short-circuits, same unconditional-concatenation construction as
   `validate_graph/1`. Does not call `validate_graph/1` and does not verify
@@ -495,7 +514,8 @@ defmodule Letflow.Definitions.Graph do
         &check_default_condition_conflict/1,
         &check_single_default_edge/1,
         &check_cel_syntax/1,
-        &check_human_task_fallback_edge/1
+        &check_human_task_fallback_edge/1,
+        &check_reserved_edge_references/1
       ]
       |> Enum.flat_map(& &1.(graph))
 
@@ -1129,6 +1149,19 @@ defmodule Letflow.Definitions.Graph do
         node.attributes
       )
     end)
+  end
+
+  # CHK-29 (GH #2587 PR A1b, design gh2587-req499-pr-a-prerequisites.md 2A.3): no HUMAN_TASK
+  # form x-ui expression, SERVICE_TASK endpoint/body_template placeholder or SUB_PROCESS
+  # interface entry may name the reserved engine namespace (code
+  # :expression_references_reserved_variable) -- delegated entirely to
+  # Letflow.Definitions.ReservedReferences, the CHK-18/CHK-20 delegation shape. The same
+  # module is re-run at every activation path (Letflow.Definitions.check_reserved_references/1).
+  @spec check_reserved_node_references(t()) :: [Violation.t()]
+  defp check_reserved_node_references(%__MODULE__{} = graph) do
+    graph
+    |> Letflow.Definitions.ReservedReferences.node_references()
+    |> Letflow.Definitions.ReservedReferences.violations()
   end
 
   # CHK-21: a HUMAN_TASK node's optional escalation attributes are
@@ -1898,6 +1931,17 @@ defmodule Letflow.Definitions.Graph do
           [%Violation{code: :invalid_cel_syntax, message: "Edge '#{edge.id}' #{message}"}]
       end
     end)
+  end
+
+  # CHK-30 (GH #2587 PR A1b, design 2A.3): no edge condition may name the reserved engine
+  # namespace (code :expression_references_reserved_variable) -- delegated to
+  # Letflow.Definitions.ReservedReferences, which parses the condition with the evaluator's own
+  # pipeline. An unparseable condition yields nothing here (CHK-17 reports it).
+  @spec check_reserved_edge_references(t()) :: [Violation.t()]
+  defp check_reserved_edge_references(%__MODULE__{} = graph) do
+    graph
+    |> Letflow.Definitions.ReservedReferences.edge_references()
+    |> Letflow.Definitions.ReservedReferences.violations()
   end
 
   # Runs one edge condition through the real grammar (REQ-288 §2) and

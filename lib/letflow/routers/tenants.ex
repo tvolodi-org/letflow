@@ -670,6 +670,16 @@ defmodule Letflow.Routers.Tenants do
   defp render_promote(conn, {:error, :duplicate_version}),
     do: Response.conflict(conn, "the target version already exists in the target tenant")
 
+  # GH #2587 PR A1b (REVIEWER F1 on the A1b gate): the review-free promotion reaches the same
+  # activation checks as the review path (Promotion.do_promote_definition/7 ->
+  # write_target_definition/5), so it answers both refusals with the same 422 bodies as
+  # POST /promotions/:id/apply instead of a 500.
+  defp render_promote(conn, {:error, {:script_binding_invalid, node_id, reason}}),
+    do: Response.script_binding_invalid(conn, node_id, reason)
+
+  defp render_promote(conn, {:error, {:expression_references_reserved_variable, references}}),
+    do: Response.expression_references_reserved_variable(conn, references)
+
   defp render_promote(conn, {:error, _other}), do: Response.internal_error(conn)
 
   # PROVENANCE (historical, not current decision authority):

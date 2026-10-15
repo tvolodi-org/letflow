@@ -8,6 +8,21 @@ Design only. Signatures, types, step lists and test briefs; no function bodies.
 
 ## Changelog
 
+### Revision 1b (2026-10-15): supervisor ruling on PR B carry-over (a); PR A1b added (CODE-DESIGNER)
+
+| Id | Change | Where |
+|---|---|---|
+| Ruling (a) | Refuse at activation (activate, version rollback, promotion apply) and at save any definition whose edge conditions, form `x-ui` expressions, service-task URL/body templates, sub-process interface entries or bound script inputs name the reserved namespace; stable code `expression_references_reserved_variable`, 422; detection by parsing (Expr AST head segment, template placeholder grammar, parsed interface, manifest keys) with `VariableMerge.reserved_key?/1`; no `Expr` change; read-only count gate before PR B; opening later needs its own decision record. Closes the section-15 follow-up "activation refusal for SUB_PROCESS interface inputs/outputs". OQ-A1b-1 (catalog `endpoint_url`) open with a recommendation. | 2A, 14, 15 |
+| CDV F1 (A1b gate) | WASM host `read_variable` (`engine/wasm/host_api.ex:252`, `do_read_variable/6`, exact `Map.fetch`, not wired to node dispatch) added to the 2A.1 inventory next to Lua's; I-13 names both as future locations that must use `ReservedReferences` (or `reserved_key?/1`) when wired. | 2A.1, 2A.7 |
+| SEC F1 (A1b gate) | I-13: any change to `ServiceTask.template_placeholder/0` ships the catalog-version reserved-name check in the same PR (the check itself is GH #2623, filed). A test pins the placeholder pattern (source string) and its dot-free KEY class. | 2A.6, 2A.7 |
+| SEC F2 (A1b gate, record only, PR B) | Engine-written reserved values would appear in API responses: instance reads (`routers/instances.ex` ~730 reconstruct, ~850 projection map) and the task-completion response (`routers/tasks.ex` ~681 `complete_result_map/1`). PR B decides strip vs permission-gate (INV-2). | 15 |
+| CDV F2 (A1b gate) | A1b and A3 both edit `engine.ex` and `scripts/runtime.ex`: they merge sequentially, never in parallel. | 14 |
+| OQ-A1b-1 | CLOSED: supervisor agreed to defer catalog `endpoint_url` templates to GH #2623. | 2A.10 |
+| REVIEWER F1 / F2 (A1b gate) | `POST /tenants/:id/promote/:key` (`render_promote`) gained 422 clauses for `expression_references_reserved_variable` AND `script_binding_invalid` (was 500); both 422 body builders moved to `Letflow.Api.Response` and shared by the definitions, promotions and tenants routers. | 2A.4, 2A.8 |
+| TDV F1 / F2 (A1b gate) | Rollback tests also assert v1 stays `:deprecated` and no audit row; the HTTP activate test asserts no audit row; form-path non-references (`x == '_sys'`, `_system`, `contains(z, "_sys.r")`) accepted, mutation-checked against a raw-text scan. | 2A.6 |
+| 2A.5 count | Infra QA result (record `runs/2026-10-15-inv-sys-refs-defs-scripts-001`, 2026-10-15): `definitions_mentioning_sys = 0`, `scripts_with_reserved_inputs = 0` for all six tenants; superset 0, no exact check needed; no production app DB. A1b PR-body note. | 2A.5 |
+| A1b impl notes (ELIXIR-DEV) | (1) The type is `ReservedReferences.reserved_reference()`, not `reference()` (`reference/0` is a built-in type and cannot be redefined). (2) A name read twice by ONE expression or template is reported once (`Enum.uniq` per expression/template); distinct expressions still report separately. (3) `Promotion.promote_definition/3` returns the bare `{:error, {:expression_references_reserved_variable, refs}}` (like `script_binding_invalid`); the `{:promotion_failed, _}` wrapper is the apply path's, rendered 422 by `render_apply`. (4) L2-L4 walk any map `form_schema.properties` (no `JsonSchemaShape` precondition): a fail-closed superset of what CHK-20 inspects. (5) L5/L6 read the raw `endpoint` / `body_template` attributes of every SERVICE_TASK (including a node whose `endpoint` is ignored because `service_id` is set). | 2A.2 |
+
 ### Revision 1a (2026-10-15): CDV R1 applied during A1 implementation (ELIXIR-DEV)
 
 | Id | Change | Where |
@@ -324,6 +339,303 @@ without the Lua refusal following it.
 `do_emit_event/3`: when `event_type in Reconstruction.folded_event_types()` ->
 `encode_error(lua, "invalid_arguments")` before the key is namespaced or any database access
 (revision 1, SEC F4 / CDV-1; no literal in this file, nothing for A3 to swap). Moduledoc updated.
+
+## 2A. PR A1b: no expression may reference `_sys` (revision 1b)
+
+Supervisor ruling (2026-10-15, binding; closes PR B carry-over (a), section 15): REFUSE AT
+ACTIVATION every definition whose expressions or variable bindings reference a name whose FIRST
+segment is reserved (`VariableMerge.reserved_key?/1`), with the stable code
+`expression_references_reserved_variable`. Reason: `_sys.` is engine-internal bookkeeping; letting
+`Expr` (or any binding) read it widens what processes and tenant scripts can depend on, and a
+later opening is cheaper than a later closing. `Expr` is NOT changed: it keeps splitting names on
+dots (A1 note, revision 1a). Branch `feat/GH-2587-req499-pr-a1b-sys-expr-refusal`, stacked on A1
+(PR #2620).
+
+### 2A.1 Every place a definition can name a variable (verified on the A1 tip `fc732b4c`)
+
+| # | Location | Read at run time by | Can name a variable? | A1b check |
+|---|---|---|---|---|
+| L1 | Edge `condition`, ANY edge (no INCLUSIVE gateway exists: `graph.ex:161-169`) | `Transition.evaluate_conditioned_edges/3` -> `Expr.evaluate_condition/2` (`transition.ex:834`); callers: EXCLUSIVE_GATEWAY `:801`, `advance_off_completed_node/4` `:566` (HUMAN_TASK `:524`, SUB_PROCESS `:651`, TIMER `:694`, SERVICE_TASK `engine.ex:3973`), replay `reconstruction.ex:874` | yes, Expr `{:var, path}` | AST (2A.2), `location: :edge_condition` |
+| L2 | HUMAN_TASK `form_schema.properties.<f>.x-ui.visible_when` | `FormExpressionReevaluation` (`form_expression_reevaluation.ex:346-347`), working map = `Map.merge(current_variables, output)` (`:222-224`); client renderer `web/src/utils/expr` | yes (scope rule limits it to the form's own top-level property names, `form_schema_expressions.ex:245-262`; a property NAMED `_sys` passes that rule today) | AST, `:form_visible_when`, `field: f` |
+| L3 | same, `x-ui.computed` | `form_expression_reevaluation.ex:447-448` | yes, as L2 | AST, `:form_computed` |
+| L4 | same, `x-ui.cross_field_validation.expression` | as L2 | yes, as L2 | AST, `:form_cross_field_validation` |
+| L5 | SERVICE_TASK `endpoint` (inline URL template, `service_task.ex:251`) | `render_service_task_template/2` (`engine.ex:1140`, regex `\{\{\s*variables\.([a-zA-Z0-9_]+)\s*\}\}` at `:1398-1401`) | yes, `{{variables.KEY}}`; KEY has no dot, so only the bare `_sys` matches the prefix | placeholder keys (2A.2), `:service_task_endpoint` |
+| L6 | SERVICE_TASK `body_template` (`service_task.ex:272`) | `render_service_task_body_template/2` (`engine.ex:1141,1159`, same regex `:1426-1429`) | yes, as L5 | placeholder keys, `:service_task_body_template` |
+| L7 | SUB_PROCESS `interface.inputs[].name` | `SubProcess.build_child_initial_variables/2` (`sub_process.ex:136-150`): reads the PARENT variable of that name | yes (a binding by name) | `SubProcessInterface.parse_interface/2` entries, `:sub_process_input`, `field: name` |
+| L8 | SUB_PROCESS `interface.outputs[].name` | `build_parent_merge_variables/2` (`sub_process.ex:168ff`): names the parent key written | yes (binding by name; a write, refused at run time by A1 D-A1.5) | as L7, `:sub_process_output` |
+| L9 | Script binding: bound script's `manifest.input_schema.properties` keys (SERVICE_TASK `script_key`/`script_version`) | `ScriptInput.build/3` `Map.take(variables, declared)` (`script_input.ex:26-35`): an EXACT flat-key read, so after PR B a property `_sys.r` WOULD hand the script a real `_sys.` value | yes | in `Scripts.Runtime.check_bindings/2` (DB-read manifest), `:script_input`, `field: property` |
+| -- | `reads[].match.id_from` / `value_from` | `ScriptReads` prefetch | must name an `input_schema` property AND match `@code_pattern` `\A[a-z]...` (`scripts/validation.ex:28,188-200`), so never reserved | none needed (covered by L9) |
+| -- | TIMER `duration_iso8601` (`graph.ex:1078`), HUMAN_TASK `escalation_timer_duration` / `reminder_*` (`:1141`, `:1206`) | timer arming | no: ISO-8601 constants, no variable syntax | none |
+| -- | HUMAN_TASK `role` (CHK-09 `graph.ex:965`), `distinct_from` (node ids), `required_outputs` (output key DECLARATIONS) | task activation / completion | no read reference (`required_outputs` declares a written key; a reserved one is refused at completion by A1 D-A1.3) | none in A1b (deferred, 2A.9) |
+| -- | Service-catalog version `endpoint_url` (rendered by the same renderer, `engine.ex:1158`) | catalog route | yes, but it is catalog data, not the definition | OQ-A1b-1 (2A.10) |
+| -- | Lua `read_variable(name)` (`lua/platform.ex:609-617`) | Lua executor | yes, but unwired for node dispatch (0.2) and named at run time, not in a definition | invariant I-13 (2A.7) |
+| -- | WASM host `read_variable` (`engine/wasm/host_api.ex:252`, `do_read_variable/6`: exact `Map.fetch(execution_context.variables, name)`) (CDV F1) | WASM executor | yes, but not wired to node dispatch and named at run time, not in a definition | invariant I-13 (2A.7) |
+
+No other `Expr` consumer exists in `lib/` (`grep Engine.Expr`: `graph.ex`, `semantic_validation.ex`,
+`form_schema_expressions.ex`, `form_expression_reevaluation.ex`, `transition.ex`; `entities/query/types.ex`
+only names it in a doc) and no other `{{...}}` renderer exists (`grep "{{" lib`).
+
+### 2A.2 Detection: parse, never regex over the source
+
+New pure module `Letflow.Definitions.ReservedReferences` (`lib/letflow/definitions/reserved_references.ex`):
+
+```
+@type location ::
+        :edge_condition
+        | :form_visible_when | :form_computed | :form_cross_field_validation
+        | :service_task_endpoint | :service_task_body_template
+        | :sub_process_input | :sub_process_output
+        | :script_input
+
+@type reference :: %{
+        element: :node | :edge,
+        id: String.t(),            # node id or edge id, the author's own graph
+        location: location(),
+        field: String.t() | nil,   # form field / interface entry / script property; nil for L1, L5, L6
+        name: String.t()           # the referenced name as written (path segments joined by ".")
+      }
+
+@spec find(Graph.t()) :: [reference()]
+# node_references(graph) ++ edge_references(graph). Pure, total (malformed attributes -> no reference).
+
+@spec node_references(Graph.t()) :: [reference()]
+# L2-L8, nodes in graph order; within a node: L5, L6 / L7 entries in list order then L8 / form
+# fields sorted by name, each field visible_when, computed, cross_field_validation.
+
+@spec edge_references(Graph.t()) :: [reference()]
+# L1, edges in graph order; blank/nil conditions skipped.
+
+@spec violations([reference()]) :: [Graph.Violation.t()]
+# one %Violation{code: :expression_references_reserved_variable, message: m} per reference;
+# m = "<Edge|Node> '<id>' <location text>[ field '<field>'] references the reserved variable '<name>'".
+
+@spec reserved_path?([String.t()]) :: boolean()
+# true iff the path is non-empty and VariableMerge.reserved_key?(hd(path)).
+```
+
+Mechanism per location:
+
+* **L1-L4 (Expr).** The SAME pipeline the evaluator runs: `Expr.translate_cel_to_expr/1` then
+  `Expr.parse/1` for L1 (exactly `evaluate_condition/2`'s call graph, `expr.ex:1480-1488`) and
+  `Expr.parse_strict/1` for L2-L4 (exactly `FormExpressionReevaluation`'s). Referenced paths come
+  from the existing public `FormSchemaExpressions.collect_var_paths/1` (`form_schema_expressions.ex:270`);
+  no new AST walker, no `Expr` change. A path is a reference iff `reserved_path?/1`.
+  Translate/parse failure -> no reference from that expression (the evaluator never reads a
+  variable from an unparseable expression; CHK-17/CHK-20 report it at save).
+  Why a parse and not a regex: the translator rewrites `variables.` everywhere, so only the AST
+  says what is read. String literals are `{:lit, _}` and are never references
+  (`x == "_sys.r"`, `contains(s, "_sys")` are accepted); `_system` has head `"_system"` (not
+  reserved: D-A1.1 is exact `"_sys"` or the `"_sys."` prefix); `a._sys` has head `"a"` (nested
+  keys are never reserved, D-A1.1); `variables._sys.r.seq` and bare `_sys` both have head `"_sys"`
+  and are references.
+* **L5-L6 (templates).** The placeholder grammar gets ONE source of truth: new
+  `Letflow.Engine.ServiceTask.template_placeholder/0 :: Regex.t()` (a function, not a module
+  attribute) returning today's pattern unchanged, and `ServiceTask.template_variable_keys/1 ::
+  (String.t() | nil) -> [String.t()]` (captured KEYs in order; `nil` -> `[]`). `engine.ex`'s two
+  renderers (`:1398-1401`, `:1426-1429`) read `ServiceTask.template_placeholder()` instead of
+  their inline literal; rendering output is byte-identical. A key is a reference iff
+  `VariableMerge.reserved_key?/1`. This is a parse of the template grammar, the same one the
+  renderer applies, so a `_sys` text outside a placeholder is not a reference.
+* **L7-L8 (interface).** `SubProcessInterface.parse_interface(node.id, attributes["interface"])`
+  (the parser the engine's interface comes from); every parsed entry whose `name` satisfies
+  `VariableMerge.reserved_key?/1` (the whole name, so `"_sys.x"` and `"_sys"` are caught; this is
+  why a `== "_sys"` head check alone would be wrong).
+* **L9 (script input).** In `Letflow.Scripts.Runtime.check_binding_row/3` (`runtime.ex:162`),
+  AFTER the existing published / closed-output / restricted checks: the sorted keys of
+  `manifest["input_schema"]["properties"]` (map or absent) filtered by
+  `VariableMerge.reserved_key?/1`; any -> the binding fails with the reserved-reference error
+  for that node (2A.4). The manifest is already in hand there (read `FOR SHARE`, target prefix).
+
+Static rule R3 (2.6) holds by construction: no new file contains a binary literal starting
+`"_sys"` (moduledocs, messages and tests in `lib/` say "the reserved engine namespace" and call
+`VariableMerge.reserved_key?/1`; tests under `test/` are outside R3's scan).
+
+### 2A.3 Where the check runs: save AND activation
+
+| Path | Site | Check | Result |
+|---|---|---|---|
+| Save: `Definitions.create/2` (`definitions.ex:558-561`; also reached by export/import `export_import.ex:144` and solution packs `solution_pack.ex:1510`) and `validate_definition_graph/2` (`:1281-1286`) | new CHK-29 `check_reserved_node_references/1` appended to `Graph.validate_node_attributes/1` (`graph.ex:457`) and CHK-30 `check_reserved_edge_references/1` appended to `Graph.validate_edge_conditions/1` (`:490`), each delegating to `ReservedReferences` (`node_references/1` / `edge_references/1` then `violations/1`), the CHK-18/CHK-20 delegation shape | L1-L8 | existing `{:error, {:graph_validation_failed, violations}}` -> existing 422 (`routers/definitions.ex:769`); `validate` returns the violations |
+| Activation: `activate/2` | `run_activate_transaction/4` `with` (`definitions.ex:2331-2333`): `run_semantic_validation` -> NEW `check_reserved_references/1` -> `check_script_bindings/2` | L1-L8, then L9 inside `check_script_bindings` | `{:error, {:expression_references_reserved_variable, [reference()]}}`, `Repo.rollback`, row stays DRAFT |
+| Activation: version rollback | `do_rollback` (`definitions.ex:2685`): NEW check before `check_script_bindings(target_row, prefix)` | same | same error, nothing swapped, `event_appender` not called |
+| Activation: promotion apply | `Promotion` (`promotion.ex:398`): NEW check on `new_row` before `check_script_bindings(new_row, target_prefix)` | same | `{:error, {:promotion_failed, {:expression_references_reserved_variable, refs}}}`; insert rolled back |
+
+New `Letflow.Definitions` function (beside `check_script_bindings/2`, `@doc false def`, shared by
+the three activation sites):
+
+```
+@spec check_reserved_references(ProcessDefinition.t() | map()) ::
+        :ok
+        | {:error, :graph_structure_invalid}
+        | {:error, {:expression_references_reserved_variable, [ReservedReferences.reference()]}}
+# Graph.from_map(graph_map) -> ReservedReferences.find/1; [] -> :ok. Pure, no query; runs before
+# check_script_bindings/2 so a refused graph takes no FOR SHARE script-row lock.
+```
+
+`Scripts.Runtime.check_bindings/2` and `Definitions.check_script_bindings/2` specs gain
+`{:error, {:expression_references_reserved_variable, [reference()]}}` (L9: a one-element list for
+the first failing node, matching `check_bindings/2`'s first-failure posture; order of checks per
+node: version conflict, not published, output schema open, restricted opt-in, reserved input).
+
+Why both: activation is the ruling and the only point all three activating paths share (promotion
+inserts with `create_changeset/2` directly, `promotion.ex:391`, and rollback re-activates an
+old row, so neither passes `create/2`); save-time is earlier author feedback through the existing
+violation surface. L9 is activation-only (it needs the script row in the activating prefix).
+
+### 2A.4 Error code, message, HTTP shape
+
+* Domain: `{:error, {:expression_references_reserved_variable, [reference()]}}`; references ordered
+  as 2A.2 (nodes then edges, graph order). `activate/2` spec, `interpret_activate_result/1`
+  (pure pass-through clause next to `:2513`, INV-8: no catch-all), `promote_error` doc (`term()`
+  already admits it) gain the member.
+* Save-time `Graph.Violation.code` gains `:expression_references_reserved_variable` (`graph.ex:222-262`).
+* HTTP 422, same envelope style as the `script_binding_invalid` precedent
+  (`routers/definitions.ex:1014-1020`, `routers/promotions.ex:1376-1382`); new clauses in
+  `render_activate` (`:1009`), `render_rollback` (`:1224`), `render_apply` (`promotions.ex:831`),
+  one shared renderer per router:
+
+  `{"error": "expression_references_reserved_variable", "references": [{"element": "edge" | "node",
+  "id": <string>, "location": <closed string = Atom.to_string(location)>, "field": <string | null>,
+  "name": <string>}]}`
+
+* Found omission (REVIEWER F1 on the A1b gate): the review-free promotion
+  `POST /tenants/:test_tenant_id/promote/:process_key` (`routers/tenants.ex` `render_promote`)
+  reaches the same activation checks through `Promotion.promote_active_definition/5` ->
+  `do_promote_definition` -> `write_target_definition/5`, but had no clause for either refusal,
+  so it answered 500. It now answers both `expression_references_reserved_variable` and the
+  pre-existing `script_binding_invalid` (same gap since 7c-1) with the same 422 bodies. The two
+  body builders live once, in `Letflow.Api.Response.expression_references_reserved_variable/2`
+  and `Response.script_binding_invalid/3`, used by the definitions, promotions and tenants
+  routers (REVIEWER F2).
+
+### 2A.5 Existing definitions
+
+An already-ACTIVE (or DEPRECATED, still pinned by running instances) definition referencing a
+reserved name keeps running: A1b refuses only NEW activations (and rollback to such a version).
+Today such a reference reads nothing: Expr resolves `_sys` -> nested and the bare `"_sys"` key can
+never be set (`put_sys/3` refuses it), templates can only name the bare key; but L9 is an exact
+flat-key read that WOULD return real values once PR B writes them. So a read-only count is a
+GATE before PR B (expected 0; anything found is deprecated or re-versioned first), and the A1b PR
+body records it. Operator-run, per tenant schema `"<s>"` (quoted identifier from `tenant_schemas`),
+result shape `tenant_slug, count` as OQ-1:
+
+1. Definitions (superset filter in SQL, exact check in a read-only remote console):
+   `SELECT id, status FROM "<s>".process_definitions WHERE strpos(graph::text, '_sys') > 0;` then,
+   for each returned row, `ReservedReferences.find/1` on `Graph.from_map(row.graph)`; report
+   `definitions_with_reserved_refs` = rows with a non-empty result, split by `status`.
+2. Script inputs (exact in SQL):
+   `SELECT count(*) FROM "<s>".script_rules r WHERE r.status = 'published' AND r.hook_kind =
+   'service_task' AND EXISTS (SELECT 1 FROM jsonb_object_keys(CASE WHEN
+   jsonb_typeof(r.manifest->'input_schema'->'properties') = 'object' THEN
+   r.manifest->'input_schema'->'properties' ELSE '{}'::jsonb END) k WHERE k = '_sys' OR k LIKE
+   '\_sys.%');` -> `scripts_with_reserved_inputs`.
+
+Constant SQL, no interpolation beyond the registry-quoted schema (INV-7); not shipped code.
+
+A1b PR-body note (infra, QA, record `runs/2026-10-15-inv-sys-refs-defs-scripts-001`,
+2026-10-15): `definitions_mentioning_sys = 0` and `scripts_with_reserved_inputs = 0` for all six
+tenants (bilimbaga, bpm-default, meridian, req384-eo001-b-740d4d13, swiftroute, vortex). The
+coarse superset (query 1's `strpos` filter) is 0, so no exact definition check is needed. No
+production application database exists. The same count is re-run as a GATE before PR B (15 (a)).
+
+### 2A.6 Tests (`test/letflow/definitions/reserved_references_test.exs`, `async: true`, pure; and
+`test/letflow/definitions/reserved_references_activation_test.exs`, DB)
+
+Pure (`ReservedReferences.find/1`, one case per location, each asserting the full `reference()`):
+L1 condition `variables._sys.r.seq > 0` on an EXCLUSIVE_GATEWAY edge AND the same on a
+HUMAN_TASK edge; bare `_sys == null`; L2/L3/L4 a form with property `_sys` and `visible_when:
+"_sys == true"`, `computed: "_sys"`, `cross_field_validation.expression: "_sys != null"`;
+L5 `endpoint: "https://x/{{variables._sys}}"`; L6 `body_template: "{\"a\":\"{{ variables._sys }}\"}"`;
+L7/L8 interface input and output entry `"_sys.x"` (catches a head-only `== "_sys"` mutant).
+Non-references (all `[]`): `x == "_sys.r"`, `contains(name, "_sys")`, `variables.variables_x`,
+identifier `_system`, nested `a._sys`, template `{{variables._system}}`, template text `_sys`
+outside a placeholder, interface entry `_system`, a grammar-invalid condition containing `_sys`.
+Ordering/determinism: two nodes and two edges -> nodes first in graph order; two calls equal.
+`ServiceTask.template_variable_keys/1`: `nil` -> `[]`, two placeholders -> both keys in order;
+an engine-level regression: an inline-URL SERVICE_TASK instance still renders
+`{{variables.order_id}}` exactly as before (existing service-task arm tests green).
+
+DB / real paths (each asserts nothing changed: status, active pointer, audit rows, sequence):
+* Save: `Definitions.create/2` with each of L1-L8 -> `{:error, {:graph_validation_failed,
+  [%Violation{code: :expression_references_reserved_variable}]}}`, zero rows; `POST /definitions`
+  -> 422; `validate_definition_graph/2` on a stored row lists the violation.
+* **"An existing definition cannot reference `_sys`"** (the ruling's explicit test): a DRAFT row
+  inserted directly with `ProcessDefinition.create_changeset/2` (simulating a row stored before
+  A1b, bypassing save-time checks), one row per location L1-L8 (parameterised), then
+  `Definitions.activate/2` -> `{:error, {:expression_references_reserved_variable, [ref]}}` with
+  the expected `id`/`location`/`field`/`name`, row still `:draft`, prior active row still
+  `:active`, no `definition.activate` audit row; `POST /definitions/:id/activate` -> 422 with the
+  2A.4 body.
+* Rollback: v1 (direct insert, L1 reference, status `:deprecated`) and v2 `:active`;
+  `rollback_definition_version(key, "1", ...)` -> the error, v2 still active, the test
+  `event_appender` never called; HTTP rollback -> 422.
+* Promotion: source row (direct insert, L2 reference) promoted -> `{:error, {:promotion_failed,
+  {:expression_references_reserved_variable, _}}}`, no row in the target prefix; HTTP apply -> 422.
+* L9: published `service_task` script whose `input_schema.properties` holds `"_sys.r"` (row
+  inserted directly) bound by a SERVICE_TASK -> activation refused with `location: :script_input`,
+  `field: "_sys.r"`; the same script with `"system_r"` activates (regression); a graph with BOTH an
+  L1 reference and an unpublished script binding -> the reserved error (runs first).
+* Control: a definition with none of the above activates on all three paths (existing activation,
+  rollback and promotion suites green unchanged).
+
+Mutation-check plan (ELIXIR-DEV runs each, quotes the failing test, reverts): (1) delete the call
+at each of the three activation sites in turn -> the matching path test fails; (2) replace
+`reserved_key?` with `== "_sys"` -> L7/L8 `"_sys.x"` and L9 `"_sys.r"` fail; (3) check every
+path segment instead of the head -> `a._sys` fails; (4) drop one form key from the walk -> that
+location's case fails; (5) regex over the raw condition instead of the AST -> the string-literal
+case fails; (6) remove CHK-29/30 -> the save cases fail; (7) call `check_reserved_references/1` after
+`check_script_bindings/2` -> the both-defects ordering case fails (it returns
+`script_binding_invalid`).
+
+### 2A.7 Invariants, security, scope fence
+
+* I-13 No definition activated after A1b (activate, rollback, promotion) contains an expression,
+  template placeholder, interface entry or bound script input naming the reserved namespace;
+  any FUTURE location that reads variables by a definition-authored name (incl. the first wiring
+  of Lua `read_variable` or of the WASM host `read_variable`, `engine/wasm/host_api.ex:252`,
+  CDV F1) adds itself to `ReservedReferences` (or checks `VariableMerge.reserved_key?/1`) in the
+  same PR. Any change to `ServiceTask.template_placeholder/0` (e.g. a KEY class admitting a dot)
+  must ship, in the same PR, the service-catalog-version `endpoint_url` reserved-name check
+  (GH #2623, filed; SEC F1); `reserved_references_test.exs` pins the pattern as dot-free.
+* INV-5: not an indistinguishability surface. The 422 echoes only ids, field names and names from
+  the caller's OWN graph (or, for L9, the property names of a script the same tenant published),
+  under the same permission that submitted it; no record, other tenant or variable value.
+* INV-2: no variable value is read or returned; the check sees definition text only.
+* INV-7: no SQL added (the 2A.5 count is operator-run). INV-8: `find/1` is total (malformed
+  attributes, non-binary conditions, unparseable text -> no reference); new clauses are explicit,
+  no catch-all. INV-1: L9 reads the script row in the activating (target) prefix, as today.
+* Scope fence: NO `Expr` change (no flat-key read of reserved names, no parser change); no
+  evaluator, `VariableMerge` or run-time behaviour change; `engine.ex` changes only the two
+  renderers' regex source (byte-identical output); no new permission; no migration.
+
+### 2A.8 Files (A1b)
+
+`definitions/reserved_references.ex` (new), `definitions/graph.ex` (CHK-29/30, Violation code),
+`definitions.ex` (`check_reserved_references/1`, two call sites, spec, interpret clause),
+`definitions/promotion.ex` (call site), `scripts/runtime.ex` (L9, spec), `engine/service_task.ex`
+(`template_placeholder/0`, `template_variable_keys/1`), `engine.ex` (two renderer lines),
+`routers/definitions.ex`, `routers/promotions.ex`, `routers/tenants.ex` (422 clauses),
+`api/response.ex` (the shared 422 bodies), the two test files.
+
+### 2A.9 Deferred (not A1b)
+
+* Opening reserved names to reads (e.g. `Expr` treating a reserved-prefixed name as one flat key)
+  needs ITS OWN decision record first; until then the refusal stands (section 15 (a)).
+* Write-side declarations naming the namespace (form property names, `required_outputs`,
+  `variable_schemas` fields, a bound script's `output_schema` properties): not read references;
+  refused at run time by A1 (D-A1.3, D-A1.11). Activation-time refusal is a follow-up.
+* Refusing reserved `input_schema` property names at script-manifest save
+  (`Scripts.Validation.manifest/1`): follow-up; activation (L9) already blocks the binding.
+
+### 2A.10 Open question
+
+* **OQ-A1b-1 Catalog `endpoint_url` templates. CLOSED (supervisor, 2026-10-15): deferred to
+  GH #2623, as recommended below; A1b does not touch the catalog.** A service-catalog version's `endpoint_url` is
+  rendered by the same `{{variables.KEY}}` renderer (`engine.ex:1158`) but is catalog data, not
+  part of the definition, and is resolved from the instance's pin at arm time, so definition
+  activation cannot see it. Today it can name only the bare reserved key, which never holds a
+  value, so it reads nothing. Recommendation: defer to a follow-up that refuses it at catalog
+  version create (`template_variable_keys/1` + `reserved_key?/1`), not in A1b. Needs a supervisor
+  yes/no; A1b proceeds on the recommendation.
 
 ## 3. PR A2: Records and EventStore
 
@@ -877,6 +1189,7 @@ definition policy), each with its own validator focus; one combined diff would e
 | PR | Contents | Touches | Depends on | Merge order |
 |---|---|---|---|---|
 | **A1** | sections 2.1-2.7: `_sys` refusal and all sources (incl. no-interface sub-process output strip, script run detail, SERVICE_TASK reserved-key ERROR), `put_sys/3`, both event types registered, reconstruction clauses and `folded_event_types/0`, static test (put_sys, event literals, `"_sys"` literals), Lua emit_event refusal of folded types | `variable_merge.ex`, `engine.ex` (code only), `sub_process.ex`, `pin_resolver.ex`, `reconstruction.ex`, `tenant_provisioning.ex`, `lua/platform.ex`, `script_task_dispatcher.ex` (fail-code type), `validation_failure.ex` (doc) | none | 1st |
+| **A1b** | section 2A (revision 1b): reserved-name references refused at save (CHK-29/30) and at all three activation paths; L9 in `check_bindings`; 422 renderers; `ServiceTask.template_placeholder/0` | files in 2A.8 (no file shared with A2) | stacked on A1 | after A1; serial with A2 (either order, no overlap); before A3 (CDV F2: A1b and A3 both edit `engine.ex` and `scripts/runtime.ex`, so they merge sequentially) |
 | **A2** | sections 3.1-3.4: `append_multi` namespace, un-namespaced `sys:step:` refusal in EventStore, `fetch_instance_id/2`, `command_multi/3` with `:recheck_definition`, `interpret_in_multi/1`, `classify_step_error/1`, `sys:step:`/`source` refusals, caller tests | `event_store.ex`, `records.ex`, `entity_type_instance.ex` | merges after A1 | 2nd |
 | **A3** | sections 4, 10: `EntityPort` (subsumes `ScriptReadPort`), `EntityPortImpl`, `StepWrites` (`prepare/2` complete, write callbacks fail-closed), config key, Rule 6 text, 7c test renames (same tests green), script-path prefetch-only assertion, EE-12 text; `entity_port.ex` added to the event-literal allow-list | `engine/entity_port.ex` (new), `engine/script_read_port.ex` (deleted), `engine/script_task_dispatcher.ex`, `engine.ex` (moduledoc only), `entities/*`, `config/config.exs`, `check_boundaries.ex`, 7c tests | merges after A2 (A1's allow-list file) | 3rd |
 | **A4** | section 5: `writable_by_process`, module-guide section, F6 count | `entities/definition.ex`, `definition/validator.ex`, `definitions.ex`, `process_writable.ex` (new), `routers/entities.ex`, `definitions/solution_pack.ex`, `docs/guides/adding-an-application-module.md` | merges after A3 | 4th |
@@ -914,23 +1227,34 @@ REQ-499 / GH #2587, this design, and the split reason.
   GATE: before PR B opens, the OQ-1 count query (16) is re-run and must be zero, and any instance
   found is cancelled or repaired first.
 * PR B carry-overs from the A1 gates (revision 1a):
-  (a) Gateways cannot read a flat `_sys.` key today: `Letflow.Engine.Expr` splits a variable name on
-  dots (`variables._sys.r.seq` resolves `_sys` -> `r` -> `seq`). The PR B design must decide
-  between making `Expr` treat a name that starts with the reserved prefix as ONE flat key via
-  `VariableMerge.reserved_key?/1` (REVIEWER's preference) and refusing at activation any
-  expression that references `_sys`.
+  (a) RULED (supervisor, 2026-10-15, binding; revision 1b): `Letflow.Engine.Expr` keeps splitting
+  a variable name on dots and is NOT taught to read reserved keys. Every expression or variable
+  binding that references a name whose first segment is reserved is REFUSED at activation (and at
+  save) with `expression_references_reserved_variable`; built in PR A1b (section 2A), including
+  the explicit "an existing definition cannot reference `_sys`" test. Reason: `_sys.` is
+  engine-internal bookkeeping; a later opening is cheaper than a later closing. Consequence for
+  PR B: no gateway, form, template, interface or script input may depend on a `_sys.` value; the
+  A1 replay test's "gateway reading `_sys.r.seq`" case stays on an ordinary key. Opening reserved
+  names to reads later requires ITS OWN decision record (and then an `Expr` design), not a PR B
+  design choice. GATE before PR B: the 2A.5 count is re-run alongside OQ-1 and must be zero.
   (b) The A1 tests that seed `_sys.` values into a projection row directly (sources (3a), (3b),
   (4); the replay test's direct SYS append) are re-driven through the real engine writer in PR B.
   (c) Type safety: `sys_value()` is any binary and the event's `values` schema is
   `{"type": "object"}`; PR B narrows ids to UUIDs and seqs to non-negative integers (in
   `sys_key?/1`/`sys_value?/1` or a per-key shape) before it starts writing.
+* PR B also (SEC F2 on the A1b gate, record only): once the engine writes reserved values they
+  would appear in API responses: instance reads (`routers/instances.ex` ~730, the reconstruct
+  body's `"variables"`, and ~850, the projection map's `"variables"`) and the task-completion
+  response (`routers/tasks.ex` ~681, `complete_result_map/1`'s `variables`). PR B must decide
+  whether to strip them (`VariableMerge.drop_reserved/1`) or gate them by permission (INV-2),
+  and test the choice on all three surfaces.
 * PR C: sentinel-actor proof, SERVICE_TASK nested Multi, dispatch-keyed `sys:step:<dispatch_id>:<i>`,
   service-path contention mapping and `SET LOCAL` in the nested call, lock-order proof.
 * REQ-501: module write handlers, `owner_module` stamp, manifest hash, PinRebind rule.
 * Follow-ups: share AST scan helpers between `managed_types_callers_test.exs` and
-  `command_multi_callers_test.exs` after #2596; a definition-activation refusal for a SUB_PROCESS
-  interface whose `inputs` OR `outputs` name a `_sys.` key (today: inputs stripped at run time,
-  D-A1.6; outputs refused at run time into parent ERROR, D-A1.5); GH #2618 (type classification
+  `command_multi_callers_test.exs` after #2596; (DONE in A1b, section 2A: activation and save
+  refusal of a SUB_PROCESS interface whose `inputs` OR `outputs` name a `_sys.` key); the 2A.9
+  deferrals and GH #2623 (OQ-A1b-1, catalog `endpoint_url`, CLOSED as deferred); GH #2618 (type classification
   replacing the 9.2 name list); GH #2619 (solution-pack path to a process-writable unmanaged type).
 
 ## 16. Open questions: all CLOSED by supervisor rulings (revision 1)

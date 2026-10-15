@@ -830,7 +830,15 @@ defmodule Letflow.Routers.Promotions do
          conn,
          {:error, {:promotion_failed, {:script_binding_invalid, node_id, reason}}}
        ),
-       do: script_binding_invalid(conn, node_id, reason)
+       do: Response.script_binding_invalid(conn, node_id, reason)
+
+  # GH #2587 PR A1b (design gh2587-req499-pr-a-prerequisites.md 2A.4): the promoted graph names
+  # the reserved engine namespace; same 422 body as Definitions.activate/2's.
+  defp render_apply(
+         conn,
+         {:error, {:promotion_failed, {:expression_references_reserved_variable, references}}}
+       ),
+       do: Response.expression_references_reserved_variable(conn, references)
 
   defp render_apply(conn, {:error, {:promotion_failed, _other}}),
     do: Response.internal_error(conn)
@@ -1370,16 +1378,6 @@ defmodule Letflow.Routers.Promotions do
   # row's actual status.
   defp invalid_transition_response(conn),
     do: Response.conflict(conn, "review is not in a state that permits this transition")
-
-  # GH 2534 PR 7c-1: the same 422 body as `Letflow.Routers.Definitions`' activate (the node id
-  # is the caller's own graph; the reason is a closed code).
-  defp script_binding_invalid(conn, node_id, reason),
-    do:
-      Response.send_json(conn, 422, %{
-        "error" => "script_binding_invalid",
-        "node_id" => node_id,
-        "reason" => Atom.to_string(reason)
-      })
 
   # Path-parameter UUID pre-validation (design §3.2) -- required ahead of
   # `PromotionReviewStore.approve_review/4`/`reject_review/3` (whose shared

@@ -1007,17 +1007,15 @@ defmodule Letflow.Routers.Definitions do
   # tenant script that is not runnable as bound. The node id is the caller's own graph; the
   # reason is a closed code.
   defp render_activate(conn, {:error, {:script_binding_invalid, node_id, reason}}),
-    do: script_binding_invalid(conn, node_id, reason)
+    do: Response.script_binding_invalid(conn, node_id, reason)
+
+  # GH #2587 PR A1b (design gh2587-req499-pr-a-prerequisites.md 2A.4): the graph names the
+  # reserved engine namespace. Every echoed value comes from the caller's own graph (or a
+  # property name of a script the same tenant published); no variable value.
+  defp render_activate(conn, {:error, {:expression_references_reserved_variable, references}}),
+    do: Response.expression_references_reserved_variable(conn, references)
 
   defp render_activate(conn, {:error, _common_error}), do: Response.internal_error(conn)
-
-  defp script_binding_invalid(conn, node_id, reason),
-    do:
-      Response.send_json(conn, 422, %{
-        "error" => "script_binding_invalid",
-        "node_id" => node_id,
-        "reason" => Atom.to_string(reason)
-      })
 
   # ── POST /definitions/:id/deprecate (REQ-082) ───────────────────────────
 
@@ -1222,7 +1220,11 @@ defmodule Letflow.Routers.Definitions do
 
   # GH 2534 PR 7c-1 (design 4.5): the re-activated graph's script bindings.
   defp render_rollback(conn, {:error, {:script_binding_invalid, node_id, reason}}),
-    do: script_binding_invalid(conn, node_id, reason)
+    do: Response.script_binding_invalid(conn, node_id, reason)
+
+  # GH #2587 PR A1b (design 2A.4): the re-activated graph names the reserved namespace.
+  defp render_rollback(conn, {:error, {:expression_references_reserved_variable, references}}),
+    do: Response.expression_references_reserved_variable(conn, references)
 
   defp render_rollback(conn, {:error, :invalid_schema_name}), do: Response.internal_error(conn)
   defp render_rollback(conn, {:error, _other}), do: Response.internal_error(conn)
