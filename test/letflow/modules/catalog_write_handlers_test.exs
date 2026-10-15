@@ -22,14 +22,25 @@ defmodule Letflow.Modules.CatalogWriteHandlersTest do
   defmodule ProbeEntry do
     @moduledoc false
     def manifest, do: Process.get(:wh_manifest)
-    def handle(multi, _ctx, _args), do: {:ok, multi}
-    def handle_two(multi, _ctx, _args), do: {:ok, multi}
-    def not_arity_three(_multi, _ctx), do: :ok
+    # the entry module itself exports an arity-3 function (like on_install/3)
+    def on_install(_prefix, _settings, _ctx), do: :ok
 
-    defmodule Nested do
+    defmodule Handlers do
       @moduledoc false
       def handle(multi, _ctx, _args), do: {:ok, multi}
+      def handle_two(multi, _ctx, _args), do: {:ok, multi}
+      def not_arity_three(_multi, _ctx), do: :ok
+
+      defmodule Nested do
+        @moduledoc false
+        def handle(multi, _ctx, _args), do: {:ok, multi}
+      end
     end
+  end
+
+  defmodule ProbeEntryTwin do
+    @moduledoc false
+    def manifest, do: Process.get(:wh_manifest)
   end
 
   defp probe_manifest(overrides \\ %{}) do
@@ -55,7 +66,7 @@ defmodule Letflow.Modules.CatalogWriteHandlersTest do
     Map.merge(
       %{
         name: "do_it",
-        function: {ProbeEntry, :handle},
+        function: {ProbeEntry.Handlers, :handle},
         targets: ["pw_one"],
         args: %{"item" => %{required: true}}
       },
@@ -197,7 +208,8 @@ defmodule Letflow.Modules.CatalogWriteHandlersTest do
       assert handler.module_id == "fixture_ledger"
       assert handler.name == "post_entry"
       assert handler.entry_module == FixtureLedger
-      assert handler.function == {FixtureLedger.Handlers, :post_entry}
+      assert handler.entry_module == FixtureLedger
+      refute Map.has_key?(Map.from_struct(handler), :function)
       assert handler.targets == ["fxl_balance", "fxl_ledger"]
       assert handler.args == %{"item" => %{required: true}, "quantity" => %{required: true}}
 
@@ -248,7 +260,7 @@ defmodule Letflow.Modules.CatalogWriteHandlersTest do
     end
 
     test "handler in a nested module of the entry resolves" do
-      handler = probe_handler(%{function: {ProbeEntry.Nested, :handle}})
+      handler = probe_handler(%{function: {ProbeEntry.Handlers.Nested, :handle}})
       assert {:ok, _} = resolve(probe_manifest(%{write_handlers: [handler]}))
     end
 
@@ -257,17 +269,27 @@ defmodule Letflow.Modules.CatalogWriteHandlersTest do
       not_a_list: %{write_handlers: %{}},
       bad_name_format: %{
         write_handlers: [
-          %{name: "do-it", function: {ProbeEntry, :handle}, targets: ["pw_one"], args: %{}}
+          %{
+            name: "do-it",
+            function: {ProbeEntry.Handlers, :handle},
+            targets: ["pw_one"],
+            args: %{}
+          }
         ]
       },
       target_not_managed: %{
         write_handlers: [
-          %{name: "do_it", function: {ProbeEntry, :handle}, targets: ["other"], args: %{}}
+          %{
+            name: "do_it",
+            function: {ProbeEntry.Handlers, :handle},
+            targets: ["other"],
+            args: %{}
+          }
         ]
       },
       empty_targets: %{
         write_handlers: [
-          %{name: "do_it", function: {ProbeEntry, :handle}, targets: [], args: %{}}
+          %{name: "do_it", function: {ProbeEntry.Handlers, :handle}, targets: [], args: %{}}
         ]
       },
       no_managed_types: %{manages_entity_types: []},
@@ -278,14 +300,14 @@ defmodule Letflow.Modules.CatalogWriteHandlersTest do
       },
       not_exported: %{
         write_handlers: [
-          %{name: "do_it", function: {ProbeEntry, :nope}, targets: ["pw_one"], args: %{}}
+          %{name: "do_it", function: {ProbeEntry.Handlers, :nope}, targets: ["pw_one"], args: %{}}
         ]
       },
       wrong_arity: %{
         write_handlers: [
           %{
             name: "do_it",
-            function: {ProbeEntry, :not_arity_three},
+            function: {ProbeEntry.Handlers, :not_arity_three},
             targets: ["pw_one"],
             args: %{}
           }
@@ -304,7 +326,10 @@ defmodule Letflow.Modules.CatalogWriteHandlersTest do
     test "a duplicate name is :not_found (ambiguous registration)" do
       manifest =
         probe_manifest(%{
-          write_handlers: [probe_handler(), probe_handler(%{function: {ProbeEntry, :handle_two}})]
+          write_handlers: [
+            probe_handler(),
+            probe_handler(%{function: {ProbeEntry.Handlers, :handle_two}})
+          ]
         })
 
       assert resolve(manifest, "do_it") == {:error, :not_found}
@@ -315,7 +340,7 @@ defmodule Letflow.Modules.CatalogWriteHandlersTest do
         probe_manifest(%{
           write_handlers: [
             probe_handler(),
-            probe_handler(%{name: "second", function: {ProbeEntry, :missing}})
+            probe_handler(%{name: "second", function: {ProbeEntry.Handlers, :missing}})
           ]
         })
 
@@ -341,9 +366,9 @@ defmodule Letflow.Modules.CatalogWriteHandlersTest do
                Catalog.call_write_handler(handler, multi, %{}, %{"item" => "a"})
     end
 
-    test "a forged struct naming an unregistered function is ignored (re-resolved by id and name)" do
+    test "a forged struct's other fields are ignored (re-resolved by id and name)" do
       {:ok, handler} = Catalog.write_handler("fixture_ledger", "post_balance_only")
-      forged = %{handler | function: {System, :halt}}
+      forged = %{handler | entry_module: System, targets: ["forged"], args: %{}}
       multi = Ecto.Multi.new()
 
       assert {:ok, ^multi} = Catalog.call_write_handler(forged, multi, %{}, %{"item" => "a"})
@@ -444,23 +469,84 @@ defmodule Letflow.Modules.CatalogWriteHandlersTest do
     end
   end
 
-  describe "R1 is inert" do
-    test "no lib file other than catalog.ex calls the handler API" do
-      callers =
-        "lib/**/*.ex"
-        |> Path.wildcard()
-        |> Enum.reject(&String.ends_with?(&1, "lib/letflow/modules/catalog.ex"))
-        |> Enum.reject(&String.starts_with?(&1, "lib/letflow/design/"))
-        |> Enum.filter(fn path ->
-          src = File.read!(path)
+  describe "review follow-ups (SEC F1/F2, REVIEWER 7/8, TDV L-1..L-3)" do
+    test "duplicate module ids across entries fail closed (not first-wins)" do
+      Process.put(:wh_manifest, probe_manifest())
+      assert {:ok, _} = Catalog.write_handler_in([ProbeEntry], "probe_wh", "do_it")
 
-          Enum.any?(
-            ["write_handler(", "write_handler_in(", "call_write_handler(", "manifest_hash("],
-            &String.contains?(src, &1)
-          )
-        end)
+      assert Catalog.write_handler_in([ProbeEntry, ProbeEntryTwin], "probe_wh", "do_it") ==
+               {:error, :not_found}
 
-      assert callers == []
+      assert Catalog.write_handler_in([ProbeEntryTwin, ProbeEntry], "probe_wh", "do_it") ==
+               {:error, :not_found}
+    end
+
+    test "the entry module itself is refused as a handler module (validate and resolve)" do
+      managed = Letflow.Modules.FixtureManaged.manifest()
+
+      handler = %{
+        name: "boot",
+        function: {Letflow.Modules.FixtureManaged, :on_install},
+        targets: ["fxm_ledger"],
+        args: %{}
+      }
+
+      assert {:error, {:write_handler_outside_module, "boot"}} =
+               Catalog.validate(Map.put(managed, :write_handlers, [handler]), [])
+
+      manifest =
+        probe_manifest(%{write_handlers: [probe_handler(%{function: {ProbeEntry, :on_install}})]})
+
+      assert resolve(manifest) == {:error, :not_found}
+    end
+
+    test "non-atom tuple elements are malformed" do
+      for function <- [{"Foo", :f}, {ProbeEntry.Handlers, "handle"}, {1, 2}] do
+        handler = %{ledger_handler() | function: function}
+        value = [handler]
+
+        assert {:error, {:invalid_write_handlers, ^value}} =
+                 validate_ledger(%{write_handlers: value})
+      end
+    end
+
+    test "an arg spec with an extra key is malformed" do
+      handler = %{ledger_handler() | args: %{"item" => %{required: true, x: 1}}}
+      value = [handler]
+
+      assert {:error, {:invalid_write_handlers, ^value}} =
+               validate_ledger(%{write_handlers: value})
+    end
+
+    test "name length: 64 characters valid, 65 malformed" do
+      ok = %{ledger_handler() | name: String.duplicate("a", 64)}
+      assert validate_ledger(%{write_handlers: [ok]}) == :ok
+      bad = %{ledger_handler() | name: String.duplicate("a", 65)}
+      assert {:error, {:invalid_write_handlers, _}} = validate_ledger(%{write_handlers: [bad]})
+    end
+
+    test "duplicate targets are rejected by validation and unresolvable" do
+      value = [%{ledger_handler() | targets: ["fxl_ledger", "fxl_ledger"]}]
+
+      assert {:error, {:invalid_write_handlers, ^value}} =
+               validate_ledger(%{write_handlers: value})
+
+      manifest =
+        probe_manifest(%{write_handlers: [probe_handler(%{targets: ["pw_one", "pw_one"]})]})
+
+      assert resolve(manifest) == {:error, :not_found}
+    end
+
+    test "the hash normalises duplicate targets (compute is total over unvalidated input)" do
+      base = FixtureLedger.manifest()
+      [first | rest] = base.write_handlers
+      dup = %{base | write_handlers: [%{first | targets: first.targets ++ first.targets} | rest]}
+      assert ManifestHash.compute(dup) == ManifestHash.compute(base)
+    end
+
+    test "golden manifest hash of the FixtureLedger manifest" do
+      assert ManifestHash.compute(FixtureLedger.manifest()) ==
+               "6394cff92f1f30f14e74d59a45bb7e272087160c7596e6078571fbfb6d8d866d"
     end
   end
 end

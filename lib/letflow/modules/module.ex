@@ -53,9 +53,9 @@ defmodule Letflow.Modules.Module do
 
   @typedoc """
   One `:write_handlers` entry (GH #2590 / REQ-501): `name` matches
-  `^[a-z][a-z0-9_]{0,63}$`; `function` is `{module, fun}` with `module` the
-  entry module or nested under it and `fun` exported with arity 3; `targets`
-  is non-empty and a subset of the same manifest's `:manages_entity_types`;
+  `^[a-z][a-z0-9_]{0,63}$`; `function` is `{module, fun}` with `module`
+  STRICTLY nested under the entry module (never the entry module itself) and
+  `fun` exported with arity 3; `targets` is non-empty, distinct and a subset of the same manifest's `:manages_entity_types`;
   `args` declares argument names (and whether each is required) only.
   """
   @type write_handler_spec :: %{

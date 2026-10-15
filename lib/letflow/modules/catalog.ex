@@ -63,18 +63,23 @@ defmodule Letflow.Modules.Catalog do
     A write handler a module registered in its manifest (`:write_handlers`),
     as resolved by `Letflow.Modules.Catalog.write_handler/2` (GH #2590 /
     REQ-501 R1). Built only inside `catalog.ex`; every other file receives
-    one from `Catalog` and never constructs one (a forged struct is ignored:
-    `Catalog.call_write_handler/4` re-resolves by `module_id` and `name`).
+    one from `Catalog` and never constructs one.
+
+    The struct is an UNTRUSTED descriptor: it carries no function to call, and
+    `Catalog.call_write_handler/4` re-resolves by `module_id` and `name`, so
+    every other field (`entry_module`, `targets`, `args`) of a forged value is
+    ignored there. Consumers that need the targets re-resolve through
+    `Catalog.write_handler/2`. Follow-up (letflow-2): a struct per handler
+    spec instead of a bare map for the manifest entry.
     """
 
-    @enforce_keys [:module_id, :name, :entry_module, :function, :targets, :args]
-    defstruct [:module_id, :name, :entry_module, :function, :targets, :args]
+    @enforce_keys [:module_id, :name, :entry_module, :targets, :args]
+    defstruct [:module_id, :name, :entry_module, :targets, :args]
 
     @type t :: %__MODULE__{
             module_id: String.t(),
             name: String.t(),
             entry_module: module(),
-            function: {module(), atom()},
             targets: [String.t()],
             args: %{String.t() => %{required: boolean()}}
           }
@@ -151,10 +156,21 @@ defmodule Letflow.Modules.Catalog do
   # validate/2 (the compiled list is fixed at compile time).
   @spec write_handler_in([module()], term(), term()) ::
           {:ok, WriteHandler.t()} | {:error, :not_found}
-  def write_handler_in(entries, module_id, name)
-      when is_list(entries) and is_binary(module_id) and is_binary(name) do
-    with entry when not is_nil(entry) <-
-           Enum.find(entries, fn entry_module -> entry_module.manifest().id == module_id end),
+  def write_handler_in(entries, module_id, name) do
+    case resolve_write_handler(entries, module_id, name) do
+      {:ok, handler, _function} -> {:ok, handler}
+      :error -> {:error, :not_found}
+    end
+  end
+
+  # Exactly one entry may carry the id (a duplicated id is ambiguous: fail
+  # closed rather than pick the first); then the whole registration of that
+  # module is re-validated; then the name is looked up. The function to call is
+  # returned beside the descriptor and never stored in it.
+  defp resolve_write_handler(entries, module_id, name)
+       when is_list(entries) and is_binary(module_id) and is_binary(name) do
+    with [entry] <-
+           Enum.filter(entries, fn entry_module -> entry_module.manifest().id == module_id end),
          manifest = entry.manifest(),
          :ok <- validate_write_handlers(manifest, entry),
          spec when not is_nil(spec) <-
@@ -164,31 +180,30 @@ defmodule Letflow.Modules.Catalog do
          module_id: module_id,
          name: name,
          entry_module: entry,
-         function: spec.function,
-         targets: spec.targets |> Enum.uniq() |> Enum.sort(),
+         targets: Enum.sort(spec.targets),
          args: spec.args
-       }}
+       }, spec.function}
     else
-      _ -> {:error, :not_found}
+      _ -> :error
     end
   end
 
-  def write_handler_in(_entries, _module_id, _name), do: {:error, :not_found}
+  defp resolve_write_handler(_entries, _module_id, _name), do: :error
 
   @doc """
   Calls a registered write handler: `apply/3` of the handler function the
-  Catalog itself resolved (the only `apply` of handler code). The handler's
-  own `module_id`/`name` are re-resolved here, so the `function` carried by
-  the struct argument is never trusted. Returns the handler's raw return
-  (the caller validates the shape), or `{:error, :not_found}` when the
-  registration no longer resolves. No caller exists in R1.
+  Catalog itself resolved (the only `apply` of handler code). The struct's
+  `module_id`/`name` are re-resolved here and every other field of it is
+  ignored. Returns the handler's raw return (the caller validates the shape),
+  or `{:error, :not_found}` when the registration no longer resolves. No
+  caller exists in R1.
   """
   @spec call_write_handler(WriteHandler.t(), Ecto.Multi.t(), ctx :: struct(), args :: map()) ::
           term()
   def call_write_handler(%WriteHandler{module_id: module_id, name: name}, multi, ctx, args) do
-    case write_handler(module_id, name) do
-      {:ok, %WriteHandler{function: {module, fun}}} -> apply(module, fun, [multi, ctx, args])
-      {:error, :not_found} = error -> error
+    case resolve_write_handler(entry_modules(), module_id, name) do
+      {:ok, _handler, {module, fun}} -> apply(module, fun, [multi, ctx, args])
+      :error -> {:error, :not_found}
     end
   end
 
@@ -305,7 +320,7 @@ defmodule Letflow.Modules.Catalog do
 
     * `{:invalid_write_handlers, value}` - not a list of maps with exactly the
       four keys, a name outside `^[a-z][a-z0-9_]{0,63}$`, `targets` not a list
-      of binaries, `args` not `%{binary => %{required: boolean}}`, or
+      of distinct binaries, `args` not `%{binary => %{required: boolean}}`, or
       `function` not a `{module, function}` atom pair.
     * `{:duplicate_write_handler, name}`.
     * `{:invalid_module_id_for_handlers, id}` - the manifest `id` outside the
@@ -315,9 +330,9 @@ defmodule Letflow.Modules.Catalog do
     * `{:write_handler_no_targets, name}`.
     * `{:write_handler_target_not_managed, name, target}` - target absent from
       this manifest's own `:manages_entity_types`.
-    * `{:write_handler_outside_module, name}` - the handler module is neither
-      the registered entry module carrying this manifest nor nested under its
-      namespace (also when no registered module carries the manifest).
+    * `{:write_handler_outside_module, name}` - the handler module is not
+      strictly nested under the namespace of the registered entry module
+      carrying this manifest (the entry module itself is refused) (also when no registered module carries the manifest).
     * `{:write_handler_function_not_exported, name}` - not loadable, or no
       exported arity-3 function.
   """
@@ -522,6 +537,7 @@ defmodule Letflow.Modules.Catalog do
       is_binary(handler.name) and Regex.match?(@name_format, handler.name) and
       match?({m, f} when is_atom(m) and is_atom(f), handler.function) and
       is_list(handler.targets) and Enum.all?(handler.targets, &is_binary/1) and
+      Enum.uniq(handler.targets) == handler.targets and
       well_formed_args?(handler.args)
   end
 
@@ -593,7 +609,8 @@ defmodule Letflow.Modules.Catalog do
   defp in_module_namespace?(_module, nil), do: false
 
   defp in_module_namespace?(module, entry_module) do
-    module == entry_module or
-      String.starts_with?(Atom.to_string(module), Atom.to_string(entry_module) <> ".")
+    # strictly nested: the entry module itself is refused (it exports
+    # on_install/3, which would pass the arity-3 check)
+    String.starts_with?(Atom.to_string(module), Atom.to_string(entry_module) <> ".")
   end
 end
