@@ -100,6 +100,22 @@ defmodule Letflow.Entities.EntityTypeInstance do
     end
   end
 
+  @doc """
+  GH #2587 (design `gh2587-req499-pr-a-prerequisites.md` D-A2.11): READ-ONLY lookup of
+  `entity_type`'s synthetic `instance_id`, one primary-key read, never an insert.
+  `Letflow.Entities.Records.command_multi/3` uses it so no `entity_type_instances` row is
+  created under a completion's instance locks; `{:error, :not_found}` means the caller's
+  pre-transaction preparation did not run for this type.
+  """
+  @spec fetch_instance_id(entity_type :: String.t(), prefix :: String.t()) ::
+          {:ok, Ecto.UUID.t()} | {:error, :not_found}
+  def fetch_instance_id(entity_type, prefix) when is_binary(entity_type) and is_binary(prefix) do
+    case Repo.get(__MODULE__, entity_type, prefix: prefix) do
+      %__MODULE__{instance_id: instance_id} -> {:ok, instance_id}
+      nil -> {:error, :not_found}
+    end
+  end
+
   defp create_and_reselect(entity_type, prefix) do
     instance_id = Ecto.UUID.generate()
 

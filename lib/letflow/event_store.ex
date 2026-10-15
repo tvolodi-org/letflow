@@ -126,6 +126,20 @@ defmodule Letflow.EventStore do
   @metadata_key_max_length 128
   @metadata_value_max_length 1024
 
+  # GH #2587 / REQ-499 (design gh2587-req499-pr-a-prerequisites.md D-A2.16, I-5): the
+  # server step-key family. Every un-namespaced entry point refuses it; only a namespaced
+  # append_multi/3 (whose one caller is Letflow.Entities.Records, static test
+  # command_multi_callers_test.exs) accepts it. Same bytes as
+  # Letflow.Entities.Records.step_key_prefix/0, which cannot be called from here (the event
+  # store does not depend on the entities context); a test pins the two equal.
+  @reserved_step_key_prefix "sys:step:"
+
+  @typedoc """
+  GH #2587: the `append_multi/3` option that names every added step `{:line, i, step}`
+  instead of the bare `step` atom, so several appends compose into one Multi.
+  """
+  @type step_namespace :: {:line, non_neg_integer()}
+
   @type append_attrs :: %{
           required(:instance_id) => Ecto.UUID.t(),
           required(:event_type) => String.t(),
@@ -153,6 +167,7 @@ defmodule Letflow.EventStore do
           | {:error, :missing_event_type}
           | {:error, :missing_idempotency_key}
           | {:error, :idempotency_key_too_long}
+          | {:error, :reserved_idempotency_key}
           | {:error, {:invalid_metadata, metadata_violation()}}
           | {:error, :tenant_not_provisioned}
           | {:error, :unknown_event_type}
@@ -190,6 +205,7 @@ defmodule Letflow.EventStore do
           | {:error, :missing_event_type}
           | {:error, :missing_idempotency_key}
           | {:error, :idempotency_key_too_long}
+          | {:error, :reserved_idempotency_key}
           | {:error, {:invalid_metadata, metadata_violation()}}
           | {:error, :unknown_event_type}
           | {:error, {:payload_validation_failed, [Registry.ValidationFailure.t()]}}
@@ -212,6 +228,10 @@ defmodule Letflow.EventStore do
   append with `is_duplicate: true` — zero net rows change anywhere on that
   path. See `lib/letflow/design/req025-event-append.md` for the full
   behavior, error taxonomy, and locking protocol this implements.
+
+  GH #2587 (D-A2.16): an `idempotency_key` starting `"sys:step:"` is refused with
+  `{:error, :reserved_idempotency_key}` before any query; that family is written only
+  through a namespaced `append_multi/3`.
   """
   @spec append(attrs :: append_attrs(), opts :: [prefix: String.t()]) ::
           {:ok, append_result()} | append_error()
@@ -224,6 +244,7 @@ defmodule Letflow.EventStore do
          {:ok, actor_id} <- fetch_uuid(attrs, :actor_id, :missing_actor_id),
          {:ok, payload} <- fetch_payload(attrs),
          {:ok, idempotency_key} <- fetch_idempotency_key(attrs),
+         :ok <- reject_step_key(idempotency_key, nil),
          {:ok, event_type} <- fetch_event_type(attrs),
          {:ok, metadata} <- validate_metadata(Map.get(attrs, :metadata) || %{}),
          :ok <- Registry.validate_payload(event_type, payload, tenant_id) do
@@ -298,22 +319,41 @@ defmodule Letflow.EventStore do
   on a duplicate submission), so a caller pattern-matches on the same shapes
   `interpret_transaction_result/1` does, rather than a parallel taxonomy
   being invented here.
+
+  ## `:step_namespace` (GH #2587, decision 0054 D2.1)
+
+  Absent, the Multi is exactly the one described above. `step_namespace:
+  {:line, i}` (`i` a non-negative integer) names every added step
+  `{:line, i, step}` (`{:line, i, :active_instance_guard}` ...
+  `{:line, i, :update_projection}`), so several appends compose into one Multi
+  without a duplicate-name raise; each step reads its siblings through a view
+  of `changes` holding only this namespace's entries, keyed by the bare step
+  atom. Any other value returns `{:error, :invalid_step_namespace}` before any
+  other check, with `multi` untouched. The option is deliberately not
+  `:prefix`, which already names the tenant schema (INV-1).
+
+  An `idempotency_key` starting `"sys:step:"` is refused with
+  `{:error, :reserved_idempotency_key}` unless `:step_namespace` is set
+  (D-A2.16): the only `:step_namespace` user is `Letflow.Entities.Records`
+  (static rule, `test/letflow/entities/command_multi_callers_test.exs`).
   """
   @spec append_multi(
           multi :: Ecto.Multi.t(),
           attrs :: append_attrs(),
-          opts :: [prefix: String.t()]
+          opts :: [prefix: String.t(), step_namespace: step_namespace()]
         ) ::
-          {:ok, Ecto.Multi.t()} | append_error()
+          {:ok, Ecto.Multi.t()} | append_error() | {:error, :invalid_step_namespace}
   def append_multi(%Multi{} = multi, attrs, opts) when is_map(attrs) and is_list(opts) do
     prefix = Keyword.get(opts, :prefix)
 
-    with :ok <- reject_tenant_id(attrs),
+    with {:ok, namespace} <- fetch_step_namespace(opts),
+         :ok <- reject_tenant_id(attrs),
          {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
          {:ok, instance_id} <- fetch_uuid(attrs, :instance_id, :missing_instance_id),
          {:ok, actor_id} <- fetch_uuid(attrs, :actor_id, :missing_actor_id),
          {:ok, payload} <- fetch_payload(attrs),
          {:ok, idempotency_key} <- fetch_idempotency_key(attrs),
+         :ok <- reject_step_key(idempotency_key, namespace),
          {:ok, event_type} <- fetch_event_type(attrs),
          {:ok, metadata} <- validate_metadata(Map.get(attrs, :metadata) || %{}),
          :ok <- Registry.validate_payload(event_type, payload, tenant_id) do
@@ -333,7 +373,7 @@ defmodule Letflow.EventStore do
         created_at: DateTime.utc_now() |> DateTime.truncate(:microsecond)
       }
 
-      {:ok, build_multi_composable(multi, ctx)}
+      {:ok, build_multi_composable(multi, ctx, namespace)}
     end
   end
 
@@ -354,6 +394,9 @@ defmodule Letflow.EventStore do
 
   See `lib/letflow/design/req140-platform-event-append-path.md` §3 for the
   full design.
+
+  GH #2587 (D-A2.16): an `idempotency_key` starting `"sys:step:"` is refused
+  with `{:error, :reserved_idempotency_key}` before any query.
   """
   @spec append_platform_event(attrs :: append_platform_attrs(), opts :: [prefix: String.t()]) ::
           {:ok, append_result()} | append_platform_error()
@@ -366,6 +409,7 @@ defmodule Letflow.EventStore do
          {:ok, actor_id} <- fetch_uuid(attrs, :actor_id, :missing_actor_id),
          {:ok, payload} <- fetch_payload(attrs),
          {:ok, idempotency_key} <- fetch_idempotency_key(attrs),
+         :ok <- reject_step_key(idempotency_key, nil),
          {:ok, event_type} <- fetch_event_type(attrs),
          {:ok, metadata} <- validate_metadata(Map.get(attrs, :metadata) || %{}),
          :ok <- Registry.validate_payload(event_type, payload, tenant_id) do
@@ -457,6 +501,27 @@ defmodule Letflow.EventStore do
     end
   end
 
+  # GH #2587 (design 3.1): absent -> nil (today's Multi); {:line, i} with a non-negative
+  # integer i -> that namespace; any other value, nil included, is refused before any other
+  # check so the caller's Multi is never touched.
+  @spec fetch_step_namespace(keyword()) ::
+          {:ok, step_namespace() | nil} | {:error, :invalid_step_namespace}
+  defp fetch_step_namespace(opts) do
+    case Keyword.fetch(opts, :step_namespace) do
+      :error -> {:ok, nil}
+      {:ok, {:line, i} = namespace} when is_integer(i) and i >= 0 -> {:ok, namespace}
+      {:ok, _other} -> {:error, :invalid_step_namespace}
+    end
+  end
+
+  # GH #2587 D-A2.16 (I-5): exact bytes, so "SYS:STEP:x" is an ordinary key.
+  @spec reject_step_key(String.t(), step_namespace() | nil) ::
+          :ok | {:error, :reserved_idempotency_key}
+  defp reject_step_key(@reserved_step_key_prefix <> _rest, nil),
+    do: {:error, :reserved_idempotency_key}
+
+  defp reject_step_key(_key, _namespace), do: :ok
+
   # Design doc §6.1 P2/§9 OQ-4 deliberately leaves `event_type`'s structural check
   # out of the pre-transaction phase, on the stated premise that a missing/malformed
   # `event_type` would surface later via `Event.insert_changeset/2`'s ordinary
@@ -525,33 +590,64 @@ defmodule Letflow.EventStore do
   # prefix: schema_name on every operation.
   # ---------------------------------------------------------------------
 
-  defp build_multi(ctx), do: build_multi_composable(Multi.new(), ctx)
+  defp build_multi(ctx), do: build_multi_composable(Multi.new(), ctx, nil)
 
   # REQ-228 §3.1 -- the composable core `append/2`'s own build_multi/1 and
   # append_multi/3 (public, above) both call, so the M1/M2/M3/M4/M5(?)/M6
   # step sequence exists in exactly one place. Appends onto whatever `multi`
   # it is given -- `Multi.new()` for `append/2`'s own internal use,
   # or a caller-supplied, still-open `Multi` for `append_multi/3`.
-  defp build_multi_composable(multi, ctx) do
+  #
+  # GH #2587: `namespace` nil keeps today's step names; `{:line, i}` names each step
+  # `{:line, i, step}` and hands it the namespace-local view of `changes` (run_step/4), so
+  # the step functions below keep their fixed-key heads unchanged.
+  defp build_multi_composable(multi, ctx, namespace) do
     multi
-    |> Multi.run(:active_instance_guard, fn repo, changes ->
+    |> run_step(namespace, :active_instance_guard, fn repo, changes ->
       active_instance_guard(repo, changes, ctx)
     end)
-    |> Multi.run(:assign_sequence, fn repo, changes -> assign_sequence(repo, changes, ctx) end)
-    |> Multi.run(:idempotency, fn repo, changes -> claim_idempotency(repo, changes, ctx) end)
-    |> Multi.run(:insert_event, fn repo, changes -> insert_event(repo, changes, ctx) end)
-    |> maybe_store_oversized_payload(ctx)
-    |> Multi.run(:update_projection, fn repo, changes -> update_projection(repo, changes, ctx) end)
+    |> run_step(namespace, :assign_sequence, fn repo, changes ->
+      assign_sequence(repo, changes, ctx)
+    end)
+    |> run_step(namespace, :idempotency, fn repo, changes ->
+      claim_idempotency(repo, changes, ctx)
+    end)
+    |> run_step(namespace, :insert_event, fn repo, changes -> insert_event(repo, changes, ctx) end)
+    |> maybe_store_oversized_payload(ctx, namespace)
+    |> run_step(namespace, :update_projection, fn repo, changes ->
+      update_projection(repo, changes, ctx)
+    end)
   end
 
-  defp maybe_store_oversized_payload(multi, %{payload_bytes: payload_bytes} = ctx)
+  @spec run_step(
+          Ecto.Multi.t(),
+          step_namespace() | nil,
+          atom(),
+          (Ecto.Repo.t(), map() -> {:ok, term()} | {:error, term()})
+        ) :: Ecto.Multi.t()
+  defp run_step(multi, nil, step, fun), do: Multi.run(multi, step, fun)
+
+  defp run_step(multi, {:line, i}, step, fun) do
+    Multi.run(multi, {:line, i, step}, fn repo, changes ->
+      fun.(repo, namespace_changes(changes, i))
+    end)
+  end
+
+  # Only this line's entries, keyed by the bare step atom.
+  defp namespace_changes(changes, i) do
+    for {{:line, ^i, step}, value} <- changes, into: %{}, do: {step, value}
+  end
+
+  defp maybe_store_oversized_payload(multi, ctx, namespace \\ nil)
+
+  defp maybe_store_oversized_payload(multi, %{payload_bytes: payload_bytes} = ctx, namespace)
        when payload_bytes > @payload_inline_max_bytes do
-    Multi.run(multi, :store_oversized_payload, fn repo, changes ->
+    run_step(multi, namespace, :store_oversized_payload, fn repo, changes ->
       store_oversized_payload(repo, changes, ctx)
     end)
   end
 
-  defp maybe_store_oversized_payload(multi, _ctx), do: multi
+  defp maybe_store_oversized_payload(multi, _ctx, _namespace), do: multi
 
   # REQ-140 §3.5 -- the platform-scoped Multi. M1 (active_instance_guard) and
   # M6 (update_projection) are omitted -- not stubbed, not made conditional,
