@@ -3,9 +3,10 @@ defmodule Letflow.Definitions.ScriptBindingsActivationTest do
   GH 2534 PR 7c-1 AC1 (definition save), AC2 and AC2a (design
   `lib/letflow/design/gh2534-7c-script-handler.md` 4.5, C8, C10, C11a): a definition binding a
   tenant script is refused activation unless every bound `(key, version)` is a published
-  `service_task` version with a CLOSED output schema, no restricted opt-in and (7c-1) no
-  `reads` -- in ALL three activation paths (`Definitions.activate/2`, promotion, version
-  rollback). Each refusal writes nothing.
+  `service_task` version with a CLOSED output schema and no restricted opt-in -- in ALL three
+  activation paths (`Definitions.activate/2`, promotion, version rollback). Each refusal writes
+  nothing. GH 2534 PR 7c-2 lifted 7c-1's `:script_reads_unsupported`: declared `reads`
+  activate, and are re-checked on every run instead (design 11.3).
   """
 
   use Letflow.DataCase, async: false
@@ -217,7 +218,10 @@ defmodule Letflow.Definitions.ScriptBindingsActivationTest do
                activate_path(t.schema_name, graph)
     end
 
-    test "reads unsupported (7c-1)", %{source: s, target: t} do
+    test "7c-2: declared reads no longer refuse activation (all three paths)", %{
+      source: s,
+      target: t
+    } do
       key = unique("k")
 
       manifest =
@@ -231,7 +235,13 @@ defmodule Letflow.Definitions.ScriptBindingsActivationTest do
         ])
 
       version = version_in_status!(t.schema_name, key, :published, manifest)
-      assert_refused_everywhere(s, t, F.script_graph(key, version), :script_reads_unsupported)
+      graph = F.script_graph(key, version)
+
+      assert {{:ok, %{definition: %{status: :active}}}, :active} =
+               activate_path(t.schema_name, graph)
+
+      assert {{:ok, _}, [%{status: :active}]} = promote_path(s, t, graph)
+      assert {{:ok, _}, :deprecated} = rollback_path(t.schema_name, graph)
     end
 
     test "restricted opt-in", %{source: s, target: t} do

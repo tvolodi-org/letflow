@@ -110,6 +110,11 @@ config :letflow, :script_task_dispatcher,
   busy_backoff_base_ms: 500,
   busy_backoff_cap_ms: 30_000
 
+# GH 2534 PR 7c-2 (design 11.1, 0053 F10): the implementation of the engine-defined
+# Letflow.Engine.ScriptReadPort behaviour. The dispatcher resolves it here on every run, so no
+# engine file names an entity module (mix letflow.check_boundaries Rule 6).
+config :letflow, :script_read_port, Letflow.Entities.ScriptReads
+
 # GH 2534 PR 7c-1 SECURITY note: the build environment, read by Letflow.Application.start/2's
 # boot guard (Letflow.Scripts.Runtime.boot_check/2 refuses :scripts_test_hooks in :prod).
 config :letflow, :config_env, config_env()

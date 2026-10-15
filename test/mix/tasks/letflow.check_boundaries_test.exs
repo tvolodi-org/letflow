@@ -263,6 +263,128 @@ defmodule Mix.Tasks.Letflow.CheckBoundariesTest do
       assert :ok
     end
   end
+
+  # ================================================================
+  # Rule 6 -- engine -> entities layer rule (GH 2534 PR 7c-2, AC22)
+  # Design: lib/letflow/design/gh2534-7c-script-handler.md section 11.4.
+  # Rule 6 classifies DIRECT file edges only (no transitive closure).
+  # ================================================================
+
+  describe "Rule 6 (GH 2534 7c-2, AC22)" do
+    setup do
+      on_exit(fn -> Application.delete_env(:letflow, :check_boundaries_xref_runner) end)
+      :ok
+    end
+
+    test "rule 6 synthetic edge: engine/x.ex -> entities/y.ex is a violation naming the port" do
+      assert {:violation, reason} =
+               CB.classify_edge({"lib/letflow/engine/x.ex", "lib/letflow/entities/y.ex"}, %{})
+
+      assert reason =~ "lib/letflow/engine/x.ex"
+      assert reason =~ "lib/letflow/entities/y.ex"
+      assert reason =~ "Letflow.Engine.ScriptReadPort"
+    end
+
+    test "every source and target prefix of the row is covered" do
+      for source <- ["lib/letflow/engine.ex", "lib/letflow/engine/lua/deep/x.ex"],
+          target <- ["lib/letflow/entities.ex", "lib/letflow/entities/query/compiler.ex"] do
+        assert {:violation, _} = CB.classify_edge({source, target}, %{}), "#{source} -> #{target}"
+      end
+    end
+
+    test "only the forbidden direction and only the listed layers" do
+      for edge <- [
+            # entities may depend on the engine (it implements the engine's port)
+            {"lib/letflow/entities/script_reads.ex", "lib/letflow/engine/script_read_port.ex"},
+            # the engine's facade into scripts is allowed (C18)
+            {"lib/letflow/engine/script_task_dispatcher.ex", "lib/letflow/scripts/runtime.ex"},
+            # look-alike paths are not the engine
+            {"lib/letflow/engine_helpers.ex", "lib/letflow/entities/y.ex"},
+            {"lib/letflow/routers/x.ex", "lib/letflow/entities/y.ex"}
+          ] do
+        assert CB.classify_edge(edge, %{}) == :ok, inspect(edge)
+      end
+    end
+
+    test "DIRECT edges only: the accepted indirect path engine -> Scripts -> Entities passes" do
+      edges = [
+        {"lib/letflow/engine/script_task_dispatcher.ex", "lib/letflow/scripts/runtime.ex"},
+        {"lib/letflow/scripts/runtime.ex", "lib/letflow/scripts/policy.ex"},
+        {"lib/letflow/scripts/policy.ex", "lib/letflow/entities/definitions.ex"}
+      ]
+
+      assert CB.classify_edges(edges, %{}) == [:ok, :ok, :ok]
+    end
+
+    test "run/1 fails on a synthetic direct engine -> entities edge and passes without it" do
+      Application.put_env(:letflow, :check_boundaries_xref_runner, fn ->
+        {"lib/letflow/engine/x.ex
+`-- lib/letflow/entities/y.ex (runtime)
+", 0}
+      end)
+
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert_raise Mix.Error, ~r/1 violation/, fn -> CB.run([]) end
+        end)
+
+      assert output =~ "VIOLATION: lib/letflow/engine/x.ex -> lib/letflow/entities/y.ex"
+
+      Application.put_env(:letflow, :check_boundaries_xref_runner, fn ->
+        {"lib/letflow/engine/x.ex
+`-- lib/letflow/scripts/runtime.ex (runtime)
+", 0}
+      end)
+
+      assert ExUnit.CaptureIO.capture_io(fn -> assert CB.run([]) == :ok end) =~ "0 violations"
+    end
+
+    test "layer_rules/0 is the one declarative row" do
+      assert [rule] = CB.layer_rules()
+      assert rule.source_prefixes == ["lib/letflow/engine.ex", "lib/letflow/engine/"]
+
+      assert rule.forbidden_target_prefixes == [
+               "lib/letflow/entities.ex",
+               "lib/letflow/entities/"
+             ]
+    end
+
+    test "no engine file names Letflow.Entities (source scan)" do
+      root = Path.expand("../../..", __DIR__)
+
+      files =
+        [Path.join(root, "lib/letflow/engine.ex")] ++
+          Path.wildcard(Path.join(root, "lib/letflow/engine/**/*.ex"))
+
+      assert length(files) > 10
+
+      offenders = Enum.filter(files, &(File.read!(&1) =~ "Letflow.Entities"))
+      assert offenders == []
+    end
+
+    test "the port implementation is selected only through :script_read_port" do
+      root = Path.expand("../../..", __DIR__)
+      assert Application.fetch_env!(:letflow, :script_read_port) == Letflow.Entities.ScriptReads
+
+      behaviours =
+        Letflow.Entities.ScriptReads.module_info(:attributes)
+        |> Keyword.get_values(:behaviour)
+        |> List.flatten()
+
+      assert Letflow.Engine.ScriptReadPort in behaviours
+
+      readers =
+        root
+        |> Path.join("lib/**/*.ex")
+        |> Path.wildcard()
+        |> Enum.filter(
+          &(File.read!(&1) =~ ~r/(get_env|fetch_env!?)\(:letflow, :script_read_port/)
+        )
+        |> Enum.map(&Path.relative_to(&1, root))
+
+      assert readers == ["lib/letflow/engine/script_task_dispatcher.ex"]
+    end
+  end
 end
 
 defmodule Mix.Tasks.Letflow.CheckBoundariesTaskTest do

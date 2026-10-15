@@ -6,7 +6,7 @@ defmodule Mix.Tasks.Letflow.CheckBoundaries do
   `docs/migration/decisions/0039-platform-module-solution-layering.md` §D3.
 
   Shells out to `mix xref graph --format plain`, parses the file-level
-  dependency edges it emits, and classifies each edge against six rules
+  dependency edges it emits, and classifies each edge against seven rules
   (see §2 of the design artefact `lib/letflow/design/req405-check-boundaries.md`).
 
   ## What it checks
@@ -23,6 +23,26 @@ defmodule Mix.Tasks.Letflow.CheckBoundaries do
     `lib/letflow/modules/b/` only if `b` appears in module `a`'s
     manifest `depends_on` list (as read from
     `Letflow.Modules.Catalog.all_manifests/0`).
+  * **Rule 6 — layer rule (GH 2534 PR 7c-2, decision 0053 F10).** A
+    declarative table (`layer_rules/0`) of forbidden source -> target path
+    prefixes, evaluated BEFORE Rule 0. Today it holds one row: the engine
+    (`lib/letflow/engine.ex`, `lib/letflow/engine/**`) may not reference the
+    entities context (`lib/letflow/entities.ex`, `lib/letflow/entities/**`);
+    entity records reach the engine only through the engine-defined
+    `Letflow.Engine.ScriptReadPort`, whose implementation is selected from
+    `config :letflow, :script_read_port` at run time (a config value, not a
+    file edge).
+
+    **Rule 6 checks DIRECT file edges ONLY.** `mix xref graph --format plain`
+    lists each file with the files it references itself; Rule 6 classifies
+    exactly those edges and never computes a transitive closure. An INDIRECT
+    path through a third layer is therefore not a Rule 6 violation. One such
+    path exists and is accepted under F10's reading ("the engine names no
+    entities module"), as signed at the 7c-1 gate: engine ->
+    `Letflow.Scripts.Runtime` -> `Letflow.Scripts.Policy` ->
+    `Letflow.Entities.Definitions` (definition METADATA for the run-time
+    `check_reads` re-check; entity RECORDS are read only through the port).
+    A transitive reading of F10 would need a different check, not this rule.
 
   ## Permitted exceptions (Rules 0–3)
 
@@ -34,6 +54,9 @@ defmodule Mix.Tasks.Letflow.CheckBoundaries do
     `lib/letflow/modules/a/y.ex`) are always `:ok`.
   * Rule 3: authorized cross-module references (target's id is in source
     module's `depends_on`) are `:ok`.
+
+  Rule 6 is evaluated before Rule 0, so its targets are checked even though
+  they are not module-subdir files.
 
   ## Scope gate
 
@@ -187,6 +210,9 @@ defmodule Mix.Tasks.Letflow.CheckBoundaries do
 
   * **Scope gate** — source not starting with `"lib/"` or starting with
     `"test/support/"` → `:ok` (out of scope).
+  * **Rule 6** — the edge's source and target match one row of
+    `layer_rules/0` → `{:violation, ...}` naming the row's reason. A DIRECT
+    edge only: this function sees one edge, never a path.
   * **Rule 0** — target not in a `lib/letflow/modules/<id>/` subdir → `:ok`.
   * **Rule 1** — source is `"lib/letflow/modules/catalog.ex"` → `:ok`
     (sanctioned importer).
@@ -204,7 +230,10 @@ defmodule Mix.Tasks.Letflow.CheckBoundaries do
   """
   @spec classify_edge({String.t(), String.t()}, depends_on_map()) ::
           :ok | {:violation, String.t()}
-  def classify_edge({source, target}, depends_on_map) do
+  def classify_edge({source, target} = edge, depends_on_map) do
+    # Rule 6 is computed once per edge (nil = no layer rule broken).
+    layer_reason = layer_violation(edge)
+
     cond do
       # Scope gate: source not under lib/ → out of scope
       not String.starts_with?(source, "lib/") ->
@@ -213,6 +242,10 @@ defmodule Mix.Tasks.Letflow.CheckBoundaries do
       # Scope gate: test/support/ sources are excluded
       String.starts_with?(source, "test/support/") ->
         :ok
+
+      # Rule 6: a forbidden layer edge (DIRECT edges only), before Rule 0
+      layer_reason != nil ->
+        {:violation, layer_reason}
 
       # Rule 0: target not in a module subdir → always OK
       not path_in_module_subdir?(target) ->
@@ -248,6 +281,42 @@ defmodule Mix.Tasks.Letflow.CheckBoundaries do
            "(only lib/letflow/modules/catalog.ex may reference module-subdir files)"}
     end
   end
+
+  @layer_rules [
+    %{
+      source_prefixes: ["lib/letflow/engine.ex", "lib/letflow/engine/"],
+      forbidden_target_prefixes: ["lib/letflow/entities.ex", "lib/letflow/entities/"],
+      reason: "engine -> entities only via Letflow.Engine.ScriptReadPort (0053 F10)"
+    }
+  ]
+
+  @doc """
+  Rule 6's declarative table: each row forbids a DIRECT file edge from a file
+  under one of `source_prefixes` to a file under one of
+  `forbidden_target_prefixes`. Indirect paths are out of this rule's scope
+  (see the moduledoc).
+  """
+  @spec layer_rules() :: [
+          %{
+            source_prefixes: [String.t()],
+            forbidden_target_prefixes: [String.t()],
+            reason: String.t()
+          }
+        ]
+  def layer_rules, do: @layer_rules
+
+  # Rule 6: the reason of the first layer rule the DIRECT edge breaks, or nil.
+  @spec layer_violation({String.t(), String.t()}) :: String.t() | nil
+  defp layer_violation({source, target}) do
+    Enum.find_value(@layer_rules, fn rule ->
+      if prefixed?(source, rule.source_prefixes) and
+           prefixed?(target, rule.forbidden_target_prefixes) do
+        "layer violation: #{source} → #{target} (#{rule.reason})"
+      end
+    end)
+  end
+
+  defp prefixed?(path, prefixes), do: Enum.any?(prefixes, &String.starts_with?(path, &1))
 
   @doc """
   Maps `classify_edge/2` over a list of edges; returns results in the same order.
