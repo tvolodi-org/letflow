@@ -727,7 +727,7 @@ defmodule Letflow.Routers.Instances do
       "instance_id" => result.instance_id,
       "status" => status_string(state.status),
       "tokens" => Enum.map(state.tokens, &token_map/1),
-      "variables" => state.variables
+      "variables" => Response.public_variables(state.variables)
     })
   end
 
@@ -847,7 +847,7 @@ defmodule Letflow.Routers.Instances do
       "definition_id" => projection.definition_id,
       "correlation_key" => projection.correlation_key,
       "status" => status_string(projection.status),
-      "variables" => projection.variables,
+      "variables" => Response.public_variables(projection.variables),
       "started_at" => DateTime.to_iso8601(projection.started_at),
       "completed_at" => optional_iso8601(projection.completed_at),
       "cancelled_at" => optional_iso8601(projection.cancelled_at),
@@ -949,6 +949,8 @@ defmodule Letflow.Routers.Instances do
     end
   end
 
+  # CO-1 (GH #2587 PR B3): the payload is shaped by `Response.public_event_payload/2`, never
+  # emitted verbatim, so engine-written `_sys` values and record ids cannot reach a client.
   defp history_item_map(event, display_names) do
     %{
       "event_id" => event.event_id,
@@ -957,7 +959,7 @@ defmodule Letflow.Routers.Instances do
       "event_type" => event.event_type,
       "sequence_number" => event.sequence_number,
       "created_at" => DateTime.to_iso8601(event.created_at),
-      "payload" => event.payload
+      "payload" => Response.public_event_payload(event.event_type, event.payload)
     }
   end
 

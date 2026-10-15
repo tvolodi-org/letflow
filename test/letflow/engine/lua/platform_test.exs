@@ -537,6 +537,46 @@ defmodule Letflow.Engine.Lua.PlatformTest do
     end
   end
 
+  describe "GH #2587 PR B3 (INV-2): engine-written _sys values are never script-readable" do
+    test "read_variable returns nil for a reserved key, and still reads ordinary ones" do
+      {:ok, vars} = VariableMerge.put_sys(%{"plain" => "ok"}, "_sys.r", Ecto.UUID.generate())
+
+      lua =
+        Platform.install(
+          Sandbox.new(),
+          Capabilities.new(["variable:read"]),
+          execution_context(%{variables: vars})
+        )
+
+      assert {[nil], _} = Lua.eval!(lua, "return platform.read_variable('_sys.r')")
+      assert {["ok"], _} = Lua.eval!(lua, "return platform.read_variable('plain')")
+    end
+
+    test "get_instance_state omits reserved keys from variables" do
+      %{schema_name: schema_name} = provisioned_tenant()
+      instance_id = Ecto.UUID.generate()
+      {:ok, vars} = VariableMerge.put_sys(%{"plain" => "ok"}, "_sys.r", Ecto.UUID.generate())
+      {:ok, vars} = VariableMerge.put_sys(vars, "_sys.r.seq", 5)
+      seed_projection!(schema_name, instance_id, %{status: :active, variables: vars})
+
+      lua =
+        Platform.install(
+          Sandbox.new(),
+          Capabilities.new(["instance:read"]),
+          execution_context(%{instance_id: instance_id, prefix: schema_name})
+        )
+
+      script = """
+      local state = platform.get_instance_state('#{instance_id}')
+      local n = 0
+      for _ in pairs(state.variables) do n = n + 1 end
+      return n, state.variables.plain, state.variables['_sys.r']
+      """
+
+      assert {[1, "ok", nil], _lua} = Lua.eval!(lua, script)
+    end
+  end
+
   describe "REQ-159: platform.get_instance_state -- structured errors, never a raise" do
     test "non-UUID-shaped argument returns {nil, reason: invalid_id}, even with a valid own instance_id set" do
       own_id = Ecto.UUID.generate()
