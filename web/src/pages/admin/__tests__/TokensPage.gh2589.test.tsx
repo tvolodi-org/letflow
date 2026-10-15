@@ -8,13 +8,16 @@
  * react-query QueryClientProvider all run. Only window.fetch is stubbed (a
  * URL router returning the GET /identity/tokens and GET /identity/users
  * bodies in the shape lib/letflow/routers/identity.ex token_map/2 emits), so
- * the test exercises the real client parsing. Same harness as
- * src/pages/tasks/__tests__/TaskInboxPage.sodMessage.test.tsx.
+ * the test exercises the real client parsing. As edge cases, two rows
+ * deliberately omit a field (one has no status, one has no issuer_user_id)
+ * and two rows carry unknown statuses ('suspended' and 'toString'). Same
+ * harness as src/pages/tasks/__tests__/TaskInboxPage.sodMessage.test.tsx.
  *
  * Why this fails on the pre-fix page: the Status cell chose its colour only
- * from revoked_at, so every row without revoked_at (expired, owner_inactive
- * and a row with no status) was drawn in --color-success-dark; it printed the
- * raw status string and fell back to 'ACTIVE'; and there was no issuer column.
+ * from revoked_at, so every row without revoked_at (expired, owner_inactive,
+ * a row with no status and the two unknown-status rows) was drawn in
+ * --color-success-dark; it printed the raw status string and fell back to
+ * 'ACTIVE'; and there was no issuer column.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import * as jestDomMatchers from '@testing-library/jest-dom/matchers'
@@ -51,6 +54,7 @@ vi.mock('@/auth/AuthContext', async (importOriginal) => {
 })
 
 import TokensPage from '@/pages/admin/TokensPage'
+import type { ApiTokenStatus } from '@/types/api'
 
 const SUCCESS_COLOUR = 'var(--color-success-dark)'
 
@@ -131,6 +135,33 @@ const TOKENS: Record<string, unknown>[] = [
     revoked_at: null,
     last_used_at: null,
   },
+  {
+    // An unknown, non-empty status: must render "Unknown", never green.
+    id: 'tok-suspended',
+    name: 'suspended-token',
+    user_id: 'u-owner',
+    issuer_user_id: null,
+    roles: ['TASK_WORKER'],
+    status: 'suspended' as unknown as ApiTokenStatus,
+    created_at: '2026-10-01T00:00:00Z',
+    expires_at: null,
+    revoked_at: null,
+    last_used_at: null,
+  },
+  {
+    // An unknown status that names an Object.prototype member: a plain
+    // `in` or indexed lookup would hit the prototype; it must render "Unknown".
+    id: 'tok-tostring',
+    name: 'tostring-token',
+    user_id: 'u-owner',
+    issuer_user_id: null,
+    roles: ['TASK_WORKER'],
+    status: 'toString' as unknown as ApiTokenStatus,
+    created_at: '2026-10-01T00:00:00Z',
+    expires_at: null,
+    revoked_at: null,
+    last_used_at: null,
+  },
 ]
 
 const ROW_ACTIVE = 0
@@ -138,6 +169,8 @@ const ROW_REVOKED = 1
 const ROW_EXPIRED = 2
 const ROW_OWNER_INACTIVE = 3
 const ROW_NO_STATUS = 4
+const ROW_SUSPENDED = 5
+const ROW_TOSTRING = 6
 
 type Route = { ok: boolean; status: number; statusText: string; body: unknown }
 const ok200 = (body: unknown): Route => ({ ok: true, status: 200, statusText: 'OK', body })
@@ -207,18 +240,18 @@ afterEach(() => {
 })
 
 describe('GH-2589 TokensPage: the four effective token statuses and the issuer', () => {
-  it('only the active row uses the success (green) colour; revoked, expired, owner_inactive and a missing status do not', async () => {
+  it('only the active row uses the success (green) colour; revoked, expired, owner_inactive, a missing status and an unknown status do not', async () => {
     const rows = await renderedRows()
 
     expect(statusElement(rows[ROW_ACTIVE]).style.color).toBe(SUCCESS_COLOUR)
 
-    for (const index of [ROW_REVOKED, ROW_EXPIRED, ROW_OWNER_INACTIVE, ROW_NO_STATUS]) {
+    for (const index of [ROW_REVOKED, ROW_EXPIRED, ROW_OWNER_INACTIVE, ROW_NO_STATUS, ROW_SUSPENDED, ROW_TOSTRING]) {
       const colour = statusElement(rows[index]).style.color
       expect(colour, `row ${index} (${String(TOKENS[index].status)}) must not be a success colour`).not.toContain('success')
     }
   })
 
-  it('each status has its own human-readable label, and a missing status reads "Unknown", never "ACTIVE"', async () => {
+  it('each status has its own human-readable label, and a missing or unknown status reads "Unknown", never "ACTIVE"', async () => {
     const rows = await renderedRows()
 
     expect(statusElement(rows[ROW_ACTIVE]).textContent).toBe('Active')
@@ -226,6 +259,8 @@ describe('GH-2589 TokensPage: the four effective token statuses and the issuer',
     expect(statusElement(rows[ROW_EXPIRED]).textContent).toBe('Expired')
     expect(statusElement(rows[ROW_OWNER_INACTIVE]).textContent).toBe('Owner inactive')
     expect(statusElement(rows[ROW_NO_STATUS]).textContent).toBe('Unknown')
+    expect(statusElement(rows[ROW_SUSPENDED]).textContent).toBe('Unknown')
+    expect(statusElement(rows[ROW_TOSTRING]).textContent).toBe('Unknown')
 
     // The four known statuses render with four distinct colours.
     const colours = [ROW_ACTIVE, ROW_REVOKED, ROW_EXPIRED, ROW_OWNER_INACTIVE].map(
