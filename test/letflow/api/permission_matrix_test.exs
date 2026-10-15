@@ -763,7 +763,7 @@ defmodule Letflow.Api.PermissionMatrixTest do
   # --- AC9 / F2: textual pins on ci.yml and mix.exs ------------------------------------
 
   describe "T24 AC9: the CI step" do
-    test "backend_static runs the dev-env check with the marker greps; shared caches exclude _build/dev" do
+    test "backend_static runs the dev-env check with the marker greps; shared caches keep _build/dev" do
       ci = File.read!(".github/workflows/ci.yml")
       [_, static_job] = String.split(ci, "\n  backend_static:\n", parts: 2)
       [static_job, shard_job] = String.split(static_job, "\n  backend_shard:\n", parts: 2)
@@ -783,8 +783,11 @@ defmodule Letflow.Api.PermissionMatrixTest do
 
       assert static_job =~ "key: ${{ runner.os }}-mix-dev-${{ hashFiles('mix.lock') }}"
 
+      # The shared caches deliberately keep _build/dev: the remaining MIX_ENV=dev subprocess
+      # tests (GH #2611) need a warm dev build; excluding it made them time out on #2612.
       for job <- [static_job, shard_job] do
-        assert job =~ "            _build\n            !_build/dev\n"
+        assert job =~ "            deps\n            _build\n          key:"
+        refute job =~ "!_build/dev"
       end
     end
 

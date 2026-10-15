@@ -612,10 +612,12 @@ checks (mix letflow.check.static)" and before "Run isolated tails":
      ` result=pass`. A `mix.exs` alias or a stub task that shadows the real one and exits 0
      prints neither with the right shas, so the step fails.
 
-Shared cache (CDV 3): the existing "Cache deps and _build" steps in `backend_static`
-(`ci.yml:424-429`) and `backend_shard` (`ci.yml:552-557`) change their `path` to
-`deps`, `_build`, `!_build/dev`, so the shared entry never carries or restores a dev build
-and the dedicated key in step 1 is the only source of `_build/dev`.
+Shared cache (CDV 3, REVERTED after #2612's first CI run): the existing "Cache deps and
+_build" steps in `backend_static` and `backend_shard` keep their original `path` (`deps`,
+`_build`), i.e. they still carry `_build/dev`. Excluding it (`!_build/dev`, as first designed)
+made the remaining `MIX_ENV=dev` subprocess tests (secrets/mail/login-directory runtime config;
+conversion tracked in GH #2611) cold-compile in every shard and time out. The dedicated key in
+step 1 stays as an additional source for the matrix step. Revisit the exclusion after #2611.
 
 No Postgres use (the job's service stays for the other steps). Cost: one dev compile of deps
 and the project, cold once per `mix.lock` change, then a cache hit plus an incremental

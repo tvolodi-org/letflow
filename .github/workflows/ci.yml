@@ -433,7 +433,6 @@ jobs:
           path: |
             deps
             _build
-            !_build/dev
           key: ${{ runner.os }}-mix-${{ hashFiles('mix.lock') }}
           restore-keys: |
             ${{ runner.os }}-mix-
@@ -485,8 +484,9 @@ jobs:
       # GH #2586 / REQ-498 (design lib/letflow/design/gh2586-permission-matrix-golden.md
       # section 8): the effective-permission golden check runs under MIX_ENV=dev, i.e. the
       # PRODUCTION module list (config/test.exs registers the test fixtures, and the task
-      # refuses MIX_ENV=test). Its own _build/dev cache key: the shared entry above excludes
-      # `_build/dev` (`!_build/dev`), so this key is the only source of a dev build.
+      # refuses MIX_ENV=test). It also has its own _build/dev cache key. The shared entry above
+      # deliberately still includes _build/dev: the remaining MIX_ENV=dev subprocess tests (GH #2611)
+      # rely on a warm dev build there; excluding it made them cold-compile and time out on #2612.
       - name: Cache _build/dev (permission matrix)
         if: needs.changes.outputs.backend != 'false'
         uses: actions/cache@v4
@@ -634,7 +634,6 @@ jobs:
           path: |
             deps
             _build
-            !_build/dev
           key: ${{ runner.os }}-mix-${{ hashFiles('mix.lock') }}
           restore-keys: |
             ${{ runner.os }}-mix-
