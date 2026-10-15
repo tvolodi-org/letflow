@@ -95,10 +95,12 @@ and QA sha, so the newest run reaches the same or a fresher decision (idempotent
 4. SSH deploy: `if: steps.decide.outputs.deploy == 'true'` (string equality; a missing output never deploys, and a failed
    decide step stops the job). Inputs byte-identical to `cd.yml:58-70`: same 3 secrets, same `script`. No sha or argument
    is sent over SSH; the forced command still deploys main's tip only; the key's restricted command is not widened.
-5. `verify`, `if:` step 4 ran: read `/health` (10 x 6 s); log `cd-qa: deployed Q`. Q descendant of `TIP` but != `TIP`: log
+5. `verify`, `if:` step 4 ran: read `/health` (10 x 6 s); run `git fetch origin main`, resolve Q with `git rev-parse --verify
+   --quiet "Q^{commit}"`, then `git merge-base --is-ancestor TIP Q`; log `cd-qa: deployed Q`. Q descendant of `TIP` but != `TIP`: log
    `cd-qa: main moved during deploy (verified Y, deployed Q)`, green (§3 race). Unreachable or not a descendant: red.
 
-**Job `skip-log`.** `if:` = `!(<the deploy job's if, verbatim>)`, so it runs exactly when `deploy` is skipped by its job `if`.
+**Job `skip-log`.** `if: ${{ !(<the deploy job's if, verbatim>) }}` (the `${{ }}` wrapper is REQUIRED: a bare `if:` value starting
+with `!` is a YAML tag, and cd.yml is never run by PR CI, so a broken file would silently stop CD; T4 asserts the wrapper), so it runs exactly when `deploy` is skipped by its job `if`.
 No secrets, `permissions: {}`, no concurrency group, no checkout, `timeout-minutes: 5`. `env:` `CONCLUSION`, `EVENT`, `HEAD_REPO`
 (from `github.event.workflow_run.*`) and the run uses `$GITHUB_REPOSITORY`; it computes `same-repo=true|false` in shell and prints
 `cd-qa: skipped (conclusion=$CONCLUSION, event=$EVENT, same-repo=…)` with `printf '%s'`. It never prints `HEAD_REPO`.
@@ -130,14 +132,18 @@ last 30 successful CD runs. Values give >= 4x headroom over the observed max and
 
 A timeout ends the job non-success; it never becomes a skip: static/shards feed the aggregator's fail-closed rule (any result
 other than `success`/expected `skipped` is red, `ci.yml:55-60`); `frontend`, `mobile` and the aggregator are their own contexts;
-a non-success run fails CD's job `if`. OQ-A asks which conclusion string the API reports; both possible values are non-success.
+a non-success run fails CD's job `if`. OQ-A answered (validator round 2): a timed-out job's conclusion is `cancelled` (GitHub cancels it); non-success either way.
+`appleboy/ssh-action`'s own `command_timeout` (default 10m, to be confirmed against the action's docs) fires before the 20-min
+job timeout; deploys take at most 183 s today.
 
 ## 5. Runbook: `docs/runbooks/qa-lag.md` (new)
 
 Starts with the verbatim line "REQ-367's CD path gate is superseded: CD deploys the tested main tip whenever QA differs".
 Sections: (1) symptom: `curl https://qa.bizdala.com/health` sha != `gh api repos/:owner/:repo/commits/main --jq .sha`;
 (2) `gh run list --workflow CI --branch main --event push` and `--workflow "CD (QA)"`: conclusion per sha; (3) cancel vs
-failure: a cancelled push run should no longer occur (manual only); `failure` is real red; a timed-out job (§4) is red; a
+failure: after #2622 a cancelled push run means a TIMEOUT or a MANUAL cancel (`timeout-minutes` cancels the job, so its conclusion
+is `cancelled`; the job log says "exceeded the maximum execution time" for a timeout); either way it is non-success, CD does not
+deploy it and the aggregator turns a cancelled shard into `failure`; `failure` is real red; a
 cancelled CD run is a superseded queued run, harmless; (4) read the reason: `gh run view <cd id> --log | grep 'cd-qa:'`, with the
 table rows of §3, including "TIP unreadable → red" (rows 2-3: GitHub API or fetch trouble; rerun the CD run); (5) green merge_group
 run for that PR (`gh run list --workflow CI --event merge_group`) means not a code failure; (6) the race ruling of §3 (v);
@@ -146,7 +152,8 @@ run for that PR (`gh run list --workflow CI --event merge_group`) means not a co
 ## 6. Tests (TEST-DESIGNER; ExUnit, precedent `test/letflow/ci_backend_path_filter_test.exs`, `test/scripts/prune_web_dist_backups_test.exs`)
 
 - T0 retarget `ci_backend_path_filter_test.exs`: `@ci_yml` (:35) regex extraction now reads `scripts/ci_changed_paths.sh`; the
-  here-string and pipe-into-`grep -q` guards (:288-310) scan all four files (`ci.yml`, `cd.yml`, `scripts/ci_changed_paths.sh`,
+  here-string and pipe-into-`grep -q` guards (:288-310) scan all four files, with per-file expectations (exactly 3 here-strings in
+  `scripts/ci_changed_paths.sh`, 0 in the other three) (`ci.yml`, `cd.yml`, `scripts/ci_changed_paths.sh`,
   `scripts/cd_qa_decide.sh`); `@decision_table` adds `{"scripts/ci_changed_paths.sh", true, true}` and
   `{"scripts/cd_qa_decide.sh", true, false}`.
 - T1 single source: `ci.yml` is the only file that invokes `scripts/ci_changed_paths.sh`; no `_PATHS_RE=` assignment and no
@@ -154,7 +161,7 @@ run for that PR (`gh run list --workflow CI --event merge_group`) means not a co
 - T2 `ci_changed_paths.sh` via `System.cmd("bash", …)`: empty, docs-only, `lib/x.ex`, `web/a.tsx`, itself, > 64 KiB list: exit 0, 3 lines.
 - T3 `cd_qa_decide.sh` rows 1-9 in a temp git repo (linear A-B-C plus an unrelated root; a 7-hex short sha; an ambiguous one),
   asserting exit, `deploy=`, the reason prefix, and that a junk `QA_HEALTH` string never appears in stdout.
-- T4 static `cd.yml`: deploy `if` has the three clauses; `skip-log` `if` is exactly `!(` + deploy `if` + `)`; `cd-qa` group, cancel
+- T4 static `cd.yml`: deploy `if` has the three clauses; `skip-log` `if` is exactly `${{ !(` + deploy `if` + `) }}`; the verify step fetches before its ancestry check; `cd-qa` group, cancel
   false, on the job; permissions as §3; no `${{ github.` inside any `run:`; SSH step `with:` keys/secret names unchanged; no
   `download-artifact`; every job has `timeout-minutes`.
 - T5 static `ci.yml`: §1 group expression verbatim; cancel expression unchanged; no `path-filter-outputs`; every job's
@@ -196,5 +203,5 @@ and `curl -s https://qa.bizdala.com/health`, and quotes them in the PR body (edi
 
 ## 10. Open questions
 
-OQ-A: API conclusion of a timed-out job (`failure` vs `cancelled`); both non-success (§4). OQ-B: a job skipped by `if:` is
+OQ-A: ANSWERED, a timed-out job is `cancelled` (§4, runbook §5(3)). OQ-B: a job skipped by `if:` is
 assumed not to enter its job-level group; if it does, row 4 self-heals on the next CD event. Check both on the first burst.
