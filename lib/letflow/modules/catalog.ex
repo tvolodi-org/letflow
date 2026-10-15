@@ -51,9 +51,34 @@ defmodule Letflow.Modules.Catalog do
 
   alias Letflow.Api.Authorization
   alias Letflow.Entities.ManagedTypes
+  alias Letflow.Modules.ManifestHash
   alias Letflow.Modules.Module
 
   @modules Application.compile_env(:letflow, :modules, [])
+
+  @name_format ~r/\A[a-z][a-z0-9_]{0,63}\z/
+
+  defmodule WriteHandler do
+    @moduledoc """
+    A write handler a module registered in its manifest (`:write_handlers`),
+    as resolved by `Letflow.Modules.Catalog.write_handler/2` (GH #2590 /
+    REQ-501 R1). Built only inside `catalog.ex`; every other file receives
+    one from `Catalog` and never constructs one (a forged struct is ignored:
+    `Catalog.call_write_handler/4` re-resolves by `module_id` and `name`).
+    """
+
+    @enforce_keys [:module_id, :name, :entry_module, :function, :targets, :args]
+    defstruct [:module_id, :name, :entry_module, :function, :targets, :args]
+
+    @type t :: %__MODULE__{
+            module_id: String.t(),
+            name: String.t(),
+            entry_module: module(),
+            function: {module(), atom()},
+            targets: [String.t()],
+            args: %{String.t() => %{required: boolean()}}
+          }
+  end
 
   @doc "The list of registered entry modules, in config order."
   @spec entry_modules() :: [module()]
@@ -100,6 +125,96 @@ defmodule Letflow.Modules.Catalog do
     end)
     |> MapSet.new()
   end
+
+  @doc """
+  Resolves a registered write handler by module id and handler name
+  (GH #2590 / REQ-501 R1, design section 4.1, D-R.1/D-R.2).
+
+  Resolution is binary comparison against the compiled manifest list only:
+  a non-binary argument, an unknown module or an unknown handler answers
+  `{:error, :not_found}`; no atom is ever created from the arguments
+  (`String.to_atom`, `Module.concat`, `binary_to_term` are not used).
+
+  `validate/2` runs only in tests and the mix task, so resolution RE-CHECKS
+  the whole write-handler registration of the module on every call (shape,
+  names, targets within that manifest's `manages_entity_types`, handler
+  module within the entry module's namespace, `function_exported?/3`);
+  any failure is `{:error, :not_found}` (fail closed, no distinct code).
+  """
+  @spec write_handler(module_id :: term(), name :: term()) ::
+          {:ok, WriteHandler.t()} | {:error, :not_found}
+  def write_handler(module_id, name), do: write_handler_in(entry_modules(), module_id, name)
+
+  @doc false
+  # Same as write_handler/2 over an explicit entry-module list: the seam the
+  # F-6 tests use to resolve against a manifest that never went through
+  # validate/2 (the compiled list is fixed at compile time).
+  @spec write_handler_in([module()], term(), term()) ::
+          {:ok, WriteHandler.t()} | {:error, :not_found}
+  def write_handler_in(entries, module_id, name)
+      when is_list(entries) and is_binary(module_id) and is_binary(name) do
+    with entry when not is_nil(entry) <-
+           Enum.find(entries, fn entry_module -> entry_module.manifest().id == module_id end),
+         manifest = entry.manifest(),
+         :ok <- validate_write_handlers(manifest, entry),
+         spec when not is_nil(spec) <-
+           Enum.find(Map.get(manifest, :write_handlers, []), &(&1.name == name)) do
+      {:ok,
+       %WriteHandler{
+         module_id: module_id,
+         name: name,
+         entry_module: entry,
+         function: spec.function,
+         targets: spec.targets |> Enum.uniq() |> Enum.sort(),
+         args: spec.args
+       }}
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  def write_handler_in(_entries, _module_id, _name), do: {:error, :not_found}
+
+  @doc """
+  Calls a registered write handler: `apply/3` of the handler function the
+  Catalog itself resolved (the only `apply` of handler code). The handler's
+  own `module_id`/`name` are re-resolved here, so the `function` carried by
+  the struct argument is never trusted. Returns the handler's raw return
+  (the caller validates the shape), or `{:error, :not_found}` when the
+  registration no longer resolves. No caller exists in R1.
+  """
+  @spec call_write_handler(WriteHandler.t(), Ecto.Multi.t(), ctx :: struct(), args :: map()) ::
+          term()
+  def call_write_handler(%WriteHandler{module_id: module_id, name: name}, multi, ctx, args) do
+    case write_handler(module_id, name) do
+      {:ok, %WriteHandler{function: {module, fun}}} -> apply(module, fun, [multi, ctx, args])
+      {:error, :not_found} = error -> error
+    end
+  end
+
+  @doc """
+  The SHA-256 manifest hash (`Letflow.Modules.ManifestHash`) of a registered
+  entry module (by module atom) or of the module with the given manifest id.
+  Computed per call from the compiled manifest; no state is kept.
+  """
+  @spec manifest_hash(entry_module :: module() | String.t()) ::
+          {:ok, String.t()} | {:error, :not_found}
+  def manifest_hash(id) when is_binary(id) do
+    case fetch(id) do
+      {:ok, entry_module} -> manifest_hash(entry_module)
+      {:error, :not_found} -> {:error, :not_found}
+    end
+  end
+
+  def manifest_hash(entry_module) when is_atom(entry_module) do
+    if entry_module in entry_modules() do
+      {:ok, ManifestHash.compute(entry_module.manifest())}
+    else
+      {:error, :not_found}
+    end
+  end
+
+  def manifest_hash(_other), do: {:error, :not_found}
 
   @doc "The union of every registered module's own declared `:permissions`."
   @spec permissions() :: [atom()]
@@ -183,9 +298,36 @@ defmodule Letflow.Modules.Catalog do
       against the raw per-manifest lists, not `permissions/0` (which
       deduplicates); first offending atom in this manifest's order, first
       other manifest in known-set order.
+
+  Rule 10 (GH #2590 / REQ-501 R1, design section 4.1) runs last: the optional
+  `:write_handlers` key, a list of `%{name, function: {Mod, :fun}, targets,
+  args}`. Absent or `[]` is valid. Errors, first one returned:
+
+    * `{:invalid_write_handlers, value}` - not a list of maps with exactly the
+      four keys, a name outside `^[a-z][a-z0-9_]{0,63}$`, `targets` not a list
+      of binaries, `args` not `%{binary => %{required: boolean}}`, or
+      `function` not a `{module, function}` atom pair.
+    * `{:duplicate_write_handler, name}`.
+    * `{:invalid_module_id_for_handlers, id}` - the manifest `id` outside the
+      name format while handlers are declared.
+    * `{:write_handler_without_managed_types, name}` - no (or empty)
+      `:manages_entity_types`.
+    * `{:write_handler_no_targets, name}`.
+    * `{:write_handler_target_not_managed, name, target}` - target absent from
+      this manifest's own `:manages_entity_types`.
+    * `{:write_handler_outside_module, name}` - the handler module is neither
+      the registered entry module carrying this manifest nor nested under its
+      namespace (also when no registered module carries the manifest).
+    * `{:write_handler_function_not_exported, name}` - not loadable, or no
+      exported arity-3 function.
   """
   @spec validate(Module.manifest(), [Module.manifest()]) :: :ok | {:error, {atom(), term()}}
   def validate(manifest, known_manifests) do
+    # Rule 10 needs the entry module (handler namespace, function_exported?/3);
+    # a manifest no registered module carries has none and fails closed there.
+    entry_module =
+      Enum.find(entry_modules(), fn entry -> entry.manifest().id == Map.get(manifest, :id) end)
+
     with :ok <- validate_role_grants_known(manifest),
          :ok <- validate_granted_permissions_declared(manifest),
          :ok <- validate_no_core_permission_collision(manifest),
@@ -194,7 +336,8 @@ defmodule Letflow.Modules.Catalog do
          :ok <- validate_route_policy_permissions_declared(manifest),
          :ok <- validate_manages_entity_types(manifest),
          :ok <- validate_widens_grants(manifest),
-         :ok <- validate_permissions_not_declared_elsewhere(manifest, known_manifests) do
+         :ok <- validate_permissions_not_declared_elsewhere(manifest, known_manifests),
+         :ok <- validate_write_handlers(manifest, entry_module) do
       :ok
     end
   end
@@ -345,5 +488,112 @@ defmodule Letflow.Modules.Catalog do
         other -> {:error, {:permission_declared_by_other_module, permission, other.id}}
       end
     end)
+  end
+
+  # Rule 10 (GH #2590 / REQ-501 R1). Shared by validate/2 and the per-call
+  # re-check in write_handler_in/3 (F-6); `entry_module` may be nil.
+  defp validate_write_handlers(manifest, entry_module) do
+    case Map.get(manifest, :write_handlers, []) do
+      [] ->
+        :ok
+
+      handlers ->
+        with :ok <- check_handler_shapes(handlers),
+             :ok <- check_handler_names_unique(handlers),
+             :ok <- check_handler_module_id(manifest),
+             :ok <- check_handler_managed_types(manifest, handlers) do
+          check_handler_targets_and_code(manifest, handlers, entry_module)
+        end
+    end
+  end
+
+  defp check_handler_shapes(handlers) do
+    if is_list(handlers) and Enum.all?(handlers, &well_formed_handler?/1) do
+      :ok
+    else
+      {:error, {:invalid_write_handlers, handlers}}
+    end
+  end
+
+  @handler_keys [:args, :function, :name, :targets]
+
+  defp well_formed_handler?(%{} = handler) do
+    Enum.sort(Map.keys(handler)) == @handler_keys and
+      is_binary(handler.name) and Regex.match?(@name_format, handler.name) and
+      match?({m, f} when is_atom(m) and is_atom(f), handler.function) and
+      is_list(handler.targets) and Enum.all?(handler.targets, &is_binary/1) and
+      well_formed_args?(handler.args)
+  end
+
+  defp well_formed_handler?(_other), do: false
+
+  defp well_formed_args?(args) when is_map(args) and not is_struct(args) do
+    Enum.all?(args, fn
+      {name, %{required: required} = spec} ->
+        is_binary(name) and is_boolean(required) and map_size(spec) == 1
+
+      _ ->
+        false
+    end)
+  end
+
+  defp well_formed_args?(_other), do: false
+
+  defp check_handler_names_unique(handlers) do
+    names = Enum.map(handlers, & &1.name)
+
+    case Enum.find(names, fn name -> Enum.count(names, &(&1 == name)) > 1 end) do
+      nil -> :ok
+      name -> {:error, {:duplicate_write_handler, name}}
+    end
+  end
+
+  defp check_handler_module_id(manifest) do
+    id = Map.get(manifest, :id)
+
+    if is_binary(id) and Regex.match?(@name_format, id) do
+      :ok
+    else
+      {:error, {:invalid_module_id_for_handlers, id}}
+    end
+  end
+
+  defp check_handler_managed_types(manifest, [first | _]) do
+    case Map.get(manifest, :manages_entity_types) do
+      [_ | _] -> :ok
+      _ -> {:error, {:write_handler_without_managed_types, first.name}}
+    end
+  end
+
+  defp check_handler_targets_and_code(manifest, handlers, entry_module) do
+    managed = Map.fetch!(manifest, :manages_entity_types)
+
+    Enum.find_value(handlers, :ok, fn handler ->
+      {module, fun} = handler.function
+
+      cond do
+        handler.targets == [] ->
+          {:error, {:write_handler_no_targets, handler.name}}
+
+        bad = Enum.find(handler.targets, &(&1 not in managed)) ->
+          {:error, {:write_handler_target_not_managed, handler.name, bad}}
+
+        not in_module_namespace?(module, entry_module) ->
+          {:error, {:write_handler_outside_module, handler.name}}
+
+        not (Code.ensure_loaded?(module) and function_exported?(module, fun, 3)) ->
+          {:error, {:write_handler_function_not_exported, handler.name}}
+
+        true ->
+          nil
+      end
+    end)
+  end
+
+  defp in_module_namespace?(_module, nil), do: false
+
+  defp in_module_namespace?(module, entry_module) do
+    module == entry_module or
+      String.starts_with?(Atom.to_string(module), Atom.to_string(entry_module) <> ".")
   end
 end

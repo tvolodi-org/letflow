@@ -52,6 +52,20 @@ defmodule Letflow.Modules.Module do
   @type route_policy :: {method :: String.t(), path_pattern :: String.t(), permission :: atom()}
 
   @typedoc """
+  One `:write_handlers` entry (GH #2590 / REQ-501): `name` matches
+  `^[a-z][a-z0-9_]{0,63}$`; `function` is `{module, fun}` with `module` the
+  entry module or nested under it and `fun` exported with arity 3; `targets`
+  is non-empty and a subset of the same manifest's `:manages_entity_types`;
+  `args` declares argument names (and whether each is required) only.
+  """
+  @type write_handler_spec :: %{
+          required(:name) => String.t(),
+          required(:function) => {module(), atom()},
+          required(:targets) => [String.t()],
+          required(:args) => %{String.t() => %{required: boolean()}}
+        }
+
+  @typedoc """
   The manifest map shape every entry module's `manifest/0` must return
   (design §1.3). Field semantics:
 
@@ -75,6 +89,12 @@ defmodule Letflow.Modules.Module do
       version, matched exactly by `mix letflow.permission_matrix --check`
       (GH #2586 / REQ-498, decision 0055 D7). Never authorises a widening.
       Absent means `[]`; clear it at the next version bump.
+    * `:write_handlers` - **optional** (GH #2590 / REQ-501, decision 0054 D4);
+      see `t:write_handler_spec/0`. Absent means `[]`. Registration is manifest
+      data only, resolved by `Letflow.Modules.Catalog.write_handler/2`. The
+      manifest hash (`Letflow.Modules.ManifestHash`) covers `id`, `version`,
+      `manages_entity_types` and the handler declarations but NOT handler code:
+      bump `:version` whenever handler code changes.
   """
   @type manifest :: %{
           required(:id) => String.t(),
@@ -87,7 +107,8 @@ defmodule Letflow.Modules.Module do
           required(:settings_schema) => map() | nil,
           required(:route_policies) => [route_policy()],
           optional(:manages_entity_types) => [String.t()],
-          optional(:widens_grants) => [{atom(), atom()}]
+          optional(:widens_grants) => [{atom(), atom()}],
+          optional(:write_handlers) => [write_handler_spec()]
         }
 
   @callback manifest() :: manifest()
@@ -154,6 +175,7 @@ defmodule Letflow.Modules.Module do
   | `:settings_schema` | `map()` literal or `nil` |
   | `:route_policies` | `[{String.t(), String.t(), atom()}]` literal list |
   | `:widens_grants` (optional) | `[{atom(), atom()}]` literal list (narrowing declarations, GH #2586) |
+  | `:write_handlers` (optional) | `[t:write_handler_spec/0]` literal list; `function: {Mod, :fun}` with full aliases (GH #2590) |
 
   If any `role_grants` value atom is absent from `permissions`, a
   `CompileError` is raised at the call site during compilation. Non-literal
