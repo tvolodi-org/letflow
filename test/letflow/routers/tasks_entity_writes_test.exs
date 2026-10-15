@@ -184,6 +184,74 @@ defmodule Letflow.Routers.TasksEntityWritesTest do
     end
   end
 
+  test "B-7 extended: managed, not-writable, not-append-only and not-authorised are one body" do
+    bodies =
+      for cause <- [:not_authorized, :not_writable, :not_append_only, :managed] do
+        ctx = case!()
+
+        case cause do
+          :not_authorized ->
+            set_activated_by!(ctx, %{
+              "user_id" => ctx.user.id,
+              "roles" => ["TENANT_ADMIN"],
+              "permissions" => ["EntitiesRecordsWrite"],
+              "authorized" => [],
+              "activated_at" => DateTime.to_iso8601(DateTime.utc_now())
+            })
+
+          :not_writable ->
+            Fx.define_type!(ctx.schema, "stock_move", %{writable_by_process: false})
+
+          :not_append_only ->
+            Fx.define_type!(ctx.schema, "stock_move", %{append_only: false})
+
+          :managed ->
+            Fx.make_managed!(ctx.schema, "fxm_ledger")
+
+            {:ok, _} =
+              Letflow.Entities.EntityTypeInstance.get_or_create("fxm_ledger", ctx.schema)
+
+            snapshot =
+              Repo.get!(Letflow.Definitions.InstanceDefinitionSnapshot, ctx.instance_id,
+                prefix: ctx.schema
+              )
+
+            nodes =
+              Enum.map(snapshot.graph["nodes"], fn
+                %{"id" => "ht", "attributes" => attrs} = node ->
+                  lines = [Fx.line("fxm_ledger", %{"label" => %{"var" => "label"}})]
+                  %{node | "attributes" => Map.put(attrs, "entity_writes", lines)}
+
+                node ->
+                  node
+              end)
+
+            {1, _} =
+              from(s in Letflow.Definitions.InstanceDefinitionSnapshot,
+                where: s.instance_id == ^ctx.instance_id
+              )
+              |> Repo.update_all([set: [graph: %{snapshot.graph | "nodes" => nodes}]],
+                prefix: ctx.schema
+              )
+
+            set_activated_by!(ctx, %{
+              "user_id" => ctx.user.id,
+              "roles" => ["TENANT_ADMIN"],
+              "permissions" => ["EntitiesRecordsWrite"],
+              "authorized" => [%{"entity_type" => "fxm_ledger", "op" => "create"}],
+              "activated_at" => DateTime.to_iso8601(DateTime.utc_now())
+            })
+        end
+
+        conn = complete_ok(ctx, %{"label" => "L1"})
+        assert conn.status == 403, "#{cause}: #{conn.resp_body}"
+        conn.resp_body
+      end
+
+    assert [body] = Enum.uniq(bodies)
+    assert Jason.decode!(body) == %{"error" => "write_not_permitted", "line_index" => 0}
+  end
+
   test "validation failure is 422 with a code and the declared index only" do
     ctx = case!([Fx.line("stock_move", %{"label" => %{"var" => "absent"}})])
     conn = complete_ok(ctx, %{"other" => 1})

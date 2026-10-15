@@ -463,6 +463,10 @@ defmodule Letflow.Entities.StepWrites do
   @spec multi(Ecto.Multi.t(), [EntityPort.line()], EntityPort.multi_ctx()) :: Ecto.Multi.t()
   def multi(%Multi{} = multi, [], _ctx), do: multi
 
+  # I-B6: the cap is re-enforced here as defence in depth (the engine's plan refuses first).
+  def multi(%Multi{} = multi, lines, _ctx) when is_list(lines) and length(lines) > @max_lines,
+    do: Multi.error(multi, {:line, @max_lines, :build}, :line_malformed)
+
   def multi(%Multi{} = multi, lines, ctx) when is_list(lines) and is_map(ctx) do
     Multi.merge(multi, fn changes ->
       if ctx.skip?.(changes) do

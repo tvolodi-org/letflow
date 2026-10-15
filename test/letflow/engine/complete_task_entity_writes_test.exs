@@ -404,7 +404,17 @@ defmodule Letflow.Engine.CompleteTaskEntityWritesTest do
 
   describe "B-15: a completion without lines is today's Multi" do
     test "the step names are exactly the pre-B2 names" do
-      assert Engine.__complete_task_multi_step_names__(false) == [
+      base = Fx.tenant_case!("gh2587-b2names")
+      plain = Fx.attach!(base, [])
+
+      assert {:ok, names} =
+               Engine.__complete_task_multi_step_names__(
+                 plain.task.id,
+                 plain.user.id,
+                 plain.schema
+               )
+
+      assert names == [
                :task,
                :instance_projection,
                :snapshot_and_state,
@@ -417,7 +427,10 @@ defmodule Letflow.Engine.CompleteTaskEntityWritesTest do
     end
 
     test "a completion with lines adds only the timeouts step first and one merge" do
-      assert [:entity_write_timeouts | rest] = Engine.__complete_task_multi_step_names__(true)
+      ctx = case!()
+
+      assert {:ok, [:entity_write_timeouts | rest]} =
+               Engine.__complete_task_multi_step_names__(ctx.task.id, ctx.user.id, ctx.schema)
 
       assert rest == [
                :task,

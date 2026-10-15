@@ -382,6 +382,9 @@ defmodule Letflow.Engine do
   `entity_write_contention` (503, retryable). The cascade recurses ancestor-ward
   (child to parent to grandparent), never downward.
 
+  The activator-active check runs pre-transaction (P0, design 7.3; 0054 D4a.4): a
+  deactivation between that read and the commit is honoured one completion late.
+
   `SET LOCAL lock_timeout`/`statement_timeout` (2 s / 5 s) are issued as the
   FIRST statements of a completion with lines only, and bound the whole
   transaction, the tail's waits included.
@@ -436,6 +439,7 @@ defmodule Letflow.Engine do
   alias Letflow.Dlq
   alias Letflow.EventStore
   alias Letflow.EventStore.InstanceProjection
+  alias Letflow.Identity
   alias Letflow.Repo
   alias Letflow.Repository.Attachments
   alias Letflow.Scheduler
@@ -2628,38 +2632,31 @@ defmodule Letflow.Engine do
   end
 
   @doc false
-  # Test seam (design B-15): the ordered step names of the completion Multi, with and without
-  # an entity-write plan. Built with inert arguments; nothing is run.
-  @spec __complete_task_multi_step_names__(boolean()) :: [term()]
-  def __complete_task_multi_step_names__(planned?) do
-    plan =
-      if planned? do
-        %{
-          lines: [%{}],
-          node_id: "n",
-          task_id: Ecto.UUID.generate(),
-          instance_id: Ecto.UUID.generate(),
-          definition_id: Ecto.UUID.generate(),
-          definition_version: "1",
-          activator_id: Ecto.UUID.generate(),
-          authorized: []
-        }
-      end
+  # Test seam (design B-15): the ordered step names of the completion Multi for a REAL pending
+  # task, built from the REAL plan (`plan_entity_writes/3`, which also runs `prepare/2`).
+  # Nothing of the Multi is run.
+  @spec __complete_task_multi_step_names__(Ecto.UUID.t(), Ecto.UUID.t(), String.t()) ::
+          {:ok, [term()]} | {:error, term()}
+  def __complete_task_multi_step_names__(task_id, actor_id, prefix) do
+    with {:ok, plan} <- plan_entity_writes(task_id, actor_id, prefix) do
+      names =
+        plan
+        |> build_complete_task_multi(
+          task_id,
+          %{},
+          actor_id,
+          "step-names-probe",
+          DateTime.utc_now(),
+          prefix
+        )
+        |> Multi.to_list()
+        |> Enum.map(fn
+          {:merge, {:merge, _fun}} -> :__merge__
+          {name, _op} -> name
+        end)
 
-    plan
-    |> build_complete_task_multi(
-      Ecto.UUID.generate(),
-      %{},
-      Ecto.UUID.generate(),
-      "k",
-      DateTime.utc_now(),
-      "tenant_x"
-    )
-    |> Multi.to_list()
-    |> Enum.map(fn
-      {:merge, {:merge, _fun}} -> :__merge__
-      {name, _op} -> name
-    end)
+      {:ok, names}
+    end
   end
 
   defp build_complete_task_multi(
@@ -2802,6 +2799,8 @@ defmodule Letflow.Engine do
   @entity_write_set_lock_timeout "SET LOCAL lock_timeout = '2s'"
   @entity_write_set_statement_timeout "SET LOCAL statement_timeout = '5s'"
 
+  @max_entity_write_lines 20
+
   @contention_error_codes [:lock_not_available, :query_canceled, :deadlock_detected]
 
   # P0 + P1 (design 7.3). Read-only except `prepare/2`'s own short transaction. Never fails the
@@ -2821,6 +2820,9 @@ defmodule Letflow.Engine do
 
   defp resolve_entity_plan(%Task{} = task, lines, actor_id, prefix) do
     with {:actor, true} <- {:actor, is_binary(actor_id)},
+         # I-B6 / 0054 D4: the 20-line cap is enforced AT RUN TIME on the pinned snapshot, so a
+         # hand-edited snapshot cannot bypass the activation check.
+         {:cap, true} <- {:cap, length(lines) <= @max_entity_write_lines},
          %InstanceProjection{definition_id: definition_id} <-
            Repo.get_by(InstanceProjection, [instance_id: task.instance_id], prefix: prefix),
          {:ok, definition} <- Definitions.get_by_id(definition_id, prefix: prefix),
@@ -2848,9 +2850,26 @@ defmodule Letflow.Engine do
           {:error, {:entity_write_failed, 0, :prepare}}
       end
     else
-      {:actor, false} -> {:error, :missing_actor_id}
-      {:error, :entity_write_needs_reactivation} = refusal -> refusal
-      _unreadable -> {:ok, nil}
+      {:actor, false} ->
+        {:error, :missing_actor_id}
+
+      {:cap, false} ->
+        record_entity_write_refusal_audit(
+          task,
+          actor_id,
+          @max_entity_write_lines,
+          :validation_failed,
+          :too_many_lines,
+          prefix
+        )
+
+        {:error, {:entity_write_refused, @max_entity_write_lines, :validation_failed}}
+
+      {:error, :entity_write_needs_reactivation} = refusal ->
+        refusal
+
+      _unreadable ->
+        {:ok, nil}
     end
   end
 
@@ -2892,7 +2911,7 @@ defmodule Letflow.Engine do
 
   # An absent user row is treated as deactivated (fail closed).
   defp check_activator_active(activator_id, prefix) do
-    case Letflow.Identity.get_user(activator_id, prefix: prefix) do
+    case Identity.get_user(activator_id, prefix: prefix) do
       {:ok, %{status: :active}} -> :ok
       _inactive_or_absent -> {:error, :entity_write_needs_reactivation}
     end

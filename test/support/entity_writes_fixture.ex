@@ -65,6 +65,35 @@ defmodule Letflow.EntityWritesFixture do
     %{tenant: tenant, schema: schema, user: user!(schema, "completer")}
   end
 
+  @doc """
+  Like `tenant_case!/1`, for a module that runs in Sandbox `:auto` mode (real commits, real
+  parallel connections): the tenant is NOT torn down by the fixture; the caller registers
+  `drop_committed_tenant!/1` in `on_exit`.
+  """
+  @spec committed_tenant_case!(String.t()) :: map()
+  def committed_tenant_case!(slug_prefix) do
+    tenant = TenantFixture.provisioned_tenant!(slug_prefix: slug_prefix, teardown: false)
+    schema = tenant.schema_name
+    {:ok, _} = EventTypes.seed!(schema)
+    %{tenant: tenant, schema: schema, user: user!(schema, "completer")}
+  end
+
+  @doc "Drops a tenant built by `committed_tenant_case!/1`."
+  @spec drop_committed_tenant!(String.t()) :: :ok
+  def drop_committed_tenant!(tenant_id) do
+    case Letflow.TenantProvisioning.schema_name_for_tenant(tenant_id) do
+      {:ok, name} -> Repo.query!(~s(DROP SCHEMA IF EXISTS "#{name}" CASCADE))
+      {:error, :invalid_tenant_id} -> :ok
+    end
+
+    Repo.delete_all(
+      from(r in Letflow.TenantProvisioning.Registration, where: r.tenant_id == ^tenant_id)
+    )
+
+    Repo.delete_all(from(t in Letflow.Identity.Tenant, where: t.id == ^tenant_id))
+    :ok
+  end
+
   @doc "An active internal user in `schema`."
   @spec user!(String.t(), String.t()) :: User.t()
   def user!(schema, label) do
@@ -207,6 +236,21 @@ defmodule Letflow.EntityWritesFixture do
     attach!(base, lines)
   end
 
+  @doc """
+  Like `case!/2`, but the ACTIVATOR and the COMPLETER are different active users: `ctx.user` is
+  the completer (what `complete/2` acts as), `ctx.activator` the user recorded in
+  `activated_by`.
+  """
+  @spec distinct_case!(String.t(), [map()]) :: map()
+  def distinct_case!(slug_prefix, lines) do
+    base = tenant_case!(slug_prefix)
+    define_type!(base.schema, "stock_move", %{})
+    define_type!(base.schema, "stock_note", %{})
+    completer = user!(base.schema, "completer2")
+    ctx = attach!(base, lines)
+    Map.merge(ctx, %{activator: base.user, user: completer})
+  end
+
   @doc "Activates a definition declaring `lines` in the tenant of `base` and starts it."
   @spec attach!(map(), [map()]) :: map()
   def attach!(base, lines) do
@@ -243,6 +287,45 @@ defmodule Letflow.EntityWritesFixture do
     Latest
     |> where([l], l.entity_type == ^entity_type)
     |> Repo.all(prefix: schema)
+  end
+
+  @doc "Every `ENTITY_RECORD_CREATED` event of the tenant (the per-type synthetic streams)."
+  @spec entity_events(String.t()) :: [Event.t()]
+  def entity_events(schema) do
+    Event
+    |> where([e], e.event_type == "ENTITY_RECORD_CREATED")
+    |> order_by([e], asc: e.global_seq)
+    |> Repo.all(prefix: schema)
+  end
+
+  @doc """
+  Makes `name` MANAGED by the fixture module after activation (a new active version stamped
+  `managed_by`), the way a module install would.
+  """
+  @spec make_managed!(String.t(), String.t()) :: :ok
+  def make_managed!(schema, name) do
+    owner = Letflow.Entities.ManagedTypes.module_owner(Letflow.Modules.FixtureManaged)
+
+    {:ok, row} =
+      EntityDefinitions.create_definition(
+        %{
+          definition: %{
+            name: name,
+            display_name: name,
+            fields: [
+              %{name: "label", type: :string, required: true},
+              %{name: "note", type: :string}
+            ],
+            append_only: true
+          },
+          created_by: Ecto.UUID.generate()
+        },
+        schema,
+        owner
+      )
+
+    {:ok, _} = EntityDefinitions.activate_definition(row.name, Ecto.UUID.generate(), "go", schema)
+    :ok
   end
 
   @spec all_records(String.t()) :: [Latest.t()]
