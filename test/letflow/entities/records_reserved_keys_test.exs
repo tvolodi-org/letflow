@@ -194,12 +194,10 @@ defmodule Letflow.Entities.RecordsReservedKeysTest do
 
       command = %{
         kind: :create,
-        line_key: 0,
         entity_type: @type_name,
         field_values: %{"title" => "from a step"},
         actor_id: ctx.user_id,
-        idempotency_key: key,
-        source: %{
+        source: %Letflow.Entities.StepSource{
           kind: "process_step",
           instance_id: Ecto.UUID.generate(),
           task_id: task_id,

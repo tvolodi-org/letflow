@@ -333,4 +333,74 @@ defmodule Letflow.Engine.ReconstructionSysTest do
     assert after_applied.status == before.status
     assert after_applied.pending_task_nodes |> Enum.map(& &1.node_id) == ["a"]
   end
+
+  # GH #2627 (C0): an entity-record event stored BEFORE StepSource existed (flat 8-key
+  # source.* metadata and its sys:step: key, hand-built literals; it lives on the entity
+  # type's synthetic instance, which is never replayed) reads back byte-identical, the
+  # process instance's replay is unchanged, and the new code derives exactly the stored
+  # metadata and key from the same values.
+  test "a legacy step event with flat source.* metadata reads back and replays unchanged" do
+    {schema, instance_id} = started_instance!()
+    complete_t1!(schema, instance_id, %{"ok" => true})
+
+    assert {:ok, %{instance_state: before, event_count: count_before}} =
+             Reconstruction.reconstruct_instance(instance_id, prefix: schema)
+
+    task_id = "22222222-2222-4222-8222-222222222222"
+    synthetic_instance = Ecto.UUID.generate()
+
+    legacy_metadata = %{
+      "source.kind" => "process_step",
+      "source.instance_id" => instance_id,
+      "source.task_id" => task_id,
+      "source.node_id" => "t1",
+      "source.definition_id" => "44444444-4444-4444-8444-444444444444",
+      "source.definition_version" => "1.0.0",
+      "source.line_index" => "3",
+      "source.activator_id" => "55555555-5555-4555-8555-555555555555"
+    }
+
+    key = "sys:step:" <> task_id <> ":3"
+
+    row = %{
+      event_id: Ecto.UUID.generate(),
+      created_at: DateTime.utc_now(),
+      instance_id: synthetic_instance,
+      event_type: "ENTITY_RECORD_CREATED",
+      payload: %{"record_id" => Ecto.UUID.generate()},
+      actor_id: Ecto.UUID.generate(),
+      sequence_number: 1,
+      idempotency_key: key,
+      metadata: legacy_metadata
+    }
+
+    assert {1, _} = Repo.insert_all(Event, [row], prefix: schema)
+
+    stored = Repo.one!(from(e in Event, where: e.event_id == ^row.event_id), prefix: schema)
+    assert stored.metadata == legacy_metadata
+    assert stored.idempotency_key == key
+
+    # The process instance's replay is unchanged.
+    assert {:ok, %{instance_state: after_legacy, event_count: ^count_before}} =
+             Reconstruction.reconstruct_instance(instance_id, prefix: schema)
+
+    assert after_legacy.variables == before.variables
+    assert nodes(after_legacy) == nodes(before)
+    assert after_legacy.status == before.status
+
+    # The new code produces exactly the stored bytes from the same values.
+    assert {:ok, source} =
+             Letflow.Entities.StepSource.new(%{
+               instance_id: instance_id,
+               task_id: task_id,
+               node_id: "t1",
+               definition_id: "44444444-4444-4444-8444-444444444444",
+               definition_version: "1.0.0",
+               line_index: 3,
+               activator_id: "55555555-5555-4555-8555-555555555555"
+             })
+
+    assert Letflow.Entities.StepSource.to_metadata(source) == stored.metadata
+    assert Letflow.Entities.StepSource.idempotency_key(source) == stored.idempotency_key
+  end
 end
