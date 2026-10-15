@@ -152,6 +152,24 @@ defmodule Letflow.Scripts.CdQaDecideTest do
     |> assert_decision(3, false, "tip run unreadable (tip #{f["C"]})")
   end
 
+  # R3: rows 3-4 apply only when the run is NOT the tip. When the run that fired CD IS the tip,
+  # its own success is the green signal and TIP_RUN is never looked up (the inputs step leaves
+  # it empty), so even TIP_RUN=error (or any non-green word) must not block the deploy.
+  test "rows 3-4 do not apply when the run IS the tip: TIP_RUN=error still deploys", %{f: f} do
+    c = f["C"]
+
+    for tip_run <- ["error", "", "failure", "in_progress", @junk] do
+      decide(f["repo"],
+        RUN_SHA: c,
+        TIP: c,
+        TIP_GIT: c,
+        TIP_RUN: tip_run,
+        QA_HEALTH: health(f["A"])
+      )
+      |> assert_decision(0, true, "QA sha #{f["A"]} behind tip #{c}, deploying tip")
+    end
+  end
+
   test "row 4: run is not the tip and the tip's run is not green -> skip", %{f: f} do
     for {tip_run, word} <- [
           {"in_progress", "in_progress"},

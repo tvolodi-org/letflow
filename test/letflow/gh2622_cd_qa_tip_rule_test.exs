@@ -501,5 +501,52 @@ defmodule Letflow.Gh2622CdQaTipRuleTest do
     assert text =~ "conclusion is `cancelled`"
     assert text =~ "gh run list --workflow CI --event merge_group"
     assert text =~ "OQ-1"
+
+    # R6 ruling: the main-moved line is a normal race, green; red only if unreachable or not a
+    # descendant. Whitespace is normalised because the sentence wraps across lines.
+    flat = String.replace(text, ~r/\s+/, " ")
+    assert flat =~ "`cd-qa: main moved during deploy (verified Y, deployed Z)`"
+    assert flat =~ "That line is a normal race, not a failure"
+    assert flat =~ "the step stays green"
+
+    assert flat =~
+             "it goes red only if QA is unreachable or NOT on a descendant of the checked tip"
+  end
+
+  # Nit: the `inputs` step's tip-run jq mapping, executed with real jq over canned run lists.
+  test "inputs step: the tip-run jq filter maps a run list to one word" do
+    assert System.find_executable("jq"), "jq is required"
+    run = step("deploy", "inputs")["run"]
+    [_, filter] = Regex.run(~r/ci\.yml\/runs\?[^\n]*\n\s*--jq '([^']+)'/, run)
+    dir = scratch_dir()
+    File.write!(Path.join(dir, "filter.jq"), filter)
+
+    map = fn runs ->
+      File.write!(Path.join(dir, "runs.json"), Jason.encode!(%{"workflow_runs" => runs}))
+
+      {out, 0} =
+        System.cmd("jq", ["-r", "-f", "filter.jq", "runs.json"], cd: dir, stderr_to_stdout: true)
+
+      String.trim_trailing(out)
+    end
+
+    run_of = fn status, conclusion, at ->
+      %{"status" => status, "conclusion" => conclusion, "created_at" => at}
+    end
+
+    t1 = "2026-10-15T10:00:00Z"
+    t2 = "2026-10-15T11:00:00Z"
+
+    assert map.([]) == "none"
+    assert map.([run_of.("completed", "success", t1)]) == "success"
+    assert map.([run_of.("completed", "cancelled", t1)]) == "cancelled"
+    assert map.([run_of.("completed", "failure", t1)]) == "failure"
+    assert map.([run_of.("completed", nil, t1)]) == "none"
+    assert map.([run_of.("in_progress", nil, t1)]) == "in_progress"
+    # The latest run (by created_at) wins, whatever the list order.
+    assert map.([run_of.("completed", "success", t2), run_of.("completed", "failure", t1)]) ==
+             "success"
+
+    assert map.([run_of.("queued", nil, t2), run_of.("completed", "success", t1)]) == "queued"
   end
 end
