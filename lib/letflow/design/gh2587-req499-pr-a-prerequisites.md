@@ -8,6 +8,14 @@ Design only. Signatures, types, step lists and test briefs; no function bodies.
 
 ## Changelog
 
+### Revision 1a (2026-10-15): CDV R1 applied during A1 implementation (ELIXIR-DEV)
+
+| Id | Change | Where |
+|---|---|---|
+| CDV R1 | Missing signatures added: `VariableMerge.sys_key?/1 :: (term()) -> boolean()` and `sys_value?/1 :: (term()) -> boolean()`, total (never raise). Replay's `INSTANCE_SYS_VARIABLES_SET` clause checks every key/value with them before any `put_sys/3` call, so a malformed event is `{:invalid_sys_variables_event, id}` and never a raise (INV-8); `put_sys/3` uses the same two predicates. Unit cases: `"_sys"` -> false, `"x"` -> false, `"_sys.r.seq"` -> true; values `%{}` and `-1` -> false. | 2.1, 2.5 |
+| A1 note | "fail_code" in D-A1.11 / 2.2 / 8 / 11 names the value `script_failure/7` records: the run's `detail` (`outcome_detail` on the dispatch row, `"detail"` in `SCRIPT_RUN_RECORDED`), i.e. the field that already carried `variable_schema_rejected`; the type union at `script_task_dispatcher.ex:97` is `@type detail`. The SCRIPT_RUN_RECORDED `fail_code` key (the script's declared fail code) stays `null` for these runs. | D-A1.11 |
+| A1 note | `Letflow.Engine.Expr` resolves `variables._sys.r.seq` as the NESTED path `_sys` -> `r` -> `seq`, so a gateway condition cannot read a flat `"_sys.r.seq"` key today. A1's replay test therefore proves the SYS fold precedes the completion fold and that the post-completion gateway takes the live edge (on an ordinary key); a gateway that reads a reserved key needs an `Expr` decision before PR B relies on one. | 11 A1 row, 15 |
+
 ### Revision 1 (2026-10-15): CDV FAIL (2 blockers), SECURITY PASS_WITH_FINDINGS, supervisor rulings
 
 | Id | Change | Where |
@@ -196,6 +204,13 @@ New / changed functions:
 # NEW step 0: if reserved_keys(incoming) != [] -> {:rejected, current, [{:execution_error, k, nil, :reserved_variable_key, []}]}
 # with k = first of reserved_keys(incoming); no validation outcome consulted; no key applied. Steps 1-5 unchanged.
 
+@spec sys_key?(term()) :: boolean()
+# (revision 1a, CDV R1) true iff a binary <= 160 bytes of "_sys." <> name matching the sys_key() pattern;
+# the bare "_sys" is false. Total: never raises.
+
+@spec sys_value?(term()) :: boolean()
+# (revision 1a, CDV R1) true iff a binary or a non-negative integer. Total: never raises.
+
 @spec put_sys(variables :: map(), key :: sys_key(), value :: sys_value()) :: map()
 # the ONLY function that sets a reserved key. Raises FunctionClauseError when key is not a sys_key()
 # (bare "_sys" included) or value is not a sys_value() (programmer error: callers are allow-listed, 2.6).
@@ -261,7 +276,8 @@ appears only in `tenant_provisioning.ex` (seed) and `reconstruction.ex` (clause 
 New `apply_event/4` clauses placed before the catch-all (`:767`):
 
 * `"INSTANCE_SYS_VARIABLES_SET"`: read `payload["values"]` (`fetch_map_field/2`); every key must satisfy
-  `sys_key()` and every value `sys_value()`, else `{:error, {:invalid_sys_variables_event, event_id}}`
+  `sys_key()` and every value `sys_value()` (checked with `VariableMerge.sys_key?/1` and
+  `sys_value?/1`, revision 1a), else `{:error, {:invalid_sys_variables_event, event_id}}`
   (no raise, INV-8); fold with `VariableMerge.put_sys/3`; tokens unchanged.
 * `"TASK_ENTITY_WRITES_APPLIED"`: `{:ok, state}` (records nothing to re-run, D11).
 

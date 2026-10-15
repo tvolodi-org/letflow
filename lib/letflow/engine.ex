@@ -4430,17 +4430,12 @@ defmodule Letflow.Engine do
                   {:error, reason} -> {:error, reason}
                 end
 
-              # The rejected value is NOT recorded anywhere (C16).
-              {:rejected, _unchanged_variables, _events} ->
-                script_failure(
-                  repo,
-                  row,
-                  projection,
-                  :output_invalid,
-                  :variable_schema_rejected,
-                  facts,
-                  prefix
-                )
+              # The rejected value is NOT recorded anywhere (C16). The merge reason is
+              # the fail code (GH #2587 D-A1.11): :variable_schema_rejected or
+              # :reserved_variable_key.
+              {:rejected, _unchanged_variables,
+               [{:execution_error, _key, _value, reason, _failures}]} ->
+                script_failure(repo, row, projection, :output_invalid, reason, facts, prefix)
             end
         end
       end
@@ -4671,6 +4666,40 @@ defmodule Letflow.Engine do
          prefix,
          %{required: required, allowed: allowed}
        ) do
+    # GH #2587 (decision 0054 D1a, design D-A1.3): a reserved key in the CORRECTED
+    # output is a caller error, refused as a retryable 422 before the schema read and
+    # before merge/3 (which would refuse it too, but into instance ERROR). Key names
+    # only; the value is never carried.
+    case VariableMerge.reserved_keys(output_variables) do
+      [] ->
+        merge_unreserved_output_variables(
+          projection,
+          actor_id,
+          idempotency_key,
+          current_variables,
+          output_variables,
+          repo,
+          prefix,
+          required,
+          allowed
+        )
+
+      reserved ->
+        {:error, {:completion_refused, {:output_refused, [], reserved}}}
+    end
+  end
+
+  defp merge_unreserved_output_variables(
+         projection,
+         actor_id,
+         idempotency_key,
+         current_variables,
+         output_variables,
+         repo,
+         prefix,
+         required,
+         allowed
+       ) do
     with {:ok, variable_validations} <-
            VariableSchema.variable_validations(
              repo,
@@ -4793,6 +4822,23 @@ defmodule Letflow.Engine do
           reason: "variable '#{key}' failed schema validation",
           variables: unchanged_variables,
           details: %{rejected_value: rejected_value, failures: failures},
+          actor_id: actor_id,
+          idempotency_key: idempotency_key
+        }
+
+        {:ok, {:execution_error, error_args}}
+
+      # GH #2587: equally unreachable from merge_output_variables/8, which refuses a
+      # reserved key first. The value is never carried (D-A1.2).
+      {:rejected, unchanged_variables,
+       [{:execution_error, key, _rejected_value, :reserved_variable_key, _failures}]} ->
+        error_args = %{
+          instance_id: projection.instance_id,
+          error_type: :reserved_variable_key,
+          affected: {:field, key},
+          reason: "variable '#{key}' is reserved",
+          variables: unchanged_variables,
+          details: %{},
           actor_id: actor_id,
           idempotency_key: idempotency_key
         }

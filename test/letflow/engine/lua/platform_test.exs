@@ -1898,8 +1898,11 @@ defmodule Letflow.Engine.Lua.PlatformTest do
       # handles specially (`:killed`, the BEAM-reserved rewrite of `exit(pid, :kill)`).
       killed_task = async_fail(fn -> Process.sleep(:infinity) end)
       Process.exit(killed_task.pid, :kill)
-      assert {:exit, :killed} = Task.yield(killed_task, 1_000)
-      refute match?({:script_failed, _}, :killed)
+      # bound, not a literal: matching a literal :killed is a compile-time "clause will never
+      # match" type warning, which aborts `mix test --warnings-as-errors` (GH #2587 A1).
+      assert {:exit, killed_reason} = Task.yield(killed_task, 1_000)
+      assert killed_reason == :killed
+      refute match?({:script_failed, _}, killed_reason)
     end
 
     test "AC4: platform.fail is callable with an EMPTY capability grant set and still terminates the process" do
@@ -1954,6 +1957,84 @@ defmodule Letflow.Engine.Lua.PlatformTest do
 
       assert text =~ "format_exit_reason"
       assert text =~ "process/monitor boundary"
+    end
+  end
+
+  # ---------------------------------------------------------------------------------
+  # GH #2587 / REQ-499 PR A1 (design gh2587-req499-pr-a-prerequisites.md 2.7, D-A1.9):
+  # emit_event refuses every event type reconstruction folds as an engine fact.
+  # ---------------------------------------------------------------------------------
+
+  describe "GH #2587: platform.emit_event refuses every reconstruction-folded event type" do
+    setup do
+      %{tenant_id: tenant_id, schema_name: schema_name} = provisioned_tenant()
+      instance_id = Ecto.UUID.generate()
+      actor_id = Ecto.UUID.generate()
+      seed_projection!(schema_name, instance_id)
+
+      lua =
+        Platform.install(
+          Sandbox.new(),
+          Capabilities.new(["event:emit"]),
+          execution_context(%{instance_id: instance_id, prefix: schema_name, actor_id: actor_id})
+        )
+
+      %{tenant_id: tenant_id, schema_name: schema_name, instance_id: instance_id, lua: lua}
+    end
+
+    test "each folded type -> [nil, invalid_arguments], no event, no event_idempotency row", %{
+      schema_name: schema_name,
+      instance_id: instance_id,
+      lua: lua
+    } do
+      folded = Letflow.Engine.Reconstruction.folded_event_types()
+      assert length(folded) == 11
+
+      idempotency_rows = fn ->
+        Repo.aggregate("event_idempotency", :count, prefix: schema_name)
+      end
+
+      rows_before = idempotency_rows.()
+
+      for {type, i} <- Enum.with_index(folded) do
+        script = """
+        local ok, err = platform.emit_event('#{type}', {}, 'gh2587-folded-#{i}')
+        return ok, err.reason
+        """
+
+        assert {[nil, "invalid_arguments"], _lua} = Lua.eval!(lua, script), type
+      end
+
+      # a payload the registry WOULD accept for the engine-only type is refused all the same
+      script = """
+      local ok, err = platform.emit_event('INSTANCE_SYS_VARIABLES_SET',
+        {node_id = 't', cause = 'entity_writes', values = {['_sys.r'] = 'x'}}, 'gh2587-sys')
+      return ok, err.reason
+      """
+
+      assert {[nil, "invalid_arguments"], _lua} = Lua.eval!(lua, script)
+
+      # no event at all for the instance (read/2 answers :instance_not_found for an empty stream)
+      assert {:error, :instance_not_found} =
+               Letflow.EventStore.read(instance_id, prefix: schema_name)
+
+      assert idempotency_rows.() == rows_before
+    end
+
+    test "regression: a fixture-registered (unfolded) type still appends", %{
+      tenant_id: tenant_id,
+      schema_name: schema_name,
+      instance_id: instance_id,
+      lua: lua
+    } do
+      event_type = register_event_type!(tenant_id)
+      refute event_type in Letflow.Engine.Reconstruction.folded_event_types()
+
+      assert {[true], _lua} =
+               Lua.eval!(lua, "return platform.emit_event('#{event_type}', nil, 'gh2587-ok')")
+
+      assert {:ok, [event]} = Letflow.EventStore.read(instance_id, prefix: schema_name)
+      assert event.event_type == event_type
     end
   end
 end

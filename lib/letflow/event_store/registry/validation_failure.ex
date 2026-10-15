@@ -15,7 +15,10 @@ defmodule Letflow.EventStore.Registry.ValidationFailure do
   one of the keyword-name string literals
   `Letflow.EventStore.Registry.JsonSchema` emits (`"type"`, `"enum"`,
   `"minimum"`, `"maximum"`, `"minLength"`, `"maxLength"`, `"required"`,
-  `"additionalProperties"`) — never a free-form message string, so a caller
+  `"additionalProperties"`), or `"reserved_variable_key"` (GH #2587:
+  `Letflow.Engine.PinResolver.validate_initial_variables/2` refusing a start
+  variable in the engine's reserved namespace; `actual` is then always `nil`)
+  — never a free-form message string, so a caller
   can assert on the literal constraint name rather than parse a sentence.
   `actual` is kept as the raw, already-decoded Elixir term (not serialized to
   a string, unlike R-Co's allocator-owned `[]const u8` field) — see the

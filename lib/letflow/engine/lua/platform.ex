@@ -198,7 +198,12 @@ defmodule Letflow.Engine.Lua.Platform do
   (`Letflow.Idempotency.script_key/2`), so it can never claim a server or client key;
   an empty, non-string or over-199-byte key, a key that is not valid UTF-8 or contains
   a NUL byte, and an `actor_id` that is not a 36-byte uuid string are all
-  `invalid_arguments`, before any database access.
+  `invalid_arguments`, before any database access. GH #2587 (decision 0054 D1a): an
+  `event_type` that replay folds as an engine fact
+  (`Letflow.Engine.Reconstruction.folded_event_types/0`, e.g. `TASK_COMPLETED` or the
+  engine-only reserved-variables event) is `invalid_arguments` too, checked first,
+  before the key is namespaced or any database access, so a script can never forge
+  replayed instance state. This module holds no event-type literal for it.
 
   Every numeric value any of these three functions moves across the Elixir/Lua boundary
   goes through `Letflow.Engine.LuaNumberMarshalling.from_lua/1` (write direction) or
@@ -274,6 +279,7 @@ defmodule Letflow.Engine.Lua.Platform do
   alias Letflow.Engine.Lua.Capabilities
   alias Letflow.Engine.Lua.Platform.TimeSource
   alias Letflow.Engine.LuaNumberMarshalling
+  alias Letflow.Engine.Reconstruction
   alias Letflow.EventStore
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.Idempotency
@@ -809,6 +815,20 @@ defmodule Letflow.Engine.Lua.Platform do
 
   defp do_emit_event([event_type, payload, raw_key | _rest], execution_context, lua)
        when is_binary(event_type) do
+    # GH #2587: replay applies every folded type as an engine fact, so a script may
+    # append none of them (checked before the key is namespaced or any DB access).
+    if event_type in Reconstruction.folded_event_types() do
+      encode_error(lua, "invalid_arguments")
+    else
+      emit_unfolded_event(event_type, payload, raw_key, execution_context, lua)
+    end
+  end
+
+  defp do_emit_event(_args, _execution_context, lua) do
+    encode_error(lua, "invalid_arguments")
+  end
+
+  defp emit_unfolded_event(event_type, payload, raw_key, execution_context, lua) do
     # GH #2550: the script's key is stored as `script:<actor>:<K>`, so a script
     # cannot claim a server or client key; an empty, non-string, over-199-byte,
     # invalid-UTF-8 or NUL-containing key, or a non-36-byte actor_id, is
@@ -820,10 +840,6 @@ defmodule Letflow.Engine.Lua.Platform do
       {:error, :idempotency_key_invalid} ->
         encode_error(lua, "invalid_arguments")
     end
-  end
-
-  defp do_emit_event(_args, _execution_context, lua) do
-    encode_error(lua, "invalid_arguments")
   end
 
   defp append_emitted_event(event_type, payload, idempotency_key, execution_context, lua) do

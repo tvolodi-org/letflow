@@ -32,7 +32,13 @@ defmodule Letflow.Engine.Reconstruction do
     never silently skipped. Since then the SERVICE_TASK completions gained clauses too:
     `SCRIPT_TASK_COMPLETED`/`SCRIPT_RUN_RECORDED` (GH 2534 PR 7c-1) and the HTTP
     route's `SERVICE_TASK_COMPLETED` (GH 2595), whose recorded `decoded_body` is merged
-    verbatim, exactly as the live `:advance` path merged it.
+    verbatim, exactly as the live `:advance` path merged it. GH #2587 (decision 0054)
+    added `INSTANCE_SYS_VARIABLES_SET` (the engine's reserved values, applied only
+    through `Letflow.Engine.VariableMerge.put_sys/3`; a malformed payload is
+    `{:invalid_sys_variables_event, event_id}`, never a raise) and
+    `TASK_ENTITY_WRITES_APPLIED` (changes no state: replay never re-executes an
+    entity write). `folded_event_types/0` lists every type with its own clause;
+    Lua `platform.emit_event` refuses each of them.
   * `SUB_PROCESS_COMPLETED`'s own persisted payload
     (`Letflow.Engine.SubProcess.append_sub_process_completed_event/8`) writes
     `child_instance_id`, `output_variables` (already
@@ -252,6 +258,7 @@ defmodule Letflow.Engine.Reconstruction do
           | {:variable_merge_rejected, event_id :: Ecto.UUID.t(), key :: term()}
           | {:ambiguous_sub_process_completion, child_instance_id :: String.t()}
           | {:child_start_event_missing, child_instance_id :: String.t()}
+          | {:invalid_sys_variables_event, event_id :: Ecto.UUID.t()}
 
   @type reconstruct_error ::
           {:error, :instance_not_found}
@@ -565,6 +572,31 @@ defmodule Letflow.Engine.Reconstruction do
     end
   end
 
+  @folded_event_types [
+    "EXECUTION_ERROR",
+    "INSTANCE_CANCELLED",
+    "INSTANCE_STARTED",
+    "INSTANCE_SYS_VARIABLES_SET",
+    "SCRIPT_RUN_RECORDED",
+    "SCRIPT_TASK_COMPLETED",
+    "SERVICE_TASK_COMPLETED",
+    "SUB_PROCESS_COMPLETED",
+    "TASK_COMPLETED",
+    "TASK_ENTITY_WRITES_APPLIED",
+    "TIMER_FIRED"
+  ]
+
+  @doc """
+  Every instance event type this module folds on replay (each has its own
+  `apply_event/4` clause), sorted. Replay applies these as engine facts, so no
+  script may append one: Lua `platform.emit_event` refuses every type listed
+  here (GH #2587, decision 0054 D1a). A unit test pins this list to the
+  clause-head literals, so a new fold clause cannot be added without the Lua
+  refusal following it.
+  """
+  @spec folded_event_types() :: [String.t()]
+  def folded_event_types, do: @folded_event_types
+
   # ---------------------------------------------------------------------
   # Design doc §5.3 -- per-event-type replay clauses.
   # ---------------------------------------------------------------------
@@ -629,7 +661,7 @@ defmodule Letflow.Engine.Reconstruction do
           dispatch_task_completion(graph, state_with_merged_variables, token.token_id)
 
         {:rejected, _unchanged_variables,
-         [{:execution_error, key, _rejected_value, :variable_schema_rejected, _failures}]} ->
+         [{:execution_error, key, _rejected_value, _reason, _failures}]} ->
           {:error, {:variable_merge_rejected, event.event_id, key}}
       end
     end
@@ -695,7 +727,7 @@ defmodule Letflow.Engine.Reconstruction do
           )
 
         {:rejected, _unchanged_variables,
-         [{:execution_error, key, _rejected_value, :variable_schema_rejected, _failures}]} ->
+         [{:execution_error, key, _rejected_value, _reason, _failures}]} ->
           {:error, {:variable_merge_rejected, event.event_id, key}}
       end
     end
@@ -764,6 +796,45 @@ defmodule Letflow.Engine.Reconstruction do
     apply_service_task_completion(graph, state, event, "decoded_body")
   end
 
+  # GH #2587 (decision 0054 D1a, design D-A1.13): the engine-only record of reserved
+  # values the engine set (minted record ids and their event_global_seq). Applied ONLY
+  # through VariableMerge.put_sys/3, with every key and value checked first so a malformed
+  # payload is a named replay failure, never a raise (INV-8). Tokens are unchanged.
+  defp apply_event(
+         _graph,
+         %InstanceState{} = state,
+         %{event_type: "INSTANCE_SYS_VARIABLES_SET"} = event,
+         _prefix
+       ) do
+    with {:ok, values} <- fetch_map_field(event, "values") do
+      if Enum.all?(values, fn {key, value} ->
+           VariableMerge.sys_key?(key) and VariableMerge.sys_value?(value)
+         end) do
+        variables =
+          values
+          |> Enum.sort()
+          |> Enum.reduce(state.variables, fn {key, value}, acc ->
+            VariableMerge.put_sys(acc, key, value)
+          end)
+
+        {:ok, %InstanceState{state | variables: variables}}
+      else
+        {:error, {:invalid_sys_variables_event, event.event_id}}
+      end
+    end
+  end
+
+  # GH #2587 (design D-A1.13, decision 0054 D11): the record of a step's entity writes
+  # changes no state; replay never re-executes a write.
+  defp apply_event(
+         _graph,
+         %InstanceState{} = state,
+         %{event_type: "TASK_ENTITY_WRITES_APPLIED"},
+         _prefix
+       ) do
+    {:ok, state}
+  end
+
   defp apply_event(_graph, _state, %{event_type: event_type, event_id: event_id}, _prefix) do
     {:error, {:unrecognized_event_type, event_type, event_id}}
   end
@@ -787,7 +858,7 @@ defmodule Letflow.Engine.Reconstruction do
           dispatch_service_task_completion(graph, state_with_merged_variables, token)
 
         {:rejected, _unchanged_variables,
-         [{:execution_error, key, _rejected_value, :variable_schema_rejected, _failures}]} ->
+         [{:execution_error, key, _rejected_value, _reason, _failures}]} ->
           {:error, {:variable_merge_rejected, event.event_id, key}}
       end
     end

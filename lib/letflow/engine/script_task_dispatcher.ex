@@ -95,6 +95,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
           | :writes_not_allowed
           | :output_schema
           | :variable_schema_rejected
+          | :reserved_variable_key
           | :busy_retries_exhausted
           | :lease_expired
           | :apply_failed
