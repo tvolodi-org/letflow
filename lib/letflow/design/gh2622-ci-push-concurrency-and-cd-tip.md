@@ -204,4 +204,4 @@ and `curl -s https://qa.bizdala.com/health`, and quotes them in the PR body (edi
 ## 10. Open questions
 
 OQ-A: ANSWERED, a timed-out job is `cancelled` (§4, runbook §5(3)). OQ-B: a job skipped by `if:` is
-assumed not to enter its job-level group; if it does, row 4 self-heals on the next CD event. Check both on the first burst.
+assumed not to enter its job-level group; if it does, row 4 self-heals on the next CD event. OQ-B is the only one left to check live, on the first burst.

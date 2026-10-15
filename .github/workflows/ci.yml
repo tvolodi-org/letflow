@@ -155,12 +155,20 @@ on:
   # `gh-readonly-queue/main/...` branch holding the PR merged onto the latest
   # main (+ queued PRs ahead of it), so a PR no longer has to be re-run by hand when
   # main moves. The job names below are the required-status-check contexts and report
-  # unchanged on this event. cd.yml is unaffected: it only fires for CI runs on branch
-  # `main`, never for a gh-readonly-queue/* branch.
+  # unchanged on this event. cd.yml is unaffected: since GH #2622 its deploy job acts only
+  # on a completed CI run whose event is `push` and whose head repository is this
+  # repository (job `if:`), i.e. a same-repo push to `main`; never on a merge_group
+  # (gh-readonly-queue/*) or pull_request run, including a fork's branch named `main`.
   merge_group:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || (github.event_name == 'push' && format('{0}-{1}', github.ref, github.sha)) || github.ref }}
+  # GH #2622: a push to main gets its OWN group (ref + sha). GitHub keeps one running and
+  # one pending run per group and cancels the older PENDING run when a third arrives,
+  # whatever cancel-in-progress says, so a single group for all main pushes cancelled the
+  # middle commits of a merge burst and CD never deployed them. pull_request keeps its
+  # per-PR group and merge_group keeps github.ref, both exactly as before. Cost and
+  # reasoning: lib/letflow/design/gh2622-ci-push-concurrency-and-cd-tip.md §1.
   # ISS-0840: only cancel superseded runs on pull_request events (where a newer
   # push to the same PR genuinely replaces the old one). Push events to main must
   # NOT be cancelled: a docs-only follow-up push would cancel the preceding
@@ -176,7 +184,9 @@ jobs:
   # `frontend` (steps skipped) below can avoid their expensive work on a docs-only change -- see the design doc §3.
   # Hand-rolled git diff rather than a third-party paths-filter action, so
   # every edge case (zero-SHA new branch, non-push/PR triggers, force-push,
-  # the script's own failure) is auditable directly in this file.
+  # the script's own failure) is auditable directly in this file; the path RULES
+  # themselves live in scripts/ci_changed_paths.sh (GH #2622, one source). Since GH #2622
+  # nothing outside this run reads these outputs (the path-filter artifact for cd.yml is gone).
   changes:
     name: Detect changed paths
     runs-on: ubuntu-latest
@@ -190,9 +200,20 @@ jobs:
         with:
           fetch-depth: 0
 
+      # GH #2622: the path RULES live in scripts/ci_changed_paths.sh (the one source); this
+      # step only picks the commit range. Event fields reach the shell through env:, never
+      # through ${{ }} inside run:. The script's output is captured and validated (exit 0 and
+      # exactly backend/frontend/mobile=true|false, each once) before anything is written to
+      # $GITHUB_OUTPUT; any other result exits 1 so the fail-safe step below runs every gate.
       - name: Compute changed paths
         id: filter
         continue-on-error: true
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MG_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          MG_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
         run: |
           set -uo pipefail
 
@@ -207,7 +228,7 @@ jobs:
           # (see ISS-0840 and the anti-patterns entry this fix adds). The path
           # filter is kept for pull_request events only, where each PR's own commit
           # range genuinely represents everything that changed relative to main.
-          if [ "${{ github.event_name }}" = "push" ]; then
+          if [ "$EVENT_NAME" = "push" ]; then
             echo "Push to main -- always running all gates (ISS-0840: path filter on push-to-main caused false-green)."
             echo "backend=true" >> "$GITHUB_OUTPUT"
             echo "frontend=true" >> "$GITHUB_OUTPUT"
@@ -215,18 +236,18 @@ jobs:
             exit 0
           fi
 
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            BASE_SHA="${{ github.event.pull_request.base.sha }}"
-            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
-          elif [ "${{ github.event_name }}" = "merge_group" ]; then
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            BASE_SHA="$PR_BASE_SHA"
+            HEAD_SHA="$PR_HEAD_SHA"
+          elif [ "$EVENT_NAME" = "merge_group" ]; then
             # Merge queue (A3): the same path regex as for a PR decides which gates run,
             # over this queue entry's own range. With stacked entries base_sha is the
             # previous entry's commit, so a docs-only entry behind a code entry does not
             # re-run the code ahead of it; the push-to-main run above (ISS-0840) always
             # runs every gate after each queue merge and is the final backstop. Every
             # fail-safe below (empty/zero SHA, unreachable base => all gates) still applies.
-            BASE_SHA="${{ github.event.merge_group.base_sha }}"
-            HEAD_SHA="${{ github.event.merge_group.head_sha }}"
+            BASE_SHA="$MG_BASE_SHA"
+            HEAD_SHA="$MG_HEAD_SHA"
           else
             BASE_SHA=""
             HEAD_SHA=""
@@ -235,7 +256,7 @@ jobs:
           ZERO_SHA="0000000000000000000000000000000000000000"
 
           if [ -z "$BASE_SHA" ] || [ -z "$HEAD_SHA" ] || [ "$BASE_SHA" = "$ZERO_SHA" ]; then
-            echo "No usable base SHA for event '${{ github.event_name }}' (base='$BASE_SHA') -- assuming everything changed."
+            echo "No usable base SHA for event '$EVENT_NAME' (base='$BASE_SHA') -- assuming everything changed."
             echo "backend=true" >> "$GITHUB_OUTPUT"
             echo "frontend=true" >> "$GITHUB_OUTPUT"
             echo "mobile=true" >> "$GITHUB_OUTPUT"
@@ -254,41 +275,42 @@ jobs:
             exit 0
           fi
 
-          CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          if ! CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA"); then
+            echo "::error::git diff $BASE_SHA..$HEAD_SHA failed -- the fail-safe step will run every gate."
+            exit 1
+          fi
           echo "Changed files ($BASE_SHA..$HEAD_SHA):"
           echo "$CHANGED"
 
-          # Q-1059 / GH #2411: the backend gate reads more than lib/ and test/. Every repo path it reads by name
-          # must match BACKEND_PATHS_RE, or a change confined to that path merges without the gate
-          # (letflow.check.* reads docs/requirements.yaml, docs/issues, docs/status, handoffs/ via
-          # lint_handoffs, .formatter.exs via mix format; tests read priv/**, deploy/, docs/roles.md,
-          # docs/runbooks/ and a few web/ files). The guard test test/letflow/ci_backend_path_filter_test.exs
-          # parses this line and fails when a path the gate reads is missing. Keep it ONE single-quoted
-          # line, assigned exactly as below, so the test can extract it.
-          # Known gap: no_smtp_secret_guard_test greps the whole tracked tree, so no path list can be
-          # complete; the push-to-main always-run rule (ISS-0840) is the backstop.
-          BACKEND_PATHS_RE='^(lib/|priv/|test/|config/|mix\.exs|mix\.lock|\.tool-versions|\.formatter\.exs$|\.gitattributes$|\.env\.example$|scripts/.*\.sh$|deploy/|\.github/workflows/|\.claude/agents/uat-runner\.md$|web/\.env|web/vite\.config\.ts$|web/tests/e2e/env04\.e2e\.spec\.ts$|web/tests/e2e/pipelines/onboarding-wizard\.pipeline\.e2e\.spec\.ts$|docs/requirements\.yaml$|docs/issues/[^/]+\.yaml$|docs/status/requirement_status[^/]*\.yaml$|docs/status/work_board_cutover\.yaml$|docs/roles\.md$|docs/frontend/x-ui-widget-vocabulary\.md$|docs/migration/stage-7-simulation-uat-parity\.md$|docs/runbooks/|docs/agents/shared/HANDOFF_PROTOCOL\.md$|handoffs/registry\.json$|handoffs/(.*/)?step[^/]*\.[^/]*$)'
-          # Q-1110 / GH #2492: match with a here-string, never `echo "$CHANGED" | grep -q`. grep -q exits
-          # on the first match; under `set -o pipefail` the still-writing echo then dies of SIGPIPE on a
-          # large list (> pipe buffer), the pipeline reports 141, `if` takes the else branch and the
-          # gate is silently skipped. test/letflow/ci_backend_path_filter_test.exs fails on the pattern.
-          if grep -qE "$BACKEND_PATHS_RE" <<<"$CHANGED"; then
-            echo "backend=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "backend=false" >> "$GITHUB_OUTPUT"
+          # GH #2622: the path rules are in scripts/ci_changed_paths.sh, the one source; its
+          # header carries the Q-1059 (paths the backend gate reads) and Q-1110 (here-string,
+          # never a pipe into grep -q) notes, and test/letflow/ci_backend_path_filter_test.exs
+          # extracts the backend rule from it. The script reads ALL of stdin before matching,
+          # so feeding it is SIGPIPE-safe.
+          rc=0
+          RESULT=$(bash scripts/ci_changed_paths.sh <<<"$CHANGED") || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::scripts/ci_changed_paths.sh exited $rc -- the fail-safe step will run every gate."
+            exit 1
           fi
-
-          if grep -qE '^(web/|\.github/workflows/ci\.yml)' <<<"$CHANGED"; then
-            echo "frontend=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "frontend=false" >> "$GITHUB_OUTPUT"
+          # Exactly three lines, each backend|frontend|mobile=true|false, each key once.
+          valid=0
+          seen=" "
+          while IFS= read -r line; do
+            if [[ $line =~ ^(backend|frontend|mobile)=(true|false)$ ]] && [[ $seen != *" ${BASH_REMATCH[1]} "* ]]; then
+              seen="$seen${BASH_REMATCH[1]} "
+              valid=$((valid + 1))
+            else
+              valid=-1000
+            fi
+          done <<<"$RESULT"
+          if [ "$valid" -ne 3 ]; then
+            echo "::error::scripts/ci_changed_paths.sh output is malformed -- the fail-safe step will run every gate."
+            exit 1
           fi
-
-          if grep -qE '^(apps/mobile/|\.github/workflows/ci\.yml)' <<<"$CHANGED"; then
-            echo "mobile=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "mobile=false" >> "$GITHUB_OUTPUT"
-          fi
+          echo "Path rules (scripts/ci_changed_paths.sh):"
+          printf '%s\n' "$RESULT"
+          printf '%s\n' "$RESULT" >> "$GITHUB_OUTPUT"
 
       - name: Fail-safe defaults if path detection did not complete cleanly
         id: fallback
@@ -298,27 +320,6 @@ jobs:
           echo "backend=true" >> "$GITHUB_OUTPUT"
           echo "frontend=true" >> "$GITHUB_OUTPUT"
           echo "mobile=true" >> "$GITHUB_OUTPUT"
-
-      # REQ-367: publish this job's already-computed backend/frontend outputs
-      # as a build artifact so .github/workflows/cd.yml (a separate,
-      # workflow_run-triggered workflow) can gate its QA deploy on the same
-      # signal without a second git diff/regex computation -- a workflow_run
-      # trigger runs as a distinct workflow run and cannot read this job's
-      # `outputs:` via `needs:` (that only works within one workflow run).
-      # Pure downstream consumer of the values the filter/fallback steps
-      # above already produced -- does not touch their diff/regex logic.
-      - name: Write path-filter outputs for cd.yml
-        run: |
-          echo "backend=${{ steps.filter.outputs.backend || steps.fallback.outputs.backend }}" >> path-filter-outputs.txt
-          echo "frontend=${{ steps.filter.outputs.frontend || steps.fallback.outputs.frontend }}" >> path-filter-outputs.txt
-          cat path-filter-outputs.txt
-
-      - name: Upload path-filter outputs
-        uses: actions/upload-artifact@v4
-        with:
-          name: path-filter-outputs
-          path: path-filter-outputs.txt
-          retention-days: 1
 
   # Q-1037 / GH #2364 (backend-gate sharding): the static half of the old single `backend`
   # job. NOT a required status check (only the aggregator `backend` below is). Runs the

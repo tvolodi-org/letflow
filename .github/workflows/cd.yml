@@ -1,26 +1,34 @@
 name: CD (QA)
 
-# Runs only after CI succeeds on main -- never deploys code that hasn't
-# passed mix letflow.check / npm run check. See workflows/ci.yml for the
-# tested jobs.
+# GH #2622 (design lib/letflow/design/gh2622-ci-push-concurrency-and-cd-tip.md §3): the "tip rule".
 #
-# QA-ONLY: this workflow deploys exclusively to qa.bizdala.com via
-# deploy/redeploy-qa.sh. letflow-test's own eventual CD wiring (if
-# deploy/redeploy-test.sh is ever activated for its own target) is a
-# separate, not-yet-filed concern -- this file does not cover it.
+# REQ-367's CD path gate is superseded: CD deploys the tested main tip whenever QA differs.
+# The path-filter-outputs artifact this workflow used to download from the CI run is gone
+# (CI no longer uploads it), and CD has no path rules.
 #
-# REQ-367: adapts the sibling letflow-queue repo's proven cd.yml shape
-# (workflow_run off CI success, restricted-SSH-key deploy) rather than
-# inventing a new deploy mechanism. One deliberate divergence: this repo's
-# ci.yml already computes backend/frontend path-filter outputs (letflow-queue's
-# does not), and REQ-367 requires gating the QA deploy on that same signal
-# without duplicating the diff computation. A workflow_run-triggered
-# workflow is a separate workflow run and cannot read another workflow's
-# job outputs via `needs:` -- so the gate is threaded across that boundary
-# via the path-filter-outputs artifact ci.yml's `changes` job now uploads
-# (see ci.yml) rather than either a second diff/regex or an unconditional
-# deploy. See lib/letflow/design/req367-cd-qa-deploy.md §2-3 for the full
-# reasoning.
+# QA-ONLY: this workflow deploys exclusively to qa.bizdala.com via deploy/redeploy-qa.sh,
+# through a restricted-SSH-key forced command (sibling letflow-queue repo's shape, REQ-367).
+# The forced command deploys whatever `git pull` yields on main, so no sha is sent over SSH:
+# CD only decides WHETHER to deploy, from main's CURRENT tip and QA's /health sha.
+#
+# Job `deploy` runs only for a SUCCESSFUL CI run whose event is `push` and whose head
+# repository is this repository. `branches: [main]` below matches the triggering run's head
+# BRANCH NAME, so without the head-repository clause a fork's pull request from a branch named
+# `main` would fire this privileged workflow (GH #2622 R5). Event fields reach shells only
+# through env:, never through ${{ }} inside run:.
+#
+# Decision (scripts/cd_qa_decide.sh, first match wins): an invalid run sha, an unreadable or
+# unstable tip, or an unreadable tip run is RED; a run that is not the tip while the tip's own
+# push run is not green is a SKIP; only after those, the QA /health signal decides (unknown,
+# unresolvable or non-ancestor QA sha -> deploy; QA at the tip -> skip; QA behind -> deploy).
+# Every reason is logged as a `cd-qa:` line and in the step summary.
+#
+# Concurrency is job-level on `deploy` (group cd-qa, never cancel in progress). A queued run
+# superseded by a newer one is harmless: every run decides from the CURRENT tip and QA sha.
+#
+# Race accepted by ruling OQ-1 (issue #2622 R6): main may move between the tip check and the
+# remote `git pull`; the commit deployed then passed the merge queue's required checks on its
+# exact tree (docs/merge-queue.md), and the verify step logs it. See docs/runbooks/qa-lag.md.
 on:
   workflow_run:
     workflows: ["CI"]
@@ -31,32 +39,95 @@ jobs:
   deploy:
     name: Deploy to QA
     runs-on: ubuntu-latest
-    # Job-level condition: only that CI itself succeeded (not cancelled/
-    # failed). Whether backend/frontend actually changed is a *step*-level
-    # condition below, matching ci.yml's own documented preference for
-    # step-level over job-level path-filter conditions (so the job still
-    # runs and reports success with skipped steps, rather than vanishing).
-    if: github.event.workflow_run.conclusion == 'success'
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository
+    permissions:
+      contents: read
+      actions: read
+    concurrency:
+      group: cd-qa
+      cancel-in-progress: false
+    env:
+      QA_URL: https://qa.bizdala.com
+      RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+      GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Download path-filter outputs from the triggering CI run
-        uses: actions/download-artifact@v4
+      - name: Check out main (trusted merged code only)
+        uses: actions/checkout@v4
         with:
-          name: path-filter-outputs
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Determine whether to deploy
-        id: gate
+      # Step outputs carry only values matching ^[A-Za-z0-9_]{0,64}$ (else empty); the untrusted
+      # /health body goes to a file under $RUNNER_TEMP, never to $GITHUB_OUTPUT or the log.
+      - name: Resolve main tip, the tip's CI push run, and QA's /health
+        id: inputs
         run: |
-          source path-filter-outputs.txt
-          if [[ "$backend" == "true" || "$frontend" == "true" ]]; then
-            echo "should_deploy=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "should_deploy=false" >> "$GITHUB_OUTPUT"
+          set -uo pipefail
+          safe() { if [[ $1 =~ ^[A-Za-z0-9_]{0,64}$ ]]; then printf '%s' "$1"; fi; }
+          read_tip() {
+            TIP=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha 2>/dev/null) || TIP=""
+            git fetch --no-tags --quiet origin main || echo "cd-qa: git fetch origin main failed"
+            TIP_GIT=$(git rev-parse --verify --quiet origin/main 2>/dev/null) || TIP_GIT=""
+          }
+          read_tip
+          if [ "$TIP" != "$TIP_GIT" ]; then
+            echo "cd-qa: api and git tips differ, re-reading both once"
+            read_tip
+          fi
+          TIP=$(safe "$TIP")
+          TIP_GIT=$(safe "$TIP_GIT")
+
+          TIP_RUN=""
+          if [[ $TIP =~ ^[0-9a-f]{40}$ ]] && [ "$RUN_SHA" != "$TIP" ]; then
+            if TIP_RUN=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$TIP&event=push&branch=main&per_page=100" \
+                --jq '[.workflow_runs[]] | sort_by(.created_at) | last | if . == null then "none" elif .status == "completed" then (.conclusion // "none") else .status end' 2>/dev/null); then
+              TIP_RUN=$(safe "$TIP_RUN")
+            else
+              TIP_RUN=error
+            fi
           fi
 
+          body="$RUNNER_TEMP/qa_health.body"
+          curl -sf -m 10 --max-filesize 65536 "$QA_URL/health" -o "$body" 2>/dev/null || : > "$body"
+
+          {
+            echo "tip=$TIP"
+            echo "tip_git=$TIP_GIT"
+            echo "tip_run=$TIP_RUN"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Decide (tip rule)
+        id: decide
+        env:
+          TIP: ${{ steps.inputs.outputs.tip }}
+          TIP_GIT: ${{ steps.inputs.outputs.tip_git }}
+          TIP_RUN: ${{ steps.inputs.outputs.tip_run }}
+        run: |
+          set -uo pipefail
+          QA_HEALTH=$(cat "$RUNNER_TEMP/qa_health.body" 2>/dev/null) || QA_HEALTH=""
+          export QA_HEALTH
+          rc=0
+          OUT=$(bash scripts/cd_qa_decide.sh) || rc=$?
+          line1=$(printf '%s\n' "$OUT" | sed -n 1p)
+          line2=$(printf '%s\n' "$OUT" | sed -n 2p)
+          nlines=$(printf '%s\n' "$OUT" | wc -l)
+          if [ "$nlines" -ne 2 ] || [[ ! $line1 =~ ^deploy=(true|false)$ ]] || [[ ! $line2 =~ ^reason=cd-qa:\ [\ -~]+$ ]] \
+            || { [ "$rc" -ne 0 ] && [ "$rc" -ne 3 ]; } || { [ "$rc" -eq 3 ] && [ "$line1" != "deploy=false" ]; }; then
+            echo "cd-qa: decide error"
+            echo "cd-qa: decide error" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          reason=${line2#reason=}
+          printf '%s\n' "$reason"
+          printf '%s\n' "$reason" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$rc" -eq 3 ]; then
+            exit 1
+          fi
+          printf '%s\n' "$line1" >> "$GITHUB_OUTPUT"
+
       - name: Deploy to QA (ubuntu-16gb-nbg1-1)
-        if: steps.gate.outputs.should_deploy == 'true'
+        if: steps.decide.outputs.deploy == 'true'
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.QA_DEPLOY_HOST }}
@@ -68,3 +139,65 @@ jobs:
           # REQ-367). Any script passed here is ignored by sshd in favor of
           # the forced command; it's included anyway for clarity/documentation.
           script: bash /opt/apps/letflow-qa/deploy/redeploy-qa.sh
+
+      # Q = QA's /health sha after the deploy. Fetch first, then resolve Q, then the ancestry
+      # check: Q must be the verified tip or a descendant of it (main moved during the deploy,
+      # the OQ-1 race: logged, green). Unreachable, unresolvable or not a descendant: red.
+      - name: Verify QA serves the tip (or a descendant)
+        if: steps.decide.outputs.deploy == 'true'
+        env:
+          TIP: ${{ steps.inputs.outputs.tip }}
+        run: |
+          set -uo pipefail
+          q=""
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            body=$(curl -sf -m 10 --max-filesize 65536 "$QA_URL/health" 2>/dev/null) || body=""
+            q=$(printf '%s' "$body" | jq -j 'if type == "object" and (.sha | type) == "string" then .sha else "" end' 2>/dev/null) || q=""
+            [[ $q =~ ^[0-9a-f]{7,40}$ ]] && break
+            q=""
+            sleep 6
+          done
+          if [ -z "$q" ]; then
+            echo "cd-qa: verify failed, QA /health sha unreadable after the deploy"
+            exit 1
+          fi
+          if ! git fetch --no-tags --quiet origin main; then
+            echo "cd-qa: verify failed, git fetch origin main failed"
+            exit 1
+          fi
+          full=$(git rev-parse --verify --quiet "${q}^{commit}" 2>/dev/null) || full=""
+          if [[ ! $full =~ ^[0-9a-f]{40}$ ]]; then
+            echo "cd-qa: verify failed, deployed sha $q unresolvable"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$TIP" "$full"; then
+            echo "cd-qa: verify failed, deployed sha $q is not tip $TIP or a descendant"
+            exit 1
+          fi
+          echo "cd-qa: deployed $q"
+          echo "cd-qa: deployed $q" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$full" != "$TIP" ]; then
+            echo "cd-qa: main moved during deploy (verified $TIP, deployed $q)"
+            echo "cd-qa: main moved during deploy (verified $TIP, deployed $q)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # Runs exactly when `deploy` is skipped by its job `if:` and logs why. The `${{ }}` wrapper
+  # is REQUIRED: a bare `if:` value starting with `!` is a YAML tag, and cd.yml is never run
+  # by PR CI, so a broken file would silently stop CD. No secrets, no permissions, no checkout,
+  # no concurrency group. HEAD_REPO is compared, never printed.
+  skip-log:
+    name: Log why CD did not deploy
+    runs-on: ubuntu-latest
+    if: ${{ !(github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository) }}
+    permissions: {}
+    env:
+      CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+      EVENT: ${{ github.event.workflow_run.event }}
+      HEAD_REPO: ${{ github.event.workflow_run.head_repository.full_name }}
+    steps:
+      - name: Log the skip reason
+        run: |
+          same_repo=false
+          if [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ]; then same_repo=true; fi
+          printf '%s\n' "cd-qa: skipped (conclusion=$CONCLUSION, event=$EVENT, same-repo=$same_repo)"
+          printf '%s\n' "cd-qa: skipped (conclusion=$CONCLUSION, event=$EVENT, same-repo=$same_repo)" >> "$GITHUB_STEP_SUMMARY"

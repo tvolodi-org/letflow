@@ -274,7 +274,7 @@ Runs after both 2a and 2b return PASS (or whichever applies), before Step 2d.
    clause; its checklist is MOB-5's acceptance criteria in
    docs/mobile/requirements.md, applied alongside INV-4/INV-5.
    - Permission-matrix trust boundary (GH #2586, decision 0055 D7): any change to
-     .github/workflows/ci.yml; to mix.exs aliases (aliases/0, @check_static_steps,
+     .github/workflows/ci.yml or scripts/ci_changed_paths.sh (CI's path rules, GH #2622); to mix.exs aliases (aliases/0, @check_static_steps,
      cli/0 preferred_envs) or elixirc_paths/1; to a `config :letflow, :modules`
      setting in any config/*.exs; to lib/mix/tasks/letflow.permission_matrix.ex or
      lib/letflow/api/permission_matrix.ex; to lib/letflow/api/authorization.ex; to
