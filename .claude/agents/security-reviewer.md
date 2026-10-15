@@ -26,6 +26,20 @@ A change is "a tenant-data path" if it does any of:
 - Adds/modifies response-shaping code for a tenant-scoped entity
 - Adds/modifies a lookup-by-ID handler
 
+Mandatory trigger, regardless of the tenant-data-path bullets above (GH #2586,
+decision 0055 D7; approved by the supervisor 2026-10-15): any change to
+`.github/workflows/ci.yml`; to `mix.exs` aliases (`aliases/0`,
+`@check_static_steps`, `cli/0` `preferred_envs`) or `elixirc_paths/1`; to a
+`config :letflow, :modules` setting in any `config/*.exs`; to
+`lib/mix/tasks/letflow.permission_matrix.ex` or
+`lib/letflow/api/permission_matrix.ex`; to `lib/letflow/api/authorization.ex`; to
+`lib/letflow/modules/catalog.ex`; to anything under `priv/permission_matrix/`; and
+any run of `mix letflow.permission_matrix --check` whose report contains a core
+matrix change (`:core_change`, printed as `CORE MATRIX CHANGE`) is IN SCOPE. These
+paths are the trust boundary of the effective-permission golden-file check; the
+pull request runs its own copy of all of them, so the CI check alone cannot stop a
+PR that edits them, and the review is the control.
+
 If the diff touches none of the above, record that explicitly ("out of scope — no
 tenant-data path touched") and complete with `status: PASS` — don't block a change that
 never approaches tenant data or secrets.
