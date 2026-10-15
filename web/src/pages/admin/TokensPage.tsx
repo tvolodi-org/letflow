@@ -2,7 +2,7 @@ import { useMemo, useState, type CSSProperties } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { tokensApi, usersApi } from '@/api/identity'
 import { useTenantScopedQueryKeys } from '@/api/useTenantScopedQueryKeys'
-import type { ApiToken, IssuedToken, User } from '@/types/api'
+import type { ApiToken, ApiTokenStatus, IssuedToken, User } from '@/types/api'
 import { QueryStateBoundary } from '@/components/ui/QueryStateBoundary'
 import { Button } from '@/components/ui/Button'
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable'
@@ -25,11 +25,43 @@ type TokenRow = ApiToken & {
   user_display_name?: string
   user_id?: string
   roles?: string[]
-  status?: 'ACTIVE' | 'REVOKED' | 'EXPIRED'
+}
+
+interface StatusPresentation {
+  label: string
+  color: string
+}
+
+// GH 2589: one label and one colour per effective status. Only `active` uses
+// the success colour; a Record over ApiTokenStatus keeps this exhaustive.
+const TOKEN_STATUS_PRESENTATION: Record<ApiTokenStatus, StatusPresentation> = {
+  active: { label: 'Active', color: 'var(--color-success-dark)' },
+  revoked: { label: 'Revoked', color: 'var(--text-disabled)' },
+  expired: { label: 'Expired', color: 'var(--color-warning-text)' },
+  owner_inactive: { label: 'Owner inactive', color: 'var(--color-error-dark)' },
+}
+
+const UNKNOWN_STATUS: StatusPresentation = { label: 'Unknown', color: 'var(--text-secondary)' }
+
+/** The wire value is not trusted to be one of the four: anything else, or a
+ *  missing status, is shown as a neutral "Unknown", never as active. */
+function tokenStatusPresentation(status: string | undefined): StatusPresentation {
+  if (status !== undefined && Object.hasOwn(TOKEN_STATUS_PRESENTATION, status)) {
+    return TOKEN_STATUS_PRESENTATION[status as ApiTokenStatus]
+  }
+  return UNKNOWN_STATUS
 }
 
 function tokenId(token: TokenRow): string {
   return token.token_id ?? token.id ?? ''
+}
+
+/** Issuer display: the user's display name when the page's user list has
+ *  them, else the raw id; a dash for legacy tokens with no issuer. */
+function tokenIssuerLabel(token: TokenRow, usersById: Map<string, User>): string {
+  const issuerId = token.issuer_user_id
+  if (!issuerId) return '—'
+  return usersById.get(issuerId)?.display_name ?? issuerId
 }
 
 function tokenUserLabel(token: TokenRow, usersById: Map<string, User>): string {
@@ -126,6 +158,11 @@ export default function TokensPage() {
       accessor: (token) => <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', ...revokedCellStyle(token) }}>{formatDate(token.created_at)}</span>,
     },
     {
+      id: 'issuer',
+      header: 'Issued by',
+      accessor: (token) => <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', ...revokedCellStyle(token) }}>{tokenIssuerLabel(token, usersById)}</span>,
+    },
+    {
       id: 'revoked',
       header: 'Revoked',
       accessor: (token) => <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', ...revokedCellStyle(token) }}>{formatDate(token.revoked_at)}</span>,
@@ -134,10 +171,10 @@ export default function TokensPage() {
       id: 'status',
       header: 'Status',
       accessor: (token) => {
-        const revoked = Boolean(token.revoked_at)
+        const { label, color } = tokenStatusPresentation(token.status)
         return (
-          <span style={{ color: revoked ? 'var(--text-disabled)' : 'var(--color-success-dark)', fontWeight: 600, fontSize: 'var(--text-xs)' }}>
-            {token.status ?? (revoked ? 'REVOKED' : 'ACTIVE')}
+          <span data-testid="token-status" style={{ color, fontWeight: 600, fontSize: 'var(--text-xs)' }}>
+            {label}
           </span>
         )
       },

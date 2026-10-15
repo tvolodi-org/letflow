@@ -293,7 +293,7 @@ test.describe('F5 admin groups and tokens UI (ADM-UI-05..08)', () => {
       await expect(row).toContainText(user.displayName)
       await expect(row).toContainText('TASK_WORKER, PROCESS_OPERATOR')
       await expect(row).toContainText('Never')
-      await expect(row).toContainText('ACTIVE')
+      await expect(row.getByTestId('token-status')).toHaveText('Active')
       await expect(row.locator('td').nth(3)).not.toHaveText('', { timeout: 10_000 })
       await expect(page.getByText(token.value, { exact: true })).toHaveCount(0)
       await shot(page, 'ADM-UI-06-token-list')
@@ -369,7 +369,7 @@ test.describe('F5 admin groups and tokens UI (ADM-UI-05..08)', () => {
 
       const row = tokenRow(page, user)
       await expect(row).toBeVisible({ timeout: 10_000 })
-      await expect(row).toContainText('ACTIVE')
+      await expect(row.getByTestId('token-status')).toHaveText('Active')
 
       await row.getByRole('button', { name: 'Revoke' }).click()
       const dialog = page.getByRole('dialog', { name: 'Revoke token' })
@@ -378,7 +378,7 @@ test.describe('F5 admin groups and tokens UI (ADM-UI-05..08)', () => {
       await shot(page, 'ADM-UI-08-confirmation-dialog')
 
       await dialog.getByRole('button', { name: 'Revoke token' }).click()
-      await expect(row).toContainText('REVOKED', { timeout: 10_000 })
+      await expect(row.getByTestId('token-status')).toHaveText('Revoked', { timeout: 10_000 })
       await expect(row).toHaveCSS('text-decoration-line', 'line-through', { timeout: 10_000 })
       await expect(row.getByRole('button', { name: 'Revoke' })).toHaveCount(0)
       await shot(page, 'ADM-UI-08-token-revoked')
