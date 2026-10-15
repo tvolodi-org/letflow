@@ -5,9 +5,10 @@ defmodule Letflow.Engine.PutSysCallersTest do
   `lib/**/*.ex` file (not grep: AST nodes, so a function name inside a doc string is not a
   call, while a binary literal inside a doc string IS a literal).
 
-    * R1: the identifier `put_sys` (a local or remote call with any receiver, piped, a capture
-      `&put_sys/3` / `&X.put_sys/3`, or the atom `:put_sys` handed to `Function.capture/3` or
-      `apply/3`) occurs only in `@put_sys_callers`. PR B adds `lib/letflow/engine.ex` in a
+    * R1: the identifiers `put_sys` and `put_sys_replayed` (GH #2621; a local or remote call
+      with any receiver, piped, a capture `&put_sys/3` / `&X.put_sys/3`, or the atom
+      `:put_sys` handed to `Function.capture/3` or `apply/3`) occur only in
+      `@put_sys_callers`. PR B adds `lib/letflow/engine.ex` in a
       reviewed diff.
     * R2: a binary literal CONTAINING `"INSTANCE_SYS_VARIABLES_SET"` or
       `"TASK_ENTITY_WRITES_APPLIED"` occurs only in `@event_literal_files` (A3 adds
@@ -39,6 +40,7 @@ defmodule Letflow.Engine.PutSysCallersTest do
 
   # Reviewed allow-lists (adding a file is a reviewed diff).
   @put_sys_callers [@variable_merge, @reconstruction]
+  @put_sys_names [:put_sys, :put_sys_replayed]
   @entity_port "lib/letflow/engine/entity_port.ex"
   @event_literal_files [@variable_merge, @reconstruction, @tenant_provisioning, @entity_port]
   @reserved_literal_files [@variable_merge]
@@ -68,8 +70,8 @@ defmodule Letflow.Engine.PutSysCallersTest do
   defp mentions_put_sys?(ast) do
     {_ast, found?} =
       Macro.prewalk(ast, false, fn
-        {:put_sys, _meta, _args} = node, _acc -> {node, true}
-        :put_sys = node, _acc -> {node, true}
+        {name, _meta, _args} = node, _acc when name in @put_sys_names -> {node, true}
+        name = node, _acc when name in @put_sys_names -> {node, true}
         node, acc -> {node, acc}
       end)
 
@@ -206,7 +208,13 @@ defmodule Letflow.Engine.PutSysCallersTest do
       "def f, do: &put_sys/3",
       "def f, do: &VariableMerge.put_sys/3",
       "def f, do: Function.capture(VariableMerge, :put_sys, 3)",
-      "def f(v), do: apply(VariableMerge, :put_sys, [v, k(), 1])"
+      "def f(v), do: apply(VariableMerge, :put_sys, [v, k(), 1])",
+      "def f(v), do: put_sys_replayed(v, k(), 1)",
+      "def f(v), do: VariableMerge.put_sys_replayed(v, k(), 1)",
+      "def f(v), do: v |> VariableMerge.put_sys_replayed(k(), 1)",
+      "def f, do: &VariableMerge.put_sys_replayed/3",
+      "def f, do: Function.capture(VariableMerge, :put_sys_replayed, 3)",
+      "def f(v), do: apply(VariableMerge, :put_sys_replayed, [v, k(), 1])"
     ]
 
     test "R1: every call / capture / apply shape of put_sys is flagged" do

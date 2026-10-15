@@ -133,10 +133,15 @@ defmodule Letflow.Engine.VariableMerge do
       :reserved_variable_key, []}]}` for the first reserved key in sorted
       order. The rejected value is never carried (`nil`), so an
       attacker-supplied value never reaches an error event, detail or log.
-    * `put_sys/3` is the ONLY function that sets a reserved key. Its callers
-      are a reviewed static allow-list
-      (`test/letflow/engine/put_sys_callers_test.exs`); it must never receive
-      request, form, HTTP response, start-input, message or script data.
+    * `put_sys/3` (strict: new values) and `put_sys_replayed/3` (stored tier,
+      wide rule: replay only, called by `Letflow.Engine.Reconstruction`) are
+      the ONLY functions that set a reserved key. Their callers are a reviewed
+      static allow-list (`test/letflow/engine/put_sys_callers_test.exs`);
+      they must never receive request, form, HTTP response, start-input,
+      message or script data.
+    * `sys_key_kind/1`, `check_sys_entry/2` and `check_sys_values/1` are the
+      strict, pure checks (GH #2621); the registry's append guard uses
+      `check_sys_values/1`.
     * `reserved_key?/1`, `reserved_keys/1`, `drop_reserved/1`, `sys_key?/1`,
       `sys_value?/1` and `sys_event_type/0` are how every other module reaches
       the namespace: no other file in `lib/` holds a binary literal starting
@@ -178,13 +183,25 @@ defmodule Letflow.Engine.VariableMerge do
              reason :: :reserved_variable_key, failures :: []}
 
   @typedoc """
-  A key `put_sys/3` accepts: the reserved prefix followed by one or more
-  dot-separated `[A-Za-z0-9_]+` segments, at most 160 bytes in total.
+  A strict id key (GH #2621): the reserved prefix and ONE `[A-Za-z0-9_]+` segment, at most
+  160 bytes in total.
   """
-  @type sys_key :: String.t()
+  @type sys_id_key :: String.t()
 
-  @typedoc "A value `put_sys/3` accepts: a minted record id or an `event_global_seq`."
+  @typedoc "A strict seq key (GH #2621): a `t:sys_id_key/0` followed by `.seq`, at most 160 bytes."
+  @type sys_seq_key :: String.t()
+
+  @typedoc "A key strict `put_sys/3` accepts: one of the two shapes, id or seq."
+  @type sys_key :: sys_id_key() | sys_seq_key()
+
+  @typedoc """
+  A value strict `put_sys/3` accepts: a canonical lowercase hyphenated UUID string for an id
+  key, an integer in `0..9_223_372_036_854_775_807` for a seq key.
+  """
   @type sys_value :: String.t() | non_neg_integer()
+
+  @typedoc "Why a strict check refused a key / value pair."
+  @type sys_entry_error :: :invalid_sys_key_shape | :invalid_sys_value_type | :invalid_variables
 
   @typedoc """
   The already-computed validation outcome for one incoming key's value,
@@ -224,6 +241,11 @@ defmodule Letflow.Engine.VariableMerge do
   @reserved_prefix "_sys."
   @sys_key_max_bytes 160
   @sys_name_pattern ~r/\A[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*\z/
+  @sys_id_key_pattern ~r/\A_sys\.[A-Za-z0-9_]+\z/
+  @sys_seq_key_pattern ~r/\A_sys\.[A-Za-z0-9_]+\.seq\z/
+  @canonical_uuid_pattern ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
+  @sys_seq_max 9_223_372_036_854_775_807
+  @sys_values_max_keys 40
   @sys_event_type "INSTANCE_SYS_VARIABLES_SET"
 
   @doc """
@@ -332,9 +354,10 @@ defmodule Letflow.Engine.VariableMerge do
     do: Map.reject(variables, fn {key, _value} -> reserved_key?(key) end)
 
   @doc """
-  Whether `key` is a `t:sys_key/0`: a binary of at most 160 bytes made of the
-  reserved prefix and one or more dot-separated `[A-Za-z0-9_]+` segments. The
-  bare reserved name is NOT a `sys_key`. Never raises, for any term.
+  STORED-tier predicate (GH #2621): whether `key` is a binary of at most 160 bytes made of
+  the reserved prefix and one or more dot-separated `[A-Za-z0-9_]+` segments. The bare
+  reserved name is NOT a sys key. This is the wide rule applied to events already stored;
+  NEW values go through `check_sys_entry/2`. Never raises, for any term.
   """
   @spec sys_key?(term()) :: boolean()
   def sys_key?(<<@reserved_prefix, name::binary>> = key)
@@ -344,7 +367,7 @@ defmodule Letflow.Engine.VariableMerge do
   def sys_key?(_key), do: false
 
   @doc """
-  Whether `value` is a `t:sys_value/0` (a binary or a non-negative integer).
+  STORED-tier predicate (GH #2621): whether `value` is a binary or a non-negative integer.
   Never raises, for any term.
   """
   @spec sys_value?(term()) :: boolean()
@@ -353,32 +376,125 @@ defmodule Letflow.Engine.VariableMerge do
   def sys_value?(_value), do: false
 
   @doc """
-  Sets the reserved `key` to `value` in `variables`. The ONLY function that
-  writes a reserved key (decision 0054 D1a.3); its callers are a reviewed
-  static allow-list (`test/letflow/engine/put_sys_callers_test.exs`).
-
-  It must never receive request, form, HTTP response, start-input, message or
-  script data: its inputs are engine-minted record ids and `event_global_seq`
-  integers only (on replay, read back from an engine-appended event of type
-  `sys_event_type/0`).
-
-  Raises `FunctionClauseError` when `key` is not a `t:sys_key/0` (the bare
-  reserved name included) or `value` is not a `t:sys_value/0`: a programmer
-  error in allow-listed engine code, never reachable from external input.
+  STRICT classification (GH #2621, design D-5) of a key: `:id` for `_sys.<name>`, `:seq` for
+  `_sys.<name>.seq`, where `<name>` is ONE `[A-Za-z0-9_]+` segment and the whole key is at
+  most 160 bytes; `:unknown` for anything else (the bare reserved name, a dotted name, a
+  non-binary, an over-long key). Total, never raises.
   """
-  @spec put_sys(map(), sys_key(), sys_value()) :: map()
-  def put_sys(variables, key, value) when is_map(variables) do
-    if sys_key?(key) and sys_value?(value) do
-      Map.put(variables, key, value)
-    else
-      raise FunctionClauseError, module: __MODULE__, function: :put_sys, arity: 3
+  @spec sys_key_kind(term()) :: :id | :seq | :unknown
+  def sys_key_kind(key) when is_binary(key) and byte_size(key) <= @sys_key_max_bytes do
+    cond do
+      Regex.match?(@sys_id_key_pattern, key) -> :id
+      Regex.match?(@sys_seq_key_pattern, key) -> :seq
+      true -> :unknown
+    end
+  end
+
+  def sys_key_kind(_key), do: :unknown
+
+  @doc """
+  STRICT check (GH #2621, design D-5/D-6) of one key / value pair: an unknown key shape is
+  `:invalid_sys_key_shape`; an id key needs a canonical lowercase hyphenated UUID string
+  and a seq key an integer in `0..9_223_372_036_854_775_807`, else `:invalid_sys_value_type`.
+  Pure, total, never raises.
+  """
+  @spec check_sys_entry(key :: term(), value :: term()) :: :ok | {:error, sys_entry_error()}
+  def check_sys_entry(key, value) do
+    case {sys_key_kind(key), value} do
+      {:unknown, _value} ->
+        {:error, :invalid_sys_key_shape}
+
+      {:id, value} when is_binary(value) ->
+        if Regex.match?(@canonical_uuid_pattern, value),
+          do: :ok,
+          else: {:error, :invalid_sys_value_type}
+
+      {:seq, value} when is_integer(value) and value >= 0 and value <= @sys_seq_max ->
+        :ok
+
+      {_kind, _value} ->
+        {:error, :invalid_sys_value_type}
     end
   end
 
   @doc """
+  STRICT check (GH #2621, design D-10) of the decoded `values` map of a new
+  `sys_event_type/0` event. More than 40 top-level keys is
+  `{:error, [{:values, :too_many_keys}]}` and the per-pair pass is skipped (exactly 40 is
+  accepted); otherwise every pair goes through `check_sys_entry/2` and the offending pairs
+  come back sorted by key. A non-map is `{:error, :not_a_map}`. Pure, total, never raises.
+  Used ONLY by the registry's append guard.
+  """
+  @spec check_sys_values(term()) ::
+          :ok
+          | {:error, [{key :: term(), sys_entry_error()}]}
+          | {:error, [{:values, :too_many_keys}]}
+          | {:error, :not_a_map}
+  def check_sys_values(values) when is_map(values) do
+    if map_size(values) > @sys_values_max_keys do
+      {:error, [{:values, :too_many_keys}]}
+    else
+      values
+      |> Enum.flat_map(fn {key, value} ->
+        case check_sys_entry(key, value) do
+          :ok -> []
+          {:error, reason} -> [{key, reason}]
+        end
+      end)
+      |> Enum.sort()
+      |> case do
+        [] -> :ok
+        offending -> {:error, offending}
+      end
+    end
+  end
+
+  def check_sys_values(_values), do: {:error, :not_a_map}
+
+  @doc """
+  Sets the reserved `key` to `value` in `variables`, STRICT (GH #2621): the pair must pass
+  `check_sys_entry/2`. The writer of NEW values; with `put_sys_replayed/3` the ONLY
+  functions that write a reserved key (decision 0054 D1a.3); callers are a reviewed static
+  allow-list (`test/letflow/engine/put_sys_callers_test.exs`).
+
+  It must never receive request, form, HTTP response, start-input, message or script data:
+  its inputs are engine-minted record ids and `event_global_seq` integers only.
+
+  Returns `{:ok, variables}` or `{:error, sys_entry_error}`. Never raises.
+  """
+  @spec put_sys(map(), key :: term(), value :: term()) ::
+          {:ok, map()} | {:error, sys_entry_error()}
+  def put_sys(variables, key, value) when is_map(variables) do
+    case check_sys_entry(key, value) do
+      :ok -> {:ok, Map.put(variables, key, value)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def put_sys(_variables, _key, _value), do: {:error, :invalid_variables}
+
+  @doc """
+  Sets the reserved `key` to `value` in `variables` under the STORED-tier (wide) rule
+  `sys_key?/1` and `sys_value?/1` (GH #2621, design D-8): `Letflow.Engine.Reconstruction`'s
+  only writer, so an event stored before the strict rules replays exactly as before.
+  Returns `{:ok, variables}` or `{:error, sys_entry_error}`. Never raises.
+  """
+  @spec put_sys_replayed(map(), key :: term(), value :: term()) ::
+          {:ok, map()} | {:error, sys_entry_error()}
+  def put_sys_replayed(variables, key, value) when is_map(variables) do
+    cond do
+      not sys_key?(key) -> {:error, :invalid_sys_key_shape}
+      not sys_value?(value) -> {:error, :invalid_sys_value_type}
+      true -> {:ok, Map.put(variables, key, value)}
+    end
+  end
+
+  def put_sys_replayed(_variables, _key, _value), do: {:error, :invalid_variables}
+
+  @doc """
   The event type of the engine-only event recording `put_sys/3` writes
   (decision 0054 D1, GH #2587), folded on replay by
-  `Letflow.Engine.Reconstruction` through `put_sys/3`.
+  `Letflow.Engine.Reconstruction` through `put_sys_replayed/3`.
   """
   @spec sys_event_type() :: String.t()
   def sys_event_type, do: @sys_event_type

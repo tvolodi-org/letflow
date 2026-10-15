@@ -34,7 +34,7 @@ defmodule Letflow.Engine.Reconstruction do
     route's `SERVICE_TASK_COMPLETED` (GH 2595), whose recorded `decoded_body` is merged
     verbatim, exactly as the live `:advance` path merged it. GH #2587 (decision 0054)
     added `INSTANCE_SYS_VARIABLES_SET` (the engine's reserved values, applied only
-    through `Letflow.Engine.VariableMerge.put_sys/3`; a malformed payload is
+    through `Letflow.Engine.VariableMerge.put_sys_replayed/3`; a malformed payload is
     `{:invalid_sys_variables_event, event_id}`, never a raise) and
     `TASK_ENTITY_WRITES_APPLIED` (changes no state: replay never re-executes an
     entity write). `folded_event_types/0` lists every type with its own clause;
@@ -798,7 +798,7 @@ defmodule Letflow.Engine.Reconstruction do
 
   # GH #2587 (decision 0054 D1a, design D-A1.13): the engine-only record of reserved
   # values the engine set (minted record ids and their event_global_seq). Applied ONLY
-  # through VariableMerge.put_sys/3, with every key and value checked first so a malformed
+  # through VariableMerge.put_sys_replayed/3, every key and value checked so a malformed
   # payload is a named replay failure, never a raise (INV-8). Tokens are unchanged.
   defp apply_event(
          _graph,
@@ -807,19 +807,19 @@ defmodule Letflow.Engine.Reconstruction do
          _prefix
        ) do
     with {:ok, values} <- fetch_map_field(event, "values") do
-      if Enum.all?(values, fn {key, value} ->
-           VariableMerge.sys_key?(key) and VariableMerge.sys_value?(value)
-         end) do
-        variables =
-          values
-          |> Enum.sort()
-          |> Enum.reduce(state.variables, fn {key, value}, acc ->
-            VariableMerge.put_sys(acc, key, value)
-          end)
-
-        {:ok, %InstanceState{state | variables: variables}}
-      else
-        {:error, {:invalid_sys_variables_event, event.event_id}}
+      # GH #2621: replay keeps the STORED-tier (wide) rule via put_sys_replayed/3, so an
+      # event appended before the strict append guard replays exactly as before.
+      values
+      |> Enum.sort()
+      |> Enum.reduce_while({:ok, state.variables}, fn {key, value}, {:ok, acc} ->
+        case VariableMerge.put_sys_replayed(acc, key, value) do
+          {:ok, variables} -> {:cont, {:ok, variables}}
+          {:error, _reason} -> {:halt, {:error, {:invalid_sys_variables_event, event.event_id}}}
+        end
+      end)
+      |> case do
+        {:ok, variables} -> {:ok, %InstanceState{state | variables: variables}}
+        {:error, _reason} = error -> error
       end
     end
   end

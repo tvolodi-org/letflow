@@ -145,23 +145,42 @@ defmodule Letflow.Engine.VariableMergeSysTest do
   end
 
   describe "put_sys/3" do
-    test "sets a sys_key to a sys_value" do
+    test "sets a sys_key to a sys_value (GH #2621: tuple contract)" do
       id = Ecto.UUID.generate()
 
-      assert %{"a" => 1, "_sys.r" => ^id, "_sys.r.seq" => 7} =
-               %{"a" => 1}
-               |> VariableMerge.put_sys("_sys.r", id)
-               |> VariableMerge.put_sys("_sys.r.seq", 7)
+      assert {:ok, step} = VariableMerge.put_sys(%{"a" => 1}, "_sys.r", id)
+
+      assert {:ok, %{"a" => 1, "_sys.r" => ^id, "_sys.r.seq" => 7}} =
+               VariableMerge.put_sys(step, "_sys.r.seq", 7)
     end
 
-    test "raises FunctionClauseError on \"_sys\", \"x\", and a value %{}" do
-      assert_raise FunctionClauseError, fn -> VariableMerge.put_sys(%{}, "_sys", 1) end
-      assert_raise FunctionClauseError, fn -> VariableMerge.put_sys(%{}, "x", 1) end
-      # A map value contradicts the @spec, so it goes through an opaque term() to keep the
-      # compile-time type checker quiet; the runtime refusal is what is under test.
-      map_value = opaque(%{})
-      assert_raise FunctionClauseError, fn -> VariableMerge.put_sys(%{}, "_sys.r", map_value) end
-      assert_raise FunctionClauseError, fn -> VariableMerge.put_sys(%{}, "_sys.r", -1) end
+    test "returns {:error, code} (no raise) on \"_sys\", \"x\", a value %{} and -1" do
+      assert {:error, :invalid_sys_key_shape} = VariableMerge.put_sys(%{}, "_sys", 1)
+      assert {:error, :invalid_sys_key_shape} = VariableMerge.put_sys(%{}, "x", 1)
+      assert {:error, :invalid_sys_value_type} = VariableMerge.put_sys(%{}, "_sys.r", opaque(%{}))
+      assert {:error, :invalid_sys_value_type} = VariableMerge.put_sys(%{}, "_sys.r.seq", -1)
+    end
+
+    test "a non-map first argument is {:error, _} for put_sys/3 and put_sys_replayed/3" do
+      assert {:error, :invalid_variables} = VariableMerge.put_sys(opaque(nil), "x", 1)
+      assert {:error, :invalid_variables} = VariableMerge.put_sys(opaque([]), "_sys.r", 1)
+
+      assert {:error, :invalid_variables} =
+               VariableMerge.put_sys_replayed(opaque(nil), "x", 1)
+    end
+
+    test "put_sys_replayed/3 keeps the stored-tier wide rule" do
+      assert {:ok, %{"_sys.line_0.id" => "any string"}} =
+               VariableMerge.put_sys_replayed(%{}, "_sys.line_0.id", "any string")
+
+      assert {:ok, %{"_sys.r" => 3}} = VariableMerge.put_sys_replayed(%{}, "_sys.r", 3)
+
+      assert {:error, :invalid_sys_key_shape} = VariableMerge.put_sys_replayed(%{}, "x", 1)
+
+      assert {:error, :invalid_sys_value_type} =
+               VariableMerge.put_sys_replayed(%{}, "_sys.r", opaque(%{}))
+
+      assert {:error, :invalid_sys_value_type} = VariableMerge.put_sys_replayed(%{}, "_sys.r", -1)
     end
 
     test "sys_event_type/0" do

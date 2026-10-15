@@ -22,6 +22,7 @@ defmodule Letflow.Engine.ReconstructionSysTest do
   alias Letflow.Engine.Reconstruction
   alias Letflow.Engine.Task, as: EngineTask
   alias Letflow.EventStore
+  alias Letflow.EventStore.Event
   alias Letflow.EventStore.InstanceProjection
 
   # START -> t1(HUMAN_TASK) -> xg(EXCLUSIVE_GATEWAY) -> a (ok == true) | b (default)
@@ -102,6 +103,43 @@ defmodule Letflow.Engine.ReconstructionSysTest do
     })
   end
 
+  # GH #2621 (design F1/F-A): inserts one `events` row directly, so neither EventStore.append/2
+  # nor Registry.validate_payload/3 (and the strict append guard) is traversed: it stands for an
+  # event stored BEFORE the guard existed. Explicit columns: event_id and created_at (the
+  # composite primary key), instance_id, event_type, payload, actor_id, sequence_number (the
+  # next value for the instance), idempotency_key, metadata. global_seq is assigned by the
+  # database (read_after_writes). It does not touch event_idempotency or the projection.
+  defp insert_raw_event!(schema, instance_id, type, payload) do
+    max_seq =
+      Repo.one!(
+        from(e in Event, where: e.instance_id == ^instance_id, select: max(e.sequence_number)),
+        prefix: schema
+      )
+
+    row = %{
+      event_id: Ecto.UUID.generate(),
+      created_at: DateTime.utc_now(),
+      instance_id: instance_id,
+      event_type: type,
+      payload: payload,
+      actor_id: Ecto.UUID.generate(),
+      sequence_number: max_seq + 1,
+      idempotency_key: uniq("gh2621-raw"),
+      metadata: %{}
+    }
+
+    assert {1, _} = Repo.insert_all(Event, [row], prefix: schema)
+    row
+  end
+
+  defp raw_sys_event!(schema, instance_id, values) do
+    insert_raw_event!(schema, instance_id, "INSTANCE_SYS_VARIABLES_SET", %{
+      "node_id" => "t1",
+      "cause" => "entity_writes",
+      "values" => values
+    })
+  end
+
   defp complete_t1!(schema, instance_id, output) do
     task =
       Repo.one!(
@@ -175,12 +213,59 @@ defmodule Letflow.Engine.ReconstructionSysTest do
       ] do
     test "malformed SYS event (#{label}) -> {:invalid_sys_variables_event, id}, no raise" do
       {schema, instance_id} = started_instance!()
-      event = sys_event!(schema, instance_id, unquote(Macro.escape(values)))
+      event = raw_sys_event!(schema, instance_id, unquote(Macro.escape(values)))
       event_id = event.event_id
 
       assert {:error, {:replay_failed, {:invalid_sys_variables_event, ^event_id}}} =
                Reconstruction.reconstruct_instance(instance_id, prefix: schema)
     end
+  end
+
+  test "a stored pre-change event with wide values replays unchanged (GH #2621)" do
+    {schema, instance_id} = started_instance!()
+    values = %{"_sys.line_0.id" => "any string", "_sys.r.seq" => 3}
+    raw_sys_event!(schema, instance_id, values)
+
+    assert {:ok, %{instance_state: state}} =
+             Reconstruction.reconstruct_instance(instance_id, prefix: schema)
+
+    assert state.variables == %{"n" => 1, "_sys.line_0.id" => "any string", "_sys.r.seq" => 3}
+  end
+
+  test "a stored 41-key v1 event replays unchanged: the append cap does not touch replay (GH #2621)" do
+    {schema, instance_id} = started_instance!()
+
+    values =
+      Map.new(0..40, fn i -> {"_sys.k#{i}", Ecto.UUID.generate()} end)
+
+    assert map_size(values) == 41
+    raw_sys_event!(schema, instance_id, values)
+
+    assert {:ok, %{instance_state: state}} =
+             Reconstruction.reconstruct_instance(instance_id, prefix: schema)
+
+    assert state.variables == Map.put(values, "n", 1)
+  end
+
+  test "the strict append guard refuses a wide-value event before it is stored (GH #2621)" do
+    {schema, instance_id} = started_instance!()
+
+    assert {:error, {:payload_validation_failed, [%{constraint: "sys_value_type"}]}} =
+             EventStore.append(
+               %{
+                 instance_id: instance_id,
+                 event_type: "INSTANCE_SYS_VARIABLES_SET",
+                 payload:
+                   Jason.encode!(%{
+                     "node_id" => "t1",
+                     "cause" => "entity_writes",
+                     "values" => %{"_sys.r" => "not-a-uuid"}
+                   }),
+                 actor_id: Ecto.UUID.generate(),
+                 idempotency_key: uniq("gh2621-refused")
+               },
+               prefix: schema
+             )
   end
 
   test "TASK_ENTITY_WRITES_APPLIED changes no state" do
