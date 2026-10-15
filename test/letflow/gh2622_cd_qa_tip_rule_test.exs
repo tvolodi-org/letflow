@@ -184,8 +184,6 @@ defmodule Letflow.Gh2622CdQaTipRuleTest do
     assert run =~ ~s|echo "cd-qa: verify failed, deployed sha $q is not on main"|
     assert run =~ ~s|echo "cd-qa: deployed $q"|
     assert run =~ ~s|echo "cd-qa: main moved during deploy (verified $TIP, deployed $q)"|
-    assert run =~ "for attempt in 1 2 3 4 5 6 7 8 9 10; do"
-    assert run =~ "sleep 6"
   end
 
   test "no ${{ }} inside any run:, no artifact download, no fork-controlled field read" do
@@ -200,6 +198,294 @@ defmodule Letflow.Gh2622CdQaTipRuleTest do
 
     for field <- ~w(head_branch display_title head_commit) do
       refute text =~ "workflow_run.#{field}", "cd.yml reads workflow_run.#{field}"
+    end
+  end
+
+  # ---------------------------------------------------------------------------------------
+  # Executed steps (REVIEWER finding 1, R6): the `run:` of the verify step and of the decide
+  # step are cut out of cd.yml and run with bash in a throwaway directory under
+  # System.tmp_dir!/0. `curl`, `sleep` and (for decide) `scripts/cd_qa_decide.sh` are fakes;
+  # `git` and `jq` are real. Paths reach bash through a driver script that builds them from
+  # $PWD: Windows argv and env paths do not survive msys bash intact. The driver always sets
+  # GITHUB_OUTPUT and GITHUB_STEP_SUMMARY to temp files, so a run on a real Actions runner
+  # never writes the runner's own files.
+  # ---------------------------------------------------------------------------------------
+
+  @git_env [
+    {"GIT_AUTHOR_NAME", "t"},
+    {"GIT_AUTHOR_EMAIL", "t@example.invalid"},
+    {"GIT_COMMITTER_NAME", "t"},
+    {"GIT_COMMITTER_EMAIL", "t@example.invalid"},
+    {"GIT_AUTHOR_DATE", "1700000000 +0000"},
+    {"GIT_COMMITTER_DATE", "1700000000 +0000"},
+    {"GIT_CONFIG_NOSYSTEM", "1"}
+  ]
+
+  @driver """
+  set -u
+  root=$PWD
+  export PATH="$root/bin:$PATH"
+  export GITHUB_OUTPUT="$root/github_output"
+  export GITHUB_STEP_SUMMARY="$root/step_summary"
+  export RUNNER_TEMP="$root"
+  export FAKE_HEALTH="$root/health.json"
+  export FAKE_CALLS="$root/calls.log"
+  export FAKE_DECIDE_OUT="$root/decide.out"
+  : > "$GITHUB_OUTPUT"; : > "$GITHUB_STEP_SUMMARY"; : > "$FAKE_CALLS"
+  cd "$root/$1"
+  bash "$root/step.sh"
+  """
+
+  # Fake curl: prints $FAKE_HEALTH when present, else fails like an unreachable host (7).
+  @fake_curl """
+  #!/bin/sh
+  echo curl >> "$FAKE_CALLS"
+  [ -f "$FAKE_HEALTH" ] || exit 7
+  cat "$FAKE_HEALTH"
+  """
+
+  @fake_sleep """
+  #!/bin/sh
+  echo "sleep $*" >> "$FAKE_CALLS"
+  """
+
+  # Fake decide script: prints a canned output and exits with a canned status.
+  @fake_decide """
+  #!/bin/sh
+  cat "$FAKE_DECIDE_OUT"
+  exit "$FAKE_DECIDE_RC"
+  """
+
+  defp git!(dir, args) do
+    {out, 0} = System.cmd("git", args, cd: dir, env: @git_env, stderr_to_stdout: true)
+    String.trim(out)
+  end
+
+  defp scratch_dir do
+    dir = Path.join(System.tmp_dir!(), "gh2622-cd-#{System.unique_integer([:positive])}")
+    File.rm_rf!(dir)
+    File.mkdir_p!(Path.join(dir, "bin"))
+    on_exit(fn -> File.rm_rf(dir) end)
+    File.write!(Path.join(dir, "driver.sh"), @driver)
+    File.write!(Path.join(dir, "bin/curl"), @fake_curl)
+    File.write!(Path.join(dir, "bin/sleep"), @fake_sleep)
+    for f <- ~w(curl sleep), do: File.chmod!(Path.join(dir, "bin/#{f}"), 0o755)
+    dir
+  end
+
+  # origin.git (bare): main A-B-C. repo: clone-like work repo, origin -> ../origin.git, local
+  # main at C, plus a side commit D (child of B) that is not on main. TIP is B.
+  defp verify_fixture do
+    dir = scratch_dir()
+    origin = Path.join(dir, "origin.git")
+    repo = Path.join(dir, "repo")
+    File.mkdir_p!(origin)
+    File.mkdir_p!(repo)
+    git!(origin, ["init", "--quiet", "--bare", "--initial-branch=main"])
+    git!(repo, ["init", "--quiet", "--initial-branch=main"])
+    git!(repo, ["config", "commit.gpgsign", "false"])
+    git!(repo, ["remote", "add", "origin", "../origin.git"])
+
+    shas =
+      for name <- ~w(A B C), into: %{} do
+        git!(repo, ["commit", "--quiet", "--allow-empty", "-m", name])
+        {name, git!(repo, ["rev-parse", "HEAD"])}
+      end
+
+    git!(repo, ["push", "--quiet", "origin", "main"])
+    git!(repo, ["checkout", "--quiet", "-b", "side", shas["B"]])
+    git!(repo, ["commit", "--quiet", "--allow-empty", "-m", "D"])
+    d = git!(repo, ["rev-parse", "HEAD"])
+    git!(repo, ["checkout", "--quiet", "main"])
+
+    # Fixture preconditions: B is the tip being verified, C and D descend from it, only C is
+    # on origin's main, A is a proper ancestor of B.
+    assert git!(origin, ["rev-parse", "main"]) == shas["C"]
+    refute d in [shas["A"], shas["B"], shas["C"]]
+
+    File.write!(Path.join(dir, "step.sh"), step_named("deploy", "Verify")["run"])
+    Map.merge(shas, %{"D" => d, "dir" => dir})
+  end
+
+  defp run_step(dir, subdir, env) do
+    {out, status} =
+      System.cmd("bash", ["driver.sh", subdir],
+        cd: dir,
+        env: @git_env ++ env,
+        stderr_to_stdout: true
+      )
+
+    %{
+      out: out,
+      status: status,
+      output: File.read!(Path.join(dir, "github_output")),
+      summary: File.read!(Path.join(dir, "step_summary")),
+      calls: dir |> Path.join("calls.log") |> File.read!() |> String.split("\n", trim: true)
+    }
+  end
+
+  defp verify(f, health) do
+    case health do
+      nil -> File.rm_rf!(Path.join(f["dir"], "health.json"))
+      body -> File.write!(Path.join(f["dir"], "health.json"), body)
+    end
+
+    run_step(f["dir"], "repo", [{"TIP", f["B"]}, {"QA_URL", "https://qa.example.invalid"}])
+  end
+
+  defp health(sha), do: ~s|{"status":"ok","sha":#{Jason.encode!(sha)}}|
+
+  describe "verify step, executed" do
+    setup do
+      assert System.find_executable("bash"), "bash is required"
+      assert System.find_executable("jq"), "jq is required (the verify step parses /health)"
+      {:ok, f: verify_fixture()}
+    end
+
+    test "QA on the tip: green, logs cd-qa: deployed, no main-moved line", %{f: f} do
+      for q <- [f["B"], binary_part(f["B"], 0, 7)] do
+        r = verify(f, health(q))
+        assert r.status == 0, r.out
+        assert r.out =~ "cd-qa: deployed #{q}\n"
+        assert r.summary =~ "cd-qa: deployed #{q}\n"
+        refute r.out =~ "main moved"
+        refute r.out =~ "verify failed"
+        # First /health read succeeded: no retry, no sleep.
+        assert r.calls == ["curl"]
+      end
+    end
+
+    test "QA on a descendant of the tip that is on main: green, logs main moved", %{f: f} do
+      r = verify(f, health(f["C"]))
+      assert r.status == 0, r.out
+      assert r.out =~ "cd-qa: deployed #{f["C"]}\n"
+      assert r.out =~ "cd-qa: main moved during deploy (verified #{f["B"]}, deployed #{f["C"]})"
+      assert r.summary =~ "cd-qa: main moved during deploy"
+    end
+
+    test "QA unreachable or with an empty/invalid sha: red after 10 attempts and 10 sleeps", %{
+      f: f
+    } do
+      for body <- [nil, health(""), "not json", ~s|{"sha":null}|, health("XYZ"), "[1]"] do
+        r = verify(f, body)
+        assert r.status == 1, "body #{inspect(body)}: #{r.out}"
+        assert r.out =~ "cd-qa: verify failed, QA /health sha unreadable after the deploy"
+        refute r.out =~ "cd-qa: deployed"
+        assert Enum.count(r.calls, &(&1 == "curl")) == 10, inspect(r.calls)
+        assert Enum.count(r.calls, &String.starts_with?(&1, "sleep")) == 10
+        assert Enum.all?(Enum.reject(r.calls, &(&1 == "curl")), &(&1 == "sleep 6"))
+      end
+    end
+
+    test "QA on a hex sha the repo does not know: red, unresolvable", %{f: f} do
+      r = verify(f, health("0000000deadbeef"))
+      assert r.status == 1
+      assert r.out =~ "cd-qa: verify failed, deployed sha 0000000deadbeef unresolvable"
+      refute r.out =~ "cd-qa: deployed"
+    end
+
+    test "QA on a non-descendant of the tip (an ancestor): red", %{f: f} do
+      r = verify(f, health(f["A"]))
+      assert r.status == 1
+
+      assert r.out =~
+               "cd-qa: verify failed, deployed sha #{f["A"]} is not tip #{f["B"]} or a descendant"
+
+      refute r.out =~ "cd-qa: deployed"
+      assert r.summary == ""
+    end
+
+    test "QA on a descendant of the tip that is not on main: red", %{f: f} do
+      r = verify(f, health(f["D"]))
+      assert r.status == 1, r.out
+      assert r.out =~ "cd-qa: verify failed, deployed sha #{f["D"]} is not on main"
+      refute r.out =~ "cd-qa: deployed"
+      assert r.summary == ""
+    end
+
+    test "git fetch origin main failing: red", %{f: f} do
+      git!(Path.join(f["dir"], "repo"), ["remote", "set-url", "origin", "../missing.git"])
+      r = verify(f, health(f["B"]))
+      assert r.status == 1
+      assert r.out =~ "cd-qa: verify failed, git fetch origin main failed"
+    end
+  end
+
+  defp decide_fixture do
+    dir = scratch_dir()
+    work = Path.join(dir, "work")
+    File.mkdir_p!(Path.join(work, "scripts"))
+    File.write!(Path.join(work, "scripts/cd_qa_decide.sh"), @fake_decide)
+    File.write!(Path.join(dir, "step.sh"), step("deploy", "decide")["run"])
+    dir
+  end
+
+  defp decide(dir, out, rc) do
+    File.write!(Path.join(dir, "decide.out"), out)
+    run_step(dir, "work", [{"FAKE_DECIDE_RC", Integer.to_string(rc)}])
+  end
+
+  describe "decide step wrapper, executed" do
+    setup do
+      assert System.find_executable("bash"), "bash is required"
+      {:ok, dir: decide_fixture()}
+    end
+
+    test "exit 0 with two valid lines: reason logged, deploy= written to GITHUB_OUTPUT", %{
+      dir: dir
+    } do
+      for deploy <- ~w(true false) do
+        r = decide(dir, "deploy=#{deploy}\nreason=cd-qa: QA sha #{deploy} behind tip abc\n", 0)
+        assert r.status == 0, r.out
+        assert r.out == "cd-qa: QA sha #{deploy} behind tip abc\n"
+        assert r.summary == "cd-qa: QA sha #{deploy} behind tip abc\n"
+        assert r.output == "deploy=#{deploy}\n"
+      end
+    end
+
+    test "exit 3 with deploy=false: red, reason logged, nothing written to GITHUB_OUTPUT", %{
+      dir: dir
+    } do
+      r = decide(dir, "deploy=false\nreason=cd-qa: tip unreadable\n", 3)
+      assert r.status == 1
+      assert r.out == "cd-qa: tip unreadable\n"
+      assert r.summary == "cd-qa: tip unreadable\n"
+      assert r.output == ""
+    end
+
+    test "exit 3 with deploy=true fails closed: decide error, nothing written", %{dir: dir} do
+      r = decide(dir, "deploy=true\nreason=cd-qa: tip unreadable\n", 3)
+      assert r.status == 1
+      assert r.out == "cd-qa: decide error\n"
+      assert r.summary == "cd-qa: decide error\n"
+      assert r.output == ""
+    end
+
+    test "malformed output or an unexpected exit: decide error, red, nothing written", %{
+      dir: dir
+    } do
+      good = "deploy=true\nreason=cd-qa: behind tip\n"
+
+      cases = [
+        {"", 0},
+        {"deploy=true\n", 0},
+        {"deploy=yes\nreason=cd-qa: behind tip\n", 0},
+        {"deploy=true\nreason=behind tip\n", 0},
+        {"deploy=true\nreason=cd-qa: \n", 0},
+        {"deploy=true\nreason=cd-qa: behind\ttip\n", 0},
+        {"reason=cd-qa: behind tip\ndeploy=true\n", 0},
+        {good <> "deploy=true\n", 0},
+        {" deploy=true\nreason=cd-qa: behind tip\n", 0},
+        {good, 1},
+        {good, 2}
+      ]
+
+      for {out, rc} <- cases do
+        r = decide(dir, out, rc)
+        assert r.status == 1, "accepted #{inspect(out)} rc #{rc}: #{r.out}"
+        assert r.out == "cd-qa: decide error\n", "#{inspect(out)} rc #{rc}: #{inspect(r.out)}"
+        assert r.output == "", "#{inspect(out)} rc #{rc} wrote #{inspect(r.output)}"
+      end
     end
   end
 

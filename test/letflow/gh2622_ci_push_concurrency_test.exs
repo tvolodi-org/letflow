@@ -50,6 +50,18 @@ defmodule Letflow.Gh2622CiPushConcurrencyTest do
 
   defp lines(out), do: String.split(out, "\n", trim: true)
 
+  # A line that RUNS the rules script: as a command word (line start, `$(`, `run:`) or as the
+  # argument of bash/sh/source/exec/`.`. Comment lines are skipped; a plain mention (an echo
+  # message, a doc reference) is not an invocation. Returns the matching lines, trimmed.
+  @invocation ~r{(?:^\s*|\$\(\s*|\brun:\s+|(?:^|[\s;&|(])(?:bash|sh|source|exec|\.)\s+)(?:\./)?scripts/ci_changed_paths\.sh(?=\s|$|<|\))}
+
+  defp invocations(src) do
+    for line <- String.split(src, "\n"),
+        not String.starts_with?(String.trim_leading(line), "#"),
+        line =~ @invocation,
+        do: String.trim(line)
+  end
+
   describe "T1: one source for the path rules" do
     test "only ci.yml invokes scripts/ci_changed_paths.sh" do
       candidates =
@@ -60,12 +72,41 @@ defmodule Letflow.Gh2622CiPushConcurrencyTest do
       callers =
         for f <- candidates,
             f != @rules_sh,
-            read(f) =~ "ci_changed_paths.sh",
+            invocations(read(f)) != [],
             do: Path.relative_to(f, @root)
 
       assert callers == [".github/workflows/ci.yml"]
-      assert read(@ci_yml) =~ ~s|RESULT=$(bash scripts/ci_changed_paths.sh <<<"$CHANGED")|
+
+      assert invocations(read(@ci_yml)) == [
+               ~s|RESULT=$(bash scripts/ci_changed_paths.sh <<<"$CHANGED") \|\| rc=$?|
+             ]
+
       refute read(@cd_yml) =~ "ci_changed_paths"
+    end
+
+    test "the invocation matcher: run shapes match, mentions and comments do not" do
+      for line <- [
+            ~s|RESULT=$(bash scripts/ci_changed_paths.sh <<<"$CHANGED")|,
+            "run: bash scripts/ci_changed_paths.sh",
+            "  sh ./scripts/ci_changed_paths.sh < list.txt",
+            "  scripts/ci_changed_paths.sh < list.txt",
+            "  ./scripts/ci_changed_paths.sh",
+            "  x=$(scripts/ci_changed_paths.sh <<<\"$y\")",
+            "  source scripts/ci_changed_paths.sh",
+            "  . scripts/ci_changed_paths.sh",
+            "  exec bash scripts/ci_changed_paths.sh"
+          ] do
+        assert invocations(line) != [], "missed #{inspect(line)}"
+      end
+
+      for line <- [
+            "  # the rules live in scripts/ci_changed_paths.sh (the one source)",
+            ~s|  echo "::error::scripts/ci_changed_paths.sh exited $rc"|,
+            ~s|  echo "Path rules (scripts/ci_changed_paths.sh):"|,
+            "  - scripts/ci_changed_paths.sh is listed here"
+          ] do
+        assert invocations(line) == [], "matched #{inspect(line)}"
+      end
     end
 
     test "no workflow and not the decide script defines or greps a path rule" do
