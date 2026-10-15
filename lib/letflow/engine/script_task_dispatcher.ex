@@ -22,7 +22,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
   backstops incl. the run-time `check_reads` re-check, HMAC key) BEFORE admission and before
   any data read; 5 the input from the instance's own variables (field-minimal), plus, when the
   manifest declares `reads` (7c-2), the rows pre-fetched through the engine-defined
-  `Letflow.Engine.ScriptReadPort` (implementation from `config :letflow, :script_read_port`,
+  `Letflow.Engine.EntityPort` (implementation from `config :letflow, :entity_port`,
   resolved per run; a port refusal is `script_rejected` / `reads_not_allowed` with no run);
   6 the HMAC of the canonical `{ctx, input}`; 7 the
   run, called FROM THE CALLING (poller) PROCESS so the 7a watchdog monitors it; 8 the output
@@ -53,6 +53,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
 
   require Logger
 
+  alias Letflow.Engine.EntityPort
   alias Letflow.Engine.ScriptInput
   alias Letflow.Engine.ScriptTaskDispatcher.ScriptTaskDispatch
   alias Letflow.EventStore.InstanceProjection
@@ -530,9 +531,7 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
   defp prefetch([], _declared_vars, _prefix), do: {:ok, nil}
 
   defp prefetch(reads, declared_vars, prefix) when is_list(reads) do
-    port = Application.fetch_env!(:letflow, :script_read_port)
-
-    case port.prefetch(prefix, reads, declared_vars) do
+    case EntityPort.impl().prefetch(prefix, reads, declared_vars) do
       {:ok, %{} = rows} -> {:ok, rows}
       _refused -> {:error, :reads_not_allowed}
     end

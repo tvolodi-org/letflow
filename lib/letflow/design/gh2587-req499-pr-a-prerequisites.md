@@ -1248,6 +1248,9 @@ REQ-499 / GH #2587, this design, and the split reason.
   response (`routers/tasks.ex` ~681, `complete_result_map/1`'s `variables`). PR B must decide
   whether to strip them (`VariableMerge.drop_reserved/1`) or gate them by permission (INV-2),
   and test the choice on all three surfaces.
+* PR B also (A3 SEC F-2, record only): `StepWrites.prepare/2` silently drops a line whose
+  `entity_type` is missing or not a binary (the line is refused later). PR B's `validate_lines/2`
+  MUST refuse such lines first, so no malformed line reaches `prepare/2`.
 * PR C: sentinel-actor proof, SERVICE_TASK nested Multi, dispatch-keyed `sys:step:<dispatch_id>:<i>`,
   service-path contention mapping and `SET LOCAL` in the nested call, lock-order proof.
 * REQ-501: module write handlers, `owner_module` stamp, manifest hash, PinRebind rule.
