@@ -365,19 +365,24 @@ defmodule Letflow.Identity do
 
   REQ-435: also maintains the platform login directory in the same
   transaction (design §3.3-§3.4) -- see `t:user_write_opts/0`.
+
+  GH 2564 (design `gh2564-deactivation-revokes-tokens.md` §3): when `attrs` carries a
+  `status` key, the write is a status write and behaves as `update_user_status/3` does
+  (tenant admin lock, token revocation, zero-tenant-wide-admin guard). Without one, no
+  lock is taken and no token is touched.
   """
   @spec update_user_profile(id :: Ecto.UUID.t(), attrs :: map(), opts :: user_write_opts()) ::
-          {:ok, User.t()}
-          | {:error, :not_found}
-          | {:error, Ecto.Changeset.t()}
-          | {:error, directory_guard_error()}
-          | {:error, {:login_directory, term()}}
-          | {:error, {:transaction_failed, Exception.t()}}
+          user_write_result()
   def update_user_profile(id, attrs, opts) do
     with {:ok, directory} <- directory_target(opts) do
-      update_locked_user(id, opts, directory, "user.update_profile", fn locked ->
-        User.profile_changeset(locked, attrs)
-      end)
+      update_locked_user(
+        id,
+        opts,
+        directory,
+        "user.update_profile",
+        fn locked -> User.profile_changeset(locked, attrs) end,
+        status_write?(attrs)
+      )
     end
   end
 
@@ -389,42 +394,93 @@ defmodule Letflow.Identity do
   REQ-435: also maintains the platform login directory in the same
   transaction (a non-active status removes the entry unless another active
   user in the tenant has the same email) -- see `t:user_write_opts/0`.
+
+  GH 2564 (design `gh2564-deactivation-revokes-tokens.md`, ruling: issue #2564 comment
+  6174049298, option 3): in the same transaction, takes `lock_tenant_admins!/1` first
+  (for `:active` too: reactivation adds an admin), revokes every non-revoked API token of
+  the user when the user is or becomes inactive (one `token.revoke` per token, `cause:
+  "owner_deactivated"`; reactivation restores none), and refuses a deactivation that
+  takes the tenant from at least one tenant-wide admin to none with
+  `{:error, :last_tenant_wide_admin}` (0051 N1; the refusal is then audited in its own
+  transaction by `record_guard_refused/2`). A failed token revocation rolls everything
+  back and returns `{:error, {:token_revocation_failed, reason}}`.
   """
   @spec update_user_status(
           id :: Ecto.UUID.t(),
           status :: :active | :inactive,
           opts :: user_write_opts()
-        ) ::
+        ) :: user_write_result()
+  def update_user_status(id, status, opts) do
+    with {:ok, directory} <- directory_target(opts) do
+      update_locked_user(
+        id,
+        opts,
+        directory,
+        "user.update_status",
+        fn locked -> User.status_changeset(locked, %{status: status}) end,
+        true
+      )
+    end
+  end
+
+  @typedoc "Result of `update_user_profile/3` and `update_user_status/3`."
+  @type user_write_result ::
           {:ok, User.t()}
           | {:error, :not_found}
           | {:error, Ecto.Changeset.t()}
           | {:error, directory_guard_error()}
           | {:error, {:login_directory, term()}}
           | {:error, {:transaction_failed, Exception.t()}}
-  def update_user_status(id, status, opts) do
-    with {:ok, directory} <- directory_target(opts) do
-      update_locked_user(id, opts, directory, "user.update_status", fn locked ->
-        User.status_changeset(locked, %{status: status})
-      end)
-    end
-  end
+          | {:error, :last_tenant_wide_admin}
+          | {:error, {:token_revocation_failed, term()}}
+
+  # GH 2564 (design §2): a write is a status write when the request carries `status`,
+  # whatever its value. Chosen from the request, not the row, because the tenant admin
+  # lock must precede the row read.
+  @spec status_write?(attrs :: map()) :: boolean()
+  defp status_write?(attrs), do: Map.has_key?(attrs, "status") or Map.has_key?(attrs, :status)
 
   # REQ-435 (design §3.4): the `before` state the directory plan is computed
   # from is read INSIDE the transaction with a row lock (FOR UPDATE), not
   # before it, so two concurrent edits cannot compute plans from the same stale
-  # row and leave a ghost entry. REQ-195 -- actor_id: nil, §3.1b (same
-  # disposition/reasoning as create_user/2). The outer rescue (ISS-0983
-  # hardening) is preserved.
-  defp update_locked_user(id, opts, directory, audit_action, changeset_fun) do
+  # row and leave a ghost entry. The outer rescue (ISS-0983 hardening) is preserved.
+  #
+  # GH 2564 (design §3): the audit entry carries the actor and trace id from
+  # `opts[:audit_context]` (actor nil when none is passed, as REQ-195 had it). Steps
+  # marked [S] run only for a status write. Lock order: tenant admin advisory lock ->
+  # user row -> token rows by id -> audit chain -> count, the same prefix every other
+  # admin-set writer uses, so no cycle. The guard is the transition rule (before > 0 and
+  # after == 0): measured, not predicted (#2547 §6.4 step 5).
+  @spec update_locked_user(
+          Ecto.UUID.t(),
+          user_write_opts(),
+          term(),
+          String.t(),
+          (User.t() -> Ecto.Changeset.t()),
+          status_write :: boolean()
+        ) :: user_write_result()
+  defp update_locked_user(id, opts, directory, audit_action, changeset_fun, status_write) do
     prefix = Keyword.fetch!(opts, :prefix)
+    ctx = AuditContext.from_opts(opts)
 
     try do
       Multi.new()
+      |> when_status_write(status_write, fn multi ->
+        # [S] 1: the FIRST locking statement, before any row lock.
+        Multi.run(multi, :tenant_admin_lock, fn _repo, _changes ->
+          {:ok, lock_tenant_admins!(prefix)}
+        end)
+      end)
       |> Multi.run(:locked_user, fn repo, _changes ->
         case repo.one(from(u in User, where: u.id == ^id, lock: "FOR UPDATE"), prefix: prefix) do
           %User{} = locked -> {:ok, locked}
           nil -> {:error, :not_found}
         end
+      end)
+      |> when_status_write(status_write, fn multi ->
+        Multi.run(multi, :admins_before, fn _repo, _changes ->
+          {:ok, count_tenant_wide_admins(prefix)}
+        end)
       end)
       |> Multi.update(:user, fn %{locked_user: locked} -> changeset_fun.(locked) end,
         prefix: prefix
@@ -432,34 +488,200 @@ defmodule Letflow.Identity do
       |> directory_step(directory, prefix, fn %{locked_user: locked, user: updated} ->
         {locked, updated}
       end)
-      |> Multi.merge(fn %{locked_user: locked, user: updated} ->
+      |> when_status_write(status_write, fn multi ->
+        Multi.run(multi, :revoked_tokens, fn _repo, %{locked_user: locked, user: updated} ->
+          if locked.status == :inactive or updated.status == :inactive,
+            do: revoke_owner_tokens(updated.id, prefix, ctx),
+            else: {:ok, []}
+        end)
+      end)
+      |> Multi.merge(fn %{locked_user: locked, user: updated} = changes ->
+        after_state = Audit.struct_state(updated, [:password_hash])
+
+        after_state =
+          case changes do
+            %{revoked_tokens: revoked} ->
+              Map.put(after_state, :revoked_token_count, length(revoked))
+
+            _no_status_write ->
+              after_state
+          end
+
         Audit.append_multi(
           Multi.new(),
           :audit,
           %{
-            actor_id: nil,
+            actor_id: ctx.actor_id,
             action: audit_action,
             resource_type: "user",
             resource_id: updated.id,
             before_state: Audit.struct_state(locked, [:password_hash]),
-            after_state: Audit.struct_state(updated, [:password_hash]),
-            trace_id: nil
+            after_state: after_state,
+            trace_id: ctx.trace_id
           },
           prefix
         )
       end)
+      |> when_status_write(status_write, fn multi ->
+        Multi.run(multi, :admin_guard, fn _repo, %{user: updated, admins_before: before} ->
+          admin_guard(updated, before, prefix)
+        end)
+      end)
       |> Repo.transaction()
       |> case do
-        {:ok, %{user: updated}} -> {:ok, updated}
-        {:error, :locked_user, :not_found, _changes} -> {:error, :not_found}
-        {:error, :user, reason, _changes} -> {:error, reason}
-        {:error, :login_directory, reason, _changes} -> {:error, {:login_directory, reason}}
-        {:error, :audit, reason, _changes} -> {:error, reason}
+        {:ok, %{user: updated}} ->
+          {:ok, updated}
+
+        {:error, :locked_user, :not_found, _changes} ->
+          {:error, :not_found}
+
+        {:error, :user, reason, _changes} ->
+          {:error, reason}
+
+        {:error, :login_directory, reason, _changes} ->
+          {:error, {:login_directory, reason}}
+
+        {:error, :revoked_tokens, reason, _changes} ->
+          {:error, {:token_revocation_failed, reason}}
+
+        {:error, :audit, reason, _changes} ->
+          {:error, reason}
+
+        {:error, :admin_guard, {:last_tenant_wide_admin, counted}, _changes} ->
+          # The transaction is already rolled back: the refusal is recorded in its own.
+          :ok =
+            record_guard_refused(prefix, %{
+              action: "deactivate_user",
+              actor: ctx.actor_id,
+              target_id: id,
+              reason_code: "last_tenant_wide_admin",
+              counted_admins: counted,
+              trace_id: ctx.trace_id
+            })
+
+          {:error, :last_tenant_wide_admin}
       end
     rescue
       exception -> {:error, {:transaction_failed, exception}}
     end
   end
+
+  defp when_status_write(multi, true, fun), do: fun.(multi)
+  defp when_status_write(multi, false, _fun), do: multi
+
+  # GH 2564 (design §3 step 8): only a write that leaves the user inactive can remove an
+  # admin. Refuses the transition from at least one tenant-wide admin to none.
+  @spec admin_guard(User.t(), non_neg_integer(), String.t()) ::
+          {:ok, non_neg_integer() | :not_checked}
+          | {:error, {:last_tenant_wide_admin, non_neg_integer()}}
+  defp admin_guard(%User{status: :inactive}, before, prefix) do
+    case count_tenant_wide_admins(prefix) do
+      0 when before > 0 -> {:error, {:last_tenant_wide_admin, 0}}
+      counted -> {:ok, counted}
+    end
+  end
+
+  defp admin_guard(%User{}, _before, _prefix), do: {:ok, :not_checked}
+
+  # GH 2564 (design §2): revokes every non-revoked token of `user_id` (expired ones
+  # included), row by row in id order under FOR UPDATE, all with one second-truncated
+  # `revoked_at`, one `token.revoke` each with `cause: "owner_deactivated"`. Per-row
+  # changesets, never `update_all` (anti-patterns: ISS-0906). Stops at the first error.
+  # Runs inside the caller's transaction, after the tenant admin lock.
+  @spec revoke_owner_tokens(user_id :: Ecto.UUID.t(), prefix :: String.t(), AuditContext.t()) ::
+          {:ok, [ApiToken.t()]} | {:error, Ecto.Changeset.t() | term()}
+  defp revoke_owner_tokens(user_id, prefix, ctx) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    from(t in ApiToken,
+      where: t.user_id == ^user_id and is_nil(t.revoked_at),
+      order_by: t.id,
+      lock: "FOR UPDATE"
+    )
+    |> Repo.all(prefix: prefix)
+    |> Enum.reduce_while({:ok, []}, fn token, {:ok, acc} ->
+      case revoke_token_row(token, prefix, ctx, "owner_deactivated", now) do
+        {:ok, updated} -> {:cont, {:ok, [updated | acc]}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, revoked} -> {:ok, Enum.reverse(revoked)}
+      error -> error
+    end
+  end
+
+  @doc false
+  # GH 2564 (design §2, 0051 D8 and N1): records a refused tenant-admin guard as
+  # `tenant_admin.guard_refused` in its OWN transaction, after the refused change has
+  # rolled back (a row written inside the refused transaction would roll back with it).
+  # Shared with #2533 1b: keep the name and the map keys. `after_state` is exactly
+  # `{action, actor, target_id, reason_code, counted_admins, trace_id}`. Raises
+  # `ArgumentError` inside a transaction (a programming error). Otherwise never raises: a
+  # failed write is logged (no message, no value) and `:ok` is returned, because the
+  # refusal itself stands.
+  @spec record_guard_refused(
+          prefix :: String.t(),
+          refusal :: %{
+            required(:action) => String.t(),
+            required(:actor) => Ecto.UUID.t() | nil,
+            required(:target_id) => Ecto.UUID.t(),
+            required(:counted_admins) => non_neg_integer(),
+            required(:trace_id) => String.t() | nil,
+            optional(:reason_code) => String.t()
+          }
+        ) :: :ok
+  def record_guard_refused(prefix, refusal) when is_binary(prefix) and is_map(refusal) do
+    if Repo.in_transaction?() do
+      raise ArgumentError, "record_guard_refused/2 must run outside a transaction"
+    end
+
+    state = %{
+      action: Map.fetch!(refusal, :action),
+      actor: Map.fetch!(refusal, :actor),
+      target_id: Map.fetch!(refusal, :target_id),
+      reason_code: Map.get(refusal, :reason_code, "last_tenant_wide_admin"),
+      counted_admins: Map.fetch!(refusal, :counted_admins),
+      trace_id: Map.fetch!(refusal, :trace_id)
+    }
+
+    attrs = %{
+      actor_id: state.actor,
+      action: "tenant_admin.guard_refused",
+      resource_type: "user",
+      resource_id: state.target_id,
+      before_state: nil,
+      after_state: state,
+      trace_id: state.trace_id
+    }
+
+    result =
+      try do
+        Audit.insert_entry(Repo, attrs, prefix)
+      rescue
+        exception -> {:error, exception}
+      end
+
+    case result do
+      {:ok, _entry} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.error("tenant_admin.guard_refused audit write failed",
+          action: state.action,
+          target_id: state.target_id,
+          trace_id: state.trace_id,
+          error_kind: guard_error_kind(reason)
+        )
+
+        :ok
+    end
+  end
+
+  # Never a message or a value: the struct's module, the atom, or :unknown.
+  defp guard_error_kind(%{__struct__: module}), do: module
+  defp guard_error_kind(reason) when is_atom(reason), do: reason
+  defp guard_error_kind(_reason), do: :unknown
 
   @typedoc """
   Opts for the user-write functions that maintain the platform login directory
@@ -468,12 +690,15 @@ defmodule Letflow.Identity do
   data). A fail-closed guard checks that `schema_name_for_tenant(tenant_id)`
   equals `:prefix` before any write. `:login_directory` set to `:skip` disables
   the directory write; it exists only for test fixtures whose synthetic schema
-  prefix has no `tenants` row, and no `lib/` caller may use it.
+  prefix has no `tenants` row, and no `lib/` caller may use it. GH 2564: an optional
+  `:audit_context` (see `Letflow.Identity.AuditContext.from_opts/1`) sets the actor and
+  trace id of the audit entries.
   """
   @type user_write_opts :: [
           prefix: String.t(),
           tenant_id: Ecto.UUID.t(),
-          login_directory: :enabled | :skip
+          login_directory: :enabled | :skip,
+          audit_context: map()
         ]
 
   @type directory_guard_error ::
@@ -2124,7 +2349,9 @@ defmodule Letflow.Identity do
   GH 2552 (design section 3): the effective status of a token, for the token list.
   Precedence `:revoked` > `:expired` (`expires_at` not after `now`) > `:owner_inactive`
   > `:active`. The permanent states win; `:owner_inactive` (the only reversible state)
-  shows only when the token would otherwise work. Pure.
+  shows only when the token would otherwise work. Since GH 2564 a deactivation through
+  `Identity` revokes the tokens, so `:owner_inactive` arises only for rows changed by
+  other means (legacy rows, direct database edits). Pure.
   """
   @spec token_effective_status(
           token :: ApiToken.t(),
@@ -2395,26 +2622,41 @@ defmodule Letflow.Identity do
       %ApiToken{} = token ->
         now = DateTime.utc_now() |> DateTime.truncate(:second)
 
-        updated =
-          case Repo.update(ApiToken.revoke_changeset(token, %{revoked_at: now}), prefix: prefix) do
-            {:ok, updated} -> updated
-            {:error, changeset} -> Repo.rollback(changeset)
-          end
-
-        attrs = %{
-          actor_id: ctx.actor_id,
-          action: "token.revoke",
-          resource_type: "api_token",
-          resource_id: updated.id,
-          before_state: token_audit_state(token),
-          after_state: token_audit_state(updated),
-          trace_id: ctx.trace_id
-        }
-
-        case Audit.insert_entry(Repo, attrs, prefix) do
-          {:ok, _entry} -> updated
+        case revoke_token_row(token, prefix, ctx, nil, now) do
+          {:ok, updated} -> updated
           {:error, reason} -> Repo.rollback(reason)
         end
+    end
+  end
+
+  # GH 2564 (design §2): one live token row revoked at `now` (per-row changeset, never
+  # `update_all`) plus its `token.revoke` entry, built from `token_audit_state/1` (no
+  # token_hash, no name: INV-4). `cause` nil keeps DELETE /tokens/:id's entry exactly as
+  # before; a non-nil cause is added to `after_state`. Must run inside the caller's
+  # transaction; returns the error instead of rolling back, so each caller decides.
+  @spec revoke_token_row(
+          ApiToken.t(),
+          prefix :: String.t(),
+          ctx :: AuditContext.t(),
+          cause :: String.t() | nil,
+          now :: DateTime.t()
+        ) :: {:ok, ApiToken.t()} | {:error, Ecto.Changeset.t() | term()}
+  defp revoke_token_row(%ApiToken{} = token, prefix, ctx, cause, now) do
+    with {:ok, updated} <-
+           Repo.update(ApiToken.revoke_changeset(token, %{revoked_at: now}), prefix: prefix),
+         after_state = token_audit_state(updated),
+         after_state = if(cause, do: Map.put(after_state, :cause, cause), else: after_state),
+         attrs = %{
+           actor_id: ctx.actor_id,
+           action: "token.revoke",
+           resource_type: "api_token",
+           resource_id: updated.id,
+           before_state: token_audit_state(token),
+           after_state: after_state,
+           trace_id: ctx.trace_id
+         },
+         {:ok, _entry} <- Audit.insert_entry(Repo, attrs, prefix) do
+      {:ok, updated}
     end
   end
 
@@ -2435,9 +2677,10 @@ defmodule Letflow.Identity do
   (`active_user?/1` false) returns `{:error, :revoked}` — the exact term a
   revoked token returns, so the caller renders a byte-identical 401 — and does
   **not** write `last_used_at`. The owner check runs after the revoked check
-  and before the expiry check. Deactivating a user changes no token row:
-  reactivating the owner makes a non-revoked, non-expired token authenticate
-  again on the next call.
+  and before the expiry check. A deactivation through `update_user_status/3`
+  or `update_user_profile/3` revokes all the owner's tokens and reactivation
+  restores none (GH 2564); this owner check covers rows left live by other
+  means (legacy rows, direct database edits).
 
   On a successful verification, best-effort updates `last_used_at` — a failure
   on that one non-essential write does not fail the verification itself (logged
