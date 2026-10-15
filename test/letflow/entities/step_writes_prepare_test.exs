@@ -1,7 +1,8 @@
 defmodule Letflow.Entities.StepWritesPrepareTest do
   @moduledoc """
   GH 2587 / REQ-499 PR A3 (design `gh2587-req499-pr-a-prerequisites.md` sections 4.3, 11 A3):
-  `Letflow.Entities.StepWrites.prepare/2` plus the fail-closed `validate_lines/2` and `multi/3`.
+  `Letflow.Entities.StepWrites.prepare/2`, the real `validate_lines/2` (PR B1, covered in depth by
+  `entity_writes_activation_test.exs`) and the still fail-closed `multi/3`.
 
   Runs in Sandbox `:auto` mode (real transactions, explicit cleanup) exactly as
   `engine_concurrency_test.exs` does: under the sandbox a `Repo.transaction/1` is a savepoint,
@@ -212,21 +213,25 @@ defmodule Letflow.Entities.StepWritesPrepareTest do
     assert instance_types(schema) == []
   end
 
-  describe "fail-closed write callbacks" do
-    test "validate_lines/2" do
+  describe "validate_lines/2 (PR B1) and the fail-closed multi/3" do
+    test "validate_lines/2: [] is :ok; a missing-type line is refused (GH #2633)" do
       assert StepWrites.validate_lines([], %{prefix: "x"}) == :ok
 
-      assert StepWrites.validate_lines([line("a"), line("b")], %{prefix: "x"}) ==
-               {:error,
-                [
-                  %{index: 0, code: :entity_writes_not_enabled},
-                  %{index: 1, code: :entity_writes_not_enabled}
-                ]}
+      assert StepWrites.validate_lines([%{"op" => "create"}], %{prefix: "x"}) ==
+               {:error, [%{index: 0, code: :entity_type_missing}]}
+    end
+
+    test "prepare/2 stays lenient (D-B.7, pinned): a missing-type line is skipped, not refused",
+         %{schema: schema} do
+      activate!(schema, "alpha")
+
+      assert :ok = StepWrites.prepare([%{"op" => "create"}, line("alpha")], %{prefix: schema})
+      assert instance_types(schema) == ["alpha"]
     end
 
     test "EntityPortImpl returns what StepWrites returns for the same input" do
       alias Letflow.Entities.EntityPortImpl
-      lines = [line("a"), line("b")]
+      lines = [%{"op" => "create"}, %{"op" => "create", "entity_type" => 5}]
       ctx = %{prefix: "x"}
       m = Ecto.Multi.new()
 
@@ -240,7 +245,7 @@ defmodule Letflow.Entities.StepWritesPrepareTest do
       assert EntityPortImpl.multi(m, [], ctx) == StepWrites.multi(m, [], ctx)
     end
 
-    test "multi/3" do
+    test "multi/3 still fails closed until PR B2" do
       m = Ecto.Multi.new()
       assert StepWrites.multi(m, [], %{prefix: "x"}) == m
 

@@ -120,7 +120,10 @@ defmodule Letflow.Definitions.Promotion do
   @type promote_opts :: [
           permission_checker: (Ecto.UUID.t(), Ecto.UUID.t() -> boolean()),
           tenant_classifier: (Ecto.UUID.t() -> :production | :test),
-          event_appender: (map(), String.t() -> {:ok, term()} | {:error, term()})
+          event_appender: (map(), String.t() -> {:ok, term()} | {:error, term()}),
+          # GH #2587 PR B1: the promoting principal's authority a graph with `entity_writes`
+          # is activated under in the TARGET tenant; absent (nil) refuses such a graph.
+          activator: Letflow.Engine.EntityPort.activator() | nil
         ]
 
   @type promote_result :: %{
@@ -138,6 +141,7 @@ defmodule Letflow.Definitions.Promotion do
           | {:conflicts, [PromotionConflict.conflict_detail()]}
           | {:expression_references_reserved_variable,
              [Letflow.Definitions.ReservedReferences.reserved_reference()]}
+          | {:entity_writes_invalid, [Letflow.Definitions.entity_writes_violation()]}
           | Ecto.Changeset.t()
           | term()
 
@@ -159,6 +163,7 @@ defmodule Letflow.Definitions.Promotion do
       Keyword.get(opts, :tenant_classifier, &PromotionPlan.default_tenant_classifier/1)
 
     event_appender = Keyword.fetch!(opts, :event_appender)
+    activator = Keyword.get(opts, :activator)
 
     plan = Jason.decode!(review.serialised_plan)
     source_tenant_id = plan["source_tenant_id"]
@@ -185,7 +190,8 @@ defmodule Letflow.Definitions.Promotion do
                target_tenant_id,
                process_key,
                base_version,
-               event_appender
+               event_appender,
+               activator
              ) do
           {:ok, result} ->
             {:ok, Map.take(result, [:source_definition_id, :target_definition_id, :process_key])}
@@ -234,6 +240,7 @@ defmodule Letflow.Definitions.Promotion do
       Keyword.get(opts, :tenant_classifier, &PromotionPlan.default_tenant_classifier/1)
 
     event_appender = Keyword.fetch!(opts, :event_appender)
+    activator = Keyword.get(opts, :activator)
 
     cond do
       not permission_checker.(actor_id, source_tenant_id) ->
@@ -253,7 +260,8 @@ defmodule Letflow.Definitions.Promotion do
                  target_tenant_id,
                  process_key,
                  base_version,
-                 event_appender
+                 event_appender,
+                 activator
                ) do
             {:ok, %{new_row: new_row, source_definition_id: source_definition_id}} ->
               {:ok,
@@ -300,7 +308,8 @@ defmodule Letflow.Definitions.Promotion do
          target_tenant_id,
          process_key,
          base_version,
-         event_appender
+         event_appender,
+         activator
        ) do
     with {:ok, source_prefix} <- TenantProvisioning.schema_name_for_tenant(source_tenant_id),
          {:ok, target_prefix} <- TenantProvisioning.schema_name_for_tenant(target_tenant_id),
@@ -319,7 +328,8 @@ defmodule Letflow.Definitions.Promotion do
                review_id: review_id,
                source_tenant_id: source_tenant_id,
                target_tenant_id: target_tenant_id
-             }
+             },
+             activator
            ) do
       append_promotion_event(
         event_appender,
@@ -372,12 +382,20 @@ defmodule Letflow.Definitions.Promotion do
             review_id: Ecto.UUID.t() | nil,
             source_tenant_id: Ecto.UUID.t(),
             target_tenant_id: Ecto.UUID.t()
-          }
+          },
+          Letflow.Engine.EntityPort.activator() | nil
         ) ::
           {:ok, ProcessDefinition.t()}
           | {:error, :duplicate_version | Ecto.Changeset.t() | term()}
           | {:error, {:transaction_failed, Exception.t()}}
-  defp write_target_definition(source_row, process_key, actor_id, target_prefix, audit_context) do
+  defp write_target_definition(
+         source_row,
+         process_key,
+         actor_id,
+         target_prefix,
+         audit_context,
+         activator
+       ) do
     attrs = %{
       name: process_key,
       version: source_row.version,
@@ -399,6 +417,7 @@ defmodule Letflow.Definitions.Promotion do
             # status write. GH #2587 PR A1b (design 2A.3): the reserved-namespace references
             # first, so a refused graph takes no script-row lock.
             with :ok <- Letflow.Definitions.check_reserved_references(new_row),
+                 :ok <- Letflow.Definitions.check_entity_writes(new_row, target_prefix, activator),
                  :ok <- Letflow.Definitions.check_script_bindings(new_row, target_prefix) do
               :ok
             else
@@ -406,7 +425,7 @@ defmodule Letflow.Definitions.Promotion do
             end
 
             deprecate_previous_active(process_key, target_prefix)
-            activated_row = activate_new_definition(new_row, target_prefix)
+            activated_row = activate_new_definition(new_row, target_prefix, activator)
 
             case Audit.insert_entry(
                    Repo,
@@ -497,11 +516,20 @@ defmodule Letflow.Definitions.Promotion do
   # :draft (create_changeset/2 never casts :status). Exactly 1 row, always --
   # this is the same transaction that inserted it, nothing else can have
   # touched it yet.
-  defp activate_new_definition(new_row, target_prefix) do
+  defp activate_new_definition(new_row, target_prefix, activator) do
     query =
       from(d in ProcessDefinition, where: d.id == ^new_row.id and d.status == :draft, select: d)
 
-    {1, [activated_row]} = Repo.update_all(query, [set: [status: :active]], prefix: target_prefix)
+    # GH #2587 PR B1: the promoting principal's authority, recorded in the same write that
+    # activates the row (NULL for a graph without `entity_writes`).
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    activated_by = Letflow.Definitions.entity_writes_activated_by(new_row, activator, now)
+
+    {1, [activated_row]} =
+      Repo.update_all(query, [set: [status: :active, activated_by: activated_by]],
+        prefix: target_prefix
+      )
+
     activated_row
   end
 

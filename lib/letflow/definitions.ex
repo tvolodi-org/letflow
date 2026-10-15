@@ -127,6 +127,7 @@ defmodule Letflow.Definitions do
   alias Ecto.Multi
   alias Letflow.Api.Pagination
   alias Letflow.Audit
+  alias Letflow.Definitions.Activator
   alias Letflow.Definitions.DefinitionSequence
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.JsonSchemaShape
@@ -139,6 +140,7 @@ defmodule Letflow.Definitions do
   alias Letflow.Definitions.SemanticValidation
   alias Letflow.Definitions.SolutionPackArtefactBase
   alias Letflow.Definitions.ValidationWarnings
+  alias Letflow.Engine.EntityPort
   alias Letflow.Engine.VariableSchema
   alias Letflow.Repo
   alias Letflow.SandboxPool
@@ -193,8 +195,21 @@ defmodule Letflow.Definitions do
 
   @type activate_opts :: [
           prefix: String.t(),
-          service_scope_validator: service_scope_validator_fun() | nil
+          service_scope_validator: service_scope_validator_fun() | nil,
+          # GH #2587 PR B1 (decision 0054 D4a): the activator authority a graph with
+          # `entity_writes` is activated under; absent (nil) refuses such a graph.
+          activator: EntityPort.activator() | nil
         ]
+
+  @typedoc """
+  One `entity_writes` refusal of a graph (GH #2587 PR B1): the node, the declared line index
+  (0 for a node-level refusal) and a stable atom code. No field name, no value.
+  """
+  @type entity_writes_violation :: %{
+          node_id: String.t(),
+          index: non_neg_integer(),
+          code: atom()
+        }
 
   @type common_error ::
           {:error, :invalid_schema_name}
@@ -751,15 +766,17 @@ defmodule Letflow.Definitions do
           | {:error,
              {:expression_references_reserved_variable,
               [Letflow.Definitions.ReservedReferences.reserved_reference()]}}
+          | {:error, {:entity_writes_invalid, [entity_writes_violation()]}}
           | common_error()
   def activate(id, opts) when is_list(opts) do
     prefix = Keyword.get(opts, :prefix)
     validator = Keyword.get(opts, :service_scope_validator)
+    activator = Keyword.get(opts, :activator)
 
     with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix) do
       try do
         id
-        |> run_activate_transaction(prefix, tenant_id, validator)
+        |> run_activate_transaction(prefix, tenant_id, validator, activator)
         |> interpret_activate_result()
       rescue
         exception -> {:error, {:transaction_failed, exception}}
@@ -915,7 +932,9 @@ defmodule Letflow.Definitions do
   @type rollback_opts :: [
           prefix: String.t(),
           permission_checker: permission_checker_fun(),
-          event_appender: event_appender_fun()
+          event_appender: event_appender_fun(),
+          # GH #2587 PR B1: the re-activating principal's authority (see `activate_opts`).
+          activator: EntityPort.activator() | nil
         ]
 
   @type rollback_result :: %{
@@ -934,6 +953,7 @@ defmodule Letflow.Definitions do
           | {:error,
              {:expression_references_reserved_variable,
               [Letflow.Definitions.ReservedReferences.reserved_reference()]}}
+          | {:error, {:entity_writes_invalid, [entity_writes_violation()]}}
           | {:error, term()}
           | common_error()
 
@@ -1004,10 +1024,19 @@ defmodule Letflow.Definitions do
     prefix = Keyword.get(opts, :prefix)
     permission_checker = Keyword.fetch!(opts, :permission_checker)
     event_appender = Keyword.fetch!(opts, :event_appender)
+    activator = Keyword.get(opts, :activator)
 
     with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix) do
       if permission_checker.(actor_id, tenant_id) do
-        do_rollback(process_key, target_version, actor_id, tenant_id, prefix, event_appender)
+        do_rollback(
+          process_key,
+          target_version,
+          actor_id,
+          tenant_id,
+          prefix,
+          event_appender,
+          activator
+        )
       else
         {:error, :forbidden}
       end
@@ -2315,7 +2344,7 @@ defmodule Letflow.Definitions do
   # activate/2 helpers (design §6.2)
   # -----------------------------------------------------------------------------------
 
-  defp run_activate_transaction(id, prefix, tenant_id, validator) do
+  defp run_activate_transaction(id, prefix, tenant_id, validator, activator) do
     Repo.transaction(fn ->
       ProcessDefinition
       |> where([d], d.id == ^id)
@@ -2336,8 +2365,9 @@ defmodule Letflow.Definitions do
             :ok ->
               with :ok <- run_semantic_validation(definition, prefix),
                    :ok <- check_reserved_references(definition),
+                   :ok <- check_entity_writes(definition, prefix, activator),
                    :ok <- check_script_bindings(definition, prefix) do
-                activate_draft(definition, prefix, tenant_id)
+                activate_draft(definition, prefix, tenant_id, activator)
               else
                 {:error, reason} -> Repo.rollback(reason)
               end
@@ -2394,6 +2424,213 @@ defmodule Letflow.Definitions do
       :error ->
         {:error, :graph_structure_invalid}
     end
+  end
+
+  # GH #2587 / REQ-499 PR B1 (decision 0054 D1, D4a; design
+  # gh2587-req499-pr-b-human-task-writes.md 5.3, 6.3): every node's declared `entity_writes`
+  # must be a valid, authorised set of lines BEFORE the definition becomes ACTIVE. Shared by
+  # the three activation paths (activate/2, version rollback, promotion apply) and run AFTER
+  # check_reserved_references/1 and BEFORE check_script_bindings/2, so a refused graph takes
+  # no FOR SHARE script-row lock. Reads only (definitions by name, the activator's user row);
+  # takes no lock. A graph with no non-empty `entity_writes` attribute is `:ok` and needs no
+  # activator.
+  #
+  # Reports ALL violations at once (`:entity_writes_invalid`), in graph order, each node's
+  # sorted by {index, code}. A node-level refusal carries index 0.
+  @doc false
+  @spec check_entity_writes(
+          ProcessDefinition.t() | map(),
+          String.t(),
+          EntityPort.activator() | nil
+        ) ::
+          :ok
+          | {:error, :graph_structure_invalid}
+          | {:error, {:entity_writes_invalid, [entity_writes_violation()]}}
+  def check_entity_writes(%{graph: graph_map} = definition, prefix, activator)
+      when is_binary(prefix) do
+    case entity_write_nodes(graph_map) do
+      :error ->
+        {:error, :graph_structure_invalid}
+
+      {:ok, [], _nodes} ->
+        :ok
+
+      {:ok, declared, nodes} ->
+        activator_codes = activator_codes(activator, prefix)
+
+        preseeded =
+          MapSet.union(
+            preseeded_variable_names(nodes),
+            declared_variable_keys(definition, prefix)
+          )
+
+        violations =
+          Enum.flat_map(declared, fn {node, writes} ->
+            node_entity_writes_violations(
+              node,
+              writes,
+              declared,
+              preseeded,
+              activator_codes,
+              prefix
+            )
+          end)
+
+        case violations do
+          [] -> :ok
+          violations -> {:error, {:entity_writes_invalid, violations}}
+        end
+    end
+  end
+
+  # The `activated_by` document recorded on the row an activation path makes ACTIVE: the
+  # activator's authority plus the (entity_type, "create") pairs of the graph's lines; nil when
+  # the graph has no lines (the column stays NULL) or no activator is given (such a graph was
+  # refused by check_entity_writes/3 already).
+  @doc false
+  @spec entity_writes_activated_by(
+          ProcessDefinition.t() | map(),
+          EntityPort.activator() | nil,
+          DateTime.t()
+        ) :: map() | nil
+  def entity_writes_activated_by(%{graph: graph_map}, activator, %DateTime{} = now) do
+    case {entity_write_nodes(graph_map), activator} do
+      {{:ok, [_ | _] = declared, _nodes}, %{user_id: _} = activator} ->
+        pairs =
+          for {_node, writes} <- declared,
+              is_list(writes),
+              %{"entity_type" => entity_type} <- writes,
+              is_binary(entity_type),
+              do: {entity_type, "create"}
+
+        Activator.build_record(activator, pairs, now)
+
+      _no_lines_or_activator ->
+        nil
+    end
+  end
+
+  # {:ok, [{node, raw_entity_writes}], all_nodes} for the nodes carrying a non-empty
+  # `entity_writes` attribute, in graph order; :error for a graph that does not parse.
+  defp entity_write_nodes(graph_map) do
+    case Graph.from_map(graph_map) do
+      {:ok, %Graph{nodes: nodes}} ->
+        declared =
+          for %Graph.Node{attributes: %{"entity_writes" => writes}} = node <- nodes,
+              writes not in [nil, []],
+              do: {node, writes}
+
+        {:ok, declared, nodes}
+
+      :error ->
+        :error
+    end
+  end
+
+  # The activator must hold :EntitiesRecordsWrite AND resolve to an ACTIVE user row of this
+  # tenant (decision 0054 D4a.4, open point 9): an absent row fails closed like a deactivated
+  # user, because the write would be refused at run time anyway.
+  defp activator_codes(%{user_id: user_id, entities_records_write?: true}, prefix)
+       when is_binary(user_id) do
+    with {:ok, uuid} <- Ecto.UUID.cast(user_id),
+         {:ok, %{status: :active}} <- Letflow.Identity.get_user(uuid, prefix: prefix) do
+      []
+    else
+      _inactive_or_absent -> [:entity_write_activator_required]
+    end
+  end
+
+  defp activator_codes(_activator, _prefix), do: [:entity_write_activator_required]
+
+  defp node_entity_writes_violations(
+         %Graph.Node{id: node_id, node_type: node_type},
+         writes,
+         declared,
+         preseeded,
+         activator_codes,
+         prefix
+       ) do
+    node_codes =
+      cond do
+        not is_list(writes) -> [:entity_writes_not_a_list]
+        node_type != :HUMAN_TASK -> [:entity_writes_node_type_not_supported]
+        true -> []
+      end
+
+    activator_node_codes = if is_list(writes), do: activator_codes, else: []
+
+    line_violations =
+      if is_list(writes) and node_type == :HUMAN_TASK do
+        other_vars =
+          for {%Graph.Node{id: other_id}, other_writes} <- declared,
+              other_id != node_id,
+              is_list(other_writes),
+              %{"output_record_id_var" => var} <- other_writes,
+              is_binary(var),
+              do: var
+
+        ctx = %{
+          prefix: prefix,
+          node_id: node_id,
+          node_type: node_type,
+          graph_output_vars: other_vars
+        }
+
+        preseeded_violations =
+          for {%{"output_record_id_var" => var}, index} <- Enum.with_index(writes),
+              is_binary(var),
+              MapSet.member?(preseeded, var),
+              do: %{index: index, code: :entity_write_output_var_preseeded}
+
+        case EntityPort.impl().validate_lines(writes, ctx) do
+          :ok -> preseeded_violations
+          {:error, violations} -> violations ++ preseeded_violations
+        end
+      else
+        []
+      end
+
+    (Enum.map(node_codes ++ activator_node_codes, &%{index: 0, code: &1}) ++ line_violations)
+    |> Enum.sort_by(&{&1.index, &1.code})
+    |> Enum.map(&%{node_id: node_id, index: &1.index, code: &1.code})
+  end
+
+  # The variable keys registered in `variable_schemas` for this definition row (none for a row
+  # that has no id yet, or a prefix the read refuses).
+  defp declared_variable_keys(%{id: id}, prefix) when is_binary(id) do
+    case VariableSchema.fetch_schemas(Repo, id, prefix: prefix) do
+      {:ok, schemas} -> schemas |> Map.keys() |> MapSet.new()
+      {:error, _reason} -> MapSet.new()
+    end
+  end
+
+  defp declared_variable_keys(_definition, _prefix), do: MapSet.new()
+
+  # Variable names the graph itself pre-seeds from authored data: a HUMAN_TASK form property
+  # a `required_outputs` entry or a `variable_schemas` key. An `output_record_id_var` must not be one (0054 D1).
+  defp preseeded_variable_names(nodes) do
+    nodes
+    |> Enum.flat_map(fn
+      %Graph.Node{node_type: :HUMAN_TASK, attributes: %{} = attrs} ->
+        form_properties =
+          case attrs do
+            %{"form_schema" => %{"properties" => %{} = properties}} -> Map.keys(properties)
+            _no_form -> []
+          end
+
+        required =
+          case attrs do
+            %{"required_outputs" => outputs} when is_list(outputs) -> outputs
+            _none -> []
+          end
+
+        form_properties ++ required
+
+      _other_node ->
+        []
+    end)
+    |> Enum.filter(&is_binary/1)
+    |> MapSet.new()
   end
 
   defp run_service_scope_validator(_definition, _tenant_id, nil), do: :ok
@@ -2464,8 +2701,9 @@ defmodule Letflow.Definitions do
   # Repo.transaction/1 -- Repo.rollback/1 here aborts that whole transaction,
   # so both this row's writes AND any already-assigned sequence numbers are
   # discarded together on a locking failure.
-  defp activate_draft(%ProcessDefinition{name: name} = draft, prefix, tenant_id) do
+  defp activate_draft(%ProcessDefinition{name: name} = draft, prefix, tenant_id, activator) do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    activated_by = entity_writes_activated_by(draft, activator, now)
 
     case assign_definition_sequence(tenant_id, prefix) do
       {:ok, deprecate_seq} ->
@@ -2477,7 +2715,7 @@ defmodule Letflow.Definitions do
           prefix: prefix
         )
 
-        activate_draft_row(draft, prefix, tenant_id, now)
+        activate_draft_row(draft, prefix, tenant_id, now, activated_by)
 
       {:error, reason} ->
         Repo.rollback(reason)
@@ -2488,7 +2726,13 @@ defmodule Letflow.Definitions do
   # run_activate_transaction/4) is this audit row's before_state; `updated`
   # (the now-ACTIVE row) is its after_state. actor_id: nil, see
   # record_definition_audit/5's own comment.
-  defp activate_draft_row(%ProcessDefinition{id: id} = draft, prefix, tenant_id, now) do
+  defp activate_draft_row(
+         %ProcessDefinition{id: id} = draft,
+         prefix,
+         tenant_id,
+         now,
+         activated_by
+       ) do
     case assign_definition_sequence(tenant_id, prefix) do
       {:ok, activate_seq} ->
         {1, [updated]} =
@@ -2496,7 +2740,14 @@ defmodule Letflow.Definitions do
           |> where([d], d.id == ^id and d.status == :draft)
           |> select([d], d)
           |> Repo.update_all(
-            [set: [status: :active, updated_at: now, sequence_number: activate_seq]],
+            [
+              set: [
+                status: :active,
+                updated_at: now,
+                sequence_number: activate_seq,
+                activated_by: activated_by
+              ]
+            ],
             prefix: prefix
           )
 
@@ -2554,6 +2805,10 @@ defmodule Letflow.Definitions do
          {:error, {:expression_references_reserved_variable, _references}} = error
        ),
        do: error
+
+  # GH #2587 PR B1: the entity_writes refusal, a pure pass-through.
+  defp interpret_activate_result({:error, {:entity_writes_invalid, _violations}} = error),
+    do: error
 
   # -----------------------------------------------------------------------------------
   # deprecate/2 & archive/2 helpers (design §6.3) -- identical shape, different
@@ -2657,10 +2912,18 @@ defmodule Letflow.Definitions do
   # parameters once process_definitions.tenant_id/promotion_reviews.tenant_id
   # stopped existing. Prefixed _tenant_id to avoid an unused-variable warning
   # without changing rollback_definition_version/4's own call shape.
-  defp do_rollback(process_key, target_version, actor_id, _tenant_id, prefix, event_appender) do
+  defp do_rollback(
+         process_key,
+         target_version,
+         actor_id,
+         _tenant_id,
+         prefix,
+         event_appender,
+         activator
+       ) do
     transaction_result =
       try do
-        run_rollback_transaction(process_key, target_version, prefix)
+        run_rollback_transaction(process_key, target_version, prefix, activator)
       rescue
         exception -> {:error, {:transaction_failed, exception}}
       end
@@ -2693,7 +2956,7 @@ defmodule Letflow.Definitions do
   # exactly one tenant's schema, so the dropped tenant_id filter was redundant with
   # that schema boundary, not an independent safety check. tenant_id is no longer
   # needed by this function at all -- dropped from its parameter list.
-  defp run_rollback_transaction(process_key, target_version, prefix) do
+  defp run_rollback_transaction(process_key, target_version, prefix, activator) do
     Repo.transaction(fn ->
       rows =
         ProcessDefinition
@@ -2726,8 +2989,9 @@ defmodule Letflow.Definitions do
             # this transaction, before the pointer swap. GH #2587 PR A1b (design 2A.3): the
             # reserved-namespace references first.
             with :ok <- check_reserved_references(target_row),
+                 :ok <- check_entity_writes(target_row, prefix, activator),
                  :ok <- check_script_bindings(target_row, prefix) do
-              swap_active_pointer(current_active, target_row, prefix)
+              swap_active_pointer(current_active, target_row, prefix, activator)
             else
               {:error, reason} -> Repo.rollback(reason)
             end
@@ -2742,8 +3006,11 @@ defmodule Letflow.Definitions do
   # theoretically-possible TOCTOU gap between this transaction's own row-lock and the
   # write. Both rows were locked at the FOR UPDATE read above, so both updates are
   # guaranteed to affect exactly 1 row.
-  defp swap_active_pointer(current_active, target_row, prefix) do
+  defp swap_active_pointer(current_active, target_row, prefix, activator) do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    # GH #2587 PR B1: the re-activating principal's authority is recorded afresh (NULL for a
+    # graph without lines), never carried over from the row's earlier activation.
+    activated_by = entity_writes_activated_by(target_row, activator, now)
 
     ProcessDefinition
     |> where([d], d.id == ^current_active.id)
@@ -2754,7 +3021,10 @@ defmodule Letflow.Definitions do
       ProcessDefinition
       |> where([d], d.id == ^target_row.id)
       |> select([d], d)
-      |> Repo.update_all([set: [status: :active, updated_at: now]], prefix: prefix)
+      |> Repo.update_all(
+        [set: [status: :active, updated_at: now, activated_by: activated_by]],
+        prefix: prefix
+      )
 
     %{activated_row: activated_row, rolled_back_from_version: current_active.version}
   end

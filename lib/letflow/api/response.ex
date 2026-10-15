@@ -280,6 +280,25 @@ defmodule Letflow.Api.Response do
       })
 
   @doc """
+  HTTP 422 — a definition's `entity_writes` were refused at activation (GH #2587 PR B1, design
+  gh2587-req499-pr-b-human-task-writes.md 5.3, 6.2). One body for every route that activates a
+  definition (activate, version rollback, review promotion apply, review-free tenant
+  promotion). `violations` are `Letflow.Definitions.entity_writes_violation()` maps: the node
+  id from the caller's own graph, the declared line index and a stable code. No field name,
+  entity type or value is echoed.
+  """
+  @spec entity_writes_invalid(Plug.Conn.t(), [map()]) :: Plug.Conn.t()
+  def entity_writes_invalid(conn, violations) when is_list(violations),
+    do:
+      send_json(conn, 422, %{
+        "error" => "entity_writes_invalid",
+        "violations" =>
+          Enum.map(violations, fn %{node_id: node_id, index: index, code: code} ->
+            %{"node_id" => node_id, "index" => index, "code" => Atom.to_string(code)}
+          end)
+      })
+
+  @doc """
   HTTP 422 — a service-catalog `endpoint_url` references the reserved engine variable
   namespace (GH #2623). The body echoes neither the URL nor the matched name.
   """

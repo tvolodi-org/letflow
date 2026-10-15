@@ -689,6 +689,7 @@ defmodule Letflow.Routers.Promotions do
               actor_id,
               attrs["plan_digest"],
               Keyword.merge(opts,
+                activator: Letflow.Api.Context.activator(conn),
                 permission_checker: PromotionAccess.checker_for(conn.assigns.auth_context),
                 event_appender: &PlatformEvents.append_definition_promoted/2
               )
@@ -839,6 +840,13 @@ defmodule Letflow.Routers.Promotions do
          {:error, {:promotion_failed, {:expression_references_reserved_variable, references}}}
        ),
        do: Response.expression_references_reserved_variable(conn, references)
+
+  # GH #2587 PR B1: the promoted graph's entity_writes were refused in the TARGET tenant.
+  defp render_apply(
+         conn,
+         {:error, {:promotion_failed, {:entity_writes_invalid, violations}}}
+       ),
+       do: Response.entity_writes_invalid(conn, violations)
 
   defp render_apply(conn, {:error, {:promotion_failed, _other}}),
     do: Response.internal_error(conn)

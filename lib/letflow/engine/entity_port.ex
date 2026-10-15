@@ -36,9 +36,11 @@ defmodule Letflow.Engine.EntityPort do
 
   ## Write half (0054 D2)
 
-  `prepare/2`, `validate_lines/2` and `multi/3` carry the process-step entity writes. In PR A3
-  only `prepare/2` is real; the other two fail closed on a non-empty line list (PR B replaces
-  them). Nothing in the engine calls the write half yet. Script paths (the dispatcher and
+  `prepare/2`, `validate_lines/2` and `multi/3` carry the process-step entity writes.
+  `prepare/2` is real (PR A3); `validate_lines/2` is real from PR B1 (activation-time
+  validation; it never writes); `multi/3` still fails closed on a non-empty line list (PR B2
+  replaces it). Nothing in the engine calls the write half yet; `Letflow.Definitions` calls
+  `validate_lines/2` at the three activation paths. Script paths (the dispatcher and
   `Letflow.Scripts.*`) call `prefetch/3` ONLY, and a static test asserts it.
   """
 
@@ -68,8 +70,30 @@ defmodule Letflow.Engine.EntityPort do
   @typedoc "Context for `prepare/2`: the tenant schema prefix from the caller's server context."
   @type prepare_ctx :: %{required(:prefix) => String.t()}
 
-  @typedoc "Context for `validate_lines/2`; PR B extends it."
-  @type definition_ctx :: %{required(:prefix) => String.t(), optional(atom()) => term()}
+  @typedoc """
+  The activator authority recorded at activation (GH #2587 PR B1, decision 0054 D4a): the
+  principal whose delegated privilege a definition's `entity_writes` run under. Built from
+  the server-side `auth_context` by `Letflow.Definitions.Activator.from_auth_context/2`.
+  """
+  @type activator :: %{
+          required(:user_id) => Ecto.UUID.t(),
+          required(:roles) => [String.t()],
+          required(:entities_records_write?) => boolean(),
+          optional(:permissions) => [String.t()]
+        }
+
+  @typedoc """
+  Context for `validate_lines/2` (PR B1): the tenant schema prefix and the node being
+  validated. `graph_output_vars` lists the `output_record_id_var` names declared by lines of
+  OTHER nodes of the same graph (uniqueness across the graph).
+  """
+  @type definition_ctx :: %{
+          required(:prefix) => String.t(),
+          optional(:node_id) => String.t(),
+          optional(:node_type) => :HUMAN_TASK | :SERVICE_TASK,
+          optional(:graph_output_vars) => [String.t()],
+          optional(atom()) => term()
+        }
 
   @typedoc "Context for `multi/3`; PR B extends it."
   @type multi_ctx :: %{required(:prefix) => String.t(), optional(atom()) => term()}
@@ -87,7 +111,10 @@ defmodule Letflow.Engine.EntityPort do
               | {:error, :prepare_inside_transaction}
               | {:error, {:entity_type_prepare_failed, String.t()}}
 
-  @doc "Validates declared lines against the current definitions. PR A: fail closed."
+  @doc """
+  Validates declared lines against the current definitions (PR B1). Reports every violation,
+  sorted by `{index, code}`; never writes, never takes a lock.
+  """
   @callback validate_lines(lines :: [line()], definition_ctx()) ::
               :ok | {:error, [line_violation()]}
 
