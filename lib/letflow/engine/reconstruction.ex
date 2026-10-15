@@ -29,7 +29,10 @@ defmodule Letflow.Engine.Reconstruction do
     added to `apply_event/3` below by whichever requirement adds it — any
     unrecognized `event_type` string surfaces as
     `{:replay_failed, {:unrecognized_event_type, event_type, event_id}}`,
-    never silently skipped.
+    never silently skipped. Since then the SERVICE_TASK completions gained clauses too:
+    `SCRIPT_TASK_COMPLETED`/`SCRIPT_RUN_RECORDED` (GH 2534 PR 7c-1) and the HTTP
+    route's `SERVICE_TASK_COMPLETED` (GH 2595), whose recorded `decoded_body` is merged
+    verbatim, exactly as the live `:advance` path merged it.
   * `SUB_PROCESS_COMPLETED`'s own persisted payload
     (`Letflow.Engine.SubProcess.append_sub_process_completed_event/8`) writes
     `child_instance_id`, `output_variables` (already
@@ -742,8 +745,35 @@ defmodule Letflow.Engine.Reconstruction do
          %{event_type: "SCRIPT_TASK_COMPLETED"} = event,
          _prefix
        ) do
+    apply_service_task_completion(graph, state, event, "output")
+  end
+
+  # GH 2595: the HTTP SERVICE_TASK :advance outcome (Engine.advance_service_task_dispatch/4 ->
+  # persist_service_task_advance/10, payload `%{dispatch_id, node_id, decoded_body}`). The live
+  # path applies NO response mapping: ServiceTask.classify_failure_kind/1 yields the 2xx body's
+  # whole decoded JSON object, and the engine merges that map as-is via
+  # VariableMerge.merge(variables, decoded_body, nil), then advances off the node exactly as
+  # the script route does. The persisted decoded_body is that same map, so replay applies it
+  # verbatim from the payload -- no definition or config is consulted, nothing is re-fetched.
+  defp apply_event(
+         graph,
+         %InstanceState{} = state,
+         %{event_type: "SERVICE_TASK_COMPLETED"} = event,
+         _prefix
+       ) do
+    apply_service_task_completion(graph, state, event, "decoded_body")
+  end
+
+  defp apply_event(_graph, _state, %{event_type: event_type, event_id: event_id}, _prefix) do
+    {:error, {:unrecognized_event_type, event_type, event_id}}
+  end
+
+  # Shared by SCRIPT_TASK_COMPLETED ("output") and SERVICE_TASK_COMPLETED ("decoded_body"): both
+  # live routes run the same Engine.persist_service_task_advance/10 pipeline after merging their
+  # map into the variables, so both replay folds are this one function.
+  defp apply_service_task_completion(graph, %InstanceState{} = state, event, output_key) do
     with {:ok, node_id} <- fetch_string_field(event, "node_id"),
-         {:ok, output} <- fetch_map_field(event, "output"),
+         {:ok, output} <- fetch_map_field(event, output_key),
          {:ok, token} <- find_task_completion_token(state.tokens, node_id) do
       case VariableMerge.merge(state.variables, output, nil) do
         {:ok, new_variables, _merge_events} ->
@@ -761,10 +791,6 @@ defmodule Letflow.Engine.Reconstruction do
           {:error, {:variable_merge_rejected, event.event_id, key}}
       end
     end
-  end
-
-  defp apply_event(_graph, _state, %{event_type: event_type, event_id: event_id}, _prefix) do
-    {:error, {:unrecognized_event_type, event_type, event_id}}
   end
 
   # GH 2534 PR 7c-1: the live SERVICE_TASK completion hop (Engine.persist_service_task_advance)
