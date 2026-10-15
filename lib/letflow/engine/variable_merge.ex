@@ -133,10 +133,15 @@ defmodule Letflow.Engine.VariableMerge do
       :reserved_variable_key, []}]}` for the first reserved key in sorted
       order. The rejected value is never carried (`nil`), so an
       attacker-supplied value never reaches an error event, detail or log.
-    * `put_sys/3` is the ONLY function that sets a reserved key. Its callers
-      are a reviewed static allow-list
-      (`test/letflow/engine/put_sys_callers_test.exs`); it must never receive
-      request, form, HTTP response, start-input, message or script data.
+    * `put_sys/3` (strict: new values) and `put_sys_replayed/3` (stored tier,
+      wide rule: replay only, called by `Letflow.Engine.Reconstruction`) are
+      the ONLY functions that set a reserved key. Their callers are a reviewed
+      static allow-list (`test/letflow/engine/put_sys_callers_test.exs`);
+      they must never receive request, form, HTTP response, start-input,
+      message or script data.
+    * `sys_key_kind/1`, `check_sys_entry/2` and `check_sys_values/1` are the
+      strict, pure checks (GH #2621); the registry's append guard uses
+      `check_sys_values/1`.
     * `reserved_key?/1`, `reserved_keys/1`, `drop_reserved/1`, `sys_key?/1`,
       `sys_value?/1` and `sys_event_type/0` are how every other module reaches
       the namespace: no other file in `lib/` holds a binary literal starting
@@ -196,7 +201,7 @@ defmodule Letflow.Engine.VariableMerge do
   @type sys_value :: String.t() | non_neg_integer()
 
   @typedoc "Why a strict check refused a key / value pair."
-  @type sys_entry_error :: :invalid_sys_key_shape | :invalid_sys_value_type
+  @type sys_entry_error :: :invalid_sys_key_shape | :invalid_sys_value_type | :invalid_variables
 
   @typedoc """
   The already-computed validation outcome for one incoming key's value,
@@ -466,6 +471,8 @@ defmodule Letflow.Engine.VariableMerge do
     end
   end
 
+  def put_sys(_variables, _key, _value), do: {:error, :invalid_variables}
+
   @doc """
   Sets the reserved `key` to `value` in `variables` under the STORED-tier (wide) rule
   `sys_key?/1` and `sys_value?/1` (GH #2621, design D-8): `Letflow.Engine.Reconstruction`'s
@@ -481,6 +488,8 @@ defmodule Letflow.Engine.VariableMerge do
       true -> {:ok, Map.put(variables, key, value)}
     end
   end
+
+  def put_sys_replayed(_variables, _key, _value), do: {:error, :invalid_variables}
 
   @doc """
   The event type of the engine-only event recording `put_sys/3` writes

@@ -174,7 +174,11 @@ defmodule Letflow.EventStore.Registry do
   # change. No failure echoes a value (`actual: nil`).
   defp sys_values_guard(event_type, decoded) do
     if event_type == VariableMerge.sys_event_type() do
-      case VariableMerge.check_sys_values(Map.get(decoded, "values")) do
+      # Fail closed (INV-8): decode_object_payload/1 yields a map, but a non-map must never
+      # raise here; it reads as a missing `values`, which is refused as a type failure.
+      values = if is_map(decoded), do: Map.get(decoded, "values"), else: nil
+
+      case VariableMerge.check_sys_values(values) do
         :ok ->
           :ok
 

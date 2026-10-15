@@ -161,6 +161,14 @@ defmodule Letflow.Engine.VariableMergeSysTest do
       assert {:error, :invalid_sys_value_type} = VariableMerge.put_sys(%{}, "_sys.r.seq", -1)
     end
 
+    test "a non-map first argument is {:error, _} for put_sys/3 and put_sys_replayed/3" do
+      assert {:error, :invalid_variables} = VariableMerge.put_sys(opaque(nil), "x", 1)
+      assert {:error, :invalid_variables} = VariableMerge.put_sys(opaque([]), "_sys.r", 1)
+
+      assert {:error, :invalid_variables} =
+               VariableMerge.put_sys_replayed(opaque(nil), "x", 1)
+    end
+
     test "put_sys_replayed/3 keeps the stored-tier wide rule" do
       assert {:ok, %{"_sys.line_0.id" => "any string"}} =
                VariableMerge.put_sys_replayed(%{}, "_sys.line_0.id", "any string")

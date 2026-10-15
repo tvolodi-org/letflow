@@ -111,11 +111,46 @@ defmodule Letflow.EventStore.RegistrySysValuesGuardTest do
     assert [%{field_path: "/values/a~1b~0c"}] = failures(validate(%{"a/b~c" => 1}, t))
   end
 
-  test "another event type is not guarded", %{tenant_id: t} do
-    assert {:error, {:payload_validation_failed, fs}} =
-             Registry.validate_payload("TASK_ENTITY_WRITES_APPLIED", Jason.encode!(%{}), t)
+  test "another event type is not guarded: a schema-valid payload with bad-looking values is :ok",
+       %{tenant_id: t} do
+    other = "GH2621_OTHER_EVENT"
 
-    refute Enum.any?(fs, &(&1.constraint in ["sys_key_shape", "sys_value_type"]))
+    assert {:ok, _} =
+             Registry.register_type(
+               %{
+                 name: other,
+                 schema_version: 1,
+                 json_schema: %{"type" => "object"},
+                 description: "GH 2621 control type"
+               },
+               t
+             )
+
+    payload = Jason.encode!(%{"values" => %{"x" => -1, "_sys.r" => "not-a-uuid"}})
+    assert :ok = Registry.validate_payload(other, payload, t)
+  end
+
+  test "a key over 160 bytes is reported at /values (no echo of the key)", %{tenant_id: t} do
+    long = "_sys." <> String.duplicate("a", 160)
+
+    assert [%{constraint: "sys_key_shape", field_path: "/values", actual: nil}] =
+             failures(validate(%{long => Ecto.UUID.generate()}, t))
+  end
+
+  test "non-ASCII names are refused as key shapes", %{tenant_id: t} do
+    for key <- ["_sys.é", "_sys.aé.seq", "_sys..seq", "_sys.."] do
+      assert [%{constraint: "sys_key_shape"}] = failures(validate(%{key => 1}, t))
+    end
+  end
+
+  test "more than 32 offending keys are reported sorted by key", %{tenant_id: t} do
+    names = Enum.map(0..35, &"bad#{String.pad_leading("#{&1}", 2, "0")}")
+    fs = failures(validate(Map.new(names, &{&1, 1}), t))
+    assert Enum.map(fs, & &1.field_path) == Enum.map(names, &("/values/" <> &1))
+  end
+
+  test "a non-object values is refused by the schema step (constraint type)", %{tenant_id: t} do
+    assert [%{constraint: "type", field_path: "/values"}] = failures(validate([1], t))
   end
 
   describe "all three append entry points refuse and write nothing" do

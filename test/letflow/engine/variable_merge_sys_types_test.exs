@@ -62,6 +62,10 @@ defmodule Letflow.Engine.VariableMergeSysTypesTest do
             "_sys.a.b",
             "_sys.a.seq.seq",
             "_sys.a-b",
+            "_sys..seq",
+            "_sys..",
+            "_sys.é",
+            "_sys.aé.seq",
             "_sys.a\n",
             :"_sys.a",
             long,
@@ -101,6 +105,13 @@ defmodule Letflow.Engine.VariableMergeSysTypesTest do
       assert :ok = VariableMerge.check_sys_values(%{"_sys.r" => @uuid, "_sys.r.seq" => 7})
       assert :ok = VariableMerge.check_sys_values(%{})
       assert {:error, :not_a_map} = VariableMerge.check_sys_values(opaque([1]))
+    end
+
+    test "more than 32 offending keys come back sorted (not map-iteration order)" do
+      names = Enum.map(0..35, &"bad#{String.pad_leading("#{&1}", 2, "0")}")
+      values = Map.new(names, &{&1, 1})
+      assert {:error, offending} = VariableMerge.check_sys_values(values)
+      assert Enum.map(offending, &elem(&1, 0)) == names
     end
 
     test "offending pairs come back sorted by key" do
@@ -167,11 +178,20 @@ defmodule Letflow.Engine.VariableMergeSysTypesTest do
                   StreamData.constant(%{})
                 ])
             ) do
+        # Independent oracle (its own regexes, not sys_key_kind/1).
         expected_ok? =
-          case VariableMerge.sys_key_kind(key) do
-            :id -> is_binary(value) and value == @uuid
-            :seq -> is_integer(value) and value >= 0 and value <= @int64_max
-            :unknown -> false
+          cond do
+            not is_binary(key) ->
+              false
+
+            Regex.match?(~r/\A_sys\.[A-Za-z0-9_]+\z/, key) and byte_size(key) <= 160 ->
+              value == @uuid
+
+            Regex.match?(~r/\A_sys\.[A-Za-z0-9_]+\.seq\z/, key) and byte_size(key) <= 160 ->
+              is_integer(value) and value >= 0 and value <= @int64_max
+
+            true ->
+              false
           end
 
         assert VariableMerge.check_sys_entry(key, value) == :ok == expected_ok?
