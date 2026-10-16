@@ -36346,3 +36346,109 @@ requirements:
       - "3. PR C (SERVICE_TASK path) is delivered by its own PRs: C0 `%StepSource{}` (GH #2627, #2649), C2 dispatch-time composition for the HTTP and script routes (#2674), C1 the activation fence accepts SERVICE_TASK (this requirement's last code PR). RELEASE-VALIDATOR re-verification pending."
       - "4. Follow-ups tracked, not blocking this requirement: GH #2618, #2619 (writable_by_process classification, packs), #2624, #2628, #2632, #2635, #2638, #2644 (activated_by hardening), #2646 (test gaps)."
     depends_on: [REQ-496]
+
+  - id: REQ-500
+    title: "Versioned documents slice 1 (decision 0056 D1-D4, D8, D9): document types, gap-free numbering (scope per decision 0056 D2), immutable versions with hash, verify_binding"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 2588
+    # Source: GH #2588 (filed by letflow-2, sole filer; the issue body is the content authority). Decision 0056. Id allocated by letflow-2. Entry written by DOC-UPDATER (letflow-2) 2026-10-16. Slice 1 excludes signatures, PDF, retention and hold (REQ-508, REQ-509).
+    description: >
+      Slice 1 of versioned documents: document types, gap-free numbering, immutable
+      document versions with a content hash, and verify_binding. The GH #2588 body
+      is the full acceptance-criteria list.
+    acceptance_criteria:
+      - "1. The acceptance criteria are those of GH #2588 (the issue body is the content authority). NOT DELIVERED."
+    depends_on: []
+
+  - id: REQ-501
+    title: "Module write handlers (decision 0054 extension): R1 catalog registration, R2 ownership stamp storage, R3 activation checks, R4a handler write API, R4b engine HUMAN_TASK integration, R5 SERVICE_TASK path"
+    owner: ELIXIR-DEV
+    status: in_progress
+    stage: S7
+    gh: 2590
+    # Source: GH #2590 (filed by letflow-2, sole filer; the issue body and the design lib/letflow/design/gh2590-req501-module-write-handlers.md are the content authority). Id allocated by letflow-2. Entry written by DOC-UPDATER (letflow-2) 2026-10-16; none of the implementing PRs wrote it.
+    description: >
+      Modules register named write handlers that process steps may call (declared
+      writes applied in the same transaction as the task completion). Delivered on
+      main: R1 #2650, R2 #2652, R3 #2665, R4a #2670, R4b #2672. Remaining: R5,
+      which follows PR C (C2 #2674 merged, C1 pending). Status stays in_progress
+      until R5 merges and RELEASE-VALIDATOR re-verifies. Follow-ups: GH #2671.
+    acceptance_criteria:
+      - "1. R1-R4b delivered on main (see description). Merge commits were taken from the supervisor's report and PR numbers; not individually re-read."
+      - "2. R5 delivered by its own PR after PR C of REQ-499. NOT DELIVERED."
+    depends_on: [REQ-496, REQ-499]
+
+  - id: REQ-508
+    title: "Document retention policy (forever by default) and legal hold, slice 2 part 1 of decision 0056 D7"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 2675
+    # Source: GH #2675 (filed by letflow-2). Blocked on GH #2588; NOT validated by REQ-VALIDATOR (failed twice 2026-10-16; needs an amending decision record for 0056 first). Id allocated by letflow-2.
+    description: >
+      Per-type retention policy (forever by default, configurable) and legal hold.
+      The GH #2675 body, including the validator findings section, is the content
+      authority.
+    acceptance_criteria:
+      - "1. The acceptance criteria are those of GH #2675 after its design record. NOT DELIVERED."
+    depends_on: [REQ-500]
+
+  - id: REQ-509
+    title: "Document purge and archive execution with two-person approval (decision 0056 D7, design first)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 2677
+    # Source: GH #2677 (filed by letflow-2). Blocked on GH #2675; NOT validated by REQ-VALIDATOR (failed twice 2026-10-16; a design stub that must be split). Id allocated by letflow-2.
+    description: >
+      Purge and archive execution for documents past retention. Design stub; the
+      GH #2677 body is the content authority.
+    acceptance_criteria:
+      - "1. The acceptance criteria are those of GH #2677 after its design record. NOT DELIVERED."
+    depends_on: [REQ-508]
+
+  - id: REQ-510
+    title: "Exam authoring write surface (module handlers and permission), then manage the 10 authoring types"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 2680
+    # Source: GH #2680 (filed by letflow-2). Blocked on GH #2596; not yet run through REQ-VALIDATOR (validate when unblocked). Id allocated by letflow-2.
+    description: >
+      Authoring write surface for the exam module, then managed_by on the 10
+      authoring types, before the next exam release. The GH #2680 body is the
+      content authority.
+    acceptance_criteria:
+      - "1. The acceptance criteria are those of GH #2680. NOT DELIVERED."
+    depends_on: [REQ-501, REQ-511, REQ-512]
+
+  - id: REQ-511
+    title: "Exam content snapshot at session start (answer key, passing threshold, certificate flags); scoring never falls back to a default threshold"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 2682
+    # Source: GH #2682 (filed by letflow-2 on a finding by letflow-9c in GH #2596). Prio 1, design first, size L. Gates the infra stamp of the 6 runtime exam types. Id allocated by letflow-2. NOT yet run through REQ-VALIDATOR.
+    description: >
+      The exam session stores a version, hash or snapshot of the exam content at
+      start; scoring reads only that snapshot. The GH #2682 body is the content
+      authority.
+    acceptance_criteria:
+      - "1. The acceptance criteria are those of GH #2682. NOT DELIVERED."
+    depends_on: []
+
+  - id: REQ-512
+    title: "Report of authoring edits to exams with in-progress or grading-pending sessions (read-only, from events rows)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 2683
+    # Source: GH #2683 (filed by letflow-2). Prio 3. Id allocated by letflow-2. NOT yet run through REQ-VALIDATOR.
+    description: >
+      A read-only report of authoring edits made while an exam has live sessions.
+      The GH #2683 body is the content authority.
+    acceptance_criteria:
+      - "1. The acceptance criteria are those of GH #2683. NOT DELIVERED."
+    depends_on: []
