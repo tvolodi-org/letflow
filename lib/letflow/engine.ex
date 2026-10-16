@@ -2826,37 +2826,33 @@ defmodule Letflow.Engine do
     with %Task{status: :pending} = task <- Repo.get(Task, task_id, prefix: prefix),
          {:ok, graph, raw_graph} <- fetch_graph_with_raw(task.instance_id, prefix),
          %{attributes: %{} = attributes} <- find_node(graph, task.node_id),
-         {lines, module_lines} when lines != [] or module_lines != [] <-
-           declared_writes(attributes) do
-      resolve_entity_plan(task, lines, module_lines, raw_graph, actor_id, prefix)
+         declared when declared != {:ok, [], []} <- declared_writes(attributes) do
+      resolve_entity_plan(task, declared, raw_graph, actor_id, prefix)
     else
       _no_lines_or_unreadable -> {:ok, nil}
     end
   end
 
-  # The node's declarative lines and, GH #2590 R4b, its `module_writes` lines. A `module_writes`
-  # value that is neither absent, `[]` nor a list (a hand-edited snapshot) is `:malformed` and
-  # refused fail-closed by the plan, never silently skipped.
+  # The node's declarative lines and, GH #2590 R4b, its `module_writes` lines, as a tagged result.
+  # An `entity_writes` or `module_writes` value that is neither absent, `[]` nor a list (a
+  # hand-edited snapshot) is `{:malformed, index}` and refused fail-closed by the plan, never
+  # coerced to "no lines" (SECURITY S1: a malformed `entity_writes` must not let the rest of the
+  # node run).
+  @spec declared_writes(map()) ::
+          {:ok, [term()], [term()]} | {:malformed, non_neg_integer()}
   defp declared_writes(attributes) do
-    lines =
-      case Map.get(attributes, "entity_writes") do
-        [_ | _] = lines -> lines
-        _none -> []
-      end
-
-    module_lines =
-      case Map.get(attributes, "module_writes") do
-        none when none in [nil, []] -> []
-        [_ | _] = module_lines -> module_lines
-        _malformed -> :malformed
-      end
-
-    {lines, module_lines}
+    with {:ok, lines} <- list_attribute(Map.get(attributes, "entity_writes"), 0),
+         {:ok, module_lines} <-
+           list_attribute(Map.get(attributes, "module_writes"), length(lines)) do
+      {:ok, lines, module_lines}
+    end
   end
 
-  defp resolve_entity_plan(%Task{} = task, lines, :malformed, _raw_graph, actor_id, prefix) do
-    index = length(lines)
+  defp list_attribute(none, _index) when none in [nil, []], do: {:ok, []}
+  defp list_attribute([_ | _] = lines, _index), do: {:ok, lines}
+  defp list_attribute(_malformed, index), do: {:malformed, index}
 
+  defp resolve_entity_plan(%Task{} = task, {:malformed, index}, _raw_graph, actor_id, prefix) do
     record_entity_write_refusal_audit(
       task,
       actor_id,
@@ -2869,7 +2865,13 @@ defmodule Letflow.Engine do
     {:error, {:entity_write_refused, index, :write_not_permitted}}
   end
 
-  defp resolve_entity_plan(%Task{} = task, lines, module_lines, raw_graph, actor_id, prefix) do
+  defp resolve_entity_plan(
+         %Task{} = task,
+         {:ok, lines, module_lines},
+         raw_graph,
+         actor_id,
+         prefix
+       ) do
     with {:actor, true} <- {:actor, is_binary(actor_id)},
          # I-B6 / 0054 D4: the 20-line cap is enforced AT RUN TIME on the pinned snapshot, so a
          # hand-edited snapshot cannot bypass the activation check. GH #2590 R4b: the cap is on

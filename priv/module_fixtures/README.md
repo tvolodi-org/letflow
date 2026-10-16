@@ -23,4 +23,7 @@ the `:test` environment references them (same arrangement as `priv/wasm_fixtures
 * `ledger_rogue.json` -- GH #2590 / REQ-501 R4a: the one managed entity definition `fxr_thing` of
   `Letflow.Modules.FixtureLedgerRogue`, a module whose handlers misbehave on purpose (negative
   controls for `Letflow.Entities.HandlerWrites` and the handler-purity scan H4). `ledger_foundation.json`
-  gained an optional `quantity` integer field on both entity types in R4a.
+  gained an optional `quantity` integer field on both entity types in R4a. R4b: `ledger_rogue.json` also ships one
+  STAMPED process definition per rogue handler (`fxr_<handler>`, a single HUMAN_TASK `ht` with one
+  `module_writes` line) so the engine tests can drive each misbehaviour; that file is GENERATED (keys
+  sorted by the generator), not hand-edited, so regenerate it rather than patching the JSON.

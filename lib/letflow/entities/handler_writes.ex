@@ -39,9 +39,9 @@ defmodule Letflow.Entities.HandlerWrites do
     * `build_call/4`: ONE handler call of a `module_writes` line, as the steps
       `{:line, k0, :owner_recheck}` and a lazily built handler Multi (`k0 =
       StepSource.call_key(line_index)`). The recheck re-reads the install row's manifest hash
-      with NO lock (TOCTOU) and requires installed == compiled == the stamp's hash: the R3
-      interim guard's removal note ("the executor re-verifies the install row and the hash at
-      execution time"). The handler is resolved by the Catalog from the PINNED line's module
+      with NO lock (TOCTOU) and requires installed == compiled == the stamp's hash, so a change
+      of the install row or the build between the pre-transaction authorization and the write is
+      caught at execution time. The handler is resolved by the Catalog from the PINNED line's module
       and handler strings (string comparison, no atom creation); the arguments are resolved
       from the line (`var` from the merged variables, `const` as is, never `_sys`) and
       re-checked against the CURRENT registration; the handler is invoked through
@@ -65,8 +65,9 @@ defmodule Letflow.Entities.HandlerWrites do
       pre-transaction authorization (it reuses `Letflow.Definitions.ModuleWrites`, the activation
       validator, so the two cannot drift), the targets `prepare/2` creates instances for (only
       those whose CURRENT row is managed by the registering module, F-7), and the targets the
-      ascending type locks cover. Replay never reaches this module: it has no caller outside a completion's Multi
-  build (D-R.19).
+      ascending type locks cover.
+
+  Replay never reaches this module: it has no caller outside a completion's Multi build (D-R.19).
   """
 
   alias Ecto.Multi
@@ -368,21 +369,8 @@ defmodule Letflow.Entities.HandlerWrites do
   (authorization refused it already).
   """
   @spec registered_targets([map()]) :: [String.t()]
-  def registered_targets(lines) when is_list(lines) do
-    lines
-    |> Enum.flat_map(fn
-      %{"module" => module_id, "handler" => name} ->
-        case Catalog.write_handler(module_id, name) do
-          {:ok, handler} -> handler.targets
-          {:error, :not_found} -> []
-        end
-
-      _other ->
-        []
-    end)
-    |> Enum.uniq()
-    |> Enum.sort()
-  end
+  def registered_targets(lines) when is_list(lines),
+    do: targets_of(lines, fn handler -> handler.targets end)
 
   @doc """
   The target types `prepare/2` creates a synthetic instance for (design 4.5, F-7): the registered
@@ -393,15 +381,20 @@ defmodule Letflow.Entities.HandlerWrites do
   """
   @spec prepare_targets([map()], prefix :: String.t()) :: [String.t()]
   def prepare_targets(lines, prefix) when is_list(lines) and is_binary(prefix) do
+    targets_of(lines, fn handler ->
+      Enum.filter(handler.targets, &managed_by?(&1, handler.module_id, prefix))
+    end)
+  end
+
+  # The Catalog-resolved handlers of `lines` (string comparison; an unresolvable or malformed line
+  # contributes nothing), mapped by `select`, sorted and de-duplicated.
+  defp targets_of(lines, select) do
     lines
     |> Enum.flat_map(fn
       %{"module" => module_id, "handler" => name} ->
         case Catalog.write_handler(module_id, name) do
-          {:ok, handler} ->
-            Enum.filter(handler.targets, &managed_by?(&1, handler.module_id, prefix))
-
-          {:error, :not_found} ->
-            []
+          {:ok, handler} -> select.(handler)
+          {:error, :not_found} -> []
         end
 
       _other ->
@@ -612,11 +605,19 @@ defmodule Letflow.Entities.HandlerWrites do
       exception ->
         {{:raised, exception.__struct__}, []}
     catch
-      kind, _value when kind in [:throw, :exit] -> {{:raised, kind}, []}
+      # An exit that comes from the DB layer (pool checkout timeout, connection process gone) is
+      # not a handler fault: propagate it so the transaction fails as a database error would.
+      :exit, reason ->
+        if db_exit?(reason), do: exit(reason), else: {{:raised, :exit}, []}
+
+      :throw, _value ->
+        {{:raised, :throw}, []}
     after
       Process.delete(@token_key)
     end
   end
+
+  defp db_exit?(reason), do: inspect(reason, limit: 30) =~ ~r/DBConnection|Postgrex/
 
   # Two checks (SECURITY re-review of R4a):
   #

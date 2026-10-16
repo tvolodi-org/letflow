@@ -128,6 +128,52 @@ defmodule Letflow.Entities.StepWritesModuleWritesTest do
     end
   end
 
+  describe "the call-level deadline guard (TDV T1)" do
+    test "a handler call past the 10 s wall-clock budget fails {:line, call_key, :deadline}" do
+      base = Mw.tenant!("gh2590-r4b-sw-deadline")
+      module_lines = [line("post_entry")]
+      :ok = StepWrites.prepare([], %{prefix: base.schema, module_writes: module_lines})
+
+      # a clock that advances 11_000 ms per reading: `:entity_writes_started` reads 0, the guard
+      # of the first handler call reads 11_000, past the 10_000 ms budget
+      Process.put(:fake_clock, 0)
+
+      now_fun = fn ->
+        t = Process.get(:fake_clock)
+        Process.put(:fake_clock, t + 11_000)
+        t
+      end
+
+      multi =
+        StepWrites.multi(
+          Multi.new(),
+          [],
+          ctx(%{prefix: base.schema, module_writes: module_lines, now_fun: now_fun})
+        )
+
+      assert {:error, {:line, 20, :deadline}, :deadline_exceeded, _changes} =
+               Repo.transaction(multi)
+
+      assert Fx.all_records(base.schema) == []
+    end
+
+    test "the same call inside the budget is not refused by the guard" do
+      base = Mw.tenant!("gh2590-r4b-sw-inbudget")
+      module_lines = [line("post_entry")]
+      :ok = StepWrites.prepare([], %{prefix: base.schema, module_writes: module_lines})
+
+      multi =
+        StepWrites.multi(
+          Multi.new(),
+          [],
+          ctx(%{prefix: base.schema, module_writes: module_lines, now_fun: fn -> 0 end})
+        )
+
+      # it fails LATER (the stamp hash of this bare ctx is nil), proving the guard let it through
+      assert {:error, {:line, 20, :owner_recheck}, :hash_mismatch, _} = Repo.transaction(multi)
+    end
+  end
+
   describe "interpret_failure/2" do
     test "a handler-range key maps back to the declared line index" do
       # declared index 1: call key 70, writes 71..

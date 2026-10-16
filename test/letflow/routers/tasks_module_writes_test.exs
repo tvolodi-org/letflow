@@ -130,4 +130,18 @@ defmodule Letflow.Routers.TasksModuleWritesTest do
     refute conn.resp_body =~ "boom"
     assert Fx.all_records(ctx.schema) == []
   end
+
+  test "the 500 is the bare internal-error body, and the task stays pending (TDV T6)" do
+    ctx = Mw.rogue_case!("gh2590-r4b-http-bare", "raises")
+    conn = complete(ctx, %{})
+
+    expected =
+      conn(:get, "/")
+      |> assign(:trace_id, "gh2590-r4b-trace")
+      |> Letflow.Api.Response.internal_error()
+
+    assert conn.status == 500
+    assert conn.resp_body == expected.resp_body
+    assert Fx.task!(ctx.schema, ctx.task.id).status == :pending
+  end
 end

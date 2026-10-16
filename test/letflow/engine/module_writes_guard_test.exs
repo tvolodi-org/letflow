@@ -105,4 +105,62 @@ defmodule Letflow.Engine.ModuleWritesGuardTest do
     assert Fx.all_records(ctx.schema) == []
     assert Fx.task!(ctx.schema, ctx.task.id).status == :pending
   end
+
+  test "a malformed entity_writes next to a valid module_writes is refused (SECURITY S1)" do
+    ctx = Mw.case!("gh2590-r4b-guard-me", :mixed)
+
+    Mw.tamper_snapshot!(ctx, fn graph ->
+      update_in(graph, ["nodes"], fn nodes ->
+        Enum.map(nodes, fn
+          %{"id" => "ht"} = node -> put_in(node, ["attributes", "entity_writes"], "not-a-list")
+          node -> node
+        end)
+      end)
+    end)
+
+    assert {:error, {:entity_write_refused, 0, :write_not_permitted}} =
+             Fx.complete(ctx, %{"label" => "L1"})
+
+    # neither the handler's records nor anything declarative were written
+    assert Fx.all_records(ctx.schema) == []
+    assert Fx.entity_events(ctx.schema) == []
+    assert Fx.task!(ctx.schema, ctx.task.id).status == :pending
+    assert [entry] = Fx.audit_rows(ctx.schema, "entity_write.refused")
+    assert entry.after_state["detail"] == "line_malformed"
+  end
+
+  describe "the combined 20-line cap through the engine (TDV T4)" do
+    test "exactly 20 combined lines (19 declarative + 1 handler call) complete" do
+      ctx = Mw.case!("gh2590-r4b-guard-20", :twenty)
+
+      assert {:ok, _} = Fx.complete(ctx, %{"label" => "L1"})
+      assert length(Fx.records(ctx.schema, "stock_move")) == 19
+      assert [_ledger] = Fx.records(ctx.schema, "fxl_ledger")
+      assert [_balance] = Fx.records(ctx.schema, "fxl_balance")
+    end
+
+    test "off-by-one control: 21 combined lines are refused at index 20, nothing written" do
+      ctx = Mw.case!("gh2590-r4b-guard-21", :twenty)
+
+      Mw.tamper_snapshot!(ctx, fn graph ->
+        update_in(graph, ["nodes"], fn nodes ->
+          Enum.map(nodes, fn
+            %{"id" => "ht"} = node ->
+              update_in(node, ["attributes", "entity_writes"], fn lines ->
+                lines ++ [Fx.line("stock_move", %{"label" => %{"const" => "v"}})]
+              end)
+
+            node ->
+              node
+          end)
+        end)
+      end)
+
+      assert {:error, {:entity_write_refused, 20, :validation_failed}} =
+               Fx.complete(ctx, %{"label" => "L1"})
+
+      assert Fx.all_records(ctx.schema) == []
+      assert Fx.task!(ctx.schema, ctx.task.id).status == :pending
+    end
+  end
 end

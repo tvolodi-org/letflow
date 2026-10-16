@@ -427,6 +427,12 @@ every in-flight task of a stamped, handler-calling definition answers 403 `write
 re-stamps; recovery today is reverting the deploy. See
 `docs/runbooks/module-write-handlers-manifest-hash.md`.
 
+Write ceiling (SECURITY S2): a node is capped at 20 lines combined, and one handler call at 49
+`create/3` additions, so one completion may write up to 20 x 49 = 980 records, all inside the
+2 s lock / 5 s statement / 10 s wall-clock bounds of the completion. No separate per-completion
+total-writes cap is added (it would be a new knob with no consumer yet); the three time bounds
+are what limits a completion in practice. Revisit if a real handler needs more than a few writes.
+
 Rollout: the v2 event schema reaches a tenant only through `TenantProvisioning.replay_all_pending/0`
 (or provisioning / onboarding). `replay_all_pending/0` MUST have run for every existing tenant
 BEFORE a build that emits handler lines is deployed; the `event_schema_outdated` refusal (403,

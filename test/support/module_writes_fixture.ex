@@ -29,7 +29,9 @@ defmodule Letflow.ModuleWritesFixture do
   @variants %{
     module: "fxl_post_module",
     mixed: "fxl_post_mixed",
-    plain: "fxl_task_plain"
+    plain: "fxl_task_plain",
+    mixed_first: "fxl_post_mixed_first",
+    twenty: "fxl_post_twenty"
   }
 
   @doc "A valid `post_entry` line (both required arguments), as the pack declares it."
@@ -101,6 +103,7 @@ defmodule Letflow.ModuleWritesFixture do
   def tenant!(slug_prefix) do
     base = tenant_with_cleanup!(slug_prefix)
     Fx.define_type!(base.schema, "stock_move", %{})
+    Fx.define_type!(base.schema, "aaa_move", %{})
     install_ledger!(base.schema)
     base
   end
@@ -136,6 +139,7 @@ defmodule Letflow.ModuleWritesFixture do
     end)
 
     Fx.define_type!(base.schema, "stock_move", %{})
+    Fx.define_type!(base.schema, "aaa_move", %{})
     install_ledger!(base.schema)
     base
   end
@@ -165,7 +169,7 @@ defmodule Letflow.ModuleWritesFixture do
   ACTIVE stamped definition, a started instance and its pending task. `ctx.user` is both
   activator and completer.
   """
-  @spec case!(String.t(), :module | :mixed | :plain) :: map()
+  @spec case!(String.t(), :module | :mixed | :plain | :mixed_first | :twenty) :: map()
   def case!(slug_prefix, variant) do
     base = tenant!(slug_prefix)
     definition = activate_installed!(base.schema, base.user, Map.fetch!(@variants, variant))
@@ -181,6 +185,25 @@ defmodule Letflow.ModuleWritesFixture do
     snapshot
     |> Ecto.Changeset.change(graph: fun.(snapshot.graph))
     |> Repo.update!(prefix: ctx.schema)
+
+    :ok
+  end
+
+  @doc """
+  Overwrites the manifest hash STAMPED on the case's definition row. The row is immutable to the
+  application and guarded by a trigger, so the trigger is disabled inside the throwaway tenant
+  schema (rolled back with the test's transaction; not for `:auto` mode cases).
+  """
+  @spec set_stamp_hash!(map(), String.t()) :: :ok
+  def set_stamp_hash!(ctx, hash) do
+    Repo.query!(~s(ALTER TABLE "#{ctx.schema}"."process_definitions" DISABLE TRIGGER USER))
+
+    {1, _} =
+      Repo.update_all(
+        from(d in ProcessDefinition, where: d.id == ^ctx.definition.id),
+        [set: [owner_manifest_hash: hash]],
+        prefix: ctx.schema
+      )
 
     :ok
   end

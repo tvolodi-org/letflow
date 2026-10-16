@@ -330,4 +330,21 @@ defmodule Letflow.Engine.ModuleWriteAuditTest do
       refute inspect(public) =~ "fixture_ledger"
     end
   end
+
+  test "the APPLIED event is validated against the v2 schema (TDV T5)" do
+    ctx = Mw.case!("gh2590-r4b-au-v2", :module)
+    assert {:ok, _} = Fx.complete(ctx, %{"label" => "L1"})
+
+    # events do not store a schema version: the registry's highest version is what the append
+    # validated the handler line keys against
+    assert Letflow.EventStore.Registry.max_schema_version(
+             "TASK_ENTITY_WRITES_APPLIED",
+             ctx.schema
+           ) == 2
+
+    assert [applied] =
+             Fx.instance_events(ctx.schema, ctx.instance_id, "TASK_ENTITY_WRITES_APPLIED")
+
+    assert [%{"handler" => "post_entry"} | _] = decode(applied.payload)["lines"]
+  end
 end

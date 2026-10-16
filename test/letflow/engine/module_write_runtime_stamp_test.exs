@@ -239,4 +239,23 @@ defmodule Letflow.Engine.ModuleWriteRuntimeStampTest do
     assert {:ok, _result} = Fx.complete(ctx, %{"label" => "L1"})
     assert [_one] = Fx.records(ctx.schema, "fxl_ledger")
   end
+
+  describe "the hash triple at run time (TDV T2)" do
+    test "installed == stamp but != the compiled manifest hash is refused" do
+      ctx = Mw.case!("gh2590-r4b-rs-compiled", :module)
+      other = String.duplicate("d", 64)
+
+      Mw.set_stamp_hash!(ctx, other)
+      Mw.set_installed_hash!(ctx.schema, "fixture_ledger", other)
+
+      assert_refused(ctx, 0, :hash_mismatch)
+    end
+
+    test "installed == compiled but != the stamp is refused" do
+      ctx = Mw.case!("gh2590-r4b-rs-stamp", :module)
+      Mw.set_stamp_hash!(ctx, String.duplicate("e", 64))
+
+      assert_refused(ctx, 0, :hash_mismatch)
+    end
+  end
 end

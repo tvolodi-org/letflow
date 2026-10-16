@@ -227,6 +227,66 @@ defmodule Letflow.Engine.ModuleWriteLockOrderTest do
       end
     end
 
+    test "a declarative type sorting AFTER the handler targets vs one sorting BEFORE them, released together",
+         %{base: base} do
+      # stock_move sorts after fxl_*, aaa_move before: the two unions interleave differently
+      # with the shared handler targets, and only the ascending union order keeps them apart
+      for key <- ["fxl_post_mixed", "fxl_post_mixed_first"] do
+        assert {:ok, _} = Fx.complete(start(base, key), %{"label" => "warm"})
+      end
+
+      for _round <- 1..3 do
+        pair = [start(base, "fxl_post_mixed"), start(base, "fxl_post_mixed_first")]
+        before = length(Fx.all_records(base.schema))
+        parent = self()
+
+        asyncs =
+          Enum.map(pair, fn ctx ->
+            task =
+              Task.async(fn ->
+                send(parent, {:ready, self()})
+
+                receive do
+                  :go -> :ok
+                after
+                  10_000 -> :ok
+                end
+
+                Fx.complete(ctx, %{"label" => "L1"})
+              end)
+
+            {ctx, task}
+          end)
+
+        # barrier: both completions start together
+        pids =
+          for _ <- 1..2 do
+            assert_receive {:ready, pid}, 10_000
+            pid
+          end
+
+        Enum.each(pids, &send(&1, :go))
+        results = Enum.map(asyncs, fn {ctx, task} -> {ctx, Task.await(task, 30_000)} end)
+
+        for {ctx, result} <- results do
+          case result do
+            {:ok, _} ->
+              :ok
+
+            @contention ->
+              assert Fx.task!(ctx.schema, ctx.task.id).status == :pending
+              assert {:ok, _} = Fx.complete(ctx, %{"label" => "L1"})
+
+            other ->
+              flunk("unexpected result: #{inspect(other)}")
+          end
+        end
+
+        # each node writes its declarative record plus the handler's ledger and balance
+        assert length(Fx.all_records(base.schema)) == before + 6
+      end
+    end
+
     test "a real 55P03: a second connection holds a registered target's row; nothing is committed",
          %{base: base} do
       ctx = start(base, "fxl_post_module")
