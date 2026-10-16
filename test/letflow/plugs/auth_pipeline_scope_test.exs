@@ -34,7 +34,6 @@ defmodule Letflow.Plugs.AuthPipelineScopeTest do
   use Letflow.DataCase, async: false
 
   import ExUnit.CaptureLog
-  import Ecto.Query
   import Plug.Conn
   import Plug.Test
 
@@ -42,7 +41,6 @@ defmodule Letflow.Plugs.AuthPipelineScopeTest do
   alias Letflow.Api.Scope.Grants
   alias Letflow.Identity
   alias Letflow.Identity.ApiToken
-  alias Letflow.Identity.RoleScopeGrant
   alias Letflow.Oidc.ConfigurableTokenVerifierDouble
   alias Letflow.Plugs.AuthPipeline
   alias Letflow.ScopeEnforcement
@@ -251,7 +249,9 @@ defmodule Letflow.Plugs.AuthPipelineScopeTest do
         })
         |> with_prefix(fx)
 
-      {{:ok, conn2, p1}, first} = Fixture.capture_repo_queries(fn -> Scope.principal_from_conn(conn) end)
+      {{:ok, conn2, p1}, first} =
+        Fixture.capture_repo_queries(fn -> Scope.principal_from_conn(conn) end)
+
       assert sources(first) == ["role_scope_grants"]
       assert p1.grants == Scope.load_grants(user.id, fx.schema_name)
       assert conn2.assigns.auth_context.scope_grants == p1.grants
@@ -271,7 +271,9 @@ defmodule Letflow.Plugs.AuthPipelineScopeTest do
     _user_id = oidc_admin!(fx)
     plaintext = admin_token!(fx)
 
-    token_mode = fn -> (fx |> token_conn(plaintext) |> run_pipeline()).assigns.auth_context.scope_enforcement end
+    token_mode = fn ->
+      (fx |> token_conn(plaintext) |> run_pipeline()).assigns.auth_context.scope_enforcement
+    end
 
     assert oidc!(fx).assigns.auth_context.scope_enforcement == :off
     assert token_mode.() == :off
@@ -332,7 +334,7 @@ defmodule Letflow.Plugs.AuthPipelineScopeTest do
     end
 
     @tag timeout: 120_000
-    test "DBConnection.ConnectionError (the grants query outlives the Repo timeout behind a held lock): memo :not_loaded, no retry" do
+    test "connection-level failure (the grants query outlives the Repo timeout behind a held lock): memo :not_loaded, no retry" do
       fx = oidc_tenant!("req497-p5b")
       user_id = oidc_admin!(fx)
       parent = self()
@@ -360,19 +362,20 @@ defmodule Letflow.Plugs.AuthPipelineScopeTest do
       try do
         assert_receive :grants_locked, 5_000
 
-        # The mechanism, proven with a short timeout: a read blocked on the lock past its
-        # timeout raises DBConnection.ConnectionError (not Postgrex.Error).
-        assert_raise DBConnection.ConnectionError, fn ->
-          Repo.all(from(g in RoleScopeGrant, select: g.id), prefix: fx.schema_name, timeout: 200)
-        end
-
-        # The real pipeline (default Repo timeout) hits the same error inside load_grants/2.
+        # The real pipeline (default Repo timeout) hits a connection-level failure inside
+        # load_grants/2. Depending on the driver path it surfaces as DBConnection.ConnectionError
+        # or Postgrex.Error (57014 query_canceled); both must give :not_loaded. The raw exception
+        # class of a standalone query is deliberately not asserted (no timing dependence).
         {conn, log} = with_log(fn -> oidc!(fx) end)
 
         assert conn.assigns.auth_context.user_id == user_id
         assert conn.assigns.auth_context.scope_grants == :not_loaded
         assert log =~ "scope_grants_load_failed credential=oidc"
-        refute log =~ user_id
+
+        # The captured log is debug level (it includes SQL), so the no-leak check is on the failure line.
+        [line] = log |> String.split("\n") |> Enum.filter(&(&1 =~ "scope_grants_load_failed"))
+        refute line =~ user_id
+        refute line =~ fx.schema_name
 
         send(holder.pid, :release)
         assert {:ok, {:ok, :ok}} = Task.yield(holder, 10_000)

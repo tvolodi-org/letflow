@@ -196,12 +196,17 @@ defmodule Letflow.Identity.TenantAdminGuardTest do
       onboarding_id: nil
     ]
 
+  # The tenant seed already binds PROCESS_OPERATOR to its own group (#2537 rebind rules: upserting
+  # the name onto another group is :role_already_bound). So group A is the seeded binding's group,
+  # and the fault is injected on the rebind to the fresh group B.
+  @fault_role "PROCESS_OPERATOR"
+
   defp fault_setup(slug) do
     fx = tenant!(slug)
     s = fx.schema_name
-    a = RSG.fresh_group!(s)
+    role = RSG.binding(s, @fault_role)
+    a = %{id: role.group_id}
     b = RSG.fresh_group!(s)
-    {:ok, role} = RoleRegistry.upsert_role("PROCESS_OPERATOR", :platform_role, a.id, prefix: s)
     {fx, role, a, b}
   end
 
@@ -714,7 +719,8 @@ defmodule Letflow.Identity.TenantAdminGuardTest do
       {inactive_token, _plaintext} = real_token!(fx, inactive_owner, ["TENANT_ADMIN"])
 
       {1, _} =
-        Repo.update_all(from(u in User, where: u.id == ^inactive_owner.id),
+        Repo.update_all(
+          from(u in User, where: u.id == ^inactive_owner.id),
           [set: [status: :inactive]],
           prefix: fx.schema_name
         )
@@ -901,9 +907,9 @@ defmodule Letflow.Identity.TenantAdminGuardTest do
                  )
       end)
 
-      assert RSG.binding(s, "PROCESS_OPERATOR").group_id == a.id
-      assert RSG.rows(s) |> Enum.member?(RSG.tw(a.id, "PROCESS_OPERATOR"))
-      refute RSG.rows(s) |> Enum.member?(RSG.tw(b.id, "PROCESS_OPERATOR"))
+      assert RSG.binding(s, @fault_role).group_id == a.id
+      assert RSG.rows(s) |> Enum.member?(RSG.tw(a.id, @fault_role))
+      refute RSG.rows(s) |> Enum.member?(RSG.tw(b.id, @fault_role))
       assert new_entries(s, before) == []
     end
 
@@ -933,7 +939,7 @@ defmodule Letflow.Identity.TenantAdminGuardTest do
       refute conn.resp_body =~ b.id
       refute log =~ "** ("
       refute log =~ "Plug.ErrorHandler"
-      assert RSG.binding(s, "PROCESS_OPERATOR").group_id == a.id
+      assert RSG.binding(s, @fault_role).group_id == a.id
       assert new_entries(s, before) == []
     end
   end

@@ -94,7 +94,10 @@ defmodule Letflow.Api.ScopeGrantsRouteWalkTest do
     end
 
     assert tripwire_hits(schema) == 1
-    assert Repo.query!(~s|SELECT count(*) FROM "#{schema}".role_scope_grants WHERE NOT tenant_wide|).rows ==
+
+    assert Repo.query!(
+             ~s|SELECT count(*) FROM "#{schema}".role_scope_grants WHERE NOT tenant_wide|
+           ).rows ==
              [[0]]
   end
 
@@ -120,7 +123,8 @@ defmodule Letflow.Api.ScopeGrantsRouteWalkTest do
   defp assert_delta!(schema, before, removed, added, label) do
     after_rows = snapshot(schema)
 
-    for key <- removed, do: assert(Map.has_key?(before, key), "#{label}: #{inspect(key)} not before")
+    for key <- removed,
+        do: assert(Map.has_key?(before, key), "#{label}: #{inspect(key)} not before")
 
     for key <- added do
       assert Map.has_key?(after_rows, key), "#{label}: #{inspect(key)} not after"
@@ -338,6 +342,7 @@ defmodule Letflow.Api.ScopeGrantsRouteWalkTest do
       assert Enum.sort(RoleScopeGrants.__info__(:functions)) ==
                Enum.sort(
                  # the six 1a writers
+                 # read-only
                  [
                    reconcile_binding!: 3,
                    ensure_tenant_wide_group_row!: 3,
@@ -346,7 +351,6 @@ defmodule Letflow.Api.ScopeGrantsRouteWalkTest do
                    move_group_rows!: 4,
                    delete_group_principal_rows!: 2
                  ] ++
-                   # read-only
                    [
                      bindings_without_row: 1,
                      bindings_without_row_count: 1,
@@ -498,7 +502,9 @@ defmodule Letflow.Api.ScopeGrantsRouteWalkTest do
         )
 
       # Membership add and remove: no row.
-      conn = request(identity, :post, "/groups/#{g2.id}/members", ta_ctx, %{"user_id" => plain.id})
+      conn =
+        request(identity, :post, "/groups/#{g2.id}/members", ta_ctx, %{"user_id" => plain.id})
+
       assert conn.status in [200, 201], conn.resp_body
       before = assert_delta!(s, before, [], [], "member add")
 
@@ -523,7 +529,9 @@ defmodule Letflow.Api.ScopeGrantsRouteWalkTest do
 
       # User status deactivate and reactivate.
       for status <- ["inactive", "active"] do
-        conn = request(identity, :post, "/users/#{plain.id}/status", ta_ctx, %{"status" => status})
+        conn =
+          request(identity, :post, "/users/#{plain.id}/status", ta_ctx, %{"status" => status})
+
         assert conn.status == 200, conn.resp_body
       end
 
@@ -555,7 +563,7 @@ defmodule Letflow.Api.ScopeGrantsRouteWalkTest do
         )
 
       assert conn.status == 204, conn.resp_body
-      before = assert_delta!(s, before, [], [], "pending-admin revoke")
+      _ = assert_delta!(s, before, [], [], "pending-admin revoke")
 
       # DELETE /groups/:id of an unbound, memberless group carrying a stray tenant-wide row:
       # the 1a cascade removes exactly that group's row.
@@ -655,12 +663,32 @@ defmodule Letflow.Api.ScopeGrantsRouteWalkTest do
                end),
                "#{path} calls SolutionPack.install"
 
+        # N4 requires no EntityDefinition row written at runtime. Naming the schema (manifest
+        # entries, provisioning migrations, reading a persisted row) is legitimate, so the check is
+        # on WRITES: no Repo write call that takes the schema or the table name as an argument,
+        # and no call into the EntityDefinition module (changeset builders).
+        repo_writes =
+          [:insert, :insert!, :insert_all, :update, :update!, :update_all] ++
+            [:delete, :delete!, :delete_all, :insert_or_update, :insert_or_update!]
+
+        names_definitions? = fn args ->
+          any_node?(args, fn
+            {:__aliases__, _, segments} -> List.last(segments) == :EntityDefinition
+            bin when is_binary(bin) -> String.contains?(bin, "entity_definitions")
+            _other -> false
+          end)
+        end
+
         refute any_node?(ast, fn
-                 {:__aliases__, _, segments} -> List.last(segments) == :EntityDefinition
-                 bin when is_binary(bin) -> String.contains?(bin, "entity_definitions")
-                 _other -> false
+                 {{:., _, [{:__aliases__, _, segs}, fun]}, _, args}
+                 when is_atom(fun) and is_list(args) ->
+                   (List.last(segs) == :Repo and fun in repo_writes and names_definitions?.(args)) or
+                     (List.last(segs) == :EntityDefinition and fun != :t)
+
+                 _other ->
+                   false
                end),
-               "#{path} names EntityDefinition / entity_definitions"
+               "#{path} writes an EntityDefinition row"
       end
     end
 

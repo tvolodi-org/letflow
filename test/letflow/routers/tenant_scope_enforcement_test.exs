@@ -397,7 +397,7 @@ defmodule Letflow.Routers.TenantScopeEnforcementTest do
       assert conn.status == 422
       assert body(conn)["detail"] == "reason_required"
 
-      for bad <- ["", "two\nlines", "bidi‮text", 7] do
+      for bad <- ["", "two\nlines", "bidi\u202Etext", 7] do
         conn = as_admin(:put, "/", fx, %{"mode" => "off", "reason" => bad})
         assert conn.status == 422, inspect(bad)
         assert body(conn)["detail"] == "invalid_reason", inspect(bad)
@@ -453,7 +453,11 @@ defmodule Letflow.Routers.TenantScopeEnforcementTest do
       assert conn.status == 200
       b = body(conn)
       assert b["bindings_without_row"] == 1
-      assert b["items"] == [%{"role_id" => gap.id, "name" => "PROCESS_OPERATOR", "group_id" => g.id}]
+
+      assert b["items"] == [
+               %{"role_id" => gap.id, "name" => "PROCESS_OPERATOR", "group_id" => g.id}
+             ]
+
       assert b["findings"] == []
       assert Repo.aggregate(Entry, :count, prefix: fx.schema_name) == audit_before
     end
@@ -528,7 +532,8 @@ defmodule Letflow.Routers.TenantScopeEnforcementTest do
       }
     end
 
-    test "T-L1 each seeded token is in its list; compliant, revoked and expired ones are absent; flip_blocked", ctx do
+    test "T-L1 each seeded token is in its list; compliant, revoked and expired ones are absent; flip_blocked",
+         ctx do
       conn = as_admin(:get, "/token-preconditions", ctx.fx, nil)
 
       assert conn.status == 200
@@ -556,7 +561,8 @@ defmodule Letflow.Routers.TenantScopeEnforcementTest do
       assert length(b["information"]["null_issuer"]) == 2
     end
 
-    test "T-L2 item keys are exactly the 10 #2552 keys; status is effective; no plaintext, hash or lf_tok_", ctx do
+    test "T-L2 item keys are exactly the 10 #2552 keys; status is effective; no plaintext, hash or lf_tok_",
+         ctx do
       conn = as_admin(:get, "/token-preconditions", ctx.fx, nil)
       b = body(conn)
 
@@ -583,7 +589,8 @@ defmodule Letflow.Routers.TenantScopeEnforcementTest do
       refute conn.resp_body =~ "token_hash"
     end
 
-    test "T-L3 one token.listed entry per call, after_state exactly {actor, count, token_ids}", ctx do
+    test "T-L3 one token.listed entry per call, after_state exactly {actor, count, token_ids}",
+         ctx do
       fx = ctx.fx
       assert as_admin(:get, "/token-preconditions", fx, nil).status == 200
       assert as_admin(:get, "/token-preconditions", fx, nil).status == 200
@@ -631,7 +638,8 @@ defmodule Letflow.Routers.TenantScopeEnforcementTest do
       assert entries(fx, "token.listed") == []
     end
 
-    test "T-L4 403 without the permission and 403 for a scoped TENANT_ADMIN; no token.listed", ctx do
+    test "T-L4 403 without the permission and 403 for a scoped TENANT_ADMIN; no token.listed",
+         ctx do
       fx = ctx.fx
       designer = TokenMintFixture.role_holder!(fx.schema_name, ["PROCESS_DESIGNER"])
 

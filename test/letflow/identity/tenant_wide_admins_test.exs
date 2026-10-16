@@ -587,7 +587,9 @@ defmodule Letflow.Identity.TenantWideAdminsTest do
       designer_group = group_of!(fx, "PROCESS_DESIGNER")
       user = member!(fx, designer_group, user!(fx, :active))
 
-      assert "PROCESS_DESIGNER" in Identity.tenant_wide_role_names(user.id, prefix: fx.schema_name)
+      assert "PROCESS_DESIGNER" in Identity.tenant_wide_role_names(user.id,
+               prefix: fx.schema_name
+             )
 
       _node = RSG.make_group_scoped_only!(fx.schema_name, designer_group, "PROCESS_DESIGNER")
 
@@ -597,7 +599,10 @@ defmodule Letflow.Identity.TenantWideAdminsTest do
 
       # A tenant-wide row (here a user row) brings it back.
       :ok = RSG.raw_user_row!(fx.schema_name, user.id, "PROCESS_DESIGNER", nil)
-      assert "PROCESS_DESIGNER" in Identity.tenant_wide_role_names(user.id, prefix: fx.schema_name)
+
+      assert "PROCESS_DESIGNER" in Identity.tenant_wide_role_names(user.id,
+               prefix: fx.schema_name
+             )
 
       # Per role: another held role with its tenant-wide group row is unaffected.
       _ = member!(fx, group_of!(fx, "TENANT_ADMIN"), user)

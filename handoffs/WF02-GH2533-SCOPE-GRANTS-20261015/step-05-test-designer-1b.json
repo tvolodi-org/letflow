@@ -8,7 +8,7 @@
   "file": "handoffs/WF02-GH2533-SCOPE-GRANTS-20261015/step-05-test-designer-1b.json",
   "created_at": "2026-10-14T22:09:57Z",
   "started_at": "2026-10-14T22:09:57Z",
-  "completed_at": "2026-10-14T22:36:39Z",
+  "completed_at": "2026-10-16T12:39:30Z",
   "status": "COMPLETED",
   "priority": "NORMAL",
   "context": {
@@ -49,6 +49,7 @@
     ],
     "diagnosis_confirmed": null,
     "implementation_written": true,
+    "ci_rework_2026_10_16": "Six hosted-CI test problems fixed in test/ only (see test/specs/REQ-497-1b.md CI-rework). Verified with real runs: first 6-file run 101/105 (4 fixed: T-RW4a, T-P5b, T-G9 x2), reruns of those files 45 passed; second run of role_scope_grants_writers, tenant_wide_admins, scope_test, scope_enforcement, token_preconditions, identity_login_directory, route_walk, auth_pipeline_scope 148 passed; mix format --check-formatted clean. identity_login_directory INV-4 needs no work. No lib change needed. mix letflow.check.test and mutants not re-run.",
     "classification": "TEST_DESIGN"
   }
 }

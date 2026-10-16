@@ -622,6 +622,8 @@ defmodule Letflow.Identity do
   # `ArgumentError` inside a transaction (a programming error). Otherwise never raises: a
   # failed write is logged (no message, no value) and `:ok` is returned, because the
   # refusal itself stands.
+  # REQ-497 PR 1b: the optional `:resource_type` (default "user") names the kind of the
+  # refused target (group_member, tenant_role, api_token ...); the six keys are unchanged.
   @spec record_guard_refused(
           prefix :: String.t(),
           refusal :: %{
@@ -630,7 +632,8 @@ defmodule Letflow.Identity do
             required(:target_id) => Ecto.UUID.t(),
             required(:counted_admins) => non_neg_integer(),
             required(:trace_id) => String.t() | nil,
-            optional(:reason_code) => String.t()
+            optional(:reason_code) => String.t(),
+            optional(:resource_type) => String.t()
           }
         ) :: :ok
   def record_guard_refused(prefix, refusal) when is_binary(prefix) and is_map(refusal) do
@@ -650,7 +653,7 @@ defmodule Letflow.Identity do
     attrs = %{
       actor_id: state.actor,
       action: "tenant_admin.guard_refused",
-      resource_type: "user",
+      resource_type: Map.get(refusal, :resource_type, "user"),
       resource_id: state.target_id,
       before_state: nil,
       after_state: state,

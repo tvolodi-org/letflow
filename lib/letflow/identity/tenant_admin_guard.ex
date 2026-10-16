@@ -171,9 +171,17 @@ defmodule Letflow.Identity.TenantAdminGuard do
       {:error, :last_tenant_wide_admin}
   end
 
+  # The common case: the shared writer from GH 2564 (one transaction, the six contract
+  # keys, never raises); only the kind of the refused target differs per action.
   defp write_refusal(prefix, refusal, ctx, nil) do
-    entry = entry(refusal, Map.get(ctx, :actor_id), Map.get(ctx, :trace_id))
-    commit_entries([{entry, prefix}], refusal.action)
+    Identity.record_guard_refused(prefix, %{
+      action: Atom.to_string(refusal.action),
+      actor: Map.get(ctx, :actor_id),
+      target_id: refusal.target_id,
+      counted_admins: refusal.counted_admins,
+      trace_id: Map.get(ctx, :trace_id),
+      resource_type: resource_type(refusal.action)
+    })
   end
 
   defp write_refusal(prefix, refusal, ctx, platform_prefix) when is_binary(platform_prefix) do

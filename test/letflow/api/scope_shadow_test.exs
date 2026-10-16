@@ -155,12 +155,16 @@ defmodule Letflow.Api.ScopeShadowTest do
     opts = [prefix: schema]
 
     steps = [
-      fn -> {:ok, _} = RoleRegistry.upsert_role("PROCESS_OPERATOR", :platform_role, a.id, opts) end,
+      fn ->
+        {:ok, _} = RoleRegistry.upsert_role("PROCESS_OPERATOR", :platform_role, a.id, opts)
+      end,
       fn ->
         {:ok, _} =
           RoleRegistry.upsert_role("PROCESS_OPERATOR", :process_routing_role, a.id, opts)
       end,
-      fn -> {:ok, _} = RoleRegistry.upsert_role("PROCESS_OPERATOR", :platform_role, a.id, opts) end,
+      fn ->
+        {:ok, _} = RoleRegistry.upsert_role("PROCESS_OPERATOR", :platform_role, a.id, opts)
+      end,
       fn ->
         role = RSG.binding(schema, "PROCESS_OPERATOR")
 
@@ -185,7 +189,15 @@ defmodule Letflow.Api.ScopeShadowTest do
     world = H.world!()
     schema = world.tenant.schema_name
     slug = world.tenant.tenant.slug
-    api_token = Fixture.mint_token!(world.tenant, ["TENANT_ADMIN"])
+
+    # The owner must itself hold the token's role tenant-wide, or the off -> shadow flip is refused
+    # with :tokens_exceed_owner (a token whose roles exceed its owner's).
+    holder = TokenMintFixture.role_holder!(schema, ["TENANT_ADMIN"])
+
+    {:ok, %{plaintext: api_token}} =
+      Identity.create_token(holder.id, %{roles: ["TENANT_ADMIN"], expires_at: nil},
+        prefix: schema
+      )
 
     oidc_token =
       Double.token(world.realm,
@@ -253,7 +265,8 @@ defmodule Letflow.Api.ScopeShadowTest do
       assert Enum.all?(shadow_events, fn {_m, meta} -> meta.reason == :no_grant_rows end)
 
       for key <- Map.keys(off) do
-        assert shadow[key] == off[key], "#{inspect(key)} differs: #{inspect({off[key], shadow[key]})}"
+        assert shadow[key] == off[key],
+               "#{inspect(key)} differs: #{inspect({off[key], shadow[key]})}"
       end
     end)
   end

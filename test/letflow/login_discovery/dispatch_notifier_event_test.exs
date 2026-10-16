@@ -358,7 +358,7 @@ defmodule Letflow.LoginDiscovery.DispatchNotifierEventTest do
       end
     end
 
-    test "the registry attaches exactly its four events" do
+    test "the registry attaches exactly its five events, none a login-discovery event" do
       src = code("lib/letflow/metrics/registry.ex")
 
       [events] =
@@ -372,7 +372,9 @@ defmodule Letflow.LoginDiscovery.DispatchNotifierEventTest do
                [:letflow, :task, :completed],
                [:letflow, :event_store, :append, :stop],
                [:letflow, :repo, :query],
-               [:letflow, :http, :request]
+               [:letflow, :http, :request],
+               # REQ-497 1b metrics family 7. The guard stays: no handler on a login-discovery event.
+               [:letflow, :scope, :shadow, :would_deny]
              ]
     end
 
