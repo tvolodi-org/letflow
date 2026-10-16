@@ -8,7 +8,7 @@
   "file": "handoffs/WF02-GH2697-QUERY-RESTRICTED-20261016/step-09-test-designer.json",
   "created_at": "2026-10-16T16:50:00Z",
   "started_at": "2026-10-16T16:50:00Z",
-  "completed_at": "2026-10-16T17:35:00Z",
+  "completed_at": "2026-10-17T00:00:00Z",
   "status": "COMPLETED",
   "priority": "HIGH",
   "context": {
@@ -37,7 +37,7 @@
   },
   "result": {
     "status": "PASS",
-    "summary": "Tests written and green. New: test/letflow/routers/entities_query_restricted_walker_test.exs (HTTP: per-clause filter/sort, queried:false and queried:true restricted fields, row order, export default/granted/other-user grant, cursor keys, join-on declaring primary/target/through near+far, far-side redaction, type-hidden incl. B1 nonexistent primary + through join on query and export, uniform 403 equality, inert extra keys, unredacted exemption + audit names-only + audit failure 500 + no-audit cases, T-26 registry vs builders via tracing, T-30 restriction-load counts, T-39 architecture greps); test/letflow/entities/query_request_guard_test.exs (RequestGuard, registry/typespec tripwire, Compiler.join_relations/3, FieldPolicy T-40); test/specs/GH2697-query-restricted.md (AC map + 11 mutants). Existing reproduction file entities_query_restricted_filter_test.exs kept (11 pass). One existing test adjusted: entities_test.exs REQ-311 AC3 through test restricted topic_labels.topic_id (a through-hop fk, now correctly 403 by design T-13); it now restricts a new non-fk field `note` on the through entity, preserving the trap. Runs (MIX_ENV=test mix test --warnings-as-errors): final own+entities_test run 230 passed 0 failed; unit file 41 passed; earlier regression run (answer_key_field_leak, export, aggregate, query_cursor_field_grants, query_joins, type_access, query_self_join, entities_test) 205/206 with the single failure being the REQ-311 AC3 test fixed above. Mutants listed in the spec were NOT run (brief forbids editing lib/). mix letflow.check.test NOT run (brief forbids). No implementation bug found; B1 tests pass against the current lib.",
+    "summary": "Tests written and green. New: test/letflow/routers/entities_query_restricted_walker_test.exs (HTTP: per-clause filter/sort, queried:false and queried:true restricted fields, row order, export default/granted/other-user grant, cursor keys, join-on declaring primary/target/through near+far, far-side redaction, type-hidden incl. B1 nonexistent primary + through join on query and export, uniform 403 equality, inert extra keys, unredacted exemption + audit names-only + audit failure 500 + no-audit cases, T-26 registry vs builders via tracing, T-30 restriction-load counts, T-39 architecture greps); test/letflow/entities/query_request_guard_test.exs (RequestGuard, registry/typespec tripwire, Compiler.join_relations/3, FieldPolicy T-40); test/specs/GH2697-query-restricted.md (AC map + 11 mutants). Existing reproduction file entities_query_restricted_filter_test.exs kept (11 pass). One existing test adjusted: entities_test.exs REQ-311 AC3 through test restricted topic_labels.topic_id (a through-hop fk, now correctly 403 by design T-13); it now restricts a new non-fk field `note` on the through entity, preserving the trap. Runs (MIX_ENV=test mix test --warnings-as-errors): final own+entities_test run 230 passed 0 failed; unit file 41 passed; earlier regression run (answer_key_field_leak, export, aggregate, query_cursor_field_grants, query_joins, type_access, query_self_join, entities_test) 205/206 with the single failure being the REQ-311 AC3 test fixed above. Mutants listed in the spec were NOT run (brief forbids editing lib/). mix letflow.check.test NOT run (brief forbids). No implementation bug found; B1 tests pass against the current lib. REWORK (TDV step 10): G1 real direct-join export case added and misnamed variable renamed; G2 pinned to {:error, :entity_type_not_found}; T-18c retitled; new audit-before-records ordering test via Ecto query telemetry (kills M8 'audit after paginate'). These edits are formatted but NOT RUN: free memory stayed 0.8-2.7 GB (<4 GB) through a 10-minute wait.",
     "local_issue_id": null,
     "artifacts_out": [
       "test/letflow/routers/entities_query_restricted_walker_test.exs",
@@ -71,7 +71,8 @@
       "mix letflow.check.test (forbidden by brief)",
       "full suite (forbidden by brief)",
       "mutants M1-M11 (lib/ edits forbidden; listed in test/specs/GH2697-query-restricted.md for TEST-DESIGN-VALIDATOR)",
-      "test/letflow/routers/instances_restricted_field_events_test.exs (PR-0b, out of scope, untouched)"
+      "test/letflow/routers/instances_restricted_field_events_test.exs (PR-0b, out of scope, untouched)",
+      "rework tests (G1, G2, ordering test) in walker_test, query_request_guard_test and filter_test re-run: not run, free memory < 4 GB for 10 min"
     ],
     "diagnosis_confirmed": null,
     "implementation_written": false,

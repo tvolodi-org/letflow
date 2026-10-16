@@ -80,3 +80,11 @@ Files:
 ## Note on an adjusted existing test
 
 `test/letflow/routers/entities_test.exs` "REQ-311 AC3 ... never the through type" restricted `topic_labels.topic_id` (a through-hop fk). Under the walker that is a join `on` reference and is refused with 403 (T-13). The test now restricts a new non-fk field `note` on the through entity; its intent (restriction row on the through type must not break response redaction keys) is unchanged.
+
+## TDV rework (step 10 gaps)
+
+- G1: "B1 export" misnamed variable renamed (`with_filter`, still the through-join case); new describe "B1 export, DIRECT join" sends a real `@fk_join` (alone and with a restricted-looking filter) for nonexistent `ghost_q` and asserts `whole/1` equals the plain ghost export (404).
+- G2: unit test "nonexistent primary with a direct join" now pins `{:error, :entity_type_not_found}`.
+- Advisory: T-18c retitled to say it asserts the route-level `:EntitiesRecordsExport` gate.
+- M8 ("audit after Cursor.paginate") is now killed by W: "audit insert happens BEFORE the records query": Ecto query telemetry records SQL in order for an exempt export and asserts the `audit_entries` INSERT index < the first `entity_record_latest` SELECT index.
+- These additions were formatted but NOT yet executed (free memory stayed below 4 GB for the 10-minute wait).

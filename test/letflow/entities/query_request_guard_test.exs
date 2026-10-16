@@ -374,9 +374,9 @@ defmodule Letflow.Entities.Query.RequestGuardTest do
                )
     end
 
-    test "nonexistent primary with a direct join -> a compile_error member, never {:ok, _}",
+    test "nonexistent primary with a direct join -> :entity_type_not_found",
          %{t: t} do
-      assert {:error, _reason} =
+      assert {:error, :entity_type_not_found} =
                Compiler.join_relations(
                  [%{entity_type: "child", fk: "child_fk"}],
                  "ghost",
