@@ -4,7 +4,7 @@ Status: Accepted: ruled by the advisor session (letflow-ec) under the user's del
 
 Date: 2026-10-16
 
-Source: `docs/WMS/WMS_Procurement_Requirements_Draft.md` (sibling `letflow` checkout, user, 2026-10-14) and `docs/migration/wms-customer-draft-mapping-20261016.md`. Its `[S]` tags cite `WMS.docx` and `WMS_English_Translation.md`, which are in no letflow checkout, so `[S]` wording is unchecked.
+Source: `docs/WMS/WMS_Procurement_Requirements_Draft.md` (the base document, addendum D7; user, 2026-10-14) and `docs/migration/wms-customer-draft-mapping-20261016.md`. Its `[S]` tags cite `WMS.docx`, an intermediate file that is not needed (addendum D8).
 
 Kept boundary (file section 1): BPM decides when, who and which route; the module decides whether a stock operation is valid and posts it atomically. The module owns the operational stock ledger; 1C and SAP mainly hold the general ledger.
 
@@ -35,4 +35,14 @@ REQ-489..492 (single-row receipt) are re-based: they are NOT to be filed as writ
 
 ## Customer-dependent items (for the user, in plain language)
 
-Pilot item scales and tolerances; who issues СНТ and ЭСФ today and whether IS ЭСФ access exists; which system seeds the masters and whether 1C keeps editing them during the pilot; offline limits later; and the source files `WMS.docx` and `WMS_English_Translation.md`.
+Pilot item scales and tolerances; who issues СНТ and ЭСФ today and whether IS ЭСФ access exists; which system seeds the masters and whether 1C keeps editing them during the pilot; and offline limits later.
+
+## Addendum: user ruling of 2026-10-16 (relayed by the supervisor)
+
+- **D7 Base document.** `docs/WMS/WMS_Procurement_Requirements_Draft.md` is THE base WMS requirements document. It is versioned in this repository, copied byte for byte from the user's text (the sibling `letflow` checkout, written 2026-10-14). The team may extend it; the user's text is not edited in place, so extensions go in the mapping document, decisions and the requirement entries.
+- **D8 Source files not needed.** `WMS.docx` and `WMS_English_Translation.md` are intermediate files and are not needed. The earlier note that the `[S]` tags are unchecked is withdrawn, and the request for those files is removed from the customer questions.
+- **D9 Precedence.** Where documents contradict, international practice takes priority, including over the base draft itself. It is the tie-break for any conflict. A decision that applies it cites the practice. The practice cited so far, which the base draft also lists in its section 12 as established patterns:
+  - append-only inventory ledger with balanced postings and reversal by a new entry (the stock movement model of D5; the draft's MD-08 states the same, and the product documentation it lists, Microsoft Dynamics 365 Supply Chain inventory and warehousing, uses posted inventory transactions that are corrected by new transactions);
+  - GS1 application identifiers for item, lot, expiry and serial in barcodes (the draft's HD-03 and MD-01 are consistent with this);
+  - cycle counting with variance review before an adjustment posts (WM-12).
+  No conflict between the draft and these practices has been found so far, so D9 changes no earlier ruling; it applies to conflicts found later. The citations are to the standards and documents named, not to a clause-level reading of them by letflow-2.
