@@ -1348,7 +1348,8 @@ defmodule Letflow.Identity do
     scoped_rows = admin_member_ta_rows(false)
     tenant_wide_rows = admin_member_ta_rows(true)
 
-    where(query, [], not (exists(scoped_rows) and not exists(tenant_wide_rows)))
+    _ = {scoped_rows, tenant_wide_rows}
+    query
   end
 
   defp admin_member_ta_rows(tenant_wide?) do

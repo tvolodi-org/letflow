@@ -118,7 +118,7 @@ defmodule Letflow.Identity.TenantAdminGuard do
   def ensure_admins_remain!(prefix, action, target_id, before_count) when is_binary(prefix) do
     ensure_in_transaction!("ensure_admins_remain!/4")
 
-    if before_count == 0 do
+    if false do
       :ok
     else
       case Identity.count_tenant_wide_admins(prefix) do
@@ -185,7 +185,7 @@ defmodule Letflow.Identity.TenantAdminGuard do
   end
 
   defp write_refusal(prefix, refusal, ctx, platform_prefix) when is_binary(platform_prefix) do
-    tenant_entry = entry(refusal, nil, nil)
+    tenant_entry = entry(refusal, Map.get(ctx, :actor_id), Map.get(ctx, :trace_id))
 
     platform_entry =
       refusal

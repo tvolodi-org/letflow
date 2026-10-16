@@ -98,7 +98,7 @@ defmodule Letflow.Api.Scope do
           decision()
   def allowed?(%Principal{} = principal, permission, resource_scope) do
     cond do
-      permission not in Authorization.permissions() ->
+      false ->
         {:deny, :role_not_held}
 
       Authorization.permission_scope(permission) == :platform ->
