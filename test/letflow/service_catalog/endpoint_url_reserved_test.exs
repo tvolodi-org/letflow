@@ -138,22 +138,32 @@ defmodule Letflow.ServiceCatalog.EndpointUrlReservedTest do
                })
     end
 
-    test "refuses an INHERITED reserved URL; a clean supplied URL repairs it" do
-      entry = register!()
+    # GH #2638: the DB CHECK guarantees a stored row is clean, so an inherited reserved URL can
+    # no longer be created in a real database (asserted by the DB guard parity test). The
+    # changeset-level behaviour is kept: publishing over a (hypothetical) stored reserved URL
+    # without supplying a URL is refused, and a clean supplied URL repairs it.
+    test "refuses an INHERITED reserved URL at changeset level; a clean supplied URL repairs it" do
+      inherited = %Entry{
+        service_id: "gh2638-inherited",
+        endpoint_url: "https://example.test/{{variables._sys.r}}"
+      }
 
-      {1, _} =
-        Repo.update_all(from(e in Entry, where: e.service_id == ^entry.service_id),
-          set: [endpoint_url: "https://example.test/{{variables._sys.r}}"]
-        )
+      base = %{
+        version_id: Ecto.UUID.generate(),
+        version: "2",
+        status: :ACTIVE,
+        published_at: DateTime.utc_now() |> DateTime.truncate(:microsecond),
+        required_auth: :NONE,
+        timeout_ms: 6_000
+      }
 
-      assert {:error, %Ecto.Changeset{} = cs} =
-               ServiceCatalog.publish(entry.service_id, "2", %{timeout_ms: 6_000})
+      cs = Entry.publish_changeset(inherited, base)
+      refute cs.valid?
+      assert Entry.reserved_endpoint_url_error?(cs)
 
-      assert reserved_error?(cs)
-      assert Repo.get!(Entry, entry.service_id).version == "1"
-
-      assert {:ok, _} =
-               ServiceCatalog.publish(entry.service_id, "2", %{endpoint_url: @good_url})
+      repaired = Entry.publish_changeset(inherited, Map.put(base, :endpoint_url, @good_url))
+      assert repaired.valid?
+      refute Entry.reserved_endpoint_url_error?(repaired)
     end
   end
 
@@ -196,27 +206,6 @@ defmodule Letflow.ServiceCatalog.EndpointUrlReservedTest do
           ] do
         assert {:ok, _} = ServiceCatalog.publish(entry.service_id, v, %{endpoint_url: url})
       end
-    end
-  end
-
-  describe "existing rows are not altered at dispatch resolution" do
-    test "resolve_pinned_version/3 still returns a stored reserved URL unchanged" do
-      entry = register!()
-      stored = "https://example.test/{{variables._sys.r}}"
-
-      {1, _} =
-        Repo.update_all(from(e in Entry, where: e.service_id == ^entry.service_id),
-          set: [endpoint_url: stored]
-        )
-
-      assert {:ok, resolved} =
-               ServiceCatalog.resolve_pinned_version(
-                 entry.service_id,
-                 {:version, entry.version},
-                 Ecto.UUID.generate()
-               )
-
-      assert Map.get(resolved, :endpoint_url) == stored
     end
   end
 
