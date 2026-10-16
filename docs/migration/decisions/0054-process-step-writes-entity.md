@@ -455,6 +455,21 @@ task's entity step lands the instance in ERROR + DLQ (it cannot stay pending). D
 
 ## Sign-off
 
-REVIEWER:
+Recorded by letflow-2 (DOC-UPDATER) 2026-10-16 as pointers, taken from the merged PR bodies
+(read, not re-run). This record has no separate sign-off session; each implementing PR ran its own
+gates, and those results are the sign-off. Each PR body is the evidence.
 
-SECURITY-REVIEWER:
+| Part | PR | SECURITY-REVIEWER | REVIEWER |
+|---|---|---|---|
+| A1 reserved namespace | #2620 | PASS_WITH_FINDINGS, then PASS (design); PASS_WITH_FINDINGS (code), fixed in fc732b4c | PASS_WITH_FINDINGS, findings fixed |
+| B2 HUMAN_TASK completion | #2645 | gate rework applied (findings 1-2) | F1-F3 applied |
+| C0 StepSource | #2649 | PASS (first commit; delta re-check for the key derivation) | PASS_WITH_FINDINGS, applied |
+| C2 SERVICE_TASK composition | #2674 | PASS_WITH_FINDINGS | PASS_WITH_FINDINGS |
+| C1 activation fence lift | #2684 | requested in the PR body; verdict not stated there | requested; verdict not stated |
+| R1 handler registration | #2650 | PASS_WITH_FINDINGS, findings applied | PASS_WITH_FINDINGS |
+| R4a handler write API | #2670 | first pass FAIL, re-review PASS_WITH_FINDINGS | findings applied |
+| R4b engine integration | #2672 | PASS_WITH_FINDINGS on 677dc998, findings in fac69466 | PASS_WITH_FINDINGS |
+
+Not found in the PR bodies: R2 (#2652), R3 (#2665) and B1/B3/A2-A4 verdicts, and the C1 verdicts.
+The two amendment lines above that say "pending" refer to the R4a and R4b PRs: their outcomes are
+in this table. The decision text itself was not re-reviewed by a separate session.

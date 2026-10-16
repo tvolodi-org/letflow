@@ -36321,7 +36321,7 @@ requirements:
   - id: REQ-499
     title: "Process step writes records in the same transaction as the task completion (decision 0054): declarative entity_writes on HUMAN_TASK (done: PR A, PR B) and SERVICE_TASK (PR C remaining)"
     owner: ELIXIR-DEV
-    status: in_progress
+    status: done
     stage: S7
     gh: 2587
     # Source: GH #2587 (filed by letflow-2, sole filer; the body is the content authority incl. the appended ruling and PR B sections). Decision 0054 (option A: a managed type is never a declarative target; amendment D4a.5). Id REQ-499 allocated by letflow-2 (sole allocator). Entry written by DOC-UPDATER (letflow-2) 2026-10-16; none of the implementing PRs wrote it.
@@ -36337,13 +36337,13 @@ requirements:
       (module write handlers); PR C's first commit is `%StepSource{}` (GH #2627).
       PR C is delivered as C0 #2649 (%StepSource{}), C2 #2674 (dispatch-time
       composition, fence closed) and C1 (the activation fence accepts SERVICE_TASK).
-      Status stays in_progress until RELEASE-VALIDATOR re-verifies.
+      Done 2026-10-16: RELEASE-VALIDATOR re-derived every criterion from main 2b628b53 (static), targeted engine tests were run on that commit (nine files, all passed) and CI on 2b628b53 was green; the full suite was not re-run by the verification.
       The issue body of GH #2587 is the full acceptance-criteria list; the progress
       check against main 53ad1cd9 is its comment of 2026-10-16.
     acceptance_criteria:
       - "1. PR A (prerequisites) delivered: reserved `_sys` namespace and `put_sys` (A1 #2620), no definition expression may reference `_sys` (A1b #2626), `Records.command_multi/3` and server step keys (A2 #2629), one `EntityPort` with `StepWrites.prepare/2` (A3 #2631), `writable_by_process` with the interim denied-name list (A4 #2634)."
       - "2. PR B (HUMAN_TASK path) delivered: B3 strips `_sys` from instance, task, history, timeline, Lua and Wasm reads (#2640); B1 validates `entity_writes` at activation and records `activated_by` (#2642); B2 applies the writes on completion (#2645)."
-      - "3. PR C (SERVICE_TASK path) is delivered by its own PRs: C0 `%StepSource{}` (GH #2627, #2649), C2 dispatch-time composition for the HTTP and script routes (#2674), C1 the activation fence accepts SERVICE_TASK (this requirement's last code PR). RELEASE-VALIDATOR re-verification pending."
+      - "3. PR C (SERVICE_TASK path) is delivered by its own PRs: C0 `%StepSource{}` (GH #2627, #2649), C2 dispatch-time composition for the HTTP and script routes (#2674), C1 the activation fence accepts SERVICE_TASK (this requirement's last code PR). Verified 2026-10-16 (see the description)."
       - "4. Follow-ups tracked, not blocking this requirement: GH #2618, #2619 (writable_by_process classification, packs), #2624, #2628, #2632, #2635, #2638, #2644 (activated_by hardening), #2646 (test gaps)."
     depends_on: [REQ-496]
 
@@ -36452,3 +36452,46 @@ requirements:
     acceptance_criteria:
       - "1. The acceptance criteria are those of GH #2683. NOT DELIVERED."
     depends_on: []
+
+  - id: REQ-513
+    title: "Stuck-advanced dispatch sweeper: close the ERROR-landing crash window of SERVICE_TASK writes (design first)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 2688
+    # Source: GH #2688 (filed by letflow-2). Blocked on its design record; failed REQ-VALIDATOR round 1 as build-ready, rewritten as design-first. Id allocated by letflow-2.
+    description: >
+      A sweeper for dispatch rows left advanced after a crash in the ERROR landing
+      (ISS-0928 class). The GH #2688 body is the content authority.
+    acceptance_criteria:
+      - "1. The acceptance criteria are those of GH #2688 after its design record. NOT DELIVERED."
+    depends_on: [REQ-499]
+
+  - id: REQ-514
+    title: "Per-record size cap enforced for every writer (replaces the service-origin caps; design first)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 2689
+    # Source: GH #2689 (filed by letflow-2). Blocked on its design record (REQ-VALIDATOR round 2 FAIL, findings embedded). Id allocated by letflow-2.
+    description: >
+      One enforcement point for the value and record size cap in the record write
+      path. The GH #2689 body is the content authority.
+    acceptance_criteria:
+      - "1. The acceptance criteria are those of GH #2689 after its design record. NOT DELIVERED."
+    depends_on: [REQ-499]
+
+  - id: REQ-515
+    title: "needs_reactivation status and in-place re-activation of definitions (design first)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 2692
+    # Source: GH #2692 (filed by letflow-2). Blocked on its design record. Id allocated by letflow-2.
+    description: >
+      A real needs_reactivation definition status and in-place re-activation, or an
+      explicit decision that current behaviour stays. The GH #2692 body is the
+      content authority.
+    acceptance_criteria:
+      - "1. The acceptance criteria are those of GH #2692 after its design record. NOT DELIVERED."
+    depends_on: [REQ-499]
