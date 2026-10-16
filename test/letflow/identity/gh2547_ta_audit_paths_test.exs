@@ -810,6 +810,8 @@ defmodule Letflow.Identity.Gh2547TaAuditPathsTest do
       fx = tenant!("gh2547-t19b")
       ta_group = group_of!(fx.schema_name, "TENANT_ADMIN")
       user = raw_member!(fx.schema_name, ta_group, user!(fx.schema_name))
+      # REQ-497 PR 1b N1: a second counted admin, so the N1 guard passes and the audit fails.
+      _remaining_admin = raw_member!(fx.schema_name, ta_group, user!(fx.schema_name))
 
       result =
         with_renamed_schema(fx.schema_name, fn renamed ->

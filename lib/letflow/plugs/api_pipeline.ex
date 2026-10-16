@@ -154,6 +154,11 @@ defmodule Letflow.Plugs.ApiPipeline do
   # tenant.
   forward("/tenant/scope-node-paths", to: Letflow.Routers.TenantScopeNodePaths)
 
+  # REQ-497 PR 1b (decision 0051 D12; design req497-1b-allowed-flag-shadow-n1.md 3.4) --
+  # the caller's own tenant's scope-enforcement flag, its integrity check and the
+  # flip-precondition token listing.
+  forward("/tenant/scope-enforcement", to: Letflow.Routers.TenantScopeEnforcement)
+
   # REQ-415 -- solution install: POST /api/v1/tenant/solutions. Mounted at
   # /tenant/solutions (a sibling prefix to /tenant/modules, not a sub-path
   # of it) so the route collision the modules mount guards against doesn't

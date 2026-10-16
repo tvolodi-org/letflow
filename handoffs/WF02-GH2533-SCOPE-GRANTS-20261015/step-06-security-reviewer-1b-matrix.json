@@ -1,0 +1,52 @@
+{
+  "handoff_id": "c4a7d1e0-2533-4b1b-8c20-000000000006",
+  "run_id": "WF02-GH2533-SCOPE-GRANTS-20261015",
+  "workflow_id": "WF-02",
+  "step": "06",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF02-GH2533-SCOPE-GRANTS-20261015/step-06-security-reviewer-1b-matrix.json",
+  "created_at": "2026-10-16T12:45:00Z",
+  "started_at": "2026-10-16T12:45:30Z",
+  "completed_at": "2026-10-16T12:52:00Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S2",
+    "requirement_ids": [
+      "REQ-497"
+    ],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2533": "REQ-497 PR 1b matrix-trust-boundary + latest-commit security gate"
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "lib/letflow/api/authorization.ex",
+      "lib/letflow/identity.ex",
+      "lib/letflow/identity/tenant_admin_guard.ex",
+      "priv/permission_matrix/effective.golden"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2533-SCOPE-GRANTS-1B-20261015"
+  },
+  "task": {
+    "description": "SECURITY-REVIEWER gate: authorization.ex policy keys, permission_matrix --check result, record_guard_refused resource_type change. Read-only."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "PASS. In scope (authorization.ex, migration, tenant-data routes). (1) authorization.ex: 4 new endpoint_policy_key clauses (ScopeEnforcementRead/Manage, ScopeGrantsIntegrityRead, ScopeEnforcementTokensRead) all map via required_permission to existing :UsersGroupsRolesManage (TENANT_ADMIN, PLATFORM_ADMIN in platform tenant only); no new permission atom, no role grant widened; golden file lists role x permission rows and has no per-policy-key rows, so it is unchanged by design. Router additionally requires Scope.require_tenant_wide (403 otherwise), tenant from auth_context only. No change under .github, mix.exs, config, lib/mix, permission_matrix.ex, modules/catalog.ex, priv/permission_matrix (diff stat confirms). ORCH-reported `MIX_ENV=dev mix letflow.permission_matrix --check`: result=pass, golden unchanged, core matrix changes: none (not rerun by reviewer). (2) Latest commit daa6ff02a: Identity.record_guard_refused/2 gains optional :resource_type (default user); after_state still exactly {action, actor, target_id, reason_code, counted_admins, trace_id}; raises if inside a transaction, so own transaction after rollback; on audit failure logs kind only (no value) and returns :ok while the refusal stands (fail-closed, INV-8 ok). TenantAdminGuard.write_refusal(...,nil) delegates to it with resource_type(action); platform-companion path keeps commit_entries writer. No secrets/hashes in audit: token.listed stores ids and count only; TokenView omits token_hash; shadow log emits hashed caller/tenant ids and route patterns only. INV-1: migration adds public tenants.scope_enforcement with CHECK off|shadow, default off, not in tenant-scoped migrations; flag cast only by scope_enforcement_changeset, prefix from scoped_opts. INV-4 ok. INV-2/3/5 N/A. INV-6/7/8 no violations found. Minor non-blocking note: two audit writers now coexist for the platform-companion path.",
+    "invariants": {
+      "INV-1": "PASS",
+      "INV-2": "N/A",
+      "INV-3": "N/A",
+      "INV-4": "PASS",
+      "INV-5": "N/A",
+      "INV-6": "PASS",
+      "INV-7": "PASS",
+      "INV-8": "PASS"
+    },
+    "artifacts_out": []
+  }
+}

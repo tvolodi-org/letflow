@@ -384,6 +384,10 @@ defmodule Letflow.Api.Authorization do
           | :ModulesManage
           | :MyModulesRead
           | :ScopeNodePathsConsistencyRead
+          | :ScopeEnforcementRead
+          | :ScopeEnforcementManage
+          | :ScopeGrantsIntegrityRead
+          | :ScopeEnforcementTokensRead
           | :TenantSettingsManage
           | :PromotionsRead
           | :PromotionsManage
@@ -1147,6 +1151,17 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("GET", "/tenant/scope-node-paths/consistency"),
     do: :ScopeNodePathsConsistencyRead
 
+  # REQ-497 PR 1b (decision 0051 D12, design req497-1b section 3.4) --
+  # Letflow.Routers.TenantScopeEnforcement, mounted at /tenant/scope-enforcement.
+  def endpoint_policy_key("GET", "/tenant/scope-enforcement"), do: :ScopeEnforcementRead
+  def endpoint_policy_key("PUT", "/tenant/scope-enforcement"), do: :ScopeEnforcementManage
+
+  def endpoint_policy_key("GET", "/tenant/scope-enforcement/integrity"),
+    do: :ScopeGrantsIntegrityRead
+
+  def endpoint_policy_key("GET", "/tenant/scope-enforcement/token-preconditions"),
+    do: :ScopeEnforcementTokensRead
+
   # REQ-403 — Letflow.Routers.Me's new route, mounted at /me (full path
   # /api/v1/me/modules). See this module's moduledoc "MyModulesRead" section
   # and lib/letflow/design/req403-module-install-route.md §5.3.
@@ -1373,6 +1388,18 @@ defmodule Letflow.Api.Authorization do
   # REQ-496 (design D11): same holders as the tree-write permission (0050 D7);
   # tenant scope, so no new permission atom.
   def required_permission(:ScopeNodePathsConsistencyRead), do: :UsersGroupsRolesManage
+
+  # REQ-497 PR 1b (design section 3.4): REQUIRED clauses (the identity fallback would
+  # classify these keys as platform scope). Tenant scope: TENANT_ADMIN, and PLATFORM_ADMIN
+  # inside the platform tenant only. The handlers then require a tenant-wide grant.
+  def required_permission(key)
+      when key in [
+             :ScopeEnforcementRead,
+             :ScopeEnforcementManage,
+             :ScopeGrantsIntegrityRead,
+             :ScopeEnforcementTokensRead
+           ],
+      do: :UsersGroupsRolesManage
 
   def required_permission(:Unknown), do: :MetricsRead
 

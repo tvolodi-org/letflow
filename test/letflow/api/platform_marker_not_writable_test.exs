@@ -92,6 +92,9 @@ defmodule Letflow.Api.PlatformMarkerNotWritableTest do
                  :settings,
                  :storage_allowance_bytes,
                  :login_disclosure_mode,
+                 # REQ-497 PR 1b (0051 D12): the per-tenant scope-enforcement flag (off|shadow),
+                 # not a platform marker; cast only by Tenant.scope_enforcement_changeset/2.
+                 :scope_enforcement,
                  :inserted_at,
                  :updated_at
                ])

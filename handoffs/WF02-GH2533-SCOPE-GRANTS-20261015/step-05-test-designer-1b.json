@@ -1,0 +1,55 @@
+{
+  "handoff_id": "d2533a1b-0497-4c03-9e11-000000000015",
+  "run_id": "WF02-GH2533-SCOPE-GRANTS-20261015",
+  "workflow_id": "WF-02",
+  "step": "05",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGNER",
+  "file": "handoffs/WF02-GH2533-SCOPE-GRANTS-20261015/step-05-test-designer-1b.json",
+  "created_at": "2026-10-14T22:09:57Z",
+  "started_at": "2026-10-14T22:09:57Z",
+  "completed_at": "2026-10-16T12:39:30Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-497"],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2533": "REQ-497 PR 1b tests per lib/letflow/design/req497-1b-allowed-flag-shadow-n1.md (r1 + section 18) and the ORCH binding rulings (N1 transition rule, guard_refused shape, zero_tenant_wide_admins informational, OIDC load fault -> :not_loaded, flag off|shadow, platform scope reads no grants, token.listed keys, full-row-set route walk). Closes GH #2575."
+    },
+    "related_handoff_ids": ["d2533a1b-0497-4c03-9e11-000000000014"],
+    "artifacts_in": [
+      "lib/letflow/design/req497-1b-allowed-flag-shadow-n1.md",
+      "handoffs/WF02-GH2533-SCOPE-GRANTS-20261015/step-04-elixir-dev-1b.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2533-SCOPE-GRANTS-1B-20261015"
+  },
+  "task": {
+    "description": "WF-02 step 5 (1b): test specs and test code for REQ-497 PR 1b AC5-AC16 and GH #2575; update existing tests broken by design. No lib/ edits, no commit."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "WRITTEN, NOT RUN. Scope test: executable surface (lib/ Elixir logic) -> in scope. New: scope_test.exs (T-A1..T-A13; platform-scope and unclassified-permission cases assert ZERO repo queries; T-A8 AST pin), auth_pipeline_scope_test.exs (T-P1..T-P4; T-P5a Postgrex.Error via renamed table, T-P5b DBConnection.ConnectionError via a query outliving the Repo timeout behind an ACCESS EXCLUSIVE lock, both: login 200, memo :not_loaded, allowed? -> :grants_unavailable, no retry), scope_enforcement_test.exs + routers/tenant_scope_enforcement_test.exs (T-F1..T-F10, T-F6b/c, SEC advisory 3 pin: PUT off without reason on already-off tenant = 422 reason_required; zero_tenant_wide_admins finding listed and NOT blocking off->shadow; T-I1; T-L1..T-L4 incl. token.listed keys exactly {actor,count,token_ids} and no plaintext/token_hash/lf_tok_ in body or entry; audit failure 500 no data), identity/token_preconditions_test.exs, api/scope_shadow_test.exs (T-S1..T-S5), identity/tenant_admin_guard_test.exs (T-G1..T-G10: transition rule refusal AND already-zero success for unbind/remove/rebind; revoke_token counted-only incl. expired and inactive-owner 200; pending-grant last-open refusal with nil-actor/trace tenant entry + one platform companion; every refusal 409 last_tenant_wide_admin + exactly-six-key guard_refused in its own transaction; SEC A3 R-lock; AC12 lock blocking; GH #2575 function {:error,{:transaction_failed,_}} and router 500 without crash report), api/scope_grants_route_walk_test.exs (T-RW1..T-RW4, full row-set compare per route + trigger tripwire with a rollback-proof sequence). Changed: tenant_wide_admins_test.exs T-34 -> T-X1..T-X5; role_scope_grants_writers_test.exs T-W8 R2 assert_raise -> {:error,{:transaction_failed,%Postgrex.Error{}}}; blast radius (second counted admin or second open grant added, intent kept): pending_admin_binding_test (5 tests), onboarding_pending_admin_test (2), identity_gh2547_audit_test (T-04, remove 500, T-14b), gh2547_ta_audit_paths_test T-19, iss0736_oidc_live_revocation_test REQ-378 AC1, api_token_auth_pipeline_test REQ-076 AC4 + helper, identity_test (1), platform_escalation_guard_test (1), platform_marker_not_writable_test (Tenant field list), tenant_auditor_routes_test (named routes 26 -> 27). Fixture: role_scope_grants_fixture.ex + raw_user_row!/4, make_group_scoped_only!/3. Design deviations recorded in the spec (T-G1 second MEMBER cannot keep count on unbind -> 409; T-F9 raising audit -> {:transaction_failed,_}; no tenant_config write route; ensure_column_promotions/2 absent; route walk valid bodies only for named routes). NOT RUN (strict host rule): free memory measured 1.34 -> 1.22 -> 0.92 -> 0.75 GB over ~20 min of bounded polls (below the 1.5 GB format floor and the 4 GB test floor); mutex not taken; no BEAM started. Therefore NOT verified: mix format, mix letflow.check.test, any mix test, and no mutant measured. Pinned-but-unmeasured literal: T-P2 API-token query list [tenants, api_tokens, api_tokens]. TEST-RUNNER must run (<=20 files): the 8 new files, the 14 changed test files, plus suspects role_registry_test.exs, plugs/platform_scope_facts_test.exs, plugs/api_pipeline_integration_test.exs, plugs/pending_admin_login_response_test.exs, routers/audit_platform_entries_isolation_test.exs, routers/gh2552_token_issuer_test.exs, identity/tenant_admin_migration_test.exs, mix/tasks/letflow.migrate_tenant_admins_test.exs, and mix letflow.check.test. Proposed mutants for TEST-DESIGN-VALIDATOR to measure: (M1) ensure_admins_remain!/4 'if before_count == 0' -> 'if false' (T-G1/T-G2/T-G3 already-zero cases must fail); (M2) Scope.allowed?/3 drop the 'permission not in permissions()' clause (T-A13 must fail); (M3) exclude_scoped_holders/2 -> identity (T-X1 must fail); (M4) refuse/4 platform_companion branch use ctx actor on tenant entry (T-G5 must fail).",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "test/specs/REQ-497-1b.md",
+      "test/letflow/api/scope_test.exs",
+      "test/letflow/plugs/auth_pipeline_scope_test.exs",
+      "test/letflow/scope_enforcement_test.exs",
+      "test/letflow/routers/tenant_scope_enforcement_test.exs",
+      "test/letflow/identity/token_preconditions_test.exs",
+      "test/letflow/api/scope_shadow_test.exs",
+      "test/letflow/identity/tenant_admin_guard_test.exs",
+      "test/letflow/api/scope_grants_route_walk_test.exs",
+      "test/support/role_scope_grants_fixture.ex",
+      "modified: test/letflow/identity/{tenant_wide_admins_test.exs, role_scope_grants_writers_test.exs, pending_admin_binding_test.exs, gh2547_ta_audit_paths_test.exs}, test/letflow/routers/{onboarding_pending_admin_test.exs, identity_gh2547_audit_test.exs, tenant_auditor_routes_test.exs}, test/letflow/plugs/iss0736_oidc_live_revocation_test.exs, test/letflow/{api_token_auth_pipeline_test.exs, identity_test.exs}, test/letflow/api/{platform_escalation_guard_test.exs, platform_marker_not_writable_test.exs}"
+    ],
+    "diagnosis_confirmed": null,
+    "implementation_written": true,
+    "ci_rework_2026_10_16": "Six hosted-CI test problems fixed in test/ only (see test/specs/REQ-497-1b.md CI-rework). Verified with real runs: first 6-file run 101/105 (4 fixed: T-RW4a, T-P5b, T-G9 x2), reruns of those files 45 passed; second run of role_scope_grants_writers, tenant_wide_admins, scope_test, scope_enforcement, token_preconditions, identity_login_directory, route_walk, auth_pipeline_scope 148 passed; mix format --check-formatted clean. identity_login_directory INV-4 needs no work. No lib change needed. mix letflow.check.test and mutants not re-run.",
+    "classification": "TEST_DESIGN"
+  }
+}

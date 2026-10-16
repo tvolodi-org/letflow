@@ -986,6 +986,8 @@ defmodule Letflow.Routers.Onboarding do
         :ok -> Response.no_content(conn)
         {:error, :not_found} -> Response.not_found(conn)
         {:error, :not_open} -> Response.conflict(conn, "grant is not open")
+        # REQ-497 PR 1b N1 (design 6.2 (d)): the last open grant of a 0-admin tenant.
+        {:error, :last_tenant_wide_admin} -> Response.conflict(conn, "last_tenant_wide_admin")
         {:error, :audit_failed} -> Response.internal_error(conn)
       end
     else

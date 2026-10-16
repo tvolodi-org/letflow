@@ -1,0 +1,69 @@
+{
+  "handoff_id": "d2533a1b-0497-4c03-9e11-000000000013",
+  "run_id": "WF02-GH2533-SCOPE-GRANTS-20261015",
+  "workflow_id": "WF-02",
+  "step": "03",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGNER",
+  "file": "handoffs/WF02-GH2533-SCOPE-GRANTS-20261015/step-03-code-designer-1b.json",
+  "created_at": "2026-10-14T21:27:25Z",
+  "started_at": "2026-10-14T21:27:25Z",
+  "completed_at": "2026-10-14T21:39:59Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-497"],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2533": "REQ-497 PR 1b: allowed?/3, AuthPipeline grants load with request memo, per-tenant flag off|shadow with server-side flip preconditions and audit, shadow counters, N1 last-admin guard (POST /roles kind change, TA member removal, delete_group unchanged, rebind incl. rescue, pending-grant revoke, revoke_token Option A, reactivation and pending revoke under lock_tenant_admins!), tenant_admin.guard_refused in its own transaction, flip-precondition token listing with token.listed, exclude_scoped_holders/2 filled, integrity endpoint, route walk incl. N4. ACs [1b] 5-16 and AC17 for 1b. Depends on #2594 (GH #2552) merged."
+    },
+    "related_handoff_ids": ["d2533a1a-0497-4c03-9e11-000000000003"],
+    "artifacts_in": [
+      "docs/requirements.yaml",
+      "docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md",
+      "docs/agents/instructions/security-invariants.md",
+      "docs/anti-patterns.md",
+      "lib/letflow/design/req497-1a-role-scope-grants-table-backfill-writers.md",
+      "lib/letflow/design/gh2547-tenant-admin-audit-and-count.md",
+      "lib/letflow/identity/role_scope_grants.ex",
+      "lib/letflow/identity/role_scope_grants/backfill.ex",
+      "priv/repo/migrations/20261015025331_create_role_scope_grants.exs",
+      "lib/letflow/identity.ex",
+      "lib/letflow/identity/role_registry.ex",
+      "lib/letflow/identity/pending_admin_grants.ex",
+      "lib/letflow/identity/tenant.ex",
+      "lib/letflow/plugs/auth_pipeline.ex",
+      "lib/letflow/plugs/authorize.ex",
+      "lib/letflow/api/authorization.ex",
+      "lib/letflow/api/authz_deny_log.ex",
+      "lib/letflow/routers/identity.ex",
+      "lib/letflow/routers/onboarding.ex",
+      "lib/letflow/routers/tenant_scope_node_paths.ex",
+      "lib/letflow/scope_node_paths.ex",
+      "lib/letflow/scope_node_paths/consistency.ex",
+      "lib/letflow/entities/managed_types.ex",
+      "test/letflow/identity/tenant_wide_admins_test.exs",
+      "PR #2594 diff (head eaef79c0c) incl. test/support/token_mint_fixture.ex",
+      "GH #2575",
+      "scratchpad req497-inputs.md (supervisor rulings, #2552 contract)"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2533-SCOPE-GRANTS-1B-20261015"
+  },
+  "task": {
+    "description": "WF-02 step 3 design for REQ-497 PR 1b. Design only: no code, no tests, no mix."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "r1 (ORCH revision 1 after CDV FAIL and SEC FAIL, 2026-10-14T21:39:59Z): CDV B1 OIDC grants loaded on every request in the verify_local_account_state step, no flag condition (T-P1, T-P3 rewritten; API-token count unchanged). CDV B2 revoke_token guard only for a token COUNTED at lock time (not revoked, not expired, owner active, TA role); T-G6 adds expired and inactive-owner TA tokens revoking 200 in a 0-admin tenant. CDV B3/SEC A3 revoke_token takes lock_admin_binding!/1 unconditionally after A, before the token row. SEC B1 refuse/4 with platform_companion: tenant-chain guard_refused has nil actor/trace, companion PLATFORM-chain entry carries operator and trace, written last in the same post-rollback transaction (T-G5). SEC A1 shared contract in 6.1: 409 last_tenant_wide_admin, reason_code last_tenant_wide_admin, actions unbind_tenant_admin/remove_tenant_admin_member/rebind_tenant_admin/revoke_pending_grant/revoke_token (#2564 deactivate_user). Advisories folded: SEC A2 (T-L2), A4 (T-lock sentence), A5 (#2535 note), A6 (observer after assigns, prefix from scoped_opts), A7 (unclassified permission -> role_not_held, T-A13), ScopeNodePaths moduledoc note; CDV adv 1-4. OQ-1..4 ruled; 1b closes #2575 (T-G3, T-G9). r0 text follows, superseded where r1 differs. Design written: lib/letflow/design/req497-1b-allowed-flag-shadow-n1.md (r0). Decisions: (1) Letflow.Api.Scope.allowed?/3 -> {:allow, :tenant_wide|:subtree|:token|:platform} | {:deny, :role_not_held|:no_grant_rows|:not_tenant_wide|:out_of_scope|:unresolvable|:grants_unavailable}; order: platform-scope permission decided by has_permission_in_scope? without reading grants (INV-10), :unresolvable denied, candidate roles via role_allows?/2, platform-tenant PLATFORM_ADMIN and token principals never read rows, D1 union/tenant-wide-wins, {:node,id} only via ScopeNodePaths.ancestors/2. Grants loaded by one query (RoleScopeGrants.applicable_rows_for_user/2, group rows only where the user holds that role through that group). (2) Flag = public tenants.scope_enforcement column (migration 20261015025332, CHECK off|shadow, Ecto.Enum, dedicated changeset); read per request from the tenant row both auth paths already load, so zero extra queries and the API-token query count is unchanged; OIDC grants loaded in verify_local_account_state only when the tenant is in shadow, lazily memoised otherwise. (3) Letflow.ScopeEnforcement.flip/4: lock A -> tenants row FOR UPDATE -> (enable) ScopeNodePaths.lock! + T9/org consistency/tokens-exceed-owner, all evaluated, 409 enforcement_precondition_failed; disable needs reason (shared Letflow.Audit.Reason.validate/1 extracted from rebind); scope.enforcement_enabled/disabled in the same transaction; 'on' -> 422 invalid_enforcement_mode. New router Letflow.Routers.TenantScopeEnforcement at /tenant/scope-enforcement (GET, PUT, GET /integrity, GET /token-preconditions), four new policy keys -> :UsersGroupsRolesManage plus Scope.require_tenant_wide/2. (4) Shadow hook in Letflow.Plugs.Authorize allow branch via Letflow.Api.Scope.Shadow.observe/3 (resource :tenant_wide, never halts), telemetry [:letflow,:scope,:shadow,:would_deny], metrics family letflow_scope_shadow_would_deny_total{reason}, sampled ShadowLog with keyed hashes only. (5) exclude_scoped_holders/2 applied to the TA-membership subquery only (tokens never excluded), excludes scoped-only holders; zero-row bindings still counted in stage 1; exclude_scoped_role_names/3 filled with the same rule; T-34 replaced by T-X1..T-X5. (6) Letflow.Identity.TenantAdminGuard (lock_admin_binding!/1, ensure_admins_remain!/3, refuse/3) with per-path insertion points; all count refusals 409 last_tenant_admin; rebind_role/4 gains rescue + router clauses (GH #2575 ACs); update_locked_user/5 and PendingAdminGrants.revoke/3 take lock A first. (7) TokenPreconditions.findings/1 over #2552 list_tokens/1 + token_effective_status/3 + tenant_wide_role_names/2; token_map/2 moved to public Letflow.Api.TokenView; token.listed {actor,count,token_ids}. (8) Route walk: AST writer pin + trigger-guarded dynamic walk + N4 routes + provisioning AST pin. (9) Test support: TokenMintFixture.binding_group_id!/2 new-binding branch writes the tenant-wide row via ensure_tenant_wide_group_row!/3 in one transaction. Lock order A < R < G < B < T < S < C. OQ-1 cross-tenant platform flip route (proposal #2535); OQ-2 close GH #2575 with 1b or land separately; OQ-3 T13 vs D4 on :unresolvable (recorded for #2535); OQ-4 SEC confirm zero-row bindings still counted in stage 1.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "lib/letflow/design/req497-1b-allowed-flag-shadow-n1.md"
+    ],
+    "diagnosis_confirmed": null,
+    "implementation_written": false,
+    "classification": "DESIGN"
+  }
+}

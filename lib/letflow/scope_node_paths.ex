@@ -45,6 +45,11 @@ defmodule Letflow.ScopeNodePaths do
   pipeline's logged, detail-free 500 (INV-8: an internal fault, not caller
   input). `write/2` audits nothing; the org module audits tree changes (OQ-5).
 
+  The table lock is never taken BEFORE the tenant admin lock
+  (`Letflow.Identity.lock_tenant_admins!/1`) by any path that takes both (REQ-497 PR 1b,
+  design `req497-1b-allowed-flag-shadow-n1.md` section 10): the scope-enforcement flip takes
+  the admin lock, then the `tenants` row, then this lock.
+
   ## LIKE patterns (INV-7)
 
   Every LIKE pattern is built by `like_prefix_pattern/1` and passed as a bound

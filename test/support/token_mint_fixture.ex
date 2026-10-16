@@ -14,6 +14,7 @@ defmodule Letflow.Support.TokenMintFixture do
 
   alias Letflow.Identity.Group
   alias Letflow.Identity.GroupMember
+  alias Letflow.Identity.RoleScopeGrants
   alias Letflow.Identity.TenantRole
   alias Letflow.Identity.User
   alias Letflow.Repo
@@ -76,17 +77,25 @@ defmodule Letflow.Support.TokenMintFixture do
       )
 
     case Repo.one(query, prefix: schema_name) do
+      # REQ-497 PR 1b (design section 11): a new binding gets its tenant-wide group row in
+      # the same transaction, so the fixture leaves no T9 gap. Still raw rows, no audit.
       nil ->
-        group =
-          %Group{}
-          |> Ecto.Changeset.change(%{name: "gh2552-#{role}-#{Ecto.UUID.generate()}"})
-          |> Repo.insert!(prefix: schema_name)
+        {:ok, group_id} =
+          Repo.transaction(fn ->
+            group =
+              %Group{}
+              |> Ecto.Changeset.change(%{name: "gh2552-#{role}-#{Ecto.UUID.generate()}"})
+              |> Repo.insert!(prefix: schema_name)
 
-        %TenantRole{}
-        |> Ecto.Changeset.change(%{name: role, kind: :platform_role, group_id: group.id})
-        |> Repo.insert!(prefix: schema_name)
+            %TenantRole{}
+            |> Ecto.Changeset.change(%{name: role, kind: :platform_role, group_id: group.id})
+            |> Repo.insert!(prefix: schema_name)
 
-        group.id
+            _ = RoleScopeGrants.ensure_tenant_wide_group_row!(group.id, role, schema_name)
+            group.id
+          end)
+
+        group_id
 
       group_id ->
         group_id

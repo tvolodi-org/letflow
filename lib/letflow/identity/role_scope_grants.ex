@@ -29,6 +29,7 @@ defmodule Letflow.Identity.RoleScopeGrants do
 
   import Ecto.Query
 
+  alias Letflow.Identity.GroupMember
   alias Letflow.Identity.RoleScopeGrant
   alias Letflow.Identity.TenantRole
   alias Letflow.Repo
@@ -275,6 +276,49 @@ defmodule Letflow.Identity.RoleScopeGrants do
     Repo.aggregate(
       from(g in RoleScopeGrant, where: g.principal_type == ^:user),
       :count,
+      prefix: prefix
+    )
+  end
+
+  @doc """
+  REQ-497 PR 1b (0051 D1 step 2, D3; design `req497-1b-allowed-flag-shadow-n1.md` 1.3): the
+  APPLICABLE rows of `user_id` in one query. A `:user` row of the user applies; a `:group`
+  row applies only when the user is a member of that group AND that group is bound to the
+  row's role as a `:platform_role`, i.e. the user holds the role THROUGH that group (a stray
+  row of a group for a role it does not bind never applies). Selected columns only, no ids.
+  Read-only; every value bound (INV-7), explicit `prefix` (INV-1). Raises on a DB error.
+  """
+  @spec applicable_rows_for_user(user_id :: Ecto.UUID.t(), prefix :: String.t()) :: [
+          %{
+            principal_type: :user | :group,
+            role: String.t(),
+            tenant_wide: boolean(),
+            scope_node_id: String.t() | nil
+          }
+        ]
+  def applicable_rows_for_user(user_id, prefix) when is_binary(prefix) do
+    held_through_group =
+      from(m in GroupMember,
+        join: t in TenantRole,
+        on: t.group_id == m.group_id,
+        where:
+          m.user_id == ^user_id and m.group_id == parent_as(:grant).principal_id and
+            t.name == parent_as(:grant).role and t.kind == ^:platform_role
+      )
+
+    Repo.all(
+      from(g in RoleScopeGrant,
+        as: :grant,
+        where:
+          (g.principal_type == ^:user and g.principal_id == ^user_id) or
+            (g.principal_type == ^:group and exists(held_through_group)),
+        select: %{
+          principal_type: g.principal_type,
+          role: g.role,
+          tenant_wide: g.tenant_wide,
+          scope_node_id: g.scope_node_id
+        }
+      ),
       prefix: prefix
     )
   end

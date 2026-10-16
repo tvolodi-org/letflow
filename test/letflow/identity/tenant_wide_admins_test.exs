@@ -4,6 +4,7 @@ defmodule Letflow.Identity.TenantWideAdminsTest do
   the "Contract for #2533 / 7b-2b"): `Identity.count_tenant_wide_admins/1`,
   `Identity.tenant_wide_admin_user_ids/1`, `Identity.tenant_admin_lock_key/1` and
   `Identity.lock_tenant_admins!/1`. Spec: `test/specs/GH-2547.md`, tests T-20..T-28, T-32..T-35.
+  REQ-497 PR 1b replaced T-34 with T-X1..T-X5 (spec `test/specs/REQ-497-1b.md`, AC13).
 
   Real Postgres, real provisioned tenant schemas with the platform roles seeded. Holders are
   written RAW (group_members / api_tokens rows) so the helper is measured against the stored
@@ -27,6 +28,7 @@ defmodule Letflow.Identity.TenantWideAdminsTest do
   alias Letflow.Identity.RoleRegistry
   alias Letflow.Identity.TenantRole
   alias Letflow.Identity.User
+  alias Letflow.Support.RoleScopeGrantsFixture, as: RSG
   alias Letflow.TenantFixture
 
   # --- fixtures --------------------------------------------------------------------------------
@@ -489,56 +491,124 @@ defmodule Letflow.Identity.TenantWideAdminsTest do
     end
   end
 
-  # --- T-34 ------------------------------------------------------------------------------------
+  # --- T-X1..T-X5 (REQ-497 PR 1b, AC13; replace the 1a T-34 tripwire) ------------------------
   #
-  # Retargeted by REQ-497 PR 1a (#2533): role_scope_grants now exists, but in stage 1 no
-  # route or function writes a `tenant_wide = false` (scoped) row, so the private
-  # `exclude_scoped_holders/2` may still be the identity. Filling it in is REQ-497 AC12
-  # (PR 1b); scoped rows become writable in stage 2 (#2535). The tripwire fires on the
-  # first scoped row in a freshly provisioned tenant.
+  # `exclude_scoped_holders/2` is filled in (design req497-1b 5.1): a TA group member whose
+  # TENANT_ADMIN rows (user or group) are ALL scoped is no longer counted; a TA token owner is
+  # never dropped; a binding with zero rows is still counted in stage 1 (OQ-4). Scoped and user
+  # rows are inserted RAW (no route writes one in stage 1).
 
-  test "T-34 tripwire: role_scope_grants holds no scoped rows yet, so exclude_scoped_holders/2 is still the identity" do
-    fx = tenant!("gh2547-t34")
-    ta_group = group_of!(fx, "TENANT_ADMIN")
+  describe "T-X exclude_scoped_holders/2 and exclude_scoped_role_names/3" do
+    test "T-X1 a TA member whose TA group holds only a scoped row is not counted" do
+      fx = tenant!("req497-tx1")
+      ta_group = group_of!(fx, "TENANT_ADMIN")
+      other = ta_member!(fx, :active)
+      scoped_only = ta_member!(fx, :active)
 
-    # {user, active?, TA member?, owns a live TA token?} -- written down as the fixture is built.
-    holders = [
-      {member!(fx, ta_group, user!(fx, :active)), true, true, false},
-      {token!(fx, user!(fx, :active), ["TENANT_ADMIN"], %{}), true, false, true},
-      {member!(fx, ta_group, user!(fx, :inactive)), false, true, false}
-    ]
+      # Control: both counted while the TA group has its tenant-wide row.
+      assert ids(fx) == Enum.sort([other.id, scoped_only.id])
 
-    %{rows: [[tables]]} =
-      Repo.query!(
-        "SELECT count(*) FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2",
-        [fx.schema_name, "role_scope_grants"]
-      )
+      _node = RSG.make_group_scoped_only!(fx.schema_name, ta_group, "TENANT_ADMIN")
 
-    assert tables == 1
+      # Same group, so both members drop: the rule is per (user, group) source.
+      assert count(fx) == 0
+      assert ids(fx) == []
+    end
 
-    %{rows: [[scoped]]} =
-      Repo.query!(
-        "SELECT count(*) FROM \"#{fx.schema_name}\".role_scope_grants WHERE NOT tenant_wide",
-        []
-      )
+    test "T-X2 the same scoped-only member who also owns a live TA token is counted" do
+      fx = tenant!("req497-tx2")
+      ta_group = group_of!(fx, "TENANT_ADMIN")
+      member_only = ta_member!(fx, :active)
+      token_owner = token!(fx, ta_member!(fx, :active), ["TENANT_ADMIN"], %{})
 
-    message =
-      "scoped role_scope_grants rows (tenant_wide = false) can now exist: once scoped rows " <>
-        "are writable (stage 2, #2535) or REQ-497 PR 1b (AC12) lands, " <>
-        "Letflow.Identity.exclude_scoped_holders/2 must drop scoped holders from " <>
-        "count_tenant_wide_admins/1 and tenant_wide_admin_user_ids/1, and this T-34 " <>
-        "tripwire must be replaced by a test of that behaviour"
+      _node = RSG.make_group_scoped_only!(fx.schema_name, ta_group, "TENANT_ADMIN")
 
-    assert scoped == 0, message
+      assert ids(fx) == [token_owner.id]
+      assert count(fx) == 1
+      refute member_only.id in ids(fx)
+    end
 
-    oracle =
-      for {user, active?, member?, live_token?} <- holders,
-          active? and (member? or live_token?),
-          do: user.id
+    test "T-X3 a tenant-wide USER row for TENANT_ADMIN keeps a member whose group row is scoped" do
+      fx = tenant!("req497-tx3")
+      ta_group = group_of!(fx, "TENANT_ADMIN")
+      with_user_row = ta_member!(fx, :active)
+      without = ta_member!(fx, :active)
 
-    assert length(oracle) == 2
-    assert ids(fx) == Enum.sort(oracle), message
-    assert count(fx) == length(oracle), message
+      _node = RSG.make_group_scoped_only!(fx.schema_name, ta_group, "TENANT_ADMIN")
+      :ok = RSG.raw_user_row!(fx.schema_name, with_user_row.id, "TENANT_ADMIN", nil)
+
+      assert ids(fx) == [with_user_row.id]
+      assert count(fx) == 1
+      refute without.id in ids(fx)
+
+      # A SCOPED user row on top of the scoped group row changes nothing for `without`.
+      :ok =
+        RSG.raw_user_row!(fx.schema_name, without.id, "TENANT_ADMIN", RSG.node!(fx.schema_name))
+
+      assert ids(fx) == [with_user_row.id]
+    end
+
+    test "T-X4 with only tenant-wide rows the result equals the oracle; a TA binding with zero rows is still counted" do
+      fx = tenant!("req497-tx4")
+      ta_group = group_of!(fx, "TENANT_ADMIN")
+
+      # {user, active?, TA member?, owns a live TA token?} -- the T-35 oracle shape.
+      holders = [
+        {member!(fx, ta_group, user!(fx, :active)), true, true, false},
+        {token!(fx, user!(fx, :active), ["TENANT_ADMIN"], %{}), true, false, true},
+        {member!(fx, ta_group, user!(fx, :inactive)), false, true, false}
+      ]
+
+      oracle =
+        for {user, active?, member?, live_token?} <- holders,
+            active? and (member? or live_token?),
+            do: user.id
+
+      %{rows: [[scoped]]} =
+        Repo.query!(
+          "SELECT count(*) FROM \"#{fx.schema_name}\".role_scope_grants WHERE NOT tenant_wide",
+          []
+        )
+
+      assert scoped == 0
+      assert RSG.rows(fx.schema_name) |> Enum.member?(RSG.tw(ta_group, "TENANT_ADMIN"))
+      assert length(oracle) == 2
+      assert ids(fx) == Enum.sort(oracle)
+      assert count(fx) == length(oracle)
+
+      # Zero rows for the TA binding (a T9 gap): stage 1 still counts the member (OQ-4).
+      assert RSG.raw_delete_rows!(fx.schema_name, ta_group, "TENANT_ADMIN") == 1
+      assert ids(fx) == Enum.sort(oracle)
+      assert count(fx) == length(oracle)
+    end
+
+    test "T-X5 tenant_wide_role_names/2 drops a role held only through a scoped row and keeps it with a tenant-wide row" do
+      fx = tenant!("req497-tx5")
+      designer_group = group_of!(fx, "PROCESS_DESIGNER")
+      user = member!(fx, designer_group, user!(fx, :active))
+
+      assert "PROCESS_DESIGNER" in Identity.tenant_wide_role_names(user.id,
+               prefix: fx.schema_name
+             )
+
+      _node = RSG.make_group_scoped_only!(fx.schema_name, designer_group, "PROCESS_DESIGNER")
+
+      refute "PROCESS_DESIGNER" in Identity.tenant_wide_role_names(user.id,
+               prefix: fx.schema_name
+             )
+
+      # A tenant-wide row (here a user row) brings it back.
+      :ok = RSG.raw_user_row!(fx.schema_name, user.id, "PROCESS_DESIGNER", nil)
+
+      assert "PROCESS_DESIGNER" in Identity.tenant_wide_role_names(user.id,
+               prefix: fx.schema_name
+             )
+
+      # Per role: another held role with its tenant-wide group row is unaffected.
+      _ = member!(fx, group_of!(fx, "TENANT_ADMIN"), user)
+      names = Identity.tenant_wide_role_names(user.id, prefix: fx.schema_name)
+      assert MapSet.subset?(MapSet.new(["PROCESS_DESIGNER", "TENANT_ADMIN"]), names)
+    end
   end
 
   # --- T-35 ------------------------------------------------------------------------------------

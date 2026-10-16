@@ -26,6 +26,7 @@ defmodule Letflow.Identity.RoleRegistry do
   alias Letflow.Identity.Group
   alias Letflow.Identity.GroupMember
   alias Letflow.Identity.RoleScopeGrants
+  alias Letflow.Identity.TenantAdminGuard
   alias Letflow.Identity.TenantRole
   alias Letflow.PlatformTenant
   alias Letflow.Repo
@@ -39,6 +40,7 @@ defmodule Letflow.Identity.RoleRegistry do
           | :name_not_a_recognized_platform_role
           | :platform_admin_outside_platform_tenant
           | :role_already_bound
+          | :last_tenant_wide_admin
           | {:audit_failed, term()}
           | {:transaction_failed, Exception.t()}
           | Ecto.Changeset.t()
@@ -49,7 +51,9 @@ defmodule Letflow.Identity.RoleRegistry do
           | :invalid_group_id
           | :invalid_reason
           | :platform_admin_outside_platform_tenant
+          | :last_tenant_wide_admin
           | {:audit_failed, term()}
+          | {:transaction_failed, Exception.t()}
           | Ecto.Changeset.t()
 
   @type coverage_gap :: %{
@@ -60,12 +64,10 @@ defmodule Letflow.Identity.RoleRegistry do
   @max_name_codepoints 128
   @control_char_pattern ~r/[\x00-\x1F\x7F]/u
 
-  # GH 2524: a rebind reason is free text shown to audit readers. Cc (C0, DEL, C1), Cf
-  # (format/bidi characters such as U+200B..U+200F, U+202A..U+202E, U+2066..U+2069, U+FEFF)
-  # and the line/paragraph separators Zl/Zp (U+2028, U+2029) are refused so a reason is one
-  # line and cannot visually spoof an audit reader.
-  @max_reason_codepoints 500
-  @reason_forbidden_pattern ~r/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u
+  # GH 2524: a rebind reason is free text shown to audit readers; the rule (one line,
+  # 1..500 codepoints, no Cc/Cf/Zl/Zp) lives in Letflow.Audit.Reason since REQ-497 PR 1b,
+  # shared with Letflow.ScopeEnforcement.flip/4. Behaviour unchanged.
+  @tenant_admin_role "TENANT_ADMIN"
 
   @doc """
   Returns every role binding sorted by `name` ascending. Returns `[]` (not an error)
@@ -479,6 +481,12 @@ defmodule Letflow.Identity.RoleRegistry do
         end,
         prefix: prefix
       )
+      |> case do
+        # REQ-497 PR 1b (design 6.2 (a)): the kind change rolled back; the guard event is
+        # written in its own transaction, after the rollback.
+        {:error, {:tenant_admin_guard, refusal}} -> TenantAdminGuard.refuse(prefix, refusal, ctx)
+        other -> other
+      end
     rescue
       exception -> {:error, {:transaction_failed, exception}}
     end
@@ -558,11 +566,18 @@ defmodule Letflow.Identity.RoleRegistry do
         role
 
       true ->
+        # REQ-497 PR 1b N1 transition rule: the before-count under lock A and the role row
+        # lock, before the write (nil when this is not a TA unbind).
+        before = unbind_before_count(role, kind, prefix)
+
         case role |> Ecto.Changeset.change(kind: kind) |> Repo.update(prefix: prefix) do
           {:ok, updated} ->
             # REQ-497 W2 (a): inserts on routing -> platform, removes on platform -> routing.
             :ok = RoleScopeGrants.reconcile_binding!(role, updated, prefix)
             :ok = audit_binding_write({:kind_changed, role.kind}, updated, prefix, ctx)
+            # REQ-497 PR 1b N1 (design 6.2 (a)): converting the TENANT_ADMIN platform
+            # binding away from platform must leave a tenant-wide admin. Rolls back on 0.
+            :ok = guard_unbind_tenant_admin(role, before, prefix)
             updated
 
           {:error, changeset} ->
@@ -570,6 +585,23 @@ defmodule Letflow.Identity.RoleRegistry do
         end
     end
   end
+
+  # The trigger of design 6.2 (a): the TENANT_ADMIN platform binding converted away from
+  # platform. Returns the before-count, or nil when the guard does not apply.
+  defp unbind_before_count(
+         %TenantRole{name: @tenant_admin_role, kind: :platform_role},
+         new_kind,
+         prefix
+       )
+       when new_kind != :platform_role,
+       do: TenantAdminGuard.count_before!(prefix)
+
+  defp unbind_before_count(_role, _new_kind, _prefix), do: nil
+
+  defp guard_unbind_tenant_admin(_role, nil, _prefix), do: :ok
+
+  defp guard_unbind_tenant_admin(%TenantRole{} = role, before, prefix),
+    do: TenantAdminGuard.ensure_admins_remain!(prefix, :unbind_tenant_admin, role.id, before)
 
   # GH 2547 (design 3.4, ruling 5 b'): only a grant-relevant binding write is audited,
   # i.e. one over a group with at least one member (any user status). The member list is
@@ -667,6 +699,13 @@ defmodule Letflow.Identity.RoleRegistry do
   GH 2547 (design 3.4b, 6.6): the transaction first takes
   `Letflow.Identity.lock_tenant_admins!/1`; the `role.rebound` entry carries the trace id
   from `opts[:audit_context]` (the actor stays `attrs.actor_id`).
+
+  REQ-497 PR 1b (design `req497-1b-allowed-flag-shadow-n1.md` 6.2 (c)): rebinding the
+  `TENANT_ADMIN` platform binding to a group that leaves no tenant-wide admin rolls back and
+  returns `{:error, :last_tenant_wide_admin}`, after one `tenant_admin.guard_refused` entry
+  (action `rebind_tenant_admin`) is written in its own transaction. GH #2575: a raise inside
+  the transaction (Ecto has already rolled it back) returns
+  `{:error, {:transaction_failed, exception}}`.
   """
   @spec rebind_role(
           role_id :: Ecto.UUID.t(),
@@ -677,8 +716,24 @@ defmodule Letflow.Identity.RoleRegistry do
   def rebind_role(role_id, group_id, %{actor_id: actor_id, reason: reason}, opts) do
     prefix = Keyword.fetch!(opts, :prefix)
     platform_scope? = Keyword.get(opts, :platform_scope, false) == true
-    trace_id = AuditContext.from_opts(opts).trace_id
+    ctx = AuditContext.from_opts(opts)
 
+    try do
+      prefix
+      |> rebind_transaction(role_id, group_id, actor_id, reason, platform_scope?, ctx.trace_id)
+      |> case do
+        {:error, {:tenant_admin_guard, refusal}} ->
+          TenantAdminGuard.refuse(prefix, refusal, %{ctx | actor_id: actor_id})
+
+        other ->
+          other
+      end
+    rescue
+      exception -> {:error, {:transaction_failed, exception}}
+    end
+  end
+
+  defp rebind_transaction(prefix, role_id, group_id, actor_id, reason, platform_scope?, trace_id) do
     Repo.transaction(
       fn ->
         Identity.lock_tenant_admins!(prefix)
@@ -688,7 +743,11 @@ defmodule Letflow.Identity.RoleRegistry do
           Repo.rollback(:platform_admin_outside_platform_tenant)
         end
 
-        trimmed_reason = validate_reason(reason) || Repo.rollback(:invalid_reason)
+        trimmed_reason =
+          case Letflow.Audit.Reason.validate(reason) do
+            {:ok, trimmed} -> trimmed
+            :error -> Repo.rollback(:invalid_reason)
+          end
 
         target =
           case Ecto.UUID.cast(group_id) do
@@ -709,6 +768,12 @@ defmodule Letflow.Identity.RoleRegistry do
   end
 
   defp move_role(role, target, actor_id, reason, prefix, trace_id) do
+    # REQ-497 PR 1b N1 transition rule (design 6.2 (c)): the before-count of a TA platform
+    # binding, under lock A and the role row lock, before the write.
+    before =
+      if role.name == @tenant_admin_role and role.kind == :platform_role,
+        do: TenantAdminGuard.count_before!(prefix)
+
     updated =
       role
       |> Ecto.Changeset.change(group_id: target)
@@ -719,8 +784,14 @@ defmodule Letflow.Identity.RoleRegistry do
         {:error, changeset} -> Repo.rollback(changeset)
       end
 
-    # REQ-497 W3: the binding's grant rows follow it to the target group (no rescue in 1a).
+    # REQ-497 W3: the binding's grant rows follow it to the target group (a raise is
+    # caught by rebind_role/4's rescue since PR 1b, GH #2575).
     :ok = RoleScopeGrants.reconcile_binding!(role, updated, prefix)
+
+    # REQ-497 PR 1b N1 (design 6.2 (c)): after the move, before the role.rebound audit.
+    if is_integer(before) do
+      :ok = TenantAdminGuard.ensure_admins_remain!(prefix, :rebind_tenant_admin, role.id, before)
+    end
 
     attrs = %{
       actor_id: actor_id,
@@ -749,19 +820,6 @@ defmodule Letflow.Identity.RoleRegistry do
   defp share_lock_group(group_id, prefix) do
     Repo.one(from(g in Group, where: g.id == ^group_id, lock: "FOR SHARE"), prefix: prefix)
   end
-
-  # nil when the reason is not acceptable; the trimmed reason otherwise.
-  defp validate_reason(reason) when is_binary(reason) do
-    trimmed = String.trim(reason)
-
-    # Codepoints, not graphemes (String.length/1 counts graphemes).
-    if String.valid?(trimmed) and length(String.codepoints(trimmed)) in 1..@max_reason_codepoints and
-         not String.match?(trimmed, @reason_forbidden_pattern) do
-      trimmed
-    end
-  end
-
-  defp validate_reason(_reason), do: nil
 
   defp validate_role_name(name) do
     cond do

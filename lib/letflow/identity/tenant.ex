@@ -93,6 +93,11 @@ defmodule Letflow.Identity.Tenant do
     # (PLATFORM_ADMIN); never in any pre-auth or tenant-admin-readable shape (INV-2).
     field(:login_disclosure_mode, :string)
 
+    # REQ-497 PR 1b (decision 0051 D12): the per-tenant scope-enforcement flag, read per
+    # request by both auth paths from this row. Cast ONLY by scope_enforcement_changeset/2
+    # (written only by Letflow.ScopeEnforcement.flip/4); `on` does not exist in stage 1.
+    field(:scope_enforcement, Ecto.Enum, values: [:off, :shadow], default: :off)
+
     timestamps()
   end
 
@@ -151,6 +156,24 @@ defmodule Letflow.Identity.Tenant do
     |> cast(attrs, [:display_name, :login_disclosure_mode])
     |> validate_inclusion(:login_disclosure_mode, @login_disclosure_modes)
     |> check_constraint(:login_disclosure_mode, name: :tenants_login_disclosure_mode_check)
+  end
+
+  @doc """
+  REQ-497 PR 1b (decision 0051 D12; design `req497-1b-allowed-flag-shadow-n1.md` section
+  3.1): the ONLY changeset that casts `:scope_enforcement`. Casts nothing else. Its one
+  caller is `Letflow.ScopeEnforcement.flip/4`, which runs the server-side preconditions and
+  the audit entry in the same transaction. The DB CHECK `tenants_scope_enforcement_check`
+  is mapped to a changeset error.
+  """
+  @spec scope_enforcement_changeset(
+          tenant :: %__MODULE__{},
+          attrs :: %{scope_enforcement: :off | :shadow}
+        ) :: Ecto.Changeset.t()
+  def scope_enforcement_changeset(tenant, attrs) do
+    tenant
+    |> cast(attrs, [:scope_enforcement])
+    |> validate_required([:scope_enforcement])
+    |> check_constraint(:scope_enforcement, name: :tenants_scope_enforcement_check)
   end
 
   @realm_id_regex ~r/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}\z/

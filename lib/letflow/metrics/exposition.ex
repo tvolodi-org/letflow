@@ -14,7 +14,7 @@ defmodule Letflow.Metrics.Exposition do
 
   alias Letflow.Metrics.Registry
 
-  # {family, kind, prometheus_name, help_text} -- the six OBS-02 families (design §3),
+  # {family, kind, prometheus_name, help_text} -- the seven families (six OBS-02, design §3; one REQ-497 PR 1b),
   # in a fixed rendering order.
   @families [
     {:active_instances, :gauge, "letflow_active_instances",
@@ -31,7 +31,10 @@ defmodule Letflow.Metrics.Exposition do
     {:http_requests_total, :counter, "letflow_http_requests_total",
      "Total number of HTTP requests, labelled by method/route_template/status."},
     {:http_errors_total, :counter, "letflow_http_errors_total",
-     "Total number of HTTP responses with status >= 500, labelled by route_template."}
+     "Total number of HTTP responses with status >= 500, labelled by route_template."},
+    # REQ-497 PR 1b (design 4.3): shadow-mode scope would-denies.
+    {:scope_shadow_would_deny_total, :counter, "letflow_scope_shadow_would_deny_total",
+     "Total number of shadow-mode org-scope would-deny decisions, labelled by reason."}
   ]
 
   @spec render() :: String.t()
