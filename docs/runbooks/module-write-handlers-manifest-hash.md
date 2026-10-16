@@ -8,15 +8,18 @@ handlers.
 
 ## Status
 
-PR R3 adds the ACTIVATION checks. No handler is executed yet (R4b), so today the only visible
-effects are (a) a definition that declares `module_writes` is validated when it is activated and
-(b) a completion of a task whose node declares `module_writes` is refused with a 500 and the task
-stays pending. No production tenant uses handlers.
+PR R3 added the ACTIVATION checks; PR R4b (this revision) executes the handlers on a HUMAN_TASK
+completion and re-runs the same checks at every completion. A definition that declares
+`module_writes` is validated when it is activated, and a completion of a task whose node declares
+`module_writes` runs the handler inside the completion transaction (or is refused with a 403
+`write_not_permitted` and the task stays pending, see the table below). No production tenant uses
+handlers.
 
 ## The rule (strict equality)
 
 A process definition may call a module's write handler only if ALL of these hold at activation
-(and, from R4b, again at every completion):
+and again at every completion (the pre-transaction authorization, plus a no-lock recheck of the
+install row and both hashes inside the transaction):
 
 1. the definition version was created by that module's install (it carries the ownership stamp);
 2. the manifest hash recorded at install (`tenant_modules.manifest_hash`) equals the stamp;
@@ -39,7 +42,11 @@ whenever handler behaviour changes.
 | Activating a new version of a handler-calling definition | 422 `entity_writes_invalid` with a violation `code: "module_write_hash_mismatch"` at the handler line's `index` |
 | Rolling back to an older stamped version, or a promotion apply | the same 422 |
 | A tenant whose module was installed before the hash column existed (pre-R2 install, no recorded hash) | the same 422 on activation: reinstall the module (OQ-R7, no backfill) |
-| Completing an in-flight task of a handler-calling definition (R4b onward) | 403 `write_not_permitted` with the handler call's `line_index`; the task stays `pending`; the tenant audit log has an `entity_write.refused` entry with detail `hash_mismatch` |
+| Completing an in-flight task of a handler-calling definition (R4b onward) | 403 `write_not_permitted` with the handler call's DECLARED `line_index` (declarative lines come first, so a node with N declarative lines reports N for its first handler call); the task stays `pending`; nothing is committed; the tenant audit log has an `entity_write.refused` entry with detail `hash_mismatch` (the detail also reads `hash_mismatch` when the install row has no recorded hash) |
+| A completion on a tenant that was never replayed to the `TASK_ENTITY_WRITES_APPLIED` v2 event schema | the same 403; audit detail `event_schema_outdated`; run `TenantProvisioning.replay_all_pending/0` (see Rollout) |
+| A completion whose stamp, installed module, handler or pinned graph no longer matches | the same 403; audit detail `stamp_missing`, `stamp_mismatch`, `module_not_installed`, `handler_unknown`, `body_changed`, `arg_unknown` or `arg_missing` |
+| A handler that rejects its arguments | 422 `validation_failed`, same `line_index`; audit detail `handler_invalid_arguments` |
+| A handler fault (raise, throw, exit, contract violation) | 500 with no body detail; the log line carries the module id and handler name only |
 
 Tasks are not lost: they complete after the module is upgraded to the matching manifest.
 
@@ -58,10 +65,22 @@ contain a hash; compare `tenant_modules.manifest_hash` with the build's
 * Deleting a stamped definition does not stop its pinned running instances: a completion of a node
   declaring `module_writes` fails closed (the pinned snapshot carries the graph).
 
-## R4b removal note
+## Rollout: replay every tenant BEFORE deploying a build that emits handler lines
 
-R3's interim completion guard (`check_module_writes_unsupported/2`) is deleted by R4b. The R4b
-executor MUST re-verify, at execution time and before any handler runs, the install row
-(`tenant_modules`), the installed manifest hash against the stamp AND the compiled manifest hash,
-and the body hash of the pinned snapshot. Activation-time checks alone are not enough: the
-tenant's install state and the build can change between activation and completion.
+A handler write adds three keys (`handler_module`, `handler`, `write_ordinal`) to the lines of the
+`TASK_ENTITY_WRITES_APPLIED` instance event. Only schema version 2 of that event type accepts
+them, and a tenant gains v2 ONLY when `Letflow.TenantProvisioning.replay_all_pending/0` has run for
+it (provisioning and onboarding run the same replay; nothing in `lib/` calls the sweep at boot).
+Before the first build that lets a tenant complete a handler-calling task is deployed, run
+`replay_all_pending/0` and confirm every tenant's highest `TASK_ENTITY_WRITES_APPLIED` version in
+`event_type_registry` is 2. The engine refuses a handler completion on a tenant without v2
+(403 `write_not_permitted`, audit detail `event_schema_outdated`, nothing committed): that refusal
+is the fail-closed backstop, not the plan.
+
+## R4b note: what the removal of the interim guard changed
+
+R3's interim completion guard (`check_module_writes_unsupported/2`, a 500 for every completion of
+a `module_writes` node) is gone. A deleted stamped definition whose pinned instances are still
+running still fails closed: the node declares writes but the completion has no readable
+definition row, so it is refused as an internal failure (500, nothing committed) by the existing
+"lines but no plan" guard.

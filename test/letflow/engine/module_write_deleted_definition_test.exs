@@ -1,6 +1,8 @@
 defmodule Letflow.Engine.ModuleWriteDeletedDefinitionTest do
   @moduledoc """
-  GH #2590 / REQ-501 PR R3 (design OQ-R9, 6.3, section 11 row "Deleted stamped definition"):
+  GH #2590 / REQ-501 PR R3 (design OQ-R9, 6.3, section 11 row "Deleted stamped definition"), flipped by R4b
+  (R3's interim guard is deleted; the existing plan-independent "lines but no plan" guard now covers
+  `module_writes` too and refuses with the same internal failure as for a declarative node):
   the tenant owns the lifecycle of a module-shipped definition, so its row can disappear while
   instances pinned to it are running. Those instances must fail CLOSED: a completion of a node
   declaring `module_writes` is refused, never executed without a readable stamp. Nothing is
@@ -49,7 +51,9 @@ defmodule Letflow.Engine.ModuleWriteDeletedDefinitionTest do
     delete_definition_row!(ctx)
     before = written(ctx)
 
-    assert {:error, {:entity_write_failed, 0, :module_writes_not_enabled}} =
+    # no readable row, so no plan: refused by the plan-independent "node declares writes but
+    # has no plan" guard (R4b keeps it for `module_writes`; it no longer needs a dedicated guard)
+    assert {:error, {:entity_write_failed, 0, :not_planned}} =
              Fx.complete(ctx, %{"label" => "L1"})
 
     assert written(ctx) == before

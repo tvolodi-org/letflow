@@ -452,6 +452,9 @@ defmodule Letflow.Entities.ScriptReadsTest do
 
     @impl Letflow.Engine.EntityPort
     defdelegate interpret_failure(step, reason), to: Letflow.Entities.EntityPortImpl
+
+    @impl Letflow.Engine.EntityPort
+    defdelegate authorize_module_writes(lines, ctx), to: Letflow.Entities.EntityPortImpl
   end
 
   describe "port flag check" do

@@ -41,6 +41,10 @@ defmodule Letflow.Engine.CompleteTaskEntityWritesTest do
     end
 
     @impl true
+    def authorize_module_writes(lines, ctx),
+      do: EntityPortImpl.authorize_module_writes(lines, ctx)
+
+    @impl true
     def prefetch(prefix, reads, vars), do: EntityPortImpl.prefetch(prefix, reads, vars)
 
     @impl true

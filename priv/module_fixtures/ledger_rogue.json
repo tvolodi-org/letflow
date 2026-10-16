@@ -1,28 +1,506 @@
 {
-  "pack_id": "fixture-ledger-rogue",
-  "version": "0.1.0",
   "bpm_export_schema_version": "bpm/definition/v1",
+  "definitions": [
+    {
+      "definition_id": "00501000-0000-0040-0080-000000000030",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "ht"
+          },
+          {
+            "id": "e2",
+            "source": "ht",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {},
+                  "handler": "raises",
+                  "module": "fixture_ledger_rogue"
+                }
+              ],
+              "role": "REVIEWER"
+            },
+            "id": "ht",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "fxr_raises",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000000031",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "ht"
+          },
+          {
+            "id": "e2",
+            "source": "ht",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {},
+                  "handler": "denies",
+                  "module": "fixture_ledger_rogue"
+                }
+              ],
+              "role": "REVIEWER"
+            },
+            "id": "ht",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "fxr_denies",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000000032",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "ht"
+          },
+          {
+            "id": "e2",
+            "source": "ht",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {},
+                  "handler": "bad_return",
+                  "module": "fixture_ledger_rogue"
+                }
+              ],
+              "role": "REVIEWER"
+            },
+            "id": "ht",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "fxr_bad_return",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000000033",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "ht"
+          },
+          {
+            "id": "e2",
+            "source": "ht",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {},
+                  "handler": "throws",
+                  "module": "fixture_ledger_rogue"
+                }
+              ],
+              "role": "REVIEWER"
+            },
+            "id": "ht",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "fxr_throws",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000000034",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "ht"
+          },
+          {
+            "id": "e2",
+            "source": "ht",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {},
+                  "handler": "exits",
+                  "module": "fixture_ledger_rogue"
+                }
+              ],
+              "role": "REVIEWER"
+            },
+            "id": "ht",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "fxr_exits",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000000035",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "ht"
+          },
+          {
+            "id": "e2",
+            "source": "ht",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {},
+                  "handler": "drop_policy",
+                  "module": "fixture_ledger_rogue"
+                }
+              ],
+              "role": "REVIEWER"
+            },
+            "id": "ht",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "fxr_drop_policy",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000000036",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "ht"
+          },
+          {
+            "id": "e2",
+            "source": "ht",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {},
+                  "handler": "run_after_create",
+                  "module": "fixture_ledger_rogue"
+                }
+              ],
+              "role": "REVIEWER"
+            },
+            "id": "ht",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "fxr_run_after_create",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000000037",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "ht"
+          },
+          {
+            "id": "e2",
+            "source": "ht",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {},
+                  "handler": "writes_foreign_type",
+                  "module": "fixture_ledger_rogue"
+                }
+              ],
+              "role": "REVIEWER"
+            },
+            "id": "ht",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "fxr_writes_foreign_type",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000000038",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "ht"
+          },
+          {
+            "id": "e2",
+            "source": "ht",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {},
+                  "handler": "invalid",
+                  "module": "fixture_ledger_rogue"
+                }
+              ],
+              "role": "REVIEWER"
+            },
+            "id": "ht",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "fxr_invalid",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000000039",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "ht"
+          },
+          {
+            "id": "e2",
+            "source": "ht",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {},
+                  "handler": "out_of_range_step",
+                  "module": "fixture_ledger_rogue"
+                }
+              ],
+              "role": "REVIEWER"
+            },
+            "id": "ht",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "fxr_out_of_range_step",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000000040",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "ht"
+          },
+          {
+            "id": "e2",
+            "source": "ht",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "module_writes": [
+                {
+                  "args": {},
+                  "handler": "loose_step",
+                  "module": "fixture_ledger_rogue"
+                }
+              ],
+              "role": "REVIEWER"
+            },
+            "id": "ht",
+            "node_type": "HUMAN_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "fxr_loose_step",
+      "version": "1.0.0"
+    }
+  ],
+  "entity_definitions": [
+    {
+      "definition_json": {
+        "description": "REQ-501 R4a test fixture (managed by fixture_ledger_rogue).",
+        "display_name": "Fixture Rogue Thing",
+        "fields": [
+          {
+            "name": "item",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "name": "fxr_thing"
+      },
+      "display_name": "Fixture Rogue Thing",
+      "entity_definition_id": "00501000-0000-0040-0080-000000000020",
+      "logical_shape_version": "5010000000000000000000000000000000000000000000000000000000000020",
+      "name": "fxr_thing"
+    }
+  ],
   "exported_at": "2026-10-16T00:00:00Z",
   "manifest": {
     "required_roles": []
   },
-  "definitions": [],
-  "variable_schemas": [],
+  "pack_id": "fixture-ledger-rogue",
   "service_catalog_entries": [],
-  "entity_definitions": [
-    {
-      "entity_definition_id": "00501000-0000-0040-0080-000000000020",
-      "name": "fxr_thing",
-      "display_name": "Fixture Rogue Thing",
-      "logical_shape_version": "5010000000000000000000000000000000000000000000000000000000000020",
-      "definition_json": {
-        "name": "fxr_thing",
-        "display_name": "Fixture Rogue Thing",
-        "description": "REQ-501 R4a test fixture (managed by fixture_ledger_rogue).",
-        "fields": [
-          { "name": "item", "type": "string", "required": true }
-        ]
-      }
-    }
-  ]
+  "variable_schemas": [],
+  "version": "0.1.0"
 }

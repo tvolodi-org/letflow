@@ -57,7 +57,9 @@ defmodule Letflow.Engine.EntityPortBoundaryTest do
     assert EntityPort in behaviours
 
     callbacks = EntityPort.behaviour_info(:callbacks)
-    assert length(callbacks) == 5
+    # prefetch, prepare, validate_lines, multi, interpret_failure + (GH #2590 R4b)
+    # authorize_module_writes
+    assert length(callbacks) == 6
 
     for {name, arity} <- callbacks do
       assert function_exported?(Letflow.Entities.EntityPortImpl, name, arity), "#{name}/#{arity}"

@@ -119,20 +119,34 @@ defmodule Letflow.Definitions.ModuleWrites do
 
     {line_violations, cap_violations} =
       if is_list(writes) and node_type == :HUMAN_TASK do
-        stamp_state = stamp_state(definition, prefix)
-
-        {writes
-         |> Enum.with_index()
-         |> Enum.flat_map(fn {line, index} ->
-           for code <- line_codes(line, stamp_state),
-               do: %{index: entity_write_count + index, code: code}
-         end), cap_violations(writes, entity_write_count)}
+        {line_violations(writes, definition, entity_write_count, prefix),
+         cap_violations(writes, entity_write_count)}
       else
         {[], []}
       end
 
     Enum.map(node_codes ++ activator_node_codes, &%{index: 0, code: &1}) ++
       cap_violations ++ line_violations
+  end
+
+  @doc """
+  The per-line violations of a list of `module_writes` lines alone (no node-level, activator or
+  cap codes), in declared order, each at `entity_write_count + position`. The shared core of
+  activation (`violations/6`) and the engine's RUN-TIME authorization
+  (`Letflow.Entities.HandlerWrites.authorize_module_writes/2`, GH #2590 R4b), so the two cannot
+  drift. `definition` is the row (or a map with the `owner_*` columns and a `:graph`).
+  """
+  @spec line_violations([term()], map(), non_neg_integer(), String.t()) :: [violation()]
+  def line_violations(writes, definition, entity_write_count, prefix)
+      when is_list(writes) and is_integer(entity_write_count) and is_binary(prefix) do
+    stamp_state = stamp_state(definition, prefix)
+
+    writes
+    |> Enum.with_index()
+    |> Enum.flat_map(fn {line, index} ->
+      for code <- line_codes(line, stamp_state),
+          do: %{index: entity_write_count + index, code: code}
+    end)
   end
 
   # Entity lines alone above the cap are reported by the entity validator already; this adds

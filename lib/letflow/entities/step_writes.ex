@@ -31,6 +31,18 @@ defmodule Letflow.Entities.StepWrites do
   Until decision 0051 `scope_node` exists the scoped-type and scope-column predicates are
   vacuous (OQ-B6): a pilot limit, not a guarantee.
 
+  ## `module_writes` (GH #2590 / REQ-501 R4b; design 4.5, 6.1)
+
+  `prepare/2` and `multi/3` also take the node's `module_writes` lines from the context
+  (`ctx.module_writes`). `prepare/2` adds the registered targets of the verified handlers to the
+  same sorted pass (`HandlerWrites.prepare_targets/2`); `multi/3` takes one ascending
+  `{:type_lock, type}` step per type of the declarative-plus-handler union right after
+  `:entity_writes_started`, builds the declarative lines exactly as before, then each handler
+  call (`HandlerWrites.build_call/4`, behind its own `{:line, k0, :deadline}` guard), and ends
+  with `:entity_writes`. The 20-line cap is on the COMBINED count. A node without `module_writes`
+  builds exactly the steps it always did. `interpret_failure/2` maps a handler-range step key
+  (`20 + line_index * 50 + ordinal`) back to the DECLARED line index.
+
   ## `validate_lines/2` (PR B1; design `gh2587-req499-pr-b-human-task-writes.md` section 6)
 
   Activation-time validation of one node's declared lines. It reports EVERY violation as
@@ -71,6 +83,7 @@ defmodule Letflow.Entities.StepWrites do
   alias Letflow.Entities.Definitions
   alias Letflow.Entities.EntityDefinition
   alias Letflow.Entities.EntityTypeInstance
+  alias Letflow.Entities.HandlerWrites
   alias Letflow.Entities.ProcessWritable
   alias Letflow.Entities.Query.FieldGrants
   alias Letflow.Entities.Record.Latest
@@ -97,28 +110,37 @@ defmodule Letflow.Entities.StepWrites do
           | {:error, :entity_write_contention}
           | {:error, :prepare_inside_transaction}
           | {:error, {:entity_type_prepare_failed, String.t()}}
-  def prepare([], %{prefix: prefix}) when is_binary(prefix), do: :ok
+  def prepare(lines, %{prefix: prefix} = ctx) when is_list(lines) and is_binary(prefix) do
+    module_lines = Map.get(ctx, :module_writes, [])
 
-  def prepare(lines, %{prefix: prefix}) when is_list(lines) and is_binary(prefix) do
-    if Repo.in_transaction?() do
-      {:error, :prepare_inside_transaction}
-    else
-      types =
-        lines
-        |> Enum.flat_map(fn
-          %{"entity_type" => type} when is_binary(type) -> [type]
-          _ -> []
-        end)
-        |> Enum.uniq()
-        |> Enum.sort()
+    cond do
+      lines == [] and module_lines == [] ->
+        :ok
 
-      run_prepare(types, prefix)
+      Repo.in_transaction?() ->
+        {:error, :prepare_inside_transaction}
+
+      true ->
+        types =
+          lines
+          |> Enum.flat_map(fn
+            %{"entity_type" => type} when is_binary(type) -> [type]
+            _ -> []
+          end)
+          |> Enum.uniq()
+          |> Enum.sort()
+
+        # GH #2590 R4b: the registered targets of verified `module_writes` lines join the same
+        # sorted list and the same short transaction (design 4.5, F-7).
+        handler_types = HandlerWrites.prepare_targets(module_lines, prefix)
+
+        run_prepare(types, handler_types, prefix)
     end
   end
 
-  defp run_prepare([], _prefix), do: :ok
+  defp run_prepare([], [], _prefix), do: :ok
 
-  defp run_prepare(types, prefix) do
+  defp run_prepare(types, handler_types, prefix) do
     result =
       try do
         Repo.transaction(fn ->
@@ -133,7 +155,14 @@ defmodule Letflow.Entities.StepWrites do
 
           Repo.query!(@set_lock_timeout)
           Repo.query!(@set_statement_timeout)
-          Enum.each(types, &ensure_instance(&1, prefix))
+
+          # One ascending pass over the union, so declarative and handler instances are created
+          # in one global order (0054 D3).
+          for type <- Enum.sort(Enum.uniq(types ++ handler_types)) do
+            if type in types, do: ensure_instance(type, prefix)
+            if type in handler_types, do: ensure_handler_instance(type, prefix)
+          end
+
           Repo.query!("SELECT set_config('lock_timeout', $1, true)", [previous_lock])
           Repo.query!("SELECT set_config('statement_timeout', $1, true)", [previous_statement])
         end)
@@ -150,6 +179,15 @@ defmodule Letflow.Entities.StepWrites do
     case result do
       {:ok, _} -> :ok
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # A handler's registered target (already filtered to a type its module manages, F-7): no
+  # process-writable filter, a managed type can never carry the flag (F-R7).
+  defp ensure_handler_instance(type, prefix) do
+    case EntityTypeInstance.get_or_create(type, prefix) do
+      {:ok, _instance_id} -> :ok
+      {:error, _} -> Repo.rollback({:entity_type_prepare_failed, type})
     end
   end
 
@@ -459,27 +497,41 @@ defmodule Letflow.Entities.StepWrites do
 
   @doc """
   Appends the per-line write steps and the closing `:entity_writes` step to `multi`. With no
-  lines it is the identity. See the moduledoc.
+  lines and no `module_writes` it is the identity. See the moduledoc.
+
+  GH #2590 R4b (design 6.1): when `ctx` carries `module_writes` the order is `:entity_writes_started`,
+  one `{:type_lock, type}` per type in the ASCENDING union of the declarative line types and the
+  handlers' registered targets (`HandlerWrites.lock_types/3`), the declarative lines (sorted by
+  `(entity_type, index)`, unchanged), then each handler call in declared order
+  (`HandlerWrites.build_call/4`, each behind its own `{:line, k0, :deadline}` guard), then
+  `:entity_writes`. A node without `module_writes` builds exactly the steps it always did.
   """
   @spec multi(Ecto.Multi.t(), [EntityPort.line()], EntityPort.multi_ctx()) :: Ecto.Multi.t()
-  def multi(%Multi{} = multi, [], _ctx), do: multi
-
-  # I-B6: the cap is re-enforced here as defence in depth (the engine's plan refuses first).
-  def multi(%Multi{} = multi, lines, _ctx) when is_list(lines) and length(lines) > @max_lines,
-    # NOTE: key 20 is also `StepSource.call_key(0)` of a handler call; never both (step_source.ex).
-    do: Multi.error(multi, {:line, @max_lines, :build}, :line_malformed)
-
   def multi(%Multi{} = multi, lines, ctx) when is_list(lines) and is_map(ctx) do
-    Multi.merge(multi, fn changes ->
-      if ctx.skip?.(changes) do
-        Multi.run(Multi.new(), :entity_writes, fn _repo, _changes -> {:ok, :skipped} end)
-      else
-        build_lines(lines, ctx, ctx.variables.(changes))
-      end
-    end)
+    module_lines = Map.get(ctx, :module_writes, [])
+
+    cond do
+      lines == [] and module_lines == [] ->
+        multi
+
+      # I-B6: the COMBINED cap is re-enforced here as defence in depth (the engine's plan
+      # refuses first, and runs before any Multi is built). NOTE: key 20 is also
+      # `StepSource.call_key(0)` of a handler call; they never coexist because of this cap.
+      length(lines) + length(module_lines) > @max_lines ->
+        Multi.error(multi, {:line, @max_lines, :build}, :line_malformed)
+
+      true ->
+        Multi.merge(multi, fn changes ->
+          if ctx.skip?.(changes) do
+            Multi.run(Multi.new(), :entity_writes, fn _repo, _changes -> {:ok, :skipped} end)
+          else
+            build_lines(lines, module_lines, ctx, ctx.variables.(changes))
+          end
+        end)
+    end
   end
 
-  defp build_lines(lines, ctx, variables) do
+  defp build_lines(lines, module_lines, ctx, variables) do
     now_fun = Map.get(ctx, :now_fun, fn -> System.monotonic_time(:millisecond) end)
 
     indexed =
@@ -492,16 +544,18 @@ defmodule Letflow.Entities.StepWrites do
         {:ok, now_fun.()}
       end)
 
+    guard = fn _repo, changes ->
+      if now_fun.() - Map.fetch!(changes, :entity_writes_started) > @guard_budget_ms,
+        do: {:error, :deadline_exceeded},
+        else: {:ok, :within_budget}
+    end
+
+    locked = lock_types(started, lines, module_lines, ctx.prefix)
+
     indexed
-    |> Enum.reduce_while({:ok, started}, fn {line, index}, {:ok, acc} ->
+    |> Enum.reduce_while({:ok, locked}, fn {line, index}, {:ok, acc} ->
       case build_line(line, index, ctx, variables) do
         {:ok, line_multi} ->
-          guard = fn _repo, changes ->
-            if now_fun.() - Map.fetch!(changes, :entity_writes_started) > @guard_budget_ms,
-              do: {:error, :deadline_exceeded},
-              else: {:ok, :within_budget}
-          end
-
           acc =
             acc
             |> Multi.run({:line, index, :deadline}, guard)
@@ -518,8 +572,10 @@ defmodule Letflow.Entities.StepWrites do
     end)
     |> case do
       {:ok, acc} ->
-        Multi.run(acc, :entity_writes, fn _repo, changes ->
-          {:ok, assemble_result(indexed, lines, changes)}
+        acc
+        |> append_handler_calls(lines, module_lines, ctx, variables, guard)
+        |> Multi.run(:entity_writes, fn _repo, changes ->
+          {:ok, assemble_result(indexed, lines, module_lines, changes)}
         end)
 
       {:error, index, reason} ->
@@ -528,6 +584,55 @@ defmodule Letflow.Entities.StepWrites do
         Multi.error(Multi.new(), {:line, index, :build}, reason)
     end
   end
+
+  # Type locks (0054 D3 rule 4) for a node with `module_writes` only: the ascending union of
+  # the declarative line types and the handlers' registered targets, taken BEFORE any write
+  # step so a handler can neither reorder nor skip them. A type without a synthetic instance
+  # (not process-writable, no active definition, a target whose row another module manages) is
+  # not locked: nothing can be written to it, and its own line step refuses with the same
+  # per-line result a node without `module_writes` gives.
+  defp lock_types(multi, _lines, [], _prefix), do: multi
+
+  defp lock_types(multi, lines, module_lines, prefix) do
+    declarative =
+      for %{"entity_type" => type} <- lines, is_binary(type), do: type
+
+    types =
+      (declarative ++ HandlerWrites.registered_targets(module_lines))
+      |> Enum.uniq()
+      |> Enum.filter(&match?({:ok, _id}, EntityTypeInstance.fetch_instance_id(&1, prefix)))
+
+    HandlerWrites.lock_types(multi, types, prefix)
+  end
+
+  # Handler calls, in declared order, after every declarative line. Call `j` has
+  # `line_index = length(lines) + j`; its call-level key is `StepSource.call_key/1`.
+  defp append_handler_calls(multi, _lines, [], _ctx, _variables, _guard), do: multi
+
+  defp append_handler_calls(multi, lines, module_lines, ctx, variables, guard) do
+    base = %{
+      prefix: ctx.prefix,
+      instance_id: ctx.instance_id,
+      origin: {:task, ctx.task_id},
+      node_id: ctx.node_id,
+      definition_id: ctx.definition_id,
+      definition_version: ctx.definition_version,
+      actor_id: ctx.actor_id,
+      activator_id: ctx.activator_id,
+      manifest_hash: owner_manifest_hash(ctx)
+    }
+
+    module_lines
+    |> Enum.with_index(length(lines))
+    |> Enum.reduce(multi, fn {line, line_index}, acc ->
+      acc
+      |> Multi.run({:line, StepSource.call_key(line_index), :deadline}, guard)
+      |> HandlerWrites.build_call(Map.put(base, :line_index, line_index), line, variables)
+    end)
+  end
+
+  defp owner_manifest_hash(%{owner: %{manifest_hash: hash}}) when is_binary(hash), do: hash
+  defp owner_manifest_hash(_ctx), do: nil
 
   defp sort_type(%{"entity_type" => type}) when is_binary(type), do: type
   defp sort_type(_line), do: ""
@@ -634,8 +739,8 @@ defmodule Letflow.Entities.StepWrites do
 
   defp process_policy(_other), do: {:error, :not_writable_by_process}
 
-  defp assemble_result(indexed, lines, changes) do
-    applied =
+  defp assemble_result(indexed, lines, module_lines, changes) do
+    declarative_applied =
       indexed
       |> Enum.map(fn {line, index} ->
         %Latest{record_id: record_id} = Map.fetch!(changes, {:line, index, :upsert_record_latest})
@@ -651,6 +756,8 @@ defmodule Letflow.Entities.StepWrites do
       end)
       |> Enum.sort_by(& &1.line_index)
 
+    applied = declarative_applied ++ handler_applied(lines, module_lines, changes)
+
     sys_values =
       applied
       |> Enum.filter(&is_binary(&1.output_var))
@@ -658,15 +765,55 @@ defmodule Letflow.Entities.StepWrites do
         acc |> Map.put(var, id) |> Map.put(var <> ".seq", seq)
       end)
 
-    %{applied: applied, lines_hash: lines_hash(lines), sys_values: sys_values}
+    %{
+      applied: applied,
+      lines_hash: lines_hash(hash_input(lines, module_lines)),
+      sys_values: sys_values
+    }
+  end
+
+  # `lines_hash` of a node WITHOUT `module_writes` stays the hash of the declarative list
+  # (byte-identical); with it, the hash covers both attributes (design 4.7).
+  defp hash_input(lines, []), do: lines
+
+  defp hash_input(lines, module_lines),
+    do: %{"entity_writes" => lines, "module_writes" => module_lines}
+
+  # One applied entry per handler `create/3`, found by its namespace key (>= 20): ids and
+  # sequences only (INV-2), plus the handler's module id, name and write ordinal. In declared
+  # order (call, then ordinal).
+  defp handler_applied(_lines, [], _changes), do: []
+
+  defp handler_applied(lines, module_lines, changes) do
+    for {{:line, key, :insert_event}, %{global_seq: seq}} <- changes,
+        key >= StepSource.call_key(0) do
+      line_index = StepSource.declared_line_index(key)
+
+      %Latest{record_id: record_id, entity_type: entity_type} =
+        Map.fetch!(changes, {:line, key, :upsert_record_latest})
+
+      line = Enum.at(module_lines, line_index - length(lines))
+
+      %{
+        line_index: line_index,
+        entity_type: entity_type,
+        record_id: record_id,
+        event_global_seq: seq,
+        output_var: nil,
+        handler_module: Map.get(line, "module"),
+        handler: Map.get(line, "handler"),
+        write_ordinal: key - StepSource.call_key(line_index)
+      }
+    end
+    |> Enum.sort_by(&{&1.line_index, &1.write_ordinal})
   end
 
   @doc """
   Canonical SHA-256 (lowercase hex) of the declared `lines`: key-sorted JSON, so it is a
   function of the line content alone.
   """
-  @spec lines_hash([EntityPort.line()]) :: String.t()
-  def lines_hash(lines) when is_list(lines) do
+  @spec lines_hash([EntityPort.line()] | map()) :: String.t()
+  def lines_hash(lines) when is_list(lines) or is_map(lines) do
     :sha256 |> :crypto.hash(canonical(lines)) |> Base.encode16(case: :lower)
   end
 
@@ -694,16 +841,57 @@ defmodule Letflow.Entities.StepWrites do
   is a closed class for the tenant audit entry only (INV-5): the public body never carries it.
   """
   @spec interpret_failure(term(), term()) :: EntityPort.failure()
-  def interpret_failure({:line, i, :deadline}, _reason) when is_integer(i),
+  def interpret_failure({:line, key, step} = name, reason)
+      when is_integer(key) and is_atom(step) do
+    interpret_line(public_index(key, reason), name, step, reason)
+  end
+
+  # A type-lock step (GH #2590 R4b) can only fail on a database error: an internal fault, never
+  # a client refusal (a type without an instance is not locked at all).
+  def interpret_failure({:type_lock, type}, _reason) when is_binary(type),
+    do: {:failed, 0, :type_lock}
+
+  def interpret_failure(_step, _reason), do: :not_a_line_failure
+
+  # The DECLARED line index of a step key: a declarative key is its own index; a handler-range
+  # key (`20 + line_index * 50 + ordinal`) maps back to the call's declared index. The overflow
+  # failure `{:line, 20, :build}, :line_malformed` of `multi/3` (a 21st combined line) keeps its
+  # historical public index 20; a handler call at declared index 0 also has key 20 but can never
+  # fail with `:line_malformed` (its build reasons are the `:handler_*` atoms), and the two never
+  # coexist (the combined cap precedes any Multi).
+  defp public_index(key, :line_malformed) when key == @max_lines, do: key
+
+  defp public_index(key, _reason) do
+    case StepSource.declared_line_index(key) do
+      :declarative -> key
+      line_index -> line_index
+    end
+  end
+
+  defp interpret_line(i, _name, :deadline, _reason),
     do: {:refused, i, :entity_write_contention, :deadline}
 
-  def interpret_failure({:line, i, :build}, reason) when is_integer(i) do
+  # Handler call: the install row or a hash changed between the pre-transaction authorization
+  # and this step (TOCTOU), checked again with no lock.
+  defp interpret_line(i, _name, :owner_recheck, :hash_mismatch),
+    do: {:refused, i, :write_not_permitted, :hash_mismatch}
+
+  defp interpret_line(i, _name, :owner_recheck, _reason), do: {:failed, i, :owner_recheck}
+
+  defp interpret_line(i, _name, :build, reason) do
     case reason do
       :line_malformed -> {:refused, i, :validation_failed, :malformed}
       :op_unsupported -> {:refused, i, :entity_append_only, :op_unsupported}
       :line_not_authorized -> {:refused, i, :write_not_permitted, :not_authorized}
       :field_restricted -> {:refused, i, :write_not_permitted, :field_restricted}
       :entity_type_managed -> {:refused, i, :write_not_permitted, :managed}
+      # GH #2590 R4b, handler call build failures (design 8): a handler that is no longer
+      # registered or said "not permitted" is the uniform 403; bad arguments are a 422; a
+      # contract violation or a raise is an internal failure (the body carries no detail).
+      :handler_unknown -> {:refused, i, :write_not_permitted, :handler_unknown}
+      :handler_not_permitted -> {:refused, i, :write_not_permitted, :handler_not_permitted}
+      :handler_invalid_arguments -> {:refused, i, :validation_failed, :handler_invalid_arguments}
+      shape when shape in [:handler_shape, :handler_raised] -> {:failed, i, :handler}
       # `prepare/2` skips a type that is not process-writable, so it has no synthetic
       # instance: the same refusal as the `:process_policy` check (uniform body, INV-5).
       {:entity_type_instance_missing, _type} -> {:refused, i, :write_not_permitted, :not_writable}
@@ -711,7 +899,7 @@ defmodule Letflow.Entities.StepWrites do
     end
   end
 
-  def interpret_failure({:line, i, :process_policy}, reason) when is_integer(i) do
+  defp interpret_line(i, _name, :process_policy, reason) do
     case reason do
       :not_writable_by_process -> {:refused, i, :write_not_permitted, :not_writable}
       :not_append_only -> {:refused, i, :write_not_permitted, :not_append_only}
@@ -720,19 +908,31 @@ defmodule Letflow.Entities.StepWrites do
     end
   end
 
-  def interpret_failure({:line, i, step} = name, reason) when is_integer(i) and is_atom(step) do
+  # `HandlerWrites`' per-write policy step (managed-by assertion F-7, scope ceiling INV-6).
+  defp interpret_line(i, _name, :policy, reason) do
+    case reason do
+      :target_not_managed_by_module ->
+        {:refused, i, :write_not_permitted, :target_not_managed_by_module}
+
+      :scoped_type ->
+        {:refused, i, :write_not_permitted, :scoped}
+
+      _other ->
+        {:failed, i, :policy}
+    end
+  end
+
+  defp interpret_line(i, {:line, key, _} = name, _step, reason) do
     if reason == :entity_type_managed do
       {:refused, i, :write_not_permitted, :managed}
     else
       case Records.interpret_in_multi({:error, name, reason, %{}}) do
-        {:entity_write_refused, ^i, code} -> {:refused, i, code, :step}
-        {:entity_write_failed, ^i, failed_step} -> {:failed, i, failed_step}
+        {:entity_write_refused, ^key, code} -> {:refused, i, code, :step}
+        {:entity_write_failed, ^key, failed_step} -> {:failed, i, failed_step}
         :not_a_line_failure -> :not_a_line_failure
       end
     end
   end
-
-  def interpret_failure(_step, _reason), do: :not_a_line_failure
 
   defp classify(i, step, reason) do
     case Records.classify_step_error(reason) do

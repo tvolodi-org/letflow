@@ -370,6 +370,70 @@ exposed to API consumers.
 Sign-off for this amendment: pending (SECURITY-REVIEWER re-review after the follow-up above;
 REVIEWER findings 1-3 accepted, no code).
 
+## Amendment (GH #2590 / REQ-501 PR R4b): D6 engine integration on a HUMAN_TASK completion
+
+The engine runs a module write handler inside a HUMAN_TASK completion (SERVICE_TASK is R5).
+R3's interim guard (`check_module_writes_unsupported/2`) is deleted in the same change that adds
+execution; the existing "node declares writes but the completion has no plan" guard now covers
+`module_writes` as well, so a node whose definition row is unreadable (a deleted stamped
+definition) still fails closed with nothing committed.
+
+Order of a completion with `module_writes` (design 6.1): (P0) the plan reads the task, the
+pinned snapshot (the raw graph included), the definition row and the activator; the 20-line cap
+is on the COMBINED declarative + handler count; (P0b, INV-3) `EntityPort.authorize_module_writes/2`
+re-runs the activation validator against the tenant's CURRENT state and the PINNED snapshot:
+stamp present and naming the line's module, module installed, installed manifest hash equal to
+the stamp AND to the compiled manifest (strict, OQ-R3), handler registered now, arguments match
+the current registration, `graph_hash(snapshot)` equal to the stamped body hash; then the
+tenant must hold `TASK_ENTITY_WRITES_APPLIED` schema v2 (otherwise `event_schema_outdated`);
+(P1) `prepare/2` creates the synthetic instances of the handlers' registered targets whose
+CURRENT row is managed by the registering module (no process-writable filter); (transaction)
+after `:entity_writes_started`, one ascending `{:type_lock, type}` step per type of the
+declarative-plus-handler union, the declarative lines unchanged, then each handler call behind
+its own deadline guard and a no-lock `owner_recheck` of the install row and both hashes.
+
+Failure mapping (one public body per cause, INV-5): every authorization refusal, the in-transaction
+hash drift, a handler answering "not permitted", a write outside the registered targets and a
+managed-by or scope refusal answer 403 `write_not_permitted` with the DECLARED `line_index` of
+the handler call (declarative lines come first); the task stays `pending` and nothing is
+committed. The closed detail atom (`stamp_missing`, `stamp_mismatch`, `module_not_installed`,
+`handler_unknown`, `hash_mismatch`, `body_changed`, `arg_unknown`, `arg_missing`,
+`arg_source_invalid`, `line_malformed`, `event_schema_outdated`, `handler_not_permitted`,
+`target_not_managed_by_module`, ...) goes to the tenant audit entry `entity_write.refused` only;
+no hash or module name is in a response. Handler "invalid arguments" is 422 `validation_failed`.
+A handler that raises, throws or exits, returns a non-Multi, smuggles a step or drops a write's
+`:policy` step is an internal failure (500, no body detail; ids and names only in the log).
+`TASK_ENTITY_WRITES_APPLIED` v2 lines carry `handler_module`, `handler` and `write_ordinal` for
+handler writes; the audit entry per write carries the same three keys; the history response still
+projects each line to `line_index` and `entity_type` only.
+
+Carried security findings of the R4a re-review: scan H4 now also flags a remote call with an
+atom-literal receiver outside a short allowlist (`:ets`, `:persistent_term`, `:code`, a quoted
+`:"Elixir.Process"`, ...), a variable-receiver remote call, a `%Multi{}` literal, a field access
+on the Multi parameter and `Map.*`/`Keyword.*` on the Multi or context variable (source
+pipe-normalised); `check_built/3` requires ALL the entries `create/3` produced for every key it
+keeps, in order (a handler cannot drop a `:policy` step); a throw or exit in a handler is reduced
+to the same closed reason as a raise (a database or connection error from a build-time read is
+re-raised to the contention mapping). Residual risk, unchanged in kind: a handler is compiled-in
+module code reviewed with the module; H4 is a tripwire for computed receivers and function names,
+macros and anything the AST scan cannot see, and the process dictionary (the per-call token) is
+reachable from handler code. The boundary is that the API hands a handler no repo, no Owner and
+no raw step; a handler that defeats the tripwires is a module the platform operator chose to
+compile in.
+
+Pilot limit (OQ-R3, unchanged): after any module deploy that changes a module's manifest surface,
+every in-flight task of a stamped, handler-calling definition answers 403 `write_not_permitted`
+(audit detail `hash_mismatch`) and stays `pending` until the upgrade path (decision 0055)
+re-stamps; recovery today is reverting the deploy. See
+`docs/runbooks/module-write-handlers-manifest-hash.md`.
+
+Rollout: the v2 event schema reaches a tenant only through `TenantProvisioning.replay_all_pending/0`
+(or provisioning / onboarding). `replay_all_pending/0` MUST have run for every existing tenant
+BEFORE a build that emits handler lines is deployed; the `event_schema_outdated` refusal (403,
+nothing committed) is the fail-closed backstop, not the plan.
+
+Sign-off for this amendment: pending (SECURITY-REVIEWER and REVIEWER on the R4b PR).
+
 ## Sign-off
 
 REVIEWER:

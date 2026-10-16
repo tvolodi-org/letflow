@@ -245,6 +245,20 @@ defmodule Letflow.EventStore.Registry do
     end
   end
 
+  @doc """
+  The highest registered `schema_version` of `event_type` in the tenant schema `prefix`, or `nil`
+  when none is registered (GH #2590 R4b: the engine refuses a handler completion whose tenant
+  has not been replayed to the v2 schema of the instance "entity writes applied" event). One read, no lock.
+  """
+  @spec max_schema_version(event_type :: String.t(), prefix :: String.t()) ::
+          pos_integer() | nil
+  def max_schema_version(event_type, prefix) when is_binary(event_type) and is_binary(prefix) do
+    EventType
+    |> where([e], e.name == ^event_type)
+    |> select([e], max(e.schema_version))
+    |> Repo.one(prefix: prefix)
+  end
+
   # Resolves tenant_id -> physical schema_name, or {:error, :tenant_not_provisioned}
   # if no Registration row exists yet. Both register_type/2 and get_type/2 call
   # this (validate_payload/3 does not -- it has no direct Repo call of its own,

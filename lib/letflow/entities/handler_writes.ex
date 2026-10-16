@@ -1,9 +1,11 @@
 defmodule Letflow.Entities.HandlerWrites do
   @moduledoc """
-  GH #2590 / REQ-501 R4a (decision 0054 D6; design
+  GH #2590 / REQ-501 R4a + R4b (decision 0054 D6; design
   `lib/letflow/design/gh2590-req501-module-write-handlers.md` 4.6, 6.1, 7.2): the platform side
-  of a module write handler's entity writes. Nothing here is reachable from the engine yet
-  (R4b integrates it); this PR ships the write path and its static scans only.
+  of a module write handler's entity writes. R4a shipped the write path and its static scans;
+  R4b wires it into a HUMAN_TASK completion (`Letflow.Engine` -> `EntityPort` -> `StepWrites`
+  -> here): `authorize_module_writes/2` before the transaction, `prepare_targets/2` for the
+  synthetic instances, `lock_types/3` and `build_call/4` inside it.
 
   ## Handler-facing API: `create/3` only
 
@@ -44,21 +46,31 @@ defmodule Letflow.Entities.HandlerWrites do
       from the line (`var` from the merged variables, `const` as is, never `_sys`) and
       re-checked against the CURRENT registration; the handler is invoked through
       `Catalog.call_write_handler/4`; its return is shape-checked and every step name it
-      added must lie in the call's own `{:line, k0 + 1 .. k0 + 49, _}` range. A handler that
-      raises while building is reduced to the closed reason `:handler_raised` (build time
-      only; no database state exists to corrupt); a database error inside a step is never
-      rescued here.
+      added must lie in the call's own `{:line, k0 + 1 .. k0 + 49, _}` range, AND the returned
+      Multi must hold ALL the entries `create/3` produced for every key it keeps, in order (a
+      dropped `:policy` step is a contract violation). A handler that raises, throws or exits
+      while building is reduced to the closed reason `:handler_raised`. Build time READS (the
+      completer's field restrictions, the type definition) but writes nothing, so a failed build
+      has no write state to corrupt; a database or connection error is re-raised to the engine's
+      contention mapping, and a database error inside a step is never rescued here.
     * `lock_types/3`: the type locks (`EventStore.lock_instance_sequence/3`), one step per
       type in ASCENDING byte order, to be placed before any write step (0054 D3 rule 4), so a
       handler can neither reorder nor skip them.
 
-  Neither function authorizes the stamp or the body hash (R4b's pre-transaction
-  `authorize_module_writes/2` does, INV-3); `build_call/4` re-verifies only the install row
-  and hash. Replay never reaches this module: it has no caller outside a completion's Multi
+  Neither function authorizes the stamp or the body hash (`authorize_module_writes/2`, run by
+  the engine's plan BEFORE the transaction, does, INV-3); `build_call/4` re-verifies only the
+  install row and hash.
+
+    * `authorize_module_writes/2`, `prepare_targets/2` and `registered_targets/1`: the
+      pre-transaction authorization (it reuses `Letflow.Definitions.ModuleWrites`, the activation
+      validator, so the two cannot drift), the targets `prepare/2` creates instances for (only
+      those whose CURRENT row is managed by the registering module, F-7), and the targets the
+      ascending type locks cover. Replay never reaches this module: it has no caller outside a completion's Multi
   build (D-R.19).
   """
 
   alias Ecto.Multi
+  alias Letflow.Definitions.ModuleWrites
   alias Letflow.Engine.VariableMerge
   alias Letflow.Entities.EntityDefinition
   alias Letflow.Entities.EntityTypeInstance
@@ -104,7 +116,7 @@ defmodule Letflow.Entities.HandlerWrites do
           required(:line_index) => non_neg_integer(),
           required(:actor_id) => Ecto.UUID.t(),
           required(:activator_id) => Ecto.UUID.t(),
-          required(:manifest_hash) => String.t(),
+          required(:manifest_hash) => String.t() | nil,
           optional(:subject_id) => Ecto.UUID.t()
         }
 
@@ -272,8 +284,139 @@ defmodule Letflow.Entities.HandlerWrites do
   defp policy(_other, _module_id), do: {:error, :target_not_managed_by_module}
 
   # ---------------------------------------------------------------------
-  # Platform-facing: type locks and one handler call
+  # Platform-facing: run-time authorization, targets, type locks, one handler call
   # ---------------------------------------------------------------------
+
+  @typedoc "The ownership stamp of the definition row the engine plan read (opaque strings)."
+  @type owner_stamp :: %{
+          required(:module_id) => String.t(),
+          required(:module_version) => String.t(),
+          required(:manifest_hash) => String.t(),
+          required(:body_hash) => String.t()
+        }
+
+  # `ModuleWrites` activation codes -> the closed detail atoms of the tenant audit entry
+  # (design 8). Anything not listed is a malformed line.
+  @authorize_details %{
+    module_write_stamp_missing: :stamp_missing,
+    module_write_stamp_mismatch: :stamp_mismatch,
+    module_write_module_not_installed: :module_not_installed,
+    module_write_handler_unknown: :handler_unknown,
+    module_write_hash_mismatch: :hash_mismatch,
+    module_write_body_changed: :body_changed,
+    module_write_arg_unknown: :arg_unknown,
+    module_write_arg_missing: :arg_missing,
+    module_write_arg_source_invalid: :arg_source_invalid,
+    module_write_arg_sys_reference: :arg_source_invalid
+  }
+
+  @doc """
+  The run-time authorization of a node's `module_writes` lines (design 4.5, 6.1 P0b, INV-3):
+  BEFORE `prepare/2`, any entity lock or the handler build, against the tenant's CURRENT state
+  and the PINNED snapshot. Reuses the activation validator (`Letflow.Definitions.ModuleWrites`)
+  so the two cannot drift: the stamp is present and names the line's module, the module is
+  installed, the installed manifest hash equals the stamp AND the compiled manifest hash
+  (strict, OQ-R3), the handler is registered NOW, the arguments match the CURRENT registration
+  (`:arg_unknown` / `:arg_missing`), and `graph_hash(snapshot_graph)` equals the stamped body
+  hash. Reads only, no lock.
+
+  `ctx`: `:prefix`, `:owner` (the stamp read from the definition row, or `nil`),
+  `:snapshot_graph` (the pinned snapshot's raw graph map) and `:entity_write_count` (the node's
+  declarative line count, so a reported index is the declared one). Returns the first refusal
+  as `{:error, {declared_index, detail}}`; the detail is for the tenant audit only.
+  """
+  @spec authorize_module_writes([map()], %{
+          required(:prefix) => String.t(),
+          required(:snapshot_graph) => map(),
+          optional(:owner) => owner_stamp() | nil,
+          optional(:entity_write_count) => non_neg_integer()
+        }) :: :ok | {:error, {non_neg_integer(), atom()}}
+  def authorize_module_writes(lines, %{prefix: prefix, snapshot_graph: graph} = ctx)
+      when is_list(lines) and is_binary(prefix) and is_map(graph) do
+    definition =
+      case Map.get(ctx, :owner) do
+        %{module_id: id, module_version: version, manifest_hash: m_hash, body_hash: b_hash} ->
+          %{
+            owner_module: id,
+            owner_module_version: version,
+            owner_manifest_hash: m_hash,
+            owner_body_hash: b_hash,
+            graph: graph
+          }
+
+        _no_stamp ->
+          %{graph: graph}
+      end
+
+    case ModuleWrites.line_violations(
+           lines,
+           definition,
+           Map.get(ctx, :entity_write_count, 0),
+           prefix
+         ) do
+      [] ->
+        :ok
+
+      [%{index: index, code: code} | _rest] ->
+        {:error, {index, Map.get(@authorize_details, code, :line_malformed)}}
+    end
+  end
+
+  @doc """
+  The handlers' registered target types of `lines`, sorted, de-duplicated, resolved through the
+  Catalog by string comparison. Pure of the database; an unresolvable line contributes nothing
+  (authorization refused it already).
+  """
+  @spec registered_targets([map()]) :: [String.t()]
+  def registered_targets(lines) when is_list(lines) do
+    lines
+    |> Enum.flat_map(fn
+      %{"module" => module_id, "handler" => name} ->
+        case Catalog.write_handler(module_id, name) do
+          {:ok, handler} -> handler.targets
+          {:error, :not_found} -> []
+        end
+
+      _other ->
+        []
+    end)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  @doc """
+  The target types `prepare/2` creates a synthetic instance for (design 4.5, F-7): the registered
+  targets of the verified lines whose CURRENT active definition in `prefix` is managed by the
+  registering module. A target whose row is unmanaged, managed by another module or inactive gets
+  no instance (the write then refuses). The process-writable flag does not apply (a managed type
+  can never carry it, F-R7). Sorted ascending.
+  """
+  @spec prepare_targets([map()], prefix :: String.t()) :: [String.t()]
+  def prepare_targets(lines, prefix) when is_list(lines) and is_binary(prefix) do
+    lines
+    |> Enum.flat_map(fn
+      %{"module" => module_id, "handler" => name} ->
+        case Catalog.write_handler(module_id, name) do
+          {:ok, handler} ->
+            Enum.filter(handler.targets, &managed_by?(&1, handler.module_id, prefix))
+
+          {:error, :not_found} ->
+            []
+        end
+
+      _other ->
+        []
+    end)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp managed_by?(type, module_id, prefix) do
+    match?(
+      {:ok, %EntityDefinition{managed_by: ^module_id}},
+      Letflow.Entities.Definitions.get_active_definition_by_name(type, prefix)
+    )
+  end
 
   @doc """
   Appends one `{:type_lock, type}` step per distinct type, in ascending byte order, each taking
@@ -423,8 +566,13 @@ defmodule Letflow.Entities.HandlerWrites do
 
   defp put_arg(acc, _name, _source, _variables), do: acc
 
-  # Rescues BUILD-time exceptions of (pure) handler code only; ids and names are logged, never
-  # the exception text (INV-4).
+  # Reduces a build-time raise, throw or exit of handler code to a closed reason; ids and names
+  # are logged, never the exception text (INV-4). Build time is not database-free: `create/3`
+  # READS (the completer's field restrictions, `FieldGrants`) and `Records.command_multi/3`
+  # reads the type definition, but nothing is written until the Multi runs, so a failed build
+  # has no write state to corrupt. A database or connection error from such a read is NOT
+  # reduced here: it is re-raised so the engine's contention mapping around
+  # `Repo.transaction` sees it (the transaction rolls back either way).
   defp call_handler(handler, ctx, args) do
     case safe_call(handler, ctx, args) do
       {{:ok, %Multi{} = built}, produced} ->
@@ -458,20 +606,32 @@ defmodule Letflow.Entities.HandlerWrites do
       raw = Catalog.call_write_handler(handler, Multi.new(), ctx, args)
       {raw, Map.fetch!(Process.get(@token_key), :produced)}
     rescue
-      exception -> {{:raised, exception.__struct__}, []}
+      exception in [DBConnection.ConnectionError, Postgrex.Error] ->
+        reraise exception, __STACKTRACE__
+
+      exception ->
+        {{:raised, exception.__struct__}, []}
+    catch
+      kind, _value when kind in [:throw, :exit] -> {{:raised, kind}, []}
     after
       Process.delete(@token_key)
     end
   end
 
-  # Every entry the handler returned must be one `create/3` produced during this call (same step
-  # name AND same operation, so a handler's own `Multi.run`/`insert` with a live repo is refused),
-  # and its step name must lie in the call's own `{:line, key, _}` range.
+  # Two checks (SECURITY re-review of R4a):
+  #
+  #   * every entry the handler returned must be one `create/3` produced during this call (same
+  #     step name AND same operation, so a handler's own `Multi.run`/`insert` with a live repo is
+  #     refused), and its step name must lie in the call's own `{:line, key, _}` range;
+  #   * COMPLETENESS: for every `{:line, key, _}` key that appears, the returned Multi must hold
+  #     ALL the entries `create/3` produced for that key, in the same relative order. A handler
+  #     cannot keep a write's record steps and drop its `:policy` step (the managed-by / scope
+  #     re-read), nor reorder a write's steps.
   defp check_built(%Multi{} = built, produced, k0) do
-    ok? =
-      built
-      |> Multi.to_list()
-      |> Enum.all?(fn
+    entries = Multi.to_list(built)
+
+    in_range_and_produced? =
+      Enum.all?(entries, fn
         {{:line, key, step}, _op} = entry when is_integer(key) and is_atom(step) ->
           key > k0 and key <= k0 + @max_writes_per_call and entry in produced
 
@@ -479,6 +639,18 @@ defmodule Letflow.Entities.HandlerWrites do
           false
       end)
 
-    if ok?, do: :ok, else: {:error, :handler_shape}
+    if in_range_and_produced? and complete?(entries, produced),
+      do: :ok,
+      else: {:error, :handler_shape}
+  end
+
+  defp complete?(entries, produced) do
+    entries
+    |> Enum.flat_map(fn {{:line, key, _step}, _op} -> [key] end)
+    |> Enum.uniq()
+    |> Enum.all?(fn key ->
+      for_key = fn list -> Enum.filter(list, &match?({{:line, ^key, _}, _}, &1)) end
+      for_key.(entries) == for_key.(produced)
+    end)
   end
 end
