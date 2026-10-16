@@ -51,7 +51,8 @@ defmodule Mix.Tasks.Letflow.LoginDirectoryTasksTest do
 
   # Real child `mix` process; returns {output, exit_status}.
   defp mix_task(task, argv) do
-    System.cmd("mix", [task | argv],
+    # GH #2630: this child starts the app and opens a Repo pool; cap it (Letflow.Test.NestedMix).
+    Letflow.Test.NestedMix.cmd("mix", [task | argv],
       env: [{"MIX_ENV", "test"}],
       stderr_to_stdout: true,
       cd: File.cwd!()

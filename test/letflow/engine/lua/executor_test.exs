@@ -1494,7 +1494,7 @@ defmodule Letflow.Engine.Lua.ExecutorTest do
           ["test", "--only", "lua_wallclock_race", "test/letflow/engine/lua/executor_test.exs"],
           stderr_to_stdout: true,
           env: [
-            {"TEST_POOL_SIZE", "4"},
+            {"TEST_POOL_SIZE", Integer.to_string(Letflow.Test.NestedMix.pool_size())},
             # ISS-0515, fourth rework (2026-09-06): PR #1033 failed CI four times in a
             # row with the identical DBConnection.ConnectionError signature even after
             # doubling Postgres's own max_connections (see this file's env var and
