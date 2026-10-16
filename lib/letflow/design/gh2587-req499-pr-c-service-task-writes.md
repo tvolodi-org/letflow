@@ -32,7 +32,7 @@ Design only. Signatures, type shapes, step lists, tables and test briefs; no fun
 | m2 | Re-apply total deadline tied to the lease; lease-sweep interaction analysed | D-C.9, 9, C-14 |
 | m3 | C-8 gains the "lines but no plan" case | 11.1 |
 | m4 | Non-entity-write apply stall keeps its ISS-0928 reference | 8, 16 |
-| Rulings | OQ-C1..OQ-C8 closed per supervisor | 15 |
+| Rulings | OQ-C1..OQ-C8 closed per supervisor; OQ-C8 itself resolved by GH #2648 (the cascade now exists on the service apply) | 15 |
 
 ### Revision 0 (2026-10-16): first design
 
@@ -147,7 +147,7 @@ Every path that completes or advances a node and can therefore reach an entity-w
 | Timer fire `advance_after_timer_fired/3` / `persist_timer_fired_advance/7` | NO | 0054 D12: no entity write from timers |
 | Escalation, cancellation, `set_instance_error/2`, `give_up_service_task_dispatch/3` | NO | D12 |
 | `create/2` initial hop chain reaching a SERVICE_TASK | NO (it only inserts the dispatch row; the write happens at apply) | |
-| Sub-process child completion cascade | NO new composition; the SERVICE path has none (F-C10) | |
+| Sub-process child completion cascade | NO new composition here; GH #2648 later added the cascade to the SERVICE/script apply (F-C10 resolved) | |
 | Replay / reconstruction / projection rebuild | NO (D11) | |
 
 Lines are therefore read from exactly two node types, and a node's `entity_writes` is applied by
@@ -166,7 +166,7 @@ exactly one of the three composing paths, selected by the completion path that o
 | **F-C7** | The script route already has a follow-up that converts ANY apply error into a terminal `script_rejected`/`apply_failed` (`script_task_dispatcher.ex:433-459`). A transient contention would become a permanent ERROR, and the entity-write cause would be lost. | D-C.9 / D-C.8: the engine re-applies contention itself (bounded) and lands refusals itself with a specific detail atom; the dispatcher follow-up never sees an entity-write error. |
 | **F-C8** | String fields have no `maxLength` and no HTTP response cap was found, so a service response can put an arbitrarily large string into a record (stored payload `$ref` above 4096 bytes). Type validation does not bound size. | D-C.7: a run-time per-value and per-line byte cap on the service origin. |
 | **F-C9** | HTTP bodies are merged with NIL validations (`engine.ex:4325`): response keys are not checked against `variable_schemas`; the script route validates (`:4963`). The target entity type's validator is the only typing of a response-sourced field. | D-C.7: stated, not changed; the type validator (`validate_field_values`) and the size cap bound it. |
-| **F-C10** | The service apply path has no sub-process completion cascade (section 2). A SERVICE_TASK that ends a sub-process child completes the child projection but never wakes the parent token (`find_waiting_parent_token`, `engine.ex:6128`, is reached only from the HUMAN_TASK tail). This is pre-existing and not caused by PR C. | Consequence for PR C: the HUMAN-path cascade cycle of B 7.2 has a different partner here (7.3); and OQ-C8 asks for an ISS (the claim is verified by absence of a call, not by a running test). |
+| **F-C10** | The service apply path has no sub-process completion cascade (section 2). A SERVICE_TASK that ends a sub-process child completes the child projection but never wakes the parent token (`find_waiting_parent_token`, `engine.ex:6128`, is reached only from the HUMAN_TASK tail). This is pre-existing and not caused by PR C. **RESOLVED by GH #2648**: the apply now runs `append_sub_process_completion_cascade_multi/6` in its own transaction (lock order child, then parent), so a service apply CAN be the cascade initiator; the 7.3 cycle analysis holds for the parent-side participant and the child side is the HUMAN path's order. | Consequence for PR C: the HUMAN-path cascade cycle of B 7.2 has a different partner here (7.3); and OQ-C8 asked for an ISS (confirmed by a running probe; fixed by GH #2648, after which a service apply can be the cascade initiator, see 7.3). |
 | **F-C11** | The platform sentinel is already the actor of the service path's instance events and audit rows, and both columns have no FK, but it has never been used on an ENTITY-type stream (the synthetic per-type instance). Whether anything on that path reads `actor_id` as a user (projection, FieldGrants, Records result) is unproven. | D-C.4: the sentinel proof test is the first commit of C2 and a hard gate (0054 AC 22 / N8). |
 | **F-C12** | `completion.on_advanced` runs AFTER `:service_task_completed_event` (`engine.ex:4782-4788`); the lines must run BEFORE it (the SYS event must precede the completion event for replay, D-A1.10) and BEFORE `:projection`. | A new optional descriptor key `entity_plan`; the composition is inline in `do_persist_service_task_advance/10`, not in `on_advanced`. |
 | **F-C13** | The service path's entity-type locks are taken AFTER the hop chain's own writes (token records, task rows, dispatch rows, sub-process child streams), unlike HUMAN_TASK where `:transition` only computes. | 7.3: shown harmless (those rows are new rows or instance-mutex rows); the lock-order test asserts it. |
@@ -447,8 +447,8 @@ cascade wants [parent token, parent projection]. A parent's SERVICE apply holds 
 projection] and, with lines on A, wants [type A sequence]. That is the same real `40P01` cycle as B,
 with the service apply as the parent-side participant. The victim rolls back with nothing committed
 and maps to contention, which on the service side is re-applied (D-C.9) and on the human side is a
-503 retry. The service path has no cascade of its own (F-C10), so a service apply is never the
-cascade initiator. EE-12 gains one sentence in C2: "the service apply holds the dispatch row and the
+503 retry. Since GH #2648 the service path has its own cascade (F-C10 resolved): a service apply that ends a
+child is the cascade initiator too, locking child rows first and the parent after, the HUMAN order. Two cycles follow. (1) A child service apply holding a type's sequence row (planned) and wanting the parent token/projection, against a parent SERVICE apply in a parallel branch holding its projection and wanting the same type row: a real 40P01; the victim is classified as contention and re-applied (D-C.9), and since GH #2648 that classification applies to UNPLANNED HTTP applies too (a cascade adds parent locks to them). Limit: an UNPLANNED SCRIPT apply bypasses the re-apply driver (and its blanket rescue erases a deadlock), so a cascade deadlock there lands a terminal `script_rejected`/`apply_failed`; accepted while a script task inside a child is unreachable (GH #2694), follow-up under GH #2695/#2694; no dedicated forced-overlap test for this exact pairing, the re-apply is covered by a trigger-induced 40P01 test. (2) `cancel_instance/3` locks a parent projection before its tokens, the reverse of the cascade's token-then-projection: pre-existing on the HUMAN path, now also reachable from a service apply, NOT fixed here (GH #2695); this order is therefore not claimed deadlock-free. EE-12 gains one sentence in C2: "the service apply holds the dispatch row and the
 projection while it requests entity-type locks; a deadlock with a child completion's cascade is
 reported as contention and re-applied."
 
@@ -682,7 +682,7 @@ by D-C.4, D-C.5, C-1, C-9.
 
 **C0**: `entities/step_source.ex` (new), `entities/records.ex` (types, `command_multi/3`, deletion of
 the map checks), `entities/step_writes.ex` (`build_line/4` builds the struct), tests
-`step_source_test.exs`, `step_source_callers_test.exs` (new, C0), `service_task_subprocess_cascade_probe_test.exs` (new, C2 prerequisite); edits `records_command_multi_test.exs`,
+`step_source_test.exs`, `step_source_callers_test.exs` (new, C0), `service_task_subprocess_cascade_probe_test.exs` (new, C2 prerequisite; became `service_task_subprocess_cascade_test.exs` under GH #2648); edits `records_command_multi_test.exs`,
 `records_reserved_keys_test.exs`, `entity_writes_gates_test.exs`, `command_multi_callers_test.exs`
 only if its fixture builds a source.
 
@@ -725,7 +725,7 @@ Docs: DOC-UPDATER bookkeeping; the REQ-499 entry notes OQ-B5 (stale `expected` u
 * **OQ-C5 CLOSED: defer.** Reason: the check would run in the dispatcher, which the boundary forbids from calling the engine, and it is advisory anyway (the D4a.4 deactivation race exists between the check and the call). The consequence (an external effect whose result cannot be applied for a deactivated activator) is the accepted incident of the 0054 open point 6 ruling.
 * **OQ-C6 CLOSED.** The sentinel actor stays. Pre-approved fallback (activator id as `actor_id`, `source` unchanged) ONLY if C-1 shows a consumer resolving `actor_id` to a user; in that case C2 STOPS and this design reopens.
 * **OQ-C7 CLOSED.** `StepSource` derives `line_key` and the `sys:step:` key from the struct (D-C.2).
-* **OQ-C8 CLOSED.** File an ISS for the missing service-path sub-process cascade, and CONFIRM it with a running test BEFORE C2 relies on 7.3: `test/letflow/engine/service_task_subprocess_cascade_probe_test.exs` (a child instance whose last node is a SERVICE_TASK; apply it; assert whether the parent token wakes). The test is a C2 prerequisite; its result and the ISS id go in C2's PR body. If the cascade turns out to exist elsewhere, 7.3 is re-derived before C2 proceeds.
+* **OQ-C8 CLOSED, and RESOLVED by GH #2648** (the probe below was flipped into `service_task_subprocess_cascade_test.exs`; the service apply now runs the cascade). File an ISS for the missing service-path sub-process cascade, and CONFIRM it with a running test BEFORE C2 relies on 7.3: `test/letflow/engine/service_task_subprocess_cascade_probe_test.exs` (a child instance whose last node is a SERVICE_TASK; apply it; assert whether the parent token wakes). The test is a C2 prerequisite; its result and the ISS id go in C2's PR body. If the cascade turns out to exist elsewhere, 7.3 is re-derived before C2 proceeds.
 
 ## 16. Deferred (not PR C)
 
