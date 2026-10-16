@@ -131,6 +131,7 @@ defmodule Letflow.Definitions do
   alias Letflow.Definitions.DefinitionSequence
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.JsonSchemaShape
+  alias Letflow.Definitions.ModuleWrites
   alias Letflow.Definitions.OwnerStamp
   alias Letflow.Definitions.PackUpdateResolution
   alias Letflow.Definitions.ProcessDefinition
@@ -2508,6 +2509,11 @@ defmodule Letflow.Definitions do
   #
   # Reports ALL violations at once (`:entity_writes_invalid`), in graph order, each node's
   # sorted by {index, code}. A node-level refusal carries index 0.
+  #
+  # GH #2590 / REQ-501 R3: a node's `module_writes` (handler calls of a module-stamped
+  # definition) are validated in the same pass by `Letflow.Definitions.ModuleWrites`, under the
+  # same activator authority; a graph with neither attribute is still `:ok` and needs no
+  # activator.
   @doc false
   @spec check_entity_writes(
           ProcessDefinition.t() | map(),
@@ -2523,36 +2529,78 @@ defmodule Letflow.Definitions do
       :error ->
         {:error, :graph_structure_invalid}
 
-      {:ok, [], _nodes} ->
-        :ok
-
       {:ok, declared, nodes} ->
-        activator_codes = activator_codes(activator, prefix)
+        # GH #2590 / REQ-501 R3: a node's `module_writes` (a separate attribute, D-R.6) is
+        # validated in the same pass, under the same activator authority (OQ-R6).
+        module_declared = ModuleWrites.declared_nodes(nodes)
 
-        preseeded =
-          MapSet.union(
-            preseeded_variable_names(nodes),
-            declared_variable_keys(definition, prefix)
-          )
-
-        violations =
-          Enum.flat_map(declared, fn {node, writes} ->
-            node_entity_writes_violations(
-              node,
-              writes,
-              declared,
-              preseeded,
-              activator_codes,
-              prefix
-            )
-          end)
-
-        case violations do
-          [] -> :ok
-          violations -> {:error, {:entity_writes_invalid, violations}}
+        if declared == [] and module_declared == [] do
+          :ok
+        else
+          check_declared_writes(definition, prefix, activator, declared, module_declared, nodes)
         end
     end
   end
+
+  defp check_declared_writes(definition, prefix, activator, declared, module_declared, nodes) do
+    activator_codes = activator_codes(activator, prefix)
+
+    preseeded =
+      MapSet.union(
+        preseeded_variable_names(nodes),
+        declared_variable_keys(definition, prefix)
+      )
+
+    entity_violations =
+      Enum.flat_map(declared, fn {node, writes} ->
+        node_entity_writes_violations(
+          node,
+          writes,
+          declared,
+          preseeded,
+          activator_codes,
+          prefix
+        )
+      end)
+
+    module_violations =
+      Enum.flat_map(module_declared, fn {%Graph.Node{id: node_id} = node, writes} ->
+        node
+        |> ModuleWrites.violations(
+          writes,
+          definition,
+          entity_write_count(node),
+          activator_codes,
+          prefix
+        )
+        |> Enum.map(&%{node_id: node_id, index: &1.index, code: &1.code})
+      end)
+
+    case merge_violations(nodes, entity_violations ++ module_violations) do
+      [] -> :ok
+      violations -> {:error, {:entity_writes_invalid, violations}}
+    end
+  end
+
+  # Graph order by node, each node's violations de-duplicated and sorted by {index, code}.
+  defp merge_violations(_nodes, []), do: []
+
+  defp merge_violations(nodes, violations) do
+    by_node = Enum.group_by(violations, & &1.node_id)
+
+    nodes
+    |> Enum.map(& &1.id)
+    |> Enum.uniq()
+    |> Enum.flat_map(fn node_id ->
+      by_node |> Map.get(node_id, []) |> Enum.uniq() |> Enum.sort_by(&{&1.index, &1.code})
+    end)
+  end
+
+  defp entity_write_count(%Graph.Node{attributes: %{"entity_writes" => writes}})
+       when is_list(writes),
+       do: length(writes)
+
+  defp entity_write_count(_node), do: 0
 
   # GH #2587 PR B1 (REVIEWER F2): on the PROMOTION paths the activator is resolved in the TARGET
   # tenant's schema. A graph with lines whose activator has no users row there (a source or test
@@ -2567,7 +2615,7 @@ defmodule Letflow.Definitions do
           EntityPort.activator() | nil
         ) :: :ok | {:error, :entity_write_activator_not_in_target_tenant}
   def check_activator_in_tenant(%{graph: graph_map}, prefix, activator) do
-    with {:ok, [_ | _], _nodes} <- entity_write_nodes(graph_map),
+    with true <- writes_declared?(graph_map),
          %{user_id: user_id} <- activator,
          true <- is_binary(user_id) do
       case Ecto.UUID.cast(user_id) do
@@ -2597,18 +2645,39 @@ defmodule Letflow.Definitions do
         ) :: map() | nil
   def entity_writes_activated_by(%{graph: graph_map}, activator, %DateTime{} = now) do
     case {entity_write_nodes(graph_map), activator} do
-      {{:ok, [_ | _] = declared, _nodes}, %{user_id: _} = activator} ->
-        pairs =
-          for {_node, writes} <- declared,
-              is_list(writes),
-              %{"entity_type" => entity_type} <- writes,
-              is_binary(entity_type),
-              do: {entity_type, "create"}
+      {{:ok, declared, nodes}, %{user_id: _} = activator} ->
+        module_declared = ModuleWrites.declared_nodes(nodes)
 
-        Activator.build_record(activator, pairs, now)
+        if declared == [] and module_declared == [] do
+          nil
+        else
+          pairs =
+            for {_node, writes} <- declared,
+                is_list(writes),
+                %{"entity_type" => entity_type} <- writes,
+                is_binary(entity_type),
+                do: {entity_type, "create"}
+
+          record = Activator.build_record(activator, pairs, now)
+
+          # Additive (GH #2590 R3, design 5.2): `recorded_activator/1` ignores unknown keys.
+          case ModuleWrites.handler_names(module_declared) do
+            [] -> record
+            handlers -> Map.put(record, "module_handlers", handlers)
+          end
+        end
 
       _no_lines_or_activator ->
         nil
+    end
+  end
+
+  # True when any node declares a non-empty `entity_writes` or `module_writes`.
+  defp writes_declared?(graph_map) do
+    case entity_write_nodes(graph_map) do
+      {:ok, [_ | _], _nodes} -> true
+      {:ok, [], nodes} -> ModuleWrites.declared_nodes(nodes) != []
+      :error -> false
     end
   end
 

@@ -2473,6 +2473,7 @@ defmodule Letflow.Engine do
            {:separation_of_duties, blocking_node_ids :: [String.t()]}
            | {:output_refused, missing_keys :: [String.t()], rejected_keys :: [String.t()]}
            | :entity_writes_not_planned
+           | :module_writes_not_enabled
 
   @typep refusal_context :: %{required: [String.t()], allowed: [String.t()]}
 
@@ -5328,7 +5329,8 @@ defmodule Letflow.Engine do
     # lines takes no new branch, so a completion without lines is byte-identical to before.
     with {:ok, _passed} = passed <-
            existing_completion_guards(repo, graph, task, output_variables, actor_id, prefix),
-         :ok <- check_entity_writes_planned(graph, task, plan) do
+         :ok <- check_entity_writes_planned(graph, task, plan),
+         :ok <- check_module_writes_unsupported(graph, task) do
       passed
     end
   end
@@ -5341,6 +5343,28 @@ defmodule Letflow.Engine do
         {:error, {:completion_refused, :entity_writes_not_planned}}
 
       _no_entity_writes ->
+        :ok
+    end
+  end
+
+  # GH #2590 / REQ-501 R3 (design 6.3, F-3): the INTERIM, plan-independent guard. A graph with
+  # `module_writes` can already ACTIVATE (R3), but nothing executes a handler until R4b, so a
+  # completion of a node that declares a non-empty `module_writes` is refused fail-closed:
+  # nothing committed, the task stays pending. It does NOT depend on the plan: a MIXED node
+  # (declarative lines AND module lines) HAS a plan, so `check_entity_writes_planned/3` would
+  # run the declarative lines and silently skip the handler lines. The node is read from the
+  # PINNED snapshot graph, so a definition row that was deleted or never readable cannot lift
+  # the refusal (OQ-R9). R4b DELETES this function in the diff that adds real execution; that
+  # executor MUST re-verify the install row, the installed manifest hash (against the stamp AND
+  # the compiled manifest) and the body hash at execution time (security review S1).
+  @spec check_module_writes_unsupported(Graph.t(), Task.t()) ::
+          :ok | {:error, {:completion_refused, :module_writes_not_enabled}}
+  defp check_module_writes_unsupported(graph, %Task{} = task) do
+    case find_node(graph, task.node_id) do
+      %{attributes: %{"module_writes" => writes}} when writes not in [nil, []] ->
+        {:error, {:completion_refused, :module_writes_not_enabled}}
+
+      _no_module_writes ->
         :ok
     end
   end
@@ -7003,6 +7027,21 @@ defmodule Letflow.Engine do
          _prefix
        ) do
     {:error, {:entity_write_failed, 0, :not_planned}}
+  end
+
+  # GH #2590 / REQ-501 R3: the interim module_writes guard (design 6.3). Nothing committed;
+  # surfaces as the same internal failure as "lines but no plan".
+  defp interpret_complete_result(
+         {:error, _failed_step, {:completion_refused, :module_writes_not_enabled}, _changes},
+         _actor_id,
+         _prefix
+       ) do
+    Logger.warning(
+      "completion refused: a node declares module_writes but handler execution is not enabled " <>
+        "(interim guard, GH #2590 R3)"
+    )
+
+    {:error, {:entity_write_failed, 0, :module_writes_not_enabled}}
   end
 
   # GH #2587 PR B2: the contention result of `run_transaction/2` is a 2-tuple (no Multi

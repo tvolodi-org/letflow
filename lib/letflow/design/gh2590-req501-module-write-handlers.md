@@ -11,6 +11,16 @@ Design only. Signatures, type shapes, step lists, tables and test briefs; no fun
 
 ## Changelog
 
+### Revision 3 (R3 implementation, REVIEWER R1)
+
+R3 activation validation lives in `Letflow.Definitions.ModuleWrites` (called from
+`Definitions.check_entity_writes/3`), not behind `EntityPort.validate_module_writes/2` and
+`HandlerWrites`: `validate_module_writes` is dropped from the EntityPort callback list. Only the
+run-time `authorize_module_writes/2` and the execution half remain for R4a/R4b. The module is
+read-only: it never references `call_write_handler` or `write_handler_in` (pinned by
+`write_handler_registration_surface_test.exs`). The R4b executor MUST re-verify the install row
+and both hashes at execution time (the interim guard's removal note).
+
 ### Revision 1 (2026-10-16): CDV FAIL (3 HIGH, mediums) and supervisor rulings applied
 
 | Id | Change | Where |
@@ -55,7 +65,7 @@ Six serial PRs, each independently mergeable and reviewed, none leaving a half-o
 |---|---|---|---|
 | **R1** | Catalog: `:write_handlers` manifest key, `validate/2` rule 10, `Catalog.write_handler/2`, `Catalog.manifest_hash/1`, `ManifestHash`, `WriteHandler` struct, `call_write_handler/4`; `Module` typedoc | Mechanism and its validation exist and are tested; nothing can call a handler yet (no execution path); manifests are hash-able | main |
 | **R2** | Stamp STORAGE: two tenant migrations (`process_definitions.owner_*`, `tenant_modules.manifest_hash`) + TenantProvisioning entries; `Owner` gains `version`/`manifest_hash`; `Installs` stamps pack definitions via `Definitions.create_owned/3`; API refusal of the fields (POST/PUT/PATCH/import/export); stamped-row immutability; DB trigger; forge tests | Stamp can exist only by install and cannot be forged or edited; no consumer yet | R1 |
-| **R3** | Declaration + ACTIVATION: node attribute `module_writes`, `EntityPort.validate_module_writes/2` and `authorize_module_writes/2`, activation checks on the three paths (stamp, line shape, hash), `activated_by` extension, PinRebind guard | A definition that cannot legitimately call a handler is refused at activation; a legitimate one activates but its handler lines are NOT executed (fail-closed guard refuses a completion, see 6.1) | R2 |
+| **R3** | Declaration + ACTIVATION: node attribute `module_writes`, `Definitions.ModuleWrites` activation validation (rev 3; `authorize_module_writes/2` is R4b), activation checks on the three paths (stamp, line shape, hash), `activated_by` extension, PinRebind guard | A definition that cannot legitimately call a handler is refused at activation; a legitimate one activates but its handler lines are NOT executed (fail-closed guard refuses a completion, see 6.1) | R2 |
 | **R4a** | Entities core: `StepSource` `handler`/`write_ordinal`, `Records` line-key derivation, `EventStore` lock-only primitive, `ManagedTypes.owner_for_handler/2`, `HandlerContext`, `HandlerWrites` (`create/3`, lock, recheck), the handler contract and its static scans, the `TASK_ENTITY_WRITES_APPLIED` v2 seed (4.11), fixture module | The write path is complete and unit-testable below the engine; engine still refuses | R3 |
 | **R4b** | Engine HUMAN_TASK integration: plan phase, `prepare/2` extension, `multi/3` composition, failure mapping, audit/event shape, replay/atomicity/lock-order/contention tests, EE-12 moduledoc | First end-to-end handler write from a process | R4a |
 | **R5** | SERVICE_TASK composition AFTER PR C2/C1: plan carries `module_writes`/`owner`, activation fence opens for `module_writes` on SERVICE_TASK, platform-actor tests | Same handlers from a service result | R4b, C2, C1 |
@@ -318,13 +328,8 @@ Additive callbacks and context keys; existing ones unchanged:
 @type owner_stamp :: %{module_id: String.t(), module_version: String.t(),
                        manifest_hash: String.t(), body_hash: String.t()}
 
-# R3, activation (reads only, no lock):
-@callback validate_module_writes([module_write_line()], module_write_ctx()) ::
-            :ok | {:error, [line_violation()]}
-@type module_write_ctx :: %{prefix: String.t(), node_id: String.t(), node_type: atom(),
-                            owner: owner_stamp() | nil, graph_map: map(),
-                            entity_write_count: non_neg_integer(),
-                            graph_output_vars: [String.t()]}
+# R3 activation validation is NOT a port callback (rev 3): it lives in
+# Letflow.Definitions.ModuleWrites (reads only, no lock).
 
 # R4b, run time, pre-transaction (P0), before prepare/2:
 @callback authorize_module_writes([module_write_line()], %{prefix: String.t(),
@@ -415,7 +420,6 @@ Contract (moduledoc of `HandlerContext`, pinned by tests):
 `HandlerWrites` also owns (all pure functions of the registered data and the context):
 
 ```
-@spec validate_module_writes([module_write_line()], module_write_ctx()) :: :ok | {:error, [line_violation()]}
 @spec authorize_module_writes([module_write_line()], map()) :: :ok | {:error, {non_neg_integer(), atom()}}
 @spec prepare_targets([module_write_line()], prefix :: String.t()) :: [String.t()]
 @spec multi(Ecto.Multi.t(), [module_write_line()], EntityPort.multi_ctx(), declarative_types :: [String.t()]) :: Ecto.Multi.t()
@@ -930,7 +934,7 @@ tests `modules/catalog_write_handlers_test.exs`, `routers/write_handler_registra
 tests `definitions/owner_module_stamp_test.exs`, trigger test, `tenant_fixture` column pins if any.
 
 **R3**: `definitions.ex` (`check_entity_writes/3`, `entity_write_nodes/1`, `entity_writes_activated_by/3`),
-`engine/entity_port.ex` (callbacks, types, moduledoc), `entities/entity_port_impl.ex` (delegation),
+`definitions/module_writes.ex` (NEW, rev 3: activation validation; no port callback),
 `entities/handler_writes.ex` (validation + authorization halves; execution half arrives in R4a),
 `engine/pin_rebind.ex` (`:owner_guard`), `engine.ex` (NEW `check_module_writes_unsupported/2` of 6.3 wired beside
 `check_entity_writes_planned/3`, which is unchanged; no execution), `routers/pin_rebind` renderer;

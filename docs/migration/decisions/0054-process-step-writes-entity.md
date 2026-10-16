@@ -309,6 +309,24 @@ modules installed before R2; no backfill). The hashes are never serialised; `own
 declared surface only (not handler code, permissions or settings) and is not proof of behaviour.
 Nothing consumes the stamp until R3 (activation) and R4 (run time).
 
+## Amendment (GH #2590 / REQ-501 PR R3): D6 ACTIVATION checks
+
+A HUMAN_TASK node may declare `module_writes` (a node attribute of its own, separate from
+`entity_writes`). On all three activation paths (`activate/2`, version rollback, promotion apply),
+through the one function they share (`Definitions.check_entity_writes/3`), a definition that
+declares `module_writes` is refused with `entity_writes_invalid` unless: the row carries the
+install stamp and the line names the stamp's module; the module is installed in the tenant and
+the installed manifest hash equals the stamp AND the hash of the manifest compiled into the
+running build (strict equality, OQ-R3; an install with no recorded hash cannot activate a
+handler caller, OQ-R7); the handler is registered now; the graph still hashes to the stamped
+body; the arguments match the registration; and the activator holds `:EntitiesRecordsWrite` and
+is an active user (OQ-R6). Violations carry codes only, never a hash. A plan-independent
+completion guard refuses every task completion whose pinned node declares `module_writes` until
+the execution PR (R4b) removes it; `PinRebind` refuses a `:module` entry only for an instance
+whose pinned definition is stamped AND whose pinned snapshot declares `module_writes`
+(OQ-R1). The validation lives in `Letflow.Definitions.ModuleWrites` (design rev 3), not behind an EntityPort callback. Pilot limit of the strict hash and its operator symptoms:
+`docs/runbooks/module-write-handlers-manifest-hash.md`.
+
 ## Sign-off
 
 REVIEWER:

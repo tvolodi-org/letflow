@@ -54,7 +54,11 @@ defmodule Letflow.Modules.WriteHandlerRegistrationSurfaceTest do
   # column it recorded from that owner, and `OwnerStamp`/`TenantModule` only name the field.
   @allowed_api_callers [
     "lib/letflow/modules/catalog.ex",
-    "lib/letflow/entities/managed_types.ex"
+    "lib/letflow/entities/managed_types.ex",
+    # R3 (deliberate edit): the ACTIVATION-time validator resolves a declared handler and reads
+    # the compiled manifest hash (reads only; it never calls a handler). The one definitions
+    # file allowed to; the execution-time callers arrive in R4a.
+    "lib/letflow/definitions/module_writes.ex"
   ]
 
   @api_names [:write_handler, :write_handler_in, :call_write_handler, :manifest_hash]
@@ -155,6 +159,9 @@ defmodule Letflow.Modules.WriteHandlerRegistrationSurfaceTest do
       assert Enum.any?(paths, &String.starts_with?(&1, "lib/letflow/routers/"))
       assert Enum.any?(paths, &String.starts_with?(&1, "lib/letflow/engine/"))
 
+      # R3: the activation validator is the one allowed resolver outside the Catalog
+      paths = paths -- ["lib/letflow/definitions/module_writes.ex"]
+
       for path <- paths do
         refute File.read!(path) =~ "write_handler",
                "#{path} references the write-handler registry"
@@ -168,6 +175,16 @@ defmodule Letflow.Modules.WriteHandlerRegistrationSurfaceTest do
         |> Enum.filter(&api_references?(File.read!(&1)))
 
       assert callers == []
+    end
+
+    test "the R3 activation validator is read-only: it never calls or captures a handler" do
+      source = File.read!("lib/letflow/definitions/module_writes.ex")
+
+      # positive control: it does resolve a handler (a read)
+      assert source =~ "Catalog.write_handler("
+      refute source =~ "call_write_handler"
+      refute source =~ "write_handler_in"
+      refute source =~ "apply("
     end
 
     test "the API scan flags calls, captures and apply forms (synthetic positives) and not docs" do
