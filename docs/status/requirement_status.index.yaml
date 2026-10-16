@@ -6209,16 +6209,16 @@ volumes:
       the 1200-line/120000-byte roll ceiling, no roll triggered. The NEXT append will
       likely exceed 1200 lines and must roll to volume 27 per roll_rule.on_exceed.
 
-  - volume: 27
-    path: docs/status/requirement_status.v27.yaml
-    status: current
-    opened: 2026-10-16
-    entries: 0
-    note: >
-      Opened by DOC-UPDATER (letflow-2) at the roll triggered by the REQ-499
-      `started` append, successor to volume 26 (closed at 57 entries / 1206
-      frozen-prefix lines, over the 1200-line roll ceiling). Created with volume
-      26's header text verbatim (volume number and predecessor path updated) and
+  - volume: 27
+    path: docs/status/requirement_status.v27.yaml
+    status: current
+    opened: 2026-10-16
+    entries: 1
+    note: >
+      Opened by DOC-UPDATER (letflow-2) at the roll triggered by the REQ-499
+      `started` append, successor to volume 26 (closed at 57 entries / 1206
+      frozen-prefix lines, over the 1200-line roll ceiling). Created with volume
+      26's header text verbatim (volume number and predecessor path updated) and
       an empty entry list, per this index's `roll_rule.on_exceed` procedure.
 
 known_anomalies:

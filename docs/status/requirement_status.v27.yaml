@@ -42,3 +42,19 @@
 # set/order). A roll must never drop the `known_shape_anomalies:` declaration.
 
 history:
+
+  - req: REQ-501
+    event: started
+    agent: DOC-UPDATER
+    at: "2026-10-16T13:55:00Z"
+    note: >
+      GH #2590 (REQ-501, filed by letflow-2). Requirement entry written to
+      docs/requirements.yaml with status in_progress; none of the implementing PRs
+      wrote it. Sub-steps merged on main (per the supervisor's report of
+      2026-10-16, merge commits not individually re-read): R1 #2650 (8a7b1be8),
+      R2 #2652 (a43ad970), R3 #2665, R4a #2670, R4b #2672 (b5c5e498). R5
+      follows PR C (C2 #2674 merged, C1 pending). Status stays in_progress until
+      R5 merges and RELEASE-VALIDATOR re-verifies. Rollout note for the runbook
+      (decision 0055): R4b requires replay_all_pending/0 to have run for all
+      existing tenants before handler lines emit; the fail-closed backstop is
+      403 event_schema_outdated. Follow-ups: GH #2671.
