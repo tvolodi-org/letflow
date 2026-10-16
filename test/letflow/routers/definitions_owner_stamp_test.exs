@@ -18,6 +18,7 @@ defmodule Letflow.Routers.DefinitionsOwnerStampTest do
 
   import Plug.Test
   import Plug.Conn
+  import Ecto.Query, only: [from: 2]
 
   alias Letflow.Definitions
   alias Letflow.Definitions.ProcessDefinition
@@ -131,6 +132,7 @@ defmodule Letflow.Routers.DefinitionsOwnerStampTest do
 
         conn = call("PATCH", "/#{row.id}", tenant, %{"description" => "d", key => nil})
         assert conn.status == 422
+        assert fields_of(conn) == [key]
       end
 
       assert Repo.get!(ProcessDefinition, row.id, prefix: schema).version == "1.0.0"
@@ -156,7 +158,7 @@ defmodule Letflow.Routers.DefinitionsOwnerStampTest do
     end
 
     test "POST /definitions/:process_key/rollback", %{tenant: tenant} do
-      for key <- @stamp_keys do
+      for key <- @stamp_keys ++ ["activated_by"] do
         conn =
           call(
             "POST",
@@ -201,6 +203,7 @@ defmodule Letflow.Routers.DefinitionsOwnerStampTest do
 
       conn = call("PATCH", "/#{row.id}", tenant, %{"description" => "changed"})
       assert conn.status == 409
+      assert conn.resp_body =~ "module-owned"
 
       assert Repo.get!(ProcessDefinition, row.id, prefix: schema).description == nil
     end
@@ -218,6 +221,99 @@ defmodule Letflow.Routers.DefinitionsOwnerStampTest do
       assert body["owner_module_version"] == FixtureLedger.manifest().version
       refute Map.has_key?(body, "owner_manifest_hash")
       refute Map.has_key?(body, "owner_body_hash")
+      refute conn.resp_body =~ row.owner_manifest_hash
+      refute conn.resp_body =~ row.owner_body_hash
+    end
+
+    test "an unkeyed rollback body passes the field check (control for the 422 loop)",
+         %{tenant: tenant} do
+      conn =
+        call("POST", "/no_such_key/rollback", tenant, %{"target_version" => "1"}, ["TENANT_ADMIN"])
+
+      assert conn.status == 404
+    end
+
+    test "PATCH with non-empty variable_schemas on a stamped draft is 409 module-owned and writes nothing",
+         %{tenant: tenant, schema: schema} do
+      row = stamped!(schema)
+
+      entries = [%{"variable_key" => "k1", "json_schema" => %{"type" => "string"}}]
+      conn = call("PATCH", "/#{row.id}", tenant, %{"variable_schemas" => entries})
+
+      assert conn.status == 409
+      assert conn.resp_body =~ "module-owned"
+
+      assert Repo.all(
+               from(v in Letflow.Engine.VariableSchema, where: v.definition_id == ^row.id),
+               prefix: schema
+             ) == []
+
+      assert Repo.get!(ProcessDefinition, row.id, prefix: schema).description == nil
+    end
+
+    # A stamped row that has been ACTIVATED is not a draft any more: PUT/PATCH answer the
+    # ordinary 409 "only a DRAFT definition can be modified" (:not_draft), not the
+    # module-owned message. Both are 409 and both write nothing.
+    test "an activated stamped row answers the ordinary not-draft 409", %{
+      tenant: tenant,
+      schema: schema
+    } do
+      row = stamped!(schema)
+      assert {:ok, %{definition: _}} = Definitions.activate(row.id, prefix: schema)
+
+      conn = call("PATCH", "/#{row.id}", tenant, %{"description" => "late"})
+      assert conn.status == 409
+      assert conn.resp_body =~ "DRAFT"
+    end
+
+    test "activate, deprecate, archive and rollback responses carry no hash and no stamp keys",
+         %{tenant: tenant, schema: schema} do
+      name = "gh2590-r2-life-#{System.unique_integer([:positive])}"
+      v1 = stamped!(schema, name)
+
+      for action <- ["activate", "deprecate", "archive"] do
+        conn = call("POST", "/#{v1.id}/#{action}", tenant, nil, ["TENANT_ADMIN"])
+        assert conn.status == 200, "#{action}: #{conn.resp_body}"
+        refute conn.resp_body =~ v1.owner_manifest_hash
+        refute conn.resp_body =~ v1.owner_body_hash
+        refute conn.resp_body =~ "owner_manifest_hash"
+        refute conn.resp_body =~ "owner_body_hash"
+      end
+
+      # rollback over a stamped version: a fresh stamped v1 re-activated, response is the
+      # 5-key rollback map
+      name = name <> "-rb"
+      v1 = stamped!(schema, name)
+      assert {:ok, %{definition: _}} = Definitions.activate(v1.id, prefix: schema)
+
+      plain =
+        Definitions.create(
+          %{name: name, version: "2.0.0", graph: @graph, created_by: Ecto.UUID.generate()},
+          prefix: schema
+        )
+
+      assert {:ok, v2} = plain
+      assert {:ok, %{definition: _}} = Definitions.activate(v2.id, prefix: schema)
+
+      conn =
+        call("POST", "/#{name}/rollback", tenant, %{"target_version" => "1.0.0"}, ["TENANT_ADMIN"])
+
+      assert conn.status == 200, conn.resp_body
+      refute conn.resp_body =~ v1.owner_manifest_hash
+      refute conn.resp_body =~ v1.owner_body_hash
+      refute conn.resp_body =~ "owner_"
+    end
+
+    test "GET /active/:name shows the module, never a hash", %{tenant: tenant, schema: schema} do
+      name = "gh2590-r2-active-#{System.unique_integer([:positive])}"
+      row = stamped!(schema, name)
+      assert {:ok, %{definition: _}} = Definitions.activate(row.id, prefix: schema)
+
+      conn = call("GET", "/active/#{name}", tenant, nil)
+      assert conn.status == 200
+      body = Jason.decode!(conn.resp_body)
+
+      assert body["owner_module"] == "fixture_ledger"
       refute conn.resp_body =~ row.owner_manifest_hash
       refute conn.resp_body =~ row.owner_body_hash
     end

@@ -82,6 +82,17 @@ defmodule Letflow.Entities.ManagedTypes do
 
   @type owner :: :tenant | Owner.t()
 
+  @doc """
+  True only for an `%Owner{}` struct (never `:tenant`, a plain map or a foreign struct that
+  merely carries `module_id`/`version`/`manifest_hash` keys). The predicate
+  `Letflow.Definitions.create_owned/3` and `Letflow.Definitions.OwnerStamp.for_owner/2` use
+  so that only a genuine owner can stamp a row; it keeps the `%Owner{}` pattern in this file
+  (scan `managed_types_callers_test`).
+  """
+  @spec owner?(term()) :: boolean()
+  def owner?(%Owner{}), do: true
+  def owner?(_other), do: false
+
   @doc "Guard: `term` is a valid write authority (`:tenant` or an `%Owner{}`)."
   defguard is_authority(term) when term == :tenant or is_struct(term, Owner)
 

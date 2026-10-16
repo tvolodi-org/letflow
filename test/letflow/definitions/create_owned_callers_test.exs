@@ -29,6 +29,25 @@ defmodule Letflow.Definitions.CreateOwnedCallersTest do
 
     {_ast, hits} =
       Macro.prewalk(ast, [], fn
+        # `@spec create_owned(...)` and other module attributes are not calls
+        {:@, _, _}, acc ->
+          {{:__attribute__, [], []}, acc}
+
+        # a definition head `def create_owned(...)` / `defp ... when ...` is the definition,
+        # not a call: only its parameter list is walked
+        {kind, meta, [head | rest]}, acc when kind in [:def, :defp, :defmacro, :defmacrop] ->
+          params =
+            case head do
+              {:when, _, [{_name, _, params} | _guards]} -> params
+              {_name, _, params} -> params
+            end
+
+          {{kind, meta, [{:__head__, [], params || []} | rest]}, acc}
+
+        # local call (or import form) `create_owned(attrs, opts, owner)`, or its piped form
+        {:create_owned, meta, args}, acc when is_list(args) and length(args) in [2, 3] ->
+          {{:__local_call__, [], args}, [Keyword.get(meta, :line, 0) | acc]}
+
         # X.create_owned(...) and &X.create_owned/3 (the dot node carries the name)
         {{:., meta, [_receiver, :create_owned]}, _call_meta, _args} = node, acc ->
           {node, [Keyword.get(meta, :line, 0) | acc]}
@@ -72,10 +91,24 @@ defmodule Letflow.Definitions.CreateOwnedCallersTest do
             "defmodule A do\n  def f(a, o), do: Letflow.Definitions.create_owned(a, [], o)\nend",
             "defmodule A do\n  def f, do: &Letflow.Definitions.create_owned/3\nend",
             "defmodule A do\n  def f(a), do: apply(Letflow.Definitions, :create_owned, a)\nend",
-            "defmodule A do\n  alias Letflow.Definitions\n  def f(a, o) do\n    a |> Definitions.create_owned([], o)\n  end\nend"
+            "defmodule A do\n  alias Letflow.Definitions\n  def f(a, o) do\n    a |> Definitions.create_owned([], o)\n  end\nend",
+            # the import form: a bare local call after `import ..., only: [create_owned: 3]`
+            "defmodule A do\n  import Letflow.Definitions, only: [create_owned: 3]\n  def f(a, o), do: create_owned(a, [], o)\nend",
+            "defmodule A do\n  import Letflow.Definitions, only: [create_owned: 3]\n  def f(a, o), do: a |> create_owned([], o)\nend"
           ] do
         assert call_sites(snippet) != [], snippet
       end
+    end
+
+    test "a definition head, a @spec and a doc mention are not calls" do
+      source =
+        "defmodule A do
+  @spec create_owned(map(), keyword(), term()) :: term()
+  def create_owned(a, o, :tenant) when is_map(a), do: {a, o}
+  defp create_owned(a, o, x), do: {a, o, x}
+end"
+
+      assert call_sites(source) == []
     end
 
     test "an unrelated call is not flagged" do

@@ -460,8 +460,8 @@ field :owner_manifest_hash, :string; field :owner_body_hash, :string
 ```
 
 * `TenantModule`: `field :manifest_hash, :string` (nullable); `insert_changeset` casts it; the
-  settings changeset does not. `Installs.insert_tenant_module/2` stores `Catalog.manifest_hash/1`.
-  `Installs` exposes `installed_manifest_hash(module_id, prefix) :: {:ok, String.t()} | :error`
+  settings changeset does not. `Installs.insert_tenant_module/3` (entry module, owner, prefix) stores `owner.manifest_hash` (= `Catalog.manifest_hash/1`, one call per install).
+  `Installs` exposes `installed_manifest_hash(module_id, opts) :: {:ok, String.t()} | {:error, :not_installed | :no_installed_hash}` (opts carries `:prefix`)
   (the only reader; used by `HandlerWrites`, not by core).
 * `SolutionPack.create_packed_definitions/3` becomes `/4` taking the `owner`; a packed definition of
   a module install is created through `Definitions.create_owned/3`; a plain pack (`:tenant`) is

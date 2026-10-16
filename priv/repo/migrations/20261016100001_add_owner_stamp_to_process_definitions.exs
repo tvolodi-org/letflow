@@ -18,8 +18,14 @@
 #     or all four are set.
 #   * BEFORE UPDATE trigger `process_definitions_owner_stamp_immutable`: refuses ANY update
 #     that changes an `owner_*` column (NULL -> value as well as value -> anything), and on a
-#     stamped row any change of `graph`. Status flips, `activated_by`, `sequence_number` and
-#     `updated_at` pass. There is no "one-time stamp" exception: the stamp is in the INSERT.
+#     stamped row any change of `graph`, `name` or `version`. Status flips, `activated_by`,
+#     `sequence_number`, `description`/`stage` and `updated_at` pass. There is no "one-time
+#     stamp" exception: the stamp is in the INSERT.
+#
+# NOT guarded: DELETE. A stamped row is deletable (a draft by `hard_delete/2`, anything by
+# raw SQL); there is no BEFORE DELETE trigger. R3/R4 must not assume a stamped version is
+# permanent: a pinned instance may reference a definition row that no longer exists (OQ-R9),
+# which the run-time checks must fail closed on.
 #
 # TENANT-SCOPED MIGRATION -- the `if prefix() do` guard below is MANDATORY, and so is this
 # file's registration in `Letflow.TenantProvisioning`'s `@tenant_scoped_migration_manifest`.
@@ -63,8 +69,11 @@ defmodule Letflow.Repo.Migrations.AddOwnerStampToProcessDefinitions do
             RAISE EXCEPTION 'process_definitions.owner_* is immutable';
           END IF;
 
-          IF OLD.owner_module IS NOT NULL AND NEW.graph IS DISTINCT FROM OLD.graph THEN
-            RAISE EXCEPTION 'process_definitions.graph of a module-owned version is immutable';
+          IF OLD.owner_module IS NOT NULL
+             AND (NEW.graph IS DISTINCT FROM OLD.graph
+                  OR NEW.name IS DISTINCT FROM OLD.name
+                  OR NEW.version IS DISTINCT FROM OLD.version) THEN
+            RAISE EXCEPTION 'process_definitions.graph, name and version of a module-owned version are immutable';
           END IF;
 
           RETURN NEW;

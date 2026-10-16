@@ -57,6 +57,7 @@ defmodule Letflow.Definitions.OwnerModuleStampTest do
     "ints" => [1, 0, -7, 9_007_199_254_740_993, 12_345_678_901_234_567_890],
     "nested" => %{"b" => [%{"z" => 1.0, "a" => nil}, "s", true], "a" => %{"k" => 2.5e-3}},
     "atom_value" => :an_atom,
+    "extremes" => [1.0e300, 5.0e-324, -1.0e300, 2.2250738585072014e-308],
     "text" => "ünïcode \" \\ ok"
   }
 
@@ -221,6 +222,11 @@ defmodule Letflow.Definitions.OwnerModuleStampTest do
             &ProcessDefinition.update_changeset/2
           ] do
         cs = changeset_fun.(%ProcessDefinition{}, attrs)
+
+        # positive control: the cast really ran (non-stamp fields land), so the refusal of
+        # the stamp fields is the cast list, not an empty changeset
+        assert cs.changes.name == "n"
+        assert cs.changes.version == "1"
 
         for field <- Map.keys(@forged) do
           refute Map.has_key?(cs.changes, field)
@@ -443,6 +449,213 @@ defmodule Letflow.Definitions.OwnerModuleStampTest do
     test "a large float is the integer Postgres numeric reads back" do
       assert OwnerStamp.graph_hash(%{"v" => 1.0e20}) ==
                OwnerStamp.graph_hash(%{"v" => 100_000_000_000_000_000_000})
+    end
+
+    test "an atom-keyed graph stamps the same body hash as its string-keyed form",
+         %{schema: schema} do
+      atom_graph = %{
+        nodes: [%{id: "start", node_type: "START"}, %{id: "end", node_type: "END"}],
+        edges: [%{id: "e1", source: "start", target: "end"}]
+      }
+
+      assert OwnerStamp.graph_hash(atom_graph) == OwnerStamp.graph_hash(@graph)
+
+      case Definitions.create_owned(
+             %{
+               name: "atom-keys-#{System.unique_integer([:positive])}",
+               version: "1",
+               graph: atom_graph,
+               created_by: Ecto.UUID.generate()
+             },
+             [prefix: schema],
+             owner()
+           ) do
+        {:ok, row} ->
+          # accepted: the stamp is over the JSON form, so it equals the string-keyed hash
+          assert row.owner_body_hash == OwnerStamp.graph_hash(@graph)
+          assert OwnerStamp.graph_hash(row.graph) == row.owner_body_hash
+
+        {:error, _graph_not_accepted} ->
+          # an atom-keyed graph is refused by the graph validators: nothing is stamped
+          assert Repo.aggregate(ProcessDefinition, :count, prefix: schema) == 0
+      end
+    end
+  end
+
+  describe "only a genuine Owner stamps (S1)" do
+    defmodule ForeignOwner do
+      defstruct module_id: "fixture_ledger",
+                version: "9.9.9",
+                manifest_hash: String.duplicate("f", 64),
+                manages: MapSet.new(["fxl_ledger"])
+    end
+
+    test "a foreign struct or plain map with the owner keys is refused and never stamps",
+         %{schema: schema} do
+      foreign = struct(ForeignOwner)
+      plain_map = Map.from_struct(foreign)
+
+      for impostor <- [foreign, plain_map, nil, "fixture_ledger", :ledger] do
+        assert {:error, :invalid_owner} =
+                 Definitions.create_owned(
+                   %{
+                     name: "impostor-#{System.unique_integer([:positive])}",
+                     version: "1",
+                     graph: @graph,
+                     created_by: Ecto.UUID.generate()
+                   },
+                   [prefix: schema],
+                   impostor
+                 )
+
+        assert OwnerStamp.for_owner(impostor, @graph) == :none
+      end
+
+      assert Repo.aggregate(ProcessDefinition, :count, prefix: schema) == 0
+      assert {:ok, _stamp} = OwnerStamp.for_owner(owner(), @graph)
+      refute ManagedTypes.owner?(foreign)
+      refute ManagedTypes.owner?(:tenant)
+      assert ManagedTypes.owner?(owner())
+    end
+  end
+
+  describe "the trigger also guards name and version of a stamped row (S2)" do
+    test "name and version of a stamped row cannot change; description and stage can",
+         %{schema: schema} do
+      row = create_owned!(schema, %{})
+
+      for {column, value} <- [{"name", "renamed"}, {"version", "9.9.9"}] do
+        sql = "UPDATE $S.process_definitions SET #{column} = $1 WHERE id = $2"
+
+        assert {:error, %Postgrex.Error{postgres: %{message: message}}} =
+                 raw(schema, sql, [value, Ecto.UUID.dump!(row.id)])
+
+        assert message =~ "immutable"
+      end
+
+      assert {:ok, %{num_rows: 1}} =
+               raw(
+                 schema,
+                 "UPDATE $S.process_definitions SET description = 'd', stage = 's', updated_at = now() WHERE id = $1",
+                 [Ecto.UUID.dump!(row.id)]
+               )
+
+      reread = Repo.get!(ProcessDefinition, row.id, prefix: schema)
+      assert {reread.name, reread.version} == {row.name, row.version}
+    end
+
+    test "an unstamped row can still be renamed", %{schema: schema} do
+      plain = plain!(schema, "rename-me")
+
+      assert {:ok, %{num_rows: 1}} =
+               raw(schema, "UPDATE $S.process_definitions SET name = 'renamed' WHERE id = $1", [
+                 Ecto.UUID.dump!(plain.id)
+               ])
+    end
+  end
+
+  describe "promotion and rollback never transfer or alter the stamp (T2)" do
+    alias Letflow.Definitions.Promotion
+    alias Letflow.Definitions.PromotionDigest
+    alias Letflow.Definitions.PromotionReview
+
+    test "a promoted copy of a stamped active definition has all four columns nil",
+         %{schema: schema, tenant_id: source_tenant_id} do
+      target = TenantFixture.provisioned_tenant!(slug_prefix: "gh2590-r2-promo-target")
+      source = create_owned!(schema, %{name: "promo-#{System.unique_integer([:positive])}"})
+      assert {:ok, %{definition: source_active}} = Definitions.activate(source.id, prefix: schema)
+      assert source_active.owner_module == "fixture_ledger"
+
+      plan = %{
+        source_tenant_id: source_tenant_id,
+        target_tenant_id: target.tenant_id,
+        process_key: source.name,
+        source_definition_id: source.id,
+        target_definition_id: nil,
+        base_version: nil,
+        entries: []
+      }
+
+      review =
+        struct(PromotionReview, %{
+          id: Ecto.UUID.generate(),
+          plan_digest: PromotionDigest.compute_plan_digest(plan),
+          def_id: plan.process_key,
+          serialised_plan: Jason.encode!(plan),
+          requested_by: Ecto.UUID.generate(),
+          status: :approved,
+          row_version: 2
+        })
+
+      assert {:ok, result} =
+               Promotion.promote_definition(Ecto.UUID.generate(), review,
+                 permission_checker: fn _actor, _tenant -> true end,
+                 event_appender: fn _attrs, _prefix ->
+                   {:ok, %{event_id: Ecto.UUID.generate()}}
+                 end
+               )
+
+      assert stamp_columns(target.schema_name, result.target_definition_id) == [
+               nil,
+               nil,
+               nil,
+               nil
+             ]
+
+      assert stamp_columns(schema, source.id) |> hd() == "fixture_ledger"
+    end
+
+    test "rollback to a stamped version re-activates it with its stamp intact; the tenant copy stays unstamped",
+         %{schema: schema} do
+      name = "rb-#{System.unique_integer([:positive])}"
+      v1 = create_owned!(schema, %{name: name, version: "1.0.0"})
+      assert {:ok, %{definition: _}} = Definitions.activate(v1.id, prefix: schema)
+
+      assert {:ok, v2} =
+               Definitions.create(
+                 %{name: name, version: "2.0.0", graph: @graph, created_by: Ecto.UUID.generate()},
+                 prefix: schema
+               )
+
+      assert {:ok, %{definition: _}} = Definitions.activate(v2.id, prefix: schema)
+      before = stamp_columns(schema, v1.id)
+
+      assert {:ok, %{definition_id: rolled_to}} =
+               Definitions.rollback_definition_version(name, "1.0.0", Ecto.UUID.generate(),
+                 prefix: schema,
+                 permission_checker: fn _actor, _tenant -> true end,
+                 event_appender: fn _attrs, _prefix ->
+                   {:ok, %{event_id: Ecto.UUID.generate()}}
+                 end
+               )
+
+      assert rolled_to == v1.id
+      assert stamp_columns(schema, v1.id) == before
+      assert Repo.get!(ProcessDefinition, v1.id, prefix: schema).status == :active
+      assert stamp_columns(schema, v2.id) == [nil, nil, nil, nil]
+    end
+
+    test "lifecycle audit states of a stamped row carry no hash keys", %{schema: schema} do
+      row = create_owned!(schema, %{})
+      assert {:ok, %{definition: _}} = Definitions.activate(row.id, prefix: schema)
+      assert {:ok, _} = Definitions.deprecate(row.id, prefix: schema)
+      assert {:ok, _} = Definitions.archive(row.id, prefix: schema)
+
+      %{rows: rows} =
+        Repo.query!(
+          ~s(SELECT action, before_state, after_state FROM "#{schema}"."audit_entries" ) <>
+            "WHERE resource_id = $1 AND action LIKE 'definition.%'",
+          [row.id]
+        )
+
+      assert length(rows) >= 4
+
+      for [_action, before_state, after_state] <- rows, state <- [before_state, after_state] do
+        if is_map(state) do
+          refute Map.has_key?(state, "owner_manifest_hash")
+          refute Map.has_key?(state, "owner_body_hash")
+        end
+      end
     end
   end
 end

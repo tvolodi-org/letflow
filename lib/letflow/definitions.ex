@@ -240,6 +240,8 @@ defmodule Letflow.Definitions do
           | {:error, :graph_structure_invalid}
           | {:error, {:graph_validation_failed, [Graph.Violation.t()]}}
           | {:error, :duplicate_name_version}
+          # GH #2590 R2: `create_owned/3` was given neither `:tenant` nor an `Owner`.
+          | {:error, :invalid_owner}
           | {:error, Ecto.Changeset.t()}
           | common_error()
 
@@ -590,9 +592,15 @@ defmodule Letflow.Definitions do
   def create_owned(attrs, opts, :tenant) when is_map(attrs) and is_list(opts),
     do: create(attrs, opts)
 
-  def create_owned(attrs, opts, owner)
-      when is_map(attrs) and is_list(opts) and is_struct(owner),
-      do: create_with_stamp(attrs, opts, {:owner, owner})
+  def create_owned(attrs, opts, owner) when is_map(attrs) and is_list(opts) do
+    if ManagedTypes.owner?(owner) do
+      create_with_stamp(attrs, opts, {:owner, owner})
+    else
+      # Anything that is not `:tenant` or a genuine `%Owner{}` (a map or a foreign struct
+      # carrying the same keys) never stamps and never writes.
+      {:error, :invalid_owner}
+    end
+  end
 
   defp create_with_stamp(attrs, opts, stamp_source) do
     prefix = Keyword.get(opts, :prefix)
@@ -2017,7 +2025,6 @@ defmodule Letflow.Definitions do
   end
 
   # REQ-195 -- actor_id is nil for every Definitions lifecycle audit row
-
   # (create/activate/deprecate/archive): none of these four functions'
   # `opts()`/`activate_opts()` carries an actor_id field today, and the one
   # channel that could supply a real one (conn.assigns.auth_context.user_id)

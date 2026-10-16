@@ -78,16 +78,16 @@ defmodule Letflow.Definitions.OwnerStamp do
   def from_row(%{
         owner_module: module_id,
         owner_module_version: version,
-        owner_manifest_hash: manifest_hash,
+        owner_manifest_hash: m_hash,
         owner_body_hash: body_hash
       })
-      when is_binary(module_id) and is_binary(version) and is_binary(manifest_hash) and
+      when is_binary(module_id) and is_binary(version) and is_binary(m_hash) and
              is_binary(body_hash) do
     {:ok,
      %{
        module_id: module_id,
        module_version: version,
-       manifest_hash: manifest_hash,
+       manifest_hash: m_hash,
        body_hash: body_hash
      }}
   end
@@ -100,19 +100,22 @@ defmodule Letflow.Definitions.OwnerStamp do
   `Letflow.Entities.ManagedTypes.module_owner/1`). Pure; computed BEFORE the insert.
   """
   @spec for_owner(owner :: ManagedTypes.Owner.t(), graph_map :: map()) :: {:ok, t()} | :none
-  def for_owner(
-        %{module_id: module_id, version: version, manifest_hash: manifest_hash},
-        graph_map
-      )
-      when is_binary(module_id) and is_binary(version) and is_binary(manifest_hash) and
-             is_map(graph_map) do
-    {:ok,
-     %{
-       module_id: module_id,
-       module_version: version,
-       manifest_hash: manifest_hash,
-       body_hash: graph_hash(graph_map)
-     }}
+  def for_owner(owner, graph_map) when is_map(graph_map) do
+    # Only a genuine `%Owner{}` stamps: a plain map or a foreign struct with the same keys
+    # is `:none` (`ManagedTypes.owner?/1`).
+    with true <- ManagedTypes.owner?(owner),
+         %{module_id: module_id, version: version, manifest_hash: m_hash}
+         when is_binary(module_id) and is_binary(version) and is_binary(m_hash) <- owner do
+      {:ok,
+       %{
+         module_id: module_id,
+         module_version: version,
+         manifest_hash: m_hash,
+         body_hash: graph_hash(graph_map)
+       }}
+    else
+      _not_a_stamping_owner -> :none
+    end
   end
 
   def for_owner(_owner, _graph_map), do: :none

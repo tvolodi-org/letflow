@@ -74,6 +74,45 @@ defmodule Letflow.Definitions.OwnerStampMigrationTest do
              )
   end
 
+  test "both migrations are reversible (down removes columns, CHECK and trigger; up restores)" do
+    t = TenantFixture.provisioned_tenant!(slug_prefix: "gh2590-r2-mig-down")
+    schema = t.schema_name
+
+    migrations = [{@hash_version, @hash_module}, {@stamp_version, @stamp_module}]
+
+    Ecto.Migrator.run(Repo, migrations, :down, all: true, prefix: schema, log: false)
+
+    assert columns(schema, "process_definitions", @stamp_columns) == []
+    assert columns(schema, "tenant_modules", ["manifest_hash"]) == []
+
+    assert %{rows: [[0]]} =
+             Repo.query!(
+               "SELECT count(*)::int FROM pg_trigger tg JOIN pg_class r ON r.oid = tg.tgrelid " <>
+                 "JOIN pg_namespace n ON n.oid = r.relnamespace WHERE n.nspname = $1 " <>
+                 "AND tg.tgname = 'process_definitions_owner_stamp_immutable'",
+               [schema]
+             )
+
+    assert %{rows: [[0]]} =
+             Repo.query!(
+               "SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace " <>
+                 "WHERE n.nspname = $1 AND p.proname = 'process_definitions_owner_stamp_guard'",
+               [schema]
+             )
+
+    assert %{rows: [[0]]} =
+             Repo.query!(
+               "SELECT count(*)::int FROM pg_constraint c JOIN pg_class r ON r.oid = c.conrelid " <>
+                 "JOIN pg_namespace n ON n.oid = r.relnamespace WHERE n.nspname = $1 " <>
+                 "AND c.conname = 'process_definitions_owner_stamp_all_or_none'",
+               [schema]
+             )
+
+    Ecto.Migrator.run(Repo, Enum.reverse(migrations), :up, all: true, prefix: schema, log: false)
+    assert length(columns(schema, "process_definitions", @stamp_columns)) == 4
+    assert length(columns(schema, "tenant_modules", ["manifest_hash"])) == 1
+  end
+
   test "an existing tenant without the objects gets them through replay; rows stay NULL" do
     t = TenantFixture.provisioned_tenant!(slug_prefix: "gh2590-r2-mig-replay")
     schema = t.schema_name
