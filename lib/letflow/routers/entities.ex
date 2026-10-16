@@ -1309,13 +1309,17 @@ defmodule Letflow.Routers.Entities do
   defp run_import([], _entity_type, _actor_id, _import_request_id, _prefix), do: {:ok, []}
 
   defp run_import([first | rest], entity_type, actor_id, import_request_id, prefix) do
-    case import_one_entry(first, entity_type, actor_id, import_request_id, prefix) do
+    case import_one_entry(first, 0, entity_type, actor_id, import_request_id, prefix) do
       {:error, _source_record_id, {:error, {:definition_not_found, _} = reason}} ->
         {:error, reason}
 
       first_result ->
         rest_results =
-          Enum.map(rest, &import_one_entry(&1, entity_type, actor_id, import_request_id, prefix))
+          rest
+          |> Enum.with_index(1)
+          |> Enum.map(fn {entry, index} ->
+            import_one_entry(entry, index, entity_type, actor_id, import_request_id, prefix)
+          end)
 
         {:ok, [first_result | rest_results]}
     end
@@ -1334,10 +1338,10 @@ defmodule Letflow.Routers.Entities do
   # contract; GH #2543: only identical field_values dedupe, differing ones
   # give a per-entry idempotency_key_reuse), while two separate calls -- even a byte-identical re-POST --
   # each mint their own import_request_id and share no relationship at all.
-  defp import_one_entry(entry, entity_type, actor_id, import_request_id, prefix) do
+  defp import_one_entry(entry, index, entity_type, actor_id, import_request_id, prefix) do
     source_record_id = Map.get(entry, "record_id")
     field_values = Map.get(entry, "field_values", %{})
-    idempotency_key = import_idempotency_key(import_request_id, source_record_id)
+    idempotency_key = import_idempotency_key(import_request_id, source_record_id, index)
 
     command_attrs = %{
       entity_type: entity_type,
@@ -1355,7 +1359,13 @@ defmodule Letflow.Routers.Entities do
     end
   end
 
-  defp import_idempotency_key(import_request_id, source_record_id) do
+  # GH #2551: an entry without a record_id is keyed by its zero-based index in
+  # the request so entries do not all collapse onto one `...:nil` key.
+  defp import_idempotency_key(import_request_id, nil, index) do
+    "entities-record-import:#{import_request_id}:idx:#{index}"
+  end
+
+  defp import_idempotency_key(import_request_id, source_record_id, _index) do
     "entities-record-import:#{import_request_id}:#{inspect(source_record_id)}"
   end
 
