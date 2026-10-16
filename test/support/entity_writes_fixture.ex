@@ -284,6 +284,152 @@ defmodule Letflow.EntityWritesFixture do
     result
   end
 
+  # --- SERVICE_TASK (GH #2587 PR C2) ---------------------------------------------------------
+  #
+  # The activation fence refuses `entity_writes` on a SERVICE_TASK node until C1, so these cases
+  # build the ACTIVE row the way a row from BEFORE B1 exists: `legacy_activate!/4` inserts the
+  # graph without activation validation and records the activator (the same document the real
+  # activation records), and the instance is started through the real `Engine.create/2`.
+
+  @doc "START -> SERVICE_TASK `svc` (HTTP, declaring `lines`) -> END."
+  @spec service_graph([map()]) :: map()
+  def service_graph(lines), do: service_graph(lines, %{})
+
+  @doc "`service_graph/1` with extra attributes merged into the service node."
+  @spec service_graph([map()], map()) :: map()
+  def service_graph(lines, extra_attributes) do
+    node_attributes =
+      Map.merge(
+        %{
+          "endpoint" => "https://example.test/svc",
+          "method" => "POST",
+          "timeout_ms" => 300_000,
+          "entity_writes" => lines
+        },
+        extra_attributes
+      )
+
+    %{
+      "nodes" => [
+        %{"id" => "start", "node_type" => "START"},
+        %{"id" => "svc", "node_type" => "SERVICE_TASK", "attributes" => node_attributes},
+        %{"id" => "end", "node_type" => "END"}
+      ],
+      "edges" => [
+        %{"id" => "e1", "source" => "start", "target" => "svc"},
+        %{"id" => "e2", "source" => "svc", "target" => "end"}
+      ]
+    }
+  end
+
+  @doc """
+  START -> SERVICE_TASK `svc` (declaring `lines`) -> HUMAN_TASK `ht` -> END: the token is still
+  live (waiting at `ht`) after the service apply.
+  """
+  @spec service_then_human_graph([map()]) :: map()
+  def service_then_human_graph(lines) do
+    graph = service_graph(lines)
+
+    %{
+      "nodes" =>
+        List.insert_at(graph["nodes"], 2, %{
+          "id" => "ht",
+          "node_type" => "HUMAN_TASK",
+          "attributes" => %{"role" => "REVIEWER"}
+        }),
+      "edges" => [
+        %{"id" => "e1", "source" => "start", "target" => "svc"},
+        %{"id" => "e2", "source" => "svc", "target" => "ht"},
+        %{"id" => "e3", "source" => "ht", "target" => "end"}
+      ]
+    }
+  end
+
+  @doc """
+  The full SERVICE case: tenant, the activator user, two types (`stock_move`, `stock_note`), an
+  ACTIVE definition of `graph` with the activator recorded, a started instance and its one
+  PENDING dispatch row marked `"advanced"` (the state `attempt_dispatch/2` leaves, no HTTP).
+  """
+  @spec service_case!(String.t(), map()) :: map()
+  def service_case!(slug_prefix, graph) do
+    base = tenant_case!(slug_prefix)
+    define_type!(base.schema, "stock_move", %{})
+    define_type!(base.schema, "stock_note", %{})
+    attach_service!(base, graph)
+  end
+
+  @doc """
+  Activates `graph` in the tenant of `base` (types `stock_move` and `stock_note` must exist),
+  starts an instance and marks its dispatch row `"advanced"`. `service_case!/2` without the
+  tenant and type setup, so several cases can share one (committed) tenant.
+  """
+  @spec attach_service!(map(), map()) :: map()
+  def attach_service!(base, graph) do
+    pending = attach_service_pending!(base, graph)
+
+    dispatch =
+      pending.dispatch
+      |> Ecto.Changeset.change(%{status: "advanced"})
+      |> Repo.update!(prefix: base.schema)
+
+    %{pending | dispatch: dispatch}
+  end
+
+  @doc """
+  `attach_service!/2` WITHOUT marking the dispatch row `"advanced"`: the row is still `pending`,
+  so the real `ServiceTaskDispatcher.poll_and_dispatch/1` makes the outbound call and re-enters
+  the engine (the at-most-once tests).
+  """
+  @spec attach_service_pending!(map(), map()) :: map()
+  def attach_service_pending!(base, graph) do
+    definition =
+      legacy_activate!(base.schema, base.user, graph, [
+        {"stock_move", "create"},
+        {"stock_note", "create"}
+      ])
+
+    {:ok, created} =
+      Engine.create(
+        %{
+          definition_id: definition.id,
+          initial_variables: %{"seed" => "s"},
+          actor_id: Ecto.UUID.generate(),
+          idempotency_key: unique("ew-svc-start")
+        },
+        prefix: base.schema
+      )
+
+    [row] =
+      Repo.all(
+        from(d in Letflow.Engine.ServiceTaskDispatcher.ServiceTaskDispatch,
+          where: d.instance_id == ^created.instance_id
+        ),
+        prefix: base.schema
+      )
+
+    Map.merge(base, %{
+      definition: definition,
+      instance_id: created.instance_id,
+      dispatch: row
+    })
+  end
+
+  @doc "The re-entry the dispatcher performs after a 2xx: apply `body` for the case's dispatch."
+  @spec apply_http(map(), map()) :: term()
+  def apply_http(ctx, body) do
+    Engine.advance_after_service_task_outcome(ctx.dispatch.id, {:advance, body}, Repo, ctx.schema)
+  end
+
+  @spec dispatch!(String.t(), Ecto.UUID.t()) :: struct()
+  def dispatch!(schema, dispatch_id),
+    do:
+      Repo.get!(Letflow.Engine.ServiceTaskDispatcher.ServiceTaskDispatch, dispatch_id,
+        prefix: schema
+      )
+
+  @spec dlq_entries(String.t()) :: [struct()]
+  def dlq_entries(schema), do: Repo.all(Letflow.Dlq.Entry, prefix: schema)
+
   # --- observation helpers -------------------------------------------------------------
 
   @spec records(String.t(), String.t()) :: [Latest.t()]
@@ -365,6 +511,19 @@ defmodule Letflow.EntityWritesFixture do
     |> where([e], e.instance_id == ^instance_id and e.event_type == ^event_type)
     |> order_by([e], asc: e.sequence_number)
     |> Repo.all(prefix: schema)
+  end
+
+  @doc "Every event type of the instance, in stream order."
+  @spec instance_event_types(String.t(), Ecto.UUID.t()) :: [String.t()]
+  def instance_event_types(schema, instance_id) do
+    Repo.all(
+      from(e in Event,
+        where: e.instance_id == ^instance_id,
+        order_by: [asc: e.sequence_number],
+        select: e.event_type
+      ),
+      prefix: schema
+    )
   end
 
   @spec all_instance_event_count(String.t(), Ecto.UUID.t()) :: non_neg_integer()

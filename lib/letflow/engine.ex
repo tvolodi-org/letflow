@@ -398,6 +398,16 @@ defmodule Letflow.Engine do
   FIRST statements of a completion with lines only, and bound the whole
   transaction, the tail's waits included.
 
+  GH #2587 PR C2: a SERVICE_TASK apply whose node declares `entity_writes`
+  (`advance_after_service_task_outcome/4`, `apply_script_task_result/3`) takes
+  its dispatch row (or script CAS row) and the projection first, then the same
+  entity-type locks in `(entity_type, declared index)` order, then the audit
+  chain row; the same `SET LOCAL` pair is issued as the first statements of its
+  outer transaction. The service apply holds the dispatch row and the
+  projection while it requests entity-type locks; a deadlock with a child
+  completion's cascade is reported as contention and re-applied by the engine
+  (bounded), and the landing of a refusal runs in a second transaction.
+
   REQ-045 resolved this engine to row-based state (`create/2` is a plain
   function under `Ecto.Multi`, not a supervised `:gen_statem`/
   `DynamicSupervisor`-per-instance process — see this moduledoc's own
@@ -447,6 +457,7 @@ defmodule Letflow.Engine do
   alias Letflow.Engine.VariableSchema
   alias Letflow.Dlq
   alias Letflow.EventStore
+  alias Letflow.EventStore.IdempotencyRecord
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.EventStore.Registry, as: EventRegistry
   alias Letflow.Identity
@@ -2817,6 +2828,28 @@ defmodule Letflow.Engine do
 
   @contention_error_codes [:lock_not_available, :query_canceled, :deadlock_detected]
 
+  # D-C.9: total wall-clock budget of one apply (HTTP; the script route takes
+  # min(this, lease remaining - margin)), the attempt-START gate (a re-apply starts only with at
+  # least this much budget left), the pre-guard bound subtracted from the budget the 10 s guard
+  # gets (P1 `prepare/2` <= 4 s + the two row-lock waits <= 4 s), the lease margin, the number of
+  # attempts and the constant backoffs.
+  @service_apply_total_ms 20_000
+  @service_attempt_gate_ms 15_000
+  @service_pre_guard_bound_ms 8_000
+  @service_lease_margin_ms 2_000
+  @service_apply_attempts 3
+  @service_backoffs_ms [100, 300]
+
+  @service_refusal_codes [
+    :write_not_permitted,
+    :validation_failed,
+    :entity_append_only,
+    :entity_type_inactive,
+    :entity_write_contention,
+    :entity_write_failed,
+    :entity_write_needs_reactivation
+  ]
+
   # P0 + P1 (design 7.3). Read-only except `prepare/2`'s own short transaction. Never fails the
   # completion by itself for a read problem (`{:ok, nil}`: the in-transaction steps return
   # today's canonical errors, and the fail-closed guard refuses "lines but no plan").
@@ -4465,12 +4498,18 @@ defmodule Letflow.Engine do
           | {:error, {:instance_not_active, atom()}}
           | {:error, term()}
   def advance_after_service_task_outcome(dispatch_id, {:advance, decoded_body}, repo, prefix) do
-    repo.transaction(fn ->
-      case advance_service_task_dispatch(dispatch_id, decoded_body, repo, prefix) do
-        {:ok, result} -> result
-        {:error, reason} -> repo.rollback(reason)
-      end
-    end)
+    # GH #2587 PR C2: a SERVICE_TASK node that declares `entity_writes` composes them into this
+    # apply (section "SERVICE_TASK entity writes" below). A node without lines runs exactly the
+    # code it always did.
+    route = {:http, dispatch_id, decoded_body, repo}
+
+    drive_service_apply(
+      route,
+      prefix,
+      service_monotonic_ms() + @service_apply_total_ms,
+      1,
+      plan_service_entity_writes({:http, dispatch_id}, prefix)
+    )
   end
 
   def advance_after_service_task_outcome(
@@ -4489,16 +4528,22 @@ defmodule Letflow.Engine do
   # status is no longer "advanced" (this exact re-entry already ran once --
   # a redelivery/retry-at-this-layer case), short-circuits to
   # {:ok, :already_final}.
-  defp advance_service_task_dispatch(dispatch_id, decoded_body, repo, prefix) do
+  defp advance_service_task_dispatch(dispatch_id, decoded_body, repo, prefix, plan) do
+    completion_key = "service_task_dispatch:#{dispatch_id}"
+
     with {:ok, %ServiceTaskDispatch{status: "advanced"} = dispatch} <-
            fetch_and_lock_service_task_dispatch(dispatch_id, repo, prefix),
          {:ok, projection} <-
-           fetch_and_lock_instance_projection(repo, dispatch.instance_id, prefix),
+           lock_projection_for_service_apply(repo, dispatch, completion_key, plan, prefix),
+         # GH #2587 PR C2 (D-C.10, S3): the duplicate-apply read comes BEFORE the graph and token
+         # reads (a committed first apply moved the token and may have ended the instance).
+         :ok <- service_duplicate_gate(repo, completion_key, plan, prefix),
          {:ok, graph} <- fetch_graph(dispatch.instance_id, prefix) do
       active_token_records = load_active_tokens(repo, dispatch.instance_id, prefix)
       active_tokens = Enum.map(active_token_records, &to_pure_token/1)
 
-      with {:ok, own_token} <- find_token_for_service_task(dispatch, active_tokens) do
+      with {:ok, own_token} <- find_token_for_service_task(dispatch, active_tokens),
+           :ok <- check_service_lines_planned(graph, dispatch.node_id, plan) do
         pending_task_tokens = load_pending_task_tokens(repo, dispatch.instance_id, prefix)
         seed_state = build_instance_state(projection, active_tokens, pending_task_tokens)
 
@@ -4515,7 +4560,7 @@ defmodule Letflow.Engine do
               state_with_merged_variables,
               active_token_records,
               own_token,
-              http_completion(dispatch, decoded_body),
+              http_completion(dispatch, decoded_body) |> put_service_entity_plan(plan),
               prefix
             )
 
@@ -4541,6 +4586,7 @@ defmodule Letflow.Engine do
     else
       {:ok, %ServiceTaskDispatch{}} -> {:ok, :already_final}
       nil -> {:ok, :already_final}
+      :duplicate -> {:ok, :already_final}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -4959,6 +5005,10 @@ defmodule Letflow.Engine do
                 idempotency_key,
                 prefix
               )
+              # GH #2587 PR C2 (D-C.11): the declared entity writes, then the SYS and APPLIED
+              # events, BEFORE the completed event (replay folds the `_sys` values first). A
+              # completion without `:entity_plan` adds no step at all.
+              |> maybe_service_entity_writes(completion, advanced_state, dispatch, prefix)
               |> Multi.run(:service_task_completed_event, fn _repo, _changes ->
                 append_service_task_completed_event(dispatch, completion, prefix)
               end)
@@ -4966,13 +5016,27 @@ defmodule Letflow.Engine do
               # :projection (the event appends need the instance still non-terminal). Identity
               # for HTTP.
               |> completion.on_advanced.()
-              |> Multi.run(:projection, fn inner_repo, _changes ->
-                reconcile_projection(inner_repo, projection, final_instance_state, now, prefix)
+              |> Multi.run(:projection, fn inner_repo, changes ->
+                case fold_service_sys_into_state(final_instance_state, changes) do
+                  {:ok, state} ->
+                    reconcile_projection(inner_repo, projection, state, now, prefix)
+
+                  {:error, _reason} ->
+                    {:error, {:entity_write_failed, 0, :sys_value}}
+                end
               end)
+              |> append_service_entity_write_audits(completion, dispatch, prefix)
 
             case repo.transaction(multi) do
               {:ok, _changes} ->
                 {:ok, :advanced}
+
+              # GH #2587 PR C2 (F-C4): with a plan, a failed `{:line, _, _}` step keeps its name so
+              # the entry function can run it through the port's interpreter. Every other failed
+              # step, and every apply without a plan, returns today's `{:error, reason}`.
+              {:error, {:line, _index, _step} = failed_step, reason, _changes}
+              when is_map_key(completion, :entity_plan) ->
+                {:error, {:entity_write_step_failed, failed_step, reason}}
 
               {:error, _failed_step, reason, _changes} ->
                 # ISS-0784 follow-up fix (ISS-0784, same root cause as
@@ -5048,6 +5112,771 @@ defmodule Letflow.Engine do
   end
 
   # =========================================================================
+  # GH #2587 / REQ-499 PR C2 (decision 0054; design
+  # lib/letflow/design/gh2587-req499-pr-c-service-task-writes.md): SERVICE_TASK entity writes.
+  #
+  # A SERVICE_TASK node that declares `entity_writes` composes them into the SAME transaction as
+  # the apply of its result (HTTP: `advance_after_service_task_outcome/4`; script:
+  # `apply_script_task_result/3`), through `do_persist_service_task_advance/10`. DARK: the
+  # activation fence (`Definitions.check_entity_writes/3`) still refuses a SERVICE_TASK node, so
+  # only a row that predates B1 can reach this code (the C2 merge gate inventory is zero).
+  #
+  # A SERVICE_TASK completion is not a request: there is no client, no pending task and the
+  # external call is at-most-once (the HTTP dispatch row is already "advanced"; the script row is
+  # "running" under a lease). A refusal of the entity step therefore lands the instance in
+  # ERROR + DLQ in a SECOND transaction after the first rolled back (NEW product behaviour,
+  # D-C.8), never a stall; contention is re-applied by the engine (bounded, D-C.9).
+  # =========================================================================
+
+  @typep service_entity_plan :: %{
+           lines: [EntityPort.line()],
+           node_id: String.t(),
+           instance_id: Ecto.UUID.t(),
+           dispatch_id: Ecto.UUID.t(),
+           definition_id: Ecto.UUID.t(),
+           definition_version: String.t(),
+           activator_id: Ecto.UUID.t(),
+           authorized: [{String.t(), String.t()}],
+           route: :http | :script,
+           guard_budget_ms: non_neg_integer()
+         }
+
+  @typep service_route ::
+           {:http, Ecto.UUID.t(), map(), module()}
+           | {:script, ScriptTaskDispatcher.claim(), ScriptTaskDispatcher.result()}
+
+  @typep service_outcome ::
+           {:final, term()}
+           | :contention
+           | {:refuse, atom(), non_neg_integer(), atom()}
+
+  defp service_monotonic_ms, do: System.monotonic_time(:millisecond)
+
+  # ---- plan phase (P0 + P1): read-only except `prepare/2`'s own short transaction ------------
+
+  # Same read set and the same `recorded_activator/1` + `check_activator_active/2` as
+  # `plan_entity_writes/3` (D-C.5). `{:ok, nil}` for a node without lines AND for a read problem
+  # (the in-transaction S4 guard then fails closed for a node that has lines).
+  @spec plan_service_entity_writes(
+          {:http, Ecto.UUID.t()} | {:script, ScriptTaskDispatcher.claim()},
+          String.t()
+        ) :: {:ok, service_entity_plan() | nil} | {:error, term()}
+  defp plan_service_entity_writes(ref, prefix) do
+    with {:ok, row} <- service_plan_row(ref, prefix),
+         {:ok, graph} <- fetch_graph(row.instance_id, prefix),
+         %{attributes: %{} = attributes} <- find_node(graph, row.node_id),
+         declared when declared != {:ok, [], []} <- declared_writes(attributes) do
+      resolve_service_entity_plan(row, declared, elem(ref, 0), prefix)
+    else
+      _no_lines_or_unreadable -> {:ok, nil}
+    end
+  end
+
+  defp service_plan_row({:http, dispatch_id}, prefix) do
+    with {:ok, uuid} <- Ecto.UUID.cast(dispatch_id),
+         %ServiceTaskDispatch{status: "advanced"} = row <-
+           Repo.get(ServiceTaskDispatch, uuid, prefix: prefix) do
+      {:ok, row}
+    else
+      _ -> :none
+    end
+  end
+
+  defp service_plan_row({:script, claim}, prefix) do
+    case ScriptTaskDispatch
+         |> ScriptTaskDispatcher.cas_query(claim)
+         |> Repo.one(prefix: prefix) do
+      %ScriptTaskDispatch{} = row -> {:ok, row}
+      nil -> :none
+    end
+  end
+
+  defp resolve_service_entity_plan(_row, {:malformed, index}, _route, _prefix),
+    do: {:error, {:service_refused, index, :write_not_permitted, :line_malformed}}
+
+  # `module_writes` is HUMAN_TASK only (the activation fence refuses it elsewhere): on a SERVICE
+  # node it can only be a hand-edited snapshot, refused fail-closed.
+  defp resolve_service_entity_plan(_row, {:ok, lines, [_ | _]}, _route, _prefix),
+    do: {:error, {:service_refused, length(lines), :write_not_permitted, :module_writes}}
+
+  defp resolve_service_entity_plan(row, {:ok, lines, []}, route, prefix) do
+    with {:cap, true} <- {:cap, length(lines) <= @max_entity_write_lines},
+         %InstanceProjection{definition_id: definition_id} <-
+           Repo.get_by(InstanceProjection, [instance_id: row.instance_id], prefix: prefix),
+         {:ok, definition} <- Definitions.get_by_id(definition_id, prefix: prefix),
+         {:ok, activator_id, authorized} <- recorded_activator(definition.activated_by),
+         :ok <- check_activator_active(activator_id, prefix) do
+      plan = %{
+        lines: lines,
+        node_id: row.node_id,
+        instance_id: row.instance_id,
+        dispatch_id: row.id,
+        definition_id: definition_id,
+        definition_version: definition.version,
+        activator_id: activator_id,
+        authorized: authorized,
+        route: route,
+        guard_budget_ms: 10_000
+      }
+
+      case EntityPort.impl().prepare(lines, %{prefix: prefix}) do
+        :ok ->
+          {:ok, plan}
+
+        {:error, :entity_write_contention} ->
+          {:error, {:entity_write_refused, :contention, :entity_write_contention}}
+
+        {:error, _prepare_failure} ->
+          {:error, {:entity_write_failed, 0, :prepare}}
+      end
+    else
+      {:cap, false} ->
+        {:error, {:service_refused, @max_entity_write_lines, :validation_failed, :too_many_lines}}
+
+      {:error, :entity_write_needs_reactivation} ->
+        {:error, :entity_write_needs_reactivation}
+
+      _unreadable ->
+        {:ok, nil}
+    end
+  end
+
+  # The S4 guard (design 7.2 step 3): after the graph and token reads, a node that declares lines
+  # while the descriptor carries no (or a different) plan is refused fail-closed. A node without
+  # lines is `:ok` whatever the plan.
+  defp check_service_lines_planned(graph, node_id, plan) do
+    declared =
+      case find_node(graph, node_id) do
+        %{attributes: %{} = attributes} -> declared_writes(attributes)
+        _no_attributes -> {:ok, [], []}
+      end
+
+    case {declared, plan} do
+      {{:ok, [], []}, _plan} -> :ok
+      {{:ok, lines, []}, %{lines: lines}} -> :ok
+      _unplanned -> {:error, {:entity_write_failed, 0, :not_planned}}
+    end
+  end
+
+  defp put_service_entity_plan(completion, nil), do: completion
+  defp put_service_entity_plan(completion, plan), do: Map.put(completion, :entity_plan, plan)
+
+  # ---- the apply driver: attempt -> classify -> re-apply | land ------------------------------
+
+  # `planned` is the already-computed plan result of the FIRST attempt, `:replan` afterwards.
+  @spec drive_service_apply(
+          service_route(),
+          String.t(),
+          integer(),
+          pos_integer(),
+          {:ok, service_entity_plan() | nil} | {:error, term()} | :replan
+        ) :: term()
+  defp drive_service_apply(route, prefix, deadline_at, attempt_no, planned) do
+    remaining = deadline_at - service_monotonic_ms()
+
+    if service_attempt_blocked?(route, attempt_no, remaining) do
+      land_service_failure(route, :entity_write_contention, 0, :deadline, prefix)
+    else
+      planned =
+        if planned == :replan,
+          do: plan_service_entity_writes(service_route_ref(route), prefix),
+          else: planned
+
+      outcome =
+        case planned do
+          {:ok, nil} ->
+            route |> run_service_apply(nil, prefix) |> classify_service_apply_result(false)
+
+          {:ok, plan} ->
+            plan = %{plan | guard_budget_ms: service_guard_budget_ms(deadline_at)}
+            route |> run_service_apply(plan, prefix) |> classify_service_apply_result(true)
+
+          {:error, reason} ->
+            classify_service_plan_error(reason)
+        end
+
+      handle_service_outcome(outcome, route, prefix, deadline_at, attempt_no)
+    end
+  end
+
+  # An attempt starts only with the stated worst-case bound left, except the HTTP route's first
+  # attempt (no lease to overrun). The landing is never gated.
+  defp service_attempt_blocked?({:http, _id, _body, _repo}, 1, _remaining), do: false
+
+  defp service_attempt_blocked?(_route, _attempt_no, remaining),
+    do: remaining < @service_attempt_gate_ms
+
+  defp service_guard_budget_ms(deadline_at) do
+    (deadline_at - service_monotonic_ms() - @service_pre_guard_bound_ms) |> max(0) |> min(10_000)
+  end
+
+  defp service_route_ref({:http, dispatch_id, _body, _repo}), do: {:http, dispatch_id}
+  defp service_route_ref({:script, claim, _result}), do: {:script, claim}
+
+  defp handle_service_outcome({:final, result}, _route, _prefix, _deadline_at, _attempt_no),
+    do: result
+
+  defp handle_service_outcome(:contention, route, prefix, deadline_at, attempt_no) do
+    if attempt_no < @service_apply_attempts do
+      service_backoff(attempt_no)
+      drive_service_apply(route, prefix, deadline_at, attempt_no + 1, :replan)
+    else
+      land_service_failure(route, :entity_write_contention, 0, :exhausted, prefix)
+    end
+  end
+
+  defp handle_service_outcome({:refuse, code, index, detail}, route, prefix, _deadline_at, _n),
+    do: land_service_failure(route, code, index, detail, prefix)
+
+  # Constant 100 ms / 300 ms backoffs; none in a build with `:engine_test_seams` (config/test.exs),
+  # the same compile-time switch as the test seams below.
+  if Application.compile_env(:letflow, :engine_test_seams, false) do
+    defp service_backoff(_attempt_no) do
+      _ = @service_backoffs_ms
+      :ok
+    end
+  else
+    defp service_backoff(attempt_no),
+      do: Process.sleep(Enum.at(@service_backoffs_ms, attempt_no - 1, 300))
+  end
+
+  defp run_service_apply({:http, dispatch_id, body, repo}, plan, prefix),
+    do: run_http_apply(dispatch_id, body, repo, plan, prefix)
+
+  defp run_service_apply({:script, claim, result}, plan, prefix),
+    do: apply_script_task_result_once(claim, normalize_script_result(result), plan, prefix)
+
+  # With no plan this is exactly the transaction the HTTP apply always ran (no rescue, no SET
+  # LOCAL). With a plan the SET LOCALs are its FIRST statements and a contention class is mapped.
+  defp run_http_apply(dispatch_id, decoded_body, repo, nil, prefix) do
+    repo.transaction(fn ->
+      case advance_service_task_dispatch(dispatch_id, decoded_body, repo, prefix, nil) do
+        {:ok, result} -> result
+        {:error, reason} -> repo.rollback(reason)
+      end
+    end)
+  end
+
+  defp run_http_apply(dispatch_id, decoded_body, repo, plan, prefix) do
+    rescue_service_contention(fn ->
+      repo.transaction(fn ->
+        set_service_entity_write_timeouts(repo)
+
+        case advance_service_task_dispatch(dispatch_id, decoded_body, repo, prefix, plan) do
+          {:ok, result} -> result
+          {:error, reason} -> repo.rollback(reason)
+        end
+      end)
+    end)
+  end
+
+  defp set_service_entity_write_timeouts(repo) do
+    repo.query!(@entity_write_set_lock_timeout)
+    repo.query!(@entity_write_set_statement_timeout)
+    :ok
+  end
+
+  defp rescue_service_contention(fun) do
+    fun.()
+  rescue
+    error in Postgrex.Error ->
+      case error do
+        %Postgrex.Error{postgres: %{code: code}} when code in @contention_error_codes ->
+          {:error, {:entity_write_refused, :contention, :entity_write_contention}}
+
+        _other ->
+          reraise error, __STACKTRACE__
+      end
+
+    _error in DBConnection.ConnectionError ->
+      {:error, {:entity_write_refused, :contention, :entity_write_contention}}
+  end
+
+  # ---- classification (D-C.8, section 7.5 of the design) -------------------------------------
+
+  @spec classify_service_apply_result(term(), boolean()) :: service_outcome()
+  defp classify_service_apply_result({:ok, _outcome} = ok, _planned?), do: {:final, ok}
+
+  defp classify_service_apply_result({:error, reason} = error, planned?) do
+    case reason do
+      {:entity_write_failed, index, step} when is_integer(index) and is_atom(step) ->
+        {:refuse, :entity_write_failed, index, step}
+
+      {:entity_write_refused, :contention, _code} when planned? ->
+        :contention
+
+      {:entity_write_step_failed, failed_step, inner} ->
+        interpret_service_step_failure(failed_step, inner)
+
+      {:transaction_failed, %Postgrex.Error{postgres: %{code: code}}}
+      when planned? and code in @contention_error_codes ->
+        :contention
+
+      {:transaction_failed, %DBConnection.ConnectionError{}} when planned? ->
+        :contention
+
+      _not_an_entity_write_class ->
+        {:final, error}
+    end
+  end
+
+  defp interpret_service_step_failure(failed_step, inner) do
+    case EntityPort.impl().interpret_failure(failed_step, inner) do
+      {:refused, _index, :entity_write_contention, _detail} ->
+        :contention
+
+      # A `sys:step:` key cannot be claimed by a client: treated as "a prior apply committed".
+      {:refused, _index, :idempotency_conflict, _detail} ->
+        {:final, {:ok, :already_final}}
+
+      {:refused, index, code, detail} ->
+        {:refuse, code, index, detail}
+
+      {:failed, index, step} ->
+        {:refuse, :entity_write_failed, index, step}
+
+      :not_a_line_failure ->
+        {:final, {:error, inner}}
+    end
+  end
+
+  defp classify_service_plan_error({:entity_write_refused, :contention, _code}), do: :contention
+
+  defp classify_service_plan_error(:entity_write_needs_reactivation),
+    do: {:refuse, :entity_write_needs_reactivation, 0, :activator}
+
+  defp classify_service_plan_error({:entity_write_failed, index, step}),
+    do: {:refuse, :entity_write_failed, index, step}
+
+  defp classify_service_plan_error({:service_refused, index, code, detail}),
+    do: {:refuse, code, index, detail}
+
+  # ---- the composition inside the nested Multi ------------------------------------------------
+
+  defp maybe_service_entity_writes(
+         multi,
+         %{entity_plan: plan, idempotency_key: completion_key},
+         advanced_state,
+         dispatch,
+         prefix
+       ) do
+    variables = advanced_state.variables
+
+    ctx = %{
+      prefix: prefix,
+      origin: {:dispatch, plan.dispatch_id},
+      instance_id: dispatch.instance_id,
+      node_id: plan.node_id,
+      definition_id: plan.definition_id,
+      definition_version: plan.definition_version,
+      # No human completes: the event actor is the platform sentinel (D-C.4, proof test C-1);
+      # the restriction subject is the ACTIVATOR and `source.activator_id` records it.
+      actor_id: EventStore.platform_actor_id(),
+      subject_id: plan.activator_id,
+      activator_id: plan.activator_id,
+      authorized: plan.authorized,
+      variables: fn _changes -> variables end,
+      # This Multi exists only when the hop chain advanced: nothing to skip.
+      skip?: fn _changes -> false end,
+      guard_budget_ms: plan.guard_budget_ms
+    }
+
+    multi
+    |> then(&EntityPort.impl().multi(&1, plan.lines, ctx))
+    |> Multi.merge(fn changes ->
+      service_entity_tail_events(
+        Map.fetch!(changes, :entity_writes),
+        plan,
+        completion_key,
+        prefix
+      )
+    end)
+  end
+
+  defp maybe_service_entity_writes(multi, _no_plan, _state, _dispatch, _prefix), do: multi
+
+  defp service_entity_tail_events(
+         %{applied: applied, lines_hash: lines_hash, sys_values: sys_values},
+         plan,
+         completion_key,
+         prefix
+       ) do
+    sentinel = EventStore.platform_actor_id()
+    node = %{instance_id: plan.instance_id, node_id: plan.node_id}
+
+    Multi.new()
+    |> append_sys_variables_event(sys_values, node, sentinel, completion_key, prefix)
+    |> Multi.run(:entity_writes_applied_event, fn _repo, _changes ->
+      payload = %{
+        "node_id" => plan.node_id,
+        "task_id" => nil,
+        "dispatch_id" => plan.dispatch_id,
+        "lines_hash" => lines_hash,
+        "lines" =>
+          Enum.map(applied, fn line ->
+            %{
+              "line_index" => line.line_index,
+              "entity_type" => line.entity_type,
+              "record_id" => line.record_id,
+              "event_global_seq" => line.event_global_seq
+            }
+          end)
+      }
+
+      case EventStore.append(
+             %{
+               instance_id: plan.instance_id,
+               event_type: EntityPort.applied_event_type(),
+               payload: Jason.encode!(payload),
+               actor_id: sentinel,
+               idempotency_key: completion_key <> "::entity_writes"
+             },
+             prefix: prefix
+           ) do
+        {:ok, result} -> {:ok, result}
+        {:error, _reason} -> {:error, {:entity_write_failed, 0, :applied_event}}
+      end
+    end)
+  end
+
+  defp service_entity_tail_events(:skipped, _plan, _completion_key, _prefix), do: Multi.new()
+
+  defp fold_service_sys_into_state(
+         %InstanceState{} = state,
+         %{entity_writes: %{sys_values: values}}
+       )
+       when map_size(values) > 0,
+       do: fold_sys_values(state, values)
+
+  defp fold_service_sys_into_state(%InstanceState{} = state, _changes), do: {:ok, state}
+
+  # Per-line audit, LAST in the Multi so the tenant-wide audit chain lock is held the shortest.
+  # Ids and counters only: no field name, no field value (INV-2).
+  defp append_service_entity_write_audits(multi, %{entity_plan: plan}, _dispatch, prefix) do
+    Multi.merge(multi, fn changes ->
+      %{applied: applied, lines_hash: lines_hash} = Map.fetch!(changes, :entity_writes)
+
+      Enum.reduce(applied, Multi.new(), fn line, acc ->
+        attrs = %{
+          actor_id: EventStore.platform_actor_id(),
+          action: "entity_write.process_step",
+          resource_type: "entity_record",
+          resource_id: line.record_id,
+          before_state: nil,
+          after_state: %{
+            "entity_type" => line.entity_type,
+            "record_id" => line.record_id,
+            "dispatch_id" => plan.dispatch_id,
+            "activator_id" => plan.activator_id,
+            "instance_id" => plan.instance_id,
+            "node_id" => plan.node_id,
+            "definition_id" => plan.definition_id,
+            "definition_version" => plan.definition_version,
+            "line_index" => line.line_index,
+            "lines_hash" => lines_hash
+          },
+          trace_id: nil
+        }
+
+        Multi.run(acc, {:entity_write_audit, line.line_index}, fn repo, _changes ->
+          Audit.insert_entry(repo, attrs, prefix)
+        end)
+      end)
+    end)
+  end
+
+  defp append_service_entity_write_audits(multi, _no_plan, _dispatch, _prefix), do: multi
+
+  # ---- duplicate-apply gate (D-C.10) ---------------------------------------------------------
+
+  defp lock_projection_for_service_apply(repo, dispatch, completion_key, plan, prefix) do
+    case fetch_and_lock_instance_projection(repo, dispatch.instance_id, prefix) do
+      {:error, {:instance_not_active, _status}} = not_active when plan != nil ->
+        if service_completion_key_present?(repo, completion_key, prefix),
+          do: :duplicate,
+          else: not_active
+
+      other ->
+        other
+    end
+  end
+
+  defp service_duplicate_gate(_repo, _completion_key, nil, _prefix), do: :ok
+
+  defp service_duplicate_gate(repo, completion_key, _plan, prefix) do
+    if service_completion_key_present?(repo, completion_key, prefix), do: :duplicate, else: :ok
+  end
+
+  # An EXPLICIT read of the completion key, never a collision: `EventStore.append/2` answers a
+  # claimed key with the ORIGINAL event as `{:ok, _}` (D-C.8 b), which a caller must not mistake
+  # for a fresh write.
+  defp service_completion_key_present?(repo, completion_key, prefix) do
+    IdempotencyRecord
+    |> where([i], i.idempotency_key == ^completion_key)
+    |> repo.exists?(prefix: prefix)
+  end
+
+  # ---- the ERROR landing (D-C.8), a SECOND transaction ---------------------------------------
+
+  defp land_service_failure(route, code, index, detail, prefix) do
+    code = if code in @service_refusal_codes, do: code, else: :entity_write_failed
+
+    if code == :entity_write_failed do
+      Logger.error(
+        "service task entity write failed internally: step=#{inspect(detail)} " <>
+          "index=#{index} dispatch_id=#{service_route_dispatch_id(route)}"
+      )
+    end
+
+    case route do
+      {:http, dispatch_id, _body, _repo} ->
+        land_http_entity_write_failure(dispatch_id, code, index, detail, prefix, 1)
+
+      {:script, claim, result} ->
+        land_script_entity_write_failure(claim, result, code, index, detail, prefix, 1)
+    end
+  end
+
+  defp service_route_dispatch_id({:http, dispatch_id, _body, _repo}), do: dispatch_id
+  defp service_route_dispatch_id({:script, %{dispatch_id: dispatch_id}, _result}), do: dispatch_id
+
+  # The landing always runs on `Letflow.Repo` (the `repo` argument of the public entry point is
+  # `Repo` in every caller), like the best-effort audit entry below.
+  #
+  # ONE transaction (a single Multi, so a failed step is a plain `{:error, step, reason, _}` and
+  # not a poisoned nested transaction): the SET LOCAL pair, the dispatch row lock, the projection
+  # lock, the EXPLICIT completion-key read, then the ExecutionError steps. A contention class
+  # raised anywhere in it is mapped by `rescue_service_contention/1` and re-run.
+  defp land_http_entity_write_failure(dispatch_id, code, index, detail, prefix, attempt_no) do
+    result =
+      rescue_service_contention(fn ->
+        Repo.transaction(http_landing_multi(dispatch_id, code, index, prefix))
+      end)
+
+    case result do
+      {:ok, %{landing_dispatch: dispatch}} ->
+        record_service_entity_write_refusal_audit(
+          dispatch.instance_id,
+          dispatch.node_id,
+          dispatch.id,
+          index,
+          code,
+          detail,
+          prefix
+        )
+
+        {:ok, :error_set}
+
+      {:error, {:entity_write_refused, :contention, _code}}
+      when attempt_no < @service_apply_attempts ->
+        service_backoff(attempt_no)
+        land_http_entity_write_failure(dispatch_id, code, index, detail, prefix, attempt_no + 1)
+
+      {:error, _step, reason, _changes} ->
+        classify_http_landing_failure(reason, dispatch_id)
+
+      {:error, reason} ->
+        classify_http_landing_failure(reason, dispatch_id)
+    end
+  end
+
+  # A completion key already present (a prior apply committed), a dispatch row no longer
+  # `advanced`, a cancelled / ended instance: someone else got there first, benign.
+  defp classify_http_landing_failure(:landing_already_final, _dispatch_id),
+    do: {:ok, :already_final}
+
+  defp classify_http_landing_failure({:instance_not_active, _status}, _dispatch_id),
+    do: {:ok, :already_final}
+
+  defp classify_http_landing_failure({tag, _detail}, _dispatch_id)
+       when tag in [:instance_terminal, :instance_already_error],
+       do: {:ok, :already_final}
+
+  defp classify_http_landing_failure(reason, dispatch_id) do
+    # The residual of D-C.8 (d): the dispatch row stays "advanced" and the instance ACTIVE.
+    # Logged as a classified tag only; the dispatcher writes `service_task.advance_failed`.
+    tag = service_landing_failure_tag(reason)
+
+    Logger.error(
+      "service task entity write landing failed: dispatch_id=#{dispatch_id} reason=#{tag}"
+    )
+
+    {:error, {:entity_write_landing_failed, tag}}
+  end
+
+  defp service_landing_failure_tag({:entity_write_refused, :contention, _code}), do: :contention
+  defp service_landing_failure_tag(_other), do: :other
+
+  defp http_landing_multi(dispatch_id, code, index, prefix) do
+    completion_key = "service_task_dispatch:#{dispatch_id}"
+
+    Multi.new()
+    |> Multi.run(:landing_timeouts, fn repo, _changes ->
+      set_service_entity_write_timeouts(repo)
+      {:ok, :set}
+    end)
+    |> Multi.run(:landing_dispatch, fn repo, _changes ->
+      case fetch_and_lock_service_task_dispatch(dispatch_id, repo, prefix) do
+        {:ok, %ServiceTaskDispatch{status: "advanced"} = dispatch} -> {:ok, dispatch}
+        _gone_or_not_advanced -> {:error, :landing_already_final}
+      end
+    end)
+    |> Multi.run(:landing_projection, fn repo, %{landing_dispatch: dispatch} ->
+      fetch_and_lock_instance_projection(repo, dispatch.instance_id, prefix)
+    end)
+    |> Multi.run(:landing_key_check, fn repo, _changes ->
+      if service_completion_key_present?(repo, completion_key, prefix),
+        do: {:error, :landing_already_final},
+        else: {:ok, :absent}
+    end)
+    |> Multi.merge(fn %{landing_dispatch: dispatch, landing_projection: projection} ->
+      error_args = %{
+        instance_id: projection.instance_id,
+        error_type: :entity_write_refused,
+        affected: {:node, dispatch.node_id},
+        reason: "service task entity write refused: #{code}",
+        # the PRE-merge variables: the response body is never copied into an error event
+        variables: projection.variables,
+        details: %{
+          "line_index" => index,
+          "code" => Atom.to_string(code),
+          "dispatch_id" => dispatch.id
+        },
+        actor_id: EventStore.platform_actor_id(),
+        idempotency_key: completion_key
+      }
+
+      ExecutionError.append_multi(Multi.new(), error_args,
+        prefix: prefix,
+        locked_projection: projection
+      )
+    end)
+  end
+
+  # The script route lands through the CAS apply itself: `script_failure/7` writes the
+  # ExecutionError, the run record and the row `failed` in one transaction, and a row that is no
+  # longer `running` (swept, cancelled, already applied) answers `{:ok, :stale}` and writes nothing.
+  defp land_script_entity_write_failure(claim, result, code, index, detail, prefix, attempt_no) do
+    fail_detail =
+      if code == :entity_write_contention,
+        do: :entity_write_contention,
+        else: :entity_write_refused
+
+    facts =
+      case result do
+        {:ok, _output, facts} -> facts
+        {:failed, _code, _detail, facts} -> facts
+      end
+
+    landing = {:failed, :script_rejected, fail_detail, facts}
+
+    case apply_script_task_result_once(claim, normalize_script_result(landing), nil, prefix) do
+      {:ok, :failed} ->
+        record_service_entity_write_refusal_audit(
+          claim.instance_id,
+          claim.node_id,
+          claim.dispatch_id,
+          index,
+          code,
+          detail,
+          prefix
+        )
+
+        {:ok, :failed}
+
+      {:ok, other} ->
+        {:ok, other}
+
+      {:error, _reason} when attempt_no < @service_apply_attempts ->
+        service_backoff(attempt_no)
+
+        land_script_entity_write_failure(
+          claim,
+          result,
+          code,
+          index,
+          detail,
+          prefix,
+          attempt_no + 1
+        )
+
+      {:error, reason} ->
+        # Returned to the script dispatcher, whose follow-up applies `script_rejected` /
+        # `apply_failed` through the same CAS (never a silent stall).
+        {:error, reason}
+    end
+  end
+
+  # Test seams (GH #2587 PR C2), compiled ONLY when `config :letflow, :engine_test_seams` is true
+  # (config/test.exs; absent from every other build): the HTTP landing driven directly (the
+  # landing-against-an-existing-completion-key case), and the HTTP apply with the plan phase
+  # forced to "no plan" (the S4 fail-closed guard case).
+  if Application.compile_env(:letflow, :engine_test_seams, false) do
+    @doc false
+    @spec __land_http_entity_write_failure__(Ecto.UUID.t(), atom(), non_neg_integer(), String.t()) ::
+            term()
+    def __land_http_entity_write_failure__(dispatch_id, code, index, prefix),
+      do: land_http_entity_write_failure(dispatch_id, code, index, :test_seam, prefix, 1)
+
+    @doc false
+    @spec __http_apply_with_unreadable_plan__(Ecto.UUID.t(), map(), String.t()) :: term()
+    def __http_apply_with_unreadable_plan__(dispatch_id, body, prefix) do
+      drive_service_apply(
+        {:http, dispatch_id, body, Repo},
+        prefix,
+        service_monotonic_ms() + @service_apply_total_ms,
+        1,
+        {:ok, nil}
+      )
+    end
+  end
+
+  # Best-effort tenant audit record of the refusal, AFTER the rollback and the landing: ids, an
+  # index and closed atoms only; no field name, no value, no entity type (INV-2, INV-5).
+  defp record_service_entity_write_refusal_audit(
+         instance_id,
+         node_id,
+         dispatch_id,
+         index,
+         code,
+         detail,
+         prefix
+       ) do
+    attrs = %{
+      actor_id: EventStore.platform_actor_id(),
+      action: "entity_write.refused",
+      resource_type: "instance",
+      resource_id: instance_id,
+      before_state: nil,
+      after_state: %{
+        "instance_id" => instance_id,
+        "node_id" => node_id,
+        "dispatch_id" => dispatch_id,
+        "line_index" => index,
+        "code" => Atom.to_string(code),
+        "detail" => Atom.to_string(detail)
+      },
+      trace_id: nil
+    }
+
+    case Repo.transaction(fn -> Audit.insert_entry(Repo, attrs, prefix) end) do
+      {:ok, {:ok, _entry}} ->
+        :ok
+
+      _other ->
+        Logger.warning(
+          "could not record entity_write.refused for dispatch #{dispatch_id} (instance #{instance_id})"
+        )
+
+        :ok
+    end
+  rescue
+    _exception ->
+      Logger.warning("recording entity_write.refused for dispatch #{dispatch_id} raised")
+      :ok
+  end
+
+  # =========================================================================
   # apply_script_task_result/3 (GH 2534 PR 7c-1, decision 0053 D2/F-E; design
   # lib/letflow/design/gh2534-7c-script-handler.md 5.4, C4, C13, C16) -- the
   # script SERVICE_TASK route's re-entry. ONE transaction: the CAS on the dispatch
@@ -5073,13 +5902,67 @@ defmodule Letflow.Engine do
           ScriptTaskDispatcher.result(),
           prefix :: String.t()
         ) :: {:ok, :applied | :failed | :cancelled | :stale} | {:error, term()}
-  def apply_script_task_result(claim, result, prefix) when is_binary(prefix) do
-    Repo.transaction(fn ->
-      case do_apply_script_task_result(Repo, claim, normalize_script_result(result), prefix) do
-        {:ok, outcome} -> outcome
-        {:error, reason} -> Repo.rollback(reason)
-      end
-    end)
+  def apply_script_task_result(claim, {:ok, _output, _facts} = result, prefix)
+      when is_binary(prefix) do
+    # GH #2587 PR C2: a successful run of a node that declares `entity_writes` composes them into
+    # this apply (D-C.9: a bounded re-apply under the lease, then the CAS-guarded landing).
+    # A failed run (`{:failed, ...}`) never reaches the entity step and takes the plain path.
+    case plan_service_entity_writes({:script, claim}, prefix) do
+      {:ok, nil} ->
+        apply_script_task_result_once(claim, normalize_script_result(result), nil, prefix)
+
+      planned ->
+        drive_service_apply(
+          {:script, claim, result},
+          prefix,
+          script_deadline_at(claim, prefix),
+          1,
+          planned
+        )
+    end
+  rescue
+    _ -> {:error, :raised}
+  end
+
+  def apply_script_task_result(claim, result, prefix) when is_binary(prefix),
+    do: apply_script_task_result_once(claim, normalize_script_result(result), nil, prefix)
+
+  # D-C.9: `min(20 s, lease_expires_at - now - 2 s)`, read from the CAS row (the engine claim map
+  # carries no claim time). A row that no longer matches (swept, applied) leaves nothing: the
+  # landing then answers `{:ok, :stale}`.
+  defp script_deadline_at(claim, prefix) do
+    now_ms = service_monotonic_ms()
+
+    case ScriptTaskDispatch
+         |> ScriptTaskDispatcher.cas_query(claim)
+         |> Repo.one(prefix: prefix) do
+      %ScriptTaskDispatch{lease_expires_at: %DateTime{} = lease_expires_at} ->
+        lease_remaining_ms =
+          DateTime.diff(lease_expires_at, DateTime.utc_now(), :millisecond) -
+            @service_lease_margin_ms
+
+        now_ms + min(@service_apply_total_ms, lease_remaining_ms)
+
+      _no_row_or_no_lease ->
+        now_ms
+    end
+  end
+
+  # One CAS-guarded apply transaction. With a plan the SET LOCALs are its first statements and a
+  # contention class is mapped BEFORE the blanket clause below can erase it.
+  defp apply_script_task_result_once(claim, result, plan, prefix) do
+    run = fn ->
+      Repo.transaction(fn ->
+        if plan != nil, do: set_service_entity_write_timeouts(Repo)
+
+        case do_apply_script_task_result(Repo, claim, result, plan, prefix) do
+          {:ok, outcome} -> outcome
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
+    end
+
+    if plan == nil, do: run.(), else: rescue_service_contention(run)
   rescue
     # SEC S3: nothing caught is bound, formatted or logged (a 40P01 deadlock lands here too;
     # the dispatcher's follow-up B' then re-evaluates the same CAS).
@@ -5092,7 +5975,7 @@ defmodule Letflow.Engine do
   defp normalize_script_result({:failed, code, detail, facts}),
     do: {:failed, code, detail, %{facts | outcome: code, detail: detail}}
 
-  defp do_apply_script_task_result(repo, claim, result, prefix) do
+  defp do_apply_script_task_result(repo, claim, result, plan, prefix) do
     ScriptTaskDispatch
     |> ScriptTaskDispatcher.cas_query(claim)
     |> lock("FOR UPDATE")
@@ -5108,7 +5991,7 @@ defmodule Letflow.Engine do
 
         case fetch_and_lock_instance_projection(repo, row.instance_id, prefix) do
           {:ok, projection} ->
-            apply_locked_script_result(repo, row, projection, result, prefix)
+            apply_locked_script_result(repo, row, projection, result, plan, prefix)
 
           {:error, _not_active_or_missing} ->
             with {:ok, _} <-
@@ -5129,12 +6012,13 @@ defmodule Letflow.Engine do
   defp script_outcome_string({:ok, _output, _facts}), do: "ok"
   defp script_outcome_string({:failed, code, _detail, _facts}), do: Atom.to_string(code)
 
-  defp apply_locked_script_result(repo, row, projection, {:ok, output, facts}, prefix) do
+  defp apply_locked_script_result(repo, row, projection, {:ok, output, facts}, plan, prefix) do
     with {:ok, graph} <- fetch_graph(row.instance_id, prefix) do
       active_token_records = load_active_tokens(repo, row.instance_id, prefix)
       active_tokens = Enum.map(active_token_records, &to_pure_token/1)
 
-      with {:ok, own_token} <- find_token_for_service_task(row, active_tokens) do
+      with {:ok, own_token} <- find_token_for_service_task(row, active_tokens),
+           :ok <- check_service_lines_planned(graph, row.node_id, plan) do
         pending_task_tokens = load_pending_task_tokens(repo, row.instance_id, prefix)
         seed_state = build_instance_state(projection, active_tokens, pending_task_tokens)
 
@@ -5162,7 +6046,8 @@ defmodule Letflow.Engine do
                   %InstanceState{seed_state | variables: merged_variables},
                   active_token_records,
                   own_token,
-                  script_completion(row, projection, output, facts, prefix),
+                  script_completion(row, projection, output, facts, prefix)
+                  |> put_service_entity_plan(plan),
                   prefix
                 )
                 # R7: these three clauses are EXHAUSTIVE -- persist_service_task_advance/10
@@ -5187,7 +6072,14 @@ defmodule Letflow.Engine do
     end
   end
 
-  defp apply_locked_script_result(repo, row, projection, {:failed, code, detail, facts}, prefix) do
+  defp apply_locked_script_result(
+         repo,
+         row,
+         projection,
+         {:failed, code, detail, facts},
+         _plan,
+         prefix
+       ) do
     script_failure(repo, row, projection, code, detail, facts, prefix)
   end
 

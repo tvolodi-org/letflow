@@ -31,6 +31,15 @@ defmodule Letflow.Entities.StepWrites do
   Until decision 0051 `scope_node` exists the scoped-type and scope-column predicates are
   vacuous (OQ-B6): a pilot limit, not a guarantee.
 
+  ## SERVICE_TASK origin (GH #2587 PR C2; design `gh2587-req499-pr-c-service-task-writes.md`)
+
+  `ctx.origin` is `{:task, id}` (HUMAN, or the legacy `ctx.task_id`) or `{:dispatch, id}` (a
+  SERVICE_TASK apply). The dispatch origin differs in three ways only: `source.dispatch_id` and
+  the `sys:step:<dispatch_id>:<i>` key (through `StepSource`), the write-side restriction subject
+  is `ctx.subject_id` (the activator; the event actor is the platform sentinel), and values are
+  capped at `service_size_caps/0` (64 KiB per value, 256 KiB per line, JSON encoding; refusal
+  `:validation_failed` with no field name). `ctx.guard_budget_ms` can only tighten the 10 s guard: the engine passes `min(10 s, remaining deadline - 8 s)`, where 8 s is the pre-guard bound of an attempt (`prepare/2` <= 4 s plus the dispatch/CAS-row and projection lock waits <= 4 s; the guard clock starts after both, at `:entity_writes_started`).
+
   ## `module_writes` (GH #2590 / REQ-501 R4b; design 4.5, 6.1)
 
   `prepare/2` and `multi/3` also take the node's `module_writes` lines from the context
@@ -495,6 +504,18 @@ defmodule Letflow.Entities.StepWrites do
 
   @guard_budget_ms 10_000
 
+  # GH #2587 PR C2 (design D-C.7, OQ-C4): run-time size caps on values that come from a service
+  # response or a script output, applied to the {:dispatch, _} origin ONLY (the HUMAN path is not
+  # widened). Measured on the JSON encoding. A change is a reviewed diff: the numbers are pinned
+  # by a unit test. The follow-up is an entity-side per-record cap that replaces both.
+  @service_value_max_bytes 65_536
+  @service_line_max_bytes 262_144
+
+  @doc false
+  @spec service_size_caps() :: %{value_max_bytes: pos_integer(), line_max_bytes: pos_integer()}
+  def service_size_caps,
+    do: %{value_max_bytes: @service_value_max_bytes, line_max_bytes: @service_line_max_bytes}
+
   @doc """
   Appends the per-line write steps and the closing `:entity_writes` step to `multi`. With no
   lines and no `module_writes` it is the identity. See the moduledoc.
@@ -544,8 +565,12 @@ defmodule Letflow.Entities.StepWrites do
         {:ok, now_fun.()}
       end)
 
+    # PR C2 (D-C.9): the service origin passes `guard_budget_ms` = min(10 s, remaining deadline);
+    # the guard can only ever be tightened, never widened past 10 s.
+    guard_budget = min(Map.get(ctx, :guard_budget_ms, @guard_budget_ms), @guard_budget_ms)
+
     guard = fn _repo, changes ->
-      if now_fun.() - Map.fetch!(changes, :entity_writes_started) > @guard_budget_ms,
+      if now_fun.() - Map.fetch!(changes, :entity_writes_started) > guard_budget,
         do: {:error, :deadline_exceeded},
         else: {:ok, :within_budget}
     end
@@ -613,7 +638,7 @@ defmodule Letflow.Entities.StepWrites do
     base = %{
       prefix: ctx.prefix,
       instance_id: ctx.instance_id,
-      origin: {:task, ctx.task_id},
+      origin: origin(ctx),
       node_id: ctx.node_id,
       definition_id: ctx.definition_id,
       definition_version: ctx.definition_version,
@@ -638,25 +663,32 @@ defmodule Letflow.Entities.StepWrites do
   defp sort_type(_line), do: ""
 
   # One line: run-time re-normalization of the pinned line, authorization, field
-  # restrictions, then the A2 command.
+  # restrictions, then the A2 command. PR C2: the origin is `{:task, id}` (HUMAN, the legacy
+  # `ctx.task_id`) or `{:dispatch, id}` (SERVICE_TASK); the restriction subject is
+  # `ctx.subject_id` (the activator on the service origin, the completer on the human one).
   defp build_line(line, index, ctx, variables) do
+    origin = origin(ctx)
+
     with {:ok, normalized} <- run_time_line(line),
          :ok <- check_authorized(normalized.entity_type, ctx.authorized),
          :ok <- check_restrictions(normalized.fields, normalized.entity_type, ctx),
+         values = resolve_values(normalized.fields, variables),
+         :ok <- check_service_sizes(values, origin),
          {:ok, source} <-
-           StepSource.new(%{
-             instance_id: ctx.instance_id,
-             task_id: ctx.task_id,
-             node_id: ctx.node_id,
-             definition_id: ctx.definition_id,
-             definition_version: ctx.definition_version,
-             line_index: index,
-             activator_id: ctx.activator_id
-           }) do
+           StepSource.new(
+             Map.merge(origin_attrs(origin), %{
+               instance_id: ctx.instance_id,
+               node_id: ctx.node_id,
+               definition_id: ctx.definition_id,
+               definition_version: ctx.definition_version,
+               line_index: index,
+               activator_id: ctx.activator_id
+             })
+           ) do
       command = %{
         kind: :create,
         entity_type: normalized.entity_type,
-        field_values: resolve_values(normalized.fields, variables),
+        field_values: values,
         actor_id: ctx.actor_id,
         source: source
       }
@@ -664,6 +696,39 @@ defmodule Letflow.Entities.StepWrites do
       # The authority is the LITERAL :tenant (A2 D-A2.9).
       Records.command_multi(command, ctx.prefix, :tenant)
     end
+  end
+
+  defp origin(%{origin: {tag, id} = origin}) when tag in [:task, :dispatch] and is_binary(id),
+    do: origin
+
+  defp origin(%{task_id: task_id}), do: {:task, task_id}
+
+  defp origin_attrs({:task, id}), do: %{task_id: id}
+  defp origin_attrs({:dispatch, id}), do: %{dispatch_id: id}
+
+  # D-C.7: per-value and per-line byte caps on the JSON encoding, service origin only. The
+  # refusal names no field (INV-2): `:value_too_large` -> `validation_failed`.
+  defp check_service_sizes(_values, {:task, _id}), do: :ok
+
+  defp check_service_sizes(values, {:dispatch, _id}) do
+    with {:ok, line_json} <- Jason.encode(values),
+         {:ok, encoded} <- encode_values(values) do
+      if byte_size(line_json) > @service_line_max_bytes or
+           Enum.any?(encoded, &(byte_size(&1) > @service_value_max_bytes)),
+         do: {:error, :value_too_large},
+         else: :ok
+    else
+      {:error, _not_encodable} -> {:error, :line_malformed}
+    end
+  end
+
+  defp encode_values(values) do
+    Enum.reduce_while(values, {:ok, []}, fn {_name, value}, {:ok, acc} ->
+      case Jason.encode(value) do
+        {:ok, json} -> {:cont, {:ok, [json | acc]}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
   end
 
   # A pinned line is re-checked at run time (a hand-edited snapshot): `expected`/`record`
@@ -712,8 +777,13 @@ defmodule Letflow.Entities.StepWrites do
     end)
   end
 
+  # D4c: the restriction subject. The completer on the human path; the ACTIVATOR on the service
+  # origin, where no human completes and the event actor is the platform sentinel.
+  defp subject_id(%{subject_id: subject_id}) when is_binary(subject_id), do: subject_id
+  defp subject_id(%{actor_id: actor_id}), do: actor_id
+
   defp check_restrictions(fields, entity_type, ctx) do
-    case FieldGrants.load_restrictions(ctx.actor_id, entity_type, ctx.prefix) do
+    case FieldGrants.load_restrictions(subject_id(ctx), entity_type, ctx.prefix) do
       {:ok, restricted} ->
         if Enum.any?(Map.keys(fields), &MapSet.member?(restricted, &1)),
           do: {:error, :field_restricted},
@@ -884,6 +954,8 @@ defmodule Letflow.Entities.StepWrites do
       :op_unsupported -> {:refused, i, :entity_append_only, :op_unsupported}
       :line_not_authorized -> {:refused, i, :write_not_permitted, :not_authorized}
       :field_restricted -> {:refused, i, :write_not_permitted, :field_restricted}
+      # PR C2 (D-C.7): a service-origin value over the byte cap. No field name (INV-2).
+      :value_too_large -> {:refused, i, :validation_failed, :value_too_large}
       :entity_type_managed -> {:refused, i, :write_not_permitted, :managed}
       # GH #2590 R4b, handler call build failures (design 8): a handler that is no longer
       # registered or said "not permitted" is the uniform 403; bad arguments are a 422; a
