@@ -1,0 +1,45 @@
+{
+  "handoff_id": "c4a7d1e0-2682-4a11-8c20-000000000005",
+  "run_id": "WF02-GH2682-EXAM-SNAPSHOT-20261016",
+  "workflow_id": "WF-02",
+  "step": "05",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGNER",
+  "file": "handoffs/WF02-GH2682-EXAM-SNAPSHOT-20261016/step-05-test-designer-leak-repro.json",
+  "created_at": "2026-10-16T16:00:00Z",
+  "started_at": "2026-10-16T16:00:30Z",
+  "completed_at": "2026-10-16T16:09:00Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "suspicion": "POST /entities/query (plain, join) and the export route do not reject a filter or sort on a field restricted for the caller, unlike POST /entities/query/aggregate (ISS-0647, 403)."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "lib/letflow/routers/entities.ex",
+      "lib/letflow/design/req511-exam-content-snapshot.md",
+      "test/letflow/routers/entities_answer_key_field_leak_test.exs"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2682-EXAM-SNAPSHOT-20261016"
+  },
+  "task": {
+    "description": "Prove or withdraw the suspected restricted-field filter/sort oracle on main with one HTTP-level test file. No lib/ or priv/ edits, nothing committed."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "LEAK PROVEN on main (lib/ equals main). Test file test/letflow/routers/entities_query_restricted_filter_test.exs (11 tests, uncommitted), run once under the machine mutex (5.15 GB free; lock created and removed): MIX_ENV=test LETFLOW_DEV_DB_CONFIRMED=1 mix test --warnings-as-errors <file> -> 'Result: 5/11 passed, Failed: 6 tests'. FAILING (= leak): (2) plain query filtered by answer_option.is_correct, TASK_WORKER caller, restriction rows from Exam.on_install/2 -> status 200 with 1 of 3 rows (expected 403); (3) plain query sorted by is_correct -> 200, 3 rows (expected 403); (4a) joined query (primary question, join answer_option) filtered by restricted question.stem -> 200, 1 row; (4b) joined query sorted by restricted stem -> 200, 2 rows; (5a) POST /entities/records/answer_option/export filtered by is_correct, TENANT_ADMIN caller (the only core role holding :EntitiesRecordsExport; TASK_WORKER lacks it), default redacted mode -> 200, 1 record; (5b) export sorted by is_correct -> 200, 3 records. PASSING (controls): (1) aggregate filtered by is_correct -> 403; (1b) plain query with no filter/sort -> 200, 3 rows; (6a) caller holding a user_entity_grants row for is_correct filters -> 200, 1 row; (6b) restricted caller filtering an UNRESTRICTED field (text) -> 200, 1 row; join control without filter/sort -> 200. EVIDENCE OF THE ORACLE: the executed SQL for (2) was 'WHERE (e0.field_values->>$2)::boolean = $3' with ['is_correct', true]: the restricted field is evaluated as a live predicate before redaction, and exactly the 1 row with is_correct=true comes back out of 3 although field_values.is_correct itself is redacted in the response. Sort tests prove the sort clause is accepted (200); row ORDER was not asserted, only status and row count. MISSING CHECK: lib/letflow/routers/entities.ex. run_query_aggregate/4 (~L2158-2168) calls FieldGrants.load_restrictions/3 then check_aggregate_field_restrictions/2 (~L2177) against aggregate/group_by/filters field names before compiling. run_query/4 (the POST /query handler, build_query_request/1 ~L2004 -> Compiler.compile -> redact/4 ~L1959-1993) and run_export/5 (~L2359-2379, build_export_query_request/2 ~L2442) never inspect request.filters or request.sort against the restriction set; redact/4 only redacts the returned field_values. The Compiler (compile_plain/compile_joined, build_all_filter_dynamics/build_all_order_bys) and Allowlist carry no restriction awareness (compiler.ex moduledoc for compile_aggregate states the caller must do the check). In joined requests filters/sort resolve against the primary entity's allowlist only (compile_joined/6), so the joined hole is on the primary side's fields. Reachability: plain/join need :EntitiesQuery (held by TASK_WORKER, TENANT_AUDITOR, PROCESS_DESIGNER/OPERATOR); export needs :EntitiesRecordsExport (TENANT_ADMIN / PLATFORM_ADMIN only). Impact on the exam pack: a TASK_WORKER-class caller can read the answer key (answer_option.is_correct, and likewise any other restricted field with queried:true) by filter or binary-search via filters, defeating ISS-0647 on the routes it did not cover. Fields declared queried:false are not filterable, so likert_weight/likert_polarity/question.explanation (queried:false in the test shape) were not tested; whether the real pack shape marks them queried was not verified here. SUGGESTED FIX SHAPE (not implemented): apply the same name-set check to request.filters and request.sort (primary side, plus each joined entity type's own set if joined filters ever address far-side fields) in run_query/4 and run_export/5 before Compiler.compile, returning 403 like the aggregate route; export unredacted:true callers (EntitiesRecordsExportUnredacted) should stay exempt. SECURITY-REVIEWER required for the fix. The test file asserts the desired 403 behaviour, so it fails today and should pass once fixed.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "test/letflow/routers/entities_query_restricted_filter_test.exs (uncommitted)"
+    ],
+    "diagnosis_confirmed": true,
+    "implementation_written": false,
+    "classification": "SECURITY_DEFECT"
+  }
+}
