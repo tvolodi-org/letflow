@@ -702,11 +702,48 @@ jobs:
           #!/usr/bin/env bash
           # one line per sample: <utc ts>|<total>|<app:state:user=count,...>; a failed connect is logged as ERR
           out="$RUNNER_TEMP/pgsample.log"
+          snap="$RUNNER_TEMP/pssnap.log"
           : > "$out"
+          : > "$snap"
+          nsnap=0
+          lastsnap=-10
+          # process-table snapshot for a high-total sample; digits-only PIDs, bounded (40 total, 1 per 2 s)
+          take_snap() {
+            {
+              echo "##### SNAPSHOT $(date -u +%Y-%m-%dT%H:%M:%S.%3NZ) sample: $1"
+              ps -eo pid,ppid,etimes,args --sort=ppid 2>&1 | grep -aE 'mix|beam|erl' | grep -av grep | cut -c1-300
+              for pid in $(printf '%s\n' "$1" | grep -aoE 'letflow_mixtest_[0-9]+' | grep -aoE '[0-9]+$' | sort -u); do
+                case "$pid" in ''|*[!0-9]*) continue ;; esac
+                pinfo=$(ps -o pid=,ppid=,args= -p "$pid" 2>/dev/null | cut -c1-300)
+                if [ -n "$pinfo" ]; then
+                  echo "PIDINFO $pid self: $pinfo"
+                  ppid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+                  case "$ppid" in ''|*[!0-9]*) ;; *)
+                    echo "PIDINFO $pid parent: $(ps -o pid=,args= -p "$ppid" 2>/dev/null | cut -c1-300)" ;;
+                  esac
+                else
+                  echo "PIDINFO $pid gone"
+                fi
+              done
+            } >> "$snap" 2>&1
+          }
           while [ "$SECONDS" -lt 2400 ]; do
             line=$(psql -h 127.0.0.1 -p 5462 -U letflow -d postgres -At -X -f "$RUNNER_TEMP/pgsample.sql" 2>&1 | tr '\n' ' ') || true
             case "$line" in
-              20*) echo "$line" >> "$out" ;;
+              20*)
+                echo "$line" >> "$out"
+                total=$(printf '%s' "$line" | cut -d'|' -f2)
+                case "$total" in
+                  ''|*[!0-9]*) ;;
+                  *)
+                    if [ "$total" -ge 90 ] && [ "$nsnap" -lt 40 ] && [ $((SECONDS - lastsnap)) -ge 2 ]; then
+                      nsnap=$((nsnap + 1))
+                      lastsnap=$SECONDS
+                      take_snap "$line" || true
+                    fi
+                    ;;
+                esac
+                ;;
               *) echo "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)|ERR|$line" >> "$out" ;;
             esac
             sleep 0.25
@@ -751,20 +788,43 @@ jobs:
           echo "max_connections=$(q 'show max_connections')"
           echo "superuser_reserved_connections=$(q 'show superuser_reserved_connections')"
           echo "rolsuper(current_user)=$(q 'select rolsuper from pg_roles where rolname = current_user')"
+          top5=""
           if [ -s "$log" ]; then
             echo "===== GH2630 samples ====="
             echo "sample_count=$(wc -l < "$log")"
             echo "failed_connect_samples=$(grep -c '|ERR|' "$log" || true)"
-            ok=$(mktemp)
+            ok="$RUNNER_TEMP/ok.txt"
+            sorted="$RUNNER_TEMP/sorted.txt"
+            top5="$RUNNER_TEMP/top5.txt"
             grep -v '|ERR|' "$log" > "$ok" || true
-            echo "peak_total=$(sort -t'|' -k2,2 -n -r "$ok" | head -n 1 | cut -d'|' -f2)"
+            sort -t'|' -k2,2 -n -r "$ok" > "$sorted" || true
+            echo "peak_total=$(head -n 1 "$sorted" | cut -d'|' -f2)"
             echo "samples_total_ge_95=$(awk -F'|' '$2>=95' "$ok" | wc -l)"
             echo "----- top 5 samples (ts|total|app:state:user=count) -----"
-            sort -t'|' -k2,2 -n -r "$ok" | head -n 5
+            head -n 5 "$sorted" > "$top5" || true
+            cat "$top5"
             echo "----- ERR samples (first 10) -----"
-            grep '|ERR|' "$log" | head -n 10 || true
+            grep '|ERR|' "$log" > "$RUNNER_TEMP/err.txt" || true
+            head -n 10 "$RUNNER_TEMP/err.txt"
           else
             echo "no sampler log at $log"
+          fi
+          echo "===== GH2630 process snapshots ====="
+          snap="$RUNNER_TEMP/pssnap.log"
+          if [ -s "$snap" ]; then
+            head -n 200 "$snap"
+            if [ -n "$top5" ] && [ -s "$top5" ]; then
+              echo "----- command lines of mixtest PIDs in top-5 samples -----"
+              grep -aoE 'letflow_mixtest_[0-9]+' "$top5" | grep -aoE '[0-9]+$' | sort -u > "$RUNNER_TEMP/top5pids.txt" || true
+              while read -r pid; do
+                case "$pid" in ''|*[!0-9]*) continue ;; esac
+                echo "--- mixtest pid $pid ---"
+                grep -a "^PIDINFO $pid " "$snap" > "$RUNNER_TEMP/pidinfo.txt" || true
+                head -n 4 "$RUNNER_TEMP/pidinfo.txt"
+              done < "$RUNNER_TEMP/top5pids.txt"
+            fi
+          else
+            echo "no process snapshots"
           fi
           echo "===== GH2630 FATAL 53300 (server log of postgres service container) ====="
           cid=$(docker ps -a --filter ancestor=postgres:16 -q | head -n 1)
@@ -775,6 +835,7 @@ jobs:
           else
             echo "postgres container not found"
           fi
+          exit 0
 
   # This job's `name:` string is a required-status-check `context` on main's branch
   # protection (docs/migration/decisions/0018-branch-protection-posture.md). Do not
