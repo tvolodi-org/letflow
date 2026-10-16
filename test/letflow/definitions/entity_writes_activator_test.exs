@@ -360,6 +360,7 @@ defmodule Letflow.Definitions.EntityWritesActivatorTest do
         })
 
       assert forged_post.status == 422, forged_post.resp_body
+      assert forged_post.resp_body =~ "server_owned" and forged_post.resp_body =~ "activated_by"
 
       nested = create!(ctx, %{}, service_graph(%{"activated_by" => @forged_service}))
       assert %{activated_by: nil} = stored(ctx.schema, nested)
@@ -373,11 +374,13 @@ defmodule Letflow.Definitions.EntityWritesActivatorTest do
         })
 
       assert put.status == 422, put.resp_body
+      assert put.resp_body =~ "server_owned" and put.resp_body =~ "activated_by"
 
       patch =
         call(:patch, "/#{nested}", ctx, ["TENANT_ADMIN"], %{"activated_by" => @forged_service})
 
       assert patch.status == 422, patch.resp_body
+      assert patch.resp_body =~ "server_owned" and patch.resp_body =~ "activated_by"
       assert %{activated_by: nil} = stored(ctx.schema, nested)
 
       assert call(:post, "/#{nested}/activate", ctx, ["TENANT_ADMIN"], nil).status == 200

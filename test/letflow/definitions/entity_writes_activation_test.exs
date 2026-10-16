@@ -495,15 +495,7 @@ defmodule Letflow.Definitions.EntityWritesActivationTest do
           %{
             "id" => id,
             "node_type" => "SERVICE_TASK",
-            "attributes" =>
-              Map.merge(
-                %{
-                  "endpoint" => "https://example.test/svc",
-                  "method" => "POST",
-                  "entity_writes" => lines
-                },
-                attributes
-              )
+            "attributes" => Map.merge(svc_base_attributes(lines, attributes), attributes)
           },
           %{"id" => "end", "node_type" => "END"}
         ],
@@ -511,6 +503,17 @@ defmodule Letflow.Definitions.EntityWritesActivationTest do
           %{"id" => "e1", "source" => "start", "target" => id},
           %{"id" => "e2", "source" => id, "target" => "end"}
         ]
+      }
+    end
+
+    # A script-bound node (`script_key`) carries NO endpoint / method, as in a real definition.
+    defp svc_base_attributes(lines, %{"script_key" => _}), do: %{"entity_writes" => lines}
+
+    defp svc_base_attributes(lines, _attributes) do
+      %{
+        "endpoint" => "https://example.test/svc",
+        "method" => "POST",
+        "entity_writes" => lines
       }
     end
 
@@ -596,6 +599,19 @@ defmodule Letflow.Definitions.EntityWritesActivationTest do
                  v(0, :entity_write_output_var_duplicate, "a"),
                  v(0, :entity_write_output_var_duplicate, "b")
                ]
+
+      # control: distinct variables across the HUMAN and the SERVICE node are accepted
+      distinct =
+        g
+        |> update_in(["nodes", Access.at(1), "attributes", "entity_writes"], fn _ ->
+          [line("stock_move", %{"output_record_id_var" => "_sys.a"})]
+        end)
+        |> update_in(["nodes", Access.at(2), "attributes", "entity_writes"], fn _ ->
+          [line("stock_move", %{"output_record_id_var" => "_sys.b"})]
+        end)
+
+      assert Definitions.check_entity_writes(%{graph: distinct}, t.schema, activator(t.user)) ==
+               :ok
     end
 
     test "module_writes on a SERVICE_TASK node is still refused at activation (R3)", %{t: t} do
@@ -610,7 +626,7 @@ defmodule Letflow.Definitions.EntityWritesActivationTest do
     end
 
     test "a node type other than HUMAN_TASK and SERVICE_TASK is still refused", %{t: t} do
-      for type <- ["SUB_PROCESS", "EXCLUSIVE_GATEWAY", "PARALLEL_GATEWAY"] do
+      for type <- ["SUB_PROCESS", "EXCLUSIVE_GATEWAY", "PARALLEL_GATEWAY", "TIMER"] do
         g = %{
           "nodes" => [
             %{"id" => "start", "node_type" => "START"},

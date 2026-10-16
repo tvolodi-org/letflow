@@ -121,10 +121,17 @@ defmodule Letflow.Engine.ScriptTaskEntityWritesTest do
 
       instance_id = F.start!(schema, active, %{"amount" => 2}, Ecto.UUID.generate())
 
-      assert {_row, {:ok, :applied}} = F.run_next!(schema)
+      assert {row, {:ok, :applied}} = F.run_next!(schema)
       assert [rec] = records(schema)
       assert rec.field_values == %{"total" => 4}
       assert F.projection(schema, instance_id).status == :completed
+
+      # the authority is the ACTIVATOR's (recorded by the real activation); the platform actor is
+      # only the event actor
+      [event] = Fx.entity_events(schema)
+      assert event.actor_id == EventStore.platform_actor_id()
+      assert event.metadata["source.activator_id"] == activator.id
+      assert event.metadata["source.dispatch_id"] == row.id
     end
   end
 

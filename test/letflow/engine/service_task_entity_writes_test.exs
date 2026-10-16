@@ -164,15 +164,15 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
 
     # GH #2587 PR C1 (fence-open condition 1, design C-11 last clause): a stored pre-#2621 "wide"
     # INSTANCE_SYS_VARIABLES_SET (values that are not UUID / int64, which the strict append guard
-    # now refuses) sitting BEFORE a service completed event still replays byte-identically.
+    # now refuses) sitting BEFORE a service completed event still replays value-identically.
     test "C-11: a wide-tier stored SYS event before a service completed event replays unchanged" do
       ctx = case!()
       assert {:ok, :advanced} = Fx.apply_http(ctx, %{"label" => "L1", "note" => "N1"})
 
-      # The apply wrote its own SYS event before SERVICE_TASK_COMPLETED. Rewrite that stored
-      # event's values to the pre-#2621 "wide" tier (strings and ints the strict append guard now
-      # refuses) the way an old row would look; the sequence numbers and the rest of the stream
-      # are untouched.
+      # The apply wrote its own SYS event before SERVICE_TASK_COMPLETED. Add wide-tier values to
+      # that stored event (strings the strict append guard now refuses) the way an old row would
+      # look, keeping its `_sys.move`; the sequence numbers and the rest of the stream are
+      # untouched.
       types = event_types(ctx)
       sys_index = Enum.find_index(types, &(&1 == "INSTANCE_SYS_VARIABLES_SET"))
       assert sys_index < Enum.find_index(types, &(&1 == "SERVICE_TASK_COMPLETED"))
@@ -180,8 +180,21 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
       [sys_event] = Fx.instance_events(ctx.schema, ctx.instance_id, "INSTANCE_SYS_VARIABLES_SET")
       original = payload(sys_event)
 
-      wide = %{"_sys.legacy.id" => "any string, not a uuid", "_sys.legacy.seq" => 3}
-      wide_payload = Map.put(original, "values", wide)
+      wide = %{"_sys.legacy" => "any string, not a uuid"}
+      wide_payload = Map.put(original, "values", Map.merge(original["values"], wide))
+
+      # self-contained claim: today's append guard refuses exactly these wide values
+      assert {:error, {:payload_validation_failed, [%{constraint: "sys_value_type"} | _]}} =
+               EventStore.append(
+                 %{
+                   instance_id: ctx.instance_id,
+                   event_type: "INSTANCE_SYS_VARIABLES_SET",
+                   payload: Jason.encode!(Map.put(original, "values", wide)),
+                   actor_id: EventStore.platform_actor_id(),
+                   idempotency_key: "gh2587c1-wide-refused-#{System.unique_integer([:positive])}"
+                 },
+                 prefix: ctx.schema
+               )
 
       assert {1, _} =
                Repo.update_all(
@@ -196,13 +209,11 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
       assert {:ok, %{instance_state: state}} =
                Reconstruction.reconstruct_instance(ctx.instance_id, prefix: ctx.schema)
 
-      # the wide values arrive byte-identically; every other variable equals the live projection
-      assert state.variables["_sys.legacy.id"] == "any string, not a uuid"
-      assert state.variables["_sys.legacy.seq"] == 3
-
-      assert Map.drop(state.variables, Map.keys(wide)) ==
-               Map.drop(live.variables, Map.keys(original["values"]))
-
+      # the wide values arrive value-identically and `_sys.move` stays in the replayed state;
+      # everything else equals the live projection
+      assert state.variables["_sys.legacy"] == "any string, not a uuid"
+      assert Map.has_key?(state.variables, "_sys.move")
+      assert state.variables == Map.merge(live.variables, wide)
       assert state.status == live.status
 
       # a second rebuild is identical; replay appended, repaired and rewrote nothing
@@ -251,6 +262,14 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
       assert [_] = Fx.records(ctx.schema, "stock_move")
       assert [_] = Fx.records(ctx.schema, "stock_note")
       assert Fx.projection!(ctx.schema, ctx.instance_id).status == :completed
+
+      # the authority is the ACTIVATOR's (recorded by the real activation); the platform actor is
+      # only the event actor
+      events = Fx.entity_events(ctx.schema)
+      assert length(events) == 2
+      assert Enum.all?(events, &(&1.actor_id == EventStore.platform_actor_id()))
+      assert Enum.all?(events, &(&1.metadata["source.activator_id"] == user_id))
+      assert Enum.all?(events, &(&1.metadata["source.dispatch_id"] == ctx.dispatch.id))
     end
   end
 

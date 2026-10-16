@@ -154,7 +154,14 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesDispatcherTest do
     assert log =~ "reason=entity_write_landing_failed"
 
     error_lines = log |> String.split("\n") |> Enum.filter(&(&1 =~ "[error]"))
-    assert length(error_lines) == 2
+    assert Enum.any?(error_lines, &(&1 =~ "landing failed" and &1 =~ "reason=contention"))
+
+    assert Enum.any?(
+             error_lines,
+             &(&1 =~ "service_task advance failed" and
+                 &1 =~ "reason=entity_write_landing_failed")
+           )
+
     refute Enum.any?(error_lines, &(&1 =~ "L1" or &1 =~ "N1"))
 
     assert [entry] = Fx.audit_rows(ctx.schema, "service_task.advance_failed")
@@ -169,6 +176,9 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesDispatcherTest do
     assert outbound_calls() == 0
   end
 
+  # No `on_exit` cleanup: the trigger and its function are DDL inside the test's SQL-sandbox
+  # transaction (the tenant is provisioned on that connection), so the sandbox rollback removes
+  # both; nothing is committed to the shared database.
   defp fail_dlq_inserts!(schema) do
     Ecto.Adapters.SQL.query!(
       Letflow.Repo,

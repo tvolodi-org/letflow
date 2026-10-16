@@ -322,7 +322,7 @@ as the apply of the service result, with the platform actor as event actor and t
 so a refusal of the entity step lands the instance in ERROR with a DLQ entry (and rolls the apply
 back, nothing partial) instead of answering a request; see
 `docs/runbooks/service-task-entity-write-refusal.md`. `module_writes` is still HUMAN_TASK only: a
-SERVICE_TASK node declaring it is refused at activation.
+SERVICE_TASK node declaring it is refused at activation. As for a HUMAN_TASK node, the recorded `activated_by` authority is the graph-wide set of (entity type, `create`) pairs, not a per-node set.
 
 Pilot limits: (a) the activation-time activator check requires `:EntitiesRecordsWrite`, not
 `:DefinitionsActivate`, so a rollback or promotion activator legitimately omits the latter; (b)

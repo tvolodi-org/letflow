@@ -15,7 +15,8 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesSentinelTest do
     * the tenant audit entry with the sentinel actor and `activator_id` in `after_state`.
 
   OQ-C6 fallback: if any layer refuses, C2 STOPS (the activation fence stays closed) and the
-  design reopens; this test would then assert the stable code instead of success.
+  design reopens; this test would then assert the stable code instead of success (the fence has
+  since been lifted in C1).
 
   Real Postgres, `async: false` (tenant provisioning switches the sandbox to `:auto`).
   """

@@ -40,8 +40,8 @@ defmodule Letflow.Engine.EntityPort do
   process-step entity writes. `prepare/2` is real (PR A3); `validate_lines/2` is real from PR
   B1 (activation-time validation; it never writes); `multi/3` and `interpret_failure/2` are
   real from PR B2, called by the HUMAN_TASK completion transaction (`Letflow.Engine`) and, from
-  PR C2, by the SERVICE_TASK apply transaction (HTTP and script routes; open for new definitions since
-  the C1 fence lift).
+  PR C2, by the SERVICE_TASK apply transaction (HTTP and script routes; open for new
+  definitions since the C1 fence lift).
   `Letflow.Definitions` calls `validate_lines/2` at the three activation paths. Script paths
   (the dispatcher and `Letflow.Scripts.*`) call `prefetch/3` ONLY, and a static test asserts
   it.
