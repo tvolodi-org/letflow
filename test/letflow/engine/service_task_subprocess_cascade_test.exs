@@ -513,7 +513,8 @@ defmodule Letflow.Engine.ServiceTaskSubprocessCascadeTest do
       schema = t.schema_name
       %{parent_id: parent_id, child_id: child_id} = setup_scenario!(t, :http)
 
-      # the first insert of SUB_PROCESS_COMPLETED fails with a deadlock; the sequence is not
+      # HTTP route only: an unplanned SCRIPT apply is not re-applied (see the Engine moduledoc).
+      # The first insert of SUB_PROCESS_COMPLETED fails with a deadlock; the sequence is not
       # rolled back with the transaction, so the second attempt passes
       Repo.query!(~s(CREATE SEQUENCE "#{schema}".gh2648_hits))
 

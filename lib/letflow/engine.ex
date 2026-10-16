@@ -416,8 +416,13 @@ defmodule Letflow.Engine do
   the HUMAN path already has. This is NOT deadlock-free: `cancel_instance/3` locks a parent's
   projection before its tokens, the reverse of the cascade's token-then-projection (an AB-BA
   that predates this change on the HUMAN path and is now also reachable from a service apply;
-  tracked as GH #2695, not fixed here). A deadlock or lock timeout on a service apply is
-  classified as contention and re-applied (bounded), planned or not.
+  tracked as GH #2695, not fixed here). A deadlock or lock timeout is classified as contention
+  and re-applied (bounded) for HTTP applies (planned and unplanned) and for PLANNED script
+  applies. An UNPLANNED script apply goes straight to `apply_script_task_result_once/4`,
+  bypassing that driver, and its blanket rescue turns a deadlock into `:raised`: such an apply
+  that deadlocks in the cascade lands a terminal `script_rejected`/`apply_failed`. Accepted for
+  now (a script task in a sub-process child is not reachable end to end until GH #2694 is
+  fixed); follow-up folded into GH #2695 / #2694.
 
   REQ-045 resolved this engine to row-based state (`create/2` is a plain
   function under `Ecto.Multi`, not a supervised `:gen_statem`/
@@ -5045,7 +5050,9 @@ defmodule Letflow.Engine do
               # deadlock-free: cancel_instance/3 locks a parent's projection BEFORE its tokens,
               # the reverse of the cascade's token-then-projection (pre-existing on the HUMAN
               # path, now reachable from here; tracked as GH #2695). A 40P01 on this apply is
-              # classified as contention and re-applied, planned or not. A no-op for
+              # classified as contention and re-applied for HTTP (planned or not) and planned
+              # script applies; an UNPLANNED script apply that deadlocks here lands a terminal
+              # script_rejected/apply_failed (see the Engine moduledoc). A no-op for
               # an instance that is not completed or has no waiting parent token.
               |> append_service_sub_process_cascade(
                 dispatch.instance_id,
@@ -5477,7 +5484,8 @@ defmodule Letflow.Engine do
       {:entity_write_step_failed, failed_step, inner} ->
         interpret_service_step_failure(failed_step, inner)
 
-      # GH #2648: planned or not. An UNPLANNED apply that completes a sub-process child also takes
+      # GH #2648: planned or not (HTTP; the script route's unplanned apply bypasses this
+      # driver). An UNPLANNED apply that completes a sub-process child also takes
       # the parent token and projection locks through the cascade, so it can be a deadlock victim;
       # the dispatch row is already "advanced" and nothing else would ever re-apply it.
       {:transaction_failed, %Postgrex.Error{postgres: %{code: code}}}

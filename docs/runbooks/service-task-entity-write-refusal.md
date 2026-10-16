@@ -62,6 +62,8 @@ uses `min(20 s, lease remaining - 2 s)` and starts an attempt only with at least
 external call is never repeated. After the last attempt the instance lands in ERROR with public
 code `entity_write_contention`.
 
+Since GH #2648 this also covers an HTTP service apply that has NO entity-write lines but completes a sub-process child: its cascade takes the parent's locks, a deadlock or lock timeout is re-applied the same bounded way, and after the last attempt the instance lands in ERROR with `entity_write_contention` (before, such an apply silently stalled ACTIVE). An UNPLANNED script apply is not re-applied: a deadlock there lands the row `failed` (`script_rejected`/`apply_failed`).
+
 ## Lease margin (script route)
 
 The script route starts an entity-write attempt only while at least 15 s of the budget `min(20 s, lease remaining - 2 s)` is left. With the default lease (`lease_margin_ms` 23 s, the script itself bounded by 5 s) that is always true. If `lease_margin_ms` is lowered so that roughly 17 s or less of the lease remains when the result is applied (the run time and any wait for a script slot count against it), EVERY script service task that declares `entity_writes` goes straight to the landing: the row is `failed` with `outcome_detail` `entity_write_contention` (the audit detail is `deadline`) and no record is written. Keep `lease_margin_ms` above roughly 8 s plus the longest script run plus 17 s, i.e. at or above the 23 s default.
