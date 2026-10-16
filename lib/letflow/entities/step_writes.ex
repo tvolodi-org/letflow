@@ -38,7 +38,7 @@ defmodule Letflow.Entities.StepWrites do
   the `sys:step:<dispatch_id>:<i>` key (through `StepSource`), the write-side restriction subject
   is `ctx.subject_id` (the activator; the event actor is the platform sentinel), and values are
   capped at `service_size_caps/0` (64 KiB per value, 256 KiB per line, JSON encoding; refusal
-  `:validation_failed` with no field name). `ctx.guard_budget_ms` can only tighten the 10 s guard.
+  `:validation_failed` with no field name). `ctx.guard_budget_ms` can only tighten the 10 s guard: the engine passes `min(10 s, remaining deadline - 8 s)`, where 8 s is the pre-guard bound of an attempt (`prepare/2` <= 4 s plus the dispatch/CAS-row and projection lock waits <= 4 s; the guard clock starts after both, at `:entity_writes_started`).
 
   ## `module_writes` (GH #2590 / REQ-501 R4b; design 4.5, 6.1)
 
@@ -638,7 +638,7 @@ defmodule Letflow.Entities.StepWrites do
     base = %{
       prefix: ctx.prefix,
       instance_id: ctx.instance_id,
-      origin: {:task, ctx.task_id},
+      origin: origin(ctx),
       node_id: ctx.node_id,
       definition_id: ctx.definition_id,
       definition_version: ctx.definition_version,

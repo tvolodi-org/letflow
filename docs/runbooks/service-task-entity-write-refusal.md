@@ -39,7 +39,7 @@ of the apply left the instance ACTIVE with a lost token (ISS-0928 only made that
 | DLQ entry `error_detail` (script route) | the script incident shape with `detail` = `entity_write_refused` or `entity_write_contention` |
 | `EXECUTION_ERROR` event `variables` | the variables BEFORE the apply; the service response or script output is not stored anywhere |
 | Dispatch row | HTTP: stays `advanced`; script: `failed`, `outcome` `script_rejected` |
-| Tenant audit | `entity_write.refused` with the closed `detail` atom (for example `field_restricted`, `not_append_only`, `scoped`, `value_too_large`); no value |
+| Tenant audit | `entity_write.refused` with the closed `detail` atom (for example `field_restricted`, `not_append_only`, `scoped`, `value_too_large`, `module_writes`); no value. It is written in a THIRD, best-effort transaction AFTER the landing commits: if that write fails the incident (instance ERROR, DLQ entry, `EXECUTION_ERROR` event) still exists, only the audit entry is missing, and a warning is logged |
 
 Public codes: `write_not_permitted`, `validation_failed`, `entity_append_only`,
 `entity_type_inactive`, `entity_write_contention`, `entity_write_failed`,
@@ -52,6 +52,12 @@ the engine itself (3 attempts, 100 ms and 300 ms apart, inside a 20 s budget; th
 uses `min(20 s, lease remaining - 2 s)` and starts an attempt only with at least 15 s left). The
 external call is never repeated. After the last attempt the instance lands in ERROR with public
 code `entity_write_contention`.
+
+## Lease margin (script route)
+
+The script route starts an entity-write attempt only while at least 15 s of the budget `min(20 s, lease remaining - 2 s)` is left. With the default lease (`lease_margin_ms` 23 s, the script itself bounded by 5 s) that is always true. If `lease_margin_ms` is lowered so that roughly 17 s or less of the lease remains when the result is applied (the run time and any wait for a script slot count against it), EVERY script service task that declares `entity_writes` goes straight to the landing: the row is `failed` with `outcome_detail` `entity_write_contention` (the audit detail is `deadline`) and no record is written. Keep `lease_margin_ms` above roughly 8 s plus the longest script run plus 17 s, i.e. at or above the 23 s default.
+
+The budget is also spent before the apply lands: the plan phase and `prepare/2` of the first attempt (up to about 8 s in the worst case) count against it, which is why a run that used most of its lease reports `entity_write_contention` rather than a refusal.
 
 ## Recovery
 

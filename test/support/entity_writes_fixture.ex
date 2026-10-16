@@ -365,6 +365,23 @@ defmodule Letflow.EntityWritesFixture do
   """
   @spec attach_service!(map(), map()) :: map()
   def attach_service!(base, graph) do
+    pending = attach_service_pending!(base, graph)
+
+    dispatch =
+      pending.dispatch
+      |> Ecto.Changeset.change(%{status: "advanced"})
+      |> Repo.update!(prefix: base.schema)
+
+    %{pending | dispatch: dispatch}
+  end
+
+  @doc """
+  `attach_service!/2` WITHOUT marking the dispatch row `"advanced"`: the row is still `pending`,
+  so the real `ServiceTaskDispatcher.poll_and_dispatch/1` makes the outbound call and re-enters
+  the engine (the at-most-once tests).
+  """
+  @spec attach_service_pending!(map(), map()) :: map()
+  def attach_service_pending!(base, graph) do
     definition =
       legacy_activate!(base.schema, base.user, graph, [
         {"stock_move", "create"},
@@ -390,13 +407,10 @@ defmodule Letflow.EntityWritesFixture do
         prefix: base.schema
       )
 
-    dispatch =
-      row |> Ecto.Changeset.change(%{status: "advanced"}) |> Repo.update!(prefix: base.schema)
-
     Map.merge(base, %{
       definition: definition,
       instance_id: created.instance_id,
-      dispatch: dispatch
+      dispatch: row
     })
   end
 

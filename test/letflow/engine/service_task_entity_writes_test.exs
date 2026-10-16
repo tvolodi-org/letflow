@@ -12,6 +12,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
 
   use Letflow.DataCase, async: false
 
+  import ExUnit.CaptureLog
   import Ecto.Query
 
   alias Letflow.Api.Response
@@ -102,8 +103,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
       assert applied_payload["node_id"] == "svc"
       assert length(applied_payload["lines"]) == 2
 
-      assert applied_payload["lines_hash"] ==
-               ctx.schema |> then(fn _ -> StepWrites.lines_hash(two_lines()) end)
+      assert applied_payload["lines_hash"] == StepWrites.lines_hash(two_lines())
 
       # C-12: the entity events carry the sentinel actor, the dispatch origin and the activator
       events = Fx.entity_events(ctx.schema)
@@ -235,7 +235,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
 
       assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => "L1", "note" => "N1"})
 
-      assert Fx.all_records(ctx.schema) == []
+      assert_nothing_written(ctx)
       assert Fx.projection!(ctx.schema, ctx.instance_id).status == :error
       refute "SERVICE_TASK_COMPLETED" in event_types(ctx)
       refute "TASK_ENTITY_WRITES_APPLIED" in event_types(ctx)
@@ -276,7 +276,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
       assert entry.error_detail["code"] == "write_not_permitted"
       assert [refused] = Fx.audit_rows(ctx.schema, "entity_write.refused")
       assert refused.after_state["detail"] == "not_append_only"
-      assert Fx.all_records(ctx.schema) == []
+      assert_nothing_written(ctx)
     end
 
     test "C-6: a scoped type is refused in :process_policy like on the human path" do
@@ -303,7 +303,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
       assert entry.error_detail["code"] == "write_not_permitted"
       assert [refused] = Fx.audit_rows(ctx.schema, "entity_write.refused")
       assert refused.after_state["detail"] == "scoped"
-      assert Fx.all_records(ctx.schema) == []
+      assert_nothing_written(ctx)
     end
 
     test "a `module_writes` attribute on a SERVICE node is refused fail-closed" do
@@ -314,7 +314,9 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
 
       assert [entry] = Fx.dlq_entries(ctx.schema)
       assert entry.error_detail["code"] == "write_not_permitted"
-      assert Fx.all_records(ctx.schema) == []
+      assert [refused] = Fx.audit_rows(ctx.schema, "entity_write.refused")
+      assert refused.after_state["detail"] == "module_writes"
+      assert_nothing_written(ctx)
     end
 
     test "more than 20 lines are refused at run time on the pinned snapshot" do
@@ -327,7 +329,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
 
       assert [entry] = Fx.dlq_entries(ctx.schema)
       assert entry.error_detail["code"] == "validation_failed"
-      assert Fx.all_records(ctx.schema) == []
+      assert_nothing_written(ctx)
     end
   end
 
@@ -357,7 +359,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
       assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => "L1", "note" => "N1"})
       assert [entry] = Fx.dlq_entries(ctx.schema)
       assert entry.error_detail["code"] == "entity_write_needs_reactivation"
-      assert Fx.all_records(ctx.schema) == []
+      assert_nothing_written(ctx)
       assert Fx.projection!(ctx.schema, ctx.instance_id).status == :error
     end
 
@@ -441,7 +443,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
       assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => "L1"})
       assert [refused] = Fx.audit_rows(ctx.schema, "entity_write.refused")
       assert refused.after_state["detail"] == "field_restricted"
-      assert Fx.all_records(ctx.schema) == []
+      assert_nothing_written(ctx)
     end
 
     test "with a grant for the ACTIVATOR the same apply commits" do
@@ -487,20 +489,28 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
       assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => 12})
       assert [entry] = Fx.dlq_entries(ctx.schema)
       assert entry.error_detail["code"] == "validation_failed"
-      assert Fx.all_records(ctx.schema) == []
+      assert_nothing_written(ctx)
     end
 
     test "a 70 KiB value is refused with validation_failed and no field name" do
       ctx = case!([Fx.line("stock_move", %{"label" => %{"var" => "label"}})])
 
-      assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => String.duplicate("x", 70_000)})
+      log =
+        capture_log(fn ->
+          assert {:ok, :error_set} =
+                   Fx.apply_http(ctx, %{"label" => String.duplicate("x", 70_000)})
+        end)
+
+      # I-C9: no value and no field name in the log either
+      refute log =~ "xxxxxxxxxx"
+      refute log =~ "label"
 
       assert [entry] = Fx.dlq_entries(ctx.schema)
       assert entry.error_detail["code"] == "validation_failed"
       assert [refused] = Fx.audit_rows(ctx.schema, "entity_write.refused")
       assert refused.after_state["detail"] == "value_too_large"
       refute inspect(entry) =~ "label"
-      assert Fx.all_records(ctx.schema) == []
+      assert_nothing_written(ctx)
     end
 
     test "values just under the per-value cap commit" do
@@ -518,7 +528,19 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
 
       assert [entry] = Fx.dlq_entries(ctx.schema)
       assert entry.error_detail["code"] == "validation_failed"
-      assert Fx.all_records(ctx.schema) == []
+      assert [refused] = Fx.audit_rows(ctx.schema, "entity_write.refused")
+      assert refused.after_state["detail"] == "value_too_large"
+      assert_nothing_written(ctx)
+    end
+
+    test "control: four 60 KB values (a 240 KB line, under the 256 KiB cap) commit" do
+      ctx = wide_case!()
+
+      body =
+        Map.new(1..4, fn n -> {"f" <> Integer.to_string(n), String.duplicate("x", 60_000)} end)
+
+      assert {:ok, :advanced} = Fx.apply_http(ctx, body)
+      assert [_record] = Fx.records(ctx.schema, "wide_rec")
     end
 
     test "the two size caps are pinned named constants (a change is a reviewed diff)" do
@@ -531,7 +553,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
       assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => "L1"})
       assert [entry] = Fx.dlq_entries(ctx.schema)
       assert entry.error_detail["code"] == "validation_failed"
-      assert Fx.all_records(ctx.schema) == []
+      assert_nothing_written(ctx)
     end
 
     defp wide_case!() do
@@ -588,7 +610,10 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
       assert {:ok, :advanced} = Fx.apply_http(active, body)
       assert Fx.projection!(active.schema, active.instance_id).status == :active
       records = length(Fx.all_records(active.schema))
-      assert {:ok, :already_final} = Fx.apply_http(active, body)
+      # the duplicate apply raises no error log line (scoped to this call)
+      log = capture_log(fn -> assert {:ok, :already_final} = Fx.apply_http(active, body) end)
+      refute log =~ "[error]"
+      refute log =~ "[warning]"
       assert length(Fx.all_records(active.schema)) == records
       assert Fx.dlq_entries(active.schema) == []
 
@@ -615,7 +640,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
       assert Fx.audit_rows(cancelled.schema, "service_task.advance_failed") == []
     end
 
-    test "deactivating the activator between the first apply and the re-apply still answers already_final" do
+    test "ambiguous commit: the re-apply after a committed first apply (activator deactivated meanwhile) answers already_final" do
       ctx = Fx.service_case!("gh2587c-dup4", Fx.service_then_human_graph(two_lines()))
       body = %{"label" => "L1", "note" => "N1"}
       assert {:ok, :advanced} = Fx.apply_http(ctx, body)
@@ -716,7 +741,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
       assert {:error, {:instance_not_active, :cancelled}} =
                Fx.apply_http(ctx, %{"label" => "L1", "note" => "N1"})
 
-      assert Fx.all_records(ctx.schema) == []
+      assert_nothing_written(ctx)
     end
   end
 
@@ -742,7 +767,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
       assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => "L1", "note" => "N1"})
 
       assert :counters.get(counter, 1) == 3
-      assert Fx.all_records(ctx.schema) == []
+      assert_nothing_written(ctx)
       assert Fx.projection!(ctx.schema, ctx.instance_id).status == :error
       assert [entry] = Fx.dlq_entries(ctx.schema)
       assert entry.error_detail["code"] == "entity_write_contention"
@@ -757,7 +782,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
                Fx.apply_http(ctx, %{"label" => "L1", "note" => "N1"})
 
       assert :counters.get(counter, 1) == 1
-      assert Fx.all_records(ctx.schema) == []
+      assert_nothing_written(ctx)
       assert Fx.projection!(ctx.schema, ctx.instance_id).status == :active
     end
   end
@@ -811,6 +836,66 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
       projection = Repo.get!(InstanceProjection, ctx.instance_id, prefix: ctx.schema)
       refute inspect(projection.error_detail) =~ "SECRET-L1"
       refute Enum.any?(Map.keys(projection.variables), &String.starts_with?(&1, "_sys."))
+    end
+  end
+
+  describe "C-3 / T4: every contention class is re-applied; the guard budget reaches the port" do
+    test "57014, 40P01 and a lost connection are contention, each re-applied once" do
+      for {slug, arm} <- [
+            {"c57014", fn -> ChaosEntityPort.arm!(:query_canceled, 1) end},
+            {"c40p01", fn -> ChaosEntityPort.arm!(:deadlock_detected, 1) end},
+            {"cconn",
+             fn ->
+               ChaosEntityPort.arm_exception!(
+                 %DBConnection.ConnectionError{message: "chaos", severity: :error},
+                 1
+               )
+             end}
+          ] do
+        ctx = Fx.service_case!("gh2587c-" <> slug, Fx.service_graph(two_lines()))
+        counter = arm.()
+
+        assert {:ok, :advanced} = Fx.apply_http(ctx, %{"label" => "L1", "note" => "N1"}), slug
+        assert :counters.get(counter, 1) == 2, slug
+        assert length(Fx.all_records(ctx.schema)) == 2, slug
+        assert Fx.dlq_entries(ctx.schema) == [], slug
+        ChaosEntityPort.disarm!()
+      end
+    end
+
+    test "the port context carries the dispatch origin, the sentinel actor, the activator subject and a guard budget of at most 10 s" do
+      ctx = case!()
+      ChaosEntityPort.record!()
+
+      assert {:ok, :advanced} = Fx.apply_http(ctx, %{"label" => "L1", "note" => "N1"})
+
+      assert_received {:port_call, :multi, port_ctx}
+      assert port_ctx.origin == {:dispatch, ctx.dispatch.id}
+      assert port_ctx.actor_id == EventStore.platform_actor_id()
+      assert port_ctx.subject_id == ctx.user.id
+      assert port_ctx.activator_id == ctx.user.id
+      # HTTP: min(10 s, 20 s budget - elapsed - 8 s pre-guard bound) = 10 s at the first attempt
+      assert port_ctx.guard_budget_ms == 10_000
+    end
+
+    test "I-C10: rebuilding the instance makes no port call" do
+      ctx = case!()
+      ChaosEntityPort.record!()
+      assert {:ok, :advanced} = Fx.apply_http(ctx, %{"label" => "L1", "note" => "N1"})
+
+      # drain the calls of the apply itself, then replay
+      for _ <- 1..20 do
+        receive do
+          {:port_call, _name, _arg} -> :ok
+        after
+          0 -> :ok
+        end
+      end
+
+      assert {:ok, %{instance_state: _state}} =
+               Reconstruction.reconstruct_instance(ctx.instance_id, prefix: ctx.schema)
+
+      refute_received {:port_call, _name, _arg}
     end
   end
 end

@@ -24,6 +24,7 @@ defmodule Letflow.Engine.ScriptTaskEntityWritesTest do
   alias Letflow.EventStore
   alias Letflow.Repo
   alias Letflow.Support.ChaosEntityPort
+  alias Letflow.Support.PlatformTenantFixture
   alias Letflow.Support.ScriptTaskFixture, as: F
 
   setup do
@@ -356,6 +357,173 @@ defmodule Letflow.Engine.ScriptTaskEntityWritesTest do
       assert records(schema) == []
       refute "TASK_ENTITY_WRITES_APPLIED" in Fx.instance_event_types(schema, b.instance_id)
       assert F.reload(schema, row).outcome == "script_error"
+    end
+  end
+
+  # Counts the CAS locks (`SELECT ... FOR UPDATE` on script_task_dispatches) of one
+  # `run_claimed/2`. Each engine apply attempt takes exactly one, so the count pins the number of
+  # applies: the dispatcher follow-up B' (a SECOND `apply_script_task_result/3`) would add one.
+  defp cas_locks(queries) do
+    Enum.count(queries, fn %{query: sql} ->
+      sql =~ "FOR UPDATE" and sql =~ "script_task_dispatches"
+    end)
+  end
+
+  defp runner_calls(acc \\ 0) do
+    receive do
+      {:script_runner_called, _pid, _in_tx} -> runner_calls(acc + 1)
+    after
+      0 -> acc
+    end
+  end
+
+  describe "I-C3 / T1: the script runs once; the dispatcher follow-up is never invoked" do
+    test "a re-applied contention: one run, one apply call, the row applied", %{
+      t: t,
+      activator: activator
+    } do
+      schema = t.schema_name
+      bound!(t, activator, good_lines())
+      F.count_runner_calls!()
+      counter = ChaosEntityPort.arm!(:lock_not_available, 1)
+
+      {row, result} = run_counted(schema)
+
+      # attempt 1 (rolled back) + attempt 2; no follow-up
+      assert result == {{:ok, :applied}, 2}
+      assert :counters.get(counter, 1) == 2
+      assert runner_calls() == 1
+      assert F.reload(schema, row).status == "applied"
+    end
+
+    test "a refusal landing: one run, ONE apply call (no follow-up), the row failed", %{
+      t: t,
+      activator: activator
+    } do
+      schema = t.schema_name
+      bound!(t, activator, refusing_lines())
+      F.count_runner_calls!()
+
+      {row, result} = run_counted(schema)
+
+      # the apply + its landing; a dispatcher follow-up would be a third
+      assert result == {{:ok, :failed}, 2}
+      assert runner_calls() == 1
+      assert F.reload(schema, row).outcome_detail == "entity_write_refused"
+    end
+
+    test "exhausted contention: one run, ONE apply call, the row failed", %{
+      t: t,
+      activator: activator
+    } do
+      schema = t.schema_name
+      bound!(t, activator, good_lines())
+      F.count_runner_calls!()
+      ChaosEntityPort.arm!(:lock_not_available, :infinity)
+
+      {row, result} = run_counted(schema)
+
+      # three attempts + the landing; a dispatcher follow-up would be a fifth
+      assert result == {{:ok, :failed}, 4}
+      assert runner_calls() == 1
+      assert F.reload(schema, row).outcome_detail == "entity_write_contention"
+    end
+
+    defp run_counted(schema) do
+      assert {:ok, row} = ScriptTaskDispatcher.claim_next(schema)
+
+      {result, queries} =
+        PlatformTenantFixture.capture_repo_queries(fn ->
+          ScriptTaskDispatcher.run_claimed(row, schema)
+        end)
+
+      {row, {result, cas_locks(queries)}}
+    end
+  end
+
+  describe "T4 / D-C.9: the lease governs the deadline and the guard budget (m-N2)" do
+    defp set_lease!(schema, row, seconds) do
+      {1, _} =
+        from(d in ScriptTaskDispatcher.ScriptTaskDispatch, where: d.id == ^row.id)
+        |> Repo.update_all(
+          [
+            set: [
+              lease_expires_at:
+                DateTime.add(DateTime.utc_now(), round(seconds * 1000), :millisecond)
+            ]
+          ],
+          prefix: schema
+        )
+    end
+
+    defp guard_budget_with_lease(t, activator, seconds) do
+      schema = t.schema_name
+      bound!(t, activator, good_lines())
+      {:ok, row} = ScriptTaskDispatcher.claim_next(schema)
+      set_lease!(schema, row, seconds)
+      ChaosEntityPort.record!()
+
+      outcome = ScriptTaskDispatcher.run_claimed(F.reload(schema, row), schema)
+
+      budget =
+        receive do
+          {:port_call, :multi, ctx} -> ctx.guard_budget_ms
+        after
+          0 -> :no_attempt
+        end
+
+      {outcome, budget, row}
+    end
+
+    test "a full lease: the guard is the 10 s cap minus nothing the lease did not take", %{
+      t: t,
+      activator: activator
+    } do
+      # 40 s lease: min(20 s, 38 s) = 20 s budget, guard = min(10 s, 12 s) = 10 s
+      assert {{:ok, :applied}, 10_000, _row} = guard_budget_with_lease(t, activator, 40)
+    end
+
+    test "a 20 s lease: deadline = lease - 2 s (about 18 s), guard about 10 s minus the elapsed time",
+         %{t: t, activator: activator} do
+      {outcome, budget, _row} = guard_budget_with_lease(t, activator, 20)
+      assert outcome == {:ok, :applied}
+      # min(10 s, ~18 s - 8 s) is strictly below the 10 s cap only because the lease, not the
+      # 20 s total, bounds the budget
+      assert budget in 8_000..10_000
+    end
+
+    test "a 18 s lease: deadline about 16 s clears the 15 s gate; guard about 8 s", %{
+      t: t,
+      activator: activator
+    } do
+      {outcome, budget, _row} = guard_budget_with_lease(t, activator, 18)
+      assert outcome == {:ok, :applied}
+      assert budget in 6_000..8_000
+    end
+
+    test "a 16 s lease: deadline about 14 s is under the 15 s gate: no attempt, one landing", %{
+      t: t,
+      activator: activator
+    } do
+      {outcome, budget, row} = guard_budget_with_lease(t, activator, 16)
+      assert outcome == {:ok, :failed}
+      assert budget == :no_attempt
+      assert F.reload(t.schema_name, row).outcome_detail == "entity_write_contention"
+      assert records(t.schema_name) == []
+    end
+
+    test "the port context of a script apply: dispatch origin, sentinel actor, activator subject",
+         %{t: t, activator: activator} do
+      schema = t.schema_name
+      bound!(t, activator, good_lines())
+      ChaosEntityPort.record!()
+
+      assert {row, {:ok, :applied}} = F.run_next!(schema)
+
+      assert_received {:port_call, :multi, ctx}
+      assert ctx.origin == {:dispatch, row.id}
+      assert ctx.actor_id == EventStore.platform_actor_id()
+      assert ctx.subject_id == activator.id
     end
   end
 end

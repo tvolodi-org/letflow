@@ -22,6 +22,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesLockOrderTest do
 
   import Ecto.Query
 
+  alias Letflow.Engine
   alias Letflow.Entities.EntityTypeInstance
   alias Letflow.EntityWritesFixture, as: Fx
   alias Letflow.Repo
@@ -194,8 +195,10 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesLockOrderTest do
   describe "sub-process cascade vs a parent SERVICE apply on the same type" do
     test "the service apply is the parent-side participant: either side may be the victim; nothing partial",
          %{base: base} do
-      alias Letflow.Engine
       alias Letflow.Engine.ServiceTaskDispatcher.ServiceTaskDispatch
+
+      warm_up_types!(base)
+      type_instance = type_instance_ids(base.schema)["stock_move"]
 
       child = Fx.activate!(base.schema, base.user, Fx.graph([line("stock_move")]))
 
@@ -287,10 +290,26 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesLockOrderTest do
           )
         end
 
+        # T3: the overlap is FORCED. A second connection holds the type's sequence row; the child
+        # completion and the parent service apply are both started and both block there (the
+        # child with the parent's projection wanted by its cascade, the service apply holding
+        # it), then the row is released. Without the hold the two could finish one after the
+        # other and the test would prove nothing.
+        holder =
+          hold_row(
+            ~s(SELECT 1 FROM "#{base.schema}"."instance_sequence" WHERE instance_id = $1 FOR UPDATE),
+            [Ecto.UUID.dump!(type_instance)],
+            self()
+          )
+
         results = [
           Task.async(fn -> {:child, complete.(child_task)} end),
           Task.async(fn -> {:service, apply_service.()} end)
         ]
+
+        assert wait_for_blocked(2) >= 2, "both transactions must be blocked on the held row"
+        send(holder.pid, :release)
+        Task.await(holder, 30_000)
 
         for async <- results do
           case Task.await(async, 30_000) do
@@ -316,6 +335,217 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesLockOrderTest do
         assert length(Fx.all_records(base.schema)) == before + 2
         assert Fx.projection!(base.schema, parent_id).status == :completed
       end
+    end
+  end
+
+  # ---- T2 / T3 / T5 additions ------------------------------------------------------------------
+
+  defp warm_up_types!(base) do
+    # the first creation of a type's synthetic instance and sequence row is not part of the races
+    warm = Fx.attach_service!(base, Fx.service_graph([line("stock_move"), line("stock_note")]))
+    assert {:ok, :advanced} = Fx.apply_http(warm, %{})
+  end
+
+  defp hold_row(sql, params, test_pid) do
+    task =
+      Task.async(fn ->
+        Repo.transaction(fn ->
+          Repo.query!(sql, params)
+          send(test_pid, :held)
+
+          receive do
+            :release -> :ok
+          after
+            30_000 -> :ok
+          end
+        end)
+      end)
+
+    assert_receive :held, 10_000
+    task
+  end
+
+  # Polls pg_locks (bounded: <= 30 x 50 ms, under the 2 s lock_timeout) until at least `n` lock
+  # requests are waiting; returns the last observed count.
+  defp wait_for_blocked(n) do
+    Enum.reduce_while(1..30, 0, fn _, _ ->
+      %{rows: [[waiting]]} =
+        Repo.query!(
+          "SELECT count(*) FROM pg_locks WHERE NOT granted AND locktype IN ('transactionid', 'tuple')"
+        )
+
+      if waiting >= n do
+        {:halt, waiting}
+      else
+        Process.sleep(50)
+        {:cont, waiting}
+      end
+    end)
+  end
+
+  describe "T2: a service apply (A,B) vs a human completion (B,A)" do
+    test "both commit, a human victim is retried; overlap is forced in round 1", %{base: base} do
+      ba =
+        Fx.activate!(base.schema, base.user, Fx.graph([line("stock_note"), line("stock_move")]))
+
+      warm_up_types!(base)
+      # warm up the human definition too
+      {warm_instance, warm_task} = Fx.start!(base.schema, ba)
+      assert warm_instance
+      assert {:ok, _} = Fx.complete(%{task: warm_task, user: base.user, schema: base.schema}, %{})
+
+      type_instance = type_instance_ids(base.schema)["stock_move"]
+
+      for round <- 1..2 do
+        service =
+          Fx.attach_service!(base, Fx.service_graph([line("stock_move"), line("stock_note")]))
+
+        {_instance, task} = Fx.start!(base.schema, ba)
+        human = %{task: task, user: base.user, schema: base.schema}
+        before = length(Fx.all_records(base.schema))
+
+        holder =
+          if round == 1 do
+            hold_row(
+              ~s(SELECT 1 FROM "#{base.schema}"."instance_sequence" WHERE instance_id = $1 FOR UPDATE),
+              [Ecto.UUID.dump!(type_instance)],
+              self()
+            )
+          end
+
+        asyncs = [
+          Task.async(fn -> {:service, Fx.apply_http(service, %{})} end),
+          Task.async(fn -> {:human, Fx.complete(human, %{})} end)
+        ]
+
+        if holder do
+          # both blocked at the held type row: the overlap really happened
+          assert wait_for_blocked(2) >= 2
+          send(holder.pid, :release)
+          Task.await(holder, 30_000)
+        end
+
+        for async <- asyncs do
+          case Task.await(async, 30_000) do
+            {:service, {:ok, :advanced}} ->
+              :ok
+
+            {:human, {:ok, _}} ->
+              :ok
+
+            {:human, {:error, {:entity_write_refused, :contention, _}}} ->
+              assert Fx.task!(base.schema, task.id).status == :pending
+              assert {:ok, _} = Fx.complete(human, %{})
+
+            other ->
+              flunk("unexpected result: #{inspect(other)}")
+          end
+        end
+
+        assert length(Fx.all_records(base.schema)) == before + 4
+        assert Fx.dlq_entries(base.schema) == []
+      end
+    end
+  end
+
+  describe "T2: N-parallel service applies (A,B)" do
+    test "four parallel applies all commit", %{base: base} do
+      warm_up_types!(base)
+
+      contexts =
+        for _ <- 1..4,
+            do:
+              Fx.attach_service!(base, Fx.service_graph([line("stock_move"), line("stock_note")]))
+
+      before = length(Fx.all_records(base.schema))
+
+      results =
+        contexts
+        |> Enum.map(fn ctx -> Task.async(fn -> Fx.apply_http(ctx, %{}) end) end)
+        |> Enum.map(&Task.await(&1, 60_000))
+
+      assert results == List.duplicate({:ok, :advanced}, 4)
+      assert length(Fx.all_records(base.schema)) == before + 8
+      assert Fx.dlq_entries(base.schema) == []
+    end
+  end
+
+  describe "T5: the ERROR landing itself under contention" do
+    defp dispatch_row_sql(schema),
+      do: ~s(SELECT 1 FROM "#{schema}"."service_task_dispatches" WHERE id = $1 FOR UPDATE)
+
+    test "a contention in the landing transaction is re-run and then lands", %{base: base} do
+      ctx = Fx.attach_service!(base, Fx.service_graph([line("stock_move")]))
+      holder = hold_row(dispatch_row_sql(base.schema), [Ecto.UUID.dump!(ctx.dispatch.id)], self())
+
+      landing =
+        Task.async(fn ->
+          Engine.__land_http_entity_write_failure__(
+            ctx.dispatch.id,
+            :validation_failed,
+            0,
+            base.schema
+          )
+        end)
+
+      # attempt 1 waits out the 2 s lock timeout (55P03) and is re-run; release during attempt 2
+      Process.sleep(2_600)
+      send(holder.pid, :release)
+      Task.await(holder, 30_000)
+
+      assert {:ok, :error_set} = Task.await(landing, 30_000)
+      assert Fx.projection!(base.schema, ctx.instance_id).status == :error
+      assert [_entry] = Fx.dlq_entries(base.schema)
+    end
+
+    test "residual (d): a landing that exhausts its budget leaves the instance active and says so",
+         %{base: base} do
+      ctx = Fx.attach_service!(base, Fx.service_graph([line("stock_move")]))
+      holder = hold_row(dispatch_row_sql(base.schema), [Ecto.UUID.dump!(ctx.dispatch.id)], self())
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          result =
+            Engine.__land_http_entity_write_failure__(
+              ctx.dispatch.id,
+              :validation_failed,
+              0,
+              base.schema
+            )
+
+          # classified tag, not an opaque :rollback
+          assert result == {:error, {:entity_write_landing_failed, :contention}}
+        end)
+
+      send(holder.pid, :release)
+      Task.await(holder, 30_000)
+
+      assert log =~ "landing failed"
+      assert log =~ "reason=contention"
+      assert Fx.projection!(base.schema, ctx.instance_id).status == :active
+      assert Fx.dispatch!(base.schema, ctx.dispatch.id).status == "advanced"
+      assert Fx.dlq_entries(base.schema) == []
+    end
+
+    test "two applies racing on a refusing dispatch: one incident, the other is already_final",
+         %{base: base} do
+      refusing = [
+        Fx.line("stock_move", %{"label" => %{"var" => "label"}}),
+        Fx.line("stock_note", %{"note" => %{"var" => "note"}})
+      ]
+
+      ctx = Fx.attach_service!(base, Fx.service_graph(refusing))
+      body = %{"label" => "L1", "note" => "N1"}
+
+      results =
+        1..2
+        |> Enum.map(fn _ -> Task.async(fn -> Fx.apply_http(ctx, body) end) end)
+        |> Enum.map(&Task.await(&1, 60_000))
+
+      assert Enum.sort(results) == [{:ok, :already_final}, {:ok, :error_set}]
+      assert Fx.projection!(base.schema, ctx.instance_id).status == :error
+      assert [_one] = Fx.dlq_entries(base.schema)
+      assert [_one] = Fx.instance_events(base.schema, ctx.instance_id, "EXECUTION_ERROR")
     end
   end
 end

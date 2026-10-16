@@ -13,6 +13,10 @@ defmodule Letflow.Support.ChaosEntityPort do
       counter = ChaosEntityPort.arm!(:lock_not_available, 1)
       ...
       on_exit(&ChaosEntityPort.disarm!/0)   # also restores the previous port
+
+  `record!/0` installs the port without arming anything and reports every port call to the
+  calling test as `{:port_call, name, arg}` (the `multi/3` context included), which is how a test
+  observes `guard_budget_ms` reaching the port or asserts that a replay makes no port call.
   """
 
   @behaviour Letflow.Engine.EntityPort
@@ -29,19 +33,42 @@ defmodule Letflow.Support.ChaosEntityPort do
   """
   @spec arm!(atom(), pos_integer() | :infinity) :: :counters.counters_ref()
   def arm!(code, n) do
+    arm_exception!(
+      %Postgrex.Error{postgres: %{code: code, message: "chaos", severity: "ERROR"}},
+      n
+    )
+  end
+
+  @doc "Like `arm!/2` with an arbitrary exception struct (for example a `DBConnection.ConnectionError`)."
+  @spec arm_exception!(Exception.t(), pos_integer() | :infinity) :: :counters.counters_ref()
+  def arm_exception!(exception, n) do
     counter = :counters.new(1, [])
-    exception = %Postgrex.Error{postgres: %{code: code, message: "chaos", severity: "ERROR"}}
     :persistent_term.put(@key, {n, exception, counter})
-    previous = Application.fetch_env(:letflow, :entity_port)
-    :persistent_term.put({__MODULE__, :previous}, previous)
-    Application.put_env(:letflow, :entity_port, __MODULE__)
+    install!()
     counter
   end
 
-  @doc "Disarms and restores the entity port that was configured before `arm!/2`."
+  @doc "Installs the port and reports every call to the calling test (see the moduledoc)."
+  @spec record!() :: :ok
+  def record! do
+    :persistent_term.put({__MODULE__, :recorder}, self())
+    install!()
+    :ok
+  end
+
+  defp install! do
+    if :persistent_term.get({__MODULE__, :previous}, :none) == :none do
+      :persistent_term.put({__MODULE__, :previous}, Application.fetch_env(:letflow, :entity_port))
+    end
+
+    Application.put_env(:letflow, :entity_port, __MODULE__)
+  end
+
+  @doc "Disarms and restores the entity port that was configured before the first install."
   @spec disarm!() :: :ok
   def disarm! do
     :persistent_term.erase(@key)
+    :persistent_term.erase({__MODULE__, :recorder})
 
     case :persistent_term.get({__MODULE__, :previous}, :none) do
       {:ok, value} -> Application.put_env(:letflow, :entity_port, value)
@@ -53,6 +80,15 @@ defmodule Letflow.Support.ChaosEntityPort do
     :ok
   end
 
+  defp report(name, arg) do
+    case :persistent_term.get({__MODULE__, :recorder}, nil) do
+      pid when is_pid(pid) -> send(pid, {:port_call, name, arg})
+      _none -> :ok
+    end
+
+    :ok
+  end
+
   @impl true
   def authorize_module_writes(lines, ctx), do: EntityPortImpl.authorize_module_writes(lines, ctx)
 
@@ -60,13 +96,20 @@ defmodule Letflow.Support.ChaosEntityPort do
   def prefetch(prefix, reads, vars), do: EntityPortImpl.prefetch(prefix, reads, vars)
 
   @impl true
-  def prepare(lines, ctx), do: EntityPortImpl.prepare(lines, ctx)
+  def prepare(lines, ctx) do
+    report(:prepare, lines)
+    EntityPortImpl.prepare(lines, ctx)
+  end
 
   @impl true
-  def validate_lines(lines, ctx), do: EntityPortImpl.validate_lines(lines, ctx)
+  def validate_lines(lines, ctx) do
+    report(:validate_lines, lines)
+    EntityPortImpl.validate_lines(lines, ctx)
+  end
 
   @impl true
   def multi(multi, lines, ctx) do
+    report(:multi, ctx)
     base = EntityPortImpl.multi(multi, lines, ctx)
 
     case :persistent_term.get(@key, nil) do
@@ -85,5 +128,8 @@ defmodule Letflow.Support.ChaosEntityPort do
   end
 
   @impl true
-  def interpret_failure(step, reason), do: EntityPortImpl.interpret_failure(step, reason)
+  def interpret_failure(step, reason) do
+    report(:interpret_failure, step)
+    EntityPortImpl.interpret_failure(step, reason)
+  end
 end

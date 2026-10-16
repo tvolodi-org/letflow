@@ -5328,12 +5328,16 @@ defmodule Letflow.Engine do
   defp handle_service_outcome({:refuse, code, index, detail}, route, prefix, _deadline_at, _n),
     do: land_service_failure(route, code, index, detail, prefix)
 
-  # Constant 100 ms / 300 ms backoffs; zero under the `:engine_test_seams` flag (config/test.exs).
-  defp service_backoff(attempt_no) do
-    if Application.get_env(:letflow, :engine_test_seams, false) != true,
+  # Constant 100 ms / 300 ms backoffs; none in a build with `:engine_test_seams` (config/test.exs),
+  # the same compile-time switch as the test seams below.
+  if Application.compile_env(:letflow, :engine_test_seams, false) do
+    defp service_backoff(_attempt_no) do
+      _ = @service_backoffs_ms
+      :ok
+    end
+  else
+    defp service_backoff(attempt_no),
       do: Process.sleep(Enum.at(@service_backoffs_ms, attempt_no - 1, 300))
-
-    :ok
   end
 
   defp run_service_apply({:http, dispatch_id, body, repo}, plan, prefix),
@@ -5636,21 +5640,21 @@ defmodule Letflow.Engine do
   defp service_route_dispatch_id({:http, dispatch_id, _body, _repo}), do: dispatch_id
   defp service_route_dispatch_id({:script, %{dispatch_id: dispatch_id}, _result}), do: dispatch_id
 
+  # The landing always runs on `Letflow.Repo` (the `repo` argument of the public entry point is
+  # `Repo` in every caller), like the best-effort audit entry below.
+  #
+  # ONE transaction (a single Multi, so a failed step is a plain `{:error, step, reason, _}` and
+  # not a poisoned nested transaction): the SET LOCAL pair, the dispatch row lock, the projection
+  # lock, the EXPLICIT completion-key read, then the ExecutionError steps. A contention class
+  # raised anywhere in it is mapped by `rescue_service_contention/1` and re-run.
   defp land_http_entity_write_failure(dispatch_id, code, index, detail, prefix, attempt_no) do
     result =
       rescue_service_contention(fn ->
-        Repo.transaction(fn ->
-          set_service_entity_write_timeouts(Repo)
-
-          case http_landing_in_transaction(dispatch_id, code, index, prefix) do
-            {:ok, landed} -> landed
-            {:error, reason} -> Repo.rollback(reason)
-          end
-        end)
+        Repo.transaction(http_landing_multi(dispatch_id, code, index, prefix))
       end)
 
     case result do
-      {:ok, {:error_set, dispatch}} ->
+      {:ok, %{landing_dispatch: dispatch}} ->
         record_service_entity_write_refusal_audit(
           dispatch.instance_id,
           dispatch.node_id,
@@ -5663,44 +5667,69 @@ defmodule Letflow.Engine do
 
         {:ok, :error_set}
 
-      {:ok, :already_final} ->
-        {:ok, :already_final}
-
       {:error, {:entity_write_refused, :contention, _code}}
       when attempt_no < @service_apply_attempts ->
         service_backoff(attempt_no)
         land_http_entity_write_failure(dispatch_id, code, index, detail, prefix, attempt_no + 1)
 
-      # cancel won, or someone else already ended the instance: benign.
-      {:error, {:instance_not_active, _status}} ->
-        {:ok, :already_final}
-
-      {:error, {tag, _detail}} when tag in [:instance_terminal, :instance_already_error] ->
-        {:ok, :already_final}
+      {:error, _step, reason, _changes} ->
+        classify_http_landing_failure(reason, dispatch_id)
 
       {:error, reason} ->
-        # The residual of D-C.8 (d): the dispatch row stays "advanced" and the instance ACTIVE.
-        # Logged as a classified tag only; the dispatcher writes `service_task.advance_failed`.
-        Logger.error(
-          "service task entity write landing failed: dispatch_id=#{dispatch_id} " <>
-            "reason=#{service_landing_failure_tag(reason)}"
-        )
-
-        {:error, {:entity_write_landing_failed, service_landing_failure_tag(reason)}}
+        classify_http_landing_failure(reason, dispatch_id)
     end
+  end
+
+  # A completion key already present (a prior apply committed), a dispatch row no longer
+  # `advanced`, a cancelled / ended instance: someone else got there first, benign.
+  defp classify_http_landing_failure(:landing_already_final, _dispatch_id),
+    do: {:ok, :already_final}
+
+  defp classify_http_landing_failure({:instance_not_active, _status}, _dispatch_id),
+    do: {:ok, :already_final}
+
+  defp classify_http_landing_failure({tag, _detail}, _dispatch_id)
+       when tag in [:instance_terminal, :instance_already_error],
+       do: {:ok, :already_final}
+
+  defp classify_http_landing_failure(reason, dispatch_id) do
+    # The residual of D-C.8 (d): the dispatch row stays "advanced" and the instance ACTIVE.
+    # Logged as a classified tag only; the dispatcher writes `service_task.advance_failed`.
+    tag = service_landing_failure_tag(reason)
+
+    Logger.error(
+      "service task entity write landing failed: dispatch_id=#{dispatch_id} reason=#{tag}"
+    )
+
+    {:error, {:entity_write_landing_failed, tag}}
   end
 
   defp service_landing_failure_tag({:entity_write_refused, :contention, _code}), do: :contention
   defp service_landing_failure_tag(_other), do: :other
 
-  defp http_landing_in_transaction(dispatch_id, code, index, prefix) do
+  defp http_landing_multi(dispatch_id, code, index, prefix) do
     completion_key = "service_task_dispatch:#{dispatch_id}"
 
-    with {:ok, %ServiceTaskDispatch{status: "advanced"} = dispatch} <-
-           fetch_and_lock_service_task_dispatch(dispatch_id, Repo, prefix),
-         {:ok, projection} <-
-           fetch_and_lock_instance_projection(Repo, dispatch.instance_id, prefix),
-         false <- service_completion_key_present?(Repo, completion_key, prefix) do
+    Multi.new()
+    |> Multi.run(:landing_timeouts, fn repo, _changes ->
+      set_service_entity_write_timeouts(repo)
+      {:ok, :set}
+    end)
+    |> Multi.run(:landing_dispatch, fn repo, _changes ->
+      case fetch_and_lock_service_task_dispatch(dispatch_id, repo, prefix) do
+        {:ok, %ServiceTaskDispatch{status: "advanced"} = dispatch} -> {:ok, dispatch}
+        _gone_or_not_advanced -> {:error, :landing_already_final}
+      end
+    end)
+    |> Multi.run(:landing_projection, fn repo, %{landing_dispatch: dispatch} ->
+      fetch_and_lock_instance_projection(repo, dispatch.instance_id, prefix)
+    end)
+    |> Multi.run(:landing_key_check, fn repo, _changes ->
+      if service_completion_key_present?(repo, completion_key, prefix),
+        do: {:error, :landing_already_final},
+        else: {:ok, :absent}
+    end)
+    |> Multi.merge(fn %{landing_dispatch: dispatch, landing_projection: projection} ->
       error_args = %{
         instance_id: projection.instance_id,
         error_type: :entity_write_refused,
@@ -5717,22 +5746,11 @@ defmodule Letflow.Engine do
         idempotency_key: completion_key
       }
 
-      multi =
-        ExecutionError.append_multi(Multi.new(), error_args,
-          prefix: prefix,
-          locked_projection: projection
-        )
-
-      case Repo.transaction(multi) do
-        {:ok, _changes} -> {:ok, {:error_set, dispatch}}
-        {:error, _step, reason, _changes} -> {:error, reason}
-      end
-    else
-      {:ok, %ServiceTaskDispatch{}} -> {:ok, :already_final}
-      nil -> {:ok, :already_final}
-      true -> {:ok, :already_final}
-      {:error, reason} -> {:error, reason}
-    end
+      ExecutionError.append_multi(Multi.new(), error_args,
+        prefix: prefix,
+        locked_projection: projection
+      )
+    end)
   end
 
   # The script route lands through the CAS apply itself: `script_failure/7` writes the
