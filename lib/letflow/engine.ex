@@ -408,6 +408,13 @@ defmodule Letflow.Engine do
   completion's cascade is reported as contention and re-applied by the engine
   (bounded), and the landing of a refusal runs in a second transaction.
 
+  GH #2648: the same two applies also run the sub-process completion cascade when the apply
+  completes a sub-process CHILD (`append_sub_process_completion_cascade_multi/6`, the helper the
+  HUMAN_TASK tail uses), in the SAME transaction, so a failure rolls the apply back. Lock order:
+  dispatch row (or script CAS row), child projection, entity-type locks, THEN the parent token
+  and projection (and further ancestors), THEN the audit chain row: child to parent, never
+  the reverse, the order the HUMAN path already has.
+
   REQ-045 resolved this engine to row-based state (`create/2` is a plain
   function under `Ecto.Multi`, not a supervised `:gen_statem`/
   `DynamicSupervisor`-per-instance process — see this moduledoc's own
@@ -5025,6 +5032,19 @@ defmodule Letflow.Engine do
                     {:error, {:entity_write_failed, 0, :sys_value}}
                 end
               end)
+              # GH #2648: when this apply completes the instance and it is a sub-process CHILD,
+              # cascade the parent's completion steps into this SAME transaction (the helper the
+              # HUMAN_TASK tail uses; a failure rolls the whole apply back). Lock order: this
+              # apply has already locked the dispatch row and the child projection (and any
+              # entity-type locks of its writes); the cascade then locks the parent token and
+              # the parent projection, so child -> parent, the HUMAN path's order. A no-op for
+              # an instance that is not completed or has no waiting parent token.
+              |> append_service_sub_process_cascade(
+                dispatch.instance_id,
+                final_instance_state,
+                idempotency_key,
+                prefix
+              )
               |> append_service_entity_write_audits(completion, dispatch, prefix)
 
             case repo.transaction(multi) do
@@ -5064,6 +5084,44 @@ defmodule Letflow.Engine do
     rescue
       exception -> {:error, {:transaction_failed, exception}}
     end
+  end
+
+  # GH #2648: the service/script apply's sub-process completion cascade. Reuses
+  # append_sub_process_completion_cascade_multi/6 on the same sys-folded final state the
+  # :projection step wrote, so the parent merges exactly the child's final variables.
+  defp append_service_sub_process_cascade(
+         multi,
+         _instance_id,
+         %InstanceState{status: status},
+         _idempotency_key,
+         _prefix
+       )
+       when status != :completed,
+       do: multi
+
+  defp append_service_sub_process_cascade(
+         multi,
+         instance_id,
+         %InstanceState{} = final_instance_state,
+         idempotency_key,
+         prefix
+       ) do
+    Multi.merge(multi, fn changes ->
+      case fold_service_sys_into_state(final_instance_state, changes) do
+        {:ok, folded} ->
+          append_sub_process_completion_cascade_multi(
+            Multi.new(),
+            instance_id,
+            folded,
+            EventStore.platform_actor_id(),
+            idempotency_key,
+            prefix
+          )
+
+        {:error, _reason} ->
+          Multi.new()
+      end
+    end)
   end
 
   # design doc §3.2 step 5's "registration path" -- SERVICE_TASK_COMPLETED
