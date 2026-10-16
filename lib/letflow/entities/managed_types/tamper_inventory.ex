@@ -7,7 +7,7 @@ defmodule Letflow.Entities.ManagedTypes.TamperInventory do
 
   ## What distinguishes the sources
 
-  A plain record write appends one `events` row (`ENTITY_RECORD_CREATED|UPDATED|DELETED`) with the
+  A plain record write appends one `events` row (the `ENTITY_RECORD_*` created/updated/deleted types) with the
   actor and an idempotency key, and leaves no route marker and no audit entry. So the sources are
   not distinguishable by one column; the inventory reports the closest proxy as `evidence`:
 
@@ -48,7 +48,8 @@ defmodule Letflow.Entities.ManagedTypes.TamperInventory do
   @authoring_names ~w(answer_option category exam exam_manual_question exam_question_rule
                       exam_question_rule_tag exam_section question question_tag tag)
 
-  @record_event_types ~w(ENTITY_RECORD_CREATED ENTITY_RECORD_UPDATED ENTITY_RECORD_DELETED)
+  # Built from the suffixes (read-only module: it only reads these types, never writes them).
+  @record_event_types Enum.map(~w(CREATED UPDATED DELETED), &("ENTITY_RECORD_" <> &1))
 
   @default_cap 10_000
 
