@@ -1,13 +1,14 @@
 defmodule Letflow.Test.NestedMix do
   @moduledoc """
-  GH #2630: the one place a test spawns a nested `mix` child that STARTS the app (and so
-  opens its own `Letflow.Repo` pool against the shared test Postgres).
+  GH #2630: how a test spawns a nested `mix` child that STARTS the app (and so opens its own
+  `Letflow.Repo` pool against the shared test Postgres). `nested_mix_test.exs` scans the whole
+  `test/` tree and requires every other mix spawn to be on an explicit no-pool allowlist.
 
   `config/test.exs` sizes the pool from `TEST_POOL_SIZE`, which `scripts/test_parallel.sh`
   exports for the partition (20 on a 100-connection CI server). A child spawned with
-  `System.cmd/3` inherits that, so each such child opened a full partition-sized pool
-  (a further 20 connections) that the `N * TEST_POOL_SIZE` clamp does not budget for. With
-  four partitions that pushed hosted CI past `max_connections` (FATAL 53300).
+  `System.cmd/3` inherits that, so such a child opens a full partition-sized pool (a further
+  20 connections) that the `N * TEST_POOL_SIZE` clamp does not budget for. That this caused
+  the hosted-CI FATAL 53300 is a hypothesis consistent with the measurement, not proven.
 
   `cmd/3` is `System.cmd/3` with `TEST_POOL_SIZE` forced to `pool_size/0`. The same cap
   `executor_test.exs`'s nested `mix test` uses, and the figure

@@ -643,13 +643,27 @@ verification passes against a real host — not repeated here.
 | Shard 2 peak | three partitions at 19 and one process holding 30 (10 beyond its 20-pool, same BEAM) |
 | Shard 3 peak | 88 |
 
-**Cause (hypothesis b', consistent with the table).** `test/mix/tasks/letflow.login_directory_tasks_test.exs`
-(`key_status`, `retire_key`) and `letflow.migrate_tenant_admins_test.exs` spawn `mix` children with
-`System.cmd/3`; each child runs `app.start`, and `config/test.exs` sizes its `Letflow.Repo` pool from the inherited
-`TEST_POOL_SIZE=20`. Four partitions at 20 plus one such child at 20 is already at the ceiling. The earlier
-reserve of 5 was sized for one reaper connection plus the 4-slot `executor_test.exs` child (ISS-0287/ISS-0515);
-the ISS-0287 addendum's "one file, one partition" argument does not cover three different files each spawning
-a child. Children of `mix run --no-start` / `mix compile` open no pool and are unchanged.
+**Cause (hypothesis b', consistent with the measurement, NOT proven).** The two known app-starting spawn sites are
+`test/mix/tasks/letflow.login_directory_tasks_test.exs` (`key_status`, `retire_key`) and
+`letflow.migrate_tenant_admins_test.exs`: they spawn `mix` children with `System.cmd/3`; each child runs `app.start`,
+and `config/test.exs` sizes its `Letflow.Repo` pool from the inherited `TEST_POOL_SIZE=20`. Four partitions at 20
+plus one such child at 20 is already at the ceiling. The earlier reserve of 5 was sized for one reaper connection
+plus the 4-slot `executor_test.exs` child (ISS-0287/ISS-0515); the ISS-0287 addendum's "one file, one partition"
+argument does not cover three different files each spawning a child. Children of `mix run --no-start` /
+`mix compile` open no pool and are unchanged.
+
+**What is established and what is not.**
+1. Which test spawned the shard-1 fifth process (pid 27329, 19 idle connections) is NOT proven. Its size fits an
+   inherited pool of 20 and nothing more. F2 caps the two known app-starting spawn sites; that they are the owner is a
+   hypothesis.
+2. The shard-2 process holding 30 connections against a pool of 20 (10 beyond it, inside one BEAM) is UNEXPLAINED and
+   NOT addressed by F2. The 86-of-97 worst case below does not include it. The spare of 11 absorbs one such partition
+   (4 x 17 + 10 + 3 x 4 + 2 = 92 of 97) but two such partitions would exceed it (4 x 17 + 2 x 10 + 2 x 4 + 2 = 98 of 97 usable; 106 if every partition also runs a child). The change is safe against it by
+   margin, not by construction.
+3. No run yet shows the cause is gone. Acceptance is 3 consecutive hosted runs with zero strict FATAL matches
+   (`FATAL 53300 \(too_many_connections\)|sorry, too many clients already`).
+4. A second measurement run (PR #2639, with process snapshots) is pending and may identify the owners. This addendum
+   will be updated with the owner section, or a follow-up issue filed, when it reports.
 
 **Change (F2 + F4, no retry, no skip).**
 - F2: `Letflow.Test.NestedMix.cmd/3` (`test/support/nested_mix.ex`) forces `TEST_POOL_SIZE=4` for test-spawned
@@ -660,7 +674,7 @@ a child. Children of `mix run --no-start` / `mix compile` open no pool and are u
 
 **Arithmetic.** `usable = 100 - 3 = 97`; `budget = 97 - 10 (headroom) - 16 = 71`; `TEST_POOL_SIZE = floor(71/4) = 17`.
 Worst case at once: 4 x 17 pool + 4 x 4 children + 2 external (probe, Postgres tune) = 86 of 97, a spare of 11.
-(Before: 80 + one uncapped child of 20 = 100, with no spare, measured above to overshoot.)
+(Before: 80 + one uncapped child of 20 = 100, with no spare, which fits the overshoot measured above.)
 Pinned by `test/scripts/test_parallel_pool_clamp_test.exs` and `test/letflow/nested_mix_test.exs`.
 
 **Not claimed.** Raising `max_connections` is NOT claimed to work here. The "tried and reverted" history in

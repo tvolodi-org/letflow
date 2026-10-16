@@ -68,10 +68,33 @@ defmodule Letflow.Scripts.TestParallelPoolClampTest do
     assert out =~ "caller override"
   end
 
-  test "ci.yml gives the shard job's test step reserve 16 and no job before it sets the reserve" do
-    ci = File.read!(Path.expand("../../.github/workflows/ci.yml", __DIR__))
-    [before_shard, shard_job] = String.split(ci, "  backend_shard:", parts: 2)
-    assert shard_job =~ "TEST_NONPOOL_CONNECTION_RESERVE: 16"
-    refute before_shard =~ "TEST_NONPOOL_CONNECTION_RESERVE:"
+  test "ci.yml: only backend_shard's `Run test shard` step env sets the reserve, to \"16\"" do
+    jobs =
+      Path.expand("../../.github/workflows/ci.yml", __DIR__)
+      |> YamlElixir.read_from_file!()
+      |> Map.fetch!("jobs")
+
+    step_env = fn job ->
+      for step <- Map.get(job, "steps", []),
+          {k, v} <- Map.get(step, "env", %{}),
+          do: {step["name"], k, v}
+    end
+
+    reserve = fn job ->
+      job_level =
+        for {k, v} <- Map.get(job, "env", %{}),
+            k == "TEST_NONPOOL_CONNECTION_RESERVE",
+            do: {nil, k, v}
+
+      job_level ++
+        Enum.filter(step_env.(job), fn {_, k, _} -> k == "TEST_NONPOOL_CONNECTION_RESERVE" end)
+    end
+
+    assert [{"Run test shard", "TEST_NONPOOL_CONNECTION_RESERVE", "16"}] =
+             Enum.map(reserve.(jobs["backend_shard"]), fn {n, k, v} -> {n, k, to_string(v)} end)
+
+    for {name, job} <- jobs, name != "backend_shard" do
+      assert reserve.(job) == [], "job #{name} must not set the reserve"
+    end
   end
 end
