@@ -4,10 +4,10 @@ defmodule Letflow.Engine.ScriptTaskEntityWritesTest do
   half, C-8 script half): a SCRIPT-bound SERVICE_TASK apply composes the node's declared entity
   writes into the ONE CAS apply transaction.
 
-  Real Lua scripts, real Postgres, the real dispatcher (`run_claimed/2`). The activation fence
-  still refuses `entity_writes` on a SERVICE_TASK node (C1 lifts it later), so each case starts
-  from a normally activated script definition whose PINNED snapshot and recorded activator are
-  then patched the way a row from before B1 exists.
+  Real Lua scripts, real Postgres, the real dispatcher (`run_claimed/2`). Each case starts from
+  a normally activated script definition whose PINNED snapshot and recorded activator are then
+  patched (the activation fence accepts `entity_writes` on a SERVICE_TASK node since C1; the
+  patching lets a case tamper with the snapshot and the activator).
   """
 
   use Letflow.DataCase, async: false
@@ -87,6 +87,46 @@ defmodule Letflow.Engine.ScriptTaskEntityWritesTest do
   end
 
   defp records(schema), do: Fx.records(schema, "amount_rec")
+
+  describe "C1: the real activation path accepts a script-bound node" do
+    test "activate (fence lifted) -> start -> run: the records commit with the recorded authority",
+         %{t: t, activator: activator} do
+      schema = t.schema_name
+      key = "k#{System.unique_integer([:positive])}"
+      rule = F.published!(schema, key, F.doubling_source(), F.closed_manifest())
+
+      graph =
+        update_in(F.script_graph(key, rule.version), ["nodes"], fn nodes ->
+          Enum.map(nodes, fn
+            %{"id" => "svc", "attributes" => attrs} = node ->
+              %{node | "attributes" => Map.put(attrs, "entity_writes", good_lines())}
+
+            node ->
+              node
+          end)
+        end)
+
+      draft = F.draft_definition!(schema, graph, [])
+
+      assert {:error, {:entity_writes_invalid, [%{node_id: "svc", index: 0}]}} =
+               Letflow.Definitions.activate(draft.id, prefix: schema)
+
+      auth = Activator.from_auth_context(%{user_id: activator.id, roles: ["TENANT_ADMIN"]}, false)
+
+      assert {:ok, %{definition: active}} =
+               Letflow.Definitions.activate(draft.id, prefix: schema, activator: auth)
+
+      assert %{"authorized" => [%{"entity_type" => "amount_rec", "op" => "create"}]} =
+               active.activated_by
+
+      instance_id = F.start!(schema, active, %{"amount" => 2}, Ecto.UUID.generate())
+
+      assert {_row, {:ok, :applied}} = F.run_next!(schema)
+      assert [rec] = records(schema)
+      assert rec.field_values == %{"total" => 4}
+      assert F.projection(schema, instance_id).status == :completed
+    end
+  end
 
   describe "C-14: success" do
     test "records, SYS, APPLIED, SCRIPT_TASK_COMPLETED, the run record and the row commit together",

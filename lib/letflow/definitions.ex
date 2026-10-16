@@ -2498,6 +2498,12 @@ defmodule Letflow.Definitions do
     end
   end
 
+  # GH #2587 / REQ-499 PR C1 (design gh2587-req499-pr-c-service-task-writes.md 6, D-C.12): the
+  # node types whose declarative `entity_writes` the activation fence accepts. SERVICE_TASK joined
+  # HUMAN_TASK once both of its apply routes (HTTP and script-bound) composed the lines (C2a/C2b).
+  # `module_writes` stays HUMAN_TASK only (`ModuleWrites.violations/6`).
+  @entity_write_node_types [:HUMAN_TASK, :SERVICE_TASK]
+
   # GH #2587 / REQ-499 PR B1 (decision 0054 D1, D4a; design
   # gh2587-req499-pr-b-human-task-writes.md 5.3, 6.3): every node's declared `entity_writes`
   # must be a valid, authorised set of lines BEFORE the definition becomes ACTIVE. Shared by
@@ -2724,14 +2730,14 @@ defmodule Letflow.Definitions do
     node_codes =
       cond do
         not is_list(writes) -> [:entity_writes_not_a_list]
-        node_type != :HUMAN_TASK -> [:entity_writes_node_type_not_supported]
+        node_type not in @entity_write_node_types -> [:entity_writes_node_type_not_supported]
         true -> []
       end
 
     activator_node_codes = if is_list(writes), do: activator_codes, else: []
 
     line_violations =
-      if is_list(writes) and node_type == :HUMAN_TASK do
+      if is_list(writes) and node_type in @entity_write_node_types do
         other_vars =
           for {%Graph.Node{id: other_id}, other_writes} <- declared,
               other_id != node_id,

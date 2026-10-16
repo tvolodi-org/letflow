@@ -8,11 +8,20 @@ SERVICE_TASK node, and whoever reads the DLQ.
 
 ## Status
 
-The composition is merged but DARK: the definition activation fence
-(`Letflow.Definitions.check_entity_writes/3`) still refuses `entity_writes` on a SERVICE_TASK
-node (C1 lifts it later). Until then only a definition row that carried the attribute from BEFORE
-PR B1 (when it was silently inert) can reach this behaviour; the C2 merge gate counted those rows
-and the result was required to be zero.
+LIVE since PR C1 (GH #2587). The definition activation fence
+(`Letflow.Definitions.check_entity_writes/3`) now accepts `entity_writes` on a SERVICE_TASK node on
+all three activation paths (activate, version rollback, promotion apply), for both the HTTP route
+and the script-bound route (`script_key`). The same activation codes as for a HUMAN_TASK node
+apply, reported at the SERVICE node's id and the declared line index (a 422 `entity_writes_invalid`
+body). A node type other than HUMAN_TASK and SERVICE_TASK still gets
+`entity_writes_node_type_not_supported`, and `module_writes` on a SERVICE_TASK node is still
+refused at activation (`module_writes_node_type_not_supported`; a service caller of module write
+handlers is a later requirement). The activating principal must hold `EntitiesRecordsWrite`; its
+authority is recorded in `process_definitions.activated_by` and is what authorises the write at
+run time (the platform actor is only the event actor).
+
+Until C1 only a definition row that carried the attribute from BEFORE PR B1 (when it was silently
+inert) could reach this behaviour; the C2 merge gate counted those rows and the result was zero.
 
 ## What is new
 

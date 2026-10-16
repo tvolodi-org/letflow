@@ -286,10 +286,11 @@ defmodule Letflow.EntityWritesFixture do
 
   # --- SERVICE_TASK (GH #2587 PR C2) ---------------------------------------------------------
   #
-  # The activation fence refuses `entity_writes` on a SERVICE_TASK node until C1, so these cases
-  # build the ACTIVE row the way a row from BEFORE B1 exists: `legacy_activate!/4` inserts the
-  # graph without activation validation and records the activator (the same document the real
-  # activation records), and the instance is started through the real `Engine.create/2`.
+  # These cases build the ACTIVE row without activation validation (so they can hand-build the
+  # recorded activator and tamper with it): `legacy_activate!/4` inserts the graph and records the
+  # activator (the same document the real activation records), and the instance is started
+  # through the real `Engine.create/2`. `activate!/3` + `start_service_instance!/2` run the real
+  # activation path (the C1 fence accepts SERVICE_TASK).
 
   @doc "START -> SERVICE_TASK `svc` (HTTP, declaring `lines`) -> END."
   @spec service_graph([map()]) :: map()
@@ -388,6 +389,15 @@ defmodule Letflow.EntityWritesFixture do
         {"stock_note", "create"}
       ])
 
+    start_service_instance!(base, definition)
+  end
+
+  @doc """
+  Starts an instance of the ACTIVE `definition` (for example one activated through the real
+  `Definitions.activate/2`, `activate!/3`) and returns the case map with its PENDING dispatch row.
+  """
+  @spec start_service_instance!(map(), struct()) :: map()
+  def start_service_instance!(base, definition) do
     {:ok, created} =
       Engine.create(
         %{
