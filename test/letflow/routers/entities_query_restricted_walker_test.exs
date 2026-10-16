@@ -840,11 +840,25 @@ defmodule Letflow.Routers.EntitiesQueryRestrictedWalkerTest do
 
       plain = export(ctx, "ghost_q", %{})
       with_join = export(ctx, "ghost_q", %{"join" => @m2m_join})
-      with_direct_join = export(ctx, "ghost_q", %{"join" => @m2m_join, "filters" => @filter_true})
+      with_filter = export(ctx, "ghost_q", %{"join" => @m2m_join, "filters" => @filter_true})
 
       assert plain.status == 404
       assert whole(with_join) == whole(plain)
-      assert whole(with_direct_join) == whole(plain)
+      assert whole(with_filter) == whole(plain)
+    end
+  end
+
+  describe "B1 export, DIRECT join" do
+    test "nonexistent primary + a real direct join answers exactly like the nonexistent primary without a join (404)" do
+      ctx = fk_ctx!("w-b1-exp-direct", ["TENANT_ADMIN"], [])
+
+      plain = export(ctx, "ghost_q", %{})
+      assert plain.status == 404
+
+      assert whole(export(ctx, "ghost_q", %{"join" => @fk_join})) == whole(plain)
+
+      assert whole(export(ctx, "ghost_q", %{"join" => @fk_join, "filters" => @filter_true})) ==
+               whole(plain)
     end
   end
 
@@ -979,6 +993,19 @@ defmodule Letflow.Routers.EntitiesQueryRestrictedWalkerTest do
   defp audit_count(ctx),
     do: Repo.aggregate(from(e in "audit_entries", select: e.id), :count, prefix: ctx.schema_name)
 
+  def record_query(_event, _measurements, %{query: sql}, %{pid: pid}) do
+    if self() == pid and is_binary(sql), do: send(pid, {:recorded_query, sql})
+    :ok
+  end
+
+  defp drain_queries(acc) do
+    receive do
+      {:recorded_query, sql} -> drain_queries([sql | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
   describe "unredacted-export exemption" do
     test "T-17 unredacted:true + restricted filter and sort -> 200 and ONE audit entry with names only" do
       ctx = exam_ctx!("w-ex", ["TENANT_ADMIN"], false)
@@ -1038,6 +1065,41 @@ defmodule Letflow.Routers.EntitiesQueryRestrictedWalkerTest do
       refute Jason.encode!(entry.after_state) =~ "alpha"
     end
 
+    test "audit insert happens BEFORE the records query (audit-before-pagination ordering)" do
+      ctx = exam_ctx!("w-ex-order", ["TENANT_ADMIN"], false)
+      id = "gh2697-order-#{System.unique_integer([:positive])}"
+      parent = self()
+
+      :telemetry.attach(
+        id,
+        [:letflow, :repo, :query],
+        &__MODULE__.record_query/4,
+        %{pid: parent}
+      )
+
+      try do
+        conn = export(ctx, "answer_option", %{"unredacted" => true, "filters" => @filter_true})
+        assert conn.status == 200
+      after
+        :telemetry.detach(id)
+      end
+
+      sqls = drain_queries([])
+
+      audit_idx =
+        Enum.find_index(sqls, &(&1 =~ "INSERT INTO" and &1 =~ ~s("audit_entries")))
+
+      records_idx =
+        Enum.find_index(
+          sqls,
+          &(String.starts_with?(&1, "SELECT") and &1 =~ "entity_record_latest")
+        )
+
+      assert is_integer(audit_idx), "no audit insert observed"
+      assert is_integer(records_idx), "no records query observed"
+      assert audit_idx < records_idx
+    end
+
     test "T-33 a non-exempt export writes NO audit entry (default mode and unredacted with unrestricted fields)" do
       ctx = exam_ctx!("w-noaudit", ["TENANT_ADMIN"], false)
       before = audit_count(ctx)
@@ -1081,7 +1143,7 @@ defmodule Letflow.Routers.EntitiesQueryRestrictedWalkerTest do
       assert audit_rows(ctx) == []
     end
 
-    test "T-18c a caller without the unredacted permission sending unredacted:true gets 403, no records, no audit" do
+    test "T-18c a caller failing the route-level :EntitiesRecordsExport gate (TASK_WORKER) sending unredacted:true gets 403, no records, no audit (asserts the route gate, not the unredacted-permission check)" do
       ctx = exam_ctx!("w-ex-c", ["TASK_WORKER"], false)
       conn = export(ctx, "answer_option", %{"unredacted" => true, "filters" => @filter_true})
       assert conn.status == 403
