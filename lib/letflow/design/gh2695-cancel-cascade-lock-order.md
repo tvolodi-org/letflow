@@ -60,10 +60,10 @@ token reconcile, task activation, timer/dispatch arms, `task_complete` (:7186), 
 
 Dispatch row -> `P_c` (before this function) -> hop-chain/task/timer/dispatch inserts ->
 child creation -> C2 `maybe_service_entity_writes` (E ascending, D-C.11) ->
-`S_c` (service/script completed event) -> `P_c` update (:5008-5029) -> cascade
-(`append_service_sub_process_cascade`, :5042, step 1.2) -> `A`
-(`append_service_entity_write_audits`, :5063, "audit chain last"). The code comment at
-:5030-5041 already records that this order is "not claimed deadlock-free".
+`S_c` (service/script completed event) -> `P_c` update (`:projection`, ~:5035-5043) -> cascade
+(`append_service_sub_process_cascade`, call ~:5057, defs ~:5107-5117, step 1.2) -> `A`
+(`append_service_entity_write_audits`, ~:5063, "audit chain last"). The code comment at
+~:5044-5056 already records that this order is "not claimed deadlock-free".
 
 ### 1.5 Other parent/child-touching lockers
 
@@ -103,8 +103,9 @@ Inversion pairs found on main:
   `A` and waiting for `P_p`/`T_p`/`S_p` deadlocks against a cancel holding them and waiting for
   `A`, even after I1 is fixed. The service path takes `A` after the cascade, so it is
   consistent with cancel.
-* Same family, out of scope here (open question Q1): `E` vs `P_p` (a child service apply holds
-  `E` then wants `P_p`; a parent completion holds `P_p` then wants `E`), and `A` vs `S_p`
+* Same family, out of scope here (open question Q1): `E` vs `P_p` (a child completion, HUMAN with
+  `entity_writes` or service, holds `E` then wants `P_p`; a parent completion holds `P_p` then
+  wants `E`; pre-existing), and `A` vs `S_p`
   between a HUMAN completer and a service-apply sibling of the same parent.
 
 ### 2.1 Choice: the cascade takes `P_p` then `T_p` (cancel is unchanged)
@@ -134,8 +135,12 @@ per-line audit steps; rejected as larger and out of scope. Instead, add a preloc
 HUMAN tail, **before** the first audit step (`A`):
 
 * When the transition result's final status is `:completed`, run `SubProcess.lock_waiting_parent_chain`
-  (new, below) as the FIRST tail step, right after the existing entity-type steps (E), so the
-  HUMAN order becomes `... E -> P_p -> T_p [-> P_g -> T_g ...] -> A -> S_c ...`.
+  (new, below) as the FIRST `Multi.run` of the advanced-clause tail in `build_complete_task_tail_multi`
+  (key `:lock_ancestors`), BEFORE `:cancel_escalation_timers` and `:cancel_reminder_timers`
+  (`engine.ex` ~:7088-7113), so no tail write precedes it. `P_c` (complete_task step 2) and `E`
+  (steps run before the tail) are already held; the HUMAN order becomes
+  `tasks_c -> P_c -> E -> P_p -> T_p [-> P_g -> T_g ...] -> (timers_c ... A) -> S_c ...`. A `[]`
+  result (not a child, or no waiting parent) is a no-op. A non-`:completed` final status adds no step.
 * Service path: no prelock step needed (`A` is already after the cascade); the cascade's own
   lookup calls the same function.
 
@@ -147,10 +152,13 @@ New in `Letflow.Engine.SubProcess` (`@doc false`, called from `engine.ex`):
 lock_waiting_parent(repo :: Ecto.Repo.t(), child_instance_id :: Ecto.UUID.t(), prefix :: String.t() | nil)
   :: {:ok, TokenRecord.t() | nil}
 ```
-Replaces the body of `find_waiting_parent_token/3` (keep the name and spec so the 2 callers
-`engine.ex:7288`, `sub_process.ex:1160` and any test keep working). Semantics, in order:
+`find_waiting_parent_token/3` stays, with its name and `@spec`, as a thin delegate to
+`lock_waiting_parent/3` (callers `engine.ex` ~:7288 and `sub_process.ex` ~:1169, and every existing
+test, keep compiling unchanged). Semantics of `lock_waiting_parent/3`, in order:
 (1) unlocked read of the `:waiting` token naming `child_instance_id` to learn `parent_instance_id`
-(none -> `{:ok, nil}`); (2) `P_parent` `FOR UPDATE`; (3) re-select the token `FOR UPDATE` with
+(none -> `{:ok, nil}`); (2) `P_parent` `FOR UPDATE`; if that projection row is MISSING, skip the
+projection lock and go on to (3) (the existing `:parent_projection_not_found` path in
+`load_parent_context` stays the one that reports it, unchanged); (3) re-select the token `FOR UPDATE` with
 the same predicate (`status = :waiting and waiting_child_instance_id = child`), the re-check
 decides the result: a cancelled/advanced token returns `{:ok, nil}`. `P_parent` stays locked
 when (3) yields nil (harmless, released at commit). Fixed order: P then T; one token per child
@@ -168,8 +176,14 @@ the later cascade lookup (same transaction re-locks held rows without waiting).
 Engine change: `build_complete_task_tail_multi` (advanced clause) gains the prelock `Multi.run`
 step (key `:lock_ancestors`), conditional on the final status being `:completed`;
 `append_sub_process_completion_cascade_multi` and `maybe_cascade_to_grandparent` are otherwise
-unchanged (they already call `find_waiting_parent_token/3`). Error shapes unchanged. No schema,
+unchanged (they already call `find_waiting_parent_token/3`). The cascade's ExecutionError branch (`engine.ex` ~:7310, `sub_process.ex` ~:1186-1193), which
+calls `ExecutionError.append_multi` without `locked_projection`, becomes consistent for free: `P_p`
+is already held by then. Error shapes unchanged. No schema,
 migration, or API change. No new `{:error, _}`.
+
+Timeout note: a completion with lines issues `SET LOCAL lock_timeout = '2s'` first, which bounds the
+new early `P_p` wait too; a timeout there is classified as contention exactly as the later
+cascade waits already are (no new error shape).
 
 Behaviour that must not change: result values of `complete_task`, `cancel_instance`,
 `apply_*_result`; event/audit contents and counts; a cancelled parent is never resumed
@@ -192,15 +206,22 @@ Technique (no sleep-coupled timing; same family as #2686's fix and the C2 cascad
 `service_task_entity_writes_lock_order_test.exs:195-260,368-384`): a **barrier row** held by a
 third connection `Z` (`BEGIN; SELECT ... FOR UPDATE` on one `instance_sequences` row, kept open
 by a process that waits for a `:release` message), two worker Tasks on their own connections
-(sandbox mode as in that file's setup), and a bounded poll of `pg_locks WHERE NOT granted`
-(helper `wait_for_blocked(n)` of that file, but 10 ms steps, cap 500 iterations, failing with a
-named assertion rather than looping) to learn that a worker is parked. Order is therefore forced
+(sandbox mode as in that file's setup), and a bounded poll to learn that a worker is parked.
+The helper counts DISTINCT blocked backends, not raw lock rows: join `pg_locks` (`NOT granted`) to
+`pg_stat_activity` with `wait_event_type = 'Lock'`, restricted to the backend pids of the test's own
+worker connections (each worker reports `pg_backend_pid()` before it starts), and waits for
+`count(DISTINCT pid) >= n`; 10 ms steps, cap 500 iterations, failing with a named assertion. Order is therefore forced
 by lock state, not by a delay. Fixtures use nodes WITHOUT `entity_writes` so no `SET LOCAL
-lock_timeout` is issued and the waits are not bounded by the 2 s timeout. Every Task is
-`Task.await`ed with a 15 s bound; `Z` is always released in `on_exit`.
+lock_timeout` is issued and the waits are not bounded by the 2 s timeout. The module is `async: false`
+(real concurrent connections, manual/shared checkout as in the C2 file's setup, fixtures created
+per test with unique names). Every Task is `Task.await`ed with a 15 s bound; `Z` is always released in `on_exit`.
 
-Parent graph: `start -> sp(SUB_PROCESS) -> end`; child: HUMAN node (path H) or a script/HTTP
-SERVICE node (path S). `D` = the child's completion (`complete_task/3` or the apply entry),
+Parent graph: `start -> sp(SUB_PROCESS) -> end`; child: HUMAN node (path H) or an HTTP
+SERVICE node (path S). The `Fx` fixture helpers (`Fx.activate!`, `Fx.service_graph`,
+`Fx.legacy_activate!`, ...) are private to `service_task_entity_writes_lock_order_test.exs`: extract
+them to `test/support/` (preferred, keeps that file's tests unchanged) or duplicate them. `D` = the child's completion (`complete_task/3` for path H; for path S the HTTP service apply
+`advance_after_service_task_outcome/4` ONLY; script is excluded, a script task in a child is
+unreachable until #2694),
 `C` = `cancel_instance/3` on the parent.
 
 | # | Path | Barrier held by Z | Start order | Forced interleaving | Pre-fix on main |
@@ -235,11 +256,22 @@ scheduler fire tests, `mix format --check-formatted` (full repo, read the rc),
 
 ## 6. Moduledoc and comment updates (AC 1)
 
-* `engine.ex` moduledoc "Lock ordering" paragraph (~:327-337): append the canonical table of 2
+* `engine.ex` moduledoc "Lock ordering" paragraph (`Lock ordering` paragraph ~:359-372; GH #2587/C2/#2648 paragraphs ~:385-430): append the canonical table of 2
   (rows 1-8 and the child-before-parent rule) and the I1/I2 statement; replace "same-instance
   ... not a cross-instance one" with the cross-instance parent-side rule.
+* Moduledoc ~:385 ("a sub-process child's completion cascade takes the parent token and projection
+  after its entity-type locks") becomes "the parent projection, then the parent token, after its
+  entity-type locks".
+* Rewrite the GH #2648 paragraph (~:417-430): drop "NOT deadlock-free ... tracked as GH #2695";
+  state the order `dispatch/CAS row, child projection, E, parent projection, parent token (and
+  ancestors, same pair order), audit chain row`; state that the cancel/cascade and
+  timer/cascade inversions are fixed, and what remains: the `E` vs `P_p` inversion (Q1; a
+  deadlock there is classified as contention and re-applied for HTTP and planned script applies).
+  Reword the unplanned-script sentence to say only that such an apply bypasses the retry driver, a
+  deadlock lands `script_rejected`/`apply_failed`, accepted because a script task in a child is
+  not reachable until GH #2694; no reference to #2695.
 * Delete the "Not claimed deadlock-free ... tracked as GH #2695" sentence in the comment at
-  `engine.ex:5030-5041`; replace it with a pointer to the table.
+  `engine.ex` ~:5044-5056; replace it with a pointer to the table.
 * `sub_process.ex`: `find_waiting_parent_token/3` `@doc` states "P_parent, then the token".
 * Cancel's own code comments at :8412-8440 gain one line: "parent-side order: P then T, same as
   the cascade".
@@ -247,7 +279,8 @@ scheduler fire tests, `mix format --check-formatted` (full repo, read the rc),
 ## 7. Risks and open questions
 
 * **Q1 (out of scope, file a follow-up).** Two more inversions of the same family remain: `E`
-  vs `P_p` (child service apply holds `E` then cascades into `P_p`; a parent completion with
+  vs `P_p` (a child completion, HUMAN with `entity_writes` or service, holds `E` then cascades
+  into `P_p`; a parent completion with
   entity_writes holds `P_p` then wants `E`), and `A` vs `S_p` between a HUMAN completer and a
   service-apply sibling of one parent (HUMAN: `A` then `S_p`; service: `S_p` then `A`).
   Deciding "A last everywhere" would change decision 0054 D3 rules 5/6; needs REVIEWER and
