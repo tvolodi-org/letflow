@@ -358,10 +358,9 @@ defmodule Letflow.Engine do
 
   Lock ordering: `complete_task/3` always locks `tasks` before
   `instance_projections`. `cancel_instance/3` always locks `tasks` before
-  `instance_projections` before `tokens`. Both orderings are
-  same-instance-scoped (every lock in a given call carries the same
-  `instance_id`), so this is a same-instance deadlock-avoidance discipline,
-  not a cross-instance one. A completion whose node declares `entity_writes`
+  `instance_projections` before `tokens`. Within one instance these are
+  same-instance deadlock-avoidance disciplines; across instances (GH #2695) the
+  parent side of a sub-process relationship follows one canonical order, below. A completion whose node declares `entity_writes`
   extends this with the cross-instance order of decision 0054 D3, after the two
   locks above: (4) per line, in `(entity_type, declared index)` order, that
   type's `instance_sequences` row and synthetic projection row (no record row is
@@ -383,7 +382,29 @@ defmodule Letflow.Engine do
   handler never writes is locked too (accepted: locks held slightly longer). A handler receives no
   `repo`, so it can take no other lock.
 
-  A sub-process child's completion cascade takes the parent token and projection
+  Canonical order, per instance X (GH #2695); a path takes a subsequence of it:
+  (1) `timers`/dispatch rows of X (cancel, `Scheduler.fire_timer`, service/script apply: before the
+  projection); (2) `tasks` of X; (3) X's projection (always before X's tokens); (4) X's live or
+  waiting `tokens`; (5) entity-type rows, ascending (decision 0054 D3; cross-instance); (6) X's
+  `instance_sequences` row (`EventStore.append/2`); (7) X's projection UPDATE; (8) the audit chain row.
+  Cancel and the service/script apply take the audit chain row last (8); a HUMAN completion takes it
+  BEFORE (6) (see I2 below). Across instances a child's rows are taken strictly before its parent's, the
+  parent's before the grandparent's, and cancel never goes child-ward. On the parent side every
+  writer locks the parent projection first, then the waiting token, then the sequence row, then the
+  audit chain row: `cancel_instance/3`, `complete_task/3`, `Scheduler.fire_timer` and
+  `ExecutionError` already did, and since GH #2695 the cascade does too
+  (`SubProcess.lock_waiting_parent/3`: parent projection, then the token re-selected `FOR UPDATE`).
+  I1 (fixed): the cascade used to take the token then the projection, the reverse of the above.
+  I2 (fixed): a HUMAN child completion took the audit chain row before the cascade's parent rows,
+  while cancel takes it last; the HUMAN tail now locks the ancestor group (`:lock_ancestors`, the
+  first tail step, only when the child's final status is `:completed`) before any tail write.
+  Remaining inversions, not fixed here (follow-ups): Q1, an entity-type row versus the parent
+  projection (a child completion holds the entity-type rows then wants the parent projection; a
+  parent completion with `entity_writes` holds its projection then wants them); the audit chain row
+  versus the sequence row between a HUMAN completer and a service apply of sibling children of one
+  parent; and cancel's open-tasks snapshot is taken before the projection lock.
+
+  A sub-process child's completion cascade takes the parent projection, then the parent token,
   after its entity-type locks; a deadlock there is reported as contention. The
   cascade outcome is stated only for a completion WITH a plan (a completion
   without lines keeps today's locks and today's `transaction_failed`): the
@@ -413,16 +434,16 @@ defmodule Letflow.Engine do
   HUMAN_TASK tail uses), in the SAME transaction, so a failure rolls the apply back. Lock order:
   dispatch row (or script CAS row), child projection, entity-type locks, THEN the parent token
   and projection (and further ancestors), THEN the audit chain row: child to parent, the order
-  the HUMAN path already has. This is NOT deadlock-free: `cancel_instance/3` locks a parent's
-  projection before its tokens, the reverse of the cascade's token-then-projection (an AB-BA
-  that predates this change on the HUMAN path and is now also reachable from a service apply;
-  tracked as GH #2695, not fixed here). A deadlock or lock timeout is classified as contention
-  and re-applied (bounded) for HTTP applies (planned and unplanned) and for PLANNED script
-  applies. An UNPLANNED script apply goes straight to `apply_script_task_result_once/4`,
-  bypassing that driver, and its blanket rescue turns a deadlock into `:raised`: such an apply
-  that deadlocks in the cascade lands a terminal `script_rejected`/`apply_failed`. Accepted for
-  now (a script task in a sub-process child is not reachable end to end until GH #2694 is
-  fixed); follow-up folded into GH #2695 / #2694.
+  the HUMAN path already has. Since GH #2695 the full order is: dispatch/CAS row, child projection,
+  entity-type locks, parent projection, parent token (and ancestors, the same pair order), audit
+  chain row. The cancel-versus-cascade and timer-versus-cascade inversions are fixed. What remains
+  is the entity-type versus parent-projection inversion (Q1, above); a deadlock there is
+  classified as contention and re-applied (bounded) for HTTP applies (planned and unplanned) and
+  for PLANNED script applies. An UNPLANNED script apply goes straight to
+  `apply_script_task_result_once/4`, bypassing that driver, and its blanket rescue turns a
+  deadlock into `:raised`: such an apply that deadlocks in the cascade lands a terminal
+  `script_rejected`/`apply_failed`. Accepted for now (a script task in a sub-process child is not
+  reachable end to end until GH #2694 is fixed).
 
   REQ-045 resolved this engine to row-based state (`create/2` is a plain
   function under `Ecto.Multi`, not a supervised `:gen_statem`/
@@ -5045,11 +5066,10 @@ defmodule Letflow.Engine do
               # cascade the parent's completion steps into this SAME transaction (the helper the
               # HUMAN_TASK tail uses; a failure rolls the whole apply back). Lock order: this
               # apply has already locked the dispatch row and the child projection (and any
-              # entity-type locks of its writes); the cascade then locks the parent token and
-              # the parent projection, so child -> parent, the HUMAN path's order. Not claimed
-              # deadlock-free: cancel_instance/3 locks a parent's projection BEFORE its tokens,
-              # the reverse of the cascade's token-then-projection (pre-existing on the HUMAN
-              # path, now reachable from here; tracked as GH #2695). A 40P01 on this apply is
+              # entity-type locks of its writes); the cascade then locks the parent projection,
+              # then the parent token (GH #2695; same parent-side order as cancel_instance/3),
+              # so child -> parent. See the Engine moduledoc's canonical lock-order table;
+              # the entity-type vs parent-projection inversion (Q1) remains. A 40P01 on this apply is
               # classified as contention and re-applied for HTTP (planned or not) and planned
               # script applies; an UNPLANNED script apply that deadlocks here lands a terminal
               # script_rejected/apply_failed (see the Engine moduledoc). A no-op for
@@ -7084,7 +7104,20 @@ defmodule Letflow.Engine do
     # GH #2359: runs BEFORE the timer-arm steps below (status-guarded only on
     # "pending"), so a same-node re-entry's freshly armed escalation timer is
     # not cancelled along with the completed task's own.
+    #
+    # GH #2695: a completion whose final status is :completed may cascade into
+    # a waiting parent, so the whole ancestor group (P_p, T_p, P_g, T_g, ...)
+    # is locked FIRST -- before any tail write, and so before the audit chain
+    # row (A) taken below -- matching cancel_instance's parent-side order. A
+    # child that is no sub-process child (or has no waiting parent) is a no-op.
     Multi.new()
+    |> Multi.run(:lock_ancestors, fn repo, _changes ->
+      if final_instance_state.status == :completed do
+        SubProcess.lock_waiting_parent_chain(repo, normalized_changes.task.instance_id, prefix)
+      else
+        {:ok, []}
+      end
+    end)
     |> Multi.run(:cancel_escalation_timers, fn repo, _changes ->
       # ISS-0925: a normally-completed HUMAN_TASK must not leave its escalation
       # timer pending (it would fire later against whatever node the token is on).
@@ -8449,6 +8482,7 @@ defmodule Letflow.Engine do
         ScriptTaskDispatcher.cancel_open_dispatches(repo, instance_id, cancelled_at, prefix)
       end)
       |> Multi.run(:instance_projection, fn repo, _changes ->
+        # GH #2695: parent-side order: P then T, same as the cascade.
         fetch_and_lock_instance_projection_for_cancel(repo, instance_id, prefix)
       end)
       |> Multi.run(:eligibility, fn _repo, %{instance_projection: projection} ->

@@ -86,9 +86,10 @@ reading top to bottom; a path takes a subsequence of it:
  3 P_X                            (every path; ALWAYS before T_X)
  4 T_X (waiting/live token rows)  (cancel, cascade, reconcile)
  5 E  entity-type rows, ascending (0054 D3; cross-instance)
- 6 A  audit chain row             (see 2.2)
- 7 S_X                            (EventStore.append)
- 8 P_X UPDATE
+ 6 S_X                            (EventStore.append)
+ 7 P_X UPDATE
+ 8 A  audit chain row             (cancel and the service/script apply: last; a HUMAN
+                                  completion takes A BEFORE 6, see I2 and 2.2)
  Across instances: child rows (c) strictly before parent rows (p), p before g.
 ```
 
@@ -217,9 +218,10 @@ lock_timeout` is issued and the waits are not bounded by the 2 s timeout. The mo
 per test with unique names). Every Task is `Task.await`ed with a 15 s bound; `Z` is always released in `on_exit`.
 
 Parent graph: `start -> sp(SUB_PROCESS) -> end`; child: HUMAN node (path H) or an HTTP
-SERVICE node (path S). The `Fx` fixture helpers (`Fx.activate!`, `Fx.service_graph`,
-`Fx.legacy_activate!`, ...) are private to `service_task_entity_writes_lock_order_test.exs`: extract
-them to `test/support/` (preferred, keeps that file's tests unchanged) or duplicate them. `D` = the child's completion (`complete_task/3` for path H; for path S the HTTP service apply
+SERVICE node (path S). The `Fx` fixture helpers (`Fx.activate!`, `Fx.service_graph`, ...) are
+`Letflow.EntityWritesFixture` in `test/support/` already; reuse them. A child HTTP service node
+must come AFTER a HUMAN node (a child created by a SUB_PROCESS node arms no dispatch row for a
+SERVICE_TASK directly after START; completing the human node, before the race, arms it). `D` = the child's completion (`complete_task/3` for path H; for path S the HTTP service apply
 `advance_after_service_task_outcome/4` ONLY; script is excluded, a script task in a child is
 unreachable until #2694),
 `C` = `cancel_instance/3` on the parent.
@@ -228,7 +230,7 @@ unreachable until #2694),
 |---|---|---|---|---|---|
 | T1 | H | `S_c` (child's sequence row) | D, wait 1 blocked, C, wait 2 blocked, release | D parked after `A` (pre-fix) / after `P_p,T_p` (post-fix); C runs up to its `A` (pre-fix) / blocks at `P_p` (post-fix) | red: 40P01 (I2 + I1) |
 | T2 | H | `S_p` (parent sequence row) | C, wait 1 blocked, D, wait 2 blocked, release | C holds `P_p,T_p` parked at `S_p`; D arrives | red: 40P01 (D holds `A`, wants `T_p`) |
-| T3 | S | `S_p` | D, wait 1, C, wait 2, release | D holds `T_p` (pre) / `P_p,T_p` (post) parked at `S_p`; C parks | red: 40P01 (I1) |
+| T3 | S | `S_p` | D, wait 1, C, wait 2, release | D holds `T_p` (pre) / `P_p,T_p` (post) parked at `S_p`; C parks | ELIXIR-DEV finding: NOT red on main, see below |
 | T4 | S | `S_p` | C, wait 1, D, wait 2, release | cancel-first, service cascade arrives | green pre-fix is acceptable; must stay green |
 
 T1 and T3 are "cascade first" (assert the first outcome of section 4's second bullet); T2 and
@@ -237,6 +239,18 @@ the HUMAN path, T3/T4 on the service path. Required red/green evidence: ELIXIR-D
 tests first, runs T1-T3 on bef9fe69 and quotes the 40P01 (or the `{:transaction_failed, _}`
 wrapper), then quotes green after the change. If a pre-fix run does not go red, the barrier is
 wrong: stop and fix the harness, do not weaken the assertion.
+
+Build finding (ELIXIR-DEV, run on bef9fe69): T1 and T2 are red with `40P01`; T3 and T4 are green
+pre-fix. T3 is not a harness fault: while the service apply is parked, the parent projection row's
+`xmax` is already the apply's transaction id, i.e. the apply holds a lock on the parent projection
+before its first parent-side write (inferred cause: the child's own projection UPDATE, which
+precedes the cascade, key-shares the parent projection through the child's `parent_instance_id`
+foreign key). So on the service path the pre-fix token-then-projection window (I1) cannot be
+opened by a cancel, and only I2 (HUMAN, audit chain row) is observable as a deadlock. The new
+`lock_waiting_parent/3` order is therefore a contract made explicit rather than a behaviour change
+for the child-completion callers. Compensating deterministic evidence, red on main for both paths:
+the `statement order of an uncontended child completion` tests (parent projection `FOR UPDATE`,
+then waiting-token `FOR UPDATE`, then, HUMAN, the audit chain row).
 
 Per-test assertions: both Tasks return (no exit/timeout); neither result contains a
 Postgrex `40P01` or `:deadlock_detected`; the end-state of section 4; the child is `:completed`
