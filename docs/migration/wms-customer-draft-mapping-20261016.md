@@ -92,3 +92,7 @@ The five Kazakhmys questions in decision 0056 are unrelated to this list and rem
 - Replace "GH #2532 open" with closed; REQ-486 depends on GH #2533 and #2535 (open).
 - Add a `CUSTOMER DRAFT` traceability line to REQ-475..480, 488..492 with the file ids they cover, and the conflicts C1 to C6 as open questions in REQ-473's decision block, REQ-480, REQ-488, REQ-489 and REQ-490.
 - No new REQ is drafted for G1 to G10: they are listed here so the user can rank them first.
+
+## 6. Rulings (added 2026-10-16)
+
+The team, not the user, rules on C1-C6 and the order of G1-G10 (delegated; sent to the advisor by the supervisor). The advisor (letflow-ec) ruled on all six; the rulings are recorded in `docs/migration/decisions/0057-wms-customer-draft-reconciliation.md` (Accepted: advisor ruling relayed by the supervisor 2026-10-16). Only the ten questions in section 4 are customer-dependent. One more is added: question 11, **`WMS.docx` and `WMS_English_Translation.md`, which the file cites for its `[S]` tags, are not present in any letflow checkout, so all `[S]` wording is unchecked; please provide the source files.**
