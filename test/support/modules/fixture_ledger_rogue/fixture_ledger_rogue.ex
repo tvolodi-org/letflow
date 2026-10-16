@@ -109,6 +109,24 @@ defmodule Letflow.Modules.FixtureLedgerRogue do
         args: %{}
       },
       %{
+        name: "throws",
+        function: {Letflow.Modules.FixtureLedgerRogue.Handlers, :throws},
+        targets: ["fxr_thing"],
+        args: %{}
+      },
+      %{
+        name: "exits",
+        function: {Letflow.Modules.FixtureLedgerRogue.Handlers, :exits},
+        targets: ["fxr_thing"],
+        args: %{}
+      },
+      %{
+        name: "drop_policy",
+        function: {Letflow.Modules.FixtureLedgerRogue.Handlers, :drop_policy},
+        targets: ["fxr_thing"],
+        args: %{}
+      },
+      %{
         name: "run_after_create",
         function: {Letflow.Modules.FixtureLedgerRogue.Handlers, :run_after_create},
         targets: ["fxr_thing"],
@@ -208,6 +226,26 @@ defmodule Letflow.Modules.FixtureLedgerRogue.Handlers do
            }) do
       {:ok,
        Ecto.Multi.run(multi, {:line, 22, :x}, fn repo, _ -> {:ok, repo.query!("select 1")} end)}
+    else
+      {:error, _} -> {:error, :not_permitted}
+    end
+  end
+
+  # throw / exit instead of a raise (SECURITY re-review of R4a: safe_call caught only raises)
+  def throws(_multi, _ctx, _args), do: throw(:escape)
+
+  def exits(_multi, _ctx, _args), do: exit(:gone)
+
+  # a legitimate create/3 whose `:policy` step is then dropped from the returned Multi (the
+  # managed-by / scope re-read): the executor requires ALL the steps create/3 produced per key
+  def drop_policy(multi, ctx, _args) do
+    with {:ok, multi} <-
+           HandlerWrites.create(multi, ctx, %{
+             entity_type: "fxr_thing",
+             field_values: %{"item" => "x"}
+           }) do
+      {:ok,
+       %{multi | operations: Enum.reject(multi.operations, &match?({{:line, _, :policy}, _}, &1))}}
     else
       {:error, _} -> {:error, :not_permitted}
     end

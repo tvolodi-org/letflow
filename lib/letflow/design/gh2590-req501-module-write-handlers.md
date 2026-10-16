@@ -11,6 +11,37 @@ Design only. Signatures, type shapes, step lists, tables and test briefs; no fun
 
 ## Changelog
 
+### Revision 5 (R4b implementation)
+
+The engine runs handlers on a HUMAN_TASK completion; R3's interim guard is deleted. Where the
+build departs from the text above:
+
+* `authorize_module_writes/2` is implemented in `HandlerWrites` (as 4.6 lists it) as a thin
+  caller of a new shared core, `Definitions.ModuleWrites.line_violations/4` (the per-line half of
+  the activation validator), so activation and run time cannot drift; its detail atoms are mapped
+  from the activation codes. The plan context gains `entity_write_count` so a reported index is
+  the declared one (declarative lines first). `HandlerWrites` also exports `registered_targets/1`
+  (the ascending lock types) beside `prepare_targets/2`; `prepare_targets/2` filters by the
+  CURRENT active row's `managed_by` (F-7) with one read per target.
+* The port gains the REQUIRED callback `authorize_module_writes/2`; the six in-tree port doubles
+  delegate it. `EventStore.Registry.max_schema_version/2` is the one-read v2 check
+  (`event_schema_outdated`, index = the first handler line).
+* Type locks: the declarative types of a node WITH `module_writes` are locked only when they have a
+  synthetic instance (an uninstanced type is not locked, so its own line refuses with the same
+  per-line result as without `module_writes`); node WITHOUT `module_writes`: no lock step, step
+  names byte-identical. The audit step of a handler write is `{:entity_write_audit, line_index,
+  ordinal}` (declarative: unchanged). A failed `{:type_lock, _}` is an internal fault
+  (`{:failed, 0, :type_lock}`), routed through the same engine door as `{:line, _, _}`.
+* `interpret_failure/2` maps a handler-range key back with `StepSource.declared_line_index/1`; the
+  overflow failure `{:line, 20, :build}, :line_malformed` keeps its public index 20.
+* A `module_writes` value that is not absent, `[]` or a list (a hand-edited snapshot) is refused in
+  the plan as `write_not_permitted` (audit detail `line_malformed`), never skipped.
+* Carried R4a security findings: H4 scan gaps (atom-literal receivers, variable receivers,
+  `%Multi{}` literals, Multi field access, `Map.*` on the Multi or context variable, pipe
+  normalisation), `check_built` completeness per key, throw/exit in `safe_call` (a DB or connection
+  error from a build-time read is re-raised to the contention mapping). Test fixtures: the rogue
+  module gains `throws`, `exits`, `drop_policy` and a stamped definition per rogue handler.
+
 ### Revision 4 (R4a implementation)
 
 `HandlerWrites` ships the handler-facing `create/3` plus two PLATFORM-facing functions for R4b:

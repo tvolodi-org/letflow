@@ -1,13 +1,14 @@
 defmodule Letflow.Engine.ModuleWritesGuardTest do
   @moduledoc """
-  GH #2590 / REQ-501 PR R3 (design 6.3, F-3, section 11 row "Interim guard"): a graph with
-  `module_writes` can already ACTIVATE, but nothing executes a handler until R4b, so a
-  completion of a node declaring a non-empty `module_writes` is refused fail-closed, whether
-  or not the node also declares `entity_writes` (a MIXED node HAS a plan, which the existing
-  `entity_writes_not_planned` guard accepts). Nothing is committed and the task stays pending.
+  GH #2590 / REQ-501 PR R4b (design 6.1, 6.3, section 11 rows "Handler runs inside the step Multi"
+  and "Interim guard"): R3's interim guard (`check_module_writes_unsupported/2`, which refused
+  every completion of a node declaring `module_writes`) is DELETED, and these tests flipped with
+  it. A module-only node now WRITES the handler's records; a MIXED node writes the declarative
+  record first and then the handler's; a node without `module_writes` is unchanged.
 
-  A node without `module_writes` is unchanged. R4b deletes this guard together with these
-  refusal assertions.
+  The refusal paths (stamp, hash, event schema, argument failures) are in
+  `module_write_runtime_stamp_test.exs` and `module_write_failure_codes_test.exs`; the
+  deleted-definition fail-closed case in `module_write_deleted_definition_test.exs`.
 
   `async: false`: the module install and tenant provisioning run DDL.
   """
@@ -17,51 +18,40 @@ defmodule Letflow.Engine.ModuleWritesGuardTest do
   alias Letflow.EntityWritesFixture, as: Fx
   alias Letflow.ModuleWritesFixture, as: Mw
 
-  defp written(ctx) do
-    %{
-      records: length(Fx.all_records(ctx.schema)),
-      entity_events: length(Fx.entity_events(ctx.schema)),
-      step_keys: Fx.step_idempotency_count(ctx.schema),
-      line_audit: length(Fx.audit_rows(ctx.schema, "entity_write.process_step")),
-      applied:
-        length(Fx.instance_events(ctx.schema, ctx.instance_id, "TASK_ENTITY_WRITES_APPLIED")),
-      instance_events: Fx.all_instance_event_count(ctx.schema, ctx.instance_id)
-    }
+  test "a module-only node: the completion writes the handler's two records and completes" do
+    ctx = Mw.case!("gh2590-r4b-guard-m", :module)
+
+    assert {:ok, result} = Fx.complete(ctx, %{"label" => "L1"})
+    assert result.instance_status == :completed
+
+    assert [%{field_values: %{"item" => "L1", "quantity" => 1}}] =
+             Fx.records(ctx.schema, "fxl_ledger")
+
+    assert [%{field_values: %{"item" => "L1", "quantity" => 1}}] =
+             Fx.records(ctx.schema, "fxl_balance")
+
+    assert Fx.task!(ctx.schema, ctx.task.id).status == :completed
+    assert Fx.projection!(ctx.schema, ctx.instance_id).status == :completed
   end
 
-  defp assert_refused_and_nothing_written(ctx) do
-    before = written(ctx)
+  test "a MIXED node: the declarative record is written, then the handler's records" do
+    ctx = Mw.case!("gh2590-r4b-guard-x", :mixed)
 
-    assert {:error, {:entity_write_failed, 0, :module_writes_not_enabled}} =
-             Fx.complete(ctx, %{"label" => "L1"})
+    assert {:ok, _result} = Fx.complete(ctx, %{"label" => "L1"})
 
-    assert written(ctx) == before
-    assert Fx.task!(ctx.schema, ctx.task.id).status == :pending
-    assert Fx.projection!(ctx.schema, ctx.instance_id).status == :active
-  end
+    assert [_declared] = Fx.records(ctx.schema, "stock_move")
+    assert [_ledger] = Fx.records(ctx.schema, "fxl_ledger")
+    assert [_balance] = Fx.records(ctx.schema, "fxl_balance")
 
-  test "a module-only node: the completion is refused, nothing committed" do
-    ctx = Mw.case!("gh2590-r3-guard-m", :module)
-    assert_refused_and_nothing_written(ctx)
-  end
-
-  test "a MIXED node: the declarative record is NOT written either" do
-    ctx = Mw.case!("gh2590-r3-guard-x", :mixed)
-
-    assert_refused_and_nothing_written(ctx)
-    assert Fx.records(ctx.schema, "stock_move") == []
-    assert Fx.entity_events(ctx.schema) == []
-  end
-
-  test "the refusal is repeatable: a second attempt is refused the same way" do
-    ctx = Mw.case!("gh2590-r3-guard-r", :module)
-    assert_refused_and_nothing_written(ctx)
-    assert_refused_and_nothing_written(ctx)
+    # declarative line first (index 0), then the handler call (declared index 1)
+    assert [stock, ledger, balance] = Fx.entity_events(ctx.schema)
+    assert stock.global_seq < ledger.global_seq
+    assert ledger.global_seq < balance.global_seq
   end
 
   test "a node without module_writes (absent, nil, []) completes exactly as before" do
     for attrs <- [%{}, %{"module_writes" => nil}, %{"module_writes" => []}] do
-      base = Fx.tenant_case!("gh2590-r3-guard-n")
+      base = Fx.tenant_case!("gh2590-r4b-guard-n")
 
       graph = %{
         "nodes" => [
@@ -89,9 +79,88 @@ defmodule Letflow.Engine.ModuleWritesGuardTest do
   end
 
   test "a node with only declarative entity_writes still writes its records" do
-    base = Fx.case!("gh2590-r3-guard-e", [Fx.line("stock_move", %{"label" => %{"const" => "v"}})])
+    base =
+      Fx.case!("gh2590-r4b-guard-e", [Fx.line("stock_move", %{"label" => %{"const" => "v"}})])
+
     result = Fx.complete_with_lines!(base, %{})
     assert result.instance_status == :completed
     assert [_one] = Fx.records(base.schema, "stock_move")
+  end
+
+  test "a malformed module_writes value in the pinned snapshot is refused, nothing committed" do
+    ctx = Mw.case!("gh2590-r4b-guard-b", :module)
+
+    Mw.tamper_snapshot!(ctx, fn graph ->
+      update_in(graph, ["nodes"], fn nodes ->
+        Enum.map(nodes, fn
+          %{"id" => "ht"} = node -> put_in(node, ["attributes", "module_writes"], "not-a-list")
+          node -> node
+        end)
+      end)
+    end)
+
+    assert {:error, {:entity_write_refused, 0, :write_not_permitted}} =
+             Fx.complete(ctx, %{"label" => "L1"})
+
+    assert Fx.all_records(ctx.schema) == []
+    assert Fx.task!(ctx.schema, ctx.task.id).status == :pending
+  end
+
+  test "a malformed entity_writes next to a valid module_writes is refused (SECURITY S1)" do
+    ctx = Mw.case!("gh2590-r4b-guard-me", :mixed)
+
+    Mw.tamper_snapshot!(ctx, fn graph ->
+      update_in(graph, ["nodes"], fn nodes ->
+        Enum.map(nodes, fn
+          %{"id" => "ht"} = node -> put_in(node, ["attributes", "entity_writes"], "not-a-list")
+          node -> node
+        end)
+      end)
+    end)
+
+    assert {:error, {:entity_write_refused, 0, :write_not_permitted}} =
+             Fx.complete(ctx, %{"label" => "L1"})
+
+    # neither the handler's records nor anything declarative were written
+    assert Fx.all_records(ctx.schema) == []
+    assert Fx.entity_events(ctx.schema) == []
+    assert Fx.task!(ctx.schema, ctx.task.id).status == :pending
+    assert [entry] = Fx.audit_rows(ctx.schema, "entity_write.refused")
+    assert entry.after_state["detail"] == "line_malformed"
+  end
+
+  describe "the combined 20-line cap through the engine (TDV T4)" do
+    test "exactly 20 combined lines (19 declarative + 1 handler call) complete" do
+      ctx = Mw.case!("gh2590-r4b-guard-20", :twenty)
+
+      assert {:ok, _} = Fx.complete(ctx, %{"label" => "L1"})
+      assert length(Fx.records(ctx.schema, "stock_move")) == 19
+      assert [_ledger] = Fx.records(ctx.schema, "fxl_ledger")
+      assert [_balance] = Fx.records(ctx.schema, "fxl_balance")
+    end
+
+    test "off-by-one control: 21 combined lines are refused at index 20, nothing written" do
+      ctx = Mw.case!("gh2590-r4b-guard-21", :twenty)
+
+      Mw.tamper_snapshot!(ctx, fn graph ->
+        update_in(graph, ["nodes"], fn nodes ->
+          Enum.map(nodes, fn
+            %{"id" => "ht"} = node ->
+              update_in(node, ["attributes", "entity_writes"], fn lines ->
+                lines ++ [Fx.line("stock_move", %{"label" => %{"const" => "v"}})]
+              end)
+
+            node ->
+              node
+          end)
+        end)
+      end)
+
+      assert {:error, {:entity_write_refused, 20, :validation_failed}} =
+               Fx.complete(ctx, %{"label" => "L1"})
+
+      assert Fx.all_records(ctx.schema) == []
+      assert Fx.task!(ctx.schema, ctx.task.id).status == :pending
+    end
   end
 end

@@ -585,6 +585,51 @@ defmodule Letflow.Entities.ModuleWriteOwnerPathTest do
     end
   end
 
+  # ── R4b platform helpers: targets and run-time authorization ────────────────────────────────
+
+  describe "registered_targets/1, prepare_targets/2, authorize_module_writes/2" do
+    test "registered_targets/1 resolves through the Catalog and ignores what it cannot resolve" do
+      assert HandlerWrites.registered_targets([
+               line("post_entry", %{}),
+               line("post_balance_only", %{}),
+               line("ghost", %{}),
+               %{"nothing" => 1}
+             ]) == ["fxl_balance", "fxl_ledger"]
+
+      assert HandlerWrites.registered_targets([]) == []
+    end
+
+    test "prepare_targets/2 keeps only targets whose CURRENT row is managed by the module", ctx do
+      assert HandlerWrites.prepare_targets([line("post_entry", %{})], ctx.schema) ==
+               ["fxl_balance", "fxl_ledger"]
+
+      # a target whose active row is absent (the rogue module is not installed here)
+      assert HandlerWrites.prepare_targets(
+               [line("denies", %{}, "fixture_ledger_rogue")],
+               ctx.schema
+             ) == []
+
+      assert HandlerWrites.prepare_targets([line("ghost", %{})], ctx.schema) == []
+    end
+
+    test "authorize_module_writes/2 refuses a missing stamp with the declared index", ctx do
+      assert {:error, {0, :stamp_missing}} =
+               HandlerWrites.authorize_module_writes([entry_line()], %{
+                 prefix: ctx.schema,
+                 owner: nil,
+                 snapshot_graph: %{"nodes" => [], "edges" => []}
+               })
+
+      assert {:error, {3, :stamp_missing}} =
+               HandlerWrites.authorize_module_writes([entry_line()], %{
+                 prefix: ctx.schema,
+                 owner: nil,
+                 snapshot_graph: %{"nodes" => [], "edges" => []},
+                 entity_write_count: 3
+               })
+    end
+  end
+
   # ── a misbehaving handler (negative control module) ─────────────────────────────────────────
 
   describe "a misbehaving handler is contained" do
@@ -622,6 +667,28 @@ defmodule Letflow.Entities.ModuleWriteOwnerPathTest do
       assert log =~ "raises"
       assert log =~ "RuntimeError"
       refute log =~ "secret detail"
+    end
+
+    test "a throw and an exit are reduced to :handler_raised, like a raise (SECURITY re-review)",
+         ctx do
+      for handler <- ["throws", "exits"] do
+        log =
+          capture_log(fn ->
+            assert {:error, {:line, 20, :build}, :handler_raised, _} = rogue(ctx, handler)
+          end)
+
+        assert log =~ "fixture_ledger_rogue"
+      end
+
+      assert written(ctx) == {0, 0, 0}
+    end
+
+    test "a handler that keeps a write's steps but drops its :policy step is :handler_shape",
+         ctx do
+      # create/3 produced [..., {:line, 21, :policy}]; the returned Multi lacks the last one
+      assert {:error, {:line, 20, :build}, :handler_shape, _} = rogue(ctx, "drop_policy")
+      assert Fx.records(ctx.schema, "fxr_thing") == []
+      assert written(ctx) == {0, 0, 0}
     end
 
     test "the handler's closed error atoms map to build reasons", ctx do
@@ -686,9 +753,19 @@ defmodule Letflow.Entities.ModuleWriteOwnerPathTest do
   # ── the API surface ─────────────────────────────────────────────────────────────────────────
 
   describe "the closed API" do
-    test "HandlerWrites exports create/3 for handlers and exactly two platform functions" do
+    test "HandlerWrites exports create/3 for handlers and a closed set of platform functions" do
       public = HandlerWrites.__info__(:functions) |> Enum.sort()
-      assert public == [build_call: 4, create: 3, lock_types: 3]
+
+      # R4b adds the run-time authorization and the target resolution the engine's plan needs;
+      # handler files may call none of them (scan H4: only `HandlerWrites.create/3`)
+      assert public == [
+               authorize_module_writes: 2,
+               build_call: 4,
+               create: 3,
+               lock_types: 3,
+               prepare_targets: 2,
+               registered_targets: 1
+             ]
     end
 
     test "the handler context carries no authority, repo or owner" do

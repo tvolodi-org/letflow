@@ -65,11 +65,28 @@ defmodule Letflow.Engine.EntityPort do
   @typedoc "One declared `entity_writes` line (string-keyed, as pinned); PR B fixes its keys."
   @type line :: %{required(String.t()) => term()}
 
+  @typedoc "One declared `module_writes` line (string-keyed, as pinned; GH #2590 R4b)."
+  @type module_write_line :: %{required(String.t()) => term()}
+
+  @typedoc """
+  The module ownership stamp of the definition row a completion's plan read: opaque strings the
+  engine carries without naming a module (GH #2590 R4b, design 4.5).
+  """
+  @type owner_stamp :: %{
+          required(:module_id) => String.t(),
+          required(:module_version) => String.t(),
+          required(:manifest_hash) => String.t(),
+          required(:body_hash) => String.t()
+        }
+
   @typedoc "One refused line: its declared index and a stable atom code (never a field value)."
   @type line_violation :: %{index: non_neg_integer(), code: atom()}
 
   @typedoc "Context for `prepare/2`: the tenant schema prefix from the caller's server context."
-  @type prepare_ctx :: %{required(:prefix) => String.t()}
+  @type prepare_ctx :: %{
+          required(:prefix) => String.t(),
+          optional(:module_writes) => [module_write_line()]
+        }
 
   @typedoc """
   The activator authority recorded at activation (GH #2587 PR B1, decision 0054 D4a): the
@@ -115,7 +132,10 @@ defmodule Letflow.Engine.EntityPort do
           required(:authorized) => [{String.t(), String.t()}],
           required(:variables) => (map() -> map()),
           required(:skip?) => (map() -> boolean()),
-          optional(:now_fun) => (-> integer())
+          optional(:now_fun) => (-> integer()),
+          optional(:module_writes) => [module_write_line()],
+          optional(:owner) => owner_stamp() | nil,
+          optional(:entity_write_count) => non_neg_integer()
         }
 
   @typedoc "One applied line: ids and sequences only (INV-2)."
@@ -124,7 +144,10 @@ defmodule Letflow.Engine.EntityPort do
           required(:entity_type) => String.t(),
           required(:record_id) => Ecto.UUID.t(),
           required(:event_global_seq) => non_neg_integer(),
-          optional(:output_var) => String.t() | nil
+          optional(:output_var) => String.t() | nil,
+          optional(:handler_module) => String.t(),
+          optional(:handler) => String.t(),
+          optional(:write_ordinal) => pos_integer()
         }
 
   @typedoc "The value of the `:entity_writes` step `multi/3` ends with."
@@ -166,6 +189,21 @@ defmodule Letflow.Engine.EntityPort do
               | {:error, :entity_write_contention}
               | {:error, :prepare_inside_transaction}
               | {:error, {:entity_type_prepare_failed, String.t()}}
+
+  @doc """
+  GH #2590 R4b, run time and pre-transaction (INV-3): authorizes a node's `module_writes` lines
+  against the stamp of the definition row, the tenant's CURRENT install state and the PINNED
+  snapshot, before `prepare/2` and every entity lock. `{:error, {declared_index, detail}}` is a
+  refusal; `detail` is a closed atom for the tenant audit entry only (the public code is one
+  `write_not_permitted`). Reads only, no lock.
+  """
+  @callback authorize_module_writes([module_write_line()], %{
+              required(:prefix) => String.t(),
+              required(:snapshot_graph) => map(),
+              optional(:owner) => owner_stamp() | nil,
+              optional(:entity_write_count) => non_neg_integer()
+            }) ::
+              :ok | {:error, {index :: non_neg_integer(), detail :: atom()}}
 
   @doc """
   Validates declared lines against the current definitions (PR B1). Reports every violation,

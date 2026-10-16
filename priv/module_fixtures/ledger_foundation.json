@@ -102,6 +102,54 @@
         ]
       }
     }
+    ,{
+      "definition_id": "00501000-0000-0040-0080-000000000014",
+      "process_key": "fxl_post_mixed_first",
+      "version": "1.0.0",
+      "graph": {
+        "nodes": [
+          { "id": "start", "node_type": "START" },
+          {
+            "id": "ht",
+            "node_type": "HUMAN_TASK",
+            "attributes": {
+              "role": "REVIEWER",
+              "entity_writes": [{ "op": "create", "entity_type": "aaa_move", "fields": { "label": { "const": "v" } } }],
+              "module_writes": [{ "module": "fixture_ledger", "handler": "post_entry", "args": { "item": { "var": "label" }, "quantity": { "const": 1 } } }]
+            }
+          },
+          { "id": "end", "node_type": "END" }
+        ],
+        "edges": [
+          { "id": "e1", "source": "start", "target": "ht" },
+          { "id": "e2", "source": "ht", "target": "end" }
+        ]
+      }
+    }
+    ,{
+      "definition_id": "00501000-0000-0040-0080-000000000015",
+      "process_key": "fxl_post_twenty",
+      "version": "1.0.0",
+      "graph": {
+        "nodes": [
+          { "id": "start", "node_type": "START" },
+          {
+            "id": "ht",
+            "node_type": "HUMAN_TASK",
+            "attributes": {
+              "role": "REVIEWER",
+              "entity_writes": [{ "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }, { "op": "create", "entity_type": "stock_move", "fields": { "label": { "const": "v" } } }],
+              "module_writes": [{ "module": "fixture_ledger", "handler": "post_entry", "args": { "item": { "var": "label" }, "quantity": { "const": 1 } } }]
+            }
+          },
+          { "id": "end", "node_type": "END" }
+        ],
+        "edges": [
+          { "id": "e1", "source": "start", "target": "ht" },
+          { "id": "e2", "source": "ht", "target": "end" }
+        ]
+      }
+    }
   ],
   "variable_schemas": [],
   "service_catalog_entries": [],

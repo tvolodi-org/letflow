@@ -24,9 +24,15 @@ defmodule Letflow.Entities.HandlerWritesCallersTest do
       but `new/0` and `append/2`, `Records`, `Owner`, `StepSource`, `ManagedTypes`,
       `EventStore`, process / I/O / clock modules, atom-creating calls, `apply/3` with a
       non-literal module, a map update or `Map.put`-style change of a context key, or any
-      `HandlerWrites` call but `create/3`. It is a tripwire, not the boundary: the boundary is
-      that the API hands a handler nothing dangerous. The negative control is the
-      deliberately misbehaving `FixtureLedgerRogue` file, which MUST be flagged.
+      `HandlerWrites` call but `create/3`. R4b (SECURITY re-review of R4a) closes the scan gaps:
+      a remote call with an ATOM-LITERAL receiver outside a short allowlist (`:ets`,
+      `:persistent_term`, `:code`, a quoted `:"Elixir.Process"`, ...), a remote call on a
+      VARIABLE receiver (`m.put(..)`), a `%Multi{}` literal, a field access on the Multi
+      parameter (`multi.operations`), and `Map.*`/`Keyword.*` on the Multi or context variable;
+      the source is pipe-normalised first, so `multi |> Map.put(..)` is seen. It is a tripwire,
+      not the boundary: the boundary is that the API hands a handler nothing dangerous. The
+      negative control is the deliberately misbehaving `FixtureLedgerRogue` file, which MUST be
+      flagged.
     * H5: `Definitions.create_owned/3` only in `solution_pack.ex` (folded in from R2's
       `create_owned_callers_test.exs`).
 
@@ -59,7 +65,12 @@ defmodule Letflow.Entities.HandlerWritesCallersTest do
   @forbidden_atom_modules ~w(httpc inets gen_tcp os file erlang)a
   @atom_creators [{[:String], :to_atom}, {[:String], :to_existing_atom}, {[:Module], :concat}]
   @map_changers ~w(put put_new put_new_lazy replace replace! merge update update! delete
-                   from_struct pop)a
+                   from_struct pop pop_lazy drop take reject filter split get_and_update
+                   get_and_update! new)a
+
+  # Erlang modules a pure handler may legitimately call by atom receiver (data transformation
+  # only). Any OTHER atom-literal receiver, including a quoted `:"Elixir.Process"`, is flagged.
+  @atom_receivers_allowed ~w(maps lists string binary math unicode)a
 
   defp scanned_files do
     (Path.wildcard("lib/**/*.ex") ++ Path.wildcard("test/support/**/*.ex")) |> Enum.sort()
@@ -178,8 +189,9 @@ defmodule Letflow.Entities.HandlerWritesCallersTest do
 
   # Human-readable violations of one handler file (empty when clean).
   defp purity_violations(source) do
-    ast = parse(source)
-    ctx_vars = ctx_names(ast)
+    ast = source |> parse() |> unpipe()
+    ctx_vars = ctx_names(ast, 1) ++ ctx_names(ast, 0)
+    multi_vars = ctx_names(ast, 0)
 
     {_ast, found} =
       Macro.prewalk(ast, [], fn
@@ -205,6 +217,31 @@ defmodule Letflow.Entities.HandlerWritesCallersTest do
 
         {{:., _, [{:__aliases__, _, parts}, fun]}, _, args} = node, acc when is_list(args) ->
           {node, acc ++ remote_violations(parts, fun, args, ctx_vars)}
+
+        # an ATOM-literal receiver (`:ets.insert(..)`, `:"Elixir.Process".put(..)`)
+        {{:., _, [receiver, fun]}, _, args} = node, acc
+        when is_atom(receiver) and not is_nil(receiver) and not is_boolean(receiver) and
+               is_list(args) ->
+          hit? = receiver not in @atom_receivers_allowed
+          {node, if(hit?, do: [{:atom_receiver, receiver}, {:atom_call, fun} | acc], else: acc)}
+
+        # a VARIABLE receiver: a call (`m.put(..)`) or a field access on the Multi parameter
+        {{:., _, [{name, _, var_ctx}, fun]}, call_meta, args} = node, acc
+        when is_atom(name) and is_atom(var_ctx) and name != :__MODULE__ and is_list(args) ->
+          cond do
+            not Keyword.get(call_meta, :no_parens, false) ->
+              {node, [{:var_receiver, name} | acc]}
+
+            name in multi_vars ->
+              {node, [{:multi_field, fun} | acc]}
+
+            true ->
+              {node, acc}
+          end
+
+        # a `%Multi{}` / `%Ecto.Multi{}` literal (forging or rebuilding a Multi)
+        {:%, _, [{:__aliases__, _, parts}, _]} = node, acc ->
+          {node, if(List.last(parts) == :Multi, do: [{:multi_literal, :Multi} | acc], else: acc)}
 
         {:apply, _, [mod | _]} = node, acc ->
           {node, acc ++ non_literal_apply(mod)}
@@ -237,8 +274,24 @@ defmodule Letflow.Entities.HandlerWritesCallersTest do
   defp non_literal_apply(atom) when is_atom(atom), do: []
   defp non_literal_apply(_other), do: [{:apply, :non_literal_module}]
 
-  # The names of the context parameter (the second one) of every arity-3 `def`/`defp`.
-  defp ctx_names(ast) do
+  # `a |> f(b)` becomes `f(a, b)` (also for remote calls), innermost first, so the checks below see
+  # the piped value as the first argument.
+  defp unpipe(ast) do
+    Macro.postwalk(ast, fn
+      {:|>, _, [lhs, {{:., _, _} = dot, meta, args}]} when is_list(args) ->
+        {dot, meta, [lhs | args]}
+
+      {:|>, _, [lhs, {fun, meta, args}]} when is_atom(fun) and is_list(args) ->
+        {fun, meta, [lhs | args]}
+
+      node ->
+        node
+    end)
+  end
+
+  # The names of the parameter at position `position` (0 = the Multi, 1 = the context) of every
+  # arity-3 `def`/`defp`.
+  defp ctx_names(ast, position) do
     {_ast, names} =
       Macro.prewalk(ast, [], fn
         {kind, _, [head | _]} = node, acc when kind in [:def, :defp] ->
@@ -249,8 +302,14 @@ defmodule Letflow.Entities.HandlerWritesCallersTest do
             end
 
           case params do
-            [_, {name, _, ctx}, _] when is_atom(name) and is_atom(ctx) -> {node, [name | acc]}
-            _other -> {node, acc}
+            [_, _, _] ->
+              case Enum.at(params, position) do
+                {name, _, ctx} when is_atom(name) and is_atom(ctx) -> {node, [name | acc]}
+                _other -> {node, acc}
+              end
+
+            _other ->
+              {node, acc}
           end
 
         node, acc ->
@@ -383,7 +442,9 @@ defmodule Letflow.Entities.HandlerWritesCallersTest do
             {:alias, :as},
             {:import, :Multi},
             {:map_change, :merge},
-            {:repo, :variable}
+            {:repo, :variable},
+            {:multi_field, :operations},
+            {:map_update, :context}
           ] do
         assert tag in flagged, inspect(tag)
       end
@@ -538,7 +599,26 @@ end", {:call, :from}},
         {body.("update_in(c.prefix, & &1)"), {:call, :update_in}},
         {body.("HandlerWrites.build_call(m, c, %{}, %{})"), {:handler_writes, :build_call}},
         {body.("HandlerWrites.lock_types(m, [], \"p\")"), {:handler_writes, :lock_types}},
-        {body.("HandlerWrites.create(m, c)"), {:handler_writes, :create}}
+        {body.("HandlerWrites.create(m, c)"), {:handler_writes, :create}},
+        {body.("HandlerWrites.authorize_module_writes([], %{})"),
+         {:handler_writes, :authorize_module_writes}},
+        # R4b, SECURITY re-review of R4a: the scan gaps
+        {body.(":ets.insert(:t, {1})"), {:atom_receiver, :ets}},
+        {body.(":persistent_term.put(:k, 1)"), {:atom_receiver, :persistent_term}},
+        {body.(":code.load_file(M)"), {:atom_receiver, :code}},
+        {body.(":\"Elixir.Process\".put(:k, 1)"), {:atom_receiver, :"Elixir.Process"}},
+        {body.(":\"Elixir.Repo\".query!(\"select 1\")"), {:atom_receiver, :"Elixir.Repo"}},
+        {body.("m.put(:x, 1, 2)"), {:var_receiver, :m}},
+        {body.("c.fetch(:prefix)"), {:var_receiver, :c}},
+        {body.("%Ecto.Multi{}"), {:multi_literal, :Multi}},
+        {body.("%Multi{names: nil, operations: []}"), {:multi_literal, :Multi}},
+        {body.("m.operations"), {:multi_field, :operations}},
+        {body.("Map.put(m, :operations, [])"), {:map_change, :put}},
+        {body.("Map.delete(m, :names)"), {:map_change, :delete}},
+        {body.("Map.drop(m, [:operations])"), {:map_change, :drop}},
+        {body.("m |> Map.put(:operations, [])"), {:map_change, :put}},
+        {body.("m |> Ecto.Multi.run(:x, fn _, _ -> {:ok, 1} end)"), {:multi, :run}},
+        {body.("%{m | operations: []}"), {:map_update, :context}}
       ]
 
       for {snippet, tag} <- cases do
@@ -554,7 +634,10 @@ end", {:call, :from}},
                 {:ok, Multi.t()} | {:error, atom()}
         def h(multi, ctx, %{"item" => item}) when is_binary(item) do
           case HandlerWrites.create(multi, ctx, %{entity_type: "t", field_values: %{"item" => item}}) do
-            {:ok, multi} -> {:ok, Ecto.Multi.append(multi, Ecto.Multi.new())}
+            {:ok, multi} ->
+              _prefix = ctx.prefix
+              _sorted = :lists.sort([2, 1])
+              {:ok, multi |> Ecto.Multi.append(Ecto.Multi.new())}
             {:error, _} -> {:error, :not_permitted}
           end
         end

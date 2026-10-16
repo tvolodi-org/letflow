@@ -374,6 +374,15 @@ defmodule Letflow.Engine do
   order, so two completions writing types (A, B) and (B, A) cannot deadlock on
   them.
 
+  GH #2590 / REQ-501 R4b (handler type locks): a completion whose node also declares
+  `module_writes` takes, after `:entity_writes_started` and BEFORE any write step, one
+  `instance_sequences` row per type in the ASCENDING union of the declarative line types and the
+  registered target types of its handlers (`HandlerWrites.lock_types/3`, the same row class and the
+  same ascending position as rule 4 above), so a handler cannot reorder or skip them and the
+  declarative-vs-handler and handler-vs-handler mixes acquire in one global order. A type the
+  handler never writes is locked too (accepted: locks held slightly longer). A handler receives no
+  `repo`, so it can take no other lock.
+
   A sub-process child's completion cascade takes the parent token and projection
   after its entity-type locks; a deadlock there is reported as contention. The
   cascade outcome is stated only for a completion WITH a plan (a completion
@@ -439,6 +448,7 @@ defmodule Letflow.Engine do
   alias Letflow.Dlq
   alias Letflow.EventStore
   alias Letflow.EventStore.InstanceProjection
+  alias Letflow.EventStore.Registry, as: EventRegistry
   alias Letflow.Identity
   alias Letflow.Repo
   alias Letflow.Repository.Attachments
@@ -2473,7 +2483,6 @@ defmodule Letflow.Engine do
            {:separation_of_duties, blocking_node_ids :: [String.t()]}
            | {:output_refused, missing_keys :: [String.t()], rejected_keys :: [String.t()]}
            | :entity_writes_not_planned
-           | :module_writes_not_enabled
 
   @typep refusal_context :: %{required: [String.t()], allowed: [String.t()]}
 
@@ -2788,6 +2797,8 @@ defmodule Letflow.Engine do
 
   @typep entity_plan :: %{
            lines: [EntityPort.line()],
+           module_writes: [EntityPort.module_write_line()],
+           owner: EntityPort.owner_stamp() | nil,
            node_id: String.t(),
            task_id: Ecto.UUID.t(),
            instance_id: Ecto.UUID.t(),
@@ -2813,26 +2824,74 @@ defmodule Letflow.Engine do
           {:ok, entity_plan() | nil} | {:error, term()}
   defp plan_entity_writes(task_id, actor_id, prefix) do
     with %Task{status: :pending} = task <- Repo.get(Task, task_id, prefix: prefix),
-         {:ok, graph} <- fetch_graph(task.instance_id, prefix),
-         %{attributes: %{"entity_writes" => [_ | _] = lines}} <- find_node(graph, task.node_id) do
-      resolve_entity_plan(task, lines, actor_id, prefix)
+         {:ok, graph, raw_graph} <- fetch_graph_with_raw(task.instance_id, prefix),
+         %{attributes: %{} = attributes} <- find_node(graph, task.node_id),
+         declared when declared != {:ok, [], []} <- declared_writes(attributes) do
+      resolve_entity_plan(task, declared, raw_graph, actor_id, prefix)
     else
       _no_lines_or_unreadable -> {:ok, nil}
     end
   end
 
-  defp resolve_entity_plan(%Task{} = task, lines, actor_id, prefix) do
+  # The node's declarative lines and, GH #2590 R4b, its `module_writes` lines, as a tagged result.
+  # An `entity_writes` or `module_writes` value that is neither absent, `[]` nor a list (a
+  # hand-edited snapshot) is `{:malformed, index}` and refused fail-closed by the plan, never
+  # coerced to "no lines" (SECURITY S1: a malformed `entity_writes` must not let the rest of the
+  # node run).
+  @spec declared_writes(map()) ::
+          {:ok, [term()], [term()]} | {:malformed, non_neg_integer()}
+  defp declared_writes(attributes) do
+    with {:ok, lines} <- list_attribute(Map.get(attributes, "entity_writes"), 0),
+         {:ok, module_lines} <-
+           list_attribute(Map.get(attributes, "module_writes"), length(lines)) do
+      {:ok, lines, module_lines}
+    end
+  end
+
+  defp list_attribute(none, _index) when none in [nil, []], do: {:ok, []}
+  defp list_attribute([_ | _] = lines, _index), do: {:ok, lines}
+  defp list_attribute(_malformed, index), do: {:malformed, index}
+
+  defp resolve_entity_plan(%Task{} = task, {:malformed, index}, _raw_graph, actor_id, prefix) do
+    record_entity_write_refusal_audit(
+      task,
+      actor_id,
+      index,
+      :write_not_permitted,
+      :line_malformed,
+      prefix
+    )
+
+    {:error, {:entity_write_refused, index, :write_not_permitted}}
+  end
+
+  defp resolve_entity_plan(
+         %Task{} = task,
+         {:ok, lines, module_lines},
+         raw_graph,
+         actor_id,
+         prefix
+       ) do
     with {:actor, true} <- {:actor, is_binary(actor_id)},
          # I-B6 / 0054 D4: the 20-line cap is enforced AT RUN TIME on the pinned snapshot, so a
-         # hand-edited snapshot cannot bypass the activation check.
-         {:cap, true} <- {:cap, length(lines) <= @max_entity_write_lines},
+         # hand-edited snapshot cannot bypass the activation check. GH #2590 R4b: the cap is on
+         # the COMBINED declarative and `module_writes` count.
+         {:cap, true} <- {:cap, length(lines) + length(module_lines) <= @max_entity_write_lines},
          %InstanceProjection{definition_id: definition_id} <-
            Repo.get_by(InstanceProjection, [instance_id: task.instance_id], prefix: prefix),
          {:ok, definition} <- Definitions.get_by_id(definition_id, prefix: prefix),
          {:ok, activator_id, authorized} <- recorded_activator(definition.activated_by),
-         :ok <- check_activator_active(activator_id, prefix) do
+         :ok <- check_activator_active(activator_id, prefix),
+         # INV-3 (design 6.1 P0b): stamp, install state, hashes, handler and arguments are
+         # authorized against the tenant's CURRENT state BEFORE `prepare/2` and every lock.
+         owner = owner_stamp(definition),
+         :ok <-
+           authorize_module_writes(task, module_lines, owner, raw_graph, lines, actor_id, prefix),
+         :ok <- check_applied_event_schema(task, module_lines, lines, actor_id, prefix) do
       plan = %{
         lines: lines,
+        module_writes: module_lines,
+        owner: owner,
         node_id: task.node_id,
         task_id: task.id,
         instance_id: task.instance_id,
@@ -2842,7 +2901,7 @@ defmodule Letflow.Engine do
         authorized: authorized
       }
 
-      case EntityPort.impl().prepare(lines, %{prefix: prefix}) do
+      case EntityPort.impl().prepare(lines, prepare_ctx(prefix, module_lines)) do
         :ok ->
           {:ok, plan}
 
@@ -2871,8 +2930,88 @@ defmodule Letflow.Engine do
       {:error, :entity_write_needs_reactivation} = refusal ->
         refusal
 
+      {:error, {:entity_write_refused, _index, _code}} = refusal ->
+        refusal
+
       _unreadable ->
         {:ok, nil}
+    end
+  end
+
+  defp prepare_ctx(prefix, []), do: %{prefix: prefix}
+  defp prepare_ctx(prefix, module_lines), do: %{prefix: prefix, module_writes: module_lines}
+
+  # The ownership stamp the definition row carries, as opaque strings (the engine names no
+  # module). `nil` for an unstamped row: a node with `module_writes` then fails authorization.
+  defp owner_stamp(%{
+         owner_module: module_id,
+         owner_module_version: version,
+         owner_manifest_hash: manifest_hash,
+         owner_body_hash: body_hash
+       })
+       when is_binary(module_id) and is_binary(version) and is_binary(manifest_hash) and
+              is_binary(body_hash) do
+    %{
+      module_id: module_id,
+      module_version: version,
+      manifest_hash: manifest_hash,
+      body_hash: body_hash
+    }
+  end
+
+  defp owner_stamp(_definition), do: nil
+
+  defp authorize_module_writes(_task, [], _owner, _raw_graph, _lines, _actor_id, _prefix), do: :ok
+
+  defp authorize_module_writes(task, module_lines, owner, raw_graph, lines, actor_id, prefix) do
+    case EntityPort.impl().authorize_module_writes(module_lines, %{
+           prefix: prefix,
+           owner: owner,
+           snapshot_graph: raw_graph,
+           entity_write_count: length(lines)
+         }) do
+      :ok ->
+        :ok
+
+      {:error, {index, detail}} ->
+        # One public code for every cause (INV-5); the closed detail goes to the tenant audit.
+        record_entity_write_refusal_audit(
+          task,
+          actor_id,
+          index,
+          :write_not_permitted,
+          detail,
+          prefix
+        )
+
+        {:error, {:entity_write_refused, index, :write_not_permitted}}
+    end
+  end
+
+  # Rollout backstop (decision 0054 R4a amendment, design 4.11): a handler line adds keys that
+  # only `TASK_ENTITY_WRITES_APPLIED` schema v2 accepts, and a tenant gains v2 only when
+  # `TenantProvisioning.replay_all_pending/0` has run for it. Without v2 the APPLIED event would
+  # be refused at append INSIDE the transaction; refuse before it, fail closed.
+  defp check_applied_event_schema(_task, [], _lines, _actor_id, _prefix), do: :ok
+
+  defp check_applied_event_schema(task, _module_lines, lines, actor_id, prefix) do
+    case EventRegistry.max_schema_version(EntityPort.applied_event_type(), prefix) do
+      version when is_integer(version) and version >= 2 ->
+        :ok
+
+      _outdated ->
+        index = length(lines)
+
+        record_entity_write_refusal_audit(
+          task,
+          actor_id,
+          index,
+          :write_not_permitted,
+          :event_schema_outdated,
+          prefix
+        )
+
+        {:error, {:entity_write_refused, index, :write_not_permitted}}
     end
   end
 
@@ -2944,7 +3083,10 @@ defmodule Letflow.Engine do
       activator_id: plan.activator_id,
       authorized: plan.authorized,
       variables: &entity_write_variables/1,
-      skip?: &entity_write_skip?/1
+      skip?: &entity_write_skip?/1,
+      module_writes: plan.module_writes,
+      owner: plan.owner,
+      entity_write_count: length(plan.lines)
     }
 
     EntityPort.impl().multi(multi, plan.lines, ctx)
@@ -3064,25 +3206,48 @@ defmodule Letflow.Engine do
         resource_type: "entity_record",
         resource_id: line.record_id,
         before_state: nil,
-        after_state: %{
-          "entity_type" => line.entity_type,
-          "record_id" => line.record_id,
-          "task_id" => task.id,
-          "instance_id" => task.instance_id,
-          "node_id" => task.node_id,
-          "definition_id" => plan.definition_id,
-          "definition_version" => plan.definition_version,
-          "line_index" => line.line_index,
-          "lines_hash" => lines_hash
-        },
+        after_state:
+          Map.merge(
+            %{
+              "entity_type" => line.entity_type,
+              "record_id" => line.record_id,
+              "task_id" => task.id,
+              "instance_id" => task.instance_id,
+              "node_id" => task.node_id,
+              "definition_id" => plan.definition_id,
+              "definition_version" => plan.definition_version,
+              "line_index" => line.line_index,
+              "lines_hash" => lines_hash
+            },
+            handler_keys(line)
+          ),
         trace_id: nil
       }
 
-      Multi.run(acc, {:entity_write_audit, line.line_index}, fn repo, _changes ->
+      Multi.run(acc, audit_step_name(line), fn repo, _changes ->
         Audit.insert_entry(repo, attrs, prefix)
       end)
     end)
   end
+
+  # GH #2590 R4b: a handler write carries the registering module id, the handler name and its
+  # per-call ordinal (opaque strings and an integer; the engine names no module). A declarative
+  # line has none of the three, so its audit and event bytes are unchanged.
+  defp handler_keys(%{write_ordinal: ordinal} = line) when is_integer(ordinal) do
+    %{
+      "handler_module" => line.handler_module,
+      "handler" => line.handler,
+      "write_ordinal" => ordinal
+    }
+  end
+
+  defp handler_keys(_declarative_line), do: %{}
+
+  # Several writes of one handler call share a declared `line_index`: the ordinal tells them apart.
+  defp audit_step_name(%{write_ordinal: ordinal, line_index: index}) when is_integer(ordinal),
+    do: {:entity_write_audit, index, ordinal}
+
+  defp audit_step_name(%{line_index: index}), do: {:entity_write_audit, index}
 
   defp append_sys_variables_event(multi, sys_values, _task, _actor_id, _key, _prefix)
        when map_size(sys_values) == 0,
@@ -3132,12 +3297,15 @@ defmodule Letflow.Engine do
         "lines_hash" => lines_hash,
         "lines" =>
           Enum.map(applied, fn line ->
-            %{
-              "line_index" => line.line_index,
-              "entity_type" => line.entity_type,
-              "record_id" => line.record_id,
-              "event_global_seq" => line.event_global_seq
-            }
+            Map.merge(
+              %{
+                "line_index" => line.line_index,
+                "entity_type" => line.entity_type,
+                "record_id" => line.record_id,
+                "event_global_seq" => line.event_global_seq
+              },
+              handler_keys(line)
+            )
           end)
       }
 
@@ -3315,10 +3483,21 @@ defmodule Letflow.Engine do
   # §6.1 -- the same immutable snapshot create/2 captured at instance-start
   # time, never a live re-read of process_definitions.
   defp fetch_graph(instance_id, prefix) do
+    with {:ok, graph, _raw} <- fetch_graph_with_raw(instance_id, prefix), do: {:ok, graph}
+  end
+
+  # The pinned graph AND the raw snapshot map it was built from (GH #2590 R4b: the stamp's body
+  # hash is computed over the raw JSON-normalised form, never over the built struct).
+  defp fetch_graph_with_raw(instance_id, prefix) do
     case SnapshotStore.get_by_instance_id(instance_id, prefix: prefix) do
-      {:ok, snapshot} -> build_graph(snapshot.graph)
-      {:error, :snapshot_not_found} -> {:error, :snapshot_not_found}
-      {:error, reason} -> {:error, reason}
+      {:ok, snapshot} ->
+        with {:ok, graph} <- build_graph(snapshot.graph), do: {:ok, graph, snapshot.graph}
+
+      {:error, :snapshot_not_found} ->
+        {:error, :snapshot_not_found}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -5329,8 +5508,7 @@ defmodule Letflow.Engine do
     # lines takes no new branch, so a completion without lines is byte-identical to before.
     with {:ok, _passed} = passed <-
            existing_completion_guards(repo, graph, task, output_variables, actor_id, prefix),
-         :ok <- check_entity_writes_planned(graph, task, plan),
-         :ok <- check_module_writes_unsupported(graph, task) do
+         :ok <- check_entity_writes_planned(graph, task, plan) do
       passed
     end
   end
@@ -5338,33 +5516,19 @@ defmodule Letflow.Engine do
   defp check_entity_writes_planned(_graph, _task, plan) when not is_nil(plan), do: :ok
 
   defp check_entity_writes_planned(graph, %Task{} = task, nil) do
+    # GH #2590 R4b (design 6.3): `module_writes` counts like `entity_writes`. A node that declares
+    # either while this completion has no plan (unreadable definition row, e.g. a deleted stamped
+    # definition, OQ-R9) is refused, never executed without a readable stamp.
     case find_node(graph, task.node_id) do
-      %{attributes: %{"entity_writes" => writes}} when writes not in [nil, []] ->
-        {:error, {:completion_refused, :entity_writes_not_planned}}
+      %{attributes: %{} = attributes} ->
+        if Enum.any?(
+             ["entity_writes", "module_writes"],
+             &(Map.get(attributes, &1) not in [nil, []])
+           ),
+           do: {:error, {:completion_refused, :entity_writes_not_planned}},
+           else: :ok
 
-      _no_entity_writes ->
-        :ok
-    end
-  end
-
-  # GH #2590 / REQ-501 R3 (design 6.3, F-3): the INTERIM, plan-independent guard. A graph with
-  # `module_writes` can already ACTIVATE (R3), but nothing executes a handler until R4b, so a
-  # completion of a node that declares a non-empty `module_writes` is refused fail-closed:
-  # nothing committed, the task stays pending. It does NOT depend on the plan: a MIXED node
-  # (declarative lines AND module lines) HAS a plan, so `check_entity_writes_planned/3` would
-  # run the declarative lines and silently skip the handler lines. The node is read from the
-  # PINNED snapshot graph, so a definition row that was deleted or never readable cannot lift
-  # the refusal (OQ-R9). R4b DELETES this function in the diff that adds real execution; that
-  # executor MUST re-verify the install row, the installed manifest hash (against the stamp AND
-  # the compiled manifest) and the body hash at execution time (security review S1).
-  @spec check_module_writes_unsupported(Graph.t(), Task.t()) ::
-          :ok | {:error, {:completion_refused, :module_writes_not_enabled}}
-  defp check_module_writes_unsupported(graph, %Task{} = task) do
-    case find_node(graph, task.node_id) do
-      %{attributes: %{"module_writes" => writes}} when writes not in [nil, []] ->
-        {:error, {:completion_refused, :module_writes_not_enabled}}
-
-      _no_module_writes ->
+      _no_attributes ->
         :ok
     end
   end
@@ -7029,21 +7193,6 @@ defmodule Letflow.Engine do
     {:error, {:entity_write_failed, 0, :not_planned}}
   end
 
-  # GH #2590 / REQ-501 R3: the interim module_writes guard (design 6.3). Nothing committed;
-  # surfaces as the same internal failure as "lines but no plan".
-  defp interpret_complete_result(
-         {:error, _failed_step, {:completion_refused, :module_writes_not_enabled}, _changes},
-         _actor_id,
-         _prefix
-       ) do
-    Logger.warning(
-      "completion refused: a node declares module_writes but handler execution is not enabled " <>
-        "(interim guard, GH #2590 R3)"
-    )
-
-    {:error, {:entity_write_failed, 0, :module_writes_not_enabled}}
-  end
-
   # GH #2587 PR B2: the contention result of `run_transaction/2` is a 2-tuple (no Multi
   # envelope); it must not reach the 4-tuple catch-all.
   defp interpret_complete_result(
@@ -7056,12 +7205,18 @@ defmodule Letflow.Engine do
 
   # GH #2587 PR B2: a failed `{:line, i, step}` is routed through the port's interpreter
   # (engine -> entities is forbidden, so it cannot call Records directly). A refusal writes
-  # one best-effort audit entry AFTER the rollback, ids and a closed detail atom only.
+  # one best-effort audit entry AFTER the rollback, ids and a closed detail atom only. GH #2590
+  # R4b: a failed `{:type_lock, type}` (a handler call's ascending type lock, a database fault
+  # only) goes through the same door and comes back as an internal failure.
   defp interpret_complete_result(
-         {:error, {:line, _index, _step} = failed_step, reason, changes},
+         {:error, failed_step, reason, changes},
          actor_id,
          prefix
-       ) do
+       )
+       when (is_tuple(failed_step) and tuple_size(failed_step) == 3 and
+               elem(failed_step, 0) == :line) or
+              (is_tuple(failed_step) and tuple_size(failed_step) == 2 and
+                 elem(failed_step, 0) == :type_lock) do
     case EntityPort.impl().interpret_failure(failed_step, reason) do
       {:refused, index, code, detail} ->
         task = Map.fetch!(changes, :task)

@@ -328,8 +328,9 @@ can set any column in a sandbox schema).
 
 A module that must write its OWN managed entity types from a process step declares write
 handlers in its manifest (`write_handlers:`, validated by `Catalog.validate/2` rule 10) and
-implements them in a module under its own namespace. Execution is not wired into the engine
-yet (REQ-501 R4b); this section is the contract a handler is written against.
+implements them in a module under its own namespace. The engine runs a handler inside
+a HUMAN_TASK completion since REQ-501 R4b (a SERVICE_TASK caller is R5); this section is the
+contract a handler is written against.
 
 * A handler is `fun(multi, ctx, args)` returning `{:ok, multi}` or `{:error, :invalid_arguments |
   :not_permitted}`. `ctx` is a `Letflow.Entities.HandlerContext` (ids and names only, no

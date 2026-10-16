@@ -5,12 +5,14 @@ defmodule Letflow.Entities.EntityPortImpl do
 
   A delegating adapter: the read callback `prefetch/3` goes to `Letflow.Entities.ScriptReads`
   and the write callbacks (`prepare/2`, `validate_lines/2`, `multi/3`, `interpret_failure/2`) go to
-  `Letflow.Entities.StepWrites`, so each keeps a single responsibility while the engine still
+  `Letflow.Entities.StepWrites` (except the run-time `authorize_module_writes/2` of GH #2590 R4b,
+  which goes to `Letflow.Entities.HandlerWrites`), so each keeps a single responsibility while the engine still
   sees exactly one behaviour, one injected module and one config key.
   """
 
   @behaviour Letflow.Engine.EntityPort
 
+  alias Letflow.Entities.HandlerWrites
   alias Letflow.Entities.ScriptReads
   alias Letflow.Entities.StepWrites
 
@@ -22,6 +24,9 @@ defmodule Letflow.Entities.EntityPortImpl do
 
   @impl Letflow.Engine.EntityPort
   defdelegate validate_lines(lines, ctx), to: StepWrites
+
+  @impl Letflow.Engine.EntityPort
+  defdelegate authorize_module_writes(lines, ctx), to: HandlerWrites
 
   @impl Letflow.Engine.EntityPort
   defdelegate multi(multi, lines, ctx), to: StepWrites
