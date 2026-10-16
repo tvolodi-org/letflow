@@ -694,7 +694,14 @@ defmodule Letflow.TenantProvisioning do
     # GH #2587 / REQ-499 PR B1 (decision 0054 D4a): process_definitions.activated_by, the
     # activator authority recorded for a graph with `entity_writes`; NULL otherwise.
     {20_261_015_200_001, Letflow.Repo.Migrations.AddActivatedByToProcessDefinitions,
-     "20261015200001_add_activated_by_to_process_definitions.exs"}
+     "20261015200001_add_activated_by_to_process_definitions.exs"},
+    # GH #2590 / REQ-501 PR R2 (decision 0054 D6): the four-column module ownership stamp of
+    # a process definition version (all-or-none CHECK + immutability trigger), and the
+    # manifest hash recorded on `tenant_modules` at install. Both NULL for every existing row.
+    {20_261_016_100_001, Letflow.Repo.Migrations.AddOwnerStampToProcessDefinitions,
+     "20261016100001_add_owner_stamp_to_process_definitions.exs"},
+    {20_261_016_100_002, Letflow.Repo.Migrations.AddManifestHashToTenantModules,
+     "20261016100002_add_manifest_hash_to_tenant_modules.exs"}
   ]
 
   @doc """

@@ -1,0 +1,58 @@
+{
+  "pack_id": "fixture-ledger-foundation",
+  "version": "0.1.0",
+  "bpm_export_schema_version": "bpm/definition/v1",
+  "exported_at": "2026-10-16T00:00:00Z",
+  "manifest": {
+    "required_roles": []
+  },
+  "definitions": [
+    {
+      "definition_id": "00501000-0000-0040-0080-000000000010",
+      "process_key": "fxl_post",
+      "version": "1.0.0",
+      "graph": {
+        "nodes": [
+          { "id": "start", "node_type": "START" },
+          { "id": "end", "node_type": "END" }
+        ],
+        "edges": [
+          { "id": "e1", "source": "start", "target": "end" }
+        ]
+      }
+    }
+  ],
+  "variable_schemas": [],
+  "service_catalog_entries": [],
+  "entity_definitions": [
+    {
+      "entity_definition_id": "00501000-0000-0040-0080-000000000000",
+      "name": "fxl_ledger",
+      "display_name": "Fixture Ledger",
+      "logical_shape_version": "5010000000000000000000000000000000000000000000000000000000000000",
+      "definition_json": {
+        "name": "fxl_ledger",
+        "display_name": "Fixture Ledger",
+        "description": "REQ-501 test fixture (managed, append-only).",
+        "fields": [
+          { "name": "item", "type": "string", "required": true }
+        ],
+        "append_only": true
+      }
+    },
+    {
+      "entity_definition_id": "00501000-0000-0040-0080-000000000001",
+      "name": "fxl_balance",
+      "display_name": "Fixture Balance",
+      "logical_shape_version": "5010000000000000000000000000000000000000000000000000000000000001",
+      "definition_json": {
+        "name": "fxl_balance",
+        "display_name": "Fixture Balance",
+        "description": "REQ-501 test fixture (managed).",
+        "fields": [
+          { "name": "item", "type": "string", "required": true }
+        ]
+      }
+    }
+  ]
+}

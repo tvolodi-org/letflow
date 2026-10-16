@@ -48,7 +48,14 @@ defmodule Letflow.Modules.WriteHandlerRegistrationSurfaceTest do
     "lib/letflow/modules/module.ex",
     "lib/letflow/modules/manifest_hash.ex"
   ]
-  @allowed_api_callers ["lib/letflow/modules/catalog.ex"]
+  # R2 (deliberate edit): `ManagedTypes.module_owner/1` calls `Catalog.manifest_hash/1` to
+  # fill the `Owner` stamp inputs (`version`, `manifest_hash`); nothing else outside the
+  # Catalog may resolve or call a handler. `installs.ex` only READS the `manifest_hash`
+  # column it recorded from that owner, and `OwnerStamp`/`TenantModule` only name the field.
+  @allowed_api_callers [
+    "lib/letflow/modules/catalog.ex",
+    "lib/letflow/entities/managed_types.ex"
+  ]
 
   @api_names [:write_handler, :write_handler_in, :call_write_handler, :manifest_hash]
 
@@ -61,20 +68,51 @@ defmodule Letflow.Modules.WriteHandlerRegistrationSurfaceTest do
   # AST scan: any call (local or remote), capture (`&Catalog.write_handler/2`,
   # `&write_handler/2`) or atom literal (`apply(M, :write_handler, ..)`) naming
   # a handler-API function. Comments and docs are not code and do not count.
-  # `manifest_hash` is a common name (the Lua engine has its own), so it counts
-  # only as a call/capture on a `Catalog` receiver, or in a file that names the
-  # `Letflow.Modules.Catalog` module.
+  #
+  # `manifest_hash` is a common name (the Lua engine has its own, and since R2 it is also
+  # a struct/column FIELD of `Owner`, `TenantModule` and the process-definition stamp), so
+  # it counts only as:
+  #   * a call/capture on a `Catalog` receiver, or `apply(Catalog, :manifest_hash, _)` /
+  #     `Kernel.apply(Catalog, :manifest_hash, _)`;
+  #   * a local call, a bare atom or a variable, in a file that names `Modules.Catalog`.
+  # It is exempt STRUCTURALLY where it is a field name: a `{:manifest_hash, _}` pair (keyword
+  # key, map/struct key, typespec key), the `defstruct` list and `field(:manifest_hash, _)`.
   defp api_references?(source) do
     {:ok, ast} = Code.string_to_quoted(source)
     names_catalog? = String.contains?(source, "Modules.Catalog")
 
     {_, found} =
       Macro.prewalk(ast, false, fn
-        {{:., _, [recv, name]}, _, _} = node, acc when name in @api_names ->
-          {node, acc or name != :manifest_hash or catalog_receiver?(recv)}
+        # structural field-name exemptions (data, not an API reference)
+        {:manifest_hash, value}, acc ->
+          {{:__field__, value}, acc}
 
-        {name, _, args} = node, acc
-        when name in @api_names and (is_list(args) or is_atom(args)) ->
+        {:defstruct, _, _}, acc ->
+          {{:__defstruct__, [], []}, acc}
+
+        {:field, _, [:manifest_hash | _]}, acc ->
+          {{:__field__, [], []}, acc}
+
+        # apply/3 and Kernel.apply/3 naming the atom
+        {:apply, _, [mod, :manifest_hash, _args]}, acc ->
+          {{:__apply__, [], []}, acc or catalog_receiver?(mod) or names_catalog?}
+
+        {{:., _, [{:__aliases__, _, [:Kernel]}, :apply]}, _, [mod, :manifest_hash, _args]}, acc ->
+          {{:__apply__, [], []}, acc or catalog_receiver?(mod) or names_catalog?}
+
+        # a changeset field list (`cast(attrs, [:a, :manifest_hash])`) is data
+        {fun, meta, args}, acc when fun in [:cast, :validate_required] and is_list(args) ->
+          {{fun, meta, Enum.reject(args, &atom_list?/1)}, acc}
+
+        # the dot node's own `:manifest_hash` atom is not walked again as a bare atom
+        {{:., _, [recv, name]}, _, args}, acc when name in @api_names ->
+          flagged? = name != :manifest_hash or catalog_receiver?(recv)
+          {{:__remote__, [], [recv | List.wrap(args)]}, acc or flagged?}
+
+        {name, _, args} = node, acc when name in @api_names and is_list(args) ->
+          {node, acc or name != :manifest_hash or names_catalog?}
+
+        {name, _, args} = node, acc when name in @api_names and is_atom(args) ->
           {node, acc or name != :manifest_hash or names_catalog?}
 
         name, acc when name in @api_names ->
@@ -86,6 +124,8 @@ defmodule Letflow.Modules.WriteHandlerRegistrationSurfaceTest do
 
     found
   end
+
+  defp atom_list?(list), do: is_list(list) and list != [] and Enum.all?(list, &is_atom/1)
 
   defp catalog_receiver?({:__aliases__, _, parts}), do: List.last(parts) == :Catalog
   defp catalog_receiver?(_other), do: false
@@ -142,13 +182,35 @@ defmodule Letflow.Modules.WriteHandlerRegistrationSurfaceTest do
         "&call_write_handler/4",
         "apply(Catalog, :write_handler, [a, b])",
         "import Catalog, only: [write_handler: 2]",
-        "a |> Catalog.manifest_hash()"
+        "a |> Catalog.manifest_hash()",
+        "apply(Catalog, :manifest_hash, [m])",
+        "Kernel.apply(Catalog, :manifest_hash, [m])",
+        "alias Letflow.Modules.Catalog
+manifest_hash(m)",
+        "alias Letflow.Modules.Catalog
+x = manifest_hash
+x"
       ]
 
       for source <- positives, do: assert(api_references?(source), source)
 
       refute api_references?(~s|@moduledoc "see Catalog.write_handler/2"\nCatalog.fetch("x")|)
       refute api_references?("# Catalog.write_handler(a, b)\nCatalog.fetch(1)")
+    end
+
+    test "manifest_hash as a field name is exempt structurally, even in a file naming the Catalog" do
+      negatives = [
+        "alias Letflow.Modules.Catalog\n%{manifest_hash: 1}",
+        "alias Letflow.Modules.Catalog\n[manifest_hash: 1]",
+        "alias Letflow.Modules.Catalog\ndefstruct [:module_id, :manifest_hash]",
+        "alias Letflow.Modules.Catalog\nfield(:manifest_hash, :string)",
+        "alias Letflow.Modules.Catalog\n@type t :: %{manifest_hash: String.t()}",
+        "alias Letflow.Modules.Catalog\nowner.manifest_hash",
+        "alias Letflow.Modules.Catalog\ninstalled_manifest_hash(a, b)",
+        "x = manifest_hash\nx"
+      ]
+
+      for source <- negatives, do: refute(api_references?(source), source)
     end
 
     test "no engine file names a module under lib/letflow/modules/<id>/" do

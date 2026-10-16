@@ -216,15 +216,25 @@ defmodule Letflow.Definitions.EntityWritesActivatorTest do
   describe "B-19: activated_by is not forgeable (I-B11)" do
     @forged %{"user_id" => "00000000-0000-0000-0000-000000000000", "roles" => ["PLATFORM_ADMIN"]}
 
-    test "POST /definitions drops a body key and a graph key", ctx do
-      top = create!(ctx, %{"activated_by" => @forged})
-      nested = create!(ctx, %{}, graph(%{"activated_by" => @forged}))
+    # GH #2590 / REQ-501 R2 (design 4.8, labelled SCOPE EXTENSION): a top-level
+    # `activated_by` body key is now refused 422 (it used to be silently dropped). A graph key
+    # is part of the graph document and is still just dropped by the cast.
+    test "POST /definitions refuses a body key (422) and drops a graph key", ctx do
+      resp =
+        call(:post, "/", ctx, ["TENANT_ADMIN"], %{
+          "name" => unique("b1"),
+          "version" => "1",
+          "graph" => graph(),
+          "activated_by" => @forged
+        })
 
-      assert %{activated_by: nil} = stored(ctx.schema, top)
+      assert resp.status == 422, resp.resp_body
+
+      nested = create!(ctx, %{}, graph(%{"activated_by" => @forged}))
       assert %{activated_by: nil} = stored(ctx.schema, nested)
     end
 
-    test "PUT and PATCH /definitions/:id drop it too", ctx do
+    test "PUT and PATCH /definitions/:id refuse it too (R2 scope extension)", ctx do
       id = create!(ctx)
 
       put =
@@ -235,11 +245,11 @@ defmodule Letflow.Definitions.EntityWritesActivatorTest do
           "activated_by" => @forged
         })
 
-      assert put.status == 200, put.resp_body
+      assert put.status == 422, put.resp_body
       assert %{activated_by: nil} = stored(ctx.schema, id)
 
       patch = call(:patch, "/#{id}", ctx, ["TENANT_ADMIN"], %{"activated_by" => @forged})
-      assert patch.status == 200, patch.resp_body
+      assert patch.status == 422, patch.resp_body
       assert %{activated_by: nil} = stored(ctx.schema, id)
     end
 

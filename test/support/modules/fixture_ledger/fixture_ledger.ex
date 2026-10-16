@@ -7,9 +7,11 @@ defmodule Letflow.Modules.FixtureLedger do
   `post_entry` (both targets) and `post_balance_only` (`fxl_balance`), in
   `Letflow.Modules.FixtureLedger.Handlers`.
 
-  R1 ships NO pack and NO `on_install`: nothing installs or calls it in a
-  running flow. A later PR (R4a) extends this fixture with its pack and
-  activation. No router, no permissions. Registered only in `config/test.exs`.
+  R1 shipped NO pack and NO `on_install`. R2 gives it `module_fixtures/ledger_foundation.json`
+  (the two managed entity definitions and one plain process definition, `fxl_post`) so a
+  module install creates a STAMPED process definition version; there is still no
+  `on_install`, no `module_writes` and nothing calls a handler (activation and execution are
+  R3/R4). No router, no permissions. Registered only in `config/test.exs`.
   """
 
   @behaviour Letflow.Modules.Module
@@ -21,7 +23,7 @@ defmodule Letflow.Modules.FixtureLedger do
     id: "fixture_ledger",
     version: "0.1.0",
     depends_on: [],
-    pack: nil,
+    pack: "module_fixtures/ledger_foundation.json",
     permissions: [],
     role_grants: %{},
     required_roles: [],

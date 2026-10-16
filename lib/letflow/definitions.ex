@@ -131,6 +131,7 @@ defmodule Letflow.Definitions do
   alias Letflow.Definitions.DefinitionSequence
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.JsonSchemaShape
+  alias Letflow.Definitions.OwnerStamp
   alias Letflow.Definitions.PackUpdateResolution
   alias Letflow.Definitions.ProcessDefinition
   alias Letflow.Definitions.PromotionArtifact
@@ -142,6 +143,7 @@ defmodule Letflow.Definitions do
   alias Letflow.Definitions.ValidationWarnings
   alias Letflow.Engine.EntityPort
   alias Letflow.Engine.VariableSchema
+  alias Letflow.Entities.ManagedTypes
   alias Letflow.Repo
   alias Letflow.SandboxPool
   alias Letflow.SandboxPool.FixtureLoader
@@ -238,6 +240,8 @@ defmodule Letflow.Definitions do
           | {:error, :graph_structure_invalid}
           | {:error, {:graph_validation_failed, [Graph.Violation.t()]}}
           | {:error, :duplicate_name_version}
+          # GH #2590 R2: `create_owned/3` was given neither `:tenant` nor an `Owner`.
+          | {:error, :invalid_owner}
           | {:error, Ecto.Changeset.t()}
           | common_error()
 
@@ -272,6 +276,8 @@ defmodule Letflow.Definitions do
           | {:error, :graph_structure_invalid}
           | {:error, {:graph_validation_failed, [Graph.Violation.t()]}}
           | {:error, :duplicate_name_version}
+          # GH #2590 / REQ-501 R2: the row is a module-shipped, stamped version (409).
+          | {:error, :module_owned_definition}
           | {:error, variable_schema_error()}
           | common_error()
 
@@ -561,6 +567,42 @@ defmodule Letflow.Definitions do
   @spec create(attrs :: create_attrs(), opts :: opts()) ::
           {:ok, ProcessDefinition.t()} | create_error()
   def create(attrs, opts) when is_map(attrs) and is_list(opts) do
+    create_with_stamp(attrs, opts, :none)
+  end
+
+  @doc """
+  `create/2` on behalf of `owner` (GH #2590 / REQ-501 PR R2, decision 0054 D6, design
+  `lib/letflow/design/gh2590-req501-module-write-handlers.md` 4.2, 4.8).
+
+  `:tenant` is exactly `create/2` (no stamp). A `Letflow.Entities.ManagedTypes.Owner` carrying
+  a `version` and a `manifest_hash` (built only by `ManagedTypes.module_owner/1` from the
+  module's compiled manifest) stamps the row: `owner_module`, `owner_module_version`,
+  `owner_manifest_hash` and `owner_body_hash` (`OwnerStamp.graph_hash/1` of `attrs.graph`,
+  computed BEFORE the insert) are written by `put_change/3` in the SAME INSERT. No UPDATE ever
+  stamps a row, the four fields are in no cast list, and the database trigger refuses any later
+  change of them. An owner without stamp inputs creates an UNSTAMPED row (a stamp is never
+  synthesised from partial data).
+
+  Callers: `Letflow.Definitions.SolutionPack` only (static scan
+  `test/letflow/definitions/create_owned_callers_test.exs`); the HTTP routers call `create/2`
+  and cannot reach this function.
+  """
+  @spec create_owned(attrs :: create_attrs(), opts :: opts(), owner :: ManagedTypes.owner()) ::
+          {:ok, ProcessDefinition.t()} | create_error()
+  def create_owned(attrs, opts, :tenant) when is_map(attrs) and is_list(opts),
+    do: create(attrs, opts)
+
+  def create_owned(attrs, opts, owner) when is_map(attrs) and is_list(opts) do
+    if ManagedTypes.owner?(owner) do
+      create_with_stamp(attrs, opts, {:owner, owner})
+    else
+      # Anything that is not `:tenant` or a genuine `%Owner{}` (a map or a foreign struct
+      # carrying the same keys) never stamps and never writes.
+      {:error, :invalid_owner}
+    end
+  end
+
+  defp create_with_stamp(attrs, opts, stamp_source) do
     prefix = Keyword.get(opts, :prefix)
 
     with :ok <- reject_key(attrs, :tenant_id, "tenant_id", :tenant_id_not_accepted),
@@ -574,9 +616,14 @@ defmodule Letflow.Definitions do
          :ok <- check_graph_result(Graph.validate_node_attributes(graph)),
          :ok <- check_graph_result(Graph.validate_edge_conditions(graph)),
          :ok <- check_graph_result(Graph.validate_flow(graph)) do
-      insert_definition(attrs, prefix, tenant_id)
+      insert_definition(attrs, prefix, tenant_id, stamp_for(stamp_source, graph_map))
     end
   end
+
+  # The stamp is computed from the graph map that was just validated, BEFORE the insert, and
+  # the same map is what the changeset casts into the `graph` column (OwnerStamp moduledoc).
+  defp stamp_for(:none, _graph_map), do: :none
+  defp stamp_for({:owner, owner}, graph_map), do: OwnerStamp.for_owner(owner, graph_map)
 
   @doc """
   Fetches one process definition by `id`, within the tenant schema named by
@@ -1743,8 +1790,10 @@ defmodule Letflow.Definitions do
   defp run_update(id, prefix, set, variable_schema_entries) do
     Repo.transaction(fn ->
       try do
+        # GH #2590 R2 (D-R.15): a module-shipped (stamped) version is immutable to the
+        # tenant API, so the guarded UPDATE only ever matches an UNSTAMPED draft.
         ProcessDefinition
-        |> where([d], d.id == ^id and d.status == :draft)
+        |> where([d], d.id == ^id and d.status == :draft and is_nil(d.owner_module))
         |> select([d], d)
         |> Repo.update_all([set: set], prefix: prefix)
         |> case do
@@ -1770,8 +1819,14 @@ defmodule Letflow.Definitions do
 
   defp fallback_lookup_for_update(id, prefix) do
     case Repo.get(ProcessDefinition, id, prefix: prefix) do
-      nil -> Repo.rollback(:not_found)
-      %ProcessDefinition{} -> Repo.rollback(:not_draft)
+      nil ->
+        Repo.rollback(:not_found)
+
+      %ProcessDefinition{status: :draft, owner_module: owner} when is_binary(owner) ->
+        Repo.rollback(:module_owned_definition)
+
+      %ProcessDefinition{} ->
+        Repo.rollback(:not_draft)
     end
   end
 
@@ -1902,7 +1957,7 @@ defmodule Letflow.Definitions do
   # transaction back) -- an accepted, small counter gap, the same class
   # activate_draft/3's 0-row deprecate update can also produce. The design's
   # own guarantee is monotonic ordering, never gap-free numbering.
-  defp insert_definition(attrs, prefix, tenant_id) do
+  defp insert_definition(attrs, prefix, tenant_id, stamp) do
     try do
       Repo.transaction(fn ->
         case assign_definition_sequence(tenant_id, prefix) do
@@ -1911,6 +1966,7 @@ defmodule Letflow.Definitions do
               %ProcessDefinition{}
               |> ProcessDefinition.create_changeset(attrs)
               |> Ecto.Changeset.put_change(:sequence_number, seq)
+              |> put_owner_stamp(stamp)
 
             changeset
             |> Repo.insert(
@@ -1956,6 +2012,18 @@ defmodule Letflow.Definitions do
     end
   end
 
+  # GH #2590 / REQ-501 R2: all four stamp columns in the one INSERT (CHECK all-or-none), or
+  # none. The only writer of the owner_* fields; `:none` leaves every column NULL.
+  defp put_owner_stamp(changeset, :none), do: changeset
+
+  defp put_owner_stamp(changeset, {:ok, stamp}) do
+    changeset
+    |> Ecto.Changeset.put_change(:owner_module, stamp.module_id)
+    |> Ecto.Changeset.put_change(:owner_module_version, stamp.module_version)
+    |> Ecto.Changeset.put_change(:owner_manifest_hash, stamp.manifest_hash)
+    |> Ecto.Changeset.put_change(:owner_body_hash, stamp.body_hash)
+  end
+
   # REQ-195 -- actor_id is nil for every Definitions lifecycle audit row
   # (create/activate/deprecate/archive): none of these four functions'
   # `opts()`/`activate_opts()` carries an actor_id field today, and the one
@@ -1984,8 +2052,11 @@ defmodule Letflow.Definitions do
 
   defp definition_audit_state(nil), do: nil
 
+  # The two ownership hashes (GH #2590 R2, OQ-R11) are never serialised: they are not in
+  # the API and not in the tenant audit state either; `owner_module`/`owner_module_version`
+  # are (who shipped this version is provenance, not a verification secret).
   defp definition_audit_state(%ProcessDefinition{} = definition),
-    do: Audit.struct_state(definition)
+    do: Audit.struct_state(definition, [:owner_manifest_hash, :owner_body_hash])
 
   # -----------------------------------------------------------------------------------
   # get_by_id/2 helper

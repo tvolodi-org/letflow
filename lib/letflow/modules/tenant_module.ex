@@ -30,6 +30,10 @@ defmodule Letflow.Modules.TenantModule do
     field(:version, :string)
     field(:installed_at, :utc_datetime_usec)
     field(:settings, :map, default: %{})
+    # GH #2590 / REQ-501 R2: `Letflow.Modules.Catalog.manifest_hash/1` recorded at install.
+    # NULL for a module installed before the column existed (OQ-R7: no backfill, no
+    # reconstruction). Cast only by `insert_changeset/2`, never by `settings_changeset/2`.
+    field(:manifest_hash, :string)
   end
 
   @type t :: %__MODULE__{
@@ -37,7 +41,8 @@ defmodule Letflow.Modules.TenantModule do
           module_id: String.t(),
           version: String.t(),
           installed_at: DateTime.t(),
-          settings: map()
+          settings: map(),
+          manifest_hash: String.t() | nil
         }
 
   @doc """
@@ -50,7 +55,7 @@ defmodule Letflow.Modules.TenantModule do
   @spec insert_changeset(%__MODULE__{}, attrs :: map()) :: Ecto.Changeset.t()
   def insert_changeset(tenant_module, attrs) do
     tenant_module
-    |> cast(attrs, [:module_id, :version, :installed_at, :settings])
+    |> cast(attrs, [:module_id, :version, :installed_at, :settings, :manifest_hash])
     |> validate_required([:module_id, :version, :installed_at])
     |> unique_constraint(:module_id, name: :tenant_modules_module_id_idx)
   end

@@ -66,12 +66,32 @@ defmodule Letflow.Entities.ManagedTypes do
     delegates to it) from a compiled manifest.
     """
     @enforce_keys [:module_id, :manages]
-    defstruct [:module_id, :manages]
+    defstruct [:module_id, :manages, version: nil, manifest_hash: nil]
 
-    @type t :: %__MODULE__{module_id: String.t(), manages: MapSet.t(String.t())}
+    # `version` / `manifest_hash` (GH #2590 / REQ-501 R2) are the manifest `:version` and the
+    # `Letflow.Modules.Catalog.manifest_hash/1` at the time the owner was built: the stamp
+    # inputs `Letflow.Definitions.create_owned/3` writes on a module-shipped process
+    # definition. Both nil on an owner that carries no stamp inputs.
+    @type t :: %__MODULE__{
+            module_id: String.t(),
+            manages: MapSet.t(String.t()),
+            version: String.t() | nil,
+            manifest_hash: String.t() | nil
+          }
   end
 
   @type owner :: :tenant | Owner.t()
+
+  @doc """
+  True only for an `%Owner{}` struct (never `:tenant`, a plain map or a foreign struct that
+  merely carries `module_id`/`version`/`manifest_hash` keys). The predicate
+  `Letflow.Definitions.create_owned/3` and `Letflow.Definitions.OwnerStamp.for_owner/2` use
+  so that only a genuine owner can stamp a row; it keeps the `%Owner{}` pattern in this file
+  (scan `managed_types_callers_test`).
+  """
+  @spec owner?(term()) :: boolean()
+  def owner?(%Owner{}), do: true
+  def owner?(_other), do: false
 
   @doc "Guard: `term` is a valid write authority (`:tenant` or an `%Owner{}`)."
   defguard is_authority(term) when term == :tenant or is_struct(term, Owner)
@@ -79,16 +99,28 @@ defmodule Letflow.Entities.ManagedTypes do
   @doc """
   Builds the `Owner` for a Catalog entry module from its compiled manifest:
   `module_id` is the manifest `:id`, `manages` its `:manages_entity_types` (absent
-  means none). Only `Letflow.Modules.Installs.install/3` and `owner_for!/1` may
-  call this.
+  means none), `version` its `:version` and `manifest_hash` its
+  `Letflow.Modules.Catalog.manifest_hash/1` (the stamp inputs of a module-shipped
+  process definition, GH #2590 R2). Only `Letflow.Modules.Installs.install/3` and
+  `owner_for!/1` may call this.
   """
   @spec module_owner(entry_module :: module()) :: Owner.t()
   def module_owner(entry_module) when is_atom(entry_module) do
     manifest = entry_module.manifest()
 
+    # An entry module outside the Catalog has no manifest hash: the owner then carries no
+    # stamp inputs (nil) and `create_owned/3` makes no stamp from it.
+    manifest_hash =
+      case Catalog.manifest_hash(entry_module) do
+        {:ok, hash} -> hash
+        {:error, :not_found} -> nil
+      end
+
     %Owner{
       module_id: manifest.id,
-      manages: MapSet.new(Map.get(manifest, :manages_entity_types, []))
+      manages: MapSet.new(Map.get(manifest, :manages_entity_types, [])),
+      version: manifest.version,
+      manifest_hash: manifest_hash
     }
   end
 
