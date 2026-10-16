@@ -1,0 +1,45 @@
+{
+  "handoff_id": "c4a7d1e0-2596-4a11-8c20-000000000010",
+  "run_id": "WF02-GH2596-EXAM-MANAGED-20261016",
+  "workflow_id": "WF-02",
+  "step": "10",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGN-VALIDATOR",
+  "file": "handoffs/WF02-GH2596-EXAM-MANAGED-20261016/step-10-test-design-validator.json",
+  "created_at": "2026-10-16T14:55:00Z",
+  "started_at": "2026-10-16T14:55:30Z",
+  "completed_at": "2026-10-16T15:20:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S10",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2596": "Static validation of the test set T-01..T-27 against the issue ACs (read through the 2026-10-16 ruling: only the 6 runtime types managed) and the design's SECURITY items F-1..F-4, B-1..B-3. No tests or mutants were run (instructed: shared memory, ORCH runs mutants on hosted CI)."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-2596-4a11-8c20-000000000009"
+    ],
+    "artifacts_in": [
+      "test/specs/GH2596-exam-managed.md",
+      "lib/letflow/design/gh2596-exam-managed-types.md",
+      "handoffs/WF02-GH2596-EXAM-MANAGED-20261016/step-09-test-designer.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2596-EXAM-MANAGED-20261016"
+  },
+  "task": {
+    "description": "WF-02 step 3b test-design validation for GH #2596. Read-only; static reasoning only."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "PASS, static only (nothing run; mutant verdicts below are READING-derived, not measured). COVERAGE: every AC has a runnable, non-skipped test (grep for skip/TODO/@tag :skip across all new files: none). AC1 manifest: T-01 (3), T-02 (5) in exam_managed_manifest_test. AC2 Owner on writes: T-03/T-06 in managed_types_callers_test (describe 'GH #2596 T-03', 'T-06' present), T-04/T-05 in exam_stamped_tenant_test (full flow on stamped tenant exercising all five Records sites: session create + session_question, autosave create AND update path, anti_cheat signal, submit update + score, certificate issue + idempotent re-issue; plus /2, :tenant, other-module Owner, forged all-six Owner refused with no event). AC3 stamp: T-07/T-08/T-09/T-09b/T-10 in stamp_trigger_test (raw UPDATE matrix on six vs ten vs org_unit, other module id, other/empty/upper-case setting, combined mutations of name/status/display_name/definition_json/content_hash/tenant_id; commit and rollback reset in the SAME connection via Repo.checkout; tgenabled 'O'; nested-transaction refusal for Stamp and TamperInventory; down/up byte comparison of prosrc; ARRAY literal == six), T-11 in stamp_opener_scan_test (5 assertions + synthetic negatives per literal form + forbidden DDL; async:true is safe, pure file reads), T-18/T-19 in stamp_test. AC3 sub: T-12/T-13 in exam_managed_types_http_test (POST /definitions with/without managed_by, activate, pack documents with managed_by at 3 levels, tenant install over stamped names; note the router has no PUT /definitions route, only POST /definitions and POST /definitions/:name/activate, so the issue's 'PUT' has no surface to test). AC4 (a)-(d): T-15 (a), T-14 b1/b2/b3/b4 + re-run adds 0 (b), T-16 (c) incl. unrelated shape, wrong type, missing field, superset, older-version both orders and all-good (F-3), stamped_by_other_module, tag untouched, sweep continues past conflicted tenant, two race variants (F-4), T-17 (d) + exception_not_installed, in stamp_test. AC5: T-20 (6 types x POST/PUT/DELETE x PROCESS_OPERATOR and TENANT_ADMIN, byte-equal constant 403 body from Error.entity_type_managed, stored record + count unchanged, event count unchanged; import as TENANT_ADMIN for all six with zero records; POST /query items equal to pre-stamp items). AC5 control: T-23 (all ten authoring types POST/PUT/DELETE/import succeed for both caller kinds; ten definition rows byte-identical and NULL after stamp). AC6: T-04 plus existing session/scoring/certificate/anti_cheat suites unchanged (step 09 reports 126 passed). AC7: T-24 (seeds one module write via Session.create and one generic client-keyed write; asserts exactly one finding with type, record id, event type, actor, tenant, timestamp, evidence :client_key; module session/session_question rows asserted to exist = non-vacuous), T-25 (non_owner_actor, import_key, unrecognised_key_shape, scope runtime/authoring/all, cap, run/1 + Release wrapper + Mix task), T-26 (row digests of events/entity_record_latest/entity_definitions/audit_entries, telemetry shows SET TRANSACTION READ ONLY right after begin and no write statement, AST scan of module for write calls and Logger, finding key set fixed, unique payload marker absent from findings and debug logs), T-27 (blind spot characterised). AC8: T-22 (query, aggregate, definitions read, answer_option is_correct redaction for TASK_WORKER). FIXTURES: every Stamp/TamperInventory test file is async:false, tenants come from Fx (TenantFixture.provisioned_tenant!, Sandbox :auto, unique slug prefix per test, on_exit teardown LIFO with global-table cleanup); no cross-test ordering dependency; no hardcoded secrets or connection strings (grep clean); sweep tests pick their own tenants by schema name. SEC ITEMS: F-1 T-09 (commit/rollback in same connection, nested refusal both modules, clearing statement) running outside the sandbox; F-2 T-11 tripwire with documented non-boundary; F-3 older-version tests in both orders; F-4 two race variants (after_precheck hook, and a 3-connection pg_locks-observed name-lock serialization); B-1 non-sandbox statement in every moduledoc and the spec; B-2 sigils/heredoc/charlist/fragment negatives in T-11 assertion 1; B-3 T-26 projection and log assertions. MUTANTS (reading-derived): M1 (NEW.managed_by IS NOT NULL) killed by T-08 'refused for another module id' (NULL -> 'other' with setting 'exam' must be refused); M1b (drop ARRAY name line) killed by T-08 'refused on each of the ten authoring names and org_unit' and T-10 array-literal test. M2 (stamp from advisory classification) killed by the F-4 race test: hook creates an incompatible new certificate version after the pre-pass, asserts conflicts == [certificate shape_not_compatible], rows_stamped 5 and certificate managed_by == [nil]; under the mutant certificate rows would be stamped. M3 (owner dropped at any of the five sites) killed by T-04 which drives every site on a stamped tenant and requires {:ok,_} (entity_type_managed otherwise), plus the callers R1/R6/T-06 static tests. M4 (suspicious? always true) killed by T-24 (assert [finding] = report.findings; module session/session_question events would be listed), T-27 (findings == []), T-26 (assert [_]) and T-25 count == 3; a partial mutant dropping only the owner-actor condition is killed by T-27, dropping only the key-shape condition by T-24. UNKILLABLE MUTANT (deleting the last set_config('letflow.managed_by_stamp','',true) in Stamp.real_run, stamp.ex line ~280): ACCEPTABLE, no extra test required. The transaction commits immediately after the statement so the clearing is unobservable from outside; the only scenario where it matters (joined outer transaction) is made unreachable by the Repo.in_transaction? entry guard (stamp.ex line 189) which T-09 (i) kills if removed; T-09 (ii) pins the trigger-side property it relies on. A telemetry statement-order assertion would couple the test to implementation text for defence in depth only. NON-BLOCKING OBSERVATIONS: (1) at validation time git status is clean and HEAD is ec57d92f9 'fix(GH #2596) ...': the working tree was committed after the dispatch snapshot, so the reviewed files are the committed ones (read directly from disk). (2) T-19 System.halt(1) path not run in-VM (documented; condition asserted on the report). (3) The telemetry read-only test depends on the [:letflow, :repo, :query] event and on the handler running in the test process; step 09 reports it green. (4) ORCH must still measure M1..M4 on hosted CI per its plan; this PASS does not substitute for measured counts.",
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "diagnosis_confirmed": null,
+    "implementation_written": false,
+    "classification": "TEST_DESIGN_PASS"
+  }
+}

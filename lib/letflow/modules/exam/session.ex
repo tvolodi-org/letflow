@@ -118,11 +118,13 @@ defmodule Letflow.Modules.Exam.Session do
 
   import Ecto.Query, only: [from: 2]
 
+  alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Query.Allowlist
   alias Letflow.Entities.Query.Compiler
   alias Letflow.Entities.Query.Cursor
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Records
+  alias Letflow.Modules.Exam
   alias Letflow.Modules.Exam.QuestionSetResolver
   alias Letflow.Modules.Exam.Scoring
   alias Letflow.Repo
@@ -1069,7 +1071,8 @@ defmodule Letflow.Modules.Exam.Session do
               actor_id: user_id,
               idempotency_key: Ecto.UUID.generate()
             },
-            prefix
+            prefix,
+            exam_owner()
           )
 
         ok_or_error(write_result)
@@ -1268,7 +1271,8 @@ defmodule Letflow.Modules.Exam.Session do
           actor_id: fv(session, "user_id"),
           idempotency_key: Ecto.UUID.generate()
         },
-        prefix
+        prefix,
+        exam_owner()
       )
     )
   end
@@ -1332,9 +1336,15 @@ defmodule Letflow.Modules.Exam.Session do
         actor_id: actor_id,
         idempotency_key: Ecto.UUID.generate()
       },
-      prefix
+      prefix,
+      exam_owner()
     )
   end
+
+  # GH #2596: the exam module's own Owner, passed to every `Records` write so the six runtime
+  # types can be managed (`Exam.manifest().manages_entity_types`). Built per call, never stored.
+  @spec exam_owner() :: ManagedTypes.Owner.t()
+  defp exam_owner, do: ManagedTypes.owner_for!(Exam)
 
   defp ok_or_error({:ok, _result}), do: :ok
   defp ok_or_error({:error, _reason} = error), do: error

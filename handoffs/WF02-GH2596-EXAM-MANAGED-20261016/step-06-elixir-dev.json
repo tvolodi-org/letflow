@@ -1,0 +1,58 @@
+{
+  "handoff_id": "c4a7d1e0-2596-4a11-8c20-000000000006",
+  "run_id": "WF02-GH2596-EXAM-MANAGED-20261016",
+  "workflow_id": "WF-02",
+  "step": "06",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF02-GH2596-EXAM-MANAGED-20261016/step-06-elixir-dev.json",
+  "created_at": "2026-10-16T14:00:00Z",
+  "started_at": "2026-10-16T14:05:00Z",
+  "completed_at": "2026-10-16T14:13:46Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S10",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2596": "Implement lib/letflow/design/gh2596-exam-managed-types.md (CDV PASS r3, SEC design findings folded): exam manifest manages the 6 runtime types, pack 10->16, trigger exception migration, Stamp + TamperInventory + Release wrapper + Mix tasks, exam writes pass the Owner."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "lib/letflow/design/gh2596-exam-managed-types.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2596-EXAM-MANAGED-20261016"
+  },
+  "task": {
+    "description": "WF-02 step 2a implementation for GH #2596. No tests written; no commit/push."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "Implemented per design. NEW: priv/repo/migrations/20261016120001_allow_exam_managed_by_stamp.exs (explicit up/down, one guarded branch in entity_definitions_managed_by_guard, registered in TenantProvisioning @tenant_scoped_migration_manifest, stamp_names/0), lib/letflow/entities/managed_types/stamp.ex (entry guard, advisory pre-pass, in-lock classification after lock_names + FOR UPDATE, set_config only before the single update_all, final clearing set_config, audit, differences names-only), lib/letflow/entities/managed_types/tamper_inventory.ex (READ ONLY tx, payload keys extracted in SQL, evidence proxies), lib/letflow/release/managed_types.ex, two Mix tasks. CHANGED: exam.ex manages_entity_types (6), session.ex/certificate.ex/anti_cheat.ex (exam_owner/0 helper via ManagedTypes.owner_for!(Exam), 5 Records /3 call sites), priv/modules/exam/pack.json regenerated (10 -> 16, pure additions, existing 10 byte-identical) and generate_pack.exs (16 names, pack_dir fixed to priv/modules/exam), tenant_provisioning.ex (manifest entry + moduledoc), managed_types.ex moduledoc paragraph, docs 0050 amendment note and REQ-496 design D3 amendment. VERIFIED: MIX_ENV=test mix compile --force --warnings-as-errors -> 'Compiling 447 files (.ex) / Generated letflow app', no warnings; mix format --check-formatted clean; mix letflow.check_boundaries OK (1577 edges, 0 violations); trigger SQL smoke on a scratch schema (rolled back): no setting refused, setting+session ok, setting+tag refused, unstamp refused. NOT RUN: mix test, Stamp/TamperInventory against a real provisioned tenant, permission_matrix --check (fails baseline_is_head because the branch is at main HEAD, environmental; manifest permissions/role_grants unchanged). DEVIATIONS: (1) Stamp reads the exam manifest's manages_entity_types via Catalog.fetch(\"exam\").manifest() instead of module_owner/1, because scan R3 allows module_owner only in managed_types.ex and installs.ex. (2) Existing pack-count tests of design 3.4 NOT edited (lead: no tests); they will fail on 10 vs 16 until TEST-DESIGNER updates them. (3) TamperInventory accepts an extra optional :cap opt (default 10_000) for the per-tenant cap.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "lib/letflow/entities/managed_types/stamp.ex",
+      "lib/letflow/entities/managed_types/tamper_inventory.ex",
+      "lib/letflow/release/managed_types.ex",
+      "lib/mix/tasks/letflow.stamp_managed_types.ex",
+      "lib/mix/tasks/letflow.managed_types_tamper_inventory.ex",
+      "priv/repo/migrations/20261016120001_allow_exam_managed_by_stamp.exs",
+      "priv/modules/exam/pack.json",
+      "priv/modules/exam/generate_pack.exs",
+      "lib/letflow/modules/exam/exam.ex",
+      "lib/letflow/modules/exam/session.ex",
+      "lib/letflow/modules/exam/certificate.ex",
+      "lib/letflow/modules/exam/anti_cheat.ex",
+      "lib/letflow/tenant_provisioning.ex",
+      "lib/letflow/entities/managed_types.ex",
+      "docs/migration/decisions/0050-foundation-modules-org-catalog-and-reference-contract.md",
+      "lib/letflow/design/req496-managed-by-and-scope-node-paths.md"
+    ],
+    "diagnosis_confirmed": null,
+    "implementation_written": true,
+    "classification": null
+  }
+}

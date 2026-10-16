@@ -80,9 +80,11 @@ defmodule Letflow.Modules.Exam.AntiCheat do
   gives for its own config-only surface).
   """
 
+  alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Query.Compiler
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Records
+  alias Letflow.Modules.Exam
   alias Letflow.Modules.Exam.Session
   alias Letflow.Repo
 
@@ -267,9 +269,15 @@ defmodule Letflow.Modules.Exam.AntiCheat do
         actor_id: actor_id,
         idempotency_key: Ecto.UUID.generate()
       },
-      prefix
+      prefix,
+      exam_owner()
     )
   end
+
+  # GH #2596: the exam module's own Owner, passed to every `Records` write so the six runtime
+  # types can be managed (`Exam.manifest().manages_entity_types`). Built per call, never stored.
+  @spec exam_owner() :: ManagedTypes.Owner.t()
+  defp exam_owner, do: ManagedTypes.owner_for!(Exam)
 
   defp branch_on_policy(:log, event_count, _session, _user_id, _prefix) do
     {:ok, %{action_taken: :log, event_count: event_count, warning: false, submission: nil}}

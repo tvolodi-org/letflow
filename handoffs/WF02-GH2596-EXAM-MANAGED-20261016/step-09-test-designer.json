@@ -1,0 +1,61 @@
+{
+  "handoff_id": "c4a7d1e0-2596-4a11-8c20-000000000009",
+  "run_id": "WF02-GH2596-EXAM-MANAGED-20261016",
+  "workflow_id": "WF-02",
+  "step": "09",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGNER",
+  "file": "handoffs/WF02-GH2596-EXAM-MANAGED-20261016/step-09-test-designer.json",
+  "created_at": "2026-10-16T14:10:00Z",
+  "started_at": "2026-10-16T14:14:00Z",
+  "completed_at": "2026-10-16T14:53:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S10",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2596": "Test set T-01..T-28 for the exam managed-types change (only the 6 runtime types managed; 10 authoring types stay writable), plus the existing-test updates (pack 10 -> 16, callers scan, fixtures)."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-2596-4a11-8c20-000000000006"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/gh2596-exam-managed-types.md",
+      "handoffs/WF02-GH2596-EXAM-MANAGED-20261016/step-06-elixir-dev.json",
+      "handoffs/WF02-GH2596-EXAM-MANAGED-20261016/step-07-security-reviewer-code.json",
+      "handoffs/WF02-GH2596-EXAM-MANAGED-20261016/step-08-reviewer-code.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2596-EXAM-MANAGED-20261016"
+  },
+  "task": {
+    "description": "WF-02 step 3 test design for GH #2596. Tests and spec only; no lib/ or priv/ edits; no commit/push."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "80 new test cases in 7 new files plus a shared fixture module, and 5 existing test/support files updated; spec test/specs/GH2596-exam-managed.md maps every AC to a test and defines 4 mutants (M1 trigger accepts a non-exam value, M2 stamp skips in-transaction classification, M3 owner omitted at an exam call site, M4 inventory lists module writes) for TEST-DESIGN-VALIDATOR; the mutants were NOT applied (instructed not to edit lib/ or priv/), their failing sets are derived by reading, not measured. RESULTS (MIX_ENV=test mix test --warnings-as-errors, one mix process at a time under the machine mutex, timeout 540): (1) new files + managed_types_callers_test + pack_install_test + on_install_test + bilimbaga_solution_e2e_test: 'Result: 117 passed', EXIT=0. (2) exam suites session/scoring/certificate/anti_cheat/exam_sessions UNCHANGED: 126 passed (that run reported 139/140 passed; the single failure was a syntax error in a synthetic source inside my own stamp_opener_scan_test, fixed afterwards and covered by run 1). (3) other directly affected existing files (solutions_test, tenant_solutions_test, solution_packs_module_owned_pack_test, solution_pack_bilimbaga_field_restrictions_test, client_key_namespace_test, install_activation_test, ci_backend_path_filter_test, entities_managed_by_test, installs_managed_by_test, managed_types_test, records_managed_by_test, catalog_test, backfill_exam_tenant_modules_test, tenant_auditor_routes_test + the seed task test): 204/209 passed, the 5 failures were all in test/mix/tasks/letflow.seed.exam_fixtures_test.exs (see finding 1); after fixing that file's setup it ran 'Result: 5 passed'. mix format --check-formatted on every changed/new test file: EXIT=0. NOT RUN: mix letflow.check.test and the full suite (instructed), mix letflow.check_boundaries / permission_matrix (T-28 is TEST-RUNNER/RELEASE-VALIDATOR), tenant_admin_routes_test, entity_definitions_test, exam_definitions_test (read-only JSON/definition tests, not affected by a pack count), and the Mix tasks' System.halt(1) path (would kill the test VM; the failed_total condition is asserted on the report). FINDINGS: (1) design T-06 said the seed-task test passes unchanged on a freshly installed (stamped) tenant; it does not: its setup pre-activated tenant-owned session/etc. and the task's own Installs.install('exam') then failed with {:pack_install_failed, {:managed_name_taken, 'session'}} (5/5 red). Same class: bilimbaga_solution_e2e_test failed at ExamFixtures.activate_exam_definitions!/1 with {:error, :entity_type_managed} after a real install. Both fixed in the TESTS (install first, then ExamFixtures.activate_exam_definitions_after_pack_install!/1 which creates+activates authoring types and activates the pack's stamped runtime rows). This is a consequence of the design, not an implementation bug: a tenant that already defines a managed name cannot install exam, and fresh-install runtime rows are inactive until a tenant activates them (OQ-5), so any script that pre-creates tenant-owned runtime definitions before installing exam breaks. (2) No implementation bug found; every assertion on the implementation passed first time (trigger matrix, down/up byte comparison, in-lock classification race, name-lock serialization with a second connection, read-only telemetry, nested-transaction refusals). (3) The pre-existing unused alias Definitions in bilimbaga_solution_e2e_test already failed --warnings-as-errors on main; removed. (4) T-11 dynamic-SQL allowlist was regenerated from the tree (16 files, quoted in the test); the migration FILE NAME literal in TenantProvisioning's manifest is explicitly not counted as a spelling of the setting. (5) Known unkilled mutant: deleting the final set_config('letflow.managed_by_stamp','',true) clearing statement in Stamp.real_run changes nothing observable (documented in the spec). (6) Stamp.run/1 sweeps every registered tenant of the test database; sweep tests pick their own tenants by schema name.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "test/specs/GH2596-exam-managed.md",
+      "test/support/exam_stamp_fixtures.ex",
+      "test/letflow/modules/exam/exam_managed_manifest_test.exs",
+      "test/letflow/modules/exam/exam_stamped_tenant_test.exs",
+      "test/letflow/entities/managed_types/stamp_trigger_test.exs",
+      "test/letflow/entities/managed_types/stamp_test.exs",
+      "test/letflow/entities/managed_types/stamp_opener_scan_test.exs",
+      "test/letflow/entities/managed_types/tamper_inventory_test.exs",
+      "test/letflow/routers/exam_managed_types_http_test.exs",
+      "test/letflow/entities/managed_types_callers_test.exs",
+      "test/letflow/modules/exam/pack_install_test.exs",
+      "test/letflow/modules/bilimbaga_solution_e2e_test.exs",
+      "test/mix/tasks/letflow.seed.exam_fixtures_test.exs",
+      "test/support/exam_fixtures.ex"
+    ],
+    "diagnosis_confirmed": null,
+    "implementation_written": false,
+    "classification": "TESTS_WRITTEN"
+  }
+}

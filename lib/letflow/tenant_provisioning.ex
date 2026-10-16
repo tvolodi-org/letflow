@@ -701,7 +701,10 @@ defmodule Letflow.TenantProvisioning do
     {20_261_016_100_001, Letflow.Repo.Migrations.AddOwnerStampToProcessDefinitions,
      "20261016100001_add_owner_stamp_to_process_definitions.exs"},
     {20_261_016_100_002, Letflow.Repo.Migrations.AddManifestHashToTenantModules,
-     "20261016100002_add_manifest_hash_to_tenant_modules.exs"}
+     "20261016100002_add_manifest_hash_to_tenant_modules.exs"},
+    # GH #2596: the single, narrow exception to REQ-496 D3 (NULL -> 'exam' on six frozen names).
+    {20_261_016_120_001, Letflow.Repo.Migrations.AllowExamManagedByStamp,
+     "20261016120001_allow_exam_managed_by_stamp.exs"}
   ]
 
   @doc """
@@ -753,7 +756,9 @@ defmodule Letflow.TenantProvisioning do
   two more: `entity_definitions.managed_by` and `scope_node_paths`
   (`lib/letflow/design/req496-managed-by-and-scope-node-paths.md` §2.1, §5), and REQ-497
   one more: `role_scope_grants`
-  (`lib/letflow/design/req497-1a-role-scope-grants-table-backfill-writers.md` §1) —
+  (`lib/letflow/design/req497-1a-role-scope-grants-table-backfill-writers.md` §1), and GH #2596
+  one more: `AllowExamManagedByStamp`, the single documented exception to REQ-496 D3
+  (`lib/letflow/design/gh2596-exam-managed-types.md` §4) —
   entries in total (see `@tenant_scoped_migration_manifest` itself for the
   authoritative, up-to-date count), ordered by version. Every future tenant-scoped migration must append its
   own entry to `@tenant_scoped_migration_manifest`, in addition to following the

@@ -57,6 +57,14 @@ defmodule Letflow.ExamFixtures do
   # existing callers.
   @extra_entity_types_for_exam_fixtures_task ~w(category)
 
+  # GH #2596: the six runtime/result types the exam manifest manages. A real
+  # `Installs.install("exam", ...)` stamps their pack rows `managed_by = 'exam'`, after which a
+  # `:tenant` `Definitions.create_definition/2` of the same name is refused
+  # (`:entity_type_managed`); `activate_exam_definitions_after_pack_install!/1` below therefore
+  # ACTIVATES the pack's own stamped rows instead of creating fixture versions of them.
+  @runtime_entity_types ~w(session session_question session_answer session_question_score
+                           session_event certificate)
+
   @doc """
   Provisions a fresh tenant schema, seeds event types, and activates every
   entity definition this suite needs -- real definitions read directly from
@@ -208,6 +216,37 @@ defmodule Letflow.ExamFixtures do
     # reachable in clear via the generic `POST /entities/query` route for
     # any TASK_WORKER-scoped caller.
     :ok = Exam.on_install(schema_name, %{})
+
+    :ok
+  end
+
+  @doc """
+  GH #2596: like `activate_exam_definitions!/1`, for a tenant that went through the REAL
+  `Installs.install("exam", ...)`: the six managed runtime types (`session`, `session_question`,
+  `session_answer`, `session_question_score`, `session_event`, `certificate`) already exist from the
+  pack, stamped `managed_by = 'exam'`, so they are ACTIVATED as installed (a `:tenant`
+  `create_definition/2` of those names is refused). The authoring types (and `category`) are created
+  and activated from `priv/modules/exam/entity_definitions/*.json` exactly as in
+  `activate_exam_definitions!/1`. `Exam.on_install/2` is not called again (the install ran it).
+  """
+  @spec activate_exam_definitions_after_pack_install!(schema_name :: String.t()) :: :ok
+  def activate_exam_definitions_after_pack_install!(schema_name) do
+    authoring =
+      (@entity_types -- @runtime_entity_types) ++ @extra_entity_types_for_exam_fixtures_task
+
+    for entity_type <- authoring do
+      create_active_definition!(schema_name, load_definition!(entity_type))
+    end
+
+    for entity_type <- @runtime_entity_types do
+      assert {:ok, _activated} =
+               Definitions.activate_definition(
+                 entity_type,
+                 Ecto.UUID.generate(),
+                 "go-live",
+                 schema_name
+               )
+    end
 
     :ok
   end

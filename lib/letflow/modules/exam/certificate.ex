@@ -197,8 +197,10 @@ defmodule Letflow.Modules.Exam.Certificate do
   `lib/letflow/design/req357-certificate-public-projection.md` §5.
   """
 
+  alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Records
+  alias Letflow.Modules.Exam
   alias Letflow.Modules.Exam.Session
   alias Letflow.Identity
   alias Letflow.Identity.Tenant
@@ -340,7 +342,8 @@ defmodule Letflow.Modules.Exam.Certificate do
                idempotency_key: "certificate:issue:" <> session.id,
                idempotency_match: :target
              },
-             prefix
+             prefix,
+             exam_owner()
            ) do
         {:ok, %{record: record, is_duplicate: is_duplicate}} ->
           {:ok, record, not is_duplicate}
@@ -350,6 +353,10 @@ defmodule Letflow.Modules.Exam.Certificate do
       end
     end
   end
+
+  # GH #2596: the exam module's own Owner for the certificate write; built per call.
+  @spec exam_owner() :: ManagedTypes.Owner.t()
+  defp exam_owner, do: ManagedTypes.owner_for!(Exam)
 
   # The candidate's own display name at issuance time -- see moduledoc
   # "Branding snapshot" for why this and branding are both captured only on

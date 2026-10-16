@@ -20,7 +20,10 @@ defmodule Letflow.Entities.ManagedTypes do
   that hard-code `:tenant`. An `Owner` reaches `Letflow.Entities.Records` only from
   the caller-scan test's `@authority_callers` files. GH #2590 R4a adds a third origin,
   `owner_for_handler/2`, called only here and by `Letflow.Entities.HandlerWrites`, which
-  builds the Owner of a module write handler's write from the Catalog's registration. `mix letflow.check_boundaries`
+  builds the Owner of a module write handler's write from the Catalog's registration. GH #2596
+  adds the exam module's own files (`lib/letflow/modules/exam/session.ex`, `certificate.ex`,
+  `anti_cheat.ex`) as origin callers of `owner_for!(Exam)` (the directory rule) and as `Records`
+  authority callers. `mix letflow.check_boundaries`
   cannot express a per-function caller allow-list, so these restrictions are
   pinned by an AST caller-scan test instead
   (`test/letflow/entities/managed_types_callers_test.exs`), and the `Owner` struct

@@ -35,6 +35,11 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
     * R5: qualified `Definitions.create_definition/3` with a non-`:tenant` owner only in
       `solution_pack.ex` threading `owner`; `SolutionPack.install/4` with a non-`:tenant` owner
       only in `installs.ex`.
+    * R6 (GH #2596): under `lib/letflow/modules/exam/`, no qualified `Records.create_record |
+      update_record | delete_record` call has two arguments or a literal `:tenant` third argument
+      (the exam module writes only its managed runtime types; the spec is `test/specs/GH2596-exam-managed.md`).
+      The exam writers `session.ex`, `certificate.ex`, `anti_cheat.ex` are in `@authority_callers`
+      and call `owner_for!(Exam)` (R2 directory rule).
 
   Accepted limits (design 7.5), NOT covered: computed module or function names
   (`apply(mod_var, fun_var, args)`, `Module.concat/1`, `String.to_atom/1`),
@@ -55,9 +60,16 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
   @handler_writes "lib/letflow/entities/handler_writes.ex"
   @fixture_managed "test/support/modules/fixture_managed/fixture_managed.ex"
   @script_policy_fixture "test/support/script_policy_fixture.ex"
+  # GH #2596: the exam module's own record writers; each passes the exam Owner (`exam_owner/0`).
+  @exam_anti_cheat "lib/letflow/modules/exam/anti_cheat.ex"
+  @exam_certificate "lib/letflow/modules/exam/certificate.ex"
+  @exam_session "lib/letflow/modules/exam/session.ex"
+  @exam_writers [@exam_anti_cheat, @exam_certificate, @exam_session]
+  @exam_dir ["lib", "letflow", "modules", "exam"]
 
-  # Static allow-list for R1: adding a file here is a reviewed diff (design 7.3).
-  @authority_callers [@handler_writes, @fixture_managed]
+  # Static allow-list for R1: adding a file here is a reviewed diff (design 7.3). Kept in the
+  # sorted order `r1_files/1` returns (the scan set is path-sorted).
+  @authority_callers [@handler_writes] ++ @exam_writers ++ [@fixture_managed]
   # R3 / R4 allow-lists (unchanged from REQ-496 T-34).
   @module_owner_callers [@managed_types, @installs]
   @owner_builders [@managed_types]
@@ -451,6 +463,24 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
         do: path
   end
 
+  # R6 (GH #2596, design 5.5): [{path, site}] for every qualified Records create/update/delete
+  # call under lib/letflow/modules/exam/ that carries NO authority: two arguments, or a literal
+  # `:tenant` third argument. The exam module writes only managed runtime types, so a tenant
+  # write would be refused at runtime; this pins it statically.
+  defp r6_violations(files) do
+    for {path, ast} <- files,
+        under_dir?(path, @exam_dir),
+        {fun, receiver, args} <- calls(normalize_pipes(ast)),
+        fun in [:create_record, :update_record, :delete_record],
+        qualified?(receiver, :records),
+        tenant_authority?(args),
+        do: {path, fun}
+  end
+
+  defp tenant_authority?([_attrs, _prefix]), do: true
+  defp tenant_authority?([_attrs, _prefix, :tenant]), do: true
+  defp tenant_authority?(_other), do: false
+
   # R3: every file with a module_owner site (call, capture, Function.capture, apply).
   defp module_owner_callers(files) do
     for {path, ast} <- files,
@@ -626,7 +656,65 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
       files: files
     } do
       assert r2_violations(files) == []
-      assert owner_for_callers(files) == [@fixture_managed]
+      # GH #2596: the three exam writers join the fixture (directory rule, alias form).
+      assert owner_for_callers(files) == @exam_writers ++ [@fixture_managed]
+    end
+
+    test "GH #2596 T-06: R1 sees the real exam write sites (non-vacuous)", %{files: files} do
+      sites = fn path -> for {^path, site} <- r1_violations(files), do: site end
+
+      assert sites.(@exam_session) |> Enum.sort() ==
+               Enum.sort([
+                 {:call, :update_record},
+                 {:call, :update_record},
+                 {:call, :create_record}
+               ])
+
+      assert sites.(@exam_certificate) == [{:call, :create_record}]
+      assert sites.(@exam_anti_cheat) == [{:call, :create_record}]
+    end
+  end
+
+  describe "GH #2596 T-03 (AC2): R6, no exam Records write without an authority" do
+    test "real tree: no /2 and no :tenant exam write under lib/letflow/modules/exam/", %{
+      files: files
+    } do
+      exam_files = for {path, _ast} <- files, under_dir?(path, @exam_dir), do: path
+      # Non-vacuity: the scan covers the three writers.
+      assert Enum.all?(@exam_writers, &(&1 in exam_files))
+      assert r6_violations(files) == []
+    end
+
+    test "synthetic negatives: a /2 call, a piped /2 call and a :tenant literal each violate" do
+      files =
+        synthetic([
+          {"lib/letflow/modules/exam/n1.ex", "Records.create_record(attrs, prefix)"},
+          {"lib/letflow/modules/exam/n2.ex", "attrs |> Records.update_record(prefix)"},
+          {"lib/letflow/modules/exam/n3.ex",
+           "Letflow.Entities.Records.delete_record(attrs, prefix, :tenant)"},
+          {"lib/letflow/modules/exam/n4.ex", "attrs |> Records.create_record(prefix, :tenant)"}
+        ])
+
+      assert Enum.sort(r6_violations(files)) ==
+               [
+                 {"lib/letflow/modules/exam/n1.ex", :create_record},
+                 {"lib/letflow/modules/exam/n2.ex", :update_record},
+                 {"lib/letflow/modules/exam/n3.ex", :delete_record},
+                 {"lib/letflow/modules/exam/n4.ex", :create_record}
+               ]
+    end
+
+    test "synthetic positives: a /3 with a variable, a piped /3, and files outside the exam dir do not violate" do
+      files =
+        synthetic([
+          {"lib/letflow/modules/exam/ok1.ex", "Records.create_record(attrs, prefix, owner)"},
+          {"lib/letflow/modules/exam/ok2.ex",
+           "attrs |> Records.update_record(prefix, exam_owner())"},
+          {"lib/letflow/modules/exam_other/ok3.ex", "Records.create_record(attrs, prefix)"},
+          {"lib/letflow/elsewhere.ex", "Records.create_record(attrs, prefix, :tenant)"}
+        ])
+
+      assert r6_violations(files) == []
     end
   end
 

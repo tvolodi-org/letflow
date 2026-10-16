@@ -1,19 +1,20 @@
-# Generates priv/packs/bilimbaga/pack.json from the ten authored
-# entity-definition documents under priv/packs/bilimbaga/entity_definitions/.
+# Generates priv/modules/exam/pack.json from the sixteen entity-definition
+# documents under priv/modules/exam/entity_definitions/: the ten AUTHORING types
+# and (GH #2596) the six runtime/result types the exam manifest manages.
 #
 # REQ-328, provenance choice (a): pack.json IS committed, and this script is
 # the only thing that may write it. See priv/packs/bilimbaga/README.md for why
 # (a) was chosen over (b), and
-# test/letflow/packs/bilimbaga_pack_install_test.exs's drift guard, which
-# re-reads the ten source files and asserts each embedded definition_json is
+# test/letflow/modules/exam/pack_install_test.exs's drift guard, which
+# re-reads the source files and asserts each embedded definition_json is
 # structurally equal to its source -- so a hand-edit of pack.json fails the
 # suite.
 #
-# Run with:  MIX_ENV=test mix run priv/packs/bilimbaga/generate_pack.exs
+# Run with:  MIX_ENV=test mix run --no-start priv/modules/exam/generate_pack.exs
 #
 # Pure content assembly. Reads no database and writes nothing but pack.json.
 
-pack_dir = Path.join([File.cwd!(), "priv", "packs", "bilimbaga"])
+pack_dir = Path.join([File.cwd!(), "priv", "modules", "exam"])
 definitions_dir = Path.join(pack_dir, "entity_definitions")
 
 # Authoring order in the emitted array. This is NOT an install-ordering
@@ -34,6 +35,12 @@ entity_types = ~w(
   exam_question_rule
   exam_question_rule_tag
   exam_manual_question
+  session
+  session_question
+  session_answer
+  session_event
+  session_question_score
+  certificate
 )
 
 # Mirrors solution_pack.ex's atomize_definition_json/1 whitelists, for the sole

@@ -1,0 +1,72 @@
+{
+  "handoff_id": "c4a7d1e0-2596-4a11-8c20-000000000003",
+  "run_id": "WF02-GH2596-EXAM-MANAGED-20261016",
+  "workflow_id": "WF-02",
+  "step": "03",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGNER",
+  "file": "handoffs/WF02-GH2596-EXAM-MANAGED-20261016/step-03-code-designer.json",
+  "created_at": "2026-10-16T13:39:00Z",
+  "started_at": "2026-10-16T13:39:13Z",
+  "completed_at": "2026-10-16T14:05:07Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S10",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2596": "Exam module types are unmanaged: declare manages_entity_types for all 16 pack types, stamp existing installs via a platform data migration (single narrow exception to managed_by immutability), exam writes pass the Owner, read-only tamper inventory for infra. Prio 1, SECURITY. Amended 2026-10-15.",
+      "GH#2596 ruling": "Supervisor ruling 2026-10-16 on OQ-2 (option C+A) supersedes the issue ALL 16: manifest manages ONLY the 6 runtime/result types; the 10 authoring types stay unmanaged (tenant-editable) until an exam authoring write surface exists (follow-up by letflow-2). Attachments stay out (#2582). Infra stamps only the 6 after the inventory. Additional requirement: verify session snapshot vs live authoring reads in scoring."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "lib/letflow/design/gh2583-records-managed-type-guard.md",
+      "lib/letflow/design/req496-managed-by-and-scope-node-paths.md",
+      "lib/letflow/entities/managed_types.ex",
+      "priv/repo/migrations/20261014100001_add_managed_by_to_entity_definitions.exs",
+      "lib/letflow/modules/exam/exam.ex",
+      "lib/letflow/modules/exam/session.ex",
+      "lib/letflow/modules/exam/certificate.ex",
+      "lib/letflow/modules/exam/anti_cheat.ex",
+      "test/letflow/entities/managed_types_callers_test.exs",
+      "lib/letflow/identity/role_scope_grants/backfill.ex",
+      "priv/modules/exam/pack.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2596-EXAM-MANAGED-20261016"
+  },
+  "task": {
+    "description": "WF-02 step 3 design for GH #2596. Design only, no implementation code, no mix/tests run."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "REVISION 1 after supervisor ruling OQ-2 option C+A (supersedes ALL 16). Design: lib/letflow/design/gh2596-exam-managed-types.md. CHANGES: manifest manages only session, session_question, session_answer, session_event, session_question_score, certificate; the 10 authoring types stay UNMANAGED. pack.json (+ generate_pack.exs, stale pack_dir fixed) grows 10 -> 16 because Installs.check_managed_types_in_pack requires every managed name in the pack; fresh install: 6 runtime rows stamped at insert, 10 unmanaged, rows inactive, no DDL, no seeded records, activation unchanged (OQ-5 decided); existing installs: pack.json change creates NO rows (read only at install), stamp stamps present pack-shaped rows, reports absent types (never inserts), named conflicts. Trigger exception: tenant-scoped migration 20261016120001 replaces the guard function with one branch (OLD NULL -> NEW literal exam, name in HARD-CODED array of the 6, txn-local setting letflow.managed_by_stamp=exam, row otherwise equal); only ManagedTypes.Stamp sets it (scan T-11). T-02 completeness: pack/file set == declared 6 UNION explicit allowlist of the 10 authoring names with reasons. DROPPED Exam.Authoring, seed-task change, R7, attachment test; KEPT R6, @authority_callers/R2 set updated, 5 call sites take exam_owner(). Stamp: per-tenant txn, lock order 496_001 name locks -> row locks (name,id) -> audit chain lock last, lock_timeout 3s, dry-run, idempotent, per-tenant report; wrapper Letflow.Release.ManagedTypes + 2 mix tasks, mix.exs untouched. Inventory default scope :runtime; proxies: import/client idempotency-key prefixes, unrecognised key shape, non-owner actor; blind spot documented. SECTION 17 (new requirement): (1) NO session snapshot. session stores only exam_id/seed/started_at/expires_at (session.ex:748-756); session_question only question_id/sort_order/options_order (session.ex:900-905). Scoring reads LIVE authoring rows: question type (session.ex:1190), answer_option is_correct and likert weight/polarity = the answer key (session.ex:1193-1206), exam passing_score_pct with silent 60.0 fallback (session.ex:1225-1229); certificate reads live exam certificate_enabled and title (certificate.ex:290-331); candidate display reads live question/options (session.ex:440-458). scoring.ex is pure; stored score_pct/passed/scores and the certificate record are immune after scoring; scoring runs once at submit or lazily after deadline; no grading_pending resolver exists. Recommendation: BLOCKING PREREQUISITE ISSUE (size L, 2 PRs) gating infra stamp step 4, not the code PR; design sketch: exam_snapshot JSON on session + question_type/correct_option_ids/likert_options/hash/def_version on session_question, scoring+certificate read only the snapshot, remove 60.0 fallback, legacy fallback, field restrictions for new answer-key fields. (2) Generic authoring writes are NOT in audit_entries; they are events rows with actor_id, created_at, idempotency_key and the FULL new field_values (records.ex:821-853; actor from auth_context entities.ex:976-979), no route marker, no alert. Proposed F-ALERT: read-only report of authoring edits to exams with in_progress/grading_pending sessions. (3) Note only: entity_type_restrictions + user_entity_type_grants write-narrowing optional, reads-only per 0050 D7. #2612 NOT triggered; SECURITY-REVIEWER mandatory anyway. REVISION 2 (CDV r2 B1 fix + snapshot ruling): (1) EVIDENCE: existing QA/BilimBaga runtime rows were created ad hoc via POST /entities/definitions + activate \"mirroring exactly what ExamFixtures.activate_exam_definitions!/1 does\" (docs/issues/ISS-0690.yaml:74-89), i.e. FK-stripped (test/support/exam_fixtures.ex:285-291, comment :116); certificate is not among the five listed types so it is probably ABSENT there (types_absent). (2) RULE DECIDED: the digest rule is dropped; stampable iff the row Records resolves (active, else newest) contains every pack field by exact (name,type); extras allowed; enum/required/queried/FK/index/constraints not compared; unrelated same-named type -> conflict :shape_not_compatible; ALL rows of a stampable name are stamped; no relax-later. (3) TESTS: T-14 builds b1 FK-stripped legacy (ExamFixtures tenant, tenant_modules inserted directly), b2 pack-shaped (SolutionPack.install/3 with :tenant owner, unstamped), b3 hand-posted, b4 certificate-absent; T-16 unrelated shape, wrong-type variant, other_module, continues; stamped-tenant tests use Stamp.run_tenant on fixture tenants, never Installs.install on them. Citation fixed to entities.ex:1359. (4) SNAPSHOT RULING recorded (section 17.5): separate prio-1 prerequisite issue (letflow-2 files; owner letflow-9c after this PR) gates the infra STAMP, not the code PR; code PR may merge dark; infra stamp not requested before it lands; PR-body text specified. IN-FLIGHT POLICY decided: lazy snapshot at first touch under the session row lock with snapshot_origin \"late\" (vs \"start\"); scoring always goes through ensure-snapshot so no scoring path reads live authoring rows after ship day; grading_pending already scored needs none; reasons and honest limit in the doc. REVISION 3 (SECURITY-REVIEWER design FAIL, folded): F-1 Stamp.run_tenant and TamperInventory.run_tenant return :nested_transaction when Repo.in_transaction?() at entry; Stamp ends with set_config(letflow.managed_by_stamp, empty, true) as last statement; T-07..T-09b run outside the Ecto sandbox (async:false case, sandbox mode :auto, real commits, on_exit cleanup) + nested-transaction tests. F-2 T-11 is now an AST scan over lib/, priv/, scripts/, config/ with five assertions (fragment only in stamp.ex+migrations; non-literal Repo.query only in an allowlist; set_config only in step_writes.ex and stamp.ex with literal args; Stamp.run/run_tenant called only from the release wrapper and two mix tasks; no update_all on managed_by outside stamp.ex and insert-time path) and is stated to be a tripwire, not a boundary. F-3 chosen: all-or-nothing per name, EVERY row of a name must be field-compatible, else whole-name conflict and nothing stamped (half-stamping breaks premise P2); tests incl. older-incompatible-version and reverse. Advisories adopted: names-only differences field in dry-run/real report (A-1); explicit up/down with previous function body byte-for-byte + round-trip test T-09b, down does not unstamp (A-3); to_jsonb(NEW)-managed_by comparison and update_all sets only managed_by, non-SECURITY DEFINER (A-4); tenant schema_migrations pre-check (A-5); new section 11b PR-body residuals (attachments open until #2582; authoring/answer key writable + live scoring so no stamp before snapshot; tenant :tenant writers of runtime types fail after stamp). REVISION 4 (SEC design round 2): F-4 the real run classifies INSIDE the transaction: name locks (496_001) for ALL 6 candidate names first, then FOR UPDATE on all rows of those names, then classification (absent / other module / EVERY row compatible), then the GUC is set and one update_all sets only managed_by; the outside pass is advisory (dry run only); test-only seam opts after_precheck + T-16 race variant (incompatible new version appears after pre-check -> whole name conflict, nothing stamped; second-connection create blocks on the name lock). B-1 every Stamp/TamperInventory test (T-04, T-14..T-19, T-24..T-27) is stated to run outside the sandbox (async:false, mode :auto via TenantFixture). B-2 T-11 assertion 1 walks plain strings, heredocs, sigils, charlists and fragment literals; assertion 3 also covers set_config inside fragment(...) string literals. B-3 inventory projects only entity_type and record_id in SQL, never selects the payload column into Elixir, findings go to operator stdout/rpc return only (never Logger); T-26 asserts no log line or finding contains field_values/payload marker bytes.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "lib/letflow/design/gh2596-exam-managed-types.md"
+    ],
+    "design_written": true,
+    "implementation_written": false,
+    "open_questions": [
+      "OQ-4 mix task exit code on conflicts (default 0)",
+      "OQ-5b tenants with an absent runtime type: report only (default)",
+      "OQ-6 bump exam manifest/pack version (default no)",
+      "OQ-7 archived events not scanned",
+      "OQ-10 alert delivery channel for F-ALERT",
+      "RESOLVED by ruling: OQ-2, OQ-3, OQ-5, OQ-8",
+      "RESOLVED in r2: OQ-1 (field-set rule), OQ-9 (separate prerequisite issue gating the stamp)"
+    ],
+    "risks": [
+      "R1 authoring types stay writable AND scoring reads the answer key, threshold and question type live, so edits between session start and first scoring change outcomes (stored results are immune); mitigation: snapshot prerequisite (recommended gate on infra stamp), F-ALERT report",
+      "R2 attachments on the 6 runtime types stay open until #2582",
+      "R3 trigger exception is a bypass surface for raw-SQL code (frozen 6 names, literal module id, txn-local, scan test, retire follow-up)",
+      "R4 pack 10 -> 16: ~10 existing tests need count edits; runtime rows inactive after fresh install",
+      "R5 tenant lacking a runtime type can define its own later",
+      "R6 rolling deploy: stamp checks schema_migrations per tenant",
+      "R7 owner_for! computes manifest hash per write",
+      "R8 a tenant type copying every pack field name+type is stamped as exam-owned (accepted, harmless)"
+    ]
+  }
+}
