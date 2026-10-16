@@ -183,12 +183,12 @@ defmodule Letflow.Engine.ServiceTaskSubprocessCascadeTest do
     task
   end
 
-  defp complete!(schema, task) do
+  defp complete!(schema, task, output \\ %{}) do
     assert {:ok, _} =
              Engine.complete_task(
                task.id,
                %{
-                 output_variables: %{},
+                 output_variables: output,
                  actor_id: Ecto.UUID.generate(),
                  idempotency_key: unique("c2648-complete")
                },
@@ -197,14 +197,20 @@ defmodule Letflow.Engine.ServiceTaskSubprocessCascadeTest do
   end
 
   # The HTTP re-entry the dispatcher performs, without the HTTP call. Returns the apply result.
-  defp apply_http(schema, child_id) do
+  defp apply_http(schema, child_id, body \\ %{}) do
     assert [row] =
              ServiceTaskDispatch
              |> where([d], d.instance_id == ^child_id)
              |> Repo.all(prefix: schema)
 
     advanced = row |> Ecto.Changeset.change(%{status: "advanced"}) |> Repo.update!(prefix: schema)
-    Engine.advance_after_service_task_outcome(advanced.id, {:advance, %{}}, Repo, schema)
+    Engine.advance_after_service_task_outcome(advanced.id, {:advance, body}, Repo, schema)
+  end
+
+  defp dispatch_rows(schema, instance_id) do
+    ServiceTaskDispatch
+    |> where([d], d.instance_id == ^instance_id)
+    |> Repo.all(prefix: schema)
   end
 
   # What a parent shows after its child's last node ran: state, position, events, tasks.
@@ -243,9 +249,11 @@ defmodule Letflow.Engine.ServiceTaskSubprocessCascadeTest do
   end
 
   # A sub-process child's INSTANCE_STARTED carries no `pinned_versions` (separate, pre-existing
-  # limitation, reported on the PR: a script/catalog node inside a child fails with
+  # defect #2694: a script/catalog node inside a child fails with
   # `script_task_pin_unresolved`). To reach the child's script apply at all, the child's start
-  # event is given the pins a top-level instance of the same definition records. Test-only.
+  # event is given the pins a top-level instance of the same definition records. TEST-ONLY HACK:
+  # it rewrites an append-only event under `session_replication_role = replica`. Remove it when
+  # #2694 is fixed.
   defp give_child_script_pins!(schema, child_def, child_id) do
     donor_id = start_instance!(schema, child_def)
     {:ok, donor_events} = Reconstruction.read_full_log(donor_id, schema, 1)
@@ -268,7 +276,20 @@ defmodule Letflow.Engine.ServiceTaskSubprocessCascadeTest do
   end
 
   # Builds parent + child (last node `kind`), runs the child's last node, returns the ids.
-  defp run_scenario!(t, kind) do
+  defp run_scenario!(t, kind, output \\ %{}) do
+    %{schema: schema, child_id: child_id} = ctx = setup_scenario!(t, kind)
+
+    case kind do
+      :human -> complete!(schema, pending_task!(schema, child_id), output)
+      :http -> assert {:ok, :advanced} = apply_http(schema, child_id, output)
+      :script -> assert {_row, {:ok, :applied}} = F.run_next!(schema)
+    end
+
+    ctx
+  end
+
+  # Everything up to, not including, the run of the child's last node.
+  defp setup_scenario!(t, kind) do
     schema = t.schema_name
     child_name = unique("c2648-child")
 
@@ -298,13 +319,16 @@ defmodule Letflow.Engine.ServiceTaskSubprocessCascadeTest do
 
     complete!(schema, pending_task!(schema, child_id))
 
-    case kind do
-      :human -> complete!(schema, pending_task!(schema, child_id))
-      :http -> assert {:ok, :advanced} = apply_http(schema, child_id)
-      :script -> assert {_row, {:ok, :applied}} = F.run_next!(schema)
-    end
+    %{schema: schema, parent_id: parent_id, child_id: child_id}
+  end
 
-    %{parent_id: parent_id, child_id: child_id}
+  # The parent's SUB_PROCESS_COMPLETED payload, with the child's id checked and removed.
+  defp completed_payload(schema, parent_id, child_id) do
+    {:ok, events} = Reconstruction.read_full_log(parent_id, schema, 1)
+    assert [event] = Enum.filter(events, &(&1.event_type == "SUB_PROCESS_COMPLETED"))
+    payload = if is_binary(event.payload), do: Jason.decode!(event.payload), else: event.payload
+    assert payload["child_instance_id"] == child_id
+    Map.delete(payload, "child_instance_id")
   end
 
   describe "the parent wakes when the child's last node is a service or script task" do
@@ -312,8 +336,9 @@ defmodule Letflow.Engine.ServiceTaskSubprocessCascadeTest do
       t = F.tenant!("gh2648-http")
       schema = t.schema_name
 
-      human = run_scenario!(t, :human)
-      http = run_scenario!(t, :http)
+      output = %{"x" => 1}
+      human = run_scenario!(t, :human, output)
+      http = run_scenario!(t, :http, output)
 
       assert Repo.get!(InstanceProjection, http.child_id, prefix: schema).status == :completed
 
@@ -323,7 +348,11 @@ defmodule Letflow.Engine.ServiceTaskSubprocessCascadeTest do
       assert "SUB_PROCESS_COMPLETED" in parent.event_types
       assert [{"after", :pending}] = parent.tasks
 
+      assert parent.variables == %{"x" => 1}
       assert parent == snapshot(schema, human.parent_id)
+
+      assert completed_payload(schema, http.parent_id, http.child_id) ==
+               completed_payload(schema, human.parent_id, human.child_id)
     end
 
     test "script task last node: same parent state and events as the HUMAN path" do
@@ -400,33 +429,46 @@ defmodule Letflow.Engine.ServiceTaskSubprocessCascadeTest do
       assert Enum.count(before.event_types, &(&1 == "SUB_PROCESS_COMPLETED")) == 1
     end
 
-    test "replay: the parent's event stream reconstructs the live parent state" do
+    test "replay: the parent's event stream alone reconstructs the woken parent (HTTP)" do
       t = F.tenant!("gh2648-replay")
       schema = t.schema_name
-      %{parent_id: parent_id} = run_scenario!(t, :http)
+      %{parent_id: parent_id} = run_scenario!(t, :http, %{"x" => 1})
 
-      projection = Repo.get!(InstanceProjection, parent_id, prefix: schema)
+      assert_replays_woken_parent(schema, parent_id, %{"x" => 1})
+    end
 
-      assert {:ok, %{instance_state: state}} =
-               Reconstruction.reconstruct_instance(parent_id, prefix: schema)
+    test "replay: the script-driven cascade replays to the woken parent" do
+      t = F.tenant!("gh2648-replay-script")
+      schema = t.schema_name
+      %{parent_id: parent_id} = run_scenario!(t, :script)
 
-      assert projection.current_nodes == ["after"]
-      assert state.status == projection.status
-      assert state.variables == projection.variables
-      assert Enum.map(state.tokens, & &1.node_id) == projection.current_nodes
+      assert_replays_woken_parent(schema, parent_id, %{"total" => 7})
     end
   end
 
-  describe "atomicity" do
-    test "a failure inside the cascade rolls the service apply back: nothing half-applied" do
+  # Independent of the projection: the full log carries SUB_PROCESS_COMPLETED and the
+  # reconstructed token sits at "after" with the merged variables.
+  defp assert_replays_woken_parent(schema, parent_id, variables) do
+    {:ok, events} = Reconstruction.read_full_log(parent_id, schema, 1)
+    assert "SUB_PROCESS_COMPLETED" in Enum.map(events, & &1.event_type)
+
+    assert {:ok, %{instance_state: state}} =
+             Reconstruction.reconstruct_instance(parent_id, prefix: schema)
+
+    assert state.status == :active
+    assert Enum.map(state.tokens, & &1.node_id) == ["after"]
+    assert state.variables == variables
+
+    projection = Repo.get!(InstanceProjection, parent_id, prefix: schema)
+    assert projection.current_nodes == ["after"]
+    assert projection.variables == state.variables
+  end
+
+  describe "atomicity and contention" do
+    test "a failure inside the cascade rolls the apply back; after the cause is gone a re-apply succeeds" do
       t = F.tenant!("gh2648-atomic")
       schema = t.schema_name
-      child_name = unique("c2648-child")
-      create_active!(schema, child_name, child_graph(:http))
-      parent = create_active!(schema, unique("c2648-parent"), parent_graph(child_name))
-      parent_id = start_instance!(schema, parent)
-      child_id = child_of!(schema, parent_id)
-      complete!(schema, pending_task!(schema, child_id))
+      %{parent_id: parent_id, child_id: child_id} = setup_scenario!(t, :http)
 
       # the cascade appends SUB_PROCESS_COMPLETED to the parent: make that insert fail
       Repo.query!("""
@@ -448,6 +490,129 @@ defmodule Letflow.Engine.ServiceTaskSubprocessCascadeTest do
       assert snapshot(schema, parent_id) == parent_before
       assert snapshot(schema, child_id) == child_before
       assert Repo.get!(InstanceProjection, child_id, prefix: schema).status == :active
+      assert [%{status: "advanced"}] = dispatch_rows(schema, child_id)
+
+      Repo.query!(~s(DROP TRIGGER gh2648_refuse ON "#{schema}".events))
+
+      dispatch = hd(dispatch_rows(schema, child_id))
+
+      assert {:ok, :advanced} =
+               Engine.advance_after_service_task_outcome(
+                 dispatch.id,
+                 {:advance, %{}},
+                 Repo,
+                 schema
+               )
+
+      assert Repo.get!(InstanceProjection, child_id, prefix: schema).status == :completed
+      assert snapshot(schema, parent_id).current_nodes == ["after"]
+    end
+
+    test "a deadlock (40P01) in the cascade of an UNPLANNED child apply is re-applied: the parent wakes" do
+      t = F.tenant!("gh2648-contention")
+      schema = t.schema_name
+      %{parent_id: parent_id, child_id: child_id} = setup_scenario!(t, :http)
+
+      # the first insert of SUB_PROCESS_COMPLETED fails with a deadlock; the sequence is not
+      # rolled back with the transaction, so the second attempt passes
+      Repo.query!(~s(CREATE SEQUENCE "#{schema}".gh2648_hits))
+
+      Repo.query!("""
+      CREATE FUNCTION "#{schema}".gh2648_deadlock() RETURNS trigger AS $$
+      BEGIN
+        IF nextval('"#{schema}".gh2648_hits') = 1 THEN
+          RAISE EXCEPTION 'gh2648 deadlock' USING ERRCODE = '40P01';
+        END IF;
+        RETURN NEW;
+      END $$ LANGUAGE plpgsql
+      """)
+
+      Repo.query!("""
+      CREATE TRIGGER gh2648_deadlock BEFORE INSERT ON "#{schema}".events
+      FOR EACH ROW WHEN (NEW.event_type = 'SUB_PROCESS_COMPLETED')
+      EXECUTE FUNCTION "#{schema}".gh2648_deadlock()
+      """)
+
+      assert {:ok, :advanced} = apply_http(schema, child_id)
+
+      # two attempts, no outbound call and no second dispatch row
+      assert %{rows: [[2]]} = Repo.query!(~s(SELECT last_value FROM "#{schema}".gh2648_hits))
+      assert [%{status: "advanced"}] = dispatch_rows(schema, child_id)
+
+      assert Repo.get!(InstanceProjection, child_id, prefix: schema).status == :completed
+      parent = snapshot(schema, parent_id)
+      assert parent.current_nodes == ["after"]
+      assert Enum.count(parent.event_types, &(&1 == "SUB_PROCESS_COMPLETED")) == 1
+    end
+  end
+
+  describe "negative controls: no cascade, nothing else changed" do
+    test "a non-last service task inside a child does not wake the parent" do
+      t = F.tenant!("gh2648-neg-notlast")
+      schema = t.schema_name
+      child_name = unique("c2648-child")
+
+      graph = %{
+        "nodes" => [
+          %{"id" => "start", "node_type" => "START"},
+          %{"id" => "ct", "node_type" => "HUMAN_TASK", "attributes" => %{"role" => "role-x"}},
+          %{"id" => "svc", "node_type" => "SERVICE_TASK", "attributes" => @http_attrs},
+          %{"id" => "ct2", "node_type" => "HUMAN_TASK", "attributes" => %{"role" => "role-x"}},
+          %{"id" => "end", "node_type" => "END"}
+        ],
+        "edges" => [
+          %{"id" => "n0", "source" => "start", "target" => "ct"},
+          %{"id" => "n1", "source" => "ct", "target" => "svc"},
+          %{"id" => "n2", "source" => "svc", "target" => "ct2"},
+          %{"id" => "n3", "source" => "ct2", "target" => "end"}
+        ]
+      }
+
+      create_active!(schema, child_name, graph)
+      parent = create_active!(schema, unique("c2648-parent"), parent_graph(child_name))
+      parent_id = start_instance!(schema, parent)
+      child_id = child_of!(schema, parent_id)
+      complete!(schema, pending_task!(schema, child_id))
+
+      parent_before = snapshot(schema, parent_id)
+      assert {:ok, :advanced} = apply_http(schema, child_id)
+
+      assert Repo.get!(InstanceProjection, child_id, prefix: schema).status == :active
+      assert snapshot(schema, parent_id) == parent_before
+      refute "SUB_PROCESS_COMPLETED" in parent_before.event_types
+    end
+
+    test "a top-level instance ending on a service task completes with no cascade" do
+      t = F.tenant!("gh2648-neg-top")
+      schema = t.schema_name
+      top = create_active!(schema, unique("c2648-top"), child_graph(:http))
+      top_id = start_instance!(schema, top)
+      complete!(schema, pending_task!(schema, top_id))
+
+      assert {:ok, :advanced} = apply_http(schema, top_id)
+
+      projection = Repo.get!(InstanceProjection, top_id, prefix: schema)
+      assert projection.status == :completed
+      assert projection.parent_instance_id == nil
+      refute "SUB_PROCESS_COMPLETED" in snapshot(schema, top_id).event_types
+    end
+
+    test "a completed child whose parent token is not waiting leaves the parent untouched" do
+      t = F.tenant!("gh2648-neg-notwaiting")
+      schema = t.schema_name
+      %{parent_id: parent_id, child_id: child_id} = setup_scenario!(t, :http)
+
+      {1, _} =
+        Letflow.Engine.TokenRecord
+        |> where([r], r.waiting_child_instance_id == ^child_id)
+        |> Repo.update_all([set: [status: :cancelled]], prefix: schema)
+
+      parent_before = snapshot(schema, parent_id)
+
+      assert {:ok, :advanced} = apply_http(schema, child_id)
+
+      assert Repo.get!(InstanceProjection, child_id, prefix: schema).status == :completed
+      assert snapshot(schema, parent_id) == parent_before
     end
   end
 
@@ -487,23 +652,41 @@ defmodule Letflow.Engine.ServiceTaskSubprocessCascadeTest do
       assert parent.current_nodes == ["after"]
       assert "SUB_PROCESS_COMPLETED" in parent.event_types
 
-      tables =
-        for %{query: sql} <- queries, sql =~ "FOR UPDATE" do
+      locks =
+        for %{query: sql} = q <- queries, sql =~ "FOR UPDATE" do
           [_, table] = Regex.run(~r/FROM "[^"]+"\."([a-z_]+)"/, sql)
-          table
+          param = q |> Map.get(:params, []) |> List.first()
+          {table, lock_param(param)}
         end
 
-      indexed = Enum.with_index(tables)
-      first = fn name -> Enum.find_index(tables, &(&1 == name)) end
+      type_instance =
+        Letflow.Entities.EntityTypeInstance
+        |> Repo.all(prefix: schema)
+        |> Enum.find(&(&1.entity_type == "stock_move"))
+        |> Map.fetch!(:instance_id)
 
-      last = fn name ->
-        indexed |> Enum.filter(&(elem(&1, 0) == name)) |> List.last() |> elem(1)
+      position = fn key ->
+        idx = Enum.find_index(locks, &(&1 == key))
+        assert idx, "no lock #{inspect(key)} in #{inspect(locks)}"
+        idx
       end
 
-      assert first.("service_task_dispatches") < first.("instance_projections")
-      assert first.("instance_sequence") < last.("tokens")
-      assert first.("instance_projections") < last.("tokens")
-      assert last.("tokens") < last.("audit_chain_locks")
+      first_audit = Enum.find_index(locks, fn {table, _} -> table == "audit_chain_locks" end)
+
+      # the cascade's parent token lookup is keyed by the waiting CHILD id
+      parent_token = position.({"tokens", child_id})
+
+      assert position.({"instance_projections", child_id}) < parent_token
+      assert position.({"instance_sequence", type_instance}) < parent_token
+      assert is_integer(first_audit) and parent_token < first_audit
+
+      assert Enum.find_index(locks, fn {table, _} -> table == "service_task_dispatches" end) <
+               position.({"instance_projections", child_id})
     end
   end
+
+  defp lock_param(param) when is_binary(param) and byte_size(param) == 16,
+    do: Ecto.UUID.load!(param)
+
+  defp lock_param(param), do: param
 end

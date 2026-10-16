@@ -412,8 +412,12 @@ defmodule Letflow.Engine do
   completes a sub-process CHILD (`append_sub_process_completion_cascade_multi/6`, the helper the
   HUMAN_TASK tail uses), in the SAME transaction, so a failure rolls the apply back. Lock order:
   dispatch row (or script CAS row), child projection, entity-type locks, THEN the parent token
-  and projection (and further ancestors), THEN the audit chain row: child to parent, never
-  the reverse, the order the HUMAN path already has.
+  and projection (and further ancestors), THEN the audit chain row: child to parent, the order
+  the HUMAN path already has. This is NOT deadlock-free: `cancel_instance/3` locks a parent's
+  projection before its tokens, the reverse of the cascade's token-then-projection (an AB-BA
+  that predates this change on the HUMAN path and is now also reachable from a service apply;
+  tracked as GH #2695, not fixed here). A deadlock or lock timeout on a service apply is
+  classified as contention and re-applied (bounded), planned or not.
 
   REQ-045 resolved this engine to row-based state (`create/2` is a plain
   function under `Ecto.Multi`, not a supervised `:gen_statem`/
@@ -5037,7 +5041,11 @@ defmodule Letflow.Engine do
               # HUMAN_TASK tail uses; a failure rolls the whole apply back). Lock order: this
               # apply has already locked the dispatch row and the child projection (and any
               # entity-type locks of its writes); the cascade then locks the parent token and
-              # the parent projection, so child -> parent, the HUMAN path's order. A no-op for
+              # the parent projection, so child -> parent, the HUMAN path's order. Not claimed
+              # deadlock-free: cancel_instance/3 locks a parent's projection BEFORE its tokens,
+              # the reverse of the cascade's token-then-projection (pre-existing on the HUMAN
+              # path, now reachable from here; tracked as GH #2695). A 40P01 on this apply is
+              # classified as contention and re-applied, planned or not. A no-op for
               # an instance that is not completed or has no waiting parent token.
               |> append_service_sub_process_cascade(
                 dispatch.instance_id,
@@ -5118,8 +5126,10 @@ defmodule Letflow.Engine do
             prefix
           )
 
-        {:error, _reason} ->
-          Multi.new()
+        # Unreachable in practice (the :projection step above re-folds the same values and fails
+        # first), but never drop the cascade silently: abort and roll the apply back.
+        {:error, reason} ->
+          Multi.error(Multi.new(), :cascade_fold, reason)
       end
     end)
   end
@@ -5456,22 +5466,25 @@ defmodule Letflow.Engine do
   @spec classify_service_apply_result(term(), boolean()) :: service_outcome()
   defp classify_service_apply_result({:ok, _outcome} = ok, _planned?), do: {:final, ok}
 
-  defp classify_service_apply_result({:error, reason} = error, planned?) do
+  defp classify_service_apply_result({:error, reason} = error, _planned?) do
     case reason do
       {:entity_write_failed, index, step} when is_integer(index) and is_atom(step) ->
         {:refuse, :entity_write_failed, index, step}
 
-      {:entity_write_refused, :contention, _code} when planned? ->
+      {:entity_write_refused, :contention, _code} ->
         :contention
 
       {:entity_write_step_failed, failed_step, inner} ->
         interpret_service_step_failure(failed_step, inner)
 
+      # GH #2648: planned or not. An UNPLANNED apply that completes a sub-process child also takes
+      # the parent token and projection locks through the cascade, so it can be a deadlock victim;
+      # the dispatch row is already "advanced" and nothing else would ever re-apply it.
       {:transaction_failed, %Postgrex.Error{postgres: %{code: code}}}
-      when planned? and code in @contention_error_codes ->
+      when code in @contention_error_codes ->
         :contention
 
-      {:transaction_failed, %DBConnection.ConnectionError{}} when planned? ->
+      {:transaction_failed, %DBConnection.ConnectionError{}} ->
         :contention
 
       _not_an_entity_write_class ->
