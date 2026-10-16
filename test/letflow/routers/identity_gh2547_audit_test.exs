@@ -602,6 +602,7 @@ defmodule Letflow.Routers.IdentityGh2547AuditTest do
     test "remove: 500 and the row is still there", %{a: a} do
       ta_group = group_of!(a, "TENANT_ADMIN")
       user = raw_member!(a, ta_group, user!(a))
+
       # REQ-497 PR 1b N1: a second counted admin, so the N1 guard passes and the audit fault fires.
       _remaining_admin = raw_member!(a, ta_group, user!(a))
       create_fault_trigger!(a, "gh2547_fail_removed", "group_member.removed")

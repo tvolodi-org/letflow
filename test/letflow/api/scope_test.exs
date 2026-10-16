@@ -101,7 +101,10 @@ defmodule Letflow.Api.ScopeTest do
   # T-A1 fixture: a TASK_WORKER member whose group has (only) its tenant-wide row.
   defp tenant_wide_worker!(fx) do
     user = holder!(fx, ["TASK_WORKER"])
-    assert RSG.rows(fx.schema_name) |> Enum.member?(RSG.tw(group_of!(fx, "TASK_WORKER"), "TASK_WORKER"))
+
+    assert RSG.rows(fx.schema_name)
+           |> Enum.member?(RSG.tw(group_of!(fx, "TASK_WORKER"), "TASK_WORKER"))
+
     user
   end
 
@@ -138,11 +141,19 @@ defmodule Letflow.Api.ScopeTest do
     user = tenant_wide_worker!(fx)
     scoped_node = root!(fx)
     other_node = root!(fx)
-    :ok = RSG.raw_scoped_row!(fx.schema_name, group_of!(fx, "TASK_WORKER"), "TASK_WORKER", scoped_node)
+
+    :ok =
+      RSG.raw_scoped_row!(
+        fx.schema_name,
+        group_of!(fx, "TASK_WORKER"),
+        "TASK_WORKER",
+        scoped_node
+      )
 
     p = user_principal(fx, user.id)
 
-    {decision, queries} = with_query_count(fn -> Scope.allowed?(p, :TasksRead, {:node, other_node}) end)
+    {decision, queries} =
+      with_query_count(fn -> Scope.allowed?(p, :TasksRead, {:node, other_node}) end)
 
     assert decision == {:allow, :tenant_wide}
     # Step 9: a combined tenant-wide scope allows a node without reading the tree.
@@ -212,7 +223,8 @@ defmodule Letflow.Api.ScopeTest do
     ]
 
     for p <- principals do
-      assert Scope.allowed?(p, :TasksRead, :unresolvable) == {:deny, :unresolvable}, inspect(p.kind)
+      assert Scope.allowed?(p, :TasksRead, :unresolvable) == {:deny, :unresolvable},
+             inspect(p.kind)
     end
 
     # A platform-tenant PLATFORM_ADMIN on a tenant-scope permission: step 2 precedes step 4.
@@ -265,22 +277,26 @@ defmodule Letflow.Api.ScopeTest do
     end
 
     test "no ScopeNodePaths.Node schema and no \"scope_node_paths\" literal", %{ast: ast} do
-      aliases = collect(ast, fn
-        {:__aliases__, _, parts} -> [parts]
-        _ -> []
-      end)
+      aliases =
+        collect(ast, fn
+          {:__aliases__, _, parts} -> [parts]
+          _ -> []
+        end)
 
       refute Enum.any?(aliases, &(:Node in &1)), "scope.ex references a Node schema"
 
-      strings = collect(ast, fn
-        s when is_binary(s) -> [s]
-        _ -> []
-      end)
+      strings =
+        collect(ast, fn
+          s when is_binary(s) -> [s]
+          _ -> []
+        end)
 
       refute Enum.any?(strings, &String.contains?(&1, "scope_node_paths"))
     end
 
-    test "no Repo call outside load_grants/2 (grants are read through RoleScopeGrants)", %{ast: ast} do
+    test "no Repo call outside load_grants/2 (grants are read through RoleScopeGrants)", %{
+      ast: ast
+    } do
       defs_with_repo =
         ast
         |> function_defs()
@@ -355,7 +371,9 @@ defmodule Letflow.Api.ScopeTest do
 
       for p <- [present, absent, scoped, not_loaded],
           resource <- [:tenant_wide, {:node, node}, :unresolvable] do
-        {decision, queries} = with_query_count(fn -> Scope.allowed?(p, :TenantsManage, resource) end)
+        {decision, queries} =
+          with_query_count(fn -> Scope.allowed?(p, :TenantsManage, resource) end)
+
         assert decision == {:allow, :platform}, inspect({p.grants, resource})
         assert queries == 0, "platform-scope decision issued #{queries} queries"
       end
@@ -374,7 +392,9 @@ defmodule Letflow.Api.ScopeTest do
       raw = %{p | roles: [:PLATFORM_ADMIN]}
 
       for principal <- [p, raw] do
-        {decision, queries} = with_query_count(fn -> Scope.allowed?(principal, :TenantsManage, :tenant_wide) end)
+        {decision, queries} =
+          with_query_count(fn -> Scope.allowed?(principal, :TenantsManage, :tenant_wide) end)
+
         assert decision == {:deny, :role_not_held}
         assert queries == 0
       end
@@ -448,7 +468,9 @@ defmodule Letflow.Api.ScopeTest do
     token = token_principal(fx, ta_user.id, ["TENANT_ADMIN"])
 
     for p <- [pa, ta, token], resource <- [:tenant_wide, :unresolvable] do
-      {decision, queries} = with_query_count(fn -> Scope.allowed?(p, :NotARealPermission, resource) end)
+      {decision, queries} =
+        with_query_count(fn -> Scope.allowed?(p, :NotARealPermission, resource) end)
+
       assert decision == {:deny, :role_not_held}, inspect({p.kind, p.roles})
       assert queries == 0
     end

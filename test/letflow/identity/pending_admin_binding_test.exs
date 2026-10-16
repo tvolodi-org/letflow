@@ -47,7 +47,8 @@ defmodule Letflow.Identity.PendingAdminBindingTest do
   # REQ-497 PR 1b N1: a counted tenant-wide admin through a live TENANT_ADMIN token only (no
   # group membership, so `H.member_count/1` is unchanged).
   defp token_admin!(w) do
-    owner = H.insert_user!(w, email: "token.admin.#{System.unique_integer([:positive])}@example.com")
+    owner =
+      H.insert_user!(w, email: "token.admin.#{System.unique_integer([:positive])}@example.com")
 
     {:ok, _created} =
       Identity.create_token(owner.id, %{roles: ["TENANT_ADMIN"], expires_at: nil},
@@ -386,6 +387,7 @@ defmodule Letflow.Identity.PendingAdminBindingTest do
 
   test "a revoked grant does not bind", %{w: w} do
     grant = H.create_grant!(w, "owner@example.com")
+
     # REQ-497 PR 1b N1: a second open grant, so revoking this one is not the refused last-open-grant revoke of a 0-admin tenant.
     _other_open = H.create_grant!(w, "other.owner@example.com")
 
@@ -1190,6 +1192,7 @@ defmodule Letflow.Identity.PendingAdminBindingTest do
   test "revoked: a forced failure of the platform write leaves the grant open, the e-mail present and no tenant entry",
        %{w: w} do
     grant = H.create_grant!(w, "owner@example.com")
+
     # REQ-497 PR 1b N1: a second open grant, so revoking this one is not the refused last-open-grant revoke of a 0-admin tenant.
     _other_open = H.create_grant!(w, "other.owner@example.com")
 
@@ -1430,6 +1433,7 @@ defmodule Letflow.Identity.PendingAdminBindingTest do
   test "L3: with no open grant because the grant is already revoked the bind is still only the probe",
        %{w: w} do
     grant = H.create_grant!(w, "owner@example.com")
+
     # REQ-497 PR 1b N1: a second open grant, so revoking this one is not the refused last-open-grant revoke of a 0-admin tenant.
     _other_open = H.create_grant!(w, "someone.else@example.com")
 

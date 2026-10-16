@@ -2746,7 +2746,9 @@ defmodule Letflow.Identity do
               do: :ok = TenantAdminGuard.ensure_admins_remain!(prefix, :revoke_token, token.id)
 
             updated
-          {:error, reason} -> Repo.rollback(reason)
+
+          {:error, reason} ->
+            Repo.rollback(reason)
         end
     end
   end
