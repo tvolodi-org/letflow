@@ -35,7 +35,7 @@ REQ-489..492 (single-row receipt) are re-based: they are NOT to be filed as writ
 
 ## Customer-dependent items (for the user, in plain language)
 
-Pilot item scales and tolerances; who issues СНТ and ЭСФ today and whether IS ЭСФ access exists; which system seeds the masters and whether 1C keeps editing them during the pilot; and offline limits later.
+Answered 2026-10-16 (see the addendum, D10-D14): pilot scales, e-document systems, cutover and seed data, offline outage. Still open: document retention (the answer was cut off), and the later questions of the mapping document section 4.
 
 ## Addendum: user ruling of 2026-10-16 (relayed by the supervisor)
 
@@ -46,3 +46,13 @@ Pilot item scales and tolerances; who issues СНТ and ЭСФ today and whether
   - GS1 application identifiers for item, lot, expiry and serial in barcodes (the draft's HD-03 and MD-01 are consistent with this);
   - cycle counting with variance review before an adjustment posts (WM-12).
   No conflict between the draft and these practices has been found so far, so D9 changes no earlier ruling; it applies to conflicts found later. The citations are to the standards and documents named, not to a clause-level reading of them by letflow-2.
+
+## Addendum: user answers of 2026-10-16 (relayed by the supervisor)
+
+The user answered the customer-dependent items above. Recorded as relayed; the user's own wording is not available to the team.
+
+- **D10 Pilot item scales and tolerances.** By common practice: ISO and standard unit scales, as defaults, configurable per item class. No customer-specific numbers are needed for the pilot (resolves the open item for D4 / REQ-504 defaults).
+- **D11 State e-document systems.** IS ЭСФ, ЕСУТД and СНТ issuing are POSTPONED. Build the `legal_document_issuer` port and the module-issued Z-forms only (REQ-488); no state integration. The registration-number gate of D3 stays as the condition for any later external issuer.
+- **D12 Cutover and seed data.** 1C is not available now. The pilot is seeded with TEST DATA; the BA (letflow-2) produces the seed data set (items, suppliers, locations, org) and loads it through the generic idempotent import (REQ-505). The team does not wait for 1C. Whether 1C later edits masters stays out of scope until it exists (D1: the module owns masters).
+- **D13 Offline limits.** The maximum outage is a configuration value, default 3 days. Partitioning and conflict rules: the architect advises (asked of the advisor letflow-ec by the supervisor); the answer is combined into the REQ-480 text when it arrives. Not decided here.
+- **D14 Retention of documents: OPEN.** The user's answer was cut off in transmission. Until it is re-sent, retention is configurable; a conservative placeholder number is adopted only where a requirement needs one, and is marked PROVISIONAL there.

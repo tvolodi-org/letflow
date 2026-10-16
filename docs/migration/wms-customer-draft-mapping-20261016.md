@@ -73,6 +73,8 @@ Status: mapping and gap list. It files nothing, allocates no REQ id and changes 
 
 ## 4. Open customer questions (from the file's section 10 and from this mapping)
 
+Answered by the user on 2026-10-16 (relayed; recorded in decision 0057 D10-D14), removed from the list: pilot item scales and tolerances (part of 4), which system seeds masters (1: 1C is not available, test data seeded by the BA through REQ-505), state e-document issuing (part of 1, C3: postponed, port and Z-forms only), offline maximum outage (part of 2: configuration, default 3 days; partition and conflict rules pending the architect). Retention (part of 9) is OPEN: the answer was cut off.
+
 1. Per legal entity, warehouse and object: which system owns item masters, suppliers, purchase orders, transfers and legal documents (C1, C3)?
 2. Is offline execution required in release 1, with what maximum outage, partition key and merge authority (C2)?
 3. Which release-1 flows are launch requirements, later phases or priced options (reports builder, BI mart, yard, scales, voice)?
