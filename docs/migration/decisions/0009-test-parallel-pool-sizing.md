@@ -627,3 +627,70 @@ its real tests to completion (4/4 passed).
 TEST-DESIGNER extends the regression test with the N-sweep and dedicated N=8
 case the design's §5 calls for, and runs the empirical N=8/`TEST_PARALLEL_N`-unset
 verification passes against a real host — not repeated here.
+
+## Addendum (2026-10-16, GH #2630) -- hosted-CI shards exceeded `max_connections`: nested app-starting children, reserve 5 -> 16
+
+**Symptom.** Backend shard legs intermittently failed with `FATAL 53300 (too_many_connections)` /
+`sorry, too many clients already` (design: `lib/letflow/design/gh2630-ci-pg-connection-ceiling.md`).
+
+**Measured facts** (hosted CI run 38764249729; each leg has its own Postgres container):
+
+| Quantity | Value |
+|---|---|
+| `max_connections` / `superuser_reserved_connections` | 100 / 3; the CI role is a superuser, so the usable ceiling was 100 |
+| Computed `TEST_POOL_SIZE` (N=4, headroom 10, reserve 5) | 20, i.e. 80 pooled connections per shard |
+| Shard 1 peak | four partitions at 19-20 each (~77) PLUS a fifth `mix` process (pid 27329) holding 19 idle connections: ~96 pool connections + ~5 active + 4 non-client background rows; client backends reached ~101 > 100; 132 refused sampler connects and 153 server FATALs in one sustained window |
+| Shard 2 peak | three partitions at 19 and one process holding 30 (10 beyond its 20-pool, same BEAM) |
+| Shard 3 peak | 88 |
+
+**Cause (hypothesis b', consistent with the measurement, NOT proven).** The two known app-starting spawn sites are
+`test/mix/tasks/letflow.login_directory_tasks_test.exs` (`key_status`, `retire_key`) and
+`letflow.migrate_tenant_admins_test.exs`: they spawn `mix` children with `System.cmd/3`; each child runs `app.start`,
+and `config/test.exs` sizes its `Letflow.Repo` pool from the inherited `TEST_POOL_SIZE=20`. Four partitions at 20
+plus one such child at 20 is already at the ceiling. The earlier reserve of 5 was sized for one reaper connection
+plus the 4-slot `executor_test.exs` child (ISS-0287/ISS-0515); the ISS-0287 addendum's "one file, one partition"
+argument does not cover three different files each spawning a child. Children of `mix run --no-start` /
+`mix compile` open no pool and are unchanged.
+
+**What is established and what is not.**
+1. Which test spawned the shard-1 fifth process (pid 27329, 19 idle connections) is NOT proven. Its size fits an
+   inherited pool of 20 and nothing more. F2 caps the two known app-starting spawn sites; that they are the owner is a
+   hypothesis.
+2. The shard-2 process holding 30 connections against a pool of 20 (10 beyond it, inside one BEAM) is UNEXPLAINED and
+   NOT addressed by F2. The 86-of-97 worst case below does not include it. The spare of 11 absorbs one such partition
+   (4 x 17 + 10 + 3 x 4 + 2 = 92 of 97) but two such partitions would exceed it (4 x 17 + 2 x 10 + 2 x 4 + 2 = 98 of 97 usable; 106 if every partition also runs a child). The change is safe against it by
+   margin, not by construction.
+3. No run yet shows the cause is gone. Acceptance is 3 consecutive hosted runs with zero strict FATAL matches
+   (`FATAL 53300 \(too_many_connections\)|sorry, too many clients already`).
+4. A second measurement run (PR #2639, with process snapshots) is pending and may identify the owners. This addendum
+   will be updated with the owner section, or a follow-up issue filed, when it reports.
+
+**Change (F2 + F4, no retry, no skip).**
+- F2: `Letflow.Test.NestedMix.cmd/3` (`test/support/nested_mix.ex`) forces `TEST_POOL_SIZE=4` for test-spawned
+  children that start the app; the two task tests use it and `executor_test.exs` reads the same constant.
+- F4: `TEST_NONPOOL_CONNECTION_RESERVE: 16` in `.github/workflows/ci.yml`'s "Run test shard" step env (not the
+  script default: the default stays 5 so local runs and every other caller are untouched). 16 = 4 partitions x
+  the 4-slot child cap, the worst case of one child per partition at once.
+
+**Arithmetic.** `usable = 100 - 3 = 97`; `budget = 97 - 10 (headroom) - 16 = 71`; `TEST_POOL_SIZE = floor(71/4) = 17`.
+Worst case at once: 4 x 17 pool + 4 x 4 children + 2 external (probe, Postgres tune) = 86 of 97, a spare of 11.
+(Before: 80 + one uncapped child of 20 = 100, with no spare, which fits the overshoot measured above.)
+Pinned by `test/scripts/test_parallel_pool_clamp_test.exs` and `test/letflow/nested_mix_test.exs`.
+
+**Second measurement (run 38863398664, 2026-10-16, a branch WITHOUT this fix; throwaway PR #2639).** Same ceiling
+(`max_connections=100`, superuser role). Peaks: shard 1 = 97 (15 samples >= 95), shard 2 = 88, shard 3 = 88. Shard 3
+logged 59 server `too_many_connections` FATALs and 50 refused sampler connects although its highest SUCCESSFUL sample
+was 88: saturation arrives as sub-0.25 s bursts that the sampler mostly misses. Process snapshots (taken at total >= 90):
+- All four partition BEAMs are direct children of `bash scripts/test_parallel.sh`. The process holding 30 connections
+  (pid 4725, again against a pool of 20) is one of those partitions, so the extra 10 is inside a partition's own BEAM,
+  not a nested child. Its source is still unidentified and F2 does not touch it.
+- Nested BEAMs do occur: pids 7228 and 7498 were children of partition 4714's BEAM, aged 7 s and 3 s, so they are
+  short-lived. Pid 7228 held 4 connections, matching the pool cap the executor self-check already applied. The command
+  lines were cut at 300 characters, so which test spawned each is NOT identified; this run does not settle which test
+  spawned run 1's 19-connection fifth process (pid 27329).
+
+**Not claimed.** Raising `max_connections` is NOT claimed to work here. The "tried and reverted" history in
+`ci.yml` stands: its cited evidence (the `initdb` line `selecting default max_connections ... 100`) is printed before
+the server starts with its arguments and so does not show the flag was ignored, but no `SHOW max_connections`
+read-back ever proved it either way; both remain unproven. Also unverified until a CI run: that three consecutive
+runs show zero `53300` (the design's section 4 evidence plan), and the peak connection count after the change.

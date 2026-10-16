@@ -1489,12 +1489,12 @@ defmodule Letflow.Engine.Lua.ExecutorTest do
     @tag timeout: 60_000
     test "the isolated --only lua_wallclock_race partition runs and passes exactly 11 tests" do
       {output, exit_code} =
-        System.cmd(
+        Letflow.Test.NestedMix.cmd(
           "mix",
           ["test", "--only", "lua_wallclock_race", "test/letflow/engine/lua/executor_test.exs"],
           stderr_to_stdout: true,
+          # TEST_POOL_SIZE=4 is forced by NestedMix.cmd (GH #2630).
           env: [
-            {"TEST_POOL_SIZE", "4"},
             # ISS-0515, fourth rework (2026-09-06): PR #1033 failed CI four times in a
             # row with the identical DBConnection.ConnectionError signature even after
             # doubling Postgres's own max_connections (see this file's env var and

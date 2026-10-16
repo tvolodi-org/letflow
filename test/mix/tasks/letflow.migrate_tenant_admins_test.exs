@@ -176,8 +176,9 @@ defmodule Mix.Tasks.Letflow.MigrateTenantAdminsTest do
       {"LETFLOW_PLATFORM_TENANT_ID", pin}
     ]
 
+    # GH #2630: the task runs `app.start` (a Repo pool); cap it (Letflow.Test.NestedMix).
     {output, status} =
-      System.cmd(mix, ["letflow.migrate_tenant_admins" | args],
+      Letflow.Test.NestedMix.cmd(mix, ["letflow.migrate_tenant_admins" | args],
         env: env,
         stderr_to_stdout: true,
         cd: File.cwd!()
