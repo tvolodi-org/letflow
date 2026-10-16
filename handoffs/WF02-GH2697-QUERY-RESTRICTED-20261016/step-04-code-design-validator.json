@@ -1,0 +1,44 @@
+{
+  "handoff_id": "c4a7d1e0-2697-4a11-8c20-000000000004",
+  "run_id": "WF02-GH2697-QUERY-RESTRICTED-20261016",
+  "workflow_id": "WF-02",
+  "step": "04",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGN-VALIDATOR",
+  "file": "handoffs/WF02-GH2697-QUERY-RESTRICTED-20261016/step-04-code-design-validator.json",
+  "created_at": "2026-10-16T16:16:00Z",
+  "started_at": "2026-10-16T17:05:00Z",
+  "completed_at": "2026-10-16T18:10:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2697": "Entity query, join query and export accept filter/sort on fields restricted for the caller. Advisor scope: one allow-list walker over the full compiled request, uniform 403, unredacted-export exemption only for the exact permission on the export route."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-2697-4a11-8c20-000000000003"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/gh2697-restricted-field-request-walker.md",
+      "handoffs/WF02-GH2697-QUERY-RESTRICTED-20261016/step-03-code-designer.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2682-EXAM-SNAPSHOT-20261016"
+  },
+  "task": {
+    "description": "WF-02 Step 1b design validation for GH #2697. Read-only; no lib/ or test/ edits."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "ROUND 4 VERDICT: PASS (diff check). (E) verified fixed in place: single signature FieldPolicy.load_sets(principal, entity_types :: [String.t()]) :: {:ok, restriction_sets()} | {:error, :invalid_schema_name} in design 2.2 item 3 and 13.1; no load_sets/3 or RequestGuard.load_sets text remains in the design; remaining guard/5 mentions are explicit legacy-name notes (2.2 item 5, 13.1); step-03 summary now says load_sets(principal, entity_types), guard_row_request/2, check_request/4. (F) verified fixed: T-39 = router architecture grep (sets only via FieldPolicy in run_query/run_export/redact, aggregate call site allow-listed until #2699) and T-40 = FieldPolicy unit tests incl explicit redact_with_sets/3 sets-map assertion, restriction_set/2 own vs other-user grant, check_request/redact membership agreement; both rows present in the section 8 table; section 11 range reads T-01..T-28 and T-30..T-40; 13.3 'drop first' sentence cites T-40's redact assertions; 13.3 router-grep reference is T-39; 13.4 defines both; mutant M7 killed by T-40. Step-03 handoff carries ROUND-3 note with T-39/T-40 and PR1 range. Non-blocking nit: step-03 amendment log (chronological) still contains historical 'new section 14' and '30 test rows / ~1100 lines' wording, superseded by its own ROUND-2/ROUND-3 notes and by the design (13 sections, ~1,650 total, PR1 ~1,250); not a design defect. All earlier items A-D remain closed. No implementation code present; no TBD/deferral language; open questions Q1-Q8 each carry a stated default. Gate: design may proceed to ELIXIR-DEV / SECURITY-REVIEWER per WF-02.",
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "diagnosis_confirmed": false,
+    "implementation_written": false,
+    "classification": "DESIGN_GATE_PASS"
+  }
+}

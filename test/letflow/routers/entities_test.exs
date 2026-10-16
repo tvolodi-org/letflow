@@ -1675,7 +1675,8 @@ defmodule Letflow.Routers.EntitiesTest do
         display_name: "Topic Labels",
         fields: [
           %{name: "topic_id", type: :string},
-          %{name: "label_id", type: :string}
+          %{name: "label_id", type: :string},
+          %{name: "note", type: :string}
         ],
         foreign_keys: [
           %{name: "fk_topic", field: "topic_id", references_entity: "topic"},
@@ -1698,7 +1699,14 @@ defmodule Letflow.Routers.EntitiesTest do
       # converse: a through-keyed set means the implementer mis-derived the
       # key list, and the same mis-derivation omits or misnames a key that IS
       # exposed, which Map.fetch!/2 turns into a 500.
-      insert_field_restriction!(ctx, "topic_labels", "topic_id")
+      #
+      # GH #2697: the restricted field must NOT be one of the through
+      # entity's fk fields -- a restricted near/far-hop fk is a join-`on`
+      # reference and is now refused with 403 (see
+      # entities_query_restricted_walker_test.exs T-13). `note` is a plain
+      # non-fk field of the through entity, so the "restriction row on the
+      # through type" trap this test guards is preserved.
+      insert_field_restriction!(ctx, "topic_labels", "note")
 
       t = seed_query_record!(ctx, "topic", %{"stem" => "linked topic"})
       l = seed_query_record!(ctx, "label", %{"caption" => "math"})

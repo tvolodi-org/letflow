@@ -109,6 +109,31 @@ defmodule Letflow.Entities.Query.Compiler do
              {:relation_column_not_found, entity_type :: String.t(), column :: String.t()}}
 
   @typedoc """
+  One fk hop of a resolved join relation: the entity that DECLARES the fk
+  (`owner_entity_type`) and the fk column on it (`fk_field`). GH #2697: the
+  request-side restricted-field guard governs each hop by the declaring
+  entity's own restriction set.
+  """
+  @type join_hop :: %{owner_entity_type: String.t(), fk_field: String.t()}
+
+  @typedoc """
+  One join clause's resolved relation: a direct join has exactly one hop, a
+  `through` join exactly two (`[near_hop, far_hop]`).
+  """
+  @type join_relation :: %{exposed_key: String.t(), hops: [join_hop()]}
+
+  @typedoc "Error union of `join_relations/3` (all members of `compile_error()`)."
+  @type join_relations_error ::
+          {:error, {:too_many_joins, non_neg_integer()}}
+          | {:error, :join_depth_exceeded}
+          | {:error, {:duplicate_join_target, String.t()}}
+          | {:error, {:field_not_allowed, String.t()}}
+          | {:error, {:no_through_relation, String.t(), String.t()}}
+          | {:error, {:ambiguous_through_relation, String.t()}}
+          | {:error, :entity_type_not_found}
+          | {:error, :invalid_schema_name}
+
+  @typedoc """
   Which physical table a binding (the primary, or one side of a join)
   reads from (REQ-300 design §3.2). `:latest` is the shared
   `entity_record_latest` table, scoped by an `entity_type` where-clause;
@@ -170,6 +195,48 @@ defmodule Letflow.Entities.Query.Compiler do
       end
     end
   end
+
+  @doc """
+  Resolves, from entity DEFINITIONS only (no query built, no
+  `information_schema` read), the fk hops a `join` list would use (GH #2697).
+  Runs `check_join_shape/1` first, exactly as `compile/2` does, so an
+  over-wide request does no definition reads and returns the same error
+  `compile/2` would. An empty `joins` list returns `{:ok, []}` with no I/O.
+  Reuses `resolve_all_raw_relations/3`, so there is no second copy of the
+  fk-ownership rules.
+  """
+  @spec join_relations(
+          joins :: [Types.join_clause()],
+          primary_entity_type :: String.t(),
+          prefix :: String.t()
+        ) :: {:ok, [join_relation()]} | join_relations_error()
+  def join_relations(joins, primary_entity_type, prefix)
+      when is_list(joins) and is_binary(primary_entity_type) and is_binary(prefix) do
+    with :ok <- check_join_shape(joins),
+         :ok <- ensure_primary_exists(joins, primary_entity_type, prefix),
+         {:ok, raw} <-
+           resolve_all_raw_relations(Enum.with_index(joins), primary_entity_type, prefix) do
+      {:ok, Enum.map(raw, &raw_to_join_relation/1)}
+    end
+  end
+
+  # INV-5 (GH #2697 sec rework B1): compile/2 loads the primary first, so a
+  # missing primary type is `:entity_type_not_found` before any join-specific
+  # error. Establish the same precedence here (a `through` join on a missing
+  # primary would otherwise surface `:no_through_relation`). No I/O for [].
+  defp ensure_primary_exists([], _primary, _prefix), do: :ok
+
+  defp ensure_primary_exists(_joins, primary, prefix) do
+    with {:ok, _fk_defs} <- Allowlist.fk_defs(primary, prefix), do: :ok
+  end
+
+  defp raw_to_join_relation(%{kind: :direct, exposed_key: key, rel: rel}),
+    do: %{exposed_key: key, hops: [hop_of(rel)]}
+
+  defp raw_to_join_relation(%{kind: :through, exposed_key: key, near_rel: near, far_rel: far}),
+    do: %{exposed_key: key, hops: [hop_of(near), hop_of(far)]}
+
+  defp hop_of(rel), do: %{owner_entity_type: rel.owner_entity_type, fk_field: rel.fk_field}
 
   # ---------------------------------------------------------------------------------
   # REQ-300 design §3.2 -- resolve_binding_source/2 and §4.0.2 --

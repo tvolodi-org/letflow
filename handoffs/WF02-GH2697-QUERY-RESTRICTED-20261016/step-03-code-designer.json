@@ -1,0 +1,54 @@
+{
+  "handoff_id": "c4a7d1e0-2697-4a11-8c20-000000000003",
+  "run_id": "WF02-GH2697-QUERY-RESTRICTED-20261016",
+  "workflow_id": "WF-02",
+  "step": "03",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGNER",
+  "file": "handoffs/WF02-GH2697-QUERY-RESTRICTED-20261016/step-03-code-designer.json",
+  "created_at": "2026-10-16T16:10:00Z",
+  "started_at": "2026-10-16T16:10:05Z",
+  "completed_at": "2026-10-16T16:40:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2697": "Entity query, join query and export accept filter/sort on fields restricted for the caller (aggregate refuses with 403). Advisor scope: one allow-list walker over the full compiled request, uniform 403, unredacted-export exemption only for the exact permission on the export route."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "lib/letflow/routers/entities.ex",
+      "lib/letflow/entities/query/compiler.ex",
+      "lib/letflow/entities/query/allowlist.ex",
+      "lib/letflow/entities/query/field_grants.ex",
+      "lib/letflow/entities/query/cursor.ex",
+      "lib/letflow/entities/query/types.ex",
+      "test/letflow/routers/entities_query_restricted_filter_test.exs",
+      "handoffs/WF02-GH2682-EXAM-SNAPSHOT-20261016/step-05-test-designer-leak-repro.json"
+    ],
+    "owned_modules": [
+      "Letflow.Entities.Query.RequestGuard",
+      "Letflow.Entities.FieldPolicy"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2697-QUERY-RESTRICTED-20261016"
+  },
+  "task": {
+    "description": "WF-02 step 03 design for GH #2697. Design only, no implementation code, no mix."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "DESIGN WRITTEN: lib/letflow/design/gh2697-restricted-field-request-walker.md. One new pure-plus-loader module Letflow.Entities.Query.RequestGuard (pure walker: field_refs/3, restriction_entity_types/2, check/2) plus FieldPolicy.check_request/4 and FieldPolicy.load_sets(principal, entity_types) composed in the router before Compiler.compile (not inside Compiler, which has non-HTTP callers: exam anti_cheat/session, script_reads). Walks filters, sort (== cursor sort keys, the only key source), group_by, aggregate measures, and join ON fields, each ref governed by its own declaring entity's restriction set (no primary fallback). Fail-closed: per-kind registry of request keys with default deny (unlisted key => :request_clause_unwalked => same 403), check/2 fails closed on a ref with no loaded set, plus a typespec-introspection tripwire test over Types.query_request and Compiler.aggregate_request. FINDINGS: (1) HAVING IS NOT COVERED BECAUSE IT DOES NOT EXIST: aggregate_request is %{entity_type, aggregates, group_by?, filters?, join?} (compiler.ex:625-631) and build_aggregate_request copies only those; no having/distinct/search/computed clause exists anywhere; body keys are inert. (2) Aggregate today DIFFERS for unknown vs restricted: restricted => 403 fixed detail 'one or more requested fields are restricted for this caller' (entities.ex:2297); unknown => 422 'field is not queryable: \"<name>\"'. Design matches that (does not collapse) because restricted-field existence is already disclosed by the redaction sentinel key. (3) Join ON is a real unguarded oracle on query AND aggregate (hop_on_dynamic compares the declaring side's fk column; declaring side may be primary, target or through entity; aggregate check ignores join). (4) Joined filters/sort resolve against the primary allowlist only today, so far-side filter/sort positions do not exist; walker is entity-aware anyway. (5) likert_weight/likert_polarity/question.explanation are queried:false in the shipped pack so today 422 not 200; design makes restricted names win (403), tests also flip queried:true. (6) Observation: export and aggregate routes have no TypeAccess step (only /query), not changed, recommend separate issue. EXEMPTION: DECIDED TO EXEMPT because code is clear: export_redact(..., true) skips FieldGrants entirely (entities.ex:2482) so grants are irrelevant and the response already contains every restricted value; check_unredacted_permission/2 uses role-only AccessContext against the exact atom :EntitiesRecordsExportUnredacted; predicate = export route AND body unredacted==true AND that check passed; /query ignores the body key; audit entry (Audit.insert_entry, field NAMES only, fail closed on audit error) when the exemption is exercised. The 0051 D6 scope filter does not exist in Compiler.compile/2 yet, so that gate is vacuous today and is a checklist item for the D6 PR. Query chain order: build, opts, guard (calls TypeAccess first so a type-denied caller still gets the REQ-394 hidden 200), compile, TypeAccess, paginate, redact (now reuses the guard's loaded sets, no extra restriction queries). PR SPLIT: PR1 = guard + Compiler.join_relations/3 + query/join/export + exemption + audit + tests (~1100 lines); PR2 = aggregate migration + aggregate join ON (~400 lines, needs its own issue). 30 test rows (per clause 403/200 twins, exemption export-only, likert x3, row-order, type-hidden, cursor, tripwire, perf) and 6 mutants (+3 spare). #2612 permission-matrix SEC rule: NOT triggered (no edit to authorization.ex, catalog.ex, ci/cd, mix.exs, golden; no new permission atom); SECURITY-REVIEWER still mandatory on tenant-data-path grounds and must state audit cannot show past reads. OPEN QUESTIONS: Q1 confirm 403-vs-422 for restricted-vs-unknown; Q2 duplicate TypeAccess call vs threading; Q3 D6 scope filter absent, exemption gate vacuous; Q4 new audit action string and audit-on-read acceptability; Q5 PR2 needs its own GH issue; Q6 TypeAccess missing on export/aggregate; Q7 restricted+queried:false moves 422 to 403 on row routes. | AMENDMENT 2026-10-16T16:20Z (CDV step-04 items 1-6, SEC step-05 R1-R6, supervisor FieldPolicy): (1) TypeAccess skip is now a signature: run_query private helper guard_row_request/2 (request, principal) returns {:ok,{:checked,guard_ok}} | {:ok,:type_denied} | {:error,..}; FieldPolicy.check_request/4 unchanged; later TypeAccess step kept, redact never reached for a denied type. (2) Compiler.join_relations/3 runs check_join_shape first, exact error union listed, join_relation/join_hop types (through join = 2 hops [near,far]). (3) audit failure => {:error,{:export_audit_failed,reason}} with a dedicated render_export_error clause (detail-free 500); per SEC R3 audit is written AFTER Compiler.compile and BEFORE Cursor.paginate; tests T-32/T-33/T-37. (4) T-31 far-side/declaring-target redaction test; T-15 restated as field-wise status/type/title/detail equality. (5) PR1 'Refs #2697', PR2 issue (aggregate join-on presence oracle, prio 1) filed before PR1 merges and named in PR1 body, past-exposure statement and #2612 trigger note recorded. (6) Q1 decision pending SEC (default 403/422), Q3 exemption ships without scope-filter gate (no 0051 D6 filter in compile/2 today), Q4 closed (no audit-action registry; first read-path audit entry), Q6/Q8 separate issues (TypeAccess only checks primary type; none on export/aggregate). SEC: exempt? REQUIRED key, literal false on query/aggregate (R2); no values/refused names in audit or logs (R4, T-38); nonexistent-type hidden 200 test (R5, T-34); registry == builder key sets (T-26), granted-user and other-user grant tests (T-35/T-36) (R6). FieldPolicy (new section 14): Letflow.Entities.FieldPolicy with restriction_set/2, load_sets/2, check_request/4 (=guard), redact/3, redact_with_sets/3; RequestGuard stays the pure walker; router redact/3 delegates; PR1 adds ~150 lines; handler_writes/step_writes/read-time redaction migrate later; T-39 (router grep) and T-40 (FieldPolicy unit tests), mutant M7. | ROUND-2 FIXES (CDV): A) T-39 scoped to run_query/run_export/redact, aggregate call site entities.ex:2161 allow-listed until PR2 (#2699); B) PR1 passes the guard's sets to FieldGrants.redact_page/redact_joined_page, FieldPolicy.redact/3 and redact_with_sets/3 are unit-tested only (first to drop if PR1 too big); C) #2699 = PR2 (aggregate join-on presence oracle), #2700 = TypeAccess on join targets/export/aggregate named in sections 11, Q5, Q6, Q8; D) composite is FieldPolicy.check_request/4 everywhere (5.1-5.3, 6, 2.2 item 5), RequestGuard owns field_ref/guard_ok/guard_error/join_relations_error types, FieldPolicy size folded into section 11 (~1,650 total, PR1 ~1,250), sections renumbered 12 -> 13, stale FieldPolicy.check_request/4 text swept. | ROUND-3: load_sets is FieldPolicy.load_sets(principal, entity_types) everywhere; T-39 router architecture, T-40 FieldPolicy unit tests (incl redact_with_sets/3); PR1 tests T-01..T-28, T-30..T-40.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "lib/letflow/design/gh2697-restricted-field-request-walker.md",
+      "handoffs/WF02-GH2697-QUERY-RESTRICTED-20261016/step-03-code-designer.json"
+    ],
+    "diagnosis_confirmed": true,
+    "implementation_written": false,
+    "classification": "SECURITY_DEFECT"
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "handoff_id": "c4a7d1e0-2697-4a11-8c20-000000000008",
+  "run_id": "WF02-GH2697-QUERY-RESTRICTED-20261016",
+  "workflow_id": "WF-02",
+  "step": "08",
+  "from_agent": "ORCH",
+  "to_agent": "REVIEWER",
+  "file": "handoffs/WF02-GH2697-QUERY-RESTRICTED-20261016/step-08-reviewer-code.json",
+  "created_at": "2026-10-16T19:00:00Z",
+  "started_at": "2026-10-16T19:00:30Z",
+  "completed_at": "2026-10-16T19:12:00Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2697": "REVIEWER code gate for PR 1: request-side restricted-field walker on row query and export."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-2697-4a11-8c20-000000000006"
+    ],
+    "artifacts_in": [
+      "lib/letflow/entities/field_policy.ex",
+      "lib/letflow/entities/query/request_guard.ex",
+      "lib/letflow/entities/query/compiler.ex",
+      "lib/letflow/routers/entities.ex",
+      "lib/letflow/design/gh2697-restricted-field-request-walker.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2697-QUERY-RESTRICTED-20261016"
+  },
+  "task": {
+    "description": "WF-02 REVIEWER code gate for GH #2697 PR 1. Read-only; no mix run."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "PASS. IDIOM: pure walker (RequestGuard) separated from loader/composer (FieldPolicy); with-chains, pattern-matched clauses, closed-registry fail-closed, every public fn has @spec/@doc; no process/macro/behaviour machinery. SUPERVISION: n/a (no processes added). BEHAVIOUR PRESERVATION: run_query chain order Compiler.compile -> TypeAccess -> Allowlist -> Cursor.paginate -> redact preserved (guard inserted before compile only); redact/3 now reuses guard sets (no second load_restrictions), keys primary + each join.entity_type all present in sets because restriction_entity_types/2 includes primary, ref owners and join targets, so Map.fetch! cannot miss; type-denied keeps hidden 200 (guard_row_request skips field check, redact never sees :type_denied); redact fails closed by FunctionClauseError. Export: unredacted skips redaction as before; guard->compile->audit->paginate ordering matches design 6. All join_relations/guard error atoms map to existing render_query_error clauses; :invalid_schema_name hits the INV-8 catch-all 500; new clause maps both guard atoms to one 403 with the aggregate route's exact detail; export_audit_failed clause added before catch-all. SCOPE: aggregate route (run_query_aggregate/4, check_aggregate_field_restrictions/2) untouched (#2699 intact); lib diff = +56 compiler, +132/-43 router, +95 field_policy, +185 request_guard (~510 lib lines), within ~1250 bound; Compiler.join_relations/3 reuses resolve_all_raw_relations (no second copy of fk rules). DECISION RECORDS: 0051 D6 export scope filter absent, exemption ships without it per design Q3 (accepted, record in PR body). DEAD CODE: FieldPolicy.redact/3, redact_with_sets/3 and RequestGuard.check/2 have no production caller (unit-test-only per design; acceptable, but PR 2 or a follow-up must either use or delete them). DEV AMBIGUITIES: (1) audit after_state lists only exempted (restricted) field names, not all filter/sort fields: reasonable, matches 'restricted_fields_used' semantics and never logs values; (2) primary-entity sets always loaded even on unredacted export: reasonable, one cheap indexed read and the sets are needed anyway for the exempt comparison. NON-BLOCKING NITS: see findings.",
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "verdict": "PASS",
+    "required_changes": [],
+    "findings": [
+      {
+        "severity": "MUST_NOT_COMMIT",
+        "location": "test/letflow/routers/instances_restricted_field_events_test.exs",
+        "note": "Untracked leak-repro test for GH #2682/req511 scope (instances event field_values), unrelated to #2697. Must not be staged in the #2697 PR 1 commit; belongs to the #2682 branch/issue."
+      },
+      {
+        "severity": "NIT",
+        "location": "lib/letflow/routers/entities.ex:249",
+        "note": "alias Letflow.Entities.FieldPolicy placed after ManagedTypes; keep alias block alphabetical (FieldPolicy before ManagedTypes)."
+      },
+      {
+        "severity": "NIT",
+        "location": "lib/letflow/routers/entities.ex:1998-2008",
+        "note": "redact/3 third arg is overloaded ({:checked, guard_ok} | restriction_sets) purely to bridge run_query and export_redact; consider unwrapping in run_query (with pattern {:ok, {:checked, %{sets: sets}}}) so redact/3 takes only sets. Not blocking."
+      },
+      {
+        "severity": "NIT",
+        "location": "lib/letflow/entities/query/request_guard.ex:44-45",
+        "note": "moduledoc/comment references test/letflow/entities/query_request_guard_test.exs which does not exist yet; TEST-DESIGNER must create it (T-26 tripwire) or the reference goes stale."
+      },
+      {
+        "severity": "NIT",
+        "location": "lib/letflow/entities/query/request_guard.ex:41",
+        "note": "@type join_relations_error duplicates Compiler.join_relations_error alias; harmless, could be dropped."
+      },
+      {
+        "severity": "NIT",
+        "location": "lib/letflow/routers/entities.ex:2554-2562",
+        "note": "try/rescue around Audit.insert_entry is intentional fail-closed and documented; acceptable since insert_entry returns tuples but may raise on DB failure."
+      }
+    ],
+    "type_safety_findings": [],
+    "diagnosis_confirmed": null,
+    "implementation_written": false
+  }
+}
