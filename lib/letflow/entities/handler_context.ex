@@ -11,9 +11,10 @@ defmodule Letflow.Entities.HandlerContext do
 
   ## The handler contract (pinned by tests)
 
-  A handler is `fun(multi, ctx, args) :: {:ok, multi} | {:error, :invalid_arguments | :not_permitted}`,
-  registered in its module's manifest, resolved only by the Catalog and called only by the
-  platform inside the step transaction.
+  A handler is `fun(multi, ctx, args)` returning `{:ok, multi}` or
+  `{:error, :invalid_arguments | :not_permitted}`, registered in its module's manifest, resolved
+  only by the Catalog and called only by the platform inside the step transaction. The context
+  it receives is bound to that one call: `create/3` refuses a copy that differs in any field.
 
     1. The handler BUILDS Multi steps by calling `HandlerWrites.create/3` and does nothing
        else: it reads no table, holds no `repo`, never calls `Repo.transaction` or

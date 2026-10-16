@@ -62,16 +62,20 @@ defmodule Letflow.EventStore.LockInstanceSequenceTest do
              end)
   end
 
-  test "an existing row keeps its next_seq", %{schema: schema} do
+  test "an existing row is locked (xmax set) and keeps its next_seq", %{schema: schema} do
     instance_id = Ecto.UUID.generate()
 
     Repo.insert!(%InstanceSequence{instance_id: instance_id, next_seq: 7}, prefix: schema)
 
     assert {:ok, :ok} =
              Repo.transaction(fn ->
+               # committed row, never locked so far: the lock marks its tuple's xmax
+               assert xmax(schema, instance_id) == "0"
+
                assert {:ok, :locked} =
                         EventStore.lock_instance_sequence(Repo, instance_id, schema)
 
+               assert xmax(schema, instance_id) != "0"
                :ok
              end)
 

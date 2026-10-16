@@ -224,6 +224,14 @@ defmodule Letflow.Entities.StepSourceTest do
       assert MapSet.disjoint?(MapSet.new(declarative), MapSet.new(handler_keys))
     end
 
+    test "S3: the declarative overflow key (20) equals call_key(0); the 20-line cap keeps them apart" do
+      # StepWrites names its overflow failure {:line, 20, :build} (@max_lines = 20) and the first
+      # handler call's call-level key is also 20. They never coexist because the engine caps the
+      # COMBINED declarative + handler line count at 20 before any Multi is built (R4b).
+      assert StepSource.call_key(0) == 20
+      assert StepSource.declared_line_index(20) == 0
+    end
+
     test "declared_line_index/1 maps a handler-range key back to the declared index" do
       for index <- [0, 1, 7, 19], ordinal <- [0, 1, 49] do
         assert StepSource.declared_line_index(StepSource.call_key(index) + ordinal) == index

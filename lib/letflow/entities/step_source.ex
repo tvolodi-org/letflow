@@ -30,6 +30,11 @@ defmodule Letflow.Entities.StepSource do
   disjoint), and `idempotency_key/1` builds `"sys:step:<origin id>:<line_index>"`,
   with `":<write_ordinal>"` appended for a handler write. A key that disagrees with
   the source's origin id, line index or ordinal cannot be expressed (#2627, OQ-C7).
+  Step-name collision to know about (R4b): `StepWrites` names its 21st-line overflow failure
+  `{:line, 20, :build}`, and `call_key(0)` is also 20. The two never coexist because the engine caps
+  the COMBINED declarative + handler line count at 20 before any Multi is built (design 4.7), so
+  the overflow clause is unreachable for a node with `module_writes`; R4b must keep that cap ahead
+  of `multi/3` (the test in `step_source_test.exs` pins the numbers).
   Declarative lines are byte-identical to before (key, idempotency key and the 8
   metadata keys); a handler write adds exactly three metadata keys.
 

@@ -28,7 +28,7 @@ defmodule Letflow.Entities.HandlerWritesCallersTest do
       that the API hands a handler nothing dangerous. The negative control is the
       deliberately misbehaving `FixtureLedgerRogue` file, which MUST be flagged.
     * H5: `Definitions.create_owned/3` only in `solution_pack.ex` (folded in from R2's
-      R2's `create_owned_callers_test.exs`).
+      `create_owned_callers_test.exs`).
 
   Accepted limits, as in the siblings: computed function names, `Code.eval_*`, macros defined
   away from the call site, `%__MODULE__{}` forms and dependencies are not seen.
@@ -53,11 +53,13 @@ defmodule Letflow.Entities.HandlerWritesCallersTest do
                    actor_id subject_id activator_id handler)a
 
   @forbidden_aliases ~w(Repo Records Owner StepSource ManagedTypes EventStore Task Process GenServer
-                        Agent Req Finch HTTPoison System File IO Code Query Application)a
+                        Agent Req Finch HTTPoison System File IO Code Query Application
+                        HandlerContext)a
   @forbidden_calls ~w(spawn spawn_link spawn_monitor send from)a
-  @forbidden_atom_modules ~w(httpc inets gen_tcp os file)a
+  @forbidden_atom_modules ~w(httpc inets gen_tcp os file erlang)a
   @atom_creators [{[:String], :to_atom}, {[:String], :to_existing_atom}, {[:Module], :concat}]
-  @map_changers ~w(put put_new put_new_lazy replace replace! merge update update! delete)a
+  @map_changers ~w(put put_new put_new_lazy replace replace! merge update update! delete
+                   from_struct pop)a
 
   defp scanned_files do
     (Path.wildcard("lib/**/*.ex") ++ Path.wildcard("test/support/**/*.ex")) |> Enum.sort()
@@ -176,10 +178,20 @@ defmodule Letflow.Entities.HandlerWritesCallersTest do
 
   # Human-readable violations of one handler file (empty when clean).
   defp purity_violations(source) do
+    ast = parse(source)
+    ctx_vars = ctx_names(ast)
+
     {_ast, found} =
-      source
-      |> parse()
-      |> Macro.prewalk([], fn
+      Macro.prewalk(ast, [], fn
+        # `alias X, as: Y` hides which module a later call names; `import Ecto.Multi/Query` hides
+        # the receiver altogether
+        {:alias, _, [_module, opts]} = node, acc when is_list(opts) ->
+          {node, if(Keyword.has_key?(opts, :as), do: [{:alias, :as} | acc], else: acc)}
+
+        {:import, _, [{:__aliases__, _, parts} | _]} = node, acc ->
+          last = List.last(parts)
+          {node, if(last in [:Multi, :Query], do: [{:import, last} | acc], else: acc)}
+
         # module attributes (docs, specs) are data
         {:@, _, _}, acc ->
           {{:__attribute__, [], []}, acc}
@@ -188,11 +200,11 @@ defmodule Letflow.Entities.HandlerWritesCallersTest do
           last = List.last(parts)
           {node, if(last in @forbidden_aliases, do: [{:alias, last} | acc], else: acc)}
 
-        {{:., _, [{:__aliases__, _, parts}, fun]}, _, args} = node, acc when is_list(args) ->
-          {node, acc ++ remote_violations(parts, fun, args)}
-
         {{:., _, [{:__aliases__, _, [:Kernel]}, :apply]}, _, [mod | _]} = node, acc ->
           {node, acc ++ non_literal_apply(mod)}
+
+        {{:., _, [{:__aliases__, _, parts}, fun]}, _, args} = node, acc when is_list(args) ->
+          {node, acc ++ remote_violations(parts, fun, args, ctx_vars)}
 
         {:apply, _, [mod | _]} = node, acc ->
           {node, acc ++ non_literal_apply(mod)}
@@ -225,12 +237,38 @@ defmodule Letflow.Entities.HandlerWritesCallersTest do
   defp non_literal_apply(atom) when is_atom(atom), do: []
   defp non_literal_apply(_other), do: [{:apply, :non_literal_module}]
 
-  defp remote_violations([:Multi], fun, _args) when fun in [:new, :append], do: []
-  defp remote_violations([:Ecto, :Multi], fun, _args) when fun in [:new, :append], do: []
-  defp remote_violations([:Multi], fun, _args), do: [{:multi, fun}]
-  defp remote_violations([:Ecto, :Multi], fun, _args), do: [{:multi, fun}]
+  # The names of the context parameter (the second one) of every arity-3 `def`/`defp`.
+  defp ctx_names(ast) do
+    {_ast, names} =
+      Macro.prewalk(ast, [], fn
+        {kind, _, [head | _]} = node, acc when kind in [:def, :defp] ->
+          params =
+            case head do
+              {:when, _, [{_name, _, params} | _guards]} -> params
+              {_name, _, params} -> params
+            end
 
-  defp remote_violations(parts, fun, args) do
+          case params do
+            [_, {name, _, ctx}, _] when is_atom(name) and is_atom(ctx) -> {node, [name | acc]}
+            _other -> {node, acc}
+          end
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    names
+  end
+
+  defp ctx_var?({name, _, ctx}, names) when is_atom(name) and is_atom(ctx), do: name in names
+  defp ctx_var?(_other, _names), do: false
+
+  defp remote_violations([:Multi], fun, _args, _ctx) when fun in [:new, :append], do: []
+  defp remote_violations([:Ecto, :Multi], fun, _args, _ctx) when fun in [:new, :append], do: []
+  defp remote_violations([:Multi], fun, _args, _ctx), do: [{:multi, fun}]
+  defp remote_violations([:Ecto, :Multi], fun, _args, _ctx), do: [{:multi, fun}]
+
+  defp remote_violations(parts, fun, args, ctx_vars) do
     last = List.last(parts)
 
     cond do
@@ -240,7 +278,8 @@ defmodule Letflow.Entities.HandlerWritesCallersTest do
       {parts, fun} in @atom_creators ->
         [{:atom_creation, fun}]
 
-      parts == [:Map] and fun in @map_changers and Enum.any?(args, &context_key?/1) ->
+      parts in [[:Map], [:Keyword]] and fun in @map_changers and
+          Enum.any?(args, &(context_key?(&1) or ctx_var?(&1, ctx_vars))) ->
         [{:map_change, fun}]
 
       true ->
@@ -251,14 +290,25 @@ defmodule Letflow.Entities.HandlerWritesCallersTest do
   defp context_key?(atom) when is_atom(atom), do: atom in @context_keys
   defp context_key?(_other), do: false
 
-  # The handler FILES, derived from the compiled manifests (relative paths).
+  # The handler FILES, derived from the compiled manifests (relative paths): EVERY .ex file under
+  # the directory of each entry module that registers a handler and of each handler module (a
+  # helper file in the module's namespace is as much handler code as the function's own file).
   defp handler_files do
-    for entry <- Letflow.Modules.Catalog.entry_modules(),
-        spec <- Map.get(entry.manifest(), :write_handlers, []),
-        {mod, _fun} = spec.function,
-        path = compile_source(mod),
-        uniq: true,
-        do: path
+    entries =
+      for entry <- Letflow.Modules.Catalog.entry_modules(),
+          Map.get(entry.manifest(), :write_handlers, []) != [],
+          do: entry
+
+    sources =
+      for entry <- entries,
+          mod <- [entry | Enum.map(entry.manifest().write_handlers, &elem(&1.function, 0))],
+          path = compile_source(mod),
+          do: path
+
+    sources
+    |> Enum.flat_map(fn path -> Path.wildcard(Path.join(Path.dirname(path), "**/*.ex")) end)
+    |> Enum.uniq()
+    |> Enum.sort()
   end
 
   defp compile_source(mod) do
@@ -325,7 +375,18 @@ defmodule Letflow.Entities.HandlerWritesCallersTest do
       end
 
       # the deliberately misbehaving handler module IS flagged (the scan is not vacuous)
-      assert purity_violations(File.read!(@rogue)) != []
+      flagged = purity_violations(File.read!(@rogue))
+
+      for tag <- [
+            {:multi, :run},
+            {:multi, :insert_all},
+            {:alias, :as},
+            {:import, :Multi},
+            {:map_change, :merge},
+            {:repo, :variable}
+          ] do
+        assert tag in flagged, inspect(tag)
+      end
     end
 
     test "H4: the real fixture handlers reach the platform only through HandlerWrites.create/3" do
@@ -406,33 +467,82 @@ defmodule Letflow.Entities.HandlerWritesCallersTest do
              )
     end
 
-    test "H4: each forbidden form is flagged and a compliant handler is clean" do
-      for snippet <- [
-            "defmodule H do\n  def h(m, c, _a), do: Repo.transaction(fn -> m end)\nend",
-            "defmodule H do\n  def h(m, c, _a), do: repo.query!(\"select 1\")\nend",
-            "defmodule H do\n  def h(m, c, _a), do: Ecto.Multi.insert(m, :x, c)\nend",
-            "defmodule H do\n  def h(m, c, _a), do: Ecto.Multi.run(m, :x, fn _, _ -> {:ok, 1} end)\nend",
-            "defmodule H do\n  alias Ecto.Multi\n  def h(m, _c, _a), do: Multi.merge(m, fn _ -> m end)\nend",
-            "defmodule H do\n  def h(m, c, _a), do: Records.create_record(c, \"p\", :tenant)\nend",
-            "defmodule H do\n  def h(m, c, _a), do: %Owner{module_id: \"x\", manages: nil}\nend",
-            "defmodule H do\n  def h(m, c, _a), do: StepSource.new(%{})\nend",
-            "defmodule H do\n  def h(m, c, _a), do: ManagedTypes.owner_for_handler(\"a\", \"b\")\nend",
-            "defmodule H do\n  def h(m, c, _a), do: EventStore.append(%{}, [])\nend",
-            "defmodule H do\n  def h(m, c, _a), do: File.read!(\"/etc/passwd\")\nend",
-            "defmodule H do\n  def h(m, c, _a), do: System.cmd(\"ls\", [])\nend",
-            "defmodule H do\n  def h(m, c, _a), do: Task.async(fn -> 1 end)\nend",
-            "defmodule H do\n  def h(m, c, _a), do: spawn(fn -> 1 end)\nend",
-            "defmodule H do\n  def h(m, c, _a), do: send(self(), 1)\nend",
-            "defmodule H do\n  def h(m, c, _a), do: :httpc.request(\"http://x\")\nend",
-            "defmodule H do\n  def h(m, c, a), do: apply(a, :f, [])\nend",
-            "defmodule H do\n  def h(m, c, a), do: String.to_atom(a)\nend",
-            "defmodule H do\n  def h(m, c, a), do: Module.concat(a, B)\nend",
-            "defmodule H do\n  def h(m, c, _a), do: %{c | handler: nil}\nend",
-            "defmodule H do\n  def h(m, c, _a), do: Map.put(c, :handler, nil)\nend",
-            "defmodule H do\n  def h(m, c, _a), do: HandlerWrites.build_call(m, c, %{}, %{})\nend",
-            "defmodule H do\n  import Ecto.Query\n  def h(m, c, _a), do: from(x in \"t\", select: x)\nend"
-          ] do
-        assert purity_violations(snippet) != [], snippet
+    test "H4: each forbidden form is flagged with its tag, and a compliant handler is clean" do
+      body = fn expr -> "defmodule H do
+  def h(m, c, a), do: #{expr}
+end" end
+
+      cases = [
+        {body.("Repo.transaction(fn -> m end)"), {:alias, :Repo}},
+        {body.("repo.query!(\"select 1\")"), {:repo, :variable}},
+        {body.("Ecto.Multi.insert(m, :x, c)"), {:multi, :insert}},
+        {body.("Ecto.Multi.run(m, :x, fn _, _ -> {:ok, 1} end)"), {:multi, :run}},
+        {body.("Ecto.Multi.insert_all(m, :x, \"t\", [])"), {:multi, :insert_all}},
+        {"defmodule H do
+  alias Ecto.Multi
+  def h(m, _c, _a), do: Multi.merge(m, fn _ -> m end)
+end", {:multi, :merge}},
+        {"defmodule H do
+  alias Ecto.Multi, as: M
+  def h(m, _c, _a), do: M.run(m, :x, fn _, _ -> {:ok, 1} end)
+end", {:alias, :as}},
+        {"defmodule H do
+  import Ecto.Multi, only: [run: 3]
+  def h(m, _c, _a), do: run(m, :x, fn _, _ -> {:ok, 1} end)
+end", {:import, :Multi}},
+        {"defmodule H do
+  import Ecto.Query
+  def h(_m, _c, _a), do: from(x in \"t\", select: x)
+end", {:import, :Query}},
+        {"defmodule H do
+  import Ecto.Query
+  def h(_m, _c, _a), do: from(x in \"t\", select: x)
+end", {:call, :from}},
+        {body.("Records.create_record(c, \"p\", :tenant)"), {:alias, :Records}},
+        {body.("%Owner{module_id: \"x\", manages: nil}"), {:alias, :Owner}},
+        {body.("StepSource.new(%{})"), {:alias, :StepSource}},
+        {body.("ManagedTypes.owner_for_handler(\"a\", \"b\")"), {:alias, :ManagedTypes}},
+        {body.("EventStore.append(%{}, [])"), {:alias, :EventStore}},
+        {body.("File.read!(\"/etc/passwd\")"), {:alias, :File}},
+        {body.("System.cmd(\"ls\", [])"), {:alias, :System}},
+        {body.("Task.async(fn -> 1 end)"), {:alias, :Task}},
+        {body.("Process.put(:k, 1)"), {:alias, :Process}},
+        {body.("Agent.start_link(fn -> 1 end)"), {:alias, :Agent}},
+        {body.("IO.puts(\"x\")"), {:alias, :IO}},
+        {body.("Code.eval_string(a)"), {:alias, :Code}},
+        {body.("Application.get_env(:a, :b)"), {:alias, :Application}},
+        {body.("Req.get!(\"http://x\")"), {:alias, :Req}},
+        {body.("Finch.request(a, b)"), {:alias, :Finch}},
+        {body.("HTTPoison.get(\"http://x\")"), {:alias, :HTTPoison}},
+        {body.("%HandlerContext{prefix: \"p\"}"), {:alias, :HandlerContext}},
+        {body.("spawn(fn -> 1 end)"), {:call, :spawn}},
+        {body.("send(self(), 1)"), {:call, :send}},
+        {body.(":httpc.request(\"http://x\")"), {:erlang_module, :httpc}},
+        {body.(":os.cmd(~c\"ls\")"), {:erlang_module, :os}},
+        {body.(":file.read_file(\"x\")"), {:erlang_module, :file}},
+        {body.(":gen_tcp.connect(~c\"h\", 1, [])"), {:erlang_module, :gen_tcp}},
+        {body.(":erlang.put(:k, 1)"), {:erlang_module, :erlang}},
+        {body.("apply(a, :f, [])"), {:apply, :non_literal_module}},
+        {body.("Kernel.apply(a, :f, [])"), {:apply, :non_literal_module}},
+        {body.("String.to_atom(a)"), {:atom_creation, :to_atom}},
+        {body.("String.to_existing_atom(a)"), {:atom_creation, :to_existing_atom}},
+        {body.("Module.concat(a, B)"), {:atom_creation, :concat}},
+        {body.("%{c | handler: nil}"), {:map_update, :context}},
+        {body.("Map.put(c, :handler, nil)"), {:map_change, :put}},
+        {body.("Map.merge(c, %{prefix: \"other\"})"), {:map_change, :merge}},
+        {body.("Map.update(c, :k, 1, & &1)"), {:map_change, :update}},
+        {body.("Keyword.merge(c, [])"), {:map_change, :merge}},
+        {body.("struct(c, prefix: \"p\")"), {:call, :struct}},
+        {body.("struct!(c, prefix: \"p\")"), {:call, :struct!}},
+        {body.("put_in(c.prefix, \"p\")"), {:call, :put_in}},
+        {body.("update_in(c.prefix, & &1)"), {:call, :update_in}},
+        {body.("HandlerWrites.build_call(m, c, %{}, %{})"), {:handler_writes, :build_call}},
+        {body.("HandlerWrites.lock_types(m, [], \"p\")"), {:handler_writes, :lock_types}},
+        {body.("HandlerWrites.create(m, c)"), {:handler_writes, :create}}
+      ]
+
+      for {snippet, tag} <- cases do
+        assert tag in purity_violations(snippet), "#{inspect(tag)} not flagged in: #{snippet}"
       end
 
       compliant = """
@@ -440,10 +550,11 @@ defmodule Letflow.Entities.HandlerWritesCallersTest do
         alias Ecto.Multi
         alias Letflow.Entities.HandlerWrites
 
-        @spec h(Multi.t(), term(), map()) :: {:ok, Multi.t()} | {:error, atom()}
+        @spec h(Multi.t(), Letflow.Entities.HandlerContext.t(), map()) ::
+                {:ok, Multi.t()} | {:error, atom()}
         def h(multi, ctx, %{"item" => item}) when is_binary(item) do
           case HandlerWrites.create(multi, ctx, %{entity_type: "t", field_values: %{"item" => item}}) do
-            {:ok, multi} -> {:ok, Multi.append(multi, Multi.new())}
+            {:ok, multi} -> {:ok, Ecto.Multi.append(multi, Ecto.Multi.new())}
             {:error, _} -> {:error, :not_permitted}
           end
         end
@@ -453,6 +564,16 @@ defmodule Letflow.Entities.HandlerWritesCallersTest do
       """
 
       assert purity_violations(compliant) == []
+
+      full_alias = """
+      defmodule H do
+        def h(multi, ctx, _args) do
+          Letflow.Entities.HandlerWrites.create(multi, ctx, %{entity_type: "t", field_values: %{}})
+        end
+      end
+      """
+
+      assert purity_violations(full_alias) == []
     end
   end
 end

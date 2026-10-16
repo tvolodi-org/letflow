@@ -85,7 +85,12 @@ defmodule Letflow.Entities.ModuleWriteOwnerPathTest do
       handler: %{module_id: "fixture_ledger", name: handler, targets: registered.targets}
     }
 
-    struct!(base, overrides)
+    context = struct!(base, overrides)
+
+    # The per-call token the platform sets around a handler call (see HandlerWrites): a test that
+    # calls create/3 directly plays the platform and sets it for the context it built.
+    Process.put({HandlerWrites, :call}, %{ctx: context, produced: []})
+    context
   end
 
   defp written(ctx) do
@@ -285,6 +290,63 @@ defmodule Letflow.Entities.ModuleWriteOwnerPathTest do
                {:error, :invalid_write_command}
     end
 
+    test "a context that is not the one built for the running call is refused (S1)", ctx do
+      good = context(ctx)
+      command = create_command("fxl_balance", %{"item" => "x"})
+
+      assert {:ok, _} = HandlerWrites.create(Multi.new(), good, command)
+
+      # a forged copy: any changed field, including the tenant prefix and the handler
+      for forged <- [
+            %{good | prefix: "tenant_other"},
+            %{good | actor_id: Ecto.UUID.generate()},
+            %{good | line_index: 1},
+            %{
+              good
+              | handler: %{
+                  module_id: "fixture_ledger",
+                  name: "post_entry",
+                  targets: ["fxl_ledger"]
+                }
+            }
+          ] do
+        assert HandlerWrites.create(Multi.new(), forged, command) ==
+                 {:error, :invalid_write_command},
+               inspect(forged)
+      end
+
+      # outside a handler call there is no token at all
+      Process.delete({HandlerWrites, :call})
+      assert HandlerWrites.create(Multi.new(), good, command) == {:error, :invalid_write_command}
+    end
+
+    test "scoped type: the :policy step refuses it and nothing is written (T3)", ctx do
+      Repo.query!(~s(ALTER TABLE "#{ctx.schema}".entity_definitions DISABLE TRIGGER USER))
+
+      Repo.query!(
+        ~s(UPDATE "#{ctx.schema}".entity_definitions SET definition_json = definition_json || '{"scoped": true}'::jsonb WHERE name = 'fxl_balance')
+      )
+
+      previous = Application.get_env(:letflow, :entity_writes_scope_keys)
+      Application.put_env(:letflow, :entity_writes_scope_keys, ["scoped"])
+
+      on_exit(fn ->
+        if previous,
+          do: Application.put_env(:letflow, :entity_writes_scope_keys, previous),
+          else: Application.delete_env(:letflow, :entity_writes_scope_keys)
+      end)
+
+      assert {:ok, multi} =
+               HandlerWrites.create(
+                 Multi.new(),
+                 context(ctx, "post_balance_only"),
+                 create_command("fxl_balance", %{"item" => "x"})
+               )
+
+      assert {:error, {:line, 21, :policy}, :scoped_type, _} = Repo.transaction(multi)
+      assert written(ctx) == {0, 0, 0}
+    end
+
     test "the 50th create in one call is :too_many_writes; the 49 before it are accepted", ctx do
       ctx_balance = context(ctx, "post_balance_only")
 
@@ -366,8 +428,9 @@ defmodule Letflow.Entities.ModuleWriteOwnerPathTest do
     test "F-7: a registered target whose tenant row is not managed by the module is refused",
          ctx do
       # The manifest names the type; the tenant row is what the :policy step re-reads under the
-      # sequence lock. The managed_by immutability trigger is disabled for this test's
-      # transaction only (rolled back with the sandbox).
+      # sequence lock. The managed_by immutability trigger is disabled in THIS test's own
+      # tenant schema (one fresh tenant per test, rolled back with the sandbox); it is not
+      # re-enabled and no other test shares the schema.
       Repo.query!(~s(ALTER TABLE "#{ctx.schema}".entity_definitions DISABLE TRIGGER USER))
 
       Repo.query!(
@@ -422,6 +485,13 @@ defmodule Letflow.Entities.ModuleWriteOwnerPathTest do
 
       assert {:error, {:line, 20, :owner_recheck}, :hash_mismatch, _} = run(ctx, entry_line())
 
+      # installed == stamp but != compiled: the stamp is passed as the tampered install hash, so
+      # only the installed-vs-compiled conjunct can refuse
+      tampered = String.duplicate("b", 64)
+
+      assert {:error, {:line, 20, :owner_recheck}, :hash_mismatch, _} =
+               run(ctx, entry_line(), %{"label" => "L"}, %{manifest_hash: tampered})
+
       # no recorded hash at all (a pre-R2 install)
       Repo.query!(
         ~s(UPDATE "#{ctx.schema}".tenant_modules SET manifest_hash = NULL WHERE module_id = 'fixture_ledger')
@@ -439,9 +509,13 @@ defmodule Letflow.Entities.ModuleWriteOwnerPathTest do
       assert written(ctx) == {0, 0, 0}
     end
 
-    test "an unknown handler, a foreign module and a missing line key fail closed", ctx do
+    test "an unknown handler, a foreign module and a line without a module fail closed", ctx do
       assert {:error, {:line, 20, :build}, :handler_unknown, _} =
                run(ctx, line("ghost", %{}))
+
+      # a line with a module (matching hash) but no handler name resolves to nothing
+      assert {:error, {:line, 20, :build}, :handler_unknown, _} =
+               run(ctx, %{"module" => "fixture_ledger"})
 
       # the handler exists, but under a module the stamp's hash does not describe: the recheck
       # refuses it first (fixture_ledger_other is not installed)
@@ -521,6 +595,7 @@ defmodule Letflow.Entities.ModuleWriteOwnerPathTest do
           rationale: "GH 2590 R4a rogue"
         )
 
+      {:ok, _} = EntityTypeInstance.get_or_create("fxr_thing", ctx.schema)
       {:ok, rogue_hash} = Catalog.manifest_hash("fixture_ledger_rogue")
       %{rogue_attrs: %{manifest_hash: rogue_hash}}
     end
@@ -552,6 +627,52 @@ defmodule Letflow.Entities.ModuleWriteOwnerPathTest do
     test "the handler's closed error atoms map to build reasons", ctx do
       assert {:error, {:line, 20, :build}, :handler_not_permitted, _} = rogue(ctx, "denies")
       assert {:error, {:line, 20, :build}, :handler_invalid_arguments, _} = rogue(ctx, "invalid")
+    end
+
+    test "S1: a forged context (prefix, handler) is refused; nothing is written anywhere", ctx do
+      # a second tenant where the SAME rogue module is installed: with a trusting create/3 the
+      # forged prefix would write there
+      other = Mw.tenant!("gh2590-r4a-x")
+
+      {:ok, _} =
+        Installs.install("fixture_ledger_rogue", Ecto.UUID.generate(),
+          prefix: other.schema,
+          rationale: "GH 2590 R4a rogue (second tenant)"
+        )
+
+      {:ok, _} = EntityTypeInstance.get_or_create("fxr_thing", other.schema)
+
+      forge_line =
+        line("forge_prefix", %{"prefix" => %{"const" => other.schema}}, "fixture_ledger_rogue")
+
+      assert {:error, {:line, 20, :build}, :handler_not_permitted, _} =
+               run(ctx, forge_line, %{}, ctx.rogue_attrs)
+
+      assert Fx.records(other.schema, "fxr_thing") == []
+      assert Fx.records(ctx.schema, "fxr_thing") == []
+
+      # the forged handler (another module's registration, targeting fxl_ledger)
+      assert {:error, {:line, 20, :build}, :handler_not_permitted, _} =
+               rogue(ctx, "forge_handler")
+
+      assert Fx.records(ctx.schema, "fxl_ledger") == []
+      assert written(ctx) == {0, 0, 0}
+    end
+
+    test "S2: a step with a live repo is refused, however Ecto.Multi is named", ctx do
+      for handler <- [
+            "run_full",
+            "run_aliased",
+            "run_imported",
+            "insert_all_op",
+            "run_after_create"
+          ] do
+        assert {:error, {:line, 20, :build}, :handler_shape, _} = rogue(ctx, handler), handler
+      end
+
+      # run_after_create made a legitimate create first: still nothing is committed
+      assert Fx.records(ctx.schema, "fxr_thing") == []
+      assert written(ctx) == {0, 0, 0}
     end
 
     test "a handler writing ANOTHER module's managed type is refused by the platform", ctx do

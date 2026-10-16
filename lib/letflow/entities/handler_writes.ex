@@ -76,6 +76,16 @@ defmodule Letflow.Entities.HandlerWrites do
 
   @max_writes_per_call 49
 
+  # Per-call token (SECURITY review of R4a, S1/S2): `invoke/4` stores the exact context it built,
+  # and the entries `create/3` produced, in the calling process for the duration of the handler
+  # call. `create/3` refuses any context that is not that exact struct, so a handler cannot forge
+  # `prefix` / `handler` / actor fields by updating the context it was given; `check_built/3`
+  # accepts only entries `create/3` produced, so a handler cannot smuggle in a `Multi.run` with a
+  # live repo. The process dictionary is reachable from handler code; scan H4 flags `Process`,
+  # `:erlang` and context-key updates as a tripwire (modules are compiled-in code: the residual is
+  # stated in decision 0054's R4a amendment).
+  @token_key {__MODULE__, :call}
+
   @type write_command :: %{required(:entity_type) => String.t(), required(:field_values) => map()}
   @type handler_error :: :invalid_arguments | :not_permitted
 
@@ -111,14 +121,30 @@ defmodule Letflow.Entities.HandlerWrites do
           {:ok, Multi.t()}
           | {:error, :target_not_registered | :too_many_writes | :invalid_write_command}
   def create(%Multi{} = multi, %HandlerContext{} = ctx, command) do
-    with {:ok, entity_type, field_values} <- check_command(ctx, command),
+    with {:ok, token} <- fetch_token(ctx),
+         {:ok, entity_type, field_values} <- check_command(ctx, command),
          {:ok, owner} <- check_target(ctx, entity_type),
-         {:ok, ordinal} <- next_ordinal(multi, ctx.line_index) do
-      {:ok, build_write(multi, ctx, owner, ordinal, entity_type, field_values)}
+         {:ok, ordinal} <- next_ordinal(token) do
+      written = build_write(multi, ctx, owner, ordinal, entity_type, field_values)
+      record_produced(token, Multi.to_list(written) -- Multi.to_list(multi))
+      {:ok, written}
     end
   end
 
   def create(_multi, _ctx, _command), do: {:error, :invalid_write_command}
+
+  # The context must be EXACTLY the one the platform built for the handler call now running in
+  # this process; anything else (a forged copy, a call outside a handler call) is refused.
+  defp fetch_token(ctx) do
+    case Process.get(@token_key) do
+      %{ctx: ^ctx} = token -> {:ok, token}
+      _forged_or_absent -> {:error, :invalid_write_command}
+    end
+  end
+
+  defp record_produced(token, entries) do
+    Process.put(@token_key, %{token | produced: token.produced ++ entries})
+  end
 
   defp check_command(
          %HandlerContext{} = ctx,
@@ -159,16 +185,14 @@ defmodule Letflow.Entities.HandlerWrites do
     end
   end
 
-  # The ordinal is the number of distinct keys already used in this call's range, plus one: a
-  # fresh Multi holds none, and the count cannot be reset by the handler.
-  defp next_ordinal(%Multi{} = multi, line_index) do
-    k0 = StepSource.call_key(line_index)
-
+  # The ordinal is the number of distinct keys `create/3` already produced in this call, plus
+  # one. It is taken from the per-call token, not from the Multi the handler passes in, so a
+  # handler cannot reset the count by passing a fresh Multi.
+  defp next_ordinal(%{produced: produced}) do
     used =
-      multi
-      |> Multi.to_list()
+      produced
       |> Enum.flat_map(fn
-        {{:line, key, _step}, _op} when key > k0 and key <= k0 + @max_writes_per_call -> [key]
+        {{:line, key, _step}, _op} -> [key]
         _other -> []
       end)
       |> Enum.uniq()
@@ -304,6 +328,9 @@ defmodule Letflow.Entities.HandlerWrites do
   end
 
   # The install row and both hashes, re-read with NO lock at execution time (TOCTOU defence).
+  # `tenant_modules` has no status column in this build (a row IS an installed module; there is
+  # no disabled/uninstalled state), so row existence is the whole "installed and enabled" check.
+  # Uninstall (decision 0055) must delete the row or add a status this function then checks.
   defp owner_recheck(module_id, prefix, stamp_hash)
        when is_binary(module_id) and is_binary(stamp_hash) do
     with {:ok, installed} <- Installs.installed_manifest_hash(module_id, prefix: prefix),
@@ -321,8 +348,8 @@ defmodule Letflow.Entities.HandlerWrites do
     with {:ok, handler} <- resolve(line),
          {:ok, args} <- resolve_args(Map.get(line, "args", %{}), handler.args, variables),
          ctx = build_context(attrs, handler),
-         {:ok, built} <- call_handler(handler, ctx, args),
-         :ok <- check_built(built, k0) do
+         {:ok, built, produced} <- call_handler(handler, ctx, args),
+         :ok <- check_built(built, produced, k0) do
       built
     else
       {:error, reason} -> Multi.error(Multi.new(), {:line, k0, :build}, reason)
@@ -400,16 +427,16 @@ defmodule Letflow.Entities.HandlerWrites do
   # the exception text (INV-4).
   defp call_handler(handler, ctx, args) do
     case safe_call(handler, ctx, args) do
-      {:ok, %Multi{} = built} ->
-        {:ok, built}
+      {{:ok, %Multi{} = built}, produced} ->
+        {:ok, built, produced}
 
-      {:error, :invalid_arguments} ->
+      {{:error, :invalid_arguments}, _produced} ->
         {:error, :handler_invalid_arguments}
 
-      {:error, :not_permitted} ->
+      {{:error, :not_permitted}, _produced} ->
         {:error, :handler_not_permitted}
 
-      {:raised, exception_module} ->
+      {{:raised, exception_module}, _produced} ->
         Logger.error(
           "module write handler raised at build: module=#{handler.module_id} " <>
             "handler=#{handler.name} exception=#{inspect(exception_module)}"
@@ -422,20 +449,31 @@ defmodule Letflow.Entities.HandlerWrites do
     end
   end
 
+  # Runs the handler with the per-call token set (and always cleared). Returns the handler's raw
+  # return paired with the entries `create/3` produced during the call.
   defp safe_call(handler, ctx, args) do
-    Catalog.call_write_handler(handler, Multi.new(), ctx, args)
-  rescue
-    exception -> {:raised, exception.__struct__}
+    Process.put(@token_key, %{ctx: ctx, produced: []})
+
+    try do
+      raw = Catalog.call_write_handler(handler, Multi.new(), ctx, args)
+      {raw, Map.fetch!(Process.get(@token_key), :produced)}
+    rescue
+      exception -> {{:raised, exception.__struct__}, []}
+    after
+      Process.delete(@token_key)
+    end
   end
 
-  # Every step name the handler added must be `{:line, key, step}` inside the call's own range.
-  defp check_built(%Multi{} = built, k0) do
+  # Every entry the handler returned must be one `create/3` produced during this call (same step
+  # name AND same operation, so a handler's own `Multi.run`/`insert` with a live repo is refused),
+  # and its step name must lie in the call's own `{:line, key, _}` range.
+  defp check_built(%Multi{} = built, produced, k0) do
     ok? =
       built
       |> Multi.to_list()
       |> Enum.all?(fn
-        {{:line, key, step}, _op} when is_integer(key) and is_atom(step) ->
-          key > k0 and key <= k0 + @max_writes_per_call
+        {{:line, key, step}, _op} = entry when is_integer(key) and is_atom(step) ->
+          key > k0 and key <= k0 + @max_writes_per_call and entry in produced
 
         _other ->
           false

@@ -24,7 +24,10 @@ resolver is also called by `managed_types.ex` (`owner_for_handler/2`) and
 `definitions/module_writes.ex` (read-only activation validation). H5 is folded in from R2's
 `create_owned_callers_test.exs`. A negative-control module `FixtureLedgerRogue` (misbehaving
 handlers) is registered in `config/test.exs`; the fixture ledger gained `on_install/3` and an
-optional `quantity` field. Not done in R4a: the call-level `{:line, k0, :deadline}` guard (needs the
+optional `quantity` field. Security follow-up: a per-call token (exact context + produced entries) makes
+`create/3` refuse a forged context and the executor refuse any step `create/3` did not produce; H4
+also covers `alias ..., as:`, `import Ecto.Multi` and every `.ex` file under the module's directory;
+residuals are in decision 0054's R4a amendment. Not done in R4a: the call-level `{:line, k0, :deadline}` guard (needs the
 engine's `:entity_writes_started` step) and the prepare-time `managed_by` check of the synthetic
 instance (R4b).
 

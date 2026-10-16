@@ -566,4 +566,39 @@ defmodule Letflow.Entities.ManagedTypesTest do
       prefix: schema
     )
   end
+
+  describe "owner_for_handler/2 (GH #2590 R4a, T1)" do
+    alias Letflow.Entities.ManagedTypes
+    alias Letflow.Entities.ManagedTypes.Owner
+
+    test "a registered handler yields an Owner narrowed to its targets" do
+      assert {:ok, %Owner{module_id: "fixture_ledger", manages: manages} = owner} =
+               ManagedTypes.owner_for_handler("fixture_ledger", "post_entry")
+
+      assert manages == MapSet.new(["fxl_ledger", "fxl_balance"])
+      assert owner.version == nil and owner.manifest_hash == nil
+
+      # narrowed: the module manages both, but this handler registers only fxl_balance
+      assert {:ok, %Owner{manages: only}} =
+               ManagedTypes.owner_for_handler("fixture_ledger", "post_balance_only")
+
+      assert only == MapSet.new(["fxl_balance"])
+    end
+
+    test "an unknown handler, module or non-binary is {:error, :unknown_handler}" do
+      for {module, name} <- [
+            {"fixture_ledger", "ghost"},
+            {"ghost", "post_entry"},
+            {"fixture_ledger_other", "post_entry"},
+            {nil, "post_entry"},
+            {"fixture_ledger", nil},
+            {:fixture_ledger, :post_entry},
+            {1, 2},
+            {"Fixture_Ledger", "post_entry"}
+          ] do
+        assert ManagedTypes.owner_for_handler(module, name) == {:error, :unknown_handler},
+               inspect({module, name})
+      end
+    end
+  end
 end
