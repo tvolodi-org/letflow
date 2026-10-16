@@ -698,6 +698,12 @@ defmodule Letflow.EventStore do
   # read (Ecto's `lock: "FOR UPDATE"` query composition, per INV-7 -- never a
   # hand-written SQL string), (iii) increment under the still-held lock.
   defp assign_sequence(repo, _changes, %{instance_id: instance_id, schema_name: schema_name}) do
+    with {:ok, _} <- insert_sequence_row_if_absent(repo, instance_id, schema_name) do
+      lock_and_increment_sequence(repo, instance_id, schema_name)
+    end
+  end
+
+  defp insert_sequence_row_if_absent(repo, instance_id, schema_name) do
     insert_changeset =
       InstanceSequence.insert_changeset(%InstanceSequence{}, %{instance_id: instance_id})
 
@@ -706,19 +712,42 @@ defmodule Letflow.EventStore do
            conflict_target: :instance_id,
            prefix: schema_name
          ) do
-      {:ok, _} -> lock_and_increment_sequence(repo, instance_id, schema_name)
+      {:ok, row} -> {:ok, row}
       {:error, changeset} -> {:error, changeset}
     end
   end
 
-  defp lock_and_increment_sequence(repo, instance_id, schema_name) do
-    locked =
-      InstanceSequence
-      |> where([s], s.instance_id == ^instance_id)
-      |> lock("FOR UPDATE")
-      |> repo.one(prefix: schema_name)
+  defp lock_sequence_row(repo, instance_id, schema_name) do
+    InstanceSequence
+    |> where([s], s.instance_id == ^instance_id)
+    |> lock("FOR UPDATE")
+    |> repo.one(prefix: schema_name)
+  end
 
-    case locked do
+  @doc """
+  Takes the `instance_sequences` row lock of `instance_id` in `prefix` WITHOUT assigning a
+  sequence number (GH #2590 / REQ-501 R4a, design `gh2590-req501-module-write-handlers.md`
+  4.4): sub-steps (i) insert-if-absent and (ii) `FOR UPDATE` of `assign_sequence/3`, without
+  the increment (iii), with the same query composition (no SQL string, INV-7). Every writer of
+  the instance takes this row before its projection row (S18), so holding it serialises them;
+  the engine's handler path takes it once per type, in ascending type order, before any write.
+  Must run inside a transaction (the lock is transaction-scoped); `repo` is the transaction's
+  repo, as handed to `Ecto.Multi.run/3`.
+  """
+  @spec lock_instance_sequence(Ecto.Repo.t() | module(), Ecto.UUID.t(), String.t()) ::
+          {:ok, :locked} | {:error, term()}
+  def lock_instance_sequence(repo, instance_id, prefix)
+      when is_binary(instance_id) and is_binary(prefix) do
+    with {:ok, _} <- insert_sequence_row_if_absent(repo, instance_id, prefix) do
+      case lock_sequence_row(repo, instance_id, prefix) do
+        nil -> {:error, {:sequence_conflict, :row_missing_after_insert}}
+        %InstanceSequence{} -> {:ok, :locked}
+      end
+    end
+  end
+
+  defp lock_and_increment_sequence(repo, instance_id, schema_name) do
+    case lock_sequence_row(repo, instance_id, schema_name) do
       nil ->
         {:error, {:sequence_conflict, :row_missing_after_insert}}
 

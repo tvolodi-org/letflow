@@ -30,10 +30,11 @@ defmodule Letflow.Entities.CommandMultiCallersTest do
   @records "lib/letflow/entities/records.ex"
   @event_store "lib/letflow/event_store.ex"
   @step_writes "lib/letflow/entities/step_writes.ex"
+  @handler_writes "lib/letflow/entities/handler_writes.ex"
   @fake "lib/letflow/fake.ex"
 
   # Static allow-lists: adding a file is a reviewed diff (design 3.4).
-  @command_multi_callers [@step_writes]
+  @command_multi_callers [@step_writes, @handler_writes]
   @step_namespace_files [@event_store, @records]
 
   @records_receivers [[:Records], [:Entities, :Records], [:Letflow, :Entities, :Records]]

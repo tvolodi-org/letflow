@@ -31,11 +31,12 @@ defmodule Letflow.Entities.StepSourceCallersTest do
   @definer "lib/letflow/entities/step_source.ex"
   @records "lib/letflow/entities/records.ex"
   @step_writes "lib/letflow/entities/step_writes.ex"
+  @handler_writes "lib/letflow/entities/handler_writes.ex"
   @fake "lib/letflow/fake.ex"
 
   # Allow-lists: adding a file is a reviewed diff. records.ex re-runs the constructor on the
   # command's struct and pattern-matches it; step_writes.ex is the only producer.
-  @new_callers [@records, @step_writes]
+  @new_callers [@handler_writes, @records, @step_writes]
   @struct_pattern_files [@records]
 
   @full_module [:Letflow, :Entities, :StepSource]

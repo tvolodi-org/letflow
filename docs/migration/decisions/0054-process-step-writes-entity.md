@@ -327,6 +327,21 @@ whose pinned definition is stamped AND whose pinned snapshot declares `module_wr
 (OQ-R1). The validation lives in `Letflow.Definitions.ModuleWrites` (design rev 3), not behind an EntityPort callback. Pilot limit of the strict hash and its operator symptoms:
 `docs/runbooks/module-write-handlers-manifest-hash.md`.
 
+## Amendment (GH #2590 / REQ-501 PR R4a): D6 handler WRITE path (below the engine)
+
+The platform side of a module write handler's entity writes ships without engine integration:
+`Letflow.Entities.HandlerWrites.create/3` is the only writer a handler sees; it derives the
+`Owner` on every call from the Catalog registration (`ManagedTypes.owner_for_handler/2`, narrowed to
+the handler's registered targets), refuses a type outside those targets, caps a call at 49 creates,
+applies the completer's field restrictions and, in a `:policy` step, requires the type's row to be
+managed by the registering module and unscoped. `StepSource` gains optional `handler` and
+`write_ordinal` (key `20 + line_index * 50 + ordinal`, idempotency key with the ordinal, three more
+metadata keys); declarative lines are byte-identical. `EventStore.lock_instance_sequence/3` is the
+lock-only primitive for the engine's ascending type locks. `TASK_ENTITY_WRITES_APPLIED` is bumped
+IN PLACE to schema_version 2 (three optional line-item keys). The R4b executor re-verifies the
+install row and both hashes at execution time (`HandlerWrites.build_call/4`, step
+`owner_recheck`). Nothing in the engine calls it yet: R3's interim guard stays until R4b.
+
 ## Sign-off
 
 REVIEWER:

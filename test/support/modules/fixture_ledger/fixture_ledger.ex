@@ -10,13 +10,17 @@ defmodule Letflow.Modules.FixtureLedger do
   R1 shipped NO pack and NO `on_install`. R2 gives it `module_fixtures/ledger_foundation.json`
   (the two managed entity definitions and process definitions: `fxl_post` plain, and R3 HUMAN_TASK
   variants, two of which declare `module_writes`) so a module install creates STAMPED process
-  definition versions; there is still no `on_install` and nothing executes a handler (activation
-  checks are R3, execution R4). No router, no permissions. Registered only in `config/test.exs`.
+  definition versions. R4a (GH #2590) adds `on_install/3`, which activates and promotes the two
+  entity types (so a handler's `HandlerWrites.create/3` has an active managed type to write), and
+  makes the handlers write for real; the ENGINE still executes none (R4b). No router, no
+  permissions. Registered only in `config/test.exs`.
   """
 
   @behaviour Letflow.Modules.Module
 
   import Letflow.Modules.Module, only: [defmanifest: 1]
+
+  alias Letflow.Modules.EntityActivation
 
   @impl true
   defmanifest(
@@ -45,4 +49,9 @@ defmodule Letflow.Modules.FixtureLedger do
       }
     ]
   )
+
+  @impl true
+  def on_install(prefix, _settings, ctx) do
+    EntityActivation.activate_and_promote(prefix, ctx, ["fxl_ledger", "fxl_balance"])
+  end
 end

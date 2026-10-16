@@ -116,7 +116,8 @@
         "display_name": "Fixture Ledger",
         "description": "REQ-501 test fixture (managed, append-only).",
         "fields": [
-          { "name": "item", "type": "string", "required": true }
+          { "name": "item", "type": "string", "required": true },
+          { "name": "quantity", "type": "integer" }
         ],
         "append_only": true
       }
@@ -131,7 +132,8 @@
         "display_name": "Fixture Balance",
         "description": "REQ-501 test fixture (managed).",
         "fields": [
-          { "name": "item", "type": "string", "required": true }
+          { "name": "item", "type": "string", "required": true },
+          { "name": "quantity", "type": "integer" }
         ]
       }
     }

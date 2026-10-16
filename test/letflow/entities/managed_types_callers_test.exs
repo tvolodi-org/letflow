@@ -52,11 +52,12 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
   @solution_pack "lib/letflow/definitions/solution_pack.ex"
   @definitions "lib/letflow/entities/definitions.ex"
   @records "lib/letflow/entities/records.ex"
+  @handler_writes "lib/letflow/entities/handler_writes.ex"
   @fixture_managed "test/support/modules/fixture_managed/fixture_managed.ex"
   @script_policy_fixture "test/support/script_policy_fixture.ex"
 
   # Static allow-list for R1: adding a file here is a reviewed diff (design 7.3).
-  @authority_callers [@fixture_managed]
+  @authority_callers [@handler_writes, @fixture_managed]
   # R3 / R4 allow-lists (unchanged from REQ-496 T-34).
   @module_owner_callers [@managed_types, @installs]
   @owner_builders [@managed_types]

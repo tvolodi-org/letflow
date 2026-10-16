@@ -1415,11 +1415,15 @@ defmodule Letflow.TenantProvisioning do
     },
     %{
       name: "TASK_ENTITY_WRITES_APPLIED",
-      schema_version: 1,
+      # v2 (GH #2590 / REQ-501 R4a): bumped IN PLACE (a v1 entry kept beside v2 would fail
+      # every replay with :schema_version_not_monotonic for a tenant already at v2).
+      schema_version: 2,
       description:
         "Emitted by Letflow.Engine (decision 0054, GH #2587) when a HUMAN_TASK or " <>
           "SERVICE_TASK step's declared entity writes commit: ids and sequences only, no " <>
-          "field value. Replay changes no state for it and never re-executes a write.",
+          "field value. Replay changes no state for it and never re-executes a write. " <>
+          "Version 2 adds three OPTIONAL line-item keys naming the module handler that " <>
+          "produced a line; every v1 payload is also a valid v2 payload.",
       json_schema: %{
         "type" => "object",
         "properties" => %{
@@ -1435,7 +1439,11 @@ defmodule Letflow.TenantProvisioning do
                 "line_index" => %{"type" => "integer", "minimum" => 0},
                 "entity_type" => %{"type" => "string"},
                 "record_id" => %{"type" => "string"},
-                "event_global_seq" => %{"type" => "integer", "minimum" => 0}
+                "event_global_seq" => %{"type" => "integer", "minimum" => 0},
+                # v2: present only on a module-handler line (ids and names, never a value).
+                "handler_module" => %{"type" => "string"},
+                "handler" => %{"type" => "string"},
+                "write_ordinal" => %{"type" => "integer", "minimum" => 1}
               },
               "required" => ["line_index", "entity_type", "record_id", "event_global_seq"],
               "additionalProperties" => false
