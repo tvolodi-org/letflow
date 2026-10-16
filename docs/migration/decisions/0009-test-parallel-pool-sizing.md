@@ -677,6 +677,18 @@ Worst case at once: 4 x 17 pool + 4 x 4 children + 2 external (probe, Postgres t
 (Before: 80 + one uncapped child of 20 = 100, with no spare, which fits the overshoot measured above.)
 Pinned by `test/scripts/test_parallel_pool_clamp_test.exs` and `test/letflow/nested_mix_test.exs`.
 
+**Second measurement (run 38863398664, 2026-10-16, a branch WITHOUT this fix; throwaway PR #2639).** Same ceiling
+(`max_connections=100`, superuser role). Peaks: shard 1 = 97 (15 samples >= 95), shard 2 = 88, shard 3 = 88. Shard 3
+logged 59 server `too_many_connections` FATALs and 50 refused sampler connects although its highest SUCCESSFUL sample
+was 88: saturation arrives as sub-0.25 s bursts that the sampler mostly misses. Process snapshots (taken at total >= 90):
+- All four partition BEAMs are direct children of `bash scripts/test_parallel.sh`. The process holding 30 connections
+  (pid 4725, again against a pool of 20) is one of those partitions, so the extra 10 is inside a partition's own BEAM,
+  not a nested child. Its source is still unidentified and F2 does not touch it.
+- Nested BEAMs do occur: pids 7228 and 7498 were children of partition 4714's BEAM, aged 7 s and 3 s, so they are
+  short-lived. Pid 7228 held 4 connections, matching the pool cap the executor self-check already applied. The command
+  lines were cut at 300 characters, so which test spawned each is NOT identified; this run does not settle which test
+  spawned run 1's 19-connection fifth process (pid 27329).
+
 **Not claimed.** Raising `max_connections` is NOT claimed to work here. The "tried and reverted" history in
 `ci.yml` stands: its cited evidence (the `initdb` line `selecting default max_connections ... 100`) is printed before
 the server starts with its arguments and so does not show the flag was ignored, but no `SHOW max_connections`
