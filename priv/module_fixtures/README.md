@@ -15,6 +15,8 @@ the `:test` environment references them (same arrangement as `priv/wasm_fixtures
   `Letflow.Modules.FixtureManaged`, whose manifest declares the first seven in
   `manages_entity_types`.
 * `ledger_foundation.json` -- GH #2590 / REQ-501 R2: the two managed entity definitions of
-  `Letflow.Modules.FixtureLedger` (`fxl_ledger`, append-only, and `fxl_balance`) and ONE
-  process definition, `fxl_post` (START -> END, no `module_writes`), so a module install
+  `Letflow.Modules.FixtureLedger` (`fxl_ledger`, append-only, and `fxl_balance`) and the
+  process definitions `fxl_post` (START -> END, no `module_writes`), plus (R3) `fxl_post_module`,
+  `fxl_post_mixed` and `fxl_task_plain` (HUMAN_TASK nodes with, with both, and without
+  `module_writes`), so a module install
   creates a process definition version that is stamped with its owner.

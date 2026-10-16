@@ -8,7 +8,7 @@ defmodule Letflow.Modules.FixtureLedger do
   `Letflow.Modules.FixtureLedger.Handlers`.
 
   R1 shipped NO pack and NO `on_install`. R2 gives it `module_fixtures/ledger_foundation.json`
-  (the two managed entity definitions and one plain process definition, `fxl_post`) so a
+  (the two managed entity definitions and process definitions, `fxl_post` plain, R3: HUMAN_TASK variants) so a
   module install creates a STAMPED process definition version; there is still no
   `on_install`, no `module_writes` and nothing calls a handler (activation and execution are
   R3/R4). No router, no permissions. Registered only in `config/test.exs`.

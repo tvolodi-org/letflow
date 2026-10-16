@@ -80,6 +80,8 @@ defmodule Letflow.Engine.PinRebind do
   """
 
   alias Ecto.Multi
+  alias Letflow.Definitions.InstanceDefinitionSnapshot
+  alias Letflow.Definitions.ProcessDefinition
   alias Letflow.Engine.PinResolver
   alias Letflow.EventStore
   alias Letflow.EventStore.InstanceProjection
@@ -130,6 +132,7 @@ defmodule Letflow.Engine.PinRebind do
           | {:error, {:malformed_entry, index :: non_neg_integer(), reason :: term()}}
           | {:error, :instance_not_found}
           | {:error, {:instance_not_rebindable, status :: :completed | :cancelled | :error}}
+          | {:error, {:rebind_refused_owned_definition, :module, ref :: String.t()}}
           | {:error, {:unknown_pin_ref, entry_kind(), ref :: String.t()}}
           | {:error, {:concurrent_modification, instance_id :: Ecto.UUID.t()}}
           | {:error, {:event_append_failed, term()}}
@@ -342,6 +345,9 @@ defmodule Letflow.Engine.PinRebind do
     |> Multi.run(:eligibility, fn _repo, %{instance_projection: projection} ->
       check_rebind_eligibility(projection)
     end)
+    |> Multi.run(:owner_guard, fn repo, _changes ->
+      check_owned_definition_guard(repo, instance_id, normalized_entries, prefix)
+    end)
     |> Multi.run(:effective_pins, fn _repo, _changes ->
       PinResolver.reconstruct_effective_pins(instance_id, prefix: prefix)
     end)
@@ -363,6 +369,51 @@ defmodule Letflow.Engine.PinRebind do
     end)
     |> Repo.transaction()
     |> interpret_rebind_result(instance_id, rebound_at)
+  end
+
+  # GH #2590 / REQ-501 R3 (decision 0054 D6 property 4; design 4.9 Option N, D-R.14, OQ-R1):
+  # a `:module` entry is refused ONLY for an instance whose PINNED definition is stamped by a
+  # module install AND whose pinned snapshot graph declares `module_writes`. Every other
+  # request, and every non-`:module` entry, is byte-identical to before: one extra read, only
+  # for a request that carries a `:module` entry (a rare admin action). Fail closed: if the
+  # snapshot declares module_writes and the pinned definition row cannot be read (deleted),
+  # the entry is refused too. Runs under the projection lock M1 holds.
+  defp check_owned_definition_guard(repo, instance_id, normalized_entries, prefix) do
+    case Enum.find(normalized_entries, &(&1.kind == :module)) do
+      nil ->
+        {:ok, :not_applicable}
+
+      %{ref: ref} ->
+        snapshot = repo.get(InstanceDefinitionSnapshot, instance_id, prefix: prefix)
+
+        if snapshot_declares_module_writes?(snapshot) and
+             stamped_or_unreadable?(repo, snapshot.definition_id, prefix) do
+          {:error, {:rebind_refused_owned_definition, :module, ref}}
+        else
+          {:ok, :allowed}
+        end
+    end
+  end
+
+  defp snapshot_declares_module_writes?(%InstanceDefinitionSnapshot{graph: %{"nodes" => nodes}})
+       when is_list(nodes) do
+    Enum.any?(nodes, fn
+      %{"attributes" => %{"module_writes" => writes}} -> writes not in [nil, []]
+      _other -> false
+    end)
+  end
+
+  defp snapshot_declares_module_writes?(_no_snapshot_or_graph), do: false
+
+  defp stamped_or_unreadable?(repo, definition_id, prefix) do
+    case repo.one(
+           from(d in ProcessDefinition, where: d.id == ^definition_id, select: {d.owner_module}),
+           prefix: prefix
+         ) do
+      nil -> true
+      {nil} -> false
+      {_module_id} -> true
+    end
   end
 
   # M1 -- ported from Letflow.Engine.Reconstruction's own

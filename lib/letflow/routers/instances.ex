@@ -508,6 +508,12 @@ defmodule Letflow.Routers.Instances do
   defp render_rebind(conn, {:error, {:instance_not_rebindable, _status}}),
     do: Response.conflict(conn, "instance is in a terminal state and cannot be rebound")
 
+  # GH #2590 / REQ-501 R3 (decision 0054 D6 property 4): a module-owned, handler-calling
+  # definition's sub-process pin cannot be rebound. Constant detail: neither `ref` nor the
+  # module is echoed.
+  defp render_rebind(conn, {:error, {:rebind_refused_owned_definition, _kind, _ref}}),
+    do: Response.conflict(conn, "instance's definition is module-owned and cannot be rebound")
+
   defp render_rebind(conn, {:error, {:concurrent_modification, _instance_id}}),
     do: Response.conflict(conn, "instance is locked by another transaction")
 
