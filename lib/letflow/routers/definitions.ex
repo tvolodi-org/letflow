@@ -602,6 +602,7 @@ defmodule Letflow.Routers.Definitions do
     actor_id = conn.assigns.auth_context.user_id
 
     with {:ok, body} <- object_body(conn),
+         :ok <- reject_server_owned_fields(body),
          {:ok, attrs} <- validate_schema(@create_schema, body),
          {:ok, entries} <- normalise_variable_schema_entries(Map.get(attrs, "variable_schemas")) do
       create_attrs = %{
@@ -653,6 +654,7 @@ defmodule Letflow.Routers.Definitions do
     opts = conn.assigns.scoped_opts
 
     with {:ok, body} <- object_body(conn),
+         :ok <- reject_server_owned_fields(body),
          {:ok, attrs} <- validate_schema(@put_schema, body),
          {:ok, description} <- optional_string(Map.get(body, "description")),
          {:ok, stage} <- optional_string(Map.get(body, "stage")),
@@ -700,6 +702,7 @@ defmodule Letflow.Routers.Definitions do
     opts = conn.assigns.scoped_opts
 
     with {:ok, body} <- object_body(conn),
+         :ok <- reject_server_owned_fields(body),
          {:ok, attrs} <- validate_schema(@patch_schema, body),
          {:ok, entries} <- normalise_variable_schema_entries(Map.get(body, "variable_schemas")) do
       update_attrs = patch_attrs(body, attrs) |> maybe_put_variable_schemas(entries)
@@ -761,6 +764,10 @@ defmodule Letflow.Routers.Definitions do
 
   defp render_write(conn, {:error, :not_draft}, _success_status),
     do: Response.conflict(conn, "only a DRAFT definition can be modified")
+
+  # GH #2590 / REQ-501 R2 (D-R.15): a module-shipped version is immutable to the tenant API.
+  defp render_write(conn, {:error, :module_owned_definition}, _success_status),
+    do: Response.conflict(conn, "a module-owned definition version cannot be modified")
 
   defp render_write(conn, {:error, reason}, _success_status)
        when reason in [:name_invalid, :version_empty, :graph_structure_invalid],
@@ -1073,6 +1080,7 @@ defmodule Letflow.Routers.Definitions do
     actor_id = conn.assigns.auth_context.user_id
 
     with {:ok, body} <- object_body(conn),
+         :ok <- reject_server_owned_fields(body),
          {:ok, schema_version} <- required_string(body, "bpm_export_schema_version"),
          {:ok, name} <- required_string(body, "name"),
          {:ok, version} <- required_string(body, "version"),
@@ -1097,11 +1105,41 @@ defmodule Letflow.Routers.Definitions do
       {:error, :malformed_json} ->
         Response.bad_request(conn, "request body must be a JSON object")
 
+      {:errors, field_errors} ->
+        Response.send_problem(conn, Validation.problem(field_errors))
+
       {:error, {:missing_field, field}} ->
         Response.unprocessable(conn, "#{field} is required")
 
       {:error, :invalid_variable_schemas} ->
         Response.unprocessable(conn, "variable_schemas entries are malformed")
+    end
+  end
+
+  # GH #2590 / REQ-501 R2 (design 4.8, OQ-R11): the module ownership stamp fields are
+  # server-owned. A body naming any of them (even with a null value) is a 422 field error
+  # before anything is read or written, on POST, PUT, PATCH, import and rollback.
+  #
+  # SCOPE EXTENSION: `activated_by` is refused by the same helper. REQ-501's acceptance
+  # criteria do not require it; it is the same defect class (a server-recorded provenance
+  # column named in a request body, silently ignored today) and one list entry. Dropping it
+  # from `@server_owned_fields` has no other effect.
+  @server_owned_fields ~w(owner_module owner_module_version owner_manifest_hash owner_body_hash activated_by)
+
+  defp reject_server_owned_fields(body) when is_map(body) do
+    case Enum.filter(@server_owned_fields, &Map.has_key?(body, &1)) do
+      [] ->
+        :ok
+
+      present ->
+        {:errors,
+         Enum.map(present, fn field ->
+           %Letflow.Api.Validation.FieldError{
+             field: field,
+             constraint: "server_owned",
+             message: "is set by the server and cannot be supplied"
+           }
+         end)}
     end
   end
 
@@ -1149,7 +1187,11 @@ defmodule Letflow.Routers.Definitions do
       "created_at" => DateTime.to_iso8601(definition.created_at),
       "updated_at" => DateTime.to_iso8601(definition.updated_at),
       "archived_at" => optional_iso8601(definition.archived_at),
-      "stage" => definition.stage
+      "stage" => definition.stage,
+      # GH #2590 / REQ-501 R2: which module shipped this version (null for a tenant-created
+      # one). Read-only. The ownership HASHES are never serialised (OQ-R11).
+      "owner_module" => definition.owner_module,
+      "owner_module_version" => definition.owner_module_version
     }
   end
 
@@ -1190,26 +1232,26 @@ defmodule Letflow.Routers.Definitions do
     opts = conn.assigns.scoped_opts
     actor_id = conn.assigns.auth_context.user_id
 
-    case Validation.validate(@rollback_schema, conn.body_params) do
+    with :ok <- reject_server_owned_fields(conn.body_params),
+         {:ok, attrs} <- Validation.validate(@rollback_schema, conn.body_params) do
+      result =
+        Definitions.rollback_definition_version(
+          process_key,
+          attrs["target_version"],
+          actor_id,
+          Keyword.merge(opts,
+            activator: Letflow.Api.Context.activator(conn),
+            permission_checker:
+              Letflow.Definitions.PromotionAccess.checker_for(conn.assigns.auth_context),
+            event_appender:
+              &Letflow.EventStore.PlatformEvents.append_definition_version_rolled_back/2
+          )
+        )
+
+      render_rollback(conn, result)
+    else
       {:errors, field_errors} ->
         Response.send_problem(conn, Validation.problem(field_errors))
-
-      {:ok, attrs} ->
-        result =
-          Definitions.rollback_definition_version(
-            process_key,
-            attrs["target_version"],
-            actor_id,
-            Keyword.merge(opts,
-              activator: Letflow.Api.Context.activator(conn),
-              permission_checker:
-                Letflow.Definitions.PromotionAccess.checker_for(conn.assigns.auth_context),
-              event_appender:
-                &Letflow.EventStore.PlatformEvents.append_definition_version_rolled_back/2
-            )
-          )
-
-        render_rollback(conn, result)
     end
   end
 

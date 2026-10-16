@@ -296,6 +296,19 @@ Core engine (`engine.ex` Multi, EE-12 moduledoc: the five sentences listed in D3
 
 `mix letflow.check_boundaries` result; any non-`records.ex` lock on `entity_record_latest`; sentinel actor on entity streams (blocking, AC 22); any admin variable-patch endpoint through `VariableMerge.merge/3` (D1a.2; the call sites of `merge/3` and the start-variable path are now verified there); the `{:rejected, ...}` branch after `engine.ex:3691`; `SET LOCAL` behaviour in the nested service-path transaction; lock mode for the scoped-type ceiling read against 0050 D8; client `source`/metadata refusal in `validate_metadata`; service-task lock order vs `complete_task`; `:transition` hop chain emitting entity events; merged form of REQ-496 rev 3 and `ScopeNodePaths.lock!`; existence/shape of an activator record on definitions; `PinRebind` exact refusal point; 0053 D5 wording on the SERVICE_TASK restriction rule; 0050 D7 line numbers.
 
+## Amendment (GH #2590 / REQ-501 PR R2): D6 stamp STORAGE
+
+The module ownership stamp of a process definition version is four nullable columns on
+`process_definitions` (`owner_module`, `owner_module_version`, `owner_manifest_hash`,
+`owner_body_hash`; all-or-none CHECK) written ONLY by the INSERT of
+`Letflow.Definitions.create_owned/3` from a module install, never by a cast list and never by
+an UPDATE; a database trigger refuses any later change of an `owner_*` column and, on a stamped
+row, of `graph`. `tenant_modules.manifest_hash` records the install-time manifest hash (NULL for
+modules installed before R2; no backfill). The hashes are never serialised; `owner_module` and
+`owner_module_version` are read-only on the definitions API. The manifest hash covers the
+declared surface only (not handler code, permissions or settings) and is not proof of behaviour.
+Nothing consumes the stamp until R3 (activation) and R4 (run time).
+
 ## Sign-off
 
 REVIEWER:

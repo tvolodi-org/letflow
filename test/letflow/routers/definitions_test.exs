@@ -117,7 +117,10 @@ defmodule Letflow.Routers.DefinitionsTest do
                  "created_at",
                  "updated_at",
                  "archived_at",
-                 "stage"
+                 "stage",
+                 # GH #2590 / REQ-501 R2: read-only provenance; the hashes are never serialised
+                 "owner_module",
+                 "owner_module_version"
                ])
     end
 

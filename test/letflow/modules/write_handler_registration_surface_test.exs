@@ -48,7 +48,14 @@ defmodule Letflow.Modules.WriteHandlerRegistrationSurfaceTest do
     "lib/letflow/modules/module.ex",
     "lib/letflow/modules/manifest_hash.ex"
   ]
-  @allowed_api_callers ["lib/letflow/modules/catalog.ex"]
+  # R2 (deliberate edit): `ManagedTypes.module_owner/1` calls `Catalog.manifest_hash/1` to
+  # fill the `Owner` stamp inputs (`version`, `manifest_hash`); nothing else outside the
+  # Catalog may resolve or call a handler. `installs.ex` only READS the `manifest_hash`
+  # column it recorded from that owner, and `OwnerStamp`/`TenantModule` only name the field.
+  @allowed_api_callers [
+    "lib/letflow/modules/catalog.ex",
+    "lib/letflow/entities/managed_types.ex"
+  ]
 
   @api_names [:write_handler, :write_handler_in, :call_write_handler, :manifest_hash]
 
@@ -61,9 +68,11 @@ defmodule Letflow.Modules.WriteHandlerRegistrationSurfaceTest do
   # AST scan: any call (local or remote), capture (`&Catalog.write_handler/2`,
   # `&write_handler/2`) or atom literal (`apply(M, :write_handler, ..)`) naming
   # a handler-API function. Comments and docs are not code and do not count.
-  # `manifest_hash` is a common name (the Lua engine has its own), so it counts
-  # only as a call/capture on a `Catalog` receiver, or in a file that names the
-  # `Letflow.Modules.Catalog` module.
+  # `manifest_hash` is a common name (the Lua engine has its own, and since R2 it is also
+  # a struct/column FIELD of `Owner`, `TenantModule` and the process-definition stamp), so
+  # it counts only as a call/capture on a `Catalog` receiver, or as a local call in a file
+  # that names the `Letflow.Modules.Catalog` module. A bare atom key or a variable named
+  # `manifest_hash` is data, not an API reference (R2 deliberate edit).
   defp api_references?(source) do
     {:ok, ast} = Code.string_to_quoted(source)
     names_catalog? = String.contains?(source, "Modules.Catalog")
@@ -73,12 +82,14 @@ defmodule Letflow.Modules.WriteHandlerRegistrationSurfaceTest do
         {{:., _, [recv, name]}, _, _} = node, acc when name in @api_names ->
           {node, acc or name != :manifest_hash or catalog_receiver?(recv)}
 
-        {name, _, args} = node, acc
-        when name in @api_names and (is_list(args) or is_atom(args)) ->
+        {name, _, args} = node, acc when name in @api_names and is_list(args) ->
           {node, acc or name != :manifest_hash or names_catalog?}
 
+        {name, _, args} = node, acc when name in @api_names and is_atom(args) ->
+          {node, acc or name != :manifest_hash}
+
         name, acc when name in @api_names ->
-          {name, acc or name != :manifest_hash or names_catalog?}
+          {name, acc or name != :manifest_hash}
 
         node, acc ->
           {node, acc}

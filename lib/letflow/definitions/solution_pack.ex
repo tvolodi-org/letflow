@@ -1417,7 +1417,8 @@ defmodule Letflow.Definitions.SolutionPack do
     Repo.transaction(fn ->
       with :ok <- lock_packed_entity_names(parsed.entity_definitions, opts),
            {:ok, install} <- insert_install_row(parsed, tenant_id, captured_at),
-           {:ok, installed} <- create_packed_definitions(parsed.definitions, actor_id, opts),
+           {:ok, installed} <-
+             create_packed_definitions(parsed.definitions, actor_id, opts, owner),
            {:ok, _bases} <-
              capture_artefact_bases(
                tenant_id,
@@ -1502,7 +1503,13 @@ defmodule Letflow.Definitions.SolutionPack do
 
   # Every definition lands in the caller's own schema via `opts[:prefix]` and
   # nowhere else. All-or-nothing: the first failure aborts (see moduledoc).
-  defp create_packed_definitions(packed_definitions, actor_id, opts) do
+  #
+  # GH #2590 / REQ-501 R2: every packed definition is created through
+  # `Definitions.create_owned/3` with the install's `owner`: `:tenant` (a plain pack) is
+  # `Definitions.create/2` exactly as before and stamps nothing; a module `Owner` stamps the
+  # version row in its INSERT (module id, version, manifest hash, graph hash). This is the
+  # only caller of `create_owned/3` (scan `create_owned_callers_test.exs`).
+  defp create_packed_definitions(packed_definitions, actor_id, opts, owner) do
     Enum.reduce_while(packed_definitions, {:ok, []}, fn packed, {:ok, acc} ->
       attrs = %{
         name: packed.process_key,
@@ -1511,7 +1518,7 @@ defmodule Letflow.Definitions.SolutionPack do
         created_by: actor_id
       }
 
-      case Definitions.create(attrs, opts) do
+      case Definitions.create_owned(attrs, opts, owner) do
         {:ok, %ProcessDefinition{} = created} ->
           {:cont, {:ok, [{packed, created} | acc]}}
 
@@ -1525,7 +1532,7 @@ defmodule Letflow.Definitions.SolutionPack do
     end
   end
 
-  # Maps `create_packed_definitions/3`'s `{packed_definition, %ProcessDefinition{}}`
+  # Maps `create_packed_definitions/4`'s `{packed_definition, %ProcessDefinition{}}`
   # accumulator to the artefact-snapshot shape `capture_artefact_bases/4` takes.
   # Pure, no I/O. Scope decision (REQ-379 design §1): process definitions only --
   # `variable_schemas`/`entity_definitions` are not captured by this requirement.

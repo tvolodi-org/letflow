@@ -46,6 +46,16 @@ defmodule Letflow.Modules.Installs do
   definitions the pack inserted, else `{:error, {:pack_install_failed,
   {:managed_type_not_in_pack, name}}}` and everything rolls back.
 
+  ## Ownership stamp (GH #2590 / REQ-501 R2, decision 0054 D6)
+
+  The same `Owner` (`version`, `manifest_hash` filled by `module_owner/1`) makes
+  `SolutionPack.install/4` create the pack's PROCESS definitions through
+  `Letflow.Definitions.create_owned/3`: each version row is stamped in its INSERT with the
+  module id, version, manifest hash and the hash of its graph. This is the ONLY path that
+  stamps a row. `tenant_modules.manifest_hash` records the same manifest hash. A module
+  installed before R2 has no installed hash (NULL, OQ-R7: no backfill); it is reinstalled or
+  upgraded, not reconstructed. Nothing consumes the stamp yet (activation checks are R3).
+
   OUT OF SCOPE (0039 D5, REQ-402's own BUILDS): installing several modules
   in dependency order in one request (solution install, REQ-415); settings
   writes to an already-installed module (REQ-414); uninstall.
@@ -106,7 +116,7 @@ defmodule Letflow.Modules.Installs do
              {:ok, pack_entity_definition_ids} <-
                maybe_install_pack(entry_module, actor_id, opts, owner),
              :ok <- check_managed_types_in_pack(owner, pack_entity_definition_ids),
-             {:ok, tenant_module} <- insert_tenant_module(entry_module, prefix),
+             {:ok, tenant_module} <- insert_tenant_module(entry_module, owner, prefix),
              ctx = %{
                actor_id: actor_id,
                rationale: rationale,
@@ -172,6 +182,28 @@ defmodule Letflow.Modules.Installs do
       tenant_module
       |> TenantModule.settings_changeset(%{settings: settings})
       |> Repo.update(prefix: prefix)
+    end
+  end
+
+  @doc """
+  The manifest hash recorded when `module_id` was installed in the tenant identified by
+  `opts[:prefix]` (GH #2590 / REQ-501 R2).
+
+  `{:error, :not_installed}` when no `tenant_modules` row exists, and
+  `{:error, :no_installed_hash}` when the row predates the column (OQ-R7: no backfill, so
+  such a module has no installed hash until it is reinstalled or upgraded). Nothing in core
+  consumes it yet; the activation check (R3) and the run-time check (R4) are its readers.
+  Raises without `:prefix`, like `list_installed/1`.
+  """
+  @spec installed_manifest_hash(module_id :: String.t(), opts()) ::
+          {:ok, String.t()} | {:error, :not_installed | :no_installed_hash}
+  def installed_manifest_hash(module_id, opts) do
+    prefix = Keyword.fetch!(opts, :prefix)
+
+    case Repo.get_by(TenantModule, [module_id: module_id], prefix: prefix) do
+      nil -> {:error, :not_installed}
+      %TenantModule{manifest_hash: hash} when is_binary(hash) -> {:ok, hash}
+      %TenantModule{manifest_hash: nil} -> {:error, :no_installed_hash}
     end
   end
 
@@ -273,12 +305,15 @@ defmodule Letflow.Modules.Installs do
     end
   end
 
-  defp insert_tenant_module(entry_module, prefix) do
+  # The manifest hash recorded here is the SAME value the pack's process definitions were
+  # stamped with (`owner.manifest_hash`: one `Catalog.manifest_hash/1` call per install).
+  defp insert_tenant_module(entry_module, owner, prefix) do
     attrs = %{
       module_id: entry_module.manifest().id,
       version: entry_module.manifest().version,
       installed_at: DateTime.truncate(DateTime.utc_now(), :microsecond),
-      settings: %{}
+      settings: %{},
+      manifest_hash: owner.manifest_hash
     }
 
     %TenantModule{}

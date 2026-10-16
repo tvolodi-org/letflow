@@ -115,6 +115,19 @@ defmodule Letflow.Definitions.ProcessDefinition do
     # and promotion (a raw `Repo.update_all/3` `set:` list).
     field(:activated_by, :map)
 
+    # GH #2590 / REQ-501 PR R2 (decision 0054 D6, design D-R.8): the four-column module
+    # ownership stamp. NULL (all four) for every row except a version inserted by
+    # `Letflow.Definitions.create_owned/3` from a module install. NEVER castable: neither
+    # changeset below lists them; the only writer is that insert's `put_change/3` of all four
+    # in the one INSERT (no UPDATE ever stamps a row), and the database CHECK
+    # `process_definitions_owner_stamp_all_or_none` plus the immutability trigger back it up.
+    # `owner_module`/`owner_module_version` are read-only API fields; the two hashes are
+    # never serialised (OQ-R11).
+    field(:owner_module, :string)
+    field(:owner_module_version, :string)
+    field(:owner_manifest_hash, :string)
+    field(:owner_body_hash, :string)
+
     timestamps(inserted_at: :created_at, type: :utc_datetime_usec)
   end
 

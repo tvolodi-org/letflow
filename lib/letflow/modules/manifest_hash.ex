@@ -17,12 +17,17 @@ defmodule Letflow.Modules.ManifestHash do
   without a manifest change is not detected, so the discipline is to bump
   `:version` whenever handler code changes.
 
+  **A matching hash is NOT proof of behaviour.** Equal hashes mean "the same declared
+  surface", nothing about what a handler (or a permission, route or setting) does. Do not
+  treat a stamp comparison as a behavioural guarantee (security review F3 of R1).
+
   ## Canonical form
 
   Same algorithm as `Letflow.Definitions.PromotionDigest`'s canonicalisation:
   object keys sorted, arrays keep order, atoms by `Atom.to_string/1`, tuples as
-  lists; then `Jason.encode!/1`, SHA-256, lowercase hex (64 chars). R1 only
-  computes the value; storing or comparing it is a later PR (R2).
+  lists; then `Jason.encode!/1`, SHA-256, lowercase hex (64 chars). R1 computes
+  the value; R2 records it (`tenant_modules.manifest_hash` and the owner stamp of the pack's
+  process definitions); comparing it is R3 onwards.
   """
 
   alias Letflow.Modules.Module
