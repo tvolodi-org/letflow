@@ -2372,6 +2372,189 @@ defmodule Letflow.Routers.EntitiesTest do
     end
   end
 
+  # GH #2551 -- entries without a record_id used to all derive the key
+  # "...:nil" and collapse onto the first entry's record.
+  defp import_key_suffixes(ctx) do
+    from(i in "event_idempotency",
+      where: like(i.idempotency_key, "%entities-record-import:%"),
+      select: i.idempotency_key
+    )
+    |> Repo.all(prefix: ctx.schema_name)
+    |> Enum.map(fn key ->
+      [_, rest] = String.split(key, "entities-record-import:", parts: 2)
+      # rest = "<import_request_id uuid>:<suffix>"
+      <<request_id::binary-size(36), ":", suffix::binary>> = rest
+      {request_id, suffix}
+    end)
+  end
+
+  defp import_entry(title, record_id \\ :none) do
+    base = %{"field_values" => %{"title" => title}, "deleted" => false}
+
+    case record_id do
+      :none -> base
+      id -> Map.put(base, "record_id", id)
+    end
+  end
+
+  describe "GH #2551 -- import entries without a record_id are keyed by entry index" do
+    test "AC2: two entries with no record_id are both written as two distinct records" do
+      ctx = tenant_ctx("gh2551-two-nil")
+      seed_active_definition!(ctx)
+
+      resp =
+        import_records(
+          ctx,
+          "widget",
+          import_document("widget", [import_entry("first"), import_entry("second")])
+        )
+
+      assert resp.status == 200
+      [r1, r2] = body_of(resp)["results"]
+      assert r1["status"] == "ok"
+      assert r2["status"] == "ok"
+      assert r1["record_id"] != r2["record_id"]
+      assert r1["source_record_id"] == nil
+      assert record_count(ctx, "widget") == 2
+
+      titles =
+        from(l in Latest, where: l.entity_type == "widget", select: l.field_values)
+        |> Repo.all(prefix: ctx.schema_name)
+        |> Enum.map(& &1["title"])
+        |> Enum.sort()
+
+      assert titles == ["first", "second"]
+    end
+
+    test "an explicit record_id: null is treated like an absent record_id" do
+      ctx = tenant_ctx("gh2551-explicit-null")
+      seed_active_definition!(ctx)
+
+      records = [import_entry("a", nil), import_entry("b", nil), import_entry("c")]
+      resp = import_records(ctx, "widget", import_document("widget", records))
+
+      assert resp.status == 200
+      results = body_of(resp)["results"]
+      assert Enum.all?(results, &(&1["status"] == "ok"))
+      assert results |> Enum.map(& &1["record_id"]) |> Enum.uniq() |> length() == 3
+      assert record_count(ctx, "widget") == 3
+    end
+
+    test "AC1: stored keys -- no record_id gives idx:<zero-based index over ALL entries>; with record_id keeps the inspect(record_id) key" do
+      ctx = tenant_ctx("gh2551-key-shape")
+      seed_active_definition!(ctx)
+
+      with_id = Ecto.UUID.generate()
+
+      # index 0: nil, 1: record_id, 2: nil. The index counts every entry, so the
+      # nil entries are idx:0 and idx:2 (not idx:0 and idx:1).
+      records = [import_entry("a"), import_entry("b", with_id), import_entry("c")]
+      resp = import_records(ctx, "widget", import_document("widget", records))
+
+      assert resp.status == 200
+      assert record_count(ctx, "widget") == 3
+
+      keys = import_key_suffixes(ctx)
+      assert [request_id] = keys |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+      assert {:ok, _} = Ecto.UUID.cast(request_id)
+
+      assert keys |> Enum.map(&elem(&1, 1)) |> Enum.sort() ==
+               Enum.sort(["idx:0", "idx:2", inspect(with_id)])
+    end
+
+    test "mixed batch: a record_id entry and nil entries at different indexes never collide, and all are written" do
+      ctx = tenant_ctx("gh2551-mixed")
+      seed_active_definition!(ctx)
+
+      id1 = Ecto.UUID.generate()
+      id2 = Ecto.UUID.generate()
+
+      records = [
+        import_entry("n0"),
+        import_entry("r1", id1),
+        import_entry("n2"),
+        import_entry("r3", id2),
+        import_entry("n4")
+      ]
+
+      resp = import_records(ctx, "widget", import_document("widget", records))
+
+      assert resp.status == 200
+      results = body_of(resp)["results"]
+      assert Enum.all?(results, &(&1["status"] == "ok"))
+      assert results |> Enum.map(& &1["record_id"]) |> Enum.uniq() |> length() == 5
+      assert Enum.map(results, & &1["source_record_id"]) == [nil, id1, nil, id2, nil]
+      assert record_count(ctx, "widget") == 5
+
+      suffixes = import_key_suffixes(ctx) |> Enum.map(&elem(&1, 1))
+      assert length(suffixes) == 5
+      assert length(Enum.uniq(suffixes)) == 5
+    end
+
+    test "a record_id whose text looks like an index key does not collide with a nil entry's idx key" do
+      ctx = tenant_ctx("gh2551-lookalike")
+      seed_active_definition!(ctx)
+
+      # inspect/1 wraps a binary id in quotes, so "idx:0" as a record_id yields
+      # the suffix "\"idx:0\"", never the bare idx:0 of the nil entry at index 0.
+      records = [import_entry("nil entry"), import_entry("string id", "idx:0")]
+      resp = import_records(ctx, "widget", import_document("widget", records))
+
+      assert resp.status == 200
+      results = body_of(resp)["results"]
+      assert Enum.all?(results, &(&1["status"] == "ok"))
+      [r1, r2] = results
+      assert r1["record_id"] != r2["record_id"]
+      assert record_count(ctx, "widget") == 2
+    end
+
+    test "AC4: when every entry carries a record_id the keys and intra-call dedup are unchanged" do
+      ctx = tenant_ctx("gh2551-all-ids")
+      seed_active_definition!(ctx)
+
+      a = Ecto.UUID.generate()
+      b = Ecto.UUID.generate()
+
+      # a appears twice with identical values -> still dedupes to one record.
+      records = [import_entry("x", a), import_entry("y", b), import_entry("x", a)]
+      resp = import_records(ctx, "widget", import_document("widget", records))
+
+      assert resp.status == 200
+      [r1, r2, r3] = body_of(resp)["results"]
+      assert r1["record_id"] == r3["record_id"]
+      assert r1["record_id"] != r2["record_id"]
+      assert record_count(ctx, "widget") == 2
+
+      suffixes = import_key_suffixes(ctx) |> Enum.map(&elem(&1, 1)) |> Enum.sort()
+      assert suffixes == Enum.sort([inspect(a), inspect(b)])
+      refute Enum.any?(suffixes, &String.starts_with?(&1, "idx:"))
+    end
+
+    # AC3 limit: import_request_id is minted inside handle_import_records/2 and
+    # the key builder is private, so a same-request-id replay is not reachable
+    # without a production hook. What IS asserted: (a) within one call every
+    # entry's key is request_id + a deterministic suffix (idx:<n> / inspect(id)),
+    # asserted exactly above, so a replay with the same id derives the same
+    # keys; (b) two separate calls mint different request ids, so a re-POST of
+    # no-record_id entries writes fresh records and never collides (below).
+    test "AC3 (limit): a byte-identical re-POST of nil-record_id entries uses a fresh request id and writes fresh records" do
+      ctx = tenant_ctx("gh2551-repost")
+      seed_active_definition!(ctx)
+
+      body = import_document("widget", [import_entry("a"), import_entry("b")])
+
+      assert import_records(ctx, "widget", body).status == 200
+      assert import_records(ctx, "widget", body).status == 200
+      assert record_count(ctx, "widget") == 4
+
+      keys = import_key_suffixes(ctx)
+      assert length(keys) == 4
+      assert keys |> Enum.map(&elem(&1, 0)) |> Enum.uniq() |> length() == 2
+
+      assert keys |> Enum.map(&elem(&1, 1)) |> Enum.sort() == ["idx:0", "idx:0", "idx:1", "idx:1"]
+    end
+  end
+
   describe "REQ-320 AC -- a deleted: true entry imports as a live, non-deleted record" do
     test "the created record is not marked deleted, and create_record/2 was called exactly as for a non-deleted entry" do
       ctx = tenant_ctx("req320-deleted-entry")
