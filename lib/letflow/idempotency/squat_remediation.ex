@@ -33,7 +33,7 @@ defmodule Letflow.Idempotency.SquatRemediation do
   alias Letflow.TenantProvisioning
 
   @action "idempotency_squat.remediated"
-  @resource_type "idempotency_key"
+  @resource_type "event_idempotency"
   @lock_timeout_sql "SET LOCAL lock_timeout = '2s'"
   @max_key_bytes 255
   @max_operator_bytes 100

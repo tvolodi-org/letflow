@@ -193,7 +193,7 @@ defmodule Letflow.Idempotency.SquatRemediationTest do
       # the audit chain entry
       assert [entry] = F.remediation_entries(w.schema)
       assert entry.resource_id == entry.before_state["row_id"]
-      assert entry.resource_type == "idempotency_key"
+      assert entry.resource_type == "event_idempotency"
       assert entry.actor_id == nil
       assert entry.after_state == %{"removed" => true, "rows_removed" => 1}
       assert entry.before_state["finding_ref"] == "GH #2597"
@@ -310,6 +310,38 @@ defmodule Letflow.Idempotency.SquatRemediationTest do
         assert F.counts(s) == before
         assert F.remediation_entries(s) == []
       end
+    end
+
+    test "the audit listing returns the new action unfiltered and under every real filter (0051 D8 rule 3)" do
+      %{tenant_id: tid, schema_name: s} = tenant!()
+      F.insert_squat!(s, "script_run:listed", actor_id: Ecto.UUID.generate())
+      assert {:ok, %{outcome: :removed}} = remediate(tid, "script_run:listed")
+      [entry] = F.remediation_entries(s)
+
+      base = %{prefix: s, page_size: 50}
+
+      # unfiltered
+      assert {:ok, %{items: items}} = Audit.list_entries(base)
+
+      assert Enum.any?(
+               items,
+               &(&1.id == entry.id and &1.action == "idempotency_squat.remediated")
+             )
+
+      # the filters list_entries really has (there is no action filter): resource type and id
+      assert {:ok, %{items: [%{id: id}]}} =
+               Audit.list_entries(Map.merge(base, %{resource_type: "event_idempotency"}))
+
+      assert id == entry.id
+
+      assert {:ok, %{items: [%{id: ^id}]}} =
+               Audit.list_entries(Map.merge(base, %{resource_id: entry.resource_id}))
+
+      # a filter for something else must not raise and must not return the entry
+      assert {:ok, %{items: other}} =
+               Audit.list_entries(Map.merge(base, %{resource_type: "user"}))
+
+      refute Enum.any?(other, &(&1.id == entry.id))
     end
 
     test "a nonexistent key is :already_clear with no audit entry" do
