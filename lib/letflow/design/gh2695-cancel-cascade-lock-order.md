@@ -142,7 +142,7 @@ HUMAN tail, **before** the first audit step (`A`):
   (steps run before the tail) are already held; the HUMAN order becomes
   `tasks_c -> P_c -> E -> P_p -> T_p [-> P_g -> T_g ...] -> (timers_c ... A) -> S_c ...`. A `[]`
   result (not a child, or no waiting parent) is a no-op. A non-`:completed` final status adds no step.
-* Service path: no prelock step needed (`A` is already after the cascade); the cascade's own
+* (Superseded, see the build finding in section 5: the service path DOES need the prelock, before the child's projection UPDATE.) Service path: no prelock step needed (`A` is already after the cascade); the cascade's own
   lookup calls the same function.
 
 ## 3. Public/internal shapes (signatures only)
@@ -240,17 +240,39 @@ tests first, runs T1-T3 on bef9fe69 and quotes the 40P01 (or the `{:transaction_
 wrapper), then quotes green after the change. If a pre-fix run does not go red, the barrier is
 wrong: stop and fix the harness, do not weaken the assertion.
 
-Build finding (ELIXIR-DEV, run on bef9fe69): T1 and T2 are red with `40P01`; T3 and T4 are green
-pre-fix. T3 is not a harness fault: while the service apply is parked, the parent projection row's
-`xmax` is already the apply's transaction id, i.e. the apply holds a lock on the parent projection
-before its first parent-side write (inferred cause: the child's own projection UPDATE, which
-precedes the cascade, key-shares the parent projection through the child's `parent_instance_id`
-foreign key). So on the service path the pre-fix token-then-projection window (I1) cannot be
-opened by a cancel, and only I2 (HUMAN, audit chain row) is observable as a deadlock. The new
-`lock_waiting_parent/3` order is therefore a contract made explicit rather than a behaviour change
-for the child-completion callers. Compensating deterministic evidence, red on main for both paths:
-the `statement order of an uncontended child completion` tests (parent projection `FOR UPDATE`,
-then waiting-token `FOR UPDATE`, then, HUMAN, the audit chain row).
+Build finding (ELIXIR-DEV, run on bef9fe69, measured): of the ten tests in the new file, three
+pass on main and seven fail. T1, T2 and T6 (HUMAN) fail with `40P01`; both statement-order tests
+and the two unit tests fail (the unit tests only because the new functions do not exist there).
+T3, T4 and T5 (all three service-path concurrency tests) PASS on main, i.e. they are
+non-discriminating there; the red-on-main evidence for the service path is the deterministic
+statement-order test. T5 (barrier on the parent's `instance_projections` row, cancel parked first)
+is the one that exposed a gap in this design, found because T5 deadlocked intermittently on the
+FIXED code (1 run in 2, then 2 in 4) before the change below:
+
+* Mechanism (observed): a service apply parked in `UPDATE instance_projections SET status ...`
+  (its own CHILD projection row) with `pg_blocking_pids` = the cancel queued for the parent
+  projection; in the failing runs the parent token's `xmax` was the apply's transaction id. So the
+  UPDATE of the child's projection row takes foreign-key locks on the parent token
+  (`parent_token_id`) and the parent projection (`parent_instance_id`) even though
+  `InstanceProjection.update_changeset` does not cast those columns, and the order in which the
+  two FK checks fire is fixed per tenant schema (constraint-trigger names), so for some tenants
+  the apply holds the token and then waits for the projection while a cancel holds the projection
+  and wants the token: the I1 cycle, formed BEFORE the cascade code runs. This is also why the
+  token-then-projection window looked closed on main for the service path in a minority of runs.
+* Consequence: the design's "service path needs no prelock" was wrong, and the HUMAN prelock must
+  not be limited to a completing child. Implemented: `lock_parent_group/4` (parent projection, then
+  waiting token; the whole chain when the child's state is `:completed`, the immediate parent only
+  otherwise) is run as a `:lock_ancestors` step in the HUMAN tail (first step) and in the service
+  apply (immediately before the child's `:projection` UPDATE, after the entity-type locks). After
+  the change T5 passed 6 of 6 consecutive runs (a fresh tenant schema per run).
+* Not covered, same hazard class (follow-up): other paths that UPDATE a child's projection without
+  going through these two (ExecutionError landing, script apply, timer fire for the child).
+
+Follow-ups filed for the remaining inversions: Q1 entity-type rows versus the parent projection
+(GH #2704); audit chain row versus sequence row between sibling completions, possible and not
+demonstrated (GH #2705); cancel's stale open-tasks snapshot (GH #2706); `Scheduler.fire_timer`
+timer rows then projection versus the child's HUMAN tail cancelling timers after its own
+projection (GH #2707, pre-existing, untouched).
 
 Per-test assertions: both Tasks return (no exit/timeout); neither result contains a
 Postgrex `40P01` or `:deadlock_detected`; the end-state of section 4; the child is `:completed`

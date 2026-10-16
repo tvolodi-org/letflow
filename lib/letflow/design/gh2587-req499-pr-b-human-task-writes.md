@@ -438,7 +438,7 @@ byte-identical to today (regression criterion B-15).
 | 4c | the record row | none (create-only) | n/a |
 | 5 | audit chain sentinel row (`audit_chain_locks`) | tail: task audit, per-line audit | commit |
 | 6 | the instance's own `instance_sequences` row | tail events (SYS, APPLIED, `TASK_COMPLETED`) | commit |
-| 7 | **cascade, when the completing instance is a sub-process child that reaches `:completed`:** the parent's waiting token row `FOR UPDATE` (`SubProcess.find_waiting_parent_token/3`, `sub_process.ex:718`), then the parent projection (reconcile) | tail `append_sub_process_completion_cascade_multi` (`engine.ex:5565-5610`) | commit |
+| 7 | **cascade, when the completing instance is a sub-process child that reaches `:completed`:** the parent projection `FOR UPDATE`, then the parent's waiting token row `FOR UPDATE` (`SubProcess.lock_waiting_parent/3` via `find_waiting_parent_token/3`, GH #2695; was token then projection), then the parent projection UPDATE (reconcile) | tail `append_sub_process_completion_cascade_multi` (`engine.ex:5565-5610`) | commit |
 
 Order 1, 2, 4 (types ascending), then 5, 6 for EVERY completion with lines. The instance
 sequence row (6) now follows 4 (0054 numbered it 3): harmless, as 0054 itself argued, because every

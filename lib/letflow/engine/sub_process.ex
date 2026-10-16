@@ -762,16 +762,23 @@ defmodule Letflow.Engine.SubProcess do
   @spec lock_waiting_parent_chain(Ecto.Repo.t(), Ecto.UUID.t(), String.t() | nil) ::
           {:ok, [TokenRecord.t()]}
   def lock_waiting_parent_chain(repo, child_instance_id, prefix) do
-    {:ok, collect_waiting_parents(repo, child_instance_id, prefix, [])}
+    {:ok, collect_waiting_parents(repo, child_instance_id, prefix, [], MapSet.new())}
   end
 
-  defp collect_waiting_parents(repo, instance_id, prefix, acc) do
-    case lock_waiting_parent(repo, instance_id, prefix) do
-      {:ok, nil} ->
-        Enum.reverse(acc)
-
-      {:ok, %TokenRecord{instance_id: parent_id} = token} ->
-        collect_waiting_parents(repo, parent_id, prefix, [token | acc])
+  # `seen` ends the walk on a repeated instance (a corrupt cycle of waiting tokens).
+  defp collect_waiting_parents(repo, instance_id, prefix, acc, seen) do
+    with false <- MapSet.member?(seen, instance_id),
+         {:ok, %TokenRecord{instance_id: parent_id} = token} <-
+           lock_waiting_parent(repo, instance_id, prefix) do
+      collect_waiting_parents(
+        repo,
+        parent_id,
+        prefix,
+        [token | acc],
+        MapSet.put(seen, instance_id)
+      )
+    else
+      _stop -> Enum.reverse(acc)
     end
   end
 

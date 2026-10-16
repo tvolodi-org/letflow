@@ -396,13 +396,20 @@ defmodule Letflow.Engine do
   (`SubProcess.lock_waiting_parent/3`: parent projection, then the token re-selected `FOR UPDATE`).
   I1 (fixed): the cascade used to take the token then the projection, the reverse of the above.
   I2 (fixed): a HUMAN child completion took the audit chain row before the cascade's parent rows,
-  while cancel takes it last; the HUMAN tail now locks the ancestor group (`:lock_ancestors`, the
-  first tail step, only when the child's final status is `:completed`) before any tail write.
-  Remaining inversions, not fixed here (follow-ups): Q1, an entity-type row versus the parent
+  while cancel takes it last. I3 (fixed): every UPDATE of a sub-process child's projection row takes
+  foreign-key locks on the parent token and projection in a per-tenant order, so a service apply could
+  hold the token and wait for the projection before its cascade even ran. Both the HUMAN tail (first
+  step) and the service apply (before the child's projection UPDATE) now run `:lock_ancestors`
+  (`lock_parent_group/4`: parent projection, then waiting token; the whole chain when the child
+  completes) before any such write.
+  Remaining inversions, not fixed here (follow-ups): Q1 (GH #2704), an entity-type row versus the parent
   projection (a child completion holds the entity-type rows then wants the parent projection; a
-  parent completion with `entity_writes` holds its projection then wants them); the audit chain row
-  versus the sequence row between a HUMAN completer and a service apply of sibling children of one
-  parent; and cancel's open-tasks snapshot is taken before the projection lock.
+  parent completion with `entity_writes` holds its projection then wants them). Possible, not
+  demonstrated (both paths take the parent projection first): the audit chain row versus the
+  sequence row between a HUMAN completer and a service apply of sibling children of one parent
+  (GH #2705). Also: cancel's open-tasks snapshot is taken before the projection lock (GH #2706), and
+  `Scheduler.fire_timer` takes timer rows then the projection while a child's HUMAN tail cancels
+  its timers after its own projection (pre-existing, untouched; GH #2707).
 
   A sub-process child's completion cascade takes the parent projection, then the parent token,
   after its entity-type locks; a deadlock there is reported as contention. The
@@ -5053,6 +5060,12 @@ defmodule Letflow.Engine do
               # :projection (the event appends need the instance still non-terminal). Identity
               # for HTTP.
               |> completion.on_advanced.()
+              # GH #2695: the parent group BEFORE this child's own projection UPDATE (which
+              # takes foreign-key locks on the parent token and projection), see
+              # lock_parent_group/4.
+              |> Multi.run(:lock_ancestors, fn inner_repo, _changes ->
+                lock_parent_group(inner_repo, dispatch.instance_id, final_instance_state, prefix)
+              end)
               |> Multi.run(:projection, fn inner_repo, changes ->
                 case fold_service_sys_into_state(final_instance_state, changes) do
                   {:ok, state} ->
@@ -7105,18 +7118,14 @@ defmodule Letflow.Engine do
     # "pending"), so a same-node re-entry's freshly armed escalation timer is
     # not cancelled along with the completed task's own.
     #
-    # GH #2695: a completion whose final status is :completed may cascade into
-    # a waiting parent, so the whole ancestor group (P_p, T_p, P_g, T_g, ...)
-    # is locked FIRST -- before any tail write, and so before the audit chain
-    # row (A) taken below -- matching cancel_instance's parent-side order. A
-    # child that is no sub-process child (or has no waiting parent) is a no-op.
+    # GH #2695: the parent group (P_p, T_p; the whole ancestor chain when the child completes
+    # and may cascade) is locked FIRST -- before any tail write, so before the audit chain row
+    # (A) taken below and before this child's own projection UPDATE -- matching
+    # cancel_instance's parent-side order (see lock_parent_group/4). An instance that is no
+    # sub-process child (or has no waiting parent) is a no-op.
     Multi.new()
     |> Multi.run(:lock_ancestors, fn repo, _changes ->
-      if final_instance_state.status == :completed do
-        SubProcess.lock_waiting_parent_chain(repo, normalized_changes.task.instance_id, prefix)
-      else
-        {:ok, []}
-      end
+      lock_parent_group(repo, normalized_changes.task.instance_id, final_instance_state, prefix)
     end)
     |> Multi.run(:cancel_escalation_timers, fn repo, _changes ->
       # ISS-0925: a normally-completed HUMAN_TASK must not leave its escalation
@@ -8563,6 +8572,22 @@ defmodule Letflow.Engine do
   # fetch_and_lock_instance_projection/3 (complete_task/3's own M2), this does
   # NOT reject a non-:active status itself -- eligibility (M3, terminal?/1) is
   # the shared, reused predicate for that (design doc §6).
+  # GH #2695: locks the waiting parent group of `instance_id` (parent projection, then the
+  # waiting token). Every UPDATE of a sub-process child's projection row takes foreign-key
+  # locks on the parent's token and projection (`parent_token_id`, `parent_instance_id`), in an
+  # order fixed per tenant schema by constraint-trigger names, so the group must already be held
+  # (P then T) before that UPDATE or a parent cancel (P then T) can deadlock against it. A child
+  # that completes locks the whole ancestor chain (its cascade will walk it); a child that
+  # continues locks the immediate parent only. No-op for an instance that is not a child.
+  defp lock_parent_group(repo, instance_id, %{status: :completed}, prefix),
+    do: SubProcess.lock_waiting_parent_chain(repo, instance_id, prefix)
+
+  defp lock_parent_group(repo, instance_id, _state, prefix) do
+    with {:ok, token} <- SubProcess.lock_waiting_parent(repo, instance_id, prefix) do
+      {:ok, List.wrap(token)}
+    end
+  end
+
   defp fetch_and_lock_instance_projection_for_cancel(repo, instance_id, prefix) do
     InstanceProjection
     |> where([p], p.instance_id == ^instance_id)

@@ -32,7 +32,7 @@ defmodule Letflow.Engine.CancelCascadeLockOrderTest do
   alias Letflow.Support.PlatformTenantFixture
   alias Letflow.Test.SandboxAutoMode
 
-  @poll_steps 500
+  @poll_steps 2000
   @poll_ms 10
   @await_ms 15_000
 
@@ -60,8 +60,14 @@ defmodule Letflow.Engine.CancelCascadeLockOrderTest do
 
   @doc false
   def handle_query(_event, _measurements, %{result: {:error, error}}, test_pid) do
-    if match?(%Postgrex.Error{postgres: %{code: :deadlock_detected}}, error),
-      do: send(test_pid, {:deadlock_detected, error})
+    # 40P01 (deadlock) and 55P03 (lock timeout) both mean the lock order was wrong or a wait
+    # was unbounded; either is a failure even when the engine would retry it.
+    if match?(
+         %Postgrex.Error{postgres: %{code: code}}
+         when code in [:deadlock_detected, :lock_not_available],
+         error
+       ),
+       do: send(test_pid, {:deadlock_detected, error})
 
     :ok
   end
@@ -133,22 +139,22 @@ defmodule Letflow.Engine.CancelCascadeLockOrderTest do
         prefix: base.schema
       )
 
-    complete =
+    {complete, dispatch_id} =
       case path do
         :human ->
           task = Fx.pending_task!(base.schema, child.instance_id)
 
-          fn ->
-            Engine.complete_task(
-              task.id,
-              %{
-                output_variables: %{},
-                actor_id: base.user.id,
-                idempotency_key: Fx.unique("cc-complete")
-              },
-              prefix: base.schema
-            )
-          end
+          {fn ->
+             Engine.complete_task(
+               task.id,
+               %{
+                 output_variables: %{},
+                 actor_id: base.user.id,
+                 idempotency_key: Fx.unique("cc-complete")
+               },
+               prefix: base.schema
+             )
+           end, nil}
 
         :service ->
           ct = Fx.pending_task!(base.schema, child.instance_id)
@@ -172,14 +178,14 @@ defmodule Letflow.Engine.CancelCascadeLockOrderTest do
             |> Ecto.Changeset.change(%{status: "advanced"})
             |> Repo.update!(prefix: base.schema)
 
-          fn ->
-            Engine.advance_after_service_task_outcome(
-              dispatch.id,
-              {:advance, %{}},
-              Repo,
-              base.schema
-            )
-          end
+          {fn ->
+             Engine.advance_after_service_task_outcome(
+               dispatch.id,
+               {:advance, %{}},
+               Repo,
+               base.schema
+             )
+           end, dispatch.id}
       end
 
     cancel = fn ->
@@ -190,23 +196,42 @@ defmodule Letflow.Engine.CancelCascadeLockOrderTest do
       )
     end
 
-    %{parent_id: parent_id, child_id: child.instance_id, complete: complete, cancel: cancel}
+    %{
+      path: path,
+      dispatch_id: dispatch_id,
+      parent_id: parent_id,
+      child_id: child.instance_id,
+      complete: complete,
+      cancel: cancel
+    }
   end
 
   # ---- barrier and workers ----------------------------------------------------------------------
 
-  defp hold_sequence_row(schema, instance_id) do
+  # Holds one row `FOR UPDATE` on a third connection until `:release`; returns `{task, backend_pid}`.
+  defp hold_row(schema, {:sequence, instance_id}),
+    do:
+      hold(
+        ~s(SELECT 1 FROM "#{schema}"."instance_sequence" WHERE instance_id = $1 FOR UPDATE),
+        instance_id
+      )
+
+  defp hold_row(schema, {:projection, instance_id}),
+    do:
+      hold(
+        ~s(SELECT 1 FROM "#{schema}"."instance_projections" WHERE instance_id = $1 FOR UPDATE),
+        instance_id
+      )
+
+  defp hold(sql, instance_id) do
     test_pid = self()
 
     holder =
       Task.async(fn ->
         Repo.transaction(fn ->
-          Repo.query!(
-            ~s(SELECT 1 FROM "#{schema}"."instance_sequence" WHERE instance_id = $1 FOR UPDATE),
-            [Ecto.UUID.dump!(instance_id)]
-          )
-
-          send(test_pid, :held)
+          Repo.query!(sql, [Ecto.UUID.dump!(instance_id)])
+          %{rows: [[backend]]} = Repo.query!("SELECT pg_backend_pid()")
+          send(test_pid, {:held, backend})
 
           receive do
             :release -> :ok
@@ -217,8 +242,8 @@ defmodule Letflow.Engine.CancelCascadeLockOrderTest do
       end)
 
     on_exit(fn -> send(holder.pid, :release) end)
-    assert_receive :held, 10_000
-    holder
+    assert_receive {:held, backend}, 10_000
+    {holder, backend}
   end
 
   # A worker on its own pinned connection; returns `{task, backend_pid}`.
@@ -264,17 +289,23 @@ defmodule Letflow.Engine.CancelCascadeLockOrderTest do
            "expected #{n} distinct blocked worker backend(s) within the poll bound, saw #{blocked}"
   end
 
+  defp blockers(pid) do
+    %{rows: [[pids]]} = Repo.query!("SELECT pg_blocking_pids($1)", [pid])
+    pids
+  end
+
   # first/second are :complete or :cancel; the barrier row is held until both are parked.
   defp run(base, path, barrier, order) do
     s = scenario(base, path)
 
-    barrier_instance =
+    spec =
       case barrier do
-        :child -> s.child_id
-        :parent -> s.parent_id
+        :child -> {:sequence, s.child_id}
+        :parent -> {:sequence, s.parent_id}
+        :parent_projection -> {:projection, s.parent_id}
       end
 
-    holder = hold_sequence_row(base.schema, barrier_instance)
+    {holder, barrier_pid} = hold_row(base.schema, spec)
 
     {first, second} =
       case order do
@@ -284,8 +315,12 @@ defmodule Letflow.Engine.CancelCascadeLockOrderTest do
 
     {t1, pid1} = start_worker(first)
     wait_for_blocked([pid1], 1)
+    # the first worker is parked on the barrier connection, nothing else
+    assert barrier_pid in blockers(pid1)
     {t2, pid2} = start_worker(second)
     wait_for_blocked([pid1, pid2], 2)
+    # the second worker is parked behind the barrier or behind the first worker
+    assert Enum.any?(blockers(pid2), &(&1 in [barrier_pid, pid1]))
 
     send(holder.pid, :release)
     assert {:ok, _} = Task.await(holder, @await_ms)
@@ -317,6 +352,16 @@ defmodule Letflow.Engine.CancelCascadeLockOrderTest do
     schema = base.schema
 
     assert Fx.projection!(schema, s.child_id).status == :completed
+    assert Fx.instance_events(schema, s.child_id, "EXECUTION_ERROR") == []
+
+    # exactly one completion event for the child's last node, never two
+    last_node_event = if s.path == :human, do: "TASK_COMPLETED", else: "SERVICE_TASK_COMPLETED"
+    assert [_one] = Fx.instance_events(schema, s.child_id, last_node_event)
+
+    if s.dispatch_id do
+      assert Fx.dispatch!(schema, s.dispatch_id).status == "advanced"
+    end
+
     assert Fx.dlq_entries(schema) == []
     assert Fx.instance_events(schema, s.parent_id, "EXECUTION_ERROR") == []
 
@@ -357,6 +402,13 @@ defmodule Letflow.Engine.CancelCascadeLockOrderTest do
       s = run(base, :human, :parent, :cancel_first)
       assert_cancel_won(base, s)
     end
+
+    test "T6: cancel first (parked on the parent projection row), completion second", %{
+      base: base
+    } do
+      s = run(base, :human, :parent_projection, :cancel_first)
+      assert_cancel_won(base, s)
+    end
   end
 
   describe "HTTP service child completion (S)" do
@@ -371,6 +423,13 @@ defmodule Letflow.Engine.CancelCascadeLockOrderTest do
       base: base
     } do
       s = run(base, :service, :parent, :cancel_first)
+      assert_cancel_won(base, s)
+    end
+
+    test "T5: cancel first (parked on the parent projection row), completion second", %{
+      base: base
+    } do
+      s = run(base, :service, :parent_projection, :cancel_first)
       assert_cancel_won(base, s)
     end
   end
@@ -414,12 +473,12 @@ defmodule Letflow.Engine.CancelCascadeLockOrderTest do
         end
       end
     end
-
-    defp normalize(param) when is_binary(param) and byte_size(param) == 16,
-      do: Ecto.UUID.load!(param)
-
-    defp normalize(param), do: param
   end
+
+  defp normalize(param) when is_binary(param) and byte_size(param) == 16,
+    do: Ecto.UUID.load!(param)
+
+  defp normalize(param), do: param
 
   describe "SubProcess.lock_waiting_parent/3 and lock_waiting_parent_chain/3" do
     test "nil for a non-child, the token for a waiting parent, nil once cancelled", %{base: base} do
