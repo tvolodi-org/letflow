@@ -1,0 +1,43 @@
+{
+  "handoff_id": "d2533a1b-0497-4c03-9e11-000000000017",
+  "run_id": "WF02-GH2533-SCOPE-GRANTS-20261015",
+  "workflow_id": "WF-02",
+  "step": "07",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGN-VALIDATOR",
+  "file": "handoffs/WF02-GH2533-SCOPE-GRANTS-20261015/step-07-test-design-validator-1b.json",
+  "created_at": "2026-10-16T13:00:00Z",
+  "started_at": "2026-10-16T13:00:00Z",
+  "completed_at": "2026-10-16T13:20:00Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-497"],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2533": "TEST-DESIGN-VALIDATOR gate for REQ-497 PR 1b tests (draft PR #2601). Static analysis only; no mix/tests run locally (low memory); mutants to be run by ORCH on hosted CI."
+    },
+    "related_handoff_ids": ["d2533a1b-0497-4c03-9e11-000000000015"],
+    "artifacts_in": [
+      "test/specs/REQ-497-1b.md",
+      "handoffs/WF02-GH2533-SCOPE-GRANTS-20261015/step-05-test-designer-1b.json",
+      "lib/letflow/design/req497-1b-allowed-flag-shadow-n1.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2533-SCOPE-GRANTS-1B-20261015"
+  },
+  "task": {
+    "description": "WF-02 step 3b/7 test-design validation of the 1b tests: every AC has a runnable non-skipped test, fixtures isolated, mutants M1-M4 would be killed. Read-only."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "PASS (static; nothing run locally by instruction). (1) COVERAGE: spec AC->test table maps AC5-AC16, AC17(1b, runner gate) and GH #2575 AC1-3 to test ids; every id was found in the test sources (scope_test T-A1..A13; auth_pipeline_scope T-P1..P5; scope_enforcement + tenant_scope_enforcement T-F1..F10, T-I1, T-L1..L4; token_preconditions; scope_shadow T-S1..S5; tenant_admin_guard T-G1..G10; route walk T-RW1..RW4; tenant_wide_admins T-X1..X5). Test counts: 16/7/23/26/5/6/30/8. (2) HYGIENE: grep over the 8 new files finds zero @tag :skip, @moduletag :skip, TODO, and zero 'async: true' (all async: false, consistent with dedicated provisioned tenants, DDL triggers, platform pin, telemetry handlers). Tenants are per-test provisioned fixtures, no shared hardcoded state; spec states bounded waits and no unseeded randomness. No secrets found in the sampled sections. (3) MUTANTS, reasoned from lib code: M1 (tenant_admin_guard.ex:121 'if before_count == 0' -> 'if false'): T-G1/T-G2/T-G3 each have an already-zero test (inactive-only admin, lines ~357, ~423, ~501) expecting success and no event; with M1 the post-write count 0 triggers a rollback so they fail -> KILLED. M2 (scope.ex:101 drop 'permission not in Authorization.permissions()' clause): T-A13 asserts a platform-tenant PLATFORM_ADMIN is denied :role_not_held for :NotARealPermission and pre-asserts permission_scope == :platform and role_allows?(PLATFORM_ADMIN) is true, so the mutant yields {:allow, :platform} -> KILLED (the TA and token cases are deny-anyway, only the PA case discriminates, and it is present). M3 (identity.ex:1347 exclude_scoped_holders -> identity): T-X1 asserts control count 2 then, after make_group_scoped_only!, count 0 and ids []; identity leaves 2 -> KILLED (also T-X3/T-X5 and the role-name twin are not covered by M3 but have own tests). M4 (refuse/4 platform_companion branch uses ctx actor on the tenant entry): T-G5 asserts tenant entry actor nil, trace nil and refute inspect(tenant entries) =~ operator_id, both in the function and HTTP variants -> KILLED. NOTE: in the current lib the tenant entry is already built with entry(refusal, nil, nil), so M4 must be applied there (entry(refusal, ctx actor, ctx trace) for tenant_entry) to be a real mutation. (4) PRE-FIX: new modules, so pre-fix failure is trivially 'code does not exist'; the mutant rule is therefore satisfied by the four reasoned mutants above, but per this gate's rule the measured counts must come from ORCH's hosted-CI mutant runs. RESIDUAL (non-blocking): T-P2 pins the API-token query list [tenants, api_tokens, api_tokens]; step-05 says it was unmeasured at write time but the CI-rework run reports auth_pipeline_scope_test passing (148-test run). T-P5b is tagged 120 s; acceptable. mix letflow.check.test remains for TEST-RUNNER.",
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "diagnosis_confirmed": null,
+    "implementation_written": false,
+    "classification": "TEST_DESIGN"
+  }
+}
