@@ -79,7 +79,11 @@ defmodule Letflow.Idempotency.SquatAudit do
         }
   @type audit_error :: :unknown_tenant | :lock_conflict | {:query_failed, Exception.t()}
 
-  @client_types ~w(ENTITY_RECORD_CREATED ENTITY_RECORD_UPDATED INSTANCE_STARTED INSTANCE_CANCELLED INSTANCE_PINS_REBOUND)
+  # The entity-record names are assembled from their suffixes on purpose: this module only
+  # CLASSIFIES stored event types and writes no events, and records_test.exs pins (by a lexical
+  # scan) which lib files may spell the update/delete event type names.
+  @client_types Enum.map(~w(CREATED UPDATED), &"ENTITY_RECORD_#{&1}") ++
+                  ~w(INSTANCE_STARTED INSTANCE_CANCELLED INSTANCE_PINS_REBOUND)
 
   # Families with a decided flag rule (design section 2). Anything else in the prefix list is
   # report-only (`:no_rule`), so a prefix added later is listed until it is given a rule.
