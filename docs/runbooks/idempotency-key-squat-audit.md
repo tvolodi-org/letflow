@@ -34,7 +34,8 @@ Letflow.Release.IdempotencySquats.audit()
 
 Dev form: `mix letflow.audit_idempotency_squats`
 
-Output: one `FLAG` line per finding (`verdict=flagged` or `verdict=report_only`), one `TENANT`
+Output: one `FLAG` line per flagged row (`verdict=flagged`; grep `^FLAG ` for the rows to review), one
+`FINDING` line per report-only row (`verdict=report_only`), one `TENANT`
 line per tenant with counts, and a final `SUMMARY` line. Pass is a `SUMMARY` line with
 `errored=0`; a tenant with `errored=1` could not be audited (retry, a lock timeout is retry-safe).
 The audit makes no write: Postgres runs it in a read-only transaction that is always rolled back.

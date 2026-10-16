@@ -154,7 +154,8 @@ defmodule Letflow.Release.IdempotencySquats do
       |> Enum.reject(fn {_k, v} -> is_nil(v) end)
       |> Enum.map_join(" ", fn {k, v} -> "#{k}=#{format_value(v)}" end)
 
-    "FLAG " <> fields
+    label = if f.verdict == :flagged, do: "FLAG ", else: "FINDING "
+    label <> fields
   end
 
   defp format_value(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
@@ -165,6 +166,9 @@ defmodule Letflow.Release.IdempotencySquats do
   # Never prints a Postgrex message (may quote data): the SQLSTATE atom only.
   defp format_error({:query_failed, %Postgrex.Error{postgres: %{code: code}}}),
     do: "query_failed:#{code}"
+
+  defp format_error({:query_failed, %DBConnection.ConnectionError{}}),
+    do: "query_failed:connection"
 
   defp format_error({:query_failed, _}), do: "query_failed"
   defp format_error({:audit_failed, _}), do: "audit_failed"

@@ -9,7 +9,7 @@ defmodule Mix.Tasks.Letflow.AuditIdempotencySquats do
 
       mix letflow.audit_idempotency_squats
 
-  No arguments. Prints one `FLAG` line per finding, a `TENANT` line per tenant and a `SUMMARY`
+  No arguments. Prints one `FLAG` line per flagged row and one `FINDING` line per report-only row, a `TENANT` line per tenant and a `SUMMARY`
   line. Exits non-zero if any tenant could not be audited (not merely because flags exist).
   On a release use `bin/letflow rpc` instead; see `docs/runbooks/idempotency-key-squat-audit.md`.
   """

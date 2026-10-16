@@ -77,7 +77,7 @@ defmodule Letflow.Idempotency.SquatAudit do
             | :no_rule
             | nil
         }
-  @type audit_error :: :unknown_tenant | :lock_conflict | {:query_failed, Postgrex.Error.t()}
+  @type audit_error :: :unknown_tenant | :lock_conflict | {:query_failed, Exception.t()}
 
   @client_types ~w(ENTITY_RECORD_CREATED ENTITY_RECORD_UPDATED INSTANCE_STARTED INSTANCE_CANCELLED INSTANCE_PINS_REBOUND)
 
@@ -200,9 +200,16 @@ defmodule Letflow.Idempotency.SquatAudit do
         {:ok, %{scanned: scanned, findings: finalize(findings, tenant_id, schema)}}
 
       {:error, other} ->
-        {:error, {:query_failed, other}}
+        # Unreachable by construction (only the scan rolls back); kept type-correct.
+        {:error,
+         {:query_failed,
+          RuntimeError.exception("unexpected audit rollback: " <> inspect(other, limit: 3))}}
     end
   rescue
+    # Connection loss and query/queue timeouts: this tenant's error only, scan_all goes on.
+    e in DBConnection.ConnectionError ->
+      {:error, {:query_failed, e}}
+
     e in Postgrex.Error ->
       case e.postgres do
         %{code: code} when code in [:lock_not_available, :deadlock_detected] ->
