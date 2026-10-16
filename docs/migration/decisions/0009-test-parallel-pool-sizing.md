@@ -627,3 +627,44 @@ its real tests to completion (4/4 passed).
 TEST-DESIGNER extends the regression test with the N-sweep and dedicated N=8
 case the design's §5 calls for, and runs the empirical N=8/`TEST_PARALLEL_N`-unset
 verification passes against a real host — not repeated here.
+
+## Addendum (2026-10-16, GH #2630) -- hosted-CI shards exceeded `max_connections`: nested app-starting children, reserve 5 -> 16
+
+**Symptom.** Backend shard legs intermittently failed with `FATAL 53300 (too_many_connections)` /
+`sorry, too many clients already` (design: `lib/letflow/design/gh2630-ci-pg-connection-ceiling.md`).
+
+**Measured facts** (hosted CI run 38764249729; each leg has its own Postgres container):
+
+| Quantity | Value |
+|---|---|
+| `max_connections` / `superuser_reserved_connections` | 100 / 3; the CI role is a superuser, so the usable ceiling was 100 |
+| Computed `TEST_POOL_SIZE` (N=4, headroom 10, reserve 5) | 20, i.e. 80 pooled connections per shard |
+| Shard 1 peak | four partitions at 19-20 each (~77) PLUS a fifth `mix` process (pid 27329) holding 19 idle connections: ~96 pool connections + ~5 active + 4 non-client background rows; client backends reached ~101 > 100; 132 refused sampler connects and 153 server FATALs in one sustained window |
+| Shard 2 peak | three partitions at 19 and one process holding 30 (10 beyond its 20-pool, same BEAM) |
+| Shard 3 peak | 88 |
+
+**Cause (hypothesis b', consistent with the table).** `test/mix/tasks/letflow.login_directory_tasks_test.exs`
+(`key_status`, `retire_key`) and `letflow.migrate_tenant_admins_test.exs` spawn `mix` children with
+`System.cmd/3`; each child runs `app.start`, and `config/test.exs` sizes its `Letflow.Repo` pool from the inherited
+`TEST_POOL_SIZE=20`. Four partitions at 20 plus one such child at 20 is already at the ceiling. The earlier
+reserve of 5 was sized for one reaper connection plus the 4-slot `executor_test.exs` child (ISS-0287/ISS-0515);
+the ISS-0287 addendum's "one file, one partition" argument does not cover three different files each spawning
+a child. Children of `mix run --no-start` / `mix compile` open no pool and are unchanged.
+
+**Change (F2 + F4, no retry, no skip).**
+- F2: `Letflow.Test.NestedMix.cmd/3` (`test/support/nested_mix.ex`) forces `TEST_POOL_SIZE=4` for test-spawned
+  children that start the app; the two task tests use it and `executor_test.exs` reads the same constant.
+- F4: `TEST_NONPOOL_CONNECTION_RESERVE: 16` in `.github/workflows/ci.yml`'s "Run test shard" step env (not the
+  script default: the default stays 5 so local runs and every other caller are untouched). 16 = 4 partitions x
+  the 4-slot child cap, the worst case of one child per partition at once.
+
+**Arithmetic.** `usable = 100 - 3 = 97`; `budget = 97 - 10 (headroom) - 16 = 71`; `TEST_POOL_SIZE = floor(71/4) = 17`.
+Worst case at once: 4 x 17 pool + 4 x 4 children + 2 external (probe, Postgres tune) = 86 of 97, a spare of 11.
+(Before: 80 + one uncapped child of 20 = 100, with no spare, measured above to overshoot.)
+Pinned by `test/scripts/test_parallel_pool_clamp_test.exs` and `test/letflow/nested_mix_test.exs`.
+
+**Not claimed.** Raising `max_connections` is NOT claimed to work here. The "tried and reverted" history in
+`ci.yml` stands: its cited evidence (the `initdb` line `selecting default max_connections ... 100`) is printed before
+the server starts with its arguments and so does not show the flag was ignored, but no `SHOW max_connections`
+read-back ever proved it either way; both remain unproven. Also unverified until a CI run: that three consecutive
+runs show zero `53300` (the design's section 4 evidence plan), and the peak connection count after the change.

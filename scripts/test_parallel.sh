@@ -326,6 +326,14 @@ fi
 # docs/migration/decisions/0009-test-parallel-pool-sizing.md's ISS-0515
 # addendum.
 #
+# GH #2630: hosted CI measured MORE nested connections than the reserve of 5 covers: test-spawned
+# `mix` children that start the app (login_directory key_status/retire_key, migrate_tenant_admins)
+# inherited TEST_POOL_SIZE and opened a full-size pool each. They are now capped to 4 slots by
+# test/support/nested_mix.ex, at most one per partition, so the worst case is N*4. The default
+# here stays 5 (local runs); ci.yml's "Run test shard" step sets TEST_NONPOOL_CONNECTION_RESERVE=16.
+# Arithmetic (max 100, superuser 3, headroom 10, N=4): budget = 97 - 10 - 16 = 71, pool = 17,
+# worst case 4*17 + 4*4 + 2 external = 86 of 97. See decision 0009's GH #2630 addendum.
+#
 # TEST_POOL_SIZE, if the caller already set it, is never overridden here --
 # an explicit choice always wins over this clamp. ISS-0287 §4.1 (lib/letflow/design/iss0287-pool-headroom-n-scaling.md): TEST_PER_PARTITION_HEADROOM adds an N-scaling margin below, default 0 (no-op: N×0=0 reduces to today's formula exactly).
 if [ -z "${TEST_POOL_SIZE:-}" ]; then
