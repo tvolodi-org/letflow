@@ -103,6 +103,9 @@ defmodule Letflow.Engine.ScriptTaskDispatcher do
           | :no_matching_gateway_edge
           | :instance_not_active
           | :instance_cancelled
+          # GH #2587 PR C2: the engine landed an entity-write refusal / exhausted contention
+          | :entity_write_refused
+          | :entity_write_contention
   @type claim :: %{
           dispatch_id: Ecto.UUID.t(),
           instance_id: Ecto.UUID.t(),

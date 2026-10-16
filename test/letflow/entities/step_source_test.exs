@@ -89,6 +89,57 @@ defmodule Letflow.Entities.StepSourceTest do
     assert StepSource.idempotency_key(dispatch) == "sys:step:" <> @dispatch <> ":2"
   end
 
+  # C0 delta F1 (GH #2587 PR C): the key is derived from the CAST (lowercase) id, never from the
+  # caller's spelling, so an uppercase producer id and a lowercase one name the same key.
+  test "F1: the idempotency key uses the cast-lowercased origin id" do
+    assert {:ok, task} = StepSource.new(attrs(%{task_id: String.upcase(@task)}))
+    assert StepSource.idempotency_key(task) == "sys:step:" <> @task <> ":2"
+    assert StepSource.origin(task) == {:task, @task}
+
+    assert {:ok, dispatch} =
+             StepSource.new(attrs(%{task_id: nil, dispatch_id: String.upcase(@dispatch)}))
+
+    assert StepSource.idempotency_key(dispatch) == "sys:step:" <> @dispatch <> ":2"
+    assert StepSource.idempotency_key(dispatch) =~ ~r/\Asys:step:[0-9a-f-]+:2\z/
+  end
+
+  # C0 delta F2: a struct that did not come from new/1 (both or neither origin id, a non-integer
+  # ordinal) is a programming error that names its cause instead of a bare FunctionClauseError /
+  # CaseClauseError.
+  test "F2: origin/1, idempotency_key/1 and to_metadata/1 raise ArgumentError on a malformed struct" do
+    base = %{
+      kind: "process_step",
+      instance_id: @instance,
+      node_id: "n",
+      definition_id: @definition,
+      definition_version: "1",
+      line_index: 0,
+      activator_id: @activator
+    }
+
+    neither = struct!(StepSource, base)
+    both = struct!(StepSource, Map.merge(base, %{task_id: @task, dispatch_id: @dispatch}))
+    bad_ordinal = struct!(StepSource, Map.merge(base, %{task_id: @task, write_ordinal: "x"}))
+
+    for malformed <- [neither, both] do
+      assert_raise ArgumentError, ~r/malformed step source/, fn ->
+        StepSource.origin(malformed)
+      end
+
+      assert_raise ArgumentError, ~r/malformed step source/, fn ->
+        StepSource.idempotency_key(malformed)
+      end
+    end
+
+    assert_raise ArgumentError, ~r/malformed step source/, fn ->
+      StepSource.to_metadata(neither)
+    end
+
+    assert_raise ArgumentError, ~r/malformed step source/, fn ->
+      StepSource.idempotency_key(bad_ordinal)
+    end
+  end
+
   test "an absent task_id key with dispatch_id set is a dispatch origin" do
     dispatch_only = attrs() |> Map.delete(:task_id) |> Map.put(:dispatch_id, @dispatch)
     assert {:ok, source} = StepSource.new(dispatch_only)

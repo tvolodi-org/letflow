@@ -336,10 +336,11 @@ defmodule Letflow.Engine.ReconstructionSysTest do
 
   # GH #2627 (C0): an entity-record event stored BEFORE StepSource existed (flat 8-key
   # source.* metadata and its sys:step: key, hand-built literals; it lives on the entity
-  # type's synthetic instance, which is never replayed) reads back byte-identical, the
-  # process instance's replay is unchanged, and the new code derives exactly the stored
-  # metadata and key from the same values.
-  test "a legacy step event with flat source.* metadata reads back and replays unchanged" do
+  # type's synthetic instance, which is never replayed) reads back byte-identical and the new
+  # code derives exactly the stored metadata and key from the same values. (Renamed under PR C,
+  # delta F3: the earlier "replays unchanged" claim was vacuous, the event is on a stream that
+  # no reconstruction reads; the remaining reconstruction assertion is stream isolation only.)
+  test "a legacy step event with flat source.* metadata reads back byte-identical and the new code derives it" do
     {schema, instance_id} = started_instance!()
     complete_t1!(schema, instance_id, %{"ok" => true})
 
@@ -380,7 +381,10 @@ defmodule Letflow.Engine.ReconstructionSysTest do
     assert stored.metadata == legacy_metadata
     assert stored.idempotency_key == key
 
-    # The process instance's replay is unchanged.
+    # Stream isolation, NOT a replay-of-the-legacy-event check (GH #2587 C0 delta F3): the entity
+    # event sits on its own synthetic stream, which is never replayed, so the process instance's
+    # replay cannot see it. This only pins that such a row does not disturb a neighbouring
+    # instance's reconstruction.
     assert {:ok, %{instance_state: after_legacy, event_count: ^count_before}} =
              Reconstruction.reconstruct_instance(instance_id, prefix: schema)
 

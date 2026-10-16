@@ -39,7 +39,9 @@ defmodule Letflow.Engine.EntityPort do
   `prepare/2`, `validate_lines/2`, `multi/3` and `interpret_failure/2` carry the
   process-step entity writes. `prepare/2` is real (PR A3); `validate_lines/2` is real from PR
   B1 (activation-time validation; it never writes); `multi/3` and `interpret_failure/2` are
-  real from PR B2, called by the HUMAN_TASK completion transaction (`Letflow.Engine`).
+  real from PR B2, called by the HUMAN_TASK completion transaction (`Letflow.Engine`) and, from
+  PR C2, by the SERVICE_TASK apply transaction (HTTP and script routes; DARK until the C1 fence
+  lift).
   `Letflow.Definitions` calls `validate_lines/2` at the three activation paths. Script paths
   (the dispatcher and `Letflow.Scripts.*`) call `prefetch/3` ONLY, and a static test asserts
   it.
@@ -113,16 +115,27 @@ defmodule Letflow.Engine.EntityPort do
           optional(atom()) => term()
         }
 
+  @typedoc "Who caused a step write (PR C2): a human task or a service/script dispatch row."
+  @type origin :: {:task, Ecto.UUID.t()} | {:dispatch, Ecto.UUID.t()}
+
   @typedoc """
   Context for `multi/3` (PR B2). `variables` and `skip?` are closures over the transaction's
   accumulated changes, so the entity side never learns the engine's step names: `variables`
   returns the merged instance variables after the engine's merge, `skip?` is true when the
   merge or transition ended in an execution error (nothing is written then). `now_fun` is a
-  monotonic-millisecond test seam for the 10 s wall-clock guard.
+  monotonic-millisecond test seam for the 10 s wall-clock guard. PR C2: `actor_id` is the event actor
+  (the completer; the platform sentinel on the service origin), `subject_id` the write-side
+  field-restriction subject (defaults to `actor_id`; the activator on the service origin).
   """
   @type multi_ctx :: %{
           required(:prefix) => String.t(),
-          required(:task_id) => Ecto.UUID.t(),
+          # PR C2: the origin of the step. `task_id` is the legacy HUMAN spelling of
+          # `{:task, task_id}` (the module-handler path still reads it); exactly one of the two
+          # is required.
+          optional(:origin) => origin(),
+          optional(:task_id) => Ecto.UUID.t(),
+          optional(:subject_id) => Ecto.UUID.t(),
+          optional(:guard_budget_ms) => non_neg_integer(),
           required(:instance_id) => Ecto.UUID.t(),
           required(:node_id) => String.t(),
           required(:definition_id) => Ecto.UUID.t(),

@@ -149,13 +149,26 @@ defmodule Letflow.Entities.StepSource do
 
   def new(_other), do: {:error, :invalid_step_source}
 
-  @doc "The tagged origin: `{:task, id}` or `{:dispatch, id}` (exactly one is set)."
+  @doc """
+  The tagged origin: `{:task, id}` or `{:dispatch, id}` (exactly one is set). The id is the
+  one `new/1` stored, i.e. in `Ecto.UUID.cast/1` (lowercase) form even when the caller passed
+  an uppercase UUID, so `idempotency_key/1` and `to_metadata/1` always agree with it.
+
+  A struct that did not come from `new/1` and has both or neither origin id is a programming
+  error (the struct is built server-side; `Records.command_multi/3` re-runs `new/1` before any
+  caller reaches this function): it raises `ArgumentError` rather than a bare
+  `FunctionClauseError`, so the failure names its cause.
+  """
   @spec origin(t()) :: {:task, Ecto.UUID.t()} | {:dispatch, Ecto.UUID.t()}
   def origin(%__MODULE__{task_id: id, dispatch_id: nil}) when is_binary(id), do: {:task, id}
   def origin(%__MODULE__{task_id: nil, dispatch_id: id}) when is_binary(id), do: {:dispatch, id}
 
+  def origin(%__MODULE__{}),
+    do: raise(ArgumentError, "malformed step source: exactly one of task_id / dispatch_id")
+
   @doc """
-  The step idempotency key of this line: `"sys:step:" <> origin id <> ":" <>
+  The step idempotency key of this line (built from the origin id `new/1` stored, i.e. in cast
+  lowercase UUID form, GH #2587 C0 delta F1): `"sys:step:" <> origin id <> ":" <>
   line_index` (decision 0054 D9.2), the exact format `StepWrites` always built; a handler
   write appends `":" <> write_ordinal`.
   """
@@ -170,6 +183,9 @@ defmodule Letflow.Entities.StepSource do
     {_tag, id} = origin(source)
     "sys:step:" <> id <> ":" <> Integer.to_string(line_index) <> ":" <> Integer.to_string(ordinal)
   end
+
+  def idempotency_key(%__MODULE__{}),
+    do: raise(ArgumentError, "malformed step source: line_index / write_ordinal")
 
   @doc """
   The namespace key of this write's `{:line, key}` Multi steps: the `line_index` of a
@@ -210,8 +226,14 @@ defmodule Letflow.Entities.StepSource do
   def to_metadata(%__MODULE__{} = source) do
     {origin_key, origin_id} =
       case source do
-        %{task_id: id} when is_binary(id) -> {"source.task_id", id}
-        %{dispatch_id: id} when is_binary(id) -> {"source.dispatch_id", id}
+        %{task_id: id} when is_binary(id) ->
+          {"source.task_id", id}
+
+        %{dispatch_id: id} when is_binary(id) ->
+          {"source.dispatch_id", id}
+
+        _neither ->
+          raise ArgumentError, "malformed step source: exactly one of task_id / dispatch_id"
       end
 
     base = %{

@@ -658,6 +658,18 @@ defmodule Letflow.Engine.ServiceTaskDispatcher do
   defp classify_advance_failure({:execution_error_not_supported_for_service_task_advance, _}),
     do: :execution_error_not_supported
 
+  # GH #2587 PR C2: entity-write classes. The engine lands these as ERROR itself, so they are
+  # unreachable in practice; kept for the function-level rescue residue and the landing that
+  # could not commit (D-C.8 d).
+  defp classify_advance_failure({:entity_write_landing_failed, _}),
+    do: :entity_write_landing_failed
+
+  defp classify_advance_failure({:entity_write_refused, _, _}), do: :entity_write_refused
+  defp classify_advance_failure({:entity_write_failed, _, _}), do: :entity_write_failed
+
+  defp classify_advance_failure(:entity_write_needs_reactivation),
+    do: :entity_write_needs_reactivation
+
   defp classify_advance_failure(_other), do: :other
 
   # Re-fetches the dispatch row (no lock) to recover instance_id/node_id,
