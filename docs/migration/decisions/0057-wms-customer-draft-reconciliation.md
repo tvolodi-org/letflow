@@ -55,4 +55,17 @@ The user answered the customer-dependent items above. Recorded as relayed; the u
 - **D11 State e-document systems.** IS ЭСФ, ЕСУТД and СНТ issuing are POSTPONED. Build the `legal_document_issuer` port and the module-issued Z-forms only (REQ-488); no state integration. The registration-number gate of D3 stays as the condition for any later external issuer.
 - **D12 Cutover and seed data.** 1C is not available now. The pilot is seeded with TEST DATA; the BA (letflow-2) produces the seed data set (items, suppliers, locations, org) and loads it through the generic idempotent import (REQ-505). The team does not wait for 1C. Whether 1C later edits masters stays out of scope until it exists (D1: the module owns masters).
 - **D13 Offline limits.** The maximum outage is a configuration value, default 3 days. Partitioning and conflict rules: the architect advises (asked of the advisor letflow-ec by the supervisor); the answer is combined into the REQ-480 text when it arrives. Not decided here.
-- **D14 Retention of documents: OPEN.** The user's answer was cut off in transmission. Until it is re-sent, retention is configurable; a conservative placeholder number is adopted only where a requirement needs one, and is marked PROVISIONAL there.
+- **D14 Retention of documents (answered below, D15).** See D15.
+
+## Addendum 2: more user answers of 2026-10-16 (relayed by the supervisor)
+
+Items 5 and 8 below are defaults the supervisor stated and explained to the user; they stand unless the user objects.
+
+- **D15 Retention: FOREVER by default**, with a configurable mechanism per document type: retention period or forever, counted from creation or from closing; action at expiry `keep | archive | purge` (purge only through an approval task); a legal hold overrides and blocks any purge; every purge writes an audit event. Placed in two requirements linked to versioned documents (#2588, decision 0056 D7 direction): REQ-508 (policy and legal hold, #2675) and REQ-509 (purge/archive execution, design first). Supersedes D14.
+- **D16 RU/KK wording.** The user did not understand the question; default: Russian primary, Kazakh drafted by the team and flagged "needs native review" in a translation catalog editable per tenant. No customer owner is needed now. Removed from the customer list.
+- **D17 E-signature (ЭЦП): not now.** Internal acknowledgment instead: an acknowledgment record bound to the document version hash, actor, role and time, written to the audit chain with the server-side session identity, through the same `legal_document_issuer` / acknowledgment port so ЭЦП can plug in later.
+- **D18 Counterparty signers** (supplier or carrier people who sign receipt papers): recorded as data on the document (name, position, basis of authority such as a power-of-attorney number). No external logins and no portal now.
+- **D19 Offboarded tenants' documents** (default): freeze the tenant read-only, offer the customer a complete export package (documents and audit), purge only on explicit written request and only after retention allows (default: never).
+- **D20 1C / SAP test systems:** not now.
+- **D21 Handhelds and Wi-Fi:** unknown, not now; assume Android handhelds with a camera or built-in scanner, and Wi-Fi; revisit at the pilot.
+- **D22 Pipeline proposal #2422:** decided by the supervisor under the user's delegation: not now; revisit with data (not a WMS item; recorded for completeness).
