@@ -36335,12 +36335,14 @@ requirements:
       PR B3 #2640, B1 #2642, B2 #2645 (the HUMAN_TASK path end to end). Remaining:
       PR C, the SERVICE_TASK path, after its C0 step and REQ-501 / GH #2590
       (module write handlers); PR C's first commit is `%StepSource{}` (GH #2627).
-      Status stays in_progress until PR C merges and RELEASE-VALIDATOR re-verifies.
+      PR C is delivered as C0 #2649 (%StepSource{}), C2 #2674 (dispatch-time
+      composition, fence closed) and C1 (the activation fence accepts SERVICE_TASK).
+      Status stays in_progress until RELEASE-VALIDATOR re-verifies.
       The issue body of GH #2587 is the full acceptance-criteria list; the progress
       check against main 53ad1cd9 is its comment of 2026-10-16.
     acceptance_criteria:
       - "1. PR A (prerequisites) delivered: reserved `_sys` namespace and `put_sys` (A1 #2620), no definition expression may reference `_sys` (A1b #2626), `Records.command_multi/3` and server step keys (A2 #2629), one `EntityPort` with `StepWrites.prepare/2` (A3 #2631), `writable_by_process` with the interim denied-name list (A4 #2634)."
       - "2. PR B (HUMAN_TASK path) delivered: B3 strips `_sys` from instance, task, history, timeline, Lua and Wasm reads (#2640); B1 validates `entity_writes` at activation and records `activated_by` (#2642); B2 applies the writes on completion (#2645)."
-      - "3. PR C (SERVICE_TASK path) is delivered by its own PR(s), after C0 and REQ-501 / GH #2590, with `%StepSource{}` (GH #2627) as its first commit. NOT DELIVERED."
+      - "3. PR C (SERVICE_TASK path) is delivered by its own PRs: C0 `%StepSource{}` (GH #2627, #2649), C2 dispatch-time composition for the HTTP and script routes (#2674), C1 the activation fence accepts SERVICE_TASK (this requirement's last code PR). RELEASE-VALIDATOR re-verification pending."
       - "4. Follow-ups tracked, not blocking this requirement: GH #2618, #2619 (writable_by_process classification, packs), #2624, #2628, #2632, #2635, #2638, #2644 (activated_by hardening), #2646 (test gaps)."
     depends_on: [REQ-496]

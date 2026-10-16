@@ -313,6 +313,17 @@ engine-written `_sys.*` values are never returned to a client. `line_index: 20` 
 line. Pilot limit: scoped-type and
 scope-column refusals are vacuous until decision 0051 `scope_node` exists.
 
+**`entity_writes` on a SERVICE_TASK node (GH #2587 / REQ-499 PR C).** A SERVICE_TASK node
+(HTTP route or script-bound) may declare the same `entity_writes` lines, under the same activation
+validation, the same recorded activator authority and the same line shape (sources `var` and `const`
+only, `create` on append-only `writable_by_process` types). The lines run in the same transaction
+as the apply of the service result, with the platform actor as event actor and the recorded
+`activated_by` as the delegated privilege. A service completion has no client and no pending task,
+so a refusal of the entity step lands the instance in ERROR with a DLQ entry (and rolls the apply
+back, nothing partial) instead of answering a request; see
+`docs/runbooks/service-task-entity-write-refusal.md`. `module_writes` is still HUMAN_TASK only: a
+SERVICE_TASK node declaring it is refused at activation. As for a HUMAN_TASK node, the recorded `activated_by` authority is the graph-wide set of (entity type, `create`) pairs, not a per-node set.
+
 Pilot limits: (a) the activation-time activator check requires `:EntitiesRecordsWrite`, not
 `:DefinitionsActivate`, so a rollback or promotion activator legitimately omits the latter; (b)
 promotion and tenant promote resolve the activator in the TARGET tenant, so a promoting

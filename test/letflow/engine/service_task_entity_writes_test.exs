@@ -5,8 +5,9 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
   node's declared entity writes into the ONE apply transaction.
 
   Real Postgres through the real `Engine.advance_after_service_task_outcome/4`. The activation
-  fence still refuses `entity_writes` on a SERVICE_TASK node (C1 lifts it later), so each case
-  starts from an ACTIVE row built the way a pre-B1 row exists (`Fx.service_case!/2`).
+  fence (C1) now accepts `entity_writes` on a SERVICE_TASK node; most cases still start from an
+  ACTIVE row inserted with the recorded activator and no activation validation
+  (`Fx.service_case!/2`, so they can tamper with the row), and the "C1" case runs the real path.
   `async: false`: the port test double is application env.
   """
 
@@ -159,6 +160,116 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
       assert state.variables == live.variables
       assert state.status == live.status
       assert Map.has_key?(state.variables, "_sys.move")
+    end
+
+    # GH #2587 PR C1 (fence-open condition 1, design C-11 last clause): a stored pre-#2621 "wide"
+    # INSTANCE_SYS_VARIABLES_SET (values that are not UUID / int64, which the strict append guard
+    # now refuses) sitting BEFORE a service completed event still replays value-identically.
+    test "C-11: a wide-tier stored SYS event before a service completed event replays unchanged" do
+      ctx = case!()
+      assert {:ok, :advanced} = Fx.apply_http(ctx, %{"label" => "L1", "note" => "N1"})
+
+      # The apply wrote its own SYS event before SERVICE_TASK_COMPLETED. Add wide-tier values to
+      # that stored event (strings the strict append guard now refuses) the way an old row would
+      # look, keeping its `_sys.move`; the sequence numbers and the rest of the stream are
+      # untouched.
+      types = event_types(ctx)
+      sys_index = Enum.find_index(types, &(&1 == "INSTANCE_SYS_VARIABLES_SET"))
+      assert sys_index < Enum.find_index(types, &(&1 == "SERVICE_TASK_COMPLETED"))
+
+      [sys_event] = Fx.instance_events(ctx.schema, ctx.instance_id, "INSTANCE_SYS_VARIABLES_SET")
+      original = payload(sys_event)
+
+      wide = %{"_sys.legacy" => "any string, not a uuid"}
+      wide_payload = Map.put(original, "values", Map.merge(original["values"], wide))
+
+      # self-contained claim: today's append guard refuses exactly these wide values
+      assert {:error, {:payload_validation_failed, [%{constraint: "sys_value_type"} | _]}} =
+               EventStore.append(
+                 %{
+                   instance_id: ctx.instance_id,
+                   event_type: "INSTANCE_SYS_VARIABLES_SET",
+                   payload: Jason.encode!(Map.put(original, "values", wide)),
+                   actor_id: EventStore.platform_actor_id(),
+                   idempotency_key: "gh2587c1-wide-refused-#{System.unique_integer([:positive])}"
+                 },
+                 prefix: ctx.schema
+               )
+
+      assert {1, _} =
+               Repo.update_all(
+                 from(e in Letflow.EventStore.Event, where: e.event_id == ^sys_event.event_id),
+                 [set: [payload: wide_payload]],
+                 prefix: ctx.schema
+               )
+
+      live = Fx.projection!(ctx.schema, ctx.instance_id)
+      stored_before = Fx.all_instance_event_count(ctx.schema, ctx.instance_id)
+
+      assert {:ok, %{instance_state: state}} =
+               Reconstruction.reconstruct_instance(ctx.instance_id, prefix: ctx.schema)
+
+      # the wide values arrive value-identically and `_sys.move` stays in the replayed state;
+      # everything else equals the live projection
+      assert state.variables["_sys.legacy"] == "any string, not a uuid"
+      assert Map.has_key?(state.variables, "_sys.move")
+      assert state.variables == Map.merge(live.variables, wide)
+      assert state.status == live.status
+
+      # a second rebuild is identical; replay appended, repaired and rewrote nothing
+      assert {:ok, %{instance_state: again}} =
+               Reconstruction.reconstruct_instance(ctx.instance_id, prefix: ctx.schema)
+
+      assert again.variables == state.variables
+      assert Fx.all_instance_event_count(ctx.schema, ctx.instance_id) == stored_before
+
+      [after_replay] =
+        Fx.instance_events(ctx.schema, ctx.instance_id, "INSTANCE_SYS_VARIABLES_SET")
+
+      assert payload(after_replay) == wide_payload
+    end
+  end
+
+  describe "C1: a definition activated through the real activation path runs end to end" do
+    test "activate (fence lifted) -> start -> apply writes the records with the recorded authority" do
+      base = Fx.tenant_case!("gh2587c1-e2e")
+      Fx.define_type!(base.schema, "stock_move", %{})
+      Fx.define_type!(base.schema, "stock_note", %{})
+
+      definition = Fx.activate!(base.schema, base.user, Fx.service_graph(two_lines()))
+
+      user_id = base.user.id
+
+      assert %{
+               "user_id" => ^user_id,
+               "authorized" => [
+                 %{"entity_type" => "stock_move", "op" => "create"},
+                 %{"entity_type" => "stock_note", "op" => "create"}
+               ]
+             } = definition.activated_by
+
+      pending = Fx.start_service_instance!(base, definition)
+
+      dispatch =
+        pending.dispatch
+        |> Ecto.Changeset.change(%{status: "advanced"})
+        |> Repo.update!(prefix: base.schema)
+
+      ctx = %{pending | dispatch: dispatch}
+
+      assert {:ok, :advanced} = Fx.apply_http(ctx, %{"label" => "L1", "note" => "N1"})
+
+      assert [_] = Fx.records(ctx.schema, "stock_move")
+      assert [_] = Fx.records(ctx.schema, "stock_note")
+      assert Fx.projection!(ctx.schema, ctx.instance_id).status == :completed
+
+      # the authority is the ACTIVATOR's (recorded by the real activation); the platform actor is
+      # only the event actor
+      events = Fx.entity_events(ctx.schema)
+      assert length(events) == 2
+      assert Enum.all?(events, &(&1.actor_id == EventStore.platform_actor_id()))
+      assert Enum.all?(events, &(&1.metadata["source.activator_id"] == user_id))
+      assert Enum.all?(events, &(&1.metadata["source.dispatch_id"] == ctx.dispatch.id))
     end
   end
 

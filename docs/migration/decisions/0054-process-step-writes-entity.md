@@ -440,6 +440,19 @@ nothing committed) is the fail-closed backstop, not the plan.
 
 Sign-off for this amendment: pending (SECURITY-REVIEWER and REVIEWER on the R4b PR).
 
+## Amendment (GH #2587 PR C1): the SERVICE_TASK path is switched on
+
+PR C0 (`%StepSource{}`, #2649) and PR C2 (dispatch-time composition for the HTTP and the script
+route, #2674) landed the SERVICE_TASK composition behind a closed activation fence. PR C1 opens the
+fence: `Definitions.check_entity_writes/3` accepts `entity_writes` on a `SERVICE_TASK` node (both
+routes) on the three activation paths, with the unchanged violation codes and the unchanged
+activator authority (`activated_by`, never settable through a request). Every other node type still
+gets `entity_writes_node_type_not_supported`; `module_writes` on a SERVICE_TASK node is still
+refused (`module_writes_node_type_not_supported`). New product behaviour, recorded in
+`docs/runbooks/service-task-entity-write-refusal.md`: a refusal or internal failure of a service
+task's entity step lands the instance in ERROR + DLQ (it cannot stay pending). Design:
+`lib/letflow/design/gh2587-req499-pr-c-service-task-writes.md`.
+
 ## Sign-off
 
 REVIEWER:

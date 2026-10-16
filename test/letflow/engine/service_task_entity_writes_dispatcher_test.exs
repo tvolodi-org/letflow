@@ -117,4 +117,87 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesDispatcherTest do
     refute inspect(entry) =~ "L1"
     assert Fx.dispatch!(ctx.schema, ctx.dispatch.id).status == "advanced"
   end
+
+  # GH #2587 PR C1 (fence-open condition 2, design D-C.8 d): the residual. When the ERROR landing
+  # itself cannot commit, the dispatcher (the REAL `poll_and_dispatch/1`, real HTTP call, real
+  # engine re-entry) logs a classified tag and writes the `service_task.advance_failed` audit
+  # entry. A concurrent row lock cannot be used under the SQL sandbox (one connection), so the
+  # landing is failed deterministically instead: the apply is exhausted with the chaos port
+  # (contention, so the engine goes to the landing), and a trigger on `dlq_entries` -- created in
+  # the sandboxed tenant schema, rolled back with it -- raises a lock_not_available error
+  # (`55P03`) on the landing's DLQ insert only. The apply never touches `dlq_entries`.
+  test "a landing that cannot commit is audited as service_task.advance_failed by the dispatcher",
+       %{server: server} do
+    ctx = pending_case!(server, lines())
+    fail_dlq_inserts!(ctx.schema)
+    ChaosEntityPort.arm!(:lock_not_available, :infinity)
+
+    log =
+      capture_log(fn ->
+        send(self(), {:summary, ServiceTaskDispatcher.poll_and_dispatch(ctx.schema)})
+      end)
+
+    assert_received {:summary, %{claimed: 1}}
+    assert outbound_calls() == 1
+
+    # the residual state: nothing committed, the instance still ACTIVE, the row still advanced
+    assert Fx.all_records(ctx.schema) == []
+    assert Fx.dlq_entries(ctx.schema) == []
+    assert Fx.projection!(ctx.schema, ctx.instance_id).status == :active
+    assert Fx.dispatch!(ctx.schema, ctx.dispatch.id).status == "advanced"
+    refute "SERVICE_TASK_COMPLETED" in Fx.instance_event_types(ctx.schema, ctx.instance_id)
+
+    # the engine logs the landing failure and the dispatcher logs + audits it, tags only
+    assert log =~ "service task entity write landing failed: dispatch_id=#{ctx.dispatch.id}"
+    assert log =~ "reason=contention"
+    assert log =~ "service_task advance failed: dispatch_id=#{ctx.dispatch.id}"
+    assert log =~ "reason=entity_write_landing_failed"
+
+    error_lines = log |> String.split("\n") |> Enum.filter(&(&1 =~ "[error]"))
+    assert Enum.any?(error_lines, &(&1 =~ "landing failed" and &1 =~ "reason=contention"))
+
+    assert Enum.any?(
+             error_lines,
+             &(&1 =~ "service_task advance failed" and
+                 &1 =~ "reason=entity_write_landing_failed")
+           )
+
+    refute Enum.any?(error_lines, &(&1 =~ "L1" or &1 =~ "N1"))
+
+    assert [entry] = Fx.audit_rows(ctx.schema, "service_task.advance_failed")
+    assert entry.resource_type == "instance"
+    assert entry.resource_id == ctx.instance_id
+    assert entry.actor_id == Letflow.EventStore.platform_actor_id()
+    assert entry.after_state == %{"node_id" => "svc", "reason" => "entity_write_landing_failed"}
+    refute inspect(entry) =~ "L1"
+
+    # nothing re-claims the advanced row: still exactly one outbound call
+    assert %{claimed: 0} = ServiceTaskDispatcher.poll_and_dispatch(ctx.schema)
+    assert outbound_calls() == 0
+  end
+
+  # No `on_exit` cleanup: the trigger and its function are DDL inside the test's SQL-sandbox
+  # transaction (the tenant is provisioned on that connection), so the sandbox rollback removes
+  # both; nothing is committed to the shared database.
+  defp fail_dlq_inserts!(schema) do
+    Ecto.Adapters.SQL.query!(
+      Letflow.Repo,
+      """
+      CREATE FUNCTION "#{schema}".c1_fail_landing() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        RAISE EXCEPTION 'c1 chaos: landing refused' USING ERRCODE = '55P03';
+      END $$
+      """,
+      []
+    )
+
+    Ecto.Adapters.SQL.query!(
+      Letflow.Repo,
+      """
+      CREATE TRIGGER c1_fail_landing BEFORE INSERT ON "#{schema}".dlq_entries
+      FOR EACH ROW EXECUTE FUNCTION "#{schema}".c1_fail_landing()
+      """,
+      []
+    )
+  end
 end

@@ -118,6 +118,19 @@ defmodule Letflow.Definitions.EntityWritesActivatorTest do
     )
   end
 
+  # GH #2587 PR C1: START -> svc (SERVICE_TASK, HTTP route) declaring the same line -> END.
+  defp service_graph(extra \\ %{}) do
+    Map.merge(Letflow.EntityWritesFixture.service_graph([line()]), extra)
+  end
+
+  defp line do
+    %{
+      "op" => "create",
+      "entity_type" => "stock_move",
+      "fields" => %{"label" => %{"const" => "x"}}
+    }
+  end
+
   defp create!(ctx, extra_body \\ %{}, graph \\ nil) do
     request =
       Map.merge(
@@ -284,6 +297,107 @@ defmodule Letflow.Definitions.EntityWritesActivatorTest do
                )
 
       assert %{activated_by: nil} = stored(ctx.schema, row.id)
+    end
+  end
+
+  # GH #2587 / REQ-499 PR C1 (design C-17, D-C.12): the fence now accepts a SERVICE_TASK node;
+  # the activator is still derived server side and no new writer of `activated_by` exists.
+  describe "C-17: SERVICE_TASK activation and the non-forgeable activated_by" do
+    @forged_service %{
+      "user_id" => "00000000-0000-0000-0000-000000000000",
+      "roles" => ["PLATFORM_ADMIN"]
+    }
+
+    test "a principal without :EntitiesRecordsWrite is refused at the SERVICE node", ctx do
+      id = create!(ctx, %{}, service_graph())
+
+      resp = call(:post, "/#{id}/activate", ctx, ["PROCESS_DESIGNER"], nil)
+
+      assert resp.status == 422, resp.resp_body
+
+      assert body(resp) == %{
+               "error" => "entity_writes_invalid",
+               "violations" => [
+                 %{"node_id" => "svc", "index" => 0, "code" => "entity_write_activator_required"}
+               ]
+             }
+
+      assert %{status: :draft, activated_by: nil} = stored(ctx.schema, id)
+    end
+
+    test "with :EntitiesRecordsWrite it activates and records the server-derived authority",
+         ctx do
+      id = create!(ctx, %{}, service_graph())
+
+      resp = call(:post, "/#{id}/activate", ctx, ["TENANT_ADMIN"], nil)
+      assert resp.status == 200, resp.resp_body
+      refute Map.has_key?(body(resp), "activated_by")
+
+      user_id = ctx.user.id
+
+      assert %{
+               status: :active,
+               activated_by: %{
+                 "user_id" => ^user_id,
+                 "roles" => ["TENANT_ADMIN"],
+                 "permissions" => ["DefinitionsActivate", "EntitiesRecordsWrite"],
+                 "authorized" => [%{"entity_type" => "stock_move", "op" => "create"}]
+               }
+             } = stored(ctx.schema, id)
+
+      resp = call(:get, "/#{id}", ctx, ["TENANT_ADMIN"], nil)
+      refute Map.has_key?(body(resp), "activated_by")
+    end
+
+    test "a body or graph key activated_by never reaches the row; activation sets the real one",
+         ctx do
+      forged_post =
+        call(:post, "/", ctx, ["TENANT_ADMIN"], %{
+          "name" => unique("c1"),
+          "version" => "1",
+          "graph" => service_graph(),
+          "activated_by" => @forged_service
+        })
+
+      assert forged_post.status == 422, forged_post.resp_body
+      assert forged_post.resp_body =~ "server_owned" and forged_post.resp_body =~ "activated_by"
+
+      nested = create!(ctx, %{}, service_graph(%{"activated_by" => @forged_service}))
+      assert %{activated_by: nil} = stored(ctx.schema, nested)
+
+      put =
+        call(:put, "/#{nested}", ctx, ["TENANT_ADMIN"], %{
+          "name" => unique("c1"),
+          "version" => "1",
+          "graph" => service_graph(),
+          "activated_by" => @forged_service
+        })
+
+      assert put.status == 422, put.resp_body
+      assert put.resp_body =~ "server_owned" and put.resp_body =~ "activated_by"
+
+      patch =
+        call(:patch, "/#{nested}", ctx, ["TENANT_ADMIN"], %{"activated_by" => @forged_service})
+
+      assert patch.status == 422, patch.resp_body
+      assert patch.resp_body =~ "server_owned" and patch.resp_body =~ "activated_by"
+      assert %{activated_by: nil} = stored(ctx.schema, nested)
+
+      assert call(:post, "/#{nested}/activate", ctx, ["TENANT_ADMIN"], nil).status == 200
+      user_id = ctx.user.id
+      assert %{activated_by: %{"user_id" => ^user_id}} = stored(ctx.schema, nested)
+    end
+
+    test "a planted activated_by on a SERVICE draft is replaced, not kept, by activation", ctx do
+      id = create!(ctx, %{}, service_graph())
+
+      from(d in ProcessDefinition, where: d.id == ^id)
+      |> Repo.update_all([set: [activated_by: @forged_service]], prefix: ctx.schema)
+
+      assert call(:post, "/#{id}/activate", ctx, ["TENANT_ADMIN"], nil).status == 200
+      user_id = ctx.user.id
+      assert %{activated_by: %{"user_id" => ^user_id} = recorded} = stored(ctx.schema, id)
+      refute recorded == @forged_service
     end
   end
 end

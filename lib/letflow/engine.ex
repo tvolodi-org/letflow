@@ -5117,9 +5117,9 @@ defmodule Letflow.Engine do
   #
   # A SERVICE_TASK node that declares `entity_writes` composes them into the SAME transaction as
   # the apply of its result (HTTP: `advance_after_service_task_outcome/4`; script:
-  # `apply_script_task_result/3`), through `do_persist_service_task_advance/10`. DARK: the
-  # activation fence (`Definitions.check_entity_writes/3`) still refuses a SERVICE_TASK node, so
-  # only a row that predates B1 can reach this code (the C2 merge gate inventory is zero).
+  # `apply_script_task_result/3`), through `do_persist_service_task_advance/10`. Reachable since
+  # PR C1 lifted the activation fence (`Definitions.check_entity_writes/3` accepts SERVICE_TASK);
+  # `Definitions.ModuleWrites` still refuses `module_writes` on a SERVICE node at activation.
   #
   # A SERVICE_TASK completion is not a request: there is no client, no pending task and the
   # external call is at-most-once (the HTTP dispatch row is already "advanced"; the script row is
@@ -5194,8 +5194,9 @@ defmodule Letflow.Engine do
   defp resolve_service_entity_plan(_row, {:malformed, index}, _route, _prefix),
     do: {:error, {:service_refused, index, :write_not_permitted, :line_malformed}}
 
-  # `module_writes` is HUMAN_TASK only (the activation fence refuses it elsewhere): on a SERVICE
-  # node it can only be a hand-edited snapshot, refused fail-closed.
+  # `module_writes` is HUMAN_TASK only (activation refuses it elsewhere, with
+  # `:module_writes_node_type_not_supported`): on a SERVICE node it can only be a hand-edited
+  # snapshot, refused fail-closed.
   defp resolve_service_entity_plan(_row, {:ok, lines, [_ | _]}, _route, _prefix),
     do: {:error, {:service_refused, length(lines), :write_not_permitted, :module_writes}}
 

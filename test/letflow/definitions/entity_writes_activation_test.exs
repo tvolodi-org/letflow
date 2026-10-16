@@ -120,15 +120,25 @@ defmodule Letflow.Definitions.EntityWritesActivationTest do
     )
   end
 
-  # START -> ht (HUMAN_TASK carrying `lines`) -> END
-  defp graph(lines, node_extra \\ %{}) do
+  # START -> ht (HUMAN_TASK carrying `lines`) -> END. GH #2587 PR C1: `node_type` :SERVICE_TASK
+  # swaps in an HTTP service node with the SAME id `ht`, so every expected `v/3` is unchanged.
+  defp graph(lines, node_extra \\ %{}, node_type \\ :HUMAN_TASK) do
+    attributes =
+      case node_type do
+        :HUMAN_TASK ->
+          %{"role" => "REVIEWER", "entity_writes" => lines}
+
+        :SERVICE_TASK ->
+          %{
+            "endpoint" => "https://example.test/svc",
+            "method" => "POST",
+            "entity_writes" => lines
+          }
+      end
+
     node =
       Map.merge(
-        %{
-          "id" => "ht",
-          "node_type" => "HUMAN_TASK",
-          "attributes" => %{"role" => "REVIEWER", "entity_writes" => lines}
-        },
+        %{"id" => "ht", "node_type" => Atom.to_string(node_type), "attributes" => attributes},
         node_extra
       )
 
@@ -147,7 +157,8 @@ defmodule Letflow.Definitions.EntityWritesActivationTest do
 
   defp check(t, lines, activator \\ :default) do
     activator = if activator == :default, do: activator(t.user), else: activator
-    Definitions.check_entity_writes(%{graph: graph(lines)}, t.schema, activator)
+    node_type = Map.get(t, :node_type, :HUMAN_TASK)
+    Definitions.check_entity_writes(%{graph: graph(lines, %{}, node_type)}, t.schema, activator)
   end
 
   defp codes({:error, {:entity_writes_invalid, violations}}), do: violations
@@ -187,8 +198,8 @@ defmodule Letflow.Definitions.EntityWritesActivationTest do
     end)
   end
 
-  setup do
-    %{t: tenant!("gh2587-b1-act")}
+  setup ctx do
+    %{t: Map.put(tenant!("gh2587-b1-act"), :node_type, Map.get(ctx, :node_type, :HUMAN_TASK))}
   end
 
   # ── B-1: one case per code, at the exact {node_id, index} ───────────────────────────────────
@@ -215,141 +226,149 @@ defmodule Letflow.Definitions.EntityWritesActivationTest do
     end
   end
 
-  describe "validation codes" do
-    test "unknown, draft-only and absent types are :entity_type_not_found", %{t: t} do
-      assert codes(check(t, [line("ghost"), line("draft_type")])) ==
-               [v(0, :entity_type_not_found), v(1, :entity_type_not_found)]
-    end
+  # GH #2587 PR C1 (C-7): the whole B 6.2 code table is asserted for BOTH node types, at the exact
+  # {node_id, index}.
+  for node_type <- [:HUMAN_TASK, :SERVICE_TASK] do
+    describe "validation codes (#{node_type})" do
+      @describetag node_type: node_type
 
-    test "a type without the flag", %{t: t} do
-      assert codes(check(t, [line("plain_type")])) == [v(0, :entity_type_not_writable_by_process)]
-    end
-
-    test "a managed type (B-12, activation half)", %{t: t} do
-      assert codes(check(t, [line("catalog_item")])) == [v(0, :entity_type_managed)]
-    end
-
-    test "a type that is not append-only", %{t: t} do
-      assert codes(check(t, [line("mutable_type")])) == [v(0, :entity_type_not_append_only)]
-    end
-
-    test "update and delete lines, record and expected", %{t: t} do
-      assert codes(
-               check(t, [
-                 line("stock_move", %{"op" => "update", "record" => %{"var" => "x"}}),
-                 line("stock_move", %{"op" => "delete"}),
-                 line("stock_move", %{"expected" => 3})
-               ])
-             ) == [
-               v(0, :entity_write_op_unsupported),
-               v(0, :entity_write_record_not_allowed),
-               v(1, :entity_write_op_unsupported),
-               v(2, :entity_write_expected_not_allowed)
-             ]
-    end
-
-    test "an unknown field and an unknown line key", %{t: t} do
-      assert codes(
-               check(t, [
-                 line("stock_move", %{"fields" => %{"nope" => %{"const" => 1}}}),
-                 line("stock_move", %{"extra" => true})
-               ])
-             ) == [v(0, :entity_write_field_unknown), v(1, :entity_write_unknown_key)]
-    end
-
-    test "field sources: malformed and _sys references (B-16)", %{t: t} do
-      bad = [
-        %{"label" => "plain"},
-        %{"label" => %{"var" => ""}},
-        %{"label" => %{"var" => "a", "const" => 1}},
-        %{"label" => %{"other" => 1}}
-      ]
-
-      for fields <- bad do
-        assert codes(check(t, [line("stock_move", %{"fields" => fields})])) ==
-                 [v(0, :entity_write_field_source_invalid)],
-               inspect(fields)
+      test "unknown, draft-only and absent types are :entity_type_not_found", %{t: t} do
+        assert codes(check(t, [line("ghost"), line("draft_type")])) ==
+                 [v(0, :entity_type_not_found), v(1, :entity_type_not_found)]
       end
 
-      assert codes(
-               check(t, [line("stock_move", %{"fields" => %{"label" => %{"var" => "_sys.r"}}})])
-             ) ==
-               [v(0, :entity_write_sys_reference)]
+      test "a type without the flag", %{t: t} do
+        assert codes(check(t, [line("plain_type")])) == [
+                 v(0, :entity_type_not_writable_by_process)
+               ]
+      end
 
-      assert codes(
-               check(t, [line("stock_move", %{"fields" => %{"label" => %{"var" => "_sys"}}})])
-             ) ==
-               [v(0, :entity_write_sys_reference)]
+      test "a managed type (B-12, activation half)", %{t: t} do
+        assert codes(check(t, [line("catalog_item")])) == [v(0, :entity_type_managed)]
+      end
 
-      assert check(t, [line("stock_move", %{"fields" => %{"label" => %{"var" => "customer"}}})]) ==
-               :ok
-    end
+      test "a type that is not append-only", %{t: t} do
+        assert codes(check(t, [line("mutable_type")])) == [v(0, :entity_type_not_append_only)]
+      end
 
-    test "a line that is not a map", %{t: t} do
-      assert codes(check(t, ["stock_move", 5, nil])) == [
-               v(0, :entity_write_line_malformed),
-               v(1, :entity_write_line_malformed),
-               v(2, :entity_write_line_malformed)
-             ]
-    end
+      test "update and delete lines, record and expected", %{t: t} do
+        assert codes(
+                 check(t, [
+                   line("stock_move", %{"op" => "update", "record" => %{"var" => "x"}}),
+                   line("stock_move", %{"op" => "delete"}),
+                   line("stock_move", %{"expected" => 3})
+                 ])
+               ) == [
+                 v(0, :entity_write_op_unsupported),
+                 v(0, :entity_write_record_not_allowed),
+                 v(1, :entity_write_op_unsupported),
+                 v(2, :entity_write_expected_not_allowed)
+               ]
+      end
 
-    test "more than 20 lines: the first excess index is reported", %{t: t} do
-      lines = for _ <- 1..21, do: line("stock_move")
-      assert codes(check(t, lines)) == [v(20, :entity_writes_too_many_lines)]
-      assert check(t, Enum.take(lines, 20)) == :ok
-    end
+      test "an unknown field and an unknown line key", %{t: t} do
+        assert codes(
+                 check(t, [
+                   line("stock_move", %{"fields" => %{"nope" => %{"const" => 1}}}),
+                   line("stock_move", %{"extra" => true})
+                 ])
+               ) == [v(0, :entity_write_field_unknown), v(1, :entity_write_unknown_key)]
+      end
 
-    test "all defects of one line are reported together, in deterministic order", %{t: t} do
-      lines = [
-        line("mutable_type", %{
-          "op" => "delete",
-          "fields" => %{"nope" => %{"const" => 1}},
-          "output_record_id_var" => "plain"
-        })
-      ]
+      test "field sources: malformed and _sys references (B-16)", %{t: t} do
+        bad = [
+          %{"label" => "plain"},
+          %{"label" => %{"var" => ""}},
+          %{"label" => %{"var" => "a", "const" => 1}},
+          %{"label" => %{"other" => 1}}
+        ]
 
-      expected = [
-        v(0, :entity_type_not_append_only),
-        v(0, :entity_write_field_unknown),
-        v(0, :entity_write_op_unsupported),
-        v(0, :entity_write_output_var_shape)
-      ]
+        for fields <- bad do
+          assert codes(check(t, [line("stock_move", %{"fields" => fields})])) ==
+                   [v(0, :entity_write_field_source_invalid)],
+                 inspect(fields)
+        end
 
-      assert codes(check(t, lines)) == expected
-      assert codes(check(t, lines)) == expected
-    end
+        assert codes(
+                 check(t, [line("stock_move", %{"fields" => %{"label" => %{"var" => "_sys.r"}}})])
+               ) ==
+                 [v(0, :entity_write_sys_reference)]
 
-    test "scoped type and scope column seam (D-B.18): vacuous by default, live with a key list",
-         %{t: t} do
-      scoped = type!(t.schema, "scoped_thing")
+        assert codes(
+                 check(t, [line("stock_move", %{"fields" => %{"label" => %{"var" => "_sys"}}})])
+               ) ==
+                 [v(0, :entity_write_sys_reference)]
 
-      from(e in EntityDefinition, where: e.id == ^scoped.id)
-      |> Repo.update_all(
-        [
-          set: [
-            definition_json:
-              Map.merge(scoped.definition_json, %{
-                "scope_node" => true,
-                "fields" => [
-                  %{"name" => "label", "type" => "string", "scope_node" => true},
-                  %{"name" => "qty", "type" => "integer"}
-                ]
-              })
-          ]
-        ],
-        prefix: t.schema
-      )
+        assert check(t, [line("stock_move", %{"fields" => %{"label" => %{"var" => "customer"}}})]) ==
+                 :ok
+      end
 
-      # default: empty key list, so both predicates are false
-      assert check(t, [line("scoped_thing")]) == :ok
+      test "a line that is not a map", %{t: t} do
+        assert codes(check(t, ["stock_move", 5, nil])) == [
+                 v(0, :entity_write_line_malformed),
+                 v(1, :entity_write_line_malformed),
+                 v(2, :entity_write_line_malformed)
+               ]
+      end
 
-      with_env(:entity_writes_scope_keys, ["scope_node"])
+      test "more than 20 lines: the first excess index is reported", %{t: t} do
+        lines = for _ <- 1..21, do: line("stock_move")
+        assert codes(check(t, lines)) == [v(20, :entity_writes_too_many_lines)]
+        assert check(t, Enum.take(lines, 20)) == :ok
+      end
 
-      assert codes(check(t, [line("scoped_thing")])) ==
-               [v(0, :entity_type_scoped), v(0, :entity_write_field_scope_column)]
+      test "all defects of one line are reported together, in deterministic order", %{t: t} do
+        lines = [
+          line("mutable_type", %{
+            "op" => "delete",
+            "fields" => %{"nope" => %{"const" => 1}},
+            "output_record_id_var" => "plain"
+          })
+        ]
 
-      assert codes(check(t, [line("scoped_thing", %{"fields" => %{"qty" => %{"const" => 1}}})])) ==
-               [v(0, :entity_type_scoped)]
+        expected = [
+          v(0, :entity_type_not_append_only),
+          v(0, :entity_write_field_unknown),
+          v(0, :entity_write_op_unsupported),
+          v(0, :entity_write_output_var_shape)
+        ]
+
+        assert codes(check(t, lines)) == expected
+        assert codes(check(t, lines)) == expected
+      end
+
+      test "scoped type and scope column seam (D-B.18): vacuous by default, live with a key list",
+           %{t: t} do
+        scoped = type!(t.schema, "scoped_thing")
+
+        from(e in EntityDefinition, where: e.id == ^scoped.id)
+        |> Repo.update_all(
+          [
+            set: [
+              definition_json:
+                Map.merge(scoped.definition_json, %{
+                  "scope_node" => true,
+                  "fields" => [
+                    %{"name" => "label", "type" => "string", "scope_node" => true},
+                    %{"name" => "qty", "type" => "integer"}
+                  ]
+                })
+            ]
+          ],
+          prefix: t.schema
+        )
+
+        # default: empty key list, so both predicates are false
+        assert check(t, [line("scoped_thing")]) == :ok
+
+        with_env(:entity_writes_scope_keys, ["scope_node"])
+
+        assert codes(check(t, [line("scoped_thing")])) ==
+                 [v(0, :entity_type_scoped), v(0, :entity_write_field_scope_column)]
+
+        assert codes(check(t, [line("scoped_thing", %{"fields" => %{"qty" => %{"const" => 1}}})])) ==
+                 [v(0, :entity_type_scoped)]
+      end
     end
   end
 
@@ -460,14 +479,115 @@ defmodule Letflow.Definitions.EntityWritesActivationTest do
                [v(0, :entity_writes_not_a_list)]
     end
 
-    test "a SERVICE_TASK node is refused until PR C (D-B.20)", %{t: t} do
+    test "a graph that does not parse", %{t: t} do
+      assert Definitions.check_entity_writes(%{graph: %{"nodes" => "x"}}, t.schema, nil) ==
+               {:error, :graph_structure_invalid}
+    end
+  end
+
+  # ── GH #2587 PR C1 (design 6, D-C.12, C-7): the fence accepts SERVICE_TASK ───────────────────
+
+  describe "SERVICE_TASK nodes (C-7)" do
+    defp svc_graph(lines, attributes \\ %{}, id \\ "svc") do
+      %{
+        "nodes" => [
+          %{"id" => "start", "node_type" => "START"},
+          %{
+            "id" => id,
+            "node_type" => "SERVICE_TASK",
+            "attributes" => Map.merge(svc_base_attributes(lines, attributes), attributes)
+          },
+          %{"id" => "end", "node_type" => "END"}
+        ],
+        "edges" => [
+          %{"id" => "e1", "source" => "start", "target" => id},
+          %{"id" => "e2", "source" => id, "target" => "end"}
+        ]
+      }
+    end
+
+    # A script-bound node (`script_key`) carries NO endpoint / method, as in a real definition.
+    defp svc_base_attributes(lines, %{"script_key" => _}), do: %{"entity_writes" => lines}
+
+    defp svc_base_attributes(lines, _attributes) do
+      %{
+        "endpoint" => "https://example.test/svc",
+        "method" => "POST",
+        "entity_writes" => lines
+      }
+    end
+
+    defp svc_check(t, lines, attributes \\ %{}, activator \\ :default) do
+      activator = if activator == :default, do: activator(t.user), else: activator
+      Definitions.check_entity_writes(%{graph: svc_graph(lines, attributes)}, t.schema, activator)
+    end
+
+    test "a valid HTTP-route SERVICE_TASK node passes", %{t: t} do
+      assert svc_check(t, [line("stock_move"), line("stock_move")]) == :ok
+    end
+
+    test "a script-bound SERVICE_TASK node (script_key) passes: both routes compose lines",
+         %{t: t} do
+      assert svc_check(t, [line("stock_move")], %{"script_key" => "some_script"}) == :ok
+
+      assert codes(svc_check(t, [line("ghost")], %{"script_key" => "some_script"})) ==
+               [v(0, :entity_type_not_found, "svc")]
+    end
+
+    test "every violation is reported at the exact {svc, index}", %{t: t} do
+      assert codes(
+               svc_check(t, [
+                 line("stock_move"),
+                 line("plain_type"),
+                 line("catalog_item"),
+                 line("mutable_type"),
+                 line("stock_move", %{"op" => "delete"}),
+                 line("stock_move", %{"fields" => %{"label" => %{"var" => "_sys.r"}}})
+               ])
+             ) == [
+               v(1, :entity_type_not_writable_by_process, "svc"),
+               v(2, :entity_type_managed, "svc"),
+               v(3, :entity_type_not_append_only, "svc"),
+               v(4, :entity_write_op_unsupported, "svc"),
+               v(5, :entity_write_sys_reference, "svc")
+             ]
+    end
+
+    test "a missing, under-privileged or inactive activator is :entity_write_activator_required",
+         %{t: t} do
+      refused = [v(0, :entity_write_activator_required, "svc")]
+      lines = [line("stock_move")]
+
+      assert codes(svc_check(t, lines, %{}, nil)) == refused
+      assert codes(svc_check(t, lines, %{}, activator(t.user, ["PROCESS_DESIGNER"]))) == refused
+
+      inactive = user!(t.schema, :inactive)
+      assert codes(svc_check(t, lines, %{}, activator(inactive))) == refused
+    end
+
+    test "entity_writes that is not a list is refused at the SERVICE node", %{t: t} do
+      assert codes(svc_check(t, "x")) == [v(0, :entity_writes_not_a_list, "svc")]
+    end
+
+    test "an output_record_id_var duplicated across a HUMAN_TASK and a SERVICE_TASK node",
+         %{t: t} do
+      same = %{"output_record_id_var" => "_sys.r"}
+
       g = %{
         "nodes" => [
           %{"id" => "start", "node_type" => "START"},
           %{
-            "id" => "svc",
+            "id" => "a",
+            "node_type" => "HUMAN_TASK",
+            "attributes" => %{"entity_writes" => [line("stock_move", same)]}
+          },
+          %{
+            "id" => "b",
             "node_type" => "SERVICE_TASK",
-            "attributes" => %{"entity_writes" => [line("stock_move")]}
+            "attributes" => %{
+              "endpoint" => "https://example.test/svc",
+              "entity_writes" => [line("stock_move", same)]
+            }
           },
           %{"id" => "end", "node_type" => "END"}
         ],
@@ -475,12 +595,149 @@ defmodule Letflow.Definitions.EntityWritesActivationTest do
       }
 
       assert codes(Definitions.check_entity_writes(%{graph: g}, t.schema, activator(t.user))) ==
-               [v(0, :entity_writes_node_type_not_supported, "svc")]
+               [
+                 v(0, :entity_write_output_var_duplicate, "a"),
+                 v(0, :entity_write_output_var_duplicate, "b")
+               ]
+
+      # control: distinct variables across the HUMAN and the SERVICE node are accepted
+      distinct =
+        g
+        |> update_in(["nodes", Access.at(1), "attributes", "entity_writes"], fn _ ->
+          [line("stock_move", %{"output_record_id_var" => "_sys.a"})]
+        end)
+        |> update_in(["nodes", Access.at(2), "attributes", "entity_writes"], fn _ ->
+          [line("stock_move", %{"output_record_id_var" => "_sys.b"})]
+        end)
+
+      assert Definitions.check_entity_writes(%{graph: distinct}, t.schema, activator(t.user)) ==
+               :ok
     end
 
-    test "a graph that does not parse", %{t: t} do
-      assert Definitions.check_entity_writes(%{graph: %{"nodes" => "x"}}, t.schema, nil) ==
-               {:error, :graph_structure_invalid}
+    test "module_writes on a SERVICE_TASK node is still refused at activation (R3)", %{t: t} do
+      mline = %{"module" => "ledger", "handler" => "post_entry", "args" => %{}}
+
+      assert codes(svc_check(t, [], %{"module_writes" => [mline]})) ==
+               [v(0, :module_writes_node_type_not_supported, "svc")]
+
+      # together with entity_writes: the entity lines pass, the module_writes line is refused
+      assert codes(svc_check(t, [line("stock_move")], %{"module_writes" => [mline]})) ==
+               [v(0, :module_writes_node_type_not_supported, "svc")]
+    end
+
+    test "a node type other than HUMAN_TASK and SERVICE_TASK is still refused", %{t: t} do
+      for type <- ["SUB_PROCESS", "EXCLUSIVE_GATEWAY", "PARALLEL_GATEWAY", "TIMER"] do
+        g = %{
+          "nodes" => [
+            %{"id" => "start", "node_type" => "START"},
+            %{
+              "id" => "n",
+              "node_type" => type,
+              "attributes" => %{"entity_writes" => [line("stock_move")]}
+            },
+            %{"id" => "end", "node_type" => "END"}
+          ],
+          "edges" => []
+        }
+
+        assert codes(Definitions.check_entity_writes(%{graph: g}, t.schema, activator(t.user))) ==
+                 [v(0, :entity_writes_node_type_not_supported, "n")],
+               type
+      end
+    end
+
+    test "activate/2 accepts it and records activated_by with the SERVICE node's pairs",
+         %{t: t} do
+      draft =
+        raw_definition!(t.schema, unique("svc-act"), "1", svc_graph([line("stock_move")]), :draft)
+
+      assert {:error,
+              {:entity_writes_invalid,
+               [%{node_id: "svc", code: :entity_write_activator_required}]}} =
+               Definitions.activate(draft.id, prefix: t.schema)
+
+      assert %{status: :draft, activated_by: nil} = row(t.schema, draft.id)
+
+      assert {:ok, %{already_active: false}} =
+               Definitions.activate(draft.id, prefix: t.schema, activator: activator(t.user))
+
+      user_id = t.user.id
+
+      assert %{
+               status: :active,
+               activated_by: %{
+                 "user_id" => ^user_id,
+                 "authorized" => [%{"entity_type" => "stock_move", "op" => "create"}]
+               }
+             } = row(t.schema, draft.id)
+    end
+
+    test "activate/2 reports a violation at the exact {svc, index} and activates nothing",
+         %{t: t} do
+      draft =
+        raw_definition!(
+          t.schema,
+          unique("svc-act"),
+          "1",
+          svc_graph([line("stock_move"), line("ghost")]),
+          :draft
+        )
+
+      assert {:error,
+              {:entity_writes_invalid,
+               [%{node_id: "svc", index: 1, code: :entity_type_not_found}]}} =
+               Definitions.activate(draft.id, prefix: t.schema, activator: activator(t.user))
+
+      assert %{status: :draft, activated_by: nil} = row(t.schema, draft.id)
+    end
+
+    test "version rollback accepts it, re-records the NEW activator; a refusal leaves v2 active",
+         %{t: t} do
+      key = unique("svc-rb")
+      old_authority = %{"user_id" => Ecto.UUID.generate(), "roles" => []}
+
+      v1 =
+        raw_definition!(t.schema, key, "1", svc_graph([line("stock_move")]), :deprecated, %{
+          activated_by: old_authority
+        })
+
+      v2 = raw_definition!(t.schema, key, "2", trivial_graph(), :active)
+
+      assert {:error,
+              {:entity_writes_invalid,
+               [%{node_id: "svc", code: :entity_write_activator_required}]}} =
+               rollback(t.schema, key, nil)
+
+      assert %{status: :active} = row(t.schema, v2.id)
+      assert %{status: :deprecated, activated_by: ^old_authority} = row(t.schema, v1.id)
+
+      assert {:ok, %{version: "1"}} = rollback(t.schema, key, activator(t.user))
+      assert %{status: :active, activated_by: %{"user_id" => user_id}} = row(t.schema, v1.id)
+      assert user_id == t.user.id
+    end
+
+    test "promotion apply accepts it with a target-tenant activator and refuses without one",
+         %{t: t} do
+      source = tenant!("gh2587-c1-src")
+      g = svc_graph([line("stock_move")])
+
+      assert {{:error,
+               {:entity_writes_invalid,
+                [%{node_id: "svc", code: :entity_write_activator_required}]}}, []} =
+               promote(source, t, g, nil)
+
+      assert {{:ok, _}, [%{status: :active, activated_by: authority}]} =
+               promote(source, t, g, activator(t.user))
+
+      assert authority["user_id"] == t.user.id
+      assert authority["authorized"] == [%{"entity_type" => "stock_move", "op" => "create"}]
+
+      # a type absent in the TARGET is refused there, at the SERVICE node
+      type!(source.schema, "source_only")
+
+      assert {{:error,
+               {:entity_writes_invalid, [%{node_id: "svc", code: :entity_type_not_found}]}}, []} =
+               promote(source, t, svc_graph([line("source_only")]), activator(t.user))
     end
   end
 
