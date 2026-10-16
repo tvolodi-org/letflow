@@ -1,0 +1,43 @@
+{
+  "handoff_id": "c4a7d1e0-2596-4a11-8c20-000000000004",
+  "run_id": "WF02-GH2596-EXAM-MANAGED-20261016",
+  "workflow_id": "WF-02",
+  "step": "04",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGN-VALIDATOR",
+  "file": "handoffs/WF02-GH2596-EXAM-MANAGED-20261016/step-04-code-design-validator.json",
+  "created_at": "2026-10-16T12:00:00Z",
+  "started_at": "2026-10-16T12:00:30Z",
+  "completed_at": "2026-10-16T13:10:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2596": "Declare the 6 exam runtime/result types managed (ruling 2026-10-16 supersedes ALL 16), stamp existing installs via a narrow trigger exception, exam writes pass the Owner."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-2596-4a11-8c20-000000000003"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/gh2596-exam-managed-types.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2596-EXAM-MANAGED-20261016"
+  },
+  "task": {
+    "description": "WF-02 step 1b hard gate on the GH #2596 design (revision 1, option C+A). Read-only."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "PASS (round 3). B1 VERIFIED FIXED. (1) Provenance now established with citations: section 0 F9 cites docs/issues/ISS-0690.yaml:74-89 (verified: runtime types excluded from the pack, created via POST /entities/definitions + activate mirroring ExamFixtures.activate_exam_definitions!/1) and test/support/exam_fixtures.ex foreign_keys: [] plus the FK-stripping comment (verified at ~116 and ~285-291); certificate correctly flagged as probably absent on QA/BilimBaga. (2) Section 6.2 rule is decidable and consistent: compare pack (name,type) pairs against the row Records resolves (active, else newest); extras allowed; enums/required/FKs/indexes/constraints ignored; fixture to_field keeps name and type verbatim (verified), so FK-stripped rows pass; an unrelated shape or a wrong-typed field is :shape_not_compatible. No digest rule, no relax-later. (3) Section 7 case (b) b1 FK-stripped fixture, b2 pack-shaped via SolutionPack.install :tenant unstamped, b3 hand-posted with extra field and no indexes/constraints, b4 certificate absent; case (c) unrelated, wrong-type and other-module variants; T-14 and T-16 match the section 7 rows exactly, and the direct tenant_modules insert (prior N2) is stated. R8 JUDGEMENT: acceptable, not a security problem. The stamp only runs on tenants where exam is installed, only on the 6 frozen names, per-tenant with explicit prefix (INV-1 intact, no cross-tenant effect); it only adds protection (the type becomes writable solely by the exam module, which already reads/writes it by those exact names and types), discloses nothing (INV-5: reports hold names/counts), adds no script surface (INV-3), and a dry run is read by infra before the real stamp. The cost is a loss of tenant generic-write ability on a type that duplicates an exam runtime type, which is intended. REST STILL HOLDS: AC map and tests T-01..T-28 cover every AC read through the ruling; no implementation code (only @type/@spec and prose); no TBD in required ACs (open questions explicit with defaults); trigger exception narrow (4 conjunctive conditions, literal 6 names, txn-local GUC set only by Stamp, DELETE unchanged); lock order consistent; five Records write sites confirmed in prior round. NEW section 17.5 verified: snapshot is a separate priority-1 prerequisite issue gating the infra stamp (section 9 step 4 carries the explicit GATE, section 0 and PR-body text agree), code PR may merge dark; fresh installs stamp at install regardless; in-flight policy 'lazy snapshot at first touch' is fully specified (trigger points get state/autosave/submit/deadline auto-submit, under lock_session_row/2, snapshot_origin late|start, scoring always goes through ensure-snapshot, grading_pending needs none, honest residual limit stated). Non-blocking notes: (N1) entities.ex import key line is 1359 not 1358 (cosmetic); (N2) OQ-10 alert channel is explicitly an open question of the follow-up, acceptable.",
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "verdict": "PASS",
+    "blocking_findings": [],
+    "implementation_written": false
+  }
+}

@@ -32,7 +32,6 @@ defmodule Letflow.Modules.BilimbagaSolutionE2ETest do
 
   alias Letflow.Definitions.SolutionPackArtefactBase
   alias Letflow.Definitions.SolutionPackInstall
-  alias Letflow.Entities.Definitions
   alias Letflow.Entities.EntityDefinition
   alias Letflow.Entities.EventTypes
   alias Letflow.Entities.Query.FieldGrants
@@ -237,11 +236,11 @@ defmodule Letflow.Modules.BilimbagaSolutionE2ETest do
       end
 
       # ── Step 4: Activate definitions and seed exam content ───────────────
-      # activate_exam_definitions!/1 creates + activates all exam-suite
-      # definitions (v2 of the pack-installed entities, plus session entities
-      # that the bilimbaga pack does not ship). No SQL — uses
+      # GH #2596: the install stamped the six runtime types managed (`managed_by = 'exam'`), so a
+      # tenant `create_definition/2` of them is refused. The fixture creates + activates v2 of the
+      # authoring entities and ACTIVATES the pack's own stamped runtime rows. No SQL — uses
       # Definitions.create_definition/2 and Definitions.activate_definition/4.
-      ExamFixtures.activate_exam_definitions!(schema_name)
+      ExamFixtures.activate_exam_definitions_after_pack_install!(schema_name)
 
       # Seed a category, one question with a correct and a wrong option,
       # and one exam with a rule drawing that question. Uses the same

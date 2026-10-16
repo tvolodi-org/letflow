@@ -1,0 +1,42 @@
+{
+  "handoff_id": "c4a7d1e0-2596-4a11-8c20-000000000008",
+  "run_id": "WF02-GH2596-EXAM-MANAGED-20261016",
+  "workflow_id": "WF-02",
+  "step": "08",
+  "from_agent": "ORCH",
+  "to_agent": "REVIEWER",
+  "file": "handoffs/WF02-GH2596-EXAM-MANAGED-20261016/step-08-reviewer-code.json",
+  "created_at": "2026-10-16T14:20:00Z",
+  "started_at": "2026-10-16T14:20:30Z",
+  "completed_at": "2026-10-16T14:40:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S10",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2596": "REVIEWER code gate (idiom, scope, decision 0050 D7 / REQ-496 D3 consistency) on the uncommitted working tree."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "lib/letflow/design/gh2596-exam-managed-types.md",
+      "handoffs/WF02-GH2596-EXAM-MANAGED-20261016/step-06-elixir-dev.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2596-EXAM-MANAGED-20261016"
+  },
+  "task": {
+    "description": "WF-02 step 2d REVIEWER gate for GH #2596. Read-only; no edits, no mix run."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "PASS (one small non-blocking cleanup requested, plus notes for TEST-DESIGNER). Read-only review by inspection; mix was not run. IDIOM: Stamp/TamperInventory are plain modules (no process, no GenServer), correct for a release-time sweep and consistent with the no-process-per-instance ruling; Repo.transaction/2 with Repo.rollback/1 for gap_remains and audit_failed, explicit prefix: on every query (INV-1), bound parameters, set_config only with literal first args (stamp.ex 261/263/280/307), rescue narrowed to Postgrex.Error codes then a last-resort exception-module tag (no message leak). Exam files use one private defp exam_owner/0 per file calling ManagedTypes.owner_for!(Exam), per-call not stored in a module attribute, matching design 5.1 and the R2 directory rule. DEVIATIONS: (1) Stamp reads the manifest through Catalog.fetch(\"exam\") then entry.manifest() (Catalog.fetch returns the entry module; catalog.ex:94). ACCEPTED: R3 pins module_owner to managed_types.ex and installs.ex (managed_types_callers_test.exs:62), so Stamp calling it would have broken the scan, and manifest().manages_entity_types intersected with the frozen six is the same information. pack path comes from manifest.pack (\"modules/exam/pack.json\") joined to priv, correct. (2) pack-count tests not edited: ACCEPTED for this gate (lead instructed no tests); they and the callers scan (@authority_callers, R1/R2 expectations, new R6) are TEST-DESIGNER scope per design 3.4/5.5, and will fail until updated. (3) extra :cap opt on TamperInventory: ACCEPTED, tiny, typed in @type opts, default 10_000 matches design, dropped by the Release wrapper (Keyword.take [:module,:scope]) so it is not reachable from rpc; document it in the run/1 doc if desired. DECISION 0050 D7 / REQ-496 D3: single exception honoured. Migration 20261016120001 replaces entity_definitions_managed_by_guard with ONE added branch (OLD.managed_by IS NULL AND NEW.managed_by='exam' AND name in the literal six AND current_setting('letflow.managed_by_stamp', true)='exam' AND to_jsonb(NEW)-'managed_by' = to_jsonb(OLD)-'managed_by'); DELETE branch and the old immutability check unchanged; explicit up/down, down body verified identical to 20261014100001 lines 41-59 (minus the DROP). Registered in tenant_provisioning.ex @tenant_scoped_migration_manifest (v 20_261_016_120_001) with moduledoc updated; amendments present in decision 0050 D7 and req496 design D3 and managed_types.ex moduledoc. SUPERVISOR RULING honoured: exam.ex manages exactly the six runtime types; the ten authoring names appear nowhere as stampable (only as TamperInventory's @authoring_names for the opt-in scope); generate_pack.exs/pack.json add the six. PACK: verified by script, pack.json existing 10 entity_definitions entries are identical to HEAD (list prefix equal), all other top-level keys unchanged, 6 new entries appended with definition_json equal to priv/modules/exam/entity_definitions/<name>.json; manifest/pack consistency satisfied so Installs.check_managed_types_in_pack (installs.ex:290) passes for the six. generate_pack.exs: 16 names, pack_dir repointed to priv/modules/exam, header comments corrected. CALLER-SCAN IMPLICATIONS: exam files now call owner_for!(Exam) (R2 directory rule allows) and pass a non-:tenant third arg (R1 requires them in @authority_callers); five Records call sites converted (session.ex 1066/1266/1332, certificate.ex 337, anti_cheat.ex 260), no remaining /2 write in lib/letflow/modules/exam; seed task writes only unmanaged authoring types; RecordDeadlineSweep keeps :tenant and is refused on managed types by design (its own moduledoc says so). No module_owner call outside the allow-list. set_config occurs under lib only in step_writes.ex and stamp.ex, literal args, matching T-11 assertion 3; after_precheck is referenced only inside stamp.ex so the wrapper's Keyword.take keeps it unreachable from production. RELEASE WRAPPER: Letflow.Release.ManagedTypes is two thin delegates with Keyword.take; the existing Backfill has no such wrapper (task and rpc call Backfill.run directly), so this is design 6.4's deliberate addition, not scope creep, and the two Mix tasks mirror letflow.backfill_role_scope_grants (strict OptionParser, app.start, no DB guard, System.halt(1) on failed tenants). SCOPE CREEP: none found; no behaviours/macros beyond four defmacrop SQL-fragment helpers in tamper_inventory.ex, which are the idiomatic way to share fragments in Ecto. DEAD CODE: none; Stamp.@typep row/classification used; @compared_keys used. TYPE-SAFETY: no new finding to file (frozen name list is duplicated in the migration and Stamp, and the authoring list in TamperInventory, but equality is pinned by T-10 and the duplication is deliberate: a migration must not depend on app code). REQUESTED CLEANUP (non-blocking, route to ELIXIR-DEV): lib/letflow/modules/exam/certificate.ex:358-368, the new 'GH #2596' exam_owner/0 block was inserted between the existing comment for fetch_candidate_name/2 and its defp, detaching that comment (the 'The candidate's own display name ...' paragraph now documents exam_owner). Move the exam_owner block above that comment or below the function. MINOR NOTES (no action required): tamper_inventory.ex:282-284 the final cond branch 'true -> :unrecognised_key_shape' labels a row that is flagged suspicious for another reason (for example an authoring type under scope all is handled earlier) with a key-shape label even when the key shape is a module key; acceptable as a fallback but an explicit :other evidence value would be more honest; add an @type value only if TEST-DESIGNER finds a reachable case. Stamp.real_run (stamp.ex:287-291) case has no clause for an unexpected {:error, other}; every rollback in the transaction uses the two matched tags so it is currently exhaustive, any new Repo.rollback tag must extend it. FOR TEST-DESIGNER: pack-count tests listed in design 3.4, callers scan @authority_callers/R2 set/new R6 (design 5.5), manifest count assertions in tenant_provisioning tests, T-09b migration round trip, T-10 equality of the three name lists, T-11 AST scan, Stamp/TamperInventory tests must run outside the Ecto sandbox (nested-transaction guard).",
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "diagnosis_confirmed": null,
+    "implementation_written": false,
+    "classification": null
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "handoff_id": "c4a7d1e0-2596-4a11-8c20-000000000005",
+  "run_id": "WF02-GH2596-EXAM-MANAGED-20261016",
+  "workflow_id": "WF-02",
+  "step": "05",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF02-GH2596-EXAM-MANAGED-20261016/step-05-security-reviewer-design.json",
+  "created_at": "2026-10-16T14:00:00Z",
+  "started_at": "2026-10-16T14:30:02Z",
+  "completed_at": "2026-10-16T14:45:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S10",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2596": "Design gate round 2 (SECURITY-REVIEWER) on lib/letflow/design/gh2596-exam-managed-types.md (revision 1, folds round-1 F-1..F-3, A-1..A-10)."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "lib/letflow/design/gh2596-exam-managed-types.md",
+      "docs/agents/instructions/security-invariants.md",
+      "priv/repo/migrations/20261014100001_add_managed_by_to_entity_definitions.exs"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2596-EXAM-MANAGED-20261016"
+  },
+  "task": {
+    "description": "Security design gate round 2 for GH #2596. Read-only; no lib/ or test/ edits."
+  },
+  "result": {
+    "status": "FAIL",
+    "summary": "ROUND 2: FAIL on ONE small mandatory edit (F-4, a check-then-act race that re-opens the F-3 hole). F-1, F-2, F-3 and A-1..A-10 are otherwise folded and sound. VERIFIED SOUND: (F-1) entry refusal on Repo.in_transaction?() for Stamp and TamperInventory (typed :nested_transaction, nothing set or written) plus the last-statement set_config('letflow.managed_by_stamp','',true) as defence in depth; trigger opens only for exact 'exam' so '' and unset are closed; tests T-09 (i)(ii) pin both; T-07..T-09b run in a non-sandbox :auto-mode case, tenant teardown drops the schema (TenantFixture teardown, so the DELETE trigger on stamped rows does not block cleanup), each test has its own tenant schema. (F-2) T-11 is now an AST scan over lib/ priv/ scripts/ config/ with five assertions (stamp fragment only in stamp.ex + 2 migrations; allowlist of dynamic-SQL files; set_config only in step_writes.ex + stamp.ex with literal first arg; Stamp callers scan; no managed_by update_all outside stamp.ex/insert paths; DISABLE TRIGGER/session_replication_role absent) with a synthetic negative per assertion, and 4.3/R3/11b honestly say tripwire not boundary. (F-3) all-or-nothing per name over every version row, T-16 has older-hostile-v1 and reverse variants. A-1 differences field (names only), A-3 explicit up/down + T-09b round trip, A-4 jsonb equality + update_all set only managed_by + non-SECURITY DEFINER, A-5 tenant-schema schema_migrations, A-7 inventory nested refusal, A-8/A-9 in 11b PR residuals, A-10: all folded. MANDATORY EDIT F-4 (MAJOR, small): 6.1 classifies each name (step 2, field_compatible? over all rows) in READ-ONLY PRE-CHECKS OUTSIDE the transaction, then step 4d stamps 'the NULL rows of stampable names' selected under lock; 4e re-reads only that rows are 'exam', not that they are compatible. A tenant admin can create a new (incompatible or permissive-hostile) version of a runtime name between step 2 and 4c (create_definition takes the same 496_001 name lock, but only after the classification was computed), and 4d then stamps it unchecked and makes it undeletable/unrenamable: the exact F-3 failure via a race. Fix: in the real run perform the classification (step 2: absent / other-module / compatibility of EVERY row) INSIDE the transaction AFTER 4c (name create-locks) and 4d row locks (or re-run it there and roll back/conflict on any divergence from the pre-check); stamp only names that pass that in-lock classification; keep the outside-transaction pass for dry run only. Add a test (T-16 variant): a second connection inserts an incompatible new version of a stampable name after the pre-check but before stamping (or classification-in-lock asserted by injecting the row between the lock and the update via a held name lock) -> that name is a conflict, nothing of it stamped. NON-BLOCKING CLARIFICATIONS (fold at implementer discretion): B-1 state explicitly that every test calling Stamp.run_tenant/TamperInventory.run_tenant (T-14..T-19, T-24..T-27, T-04) must run in the non-sandbox :auto-mode case, because under the Ecto sandbox Repo.in_transaction?() is always true and the new entry guard returns :failed/:nested_transaction (TenantFixture.provisioned_tenant! already sets :auto, so this is a wording gap, not a design flaw). B-2 apply T-11 assertion 3 also to string literals containing set_config inside Ecto fragment(...) (not only Repo.query calls), and assertion 1 to heredocs/sigils. B-3 A-6 only partly folded: add that the inventory query projects only the entity_type and record_id JSON keys and never selects the payload column into Elixir, and that tenant_id/actor_id findings go to operator stdout and are never passed to Logger; T-26 should assert no log line contains field_values/payload. No other invariant issue: INV-1 (explicit prefix, tenant-scoped manifest-registered migration), INV-3 (no sandbox surface), INV-4, INV-5 (constant 403, names/counts/ids only), INV-6 (scoping proof 4.4 + T-11 now meaningful once F-4 closed), INV-7 (bound set_config, only schema name interpolated), INV-8 (typed errors, per-tenant isolation) PASS; INV-2, INV-9, INV-10 N/A. On F-4 being applied the gate is PASS without another full round (re-check of 6.1 step order and the new test only).",
+    "advisories_non_blocking": [
+      "B-1 Non-sandbox mode must be stated for every test that calls Stamp/TamperInventory (see summary).",
+      "B-2 T-11 set_config assertion should also cover fragment() string literals and heredocs/sigils.",
+      "B-3 A-6 residual: payload-column projection rule, no Logger of findings, T-26 log assertion."
+    ],
+    "invariants_assessed": {
+      "INV-1": "APPLIES. PASS: explicit prefix on every query, tenant-scoped manifest-registered migration, tenant_id derived from the registration.",
+      "INV-2": "NOT-APPLICABLE: no new API response type.",
+      "INV-3": "APPLIES (checked). PASS: no host function reaches set_config or entity_definitions UPDATE.",
+      "INV-4": "APPLIES. PASS: reports keep tags and exception modules, never messages.",
+      "INV-5": "APPLIES. PASS: constant 403 body, reports hold names/counts/ids (B-3 hardening).",
+      "INV-6": "APPLIES. Scoping proof (4.4 + T-11 AST scan) is sufficient only once F-4 is closed, because the stamp can otherwise be applied to a row never compatibility-checked. FAIL until F-4.",
+      "INV-7": "APPLIES. PASS.",
+      "INV-8": "APPLIES. PASS: typed errors incl. :nested_transaction, per-tenant isolation, non-zero exit on :failed.",
+      "INV-9": "NOT-APPLICABLE: no outbound URL.",
+      "INV-10": "NOT-APPLICABLE: no route or permission added."
+    },
+    "required_changes": [
+      "F-4: in Stamp 6.1 move the per-name classification (absent / stamped-by-other / field-compat of EVERY row) into the real-run transaction after the name create-locks and row locks (pre-check stays for dry run only), stamp only names passing the in-lock classification, and add a T-16 race variant (incompatible new version inserted after the pre-check, before the stamp -> name is a conflict, nothing stamped)."
+    ],
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "diagnosis_confirmed": true,
+    "implementation_written": false,
+    "classification": "DESIGN_GATE_FAIL_REVISION_REQUIRED"
+  }
+}

@@ -54,10 +54,20 @@ defmodule Letflow.Modules.Exam.PackInstallTest do
   @definitions_dir Path.join([File.cwd!(), "priv", "modules", "exam", "entity_definitions"])
   @generator_path Path.join([File.cwd!(), "priv", "modules", "exam", "generate_pack.exs"])
 
-  @entity_types ~w(
+  # The ten authoring types (activated and exercised below) ...
+  @authoring_types ~w(
     category tag question answer_option question_tag
     exam exam_section exam_question_rule exam_question_rule_tag exam_manual_question
   )
+
+  # ... plus the six runtime/result types GH #2596 added to the pack (the install check
+  # requires every `manages_entity_types` name to be in the pack). Installed inactive, like
+  # the ten; this test does not activate them.
+  @runtime_types ~w(
+    session session_question session_answer session_event session_question_score certificate
+  )
+
+  @entity_types @authoring_types ++ @runtime_types
 
   # Topological order over the ten documents' own `foreign_keys`:
   #   category, tag, exam       -- zero FKs
@@ -236,11 +246,11 @@ defmodule Letflow.Modules.Exam.PackInstallTest do
       assert document["variable_schemas"] == []
     end
 
-    test "entity_definitions carries exactly the ten authored types, correctly wrapped" do
+    test "entity_definitions carries exactly the sixteen types (ten authoring + six runtime), correctly wrapped" do
       document = pack_document()
       packed = document["entity_definitions"]
 
-      assert length(packed) == 10
+      assert length(packed) == 16
       assert Enum.sort(Enum.map(packed, & &1["name"])) == Enum.sort(@entity_types)
 
       for entry <- packed do
@@ -286,10 +296,10 @@ defmodule Letflow.Modules.Exam.PackInstallTest do
       assert install_result.variable_schemas_written == 0
       assert install_result.warnings == []
 
-      # ---- 2. ten entries, each status "installed" -- the literal string
+      # ---- 2. sixteen entries, each status "installed" -- the literal string
       #         installed_entity_definition_maps/1 hardcodes. NOT "inactive".
       installed = install_result.installed_entity_definitions
-      assert length(installed) == 10
+      assert length(installed) == 16
       assert Enum.sort(Enum.map(installed, & &1.name)) == Enum.sort(@entity_types)
       assert Enum.all?(installed, &(&1.status == "installed"))
       assert Enum.uniq(Enum.map(installed, & &1.status)) == ["installed"]

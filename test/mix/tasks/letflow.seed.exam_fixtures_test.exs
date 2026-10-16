@@ -113,7 +113,21 @@ defmodule Mix.Tasks.Letflow.Seed.ExamFixturesTest do
 
     schema = schema_name!()
     assert {:ok, _seed_result} = EventTypes.seed!(schema)
-    :ok = Letflow.ExamFixtures.activate_exam_definitions!(schema)
+
+    # GH #2596: the six runtime types are managed by the exam module, so the exam module is
+    # installed FIRST (its pack inserts them stamped `managed_by = 'exam'`, inactive) and the
+    # fixture then activates the authoring definitions and the pack's own stamped runtime rows.
+    # The previous order (activate tenant-owned `session` etc., let the task install the module
+    # later) now fails inside the task with `{:pack_install_failed, {:managed_name_taken,
+    # "session"}}`: a tenant that already defines a managed name cannot install the module. The
+    # task's own install step then takes its documented `:already_installed` path.
+    assert {:ok, _tenant_module} =
+             Letflow.Modules.Installs.install("exam", Ecto.UUID.generate(),
+               prefix: schema,
+               rationale: "GH #2596 test: install before seeding"
+             )
+
+    :ok = Letflow.ExamFixtures.activate_exam_definitions_after_pack_install!(schema)
 
     :ok
   end

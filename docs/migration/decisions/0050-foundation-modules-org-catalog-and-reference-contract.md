@@ -209,6 +209,8 @@ it cannot be an ordinary freely writable entity:
 * The `org` move action enforces the depth bound 0051 D3 relies on (12).
 * Every insert/move/retire is audited (0051 D8).
 
+* **Amendment 2026-10-16 (GH #2596): the single exception to the insert-only stamp.** The stamp is written at insert, with ONE exception: the platform stamp of the exam module's six frozen runtime types (`certificate`, `session`, `session_answer`, `session_event`, `session_question`, `session_question_score`), NULL to `'exam'` only, through `Letflow.Entities.ManagedTypes.Stamp` (`lib/letflow/design/gh2596-exam-managed-types.md`). The supervisor ruling of 2026-10-16 supersedes the earlier "all 16 exam types": the ten exam authoring types stay unmanaged until an exam authoring write surface exists.
+
 ### D8. Interface to core (advisor session letflow-ec, Q9: ACCEPTED, with amendment)
 
 0051 needs core to answer "ancestors of node" and "descendants of node set". Core must not

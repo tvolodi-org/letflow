@@ -712,3 +712,7 @@ entry module); `check_boundaries` unaffected.
 * OQ-10 AC4's "owner gets the 422" is proven at the domain level plus the existing renderer mapping
   (T-20), not through an owner HTTP route (no fixture router, to avoid permission-count churn).
   Default: as designed; a gate may require a fixture route.
+
+## Amendment 2026-10-16 (GH #2596): D3 has ONE documented exception
+
+D3 says the stamp is written only at INSERT. GH #2596 adds a single exception: the platform stamp of the exam module's six frozen runtime type names (`certificate`, `session`, `session_answer`, `session_event`, `session_question`, `session_question_score`), NULL to `'exam'` only, written by `Letflow.Entities.ManagedTypes.Stamp` inside a transaction that sets the transaction-local `letflow.managed_by_stamp` setting, with the row otherwise unchanged. It is opened in the database by the tenant migration `20261016120001_allow_exam_managed_by_stamp.exs` (see its header) and nowhere else; the tenant and definitions APIs still cannot stamp or unstamp. The earlier "all 16 exam types" wording is superseded by the supervisor ruling of 2026-10-16: the ten authoring types stay unmanaged. Design: `lib/letflow/design/gh2596-exam-managed-types.md`.

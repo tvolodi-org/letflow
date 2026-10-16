@@ -62,6 +62,16 @@ defmodule Letflow.Modules.Exam do
       ]
     },
     required_roles: [],
+    # GH #2596: the six runtime/result types only. The ten authoring types stay unmanaged
+    # (supervisor ruling 2026-10-16) until an exam authoring write surface exists.
+    manages_entity_types: [
+      "certificate",
+      "session",
+      "session_answer",
+      "session_event",
+      "session_question",
+      "session_question_score"
+    ],
     settings_schema: nil,
     route_policies: [
       {"POST", "/exam-sessions", :ExamSessionStart},

@@ -1,0 +1,72 @@
+{
+  "handoff_id": "c4a7d1e0-2596-4a11-8c20-000000000007",
+  "run_id": "WF02-GH2596-EXAM-MANAGED-20261016",
+  "workflow_id": "WF-02",
+  "step": "07",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF02-GH2596-EXAM-MANAGED-20261016/step-07-security-reviewer-code.json",
+  "created_at": "2026-10-16T15:30:00Z",
+  "started_at": "2026-10-16T15:30:30Z",
+  "completed_at": "2026-10-16T15:50:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S10",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2596": "SECURITY-REVIEWER CODE gate on the uncommitted working tree implementing lib/letflow/design/gh2596-exam-managed-types.md (F-1..F-4, B-1..B-3)."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "priv/repo/migrations/20261016120001_allow_exam_managed_by_stamp.exs",
+      "lib/letflow/entities/managed_types/stamp.ex",
+      "lib/letflow/entities/managed_types/tamper_inventory.ex",
+      "lib/letflow/release/managed_types.ex",
+      "lib/mix/tasks/letflow.stamp_managed_types.ex",
+      "lib/mix/tasks/letflow.managed_types_tamper_inventory.ex",
+      "lib/letflow/modules/exam/exam.ex",
+      "lib/letflow/modules/exam/session.ex",
+      "lib/letflow/modules/exam/certificate.ex",
+      "lib/letflow/modules/exam/anti_cheat.ex",
+      "lib/letflow/tenant_provisioning.ex",
+      "priv/modules/exam/pack.json",
+      "priv/modules/exam/generate_pack.exs"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2596-EXAM-MANAGED-20261016"
+  },
+  "task": {
+    "description": "Security code gate for GH #2596. Read-only; no lib/ or test/ edits; mix not run."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "PASS. #2612 trigger check: NONE of ci.yml, cd.yml, scripts/cd_qa_decide.sh, scripts/ci_changed_paths.sh, mix.exs, config/*.exs, permission_matrix task/module, authorization.ex, catalog.ex, priv/permission_matrix is in the diff (git status and diff --name-only); exam.ex is the exam manifest, not the catalog. So #2612 does not apply; the gate applies on INV-1/4/5/6/7/8 (tenant-data migration). MIGRATION 20261016120001: trigger function opens only for OLD.managed_by IS NULL AND NEW.managed_by='exam' AND NEW.name = ANY(literal six-name array) AND current_setting('letflow.managed_by_stamp', true)='exam' AND to_jsonb(NEW)-'managed_by' = to_jsonb(OLD)-'managed_by'; unset/'' closed; DELETE branch unchanged; plain plpgsql (not SECURITY DEFINER); prefix() guard present; only the schema name from prefix() is interpolated; down text equals the previous body (compared against the existing function: identical statements); registered in @tenant_scoped_migration_manifest. STAMP: F-1 Repo.in_transaction?() refusal first (typed :nested_transaction, nothing written) plus last-statement set_config clear; F-4 satisfied: real_run takes set lock_timeout/statement_timeout (txn-local), ManagedTypes.lock_names, FOR UPDATE row fetch, and classifies from the LOCKED rows (advisory pre-pass only feeds dry run and the nothing-to-do skip); set_config('letflow.managed_by_stamp','exam') is bound-parameter and issued immediately before the single update_all(set: [managed_by: ...]) scoped by tenant_id, id in locked ids, is_nil(managed_by), explicit prefix; verify_stamped rolls back on gap; per-tenant transaction, failures isolated; reports/audit hold names, counts, reason atoms, exception modules only (reason_tag never keeps messages); no Logger of findings. TAMPER INVENTORY: first statement SET TRANSACTION READ ONLY, no write, SQL extracts only entity_type/record_id JSON keys, payload/field_values never selected into Elixir, idempotency_key read for classification but not emitted, nested refusal, no Logger, explicit prefix, bound params (B-3 met). RELEASE wrapper forwards only :module/:dry_run (stamp) and :module/:scope (inventory), dropping the after_precheck test seam and lock tuning. MIX TASKS: strict OptionParser, tag-only error text, exit 1 on failed tenant, findings to stdout only. EXAM CALL SITES: all six Records writes (session.ex x3, certificate.ex, anti_cheat.ex) pass ManagedTypes.owner_for!(Exam) built per call, never stored; manifest manages exactly the six frozen names. PACK: pack.json is 453 additions, 0 deletions (existing ten unchanged), 16 types in the designed order; generate_pack.exs lists the six new types.",
+    "advisories_non_blocking": [
+      "A-1 (REQUIRED BEFORE CI, test owner not security): test/letflow/entities/managed_types_callers_test.exs @authority_callers (line ~60) lists only @handler_writes and @fixture_managed; the new exam Records callers (session.ex, certificate.ex, anti_cheat.ex) will fail T-17 (line ~597-600) and the origin-caller directory rule must be checked. TEST-DESIGNER must extend the allowlist as the moduledoc in managed_types.ex now states.",
+      "A-2 stamp.ex:307-316: the opener set_config stays open through verify_stamped and audit! until the final clear at :280. Harmless (same transaction, rolled back on any failure, neither touches entity_definitions updates), but clearing it immediately after update_all would match the design wording 'just before / just after' exactly. Optional.",
+      "A-3 T-11 tripwire (test-phase): assert set_config occurrences also inside fragment() literals/heredocs (B-2) and that the stamp fragment string appears only in stamp.ex plus the two migrations.",
+      "A-4 certificate.ex:363-367: the exam_owner/0 helper was inserted between the fetch_candidate_name comment block and its function, detaching that comment from its function (cosmetic, REVIEWER)."
+    ],
+    "invariants_assessed": {
+      "INV-1": "APPLIES. PASS: every query has explicit prefix: schema; tenant_id filter on every entity_definitions read and the update; migration is tenant-scoped, prefix()-guarded and manifest-registered.",
+      "INV-2": "NOT-APPLICABLE: no new API response type.",
+      "INV-3": "APPLIES (checked). PASS: no host-function or sandbox path reaches set_config or the entity_definitions UPDATE.",
+      "INV-4": "APPLIES. PASS: tags and exception modules only; no messages, no secrets, no Logger of findings.",
+      "INV-5": "APPLIES. PASS: reports and inventory hold names, counts, ids, actor id, timestamp; no field values or payloads.",
+      "INV-6": "APPLIES. PASS: stamp scoped by frozen names (DB array and Elixir list), NULL to 'exam' only, row otherwise unchanged, classification in-lock (F-4 closed).",
+      "INV-7": "APPLIES. PASS: all values bound; only the schema name from prefix() interpolated in the migration; the SQL fragments are static.",
+      "INV-8": "APPLIES. PASS: typed errors (:nested_transaction, :lock_timeout, :gap_remains, :audit_failed), per-tenant isolation, non-zero exit on failure, rollback on a verification gap.",
+      "INV-9": "NOT-APPLICABLE: no outbound URL.",
+      "INV-10": "NOT-APPLICABLE: no route or permission added."
+    },
+    "required_changes": [],
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "diagnosis_confirmed": true,
+    "implementation_written": false,
+    "classification": "CODE_GATE_PASS"
+  }
+}

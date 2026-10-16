@@ -729,6 +729,459 @@
       "entity_definition_id": "6744fe12-fa72-5b90-208c-4ab605fcfcdd",
       "logical_shape_version": "8d7f6c7fd0f5a7d66cdcd86e941bce05e2b9d129169a58a9a88e610b380d69b5",
       "name": "exam_manual_question"
+    },
+    {
+      "definition_json": {
+        "description": "FR-BB35 -- ports exam_sessions from c:\\Users\\tvolo\\dev\\ai-dala\\BilimBaga\\backend\\migrations\\014_exam_sessions.up.sql, with status widened by 015_session_tables.up.sql's ALTER TYPE. Product spec: corporate_exam_platform_roadmap.md section 3.6. FIELD-LEVEL NOTES. exam_id is :string, queried: true, required: true, with foreign_keys entry fk_session_exam_id making it a real Postgres REFERENCES against the exam entity type. user_id is :string, queried: true, required: true, but carries NO fk_def: users live in the identity subsystem, and references_entity names an entity type in the tenant's own entity subsystem, not an identity-subsystem table -- the same reasoning REQ-326 recorded for created_by. status is :enum with FOUR values in_progress, submitted, auto_submitted, grading_pending; the source's 014 migration declares only the first three, and grading_pending was added afterward by 015's `ALTER TYPE session_status ADD VALUE IF NOT EXISTS 'grading_pending'` -- the fourth value is not in 014, it is a 015 addition. seed is :integer (source BIGINT), queried: false, required: true; its purpose is reproducibility of the shuffled question set derived at session creation, per roadmap 3.5, not a value ever filtered on. started_at is :datetime, queried: false, required: true. expires_at is :datetime, queried: true, required: true -- it MUST be queried: true because REQ-331's auto-submit sweep locates expired sessions by scanning on this field, standing in for the source's partial index idx_exam_sessions_expires_status; a definition where expires_at is not queried would leave that sweep with no indexed predicate to run against. submitted_at is :datetime, queried: false, required: false (source nullable, set only on submission). score_pct is :decimal with decimal_precision 5 and decimal_scale 2, ported verbatim from the source's DECIMAL(5,2), queried: false, required: false. passed is :boolean, queried: false, required: true (source NOT NULL DEFAULT FALSE). Foreign keys: fk_session_exam_id (field exam_id, references_entity exam). Indexes: idx_session_exam_user over (exam_id, user_id) and idx_session_user_exam_status over (user_id, exam_id, status), both mirroring the source's idx_exam_sessions_exam_user and idx_exam_sessions_user_exam_status; idx_session_expires_status over (expires_at, status) stands in for the source's partial index idx_exam_sessions_expires_status WHERE status = 'in_progress' -- Letflow's index_def has no WHERE clause, so this becomes a full composite index rather than a partial one; the auto-submit sweep still uses it, just over a wider row set than the source scanned. OMISSIONS. No id, created_at or updated_at field is declared: the record subsystem owns record identity and the event store owns the timeline, so declaring them here would duplicate platform-owned state. No created_by field is declared for the same reason -- this table has no created_by column in the source anyway; user_id already plays that role and is handled above. CONSTRAINTS NOT EXPRESSIBLE HERE: the source's exam_sessions_score_range CHECK (score_pct BETWEEN 0 AND 100) and exam_sessions_expires_after_start CHECK (expires_at > started_at), both added by 015, are relocated to priv/packs/bilimbaga/entity_definitions/README-constraints.md with what is lost by relocating them. ON DELETE: exam_id's fk_def promotes to a Postgres FK that lib/letflow/entities/definition/ddl.ex:675 emits as ON DELETE RESTRICT unconditionally (decision 0025 sub-question 1), which diverges from the source's ON DELETE CASCADE on exam_sessions.exam_id -- see the ON DELETE table in README-constraints.md. user_id's source column is also ON DELETE CASCADE, but carries no Letflow fk_def at all (identity subsystem), so there is no Letflow FK for it to diverge from; it is still recorded in the README's table for completeness. TIMESTAMPTZ: started_at, expires_at, submitted_at (and the dropped created_at) were all TIMESTAMPTZ in the source; ddl.ex:318 maps :datetime to timestamp(6) without time zone, dropping the offset on all of them -- recorded in README-constraints.md, singling out expires_at because REQ-331's sweep compares it against now across tenants.",
+        "display_name": "Session",
+        "fields": [
+          {
+            "name": "exam_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "user_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "in_progress",
+              "submitted",
+              "auto_submitted",
+              "grading_pending"
+            ],
+            "name": "status",
+            "queried": true,
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "seed",
+            "queried": false,
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "started_at",
+            "queried": false,
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "expires_at",
+            "queried": true,
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "submitted_at",
+            "queried": false,
+            "required": false,
+            "type": "datetime"
+          },
+          {
+            "decimal_precision": 5,
+            "decimal_scale": 2,
+            "name": "score_pct",
+            "queried": false,
+            "required": false,
+            "type": "decimal"
+          },
+          {
+            "name": "passed",
+            "queried": false,
+            "required": true,
+            "type": "boolean"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "exam_id",
+            "name": "fk_session_exam_id",
+            "references_entity": "exam"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "exam_id",
+              "user_id"
+            ],
+            "name": "idx_session_exam_user"
+          },
+          {
+            "fields": [
+              "user_id",
+              "exam_id",
+              "status"
+            ],
+            "name": "idx_session_user_exam_status"
+          },
+          {
+            "fields": [
+              "expires_at",
+              "status"
+            ],
+            "name": "idx_session_expires_status"
+          }
+        ],
+        "name": "session"
+      },
+      "display_name": "Session",
+      "entity_definition_id": "b00da41e-d707-a13c-8e8b-8458d587712b",
+      "logical_shape_version": "5179fc25b1b0c8f76e0009f1bac85b37e8e3206015ef6672d5523a4d75ff20be",
+      "name": "session"
+    },
+    {
+      "definition_json": {
+        "constraints": [
+          {
+            "fields": [
+              "session_id",
+              "question_id"
+            ],
+            "name": "uq_session_question_session_id_question_id",
+            "type": "unique"
+          }
+        ],
+        "description": "FR-BB35 -- ports session_questions from c:\\Users\\tvolo\\dev\\ai-dala\\BilimBaga\\backend\\migrations\\014_exam_sessions.up.sql AS RESHAPED by 015_session_tables.up.sql's AC-2 ALTERs. Product spec: corporate_exam_platform_roadmap.md section 3.6. FIELD-LEVEL NOTES. session_id is :string, queried: true, required: true, foreign_keys entry fk_session_question_session_id against session. question_id is :string, queried: true, required: true, foreign_keys entry fk_session_question_question_id against question. sort_order is :integer, queried: false, required: true (source CHECK sort_order >= 0, relocated -- see below). options_order is :json, queried: false, required: true -- an ordered array of option UUIDs; Rule 3 forbids a :json field being queried and nothing here needs to filter on it. options_order materialises a RESOLVED, SHUFFLED question set fixed at session creation, which combined with session.seed is what makes a session's question order reproducible. question_version_id is :string, queried: false, required: false (source nullable UUID added by 015's ALTER TABLE ADD COLUMN IF NOT EXISTS question_version_id). CONSTRAINT: constraints entry uq_session_question_session_id_question_id, type unique, over (session_id, question_id) -- this expresses 015's composite PRIMARY KEY (session_id, question_id) the convention-compliant way, without declaring a primary key, because the record subsystem already owns record identity; the same convention REQ-326 and REQ-327 established for their own join entities. 015 also DROPPED the surrogate id column and the old UNIQUE (session_id, sort_order), replacing them with this composite PK -- the unique constraint above is the accurate port of the CURRENT (post-015) shape, not of 014's original UNIQUE (session_id, sort_order), which no longer exists in the source. ON DELETE, DELIBERATE SOURCE CHANGE: 015 deliberately changed question_id's FK from ON DELETE CASCADE (014's original) to ON DELETE RESTRICT, so that deleting a question can no longer silently rewrite a sat exam's resolved question set. Letflow reaches the same RESTRICT behaviour for free, because lib/letflow/entities/definition/ddl.ex:675 emits a fixed, unconditional ON DELETE RESTRICT on every promoted FK regardless of what fk_def declares (decision 0025 sub-question 1) -- fk_def itself (lib/letflow/entities/definition.ex) has no on_delete key at all. session_id's FK, by contrast, is CASCADE in the source and RESTRICT in Letflow, a genuine divergence -- see the seven-row ON DELETE table in README-constraints.md, which covers both FKs on this entity type. OMISSIONS. No id, created_at or updated_at field is declared, for the usual cross-subsystem reason: the record subsystem owns identity and the event store owns the timeline. No created_by field is declared -- the source table never had one. CONSTRAINTS NOT EXPRESSIBLE HERE: the source's sort_order CHECK (sort_order >= 0) is relocated to README-constraints.md with what is lost by relocating it. TIMESTAMPTZ: this entity type has no datetime column (options_order is JSON, not a timestamp), so the TIMESTAMPTZ-to-naive divergence recorded in README-constraints.md does not apply here; it is listed there against the four other documents' datetime columns.",
+        "display_name": "Session Question",
+        "fields": [
+          {
+            "name": "session_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "question_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "sort_order",
+            "queried": false,
+            "required": true,
+            "type": "integer"
+          },
+          {
+            "name": "options_order",
+            "queried": false,
+            "required": true,
+            "type": "json"
+          },
+          {
+            "name": "question_version_id",
+            "queried": false,
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "session_id",
+            "name": "fk_session_question_session_id",
+            "references_entity": "session"
+          },
+          {
+            "field": "question_id",
+            "name": "fk_session_question_question_id",
+            "references_entity": "question"
+          }
+        ],
+        "name": "session_question"
+      },
+      "display_name": "Session Question",
+      "entity_definition_id": "b227d2c0-7d54-5d81-6017-3936b01e8db5",
+      "logical_shape_version": "f0c0714ac968832848dc973ae421aa09930095fbc75d5c3a265593b1b58449ac",
+      "name": "session_question"
+    },
+    {
+      "definition_json": {
+        "constraints": [
+          {
+            "fields": [
+              "session_id",
+              "question_id"
+            ],
+            "name": "uq_session_answer_session_id_question_id",
+            "type": "unique"
+          }
+        ],
+        "description": "FR-BB36 AC-5 -- ports session_answers from c:\\Users\\tvolo\\dev\\ai-dala\\BilimBaga\\backend\\migrations\\015_session_tables.up.sql. Product spec: corporate_exam_platform_roadmap.md section 3.6. FIELD-LEVEL NOTES. session_id is :string, queried: true, required: true, foreign_keys entry fk_session_answer_session_id against session. question_id is :string, queried: true, required: true, foreign_keys entry fk_session_answer_question_id against question. selected_option_ids is :json, queried: false, required: false -- an array of selected option UUIDs; Rule 3 forbids a :json field being queried and nothing needs to filter on it. text_answer is :string, queried: false, required: false (source nullable TEXT) -- this is a candidate's own free-text answer, NOT localized content: it is not authored prose meant to be shown in multiple locales, it is a per-answer string keyed to one candidate's submission, so :string is correct here and :localized_text is not, unlike question.stem or exam.title. saved_at is :datetime, queried: false, required: true (source DEFAULT NOW()). time_spent_seconds is :integer, queried: false, required: true (source DEFAULT 0, CHECK time_spent_seconds >= 0, relocated below). CONSTRAINT: constraints entry uq_session_answer_session_id_question_id, type unique, over (session_id, question_id) -- this expresses the source's UNIQUE (session_id, question_id), which is the upsert key the source's SaveAnswer path relies on to overwrite a candidate's prior answer to the same question rather than duplicate a row; it also matches the composite-natural-key convention REQ-326/REQ-327 established, though here the source itself used UNIQUE rather than a composite PK. ON DELETE: session_id's FK is CASCADE in the source and RESTRICT in Letflow (ddl.ex:675, decision 0025) -- a divergence; question_id's FK is RESTRICT in the source already, so Letflow's fixed RESTRICT matches. Both rows are in the seven-row table in README-constraints.md. OMISSIONS. No id, created_at or updated_at field is declared, for the usual cross-subsystem reason. No created_by field is declared -- the source table has none; the answering candidate is already session_id -> session.user_id, and the event stream's actor_id answers who wrote this specific record. CONSTRAINTS NOT EXPRESSIBLE HERE: the source's time_spent_seconds CHECK (time_spent_seconds >= 0) is relocated to README-constraints.md with what is lost by relocating it. TIMESTAMPTZ: saved_at was TIMESTAMPTZ in the source; ddl.ex:318 maps :datetime to timestamp(6) without time zone, dropping the offset -- recorded in README-constraints.md alongside the other datetime columns; saved_at does not carry the same correctness stakes as session.expires_at, but the mapping is identical and is recorded there rather than treated as a separate note.",
+        "display_name": "Session Answer",
+        "fields": [
+          {
+            "name": "session_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "question_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "selected_option_ids",
+            "queried": false,
+            "required": false,
+            "type": "json"
+          },
+          {
+            "name": "text_answer",
+            "queried": false,
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "saved_at",
+            "queried": false,
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "time_spent_seconds",
+            "queried": false,
+            "required": true,
+            "type": "integer"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "session_id",
+            "name": "fk_session_answer_session_id",
+            "references_entity": "session"
+          },
+          {
+            "field": "question_id",
+            "name": "fk_session_answer_question_id",
+            "references_entity": "question"
+          }
+        ],
+        "name": "session_answer"
+      },
+      "display_name": "Session Answer",
+      "entity_definition_id": "d8ddcf58-148f-b834-4662-e33e2d3198a8",
+      "logical_shape_version": "ae2b25c87edbcae2506f800a76c964866356f984fe98bc8e9b4bec7997497154",
+      "name": "session_answer"
+    },
+    {
+      "definition_json": {
+        "description": "FR-BB36 AC-4 -- ports tab_switch_events from c:\\Users\\tvolo\\dev\\ai-dala\\BilimBaga\\backend\\migrations\\015_session_tables.up.sql, PLUS ONE DELIBERATE ADDITION beyond the source schema. Product spec: corporate_exam_platform_roadmap.md section 3.6. READ THIS IN FULL BEFORE TREATING THIS AS A STRAIGHT PORT -- IT IS NOT ONE. NAMING: this entity type is named session_event, not tab_switch_event, and the reason rests entirely on the added event_type field below, NOT on any claim about what tab_switch_events itself stores: this entity records all three signal types service.go's ReportEvent accepts (tab_switch, blur, fullscreen_exit), only one of which is literally a tab switch, so tab_switch_event would be a narrower name than the entity's own contents warrant. The source table tab_switch_events stores none of the three signal-type strings -- see OMISSIONS below. THE SOURCE TABLE, VERBATIM (015_session_tables.up.sql AC-4 block): `id UUID PRIMARY KEY DEFAULT gen_random_uuid(), session_id UUID NOT NULL REFERENCES exam_sessions(id) ON DELETE CASCADE, occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), action_taken TEXT NOT NULL` -- exactly four columns, and event_type is not one of them. FIELD-LEVEL NOTES (the three ported fields). session_id is :string, queried: true, required: true, foreign_keys entry fk_session_event_session_id against session. occurred_at is :datetime, queried: true, required true (source DEFAULT NOW()) -- queried because a proctoring review needs to order and filter a session's events by time. action_taken is :enum with values log, warn, submit (source bare TEXT, but service.go's ReportEvent only ever writes one of these three, driven off the exam's on_tab_switch policy -- see the derivation note below). OMISSIONS. tab_switch_events has no event_type column, no id column is declared here (usual cross-subsystem reason), and no created_at/updated_at/created_by field is declared either. ADDITIONS -- event_type IS A DELIBERATE ADDITION TO THE SOURCE SCHEMA, NOT A PORT. event_type is :enum with values tab_switch, blur, fullscreen_exit, queried: false, required: true. The source VALIDATES this exact value and then THROWS IT AWAY: service.go:530's ReportEvent checks `!validEventTypes[input.Type]` against a validEventTypes map admitting exactly tab_switch, blur and fullscreen_exit, rejecting anything else with ErrInvalidEventType -- but the INSERT that follows, repository.go:705-709's InsertTabSwitchEvent, is `INSERT INTO tab_switch_events (session_id, occurred_at, action_taken) VALUES ($1, NOW(), $2)`, binding only session_id and action_taken; the eventType parameter passed into InsertTabSwitchEvent is never bound to anything and is dropped on the floor. After a session ends, the source's own data cannot distinguish an alt-tab from a fullscreen exit -- both leave identical rows differing only in whatever action_taken happened to be at that moment. Persisting event_type here anyway is the right call despite reproducing more than the source stores: the three signal types carry materially different evidentiary weight in a proctoring dispute (a candidate briefly alt-tabbing reads very differently from repeatedly exiting fullscreen), an integrity record that can only say WHAT ACTION WAS TAKEN but never WHAT THE CANDIDATE ACTUALLY DID is close to useless for the purpose this table exists to serve, and the column costs exactly one enum on a row that is already being written on every event. Reproducing the source's bug (discarding a value it already validated) is not fidelity; it is carrying forward a defect. Foreign keys: fk_session_event_session_id (field session_id, references_entity session). Indexes: idx_session_event_session_id over session_id, mirroring the source's idx_tab_switch_events_session_id. ENFORCEMENT NOTE, NOT SETTLED HERE: action_taken is DERIVED FROM THE EXAM'S on_tab_switch CONFIGURATION AND NEVER FROM THE REQUEST BODY -- service.go's ReportEvent, AC-10 (service.go:554-555, `action_taken is derived from the exam config, not the request body`), fetches the exam's on_tab_switch policy via GetExamConfig and passes cfg.OnTabSwitch, not any client-supplied field, into InsertTabSwitchEvent. This entity definition does not itself enforce that derivation -- it only declares the field shapes -- so this is stated here as a REQ-333 enforcement obligation on whichever write path implements ReportEvent's equivalent, and must not be read as permitting a client-supplied action_taken value at the record-write layer. ON DELETE: session_id's FK is CASCADE in the source and RESTRICT in Letflow (ddl.ex:675, decision 0025) -- a divergence, one of the five in the seven-row table in README-constraints.md. TIMESTAMPTZ: occurred_at was TIMESTAMPTZ in the source; ddl.ex:318 maps :datetime to timestamp(6) without time zone, dropping the offset -- recorded in README-constraints.md alongside session.expires_at and the other datetime columns.",
+        "display_name": "Session Event",
+        "fields": [
+          {
+            "name": "session_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "occurred_at",
+            "queried": true,
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "enum_values": [
+              "log",
+              "warn",
+              "submit"
+            ],
+            "name": "action_taken",
+            "queried": false,
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "enum_values": [
+              "tab_switch",
+              "blur",
+              "fullscreen_exit"
+            ],
+            "name": "event_type",
+            "queried": false,
+            "required": true,
+            "type": "enum"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "session_id",
+            "name": "fk_session_event_session_id",
+            "references_entity": "session"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "session_id"
+            ],
+            "name": "idx_session_event_session_id"
+          }
+        ],
+        "name": "session_event"
+      },
+      "display_name": "Session Event",
+      "entity_definition_id": "371ddce5-5119-e59c-c82b-1dbf1603b472",
+      "logical_shape_version": "339f509371752170d83a715d119c51ff5f0ed6b1f8ef9c201dbadc8d81f66b2d",
+      "name": "session_event"
+    },
+    {
+      "definition_json": {
+        "constraints": [
+          {
+            "fields": [
+              "session_id",
+              "question_id"
+            ],
+            "name": "uq_session_question_score_session_id_question_id",
+            "type": "unique"
+          }
+        ],
+        "description": "FR-BB311 -- ports session_question_scores from c:\\Users\\tvolo\\dev\\ai-dala\\BilimBaga\\backend\\migrations\\016_session_question_scores.up.sql. Product spec: corporate_exam_platform_roadmap.md section 3.6. FIELD-LEVEL NOTES. session_id is :string, queried: true, required: true, foreign_keys entry fk_session_question_score_session_id against session. question_id is :string, queried: true, required: true, foreign_keys entry fk_session_question_score_question_id against question. score is :decimal with decimal_precision 6 and decimal_scale 4, ported verbatim from the source's DECIMAL(6,4), queried: false, required: true (source DEFAULT 0). max_score is :decimal with decimal_precision 6 and decimal_scale 4, same source type, queried: false, required: true (source DEFAULT 1). grading_status is :enum with values graded, pending_manual, ai_graded, queried: true, required: true (source DEFAULT 'graded'). CONSTRAINT: constraints entry uq_session_question_score_session_id_question_id, type unique, over (session_id, question_id) -- this expresses the source's composite PRIMARY KEY (session_id, question_id) without declaring a primary key, because the record subsystem owns record identity; the same convention session_question and session_answer follow above. INDEX: idx_session_question_score_session_grading_status over (session_id, grading_status) stands in for the source's partial index idx_session_question_scores_pending ON session_question_scores(session_id) WHERE grading_status = 'pending_manual' -- Letflow's index_def has no WHERE clause, so this is a FULL composite index over every grading_status value, not a partial index limited to pending_manual rows; it is a difference, not an equivalent, though it still serves the same query shape (find a session's pending-manual rows) at the cost of indexing the other two statuses as well. ON DELETE: session_id's FK is CASCADE in the source and RESTRICT in Letflow (ddl.ex:675, decision 0025) -- a divergence; question_id's FK is RESTRICT in the source already, so Letflow's fixed RESTRICT matches. Both rows are in the seven-row table in README-constraints.md. OMISSIONS. No id, created_at or updated_at field is declared, for the usual cross-subsystem reason -- the source table in fact has no id or timestamp columns of its own either, only the composite PK. No created_by field is declared -- grading is attributable via the event stream's actor_id on whichever record write applied it (manual grading or the AI grading pipeline), not a column on this row. This entity type has no datetime column, so the TIMESTAMPTZ divergence recorded in README-constraints.md does not apply here.",
+        "display_name": "Session Question Score",
+        "fields": [
+          {
+            "name": "session_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "question_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "decimal_precision": 6,
+            "decimal_scale": 4,
+            "name": "score",
+            "queried": false,
+            "required": true,
+            "type": "decimal"
+          },
+          {
+            "decimal_precision": 6,
+            "decimal_scale": 4,
+            "name": "max_score",
+            "queried": false,
+            "required": true,
+            "type": "decimal"
+          },
+          {
+            "enum_values": [
+              "graded",
+              "pending_manual",
+              "ai_graded"
+            ],
+            "name": "grading_status",
+            "queried": true,
+            "required": true,
+            "type": "enum"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "session_id",
+            "name": "fk_session_question_score_session_id",
+            "references_entity": "session"
+          },
+          {
+            "field": "question_id",
+            "name": "fk_session_question_score_question_id",
+            "references_entity": "question"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "session_id",
+              "grading_status"
+            ],
+            "name": "idx_session_question_score_session_grading_status"
+          }
+        ],
+        "name": "session_question_score"
+      },
+      "display_name": "Session Question Score",
+      "entity_definition_id": "0117e96a-e577-c342-cd66-7d2297a50b84",
+      "logical_shape_version": "76caafab65ab87bf869d46d02712f8d26496ff6bc7b4473b9d246565d3b1f99d",
+      "name": "session_question_score"
+    },
+    {
+      "definition_json": {
+        "description": "REQ-355 -- ports FR-BB43 (Certificate Generation), source table `certificates` from c:\\Users\\tvolo\\dev\\ai-dala\\BilimBaga\\backend\\migrations\\019_certificates.up.sql, service behaviour from backend/internal/certificates/service.go's GetOrCreate. Bucket A by the same reasoning REQ-329's five session entity types recorded: this is a declarative record shape with no execution semantics of its own -- the eligibility/idempotency/snapshot LOGIC that decides when and how a row here gets written lives in the bucket-C context module lib/letflow/exam/certificate.ex, exactly mirroring how session.json (data) is paired with Letflow.Exam.Session (behaviour). FIELD-LEVEL NOTES. session_id is :string, queried: true, required: true, with a real fk_def (fk_certificate_session_id) against the session entity type -- the source's session_id UUID NOT NULL UNIQUE REFERENCES exam_sessions(id). issued_at is :datetime, queried: false, required: true (source TIMESTAMPTZ NOT NULL DEFAULT NOW(), stamped by the context module at issuance, never left to a storage-layer default). candidate_name is :string, queried: false, required: true -- the direct port of the source's employee_name TEXT NOT NULL (Letflow's identity subsystem has no per-tenant employee concept, so this stores the issuing candidate's Letflow.Identity.User.display_name at issuance time, captured into this record for the same reason the branding snapshot is captured: so a later change to the candidate's own display_name does not alter an already-issued certificate). exam_title is :json, queried: false, required: true -- a DELIBERATE UPGRADE over the source's exam_title TEXT NOT NULL, storing the exam's full :localized_text map (all locales) rather than a single string, the same upgrade REQ-327's exam.json already made for exam.title itself; carrying the whole map here (not one flattened locale) is what lets a later renderer (REQ-356) pick the right locale without re-reading the live exam record. score_pct is :decimal with decimal_precision 5 and decimal_scale 2, ported verbatim from the source's DECIMAL(5,2), queried: false, required: true. branding_snapshot is :json, queried: false, required: true -- has NO source column (FR-BB43's TemplateSnapshot was a separate JSONB column, template_snapshot, holding the same idea under a different name); this is the field FR-BB43 AC-9 depends on: the context module reads lib/letflow/routers/tenant_config.ex's branding_from_settings/1 exactly once, at first issuance, and stores its full three-key map here verbatim -- a later branding change never touches an already-issued row because nothing here re-reads live branding. OMISSIONS, deliberate and matching every other document in this directory. No id, created_at or updated_at field is declared: the record subsystem (Letflow.Entities.Records) owns record identity and the event store owns the timeline. No created_by field: the issuing candidate is already named by session_id -> session.user_id, and by this record's own creation event's actor_id, so a third copy would be redundant. NOT PORTED, out of this requirement's scope (see lib/letflow/exam/certificate.ex's own moduledoc for the full accounting): verification_code (REQ-357's public-verification scope, not this requirement's) and template_snapshot's PDF-rendering consumer (REQ-356's scope) -- this document intentionally has no verification_code field, so a document expecting one is looking at the wrong requirement. IDEMPOTENCY, NOT EXPRESSED AS A `constraints` UNIQUE ENTRY HERE, EXPLAINED: the source's guarantee is `session_id UUID NOT NULL UNIQUE` plus `INSERT ... ON CONFLICT (session_id) DO NOTHING`. This document deliberately declares NO `constraints` entry for session_id, even though Letflow.Entities.Definition's constraint_def type could express a :unique constraint over [\"session_id\"] -- because doing so would trigger ISS-0648's automatic column-promotion-on-activation (a real per-entity-type SQL table plus a real Postgres UNIQUE constraint on a promoted column), which is materially heavier machinery than this record shape needs and would silently answer the very A/B question this requirement's own REVIEWER rule-2 sign-off is supposed to weigh (whether a certificate needs anything beyond ordinary entity-record semantics). Letflow.Exam.Certificate's own moduledoc records the idempotency mechanism actually used instead -- a deterministic Letflow.Entities.Records.create_record/2 idempotency_key derived from session_id, backed by the REAL, ALREADY-UNIQUE-INDEXED event_idempotency table every entity-record write already goes through -- and states its guarantee level precisely.",
+        "display_name": "Certificate",
+        "fields": [
+          {
+            "name": "session_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "issued_at",
+            "queried": false,
+            "required": true,
+            "type": "datetime"
+          },
+          {
+            "name": "candidate_name",
+            "queried": false,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "exam_title",
+            "queried": false,
+            "required": true,
+            "type": "json"
+          },
+          {
+            "decimal_precision": 5,
+            "decimal_scale": 2,
+            "name": "score_pct",
+            "queried": false,
+            "required": true,
+            "type": "decimal"
+          },
+          {
+            "name": "branding_snapshot",
+            "queried": false,
+            "required": true,
+            "type": "json"
+          }
+        ],
+        "foreign_keys": [
+          {
+            "field": "session_id",
+            "name": "fk_certificate_session_id",
+            "references_entity": "session"
+          }
+        ],
+        "indexes": [
+          {
+            "fields": [
+              "session_id"
+            ],
+            "name": "idx_certificate_session_id"
+          }
+        ],
+        "name": "certificate"
+      },
+      "display_name": "Certificate",
+      "entity_definition_id": "430479d9-094b-590a-5c73-757e38295843",
+      "logical_shape_version": "4a3504c6c76e9b864f6724bef20d73afec95bf46ef74921db63e0b65c70a825e",
+      "name": "certificate"
     }
   ],
   "exported_at": "2026-09-13T00:00:00Z",
