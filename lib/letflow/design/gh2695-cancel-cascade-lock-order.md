@@ -247,9 +247,9 @@ T3, T4 and T5 (all three service-path concurrency tests) PASS on main, i.e. they
 non-discriminating there; the red-on-main evidence for the service path is the deterministic
 statement-order test. T5 (barrier on the parent's `instance_projections` row, cancel parked first)
 is the one that exposed a gap in this design, found because T5 deadlocked intermittently on the
-FIXED code (1 run in 2, then 2 in 4) before the change below:
+code with only the cascade fixed (the first implementation, before the prelock extension; 1 run in 2, then 2 in 4) before the change below:
 
-* Mechanism (observed): a service apply parked in `UPDATE instance_projections SET status ...`
+* Mechanism (observed, unconfirmed): a service apply parked in `UPDATE instance_projections SET status ...`
   (its own CHILD projection row) with `pg_blocking_pids` = the cancel queued for the parent
   projection; in the failing runs the parent token's `xmax` was the apply's transaction id. So the
   UPDATE of the child's projection row takes foreign-key locks on the parent token
@@ -265,11 +265,37 @@ FIXED code (1 run in 2, then 2 in 4) before the change below:
   otherwise) is run as a `:lock_ancestors` step in the HUMAN tail (first step) and in the service
   apply (immediately before the child's `:projection` UPDATE, after the entity-type locks). After
   the change T5 passed 6 of 6 consecutive runs (a fresh tenant schema per run).
-* Not covered, same hazard class (follow-up): other paths that UPDATE a child's projection without
-  going through these two (ExecutionError landing, script apply, timer fire for the child).
+* Lock mode (SEC F1): a CONTINUING child takes the parent projection and the waiting token
+  `FOR KEY SHARE` (same P-then-T order), the completing chain `FOR UPDATE`. Key-share is compatible
+  between siblings and still conflicts with a cancel's `FOR UPDATE`, so the cycle stays closed
+  without serialising siblings on the parent (test T9 proves compatibility and, as a control, that
+  `FOR UPDATE` would block; T7 and T8 cover the continuing HUMAN and service step against a parked
+  cancel). Siblings still serialise on the tenant-wide audit chain row wherever both take it
+  (observed: a sibling service apply waits on `audit_chain_locks` held by the other), so the
+  "previously concurrent" service siblings were never fully concurrent.
+* Service placement: the service apply runs `:lock_ancestors` as the FIRST step of its Multi,
+  because every event append UPDATEs the child's projection (the entity-write events inside
+  `maybe_service_entity_writes` and the completed event included); an earlier placement just
+  before the `:projection` step left the cycle open (T8 failed). Side effect: the parent group now
+  precedes this apply's entity-type locks (a parent completion's own P-then-E order); Q1 is not
+  claimed closed.
+* Uncovered same-class paths, NOT closed by this change (follow-ups): direct `cancel_instance/3`
+  of a CHILD (GH #2708; `run_cancel_instance` has no `:lock_ancestors`), the ExecutionError landing
+  (GH #2709, `execution_error.ex`), a child timer fire (GH #2707, amended to include the
+  foreign-key lock hazard), and a HUMAN child completion whose node declares `entity_writes`
+  (its SYS/APPLIED events UPDATE the child's projection before the tail's `:lock_ancestors`; not yet
+  filed). GH #2704 (entity locks vs the parent projection) also applies to continuing children.
+
+Second measurement on bef9fe69 after the continuing-child and key-share work (16 tests in the file):
+2 pass (T3, T4) and 14 fail. T1, T2, T6, T7 (continuing HUMAN) and T8 (continuing service) fail with
+`40P01`; T5 failed with `40P01` in this run (it is tenant-schema dependent, it passed on main in the
+first measurement); both statement-order tests and the six new-function unit and T9 tests fail because
+the functions do not exist there. With the change: 16 of 16 on 7 consecutive runs, each on a fresh
+tenant schema, with the narrowed `FOR KEY SHARE` mode for continuing children (the cycle did not
+return, so no revert to `FOR UPDATE` was needed).
 
 Follow-ups filed for the remaining inversions: Q1 entity-type rows versus the parent projection
-(GH #2704); audit chain row versus sequence row between sibling completions, possible and not
+(GH #2704, continuing children included); audit chain row versus sequence row between sibling completions, possible and not
 demonstrated (GH #2705); cancel's stale open-tasks snapshot (GH #2706); `Scheduler.fire_timer`
 timer rows then projection versus the child's HUMAN tail cancelling timers after its own
 projection (GH #2707, pre-existing, untouched).

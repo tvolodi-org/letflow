@@ -397,22 +397,34 @@ defmodule Letflow.Engine do
   I1 (fixed): the cascade used to take the token then the projection, the reverse of the above.
   I2 (fixed): a HUMAN child completion took the audit chain row before the cascade's parent rows,
   while cancel takes it last. I3 (fixed): every UPDATE of a sub-process child's projection row takes
-  foreign-key locks on the parent token and projection in a per-tenant order, so a service apply could
-  hold the token and wait for the projection before its cascade even ran. Both the HUMAN tail (first
-  step) and the service apply (before the child's projection UPDATE) now run `:lock_ancestors`
-  (`lock_parent_group/4`: parent projection, then waiting token; the whole chain when the child
-  completes) before any such write.
-  Remaining inversions, not fixed here (follow-ups): Q1 (GH #2704), an entity-type row versus the parent
-  projection (a child completion holds the entity-type rows then wants the parent projection; a
-  parent completion with `entity_writes` holds its projection then wants them). Possible, not
-  demonstrated (both paths take the parent projection first): the audit chain row versus the
-  sequence row between a HUMAN completer and a service apply of sibling children of one parent
-  (GH #2705). Also: cancel's open-tasks snapshot is taken before the projection lock (GH #2706), and
-  `Scheduler.fire_timer` takes timer rows then the projection while a child's HUMAN tail cancels
-  its timers after its own projection (pre-existing, untouched; GH #2707).
-
-  A sub-process child's completion cascade takes the parent projection, then the parent token,
-  after its entity-type locks; a deadlock there is reported as contention. The
+  foreign-key locks on the p  while cancel takes it last. I3 (fixed for the two paths below; observed, mechanism unconfirmed):
+  an UPDATE of a sub-process child's projection row was seen to queue behind a parent cancel's
+  pending lock on the parent projection and, for some tenant schemas, to leave the parent token
+  locked by the child, i.e. the I1 cycle formed before the cascade code ran (it showed up as an
+  intermittent 40P01 in the T5 test of `cancel_cascade_lock_order_test.exs` while only the cascade
+  had been changed). So the HUMAN tail (first step) and the service apply (first step of its
+  Multi, before any write that UPDATEs the child's projection) now run `:lock_ancestors`
+  (`lock_parent_group/4`): parent projection, then waiting token; `FOR UPDATE` and the whole
+  ancestor chain when the child completes (its cascade follows), `FOR KEY SHARE` and the immediate
+  parent only when the child continues (key-share is compatible between siblings, and still queues
+  ahead of a cancel's `FOR UPDATE`). Siblings of one parent still serialise on the tenant-wide
+  audit chain row where both take it; the key-share mode only avoids adding a parent-level
+  serialisation.
+  Same hazard class, NOT closed by GH #2695 (follow-ups): direct `cancel_instance/3` of a CHILD
+  (GH #2708); the ExecutionError landing (GH #2709); a child timer fire (GH #2707, which also
+  covers `Scheduler.fire_timer` taking timer rows then the projection while a child's HUMAN tail
+  cancels its timers after its own projection); and a HUMAN child completion whose node declares
+  `entity_writes`, whose SYS/APPLIED events UPDATE the child's projection before the tail's
+  `:lock_ancestors` runs (not yet filed).
+  Remaining inversions, not fixed here (follow-ups): Q1 (GH #2704, also for continuing children),
+  an entity-type row versus the parent projection (a child completion holds the entity-type rows
+  then wants the parent projection; a parent completion with `entity_writes` holds its projection
+  then wants them; the service apply now takes the parent group before its own entity-type rows).
+  Possible, not demonstrated (both paths take the parent projection first): the audit chain row
+  versus the sequence row between a HUMAN completer and a service apply of sibling children of one
+  parent (GH #2705). Also: cancel's open-tasks snapshot is taken before the projection lock
+  (GH #2706).
+  deadlock there is reported as contention. The
   cascade outcome is stated only for a completion WITH a plan (a completion
   without lines keeps today's locks and today's `transaction_failed`): the
   victim's whole transaction rolls back, nothing is committed, and the result is
@@ -439,12 +451,13 @@ defmodule Letflow.Engine do
   GH #2648: the same two applies also run the sub-process completion cascade when the apply
   completes a sub-process CHILD (`append_sub_process_completion_cascade_multi/6`, the helper the
   HUMAN_TASK tail uses), in the SAME transaction, so a failure rolls the apply back. Lock order:
-  dispatch row (or script CAS row), child projection, entity-type locks, THEN the parent token
-  and projection (and further ancestors), THEN the audit chain row: child to parent, the order
-  the HUMAN path already has. Since GH #2695 the full order is: dispatch/CAS row, child projection,
-  entity-type locks, parent projection, parent token (and ancestors, the same pair order), audit
-  chain row. The cancel-versus-cascade and timer-versus-cascade inversions are fixed. What remains
-  is the entity-type versus parent-projection inversion (Q1, above); a deadlock there is
+  dispatch row (or script CAS row), child projection, THEN the parent projection and token (and
+  further ancestors, the same pair order; GH #2695 moved this ahead of the entity-type locks, as the
+  first step of the apply's Multi), THEN the entity-type locks, THEN the audit chain row: child to
+  parent. A HUMAN completion still takes its entity-type locks before the tail's parent group. The
+  cancel-versus-cascade and timer-versus-cascade inversions are fixed. What remains
+  is the entity-type versus parent-projection inversion (Q1, above, narrowed on the service path,
+  not claimed closed); a deadlock there is
   classified as contention and re-applied (bounded) for HTTP applies (planned and unplanned) and
   for PLANNED script applies. An UNPLANNED script apply goes straight to
   `apply_script_task_result_once/4`, bypassing that driver, and its blanket rescue turns a
@@ -4975,6 +4988,14 @@ defmodule Letflow.Engine do
           {:advanced, final_instance_state, prepared_children} ->
             multi =
               Multi.new()
+              # GH #2695: the parent group FIRST, before any write that UPDATEs this child's
+              # projection row (every event append does, entity-write events included), see
+              # lock_parent_group/4. Child -> parent order is kept (dispatch row and child
+              # projection are already held); the parent group now precedes the entity-type locks
+              # of this apply, which is the parent completion's own P-then-E order.
+              |> Multi.run(:lock_ancestors, fn inner_repo, _changes ->
+                lock_parent_group(inner_repo, dispatch.instance_id, final_instance_state, prefix)
+              end)
               |> Multi.merge(fn _changes ->
                 Multi.new()
                 |> Multi.run({:hop_chain_token_records, dispatch.instance_id}, fn repo,
@@ -5060,12 +5081,6 @@ defmodule Letflow.Engine do
               # :projection (the event appends need the instance still non-terminal). Identity
               # for HTTP.
               |> completion.on_advanced.()
-              # GH #2695: the parent group BEFORE this child's own projection UPDATE (which
-              # takes foreign-key locks on the parent token and projection), see
-              # lock_parent_group/4.
-              |> Multi.run(:lock_ancestors, fn inner_repo, _changes ->
-                lock_parent_group(inner_repo, dispatch.instance_id, final_instance_state, prefix)
-              end)
               |> Multi.run(:projection, fn inner_repo, changes ->
                 case fold_service_sys_into_state(final_instance_state, changes) do
                   {:ok, state} ->
@@ -8578,12 +8593,13 @@ defmodule Letflow.Engine do
   # order fixed per tenant schema by constraint-trigger names, so the group must already be held
   # (P then T) before that UPDATE or a parent cancel (P then T) can deadlock against it. A child
   # that completes locks the whole ancestor chain (its cascade will walk it); a child that
-  # continues locks the immediate parent only. No-op for an instance that is not a child.
+  # continues locks the immediate parent only, FOR KEY SHARE (compatible between siblings, still
+  # queued ahead of a cancel's FOR UPDATE). No-op for an instance that is not a child.
   defp lock_parent_group(repo, instance_id, %{status: :completed}, prefix),
     do: SubProcess.lock_waiting_parent_chain(repo, instance_id, prefix)
 
   defp lock_parent_group(repo, instance_id, _state, prefix) do
-    with {:ok, token} <- SubProcess.lock_waiting_parent(repo, instance_id, prefix) do
+    with {:ok, token} <- SubProcess.lock_waiting_parent(repo, instance_id, prefix, :key_share) do
       {:ok, List.wrap(token)}
     end
   end

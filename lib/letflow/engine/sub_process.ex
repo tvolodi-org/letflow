@@ -727,10 +727,20 @@ defmodule Letflow.Engine.SubProcess do
   # the token FOR UPDATE with the same predicate -- the re-check decides the
   # result, so a token cancelled/advanced meanwhile yields nil. The projection
   # lock stays held when (3) yields nil (released at commit).
+  #
+  # `mode` is `:update` (FOR UPDATE: the cascade and a completing child) or `:key_share`
+  # (FOR KEY SHARE: a CONTINUING child, which only has to be queued ahead of a parent cancel's
+  # FOR UPDATE in the same P-then-T order; key-share is compatible between siblings, so
+  # continuing siblings do not serialise on the parent).
   @doc false
-  @spec lock_waiting_parent(Ecto.Repo.t(), Ecto.UUID.t(), String.t() | nil) ::
-          {:ok, TokenRecord.t() | nil}
-  def lock_waiting_parent(repo, child_instance_id, prefix) do
+  @spec lock_waiting_parent(
+          Ecto.Repo.t(),
+          Ecto.UUID.t(),
+          String.t() | nil,
+          :update | :key_share
+        ) :: {:ok, TokenRecord.t() | nil}
+  def lock_waiting_parent(repo, child_instance_id, prefix, mode \\ :update)
+      when mode in [:update, :key_share] do
     waiting =
       where(
         TokenRecord,
@@ -743,16 +753,18 @@ defmodule Letflow.Engine.SubProcess do
         {:ok, nil}
 
       parent_instance_id ->
-        _ =
+        projection =
           InstanceProjection
           |> where([p], p.instance_id == ^parent_instance_id)
           |> select([p], p.instance_id)
-          |> lock("FOR UPDATE")
-          |> repo.one(prefix: prefix)
 
-        {:ok, waiting |> lock("FOR UPDATE") |> repo.one(prefix: prefix)}
+        _ = projection |> lock_rows(mode) |> repo.one(prefix: prefix)
+        {:ok, waiting |> lock_rows(mode) |> repo.one(prefix: prefix)}
     end
   end
+
+  defp lock_rows(query, :update), do: lock(query, "FOR UPDATE")
+  defp lock_rows(query, :key_share), do: lock(query, "FOR KEY SHARE")
 
   # GH #2695: locks the whole ancestor group (P_p, T_p, P_g, T_g, ...) of a
   # completing sub-process child, nearest first. Speculative above the
