@@ -74,7 +74,8 @@ Dev form: `mix letflow.remediate_idempotency_squat <tenant_id> "<exact key>" "<o
 
 First check the printed `TARGET tenant=... schema=...` line is the tenant you meant. The tool
 re-runs the flag rule on the locked row and removes ONLY that `event_idempotency` row, writing an
-`idempotency_squat.remediated` audit entry in the same transaction. The squatter's event and
+`idempotency_squat.remediated` audit entry in the same transaction (the entry records ids, counts and
+`finding_ref` GH #2597; it does not record the key text, only the removed row's id). The squatter's event and
 entity record are NOT deleted; the audit entry carries `squat_entity_type` and `squat_record_id`
 so you can delete the orphan record through the normal entity API if wanted.
 

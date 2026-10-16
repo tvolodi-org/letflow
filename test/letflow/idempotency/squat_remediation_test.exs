@@ -192,10 +192,14 @@ defmodule Letflow.Idempotency.SquatRemediationTest do
 
       # the audit chain entry
       assert [entry] = F.remediation_entries(w.schema)
-      assert entry.resource_id == key
+      assert entry.resource_id == entry.before_state["row_id"]
       assert entry.resource_type == "idempotency_key"
       assert entry.actor_id == nil
-      assert entry.after_state == %{"removed" => true}
+      assert entry.after_state == %{"removed" => true, "rows_removed" => 1}
+      assert entry.before_state["finding_ref"] == "GH #2597"
+      refute inspect(entry.before_state) =~ key
+      refute inspect(entry.after_state) =~ key
+      refute entry.resource_id =~ key
       assert entry.before_state["operator"] == @op
       assert entry.before_state["stored_actor"] == squatter
       assert entry.before_state["expected_actor"] == candidate
@@ -463,12 +467,18 @@ defmodule Letflow.Idempotency.SquatRemediationTest do
         Jason.encode!(%{b: entry.before_state, a: entry.after_state, r: entry.resource_id})
 
       refute encoded =~ marker
+      # the key text (client-chosen) appears nowhere in the entry
+      refute encoded =~ key
+      assert entry.before_state["finding_ref"] == "GH #2597"
+      assert entry.after_state == %{"removed" => true, "rows_removed" => 1}
       refute Map.has_key?(entry.before_state, "payload")
       refute Map.has_key?(entry.before_state, "field_values")
 
       assert Enum.sort(Map.keys(entry.before_state)) ==
-               Enum.sort(~w(operator family row_id event_id event_type event_created_at
-                            stored_actor expected_actor reason squat_entity_type squat_record_id))
+               Enum.sort(
+                 ~w(finding_ref operator family row_id event_id event_type event_created_at
+                            stored_actor expected_actor reason squat_entity_type squat_record_id)
+               )
 
       assert entry.before_state["operator"] == "op <b>"
       assert entry.before_state["family"] == "script_run:"

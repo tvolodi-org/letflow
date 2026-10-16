@@ -16,7 +16,8 @@ defmodule Letflow.Idempotency.SquatRemediation do
      nothing written, no audit entry.
   3. Re-runs the audit's flag rule on the locked row (`SquatAudit.classify_key/3`). Anything
      other than a flag is refused with `{:not_flagged, finding}`.
-  4. Writes the audit entry `idempotency_squat.remediated` in the same transaction.
+  4. Writes the audit entry `idempotency_squat.remediated` in the same transaction. It carries
+     ids, counts and `finding_ref` only; the key text itself is not recorded.
   5. Deletes exactly that `event_idempotency` row (count must be 1).
 
   The squatter's `events` row and entity record are left in place (D2); the audit entry names
@@ -133,7 +134,7 @@ defmodule Letflow.Idempotency.SquatRemediation do
     case SquatAudit.classify_key(Repo, schema, key) do
       {:ok, %{verdict: :flagged, row_id: ^row_id} = finding} ->
         with {:ok, _entry} <-
-               Audit.insert_entry(Repo, audit_attrs(finding, key, operator), schema),
+               Audit.insert_entry(Repo, audit_attrs(finding, operator), schema),
              {1, _} <- delete_row(schema, row_id, key) do
           :removed
         else
@@ -155,15 +156,17 @@ defmodule Letflow.Idempotency.SquatRemediation do
     |> Repo.delete_all(prefix: schema)
   end
 
-  # Ids, types and timestamps only: never a payload or field value (INV-4). The operator is a
-  # platform operator, not a tenant user, so actor_id is nil.
-  defp audit_attrs(finding, key, operator) do
+  # Ids, types, counts and timestamps only: never a payload, a field value or the key itself
+  # (the key is client-chosen text). `resource_id` is the removed row's id. The operator is a
+  # platform operator, not a tenant user, so actor_id is nil and the label is in before_state.
+  defp audit_attrs(finding, operator) do
     %{
       actor_id: nil,
       action: @action,
       resource_type: @resource_type,
-      resource_id: key,
+      resource_id: finding.row_id,
       before_state: %{
+        "finding_ref" => "GH #2597",
         "operator" => operator,
         "family" => finding.family,
         "row_id" => finding.row_id,
@@ -176,7 +179,7 @@ defmodule Letflow.Idempotency.SquatRemediation do
         "squat_entity_type" => finding.squat_entity_type,
         "squat_record_id" => finding.squat_record_id
       },
-      after_state: %{"removed" => true}
+      after_state: %{"removed" => true, "rows_removed" => 1}
     }
   end
 
