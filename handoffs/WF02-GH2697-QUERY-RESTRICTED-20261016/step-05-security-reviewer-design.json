@@ -1,0 +1,55 @@
+{
+  "handoff_id": "c4a7d1e0-2697-4a11-8c20-000000000005",
+  "run_id": "WF02-GH2697-QUERY-RESTRICTED-20261016",
+  "workflow_id": "WF-02",
+  "step": "05",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF02-GH2697-QUERY-RESTRICTED-20261016/step-05-security-reviewer-design.json",
+  "created_at": "2026-10-16T16:16:00Z",
+  "started_at": "2026-10-16T16:16:05Z",
+  "completed_at": "2026-10-16T16:20:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2697": "Entity query, join query and export accept filter/sort on fields restricted for the caller (aggregate refuses with 403). Design gate: SECURITY-REVIEWER review of lib/letflow/design/gh2697-restricted-field-request-walker.md."
+    },
+    "related_handoff_ids": ["c4a7d1e0-2697-4a11-8c20-000000000003"],
+    "artifacts_in": [
+      "lib/letflow/design/gh2697-restricted-field-request-walker.md",
+      "docs/agents/instructions/security-invariants.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2682-EXAM-SNAPSHOT-20261016"
+  },
+  "task": {
+    "description": "SECURITY-REVIEWER DESIGN gate for GH #2697. Read-only; no lib/ or test/ edits."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "DESIGN VERDICT: PASS, conditional on the required changes R1-R6 below being carried into the implementation and PR text. Scope test: IN SCOPE (tenant-data path, response shaping, INV-2 fix). #2612 permission-matrix trigger: NOT applicable (confirmed: design touches none of ci.yml, cd.yml, ci_changed_paths.sh, cd_qa_decide.sh, mix.exs, config :modules, permission_matrix task/module, authorization.ex, catalog.ex, priv/permission_matrix; it adds no permission atom and no role_grant; new files are lib/letflow/entities/query/request_guard.ex plus edits in compiler.ex and routers/entities.ex, none on the trigger list). If the implementer must edit authorization.ex or effective.golden the trigger fires and this review must be re-run. INVARIANTS: INV-1 APPLIES, PASS (prefix stays prefix!(conn), user_id from auth context, both passed as arguments, load_restrictions verifies the schema via tenant_id_for_schema_name; no body-supplied tenant or user). INV-2 APPLIES, PASS (this is the defect being fixed; restricted data may no longer influence the response via filter, sort, cursor sort keys, join on). INV-3 N/A (no Lua/WASM host function; script_reads.ex already refuses a restricted match field, N1, and its filters are server-built). INV-4 APPLIES to the audit entry only, PASS if R4 holds (names only, never values). INV-5 APPLIES, PASS (type-hidden envelope preserved by running TypeAccess.authorized?/3 first and skipping the field check for a denied type; nonexistent type has no restriction rows so passes to compile and hides identically; see R5). INV-6 APPLIES, this handoff is the proof of scoping. INV-7 APPLIES, PASS (guard builds no SQL; Compiler.join_relations/3 wraps definition reads only; all existing queries remain Ecto-bound). INV-8 APPLIES, PASS (unwalked key and loader error fail closed to 403 / detail-free 500, never a silent pass; check/2 fails closed on an absent set; audit failure fails the export). INV-9 N/A (no outbound URL). INV-10 APPLIES, PASS (no new route, no new permission, route classification unchanged; exemption reuses the existing core permission via unchanged evaluate_access which already drops PLATFORM_ADMIN outside the platform tenant, effective.golden lines 121-122 and 317-318 show only PLATFORM_ADMIN and TENANT_ADMIN hold it). WALKER COMPLETENESS (verified against code): Compiler.compile/run_aggregate callers are exactly entities.ex (query, export, aggregate), exam/session.ex (hardcoded exam/status filter, no caller input), exam/anti_cheat.ex (server-built), script_reads.ex (server-built single eq filter, already refuses a restricted field), mix seed task (offline). No report, dashboard, saved-view, search or GraphQL-like route compiles a caller-supplied query; routers/ contains no field_values use outside entities.ex. Filter values are literals (Types.filter_clause has no field-reference value), so no value-side reference to a restricted field exists. sort covers the cursor key set (Cursor re-resolves only request.sort). Request key sets are closed whitelists (build_query_request, build_export_query_request, build_aggregate_request), having/distinct/search do not exist; the registry default-deny plus typespec tripwire is adequate. Join on (declaring side incl. through entity) is a genuine row-route oracle and the design handles it with the declaring entity's own set. Joined entities' own filter/sort positions do not exist today (filters and sort resolve against the primary allowlist only), so the entity-aware ref shape is forward cover. UNKNOWN-VS-RESTRICTED (Q1): CONFIRMED acceptable. Restricted -> 403, unknown -> 422 echoing only the caller's own string. No field name, entity type or clause label from the server side reaches the body. The 403/422 split reveals only that a name is restricted for the caller, which FieldGrants.redact_field_values already shows via the __field_redacted__ sentinel on any record carrying a value; residual: a restricted name that never appears in any visible row is distinguishable from an unknown name. Low severity, same behaviour as the aggregate route today, collapsing would change the 422 contract on every route. Accepted. EXEMPTION: ACCEPTED with R3/R4. Evidence verified: export_redact(..., true) skips FieldGrants entirely, so the permission holder already reads every restricted value of every row; a restricted filter or sort discloses nothing extra; check_unredacted_permission/2 uses the exact atom and runs before the guard; /query never reads body unredacted. Scope-filter clause is vacuous today (Compiler.compile has no scope argument): accepted, must be recorded in the 0051 D6 PR checklist (Q3). AGGREGATE join-on LEFT TO PR 2 (F6): ACCEPTABLE ONLY under R1. Impact of the aggregate hole is presence-only: aggregate selects and filters resolve against the primary entity, so a caller can observe, through inner-join row counts, whether a restricted fk is non-null and resolves; unlike the row routes it cannot read the fk value or any far-side field. That is why a one-PR delay is tolerable; it is still a live oracle and must not be left open. PRE-EXISTING OBSERVATIONS, NOT BLOCKING, file separately: (a) TypeAccess checks the primary type only; join target types are not type-checked, so a type-denied target's rows and sentinel-redacted fields can be returned through a join (a hidden-type disclosure on /query joins); (b) run_export/5 and run_query_aggregate/4 have no TypeAccess step (design F10/Q6). PAST-EXPOSURE STATEMENT (required in PR): any tenant with a restricted field that is queried:true (shipped Exam is_correct is) was exploitable by every :EntitiesQuery holder (TASK_WORKER, TENANT_AUDITOR, PROCESS_DESIGNER, PROCESS_OPERATOR) and every :EntitiesRecordsExport holder via filter/sort on /query, join query and export; the join-on variant disclosed the fk value. Audit records mutations only, so past reads through this path were never recorded and past exposure cannot be established or ruled out from audit data. Query timing: no timing-based concern added; guard is O(clauses) plus indexed reads. Restriction loading cost: net restriction queries equal distinct entity types because redact reuses the guard sets; acceptable. REQUIRED DESIGN CHANGES: R1 (PR split): file the PR 2 GH issue BEFORE PR 1 merges, PR 1 body must say 'Refs #2697' not 'Closes', and must state the aggregate join-on presence oracle as open with the tracking issue number; PR 2 follows immediately at the same priority. R2 (exempt flag): GuardOpts exempt? must be a REQUIRED key with no default, passed as literal false by query and aggregate and as the parsed unredacted? only from run_export after check_unredacted_permission succeeded; add a test or architecture assertion that only run_export passes a non-literal value. R3 (audit placement and tests): write the exemption audit entry after Compiler.compile succeeds and before Cursor.paginate (not before compile), so a request that would 4xx does not leave an audit row; add a test that an audit insert failure returns the detail-free 500 with no records (fail-closed), and a test that the audit after_state holds field NAMES only (no filter values, no row data). Also record join_on fk names in the audit lists (restricted_fields_used) when exempted. R4 (INV-4/INV-2 in audit and logs): audit after_state and any log line must not contain filter values; the refusal path must not log the field name (design already says so; add the assertion to T-15). R5 (type-hidden ordering): add a test where the primary type is nonexistent AND the request carries a join or a restricted-looking filter, asserting the same 200-empty envelope as an unrestricted filter; and a test that Compiler.join_relations error results (entity_type_not_found, too_many_joins, etc.) map through the existing handlers on the query route, so a nonexistent primary type with a join cannot produce a 404/422 that differs from today's hidden response. R6 (tests): extend T-26 so the registry is also asserted to equal the key set that the three builders emit for a maximal body; add one test with a granted caller (user_entity_grants) on the export default mode for filter and sort, and one where the grant exists for a different user only (still 403). Open questions answered: Q1 confirmed as designed; Q2 keep the duplicate indexed exists, accepted; Q3 accepted with D6 checklist line; Q4 audit on a read path is acceptable for a break-glass exemption, no audit-action registry or golden file enumerating actions was found by grep of lib/letflow/audit* and priv/permission_matrix, implementer must re-grep; Q5 yes file PR 2 issue (R1); Q6/pre-existing (a) and (b) to be filed as separate issues, not in this change; Q7 implementer must re-run the full entities test set. NO PASS WITHOUT: post-implementation SECURITY-REVIEWER re-review of the diff (code gate), since this verdict covers the design only.",
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "gate": "DESIGN",
+    "invariants_assessed": {
+      "INV-1": "APPLIES-PASS",
+      "INV-2": "APPLIES-PASS",
+      "INV-3": "NOT-APPLICABLE",
+      "INV-4": "APPLIES-PASS-conditional-R4",
+      "INV-5": "APPLIES-PASS-conditional-R5",
+      "INV-6": "APPLIES-this-handoff",
+      "INV-7": "APPLIES-PASS",
+      "INV-8": "APPLIES-PASS",
+      "INV-9": "NOT-APPLICABLE",
+      "INV-10": "APPLIES-PASS"
+    },
+    "trigger_2612_applies": false,
+    "required_changes": ["R1", "R2", "R3", "R4", "R5", "R6"],
+    "implementation_written": false
+  }
+}
