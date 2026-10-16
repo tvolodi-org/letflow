@@ -324,7 +324,7 @@ is an active user (OQ-R6). Violations carry codes only, never a hash. A plan-ind
 completion guard refuses every task completion whose pinned node declares `module_writes` until
 the execution PR (R4b) removes it; `PinRebind` refuses a `:module` entry only for an instance
 whose pinned definition is stamped AND whose pinned snapshot declares `module_writes`
-(OQ-R1). Pilot limit of the strict hash and its operator symptoms:
+(OQ-R1). The validation lives in `Letflow.Definitions.ModuleWrites` (design rev 3), not behind an EntityPort callback. Pilot limit of the strict hash and its operator symptoms:
 `docs/runbooks/module-write-handlers-manifest-hash.md`.
 
 ## Sign-off

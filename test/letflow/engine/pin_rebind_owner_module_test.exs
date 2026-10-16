@@ -140,6 +140,20 @@ defmodule Letflow.Engine.PinRebindOwnerModuleTest do
     assert conn.status == 409
     refute conn.resp_body =~ "sub-a"
     refute conn.resp_body =~ "fixture_ledger"
+
+    assert Jason.decode!(conn.resp_body)["detail"] ==
+             "instance's definition is module-owned and cannot be rebound"
+  end
+
+  test "S3: an instance with no snapshot row is not refused by the guard and does not crash" do
+    ctx = Mw.case!("gh2590-r3-pin-s", :module)
+
+    Repo.delete_all(
+      from(s in InstanceDefinitionSnapshot, where: s.instance_id == ^ctx.instance_id),
+      prefix: ctx.schema
+    )
+
+    assert {:error, {:unknown_pin_ref, :module, "sub-a"}} = rebind(ctx, [@module_entry])
   end
 
   describe "tripwire (OQ-R1)" do
@@ -151,6 +165,22 @@ defmodule Letflow.Engine.PinRebindOwnerModuleTest do
                rebind(ctx, [%{kind: :variable_schema, ref: ctx.definition.name, version: "v3"}])
 
       assert pinned_definition(ctx) == before
+    end
+
+    test "T6: every accepted entry kind, including a :module entry the guard lets through, leaves definition_id alone" do
+      ctx = Mw.case!("gh2590-r3-pin-k", :plain)
+      before = pinned_definition(ctx)
+
+      for kind <- [:catalog_entry, :module, :variable_schema] do
+        ref = if kind == :variable_schema, do: ctx.definition.name, else: "ref-#{kind}"
+        # accepted or refused with unknown_pin_ref; either way the pinned definition is unchanged
+        result = rebind(ctx, [%{kind: kind, ref: ref, version: "9"}])
+
+        assert match?({:ok, _}, result) or
+                 match?({:error, {:unknown_pin_ref, ^kind, ^ref}}, result)
+
+        assert pinned_definition(ctx) == before
+      end
     end
 
     test "PinRebind has no write to definition_id and the engine consumes no :module pin" do

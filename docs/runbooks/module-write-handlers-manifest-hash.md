@@ -57,3 +57,11 @@ contain a hash; compare `tenant_modules.manifest_hash` with the build's
   `module_write_stamp_missing`. This is intended (decision 0054 D6 property 1).
 * Deleting a stamped definition does not stop its pinned running instances: a completion of a node
   declaring `module_writes` fails closed (the pinned snapshot carries the graph).
+
+## R4b removal note
+
+R3's interim completion guard (`check_module_writes_unsupported/2`) is deleted by R4b. The R4b
+executor MUST re-verify, at execution time and before any handler runs, the install row
+(`tenant_modules`), the installed manifest hash against the stamp AND the compiled manifest hash,
+and the body hash of the pinned snapshot. Activation-time checks alone are not enough: the
+tenant's install state and the build can change between activation and completion.

@@ -85,7 +85,9 @@ defmodule Letflow.Definitions.ModuleWrites do
   end
 
   @doc """
-  The violations of one node's `module_writes`. `definition` is the row (or a plain map) being
+  The violations of one node's `module_writes`. A line violation carries the line's DECLARED index, the same one the run time reports:
+  `length(entity_writes) + j` for the j-th handler call (declarative lines come first); node-level
+  refusals carry index 0. `definition` is the row (or a plain map) being
   activated, `entity_write_count` the length of the same node's declarative `entity_writes`,
   `activator_codes` the already-evaluated activator refusals (index 0), `prefix` the tenant
   schema.
@@ -122,7 +124,8 @@ defmodule Letflow.Definitions.ModuleWrites do
         {writes
          |> Enum.with_index()
          |> Enum.flat_map(fn {line, index} ->
-           for code <- line_codes(line, stamp_state), do: %{index: index, code: code}
+           for code <- line_codes(line, stamp_state),
+               do: %{index: entity_write_count + index, code: code}
          end), cap_violations(writes, entity_write_count)}
       else
         {[], []}

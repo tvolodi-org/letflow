@@ -177,6 +177,16 @@ defmodule Letflow.Modules.WriteHandlerRegistrationSurfaceTest do
       assert callers == []
     end
 
+    test "the R3 activation validator is read-only: it never calls or captures a handler" do
+      source = File.read!("lib/letflow/definitions/module_writes.ex")
+
+      # positive control: it does resolve a handler (a read)
+      assert source =~ "Catalog.write_handler("
+      refute source =~ "call_write_handler"
+      refute source =~ "write_handler_in"
+      refute source =~ "apply("
+    end
+
     test "the API scan flags calls, captures and apply forms (synthetic positives) and not docs" do
       positives = [
         "Catalog.write_handler(a, b)",

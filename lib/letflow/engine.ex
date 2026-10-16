@@ -5354,7 +5354,9 @@ defmodule Letflow.Engine do
   # (declarative lines AND module lines) HAS a plan, so `check_entity_writes_planned/3` would
   # run the declarative lines and silently skip the handler lines. The node is read from the
   # PINNED snapshot graph, so a definition row that was deleted or never readable cannot lift
-  # the refusal (OQ-R9). R4b DELETES this function in the diff that adds real execution.
+  # the refusal (OQ-R9). R4b DELETES this function in the diff that adds real execution; that
+  # executor MUST re-verify the install row, the installed manifest hash (against the stamp AND
+  # the compiled manifest) and the body hash at execution time (security review S1).
   @spec check_module_writes_unsupported(Graph.t(), Task.t()) ::
           :ok | {:error, {:completion_refused, :module_writes_not_enabled}}
   defp check_module_writes_unsupported(graph, %Task{} = task) do
@@ -7034,6 +7036,11 @@ defmodule Letflow.Engine do
          _actor_id,
          _prefix
        ) do
+    Logger.warning(
+      "completion refused: a node declares module_writes but handler execution is not enabled " <>
+        "(interim guard, GH #2590 R3)"
+    )
+
     {:error, {:entity_write_failed, 0, :module_writes_not_enabled}}
   end
 

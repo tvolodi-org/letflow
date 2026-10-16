@@ -28,6 +28,7 @@ defmodule Letflow.Definitions.ModuleWriteActivationTest do
   alias Letflow.Definitions.SolutionPackArtefactBase
   alias Letflow.Definitions.SolutionPackInstall
   alias Letflow.Entities.EventTypes
+  alias Letflow.EntityWritesFixture, as: Fx
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Identity.User
   alias Letflow.Modules.Catalog
@@ -200,6 +201,93 @@ defmodule Letflow.Definitions.ModuleWriteActivationTest do
     )
   end
 
+  defp line_codes(t, lines) do
+    map = stamped_map(graph(lines))
+    codes(check(t, map))
+  end
+
+  defp extra_arg do
+    %{
+      "item" => %{"const" => "a"},
+      "quantity" => %{"const" => 1},
+      "bogus" => %{"const" => 2}
+    }
+  end
+
+  # `n` declarative stock_move lines (the type must exist in the tenant)
+  defp entity_lines(n) do
+    List.duplicate(Fx.line("stock_move", %{"label" => %{"const" => "x"}}), n)
+  end
+
+  defp rollback(schema, key, activator) do
+    Definitions.rollback_definition_version(key, "1", Ecto.UUID.generate(),
+      prefix: schema,
+      activator: activator,
+      permission_checker: fn _actor, _tenant -> true end,
+      event_appender: fn _attrs, _prefix -> {:ok, %{event_id: Ecto.UUID.generate()}} end
+    )
+  end
+
+  defp deprecate!(schema, id) do
+    {1, _} =
+      Repo.update_all(
+        from(d in ProcessDefinition, where: d.id == ^id),
+        [set: [status: :deprecated]],
+        prefix: schema
+      )
+  end
+
+  defp promote(source, target, graph, activator) do
+    key = unique("promo")
+
+    source_def =
+      %ProcessDefinition{}
+      |> ProcessDefinition.create_changeset(%{
+        name: key,
+        version: "1.0.0",
+        graph: graph,
+        created_by: Ecto.UUID.generate()
+      })
+      |> Repo.insert!(prefix: source.schema)
+
+    {1, _} =
+      Repo.update_all(
+        from(d in ProcessDefinition, where: d.id == ^source_def.id),
+        [set: [status: :active]],
+        prefix: source.schema
+      )
+
+    plan = %{
+      source_tenant_id: source.tenant_id,
+      target_tenant_id: target.tenant_id,
+      process_key: key,
+      source_definition_id: source_def.id,
+      target_definition_id: nil,
+      base_version: nil,
+      entries: []
+    }
+
+    review =
+      struct(PromotionReview, %{
+        id: Ecto.UUID.generate(),
+        plan_digest: PromotionDigest.compute_plan_digest(plan),
+        def_id: key,
+        serialised_plan: Jason.encode!(plan),
+        requested_by: Ecto.UUID.generate(),
+        status: :approved,
+        row_version: 2
+      })
+
+    result =
+      Promotion.promote_definition(Ecto.UUID.generate(), review,
+        activator: activator,
+        permission_checker: fn _actor, _tenant -> true end,
+        event_appender: fn _attrs, _prefix -> {:ok, %{event_id: Ecto.UUID.generate()}} end
+      )
+
+    {result, Repo.all(from(d in ProcessDefinition, where: d.name == ^key), prefix: target.schema)}
+  end
+
   setup do
     t = tenant!("gh2590-r3-act")
     %{t: t}
@@ -334,11 +422,6 @@ defmodule Letflow.Definitions.ModuleWriteActivationTest do
       :ok
     end
 
-    defp line_codes(t, lines) do
-      map = stamped_map(graph(lines))
-      codes(check(t, map))
-    end
-
     test "module_writes that is not a list, and a node that is not a HUMAN_TASK", %{t: t} do
       assert [v(0, :module_writes_not_a_list)] ==
                codes(check(t, stamped_map(graph("nope"))))
@@ -369,14 +452,6 @@ defmodule Letflow.Definitions.ModuleWriteActivationTest do
 
       assert [v(0, :module_write_arg_missing)] ==
                line_codes(t, [Map.delete(bline(), "args")])
-    end
-
-    defp extra_arg do
-      %{
-        "item" => %{"const" => "a"},
-        "quantity" => %{"const" => 1},
-        "bogus" => %{"const" => 2}
-      }
     end
 
     test "argument sources: exactly one of var/const, a non-blank var, never _sys", %{t: t} do
@@ -411,6 +486,28 @@ defmodule Letflow.Definitions.ModuleWriteActivationTest do
                line_codes(t, List.duplicate(mline(), 21))
 
       assert :ok = check(t, stamped_map(graph(List.duplicate(mline(), 20))))
+    end
+
+    test "T1: the cap counts declarative lines too: 19 + 2 is exactly one violation at 20, 18 + 2 passes",
+         %{t: t} do
+      Fx.define_type!(t.schema, "stock_move", %{})
+
+      over = stamped_map(graph([mline(), mline()], %{"entity_writes" => entity_lines(19)}))
+      assert [v(20, :entity_writes_too_many_lines)] == codes(check(t, over))
+
+      at_cap = stamped_map(graph([mline(), mline()], %{"entity_writes" => entity_lines(18)}))
+      assert :ok = check(t, at_cap)
+    end
+
+    test "T2: a module-line violation index is the declared index after the declarative lines",
+         %{t: t} do
+      Fx.define_type!(t.schema, "stock_move", %{})
+
+      mixed =
+        stamped_map(graph([mline(), mline("nope")], %{"entity_writes" => entity_lines(2)}))
+
+      # entity_writes[0..1] are valid; module_writes[1] is declared line 2 + 1 = 3
+      assert [v(3, :module_write_handler_unknown)] == codes(check(t, mixed))
     end
 
     test "all defects of one line are reported together, in code order", %{t: t} do
@@ -490,6 +587,52 @@ defmodule Letflow.Definitions.ModuleWriteActivationTest do
       assert %{status: :draft, activated_by: nil} = row(t.schema, copy.id)
     end
 
+    test "T2: a MIXED node records the declarative pairs AND the handlers", %{t: t} do
+      install_ledger!(t.schema)
+      Fx.define_type!(t.schema, "stock_move", %{})
+
+      draft =
+        stamped!(
+          t.schema,
+          graph([mline()], %{"entity_writes" => entity_lines(1)})
+        )
+
+      assert {:ok, %{already_active: false}} =
+               Definitions.activate(draft.id, prefix: t.schema, activator: activator(t.user))
+
+      assert %{
+               "authorized" => [%{"entity_type" => "stock_move", "op" => "create"}],
+               "module_handlers" => ["fixture_ledger/post_entry"]
+             } = row(t.schema, draft.id).activated_by
+    end
+
+    test "T3: no hash reaches the activation error, whatever caused the mismatch", %{t: t} do
+      install_ledger!(t.schema)
+      {:ok, compiled} = Catalog.manifest_hash(FixtureLedger)
+      drifted = String.duplicate("e", 64)
+      stale = String.duplicate("c", 64)
+
+      for {installed, stamp_hash} <- [{drifted, compiled}, {nil, compiled}, {stale, stale}] do
+        set_installed_hash!(t.schema, installed)
+        draft = stamped!(t.schema, graph([mline()]), owner(%{manifest_hash: stamp_hash}))
+
+        result =
+          Definitions.activate(draft.id, prefix: t.schema, activator: activator(t.user))
+
+        assert {:error, {:entity_writes_invalid, [_one] = violations}} = result
+
+        body =
+          Plug.Test.conn(:post, "/")
+          |> Letflow.Api.Response.entity_writes_invalid(violations)
+          |> Map.fetch!(:resp_body)
+
+        for hash <- [compiled, drifted, stale, OwnerStamp.graph_hash(draft.graph)] do
+          refute inspect(result) =~ hash
+          refute body =~ hash
+        end
+      end
+    end
+
     test "a hash drift after the stamp is refused with module_write_hash_mismatch", %{t: t} do
       install_ledger!(t.schema)
       draft = stamped!(t.schema, graph([mline()]))
@@ -540,24 +683,6 @@ defmodule Letflow.Definitions.ModuleWriteActivationTest do
   end
 
   describe "version rollback" do
-    defp rollback(schema, key, activator) do
-      Definitions.rollback_definition_version(key, "1", Ecto.UUID.generate(),
-        prefix: schema,
-        activator: activator,
-        permission_checker: fn _actor, _tenant -> true end,
-        event_appender: fn _attrs, _prefix -> {:ok, %{event_id: Ecto.UUID.generate()}} end
-      )
-    end
-
-    defp deprecate!(schema, id) do
-      {1, _} =
-        Repo.update_all(
-          from(d in ProcessDefinition, where: d.id == ^id),
-          [set: [status: :deprecated]],
-          prefix: schema
-        )
-    end
-
     test "rolling back to a stamped version re-runs the checks; a drift leaves v2 active",
          %{t: t} do
       install_ledger!(t.schema)
@@ -574,6 +699,7 @@ defmodule Letflow.Definitions.ModuleWriteActivationTest do
           prefix: t.schema
         )
 
+      count_before = Repo.aggregate(ProcessDefinition, :count, prefix: t.schema)
       set_installed_hash!(t.schema, String.duplicate("f", 64))
 
       assert {:error, {:entity_writes_invalid, [v(0, :module_write_hash_mismatch)]}} ==
@@ -587,6 +713,10 @@ defmodule Letflow.Definitions.ModuleWriteActivationTest do
 
       assert {:ok, %{version: "1"}} = rollback(t.schema, key, activator(t.user))
       assert %{status: :active, activated_by: %{"module_handlers" => [_]}} = row(t.schema, v1.id)
+      # rollback swaps the active pointer to the EXISTING stamped row: no copy is made, so the
+      # row keeps its stamp and the table gains no row
+      assert Repo.aggregate(ProcessDefinition, :count, prefix: t.schema) == count_before
+      assert {:ok, _stamp} = OwnerStamp.from_row(row(t.schema, v1.id))
     end
   end
 
@@ -595,68 +725,26 @@ defmodule Letflow.Definitions.ModuleWriteActivationTest do
       %{source: tenant!("gh2590-r3-src")}
     end
 
-    defp promote(source, target, graph, activator) do
-      key = unique("promo")
-
-      source_def =
-        %ProcessDefinition{}
-        |> ProcessDefinition.create_changeset(%{
-          name: key,
-          version: "1.0.0",
-          graph: graph,
-          created_by: Ecto.UUID.generate()
-        })
-        |> Repo.insert!(prefix: source.schema)
-
-      {1, _} =
-        Repo.update_all(
-          from(d in ProcessDefinition, where: d.id == ^source_def.id),
-          [set: [status: :active]],
-          prefix: source.schema
-        )
-
-      plan = %{
-        source_tenant_id: source.tenant_id,
-        target_tenant_id: target.tenant_id,
-        process_key: key,
-        source_definition_id: source_def.id,
-        target_definition_id: nil,
-        base_version: nil,
-        entries: []
-      }
-
-      review =
-        struct(PromotionReview, %{
-          id: Ecto.UUID.generate(),
-          plan_digest: PromotionDigest.compute_plan_digest(plan),
-          def_id: key,
-          serialised_plan: Jason.encode!(plan),
-          requested_by: Ecto.UUID.generate(),
-          status: :approved,
-          row_version: 2
-        })
-
-      result =
-        Promotion.promote_definition(Ecto.UUID.generate(), review,
-          activator: activator,
-          permission_checker: fn _actor, _tenant -> true end,
-          event_appender: fn _attrs, _prefix -> {:ok, %{event_id: Ecto.UUID.generate()}} end
-        )
-
-      {result,
-       Repo.all(from(d in ProcessDefinition, where: d.name == ^key), prefix: target.schema)}
-    end
-
     test "a promoted copy is a new unstamped row: its handler line is refused in the target",
          %{t: t, source: source} do
       install_ledger!(t.schema)
       install_ledger!(source.schema)
-      stamped_source = stamped_map(graph([mline()]))
+      handler_graph = graph([mline()])
 
-      # the source holds a stamped, active version; promotion copies the GRAPH only
+      # Promotion creates a NEW row in the target from the source graph; a new row never
+      # carries a stamp, whatever the source row was.
       assert {{:error,
                {:entity_writes_invalid, [%{index: 0, code: :module_write_stamp_missing}]}}, []} =
-               promote(source, t, stamped_source.graph, activator(t.user))
+               promote(source, t, handler_graph, activator(t.user))
+    end
+
+    test "positive control: the same promotion of a graph WITHOUT module_writes succeeds",
+         %{t: t, source: source} do
+      install_ledger!(t.schema)
+      install_ledger!(source.schema)
+
+      assert {{:ok, _}, [%{status: :active, activated_by: nil}]} =
+               promote(source, t, trivial_graph(), activator(t.user))
     end
   end
 end
