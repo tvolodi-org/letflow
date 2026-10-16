@@ -11,6 +11,26 @@ Design only. Signatures, type shapes, step lists, tables and test briefs; no fun
 
 ## Changelog
 
+### Revision 4 (R4a implementation)
+
+`HandlerWrites` ships the handler-facing `create/3` plus two PLATFORM-facing functions for R4b:
+`build_call/4` (the `owner_recheck` step, argument resolution against the current registration,
+the Catalog `apply`, shape check of the returned Multi, step names confined to the call's
+`{:line, k0 + 1 .. k0 + 49, _}` range) and `lock_types/3` (ascending `{:type_lock, type}` steps over
+`EventStore.lock_instance_sequence/3`); `authorize_module_writes/2`, `prepare_targets/2` and
+`interpret_failure/2` are R4b. `StepSource` gains `call_key/1` and `declared_line_index/1` (the
+key to declared-index map the failure interpretation needs). Scan H3 is adjusted to rev 3: the
+resolver is also called by `managed_types.ex` (`owner_for_handler/2`) and
+`definitions/module_writes.ex` (read-only activation validation). H5 is folded in from R2's
+`create_owned_callers_test.exs`. A negative-control module `FixtureLedgerRogue` (misbehaving
+handlers) is registered in `config/test.exs`; the fixture ledger gained `on_install/3` and an
+optional `quantity` field. Security follow-up: a per-call token (exact context + produced entries) makes
+`create/3` refuse a forged context and the executor refuse any step `create/3` did not produce; H4
+also covers `alias ..., as:`, `import Ecto.Multi` and every `.ex` file under the module's directory;
+residuals are in decision 0054's R4a amendment. Not done in R4a: the call-level `{:line, k0, :deadline}` guard (needs the
+engine's `:entity_writes_started` step) and the prepare-time `managed_by` check of the synthetic
+instance (R4b).
+
 ### Revision 3 (R3 implementation, REVIEWER R1)
 
 R3 activation validation lives in `Letflow.Definitions.ModuleWrites` (called from

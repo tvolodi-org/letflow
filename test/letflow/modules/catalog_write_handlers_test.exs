@@ -359,7 +359,9 @@ defmodule Letflow.Modules.CatalogWriteHandlersTest do
       {:ok, handler} = Catalog.write_handler("fixture_ledger", "post_entry")
       multi = Ecto.Multi.new()
 
-      assert {:ok, ^multi} =
+      # R4a: the fixture handler really writes through HandlerWrites.create/3, which refuses
+      # the bogus `%{}` context (not a HandlerContext): the handler's own raw return.
+      assert {:error, :not_permitted} =
                Catalog.call_write_handler(handler, multi, %{}, %{"item" => "a", "quantity" => 2})
 
       assert {:error, :invalid_arguments} =
@@ -371,7 +373,11 @@ defmodule Letflow.Modules.CatalogWriteHandlersTest do
       forged = %{handler | entry_module: System, targets: ["forged"], args: %{}}
       multi = Ecto.Multi.new()
 
-      assert {:ok, ^multi} = Catalog.call_write_handler(forged, multi, %{}, %{"item" => "a"})
+      # the registered function ran (it checked its arguments, then refused the bogus context)
+      assert {:error, :not_permitted} =
+               Catalog.call_write_handler(forged, multi, %{}, %{"item" => "a"})
+
+      assert {:error, :invalid_arguments} = Catalog.call_write_handler(forged, multi, %{}, %{})
     end
 
     test "a forged struct naming an unknown handler is :not_found, nothing applied" do

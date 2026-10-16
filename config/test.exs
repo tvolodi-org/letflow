@@ -310,7 +310,10 @@ config :letflow, :modules, [
   # GH #2590 / REQ-501 R1: registered write handlers (Catalog mechanism tests);
   # test/support/modules/fixture_ledger/ and fixture_ledger_other/.
   Letflow.Modules.FixtureLedger,
-  Letflow.Modules.FixtureLedgerOther
+  Letflow.Modules.FixtureLedgerOther,
+  # GH #2590 / REQ-501 R4a: handlers that misbehave on purpose (negative controls for
+  # HandlerWrites and scan H4); test/support/modules/fixture_ledger_rogue/.
+  Letflow.Modules.FixtureLedgerRogue
 ]
 
 # REQ-439: explicit test default -- no proxy is trusted, so Letflow.Plugs.ClientIp

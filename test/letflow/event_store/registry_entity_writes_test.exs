@@ -2,7 +2,7 @@ defmodule Letflow.EventStore.RegistryEntityWritesTest do
   @moduledoc """
   GH #2587 / REQ-499 PR A1 (design `lib/letflow/design/gh2587-req499-pr-a-prerequisites.md`
   2.3, 2.4, 11 A1 "event types registered"): `INSTANCE_SYS_VARIABLES_SET` and
-  `TASK_ENTITY_WRITES_APPLIED` are seeded at schema_version 1 for a new tenant, re-seeded by
+  `TASK_ENTITY_WRITES_APPLIED` are seeded for a new tenant (the sys event at schema_version 1, the applied event at 2 since GH #2590 R4a), re-seeded by
   `replay_migrations/1` for a tenant provisioned before the change, and both schemas are
   closed (additionalProperties false, every key required). Mirrors
   `tenant_provisioning_script_events_test.exs`.
@@ -68,9 +68,9 @@ defmodule Letflow.EventStore.RegistryEntityWritesTest do
   defp validate(type, payload, tenant_id),
     do: Registry.validate_payload(type, Jason.encode!(payload), tenant_id)
 
-  test "new tenant: both rows at schema_version 1" do
+  test "new tenant: sys row at schema_version 1, applied row at schema_version 2" do
     %{schema_name: schema} = TenantFixture.provisioned_tenant!(slug_prefix: "gh2587-ev")
-    assert registered(schema) == [{@sys, 1}, {@applied, 1}]
+    assert registered(schema) == [{@sys, 1}, {@applied, 2}]
   end
 
   test "rows deleted -> unknown_event_type; replay_migrations/1 re-seeds them" do
@@ -86,7 +86,7 @@ defmodule Letflow.EventStore.RegistryEntityWritesTest do
              validate(@applied, applied_payload(%{}), tenant_id)
 
     assert {:ok, _} = TenantProvisioning.replay_migrations(tenant_id)
-    assert registered(schema) == [{@sys, 1}, {@applied, 1}]
+    assert registered(schema) == [{@sys, 1}, {@applied, 2}]
 
     assert :ok = validate(@sys, sys_payload(), tenant_id)
     assert :ok = validate(@applied, applied_payload(%{}), tenant_id)

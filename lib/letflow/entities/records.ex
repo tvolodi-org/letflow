@@ -517,7 +517,7 @@ defmodule Letflow.Entities.Records do
 
     1. Shape, no query: `kind`; the command carries NO `line_key` or
        `idempotency_key` (else `:invalid_step_source`): the line key is
-       `source.line_index` and the step key is `StepSource.idempotency_key/1`
+       `StepSource.line_key/1` (the `line_index` for a declarative line) and the step key is `StepSource.idempotency_key/1`
        (#2627), which matches `\\Asys:step:[A-Za-z0-9:_.-]+\\z` and is at most 255 bytes (else
        `:invalid_step_key`); `source` is a `Letflow.Entities.StepSource` struct (a
        bare map is refused; the shape is `StepSource.new/1`'s single validation, else
@@ -711,7 +711,7 @@ defmodule Letflow.Entities.Records do
          {:ok, entity_type, field_values} <- check_step_target(command) do
       {:ok,
        %{
-         line_key: source.line_index,
+         line_key: StepSource.line_key(source),
          idempotency_key: key,
          entity_type: entity_type,
          field_values: field_values,

@@ -20,3 +20,7 @@ the `:test` environment references them (same arrangement as `priv/wasm_fixtures
   `fxl_post_mixed` and `fxl_task_plain` (HUMAN_TASK nodes with, with both, and without
   `module_writes`), so a module install
   creates a process definition version that is stamped with its owner.
+* `ledger_rogue.json` -- GH #2590 / REQ-501 R4a: the one managed entity definition `fxr_thing` of
+  `Letflow.Modules.FixtureLedgerRogue`, a module whose handlers misbehave on purpose (negative
+  controls for `Letflow.Entities.HandlerWrites` and the handler-purity scan H4). `ledger_foundation.json`
+  gained an optional `quantity` integer field on both entity types in R4a.

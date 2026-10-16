@@ -324,6 +324,33 @@ create the graph as a draft in the target tenant and activate it there; (c)
 fan-out; (d) treat `activated_by` as untrusted data in any consumer (a sandbox fixture loader
 can set any column in a sandbox schema).
 
+### 5c. Write handlers (GH #2590 / REQ-501, decision 0054 D6)
+
+A module that must write its OWN managed entity types from a process step declares write
+handlers in its manifest (`write_handlers:`, validated by `Catalog.validate/2` rule 10) and
+implements them in a module under its own namespace. Execution is not wired into the engine
+yet (REQ-501 R4b); this section is the contract a handler is written against.
+
+* A handler is `fun(multi, ctx, args)` returning `{:ok, multi}` or `{:error, :invalid_arguments |
+  :not_permitted}`. `ctx` is a `Letflow.Entities.HandlerContext` (ids and names only, no
+  authority); `args` are resolved argument values only (never the instance variables).
+* The ONLY writer is `Letflow.Entities.HandlerWrites.create(multi, ctx, %{entity_type: type,
+  field_values: map})`, which returns `{:ok, multi}` or `{:error, :target_not_registered |
+  :too_many_writes | :invalid_write_command}`. It writes only the handler's registered `targets`
+  (each in `manages_entity_types`), at most 49 creates per call, with the field restrictions of
+  the completing user, an `Owner` the platform derives from the Catalog registration, and a
+  platform-built `StepSource` (module, handler, ordinal). A handler never supplies a key, an
+  actor, a prefix or an `Owner`.
+* A handler reads no table, holds no `repo`, opens no transaction, performs no I/O, starts no
+  process, and uses `Ecto.Multi` only to compose (`new/0`, `append/2`). The scan H4 in
+  `test/letflow/entities/handler_writes_callers_test.exs` flags a handler file that references
+  `Repo`, `Records`, `Owner`, `StepSource`, `EventStore`, `Ecto.Query`, a process or I/O module, an
+  atom-creating call, or any `HandlerWrites` function but `create/3`.
+* The manifest hash covers the declared surface only (`id`, `version`, managed types, each
+  handler's name, function, targets and args), not handler CODE: bump `version` when handler
+  behaviour changes.
+* The handler's update/delete behaviour does not exist: `create` only (OQ-R4).
+
 ## 6. Registration: `config/config.exs`, `config/test.exs`, and `catalog_test.exs`
 
 `Letflow.Modules.Catalog` reads its module list once, at compile time, via

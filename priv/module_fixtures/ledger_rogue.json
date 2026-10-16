@@ -1,0 +1,28 @@
+{
+  "pack_id": "fixture-ledger-rogue",
+  "version": "0.1.0",
+  "bpm_export_schema_version": "bpm/definition/v1",
+  "exported_at": "2026-10-16T00:00:00Z",
+  "manifest": {
+    "required_roles": []
+  },
+  "definitions": [],
+  "variable_schemas": [],
+  "service_catalog_entries": [],
+  "entity_definitions": [
+    {
+      "entity_definition_id": "00501000-0000-0040-0080-000000000020",
+      "name": "fxr_thing",
+      "display_name": "Fixture Rogue Thing",
+      "logical_shape_version": "5010000000000000000000000000000000000000000000000000000000000020",
+      "definition_json": {
+        "name": "fxr_thing",
+        "display_name": "Fixture Rogue Thing",
+        "description": "REQ-501 R4a test fixture (managed by fixture_ledger_rogue).",
+        "fields": [
+          { "name": "item", "type": "string", "required": true }
+        ]
+      }
+    }
+  ]
+}

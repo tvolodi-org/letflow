@@ -327,6 +327,49 @@ whose pinned definition is stamped AND whose pinned snapshot declares `module_wr
 (OQ-R1). The validation lives in `Letflow.Definitions.ModuleWrites` (design rev 3), not behind an EntityPort callback. Pilot limit of the strict hash and its operator symptoms:
 `docs/runbooks/module-write-handlers-manifest-hash.md`.
 
+## Amendment (GH #2590 / REQ-501 PR R4a): D6 handler WRITE path (below the engine)
+
+The platform side of a module write handler's entity writes ships without engine integration:
+`Letflow.Entities.HandlerWrites.create/3` is the only writer a handler sees; it derives the
+`Owner` on every call from the Catalog registration (`ManagedTypes.owner_for_handler/2`, narrowed to
+the handler's registered targets), refuses a type outside those targets, caps a call at 49 creates,
+applies the completer's field restrictions and, in a `:policy` step, requires the type's row to be
+managed by the registering module and unscoped. `StepSource` gains optional `handler` and
+`write_ordinal` (key `20 + line_index * 50 + ordinal`, idempotency key with the ordinal, three more
+metadata keys); declarative lines are byte-identical. `EventStore.lock_instance_sequence/3` is the
+lock-only primitive for the engine's ascending type locks. `TASK_ENTITY_WRITES_APPLIED` is bumped
+IN PLACE to schema_version 2 (three optional line-item keys). The R4b executor re-verifies the
+install row and both hashes at execution time (`HandlerWrites.build_call/4`, step
+`owner_recheck`). Nothing in the engine calls it yet: R3's interim guard stays until R4b.
+
+Security review follow-up (R4a, same PR): `HandlerWrites.build_call/4` sets a per-call token (the
+exact `HandlerContext` it built, plus the entries `create/3` produced) in the calling process
+while the handler runs. `create/3` refuses any context that is not that exact struct (a handler
+cannot forge `prefix`, `handler` or actor fields), and the executor accepts a returned Multi only
+if every entry is one `create/3` produced (same step name and operation), so a handler cannot add
+a `Multi.run`/`insert` with a live repo. Residual, stated plainly: a handler is compiled-in
+module code, and the process dictionary is reachable from it; scan H4 (`Process`, `:erlang`,
+context-key updates, `alias ..., as:`, `import Ecto.Multi`, every `.ex` file under the module's
+directory) is a tripwire for that, not a boundary. The `owner_recheck` step checks row existence
+only: `tenant_modules` has no status column in this build, so uninstall (decision 0055) must
+delete the row or add a status that step then checks. Step-name note for R4b: the overflow failure
+`{:line, 20, :build}` of `StepWrites` (a 21st declarative line) and `call_key(0)` are both key 20;
+they never coexist because the combined declarative + handler line count is capped at 20 before
+any Multi is built.
+
+Outcomes of the items the design left open: (a) boot-time replay reach: there is NO automatic
+boot-time replay. `TenantProvisioning.replay_all_pending/0` is the only sweep and nothing in
+`lib/` calls it at start; a tenant gains the v2 event schema only when replayed (provisioning,
+onboarding, or an operator running that function). R4b must not emit handler lines before the
+rollout has run `replay_all_pending/0`, and its plan phase also refuses a node whose tenant lacks
+v2 (design 4.11). (b) `graph_hash` input form: equality of the pre-insert graph, the persisted row
+and the snapshot copy is proven by R2's test (design 4.2). (c) history allowlist: `Response`
+projects each applied line to `line_index` and `entity_type` only, so the handler keys are not
+exposed to API consumers.
+
+Sign-off for this amendment: pending (SECURITY-REVIEWER re-review after the follow-up above;
+REVIEWER findings 1-3 accepted, no code).
+
 ## Sign-off
 
 REVIEWER:

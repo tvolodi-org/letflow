@@ -18,7 +18,9 @@ defmodule Letflow.Entities.ManagedTypes do
   `test/support/modules/fixture_managed/fixture_managed.ex`). No request field,
   header, opts key or pack key can produce one: the HTTP routers call the arities
   that hard-code `:tenant`. An `Owner` reaches `Letflow.Entities.Records` only from
-  the caller-scan test's `@authority_callers` files. `mix letflow.check_boundaries`
+  the caller-scan test's `@authority_callers` files. GH #2590 R4a adds a third origin,
+  `owner_for_handler/2`, called only here and by `Letflow.Entities.HandlerWrites`, which
+  builds the Owner of a module write handler's write from the Catalog's registration. `mix letflow.check_boundaries`
   cannot express a per-function caller allow-list, so these restrictions are
   pinned by an AST caller-scan test instead
   (`test/letflow/entities/managed_types_callers_test.exs`), and the `Owner` struct
@@ -150,6 +152,31 @@ defmodule Letflow.Entities.ManagedTypes do
       _none ->
         raise ArgumentError,
               "#{inspect(entry_module)} declares no managed entity types"
+    end
+  end
+
+  @doc """
+  The `Owner` the PLATFORM builds for a module write handler's write (GH #2590 / REQ-501 R4a,
+  design `gh2590-req501-module-write-handlers.md` 4.3). It re-resolves the registration itself
+  through `Letflow.Modules.Catalog.write_handler/2` (string comparison over the compiled
+  manifests, so a forged descriptor cannot reach it) and returns an `%Owner{}` whose `module_id`
+  is the registering module and whose `manages` is NARROWED to the handler's registered
+  targets (`version` / `manifest_hash` nil: it carries no stamp inputs). Any unresolvable
+  `(module_id, handler_name)`, including a non-binary, is `{:error, :unknown_handler}`.
+
+  Callers: this module and `Letflow.Entities.HandlerWrites` only (scan H1,
+  `test/letflow/entities/handler_writes_callers_test.exs`). It is not an `owner_for!/1`
+  replacement: that one is for a module's own files.
+  """
+  @spec owner_for_handler(module_id :: term(), handler_name :: term()) ::
+          {:ok, Owner.t()} | {:error, :unknown_handler}
+  def owner_for_handler(module_id, handler_name) do
+    case Catalog.write_handler(module_id, handler_name) do
+      {:ok, %{module_id: resolved_id, targets: targets}} ->
+        {:ok, %Owner{module_id: resolved_id, manages: MapSet.new(targets)}}
+
+      {:error, :not_found} ->
+        {:error, :unknown_handler}
     end
   end
 

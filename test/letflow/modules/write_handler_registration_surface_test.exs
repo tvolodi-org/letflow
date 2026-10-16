@@ -58,7 +58,13 @@ defmodule Letflow.Modules.WriteHandlerRegistrationSurfaceTest do
     # R3 (deliberate edit): the ACTIVATION-time validator resolves a declared handler and reads
     # the compiled manifest hash (reads only; it never calls a handler). The one definitions
     # file allowed to; the execution-time callers arrive in R4a.
-    "lib/letflow/definitions/module_writes.ex"
+    "lib/letflow/definitions/module_writes.ex",
+    # R4a (deliberate edit): the EXECUTION side. `HandlerWrites` is the one place that resolves a
+    # handler, reads the compiled hash for the run-time recheck and applies the handler through
+    # `Catalog.call_write_handler/4` (scan H3 in `handler_writes_callers_test.exs` pins the
+    # same set); `ManagedTypes.owner_for_handler/2` re-resolves the registration to build the
+    # narrowed Owner (scan H1). Nothing else outside the Catalog may.
+    "lib/letflow/entities/handler_writes.ex"
   ]
 
   @api_names [:write_handler, :write_handler_in, :call_write_handler, :manifest_hash]
@@ -159,8 +165,16 @@ defmodule Letflow.Modules.WriteHandlerRegistrationSurfaceTest do
       assert Enum.any?(paths, &String.starts_with?(&1, "lib/letflow/routers/"))
       assert Enum.any?(paths, &String.starts_with?(&1, "lib/letflow/engine/"))
 
-      # R3: the activation validator is the one allowed resolver outside the Catalog
-      paths = paths -- ["lib/letflow/definitions/module_writes.ex"]
+      # R3: the activation validator is the one allowed resolver outside the Catalog.
+      # R4a: the execution side (`HandlerWrites`) and the Owner builder it uses
+      # (`ManagedTypes.owner_for_handler/2`) are the other two (scans H1, H3).
+      paths =
+        paths --
+          [
+            "lib/letflow/definitions/module_writes.ex",
+            "lib/letflow/entities/handler_writes.ex",
+            "lib/letflow/entities/managed_types.ex"
+          ]
 
       for path <- paths do
         refute File.read!(path) =~ "write_handler",
@@ -185,6 +199,19 @@ defmodule Letflow.Modules.WriteHandlerRegistrationSurfaceTest do
       refute source =~ "call_write_handler"
       refute source =~ "write_handler_in"
       refute source =~ "apply("
+    end
+
+    test "R4a: the only file that applies a handler is handler_writes.ex, through the Catalog" do
+      applying =
+        lib_files()
+        |> Enum.filter(&(File.read!(&1) =~ "call_write_handler("))
+        |> Enum.sort()
+
+      # catalog.ex defines it, handler_writes.ex is the single caller
+      assert applying == [
+               "lib/letflow/entities/handler_writes.ex",
+               "lib/letflow/modules/catalog.ex"
+             ]
     end
 
     test "the API scan flags calls, captures and apply forms (synthetic positives) and not docs" do

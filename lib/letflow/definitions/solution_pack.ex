@@ -1508,7 +1508,7 @@ defmodule Letflow.Definitions.SolutionPack do
   # `Definitions.create_owned/3` with the install's `owner`: `:tenant` (a plain pack) is
   # `Definitions.create/2` exactly as before and stamps nothing; a module `Owner` stamps the
   # version row in its INSERT (module id, version, manifest hash, graph hash). This is the
-  # only caller of `create_owned/3` (scan `create_owned_callers_test.exs`).
+  # only caller of `create_owned/3` (scan H5, `handler_writes_callers_test.exs`).
   defp create_packed_definitions(packed_definitions, actor_id, opts, owner) do
     Enum.reduce_while(packed_definitions, {:ok, []}, fn packed, {:ok, acc} ->
       attrs = %{

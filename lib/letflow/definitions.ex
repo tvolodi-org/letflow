@@ -585,7 +585,7 @@ defmodule Letflow.Definitions do
   synthesised from partial data).
 
   Callers: `Letflow.Definitions.SolutionPack` only (static scan
-  `test/letflow/definitions/create_owned_callers_test.exs`); the HTTP routers call `create/2`
+  `test/letflow/entities/handler_writes_callers_test.exs`, scan H5); the HTTP routers call `create/2`
   and cannot reach this function.
   """
   @spec create_owned(attrs :: create_attrs(), opts :: opts(), owner :: ManagedTypes.owner()) ::
