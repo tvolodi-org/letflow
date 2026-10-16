@@ -101,8 +101,6 @@ defmodule Letflow.Idempotency.SquatAudit do
   @certificate_prefix "certificate:issue:"
 
   @batch_size 500
-  @lock_timeout_sql "SET LOCAL lock_timeout = '2s'"
-  @read_only_sql "SET LOCAL transaction_read_only = on"
   @tx_timeout :timer.minutes(5)
 
   @doc "Every key family this module classifies (server prefixes plus reserved ones)."
@@ -191,9 +189,10 @@ defmodule Letflow.Idempotency.SquatAudit do
     result =
       Repo.transaction(
         fn ->
-          # Constant SQL, no interpolation. The postgres-enforced read-only proof (design 4.1).
-          Repo.query!(@read_only_sql)
-          Repo.query!(@lock_timeout_sql)
+          # Constant SQL as inline literals, no interpolation (the lexical SQL scans read
+          # literals only). The postgres-enforced read-only proof (design 4.1).
+          Repo.query!("SET LOCAL transaction_read_only = on")
+          Repo.query!("SET LOCAL lock_timeout = '2s'")
           Repo.rollback({:scanned, scan_batches(schema, nil, 0, [])})
         end,
         timeout: @tx_timeout

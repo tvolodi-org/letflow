@@ -34,7 +34,6 @@ defmodule Letflow.Idempotency.SquatRemediation do
 
   @action "idempotency_squat.remediated"
   @resource_type "event_idempotency"
-  @lock_timeout_sql "SET LOCAL lock_timeout = '2s'"
   @max_key_bytes 255
   @max_operator_bytes 100
 
@@ -97,7 +96,7 @@ defmodule Letflow.Idempotency.SquatRemediation do
     result =
       Repo.transaction(fn ->
         # Constant SQL. Bounds every wait below; a timeout/deadlock maps to :lock_conflict.
-        Repo.query!(@lock_timeout_sql)
+        Repo.query!("SET LOCAL lock_timeout = '2s'")
 
         case lock_row(schema, key) do
           nil -> Repo.rollback(:already_clear)

@@ -483,6 +483,10 @@ defmodule Letflow.Idempotency.SquatAuditTest do
         def c, do: Ecto.Multi.new()
         def d, do: Letflow.Audit.insert_entry(1, 2, 3)
         def e, do: Repo.query!("SELECT 1")
+        def f, do: Repo.query!("SET LOCAL lock_timeout = '2s'")
+        def g, do: Repo.query!("SET LOCAL lock_timeout = '2s'", [1])
+        def h(sql), do: Repo.query!(sql)
+        def i, do: Repo.query!(@lock_timeout_sql)
       end
       """
 
@@ -492,6 +496,9 @@ defmodule Letflow.Idempotency.SquatAuditTest do
                  {:repo_query, "non-constant"},
                  {:multi, :new},
                  {:audit, :insert_entry},
+                 {:repo_query, "non-constant"},
+                 {:repo_query, "non-constant"},
+                 {:repo_query, "non-constant"},
                  {:repo_query, "non-constant"}
                ])
     end
@@ -596,7 +603,8 @@ defmodule Letflow.Idempotency.SquatAuditTest do
 
   @write_funs ~w(insert insert! update update! delete delete! insert_all update_all delete_all
                  insert_or_update insert_or_update! upsert)a
-  @allowed_query_attrs ~w(read_only_sql lock_timeout_sql)a
+  # The only SQL `Repo.query/query!` may carry in squat_audit.ex: these two inline literals.
+  @allowed_query_sql ["SET LOCAL transaction_read_only = on", "SET LOCAL lock_timeout = '2s'"]
 
   defp repo_calls(file) do
     file
@@ -615,16 +623,23 @@ defmodule Letflow.Idempotency.SquatAuditTest do
     ast = file |> File.read!() |> Code.string_to_quoted!()
     assert violations(ast) == [], "#{file}: #{inspect(violations(ast))}"
 
-    # The two allowed constant SET LOCAL statements are exactly these (nothing else may be
-    # smuggled in through the module attributes the allowance trusts).
-    attrs = attribute_strings(ast)
-    assert attrs[:read_only_sql] == "SET LOCAL transaction_read_only = on"
-    assert attrs[:lock_timeout_sql] == "SET LOCAL lock_timeout = '2s'"
+    # Both allowed statements are present, as inline literals.
+    queried =
+      collect(ast, fn
+        {{:., _, [{:__aliases__, _, mods}, fun]}, _, [sql | _]}
+        when fun in [:query, :query!] and is_binary(sql) ->
+          if List.last(mods) == :Repo, do: [sql], else: []
+
+        _ ->
+          []
+      end)
+
+    assert Enum.sort(queried) == Enum.sort(@allowed_query_sql)
   end
 
   # Walks the AST (docs and comments are not code, so a moduledoc quoting a write name cannot
-  # trip it) and reports every write-capable call. `Repo.query/query!` is allowed only with a
-  # module-attribute argument naming one of the two constant SET LOCAL statements.
+  # trip it) and reports every write-capable call. `Repo.query/query!` is allowed only with
+  # exactly one of the two constant SET LOCAL statements as an inline string literal.
   defp violations(ast) do
     ast
     |> strip_docs()
@@ -653,7 +668,7 @@ defmodule Letflow.Idempotency.SquatAuditTest do
     end)
   end
 
-  defp query_violation([{:@, _, [{name, _, _}]} | _]) when name in @allowed_query_attrs, do: []
+  defp query_violation([sql]) when sql in @allowed_query_sql, do: []
   defp query_violation(_), do: [{:repo_query, "non-constant"}]
 
   defp strip_docs(ast) do
@@ -661,15 +676,6 @@ defmodule Letflow.Idempotency.SquatAuditTest do
       {:@, _, [{doc, _, _}]} when doc in [:doc, :moduledoc] -> nil
       other -> other
     end)
-  end
-
-  defp attribute_strings(ast) do
-    ast
-    |> collect(fn
-      {:@, _, [{name, _, [value]}]} when is_binary(value) -> [{name, value}]
-      _ -> []
-    end)
-    |> Map.new()
   end
 
   defp collect(ast, fun) do
