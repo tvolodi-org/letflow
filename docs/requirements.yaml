@@ -36358,7 +36358,7 @@ requirements:
       is the full acceptance-criteria list.
     acceptance_criteria:
       - "1. The acceptance criteria are those of GH #2588 (the issue body is the content authority). NOT DELIVERED."
-    depends_on: [REQ-499]
+    depends_on: []
 
   - id: REQ-501
     title: "Module write handlers (decision 0054 extension): R1 catalog registration, R2 ownership stamp storage, R3 activation checks, R4a handler write API, R4b engine HUMAN_TASK integration, R5 SERVICE_TASK path"
@@ -36376,7 +36376,7 @@ requirements:
     acceptance_criteria:
       - "1. R1-R4b delivered on main (see description). Merge commits were taken from the supervisor's report and PR numbers; not individually re-read."
       - "2. R5 delivered by its own PR after PR C of REQ-499. NOT DELIVERED."
-    depends_on: [REQ-499]
+    depends_on: [REQ-496, REQ-499]
 
   - id: REQ-508
     title: "Document retention policy (forever by default) and legal hold, slice 2 part 1 of decision 0056 D7"
@@ -36420,4 +36420,33 @@ requirements:
       content authority.
     acceptance_criteria:
       - "1. The acceptance criteria are those of GH #2680. NOT DELIVERED."
-    depends_on: [REQ-501]
+    depends_on: [REQ-501, REQ-511, REQ-512]
+
+  - id: REQ-511
+    title: "Exam content snapshot at session start (answer key, passing threshold, certificate flags); scoring never falls back to a default threshold"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 2682
+    # Source: GH #2682 (filed by letflow-2 on a finding by letflow-9c in GH #2596). Prio 1, design first, size L. Gates the infra stamp of the 6 runtime exam types. Id allocated by letflow-2. NOT yet run through REQ-VALIDATOR.
+    description: >
+      The exam session stores a version, hash or snapshot of the exam content at
+      start; scoring reads only that snapshot. The GH #2682 body is the content
+      authority.
+    acceptance_criteria:
+      - "1. The acceptance criteria are those of GH #2682. NOT DELIVERED."
+    depends_on: []
+
+  - id: REQ-512
+    title: "Report of authoring edits to exams with in-progress or grading-pending sessions (read-only, from events rows)"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 2683
+    # Source: GH #2683 (filed by letflow-2). Prio 3. Id allocated by letflow-2. NOT yet run through REQ-VALIDATOR.
+    description: >
+      A read-only report of authoring edits made while an exam has live sessions.
+      The GH #2683 body is the content authority.
+    acceptance_criteria:
+      - "1. The acceptance criteria are those of GH #2683. NOT DELIVERED."
+    depends_on: []
