@@ -68,8 +68,12 @@ defmodule Letflow.Entities.FieldPolicy do
         ) :: {:ok, RequestGuard.guard_ok()} | {:error, RequestGuard.guard_error()}
   def check_request(%{prefix: prefix} = principal, kind, request, %{exempt?: exempt?})
       when is_boolean(exempt?) do
+    # MUTANT M7: the request side loads sets for a user with no grants
+    nogrant_principal = %{principal | user_id: Ecto.UUID.generate()}
+
     with {:ok, refs} <- RequestGuard.field_refs(request, kind, prefix),
-         {:ok, sets} <- load_sets(principal, RequestGuard.restriction_entity_types(refs, request)) do
+         {:ok, sets} <-
+           load_sets(nogrant_principal, RequestGuard.restriction_entity_types(refs, request)) do
       case {RequestGuard.restricted_refs(refs, sets), exempt?} do
         {[], _} -> {:ok, %{sets: sets, exempted: []}}
         {restricted, true} -> {:ok, %{sets: sets, exempted: restricted}}

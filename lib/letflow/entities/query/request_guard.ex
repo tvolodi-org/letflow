@@ -63,9 +63,12 @@ defmodule Letflow.Entities.Query.RequestGuard do
           {:ok, [field_ref()]} | {:error, :request_clause_unwalked} | join_relations_error()
   def field_refs(%{entity_type: entity_type} = request, kind, prefix)
       when kind in [:row, :aggregate] and is_binary(entity_type) and is_binary(prefix) do
-    if Enum.all?(Map.keys(request), &(&1 in @registry[kind])) do
-      with {:ok, filters} <- refs(request, :filters, entity_type, :filter),
-           {:ok, sorts} <- refs(request, :sort, entity_type, :sort),
+    # MUTANT M6: unlisted request keys are ignored (fail-open)
+    if Enum.all?(Map.keys(request), &(&1 in @registry[kind])) or true do
+      # MUTANT M2: the filters walk is skipped
+      with {:ok, filters} <- (_ = refs(request, :filters, entity_type, :filter); {:ok, []}),
+           # MUTANT M1: the sort walk is skipped
+           {:ok, sorts} <- (_ = refs(request, :sort, entity_type, :sort); {:ok, []}),
            {:ok, group_bys} <- refs(request, :group_by, entity_type, :group_by),
            {:ok, measures} <- measure_refs(request, entity_type),
            {:ok, join_ons} <- join_refs(request, entity_type, prefix) do
@@ -174,7 +177,9 @@ defmodule Letflow.Entities.Query.RequestGuard do
           {:ok,
            for relation <- relations,
                %{owner_entity_type: owner, fk_field: fk_field} <- relation.hops do
-             %{entity_type: owner, field: fk_field, clause: :join_on}
+             # MUTANT M3: join_on refs governed by the PRIMARY's set, not the owner's
+             _ = owner
+             %{entity_type: entity_type, field: fk_field, clause: :join_on}
            end}
         end
 

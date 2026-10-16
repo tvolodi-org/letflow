@@ -1909,6 +1909,8 @@ defmodule Letflow.Routers.Entities do
          {:ok, opts} <- build_paginate_opts(body),
          {:ok, checked} <-
            guard_row_request(request, %{user_id: user_id, prefix: prefix}),
+         # MUTANT M9: redaction reloads the restriction set via load_restrictions
+         _ = FieldGrants.load_restrictions(user_id, request.entity_type, prefix),
          {:ok, compiled} <- Compiler.compile(request, prefix),
          {:ok, :allowed} <- TypeAccess.authorized?(user_id, request.entity_type, prefix),
          {:ok, allowlist} <- Allowlist.load(request.entity_type, prefix),
@@ -1951,11 +1953,16 @@ defmodule Letflow.Routers.Entities do
   defp guard_row_request(request, %{user_id: user_id, prefix: prefix} = principal) do
     case TypeAccess.authorized?(user_id, request.entity_type, prefix) do
       {:ok, :denied} ->
-        {:ok, :type_denied}
+        # MUTANT M10: a type-denied caller is no longer skipped by the field guard
+        with {:ok, _ok} <-
+               FieldPolicy.check_request(principal, :row, request, %{exempt?: false}) do
+          {:ok, :type_denied}
+        end
 
       {:ok, :allowed} ->
+        # MUTANT M5: exemption honoured on /query
         with {:ok, ok} <-
-               FieldPolicy.check_request(principal, :row, request, %{exempt?: false}) do
+               FieldPolicy.check_request(principal, :row, request, %{exempt?: true}) do
           {:ok, {:checked, ok}}
         end
 
@@ -2399,12 +2406,14 @@ defmodule Letflow.Routers.Entities do
              %{user_id: user_id, prefix: prefix},
              :row,
              request,
-             %{exempt?: unredacted?}
+             # MUTANT M4: exemption keyed on the route permission only (flag ignored)
+            %{exempt?: (_ = unredacted?; true)}
            ),
          {:ok, compiled} <- Compiler.compile(request, prefix),
-         :ok <- audit_exempted(user_id, path_entity_type, prefix, guard.exempted),
          {:ok, allowlist} <- Allowlist.load(request.entity_type, prefix),
          {:ok, page} <- Cursor.paginate(request, compiled, allowlist, opts, prefix),
+         # MUTANT M8: audit written AFTER Cursor.paginate
+         :ok <- audit_exempted(user_id, path_entity_type, prefix, guard.exempted),
          {:ok, redacted} <- export_redact(page, request, guard.sets, unredacted?) do
       Response.ok(conn, %{
         "record_export_schema_version" => @record_export_schema_version,
