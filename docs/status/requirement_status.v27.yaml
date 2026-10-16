@@ -58,3 +58,21 @@ history:
       (decision 0055): R4b requires replay_all_pending/0 to have run for all
       existing tenants before handler lines emit; the fail-closed backstop is
       403 event_schema_outdated. Follow-ups: GH #2671.
+
+  - req: REQ-499
+    event: done
+    agent: DOC-UPDATER
+    at: "2026-10-16T14:57:00Z"
+    note: >
+      GH #2587. PR C complete (C0 #2649, C2 #2674 3d1579bb, C1 #2684 2b628b53).
+      RELEASE-VALIDATOR re-derived every acceptance criterion from main 2b628b53
+      by reading (all met; verdict NOT VERIFIED by itself, because it could not run
+      tests on a checkout equal to main). letflow-2 then ran nine targeted engine
+      test files one at a time on a checkout equal to 2b628b53, all exit 0:
+      complete_task_entity_writes 41, entity_port_boundary 7, entity_writes_gates 24,
+      service_task_entity_writes 41, entity_writes_lock_order 5,
+      service_task_entity_writes_lock_order 10, service_task_entity_writes_dispatcher 4,
+      service_task_entity_writes_sentinel 2, script_task_entity_writes 19. CI (push
+      run) on 2b628b53 completed success. NOT run: mix letflow.check.test and the
+      full suite. S10 of #2587 found no unmet criterion; deferrals tracked: #2618,
+      #2619, #2644, #2646, #2648, #2685-#2690, #2692 (REQ-513..REQ-515).
