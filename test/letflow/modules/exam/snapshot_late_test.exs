@@ -14,6 +14,9 @@ defmodule Letflow.Modules.Exam.SnapshotLateTest do
       the same call succeeds after the rollout.
     * T-48 .. T-51: a late build whose live rows are broken is a typed grading error that writes
       nothing.
+    * GH #2734 (spec `test/specs/GH-2734.md`): a SOFT-deleted exam, question or key-bearing option
+      is the same typed refusal; other soft-deleted options and session_questions are excluded; an
+      existing snapshot is never rebuilt.
     * T-52 / T-63: ownership comes before every prerequisite probe (R6): a non-owner writes nothing
       and costs exactly as many queries as a nonexistent session.
     * T-59: `Snapshot.ensure_locked/2` builds only (returns `session_after`), the submit persists it
@@ -774,6 +777,227 @@ defmodule Letflow.Modules.Exam.SnapshotLateTest do
         Fx.force_field!(ctx.schema, "answer_option", hd(ctx.q.option_ids), key, {:put, nil})
         assert_late_build_fails!(ctx, {:grading_error, {:key_missing, ctx.q.id}})
       end
+    end
+  end
+
+  # ── GH #2734: a late build never reads soft-deleted content ────────────────────────────────
+
+  describe "GH #2734 a late build refuses a soft-deleted exam, question or key-bearing option, and excludes the rest" do
+    # A started session whose START snapshot is kept for comparison, then made a legacy one.
+    defp legacy_ctx!(slug, specs) do
+      ctx = scenario!(slug, specs, %{})
+      start_snapshot = Fx.session_snapshot(ctx.schema, ctx.session_id)
+      :ok = Fx.legacy_session!(ctx.schema, ctx.session_id)
+      Map.put(ctx, :start_snapshot, start_snapshot)
+    end
+
+    defp soft_delete_option!(ctx, index) do
+      :ok = Fx.delete_record!(ctx.schema, "answer_option", Enum.at(ctx.q.option_ids, index))
+    end
+
+    defp key_missing(ctx), do: {:grading_error, {:key_missing, ctx.q.id}}
+
+    # The late snapshot is built and its item for the first question equals the start item.
+    defp assert_late_item_equals_start!(ctx) do
+      assert {:ok, snapshot} = Snapshot.ensure(ctx.session_id, ctx.candidate, ctx.schema)
+      assert %{"origin" => "late"} = snapshot
+      assert snapshot["questions"][ctx.q.id] == ctx.start_snapshot["questions"][ctx.q.id]
+      snapshot
+    end
+
+    defp multiple_spec, do: {"multiple", [{true, %{}}, {true, %{}}, {false, %{}}]}
+
+    defp truefalse_spec, do: {"truefalse", [{true, %{}}, {false, %{}}]}
+
+    defp three_option_single_spec, do: {"single", [{true, %{}}, {false, %{}}, {false, %{}}]}
+
+    defp likert_option_attrs(weight),
+      do: %{"likert_weight" => weight, "likert_polarity" => "positive"}
+
+    defp session_question_ids(schema, session_id) do
+      Repo.all(
+        from(l in Latest,
+          where:
+            l.entity_type == "session_question" and
+              fragment("?->>?", l.field_values, "session_id") == ^session_id,
+          select: {l.record_id, fragment("?->>?", l.field_values, "question_id")}
+        ),
+        prefix: schema
+      )
+    end
+
+    test "T-49b the live exam is SOFT-deleted: :exam_section_missing on ensure and submit, nothing written, session in progress" do
+      ctx = legacy_scenario!("gh2734-t49b")
+      :ok = Fx.delete_record!(ctx.schema, "exam", ctx.exam.record_id)
+      assert_late_build_fails!(ctx, {:grading_error, :exam_section_missing})
+    end
+
+    test "T-49d a soft-deleted exam and a hard-deleted exam give the identical error value" do
+      soft = legacy_scenario!("gh2734-t49d-soft")
+      :ok = Fx.delete_record!(soft.schema, "exam", soft.exam.record_id)
+
+      hard = legacy_scenario!("gh2734-t49d-hard")
+      :ok = hard_delete!(hard.schema, "exam", hard.exam.record_id)
+
+      soft_result = Snapshot.ensure(soft.session_id, soft.candidate, soft.schema)
+      hard_result = Snapshot.ensure(hard.session_id, hard.candidate, hard.schema)
+
+      assert soft_result == {:error, {:grading_error, :exam_section_missing}}
+      assert soft_result == hard_result
+    end
+
+    test "T-49c a submitted legacy session whose exam is soft-deleted cannot get certificate facts: :exam_section_missing, no write, no audit entry (fail closed)" do
+      ctx = terminal_legacy!("gh2734-t49c", :submitted)
+      :ok = Fx.delete_record!(ctx.schema, "exam", ctx.exam.record_id)
+      before = snapshot_of_state(ctx)
+
+      assert grading(:exam_section_missing) ==
+               Snapshot.ensure_certificate_facts(ctx.session_id, ctx.candidate, ctx.schema)
+
+      assert snapshot_of_state(ctx) == before
+      assert Fx.session_snapshot(ctx.schema, ctx.session_id) == nil
+      assert late_audit(ctx.schema) == []
+    end
+
+    test "T-50b a session_question's question is SOFT-deleted: {:question_item_missing, id}, nothing written" do
+      ctx = legacy_scenario!("gh2734-t50b")
+      :ok = Fx.delete_record!(ctx.schema, "question", ctx.q.id)
+      assert_late_build_fails!(ctx, {:grading_error, {:question_item_missing, ctx.q.id}})
+    end
+
+    test "T-50c GUARD single-choice: a soft-deleted INCORRECT option leaves the built item identical to the start item" do
+      ctx = legacy_ctx!("gh2734-t50c", [three_option_single_spec()])
+      soft_delete_option!(ctx, 1)
+      assert_late_item_equals_start!(ctx)
+    end
+
+    test "T-50c2 single-choice: a soft-deleted CORRECT option refuses {:key_missing, id} although other live options remain" do
+      ctx = legacy_ctx!("gh2734-t50c2", [three_option_single_spec()])
+      soft_delete_option!(ctx, 0)
+      assert_late_build_fails!(ctx, key_missing(ctx))
+    end
+
+    test "T-50c2b truefalse: a soft-deleted CORRECT option refuses {:key_missing, id}; GUARD leg: a soft-deleted INCORRECT option is built with the correct set unchanged" do
+      refused = legacy_ctx!("gh2734-t50c2b-correct", [truefalse_spec()])
+      soft_delete_option!(refused, 0)
+      assert_late_build_fails!(refused, key_missing(refused))
+
+      guard = legacy_ctx!("gh2734-t50c2b-incorrect", [truefalse_spec()])
+      soft_delete_option!(guard, 1)
+      assert_late_item_equals_start!(guard)
+    end
+
+    test "T-50c3 multiple-choice: a soft-deleted CORRECT option refuses {:key_missing, id} even while another correct option stays live" do
+      ctx = legacy_ctx!("gh2734-t50c3", [multiple_spec()])
+      soft_delete_option!(ctx, 0)
+      assert_late_build_fails!(ctx, key_missing(ctx))
+    end
+
+    test "T-50c4 GUARD multiple-choice: a soft-deleted INCORRECT option leaves the built item identical to the start item" do
+      ctx = legacy_ctx!("gh2734-t50c4", [multiple_spec()])
+      soft_delete_option!(ctx, 2)
+      assert_late_item_equals_start!(ctx)
+    end
+
+    test "T-50c5 likert: a soft-deleted weighted option refuses {:key_missing, id}" do
+      ctx = legacy_ctx!("gh2734-t50c5-weighted", [likert_spec()])
+      soft_delete_option!(ctx, 1)
+      assert_late_build_fails!(ctx, key_missing(ctx))
+    end
+
+    test "T-50c5 likert: a soft-deleted option with a nil weight and no is_correct is excluded, the late snapshot is built from the live options" do
+      spec = {"likert", elem(likert_spec(), 1) ++ [{false, likert_option_attrs(2.0)}]}
+      ctx = scenario!("gh2734-t50c5-unweighted", [spec], %{})
+      [live_a, live_b, extra] = ctx.q.option_ids
+      Fx.force_field!(ctx.schema, "answer_option", extra, "likert_weight", {:put, nil})
+      Fx.force_field!(ctx.schema, "answer_option", extra, "likert_polarity", {:put, nil})
+      :ok = Fx.delete_record!(ctx.schema, "answer_option", extra)
+      :ok = Fx.legacy_session!(ctx.schema, ctx.session_id)
+
+      assert {:ok, snapshot} = Snapshot.ensure(ctx.session_id, ctx.candidate, ctx.schema)
+      assert %{"origin" => "late"} = snapshot
+
+      assert snapshot["questions"][ctx.q.id]["likert_options"] |> Map.keys() |> Enum.sort() ==
+               Enum.sort([live_a, live_b])
+    end
+
+    test "T-50c5 likert: a soft-deleted option with a nil weight and is_correct true is key-bearing and refuses {:key_missing, id}" do
+      spec = {"likert", elem(likert_spec(), 1) ++ [{true, likert_option_attrs(2.0)}]}
+      ctx = scenario!("gh2734-t50c5-correct", [spec], %{})
+      extra = List.last(ctx.q.option_ids)
+      Fx.force_field!(ctx.schema, "answer_option", extra, "likert_weight", {:put, nil})
+      Fx.force_field!(ctx.schema, "answer_option", extra, "likert_polarity", {:put, nil})
+      :ok = Fx.delete_record!(ctx.schema, "answer_option", extra)
+      :ok = Fx.legacy_session!(ctx.schema, ctx.session_id)
+
+      assert_late_build_fails!(ctx, key_missing(ctx))
+    end
+
+    test "T-50c7 GUARD shorttext: a soft-deleted option is excluded, the late snapshot is built and holds no deleted id" do
+      ctx = scenario!("gh2734-t50c7", [{"shorttext", []}], %{})
+      option = create_option!(ctx.schema, ctx.q.id, 0, false, %{})
+      :ok = Fx.delete_record!(ctx.schema, "answer_option", option.record_id)
+      :ok = Fx.legacy_session!(ctx.schema, ctx.session_id)
+
+      assert {:ok, snapshot} = Snapshot.ensure(ctx.session_id, ctx.candidate, ctx.schema)
+      assert %{"origin" => "late"} = snapshot
+      assert snapshot["questions"][ctx.q.id]["correct_option_ids"] == []
+      refute inspect(snapshot) =~ option.record_id
+    end
+
+    test "T-50c6 a refusal caused by a soft-deleted key-bearing option leaves the session in progress with no snapshot, no score and no audit entry" do
+      ctx = legacy_ctx!("gh2734-t50c6", [multiple_spec()])
+      soft_delete_option!(ctx, 1)
+      before = snapshot_of_state(ctx)
+
+      assert_late_build_fails!(ctx, key_missing(ctx))
+
+      assert snapshot_of_state(ctx) == before
+      assert before.fv["status"] == "in_progress"
+      refute Map.has_key?(before.fv, "exam_snapshot")
+      assert before.scores == 0
+      assert late_audit(ctx.schema) == []
+    end
+
+    test "T-50d a soft-deleted session_question is excluded from the late snapshot's order and questions" do
+      ctx = legacy_ctx!("gh2734-t50d", [single_spec(), single_spec()])
+      [first, second] = ctx.questions
+
+      assert Enum.sort([first.id, second.id]) ==
+               Enum.sort(Map.keys(ctx.start_snapshot["questions"]))
+
+      assert {removed_record_id, _} =
+               ctx.schema
+               |> session_question_ids(ctx.session_id)
+               |> Enum.find(fn {_record_id, question_id} -> question_id == second.id end)
+
+      :ok = Fx.delete_record!(ctx.schema, "session_question", removed_record_id)
+
+      assert {:ok, snapshot} = Snapshot.ensure(ctx.session_id, ctx.candidate, ctx.schema)
+      assert snapshot["order"] == [first.id]
+      assert Map.keys(snapshot["questions"]) == [first.id]
+    end
+
+    test "R1 GUARD replay: a session that already has a late snapshot keeps it untouched when its exam and question are soft-deleted afterwards" do
+      ctx = legacy_scenario!("gh2734-r1")
+      assert {:ok, snapshot} = Snapshot.ensure(ctx.session_id, ctx.candidate, ctx.schema)
+      :ok = Fx.delete_record!(ctx.schema, "exam", ctx.exam.record_id)
+      :ok = Fx.delete_record!(ctx.schema, "question", ctx.q.id)
+      audits = length(late_audit(ctx.schema))
+      assert audits == 1
+
+      assert {:ok, ^snapshot} = Snapshot.ensure(ctx.session_id, ctx.candidate, ctx.schema)
+
+      assert {:ok, %{questions: [_]}} =
+               Session.get_session_state_for_user(ctx.session_id, ctx.candidate, ctx.schema)
+
+      assert Fx.session_snapshot(ctx.schema, ctx.session_id) == snapshot
+
+      assert {:ok, %{status: :submitted}} =
+               Session.submit(ctx.session_id, ctx.candidate, ctx.schema)
+
+      assert Fx.session_snapshot(ctx.schema, ctx.session_id) == snapshot
+      assert length(late_audit(ctx.schema)) == audits
     end
   end
 
