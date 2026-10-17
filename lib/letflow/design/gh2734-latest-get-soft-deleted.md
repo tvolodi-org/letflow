@@ -60,7 +60,6 @@ Adjacent reads with the same flaw that do NOT go through `get/3` (found while re
 | A2 | `snapshot.ex:813` | `query_all("answer_option", ...)` in `load_item` | soft-deleted options still enter the key/correct set. CHANGE (late path): key-bearing deleted option refuses, other deleted options excluded (section 5). |
 | A3 | `session.ex:564` | `query_all("answer_option")` in `build_option_states` | display only; UNCHANGED (OQ-4). |
 | A5 | `session.ex:966` | `fetch_question_row/3` (START / pool path) reads `answer_option` rows unfiltered and builds the START snapshot source (`session.ex:970-981`) | Same defect class on the START path. UNCHANGED here: out of scope per ruled OQ-2; related follow-ups #2759 / #2760 cover `session.ex:1024` and `lock_exam_row`, but this option read is NOT named by them and needs its own follow-up note. |
-
 | A4 | `session.ex:738-749` | `lock_exam_row/2` (create) selects the exam row with `FOR UPDATE`, no `deleted` condition | a soft-deleted but `active` exam may still start a session. Same class, START path. OQ-2. |
 
 Truthful count: besides the late-path read this issue changes (`snapshot.ex:813`), exactly two other unfiltered
@@ -199,7 +198,7 @@ shorttext (the extra option contributes nothing); those cases are guards.
 | T-50b | same | soft-deleted question: `{:grading_error, {:question_item_missing, q_id}}`, nothing written | yes |
 | T-50c | same | GUARD: soft-deleted INCORRECT option of a single-choice question: late snapshot is built, `correct_option_ids` unchanged (identical to a snapshot taken with no deletion) | no |
 | T-50c2 | same | soft-deleted CORRECT option of a single-choice question (other live options remain, none correct): `{:grading_error, {:key_missing, q_id}}`, nothing written | yes |
-| T-50c2b | same | truefalse: soft-deleted CORRECT option (the other live option incorrect): `{:grading_error, {:key_missing, q_id}}`, nothing written; | yes (correct-option refusal half); the soft-deleted INCORRECT option half (built, `correct_option_ids` unchanged) is a GUARD, passes on main |
+| T-50c2b | same | truefalse: soft-deleted CORRECT option (the other live option incorrect): `{:grading_error, {:key_missing, q_id}}`, nothing written. Second leg, GUARD: soft-deleted INCORRECT option is built with `correct_option_ids` unchanged | yes (correct-option leg); the incorrect-option leg passes on main |
 | T-50c3 | same | multiple-choice, soft-deleted CORRECT option while another correct option stays live: still `{:key_missing, q_id}` refused (not a smaller correct set), nothing written | yes |
 | T-50c4 | same | GUARD: multiple-choice, soft-deleted INCORRECT option: built, `correct_option_ids` identical to a snapshot taken with no deletion | no |
 | T-50c5 | same | likert: soft-deleted weighted option refused with `{:key_missing, q_id}`; soft-deleted option with nil weight and no `is_correct`: the late snapshot is BUILT (red on main, where the deleted option is read as live and its nil weight makes `build_likert` refuse `{:key_missing, q_id}`); soft-deleted option with nil weight and `is_correct: true` refused | yes (all three) |
