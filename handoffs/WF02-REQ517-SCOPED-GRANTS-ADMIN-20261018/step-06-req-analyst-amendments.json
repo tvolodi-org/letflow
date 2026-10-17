@@ -8,7 +8,7 @@
   "file": "handoffs/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018/step-06-req-analyst-amendments.json",
   "created_at": "2026-10-17T16:00:00Z",
   "started_at": "2026-10-17T16:00:19Z",
-  "completed_at": "2026-10-17T16:09:05Z",
+  "completed_at": "2026-10-17T16:12:02Z",
   "status": "COMPLETED",
   "priority": "HIGH",
   "context": {
@@ -133,6 +133,33 @@
         "3": "AC 8 events clarified (last_admin_binding_row writes no guard_refused), reachability note and OQ-1 corrected",
         "4": "explicit count for both actions with justification; AC 23 extended; design section 3.9 must be updated to match",
         "5": "AC 9: caller = token principal or owner user; token test added"
+      }
+    },
+    "round_3": {
+      "trigger": "REQ-VALIDATOR PASS_WITH_FINDINGS on PR #2758, three lows",
+      "changed_acs": {
+        "REQ-517": {
+          "amended": [
+            17,
+            19
+          ]
+        },
+        "REQ-518": {
+          "amended": [
+            21,
+            22
+          ]
+        }
+      },
+      "ac_counts": {
+        "REQ-517": 24,
+        "REQ-518": 22,
+        "REQ-519": 21
+      },
+      "line_ranges": {
+        "REQ-517": "36515-36678",
+        "REQ-518": "36680-36795",
+        "REQ-519": "36797-36935"
       }
     }
   }
