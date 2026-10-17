@@ -698,11 +698,13 @@ defmodule Letflow.Routers.Identity do
 
                 {:error, :self_grant_refused} ->
                   info = %{act: "add_member", principal_type: :user, principal_id: user_id}
+
                   ScopedGrants.record_self_grant_refused(
                     info,
                     ScopedGrants.actor_from_conn(conn),
                     prefix(opts)
                   )
+
                   Response.conflict(conn, "self_grant_refused")
 
                 # GH 2547: rolled back with its audit entry; a server fault.
