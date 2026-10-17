@@ -855,6 +855,11 @@ defmodule Letflow.Modules.Exam.Snapshot do
   defp key_bearing?("likert", option),
     do: fv(option, "likert_weight") != nil or fv(option, "is_correct") == true
 
+  # TRIPWIRE (GH #2734): `shorttext` is exempt only because it is never auto-graded
+  # (`Scoring.score_question/2` never scores a `:short_text`; a session containing one is always
+  # `:grading_pending`). If accepted-answer grading is ever added, flip this to refuse
+  # (`is_correct == true`). The test "short_text is never auto-graded" in snapshot_late_test.exs
+  # fails when that premise stops holding.
   defp key_bearing?(_type, _option), do: false
 
   # `Latest.get_live/3` raises on a non-UUID id; a stored id that is not one is simply "not found".

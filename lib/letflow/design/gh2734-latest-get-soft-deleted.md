@@ -136,7 +136,11 @@ D. RECOMMENDED: add `Latest.get_live/3`, leave `get/3` unchanged, and switch the
     `is_correct: true` and a nil weight is therefore key-bearing and REFUSES (`{:key_missing, question_id}`),
     because `build_item/2` would otherwise have put it in `correct_option_ids` of the likert item; fail closed.
     A deleted likert option with a nil weight and `is_correct` not true is excluded.
-  * `shorttext`: no option is key-bearing; every deleted option is excluded.
+  * `shorttext`: no option is key-bearing; every deleted option is excluded. **Tripwire (supervisor
+    ruling A):** shorttext is exempt only because it is never auto-graded (`scoring.ex:145`,
+    `:41-43`, `session.ex:560`, `:grading_pending` at `scoring.ex:255`). If accepted-answer grading
+    is ever added, flip to refuse. A comment at `key_bearing?/2` and the test "short_text is never
+    auto-graded" in `snapshot_late_test.exs` enforce this.
   Any other (unknown) type keeps its existing `{:question_type_invalid, id}` refusal, unchanged.
   Only live options continue into the snapshot item. Atom decision: REUSE `{:key_missing, question_id}`. A distinct
   atom (e.g. `:key_option_deleted`) would add an error variant a caller or log could use to tell "deleted" from
