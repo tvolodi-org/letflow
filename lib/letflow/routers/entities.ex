@@ -2199,13 +2199,13 @@ defmodule Letflow.Routers.Entities do
 
   @spec run_query_aggregate(Plug.Conn.t(), map(), String.t(), String.t()) :: Plug.Conn.t()
   defp run_query_aggregate(conn, body, user_id, prefix) do
-    with {:ok, request} <- build_aggregate_request(body),
+    with {:ok, request} <- mutant_m7(build_aggregate_request(body)),
          {:ok, _guard_ok} <-
            FieldPolicy.check_request(
              %{user_id: user_id, prefix: prefix},
              :aggregate,
              request,
-             %{exempt?: false}
+             %{exempt?: true} # MUTANT M3
            ),
          {:ok, rows} <- Compiler.run_aggregate(request, prefix) do
       Response.ok(conn, %{"results" => Enum.map(rows, &aggregate_result_map/1)})
@@ -2213,6 +2213,10 @@ defmodule Letflow.Routers.Entities do
       {:error, reason} -> render_aggregate_error(conn, reason)
     end
   end
+
+  # MUTANT M7: parse-validation failures are reported as the guard's 403
+  defp mutant_m7({:error, {:query_field_invalid, _}}), do: {:error, :request_field_restricted}
+  defp mutant_m7(other), do: other
 
   # ══ Aggregate request parsing (design §1) ═════════════════════════════
   #
