@@ -380,7 +380,10 @@ defmodule Letflow.Engine do
   same ascending position as rule 4 above), so a handler cannot reorder or skip them and the
   declarative-vs-handler and handler-vs-handler mixes acquire in one global order. A type the
   handler never writes is locked too (accepted: locks held slightly longer). A handler receives no
-  `repo`, so it can take no other lock.
+  `repo`, so it can take no other lock. GH #2590 R5: a SERVICE_TASK apply with `module_writes`
+  takes the same ascending type locks at the same position of the service Multi (after
+  `:lock_ancestors`, the dispatch row and the projection, before the audit chain row); the
+  handler-call deadline guard shares the C2 apply budget.
 
   Canonical order, per instance X (GH #2695); a path takes a subsequence of it:
   (1) `timers`/dispatch rows of X (cancel, `Scheduler.fire_timer`, service/script apply: before the
@@ -5251,7 +5254,9 @@ defmodule Letflow.Engine do
   # the apply of its result (HTTP: `advance_after_service_task_outcome/4`; script:
   # `apply_script_task_result/3`), through `do_persist_service_task_advance/10`. Reachable since
   # PR C1 lifted the activation fence (`Definitions.check_entity_writes/3` accepts SERVICE_TASK);
-  # `Definitions.ModuleWrites` still refuses `module_writes` on a SERVICE node at activation.
+  # GH #2590 R5 lifted it for `module_writes` too (`Definitions.ModuleWrites`): a SERVICE node's
+  # handler calls run in the same Multi, after the declarative lines, with the platform sentinel
+  # as the event actor and the ACTIVATOR as the field-restriction subject (T-10).
   #
   # A SERVICE_TASK completion is not a request: there is no client, no pending task and the
   # external call is at-most-once (the HTTP dispatch row is already "advanced"; the script row is
@@ -5262,6 +5267,8 @@ defmodule Letflow.Engine do
 
   @typep service_entity_plan :: %{
            lines: [EntityPort.line()],
+           module_writes: [EntityPort.module_write_line()],
+           owner: EntityPort.owner_stamp() | nil,
            node_id: String.t(),
            instance_id: Ecto.UUID.t(),
            dispatch_id: Ecto.UUID.t(),
@@ -5295,10 +5302,10 @@ defmodule Letflow.Engine do
         ) :: {:ok, service_entity_plan() | nil} | {:error, term()}
   defp plan_service_entity_writes(ref, prefix) do
     with {:ok, row} <- service_plan_row(ref, prefix),
-         {:ok, graph} <- fetch_graph(row.instance_id, prefix),
+         {:ok, graph, raw_graph} <- fetch_graph_with_raw(row.instance_id, prefix),
          %{attributes: %{} = attributes} <- find_node(graph, row.node_id),
          declared when declared != {:ok, [], []} <- declared_writes(attributes) do
-      resolve_service_entity_plan(row, declared, elem(ref, 0), prefix)
+      resolve_service_entity_plan(row, declared, raw_graph, elem(ref, 0), prefix)
     else
       _no_lines_or_unreadable -> {:ok, nil}
     end
@@ -5323,24 +5330,30 @@ defmodule Letflow.Engine do
     end
   end
 
-  defp resolve_service_entity_plan(_row, {:malformed, index}, _route, _prefix),
+  defp resolve_service_entity_plan(_row, {:malformed, index}, _raw_graph, _route, _prefix),
     do: {:error, {:service_refused, index, :write_not_permitted, :line_malformed}}
 
-  # `module_writes` is HUMAN_TASK only (activation refuses it elsewhere, with
-  # `:module_writes_node_type_not_supported`): on a SERVICE node it can only be a hand-edited
-  # snapshot, refused fail-closed.
-  defp resolve_service_entity_plan(_row, {:ok, lines, [_ | _]}, _route, _prefix),
-    do: {:error, {:service_refused, length(lines), :write_not_permitted, :module_writes}}
-
-  defp resolve_service_entity_plan(row, {:ok, lines, []}, route, prefix) do
-    with {:cap, true} <- {:cap, length(lines) <= @max_entity_write_lines},
+  # GH #2590 R5: the node's `module_writes` (handler calls) are planned like a HUMAN completion's
+  # (design 6.1 P0b): the combined 20-line cap, the activator, then the run-time authorization
+  # of the stamp, hashes, handler and arguments against the pinned snapshot, then the v2 event
+  # schema backstop, all BEFORE `prepare/2` and every lock. A refusal is a `:service_refused`
+  # (the apply driver lands it in ERROR + DLQ, D-C.8) with ONE public code and the closed detail
+  # atom going to the tenant audit only (INV-5).
+  defp resolve_service_entity_plan(row, {:ok, lines, module_lines}, raw_graph, route, prefix) do
+    with {:cap, true} <-
+           {:cap, length(lines) + length(module_lines) <= @max_entity_write_lines},
          %InstanceProjection{definition_id: definition_id} <-
            Repo.get_by(InstanceProjection, [instance_id: row.instance_id], prefix: prefix),
          {:ok, definition} <- Definitions.get_by_id(definition_id, prefix: prefix),
          {:ok, activator_id, authorized} <- recorded_activator(definition.activated_by),
-         :ok <- check_activator_active(activator_id, prefix) do
+         :ok <- check_activator_active(activator_id, prefix),
+         owner = owner_stamp(definition),
+         :ok <- authorize_service_module_writes(module_lines, owner, raw_graph, lines, prefix),
+         :ok <- check_service_applied_event_schema(module_lines, lines, prefix) do
       plan = %{
         lines: lines,
+        module_writes: module_lines,
+        owner: owner,
         node_id: row.node_id,
         instance_id: row.instance_id,
         dispatch_id: row.id,
@@ -5352,7 +5365,7 @@ defmodule Letflow.Engine do
         guard_budget_ms: 10_000
       }
 
-      case EntityPort.impl().prepare(lines, %{prefix: prefix}) do
+      case EntityPort.impl().prepare(lines, prepare_ctx(prefix, module_lines)) do
         :ok ->
           {:ok, plan}
 
@@ -5369,8 +5382,45 @@ defmodule Letflow.Engine do
       {:error, :entity_write_needs_reactivation} ->
         {:error, :entity_write_needs_reactivation}
 
+      {:error, {:service_refused, _index, _code, _detail}} = refusal ->
+        refusal
+
       _unreadable ->
         {:ok, nil}
+    end
+  end
+
+  # The service twin of `authorize_module_writes/7`: the same port call, a `:service_refused`
+  # instead of a request refusal (the audit entry is written by the landing, with the dispatch id).
+  defp authorize_service_module_writes([], _owner, _raw_graph, _lines, _prefix), do: :ok
+
+  defp authorize_service_module_writes(module_lines, owner, raw_graph, lines, prefix) do
+    case EntityPort.impl().authorize_module_writes(module_lines, %{
+           prefix: prefix,
+           owner: owner,
+           snapshot_graph: raw_graph,
+           entity_write_count: length(lines)
+         }) do
+      :ok ->
+        :ok
+
+      {:error, {index, detail}} ->
+        {:error, {:service_refused, index, :write_not_permitted, detail}}
+    end
+  end
+
+  # The service twin of `check_applied_event_schema/5` (rollout backstop, decision 0054 R4a/R5
+  # amendment): a tenant without `TASK_ENTITY_WRITES_APPLIED` v2 cannot append a handler line's
+  # APPLIED event, so it is refused up front, fail closed, and lands in ERROR + DLQ.
+  defp check_service_applied_event_schema([], _lines, _prefix), do: :ok
+
+  defp check_service_applied_event_schema(_module_lines, lines, prefix) do
+    case EventRegistry.max_schema_version(EntityPort.applied_event_type(), prefix) do
+      version when is_integer(version) and version >= 2 ->
+        :ok
+
+      _outdated ->
+        {:error, {:service_refused, length(lines), :write_not_permitted, :event_schema_outdated}}
     end
   end
 
@@ -5384,9 +5434,11 @@ defmodule Letflow.Engine do
         _no_attributes -> {:ok, [], []}
       end
 
+    # GH #2590 R5: a node that declares `module_writes` is `:ok` only when the plan carries those
+    # exact lines too (a plan made from the declarative lines alone would skip the handler calls).
     case {declared, plan} do
       {{:ok, [], []}, _plan} -> :ok
-      {{:ok, lines, []}, %{lines: lines}} -> :ok
+      {{:ok, lines, module_lines}, %{lines: lines, module_writes: module_lines}} -> :ok
       _unplanned -> {:error, {:entity_write_failed, 0, :not_planned}}
     end
   end
@@ -5615,7 +5667,12 @@ defmodule Letflow.Engine do
       variables: fn _changes -> variables end,
       # This Multi exists only when the hop chain advanced: nothing to skip.
       skip?: fn _changes -> false end,
-      guard_budget_ms: plan.guard_budget_ms
+      guard_budget_ms: plan.guard_budget_ms,
+      # GH #2590 R5: the handler calls of the node, with the stamp's opaque strings (the engine
+      # names no module); `HandlerWrites` re-resolves everything from them.
+      module_writes: plan.module_writes,
+      owner: plan.owner,
+      entity_write_count: length(plan.lines)
     }
 
     multi
@@ -5651,12 +5708,15 @@ defmodule Letflow.Engine do
         "lines_hash" => lines_hash,
         "lines" =>
           Enum.map(applied, fn line ->
-            %{
-              "line_index" => line.line_index,
-              "entity_type" => line.entity_type,
-              "record_id" => line.record_id,
-              "event_global_seq" => line.event_global_seq
-            }
+            Map.merge(
+              %{
+                "line_index" => line.line_index,
+                "entity_type" => line.entity_type,
+                "record_id" => line.record_id,
+                "event_global_seq" => line.event_global_seq
+              },
+              handler_keys(line)
+            )
           end)
       }
 
@@ -5700,22 +5760,26 @@ defmodule Letflow.Engine do
           resource_type: "entity_record",
           resource_id: line.record_id,
           before_state: nil,
-          after_state: %{
-            "entity_type" => line.entity_type,
-            "record_id" => line.record_id,
-            "dispatch_id" => plan.dispatch_id,
-            "activator_id" => plan.activator_id,
-            "instance_id" => plan.instance_id,
-            "node_id" => plan.node_id,
-            "definition_id" => plan.definition_id,
-            "definition_version" => plan.definition_version,
-            "line_index" => line.line_index,
-            "lines_hash" => lines_hash
-          },
+          after_state:
+            Map.merge(
+              %{
+                "entity_type" => line.entity_type,
+                "record_id" => line.record_id,
+                "dispatch_id" => plan.dispatch_id,
+                "activator_id" => plan.activator_id,
+                "instance_id" => plan.instance_id,
+                "node_id" => plan.node_id,
+                "definition_id" => plan.definition_id,
+                "definition_version" => plan.definition_version,
+                "line_index" => line.line_index,
+                "lines_hash" => lines_hash
+              },
+              handler_keys(line)
+            ),
           trace_id: nil
         }
 
-        Multi.run(acc, {:entity_write_audit, line.line_index}, fn repo, _changes ->
+        Multi.run(acc, audit_step_name(line), fn repo, _changes ->
           Audit.insert_entry(repo, attrs, prefix)
         end)
       end)

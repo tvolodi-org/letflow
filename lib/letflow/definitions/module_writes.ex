@@ -2,7 +2,7 @@ defmodule Letflow.Definitions.ModuleWrites do
   @moduledoc """
   GH #2590 / REQ-501 PR R3 (decision 0054 D6; design
   `lib/letflow/design/gh2590-req501-module-write-handlers.md` 5.1, 5.2, D-R.6, D-R.16): the
-  ACTIVATION-time validation of a HUMAN_TASK node's `module_writes` attribute, shared by the
+  ACTIVATION-time validation of a HUMAN_TASK or (R5) SERVICE_TASK node's `module_writes` attribute, shared by the
   three activation paths (`Definitions.activate/2`, version rollback, promotion apply) through
   `Letflow.Definitions.check_entity_writes/3`.
 
@@ -48,6 +48,13 @@ defmodule Letflow.Definitions.ModuleWrites do
 
   # The combined cap of declarative and handler lines on one node (design 4.7).
   @max_lines 20
+
+  # GH #2590 R5 (design D-R.18, section 13): the node types that may declare `module_writes`.
+  # SERVICE_TASK joined HUMAN_TASK once its apply routes (HTTP and script-bound) composed the
+  # handler calls. A script output is never a command: the module, the handler and the lines are
+  # fixed by the stamped definition; a script (or an HTTP body) can only feed a declared `var`
+  # argument, which the handler validates.
+  @node_types [:HUMAN_TASK, :SERVICE_TASK]
 
   @line_keys ["module", "handler", "args"]
 
@@ -111,14 +118,14 @@ defmodule Letflow.Definitions.ModuleWrites do
     node_codes =
       cond do
         not is_list(writes) -> [:module_writes_not_a_list]
-        node_type != :HUMAN_TASK -> [:module_writes_node_type_not_supported]
+        node_type not in @node_types -> [:module_writes_node_type_not_supported]
         true -> []
       end
 
     activator_node_codes = if is_list(writes), do: activator_codes, else: []
 
     {line_violations, cap_violations} =
-      if is_list(writes) and node_type == :HUMAN_TASK do
+      if is_list(writes) and node_type in @node_types do
         {line_violations(writes, definition, entity_write_count, prefix),
          cap_violations(writes, entity_write_count)}
       else

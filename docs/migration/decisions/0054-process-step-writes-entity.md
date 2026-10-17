@@ -448,10 +448,96 @@ fence: `Definitions.check_entity_writes/3` accepts `entity_writes` on a `SERVICE
 routes) on the three activation paths, with the unchanged violation codes and the unchanged
 activator authority (`activated_by`, never settable through a request). Every other node type still
 gets `entity_writes_node_type_not_supported`; `module_writes` on a SERVICE_TASK node is still
-refused (`module_writes_node_type_not_supported`). New product behaviour, recorded in
+refused (`module_writes_node_type_not_supported`; lifted by the R5 amendment below). New product behaviour, recorded in
 `docs/runbooks/service-task-entity-write-refusal.md`: a refusal or internal failure of a service
 task's entity step lands the instance in ERROR + DLQ (it cannot stay pending). Design:
 `lib/letflow/design/gh2587-req499-pr-c-service-task-writes.md`.
+
+## Amendment (GH #2590 / REQ-501 PR R5): module write handlers on a SERVICE_TASK node
+
+R5 lifts the last fence of D6: a stamped definition may declare `module_writes` on a SERVICE_TASK
+node, HTTP route and script-bound route alike (`Definitions.ModuleWrites` accepts the node type;
+the activation codes, the activator authority and the stamp rules are unchanged). D-R.18 ("a script
+output is never a command") holds: the module, handler and arguments are fixed by the stamped
+definition and the install-time stamp; a script output or an HTTP body can only feed a declared
+`var` argument, exactly as it can feed a declarative line, and the handler validates it.
+
+Composition (design 4.6, 6.1, PR C D-C.4/D-C.7/D-C.9): the service plan carries `module_writes`,
+`owner` (the stamp read from the definition row) and uses the raw snapshot; the plan phase runs, in
+order, the combined 20-line cap, the activator checks, `EntityPort.authorize_module_writes/2`
+(stamp, install, both hashes, handler, arguments, body hash against the PINNED snapshot), the
+`TASK_ENTITY_WRITES_APPLIED` v2 backstop and `prepare/2`, all before any lock. The S4 fail-closed
+guard requires the plan to carry the node's `module_writes` as well as its lines. The Multi is the
+existing service Multi (`:lock_ancestors` first, #2695; dispatch and projection locks; then the
+ascending type locks of the declarative-plus-handler union; audit chain row last); each handler call
+sits behind the call-level deadline guard whose budget is the C2 `min(10 s, remaining - 8 s)`
+(handler lines count toward the 20-line cap). The handler context carries the dispatch origin, the
+platform sentinel as actor and the ACTIVATOR as the field-restriction subject; idempotency keys are
+`sys:step:<dispatch_id>:<line_index>:<ordinal>`. Handler values get the service byte caps of D-C.7
+(`validation_failed`, detail `value_too_large`).
+
+Failure mapping is the C2 one (D-C.8): a refusal rolls the apply back and lands the instance in
+ERROR + one value-free DLQ entry in a second transaction, with the public codes of design section 8
+and the closed detail atom in the `entity_write.refused` audit entry only; `hash_mismatch` inside
+the transaction (the no-lock `owner_recheck`) is `write_not_permitted`; the deadline guard and
+the contention classes are re-applied (3 attempts) and then land as `entity_write_contention`.
+
+Rollout: `TenantProvisioning.replay_all_pending/0` must have run for every tenant BEFORE the first
+handler-calling service definition is activated (the `event_schema_outdated` landing is the
+backstop). Because a service completion cannot stay pending, the strict manifest-hash pilot limit
+(OQ-R3) means ERROR + DLQ instead of a pending task for a SERVICE node; see
+`docs/runbooks/module-write-handlers-manifest-hash.md` and
+`docs/runbooks/service-task-entity-write-refusal.md`.
+
+The fence is the stamped snapshot, not the node type. A script-bound node can now write module data, so
+the separation-of-duties and publish rules of decision 0053 D6 apply to such a script: a script
+computing stock quantities needs the same publish-time review (`ScriptsWrite` / `ScriptsPublish`,
+`scripts.sod` strict or solo_audited, the stored test cases that must pass before publish) as any
+other script; nothing in this PR relaxes or waives them.
+
+Script-bound conditions (advisor ruling; each is visible in code and covered by a test):
+
+1. A script cannot affect handler selection. Module, handler and line come from the stamped, hash-
+   verified snapshot (`Engine.resolve_service_entity_plan/5` -> `HandlerWrites.authorize_module_writes/2`
+   and `StepWrites.append_handler_calls/6`, `HandlerWrites.build_call/4`/`invoke/4`: `resolve/1` reads
+   the PINNED line); the ordinal is minted in `HandlerWrites.create/3` (`next_ordinal/1`) and the key in
+   `StepSource.idempotency_key/1`. Test: `module_write_service_task_test.exs` "COND 1: script output
+   keys named module/handler/ordinal/... are ignored".
+2. A script output only fills declared `var` arguments (`HandlerWrites.resolve_args/3`, `put_arg/4`:
+   argument names the handler did not declare are refused; a `var` naming a reserved `_sys` key resolves to nothing) and the handler validates them
+   (`test/support/modules/fixture_ledger/handlers.ex`: string item, non-negative integer quantity).
+   Undeclared and `_sys` output keys never get that far: the closed output schema rejects the run
+   (`ScriptTaskDispatcher`, outcome `output_invalid`). Tests: "COND 2: a script output violating the
+   handler's validation (negative quantity)", "... (string quantity)", "... undeclared output keys and
+   `_sys` keys".
+3. The write goes through the same path as every other caller, outside the Lua process, after the
+   script returned: `Engine.apply_script_task_result/3` -> `maybe_service_entity_writes/5` ->
+   `EntityPort.multi/3` -> `StepWrites.multi/3` -> `HandlerWrites.build_call/4`, actor
+   `EventStore.platform_actor_id()`, key `sys:step:<dispatch_id>:<line>:<ordinal>`. Tests:
+   `lua_host_no_handler_access_test.exs` (inverted scan over ALL of `lib/**/*.ex`: only an explicit
+   allowlist of ten files may name `HandlerWrites`, `HandlerContext`, `write_handler`,
+   `write_handler_in` or `call_write_handler`, so every Lua, script, wasm, exam-scoring and admission
+   file is covered; a named assertion keeps the Lua/script/wasm surface out of the allowlist;
+   non-vacuity cases) and the script-route success test
+   "activation accepts the stamped script-bound node; the run commits the handler writes" (sentinel
+   actor, dispatch key, activator).
+
+If a reviewer finds any of the three not holding, the fallback is HTTP-only: drop the script clause
+from `Definitions.ModuleWrites` (one line) and refuse a script-bound node's `module_writes` in
+`resolve_service_entity_plan/5`.
+
+Review outcome (recorded, not a sign-off): SECURITY-REVIEWER returned PASS_WITH_FINDINGS and RULED that
+script-bound SERVICE_TASK nodes are allowed (consistent with 0053/0054 D2: the module, handler, arguments
+and ordinal come from the stamped snapshot, a script output only feeds a declared `var` argument). REVIEWER
+returned PASS_WITH_FINDINGS and TEST-DESIGN-VALIDATOR FAIL on missing test rows, which this PR addresses.
+
+Authorization parity with HUMAN: a handler line is authorized by the definition stamp, the manifest hash
+triple and the `managed_by` assertion of its registered target, NOT by the activator's recorded
+(entity type, `create`) pairs (those authorize declarative lines only); the activator contributes the
+field-restriction subject and `source.activator_id`. A `var` argument on a SERVICE_TASK node is EXTERNAL
+data (an HTTP response or a script output): the handler must validate its type, shape and size.
+
+Sign-off for this amendment: pending (SECURITY-REVIEWER and REVIEWER on the R5 PR).
 
 ## Sign-off
 

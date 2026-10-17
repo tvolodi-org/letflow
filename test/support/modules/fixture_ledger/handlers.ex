@@ -2,6 +2,9 @@ defmodule Letflow.Modules.FixtureLedger.Handlers do
   @moduledoc """
   Handler functions of `Letflow.Modules.FixtureLedger` (GH #2590 R1; real writes since R4a).
   Contract: `(multi, ctx, args) :: {:ok, multi} | {:error, :invalid_arguments | :not_permitted}`.
+  `post_entry` validates its arguments like a real ledger handler (GH #2590 R5, advisor condition 2):
+  `item` a string, `quantity` a NON-NEGATIVE integer; anything else is `:invalid_arguments` (the
+  values can come from a script output or an HTTP response).
 
   They write ONLY through `Letflow.Entities.HandlerWrites.create/3` (no `Repo`, no `Records`,
   no `Owner`): `post_entry` appends a `fxl_ledger` row and a `fxl_balance` row,
@@ -14,7 +17,7 @@ defmodule Letflow.Modules.FixtureLedger.Handlers do
   @spec post_entry(Ecto.Multi.t(), Letflow.Entities.HandlerContext.t(), map()) ::
           {:ok, Ecto.Multi.t()} | {:error, :invalid_arguments | :not_permitted}
   def post_entry(multi, ctx, %{"item" => item, "quantity" => quantity})
-      when is_binary(item) and is_integer(quantity) do
+      when is_binary(item) and is_integer(quantity) and quantity >= 0 do
     values = %{"item" => item, "quantity" => quantity}
 
     with {:ok, multi} <-

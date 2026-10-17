@@ -417,7 +417,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
       assert_nothing_written(ctx)
     end
 
-    test "a `module_writes` attribute on a SERVICE node is refused fail-closed" do
+    test "a hand-edited `module_writes` line on a SERVICE node is refused fail-closed" do
       graph = Fx.service_graph(two_lines(), %{"module_writes" => [%{"module" => "m"}]})
       ctx = Fx.service_case!("gh2587c-svc-mw", graph)
 
@@ -426,7 +426,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesTest do
       assert [entry] = Fx.dlq_entries(ctx.schema)
       assert entry.error_detail["code"] == "write_not_permitted"
       assert [refused] = Fx.audit_rows(ctx.schema, "entity_write.refused")
-      assert refused.after_state["detail"] == "module_writes"
+      assert refused.after_state["detail"] == "line_malformed"
       assert_nothing_written(ctx)
     end
 

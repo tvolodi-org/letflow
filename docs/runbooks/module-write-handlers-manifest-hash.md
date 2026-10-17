@@ -8,8 +8,10 @@ handlers.
 
 ## Status
 
-PR R3 added the ACTIVATION checks; PR R4b (this revision) executes the handlers on a HUMAN_TASK
-completion and re-runs the same checks at every completion. A definition that declares
+PR R3 added the ACTIVATION checks; PR R4b executes the handlers on a HUMAN_TASK completion and
+re-runs the same checks at every completion; PR R5 (this revision) does the same for a SERVICE_TASK
+node (HTTP and script-bound), where a refusal cannot leave anything pending and lands the instance
+in ERROR + DLQ instead (`docs/runbooks/service-task-entity-write-refusal.md`). A definition that declares
 `module_writes` is validated when it is activated, and a completion of a task whose node declares
 `module_writes` runs the handler inside the completion transaction (or is refused with a 403
 `write_not_permitted` and the task stays pending, see the table below). No production tenant uses
@@ -45,6 +47,7 @@ whenever handler behaviour changes.
 | Completing an in-flight task of a handler-calling definition (R4b onward) | 403 `write_not_permitted` with the handler call's DECLARED `line_index` (declarative lines come first, so a node with N declarative lines reports N for its first handler call); the task stays `pending`; nothing is committed; the tenant audit log has an `entity_write.refused` entry with detail `hash_mismatch` (the detail also reads `hash_mismatch` when the install row has no recorded hash) |
 | A completion on a tenant that was never replayed to the `TASK_ENTITY_WRITES_APPLIED` v2 event schema | the same 403; audit detail `event_schema_outdated`; run `TenantProvisioning.replay_all_pending/0` (see Rollout) |
 | A completion whose stamp, installed module, handler or pinned graph no longer matches | the same 403; audit detail `stamp_missing`, `stamp_mismatch`, `module_not_installed`, `handler_unknown`, `body_changed`, `arg_unknown` or `arg_missing` |
+| Completing a SERVICE_TASK node that calls handlers (R5) | there is no request and no task that can stay pending: the instance goes to ERROR with one DLQ entry `{"line_index", "code": "write_not_permitted", "dispatch_id"}` and an `entity_write.refused` audit entry with the same detail atoms as above; the service result is not applied. Re-driving the instance after the cause is fixed is a separate operator action |
 | A handler that rejects its arguments | 422 `validation_failed`, same `line_index`; audit detail `handler_invalid_arguments` |
 | A handler fault (raise, throw, exit, contract violation) | 500 with no body detail; the log line carries the module id and handler name only |
 
@@ -76,6 +79,14 @@ Before the first build that lets a tenant complete a handler-calling task is dep
 `event_type_registry` is 2. The engine refuses a handler completion on a tenant without v2
 (403 `write_not_permitted`, audit detail `event_schema_outdated`, nothing committed): that refusal
 is the fail-closed backstop, not the plan.
+
+## R5 note: replay_all_pending and the infra inventory
+
+R5 lifts the last activation fence: before it, a SERVICE_TASK node declaring `module_writes` could
+not be activated. The same `replay_all_pending/0` precondition applies, now also to service
+completions. Inventory to re-run before enabling a handler-calling service definition in a tenant:
+the count of active definition versions whose graph has `module_writes` on a SERVICE_TASK node
+(expected zero before R5: activation refused it, and run time refused a hand-edited snapshot).
 
 ## R4b note: what the removal of the interim guard changed
 

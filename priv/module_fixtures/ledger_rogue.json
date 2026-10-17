@@ -473,6 +473,554 @@
       },
       "process_key": "fxr_loose_step",
       "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000000040",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "svc"
+          },
+          {
+            "id": "e2",
+            "source": "svc",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "endpoint": "https://example.test/svc",
+              "method": "POST",
+              "module_writes": [
+                {
+                  "args": {},
+                  "handler": "throws",
+                  "module": "fixture_ledger_rogue"
+                }
+              ],
+              "timeout_ms": 300000
+            },
+            "id": "svc",
+            "node_type": "SERVICE_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "fxr_svc_throws",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000000041",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "svc"
+          },
+          {
+            "id": "e2",
+            "source": "svc",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "endpoint": "https://example.test/svc",
+              "method": "POST",
+              "module_writes": [
+                {
+                  "args": {},
+                  "handler": "exits",
+                  "module": "fixture_ledger_rogue"
+                }
+              ],
+              "timeout_ms": 300000
+            },
+            "id": "svc",
+            "node_type": "SERVICE_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "fxr_svc_exits",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000000042",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "svc"
+          },
+          {
+            "id": "e2",
+            "source": "svc",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "endpoint": "https://example.test/svc",
+              "method": "POST",
+              "module_writes": [
+                {
+                  "args": {},
+                  "handler": "drop_policy",
+                  "module": "fixture_ledger_rogue"
+                }
+              ],
+              "timeout_ms": 300000
+            },
+            "id": "svc",
+            "node_type": "SERVICE_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "fxr_svc_drop_policy",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000000043",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "svc"
+          },
+          {
+            "id": "e2",
+            "source": "svc",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "endpoint": "https://example.test/svc",
+              "method": "POST",
+              "module_writes": [
+                {
+                  "args": {
+                    "label": {
+                      "var": "label"
+                    }
+                  },
+                  "handler": "denies",
+                  "module": "fixture_ledger_rogue"
+                }
+              ],
+              "timeout_ms": 300000
+            },
+            "id": "svc",
+            "node_type": "SERVICE_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "fxr_svc_denies",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000000044",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "svc"
+          },
+          {
+            "id": "e2",
+            "source": "svc",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "endpoint": "https://example.test/svc",
+              "method": "POST",
+              "module_writes": [
+                {
+                  "args": {},
+                  "handler": "raises",
+                  "module": "fixture_ledger_rogue"
+                }
+              ],
+              "timeout_ms": 300000
+            },
+            "id": "svc",
+            "node_type": "SERVICE_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "fxr_svc_raises",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000000045",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "svc"
+          },
+          {
+            "id": "e2",
+            "source": "svc",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "endpoint": "https://example.test/svc",
+              "method": "POST",
+              "module_writes": [
+                {
+                  "args": {},
+                  "handler": "bad_return",
+                  "module": "fixture_ledger_rogue"
+                }
+              ],
+              "timeout_ms": 300000
+            },
+            "id": "svc",
+            "node_type": "SERVICE_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "fxr_svc_bad_return",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000000046",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "svc"
+          },
+          {
+            "id": "e2",
+            "source": "svc",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "endpoint": "https://example.test/svc",
+              "method": "POST",
+              "module_writes": [
+                {
+                  "args": {},
+                  "handler": "loose_step",
+                  "module": "fixture_ledger_rogue"
+                }
+              ],
+              "timeout_ms": 300000
+            },
+            "id": "svc",
+            "node_type": "SERVICE_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "fxr_svc_loose_step",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000000047",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "svc"
+          },
+          {
+            "id": "e2",
+            "source": "svc",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "endpoint": "https://example.test/svc",
+              "method": "POST",
+              "module_writes": [
+                {
+                  "args": {},
+                  "handler": "out_of_range_step",
+                  "module": "fixture_ledger_rogue"
+                }
+              ],
+              "timeout_ms": 300000
+            },
+            "id": "svc",
+            "node_type": "SERVICE_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "fxr_svc_out_of_range_step",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000000048",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "svc"
+          },
+          {
+            "id": "e2",
+            "source": "svc",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "endpoint": "https://example.test/svc",
+              "method": "POST",
+              "module_writes": [
+                {
+                  "args": {},
+                  "handler": "writes_foreign_type",
+                  "module": "fixture_ledger_rogue"
+                }
+              ],
+              "timeout_ms": 300000
+            },
+            "id": "svc",
+            "node_type": "SERVICE_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "fxr_svc_writes_foreign_type",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000000049",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "svc"
+          },
+          {
+            "id": "e2",
+            "source": "svc",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "endpoint": "https://example.test/svc",
+              "method": "POST",
+              "module_writes": [
+                {
+                  "args": {
+                    "label": {
+                      "var": "label"
+                    }
+                  },
+                  "handler": "invalid",
+                  "module": "fixture_ledger_rogue"
+                }
+              ],
+              "timeout_ms": 300000
+            },
+            "id": "svc",
+            "node_type": "SERVICE_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "fxr_svc_invalid",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-00000000004a",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "svc"
+          },
+          {
+            "id": "e2",
+            "source": "svc",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "endpoint": "https://example.test/svc",
+              "method": "POST",
+              "module_writes": [
+                {
+                  "args": {},
+                  "handler": "forge_handler",
+                  "module": "fixture_ledger_rogue"
+                }
+              ],
+              "timeout_ms": 300000
+            },
+            "id": "svc",
+            "node_type": "SERVICE_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "fxr_svc_forge_handler",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-00000000004b",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "svc"
+          },
+          {
+            "id": "e2",
+            "source": "svc",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "endpoint": "https://example.test/svc",
+              "method": "POST",
+              "module_writes": [
+                {
+                  "args": {},
+                  "handler": "run_after_create",
+                  "module": "fixture_ledger_rogue"
+                }
+              ],
+              "timeout_ms": 300000
+            },
+            "id": "svc",
+            "node_type": "SERVICE_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "fxr_svc_run_after_create",
+      "version": "1.0.0"
     }
   ],
   "entity_definitions": [

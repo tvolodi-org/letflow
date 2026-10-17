@@ -5,7 +5,9 @@ defmodule Letflow.Entities.HandlerWrites do
   of a module write handler's entity writes. R4a shipped the write path and its static scans;
   R4b wires it into a HUMAN_TASK completion (`Letflow.Engine` -> `EntityPort` -> `StepWrites`
   -> here): `authorize_module_writes/2` before the transaction, `prepare_targets/2` for the
-  synthetic instances, `lock_types/3` and `build_call/4` inside it.
+  synthetic instances, `lock_types/3` and `build_call/4` inside it. R5 reaches the same functions
+  from a SERVICE_TASK apply (origin `{:dispatch, id}`, platform sentinel as `actor_id`, the
+  activator as `subject_id`); `create/3` additionally byte-caps a service-origin write's values.
 
   ## Handler-facing API: `create/3` only
 
@@ -222,6 +224,9 @@ defmodule Letflow.Entities.HandlerWrites do
       if origin_tag == :task, do: %{task_id: origin_id}, else: %{dispatch_id: origin_id}
 
     with :ok <- check_restrictions(ctx, entity_type, field_values),
+         # GH #2590 R5: values that may come from a service response or a script output are
+         # byte-capped on the service origin, exactly as a declarative line's are (D-C.7).
+         :ok <- StepWrites.check_service_sizes(field_values, ctx.origin),
          {:ok, source} <-
            StepSource.new(
              Map.merge(origin_attrs, %{
@@ -544,6 +549,9 @@ defmodule Letflow.Entities.HandlerWrites do
 
   defp resolve_args(_args, _declared, _variables), do: {:error, :handler_invalid_arguments}
 
+  # A `var` argument on a SERVICE_TASK node is EXTERNAL data (an HTTP response or a script output):
+  # the handler must validate its type, shape and size. The platform only byte-caps the written
+  # values (`StepWrites.check_service_sizes/2`).
   defp put_arg(acc, name, %{"const" => value}, _variables), do: Map.put(acc, name, value)
 
   defp put_arg(acc, name, %{"var" => var}, variables) when is_binary(var) do

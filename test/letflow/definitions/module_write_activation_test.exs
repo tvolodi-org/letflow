@@ -110,12 +110,12 @@ defmodule Letflow.Definitions.ModuleWriteActivationTest do
   defp bline, do: mline("post_balance_only", %{"args" => %{"item" => %{"var" => "item"}}})
 
   # START -> ht (HUMAN_TASK carrying `module_writes`) -> END
-  defp graph(module_lines, attrs \\ %{}, node_type \\ "HUMAN_TASK") do
+  defp graph(module_lines, attrs \\ %{}, node_type \\ "HUMAN_TASK", node_id \\ "ht") do
     %{
       "nodes" => [
         %{"id" => "start", "node_type" => "START"},
         %{
-          "id" => "ht",
+          "id" => node_id,
           "node_type" => node_type,
           "attributes" =>
             Map.merge(%{"role" => "REVIEWER", "module_writes" => module_lines}, attrs)
@@ -123,8 +123,8 @@ defmodule Letflow.Definitions.ModuleWriteActivationTest do
         %{"id" => "end", "node_type" => "END"}
       ],
       "edges" => [
-        %{"id" => "e1", "source" => "start", "target" => "ht"},
-        %{"id" => "e2", "source" => "ht", "target" => "end"}
+        %{"id" => "e1", "source" => "start", "target" => node_id},
+        %{"id" => "e2", "source" => node_id, "target" => "end"}
       ]
     }
   end
@@ -396,6 +396,42 @@ defmodule Letflow.Definitions.ModuleWriteActivationTest do
       assert [v(0, :module_write_hash_mismatch)] == codes(check(t, row))
     end
 
+    # GH #2590 R5: the same hash rules hold on a stamped SERVICE_TASK node (HTTP and script-bound)
+    test "SERVICE_TASK: a stamp hash that differs from the installed one is refused", %{t: t} do
+      install_ledger!(t.schema)
+      stale = owner(%{manifest_hash: String.duplicate("c", 64)})
+      service = fn attrs -> graph([mline()], attrs, "SERVICE_TASK", "svc") end
+
+      http = %{"endpoint" => "https://example.test/svc", "timeout_ms" => 1000}
+      script = %{"script_key" => "some_script", "script_version" => 1}
+
+      for attrs <- [http, script] do
+        assert [v(0, :module_write_hash_mismatch, "svc")] ==
+                 codes(check(t, stamped!(t.schema, service.(attrs), stale)))
+      end
+    end
+
+    test "SERVICE_TASK: stamp == installed but the compiled manifest differs (strict equality)",
+         %{t: t} do
+      install_ledger!(t.schema)
+      drifted = String.duplicate("d", 64)
+      set_installed_hash!(t.schema, drifted)
+
+      row =
+        stamped!(
+          t.schema,
+          graph(
+            [mline()],
+            %{"endpoint" => "https://example.test/svc", "timeout_ms" => 1000},
+            "SERVICE_TASK",
+            "svc"
+          ),
+          owner(%{manifest_hash: drifted})
+        )
+
+      assert [v(0, :module_write_hash_mismatch, "svc")] == codes(check(t, row))
+    end
+
     test "the graph no longer hashes to the stamp's body hash", %{t: t} do
       install_ledger!(t.schema)
       row = stamped!(t.schema, graph([mline()]))
@@ -422,12 +458,22 @@ defmodule Letflow.Definitions.ModuleWriteActivationTest do
       :ok
     end
 
-    test "module_writes that is not a list, and a node that is not a HUMAN_TASK", %{t: t} do
+    test "module_writes that is not a list, and a node that is neither HUMAN_TASK nor SERVICE_TASK",
+         %{t: t} do
       assert [v(0, :module_writes_not_a_list)] ==
                codes(check(t, stamped_map(graph("nope"))))
 
       assert [v(0, :module_writes_node_type_not_supported)] ==
-               codes(check(t, stamped_map(graph([mline()], %{}, "SERVICE_TASK"))))
+               codes(check(t, stamped_map(graph([mline()], %{}, "EXCLUSIVE_GATEWAY"))))
+
+      # GH #2590 R5: SERVICE_TASK is a supported node type (HTTP and script-bound alike)
+      assert :ok == check(t, stamped_map(graph([mline()], %{}, "SERVICE_TASK")))
+
+      assert :ok ==
+               check(
+                 t,
+                 stamped_map(graph([mline()], %{"script_key" => "some_script"}, "SERVICE_TASK"))
+               )
     end
 
     test "malformed lines, unknown keys, missing module or handler", %{t: t} do

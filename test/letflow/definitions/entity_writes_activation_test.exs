@@ -614,15 +614,22 @@ defmodule Letflow.Definitions.EntityWritesActivationTest do
                :ok
     end
 
-    test "module_writes on a SERVICE_TASK node is still refused at activation (R3)", %{t: t} do
+    # GH #2590 R5 (design D-R.18): the fence for `module_writes` is open on a SERVICE_TASK node.
+    # What refuses an UNSTAMPED definition here is the stamp requirement, not the node type
+    # (the stamped acceptance is in `module_write_activation_test.exs`).
+    test "module_writes on a SERVICE_TASK node is checked like a HUMAN_TASK's (R5)", %{t: t} do
       mline = %{"module" => "ledger", "handler" => "post_entry", "args" => %{}}
 
       assert codes(svc_check(t, [], %{"module_writes" => [mline]})) ==
-               [v(0, :module_writes_node_type_not_supported, "svc")]
+               [v(0, :module_write_stamp_missing, "svc")]
 
-      # together with entity_writes: the entity lines pass, the module_writes line is refused
+      # together with entity_writes: the entity lines pass, the handler line is index 1
       assert codes(svc_check(t, [line("stock_move")], %{"module_writes" => [mline]})) ==
-               [v(0, :module_writes_node_type_not_supported, "svc")]
+               [v(1, :module_write_stamp_missing, "svc")]
+
+      # the script-bound route (a script output is never a command) is the same node type
+      assert codes(svc_check(t, [], %{"module_writes" => [mline], "script_key" => "some_script"})) ==
+               [v(0, :module_write_stamp_missing, "svc")]
     end
 
     test "a node type other than HUMAN_TASK and SERVICE_TASK is still refused", %{t: t} do

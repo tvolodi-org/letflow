@@ -11,6 +11,34 @@ Design only. Signatures, type shapes, step lists, tables and test briefs; no fun
 
 ## Changelog
 
+### Revision 6 (R5 implementation)
+
+Handlers run on a SERVICE_TASK apply (HTTP and script-bound). Where the build departs from, or
+fills in, the text above:
+
+* D-R.18 is read as: the node type fence is the only fence. A script-bound SERVICE_TASK node is the
+  same node type as an HTTP one and PR C2 composes declarative lines on both, so `module_writes`
+  is accepted on both; "a script output is never a command" holds because the module, handler and
+  arguments are fixed by the stamped definition (a script output can only feed a declared `var`
+  argument, which the handler validates). A hand-edited snapshot is caught by the body hash.
+* The service plan carries `module_writes` and `owner` (and reads the raw snapshot for the body
+  hash). Plan failures (authorization, `event_schema_outdated`) are `{:service_refused, index,
+  :write_not_permitted, detail}` and land in ERROR + DLQ through the C2 driver; the refusal audit
+  entry is the landing's (it carries the dispatch id). The S4 guard compares the node's
+  `module_writes` as well as its lines.
+* `StepWrites.append_handler_calls/6` passes `subject_id` (previously only `actor_id`) into the
+  handler context, so on the service origin the restriction subject is the activator.
+* Handler writes on the dispatch origin get the D-C.7 byte caps (`StepWrites.check_service_sizes/2`
+  made public, called from `HandlerWrites.create/3`); the refusal is `validation_failed` with
+  detail `value_too_large`.
+* No new lock step: the C2 service Multi already runs `:lock_ancestors` first (#2695), and the
+  handler type locks sit with the declarative ones after `:entity_writes_started`. The call-level
+  deadline guard reuses the C2 `guard_budget_ms` (`min(10 s, remaining - 8 s)`).
+* Tests: `engine/module_write_service_task_test.exs` (created un-skipped; R4b did not leave a
+  skipped file behind) plus fixture definitions `fxl_svc_*` in `ledger_foundation.json` and
+  `fxr_svc_*` in `ledger_rogue.json`. Two existing tests that asserted the R3 refusal of
+  `module_writes` on a SERVICE_TASK node now assert the stamp requirement instead.
+
 ### Revision 5 (R4b implementation)
 
 The engine runs handlers on a HUMAN_TASK completion; R3's interim guard is deleted. Where the
@@ -193,7 +221,7 @@ their own order) -> R5. WMS slice 5 needs R4b plus a separate update-kind prereq
 * **D-R.15 A module-owned version is immutable to the tenant API.** `update/3` of a stamped row is refused; the DB trigger refuses a raw change of `owner_*` or `graph` on a stamped row. Rationale: 0054 D6 property 2; precedent `managed_by` trigger (0050 D3).
 * **D-R.16 Activation requires the same activator authority as declarative lines.** A graph with `module_writes` records `activated_by` through the existing function (pairs possibly empty, plus an additive `"module_handlers"` list) and needs `:EntitiesRecordsWrite` + an active user. Rationale: reuse `recorded_activator/1` unchanged. Ruled OQ-R6.
 * **D-R.17 Handler writes are create-only.** F-R5 / OQ-R4.
-* **D-R.18 No handler on the script paths.** A script output is never a command (0053/0054 D2); `module_writes` is refused on any node type other than HUMAN_TASK until PR C1/R5 admits SERVICE_TASK. Rationale: scope.
+* **D-R.18 `module_writes` is admitted on HUMAN_TASK and SERVICE_TASK (HTTP and script-bound; the node type is the fence); no handler call on any other script path.** A script output is never a command (0053/0054 D2): SECURITY-REVIEWER ruled the script-bound SERVICE_TASK consistent with that, because the module, handler, arguments and ordinal come from the stamped, hash-verified snapshot and a script output can only feed a declared `var` argument, which the handler validates. Any other node type is refused (`module_writes_node_type_not_supported`). The fence is the stamped snapshot, not the node type. Conditions and their code and tests: see the R5 amendment of decision 0054 (script-bound conditions 1-3). Rationale: scope.
 * **D-R.19 Replay never runs a handler.** No handler call site exists outside the completion Multi build; a test double fails the test if invoked (AC).
 
 ## 4. Interfaces, specs and shapes (no bodies)
@@ -791,7 +819,7 @@ directory; the AST scan (S16). Everything below keeps that guard exactly as is.
 | Handler invoking another module's handler | no API exists; `module` must equal the stamp (`:module_write_stamp_mismatch` at activation, authorize at run time) | refused |
 | HUMAN task path without module line | literal `:tenant` only | as REQ-499 |
 | SERVICE_TASK path (R5) | same `HandlerWrites`; Owner built the same way from the pinned line | allowed iff stamped |
-| Script paths | never call `command_multi`; D-R.18 | n/a |
+| Script paths | a script-bound SERVICE_TASK is the SERVICE_TASK row above (the node type is the fence; a script output only feeds a declared `var` argument); no other script path calls `command_multi`; D-R.18 | allowed iff stamped |
 | Plain core caller (`RecordDeadlineSweep`, any `Records.*` caller without an Owner) | `:tenant` default (`/2` arities) | `:entity_type_managed` (existing #2583 tests) |
 | Request data (field in definition, record, request, settings) | none of them is read by 7.2 steps 1-2 except the stored pinned line, which must also equal the install-time stamp and body hash | no effect |
 
