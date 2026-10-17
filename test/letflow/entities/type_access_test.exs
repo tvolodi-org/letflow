@@ -211,6 +211,152 @@ defmodule Letflow.Entities.TypeAccessTest do
   # reverted, not the mutation itself.
   # ═══════════════════════════════════════════════════════════════════════
 
+  # ═══════════════════════════════════════════════════════════════════════
+  # GH #2700 T-16 -- denied_types/3 (batch read; same rule as authorized?/3).
+  # Spec: test/specs/GH2700-type-access.md
+  # ═══════════════════════════════════════════════════════════════════════
+
+  defp count_queries(fun) do
+    id = "gh2700-ta-#{System.unique_integer([:positive])}"
+    parent = self()
+
+    :ok =
+      :telemetry.attach(
+        id,
+        [:letflow, :repo, :query],
+        fn _event, _m, _meta, _cfg -> if self() == parent, do: send(parent, :q) end,
+        nil
+      )
+
+    try do
+      result = fun.()
+      {result, drain_count(0)}
+    after
+      :telemetry.detach(id)
+    end
+  end
+
+  defp drain_count(n) do
+    receive do
+      :q -> drain_count(n + 1)
+    after
+      0 -> n
+    end
+  end
+
+  describe "GH #2700 T-16 -- denied_types/3" do
+    test "empty input returns an empty set with ZERO queries (not even the tenant lookup)" do
+      tenant = tenant!("gh2700-ta-empty")
+      user = insert_user!(tenant.schema_name, "a")
+
+      assert {{:ok, set}, 0} =
+               count_queries(fn -> TypeAccess.denied_types(user.id, [], tenant.schema_name) end)
+
+      assert MapSet.size(set) == 0
+    end
+
+    test "mixed fixture: restricted-ungranted denied; granted, unrestricted and nonexistent are not; agrees with authorized?/3 for every type" do
+      tenant = tenant!("gh2700-ta-mixed")
+      user = insert_user!(tenant.schema_name, "a")
+      prefix = tenant.schema_name
+
+      insert_type_restriction!(prefix, "r_denied")
+      insert_type_restriction!(prefix, "r_granted")
+      insert_type_grant!(prefix, user.id, "r_granted")
+
+      # a restricted type granted to ANOTHER user only: still denied to `user`
+      other = insert_user!(prefix, "b")
+      insert_type_restriction!(prefix, "r_other_granted")
+      insert_type_grant!(prefix, other.id, "r_other_granted")
+
+      types = ["r_denied", "r_granted", "r_other_granted", "unrestricted", "never_defined"]
+
+      assert {:ok, denied} = TypeAccess.denied_types(user.id, types, prefix)
+      assert denied == MapSet.new(["r_denied", "r_other_granted"])
+
+      for type <- types do
+        {:ok, verdict} = TypeAccess.authorized?(user.id, type, prefix)
+        assert verdict == :denied == MapSet.member?(denied, type), type
+      end
+    end
+
+    test "another user's grant does not lift the denial for the caller" do
+      tenant = tenant!("gh2700-ta-r2")
+      caller = insert_user!(tenant.schema_name, "caller")
+      other = insert_user!(tenant.schema_name, "other")
+      prefix = tenant.schema_name
+
+      insert_type_restriction!(prefix, "shared")
+      insert_type_grant!(prefix, other.id, "shared")
+
+      assert {:ok, set} = TypeAccess.denied_types(caller.id, ["shared"], prefix)
+      assert set == MapSet.new(["shared"])
+      assert {:ok, set} = TypeAccess.denied_types(other.id, ["shared"], prefix)
+      assert MapSet.size(set) == 0
+    end
+
+    test "duplicate names in the input are de-duplicated" do
+      tenant = tenant!("gh2700-ta-dup")
+      user = insert_user!(tenant.schema_name, "a")
+      insert_type_restriction!(tenant.schema_name, "dup_type")
+
+      assert {:ok, set} =
+               TypeAccess.denied_types(
+                 user.id,
+                 ["dup_type", "dup_type", "x", "dup_type"],
+                 tenant.schema_name
+               )
+
+      assert set == MapSet.new(["dup_type"])
+    end
+
+    test "the query count is constant in the number of types (one batch read, not one per type)" do
+      tenant = tenant!("gh2700-ta-count")
+      user = insert_user!(tenant.schema_name, "a")
+      prefix = tenant.schema_name
+
+      names = for i <- 1..6, do: "ct_#{i}"
+      Enum.each(names, &insert_type_restriction!(prefix, &1))
+
+      # warm any tenant-id cache so both measurements see the steady state
+      {:ok, _} = TypeAccess.denied_types(user.id, ["ct_1"], prefix)
+
+      {{:ok, one}, one_q} =
+        count_queries(fn -> TypeAccess.denied_types(user.id, ["ct_1"], prefix) end)
+
+      {{:ok, six}, six_q} =
+        count_queries(fn -> TypeAccess.denied_types(user.id, names, prefix) end)
+
+      assert MapSet.size(one) == 1
+      assert MapSet.size(six) == 6
+      assert six_q == one_q
+      assert six_q >= 1
+    end
+
+    test "names are bound parameters: quotes and SQL metacharacters are data, never SQL" do
+      tenant = tenant!("gh2700-ta-bind")
+      user = insert_user!(tenant.schema_name, "a")
+      prefix = tenant.schema_name
+
+      evil = ~s(o'brien"; DROP TABLE entity_type_restrictions; --)
+      insert_type_restriction!(prefix, evil)
+
+      assert {:ok, set} = TypeAccess.denied_types(user.id, [evil, "plain"], prefix)
+      assert set == MapSet.new([evil])
+      # the table survived
+      assert {:ok, set} = TypeAccess.denied_types(user.id, [evil], prefix)
+      assert MapSet.member?(set, evil)
+    end
+
+    test "an unresolvable prefix returns {:error, :invalid_schema_name} for non-empty input" do
+      bogus =
+        "tenant_definitely_does_not_exist_#{Ecto.UUID.generate() |> String.replace("-", "")}"
+
+      assert TypeAccess.denied_types(Ecto.UUID.generate(), ["any"], bogus) ==
+               {:error, :invalid_schema_name}
+    end
+  end
+
   describe "REQ-394 AC5 -- default-allow and denied are genuinely different outcomes" do
     test "the SAME entity_type name resolves differently depending solely on whether a restriction row exists" do
       tenant = tenant!("req394-ta-before-after")

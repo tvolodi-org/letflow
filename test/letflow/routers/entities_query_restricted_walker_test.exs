@@ -1351,7 +1351,7 @@ defmodule Letflow.Routers.EntitiesQueryRestrictedWalkerTest do
   # T-39 router architecture
   # ==========================================================================
 
-  describe "T-39 router architecture" do
+  describe "T-39 router architecture (GH #2700 T-18: one type+field gate)" do
     @router "lib/letflow/routers/entities.ex"
 
     # code lines of every clause of `defp name(` (comments stripped)
@@ -1372,32 +1372,50 @@ defmodule Letflow.Routers.EntitiesQueryRestrictedWalkerTest do
       |> Enum.join("\n")
     end
 
-    test "run_query, run_export and redact obtain restriction sets only through FieldPolicy" do
+    defp router_code_lines(source),
+      do: source |> String.split("\n") |> Enum.reject(&String.starts_with?(String.trim(&1), "#"))
+
+    # every function of the router as %{name => code} (all clauses joined,
+    # comments stripped); a handler is anything with its own `defp`/`def` head.
+    defp router_functions(source) do
+      source
+      |> String.split("\n")
+      |> Enum.reduce({nil, []}, fn line, {current, acc} ->
+        case Regex.run(~r/^  (?:defp|def) ([a-z_0-9?!]+)\(/, line) do
+          [_, name] -> {name, [{name, line} | acc]}
+          nil when current != nil -> {current, [{current, line} | acc]}
+          nil -> {current, acc}
+        end
+      end)
+      |> elem(1)
+      |> Enum.reverse()
+      |> Enum.reject(fn {_name, line} -> String.starts_with?(String.trim(line), "#") end)
+      |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+      |> Map.new(fn {name, lines} -> {name, Enum.join(lines, "\n")} end)
+    end
+
+    test "T-18 run_query, run_export, run_query_aggregate and redact obtain restriction sets only through RequestAccess" do
       source = File.read!(@router)
 
-      for name <- ["run_query", "run_export", "redact", "guard_row_request", "export_redact"] do
+      for name <- ["run_query", "run_export", "run_query_aggregate", "redact", "export_redact"] do
         code = function_code(source, name)
         assert code != "", "#{name} not found in #{@router}"
         refute code =~ "load_restrictions", "#{name} calls FieldGrants.load_restrictions directly"
       end
 
-      assert function_code(source, "run_query") =~ "guard_row_request"
-      assert function_code(source, "guard_row_request") =~ "FieldPolicy.check_request"
-      assert function_code(source, "run_export") =~ "FieldPolicy.check_request"
+      for name <- ["run_query", "run_export", "run_query_aggregate"] do
+        assert function_code(source, name) =~ "RequestAccess.check(", name
+      end
     end
 
-    test "GH #2699 A-12: routers/entities.ex has ZERO direct load_restrictions calls and the aggregate route goes through the shared walker" do
+    test "T-18 the router file has ZERO direct FieldPolicy.check_request / load_restrictions / guard_row_request calls; TypeAccess.authorized? only in render_get_definition" do
       source = File.read!(@router)
-
-      code_lines =
-        source
-        |> String.split("\n")
-        |> Enum.reject(&String.starts_with?(String.trim(&1), "#"))
+      code_lines = router_code_lines(source)
 
       assert Enum.count(code_lines, &(&1 =~ "FieldGrants.load_restrictions(")) == 0
+      assert Enum.count(code_lines, &(&1 =~ "FieldPolicy.check_request(")) == 0
+      refute Enum.any?(code_lines, &(&1 =~ "guard_row_request"))
 
-      # the deleted names must not survive in code lines (comment wording is
-      # deliberately not asserted)
       for deleted <- [
             "check_aggregate_field_restrictions",
             "aggregate_request_field_names",
@@ -1406,19 +1424,57 @@ defmodule Letflow.Routers.EntitiesQueryRestrictedWalkerTest do
         refute Enum.any?(code_lines, &(&1 =~ deleted)), "#{deleted} is still in code"
       end
 
+      holders =
+        for {name, code} <- router_functions(source), code =~ "TypeAccess.authorized?(", do: name
+
+      assert holders == ["render_get_definition"]
+    end
+
+    test "T-18 no handler can reach Compiler.compile / Compiler.run_aggregate without RequestAccess.check ahead of it" do
+      source = File.read!(@router)
+
+      compiling =
+        for {name, code} <- router_functions(source),
+            code =~ "Compiler.compile(" or code =~ "Compiler.run_aggregate(",
+            do: {name, code}
+
+      # the three query-shaped handlers are among them (the test is not vacuous)
+      names = Enum.map(compiling, &elem(&1, 0))
+      assert Enum.all?(["run_query", "run_export", "run_query_aggregate"], &(&1 in names))
+
+      for {name, code} <- compiling do
+        gate_at =
+          case :binary.match(code, "RequestAccess.check(") do
+            :nomatch -> flunk("#{name} compiles a request without RequestAccess.check(")
+            {at, _} -> at
+          end
+
+        compile_at =
+          [
+            :binary.match(code, "Compiler.compile("),
+            :binary.match(code, "Compiler.run_aggregate(")
+          ]
+          |> Enum.reject(&(&1 == :nomatch))
+          |> Enum.map(&elem(&1, 0))
+          |> Enum.min()
+
+        assert gate_at < compile_at, "#{name}: Compiler runs before RequestAccess.check("
+      end
+    end
+
+    test "GH #2699 A-12 / T-18: the aggregate route goes through the single gate; its result is bound {:ok, _..} and its only else clause renders an error" do
+      source = File.read!(@router)
       agg = function_code(source, "run_query_aggregate")
-      assert agg =~ "FieldPolicy.check_request"
+
+      assert agg =~ "RequestAccess.check("
       assert agg =~ ":aggregate"
       assert agg =~ "exempt?: false"
-      # the guard result is bound as {:ok, _...}; the only else clause renders
-      # an error -- no catch-all that turns an error into success
-      assert agg =~ ~r/\{:ok, _\w*\} <-\s+FieldPolicy\.check_request/
+      assert agg =~ ~r/\{:ok, _\w*\} <-\s+RequestAccess\.check/
       assert agg =~ "{:error, reason} -> render_aggregate_error(conn, reason)"
       refute agg =~ ~r/else\s+_\s*->/
       refute agg =~ ~r/\n\s+_(other|reason|error)?\s*->/
 
-      # ordering: the guard call precedes the compile call
-      {guard_at, _} = :binary.match(agg, "FieldPolicy.check_request")
+      {guard_at, _} = :binary.match(agg, "RequestAccess.check(")
       {compile_at, _} = :binary.match(agg, "Compiler.run_aggregate")
       assert guard_at < compile_at
     end
@@ -1426,14 +1482,14 @@ defmodule Letflow.Routers.EntitiesQueryRestrictedWalkerTest do
     test "only run_export passes a non-literal exempt? and only the unredacted flag" do
       source = File.read!(@router)
       assert function_code(source, "run_export") =~ "exempt?: unredacted?"
-      assert function_code(source, "guard_row_request") =~ "exempt?: false"
+      assert function_code(source, "run_query") =~ "exempt?: false"
+      assert function_code(source, "run_query_aggregate") =~ "exempt?: false"
 
-      all =
-        source |> String.split("\n") |> Enum.reject(&String.starts_with?(String.trim(&1), "#"))
+      exempt_lines = Enum.filter(router_code_lines(source), &(&1 =~ "exempt?:"))
+      assert exempt_lines != []
 
-      exempt_lines = Enum.filter(all, &(&1 =~ "exempt?:"))
-
-      assert Enum.sort(Enum.map(exempt_lines, &String.trim/1))
+      assert exempt_lines
+             |> Enum.map(&String.trim/1)
              |> Enum.all?(&(&1 =~ "exempt?: false" or &1 =~ "exempt?: unredacted?"))
     end
   end

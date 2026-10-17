@@ -1,0 +1,88 @@
+{
+  "handoff_id": "d3b9e2a1-2700-4c10-9a00-000000000007",
+  "run_id": "WF02-GH2700-TYPEACCESS-20261017",
+  "workflow_id": "WF-02",
+  "step": "07",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGNER",
+  "file": "handoffs/WF02-GH2700-TYPEACCESS-20261017/step-07-test-designer.json",
+  "created_at": "2026-10-17T11:05:00Z",
+  "started_at": "2026-10-17T11:05:30Z",
+  "completed_at": "2026-10-17T11:55:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2700": "TypeAccess on primary and every join target (/query, export, aggregate). Test design and code; TEST-DESIGN-VALIDATOR is the next gate."
+    },
+    "related_handoff_ids": ["d3b9e2a1-2700-4c10-9a00-000000000004"],
+    "artifacts_in": [
+      "lib/letflow/design/gh2700-type-access-joins-export-aggregate.md",
+      "lib/letflow/entities/request_access.ex",
+      "lib/letflow/entities/type_access.ex",
+      "lib/letflow/entities/query/request_guard.ex",
+      "lib/letflow/entities/query/compiler.ex",
+      "lib/letflow/routers/entities.ex"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2700-TYPEACCESS-20261017"
+  },
+  "task": {
+    "description": "TEST-DESIGNER step for GH #2700. Tests and spec only; nothing committed; lib/ and priv/ untouched."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "Tests written and run locally (357 passed, --warnings-as-errors, 0 occurrences of the ISS-0069 substring, mix format --check-formatted exit 0). Mutants M1..M14: 13 killed locally, M6 survives as an equivalent mutant (explained). One design/implementation tension reported, not a bug: T-22 'equal DB query counts' cannot hold in total (denied 7 vs absent 5 on the first matrix case) because fk_defs/2 costs 3 queries for an existing type and 1 for a missing one; the tests assert equality of the gate's own reads instead (restriction reads and one artifact_activations existence read per distinct type). No implementation bug found.",
+    "artifacts_out": [
+      "test/letflow/routers/entities_type_access_joins_test.exs (new, 26 tests)",
+      "test/letflow/entities/request_access_test.exs (new, 11 tests)",
+      "test/letflow/entities/type_access_test.exs (+7 tests, T-16)",
+      "test/letflow/entities/query_request_guard_test.exs (+10 tests, T-14/T-15)",
+      "test/letflow/routers/entities_query_restricted_walker_test.exs (T-39/A-12 replaced by 5 T-18 tests)",
+      "test/letflow/entities/query_cursor_field_grants_test.exs (chain-order test extended)",
+      "test/specs/GH2700-type-access.md (new)",
+      "test/specs/GH2697-query-restricted.md, test/specs/GH2699-aggregate-join-restricted.md, test/specs/REQ-394.md (wording)"
+    ],
+    "verification": {
+      "command": "MIX_ENV=test timeout 540 mix test --warnings-as-errors <10 files: the 6 written/edited plus entities_aggregate_restricted_join_test, entities_aggregate_test, entities_export_test, entities_test>",
+      "result_line": "Finished in 335.0 seconds (0.00s async, 335.0s sync) / Result: 357 passed",
+      "isss_0069_default_values_substring_count": 0,
+      "format_check": "mix format --check-formatted on the 6 touched test files: exit 0",
+      "mix_letflow_check_test": "NOT run: it runs the whole suite via scripts/test_parallel.sh (instruction: never run the full suite). Hosted CI runs it. Test modules recompile on every mix test invocation and the scoped runs above used --warnings-as-errors."
+    },
+    "mutants": [
+      {"id": "M1", "mutation": "request_entity_types returns the primary only", "killed": true, "failed": 26},
+      {"id": "M2", "mutation": "join_entity_types drops through", "killed": true, "failed": 19},
+      {"id": "M3", "mutation": "field guard before type gate", "killed": true, "failed": 16},
+      {"id": "M4", "mutation": "denied mapped to :request_field_restricted", "killed": true, "failed": 28},
+      {"id": "M5", "mutation": "exempt export skips denied_types", "killed": true, "failed": 8},
+      {"id": "M6", "mutation": "denied_types error treated as empty set", "killed": false, "failed": 0, "note": "equivalent: the existence step reads the same tenant id and returns :invalid_schema_name for the same input"},
+      {"id": "M7", "mutation": "existence step only for the primary", "killed": true, "failed": 12},
+      {"id": "M8", "mutation": "FieldPolicy.check_request( string in a router code line", "killed": true, "failed": 1, "scope": "walker file, 55 tests"},
+      {"id": "M9", "mutation": "unclassified key in the :row registry", "killed": true, "failed": 6, "scope": "guard file, 51 tests"},
+      {"id": "M10", "mutation": "Logger.info naming the denied types", "killed": true, "failed": 1, "scope": "router file, 26 tests"},
+      {"id": "M11", "mutation": "per-user grant condition dropped in denied_types/3", "killed": true, "failed": 4},
+      {"id": "M12", "mutation": "existence reads skipped when a type is denied", "killed": true, "failed": 7},
+      {"id": "M13", "mutation": "shape check before the walk", "killed": true, "failed": 3, "scope": "guard + request_access files, 62 tests"},
+      {"id": "M14", "mutation": "user-id cast dropped in denied_types/3", "killed": true, "failed": 39}
+    ],
+    "mutant_hygiene": "every mutant applied to a backed-up copy and restored by cp; git diff -- lib was empty after each (verified).",
+    "not_run": [
+      "mix letflow.check.test (full suite)",
+      "no mutants over the full suite; mutants ran over the new/affected files only"
+    ],
+    "implementation_bugs_found": [],
+    "design_tension": "Design T-22/R6 wording 'equal numbers of DB queries': total counts differ by 2 per existing-vs-missing type (7 vs 5 measured); gate-work equality is asserted instead. SECURITY-REVIEWER/CODE-DESIGNER to confirm that is the intended reading of R1/R6, otherwise Allowlist.fk_defs/2 would need to pad the missing-type path (an implementation change).",
+    "existing_tests_edited": [
+      "walker T-39 and A-12 replaced by T-18",
+      "query_cursor_field_grants_test chain order extended",
+      "spec docs GH2697/GH2699/REQ-394 wording",
+      "no R2 combined-error test existed; entities_test, entities_export_test, entities_aggregate_test, entities_aggregate_restricted_join_test pass unedited"
+    ],
+    "mutex": "mixlock taken and released by this session"
+  }
+}

@@ -987,10 +987,24 @@ defmodule Letflow.Entities.QueryCursorFieldGrantsTest do
       # for the same reason.
       chain = run_query_chain!(contents)
 
+      access_at = index_of!(chain, "RequestAccess.check(")
       compile_at = index_of!(chain, "Compiler.compile(")
+      allowlist_at = index_of!(chain, "Allowlist.load(")
       paginate_at = index_of!(chain, "Cursor.paginate(")
       redact_at = index_of!(chain, "redact(")
 
+      # GH #2700: the type+field gate runs ahead of the compiler and of any SQL;
+      # the steps are build, paginate-opts, RequestAccess.check, compile,
+      # allowlist, paginate, redact.
+      build_at = index_of!(chain, "build_query_request(")
+      opts_at = index_of!(chain, "build_paginate_opts(")
+      assert build_at < opts_at
+      assert opts_at < access_at
+      assert access_at < compile_at
+      assert compile_at < allowlist_at
+      assert allowlist_at < paginate_at
+      refute chain =~ "TypeAccess.authorized?(", "the old per-primary TypeAccess step is gone"
+      refute chain =~ "guard_row_request"
       assert compile_at < paginate_at
       assert paginate_at < redact_at
     end
