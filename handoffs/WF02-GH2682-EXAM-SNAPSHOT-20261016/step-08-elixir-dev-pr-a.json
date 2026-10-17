@@ -82,6 +82,7 @@
       "item_5_sweep": "finalize_expired/3 has no caller in lib/ or config (only session_test.exs); RecordDeadlineSweep has an optional callback_mfa, no rule registers one, and invoke_callback ignores the return value and rescues raises with a warning log, so a typed {:error, {:grading_error,_}} cannot crash or stall the sweep. Nothing to fix.",
       "item_6_gate_blocked_total": "kept, with a comment in Stamp.sweep: non-zero only if the flag flips true->false mid-sweep; makes that visible and the mix task exit 1.",
       "verification": "MIX_ENV=test mix compile --warnings-as-errors exit 0; mix format --check-formatted exit 0; mix letflow.check_boundaries OK 1640 edges 0 violations"
-    }
+    },
+    "rollout_null_fix": "Rollout.translate/2 now treats a JSON null value as an absent key for EVERY whitelisted key at top level, fields, indexes, foreign_keys and constraints (search_strategy, locales, enum_values, decimal_precision, decimal_scale, default, min, max, non_negative, required, queried, description, append_only, writable_by_process, unique, references_field, ...). A nil for an unknown key, a missing/nil name-type-fields, or a non-nil unsupported value still fails closed. Consequence: the new definition version stores those null keys as absent (same rule as the definitions HTTP route). Compile/format/boundaries clean."
   }
 }

@@ -25,6 +25,7 @@ defmodule Letflow.ExamFixtures do
   import Ecto.Query, only: [from: 2]
 
   alias Letflow.Entities.Definitions
+  alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Records
   alias Letflow.Identity.Tenant
   alias Letflow.Modules.Exam
@@ -267,6 +268,191 @@ defmodule Letflow.ExamFixtures do
              )
 
     record
+  end
+
+  # ---------------------------------------------------------------------
+  # GH #2682 / REQ-511 snapshot helpers (tests only)
+  # ---------------------------------------------------------------------
+
+  @doc """
+  The digest `Letflow.Modules.Exam.Snapshot` stores: `"sha256:"` plus the lowercase hex of the
+  SHA-256 of the canonical encoding of the snapshot WITHOUT its `"digest"` key. Computed here, in
+  the test support, from `Snapshot.canonical_encode/1` only, so a test can forge a structurally
+  valid snapshot (for example one with no `exam` object) that the production builder refuses to
+  produce.
+  """
+  @spec snapshot_digest(map()) :: String.t()
+  def snapshot_digest(snapshot) when is_map(snapshot) do
+    hash =
+      snapshot
+      |> Map.delete("digest")
+      |> Exam.Snapshot.canonical_encode()
+      |> then(&:crypto.hash(:sha256, &1))
+
+    "sha256:" <> Base.encode16(hash, case: :lower)
+  end
+
+  @doc "`snapshot` with its `\"digest\"` recomputed over the current content."
+  @spec with_digest(map()) :: map()
+  def with_digest(snapshot) when is_map(snapshot),
+    do: Map.put(snapshot, "digest", snapshot_digest(snapshot))
+
+  @doc """
+  A valid start-origin snapshot with NO questions (threshold `"60"`), built by the production
+  builder. For a hand-built session that is submitted without ever having a question set.
+  """
+  @spec empty_snapshot!(exam_id :: String.t()) :: map()
+  def empty_snapshot!(exam_id) when is_binary(exam_id) do
+    assert {:ok, snapshot} =
+             Exam.Snapshot.build_from_resolved(
+               %{
+                 "passing_score_pct" => 60.0,
+                 "certificate_enabled" => false,
+                 "title" => %{"en" => "Exam"},
+                 "time_limit_minutes" => 30
+               },
+               %{},
+               [],
+               %{origin: :start, exam_id: exam_id, taken_at: DateTime.utc_now()}
+             )
+
+    snapshot
+  end
+
+  @doc """
+  Merges `changes` into the CURRENT field values of a record through the ordinary
+  `Records.update_record/2` write path (full replacement of the merged map), asserting success.
+  Returns the updated record.
+  """
+  @spec update_record!(String.t(), String.t(), Ecto.UUID.t(), map()) ::
+          Letflow.Entities.Record.Latest.t()
+  def update_record!(schema, entity_type, record_id, changes) when is_map(changes) do
+    assert {:ok, current} = Latest.get(record_id, entity_type, schema)
+
+    assert {:ok, %{record: record}} =
+             Records.update_record(
+               %{
+                 entity_type: entity_type,
+                 record_id: record_id,
+                 field_values: Map.merge(current.field_values, changes),
+                 actor_id: Ecto.UUID.generate(),
+                 idempotency_key: Ecto.UUID.generate()
+               },
+               schema
+             )
+
+    record
+  end
+
+  @doc """
+  Soft-deletes a record through `Records.delete_record/2`, asserting success.
+  """
+  @spec delete_record!(String.t(), String.t(), Ecto.UUID.t()) :: :ok
+  def delete_record!(schema, entity_type, record_id) do
+    assert {:ok, _result} =
+             Records.delete_record(
+               %{
+                 entity_type: entity_type,
+                 record_id: record_id,
+                 actor_id: Ecto.UUID.generate(),
+                 idempotency_key: Ecto.UUID.generate()
+               },
+               schema
+             )
+
+    :ok
+  end
+
+  @doc """
+  Writes one field of a record's `entity_record_latest` projection DIRECTLY (no validation, no
+  event), the way `session_test.exs` seeds a corrupted status. `{:put, value}` sets it, `:delete`
+  removes the key. For states the validated write path refuses (a nil required threshold, a
+  tampered snapshot whose digest was left stale).
+  """
+  @spec force_field!(String.t(), String.t(), Ecto.UUID.t(), String.t(), {:put, term()} | :delete) ::
+          :ok
+  def force_field!(schema, entity_type, record_id, key, change) do
+    assert {:ok, row} = Latest.get(record_id, entity_type, schema)
+
+    field_values =
+      case change do
+        {:put, value} -> Map.put(row.field_values, key, value)
+        :delete -> Map.delete(row.field_values, key)
+      end
+
+    assert {:ok, _updated} =
+             row
+             |> Latest.update_changeset(%{field_values: field_values})
+             |> Repo.update(prefix: schema)
+
+    :ok
+  end
+
+  @doc "The stored `exam_snapshot` of a session (decoded map), or nil when the field is absent."
+  @spec session_snapshot(String.t(), Ecto.UUID.t()) :: map() | nil
+  def session_snapshot(schema, session_id) do
+    assert {:ok, row} = Latest.get(session_id, "session", schema)
+    Map.get(row.field_values, "exam_snapshot")
+  end
+
+  @doc """
+  Applies `fun` (snapshot map -> snapshot map, string keys) to a session's stored snapshot,
+  recomputes the digest and writes it back through `Records.update_record/2`. For forging a
+  structurally valid snapshot (a missing threshold, an extra question item).
+  """
+  @spec rewrite_snapshot!(String.t(), Ecto.UUID.t(), (map() -> map())) :: map()
+  def rewrite_snapshot!(schema, session_id, fun) when is_function(fun, 1) do
+    rewritten = schema |> session_snapshot(session_id) |> fun.() |> with_digest()
+    update_record!(schema, "session", session_id, %{"exam_snapshot" => rewritten})
+    rewritten
+  end
+
+  @doc """
+  Replaces the tenant's ACTIVE `session` definition with a new version that does NOT declare
+  `exam_snapshot` (the shape of a tenant installed before GH #2682): a tenant the rollout has not
+  reached yet.
+  """
+  @spec downgrade_session_definition!(schema_name :: String.t()) :: :ok
+  def downgrade_session_definition!(schema_name) do
+    definition = load_definition!("session")
+
+    create_active_definition!(
+      schema_name,
+      Map.update!(definition, :fields, fn fields ->
+        Enum.reject(fields, &(&1.name == "exam_snapshot"))
+      end)
+    )
+
+    :ok
+  end
+
+  @doc """
+  Like `downgrade_session_definition!/1`, but the new version carries NO nil-valued optional field
+  keys (`search_strategy`, `enum_values`, `locales`, `decimal_*` are left out instead of being
+  stored as JSON null): the shape of a definition posted as a plain JSON document rather than
+  built from the pack files.
+  """
+  @spec downgrade_session_definition_without_nils!(schema_name :: String.t()) :: :ok
+  def downgrade_session_definition_without_nils!(schema_name) do
+    definition = load_definition!("session")
+
+    create_active_definition!(
+      schema_name,
+      Map.update!(definition, :fields, fn fields ->
+        fields
+        |> Enum.reject(&(&1.name == "exam_snapshot"))
+        |> Enum.map(fn field -> Map.reject(field, fn {_key, value} -> is_nil(value) end) end)
+      end)
+    )
+
+    :ok
+  end
+
+  @doc "Removes the restriction rows of every `answer_key_fields/0` pair from the tenant schema."
+  @spec delete_answer_key_restrictions!(schema_name :: String.t()) :: non_neg_integer()
+  def delete_answer_key_restrictions!(schema_name) do
+    {count, _} = Repo.delete_all("entity_field_restrictions", prefix: schema_name)
+    count
   end
 
   # ---------------------------------------------------------------------

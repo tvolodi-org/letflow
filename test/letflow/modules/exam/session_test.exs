@@ -63,6 +63,22 @@ defmodule Letflow.Modules.Exam.SessionTest do
     ExamFixtures.create_record!(schema, "answer_option", Map.merge(defaults, attrs))
   end
 
+  # GH #2682 / REQ-511: a question added to a session's `session_question` rows by hand, after
+  # the session was created, is not in the session's snapshot; autosave reads the answer SHAPE
+  # from the snapshot, so such a test must also give the snapshot an item for it (digest
+  # recomputed). Only the type is read by autosave, so the key fields stay empty.
+  defp add_snapshot_item!(schema, session_id, question_id, type) do
+    ExamFixtures.rewrite_snapshot!(schema, session_id, fn snapshot ->
+      snapshot
+      |> Map.update!("order", &(&1 ++ [question_id]))
+      |> put_in(["questions", question_id], %{
+        "type" => type,
+        "correct_option_ids" => [],
+        "likert_options" => %{}
+      })
+    end)
+  end
+
   # ISS-0722: `mode` defaults to "random" (every pre-existing call site keeps
   # this default, so it stays live -- see docs/anti-patterns.md ISS-0069);
   # manual-mode tests pass `"manual"` explicitly.
@@ -805,6 +821,8 @@ defmodule Letflow.Modules.Exam.SessionTest do
         "options_order" => []
       })
 
+      add_snapshot_item!(ctx.schema, ctx.session_id, short_text_question.record_id, "shorttext")
+
       assert {:error, :answer_shape_invalid} =
                Session.autosave_answer(
                  ctx.session_id,
@@ -835,6 +853,8 @@ defmodule Letflow.Modules.Exam.SessionTest do
         "sort_order" => 99,
         "options_order" => []
       })
+
+      add_snapshot_item!(ctx.schema, ctx.session_id, short_text_question.record_id, "shorttext")
 
       assert {:ok, %{remaining_seconds: remaining}} =
                Session.autosave_answer(
@@ -873,6 +893,8 @@ defmodule Letflow.Modules.Exam.SessionTest do
         "sort_order" => 99,
         "options_order" => []
       })
+
+      add_snapshot_item!(ctx.schema, ctx.session_id, short_text_question.record_id, "shorttext")
 
       assert {:ok, _} =
                Session.autosave_answer(
@@ -922,6 +944,8 @@ defmodule Letflow.Modules.Exam.SessionTest do
           "sort_order" => 100,
           "options_order" => []
         })
+
+        add_snapshot_item!(ctx.schema, ctx.session_id, question.record_id, type)
 
         assert {:error, :answer_shape_invalid} =
                  Session.autosave_answer(
@@ -1076,7 +1100,10 @@ defmodule Letflow.Modules.Exam.SessionTest do
       assert outcome.passed == false
     end
 
-    test "a session with a no-correct-option question surfaces the scoring error rather than a silent zero" do
+    # GH #2682 / REQ-511: a broken bank entry is now caught when the exam is STARTED (the snapshot
+    # builder validates every resolved question), not at submit time: the typed grading error
+    # replaces the old `:question_without_correct_option` surfaced by a submit.
+    test "a question with no correct option fails the START with a typed grading error naming the question, and creates no session" do
       %{schema_name: schema} = tenant("req332-submit-no-correct")
       %{exam: exam} = build_minimal_exam!(schema, exam_attrs: %{"max_attempts" => 5})
       category_id = Ecto.UUID.generate()
@@ -1092,10 +1119,19 @@ defmodule Letflow.Modules.Exam.SessionTest do
       create_rule!(schema, exam.record_id, category_id, 1, 1)
 
       candidate_id = Ecto.UUID.generate()
-      assert {:ok, session_view} = Session.create(candidate_id, exam.record_id, schema)
 
-      assert {:error, :question_without_correct_option} =
-               Session.submit(session_view.id, candidate_id, schema)
+      assert {:error, {:grading_error, {:key_missing, broken_id}}} =
+               Session.create(candidate_id, exam.record_id, schema)
+
+      assert broken_id == broken_question.record_id
+
+      import Ecto.Query
+
+      assert Repo.aggregate(
+               from(l in Letflow.Entities.Record.Latest, where: l.entity_type == "session"),
+               :count,
+               prefix: schema
+             ) == 0
     end
 
     test "any short-text question in the session lands submit in :grading_pending, not :submitted" do

@@ -1,0 +1,86 @@
+{
+  "handoff_id": "e511a000-2682-4a11-8c20-000000000011",
+  "run_id": "WF02-GH2682-EXAM-SNAPSHOT-20261016",
+  "workflow_id": "WF-02",
+  "step": "11",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGNER",
+  "file": "handoffs/WF02-GH2682-EXAM-SNAPSHOT-20261016/step-11-test-designer-pr-a.json",
+  "created_at": "2026-10-17T04:21:00Z",
+  "started_at": "2026-10-17T04:21:30Z",
+  "completed_at": "2026-10-17T05:03:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S8",
+    "requirement_ids": [
+      "REQ-511"
+    ],
+    "requirement_text": {
+      "GH#2682": "Exam content snapshot at session start; scoring reads only the snapshot (PR a): tests for storage, scoring/autosave/state read, restriction seeding, rollout and the stamp gate."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "lib/letflow/design/req511-exam-content-snapshot.md",
+      "handoffs/WF02-GH2682-EXAM-SNAPSHOT-20261016/step-08-elixir-dev-pr-a.json",
+      "handoffs/WF02-GH2682-EXAM-SNAPSHOT-20261016/step-09-security-reviewer-code-pr-a.json",
+      "handoffs/WF02-GH2682-EXAM-SNAPSHOT-20261016/step-10-reviewer-code-pr-a.json"
+    ],
+    "owned_modules": [
+      "test/letflow/modules/exam/",
+      "test/letflow/entities/managed_types/",
+      "test/support/",
+      "test/specs/"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2682-EXAM-SNAPSHOT-20261016"
+  },
+  "task": {
+    "description": "TEST-DESIGNER: write the PR a tests of the REQ-511 design (section 13 test-to-PR map), the spec, fix the existing tests the change breaks, run only the new/affected files, report mutants for TEST-DESIGN-VALIDATOR. No commit, no push, no lib/ or priv/ edits."
+  },
+  "result": {
+    "status": "BLOCKED",
+    "summary": "TEST-DESIGNER, REQ-511 / GH #2682 PR a. Wrote 149 new tests in 7 files plus a spec, and fixed 4 existing test files (tests only; lib/ and priv/ untouched at the end, verified with git diff after every mutant). RESULT: 148/149 new tests pass; 1 FAILS ON PURPOSE and exposes an IMPLEMENTATION BUG (reported, not fixed, per instruction): Letflow.Modules.Exam.Snapshot.Rollout refuses (status :failed, error {:definition_write_failed, :unsupported_definition_value}, nothing written) any tenant whose active session definition stores an optional field key as JSON null, e.g. search_strategy: null (optional_atom_value/3 maps a present-but-nil key through the @strategies whitelist). Definitions.create_definition/2 stores exactly that shape for every field built from a Definition map, so every ExamFixtures/ExamStampFixtures tenant and plausibly the hand-posted QA/BilimBaga rows are affected; the rollout would fail on them. Failing test: snapshot_rollout_test.exs 'REPRO: a stored definition whose optional field keys are JSON null'. All other rollout tests use ExamFixtures.downgrade_session_definition_without_nils! and pass (diff-by-exactly-one-field, no DDL on a column-promoted tenant, idempotency). RUNS (MIX_ENV=test mix test --warnings-as-errors, one mix process at a time under the mutex, free memory 4.09-5.02 GB; mutex created and removed by me): snapshot_test 46 passed; session_snapshot_test 35 (34 passed in a full run 'Result: 34 passed', 90.6 s; the 35th, the R6 query-count test, passed in a targeted run 'Result: 1 passed'); snapshot_restrictions_test 18 passed; exam_snapshot_router_test 8 passed; exam_snapshot_leak_test 10 passed; stamp_snapshot_gate_test 14 passed; snapshot_rollout_test 17/18 passed. Final combined re-run after mix format: 'Result: 113/114 passed' (the 114 = the six non-session files; the one failure is the REPRO). Existing affected files, all green after the test edits: session_test+anti_cheat+on_install+entity_definitions 'Result: 97 passed'; exam_sessions+certificate+pack_install+exam_stamped_tenant 'Result: 55 passed'; stamp+stamp_trigger+tamper_inventory 'Result: 44 passed'; exam_managed_types_http+bilimbaga_solution_e2e+seed.exam_fixtures 'Result: 17 passed'; squat_remediation+entities_answer_key_field_leak+solution_packs_module_owned_pack+exam_managed_manifest+exam_definitions+scoring+entities_query_restricted_filter 'Result: 118 passed'; client_key_namespace 'Result: 38 passed'. mix format --check-formatted over every touched test file: exit 0. MUTANTS (applied to the shipped file, targeted tests run, file restored from a byte copy, git diff -- lib priv config empty each time): P0/M1 whole pre-change session.ex from 828d9d1be -> 27/34 failed in session_snapshot_test (7 passers are by-design controls T-12, T-14, T-43, T-45, T-46, the R6 ownership test and the first form of T-13; T-13 was then rewritten to discriminate and fails alone on the old code); M2 default 60.0 -> 7/24 failed; M3 submit rebuilds without exam_snapshot -> 3/15 failed (T-04, T-14, T-47); M5 drop the session.exam_snapshot pair -> 16/19 failed; M7 Stamp ignores the flag -> 6/14 failed; M8 skip digest verification -> 2/14 failed (T-18 x2); M10 autosave/state read live type -> 2/15 failed (T-06, T-07); M13 create without exam_snapshot -> 23/23 failed; M15 terminal state read fails on missing snapshot -> 3/4 failed (T-43, T-45, T-46). NOT RUN: mix letflow.check.test (it runs the full suite, which this step was told never to run); substitute: all run logs grepped for 'default values for the optional arguments' = 0 hits and no compiler warnings in the new files. Lock-timeout path of the rollout and the System.halt(1) branches of the two Mix tasks cannot run in-process (source-guarded; the stamp task's dry-run path and the rollout task's usage/dry-run paths are executed). PR b tests (T-09..T-11, T-21..T-25, T-38..T-40, T-44, T-48..T-52, T-58..T-63b, T-20b, T-55c, T-57b, M4/M9/M11/M12/M14/M16) are deliberately not written.",
+    "artifacts_out": [
+      "test/specs/GH2682-exam-snapshot-pr-a.md",
+      "test/letflow/modules/exam/snapshot_test.exs",
+      "test/letflow/modules/exam/session_snapshot_test.exs",
+      "test/letflow/modules/exam/snapshot_restrictions_test.exs",
+      "test/letflow/modules/exam/exam_snapshot_router_test.exs",
+      "test/letflow/modules/exam/exam_snapshot_leak_test.exs",
+      "test/letflow/modules/exam/snapshot_rollout_test.exs",
+      "test/letflow/entities/managed_types/stamp_snapshot_gate_test.exs",
+      "test/support/exam_fixtures.ex",
+      "test/letflow/modules/exam/session_test.exs",
+      "test/letflow/modules/exam/anti_cheat_test.exs",
+      "test/letflow/modules/exam/on_install_test.exs",
+      "test/letflow/modules/exam/entity_definitions_test.exs"
+    ],
+    "issues": [
+      {
+        "severity": "MAJOR",
+        "description": "IMPLEMENTATION BUG (lib/letflow/modules/exam/snapshot/rollout.ex translate_field/1 -> optional_atom_value/3): a stored session definition whose field has an optional key present with value null (search_strategy: null; also enum_values/locales/decimal_*: only search_strategy goes through a whitelist) makes the real rollout return status :failed / {:definition_write_failed, :unsupported_definition_value} and write nothing. Reproduced by snapshot_rollout_test.exs 'REPRO: a stored definition whose optional field keys are JSON null'. Without a fix the post-deploy rollout on a tenant with such a definition cannot add exam_snapshot and every exam start on it answers 503. Fix direction: treat nil as absent for optional keys before the whitelist lookup.",
+        "affected_requirement": "REQ-511"
+      },
+      {
+        "severity": "MINOR",
+        "description": "OBSERVATION (pre-existing, not caused by PR a): Latest.get/3 and Session.query_all/3 return soft-deleted rows (deleted: true). A deleted answer_option is still listed by the state read and still counted when the snapshot is built; a manual pin to a soft-deleted question whose status is still 'active' is accepted at start. Design 3.4 states a deleted option disappears from the rendered options; the code shows it does not. The T-13 deleted-option half is therefore a no-crash control that also passes on the old code; the added-option half discriminates.",
+        "affected_requirement": "REQ-511"
+      },
+      {
+        "severity": "MINOR",
+        "description": "Rollout status :managed_cannot_upgrade is unreachable through supported means in PR a (the stamp rejects a session definition without exam_snapshot as shape_not_compatible), and the stamp-GUC tripwire scan forbids a test from planting it, so it has no test. Rollout :lock_timeout and the two Mix tasks' System.halt(1) branches are source-guarded only.",
+        "affected_requirement": "REQ-511"
+      }
+    ],
+    "git_evidence": {
+      "branch_name": "feature/WF02-GH2682-EXAM-SNAPSHOT-20261016",
+      "commit_sha_list": [],
+      "remote_branch": null,
+      "push_status": "skipped",
+      "pr_url": null,
+      "pr_create_error": null
+    },
+    "next_action": "ORCH: route the rollout bug (issues[0]) to ELIXIR-DEV for a lib-only fix; the REPRO test then turns green. Then TEST-DESIGN-VALIDATOR may review the spec and re-apply the reported mutants (M1/P0, M2, M3, M5, M7, M8, M10, M13, M15; counts in the spec). Nothing is committed."
+  }
+}

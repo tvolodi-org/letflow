@@ -401,11 +401,21 @@ defmodule Letflow.Modules.Exam.Snapshot.Rollout do
   defp snapshot_field, do: %{name: @field_name, type: :json, required: false, queried: false}
 
   defp translate(raw, whitelist) when is_map(raw) do
-    Enum.reduce_while(raw, {:ok, %{}}, fn {key, value}, {:ok, acc} ->
-      case Map.fetch(whitelist, key) do
-        {:ok, atom_key} -> {:cont, {:ok, Map.put(acc, atom_key, value)}}
-        :error -> {:halt, {:error, :unsupported_definition_key}}
-      end
+    # A JSON null value is treated as an ABSENT key (the same rule the definitions HTTP route
+    # applies, `Letflow.Routers.Entities.maybe_put_optional/4`): `create_definition/2` stores
+    # `search_strategy: null` and similar for every field built from a definition map. A
+    # genuinely unsupported key or non-nil value still fails closed.
+    Enum.reduce_while(raw, {:ok, %{}}, fn
+      {key, nil}, {:ok, acc} ->
+        if Map.has_key?(whitelist, key),
+          do: {:cont, {:ok, acc}},
+          else: {:halt, {:error, :unsupported_definition_key}}
+
+      {key, value}, {:ok, acc} ->
+        case Map.fetch(whitelist, key) do
+          {:ok, atom_key} -> {:cont, {:ok, Map.put(acc, atom_key, value)}}
+          :error -> {:halt, {:error, :unsupported_definition_key}}
+        end
     end)
   end
 
