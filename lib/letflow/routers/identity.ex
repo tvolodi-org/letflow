@@ -753,8 +753,10 @@ defmodule Letflow.Routers.Identity do
     end
   end
 
+  # MUTANT M9: the interactive-credential check is dropped (an API token passes)
   defp require_oidc(conn) do
-    if Map.get(conn.assigns.auth_context, :credential) == :oidc, do: :ok, else: :forbidden
+    _ = conn
+    :ok
   end
 
   defp require_tenant_admin_tenant_wide(conn) do

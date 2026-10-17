@@ -2422,7 +2422,9 @@ defmodule Letflow.Identity do
   defp check_roles_held(roles, issuer_held, target_id, target_user, prefix) do
     allowed =
       if ServicePrincipal.flagged?(target_user) do
-        issuer_held
+        # MUTANT M10: the flag also relaxes the issuer side (issuer need not hold the roles)
+        _ = issuer_held
+        MapSet.new(roles)
       else
         MapSet.intersection(issuer_held, tenant_wide_role_names(target_id, prefix: prefix))
       end

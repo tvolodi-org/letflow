@@ -60,11 +60,12 @@ defmodule Mix.Tasks.Letflow.CheckRoleScopeGrantsWriters do
     "lib/mix/tasks/letflow.check_role_scope_grants_writers.ex"
   ]
 
-  @name ~S"(?:\bRoleScopeGrant\b|\brole_scope_grants\b)"
+  # MUTANT M11: substring match instead of the whole-word rule
+  @name ~S"(?:RoleScopeGrant|role_scope_grants)"
   @repo_call ~S"Repo\.(?:insert_all|insert!|insert|update_all|update!|update|delete_all|delete!|delete)\b"
   @multi_call ~S"(?:Multi\.|\|>\s*Ecto\.Multi\.|\|>\s*Multi\.)(?:insert_all|insert|update_all|update|delete_all|delete)\b"
   @raw_sql_regex Regex.compile!(
-                   ~S{(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(?:"[^"]*"\.|[A-Za-z0-9_]+\.)?"?role_scope_grants\b},
+                   ~S{(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(?:"[^"]*"\.|[A-Za-z0-9_]+\.)?"?role_scope_grants},
                    "i"
                  )
   @name_regex Regex.compile!(@name)
