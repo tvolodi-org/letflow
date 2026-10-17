@@ -10,8 +10,8 @@ defmodule Letflow.EventStore.InstanceVisibility do
   `entity_type_instances`. That table is referenced by its SOURCE STRING (schemaless
   source), not by the `Letflow.Entities.EntityTypeInstance` schema, so the engine
   layer can use this module without crossing the `mix letflow.check_boundaries`
-  Rule 6 boundary (`Engine.*` must not reference `Letflow.Entities.*`). A unit test
-  asserts the string equals `EntityTypeInstance.__schema__(:source)`.
+  Rule 6 boundary (`Engine.*` must not reference `Letflow.Entities.*`). The table-name
+  string must equal `EntityTypeInstance.__schema__(:source)` (drift guard, covered by its unit test).
 
   The tenant prefix is applied EXPLICITLY to the inner source through the Ecto
   query-level prefix (INV-1), never through a fragment or string concatenation

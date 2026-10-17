@@ -98,6 +98,9 @@ defmodule Letflow.Engine.Reconstruction do
 
   ## Ground truth is the event log, never the projection (INV-RC-2)
 
+  GH #2702: the only non-log read is the `entity_type_instances` registry check (plus the
+  platform sentinel id constant), which hides synthetic and sentinel ids as `:instance_not_found`.
+
   No function on the replay path (`read_full_log/2`, `replay/3`) ever reads
   `instance_projections` — only `write_back/4` (opt-in) touches that table,
   and only to write, never to seed replay state from it.
@@ -285,7 +288,7 @@ defmodule Letflow.Engine.Reconstruction do
 
     with {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
          {:ok, cast_instance_id} <- cast_instance_id(instance_id),
-         :ok <- ensure_visible_projection(cast_instance_id, prefix),
+         :ok <- ensure_not_hidden(cast_instance_id, prefix),
          replay_source <- select_replay_source(cast_instance_id, prefix),
          {:ok, merged_events} <-
            read_full_log(cast_instance_id, prefix, min_sequence_number(replay_source)),
@@ -314,16 +317,17 @@ defmodule Letflow.Engine.Reconstruction do
     end
   end
 
-  # GH #2702: an instance is reconstructable only if it has a projection row that is
-  # not a synthetic entity-type instance. Synthetic and platform-sentinel ids (no
-  # projection) answer exactly like a nonexistent id, before any log read.
-  defp ensure_visible_projection(instance_id, prefix) do
-    query =
-      InstanceProjection
-      |> where([p], p.instance_id == ^instance_id)
-      |> InstanceVisibility.exclude_synthetic(prefix)
-
-    if Repo.exists?(query, prefix: prefix), do: :ok, else: {:error, :instance_not_found}
+  # GH #2702: a synthetic entity-type instance and the platform sentinel id answer
+  # exactly like an absent id. Absent ids (and projection-less real ids) fall through
+  # to the log read as before, so INV-RC-2 and the write-back insert path hold. The
+  # registry read and the sentinel constant check are the only non-log reads here.
+  defp ensure_not_hidden(instance_id, prefix) do
+    if instance_id == Letflow.EventStore.platform_instance_id() or
+         InstanceVisibility.synthetic?(instance_id, prefix) do
+      {:error, :instance_not_found}
+    else
+      :ok
+    end
   end
 
   defp cast_instance_id(instance_id) do

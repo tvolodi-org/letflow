@@ -1,0 +1,45 @@
+{
+  "handoff_id": "c4a7d1e0-2702-4a11-8c20-000000000008",
+  "run_id": "WF02-GH2702-INSTANCES-SYNTHETIC-20261017",
+  "workflow_id": "WF-02",
+  "step": "08",
+  "from_agent": "ORCH",
+  "to_agent": "REVIEWER",
+  "file": "handoffs/WF02-GH2702-INSTANCES-SYNTHETIC-20261017/step-08-reviewer-code.json",
+  "created_at": "2026-10-17T02:00:00Z",
+  "started_at": "2026-10-17T02:00:30Z",
+  "completed_at": "2026-10-17T02:10:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2702": "REVIEWER code gate: hide synthetic entity-type instances from every Instances route."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "lib/letflow/event_store/instance_visibility.ex",
+      "lib/letflow/engine/reconstruction.ex",
+      "lib/letflow/instances.ex",
+      "lib/letflow/entities/entity_type_instance.ex"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2702-INSTANCES-SYNTHETIC-20261017"
+  },
+  "task": {
+    "description": "Idiom/scope gate for the GH #2702 implementation (commit 4079b6d57)."
+  },
+  "result": {
+    "status": "FAIL",
+    "summary": "FAIL (1 blocking, 3 non-blocking). BLOCKING: lib/letflow/engine/reconstruction.ex:288,317-327 ensure_visible_projection requires a projection row, which contradicts INV-RC-2 (moduledoc lines ~99-103: ground truth is the log, replay never reads instance_projections) and the projection-deleted recovery path (write_back insert path, moduledoc ~127-139). Existing tests that delete the projection now get {:error,:instance_not_found} instead of success: test/letflow/engine/reconstruction_test.exs:322 (AC2 'deleting instance_projections entirely still reconstructs') and :515 (AC5/OQ-4 write_back re-creates deleted row); both via delete_projection_row! (:254). REQUIRED CHANGE: replace the guard with a synthetic-only negative check, e.g. `if InstanceVisibility.synthetic?(cast_instance_id, prefix), do: {:error,:instance_not_found}` (cast id is 36 bytes so the guard holds); a platform-sentinel/absent id falls through to the log read and answers not-found as before; update the comment and add a moduledoc sentence that the single registry EXISTS read is the only non-log read. Other reconstruct_instance test files (script_task_replay_test, module_write_audit_test, service_task_*, timer_wiring, snapshot_writer, sys_variables_response, engine_concurrency, complete_task_entity_writes, reconstruction_sys) create instances via Engine.create so have a projection and are unaffected; none fakes only the log. script_task_replay_test:73-84 query-scan refutes only script_* tables, unaffected. NON-BLOCKING: (a) instance_visibility.ex:52-65 synthetic?/2 is then used by reconstruct and router pins; fine, no dead code; moduledoc claim 'A unit test asserts the string equals EntityTypeInstance.__schema__(:source)' must be true: confirm the test exists (test file shipped is instances_restricted_field_events_test.exs). (b) exclude_synthetic precondition (single use per query, alias :instance_projection_visibility) holds at all 5 call sites; duplicate application would raise a duplicate alias error at runtime, acceptable and documented. (c) Pins route uses synthetic?/2 while the other routes use the in-query predicate: acceptable defence in depth. VERIFIED OK: Ecto syntax (from(p in query, as: :a, where: not exists(from(e in @source, prefix: ^prefix, where: e.instance_id == parent_as(:a).instance_id, select: 1))) is valid Ecto 3; import Ecto.Query present in all touched files; all aliases used (Repo used in synthetic?/2; InstanceVisibility alias used in engine.ex, pin_rebind.ex, reconstruction.ex, instances.ex, routers/instances.ex); no unused vars found; layering OK (Engine.* references only Letflow.EventStore.InstanceVisibility, not Entities.*; Rule 6 table forbids only engine->entities; registry referenced by source string); new leaf module depends only on Repo/Ecto. Instances.get_by_id single query Repo.one with where + anti-join preserves real-instance behaviour (nil -> :not_found, same 404 as absent). create_and_reselect reorder correct (registry insert, re-read winner, ensure projection for winner only; race loser creates no orphan; nil branch unchanged error). Scope: only #2702; attachments #2718 untouched; no permission/authorization.ex/golden changes; router moduledoc records the TENANT_AUDITOR consequence pending REQ-516. TYPE-SAFETY: none new. Not compiled by dev; hosted CI must confirm. Route fix back to ELIXIR-DEV, then re-run this gate.",
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "verdict": "FAIL",
+    "required_changes": [
+      "lib/letflow/engine/reconstruction.ex:288,317-327 use synthetic?/2 negative check instead of projection-existence guard; keeps reconstruction_test.exs:322 and :515 green"
+    ]
+  }
+}
