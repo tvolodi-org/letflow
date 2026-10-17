@@ -425,11 +425,11 @@ defmodule Letflow.Identity.ScopedGrants do
     :ok
   end
 
-  defp self?(:user, principal_id, caller_id, _prefix), do: Identity.same_user_id?(principal_id, caller_id)
+  defp self?(:user, principal_id, caller_id, _prefix),
+    do: Identity.same_user_id?(principal_id, caller_id)
 
   defp self?(:group, group_id, caller_id, prefix),
     do: Identity.group_member?(group_id, caller_id, prefix)
-
 
   # Steps 8 and 9.
   defp check_create_rows!(type, pid, role, node_id, prefix) do
