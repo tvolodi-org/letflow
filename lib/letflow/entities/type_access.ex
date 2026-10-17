@@ -136,6 +136,8 @@ defmodule Letflow.Entities.TypeAccess do
         where: r.entity_type == parent_as(^name_binding).name,
         select: 1
       )
+      # MUTANT M9: explicit wrong prefix, subquery reads the default schema.
+      |> Ecto.Query.put_query_prefix("public")
 
     dynamic([], not exists(denial))
   end
