@@ -44,6 +44,7 @@ defmodule Letflow.Modules.Exam.SnapshotLateTest do
   alias Letflow.EventStore.Event
   alias Letflow.ExamFixtures, as: Fx
   alias Letflow.ExamStampFixtures, as: StampFx
+  alias Letflow.Modules.Exam.Scoring
   alias Letflow.Modules.Exam.Session
   alias Letflow.Modules.Exam.Snapshot
   alias Letflow.Modules.Exam.Snapshot.Rollout
@@ -998,6 +999,36 @@ defmodule Letflow.Modules.Exam.SnapshotLateTest do
 
       assert Fx.session_snapshot(ctx.schema, ctx.session_id) == snapshot
       assert length(late_audit(ctx.schema)) == audits
+    end
+
+    # TRIPWIRE for `key_bearing?/2` in snapshot.ex: `shorttext` options are exempt from the
+    # deleted-key-bearing refusal ONLY because a short_text question is never auto-graded.
+    test "short_text is never auto-graded" do
+      question = %{
+        question_id: "q-short",
+        type: :short_text,
+        correct_option_ids: ["opt-correct"]
+      }
+
+      answer = %{selected_option_ids: ["opt-correct"], text_answer: "opt-correct"}
+
+      msg =
+        "shorttext key_bearing? exemption (snapshot.ex TRIPWIRE) no longer holds; " <>
+          "flip key_bearing?/2 to refuse for shorttext"
+
+      assert {:ok, %{grading_status: :pending_manual, score: score, max_score: 1.0}} =
+               Scoring.score_question(question, answer),
+             msg
+
+      assert score == 0.0, msg
+
+      assert {:ok, %{per_question: [per_q], outcome: outcome}} =
+               Scoring.score_session([question], %{"q-short" => answer}, 0.0)
+
+      assert per_q.grading_status == :pending_manual, msg
+      assert per_q.score == 0.0, msg
+      assert outcome.status == :grading_pending, msg
+      assert outcome.passed == nil, msg
     end
   end
 
