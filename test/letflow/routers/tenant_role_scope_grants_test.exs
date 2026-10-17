@@ -1172,6 +1172,7 @@ defmodule Letflow.Routers.TenantRoleScopeGrantsTest do
         |> String.split("
 ")
         |> Enum.find(&(&1 =~ "grant_self_refusal_not_recorded"))
+
       refute line =~ fx.admin.id
     end
 
