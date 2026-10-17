@@ -132,6 +132,9 @@ defmodule Letflow.Entities.EntityTypeInstance do
              conflict_target: :entity_type,
              prefix: prefix
            ) do
+      # MUTANT M9: projection for the minted (possibly losing) id before the re-read
+      _ = ensure_instance_projection(instance_id, prefix)
+
       case Repo.get(__MODULE__, entity_type, prefix: prefix) do
         %__MODULE__{instance_id: won_instance_id} ->
           with {:ok, _projection} <- ensure_instance_projection(won_instance_id, prefix) do

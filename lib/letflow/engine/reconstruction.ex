@@ -322,12 +322,9 @@ defmodule Letflow.Engine.Reconstruction do
   # to the log read as before, so INV-RC-2 and the write-back insert path hold. The
   # registry read and the sentinel constant check are the only non-log reads here.
   defp ensure_not_hidden(instance_id, prefix) do
-    if instance_id == Letflow.EventStore.platform_instance_id() or
-         InstanceVisibility.synthetic?(instance_id, prefix) do
-      {:error, :instance_not_found}
-    else
-      :ok
-    end
+    # MUTANT M6: guard removed
+    _ = {instance_id, prefix, &InstanceVisibility.synthetic?/2}
+    :ok
   end
 
   defp cast_instance_id(instance_id) do

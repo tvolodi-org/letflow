@@ -8618,7 +8618,7 @@ defmodule Letflow.Engine do
     # the same :instance_not_found as an absent id); nothing is locked or written.
     InstanceProjection
     |> where([p], p.instance_id == ^instance_id)
-    |> InstanceVisibility.exclude_synthetic(prefix)
+    # MUTANT M5: cancel lock not guarded
     |> lock("FOR UPDATE")
     |> repo.one(prefix: prefix)
     |> case do

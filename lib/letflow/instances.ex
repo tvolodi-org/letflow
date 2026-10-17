@@ -100,7 +100,7 @@ defmodule Letflow.Instances do
          {:ok, cursor_seek} <- decode_list_cursor(Map.get(params, :cursor)) do
       query =
         InstanceProjection
-        |> InstanceVisibility.exclude_synthetic(prefix)
+        # MUTANT M1: list does not exclude synthetic
         |> filter_by_status(Map.get(params, :status))
         |> filter_by_definition_id(Map.get(params, :definition_id))
         |> filter_by_correlation_key(Map.get(params, :correlation_key))
@@ -367,7 +367,7 @@ defmodule Letflow.Instances do
     query =
       InstanceProjection
       |> where([p], p.instance_id == ^id)
-      |> InstanceVisibility.exclude_synthetic(prefix)
+      # MUTANT M2: existence check does not exclude synthetic
       |> select([p], 1)
 
     if Repo.exists?(query, prefix: prefix) do

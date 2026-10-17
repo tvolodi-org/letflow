@@ -691,7 +691,9 @@ defmodule Letflow.Routers.Instances do
   defp render_cancel(conn, {:error, :invalid_instance_id}),
     do: Response.unprocessable(conn, "instance_id is not a valid UUID")
 
-  defp render_cancel(conn, {:error, :instance_not_found}), do: Response.not_found(conn)
+  # MUTANT M8: cancel refusal renders a different 404-ish body
+  defp render_cancel(conn, {:error, :instance_not_found}),
+    do: Response.unprocessable(conn, "instance not found")
 
   # Distinct detail strings per terminal status (AC6) -- both states are
   # equally caller-meaningful, unlike render_rebind/2's constant-detail
