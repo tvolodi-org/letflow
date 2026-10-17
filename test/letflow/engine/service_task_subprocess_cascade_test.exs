@@ -684,7 +684,7 @@ defmodule Letflow.Engine.ServiceTaskSubprocessCascadeTest do
       assert position.({"instance_projections", parent_id}) < parent_token
       assert parent_token < position.({"instance_sequence", type_instance})
       assert position.({"instance_sequence", type_instance}) < first_audit
-      assert is_integer(first_audit) and parent_token < first_audit
+      assert is_integer(first_audit)
 
       assert Enum.find_index(locks, fn {table, _} -> table == "service_task_dispatches" end) <
                position.({"instance_projections", child_id})

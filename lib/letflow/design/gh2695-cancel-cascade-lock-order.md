@@ -263,8 +263,8 @@ code with only the cascade fixed (the first implementation, before the prelock e
   not be limited to a completing child. Implemented: `lock_parent_group/4` (parent projection, then
   waiting token; the whole chain when the child's state is `:completed`, the immediate parent only
   otherwise) is run as a `:lock_ancestors` step in the HUMAN tail (first step) and in the service
-  apply (immediately before the child's `:projection` UPDATE, after the entity-type locks). After
-  the change T5 passed 6 of 6 consecutive runs (a fresh tenant schema per run).
+  apply (as the FIRST step of its Multi, see "Service placement"). After the change T5 passed 6 of 6
+  consecutive runs (a fresh tenant schema per run).
 * Lock mode (SEC F1): a CONTINUING child takes the parent projection and the waiting token
   `FOR KEY SHARE` (same P-then-T order), the completing chain `FOR UPDATE`. Key-share is compatible
   between siblings and still conflicts with a cancel's `FOR UPDATE`, so the cycle stays closed
@@ -273,18 +273,32 @@ code with only the cascade fixed (the first implementation, before the prelock e
   cancel). Siblings still serialise on the tenant-wide audit chain row wherever both take it
   (observed: a sibling service apply waits on `audit_chain_locks` held by the other), so the
   "previously concurrent" service siblings were never fully concurrent.
-* Service placement: the service apply runs `:lock_ancestors` as the FIRST step of its Multi,
-  because every event append UPDATEs the child's projection (the entity-write events inside
-  `maybe_service_entity_writes` and the completed event included); an earlier placement just
-  before the `:projection` step left the cycle open (T8 failed). Side effect: the parent group now
-  precedes this apply's entity-type locks (a parent completion's own P-then-E order); Q1 is not
-  claimed closed.
+* Service placement: the service apply runs `:lock_ancestors` as the FIRST step of its Multi. Two
+  placements were tried after the first implementation: just before the `:projection` step (T8
+  failed), and, as the reviewer suggested, after the `EntityPort.multi` entity-type steps and
+  before the SYS/APPLIED events (keeps entity-type rows before the parent group on both paths; T8
+  deadlocked, 40P01). A statement trace of a continuing service step (a new HUMAN task is
+  activated) shows why: the task-activation audit entry takes the audit chain row EARLY in the
+  Multi, before the entity-type steps, and a cancel takes the parent projection first and the audit
+  chain row last, so any placement after that audit write re-opens an audit-then-parent-projection
+  versus parent-projection-then-audit cycle. First step it is.
+* Known inversion introduced by that placement (belongs to GH #2704): a HUMAN completion takes its
+  entity-type rows BEFORE its tail's parent group (its entity-write steps precede the tail), while
+  the service apply now takes the parent group BEFORE its entity-type rows. A HUMAN child and a
+  service child that are siblings of one parent with `entity_writes` on the same entity type can
+  therefore deadlock (before this change both took entity-type rows first); the victim is
+  classified as contention and re-applied by the engine for the service side, and the HUMAN side
+  reports `entity_write_contention`. Not tested, not fixed here.
+* HUMAN child with `entity_writes` (checked, no issue): a statement trace of such a completion
+  (test "HUMAN child completion WITH entity_writes (statement trace)") shows the entity-type row
+  lock, then the parent group lock, then the first UPDATE of the child's projection. The entity
+  writes go to the synthetic entity-type instances, not to the child's projection, so the earlier
+  suspicion that their events UPDATE the child's projection before the tail's `:lock_ancestors`
+  was wrong and is withdrawn.
 * Uncovered same-class paths, NOT closed by this change (follow-ups): direct `cancel_instance/3`
   of a CHILD (GH #2708; `run_cancel_instance` has no `:lock_ancestors`), the ExecutionError landing
   (GH #2709, `execution_error.ex`), a child timer fire (GH #2707, amended to include the
-  foreign-key lock hazard), and a HUMAN child completion whose node declares `entity_writes`
-  (its SYS/APPLIED events UPDATE the child's projection before the tail's `:lock_ancestors`; not yet
-  filed). GH #2704 (entity locks vs the parent projection) also applies to continuing children.
+  foreign-key lock hazard). GH #2704 (entity locks vs the parent projection) also applies to continuing children.
 
 Second measurement on bef9fe69 after the continuing-child and key-share work (16 tests in the file):
 2 pass (T3, T4) and 14 fail. T1, T2, T6, T7 (continuing HUMAN) and T8 (continuing service) fail with
@@ -341,9 +355,10 @@ scheduler fire tests, `mix format --check-formatted` (full repo, read the rc),
 ## 7. Risks and open questions
 
 * **Q1 (out of scope, file a follow-up).** Two more inversions of the same family remain: `E`
-  vs `P_p` (a child completion, HUMAN with `entity_writes` or service, holds `E` then cascades
-  into `P_p`; a parent completion with
-  entity_writes holds `P_p` then wants `E`), and `A` vs `S_p` between a HUMAN completer and a
+  vs `P_p` (a HUMAN child completion with `entity_writes` holds `E` then cascades into `P_p`; a
+  service child apply now takes `P_p` first, then `E` (GH #2695, see 5); a parent completion with
+  entity_writes holds `P_p` then wants `E`; HUMAN-child vs service-child siblings with entity writes
+  on one type are therefore inverted), and `A` vs `S_p` between a HUMAN completer and a
   service-apply sibling of one parent (HUMAN: `A` then `S_p`; service: `S_p` then `A`).
   Deciding "A last everywhere" would change decision 0054 D3 rules 5/6; needs REVIEWER and
   SECURITY-REVIEWER input. Not fixed here; the table in section 2 makes them visible.

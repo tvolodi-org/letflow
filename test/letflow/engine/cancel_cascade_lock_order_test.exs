@@ -607,8 +607,8 @@ defmodule Letflow.Engine.CancelCascadeLockOrderTest do
 
   describe "statement order of an uncontended child completion (GH #2695, AC 1)" do
     # The parent projection `FOR UPDATE` comes before the waiting-token `FOR UPDATE`, which comes
-    # before the audit chain row (HUMAN: the early `:lock_ancestors` step; service: the cascade's
-    # own lookup). Deterministic: no concurrency, the statement log of one completion.
+    # before the audit chain row (both paths: the `:lock_ancestors` step, which the cascade's own
+    # lookup then re-locks). Deterministic: no concurrency, the statement log of one completion.
     for path <- [:human, :service] do
       test "#{path}: parent projection, then waiting token, then the audit chain row", %{
         base: base
@@ -643,6 +643,83 @@ defmodule Letflow.Engine.CancelCascadeLockOrderTest do
           assert index.(:waiting_token) < index.(:audit_chain)
         end
       end
+    end
+  end
+
+  describe "HUMAN child completion WITH entity_writes (statement trace)" do
+    test "entity-type row, then the parent group, all before the first UPDATE of the child's projection",
+         %{base: base} do
+      schema = base.schema
+      Fx.define_type!(schema, "stock_move", %{})
+
+      child_def =
+        Fx.activate!(
+          schema,
+          base.user,
+          Fx.graph([Fx.line("stock_move", %{"label" => %{"const" => "x"}})])
+        )
+
+      parent_def = Fx.activate!(schema, base.user, parent_graph(child_def.name))
+
+      {:ok, %{instance_id: parent_id}} =
+        Engine.create(
+          %{
+            definition_id: parent_def.id,
+            initial_variables: %{},
+            actor_id: base.user.id,
+            idempotency_key: Fx.unique("cc-ew")
+          },
+          prefix: schema
+        )
+
+      child =
+        Repo.one!(from(p in InstanceProjection, where: p.parent_instance_id == ^parent_id),
+          prefix: schema
+        )
+
+      task = Fx.pending_task!(schema, child.instance_id)
+
+      {result, queries} =
+        PlatformTenantFixture.capture_repo_queries(fn ->
+          Engine.complete_task(
+            task.id,
+            %{
+              output_variables: %{},
+              actor_id: base.user.id,
+              idempotency_key: Fx.unique("cc-ew-complete")
+            },
+            prefix: schema
+          )
+        end)
+
+      assert {:ok, _} = result
+
+      index = fn pred -> Enum.find_index(queries, pred) end
+      params = fn q -> q |> Map.get(:params, []) |> Enum.map(&normalize/1) end
+
+      first_type_row =
+        index.(fn q -> q.query =~ "instance_sequence" and q.query =~ "FOR UPDATE" end)
+
+      first_parent_lock =
+        index.(fn q ->
+          q.query =~ "FOR UPDATE" and q.query =~ "instance_projections" and
+            parent_id in params.(q)
+        end)
+
+      first_child_update =
+        index.(fn q ->
+          q.query =~ ~r/UPDATE "[^"]+"\."instance_projections"/ and
+            child.instance_id in params.(q)
+        end)
+
+      IO.puts(
+        "TRACE type_row=#{first_type_row} parent_lock=#{first_parent_lock} child_update=#{first_child_update}"
+      )
+
+      assert is_integer(first_type_row) and is_integer(first_parent_lock)
+      assert is_integer(first_child_update)
+      assert first_type_row < first_parent_lock
+      assert first_parent_lock < first_child_update
     end
   end
 

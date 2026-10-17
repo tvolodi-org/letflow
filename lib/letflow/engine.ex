@@ -413,13 +413,20 @@ defmodule Letflow.Engine do
   Same hazard class, NOT closed by GH #2695 (follow-ups): direct `cancel_instance/3` of a CHILD
   (GH #2708); the ExecutionError landing (GH #2709); a child timer fire (GH #2707, which also
   covers `Scheduler.fire_timer` taking timer rows then the projection while a child's HUMAN tail
-  cancels its timers after its own projection); and a HUMAN child completion whose node declares
-  `entity_writes`, whose SYS/APPLIED events UPDATE the child's projection before the tail's
-  `:lock_ancestors` runs (not yet filed).
+  cancels its timers after its own projection).
   Remaining inversions, not fixed here (follow-ups): Q1 (GH #2704, also for continuing children),
   an entity-type row versus the parent projection (a child completion holds the entity-type rows
   then wants the parent projection; a parent completion with `entity_writes` holds its projection
-  then wants them; the service apply now takes the parent group before its own entity-type rows).
+  then wants them). Introduced by the service placement of `:lock_ancestors` (first step, see below),
+  and belonging to GH #2704: a HUMAN child completion takes its entity-type rows BEFORE the parent
+  group (its entity-write steps run before the tail), while a service apply takes the parent group
+  BEFORE its entity-type rows, so a HUMAN child and a service child that are siblings with
+  `entity_writes` on one entity type can deadlock (before this change both took entity-type rows
+  first). The service apply cannot take the parent group after its entity-type rows: its task
+  activation writes an audit entry (audit chain row) earlier in the Multi, and the parent group must
+  precede the audit chain row (a cancel takes parent projection ... audit last); an attempted
+  placement after the entity-type steps deadlocked T8 (continuing service step against a parked
+  cancel).
   Possible, not demonstrated (both paths take the parent projection first): the audit chain row
   versus the sequence row between a HUMAN completer and a service apply of sibling children of one
   parent (GH #2705). Also: cancel's open-tasks snapshot is taken before the projection lock
@@ -440,7 +447,8 @@ defmodule Letflow.Engine do
 
   GH #2587 PR C2: a SERVICE_TASK apply whose node declares `entity_writes`
   (`advance_after_service_task_outcome/4`, `apply_script_task_result/3`) takes
-  its dispatch row (or script CAS row) and the projection first, then the same
+  its dispatch row (or script CAS row) and the projection first, then (since GH #2695, when the
+  instance is a sub-process child) the parent projection and waiting token, then the same
   entity-type locks in `(entity_type, declared index)` order, then the audit
   chain row; the same `SET LOCAL` pair is issued as the first statements of its
   outer transaction. The service apply holds the dispatch row and the
