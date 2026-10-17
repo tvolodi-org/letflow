@@ -12,7 +12,8 @@ defmodule Letflow.Routers.Entities do
   row, `POST /entities/query/aggregate` — the aggregation/reporting query
   route, per `lib/letflow/design/req312-query-aggregation.md`. Its handler
   calls `Letflow.Entities.Query.Compiler.run_aggregate/2`, a thin wrapper
-  around `compile_aggregate/2` plus the query's own execution, added
+  around `compile_aggregate/2` plus the query's own execution (and, GH #2654, the
+  padding of a `decimal_strict` field's `sum`/`min`/`max`/group key), added
   specifically so this route stays composition-only, same as every other
   route here — this module executes no query of its own (INV-1, below).
   REQ-317 appended a twelfth-through-fifteenth set of rows, the four
@@ -252,6 +253,7 @@ defmodule Letflow.Routers.Entities do
   alias Letflow.Entities.Query.FieldGrants
   alias Letflow.Entities.Query.RequestGuard
   alias Letflow.Entities.Query.Types
+  alias Letflow.Entities.Record.Decimals
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Records
   alias Letflow.Entities.RequestAccess
@@ -1518,10 +1520,14 @@ defmodule Letflow.Routers.Entities do
   #   :invalid_schema_name           -> 500  (unreachable, INV-1)
   #   any other term()               -> 500  (INV-8 catch-all, no detail)
   defp render_record_command(conn, {:ok, %{record: %Latest{} = record}}, :created),
-    do: Response.created(conn, record_map(record))
+    do:
+      Response.created(
+        conn,
+        record_map(record, strict_specs_for(record.entity_type, prefix!(conn)))
+      )
 
   defp render_record_command(conn, {:ok, %{record: %Latest{} = record}}, :ok),
-    do: Response.ok(conn, record_map(record))
+    do: Response.ok(conn, record_map(record, strict_specs_for(record.entity_type, prefix!(conn))))
 
   defp render_record_command(conn, {:error, {:definition_not_found, _entity_type}}, _status),
     do: Response.not_found(conn)
@@ -1953,8 +1959,10 @@ defmodule Letflow.Routers.Entities do
          {:ok, allowlist} <- Allowlist.load(request.entity_type, prefix),
          {:ok, page} <- Cursor.paginate(request, compiled, allowlist, opts, prefix),
          {:ok, redacted} <- redact(page, request, sets) do
+      specs = read_specs(request, prefix)
+
       Response.ok(conn, %{
-        "items" => Enum.map(redacted.items, &query_item_map/1),
+        "items" => Enum.map(redacted.items, &query_item_map(&1, specs)),
         "next_cursor" => redacted.next_cursor
       })
     else
@@ -2388,11 +2396,13 @@ defmodule Letflow.Routers.Entities do
          {:ok, allowlist} <- Allowlist.load(request.entity_type, prefix),
          {:ok, page} <- Cursor.paginate(request, compiled, allowlist, opts, prefix),
          {:ok, redacted} <- export_redact(page, request, guard.sets, unredacted?) do
+      specs = read_specs(request, prefix)
+
       Response.ok(conn, %{
         "record_export_schema_version" => @record_export_schema_version,
         "entity_type" => path_entity_type,
         "exported_at" => DateTime.to_iso8601(DateTime.utc_now()),
-        "records" => Enum.map(redacted.items, &export_record_map/1),
+        "records" => Enum.map(redacted.items, &export_record_map(&1, specs)),
         "next_cursor" => redacted.next_cursor
       })
     else
@@ -2557,24 +2567,24 @@ defmodule Letflow.Routers.Entities do
   # this requirement, not a silent behaviour: no acceptance criterion for
   # REQ-319 exercises export with a join, and design req314 nowhere revises
   # export_record_entry()'s own shape to accommodate one.
-  defp export_record_map(%Latest{} = record) do
+  defp export_record_map(%Latest{} = record, specs) do
     %{
       "record_id" => record.record_id,
-      "field_values" => record.field_values,
+      "field_values" => Decimals.render_field_values(record.field_values, specs.primary),
       "deleted" => record.deleted
     }
   end
 
-  defp export_record_map(%{field_values: _field_values} = entity_row) do
+  defp export_record_map(%{field_values: _field_values} = entity_row, specs) do
     %{
       "record_id" => entity_row.record_id,
-      "field_values" => entity_row.field_values,
+      "field_values" => Decimals.render_field_values(entity_row.field_values, specs.primary),
       "deleted" => entity_row.deleted
     }
   end
 
-  defp export_record_map(joined_row) when is_map(joined_row) do
-    export_record_map(Map.fetch!(joined_row, :primary))
+  defp export_record_map(joined_row, specs) when is_map(joined_row) do
+    export_record_map(Map.fetch!(joined_row, :primary), specs)
   end
 
   # design §6/§7 error mapping: the two NEW error atoms this route
@@ -2627,6 +2637,7 @@ defmodule Letflow.Routers.Entities do
   #   {:field_not_allowed, _}             -> 422
   #   {:value_arity_mismatch, _}          -> 422
   #   {:invalid_in_value, _}              -> 422
+  #   {:invalid_decimal_value, _}         -> 422 (GH #2654; a strict decimal field, constant body)
   #   {:operator_not_valid_for_type,_,_}  -> 422
   #   :entity_table_not_found             -> 422
   #   {:too_many_joins, _}                -> 422
@@ -2681,6 +2692,13 @@ defmodule Letflow.Routers.Entities do
 
   defp render_query_error(conn, {:invalid_in_value, field}),
     do: Response.unprocessable(conn, "value must be a list for field #{inspect(field)}")
+
+  defp render_query_error(conn, {:invalid_decimal_value, field}),
+    do:
+      Response.unprocessable(
+        conn,
+        "value must be a decimal string or an integer for field #{inspect(field)}"
+      )
 
   defp render_query_error(conn, {:operator_not_valid_for_type, op, type}),
     do:
@@ -2753,15 +2771,47 @@ defmodule Letflow.Routers.Entities do
   # :field_values key of its own, so an entity-row clause could never match
   # it, but ordering it first states the intent rather than relying on that.
 
-  defp query_item_map(%Latest{} = record), do: record_map(record)
+  defp query_item_map(%Latest{} = record, specs), do: record_map(record, specs.primary)
 
-  defp query_item_map(%{field_values: _field_values} = entity_row),
-    do: entity_row_map(entity_row)
+  defp query_item_map(%{field_values: _field_values} = entity_row, specs),
+    do: entity_row_map(entity_row, specs.primary)
 
-  defp query_item_map(joined_row) when is_map(joined_row) do
+  defp query_item_map(joined_row, specs) when is_map(joined_row) do
     Map.new(joined_row, fn {key, entity_row} ->
-      {joined_key_string(key), entity_row_map(entity_row)}
+      {joined_key_string(key), entity_row_map(entity_row, joined_specs(specs, key))}
     end)
+  end
+
+  defp joined_specs(specs, :primary), do: specs.primary
+  defp joined_specs(specs, entity_type), do: Map.get(specs.joined, entity_type, %{})
+
+  # GH #2654 (design 2.6): the strict decimal specs for a read response come from the ACTIVE
+  # DEFINITION of each exposed entity type (the primary and every join target), never from the
+  # query allowlist: a strict field that is not queried must still be rendered. One lookup per
+  # distinct type per request; `%{}` (a no-op renderer) when the type has no strict field or has
+  # no active definition.
+  defp read_specs(request, prefix) do
+    joined_types =
+      request
+      |> Map.get(:join, [])
+      |> Enum.map(& &1.entity_type)
+      |> Enum.uniq()
+
+    %{
+      primary: strict_specs_for(request.entity_type, prefix),
+      joined: Map.new(joined_types, &{&1, strict_specs_for(&1, prefix)})
+    }
+  end
+
+  @spec strict_specs_for(String.t(), String.t()) :: Decimals.specs()
+  defp strict_specs_for(entity_type, prefix) do
+    case Definitions.get_active_definition_by_name(entity_type, prefix) do
+      {:ok, %{definition_json: definition_json}} ->
+        Decimals.specs_from_definition_json(definition_json)
+
+      _no_active_definition ->
+        %{}
+    end
   end
 
   defp joined_key_string(:primary), do: "primary"
@@ -2773,10 +2823,10 @@ defmodule Letflow.Routers.Entities do
   # `String.t()` at the query source (ISS-0652) -- it is always a string
   # here regardless of whether this row came from `entity_record_latest`
   # or a promoted per-type table, so no local normalisation is needed.
-  defp entity_row_map(entity_row) do
+  defp entity_row_map(entity_row, specs) do
     %{
       "record_id" => entity_row.record_id,
-      "field_values" => entity_row.field_values,
+      "field_values" => Decimals.render_field_values(entity_row.field_values, specs),
       "deleted" => entity_row.deleted,
       "entity_def_version" => encode_entity_def_version(entity_row.entity_def_version),
       "last_event_global_seq" => entity_row.last_event_global_seq
@@ -2808,12 +2858,12 @@ defmodule Letflow.Routers.Entities do
   # `tenant_id` is deliberately NOT in this allowlist -- a caller is already
   # scoped to exactly one tenant and echoing the id back adds nothing but a
   # tenant identifier on the wire.
-  @spec record_map(Latest.t()) :: map()
-  defp record_map(%Latest{} = record) do
+  @spec record_map(Latest.t(), Decimals.specs()) :: map()
+  defp record_map(%Latest{} = record, specs) do
     %{
       "record_id" => record.record_id,
       "entity_type" => record.entity_type,
-      "field_values" => record.field_values,
+      "field_values" => Decimals.render_field_values(record.field_values, specs),
       "deleted" => record.deleted,
       "entity_def_version" => Base.encode16(record.entity_def_version, case: :lower),
       "last_event_global_seq" => record.last_event_global_seq

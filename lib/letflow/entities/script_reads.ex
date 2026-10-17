@@ -57,6 +57,7 @@ defmodule Letflow.Entities.ScriptReads do
   alias Letflow.Entities.Definitions
   alias Letflow.Entities.Query.Allowlist
   alias Letflow.Entities.Query.Compiler
+  alias Letflow.Entities.Record.Decimals
   alias Letflow.Entities.Record.Latest
   alias Letflow.Repo
 
@@ -98,8 +99,9 @@ defmodule Letflow.Entities.ScriptReads do
          true <- known_fields?(definition, fields, match),
          restricted = restricted_fields(prefix, entity_type),
          false <- match_field_restricted?(match, restricted),
-         {:ok, query} <- build_query(prefix, entity_type, match, read, input_vars) do
-      {:ok, %{name: name, fields: fields, restricted: restricted, query: query}}
+         strict = Decimals.specs_from_definition_json(definition.definition_json),
+         {:ok, query} <- build_query(prefix, entity_type, match, read, input_vars, strict) do
+      {:ok, %{name: name, fields: fields, restricted: restricted, query: query, strict: strict}}
     else
       _refused -> :refused
     end
@@ -162,7 +164,7 @@ defmodule Letflow.Entities.ScriptReads do
 
   defp match_field_restricted?(_id_match, _restricted), do: false
 
-  defp build_query(_prefix, entity_type, %{"id_from" => var} = match, _read, input_vars)
+  defp build_query(_prefix, entity_type, %{"id_from" => var} = match, _read, input_vars, _strict)
        when map_size(match) == 1 do
     record_id =
       case Ecto.UUID.cast(Map.get(input_vars, var)) do
@@ -183,14 +185,15 @@ defmodule Letflow.Entities.ScriptReads do
          entity_type,
          %{"field" => field, "value_from" => var} = match,
          read,
-         vars
+         vars,
+         strict
        )
        when map_size(match) == 2 and is_binary(field) do
     limit = read |> Map.get("limit", @max_rows) |> row_cap()
 
     with {:ok, allowlist} <- Allowlist.load(entity_type, prefix),
          {:ok, %{type: type}} <- Allowlist.resolve_field(allowlist, field) do
-      {value, usable?} = coerce(type, Map.get(vars, var))
+      {value, usable?} = coerce(type, Map.has_key?(strict, field), Map.get(vars, var))
       request = %{entity_type: entity_type, filters: [%{field: field, op: :eq, value: value}]}
 
       case Compiler.compile(request, prefix) do
@@ -211,10 +214,23 @@ defmodule Letflow.Entities.ScriptReads do
     end
   end
 
-  defp build_query(_prefix, _entity_type, _match, _read, _input_vars), do: :refused
+  defp build_query(_prefix, _entity_type, _match, _read, _input_vars, _strict), do: :refused
 
   defp row_cap(limit) when is_integer(limit) and limit >= 1, do: min(limit, @max_rows)
   defp row_cap(_invalid), do: 1
+
+  # GH #2654: a `decimal_strict` field matches a canonical decimal string or an integer, exactly;
+  # a float (already lossy) or a malformed string is the type-mismatch constant-false query.
+  # A non-strict decimal field is unchanged (integer or float only).
+  defp coerce(:decimal, true, value) when is_binary(value) or is_integer(value) do
+    case Decimals.filter_value(value) do
+      {:ok, decimal} -> {decimal, true}
+      :error -> placeholder(:decimal)
+    end
+  end
+
+  defp coerce(:decimal, true, _value), do: placeholder(:decimal)
+  defp coerce(type, _strict?, value), do: coerce(type, value)
 
   # The match value converted to what the compiled comparison binds for the field's type; a
   # value of the wrong type yields a type-correct placeholder plus `false` (constant-false
@@ -273,16 +289,18 @@ defmodule Letflow.Entities.ScriptReads do
   defp data_exception?(%Postgrex.Error{postgres: %{pg_code: "22" <> _}}), do: true
   defp data_exception?(_error), do: false
 
-  defp fetch(%{query: query, fields: fields, restricted: restricted}, prefix) do
+  defp fetch(%{query: query, fields: fields, restricted: restricted, strict: strict}, prefix) do
     query
     |> Repo.all(prefix: prefix)
-    |> Enum.map(&project(&1, fields, restricted))
+    |> Enum.map(&project(&1, fields, restricted, strict))
   end
 
-  defp project(record, fields, restricted) do
+  # A strict decimal is delivered as its canonical string (Lua compares and forwards strings; `tonumber`
+  # is lossy), exactly as the HTTP reads render it. Non-strict fields are delivered as stored.
+  defp project(record, fields, restricted, strict) do
     values =
       case record.field_values do
-        %{} = values -> values
+        %{} = values -> Decimals.render_field_values(values, strict)
         _none -> %{}
       end
 

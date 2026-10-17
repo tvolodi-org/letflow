@@ -86,6 +86,7 @@ defmodule Letflow.Entities.Query.Compiler do
   alias Letflow.Entities.Definition
   alias Letflow.Entities.Query.Allowlist
   alias Letflow.Entities.Query.Types
+  alias Letflow.Entities.Record.Decimals
   alias Letflow.Entities.Record.Latest
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
@@ -98,6 +99,7 @@ defmodule Letflow.Entities.Query.Compiler do
           | {:error, {:field_not_allowed, String.t()}}
           | {:error, {:value_arity_mismatch, Types.filter_op()}}
           | {:error, {:invalid_in_value, String.t()}}
+          | {:error, {:invalid_decimal_value, String.t()}}
           | {:error, {:operator_not_valid_for_type, Types.filter_op(), Definition.field_type()}}
           | {:error, :entity_table_not_found}
           | {:error, {:too_many_joins, non_neg_integer()}}
@@ -397,6 +399,7 @@ defmodule Letflow.Entities.Query.Compiler do
           {:ok, Ecto.Query.dynamic_expr()}
           | {:error, {:value_arity_mismatch, Types.filter_op()}}
           | {:error, {:invalid_in_value, String.t()}}
+          | {:error, {:invalid_decimal_value, String.t()}}
           | {:error, {:operator_not_valid_for_type, Types.filter_op(), Definition.field_type()}}
   def build_filter_dynamic(
         %{field: "entity_type", op: op} = clause,
@@ -410,10 +413,15 @@ defmodule Letflow.Entities.Query.Compiler do
     end
   end
 
-  def build_filter_dynamic(%{field: field_name, op: op} = clause, %{source: :typed_column}, _ctx) do
+  def build_filter_dynamic(
+        %{field: field_name, op: op} = clause,
+        %{source: :typed_column} = af,
+        _ctx
+      ) do
     value = Map.get(clause, :value)
 
-    with :ok <- check_in_value_shape(op, value, field_name) do
+    with :ok <- check_in_value_shape(op, value, field_name),
+         {:ok, value} <- coerce_strict_decimal(af, op, value) do
       {:ok, typed_column_dynamic_dispatch(op, field_name, value)}
     end
   end
@@ -422,8 +430,49 @@ defmodule Letflow.Entities.Query.Compiler do
     value = Map.get(clause, :value)
     field_name = af.name
 
-    with :ok <- check_in_value_shape(op, value, field_name) do
+    with :ok <- check_in_value_shape(op, value, field_name),
+         {:ok, value} <- coerce_strict_decimal(af, op, value) do
       {:ok, json_field_dynamic(op, type, field_name, value)}
+    end
+  end
+
+  # GH #2654: a filter literal on a `decimal_strict` field is coerced to an exact `Decimal`
+  # (string of the strict grammar or integer; every float is refused), so the comparison is
+  # exact and a malformed literal is a 422 instead of a database encoding error. Any other
+  # field, and the null-tests/`contains`/`starts_with` operators, are untouched.
+  @strict_decimal_ops [:eq, :neq, :gt, :gte, :lt, :lte, :in, :not_in]
+  # Bound on an `in`/`not_in` list for a strict decimal field only (each element is parsed).
+  @max_strict_decimal_list 1000
+
+  defp coerce_strict_decimal(%{type: :decimal, decimal_strict: true, name: name}, op, value)
+       when op in @strict_decimal_ops do
+    if op in [:in, :not_in] do
+      if length(value) > @max_strict_decimal_list do
+        {:error, {:invalid_decimal_value, name}}
+      else
+        coerce_strict_decimal_list(value, name)
+      end
+    else
+      case Decimals.filter_value(value) do
+        {:ok, decimal} -> {:ok, decimal}
+        :error -> {:error, {:invalid_decimal_value, name}}
+      end
+    end
+  end
+
+  defp coerce_strict_decimal(_allowlisted_field, _op, value), do: {:ok, value}
+
+  defp coerce_strict_decimal_list(value, name) do
+    value
+    |> Enum.reduce_while({:ok, []}, fn element, {:ok, acc} ->
+      case Decimals.filter_value(element) do
+        {:ok, decimal} -> {:cont, {:ok, [decimal | acc]}}
+        :error -> {:halt, {:error, {:invalid_decimal_value, name}}}
+      end
+    end)
+    |> case do
+      {:ok, decimals} -> {:ok, Enum.reverse(decimals)}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -749,8 +798,21 @@ defmodule Letflow.Entities.Query.Compiler do
   """
   @spec compile_aggregate(aggregate_request(), prefix :: String.t()) ::
           {:ok, Ecto.Query.t()} | aggregate_compile_error()
-  def compile_aggregate(%{entity_type: entity_type, aggregates: aggregates} = request, prefix)
-      when is_binary(entity_type) and is_binary(prefix) and is_list(aggregates) do
+  def compile_aggregate(request, prefix) do
+    with {:ok, query, _render_scales} <- compile_aggregate_with_scales(request, prefix) do
+      {:ok, query}
+    end
+  end
+
+  # GH #2654: compile_aggregate/2 plus, for the rendering step, the result keys whose value is a
+  # strict decimal (key -> field scale). Same single allowlist load.
+  @spec compile_aggregate_with_scales(aggregate_request(), String.t()) ::
+          {:ok, Ecto.Query.t(), %{String.t() => non_neg_integer()}} | aggregate_compile_error()
+  defp compile_aggregate_with_scales(
+         %{entity_type: entity_type, aggregates: aggregates} = request,
+         prefix
+       )
+       when is_binary(entity_type) and is_binary(prefix) and is_list(aggregates) do
     filters = Map.get(request, :filters, [])
     group_by = Map.get(request, :group_by, [])
     joins = Map.get(request, :join, [])
@@ -779,7 +841,13 @@ defmodule Letflow.Entities.Query.Compiler do
           |> apply_group_by(group_by_specs)
           |> apply_aggregate_select(group_by_specs, aggregate_specs)
 
-        {:ok, query}
+        render_scales =
+          for %{strict_scale: scale, key: key} <- group_by_specs ++ aggregate_specs,
+              is_integer(scale),
+              into: %{},
+              do: {key, scale}
+
+        {:ok, query, render_scales}
       end
     end
   end
@@ -793,13 +861,35 @@ defmodule Letflow.Entities.Query.Compiler do
   composes existing context/query-module calls, never executes its own SQL"
   -- has a context-module call to compose here too, instead of calling
   `Repo.all/2` itself (SECURITY-REVIEWER structural finding, REQ-315).
+
+  GH #2654 (design 2.8): the strict-decimal result values are rendered here, so every caller
+  gets them (and the router keeps calling this one function, which the gate-order tests
+  trace): a `sum`/`min`/`max` of a `decimal_strict` field, and a `group_by` key on one, is the
+  canonical string padded to the field scale (ten `"0.10"` sum to `"1.00"`). `avg` is left as
+  Postgres computes it (a precision-bearing average is not a field-scale value), a null stays
+  null, and every other value (non-strict decimals included) is returned exactly as before.
   """
   @spec run_aggregate(aggregate_request(), prefix :: String.t()) ::
           {:ok, [map()]} | aggregate_compile_error()
   def run_aggregate(request, prefix) do
-    with {:ok, query} <- compile_aggregate(request, prefix) do
-      {:ok, Repo.all(query, prefix: prefix)}
+    with {:ok, query, render_scales} <- compile_aggregate_with_scales(request, prefix) do
+      rows = Repo.all(query, prefix: prefix)
+
+      if render_scales == %{} do
+        {:ok, rows}
+      else
+        {:ok, Enum.map(rows, &render_aggregate_row(&1, render_scales))}
+      end
     end
+  end
+
+  defp render_aggregate_row(row, render_scales) do
+    Map.new(row, fn {key, value} ->
+      case Map.fetch(render_scales, key) do
+        {:ok, scale} -> {key, Decimals.render_value(value, scale)}
+        :error -> {key, value}
+      end
+    end)
   end
 
   defp aggregate_base_plain(entity_type, primary_source, combined) do
@@ -856,6 +946,7 @@ defmodule Letflow.Entities.Query.Compiler do
         {:ok, allowlisted_field} ->
           spec = %{
             key: "group__" <> clause.field,
+            strict_scale: strict_scale(allowlisted_field),
             group_dyn: field_value_dynamic(allowlisted_field),
             dyn: dynamic([r], max(^field_value_dynamic(allowlisted_field)))
           }
@@ -906,10 +997,24 @@ defmodule Letflow.Entities.Query.Compiler do
         with {:ok, allowlisted_field} <- Allowlist.resolve_field(allowlist, field_name),
              :ok <- check_aggregate_field_type(fn_, allowlisted_field.type) do
           value_dyn = field_value_dynamic(allowlisted_field)
-          {:ok, %{key: "agg__#{fn_}_#{field_name}", dyn: aggregate_fn_dynamic(fn_, value_dyn)}}
+
+          {:ok,
+           %{
+             key: "agg__#{fn_}_#{field_name}",
+             # avg is deliberately unpadded (design 2.8)
+             strict_scale: if(fn_ == :avg, do: nil, else: strict_scale(allowlisted_field)),
+             dyn: aggregate_fn_dynamic(fn_, value_dyn)
+           }}
         end
     end
   end
+
+  # GH #2654: the scale of a `decimal_strict` allowlisted field, else nil.
+  defp strict_scale(%{type: :decimal, decimal_strict: true, decimal_scale: scale})
+       when is_integer(scale),
+       do: scale
+
+  defp strict_scale(_allowlisted_field), do: nil
 
   defp check_aggregate_field_type(fn_, type) when fn_ in [:sum, :avg] do
     if type in [:integer, :decimal] do

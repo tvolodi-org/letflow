@@ -350,8 +350,23 @@ defmodule Letflow.Entities.Query.Cursor do
   defp decode_component(:integer, v) when is_integer(v), do: {:ok, v}
   defp decode_component(:integer, v) when is_float(v), do: {:ok, trunc(v)}
 
+  # GH #2654: strict parse for EVERY decimal field. `Decimal.new/1` raised `Decimal.Error` on a
+  # tampered component (a crash instead of the cursor error); a valid component (a string from a
+  # strict field, a number or its shortest-float text from a legacy one) decodes as before. A
+  # non-finite or over-long component is a cursor error too. The parse limits are lifted to
+  # match the write path (`Decimals`): Decimal's default 34-digit cap would reject a legitimate
+  # strict value of up to 1000 digits; the 1100-byte and exponent bounds below replace it.
   defp decode_component(:decimal, v) when is_binary(v) or is_number(v) do
-    {:ok, Decimal.new(to_string(v))}
+    text = to_string(v)
+
+    with true <- byte_size(text) <= 1100,
+         {%Decimal{coef: coef, exp: exp} = decimal, ""}
+         when is_integer(coef) and exp >= -1100 and exp <= 1100 <-
+           Decimal.parse(text, max_digits: :infinity, max_exponent: :infinity) do
+      {:ok, decimal}
+    else
+      _malformed -> :error
+    end
   end
 
   defp decode_component(:date, v) when is_binary(v) do
