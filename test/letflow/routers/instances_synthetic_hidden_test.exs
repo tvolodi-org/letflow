@@ -46,18 +46,18 @@ defmodule Letflow.Routers.InstancesSyntheticHiddenTest do
 
   # {method, route template (as declared in the router), roles that probe it, expectation}
   # expectation :not_found -> the nonexistent-id answer is a 404 and so must the synthetic one be;
-  # :same -> only equality with the nonexistent-id answer is asserted (attachment routes, F4).
+  # :upload -> same as :not_found (GH #2718 tightened the attachment rows from equality-only: every row now must answer 404), the multipart body is supplied.
   @walk [
     {"GET", "/:id", [:worker, :auditor], :not_found},
     {"GET", "/:id/history", [:worker, :auditor], :not_found},
     {"GET", "/:id/timeline", [:worker, :auditor], :not_found},
     {"GET", "/:id/pins", [:worker, :auditor], :not_found},
-    {"GET", "/:id/attachments", [:admin], :same},
-    {"GET", "/:id/attachments/:attachment_id", [:admin], :same},
-    {"GET", "/:id/attachments/:attachment_id/link-content", [:admin], :same},
+    {"GET", "/:id/attachments", [:admin], :not_found},
+    {"GET", "/:id/attachments/:attachment_id", [:admin], :not_found},
+    {"GET", "/:id/attachments/:attachment_id/link-content", [:admin], :not_found},
     {"POST", "/:id/attachments", [:admin], :upload},
-    {"POST", "/:id/attachments/:attachment_id/link", [:admin], :same},
-    {"DELETE", "/:id/attachments/:attachment_id", [:admin], :same},
+    {"POST", "/:id/attachments/:attachment_id/link", [:admin], :not_found},
+    {"DELETE", "/:id/attachments/:attachment_id", [:admin], :not_found},
     {"POST", "/:id/rebind-pins", [:admin], :not_found},
     {"POST", "/:id/cancel", [:admin], :not_found},
     {"POST", "/:id/reconstruct", [:admin], :not_found},
@@ -302,7 +302,7 @@ defmodule Letflow.Routers.InstancesSyntheticHiddenTest do
     # Boolean probes: a mismatch names the row and never prints a body.
     assert {method, template, hidden == random} == {method, template, true}
 
-    if expect == :not_found do
+    if expect in [:not_found, :upload] do
       assert {method, template, Enum.map(hidden, fn {_role, {status, _, _}} -> status end)} ==
                {method, template, List.duplicate(404, length(hidden))}
     end

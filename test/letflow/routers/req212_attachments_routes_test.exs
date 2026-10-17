@@ -37,6 +37,8 @@ defmodule Letflow.Routers.Req212AttachmentsRoutesTest do
   alias Letflow.Repository.Attachments
   alias Letflow.TenantFixture
 
+  import Letflow.TestSupport.InstanceFixture, only: [real_instance!: 1]
+
   @opts Letflow.Routers.Instances.init([])
 
   # The exact Plug.Parsers configuration REQ-212 added to
@@ -134,7 +136,7 @@ defmodule Letflow.Routers.Req212AttachmentsRoutesTest do
   describe "AC1: POST /instances/:id/attachments" do
     test "accepts a real multipart upload and returns 201 with the documented shape, no content_hash" do
       tenant = provisioned_tenant("req212-upload")
-      instance_id = Ecto.UUID.generate()
+      instance_id = real_instance!(tenant)
       boundary = "req212boundary1"
 
       body =
@@ -275,7 +277,7 @@ defmodule Letflow.Routers.Req212AttachmentsRoutesTest do
   describe "AC2: GET /instances/:id/attachments" do
     test "returns {items, next_cursor} and honors instance-scoping" do
       tenant = provisioned_tenant("req212-list")
-      instance_x = Ecto.UUID.generate()
+      instance_x = real_instance!(tenant)
       instance_y = Ecto.UUID.generate()
 
       attachment_x = upload!(tenant, instance_x, file_name: "x.txt")
@@ -303,7 +305,7 @@ defmodule Letflow.Routers.Req212AttachmentsRoutesTest do
   describe "AC3: GET /instances/:id/attachments/:attachment_id returns raw bytes" do
     test "byte-for-byte identical body, correct Content-Type and Content-Disposition" do
       tenant = provisioned_tenant("req212-content")
-      instance_id = Ecto.UUID.generate()
+      instance_id = real_instance!(tenant)
 
       attachment =
         upload!(tenant, instance_id,
@@ -344,7 +346,7 @@ defmodule Letflow.Routers.Req212AttachmentsRoutesTest do
       tenant_a = TenantFixture.provisioned_tenant!(slug_prefix: "req212-cross-a")
       tenant_b = TenantFixture.provisioned_tenant!(slug_prefix: "req212-cross-b")
 
-      instance_id = Ecto.UUID.generate()
+      instance_id = real_instance!(tenant_a)
       tenant_b_attachment = upload!(tenant_b, instance_id)
 
       get_conn =
@@ -390,7 +392,7 @@ defmodule Letflow.Routers.Req212AttachmentsRoutesTest do
       tenant_a = TenantFixture.provisioned_tenant!(slug_prefix: "req212-cross-list-a")
       tenant_b = TenantFixture.provisioned_tenant!(slug_prefix: "req212-cross-list-b")
 
-      instance_id = Ecto.UUID.generate()
+      instance_id = real_instance!(tenant_a)
       _tenant_b_attachment = upload!(tenant_b, instance_id)
 
       conn =
@@ -399,6 +401,18 @@ defmodule Letflow.Routers.Req212AttachmentsRoutesTest do
 
       assert conn.status == 200
       assert Jason.decode!(conn.resp_body)["items"] == []
+
+      # GH #2718: an instance id that is real only in ANOTHER tenant is not
+      # visible to tenant A at all -- the Instances 404, not an empty page.
+      other_tenant_instance = real_instance!(tenant_b)
+
+      foreign_conn =
+        build_conn(:get, "/#{other_tenant_instance}/attachments", tenant_a,
+          roles: ["TENANT_ADMIN"]
+        )
+        |> dispatch()
+
+      assert foreign_conn.status == 404
     end
   end
 
@@ -409,8 +423,8 @@ defmodule Letflow.Routers.Req212AttachmentsRoutesTest do
   describe "AC6: cross-instance, same tenant -> 404" do
     test "an attachment real and tenant-correct but belonging to a different instance is 404" do
       tenant = provisioned_tenant("req212-cross-instance")
-      instance_x = Ecto.UUID.generate()
-      instance_y = Ecto.UUID.generate()
+      instance_x = real_instance!(tenant)
+      instance_y = real_instance!(tenant)
 
       attachment = upload!(tenant, instance_x)
 
@@ -576,7 +590,7 @@ defmodule Letflow.Routers.Req212AttachmentsRoutesTest do
     # to the documented 413, not merely present in the context module.
     test "an oversized upload that reaches upload/2 directly (Plug.Parsers bypassed) is still rejected via upload/2's own @max_upload_bytes check, 413" do
       tenant = provisioned_tenant("req212-oversized-direct")
-      instance_id = Ecto.UUID.generate()
+      instance_id = real_instance!(tenant)
 
       oversized_path =
         Path.join(System.tmp_dir!(), "req212_oversized_#{System.unique_integer([:positive])}.bin")
@@ -617,7 +631,7 @@ defmodule Letflow.Routers.Req212AttachmentsRoutesTest do
   describe "REQ-389: POST upload with a disallowed content_type" do
     test "returns 415 naming the rejected type and the allowed set, distinct from file_too_large (413) and infected (422) bodies" do
       tenant = provisioned_tenant("req389-disallowed")
-      instance_id = Ecto.UUID.generate()
+      instance_id = real_instance!(tenant)
       boundary = "req389boundary1"
 
       body = multipart_body(boundary, "clip.mp4", "video/mp4", "not-really-a-video")
@@ -764,7 +778,7 @@ defmodule Letflow.Routers.Req212AttachmentsRoutesTest do
       end)
 
       tenant = provisioned_tenant("iss0399-upload-infected")
-      instance_id = Ecto.UUID.generate()
+      instance_id = real_instance!(tenant)
       boundary = "iss0399boundary1"
 
       body = multipart_body(boundary, "note.txt", "text/plain", "harmless-looking bytes")
@@ -815,7 +829,7 @@ defmodule Letflow.Routers.Req212AttachmentsRoutesTest do
       end)
 
       tenant = provisioned_tenant("iss0399-upload-unavail")
-      instance_id = Ecto.UUID.generate()
+      instance_id = real_instance!(tenant)
       boundary = "iss0399boundary2"
       body = multipart_body(boundary, "note.txt", "text/plain", "harmless bytes")
 
@@ -843,7 +857,7 @@ defmodule Letflow.Routers.Req212AttachmentsRoutesTest do
   describe "ISS-0399: GET content for a non-:clean attachment -> 409" do
     test "a :pending row's byte content cannot be fetched -- 409, distinct from the 404/500 cases" do
       tenant = provisioned_tenant("iss0399-get-pending")
-      instance_id = Ecto.UUID.generate()
+      instance_id = real_instance!(tenant)
 
       tenant_id = tenant.tenant_id
       content_hash = :crypto.hash(:sha256, "pending route-level content")

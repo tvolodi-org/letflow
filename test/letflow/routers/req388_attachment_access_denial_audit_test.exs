@@ -30,6 +30,8 @@ defmodule Letflow.Routers.Req388AttachmentAccessDenialAuditTest do
   alias Letflow.Repository.Attachments
   alias Letflow.TenantFixture
 
+  import Letflow.TestSupport.InstanceFixture, only: [real_instance!: 1]
+
   @instances_opts Letflow.Routers.Instances.init([])
   @audit_opts Letflow.Routers.Audit.init([])
 
@@ -92,7 +94,7 @@ defmodule Letflow.Routers.Req388AttachmentAccessDenialAuditTest do
       tenant_a = TenantFixture.provisioned_tenant!(slug_prefix: "req388-cross-a")
       tenant_b = TenantFixture.provisioned_tenant!(slug_prefix: "req388-cross-b")
 
-      instance_id = Ecto.UUID.generate()
+      instance_id = real_instance!(tenant_a)
       tenant_b_attachment = upload!(tenant_b, instance_id)
       actor_id = Ecto.UUID.generate()
 
@@ -130,7 +132,7 @@ defmodule Letflow.Routers.Req388AttachmentAccessDenialAuditTest do
 
     test "a genuinely never-issued attachment id writes the same shape of entry" do
       tenant = provisioned_tenant("req388-never-issued")
-      instance_id = Ecto.UUID.generate()
+      instance_id = real_instance!(tenant)
       never_issued_id = Ecto.UUID.generate()
       actor_id = Ecto.UUID.generate()
 
@@ -165,8 +167,8 @@ defmodule Letflow.Routers.Req388AttachmentAccessDenialAuditTest do
   describe "AC1: cross-instance-same-tenant denial" do
     test "an attachment real and tenant-correct but belonging to a different instance writes one entry" do
       tenant = provisioned_tenant("req388-cross-instance")
-      instance_x = Ecto.UUID.generate()
-      instance_y = Ecto.UUID.generate()
+      instance_x = real_instance!(tenant)
+      instance_y = real_instance!(tenant)
       actor_id = Ecto.UUID.generate()
 
       attachment = upload!(tenant, instance_x)
@@ -205,7 +207,7 @@ defmodule Letflow.Routers.Req388AttachmentAccessDenialAuditTest do
   describe "no audit entry on a successful fetch" do
     test "a real, same-tenant, same-instance fetch writes zero attachment.access_denied entries" do
       tenant = provisioned_tenant("req388-success")
-      instance_id = Ecto.UUID.generate()
+      instance_id = real_instance!(tenant)
       attachment = upload!(tenant, instance_id)
 
       resp =
@@ -232,7 +234,7 @@ defmodule Letflow.Routers.Req388AttachmentAccessDenialAuditTest do
   describe "ISS-0980: record_attachment_access_denied_audit/5 is rescue-hardened, never raises" do
     test "a genuine Postgres-level audit-insert failure during a denied attachment fetch is logged and swallowed -- the response is still 404, not 500" do
       tenant = provisioned_tenant("iss0980-ia")
-      instance_id = Ecto.UUID.generate()
+      instance_id = real_instance!(tenant)
       never_issued_id = Ecto.UUID.generate()
 
       Repo.query!(~s(DROP TABLE "#{tenant.schema_name}".audit_entries))
