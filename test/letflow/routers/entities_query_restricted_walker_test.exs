@@ -945,10 +945,11 @@ defmodule Letflow.Routers.EntitiesQueryRestrictedWalkerTest do
   end
 
   # ==========================================================================
-  # Aggregate untouched in PR 1
+  # Aggregate route on the shared walker (GH #2699, PR 2); the join-clause
+  # tests live in entities_aggregate_restricted_join_test.exs
   # ==========================================================================
 
-  describe "aggregate route keeps its own check in PR 1" do
+  describe "aggregate route uses the shared walker (PR 2)" do
     test "restricted group_by / measure / filter still 403, permitted twin 200" do
       ctx = exam_ctx!("w-agg", ["TASK_WORKER"], false)
 
@@ -1276,7 +1277,10 @@ defmodule Letflow.Routers.EntitiesQueryRestrictedWalkerTest do
         "group_by" => [%{"field" => "stem"}],
         "filters" => [%{"field" => "stem", "op" => "eq", "value" => "alpha"}],
         "join" => @fk_join,
-        "having" => 1
+        "having" => 1,
+        "distinct" => true,
+        "search" => "x",
+        "unredacted" => true
       }
 
       a =
@@ -1285,6 +1289,11 @@ defmodule Letflow.Routers.EntitiesQueryRestrictedWalkerTest do
         end)
 
       assert Enum.sort(Map.keys(a)) == Enum.sort(RequestGuard.registry_keys(:aggregate))
+
+      # GH #2699 A-13: the unlisted keys are inert -- same status as the
+      # body without them
+      bare = Map.drop(body, ["having", "distinct", "search", "unredacted"])
+      assert aggregate(ctx, bare).status == 200
     end
   end
 
@@ -1377,7 +1386,7 @@ defmodule Letflow.Routers.EntitiesQueryRestrictedWalkerTest do
       assert function_code(source, "run_export") =~ "FieldPolicy.check_request"
     end
 
-    test "the aggregate route is the ONLY remaining direct load_restrictions caller (allow-listed until #2699)" do
+    test "GH #2699 A-12: routers/entities.ex has ZERO direct load_restrictions calls and the aggregate route goes through the shared walker" do
       source = File.read!(@router)
 
       code_lines =
@@ -1385,8 +1394,33 @@ defmodule Letflow.Routers.EntitiesQueryRestrictedWalkerTest do
         |> String.split("\n")
         |> Enum.reject(&String.starts_with?(String.trim(&1), "#"))
 
-      assert Enum.count(code_lines, &(&1 =~ "FieldGrants.load_restrictions(")) == 1
-      assert function_code(source, "run_query_aggregate") =~ "FieldGrants.load_restrictions("
+      assert Enum.count(code_lines, &(&1 =~ "FieldGrants.load_restrictions(")) == 0
+
+      # the deleted names must not survive in code lines (comment wording is
+      # deliberately not asserted)
+      for deleted <- [
+            "check_aggregate_field_restrictions",
+            "aggregate_request_field_names",
+            "aggregate_field_restricted"
+          ] do
+        refute Enum.any?(code_lines, &(&1 =~ deleted)), "#{deleted} is still in code"
+      end
+
+      agg = function_code(source, "run_query_aggregate")
+      assert agg =~ "FieldPolicy.check_request"
+      assert agg =~ ":aggregate"
+      assert agg =~ "exempt?: false"
+      # the guard result is bound as {:ok, _...}; the only else clause renders
+      # an error -- no catch-all that turns an error into success
+      assert agg =~ ~r/\{:ok, _\w*\} <-\s+FieldPolicy\.check_request/
+      assert agg =~ "{:error, reason} -> render_aggregate_error(conn, reason)"
+      refute agg =~ ~r/else\s+_\s*->/
+      refute agg =~ ~r/\n\s+_(other|reason|error)?\s*->/
+
+      # ordering: the guard call precedes the compile call
+      {guard_at, _} = :binary.match(agg, "FieldPolicy.check_request")
+      {compile_at, _} = :binary.match(agg, "Compiler.run_aggregate")
+      assert guard_at < compile_at
     end
 
     test "only run_export passes a non-literal exempt? and only the unredacted flag" do

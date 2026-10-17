@@ -1,0 +1,49 @@
+{
+  "handoff_id": "c4a7d1e0-2699-4a11-8c20-000000000007",
+  "run_id": "WF02-GH2699-AGGREGATE-JOIN-20261017",
+  "workflow_id": "WF-02",
+  "step": "07",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGNER",
+  "file": "handoffs/WF02-GH2699-AGGREGATE-JOIN-20261017/step-07-test-designer.json",
+  "created_at": "2026-10-17T09:00:00Z",
+  "started_at": "2026-10-17T09:01:00Z",
+  "completed_at": "2026-10-17T09:40:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2699": "SECURITY prio 1, PR 2 of #2697: aggregate route migrates to the shared restricted-field walker; join clause closed."
+    },
+    "related_handoff_ids": ["c4a7d1e0-2699-4a11-8c20-000000000004"],
+    "artifacts_in": [
+      "lib/letflow/design/gh2699-aggregate-join-restricted.md",
+      "lib/letflow/routers/entities.ex"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2699-AGGREGATE-JOIN-20261017"
+  },
+  "task": {
+    "description": "Write test spec and test code for GH #2699 (A-1..A-17, mutants M1..M10)."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "Tests and spec written; NOT RUN locally because free physical memory was 1.98-2.17 GB (< 4 GB gate); hosted CI runs them. New file entities_aggregate_restricted_join_test.exs (13 tests). Walker test: T-39 'ONLY remaining direct load_restrictions caller' rewritten to the A-12 code-line assertions; describe renamed (A-16); T-26 aggregate extended with distinct/search/unredacted (A-13). Doc comment in entities_query_restricted_filter_test.exs reworded. mix format and mix letflow.check.test were not run; three over-long lines were wrapped by hand, formatter diffs possible. No mutants applied (no mix run). No implementation bug found by reading; unverified by execution.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "test/letflow/routers/entities_aggregate_restricted_join_test.exs",
+      "test/letflow/routers/entities_query_restricted_walker_test.exs",
+      "test/letflow/routers/entities_query_restricted_filter_test.exs",
+      "test/specs/GH2699-aggregate-join-restricted.md"
+    ],
+    "tests_run": false,
+    "not_run_reason": "free physical memory 1978320-2173396 KB, below the 4 GB gate",
+    "mutants_reported": ["M1", "M3", "M6", "M7", "M8", "M9", "M10", "M4", "M5"],
+    "mutant_counts_measured": false,
+    "implementation_bugs_found": []
+  }
+}
