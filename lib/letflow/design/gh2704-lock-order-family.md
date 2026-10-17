@@ -29,14 +29,14 @@ Step order of the one Multi (a plan = the node has `entity_writes`):
 | 4 | `maybe_entity_writes` -> `EntityPort.multi` -> `StepWrites.multi` | `E`, per line sorted by `(entity_type, index)`: first command of a type takes its sequence row (`lock_and_increment_sequence`, `event_store.ex:749-763`), then its projection; with `module_writes` an explicit `{:type_lock, type}` per type first (`step_writes.ex:566-581`, `622-634`; `handler_writes.ex:426-439`) | `engine.ex:2859`, `3174-3195` |
 | 5 | tail clause 1, execution error | `ExecutionError.append_multi` with the held `P_c`: `S_c`, DLQ row, `P_c` UPDATE | `7133-7147` |
 | 5 | tail clause 2, advanced: `:lock_ancestors` FIRST | parent group of `c`: whole chain FOR UPDATE if the final status is `:completed`, else immediate parent FOR KEY SHARE | `7214-7217`, `8671-8678` |
-| 6 | timers_c cancel (escalation, reminder), token reconcile, task activation | `timers_c` UPDATE (after `P_c`), `tokens_c`, `tasks_c` inserts, **`A`** at each `task.create` audit (`task_activation.ex:482-495`) | `7218-7251` |
+| 6 | timers_c cancel (escalation, reminder), token reconcile, task activation | `timers_c` UPDATE (after `P_c`), `tokens_c`, `tasks_c` inserts, **`A`** at each `task.create` audit (`task_activation.ex:483-495`) | `7218-7251` |
 | 7 | timer/dispatch arms, `:task_complete`, `record_task_complete_audit`, per-line entity audits, SYS/APPLIED events | **`A`**, then `S_c` (events) | `7252-7336` |
 | 8 | `:event` (TASK_COMPLETED) | `S_c`, then `P_c` UPDATE (every event append updates the projection: `event_store.ex:606-618`, `897-910`) | `7337-7345` |
 | 9 | `:projection`, children creation, `append_sub_process_completion_cascade_multi` | `P_c` UPDATE; cascade re-locks the parent group (no wait, already held), then `S_p`, `P_p` UPDATE | `7346-7368`, `7396-7452` |
 
 So the HUMAN child order on main is `tasks_c, P_c, E, [P_p, T_p (, P_g, T_g ...)], timers_c, A, S_c, P_c upd, S_p, P_p upd`.
 The existing statement-trace test pins exactly this E-before-parent-group order
-(`test/letflow/engine/cancel_cascade_lock_order_test.exs:649-690`, asserts
+(`test/letflow/engine/cancel_cascade_lock_order_test.exs:649-723`, the assertion is at `721`:
 `first_type_row < first_parent_lock`).
 
 ### 1.2 Service / script apply, `do_persist_service_task_advance/10` (`engine.ex:4960-5162`)
@@ -47,7 +47,7 @@ Before the Multi (callers, `engine.ex:4600-4640`): dispatch (or script CAS) row,
 | # | Step | Locks / writes | Anchor |
 |---|---|---|---|
 | 1 | `:lock_ancestors` (GH #2695, first step) | parent group, mode as in 1.1 | `5008-5010` |
-| 2 | hop-chain token inserts, `TaskActivation.append_multi_from_existing_records` | `tokens_c`, `tasks_c` inserts; **`A` at each `task.create` audit** (`task_activation.ex:403-421`, `468`, `482`) | `5011-5044` |
+| 2 | hop-chain token inserts, `TaskActivation.append_multi_from_existing_records` | `tokens_c`, `tasks_c` inserts; **`A` at each `task.create` audit** (`task_activation.ex:403-421`, `468`, `483`) | `5011-5044` |
 | 3 | timer arms, dispatch arms, sub-process children creation (new child instances: events, their own task activation, hence `A` again) | `timers_c`, dispatch rows, `S_new`, `A` | `5045-5084` |
 | 4 | `maybe_service_entity_writes` | `E` ascending (same `StepWrites.multi`), then SYS/APPLIED events (`S_c`) | `5088`, `5645-5690` |
 | 5 | `:service_task_completed_event`, `on_advanced`, `:projection` | `S_c`, `P_c` UPDATE | `5089-5104` |
@@ -185,7 +185,7 @@ is the one place where "A last" and "A before S" coexist, resolved by the S-row 
 to be re-checked by the #2705 regression test); ExecutionError landing `L3 L4 L8 L9`. Cross-instance
 edges only go ancestor-ward and only inside L4. Therefore, for the paths of this family, a
 wait-for edge from a transaction holding class k to one holding class j<k cannot exist, so no cycle.
-The residual exceptions are exactly the four items marked "follow-on" in section 6.
+This holds for the family's paths only, NOT tenant-wide. Residual exceptions (all #2707 scope, not fixed here): the HUMAN tail's timer cancel after `P_c`; the cold TIMER_FIRED append; escalation fire's `tasks` lock after `P_x`; cancel's stale snapshot (#2706); and further COLD appenders found in CDV review: `Repository.Attachments` appends ATTACHMENT_ATTACHED/REMOVED after commit with a cold `EventStore.append` (`attachments.ex:374`, `412`: `S_x`, then the `P_x` UPDATE, no prior `P_x` lock), and a reminder fire appends TIMER_FIRED and then takes `A` with no `P` lock. Any cold appender has the same shape as the timer case.
 
 ## 3. Findings beyond the issue texts (all by reading; unverified by a run)
 
@@ -198,9 +198,9 @@ The residual exceptions are exactly the four items marked "follow-on" in section
   writer takes `P_x` FOR UPDATE first, so it is safe; `fire_timer` appends TIMER_FIRED before it
   locks `P_x` (1.5). Decision 0054 D3's "every writer of that instance stream holds the projection
   mutex" claim is therefore not true for timers.
-* **Escalation fire updates `tasks` after `P_x`** (`engine.ex:4237-4252`) while `complete_task` and
-  `cancel` take `tasks` before `P_x`. Whether the preceding `original_task_row` read locks the row is
-  not verified. Input for #2707, not designed here.
+* **Escalation fire takes `tasks` FOR UPDATE after `P_x`** (`:original_task_row`, `engine.ex:4229`,
+  update `4237-4252`): order `timer, P_x, tasks`, inverted against `complete_task` (`tasks, P_x,
+  timers`). Recorded as fact (the lock is explicit in the query); input for #2707, not designed here.
 * **The `engine.ex` moduledoc is corrupted at lines 402-403** ("foreign-key locks on the p  while
   cancel takes it last. I3 (fixed for ..."): a bad edit merged text. PR-1 must repair it while
   rewriting the paragraph.
@@ -240,7 +240,12 @@ Two kinds of reproduction are used, because a retried victim hides a deadlock:
   Entity-write fixtures run with the 2 s `lock_timeout` (compile-time constants,
   `engine.ex:2893-2894`, no seam), so both workers must be parked within one second: poll in 10 ms
   steps with a cap of 80 steps and fail with a named assertion otherwise (the C2 file polls under
-  1.5 s for the same reason, `service_task_entity_writes_lock_order_test.exs:360-380`).
+  1.5 s for the same reason, `service_task_entity_writes_lock_order_test.exs:360-380`). Margin: the
+  green cases need park time plus post-release work to stay under 2 s per waiter. This was NOT
+  measured here (no run). ELIXIR-DEV records the measured park time and the slowest green wait in each
+  PR description; if the margin is under 0.5 s the PR adds a test-env-only runtime read of the two
+  timeout strings (validated integer milliseconds from config, never interpolated input) in place of
+  the compile-time constants, otherwise no seam.
 
 ### 4.1 #2704 - E vs the parent group (HUMAN child with entity_writes, service child, continuing children)
 
@@ -259,22 +264,31 @@ bounds the new early wait exactly as it bounds the later ones; the classificatio
 
 C-E, service/script: add a lock-only step `:lock_entity_types` right after `:lock_ancestors`
 (`engine.ex:5010`) and before the `Multi.merge` that inserts tokens (`5011`). It locks, ascending by
-`entity_type`, the sequence row of every declared line type that has a synthetic instance
-(`EventStore.lock_instance_sequence/3`, `event_store.ex:739-747`, via `HandlerWrites.lock_types/3`),
-the same filter `StepWrites.lock_types/4` already applies (`step_writes.ex:624-634`). Skipped when the
-completion has no `:entity_plan`. The lines' own later lock steps become no-op re-locks. The engine
+`entity_type`, the sequence row of every type in the UNION of the declared line types and the
+registered target types of the plan's `module_writes` handlers
+(`HandlerWrites.registered_targets(module_lines)`), filtered to types that have a synthetic
+instance: exactly the set `StepWrites.lock_types/4` computes for a HUMAN node (`step_writes.ex:624-634`;
+a service plan carries `module_writes` since GH #2590 R5, `engine.ex:5336-5355`). A lines-only set
+would leave a handler-only target type locked after the task-activation `A`, so I4 would survive for
+such a node. Each lock is `EventStore.lock_instance_sequence/3` (`event_store.ex:739-747`). Skipped when the
+completion has no `:entity_plan`. The lines' own later lock steps (and the `{:type_lock}` steps) become no-op re-locks. The engine
 must not name `Letflow.Entities` (0039 D3 boundary), so the step goes through the entity port.
 
 Public/internal shapes (signatures only):
 
 * `Letflow.Engine.EntityPort` (`entity_port.ex`): new OPTIONAL callback
-  `lock_types(Ecto.Multi.t(), lines :: [line()], lock_ctx :: %{prefix: String.t()}) :: Ecto.Multi.t()`
-  plus a wrapper `EntityPort.lock_types/3` that returns the multi unchanged when the configured
+  `lock_types(Ecto.Multi.t(), lines :: [line()], module_lines :: [module_write_line()], lock_ctx :: %{prefix: String.t()}) :: Ecto.Multi.t()`
+  plus a wrapper `EntityPort.lock_types/4` that returns the multi unchanged when the configured
   implementation does not export it (test doubles that `@behaviour` the port keep compiling; an
   optional callback produces no warning under `--warnings-as-errors`).
-* `Letflow.Entities.EntityPortImpl.lock_types/3` -> new `Letflow.Entities.StepWrites.lock_declared_types/3`
-  (`Multi.t(), [line()], prefix`) :: `Multi.t()`; it is the lines-only specialisation of the private
-  `lock_types/4`. Appends zero or more `{:type_lock, type}` steps. No new error shape: a type without
+* `Letflow.Entities.EntityPortImpl.lock_types/4` -> new public `Letflow.Entities.StepWrites.lock_planned_types/4`
+  (`Multi.t(), [line()], [module_write_line()], prefix`) :: `Multi.t()`; it is the private
+  `lock_types/4` without its "no module_writes -> identity" first clause (that clause stays for the
+  in-`multi/3` locks). Step keys: the pre-lock must NOT reuse `{:type_lock, type}`, because for a node
+  with `module_writes` `build_lines` emits the same keys later and Ecto.Multi rejects duplicate names.
+  `HandlerWrites.lock_types/3` therefore gains a key-tag argument (`HandlerWrites.lock_types/4`, tag
+  `:type_lock` for the existing call, `:pre_type_lock` for the pre-lock); the later `{:type_lock, type}`
+  steps become no-op re-locks. No new error shape: a type without
   a synthetic instance is skipped, as today.
 * `Letflow.Engine` private: `:lock_entity_types` step in `do_persist_service_task_advance/10`; no
   public function, `@spec` or return value changes. No schema, migration or API change.
@@ -292,17 +306,23 @@ the race, C2 does the same).
 
 | # | Case | Forced interleaving | On main | After |
 |---|---|---|---|---|
-| E0 | statement order, HUMAN (plan) | none | red: `first_type_row < first_parent_lock` is today's assertion (`cancel_cascade_lock_order_test.exs:649-690`); the NEW assertion is the reverse | green; the old test is FLIPPED in this PR |
+| E0 | statement order, HUMAN (plan) | none | red: `first_type_row < first_parent_lock` is today's assertion (`cancel_cascade_lock_order_test.exs:649-723`, assertion `721`); the NEW assertion is the reverse | green; the old test is FLIPPED in this PR |
 | E0s | statement order, service (plan) | none | red when the service node is followed by a HUMAN node: `A` (`audit_chain_locks`) precedes the first type-row lock | green: parent group, then type rows, then `A` |
-| E1 | sibling completing H and S | `Z` holds X's sequence row. Start H, wait 1 blocked, start S, wait 2 blocked, release. H queued first at E on main, S holds the group and queues second | red: 40P01 (H holds E, wants group; S holds group, wants E) | green: H holds the group (FOR UPDATE), S parks at the group, no E cycle |
-| E2 | sibling continuing H' and S' (each moves on to another HUMAN node; mode key-share) | same barrier | red on main (same cycle; for S' also the I4 cycle) | green; both hold key-share on the group and serialise only on E |
-| E3 | child completion vs the parent's OWN completion with entity_writes on X (parent has a second parallel HUMAN branch with lines) | `Z` on X, parent completion first, child second | red on main (`P_p -> E` vs `E -> P_p`) | green |
+| E1 | sibling completing H and S (pins the sibling inversion of the amendment) | `Z` holds X's sequence row. Start H, wait 1 blocked, start S, wait 2 blocked, release. H queued first at E on main, S holds the group and queues second | red: 40P01 (H holds E, wants group; S holds group, wants E) | green: H holds the group (FOR UPDATE), S parks at the group, no E cycle |
+| E2a | continuing H' (HUMAN node to another HUMAN node, key-share group) vs the parent's OWN completion with lines on X | `Z` on X. Start H' FIRST, wait 1 blocked (main: queued at E, no group yet), start the parent completion (takes `tasks_p`, `P_p` FOR UPDATE, queues at E second), wait 2 blocked, release | red on main: H' gets E first, then wants the key-share group held FOR UPDATE by the parent, which waits for E | green: H' parks at the group before E |
+| E2b | continuing H' vs a COMPLETING sibling S (group FOR UPDATE) | same barrier; H' first, S second | red on main: H' holds E and wants the group S holds; S holds the group and wants E | green |
+| E2c | two continuing siblings H' and S' | same barrier | green on main AND after (key-share is compatible, section 2.3); the control that C-P does not serialise continuing siblings | green |
+| E3 | child completion (HUMAN, lines on X) vs the parent's OWN completion with lines on X (parent has a second parallel HUMAN branch with lines) | `Z` on X. Start the CHILD FIRST, wait 1 blocked, start the parent completion second, wait 2 blocked, release. FIFO: the child gets E, then wants `P_p` (held by the parent, which waits for E) | red on main: 40P01 (`E -> P_p` vs `P_p -> E`). With the opposite start order it would be green on main, so the order is part of the test | green |
+| E5 | I4, service vs HUMAN, no parent needed: S' = service node WITH lines on X whose NEXT node is a HUMAN_TASK (the apply activates that task, so it writes `task.create` and takes `A` before E on main) vs a HUMAN completion with lines on X | `Z` holds `audit_chain_locks`. Start S' first, wait 1 blocked (on main it is parked at `A`), start H, wait 2 blocked (H holds E, parked at `A`), release: S' is granted `A`, wants E | red on main: 40P01 (`A -> E` vs `E -> A`); green after (S' takes E before `A`, H queues behind it) |
+| E6 | C-E for a handler-only target: service node with `module_writes` whose handler's registered target type Y is NOT a declared line type (fixtures of `test/letflow/engine/module_write_service_task_test.exs`), next node HUMAN, vs a HUMAN completion with `module_writes` to Y | as E5, barrier `Z` on `A` | red on main AND red with a lines-only pre-lock (this case proves the union is needed) | green with the union |
 | E4 | cancel safety, re-run T1-T9 of `cancel_cascade_lock_order_test.exs` unchanged | as written | green | green (regression) |
 
 Assertions per forced test: zero telemetry deadlock/lock-timeout reports; both workers return within
 the await bound; record count equals declared lines (no partial or duplicate write); the audit chain
 verifies; `SUB_PROCESS_COMPLETED` exactly once for completing cases. The expected red on main is
-the 40P01 reaching the telemetry handler (the service side is re-applied by the engine and the HUMAN
+the 40P01 reaching the telemetry handler (40P01 rather than 55P03 only because the server's
+`deadlock_timeout`, default 1 s, is shorter than the 2 s `lock_timeout`; with a larger setting the same
+red shows as 55P03, which the handler also reports, so the assertion covers both codes) (the service side is re-applied by the engine and the HUMAN
 side maps to `entity_write_contention`, so the result alone is not the evidence).
 
 **Blast radius.** Production lines about 70 (engine step move, service pre-lock, port callback and
@@ -363,9 +383,14 @@ unchanged.
 its key-share shape (`8674-8678`) for the cancelled instance: parent projection, then the waiting
 token, FOR KEY SHARE, no-op for a non-child. Position: after `P_c` (L3), before the first write that
 UPDATEs the child's projection (the INSTANCE_CANCELLED append, `8597`) and before `A` (`8609`).
-`lock_parent_group/4` currently pattern-matches an `InstanceState` status; cancel has no state, so
-the signature is generalised to take the lock intent (`:completing | :continuing`, or the state as
-today) - ELIXIR-DEV chooses, no behaviour change for the two existing callers. Cancel's other rules
+`lock_parent_group/4` currently pattern-matches an `InstanceState` status (`engine.ex:8671-8678`);
+cancel has no state. Decision: the third argument becomes `intent :: :completing | :continuing`
+(`lock_parent_group(Ecto.Repo.t(), Ecto.UUID.t(), intent, prefix :: String.t() | nil) :: {:ok, [TokenRecord.t()]}`);
+`:completing` = `SubProcess.lock_waiting_parent_chain/3` (FOR UPDATE chain), `:continuing` =
+`SubProcess.lock_waiting_parent/4` with `:key_share`. A private `lock_intent(InstanceState.t())`
+maps `%{status: :completed}` to `:completing` and everything else to `:continuing`; the two existing
+call sites (the service step, `engine.ex:5009`, and the C-P step) call it, the cancel step passes
+`:continuing` literally. No behaviour change for the existing callers. Cancel's other rules
 stay (tasks, timers, dispatch before `P`; `A` last). Result values and error shapes of
 `cancel_instance/3` unchanged; a cancel of a child never resumes or cancels the parent (the parent
 token stays `:waiting`, existing behaviour, not decided here, cf. #2695 Q5).
@@ -391,8 +416,9 @@ router callers) untouched.
   activates a HUMAN task and has lines on X, versus a HUMAN completion with lines on X; start
   order service first, `Z` holds `A`; release) which is RED on main (A -> E vs E -> A) and must be
   GREEN after PR-1; plus a statement-order test for the continuing service step. If PR-1 already
-  carries both tests and they pass, #2705 closes with "fixed by C-E, proof in tests". Decide at PR
-  time whether the test belongs to PR-1 or PR-4 (below).
+  carries both tests and they pass, #2705 closes with "fixed by C-E, proof in tests". Placement is decided: the
+  I4 tests (E5, E6) live in PR-1, because C-E is their fix and a fix ships with its red-first test;
+  PR-4 only adds the "cannot occur" proof for the remaining `A` vs `S_x` pairs.
 * **#2706 (CANCEL-SNAPSHOT).** The order keeps `tasks` (L2) before `P` (L3) because
   `complete_task` is built on it, so the fix cannot re-lock `tasks` after `P`. Not a cycle but a
   correctness gap: tasks inserted by a cascade that commits while cancel waits at `P_p` are missed.
@@ -409,7 +435,7 @@ router callers) untouched.
   Lock mode must be decided before the first write (2.3): the hop chain that says whether the timer
   completes the child runs after the append, so the safe choice is FOR UPDATE on the immediate
   parent for every child timer fire (timer fires are rare) rather than key-share followed by an
-  upgrade. Escalation's `tasks`-after-`P` update (section 3) needs the same look.
+  upgrade. Escalation's `tasks`-after-`P` lock (section 3, fact) needs the same look.
 
 ## 5. Pull-request split (one PR per issue, strictly sequential)
 
@@ -421,10 +447,10 @@ is in CI.
 | Order | PR | Issue | Content | Size (est.) | Depends on |
 |---|---|---|---|---|---|
 | 0 | docs | - | this design note | 1 file | - |
-| 1 | PR-1 | #2704 | C-P, C-E, port callback, `Letflow.LockOrderHelpers` extraction, tests E0-E4, moduledoc rewrite, 0054 D3 amendment | prod ~70 lines, tests ~450, docs ~120 | note merged; owns the moduledoc rewrite, so it goes first |
+| 1 | PR-1 | #2704 | C-P, C-E, port callback, `Letflow.LockOrderHelpers` extraction, tests E0-E6 (E5 and E6 are the I4 / #2705 cases), moduledoc rewrite, 0054 D3 amendment | prod ~70 lines, tests ~450, docs ~120 | note merged; owns the moduledoc rewrite, so it goes first |
 | 2 | PR-2 | #2709 | `ExecutionError` step, tests X0-X4, one moduledoc line | prod ~25, tests ~250 | PR-1 (shared helpers, moduledoc) |
 | 3 | PR-3 | #2708 | cancel step, `lock_parent_group` generalisation, tests C0-C4, one moduledoc line | prod ~15, tests ~220 | PR-1; independent of PR-2 (either order) |
-| 4 | PR-4 | #2705 | proof and regression tests (and a fix only if a test is red after PR-1) | tests ~200 | PR-1 |
+| 4 | PR-4 | #2705 | proof for the remaining `A` vs `S_x` pairs and regression tests (and a fix only if a test is red after PR-1) | tests ~200 | PR-1 |
 | later | - | #2706, #2707 | own design notes after PR-1/PR-3 are on main (they inherit GO, section 4.4) | - | PR-1 |
 
 If a mechanism probe (X0/C0) shows no FK locks, PR-2 and PR-3 shrink to tests plus a moduledoc line
@@ -457,8 +483,7 @@ and are filed as "cannot occur, proof attached" (allowed by their acceptance cri
    barriers are always released in `on_exit`; polls are bounded.
 6. **Decision-record consistency.** GO changes where a child's ancestor group sits relative to 0054
    D3 steps; REVIEWER to confirm the amendment route (Q5).
-7. **Residual after this family:** the four follow-on items (HUMAN tail timers, cold TIMER_FIRED
-   append, escalation `tasks`-after-`P`, cancel's stale snapshot) remain until #2706/#2707.
+7. **Residual after this family:** HUMAN tail timers, cold appenders (TIMER_FIRED, attachment events, reminder fire; section 2.4), escalation `tasks`-after-`P`, and cancel's stale snapshot remain until #2706/#2707. The no-cycle claim is for the family's paths only.
 
 ## 7. SECURITY-REVIEWER
 
@@ -485,9 +510,9 @@ RELEASE-VALIDATOR re-runs the new files.
 | Design note first, order on main with file:line, chosen global order | 1, 2 |
 | Reproducing test or proof before the fix, real output quoted | 4.1-4.3 tables (red on base commit, quoted by ELIXIR-DEV), X0/C0 probes, 4.4 for #2705 |
 | Fix keeps the #2695 order | 2 (GO extends the #2695 table; changes only C-P, C-E, #2708, #2709) |
-| REVIEWER verdict; SECURITY-REVIEWER only on a listed path | 7 |
+| REVIEWER verdict; SECURITY-REVIEWER where required | 7: PR-1, PR-2, PR-3 ARE security-reviewer scope (tenant-data path); no listed trust-boundary file is touched; PR-4 only if it changes `lib/` |
 | Compile with warnings as errors, format check (whole repo, read the rc), scoped tests quoted | each PR's build step; also grep ALL tests for the changed contracts (the flipped E0 assertion, C-5 statement logs) before pushing |
-| #2704: sibling inversion with a reproducing test, continuing children | E1, E2 |
+| #2704: sibling inversion with a reproducing test, continuing children | E1, E2a, E2b, E3 |
 | #2704 amendment: HUMAN-vs-service sibling inversion covered, both child kinds one order | 2, 4.1 |
 | #2708 deadlock or lock-wait order test | C1, C2 |
 | #2709 deadlock or lock-wait order test | X1, X2, X4 |
@@ -500,11 +525,14 @@ RELEASE-VALIDATOR re-runs the new files.
 2. **Entity-port seam (Q2).** Optional callback plus wrapper (chosen) versus a flag in `multi_ctx`.
    The flag would change what every existing test double of `multi/3` does; rejected, but REVIEWER
    may prefer a required callback and updating the doubles listed by
-   `grep -rl "@behaviour Letflow.Engine.EntityPort" test` (9 files).
-3. **Synthetic projection row of a type.** C-E locks only the type's sequence row; the synthetic
-   projection row is then taken by the event append (S before P within one append). Whether any path
-   locks a type's synthetic projection row without the sequence row first (activator `ensure`,
-   `EntityTypeInstance`) is not verified; if one does, E has an internal order to define.
+   `grep -rl "@behaviour Letflow.Engine.EntityPort" test` (10 files, including `test/support/chaos_entity_port.ex` and `test/support/script_task_fixture.ex:421`).
+3. **Synthetic projection row of a type: settled by grep.** `entity_type_instance.ex` has no
+   `FOR UPDATE`/`lock(`; its only projection write is the pre-transaction insert in
+   `ensure_instance_projection` (`:147`, reached from `get_or_create/2` `:94`, outside the race;
+   `StepWrites.prepare` runs it before the transaction). The synthetic projection row is therefore
+   locked only by the `update_projection` of an event append, which always follows the sequence-row
+   lock (`event_store.ex:609-618`). Locking the type's sequence row is sufficient; E has no internal
+   order beyond "ascending type".
 4. **`scope_node_paths` (0054 D3 rule 3a)** is not taken today (no scoped type). When it is, the
    service pre-lock must take it before the type rows. Not applicable now.
 5. **Decision-record route (Q5).** Amendment paragraph to 0054 D3 (proposed) versus a new decision
@@ -519,8 +547,6 @@ RELEASE-VALIDATOR re-runs the new files.
    `build_snapshot_and_state` and `check_completion_guards` take no lock (grep only), that no
    existing test beyond the ones named pins the old order, the PG version needed for any
    `pg_stat` use (not used: telemetry is the deadlock evidence).
-8. **#2705 test placement.** Keep E1/E2 and the I4 test in PR-1 (PR-1 then closes #2705's substance)
-   or leave the I4 test to PR-4. Recommended: I4 test written first inside PR-1 because C-E is its
-   fix; PR-4 then only adds the "cannot occur" proof for the remaining `A` vs `S_x` pairs.
+8. **#2705 test placement: settled.** E5/E6 are in PR-1; PR-4 holds the remaining proof only.
 9. **fire_timer lock mode** (4.4): FOR UPDATE on the immediate parent for every child timer fire is
    the recommendation; to be settled in the #2707 note.
