@@ -1,0 +1,38 @@
+# 0061 -- Engine row-lock order is a platform invariant: one global order for every write path
+
+Status: Accepted: ruled by the supervisor (2026-10-18, rev 4 of the GH #2704 design); drafted by CODE-DESIGNER. Implementation: GH #2704 (PR-1), #2709, #2708, #2705 (proof), then #2706 and #2707 under their own notes.
+
+Date: 2026-10-18
+
+Related: 0054 D3 (entity-write lock order; amended by this record), 0004 (humanless pipeline), GH #2695 (cancel vs the sub-process cascade; merged), GH #2704, #2705, #2706, #2707, #2708, #2709. Design: `lib/letflow/design/gh2704-lock-order-family.md` (the file:line inventory of every path, the pairwise inversions and the test plan live there; this record states only the rule).
+
+## Problem
+The engine serialises concurrent writers with Postgres row locks, not with processes (REQ-045). Each write path was designed with a local lock order, and the orders disagree across paths. Found by reading on origin/main e6dc2419: a HUMAN child completion with `entity_writes` takes the entity-type rows and then its parent's projection and token, while a service-task child takes the parent group first and then the entity-type rows (and a parent's own completion takes its projection first), so siblings and parent/child can deadlock; the service path takes the tenant-wide audit chain row (task activation) before the entity-type rows while a HUMAN completion takes them in the opposite order, with no parent involved; direct child cancel and the ExecutionError landing UPDATE a child's projection without holding the parent group (suspected foreign-key lock hazard, mechanism unconfirmed). A deadlock is recoverable (contention 503 or a re-applied apply) but it is a defect, not a design.
+
+## Decision
+1. **One global order.** Every engine transaction that takes several of these row classes takes them in this order, nothing is taken out of order, and a path takes a subsequence:
+   1. the instance's own timer / dispatch / script-CAS rows and its `tasks` rows (one unordered class; the pair cannot cycle because tasks are contended only by completers and cancel);
+   2. the instance's own projection row `P_x`, always first among the rest;
+   3. the ancestor group of a sub-process child, nearest first: parent projection, then the parent's waiting token, then the grandparent's, and so on;
+   4. the instance's own live tokens;
+   5. entity-type rows, ascending by entity type (the type's sequence row, then its synthetic projection row), preceded by the `scope_node_paths` table lock (0054 D3 rule 3a) when it applies;
+   6. the tenant-wide audit chain row (from the first audit write of the transaction);
+   7. sequence rows: the instance's own, then the ancestors' (the cascade);
+   8. projection UPDATEs.
+   Across instances a child's rows come strictly before its ancestors' rows and no path goes child-ward.
+2. **Modes.** The ancestor group is taken `FOR UPDATE`, whole chain, when the instance completes in this transaction (its cascade follows); otherwise `FOR KEY SHARE` on the immediate parent (a continuing step, a direct cancel, an ExecutionError landing). The mode is decided from the pure transition BEFORE the first lock of step 3 and is never upgraded within a transaction (two siblings upgrading would deadlock). Key-share is compatible between siblings and still queues ahead of a parent cancel's `FOR UPDATE`.
+3. **Lock-only steps do not reorder writes.** Where a path must take a lock earlier than its natural write (the service path's entity-type rows before its task-activation audit), it adds a lock-only step; no event, audit or sequence number changes position or content.
+4. **Entity-port guard.** The engine reaches the entities side only through `Letflow.Engine.EntityPort` (0039 D3). The pre-lock is an OPTIONAL callback `lock_types/4`; test doubles keep the optional default (no-op), but the PRODUCTION adapter must implement it: `@impl true` on the adapter function, a boot-time check (`EntityPort.verify_adapter!/0` from `Letflow.Application.start/2`, raising when the configured adapter lacks it) and a wiring test that fails if the production adapter lacks it or the service Multi has no `{:pre_type_lock, type}` step between `:lock_ancestors` and the token inserts. The guarantee cannot be bypassed by omission.
+5. **Rule for new code.** New engine code that takes more than one of these row classes takes them in this order, or amends this record in the same pull request with the justification and the deadlock test that motivates the change. A new path needs a forced-overlap test (a barrier row held by a third connection plus lock-queue FIFO, deadlock and lock-timeout errors reported through the Repo telemetry event, so a retried victim cannot hide it) before it merges.
+6. **Scope of the guarantee.** The no-cycle argument covers the paths named in the design note. Known exceptions, tracked as GH #2706 and #2707 and not hidden by this record: the HUMAN tail's timer cancel after the projection; cold `EventStore.append` callers that append before locking the projection (TIMER_FIRED, reminder fire, attachment events); escalation fire's `tasks` lock after the projection; cancel's open-tasks snapshot taken before the projection lock. A cold append takes the sequence row and then updates the projection, the reverse of rule 2 above; the fix for each is to lock the projection (and the ancestor group) first.
+
+## Consequences
+* A completing sub-process child holds the parent group `FOR UPDATE` while it waits for entity-type rows (before: after). Sibling completions with `entity_writes` on one type already serialised on the type row and the audit chain row; the group is now held longer. A parent cancel waits behind them longer.
+* A service apply holds entity-type rows before its task-activation audit; they are held slightly longer. Event and audit contents, counts and sequence numbers are unchanged, replay is unaffected, there is no migration and no persisted state to convert. A rolling deploy can only reproduce deadlocks that exist today.
+* The entity-write plan transactions keep `lock_timeout` 2 s / `statement_timeout` 5 s (0054 D3 timeouts); the new early waits fall under them and map to the existing `entity_write_contention`. Transactions without lines have no timeout and surface a deadlock as `{:transaction_failed, _}`, as today.
+* The decision to key-share continuing children and cancel/error landings rests on an observed but unconfirmed foreign-key mechanism (the UPDATE of a child's projection appears to take foreign-key locks on the parent token and projection in a per-tenant-schema order). The prelock is harmless if the mechanism is absent; #2708 and #2709 start with a probe and may end as proof-only.
+* The engine moduledoc "Lock ordering" text is rewritten to this order and a cross-reference to this record; 0054 D3 carries a pointer "Amended by 0061".
+* Rejected: entity-type rows before the ancestor group (a parent's own completion takes its projection second, so child-versus-parent-completion would stay inverted for good); a global audit-last rule (would move 0054 D3 rules 5 and 6 and every audit position for no gain, since the audit row and the type rows are ordered by this record).
+
+## Open
+* The lock mode for child timer fires (FOR UPDATE on the immediate parent is recommended, because the hop chain that says whether the timer completes the child runs after the first event append): to be settled in the #2707 note, which then amends this record only if it must.

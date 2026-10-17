@@ -354,9 +354,9 @@ of type-row locks relative to `tokens`/`tasks` inserts (C-5 statement log; re-re
 Docs: engine moduledoc "Lock ordering" through the GH #2648 paragraph (`engine.ex:359-474`)
 rewritten to GO (repair `402-403`, drop "NOT closed ... Q1"), the comment `5003-5007`, the comment
 `7209-7213` removed with the step, and a NEW decision record,
-`docs/migration/decisions/decision NNNN (number to be allocated by letflow-2)`, stating GO (section 2)
+`docs/migration/decisions/0061-engine-lock-order-platform-invariant.md` (decision 0061), stating GO (section 2)
 as a platform invariant, plus one pointer line in `0054-process-step-writes-entity.md` D3,
-"Amended by decision NNNN" (rule 2b: the ancestor group of a sub-process child is taken after step 2
+"Amended by 0061" (rule 2b: the ancestor group of a sub-process child is taken after step 2
 and before step 3a/4). Ruling: new record, not an in-place amendment of D3.
 
 ### 4.2 #2709 - ExecutionError landing
@@ -470,7 +470,7 @@ is in CI.
 | Order | PR | Issue | Content | Size (est.) | Depends on |
 |---|---|---|---|---|---|
 | 0 | docs | - | this design note | 1 file | - |
-| 1 | PR-1 | #2704 | C-P, C-E, port callback, `Letflow.LockOrderHelpers` extraction, tests E0-E6 (E5 and E6 are the I4 / #2705 cases), moduledoc rewrite, new decision record NNNN (number to be allocated by letflow-2) + the 0054 D3 "Amended by" pointer line, boot-time adapter check + wiring test | prod ~70 lines, tests ~450, docs ~120 | note merged; owns the moduledoc rewrite, so it goes first |
+| 1 | PR-1 | #2704 | C-P, C-E, port callback, `Letflow.LockOrderHelpers` extraction, tests E0-E6 (E5 and E6 are the I4 / #2705 cases), moduledoc rewrite, new decision record 0061 + the 0054 D3 "Amended by" pointer line, boot-time adapter check + wiring test | prod ~70 lines, tests ~450, docs ~120 | note merged; owns the moduledoc rewrite, so it goes first |
 | 2 | PR-2 | #2709 | `ExecutionError` step, tests X0-X4, one moduledoc line | prod ~25, tests ~250 | PR-1 (shared helpers, moduledoc) |
 | 3 | PR-3 | #2708 | cancel step, `lock_parent_group` generalisation, tests C0-C4, one moduledoc line | prod ~15, tests ~220 | PR-1; independent of PR-2 (either order) |
 | 4 | PR-4 | #2705 (relabelled: proven service-vs-HUMAN inversion; demonstrating test E5 is in PR-1) | proof for the remaining `A` vs `S_x` pairs and regression tests (and a fix only if a test is red after PR-1) | tests ~200 | PR-1 |
@@ -505,7 +505,7 @@ and are filed as "cannot occur, proof attached" (allowed by their acceptance cri
    stays within the per-session cap (<= 4 heavy processes) and the ten-minute experiment bound;
    barriers are always released in `on_exit`; polls are bounded.
 6. **Decision-record consistency.** GO changes where a child's ancestor group sits relative to 0054
-   D3 steps; settled: a new decision record (NNNN, number to be allocated by letflow-2) with an
+   D3 steps; settled: a new decision record (0061) with an
    "Amended by" pointer in 0054 D3, both in PR-1.
 7. **Residual after this family:** HUMAN tail timers, cold appenders (TIMER_FIRED, attachment events, reminder fire; section 2.4), escalation `tasks`-after-`P`, and cancel's stale snapshot remain until #2706/#2707. The no-cycle claim is for the family's paths only.
 
@@ -559,7 +559,7 @@ RELEASE-VALIDATOR re-runs the new files.
    order beyond "ascending type".
 4. **`scope_node_paths` (0054 D3 rule 3a)** is not taken today (no scoped type). When it is, the
    service pre-lock must take it before the type rows. Not applicable now.
-5. **Decision-record route: settled** (supervisor, rev 4): new record NNNN, number to be allocated by letflow-2, plus the pointer in 0054 D3; both in PR-1.
+5. **Decision-record route: settled** (supervisor, rev 4): new record 0061, plus the pointer in 0054 D3; both in PR-1.
 6. **Pre-lock when the ancestors do not exist yet.** `lock_waiting_parent` reads the waiting token
    unlocked and re-selects it after locking the parent projection (`sub_process.ex:778-799`);
    unchanged. A child whose parent token moved between the read and the lock yields `nil` and the
