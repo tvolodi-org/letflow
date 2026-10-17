@@ -1,0 +1,47 @@
+{
+  "handoff_id": "c4a7d1e0-2535-4a11-8c20-000000000001",
+  "run_id": "WF02-GH2535-SCOPED-GRANTS-S2-20261018",
+  "workflow_id": "WF-02",
+  "step": "01",
+  "from_agent": "ORCH",
+  "to_agent": "REQ-ANALYST",
+  "file": "handoffs/WF02-GH2535-SCOPED-GRANTS-S2-20261018/step-01-req-analyst.json",
+  "created_at": "2026-10-17T14:28:00Z",
+  "started_at": "2026-10-17T14:29:00Z",
+  "completed_at": "2026-10-17T14:35:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-517"],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2535": "Org-scoped role grants stage 2 (decision 0051): grant CRUD, flag on with flip gate, compiler scope arg, 404 equivalence, F1 approver rule, plus all added ACs and the carried-over stage-1 S10 items."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md",
+      "lib/letflow/scope_enforcement.ex",
+      "lib/letflow/api/scope.ex",
+      "lib/letflow/identity/role_scope_grants.ex"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2535-SCOPED-GRANTS-S2-20261018"
+  },
+  "task": {
+    "description": "WF-02 step 1: draft the requirement entry for GH #2535 into docs/requirements.yaml, split into separately mergeable PRs with tagged ACs. No validation, no implementation."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "Appended REQ-517 (gh 2535, stage S7 like REQ-497/498, owner ELIXIR-DEV, status pending, depends_on REQ-497 and REQ-496) at the end of docs/requirements.yaml after REQ-516. 53 numbered acceptance criteria tagged by PR, 8 open questions, explicit out-of-scope list (task scope_node W3b, F2, scoped integration tokens, platform-scope flip route NOT built and recorded as an open follow-up with no decision record planned, org write routes, T15 pending OQ-6). Six PRs in merge order: 2a grant admin plane (CRUD, last-row refusal, zero-admin guard, self-grant, FK, retire guard, service principal act, single-writer mix check); 2b route plane (stored value on, D5/D11 classification and route-walk, Authorize enforcement under on); 2c data path (required scope arg of compile and compile_aggregate, predicate placement, join targets, 404 equivalence, old and new value on writes, all-or-nothing bulk and import); 2d approver F1; 2e enforced-tenant writer branch (3 D1 cases, grant.sync_suppressed, binding.pending_scope); 2f the flip to on (public parse_mode accepts on only here; four preconditions incl. blocking zero_tenant_wide_admins; audited ON and OFF with reason; end-to-end test). Deviations from the suggested split, with reasons in the description: the flip to on is LAST (parse_mode is the only entry to the column, so 2b-2e can store and test on while no tenant can reach it); last-scoped-row refusal is in 2a with the delete route; route classification gets its own PR 2b. File parses as YAML (53 criteria read back). The working tree file is CRLF (core.autocrlf), the appended text uses CRLF. No mix was run.",
+    "requirement_ids": ["REQ-517"],
+    "files_changed": ["docs/requirements.yaml"],
+    "pr_split": ["2a", "2b", "2c", "2d", "2e", "2f"],
+    "ac_count": 53,
+    "open_questions": ["OQ-1 task scope node source for F1 (blocks 2d)", "OQ-2 entity scope-column declaration source (blocks 2c)", "OQ-3 scoped row vs existing tenant_wide row, user rows", "OQ-4 service principal storage and exclusion from blocking token category", "OQ-5 three D1 cases refused, sync event split", "OQ-6 T15 link issue check", "OQ-7 audit every refused on-flip, shadow required before on", "OQ-8 stage label S7 vs S10"],
+    "risks": ["2c breaks every Compiler caller by design (9 call sites found)", "scoped approvers see no task until W3b under the recommended OQ-1", "every entity type is undeclared today so scoped principals see no entity data in on mode (OQ-2)", "AC 11 self-add refusal changes an existing admin route", "2c is large; ORCH may split it with a new id from the allocator"],
+    "local_issue_id": null,
+    "implementation_written": false
+  }
+}
