@@ -90,4 +90,40 @@ defmodule Letflow.Entities.TypeAccess do
       end
     end
   end
+
+  @doc """
+  The subset of `entity_types` that `user_id` is denied (GH #2700), by the
+  same rule as `authorized?/3`: restricted (a row in
+  `entity_type_restrictions`) and no matching `user_entity_type_grants` row
+  for this user. ONE tenant lookup and ONE query for the whole list; the names
+  are de-duplicated and bound as a typed array parameter (never interpolated,
+  INV-7). `[]` returns an empty set with NO I/O. A type with no restriction
+  row (including a nonexistent one) is never in the result -- like
+  `authorized?/3`, this is not an existence oracle.
+  """
+  @spec denied_types(
+          user_id :: String.t(),
+          entity_types :: [String.t()],
+          prefix :: String.t()
+        ) :: {:ok, MapSet.t(String.t())} | {:error, :invalid_schema_name}
+  def denied_types(_user_id, [], prefix) when is_binary(prefix), do: {:ok, MapSet.new()}
+
+  def denied_types(user_id, entity_types, prefix)
+      when is_binary(user_id) and is_list(entity_types) and is_binary(prefix) do
+    names = Enum.uniq(entity_types)
+
+    with {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix) do
+      query =
+        from(r in "entity_type_restrictions",
+          left_join: g in "user_entity_type_grants",
+          on:
+            g.entity_type == r.entity_type and
+              g.user_id == type(^user_id, Ecto.UUID),
+          where: r.entity_type in type(^names, {:array, :string}) and is_nil(g.id),
+          select: r.entity_type
+        )
+
+      {:ok, query |> Repo.all(prefix: prefix) |> MapSet.new()}
+    end
+  end
 end

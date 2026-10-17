@@ -1,0 +1,63 @@
+{
+  "handoff_id": "d3b9e2a1-2700-4c10-9a00-000000000003",
+  "run_id": "WF02-GH2700-TYPEACCESS-20261017",
+  "workflow_id": "WF-02",
+  "step": "03",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF02-GH2700-TYPEACCESS-20261017/step-03-security-reviewer-design.json",
+  "created_at": "2026-10-17T10:20:00Z",
+  "started_at": "2026-10-17T10:20:05Z",
+  "completed_at": "2026-10-17T10:32:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2700": "TypeAccess on primary and every join target (/query, export, aggregate). Design gate with refusal-shape ruling."
+    },
+    "related_handoff_ids": [
+      "d3b9e2a1-2700-4c10-9a00-000000000001"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/gh2700-type-access-joins-export-aggregate.md",
+      "docs/agents/instructions/security-invariants.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2700-TYPEACCESS-20261017"
+  },
+  "task": {
+    "description": "SECURITY-REVIEWER DESIGN gate for GH #2700. Read-only; no lib/ or test/ edits."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "DESIGN GATE: PASS, conditional on required_changes R1 (constant work) and R2-R5. RULINGS. Q1 APPROVED: /query 200-empty envelope (REQ-394 2.2), export and aggregate 404 Response.not_found, each identical to that route's nonexistent-type response because denied and absent share one atom and one exit; body bytes, status and headers are therefore equal by construction; 403 rejected (existence oracle), 200-empty on export/aggregate rejected (new shape, breaks shipped 404 contract). Q7 RULED: timing is NOT accepted as residual; INV-5 explicitly requires a comparable number of DB round-trips. Require constant work: run the existence step (step 3) over the full distinct set unconditionally, without short-circuit on first absent and without skipping when denied_types is non-empty, then decide refusal once. Cost is on the refusal path only. Remaining difference (an existing definition fetch vs a missing one, same single fk_defs read) is accepted residual. Q2 APPROVED: whole-request refusal for a denied join target, left or inner; dropping the join would answer differently from an absent target. Q3 CONFIRMED: unredacted permission governs field restrictions only; exempt? forwarded only to step 4; type denial never exempted. Note path/body mismatch 422, unredacted flag 400 and unredacted-permission 403 precede the gate but are type-independent. Q4 APPROVED: fk_defs per distinct type (bounded at 9); per-type reads must all run (see R1). Q5 CONFIRMED out of scope: script_reads.ex and scripts/policy.ex already refuse any type with an entity_type_restrictions row (stricter than TypeAccess); exam paths and the seed task are server-authored with fixed requests and no caller join/filter body. Q6 CONFIRMED real leak: GET /entities/definitions (handle_list_definitions -> Definitions.list_definitions, no TypeAccess filter) returns denied definitions (name, fields, schema) while the three single GETs hide them. Severity MEDIUM (schema/metadata disclosure and an existence oracle for type names, no row data); it also means a caller holding EntitiesDefinitionsRead can already tell denied from absent, so the new byte-identical guarantee is only as strong as that route until fixed. File as its own priority-2 issue (cursor pagination means filtering must be done in the query, not after the page). Attachments remain #2718. Q8 CONFIRMED: no audit row for denied reads (audit records mutations; denial row would add a write path and a log-flood vector); no Logger line on the denied branch. COMPLETENESS: grep of Compiler.compile / run_aggregate / join_relations / TypeAccess callers shows caller-body query routes are exactly /query, /query/aggregate and records/:type/export; no GET record route, no reports/dashboards/search/lookups/instances route compiles a caller query or reads entity rows (entity-table readers are Exam modules, stamp/tamper/snapshot, script_reads, all server-authored). Registry classification verified: filters/sort/group_by/aggregates refs are all attributed to the primary entity_type in RequestGuard.refs/4, so only entity_type and join can name another type; the tripwire keeps this closed. Unknown clause fails closed (request_clause_unwalked). R2 reorder (absent target + wrong fk on earlier join -> not-found instead of 422) ACCEPTED: strictly more private. INV-1: principal built from auth_context user_id and prefix!(conn); body keys inert. denied_types: restriction rows left-joined to this user's grant rows within the tenant prefix; grants table has user_id and entity_type only (no role dimension, unique per user/type), so batch matches authorized?/3; no cross-tenant read. #2612 not triggered.",
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "gate": "DESIGN",
+    "invariants_assessed": {
+      "INV-1": "APPLIES-PASS (prefix from auth context; tenant-scoped queries on restriction/grant tables)",
+      "INV-2": "APPLIES-PASS (no row, count or fk presence from a denied type on any route)",
+      "INV-3": "NOT-APPLICABLE",
+      "INV-4": "NOT-APPLICABLE (refusal body and logs carry no type or fk name)",
+      "INV-5": "APPLIES-PASS-conditional-R1 (constant work)",
+      "INV-6": "APPLIES-this-handoff",
+      "INV-7": "APPLIES-PASS (Ecto query API only; denied_types must bind the list as a typed array parameter, no interpolation)",
+      "INV-8": "APPLIES-PASS (denied_types/existence errors refuse, never default-allow; no bare matches)",
+      "INV-9": "NOT-APPLICABLE",
+      "INV-10": "APPLIES-PASS (no new route or permission)"
+    },
+    "trigger_2612_applies": false,
+    "required_changes": [
+      "R1: D1 step 3 and R6/Q7: existence reads run for the whole distinct set unconditionally (also when denied_types is non-empty), with no short-circuit on first absent; decide the single :entity_type_not_found afterwards. Remove 'R6 accepted' wording. Add a test (T-17/T-6) asserting equal DB query counts for denied vs absent requests of the same shape (query-count telemetry).",
+      "R2: TypeAccess.denied_types/3 must bind entity_types as a typed array parameter (type(^types, {:array, :string})), dedupe, keep the user_id UUID cast of authorized?/3, return an empty set without I/O for []; T-16 adds a case where another user holds the grant and a case with duplicate input names.",
+      "R3: File the GET /entities/definitions list leak as a separate priority-2 GH issue BEFORE this PR merges and cite its number (and #2718) in the PR body; PR body also states the past-exposure sentence (R4) and the R2 reorder.",
+      "R4: T-6/T-7 compare full response body bytes and the content-type header for denied vs absent (including unredacted export, a through hop and far hop); T-20 additionally asserts no audit row and no telemetry/log metadata carries the type name for a denied request.",
+      "R5: T-18 source test must also fail if a new authz_post/authz_get handler calls Compiler.compile or run_aggregate without RequestAccess.check, and the existing chain-order test update must keep RequestAccess.check strictly before Compiler.compile and any SQL."
+    ],
+    "implementation_written": false
+  }
+}

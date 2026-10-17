@@ -48,9 +48,27 @@ defmodule Letflow.Entities.Query.RequestGuard do
     aggregate: [:entity_type, :aggregates, :group_by, :filters, :join]
   }
 
+  # GH #2700: every registry key is classified by whether it can name an
+  # entity type other than the primary. `request_entity_types/2` reads the
+  # `:carries_entity_types` keys; a key in `@registry` that is in neither
+  # class is a tripwire failure (test), so adding a request clause forces an
+  # explicit decision here.
+  @entity_type_classes %{
+    entity_type: :carries_entity_types,
+    join: :carries_entity_types,
+    filters: :no_entity_types,
+    sort: :no_entity_types,
+    group_by: :no_entity_types,
+    aggregates: :no_entity_types
+  }
+
   @doc "The registered request keys for `kind`."
   @spec registry_keys(request_kind()) :: [atom()]
   def registry_keys(kind) when kind in [:row, :aggregate], do: Map.fetch!(@registry, kind)
+
+  @doc "Whether registry key `key` can name an entity type (GH #2700), or `:unclassified`."
+  @spec entity_type_class(atom()) :: :carries_entity_types | :no_entity_types | :unclassified
+  def entity_type_class(key), do: Map.get(@entity_type_classes, key, :unclassified)
 
   @doc """
   Walks `request` and returns every field reference it contains.
@@ -77,6 +95,52 @@ defmodule Letflow.Entities.Query.RequestGuard do
   end
 
   def field_refs(_request, _kind, _prefix), do: {:error, :request_clause_unwalked}
+
+  @doc """
+  The distinct entity types a request names (GH #2700): the primary first,
+  then every join clause's `through` and `entity_type`, de-duplicated, order
+  stable. Pure and never raises.
+
+  Order inside: (1) the closed-registry walk (an unknown top-level key, a
+  non-list `join`, a join element that is not a map with a binary
+  `entity_type`, or a non-binary `through`) returns
+  `{:error, :request_clause_unwalked}`; (2) only then the join shape check via
+  `Compiler.join_entity_types/1`, which would crash on a malformed element.
+  """
+  @spec request_entity_types(map(), request_kind()) ::
+          {:ok, [String.t()]}
+          | {:error, :request_clause_unwalked}
+          | Compiler.join_shape_error()
+  def request_entity_types(%{entity_type: primary} = request, kind)
+      when kind in [:row, :aggregate] and is_binary(primary) do
+    with :ok <- walk_entity_type_clauses(request, kind),
+         {:ok, joined} <- Compiler.join_entity_types(joins_of(request)) do
+      {:ok, Enum.uniq([primary | joined])}
+    end
+  end
+
+  def request_entity_types(_request, _kind), do: {:error, :request_clause_unwalked}
+
+  defp walk_entity_type_clauses(request, kind) do
+    with true <- Enum.all?(Map.keys(request), &(&1 in @registry[kind])),
+         true <- Enum.all?(Map.keys(request), &(entity_type_class(&1) != :unclassified)),
+         true <- well_formed_joins?(Map.get(request, :join)) do
+      :ok
+    else
+      false -> {:error, :request_clause_unwalked}
+    end
+  end
+
+  defp well_formed_joins?(nil), do: true
+  defp well_formed_joins?(joins) when is_list(joins), do: Enum.all?(joins, &well_formed_join?/1)
+  defp well_formed_joins?(_other), do: false
+
+  defp well_formed_join?(%{entity_type: entity_type} = join) when is_binary(entity_type),
+    do: is_binary(Map.get(join, :through, ""))
+
+  defp well_formed_join?(_other), do: false
+
+  defp joins_of(request), do: Map.get(request, :join) || []
 
   @doc """
   The distinct entity types whose restriction sets are needed: the primary,

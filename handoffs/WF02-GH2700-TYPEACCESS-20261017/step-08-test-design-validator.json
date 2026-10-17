@@ -1,0 +1,52 @@
+{
+  "handoff_id": "d3b9e2a1-2700-4c10-9a00-000000000008",
+  "run_id": "WF02-GH2700-TYPEACCESS-20261017",
+  "workflow_id": "WF-02",
+  "step": "08",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGN-VALIDATOR",
+  "file": "handoffs/WF02-GH2700-TYPEACCESS-20261017/step-08-test-design-validator.json",
+  "created_at": "2026-10-17T12:00:00Z",
+  "started_at": "2026-10-17T12:00:30Z",
+  "completed_at": "2026-10-17T12:20:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2700": "TEST-DESIGN-VALIDATOR gate: TypeAccess on primary and every join target (/query, export, aggregate)."
+    },
+    "related_handoff_ids": [
+      "d3b9e2a1-2700-4c10-9a00-000000000007"
+    ],
+    "artifacts_in": [
+      "test/specs/GH2700-type-access.md",
+      "test/letflow/routers/entities_type_access_joins_test.exs",
+      "test/letflow/entities/request_access_test.exs",
+      "test/letflow/entities/type_access_test.exs",
+      "test/letflow/entities/query_request_guard_test.exs",
+      "test/letflow/routers/entities_query_restricted_walker_test.exs",
+      "test/letflow/entities/query_cursor_field_grants_test.exs"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2700-TYPEACCESS-20261017"
+  },
+  "task": {
+    "description": "TEST-DESIGN-VALIDATOR gate for GH #2700. Read-only, mix NOT run (ORCH instruction)."
+  },
+  "result": {
+    "status": "PARTIAL",
+    "summary": "All static checks PASS; one MANDATORY item is unmet and is the only thing keeping this from PASS. COVERAGE: every GH #2700 AC has a runnable, non-skipped test (no @tag :skip, no TODO, no hardcoded secrets in the 3 new/edited test files and spec; git status --porcelain lib/ test/ empty). Denied join target hides the whole request on /query at direct/through/far/primary (T-1..T-4, asserts no r1/j_ent); export and aggregate refuse with 404 and no results/records/items/count_none (T-8..T-10, presence oracle proven real first: joined count 1 vs plain 2); denied==absent compares status, full body bytes and headers (request-id/date masked) over 12 cases x 4 routes (query, aggregate, export, export_unredacted) incl. wrong-fk-earlier-join (M7), primary-declares-fk-to-denied-far (T-6, vs dangling_ent->ghost_ent), duplicate/too-many (shape 422 precedes gate, body normalised); permitted twins (T-5 grants on j/t/f, T-11 granted primary, T-12 exempt export still audited and still 404 on denied type); no-restriction tenant (T-19, table stays empty); R2 (another user's grant: router, request_access, type_access; duplicates; [] makes zero queries); T-14 malformed element + too many/duplicate joins -> :request_clause_unwalked (walk before shape); T-15 tripwire; T-20 no log/audit/telemetry carrying type, fk, 'restricted', 'denied'; T-13/T-17 type gate precedes field guard, exempt never lifts type denial. FIXTURES: tenant provisioned per test via setup, column promotions cleaned in on_exit, restrictions replaced per case (set_type_restrictions!), no cross-test ordering dependence. T-18 SOURCE TESTS: robust (comment lines stripped, split on \n so a trailing \r is harmless to the anchored defp/def regex, \\s+ and substring matches), non-vacuous (asserts run_query/run_export/run_query_aggregate are among the compiling functions, exempt_lines != []), per-function gate_at < compile_at, TypeAccess.authorized? only in render_get_definition. T-22 JUDGEMENT: the gate-work equality ({entity_type_restrictions reads, artifact_activations reads} equal for denied vs absent, each >= 1) SATISFIES the substance of SEC R1: R1's own text and Q7 require the existence reads over the whole distinct set unconditionally, and Q7 explicitly accepts as residual 'an existing definition fetch vs a missing one, same single fk_defs read'; a literal total-count equality test would contradict that accepted residual (measured 7 vs 5) and is infeasible without changing Allowlist.fk_defs/2. The counting is flake-proof for #2729: the handler is filtered to the test process (self()==parent) and matches only two table names, api_tokens last_used_at UPDATE matches neither, so no measure_pair retry is needed; warm-up requests precede measurement; the final test pins exactly 1 denied-set read and 4 existence reads for 4 distinct types. MUTANTS reasoned (not run): M1 router T-1/T-2/T-3/T-9/matrix, request_access T-17 cases; M2 T-2 through cases, guard T-14 (both names), join_entity_types unit; M3 T-13 router + request_access 'denied beats restricted field'; M4 matrix signature equality + assert_not_found_shape; M5 T-10 unredacted, T-12, request_access exempt test; M6 equivalent (agree: same tenant lookup error from fk_defs); M7 matrix wrong-fk-earlier + request_access constant-work (n would be 1 not 4) + T-22; M8 T-18 source tests; M9 T-15; M10 T-20 (capture_log :info); M11 R2 router/request_access/type_access mixed fixture (r_other_granted); M12 request_access constant work (reads 0 on denied-first) + T-22 + 'every distinct type' test; M13 T-14 walk-before-shape + request_access malformed table; M14 every granted-user path. MINOR (non-blocking): (a) router moduledoc line 11 still says 'same number of database queries (T-22)' while the test asserts equality of the gate's own reads; reword. (b) M10 detection depends on the test-env Logger level admitting :info; designer's M10 run (1 failed) shows it does. UNMET MANDATORY: core rule for a fix that ADDS a module (RequestAccess is new, so every request_access_test.exs test fails pre-fix with UndefinedFunctionError, which proves nothing about discrimination): the validator MUST apply at least one mutant itself, run the suite and quote its own counts; reading TEST-DESIGNER's M1..M14 counts does not satisfy it. ORCH instructed 'do NOT run mix', so this was not done. Hosted CI is independent execution of the suite on the shipped code but does not measure discrimination. ACTION FOR ORCH: either authorize one mutant run (recommended: M12 or M7 in a throwaway git worktree against request_access_test.exs plus the router T-22 describe, then git status --porcelain lib/ test/ empty and re-run green), or record an explicit waiver. No rework of the tests is requested.",
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "gaps": [
+      "own-measured mutant run not performed (mix forbidden by dispatcher); mandatory for the new RequestAccess module",
+      "router moduledoc line 11 wording 'same number of database queries' overstates T-22 (cosmetic)"
+    ],
+    "verdict": "PARTIAL: PASS on static review, pending the validator-measured mutant run",
+    "implementation_written": false
+  }
+}

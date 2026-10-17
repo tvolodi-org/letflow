@@ -122,6 +122,16 @@ defmodule Letflow.Entities.Query.Compiler do
   """
   @type join_relation :: %{exposed_key: String.t(), hops: [join_hop()]}
 
+  @typedoc """
+  The three caller-structure errors of the join shape check (width, depth,
+  duplicate target): facts about the request alone, independent of any
+  entity type's existence or grants (GH #2700).
+  """
+  @type join_shape_error ::
+          {:error, {:too_many_joins, pos_integer()}}
+          | {:error, :join_depth_exceeded}
+          | {:error, {:duplicate_join_target, String.t()}}
+
   @typedoc "Error union of `join_relations/3` (all members of `compile_error()`)."
   @type join_relations_error ::
           {:error, {:too_many_joins, non_neg_integer()}}
@@ -217,6 +227,29 @@ defmodule Letflow.Entities.Query.Compiler do
          {:ok, raw} <-
            resolve_all_raw_relations(Enum.with_index(joins), primary_entity_type, prefix) do
       {:ok, Enum.map(raw, &raw_to_join_relation/1)}
+    end
+  end
+
+  @doc """
+  Pure (no I/O): runs the join shape check (`check_join_shape/1`, the single
+  source of the width/depth/duplicate rules) and then lists every entity type
+  the joins name, each clause's `through` (if any) followed by its
+  `entity_type`, in request order and NOT de-duplicated. Callers must pass
+  well-formed clauses (a map with a binary `entity_type`, a binary `through`
+  when present); `Letflow.Entities.Query.RequestGuard.request_entity_types/2`
+  guarantees that before calling (GH #2700).
+  """
+  @spec join_entity_types(joins :: [Types.join_clause()]) ::
+          {:ok, [String.t()]} | join_shape_error()
+  def join_entity_types(joins) when is_list(joins) do
+    with :ok <- check_join_shape(joins) do
+      {:ok,
+       Enum.flat_map(joins, fn join ->
+         case Map.fetch(join, :through) do
+           {:ok, through} -> [through, join.entity_type]
+           :error -> [join.entity_type]
+         end
+       end)}
     end
   end
 

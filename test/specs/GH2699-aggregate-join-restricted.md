@@ -25,19 +25,19 @@ Changed files: `test/letflow/routers/entities_query_restricted_walker_test.exs` 
 | A-10b | EntRJ "A-10b ..." | Malformed aggregates / group_by / join element plus a restricted filter -> 400; well-formed control -> 403; JSON array body -> 400 "request body must be a JSON object". Kills M7. |
 | AC-5, A-14 | EntRJ "A-14 ..." | Aggregate join refusals (both directions) equal /query filter, /query join, export join refusals field by field; body leaks neither `question_id`, `question_fk` nor `answer_option`. Kills M9. |
 | AC-14, A-15 | EntRJ "A-15 ..." | Aggregate response only `group`/`values`, no redaction sentinel, no `is_correct`. Kills M10. |
-| AC-9, AC-10, A-12 | W "GH #2699 A-12: routers/entities.ex has ZERO direct load_restrictions calls ..." (rewritten T-39 test) | Code-line source assertions: 0 `FieldGrants.load_restrictions(`; deleted names absent; `run_query_aggregate` contains `FieldPolicy.check_request`, `:aggregate`, `exempt?: false`, binds `{:ok, _x} <-`, only `{:error, reason} ->` else, guard precedes compile. Kills M2, M3, M6. |
+| AC-9, AC-10, A-12 | W "GH #2699 A-12: routers/entities.ex has ZERO direct load_restrictions calls ..." (rewritten T-39 test) | Code-line source assertions: 0 `FieldGrants.load_restrictions(`; deleted names absent; (GH #2700 wording: the gate is now `RequestAccess.check`, which ends in `FieldPolicy.check_request/4`) `run_query_aggregate` contains `RequestAccess.check`, `:aggregate`, `exempt?: false`, binds `{:ok, _x} <-`, only `{:error, reason} ->` else, guard precedes compile. Kills M2, M3, M6. |
 | AC-11, A-13 | W "the aggregate builder emits exactly the :aggregate registry for a maximal body" (extended: join + having/distinct/search/unredacted; bare-body status equal) | Registry equality and inertness of unlisted keys. |
 | A-16 | W describe renamed to "aggregate route uses the shared walker (PR 2)" | Naming only; assertions kept. |
 | A-17 | existing T-1..T-40 in W, `entities_aggregate_test.exs`, `entities_answer_key_field_leak_test.exs`, `exam_snapshot_leak_test.exs`, `query_request_guard_test.exs` | Unchanged; must stay green. |
 | REQ-511 validator | EntRJ "no generic GET /records/:entity_type/:record_id" (2 tests) | Route inventory via `__authz_routes__/0` has no GET for exactly that path (message demands a redaction + probe test); HTTP probe as TASK_WORKER/TENANT_AUDITOR/TENANT_ADMIN: GET records/session/<id> and records/answer_option/<id> give the same status+body as a random uuid, status in 403/404/405 (the catch-all `authz_unmatched(:ordinary)` answers 403 to non-platform callers), no field value in the body. |
-| A-11 | dropped by design (no TypeAccess step on aggregate; #2700) | n/a |
+| A-11 | dropped by design in #2699; delivered by GH #2700 (`RequestAccess.check` type gate on the aggregate route; see `test/specs/GH2700-type-access.md` T-8, T-9) | n/a |
 | R6 | `entities_query_restricted_filter_test.exs` moduledoc no longer names the deleted function | docs only |
 
 ## Mutants for TEST-DESIGN-VALIDATOR
 
 | Mutant | Edit in `run_query_aggregate/4` (lib/letflow/routers/entities.ex) | Expected killers |
 |---|---|---|
-| M1 | remove the `FieldPolicy.check_request` step | EntRJ A-1/A-9, A-2, A-3, A-6 (count returned, not 403); W A-12 |
+| M1 | remove the `RequestAccess.check` step (its field step is `FieldPolicy.check_request`) | EntRJ A-1/A-9, A-2, A-3, A-6 (count returned, not 403); W A-12 |
 | M3 | `exempt?: true` | W A-12 (`exempt?: false`), W exempt-lines test |
 | M6 | bind `{:ok, _}` replaced by a catch-all that continues on error | W A-12 (regex and `else` assertions) |
 | M4/M5 | not router-level (walker / RequestGuard hop owner); apply in `RequestGuard.join_refs` | EntRJ A-2, A-6 (owner), A-3 far |

@@ -172,6 +172,188 @@ defmodule Letflow.Entities.Query.RequestGuardTest do
   end
 
   # ---------------------------------------------------------------------------
+  # GH #2700 T-14 / T-15 -- request_entity_types/2 and the registry
+  # classification tripwire. Spec: test/specs/GH2700-type-access.md
+  # ---------------------------------------------------------------------------
+
+  describe "GH #2700 T-14 request_entity_types/2" do
+    test "primary only, direct, through (both names), in request order" do
+      assert {:ok, ["p"]} = RequestGuard.request_entity_types(%{entity_type: "p"}, :row)
+
+      assert {:ok, ["p", "j"]} =
+               RequestGuard.request_entity_types(
+                 %{entity_type: "p", join: [%{entity_type: "j", fk: "f"}]},
+                 :row
+               )
+
+      assert {:ok, ["p", "t", "far"]} =
+               RequestGuard.request_entity_types(
+                 %{
+                   entity_type: "p",
+                   join: [%{entity_type: "far", through: "t", fk: "f"}]
+                 },
+                 :row
+               )
+
+      assert {:ok, ["p"]} =
+               RequestGuard.request_entity_types(%{entity_type: "p", join: []}, :aggregate)
+    end
+
+    test "duplicates are removed and the primary stays first" do
+      assert {:ok, ["p", "t", "far", "j"]} =
+               RequestGuard.request_entity_types(
+                 %{
+                   entity_type: "p",
+                   join: [
+                     %{entity_type: "far", through: "t", fk: "f"},
+                     %{entity_type: "j", through: "t", fk: "g"}
+                   ]
+                 },
+                 :row
+               )
+
+      # the primary named again as a join target is not listed twice
+      assert {:ok, ["p", "j"]} =
+               RequestGuard.request_entity_types(
+                 %{entity_type: "p", join: [%{entity_type: "p", through: "j", fk: "f"}]},
+                 :row
+               )
+    end
+
+    test "aggregate kind is walked with its own registry" do
+      assert {:ok, ["p", "j"]} =
+               RequestGuard.request_entity_types(
+                 %{
+                   entity_type: "p",
+                   aggregates: [%{fn: :count}],
+                   join: [%{entity_type: "j", fk: "f"}]
+                 },
+                 :aggregate
+               )
+
+      # :aggregates is not a :row key
+      assert {:error, :request_clause_unwalked} =
+               RequestGuard.request_entity_types(
+                 %{entity_type: "p", aggregates: [%{fn: :count}]},
+                 :row
+               )
+    end
+
+    test "malformed shapes return :request_clause_unwalked and never raise" do
+      for bad <- [
+            %{entity_type: "p", join: "j"},
+            %{entity_type: "p", join: [%{fk: "f"}]},
+            %{entity_type: "p", join: ["j"]},
+            %{entity_type: "p", join: [%{entity_type: :j, fk: "f"}]},
+            %{entity_type: "p", join: [%{entity_type: "j", through: :t, fk: "f"}]},
+            %{entity_type: "p", join: [%{entity_type: "j", through: nil, fk: "f"}]},
+            %{entity_type: "p", having: 1},
+            %{entity_type: "p", join: nil, distinct: true},
+            %{join: [%{entity_type: "j", fk: "f"}]},
+            %{entity_type: :p},
+            %{}
+          ] do
+        assert {:error, :request_clause_unwalked} =
+                 RequestGuard.request_entity_types(bad, :row),
+               inspect(bad)
+      end
+
+      assert {:error, :request_clause_unwalked} =
+               RequestGuard.request_entity_types(%{entity_type: "p"}, :bogus)
+    end
+
+    test "walk precedes the shape check: a malformed element TOGETHER WITH too many / duplicate joins is unwalked, not a crash" do
+      too_many = for i <- 1..5, do: %{entity_type: "j#{i}", fk: "f"}
+
+      assert {:error, :request_clause_unwalked} =
+               RequestGuard.request_entity_types(
+                 %{entity_type: "p", join: [%{fk: "no_entity_type"} | too_many]},
+                 :row
+               )
+
+      assert {:error, :request_clause_unwalked} =
+               RequestGuard.request_entity_types(
+                 %{
+                   entity_type: "p",
+                   join: [%{fk: "x"}, %{entity_type: "j", fk: "f"}, %{entity_type: "j", fk: "f"}]
+                 },
+                 :row
+               )
+
+      assert {:error, :request_clause_unwalked} =
+               RequestGuard.request_entity_types(
+                 %{entity_type: "p", join: [:not_a_map | too_many]},
+                 :row
+               )
+    end
+
+    test "well-formed shape errors come after the walk, through Compiler.join_entity_types/1" do
+      too_many = for i <- 1..5, do: %{entity_type: "j#{i}", fk: "f"}
+
+      assert {:error, {:too_many_joins, 5}} =
+               RequestGuard.request_entity_types(%{entity_type: "p", join: too_many}, :row)
+
+      assert {:error, {:duplicate_join_target, "j"}} =
+               RequestGuard.request_entity_types(
+                 %{
+                   entity_type: "p",
+                   join: [%{entity_type: "j", fk: "f"}, %{entity_type: "j", fk: "g"}]
+                 },
+                 :row
+               )
+
+      assert {:error, :join_depth_exceeded} =
+               RequestGuard.request_entity_types(
+                 %{entity_type: "p", join: [%{entity_type: "j", fk: "f", join: []}]},
+                 :row
+               )
+    end
+
+    test "Compiler.join_entity_types/1 is pure: shape errors, then [through, entity_type] per clause" do
+      assert {:ok, []} = Compiler.join_entity_types([])
+
+      assert {:ok, ["t", "far", "j"]} =
+               Compiler.join_entity_types([
+                 %{entity_type: "far", through: "t", fk: "f"},
+                 %{entity_type: "j", fk: "g"}
+               ])
+
+      assert {:error, {:duplicate_join_target, "j"}} =
+               Compiler.join_entity_types([
+                 %{entity_type: "j", fk: "f"},
+                 %{entity_type: "j", fk: "g"}
+               ])
+    end
+  end
+
+  describe "GH #2700 T-15 registry classification tripwire" do
+    test "every registry key of both kinds is classified as carrying or not carrying entity types" do
+      for kind <- [:row, :aggregate], key <- RequestGuard.registry_keys(kind) do
+        assert RequestGuard.entity_type_class(key) in [:carries_entity_types, :no_entity_types],
+               "registry key #{inspect(key)} (#{kind}) has no entity-type classification"
+      end
+    end
+
+    test "the classification is the documented one" do
+      assert RequestGuard.entity_type_class(:entity_type) == :carries_entity_types
+      assert RequestGuard.entity_type_class(:join) == :carries_entity_types
+
+      for key <- [:filters, :sort, :group_by, :aggregates] do
+        assert RequestGuard.entity_type_class(key) == :no_entity_types
+      end
+    end
+
+    test "a synthetic extra key is unclassified, so the tripwire would fail for it" do
+      assert RequestGuard.entity_type_class(:synthetic_new_clause) == :unclassified
+
+      refute RequestGuard.entity_type_class(:synthetic_new_clause) in [
+               :carries_entity_types,
+               :no_entity_types
+             ]
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # restriction_entity_types/2, restricted_refs/2, check/2
   # ---------------------------------------------------------------------------
 

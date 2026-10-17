@@ -1,0 +1,84 @@
+{
+  "handoff_id": "d3b9e2a1-2700-4c10-9a00-000000000004",
+  "run_id": "WF02-GH2700-TYPEACCESS-20261017",
+  "workflow_id": "WF-02",
+  "step": "04",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF02-GH2700-TYPEACCESS-20261017/step-04-elixir-dev.json",
+  "created_at": "2026-10-17T10:40:00Z",
+  "started_at": "2026-10-17T10:40:30Z",
+  "completed_at": "2026-10-17T11:23:09Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2700": "TypeAccess on primary and every join target (/query, export, aggregate)."
+    },
+    "related_handoff_ids": [
+      "d3b9e2a1-2700-4c10-9a00-000000000003"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/gh2700-type-access-joins-export-aggregate.md"
+    ],
+    "owned_modules": [
+      "Letflow.Entities.RequestAccess",
+      "Letflow.Entities.TypeAccess",
+      "Letflow.Entities.Query.RequestGuard",
+      "Letflow.Entities.Query.Compiler",
+      "Letflow.Routers.Entities"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2700-TYPEACCESS-20261017"
+  },
+  "task": {
+    "description": "ELIXIR-DEV implementation of the GH #2700 design. No tests written, nothing committed."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "Implemented per design. New lib/letflow/entities/request_access.ex (check/4: request_entity_types -> TypeAccess.denied_types -> Allowlist.fk_defs for EVERY distinct type with no short-circuit, one decision after (denied or any non-{:ok,_} read -> :entity_type_not_found; :invalid_schema_name propagates) -> unchanged FieldPolicy.check_request/4 with exempt? forwarded only there). TypeAccess.denied_types/3 (single tenant lookup + one query, Enum.uniq names bound as type(^names,{:array,:string}), UUID cast kept, [] returns empty set with no I/O). Compiler.join_shape_error() type and Compiler.join_entity_types/1 (check_join_shape then through,entity_type per clause, request order, not deduped). RequestGuard.request_entity_types/2 (walk first: registry keys, entity_type_class classification table, join list/element/through well-formedness; then Compiler.join_entity_types; uniq with primary first; never raises) plus public RequestGuard.entity_type_class/1 for the tripwire test. Router: run_query/run_export/run_query_aggregate call only RequestAccess.check; guard_row_request/2, the later TypeAccess step, the {:ok,:denied} else clause, the {:checked,_} redact clause removed (redact/3 now takes the sets map; run_query binds {:ok, %{sets: sets}}); render_type_hidden/1 and refusal shapes unchanged (/query 200-empty, export/aggregate 404); unredacted export does not lift denial; no log/audit on denial. Stale comments and moduledoc route-table rows (query, query_aggregate, export_records) reworded; removed now-unused FieldPolicy alias from router. VERIFICATION: MIX_ENV=test mix compile --warnings-as-errors clean (twice, before and after mix format); mix format ran; mix letflow.check_boundaries OK (1372 edges, 0 violations). No tests run (not asked). Mutex taken and released.",
+    "files_changed": [
+      "lib/letflow/entities/request_access.ex (new)",
+      "lib/letflow/entities/type_access.ex",
+      "lib/letflow/entities/query/request_guard.ex",
+      "lib/letflow/entities/query/compiler.ex",
+      "lib/letflow/routers/entities.ex"
+    ],
+    "untouched_confirmed": [
+      "lib/letflow/api/authorization.ex",
+      "effective.golden",
+      "lib/letflow/modules/catalog.ex",
+      "config/"
+    ],
+    "deviations": [
+      "request_entity_types/2 also fails closed (:request_clause_unwalked) for a non-binary/absent primary entity_type, matching field_refs/3.",
+      "RequestGuard.entity_type_class/1 added as a public accessor so T-15 can classify without reaching into a module attribute; design named only the table.",
+      "Compiler.join_entity_types/1 order per clause is [through, entity_type] (design did not fix the order).",
+      "ensure_all_visible treats any non-{:ok,_} read other than :invalid_schema_name as absent (fail closed)."
+    ],
+    "caller_grep": {
+      "lib": "TypeAccess.authorized? only in router render_get_definition (~915); FieldPolicy.check_request only in RequestAccess (router has zero code uses); Compiler.join_relations only in RequestGuard.join_refs; script_reads.ex, modules/exam/*, mix letflow.seed.exam_fixtures compile server-authored requests without TypeAccess (design F8, out of scope, unchanged).",
+      "web/src": "no caller of query/aggregate, records/<type>/export or any join/through request body (matches in web/src/api/definitions.ts and SolutionPackUpdateLauncherPage.tsx are unrelated string matches)",
+      "scripts": "none",
+      "test/fixtures": "no join request fixtures found"
+    },
+    "tests_to_touch": [
+      "test/letflow/routers/entities_query_restricted_walker_test.exs T-39 (~1375-1430: expects guard_row_request, FieldPolicy.check_request in run_export/aggregate, 'exempt?: false' in guard_row_request) and A-12 (~1432-1468) -- will FAIL, replace per design 3.1/T-18",
+      "test/letflow/entities/query_cursor_field_grants_test.exs chain-order test (~975-1030): still asserts compile<paginate<redact and should pass; extend to RequestAccess.check( before Compiler.compile(",
+      "test/specs/GH2697-query-restricted.md (T-39/M5/M10 wording), possibly test/specs/GH2699-aggregate-join-restricted.md and REQ-394.md wording",
+      "test/letflow/routers/entities_test.exs and entities_aggregate_test.exs: tests combining a join error (field_not_allowed) with an absent later target now answer not-found (design R2); grep field_not_allowed with join",
+      "test/letflow/routers/entities_query_restricted_filter_test.exs moduledoc mention only",
+      "test/letflow/entities/query_request_guard_test.exs: FieldPolicy.check_request calls still valid (unchanged API); add T-14/T-15",
+      "test/letflow/entities/type_access_test.exs: add denied_types T-16 (authorized? unchanged)"
+    ],
+    "notes_for_test_designer": [
+      "RequestAccess.check/4 requires principal %{user_id, prefix} and opts %{exempt?: _}; denied/absent both return {:error, :entity_type_not_found}.",
+      "request_entity_types/2 returns [primary | per join: through, entity_type] uniq; shape errors come only after the walk.",
+      "denied_types/3 with [] makes zero queries including no tenant lookup; invalid prefix returns {:error, :invalid_schema_name} for non-empty input.",
+      "redact/3 in the router no longer has a {:checked,_} clause."
+    ]
+  }
+}

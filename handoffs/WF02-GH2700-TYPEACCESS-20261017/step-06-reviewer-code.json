@@ -1,0 +1,54 @@
+{
+  "handoff_id": "d3b9e2a1-2700-4c10-9a00-000000000006",
+  "run_id": "WF02-GH2700-TYPEACCESS-20261017",
+  "workflow_id": "WF-02",
+  "step": "06",
+  "from_agent": "ORCH",
+  "to_agent": "REVIEWER",
+  "file": "handoffs/WF02-GH2700-TYPEACCESS-20261017/step-06-reviewer-code.json",
+  "created_at": "2026-10-17T10:50:00Z",
+  "started_at": "2026-10-17T10:50:30Z",
+  "completed_at": "2026-10-17T11:00:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2700": "TypeAccess on primary and every join target (/query, export, aggregate). REVIEWER code gate (idiom, boundaries, scope, decision records)."
+    },
+    "related_handoff_ids": ["d3b9e2a1-2700-4c10-9a00-000000000004"],
+    "artifacts_in": [
+      "lib/letflow/entities/request_access.ex",
+      "lib/letflow/entities/type_access.ex",
+      "lib/letflow/entities/query/request_guard.ex",
+      "lib/letflow/entities/query/compiler.ex",
+      "lib/letflow/routers/entities.ex"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2700-TYPEACCESS-20261017"
+  },
+  "task": {
+    "description": "REVIEWER code gate for GH #2700 commit c674cb1e1. Read-only; no mix run."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "PASS, no required changes. IDIOM: plain functions and a with-chain; no behaviours, macros or processes introduced; RequestAccess.check/4 is a thin composition with a spec and a typed access_error; ensure_all_visible maps over ALL types before one decision (no early exit), so denied and absent do identical DB work and return the same {:error, :entity_type_not_found} from one exit. SUPERVISION: N/A, no process added (consistent with the REQ-045 plain-context decision). MODULE BOUNDARIES (by reading, no mix): RequestAccess lives in lib/letflow/entities/ and references only entities modules (FieldPolicy, Query.Allowlist, Query.RequestGuard, TypeAccess). Rule 6's only row forbids engine -> entities and nothing under lib/letflow/engine references RequestAccess (its only caller is routers/entities.ex), so no new direct edge can trip it. Rule 5 concerns lib/letflow/modules/<id>/ targets; none touched. The 1372-edge count is a total, not a signal. No dependency cycle: RequestGuard -> Compiler (existing), RequestAccess -> RequestGuard/FieldPolicy, nothing points back at RequestAccess. SCOPE: only #2700. FieldPolicy untouched; RequestGuard gained request_entity_types/2, the classification table and entity_type_class/1; Compiler gained join_shape_error type and join_entity_types/1 reusing check_join_shape (single source of the width/depth/duplicate rules); TypeAccess gained denied_types/3 with authorized?/3 unchanged. Router changes are removals/rewires plus comments. DEVIATIONS: (1) non-binary/absent primary -> :request_clause_unwalked: accepted, mirrors field_refs/3 fail-closed (build_query_request already guarantees a binary primary). (2) public entity_type_class/1: accepted, tiny accessor for the tripwire test. (3) [through, entity_type] order: accepted, order is irrelevant downstream (uniq + set membership). (4) ensure_all_visible fail-closed on any non-{:ok,_} read: accepted and correct for INV-5; :invalid_schema_name propagates distinctly (500, unreachable per INV-1). STALE/DEAD CODE: grep of lib/ for guard_row_request, {:checked,_}, :type_denied and 'only the aggregate' finds no remnants; the 'PR 1/PR 2' hits are unrelated REQ-447/ISS-1030 text. The unused FieldPolicy alias was removed; the TypeAccess alias is still used by render_get_definition; the RequestGuard alias is still used by the redact spec. Router moduledoc table rows (query, query_aggregate, export_records) and the run_query/aggregate/export/error-mapping comments were updated and are accurate. One cosmetic nit only (non-blocking): the aggregate comment block in routers/entities.ex (~2141-2145) has an over-long line after the reflow. ERROR RENDERING: unchanged. /query maps {:error, :entity_type_not_found} to render_type_hidden (200 empty); aggregate and export fall through to render_query_error -> 404; render_query_error clauses not edited; the unredacted-permission check still precedes the gate and exempt? is forwarded only to FieldPolicy.check_request. Shape errors (too_many_joins, depth, duplicate target) are request-only facts and now precede existence/denial; this is NOT an oracle because they are independent of any type's existence or grants (design R2). N+1: one denied_types query for the whole set (single typed-array param, uniq); one fk_defs per distinct type (tenant_id_for_schema_name is a pure string check, not I/O), bounded by the join-width cap. Known mild redundancy, accepted: fk_defs, FieldPolicy.load_sets and Compiler.compile/Allowlist.load each read the same definition again (a type is read about 3-4 times per request); it is the price of the equal-work property and of leaving FieldPolicy/Compiler unchanged. TYPE-SAFETY: no finding filed. The unclassified-key tripwire is test-enforced rather than type-enforced, but the closed map plus the walker's runtime fail-closed makes an unclassified key unreachable in production. DECISION RECORDS: no conflict with 0001/0004/REQ-045; no disagreement to record.",
+    "files_changed": [],
+    "tests_to_touch": [
+      "test/letflow/routers/entities_query_restricted_walker_test.exs T-39 (~1375-1393, 'run_query, run_export and redact obtain restriction sets only through FieldPolicy'): iterates names incl. guard_row_request (function_code returns empty, the 'not found' assertion FAILS) and asserts run_query =~ guard_row_request and run_export =~ FieldPolicy.check_request; replace with: run_query/run_export/run_query_aggregate contain RequestAccess.check, router code lines contain no FieldPolicy.check_request and no load_restrictions, and RequestAccess calls FieldPolicy.check_request last.",
+      "same file, A-12 (~1395-1430): agg =~ FieldPolicy.check_request, the regex for {:ok, _x} <- FieldPolicy.check_request and the ordering match on FieldPolicy.check_request FAIL; rewrite against RequestAccess.check (keep :aggregate, exempt?: false, the else clause, guard-before-Compiler.run_aggregate ordering).",
+      "same file, last test 'only run_export passes a non-literal exempt?' (~1456-1470): function_code(source, guard_row_request) =~ exempt?: false FAILS (function deleted); retarget to run_query; the exempt_lines scan still holds.",
+      "test/letflow/entities/query_cursor_field_grants_test.exs chain-order test (~975-1030): still passes as written (compile < paginate < redact); extend to assert RequestAccess.check( precedes Compiler.compile( in run_query and run_export, and no TypeAccess.authorized? remains in run_query.",
+      "test/letflow/routers/entities_test.exs and entities_aggregate_test.exs: grep join-error tests (field_not_allowed, join fk, through errors) that combine a join error with an absent or denied LATER join target; they now answer :entity_type_not_found (404 aggregate/export, 200-empty /query) instead of the join error (design R2). Absent-primary cases are unchanged (primary already won); all-present-types tests are unaffected.",
+      "test/specs/GH2697-query-restricted.md (T-39/M5/M10 wording about guard_row_request and run_export calling FieldPolicy directly), test/specs/GH2699-aggregate-join-restricted.md, test/specs/REQ-394.md (type check now runs before compile via RequestAccess); moduledoc mention in test/letflow/routers/entities_query_restricted_filter_test.exs.",
+      "test/letflow/entities/query_request_guard_test.exs: existing field_refs/check_request tests stay valid; ADD request_entity_types/2 (dedupe, primary first, [through, entity_type] order, unknown key, non-list join, non-map element, non-binary through incl. through: nil, shape errors only after the walk, non-binary primary) and the entity_type_class tripwire over registry_keys(:row) and (:aggregate).",
+      "test/letflow/entities/type_access_test.exs: ADD denied_types/3 (restricted without grant, with grant, another user's grant, unrestricted/nonexistent not denied, [] does no I/O, invalid prefix -> :invalid_schema_name, duplicates, UUID cast); authorized?/3 tests unchanged.",
+      "NEW RequestAccess.check/4 tests: denied primary / denied join entity_type / denied through / absent later target all give identical {:error, :entity_type_not_found}; exempt?: true never lifts denial; field check runs only after the type gate; router-level matrix for /query (200-empty), aggregate and export (404), incl. unredacted export of a denied joined type."
+    ],
+    "local_issue_id": null,
+    "artifacts_out": []
+  }
+}

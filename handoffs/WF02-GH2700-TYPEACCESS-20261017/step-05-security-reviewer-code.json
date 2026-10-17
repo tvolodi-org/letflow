@@ -1,0 +1,60 @@
+{
+  "handoff_id": "d3b9e2a1-2700-4c10-9a00-000000000005",
+  "run_id": "WF02-GH2700-TYPEACCESS-20261017",
+  "workflow_id": "WF-02",
+  "step": "05",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF02-GH2700-TYPEACCESS-20261017/step-05-security-reviewer-code.json",
+  "created_at": "2026-10-17T10:45:00Z",
+  "started_at": "2026-10-17T10:45:05Z",
+  "completed_at": "2026-10-17T10:58:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2700": "TypeAccess on primary and every join target (/query, export, aggregate). Design gate with refusal-shape ruling."
+    },
+    "related_handoff_ids": [
+      "d3b9e2a1-2700-4c10-9a00-000000000003",
+      "d3b9e2a1-2700-4c10-9a00-000000000004"
+    ],
+    "artifacts_in": [
+      "lib/letflow/entities/request_access.ex",
+      "lib/letflow/entities/type_access.ex",
+      "lib/letflow/entities/query/request_guard.ex",
+      "lib/letflow/entities/query/compiler.ex",
+      "lib/letflow/routers/entities.ex",
+      "docs/agents/instructions/security-invariants.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2700-TYPEACCESS-20261017"
+  },
+  "task": {
+    "description": "SECURITY-REVIEWER CODE gate for GH #2700 (commit c674cb1e1). Read-only; no lib/ or test/ edits; no mix run."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "CODE gate PASS. RequestAccess.check/4 order is request_entity_types (primary, then join through/entity_type; unwalked/malformed/non-binary primary fail closed, never raises) -> TypeAccess.denied_types (one tenant lookup, one query, typed array param, uniq, [] no I/O, UUID cast, queried in the auth-context prefix) -> ensure_all_visible reads Allowlist.fk_defs for EVERY type via Enum.map (no short-circuit, R1), one decision, any non-{:ok,_} read fails closed to :entity_type_not_found, :invalid_schema_name preserved -> FieldPolicy.check_request unchanged. Denied and absent are the same {:error,:entity_type_not_found} from the same exit: /query maps to render_type_hidden 200-empty, export and aggregate to the shared 404 clause (identical to a nonexistent type). Unredacted export: exempt? forwarded only to check_request, never lifts type denial; the 403 for a missing unredacted permission is type-independent (precedes the gate). No Logger/audit on denial; audit_exempted runs only after the gate. Old guard_row_request and the after-compile TypeAccess step removed with no loss: sets from RequestAccess still reach redact/3 and export_redact. Principal/prefix come from auth context only (INV-1). Other Compiler.compile callers (script_reads, exam session/snapshot/anti_cheat, seed task) build server-constructed single-type queries with no caller joins: out of scope. render_get_definition TypeAccess.authorized? unchanged. Non-blocking notes: shape errors (too_many_joins, depth, duplicate target) precede denial/existence by design (request-structure facts, design ruling); tests must pin identical status/body for denied vs absent at primary, direct, far and through hops, the tripwire for @entity_type_classes, and the no-short-circuit query count.",
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "gate": "SECURITY-REVIEWER code gate GH #2700",
+    "invariants_assessed": {
+      "INV-1": "APPLIES - PASS (principal and prefix from auth context only; denied_types and fk_defs run in that prefix)",
+      "INV-2": "APPLIES - PASS (type gate precedes unchanged field guard; redaction sets still reach redact/export_redact)",
+      "INV-3": "NOT-APPLICABLE",
+      "INV-4": "NOT-APPLICABLE (no secrets)",
+      "INV-5": "APPLIES - PASS (denied and absent identical at primary, direct, far and through hops; same DB work, same exit)",
+      "INV-6": "NOT-APPLICABLE",
+      "INV-7": "APPLIES - PASS (names bound as typed array parameter, user_id cast to UUID)",
+      "INV-8": "APPLIES - PASS (every non-ok read fails closed)"
+    },
+    "trigger_2612_applies": false,
+    "required_changes": [],
+    "implementation_written": false
+  }
+}

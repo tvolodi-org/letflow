@@ -50,7 +50,7 @@ Files:
 | T-28 ref with no loaded set -> restricted | fail closed | U: "T-28 ..." |
 | T-30 restriction loads | plain = 1, one-target join = 2 (redact does not reload) | W: "T-30 ..." |
 | T-31 far-side redaction | sentinel per entity; grant shows value; keyed per entity | W: "T-31 ..." x4 |
-| T-39 router architecture | no direct `load_restrictions` in run_query/run_export/redact/guard_row_request/export_redact; aggregate the single allow-listed remaining caller; only run_export passes a non-literal `exempt?` | W: "T-39 ..." x3 |
+| T-39 router architecture | (reworded by GH #2700, see `test/specs/GH2700-type-access.md` T-18) no direct `load_restrictions` and no direct `FieldPolicy.check_request` in the router; run_query/run_export/run_query_aggregate each call `RequestAccess.check` ahead of `Compiler.compile`/`run_aggregate`; aggregate the single allow-listed remaining caller; only run_export passes a non-literal `exempt?` | W: "T-39 ..." x5 |
 | T-40 FieldPolicy | redact_with_sets (pure, explicit sets, missing set raises), restriction_set own vs other grant, redact/3, check/redact agree, load_sets, exempt? required | U: "T-40 FieldPolicy" |
 | `Compiler.join_relations/3` | hop order/ownership direct+through, errors, shape-first, empty | U: "Compiler.join_relations/3" |
 | aggregate untouched | still 403 on restricted group_by/filter, permitted 200 | W: "aggregate route keeps its own check in PR 1" |
@@ -63,12 +63,12 @@ Files:
 | M2 | skip the `filters` walk (or make the export call site not call `check_request/4`) | W: T-07, T-09/T-10, T-23/T-36; filter file (2), (4a), (5a) |
 | M3 | skip `join_on` refs, or govern them by the PRIMARY's set | W: T-11, T-12, T-12b, T-13 x2, export+join; U: join_relations/field_refs/check_request join tests |
 | M4 | exemption keyed on route permission only (pass `exempt?: true` without checking the flag / `unredacted?`) | W: T-18b, T-18c |
-| M5 | exemption honoured on `/query` (pass `exempt?: true` in `guard_row_request`) | W: T-18a, T-39 architecture test |
+| M5 | exemption honoured on `/query` (pass `exempt?: true` to `RequestAccess.check` in `run_query`; was `guard_row_request` before GH #2700) | W: T-18a, T-39 architecture test |
 | M6 | unlisted key ignored in `field_refs/3`, or `restricted_refs/2` passes a ref with no loaded set | U: T-27, T-28; W: T-26 |
 | M7 | `FieldPolicy.redact*` and `check_request` use different sets (e.g. one ignores grants) | U: T-40 "agree on membership", "honours the caller's own grant" |
 | M8 | audit written before compile / for non-exempt exports / with values | W: T-33, "a refused export ... no audit", T-17 (names only) |
 | M9 | `redact` reloads sets via `load_restrictions` | W: T-30, T-39 |
-| M10 | `guard_row_request` does not skip a type-denied caller (denied type returns 403) | W: T-24, T-34b, B1 |
+| M10 | the gate does not refuse a type-denied caller before the field guard (GH #2700: `RequestAccess.check/4` returns the not-found shape for a denied type, never the 403; was `guard_row_request` before) | W: T-24, T-34b, B1; GH2700 T-13 |
 | M11 | `join_relations/3` errors surface for a nonexistent primary (B1 regression) | W: B1 x2; U: nonexistent primary with a through join |
 
 ## Coverage check
