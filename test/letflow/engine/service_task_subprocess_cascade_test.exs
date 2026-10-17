@@ -35,6 +35,9 @@ defmodule Letflow.Engine.ServiceTaskSubprocessCascadeTest do
   alias Letflow.EntityWritesFixture, as: Fx
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.Repo
+  alias Letflow.ServiceCatalog
+  alias Letflow.ServiceCatalog.Entry
+  alias Letflow.ServiceCatalog.Version
   alias Letflow.Support.PlatformTenantFixture
   alias Letflow.Support.ScriptTaskFixture, as: F
 
@@ -87,6 +90,14 @@ defmodule Letflow.Engine.ServiceTaskSubprocessCascadeTest do
       "id" => "last",
       "node_type" => "SERVICE_TASK",
       "attributes" => %{"script_key" => key, "script_version" => version}
+    })
+  end
+
+  defp child_graph({:catalog, service_id}) do
+    child_graph_with(%{
+      "id" => "last",
+      "node_type" => "SERVICE_TASK",
+      "attributes" => %{"service_id" => service_id, "timeout_ms" => 5_000}
     })
   end
 
@@ -248,33 +259,6 @@ defmodule Letflow.Engine.ServiceTaskSubprocessCascadeTest do
     }
   end
 
-  # A sub-process child's INSTANCE_STARTED carries no `pinned_versions` (separate, pre-existing
-  # defect #2694: a script/catalog node inside a child fails with
-  # `script_task_pin_unresolved`). To reach the child's script apply at all, the child's start
-  # event is given the pins a top-level instance of the same definition records. TEST-ONLY HACK:
-  # it rewrites an append-only event under `session_replication_role = replica`. Remove it when
-  # #2694 is fixed.
-  defp give_child_script_pins!(schema, child_def, child_id) do
-    donor_id = start_instance!(schema, child_def)
-    {:ok, donor_events} = Reconstruction.read_full_log(donor_id, schema, 1)
-    started = Enum.find(donor_events, &(&1.event_type == "INSTANCE_STARTED"))
-    pins = started.payload["pinned_versions"] || started.payload[:pinned_versions]
-    assert [_ | _] = pins
-
-    Repo.transaction(fn ->
-      Repo.query!("SET LOCAL session_replication_role = replica")
-
-      Repo.query!(
-        """
-        UPDATE "#{schema}".events
-        SET payload = payload || jsonb_build_object('pinned_versions', $1::jsonb)
-        WHERE instance_id = $2 AND event_type = 'INSTANCE_STARTED'
-        """,
-        [pins, Ecto.UUID.dump!(child_id)]
-      )
-    end)
-  end
-
   # Builds parent + child (last node `kind`), runs the child's last node, returns the ids.
   defp run_scenario!(t, kind, output \\ %{}) do
     %{schema: schema, child_id: child_id} = ctx = setup_scenario!(t, kind)
@@ -282,6 +266,7 @@ defmodule Letflow.Engine.ServiceTaskSubprocessCascadeTest do
     case kind do
       :human -> complete!(schema, pending_task!(schema, child_id), output)
       :http -> assert {:ok, :advanced} = apply_http(schema, child_id, output)
+      :catalog -> assert {:ok, :advanced} = apply_http(schema, child_id, output)
       :script -> assert {_row, {:ok, :applied}} = F.run_next!(schema)
     end
 
@@ -306,16 +291,33 @@ defmodule Letflow.Engine.ServiceTaskSubprocessCascadeTest do
 
           {:script, rule.key, rule.version}
 
+        :catalog ->
+          service_id = unique("c2694-svc")
+
+          on_exit(fn ->
+            Repo.delete_all(from(v in Version, where: v.service_id == ^service_id))
+            Repo.delete_all(from(e in Entry, where: e.service_id == ^service_id))
+          end)
+
+          assert {:ok, _entry} =
+                   ServiceCatalog.register(%{
+                     service_id: service_id,
+                     endpoint_url: "https://example.test/c2694",
+                     required_auth: :NONE,
+                     timeout_ms: 5_000,
+                     scope: :global
+                   })
+
+          {:catalog, service_id}
+
         other ->
           other
       end
 
-    child_def = create_active!(schema, child_name, child_graph(child_kind))
+    create_active!(schema, child_name, child_graph(child_kind))
     parent = create_active!(schema, unique("c2648-parent"), parent_graph(child_name))
     parent_id = start_instance!(schema, parent)
     child_id = child_of!(schema, parent_id)
-
-    if kind == :script, do: give_child_script_pins!(schema, child_def, child_id)
 
     complete!(schema, pending_task!(schema, child_id))
 
@@ -376,6 +378,23 @@ defmodule Letflow.Engine.ServiceTaskSubprocessCascadeTest do
 
       assert Map.delete(parent, :variables) ==
                Map.delete(snapshot(schema, human.parent_id), :variables)
+    end
+
+    test "catalog SERVICE_TASK last node (GH #2694): same parent state and events as the HUMAN path" do
+      t = F.tenant!("gh2694-catalog")
+      schema = t.schema_name
+
+      output = %{"x" => 1}
+      human = run_scenario!(t, :human, output)
+      catalog = run_scenario!(t, :catalog, output)
+
+      assert Repo.get!(InstanceProjection, catalog.child_id, prefix: schema).status == :completed
+
+      parent = snapshot(schema, catalog.parent_id)
+      assert parent.status == :active
+      assert parent.current_nodes == ["after"]
+      assert "SUB_PROCESS_COMPLETED" in parent.event_types
+      assert parent == snapshot(schema, human.parent_id)
     end
 
     test "the cascade recurses: a service-ended grandchild completes the middle and wakes the grandparent" do
