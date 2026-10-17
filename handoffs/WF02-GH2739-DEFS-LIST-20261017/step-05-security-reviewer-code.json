@@ -1,0 +1,57 @@
+{
+  "handoff_id": "c4a7d1e0-2739-4a11-8c20-000000000005",
+  "run_id": "WF02-GH2739-DEFS-LIST-20261017",
+  "workflow_id": "WF-02",
+  "step": "05",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF02-GH2739-DEFS-LIST-20261017/step-05-security-reviewer-code.json",
+  "created_at": "2026-10-17T13:10:00Z",
+  "started_at": "2026-10-17T13:10:05Z",
+  "completed_at": "2026-10-17T13:25:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S4",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2739": "Code gate: TypeAccess filter on GET /entities/definitions list."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-2739-4a11-8c20-000000000003",
+      "c4a7d1e0-2739-4a11-8c20-000000000004"
+    ],
+    "artifacts_in": [
+      "lib/letflow/entities/type_access.ex",
+      "lib/letflow/entities/definitions.ex",
+      "lib/letflow/routers/entities.ex",
+      "lib/letflow/design/gh2739-definitions-list-type-access.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2739-DEFS-LIST-20261017"
+  },
+  "task": {
+    "description": "SECURITY-REVIEWER CODE gate for GH #2739 (commit b56dc738c). Read-only; no mix run."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "CODE GATE: PASS. Reviewed by reading git show HEAD and deps/ecto 3.14.1 planner; nothing executed. (1) Rule parity: private denial_query/1 (type_access.ex, restriction left-joined to the user's grant, is_nil(g.id), type(^user_id, Ecto.UUID) cast kept) is the single source for authorized?/3 (adds r.entity_type == ^entity_type, select r.id), denied_types/3 (adds in type(^names,{:array,:string}), select r.entity_type) and visible_to/2; added where clauses are the same predicates as before, so the two existing functions are behaviour-identical. (2) visible_to/2: guards is_binary(user_id) and is_atom(name_binding), no nil/default form (bad input is FunctionClauseError, never allow-all); dynamic not exists(denial) with r.entity_type == parent_as(^name_binding).name; user_id is a bound parameter (INV-7), no raw SQL. (3) list_definitions/3: clause order from(e in EntityDefinition, as: :def) -> tenant_id -> keyset -> visible_to -> order_by -> limit(page_size+1); filter is inside the one statement before ORDER/LIMIT, so page, over-fetch row and next_cursor are over visible rows; cursor decode and next_cursor logic unchanged; with-chain order tenant -> page size -> cursor unchanged; guard is_binary(user_id). (4) Router passes conn.assigns.auth_context.user_id only (never query/body), same source as the three single GETs; INV-1 tenant prefix still from auth context. (5) Prefix: Repo.all(prefix: prefix) attaches prefix to the query (Ecto.Query.Planner.attach_prefix); the exists subquery lives in :wheres and is planned by plan_expr_subqueries -> plan_subquery(subquery, query, nil, ...) which sets prefix: prefix || subquery.query.prefix || query.prefix (planner.ex:339-345); schemaless string from and string join then take query.prefix (planner.ex:307-315), so both entity_type_restrictions and user_entity_type_grants resolve to the tenant schema. Reasoned only: T-12 two-real-tenant test remains the blocking runtime proof (R1 of design gate stands). A failure mode would be a missing relation or wrong schema, not allow-all of another tenant. (6) Cursor: keyset position only, no row lookup, filter in same WHERE, so a crafted cursor naming a denied row yields no signal. (7) Callers: grep of list_definitions over lib/ finds only handle_list_definitions (entities.ex:945); /2 removed; no unscoped sibling. Remaining /2 callers are in test/ only (test/letflow/entities/definitions_test.exs:312-429) and must be migrated to /3 by TEST-DESIGNER; stale /2 doc mentions in lib are updated to /3. (8) No regression for callers without restrictions: with no restriction rows NOT EXISTS is true for every row, so output is unchanged. INVARIANTS: INV-1 APPLIES-PASS (conditional on T-12); INV-2 APPLIES-PASS; INV-3 NOT-APPLICABLE; INV-4 NOT-APPLICABLE; INV-5 APPLIES-PASS; INV-6 per design gate; INV-7 APPLIES-PASS; INV-8 APPLIES-PASS (no new bare matches). #2612 not triggered (no ci.yml/cd.yml/mix.exs/authorization.ex/permission_matrix/catalog change). OPEN, not for this PR: design-gate R3 (solution-pack export disclosure, file separately; mention with #2718 in the PR body) and the pre-existing bare matches in decode_list_definitions_seek.",
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "gate": "CODE",
+    "invariants_assessed": {
+      "INV-1": "APPLIES-PASS-conditional-T-12",
+      "INV-2": "APPLIES-PASS",
+      "INV-3": "NOT-APPLICABLE",
+      "INV-4": "NOT-APPLICABLE",
+      "INV-5": "APPLIES-PASS",
+      "INV-7": "APPLIES-PASS",
+      "INV-8": "APPLIES-PASS"
+    },
+    "trigger_2612_applies": false,
+    "required_changes": [],
+    "implementation_written": false
+  }
+}

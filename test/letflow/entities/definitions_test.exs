@@ -3,7 +3,7 @@ defmodule Letflow.Entities.DefinitionsTest do
   Integration tests for `Letflow.Entities.Definitions` and
   `Letflow.Entities.EntityDefinition` (REQ-226) -- `entity_definitions`
   persistence, the CRUD context module's `create_definition/2`/
-  `get_definition/2`/`get_definition_by_name/2`/`list_definitions/2`/
+  `get_definition/2`/`get_definition_by_name/2`/`list_definitions/3`/
   `activate_definition/4`, and the `:entity` `Letflow.Repository.ArtifactKind`
   extension. See
   `lib/letflow/design/req226-entity-definitions-persistence-crud.md` for the
@@ -29,6 +29,10 @@ defmodule Letflow.Entities.DefinitionsTest do
   alias Letflow.Repository.ArtifactKind
   alias Letflow.Repository.ArtifactVersion
   alias Letflow.TenantFixture
+
+  # GH #2739: list_definitions/3 needs a viewer. This user holds no type restriction or
+  # grant, so every list assertion below is unchanged from the former /2 contract.
+  @unrestricted_viewer "00000000-0000-4000-8000-0000000000a1"
 
   # ---------------------------------------------------------------------------------
   # Fixtures -- provisions via Letflow.TenantFixture (ISS-0112 / GH#366).
@@ -298,21 +302,21 @@ defmodule Letflow.Entities.DefinitionsTest do
   end
 
   # ---------------------------------------------------------------------------------
-  # AC5 -- list_definitions/2 is tenant-scoped and paginates via REQ-067's
+  # AC5 -- list_definitions/3 is tenant-scoped and paginates via REQ-067's
   # cursor contract.
   # ---------------------------------------------------------------------------------
 
-  describe "AC5 -- list_definitions/2 tenant scoping and pagination" do
+  describe "AC5 -- list_definitions/3 tenant scoping and pagination" do
     test "a definition created under tenant A is absent from tenant B's list" do
       %{schema_name: schema_a} = provisioned_tenant()
       %{schema_name: schema_b} = provisioned_tenant()
 
       assert {:ok, _} = Definitions.create_definition(create_attrs(), schema_a)
 
-      assert {:ok, page_a} = Definitions.list_definitions(%{}, schema_a)
+      assert {:ok, page_a} = Definitions.list_definitions(@unrestricted_viewer, %{}, schema_a)
       assert length(page_a.items) == 1
 
-      assert {:ok, page_b} = Definitions.list_definitions(%{}, schema_b)
+      assert {:ok, page_b} = Definitions.list_definitions(@unrestricted_viewer, %{}, schema_b)
       assert page_b.items == []
     end
 
@@ -327,18 +331,28 @@ defmodule Letflow.Entities.DefinitionsTest do
                  )
       end
 
-      assert {:ok, page_1} = Definitions.list_definitions(%{page_size: 2}, schema)
+      assert {:ok, page_1} =
+               Definitions.list_definitions(@unrestricted_viewer, %{page_size: 2}, schema)
+
       assert length(page_1.items) == 2
       assert is_binary(page_1.next_cursor)
 
       assert {:ok, page_2} =
-               Definitions.list_definitions(%{page_size: 2, cursor: page_1.next_cursor}, schema)
+               Definitions.list_definitions(
+                 @unrestricted_viewer,
+                 %{page_size: 2, cursor: page_1.next_cursor},
+                 schema
+               )
 
       assert length(page_2.items) == 2
       assert is_binary(page_2.next_cursor)
 
       assert {:ok, page_3} =
-               Definitions.list_definitions(%{page_size: 2, cursor: page_2.next_cursor}, schema)
+               Definitions.list_definitions(
+                 @unrestricted_viewer,
+                 %{page_size: 2, cursor: page_2.next_cursor},
+                 schema
+               )
 
       assert length(page_3.items) == 1
       assert page_3.next_cursor == nil
@@ -354,10 +368,10 @@ defmodule Letflow.Entities.DefinitionsTest do
     test "page_size 0 and 201 are both rejected with :page_size_too_large" do
       %{schema_name: schema} = provisioned_tenant()
 
-      assert Definitions.list_definitions(%{page_size: 0}, schema) ==
+      assert Definitions.list_definitions(@unrestricted_viewer, %{page_size: 0}, schema) ==
                {:error, :page_size_too_large}
 
-      assert Definitions.list_definitions(%{page_size: 201}, schema) ==
+      assert Definitions.list_definitions(@unrestricted_viewer, %{page_size: 201}, schema) ==
                {:error, :page_size_too_large}
     end
 
@@ -373,12 +387,12 @@ defmodule Letflow.Entities.DefinitionsTest do
         )
         |> Letflow.Api.Pagination.encode_cursor()
 
-      assert Definitions.list_definitions(%{cursor: foreign_cursor}, schema) ==
+      assert Definitions.list_definitions(@unrestricted_viewer, %{cursor: foreign_cursor}, schema) ==
                {:error, :wrong_endpoint}
     end
 
     test "an invalid schema-name prefix is rejected with :invalid_schema_name" do
-      assert Definitions.list_definitions(%{}, "not-a-real-schema") ==
+      assert Definitions.list_definitions(@unrestricted_viewer, %{}, "not-a-real-schema") ==
                {:error, :invalid_schema_name}
     end
 
@@ -387,7 +401,7 @@ defmodule Letflow.Entities.DefinitionsTest do
     # carrying a malformed (non-UUID) id component then reached Repo.all/2's
     # {e.inserted_at, e.id} < {^inserted_at, ^id_str} WHERE clause against
     # EntityDefinition.id (typed :binary_id) and raised
-    # Ecto.Query.CastError, unhandled by list_definitions/2's `with` chain.
+    # Ecto.Query.CastError, unhandled by list_definitions/3's `with` chain.
     # The fix routes id_str through Pagination.cast_binary_id_component/1
     # before it ever reaches a query. Mirrors ISSUE-FIXER's own
     # reproduction; asserts a clean return, NOT assert_raise, since the
@@ -404,7 +418,11 @@ defmodule Letflow.Entities.DefinitionsTest do
         )
         |> Letflow.Api.Pagination.encode_cursor()
 
-      assert Definitions.list_definitions(%{cursor: malformed_cursor}, schema) ==
+      assert Definitions.list_definitions(
+               @unrestricted_viewer,
+               %{cursor: malformed_cursor},
+               schema
+             ) ==
                {:error, :invalid_cursor}
     end
 
@@ -421,12 +439,18 @@ defmodule Letflow.Entities.DefinitionsTest do
                  )
       end
 
-      assert {:ok, page_1} = Definitions.list_definitions(%{page_size: 2}, schema)
+      assert {:ok, page_1} =
+               Definitions.list_definitions(@unrestricted_viewer, %{page_size: 2}, schema)
+
       assert length(page_1.items) == 2
       assert is_binary(page_1.next_cursor)
 
       assert {:ok, page_2} =
-               Definitions.list_definitions(%{page_size: 2, cursor: page_1.next_cursor}, schema)
+               Definitions.list_definitions(
+                 @unrestricted_viewer,
+                 %{page_size: 2, cursor: page_1.next_cursor},
+                 schema
+               )
 
       assert length(page_2.items) == 1
       assert page_2.next_cursor == nil

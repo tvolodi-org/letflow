@@ -1,0 +1,65 @@
+{
+  "handoff_id": "c4a7d1e0-2739-4a11-8c20-000000000007",
+  "run_id": "WF02-GH2739-DEFS-LIST-20261017",
+  "workflow_id": "WF-02",
+  "step": "07",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGNER",
+  "file": "handoffs/WF02-GH2739-DEFS-LIST-20261017/step-07-test-designer.json",
+  "created_at": "2026-10-17T12:52:00Z",
+  "started_at": "2026-10-17T12:52:30Z",
+  "completed_at": "2026-10-17T12:57:50Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S4",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2739": "GET /entities/definitions list ignores TypeAccess (SECURITY). Tests for the implemented filter."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-2739-4a11-8c20-000000000004"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/gh2739-definitions-list-type-access.md",
+      "handoffs/WF02-GH2739-DEFS-LIST-20261017/step-04-elixir-dev.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2739-DEFS-LIST-20261017"
+  },
+  "task": {
+    "description": "Write failing-first tests T-1..T-17, the shared QueryCount helper, migrate the AC5 list tests to list_definitions/3, and the spec with the AC-to-test map and mutants. No commit, no lib/ edits."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "summary": "Tests written for T-1..T-17 but NOT RUN: free memory was 3.48 GB at start and again before the end (gate is 4 GB), so no mix test and no mutant was executed; hosted CI / TEST-RUNNER must run them. Verified: mix format on all touched files (rc=0); MIX_ENV=test mix compile --warnings-as-errors clean (compiled the 2 new test/support modules; the .exs files are not compiled by it); git diff -- lib is empty. No implementation bug found by reading (SEC and REVIEWER code gates already PASS). Open risk: the two new .exs files have never been compiled or run, so a typo or wrong helper assumption would surface only in CI.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "test/specs/GH2739-definitions-list-type-access.md",
+      "test/letflow/routers/entities_definitions_list_type_access_test.exs",
+      "test/letflow/entities/definitions_list_type_access_test.exs",
+      "test/support/definitions_list_fixture.ex",
+      "test/support/query_count.ex",
+      "test/letflow/entities/definitions_test.exs"
+    ],
+    "test_counts": {
+      "router_file": 10,
+      "context_file": 9,
+      "migrated_existing_calls": 12
+    },
+    "tests_run": false,
+    "run_blocker": "free physical memory 3.48 GB < 4 GB gate",
+    "mutants_measured": [],
+    "mutants_predicted": "M1..M10 mapped to killing tests in test/specs/GH2739-definitions-list-type-access.md; none applied locally",
+    "t_ids_not_run": ["T-1", "T-2", "T-3", "T-4", "T-5", "T-6", "T-7", "T-8", "T-9", "T-10", "T-11", "T-12", "T-13", "T-14", "T-15", "T-16", "T-17"],
+    "known_limits": [
+      "artifact_version_id is a fresh uuid per tenant (artifact_versions is immutable), so cross-world byte comparisons mask that one uuid textually in the body",
+      "T-10 uses a real created+activated definition k_ent; fixture rows inserted directly have no artifact_activations",
+      "T-16 covers TENANT_ADMIN only (the single role every test token holds)",
+      "T-9 is context-level (list_definitions/3), no HTTP variant, so the #2729 second-boundary retry is not needed"
+    ],
+    "implementation_bugs_found": []
+  }
+}
