@@ -11,6 +11,34 @@ Design only. Signatures, type shapes, step lists, tables and test briefs; no fun
 
 ## Changelog
 
+### Revision 6 (R5 implementation)
+
+Handlers run on a SERVICE_TASK apply (HTTP and script-bound). Where the build departs from, or
+fills in, the text above:
+
+* D-R.18 is read as: the node type fence is the only fence. A script-bound SERVICE_TASK node is the
+  same node type as an HTTP one and PR C2 composes declarative lines on both, so `module_writes`
+  is accepted on both; "a script output is never a command" holds because the module, handler and
+  arguments are fixed by the stamped definition (a script output can only feed a declared `var`
+  argument, which the handler validates). A hand-edited snapshot is caught by the body hash.
+* The service plan carries `module_writes` and `owner` (and reads the raw snapshot for the body
+  hash). Plan failures (authorization, `event_schema_outdated`) are `{:service_refused, index,
+  :write_not_permitted, detail}` and land in ERROR + DLQ through the C2 driver; the refusal audit
+  entry is the landing's (it carries the dispatch id). The S4 guard compares the node's
+  `module_writes` as well as its lines.
+* `StepWrites.append_handler_calls/6` passes `subject_id` (previously only `actor_id`) into the
+  handler context, so on the service origin the restriction subject is the activator.
+* Handler writes on the dispatch origin get the D-C.7 byte caps (`StepWrites.check_service_sizes/2`
+  made public, called from `HandlerWrites.create/3`); the refusal is `validation_failed` with
+  detail `value_too_large`.
+* No new lock step: the C2 service Multi already runs `:lock_ancestors` first (#2695), and the
+  handler type locks sit with the declarative ones after `:entity_writes_started`. The call-level
+  deadline guard reuses the C2 `guard_budget_ms` (`min(10 s, remaining - 8 s)`).
+* Tests: `engine/module_write_service_task_test.exs` (created un-skipped; R4b did not leave a
+  skipped file behind) plus fixture definitions `fxl_svc_*` in `ledger_foundation.json` and
+  `fxr_svc_*` in `ledger_rogue.json`. Two existing tests that asserted the R3 refusal of
+  `module_writes` on a SERVICE_TASK node now assert the stamp requirement instead.
+
 ### Revision 5 (R4b implementation)
 
 The engine runs handlers on a HUMAN_TASK completion; R3's interim guard is deleted. Where the

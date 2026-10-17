@@ -473,6 +473,186 @@
       },
       "process_key": "fxr_loose_step",
       "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000000040",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "svc"
+          },
+          {
+            "id": "e2",
+            "source": "svc",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "endpoint": "https://example.test/svc",
+              "method": "POST",
+              "timeout_ms": 300000,
+              "module_writes": [
+                {
+                  "args": {},
+                  "handler": "throws",
+                  "module": "fixture_ledger_rogue"
+                }
+              ]
+            },
+            "id": "svc",
+            "node_type": "SERVICE_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "fxr_svc_throws",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000000041",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "svc"
+          },
+          {
+            "id": "e2",
+            "source": "svc",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "endpoint": "https://example.test/svc",
+              "method": "POST",
+              "timeout_ms": 300000,
+              "module_writes": [
+                {
+                  "args": {},
+                  "handler": "exits",
+                  "module": "fixture_ledger_rogue"
+                }
+              ]
+            },
+            "id": "svc",
+            "node_type": "SERVICE_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "fxr_svc_exits",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000000042",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "svc"
+          },
+          {
+            "id": "e2",
+            "source": "svc",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "endpoint": "https://example.test/svc",
+              "method": "POST",
+              "timeout_ms": 300000,
+              "module_writes": [
+                {
+                  "args": {},
+                  "handler": "drop_policy",
+                  "module": "fixture_ledger_rogue"
+                }
+              ]
+            },
+            "id": "svc",
+            "node_type": "SERVICE_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "fxr_svc_drop_policy",
+      "version": "1.0.0"
+    },
+    {
+      "definition_id": "00501000-0000-0040-0080-000000000043",
+      "graph": {
+        "edges": [
+          {
+            "id": "e1",
+            "source": "start",
+            "target": "svc"
+          },
+          {
+            "id": "e2",
+            "source": "svc",
+            "target": "end"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "attributes": {
+              "endpoint": "https://example.test/svc",
+              "method": "POST",
+              "timeout_ms": 300000,
+              "module_writes": [
+                {
+                  "args": {},
+                  "handler": "denies",
+                  "module": "fixture_ledger_rogue"
+                }
+              ]
+            },
+            "id": "svc",
+            "node_type": "SERVICE_TASK"
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ]
+      },
+      "process_key": "fxr_svc_denies",
+      "version": "1.0.0"
     }
   ],
   "entity_definitions": [

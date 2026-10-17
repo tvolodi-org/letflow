@@ -2501,7 +2501,8 @@ defmodule Letflow.Definitions do
   # GH #2587 / REQ-499 PR C1 (design gh2587-req499-pr-c-service-task-writes.md 6, D-C.12): the
   # node types whose declarative `entity_writes` the activation fence accepts. SERVICE_TASK joined
   # HUMAN_TASK once both of its apply routes (HTTP and script-bound) composed the lines (C2a/C2b).
-  # `module_writes` stays HUMAN_TASK only (`ModuleWrites.violations/6`).
+  # GH #2590 R5: `module_writes` is accepted on the same two node types
+  # (`ModuleWrites.violations/6`).
   @entity_write_node_types [:HUMAN_TASK, :SERVICE_TASK]
 
   # GH #2587 / REQ-499 PR B1 (decision 0054 D1, D4a; design

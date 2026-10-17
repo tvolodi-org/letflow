@@ -31,7 +31,11 @@ defmodule Letflow.ModuleWritesFixture do
     mixed: "fxl_post_mixed",
     plain: "fxl_task_plain",
     mixed_first: "fxl_post_mixed_first",
-    twenty: "fxl_post_twenty"
+    twenty: "fxl_post_twenty",
+    svc_module: "fxl_svc_module",
+    svc_mixed: "fxl_svc_mixed",
+    svc_mixed_first: "fxl_svc_mixed_first",
+    svc_two_handlers: "fxl_svc_two_handlers"
   }
 
   @doc "A valid `post_entry` line (both required arguments), as the pack declares it."
@@ -175,6 +179,47 @@ defmodule Letflow.ModuleWritesFixture do
     definition = activate_installed!(base.schema, base.user, Map.fetch!(@variants, variant))
     {instance_id, task} = Fx.start!(base.schema, definition)
     Map.merge(base, %{definition: definition, instance_id: instance_id, task: task})
+  end
+
+  @doc """
+  GH #2590 R5 (T-10): the full SERVICE_TASK case for `variant` (`:svc_module`, `:svc_mixed`,
+  `:svc_mixed_first` or `:svc_two_handlers`): tenant, installed module, an ACTIVE stamped
+  definition (activated through the real activation path, so the SERVICE_TASK fence is exercised),
+  a started instance and its one dispatch row marked `"advanced"` (the state `attempt_dispatch/2`
+  leaves, no HTTP). `ctx.user` is the activator; `ctx.dispatch` the row. Apply it with
+  `Letflow.EntityWritesFixture.apply_http/2`.
+  """
+  @spec service_case!(String.t(), atom()) :: map()
+  def service_case!(slug_prefix, variant) do
+    base = tenant!(slug_prefix)
+    definition = activate_installed!(base.schema, base.user, Map.fetch!(@variants, variant))
+    advanced!(base, definition)
+  end
+
+  @doc "`service_case!/2` for the MISBEHAVING module's SERVICE_TASK definition `fxr_svc_<handler>`."
+  @spec rogue_service_case!(String.t(), String.t()) :: map()
+  def rogue_service_case!(slug_prefix, handler) do
+    base = tenant_with_cleanup!(slug_prefix)
+
+    {:ok, _tenant_module} =
+      Installs.install("fixture_ledger_rogue", Ecto.UUID.generate(),
+        prefix: base.schema,
+        rationale: "GH 2590 R5 fixture"
+      )
+
+    definition = activate_installed!(base.schema, base.user, "fxr_svc_" <> handler)
+    advanced!(base, definition)
+  end
+
+  defp advanced!(base, definition) do
+    pending = Fx.start_service_instance!(base, definition)
+
+    dispatch =
+      pending.dispatch
+      |> Ecto.Changeset.change(%{status: "advanced"})
+      |> Repo.update!(prefix: base.schema)
+
+    %{pending | dispatch: dispatch}
   end
 
   @doc "Replaces the pinned snapshot graph of the case's instance with `fun.(graph)` (a hand edit)."

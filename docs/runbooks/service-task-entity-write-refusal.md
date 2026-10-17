@@ -14,9 +14,9 @@ all three activation paths (activate, version rollback, promotion apply), for bo
 and the script-bound route (`script_key`). The same activation codes as for a HUMAN_TASK node
 apply, reported at the SERVICE node's id and the declared line index (a 422 `entity_writes_invalid`
 body). A node type other than HUMAN_TASK and SERVICE_TASK still gets
-`entity_writes_node_type_not_supported`, and `module_writes` on a SERVICE_TASK node is still
-refused at activation (`module_writes_node_type_not_supported`; a service caller of module write
-handlers is a later requirement). The activating principal must hold `EntitiesRecordsWrite`; its
+`entity_writes_node_type_not_supported`. Since GH #2590 / REQ-501 PR R5 a SERVICE_TASK node (both
+routes) may also declare `module_writes` (module write handler calls) on the same terms as a
+HUMAN_TASK node; see "Module write handlers on a SERVICE_TASK node" below. The activating principal must hold `EntitiesRecordsWrite`; its
 authority is recorded in `process_definitions.activated_by` and is what authorises the write at
 run time (the platform actor is only the event actor).
 
@@ -48,7 +48,7 @@ of the apply left the instance ACTIVE with a lost token (ISS-0928 only made that
 | DLQ entry `error_detail` (script route) | the script incident shape with `detail` = `entity_write_refused` or `entity_write_contention` |
 | `EXECUTION_ERROR` event `variables` | the variables BEFORE the apply; the service response or script output is not stored anywhere |
 | Dispatch row | HTTP: stays `advanced`; script: `failed`, `outcome` `script_rejected` |
-| Tenant audit | `entity_write.refused` with the closed `detail` atom (for example `field_restricted`, `not_append_only`, `scoped`, `value_too_large`, `module_writes`); no value. It is written in a THIRD, best-effort transaction AFTER the landing commits: if that write fails the incident (instance ERROR, DLQ entry, `EXECUTION_ERROR` event) still exists, only the audit entry is missing, and a warning is logged |
+| Tenant audit | `entity_write.refused` with the closed `detail` atom (for example `field_restricted`, `not_append_only`, `scoped`, `value_too_large`, `line_malformed`, and for a handler line the details of `docs/runbooks/module-write-handlers-manifest-hash.md`); no value. It is written in a THIRD, best-effort transaction AFTER the landing commits: if that write fails the incident (instance ERROR, DLQ entry, `EXECUTION_ERROR` event) still exists, only the audit entry is missing, and a warning is logged |
 
 Public codes: `write_not_permitted`, `validation_failed`, `entity_append_only`,
 `entity_type_inactive`, `entity_write_contention`, `entity_write_failed`,
@@ -93,3 +93,39 @@ itself exhausts its contention budget), the HTTP dispatch row stays `advanced` a
 and writes a `service_task.advance_failed` audit entry. Closing it needs the stuck-`advanced`
 sweeper listed as deferred in the design (section 16). The script route has no such window: its
 lease sweep turns an expired `running` row into a `timeout` incident.
+
+## Module write handlers on a SERVICE_TASK node (GH #2590 / REQ-501 PR R5)
+
+A stamped definition (created by a module install, decision 0054 D6) may declare `module_writes`
+on a SERVICE_TASK node, HTTP route or script-bound. The handler calls run in the SAME apply
+transaction as the declared `entity_writes` (declarative lines first, then the handler calls in
+declared order), with the platform actor as event actor and the recorded activator as the
+field-restriction subject (`source.activator_id`). A script output is never a command: the module,
+handler and arguments are fixed by the stamped definition; a script or an HTTP response can only
+supply the value of a declared `var` argument, and the handler validates it.
+
+What is NEW for an operator: every refusal that a completing human would have seen as a 403/422 is
+here an instance in **ERROR** with one DLQ entry (the table above), with the DECLARED `line_index`
+of the handler call (declarative lines come first) and the public code `write_not_permitted` (or
+`validation_failed`, `entity_write_failed`, `entity_write_contention`). The closed detail atom
+is in the `entity_write.refused` audit entry only: `stamp_missing`, `stamp_mismatch`,
+`module_not_installed`, `handler_unknown`, `hash_mismatch` (before or inside the transaction),
+`body_changed`, `arg_unknown`, `arg_missing`, `event_schema_outdated`, `handler_not_permitted`,
+`handler_invalid_arguments`, `handler` (a handler fault), `field_restricted`,
+`target_not_managed_by_module`, `value_too_large`.
+
+Consequences to plan for:
+
+* A deploy that changes a handler-bearing module's manifest surface (the strict manifest-hash pilot
+  limit of `docs/runbooks/module-write-handlers-manifest-hash.md`) leaves HUMAN tasks pending. On
+  a SERVICE node the external call has already happened, so each in-flight service completion lands
+  in ERROR (`write_not_permitted`, detail `hash_mismatch`) instead of waiting. Coordinate such a
+  deploy so no service call of an affected definition is in flight, or expect to re-drive those
+  instances after the upgrade path (decision 0055) exists.
+* A tenant that was never replayed to the `TASK_ENTITY_WRITES_APPLIED` v2 schema lands in ERROR
+  with detail `event_schema_outdated`. Run `TenantProvisioning.replay_all_pending/0` for every
+  tenant BEFORE the first handler-calling service definition is activated.
+* A handler value larger than the service byte caps (64 KiB per value, 256 KiB per line, the same
+  as declarative lines) is `validation_failed` with detail `value_too_large`.
+* The combined 20-line cap and the 49 creates per handler call apply; the handler-call deadline
+  guard counts inside the 20 s service budget (an exhausted budget is contention and is re-applied).

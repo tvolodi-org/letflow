@@ -448,10 +448,48 @@ fence: `Definitions.check_entity_writes/3` accepts `entity_writes` on a `SERVICE
 routes) on the three activation paths, with the unchanged violation codes and the unchanged
 activator authority (`activated_by`, never settable through a request). Every other node type still
 gets `entity_writes_node_type_not_supported`; `module_writes` on a SERVICE_TASK node is still
-refused (`module_writes_node_type_not_supported`). New product behaviour, recorded in
+refused (`module_writes_node_type_not_supported`; lifted by the R5 amendment below). New product behaviour, recorded in
 `docs/runbooks/service-task-entity-write-refusal.md`: a refusal or internal failure of a service
 task's entity step lands the instance in ERROR + DLQ (it cannot stay pending). Design:
 `lib/letflow/design/gh2587-req499-pr-c-service-task-writes.md`.
+
+## Amendment (GH #2590 / REQ-501 PR R5): module write handlers on a SERVICE_TASK node
+
+R5 lifts the last fence of D6: a stamped definition may declare `module_writes` on a SERVICE_TASK
+node, HTTP route and script-bound route alike (`Definitions.ModuleWrites` accepts the node type;
+the activation codes, the activator authority and the stamp rules are unchanged). D-R.18 ("a script
+output is never a command") holds: the module, handler and arguments are fixed by the stamped
+definition and the install-time stamp; a script output or an HTTP body can only feed a declared
+`var` argument, exactly as it can feed a declarative line, and the handler validates it.
+
+Composition (design 4.6, 6.1, PR C D-C.4/D-C.7/D-C.9): the service plan carries `module_writes`,
+`owner` (the stamp read from the definition row) and uses the raw snapshot; the plan phase runs, in
+order, the combined 20-line cap, the activator checks, `EntityPort.authorize_module_writes/2`
+(stamp, install, both hashes, handler, arguments, body hash against the PINNED snapshot), the
+`TASK_ENTITY_WRITES_APPLIED` v2 backstop and `prepare/2`, all before any lock. The S4 fail-closed
+guard requires the plan to carry the node's `module_writes` as well as its lines. The Multi is the
+existing service Multi (`:lock_ancestors` first, #2695; dispatch and projection locks; then the
+ascending type locks of the declarative-plus-handler union; audit chain row last); each handler call
+sits behind the call-level deadline guard whose budget is the C2 `min(10 s, remaining - 8 s)`
+(handler lines count toward the 20-line cap). The handler context carries the dispatch origin, the
+platform sentinel as actor and the ACTIVATOR as the field-restriction subject; idempotency keys are
+`sys:step:<dispatch_id>:<line_index>:<ordinal>`. Handler values get the service byte caps of D-C.7
+(`validation_failed`, detail `value_too_large`).
+
+Failure mapping is the C2 one (D-C.8): a refusal rolls the apply back and lands the instance in
+ERROR + one value-free DLQ entry in a second transaction, with the public codes of design section 8
+and the closed detail atom in the `entity_write.refused` audit entry only; `hash_mismatch` inside
+the transaction (the no-lock `owner_recheck`) is `write_not_permitted`; the deadline guard and
+the contention classes are re-applied (3 attempts) and then land as `entity_write_contention`.
+
+Rollout: `TenantProvisioning.replay_all_pending/0` must have run for every tenant BEFORE the first
+handler-calling service definition is activated (the `event_schema_outdated` landing is the
+backstop). Because a service completion cannot stay pending, the strict manifest-hash pilot limit
+(OQ-R3) means ERROR + DLQ instead of a pending task for a SERVICE node; see
+`docs/runbooks/module-write-handlers-manifest-hash.md` and
+`docs/runbooks/service-task-entity-write-refusal.md`.
+
+Sign-off for this amendment: pending (SECURITY-REVIEWER and REVIEWER on the R5 PR).
 
 ## Sign-off
 

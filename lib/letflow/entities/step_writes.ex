@@ -50,7 +50,10 @@ defmodule Letflow.Entities.StepWrites do
   call (`HandlerWrites.build_call/4`, behind its own `{:line, k0, :deadline}` guard), and ends
   with `:entity_writes`. The 20-line cap is on the COMBINED count. A node without `module_writes`
   builds exactly the steps it always did. `interpret_failure/2` maps a handler-range step key
-  (`20 + line_index * 50 + ordinal`) back to the DECLARED line index.
+  (`20 + line_index * 50 + ordinal`) back to the DECLARED line index. GH #2590 R5: the SERVICE
+  origin composes handler calls the same way; the handler context gets `ctx.subject_id` (the
+  activator) as its field-restriction subject, `{:dispatch, id}` as its origin, and the byte caps
+  above apply to a handler write's values too (`check_service_sizes/2`).
 
   ## `validate_lines/2` (PR B1; design `gh2587-req499-pr-b-human-task-writes.md` section 6)
 
@@ -643,6 +646,9 @@ defmodule Letflow.Entities.StepWrites do
       definition_id: ctx.definition_id,
       definition_version: ctx.definition_version,
       actor_id: ctx.actor_id,
+      # GH #2590 R5 (T-10): the field-restriction subject. The completer on the human origin; the
+      # ACTIVATOR on the service origin, where the event actor is the platform sentinel.
+      subject_id: subject_id(ctx),
       activator_id: ctx.activator_id,
       manifest_hash: owner_manifest_hash(ctx)
     }
@@ -708,9 +714,12 @@ defmodule Letflow.Entities.StepWrites do
 
   # D-C.7: per-value and per-line byte caps on the JSON encoding, service origin only. The
   # refusal names no field (INV-2): `:value_too_large` -> `validation_failed`.
-  defp check_service_sizes(_values, {:task, _id}), do: :ok
+  @doc false
+  @spec check_service_sizes(map(), {:task | :dispatch, Ecto.UUID.t()}) ::
+          :ok | {:error, :value_too_large | :line_malformed}
+  def check_service_sizes(_values, {:task, _id}), do: :ok
 
-  defp check_service_sizes(values, {:dispatch, _id}) do
+  def check_service_sizes(values, {:dispatch, _id}) do
     with {:ok, line_json} <- Jason.encode(values),
          {:ok, encoded} <- encode_values(values) do
       if byte_size(line_json) > @service_line_max_bytes or

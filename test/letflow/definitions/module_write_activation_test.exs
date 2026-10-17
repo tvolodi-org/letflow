@@ -171,6 +171,9 @@ defmodule Letflow.Definitions.ModuleWriteActivationTest do
   defp codes({:error, {:entity_writes_invalid, violations}}), do: violations
   defp codes(other), do: other
 
+  defp codes_or_empty(:ok), do: []
+  defp codes_or_empty(other), do: codes(other)
+
   defp v(index, code, node_id \\ "ht"), do: %{node_id: node_id, index: index, code: code}
 
   defp row(schema, id), do: Repo.get!(ProcessDefinition, id, prefix: schema)
@@ -422,12 +425,24 @@ defmodule Letflow.Definitions.ModuleWriteActivationTest do
       :ok
     end
 
-    test "module_writes that is not a list, and a node that is not a HUMAN_TASK", %{t: t} do
+    test "module_writes that is not a list, and a node that is neither HUMAN_TASK nor SERVICE_TASK",
+         %{t: t} do
       assert [v(0, :module_writes_not_a_list)] ==
                codes(check(t, stamped_map(graph("nope"))))
 
       assert [v(0, :module_writes_node_type_not_supported)] ==
-               codes(check(t, stamped_map(graph([mline()], %{}, "SERVICE_TASK"))))
+               codes(check(t, stamped_map(graph([mline()], %{}, "EXCLUSIVE_GATEWAY"))))
+
+      # GH #2590 R5: SERVICE_TASK is a supported node type (HTTP and script-bound alike)
+      assert [] == codes_or_empty(check(t, stamped_map(graph([mline()], %{}, "SERVICE_TASK"))))
+
+      assert [] ==
+               codes_or_empty(
+                 check(
+                   t,
+                   stamped_map(graph([mline()], %{"script_key" => "some_script"}, "SERVICE_TASK"))
+                 )
+               )
     end
 
     test "malformed lines, unknown keys, missing module or handler", %{t: t} do

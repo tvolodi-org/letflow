@@ -321,8 +321,8 @@ as the apply of the service result, with the platform actor as event actor and t
 `activated_by` as the delegated privilege. A service completion has no client and no pending task,
 so a refusal of the entity step lands the instance in ERROR with a DLQ entry (and rolls the apply
 back, nothing partial) instead of answering a request; see
-`docs/runbooks/service-task-entity-write-refusal.md`. `module_writes` is still HUMAN_TASK only: a
-SERVICE_TASK node declaring it is refused at activation. As for a HUMAN_TASK node, the recorded `activated_by` authority is the graph-wide set of (entity type, `create`) pairs, not a per-node set.
+`docs/runbooks/service-task-entity-write-refusal.md`. `module_writes` (section 5c) is accepted on
+a SERVICE_TASK node too since REQ-501 R5. As for a HUMAN_TASK node, the recorded `activated_by` authority is the graph-wide set of (entity type, `create`) pairs, not a per-node set.
 
 Pilot limits: (a) the activation-time activator check requires `:EntitiesRecordsWrite`, not
 `:DefinitionsActivate`, so a rollback or promotion activator legitimately omits the latter; (b)
@@ -340,8 +340,8 @@ can set any column in a sandbox schema).
 A module that must write its OWN managed entity types from a process step declares write
 handlers in its manifest (`write_handlers:`, validated by `Catalog.validate/2` rule 10) and
 implements them in a module under its own namespace. The engine runs a handler inside
-a HUMAN_TASK completion since REQ-501 R4b (a SERVICE_TASK caller is R5); this section is the
-contract a handler is written against.
+a HUMAN_TASK completion (REQ-501 R4b) or inside the apply of a SERVICE_TASK result, HTTP or
+script-bound (R5); this section is the contract a handler is written against.
 
 * A handler is `fun(multi, ctx, args)` returning `{:ok, multi}` or `{:error, :invalid_arguments |
   :not_permitted}`. `ctx` is a `Letflow.Entities.HandlerContext` (ids and names only, no
@@ -362,6 +362,13 @@ contract a handler is written against.
   handler's name, function, targets and args), not handler CODE: bump `version` when handler
   behaviour changes.
 * The handler's update/delete behaviour does not exist: `create` only (OQ-R4).
+* The same handler runs from a HUMAN_TASK and from a SERVICE_TASK node. On a SERVICE node there is
+  no completing user: the event actor is the platform sentinel, the field restrictions applied are
+  the ACTIVATOR's (`ctx.subject_id`, `ctx.activator_id`), and `ctx.origin` is `{:dispatch, id}`
+  (a HUMAN node: `{:task, id}`). A handler never branches on the origin: write the same
+  `create/3` calls. A refusal there lands the instance in ERROR + DLQ (it cannot stay pending),
+  so keep argument validation strict and total: a `var` argument may be fed by a service response
+  or a script output, and values are byte-capped (64 KiB per value, 256 KiB per line).
 
 ## 6. Registration: `config/config.exs`, `config/test.exs`, and `catalog_test.exs`
 
