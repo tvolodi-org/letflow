@@ -13,13 +13,21 @@
   "priority": "HIGH",
   "context": {
     "stage": "S8",
-    "requirement_ids": ["REQ-511"],
+    "requirement_ids": [
+      "REQ-511"
+    ],
     "requirement_text": {
       "GH#2682": "Exam content snapshot at session start; scoring reads only the snapshot (PR a)."
     },
     "related_handoff_ids": [],
-    "artifacts_in": ["lib/letflow/design/req511-exam-content-snapshot.md"],
-    "owned_modules": ["lib/letflow/modules/exam/", "lib/letflow/release/", "lib/mix/tasks/"],
+    "artifacts_in": [
+      "lib/letflow/design/req511-exam-content-snapshot.md"
+    ],
+    "owned_modules": [
+      "lib/letflow/modules/exam/",
+      "lib/letflow/release/",
+      "lib/mix/tasks/"
+    ],
     "worktree": null,
     "branch_name": "feature/WF02-GH2682-EXAM-SNAPSHOT-20261016"
   },
@@ -62,6 +70,18 @@
       "test/letflow/entities/managed_types/stamp_test.exs (gate flag; test.exs sets true)",
       "any test seeding a manual pin on a non-active question (pins now fail start with {:question_not_found, id})"
     ],
-    "touched_existing_tests": []
+    "touched_existing_tests": [],
+    "advisory_round": {
+      "applied": [
+        "1 router start: {:question_not_found, _} -> 422 constant 'exam pins an unavailable question' (id logged only)",
+        "2 fetch_pinned_question_row guards Ecto.UUID.cast, non-UUID -> {:question_not_found, id}",
+        "3 normalize_number bounds digits+exponent (max 40 integer and 40 fractional digits) before any normalize/to_string; '1e999999999' and '1e41' -> :error",
+        "4 session.ex moduledoc corrected to FIVE restriction rows, not six: Exam.answer_key_fields/0 is the 4 old pairs plus session.exam_snapshot = 5; the design's 'six' is an arithmetic error (exam.ex comment fixed too; earlier 'six pairs' wording in this handoff and in my first report was wrong)",
+        "7 snapshot_question_type passes through {:grading_error, {:question_item_missing, id}} (existing reason; no new atom invented); constant 500 body"
+      ],
+      "item_5_sweep": "finalize_expired/3 has no caller in lib/ or config (only session_test.exs); RecordDeadlineSweep has an optional callback_mfa, no rule registers one, and invoke_callback ignores the return value and rescues raises with a warning log, so a typed {:error, {:grading_error,_}} cannot crash or stall the sweep. Nothing to fix.",
+      "item_6_gate_blocked_total": "kept, with a comment in Stamp.sweep: non-zero only if the flag flips true->false mid-sweep; makes that visible and the mix task exit 1.",
+      "verification": "MIX_ENV=test mix compile --warnings-as-errors exit 0; mix format --check-formatted exit 0; mix letflow.check_boundaries OK 1640 edges 0 violations"
+    }
   }
 }

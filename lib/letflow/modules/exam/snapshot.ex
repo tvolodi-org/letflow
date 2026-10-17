@@ -236,16 +236,28 @@ defmodule Letflow.Modules.Exam.Snapshot do
   def normalize_number(value) do
     case to_decimal(value) do
       {:ok, %D{coef: coef} = decimal} when is_integer(coef) ->
-        normalized = if D.eq?(decimal, 0), do: D.new(0), else: D.normalize(decimal)
-        # Render once to prove the value is representable (to_string/2 is bounded).
-        _ = D.to_string(normalized, :normal)
-        {:ok, normalized}
+        # Bound the size BEFORE any rendering, so "1e999999999" can never build a huge string.
+        if bounded?(decimal) do
+          normalized = if D.eq?(decimal, 0), do: D.new(0), else: D.normalize(decimal)
+          {:ok, normalized}
+        else
+          :error
+        end
 
       _non_finite_or_error ->
         :error
     end
   rescue
     _error -> :error
+  end
+
+  # At most @max_digits integer digits and @max_digits fractional digits: far beyond any real
+  # threshold or likert weight, and small enough that `to_string(:normal)` stays tiny.
+  @max_digits 40
+
+  defp bounded?(%D{coef: coef, exp: exp}) do
+    digits = coef |> Integer.digits() |> length()
+    exp >= -@max_digits and digits + exp <= @max_digits
   end
 
   defp to_decimal(value) when is_integer(value), do: {:ok, D.new(value)}

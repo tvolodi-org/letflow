@@ -395,9 +395,12 @@ defmodule Letflow.Modules.Exam.Session do
   one of them in clear via the GENERIC `POST /entities/query` route
   directly against `question`/`answer_option`, entirely bypassing this
   function's own careful field selection. `Letflow.Packs.Bilimbaga.
-  seed_answer_key_field_restrictions!/1` now seeds exactly those four
-  `entity_field_restrictions` rows wherever this pack's real entity
-  definitions are provisioned, closing that second path — see that
+  seed_answer_key_field_restrictions!/1` seeded exactly those four
+  `entity_field_restrictions` rows (REQ-411 moved this to
+  `Letflow.Modules.Exam.on_install/2`; GH #2682 added a fifth pair,
+  `session.exam_snapshot`, so `Letflow.Modules.Exam.answer_key_fields/0` now
+  lists five) wherever this pack's real entity definitions are provisioned,
+  closing that second path — see that
   module's moduledoc for the full account. This function's own
   hand-selection is left unchanged and stays defense-in-depth; it was
   never the vulnerable half.
@@ -1000,17 +1003,23 @@ defmodule Letflow.Modules.Exam.Session do
   # the question's type, so one `Latest.get` is added, and a pin whose question is missing or not
   # `active` is a start failure instead of a silent skip.
   defp fetch_pinned_question_row(question_id, prefix) do
-    case Latest.get(question_id, "question", prefix) do
-      {:ok, question} ->
-        if fv(question, "status") == "active",
-          do: fetch_question_row(question_id, question, prefix),
-          else: {:error, {:question_not_found, question_id}}
+    # `Latest.get/3` raises Ecto.Query.CastError on a non-UUID id, so a malformed pin is a typed
+    # start failure here instead.
+    with {:ok, _uuid} <- Ecto.UUID.cast(question_id) do
+      case Latest.get(question_id, "question", prefix) do
+        {:ok, question} ->
+          if fv(question, "status") == "active",
+            do: fetch_question_row(question_id, question, prefix),
+            else: {:error, {:question_not_found, question_id}}
 
-      {:error, :not_found} ->
-        {:error, {:question_not_found, question_id}}
+        {:error, :not_found} ->
+          {:error, {:question_not_found, question_id}}
 
-      {:error, :invalid_schema_name} = error ->
-        error
+        {:error, :invalid_schema_name} = error ->
+          error
+      end
+    else
+      :error -> {:error, {:question_not_found, question_id}}
     end
   end
 
@@ -1108,13 +1117,9 @@ defmodule Letflow.Modules.Exam.Session do
   # caller before this runs.
   defp snapshot_question_type(session, question_id) do
     with {:ok, snapshot} <- Snapshot.fetch_structural(session.field_values) do
-      case Snapshot.question_type(snapshot, question_id) do
-        {:error, {:grading_error, {:question_item_missing, _id}}} ->
-          {:error, :question_not_in_session}
-
-        other ->
-          other
-      end
+      # The caller already found this question's `session_question` row, so a snapshot without
+      # its item is a typed grading error (`{:question_item_missing, id}`), never "not in session".
+      Snapshot.question_type(snapshot, question_id)
     end
   end
 

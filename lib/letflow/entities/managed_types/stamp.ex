@@ -172,6 +172,9 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
     end
   end
 
+  # `gate_blocked_total` is non-zero only if the flag flips from true to false in the middle of a
+  # sweep (the gate is checked once in `run/1` before this runs, and again per tenant). It is kept
+  # so such a sweep is visible in the report and the mix task exits non-zero for it.
   defp sweep(module, dry_run?, opts) do
     tenants =
       Letflow.Obs.Logger.with_trace(fn ->

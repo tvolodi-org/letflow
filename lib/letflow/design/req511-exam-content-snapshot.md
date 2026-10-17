@@ -161,7 +161,7 @@ property test round-trips random snapshots through a real jsonb column and re-ve
 
 | Function | Input | Output | Notes |
 |---|---|---|---|
-| `build_from_resolved/4` | `exam_fv :: map()`, `items :: %{question_id => question_item_source}`, `order :: [question_id]`, `origin :: :start` | `{:ok, snapshot()} \| {:error, {:grading_error, reason}}` | Pure. `question_item_source` carries the already-loaded question type and option rows (id, `is_correct`, `likert_weight`, `likert_polarity`). Validates the threshold and each item (7.2) so a bad authoring row fails the START, not the scoring. |
+| `build_from_resolved/4` | `exam_fv :: map()`, `items :: %{question_id => question_item_source}`, `order :: [question_id]`, `opts :: %{origin: :start, exam_id: String.t(), taken_at: DateTime.t()}` (D-1) | `{:ok, snapshot()} \| {:error, {:grading_error, reason}}` | Pure. `question_item_source` carries the already-loaded question type and option rows (id, `is_correct`, `likert_weight`, `likert_polarity`). Validates the threshold and each item (7.2) so a bad authoring row fails the START, not the scoring. |
 | `build_late/3` | `session :: Latest row` (locked), `prefix`, `now` | `{:ok, snapshot()} \| {:error, {:grading_error, reason}}` | Reads live `exam`, each `question` of the session's `session_question` rows and its `answer_option` rows, `origin: "late"`. Only called by `ensure/3`. |
 | `build_certificate_only/3` | `session`, `prefix`, `now` | `{:ok, snapshot()} \| {:error, {:grading_error, :exam_section_missing \| :certificate_facts_missing \| :snapshot_too_large}}` | Live `exam` read, `origin: "late_certificate"`, no `order`/`questions` (full spec in 17.2). |
 | `fetch_verified/1` | `session_field_values :: map()` | `{:ok, snapshot()} \| {:error, {:grading_error, :snapshot_missing \| :snapshot_corrupt}}` | Structural validation plus digest verification. Used by scoring and certificate. |
@@ -188,7 +188,7 @@ Order inside the existing create transaction (the `exam` row lock is already hel
    question row's `type` and the loaded option rows' `is_correct`, `likert_weight`, `likert_polarity`
    (the option rows are ALREADY queried by `fetch_option_ids/2` and discarded). The random pool path adds
    no query. The manual-pin path adds ONE `Latest.get` of the question (today pins never read the question
-   row; a pinned question that is missing or not `active` is a start failure `{:question_not_found, id}`
+   row; a pinned question that is missing or not `active` is a start failure `{:question_not_found, id}` (PR (a) deviation, accepted: rendered as a constant 422 without the id)
    via the existing `{:error, ...}` flow, not a silent skip). Only the questions that end up in the resolved
    set are copied into the snapshot (the pool can be far larger).
 3. `Snapshot.build_from_resolved/4` with `origin: :start`. Any invalid item (see 7.2: a non-short-text
@@ -296,8 +296,9 @@ tuple (the module's existing error idiom), documented in `Snapshot`'s moduledoc 
 | `:threshold_invalid` | Not a parsable decimal string, non-finite, below 0 or above 100. |
 | `:exam_section_missing` | The `exam` object is absent from the snapshot (replaces the "exam row lookup error -> 60.0" path of F3). |
 | `{:question_item_missing, question_id}` | An id in `order` has no entry in `questions`. |
+| `:snapshot_item_missing` | PR (a), accepted deviation: scoring finds no snapshot item for a `session_question` row (the scoring path iterates the session's rows); returned as `{:grading_error, :snapshot_item_missing}`. |
 | `{:question_type_invalid, question_id}` | `type` not one of the five strings. |
-| `{:key_missing, question_id}` | A non-`shorttext` question with no correct option, or a `likert` question with an empty or incomplete `likert_options` (missing weight or polarity, unparsable weight). |
+| `{:key_missing, question_id}` | The key rule, matching what `Scoring` does (D-2, binding): `single`, `multiple` and `truefalse` need a non-empty `correct_option_ids`; `likert` has NO correct option (Scoring scores it by weight) and needs a complete, non-empty `likert_options` map with a parsable weight and a `positive`/`negative` polarity for EVERY option; `shorttext` needs neither. Violations are `{:key_missing, id}`. |
 | `:certificate_facts_missing` | `exam.certificate_enabled` not a boolean, or `title` absent. |
 | `:snapshot_too_large` | Canonical encoding over 2 MB (start/late build). |
 
@@ -464,6 +465,16 @@ field participates in `compatible?/2` automatically (it is in `pack.json`), so a
 more precisely first. The active-row change ships in PR (b) with the prerequisites. `Letflow.Release.ManagedTypes` and the Mix task report the two new statuses; the
 tamper inventory is unchanged.
 
+### 10.3a File layout and the boundary rule (D-4, binding)
+
+Boundary rule 5 forbids code outside `lib/letflow/modules/exam/**` from referencing that tree. So
+`Letflow.Release.ExamSnapshot` (in `lib/letflow/release/`) does NOT name `Letflow.Modules.Exam.*`; like `Stamp` it
+reaches the exam code through `Catalog.fetch("exam")` and calls two delegates on the exam module:
+`Exam.snapshot_rollout(opts)` (runs `Snapshot.Rollout.run/1`) and `Exam.snapshot_verify()` (runs
+`Snapshot.Rollout.verify/0`, where `verify/0` lives). `Letflow.Release.ExamSnapshot.rollout/1` and `verify/0`
+are thin wrappers over those delegates; their specs in 17.2 are unchanged. The mix task calls the release
+wrapper.
+
 ### 10.3 Rollout: `Letflow.Modules.Exam.Snapshot.Rollout` (core) + `Letflow.Release.ExamSnapshot` + `mix letflow.exam_snapshot_rollout`
 
 Same pattern as the Stamp (`Backfill`-style, per tenant, one transaction per tenant, none across tenants, a
@@ -536,7 +547,7 @@ changed) are updated. The `description` of `session.json` gets one sentence for 
 |---|---|
 | T-15 | Snapshot with `exam.passing_score_pct` absent -> `{:error, {:grading_error, :threshold_missing}}`; session stays `in_progress`, no score rows (replaces the nil/FunctionClauseError path). |
 | T-16 | Snapshot with no `exam` object -> `:exam_section_missing` (replaces the row-error/`60.0` path). |
-| T-17 | Question in `order` with no `questions` entry -> `{:question_item_missing, id}`; non-short-text question with empty `correct_option_ids` -> `{:key_missing, id}`; likert with missing weight -> `{:key_missing, id}`. |
+| T-17 | Question in `order` with no `questions` entry -> `{:question_item_missing, id}`; `single`, `multiple` and `truefalse` with empty `correct_option_ids` -> `{:key_missing, id}`; `likert` with an empty `likert_options`, or any option missing weight or polarity, or an unparsable weight -> `{:key_missing, id}`; a `likert` question with NO correct option and a complete map is VALID; a `shorttext` question with neither is VALID. |
 | T-18 | Digest mismatch (field tampered in the row) -> `:snapshot_corrupt`; and a corrupt snapshot is NOT replaced by a late snapshot. |
 | T-19 | Source guard: no `60.0` literal and no `passing_threshold_for` in `lib/letflow/modules/exam/session.ex` (grep-style test). |
 | T-20 | Router: each reason renders the 500 problem with the stable detail and no reason text; submit, start, certificate and download each have a test (ISS-0676 pattern); the 503 `snapshot_error` case renders 503. |

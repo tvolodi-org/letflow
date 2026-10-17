@@ -25,7 +25,7 @@ defmodule Letflow.Modules.Exam do
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
 
-  # The six `(entity_type, field_name)` pairs whose values a TASK_WORKER-
+  # The five `(entity_type, field_name)` pairs whose values a TASK_WORKER-
   # scoped caller must never read in clear via the generic
   # POST /entities/query or POST /entities/query/aggregate routes.
   # Mirrors the list that used to live in `Letflow.Packs.Bilimbaga`

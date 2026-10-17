@@ -135,6 +135,7 @@ defmodule Letflow.Modules.Exam.Router do
   # The body never carries the reason, ids or values (INV-4/INV-5); the reason is logged.
   @grading_failed_detail "exam grading failed; the session was not scored"
   @content_invalid_detail "exam content is invalid; the session was not started"
+  @pinned_question_detail "exam pins an unavailable question"
   @upgrading_detail "exam service is being upgraded; retry shortly"
 
   # ── Start session ───────────────────────────────────────────────────────
@@ -311,6 +312,22 @@ defmodule Letflow.Modules.Exam.Router do
     }
 
     Response.send_problem(conn, problem)
+  end
+
+  # GH #2682 / REQ-511: a manual pin names a question that is missing, not active, or not a
+  # valid id. Constant body: no id, no reason text (INV-4/INV-5); the id is logged.
+  defp render_start_session(
+         conn,
+         {:error, {:question_not_found, question_id}},
+         _candidate_id,
+         _prefix
+       ) do
+    Logger.error(
+      "exam start refused: a pinned question is unavailable " <>
+        "question_id=#{inspect(question_id)} tenant_prefix=#{prefix!(conn)}"
+    )
+
+    Response.unprocessable(conn, @pinned_question_detail)
   end
 
   defp render_start_session(
