@@ -1,0 +1,50 @@
+{
+  "handoff_id": "c4a7d1e0-2699-4a11-8c20-000000000001",
+  "run_id": "WF02-GH2699-AGGREGATE-JOIN-20261017",
+  "workflow_id": "WF-02",
+  "step": "01",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGNER",
+  "file": "handoffs/WF02-GH2699-AGGREGATE-JOIN-20261017/step-01-code-designer.json",
+  "created_at": "2026-10-17T08:27:00Z",
+  "started_at": "2026-10-17T08:28:01Z",
+  "completed_at": "2026-10-17T08:30:16Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2699": "Aggregate route ignores join clauses in the restricted-field check (FK presence leak; PR 2 of #2697). Migrate run_query_aggregate/4 to FieldPolicy.check_request/4 with kind :aggregate.",
+      "GH#2697": "One allow-list walker over the full compiled request; PR 1 merged; do not close #2697 until #2699 lands."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "lib/letflow/design/gh2697-restricted-field-request-walker.md",
+      "lib/letflow/entities/field_policy.ex",
+      "lib/letflow/entities/query/request_guard.ex",
+      "lib/letflow/entities/query/compiler.ex",
+      "lib/letflow/routers/entities.ex"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2699-AGGREGATE-JOIN-20261017"
+  },
+  "task": {
+    "description": "WF-02 step 1 design for GH #2699. Design only, no implementation code.",
+    "acceptance_criteria": [
+      "Restricted fk/through/on field in an aggregate join gives the same 403 as a restricted filter field; permitted key succeeds",
+      "#2697 controls stay green; /query and export join clauses unchanged",
+      "SECURITY-REVIEWER and REVIEWER verdicts mandatory"
+    ]
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "Design written to lib/letflow/design/gh2699-aggregate-join-restricted.md. run_query_aggregate/4 swaps its raw load_restrictions plus check_aggregate_field_restrictions/2 for FieldPolicy.check_request(principal, :aggregate, request, %{exempt?: false}); the existing walker already covers measure, group_by, filters and join hops (each governed by the hop owner entity), so no change to RequestGuard, FieldPolicy or Compiler. Deleted: check_aggregate_field_restrictions/2, aggregate_request_field_names/1, the {:aggregate_field_restricted,_} render clause (the shared guard clause in render_query_error/2 gives the same 403 and detail). Aggregate resolves all fields against the primary allowlist only, so joined-entity filter/group_by are not expressible (422, pinned by test A-7). Aggregate returns no restricted values, so no redact reuse. Nonexistent primary stays 404 with or without join (join_relations ensures primary first). Aggregate has no TypeAccess step (#2700), unchanged. T-39 allow-list removed. 17 tests, 10 mutants, ~250-350 line PR, #2612 not triggered. Open questions: Q2 (observe TypeAccess-denied aggregate status on main before pinning A-11), Q3 (unknown vs restricted distinction kept), Q1 (no TypeAccess here). AMENDED 2026-10-17 after CDV FAIL (6 gaps) and SEC conditional R1-R3: A-11 dropped (F9 documented only, Q2 closed); new A-10b (400 parse order, non-object body); M6 killed only by T-27/T-14 plus A-12 with-clause assertion; A-12 scoped to routers/entities.ex code lines only (handler_writes.ex:270 and step_writes.ex:795 also call load_restrictions, out of scope); stale comment sites listed (R6); A-6 concrete fixture with per-variant status; A-8 byte-identical bodies incl. cross-tenant; A-9 nullable fk and far-hop-only through; header fixed; PR-body items listed in section 11.",
+    "artifacts_out": [
+      "lib/letflow/design/gh2699-aggregate-join-restricted.md"
+    ],
+    "implementation_written": false
+  }
+}

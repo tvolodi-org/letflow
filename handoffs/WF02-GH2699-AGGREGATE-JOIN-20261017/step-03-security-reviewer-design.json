@@ -1,0 +1,61 @@
+{
+  "handoff_id": "c4a7d1e0-2699-4a11-8c20-000000000003",
+  "run_id": "WF02-GH2699-AGGREGATE-JOIN-20261017",
+  "workflow_id": "WF-02",
+  "step": "03",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF02-GH2699-AGGREGATE-JOIN-20261017/step-03-security-reviewer-design.json",
+  "created_at": "2026-10-17T08:40:00Z",
+  "started_at": "2026-10-17T08:40:05Z",
+  "completed_at": "2026-10-17T08:50:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2699": "PR 2 of #2697: aggregate route moves to the shared restricted-field walker (join clause closed). Design gate."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-2699-4a11-8c20-000000000001"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/gh2699-aggregate-join-restricted.md",
+      "docs/agents/instructions/security-invariants.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2699-AGGREGATE-JOIN-20261017"
+  },
+  "task": {
+    "description": "SECURITY-REVIEWER DESIGN gate for GH #2699. Read-only; no lib/ or test/ edits."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "DESIGN VERDICT: PASS, conditional on R1-R3. Scope: IN SCOPE (tenant-data path, INV-2 fix on the aggregate route). #2612 trigger NOT fired (design touches only routers/entities.ex plus tests/comments; none of ci.yml, cd.yml, the two scripts, mix.exs, config modules, permission_matrix task/module, authorization.ex, catalog.ex, priv/permission_matrix). VERIFIED AGAINST CODE (main 408b1a89d): (1) Completeness: build_aggregate_request copies exactly entity_type/aggregates/group_by/filters/join; RequestGuard registry aggregate is the same five; field_refs walks filters, group_by, measures with :field (count none) and join_refs (every hop of every relation via Compiler.join_relations/3, tagged with hop owner_entity_type, so near and far through hops are each checked against the declaring entity's own set). Aggregate has no order, limit, cursor, page metadata, having or distinct; extra body keys are never copied. compile_aggregate resolves filters/group_by/measures only against Allowlist.load(primary), so joined-entity filters/group_by are not expressible (non-primary name -> field_not_allowed 422): the 'every field of the joined entities filters' wording is satisfied vacuously; confirmed by reading compile_aggregate. Filter values are literals (no field-reference value). (2) Presence oracle: the only way a restricted value's presence reached the result was the INNER join in add_all_hops on the fk (rows with null/absent fk dropped, so COUNT(*) leaks presence, incl. nullable fk and far hop). Guard refuses any join whose hop fk is restricted for its declaring entity before compile, regardless of fk nullability or measure type; count with no join is unaffected. Closed. (3) Existence/type-hidden: aggregate has no TypeAccess step and no hidden-200 envelope today; nonexistent primary (no join: empty set -> compile -> entity_type_not_found 404; with join: join_relations ensure_primary_exists -> same 404 before no_through_relation) is byte-identical to cross-tenant 404, pinned by existing INV-5 test. A type-denied but existing primary is already queryable on this route (200 data) on main, so it is distinguishable from a ghost type today; this PR adds no new existence signal because the new 403 only fires for a caller who can already read aggregates over that type. Leaving TypeAccess to #2700 is ACCEPTABLE for this PR provided the PR body says so. (4) 403/422 split: restricted 403 vs unknown 422 echoing the caller own string re-confirmed as accepted (#2697 Q1), unchanged from aggregate-today; the echo discloses nothing new. Join fk split is the same: restricted fk 403, nonexistent fk 422 field_not_allowed. (5) Error order: restricted field + invalid join now returns the join error; join errors depend on definitions only, not grants, so no grant information leaks. Accepted. (6) Tenant prefix: prefix from prefix!(conn), user_id from auth_context; principal built from nothing in the body; join_relations/Allowlist.fk_defs use that prefix. INV-1 holds. (7) Other Compiler.run_aggregate callers (exam anti_cheat/session, script_reads) are server-built requests and untouched because no Compiler/RequestGuard/FieldPolicy change is made; no report/dashboard route compiles caller-supplied aggregates. (8) F4: aggregate_result_map reshapes group__/agg__ keys only; every value is a group key or measure over a field the guard proved unrestricted, so no redaction reuse is needed. ACCURACY NOTE: design section 6 says load_restrictions is called only inside FieldPolicy; grep shows handler_writes.ex:270 and step_writes.ex:795 also call FieldGrants.load_restrictions (write-path field checks, unrelated). The test A-12 must stay scoped to lib/letflow/routers/entities.ex as written; the prose must not claim a global single owner.",
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "gate": "DESIGN",
+    "invariants_assessed": {
+      "INV-1": "APPLIES-PASS",
+      "INV-2": "APPLIES-PASS",
+      "INV-3": "NOT-APPLICABLE",
+      "INV-4": "NOT-APPLICABLE (no secret; refusal body and logs carry no field name)",
+      "INV-5": "APPLIES-PASS-conditional-R2",
+      "INV-6": "APPLIES-this-handoff",
+      "INV-7": "APPLIES-PASS (guard builds no SQL; compiler unchanged)",
+      "INV-8": "APPLIES-PASS (unwalked/loader error fail closed to 403/500, no bare matches added)",
+      "INV-9": "NOT-APPLICABLE",
+      "INV-10": "APPLIES-PASS (no new route or permission)"
+    },
+    "trigger_2612_applies": false,
+    "required_changes": [
+      "R1: reword design section 6 'Single owner' and T-39 text to say load_restrictions has zero callers in routers/entities.ex (not 'only inside FieldPolicy'); handler_writes.ex and step_writes.ex legitimately call it.",
+      "R2: A-8 must assert byte-identical bodies (not just status) for ghost primary with no join, direct join, through join, and cross-tenant primary, and A-9 must include a nullable restricted fk (some rows null) and a through join with only the far hop restricted, asserting 403 and that the unjoined count is unaffected.",
+      "R3: PR body must state that TypeAccess on the aggregate route and join targets remains open under #2700 (a type-denied caller can still aggregate permitted fields of that type, as on main), the past-exposure sentence of section 11, and the accepted 403 vs 422 split and join-error-before-403 reorder. Resolve Q2 by observing main before pinning A-11."
+    ],
+    "implementation_written": false
+  }
+}
