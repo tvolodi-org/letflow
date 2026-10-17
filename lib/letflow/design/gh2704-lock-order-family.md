@@ -26,7 +26,7 @@ Step order of the one Multi (a plan = the node has `entity_writes`):
 | 1 | `:task` | `tasks_c` row FOR UPDATE | `2765`, `3521` |
 | 2 | `:instance_projection` | `P_c` FOR UPDATE | `2766-2768`, `3536` |
 | 3 | `:snapshot_and_state`, `:completion_guards`, `:form_expression_reevaluation`, `:merge`, `:transition` | reads and pure computation; no lock, no audit (grep of `check_completion_guards`, `merge_output_variables`: none) | `2769-2856` |
-| 4 | `maybe_entity_writes` -> `EntityPort.multi` -> `StepWrites.multi` | `E`, per line sorted by `(entity_type, index)`: first command of a type takes its sequence row (`lock_and_increment_sequence`, `event_store.ex:749-763`), then its projection; with `module_writes` an explicit `{:type_lock, type}` per type first (`step_writes.ex:566-581`, `622-634`; `handler_writes.ex:426-439`) | `engine.ex:2859`, `3174-3195` |
+| 4 | `maybe_entity_writes` -> `EntityPort.multi` -> `StepWrites.multi` | `E`, per line sorted by `(entity_type, index)`: first command of a type takes its sequence row (`lock_and_increment_sequence`, `event_store.ex:749-763`), then its projection; with `module_writes` an explicit `{:type_lock, type}` per type first (`step_writes.ex:581` (call), `622-634` (definition); `handler_writes.ex:426-439`) | `engine.ex:2859`, `3174-3195` |
 | 5 | tail clause 1, execution error | `ExecutionError.append_multi` with the held `P_c`: `S_c`, DLQ row, `P_c` UPDATE | `7133-7147` |
 | 5 | tail clause 2, advanced: `:lock_ancestors` FIRST | parent group of `c`: whole chain FOR UPDATE if the final status is `:completed`, else immediate parent FOR KEY SHARE | `7214-7217`, `8671-8678` |
 | 6 | timers_c cancel (escalation, reminder), token reconcile, task activation | `timers_c` UPDATE (after `P_c`), `tokens_c`, `tasks_c` inserts, **`A`** at each `task.create` audit (`task_activation.ex:483-495`) | `7218-7251` |
@@ -183,7 +183,7 @@ sequence in 1.1-1.4 after C-P and C-E, #2708 and #2709 (below): HUMAN child
 audit; by 2.2 that cannot meet a different `A`-then-`S` holder on a shared S row, but note this
 is the one place where "A last" and "A before S" coexist, resolved by the S-row argument above and
 to be re-checked by the #2705 regression test); ExecutionError landing `L3 L4 L8 L9`. Cross-instance
-edges only go ancestor-ward and only inside L4. Therefore, for the paths of this family, a
+edges only go ancestor-ward and only inside L4; that is what carries the argument. L5 (live tokens `T_x`, `tokens_c`) is touched by the HUMAN/service tails but only under `P_c` (L3), so it is serialised by `P_c`. Therefore, for the paths of this family, a
 wait-for edge from a transaction holding class k to one holding class j<k cannot exist, so no cycle.
 This holds for the family's paths only, NOT tenant-wide. Residual exceptions (all #2707 scope, not fixed here): the HUMAN tail's timer cancel after `P_c`; the cold TIMER_FIRED append; escalation fire's `tasks` lock after `P_x`; cancel's stale snapshot (#2706); and further COLD appenders found in CDV review: `Repository.Attachments` appends ATTACHMENT_ATTACHED/REMOVED after commit with a cold `EventStore.append` (`attachments.ex:374`, `412`: `S_x`, then the `P_x` UPDATE, no prior `P_x` lock), and a reminder fire appends TIMER_FIRED and then takes `A` with no `P` lock. Any cold appender has the same shape as the timer case.
 
@@ -262,7 +262,7 @@ result exists (grep). `SET LOCAL lock_timeout` (step 0) already precedes it, so 
 bounds the new early wait exactly as it bounds the later ones; the classification is unchanged
 (`engine.ex:3206-3224`).
 
-C-E, service/script: add a lock-only step `:lock_entity_types` right after `:lock_ancestors`
+C-E, service/script: append, through the entity port, a group of lock-only `{:pre_type_lock, type}` steps (one per type; no single named step) right after `:lock_ancestors`
 (`engine.ex:5010`) and before the `Multi.merge` that inserts tokens (`5011`). It locks, ascending by
 `entity_type`, the sequence row of every type in the UNION of the declared line types and the
 registered target types of the plan's `module_writes` handlers
@@ -288,9 +288,9 @@ Public/internal shapes (signatures only):
   with `module_writes` `build_lines` emits the same keys later and Ecto.Multi rejects duplicate names.
   `HandlerWrites.lock_types/3` therefore gains a key-tag argument (`HandlerWrites.lock_types/4`, tag
   `:type_lock` for the existing call, `:pre_type_lock` for the pre-lock); the later `{:type_lock, type}`
-  steps become no-op re-locks. No new error shape: a type without
+  steps become no-op re-locks. A failed `{:pre_type_lock, _}` step (only `{:sequence_conflict, ...}` is possible) is returned on the service path as the generic `{:error, reason}` because only `{:line, _, _}` steps keep their name (`engine.ex:5132`); this is the same as a failed `{:type_lock}` today. Accepted, not to be "fixed". No new error shape: a type without
   a synthetic instance is skipped, as today.
-* `Letflow.Engine` private: `:lock_entity_types` step in `do_persist_service_task_advance/10`; no
+* `Letflow.Engine` private: the group of `{:pre_type_lock, type}` steps appended in `do_persist_service_task_advance/10`; no
   public function, `@spec` or return value changes. No schema, migration or API change.
 
 Behaviour that must not change: results of `complete_task/3`, `advance_after_service_task_outcome/4`,
@@ -309,12 +309,12 @@ the race, C2 does the same).
 | E0 | statement order, HUMAN (plan) | none | red: `first_type_row < first_parent_lock` is today's assertion (`cancel_cascade_lock_order_test.exs:649-723`, assertion `721`); the NEW assertion is the reverse | green; the old test is FLIPPED in this PR |
 | E0s | statement order, service (plan) | none | red when the service node is followed by a HUMAN node: `A` (`audit_chain_locks`) precedes the first type-row lock | green: parent group, then type rows, then `A` |
 | E1 | sibling completing H and S (pins the sibling inversion of the amendment) | `Z` holds X's sequence row. Start H, wait 1 blocked, start S, wait 2 blocked, release. H queued first at E on main, S holds the group and queues second | red: 40P01 (H holds E, wants group; S holds group, wants E) | green: H holds the group (FOR UPDATE), S parks at the group, no E cycle |
-| E2a | continuing H' (HUMAN node to another HUMAN node, key-share group) vs the parent's OWN completion with lines on X | `Z` on X. Start H' FIRST, wait 1 blocked (main: queued at E, no group yet), start the parent completion (takes `tasks_p`, `P_p` FOR UPDATE, queues at E second), wait 2 blocked, release | red on main: H' gets E first, then wants the key-share group held FOR UPDATE by the parent, which waits for E | green: H' parks at the group before E |
+| E2a | continuing H' (HUMAN node to another HUMAN node, key-share group) vs the parent's OWN completion with lines on X | `Z` on X. Start H' FIRST, wait 1 blocked (main: queued at E, no group yet), start the parent completion (takes `tasks_p`, `P_p` FOR UPDATE, queues at E second), wait 2 blocked, release | red on main: H' gets E first, then wants the key-share group held FOR UPDATE by the parent, which waits for E | green: H' (started first) holds the key-share group and E; the parent parks at `P_p` |
 | E2b | continuing H' vs a COMPLETING sibling S (group FOR UPDATE) | same barrier; H' first, S second | red on main: H' holds E and wants the group S holds; S holds the group and wants E | green |
 | E2c | two continuing siblings H' and S' | same barrier | green on main AND after (key-share is compatible, section 2.3); the control that C-P does not serialise continuing siblings | green |
 | E3 | child completion (HUMAN, lines on X) vs the parent's OWN completion with lines on X (parent has a second parallel HUMAN branch with lines) | `Z` on X. Start the CHILD FIRST, wait 1 blocked, start the parent completion second, wait 2 blocked, release. FIFO: the child gets E, then wants `P_p` (held by the parent, which waits for E) | red on main: 40P01 (`E -> P_p` vs `P_p -> E`). With the opposite start order it would be green on main, so the order is part of the test | green |
-| E5 | I4, service vs HUMAN, no parent needed: S' = service node WITH lines on X whose NEXT node is a HUMAN_TASK (the apply activates that task, so it writes `task.create` and takes `A` before E on main) vs a HUMAN completion with lines on X | `Z` holds `audit_chain_locks`. Start S' first, wait 1 blocked (on main it is parked at `A`), start H, wait 2 blocked (H holds E, parked at `A`), release: S' is granted `A`, wants E | red on main: 40P01 (`A -> E` vs `E -> A`); green after (S' takes E before `A`, H queues behind it) |
-| E6 | C-E for a handler-only target: service node with `module_writes` whose handler's registered target type Y is NOT a declared line type (fixtures of `test/letflow/engine/module_write_service_task_test.exs`), next node HUMAN, vs a HUMAN completion with `module_writes` to Y | as E5, barrier `Z` on `A` | red on main AND red with a lines-only pre-lock (this case proves the union is needed) | green with the union |
+| E5 | I4, service vs HUMAN, no parent needed: S' = service node WITH lines on X whose NEXT node is a HUMAN_TASK (the apply activates that task, so it writes `task.create` and takes `A` before E on main) vs a HUMAN completion with lines on X | The fixture first performs one audit write so the `audit_chain_locks` row exists (`lock_chain_tail!` creates it lazily, `audit.ex:284-300`); `Z` then holds it. Start S' first, wait 1 blocked (on main it is parked at `A`), start H, wait 2 blocked (H holds E, parked at `A`), release: S' is granted `A`, wants E | red on main: 40P01 (`A -> E` vs `E -> A`); green after (S' takes E before `A`, H queues behind it) |
+| E6 | C-E for a handler-only target: service node with `module_writes` whose handler's registered target type Y is NOT a declared line type (fixtures of `test/letflow/engine/module_write_service_task_test.exs`), next node HUMAN, vs a HUMAN completion with `module_writes` to Y | as E5 (including the warm-up audit write), barrier `Z` on `A` | red on main AND red with a lines-only pre-lock (this case proves the union is needed) | green with the union |
 | E4 | cancel safety, re-run T1-T9 of `cancel_cascade_lock_order_test.exs` unchanged | as written | green | green (regression) |
 
 Assertions per forced test: zero telemetry deadlock/lock-timeout reports; both workers return within
