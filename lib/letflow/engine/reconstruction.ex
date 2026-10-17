@@ -98,6 +98,9 @@ defmodule Letflow.Engine.Reconstruction do
 
   ## Ground truth is the event log, never the projection (INV-RC-2)
 
+  GH #2702: the only non-log read is the `entity_type_instances` registry check (plus the
+  platform sentinel id constant), which hides synthetic and sentinel ids as `:instance_not_found`.
+
   No function on the replay path (`read_full_log/2`, `replay/3`) ever reads
   `instance_projections` — only `write_back/4` (opt-in) touches that table,
   and only to write, never to seed replay state from it.
@@ -207,6 +210,7 @@ defmodule Letflow.Engine.Reconstruction do
   alias Letflow.EventStore.ArchivedEvent
   alias Letflow.EventStore.Event
   alias Letflow.EventStore.InstanceProjection
+  alias Letflow.EventStore.InstanceVisibility
   alias Letflow.EventStore.StoredPayload
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
@@ -284,6 +288,7 @@ defmodule Letflow.Engine.Reconstruction do
 
     with {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
          {:ok, cast_instance_id} <- cast_instance_id(instance_id),
+         :ok <- ensure_not_hidden(cast_instance_id, prefix),
          replay_source <- select_replay_source(cast_instance_id, prefix),
          {:ok, merged_events} <-
            read_full_log(cast_instance_id, prefix, min_sequence_number(replay_source)),
@@ -309,6 +314,19 @@ defmodule Letflow.Engine.Reconstruction do
       else
         {:ok, result}
       end
+    end
+  end
+
+  # GH #2702: a synthetic entity-type instance and the platform sentinel id answer
+  # exactly like an absent id. Absent ids (and projection-less real ids) fall through
+  # to the log read as before, so INV-RC-2 and the write-back insert path hold. The
+  # registry read and the sentinel constant check are the only non-log reads here.
+  defp ensure_not_hidden(instance_id, prefix) do
+    if instance_id == Letflow.EventStore.platform_instance_id() or
+         InstanceVisibility.synthetic?(instance_id, prefix) do
+      {:error, :instance_not_found}
+    else
+      :ok
     end
   end
 

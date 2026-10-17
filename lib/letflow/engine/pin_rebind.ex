@@ -85,6 +85,7 @@ defmodule Letflow.Engine.PinRebind do
   alias Letflow.Engine.PinResolver
   alias Letflow.EventStore
   alias Letflow.EventStore.InstanceProjection
+  alias Letflow.EventStore.InstanceVisibility
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
 
@@ -429,6 +430,7 @@ defmodule Letflow.Engine.PinRebind do
     query =
       InstanceProjection
       |> where([p], p.instance_id == ^instance_id)
+      |> InstanceVisibility.exclude_synthetic(prefix)
       |> lock("FOR UPDATE NOWAIT")
 
     case repo.one(query, prefix: prefix) do

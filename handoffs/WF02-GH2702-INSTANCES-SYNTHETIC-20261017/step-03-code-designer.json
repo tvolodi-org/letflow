@@ -1,0 +1,51 @@
+{
+  "handoff_id": "c4a7d1e0-2702-4a11-8c20-000000000003",
+  "run_id": "WF02-GH2702-INSTANCES-SYNTHETIC-20261017",
+  "workflow_id": "WF-02",
+  "step": "03",
+  "from_agent": "CODE-DESIGNER",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF02-GH2702-INSTANCES-SYNTHETIC-20261017/step-03-code-designer.json",
+  "created_at": "2026-10-17T01:16:40Z",
+  "started_at": "2026-10-17T01:16:40Z",
+  "completed_at": "2026-10-17T01:20:00Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2702": "Restricted field values readable via Instances routes: synthetic entity-type instances not hidden (list, get, history). Advisor option A: one predicate at the source on the projection; every Instances route answers a synthetic id with a 404 byte-identical to a nonexistent instance (INV-5)."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "handoffs/WF02-GH2702-INSTANCES-SYNTHETIC-20261017/step-01-leak-repro.json",
+      "test/letflow/routers/instances_restricted_field_events_test.exs",
+      "lib/letflow/instances.ex",
+      "lib/letflow/routers/instances.ex",
+      "lib/letflow/entities/entity_type_instance.ex",
+      "lib/letflow/engine.ex",
+      "lib/letflow/engine/pin_rebind.ex",
+      "lib/letflow/engine/reconstruction.ex",
+      "lib/letflow/engine/pin_resolver.ex"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2702-INSTANCES-SYNTHETIC-20261017"
+  },
+  "task": {
+    "description": "WF-02 step 3 design for GH #2702 (PR-0b). Design only, no implementation code."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "Design written to lib/letflow/design/gh2702-hide-synthetic-instances.md. DECISIONS: (1) One new leaf module Letflow.EventStore.InstanceVisibility with exclude_synthetic/2 (NOT EXISTS anti-join on the entity_type_instances source string, explicit prefix on the inner source) and synthetic?/2; it uses the table name string, not the EntityTypeInstance schema, because check_boundaries Rule 6 forbids Engine.* referencing Entities.*; a test pins the string to EntityTypeInstance.__schema__(:source). (2) Applied inside: Instances.list/2, get_by_id/2, ensure_instance_exists/2 (covers history and timeline), Engine cancel lock query, PinRebind lock query, Reconstruction.reconstruct_instance/2 (gate first on a visible instance_projections row via exclude_synthetic, so synthetic, platform-sentinel and nonexistent ids all return instance_not_found/404 before any log read; engine.ex:8880 caller always has a projection row), plus a defence-in-depth guard on the pins route. All reuse the existing Response.not_found/1 (constant body), so byte identity is structural; validation order preserved. (3) FINDINGS beyond the issue: cancel of a synthetic id succeeds today (DoS on record writes); rebind-pins on a synthetic id returns 422 unknown_pin_ref (existence oracle); reconstruct on a synthetic or platform-sentinel id with a non-empty log has no graph snapshot (SnapshotStore) so it returns replay_failed -> 500 vs 404 for a nonexistent id (existence oracle; amended after CDV R1); pins and advance-timer already 404 by accident of data; attachments have no instance existence check at all (upload/list for any uuid, synthetic or not, behave identically) so left unchanged (open question). (4) Platform sentinel: never inserted into instance_projections (event_store.ex:991, create_events migration), all Instances routes already 404 it; out of scope, one regression assertion in the route walk. (5) Performance: entity_type_instances is tens of rows per tenant; NO index and NO migration (tenant_template collision history). (6) Timing: permission (authz plug) precedes existence; existence is one query containing the exclusion so synthetic and nonexistent take the identical path; reconstruct now gates first so no delta. (7) Internal callers enumerated (Records, StepWrites, HandlerWrites, Projector, EntityTypeInstance, EventStore, engine.ex:8880 reconstruct for real instances) and are unaffected. (8) Tests: the 8 failing map to Instances.list/get_by_id/ensure_instance_exists; route-walk file over every id route comparing status and body to a random uuid, post-walk no-mutation assertions, sentinel regression (T4 appends a real platform event first, then expects 404 on reconstruct), real-instance control, internal-caller checks, predicate unit tests, pagination exactness; 8 mutants listed. (9) PR size: one PR, ~90 production lines plus ~350 test lines, no migration. (10) #2612 (permission-matrix golden) NOT triggered: no permission, role grant or policy change. TENANT_AUDITOR (all roles) lose record-history visibility via /instances until REQ-516 option B; stated. OPEN QUESTIONS: O1 attachments existence parity (pre-existing), O2 resolved, O3 no index on entity_type_instances.instance_id, O4 reconstruct_effective_pins unguarded internally, O5 product acceptance of the auditor visibility loss. AMENDMENT 2 (security review R1-R4): R1 orphan projections: create_and_reselect/2 inserts a projection for the LOSING id in a first-write race (not in the registry, so the anti-join would not hide it); decided to reorder it (registry insert, re-read winner, ensure projection for the winning id only; Records hot path untouched, only once-per-type first creation) plus concurrency test T9 and mutant M9; legacy orphans remain as a value-free residual (O6); definition_id convention not added. R2: Ecto query-level prefix on the inner source, is_binary guards, no rescue, synthetic? returns only boolean, test that the tenant schema appears in generated SQL. R3: T2b compares headers, replayed Idempotency-Key on cancel/rebind-pins, 403 and 422 cases, malformed body with a synthetic id, equal DB query count. R4: section 8b PR-body statements with precise past exposure (history field_values for InstancesRead; cancel of a synthetic instance blocks later record writes via active_instance_guard; rebind 422 oracle; reconstruct was a 500 oracle only, the rewrite claim retracted), auditor loss until REQ-516/#2701 also in the router moduledoc, attachments #2718, #2612 not triggered.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "lib/letflow/design/gh2702-hide-synthetic-instances.md"
+    ],
+    "diagnosis_confirmed": true,
+    "implementation_written": false,
+    "classification": "DESIGN_COMPLETE"
+  }
+}

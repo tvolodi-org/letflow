@@ -1,0 +1,54 @@
+{
+  "handoff_id": "c4a7d1e0-2702-4a11-8c20-000000000010",
+  "run_id": "WF02-GH2702-INSTANCES-SYNTHETIC-20261017",
+  "workflow_id": "WF-02",
+  "step": "10",
+  "from_agent": "TEST-DESIGN-VALIDATOR",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF02-GH2702-INSTANCES-SYNTHETIC-20261017/step-10-test-design-validator.json",
+  "created_at": "2026-10-17T03:00:00Z",
+  "started_at": "2026-10-17T03:00:00Z",
+  "completed_at": "2026-10-17T03:30:00Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2702": "Hide synthetic entity-type instances from every Instances route. Test-design validation (static; mix not run)."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-2702-4a11-8c20-000000000009"
+    ],
+    "artifacts_in": [
+      "test/specs/GH2702-hide-synthetic-instances.md",
+      "test/letflow/routers/instances_synthetic_hidden_test.exs",
+      "test/letflow/event_store/instance_visibility_test.exs",
+      "test/letflow/entities/entity_type_instance_race_test.exs",
+      "test/letflow/routers/instances_restricted_field_events_test.exs"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2702-INSTANCES-SYNTHETIC-20261017"
+  },
+  "task": {
+    "description": "WF-02 step 3b gate on TEST-DESIGNER output for GH #2702. Read-only, static reasoning, no mix."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "PASS with 3 non-blocking gaps. Static review, mix not run (hosted CI runs the tests). No @tag skip/TODO in any of the 4 files; no secrets; fixtures are per-test tenants (ctx!/tenant!), async:false. Route walk: 14 routes in @walk equal the 14 id routes in Routers.Instances (rebind-pins, cancel, reconstruct, advance-timer, history, timeline, pins, POST/GET attachments, GET/DELETE attachment, link, link-content, GET /:id); inventory test compares __authz_routes__/0 filtered on ':id' (paths stored as declared, method upper-case) so a new route fails it. Walk compares status+body+full sorted headers (only x-request-id/date masked, trace pinned), for widget, gadget and sentinel, for each role. Assumptions verified by reading: TASK_WORKER core_role_allows? lacks :InstancesCancel and :InstancesAdvanceTimer so 403 holds (authorization.ex 1601-1626); advance-timer on synthetic/random both go Scheduler.resolve_advance_target -> :no_pending_timer -> 404 (unchanged code); upload has no instance existence check and the attachments migration has no FK to instance_projections, so both ids take the same path, upload body ids/timestamps masked. Reconstruct: guard is synthetic?-or-sentinel only; tests assert absent/synthetic/sentinel -> :instance_not_found and projection-deleted real instance -> {:ok,_} and HTTP 200. T9: lock wait uses pg_stat_activity WHERE datname = current_database() AND wait_event_type='Lock' AND pid <> pg_backend_pid(), bounded 200x25ms, flunks on timeout; checkin releases the owned connection so Task does not share it via $callers; deterministic for the loser path (a false positive waiter only makes it pass vacuously, never flake-fail; M9 leaves an orphan projection for the minted id and fails the synthetic_shaped == [winner_id] assertion). Mutants killed statically: M1 (repro a x2, T2 list, T5 list, T8 length), M2 (walk history/timeline, repro b1*), M3 (T7 equal-id visible; changed-definition hidden), M4 (T5, T7, T8), M5 (walk cancel row, T3), M6 (walk reconstruct row, T4, T5 sentinel/synthetic), M6b (T5 projection-deleted, existing AC2/AC5), M7 (T7 cross-prefix test and generated-SQL test), M8 (walk byte comparison), M9 (T9 deterministic). M10 unkilled by design (route already 404s by content).",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "handoffs/WF02-GH2702-INSTANCES-SYNTHETIC-20261017/step-10-test-design-validator.json"
+    ],
+    "verdict": "PASS",
+    "gaps_nonblocking": [
+      "T8 does NOT kill a post-filter implementation as the spec claims: list orders by started_at desc, the 2 synthetic rows are the oldest, so a post-LIMIT filter would still return the 3 real ones across 2 pages. Fix: start the real instances BEFORE creating the synthetic ones (or interleave) and correct the spec sentence. Only M1 (removal) is killed by T8.",
+      "T7 'composes with where and limit' uses random uuids with order_by instance_id asc limit 2: a post-filter passes with probability 1/10 (flaky-vacuous). Use fixed ids that sort synthetic-first.",
+      "Attachment routes (esp. POST upload) assert only synthetic == random, not status, and an upload to a synthetic id persists an attachment; accepted residual (#2718), already stated in the spec. T2b(v) assumes rebind-pins query count is equal for synthetic vs random (spec says pins is 1 vs 2 only for GET /pins); unverified because tests were not run, CI will confirm. T9 stress test is probabilistic (deterministic test carries the kill)."
+    ],
+    "mutation_run": "not performed: task forbids running mix; WF-03 pre-fix-nonexistent rule does not apply (WF-02, fix modifies existing modules)",
+    "git_status_lib_test_clean": true
+  }
+}

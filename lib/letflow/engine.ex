@@ -524,6 +524,7 @@ defmodule Letflow.Engine do
   alias Letflow.EventStore
   alias Letflow.EventStore.IdempotencyRecord
   alias Letflow.EventStore.InstanceProjection
+  alias Letflow.EventStore.InstanceVisibility
   alias Letflow.EventStore.Registry, as: EventRegistry
   alias Letflow.Identity
   alias Letflow.Repo
@@ -8613,8 +8614,11 @@ defmodule Letflow.Engine do
   end
 
   defp fetch_and_lock_instance_projection_for_cancel(repo, instance_id, prefix) do
+    # GH #2702: a synthetic entity-type instance is invisible here (nil row ->
+    # the same :instance_not_found as an absent id); nothing is locked or written.
     InstanceProjection
     |> where([p], p.instance_id == ^instance_id)
+    |> InstanceVisibility.exclude_synthetic(prefix)
     |> lock("FOR UPDATE")
     |> repo.one(prefix: prefix)
     |> case do

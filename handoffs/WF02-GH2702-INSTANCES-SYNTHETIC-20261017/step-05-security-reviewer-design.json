@@ -1,0 +1,92 @@
+{
+  "handoff_id": "c4a7d1e0-2702-4a11-8c20-000000000005",
+  "run_id": "WF02-GH2702-INSTANCES-SYNTHETIC-20261017",
+  "workflow_id": "WF-02",
+  "step": "05",
+  "from_agent": "SECURITY-REVIEWER",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF02-GH2702-INSTANCES-SYNTHETIC-20261017/step-05-security-reviewer-design.json",
+  "created_at": "2026-10-17T01:25:00Z",
+  "started_at": "2026-10-17T01:25:00Z",
+  "completed_at": "2026-10-17T01:40:00Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2702": "Restricted field values readable via Instances routes: synthetic entity-type instances not hidden. Design gate (read-only review of the design doc, no code)."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-2702-4a11-8c20-000000000003"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/gh2702-hide-synthetic-instances.md",
+      "docs/agents/instructions/security-invariants.md",
+      "lib/letflow/instances.ex",
+      "lib/letflow/routers/instances.ex",
+      "lib/letflow/entities/entity_type_instance.ex",
+      "lib/letflow/engine.ex",
+      "lib/letflow/engine/pin_rebind.ex",
+      "lib/letflow/engine/reconstruction.ex",
+      "lib/letflow/audit.ex",
+      "lib/letflow/event_store.ex"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2702-INSTANCES-SYNTHETIC-20261017"
+  },
+  "task": {
+    "description": "SECURITY-REVIEWER design gate for GH #2702. Completeness of the synthetic-instance hiding across every route and context; INV-1..INV-8 verdicts."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "DESIGN GATE: PASS, CONDITIONAL on 4 required design amendments (R1-R4 below) that must be written into the design doc before TEST-DESIGNER/ELIXIR-DEV start. No route or context was found where a synthetic instance's events or field values stay reachable by a tenant caller after the design is applied. SCOPE: in scope (tenant-data path: instance lookup-by-id handlers, response shaping, and an INV-5 surface). #2612 trigger paths (ci.yml, cd.yml, mix.exs aliases, permission_matrix, authorization.ex, catalog.ex, priv/permission_matrix) are untouched by the design; no permission atom, role grant or endpoint_policy_key changes; #2612 not triggered (confirmed against the doc's section 9). COMPLETENESS WALK (grep of lib/ for instance_projections / InstanceProjection / EventStore reads, 2026-10-17): (1) Instances list/get/history/timeline: covered (list/get_by_id/ensure_instance_exists in instances.ex; ensure_instance_exists is the sole gate for history+timeline; confirmed no other caller of Instances.* in lib outside routers/instances.ex, comments in definitions/promotions only). (2) cancel, rebind-pins, reconstruct: covered by the three lock/guard sites; confirmed engine.ex:8610 fetch_and_lock_instance_projection_for_cancel and pin_rebind.ex:426 lock_projection_nowait return nil -> :instance_not_found today for a missing row, so adding the anti-join yields the identical existing path. reconstruct_instance cast->select_replay_source->read_full_log->replay: guard placement after cast and before any read is correct; it is the route that returns the reconstructed variables (the field values), so it is the highest-value closure. (3) pins: covered by router guard (already 404 by accident of missing INSTANCE_STARTED; acceptable). advance-timer: no pending timer for synthetic -> 404; attachments: no existence check, no FK, identical 200-empty/accepted-upload for synthetic and nonexistent ids, nothing of the synthetic instance leaks: JUDGEMENT: leaving unchanged is correct (O1 follow-up is hygiene, see R4). storage-usage: tenant-wide figure, no ids. (4) Tasks/worklist: tasks.ex:276 LEFT JOIN is from a task to its own instance (synthetic has no tasks); tasks list instance_id filter returns zero rows for a synthetic id by data; no leak. (5) Search/exports/reports/dashboards: they read the entity record projection, not events (that surface is #2697, merged). (6) Event stream/subscribe, signals, messages, timer-fire by id, correlation-key-in-body routes: none exist in lib/letflow/routers (grep: correlation_key appears only as an Instances start body field and list filter, both pass through the guarded paths). (7) Audit: routers/audit.ex reads audit_entries (Entry), explicitly drops payload; not events. EventStore.read_global has NO router/lib caller left (only docs and comments); EventStore.read has only Record.Projector callers (internal, prefix-scoped). /platform-events filters on platform_instance_id() only and is platform-gated. (8) Lua: platform.ex:664 fetch_instance_state accepts a script-supplied id ONLY if it equals execution_context.instance_id (moduledoc :112); emit_event appends to own instance; no Lua/WASM path reaches Instances.* or reconstruct. (9) Webhooks/outbound/DLQ/telemetry/Logger: no entity event payload feeds out (design F6, spot-checked, concur). INVARIANTS: INV-1 APPLIES, PASS (anti-join + synthetic? both take the caller-derived prefix; the inner source must carry the explicit prefix, see R2; no new table/migration/tenant_id; T7 tenant-isolation test). INV-2 NOT-APPLICABLE as a new field (no new response field; actually closes an INV-2 gap: restricted field values left the server via event payloads). INV-3 N/A (no Lua/WASM host function added). INV-4 N/A (no secrets). INV-5 APPLIES, PASS WITH R3: byte identity is structural because every new miss reuses the existing Response.not_found/1 constant body (no detail slot); permission-before-existence unchanged (authz_* runs before the handler); existence decided in ONE query containing the exclusion so synthetic and nonexistent take the same DB path/round-trips for get/history/timeline/cancel/rebind; validation order preserved (422 invalid UUID and body/idempotency validation precede not-found, so a synthetic id with a bad body returns the same 422 as a nonexistent id). Residual timing delta on reconstruct (guard returns before the two empty-log reads): ACCEPTED (O2): the prober is authenticated, tenant-scoped, holds InstancesCancel (an admin-class permission), and the delta is one or two indexed point reads of an empty range, below network jitter. INV-6 APPLIES: this handoff is the proof; INV-6 requires a second SECURITY-REVIEWER pass over the implementation diff. INV-7 APPLIES, PASS WITH R2: design uses Ecto composition and a source-string schemaless subquery; no Repo.query, no fragment; implementation must not build the prefix with string concatenation. INV-8 APPLIES, PASS: new paths return typed {:error, :not_found | :instance_not_found}; no bare matches added; the new synthetic?/2 must return a boolean, never raise, on a missing/invalid prefix (R2). INV-9 N/A (no outbound URL). INV-10 N/A (no platform/tenant scope change; the predicate reads only the caller's prefix). MUTATING ROUTES: design closes cancel (no longer succeeds; the DoS on record writes is gone), reconstruct (no write_back to the synthetic projection), rebind-pins (422 oracle -> 404). The I1/I2 invariants of the doc are right. Immutability argument (F1) verified: get_or_create inserts the entity_type_instances row BEFORE the projection row and no code path deletes or updates entity_type_instances (grep: none), so there is no window in which a synthetic projection is visible without its registry row, and no TOCTOU between a guard and the engine call. TENANT_AUDITOR LOSS: acceptable as a documented, temporary consequence (fail-closed beats a leak; the alternative is exactly the redaction that REQ-516/#2701 will build) PROVIDED it is in the PR body, in the moduledoc of routers/instances.ex, and flagged to the product owner (R4). Auditors keep the audit_entries route for mutations and keep full history for real workflow instances. DEFENCE IN DEPTH: acceptable (guards at the query source plus the lock queries plus the pins/reconstruct guards; no router-only filter). The accepted remaining defence-in-depth gap is that restricted values still sit in events/payloads that any future reader of EventStore.read_global or of a new instance-scoped route would expose; design correctly defers redaction to REQ-516 and the guard-by-registry approach should be noted in docs/anti-patterns.md as the rule for new event-reading routes (already planned for DOC-UPDATER).",
+    "issues": [
+      {
+        "id": "R1",
+        "severity": "MAJOR",
+        "invariant": "INV-5 (existence oracle) / design invariant I1",
+        "description": "ORPHAN synthetic projections are NOT hidden by the registry predicate. EntityTypeInstance.create_and_reselect/2 (entity_type_instance.ex:128-153) generates instance_id X, inserts the entity_type_instances row with on_conflict: :nothing, then ensure_instance_projection(X) inserts a projection for X regardless of whether the registry insert won. Under a concurrent first-write race the LOSER leaves an :active projection (definition_id == instance_id, no events: appends go to the winner's id after the reselect) whose id is NOT in entity_type_instances. After the change it appears in list/get and is cancellable/reconstructible, and its mere presence (an active instance with definition_id == instance_id) is the exact existence signal I1 forbids; also any projection from before the registry table existed or restored from a partial backup would behave the same. No event payloads or field values are exposed by an orphan (it has no events), so this is not a data leak, but the doc's invariants I1/I5 are overstated as written.",
+        "required_change": "Amend the design to do EITHER (a) close the cause in the write path in the same PR: in create_and_reselect, reselect the winning row first and call ensure_instance_projection only for the WINNING instance_id (idempotent; add a test that two concurrent get_or_create calls leave exactly one projection per entity type), PLUS a tiny doc note that pre-existing orphans are possible and are accepted as empty; OR (b) widen the predicate to 'in entity_type_instances OR definition_id = instance_id' (real instances never have definition_id equal to their own instance_id because definition ids are separate UUIDs; add the T7 case 'real projection with definition_id == instance_id' as an ORPHAN-hidden case, reversing the design's M3 stance). (a) preferred; whichever is chosen, add a test with an orphan projection and say which in the design. Do not leave it as unstated."
+      },
+      {
+        "id": "R2",
+        "severity": "MAJOR",
+        "invariant": "INV-1 / INV-7 / INV-8",
+        "description": "Design section 1 says the prefix is 'set EXPLICITLY on the inner source' but does not say how, and Ecto's Repo prefix option applies only to sources that carry no prefix of their own. synthetic?/2 and exclude_synthetic/2 are public and take a prefix string.",
+        "required_change": "State in the design: (i) exclude_synthetic/2 sets the inner source prefix with Ecto's query-level prefix (from(e in 'entity_type_instances', prefix: ^prefix) or %{subquery | prefix: prefix}), never by string concatenation or a fragment, and the same prefix value the outer Repo call receives (INV-1, INV-7); (ii) both functions require is_binary(prefix) with a guard and never rescue; a nil prefix must raise FunctionClauseError at the developer boundary rather than silently read the default schema (the callers already pass a TenantProvisioning-validated prefix); (iii) synthetic?/2 returns only true/false (Repo.exists?). Add the T7 tenant-isolation test for both functions and a source-assertion test that the generated SQL for the inner source carries the tenant schema name."
+      },
+      {
+        "id": "R3",
+        "severity": "MAJOR",
+        "invariant": "INV-5",
+        "description": "The INV-5 byte-identity test plan compares status and body but the requirement is the whole response. Header differences (content-length, content-type, any x-request-id is expected to differ; cache-control, etag/last-modified or Retry-After-style headers set by a handler) could distinguish the cases; and the cancel route has an idempotency-key path whose replay lookup could run before the lock.",
+        "required_change": "T2 must compare status, resp_body AND the full response header set with per-request ids masked (request-id and date only), for every row of the walk, for TASK_WORKER/TENANT_AUDITOR/TENANT_ADMIN as appropriate. T2 must also include: cancel and rebind-pins WITH an Idempotency-Key and a repeated identical request for synthetic vs nonexistent id (same 404 both times, no idempotency record stored for the synthetic id); a request lacking the permission (403 identical for synthetic and nonexistent); an invalid UUID (422 identical); a malformed body with a synthetic id (same 422 as with a nonexistent id). Add a DB-round-trip equality assertion (Ecto telemetry query count in the test) for get/history/timeline/cancel/rebind: synthetic and nonexistent must issue the same number of queries (INV-5 'comparable round trips')."
+      },
+      {
+        "id": "R4",
+        "severity": "MINOR",
+        "invariant": "INV-5 / process",
+        "description": "PR-body and follow-up requirements (not code).",
+        "required_change": "PR body MUST contain: (1) PAST EXPOSURE STATEMENT: from the first release where entity records with fields carrying a restricted FieldPolicy were written through Records.create_record (events carry the full payload) until this PR deploys, any caller holding InstancesRead (at least TASK_WORKER, TENANT_AUDITOR; check priv/permission_matrix/effective.golden for the full set) could read those values through GET /instances (list), /:id, /:id/history and /:id/timeline for the synthetic per-entity-type instance; callers holding InstancesCancel could read reconstructed variables via POST /:id/reconstruct and could cancel the synthetic instance (blocking record writes for that type) or rewrite its projection. Events already written are NOT altered or redacted by this PR, and past reads cannot be established because audit_entries holds mutations only (read paths are not audited and request logs carry no response bodies); tenants should treat restricted values written before this fix as disclosed to those roles. (2) TENANT_AUDITOR / all roles lose record create/update history via /instances until REQ-516/#2701 ships (stated trade-off; flag to PRODUCT-OWNER via the issue, not blocking). (3) #2612 not triggered, and no permission-matrix regeneration. (4) The moduledoc of routers/instances.ex gets the INV-5 synthetic paragraph. FOLLOW-UPS to file (not in this PR): O1 attachment routes have no instance existence check at all (upload to any UUID succeeds, a pre-existing INV-5-adjacent gap; any future 404-for-nonexistent change must also 404 synthetic and orphan ids, and a regression assertion should be added then); O4 reconstruct_effective_pins unguarded internally is ACCEPTED (hot path, real ids only; the route guards it). O3 no index on entity_type_instances.instance_id: ACCEPTED (tens of rows per tenant, a migration would also need the TenantProvisioning manifest entry)."
+      }
+    ],
+    "artifacts_out": [],
+    "invariants_assessed": {
+      "INV-1": "APPLIES - PASS (prefix on inner source, R2)",
+      "INV-2": "N/A - no new response field (change closes a server-side field-exposure path)",
+      "INV-3": "N/A",
+      "INV-4": "N/A",
+      "INV-5": "APPLIES - PASS with R3 (R1 for orphans)",
+      "INV-6": "APPLIES - this design review; implementation diff needs a second pass",
+      "INV-7": "APPLIES - PASS with R2",
+      "INV-8": "APPLIES - PASS",
+      "INV-9": "N/A",
+      "INV-10": "N/A"
+    },
+    "design_gate_verdict": "PASS_CONDITIONAL",
+    "requires_second_pass_on_implementation": true
+  }
+}

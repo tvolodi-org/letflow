@@ -1,0 +1,56 @@
+{
+  "handoff_id": "c4a7d1e0-2702-4a11-8c20-000000000009",
+  "run_id": "WF02-GH2702-INSTANCES-SYNTHETIC-20261017",
+  "workflow_id": "WF-02",
+  "step": "09",
+  "from_agent": "TEST-DESIGNER",
+  "to_agent": "TEST-DESIGN-VALIDATOR",
+  "file": "handoffs/WF02-GH2702-INSTANCES-SYNTHETIC-20261017/step-09-test-designer.json",
+  "created_at": "2026-10-17T02:00:00Z",
+  "started_at": "2026-10-17T02:00:00Z",
+  "completed_at": "2026-10-17T02:25:00Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2702": "Hide synthetic entity-type instances from every Instances route. Test design."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-2702-4a11-8c20-000000000008"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/gh2702-hide-synthetic-instances.md",
+      "lib/letflow/event_store/instance_visibility.ex",
+      "lib/letflow/engine/reconstruction.ex"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2702-INSTANCES-SYNTHETIC-20261017"
+  },
+  "task": {
+    "description": "Write the remaining GH #2702 tests and spec; not committed."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "Tests and spec written and mix-formatted (syntax parses); NOT RUN: the machine mix mutex dir was held by another session for >19 min (created 07:01) and free memory was 3.9 GB (< 4 GB gate), so no mix process was started and the lock was not touched. Hosted CI must run them. mix letflow.check.test also not run. No implementation bug found by reading. Reconstruct query count is not equal for synthetic vs nonexistent after the guard narrowing (only <= asserted).",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "test/specs/GH2702-hide-synthetic-instances.md",
+      "test/letflow/routers/instances_synthetic_hidden_test.exs",
+      "test/letflow/event_store/instance_visibility_test.exs",
+      "test/letflow/entities/entity_type_instance_race_test.exs"
+    ],
+    "tests_not_run": true,
+    "mutants_reported": "M1..M9 plus M6b (projection-row guard, INV-RC-2) and M10 mapped in the spec; none measured (tests not run).",
+    "risks": [
+      "T9 deterministic test relies on Sandbox checkin + :auto mode and pg_locks polling",
+      "403 expectation for TASK_WORKER on advance-timer unverified",
+      "T2 walk assumes upload/link routes answer identically for synthetic and random ids"
+    ],
+    "rework": "TDV gaps 1-2 fixed: T8 adds 2 synthetic instances newer than the real ones; T7 limit test uses fixed synthetic-first ids. Spec notes weak attachment rows and unverified rebind-pins query-count equality. Still not run (mutex/memory gates).",
+    "ci_rework": "CI defects fixed in tests: SQL assert now regex on 'NOT (exists(' ; race helper no longer matches Sandbox.checkin result (:not_found); T2b(iv) uses non-object JSON. Not re-run locally."
+  }
+}

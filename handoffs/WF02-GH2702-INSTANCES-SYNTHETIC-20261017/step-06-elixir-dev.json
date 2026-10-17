@@ -1,0 +1,49 @@
+{
+  "handoff_id": "c4a7d1e0-2702-4a11-8c20-000000000006",
+  "run_id": "WF02-GH2702-INSTANCES-SYNTHETIC-20261017",
+  "workflow_id": "WF-02",
+  "step": "06",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF02-GH2702-INSTANCES-SYNTHETIC-20261017/step-06-elixir-dev.json",
+  "created_at": "2026-10-17T01:20:00Z",
+  "started_at": "2026-10-17T01:22:00Z",
+  "completed_at": "2026-10-17T01:34:46Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2702": "Hide synthetic entity-type instances from every Instances route (PR-0b, SECURITY)."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "lib/letflow/design/gh2702-hide-synthetic-instances.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2702-INSTANCES-SYNTHETIC-20261017"
+  },
+  "task": {
+    "description": "Implement the GH #2702 design. No tests written."
+  },
+  "result": {
+    "status": "BLOCKED",
+    "summary": "Code written per design, NOT compiled: the machine mix mutex (AppData/Local/Temp/claude/mixlock) was held by another session for the whole 8 min wait, so no mix command (compile, format, check_boundaries) was run. New: lib/letflow/event_store/instance_visibility.ex (exclude_synthetic/2 NOT EXISTS via parent_as with explicit query-level prefix; synthetic?/2). Applied in instances.ex (list, get_by_id, ensure_instance_exists), engine.ex cancel lock, engine/pin_rebind.ex lock, engine/reconstruction.ex (ensure_visible_projection before select_replay_source, :instance_not_found), routers/instances.ex (pins guard via synthetic?/2, moduledoc note on TENANT_AUDITOR until REQ-516 #2701), entities/entity_type_instance.ex create_and_reselect reorder (registry insert, re-read winner, ensure projection for winner only). authorization.ex and priv/permission_matrix/effective.golden untouched. Compile risks to check first: from(p in query, as: :instance_projection_visibility) alias and parent_as inside exists/1; existing reconstruct tests that reconstruct a projection-less instance now get :instance_not_found.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "lib/letflow/event_store/instance_visibility.ex",
+      "lib/letflow/instances.ex",
+      "lib/letflow/engine.ex",
+      "lib/letflow/engine/pin_rebind.ex",
+      "lib/letflow/engine/reconstruction.ex",
+      "lib/letflow/routers/instances.ex",
+      "lib/letflow/entities/entity_type_instance.ex"
+    ],
+    "implementation_written": true,
+    "compiled": false,
+    "reviewer_rework": "REVIEWER code gate fix applied, still NOT compiled (mix mutex still held): reconstruction.ex ensure_visible_projection replaced by ensure_not_hidden (platform_instance_id constant or InstanceVisibility.synthetic?, after cast, before select_replay_source); absent ids fall through to log read (INV-RC-2 and write-back insert path preserved); moduledoc sentence added; InstanceVisibility moduledoc reworded (drift unit test not yet present)."
+  }
+}
