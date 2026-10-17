@@ -36507,7 +36507,7 @@ requirements:
       GET /entities/:type/records/:id/history with FieldGrants and restriction rows plus the
       0051 scope filter, read-time redaction by current restrictions, one shared FieldPolicy
       module, and every consumer of event field_values listed and covered (webhooks and
-      outbound first). Design first. The GH #2701 body and decision 0059 are the content authority.
+      outbound first). Design first. Dependency: once #2702 hides synthetic entity-type instances from the Instances routes, TENANT_AUDITOR loses record-history visibility through /instances until this route lands. The GH #2701 body and decision 0059 are the content authority.
     acceptance_criteria:
       - "1. The acceptance criteria are those of GH #2701: a merged design record listing every consumer, then implementation issues. NOT DELIVERED."
     depends_on: []

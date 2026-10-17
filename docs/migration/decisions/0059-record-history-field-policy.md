@@ -14,6 +14,9 @@ Entity events carry `field_values`. Field restrictions (REQ-231) are applied to 
 4. **Every consumer of event `field_values` is listed and covered** by the requirement: audit entries, webhooks, outbound events, the dead-letter queue, `Response.public_event_payload`, event exports, logs. Webhooks and outbound events come first, because they leave the system.
 5. **The route is designed first** (REQ-516 is design-first, prio 2): the design record names the redaction point per consumer, whether a consumer is redacted per recipient or stored already-redacted, and the list of consumers found by reading the code, not from this record.
 
+## Dependency on #2702
+GH #2702 (hide synthetic entity-type instances from every Instances route) is an inherent consequence of its chosen option: TENANT_AUDITOR loses record-history visibility through `/instances` until this route (REQ-516) lands. Record history for auditors is served only by this route from then on.
+
 ## Not decided here
 - Per-consumer storage form (redact on write versus on read) for webhooks and outbound: the design record decides, with SECURITY-REVIEWER.
 - The synthetic entity-type instance event leak through the Instances routes: a separate defect issue, filed after its reproducing test exists.
