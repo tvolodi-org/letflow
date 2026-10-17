@@ -88,6 +88,15 @@ defmodule Letflow.Routers.EntitiesDecimalStrictTest do
 
   defp body_of(conn), do: Jason.decode!(conn.resp_body)
 
+  defp strict_field,
+    do: %{
+      name: "qty",
+      type: :decimal,
+      decimal_precision: 10,
+      decimal_scale: 2,
+      decimal_strict: true
+    }
+
   defp strict_body(name, overrides \\ %{}) do
     %{
       "name" => name,
@@ -219,7 +228,7 @@ defmodule Letflow.Routers.EntitiesDecimalStrictTest do
         }
       ])
 
-      assert post_record(ctx, "widget", %{"qty" => 1.5}).status == 201
+      assert post_record(ctx, "widget", %{"qty" => 123.45}).status == 201
 
       flipped = request(:post, "/api/v1/entities/definitions", ctx, strict_body("widget"))
       assert flipped.status == 201
@@ -232,7 +241,7 @@ defmodule Letflow.Routers.EntitiesDecimalStrictTest do
       assert conn.status == 409
       body = body_of(conn)
       assert body["detail"] == "decimal_strict cannot change while records exist: qty"
-      refute conn.resp_body =~ "1.5"
+      refute conn.resp_body =~ "123.45"
 
       # still the old definition
       active = request(:get, "/api/v1/entities/definitions/active/widget", ctx)
@@ -256,6 +265,124 @@ defmodule Letflow.Routers.EntitiesDecimalStrictTest do
                "rationale" => "flip"
              }).status ==
                200
+    end
+  end
+
+  describe "strict integer over HTTP (T10)" do
+    test "a JSON integer is stored and returned as the padded string; a negative one keeps its sign" do
+      ctx = tenant_ctx("gh2654-int")
+      seed_active!(ctx, "gadget", [strict_field()])
+
+      assert body_of(post_record(ctx, "gadget", %{"qty" => 3}))["field_values"] == %{
+               "qty" => "3.00"
+             }
+
+      assert body_of(post_record(ctx, "gadget", %{"qty" => -3}))["field_values"] == %{
+               "qty" => "-3.00"
+             }
+    end
+  end
+
+  describe "{:definition_changed, _} over HTTP (T2)" do
+    @handler "gh2654-http-recheck"
+
+    # After the writer's type-sequence-lock statement, activate a NEW version inside the
+    # writer's own transaction (the Plug call runs in the test process), so the recheck
+    # must refuse and the activation rolls back with the writer's transaction.
+    defp activate_after_sequence_lock!(ctx, name) do
+      parent = self()
+      once = :atomics.new(1, [])
+
+      :telemetry.attach(
+        @handler,
+        [:letflow, :repo, :query],
+        fn _event, _measurements, %{query: query}, _config ->
+          if self() == parent and String.contains?(query, "\"instance_sequence\" AS") and
+               String.contains?(query, "FOR UPDATE") and :atomics.add_get(once, 1, 1) == 1 do
+            {:ok, _} =
+              Definitions.activate_definition(name, ctx.user_id, "concurrent", ctx.schema_name)
+          end
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(@handler) end)
+    end
+
+    defp new_version!(ctx, name, extra_field_name) do
+      {:ok, _} =
+        Definitions.create_definition(
+          %{
+            definition: %{
+              name: name,
+              display_name: name,
+              fields: [%{name: "title", type: :string}, %{name: extra_field_name, type: :string}]
+            },
+            created_by: ctx.user_id
+          },
+          ctx.schema_name
+        )
+    end
+
+    defp seed_title!(ctx),
+      do: seed_active!(ctx, "widget", [%{name: "title", type: :string}])
+
+    @body "entity definition changed during the write; retry"
+
+    test "create, update and delete answer the constant 409 and append nothing" do
+      ctx = tenant_ctx("gh2654-409w")
+      seed_title!(ctx)
+      created = body_of(post_record(ctx, "widget", %{"title" => "x"}))
+      id = created["record_id"]
+
+      new_version!(ctx, "widget", "extra1")
+      activate_after_sequence_lock!(ctx, "widget")
+      conn = post_record(ctx, "widget", %{"title" => "y"})
+      assert conn.status == 409
+      assert body_of(conn)["detail"] == @body
+      :telemetry.detach(@handler)
+
+      new_version!(ctx, "widget", "extra2")
+      activate_after_sequence_lock!(ctx, "widget")
+
+      conn =
+        request(:put, "/api/v1/entities/records/widget/#{id}", ctx, %{
+          "field_values" => %{"title" => "z"}
+        })
+
+      assert conn.status == 409
+      assert body_of(conn)["detail"] == @body
+      :telemetry.detach(@handler)
+
+      new_version!(ctx, "widget", "extra3")
+      activate_after_sequence_lock!(ctx, "widget")
+      conn = request(:delete, "/api/v1/entities/records/widget/#{id}", ctx)
+      assert conn.status == 409
+      assert body_of(conn)["detail"] == @body
+      :telemetry.detach(@handler)
+
+      # nothing was appended by the three refused writes
+      assert {:ok, %{field_values: %{"title" => "x"}, deleted: false}} =
+               Letflow.Entities.Record.Latest.get(id, "widget", ctx.schema_name)
+    end
+
+    test "a bulk-import entry that overlaps an activation reports the constant reason" do
+      ctx = tenant_ctx("gh2654-409i")
+      seed_title!(ctx)
+      new_version!(ctx, "widget", "extra1")
+      activate_after_sequence_lock!(ctx, "widget")
+
+      conn =
+        request(:post, "/api/v1/entities/records/widget/import", ctx, %{
+          "record_export_schema_version" => "entities/record-export/v1",
+          "entity_type" => "widget",
+          "records" => [%{"record_id" => "src-1", "field_values" => %{"title" => "a"}}]
+        })
+
+      assert conn.status == 200
+
+      assert [%{"status" => "error", "reason" => %{"type" => "definition_changed"}}] =
+               body_of(conn)["results"]
     end
   end
 end

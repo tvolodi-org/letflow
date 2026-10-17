@@ -272,6 +272,11 @@ defmodule Letflow.Entities.DecimalStrictTest do
   end
 
   describe "activation gate (F1, A1, A1b)" do
+    defp activation_rows(schema) do
+      {Repo.aggregate(Letflow.Repository.ActivationGroup, :count, prefix: schema),
+       Repo.aggregate(Letflow.Repository.ActivationHistory, :count, prefix: schema)}
+    end
+
     defp flip_fields(strict?), do: [qty_field(%{decimal_strict: strict?}), title_field()]
 
     test "false -> true with a record is refused with the field names; the old version stays active (A1, A1b)",
@@ -279,9 +284,13 @@ defmodule Letflow.Entities.DecimalStrictTest do
       old = seed_type!(schema, "widget", flip_fields(false))
       {:ok, _} = Records.create_record(attrs("widget", %{"qty" => 1.5}), schema)
       new = create_def!(schema, "widget", flip_fields(true))
+      groups_before = activation_rows(schema)
 
       assert {:error, {:decimal_strict_change, ["qty"]}} =
                Definitions.activate_definition("widget", @actor, "flip", schema)
+
+      # T7: no activation group / history row was written by the refused attempt
+      assert activation_rows(schema) == groups_before
 
       # A1b: nothing committed
       assert {:ok, %EntityDefinition{id: old_id}} =
@@ -376,14 +385,11 @@ defmodule Letflow.Entities.DecimalStrictTest do
                Definitions.activate_definition("widget", @actor, "ok", schema)
     end
 
-    test "a type with no decimal_strict key anywhere takes the old path: no instance row is inserted (A1c)",
-         %{
-           schema: schema
-         } do
+    test "a type with no decimal_strict key on either side takes no sequence lock: no instance row; a strict key does (A1c)",
+         %{schema: schema} do
       seed_type!(schema, "plain", [title_field()])
       assert {:error, :not_found} = EntityTypeInstance.fetch_instance_id("plain", schema)
 
-      # ... while a strict key in play takes the type's lock, which needs the instance row
       seed_type!(schema, "gated", [qty_field()])
       assert {:ok, _instance_id} = EntityTypeInstance.fetch_instance_id("gated", schema)
     end
@@ -473,6 +479,205 @@ defmodule Letflow.Entities.DecimalStrictTest do
                  },
                  schema
                )
+    end
+  end
+
+  describe "more interleavings (S1, T6)" do
+    # Runs `fun` once, in the calling process, right after the first advisory-lock
+    # statement of the running transaction (an activation's first step) (deterministic: no second connection).
+    defp after_first_sequence_lock!(id, fun) do
+      parent = self()
+      once = :atomics.new(1, [])
+
+      :telemetry.attach(
+        id,
+        [:letflow, :repo, :query],
+        fn _event, _measurements, %{query: query}, _config ->
+          if self() == parent and String.contains?(query, "pg_advisory_xact_lock") and
+               :atomics.add_get(once, 1, 1) == 1 do
+            fun.()
+          end
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(id) end)
+    end
+
+    test "S1: an activation that raced a concurrent strict activation + write is judged under the lock, not on its pre-read",
+         %{schema: schema} do
+      lax_qty = qty_field(%{decimal_strict: nil})
+      v1 = seed_type!(schema, "widget", [lax_qty, title_field()])
+      v2 = create_def!(schema, "widget", [qty_field(), title_field()])
+
+      _v3 =
+        create_def!(schema, "widget", [lax_qty, title_field(), %{name: "note", type: :string}])
+
+      # B = the activation of V3 (non-strict), which read V1 (no strict key) before A ran.
+      # "A" lands after B holds the activation lock: it moves the pointer to the strict V2 and writes a
+      # record under it. B's decision is made after, from the re-read under the lock.
+      after_first_sequence_lock!("gh2654-s1", fn ->
+        {:ok, _} =
+          Letflow.Repository.Activation.activate_group(
+            [
+              %{
+                artifact_kind: :entity,
+                artifact_name: "widget",
+                version_id: v2.artifact_version_id
+              }
+            ],
+            @actor,
+            "A",
+            schema
+          )
+
+        {:ok, _} = Records.create_record(attrs("widget", %{"qty" => "1.5"}), schema)
+      end)
+
+      assert {:error, {:decimal_strict_change, ["qty"]}} =
+               Definitions.activate_definition("widget", @actor, "B", schema)
+
+      :telemetry.detach("gh2654-s1")
+      # B's refusal rolled A's simulated work back too: V1 is still the active version
+      assert {:ok, %EntityDefinition{id: id}} =
+               Definitions.get_active_definition_by_name("widget", schema)
+
+      assert id == v1.id
+      assert Repo.aggregate(Latest, :count, prefix: schema) == 0
+    end
+
+    test "T6: a write validated under a non-strict version and committing after a strict-flip activation is refused",
+         %{schema: schema} do
+      old = seed_type!(schema, "widget", [qty_field(%{decimal_strict: nil}), title_field()])
+      create_def!(schema, "widget", [qty_field(), title_field()])
+      activate_after_sequence_lock!(schema, "widget")
+
+      assert {:error, {:definition_changed, "widget"}} =
+               Records.create_record(attrs("widget", %{"qty" => 1.5}), schema)
+
+      :telemetry.detach(@handler)
+      # the activation rolled back with the writer's transaction; nothing was committed
+      assert {:ok, %EntityDefinition{id: id}} =
+               Definitions.get_active_definition_by_name("widget", schema)
+
+      assert id == old.id
+      assert Repo.aggregate(Latest, :count, prefix: schema) == 0
+      assert events(schema) == []
+    end
+
+    test "T6: command_multi's own recheck refuses the same overlap", %{schema: schema} do
+      seed_type!(schema, "widget", [title_field()])
+      {:ok, _} = EntityTypeInstance.get_or_create("widget", schema)
+
+      source =
+        struct!(StepSource, %{
+          kind: "process_step",
+          instance_id: Ecto.UUID.generate(),
+          task_id: Ecto.UUID.generate(),
+          node_id: "n1",
+          definition_id: Ecto.UUID.generate(),
+          definition_version: "1",
+          line_index: 0,
+          activator_id: Ecto.UUID.generate()
+        })
+
+      command = %{
+        kind: :create,
+        entity_type: "widget",
+        field_values: %{"title" => "t"},
+        actor_id: @actor,
+        source: source
+      }
+
+      assert {:ok, multi} = Records.command_multi(command, schema, :tenant)
+      create_def!(schema, "widget", [title_field(), %{name: "extra", type: :string}])
+      activate!(schema, "widget")
+
+      result = Repo.transaction(multi)
+
+      assert {:error, {:line, 0, :recheck_definition}, {:definition_changed, "widget"}, _} =
+               result
+
+      assert {:entity_write_refused, 0, :entity_type_inactive} =
+               Records.interpret_in_multi(result)
+
+      assert Repo.aggregate(Latest, :count, prefix: schema) == 0
+    end
+  end
+
+  describe "U1 -- the deadline sweep re-enters the strict path unchanged" do
+    test "a sweep transition keeps every strict value byte-identical", %{schema: schema} do
+      seed_type!(schema, "widget", [
+        qty_field(),
+        %{name: "due_at", type: :datetime},
+        %{name: "state", type: :string}
+      ])
+
+      due =
+        DateTime.utc_now()
+        |> DateTime.add(-60)
+        |> DateTime.truncate(:microsecond)
+        |> DateTime.to_iso8601()
+
+      {:ok, %{record: record}} =
+        Records.create_record(
+          attrs("widget", %{"qty" => "2.5", "due_at" => due, "state" => "open"}),
+          schema
+        )
+
+      assert record.field_values["qty"] == "2.50"
+
+      rule = %{
+        entity_type: "widget",
+        datetime_field: "due_at",
+        status_field: "state",
+        due_status_value: "open",
+        new_status_value: "closed",
+        completion_field: nil,
+        callback_mfa: nil
+      }
+
+      assert :ok = Letflow.Scheduler.RecordDeadlineSweep.run(schema, rule)
+
+      assert {:ok, %Latest{field_values: values}} = Latest.get(record.record_id, "widget", schema)
+      assert values == %{"qty" => "2.50", "due_at" => due, "state" => "closed"}
+
+      updated = Enum.find(events(schema), &(&1.event_type == "ENTITY_RECORD_UPDATED"))
+      assert updated.payload["field_values"]["qty"] == "2.50"
+    end
+  end
+
+  describe "field_from_persisted carrier (T4)" do
+    defp persisted(fields) do
+      %EntityDefinition{definition_json: %{"name" => "t", "fields" => fields}}
+    end
+
+    test "decimal_strict is kept as written; a key-less field rebuilds without the key" do
+      doc =
+        Letflow.TenantProvisioning.document_from_persisted(
+          persisted([
+            %{
+              "name" => "a",
+              "type" => "decimal",
+              "decimal_precision" => 5,
+              "decimal_scale" => 2,
+              "decimal_strict" => true
+            },
+            %{
+              "name" => "b",
+              "type" => "decimal",
+              "decimal_precision" => 5,
+              "decimal_scale" => 2,
+              "decimal_strict" => false
+            },
+            %{"name" => "c", "type" => "decimal", "decimal_precision" => 5, "decimal_scale" => 2}
+          ])
+        )
+
+      [a, b, c] = doc.fields
+      assert a.decimal_strict == true
+      assert b.decimal_strict == false
+      refute Map.has_key?(c, :decimal_strict)
     end
   end
 end

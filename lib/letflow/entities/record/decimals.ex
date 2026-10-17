@@ -80,7 +80,8 @@ defmodule Letflow.Entities.Record.Decimals do
          } =
            field
        )
-       when is_integer(precision) and is_integer(scale) and precision >= 1 and scale >= 0 do
+       when is_integer(precision) and is_integer(scale) and precision >= 1 and precision <= 1000 and
+              scale >= 0 and scale <= precision do
     min = field |> Map.get(:min) |> bound_or_nil()
     max = field |> Map.get(:max) |> bound_or_nil()
 
@@ -185,8 +186,10 @@ defmodule Letflow.Entities.Record.Decimals do
     %Decimal{sign: sign, coef: coef, exp: exp} = reduce(decimal)
     shift = exp + scale
 
-    scaled =
-      if shift >= 0, do: coef * Integer.pow(10, shift), else: div(coef, Integer.pow(10, -shift))
+    # Precondition (see @doc): never drop a non-zero digit silently.
+    if shift < 0, do: raise(ArgumentError, "value has more fractional digits than the scale")
+
+    scaled = coef * Integer.pow(10, shift)
 
     digits = Integer.to_string(scaled)
     sign_prefix = if sign == -1 and scaled != 0, do: "-", else: ""

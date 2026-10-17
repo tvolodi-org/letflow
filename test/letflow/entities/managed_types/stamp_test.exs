@@ -821,4 +821,45 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
       end
     end
   end
+
+  # GH #2654 (R1/T5): both directions of the strictness comparison, on synthetic
+  # definitions (the exam pack declares no strict field, so the pack-strict direction
+  # cannot be reached through Stamp.run/1), with and without records on the row side.
+  describe "decimal_strict comparison (A2, both directions)" do
+    defp def_with(strict) do
+      field =
+        %{"name" => "qty", "type" => "decimal", "decimal_precision" => 10, "decimal_scale" => 2}
+
+      field = if strict == :absent, do: field, else: Map.put(field, "decimal_strict", strict)
+      %{"name" => "t", "fields" => [%{"name" => "title", "type" => "string"}, field]}
+    end
+
+    test "compatible?/2 requires pack and row to agree; absent equals false" do
+      assert Stamp.compatible?(def_with(true), def_with(true))
+      assert Stamp.compatible?(def_with(:absent), def_with(false))
+      assert Stamp.compatible?(def_with(false), def_with(:absent))
+      refute Stamp.compatible?(def_with(false), def_with(true)), "pack strict, row not"
+      refute Stamp.compatible?(def_with(:absent), def_with(true)), "pack strict, row absent"
+      refute Stamp.compatible?(def_with(true), def_with(false)), "row strict, pack not"
+    end
+
+    test "add_difference/4 names :decimal_strict when a row differs from the pack" do
+      rows = [%{definition_json: def_with(false)}]
+
+      assert [%{type: "t", extra_fields: [], differing: differing}] =
+               Stamp.add_difference([], "t", rows, def_with(true))
+
+      assert :decimal_strict in differing
+
+      assert Stamp.add_difference([], "t", [%{definition_json: def_with(true)}], def_with(true)) ==
+               []
+
+      assert Stamp.add_difference(
+               [],
+               "t",
+               [%{definition_json: def_with(:absent)}],
+               def_with(false)
+             ) == []
+    end
+  end
 end

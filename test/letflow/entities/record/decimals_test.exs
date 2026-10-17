@@ -346,4 +346,63 @@ defmodule Letflow.Entities.Record.DecimalsTest do
                :ok
     end
   end
+
+  describe "bounds discriminate Decimal from float (T3)" do
+    test "a (30,20) field with min \"0.30000000000000004\": the neighbouring digit is refused, the bound accepted" do
+      overrides = %{decimal_precision: 30, decimal_scale: 20, min: "0.30000000000000004"}
+
+      assert {:ok, %{"qty" => "0.30000000000000004000"}} =
+               normalize(overrides, "0.30000000000000004")
+
+      assert [{"/qty", "minimum"}] = constraints(normalize(overrides, "0.30000000000000003"))
+
+      # as a float the two spellings are the same number; they must not be here
+      assert 0.30000000000000003 == 0.30000000000000004
+    end
+
+    test "max compares exactly at 20 fractional digits too" do
+      overrides = %{decimal_precision: 30, decimal_scale: 20, max: "0.30000000000000004"}
+      assert {:ok, _} = normalize(overrides, "0.30000000000000004")
+      assert [{"/qty", "maximum"}] = constraints(normalize(overrides, "0.30000000000000005"))
+    end
+  end
+
+  describe "integer edge cases (T9)" do
+    test "negative integers keep their sign" do
+      assert {:ok, %{"qty" => "-3.00"}} = normalize(%{}, -3)
+    end
+
+    test "the bit-size pre-check refuses a bignum that the magnitude check alone would admit" do
+      huge = Integer.pow(2, 3401)
+      assert huge < Integer.pow(10, 2000)
+      assert Decimals.parse(huge, 2000, 0) == {:error, :precision}
+      assert {:ok, _} = Decimals.parse(Integer.pow(2, 3399), 2000, 0)
+    end
+  end
+
+  describe "a corrupt stored definition never crashes (S3)" do
+    test "scale above precision, precision above 1000 or below 1 fall back to non-strict" do
+      for overrides <- [
+            %{decimal_precision: 2, decimal_scale: 5},
+            %{decimal_precision: 1001, decimal_scale: 2},
+            %{decimal_precision: 0, decimal_scale: 0},
+            %{decimal_precision: 10, decimal_scale: -1}
+          ] do
+        assert Decimals.strict_specs(definition(overrides)) == %{}
+      end
+
+      assert %{"qty" => _} = Decimals.strict_specs(definition(%{decimal_precision: 1000}))
+    end
+
+    test "to_canonical/2 refuses to drop a digit" do
+      assert_raise ArgumentError, fn -> Decimals.to_canonical(Decimal.new("2.505"), 2) end
+    end
+  end
+
+  describe "carriers (T10)" do
+    test "the exam pack generator's field key map carries decimal_strict" do
+      source = File.read!("priv/modules/exam/generate_pack.exs")
+      assert source =~ ~s("decimal_strict" => :decimal_strict)
+    end
+  end
 end

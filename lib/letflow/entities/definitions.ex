@@ -473,20 +473,23 @@ defmodule Letflow.Entities.Definitions do
 
   The `decimal_strict` flag of a `:decimal` field cannot change while its entity
   type has any record (any row of `entity_record_latest`, soft-deleted included):
-  a legacy number could otherwise sit under a strict flag. When the target or the
-  currently active definition carries a `decimal_strict` key on any field, the
-  whole activation runs in ONE outer transaction that takes the type's
-  `instance_sequences` row lock first (the lock every record writer takes), then
-  re-reads the active definition under it, compares the SET of strict decimal
-  field names (a strict field removed or retyped is a difference; a non-strict
-  decimal added, removed or retyped is not), refuses with
-  `{:error, {:decimal_strict_change, field_names}}` (rolling everything back,
-  no activation pointer written) when they differ and the type has a record,
-  and otherwise runs `activate_group/5` and `promote_and_demote_siblings/2` in
-  that same transaction. A first activation and an empty type are never
-  refused. `ensure_column_promotions/2` stays AFTER the transaction commits
-  (ISS-0648). With no `decimal_strict` key on either definition the path is
-  exactly the pre-#2654 one (no lock, no instance row).
+  a legacy number could otherwise sit under a strict flag. EVERY activation runs in
+  ONE outer transaction that first takes a per-(tenant, type) advisory lock (so
+  activations of one type serialize and the next decision is made from a read under
+  it, not from a stale pre-read). When a `decimal_strict` key is on the target or the
+  currently active definition, it then takes the type's `instance_sequences` row lock
+  (the lock every record writer takes; the type's instance row is created if absent,
+  as the first write would), re-reads the active definition under it, compares the
+  SET of strict decimal field names (a strict field removed or retyped is a
+  difference; a non-strict decimal added, removed or retyped is not) and refuses with
+  `{:error, {:decimal_strict_change, field_names}}` (rolling everything back, no
+  activation pointer written) when they differ and the type has a record. It then
+  runs `activate_group/5` and `promote_and_demote_siblings/2` in that same
+  transaction. A first activation and an empty type are never refused.
+  `ensure_column_promotions/2` stays AFTER the transaction commits (ISS-0648). With
+  no `decimal_strict` key on either side there is no sequence lock and no instance
+  row. Neither lock has a `lock_timeout`: an activation waits behind a long handler
+  transaction on the same type, like any writer.
   """
   @spec activate_definition(
           name :: String.t(),
@@ -508,24 +511,9 @@ defmodule Letflow.Entities.Definitions do
       when is_binary(name) and is_binary(prefix) do
     with {:ok, entity_definition} <- get_definition_by_name(name, prefix),
          {:ok, promoted} <-
-           activate_and_promote_row(entity_definition, activator_user_id, rationale, prefix) do
+           gated_activation(entity_definition, activator_user_id, rationale, prefix) do
       ensure_column_promotions(promoted, prefix)
       {:ok, promoted}
-    end
-  end
-
-  # GH #2654 section 5 step 1: the gate runs BEFORE the point of no return, and only
-  # when a decimal_strict key is in play on either side.
-  defp activate_and_promote_row(
-         %EntityDefinition{} = entity_definition,
-         user_id,
-         rationale,
-         prefix
-       ) do
-    if decimal_strict_in_play?(entity_definition, prefix) do
-      gated_activation(entity_definition, user_id, rationale, prefix)
-    else
-      activate_row(entity_definition, user_id, rationale, prefix)
     end
   end
 
@@ -547,9 +535,24 @@ defmodule Letflow.Entities.Definitions do
     end
   end
 
-  # One transaction: lock first, re-read under the lock, compare, then activate and
-  # promote. Every error branch is Repo.rollback/1 with no further query in between
-  # (a failed inner Multi marks this transaction rollback-only).
+  # GH #2654 section 5. ONE outer transaction for every entity-definition activation:
+  #
+  #   1. a per-(tenant, type) advisory lock (S1): activations of one type serialize, so the
+  #      "is a decimal_strict key in play" decision below is made from a read taken UNDER
+  #      it, never from a pre-read outside any lock (a concurrent strict activation could
+  #      otherwise commit between the read and the flip);
+  #   2. only when a decimal_strict key is on the target or the CURRENT active definition:
+  #      the type's instance row (created if absent, as the first write would) and its
+  #      sequence-row lock, the lock every record writer takes -- then the strictness
+  #      comparison and the records check. With no key on either side there is nothing to
+  #      protect: no sequence lock, no instance row (the process-write prepare contract
+  #      "an unprepared type has no instance row" is untouched);
+  #   3. activate_group + promote_and_demote_siblings in the same transaction.
+  #
+  # Every error branch is Repo.rollback/1 with no further query in between (a failed inner
+  # Multi marks this transaction rollback-only). Neither lock has a lock_timeout (S4): an
+  # activation waits behind a long handler transaction on the same type, as every writer
+  # does. ensure_column_promotions/2 stays after the commit (ISS-0648).
   defp gated_activation(
          %EntityDefinition{name: name} = entity_definition,
          user_id,
@@ -557,9 +560,10 @@ defmodule Letflow.Entities.Definitions do
          prefix
        ) do
     Repo.transaction(fn ->
-      with {:ok, instance_id} <- EntityTypeInstance.get_or_create(name, prefix),
-           {:ok, :locked} <- EventStore.lock_instance_sequence(Repo, instance_id, prefix),
-           :ok <- ensure_strictness_unchanged(entity_definition, prefix),
+      with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
+           :ok <- lock_activation(tenant_id, name),
+           {:ok, in_play?} <- decimal_strict_in_play?(entity_definition, prefix),
+           :ok <- lock_and_check_strictness(in_play?, entity_definition, prefix),
            {:ok, promoted} <- activate_row(entity_definition, user_id, rationale, prefix) do
         promoted
       else
@@ -568,18 +572,44 @@ defmodule Letflow.Entities.Definitions do
     end)
   end
 
+  # Transaction-scoped; own namespace (ManagedTypes' create lock is 496_001). The key text
+  # is a bound parameter (INV-7).
+  @activation_lock_namespace 265_401
+
+  defp lock_activation(tenant_id, name) do
+    Repo.query!(
+      "SELECT pg_advisory_xact_lock($1::int, hashtext($2))",
+      [@activation_lock_namespace, "#{tenant_id}:#{name}"]
+    )
+
+    :ok
+  end
+
   defp decimal_strict_in_play?(%EntityDefinition{name: name} = target, prefix) do
-    has_strict_key?(target) or
+    if has_strict_key?(target) do
+      {:ok, true}
+    else
       case get_active_definition_by_name(name, prefix) do
-        {:ok, %EntityDefinition{} = current} -> has_strict_key?(current)
-        {:error, _not_found_or_invalid_schema} -> false
+        {:ok, %EntityDefinition{} = current} -> {:ok, has_strict_key?(current)}
+        {:error, :not_found} -> {:ok, false}
+        {:error, :invalid_schema_name} = error -> error
       end
+    end
   end
 
   defp has_strict_key?(%EntityDefinition{definition_json: json}) do
     json
     |> Map.get("fields", [])
     |> Enum.any?(&(is_map(&1) and Map.has_key?(&1, "decimal_strict")))
+  end
+
+  defp lock_and_check_strictness(false, _entity_definition, _prefix), do: :ok
+
+  defp lock_and_check_strictness(true, %EntityDefinition{name: name} = entity_definition, prefix) do
+    with {:ok, instance_id} <- EntityTypeInstance.get_or_create(name, prefix),
+         {:ok, :locked} <- EventStore.lock_instance_sequence(Repo, instance_id, prefix) do
+      ensure_strictness_unchanged(entity_definition, prefix)
+    end
   end
 
   # Under the type's sequence lock: the CURRENT active version is re-read here (the

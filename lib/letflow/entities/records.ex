@@ -811,6 +811,12 @@ defmodule Letflow.Entities.Records do
       {:ok, multi} ->
         multi
         |> maybe_check_record_version(ctx)
+        # GH #2654: under the type's sequence lock (taken by the append steps above).
+        # On a race the step's raw `{:error, reason}` (`{:definition_changed, type}`, or the
+        # defensive `{:definition_not_found, type}` / `:entity_type_managed` /
+        # `:invalid_schema_name` the recheck can also return) reaches the caller through
+        # interpret_result/3's generic clause; the router maps each of them (409 / 404 / 403 /
+        # 500 for the unreachable schema error), anything else to the logged 500 catch-all.
         |> Multi.run(:recheck_definition, fn _repo, _changes ->
           recheck_definition(ctx.definition, ctx.entity_type, prefix, ctx.authority)
         end)

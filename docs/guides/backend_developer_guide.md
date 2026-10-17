@@ -286,7 +286,9 @@ pack that changes the flag in a shipped definition must bump its manifest `:vers
 (`ManifestHash` does not hash definition content); stamp adoption of a tenant row requires
 the pack and the row to agree on `decimal_strict` for every decimal field.
 
-**One behaviour change for tenants that do not use the flag:** a record create, update or
+**Activations serialize per entity type.** Every entity-definition activation (strict or not) takes a per-(tenant, type) advisory lock first, so the decision whether a `decimal_strict` key is in play is made under it. Only when a key is on the target or the active definition does it also take the type's sequence lock (the lock record writers take; the type's instance row is created if absent). Neither lock has a `lock_timeout`. Module install activates its types in pack order (parents before children, needed by promotion DDL) inside one transaction, so those locks are held until the install commits; a deadlock with a handler transaction is possible in theory and surfaces as a retry-safe 500 on the install.
+
+**A second behaviour change for tenants that do not use the flag:** a record create, update or
 delete that overlaps ANY activation of its type now returns `409` ("entity definition
 changed during the write; retry") instead of committing under the old definition (the write
 re-checks the active definition under the type's sequence lock, as `command_multi` always

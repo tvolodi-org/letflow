@@ -587,7 +587,8 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
   # mismatch (also for a zero-record type: conservative, adoption is of the row's
   # definition).
   @spec compatible?(row_definition :: term(), pack_definition :: map()) :: boolean()
-  defp compatible?(row_definition, pack_definition) do
+  @doc false
+  def compatible?(row_definition, pack_definition) do
     row_fields = fields_of(row_definition)
 
     Enum.all?(fields_of(pack_definition), fn %{"name" => name, "type" => type} = pack_field ->
@@ -609,7 +610,9 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
   defp fields_of(_other), do: []
 
   # Names only, never values: which fields the tenant added and which compared attributes differ.
-  defp add_difference(differences, name, rows, pack_def) do
+  @doc false
+  @spec add_difference([map()], String.t(), [map()], map()) :: [map()]
+  def add_difference(differences, name, rows, pack_def) do
     pack_fields = fields_of(pack_def)
     pack_names = MapSet.new(pack_fields, & &1["name"])
 
