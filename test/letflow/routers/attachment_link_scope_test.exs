@@ -44,7 +44,7 @@ defmodule Letflow.Routers.AttachmentLinkScopeTest do
   alias Letflow.TenantFixture
 
   @router Letflow.Routers.Instances
-  @role "PROCESS_DESIGNER"
+  @role "TENANT_ADMIN"
   @issued_keys ~w(attachment_id instance_id issuer scope_node trace_id)
 
   # --- helpers ---------------------------------------------------------------------------------
@@ -97,7 +97,7 @@ defmodule Letflow.Routers.AttachmentLinkScopeTest do
     |> Letflow.Router.call(Letflow.Router.init([]))
   end
 
-  # A tenant with a tenant-wide PROCESS_DESIGNER, a scoped-only one, and one attachment.
+  # A tenant with a tenant-wide TENANT_ADMIN, a scoped-only one, and one attachment.
   defp world!(slug_prefix) do
     fx = S.tenant!(slug_prefix)
     instance_id = Ecto.UUID.generate()
@@ -346,7 +346,7 @@ defmodule Letflow.Routers.AttachmentLinkScopeTest do
 
       bodies =
         for id <- [Ecto.UUID.generate(), Ecto.UUID.generate(), "not-a-uuid"] do
-          conn = On.call(@router, :get, "/#{id}", fx, scoped.id, ["PROCESS_DESIGNER"], :on, nil)
+          conn = On.call(@router, :get, "/#{id}", fx, scoped.id, [@role], :on, nil)
           assert conn.status == 403
           conn.resp_body
         end

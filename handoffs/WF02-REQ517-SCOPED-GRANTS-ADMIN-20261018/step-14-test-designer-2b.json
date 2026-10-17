@@ -160,6 +160,13 @@
     "artifacts_out": [
       "test/specs/REQ-517-2b.md"
     ],
-    "implementation_written": false
+    "implementation_written": false,
+    "ci_round_1_fixes": [
+      "shadow_evidence_test T-H1/T-H2 counts_between and T-H10 explicit days: fixed calendar dates (2026-03-0x, 2026-01-0x) are older than the 90-day retention, so the prune that runs right after the flush deleted them. Days are now relative to today and inside the window (test defect).",
+      "shadow_evidence_test T-H5: Ecto debug QUERY lines in the same capture name the schema; already narrowed to the scope_shadow lines in HEAD (test defect, was fixed before this round).",
+      "attachment_link_scope_test (10 failures): every one is the tenant-wide link ISSUE answering 404 (the other failures are consequences: nil token). Same code path passes in req386 with TENANT_ADMIN; the new tests used PROCESS_DESIGNER and the failing request's only query is the instance_projections exists check. Role switched to TENANT_ADMIN (the scoped-only holder and the tenant-wide holder both hold it). NOT PROVEN: the logs do not show why a designer gets 404; if the role switch does not fix it, the cause is elsewhere and must be read from a local run.",
+      "off_shadow_byte_identity_test T-G1: R09 (link-content with a malformed token, derived as the 410 problem) differed from the derivation already under OFF, where 2b changes no response, so the fixture was wrong, not the implementation. R09 removed (11 requests); 410 stays covered by req386 and the T-K4 tests. Failure message now prints observed and expected. R01..R08 matched under off.",
+      "Line endings: python text-mode edits had written CRLF on Windows; all touched files re-run through the formatter script (LF)."
+    ]
   }
 }

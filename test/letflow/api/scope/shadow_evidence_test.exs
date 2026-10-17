@@ -246,21 +246,26 @@ defmodule Letflow.Api.Scope.ShadowEvidenceTest do
 
       assert totals(fx) == Map.new(@metrics, &{&1, 0})
 
-      record_n(prefix, :requests, 2, ~D[2026-03-01])
-      record_n(prefix, :requests, 3, ~D[2026-03-02])
-      record_n(prefix, :requests, 5, ~D[2026-03-03])
-      record_n(prefix, :out_of_scope, 1, ~D[2026-03-02])
+      # days relative to today and inside the retention window, so the prune keeps them
+      d1 = Date.add(Date.utc_today(), -6)
+      d2 = Date.add(d1, 1)
+      d3 = Date.add(d1, 2)
+
+      record_n(prefix, :requests, 2, d1)
+      record_n(prefix, :requests, 3, d2)
+      record_n(prefix, :requests, 5, d3)
+      record_n(prefix, :out_of_scope, 1, d2)
       assert :ok = ShadowEvidence.flush()
 
-      assert ShadowEvidence.counts_between(prefix, ~D[2026-03-02], ~D[2026-03-02]).requests == 3
-      assert ShadowEvidence.counts_between(prefix, ~D[2026-03-01], ~D[2026-03-02]).requests == 5
-      assert ShadowEvidence.counts_between(prefix, ~D[2026-03-02], ~D[2026-03-03]).requests == 8
-      assert ShadowEvidence.counts_between(prefix, ~D[2026-03-04], ~D[2026-03-09]).requests == 0
-      # from > to is an empty window, not an error
-      assert ShadowEvidence.counts_between(prefix, ~D[2026-03-03], ~D[2026-03-01]).requests == 0
+      requests = fn from, to -> ShadowEvidence.counts_between(prefix, from, to).requests end
 
-      assert ShadowEvidence.counts_between(prefix, ~D[2026-03-01], ~D[2026-03-03]).out_of_scope ==
-               1
+      assert requests.(d2, d2) == 3
+      assert requests.(d1, d2) == 5
+      assert requests.(d2, d3) == 8
+      assert requests.(Date.add(d3, 1), Date.add(d3, 5)) == 0
+      # from > to is an empty window, not an error
+      assert requests.(d3, d1) == 0
+      assert ShadowEvidence.counts_between(prefix, d1, d3).out_of_scope == 1
 
       for bad <- ["public", "tenants", "", "tenant_x", "tenant_#{String.duplicate("A", 32)}"] do
         assert_raise ArgumentError, fn ->
@@ -316,13 +321,16 @@ defmodule Letflow.Api.Scope.ShadowEvidenceTest do
       fx = tenant!("r517-h10")
       prefix = fx.schema_name
 
-      record_n(prefix, :requests, 2, ~D[2026-01-05])
-      record_n(prefix, :requests, 3, ~D[2026-01-06])
+      # inside the retention window (the prune after the flush deletes older rows)
+      day_one = Date.add(Date.utc_today(), -3)
+      day_two = Date.add(day_one, 1)
+      record_n(prefix, :requests, 2, day_one)
+      record_n(prefix, :requests, 3, day_two)
       assert :ok = ShadowEvidence.flush()
 
       assert persisted(fx) == %{
-               {~D[2026-01-05], "requests"} => 2,
-               {~D[2026-01-06], "requests"} => 3
+               {day_one, "requests"} => 2,
+               {day_two, "requests"} => 3
              }
     end
 

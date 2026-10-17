@@ -4,7 +4,7 @@ defmodule Letflow.Routers.OffShadowByteIdentityTest do
   `lib/letflow/design/req517-scoped-grants-admin-plane.md` section 6.2; spec
   `test/specs/REQ-517-2b.md`): `off` and `shadow` HTTP responses (status, headers, body) are
   byte-identical to the behavior of `main` BEFORE 2b. The committed fixture
-  `test/fixtures/route_scope/off_shadow_responses.json` holds twelve requests (a tenant-wide and a
+  `test/fixtures/route_scope/off_shadow_responses.json` holds eleven requests (a tenant-wide and a
   scoped-only administrator, the admin plane, default routes, the `AllowWithRowFilter` task list,
   the attachment-link routes, an unmatched route, a coarse deny) with the status, content type and
   body `main` answered. The fixture's own `_provenance` says how it was derived (read from main's
@@ -39,7 +39,7 @@ defmodule Letflow.Routers.OffShadowByteIdentityTest do
   }
   @would_deny [:letflow, :scope, :shadow, :would_deny]
   # the fixture requests that a scoped-only administrator sees as 403 under `on`
-  @changed_under_on ~w(R02 R04 R08 R09)
+  @changed_under_on ~w(R02 R04 R08)
 
   @doc false
   def handle_event(_event, _measurements, metadata, {pid, ref}) do
@@ -99,12 +99,12 @@ defmodule Letflow.Routers.OffShadowByteIdentityTest do
   end
 
   # ===========================================================================================
-  test "the fixture is well formed: twelve distinct requests, each with a status, content type and body" do
+  test "the fixture is well formed: eleven distinct requests, each with a status, content type and body" do
     doc = fixture()
     requests = doc["requests"]
 
-    assert length(requests) == 12
-    assert requests |> Enum.map(& &1["id"]) |> Enum.uniq() |> length() == 12
+    assert length(requests) == 11
+    assert requests |> Enum.map(& &1["id"]) |> Enum.uniq() |> length() == 11
     assert doc["trace_id"] == S.trace()
     assert is_binary(doc["_provenance"]) and doc["_provenance"] =~ "NOT captured"
 
@@ -120,7 +120,7 @@ defmodule Letflow.Routers.OffShadowByteIdentityTest do
 
     # it covers the shapes the design lists
     statuses = requests |> Enum.map(& &1["response"]["status"]) |> Enum.uniq() |> Enum.sort()
-    assert statuses == [200, 400, 403, 404, 410, 422]
+    assert statuses == [200, 400, 403, 404, 422]
     assert Enum.any?(requests, &(&1["router"] == "Tasks"))
     assert Enum.any?(requests, &(&1["caller"] == "scoped_admin"))
   end
@@ -140,7 +140,9 @@ defmodule Letflow.Routers.OffShadowByteIdentityTest do
     for request <- requests do
       id = request["id"]
 
-      assert observed(off[id]) == expected(request), "#{id} under off differs from the fixture"
+      assert observed(off[id]) == expected(request),
+             "#{id} under off differs from the fixture: " <>
+               inspect({observed(off[id]), expected(request)})
 
       assert observed(shadow[id]) == expected(request),
              "#{id} under shadow differs from the fixture"
