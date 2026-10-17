@@ -118,7 +118,6 @@ defmodule Letflow.Modules.Exam.Session do
 
   import Ecto.Query, only: [from: 2]
 
-  alias Letflow.Entities.Definitions
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Query.Allowlist
   alias Letflow.Entities.Query.Compiler
@@ -336,6 +335,45 @@ defmodule Letflow.Modules.Exam.Session do
   end
 
   # -----------------------------------------------------------------------
+  # get_snapshot_for_user/3 (GH #2682 / REQ-511 PR b)
+  # -----------------------------------------------------------------------
+
+  @doc """
+  The VERIFIED snapshot of the owner's session, for the certificate path (design 6, 17.2). The
+  certificate module calls ONLY this function and never reads the live exam.
+
+  Ownership first (`:session_not_found` / `:not_owner`, rendered as one 404). A present snapshot
+  is returned verified. An absent one on a `submitted` session goes to
+  `Snapshot.ensure_certificate_facts/3` (certificate-only `late_certificate` facts, once, only for a
+  record inserted before the cutover); on any other status it is `{:grading_error,
+  :snapshot_missing}` with no write.
+  """
+  @spec get_snapshot_for_user(
+          session_id :: String.t(),
+          user_id :: String.t(),
+          prefix :: String.t()
+        ) ::
+          {:ok, Snapshot.snapshot()}
+          | {:error, :session_not_found | :not_owner | snapshot_failure()}
+  def get_snapshot_for_user(session_id, user_id, prefix) do
+    with {:ok, session_record} <- fetch_session(session_id, prefix),
+         :ok <- check_owner(session_record, user_id) do
+      case Snapshot.fetch_verified(session_record.field_values) do
+        {:ok, _snapshot} = ok ->
+          ok
+
+        {:error, {:grading_error, :snapshot_missing}} ->
+          if fv(session_record, "status") == "submitted",
+            do: Snapshot.ensure_certificate_facts(session_id, user_id, prefix),
+            else: {:error, {:grading_error, :snapshot_missing}}
+
+        {:error, _reason} = error ->
+          error
+      end
+    end
+  end
+
+  # -----------------------------------------------------------------------
   # get_session_state_for_user/3 (REQ-335)
   # -----------------------------------------------------------------------
 
@@ -415,7 +453,7 @@ defmodule Letflow.Modules.Exam.Session do
   def get_session_state_for_user(session_id, user_id, prefix) do
     with {:ok, session_record} <- fetch_session(session_id, prefix),
          :ok <- check_owner(session_record, user_id),
-         {:ok, type_source} <- state_type_source(session_record),
+         {:ok, type_source} <- state_type_source(session_record, user_id, prefix),
          session = session_view(session_record),
          {:ok, session_questions} <-
            query_all("session_question", [eq("session_id", session_id)], prefix),
@@ -438,14 +476,30 @@ defmodule Letflow.Modules.Exam.Session do
   # failure is a typed grading error. A terminal session can never be scored or autosaved again,
   # so reading it must never fail or write because of the snapshot: it uses the snapshot item when
   # there is one and the live question type as display data otherwise.
-  defp state_type_source(session_record) do
+  #
+  # PR b (design 9.1, 17.1): an `in_progress` session with NO snapshot (started before the
+  # cutover) is a touch - `Snapshot.ensure/3` builds a late one under the row lock, once. A
+  # terminal session is never a touch: no ensure, no write, no error.
+  defp state_type_source(session_record, user_id, prefix) do
     snapshot_result = Snapshot.fetch_structural(session_record.field_values)
 
     case {fv(session_record, "status"), snapshot_result} do
-      {"in_progress", {:ok, snapshot}} -> {:ok, {:strict, snapshot}}
-      {"in_progress", {:error, _reason} = error} -> error
-      {_terminal, {:ok, snapshot}} -> {:ok, {:lenient, snapshot}}
-      {_terminal, {:error, _reason}} -> {:ok, {:lenient, nil}}
+      {"in_progress", {:ok, snapshot}} ->
+        {:ok, {:strict, snapshot}}
+
+      {"in_progress", {:error, {:grading_error, :snapshot_missing}}} ->
+        with {:ok, snapshot} <- Snapshot.ensure(session_record.record_id, user_id, prefix) do
+          {:ok, {:strict, snapshot}}
+        end
+
+      {"in_progress", {:error, _reason} = error} ->
+        error
+
+      {_terminal, {:ok, snapshot}} ->
+        {:ok, {:lenient, snapshot}}
+
+      {_terminal, {:error, _reason}} ->
+        {:ok, {:lenient, nil}}
     end
   end
 
@@ -578,7 +632,7 @@ defmodule Letflow.Modules.Exam.Session do
          :ok <- check_in_progress(session),
          :ok <- check_deadline(session),
          {:ok, session_question} <- fetch_session_question(session_id, question_id, prefix),
-         {:ok, type} <- snapshot_question_type(session, question_id),
+         {:ok, type} <- snapshot_question_type(session, question_id, user_id, prefix),
          :ok <- check_answer_shape(type, selected_option_ids, text_answer),
          :ok <- check_options_belong(session_question, selected_option_ids),
          :ok <-
@@ -628,7 +682,7 @@ defmodule Letflow.Modules.Exam.Session do
             outcome_from_session(session)
 
           true ->
-            case score_and_persist(session, prefix) do
+            case score_and_persist(session, prefix, audit_actor_id: user_id) do
               {:ok, outcome} -> outcome
               {:error, reason} -> Repo.rollback(reason)
             end
@@ -768,7 +822,7 @@ defmodule Letflow.Modules.Exam.Session do
   defp materialize_session(candidate_id, exam_id, exam, prefix, seed) do
     shuffle_options? = fv(exam, "shuffle_options") == true
 
-    with :ok <- check_snapshot_prerequisites(prefix),
+    with :ok <- Snapshot.check_prerequisites(prefix),
          {:ok, rules, pool, manual_questions} <- fetch_question_pools(exam_id, prefix),
          {:ok, resolved_random} <-
            QuestionSetResolver.resolve(
@@ -842,45 +896,6 @@ defmodule Letflow.Modules.Exam.Session do
         {:ok, session_view(session_record)}
       end
     end
-  end
-
-  # GH #2682 / REQ-511, design 4.3 step 1: fail closed, before any write, when the tenant has not
-  # been rolled out (`Letflow.Release.ExamSnapshot.rollout/1`): the active `session` definition
-  # must declare the `exam_snapshot` json field and its restriction row must exist.
-  defp check_snapshot_prerequisites(prefix) do
-    with :ok <- check_snapshot_definition(prefix) do
-      check_snapshot_restriction(prefix)
-    end
-  end
-
-  defp check_snapshot_definition(prefix) do
-    case Definitions.get_active_definition_by_name("session", prefix) do
-      {:ok, %{definition_json: %{"fields" => fields}}} when is_list(fields) ->
-        if Enum.any?(
-             fields,
-             &(is_map(&1) and &1["name"] == "exam_snapshot" and &1["type"] == "json")
-           ),
-           do: :ok,
-           else: {:error, {:snapshot_error, :definition_missing}}
-
-      {:ok, _definition} ->
-        {:error, {:snapshot_error, :definition_missing}}
-
-      {:error, _reason} ->
-        {:error, {:snapshot_error, :definition_missing}}
-    end
-  end
-
-  defp check_snapshot_restriction(prefix) do
-    restricted? =
-      Repo.exists?(
-        from(r in "entity_field_restrictions",
-          where: r.entity_type == "session" and r.field_name == "exam_snapshot"
-        ),
-        prefix: prefix
-      )
-
-    if restricted?, do: :ok, else: {:error, {:snapshot_error, :restrictions_missing}}
   end
 
   defp fetch_question_pools(exam_id, prefix) do
@@ -1115,8 +1130,20 @@ defmodule Letflow.Modules.Exam.Session do
   # own snapshot, never from the live question row (an edit mid-session must not make the shape
   # check, the display and the scoring disagree). Ownership and `in_progress` were checked by the
   # caller before this runs.
-  defp snapshot_question_type(session, question_id) do
-    with {:ok, snapshot} <- Snapshot.fetch_structural(session.field_values) do
+  #
+  # PR b: a snapshotless session (started before the cutover) gets its late snapshot here, AFTER
+  # the ownership / in-progress / deadline checks (a non-owner can never trigger a write).
+  defp snapshot_question_type(session, question_id, user_id, prefix) do
+    snapshot_result =
+      case Snapshot.fetch_structural(session.field_values) do
+        {:error, {:grading_error, :snapshot_missing}} ->
+          Snapshot.ensure(session.record_id, user_id, prefix)
+
+        other ->
+          other
+      end
+
+    with {:ok, snapshot} <- snapshot_result do
       # The caller already found this question's `session_question` row, so a snapshot without
       # its item is a typed grading error (`{:question_item_missing, id}`), never "not in session".
       Snapshot.question_type(snapshot, question_id)
@@ -1282,11 +1309,19 @@ defmodule Letflow.Modules.Exam.Session do
   # verified) plus the candidate's answers. No `exam`, `question` or `answer_option` row is read,
   # and there is no default threshold: a missing or invalid key is a typed grading error and the
   # caller's transaction rolls back, leaving the session `in_progress`.
-  defp score_and_persist(session, prefix, opts \\ []) do
+  #
+  # PR b (design 9, 17.2): a session with no snapshot that started before the cutover gets a late
+  # one here (`Snapshot.ensure_locked/2`, reads only). The late snapshot is persisted by the ONE
+  # `session` update below (`session_after` carries it), and its audit entry is the last
+  # statement, so the lock order matches a plain submit (session row, score sequence, session
+  # sequence, audit chain). `audit_actor_id` is the submitting candidate; the system sweep passes
+  # none (audit actor `nil`).
+  defp score_and_persist(session, prefix, opts) do
     submitted_at = Keyword.get(opts, :submitted_at, utc_now())
     status_override = Keyword.get(opts, :status_override)
+    audit_actor_id = Keyword.get(opts, :audit_actor_id)
 
-    with {:ok, snapshot} <- Snapshot.fetch_verified(session.field_values),
+    with {:ok, snapshot, session_after, provenance} <- Snapshot.ensure_locked(session, prefix),
          {:ok, questions} <- Snapshot.to_scoring_questions(snapshot),
          {:ok, threshold} <- Snapshot.threshold(snapshot),
          {:ok, answers} <- load_answers(session.record_id, prefix),
@@ -1295,11 +1330,17 @@ defmodule Letflow.Modules.Exam.Session do
       outcome = maybe_override_status(outcome0, status_override)
 
       with :ok <- persist_scores(session.record_id, scores, fv(session, "user_id"), prefix),
-           :ok <- update_session_after_submit(session, outcome, submitted_at, prefix) do
+           :ok <- update_session_after_submit(session_after, outcome, submitted_at, prefix),
+           :ok <- record_late_snapshot(provenance, session, snapshot, audit_actor_id, prefix) do
         {:ok, outcome}
       end
     end
   end
+
+  defp record_late_snapshot(:existing, _session, _snapshot, _actor_id, _prefix), do: :ok
+
+  defp record_late_snapshot(:late, session, snapshot, actor_id, prefix),
+    do: Snapshot.record_late(session, snapshot, actor_id, prefix)
 
   # `Scoring` returns only the atom for a keyless question; the id comes from the validated
   # snapshot rows (defence in depth: `Snapshot.to_scoring_questions/1` already rejects these).

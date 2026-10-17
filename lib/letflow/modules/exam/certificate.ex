@@ -39,7 +39,8 @@ defmodule Letflow.Modules.Exam.Certificate do
   Every read and write goes through `Letflow.Entities.Records` (create) and
   `Letflow.Modules.Exam.Session.get_session_for_user/3` (session read, which already
   owns ownership/not-found semantics -- reused here rather than
-  re-implemented) and `Letflow.Entities.Record.Latest` (the `exam` read).
+  re-implemented) and `Letflow.Modules.Exam.Session.get_snapshot_for_user/3` (the exam facts, from
+  the session snapshot; no live `exam` read since GH #2682).
   `certificate` (REQ-355) is the only entity type this module writes; extra
   reads are `Letflow.Identity`'s `users` table (candidate display name) and
   `Letflow.Identity.Tenant` (branding).
@@ -67,7 +68,13 @@ defmodule Letflow.Modules.Exam.Certificate do
      `:auto_submitted`, or -- per guard 2 above -- `:grading_pending`) ->
      `{:error, :session_not_submitted}` otherwise. Source AC-4.
   4. Exam must have `certificate_enabled: true` ->
-     `{:error, :exam_not_certifiable}` otherwise. Source AC-2.
+     `{:error, :exam_not_certifiable}` otherwise. Source AC-2. GH #2682 / REQ-511: this fact (and
+     the certificate title) is read ONLY from the session's own exam snapshot
+     (`Session.get_snapshot_for_user/3` then `Snapshot.certificate_facts/1`), never from the
+     live exam row, so an exam edited or deleted after the session started cannot change the
+     certificate. A legacy submitted session without a snapshot gets certificate-only facts
+     (`origin: "late_certificate"`, audited) once; a `{:grading_error, _}` or
+     `{:snapshot_error, _}` from that read is returned as is.
   5. Session must have passed -> `{:error, :session_not_passed}` otherwise.
      Source AC-3. By this point `status == :submitted` is already
      established (guard 3), so `Session.get_session_for_user/3`'s own
@@ -198,10 +205,10 @@ defmodule Letflow.Modules.Exam.Certificate do
   """
 
   alias Letflow.Entities.ManagedTypes
-  alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Records
   alias Letflow.Modules.Exam
   alias Letflow.Modules.Exam.Session
+  alias Letflow.Modules.Exam.Snapshot
   alias Letflow.Identity
   alias Letflow.Identity.Tenant
   alias Letflow.Repo
@@ -239,6 +246,9 @@ defmodule Letflow.Modules.Exam.Certificate do
           | :session_not_submitted
           | :exam_not_certifiable
           | :session_not_passed
+          | Snapshot.grading_error()
+          | {:snapshot_error,
+             :definition_missing | :restrictions_missing | :audit_failed | :write_failed}
 
   @type certificate_view :: %{
           id: String.t(),
@@ -271,10 +281,11 @@ defmodule Letflow.Modules.Exam.Certificate do
     with {:ok, session} <- Session.get_session_for_user(session_id, candidate_id, prefix),
          :ok <- check_not_grading_pending(session),
          :ok <- check_submitted(session),
-         {:ok, exam} <- fetch_exam(session, prefix),
-         :ok <- check_certificate_enabled(exam),
+         {:ok, snapshot} <- Session.get_snapshot_for_user(session_id, candidate_id, prefix),
+         {:ok, facts} <- Snapshot.certificate_facts(snapshot),
+         :ok <- check_certificate_enabled(facts),
          :ok <- check_passed(session),
-         {:ok, record, first_issuance} <- issue_or_fetch(session, exam, candidate_id, prefix) do
+         {:ok, record, first_issuance} <- issue_or_fetch(session, facts, candidate_id, prefix) do
       {:ok, certificate_view(record, first_issuance)}
     end
   end
@@ -289,31 +300,8 @@ defmodule Letflow.Modules.Exam.Certificate do
   defp check_submitted(%{status: :submitted}), do: :ok
   defp check_submitted(_session), do: {:error, :session_not_submitted}
 
-  defp fetch_exam(session, prefix) do
-    case Latest.get(session.exam_id, "exam", prefix) do
-      {:ok, exam} ->
-        {:ok, exam}
-
-      # A session's exam_id failing to resolve means this session's own
-      # referential integrity is broken (the fk_def on session.exam_id
-      # normally rules this out) -- treated as the same not-found outcome
-      # a caller would see probing a session that never existed, rather
-      # than inventing a new error atom no acceptance criterion names.
-      {:error, :not_found} ->
-        {:error, :session_not_found}
-
-      {:error, :invalid_schema_name} = error ->
-        error
-    end
-  end
-
-  defp check_certificate_enabled(exam) do
-    if fv(exam, "certificate_enabled") == true do
-      :ok
-    else
-      {:error, :exam_not_certifiable}
-    end
-  end
+  defp check_certificate_enabled(%{certificate_enabled: true}), do: :ok
+  defp check_certificate_enabled(_facts), do: {:error, :exam_not_certifiable}
 
   defp check_passed(%{passed: true}), do: :ok
   defp check_passed(_session), do: {:error, :session_not_passed}
@@ -322,14 +310,14 @@ defmodule Letflow.Modules.Exam.Certificate do
   # Issue-or-fetch (source AC-5/AC-9/AC-10) -- see moduledoc "Idempotency".
   # -----------------------------------------------------------------------
 
-  defp issue_or_fetch(session, exam, candidate_id, prefix) do
+  defp issue_or_fetch(session, %{title: exam_title}, candidate_id, prefix) do
     with {:ok, candidate_name} <- fetch_candidate_name(candidate_id, prefix),
          {:ok, branding_snapshot} <- capture_branding_snapshot(prefix) do
       field_values = %{
         "session_id" => session.id,
         "issued_at" => iso8601(utc_now()),
         "candidate_name" => candidate_name,
-        "exam_title" => fv(exam, "title"),
+        "exam_title" => exam_title,
         "score_pct" => to_float(session.score_pct || 0.0),
         "branding_snapshot" => branding_snapshot
       }
