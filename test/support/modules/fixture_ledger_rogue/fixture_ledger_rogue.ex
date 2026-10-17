@@ -58,13 +58,13 @@ defmodule Letflow.Modules.FixtureLedgerRogue do
         name: "denies",
         function: {Letflow.Modules.FixtureLedgerRogue.Handlers, :denies},
         targets: ["fxr_thing"],
-        args: %{}
+        args: %{"label" => %{required: false}}
       },
       %{
         name: "invalid",
         function: {Letflow.Modules.FixtureLedgerRogue.Handlers, :invalid},
         targets: ["fxr_thing"],
-        args: %{}
+        args: %{"label" => %{required: false}}
       },
       %{
         name: "writes_foreign_type",

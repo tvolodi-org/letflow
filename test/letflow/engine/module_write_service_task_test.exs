@@ -158,8 +158,13 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
     refute inspect(entry) =~ @label
     refute inspect(refused) =~ @label
 
+    # and no handler exception text (the `raises` handler's message) is in any of them
+    refute inspect(entry) =~ "secret detail"
+    refute inspect(refused) =~ "secret detail"
+
     for event <- Fx.instance_events(ctx.schema, ctx.instance_id, "EXECUTION_ERROR") do
       refute inspect(payload(event)) =~ @label
+      refute inspect(payload(event)) =~ "secret detail"
     end
   end
 
@@ -732,8 +737,17 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
       refute inspect(refused.after_state) =~ "aaaaaaaa"
     end
 
-    # D-C.7 boundary pair: the cap is on the JSON encoding of a value (65_536 bytes), the string
-    # quotes included. 65_533 characters encode to 65_535 bytes (under), 65_535 to 65_537 (over).
+    # D-C.7 boundary: the cap is on the JSON encoding of a value (65_536 bytes), the string quotes
+    # included. 65_533 characters encode to 65_535 bytes (one under), 65_534 to 65_536 (exactly the
+    # cap: commits), 65_535 to 65_537 (one over: refused).
+    test "a value exactly at the service cap (65_534 characters, 65_536 bytes) commits" do
+      ctx = Mw.service_case!("gh2590-r5-size-at", :svc_module)
+      at = String.duplicate("a", 65_534)
+
+      assert {:ok, :advanced} = Fx.apply_http(ctx, %{"label" => at})
+      assert [%{field_values: %{"item" => ^at}}] = Fx.records(ctx.schema, "fxl_ledger")
+    end
+
     test "a value one byte under the service cap commits (control for the over-cap refusal)" do
       ctx = Mw.service_case!("gh2590-r5-size-under", :svc_module)
       under = String.duplicate("a", 65_533)

@@ -635,7 +635,11 @@
               "method": "POST",
               "module_writes": [
                 {
-                  "args": {},
+                  "args": {
+                    "label": {
+                      "var": "label"
+                    }
+                  },
                   "handler": "denies",
                   "module": "fixture_ledger_rogue"
                 }
@@ -905,7 +909,11 @@
               "method": "POST",
               "module_writes": [
                 {
-                  "args": {},
+                  "args": {
+                    "label": {
+                      "var": "label"
+                    }
+                  },
                   "handler": "invalid",
                   "module": "fixture_ledger_rogue"
                 }

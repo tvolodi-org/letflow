@@ -171,9 +171,6 @@ defmodule Letflow.Definitions.ModuleWriteActivationTest do
   defp codes({:error, {:entity_writes_invalid, violations}}), do: violations
   defp codes(other), do: other
 
-  defp codes_or_empty(:ok), do: []
-  defp codes_or_empty(other), do: codes(other)
-
   defp v(index, code, node_id \\ "ht"), do: %{node_id: node_id, index: index, code: code}
 
   defp row(schema, id), do: Repo.get!(ProcessDefinition, id, prefix: schema)
@@ -470,14 +467,12 @@ defmodule Letflow.Definitions.ModuleWriteActivationTest do
                codes(check(t, stamped_map(graph([mline()], %{}, "EXCLUSIVE_GATEWAY"))))
 
       # GH #2590 R5: SERVICE_TASK is a supported node type (HTTP and script-bound alike)
-      assert [] == codes_or_empty(check(t, stamped_map(graph([mline()], %{}, "SERVICE_TASK"))))
+      assert :ok == check(t, stamped_map(graph([mline()], %{}, "SERVICE_TASK")))
 
-      assert [] ==
-               codes_or_empty(
-                 check(
-                   t,
-                   stamped_map(graph([mline()], %{"script_key" => "some_script"}, "SERVICE_TASK"))
-                 )
+      assert :ok ==
+               check(
+                 t,
+                 stamped_map(graph([mline()], %{"script_key" => "some_script"}, "SERVICE_TASK"))
                )
     end
 
