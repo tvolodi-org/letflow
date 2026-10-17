@@ -220,7 +220,11 @@ defmodule Letflow.Modules.Exam.Session do
   def list_available_exams(prefix, opts \\ []) when is_binary(prefix) and is_list(opts) do
     request = %{
       entity_type: "exam",
-      filters: [%{field: "status", op: :eq, value: "active"}],
+      # GH #2760: a soft-deleted exam is not offered (start refuses it).
+      filters: [
+        %{field: "status", op: :eq, value: "active"},
+        %{field: "deleted", op: :eq, value: false}
+      ],
       sort: [],
       join: []
     }
@@ -742,7 +746,13 @@ defmodule Letflow.Modules.Exam.Session do
   # what closes REVIEWER's create/3 race.
   defp lock_exam_row(exam_id, prefix) do
     with {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix) do
-      query = from(r in Latest, where: r.entity_type == "exam" and r.record_id == ^exam_id)
+      # GH #2760: `deleted == false` in the locked WHERE (re-evaluated after the
+      # FOR UPDATE wait under READ COMMITTED), so a soft-deleted exam, even an
+      # archived one, answers :exam_not_active exactly like a nonexistent one.
+      query =
+        from(r in Latest,
+          where: r.entity_type == "exam" and r.record_id == ^exam_id and r.deleted == false
+        )
 
       case query |> Ecto.Query.lock("FOR UPDATE") |> Repo.one(prefix: prefix) do
         nil -> {:error, :exam_not_active}
