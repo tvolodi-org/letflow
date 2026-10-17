@@ -92,8 +92,18 @@ defmodule Letflow.EventStore.InstanceVisibilityTest do
 
     test "composes with a where clause and with limit (the exclusion is a WHERE, not a post-filter)" do
       %{schema_name: prefix} = tenant!()
-      synthetic_ids = for _ <- 1..3, do: Ecto.UUID.generate()
-      real_ids = for _ <- 1..2, do: Ecto.UUID.generate()
+      # Fixed ids: the synthetic ones sort FIRST ascending, so a post-limit filter would
+      # return an empty page instead of the two real rows.
+      synthetic_ids = [
+        "00000000-0000-4000-8000-000000000001",
+        "00000000-0000-4000-8000-000000000002",
+        "00000000-0000-4000-8000-000000000003"
+      ]
+
+      real_ids = [
+        "ffffffff-0000-4000-8000-000000000001",
+        "ffffffff-0000-4000-8000-000000000002"
+      ]
 
       Enum.each(synthetic_ids ++ real_ids, &insert_projection!(prefix, &1))
       Enum.each(synthetic_ids, &register!(prefix, &1))

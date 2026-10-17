@@ -641,10 +641,18 @@ defmodule Letflow.Routers.InstancesSyntheticHiddenTest do
       assert projection(ctx, id).status == :cancelled
     end
 
-    test "T8 pagination stays exact: 3 real + 2 synthetic instances, page_size=2" do
+    test "T8 pagination stays exact: 3 real + 4 synthetic (2 newer than the real ones) instances, page_size=2" do
       ctx = ctx!()
       definition = real_definition!(ctx)
       real_ids = for _ <- 1..3, do: start_real_instance!(ctx, definition)
+
+      # Two MORE synthetic instances created AFTER the real ones: the list orders by
+      # started_at desc, so these sort FIRST and a post-limit filter would return a short
+      # (or empty) first page. The ctx's own widget/gadget are older and sort last.
+      for name <- ["latea", "lateb"] do
+        create_active_entity!(ctx, name)
+        write_record!(ctx, name, name)
+      end
 
       page = fn cursor ->
         suffix = if cursor, do: "&cursor=" <> URI.encode_www_form(cursor), else: ""

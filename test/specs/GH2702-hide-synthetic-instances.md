@@ -37,7 +37,7 @@ is superseded; the tests follow the code.
 | Equal DB round trips where the design says equal | `T2b (v)`: get, history, timeline, cancel, rebind-pins counted with a `[:letflow, :repo, :query]` handler scoped to the test process (warm-up first). Reconstruct is NOT equal by design after the guard change (a nonexistent id continues into the log reads, a synthetic id stops after the registry read), so only `synthetic <= nonexistent` is asserted. Pins (1 vs 2 queries) is the accepted residual and is not asserted. |
 | Mutating routes never change a synthetic instance | `T3`: projection struct equal before/after, status `:active`, `cancelled_at` nil, event list (sequence + type) unchanged, no `INSTANCE_CANCELLED` / `INSTANCE_PINS_REBOUND`, idempotency count unchanged, and a later `Records.create_record` for the type still succeeds (the DoS is gone). |
 | Real workflow instances unchanged | `T5`: list contains the real id and not the synthetic ones; get 200, history has `INSTANCE_STARTED`, timeline 200, pins 200, cancel 200 and projection `:cancelled`. Kills the inverted predicate (M4). |
-| Pagination exact | `T8`: 3 real + 2 synthetic, `page_size=2` gives 2 + 1, valid cursor, ids equal the real ones. Kills "post-filter" implementations (M1). |
+| Pagination exact | `T8`: 3 real + 4 synthetic, of which 2 are created AFTER the real instances (list orders by started_at desc, so they sort first); `page_size=2` gives 2 + 1, valid cursor, ids equal the real ones. A post-limit filter returns a short first page, so this kills it (M1). T7 'composes with where and limit' uses fixed ids that sort synthetic-first for the same reason. |
 | INV-RC-2 preserved | `T5` "projection row deleted still reconstructs" (direct call and HTTP 200); "absent / synthetic / sentinel ids are `:instance_not_found`". Existing AC2/AC5 tests stay green. |
 | Internal callers unaffected | `T6`: `get_or_create/2` idempotent, record write + `/entities/query` returns the record (projector), history of the synthetic instance still 404 for clients. |
 | `InstanceVisibility` unit behaviour | T7 file: removes only registered ids; real row with `definition_id == instance_id` stays visible; synthetic row with changed `definition_id` stays hidden; composes with where/limit; tenant isolation incl. explicit prefix; generated SQL carries the tenant schema name and `NOT EXISTS`; table-name string equals `EntityTypeInstance.__schema__(:source)`; `is_binary` guards raise `FunctionClauseError`; `synthetic?/2` is `=== true / === false` only. |
@@ -61,6 +61,7 @@ is superseded; the tests follow the code.
 
 ## Not covered / residual
 
-* Attachment routes: asserted only as "synthetic == nonexistent" (follow-up #2718).
+* Attachment routes: the walk rows are weak by nature (only "synthetic == nonexistent", both usually 200/empty or the same error); real coverage is follow-up #2718.
+* Rebind-pins query-count equality (T2b v) is unverified until CI runs; if it differs that is a finding, not a test bug.
 * Pins query-count asymmetry (1 vs 2) accepted by SECURITY-REVIEWER; not asserted.
 * Legacy orphan projections from past races (O6) are not repaired and not tested.
