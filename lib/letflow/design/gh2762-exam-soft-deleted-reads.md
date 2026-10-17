@@ -53,7 +53,7 @@ for a deleted row.
 | D4 | `session.ex:463`, `:1226`, `:1375`; `anti_cheat.ex:251`; `mix letflow.seed.exam_fixtures:619` | `session_answer`, `session_event`, `session` reads | yes | yes (history) | n/a | UNCHANGED |
 | D5 | `session.ex:233` | `list_available_exams/2` via `Compiler` + `Cursor` (exam, `status = active`) | yes; router serialises `"deleted"` (`router.ex:1007,1017`) | no | a candidate is offered a soft-deleted active exam, start then refuses | CHANGE in the #2760 PR (accepted, OQ-5): add `eq("deleted", false)` to the hardcoded filters so a soft-deleted active exam is not offered |
 | D6 | `session.ex:321`, `:1090`; `anti_cheat.ex:152`, `:184` | `Latest.get` of session / exam policy | yes | yes | n/a | UNCHANGED (#2734 OQ-2..4) |
-| L1 | `snapshot.ex:773`, `:821` (and the helper at `:1111`) | late build: `session_question` (filtered), `answer_option` (partitioned) | no / partitioned | partitioned on purpose | done in #2734 | UNCHANGED; `key_bearing?/2` becomes the shared definition (section 5) |
+| L1 | `snapshot.ex:773`, `:821` (and the `query_all` helper at `:1110`) | late build: `session_question` (filtered), `answer_option` (partitioned) | no / partitioned | partitioned on purpose | done in #2734 | UNCHANGED; `key_bearing?/2` becomes the shared definition (section 5) |
 | L2 | `snapshot.ex:870` | `fetch_live/3` -> `Latest.get_live/3` | no | no | done | UNCHANGED |
 | G1 | `entities/script_reads.ex:199`, `:175` | script `read` of any entity type | no (post-filters `deleted == false`) | no | convention precedent | UNCHANGED |
 | G2 | `routers/entities.ex:1958`, `:2394` (query, export) | generic query/export API for every entity type | yes, by contract (clients see the `deleted` flag) | YES | n/a | UNCHANGED; this is why the filter must NOT go into `Compiler.compile/2` |
@@ -83,7 +83,7 @@ definitions). Seed task `letflow.seed.exam_fixtures` creates options but reads o
   `:748`), HTTP 422 "this exam is not currently active" (`router.ex:291`), byte-identical to a nonexistent exam. A
   deleted AND archived exam is also `:exam_not_active`, not `:exam_archived` (no leak of the row's existence).
 * Signature impact: none. `@spec` of `create_with_seed/4` already lists `eligibility_error()` (contains `:exam_not_active`).
-* Concurrency: Postgres READ COMMITTED re-evaluates the WHERE after waiting on a `FOR UPDATE` lock, so a delete that
+* Concurrency: Postgres READ COMMITTED re-evaluates the WHERE after waiting on a `FOR UPDATE` lock, so (no isolation override found on this path in `lib/` or `config/`, grep for isolation: the only hit is the unrelated retention operation, `event_store/retention_operations.ex`; the implementer re-confirms) a delete that
   commits while a start waits makes the start see no row. A delete that commits after the start's snapshot write is
   equivalent to a delete just after the start; deleted is terminal, no flip-back race.
 * Already-started sessions: not affected (create path only). A started session on an exam deleted afterwards keeps its
@@ -261,7 +261,7 @@ no `session_question` rows, no snapshot written.
 | T-59a | 2759 | manual pin to a soft-deleted active question | `{:error, {:question_not_found, qid}}`, nothing written | RED |
 | T-59b | 2759 | same via HTTP | 422 constant pinned-question body, equal to the missing-question body | RED |
 | T-59c | 2759 | soft-deleted pin error equals nonexistent-pin error | equal | RED |
-| T-59d | 2759 | random pool containing a soft-deleted active question (others live) | deleted question never in `order` across several seeds; start succeeds | RED |
+| T-59d | 2759 | random pool whose size equals the rule `count` and contains a soft-deleted active question (others live), so on main the deleted question is always drawn | the deleted question is never in `order`; the pool is now one question short of `count`, so the assertion is the resolver's existing outcome for an undersized pool (the implementer reads it from `QuestionSetResolver` and pins it) | RED |
 | T-59e | 2759 | live pin and live pool | unchanged | GUARD |
 | T-62k1 | 2762 | `live_options/3` mode `:start`, table-driven over type x (deleted/live, correct/incorrect) | deleted always excluded; refuse iff live set has no correct option (single/multiple/truefalse) or is empty (likert); shorttext never; swap case returns only the new correct row; input order kept; both row shapes | RED (function missing) |
 | T-62k2 | 2762 | `live_options/3` mode `:late`, same table | refuse iff a deleted row is key-bearing per type (incl. likert weight / `is_correct`, shorttext exempt); else live rows | RED (function missing) |
@@ -275,12 +275,13 @@ no `session_question` rows, no snapshot written.
 | T-62d2 | 2762 | pin: every option soft-deleted (single, likert) | `{:key_missing, qid}`, nothing written | RED |
 | T-62e | 2762 | truefalse: soft-deleted correct, no live correct -> refused; soft-deleted incorrect -> built | refused / built | RED / GUARD legs |
 | T-62g | 2762 | likert: soft-deleted weighted option excluded and start proceeds if live options remain; a nil-weight live option still refused by existing `build_likert` | as stated | RED (first leg) |
-| T-62h | 2762 | shorttext: soft-deleted option excluded, start succeeds | built | GUARD |
+| T-62h | 2762 | shorttext: soft-deleted option excluded; asserts the start SUCCEEDS (passes on main) | start succeeds, snapshot built | GUARD |
+| T-62h2 | 2762 | same shorttext start | the deleted option id is absent from `options_order` | RED |
 | T-62m | 2762 | UNDRAWN broken pool question: pool where one question has no live correct option, `count` smaller than the pool, seed chosen so it is not drawn | start succeeds | RED on a naive eager implementation (mutant below); on main it starts, so this is a GUARD of ruling OQ-2 |
 | T-62n | 2762 | DRAWN broken pool question: `count` = pool size so it is always drawn | `{:key_missing, broken_qid}`, nothing written; with two broken drawn questions the first in `order` is reported | RED |
-| T-62o | 2762 | HTTP: the refused start maps through the existing `render_snapshot_failure` problem (`@content_invalid_detail`); no deleted/id text in the body | existing shape | RED |
+| T-62o | 2762 | HTTP: the refused start maps through the existing `{:grading_error, _}` clause of `render_start_session` -> `render_snapshot_failure` (`router.ex:333-340`) problem (`@content_invalid_detail`); no deleted/id text in the body | existing shape | RED |
 | T-62j | 2762 | parity table: for each matrix cell, real `create` and real late build on the same rows behave as the two modes specify | per mode | RED (start side) |
-| T-62l | 2762 | display guard: session started with all options live, then a non-correct option soft-deleted: `get_session_state_for_user` still lists it (4.2); a session started after the deletion does not list it | as stated | GUARD |
+| T-62l | 2762 | display guard: session started with all options live, then a non-correct option soft-deleted: `get_session_state_for_user` still lists it (4.2); a session started after the deletion does not list it | as stated | GUARD for the first half; the second half (post-deletion start does not list it) is RED on main |
 | T-62p | 2762 | #2734 suite (T-50c..T-50c7, T-49*) unchanged after the extraction | green | GUARD |
 
 Mutants (each must turn a named test red): remove `deleted == false` from `lock_exam_row/2` (T-60a..c); drop the
@@ -290,7 +291,7 @@ START USING THE LATE RULE, i.e. refuse on a deleted key-bearing option (T-62c, T
 START RULE (T-50c2/T-50c3, T-62k2, T-62k3); FILTER ON ALL POOL QUESTIONS, i.e. raise the refusal inside
 `fetch_question_row/3` instead of after the draw (T-62m); skip the post-draw check so a drawn refused row is built
 (T-62n); drop a refused row from the pool instead of carrying it (T-62n, pool-size arithmetic); refuse on ANY deleted
-option (T-62a, T-62c, T-62g, T-62h); `:start` refusing an empty live shorttext set (T-62h); a distinct error atom for
+option (T-62a, T-62c, T-62g, T-62h2); `:start` refusing an empty live shorttext set (T-62h); a distinct error atom for
 deleted (equality assertions T-60c/T-59c/T-62o); filtering inside `build_option_states/4` (T-62l).
 
 Acceptance mapping (the three issues' "Required"): design note first = this file; failing test first = the RED rows,
@@ -331,8 +332,8 @@ line that a start on a deleted exam is refused (with the #2760 PR); the #2734 ce
   broken pool question makes starts fail for the candidates whose draw includes it.
 * OQ-1b (accepted default): mid-exam display of an option deleted after the session started is UNCHANGED (4.2).
 * OQ-3 (accepted): the pool `deleted == false` filter is folded into the #2759 PR.
-* OQ-4 (accepted): deleted `exam_question_rule` / `exam_manual_question` rows still applying at start is a separate
-  follow-up issue, filed by letflow-2 (cite it in the PR bodies; not in scope here).
+* OQ-4 (accepted): deleted `exam_question_rule` / `exam_manual_question` rows still applying at start (`session.ex:902`,
+  `:997`) is the separate follow-up GH #2779, filed by letflow-2 (cite it in the PR bodies; not in scope here).
 * OQ-5 (accepted): the `list_available_exams/2` filter is in the #2760 PR.
 * OQ-6 (accepted): sessions started before the fix keep what they captured; no backfill; stated in the PR bodies.
 * Implementer verification notes: (a) confirm `QuestionSetResolver` treats a row's `source` as opaque (it already
