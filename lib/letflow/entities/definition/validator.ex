@@ -47,8 +47,10 @@ defmodule Letflow.Entities.Definition.Validator do
           message: String.t()
         }
 
-  @name_format_regex ~r/^[a-z][a-z0-9_]{0,63}$/
-  @locale_format_regex ~r/^[a-z]{2,8}$/
+  # GH #2635: end-anchor with \z, not $ -- in PCRE `$` also matches just before a
+  # final newline, so a name with a trailing newline would pass.
+  @name_format_regex ~r/^[a-z][a-z0-9_]{0,63}\z/
+  @locale_format_regex ~r/^[a-z]{2,8}\z/
   @field_types [
     :string,
     :integer,
