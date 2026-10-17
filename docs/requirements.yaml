@@ -36365,19 +36365,19 @@ requirements:
   - id: REQ-501
     title: "Module write handlers (decision 0054 extension): R1 catalog registration, R2 ownership stamp storage, R3 activation checks, R4a handler write API, R4b engine HUMAN_TASK integration, R5 SERVICE_TASK path"
     owner: ELIXIR-DEV
-    status: in_progress
+    status: done
     stage: S7
     gh: 2590
     # Source: GH #2590 (filed by letflow-2, sole filer; the issue body and the design lib/letflow/design/gh2590-req501-module-write-handlers.md are the content authority). Id allocated by letflow-2. Entry written by DOC-UPDATER (letflow-2) 2026-10-16; none of the implementing PRs wrote it.
     description: >
       Modules register named write handlers that process steps may call (declared
       writes applied in the same transaction as the task completion). Delivered on
-      main: R1 #2650, R2 #2652, R3 #2665, R4a #2670, R4b #2672. Remaining: R5,
-      which follows PR C (C2 #2674 merged, C1 pending). Status stays in_progress
-      until R5 merges and RELEASE-VALIDATOR re-verifies. Follow-ups: GH #2671.
+      main: R1 #2650, R2 #2652, R3 #2665, R4a #2670, R4b #2672, R5 #2722. Earlier text said R5 remained;
+      it merged. Status flipped to done after RELEASE-VALIDATOR re-verification (VERIFIED WITH EXCEPTIONS, see the done event).
+      Open items not delivered: update-kind handlers (OQ-R4), pre-R2 reinstall (0055). Follow-ups: GH #2671, GH #2725.
     acceptance_criteria:
       - "1. R1-R4b delivered on main (see description). Merge commits were taken from the supervisor's report and PR numbers; not individually re-read."
-      - "2. R5 delivered by its own PR after PR C of REQ-499. NOT DELIVERED."
+      - "2. R5 delivered by #2722 (6b1fb16b). Open items NOT delivered: update-kind handlers (OQ-R4) and pre-R2 reinstall (0055)."
     depends_on: [REQ-496, REQ-499]
 
   - id: REQ-508

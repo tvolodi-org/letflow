@@ -76,3 +76,25 @@ history:
       run) on 2b628b53 completed success. NOT run: mix letflow.check.test and the
       full suite. S10 of #2587 found no unmet criterion; deferrals tracked: #2618,
       #2619, #2644, #2646, #2648, #2685-#2690, #2692 (REQ-513..REQ-515).
+
+  - req: REQ-501
+    event: done
+    agent: DOC-UPDATER
+    at: "2026-10-17T03:49:26Z"
+    note: >
+      GH #2590. R1 #2650, R2 #2652, R3 #2665, R4a #2670, R4b #2672, R5 #2722 (6b1fb16b)
+      are on main. RELEASE-VALIDATOR re-verification on main 6b1fb16b: VERIFIED WITH
+      EXCEPTIONS; 28 targeted test files run one at a time all passed, mix
+      letflow.check_boundaries OK (1342 edges), CI push run on 6b1fb16b success. NOT run:
+      mix letflow.check.test, the full suite, engine_concurrency_test and six other
+      files. Exceptions: five test files named in the issue were never created (coverage
+      sits in other files); replay is shown handler-free only for reconstruction, not
+      rebuild_projection, timers, escalation or cancel; the nested-transaction guard is a
+      static source scan, not a run-time test; no test shows SoD and publish-review
+      enforced on a script-bound node (true by absence of change). NOT delivered, carried
+      as open items: update-kind handlers (OQ-R4, a prerequisite of WMS slice 5); pre-R2
+      installs need reinstall (0055, no backfill). Rollout: TenantProvisioning.replay_all_pending/0
+      must have run for every tenant BEFORE the first handler-calling definition is
+      activated (backstop: refusal event_schema_outdated; MigrationReplayBoot replays on
+      boot but swallows failures). A script-bound node can write module data, so 0053 D6
+      SoD and publish-review apply (0054 R5). Follow-ups: #2671 and GH #2725 (test gaps). Docs corrected: MigrationReplayBoot replays on boot (decision 0054 and the manifest-hash runbook said nothing did).

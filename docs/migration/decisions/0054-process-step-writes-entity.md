@@ -559,3 +559,6 @@ gates, and those results are the sign-off. Each PR body is the evidence.
 Not found in the PR bodies: R2 (#2652), R3 (#2665) and B1/B3/A2-A4 verdicts, and the C1 verdicts.
 The two amendment lines above that say "pending" refer to the R4a and R4b PRs: their outcomes are
 in this table. The decision text itself was not re-reviewed by a separate session.
+
+## Correction (2026-10-17, letflow-2, from the REQ-501 RELEASE-VALIDATOR re-verification)
+The statement in the R4b outcomes ("there is NO automatic boot-time replay ... nothing in `lib/` calls it at start") is wrong on main: `Letflow.TenantProvisioning.MigrationReplayBoot` (`lib/letflow/tenant_provisioning/migration_replay_boot.ex`, ISS-0771) is a child of `Supervisor.Infrastructure` and runs `replay_all_pending/0` on every boot, but swallows failures. The rollout rule stands: replay must have succeeded for every tenant before the first handler-calling definition is activated; a tenant whose boot replay failed is caught only by the fail-closed `event_schema_outdated` refusal.

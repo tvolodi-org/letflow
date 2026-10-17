@@ -73,7 +73,7 @@ contain a hash; compare `tenant_modules.manifest_hash` with the build's
 A handler write adds three keys (`handler_module`, `handler`, `write_ordinal`) to the lines of the
 `TASK_ENTITY_WRITES_APPLIED` instance event. Only schema version 2 of that event type accepts
 them, and a tenant gains v2 ONLY when `Letflow.TenantProvisioning.replay_all_pending/0` has run for
-it (provisioning and onboarding run the same replay; nothing in `lib/` calls the sweep at boot).
+it (provisioning and onboarding run the same replay, and `Letflow.TenantProvisioning.MigrationReplayBoot` runs it on every boot but swallows failures, so a failed boot replay is caught only by the `event_schema_outdated` refusal).
 Before the first build that lets a tenant complete a handler-calling task is deployed, run
 `replay_all_pending/0` and confirm every tenant's highest `TASK_ENTITY_WRITES_APPLIED` version in
 `event_type_registry` is 2. The engine refuses a handler completion on a tenant without v2
