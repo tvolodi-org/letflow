@@ -17,7 +17,11 @@ defmodule Letflow.EventStore.Registry.ValidationFailure do
   `"minimum"`, `"maximum"`, `"minLength"`, `"maxLength"`, `"required"`,
   `"additionalProperties"`), or `"reserved_variable_key"` (GH #2587:
   `Letflow.Engine.PinResolver.validate_initial_variables/2` refusing a start
-  variable in the engine's reserved namespace; `actual` is then always `nil`)
+  variable in the engine's reserved namespace; `actual` is then always `nil`),
+  or, for a `decimal_strict` entity field (GH #2654,
+  `Letflow.Entities.Record.Decimals`), `"scale"` / `"precision"` (plus the existing
+  `"type"`, `"minimum"`, `"maximum"`); those carry `actual: nil` (the submitted
+  value is never echoed)
   — never a free-form message string, so a caller
   can assert on the literal constraint name rather than parse a sentence.
   `actual` is kept as the raw, already-decoded Elixir term (not serialized to

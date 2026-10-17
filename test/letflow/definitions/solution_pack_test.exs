@@ -1299,6 +1299,49 @@ defmodule Letflow.Definitions.SolutionPackTest do
       assert installed_row.logical_shape_version == source.logical_shape_version
     end
 
+    # GH #2654 (T10): the decimal_strict key survives export -> install (key map in
+    # SolutionPack) and the shape hash, and a string bound on a strict field survives too.
+    test "decimal_strict and a string bound round-trip export -> install" do
+      tenant_a = TenantFixture.provisioned_tenant!(slug_prefix: "gh2654-pack-a")
+      tenant_b = TenantFixture.provisioned_tenant!(slug_prefix: "gh2654-pack-b")
+      cleanup_solution_pack_installs!(tenant_b.tenant_id)
+
+      source =
+        create_entity_definition!(tenant_a.schema_name, %{
+          fields: [
+            %{name: "email", type: :string, required: true, queried: true},
+            %{
+              name: "qty",
+              type: :decimal,
+              decimal_precision: 12,
+              decimal_scale: 3,
+              decimal_strict: true,
+              min: "0.001"
+            }
+          ]
+        })
+
+      assert {:ok, source} =
+               EntityDefinitions.get_definition_by_name(source.name, tenant_a.schema_name)
+
+      assert {:ok, exported} =
+               SolutionPack.export([], [source.name], "1.0.0", prefix: tenant_a.schema_name)
+
+      assert {:ok, %{installed_entity_definitions: [_installed]}} =
+               SolutionPack.install(stringify_keys(exported), Ecto.UUID.generate(),
+                 prefix: tenant_b.schema_name
+               )
+
+      assert {:ok, installed_row} =
+               EntityDefinitions.get_definition_by_name(source.name, tenant_b.schema_name)
+
+      qty = Enum.find(installed_row.definition_json["fields"], &(&1["name"] == "qty"))
+      assert qty["decimal_strict"] == true
+      assert qty["min"] == "0.001"
+      assert installed_row.definition_json == source.definition_json
+      assert installed_row.logical_shape_version == source.logical_shape_version
+    end
+
     test ~s(unknown field key "minimum" still gives {:error, :invalid_pack_document}) do
       tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2532-pack-unknown")
 

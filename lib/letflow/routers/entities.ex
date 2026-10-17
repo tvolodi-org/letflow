@@ -584,6 +584,8 @@ defmodule Letflow.Routers.Entities do
     |> maybe_put_optional(:enum_values, field, "enum_values")
     |> maybe_put_optional(:decimal_precision, field, "decimal_precision")
     |> maybe_put_optional(:decimal_scale, field, "decimal_scale")
+    # GH #2654: opt-in exact decimal strings (decision 0060); false passes through, null is absent.
+    |> maybe_put_optional(:decimal_strict, field, "decimal_strict")
     |> maybe_put_optional(:default, field, "default")
     |> maybe_put_optional(:locales, field, "locales")
     # GH #2532: numeric range keys. A JSON null is dropped (absent); any
@@ -841,6 +843,16 @@ defmodule Letflow.Routers.Entities do
 
   defp render_activate_definition(conn, {:error, :invalid_schema_name}),
     do: Response.internal_error(conn)
+
+  # GH #2654 (decision 0060): the decimal_strict flag cannot change while the type has
+  # records. Fixed message plus the field NAMES (definition metadata, never values).
+  defp render_activate_definition(conn, {:error, {:decimal_strict_change, fields}})
+       when is_list(fields),
+       do:
+         Response.conflict(
+           conn,
+           "decimal_strict cannot change while records exist: " <> Enum.join(fields, ", ")
+         )
 
   defp render_activate_definition(conn, {:error, {_tag, %Ecto.Changeset{}} = reason}) do
     Logger.warning("entity definition activation failed: #{inspect(reason)}")
@@ -1418,6 +1430,12 @@ defmodule Letflow.Routers.Entities do
     %{"type" => "entity_type_managed"}
   end
 
+  # GH #2654: the entry overlapped an activation of its type; nothing was
+  # appended for it and a retry is safe. Constant, no type name.
+  defp import_reason_json({:definition_changed, _entity_type}) do
+    %{"type" => "definition_changed"}
+  end
+
   defp import_reason_json(reason)
        when reason in [:tenant_not_provisioned, :invalid_schema_name] do
     %{"type" => Atom.to_string(reason)}
@@ -1493,6 +1511,7 @@ defmodule Letflow.Routers.Entities do
   #                                     constant body)
   #   :idempotency_key_reuse         -> 422 (idempotency-key-reuse, GH #2543;
   #                                     constant body, no original data)
+  #   {:definition_changed, _}       -> 409 (GH #2654; write overlapped an activation)
   #   :entity_type_managed           -> 403 (race only; same body as the guard,
   #                                     GH #2583)
   #   :tenant_not_provisioned        -> 500  (unreachable, INV-1)
@@ -1546,6 +1565,12 @@ defmodule Letflow.Routers.Entities do
 
   defp render_record_command(conn, {:error, :idempotency_key_reuse}, _status),
     do: Response.send_problem(conn, Error.idempotency_key_reuse())
+
+  # GH #2654: the write overlapped an activation of its type (re-checked under the
+  # type's sequence lock). Nothing was appended; a retry re-resolves and
+  # re-validates, so it is safe. Constant body (no type, no values).
+  defp render_record_command(conn, {:error, {:definition_changed, _entity_type}}, _status),
+    do: Response.conflict(conn, "entity definition changed during the write; retry")
 
   # GH #2583: reachable only when `guard_tenant_write/3`'s read and the row
   # `Records` resolved disagree (a race); answers the guard's constant 403.

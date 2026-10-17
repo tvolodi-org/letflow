@@ -94,7 +94,7 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
   @default_lock_timeout_ms 3_000
   @statement_timeout_ms 30_000
 
-  @compared_keys [:required, :enum_values, :constraints, :indexes]
+  @compared_keys [:required, :enum_values, :decimal_strict, :constraints, :indexes]
 
   @type opts :: [
           module: String.t(),
@@ -580,21 +580,39 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
     %{acc | conflicts: [%{type: name, rows: count, reason: reason} | acc.conflicts]}
   end
 
-  # Every pack `(field name, type)` pair is present on the row (extras allowed).
+  # Every pack `(field name, type)` pair is present on the row (extras allowed), and
+  # for a `decimal` field the pack and the row agree on `decimal_strict` (absent =
+  # false). GH #2654 / decision 0060: adopting a row whose strictness differs would
+  # bypass the flag's immutability once records exist, so a mismatch is a shape
+  # mismatch (also for a zero-record type: conservative, adoption is of the row's
+  # definition).
   @spec compatible?(row_definition :: term(), pack_definition :: map()) :: boolean()
-  defp compatible?(row_definition, pack_definition) do
+  @doc false
+  def compatible?(row_definition, pack_definition) do
     row_fields = fields_of(row_definition)
 
-    Enum.all?(fields_of(pack_definition), fn %{"name" => name, "type" => type} ->
-      Enum.any?(row_fields, &(&1["name"] == name and &1["type"] == type))
+    Enum.all?(fields_of(pack_definition), fn %{"name" => name, "type" => type} = pack_field ->
+      Enum.any?(
+        row_fields,
+        &(&1["name"] == name and &1["type"] == type and same_strictness?(type, &1, pack_field))
+      )
     end)
   end
+
+  defp same_strictness?("decimal", row_field, pack_field),
+    do: strict?(row_field) == strict?(pack_field)
+
+  defp same_strictness?(_type, _row_field, _pack_field), do: true
+
+  defp strict?(field), do: Map.get(field, "decimal_strict") == true
 
   defp fields_of(%{"fields" => fields}) when is_list(fields), do: Enum.filter(fields, &is_map/1)
   defp fields_of(_other), do: []
 
   # Names only, never values: which fields the tenant added and which compared attributes differ.
-  defp add_difference(differences, name, rows, pack_def) do
+  @doc false
+  @spec add_difference([map()], String.t(), [map()], map()) :: [map()]
+  def add_difference(differences, name, rows, pack_def) do
     pack_fields = fields_of(pack_def)
     pack_names = MapSet.new(pack_fields, & &1["name"])
 
@@ -626,6 +644,17 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
       case Enum.find(row_fields, &(&1["name"] == pack_field["name"])) do
         nil -> false
         row_field -> Map.get(row_field, attr) != Map.get(pack_field, attr)
+      end
+    end)
+  end
+
+  defp differs?(:decimal_strict, row_def, _pack_def, pack_fields) do
+    row_fields = fields_of(row_def)
+
+    Enum.any?(pack_fields, fn pack_field ->
+      case Enum.find(row_fields, &(&1["name"] == pack_field["name"])) do
+        nil -> false
+        row_field -> strict?(row_field) != strict?(pack_field)
       end
     end)
   end

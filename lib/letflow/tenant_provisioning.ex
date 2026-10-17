@@ -2904,6 +2904,16 @@ defmodule Letflow.TenantProvisioning do
       locales: Map.get(field, "locales"),
       search_strategy: field |> Map.get("search_strategy") |> search_strategy_atom()
     }
+    |> put_decimal_strict(field)
+  end
+
+  # GH #2654: carried only when present (a key-less definition rebuilds exactly as
+  # before). DDL-neutral: `DDL.decimal_pg_type/1` ignores it.
+  defp put_decimal_strict(document, field) do
+    case Map.fetch(field, "decimal_strict") do
+      {:ok, strict} -> Map.put(document, :decimal_strict, strict)
+      :error -> document
+    end
   end
 
   # REQ-298: `references_entity` is now needed by DDL.promoted_columns/1 (to
