@@ -2,7 +2,7 @@ defmodule Letflow.Entities.Query.Cursor do
   @moduledoc """
   `cursor.zig`-equivalent (REQ-231 §2) -- a keyset-pagination cursor codec
   for entity query results, generalizing `Letflow.Entities.Definitions`'
-  `list_definitions/2` fixed two-column (`inserted_at desc, id desc`)
+  `list_definitions/3` fixed two-column (`inserted_at desc, id desc`)
   cursor shape to an arbitrary, caller-chosen `sort` clause list produced by
   `Letflow.Entities.Query.Compiler.compile/2`. See
   `lib/letflow/design/req231-entity-query-cursor-field-grants.md` §2 for the
@@ -16,7 +16,7 @@ defmodule Letflow.Entities.Query.Cursor do
   security contract changes here.
 
   `cursor_prefix/0` returns the fixed literal `"EQ:"` (Entity Query), a
-  sibling of `list_definitions/2`'s `"ED:"`, distinct so a cursor minted by
+  sibling of `list_definitions/3`'s `"ED:"`, distinct so a cursor minted by
   one listing can never decode successfully against the other (design
   §2.2).
 
@@ -24,7 +24,7 @@ defmodule Letflow.Entities.Query.Cursor do
 
   This module owns both the cursor codec (encode/decode the resume key) and
   the query-composition step that consumes `Compiler.compile/2`'s output --
-  mirroring `list_definitions/2`'s own undivided responsibility. It never
+  mirroring `list_definitions/3`'s own undivided responsibility. It never
   changes `Letflow.Entities.Query.Types`, `Allowlist`, or `Compiler`
   (REQ-230, already reviewed and merged) -- it only consumes their existing,
   unchanged output types.
@@ -112,7 +112,7 @@ defmodule Letflow.Entities.Query.Cursor do
   `Letflow.Entities.Query.Compiler.compile/2` for `request`) using a keyset
   cursor generalized to `request`'s own `sort` clause list (design §2.4).
 
-  Step order, mirroring `list_definitions/2`'s own `with` chain:
+  Step order, mirroring `list_definitions/3`'s own `with` chain:
 
     1. `Pagination.validate_page_size/1` on `opts.page_size`.
     2. Decode `opts.cursor` via `Pagination.decode_cursor/4` with this
@@ -193,7 +193,7 @@ defmodule Letflow.Entities.Query.Cursor do
   # `inner` is `"EQ:<mint_time_us>:<resume_key_json>"` -- the first slot
   # after the prefix is always the mint-time timestamp `decode_cursor/4`'s
   # own expiry check already read, never a domain value (same idiom
-  # `list_definitions/2`'s cursor helpers use). The JSON tail may itself
+  # `list_definitions/3`'s cursor helpers use). The JSON tail may itself
   # legitimately contain colons (e.g. an ISO-8601 datetime string), so this
   # splits on the FIRST colon only.
   defp parse_resume_key_json(inner) do

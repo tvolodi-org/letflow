@@ -74,12 +74,8 @@ defmodule Letflow.Entities.TypeAccess do
       when is_binary(user_id) and is_binary(entity_type) and is_binary(prefix) do
     with {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix) do
       query =
-        from(r in "entity_type_restrictions",
-          left_join: g in "user_entity_type_grants",
-          on:
-            g.entity_type == r.entity_type and
-              g.user_id == type(^user_id, Ecto.UUID),
-          where: r.entity_type == ^entity_type and is_nil(g.id),
+        from(r in denial_query(user_id),
+          where: r.entity_type == ^entity_type,
           select: r.id
         )
 
@@ -114,16 +110,46 @@ defmodule Letflow.Entities.TypeAccess do
 
     with {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix) do
       query =
-        from(r in "entity_type_restrictions",
-          left_join: g in "user_entity_type_grants",
-          on:
-            g.entity_type == r.entity_type and
-              g.user_id == type(^user_id, Ecto.UUID),
-          where: r.entity_type in type(^names, {:array, :string}) and is_nil(g.id),
+        from(r in denial_query(user_id),
+          where: r.entity_type in type(^names, {:array, :string}),
           select: r.entity_type
         )
 
       {:ok, query |> Repo.all(prefix: prefix) |> MapSet.new()}
     end
+  end
+
+  @doc """
+  A boolean `Ecto.Query.dynamic/2` meaning "NOT denied" for the entity type named
+  by the `name` column of the parent query's named binding `name_binding`
+  (GH #2739): `NOT EXISTS (denial_query ... r.entity_type = parent_as(binding).name)`.
+  Built from the same `denial_query/1` as `authorized?/3` and `denied_types/3`, so
+  the three cannot diverge. Pure query construction: no I/O, no tenant lookup, the
+  tenant prefix comes from the `Repo` call that executes the enclosing query.
+  There is deliberately no `nil`-user or zero-argument form (fail closed): any
+  other input is a `FunctionClauseError` at the call site, never "allow all".
+  """
+  @spec visible_to(user_id :: String.t(), name_binding :: atom()) :: Ecto.Query.dynamic_expr()
+  def visible_to(user_id, name_binding) when is_binary(user_id) and is_atom(name_binding) do
+    denial =
+      from(r in denial_query(user_id),
+        where: r.entity_type == parent_as(^name_binding).name,
+        select: 1
+      )
+
+    dynamic([], not exists(denial))
+  end
+
+  # The ONE denial rule (GH #2739, SECURITY R2): a row in
+  # `entity_type_restrictions` with no `user_entity_type_grants` row for this
+  # user and type. Callers add their own `where`/`select`.
+  defp denial_query(user_id) do
+    from(r in "entity_type_restrictions",
+      left_join: g in "user_entity_type_grants",
+      on:
+        g.entity_type == r.entity_type and
+          g.user_id == type(^user_id, Ecto.UUID),
+      where: is_nil(g.id)
+    )
   end
 end
