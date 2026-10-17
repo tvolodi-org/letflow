@@ -61,9 +61,10 @@ Adjacent reads with the same flaw that do NOT go through `get/3` (found while re
 | A3 | `session.ex:564` | `query_all("answer_option")` in `build_option_states` | display only; UNCHANGED (OQ-4). |
 | A5 | `session.ex:966` | `fetch_question_row/3` (START / pool path) reads `answer_option` rows unfiltered and builds the START snapshot source (`session.ex:970-981`) | Same defect class on the START path. UNCHANGED here: out of scope per ruled OQ-2; related follow-ups #2759 / #2760 cover `session.ex:1024` and `lock_exam_row`, but this option read is NOT named by them and needs its own follow-up note. |
 
+| A4 | `session.ex:738-749` | `lock_exam_row/2` (create) selects the exam row with `FOR UPDATE`, no `deleted` condition | a soft-deleted but `active` exam may still start a session. Same class, START path. OQ-2. |
+
 Truthful count: besides the late-path read this issue changes (`snapshot.ex:813`), exactly two other unfiltered
 `answer_option` reads exist: `session.ex:564` (display, A3) and `session.ex:966` (start snapshot source, A5).
-| A4 | `session.ex:738-749` | `lock_exam_row/2` (create) selects the exam row with `FOR UPDATE`, no `deleted` condition | a soft-deleted but `active` exam may still start a session. Same class, START path. OQ-2. |
 
 Docstring/comment-only mentions (no behaviour): `record/projector.ex:51`, `modules/exam/router.ex:90`,
 `routers/entities.ex:1185`, `snapshot.ex:837`, `session.ex:735,737,1018,1021`.
@@ -183,8 +184,12 @@ exam (`build_certificate_only` refuses) without operator restore.
 
 AC1 "design note first with per-caller table": sections 3 and 4 of this file.
 
-AC2 "failing test first ... callers that need deleted rows keep working": tests below, written and shown FAILING on
-main before the fix (ELIXIR-DEV/TEST-DESIGNER quote the red run).
+AC2 "failing test first ... callers that need deleted rows keep working": the tests marked "yes" in the last column
+are written and shown FAILING on main before the fix (ELIXIR-DEV/TEST-DESIGNER quote the red run). Tests marked "no"
+are GUARDS: they pass on main and pin behaviour that must not regress. A snapshot item holds only `type`,
+`correct_option_ids` and `likert_options` (`snapshot.ex:212`), never an options list, so excluding a non-correct
+option can only be observed through those three fields, and on main it is unobservable for single/multiple/truefalse/
+shorttext (the extra option contributes nothing); those cases are guards.
 
 | ID | Test (file) | Asserts | Fails on main today |
 |---|---|---|---|
@@ -192,14 +197,14 @@ main before the fix (ELIXIR-DEV/TEST-DESIGNER quote the red run).
 | G2 | same file | `get/3` STILL returns the soft-deleted row with `deleted: true` (regression guard for C1 and the 60 test sites) | passes (guard) |
 | T-49b | `test/letflow/modules/exam/snapshot_late_test.exs`, describe "T-48 .. T-51" | soft-deleted exam (`Fx.delete_record!/3`) on a legacy session: `ensure` and `submit` both `{:error, {:grading_error, :exam_section_missing}}`, snapshot field and scores unchanged, status `in_progress` (reuse `assert_late_build_fails!/2`) | yes |
 | T-50b | same | soft-deleted question: `{:grading_error, {:question_item_missing, q_id}}`, nothing written | yes |
-| T-50c | same | soft-deleted INCORRECT option of a single-choice question: late snapshot is built, the deleted id is absent from the item's options, the correct set is unchanged | yes |
+| T-50c | same | GUARD: soft-deleted INCORRECT option of a single-choice question: late snapshot is built, `correct_option_ids` unchanged (identical to a snapshot taken with no deletion) | no |
 | T-50c2 | same | soft-deleted CORRECT option of a single-choice question (other live options remain, none correct): `{:grading_error, {:key_missing, q_id}}`, nothing written | yes |
-| T-50c2b | same | truefalse: soft-deleted CORRECT option (the other live option incorrect): `{:grading_error, {:key_missing, q_id}}`, nothing written; soft-deleted INCORRECT option: built, excluded | yes |
+| T-50c2b | same | truefalse: soft-deleted CORRECT option (the other live option incorrect): `{:grading_error, {:key_missing, q_id}}`, nothing written; | yes (correct-option refusal half); the soft-deleted INCORRECT option half (built, `correct_option_ids` unchanged) is a GUARD, passes on main |
 | T-50c3 | same | multiple-choice, soft-deleted CORRECT option while another correct option stays live: still `{:key_missing, q_id}` refused (not a smaller correct set), nothing written | yes |
-| T-50c4 | same | multiple-choice, soft-deleted INCORRECT option: built, deleted id excluded, correct set identical to a snapshot taken with no deletion | yes |
-| T-50c5 | same | likert: soft-deleted weighted option refused with `{:key_missing, q_id}`; soft-deleted option with nil weight and no `is_correct` excluded; soft-deleted option with nil weight and `is_correct: true` refused | yes |
-| T-50c7 | same | shorttext: soft-deleted option is excluded (built) | yes |
-| T-50c6 | same | every refusal above leaves status `in_progress`, snapshot field absent, scores unchanged, no audit entry (via `assert_late_build_fails!/2`) | yes |
+| T-50c4 | same | GUARD: multiple-choice, soft-deleted INCORRECT option: built, `correct_option_ids` identical to a snapshot taken with no deletion | no |
+| T-50c5 | same | likert: soft-deleted weighted option refused with `{:key_missing, q_id}`; soft-deleted option with nil weight and no `is_correct`: the late snapshot is BUILT (red on main, where the deleted option is read as live and its nil weight makes `build_likert` refuse `{:key_missing, q_id}`); soft-deleted option with nil weight and `is_correct: true` refused | yes (all three) |
+| T-50c7 | same | GUARD: shorttext, soft-deleted option: late snapshot is built, `correct_option_ids` contains no deleted id | no |
+| T-50c6 | same | every refusal above (red tests) leaves status `in_progress`, snapshot field absent, scores unchanged, no audit entry (via `assert_late_build_fails!/2`) | yes |
 | T-50d | same | soft-deleted session_question: excluded from snapshot `order`/`questions` | yes |
 | T-49c | same file or `certificate_snapshot_test.exs` (also pins the RULED OQ-6 product consequence) | `Snapshot.ensure_certificate_facts/3` on a submitted legacy session with a soft-deleted exam: `{:error, {:grading_error, :exam_section_missing}}`, no write, no `exam.session_snapshot_late` audit entry | yes |
 | T-49d | same | indistinguishability: error value for a soft-deleted exam equals the value for a hard-deleted exam (T-49) | yes |
@@ -207,7 +212,7 @@ main before the fix (ELIXIR-DEV/TEST-DESIGNER quote the red run).
 | P1 | `records_test.exs` / existing | C1 per-caller: `update_record` on a deleted record -> `{:record_already_deleted, id}`; second `delete_record` is a no-op success (name the existing tests; add only if none exists) | passes (guard) |
 | P2 | `anti_cheat_test.exs` | C3: a signal on an in-progress session whose exam is soft-deleted still records with the stored policy (pins UNCHANGED) | passes (guard) |
 | P3 | `session_test.exs` | C5/A3: state read of an in-progress snapshotted session with a soft-deleted question/option still renders (pins UNCHANGED) | passes (guard) |
-| M | mutation | revert the `deleted == false` predicate in `get_live/3`: G1, T-49b fail; remove the session_question filter: T-50d fails; drop the deleted-key-bearing refusal in `load_item/2` (treat every deleted option as excluded): T-50c2, T-50c3, T-50c5 fail; refuse on ANY deleted option: T-50c, T-50c4 fail; point `fetch_live/3` back at `get/3`: T-49b, T-50b, T-49c fail | n/a |
+| M | mutation | revert the `deleted == false` predicate in `get_live/3`: G1, T-49b fail; remove the session_question filter: T-50d fails; drop the deleted-key-bearing refusal in `load_item/2` (treat every deleted option as excluded): T-50c2, T-50c3, T-50c5 fail; refuse on ANY deleted option (not only key-bearing): the GUARDS T-50c, T-50c4, T-50c7, the incorrect-option half of T-50c2b and the nil-weight-no-`is_correct` leg of T-50c5 go red; point `fetch_live/3` back at `get/3`: T-49b, T-50b, T-49c fail | n/a |
 
 AC3 "SECURITY-REVIEWER verdict (recommended); REVIEWER verdict; scoped tests one file at a time, compile and format
 check quoted": this touches a tenant-data read path (INV prefix scoping preserved: `get_live/3` keeps the
@@ -234,8 +239,7 @@ check quoted": this touches a tenant-data read path (INV prefix scoping preserve
 * OQ-5 (RULED, changed from the earlier "exclude" default): a soft-deleted key-bearing option REFUSES the late
   snapshot with `{:key_missing, question_id}` (atom reuse decided and justified in 4.1); a soft-deleted
   non-key-bearing option is excluded; no-correct-option-left keeps `{:key_missing, id}`. Decision recorded for the
-  supervisor's visibility: the per-type "key-bearing" definition (likert: non-nil `likert_weight` or `is_correct` true; single/multiple/truefalse: `is_correct` true; shorttext: none) replaces the earlier likert-only sketch; likert has no
-  `is_correct`; per-type definition, including the likert `is_correct`-with-nil-weight case, is in 4.1.
+  supervisor's visibility: the per-type "key-bearing" definition (likert: non-nil `likert_weight` or `is_correct` true; single/multiple/truefalse: `is_correct` true; shorttext: none) replaces the earlier likert-only sketch; 4.1 is the single statement of that definition.
 * OQ-2, OQ-3, OQ-4 (RULED out of scope): `session.ex:1024` (C6) and `lock_exam_row/2` (A4) are separate follow-ups
   (filed by letflow-2); soft-deleted sessions (C2, C4, C7) and display/anti-cheat policy reads (C3, C5, A3) are
   unchanged.
