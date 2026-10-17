@@ -377,7 +377,11 @@ defmodule Letflow.Entities.Definitions do
         from(e in EntityDefinition, as: :def)
         |> where([e], e.tenant_id == ^tenant_id)
         |> filter_by_list_definitions_cursor(cursor_seek)
-        |> where(^TypeAccess.visible_to(user_id, :def))
+        # MUTANT M5: denial applies to active rows only; inactive rows stay visible.
+        |> where(
+          [e],
+          fragment("? <> 'active'", e.status) or ^TypeAccess.visible_to(user_id, :def)
+        )
         |> order_by([e], desc: e.inserted_at, desc: e.id)
         |> limit(^(page_size + 1))
         |> Repo.all(prefix: prefix)
