@@ -244,12 +244,8 @@ defmodule Letflow.Entities.Query.Compiler do
   def join_entity_types(joins) when is_list(joins) do
     with :ok <- check_join_shape(joins) do
       {:ok,
-       Enum.flat_map(joins, fn join ->
-         case Map.fetch(join, :through) do
-           {:ok, through} -> [through, join.entity_type]
-           :error -> [join.entity_type]
-         end
-       end)}
+       # MUTANT M2: through entities skipped
+       Enum.flat_map(joins, fn join -> [join.entity_type] end)}
     end
   end
 

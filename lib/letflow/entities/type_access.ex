@@ -111,14 +111,13 @@ defmodule Letflow.Entities.TypeAccess do
   def denied_types(user_id, entity_types, prefix)
       when is_binary(user_id) and is_list(entity_types) and is_binary(prefix) do
     names = Enum.uniq(entity_types)
+    _ = user_id
 
     with {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix) do
       query =
         from(r in "entity_type_restrictions",
           left_join: g in "user_entity_type_grants",
-          on:
-            g.entity_type == r.entity_type and
-              g.user_id == type(^user_id, Ecto.UUID),
+          on: g.entity_type == r.entity_type,  # MUTANT M11: user condition dropped
           where: r.entity_type in type(^names, {:array, :string}) and is_nil(g.id),
           select: r.entity_type
         )

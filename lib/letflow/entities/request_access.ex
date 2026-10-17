@@ -34,11 +34,15 @@ defmodule Letflow.Entities.RequestAccess do
           map(),
           %{required(:exempt?) => boolean()}
         ) :: {:ok, RequestGuard.guard_ok()} | {:error, access_error()}
-  def check(%{user_id: user_id, prefix: prefix} = principal, kind, request, %{exempt?: _} = opts) do
+  def check(%{user_id: user_id, prefix: prefix} = principal, kind, request, %{exempt?: exempt?} = opts) do
     with {:ok, types} <- RequestGuard.request_entity_types(request, kind),
-         {:ok, denied} <- TypeAccess.denied_types(user_id, types, prefix),
+         # MUTANT M3: field guard runs before the type gate
+         {:ok, guard} <- FieldPolicy.check_request(principal, kind, request, opts),
+         # MUTANT M5: unredacted export skips the type gate
+         {:ok, denied} <-
+           (if exempt?, do: {:ok, MapSet.new()}, else: TypeAccess.denied_types(user_id, types, prefix)),
          :ok <- ensure_all_visible(types, denied, prefix) do
-      FieldPolicy.check_request(principal, kind, request, opts)
+      {:ok, guard}
     end
   end
 
