@@ -8,7 +8,7 @@
   "file": "handoffs/WF02-GH2535-SCOPED-GRANTS-S2-20261018/step-01-req-analyst.json",
   "created_at": "2026-10-17T14:28:00Z",
   "started_at": "2026-10-17T14:29:00Z",
-  "completed_at": "2026-10-17T14:48:04Z",
+  "completed_at": "2026-10-17T14:55:31Z",
   "status": "COMPLETED",
   "priority": "HIGH",
   "context": {
@@ -56,7 +56,7 @@
     ],
     "ac_count": {
       "REQ-517": 23,
-      "REQ-518": 18,
+      "REQ-518": 21,
       "REQ-519": 21
     },
     "risks": [
@@ -85,6 +85,14 @@
         "Shadow-evidence criterion ACCEPTED (7 days, >=100 requests, zero no_grant_rows/grants_unavailable); persisted per-tenant counters keep their writer in REQ-517 AC 22 (must ship earlier), REQ-519 AC 11 reads them server-side in the flip transaction; cross-referenced both ways",
         "Shadow evidence covers ONLY tenant_wide and admin-plane routes; data-path denials are proven by REQ-518 tests and the REQ-519 AC 16 suite; new REQ-519 AC 12 pins evidence_scope in the refusal body and docs (later ACs renumbered +1)",
         "REQ-519 AC 1 rewritten: every writer is REFUSED, NO-ROW (reported) or UNCHANGED (reason tested), plus a source-scan completeness test over writer call sites"
+      ],
+      "req_validator_round2": [
+        "REQ-517 AC 14: whole-word schema match (RoleScopeGrants context module never matches), both false-positive sites (identity.ex:1000-1002, tenant_admin_migration.ex:395-398) are must-pass fixtures, scan task file exempt by allowlist",
+        "Reclassification gap owned by REQ-518: new AC 18 (query/aggregate/export :filter), AC 19 (record write/import/attachments resolver), AC 20 (task routes); REQ-517 AC 17 cross-refs; REQ-519 AC 16 depends on them",
+        "REQ-517 AC 19: byte-identical claim limited to HTTP responses, shadow tests expected to change listed; AC 8 direct-SQL fixture; AC 21 attachment_link.issued audit + revoke-then-serve test; AC 22 ref now REQ-519 AC 12",
+        "REQ-518 AC 1: per-site :all justification, exam sites need threaded scope or a SECURITY-REVIEWER ruling, source scan for unjustified :all; AC 17 three verbatim sentences",
+        "CODE FINDING: no GET-by-id record route, no bulk-update route and no PATCH on records exist on main (PUT/DELETE by id, POST import/export, POST query); REQ-518 ACs 6-9 and REQ-519 AC 16 reworded",
+        "REQ-519: AC 1 states platform bindings cannot be created while on (+OQ-5); AC 8 tokens cannot flip; AC 9 lock order as built (A, tenants row, tree lock; validator order differs from scope_enforcement.ex:164-192); AC 11 partial-day rule and sixth reason role_not_held; AC 13 on->shadow reason marked D12 extension; AC 14 counts all six reasons"
       ]
     },
     "code_contradictions": [
