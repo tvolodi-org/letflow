@@ -84,6 +84,8 @@ Script outputs (option C) call the same behaviour; modules (B) never call it.
 
 ### D3. One Multi, one execution order, lock order
 
+Amended by 0061 (engine lock order is a platform invariant: for a sub-process child the ancestor group is taken after step 2 and before steps 3a/4, and the service path takes the entity-type rows before its first audit write).
+
 All lines of one node run as additional `Multi` steps of the SAME `Repo.transaction()` as the completion (new step `:entity_writes` placed after `:merge` and before `:transition`). A refusal of any line aborts the whole Multi: the task stays `pending`, no event, no record, no idempotency claim commits.
 
 **Execution order (normative, numbered; identical to the declared steps):**
