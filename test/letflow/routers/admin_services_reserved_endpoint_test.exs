@@ -132,22 +132,6 @@ defmodule Letflow.Routers.AdminServicesReservedEndpointTest do
     refute Jason.decode!(resp.resp_body)["error"] == "endpoint_url_reserved_variable"
   end
 
-  test "POST /:service_id/versions inheriting a reserved live URL -> reserved 422" do
-    sid = unique_service_id()
-    on_exit(fn -> cleanup_entry!(sid) end)
-    {:ok, _} = ServiceCatalog.register(good_attrs(sid))
-
-    {1, _} =
-      Repo.update_all(from(e in Entry, where: e.service_id == ^sid),
-        set: [endpoint_url: @reserved_url]
-      )
-
-    resp = dispatch(:post, "/#{sid}/versions", %{"version" => "2", "timeout_ms" => 6000})
-
-    assert_reserved_422(resp)
-    assert Repo.get!(Entry, sid).version == "1"
-  end
-
   defp good_attrs(sid) do
     %{
       service_id: sid,

@@ -80,5 +80,9 @@ defmodule Letflow.ServiceCatalog.Version do
     %__MODULE__{}
     |> Ecto.Changeset.cast(attrs, @castable_fields)
     |> Ecto.Changeset.validate_required(@required_fields)
+    |> Ecto.Changeset.check_constraint(:endpoint_url,
+      name: :chk_service_catalog_versions_endpoint_url_no_reserved_ref,
+      message: Letflow.ServiceCatalog.Entry.reserved_constraint_message()
+    )
   end
 end

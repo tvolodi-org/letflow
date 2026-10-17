@@ -25,7 +25,9 @@ defmodule Letflow.Definitions.ReservedReferences do
   checked in `Letflow.Scripts.Runtime.check_bindings/2`, which builds the same `reserved_reference()`.
 
   `reserved_template_names/1` exposes the same predicate over the dot-widened placeholder grammar
-  to the service-catalog `endpoint_url` refusal (GH #2623).
+  to the service-catalog `endpoint_url` refusal (GH #2623). A change to that grammar or to
+  `reserved_key?/1` must also ship a new migration replacing the catalog CHECK constraints
+  (GH #2638) and the parity test table.
 
   Callers: `Graph`'s CHK-29 (`node_references/1`) and CHK-30 (`edge_references/1`) at save, and
   `Letflow.Definitions.check_reserved_references/1` at every activation path (activate, version

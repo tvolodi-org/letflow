@@ -365,13 +365,9 @@ defmodule Letflow.Routers.AdminServices do
     end
   end
 
-  # GH #2623: the changeset carries the stable reserved-variable code on :endpoint_url.
-  defp reserved_endpoint_url?(%Ecto.Changeset{errors: errors}) do
-    Enum.any?(errors, fn
-      {:endpoint_url, {_msg, opts}} -> opts[:validation] == :endpoint_url_reserved_variable
-      _other -> false
-    end)
-  end
+  # GH #2623 / #2638: the stable reserved-variable code, from the validator or the DB CHECK.
+  defp reserved_endpoint_url?(%Ecto.Changeset{} = changeset),
+    do: Entry.reserved_endpoint_url_error?(changeset)
 
   defp maybe_put(attrs, body, body_key, attrs_key) do
     case Map.fetch(body, body_key) do

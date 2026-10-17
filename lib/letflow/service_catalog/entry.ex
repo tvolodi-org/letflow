@@ -95,6 +95,13 @@ defmodule Letflow.ServiceCatalog.Entry do
   **Reserved variable namespace (GH #2623):** `endpoint_url` may not reference the engine's
   reserved `_sys` namespace; see `check_endpoint_url_references/1`. The refusal carries
   `validation: :endpoint_url_reserved_variable`, distinct from `:endpoint_url_not_allowed`.
+
+  **Database backstop (GH #2638):** CHECK constraints
+  `chk_service_catalog_endpoint_url_no_reserved_ref` (this table) and
+  `chk_service_catalog_versions_endpoint_url_no_reserved_ref` (`service_catalog_versions`)
+  refuse the same template for any writer that skips the changeset. A violation reached through
+  a changeset surfaces as an `:endpoint_url` error with `constraint: :check`;
+  `reserved_endpoint_url_error?/1` recognises both that and the validator's form.
   """
 
   use Ecto.Schema
@@ -159,6 +166,7 @@ defmodule Letflow.ServiceCatalog.Entry do
     |> validate_length(:service_id, max: 255)
     |> validate_length(:endpoint_url, max: 2048)
     |> validate_endpoint_url()
+    |> check_endpoint_url_reserved_constraint()
     |> validate_number(:timeout_ms,
       greater_than_or_equal_to: 1,
       less_than_or_equal_to: 3_600_000
@@ -222,6 +230,7 @@ defmodule Letflow.ServiceCatalog.Entry do
     |> validate_length(:version, max: 255)
     |> validate_length(:endpoint_url, max: 2048)
     |> validate_endpoint_url()
+    |> check_endpoint_url_reserved_constraint()
     |> validate_number(:timeout_ms,
       greater_than_or_equal_to: 1,
       less_than_or_equal_to: 3_600_000
@@ -247,6 +256,8 @@ defmodule Letflow.ServiceCatalog.Entry do
   end
 
   @endpoint_url_reserved_message "must not reference the reserved engine variable namespace"
+  @live_reserved_constraint :chk_service_catalog_endpoint_url_no_reserved_ref
+  @versions_reserved_constraint :chk_service_catalog_versions_endpoint_url_no_reserved_ref
   @endpoint_url_message "must be an https URL whose host is not a private, loopback or link-local address; template placeholders are allowed only after the host"
 
   @doc """
@@ -284,6 +295,41 @@ defmodule Letflow.ServiceCatalog.Entry do
       [] -> :ok
       [_ | _] -> {:error, :endpoint_url_reserved_variable}
     end
+  end
+
+  @doc """
+  True iff the changeset carries the stable reserved-variable refusal on `:endpoint_url`: either
+  the validator's `validation: :endpoint_url_reserved_variable`, or the database CHECK's
+  `constraint: :check` with one of the two GH #2638 constraint names (`check_constraint/3` cannot
+  set `validation:`, so both forms are accepted). Pure; never inspects the URL.
+  """
+  @spec reserved_endpoint_url_error?(Ecto.Changeset.t()) :: boolean()
+  def reserved_endpoint_url_error?(%Ecto.Changeset{errors: errors}) do
+    Enum.any?(errors, fn
+      {:endpoint_url, {_msg, opts}} ->
+        opts[:validation] == :endpoint_url_reserved_variable or
+          (opts[:constraint] == :check and
+             opts[:constraint_name] in [
+               Atom.to_string(@live_reserved_constraint),
+               Atom.to_string(@versions_reserved_constraint)
+             ])
+
+      _other ->
+        false
+    end)
+  end
+
+  @doc false
+  # Shared with `Letflow.ServiceCatalog.Version.archive_changeset/1`.
+  @spec reserved_constraint_message() :: String.t()
+  def reserved_constraint_message, do: @endpoint_url_reserved_message
+
+  @spec check_endpoint_url_reserved_constraint(Ecto.Changeset.t()) :: Ecto.Changeset.t()
+  defp check_endpoint_url_reserved_constraint(changeset) do
+    check_constraint(changeset, :endpoint_url,
+      name: @live_reserved_constraint,
+      message: @endpoint_url_reserved_message
+    )
   end
 
   @spec endpoint_head(String.t()) :: {:ok, String.t()} | :error
