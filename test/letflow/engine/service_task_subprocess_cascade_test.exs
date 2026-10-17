@@ -618,7 +618,7 @@ defmodule Letflow.Engine.ServiceTaskSubprocessCascadeTest do
   end
 
   describe "child last SERVICE node with entity_writes (C2 live path)" do
-    test "cascades; the child's locks come before the parent token and projection" do
+    test "cascades; the child's projection, then the parent projection and token, then the entity-type rows, then audit" do
       base = Fx.tenant_case!("gh2648-ew")
       schema = base.schema
       Fx.define_type!(schema, "stock_move", %{})
@@ -678,8 +678,13 @@ defmodule Letflow.Engine.ServiceTaskSubprocessCascadeTest do
       parent_token = position.({"tokens", child_id})
 
       assert position.({"instance_projections", child_id}) < parent_token
-      assert position.({"instance_sequence", type_instance}) < parent_token
-      assert is_integer(first_audit) and parent_token < first_audit
+      # GH #2695: the parent group (projection, then waiting token) is now locked FIRST in the
+      # apply (before any write that UPDATEs the child's projection, the entity-write events
+      # included), so it precedes the entity-type rows; the audit chain row stays last
+      assert position.({"instance_projections", parent_id}) < parent_token
+      assert parent_token < position.({"instance_sequence", type_instance})
+      assert position.({"instance_sequence", type_instance}) < first_audit
+      assert is_integer(first_audit)
 
       assert Enum.find_index(locks, fn {table, _} -> table == "service_task_dispatches" end) <
                position.({"instance_projections", child_id})

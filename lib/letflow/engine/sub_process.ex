@@ -708,17 +708,90 @@ defmodule Letflow.Engine.SubProcess do
   (the child is not, or no longer, a sub-process child anyone is waiting
   on). Locked so a concurrent second completion attempt on the same child
   can't double-fire the parent cascade.
+
+  Lock order (GH #2695): `P_parent`, then the token. Thin delegate to
+  `lock_waiting_parent/3`.
   """
   @spec find_waiting_parent_token(Ecto.Repo.t(), Ecto.UUID.t(), String.t() | nil) ::
           {:ok, TokenRecord.t() | nil}
   def find_waiting_parent_token(repo, child_instance_id, prefix) do
-    token =
-      TokenRecord
-      |> where([t], t.waiting_child_instance_id == ^child_instance_id and t.status == :waiting)
-      |> lock("FOR UPDATE")
-      |> repo.one(prefix: prefix)
+    lock_waiting_parent(repo, child_instance_id, prefix)
+  end
 
-    {:ok, token}
+  # GH #2695: the parent side of the sub-process cascade locks the parent
+  # projection FIRST, then the waiting token -- the order cancel_instance,
+  # complete_task, Scheduler.fire_timer and ExecutionError already use.
+  # (1) unlocked read of the waiting token to learn the parent instance;
+  # (2) FOR UPDATE on that parent's projection row (a missing projection
+  # skips the lock; load_parent_context reports it as before); (3) re-select
+  # the token FOR UPDATE with the same predicate -- the re-check decides the
+  # result, so a token cancelled/advanced meanwhile yields nil. The projection
+  # lock stays held when (3) yields nil (released at commit).
+  #
+  # `mode` is `:update` (FOR UPDATE: the cascade and a completing child) or `:key_share`
+  # (FOR KEY SHARE: a CONTINUING child, which only has to be queued ahead of a parent cancel's
+  # FOR UPDATE in the same P-then-T order; key-share is compatible between siblings, so
+  # continuing siblings do not serialise on the parent).
+  @doc false
+  @spec lock_waiting_parent(
+          Ecto.Repo.t(),
+          Ecto.UUID.t(),
+          String.t() | nil,
+          :update | :key_share
+        ) :: {:ok, TokenRecord.t() | nil}
+  def lock_waiting_parent(repo, child_instance_id, prefix, mode \\ :update)
+      when mode in [:update, :key_share] do
+    waiting =
+      where(
+        TokenRecord,
+        [t],
+        t.waiting_child_instance_id == ^child_instance_id and t.status == :waiting
+      )
+
+    case repo.one(select(waiting, [t], t.instance_id), prefix: prefix) do
+      nil ->
+        {:ok, nil}
+
+      parent_instance_id ->
+        projection =
+          InstanceProjection
+          |> where([p], p.instance_id == ^parent_instance_id)
+          |> select([p], p.instance_id)
+
+        _ = projection |> lock_rows(mode) |> repo.one(prefix: prefix)
+        {:ok, waiting |> lock_rows(mode) |> repo.one(prefix: prefix)}
+    end
+  end
+
+  defp lock_rows(query, :update), do: lock(query, "FOR UPDATE")
+  defp lock_rows(query, :key_share), do: lock(query, "FOR KEY SHARE")
+
+  # GH #2695: locks the whole ancestor group (P_p, T_p, P_g, T_g, ...) of a
+  # completing sub-process child, nearest first. Speculative above the
+  # immediate parent (the parent may not complete): over-locks, never
+  # under-locks. Idempotent with the later cascade lookup.
+  @doc false
+  @spec lock_waiting_parent_chain(Ecto.Repo.t(), Ecto.UUID.t(), String.t() | nil) ::
+          {:ok, [TokenRecord.t()]}
+  def lock_waiting_parent_chain(repo, child_instance_id, prefix) do
+    {:ok, collect_waiting_parents(repo, child_instance_id, prefix, [], MapSet.new())}
+  end
+
+  # `seen` ends the walk on a repeated instance (a corrupt cycle of waiting tokens).
+  defp collect_waiting_parents(repo, instance_id, prefix, acc, seen) do
+    with false <- MapSet.member?(seen, instance_id),
+         {:ok, %TokenRecord{instance_id: parent_id} = token} <-
+           lock_waiting_parent(repo, instance_id, prefix) do
+      collect_waiting_parents(
+        repo,
+        parent_id,
+        prefix,
+        [token | acc],
+        MapSet.put(seen, instance_id)
+      )
+    else
+      _stop -> Enum.reverse(acc)
+    end
   end
 
   @doc """
