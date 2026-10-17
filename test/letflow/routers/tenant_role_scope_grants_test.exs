@@ -888,6 +888,34 @@ defmodule Letflow.Routers.TenantRoleScopeGrantsTest do
       assert conn.status == 409
       assert detail(conn) == "last_scoped_row"
       assert length(grant_row_ids(fx, ga, @admin_role)) == 1
+      assert Identity.count_tenant_wide_admins(s) == Identity.count_explicit_tenant_wide_admins(s)
+    end
+
+    test "G3 rows [tenant-wide, scoped] and no other administrator: deleting the tenant-wide row is refused (last_tenant_wide_admin) and the counted and explicit counts still agree" do
+      fx = S.tenant!("r517-g3")
+      s = fx.schema_name
+      ga = RSG.group_of!(s, @admin_role)
+      # RAW: a scoped TENANT_ADMIN group row next to the tenant-wide one (the routes refuse to
+      # create it). fx.admin is the only administrator, through the group's tenant-wide row.
+      :ok = RSG.raw_scoped_row!(s, ga, @admin_role, RSG.node!(s))
+
+      [tw_id] =
+        for r <- RSG.group_structs(s, ga), r.role == @admin_role and r.tenant_wide, do: r.id
+
+      before = rows(fx)
+      assert Identity.count_tenant_wide_admins(s) == 1
+      assert Identity.count_explicit_tenant_wide_admins(s) == 1
+
+      conn = grants(fx, :delete, "/#{tw_id}", nil)
+
+      assert conn.status == 409, conn.resp_body
+      assert detail(conn) == "last_tenant_wide_admin"
+      assert rows(fx) == before
+      assert [event] = S.entries(fx, "tenant_admin.guard_refused")
+      assert event.after_state["action"] == "revoke_tenant_admin_grant"
+      assert S.entries(fx, "grant.revoked") == []
+      assert Identity.count_tenant_wide_admins(s) == 1
+      assert Identity.count_tenant_wide_admins(s) == Identity.count_explicit_tenant_wide_admins(s)
     end
   end
 
@@ -978,17 +1006,20 @@ defmodule Letflow.Routers.TenantRoleScopeGrantsTest do
       assert S.entries(fx, "tenant_admin.guard_refused") == []
     end
 
-    test "T-Z5 a concurrent holder of lock A blocks create and delete until it is released" do
+    test "T-Z5 a concurrent holder of lock A blocks create, delete and make-tenant-wide until it is released" do
       fx = S.tenant!("r517-z5")
       s = fx.schema_name
       gid = S.rowless_group!(fx, @worker)
-      [n1, n2, n3] = for _ <- 1..3, do: RSG.node!(s)
+      [n1, n2, n3, n4] = for _ <- 1..4, do: RSG.node!(s)
       doomed = create!(fx, :group, gid, @worker, n1)
       _keep = create!(fx, :group, gid, @worker, n2)
+      widened = S.rowless_group!(fx, "PROCESS_DESIGNER")
+      _scoped = create!(fx, :group, widened, "PROCESS_DESIGNER", n4)
 
       requests = [
         fn -> create(fx, :group, gid, @worker, n3) end,
-        fn -> grants(fx, :delete, "/#{doomed["id"]}", nil) end
+        fn -> grants(fx, :delete, "/#{doomed["id"]}", nil) end,
+        fn -> make_wide(fx, :group, widened, "PROCESS_DESIGNER") end
       ]
 
       for request <- requests do
@@ -1003,7 +1034,7 @@ defmodule Letflow.Routers.TenantRoleScopeGrantsTest do
           send(holder.pid, :release)
           assert {:ok, {:error, :released}} = Task.yield(holder, 5_000)
           assert {:ok, conn} = Task.yield(task, 5_000)
-          assert conn.status in [201, 204], conn.resp_body
+          assert conn.status in [200, 201, 204], conn.resp_body
         after
           S.stop_task(task)
           S.stop_task(holder)
@@ -1110,7 +1141,9 @@ defmodule Letflow.Routers.TenantRoleScopeGrantsTest do
                 from(g in Letflow.Identity.RoleScopeGrant,
                   where: g.principal_id == ^fx.admin.id and g.role == ^@worker,
                   order_by: g.scope_node_id
-                ), prefix: s),
+                ),
+                prefix: s
+              ),
             do: r.id
 
       assert grants(fx, :delete, "/#{first}", nil).status == 204
@@ -1133,6 +1166,80 @@ defmodule Letflow.Routers.TenantRoleScopeGrantsTest do
       assert S.entries(fx, "grant.self_grant_refused") == []
       assert log =~ "grant_self_refusal_not_recorded"
       refute log =~ fx.admin.id
+    end
+
+    test "G1 tokens: a TENANT_ADMIN token creates, deletes and makes tenant-wide (credential api_token in every audit entry); a non-admin token gets the uniform 403 on all four routes" do
+      fx = S.tenant!("r517-g1")
+      s = fx.schema_name
+      owner = RSG.user!(s)
+      gid = S.rowless_group!(fx, @worker)
+      [n1, n2] = for _ <- 1..2, do: RSG.node!(s)
+
+      {:ok, %{plaintext: admin_token}} =
+        Identity.create_token(owner.id, %{roles: [@admin_role], expires_at: nil}, prefix: s)
+
+      api = fn token, method, path, body ->
+        method
+        |> Fixture.api_conn(
+          "/api/v1/tenant/role-scope-grants" <> path,
+          token,
+          fx.tenant.slug,
+          body
+        )
+        |> Fixture.dispatch_api()
+      end
+
+      first = api.(admin_token, :post, "", S.create_body(:group, gid, @worker, n1))
+      second = api.(admin_token, :post, "", S.create_body(:group, gid, @worker, n2))
+      assert first.status == 201, first.resp_body
+      assert second.status == 201, second.resp_body
+      first_id = Jason.decode!(first.resp_body)["id"]
+      second_id = Jason.decode!(second.resp_body)["id"]
+
+      assert api.(admin_token, :delete, "/#{first_id}", nil).status == 204
+      assert [revoked] = S.entries(fx, "grant.revoked")
+      assert revoked.resource_id == first_id
+      assert revoked.actor_id == owner.id
+      assert revoked.after_state["credential"] == "api_token"
+
+      wide =
+        api.(admin_token, :post, "/make-tenant-wide", %{
+          "principal_type" => "group",
+          "principal_id" => gid,
+          "role" => @worker
+        })
+
+      assert wide.status == 200, wide.resp_body
+      assert Jason.decode!(wide.resp_body)["removed_scoped_ids"] == [second_id]
+      assert [made] = S.entries(fx, "grant.made_tenant_wide")
+      assert made.after_state["credential"] == "api_token"
+      assert made.actor_id == owner.id
+
+      created = S.entries(fx, "grant.created")
+      assert length(created) == 2
+      assert Enum.all?(created, &(&1.after_state["credential"] == "api_token"))
+
+      # a token WITHOUT the administrator role: the uniform 403 on all four routes, nothing written
+      plain_owner = RSG.user!(s)
+
+      {:ok, %{plaintext: plain_token}} =
+        Identity.create_token(plain_owner.id, %{roles: [@worker], expires_at: nil}, prefix: s)
+
+      before = rows(fx)
+
+      for {method, path, body} <- [
+            {:post, "", S.create_body(:group, gid, @worker, n1)},
+            {:get, "", nil},
+            {:delete, "/#{second_id}", nil},
+            {:post, "/make-tenant-wide",
+             %{"principal_type" => "group", "principal_id" => gid, "role" => @worker}}
+          ] do
+        conn = api.(plain_token, method, path, body)
+        assert conn.status == 403, "#{method} #{path}: #{conn.resp_body}"
+        assert Jason.decode!(conn.resp_body)["detail"] == "insufficient permissions"
+      end
+
+      assert rows(fx) == before
     end
 
     test "AC 9 for tokens: a TENANT_ADMIN API token may write grants (credential api_token in the audit), but cannot widen its owner or the owner's groups" do

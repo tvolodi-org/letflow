@@ -1,0 +1,56 @@
+{
+  "handoff_id": "d2535517-0517-4c02-9e11-000000000010",
+  "run_id": "WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018",
+  "workflow_id": "WF-02",
+  "step": "10",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGN-VALIDATOR",
+  "file": "handoffs/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018/step-10-test-design-validator-2a.json",
+  "created_at": "2026-10-17T17:10:00Z",
+  "started_at": "2026-10-17T17:10:30Z",
+  "completed_at": "2026-10-17T17:25:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-517"],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "TEST-DESIGN-VALIDATOR gate for REQ-517 slice 2a (GH #2535). Static review only: no mix was run, no mutant was applied (git status clean, nothing to revert). Tree reviewed = HEAD 8f6eaa316 (the tests were committed by ORCH while this review ran; content identical to the working tree handed over)."
+    },
+    "related_handoff_ids": [
+      "d2535517-0517-4c02-9e11-000000000007",
+      "d2535517-0517-4c02-9e11-000000000008",
+      "d2535517-0517-4c02-9e11-000000000009"
+    ],
+    "artifacts_in": [
+      "test/specs/REQ-517-2a.md",
+      "handoffs/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018/step-09-test-designer-2a.json",
+      "lib/letflow/design/req517-scoped-grants-admin-plane.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018"
+  },
+  "task": {
+    "description": "Hard gate on TEST-DESIGNER's REQ-517 2a tests: every AC has a strong runnable test, no skips, isolated fixtures, mutants mapped. Read-only."
+  },
+  "result": {
+    "status": "FAIL",
+    "summary": "FAIL, route to TEST-DESIGNER for 4 small additive gaps (G1-G4); everything else passes. Static review only; the tests were never executed, so hosted CI is the first execution and the mutants MUST be measured on hosted CI by ORCH (M1, M2, M5, M9, M10, M11, M18 minimum, plus the new X1 below). PASSES (verified by reading): no @tag :skip, no TODO, no hardcoded secrets in any new or edited file; every RSG fixture function the new files call exists with the arity used; all files async: false except the pure policy-key file; every test builds a dedicated provisioned tenant (no shared state, no ordering dependence, PlatformTenant pin restored per test by the fixture); no test counts queries, so the api_tokens.last_used_at second-boundary flake (#2729) is not reachable; the lock-wait helper polls pg_stat_activity filtered by datname = current_database() (same shape as the established precedent in tenant_admin_guard_test.exs and gh2547_ta_audit_paths_test.exs, including Task.async holders), bounded to about 5 s, and every negative wait is paired with a positive release assertion; READ COMMITTED is asserted (S.isolation) in the test process and inside both racing tasks (SEC C-2 satisfied). AC COVERAGE: AC1 (one test per route and per listed code; exact seven view keys; tenant never read from path/body/query; uniform 403 incl. scoped-only TENANT_ADMIN), AC2, AC3 (T-F1..F5 incl. replay and clone), AC4 (migration_test.exs diff is +42 additions, no skip, no removed assertion; RUN it on CI, assert_raise RuntimeError propagation unverified), AC5 (T-R1..R5; M1 and M2 are killed by T-R3/T-R4 by reasoning: M1 returns {:ok, node} instead of :node_has_grants; M2 inserts on a retired node), AC6, AC7 (D-1: T-L6 sole tenant-wide row of the TENANT_ADMIN group -> 409 last_admin_binding_row, row kept, no guard_refused event, counts agree, unbind route still works; T-L6b [tw, scoped] delete tw -> 204 then deactivating the only other administrator is refused; T-L7 precedence last_scoped_row over last_admin_binding_row), AC8 function level (T-Z2 both directions, T-Z4 resource_type, the zero-row 'not refused on a phantom count' case), AC9 (user, group membership, make-tenant-wide, owner of a token and the owner's groups, credential api_token), AC10 (T-M1..M3 incl. list body form, upcase uuid, refuse_self_add truthy-string), AC11 (T-U1..U6, audit-listing F8 with the no-action-filter tripwire), AC12 core (TENANT_ADMIN api token gets 403 on the flag route and 201 on a grant create with credential api_token in the audit; platform-only PLATFORM_ADMIN refused; scoped-only refused; reason checked before the user lookup; strict body; no-op writes no event; forced audit failure rolls back), AC13 core (T-E1..E7 incl. issuer side never relaxed, flip rule untouched, allowed? flag-blind, single-writer static scan), AC14 (T-X1..X7; both verbatim sites copied from the real files by anchor, so line drift is absorbed; mutated whole-word cases), AC15 (T-RW1b function list matches the 21 public functions of role_scope_grants.ex exactly; T-RW1c; T-RW2c with positive controls and a seeded writer route as the negative control). MUTANT MAP (reasoned, not measured): M1 T-R3; M2 T-R4; M3 T-W1/T-W3; M4 T-L2; M5 T-Z1 (counted keeps the zero-row members, so the delete would return 204; T-L6b does NOT kill it); M6 T-Z4 (the refuse/4 rescue would swallow the FunctionClauseError and the [entry] pattern fails); M7 T-S2 and the token test; M8 T-W5; M9 T-P2 token test and platform-only test; M10 T-E3; M11 T-X3/X4; M12 T-U4/T-W5/T-P4; M13 T-V1; M14 T-A2; M15 T-F4; M16 T-M3; M17 T-P5/T-E4b; M18 T-L6 (it survives only if the token owner is counted; the test creates one on purpose); M20 T-U1/U2/token test. UNKILLED / WEAK: see gaps. BYTE-IDENTICAL 403 claim (T-A6/T-P2): judged low risk; both the handler (tenant_role_scope_grants.ex:53-56) and the plug path answer through Response.forbidden(conn, 'insufficient permissions') with the same fixed trace assign; if CI shows a byte difference it is a test-premise problem, not a product defect. REQUIREMENT DRIFT for ORCH: AC 9 text still says the token's 'own principal id (when distinct)'; per the coordinator ruling auth_context carries only the owner id, so that clause is untestable and RELEASE-VALIDATOR will see it as unmet unless REQ-ANALYST amends the AC text. NOTE: handoff step-09 deviations are accepted as stated (extra scope_node_id key in grant.made_tenant_wide is tolerated by T-U3 with the exact other keys; the design 3.9 counted-vs-explicit divergence follows the coordinator ruling and AC 8 as amended).",
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "implementation_written": false,
+    "classification": "TEST_DESIGN_FAIL",
+    "gaps": [
+      "G1 (AC 12, BLOCKING, test text is explicit): AC 12 requires 'a TENANT_ADMIN token creates AND DELETES a grant and the audit records credential api_token; a scoped or non-admin token still gets the uniform 403'. The token tests (service_principal_route_test T-P2 token test, tenant_role_scope_grants_test AC 9 token test) only create and list. Add to the AC 9 token test (or a new test): a TENANT_ADMIN token DELETE of a scoped row (2 rows present) and a POST /make-tenant-wide of another principal with grant.revoked / grant.made_tenant_wide after_state['credential'] == 'api_token' and actor_id == owner; and a token holding a non-admin role (PROCESS_DESIGNER) gets the uniform 403 on all four grant routes with rows unchanged.",
+      "G2 (AC 13, BLOCKING): the tokens_exceeding_owner assertion cannot tell 'live tokens that EXCEED the owner' from 'all live tokens'. In T-P1 unflag test the owner holds no roles, so both live tokens exceed and a mutant that drops the subset filter still yields 2 (the revoked token is the only discriminator). AC 13 also says 'with none records 0'. Add (a) an owner who holds a tenant-wide role (TokenMintFixture.role_holder!) with one live token within that role (not counted), one beyond it (counted) and expect exactly 1, and (b) an unflag with no exceeding token expecting 0.",
+      "G3 (AC 23 / AC 8, BLOCKING): AC 23 requires count_explicit == count_tenant_wide_admins after the refused last_tenant_wide_admin case and after a successful revoke while another explicit administrator exists. Today agreement is asserted only in T-L6 (last_admin_binding_row refusal) and T-L6b (successful revoke); the only last_tenant_wide_admin route refusal (T-Z1) is built on a direct-SQL zero-row fixture where the counts differ by design, so no refusal of that code is shown to leave the counts equal. Add the reachable anomalous-state case from the AC 8 reachability note: TENANT_ADMIN group rows [tenant-wide, scoped] (raw scoped row), no other administrator, caller holds TENANT_ADMIN through a user row; DELETE the tenant-wide row -> 409 last_tenant_wide_admin, rows unchanged, one tenant_admin.guard_refused event with action revoke_tenant_admin_grant and counted_admins 0, and assert count_tenant_wide_admins == count_explicit_tenant_wide_admins after. Also assert the agreement after the T-L7 refusal.",
+      "G4 (AC 8, lock A first, NON-BLOCKING but cheap): the held-lock test T-Z5 covers create and delete only. POST /make-tenant-wide (REVIEWER R4 changed its lock call in the last commit) has no held-lock test; add it to the `requests` list of T-Z5 (expected status 200 for a principal with a scoped row and a binding).",
+      "A1 (ELIXIR-DEV / ORCH decision, non-blocking): mix letflow.check_role_scope_grants_writers rule (iii) does not match a raw write spelled with escaped quotes in a plain string (UPDATE \\\"#{prefix}\\\".role_scope_grants). The scan test neither pins nor documents it. Either widen the qualifier alternative in the task, or state the limit in the task moduledoc AND pin it with a test that names the gap (a test titled as a known limit) so a later widening flips it knowingly.",
+      "A2 (REQ-ANALYST / ORCH, non-blocking): AC 9 token clause 'the token's own principal id (when distinct)' is unreachable by the coordinator ruling; amend the AC text to match, or RELEASE-VALIDATOR will fail it.",
+      "A3 (CI-only items for TEST-RUNNER, unverifiable statically): migration_test.exs Ecto.Migrator RuntimeError propagation and :down order; the T-F4 exact message 'role_scope_grants fk precheck: 1'; T-P7 count == 2 (consistent with audited_listing/1: uniq over the union); the pg_stat_activity waiters in T-R3 ('FOR NO KEY UPDATE'), T-R4 ('FOR SHARE'), T-Z5/T-P6 ('pg_advisory_xact_lock'); T-A6/T-P2 byte-identical 403; T-E7 file set; T-X1 real-tree scan; `mix letflow.check_async_sandbox_reachability` on the new async: true policy-key file (it is pure, no Repo)."
+    ],
+    "rework_instructions": "TEST-DESIGNER: close G1, G2, G3 (blocking) and G4; no lib/ edits. Then re-submit to TEST-DESIGN-VALIDATOR for a short re-check of those four tests only. ORCH: after the re-check, measure on hosted CI (this reviewer could not run mix and applied no mutant): M1, M2, M5, M9, M10, M11, M18 and the new mutant X1 (ServicePrincipal.tokens_exceeding_owner/2 counts all live tokens, i.e. drop the subset filter) and quote the failing test names; any mutant that survives is a further FAIL. A mutant left in the tree is a step failure: verify `git status --porcelain lib/ test/` is empty and the file re-runs green after each."
+  }
+}
