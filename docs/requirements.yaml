@@ -36513,213 +36513,370 @@ requirements:
     depends_on: []
 
   - id: REQ-517
-    title: "Core: org-scoped role grants stage 2 (decision 0051): scoped grant CRUD and admin guards (PR 2a), route plane and the stored `on` value (2b), scope-filtered data path with 404 equivalence (2c), approver rule F1 (2d), enforced-tenant writer branch (2e), the `on` flip gate (2f)"
+    title: "Core: org-scoped role grants stage 2a-2b (decision 0051): grant CRUD, guards, route plane"
     owner: ELIXIR-DEV
     status: pending
     stage: S7
     gh: 2535
-    # Source: GH #2535 (filed by letflow-2, sole filer, 2026-10-14) with ALL of its added ACs and comments, read 2026-10-17: the supervisor rulings of 2026-10-15 (admin-flagged service principal act; FK on scope_node_id; single-writer mix check; no tenant_wide rows from binding writes in an enforced tenant, the three D1 cases; zero_tenant_wide_admins as a BLOCKING flip precondition; optional platform-scope flip route), the carried-over stage-1 S10 items (comment 2026-10-16: enforced-tenant writer branch, grant.sync_suppressed, refuse deleting the last scoped row of a (principal, role), binding.pending_scope N3) and the filer's optional-item note. Decision 0051 D1-D12, Rollout 4, M2, M5, F1 (D9/Q3), T9, T12, N3. Id REQ-517 allocated by letflow-2 (sole allocator), one umbrella requirement for stage 2; the PR slices 2a-2f below are NOT separate ids.
+    # Source: GH #2535 (filed by letflow-2, sole filer, 2026-10-14) with ALL added ACs and comments, read 2026-10-17: supervisor rulings of 2026-10-15 (admin-flagged service principal act; FK on scope_node_id; single-writer mix check; no tenant_wide rows from binding writes in an enforced tenant; zero_tenant_wide_admins blocking; optional platform-scope flip route), the carried-over stage-1 items (comment 2026-10-16) and the filer's optional-item note. Decision 0051 D1, D5, D8, D11, M2, M5, T6, T9, T15. Advisor rulings (letflow-ec via the supervisor, 2026-10-17) and the REQ-VALIDATOR round-1 findings (letflow-2) are applied (revision 3). Stage 2 of GH #2535 is split into THREE requirements by letflow-2: REQ-517 (slices 2a, 2b), REQ-518 (2c-i, 2c-ii, 2d), REQ-519 (2e, 2f); all three carry gh: 2535 and the issue closes only when REQ-519 is done. Ids allocated by letflow-2 (sole allocator).
     description: >
-      Source: GH #2535; decision 0051 D1, D5, D6, D7, D8, D9, D11, D12, Rollout
-      4, M2, M5, T9, T12 and "Security review pass 2" N1/N3. Stage 2 of the
-      org-scoped role grants: scoped grants become writable, the data path and
-      the route plane are scope-filtered, and the per-tenant flag gets its
-      third value `on`. Stage 1 is REQ-497 (GH #2533: table, backfill, writers,
-      allowed?/3, flag off|shadow, N1) and the org tree is REQ-496 (GH #2530).
+      Source: GH #2535; decision 0051 D1, D5, D8, D11, M2, M5, T6, T9, T15,
+      N1. First third of stage 2 of the org-scoped role grants: scoped grants
+      become writable by an admin (2a) and every route is classified with the
+      Authorize plug enforcing the class for a tenant in `on`, plus persisted
+      shadow evidence (2b). Nothing here lets a tenant turn enforcement on;
+      that is REQ-519. Stage 1 is REQ-497 (GH #2533), the org tree is REQ-496
+      (GH #2530).
 
-      ONE requirement shipped as SIX PRs, merged in this order. Every AC below
-      is labelled [2a]..[2f] so each PR is verified on its own and is
-      mergeable and testable alone. Later PRs depend on earlier ones; no PR
-      changes behaviour of a tenant in `off` or `shadow` except where its ACs
-      say so.
+      ELIGIBILITY: REQ-497 is still `status: pending` in this file although GH
+      #2533 is CLOSED (2026-10-16); letflow-2 flips it. This requirement starts
+      once REQ-497 is `done` or letflow-2 records the GH closure as acceptance.
+      It builds on merged work: GH #2552 / PR #2594 (merge 9d95d4335: token
+      issuer, mint rules, owner_inactive status), GH #2547 (admin count and
+      lock helpers), GH #2700 / PR #2740 (merge 7af02f014: TypeAccess on
+      primary and join types), GH #2530 / REQ-496.
 
-      PR 2a  grant admin plane (no enforcement): scoped-grant CRUD routes with
-             the D11 rules, last-row refusal, zero-admin guard, self-grant
-             refusal, FK on scope_node_id, retire guard, the admin-flagged
-             service principal act, the single-writer mix check.
-      PR 2b  route plane: the DB and the pipeline accept the stored value `on`
-             (nothing can SET it yet), every route classified (D5/D11) with a
-             route-walk test, the Authorize plug enforces the declared class
-             for a tenant in `on`.
-      PR 2c  data path: scope set as a REQUIRED argument of Compiler.compile
-             and compile_aggregate (D6), 404 equivalence by one scoped lookup
-             (D7), old and new value on writes, all-or-nothing bulk and import
-             (T12).
-      PR 2d  approver rule F1 (D9/Q3) on task list, get, claim and complete.
-      PR 2e  enforced-tenant binding writers: the three D1 cases,
-             grant.sync_suppressed, binding.pending_scope (N3).
-      PR 2f  the flag value `on` is SETTABLE: flip gate with the four
-             server-side preconditions, audited ON and OFF, the end-to-end
-             enforcement test.
-
-      WHY THIS SPLIT DEVIATES FROM THE ISSUE'S GROUPING (code reality, read on
-      main 21e3950cb): (1) the flip to `on` must be the LAST PR. The public
-      entry `ScopeEnforcement.parse_mode/1` accepts only off|shadow today
-      (lib/letflow/scope_enforcement.ex:81-84) and is the only route to the
-      column, so 2b-2e can store and exercise `on` (tests set the column
-      directly) while no tenant can reach it; if the flip landed in 2a a tenant
-      could turn `on` with the data path still unfiltered, a false assurance.
-      (2) The last-scoped-row refusal (carried-over item 3) lives with the
-      delete route, so it is in 2a, not in the writer PR. (3) The issue lists
-      no PR for the route classification of D5/D11, but REQ-497 moved it here
-      ("D11 admin-plane classification of every route", out-of-scope list);
-      it is 2b. ORCH may split 2c further (compile arg and declaration vs
-      writes and bulk) only with a new id from the sole allocator.
+      TWO PRs, merged in this order; every AC is labelled [2a] or [2b] so each
+      PR is verified alone.
+      PR 2a  grant admin plane, no enforcement: the route inventory of AC 1,
+             FK on scope_node_id, retire guard, tenant-wide-vs-scoped rule,
+             last-scoped-row refusal, zero-admin guard, self-grant refusal, the
+             admin-flagged service principal act, the single-writer mix check.
+      PR 2b  route plane: every route classified (D5/D11) with a route-walk
+             test, the Authorize plug enforces the class for a tenant in `on`,
+             attachment-link routes pinned (T15), persisted per-tenant shadow
+             evidence, the DB and the pipeline accept the stored value `on`
+             (nothing can SET it yet: REQ-519 does).
 
       FACTS (read on main 21e3950cb):
       - lib/letflow/scope_enforcement.ex: `flip/4` (:130) is the only writer of
         `tenants.scope_enforcement`; `@modes [:off, :shadow]` (:45);
-        `enable_checks!/1` (:191) evaluates the three Rollout-4 facts under the
-        tenant admin lock then the scope-tree lock and refuses with all failing
-        ones; shadow -> off needs a reason; `integrity/1` (:239) reports
-        `zero_tenant_wide_admins` as an INFORMATIONAL finding (:243).
-        `Tenant` field is `Ecto.Enum [:off, :shadow]` with the DB CHECK
-        `tenants_scope_enforcement_check` (lib/letflow/identity/tenant.ex:99,176;
-        migration 20261015025332). AuthPipeline maps only :shadow
-        (lib/letflow/plugs/auth_pipeline.ex:479); Authorize only observes in
-        shadow (lib/letflow/plugs/authorize.ex:154, Api.Scope.Shadow).
-      - lib/letflow/api/scope.ex: `allowed?/3` (:99), `Principal`, `Grants`,
-        `principal_from_conn/1`, `require_tenant_wide/2` (:296) used by
-        lib/letflow/routers/tenant_scope_enforcement.ex (GET/PUT /,
-        /integrity, /token-preconditions). Its moduledoc: retired nodes are
-        NOT considered in stage 1 (#2535). Shadow evaluates every route against
-        `:tenant_wide` only: no route declares a resource scope yet.
-      - lib/letflow/identity/role_scope_grants.ex is the single writer in
-        stage 1 (tenant-wide GROUP rows only, `ensure_in_transaction!`,
-        explicit prefix). `RoleScopeGrants.Backfill` is the second file
-        (lib/letflow/identity/role_scope_grants/backfill.ex); the schema is
-        lib/letflow/identity/role_scope_grant.ex ("changeset/2 exists for
-        stage-2 CRUD"). scope_node_id has NO FK (migration
-        20261015025331_create_role_scope_grants.exs, header "deferred to stage
-        2").
-      - test/letflow/scope_node_paths/migration_test.exs:121-133 drops
-        scope_node_paths in `:down`; with an FK from role_scope_grants that
-        `:down` fails unless the order is adjusted.
-      - lib/letflow/scope_node_paths.ex: `write/2` takes {:insert|:move|:retire}
-        (:75) and has no notion of grants; retire sets `retired_at` (:256).
-        lib/mix/tasks/letflow.check_scope_node_paths_writers.ex is the
-        precedent for a static writer scan (roots lib/letflow/modules and
-        priv/modules, wired into @check_static_steps).
-      - Compiler: `compile/2` (lib/letflow/entities/query/compiler.ex:190) and
-        `compile_aggregate/2` (:752) take (request, prefix). Non-test callers
-        found by grep: lib/letflow/routers/entities.ex:1927 (query) and :2361
-        (export), the aggregate caller in the same router,
-        lib/letflow/entities/script_reads.ex:196,
-        lib/letflow/modules/exam/{anti_cheat.ex:251, session.ex:233,1477,
-        snapshot.ex:1082}, lib/mix/tasks/letflow.seed.exam_fixtures.ex:619.
-        Each must pass the new required argument explicitly.
-      - NO scope-column or tenant_wide declaration exists on an entity type or
-        in a module manifest today: lib/letflow/entities/step_writes.ex reads
-        a vacuous config seam (`:entity_writes_scope_keys`, default empty) and
-        names decision 0051 as its replacement. The 0050 org module is not in
-        lib/letflow/modules. See open question OQ-2.
-      - No task or instance row carries a scope node (grep scope_node in
-        lib/letflow and priv/repo/migrations: only the scope_node_paths and
-        role_scope_grants files). F1 needs "the task's scope node". See OQ-1.
-      - Mint: `Identity.mint_token/4` requires roles to be a subset of BOTH the
-        issuer's and the target's tenant-wide roles (lib/letflow/identity.ex
-        ~:2205-2300, step 7); there is no service-principal exception in code
-        today (grep: none). `TokenPreconditions` (lib/letflow/identity/
-        token_preconditions.ex) is the flip-blocking category (i).
-      - N1 guard: lib/letflow/identity/tenant_admin_guard.ex, shared contract
+        `parse_mode/1` (:81-84) accepts only "off" and "shadow";
+        `enable_checks!/1` (:191) runs the three Rollout-4 facts under lock A
+        then the scope-tree lock. Migration 20261015025332 adds the column
+        `scope_enforcement` (string, default "off") and the constraint
+        `tenants_scope_enforcement_check CHECK (scope_enforcement IN ('off',
+        'shadow'))`; widening it needs drop and re-create. `Tenant` field is
+        `Ecto.Enum [:off, :shadow]` (lib/letflow/identity/tenant.ex:99,176).
+        AuthPipeline maps only :shadow (lib/letflow/plugs/auth_pipeline.ex:479);
+        Authorize only observes in shadow against `:tenant_wide` for every
+        route (lib/letflow/plugs/authorize.ex:154, Api.Scope.Shadow).
+      - SHADOW TELEMETRY IS IN-MEMORY AND GLOBAL: the would-deny event
+        [:letflow, :scope, :shadow, :would_deny] feeds one ETS counter family
+        `letflow_scope_shadow_would_deny_total` labelled by `reason` only
+        (six values), no tenant label (lib/letflow/metrics/registry.ex:36-51,
+        :151-170; exposition.ex:36). It is lost on restart and cannot be read
+        per tenant: AC 22 adds a persisted per-tenant counter.
+      - lib/letflow/api/scope.ex: `allowed?/3` (:99), `principal_from_conn/1`,
+        `require_tenant_wide/2` (:296), used by
+        lib/letflow/routers/tenant_scope_enforcement.ex (GET/PUT /, /integrity,
+        /token-preconditions; the listing route exists). Its moduledoc says
+        retired nodes are not considered in stage 1.
+      - lib/letflow/identity/role_scope_grants.ex is the single WRITER of the
+        table in stage 1 (tenant-wide GROUP rows, explicit prefix, in-transaction
+        guard); second writer module `RoleScopeGrants.Backfill`
+        (lib/letflow/identity/role_scope_grants/backfill.ex), schema
+        lib/letflow/identity/role_scope_grant.ex. READERS outside them exist and
+        stay legal: lib/letflow/identity.ex:1355 (`admin_member_ta_rows/1`) and
+        :2394 (`exclude_scoped_role_names/3`) query RoleScopeGrant;
+        lib/letflow/api/scope.ex and plugs/auth_pipeline.ex mention the table;
+        lib/letflow/tenant_provisioning.ex:684-687,758 holds its migration
+        manifest entry; lib/mix/tasks/letflow.backfill_role_scope_grants.ex and
+        letflow.stamp_managed_types.ex mention it. scope_node_id has no FK today
+        (migration 20261015025331, header).
+      - Identity helpers (merged #2547): `count_tenant_wide_admins/1`
+        (identity.ex:1277), `exclude_scoped_holders/2` (:1347, its comment says
+        a zero-row binding is still counted in stage 1 and that #2535 revisits
+        it), `tenant_admin_lock_key/1` (:1375), `lock_tenant_admins!/1` (:1395).
+        Mint: `mint_token/4` (:2234), `run_mint_checks/4` (:2246), the
+        target-roles subset step is `check_roles_held/4` (:2326) (GH #2552).
+        TenantAdminGuard (lib/letflow/identity/tenant_admin_guard.ex): shared
         409 `last_tenant_wide_admin`, event `tenant_admin.guard_refused` in its
-        own transaction, `refuse/3,4` is the single writer; counting helpers
-        `Identity.count_tenant_wide_admins/1`, `lock_tenant_admins!/1`.
+        own transaction, `refuse/3,4` the single writer. TokenPreconditions
+        (lib/letflow/identity/token_preconditions.ex): three categories, only
+        `roles_exceed_owner` blocks, no owner carve-out.
+      - test/letflow/scope_node_paths/migration_test.exs:121-133 drops
+        scope_node_paths in `:down`; an FK from role_scope_grants breaks it.
+      - lib/letflow/scope_node_paths.ex: `write/2` takes {:insert|:move|:retire}
+        (:75) and knows nothing of grants; lib/mix/tasks/
+        letflow.check_scope_node_paths_writers.ex is the precedent for a static
+        scan (wired into @check_static_steps).
+      - ATTACHMENT LINKS (T15): the only link route is
+        `POST /instances/:id/attachments/:attachment_id/link` (key
+        :AttachmentLinksIssue, lib/letflow/routers/instances.ex:425; held by
+        PLATFORM_ADMIN, PROCESS_DESIGNER and others, :298), served by
+        `GET .../link-content` (:429, :AttachmentsRead, re-runs the auth
+        pipeline); verify in lib/letflow/repository/attachment_links.ex (TTL
+        300 s). Record attachment routes (lib/letflow/routers/entities.ex:
+        387-405) have no link route. Instances carry no scope node, so in 2b
+        every instance route including both link routes is `:tenant_wide`.
       - The file is stored with CRLF in the working tree (core.autocrlf true).
 
-      OUT OF SCOPE (record, do not build): (a) the `scope_node` carried by
-      HUMAN_TASKs and candidate resolution by it, roadmap W3b (but see OQ-1:
-      the READ side F1 needs); (b) escalation timers to L2 and starter
-      coverage in SoD, F2 (D10); (c) scoped integration tokens
-      (`principal_type = token` rows, 0051 D1); (d) the OPTIONAL platform-scope
-      route that flips ANOTHER tenant's scope_enforcement flag: NOT BUILT. No
-      decision record exists or is planned for it (0046 D4: a platform admin
-      does not read tenant content; 0051 M5/D12 say the flip is by a
-      tenant-wide TENANT_ADMIN or platform scope, read from the DB per request,
-      preconditions inside the flip transaction, OFF needs a mandatory reason,
-      audited as scope.enforcement_enabled / scope.enforcement_disabled, and
-      do not say which route does it). PR 2f's body MUST list it as an open
-      follow-up (AC 52); (e) org_unit write routes, the S1 subtree-move audit
-      and the 0050 D7 write lock (the org module, not core); (f) business-day
-      escalation default (D10); (g) T15 signed attachment links unless OQ-6 is
-      ruled in; (h) a scoped AuditRead (T17: accepted, tenant-wide); (i)
-      outbound webhooks scope filter (T14: accepted).
+      OUT OF SCOPE for this requirement: the data path, tasks and the flip
+      (REQ-518, REQ-519); the optional platform-scope flip route (REQ-519 AC
+      19 records it as an open follow-up; NOT built; no decision record exists
+      or is planned for it, 0046 D4, 0051 M5/D12 do not say which route flips);
+      org_unit write routes and the S1 subtree-move audit (the org module, 0050
+      D7); scoped integration tokens (0051 D1).
 
-      BLAST RADIUS: 2a adds routes, one table FK, one flag storage and refuses
-      a few previously allowed admin changes (self-add to a group, see AC 11);
-      nothing changes for a tenant that creates no scoped row. 2b adds a CHECK
-      value and a per-request branch that is dead while no tenant is `on`. 2c
-      changes the signature of two public compiler functions and every caller
-      (compile-time breakage is the intended safety). 2d adds one nullable
-      column if OQ-1 is ruled as recommended. 2e changes writer behaviour only
-      in a tenant that is `on`. 2f is the only PR that lets a tenant turn
-      enforcement on; a tenant already on `off`/`shadow` is untouched.
+      DECISION-RECORD AMENDMENT REQUIRED (letflow-2 records, additive to 0051
+      D8): new audit actions service_principal.flagged and
+      service_principal.unflagged (naming rule 1 of the D8 amendment of
+      2026-10-16). The other actions of this requirement (grant.created,
+      grant.revoked, grant.made_tenant_wide, grant.self_grant_refused) are
+      already in D8.
+
+      BLAST RADIUS: 2a adds routes, one table FK, one stored flag, one mix
+      check, and refuses one previously allowed admin act (self-add to a group,
+      AC 10); nothing changes for a tenant that creates no scoped row. 2b adds a
+      CHECK value, a per-request branch that is dead while no tenant is `on`,
+      and a small per-tenant counter table fed in batches from the shadow
+      observer.
+
+      GATES: SECURITY-REVIEWER required on both PRs (INV-1, INV-2, INV-4,
+      INV-5, INV-6, INV-7, INV-8, INV-10); REVIEWER required.
+    open_questions:
+      - "OQ-1 RESOLVED (advisor letflow-ec via the supervisor, 2026-10-17): a scoped row while a tenant_wide row exists for the (principal, role) is REFUSED with a typed 409 and never silently narrowed or widened; the admin deletes the tenant_wide row first (AC 6). Verified against 0051 D1: that delete is allowed (D1 protects only the last SCOPED row) and leaves a group-bound binding with zero rows, i.e. denied and T9 > 0 until the scoped row is added; REQ-519 AC 9 blocks the flip on it."
+      - "OQ-2 RESOLVED (advisor): the service-principal flag is an explicit audited property of the principal (a stored column written only by the flag route), never inferred from a token category, never settable by or through an API token (AC 12, 13). VERIFIED rule (0051 Rollout 4, D1 (b) and (d), M2 read in full): the flip is blocked by ANY token whose roles exceed its owner's tenant-wide roles, flagged owner or not; the exception exists only for the MINT subset check (D1 (b), M2). This reverses my first draft. 'Never applicable to user-minted API tokens' is read as: a token whose owner is not flagged never gets the exemption, whoever minted it. FINDING for the advisor: because the exemption does not reach the flip precondition, a token minted under it blocks the flip until revoked or re-minted within the owner's roles, so the exemption helps only in a tenant that is already `on`; built literally as written. Confirm or amend 0051 D1 (b)/(d)."
+      - "OQ-3 RESOLVED (advisor): T15 / attachment links are IN scope. Code check: the link route is instance-scoped and instances carry no scope node, so the 2b classification already denies a scoped-only principal both issuing and serving a link (AC 21); no extra PR and no flip blocker."
+      - "OQ-4 FINDING (not a question): count_tenant_wide_admins/1 still counts a member of a zero-row TENANT_ADMIN binding (identity.ex:1347 comment, 'revisited in #2535'). In 2a that state is reachable only by deleting the tenant_wide row of the admin binding, which AC 8 guards as 'last admin source'; REQ-519 AC 9 also blocks the flip on any zero-row binding. No change to the count is made in this requirement; stated so nobody assumes it."
+    acceptance_criteria:
+      - "1. [2a] route inventory (the ONE place that fixes the new routes; all are admin-plane, policy keys :RoleScopeGrantsRead, :RoleScopeGrantsManage and :ServicePrincipalManage, each mapped by required_permission to the existing :UsersGroupsRolesManage, no new permission atom). (a) POST /tenant/role-scope-grants, body {principal_type: 'user'|'group', principal_id, role, scope_node_id}, 201 {id, principal_type, principal_id, role, scope_node_id, tenant_wide: false, effective}; (b) GET /tenant/role-scope-grants?principal_type&principal_id&role&limit&cursor, 200 paginated list of the same item shape; (c) DELETE /tenant/role-scope-grants/:id, 204; (d) POST /tenant/role-scope-grants/make-tenant-wide, body {principal_type, principal_id, role}, 200 {id, tenant_wide: true, removed_scoped_ids: [..]}; (e) PUT /users/:id/service-principal, body {flagged: boolean, reason: string}, 200 {user_id, admin_flagged_service_principal}. Error codes (stable): 403 uniform for a caller without the permission or without the role held tenant-wide; 404 `not_found` for an unknown grant id or user; 409 `grant_exists`, `tenant_wide_row_exists`, `last_scoped_row`, `last_tenant_wide_admin`, `self_grant_refused`; 422 `invalid_role`, `invalid_principal`, `invalid_scope_node`, `no_binding`, `invalid_body`, `reason_required`. Tenant comes only from auth_context and scoped_opts (no tenant segment or body field); bodies are built field by field; mix letflow.permission_matrix --check still passes (no matrix change). One test per route and per listed code"
+      - "2. [2a] validation: `role` must be in Authorization.roles/0 and is never PLATFORM_ADMIN, and a routing-role name (a :process_routing_role binding) is `invalid_role` because a routing role never has a grant row (D9); a group principal must exist and hold a :platform_role binding of that role (`no_binding` otherwise, so no orphan row); a user principal must exist; `scope_node_id` must exist and not be retired (`invalid_scope_node`); a duplicate scoped row is `grant_exists`; an unknown or extra body key is `invalid_body`. A `user` row for a role the user does not hold through a group is accepted and returned with `effective: false` (D1: 'no effect'). No user-controlled string reaches SQL except as a bound value (INV-7). Tests per rule"
+      - "3. [2a] FK: a new tenant-scoped migration (`if prefix() do` guard; entry in TenantProvisioning's @tenant_scoped_migration_manifest) adds role_scope_grants.scope_node_id -> scope_node_paths(node_id) ON DELETE RESTRICT (constraint role_scope_grants_scope_node_id_fkey) and `foreign_key_constraint(:scope_node_id)` on RoleScopeGrant.changeset/2; it first asserts no scoped row references an unknown node and aborts otherwise (stage 1 wrote none). Tests on a populated tenant schema: an unknown node is rejected by the FK; deleting a referenced scope_node_paths row is rejected; apply and rollback work (pg_constraint assertion, absent after :down)"
+      - "4. [2a] scope_node_paths :down: test/letflow/scope_node_paths/migration_test.exs still runs its `:down` of CreateScopeNodePaths on a schema holding a scoped role_scope_grants row and passes, because the order is adjusted (FK dropped before the table, in the migration or in the test); the test is not skipped, tagged away or loosened (git diff shows no @tag :skip and no removed assertion)"
+      - "5. [2a] retire guard: `Letflow.Identity.RoleScopeGrants.references_node?(node_id, prefix)` (a READ in the allowed module) reports whether any row references the node; `ScopeNodePaths.write({:retire, id}, prefix)` calls it inside its own transaction and returns the stable error `:node_has_grants` leaving retired_at NULL when true; after the last referencing row is deleted the retire succeeds. Race: grant creation takes the node's scope_node_paths row FOR SHARE and re-checks retired_at, so a create and a retire serialize (test with a held lock: whichever runs second observes the other). A move of a referenced node is not refused (S1 belongs to the org module). Tests"
+      - "6. [2a] tenant-wide vs scoped (advisor ruling): creating a scoped row for a (principal, role) that already has a tenant_wide row is refused 409 `tenant_wide_row_exists`, writes nothing and has no 'replace' option. The admin deletes the tenant_wide row first (AC 7) and then creates the scoped row; between the two, allowed?/3 for that principal and role is {:deny, :no_grant_rows} (test). The explicit act make-tenant-wide (AC 1 (d)) is refused 409 `tenant_wide_row_exists` when the row exists; otherwise it deletes that principal's scoped rows for the role and inserts ONE tenant_wide row in one transaction (a forced rollback restores the scoped rows), audited grant.made_tenant_wide listing the removed scoped row ids. Tests"
+      - "7. [2a] last row (D1): deleting the last remaining SCOPED row of a (principal, role) is refused 409 `last_scoped_row` for a group principal (with its binding) and for a user principal alike (a user whose only row is a scoped row cannot be deleted back to the group's scope, which could be tenant-wide), unless the request is the make-tenant-wide act or the role binding itself is removed (existing cascade, unchanged). Deleting a tenant_wide row is allowed (subject to AC 8): a group principal is then denied for the role and never widened, a user principal falls back to its groups' rows; the integrity endpoint reports the zero-row group binding. A refused delete leaves the effective scope unchanged. Tests incl. allowed?/3 after each case"
+      - "8. [2a] zero-admin guard (N1, S2): creating a scoped row for, or deleting the tenant_wide row of, a principal whose TENANT_ADMIN row is the LAST counted tenant-wide admin source is refused 409 `last_tenant_wide_admin` through TenantAdminGuard (lock_tenant_admins!/1 first, count before and after, refuse only on the > 0 -> 0 transition), writing tenant_admin.guard_refused in its own transaction with the new action values `scope_tenant_admin` and `revoke_tenant_admin_grant` and the exact key set of the existing event; the same change succeeds while another counted tenant-wide admin exists. Tests per action, incl. a concurrent holder of lock_tenant_admins!/1 blocking the route until released"
+      - "9. [2a] self-grant (S2): a caller may not create, widen or make tenant-wide a grant whose principal is the caller or a group the caller belongs to; refused 409 `self_grant_refused`, no row written, audit grant.self_grant_refused in its OWN transaction after the rollback. Narrowing or deleting the caller's own row is not 'widen' (subject to AC 7, 8). Tests incl. the group-membership case"
+      - "10. [2a] membership self-add: POST /groups/:id/members refuses a caller adding THEMSELVES to a group (0051 D11) with 409 `self_grant_refused` and the same audit; adding another user is unchanged; every existing identity test passes unedited except those that add the caller to a group (listed in the PR body)"
+      - "11. [2a] grant audit: grant.created and grant.revoked (actor, principal, role, scope_node_id, before/after, UTC time, trace_id) are written in the SAME transaction as the row change (a forced audit failure rolls the row back); no token value and no IdP claim value appears. D8 amendment rule 3, for every action introduced in 2a (grant.created, grant.revoked, grant.made_tenant_wide, grant.self_grant_refused, service_principal.flagged, service_principal.unflagged): a test shows Audit.list_entries and its action filter return each without error"
+      - "12. [2a] admin-flagged service principal act (M2, issue AC): PUT /users/:id/service-principal {flagged, reason}. The flag is an explicit boolean property of the user (new column on the tenant users table, migration guarded and registered) written ONLY by this route's code path. Only a tenant-wide TENANT_ADMIN authenticated as an interactive user (credential :oidc) may call it: a scoped admin, a non-admin AND an API-token principal even holding TENANT_ADMIN each get the uniform 403; `reason` is mandatory for both flagging and unflagging (missing or blank: 422 `reason_required`, nothing written); the audit entry with actor, principal, reason and trace_id is written in the same transaction (forced audit failure rolls the flag back); the change takes lock_tenant_admins!/1 so it serializes with mint. Flagged owners appear in GET /tenant/scope-enforcement/token-preconditions as the new informational category `service_principal_owner` (owner id and token ids, never a token value)"
+      - "13. [2a] effect and rule: the flag relaxes ONLY the target-roles subset step of Identity.mint_token (`check_roles_held/4`, target side); the issuer side still applies. Tests: before the flag a mint for roles beyond the target's tenant-wide roles is refused :roles_not_held; after the flag it succeeds when the ISSUER holds those roles and is refused when the issuer does not; after unflagging it is refused again; an unflagged owner never gets the exemption whoever minted the token. The flag is never inferred: a static scan test fails if the column is written outside the flag route's module, and a test shows that successful and refused mints leave it unchanged. The flip rule stays 0051's: a token whose roles exceed its owner's tenant-wide roles remains in the BLOCKING category of TokenPreconditions even when its owner is flagged (test). Scope.allowed?/3 returns the same decision for a flagged and an unflagged user with the same rows (no scope bypass before or after the act)"
+      - "14. [2a] single writer: a new `mix letflow.check_role_scope_grants_writers`, wired into @check_static_steps so `mix letflow.check` runs it, scans lib/**/*.ex and priv/modules/** (not test/, not priv/repo/migrations/) with an explicit allowlist in the task's moduledoc: lib/letflow/identity/role_scope_grants.ex, lib/letflow/identity/role_scope_grants/backfill.ex, lib/letflow/identity/role_scope_grant.ex. It flags WRITES only, outside the allowlist: (i) a Repo.insert, insert!, insert_all, update, update!, update_all, delete, delete!, delete_all call whose argument text within the same and the next two lines names RoleScopeGrant or role_scope_grants; (ii) an Ecto.Multi insert/update/delete naming the same; (iii) raw SQL matching INSERT INTO, UPDATE or DELETE FROM followed by role_scope_grants; (iv) a struct literal %RoleScopeGrant{ or a call RoleScopeGrant.changeset(. Reads (from(g in RoleScopeGrant) with Repo.all/one/exists?/aggregate), the manifest entry and docs mentions are allowed. Tests: the real tree passes (identity.ex:1355 and :2394, scope.ex, auth_pipeline.ex, tenant_provisioning.ex and both mix tasks are clean); four violating fixture files (Repo.insert_all, Multi.delete, raw DELETE, struct literal) each fail; two read-only fixtures pass. Known limit (aliasing a schema into a variable) is stated in the moduledoc and left to REVIEWER"
+      - "15. [2a] stage-1 route-walk amended: REQ-497 AC15 (no route creates, updates or deletes a non-tenant_wide role_scope_grants row) becomes 'only the routes of AC 1 (a), (c), (d) do, and each is admin-plane'; the walk test is edited accordingly and still fails for a seeded other route (test). No route, response or authorization decision changes for a tenant with no scoped row except AC 10; the existing identity, auth pipeline and authorization_enforcement tests pass unedited otherwise"
+      - "16. [2b] stored value `on`: a migration drops and re-creates tenants_scope_enforcement_check as off|shadow|on and the Tenant enum becomes [:off, :shadow, :on]; `ScopeEnforcement.parse_mode/1` and `flip/4` STILL reject `on` (invalid_enforcement_mode through PUT, test), so no route can set it; AuthPipeline maps the column to `scope_enforcement: :on` on both the OIDC and the API-token path, read per request from the same tenants row (query counts of both paths unchanged, query-count test; a direct column change takes effect on the next request without restart). Tests set the column through a test-support helper that is not under lib/"
+      - "17. [2b] route classification (D5, D11): every route of the core and module routers is classified in exactly one of `:admin_plane`, `:tenant_wide`, `{:resolver, fun}` (scope found from the loaded resource) or `:filter` (list endpoint), declared with the route (macro option or a table, in code, never tenant data). A check-style test in the shape of authorization_enforcement_test.exs walks ALL routes (attachments, tasks, instances, modules included) and fails for an unclassified route (seeded fixture route); it also asserts every `{:resolver, _}` route has an exported resolver and lists every `:filter` route. Admin-plane includes at least :GroupsManage, :UsersManage, :UsersGroupsRolesManage, :TokensManage, :RolesManage and rebind, pending admin grants, the routes of AC 1, the scope-enforcement routes and the scope-node-paths consistency route. Routes that stay denied to scoped callers (instances, attachments, webhooks, module routes without scope-aware data) carry the default `:tenant_wide` and are listed in the PR body"
+      - "18. [2b] admin plane under `on` (table-driven, one row per admin-plane route): a caller whose TENANT_ADMIN role is held only through a scoped row (inserted directly) is refused with the unchanged uniform 403 when the tenant is `on`, and is NOT refused by this rule when the tenant is `off` or `shadow`; a tenant-wide TENANT_ADMIN passes in all three modes"
+      - "19. [2b] Authorize plug logic under `on` for the non-admin classes (distinct from AC 18's per-route table): after the unchanged coarse evaluate_access/2 allow, a `:tenant_wide` route by a principal not holding the role tenant-wide is 403 (route-level answer, no resource revealed, so no existence oracle); a route with NO classification is 403 for a non-tenant-wide principal (fail closed) and unaffected for a tenant-wide one; `{:resolver, _}` and `:filter` routes pass through to their handler (REQ-518); `:Unknown`, unmatched-route and metrics keys keep their handling; a PLATFORM_ADMIN in the platform tenant and a token principal are tenant-wide per D1. `off` and `shadow` requests are byte-identical to today (existing shadow tests unedited). allowed?/3 treats a retired resource node as {:deny, :unresolvable} for a scoped principal (T6) and allows it for a tenant-wide one; the moduledoc sentence 'Retired nodes are not considered in stage 1' is replaced. Tests"
+      - "20. [2b] DB error path (INV-8): when the grants or scope lookup raises inside the plug, the request is denied (non-2xx) and one constant log line is written, never an allow (test forces the raise)"
+      - "21. [2b] attachment links (T15): every instance attachment route, in particular POST /instances/:id/attachments/:attachment_id/link and GET .../link-content, is classified `:tenant_wide`. In an `on` tenant a scoped-only holder of a role holding AttachmentLinksIssue is refused 403 on issue, and presenting a valid link issued by a tenant-wide user is refused 403 at link-content; a tenant-wide caller is unchanged (TTL 300 s, one attachment per link). The route-walk fails if either link route is reclassified `{:resolver, _}` or `:filter` while no issue-time scoped lookup of the parent exists (0051 M7); a seeded reclassification in the test proves it"
+      - "22. [2b] persisted shadow evidence (the in-memory global metric is unchanged and not used for gating): a new tenant-schema table (no tenant_id column, 0006 D2; migration guarded and registered) holds per UTC day the count of authorized requests observed in `shadow` and the would-deny count per reason (the closed six-value set). Scope.Shadow increments ETS counters keyed by tenant prefix, day and reason; a flush process upserts them at most every 30 s and on shutdown, never on the request path and never raising into it. Shadow now evaluates the route's DECLARED class (`:tenant_wide` / admin-plane) instead of always :tenant_wide; resolver and filter routes are counted as requests only (limitation recorded in REQ-519 AC 11). Tests: a shadow request increments requests; a seeded would-deny increments its reason; the flush persists both; another tenant's counters are untouched; a flush failure does not fail the request; no tenant slug or user id appears in metric labels or logs; `off` and `on` tenants write no row. The crash residual (at most one flush interval lost, which can only make the REQ-519 gate more lenient) is documented in the moduledoc"
+      - "23. [2a][2b] each PR: mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check (incl. the AC 14 task), mix letflow.check_boundaries, mix letflow.permission_matrix --check, and the scoped mix test over test/letflow/identity*, test/letflow/routers/identity*, test/letflow/routers/onboarding*, test/letflow/plugs, test/letflow/api, test/letflow/scope_node_paths, test/letflow/scope_enforcement_test.exs, test/letflow/metrics (2b) and the new tests pass, real output quoted; mix letflow.check_requirements_registration passes with this entry"
+    depends_on: [REQ-497, REQ-496]
+
+  - id: REQ-518
+    title: "Core: org-scoped role grants stage 2c-2d (decision 0051): scoped data path, 404s, approver rule"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 2535
+    # Source: GH #2535 (second third; see REQ-517 for the full source list). Decision 0051 D6, D7, D9, D10 (F1 only), Q3, T1, T3, T4, T5, T12, T13, T16. Advisor rulings of 2026-10-17 (OQ-1 tasks.scope_node_id with no production writer; OQ-2 ScopeDeclaration from the manifest, undeclared means no data; 2c split into 2c-i and 2c-ii) and REQ-VALIDATOR round-1 findings applied (revision 3). Id allocated by letflow-2.
+    description: >
+      Source: GH #2535; decision 0051 D6, D7, D9, Q3, T12, T13. Second third of
+      stage 2: the data path is scope-filtered (2c-i), out-of-scope reads and
+      writes are indistinguishable from nonexistent ids and writes check old
+      and new value (2c-ii), and the approver rule F1 applies to tasks (2d).
+      The flag value `on` stays unsettable until REQ-519, so nothing here
+      changes a live tenant; tests drive the stored value `on` through the
+      REQ-517 test-support helper.
+
+      THREE PRs, merged in this order (2c-ii and 2d are independent after
+      2c-i); AC tags [2c-i], [2c-ii], [2d].
+      PR 2c-i   the scope set as a REQUIRED argument of Compiler.compile,
+                compile_aggregate and run_aggregate with all 9 call sites
+                migrated, ScopeDeclaration.for_type/2, predicate placement,
+                joins.
+      PR 2c-ii  404 equivalence by one scoped lookup (D7), scope checked on old
+                and new value for writes, all-or-nothing bulk and import,
+                revocation, record attachment routes.
+      PR 2d     approver rule F1 on task list, get, claim and complete, the
+                nullable tasks.scope_node_id column with NO production writer,
+                the docs/roles.md limitation text.
+
+      DEPENDS ON REQ-517 (route classification and the stored `on` value).
+      Built on merged GH #2700 / PR #2740 (merge 7af02f014: TypeAccess on the
+      primary and every join target, runs before the compiler).
+
+      FACTS (read on main 21e3950cb):
+      - `Compiler.compile/2` (lib/letflow/entities/query/compiler.ex:190),
+        `compile_aggregate/2` (:752) and `run_aggregate/2` (:799, which calls
+        compile_aggregate at :800) take (request, prefix). Call sites (9):
+        compile: lib/letflow/routers/entities.ex:1927 (query) and :2361
+        (export), lib/letflow/entities/script_reads.ex:196,
+        lib/letflow/modules/exam/anti_cheat.ex:251, session.ex:233 and :1477,
+        snapshot.ex:1082, lib/mix/tasks/letflow.seed.exam_fixtures.ex:619;
+        run_aggregate: routers/entities.ex:2178.
+      - No scope-column or tenant_wide declaration exists on an entity type or
+        in a module manifest; lib/letflow/entities/step_writes.ex reads a
+        vacuous config seam (`:entity_writes_scope_keys`, default empty) and
+        names decision 0051 as its replacement; the 0050 org module is not in
+        lib/letflow/modules. With every type undeclared, a scoped principal
+        sees no entity data in `on` (the advisor-ruled pilot state).
+      - Record attachment routes: lib/letflow/routers/entities.ex:387-405
+        (create, list, get, delete).
+      - `Tasks.resolve_principal_scope/2` (lib/letflow/tasks.ex:355) returns
+        %{user_id, group_ids, role_names} from fresh per-call queries;
+        `Tasks.get_task/2` (:266), `list_tasks/2` (:223), `claim_task/3`
+        (:432), `Engine.complete_task/3` (lib/letflow/engine.ex:2617). No task
+        or instance row carries a scope node (grep scope_node: only
+        scope_node_paths and role_scope_grants files).
+      - Task tests live at test/letflow/routers/tasks*_test.exs and
+        test/letflow/engine_complete_task_test.exs.
+      - The file is stored with CRLF in the working tree (core.autocrlf true).
+
+      OUT OF SCOPE: the production writer of tasks.scope_node_id (the
+      `scope_node` carried by HUMAN_TASKs and candidate resolution by it,
+      roadmap W3b); escalation timers to L2 and SoD starter coverage (F2,
+      D10); a business-day escalation default; scoped integration tokens;
+      scope-aware instance routes and the issue-time parent lookup for
+      attachment links (needs an instance scope node); a scoped AuditRead (T17
+      accepted); outbound webhooks scope filter (T14 accepted).
 
       GATES: SECURITY-REVIEWER required on every PR (INV-1, INV-2, INV-4,
-      INV-5, INV-6, INV-7, INV-8, INV-10); REVIEWER required. Merge order 2a,
-      2b, 2c, 2d, 2e, 2f; 2c/2d/2e are independent of each other after 2b.
-      Merge discipline: one PR per slice, CI classified before the next.
+      INV-5, INV-6, INV-7, INV-8); REVIEWER required.
     open_questions:
-      - "OQ-1 (blocks 2d): F1 needs the task's scope node, but no task or instance carries one and the issue puts the task scope_node (W3b) out of scope. Recommended: 2d adds a nullable tasks.scope_node_id column (FK to scope_node_paths, RESTRICT) READ by list/get/claim/complete, with NO production writer (W3b writes it); a NULL node is :unresolvable for a scoped principal and visible to tenant-wide holders only (0051 T13/T6). Consequence to accept: in an enforced tenant a scoped TASK_WORKER sees no task until W3b lands. If the supervisor rules otherwise (a different source of the node, or F1 deferred to W3b) the 2d ACs are re-cut; 2a-2c, 2e, 2f are unaffected."
-      - "OQ-2 (blocks 2c): where an entity type declares its ONE promoted scope column or `tenant_wide` (D6: module code or manifest, never tenant-editable definition JSON, immutable once set) is not built; 0050 D7 owns the manifest key but the org module does not exist. Recommended: 2c ships the READ side only, a core function `Letflow.Entities.ScopeDeclaration.for_type/2` returning {:column, field} | :tenant_wide | :undeclared, sourced from the module catalog manifest, with every type undeclared today; the D6 rule 'undeclared is DENIED once enforcement is on' then denies a scoped principal every entity route until a module declares. Needs a ruling that this is the intended pilot state, and who writes the first declaration (0050)."
-      - "OQ-3: grant semantics when a (principal, role) already has a tenant_wide row and an admin adds a scoped row. 0051 D1 says tenant-wide wins within a principal, so the scoped row would be inert. Recommended (AC 6): refuse with 409 `tenant_wide_row_exists`; narrowing is the explicit `replace_tenant_wide` act (delete + insert in one transaction, both audited). Also: a `user` row for a role the user does not hold through a group has no effect (D1); recommended to ACCEPT it (D1 says 'no effect', not 'refused') and return it with `effective: false`."
-      - "OQ-4: admin-flagged service principal (M2): the exempt object is the NAMED USER of a token (D1 (b)), flag stored on the user. Recommended: a tenant users column plus audited PUT/DELETE route; the flag bypasses ONLY the target-roles-subset step of mint_token (the issuer-roles step stays), tokens of flagged owners are listed in a new INFORMATIONAL category and are excluded from the BLOCKING category 'roles exceed owner' (otherwise the flag would not clear the flip precondition). Confirm the exclusion."
-      - "OQ-5 (2e): the three D1 cases decided as REFUSED in an enforced tenant: (1) routing -> platform re-creation of a binding via POST /roles, (2) a nil -> platform binding via POST /roles, both answered 409 `scope_required` with no binding and no row; (3) IdP sync into a group whose applicable row for the claimed role is tenant_wide adds NO membership (login still succeeds), emits grant.sync_suppressed when the user already holds scoped rows for that role and binding.pending_scope otherwise. Confirm 'refused' (not 'scoped') for (1)-(2) and the split of the two events in (3)."
-      - "OQ-6: T15 / M7 (scope check at attachment-link issue time) is decided in 0051 but not in the issue's ACs; recommended to leave it to the attachments requirement unless attachments become scope-aware routes in 2b/2c."
-      - "OQ-7: a refused flip to `on` is audited (the issue requires it for zero_tenant_wide_admins). Recommended: audit EVERY refused flip to `on` with the failing precondition names, event `scope.enforcement_refused` (own transaction after the rollback, like tenant_admin.guard_refused); refused off -> shadow stays unaudited as in stage 1. Also recommended: `on` is reachable only from `shadow` (off -> on refused with `shadow_required`), the machine-checkable part of Rollout 3."
-      - "OQ-8: stage label. The task text said 'stage S10 like REQ-497/498'; both carry `stage: S7` in this file (S10 appears only as the name of the stage-1 check in the GH comment). This entry uses S7; change it if the allocator wants otherwise."
+      - "OQ-1 RESOLVED (advisor letflow-ec via the supervisor, 2026-10-17): nullable tasks.scope_node_id, FK to the scope node, NO production writer; F1 is fail-closed (a scoped approver sees a task only if its scope node is in their scope; a NULL scope node is visible only to tenant-wide principals); docs/roles.md and the PR state (a) known limitation not a bug, (b) a scoped-only approver cannot complete tasks while the tenant is `on`, (c) the gap blocks the `on` flip for any tenant using scoped approvers. (a) and (b) are AC 17 here; (c) is REQ-519 AC 10, a blocking server-side precondition rather than a warning, because a warning would let a tenant lock its approvers out of every task."
+      - "OQ-2 RESOLVED (advisor): read-side ScopeDeclaration.for_type/2 from the module manifest; undeclared means NO data for a scoped principal, never tenant-wide; the required scope arg on Compiler.compile is the point of D6 and the arity change is accepted (AC 1, 4)."
+      - "OQ-3 RESOLVED (advisor): 2c is split into 2c-i and 2c-ii (this entry's PR list)."
     acceptance_criteria:
-      - "1. [2a] FK: a new tenant-scoped migration (with the `if prefix() do` guard and an entry in TenantProvisioning's @tenant_scoped_migration_manifest) adds role_scope_grants.scope_node_id -> scope_node_paths(node_id) ON DELETE RESTRICT; it first asserts that no scoped row references an unknown node and aborts otherwise (stage 1 wrote no scoped row). Tests on a populated tenant schema: a scoped row with an unknown node is rejected by the FK; deleting a referenced scope_node_paths row is rejected; the migration applies and rolls back (pg_constraint assertion for the FK, absent after :down)"
-      - "2. [2a] scope_node_paths :down: test/letflow/scope_node_paths/migration_test.exs still runs its `:down` of CreateScopeNodePaths on a schema that holds a scoped role_scope_grants row and passes, because the order is adjusted (the FK is dropped before the table, in the migration or in the test); the test is NOT skipped, tagged away or loosened (its existing assertions at the cited lines are unchanged and `git diff` shows no @tag :skip or removed assertion)"
-      - "3. [2a] retire guard: ScopeNodePaths.write({:retire, id}, prefix) returns a stable error `:node_has_grants` and leaves retired_at NULL when any role_scope_grants row references the node; after the last referencing row is deleted the retire succeeds; a move of a referenced node is not refused by this AC (S1 belongs to the org module). Tests"
-      - "4. [2a] grant routes (path chosen by the designer, proposal /api/v1/tenant/role-scope-grants): POST creates a scoped row {principal_type, principal_id, role, scope_node_id}; GET lists rows (paginated, filter by principal and role, each item {id, principal_type, principal_id, role, scope_node_id, tenant_wide, effective}); DELETE /:id removes one row. All require the tenant-scope permission :UsersGroupsRolesManage AND the role held TENANT-WIDE via Scope.require_tenant_wide/2 (0051 D11): a scoped TENANT_ADMIN (row inserted directly) and a caller without the permission each get the unchanged uniform 403 on every route; the tenant comes only from auth_context and scoped_opts (no tenant segment in the path or body); bodies are built field by field. Tests per route"
-      - "5. [2a] validation: role must be in Authorization.roles/0 and not PLATFORM_ADMIN (422 stable code), principal must exist (user or group of this tenant), scope_node_id must exist and not be retired (422), exactly one of tenant_wide|scope_node_id (the table CHECK is never the first line of defence), a duplicate scoped row is 409 `grant_exists`. No user-controlled string reaches SQL except as a bound value (INV-7). Tests per rule"
-      - "6. [2a] tenant-wide wins (OQ-3): creating a scoped row for a (principal, role) that already has a tenant_wide row is 409 `tenant_wide_row_exists`; with `replace_tenant_wide: true` the tenant_wide row is deleted and the scoped row inserted in ONE transaction (a forced rollback leaves the tenant_wide row), audited as grant.revoked plus grant.created. The explicit act `make tenant-wide` (POST on a (principal, role); deletes that principal's scoped rows for the role and inserts one tenant_wide row in one transaction) is audited grant.made_tenant_wide. Tests"
-      - "7. [2a] last row: deleting the last remaining row of a (principal, role) is refused 409 `last_scoped_row` when the principal is a group with a :platform_role binding of that role (T9 would break) or when it is the last scoped row of a principal that had scoped rows, unless the same request is the replace/make-tenant-wide act of AC 6; removing the role BINDING itself still cascades the rows (existing path, unchanged). After EVERY grant route call (success or refusal) bindings_without_row/1 returns 0 (property-style test over a sequence of calls). T9 stays 0 and no fail-open: a refused delete leaves the principal's effective scope unchanged"
-      - "8. [2a] zero-admin guard (N1, S2): creating a scoped row for, narrowing to scoped, or deleting the tenant_wide row of a principal whose TENANT_ADMIN grant is the LAST counted tenant-wide admin source is refused with the shared 409 `last_tenant_wide_admin`, using TenantAdminGuard (lock_tenant_admins!/1 first, count before and after, refuse only on the > 0 -> 0 transition) and writing tenant_admin.guard_refused in its own transaction with new action values `scope_tenant_admin` and `revoke_tenant_admin_grant` and the exact key set of the existing event; the same change succeeds when another counted tenant-wide admin exists. Tests per action, incl. a concurrent holder of lock_tenant_admins!/1 blocking the route until released"
-      - "9. [2a] self-grant (S2): a caller may not create, widen or make tenant-wide a grant whose principal is the caller or a group the caller belongs to; refused 409 `self_grant_refused`, no row written, audit grant.self_grant_refused written in its OWN transaction after the rollback (like guard_refused). Narrowing or deleting the caller's own row is not 'widen' and is allowed (subject to AC 7/8). Tests incl. the group-membership case"
-      - "10. [2a] grant audit: grant.created and grant.revoked (actor, principal, role, scope_node_id, before/after, UTC time, trace_id) are written in the SAME transaction as the row change (a forced audit failure rolls back the row); no token value and no IdP claim value appears. D8 amendment rule 3: a test shows the audit listing and the action filter return the new actions without error"
-      - "11. [2a] membership self-add: POST /groups/:id/members refuses a caller adding THEMSELVES to a group (0051 D11) with 409 `self_grant_refused` and audit grant.self_grant_refused; adding another user is unchanged and every existing identity test passes unedited except those that added the caller to a group (list them in the PR body)"
-      - "12. [2a] admin-flagged service principal act (M2, issue AC): PUT /users/:id/service-principal {reason} flags and DELETE unflags (storage: a new column on the tenant users table or a small table, designer's choice, migration guarded and registered). Only a tenant-wide TENANT_ADMIN may call it (scoped admin and other roles: uniform 403); `reason` is mandatory (missing or blank: 422, nothing written); the audit entry service_principal.flagged / service_principal.unflagged with actor, principal, reason and trace_id is written in the same transaction (forced audit failure rolls the flag back); a flagged principal appears in the flip-precondition listing (GET /tenant/scope-enforcement/token-preconditions gains an informational category `service_principal_owner`, each flagged owner and their tokens, never a token value)"
-      - "13. [2a] service principal effect and no other bypass: before the flag, mint_token for a target with roles beyond the target's tenant-wide roles is refused :roles_not_held; after the flag it succeeds (the ISSUER-roles subset step still applies and still refuses); after unflag it is refused again. A flagged principal gets no other exemption: Scope.allowed?/3 for a flagged user with scoped rows returns the same decision as for an unflagged one (test), and a token of a flagged owner is excluded from the BLOCKING category `roles_exceed_owner` of TokenPreconditions but present in the informational one (OQ-4). Tests per sentence"
-      - "14. [2a] single writer: a new `mix letflow.check_role_scope_grants_writers` fails when any file other than lib/letflow/identity/role_scope_grants.ex, its Backfill module, lib/letflow/identity/role_scope_grant.ex and priv/repo/migrations/ names the table `role_scope_grants`, the `RoleScopeGrant` schema, or issues a Repo write against it (rules and roots chosen by the designer, recorded in the task moduledoc, scanning lib/ and priv/modules); it is wired into @check_static_steps so `mix letflow.check` runs it; a test with a violating fixture file fails and a clean tree passes. The task passes on the real tree before this PR's own code is added to the allowlist, i.e. the CRUD code lives in the allowed module"
-      - "15. [2a] stage-1 route-walk amended: REQ-497 AC15 (no route creates, updates or deletes a non-tenant_wide role_scope_grants row) is replaced by 'only the routes of AC 4 and AC 6 do, and each is admin-plane'; the walk test is edited accordingly and still fails for a seeded other route (test). No route, response or authorization decision changes for a tenant with no scoped row except AC 11; the existing identity, auth pipeline and authorization_enforcement tests pass unedited otherwise"
-      - "16. [2b] stored value `on`: a new migration widens tenants_scope_enforcement_check to off|shadow|on and the Tenant enum to [:off, :shadow, :on]; `ScopeEnforcement.parse_mode/1` and `flip/4` STILL reject `on` (invalid_enforcement_mode through PUT, test), so no route can set it; AuthPipeline maps the column to `scope_enforcement: :on` for both the OIDC and the API-token path, read per request from the same tenants row (query counts of both paths unchanged, query-count test; a direct column change takes effect on the next request without restart). Tests set the column directly through a test-support helper that is not under lib/"
-      - "17. [2b] route classification (D5, D11): every route of the core and module routers is classified in exactly one of `:admin_plane`, `:tenant_wide`, `{:resolver, fun}` (scope found from the loaded resource) or `:filter` (list endpoint), declared with the route (macro option or a table the designer chooses, in code, never tenant data). A check-style test in the shape of authorization_enforcement_test.exs walks ALL routes (incl. attachments, tasks, instances, modules) and fails for an unclassified route (seeded fixture route). Admin-plane routes include at least: :GroupsManage, :UsersManage, :UsersGroupsRolesManage, :TokensManage, :RolesManage and rebind, pending admin grants, the AC 4/6/12 routes, the scope-enforcement routes, the scope-node-paths consistency route"
-      - "18. [2b] admin plane under `on`: for EACH admin-plane route, a caller whose TENANT_ADMIN role is held only through a scoped row (inserted directly) is refused with the unchanged uniform 403 when the tenant is `on`, and is NOT refused by this rule when the tenant is `off` or `shadow` (one assertion per route, table-driven). A tenant-wide TENANT_ADMIN passes in all three modes"
-      - "19. [2b] Authorize plug under `on`: after the unchanged coarse evaluate_access/2 allow, a request on a `:tenant_wide`-class or `:admin_plane` route by a principal who does not hold the role tenant-wide is answered 403 (the route-level answer reveals no resource, so no existence oracle); a route with NO classification is denied 403 for a non-tenant-wide principal (fail closed) and unaffected for a tenant-wide one; `{:resolver, _}` and `:filter` routes pass through to their handler (2c/2d). `:Unknown`, unmatched-route and metrics keys keep their existing handling. A PLATFORM_ADMIN in the platform tenant and a token principal are tenant-wide per D1 (tests). `off` and `shadow` requests are byte-identical to today (existing shadow tests unedited)"
-      - "20. [2b] allowed?/3 and retired nodes: a resource `{:node, id}` whose node is retired is `{:deny, :unresolvable}` for a scoped principal (T6) and still allowed for a tenant-wide one; the moduledoc sentence 'Retired nodes are not considered in stage 1' is replaced. Tests"
-      - "21. [2b] route-walk for `on`: the D5 test also asserts that every `{:resolver, _}` route has a resolver function exported and every `:filter` route is listed for 2c; classification of the routes that stay denied to scoped callers in stage 2 (instances, attachments, webhooks, module routes with no scope-aware data) is the default `:tenant_wide`, listed in the PR body"
-      - "22. [2c] compiler contract (D6): Compiler.compile and Compiler.compile_aggregate take the scope set as a REQUIRED argument (`:all | {:nodes, [node_id]} | :none`); compile/2 and compile_aggregate/2 no longer exist (test: function_exported?/3 false for the old arities, true for the new); every caller in the FACTS list passes it explicitly (the build fails to compile otherwise, `mix compile --warnings-as-errors` quoted); script_reads and the exam and seed callers pass `:all` with a comment naming the rule that justifies it (script principal tenant-wide only, 0051 D1/F6; system path, T14), never a value derived from the request"
-      - "23. [2c] predicate placement: for a scope-aware type the scope predicate is ANDed into the OUTERMOST WHERE before group_by, having, count, total and cursor pagination; computed server side from the principal's effective scope (tree access only through ScopeNodePaths, `%` and `_` escaped, bound parameters, INV-7); one allowed-node-set query per request. Table-driven tests with a scoped TASK_WORKER on a seeded two-subtree dataset: query rows, `total`, aggregate count/sum, group_by buckets, having, cursor page 1 and page 2, and export each return only in-scope data; a tenant-wide caller sees everything; an out-of-scope row never appears in any count. Never a post-filter: a test asserts the generated query text (or a telemetry-captured SQL) contains the predicate and that no Enum.filter on rows is applied"
-      - "24. [2c] joins: when a query joins other entity types, the predicate is applied to the primary AND to every joined scope-aware target (a left join keeps its row only with a NULL target if the target is out of scope, designer picks the SQL form; tested for one-hop and a `through` hop), so a join cannot read an out-of-scope row; TypeAccess (GH #2700) still runs first and is unchanged"
-      - "25. [2c] declaration (OQ-2): `Letflow.Entities.ScopeDeclaration.for_type/2` (or the designer's name) resolves {:column, field} | :tenant_wide | :undeclared from module code or the manifest only; a tenant-editable definition_json key named like a scope key is ignored (test); the definitions API refuses to alter a declaration (the existing managed_by rules still hold). An :undeclared type is DENIED to a scoped principal (404-equivalent, AC 26) and untouched for a tenant-wide one; a :tenant_wide master is readable by every principal that passes the coarse check (T16). The tests use a fixture module that declares a column"
-      - "26. [2c] 404 equivalence (D7, T5): for each scope-aware by-id route (GET, PATCH, DELETE of a record) an out-of-scope id and a nonexistent id return the SAME status, and a byte-identical body and header set (the headers that legitimately vary per request, such as the request id and date, are named in the test and excluded; no ETag or Last-Modified in either); the lookup is ONE query with the scope predicate in its WHERE, the allowed-node-set query runs unconditionally before it, and an Ecto-telemetry query-count test shows the same number of queries for the two cases per route. No timing assertion. List endpoints omit out-of-scope rows without a placeholder"
-      - "27. [2c] order: the scope check runs BEFORE any resource validation: an out-of-scope id with a malformed or schema-invalid body on PATCH returns the same 404 as a nonexistent id with that body (no 400/422 existence oracle), and a reference field pointing at an out-of-scope or nonexistent record gives the same error (T16). Tests"
-      - "28. [2c] writes check old AND new value (T12, M9): a PATCH that changes the scope column from an in-scope to an out-of-scope node is refused (and one from out-of-scope to in-scope is refused, since the row was not visible), POST with a scope node outside the caller's subtree and with a NULL scope (on a non-tenant_wide type) are refused; a module action that changes the scope column is covered by the same check; refusals use the 404-equivalent answer. The scope column is not writable through a field-level bypass (FieldGrants is read-side only: a test patches it with and without the field write permission)"
-      - "29. [2c] bulk and import: bulk update and :EntitiesRecordsImport check EVERY row, all-or-nothing: with one out-of-scope row (or one out-of-scope old OR new value) the whole batch is refused with ONE generic error (same code, status and body whichever row or reason failed; no per-row detail, no row count) and no row is written (database assertion). The all-valid batch succeeds. Tests for bulk update and for import"
-      - "30. [2c] revocation: revoking a grant mid-pagination makes the next cursor page apply the CURRENT scope (cursor carries no allowed set, test); the first request after a grant row is deleted or a node moved sees the new scope (T1, T3: access follows the current tree and grants, no cache)"
-      - "31. [2c] cost: the API-token path keeps its single-query shape and the OIDC path loads grants once per request (memo), query-count tests; the per-request scope work is one allowed-node-set read, not per row (D3)"
-      - "32. [2d] OQ-1 (recommended cut): a migration adds a nullable tasks.scope_node_id (FK to scope_node_paths(node_id) ON DELETE RESTRICT, registered, applies and rolls back); no production code writes it in this requirement (a test-support helper does). Tasks.get_task, list_tasks, claim_task and Engine.complete_task read it. If OQ-1 is ruled otherwise, this AC and ACs 33-36 are re-cut"
-      - "33. [2d] F1 rule (D9/Q3): a user may claim or complete a task iff the user is in the task's routing role via a group (existing check, `Tasks.resolve_principal_scope/2` is the single place groups and roles are read and is extended with the allowed node set) AND holds a TASK_WORKER grant whose subtree covers the task's scope node (via Scope.allowed?/3 with {:node, id}). Tests: (a) in routing role, TASK_WORKER grant on an ancestor of the node: allowed; (b) in routing role, grant on a sibling subtree: refused; (c) outside the routing role, grant covering the node: refused; (d) tenant-wide TASK_WORKER in the routing role: allowed; (e) a routing role is never given a grant row (POST of AC 4 with a routing-role name is 422)"
-      - "34. [2d] refusals for claim and complete are the 404-equivalent answer of D7 when the task is out of the caller's scope (same status, body, headers and query count as a nonexistent task id, query-count test) and the unchanged existing error when the caller is in scope but not in the routing role; get_task and list_tasks apply the scope (a scoped worker's task list excludes out-of-subtree and NULL-node tasks, totals exclude them) and COMPOSE with the existing task_row_scope assignment filter (intersection, test)"
-      - "35. [2d] the engine path: Engine.complete_task re-checks F1 inside its own transaction (a claim made before a grant was revoked cannot complete after the revocation; test), SoD distinct_from behaviour (REQ-463) is unchanged (existing tests unedited), and a NULL-node task is completable only by a tenant-wide holder"
-      - "36. [2d] off and shadow: with the tenant `off` or `shadow` the claim, complete, list and get behaviour is byte-identical to today (existing task tests unedited); the F1 branch is selected only by the per-request `on` flag"
-      - "37. [2e] writer branch (carried-over item 1, 0051 D1 'every binding write path'): in a tenant that is `on`, a binding write that would create a tenant_wide row is refused with the typed error `scope_required` (409) and writes NO row and NO binding; the three D1 cases (OQ-5): (1) routing -> platform re-creation after platform -> routing through POST /roles, (2) a nil -> platform binding through POST /roles, (3) IdP sync into a group whose applicable row for the claimed role is tenant_wide. Each case is tested in `shadow` (legacy behaviour unchanged: the tenant_wide group row is written, pinned by the stage-1 tests) AND in `on` (refused/suppressed as described)"
-      - "38. [2e] grant.sync_suppressed (carried-over item 2): case (3) for a user who already holds scoped rows for that role: no membership is added, login still succeeds, one audit entry grant.sync_suppressed with user, group, role and trace_id only (no IdP claim values), in the same transaction as the sync's other writes; the user's effective scope is unchanged (test)"
-      - "39. [2e] binding.pending_scope (N3, carried-over item 4): case (3) for a user with no rows for that role emits binding.pending_scope with payload EXACTLY {user, group, role, trace_id} (key-set assertion, no IdP claim value); the user is denied for the role (allowed?/3 :no_grant_rows) until an admin grants scope; ONE event per (user, role) across repeated syncs (three syncs in a row yield one entry; a second role yields a second entry; the dedup state survives a restart because it is derived from stored data, designer's mechanism)"
-      - "40. [2e] membership by an admin: POST /groups/:id/members in a tenant that is `on` audits group_member.added with the resulting effective-scope delta (role, from, to) in the same transaction (D1/D8); remove writes group_member.removed likewise. In `off`/`shadow` the entries are still written (event exists, delta is computed from tenant_wide rows). Tests"
-      - "41. [2e] T9 invariant: after every writer of AC 37-40, in every mode, bindings_without_row/1 is 0 and no tenant_wide row exists that was not created by an explicit admin act or the stage-1 backfill/legacy writer (property-style test over the writer set listed in 0051 D1 and REQ-497 AC2)"
-      - "42. [2f] `on` is settable: parse_mode/1 accepts exactly off|shadow|on (any other string incl. ON, nil, non-strings: invalid_enforcement_mode, no atom minted from input); flip/4 handles shadow -> on, on -> shadow and on -> off; same-mode request is unchanged with no audit. Only a tenant-wide TENANT_ADMIN (never a scoped admin, never a non-admin) can flip; the mode is read from the DB per request"
-      - "43. [2f] preconditions inside the flip transaction (D12, Rollout 4), refusing with EVERY failing one and writing no flag change: bindings without a row (T9) > 0; org consistency check not ok; a token whose roles exceed its owner's tenant-wide roles (flagged-service-principal owners excluded per AC 13); AND zero active tenant-wide TENANT_ADMINs (BLOCKING, stable code `zero_tenant_wide_admins`, issue AC). One test per precondition; test: a tenant with zero tenant-wide admins gets the flip refused, after an admin is bound the same flip succeeds. The integrity endpoint reports zero_tenant_wide_admins as `blocking` for the `on` target (it stays informational for off -> shadow, whose gate is unchanged)"
-      - "44. [2f] shadow first (OQ-7): a flip off -> on is refused `shadow_required` (writes nothing); shadow -> on needs the four preconditions"
-      - "45. [2f] audit: shadow -> on writes scope.enforcement_enabled and any flip away from `on` writes scope.enforcement_disabled, each in the same transaction as the flag change, with before/after mode, actor, trace_id and the precondition counts; on -> off AND on -> shadow require a mandatory reason (missing or blank: reason_required, nothing written), stored in the audit entry; a forced audit failure rolls the flip back"
-      - "46. [2f] refused-flip audit (issue AC, OQ-7): every refused flip to `on` writes scope.enforcement_refused in its OWN transaction after the rollback with the failing precondition names, actor and trace_id and no flag change; the zero_tenant_wide_admins refusal returns the stable code and is audited (test)"
-      - "47. [2f] end to end under `on`, one suite, real HTTP and real database: a scoped TASK_WORKER sees only its subtree through query, aggregate, export and cursor pages with totals excluding other rows; an out-of-scope by-id read is indistinguishable from a nonexistent id; a PATCH moving a record out of scope and a bulk or import with one out-of-scope row are refused; a scoped approver outside the node's subtree or outside the routing role cannot claim or complete; a scoped TENANT_ADMIN is refused on the admin plane; a tenant-wide user and a token are unaffected; a tenant that flips back to `off` (with a reason) returns to today's behaviour. This is the acceptance test of the issue's first six ACs"
-      - "48. [2f] fail-closed and no fail-open (T9): in `on`, a principal with a binding but zero rows is denied (allowed?/3 :no_grant_rows) and gets the 404-equivalent answer on data routes; removing a user's last scoped row is refused (AC 7) and retiring a referenced node is refused (AC 3), so neither path can make a user tenant-wide"
-      - "49. [2f] no route can create a tenant_wide row except the explicit admin act (issue AC, 0051 D1): the route-walk of AC 15 now also asserts, in an `on` tenant, that every writer of AC 37 and every other route creating a role_scope_grants row either refuses or is the AC 6 make-tenant-wide act, and an IdP sync after enforcement writes no row and emits binding.pending_scope"
-      - "50. [2f] M5: the flag is stored in the DB and is NOT settable through the generic entities or tenant_config API (test: a PUT/PATCH of the same key through both is refused or ignored and the column is unchanged)"
-      - "51. [2f] SECURITY: all stage-2 routes and plugs keep INV-1 (tenant from auth only), INV-2 (response shaping field by field), INV-4 (no token value, hash, prefix or IdP claim in audit, telemetry or logs; captured-log assertion for the enforcement and shadow paths) and INV-8 (a DB error in the scope lookup denies, never allows: a test forces the lookup to raise and asserts a non-200 and a logged constant line)"
-      - "52. [2f] open follow-up: the platform-scope route to flip ANOTHER tenant's flag is NOT built; the PR body of 2f lists it as an open follow-up (needs a decision record first; 0046 D4, 0051 M5). A grep of lib/ for a platform-scope policy key that can call ScopeEnforcement.flip/4 returns none (test or recorded command output)"
-      - "53. [2a][2b][2c][2d][2e][2f] each PR: mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check (incl. the new writers task), mix letflow.check_boundaries, the scoped mix test over test/letflow/identity*, test/letflow/routers/identity*, test/letflow/routers/entities*, test/letflow/entities, test/letflow/plugs, test/letflow/api, test/letflow/scope_node_paths, test/letflow/tasks*, test/letflow/engine (2d only) and the new tests pass, real output quoted; the PR carries its own AC tags and mix letflow.check_requirements_registration passes with this entry"
-    depends_on: [REQ-497, REQ-496]
+      - "1. [2c-i] compiler contract (D6): Compiler.compile, Compiler.compile_aggregate and Compiler.run_aggregate take the scope set as a REQUIRED argument (`:all | {:nodes, [node_id]} | :none`); the two-argument forms no longer exist (test: function_exported?/3 false for the old arities, true for the new, for all three functions); all 9 call sites of the FACTS list pass it explicitly (the build fails otherwise, `mix compile --warnings-as-errors` quoted); script_reads and the exam and seed callers pass `:all` with a comment naming the rule (script principal tenant-wide only, 0051 D1/F6; system path, T14), never a value derived from the request; the two router callers derive it from the caller's effective scope (tenant-wide holder or token principal: `:all`; scoped: `{:nodes, ids}`; no applicable row: `:none`)"
+      - "2. [2c-i] predicate placement: for a scope-aware type the predicate is ANDed into the OUTERMOST WHERE before group_by, having, count, total and cursor pagination; computed server side from the principal's effective scope (tree access only through ScopeNodePaths, `%` and `_` escaped, bound parameters, INV-7); one allowed-node-set read per request. Table-driven tests (a fixture module declaring a scope column, AC 4) with a scoped TASK_WORKER on a two-subtree dataset: query rows, `total`, aggregate count/sum, group_by buckets, having, cursor page 1 and page 2, and export each return only in-scope data; a tenant-wide caller sees everything; an out-of-scope row never enters any count. Not a post-filter: an Ecto-telemetry capture of the executed SQL asserts that the data query, the count/total query and the aggregate query each contain the scope predicate with bound parameters. Export reuses the compiled query (no second code path)"
+      - "3. [2c-i] joins: when a query joins other entity types, the predicate applies to the primary AND to every joined scope-aware target (a left join keeps its row with a NULL target when the target is out of scope; SQL form is the designer's; tested for a one-hop and a `through` hop), so a join cannot read an out-of-scope row; TypeAccess (GH #2700) still runs first and is unchanged"
+      - "4. [2c-i] declaration (advisor ruling): `Letflow.Entities.ScopeDeclaration.for_type/2` resolves {:column, field} | :tenant_wide | :undeclared from module code or the manifest only; a tenant-editable definition_json key named like a scope key is ignored (test); the definitions API cannot alter a declaration (managed_by rules still hold). UNDECLARED means NO data for a scoped principal and never tenant-wide: the same undeclared type gives a scoped principal 404 on by-id and an empty page with total 0 on query, aggregate and export, and gives a tenant-wide caller full data (one test per path, same type); a :tenant_wide master is readable by every principal that passes the coarse check (T16). The declared-column tests use a fixture module under test/support/modules"
+      - "5. [2c-i] cost (D3): re-assertion under the new scope-set computation of the grants-load AC of REQ-497 (grant loading and the request memo already exist in auth_pipeline.ex): the API-token path keeps its single-query shape, the OIDC path loads grants once per request, and the per-request scope work is one allowed-node-set read, not per row (query-count tests)"
+      - "6. [2c-ii] 404 equivalence (D7, T5): for each scope-aware by-id route (GET, PATCH, DELETE of a record) an out-of-scope id and a nonexistent id return the SAME status and a byte-identical body and header set (headers that legitimately vary per request, request id and date, are named in the test and excluded; no ETag or Last-Modified in either); the lookup is ONE query with the scope predicate in its WHERE, the allowed-node-set read runs unconditionally before it, and an Ecto-telemetry query-count test shows the same number of queries for the two cases per route. No timing assertion. List endpoints omit out-of-scope rows with no placeholder"
+      - "7. [2c-ii] order: the scope check runs BEFORE any resource validation: an out-of-scope id with a malformed or schema-invalid PATCH body returns the same 404 as a nonexistent id with that body (no 400/422 existence oracle), and a reference field pointing at an out-of-scope or nonexistent record gives the same error (T16). Tests"
+      - "8. [2c-ii] writes check old AND new value (T12, M9): a PATCH that moves a record's scope column from an in-scope node to an out-of-scope node is refused, and a PATCH touching a row whose old value is out of scope is refused (both 404-equivalent); POST with a scope node outside the caller's subtree and with a NULL scope on a non-tenant_wide type are refused; a module action that changes the scope column is covered by the same check. The scope column is not writable through a field-level bypass (a test patches it with and without the field write permission)"
+      - "9. [2c-ii] bulk and import: bulk update and :EntitiesRecordsImport check EVERY row, all-or-nothing: with one out-of-scope row (or one out-of-scope old OR new value) the whole batch is refused with ONE generic error (same code, status and body whichever row or reason failed; no per-row detail, no row count) and no row is written (database assertion). The all-valid batch succeeds. Tests for bulk update and for import"
+      - "10. [2c-ii] revocation (T1, T3): revoking a grant mid-pagination makes the next cursor page apply the CURRENT scope (the cursor carries no allowed set, test); the first request after a grant row is deleted or a node is moved sees the new scope (no cache)"
+      - "11. [2c-ii] record attachments: the record attachment routes (routers/entities.ex:387-405: create, list, get, delete) resolve scope from the PARENT record and get the AC 6/7 treatment: an out-of-scope parent and a nonexistent parent give an identical response and query count per route, and a scoped caller cannot attach to, list, read or delete an attachment of an out-of-scope record. Tests per route"
+      - "12. [2d] column: a migration adds a nullable tasks.scope_node_id (FK to scope_node_paths(node_id) ON DELETE RESTRICT; guarded, registered, applies and rolls back); no production code writes it (a test-support helper does; a source-scan test over lib/ asserts no writer). Tasks.get_task, list_tasks, claim_task and Engine.complete_task read it"
+      - "13. [2d] F1 rule (D9/Q3), fail closed: a user may see, claim or complete a task iff the user is in the task's routing role via a group (the existing check; Tasks.resolve_principal_scope/2 stays the single place groups and roles are read and is extended with the allowed node set) AND holds a TASK_WORKER grant whose subtree covers the task's scope node (Scope.allowed?/3 with {:node, id}); a NULL scope node is visible and actionable only to tenant-wide principals. Tests: (a) routing role plus TASK_WORKER grant on an ancestor of the node: allowed; (b) grant on a sibling subtree: refused; (c) outside the routing role, grant covering the node: refused; (d) tenant-wide TASK_WORKER in the routing role: allowed; (e) NULL-node task: refused for the scoped worker, allowed for the tenant-wide one. Task scope nodes are set by the test-support helper"
+      - "14. [2d] refusals: claim and complete on a task outside the caller's scope answer the 404-equivalent of D7 (same status, body, headers and query count as a nonexistent task id, query-count test); the unchanged existing error stays for a caller in scope but outside the routing role; get_task and list_tasks apply the scope (a scoped worker's list excludes out-of-subtree and NULL-node tasks and totals exclude them) and COMPOSE with the existing task_row_scope assignment filter (intersection, test)"
+      - "15. [2d] engine path: Engine.complete_task re-checks F1 inside its own transaction (a claim made before a grant was revoked cannot complete after the revocation; test); SoD distinct_from behaviour (REQ-463) is unchanged (existing tests unedited)"
+      - "16. [2d] off and shadow: with the tenant `off` or `shadow` the claim, complete, list and get behaviour is byte-identical to today (existing task tests unedited); the F1 branch is selected only by the per-request `on` flag"
+      - "17. [2d] docs/roles.md (TASK_WORKER / approver text) and the PR body state: (a) tasks carry no scope node until W3b, so this is a KNOWN LIMITATION of stage 2, not a bug; (b) a scoped-only approver cannot see, claim or complete any task while the tenant is `on`; (c) this gap blocks the `on` flip for any tenant using scoped approvers (REQ-519 AC 10) until the W3b writer lands. A source-scan test asserts the three statements exist in docs/roles.md"
+      - "18. [2c-i][2c-ii][2d] each PR: mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check, mix letflow.check_boundaries, and the scoped mix test over test/letflow/routers/entities*, test/letflow/entities, test/letflow/modules (2c-i call sites), test/letflow/plugs, test/letflow/api, test/letflow/routers/tasks*_test.exs, test/letflow/engine_complete_task_test.exs (2d) and the new tests pass, real output quoted; mix letflow.check_requirements_registration passes with this entry"
+    depends_on: [REQ-517]
+
+  - id: REQ-519
+    title: "Core: org-scoped role grants stage 2e-2f (decision 0051): enforced-tenant writers, flag `on`"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 2535
+    # Source: GH #2535 (third third; see REQ-517 for the full source list), incl. the carried-over stage-1 items (enforced-tenant writer branch, grant.sync_suppressed, binding.pending_scope N3) and the zero_tenant_wide_admins blocking precondition. Decision 0051 D1, D8, D12, M3, M5, Rollout 3 and 4, N3. Advisor rulings of 2026-10-17 (OQ-5 refuse with an audited typed error, OQ-7 shadow-evidence gate, OQ-1 scoped-approver blocker) and REQ-VALIDATOR round-1 findings applied (revision 3). Id allocated by letflow-2. The issue GH #2535 closes when this requirement is done.
+    description: >
+      Source: GH #2535; decision 0051 D1, D8, D12, M3, M5, Rollout 3 and 4,
+      N3. Last third of stage 2: binding writers stop creating tenant_wide rows
+      in a tenant that is `on` (2e), then the flag value `on` becomes settable
+      through a server-side gate (2f). 2f is the only PR in all of stage 2 that
+      lets a tenant turn enforcement on, which is why it is last.
+
+      TWO PRs, merged 2e then 2f; AC tags [2e], [2f].
+      PR 2e  enforced-tenant writer branch: a per-writer table, the three D1
+             cases plus two repair paths found in code, grant.sync_suppressed,
+             binding.pending_scope, admin membership audit with the
+             effective-scope delta.
+      PR 2f  `on` settable: flip gate (T9, org consistency, tokens, blocking
+             zero_tenant_wide_admins, scoped approvers, shadow evidence),
+             audited ON, OFF and refused flips, the end-to-end test.
+
+      DEPENDS ON REQ-517 (stored `on`, route plane, shadow evidence table, flag
+      route) and REQ-518 (data path and F1, so that `on` is real when it can be
+      turned on).
+
+      FACTS (read on main 21e3950cb):
+      - Binding writers call `RoleScopeGrants.reconcile_binding!/3`
+        (lib/letflow/identity/role_scope_grants.ex:73): role_registry.ex:304
+        (platform-role seeding, repair), :534 (upsert_role new binding nil ->
+        P), :565 (upsert_role unchanged, repair), :576 (upsert_role kind
+        change), :789 (rebind_role); tenant_admin_migration.ex:349 (TENANT_ADMIN
+        repair) and :398 (PLATFORM_ADMIN removal). The unconditional tenant-wide
+        insert is `ensure_tenant_wide_group_row!/3` (:113) for `nil -> P` and
+        `not P -> P`; `repair_group_row!/3` (:148) inserts a tenant-wide row
+        when the binding has no row at all; `move_group_rows!/4` (:187) calls
+        repair when no row moved. `RoleScopeGrants.Backfill.run/1` (via mix
+        letflow.backfill_role_scope_grants) repairs missing rows. Membership
+        writers: Identity.add_group_member/3, remove_group_member/3,
+        sync_role_claims_from_token/3 (identity.ex:1447), PendingAdminGrants.
+        bind_on_login/5; they write no row (the group row covers the role).
+      - The three D1 cases (0051 D1; the 1a design section 10 item 1b-2),
+        verified against the code above: (1) routing -> platform re-creation
+        (`not P -> P`), (2) `nil -> P`, (3) IdP sync into a group whose
+        applicable row is tenant_wide. CODE FINDING beyond D1's list: the
+        repair paths (`repair_group_row!/3` on an unchanged binding,
+        `move_group_rows!/4` with zero rows moved, seeding, TenantAdminMigration,
+        Backfill) would also insert a tenant_wide row into a zero-row binding
+        of an `on` tenant, a silent widening; AC 1 handles them as cases (4)
+        and (5).
+      - ScopeEnforcement (lib/letflow/scope_enforcement.ex): `flip/4` :130,
+        `@modes [:off, :shadow]` :45, `parse_mode/1` :81-84,
+        `enable_checks!/1` :191, `integrity/1` :239 (finding
+        `zero_tenant_wide_admins`, informational today, :243), router
+        lib/letflow/routers/tenant_scope_enforcement.ex (PUT /).
+      - 0051 D12 lists THREE Rollout-4 preconditions (T9, org consistency,
+        tokens) plus the reason for OFF; the four extra gates below go beyond
+        it (see the amendment note).
+      - Lock order: lock A (`Identity.lock_tenant_admins!/1`, identity.ex:1395)
+        then the tenants row, as in flip/4.
+      - The file is stored with CRLF in the working tree (core.autocrlf true).
+
+      OUT OF SCOPE: the OPTIONAL platform-scope route that flips ANOTHER
+      tenant's scope_enforcement flag: NOT BUILT. No decision record exists or
+      is planned for it (0046 D4: a platform admin does not read tenant
+      content; 0051 M5/D12 say the flip is by a tenant-wide TENANT_ADMIN or
+      platform scope, read from the DB per request, preconditions inside the
+      flip transaction, OFF needs a mandatory reason, audited as
+      scope.enforcement_enabled / scope.enforcement_disabled, and do not say
+      which route does it). The 2f PR body lists it as an open follow-up (AC
+      19). Also out: the W3b writer of tasks.scope_node_id (the scoped-approver
+      blocker, AC 10, is removed by the requirement that ships it).
+
+      DECISION-RECORD AMENDMENT REQUIRED (letflow-2 records; additive): 0051
+      D12 gains (a) a fourth blocking precondition `zero_tenant_wide_admins`
+      (issue AC, supervisor ruling 2026-10-15), (b) a fifth
+      `scoped_approvers_without_task_scope` (advisor 2026-10-17), (c)
+      `shadow_required` (the flip to `on` only from `shadow`) and the
+      shadow-evidence gate (7 days, 100 requests, zero blocking would-deny:
+      refines Rollout 3 'at least one UAT cycle'), and (d) the audit action
+      `scope.enforcement_refused`; 0051 D8 gains `binding.refused` (and keeps
+      binding.pending_scope, grant.sync_suppressed, group_member.added/removed
+      already listed). Build proceeds on the supervisor's and advisor's
+      rulings; the record edit is letflow-2's.
+
+      BLAST RADIUS: 2e changes writer behaviour only in a tenant whose stored
+      mode is `on`, which no tenant can reach before 2f. 2f makes `on`
+      reachable.
+
+      GATES: SECURITY-REVIEWER required on both PRs (INV-1, INV-2, INV-4,
+      INV-5, INV-6, INV-8, INV-10); REVIEWER required.
+    open_questions:
+      - "OQ-1 RESOLVED (advisor letflow-ec via the supervisor, 2026-10-17): the 3 D1 cases are refused with a typed error and the refusal is audited, no silent fallback on an enforced tenant. Verified against 0051 D1 and the code (FACTS). Cases (1) and (2) are refused with 409 `scope_required`. Case (3) cannot refuse a login, so it is SUPPRESSED: no membership is added, the sync returns a typed suppressed result and audits (grant.sync_suppressed for a user who already holds scoped rows for the role, binding.pending_scope otherwise). The first-draft reason code `no_grant_rows` was wrong for it: with no membership the user does not hold the role through a group, so the coarse check denies (403) and allowed?/3 returns :role_not_held (AC 2, 3). Two further repair paths are added as cases (4) and (5) (code finding)."
+      - "OQ-2 RESOLVED (advisor): audit every refused flip to `on` with the failing preconditions; require `shadow` for an observed period with zero unexplained would-deny events, enforced server-side in the flip transaction. Concrete criterion built (AC 11), proposed for the advisor's confirmation: COUNTED per tenant and UTC day from the persisted counter table of REQ-517 AC 22 (the existing metric letflow_scope_shadow_would_deny_total is an in-memory global counter with a `reason` label only, so it needed persistence); WINDOW: continuously in `shadow` for at least :scope_shadow_min_days (default 7, floor 1) from the latest audited transition into shadow, with at least :scope_shadow_min_requests (default 100) observed requests in the trailing window; UNEXPLAINED would-deny = reason `no_grant_rows` or `grants_unavailable` (a binding without a row, or a grants-load failure: defects), required to be zero in the trailing window; `out_of_scope`, `not_tenant_wide` and `unresolvable` are the expected effect of scoping, reported with counts, not blocking. Limitations to accept: shadow evaluates only `:tenant_wide` and admin-plane routes, not resolver or filter routes, so the evidence does not cover data-path denials; a crash loses at most one flush interval of counters, which only makes the gate more lenient."
+      - "OQ-3 RESOLVED (advisor): scoped approvers block the flip (AC 10), as a server-side precondition, not a warning."
+      - "OQ-4 FINDING (carried from REQ-517 OQ-2): 0051 does not exempt a service principal's tokens from the token precondition (AC 9 follows the text), so the M2 exemption helps only in a tenant already `on`. Confirm or amend 0051 D1 (b)/(d)."
+    acceptance_criteria:
+      - "1. [2e] writer table, tested per row. In a tenant whose stored mode is `on` (REQ-517 test-support helper), under lock A (the mode is read inside the writer transaction after lock_tenant_admins!/1): (a) upsert_role new binding nil -> platform (role_registry.ex:534) and (b) upsert_role kind change routing -> platform, including re-creation after platform -> routing (:576): REFUSED 409 `scope_required`, no binding and no row, audit `binding.refused` (actor, role, group, case, trace_id) in its own transaction after the rollback; (c) the repair paths, case (4): upsert_role unchanged (:565), platform-role seeding (:304), TenantAdminMigration repair (tenant_admin_migration.ex:349) and Backfill.run insert NO row (the binding stays zero-row and denied, reported by the T9 query and the integrity endpoint; Backfill reports the tenant as `skipped_enforced`); (d) rebind_role (:789), case (5): rows move with the binding unchanged, and when no row moves no tenant_wide row is inserted; (e) UNCHANGED, with the reason asserted by a test: P -> routing and P -> nil removals and delete_group (removal never widens), PendingAdminGrants.bind_on_login (the 0048 explicit audited tenant-wide admin act joins the TENANT_ADMIN group), add_group_member/remove_group_member (membership into a group whose rows are decided by AC 4). In `off` and `shadow` every row of this table behaves exactly as today (the stage-1 tests T-W1..T-W14 pass unedited)"
+      - "2. [2e] case (3), grant.sync_suppressed: IdP sync (sync_role_claims_from_token/3) in an `on` tenant into a group whose applicable row for the claimed role is tenant_wide, for a user who already holds scoped rows for that role, SUPPRESSED not refused: no membership is added, login still succeeds, the sync returns a typed suppressed result, ONE audit entry grant.sync_suppressed with user, group, role and trace_id only (no IdP claim values) is written in the same transaction as the sync's other writes, and the user's effective scope is unchanged. In `shadow` the legacy membership is added (unchanged, test)"
+      - "3. [2e] case (3), binding.pending_scope (N3): the same sync for a user with NO rows for that role adds no membership and emits binding.pending_scope with payload EXACTLY {user, group, role, trace_id} (key-set assertion, no IdP claim value). Because no membership was added the user does not hold the role: list_effective_role_names/2 omits it, the coarse check answers the existing 403 and allowed?/3 returns {:deny, :role_not_held} (tests; not :no_grant_rows). Remedy asserted: after an admin adds the user to a group whose rows for the role are scoped (AC 4) the user holds exactly that scope. ONE event per (user, role) across repeated syncs (three syncs in a row yield one entry; a second role yields a second entry); the dedup is derived from stored data so it survives a restart"
+      - "4. [2e] admin membership: POST /groups/:id/members and DELETE /groups/:id/members/:user_id write group_member.added / group_member.removed with the resulting effective-scope delta (role, from, to) in the same transaction (D1/D8), in every mode. Tests"
+      - "5. [2e] invariant, in every mode, after every writer of AC 1-4 (property-style test over the writer set of 0051 D1 and REQ-497 AC2): no tenant_wide row exists that was not created by the stage-1 backfill, a stage-1 legacy writer in a tenant that is not `on`, or the explicit make-tenant-wide act (REQ-517 AC 1 (d)); in an `on` tenant no writer creates a tenant_wide row. This is the issue AC 'no route can create a tenant_wide row except the explicit admin act'"
+      - "6. [2e] concurrency: a flip to `on` running concurrently with a binding write serializes on lock A: either the binding and its row were written before the flip, or the writer sees `on` and refuses (test with a held lock)"
+      - "7. [2e] D8 amendment rule 3 for the actions introduced or first emitted in 2e (binding.refused, grant.sync_suppressed, binding.pending_scope, group_member.added, group_member.removed): a test shows Audit.list_entries and its action filter return each without error; no token value, hash or IdP claim value appears in any of them"
+      - "8. [2f] `on` is settable and the flip has one entry: parse_mode/1 accepts exactly off|shadow|on (any other string incl. ON, nil, non-strings: invalid_enforcement_mode, no atom minted from input); flip/4 handles shadow -> on, on -> shadow and on -> off; off -> on is refused `shadow_required`; a same-mode request is unchanged with no audit. Only a tenant-wide TENANT_ADMIN (never a scoped admin, never a non-admin) can flip; the mode is read from the DB per request and is NOT settable through the generic entities or tenant_config API (test: a PUT/PATCH of the same key through both leaves the column unchanged). An ExUnit source scan (test/letflow/scope_enforcement_flip_authority_test.exs) asserts that the only caller of ScopeEnforcement.flip( under lib/ is lib/letflow/routers/tenant_scope_enforcement.ex, that no other module updates tenants.scope_enforcement, and that :ScopeEnforcementManage maps to a tenant-scope permission (Authorization.permission_scope/1 == :tenant), so no platform-scope key can flip"
+      - "9. [2f] preconditions inside the flip transaction (D12, Rollout 4 plus the supervisor's ruling), refusing with EVERY failing one, writing no flag change: bindings without a grant row (T9) > 0, which includes a group left with zero rows by REQ-517 AC 7; org consistency check not ok; a token whose roles exceed its owner's tenant-wide roles (flagged owner or not, REQ-517 AC 13); AND zero active tenant-wide TENANT_ADMINs (BLOCKING, stable code `zero_tenant_wide_admins`, counted by Identity.count_tenant_wide_admins/1). One test per precondition; a tenant with zero tenant-wide admins gets the flip refused, after an admin is bound the same flip succeeds. The integrity endpoint reports zero_tenant_wide_admins as `blocking` for the `on` target and stays informational for off -> shadow, whose gate is unchanged"
+      - "10. [2f] scoped-approver blocker (advisor ruling c): the flip to `on` is refused with the stable code `scoped_approvers_without_task_scope` while any user is a SCOPED APPROVER, defined as a member of a group bound to a :process_routing_role who holds TASK_WORKER only through scoped rows (no tenant-wide TASK_WORKER); the refusal reports the count only. The refusal and the integrity endpoint also return the INFORMATIONAL count `scoped_task_workers_without_task_scope` (scoped TASK_WORKERs who are not approvers), with the finding that scoped TASK_WORKERs see no tasks until W3b. Tests: one scoped approver blocks; making that user a tenant-wide approver, or removing the scoped row or the routing membership, clears it; a scoped TASK_WORKER in no routing group does not block and is counted informationally. The precondition is removed only by the requirement that ships the tasks.scope_node_id writer, recorded in the moduledoc"
+      - "11. [2f] shadow-evidence gate, evaluated inside the flip transaction from the REQ-517 AC 22 table: shadow -> on is refused `shadow_evidence_insufficient` unless (a) the tenant has been in `shadow` continuously for at least :scope_shadow_min_days (default 7, floor 1, application env), measured from the latest audit entry of a transition into shadow with no later transition away; (b) at least :scope_shadow_min_requests (default 100) requests were observed in the trailing window of that many days; (c) the would-deny count for the reasons no_grant_rows and grants_unavailable over that window is zero. The reasons out_of_scope, not_tenant_wide and unresolvable are returned with counts in the refusal and the audit and do not block. Tests with seeded counter rows and an injectable clock: each of (a), (b), (c) alone refuses; all three satisfied passes; shadow -> off -> shadow restarts (a). The limitations of OQ-2 are stated in the moduledoc"
+      - "12. [2f] audit of success: shadow -> on writes scope.enforcement_enabled and any flip away from `on` writes scope.enforcement_disabled, each in the same transaction as the flag change, with before/after mode, actor, trace_id and the precondition counts; on -> off AND on -> shadow require a mandatory reason (missing or blank: reason_required, nothing written), stored in the entry; a forced audit failure rolls the flip back. Turning OFF is never gated by the ON preconditions: on -> off with a reason succeeds even when an ON precondition would fail, for a tenant-wide admin only"
+      - "13. [2f] refused-flip audit (issue AC, advisor ruling): every refused flip to `on` writes scope.enforcement_refused in its OWN transaction after the rollback with the failing precondition names, the shadow-evidence counts, actor and trace_id and no flag change; the zero_tenant_wide_admins refusal returns its stable code and is audited (test per failing precondition). Refused off -> shadow stays unaudited as in stage 1"
+      - "14. [2f] D8 amendment rule 3 for the actions introduced in 2f (scope.enforcement_refused; scope.enforcement_enabled and scope.enforcement_disabled now emitted with mode `on`): a test shows Audit.list_entries and its action filter return each without error"
+      - "15. [2f] end to end under `on`, one suite, real HTTP and real database, using the fixture module with a declared scope column (REQ-518 AC 4) and the test-support helper for tasks.scope_node_id: a scoped TASK_WORKER sees only its subtree through query, aggregate, export and cursor pages with totals excluding other rows; an out-of-scope by-id read is indistinguishable from a nonexistent id; a PATCH moving a record out of scope and a bulk or import with one out-of-scope row are refused; with all real types undeclared a scoped worker sees nothing and a tenant-wide user sees everything; a scoped approver outside the node's subtree or outside the routing role cannot claim or complete; a scoped TENANT_ADMIN is refused on the admin plane; a tenant-wide user and a token are unaffected; flipping back to `off` with a reason returns today's behaviour. This is the acceptance test of the issue's first ACs"
+      - "16. [2f] fail-closed: in `on`, a principal with a binding but zero rows is denied (allowed?/3 :no_grant_rows) and gets the 404-equivalent answer on data routes, and neither removing a user's last scoped row (REQ-517 AC 7) nor retiring a referenced node (REQ-517 AC 5) can make a user tenant-wide (re-run in `on` as part of the suite of AC 15)"
+      - "17. [2f] SECURITY: the flip route and the gate keep INV-1 (tenant from auth only), INV-2 (response shaping field by field), INV-4 (no token value, hash, prefix or IdP claim in audit, telemetry or logs; captured-log assertion on the gate and flush paths) and INV-8 (a DB error while evaluating a precondition refuses the flip with no flag change, never allows it; test forces the raise)"
+      - "18. [2f] decision-record amendment: the PR body links the letflow-2 amendment of 0051 D12/D8 listed in the description (or states it is pending); the eligibility of 2f is that it is recorded by the time 2f merges"
+      - "19. [2f] open follow-up: the PR body of 2f lists the platform-scope flip route for ANOTHER tenant as an open follow-up (needs a decision record first; 0046 D4, 0051 M5); AC 8's source scan is the machine check that it was not built"
+      - "20. [2e][2f] each PR: mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check, mix letflow.check_boundaries, and the scoped mix test over test/letflow/identity*, test/letflow/routers/identity*, test/letflow/routers/onboarding*, test/letflow/plugs, test/letflow/api, test/letflow/scope_enforcement_test.exs, test/letflow/routers/tasks*_test.exs and the new tests pass, real output quoted; mix letflow.check_requirements_registration passes with this entry"
+    depends_on: [REQ-518, REQ-517]

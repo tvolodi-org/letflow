@@ -8,12 +8,14 @@
   "file": "handoffs/WF02-GH2535-SCOPED-GRANTS-S2-20261018/step-01-req-analyst.json",
   "created_at": "2026-10-17T14:28:00Z",
   "started_at": "2026-10-17T14:29:00Z",
-  "completed_at": "2026-10-17T14:35:00Z",
+  "completed_at": "2026-10-17T14:44:49Z",
   "status": "COMPLETED",
   "priority": "HIGH",
   "context": {
     "stage": "S7",
-    "requirement_ids": ["REQ-517"],
+    "requirement_ids": [
+      "REQ-517"
+    ],
     "requirement_text": {},
     "source_text": {
       "GH#2535": "Org-scoped role grants stage 2 (decision 0051): grant CRUD, flag on with flip gate, compiler scope arg, 404 equivalence, F1 approver rule, plus all added ACs and the carried-over stage-1 S10 items."
@@ -34,14 +36,64 @@
   },
   "result": {
     "status": "PASS",
-    "summary": "Appended REQ-517 (gh 2535, stage S7 like REQ-497/498, owner ELIXIR-DEV, status pending, depends_on REQ-497 and REQ-496) at the end of docs/requirements.yaml after REQ-516. 53 numbered acceptance criteria tagged by PR, 8 open questions, explicit out-of-scope list (task scope_node W3b, F2, scoped integration tokens, platform-scope flip route NOT built and recorded as an open follow-up with no decision record planned, org write routes, T15 pending OQ-6). Six PRs in merge order: 2a grant admin plane (CRUD, last-row refusal, zero-admin guard, self-grant, FK, retire guard, service principal act, single-writer mix check); 2b route plane (stored value on, D5/D11 classification and route-walk, Authorize enforcement under on); 2c data path (required scope arg of compile and compile_aggregate, predicate placement, join targets, 404 equivalence, old and new value on writes, all-or-nothing bulk and import); 2d approver F1; 2e enforced-tenant writer branch (3 D1 cases, grant.sync_suppressed, binding.pending_scope); 2f the flip to on (public parse_mode accepts on only here; four preconditions incl. blocking zero_tenant_wide_admins; audited ON and OFF with reason; end-to-end test). Deviations from the suggested split, with reasons in the description: the flip to on is LAST (parse_mode is the only entry to the column, so 2b-2e can store and test on while no tenant can reach it); last-scoped-row refusal is in 2a with the delete route; route classification gets its own PR 2b. File parses as YAML (53 criteria read back). The working tree file is CRLF (core.autocrlf), the appended text uses CRLF. No mix was run.",
-    "requirement_ids": ["REQ-517"],
-    "files_changed": ["docs/requirements.yaml"],
-    "pr_split": ["2a", "2b", "2c", "2d", "2e", "2f"],
-    "ac_count": 53,
-    "open_questions": ["OQ-1 task scope node source for F1 (blocks 2d)", "OQ-2 entity scope-column declaration source (blocks 2c)", "OQ-3 scoped row vs existing tenant_wide row, user rows", "OQ-4 service principal storage and exclusion from blocking token category", "OQ-5 three D1 cases refused, sync event split", "OQ-6 T15 link issue check", "OQ-7 audit every refused on-flip, shadow required before on", "OQ-8 stage label S7 vs S10"],
-    "risks": ["2c breaks every Compiler caller by design (9 call sites found)", "scoped approvers see no task until W3b under the recommended OQ-1", "every entity type is undeclared today so scoped principals see no entity data in on mode (OQ-2)", "AC 11 self-add refusal changes an existing admin route", "2c is large; ORCH may split it with a new id from the allocator"],
+    "summary": "Revision 3. GH #2535 stage 2 drafted as THREE requirements (all gh: 2535, appended after REQ-516 in docs/requirements.yaml): REQ-517 = slices 2a (grant CRUD, FK, retire guard, last-row/zero-admin/self-grant guards, service principal act, single-writer mix check) + 2b (route classification, Authorize under on, attachment links pinned, persisted shadow evidence, stored value on) with 23 ACs; REQ-518 = 2c-i (required scope arg on compile/compile_aggregate/run_aggregate, 9 call sites, ScopeDeclaration, predicate, joins) + 2c-ii (404 equivalence, old/new value writes, all-or-nothing bulk/import, revocation, record attachments) + 2d (approver rule F1, tasks.scope_node_id column without writer, docs/roles.md) with 18 ACs, depends_on REQ-517; REQ-519 = 2e (enforced-tenant writer table, grant.sync_suppressed, binding.pending_scope) + 2f (flag on settable, flip gate, audit, e2e) with 20 ACs, depends_on REQ-518 and REQ-517. Total 61 ACs. All three titles <= 100 chars. File parses as YAML, 458 unique ids. No mix run, nothing committed.",
+    "requirement_ids": [
+      "REQ-517",
+      "REQ-518",
+      "REQ-519"
+    ],
+    "files_changed": [
+      "docs/requirements.yaml"
+    ],
+    "pr_split": [
+      "2a",
+      "2b",
+      "2c-i",
+      "2c-ii",
+      "2d",
+      "2e",
+      "2f"
+    ],
+    "ac_count": {
+      "REQ-517": 23,
+      "REQ-518": 18,
+      "REQ-519": 20
+    },
+    "risks": [
+      "2c breaks every Compiler caller by design (9 call sites found)",
+      "scoped approvers see no task until W3b under the recommended OQ-1",
+      "every entity type is undeclared today so scoped principals see no entity data in on mode (OQ-2)",
+      "AC 11 self-add refusal changes an existing admin route",
+      "2c is large; ORCH may split it with a new id from the allocator"
+    ],
     "local_issue_id": null,
-    "implementation_written": false
+    "implementation_written": false,
+    "rulings": {
+      "source": "advisor letflow-ec via the supervisor 2026-10-17 and REQ-VALIDATOR round 1 (letflow-2)",
+      "applied": [
+        "OQ-1 tasks.scope_node_id nullable, no production writer, F1 fail closed, docs/roles.md limitation, scoped-approver flip blocker (REQ-519 AC 10)",
+        "OQ-2 ScopeDeclaration from manifest, undeclared = no data; 2c split into 2c-i and 2c-ii",
+        "OQ-3 scoped row while tenant_wide row exists: 409 tenant_wide_row_exists, no replace option",
+        "OQ-4 service principal flag explicit audited column, oidc interactive admin only, mint-only exemption",
+        "OQ-5 three D1 cases refused (1,2) or suppressed (3) with audit; two extra repair paths found in code",
+        "OQ-6 T15 in scope: covered by 2b classification (instance routes tenant_wide), no blocker",
+        "OQ-7 shadow-evidence gate: 7 days, 100 requests, zero no_grant_rows/grants_unavailable, persisted counters in 2b",
+        "OQ-8 stage S7"
+      ]
+    },
+    "code_contradictions": [
+      "0051 text does not exempt a flagged owner token from the flip precondition; built literally (first draft excluded them)",
+      "letflow_scope_shadow_would_deny_total is an in-memory global counter with a reason label only: cannot back a per-tenant gate, so 2b persists counters",
+      "single-writer scan must be write-only: identity.ex:1355 and :2394, scope.ex, auth_pipeline.ex, tenant_provisioning.ex and two mix tasks legitimately read or mention the table",
+      "attachment link route is instance-scoped and instances carry no scope node: already denied to scoped principals by 2b classification",
+      "repair_group_row! and move_group_rows! would silently insert tenant_wide rows in an on tenant: two cases beyond the three in 0051 D1",
+      "REQ-497 is status pending although GH #2533 is closed; Compiler.run_aggregate/2 is a 9th call site; test/letflow/tasks does not exist (tests are test/letflow/routers/tasks*_test.exs)",
+      "identity.ex exclude_scoped_holders still counts zero-row admin bindings (comment says #2535 revisits): not changed, flagged"
+    ],
+    "amendments_required": "0051 D12 + zero_tenant_wide_admins, scoped_approvers_without_task_scope, shadow_required, shadow-evidence gate; scope.enforcement_refused; D8 + binding.refused, service_principal.flagged/unflagged (letflow-2 records)",
+    "open_questions": [
+      "REQ-517 OQ-2 / REQ-519 OQ-4: flagged-owner exemption does not reach the flip precondition",
+      "REQ-519 OQ-2: confirm shadow-evidence definition"
+    ]
   }
 }
