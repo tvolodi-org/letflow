@@ -161,7 +161,7 @@ Pure steps first (`ScopedGrants.parse_create/1`, `parse_make_tenant_wide/1`; no 
 | 7 | self-grant: principal is the caller, or a group the caller is a member of | 409 `self_grant_refused` (+ audit in its own transaction after rollback) |
 | 8 | create: a `tenant_wide` row exists for (principal, role) | 409 `tenant_wide_row_exists` |
 | 9 | create: the scoped row exists | 409 `grant_exists` |
-| 10 | create, role TA: `before = Identity.count_tenant_wide_admins/1`; insert; `TenantAdminGuard.ensure_admins_remain!(prefix, :scope_tenant_admin, principal_id, before)` | 409 `last_tenant_wide_admin` (+ `tenant_admin.guard_refused` in its own transaction) |
+| 10 | create, role TA: `before = Identity.count_explicit_tenant_wide_admins/1`; insert; `TenantAdminGuard.ensure_admins_remain!(prefix, :scope_tenant_admin, principal_id, before)` | 409 `last_tenant_wide_admin` (+ `tenant_admin.guard_refused` in its own transaction) |
 | 11 | audit `grant.created` in the same transaction | rollback, 500 on audit failure |
 
 **Delete mapping (route c):** unknown id -> 404 `not_found`; sole remaining row of (principal, role) and scoped -> 409 `last_scoped_row`; sole remaining row of a GROUP principal's TENANT_ADMIN set and tenant_wide -> 409 `last_admin_binding_row`; TA guard transition -> 409 `last_tenant_wide_admin`; audit failure -> 500.
@@ -376,7 +376,7 @@ The guard applies only when the row's `role` is `"TENANT_ADMIN"`. Protocol (1b s
 
 | Action value | Fired by | Counter | Reachable from |
 |---|---|---|---|
-| `scope_tenant_admin` | create of a scoped TA row | `Identity.count_tenant_wide_admins/1` (existing) | only a zero-row TENANT_ADMIN binding (step 8 already refuses while a tenant_wide row exists); its test seeds that state with a direct-SQL fixture and says so |
+| `scope_tenant_admin` | create of a scoped TA row | `Identity.count_explicit_tenant_wide_admins/1` (DECISION r2: defence in depth only, AC 6 refuses the scoped row first; its test calls the guard at function level) | only a zero-row TENANT_ADMIN binding (step 8 already refuses while a tenant_wide row exists); its test seeds that state with a direct-SQL fixture and says so |
 | `revoke_tenant_admin_grant` | delete of a tenant_wide TA row of a USER principal, or of a group principal's tenant_wide row while other rows of that group's TA set remain (anomalous state) | `Identity.count_explicit_tenant_wide_admins/1` (new, finding F1) | a user whose tenant_wide TA row is the last explicit source; "delete the only row of the admin group" never reaches the guard because `last_admin_binding_row` refuses it first (3.8) |
 
 `TenantAdminGuard` changes: `@type action` gains the two atoms; `resource_type/1` gains the clause
@@ -640,6 +640,8 @@ Runtime treatment of every default-sourced route is exactly `:tenant_wide` (find
 The two attachment-link routes declare `scope: :tenant_wide` EXPLICITLY (source `:declared`), so they are never
 silently default. All other instance, attachment, task, entity-data, webhook, module and self-service routes stay
 default-sourced in 2b (REQ-518 AC 18-20 reclassify the data and task routes; finding F10 for `/me` and `/help`).
+
+`:self_service` class (REQ-518 AC 21, RA-3): it has ONE ruled member, `GET /me/memberships`. `/me/modules` and `/help/resolved` stay unruled and carry the marker `pending_sec_ruling` in the route classification list (the committed snapshot and the PR body list); the marker must be kept until SECURITY-REVIEWER rules on them, and the walk fails if a route carries it without being listed.
 
 ## 4.2 Stored value `on` (AC 16)
 
@@ -1085,11 +1087,11 @@ designer additions inside the route inventory, not decision-record items.
 
 | # | Amendment | Source |
 |---|---|---|
-| RA-1 | REQ-519 AC 9: the `zero_tenant_wide_admins` BLOCKING precondition (and the integrity finding for the `on` target) counts admins with `Identity.count_explicit_tenant_wide_admins/1`; `count_tenant_wide_admins/1` counts zero-row members that `allowed?/3` denies under `on`, so it over-counts | SEC D-1 (b) |
-| RA-2 | REQ-517 AC 8 and OQ-4: for `revoke_tenant_admin_grant`, "counted" means an EXPLICIT tenant-wide source: a `tenant_wide = true` TENANT_ADMIN row for the user or for the bound group, or a live TENANT_ADMIN token owner. AC 7/8 also gain the typed refusal `last_admin_binding_row` | CDV clarification, SEC D-1 (a) |
-| RA-3 | REQ-518 or REQ-519 (letflow-2 to assign): a route class for self-service routes (`/me/*`, `/help`); REQ-519's flip is BLOCKED until it exists. 2b ships without it only because nothing can set `on` before REQ-519 | SEC ruling on OQ-3/F10 |
-| RA-4 | REQ-519 AC 11: the shadow-evidence gate also requires `requests > 0` on every UTC day of the window, not only a total of 100 | SEC |
-| RA-5 | GOVERNANCE (full chain, not an inline edit): add `lib/letflow/api/route_scope.ex`, `lib/letflow/api/scope/enforce.ex` and `lib/letflow/api/authorized_router.ex` to the mandatory #2612 trigger path list (`.claude/agents/security-reviewer.md`, WF-02 Step 2c) | SEC A-1 |
+| RA-1 | REQ-519 AC 9: the `zero_tenant_wide_admins` BLOCKING precondition (and the integrity finding for the `on` target) counts admins with `Identity.count_explicit_tenant_wide_admins/1`; `count_tenant_wide_admins/1` counts zero-row members that `allowed?/3` denies under `on`, so it over-counts | SEC D-1 (b) | **APPLIED in docs PR #2758.**
+| RA-2 | REQ-517 AC 8 and OQ-4: for `revoke_tenant_admin_grant`, "counted" means an EXPLICIT tenant-wide source: a `tenant_wide = true` TENANT_ADMIN row for the user or for the bound group, or a live TENANT_ADMIN token owner. AC 7/8 also gain the typed refusal `last_admin_binding_row` | CDV clarification, SEC D-1 (a) | **APPLIED in docs PR #2758.**
+| RA-3 | REQ-518 or REQ-519 (letflow-2 to assign): a route class for self-service routes (`/me/*`, `/help`); REQ-519's flip is BLOCKED until it exists. 2b ships without it only because nothing can set `on` before REQ-519 | SEC ruling on OQ-3/F10 | **APPLIED in docs PR #2758.**
+| RA-4 | REQ-519 AC 11: the shadow-evidence gate also requires `requests > 0` on every UTC day of the window, not only a total of 100 | SEC | **APPLIED in docs PR #2758.**
+| RA-5 | GOVERNANCE (full chain, not an inline edit): add `lib/letflow/api/route_scope.ex`, `lib/letflow/api/scope/enforce.ex` and `lib/letflow/api/authorized_router.ex` to the mandatory #2612 trigger path list (`.claude/agents/security-reviewer.md`, WF-02 Step 2c) | SEC A-1 | **LANDED (#2757).**
 
 Gate rulings recorded (SECURITY-REVIEWER design gate): the admin gate and lock order A, R, G, N, B, C pass; **OQ-15 resolved: API-token principals MAY call the grant WRITE routes** (tokens are tenant-wide by D1, break-glass under `on`), while the flag route stays OIDC-only (credential recorded in the audit, D-3); OQ-3/F10 accepted for 2b subject to RA-3; shadow counters are an ETS increment only, no DB write on the request path; the `required_permission/1` clause of the three new keys maps to exactly `:UsersGroupsRolesManage`; a retire of a node whose DESCENDANTS carry grants is allowed (only the node itself is checked; subtree grants on live descendants stay valid).
 
@@ -1106,7 +1108,7 @@ Gate rulings recorded (SECURITY-REVIEWER design gate): the admin gate and lock o
 | OQ-7 | Retired ancestor holding a grant | unreachable after 2a; only the resource node's `retired_at` is checked | none |
 | OQ-8 | Resolver arity | `{module, function}` with function/1 over the loaded resource | REQ-518 may widen; the walk constant is the single place |
 | OQ-9 | Designer-added codes `invalid_reason` (422) and list 400s | built | none |
-| OQ-10 | Self-grant check for token principals uses the owner id | yes | SECURITY |
+| OQ-10 | Self-grant check for token principals refuses the token's OWNER user (and groups the owner belongs to); `auth_context` carries only the owner user id for a token, so a separate token principal id is NOT refused unless the pipeline exposes it. ACCEPTED LIMITATION, open for SECURITY | owner id only | SECURITY |
 | OQ-11 | `:down` ordering fixed in the test rather than inside `CreateScopeNodePaths.down` | test-side (3.6.3) | none |
 | OQ-12 | Evidence retention | 90 days, `:scope_shadow_retention_days`; must be >= REQ-519's `:scope_shadow_min_days` | REQ-519 |
 | OQ-13 | Expose the flag on `GET /users/:id`? | No (existing user tests unedited; visible via token-preconditions) | product |

@@ -57,28 +57,12 @@ defmodule Letflow.Routers.TenantRoleScopeGrants do
 
   defp prefix(conn), do: Keyword.fetch!(conn.assigns.scoped_opts, :prefix)
 
-  # The authenticated caller (never a request value). `credential` records the mechanism
-  # for the audit entry (SEC D-3).
-  defp actor(conn) do
-    ctx = conn.assigns.auth_context
-
-    %{
-      user_id: ctx.user_id,
-      trace_id: conn.assigns[:trace_id],
-      credential: credential_name(Map.get(ctx, :credential))
-    }
-  end
-
-  defp credential_name(credential) when is_atom(credential) and not is_nil(credential),
-    do: Atom.to_string(credential)
-
-  defp credential_name(_other), do: nil
 
   # ── POST / ───────────────────────────────────────────────────────────────
 
   defp handle_create(conn) do
     with {:ok, attrs} <- ScopedGrants.parse_create(conn.body_params),
-         {:ok, view} <- ScopedGrants.create(attrs, actor(conn), prefix(conn)) do
+         {:ok, view} <- ScopedGrants.create(attrs, ScopedGrants.actor_from_conn(conn), prefix(conn)) do
       Response.created(conn, grant_map(view))
     else
       {:error, reason} -> error_response(conn, reason)
@@ -89,7 +73,7 @@ defmodule Letflow.Routers.TenantRoleScopeGrants do
 
   defp handle_make_tenant_wide(conn) do
     with {:ok, attrs} <- ScopedGrants.parse_make_tenant_wide(conn.body_params),
-         {:ok, result} <- ScopedGrants.make_tenant_wide(attrs, actor(conn), prefix(conn)) do
+         {:ok, result} <- ScopedGrants.make_tenant_wide(attrs, ScopedGrants.actor_from_conn(conn), prefix(conn)) do
       Response.ok(conn, %{
         "id" => result.id,
         "tenant_wide" => true,
@@ -103,7 +87,7 @@ defmodule Letflow.Routers.TenantRoleScopeGrants do
   # ── DELETE /:id ──────────────────────────────────────────────────────────
 
   defp handle_delete(conn, raw_id) do
-    case ScopedGrants.delete(raw_id, actor(conn), prefix(conn)) do
+    case ScopedGrants.delete(raw_id, ScopedGrants.actor_from_conn(conn), prefix(conn)) do
       :ok -> Response.no_content(conn)
       {:error, reason} -> error_response(conn, reason)
     end

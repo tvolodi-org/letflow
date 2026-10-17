@@ -136,7 +136,7 @@ defmodule Letflow.Identity.ScopedGrants do
   def create(attrs, actor, prefix) when is_map(attrs) and is_binary(prefix) do
     %{principal_type: type, principal_id: pid, role: role, scope_node_id: node_id} = attrs
 
-    run(prefix, actor, fn ->
+    run(prefix, fn ->
       lock_writers!(role, prefix)
       check_principal!(type, pid, role, prefix)
       lock_node!(node_id, prefix)
@@ -179,7 +179,7 @@ defmodule Letflow.Identity.ScopedGrants do
         {:error, :not_found}
 
       {:ok, id} ->
-        run(prefix, actor, fn ->
+        run(prefix, fn ->
           Identity.lock_tenant_admins!(prefix)
           row = RoleScopeGrants.get_row(id, prefix) || Repo.rollback(:not_found)
           if row.role == @tenant_admin_role, do: TenantAdminGuard.lock_admin_binding!(prefix)
@@ -236,8 +236,8 @@ defmodule Letflow.Identity.ScopedGrants do
   def make_tenant_wide(attrs, actor, prefix) when is_map(attrs) and is_binary(prefix) do
     %{principal_type: type, principal_id: pid, role: role} = attrs
 
-    run(prefix, actor, fn ->
-      Identity.lock_tenant_admins!(prefix)
+    run(prefix, fn ->
+      lock_writers!(role, prefix)
       check_principal!(type, pid, role, prefix)
       check_not_self!(type, pid, actor, prefix)
 
@@ -369,6 +369,26 @@ defmodule Letflow.Identity.ScopedGrants do
     |> Pagination.encode_cursor()
   end
 
+  @doc """
+  The authenticated caller of a request, for the audit entries (never a request value):
+  user id, trace id and the credential mechanism (`"oidc"` or `"api_token"`).
+  """
+  @spec actor_from_conn(Plug.Conn.t()) :: actor()
+  def actor_from_conn(%Plug.Conn{} = conn) do
+    ctx = conn.assigns.auth_context
+
+    %{
+      user_id: ctx.user_id,
+      trace_id: conn.assigns[:trace_id],
+      credential: credential_name(Map.get(ctx, :credential))
+    }
+  end
+
+  defp credential_name(credential) when is_atom(credential) and not is_nil(credential),
+    do: Atom.to_string(credential)
+
+  defp credential_name(_other), do: nil
+
   # --- shared transaction steps ----------------------------------------------------
 
   # Lock A first, then R for TENANT_ADMIN rows.
@@ -405,18 +425,11 @@ defmodule Letflow.Identity.ScopedGrants do
     :ok
   end
 
-  defp self?(:user, principal_id, caller_id, _prefix), do: same_id?(principal_id, caller_id)
+  defp self?(:user, principal_id, caller_id, _prefix), do: Identity.same_user_id?(principal_id, caller_id)
 
   defp self?(:group, group_id, caller_id, prefix),
     do: Identity.group_member?(group_id, caller_id, prefix)
 
-  defp same_id?(a, b) do
-    with {:ok, left} <- Ecto.UUID.cast(a), {:ok, right} <- Ecto.UUID.cast(b) do
-      left == right
-    else
-      _no_match -> false
-    end
-  end
 
   # Steps 8 and 9.
   defp check_create_rows!(type, pid, role, node_id, prefix) do
@@ -431,7 +444,7 @@ defmodule Letflow.Identity.ScopedGrants do
 
   # --- transaction wrapper and refusal events ----------------------------------------
 
-  defp run(prefix, _actor, fun) do
+  defp run(prefix, fun) do
     Repo.transaction(fun, prefix: prefix)
   rescue
     exception -> {:error, {:transaction_failed, exception}}
