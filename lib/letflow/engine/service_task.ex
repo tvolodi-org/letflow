@@ -357,8 +357,8 @@ defmodule Letflow.Engine.ServiceTask do
   PR, the service-catalog-version `endpoint_url` reserved-name check (GH #2623), because a
   catalog template is rendered with this grammar but is not part of a definition, so
   activation-time checks cannot see it. It must also ship a NEW migration replacing the two
-  catalog CHECK constraints (GH #2638, `*_endpoint_url_no_reserved_ref`) and the parity table. A function, not a module attribute, so the compiled
-  regex is never stored in a module attribute.
+  catalog CHECK constraints (GH #2638, `*_endpoint_url_no_reserved_ref`) and the parity table.
+  A function, not a module attribute, so the compiled regex is never stored in a module attribute.
   """
   @spec template_placeholder() :: Regex.t()
   def template_placeholder, do: ~r/\{\{\s*variables\.([a-zA-Z0-9_]+)\s*\}\}/

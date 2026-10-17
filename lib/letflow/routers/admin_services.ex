@@ -367,7 +367,7 @@ defmodule Letflow.Routers.AdminServices do
 
   # GH #2623 / #2638: the stable reserved-variable code, from the validator or the DB CHECK.
   defp reserved_endpoint_url?(%Ecto.Changeset{} = changeset),
-    do: Letflow.ServiceCatalog.Entry.reserved_endpoint_url_error?(changeset)
+    do: Entry.reserved_endpoint_url_error?(changeset)
 
   defp maybe_put(attrs, body, body_key, attrs_key) do
     case Map.fetch(body, body_key) do

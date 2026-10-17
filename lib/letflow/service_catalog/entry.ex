@@ -256,8 +256,8 @@ defmodule Letflow.ServiceCatalog.Entry do
   end
 
   @endpoint_url_reserved_message "must not reference the reserved engine variable namespace"
-  @live_reserved_constraint "chk_service_catalog_endpoint_url_no_reserved_ref"
-  @versions_reserved_constraint "chk_service_catalog_versions_endpoint_url_no_reserved_ref"
+  @live_reserved_constraint :chk_service_catalog_endpoint_url_no_reserved_ref
+  @versions_reserved_constraint :chk_service_catalog_versions_endpoint_url_no_reserved_ref
   @endpoint_url_message "must be an https URL whose host is not a private, loopback or link-local address; template placeholders are allowed only after the host"
 
   @doc """
@@ -309,7 +309,10 @@ defmodule Letflow.ServiceCatalog.Entry do
       {:endpoint_url, {_msg, opts}} ->
         opts[:validation] == :endpoint_url_reserved_variable or
           (opts[:constraint] == :check and
-             opts[:constraint_name] in [@live_reserved_constraint, @versions_reserved_constraint])
+             opts[:constraint_name] in [
+               Atom.to_string(@live_reserved_constraint),
+               Atom.to_string(@versions_reserved_constraint)
+             ])
 
       _other ->
         false
@@ -324,7 +327,7 @@ defmodule Letflow.ServiceCatalog.Entry do
   @spec check_endpoint_url_reserved_constraint(Ecto.Changeset.t()) :: Ecto.Changeset.t()
   defp check_endpoint_url_reserved_constraint(changeset) do
     check_constraint(changeset, :endpoint_url,
-      name: :chk_service_catalog_endpoint_url_no_reserved_ref,
+      name: @live_reserved_constraint,
       message: @endpoint_url_reserved_message
     )
   end
