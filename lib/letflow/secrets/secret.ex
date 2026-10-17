@@ -80,7 +80,7 @@ defmodule Letflow.Secrets.Secret do
           deleted_at: DateTime.t() | nil
         }
 
-  @name_format ~r/^[a-z0-9_-]+$/
+  @name_format ~r/^[a-z0-9_-]+\z/
 
   @doc """
   Structural changeset for `Letflow.Secrets.put/2`. Casts every column

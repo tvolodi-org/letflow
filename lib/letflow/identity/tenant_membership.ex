@@ -91,7 +91,7 @@ defmodule Letflow.Identity.TenantMembership do
     end)
   end
 
-  @email_shape_regex ~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  @email_shape_regex ~r/^[^\s@]+@[^\s@]+\.[^\s@]+\z/
 
   @doc """
   The shared light email-shape predicate (REQ-435, design §1.5): true only for

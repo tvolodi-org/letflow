@@ -257,7 +257,7 @@ defmodule Letflow.TenantProvisioning do
           {:ok, tenant_id :: Ecto.UUID.t()} | {:error, :invalid_schema_name}
   def tenant_id_for_schema_name(schema_name) when is_binary(schema_name) do
     with "tenant_" <> hex <- schema_name,
-         true <- String.match?(hex, ~r/^[0-9a-f]{32}$/),
+         true <- String.match?(hex, ~r/^[0-9a-f]{32}\z/),
          <<a::binary-size(8), b::binary-size(4), c::binary-size(4), d::binary-size(4),
            e::binary-size(12)>> <- hex,
          canonical = Enum.join([a, b, c, d, e], "-"),
@@ -2131,7 +2131,7 @@ defmodule Letflow.TenantProvisioning do
     "uuid",
     "tsvector"
   ]
-  @numeric_pg_type_regex ~r/^numeric(\(\d+,\s?\d+\))?$/
+  @numeric_pg_type_regex ~r/^numeric(\(\d+,\s?\d+\))?\z/
 
   defp valid_pg_type?(pg_type) do
     pg_type in @known_fixed_pg_types or Regex.match?(@numeric_pg_type_regex, pg_type)

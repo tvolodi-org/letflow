@@ -267,7 +267,7 @@ defmodule Letflow.Identity.Tenant do
       see design §9 OQ-1; additional slots are new scope, not invented
       here), whose value must be a 6-digit hex color (`#RRGGBB`).
     * `locales` — a non-empty list of locale-shaped strings (light shape
-      check: `~r/^[a-z]{2,3}(-[A-Z]{2})?$/`, not full BCP-47/CLDR
+      check: `~r/^[a-z]{2,3}(-[A-Z]{2})?\z/`, not full BCP-47/CLDR
       validation — see design §9 OQ-3).
     * `default_locale` — a single locale-shaped string that, when `locales`
       is also present in the same write, must be a member of it.
@@ -337,7 +337,7 @@ defmodule Letflow.Identity.Tenant do
   defp validate_logo_url(errors, _settings), do: errors
 
   @brand_colors_allowed_keys ~w(primary)
-  @hex_color_regex ~r/^#[0-9A-Fa-f]{6}$/
+  @hex_color_regex ~r/^#[0-9A-Fa-f]{6}\z/
 
   # REQ-382 §2.6 — the two `tokens.css` reference background surfaces
   # `brand_colors.primary` renders as interactive/link text against
@@ -409,7 +409,7 @@ defmodule Letflow.Identity.Tenant do
       "#{@surface_card_hex} (card)"
   end
 
-  @locale_regex ~r/^[a-z]{2,3}(-[A-Z]{2})?$/
+  @locale_regex ~r/^[a-z]{2,3}(-[A-Z]{2})?\z/
 
   defp validate_locales_and_default_locale(errors, settings) do
     errors

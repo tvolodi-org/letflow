@@ -46,7 +46,7 @@ defmodule Letflow.SandboxPool.FixtureLoader do
   # type system (security-invariants.md INV-7), so the schema-name shape is
   # validated explicitly here rather than assumed safe from caller position
   # alone.
-  @schema_name_pattern ~r/^sandbox_[0-9a-f]{32}$/
+  @schema_name_pattern ~r/^sandbox_[0-9a-f]{32}\z/
 
   @doc """
   Loads `fixtures` into `sandbox_schema`, TRUNCATE-ing each distinct target table
