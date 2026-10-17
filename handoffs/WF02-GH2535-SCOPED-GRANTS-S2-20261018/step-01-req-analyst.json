@@ -8,7 +8,7 @@
   "file": "handoffs/WF02-GH2535-SCOPED-GRANTS-S2-20261018/step-01-req-analyst.json",
   "created_at": "2026-10-17T14:28:00Z",
   "started_at": "2026-10-17T14:29:00Z",
-  "completed_at": "2026-10-17T14:44:49Z",
+  "completed_at": "2026-10-17T14:48:04Z",
   "status": "COMPLETED",
   "priority": "HIGH",
   "context": {
@@ -57,7 +57,7 @@
     "ac_count": {
       "REQ-517": 23,
       "REQ-518": 18,
-      "REQ-519": 20
+      "REQ-519": 21
     },
     "risks": [
       "2c breaks every Compiler caller by design (9 call sites found)",
@@ -79,6 +79,12 @@
         "OQ-6 T15 in scope: covered by 2b classification (instance routes tenant_wide), no blocker",
         "OQ-7 shadow-evidence gate: 7 days, 100 requests, zero no_grant_rows/grants_unavailable, persisted counters in 2b",
         "OQ-8 stage S7"
+      ],
+      "supervisor_2026-10-17_round2": [
+        "Service-principal exception covers ONLY the mint subset check; tokens of a flagged owner STILL block the on flip: stated in the description and the decision-record amendment paragraph of REQ-517, REQ-518, REQ-519; explicit test in REQ-519 AC 9",
+        "Shadow-evidence criterion ACCEPTED (7 days, >=100 requests, zero no_grant_rows/grants_unavailable); persisted per-tenant counters keep their writer in REQ-517 AC 22 (must ship earlier), REQ-519 AC 11 reads them server-side in the flip transaction; cross-referenced both ways",
+        "Shadow evidence covers ONLY tenant_wide and admin-plane routes; data-path denials are proven by REQ-518 tests and the REQ-519 AC 16 suite; new REQ-519 AC 12 pins evidence_scope in the refusal body and docs (later ACs renumbered +1)",
+        "REQ-519 AC 1 rewritten: every writer is REFUSED, NO-ROW (reported) or UNCHANGED (reason tested), plus a source-scan completeness test over writer call sites"
       ]
     },
     "code_contradictions": [
