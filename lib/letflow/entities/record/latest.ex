@@ -81,6 +81,9 @@ defmodule Letflow.Entities.Record.Latest do
   Fetches the current-state row for `(entity_type, record_id)`, scoped to
   the tenant schema named by `prefix`. Never raises — `nil` becomes
   `{:error, :not_found}`.
+
+  Returns soft-deleted rows too (`deleted: true`); callers that must not see
+  them use `get_live/3`.
   """
   @spec get(record_id :: Ecto.UUID.t(), entity_type :: String.t(), prefix :: String.t()) ::
           {:ok, t()} | {:error, :not_found} | {:error, :invalid_schema_name}
@@ -89,6 +92,30 @@ defmodule Letflow.Entities.Record.Latest do
     with {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix) do
       query =
         from(r in __MODULE__, where: r.entity_type == ^entity_type and r.record_id == ^record_id)
+
+      case Repo.one(query, prefix: prefix) do
+        nil -> {:error, :not_found}
+        %__MODULE__{} = record -> {:ok, record}
+      end
+    end
+  end
+
+  @doc """
+  Like `get/3`, but a soft-deleted row is `{:error, :not_found}`, byte-identical
+  to an absent row (GH #2734). The `deleted == false` condition is part of the
+  SQL predicate, so a deleted row is never loaded. Same prefix validation as
+  `get/3`; `record_id` must already be a valid UUID.
+  """
+  @spec get_live(record_id :: Ecto.UUID.t(), entity_type :: String.t(), prefix :: String.t()) ::
+          {:ok, t()} | {:error, :not_found} | {:error, :invalid_schema_name}
+  def get_live(record_id, entity_type, prefix)
+      when is_binary(entity_type) and is_binary(prefix) do
+    with {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix) do
+      query =
+        from(r in __MODULE__,
+          where:
+            r.entity_type == ^entity_type and r.record_id == ^record_id and r.deleted == false
+        )
 
       case Repo.one(query, prefix: prefix) do
         nil -> {:error, :not_found}

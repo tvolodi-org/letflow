@@ -770,7 +770,11 @@ defmodule Letflow.Modules.Exam.Snapshot do
 
     with {:ok, exam} <- live_exam(exam_id, prefix),
          {:ok, session_questions} <-
-           query_all("session_question", [eq("session_id", session.record_id)], prefix),
+           query_all(
+             "session_question",
+             [eq("session_id", session.record_id), eq("deleted", false)],
+             prefix
+           ),
          order = ordered_question_ids(session_questions),
          {:ok, items} <- load_items(order, prefix) do
       build_from_resolved(exam.field_values, items, order, %{
@@ -809,21 +813,31 @@ defmodule Letflow.Modules.Exam.Snapshot do
   defp load_item(question_id, prefix) do
     case fetch_live(question_id, "question", prefix) do
       {:ok, question} ->
+        type = fv(question, "type")
+
+        # All option rows are read: a soft-deleted one must be seen to know whether it was
+        # key-bearing (GH #2734). A deleted key-bearing option refuses; other deleted ones drop.
         with {:ok, options} <-
                query_all("answer_option", [eq("question_id", question_id)], prefix) do
-          {:ok,
-           %{
-             type: fv(question, "type"),
-             options:
-               Enum.map(options, fn option ->
-                 %{
-                   id: normalize_record_id(option.record_id),
-                   is_correct: fv(option, "is_correct"),
-                   likert_weight: fv(option, "likert_weight"),
-                   likert_polarity: fv(option, "likert_polarity")
-                 }
-               end)
-           }}
+          {deleted, live} = Enum.split_with(options, &(&1.deleted == true))
+
+          if Enum.any?(deleted, &key_bearing?(type, &1)) do
+            grading_error({:key_missing, to_string(question_id)})
+          else
+            {:ok,
+             %{
+               type: type,
+               options:
+                 Enum.map(live, fn option ->
+                   %{
+                     id: normalize_record_id(option.record_id),
+                     is_correct: fv(option, "is_correct"),
+                     likert_weight: fv(option, "likert_weight"),
+                     likert_polarity: fv(option, "likert_polarity")
+                   }
+                 end)
+             }}
+          end
         end
 
       :not_found ->
@@ -834,11 +848,21 @@ defmodule Letflow.Modules.Exam.Snapshot do
     end
   end
 
-  # `Latest.get/3` raises on a non-UUID id; a stored id that is not one is simply "not found".
+  # Would this option have carried answer-key content in `build_item/2`/`build_likert/3`?
+  defp key_bearing?(type, option) when type in ~w(single multiple truefalse),
+    do: fv(option, "is_correct") == true
+
+  defp key_bearing?("likert", option),
+    do: fv(option, "likert_weight") != nil or fv(option, "is_correct") == true
+
+  defp key_bearing?(_type, _option), do: false
+
+  # `Latest.get_live/3` raises on a non-UUID id; a stored id that is not one is simply "not found".
+  # A soft-deleted row is "not found" too (GH #2734).
   defp fetch_live(id, entity_type, prefix) when is_binary(id) do
     case Ecto.UUID.cast(id) do
       {:ok, uuid} ->
-        case Latest.get(uuid, entity_type, prefix) do
+        case Latest.get_live(uuid, entity_type, prefix) do
           {:ok, row} -> {:ok, row}
           {:error, :not_found} -> :not_found
           {:error, :invalid_schema_name} = error -> error
