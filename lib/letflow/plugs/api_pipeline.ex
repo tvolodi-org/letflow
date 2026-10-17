@@ -159,6 +159,10 @@ defmodule Letflow.Plugs.ApiPipeline do
   # flip-precondition token listing.
   forward("/tenant/scope-enforcement", to: Letflow.Routers.TenantScopeEnforcement)
 
+  # REQ-517 PR 2a (decision 0051 D1; design req517-scoped-grants-admin-plane.md 3.2) -- the
+  # org-scoped role grant admin plane of the caller's own tenant.
+  forward("/tenant/role-scope-grants", to: Letflow.Routers.TenantRoleScopeGrants)
+
   # REQ-415 -- solution install: POST /api/v1/tenant/solutions. Mounted at
   # /tenant/solutions (a sibling prefix to /tenant/modules, not a sub-path
   # of it) so the route collision the modules mount guards against doesn't

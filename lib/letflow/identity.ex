@@ -71,6 +71,7 @@ defmodule Letflow.Identity do
   alias Letflow.Identity.OnboardingRecord
   alias Letflow.Identity.RoleScopeGrant
   alias Letflow.Identity.RoleScopeGrants
+  alias Letflow.Identity.ServicePrincipal
   alias Letflow.Identity.Tenant
   alias Letflow.Identity.TenantAdminGuard
   alias Letflow.Identity.TenantMembership
@@ -873,12 +874,17 @@ defmodule Letflow.Identity do
   row, for the one caller that writes its own event in the same, already-open
   transaction (the pending-admin-grant bind); outside a transaction it returns
   `{:error, :caller_audit_requires_transaction}` before any query.
+
+  REQ-517 AC 10: `opts[:refuse_self_add]` (default `false`; only `POST /groups/:id/members`
+  passes `true`). When true and `user_id` is the audit context's actor, the transaction rolls
+  back after lock A and before any insert with `{:error, :self_grant_refused}`.
   """
   @spec add_group_member(group_id :: Ecto.UUID.t(), user_id :: Ecto.UUID.t(), opts :: opts()) ::
           {:ok, %{member: GroupMember.t(), created: boolean()}}
           | {:error, :group_not_found}
           | {:error, :user_not_found}
           | {:error, :caller_audit_requires_transaction}
+          | {:error, :self_grant_refused}
           | {:error, {:audit_failed, term()}}
           | {:error, {:transaction_failed, Exception.t()}}
   def add_group_member(group_id, user_id, opts) do
@@ -889,15 +895,25 @@ defmodule Letflow.Identity do
       {:error, :caller_audit_requires_transaction}
     else
       ctx = AuditContext.from_opts(opts)
+      refuse_self? = Keyword.get(opts, :refuse_self_add, false) == true
 
       try do
         Repo.transaction(
-          fn -> do_add_group_member(group_id, user_id, prefix, mode, ctx) end,
+          fn -> do_add_group_member(group_id, user_id, prefix, mode, ctx, refuse_self?) end,
           prefix: prefix
         )
       rescue
         exception -> {:error, {:transaction_failed, exception}}
       end
+    end
+  end
+
+  # Canonical UUID comparison; a nil or uncastable id never matches.
+  defp same_user_id?(a, b) do
+    with {:ok, left} <- Ecto.UUID.cast(a), {:ok, right} <- Ecto.UUID.cast(b) do
+      left == right
+    else
+      _no_match -> false
     end
   end
 
@@ -912,8 +928,13 @@ defmodule Letflow.Identity do
   # Runs inside add_group_member/3's transaction. Lock order (design section 3.0): the
   # tenant admin lock first; the group row is then locked by the membership insert's FK
   # check (KEY SHARE).
-  defp do_add_group_member(group_id, user_id, prefix, mode, ctx) do
+  defp do_add_group_member(group_id, user_id, prefix, mode, ctx, refuse_self?) do
     lock_tenant_admins!(prefix)
+
+    # REQ-517 AC 10: a caller may not add THEMSELVES to a group (only the HTTP route passes
+    # `refuse_self_add: true`); decided under lock A, before any insert.
+    if refuse_self? and same_user_id?(user_id, ctx.actor_id),
+      do: Repo.rollback(:self_grant_refused)
 
     if is_nil(Repo.get(Group, group_id, prefix: prefix)), do: Repo.rollback(:group_not_found)
     if is_nil(Repo.get(User, user_id, prefix: prefix)), do: Repo.rollback(:user_not_found)
@@ -1296,12 +1317,93 @@ defmodule Letflow.Identity do
     |> Repo.all(prefix: prefix)
   end
 
+  @doc """
+  REQ-517 (design `req517-scoped-grants-admin-plane.md` section 3.9, finding F1): the number
+  of EXPLICIT tenant-wide administrators. Same base query as `count_tenant_wide_admins/1`
+  (active users; the live-token half is identical), but a group-sourced holder must have a
+  `tenant_wide = true` TENANT_ADMIN row, as a user principal or as the bound group. A member
+  of a binding with ZERO rows, which `count_tenant_wide_admins/1` still counts but
+  `Letflow.Api.Scope.allowed?/3` denies under `on`, is NOT counted here. Used by
+  `revoke_tenant_admin_grant`. Read-only, no lock, same transaction visibility.
+  """
+  @spec count_explicit_tenant_wide_admins(prefix :: String.t()) :: non_neg_integer()
+  def count_explicit_tenant_wide_admins(prefix) when is_binary(prefix) do
+    prefix
+    |> tenant_wide_admins_query(DateTime.utc_now(), :explicit)
+    |> select([u], count(u.id, :distinct))
+    |> Repo.one(prefix: prefix)
+  end
+
+  @doc "REQ-517: true when a `users` row with `user_id` exists in `prefix`. Plain read."
+  @spec user_exists?(user_id :: Ecto.UUID.t(), prefix :: String.t()) :: boolean()
+  def user_exists?(user_id, prefix) when is_binary(prefix),
+    do: Repo.exists?(from(u in User, where: u.id == ^user_id), prefix: prefix)
+
+  @doc "REQ-517: true when a `groups` row with `group_id` exists in `prefix`. Plain read."
+  @spec group_exists?(group_id :: Ecto.UUID.t(), prefix :: String.t()) :: boolean()
+  def group_exists?(group_id, prefix) when is_binary(prefix),
+    do: Repo.exists?(from(g in Group, where: g.id == ^group_id), prefix: prefix)
+
+  @doc """
+  REQ-517: true when a `tenant_role` row binds `group_id` to `role` as a `:platform_role`
+  (a routing-kind binding does not count). Plain read.
+  """
+  @spec group_bound_to_platform_role?(
+          group_id :: Ecto.UUID.t(),
+          role :: String.t(),
+          prefix :: String.t()
+        ) :: boolean()
+  def group_bound_to_platform_role?(group_id, role, prefix) when is_binary(prefix) do
+    Repo.exists?(
+      from(t in TenantRole,
+        where: t.group_id == ^group_id and t.name == ^role and t.kind == ^:platform_role
+      ),
+      prefix: prefix
+    )
+  end
+
+  @doc "REQ-517: true when `user_id` is a member of `group_id`. Plain read."
+  @spec group_member?(group_id :: Ecto.UUID.t(), user_id :: Ecto.UUID.t(), prefix :: String.t()) ::
+          boolean()
+  def group_member?(group_id, user_id, prefix) when is_binary(prefix) do
+    Repo.exists?(
+      from(m in GroupMember, where: m.group_id == ^group_id and m.user_id == ^user_id),
+      prefix: prefix
+    )
+  end
+
+  @doc """
+  REQ-517: true when `user_id` is a member of a group bound to `role` as a `:platform_role`.
+  Plain read.
+  """
+  @spec user_holds_role_through_group?(
+          user_id :: Ecto.UUID.t(),
+          role :: String.t(),
+          prefix :: String.t()
+        ) :: boolean()
+  def user_holds_role_through_group?(user_id, role, prefix) when is_binary(prefix) do
+    Repo.exists?(
+      from(m in GroupMember,
+        join: t in TenantRole,
+        on: t.group_id == m.group_id,
+        where: m.user_id == ^user_id and t.name == ^role and t.kind == ^:platform_role
+      ),
+      prefix: prefix
+    )
+  end
+
   # GH 2547 (design section 6.2): the one definition both public helpers share, so the
   # count and the id list can never diverge. `now` is taken once per call; truncating it
   # to the second keeps verify_api_token/2's strict `expires_at > now` result unchanged
-  # (`expires_at` is whole seconds). The role name is a bound parameter (INV-7).
-  @spec tenant_wide_admins_query(prefix :: String.t(), now :: DateTime.t()) :: Ecto.Query.t()
-  defp tenant_wide_admins_query(prefix, now) do
+  # (`expires_at` is whole seconds). The role name is a bound parameter (INV-7). `mode` is
+  # `:counted` (the stage-1 definition) or `:explicit` (REQ-517 F1: a group-sourced holder
+  # needs a tenant-wide TENANT_ADMIN row).
+  @spec tenant_wide_admins_query(
+          prefix :: String.t(),
+          now :: DateTime.t(),
+          mode :: :counted | :explicit
+        ) :: Ecto.Query.t()
+  defp tenant_wide_admins_query(prefix, now, mode \\ :counted) do
     now = DateTime.truncate(now, :second)
 
     member_of_admin_group =
@@ -1314,7 +1416,7 @@ defmodule Letflow.Identity do
           gm.user_id == parent_as(:user).id and tr.name == ^@tenant_admin_role and
             tr.kind == :platform_role
       )
-      |> exclude_scoped_holders(prefix)
+      |> admin_group_holder_filter(prefix, mode)
 
     owns_live_admin_token =
       from(t in ApiToken,
@@ -1330,6 +1432,13 @@ defmodule Letflow.Identity do
       where: exists(member_of_admin_group) or exists(owns_live_admin_token)
     )
   end
+
+  defp admin_group_holder_filter(query, prefix, :counted),
+    do: exclude_scoped_holders(query, prefix)
+
+  # REQ-517 F1: an explicit holder has a tenant-wide TENANT_ADMIN row (user or bound group).
+  defp admin_group_holder_filter(query, _prefix, :explicit),
+    do: where(query, [], exists(admin_member_ta_rows(true)))
 
   # REQ-497 PR 1b (design `req497-1b-allowed-flag-shadow-n1.md` 5.1, 0051 D1): applied to
   # the TENANT_ADMIN group-membership subquery ONLY (bindings `:admin_member` and
@@ -2253,14 +2362,15 @@ defmodule Letflow.Identity do
     users = lock_mint_users([issuer_id, target_id], prefix)
     roles = Map.get(attrs, :roles)
     expires_at = Map.get(attrs, :expires_at)
+    target_user = target_id && Map.get(users, target_id)
 
     with {:ok, issuer_held} <- authorize_minter(Map.get(users, issuer_id), prefix),
          :ok <- validate_issuable_roles(roles),
          :ok <- reject_platform_admin_outside_platform_tenant(roles, prefix),
          :ok <- validate_expires_at(expires_at),
-         :ok <- check_mint_target(target_id && Map.get(users, target_id)),
+         :ok <- check_mint_target(target_user),
          :ok <- check_platform_admin_token(roles, issuer_id, target_id, expires_at),
-         :ok <- check_roles_held(roles, issuer_held, target_id, prefix) do
+         :ok <- check_roles_held(roles, issuer_held, target_id, target_user, prefix) do
       {:ok, :passed}
     end
   end
@@ -2322,11 +2432,19 @@ defmodule Letflow.Identity do
     end
   end
 
-  # Step 7: roles must be held by BOTH the minter and the target.
-  defp check_roles_held(roles, issuer_held, target_id, prefix) do
-    target_held = tenant_wide_role_names(target_id, prefix: prefix)
+  # Step 7: roles must be held by BOTH the minter and the target. REQ-517 AC 13: when the
+  # (locked) target carries the admin-set service-principal flag, the target side is
+  # relaxed: the roles need only be a subset of the ISSUER's tenant-wide roles. The flag
+  # relaxes nothing else (the issuer was authorized at step 3).
+  defp check_roles_held(roles, issuer_held, target_id, target_user, prefix) do
+    allowed =
+      if ServicePrincipal.flagged?(target_user) do
+        issuer_held
+      else
+        MapSet.intersection(issuer_held, tenant_wide_role_names(target_id, prefix: prefix))
+      end
 
-    if MapSet.subset?(MapSet.new(roles), MapSet.intersection(issuer_held, target_held)),
+    if MapSet.subset?(MapSet.new(roles), allowed),
       do: :ok,
       else: {:error, :roles_not_held}
   end
@@ -2591,7 +2709,8 @@ defmodule Letflow.Identity do
   row is lost) with the owner's activity read through `active_user_condition/1`, as in
   `verify_api_token/2`. Feed it to `token_effective_status/3`.
   """
-  @spec list_tokens(opts :: opts()) :: {:ok, [%{token: ApiToken.t(), owner_active: boolean()}]}
+  @spec list_tokens(opts :: opts()) ::
+          {:ok, [%{token: ApiToken.t(), owner_active: boolean(), owner_flagged: boolean()}]}
   def list_tokens(opts) do
     prefix = Keyword.fetch!(opts, :prefix)
 
@@ -2608,7 +2727,11 @@ defmodule Letflow.Identity do
       select(
         base,
         [token: t],
-        ^%{token: dynamic([token: t], t), owner_active: active_user_condition(:owner)}
+        ^%{
+          token: dynamic([token: t], t),
+          owner_active: active_user_condition(:owner),
+          owner_flagged: dynamic([owner: u], u.admin_flagged_service_principal)
+        }
       )
 
     {:ok, Repo.all(query, prefix: prefix)}
@@ -2854,7 +2977,11 @@ defmodule Letflow.Identity do
       select(
         base,
         [token: t],
-        ^%{token: dynamic([token: t], t), owner_active: active_user_condition(:owner)}
+        ^%{
+          token: dynamic([token: t], t),
+          owner_active: active_user_condition(:owner),
+          owner_flagged: dynamic([owner: u], u.admin_flagged_service_principal)
+        }
       )
 
     case Repo.one(query, prefix: prefix) do

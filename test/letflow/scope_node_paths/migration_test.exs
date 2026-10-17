@@ -31,6 +31,11 @@ defmodule Letflow.ScopeNodePaths.MigrationTest do
   @scope_version 20_261_014_100_002
   @managed_by_migration Letflow.Repo.Migrations.AddManagedByToEntityDefinitions
   @scope_migration Letflow.Repo.Migrations.CreateScopeNodePaths
+  # REQ-517 2a: the FK from role_scope_grants.scope_node_id to scope_node_paths blocks a
+  # `drop table`, so the FK migration is rolled back FIRST (the order is fixed here, not in
+  # the historical CreateScopeNodePaths.down).
+  @fk_version 20_261_018_100_001
+  @fk_migration Letflow.Repo.Migrations.AddScopeNodeFkeyToRoleScopeGrants
 
   setup do
     tenant = TenantFixture.provisioned_tenant!(slug_prefix: "req496-mig")
@@ -130,6 +135,20 @@ defmodule Letflow.ScopeNodePaths.MigrationTest do
 
     %{rows: [[3]]} = Repo.query!(~s|SELECT count(*) FROM "#{schema}".scope_node_paths|)
 
+    # A scoped grant referencing node "a" (direct SQL fixture).
+    Repo.query!(
+      """
+      INSERT INTO "#{schema}".role_scope_grants
+        (id, principal_type, principal_id, role, scope_node_id, tenant_wide, inserted_at, updated_at)
+      VALUES (gen_random_uuid(), 'group', gen_random_uuid(), 'TENANT_ADMIN', 'a', false, now(), now())
+      """,
+      []
+    )
+
+    assert fk_constraint?(schema)
+    assert migrate(schema, @fk_version, @fk_migration, :down) == [@fk_version]
+    refute fk_constraint?(schema)
+
     assert migrate(schema, @scope_version, @scope_migration, :down) == [@scope_version]
     assert regclass(schema, "scope_node_paths") == nil
 
@@ -140,6 +159,29 @@ defmodule Letflow.ScopeNodePaths.MigrationTest do
     # Usable again (and empty) after the round trip.
     %{rows: [[0]]} = Repo.query!(~s|SELECT count(*) FROM "#{schema}".scope_node_paths|)
     assert {:ok, %{path: "/r/"}} = ScopeNodePaths.write({:insert, "r", nil}, schema)
+
+    # The grant now names a node that does not exist: the FK migration's precheck aborts.
+    assert_raise RuntimeError, ~r/role_scope_grants fk precheck: 1/, fn ->
+      migrate(schema, @fk_version, @fk_migration, :up)
+    end
+
+    assert {:ok, _} = ScopeNodePaths.write({:insert, "a", "r"}, schema)
+    assert migrate(schema, @fk_version, @fk_migration, :up) == [@fk_version]
+    assert fk_constraint?(schema)
+  end
+
+  defp fk_constraint?(schema) do
+    %{rows: [[n]]} =
+      Repo.query!(
+        """
+        SELECT count(*) FROM pg_constraint c
+        JOIN pg_namespace n ON n.oid = c.connamespace
+        WHERE n.nspname = $1 AND c.conname = 'role_scope_grants_scope_node_id_fkey'
+        """,
+        [schema]
+      )
+
+    n == 1
   end
 
   test "managed_by: down on a schema with stamped and unstamped definitions removes column, index, triggers and function; up restores them",

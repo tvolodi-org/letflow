@@ -50,6 +50,15 @@ defmodule Letflow.ScopeNodePaths do
   design `req497-1b-allowed-flag-shadow-n1.md` section 10): the scope-enforcement flip takes
   the admin lock, then the `tenants` row, then this lock.
 
+  ## Grants and the retire guard (REQ-517)
+
+  A grant writer holds the tenant admin lock A and a node share lock
+  (`lock_active_node_for_share!/2`); a tree writer never takes A. `{:retire, n}` of a LIVE
+  node first locks the node row `FOR NO KEY UPDATE` (waiting for a creator holding the share
+  lock), THEN asks `Letflow.Identity.RoleScopeGrants.references_node?/2`, and refuses with
+  `:node_has_grants` when a grant names the node. Only the node itself is checked (grants on
+  its descendants stay valid), and a `:move` is never refused.
+
   ## LIKE patterns (INV-7)
 
   Every LIKE pattern is built by `like_prefix_pattern/1` and passed as a bound
@@ -59,6 +68,7 @@ defmodule Letflow.ScopeNodePaths do
 
   import Ecto.Query
 
+  alias Letflow.Identity.RoleScopeGrants
   alias Letflow.Repo
   alias Letflow.ScopeNodePaths.Node
   alias Letflow.TenantProvisioning
@@ -83,6 +93,7 @@ defmodule Letflow.ScopeNodePaths do
           | :parent_retired
           | :cycle
           | :depth_exceeded
+          | :node_has_grants
           | :invalid_schema_name
 
   @doc "The maximum tree depth `write/2` allows (root = 1)."
@@ -102,7 +113,8 @@ defmodule Letflow.ScopeNodePaths do
       `:depth_exceeded` (deepest descendant past 12). An unchanged parent is
       `{:ok, n}` with no write.
     * `{:retire, n}` sets `retired_at` on `n` only (`:node_not_found`);
-      idempotent; descendants untouched.
+      idempotent; descendants untouched. Refused with `:node_has_grants` while a grant row
+      names `n` (REQ-517).
 
   Node ids are 1..64 bytes of valid UTF-8 with no `/` and no control
   characters (`:invalid_node_id`). See the moduledoc for locking, transaction
@@ -122,6 +134,35 @@ defmodule Letflow.ScopeNodePaths do
           end
         end)
       end
+    end
+  end
+
+  @doc """
+  REQ-517 (design 3.7): `SELECT ... FOR SHARE` of the node row in the caller's transaction,
+  held until it ends, and the row as read AFTER the lock (so a retire that committed while
+  this call waited is seen). A grant creator calls it before inserting a scoped row.
+  `{:error, :invalid_node_id | :node_not_found | :node_retired}`; raises `ArgumentError`
+  outside a transaction.
+  """
+  @spec lock_active_node_for_share!(node_id :: term(), prefix :: String.t()) ::
+          {:ok, Node.t()} | {:error, :invalid_node_id | :node_not_found | :node_retired}
+  def lock_active_node_for_share!(node_id, prefix) when is_binary(prefix) do
+    unless Repo.in_transaction?() do
+      raise ArgumentError,
+            "Letflow.ScopeNodePaths.lock_active_node_for_share!/2 must be called inside a transaction"
+    end
+
+    with :ok <- validate_node_id(node_id),
+         {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
+         %Node{} = node <- lock_node_row_shared(node_id, prefix) do
+      case node.retired_at do
+        nil -> {:ok, node}
+        _retired -> {:error, :node_retired}
+      end
+    else
+      nil -> {:error, :node_not_found}
+      {:error, :invalid_schema_name} -> {:error, :invalid_node_id}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -256,17 +297,44 @@ defmodule Letflow.ScopeNodePaths do
   defp apply_change({:retire, node_id}, prefix) do
     with {:ok, node} <- fetch_node(node_id, prefix, :node_not_found) do
       case node.retired_at do
-        nil ->
-          now = DateTime.utc_now()
-
-          node
-          |> Ecto.Changeset.change(retired_at: now, updated_at: now)
-          |> Repo.update(prefix: prefix)
-
-        _already_retired ->
-          {:ok, node}
+        nil -> retire_live_node(node, prefix)
+        _already_retired -> {:ok, node}
       end
     end
+  end
+
+  # REQ-517 (design 3.7, finding F2): the node row lock FIRST, then the grants read. Under
+  # READ COMMITTED the read after the lock waits for and sees a grant a creator committed.
+  defp retire_live_node(node, prefix) do
+    case lock_node_row_for_update(node.node_id, prefix) do
+      nil ->
+        {:error, :node_not_found}
+
+      %Node{retired_at: retired_at} = locked when not is_nil(retired_at) ->
+        {:ok, locked}
+
+      %Node{} = locked ->
+        if RoleScopeGrants.references_node?(locked.node_id, prefix) do
+          {:error, :node_has_grants}
+        else
+          now = DateTime.utc_now()
+
+          locked
+          |> Ecto.Changeset.change(retired_at: now, updated_at: now)
+          |> Repo.update(prefix: prefix)
+        end
+    end
+  end
+
+  defp lock_node_row_shared(node_id, prefix) do
+    Repo.one(from(n in Node, where: n.node_id == ^node_id, lock: "FOR SHARE"), prefix: prefix)
+  end
+
+  defp lock_node_row_for_update(node_id, prefix) do
+    Repo.one(
+      from(n in Node, where: n.node_id == ^node_id, lock: "FOR NO KEY UPDATE"),
+      prefix: prefix
+    )
   end
 
   defp check_absent(node_id, prefix) do
