@@ -294,7 +294,34 @@ changed during the write; retry") instead of committing under the old definition
 re-checks the active definition under the type's sequence lock, as `command_multi` always
 did). Retrying is safe.
 
-**Not in PR 1:** reads, filters, aggregates and cursors for strict fields are PR 2. Until it
-lands a strict field is stored and returned as the exact string (HTTP reads pass the stored
-JSON through), but filters, sorting by value, aggregates and Lua reads of it must not be
-relied on.
+**Read contract of a strict field (PR 2 of GH #2654):**
+
+- Every HTTP surface renders the field as its canonical scale-padded string: the create,
+  update and delete response bodies, `POST /entities/query` items (joined rows included),
+  and the export. The renderer takes its specs from the type's ACTIVE DEFINITION, not from
+  the query allowlist, so a strict field that is not `queried` is rendered too; a value
+  withheld by `FieldGrants` stays withheld. A non-strict decimal is returned as stored (a
+  number), unchanged.
+- In-process readers (`Latest.get/3`, exam-style readers) get the stored string. Use
+  `Letflow.Entities.Record.Decimals.to_decimal/1` (string, integer, finite `Decimal` or a
+  legacy float -> `{:ok, %Decimal{}}`) for arithmetic; never `String.to_float/1`. Lua reads
+  (`ScriptReads`) deliver a strict field as the string (`tonumber` is lossy); a strict
+  match value in a script read is a canonical string or an integer (a float matches nothing).
+- Stored numbers under a strict flag cannot exist by contract (the flag is immutable once
+  records exist), so the renderer is a defensive decoder: it pads any stored number and
+  passes an unparseable value through untouched. Record history (0059, REQ-516) must call
+  the same decoder on event `field_values`.
+- Filters (`eq neq gt gte lt lte in not_in`) take a canonical decimal string (at most 1100
+  bytes) or an integer and compare as an exact `Decimal` (`"2.5"` equals the stored
+  `"2.50"`; `gt "2.4999"` is fine, scale is not enforced on a filter). A JSON float, a
+  non-grammar string, an object or `null` is `422` `value must be a decimal string or an
+  integer for field "<name>"` (the value is never echoed). Non-strict decimal filters are
+  untouched.
+- Sort and keyset cursors order by the numeric value (`"10.00"` after `"7.00"`). The
+  cursor decoder now parses a decimal component strictly for EVERY decimal field: a
+  tampered or malformed cursor is the normal `400` instead of a crash; valid cursors
+  (including floats from non-strict fields) decode as before.
+- Aggregates over a strict field are exact (no float step): `sum`, `min`, `max` and a
+  decimal `group_by` key are returned padded to the field scale (ten `"0.10"` sum to
+  `"1.00"`). `avg` is returned exactly as Postgres computes it, UNPADDED (an average is not
+  a field-scale value). Non-strict decimal aggregates are unchanged.

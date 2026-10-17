@@ -341,6 +341,8 @@ export interface EntityFieldDef {
   enum_values?: string[]
   decimal_precision?: number
   decimal_scale?: number
+  /** GH #2654: opt-in exact decimal strings (write: canonical string or integer; read: string). */
+  decimal_strict?: boolean
   default?: unknown
   locales?: string[]
   search_strategy?: 'plain' | 'fulltext'

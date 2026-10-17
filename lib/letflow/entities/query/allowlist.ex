@@ -30,6 +30,7 @@ defmodule Letflow.Entities.Query.Allowlist do
   alias Letflow.Entities.Definition
   alias Letflow.Entities.Definition.DDL
   alias Letflow.Entities.Definitions
+  alias Letflow.Entities.Record.Decimals
   alias Letflow.TenantProvisioning
 
   @typedoc "Where an allowlisted field's data actually lives (design §3.2)."
@@ -40,7 +41,10 @@ defmodule Letflow.Entities.Query.Allowlist do
           required(:name) => String.t(),
           required(:source) => field_source(),
           required(:type) => Definition.field_type(),
-          required(:enum_values) => [String.t()] | nil
+          required(:enum_values) => [String.t()] | nil,
+          # GH #2654: a strict decimal field carries its scale; nil/false for any other field.
+          optional(:decimal_scale) => non_neg_integer() | nil,
+          optional(:decimal_strict) => boolean()
         }
 
   @typedoc """
@@ -251,6 +255,7 @@ defmodule Letflow.Entities.Query.Allowlist do
     with {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
          {:ok, entity_definition} <- fetch_active_definition(entity_type, prefix) do
       structural_names = MapSet.new(Map.keys(typed_columns()))
+      decimal_info = decimal_info(entity_definition.definition_json)
 
       promoted_typed_column_names =
         case entity_table_name_if_exists(entity_type, prefix) do
@@ -270,12 +275,24 @@ defmodule Letflow.Entities.Query.Allowlist do
 
       typed_column_entries =
         Map.new(typed_columns(), fn {name, {_atom, type}} ->
-          {name, %{name: name, source: :typed_column, type: type, enum_values: nil}}
+          {name,
+           %{
+             name: name,
+             source: :typed_column,
+             type: type,
+             enum_values: nil,
+             decimal_scale: nil,
+             decimal_strict: false
+           }}
         end)
 
       promoted_typed_column_entries =
         Map.new(promoted_typed_column_names, fn {name, type} ->
-          {name, %{name: name, source: :typed_column, type: type, enum_values: nil}}
+          {name,
+           Map.merge(
+             %{name: name, source: :typed_column, type: type, enum_values: nil},
+             decimal_keys(decimal_info, name)
+           )}
         end)
 
       json_field_entries =
@@ -285,12 +302,15 @@ defmodule Letflow.Entities.Query.Allowlist do
         |> Enum.filter(&(&1.queried == true and &1.type != :localized_text))
         |> Map.new(fn field ->
           {field.name,
-           %{
-             name: field.name,
-             source: :json_field,
-             type: field.type,
-             enum_values: field.enum_values
-           }}
+           Map.merge(
+             %{
+               name: field.name,
+               source: :json_field,
+               type: field.type,
+               enum_values: field.enum_values
+             },
+             decimal_keys(decimal_info, field.name)
+           )}
         end)
 
       # AC3: typed-column entries win on name collision -- merge with the
@@ -418,6 +438,21 @@ defmodule Letflow.Entities.Query.Allowlist do
       locales: Map.get(field, "locales"),
       search_strategy: field |> Map.get("search_strategy") |> search_strategy_atom()
     }
+  end
+
+  # GH #2654: the strict decimal fields of the active definition, name -> scale. Only a
+  # field with `decimal_strict: true` (and a valid precision/scale) appears.
+  defp decimal_info(definition_json) do
+    definition_json
+    |> Decimals.specs_from_definition_json()
+    |> Map.new(fn {name, %{scale: scale}} -> {name, scale} end)
+  end
+
+  defp decimal_keys(decimal_info, name) do
+    case Map.fetch(decimal_info, name) do
+      {:ok, scale} -> %{decimal_scale: scale, decimal_strict: true}
+      :error -> %{decimal_scale: nil, decimal_strict: false}
+    end
   end
 
   # REQ-301: same decode `Letflow.TenantProvisioning.field_from_persisted/1`

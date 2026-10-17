@@ -591,6 +591,73 @@ defmodule Letflow.Entities.ScriptReadsTest do
     end
   end
 
+  # ── GH #2654 PR-2: a decimal_strict field (design 2.6, S3) ──────────────────
+
+  describe "GH 2654 strict decimal" do
+    setup ctx do
+      entity_definition!(ctx.schema, "person", [
+        %{name: "name", type: :string, queried: true},
+        %{
+          name: "qty",
+          type: :decimal,
+          decimal_precision: 10,
+          decimal_scale: 2,
+          decimal_strict: true,
+          queried: true
+        },
+        %{name: "amount", type: :decimal, decimal_precision: 10, decimal_scale: 2, queried: true}
+      ])
+
+      SP.flag!(ctx.schema, "person")
+      record!(ctx.schema, %{"name" => "A", "qty" => "2.5", "amount" => 2.5}, "person")
+
+      %{
+        qty_read: SP.field_read("r", "person", "qty", %{"fields" => ["name", "qty", "amount"]}),
+        amount_read:
+          SP.field_read("r", "person", "amount", %{"fields" => ["name", "qty", "amount"]})
+      }
+    end
+
+    test "S3: the strict field is delivered as the canonical string; the non-strict twin as a number",
+         ctx do
+      assert {:ok, %{"r" => [%{"qty" => "2.50", "amount" => 2.5}]}} =
+               ScriptReads.prefetch(ctx.schema, [ctx.qty_read], %{"tier" => "2.5"})
+    end
+
+    test "a string or integer match value works on the strict field only", ctx do
+      for value <- ["2.50", "2.5"] do
+        assert {:ok, %{"r" => [%{"name" => "A"}]}} =
+                 ScriptReads.prefetch(ctx.schema, [ctx.qty_read], %{"tier" => value})
+      end
+
+      record!(ctx.schema, %{"name" => "B", "qty" => 7}, "person")
+
+      assert {:ok, %{"r" => [%{"name" => "B", "qty" => "7.00"}]}} =
+               ScriptReads.prefetch(ctx.schema, [ctx.qty_read], %{"tier" => 7})
+
+      # non-strict: unchanged -- a number matches, a string is the constant-false query
+      assert {:ok, %{"r" => [%{"name" => "A"}]}} =
+               ScriptReads.prefetch(ctx.schema, [ctx.amount_read], %{"tier" => 2.5})
+
+      assert {:ok, %{"r" => []}} =
+               ScriptReads.prefetch(ctx.schema, [ctx.amount_read], %{"tier" => "2.5"})
+    end
+
+    test "a float, a malformed string and other types match nothing on the strict field " <>
+           "(one query, no error)",
+         ctx do
+      for value <- [2.5, "1; DROP TABLE x", "abc", nil, true, ["2.5"], %{"a" => 1}] do
+        {result, queries} =
+          QueryCapture.capture_repo_queries(fn ->
+            ScriptReads.prefetch(ctx.schema, [ctx.qty_read], %{"tier" => value})
+          end)
+
+        assert result == {:ok, %{"r" => []}}, inspect(value)
+        assert length(record_queries(queries)) == 1
+      end
+    end
+  end
+
   # ── no caching (design 11.2) ────────────────────────────────────────────────
 
   test "no caching: a record changed between runs is read fresh", ctx do

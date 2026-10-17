@@ -225,6 +225,126 @@ defmodule Letflow.Entities.Record.Decimals do
   def bound(_value), do: :error
 
   @doc """
+  The strict specs of a PERSISTED definition document (`definition_json`, string
+  keys, as stored): the same result `strict_specs/1` gives for the atom-keyed
+  document `Letflow.Entities.Records` builds, without needing that conversion.
+  Read paths (router, allowlist, script reads) use this one. `%{}` for anything
+  that is not a definition document. Never raises (INV-8).
+  """
+  @spec specs_from_definition_json(term()) :: specs()
+  def specs_from_definition_json(%{"fields" => fields}) when is_list(fields) do
+    documents =
+      for %{"type" => "decimal", "name" => name, "decimal_strict" => true} = field <- fields,
+          is_binary(name) do
+        %{
+          name: name,
+          type: :decimal,
+          decimal_strict: true,
+          decimal_precision: Map.get(field, "decimal_precision"),
+          decimal_scale: Map.get(field, "decimal_scale"),
+          min: Map.get(field, "min"),
+          max: Map.get(field, "max"),
+          non_negative: Map.get(field, "non_negative")
+        }
+      end
+
+    strict_specs(%{fields: documents})
+  end
+
+  def specs_from_definition_json(_other), do: %{}
+
+  @doc """
+  Renders the strict decimal fields of a stored `field_values` map as canonical
+  scale-padded strings (the defensive decoder: by contract a strict field already
+  holds one, so this only matters for a stored number). Other keys, `nil`, the
+  `FieldGrants` redaction sentinel and any unparseable value pass through
+  untouched. `specs == %{}` or a non-map returns the input as is (design I6).
+  """
+  @spec render_field_values(term(), specs()) :: term()
+  def render_field_values(field_values, specs) when specs == %{}, do: field_values
+
+  def render_field_values(field_values, specs)
+      when is_map(field_values) and not is_struct(field_values) do
+    Enum.reduce(specs, field_values, fn {name, %{scale: scale}}, acc ->
+      case acc do
+        %{^name => value} -> Map.put(acc, name, render_value(value, scale))
+        _absent -> acc
+      end
+    end)
+  end
+
+  def render_field_values(field_values, _specs), do: field_values
+
+  @doc """
+  One stored value as the canonical `scale`-padded string: a number (integer,
+  float or `Decimal`) or a grammar-conforming string. Anything else (nil, an atom
+  such as the redaction sentinel, a map, an unparseable string) is returned
+  unchanged. A value with more fractional digits than `scale` (impossible for a
+  strict write) is rendered in plain notation, unpadded. Never raises.
+  """
+  @spec render_value(term(), non_neg_integer()) :: term()
+  def render_value(value, scale) when is_integer(value) or is_float(value) or is_binary(value) do
+    case to_decimal(value) do
+      {:ok, decimal} -> render_decimal(decimal, scale)
+      :error -> value
+    end
+  end
+
+  def render_value(%Decimal{} = value, scale) do
+    if finite?(value), do: render_decimal(value, scale), else: value
+  end
+
+  def render_value(value, _scale), do: value
+
+  defp render_decimal(decimal, scale) do
+    %Decimal{exp: exp} = reduced = reduce(decimal)
+
+    if max(-exp, 0) <= scale,
+      do: to_canonical(reduced, scale),
+      else: Decimal.to_string(reduced, :normal)
+  end
+
+  defp finite?(%Decimal{coef: coef}), do: is_integer(coef)
+
+  @doc """
+  A stored strict value as a `Decimal`, for in-process arithmetic: a canonical
+  string (the stored form), an integer, a finite `Decimal` or a legacy float.
+  `:error` for anything else. This is the documented helper for readers of a
+  strict field (`Latest.get/3` returns the string).
+  """
+  @spec to_decimal(term()) :: {:ok, Decimal.t()} | :error
+  def to_decimal(value) when is_binary(value), do: bound(value)
+  def to_decimal(value) when is_integer(value), do: {:ok, Decimal.new(value)}
+  def to_decimal(value) when is_float(value), do: {:ok, Decimal.from_float(value)}
+
+  def to_decimal(%Decimal{} = value) do
+    if finite?(value), do: {:ok, value}, else: :error
+  end
+
+  def to_decimal(_value), do: :error
+
+  @doc """
+  A filter literal for a strict field as a `Decimal`: a string of the strict grammar
+  (at most 1100 bytes), an integer (at most 425 bytes, like a write) or an already-built finite
+  `Decimal`. Every float is refused (a JSON float is already lossy). No scale or
+  precision check: `> "2.5555"` is a legitimate filter.
+  """
+  @spec filter_value(term()) :: {:ok, Decimal.t()} | :error
+  def filter_value(value) when is_binary(value), do: bound(value)
+
+  def filter_value(value) when is_integer(value) do
+    if byte_size(:binary.encode_unsigned(abs(value))) <= @max_integer_bytes,
+      do: {:ok, Decimal.new(value)},
+      else: :error
+  end
+
+  def filter_value(%Decimal{} = value) do
+    if finite?(value), do: {:ok, value}, else: :error
+  end
+
+  def filter_value(_value), do: :error
+
+  @doc """
   Validates and rewrites the strict fields of `field_values`. `{:ok, map}` holds
   every strict value as its canonical string; `{:error, failures}` lists one
   `ValidationFailure` per refused field. A definition with no strict field returns
