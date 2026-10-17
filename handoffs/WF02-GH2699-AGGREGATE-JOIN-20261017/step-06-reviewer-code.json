@@ -1,0 +1,45 @@
+{
+  "handoff_id": "c4a7d1e0-2699-4a11-8c20-000000000006",
+  "run_id": "WF02-GH2699-AGGREGATE-JOIN-20261017",
+  "workflow_id": "WF-02",
+  "step": "06",
+  "from_agent": "ORCH",
+  "to_agent": "REVIEWER",
+  "file": "handoffs/WF02-GH2699-AGGREGATE-JOIN-20261017/step-06-reviewer-code.json",
+  "created_at": "2026-10-17T08:40:00Z",
+  "started_at": "2026-10-17T08:40:30Z",
+  "completed_at": "2026-10-17T08:50:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2699": "SECURITY prio 1, PR 2 of #2697: aggregate route migrates to the shared restricted-field walker; join clause closed."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-2699-4a11-8c20-000000000004"
+    ],
+    "artifacts_in": [
+      "lib/letflow/routers/entities.ex",
+      "lib/letflow/entities/query/compiler.ex",
+      "lib/letflow/design/gh2699-aggregate-join-restricted.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2699-AGGREGATE-JOIN-20261017"
+  },
+  "task": {
+    "description": "REVIEWER code gate (idiom, scope, dead code, stale comments, CRLF, test breakage) for commit 172ac4208."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "PASS, no required changes. IDIOM: run_query_aggregate/4 is a single with-chain build_aggregate_request -> FieldPolicy.check_request(%{user_id,prefix}, :aggregate, request, %{exempt?: false}) -> Compiler.run_aggregate (entities.ex:2201-2213); binding {:ok, _guard_ok} is the right form (underscore-prefixed, no unused-var warning, matches the spec {:ok, guard_ok()}); else clause stays the single {:error, reason} -> render_aggregate_error, guard atoms :request_field_restricted/:request_clause_unwalked reach render_query_error/2 (entities.ex:2658-2661, identical 403 text) via render_aggregate_error's fallthrough; :invalid_schema_name from load_sets also falls through (500 path, same as before). SCOPE: diff touches only entities.ex (moduledoc row, INV-2 comment, run_query_aggregate, deleted helpers, render clause) and a compiler.ex @doc rewording; RequestGuard/FieldPolicy/Compiler logic untouched; no new abstraction. SUPERVISION/TYPE-SAFETY: n/a (plain Plug route, no process change; no new type-safety gap; no FINDING filed). DEAD CODE: check_aggregate_field_restrictions/2, aggregate_request_field_names/1 and the {:aggregate_field_restricted,_} render clause are gone; grep of lib/ (non-design) finds zero references to check_aggregate_field_restrictions or aggregate_field_restricted. FieldGrants alias (entities.ex:253) is still used (redact_joined_page etc., lines ~1990-2027), no unused-alias issue. STALE COMMENTS: remaining load_restrictions mentions in routers/entities.ex are lines 77 and 166, both about the /query and export routes, which still call FieldGrants after FieldPolicy for redaction: accurate, not stale. Non-router lib mentions (field_policy.ex, field_grants.ex, type_access.ex, script_reads.ex, step_writes.ex, handler_writes.ex, scripts/policy.ex) are unrelated and accurate. Design docs under lib/letflow/design/ still mention the old names; historical records, intentionally not edited. BOUNDARY NUMBER: 1368 edges vs 1640-1660 elsewhere is not a code signal; the diff adds/removes no module reference between files (FieldPolicy and FieldGrants were already referenced by entities.ex), and the count is whatever mix xref graph prints for the build at hand, which varies with MIX_ENV/compiled manifest and the branch base (test/support excluded per the task moduledoc). Not a blocker; ORCH/CI re-run is the authority (not run here by instruction). CRLF: working tree entities.ex 2906/2906 lines CRLF and compiler.ex 1551/1551 CRLF (consistent); the blob is LF-normalised in git (diff shows no CR), so the repo autocrlf handling is unchanged. TESTS THAT WILL BREAK / MUST CHANGE (for TEST-DESIGNER): (1) test/letflow/routers/entities_query_restricted_walker_test.exs T-39 test at line 1380 'the aggregate route is the ONLY remaining direct load_restrictions caller (allow-listed until #2699)' asserts one FieldGrants.load_restrictions( line (1388) and that run_query_aggregate contains it (1389): now fails; rewrite to assert ZERO direct load_restrictions in the router and run_query_aggregate calls FieldPolicy.check_request with :aggregate; also the T-39 loop near line 1372 may drop its aggregate exclusion. (2) describe 'aggregate route keeps its own check in PR 1' at line 951 (cases 956-966): behaviour should still be 403 for field/group_by/filter, so likely still green, but rename and add new join fk / through-hop restricted cases and a join-on restricted 403 (T-29 and aggregate half of T-26 per gh2697 design). (3) T-26 aggregate builder test at line 1270-1287 should stay green (registry keys unchanged); verify. (4) Doc comments: test/letflow/routers/entities_query_restricted_filter_test.exs line 6 and walker test header line 3 reference check_aggregate_field_restrictions / PR 1 and are now stale. (5) test/letflow/entities/query_request_guard_test.exs and any test asserting aggregate 403 detail text are unaffected (same detail string). No test references :aggregate_field_restricted atom (grep of test/ empty).",
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "diagnosis_confirmed": true,
+    "implementation_written": false,
+    "classification": "SECURITY"
+  }
+}

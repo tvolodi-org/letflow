@@ -2,8 +2,8 @@ defmodule Letflow.Routers.EntitiesQueryRestrictedFilterTest do
   @moduledoc """
   Leak reproduction (suspected, GH #2682 / req511 T-31 scope-4): the aggregate
   route (`POST /entities/query/aggregate`) rejects a request that names a
-  field restricted for the caller with 403 (ISS-0647,
-  `Letflow.Routers.Entities.check_aggregate_field_restrictions/2`). The plain
+  field restricted for the caller with 403 (ISS-0647; since GH #2699 through
+  the shared walker, `Letflow.Entities.FieldPolicy.check_request/4`). The plain
   query route (`POST /entities/query`), its join variant and the bulk export
   route (`POST /entities/records/:entity_type/export`) only REDACT the
   returned `field_values`; they do not look at the request's `filters` /

@@ -1,0 +1,48 @@
+{
+  "handoff_id": "c4a7d1e0-2699-4a11-8c20-000000000004",
+  "run_id": "WF02-GH2699-AGGREGATE-JOIN-20261017",
+  "workflow_id": "WF-02",
+  "step": "04",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF02-GH2699-AGGREGATE-JOIN-20261017/step-04-elixir-dev.json",
+  "created_at": "2026-10-17T08:20:00Z",
+  "started_at": "2026-10-17T08:21:00Z",
+  "completed_at": "2026-10-17T08:36:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2699": "SECURITY prio 1, PR 2 of #2697: aggregate route migrates to the shared restricted-field walker; join clause closed."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-2699-4a11-8c20-000000000003"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/gh2699-aggregate-join-restricted.md"
+    ],
+    "owned_modules": [
+      "Letflow.Routers.Entities"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2699-AGGREGATE-JOIN-20261017"
+  },
+  "task": {
+    "description": "Implement the design: run_query_aggregate/4 = build_aggregate_request -> FieldPolicy.check_request(:aggregate, exempt?: false) -> Compiler.run_aggregate; delete old helpers and render clause; reword stale comments. No tests."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "Implemented per design. entities.ex: run_query_aggregate/4 now calls FieldPolicy.check_request(%{user_id, prefix}, :aggregate, request, %{exempt?: false}) binding {:ok, _guard_ok}; deleted check_aggregate_field_restrictions/2, aggregate_request_field_names/1 and the {:aggregate_field_restricted, _} render clause (guard atoms fall through to render_query_error/2 identical 403); reworded moduledoc route row, INV-2 block comment, render comment. compiler.ex compile_aggregate doc reworded. Verified: MIX_ENV=test mix compile --warnings-as-errors clean (no warnings), mix format no changes, mix letflow.check_boundaries OK 1368 edges 0 violations. No tests run or written. Caller grep: no shipped aggregate caller joins on a restricted fk (lib/, web/src, test/fixtures have no aggregate+join callers; existing join tests in entities_query_restricted_filter_test are /query). Existing test that must change: walker test T-39 'the aggregate route is the ONLY remaining direct load_restrictions caller' (~line 1380-1389) and describe 'aggregate route keeps its own check in PR 1' rename; doc comment line 6 of entities_query_restricted_filter_test.exs.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "lib/letflow/routers/entities.ex",
+      "lib/letflow/entities/query/compiler.ex"
+    ],
+    "diagnosis_confirmed": true,
+    "implementation_written": true,
+    "classification": "SECURITY"
+  }
+}

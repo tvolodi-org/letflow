@@ -1,0 +1,47 @@
+{
+  "handoff_id": "c4a7d1e0-2699-4a11-8c20-000000000002",
+  "run_id": "WF02-GH2699-AGGREGATE-JOIN-20261017",
+  "workflow_id": "WF-02",
+  "step": "02",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGN-VALIDATOR",
+  "file": "handoffs/WF02-GH2699-AGGREGATE-JOIN-20261017/step-02-code-design-validator.json",
+  "created_at": "2026-10-17T08:31:00Z",
+  "started_at": "2026-10-17T08:31:10Z",
+  "completed_at": "2026-10-17T09:05:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2699": "Aggregate route ignores join clauses in the restricted-field check (FK presence leak; PR 2 of #2697).",
+      "GH#2697": "One allow-list walker; PR 1 merged; do not close #2697 until #2699 lands."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-2699-4a11-8c20-000000000001"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/gh2699-aggregate-join-restricted.md",
+      "handoffs/WF02-GH2699-AGGREGATE-JOIN-20261017/step-01-code-designer.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2699-AGGREGATE-JOIN-20261017"
+  },
+  "task": {
+    "description": "WF-02 step 1b design validation for GH #2699. Read-only; no mix; no edits to lib/ or test/.",
+    "acceptance_criteria": [
+      "Restricted fk/through/on field in an aggregate join gives the same 403 as a restricted filter field; permitted key succeeds",
+      "#2697 controls stay green; /query and export join clauses unchanged",
+      "SECURITY-REVIEWER and REVIEWER verdicts mandatory"
+    ]
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "ROUND 2 PASS (diff check). All six round-1 gaps verified fixed in place: R-1 A-11 DROPPED and Q2 CLOSED (F9 documents that the aggregate path has no TypeAccess step; no 'observe on main' text remains, grep clean); R-2 A-10b is a concrete 400 test (malformed aggregates/group_by/join element each with a restricted filter, plus non-object body); verified against entities.ex parse_aggregate_target/parse_group_by_clause/parse_join_clause fallbacks returning {:query_field_invalid,...} and the 'request body must be a JSON object' 400; M7 now points to A-10b, no 'add if missing' text remains; R-3 M6 states it is killed only by existing T-27/T-14 unit tests plus the A-12 source assertion (guard bound as {:ok,_}, no catch-all else) and that :request_clause_unwalked is unreachable over HTTP; R-4 A-12 is code-lines-only, scoped to lib/letflow/routers/entities.ex, and R6 enumerates every stale comment site (moduledoc route row, INV-2 block comment, helper comment, render comment, compiler.ex compile_aggregate doc, test file line 6); R-5 A-6 gives a concrete four-entity fixture and variants (a)-(e) with expected 403/200 for owner vs non-owner side, near and far hops; R-6 header now says the issue body carries the ACs and only its comments are heartbeats, consistent with Q4. SEC design conditional PASS R1-R3 (step-03-security-reviewer-design.json) folded: section 6 scopes the single-owner invariant to routers/entities.ex and names handler_writes.ex/step_writes.ex as out-of-scope callers; section 11 PR-body list requires past-exposure statement and #2700 remaining open; #2612 not triggered. No implementation code in the design. NON-BLOCKING cosmetic: the AC-12 row in section 7 has a stray extra '| presence oracle. Fixture ...' cell (markdown table glitch; content is correct and A-9 covers it); fix at DOC time, not a build blocker.",
+    "artifacts_out": [],
+    "implementation_written": false
+  }
+}

@@ -61,7 +61,7 @@ defmodule Letflow.Routers.Entities do
   | update_record | `PUT /entities/records/:entity_type/:record_id` | `Letflow.Entities.Records.update_record/2` | `EntitiesRecordsWrite` | 200 / 404 / 409 / 422 (422 also `idempotency_key_reuse`, GH #2543; `idempotency_key` over 199 bytes -> 422 `max_length`, not valid UTF-8 or containing NUL -> 422 `format`, GH #2550) |
   | delete_record | `DELETE /entities/records/:entity_type/:record_id` | `Letflow.Entities.Records.delete_record/2` | `EntitiesRecordsWrite` | 200 / 400 / 404 / 409 / 422 (a fresh key per request, so never `idempotency_key_reuse`) |
   | query | `POST /entities/query` | `Letflow.Entities.Query.Compiler.compile/2` then `Letflow.Entities.Query.Allowlist.load/2` then `Letflow.Entities.Query.Cursor.paginate/5` then a `Letflow.Entities.Query.FieldGrants` redaction step | `EntitiesQuery` | 200 / 400 / 404 / 422 |
-  | query_aggregate | `POST /entities/query/aggregate` | a `Letflow.Entities.Query.FieldGrants.load_restrictions/3` field-restriction check then `Letflow.Entities.Query.Compiler.run_aggregate/2` | `EntitiesAggregate` | 200 / 400 / 403 / 404 / 422 |
+  | query_aggregate | `POST /entities/query/aggregate` | the shared restricted-field walker (`Letflow.Entities.FieldPolicy.check_request/4`, kind `:aggregate`, covering every field and join fk) then `Letflow.Entities.Query.Compiler.run_aggregate/2` | `EntitiesAggregate` | 200 / 400 / 403 / 404 / 422 |
   | create_record_attachment | `POST /entities/records/:entity_type/:record_id/attachments` | `Letflow.Repository.EntityAttachments.upload/2` | `EntitiesAttachmentsManage` | 201 / 404 / 422 |
   | list_record_attachments | `GET /entities/records/:entity_type/:record_id/attachments` | `Letflow.Repository.EntityAttachments.list/2` | `EntitiesAttachmentsRead` | 200 / 400 / 404 |
   | get_record_attachment_content | `GET /entities/records/:entity_type/:record_id/attachments/:attachment_id` | `Letflow.Repository.EntityAttachments.get_content/2` | `EntitiesAttachmentsRead` | 200 (raw bytes) / 404 / 500 |
@@ -2175,14 +2175,15 @@ defmodule Letflow.Routers.Entities do
   # and NOTHING else. A body carrying "tenant_id"/"schema"/"slug"/"prefix"/
   # "user_id" is inert -- those keys are never read anywhere below.
   #
-  # ⛔ INV-2, THE HARD PART (design §4's reworked, SECURITY-REVIEWER-cleared
-  # mechanism): `check_aggregate_field_restrictions/2` runs BEFORE
-  # `Compiler.compile_aggregate/2` is ever called, against EVERY field named
-  # anywhere in the request -- every aggregate target's `:field`, every
-  # `group_by` field, AND every `filters` field, with NO exemption for
-  # `filters` on this route (unlike `POST /entities/query`, untouched by this
-  # section). A single restricted field anywhere rejects the WHOLE request
-  # with 403, before any query is built.
+  # ⛔ INV-2: `FieldPolicy.check_request/4` (kind `:aggregate`, the shared
+  # restricted-field walker) runs BEFORE `Compiler.run_aggregate/2` is ever
+  # called, against EVERY field named anywhere in the request -- every
+  # aggregate target's `:field`, every `group_by` field, every `filters`
+  # field, AND every `join` hop's fk/on field (each governed by the entity
+  # that declares it), with NO exemption on this route. A single restricted
+  # reference anywhere rejects the WHOLE request with 403, before any query
+  # is built. The guard's loaded sets are unused: this route returns no
+  # restricted values to redact.
 
   defp handle_query_aggregate(conn) do
     user_id = conn.assigns.auth_context.user_id
@@ -2199,41 +2200,18 @@ defmodule Letflow.Routers.Entities do
   @spec run_query_aggregate(Plug.Conn.t(), map(), String.t(), String.t()) :: Plug.Conn.t()
   defp run_query_aggregate(conn, body, user_id, prefix) do
     with {:ok, request} <- build_aggregate_request(body),
-         {:ok, restriction_set} <-
-           FieldGrants.load_restrictions(user_id, request.entity_type, prefix),
-         :ok <- check_aggregate_field_restrictions(request, restriction_set),
+         {:ok, _guard_ok} <-
+           FieldPolicy.check_request(
+             %{user_id: user_id, prefix: prefix},
+             :aggregate,
+             request,
+             %{exempt?: false}
+           ),
          {:ok, rows} <- Compiler.run_aggregate(request, prefix) do
       Response.ok(conn, %{"results" => Enum.map(rows, &aggregate_result_map/1)})
     else
       {:error, reason} -> render_aggregate_error(conn, reason)
     end
-  end
-
-  # Every field named ANYWHERE in the request -- aggregate targets, group_by,
-  # AND filters alike (design §4's final, reworked mechanism -- no exemption
-  # for filters on THIS route). `restriction_set` is raw field-name strings
-  # (Letflow.Entities.Query.FieldGrants.load_restrictions/3's own output) --
-  # this check runs against caller-supplied strings directly, before any
-  # allowlist resolution, so it cannot be bypassed by a field that would
-  # otherwise fail allowlisting for an unrelated reason.
-  defp check_aggregate_field_restrictions(request, restriction_set) do
-    request
-    |> aggregate_request_field_names()
-    |> Enum.find(&MapSet.member?(restriction_set, &1))
-    |> case do
-      nil -> :ok
-      field_name -> {:error, {:aggregate_field_restricted, field_name}}
-    end
-  end
-
-  defp aggregate_request_field_names(request) do
-    aggregate_fields =
-      Enum.flat_map(request.aggregates, fn target -> List.wrap(Map.get(target, :field)) end)
-
-    group_by_fields = Enum.map(request.group_by, & &1.field)
-    filter_fields = Enum.map(request.filters, & &1.field)
-
-    aggregate_fields ++ group_by_fields ++ filter_fields
   end
 
   # ══ Aggregate request parsing (design §1) ═════════════════════════════
@@ -2332,12 +2310,9 @@ defmodule Letflow.Routers.Entities do
   # every parse-level rejection (query_field_invalid/unknown_operator/
   # unknown_sort_dir), is mapped IDENTICALLY to POST /entities/query's own
   # render_query_error/2 (design §2/§5, "unchanged"). The one member with no
-  # row-query analogue at all, {:aggregate_field_restricted, _} (design §4),
-  # maps to 403 -- the field named exists and is allowlisted, but this caller
-  # specifically lacks read access to it.
-  defp render_aggregate_error(conn, {:aggregate_field_restricted, _field_name}),
-    do: Response.forbidden(conn, "one or more requested fields are restricted for this caller")
-
+  # row-query analogue at all. A restricted field or join fk is refused by the
+  # shared walker (`:request_field_restricted` / `:request_clause_unwalked`),
+  # which falls through to render_query_error/2's identical 403.
   defp render_aggregate_error(conn, {:aggregate_field_required, fn_}),
     do: Response.unprocessable(conn, "aggregate function #{inspect(fn_)} requires a field")
 

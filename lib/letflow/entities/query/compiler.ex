@@ -708,9 +708,9 @@ defmodule Letflow.Entities.Query.Compiler do
   Compiles `request` into a parameterised, not-yet-executed `Ecto.Query.t()`
   producing one row per distinct `group_by` combination (or exactly one row
   absent `group_by`), scoped to the tenant schema named by `prefix` (design
-  §1/§2). The caller is responsible for the §4 INV-2 field-restriction check
-  (every `aggregates`/`group_by`/`filters` field against
-  `Letflow.Entities.Query.FieldGrants.load_restrictions/3`) BEFORE calling
+  §1/§2). The caller is responsible for the INV-2 field-restriction check
+  (every `aggregates`/`group_by`/`filters` field and join fk, via
+  `Letflow.Entities.FieldPolicy.check_request/4` with kind `:aggregate`) BEFORE calling
   this function -- this function itself performs no such check, mirroring
   `compile/2`'s own "resolution only, no grant-awareness" scope.
   """

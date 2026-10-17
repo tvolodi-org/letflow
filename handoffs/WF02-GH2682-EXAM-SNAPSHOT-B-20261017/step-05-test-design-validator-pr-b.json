@@ -1,0 +1,53 @@
+{
+  "handoff_id": "e511b000-2682-4a11-8c20-000000000005",
+  "run_id": "WF02-GH2682-EXAM-SNAPSHOT-B-20261017",
+  "workflow_id": "WF-02",
+  "step": "05",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGN-VALIDATOR",
+  "file": "handoffs/WF02-GH2682-EXAM-SNAPSHOT-B-20261017/step-05-test-design-validator-pr-b.json",
+  "created_at": "2026-10-17T08:00:00Z",
+  "started_at": "2026-10-17T08:00:30Z",
+  "completed_at": "2026-10-17T08:20:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S8",
+    "requirement_ids": ["REQ-511"],
+    "requirement_text": {
+      "GH#2682": "Exam content snapshot, PR b: certificate from the snapshot, lazy late snapshot with cutover, Stamp prerequisites, flag true. TEST-DESIGN-VALIDATOR gate (static, read-only, mix not run)."
+    },
+    "related_handoff_ids": ["e511b000-2682-4a11-8c20-000000000004"],
+    "artifacts_in": [
+      "test/specs/GH2682-exam-snapshot-pr-b.md",
+      "test/letflow/modules/exam/snapshot_late_test.exs",
+      "test/letflow/modules/exam/certificate_snapshot_test.exs",
+      "test/letflow/modules/exam/exam_snapshot_late_router_test.exs",
+      "test/letflow/entities/managed_types/stamp_snapshot_prerequisites_test.exs",
+      "test/letflow/entities/managed_types/stamp_snapshot_gate_test.exs",
+      "test/support/exam_fixtures.ex"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2682-EXAM-SNAPSHOT-B-20261017"
+  },
+  "task": {
+    "description": "WF-02 step 3b gate on the PR b tests: every AC has a runnable non-skipped test, fixtures isolated, assertions discriminating, mutants reasoned statically."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "PASS (static review; mix not run per instruction; git status --porcelain lib/ test/ was empty at review start, no mutant applied by me because this is a WF-02 gate, not a WF-03 code-did-not-exist regression). No @tag :skip and no TODO in the four new files. AC1 certificate (T-09 flag, T-10 title, T-11 no live read, one test per field class, context and HTTP), T-55c, N2, guard order, corrupt-not-replaced: covered. AC3 late snapshot: state read, autosave, submit, finalize_expired, audit entry plus rollback (ensure, late submit, certificate facts), cutover on the RECORD inserted_at with strict boundary (AT refused, -1us healed), T-61 (delete and nil), T-61b (started_at rewritten 30 days back still :snapshot_missing), corrupt never replaced (non-object values AND a separate stale-digest test, ensure and submit), valid snapshot on a pre-cutover record returned as is, terminal never snapshotted except late_certificate (submitted only), Snapshot.cutover/1 incl. :definition_missing -> 503 and :invalid_schema_name: covered. AC5 Stamp: T-38/39/40, active-row compatibility incl. N1, row-lock re-check via after_precheck seam (both prerequisites), :nothing_to_stamp for an already stamped tenant, dry run never blocked, gate_blocked_total, closed flag wins, Release wrapper, Mix task: covered; T-36 provenance rewritten to true in config.exs and test.exs, not false, runtime.exs never mentions the flag, lib/ never writes or env-reads it. Ownership-before-prerequisite parity: counted via a :telemetry handler filtered to the test pid over ensure, ensure_certificate_facts, autosave and state, plus byte-identical HTTP 404s on six routes; the count test is context-level (no HTTP token path), so the api_tokens last_used_at wall-clock-second flake of #2729 cannot enter; the HTTP R6 test compares bodies, not counts. Isolation: all four files async: false, each test builds its own provisioned tenant (unique slug), no shared hardcoded state, no secrets; no pg_stat_activity/lock-wait helper is used by these files (concurrency uses Task.async and asserts invariants, not interleaving), so that hazard does not apply. Mutants (reasoned): M4a killed by non-object T-18b (stale-digest is separate code, fetch_verified; it has its own test, and a rebuild-on-{:ok} mutant M4b would fail it as well); M4b, M9, M11, M12, M14, M16, M17, M18, M19, M20, M21, M22, M23, M24 each have a named discriminating assertion that fails under the mutation. M24's designer-measured count came from a run that overlapped another agent's mix process; the static argument (T-52 stranger on ensure_certificate_facts expects :not_owner and a no-write) independently kills it. No unkilled mutant found. Non-blocking observations below.",
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "issues": [
+      "NON-BLOCKING 1: stamp_snapshot_prerequisites_test.exs Mix-task test runs the dry-run output assertions (complete banner, '0 gate-blocked') only inside `if probe.failed_total == 0`; on a database with a failing tenant they are silently skipped. The real-run exit is source-guarded (string match on `if report.failed_total > 0 or report.gate_blocked_total > 0,` and System.halt(1)), plus the same condition evaluated on a real Release report. Acceptable (same precedent as PR a; System.halt cannot run in-process), but the guards are format-brittle and the conditional is a latent silent skip. Suggest a later hardening, not a gate.",
+      "NON-BLOCKING 2: snapshot_late_test T-24 mixed race asserts `match?({:ok,_}, r) or match?({:error,_}, r)` for the state and ensure legs (tautology); the real checks are the final-state asserts (submitted, late snapshot verifies, one audit entry). Concurrency overlap is not forced, so the test can pass without real contention; M4 is nevertheless killed by the four-way ensure test plus T-59/T-24 'existing returned as is' deterministic tests.",
+      "NON-BLOCKING 3: stale-digest corrupt snapshot is asserted for ensure and submit only (not state read, autosave, finalize_expired); non-object corrupt is asserted for all four owner touches. Same code path (fetch_verified), low risk.",
+      "NON-BLOCKING 4: Stamp sweep tests (Stamp.run([]), ManagedTypes.stamp(module: 'exam')) sweep every tenant in the test database; assertions use >= and per-tenant lookups so foreign tenants cannot fail them, and the suite is async: false."
+    ],
+    "findings_for_orch": [
+      "Verdict PASS: route nothing back to TEST-DESIGNER. Hosted CI remains the arbiter of the full suite.",
+      "Non-blocking: spec observation that a failed (not passed) legacy submitted session takes late_certificate facts before the 409 is not pinned by a test; the designer flagged it, REVIEWER called it a suggestion."
+    ]
+  }
+}

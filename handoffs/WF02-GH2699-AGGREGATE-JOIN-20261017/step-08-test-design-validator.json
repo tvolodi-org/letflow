@@ -1,0 +1,50 @@
+{
+  "handoff_id": "c4a7d1e0-2699-4a11-8c20-000000000008",
+  "run_id": "WF02-GH2699-AGGREGATE-JOIN-20261017",
+  "workflow_id": "WF-02",
+  "step": "08",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGN-VALIDATOR",
+  "file": "handoffs/WF02-GH2699-AGGREGATE-JOIN-20261017/step-08-test-design-validator.json",
+  "created_at": "2026-10-17T09:41:00Z",
+  "started_at": "2026-10-17T09:42:00Z",
+  "completed_at": "2026-10-17T10:05:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2699": "SECURITY prio 1, PR 2 of #2697: aggregate route migrates to the shared restricted-field walker; join clause closed."
+    },
+    "related_handoff_ids": ["c4a7d1e0-2699-4a11-8c20-000000000007"],
+    "artifacts_in": [
+      "test/specs/GH2699-aggregate-join-restricted.md",
+      "test/letflow/routers/entities_aggregate_restricted_join_test.exs",
+      "test/letflow/routers/entities_query_restricted_walker_test.exs",
+      "test/letflow/routers/entities_query_restricted_filter_test.exs",
+      "lib/letflow/design/gh2699-aggregate-join-restricted.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2699-AGGREGATE-JOIN-20261017"
+  },
+  "task": {
+    "description": "WF-02 step 3b test-design validation for GH #2699. Static review only; mix was not run."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "PASS (static; nothing executed, hosted CI is the first run). Every design test A-1..A-10b, A-12..A-16 is present, runnable, with no @tag :skip and no TODO. Fixtures copy the walker test's already-validated tenant, definition and promotion helpers, and each test provisions its own tenant, so they are isolated. No secrets. Verified against router code: parse_aggregates, parse_group_by and parse_join_clause all return {:query_field_invalid, _}, which renders 400, in build_aggregate_request before the guard, so the A-10b 400 expectations hold. A JSON array body arrives as %{\"_json\" => _}, object_body returns :malformed_json, and the 400 detail is exactly 'request body must be a JSON object'. A no_such_fk join goes through resolve_named_relation to a 4xx, so the ordering test (4xx, not 403, bodies equal) is sound. A-14 strictness is not too strict: Error.forbidden carries no instance or path, the type URL is problems_base + 'forbidden', and the trace id is pinned, so 'answer_option' cannot legitimately appear in any of the five bodies, including the export one whose path contains it. A-8 not_found carries a fixed detail with no type echo, and the pinned x-trace-id plus Plug.Test add no date or request-id header, so the sorted-headers comparison needs no masking. No wall-clock or query-count dependence. The A-12 source assertions use code lines only: function_code strips # lines, and the \\s regexes tolerate CRLF. The T-26 'bare' status 200 line re-uses a body already asserted 200. MUTANT ANALYSIS (static): M1 killed by EntRJ A-1/A-9, A-2, A-3, A-6 and W A-12. M2 killed by the W A-12 deleted-name refutes. M3 killed by W A-12 'exempt?: false'. M4 killed by A-6 (b) and (d), which expect 200 when the restriction sits on the non-owner side, plus A-2. M5 killed by the A-3/A-9 far-hop-only test and A-6 (c). M6 killed only in its binding and catch-all forms by the W A-12 regexes; see gap G1. M7 killed by A-10b. M8 killed by A-8 (through and direct join on a ghost primary, filtered variant). M9 killed by assert_refused detail equality and leak refutes, and by A-14. M10 see gap G2. Mutant counts were not measured: no mix run was permitted, so the TEST-DESIGNER 'reported' counts are not repeated here.",
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "verdict": "PASS",
+    "tests_run": false,
+    "advisory_gaps": [
+      "G1 (low): M6 variant 'extra else clause {:error, :request_clause_unwalked} -> continue/422' survives the A-12 regexes (only a catch-all or a non-{:ok,_} binding is refuted). Cheap hardening: assert the else block of run_query_aggregate contains exactly one '->'. Router-level HTTP cannot reach :request_clause_unwalked, as the design states.",
+      "G2 (low, near-equivalent): M10 'restore redaction on aggregate values' is killed by A-15 only if the mutant changes the envelope shape or crashes. A-15 groups by an unrestricted field, so a set-keyed redaction that touches nothing is unobservable. The design accepts this because no restricted value can reach the response.",
+      "G3 (info): the A-1 oracle proof (3 unjoined vs 2 joined) and every 200 twin depend on promote_and_create_table! DDL and a nullable uuid fk, which only hosted CI can confirm."
+    ],
+    "rework_required": false
+  }
+}

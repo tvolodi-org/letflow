@@ -1,0 +1,59 @@
+{
+  "handoff_id": "c4a7d1e0-2699-4a11-8c20-000000000005",
+  "run_id": "WF02-GH2699-AGGREGATE-JOIN-20261017",
+  "workflow_id": "WF-02",
+  "step": "05",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF02-GH2699-AGGREGATE-JOIN-20261017/step-05-security-reviewer-code.json",
+  "created_at": "2026-10-17T09:00:00Z",
+  "started_at": "2026-10-17T09:00:05Z",
+  "completed_at": "2026-10-17T09:10:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2699": "PR 2 of #2697: aggregate route moves to the shared restricted-field walker. Code gate."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-2699-4a11-8c20-000000000003"
+    ],
+    "artifacts_in": [
+      "lib/letflow/routers/entities.ex",
+      "lib/letflow/entities/query/compiler.ex",
+      "lib/letflow/entities/query/request_guard.ex",
+      "lib/letflow/entities/field_policy.ex"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2699-AGGREGATE-JOIN-20261017"
+  },
+  "task": {
+    "description": "SECURITY-REVIEWER CODE gate for GH #2699 (commit 172ac4208). Read-only; no lib/ or test/ edits."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "CODE VERDICT: PASS. Scope IN (tenant-data path, INV-2 on aggregate route); #2612 trigger NOT fired (diff touches only routers/entities.ex, a compiler.ex doc comment, design doc, handoffs). VERIFIED in lib/letflow/routers/entities.ex run_query_aggregate/4 (L2200-2215): build_aggregate_request -> FieldPolicy.check_request(%{user_id,prefix}, :aggregate, request, %{exempt?: false}) -> Compiler.run_aggregate; guard runs strictly before any compile/Repo call. principal built only from auth_context user_id and prefix!(conn) (INV-1). Walker (request_guard.ex) registry aggregate == [:entity_type,:aggregates,:group_by,:filters,:join] = exactly what build_aggregate_request emits; unknown key or malformed element fails closed to :request_clause_unwalked; join_refs tags every hop (near and far) with its declaring owner_entity_type and fk_field, restriction_entity_types loads a set for each; unloaded set counts as restricted. Presence oracle (INNER join drops null/absent fk rows) closed: restricted fk, nullable or through-far, refuses 403 before compile. ERRORS: {:error,:request_field_restricted|:request_clause_unwalked} fall through render_aggregate_error catch-all to render_query_error L2660 which returns Response.forbidden with the identical string the deleted aggregate clause used (byte-identical 403, INV-5; no field/entity/clause name). All join_relations_error members (too_many_joins, join_depth_exceeded, duplicate_join_target, field_not_allowed, no_through_relation, ambiguous_through_relation, entity_type_not_found, invalid_schema_name) have render_query_error clauses or the INV-8 catch-all; no bare match added. 404 ORDER: Compiler.join_relations runs check_join_shape then ensure_primary_exists (Allowlist.fk_defs) before resolve_all_raw_relations, so ghost primary + join -> entity_type_not_found 404 before no_through_relation, same as cross-tenant; ghost primary without join -> empty set, guard passes, compile_aggregate Allowlist.load -> 404 as before. compile_aggregate also runs check_join_shape first, so shape errors are identical on both paths. Error-order change (restricted + invalid join -> join 4xx) leaks nothing: join errors derive from definitions, not grants; accepted in design. DELETED HELPERS: grep of lib/ and test/ for aggregate_field_restricted, check_aggregate_field_restrictions, aggregate_request_field_names finds no remaining use (only a stale prose mention in test/letflow/routers/entities_query_restricted_filter_test.exs:6 docstring, non-functional). FieldGrants alias still used elsewhere in the router, so no unused-alias warning. Other Compiler.run_aggregate callers unchanged (no Compiler logic change; only a doc comment). Permitted requests: guard returns {:ok, _} and flow is unchanged; extra cost is one load_restrictions per involved entity type. NOTE (non-blocking): dangling sentence in the router comment above render_aggregate_error ('The one member with no row-query analogue at all.' L2312-2313) is cosmetic; design R1-R3 (test A-8/A-9 byte-identical and nullable/far-hop coverage, PR body text on #2700/TypeAccess, 403-vs-422 split, join-error-before-403) still bind TEST-DESIGNER and the PR body. Tests not run (read-only, hosted CI).",
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "gate": "CODE",
+    "invariants_assessed": {
+      "INV-1": "APPLIES-PASS",
+      "INV-2": "APPLIES-PASS",
+      "INV-3": "NOT-APPLICABLE",
+      "INV-4": "NOT-APPLICABLE",
+      "INV-5": "APPLIES-PASS",
+      "INV-6": "APPLIES-PASS",
+      "INV-7": "APPLIES-PASS",
+      "INV-8": "APPLIES-PASS",
+      "INV-9": "NOT-APPLICABLE",
+      "INV-10": "APPLIES-PASS"
+    },
+    "trigger_2612_applies": false,
+    "required_changes": [],
+    "implementation_written": false
+  }
+}
