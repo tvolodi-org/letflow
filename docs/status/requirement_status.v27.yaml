@@ -117,3 +117,20 @@ history:
       Letflow.Release.ExamSnapshot.rollout/1 (dry run first) and verify() before exam starts
       work; until then an exam start answers 503. The exam stamp (#2596) stays a separate
       infra request and needs the rollout and verify() ready first.
+
+  - req: REQ-497
+    event: done
+    agent: DOC-UPDATER
+    at: "2026-10-17T14:44:04Z"
+    note: >
+      GH #2533. PR 1a #2592 and PR 1b #2601 merged through the merge queue (required
+      checks, including the backend shards, ran on each); issue closed. RELEASE-VALIDATOR
+      re-verification: PASS WITH GAPS. Run one file at a time, all passed: migration (8),
+      writers (22), tenant_admin_guard (30), tenant_scope_enforcement router (26); compile
+      with warnings-as-errors, format check and check_boundaries clean. Read but NOT run
+      locally (static evidence only; covered by the CI shards at merge): scope_test,
+      auth_pipeline_scope_test, scope_shadow_test, route_walk, backfill,
+      role_scope_grants_test, tenant_wide_admins, token_preconditions, scope_enforcement_test.
+      AC4 (no behaviour change for existing identity/onboarding/auth tests) was not run
+      locally. Decision-record consistency with 0051 not independently checked. Stage 2 is
+      REQ-517..519 (GH #2535).

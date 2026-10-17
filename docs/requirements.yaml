@@ -36040,7 +36040,7 @@ requirements:
   - id: REQ-497
     title: "Core: org-scoped role grants stage 1 (decision 0051): role_scope_grants table, backfill to explicit tenant_wide rows and every binding writer (PR 1a); allowed?/3, AuthPipeline grants load, per-tenant flag off|shadow with flip preconditions, shadow counters, N1 last-admin guard and the flip-precondition token listing (PR 1b)"
     owner: ELIXIR-DEV
-    status: pending
+    status: done
     stage: S7
     gh: 2533
     # Progress (DOC-UPDATER, letflow-2, 2026-10-15): PR 1a merged (#2592, c55baa4f: role_scope_grants table, backfill, binding writers). PR 1b open (#2601: allowed?/3, flag off|shadow, shadow mode, N1 guards; closes #2575). Status stays pending until 1b merges and RELEASE-VALIDATOR re-verifies all ACs.
