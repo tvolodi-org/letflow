@@ -36427,22 +36427,22 @@ requirements:
   - id: REQ-511
     title: "Exam content snapshot at session start (answer key, passing threshold, certificate flags); scoring never falls back to a default threshold"
     owner: CODE-DESIGNER
-    status: pending
+    status: done
     stage: S7
     gh: 2682
-    # Source: GH #2682 (filed by letflow-2 on a finding by letflow-9c in GH #2596). Prio 1, design first, size L. Gates the infra stamp of the 6 runtime exam types. Id allocated by letflow-2. NOT yet run through REQ-VALIDATOR.
+    # Source: GH #2682 (filed by letflow-2 on a finding by letflow-9c in GH #2596). Prio 1, design first, size L. Gates the infra stamp of the 6 runtime exam types. Id allocated by letflow-2. Delivered by #2730 and #2732; RELEASE-VALIDATOR VERIFIED WITH EXCEPTIONS (see the done event).
     description: >
       The exam session stores a version, hash or snapshot of the exam content at
       start; scoring reads only that snapshot. The GH #2682 body is the content
       authority.
     acceptance_criteria:
-      - "1. The acceptance criteria are those of GH #2682. NOT DELIVERED."
+      - "1. The acceptance criteria of GH #2682 are delivered by #2730 and #2732. Rollout (Letflow.Release.ExamSnapshot.rollout/1) is required in every environment receiving a5847f1f or later. Follow-ups: #2733, #2734."
     depends_on: []
 
   - id: REQ-512
     title: "Report of authoring edits to exams with in-progress or grading-pending sessions (read-only, from events rows)"
     owner: ELIXIR-DEV
-    status: pending
+    status: done
     stage: S7
     gh: 2683
     # Source: GH #2683 (filed by letflow-2). Prio 3. Id allocated by letflow-2. NOT yet run through REQ-VALIDATOR.

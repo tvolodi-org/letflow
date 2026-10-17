@@ -98,3 +98,22 @@ history:
       activated (backstop: refusal event_schema_outdated; MigrationReplayBoot replays on
       boot but swallows failures). A script-bound node can write module data, so 0053 D6
       SoD and publish-review apply (0054 R5). Follow-ups: #2671 and GH #2725 (test gaps). Docs corrected: MigrationReplayBoot replays on boot (decision 0054 and the manifest-hash runbook said nothing did).
+
+  - req: REQ-511
+    event: done
+    agent: DOC-UPDATER
+    at: "2026-10-17T08:48:43Z"
+    note: >
+      GH #2682. PR a #2730 (a5847f1f) and PR b #2732 (408b1a89) are on main; CI and CD (QA)
+      on 408b1a89 completed success. RELEASE-VALIDATOR re-verification: VERIFIED WITH
+      EXCEPTIONS; every acceptance criterion met, 18 test files run one at a time all passed.
+      NOT run: mix letflow.check.test, the full suite, untouched exam test files. Open items:
+      no runbook existed for the rollout (added as docs/runbooks/exam-snapshot-rollout.md);
+      record GET route probe (GET /entities/records/:type/:id) not found in the leak test;
+      QA answer keys are test fixtures only is an ops rule, not enforced by code; the QA
+      rollout claim in the PR b body was not re-derived. Follow-ups: GH #2733 (late snapshot
+      order by convention), GH #2734 (Latest.get/3 does not filter soft-deleted rows).
+      ROLLOUT REQUIREMENT: every environment receiving a5847f1f or later must run
+      Letflow.Release.ExamSnapshot.rollout/1 (dry run first) and verify() before exam starts
+      work; until then an exam start answers 503. The exam stamp (#2596) stays a separate
+      infra request and needs the rollout and verify() ready first.
