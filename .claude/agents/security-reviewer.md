@@ -35,7 +35,7 @@ the path script decides which CI gates run); to `mix.exs` aliases (`aliases/0`,
 `@check_static_steps`, `cli/0` `preferred_envs`) or `elixirc_paths/1`; to a
 `config :letflow, :modules` setting in any `config/*.exs`; to
 `lib/mix/tasks/letflow.permission_matrix.ex` or
-`lib/letflow/api/permission_matrix.ex`; to `lib/letflow/api/authorization.ex`; to
+`lib/letflow/api/permission_matrix.ex`; to `lib/letflow/api/authorization.ex`; to `lib/letflow/api/authorized_router.ex`, any `route_scope.ex` or `scope/enforce.ex` under `lib/letflow/` (supervisor approval 2026-10-17, RA-5 from the #2535 SEC design review: the scope route classification and enforcement plane; those two files do not exist yet, they arrive with REQ-517/518); to
 `lib/letflow/modules/catalog.ex`; to anything under `priv/permission_matrix/`; and
 any run of `mix letflow.permission_matrix --check` whose report contains a core
 matrix change (`:core_change`, printed as `CORE MATRIX CHANGE`) is IN SCOPE. These
