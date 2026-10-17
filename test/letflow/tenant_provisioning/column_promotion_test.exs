@@ -1188,4 +1188,83 @@ defmodule Letflow.TenantProvisioning.ColumnPromotionTest do
       assert row.status == "pending"
     end
   end
+
+  # ---------------------------------------------------------------------------------
+  # GH #2635 -- execute_add_column's pg_type / column_name / generated_as re-validation
+  # must be end-anchored (\z): a stored value with a trailing newline used to pass `$`.
+  # ---------------------------------------------------------------------------------
+
+  describe "GH #2635 -- execute_add_column re-validation refuses a trailing newline" do
+    defp insert_promotion!(tenant_id, overrides) do
+      attrs =
+        Map.merge(
+          %{
+            tenant_id: tenant_id,
+            entity_type: "invoice",
+            attribute: "amount_n",
+            column_name: "amount_n",
+            pg_type: "text",
+            generated_as: nil,
+            status: "pending",
+            query_eligible: false
+          },
+          overrides
+        )
+
+      assert {:ok, row} = Repo.insert(ColumnPromotion.changeset(%ColumnPromotion{}, attrs))
+      row
+    end
+
+    test "a numeric pg_type with a trailing newline is rejected as ddl_failed, never applied" do
+      %{tenant_id: tenant_id, schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      row = insert_promotion!(tenant_id, %{pg_type: "numeric(10,2)
+"})
+
+      assert {:error, {:ddl_failed, %ArgumentError{} = exception}} =
+               TenantProvisioning.run_column_promotion(row.id)
+
+      assert Exception.message(exception) =~ "invalid pg_type"
+      assert Repo.get!(ColumnPromotion, row.id).status == "ddl_failed"
+    end
+
+    test "a well-formed numeric pg_type is still applied" do
+      %{tenant_id: tenant_id, schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      row = insert_promotion!(tenant_id, %{pg_type: "numeric(10,2)"})
+
+      assert {:ok, %ColumnPromotion{status: "ddl_applied"}} =
+               TenantProvisioning.run_column_promotion(row.id)
+    end
+
+    test "a generated_as with a trailing newline is rejected as ddl_failed, never applied" do
+      %{tenant_id: tenant_id, schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+
+      row =
+        insert_promotion!(tenant_id, %{
+          attribute: "amount_kk",
+          column_name: "amount_kk",
+          generated_as: "field_values->'amount'->>'kk'
+"
+        })
+
+      assert {:error, {:ddl_failed, %ArgumentError{} = exception}} =
+               TenantProvisioning.run_column_promotion(row.id)
+
+      assert Exception.message(exception) =~ "invalid generated_as"
+    end
+
+    test "a column_name with a trailing newline is rejected as ddl_failed, never applied" do
+      %{tenant_id: tenant_id, schema_name: schema} = provisioned_tenant()
+      create_active_definition!(schema)
+      row = insert_promotion!(tenant_id, %{column_name: "amount_n
+"})
+
+      assert {:error, {:ddl_failed, %ArgumentError{} = exception}} =
+               TenantProvisioning.run_column_promotion(row.id)
+
+      assert Exception.message(exception) =~ "invalid column_name"
+    end
+  end
 end
