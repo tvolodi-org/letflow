@@ -50,6 +50,7 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
   alias Letflow.Secrets.Secret
   alias Letflow.Support.PlatformTenantFixture, as: Fixture
   alias Letflow.Support.PromotionScopeFixture, as: Scope
+  import Letflow.TestSupport.InstanceFixture, only: [real_instance!: 1]
 
   @pipeline_source File.read!("lib/letflow/plugs/api_pipeline.ex")
   @unused_uuid "00000000-0000-4000-8000-000000000004"
@@ -422,7 +423,7 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
     end
 
     test "attachment reads: list, one attachment and storage-usage are 200", ctx do
-      instance_id = Ecto.UUID.generate()
+      instance_id = real_instance!(ctx.a)
       attachment = upload!(ctx.a, instance_id, "audit evidence")
 
       assert %{status: 200} =
@@ -1021,7 +1022,7 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
 
       # --- the five allowed roles. Literal list (the roles that held :AttachmentsRead before L1),
       # not derived from role_allows?/2.
-      instance_a = Ecto.UUID.generate()
+      instance_a = real_instance!(ctx.a)
       attachment_a = upload!(ctx.a, instance_a, "allowed-link bytes")
       assert secrets_for(ctx.a) == 0
 
@@ -1035,7 +1036,7 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
       assert secrets_for(ctx.a) == 1
 
       # PLATFORM_ADMIN is honoured only in the pinned platform tenant (fixture P)
-      instance_p = Ecto.UUID.generate()
+      instance_p = real_instance!(ctx.p)
       attachment_p = upload!(ctx.p, instance_p, "platform link bytes")
       conn = issue_link(ctx.p, instance_p, attachment_p.id, ["PLATFORM_ADMIN"])
       assert conn.status == 200, conn.resp_body
@@ -1050,7 +1051,7 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
 
     test "GET .../link-content is still 200 for the auditor, with a token issued by an allowed role",
          ctx do
-      instance_id = Ecto.UUID.generate()
+      instance_id = real_instance!(ctx.a)
       attachment = upload!(ctx.a, instance_id, "auditor can read this")
 
       issued = issue_link(ctx.a, instance_id, attachment.id, ["TENANT_ADMIN"])

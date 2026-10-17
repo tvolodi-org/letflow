@@ -43,6 +43,8 @@ defmodule Letflow.Routers.Req386AttachmentLinksRoutesTest do
   alias Letflow.Repository.Attachments
   alias Letflow.TenantFixture
 
+  import Letflow.TestSupport.InstanceFixture, only: [real_instance!: 1]
+
   @opts Letflow.Routers.Instances.init([])
 
   # ── Dispatch helpers (matches req212_attachments_routes_test.exs's own idiom) ──
@@ -128,7 +130,7 @@ defmodule Letflow.Routers.Req386AttachmentLinksRoutesTest do
   describe "AC1: POST /instances/:id/attachments/:attachment_id/link" do
     test "returns 200 with attachment_id/token/url/expires_at/expires_in_seconds" do
       tenant = provisioned_tenant("req386-issue")
-      instance_id = Ecto.UUID.generate()
+      instance_id = real_instance!(tenant)
       attachment = upload!(tenant, instance_id)
 
       conn = issue_link_conn(tenant, instance_id, attachment.id, ["TENANT_ADMIN"])
@@ -151,7 +153,7 @@ defmodule Letflow.Routers.Req386AttachmentLinksRoutesTest do
 
     test "the issued link is usable to fetch the document's bytes before expiry" do
       tenant = provisioned_tenant("req386-issue-then-use")
-      instance_id = Ecto.UUID.generate()
+      instance_id = real_instance!(tenant)
 
       attachment =
         upload!(tenant, instance_id,
@@ -178,7 +180,7 @@ defmodule Letflow.Routers.Req386AttachmentLinksRoutesTest do
 
     test "404s the same way the existing not-found precedent does for an attachment_id that doesn't exist" do
       tenant = provisioned_tenant("req386-issue-404")
-      instance_id = Ecto.UUID.generate()
+      instance_id = real_instance!(tenant)
 
       conn = issue_link_conn(tenant, instance_id, Ecto.UUID.generate(), ["TENANT_ADMIN"])
 
@@ -194,7 +196,7 @@ defmodule Letflow.Routers.Req386AttachmentLinksRoutesTest do
   describe "AC2: GET /instances/:id/attachments/:attachment_id/link-content -- expired token" do
     test "returns 410 with the fixed plain-language detail and no document bytes" do
       tenant = provisioned_tenant("req386-expired-route")
-      instance_id = Ecto.UUID.generate()
+      instance_id = real_instance!(tenant)
       attachment = upload!(tenant, instance_id, raw_bytes: "must never be returned")
 
       token = expired_token_for(attachment.id, tenant)
@@ -218,7 +220,7 @@ defmodule Letflow.Routers.Req386AttachmentLinksRoutesTest do
 
     test "a syntactically malformed link_token gets the exact same 410, not a 4xx of a different shape" do
       tenant = provisioned_tenant("req386-malformed-route")
-      instance_id = Ecto.UUID.generate()
+      instance_id = real_instance!(tenant)
       attachment = upload!(tenant, instance_id)
 
       conn =
@@ -231,7 +233,7 @@ defmodule Letflow.Routers.Req386AttachmentLinksRoutesTest do
 
     test "a missing link_token query param also gets 410, not a 500 or a different 4xx" do
       tenant = provisioned_tenant("req386-missing-token-route")
-      instance_id = Ecto.UUID.generate()
+      instance_id = real_instance!(tenant)
       attachment = upload!(tenant, instance_id)
 
       conn =
@@ -255,7 +257,7 @@ defmodule Letflow.Routers.Req386AttachmentLinksRoutesTest do
   describe "AC3: fresh link after a prior one expired" do
     test "expired attempt fails (410), then a newly issued link for the SAME attachment_id succeeds (200)" do
       tenant = provisioned_tenant("req386-fresh-after-expired")
-      instance_id = Ecto.UUID.generate()
+      instance_id = real_instance!(tenant)
 
       attachment =
         upload!(tenant, instance_id,
@@ -303,7 +305,7 @@ defmodule Letflow.Routers.Req386AttachmentLinksRoutesTest do
       tenant_1 = provisioned_tenant("req386-ac4-tenant1")
       tenant_2 = provisioned_tenant("req386-ac4-tenant2")
 
-      instance_id = Ecto.UUID.generate()
+      instance_id = real_instance!(tenant_2)
 
       # tenant 1's real, existing attachment -- the token below is validly
       # issued and unexpired FOR TENANT 1.
@@ -367,7 +369,7 @@ defmodule Letflow.Routers.Req386AttachmentLinksRoutesTest do
 
     test "also byte-identical to the response for a garbage token that was never issued at all" do
       tenant = provisioned_tenant("req386-ac4-garbage")
-      instance_id = Ecto.UUID.generate()
+      instance_id = real_instance!(tenant)
       attachment = upload!(tenant, instance_id)
 
       expired_token = expired_token_for(attachment.id, tenant)

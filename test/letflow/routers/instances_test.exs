@@ -26,6 +26,8 @@ defmodule Letflow.Routers.InstancesTest do
   alias Letflow.TenantFixture
   alias Letflow.TenantProvisioning.Registration
 
+  import Letflow.TestSupport.InstanceFixture, only: [real_instance!: 1]
+
   @opts Letflow.Routers.Instances.init([])
 
   # Same Plug.Parsers config as Letflow.Plugs.ApiPipeline -- needed by the
@@ -1611,7 +1613,7 @@ defmodule Letflow.Routers.InstancesTest do
       conn =
         dispatch_multipart(
           :post,
-          "/#{Ecto.UUID.generate()}/attachments",
+          "/#{real_instance!(tenant)}/attachments",
           tenant,
           ["PROCESS_OPERATOR"],
           multipart_file_body("iss0788q", "doc.txt", "text/plain", "hello"),
@@ -1625,6 +1627,7 @@ defmodule Letflow.Routers.InstancesTest do
     @tag :iss_0788
     test "upload when tenant row is absent returns 422, not FunctionClauseError 500" do
       tenant = TenantFixture.provisioned_tenant!(slug_prefix: "iss0788-norow")
+      instance_id = real_instance!(tenant)
 
       # Delete the Tenant row so check_storage_quota's Repo.get(Tenant, id)
       # returns nil, triggering {:error, :tenant_not_found} from upload/2.
@@ -1637,7 +1640,7 @@ defmodule Letflow.Routers.InstancesTest do
       conn =
         dispatch_multipart(
           :post,
-          "/#{Ecto.UUID.generate()}/attachments",
+          "/#{instance_id}/attachments",
           tenant,
           ["PROCESS_OPERATOR"],
           multipart_file_body("iss0788nt", "doc.txt", "text/plain", "hello"),
@@ -1675,7 +1678,7 @@ defmodule Letflow.Routers.InstancesTest do
       upload_conn =
         dispatch_multipart(
           :post,
-          "/#{Ecto.UUID.generate()}/attachments",
+          "/#{real_instance!(tenant_a)}/attachments",
           tenant_a,
           ["PROCESS_OPERATOR"],
           multipart_file_body("req392u", "note.txt", "text/plain", "twelve bytes"),
