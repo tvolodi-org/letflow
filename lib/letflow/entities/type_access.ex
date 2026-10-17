@@ -134,7 +134,9 @@ defmodule Letflow.Entities.TypeAccess do
     denial =
       from(r in denial_query(user_id),
         where: r.entity_type == parent_as(^name_binding).name,
-        select: 1
+        select: 1,
+        # MUTANT M9: explicit wrong prefix, subquery reads the default schema.
+        prefix: "public"
       )
 
     dynamic([], not exists(denial))

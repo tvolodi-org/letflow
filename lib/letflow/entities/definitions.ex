@@ -377,10 +377,24 @@ defmodule Letflow.Entities.Definitions do
         from(e in EntityDefinition, as: :def)
         |> where([e], e.tenant_id == ^tenant_id)
         |> filter_by_list_definitions_cursor(cursor_seek)
-        |> where(^TypeAccess.visible_to(user_id, :def))
+        |> then(fn q ->
+          # MUTANT M1: first page has no WHERE filter; denied rows are dropped in Elixir
+          # after the LIMIT (post-filter). Cursor pages keep the WHERE (carries M9).
+          if cursor_seek == nil, do: q, else: where(q, ^TypeAccess.visible_to(user_id, :def))
+        end)
         |> order_by([e], desc: e.inserted_at, desc: e.id)
         |> limit(^(page_size + 1))
         |> Repo.all(prefix: prefix)
+        |> then(fn fetched ->
+          if cursor_seek == nil do
+            {:ok, denied} =
+              TypeAccess.denied_types(user_id, Enum.map(fetched, & &1.name), prefix)
+
+            Enum.reject(fetched, &MapSet.member?(denied, &1.name))
+          else
+            fetched
+          end
+        end)
 
       {page, next_cursor} = split_list_definitions_page(rows, page_size)
 
