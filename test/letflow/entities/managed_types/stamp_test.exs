@@ -527,11 +527,15 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
     end
   end
 
-  # Polls pg_locks until `count` sessions are waiting on a lock (the stamp on a row lock, the
+  # Polls pg_stat_activity (this test database only: pg_locks is cluster-wide, so a backend waiting in
+  # another parallel test partition's database counted too and made the wait return early) until
+  # `count` sessions are waiting on a lock (the stamp on a row lock, the
   # creator on an advisory lock). Bounded; no sleeping beyond the poll interval.
   defp wait_until_blocked(count, attempts \\ 300) do
     %{rows: [[waiting]]} =
-      Repo.query!("SELECT count(*) FROM pg_locks WHERE NOT granted AND pid <> pg_backend_pid()")
+      Repo.query!(
+        "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND pid <> pg_backend_pid()"
+      )
 
     cond do
       waiting >= count -> :ok
