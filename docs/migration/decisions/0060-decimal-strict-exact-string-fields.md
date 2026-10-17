@@ -13,8 +13,8 @@ A `:decimal` entity field takes a JSON number on the wire (`{"type":"number"}`),
 1. A new optional boolean key `decimal_strict` (default false) on `:decimal` field definitions. It is carried through every place that carries `decimal_precision` and `decimal_scale`.
 2. Fields **with** `decimal_strict: true`: a write accepts a canonical decimal string or a JSON integer and refuses every JSON float; the scale and precision are enforced (422 with the field path, constraints `scale` and `precision`, never rounded); `min`/`max`/`non_negative` are compared exactly with `Decimal`; the stored, event, response and read form is the canonical scale-padded string; filters coerce literals to `Decimal`; aggregates are padded to the field scale. In-process readers get the same string; `Decimals.to_decimal/1` is the shared helper.
 3. Fields **without** the flag: unchanged in every respect (JSON numbers accepted and returned, no new scale enforcement, no rounding change).
-4. Changing the flag on an existing field: `false->true` is allowed as a new definition version and rewrites nothing (legacy numbers are rendered as padded strings on read); `true->false` is refused at activation when the type has any record, allowed on an empty type.
-5. A decimal-field bound (`min`/`max`) may be a JSON number or a decimal string (definition time only).
+4. The flag is **immutable once the entity type has any record** (any row in the latest-record table, including soft-deleted): a change of `decimal_strict` on a decimal field, in either direction, is refused at definition activation with HTTP 409; it is allowed on an empty type. Legacy numbers therefore never coexist with a strict flag; WMS declares the flag from its first definition. A module pack that would adopt tenant rows (stamp adoption) must match the row's strictness field by field, otherwise the type is a conflict.
+5. A `min`/`max` bound on a strict decimal field may be a JSON number or a decimal string; on a non-strict field it must be a number as today.
 6. WMS (REQ-504) declares `decimal_strict: true` on its quantity fields.
 
 ## Why not always-string
