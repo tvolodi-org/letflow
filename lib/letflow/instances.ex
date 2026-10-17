@@ -22,6 +22,7 @@ defmodule Letflow.Instances do
   alias Letflow.Engine.VariableMerge
   alias Letflow.EventStore.Event
   alias Letflow.EventStore.InstanceProjection
+  alias Letflow.EventStore.InstanceVisibility
   alias Letflow.Identity.User
   alias Letflow.Repo
 
@@ -61,7 +62,14 @@ defmodule Letflow.Instances do
         {:error, :invalid_id}
 
       {:ok, id} ->
-        case Repo.get(InstanceProjection, id, prefix: prefix) do
+        # GH #2702: synthetic entity-type instances resolve to the same
+        # `:not_found` as a nonexistent id (one query, one code path).
+        query =
+          InstanceProjection
+          |> where([p], p.instance_id == ^id)
+          |> InstanceVisibility.exclude_synthetic(prefix)
+
+        case Repo.one(query, prefix: prefix) do
           nil -> {:error, :not_found}
           %InstanceProjection{} = projection -> {:ok, projection}
         end
@@ -92,6 +100,7 @@ defmodule Letflow.Instances do
          {:ok, cursor_seek} <- decode_list_cursor(Map.get(params, :cursor)) do
       query =
         InstanceProjection
+        |> InstanceVisibility.exclude_synthetic(prefix)
         |> filter_by_status(Map.get(params, :status))
         |> filter_by_definition_id(Map.get(params, :definition_id))
         |> filter_by_correlation_key(Map.get(params, :correlation_key))
@@ -355,7 +364,11 @@ defmodule Letflow.Instances do
   # ── shared: existence check (INV-5) ────────────────────────────────────
 
   defp ensure_instance_exists(id, prefix) do
-    query = from(p in InstanceProjection, where: p.instance_id == ^id, select: 1)
+    query =
+      InstanceProjection
+      |> where([p], p.instance_id == ^id)
+      |> InstanceVisibility.exclude_synthetic(prefix)
+      |> select([p], 1)
 
     if Repo.exists?(query, prefix: prefix) do
       :ok

@@ -79,14 +79,15 @@ defmodule Letflow.Entities.EntityTypeInstance do
     1. Read — if a row already exists for `entity_type`, return its
        `instance_id` immediately, no writes.
     2. Else, mint a fresh `instance_id`, insert this table's row
-       (`on_conflict: :nothing`), insert the matching `instance_projections`
-       row (`on_conflict: :nothing`, `status: :active`, `definition_id` set
-       to the same freshly-minted `instance_id` — a placeholder reuse
-       flagged in the design §8 item 4, since entity-type synthetic
-       instances have no real `process_definitions` row to point at and
-       `definition_id` carries no FK constraint), then re-read and return
-       **that** row's `instance_id` (whichever concurrent caller's insert
-       actually won the race), never the locally-minted one blindly.
+       (`on_conflict: :nothing`), re-read the row and take **that** row's
+       `instance_id` (whichever concurrent caller's insert actually won the race),
+       never the locally-minted one blindly, then insert the matching
+       `instance_projections` row for that winning id only (`on_conflict: :nothing`,
+       `status: :active`, `definition_id` set to the same `instance_id` — a
+       placeholder reuse flagged in the design §8 item 4, since entity-type
+       synthetic instances have no real `process_definitions` row to point at and
+       `definition_id` carries no FK constraint). GH #2702: ensuring the projection
+       only after the re-read means a race loser creates no orphan projection.
   """
   @spec get_or_create(entity_type :: String.t(), prefix :: String.t()) ::
           {:ok, instance_id :: Ecto.UUID.t()} | {:error, term()}
@@ -122,16 +123,20 @@ defmodule Letflow.Entities.EntityTypeInstance do
     changeset =
       insert_changeset(%__MODULE__{}, %{entity_type: entity_type, instance_id: instance_id})
 
+    # GH #2702 (F8): registry insert, re-read the WINNER, then ensure the projection
+    # for the winning id only. Ensuring the minted id's projection before the re-read
+    # left an orphan projection (not in the registry, so not hidden) for a race loser.
     with {:ok, _} <-
            Repo.insert(changeset,
              on_conflict: :nothing,
              conflict_target: :entity_type,
              prefix: prefix
-           ),
-         {:ok, _projection} <- ensure_instance_projection(instance_id, prefix) do
+           ) do
       case Repo.get(__MODULE__, entity_type, prefix: prefix) do
         %__MODULE__{instance_id: won_instance_id} ->
-          {:ok, won_instance_id}
+          with {:ok, _projection} <- ensure_instance_projection(won_instance_id, prefix) do
+            {:ok, won_instance_id}
+          end
 
         nil ->
           {:error, {:entity_type_instance_lookup_failed, entity_type}}

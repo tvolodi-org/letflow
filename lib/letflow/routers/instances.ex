@@ -105,6 +105,16 @@ defmodule Letflow.Routers.Instances do
   through which the two could differ. No handler may add a cross-tenant
   existence check to produce a nicer message.
 
+  ## Synthetic entity-type instances are invisible (GH #2702)
+
+  The per-entity-type synthetic instances (`entity_type_instances`, see
+  `Letflow.EventStore.InstanceVisibility`) hold the full `field_values` of record
+  create/update events, so every route here answers a synthetic id with the same
+  `Response.not_found/1` as a nonexistent id, and `GET /instances` omits them.
+  CONSEQUENCE: until REQ-516 (#2701) adds a redacting record-history route, no role
+  (TENANT_AUDITOR included) can read record create/update history through
+  `/instances`.
+
   ## Response shape
 
   `changes` maps `rebind_result().changed` element-wise into hand-built
@@ -322,6 +332,7 @@ defmodule Letflow.Routers.Instances do
   alias Letflow.Engine.PinRebind
   alias Letflow.Engine.PinResolver
   alias Letflow.Engine.Reconstruction
+  alias Letflow.EventStore.InstanceVisibility
   alias Letflow.Idempotency
   alias Letflow.Instances
   alias Letflow.Repository.Artifact
@@ -1051,7 +1062,12 @@ defmodule Letflow.Routers.Instances do
 
     case cast_instance_id(raw_id) do
       {:ok, id} ->
-        render_get_pins(conn, id, PinResolver.reconstruct_effective_pins(id, opts))
+        # GH #2702 defence in depth: a synthetic entity-type instance is a plain 404.
+        if InstanceVisibility.synthetic?(id, Keyword.fetch!(opts, :prefix)) do
+          Response.not_found(conn)
+        else
+          render_get_pins(conn, id, PinResolver.reconstruct_effective_pins(id, opts))
+        end
 
       {:error, :invalid_instance_id} ->
         Response.unprocessable(conn, "instance_id is not a valid UUID")

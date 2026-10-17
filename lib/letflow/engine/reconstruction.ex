@@ -207,6 +207,7 @@ defmodule Letflow.Engine.Reconstruction do
   alias Letflow.EventStore.ArchivedEvent
   alias Letflow.EventStore.Event
   alias Letflow.EventStore.InstanceProjection
+  alias Letflow.EventStore.InstanceVisibility
   alias Letflow.EventStore.StoredPayload
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
@@ -284,6 +285,7 @@ defmodule Letflow.Engine.Reconstruction do
 
     with {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
          {:ok, cast_instance_id} <- cast_instance_id(instance_id),
+         :ok <- ensure_visible_projection(cast_instance_id, prefix),
          replay_source <- select_replay_source(cast_instance_id, prefix),
          {:ok, merged_events} <-
            read_full_log(cast_instance_id, prefix, min_sequence_number(replay_source)),
@@ -310,6 +312,18 @@ defmodule Letflow.Engine.Reconstruction do
         {:ok, result}
       end
     end
+  end
+
+  # GH #2702: an instance is reconstructable only if it has a projection row that is
+  # not a synthetic entity-type instance. Synthetic and platform-sentinel ids (no
+  # projection) answer exactly like a nonexistent id, before any log read.
+  defp ensure_visible_projection(instance_id, prefix) do
+    query =
+      InstanceProjection
+      |> where([p], p.instance_id == ^instance_id)
+      |> InstanceVisibility.exclude_synthetic(prefix)
+
+    if Repo.exists?(query, prefix: prefix), do: :ok, else: {:error, :instance_not_found}
   end
 
   defp cast_instance_id(instance_id) do

@@ -1,0 +1,47 @@
+{
+  "handoff_id": "c4a7d1e0-2702-4a11-8c20-000000000004",
+  "run_id": "WF02-GH2702-INSTANCES-SYNTHETIC-20261017",
+  "workflow_id": "WF-02",
+  "step": "04",
+  "from_agent": "CODE-DESIGN-VALIDATOR",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF02-GH2702-INSTANCES-SYNTHETIC-20261017/step-04-code-design-validator.json",
+  "created_at": "2026-10-17T02:10:00Z",
+  "started_at": "2026-10-17T02:10:00Z",
+  "completed_at": "2026-10-17T02:10:00Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2702": "Hide synthetic entity-type instances from every Instances route; 404 byte-identical to nonexistent; route-walking test; real-workflow control."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-2702-4a11-8c20-000000000003",
+      "c4a7d1e0-2702-4a11-8c20-000000000005"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/gh2702-hide-synthetic-instances.md",
+      "handoffs/WF02-GH2702-INSTANCES-SYNTHETIC-20261017/step-03-code-designer.json",
+      "test/letflow/routers/instances_restricted_field_events_test.exs",
+      "handoffs/WF02-GH2702-INSTANCES-SYNTHETIC-20261017/step-05-security-reviewer-design.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2702-INSTANCES-SYNTHETIC-20261017"
+  },
+  "task": {
+    "description": "WF-02 step 4 design validation round 3 (one-line diff check) for GH #2702. Read-only; no lib/ or test/ edits."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "PASS (round 3). R5 verified: F8 (design lines 83-89) now states the pre-existing window 'registry row committed, winner crashed before its projection insert' is UNCHANGED, that later callers take the fast Repo.get path and never ensure the projection, that no repair is added (would touch the Records hot path), and that the state is not a leak (registry row without projection row, nothing to hide). Grep for re-ensure/reensure/narrow across the design: no remaining reliance (only F8 and O6 mention the orphan topic; O6 concerns legacy orphans, consistent). No other change in the diff; round-2 verified items (R1-R4, security fold-in T2b/T9/M9/8b, create_and_reselect reorder correctness, Records hot path untouched) stand.",
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "diagnosis_confirmed": false,
+    "implementation_written": false,
+    "classification": "DESIGN_PASS"
+  }
+}
