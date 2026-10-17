@@ -86,13 +86,25 @@ defmodule Letflow.Routers.ServicePrincipalRouteTest do
     test "unflag: 200, the column is false, and the event carries tokens_exceeding_owner as a count of the owner's LIVE tokens beyond the owner's roles (never ids or values)" do
       fx = S.tenant!("r517-p1-unflag")
       s = fx.schema_name
-      user = RSG.user!(s)
+      # The owner holds PROCESS_DESIGNER (tenant-wide, by group), so exceeding and non-exceeding
+      # live tokens coexist: only roles BEYOND the owner's count.
+      user = TokenMintFixture.role_holder!(s, ["PROCESS_DESIGNER"])
       set_flag!(fx, user.id, true)
 
-      {:ok, %{token: _live_ta}} =
+      {:ok, %{token: _exceeding_ta}} =
         Identity.create_token(user.id, %{roles: [@admin_role], expires_at: nil}, prefix: s)
 
-      {:ok, %{token: _live_pd}} =
+      {:ok, %{token: _exceeding_mixed}} =
+        Identity.create_token(
+          user.id,
+          %{roles: ["PROCESS_DESIGNER", "TASK_WORKER"], expires_at: nil},
+          prefix: s
+        )
+
+      {:ok, %{token: _within_pd}} =
+        Identity.create_token(user.id, %{roles: ["PROCESS_DESIGNER"], expires_at: nil}, prefix: s)
+
+      {:ok, %{token: _within_pd_again}} =
         Identity.create_token(user.id, %{roles: ["PROCESS_DESIGNER"], expires_at: nil}, prefix: s)
 
       {:ok, %{token: revoked}} =
@@ -112,8 +124,27 @@ defmodule Letflow.Routers.ServicePrincipalRouteTest do
       assert entry.after_state |> Map.keys() |> Enum.sort() ==
                ~w(actor credential flagged reason tokens_exceeding_owner trace_id)
 
+      # 4 live tokens, 2 exceed the owner (TENANT_ADMIN; PROCESS_DESIGNER + TASK_WORKER), the
+      # revoked exceeding one is not live: the exact count separates "exceeding" from "all live".
       assert entry.after_state["tokens_exceeding_owner"] == 2
       refute Jason.encode!(entry.after_state) =~ "lf_tok_"
+    end
+
+    test "unflag records tokens_exceeding_owner 0 when no live token exceeds the owner" do
+      fx = S.tenant!("r517-p1-unflag-none")
+      s = fx.schema_name
+      user = TokenMintFixture.role_holder!(s, ["PROCESS_DESIGNER"])
+      set_flag!(fx, user.id, true)
+
+      {:ok, %{token: _a}} =
+        Identity.create_token(user.id, %{roles: ["PROCESS_DESIGNER"], expires_at: nil}, prefix: s)
+
+      {:ok, %{token: _b}} =
+        Identity.create_token(user.id, %{roles: ["PROCESS_DESIGNER"], expires_at: nil}, prefix: s)
+
+      assert flag(fx, user.id, %{"flagged" => false, "reason" => @reason}).status == 200
+      assert [entry] = S.entries(fx, "service_principal.unflagged")
+      assert entry.after_state["tokens_exceeding_owner"] == 0
     end
   end
 
@@ -342,7 +373,9 @@ defmodule Letflow.Routers.ServicePrincipalRouteTest do
                Identity.mint_token(
                  fx.admin.id,
                  target.id,
-                 %{roles: [@admin_role], expires_at: nil}, prefix: s)
+                 %{roles: [@admin_role], expires_at: nil},
+                 prefix: s
+               )
 
       refute flagged?(fx, target.id)
 
@@ -351,7 +384,9 @@ defmodule Letflow.Routers.ServicePrincipalRouteTest do
                Identity.mint_token(
                  fx.admin.id,
                  second_admin.id,
-                 %{roles: [@admin_role], expires_at: nil}, prefix: s)
+                 %{roles: [@admin_role], expires_at: nil},
+                 prefix: s
+               )
 
       refute flagged?(fx, second_admin.id)
 
@@ -404,7 +439,9 @@ defmodule Letflow.Routers.ServicePrincipalRouteTest do
           Identity.mint_token(
             fx.admin.id,
             second_admin.id,
-            %{roles: [@admin_role], expires_at: nil}, prefix: s)
+            %{roles: [@admin_role], expires_at: nil},
+            prefix: s
+          )
         end)
 
       try do
@@ -464,6 +501,7 @@ defmodule Letflow.Routers.ServicePrincipalRouteTest do
 
       assert b["flip_blocked"] == false
       assert b["blocking"]["roles_exceed_owner"] == []
+
       # create_token/3 is the trusted path (no issuer recorded), so both live tokens are also in the
       # null_issuer information list: the listing audits the union of the ids.
       assert b["count"] == 2

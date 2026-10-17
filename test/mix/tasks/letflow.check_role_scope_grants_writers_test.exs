@@ -121,6 +121,15 @@ defmodule Mix.Tasks.Letflow.CheckRoleScopeGrantsWritersTest do
       end
     end
 
+    test "KNOWN LIMIT (pinned): a raw write with ESCAPED quotes around the schema qualifier is NOT caught; the codebase's sigil style is" do
+      escaped = ~S|Repo.query!("UPDATE \"#{prefix}\".role_scope_grants SET role = 1")|
+      sigil = ~S'Repo.query!(~s|UPDATE "#{prefix}".role_scope_grants SET role = 1|)'
+
+      # If the first assertion starts failing the scan got stricter: delete the limit.
+      assert Scan.audit(escaped <> "\n", "lib/bad/escaped.ex") == []
+      assert :raw_sql in rules(Scan.audit(sigil <> "\n", "lib/bad/sigil.ex"))
+    end
+
     test "a struct literal of the schema (with or without a module prefix) and RoleScopeGrant.changeset( are :struct_literal" do
       for text <- [
             "x = %RoleScopeGrant{principal_type: :user}",
