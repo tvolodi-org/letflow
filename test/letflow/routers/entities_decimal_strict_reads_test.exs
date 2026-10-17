@@ -299,7 +299,8 @@ defmodule Letflow.Routers.EntitiesDecimalStrictReadsTest do
       assert conn.status == 200, conn.resp_body
       assert [%{"field_values" => values}] = body_of(conn)["items"]
       assert values == %{"qty" => "1.50", "secret" => "__field_redacted__"}
-      refute conn.resp_body =~ "99"
+      # the body also carries random ids and a trace id (hex): only the values are checked
+      refute inspect(values) =~ "99"
 
       # export is default-redacted for the role that holds it (TENANT_ADMIN)
       admin = with_role(ctx, ["TENANT_ADMIN"])
@@ -307,7 +308,7 @@ defmodule Letflow.Routers.EntitiesDecimalStrictReadsTest do
       assert exported.status == 200, exported.resp_body
       assert [%{"field_values" => exp_values}] = body_of(exported)["records"]
       assert exp_values == %{"qty" => "1.50", "secret" => "__field_redacted__"}
-      refute exported.resp_body =~ "99"
+      refute inspect(exp_values) =~ "99"
     end
   end
 
@@ -472,7 +473,15 @@ defmodule Letflow.Routers.EntitiesDecimalStrictReadsTest do
 
           assert conn.status == 400, "#{type} #{inspect(bad)} -> #{conn.status} #{conn.resp_body}"
 
-          if bad != "", do: refute(conn.resp_body =~ bad, "the tampered value was echoed")
+          # the body carries a random hex trace_id, so only the human-readable members are checked
+          problem = Jason.decode!(conn.resp_body)
+
+          if bad != "",
+            do:
+              refute(
+                (problem["detail"] || "") <> (problem["title"] || "") =~ bad,
+                "the tampered value was echoed"
+              )
         end
       end
     end
