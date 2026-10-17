@@ -1,0 +1,46 @@
+{
+  "handoff_id": "c4a7d1e0-2682-4b11-8c20-000000000003",
+  "run_id": "WF02-GH2682-EXAM-SNAPSHOT-B-20261017",
+  "workflow_id": "WF-02",
+  "step": "03",
+  "from_agent": "ORCH",
+  "to_agent": "REVIEWER",
+  "file": "handoffs/WF02-GH2682-EXAM-SNAPSHOT-B-20261017/step-03-reviewer-code-pr-b.json",
+  "created_at": "2026-10-17T06:40:00Z",
+  "started_at": "2026-10-17T06:40:30Z",
+  "completed_at": "2026-10-17T06:55:00Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": ["REQ-511"],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2682": "REQ-511 PR b: certificate path from snapshot, lazy late snapshot with cutover, Stamp prerequisites, flag true. REVIEWER code gate."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "lib/letflow/modules/exam/snapshot.ex",
+      "lib/letflow/modules/exam/session.ex",
+      "lib/letflow/modules/exam/certificate.ex",
+      "lib/letflow/modules/exam/router.ex",
+      "lib/letflow/entities/managed_types/stamp.ex",
+      "config/config.exs"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2682-EXAM-SNAPSHOT-B-20261017"
+  },
+  "task": {
+    "description": "REVIEWER code gate for REQ-511 PR b (read-only)."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "PASS with required non-code follow-ups. Idiom: plain transactional context modules with Postgres row locks (consistent with REQ-045 / Engine decision; no process, no GenServer, InstanceSupervisor untouched). Lock order is coherent: ensure/3 and ensure_certificate_facts/3 = session row -> session sequence -> audit chain; submit/finalize late = session row -> score sequence -> session sequence -> audit (same as plain submit, audit last). Scope: nothing outside PR b files; PR a behaviour preserved (terminal reads stay lenient, present-but-corrupt never replaced, non-owner stops after one lock query). D-b1 (ensure_locked/2 returns {:ok, snapshot, session_after, :existing | :late}, builds only, caller persists session_after.field_values in its single session update then calls record_late/4 last): ACCEPTED as a justified, coherent deviation (preserves I-2 one ENTITY_RECORD_UPDATED, avoids a session-seq/score-seq inversion). It is NOT consistent with design text as written: 17.2 table row for ensure_locked/2 (3-tuple, no provenance), 9.2 step 3 (ensure writes in the call), T-59 wording, and the PR b row of section 13 (no record_late/4, check_prerequisites/1 move, get_snapshot_for_user) must be amended (REQUIRED, CODE-DESIGNER or ELIXIR-DEV doc edit before merge so the spec does not contradict the code). Function contract is coherent: Snapshot.ensure/3 reuses ensure_locked then persist_late (write_session + record_late); score_and_persist reuses it with deferred write; no dead clauses found (check_before_cutover/2 nil-inserted_at clause is a defensible fail-closed guard). check_prerequisites/1 move to Snapshot is correct (shared by start, late, one definition). Stamp: judged_row (active else newest) is safe (rows non-empty, status is Ecto.Enum), every NULL row of a stampable name is still stamped, prerequisites rechecked under row locks with rollback, fully stamped tenant stays nothing_to_stamp, dry run unblocked, answer-key pairs come via Catalog (no boundary breach). Router/Certificate clauses are constant-detail and placed before catch-alls. Doc accuracy: no 'six' in lib code or moduledocs (code has five answer_key_fields pairs, correct); the 'six' is only in the design text (lines 341, 378, 381, 446, 577, 593) and must be corrected to five. NON-BLOCKING: (1) 'PR a'/'PR b' labels in lib comments/headers (snapshot.ex:3,28,556,577,675,940,1030,1060; session.ex:338,480,1134,1313; router.ex:651; stamp.ex:53,56,641; config.exs:65) will rot, prefer the GH/design reference alone; snapshot.ex moduledoc intro still says it is the builders module while it now holds DB access (about 1100 lines); consider extracting late/certificate persistence into Snapshot.Late later. (2) Snapshot re-implements lock_session_row/check_owner/fv/eq/query_all/normalize_record_id that Session also has (small duplication; watch). (3) The predicate 'active session definition declares exam_snapshot json' now exists in Snapshot.check_definition, Stamp.session_definition_current? and the rollout/verify path; keep in sync. (4) Snapshot.ensure_locked :existing path calls fetch_structural then fetch_verified (fetch_verified already runs structural): collapse to one call matching {:error,{:grading_error,:snapshot_missing}}. (5) Certificate.issue: a failed/not-passed legacy session triggers a late_certificate write+audit before the not-passed 409 (design guard order, so allowed), consider checking passed first. (6) Session.snapshot_failure/0 omits :invalid_schema_name that Snapshot.ensure/3 can return (spec only). FINDING (type-safety, does not block): the snapshot is an untyped map(String.t() => term) and the ensure_locked contract 'if provenance is :late the caller MUST persist session_after.field_values and call record_late/4 last' is enforced by convention only; a caller that forgets either compiles and silently drops the snapshot or the audit entry. A small struct {snapshot, session_after, pending_audit} or a single Snapshot.persist_late/N helper would make that unrepresentable; only T-59/T-58 catch it today. EXISTING TESTS THAT WILL BREAK / need updating for TEST-DESIGNER: test/letflow/entities/managed_types/stamp_snapshot_gate_test.exs:204-206 (T-36 provenance) asserts config/config.exs matches /^config :letflow, :exam_snapshot_complete, false$/m; it is now true, so this test FAILS as is (the dev handoff claim that it still holds is wrong); fix to assert true in both files (the gate-closed behaviour is already driven via with_flag/Application.put_env, and line 162 and 248 stay valid). Also: test/letflow/modules/exam/session_snapshot_test.exs and exam_snapshot_router_test.exs and snapshot_test.exs (PR a tests asserting snapshotless session -> :snapshot_missing/500: now late-snapshotted when inserted_at < cutover, 503/500 otherwise); test/letflow/exam/certificate_test.exs and test/letflow/routers/exam_sessions_test.exs (certificate reads snapshot facts, live exam edit/delete tests T-09/T-10/T-11 flip, add grading_error/snapshot_error render cases to the ISS-0676 every-issue_error test for certificate and download); test/letflow/exam/session_test.exs (legacy fixtures); test/**/managed_types stamp_test.exs (prerequisites_missing key in tenant report, :snapshot_prerequisite_missing status, gate_blocked_total counts it, old-inactive-version compat now stamps); mix task and Release.ManagedTypes tests (print_tenant prerequisites line, exit 1 on prerequisite-blocked tenant); any test building a tenant report literal needs the new prerequisites_missing key.",
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "diagnosis_confirmed": true,
+    "implementation_written": false,
+    "classification": "REVIEW_PASS"
+  }
+}

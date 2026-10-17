@@ -60,11 +60,14 @@ config :letflow, :lua_platform_time_source, Letflow.Engine.Lua.Platform.SystemCl
 config :letflow, :modules, [Letflow.Modules.Exam]
 
 # GH #2682 / REQ-511 (design lib/letflow/design/req511-exam-content-snapshot.md section 10 and
-# 18.3): fail-closed gate for the exam managed-type stamp. While this is not `true`, a real
-# `Letflow.Entities.ManagedTypes.Stamp` run is refused (dry runs are not). Set ONLY here (`false`)
-# and in config/test.exs (`true`); never from the environment or runtime.exs. The flip to `true`
-# is a single-line diff in a later PR (b).
-config :letflow, :exam_snapshot_complete, false
+# 18.3): gate for the exam managed-type stamp. While this is not `true`, a real
+# `Letflow.Entities.ManagedTypes.Stamp` run is refused (dry runs are not). Set ONLY here and in
+# config/test.exs (`true`); never from the environment or runtime.exs. PR (b) is the single flip to
+# `true`: the code that scores and issues certificates from the per-session snapshot, with the
+# in-flight (late snapshot) policy, has shipped. Opening the flag does not by itself allow a stamp:
+# the Stamp still requires, per tenant, the rolled-out `session.exam_snapshot` definition and the
+# answer-key restriction rows (`snapshot_prerequisite_missing` otherwise).
+config :letflow, :exam_snapshot_complete, true
 
 # REQ-439 (design lib/letflow/design/req439-trusted-proxy-client-ip.md s4): keys
 # exist in every environment before config/runtime.exs overrides them from

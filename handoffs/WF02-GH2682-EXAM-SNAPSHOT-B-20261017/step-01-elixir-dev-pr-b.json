@@ -1,0 +1,85 @@
+{
+  "run_id": "WF02-GH2682-EXAM-SNAPSHOT-B-20261017",
+  "workflow_id": "WF-02",
+  "step": "01",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF02-GH2682-EXAM-SNAPSHOT-B-20261017/step-01-elixir-dev-pr-b.json",
+  "started_at": "2026-10-17T06:19:46Z",
+  "completed_at": "2026-10-17T06:29:30Z",
+  "status": "COMPLETED",
+  "result": {
+    "status": "PASS",
+    "summary": "REQ-511 / GH #2682 PR b implemented per lib/letflow/design/req511-exam-content-snapshot.md (13 PR b row, 17.2, 17.6, 18.5, 18.6): certificate path reads facts only from the session snapshot (Session.get_snapshot_for_user/3 + Snapshot.certificate_facts/1; late_certificate facts for legacy submitted sessions); lazy late snapshot at first touch for in_progress sessions (Snapshot.ensure/3 for state/autosave, ensure_locked/2 + record_late/4 for submit/finalize) with the exam.session_snapshot_late hash-chained audit entry in the same transaction; Snapshot.cutover/1 compared against the session record's server-set inserted_at; Stamp per-tenant prerequisites + active-row compatibility + prerequisites_missing/gate_blocked_total; config :exam_snapshot_complete flipped false -> true in config/config.exs (test.exs already true); Snapshot.late_origin_counts/1; certificate render clauses. No tests written (TEST-DESIGNER). Not committed or pushed.",
+    "files_changed": [
+      "config/config.exs",
+      "lib/letflow/entities/managed_types/stamp.ex",
+      "lib/letflow/modules/exam/certificate.ex",
+      "lib/letflow/modules/exam/router.ex",
+      "lib/letflow/modules/exam/session.ex",
+      "lib/letflow/modules/exam/snapshot.ex",
+      "lib/letflow/release/managed_types.ex",
+      "lib/mix/tasks/letflow.stamp_managed_types.ex"
+    ],
+    "checks": {
+      "mix_compile_warnings_as_errors": "MIX_ENV=test mix compile --warnings-as-errors: clean (after removing one unused-default warning)",
+      "mix_format_check": "mix format --check-formatted: exit 0",
+      "check_boundaries": "mix letflow.check_boundaries: OK -- 1659 edges checked, 0 violations",
+      "permission_matrix": "not run (refuses MIX_ENV=test; authorization.ex, effective.golden and catalog.ex are byte-unchanged per git status, no grant changes)",
+      "tests": "not run (instruction: never run tests)"
+    },
+    "deviations": [
+      "D-b1: Snapshot.ensure_locked/2 returns {:ok, snapshot, session_after, provenance} (provenance :existing | :late) and for :late only BUILDS (reads); it does not write. The caller (score_and_persist) persists session_after.field_values in its ONE existing session update after persist_scores, then calls Snapshot.record_late/4 (audit) as the last statement. Reason: the design's order (write the session snapshot first, then score) takes the session-type sequence lock before the score-type sequence lock, the reverse of a plain submit (scores first, then session update), so a late submit concurrent with a plain submit of another session could deadlock (session-seq <-> score-seq cycle). The deferred write keeps the plain-submit order and puts the audit chain lock last. Still exactly one ENTITY_RECORD_UPDATED event adds exam_snapshot (I-2). Ensure/3 (state/autosave touch) and ensure_certificate_facts/3 write immediately: session row -> session sequence -> audit.",
+      "D-b2: Snapshot.build_from_resolved/4 accepts origin :start | :late (build_late reuses it); build_info type widened.",
+      "D-b3: Snapshot.ensure/ensure_certificate_facts return an already-present snapshot (verified) BEFORE probing prerequisites; prerequisites (definition/restriction, then cutover) are probed only when the snapshot is absent and the status is eligible (in_progress / submitted). Non-owner and nonexistent still stop after the single lock query, before any probe (18.6). A terminal snapshotless session returns :snapshot_missing without probing.",
+      "D-b4: Snapshot.check_prerequisites/1 (was private Session.check_snapshot_prerequisites) is now public in Snapshot and used by both the start path and the late path; the three private helpers were deleted from session.ex; the unused Definitions alias was removed from session.ex.",
+      "D-b5: Stamp prerequisites are checked only for a REAL run and only when the tenant still has an unstamped (managed_by NULL) row, advisory pre-pass AND again under the row locks (rollback {:prerequisites_missing, list}); a fully stamped tenant stays :nothing_to_stamp; dry run never blocked. Answer-key pairs come from Catalog.fetch(\"exam\") -> exam.answer_key_fields() (no Exam module literal, boundary rule 5).",
+      "D-b6: Design text says 'six' answer_key_fields pairs; code (and PR a) has five (4 existing + session.exam_snapshot). The prerequisite uses whatever answer_key_fields/0 returns.",
+      "D-b7: verify/0 needed no PR b addition (the PR a shape of 17.2 already covers session_definition + answer_key_restrictions; Stamp reuses the same two prerequisites).",
+      "config flag: config/config.exs line 67 was already `false` (PR a) and is flipped to `true` here; config/test.exs already `true` (unchanged). The single flip per 10.1/18.3."
+    ],
+    "inserted_at_evidence": {
+      "compared_quantity": "entity_record_latest.inserted_at of the session RECORD (Letflow.Entities.Record.Latest struct, column from `timestamps(type: :utc_datetime_usec)` at record/latest.ex:35), compared in Snapshot.check_before_cutover/2, never the started_at field",
+      "entity_record_latest_path": "records.ex upsert_record_latest/3 (:create at ~857) inserts via Latest.insert_changeset whose cast list @insert_fields = [:entity_type, :record_id, :field_values, :entity_def_version, :last_event_global_seq] (latest.ex ~38-44) excludes inserted_at, so it is Ecto-autogenerated server-side on insert; the :update/:delete clause (~873) uses Latest.update_changeset whose cast list @update_fields = [:field_values, :deleted, :entity_def_version, :last_event_global_seq] (latest.ex ~46) excludes inserted_at (and the changeset only touches updated_at via autogen). So the update never rewrites inserted_at.",
+      "promoted_table_path": "records.ex build_upsert_sql (~1107): `update_columns = all_columns -- [\"id\", \"record_id\", \"inserted_at\"]`, so ON CONFLICT (record_id) DO UPDATE SET never includes inserted_at.",
+      "note": "The promoted per-type table also has its own inserted_at (INSERT only); the cutover compares the entity_record_latest one that Session/Snapshot read via Latest."
+    },
+    "lock_order_evidence": {
+      "order": "exam row (create only) -> session row (FOR UPDATE) -> entity-type instance sequence lock (Records write) -> audit chain lock (last)",
+      "new_callers_of_audit": "the only new Audit.insert_entry call is Snapshot.record_late/4 (snapshot.ex ~867); its three call sites: snapshot.ex:711 (ensure/3, after write_session at :710, last statement of the transaction), snapshot.ex:1020 (ensure_certificate_facts/3, after write_session at :1019, last), session.ex:1334 (score_and_persist/3, after persist_scores and update_session_after_submit, last).",
+      "submit_late_path": "lock_session_row (session.ex:672/711) -> Snapshot.ensure_locked (reads only, no sequence lock, no audit) -> persist_scores (score sequence) -> update_session_after_submit (session sequence) -> record_late (audit chain). Plain submit: session row -> score sequence -> session sequence. Same order, audit appended at the end.",
+      "grep": "grep -rn 'Snapshot\\.\\|lock_exam_row\\|lock_session_row' lib/letflow shows the session/exam row locks and Snapshot callers only inside lib/letflow/modules/exam/* (plus authorization.ex/release/exam_snapshot.ex references that take no lock); grep -rn 'Audit.insert_entry' lib shows no other caller that later takes a session row, exam row or session/score sequence lock: Stamp.audit!/4 (stamp.ex ~384) runs after the definition row locks and is the last statement before the setting reset (holds no session/exam row lock); engine/identity/definitions callers do not touch exam session rows. No path takes the audit chain lock and then a session row, exam row or instance sequence lock.",
+      "nonowner_parity": "ensure/3 and ensure_certificate_facts/3: lock query (1 statement) then owner check; autosave/state stop at fetch_session+check_owner before any ensure; nonexistent -> :session_not_found after the same single query."
+    },
+    "untouched_confirmation": {
+      "authorization.ex": "unchanged (git status)",
+      "priv/permission_matrix/effective.golden": "unchanged (git status)",
+      "lib/letflow/modules/catalog.ex": "unchanged (git status)",
+      "issue_2612": "config/config.exs gains no new key (the :exam_snapshot_complete key already existed from PR a; PR b only changes its value false -> true, a one-line value diff). Not the `config :letflow, :modules` key. If ORCH reads the #2612 mandatory trigger broadly as 'any config change', it would apply to that single line only; ci.yml, cd.yml, scripts/*, mix.exs, permission matrix files are untouched."
+    },
+    "existing_tests_to_touch": [
+      "test/letflow/exam/certificate_test.exs and test/letflow/routers/exam_sessions_test.exs: certificate now needs a snapshot on the session (fixture sessions created through Session.create carry one); tests that edit/delete the live exam after submit to drive certificate behaviour flip (T-09, T-10, T-11); add the grading_error/snapshot_error render cases (T-20b) to the ISS-0676 'every issue_error renders its own response' test, in both certificate and download",
+      "test/letflow/exam/session_test.exs: tests that create a snapshotless session fixture and expect :snapshot_missing (PR a behavior) now get a late snapshot when the record is before the cutover and 503/:snapshot_missing otherwise; legacy_session! helper per 18.5 (move entity_record_latest.inserted_at earlier than the tenant cutover)",
+      "test/**/stamp_test.exs (managed types) : fixtures whose active session definition lacks exam_snapshot or tenants lacking restriction rows now report :snapshot_prerequisite_missing; the compat test that expected a conflict from an old inactive version now stamps (judged row is the active one); tenant_report has a new prerequisites_missing key; gate_blocked_total counts the new status",
+      "test for the mix task letflow.stamp_managed_types and Release.ManagedTypes (print_tenant prerequisites line; exit 1 on gate_blocked_total > 0)",
+      "any test asserting config :exam_snapshot_complete is false in config.exs (T-36 source test): now `true` in config.exs and `true` in test.exs; the 'set only in config.exs and test.exs' provenance assertion still holds"
+    ],
+    "notes_for_test_designer": [
+      "Legacy-session fixtures: fixtures carry exam_snapshot from install so every plain session is AFTER the cutover; use ONE legacy_session! helper that removes exam_snapshot from field_values via a test-support write, sets entity_record_latest.inserted_at earlier than Snapshot.cutover(prefix), started_at earlier, expires_at in the future (T-21..T-25, T-48..T-52, T-58, T-59, T-63). T-61/T-61b use a session whose record inserted_at is >= cutover with started_at set far in the past.",
+      "ensure_locked/2 does NOT write (D-b1): T-59 should assert the returned session_after.field_values carries the snapshot and that after a submit the persisted session still carries it; T-58 (audit entry count, audit failure rollback -> {:snapshot_error, :audit_failed}) is observable through ensure/3, ensure_certificate_facts/3 and Session.submit/finalize_expired. Audit failure can be provoked by e.g. a tenant whose audit chain insert fails; the whole transaction (snapshot write, scores, status) rolls back, session stays in_progress.",
+      "T-24 (concurrent touches): second toucher sees the snapshot after the lock and does not write; exactly one ENTITY_RECORD_UPDATED event adds exam_snapshot and exactly one exam.session_snapshot_late audit entry.",
+      "T-63 query parity: ensure/3 and ensure_certificate_facts/3 execute lock query then owner check only for a non-owner/nonexistent session; autosave and state read return at fetch_session/check_owner. Measure with a repo telemetry counter.",
+      "Snapshot.cutover/1 unit (T-63b): MIN activated_at over artifact_activation_history rows (artifact_kind :entity, artifact_name 'session') whose new_version_id matches an entity_definitions row (tenant, name 'session') whose definition_json contains field name 'exam_snapshot'; {:error, :definition_missing} when none.",
+      "Snapshot.late_origin_counts/1 -> {:ok, %{late: n, late_certificate: n}} counts non-deleted session records by exam_snapshot.origin; {:error, :invalid_schema_name} for a bad prefix.",
+      "Session.get_snapshot_for_user/3: present snapshot -> fetch_verified (corrupt -> {:grading_error, :snapshot_corrupt}); absent + submitted -> ensure_certificate_facts; absent + other status -> {:grading_error, :snapshot_missing}, no write. Certificate guard order: grading_pending -> not submitted -> snapshot facts -> exam_not_certifiable -> not passed -> issue; exam_title comes from the snapshot.",
+      "Stamp: prerequisites_missing order is [:session_definition, :answer_key_restrictions]; judged row = :active row else newest by inserted_at; T-40: old inactive version without the field plus new active version with it is stampable and all rows get managed_by.",
+      "Router: certificate and download render {:grading_error, _} as 500 with detail 'exam grading failed; the session was not scored' and {:snapshot_error, _} as 503 'exam service is being upgraded; retry shortly' (existing render_snapshot_failure/4), logged with route tags certificate / certificate_download."
+    ],
+    "notes_for_pr_body": [
+      "Infra rollout already ran on QA after a5847f1ff (1 tenant upgraded). Any OTHER environment receiving a5847f1ff or later needs Letflow.Release.ExamSnapshot.rollout/1 run (bin/letflow rpc \"IO.inspect(Letflow.Release.ExamSnapshot.rollout(dry_run: false))\") and Letflow.Release.ExamSnapshot.verify() to report ready: true before any managed-type stamp; with this PR a real Letflow.Release.ManagedTypes.stamp/1 additionally refuses (status :snapshot_prerequisite_missing) any tenant not rolled out.",
+      "Ordering: rollout first, then stamp. This PR flips :exam_snapshot_complete to true; it does not stamp anything.",
+      "Late snapshots are audited (action exam.session_snapshot_late); post-deploy count via Letflow.Modules.Exam.Snapshot.late_origin_counts/1."
+    ],
+    "toolchain": "mix compile/format/check_boundaries run with the machine mix mutex held (created and released by this agent). Tests not run."
+  }
+}

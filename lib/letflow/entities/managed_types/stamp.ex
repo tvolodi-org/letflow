@@ -19,9 +19,13 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
 
   ## Conflict rule (design 6.2)
 
-  A name is stampable only when EVERY `entity_definitions` row of that name (every version) is
-  field-compatible with the exam pack's own definition: each pack `(field name, type)` pair is
-  present on the row. Extra fields are allowed; `required`, enum values, indexes, foreign keys
+  A name is stampable only when its JUDGED `entity_definitions` row is field-compatible with the
+  exam pack's own definition: each pack `(field name, type)` pair is present on the row. The
+  judged row is the ACTIVE version of the name (when none is active, the newest by `inserted_at`),
+  not every version (GH #2682 / REQ-511, design 10.2: adding a field creates a new version and
+  leaves the old row, so judging every version would make any upgraded name a permanent
+  conflict). Every `managed_by IS NULL` row of a stampable name is still stamped, old inactive
+  versions included. Extra fields are allowed; `required`, enum values, indexes, foreign keys
   and constraints are not compared (they are listed by name in `differences` for infra to read).
   All-or-nothing per name. A name with a row stamped by another module, or an incompatible row,
   is a named conflict: nothing of it is stamped or overwritten, the tenant's other names are.
@@ -46,8 +50,19 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
   `{:error, :snapshot_not_complete}` and `run_tenant/2` returns a report with
   `status: :snapshot_not_complete` and writes nothing (no stamp, no audit entry). The flag means
   "the code that scores from the per-session exam snapshot has shipped"; it is set ONLY in
-  `config/config.exs` (`false`) and `config/test.exs` (`true`), never from the environment, and
-  the fail-closed default is `false`. A dry run is always allowed.
+  `config/config.exs` and `config/test.exs` (both `true` since PR b), never from the environment,
+  and the fail-closed default (key absent) is `false`. A dry run is always allowed.
+
+  ## Per-tenant prerequisites (GH #2682 / REQ-511 PR b, design 10.1)
+
+  With the flag open, a REAL run stamps a tenant only if (i) its ACTIVE `session` definition declares
+  the json field `exam_snapshot` and (ii) every pair of `Exam.answer_key_fields/0` has an
+  `entity_field_restrictions` row (the exam rollout, `Letflow.Release.ExamSnapshot`). Otherwise the
+  tenant report has `status: :snapshot_prerequisite_missing` and
+  `prerequisites_missing: [:session_definition | :answer_key_restrictions]`, nothing of it is
+  stamped, and the sweep continues. The check runs only when the tenant still has an unstamped row,
+  so a fully stamped tenant stays `:nothing_to_stamp`; it is repeated under the row locks. A dry run
+  never has a blocked tenant.
 
   ## Tripwire, not a boundary
 
@@ -102,6 +117,7 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
           | :exam_not_installed
           | :exception_not_installed
           | :snapshot_not_complete
+          | :snapshot_prerequisite_missing
           | :skipped_schema_missing
           | :failed
 
@@ -116,6 +132,7 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
           conflicts: [conflict()],
           differences: [difference()],
           exam_named_types_present: [String.t()],
+          prerequisites_missing: [:session_definition | :answer_key_restrictions],
           error:
             nil
             | :nested_transaction
@@ -139,6 +156,8 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
            id: Ecto.UUID.t(),
            name: String.t(),
            managed_by: String.t() | nil,
+           status: :active | :inactive | nil,
+           inserted_at: DateTime.t() | nil,
            definition_json: map()
          }
 
@@ -172,9 +191,10 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
     end
   end
 
-  # `gate_blocked_total` is non-zero only if the flag flips from true to false in the middle of a
-  # sweep (the gate is checked once in `run/1` before this runs, and again per tenant). It is kept
-  # so such a sweep is visible in the report and the mix task exits non-zero for it.
+  # `gate_blocked_total` counts the tenants a real run did not stamp because of the snapshot gate:
+  # `:snapshot_prerequisite_missing` (the tenant was not rolled out) and, only if the flag flips
+  # from true to false in the middle of a sweep (it is checked once in `run/1` and again per
+  # tenant), `:snapshot_not_complete`. The mix task exits non-zero for either.
   defp sweep(module, dry_run?, opts) do
     tenants =
       Letflow.Obs.Logger.with_trace(fn ->
@@ -190,7 +210,11 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
       rows_stamped_total: tenants |> Enum.map(& &1.rows_stamped) |> Enum.sum(),
       conflict_total: tenants |> Enum.map(&length(&1.conflicts)) |> Enum.sum(),
       failed_total: Enum.count(tenants, &(&1.status == :failed)),
-      gate_blocked_total: Enum.count(tenants, &(&1.status == :snapshot_not_complete))
+      gate_blocked_total:
+        Enum.count(
+          tenants,
+          &(&1.status in [:snapshot_not_complete, :snapshot_prerequisite_missing])
+        )
     }
   end
 
@@ -236,9 +260,14 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
       rows = fetch_rows(schema, tenant_id, candidates, false)
       advisory = classify(rows, candidates, pack_fields)
 
+      missing = if dry_run?, do: [], else: prerequisites_missing(rows, schema)
+
       cond do
         dry_run? ->
           finish(report, advisory, advisory.rows_to_stamp)
+
+        missing != [] ->
+          prerequisite_report(report, missing)
 
         advisory.null_ids == [] ->
           finish(report, advisory, 0)
@@ -294,6 +323,13 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
           :ok = ManagedTypes.lock_names(candidates, schema)
 
           rows = fetch_rows(schema, tenant_id, candidates, true)
+
+          # Design 10.1: the prerequisites are judged again from the LOCKED rows.
+          case prerequisites_missing(rows, schema) do
+            [] -> :ok
+            missing -> Repo.rollback({:prerequisites_missing, missing})
+          end
+
           classification = classify(rows, candidates, pack_fields)
 
           stamped = stamp_rows(classification, schema, tenant_id)
@@ -313,6 +349,7 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
 
     case result do
       {:ok, {classification, stamped}} -> finish(report, classification, stamped)
+      {:error, {:prerequisites_missing, missing}} -> prerequisite_report(report, missing)
       {:error, :gap_remains} -> %{report | status: :failed, error: :gap_remains}
       {:error, {:audit_failed, _tag} = error} -> %{report | status: :failed, error: error}
     end
@@ -457,6 +494,8 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
           id: d.id,
           name: d.name,
           managed_by: d.managed_by,
+          status: d.status,
+          inserted_at: d.inserted_at,
           definition_json: d.definition_json
         }
       )
@@ -502,7 +541,7 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
   defp classify_name(name, rows, pack_def, acc) do
     others = Enum.filter(rows, &(&1.managed_by not in [nil, "exam"]))
     null_rows = Enum.filter(rows, &is_nil(&1.managed_by))
-    incompatible = Enum.reject(rows, &compatible?(&1.definition_json, pack_def))
+    incompatible = incompatible_judged_rows(rows, pack_def)
 
     cond do
       null_rows == [] and others == [] ->
@@ -524,6 +563,17 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
             differences: add_difference(acc.differences, name, rows, pack_def)
         }
     end
+  end
+
+  # Design 10.2: only the ACTIVE row of a name is judged (none active: the newest by inserted_at).
+  defp incompatible_judged_rows(rows, pack_def) do
+    judged = judged_row(rows)
+    if compatible?(judged.definition_json, pack_def), do: [], else: [judged]
+  end
+
+  defp judged_row(rows) do
+    Enum.find(rows, &(&1.status == :active)) ||
+      Enum.max_by(rows, & &1.inserted_at, DateTime)
   end
 
   defp add_conflict(acc, name, count, reason) do
@@ -588,6 +638,51 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
   defp list_of(%{} = definition, attr), do: Map.get(definition, attr) || []
   defp list_of(_other, _attr), do: []
 
+  # --- snapshot prerequisites (GH #2682 / REQ-511 PR b, design 10.1) ---------------------------------
+
+  # [] when the tenant has nothing left to stamp or both prerequisites hold; otherwise the missing
+  # ones, in a fixed order. Reads only, explicit prefix (INV-1).
+  @spec prerequisites_missing([row()], String.t()) ::
+          [:session_definition | :answer_key_restrictions]
+  defp prerequisites_missing(rows, schema) do
+    if Enum.any?(rows, &is_nil(&1.managed_by)) do
+      [
+        if(session_definition_current?(rows), do: nil, else: :session_definition),
+        if(answer_key_restrictions_present?(schema), do: nil, else: :answer_key_restrictions)
+      ]
+      |> Enum.reject(&is_nil/1)
+    else
+      []
+    end
+  end
+
+  defp session_definition_current?(rows) do
+    case Enum.filter(rows, &(&1.name == "session")) do
+      [] ->
+        false
+
+      session_rows ->
+        session_rows
+        |> judged_row()
+        |> Map.fetch!(:definition_json)
+        |> fields_of()
+        |> Enum.any?(&(&1["name"] == "exam_snapshot" and &1["type"] == "json"))
+    end
+  end
+
+  defp answer_key_restrictions_present?(schema) do
+    present =
+      from(r in "entity_field_restrictions", select: {r.entity_type, r.field_name})
+      |> Repo.all(prefix: schema)
+      |> MapSet.new()
+
+    {:ok, exam} = Catalog.fetch("exam")
+    Enum.all?(exam.answer_key_fields(), &MapSet.member?(present, &1))
+  end
+
+  defp prerequisite_report(report, missing),
+    do: %{report | status: :snapshot_prerequisite_missing, prerequisites_missing: missing}
+
   # --- reports ----------------------------------------------------------------------------------
 
   defp finish(report, classification, rows_stamped) do
@@ -617,6 +712,7 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
       conflicts: [],
       differences: [],
       exam_named_types_present: [],
+      prerequisites_missing: [],
       error: nil
     }
   end

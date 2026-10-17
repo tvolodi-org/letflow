@@ -1,0 +1,74 @@
+{
+  "handoff_id": "e511b000-2682-4a11-8c20-000000000002",
+  "run_id": "WF02-GH2682-EXAM-SNAPSHOT-B-20261017",
+  "workflow_id": "WF-02",
+  "step": "02",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF02-GH2682-EXAM-SNAPSHOT-B-20261017/step-02-security-reviewer-code-pr-b.json",
+  "created_at": "2026-10-17T06:40:00Z",
+  "started_at": "2026-10-17T06:40:30Z",
+  "completed_at": "2026-10-17T06:55:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S8",
+    "requirement_ids": ["REQ-511"],
+    "requirement_text": {
+      "GH#2682": "Exam content snapshot, PR b: certificate path from the snapshot, lazy late snapshot with cutover, Stamp prerequisites, flag true. CODE gate review of commit 29dce89af."
+    },
+    "related_handoff_ids": ["e511a000-2682-4a11-8c20-000000000009"],
+    "artifacts_in": [
+      "lib/letflow/design/req511-exam-content-snapshot.md",
+      "handoffs/WF02-GH2682-EXAM-SNAPSHOT-20261016/step-06-security-reviewer-design.json",
+      "handoffs/WF02-GH2682-EXAM-SNAPSHOT-20261016/step-09-security-reviewer-code-pr-a.json",
+      "handoffs/WF02-GH2682-EXAM-SNAPSHOT-B-20261017/step-01-elixir-dev-pr-b.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2682-EXAM-SNAPSHOT-B-20261017"
+  },
+  "task": {
+    "description": "SECURITY-REVIEWER code gate for REQ-511 PR b against INV-1..INV-8 and design R1-R6/A1-A5. Read-only; no mix run."
+  },
+  "result": {
+    "status": "PASS",
+    "verdict": "PASS",
+    "summary": "PASS (code, PR b). In scope: tenant-data path (exam session/certificate, answer-key snapshot, cutover read of artifact_activation_history), the Stamp gate and config/config.exs flag. No BLOCKER. (1) CERTIFICATE PATH: certificate.ex no longer aliases Latest or reads the live exam (fetch_exam/check_certificate_enabled deleted); issue/3 order is get_session_for_user (ownership) -> not-grading-pending -> submitted -> Session.get_snapshot_for_user -> Snapshot.certificate_facts -> enabled -> passed -> issue_or_fetch with title from the facts. Download and the public projection (certificate_public_projection.ex, certificate_document.ex) read only the issued certificate record / its own branding_snapshot, no exam read. Only live exam reads left are Snapshot.live_exam/3 inside build_late and build_certificate_only, both reachable only under the row lock, ownership, status, prerequisites and cutover checks. late_certificate facts are built once (certificate_snapshot is reached only when no snapshot exists, status submitted, record inserted before cutover), carry exam_id, certificate_enabled, title only, and are audited in the same transaction. (2) LATE SNAPSHOT: lock_session FOR UPDATE then check_owner first for non-owner and nonexistent (same single lock query, no prerequisite probe); build_missing requires status in_progress, check_prerequisites (active session definition declares exam_snapshot AND restriction row), then check_before_cutover: DateTime.compare(Latest.inserted_at, cutover) == :lt else {:grading_error, :snapshot_missing} (500) - strict, so equal fails closed. inserted_at is the entity_record_latest server-set column (insert_changeset and update_changeset cast lists exclude it; promoted table upsert excludes it), not the writable started_at field (SEC A3). Snapshot.cutover/1 is min(activated_at) over artifact_activation_history rows (artifact_kind :entity, name session) joined to entity_definitions whose definition_json @> {fields:[{name:exam_snapshot}]}; tenant_id derived from the schema prefix via TenantProvisioning.tenant_id_for_schema_name (never caller-supplied), Repo.one with explicit prefix, containment passed as a bound parameter (INV-7), no row -> {:snapshot_error, :definition_missing} -> 503 (fail closed). T-61b: a post-cutover session whose exam_snapshot a writer removes has inserted_at >= cutover so it gets :snapshot_missing, never a heal from live rows; setting it to nil is treated as missing (same outcome); a present-but-bad value is :snapshot_corrupt and is never replaced (ensure_locked and certificate_snapshot return the error). Terminal sessions never get a snapshot except late_certificate (require_status gates both). Audit exam.session_snapshot_late: attrs carry origin, taken_at, exam_id, started_at, session id, actor id only; Logger lines carry origin and session id; Audit.insert_entry failure returns {:snapshot_error, :audit_failed} and every caller rolls its transaction back. (3) D-b1 JUDGED SOUND. ensure_locked/2 only reads (fetch, prerequisites, cutover, live exam/question/option reads) and returns session_after with the snapshot merged into the locked row's own field_values. score_and_persist order: lock_session_row -> ensure_locked (reads) -> persist_scores (score-type sequence) -> update_session_after_submit(session_after) (session-type sequence, one ENTITY_RECORD_UPDATED that adds exam_snapshot and carries the outcome) -> record_late last (audit chain), all inside the one submit/finalize Repo.transaction, so a crash or audit error between persist and audit rolls back scores, status and snapshot together and a late snapshot cannot exist without its audit entry. This is the same sequence order as a plain submit (row -> score seq -> session seq) so the session-seq/score-seq inversion the dev found in the design's order is avoided; update_session_after_submit still starts from session_after.field_values so the snapshot cannot be dropped by the later write. ensure/3 (state/autosave touch) and ensure_certificate_facts/3 take row -> session seq (write_session) -> audit and never take the score sequence, so no cycle with submit. Exam row lock is taken only by create (before any session row exists). Audit.insert_entry callers outside exam (engine, tasks, definitions, identity, scripts, routers, stamp) are grep-confirmed to be the project-wide audit-last pattern; none takes an exam session/exam row or session sequence lock after the chain lock. (4) STAMP: prerequisites_missing runs only for a real run and only while the tenant has a managed_by NULL row, in the advisory pre-pass and again from the LOCKED rows (Repo.rollback({:prerequisites_missing, missing}) -> prerequisite_report, nothing stamped, no audit entry); dry run never blocked; status :snapshot_prerequisite_missing counted in gate_blocked_total so the mix task exits 1; mix output carries atom tags only. Compatibility is judged on the ACTIVE row (fallback newest by inserted_at) while every NULL row of a stampable name is still stamped. Restriction pairs come from Catalog.fetch(\"exam\").answer_key_fields() (no Exam literal). Entry points: only Letflow.Release.ManagedTypes.stamp/1 -> Stamp.run and the mix task; nothing calls Stamp from boot or on_install; :exam_snapshot_complete is read only in stamp.ex and set only in config.exs and test.exs (never runtime.exs/env). Flipping config.exs to true therefore opens only a per-tenant-gated stamp: an un-rolled-out tenant is refused, the answer key cannot be stamped while the session definition lacks exam_snapshot or any restriction pair is absent. #2612: the config line is not `config :letflow, :modules`, no ci.yml/cd.yml/mix.exs/permission-matrix file is touched; authorization.ex, effective.golden and catalog.ex are unchanged in the diff, so the mandatory trigger does not apply. (5) RESPONSES: certificate issue/download add a {kind, reason} clause for grading_error (constant-detail 500) and snapshot_error (constant 503 upgrading detail) via render_snapshot_failure, which logs kind, reason tag, path session id and tenant prefix only. R6 ownership-before-prerequisite holds on every touch: state (fetch_session, check_owner, then state_type_source), autosave (owner, in_progress, deadline, session_question, then ensure), submit/finalize (lock row, owner, then scoring), certificate (get_session_for_user owner check first; get_snapshot_for_user fetch+check_owner; ensure_certificate_facts re-locks and re-checks owner before any probe). Non-owner and nonexistent run the same single lookup and render one 404; query-count parity preserved. (6) INFRA ORDER: rollout (ExamSnapshot.rollout) then stamp holds and is now enforced in code: a real stamp of an un-rolled-out tenant is refused per tenant. INVARIANTS: INV-1 APPLIES, PASS: (a) every new query takes an explicit prefix (lock_session, query_all, Repo.exists?, Repo.one cutover, late_origin_counts after tenant_id_for_schema_name, Stamp reads with prefix: schema); (b) no migration in the diff; (c) tenant_id derived from prefix in cutover, not caller-supplied. INV-2 APPLIES, PASS: no response shape change; the snapshot (answer key) is never emitted, only certificate_json fields and constant error bodies. INV-3 N/A (no Lua/WASM). INV-4 APPLIES, PASS: no secret/credential touched; nonce, digest and key values never logged; config adds no secret. INV-5 APPLIES, PASS: not-found and not-owner collapse to the same bytes and the same single query before any probe. INV-6 APPLIES, PASS: this handoff is the scoping statement. INV-7 APPLIES, PASS: grep Repo.query shows no new raw SQL; cutover jsonb containment, late_origin_counts group_by fragment and the restriction exists? are bound/constant (the fragment contains no interpolation). INV-8 APPLIES, PASS: typed {:error,_} everywhere, Repo.rollback with tags, no bare {:ok,_} = match on external data in the diff except Stamp's `{:ok, exam} = Catalog.fetch(\"exam\")`, which is a static module lookup of an installed catalog entry and not tenant input (acceptable). INV-9/10 N/A (no outbound URL, no route or permission change).",
+    "findings_non_blocking": [
+      {
+        "id": "N1",
+        "severity": "MINOR",
+        "where": "lib/letflow/entities/managed_types/stamp.ex session_definition_current?/judged_row (about L657-670)",
+        "text": "The design and Snapshot.check_definition judge the ACTIVE session definition; Stamp falls back to the newest-by-inserted_at row when none is active. A tenant with no active session version but a newer inactive one declaring exam_snapshot would pass the Stamp prerequisite and then fail closed (503) at session start. Safe direction (no leak), so not a blocker; prefer requiring status == :active for the prerequisite."
+      },
+      {
+        "id": "N2",
+        "severity": "MINOR",
+        "where": "lib/letflow/modules/exam/snapshot.ex certificate_facts/1 (L566-573) with exam_section/3 (L172-177)",
+        "text": "Behaviour change: an exam whose certificate_enabled is not a boolean (nil, absent) or whose title is nil previously produced 409 exam_not_certifiable; it now yields 500 grading_error certificate_facts_missing. If certificate_enabled can legitimately be unset on live exams, map a nil/absent value to false in exam_section (or to :exam_not_certifiable) so the old 409 is kept. REVIEWER/TEST-DESIGNER to confirm the field's default; not a security defect."
+      },
+      {
+        "id": "N3",
+        "severity": "INFO",
+        "where": "lib/letflow/modules/exam/snapshot.ex check_before_cutover/2 (L657-670)",
+        "text": "inserted_at is app-generated and activated_at is compared across it; multi-node clock skew of milliseconds could let a session created just after the activation count as pre-cutover (re-open live heal for that window only). Accepted residual, strict :lt keeps equal instants closed."
+      }
+    ],
+    "required_changes": [],
+    "invariants_assessed": {
+      "INV-1": "APPLIES - PASS",
+      "INV-2": "APPLIES - PASS",
+      "INV-3": "NOT-APPLICABLE",
+      "INV-4": "APPLIES - PASS",
+      "INV-5": "APPLIES - PASS",
+      "INV-6": "APPLIES - PASS (this handoff)",
+      "INV-7": "APPLIES - PASS",
+      "INV-8": "APPLIES - PASS",
+      "INV-9": "NOT-APPLICABLE",
+      "INV-10": "NOT-APPLICABLE"
+    },
+    "local_issue_id": null,
+    "artifacts_out": []
+  }
+}

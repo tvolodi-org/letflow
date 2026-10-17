@@ -338,7 +338,7 @@ only makes the failure typed, logged at error level and non-silent.
 | `session_question.question_version_id` | Unused, not restricted. | Holds nothing. |
 | Unredacted export (`EntitiesRecordsExportUnredacted`) | Stays PLATFORM_ADMIN and TENANT_ADMIN only (golden). | They already author and can read the key; the snapshot adds no new knowledge to them beyond which questions each candidate received (already in `session_question`). |
 
-### 8.2 Seeding: `Exam.answer_key_fields/0` grows to six pairs
+### 8.2 Seeding: `Exam.answer_key_fields/0` grows to five pairs
 
 Add `{"session", "exam_snapshot"}` to `@answer_key_fields` (and nothing else), so `on_install/2` seeds it for
 fresh installs and the reconcile step (8.5) seeds it for existing ones. The test `on_install_test.exs`
@@ -375,10 +375,10 @@ that dumps `entity_record_latest` or `events` rows and confirm it is admin-scope
 ### 8.5 Tenants installed before REQ-411 and the "every exam-installed tenant" test
 
 `Exam.on_install/2` runs once, so existing tenants can lack rows. The rollout task (9.3) runs an idempotent
-`ensure_answer_key_restrictions(prefix)` that inserts any of the six pairs not present (same
+`ensure_answer_key_restrictions(prefix)` that inserts any of the five pairs not present (same
 `on_conflict: :nothing` insert) and reports the count. Test T-33: for every tenant that has the `exam`
 module installed in the test database (fixtures create several, including one built to look pre-REQ-411 with
-zero rows), after `on_install` or the reconcile step all six pairs exist. T-34: the reconcile step is
+zero rows), after `on_install` or the reconcile step all five pairs exist. T-34: the reconcile step is
 idempotent. T-35: the Stamp prerequisite refuses a tenant lacking any row (10).
 
 ## 9. In-flight policy (PR (b)); confirms 2596 section 17.5 with two additions
@@ -414,7 +414,7 @@ Additions to the ruling:
 2. Open a transaction (or join the caller's), `lock_session_row/2`, re-read `field_values`.
 3. If `exam_snapshot` present: return `fetch_verified` of it (no write). If absent and status is not
    `in_progress`: return `{:error, {:grading_error, :snapshot_missing}}` WITHOUT writing (certificate-facts case has its own
-   function; the candidate state read of a terminal session never calls `ensure`, see 17.1). If absent and `in_progress`: `build_late`, then `Records.update_record` through `exam_owner()`
+   function; the candidate state read of a terminal session never calls `ensure`, see 17.1). If absent and `in_progress`: `build_late`; then, for `ensure/3`, `Records.update_record` through `exam_owner()` immediately (for the submit and finalize paths `ensure_locked/2` only builds and the single session update of the caller persists it, see 17.2)
    with `field_values = Map.merge(locked.field_values, %{"exam_snapshot" => snapshot})`, fresh idempotency
    key. Emit one `Logger.info` with session id and `origin: late` (the persistent marker is the field itself).
 4. Return the snapshot.
@@ -443,7 +443,7 @@ Two layers in `Letflow.Entities.ManagedTypes.Stamp`; they ship in DIFFERENT PRs 
    nothing. `dry_run: true` is allowed before (2596 17.5: inventory and dry-run may run earlier). Because the
    refusal exists from PR (a), there is no window between the PRs in which a stamp can run.
 2. **Per-tenant prerequisites (data), PR (b).** With the flag true, a tenant is stamped only if (i) its ACTIVE
-   `session` definition declares `exam_snapshot` (type json) and (ii) all six `Exam.answer_key_fields()`
+   `session` definition declares `exam_snapshot` (type json) and (ii) all five `Exam.answer_key_fields()`
    restriction rows exist. Otherwise the tenant report gets `status: :snapshot_prerequisite_missing` and a new
    report key `prerequisites_missing :: [:session_definition | :answer_key_restrictions]`; nothing is stamped
    for it; other tenants continue.
@@ -574,7 +574,7 @@ changed) are updated. The `description` of `session.json` gets one sentence for 
 | T-30 | Full candidate flow (start, state, autosave, submit, certificate, download) serialized, then probes with a TASK_WORKER, a TENANT_AUDITOR and a TENANT_ADMIN token (PR-0b is merged): (1) `GET` instances list/get/history/timeline for the session's synthetic entity-type instance id AND for an `answer_option` synthetic id each return a 404 byte-identical to the 404 of a random uuid (status and body); (2) `POST /entities/query` (plain, join), `/aggregate`, `/export` (default) show `exam_snapshot` only as the redaction sentinel or not at all; (3) the audit entries read route (`AuditRead`), `GET /promotions/platform-events`, `ScriptReads` (a script reading a session) and the entity port (`StepWrites`/`HandlerWrites` read paths) return no snapshot content; (4) the `PUT`/`POST /entities/records/session` response (and its error bodies) never echoes a PRIOR `exam_snapshot` (it returns what the caller sent); (5) the public certificate projection. In every body `exam_snapshot`, its `nonce`, its `digest`, `correct_option_ids` and `is_correct` flags are absent. The route list is closed by the 8.4 enumeration; a test fails if the enumeration finds a route not in the probe list. |
 | T-31 | OWNED BY PR-0: a request that filters or sorts on a restricted field (plain, join, export default) is refused 403 with the aggregate's constant body; RED on main before the fix; unredacted export by an admin still works. |
 | T-32 | OWNED BY PR-0: unrestricted filter/sort still works; the aggregate refusal is unchanged. |
-| T-33 | For every exam-installed tenant in the test DB, all six `answer_key_fields` rows exist (fresh install via `on_install`; pre-REQ-411-style tenant with zero rows after the rollout reconcile). |
+| T-33 | For every exam-installed tenant in the test DB, all five `answer_key_fields` rows exist (fresh install via `on_install`; pre-REQ-411-style tenant with zero rows after the rollout reconcile). |
 | T-34 | Reconcile is idempotent (second run adds 0). |
 | T-35 | Start refuses (503 `restrictions_missing`) when the snapshot restriction row is absent. |
 
@@ -590,7 +590,7 @@ changed) are updated. The `description` of `session.json` gets one sentence for 
 | T-41 | Property: random snapshots round-trip a real jsonb column and re-verify the digest; weights such as `"0.1"`, `"3.5"` and the normalised threshold `"60"` stay byte-stable (decimal strings per 17.2). |
 
 Existing tests that must be updated: `pack_install_test.exs` (field counts/drift), `on_install_test.exs`
-(six pairs), `entities_answer_key_field_leak_test.exs` (row-query cases belong to PR-0), `stamp_test.exs`
+(five pairs), `entities_answer_key_field_leak_test.exs` (row-query cases belong to PR-0), `stamp_test.exs`
 (prereqs, flag set true in `test.exs`), `exam_fixtures.ex` (definitions now carry the field),
 `certificate_test.exs` and `session_test.exs` (live-edit expectations flip), `exam_sessions_test.exs`
 (ISS-0676 render cases).
@@ -602,7 +602,7 @@ Existing tests that must be updated: `pack_install_test.exs` (field counts/drift
 | PR-0 (#2697, MERGED; outside this requirement's PR count) | Restricted-field refusal on row query (plain, join) and default export (8.3). Own issue (letflow-2), own tests. | `lib/letflow/routers/entities.ex` |
 | PR-0b (#2702, MERGED; outside this requirement's PR count) | Chose HIDE: synthetic entity-type instances are a 404 on `Instances` reads, as a nonexistent instance (18.1). | `lib/letflow/routers/instances.ex` and its context (as merged) |
 | (a) storage + scoring read + restrictions seed + gate flag | `Snapshot` module (build_from_resolved, fetch_*, threshold, to_scoring_questions, canonical_encode, digest); `session.json` + `pack.json` + `generate_pack.exs`; `Exam.answer_key_fields` +1; create writes the snapshot; scoring, autosave, state read the snapshot (snapshotless -> grading error `:snapshot_missing`, no late path yet); `60.0` and `passing_threshold_for` removed; carry-forward; typed error + router clauses for submit/start/503; rollout task + reconcile; `Stamp` flag REFUSAL (real run refused while the flag is false; this closes the gate) and the config flag `false`. | `lib/letflow/modules/exam/{snapshot.ex (new), session.ex, exam.ex, router.ex}`, `lib/letflow/entities/managed_types/stamp.ex`, `lib/letflow/release/managed_types.ex` (widen `stamp/1` `@spec` to `{:ok, Stamp.report()} | {:error, :unsupported_module | :snapshot_not_complete}`), `lib/mix/tasks/letflow.stamp_managed_types.ex` (new clause for `{:error, :snapshot_not_complete}` and the gate exit mapping below), `lib/letflow/modules/exam/snapshot/rollout.ex`, `lib/letflow/release/exam_snapshot.ex`, `lib/mix/tasks/letflow.exam_snapshot_rollout.ex`, `lib/letflow/api/response.ex` (503 helper), `priv/modules/exam/**`, `config/config.exs`, `config/test.exs`, tests |
-| (b) certificate + in-flight + Stamp prerequisites | `Stamp` per-tenant prerequisites, active-row compat and new report types (17.2); flag set `true` (the single flip); `Session.get_snapshot_for_user/3`, `Certificate` reads facts only, certificate render clauses; `Snapshot.ensure/3`, `ensure_locked/2`, `build_late`, `ensure_certificate_facts`, late audit entry; late path wired into autosave/state(in_progress)/submit/finalize. | `certificate.ex`, `session.ex`, `snapshot.ex`, `router.ex`, `config/config.exs`, tests |
+| (b) certificate + in-flight + Stamp prerequisites | `Stamp` per-tenant prerequisites, active-row compat and new report types (17.2); flag set `true` (the single flip); `Session.get_snapshot_for_user/3`, `Certificate` reads facts only, certificate render clauses; `Snapshot.ensure/3`, `ensure_locked/2`, `build_late`, `ensure_certificate_facts`, late audit entry; late path wired into autosave/state(in_progress)/submit/finalize. | `certificate.ex`, `session.ex`, `snapshot.ex`, `router.ex`, `config/config.exs`, tests; plus `record_late/4` and `check_prerequisites/1` (moved from `Session` to `Snapshot` and shared by the start path, `get_snapshot_for_user/3` and the `ensure` family). |
 
 Between (a) and (b) a snapshotless in-progress session fails closed (typed error), never scores from live
 data; (a) must not be deployed to a tenant with in-flight sessions it cares about (QA has none that matter;
@@ -722,7 +722,7 @@ of 4.2 is corrected accordingly). Non-grading failures: `{:error, {:snapshot_err
 | `Snapshot.fetch_verified/1` | `session_field_values :: map()` | `{:ok, snapshot()}` | `{:grading_error, :snapshot_missing \| :snapshot_corrupt}` |
 | `Snapshot.fetch_structural/1` | `session_field_values :: map()` | `{:ok, snapshot()}` | `{:grading_error, :snapshot_missing \| :snapshot_corrupt}` |
 | `Snapshot.ensure/3` | `session_id`, `user_id`, `prefix` (candidate touch: own transaction, `lock_session_row/2`, owner check, then 9.2) | `{:ok, snapshot()}` | `:session_not_found \| :not_owner \| {:grading_error, reason}` (build_late union, plus `:snapshot_missing` for a terminal snapshotless session, plus `:snapshot_corrupt`) `\| {:snapshot_error, :definition_missing \| :restrictions_missing \| :audit_failed \| :write_failed}` |
-| `Snapshot.ensure_locked/2` | `session :: Latest` (caller holds the transaction and the row lock; used by submit and finalize), `prefix` | `{:ok, snapshot(), session_after :: Latest}` where `session_after` carries the updated `field_values` (late snapshot included) so the later `update_session_after_submit` merges from it and cannot drop the snapshot | same union as `ensure/3` minus the two session errors |
+| `Snapshot.ensure_locked/2` | `session :: Latest` (caller holds the transaction and the row lock; used by submit and finalize), `prefix` | `{:ok, snapshot(), session_after :: Latest, :existing \| :late}` (accepted deviation D-b1): it only BUILDS the late snapshot and NEVER writes. `session_after.field_values` carries the snapshot (merged), and the tag says whether it was `:existing` or newly built `:late`. Submit and finalize persist `session_after.field_values` in their ONE existing session update, after `persist_scores`, and call `record_late/4` (the audit entry of 17.6) as the LAST statement of the transaction when the tag is `:late`. Reason: writing the session snapshot first would take the session entity-type sequence lock before the score sequence lock, the reverse of a plain submit, a deadlock risk; this way exactly ONE update event adds `exam_snapshot`. `ensure/3` and `ensure_certificate_facts/3` (single-purpose transactions) write immediately. | same union as `ensure/3` minus the two session errors |
 | `Snapshot.ensure_certificate_facts/3` | `session_id`, `user_id`, `prefix` (own transaction, `lock_session_row/2`, owner check) | `{:ok, snapshot()}`: an existing verified snapshot is returned untouched; else, ONLY when status is `submitted`, a `late_certificate` snapshot is built, written with the audit entry of 17.6, and returned | `:session_not_found \| :not_owner \| {:grading_error, :snapshot_missing` (status not submitted: nothing written) `\| :snapshot_corrupt \| :exam_section_missing \| :certificate_facts_missing \| :snapshot_too_large} \| {:snapshot_error, :definition_missing \| :restrictions_missing \| :audit_failed \| :write_failed}` |
 | `Session.get_snapshot_for_user/3` | `session_id`, `user_id`, `prefix` | `{:ok, snapshot()}`: ownership via `get_session_for_user/3`; present snapshot -> `fetch_verified`; absent and `submitted` -> `ensure_certificate_facts/3`; absent and any other status -> `{:grading_error, :snapshot_missing}` with no write. Certificate calls ONLY this function. | `:session_not_found \| :not_owner \| {:grading_error, :snapshot_missing \| :snapshot_corrupt \| :exam_section_missing \| :certificate_facts_missing \| :snapshot_too_large} \| {:snapshot_error, :definition_missing \| :restrictions_missing \| :audit_failed \| :write_failed}` (the complete `ensure_certificate_facts/3` union) |
 | `Snapshot.certificate_facts/1` | `snapshot` | `{:ok, %{certificate_enabled: boolean(), title: term()}}` | `{:grading_error, :certificate_facts_missing}` |
@@ -805,7 +805,7 @@ HMAC: decided NO by SECURITY-REVIEWER (OQ-12 resolved).
 | T-56 | `Rollout.run`, `run_tenant`, `verify` and the mix task: report shapes of 17.2, idempotency, dry-run writes nothing, non-zero exit on failure or conflict. |
 | T-57 | Stamp: the new statuses and report keys of 17.2 appear exactly as typed. |
 | T-58 | Late audit (17.6): one `late` snapshot -> exactly one audit entry with ids and names only; an audit failure rolls back the snapshot write (`{:snapshot_error, :audit_failed}`). |
-| T-59 | `ensure_locked/2` returns the updated row; a late-snapshotted session that is then submitted still carries the snapshot afterwards (binds M14). |
+| T-59 | `ensure_locked/2` returns `{:ok, snapshot, session_after, :late}` for a snapshotless `in_progress` session and writes NOTHING itself (zero events from the call); the assertions are on the returned `session_after.field_values` AND on the persisted row after the submit completes: the snapshot is present, `origin == "late"`, exactly ONE update event adds `exam_snapshot` for that submit, and `record_late/4` ran last (binds M14). With an existing snapshot the tag is `:existing` and no audit entry is written. |
 
 Mutant table corrections: M9 is bound to T-52. Added: M14 `ensure_locked` returns the stale row so submit drops
 the late snapshot -> T-22, T-59. M15 a terminal-session state read calls `ensure` or fails on a missing

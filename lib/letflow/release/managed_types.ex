@@ -15,8 +15,10 @@ defmodule Letflow.Release.ManagedTypes do
   rollout in the design, infra runs the inventory first, then the stamp dry run, and requests the
   real stamp only after the session-content-snapshot prerequisite has landed.
 
-  Until then a real `stamp/1` returns `{:error, :snapshot_not_complete}` and stamps nothing (GH
-  #2682 / REQ-511, design 18.3: the flag `:exam_snapshot_complete`); `dry_run: true` always runs.
+  A real `stamp/1` returns `{:error, :snapshot_not_complete}` and stamps nothing while the flag
+  `:exam_snapshot_complete` is not `true` (GH #2682 / REQ-511, design 18.3), and with the flag open
+  it still stamps only tenants that passed the exam snapshot rollout (per-tenant status
+  `:snapshot_prerequisite_missing` otherwise); `dry_run: true` always runs.
   """
 
   alias Letflow.Entities.ManagedTypes.Stamp

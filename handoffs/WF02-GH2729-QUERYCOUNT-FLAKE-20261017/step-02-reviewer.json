@@ -1,0 +1,43 @@
+{
+  "handoff_id": "c4a7d1e0-2729-4a11-8c20-000000000002",
+  "run_id": "WF02-GH2729-QUERYCOUNT-FLAKE-20261017",
+  "workflow_id": "WF-02",
+  "step": "02",
+  "from_agent": "ORCH",
+  "to_agent": "REVIEWER",
+  "file": "handoffs/WF02-GH2729-QUERYCOUNT-FLAKE-20261017/step-02-reviewer.json",
+  "created_at": "2026-10-17T06:00:00Z",
+  "started_at": "2026-10-17T06:00:30Z",
+  "completed_at": "2026-10-17T06:20:00Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2729": "Flaky T2b INV-5 query-count test: wall-clock second boundary adds a last_used_at UPDATE (6 vs 7)."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-2729-4a11-8c20-000000000001"
+    ],
+    "artifacts_in": [
+      "test/letflow/routers/instances_synthetic_hidden_test.exs"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "fix/WF02-GH2729-QUERYCOUNT-FLAKE-20261017"
+  },
+  "task": {
+    "description": "REVIEWER gate for GH #2729 (test-only measure_pair/4 retry)."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "PASS (delta re-check at fd0ea9c2a). Round-1 defect fixed: measure_pair/4 now reads second_before = System.os_time(:second) BEFORE warmup.() (test/letflow/routers/instances_synthetic_hidden_test.exs:347-348), with an accurate comment explaining the warm-up's last request touches last_used_at mid-request. crossed? is computed after both measured requests; retry condition (crossed? and hidden_queries != random_queries and attempts > 1) and the final-attempt-returned-and-asserted behaviour are unchanged, as are the caller equality assertions. Diff vs main is test-only (the test file plus the TEST-DESIGNER handoff); no production code, no OTP/supervision concerns, no scope creep, no type-safety FINDING. Nit only: the header comment says 'record the second before and after the measured pair' while the code now spans warm-up plus pair; harmless.",
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "diagnosis_confirmed": true,
+    "implementation_written": false,
+    "classification": "TEST_FLAKE"
+  }
+}

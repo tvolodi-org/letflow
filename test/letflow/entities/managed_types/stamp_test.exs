@@ -78,7 +78,7 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
   # A tenant with the exam row, the 5 legacy runtime types other than certificate, and a
   # certificate definition built by `certificate_fun` (given the schema).
   defp tenant_with_certificate!(slug, certificate_fun) do
-    tenant = Fx.bare_tenant!(slug, true)
+    tenant = Fx.stamp_ready_tenant!(slug)
     legacy_defs!(tenant.schema_name, @six -- ["certificate"])
     certificate_fun.(tenant.schema_name)
     tenant
@@ -216,7 +216,7 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
     end
 
     test "b2 pack-shaped rows (full foreign keys, installed as :tenant): all six stamped; the ten stay NULL" do
-      %{schema_name: schema} = Fx.bare_tenant!("gh2596-b2", true)
+      %{schema_name: schema} = Fx.stamp_ready_tenant!("gh2596-b2")
       :ok = Fx.install_pack!(schema)
 
       map = Fx.managed_by_map(schema)
@@ -235,7 +235,7 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
     end
 
     test "b3 hand-posted rows (an extra tenant field, no indexes): stamped, with the extra field listed in differences by NAME only" do
-      %{schema_name: schema} = Fx.bare_tenant!("gh2596-b3", true)
+      %{schema_name: schema} = Fx.stamp_ready_tenant!("gh2596-b3")
 
       for name <- @six do
         Fx.create_definition!(
@@ -263,7 +263,7 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
     end
 
     test "b4 certificate absent (the expected QA/BilimBaga state): reported in types_absent, nothing created, the other five stamped" do
-      %{schema_name: schema} = Fx.bare_tenant!("gh2596-b4", true)
+      %{schema_name: schema} = Fx.stamp_ready_tenant!("gh2596-b4")
       legacy_defs!(schema, @six -- ["certificate"])
 
       report = run!(schema)
@@ -353,7 +353,12 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
       assert :required in differing
     end
 
-    test "OLDER-VERSION variants (SECURITY F-3): the whole name conflicts if ANY version is incompatible; all compatible -> all rows stamped" do
+    # GH #2682 / REQ-511 PR b (design 10.2): the conflict rule judges the JUDGED row of a name only
+    # (the ACTIVE version; none active: the newest by inserted_at), not every version. Adding a
+    # field creates a new version and leaves the old row behind, so judging every version would make
+    # an upgraded name a permanent conflict. Every NULL row of a stampable name is still stamped.
+    test "OLDER-VERSION variants (SECURITY F-3, amended by GH #2682): only the JUDGED row decides; a stampable name stamps ALL its rows, a conflicting one none" do
+      # no active row: the NEWEST version is judged
       hostile_then_good =
         tenant_with_certificate!("gh2596-c-v1bad", fn schema ->
           Fx.create_definition!(schema, unrelated_certificate())
@@ -372,21 +377,45 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
           legacy_def!(schema, "certificate", &with_extra_field/1)
         end)
 
-      for %{schema_name: schema} <- [hostile_then_good, good_then_hostile] do
-        assert length(Fx.dump(schema, ["certificate"])) == 2
-        before = Fx.dump(schema, ["certificate"])
+      # the judged row is the newest (good): the older hostile row is stamped with its name
+      assert length(Fx.dump(hostile_then_good.schema_name, ["certificate"])) == 2
 
-        assert %{status: :stamped, rows_stamped: 5, conflicts: [conflict]} = run!(schema)
-        assert %{type: "certificate", reason: :shape_not_compatible, rows: 1} = conflict
+      assert %{status: :stamped, rows_stamped: 7, conflicts: []} =
+               run!(hostile_then_good.schema_name)
 
-        # NEITHER row of the name is stamped (premise: every row of a managed name carries one stamp).
-        assert Fx.dump(schema, ["certificate"]) == before
-        assert Fx.managed_by_map(schema)["certificate"] == [nil]
-      end
+      assert Fx.managed_by_map(hostile_then_good.schema_name)["certificate"] == ["exam"]
+      assert length(Fx.dump(hostile_then_good.schema_name, ["certificate"])) == 2
+
+      # the judged row is the newest (hostile): the whole name conflicts and NEITHER row is stamped
+      schema = good_then_hostile.schema_name
+      assert length(Fx.dump(schema, ["certificate"])) == 2
+      before = Fx.dump(schema, ["certificate"])
+
+      assert %{status: :stamped, rows_stamped: 5, conflicts: [conflict]} = run!(schema)
+      assert %{type: "certificate", reason: :shape_not_compatible, rows: 1} = conflict
+      assert Fx.dump(schema, ["certificate"]) == before
+      assert Fx.managed_by_map(schema)["certificate"] == [nil]
 
       assert %{status: :stamped, rows_stamped: 7, conflicts: []} = run!(all_good.schema_name)
       assert Fx.managed_by_map(all_good.schema_name)["certificate"] == ["exam"]
       assert length(Fx.dump(all_good.schema_name, ["certificate"])) == 2
+    end
+
+    test "an ACTIVE compatible version is judged over an older hostile row and over a newer inactive hostile one (GH #2682, T-40 for a runtime name)" do
+      # v1 hostile (inactive, older), v2 good ACTIVE, v3 hostile (inactive, newest)
+      %{schema_name: schema} =
+        tenant_with_certificate!("gh2596-c-active-judged", fn schema ->
+          Fx.create_definition!(schema, unrelated_certificate())
+          legacy_def!(schema, "certificate")
+          Fx.activate!(schema, "certificate")
+          Fx.create_definition!(schema, with_extra_field(unrelated_certificate()))
+        end)
+
+      assert length(Fx.dump(schema, ["certificate"])) == 3
+
+      assert %{status: :stamped, rows_stamped: 8, conflicts: [], error: nil} = run!(schema)
+      assert Fx.managed_by_map(schema)["certificate"] == ["exam"]
+      assert length(Fx.dump(schema, ["certificate"])) == 3
     end
 
     test "a runtime-named row already stamped by another module is :stamped_by_other_module, untouched" do
@@ -402,7 +431,7 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
     end
 
     test "a tenant-created authoring-named type (tag) is untouched and NOT reported" do
-      %{schema_name: schema} = Fx.bare_tenant!("gh2596-c-tag", true)
+      %{schema_name: schema} = Fx.stamp_ready_tenant!("gh2596-c-tag")
       legacy_defs!(schema, @six)
 
       Fx.create_definition!(schema, %{
@@ -443,12 +472,13 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
     end
 
     @tag timeout: 120_000
-    test "RACE (SECURITY F-4): an incompatible NEW version created after the advisory pre-pass is classified under the locks" do
+    test "RACE (SECURITY F-4): an incompatible NEW ACTIVE version created after the advisory pre-pass is classified under the locks" do
       %{schema_name: schema} = Fx.legacy_tenant!("gh2596-c-race")
 
       hook = fn hook_schema ->
         if hook_schema == schema do
           Fx.create_definition!(schema, unrelated_certificate())
+          Fx.activate!(schema, "certificate")
         end
 
         :ok

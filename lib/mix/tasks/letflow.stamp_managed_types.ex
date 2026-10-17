@@ -18,7 +18,10 @@ defmodule Mix.Tasks.Letflow.StampManagedTypes do
   A REAL run is refused (message, exit 1, nothing stamped) while the snapshot gate is closed
   (`config :letflow, :exam_snapshot_complete`, GH #2682 / REQ-511); `--dry-run` is never blocked.
   Do NOT request the real stamp on a shared environment until the gate is open and
-  `Letflow.Release.ExamSnapshot.verify/0` reports `ready: true`.
+  `Letflow.Release.ExamSnapshot.verify/0` reports `ready: true`. With the gate open, a tenant whose
+  active `session` definition lacks `exam_snapshot` (or that lacks an answer-key restriction row) is
+  reported as `snapshot_prerequisite_missing` with the missing items, is not stamped, and counts as
+  gate-blocked (exit 1): run `Letflow.Release.ExamSnapshot.rollout/1` first.
 
   In a release (no Mix):
   `bin/letflow rpc "IO.inspect(Letflow.Release.ManagedTypes.stamp(dry_run: true))"`.
@@ -87,6 +90,12 @@ defmodule Mix.Tasks.Letflow.StampManagedTypes do
         "    conflict: #{conflict.type} (#{conflict.reason}, #{conflict.rows} row(s))"
       )
     end)
+
+    if tenant.prerequisites_missing != [] do
+      Mix.shell().info(
+        "    snapshot prerequisites missing: #{Enum.join(tenant.prerequisites_missing, ", ")}"
+      )
+    end
 
     if tenant.types_absent != [] do
       Mix.shell().info("    absent: #{Enum.join(tenant.types_absent, ", ")}")

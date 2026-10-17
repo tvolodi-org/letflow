@@ -97,6 +97,20 @@ defmodule Letflow.ExamStampFixtures do
   end
 
   @doc """
+  GH #2682 / REQ-511 PR b: like `bare_tenant!(slug, true)`, plus the answer-key field restriction
+  rows (`Exam.ensure_answer_key_restrictions/1`) a rolled-out exam tenant holds. A real `Stamp` run
+  refuses a tenant without them (`:snapshot_prerequisite_missing`), so every stamp test that builds
+  its definitions by hand starts from this tenant; the definitions it creates carry the `session`
+  field `exam_snapshot` themselves (`legacy_definition/1` reads the committed definition files).
+  """
+  @spec stamp_ready_tenant!(slug_prefix :: String.t()) :: tenant()
+  def stamp_ready_tenant!(slug_prefix) do
+    tenant = bare_tenant!(slug_prefix, true)
+    assert {:ok, _added} = Exam.ensure_answer_key_restrictions(tenant.schema_name)
+    tenant
+  end
+
+  @doc """
   A tenant with the exam `tenant_modules` row and ALL sixteen exam definitions created (legacy,
   FK-stripped, no constraints so no column promotion) and ACTIVE, unstamped, plus the answer-key
   field restrictions `Exam.on_install/2` seeds. The state of an exam tenant installed before the

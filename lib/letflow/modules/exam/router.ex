@@ -648,6 +648,13 @@ defmodule Letflow.Modules.Exam.Router do
     Response.conflict(conn, "session was not passed")
   end
 
+  # GH #2682 / REQ-511 PR b: the certificate facts come from the session snapshot, so a grading
+  # error is a constant-detail 500 and a snapshot error (rollout not run, late write/audit failed)
+  # a constant-detail 503, never the reason (INV-4/INV-5).
+  defp render_issue_certificate(conn, {:error, {kind, _reason} = failure})
+       when kind in [:grading_error, :snapshot_error],
+       do: render_snapshot_failure(conn, failure, @grading_failed_detail, "certificate")
+
   # ISS-0676 -- this catch-all is a deliberate, accepted idiom, not an
   # oversight. `Letflow.Modules.Exam.Certificate.issue_error/0`
   # (certificate.ex:205-...) is a `@type` union, and Elixir/Dialyzer give no
@@ -747,6 +754,10 @@ defmodule Letflow.Modules.Exam.Router do
   defp render_download_certificate(conn, {:error, :session_not_passed}) do
     Response.conflict(conn, "session was not passed")
   end
+
+  defp render_download_certificate(conn, {:error, {kind, _reason} = failure})
+       when kind in [:grading_error, :snapshot_error],
+       do: render_snapshot_failure(conn, failure, @grading_failed_detail, "certificate_download")
 
   defp render_download_certificate(conn, {:error, reason}) do
     Logger.warning("exam certificate download failed: #{inspect(reason)}")
