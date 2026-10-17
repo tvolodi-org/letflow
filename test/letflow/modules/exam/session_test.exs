@@ -1663,4 +1663,123 @@ defmodule Letflow.Modules.Exam.SessionTest do
       assert stored < 999_999
     end
   end
+
+  # ---------------------------------------------------------------------
+  # GH #2760 -- a soft-deleted exam cannot start a session and is not offered
+  # (design: lib/letflow/design/gh2762-exam-soft-deleted-reads.md, section 3.1;
+  # spec: test/specs/GH-2760.md)
+  # ---------------------------------------------------------------------
+
+  describe "GH #2760 -- soft-deleted exam on the START path" do
+    defp count_rows(schema, entity_type) do
+      import Ecto.Query
+
+      Repo.aggregate(
+        from(r in Letflow.Entities.Record.Latest, where: r.entity_type == ^entity_type),
+        :count,
+        prefix: schema
+      )
+    end
+
+    test "T-60a: a soft-deleted exam whose status is still active -> :exam_not_active, nothing written" do
+      %{schema_name: schema} = tenant("gh2760-deleted-active")
+      %{exam: exam} = build_minimal_exam!(schema)
+      ExamFixtures.delete_record!(schema, "exam", exam.record_id)
+
+      assert {:error, :exam_not_active} =
+               Session.create(Ecto.UUID.generate(), exam.record_id, schema)
+
+      assert count_rows(schema, "session") == 0
+      assert count_rows(schema, "session_question") == 0
+    end
+
+    test "T-60a2: the deleted-exam refusal is the identical value a nonexistent exam id gets" do
+      %{schema_name: schema} = tenant("gh2760-identical-nonexistent")
+      %{exam: exam} = build_minimal_exam!(schema)
+      ExamFixtures.delete_record!(schema, "exam", exam.record_id)
+      candidate_id = Ecto.UUID.generate()
+
+      deleted = Session.create(candidate_id, exam.record_id, schema)
+      nonexistent = Session.create(candidate_id, Ecto.UUID.generate(), schema)
+
+      assert deleted == nonexistent
+      assert deleted == {:error, :exam_not_active}
+    end
+
+    test "T-60c: deleted AND archived -> :exam_not_active, never :exam_archived (no existence leak)" do
+      %{schema_name: schema} = tenant("gh2760-deleted-archived")
+      %{exam: exam} = build_minimal_exam!(schema, exam_attrs: %{"status" => "archived"})
+
+      # Control: before the delete the archived exam is reported as archived.
+      assert {:error, :exam_archived} =
+               Session.create(Ecto.UUID.generate(), exam.record_id, schema)
+
+      ExamFixtures.delete_record!(schema, "exam", exam.record_id)
+
+      assert {:error, :exam_not_active} =
+               Session.create(Ecto.UUID.generate(), exam.record_id, schema)
+
+      assert count_rows(schema, "session") == 0
+    end
+
+    test "T-60d (guard): a live active exam still starts while a soft-deleted sibling exam exists" do
+      %{schema_name: schema} = tenant("gh2760-live-with-deleted-sibling")
+      %{exam: dead} = build_minimal_exam!(schema)
+      %{exam: live} = build_minimal_exam!(schema)
+      ExamFixtures.delete_record!(schema, "exam", dead.record_id)
+
+      assert {:ok, view} = Session.create(Ecto.UUID.generate(), live.record_id, schema)
+      assert view.exam_id == live.record_id
+      assert view.status == :in_progress
+    end
+
+    test "T-60e (guard): a session started before its exam was deleted keeps working" do
+      %{schema_name: schema} = tenant("gh2760-started-then-deleted")
+      %{exam: exam} = build_minimal_exam!(schema)
+      candidate_id = Ecto.UUID.generate()
+
+      assert {:ok, view} = Session.create(candidate_id, exam.record_id, schema)
+      ExamFixtures.delete_record!(schema, "exam", exam.record_id)
+
+      assert {:ok, _} = Session.get_session_for_user(view.id, candidate_id, schema)
+      assert {:ok, outcome} = Session.submit(view.id, candidate_id, schema)
+      assert outcome.status == :submitted
+    end
+
+    # The delete-while-waiting race (a start blocked on the exam row's FOR UPDATE lock while a
+    # delete commits) is deliberately NOT tested: DataCase runs this suite on one shared sandbox
+    # connection, on which two processes' row locks never block each other, so the wait cannot be
+    # produced deterministically. The predicate it relies on (the deleted condition sits inside the
+    # locked WHERE, which Postgres re-evaluates after a lock wait) is exercised by T-60a..c, which
+    # fail when it is removed.
+  end
+
+  describe "GH #2760 -- list_available_exams/2 does not offer a soft-deleted exam" do
+    defp item_id(item), do: Map.get(item, :record_id) || Map.get(item, "record_id")
+
+    test "T-60f: a soft-deleted active exam is absent, live active exams are present, shape unchanged" do
+      %{schema_name: schema} = tenant("gh2760-list-excludes-deleted")
+      %{exam: dead} = build_minimal_exam!(schema)
+      %{exam: live} = build_minimal_exam!(schema)
+      %{exam: archived} = build_minimal_exam!(schema, exam_attrs: %{"status" => "archived"})
+      ExamFixtures.delete_record!(schema, "exam", dead.record_id)
+
+      assert {:ok, %{items: items, next_cursor: cursor}} = Session.list_available_exams(schema)
+
+      ids = Enum.map(items, &item_id/1)
+      assert ids == [live.record_id]
+      refute dead.record_id in ids
+      refute archived.record_id in ids
+      assert cursor == nil
+    end
+
+    test "T-60f2 (guard): with no deletion every active exam is still listed" do
+      %{schema_name: schema} = tenant("gh2760-list-no-deletion")
+      %{exam: a} = build_minimal_exam!(schema)
+      %{exam: b} = build_minimal_exam!(schema)
+
+      assert {:ok, %{items: items}} = Session.list_available_exams(schema)
+      assert Enum.sort(Enum.map(items, &item_id/1)) == Enum.sort([a.record_id, b.record_id])
+    end
+  end
 end
