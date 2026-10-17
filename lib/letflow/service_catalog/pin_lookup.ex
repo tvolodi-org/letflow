@@ -46,6 +46,16 @@ defmodule Letflow.ServiceCatalog.PinLookup do
   end
 
   @doc """
+  `build/1` plus the script registry's `script_lookup` closure for the tenant schema `prefix`
+  (GH 2534 PR 7c-1). The one place the default pin lookup of an instance is assembled: used by
+  `Letflow.Engine.create/2` and by a sub-process child's own pin resolution (GH #2694).
+  """
+  @spec build(tenant_id :: Ecto.UUID.t(), prefix :: String.t()) :: PinResolver.Lookup.t()
+  def build(tenant_id, prefix) when is_binary(prefix) do
+    %{build(tenant_id) | script_lookup: Letflow.Scripts.Runtime.pin_lookup(prefix)}
+  end
+
+  @doc """
   Resolves a `SERVICE_TASK` node's `service_id` attribute against the
   versioned `service_catalog` table.
 

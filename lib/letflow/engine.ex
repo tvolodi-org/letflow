@@ -1716,7 +1716,7 @@ defmodule Letflow.Engine do
           PinResolver.Lookup.t()
   defp pin_lookup(attrs, tenant_id, prefix) do
     Map.get_lazy(attrs, :pin_lookup, fn ->
-      %{PinLookup.build(tenant_id) | script_lookup: Letflow.Scripts.Runtime.pin_lookup(prefix)}
+      PinLookup.build(tenant_id, prefix)
     end)
   end
 

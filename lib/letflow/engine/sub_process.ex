@@ -78,6 +78,7 @@ defmodule Letflow.Engine.SubProcess do
   alias Letflow.Definitions.SubProcessInterface
   alias Letflow.Engine.ExecutionError
   alias Letflow.Engine.InstanceState
+  alias Letflow.Engine.PinResolver
   alias Letflow.Engine.Task
   alias Letflow.Engine.TaskActivation
   alias Letflow.Engine.SnapshotWriter
@@ -91,6 +92,8 @@ defmodule Letflow.Engine.SubProcess do
   alias Letflow.EventStore.Registry.JsonSchema
   alias Letflow.EventStore.Registry.ValidationFailure
   alias Letflow.Repo
+  alias Letflow.ServiceCatalog.PinLookup
+  alias Letflow.TenantProvisioning
 
   @typedoc "The two activation-time (input-filter) SPC-01 failure modes, plus the defensive 5th."
   @type activation_failure ::
@@ -98,6 +101,7 @@ defmodule Letflow.Engine.SubProcess do
           | {:input_schema_violation, entry_name :: String.t(),
              failures :: [ValidationFailure.t()]}
           | {:definition_not_found, term()}
+          | {:pin_resolution_failed, term()}
 
   @typedoc "The two completion-time (output-filter) SPC-01 failure modes."
   @type completion_failure ::
@@ -263,6 +267,11 @@ defmodule Letflow.Engine.SubProcess do
   defp failure_detail({:definition_not_found, _reason}),
     do: {"SUB_PROCESS_DEFINITION_NOT_FOUND", "definition_name", []}
 
+  # GH #2694: the child definition's own pins (script / catalog / module / variable schema)
+  # could not be resolved; the child is not started.
+  defp failure_detail({:pin_resolution_failed, _reason}),
+    do: {"SUB_PROCESS_PIN_UNRESOLVED", "definition_name", []}
+
   # ISS-0071: shared derivation for the three sub_process idempotency-key
   # suffixes above, so the three call sites can't drift out of sync with
   # each other. See lib/letflow/design/iss071-idempotency-key-helper.md.
@@ -303,6 +312,7 @@ defmodule Letflow.Engine.SubProcess do
              graph: Graph.t(),
              interface: SubProcessInterface.parsed_interface() | nil,
              child_initial_state: InstanceState.t(),
+             pins: [Letflow.Engine.PinResolver.pinned_version()],
              node_id: String.t()
            }}
           | {:error,
@@ -321,7 +331,8 @@ defmodule Letflow.Engine.SubProcess do
            ),
          {:ok, initial_variables} <-
            build_child_initial_variables(parsed_interface, parent_variables),
-         {:ok, start_node} <- Letflow.Engine.find_start_node(graph) do
+         {:ok, start_node} <- Letflow.Engine.find_start_node(graph),
+         {:ok, pins} <- resolve_child_pins(graph, definition, prefix) do
       child_instance_id = Ecto.UUID.generate()
 
       with {:ok, _snapshot} <- create_child_snapshot(child_instance_id, definition, prefix) do
@@ -352,6 +363,7 @@ defmodule Letflow.Engine.SubProcess do
                graph: graph,
                interface: parsed_interface,
                child_initial_state: child_final_state,
+               pins: pins,
                node_id: node.id
              }}
 
@@ -359,6 +371,26 @@ defmodule Letflow.Engine.SubProcess do
             {:error, {:activation_failed, reason}}
         end
       end
+    end
+  end
+
+  # GH #2694 -- the child's own pins, resolved FRESH for the child's definition with the same
+  # lookup create/2 uses (catalog scoped to the tenant derived from the schema prefix, script
+  # registry of that prefix), never inherited from the parent. Read-only; takes no lock.
+  defp resolve_child_pins(graph, definition, prefix) do
+    with {:ok, tenant_id} <- child_tenant_id(prefix),
+         lookup = PinLookup.build(tenant_id, prefix),
+         {:ok, pins, _variable_json_schema} <- PinResolver.resolve(graph, definition, lookup, []) do
+      {:ok, pins}
+    else
+      {:error, reason} -> {:error, {:pin_resolution_failed, reason}}
+    end
+  end
+
+  defp child_tenant_id(prefix) do
+    case TenantProvisioning.tenant_id_for_schema_name(prefix) do
+      {:ok, tenant_id} -> {:ok, tenant_id}
+      {:error, _} -> {:error, :tenant_unresolved}
     end
   end
 
@@ -469,6 +501,7 @@ defmodule Letflow.Engine.SubProcess do
         child_instance_id,
         definition,
         child_initial_state.variables,
+        prepared.pins,
         parent_instance_id,
         parent_token_record_id,
         parent_node_id,
@@ -626,6 +659,7 @@ defmodule Letflow.Engine.SubProcess do
          child_instance_id,
          definition,
          initial_variables,
+         pins,
          parent_instance_id,
          parent_token_record_id,
          parent_node_id,
@@ -637,6 +671,8 @@ defmodule Letflow.Engine.SubProcess do
         definition_id: definition.id,
         correlation_key: nil,
         initial_variables: initial_variables,
+        pinned_versions: pins,
+        pin_conflicts: [],
         parent_instance_id: parent_instance_id,
         parent_token_id: parent_token_record_id,
         parent_node_id: parent_node_id
