@@ -173,7 +173,8 @@ defmodule Letflow.Entities.Query.RequestGuard do
         with {:ok, relations} <- Compiler.join_relations(joins, entity_type, prefix) do
           {:ok,
            for relation <- relations,
-               %{owner_entity_type: owner, fk_field: fk_field} <- relation.hops do
+               %{owner_entity_type: owner, fk_field: fk_field} <- relation.hops,
+               length(relation.hops) > 1 do # MUTANT M4: direct join fk ignored
              %{entity_type: owner, field: fk_field, clause: :join_on}
            end}
         end

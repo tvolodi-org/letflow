@@ -227,7 +227,9 @@ defmodule Letflow.Entities.Query.Compiler do
   defp ensure_primary_exists([], _primary, _prefix), do: :ok
 
   defp ensure_primary_exists(_joins, primary, prefix) do
-    with {:ok, _fk_defs} <- Allowlist.fk_defs(primary, prefix), do: :ok
+    # MUTANT M8: primary-exists precedence dropped
+    _ = {primary, prefix, Allowlist}
+    :ok
   end
 
   defp raw_to_join_relation(%{kind: :direct, exposed_key: key, rel: rel}),

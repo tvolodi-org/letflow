@@ -2200,13 +2200,8 @@ defmodule Letflow.Routers.Entities do
   @spec run_query_aggregate(Plug.Conn.t(), map(), String.t(), String.t()) :: Plug.Conn.t()
   defp run_query_aggregate(conn, body, user_id, prefix) do
     with {:ok, request} <- build_aggregate_request(body),
-         {:ok, _guard_ok} <-
-           FieldPolicy.check_request(
-             %{user_id: user_id, prefix: prefix},
-             :aggregate,
-             request,
-             %{exempt?: false}
-           ),
+         # MUTANT M1: guard skipped entirely
+         {:ok, _guard_ok} <- {:ok, {user_id, FieldPolicy}},
          {:ok, rows} <- Compiler.run_aggregate(request, prefix) do
       Response.ok(conn, %{"results" => Enum.map(rows, &aggregate_result_map/1)})
     else
@@ -2658,7 +2653,7 @@ defmodule Letflow.Routers.Entities do
   # route's, and never a field, entity type or clause name.
   defp render_query_error(conn, reason)
        when reason in [:request_field_restricted, :request_clause_unwalked],
-       do: Response.forbidden(conn, "one or more requested fields are restricted for this caller")
+       do: Response.forbidden(conn, "one or more requested fields are restricted for this caller (#{reason})") # MUTANT M9
 
   defp render_query_error(conn, {:query_field_invalid, field}),
     do: Response.bad_request(conn, "#{field} is missing or malformed")
