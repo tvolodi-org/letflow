@@ -131,6 +131,13 @@ defmodule Letflow.Modules.Exam.Router do
   alias Letflow.Modules.Exam.Session
   alias Letflow.PublicRead
 
+  # GH #2682 / REQ-511, design 7.4: constant response bodies for the two snapshot failure classes.
+  # The body never carries the reason, ids or values (INV-4/INV-5); the reason is logged.
+  @grading_failed_detail "exam grading failed; the session was not scored"
+  @content_invalid_detail "exam content is invalid; the session was not started"
+  @pinned_question_detail "exam pins an unavailable question"
+  @upgrading_detail "exam service is being upgraded; retry shortly"
+
   # ── Start session ───────────────────────────────────────────────────────
 
   authz_post "/exam-sessions", :ExamSessionStart do
@@ -307,6 +314,31 @@ defmodule Letflow.Modules.Exam.Router do
     Response.send_problem(conn, problem)
   end
 
+  # GH #2682 / REQ-511: a manual pin names a question that is missing, not active, or not a
+  # valid id. Constant body: no id, no reason text (INV-4/INV-5); the id is logged.
+  defp render_start_session(
+         conn,
+         {:error, {:question_not_found, question_id}},
+         _candidate_id,
+         _prefix
+       ) do
+    Logger.error(
+      "exam start refused: a pinned question is unavailable " <>
+        "question_id=#{inspect(question_id)} tenant_prefix=#{prefix!(conn)}"
+    )
+
+    Response.unprocessable(conn, @pinned_question_detail)
+  end
+
+  defp render_start_session(
+         conn,
+         {:error, {kind, _reason} = failure},
+         _candidate_id,
+         _prefix
+       )
+       when kind in [:grading_error, :snapshot_error],
+       do: render_snapshot_failure(conn, failure, @content_invalid_detail, "start")
+
   defp render_start_session(conn, {:error, reason}, _candidate_id, _prefix) do
     Logger.warning("exam session create failed: #{inspect(reason)}")
     Response.internal_error(conn)
@@ -339,6 +371,10 @@ defmodule Letflow.Modules.Exam.Router do
 
   defp render_get_session_state(conn, {:error, :session_not_found}), do: Response.not_found(conn)
   defp render_get_session_state(conn, {:error, :not_owner}), do: Response.not_found(conn)
+
+  defp render_get_session_state(conn, {:error, {kind, _reason} = failure})
+       when kind in [:grading_error, :snapshot_error],
+       do: render_snapshot_failure(conn, failure, @grading_failed_detail, "state")
 
   defp render_get_session_state(conn, {:error, reason}) do
     Logger.warning("exam session state read failed: #{inspect(reason)}")
@@ -483,6 +519,10 @@ defmodule Letflow.Modules.Exam.Router do
     )
   end
 
+  defp render_autosave(conn, {:error, {kind, _reason} = failure})
+       when kind in [:grading_error, :snapshot_error],
+       do: render_snapshot_failure(conn, failure, @grading_failed_detail, "autosave")
+
   defp render_autosave(conn, {:error, reason}) do
     Logger.warning("exam session autosave failed: #{inspect(reason)}")
     Response.internal_error(conn)
@@ -508,6 +548,10 @@ defmodule Letflow.Modules.Exam.Router do
 
   defp render_submit(conn, {:error, :session_not_found}), do: Response.not_found(conn)
   defp render_submit(conn, {:error, :not_owner}), do: Response.not_found(conn)
+
+  defp render_submit(conn, {:error, {kind, _reason} = failure})
+       when kind in [:grading_error, :snapshot_error],
+       do: render_snapshot_failure(conn, failure, @grading_failed_detail, "submit")
 
   defp render_submit(conn, {:error, reason}) do
     Logger.warning("exam session submit failed: #{inspect(reason)}")
@@ -787,9 +831,28 @@ defmodule Letflow.Modules.Exam.Router do
   defp render_report_event(conn, {:error, :deadline_passed}),
     do: Response.unprocessable(conn, "your exam session has expired")
 
+  defp render_report_event(conn, {:error, {kind, _reason} = failure})
+       when kind in [:grading_error, :snapshot_error],
+       do: render_snapshot_failure(conn, failure, @grading_failed_detail, "report_event")
+
   defp render_report_event(conn, {:error, reason}) do
     Logger.warning("exam session anti-cheat signal report failed: #{inspect(reason)}")
     Response.internal_error(conn)
+  end
+
+  # `{:grading_error, _}` -> 500 problem with a constant detail; `{:snapshot_error, _}` (the
+  # rollout has not run, or a snapshot write failed) -> 503 with a constant detail. The reason tag
+  # (atoms and ids only), the session id from the path and the tenant prefix go to the log.
+  defp render_snapshot_failure(conn, {kind, reason}, detail, route) do
+    Logger.error(
+      "exam #{kind} on #{route}: reason=#{inspect(reason)} " <>
+        "session_id=#{inspect(Map.get(conn.path_params, "id"))} tenant_prefix=#{prefix!(conn)}"
+    )
+
+    case kind do
+      :grading_error -> Response.internal_error(conn, detail)
+      :snapshot_error -> Response.service_unavailable(conn, @upgrading_detail)
+    end
   end
 
   # ══ JSON shaping (hand-selected fields only -- see this module's own

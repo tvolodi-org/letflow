@@ -21,20 +21,24 @@ defmodule Letflow.Modules.Exam do
 
   import Letflow.Modules.Module, only: [defmanifest: 1]
 
+  alias Letflow.Modules.Exam.Snapshot.Rollout
   alias Letflow.Repo
+  alias Letflow.TenantProvisioning
 
-  # The four `(entity_type, field_name)` pairs whose values a TASK_WORKER-
+  # The five `(entity_type, field_name)` pairs whose values a TASK_WORKER-
   # scoped caller must never read in clear via the generic
   # POST /entities/query or POST /entities/query/aggregate routes.
   # Mirrors the list that used to live in `Letflow.Packs.Bilimbaga`
-  # (deleted in REQ-411).  `Letflow.Modules.Exam.Session.get_session_state_for_user/3`'s
+  # (deleted in REQ-411), plus (GH #2682 / REQ-511) `session.exam_snapshot`, the
+  # per-session copy of the answer key.  `Letflow.Modules.Exam.Session.get_session_state_for_user/3`'s
   # own hand-assembled response allowlist is kept as complementary defense-
   # in-depth (see its moduledoc); these rows guard the GENERIC routes.
   @answer_key_fields [
     {"question", "explanation"},
     {"answer_option", "is_correct"},
     {"answer_option", "likert_weight"},
-    {"answer_option", "likert_polarity"}
+    {"answer_option", "likert_polarity"},
+    {"session", "exam_snapshot"}
   ]
 
   @impl true
@@ -105,6 +109,25 @@ defmodule Letflow.Modules.Exam do
   @impl true
   @spec on_install(prefix :: String.t(), settings :: map()) :: :ok
   def on_install(prefix, _settings) when is_binary(prefix) do
+    _added = insert_missing_restrictions(prefix)
+    :ok
+  end
+
+  @doc """
+  Idempotently inserts every pair of `answer_key_fields/0` that has no
+  `entity_field_restrictions` row in the tenant schema `prefix` (GH #2682 / REQ-511, design
+  8.5): `on_install/2` runs once, so a tenant installed before REQ-411 (or before the
+  `session.exam_snapshot` pair existed) can lack rows. Returns the number of rows added.
+  """
+  @spec ensure_answer_key_restrictions(prefix :: String.t()) ::
+          {:ok, added :: non_neg_integer()} | {:error, :invalid_schema_name}
+  def ensure_answer_key_restrictions(prefix) when is_binary(prefix) do
+    with {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix) do
+      {:ok, insert_missing_restrictions(prefix)}
+    end
+  end
+
+  defp insert_missing_restrictions(prefix) do
     now = NaiveDateTime.utc_now()
 
     rows =
@@ -118,16 +141,29 @@ defmodule Letflow.Modules.Exam do
         }
       end)
 
-    Repo.insert_all(
-      "entity_field_restrictions",
-      rows,
-      prefix: prefix,
-      on_conflict: :nothing,
-      conflict_target: [:entity_type, :field_name]
-    )
+    {added, _} =
+      Repo.insert_all(
+        "entity_field_restrictions",
+        rows,
+        prefix: prefix,
+        on_conflict: :nothing,
+        conflict_target: [:entity_type, :field_name]
+      )
 
-    :ok
+    added
   end
+
+  @doc """
+  GH #2682 / REQ-511: runs the exam snapshot rollout (`Letflow.Modules.Exam.Snapshot.Rollout.run/1`).
+  Code outside this module's directory reaches it only through `Letflow.Modules.Catalog` (the
+  module-boundary rule), which is how `Letflow.Release.ExamSnapshot` calls it.
+  """
+  @spec snapshot_rollout(opts :: keyword()) :: {:ok, Rollout.report()}
+  def snapshot_rollout(opts) when is_list(opts), do: Rollout.run(opts)
+
+  @doc "The read-only rollout readiness check (`Letflow.Modules.Exam.Snapshot.Rollout.verify/0`)."
+  @spec snapshot_verify() :: %{ready: boolean(), tenants: [Rollout.tenant_check()]}
+  def snapshot_verify, do: Rollout.verify()
 
   @doc "The `(entity_type, field_name)` pairs this module restricts — exposed for tests."
   @spec answer_key_fields() :: [{String.t(), String.t()}]

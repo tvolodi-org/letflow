@@ -1,0 +1,83 @@
+{
+  "handoff_id": "c4a7d1e0-2682-4a11-8c20-000000000003",
+  "run_id": "WF02-GH2682-EXAM-SNAPSHOT-20261016",
+  "workflow_id": "WF-02",
+  "step": "03",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGNER",
+  "file": "handoffs/WF02-GH2682-EXAM-SNAPSHOT-20261016/step-03-code-designer.json",
+  "created_at": "2026-10-16T15:53:00Z",
+  "started_at": "2026-10-16T15:53:23Z",
+  "completed_at": "2026-10-16T16:04:31Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [
+      "REQ-511"
+    ],
+    "requirement_text": {
+      "REQ-511": "Exam content snapshot at session start (answer key, passing threshold, certificate flags); scoring never falls back to a default threshold. GH #2682 body (with REQ-VALIDATOR round 1/2 corrections) is the content authority."
+    },
+    "source_text": {
+      "GH#2682": "Session stores at start a snapshot of exam, questions, answer key, threshold, certificate flags/title; scoring and certificate read only it; missing item/threshold is a typed grading error, never 60.0; in-flight policy; answer-key read restrictions. Prio 1, SECURITY, size L, 2 PRs."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "lib/letflow/design/gh2596-exam-managed-types.md",
+      "lib/letflow/modules/exam/session.ex",
+      "lib/letflow/modules/exam/certificate.ex",
+      "lib/letflow/modules/exam/exam.ex",
+      "lib/letflow/modules/exam/scoring.ex",
+      "lib/letflow/modules/exam/question_set_resolver.ex",
+      "lib/letflow/entities/managed_types/stamp.ex",
+      "lib/letflow/routers/entities.ex",
+      "lib/letflow/entities/query/field_grants.ex",
+      "priv/modules/exam/entity_definitions/session.json",
+      "priv/modules/exam/entity_definitions/session_question.json",
+      "priv/modules/exam/pack.json",
+      "priv/permission_matrix/effective.golden",
+      "docs/agents/instructions/security-invariants.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2682-EXAM-SNAPSHOT-20261016"
+  },
+  "task": {
+    "description": "WF-02 step 3 design for GH #2682 / REQ-511. Design only, no implementation code, no mix/tests run."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "Design written to lib/letflow/design/req511-exam-content-snapshot.md. DECISIONS: (1) FULL snapshot in ONE new optional JSON field session.exam_snapshot (exam threshold as decimal string, certificate_enabled, title, ordered question set, per question stored type + correct option ids + likert weight/polarity), with sha256 digest over canonical sorted-key encoding plus per-snapshot random nonce (digest must not be a brute-forceable oracle); hash-only rejected because it cannot restore content; a 7th managed type rejected (stamp frozen at six names); question_version_id and question.version NOT reused (late snapshot would need N writes; question.version is not bumped on option edits). ~15 KB per 100-question exam, ~3x in storage (row + 2 events). (2) Scoring, autosave shape check and candidate state type read only the snapshot; passing_threshold_for/60.0 deleted; question stem and option text stay live by decision (display-only class, residuals stated). (3) Certificate path (check_certificate_enabled, exam_title) reads snapshot facts only via new Session.get_snapshot_for_user/3; update_session_after_submit must carry exam_snapshot forward (full-replacement hazard). (4) Typed {:grading_error, reason} (snapshot_missing/corrupt, threshold_missing/invalid, exam_section_missing, question_item_missing, key_missing, ...) covers BOTH the row-error->60.0 and nil->FunctionClauseError cases; HTTP 500 stable detail, 503 for snapshot_error (rollout not run); transaction rolls back, session stays in_progress. (5) In-flight: confirm 2596 17.5 lazy snapshot at first touch, origin late, under lock_session_row, only in_progress with no snapshot; a corrupt snapshot is never replaced; late build failure fails closed; submitted-legacy certificate facts taken once as origin late_certificate. (6) Restrictions: restrict session.exam_snapshot by field; exam.* not restricted; CANDIDATE has no generic read permission (closed set), others redacted per user; there are NO generic record GET routes (read surfaces are query/aggregate/export; unredacted export only PLATFORM_ADMIN/TENANT_ADMIN). FINDING F7 (class only, no exploit detail): the row-query route lacks the restricted-field refusal the aggregate route has; moved by supervisor ruling to a separate first prio-1 security PR-0 (own issue, letflow-2); REQ-511 AC4 depends on it. Reconcile step seeds restriction rows for pre-REQ-411 tenants; test for every exam-installed tenant. (7) Ordering gate: two layers in Stamp from PR (a): fail-closed config flag :exam_snapshot_complete (false in (a), true in (b)) refusing real runs (dry-run allowed), plus per-tenant prerequisites (active session definition carries exam_snapshot, restriction rows exist); Stamp compat changed to judge the ACTIVE definition row (old versions made a permanent conflict). (8) Existing tenants need a definition rollout (additionalProperties:false): new Rollout module + Release wrapper + mix task, additive version derived from the tenant's own active definition. PR split (a) storage+scoring+restrictions+gate+rollout, (b) certificate+in-flight+flag true; (a) is large and the rollout/R-FILTER/Stamp parts are file-disjoint if a third PR is wanted. 42 tests mapped to ACs, 13 mutants. #2612 SEC rule: NOT triggered (config/config.exs gets a new non-:modules key, flagged as adjacent); SECURITY-REVIEWER and REVIEWER mandatory. AMENDMENT 2026-10-16 (CDV round 1 G1-G5 + rulings, design section 17): terminal sessions never need a snapshot to be read (state read uses snapshot type if present else live display type; never ensure/write/error; late_certificate has no question items); one error shape {:grading_error, :snapshot_missing}; full specs for build_certificate_only, ensure/ensure_locked/ensure_certificate_facts, get_snapshot_for_user, Rollout/Release/mix task/verify, Stamp report types; decimal-string conversion rule; tests T-43..T-59 added and M9 rebound; digest restated as accident detection with pre-stamp threat model and SEC list; rollout actor/trigger/verification (ORCH post-merge infra request, announce to letflow-2, accepted 503 window); late snapshots audited via audit action exam.session_snapshot_late plus origin field (REQ-512 contract); PR sequence PR-0, (a), (b) with Stamp flag refusal in (a) and prerequisites/active-row compat in (b). ROUND 2 (CDV N1/N2): :snapshot_too_large added to ensure_certificate_facts/3 and get_snapshot_for_user/3 unions; late_origin_counts/1 returns {:ok, %{late,late_certificate}} | {:error, :invalid_schema_name}; stale text fixed in place (10.1 flag refusal in PR a, prerequisites and active-row compat in PR b; 5.3 and 9.1 limit ensure to in_progress; 9.3 OQ-1 resolved; D2 digest claim narrowed; decimal-string examples; 503 row adds :audit_failed/:write_failed; R-FILTER renamed PR-0 refusal). ROUND 3 (SEC B1/R1-R6, design section 18): F14 corrected (event payloads readable via Instances history under synthetic entity-type instances); new separate prio-1 PR-0b, sequence PR-0 (#2697) -> PR-0b -> a -> b, REQ-511 depends on both; T-30 extended to instance routes; flag set only in config.exs/test.exs and all Stamp entry points tested; rollout only via Definitions create/activate with exact-diff test; late snapshot only for sessions started before the exam_snapshot definition cutover (fail closed otherwise), audit adds started_at; ownership checked before prerequisites with byte-identical not-found, lock order session -> audit chain. ROUND 4 (CDV C1-C4, SEC A1-A5): PR-0 #2697 and PR-0b #2702 (hide) recorded MERGED; header re-verified at 828d9d1be; cutover = min artifact_activation_history.activated_at for entity 'session' versions declaring exam_snapshot via Snapshot.cutover/1 (PR b, :definition_missing mapping), compared with the session record's server-set inserted_at not started_at (T-61b); legacy_session! fixture rule; T-60..T-63 are PR b; Stamp refusal buildability: Release.ManagedTypes spec widened and mix task clause + gate exit mapping (gate_blocked_total) in PR a; T-30 rewritten (404 parity for instance routes, audit/platform-events/ScriptReads/entity port/PUT echo); T-63 query-count parity; full lock order incl. instance sequence lock; binding line for REQ-516 and any record-event route. ROUND 5 (CDV D1/D2): PR a adds :snapshot_not_complete and gate_blocked_total (counts only that status; mix task and print_tenant use them); PR b adds :snapshot_prerequisite_missing and prerequisites_missing and extends the count; section 13 now has the test-to-PR map (PR b: T-09..T-11, T-21..T-25, T-38..T-40, T-44, T-48..T-52, T-58..T-63b, T-20b, T-55c, T-57b; mutants M4, M9, M11, M12, M14, M16; the rest PR a). ACCEPTED DEVIATIONS (PR a gates): key rule matches Scoring (likert needs complete likert_options, no correct option; shorttext neither; T-17 rewritten); Release.ExamSnapshot reaches exam code via Catalog.fetch('exam') with delegates Exam.snapshot_rollout/1 and Exam.snapshot_verify/0 (boundary rule 5); build_from_resolved/4 4th arg is %{origin: :start, exam_id, taken_at}; constant 422 for unavailable pinned question; {:grading_error, :snapshot_item_missing} for a session_question row without a snapshot item.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "lib/letflow/design/req511-exam-content-snapshot.md"
+    ],
+    "design_written": true,
+    "implementation_written": false,
+    "open_questions": [
+      "OQ-2 actor/audit for rollout definition writes",
+      "OQ-4 snapshot stem/option text too (default no)",
+      "OQ-5 type-level restriction of runtime types against generic readers, i.e. other candidates' results (default: follow-up issue)",
+      "OQ-7 flag as app config (default) vs constant",
+      "OQ-8 late_certificate facts for pre-ship submitted sessions (default as designed)",
+      "OQ-9 verify adding an optional non-queried JSON field to a promoted session definition needs no DDL (T-37)",
+      "OQ-10 HTTP code for grading error and alert channel (default 500 + Logger.error; alerting deferred to REQ-512)",
+      "OQ-11 grants for staff to read exam_snapshot (default none)",
+      "OQ-1 RESOLVED by ruling (503 window accepted)",
+      "OQ-6 RESOLVED by ruling (filter fix is PR-0)",
+      "OQ-13 Stamp flag refusal in (a), prerequisites in (b)",
+      "OQ-3 RESOLVED by SEC R5 (cutover rule required)",
+      "OQ-12 RESOLVED by SEC (no HMAC)"
+    ],
+    "risks": [
+      "R-3 create lock hold time grows (manual pin reads + build); measure",
+      "R-4 decimal handling: strings with total parser",
+      "R-5 ManifestHash/pack-pinning tests may need updates",
+      "R-6 late snapshots cannot undo a pre-touch edit; authoring types stay unmanaged until REQ-510",
+      "R-7 state GET writes once for a legacy session",
+      "R-1 reduced: PR (a) smaller with PR-0 split off",
+      "R-8 F7 owned by PR-0"
+    ]
+  }
+}

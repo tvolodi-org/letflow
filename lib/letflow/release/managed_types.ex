@@ -14,6 +14,9 @@ defmodule Letflow.Release.ManagedTypes do
   key is dropped, so no test seam or tuning option can be passed from a release call. Per the
   rollout in the design, infra runs the inventory first, then the stamp dry run, and requests the
   real stamp only after the session-content-snapshot prerequisite has landed.
+
+  Until then a real `stamp/1` returns `{:error, :snapshot_not_complete}` and stamps nothing (GH
+  #2682 / REQ-511, design 18.3: the flag `:exam_snapshot_complete`); `dry_run: true` always runs.
   """
 
   alias Letflow.Entities.ManagedTypes.Stamp
@@ -21,7 +24,7 @@ defmodule Letflow.Release.ManagedTypes do
 
   @doc "Stamps (or with `dry_run: true`, reports) the exam module's six runtime types in every tenant."
   @spec stamp(opts :: [module: String.t(), dry_run: boolean()]) ::
-          {:ok, Stamp.report()} | {:error, :unsupported_module}
+          {:ok, Stamp.report()} | {:error, :unsupported_module | :snapshot_not_complete}
   def stamp(opts) when is_list(opts), do: opts |> Keyword.take([:module, :dry_run]) |> Stamp.run()
 
   @doc "The read-only tamper inventory (default scope `:runtime`)."

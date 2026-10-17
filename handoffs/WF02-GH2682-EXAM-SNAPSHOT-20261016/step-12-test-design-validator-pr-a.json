@@ -1,0 +1,49 @@
+{
+  "handoff_id": "e511a000-2682-4a11-8c20-000000000012",
+  "run_id": "WF02-GH2682-EXAM-SNAPSHOT-20261016",
+  "workflow_id": "WF-02",
+  "step": "12",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGN-VALIDATOR",
+  "file": "handoffs/WF02-GH2682-EXAM-SNAPSHOT-20261016/step-12-test-design-validator-pr-a.json",
+  "created_at": "2026-10-17T05:10:00Z",
+  "started_at": "2026-10-17T05:10:30Z",
+  "completed_at": "2026-10-17T05:40:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-511"],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2682": "WF-02 step 3b hard gate on the PR a tests (HEAD 1e0a9e18f). Read-only static review; mix was not run (instruction)."
+    },
+    "related_handoff_ids": ["e511a000-2682-4a11-8c20-000000000011"],
+    "artifacts_in": [
+      "test/specs/GH2682-exam-snapshot-pr-a.md",
+      "test/letflow/modules/exam/session_snapshot_test.exs",
+      "test/letflow/modules/exam/snapshot_test.exs",
+      "test/letflow/modules/exam/snapshot_restrictions_test.exs",
+      "test/letflow/modules/exam/exam_snapshot_router_test.exs",
+      "test/letflow/modules/exam/exam_snapshot_leak_test.exs",
+      "test/letflow/modules/exam/snapshot_rollout_test.exs",
+      "test/letflow/entities/managed_types/stamp_snapshot_gate_test.exs"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2682-EXAM-SNAPSHOT-20261016"
+  },
+  "task": {
+    "description": "TEST-DESIGN-VALIDATOR gate on REQ-511 PR a tests. No edits to tests or lib; no mix."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "PASS with advisories (static review, nothing executed). Every PR a AC has a runnable, non-skipped test: AC1 one test per field class T-01..T-08 (is_correct, likert weight, polarity, threshold + carry-forward, question.type for scoring/autosave/state read, exam archived+deleted) plus T-12/T-13/T-14 controls; AC2 threshold/exam-section/item/key errors for row-missing AND nil, session roll-back asserted, T-19 source guard removes 60.0; AC4 restrictions asserted for the five pairs on fixture, zero-row and four-pair tenants plus HTTP query, joins both sides, ScriptReads, with CONTROL grants/row-removal (M5 killed incl. controls); AC5 gate T-36 (strict literal true, real runs, dry run, provenance). No @tag skip, no TODO, no hardcoded secrets/conn strings; every file async:false with per-test provisioned tenants (unique slugs, on_exit cleanup in fixtures); Application.put_env in the gate test is restored in try/after and the only async:true stamp-adjacent file (stamp_opener_scan_test) is a static scan that never runs Stamp, so the global flag toggle is safe. SEC A1: T-30 route walk is closed by an inventory assertion over Letflow.Routers.Instances.__authz_routes__ (GET + ':id'), probes session AND answer_option synthetic ids across worker/auditor/admin, hidden vs random uuid byte-compare. A4: the query-count parity test calls Session functions directly (no HTTP, no api_tokens last_used_at write), counts only the test pid on the [:letflow,:repo,:query] event (same event other tests in the repo use), so it is NOT exposed to the #2729 wall-clock-second flake; the router R6 test compares status+body of 404s, no counts. R3: stamp gate covers Stamp.run, Stamp.run_tenant, Release.ManagedTypes.stamp and the Mix task (source guard, System.halt cannot run in-process). R6: ownership-before-snapshot tested at Session level (:not_owner on a snapshotless session for autosave/state/submit) and HTTP 404 parity. No pg_stat_activity/lock-wait helpers exist in these files (grep), so that rule is vacuously met; the lock_timeout path is untested (declared). Mutant reasoning (not re-measured; mix forbidden): M1/P0 27/34, M2 7/24, M3 3/15, M5 16/19, M7 6/14, M8 2/14, M10 2/15, M13 23/23, M15 3/4 are all plausible against the test bodies read (T-04 asserts after==before and verify, T-06/T-07 distinguish snapshot vs live type by construction, T-01..T-03 use two candidates so a live read flips exactly one outcome). Rollout null-key fix (HEAD) is exercised by the REPRO test, which was NOT run post-fix by the designer (148/149 before the fix): CI must confirm it is green. ADVISORIES (non-blocking, tracked for PR b or a follow-up): (1) the new rollout translate/2 branches have no test: a nil value on a NON-whitelisted key must still return :unsupported_definition_key and a non-nil unsupported key/value must fail closed; grep finds no test mentioning unsupported_definition_*, so a mutant that accepts unknown keys survives. (2) the REPRO test asserts only that exam_snapshot appears; it does not assert the other stored fields survive the null-dropping rewrite (the diff-by-exactly-one-field assertion runs only on the without_nils downgrade path). (3) R6 parity has no vacuity guard: add assert real_queries > 0 so a mis-named telemetry event cannot make 0 == 0 pass. (4) the router 404-parity compares status and body, not headers. (5) lock_timeout path and System.halt branches only source-guarded. (6) Observation 2 (soft-deleted rows still listed) is pinned neither way, by design.",
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "verdict": "PASS",
+    "advisories": 6,
+    "mutants_unkilled": ["rollout translate accepting an unsupported key (new in HEAD)"],
+    "mix_run": false
+  }
+}

@@ -104,6 +104,16 @@ defmodule Letflow.Modules.Exam.OnInstallTest do
         assert {entity_type, field_name} in restrictions,
                "expected restriction for #{entity_type}.#{field_name} to be seeded by on_install/2"
       end
+
+      # GH #2682 / REQ-511: the literal list, not only the module's own function: the four REQ-411
+      # pairs plus session.exam_snapshot -- FIVE rows, and no other row.
+      assert Enum.sort(restrictions) == [
+               {"answer_option", "is_correct"},
+               {"answer_option", "likert_polarity"},
+               {"answer_option", "likert_weight"},
+               {"question", "explanation"},
+               {"session", "exam_snapshot"}
+             ]
     end
 
     test "on_install/2 is idempotent -- calling Installs.install/3 twice on the same module raises :already_installed, not a DB error" do

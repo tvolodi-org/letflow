@@ -1,0 +1,88 @@
+{
+  "handoff_id": "e511a000-2682-4a11-8c20-000000000008",
+  "run_id": "WF02-GH2682-EXAM-SNAPSHOT-20261016",
+  "workflow_id": "WF-02",
+  "step": "08",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF02-GH2682-EXAM-SNAPSHOT-20261016/step-08-elixir-dev-pr-a.json",
+  "created_at": "2026-10-17T03:30:00Z",
+  "started_at": "2026-10-17T03:31:00Z",
+  "completed_at": "2026-10-17T03:56:39Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S8",
+    "requirement_ids": [
+      "REQ-511"
+    ],
+    "requirement_text": {
+      "GH#2682": "Exam content snapshot at session start; scoring reads only the snapshot (PR a)."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "lib/letflow/design/req511-exam-content-snapshot.md"
+    ],
+    "owned_modules": [
+      "lib/letflow/modules/exam/",
+      "lib/letflow/release/",
+      "lib/mix/tasks/"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2682-EXAM-SNAPSHOT-20261016"
+  },
+  "task": {
+    "description": "ELIXIR-DEV: implement PR a of the REQ-511 design only (no tests, no commit, no push)."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "PR a implemented. MIX_ENV=test mix compile --warnings-as-errors: 'Generated letflow app' (exit 0, full --force recompile of 461 files also clean); mix format --check-formatted: exit 0; mix letflow.check_boundaries: 'OK -- 1640 edges checked, 0 violations'. Tests NOT run (not permitted). pack.json regenerated with generate_pack.exs (session gains exam_snapshot json, queried false, required false). Pure Snapshot smoke run via mix run --no-start (build, jsonb-style round trip, digest, tamper, all grading reasons, number table) behaved as designed.",
+    "files_changed": [
+      "lib/letflow/modules/exam/snapshot.ex (new)",
+      "lib/letflow/modules/exam/snapshot/rollout.ex (new)",
+      "lib/letflow/release/exam_snapshot.ex (new)",
+      "lib/mix/tasks/letflow.exam_snapshot_rollout.ex (new)",
+      "lib/letflow/modules/exam/session.ex",
+      "lib/letflow/modules/exam/exam.ex",
+      "lib/letflow/modules/exam/router.ex",
+      "lib/letflow/entities/managed_types/stamp.ex",
+      "lib/letflow/release/managed_types.ex",
+      "lib/mix/tasks/letflow.stamp_managed_types.ex",
+      "priv/modules/exam/entity_definitions/session.json",
+      "priv/modules/exam/pack.json (regenerated)",
+      "config/config.exs (new key :exam_snapshot_complete false only)",
+      "config/test.exs (new key :exam_snapshot_complete true only)"
+    ],
+    "deviations": [
+      "D-1 build_from_resolved/4: 4th argument is a map %{origin: :start, exam_id, taken_at} instead of the bare origin (exam_id and taken_at are not derivable from the other arguments).",
+      "D-2 LIKERT KEY RULE: design 7.2/T-17 literally says every non-shorttext question needs a correct option; Scoring and the old build_question_row treat likert as having NO correct option. Implemented: single, multiple, truefalse need a correct option; likert needs a complete non-empty likert_options map (weight parsable, polarity positive|negative); shorttext needs neither. Flagged for REVIEWER/CDV: the literal reading would fail every likert exam at start.",
+      "D-3 Response.service_unavailable/2 already existed; nothing added to api/response.ex.",
+      "D-4 Release wrapper reaches the exam code through Letflow.Modules.Catalog.fetch(\"exam\") plus two new delegates Exam.snapshot_rollout/1 and Exam.snapshot_verify/0, because check_boundaries rule 5 forbids lib/letflow/release/** referencing lib/letflow/modules/exam/** directly (the design's file layout violated the boundary rule). verify/0 logic lives in Rollout.verify/0.",
+      "D-5 Rollout actor is the all-zero system uuid (RecordDeadlineSweep precedent) because repository_artifacts.created_by and activation activator_user_id are NOT NULL; Stamp's nil actor is not possible here (OQ-2).",
+      "D-6 Detail strings: submit/autosave/state/report_event grading errors use 'exam grading failed; the session was not scored'; start uses 'exam content is invalid; the session was not started'; every snapshot_error is 503 'exam service is being upgraded; retry shortly'. Design only fixed submit/start/503/certificate.",
+      "D-7 gate_blocked_total in Stamp counts only :snapshot_not_complete in PR a (prerequisite status is PR b); prerequisites_missing not added.",
+      "D-8 Rollout conflict_total counts both :conflict and :managed_cannot_upgrade tenants."
+    ],
+    "existing_tests_expected_to_need_updates": [
+      "test/support/exam_fixtures.ex and any fixture that builds session definitions or sessions without exam_snapshot",
+      "test/letflow/modules/exam/session_test.exs, exam_sessions_test.exs, anti_cheat_test.exs, certificate_test.exs (sessions now require the field + restriction row; live-edit expectations flip)",
+      "test/letflow/modules/exam/pack_install_test.exs (session field list/drift), on_install_test.exs (six pairs)",
+      "test/letflow/entities/managed_types/stamp_test.exs (gate flag; test.exs sets true)",
+      "any test seeding a manual pin on a non-active question (pins now fail start with {:question_not_found, id})"
+    ],
+    "touched_existing_tests": [],
+    "advisory_round": {
+      "applied": [
+        "1 router start: {:question_not_found, _} -> 422 constant 'exam pins an unavailable question' (id logged only)",
+        "2 fetch_pinned_question_row guards Ecto.UUID.cast, non-UUID -> {:question_not_found, id}",
+        "3 normalize_number bounds digits+exponent (max 40 integer and 40 fractional digits) before any normalize/to_string; '1e999999999' and '1e41' -> :error",
+        "4 session.ex moduledoc corrected to FIVE restriction rows, not six: Exam.answer_key_fields/0 is the 4 old pairs plus session.exam_snapshot = 5; the design's 'six' is an arithmetic error (exam.ex comment fixed too; earlier 'six pairs' wording in this handoff and in my first report was wrong)",
+        "7 snapshot_question_type passes through {:grading_error, {:question_item_missing, id}} (existing reason; no new atom invented); constant 500 body"
+      ],
+      "item_5_sweep": "finalize_expired/3 has no caller in lib/ or config (only session_test.exs); RecordDeadlineSweep has an optional callback_mfa, no rule registers one, and invoke_callback ignores the return value and rescues raises with a warning log, so a typed {:error, {:grading_error,_}} cannot crash or stall the sweep. Nothing to fix.",
+      "item_6_gate_blocked_total": "kept, with a comment in Stamp.sweep: non-zero only if the flag flips true->false mid-sweep; makes that visible and the mix task exit 1.",
+      "verification": "MIX_ENV=test mix compile --warnings-as-errors exit 0; mix format --check-formatted exit 0; mix letflow.check_boundaries OK 1640 edges 0 violations"
+    },
+    "rollout_null_fix": "Rollout.translate/2 now treats a JSON null value as an absent key for EVERY whitelisted key at top level, fields, indexes, foreign_keys and constraints (search_strategy, locales, enum_values, decimal_precision, decimal_scale, default, min, max, non_negative, required, queried, description, append_only, writable_by_process, unique, references_field, ...). A nil for an unknown key, a missing/nil name-type-fields, or a non-nil unsupported value still fails closed. Consequence: the new definition version stores those null keys as absent (same rule as the definitions HTTP route). Compile/format/boundaries clean."
+  }
+}

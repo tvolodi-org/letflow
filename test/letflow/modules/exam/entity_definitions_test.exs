@@ -326,6 +326,17 @@ defmodule Letflow.Modules.Exam.EntityDefinitionsTest do
       f = field(definition, "expires_at")
       assert f.queried == true
     end
+
+    # GH #2682 / REQ-511: the per-session exam snapshot is one optional, non-queried JSON field.
+    # Not queried (it can never be filtered, sorted or grouped on) and not required (a session
+    # created before the rollout has none).
+    test "session.exam_snapshot is an optional :json field that is not queried" do
+      definition = load_definition!("session.json")
+      f = field(definition, "exam_snapshot")
+      assert f.type == :json
+      assert f.queried == false
+      assert f.required == false
+    end
   end
 
   # ---------------------------------------------------------------------------

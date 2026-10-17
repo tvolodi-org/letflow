@@ -1,0 +1,75 @@
+{
+  "handoff_id": "c4a7d1e0-2682-4a11-8c20-000000000006",
+  "run_id": "WF02-GH2682-EXAM-SNAPSHOT-20261016",
+  "workflow_id": "WF-02",
+  "step": "06",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF02-GH2682-EXAM-SNAPSHOT-20261016/step-06-security-reviewer-design.json",
+  "created_at": "2026-10-17T03:00:00Z",
+  "started_at": "2026-10-17T03:00:30Z",
+  "completed_at": "2026-10-17T03:34:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-511"],
+    "requirement_text": {
+      "REQ-511": "Exam content snapshot at session start; GH #2682 body incl. Corrections 1-8 is the content authority."
+    },
+    "source_text": {
+      "GH#2682": "SECURITY-REVIEWER DESIGN gate round 2 on lib/letflow/design/req511-exam-content-snapshot.md (section 18 folds round-1 R1-R6; main 828d9d1be with #2697 and #2702/PR-0b merged). Read-only."
+    },
+    "related_handoff_ids": ["c4a7d1e0-2682-4a11-8c20-000000000004"],
+    "artifacts_in": [
+      "lib/letflow/design/req511-exam-content-snapshot.md",
+      "docs/agents/instructions/security-invariants.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2682-EXAM-SNAPSHOT-20261016"
+  },
+  "task": {
+    "description": "WF-02 step 2c-style design gate, round 2, against INV-1..INV-10. Read-only; no lib/test edits, no mix."
+  },
+  "result": {
+    "status": "PASS",
+    "verdict": "PASS",
+    "summary": "PASS (design). Round-1 BLOCKER B1 is closed on current main and R2-R6 are present and sound in section 18; five NON-BLOCKING design amendments (A1-A5) are required in the doc before CODE hand-off and re-checked at the code gate. VERIFIED ON MAIN 828d9d1be. (1) Event/instance path (old B1): lib/letflow/event_store/instance_visibility.ex defines synthetic as 'instance_id registered in entity_type_instances' (prefix applied via Ecto query-level prefix, INV-1/INV-7). lib/letflow/instances.ex applies exclude_synthetic to list/2 (l.103), get_by_id/2 (l.70) and ensure_instance_exists/2 (l.370), which gates history/2 (l.144) and timeline/2 (l.199); routers/instances.ex handle_get_pins adds InstanceVisibility.synthetic? (l.1066); engine pin_rebind and reconstruction also use it. A synthetic id therefore answers Response.not_found like a nonexistent id on every Instances route, so the session create/update event payloads (which carry exam_snapshot in full) are not readable by InstancesRead holders. Enumeration of every event-payload reader: grep of lib for Event/ArchivedEvent/EventStore.read*: instances.ex (hidden), routers/audit.ex (reads audit_entries, round-1 verified), routers/promotions.ex /platform-events (platform sentinel instance only), entities/record/projector.ex and engine/reconstruction.ex (internal, not client routes), idempotency.ex legacy_original (returns the caller's own prior response). No other router queries the events table. (2) Generic reads: #2697 is merged (RequestGuard, 'one or more requested fields are restricted for this caller' 403 on query, join and default export, aggregate unchanged); exam_snapshot is a non-queried json field so it can only surface as the sentinel in redacted output; unredacted export stays PLATFORM_ADMIN/TENANT_ADMIN. The only record-returning exam routes are hand-built maps (session_view_json, session_state_json, certificate_public_projection reads the certificate record only) and the candidate exam list, which returns exam rows only (exam_row_json on entity_type 'exam'), never a session row. No generic record GET exists (entities.ex authz_get is definitions and attachments only; PUT/POST record responses echo the caller's own sent field_values under full replacement, never a prior value). ScriptReads and engine/entity_port.ex refuse or omit restricted fields. (3) Restriction coverage: seed through Exam.answer_key_fields (+1) for fresh installs and ensure_answer_key_restrictions in the rollout for pre-REQ-411 tenants; both start (4.3 step 1) and ensure (9.2) fail closed 503 when the definition field or any restriction row is missing, so no session can hold a snapshot in a tenant whose restrictions are absent; the Stamp prerequisite (PR b) repeats it. Sound. R2 present (T-30 + 18.2) but stale, see A1. R3 sound: only Stamp.run/1 is the real entry (Release.ManagedTypes.stamp/1 -> Stamp.run; mix task -> ManagedTypes.stamp; run_tenant/2 public) so one guard in the shared path plus T-36 per-entry-point test is enough; config dir has config.exs/dev/prod/test/runtime and the design forbids the key in runtime.exs/System.get_env/put_env in lib. R4 sound (create_definition/3 + activate_definition/4 only, tenant_id_for_schema_name, T-37 structural diff, tags and counts in reports, managed type reported not written). R5 present (18.5) with one hardening A3. R6 present (18.6, 9.2 step 1: lock, owner check, then prerequisites, then cutover, then build; T-63 byte-identical) with A4. PR a / PR b BOUNDARY IS SAFE. Live between PR (a) deploy and PR (b): create writes a verified snapshot only after the rollout (before it, start is 503 definition_missing, nothing created); scoring/autosave/state read only the snapshot; a snapshotless in_progress session fails closed (typed grading error, 500/503, stays in_progress, sweep retries, never scored from live data, no late path exists in (a)); terminal snapshotless sessions are display-only live type, no write; Stamp real runs refused by code (flag false) while dry-run still reports; certificate path is unchanged live-read (pre-existing behaviour, no regression, no new exposure) until (b). Availability cost only (in-flight sessions cannot finish until (b)); accepted by ruling and PR body must say so. The flag flip, prerequisites, active-row compat, late path and certificate-facts all ship together in (b), so there is no state where the stamp can run before the late path exists. No cross-tenant path introduced (INV-1: every query prefixed, rollout per-tenant, tenant_id from prefix). INV-4: digest/nonce/snapshot never logged or returned (tags, session id, prefix only); no secret introduced. INV-5: owner-before-prerequisite per R6. INV-8: typed grading_error/snapshot_error with own render clauses, total parsers.",
+    "invariants_assessed": {
+      "INV-1": "APPLIES - PASS (prefix on every query, tenant_id from prefix, rollout per tenant, restriction inserts on_conflict nothing)",
+      "INV-2": "APPLIES - PASS (B1 closed on main by #2702: every Instances route 404s a synthetic id; #2697 closes filter/sort/join oracle; candidate responses hand-built; exam list returns exam rows only). Conditions A1, A2 for the code gate",
+      "INV-3": "NOT-APPLICABLE (no Lua/WASM host function; ScriptReads and EntityPort restriction coverage only verified)",
+      "INV-4": "APPLIES - PASS (digest, nonce, snapshot never logged or returned; reports are tags and counts; no HMAC key, OQ-12 accepted)",
+      "INV-5": "APPLIES - PASS with condition A4 (owner check before 503; byte-identical non-owner vs nonexistent plus query-count parity)",
+      "INV-6": "APPLIES - PASS (no new route in REQ-511; PR-0 and PR-0b already stated scoping)",
+      "INV-7": "APPLIES - PASS (Ecto only per design 15; code gate re-greps Repo.query)",
+      "INV-8": "APPLIES - PASS (typed errors, own render clauses before the catch-all)",
+      "INV-9": "NOT-APPLICABLE",
+      "INV-10": "NOT-APPLICABLE (no new route or permission; rollout is operator-run, no HTTP surface)"
+    },
+    "required_design_changes": [
+      "A1 (R2 completion, doc edit): rewrite the T-30 row in 12.4: it still says 'RED on main for the instance routes (F14); GREEN after PR-0b'. PR-0b (#2720) is merged, so the instance-route probes are GREEN on main and must assert 404 (same bytes as a random uuid) for the session and answer_option synthetic ids on list-omission, get, history, timeline and pins, for TASK_WORKER, TENANT_AUDITOR and TENANT_ADMIN. Add to T-30 the round-1 R2 routes that 18.2 only covers by 'any route found by the enumeration': GET audit entries (including the exam.session_snapshot_late entry: after_state holds only origin, taken_at, exam_id, started_at), GET /platform-events, ScriptReads and the EntityPort read hook, and the PUT/POST /entities/records/session response of a TASK_WORKER-class writer (must not echo a prior exam_snapshot). Assertion keys: exam_snapshot, nonce, digest, correct_option_ids, is_correct.",
+      "A2 (dependency note): 8.4 events row, F14 and section 18.1 must record that #2702 chose option A (hide), and that its moduledoc says a future redacting record-history route is REQ-516 (#2701): add a binding line that REQ-516 or any route that returns ENTITY_RECORD_* payloads must apply FieldGrants restriction sets (exam_snapshot included) and that SECURITY-REVIEWER gates it; the code gate re-attaches the route enumeration list. Also fix stale header text ('verified against efdd83ce1', 'PR-0b to be confirmed' in section 13) to the merged state.",
+      "A3 (R5 hardening): the cutover comparison must not use session.field_values.started_at, which any EntitiesRecordsWrite holder can rewrite together with dropping exam_snapshot before the stamp (full-replacement PUT), re-opening the heal-from-live path. Compare the server-set Latest.inserted_at of the session record (timestamps(), not in field_values, not writable through the record API) against cutover(tenant). Keep started_at in the audit after_state. Add a T-61 variant: snapshot dropped AND started_at rewritten to before the cutover -> still :snapshot_missing, zero events.",
+      "A4 (R6 completion): extend T-63 to assert query-count parity (not only bytes) for non-owner vs random uuid, as INV-5 requires, for both ensure/3 and ensure_certificate_facts/3, and for the autosave and state-read callers.",
+      "A5 (lock order statement, 18.6/11): the quoted order is incomplete. A snapshot write goes session row lock -> Records write (takes the per-entity-type instance sequence lock of the session synthetic instance, serialising all session writes) -> audit chain-tail lock. State the full order exam row -> session row -> entity-type instance sequence -> audit chain; ELIXIR-DEV quotes grep evidence that no path takes the audit chain lock or the instance sequence lock and then a session or exam row lock (Stamp.audit! path included), and notes that late-snapshot touch bursts serialise on both locks (accepted)."
+    ],
+    "answers": {
+      "exam_snapshot_readable_by_candidate_or_other_roles": "No route found. Candidate has none of EntitiesQuery/Aggregate/Export/InstancesRead and its routes are hand-built; TASK_WORKER/TENANT_AUDITOR/PROCESS_* get the sentinel on query/join/export, are refused on filter/sort/join/aggregate of the field, and get 404 on every synthetic Instances route; unredacted export is admin only (intended).",
+      "restriction_rows_cover_read_paths": "Yes by field for query, join, aggregate, default export, ScriptReads/EntityPort; events covered by hiding rather than redaction. Seeding for fresh and pre-REQ-411 tenants plus start/ensure/Stamp prerequisite fail closed.",
+      "R2": "Present, needs doc fix A1.",
+      "R3": "Present and sound.",
+      "R4": "Present and sound.",
+      "R5": "Present and sound; harden per A3.",
+      "R6": "Present and sound; A4, A5.",
+      "pr_a_pr_b_boundary": "Safe: fail-closed 503/500 for snapshotless in-progress, stamp refused by code, no late path or flag flip before (b); availability-only cost.",
+      "config_key_2612": "Not triggered (unchanged from round 1): :exam_snapshot_complete is not :modules; no listed path touched by the design.",
+      "OQ-12": "Digest without HMAC remains accepted."
+    },
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "diagnosis_confirmed": true,
+    "implementation_written": false
+  }
+}

@@ -58,7 +58,10 @@ defmodule Letflow.Modules.Exam.AntiCheatTest do
       "seed" => 1,
       "started_at" => iso(now),
       "expires_at" => iso(DateTime.add(now, 3600, :second)),
-      "passed" => false
+      "passed" => false,
+      # GH #2682 / REQ-511: scoring reads only the session's own snapshot, so a hand-built session
+      # that the "submit" policy auto-submits carries a valid (empty) one.
+      "exam_snapshot" => ExamFixtures.empty_snapshot!(exam_id)
     }
 
     ExamFixtures.create_record!(schema, "session", Map.merge(defaults, attrs))
