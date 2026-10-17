@@ -205,7 +205,10 @@ defmodule Letflow.Routers.ServicePrincipalRouteTest do
       fx = S.tenant!("r517-p2-token")
       s = fx.schema_name
       target = RSG.user!(s)
-      owner = RSG.user!(s)
+      # The owner is a REAL explicit tenant-wide TENANT_ADMIN (member of the TENANT_ADMIN group,
+      # which has its tenant-wide row), so the credential rule is the only thing that can refuse
+      # the flag-route call below (mutant M9: dropping require_oidc/1 must fail this test).
+      owner = TokenMintFixture.role_holder!(s, [@admin_role])
       group = S.rowless_group!(fx, "TASK_WORKER")
       node = RSG.node!(s)
 
@@ -238,6 +241,18 @@ defmodule Letflow.Routers.ServicePrincipalRouteTest do
       assert conn.status == 201, conn.resp_body
       assert [entry] = S.entries(fx, "grant.created")
       assert entry.after_state["credential"] == "api_token"
+
+      # Positive control: the SAME owner as an interactive (OIDC) principal may flag.
+      conn =
+        flag_as(
+          fx,
+          S.ctx(fx, owner.id, [@admin_role], :oidc),
+          target.id,
+          %{"flagged" => true, "reason" => @reason}
+        )
+
+      assert conn.status == 200, conn.resp_body
+      assert flagged?(fx, target.id)
     end
   end
 
