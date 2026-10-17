@@ -379,8 +379,10 @@ defmodule Letflow.Entities.Definitions do
         |> filter_by_list_definitions_cursor(cursor_seek)
         # MUTANT M5: denial applies to active rows only; inactive rows stay visible.
         |> where(
-          [e],
-          fragment("? <> 'active'", e.status) or ^TypeAccess.visible_to(user_id, :def)
+          ^dynamic(
+            [e],
+            fragment("? <> 'active'", e.status) or ^TypeAccess.visible_to(user_id, :def)
+          )
         )
         |> order_by([e], desc: e.inserted_at, desc: e.id)
         |> limit(^(page_size + 1))
