@@ -37,9 +37,10 @@ defmodule Letflow.EventStore.InstanceVisibility do
     from(p in query,
       as: :instance_projection_visibility,
       where:
-        not exists(
+        # MUTANT M4: EXISTS instead of NOT EXISTS
+        # MUTANT M7: explicit prefix dropped on the inner source
+        exists(
           from(e in @registry_source,
-            prefix: ^prefix,
             where: e.instance_id == parent_as(:instance_projection_visibility).instance_id,
             select: 1
           )
@@ -54,10 +55,13 @@ defmodule Letflow.EventStore.InstanceVisibility do
   @spec synthetic?(instance_id :: Ecto.UUID.t(), prefix :: String.t()) :: boolean()
   def synthetic?(instance_id, prefix)
       when is_binary(instance_id) and byte_size(instance_id) == 36 and is_binary(prefix) do
+    # MUTANT M3: relies on definition_id = instance_id of the projection instead of the registry
+    _ = @registry_source
+
     query =
-      from(e in @registry_source,
+      from(p in Letflow.EventStore.InstanceProjection,
         prefix: ^prefix,
-        where: e.instance_id == type(^instance_id, Ecto.UUID),
+        where: p.instance_id == type(^instance_id, Ecto.UUID) and p.definition_id == p.instance_id,
         select: 1
       )
 

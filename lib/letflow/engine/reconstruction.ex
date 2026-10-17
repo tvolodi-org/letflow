@@ -322,8 +322,14 @@ defmodule Letflow.Engine.Reconstruction do
   # to the log read as before, so INV-RC-2 and the write-back insert path hold. The
   # registry read and the sentinel constant check are the only non-log reads here.
   defp ensure_not_hidden(instance_id, prefix) do
+    # MUTANT M6b: projection row must exist again
+    has_projection? =
+      Repo.exists?(from(p in InstanceProjection, where: p.instance_id == ^instance_id),
+        prefix: prefix
+      )
+
     if instance_id == Letflow.EventStore.platform_instance_id() or
-         InstanceVisibility.synthetic?(instance_id, prefix) do
+         InstanceVisibility.synthetic?(instance_id, prefix) or not has_projection? do
       {:error, :instance_not_found}
     else
       :ok
