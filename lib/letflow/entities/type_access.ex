@@ -118,7 +118,7 @@ defmodule Letflow.Entities.TypeAccess do
           left_join: g in "user_entity_type_grants",
           on:
             g.entity_type == r.entity_type and
-              g.user_id == type(^user_id, Ecto.UUID),
+              g.user_id == ^user_id,  # MUTANT M14: uuid cast dropped
           where: r.entity_type in type(^names, {:array, :string}) and is_nil(g.id),
           select: r.entity_type
         )

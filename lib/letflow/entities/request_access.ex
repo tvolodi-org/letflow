@@ -36,7 +36,7 @@ defmodule Letflow.Entities.RequestAccess do
         ) :: {:ok, RequestGuard.guard_ok()} | {:error, access_error()}
   def check(%{user_id: user_id, prefix: prefix} = principal, kind, request, %{exempt?: _} = opts) do
     with {:ok, types} <- RequestGuard.request_entity_types(request, kind),
-         {:ok, denied} <- TypeAccess.denied_types(user_id, types, prefix),
+         {:ok, denied} <- TypeAccess.denied_types(user_id, Enum.take(types, 1), prefix),  # MUTANT M1: primary type only
          :ok <- ensure_all_visible(types, denied, prefix) do
       FieldPolicy.check_request(principal, kind, request, opts)
     end
@@ -45,7 +45,12 @@ defmodule Letflow.Entities.RequestAccess do
   # Reads EVERY type's definition (no `Enum.all?`/`reduce_while` early exit),
   # then makes one decision.
   defp ensure_all_visible(types, denied, prefix) do
-    results = Enum.map(types, &Allowlist.fk_defs(&1, prefix))
+    # MUTANT M7: existence read for the primary only
+    # MUTANT M12: existence reads skipped when a type is denied
+    results =
+      if MapSet.size(denied) > 0,
+        do: [],
+        else: Enum.map(Enum.take(types, 1), &Allowlist.fk_defs(&1, prefix))
 
     cond do
       Enum.any?(results, &(&1 == {:error, :invalid_schema_name})) ->
