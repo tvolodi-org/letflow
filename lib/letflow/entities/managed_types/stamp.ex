@@ -39,6 +39,16 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
   otherwise outlive this module's own writes). The last statement of the stamp transaction also
   clears the setting.
 
+  ## Snapshot gate (GH #2682 / REQ-511, design 10 and 18.3)
+
+  A REAL run (not `dry_run: true`) is refused while
+  `Application.get_env(:letflow, :exam_snapshot_complete, false)` is not `true`: `run/1` returns
+  `{:error, :snapshot_not_complete}` and `run_tenant/2` returns a report with
+  `status: :snapshot_not_complete` and writes nothing (no stamp, no audit entry). The flag means
+  "the code that scores from the per-session exam snapshot has shipped"; it is set ONLY in
+  `config/config.exs` (`false`) and `config/test.exs` (`true`), never from the environment, and
+  the fail-closed default is `false`. A dry run is always allowed.
+
   ## Tripwire, not a boundary
 
   The test scan that pins `managed_by_stamp` to this file and the two migrations makes a new
@@ -91,6 +101,7 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
           | :nothing_to_stamp
           | :exam_not_installed
           | :exception_not_installed
+          | :snapshot_not_complete
           | :skipped_schema_missing
           | :failed
 
@@ -120,7 +131,8 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
           tenants: [tenant_report()],
           rows_stamped_total: non_neg_integer(),
           conflict_total: non_neg_integer(),
-          failed_total: non_neg_integer()
+          failed_total: non_neg_integer(),
+          gate_blocked_total: non_neg_integer()
         }
 
   @typep row :: %{
@@ -148,33 +160,42 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
   Sweeps every registered tenant with `run_tenant/2` under one trace id. Only `module: "exam"`
   (the default) is supported. Never halts on one tenant's failure.
   """
-  @spec run(opts()) :: {:ok, report()} | {:error, :unsupported_module}
+  @spec run(opts()) :: {:ok, report()} | {:error, :unsupported_module | :snapshot_not_complete}
   def run(opts) do
     module = Keyword.get(opts, :module, "exam")
+    dry_run? = Keyword.get(opts, :dry_run, false) == true
 
-    if module == "exam" do
-      dry_run? = Keyword.get(opts, :dry_run, false) == true
-
-      tenants =
-        Letflow.Obs.Logger.with_trace(fn ->
-          for %Registration{schema_name: schema} <- TenantProvisioning.list_registrations() do
-            run_tenant(schema, opts)
-          end
-        end)
-
-      {:ok,
-       %{
-         dry_run: dry_run?,
-         module: module,
-         tenants: tenants,
-         rows_stamped_total: tenants |> Enum.map(& &1.rows_stamped) |> Enum.sum(),
-         conflict_total: tenants |> Enum.map(&length(&1.conflicts)) |> Enum.sum(),
-         failed_total: Enum.count(tenants, &(&1.status == :failed))
-       }}
-    else
-      {:error, :unsupported_module}
+    cond do
+      module != "exam" -> {:error, :unsupported_module}
+      gate_closed?(dry_run?) -> {:error, :snapshot_not_complete}
+      true -> {:ok, sweep(module, dry_run?, opts)}
     end
   end
+
+  defp sweep(module, dry_run?, opts) do
+    tenants =
+      Letflow.Obs.Logger.with_trace(fn ->
+        for %Registration{schema_name: schema} <- TenantProvisioning.list_registrations() do
+          run_tenant(schema, opts)
+        end
+      end)
+
+    %{
+      dry_run: dry_run?,
+      module: module,
+      tenants: tenants,
+      rows_stamped_total: tenants |> Enum.map(& &1.rows_stamped) |> Enum.sum(),
+      conflict_total: tenants |> Enum.map(&length(&1.conflicts)) |> Enum.sum(),
+      failed_total: Enum.count(tenants, &(&1.status == :failed)),
+      gate_blocked_total: Enum.count(tenants, &(&1.status == :snapshot_not_complete))
+    }
+  end
+
+  # GH #2682 / REQ-511: closed unless the flag is exactly `true`; a dry run is never blocked.
+  defp gate_closed?(true = _dry_run?), do: false
+
+  defp gate_closed?(false = _dry_run?),
+    do: Application.get_env(:letflow, :exam_snapshot_complete, false) != true
 
   @doc """
   Stamps (or, with `dry_run: true`, only reports) one tenant schema. Never raises: any failure is
@@ -186,6 +207,9 @@ defmodule Letflow.Entities.ManagedTypes.Stamp do
     report = base_report(tenant_id, schema_name)
 
     cond do
+      gate_closed?(Keyword.get(opts, :dry_run, false) == true) ->
+        %{report | status: :snapshot_not_complete}
+
       Repo.in_transaction?() ->
         %{report | status: :failed, error: :nested_transaction}
 

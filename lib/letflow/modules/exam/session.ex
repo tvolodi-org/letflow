@@ -118,6 +118,7 @@ defmodule Letflow.Modules.Exam.Session do
 
   import Ecto.Query, only: [from: 2]
 
+  alias Letflow.Entities.Definitions
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Query.Allowlist
   alias Letflow.Entities.Query.Compiler
@@ -127,6 +128,7 @@ defmodule Letflow.Modules.Exam.Session do
   alias Letflow.Modules.Exam
   alias Letflow.Modules.Exam.QuestionSetResolver
   alias Letflow.Modules.Exam.Scoring
+  alias Letflow.Modules.Exam.Snapshot
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
 
@@ -140,6 +142,17 @@ defmodule Letflow.Modules.Exam.Session do
           | :attempts_exhausted
           | {:session_already_open, session_id :: String.t()}
 
+  @typedoc """
+  GH #2682 / REQ-511 -- `{:grading_error, reason}` is the typed failure of everything that reads or
+  builds the exam snapshot (see `Letflow.Modules.Exam.Snapshot`); `{:snapshot_error, reason}` means
+  the snapshot prerequisites (the `session.exam_snapshot` field, its restriction row) are not in
+  place yet, i.e. the rollout has not run.
+  """
+  @type snapshot_failure ::
+          Snapshot.grading_error()
+          | {:snapshot_error,
+             :definition_missing | :restrictions_missing | :audit_failed | :write_failed}
+
   @type autosave_error ::
           :session_not_found
           | :not_owner
@@ -148,8 +161,9 @@ defmodule Letflow.Modules.Exam.Session do
           | :question_not_in_session
           | :answer_shape_invalid
           | :option_not_in_question
+          | snapshot_failure()
 
-  @type submit_error :: :session_not_found | :not_owner
+  @type submit_error :: :session_not_found | :not_owner | snapshot_failure()
 
   @type submission_outcome :: %{
           status: :submitted | :grading_pending | :auto_submitted,
@@ -238,7 +252,7 @@ defmodule Letflow.Modules.Exam.Session do
   is currently a documented no-op.
   """
   @spec create(candidate_id :: String.t(), exam_id :: String.t(), prefix :: String.t()) ::
-          {:ok, session_view()} | {:error, eligibility_error()}
+          {:ok, session_view()} | {:error, eligibility_error() | snapshot_failure()}
   def create(candidate_id, exam_id, prefix)
       when is_binary(candidate_id) and is_binary(exam_id) and is_binary(prefix) do
     create_with_seed(candidate_id, exam_id, prefix, draw_seed())
@@ -273,7 +287,7 @@ defmodule Letflow.Modules.Exam.Session do
   # over concurrency: a brief lock held for one exam-start's eligibility
   # checks plus materialization is an acceptable trade here.
   @spec create_with_seed(String.t(), String.t(), String.t(), integer()) ::
-          {:ok, session_view()} | {:error, eligibility_error() | term()}
+          {:ok, session_view()} | {:error, eligibility_error() | snapshot_failure() | term()}
   def create_with_seed(candidate_id, exam_id, prefix, seed) do
     Repo.transaction(fn -> create_txn(candidate_id, exam_id, prefix, seed) end)
   end
@@ -392,13 +406,18 @@ defmodule Letflow.Modules.Exam.Session do
           session_id :: String.t(),
           user_id :: String.t(),
           prefix :: String.t()
-        ) :: {:ok, session_state_view()} | {:error, :session_not_found | :not_owner}
+        ) ::
+          {:ok, session_state_view()}
+          | {:error, :session_not_found | :not_owner | snapshot_failure()}
   def get_session_state_for_user(session_id, user_id, prefix) do
-    with {:ok, session} <- get_session_for_user(session_id, user_id, prefix),
+    with {:ok, session_record} <- fetch_session(session_id, prefix),
+         :ok <- check_owner(session_record, user_id),
+         {:ok, type_source} <- state_type_source(session_record),
+         session = session_view(session_record),
          {:ok, session_questions} <-
            query_all("session_question", [eq("session_id", session_id)], prefix),
          sorted_questions = Enum.sort_by(session_questions, &fv(&1, "sort_order")),
-         {:ok, questions} <- build_question_states(sorted_questions, prefix),
+         {:ok, questions} <- build_question_states(sorted_questions, type_source, prefix),
          {:ok, session_answers} <-
            query_all("session_answer", [eq("session_id", session_id)], prefix) do
       {:ok,
@@ -411,10 +430,39 @@ defmodule Letflow.Modules.Exam.Session do
     end
   end
 
-  defp build_question_states(session_questions, prefix) do
+  # GH #2682 / REQ-511, design 5.3 and 17.1: where a question's TYPE comes from. An `in_progress`
+  # session needs a structurally valid snapshot (it can still be scored and autosaved), and a
+  # failure is a typed grading error. A terminal session can never be scored or autosaved again,
+  # so reading it must never fail or write because of the snapshot: it uses the snapshot item when
+  # there is one and the live question type as display data otherwise.
+  defp state_type_source(session_record) do
+    snapshot_result = Snapshot.fetch_structural(session_record.field_values)
+
+    case {fv(session_record, "status"), snapshot_result} do
+      {"in_progress", {:ok, snapshot}} -> {:ok, {:strict, snapshot}}
+      {"in_progress", {:error, _reason} = error} -> error
+      {_terminal, {:ok, snapshot}} -> {:ok, {:lenient, snapshot}}
+      {_terminal, {:error, _reason}} -> {:ok, {:lenient, nil}}
+    end
+  end
+
+  defp state_question_type({:strict, snapshot}, question_id, _question),
+    do: Snapshot.question_type(snapshot, question_id)
+
+  defp state_question_type({:lenient, nil}, _question_id, question),
+    do: {:ok, question_type_atom(fv(question, "type"))}
+
+  defp state_question_type({:lenient, snapshot}, question_id, question) do
+    case Snapshot.question_type(snapshot, question_id) do
+      {:ok, _type} = ok -> ok
+      {:error, _reason} -> {:ok, question_type_atom(fv(question, "type"))}
+    end
+  end
+
+  defp build_question_states(session_questions, type_source, prefix) do
     session_questions
     |> Enum.reduce_while({:ok, []}, fn session_question, {:ok, acc} ->
-      case build_question_state(session_question, prefix) do
+      case build_question_state(session_question, type_source, prefix) do
         {:ok, question_state} -> {:cont, {:ok, [question_state | acc]}}
         {:error, _reason} = error -> {:halt, error}
       end
@@ -425,15 +473,15 @@ defmodule Letflow.Modules.Exam.Session do
     end
   end
 
-  defp build_question_state(session_question, prefix) do
+  defp build_question_state(session_question, type_source, prefix) do
     question_id = fv(session_question, "question_id")
 
     case Latest.get(question_id, "question", prefix) do
       {:ok, question} ->
-        type = question_type_atom(fv(question, "type"))
         option_ids = fv(session_question, "options_order") || []
 
-        with {:ok, options} <- build_option_states(type, question_id, option_ids, prefix) do
+        with {:ok, type} <- state_question_type(type_source, question_id, question),
+             {:ok, options} <- build_option_states(type, question_id, option_ids, prefix) do
           {:ok,
            %{
              question_id: question_id,
@@ -527,8 +575,8 @@ defmodule Letflow.Modules.Exam.Session do
          :ok <- check_in_progress(session),
          :ok <- check_deadline(session),
          {:ok, session_question} <- fetch_session_question(session_id, question_id, prefix),
-         {:ok, question} <- fetch_question_for_autosave(question_id, prefix),
-         :ok <- check_answer_shape(question, selected_option_ids, text_answer),
+         {:ok, type} <- snapshot_question_type(session, question_id),
+         :ok <- check_answer_shape(type, selected_option_ids, text_answer),
          :ok <- check_options_belong(session_question, selected_option_ids),
          :ok <-
            upsert_answer(
@@ -717,7 +765,8 @@ defmodule Letflow.Modules.Exam.Session do
   defp materialize_session(candidate_id, exam_id, exam, prefix, seed) do
     shuffle_options? = fv(exam, "shuffle_options") == true
 
-    with {:ok, rules, pool, manual_questions} <- fetch_question_pools(exam_id, prefix),
+    with :ok <- check_snapshot_prerequisites(prefix),
+         {:ok, rules, pool, manual_questions} <- fetch_question_pools(exam_id, prefix),
          {:ok, resolved_random} <-
            QuestionSetResolver.resolve(
              rules,
@@ -747,17 +796,37 @@ defmodule Letflow.Modules.Exam.Session do
       now = utc_now()
       expires_at = DateTime.add(now, fv(exam, "time_limit_minutes") * 60, :second)
 
-      session_attrs = %{
-        "exam_id" => exam_id,
-        "user_id" => candidate_id,
-        "status" => "in_progress",
-        "seed" => seed,
-        "started_at" => iso8601(now),
-        "expires_at" => iso8601(expires_at),
-        "passed" => false
-      }
+      # GH #2682 / REQ-511, design 4.3: the snapshot is built from the rows already loaded for the
+      # resolved set, under the exam row lock, and written in the SAME create call as the
+      # session, so a session created after this change never exists without its snapshot.
+      order = Enum.map(resolved_random ++ resolved_manual, & &1.question_id)
 
-      with {:ok, %{record: session_record}} <-
+      sources =
+        pool
+        |> Map.values()
+        |> List.flatten()
+        |> Enum.concat(manual_questions)
+        |> Map.new(&{&1.question_id, &1.source})
+
+      with {:ok, snapshot} <-
+             Snapshot.build_from_resolved(
+               exam.field_values,
+               Map.take(sources, order),
+               order,
+               %{origin: :start, exam_id: exam_id, taken_at: now}
+             ),
+           session_attrs =
+             %{
+               "exam_id" => exam_id,
+               "user_id" => candidate_id,
+               "status" => "in_progress",
+               "seed" => seed,
+               "started_at" => iso8601(now),
+               "expires_at" => iso8601(expires_at),
+               "passed" => false,
+               "exam_snapshot" => snapshot
+             },
+           {:ok, %{record: session_record}} <-
              write_record("session", session_attrs, candidate_id, prefix),
            :ok <-
              persist_session_questions(
@@ -770,6 +839,45 @@ defmodule Letflow.Modules.Exam.Session do
         {:ok, session_view(session_record)}
       end
     end
+  end
+
+  # GH #2682 / REQ-511, design 4.3 step 1: fail closed, before any write, when the tenant has not
+  # been rolled out (`Letflow.Release.ExamSnapshot.rollout/1`): the active `session` definition
+  # must declare the `exam_snapshot` json field and its restriction row must exist.
+  defp check_snapshot_prerequisites(prefix) do
+    with :ok <- check_snapshot_definition(prefix) do
+      check_snapshot_restriction(prefix)
+    end
+  end
+
+  defp check_snapshot_definition(prefix) do
+    case Definitions.get_active_definition_by_name("session", prefix) do
+      {:ok, %{definition_json: %{"fields" => fields}}} when is_list(fields) ->
+        if Enum.any?(
+             fields,
+             &(is_map(&1) and &1["name"] == "exam_snapshot" and &1["type"] == "json")
+           ),
+           do: :ok,
+           else: {:error, {:snapshot_error, :definition_missing}}
+
+      {:ok, _definition} ->
+        {:error, {:snapshot_error, :definition_missing}}
+
+      {:error, _reason} ->
+        {:error, {:snapshot_error, :definition_missing}}
+    end
+  end
+
+  defp check_snapshot_restriction(prefix) do
+    restricted? =
+      Repo.exists?(
+        from(r in "entity_field_restrictions",
+          where: r.entity_type == "session" and r.field_name == "exam_snapshot"
+        ),
+        prefix: prefix
+      )
+
+    if restricted?, do: :ok, else: {:error, {:snapshot_error, :restrictions_missing}}
   end
 
   defp fetch_question_pools(exam_id, prefix) do
@@ -821,12 +929,9 @@ defmodule Letflow.Modules.Exam.Session do
            query_all("question", [eq("category_id", category_id), eq("status", "active")], prefix) do
       questions
       |> Enum.reduce_while({:ok, []}, fn question, {:ok, acc} ->
-        case fetch_option_ids(question.record_id, prefix) do
-          {:ok, option_ids} ->
-            {:cont, {:ok, [%{question_id: question.record_id, option_ids: option_ids} | acc]}}
-
-          {:error, _reason} = error ->
-            {:halt, error}
+        case fetch_question_row(normalize_record_id(question.record_id), question, prefix) do
+          {:ok, row} -> {:cont, {:ok, [row | acc]}}
+          {:error, _reason} = error -> {:halt, error}
         end
       end)
       |> case do
@@ -836,10 +941,28 @@ defmodule Letflow.Modules.Exam.Session do
     end
   end
 
-  defp fetch_option_ids(question_id, prefix) do
+  # One resolver row (`question_id`, `option_ids`) plus the `:source` the snapshot needs (design
+  # 4.3 step 2): the question's stored type and its option rows' key fields. The option rows are
+  # the ones this function always loaded to get the ids; nothing extra is queried for a pool.
+  defp fetch_question_row(question_id, question, prefix) do
     with {:ok, options} <- query_all("answer_option", [eq("question_id", question_id)], prefix) do
       sorted = Enum.sort_by(options, &fv(&1, "sort_order"))
-      {:ok, Enum.map(sorted, & &1.record_id)}
+      option_ids = Enum.map(sorted, &normalize_record_id(&1.record_id))
+
+      source = %{
+        type: fv(question, "type"),
+        options:
+          Enum.map(sorted, fn option ->
+            %{
+              id: normalize_record_id(option.record_id),
+              is_correct: fv(option, "is_correct"),
+              likert_weight: fv(option, "likert_weight"),
+              likert_polarity: fv(option, "likert_polarity")
+            }
+          end)
+      }
+
+      {:ok, %{question_id: question_id, option_ids: option_ids, source: source}}
     end
   end
 
@@ -860,13 +983,9 @@ defmodule Letflow.Modules.Exam.Session do
         pins
         |> Enum.sort_by(&fv(&1, "sort_order"))
         |> Enum.reduce_while({:ok, []}, fn pin, {:ok, acc} ->
-          case fetch_option_ids(fv(pin, "question_id"), prefix) do
-            {:ok, option_ids} ->
-              {:cont,
-               {:ok, [%{question_id: fv(pin, "question_id"), option_ids: option_ids} | acc]}}
-
-            {:error, _reason} = error ->
-              {:halt, error}
+          case fetch_pinned_question_row(fv(pin, "question_id"), prefix) do
+            {:ok, row} -> {:cont, {:ok, [row | acc]}}
+            {:error, _reason} = error -> {:halt, error}
           end
         end)
         |> case do
@@ -874,6 +993,24 @@ defmodule Letflow.Modules.Exam.Session do
           {:error, _reason} = error -> error
         end
       end
+    end
+  end
+
+  # Design 4.3 step 2: a pin used to be read without ever loading its question. The snapshot needs
+  # the question's type, so one `Latest.get` is added, and a pin whose question is missing or not
+  # `active` is a start failure instead of a silent skip.
+  defp fetch_pinned_question_row(question_id, prefix) do
+    case Latest.get(question_id, "question", prefix) do
+      {:ok, question} ->
+        if fv(question, "status") == "active",
+          do: fetch_question_row(question_id, question, prefix),
+          else: {:error, {:question_not_found, question_id}}
+
+      {:error, :not_found} ->
+        {:error, {:question_not_found, question_id}}
+
+      {:error, :invalid_schema_name} = error ->
+        error
     end
   end
 
@@ -965,15 +1102,19 @@ defmodule Letflow.Modules.Exam.Session do
     end
   end
 
-  defp fetch_question_for_autosave(question_id, prefix) do
-    case Latest.get(question_id, "question", prefix) do
-      {:ok, question} -> {:ok, question}
-      # The session_question row already vouches this question exists (an
-      # FK RESTRICT prevents deleting a bank question referenced by a
-      # materialised session snapshot) -- unreachable in practice, mapped
-      # to the closest real error for INV-8 exhaustiveness.
-      {:error, :not_found} -> {:error, :question_not_in_session}
-      {:error, :invalid_schema_name} = error -> error
+  # GH #2682 / REQ-511, design 5.2: the type used for the shape check comes from the session's
+  # own snapshot, never from the live question row (an edit mid-session must not make the shape
+  # check, the display and the scoring disagree). Ownership and `in_progress` were checked by the
+  # caller before this runs.
+  defp snapshot_question_type(session, question_id) do
+    with {:ok, snapshot} <- Snapshot.fetch_structural(session.field_values) do
+      case Snapshot.question_type(snapshot, question_id) do
+        {:error, {:grading_error, {:question_item_missing, _id}}} ->
+          {:error, :question_not_in_session}
+
+        other ->
+          other
+      end
     end
   end
 
@@ -984,8 +1125,7 @@ defmodule Letflow.Modules.Exam.Session do
   # client sending free text for a single/multiple/true_false/likert
   # question is a shape error, not something to silently drop, matching
   # this function's existing strict-shape-per-type intent.
-  defp check_answer_shape(question, selected_option_ids, text_answer) do
-    type = question_type_atom(fv(question, "type"))
+  defp check_answer_shape(type, selected_option_ids, text_answer) do
     count = length(selected_option_ids || [])
 
     cond do
@@ -1133,22 +1273,47 @@ defmodule Letflow.Modules.Exam.Session do
     end
   end
 
+  # GH #2682 / REQ-511, design 5.1: scoring reads ONLY the session's own snapshot (digest
+  # verified) plus the candidate's answers. No `exam`, `question` or `answer_option` row is read,
+  # and there is no default threshold: a missing or invalid key is a typed grading error and the
+  # caller's transaction rolls back, leaving the session `in_progress`.
   defp score_and_persist(session, prefix, opts \\ []) do
     submitted_at = Keyword.get(opts, :submitted_at, utc_now())
     status_override = Keyword.get(opts, :status_override)
 
-    with {:ok, questions, answers} <- build_scoring_inputs(session, prefix) do
-      passing_threshold = passing_threshold_for(session, prefix)
+    with {:ok, snapshot} <- Snapshot.fetch_verified(session.field_values),
+         {:ok, questions} <- Snapshot.to_scoring_questions(snapshot),
+         {:ok, threshold} <- Snapshot.threshold(snapshot),
+         {:ok, answers} <- load_answers(session.record_id, prefix),
+         {:ok, %{per_question: scores, outcome: outcome0}} <-
+           score_questions(questions, answers, threshold) do
+      outcome = maybe_override_status(outcome0, status_override)
 
-      with {:ok, %{per_question: scores, outcome: outcome0}} <-
-             Scoring.score_session(questions, answers, passing_threshold) do
-        outcome = maybe_override_status(outcome0, status_override)
-
-        with :ok <- persist_scores(session.record_id, scores, fv(session, "user_id"), prefix),
-             :ok <- update_session_after_submit(session, outcome, submitted_at, prefix) do
-          {:ok, outcome}
-        end
+      with :ok <- persist_scores(session.record_id, scores, fv(session, "user_id"), prefix),
+           :ok <- update_session_after_submit(session, outcome, submitted_at, prefix) do
+        {:ok, outcome}
       end
+    end
+  end
+
+  # `Scoring` returns only the atom for a keyless question; the id comes from the validated
+  # snapshot rows (defence in depth: `Snapshot.to_scoring_questions/1` already rejects these).
+  defp score_questions(questions, answers, threshold) do
+    case Scoring.score_session(questions, answers, threshold) do
+      {:ok, _scored} = ok ->
+        ok
+
+      {:error, :question_without_correct_option} ->
+        keyless =
+          Enum.find(
+            questions,
+            &(&1.type in [:single, :true_false, :multiple] and &1.correct_option_ids == [])
+          )
+
+        case keyless do
+          nil -> {:error, {:grading_error, :snapshot_corrupt}}
+          %{question_id: question_id} -> {:error, {:grading_error, {:key_missing, question_id}}}
+        end
     end
   end
 
@@ -1159,76 +1324,17 @@ defmodule Letflow.Modules.Exam.Session do
 
   defp maybe_override_status(outcome, _override), do: outcome
 
-  defp build_scoring_inputs(session, prefix) do
-    session_id = session.record_id
-
-    with {:ok, session_questions} <-
-           query_all("session_question", [eq("session_id", session_id)], prefix),
-         {:ok, session_answers} <-
+  defp load_answers(session_id, prefix) do
+    with {:ok, session_answers} <-
            query_all("session_answer", [eq("session_id", session_id)], prefix) do
-      answers_by_qid =
-        Map.new(session_answers, fn answer ->
-          {fv(answer, "question_id"),
-           %{
-             selected_option_ids: fv(answer, "selected_option_ids") || [],
-             text_answer: fv(answer, "text_answer")
-           }}
-        end)
-
-      session_questions
-      |> Enum.reduce_while({:ok, []}, fn session_question, {:ok, acc} ->
-        question_id = fv(session_question, "question_id")
-
-        case build_question_row(question_id, prefix) do
-          {:ok, question_row} -> {:cont, {:ok, [question_row | acc]}}
-          {:error, _reason} = error -> {:halt, error}
-        end
-      end)
-      |> case do
-        {:ok, rows} -> {:ok, Enum.reverse(rows), answers_by_qid}
-        {:error, _reason} = error -> error
-      end
-    end
-  end
-
-  defp build_question_row(question_id, prefix) do
-    with {:ok, question} <- Latest.get(question_id, "question", prefix),
-         {:ok, options} <- query_all("answer_option", [eq("question_id", question_id)], prefix) do
-      type = question_type_atom(fv(question, "type"))
-
-      correct_ids =
-        options |> Enum.filter(&(fv(&1, "is_correct") == true)) |> Enum.map(& &1.record_id)
-
-      likert_options =
-        if type == :likert do
-          Map.new(options, fn option ->
-            {option.record_id,
-             %{
-               weight: to_float(fv(option, "likert_weight")),
-               polarity: polarity_atom(fv(option, "likert_polarity"))
-             }}
-          end)
-        else
-          %{}
-        end
-
       {:ok,
-       %{
-         question_id: question_id,
-         type: type,
-         correct_option_ids: correct_ids,
-         likert_options: likert_options
-       }}
-    else
-      {:error, :not_found} -> {:error, {:question_not_found, question_id}}
-      other -> other
-    end
-  end
-
-  defp passing_threshold_for(session, prefix) do
-    case Latest.get(fv(session, "exam_id"), "exam", prefix) do
-      {:ok, exam} -> to_float(fv(exam, "passing_score_pct"))
-      {:error, _reason} -> 60.0
+       Map.new(session_answers, fn answer ->
+         {fv(answer, "question_id"),
+          %{
+            selected_option_ids: fv(answer, "selected_option_ids") || [],
+            text_answer: fv(answer, "text_answer")
+          }}
+       end)}
     end
   end
 
@@ -1250,17 +1356,16 @@ defmodule Letflow.Modules.Exam.Session do
   end
 
   defp update_session_after_submit(session, outcome, submitted_at, prefix) do
-    attrs = %{
-      "exam_id" => fv(session, "exam_id"),
-      "user_id" => fv(session, "user_id"),
-      "status" => Atom.to_string(outcome.status),
-      "seed" => fv(session, "seed"),
-      "started_at" => fv(session, "started_at"),
-      "expires_at" => fv(session, "expires_at"),
-      "submitted_at" => iso8601(submitted_at),
-      "score_pct" => to_float(outcome.percentage),
-      "passed" => outcome.passed || false
-    }
+    # Record updates are a FULL replacement of `field_values`, so the new map starts from the
+    # locked row's own values: `exam_snapshot` (and any other field) is carried forward unchanged
+    # (design 5.4, invariant I-1). Only the four outcome fields are overwritten.
+    attrs =
+      Map.merge(session.field_values, %{
+        "status" => Atom.to_string(outcome.status),
+        "submitted_at" => iso8601(submitted_at),
+        "score_pct" => to_float(outcome.percentage),
+        "passed" => outcome.passed || false
+      })
 
     ok_or_error(
       Records.update_record(
@@ -1401,9 +1506,6 @@ defmodule Letflow.Modules.Exam.Session do
   defp question_type_atom("truefalse"), do: :true_false
   defp question_type_atom("likert"), do: :likert
   defp question_type_atom("shorttext"), do: :short_text
-
-  defp polarity_atom("positive"), do: :positive
-  defp polarity_atom("negative"), do: :negative
 
   defp to_float(value) when is_float(value), do: value
   defp to_float(value) when is_integer(value), do: value * 1.0

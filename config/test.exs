@@ -334,3 +334,7 @@ config :letflow, Letflow.LoginDiscovery.Notifier.Smtp, allow_test_cacerts: true
 
 # GH #2587 PR B2: compiles the engine's step-name test seam (test builds only).
 config :letflow, :engine_test_seams, true
+
+# GH #2682 / REQ-511 (design 10, 18.3): open the exam stamp gate under test so the existing stamp
+# tests keep running; the gate test overrides it per test with Application.put_env/3 and restores.
+config :letflow, :exam_snapshot_complete, true

@@ -6,9 +6,9 @@
   "from_agent": "SECURITY-REVIEWER",
   "to_agent": "ORCH",
   "file": "handoffs/WF02-GH2702-INSTANCES-SYNTHETIC-20261017/step-07-security-reviewer-code.json",
-  "created_at": "2026-10-17T02:10:00Z",
-  "started_at": "2026-10-17T02:10:00Z",
-  "completed_at": "2026-10-17T02:30:00Z",
+  "created_at": "2026-10-17T03:00:00Z",
+  "started_at": "2026-10-17T03:00:00Z",
+  "completed_at": "2026-10-17T03:10:00Z",
   "status": "COMPLETED",
   "priority": "HIGH",
   "context": {
@@ -16,7 +16,7 @@
     "requirement_ids": [],
     "requirement_text": {},
     "source_text": {
-      "GH#2702": "INV-6 second pass: code gate on commit 4079b6d57 (read-only, no mix run)."
+      "GH#2702": "INV-6 delta re-check of C1 at HEAD ffec0a8b1 (read-only, no mix run)."
     },
     "related_handoff_ids": [
       "c4a7d1e0-2702-4a11-8c20-000000000005",
@@ -36,33 +36,25 @@
     "branch_name": "feature/WF02-GH2702-INSTANCES-SYNTHETIC-20261017"
   },
   "task": {
-    "description": "SECURITY-REVIEWER code gate for GH #2702 against INV-1..INV-8 and design R1-R4."
+    "description": "SECURITY-REVIEWER delta re-check for GH #2702: C1 closure, no regression, full lib diff vs INV-1/5/7 and R1-R4, PR body accuracy."
   },
   "result": {
-    "status": "FAIL",
-    "summary": "CODE GATE: FAIL on ONE required change (C1, a functional regression introduced by the reconstruct guard); every security property reviewed is otherwise correct. Fix C1, then a re-check of that one site suffices. SCOPE: in scope (tenant-data path); #2612 paths untouched (no ci.yml/cd.yml/mix.exs/authorization.ex/catalog.ex/permission_matrix/priv/permission_matrix change). VERIFIED PASS: (a) InstanceVisibility (instance_visibility.ex:40-52,56-65): anti-join is NOT EXISTS on entity_type_instances.instance_id = parent_as(:instance_projection_visibility).instance_id, WHERE-level so LIMIT/keyset cursors stay exact; inner source carries query-level prefix: ^prefix (INV-1, no fragment/concat, INV-7); is_binary guards on both functions (+ byte_size 36 on synthetic?), no rescue; synthetic? returns Repo.exists? boolean only (R2 i-iii met). Ecto 3.14.1 supports exists/1 with parent_as and from(p in query, as: ...); alias is set once per query at every call site (list applies it first to the bare schema; get_by_id/ensure_instance_exists/cancel/rebind/reconstruct apply it once). Residual compile risk for hosted CI: `from(e in @registry_source, ...)` uses a module attribute as the source; if Ecto rejects it use the literal string. (b) Applied sites: Instances.list (instances.ex ~103), get_by_id (~65-75, Repo.one -> nil -> :not_found), ensure_instance_exists (~367-372, sole gate for history+timeline), Engine cancel lock (engine.ex ~8619, nil -> existing :instance_not_found), PinRebind lock (pin_rebind.ex ~433, nil -> existing :instance_not_found), pins route (routers/instances.ex ~1066). All map to the existing Response.not_found/1 renderers (render_cancel/render_rebind/render_reconstruct/render_get_pins/render_page_result), the constant body, so byte-identical to nonexistent. Validation/permission ordering unchanged (authz precedes handler; cast_instance_id 422 precedes every guard; body validation precedes the lock). INV-5 round-trips: get/history/timeline/cancel/rebind identical (single query with exclusion); pins issues one query for synthetic vs two for nonexistent (accepted, hygiene; authenticated tenant-scoped caller, point read). (c) create_and_reselect reorder (entity_type_instance.ex ~126-141): registry insert on_conflict nothing blocks on a concurrent winner until it commits, re-read returns the winner, projection inserted for the winning id only (idempotent on_conflict nothing); loser creates no orphan (R1 option a met); no window where a synthetic projection is visible without its registry row; Records/StepWrites/HandlerWrites hot path (step 1 read) untouched; pre-existing orphans remain accepted-empty. (d) Internal callers: Records, StepWrites, EntityTypeInstance, Record.Projector use get_or_create/EventStore directly, not the guarded queries; engine.ex:8884 (maybe_snapshot_after_set_instance_error) calls reconstruct on real instances only. (e) Completeness: grep of lib/ for InstanceProjection/instance_projections and EventStore reads finds no further route reaching a synthetic instance's events/field_values (routers/audit.ex reads audit_entries; read_global has no caller; tasks/worklist joins are task-to-own-instance). (f) moduledoc note present in routers/instances.ex (TENANT_AUDITOR consequence); the PR body must still carry the R4 past-exposure statement. INVARIANTS: INV-1 PASS; INV-2 N/A; INV-3 N/A; INV-4 N/A; INV-5 PASS (after C1); INV-6 this pass; INV-7 PASS; INV-8 PASS (typed returns, no rescue). FAIL ITEM C1 (reconstruct guard too broad): reconstruction.ex:288 + 317-326 ensure_visible_projection requires a projection ROW to exist, which breaks documented behaviour that reconstruction works from the event log with the projection gone (moduledoc INV-RC-2; reconstruct write_back re-creates a deleted projection, 'AC5/OQ-4'). Existing tests that delete the projection row and expect a successful reconstruct (test/letflow/engine/reconstruction_test.exs AC2 ~317-330 and AC5/OQ-4 ~509-530, plus any similar in snapshot_writer_test/reconstruction_sys_test) will fail, and disaster-recovery reconstruct would be disabled for real instances. The design (section on Reconstruction) asked for a projection-row gate, but the security goal is only to refuse synthetic and platform-sentinel ids; this SECURITY-REVIEWER accepted that design text at the design gate and withdraws that sub-point.",
+    "status": "PASS",
+    "summary": "DELTA RE-CHECK: PASS. C1 CLOSED: reconstruction.ex ensure_not_hidden/2 (after cast_instance_id, before select_replay_source) returns :instance_not_found only for EventStore.platform_instance_id() or InstanceVisibility.synthetic?/2; no projection query, so a real instance with a deleted projection proceeds to the log read (INV-RC-2 and write-back insert path intact); the moduledoc documents the registry read as the sole non-log read. Hosted CI green at ffec0a8b1 incl. route walk, sentinel-after-append_platform_event, projection-deleted reconstruct, reconstruction_test AC2/AC5. NO REGRESSION: other sites unchanged (Instances.list/get_by_id/ensure_instance_exists, cancel lock, PinRebind lock, pins route guard, create_and_reselect winner-only projection). Full lib diff: INV-1 PASS (query-level prefix on inner source), INV-5 PASS (constant not_found, single-query exclusion), INV-7 PASS (no fragments/concat), INV-8 PASS; R1-R4 met. Out of scope for #2612 paths (no ci/cd/mix.exs/authorization/catalog/permission_matrix changes). PR BODY accurate: past-exposure statement (InstancesRead holders incl. TASK_WORKER and TENANT_AUDITOR; events not altered; audit holds mutations only) and TENANT_AUDITOR record-history loss until REQ-516 both match code and design. Note: PR body line saying delta re-review is in progress can be updated to PASS.",
     "local_issue_id": null,
     "artifacts_out": [],
-    "issues": [
-      {
-        "id": "C1",
-        "severity": "BLOCKER",
-        "invariant": "INV-5 / regression (REQ-053 AC2, AC5 OQ-4)",
-        "description": "ensure_visible_projection returns :instance_not_found when the projection row is absent, disabling event-log-only reconstruction of real instances.",
-        "required_change": "lib/letflow/engine/reconstruction.ex:288 and 317-326: replace the projection-exists gate with a refuse-list gate placed at the same position (after cast_instance_id, before select_replay_source): return {:error, :instance_not_found} when InstanceVisibility.synthetic?(cast_instance_id, prefix) is true OR cast_instance_id == EventStore.platform_instance_id(); otherwise :ok (a missing projection row then proceeds to the normal log read, which already returns :instance_not_found for an empty log). Keep it free of any projection query. If the Reconstruction module may not call EventStore.platform_instance_id/0 or InstanceVisibility.synthetic?/2 under check_boundaries, say so rather than reintroducing the projection gate. Update the T4 sentinel test accordingly (sentinel with a platform event still 404; real instance with deleted projection still reconstructs)."
-      }
-    ],
+    "issues": [],
     "invariants_assessed": {
       "INV-1": "APPLIES - PASS",
       "INV-2": "N/A",
       "INV-3": "N/A",
       "INV-4": "N/A",
-      "INV-5": "APPLIES - PASS after C1",
-      "INV-6": "APPLIES - this second pass",
+      "INV-5": "APPLIES - PASS",
+      "INV-6": "APPLIES - PASS",
       "INV-7": "APPLIES - PASS",
       "INV-8": "APPLIES - PASS"
     },
-    "code_gate_verdict": "FAIL",
-    "requires_second_pass_on_implementation": true
+    "code_gate_verdict": "PASS",
+    "requires_second_pass_on_implementation": false
   }
 }

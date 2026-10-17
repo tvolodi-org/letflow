@@ -13,10 +13,12 @@ defmodule Mix.Tasks.Letflow.StampManagedTypes do
   `--dry-run` reports what would be stamped without writing. Idempotent: a re-run stamps 0 rows.
   No `LETFLOW_DEV_DB_CONFIRMED` guard (same precedent as `mix letflow.backfill_role_scope_grants`).
   Conflicts and absent types are printed per tenant and counted but do not change the exit status;
-  any failed tenant exits 1.
+  any failed tenant, or any tenant blocked by the snapshot gate, exits 1.
 
-  Do NOT run the real stamp on a shared environment until the session-content-snapshot
-  prerequisite issue has landed (design section 17.5).
+  A REAL run is refused (message, exit 1, nothing stamped) while the snapshot gate is closed
+  (`config :letflow, :exam_snapshot_complete`, GH #2682 / REQ-511); `--dry-run` is never blocked.
+  Do NOT request the real stamp on a shared environment until the gate is open and
+  `Letflow.Release.ExamSnapshot.verify/0` reports `ready: true`.
 
   In a release (no Mix):
   `bin/letflow rpc "IO.inspect(Letflow.Release.ManagedTypes.stamp(dry_run: true))"`.
@@ -42,7 +44,17 @@ defmodule Mix.Tasks.Letflow.StampManagedTypes do
     case ManagedTypes.stamp(opts) do
       {:ok, report} ->
         print_report(report)
-        if report.failed_total > 0, do: System.halt(1), else: :ok
+
+        if report.failed_total > 0 or report.gate_blocked_total > 0,
+          do: System.halt(1),
+          else: :ok
+
+      {:error, :snapshot_not_complete} ->
+        Mix.shell().error(
+          "stamp refused: exam snapshot gate is closed (:exam_snapshot_complete is false)"
+        )
+
+        System.halt(1)
 
       {:error, :unsupported_module} ->
         Mix.raise("unsupported module (only \"exam\" is supported)\n" <> @usage)
@@ -55,7 +67,7 @@ defmodule Mix.Tasks.Letflow.StampManagedTypes do
     Mix.shell().info(
       "managed-type stamp complete#{mode}: #{length(report.tenants)} tenant(s), " <>
         "#{report.rows_stamped_total} row(s) stamped, #{report.conflict_total} conflict(s), " <>
-        "#{report.failed_total} failed"
+        "#{report.failed_total} failed, #{report.gate_blocked_total} gate-blocked"
     )
 
     Enum.each(report.tenants, &print_tenant/1)

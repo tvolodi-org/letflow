@@ -59,6 +59,13 @@ config :letflow, :lua_platform_time_source, Letflow.Engine.Lua.Platform.SystemCl
 # test-only fixture module on top of that list.
 config :letflow, :modules, [Letflow.Modules.Exam]
 
+# GH #2682 / REQ-511 (design lib/letflow/design/req511-exam-content-snapshot.md section 10 and
+# 18.3): fail-closed gate for the exam managed-type stamp. While this is not `true`, a real
+# `Letflow.Entities.ManagedTypes.Stamp` run is refused (dry runs are not). Set ONLY here (`false`)
+# and in config/test.exs (`true`); never from the environment or runtime.exs. The flip to `true`
+# is a single-line diff in a later PR (b).
+config :letflow, :exam_snapshot_complete, false
+
 # REQ-439 (design lib/letflow/design/req439-trusted-proxy-client-ip.md s4): keys
 # exist in every environment before config/runtime.exs overrides them from
 # LETFLOW_TRUSTED_PROXIES / LETFLOW_LOGIN_DISCOVERY_ENABLED. The mount switch

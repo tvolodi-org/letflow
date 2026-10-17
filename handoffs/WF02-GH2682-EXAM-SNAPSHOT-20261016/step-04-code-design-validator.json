@@ -7,8 +7,8 @@
   "to_agent": "CODE-DESIGN-VALIDATOR",
   "file": "handoffs/WF02-GH2682-EXAM-SNAPSHOT-20261016/step-04-code-design-validator.json",
   "created_at": "2026-10-16T16:05:00Z",
-  "started_at": "2026-10-16T17:30:00Z",
-  "completed_at": "2026-10-16T17:40:00Z",
+  "started_at": "2026-10-17T09:00:00Z",
+  "completed_at": "2026-10-17T09:20:00Z",
   "status": "COMPLETED",
   "priority": "HIGH",
   "context": {
@@ -18,38 +18,60 @@
       "REQ-511": "Exam content snapshot at session start; GH #2682 body incl. Corrections 1-8 is the content authority."
     },
     "source_text": {
-      "GH#2682": "Hard gate on lib/letflow/design/req511-exam-content-snapshot.md (round 3, diff check of round-2 findings N1 and N2)"
+      "GH#2682": "Hard gate on lib/letflow/design/req511-exam-content-snapshot.md (round 5, diff check of C1-C4 and SEC A1-A5; supersedes the round-4 FAIL)"
     },
-    "related_handoff_ids": ["c4a7d1e0-2682-4a11-8c20-000000000003"],
+    "related_handoff_ids": ["c4a7d1e0-2682-4a11-8c20-000000000003", "c4a7d1e0-2682-4a11-8c20-000000000006"],
     "artifacts_in": [
       "lib/letflow/design/req511-exam-content-snapshot.md",
-      "handoffs/WF02-GH2682-EXAM-SNAPSHOT-20261016/step-03-code-designer.json"
+      "handoffs/WF02-GH2682-EXAM-SNAPSHOT-20261016/step-06-security-reviewer-design.json"
     ],
     "owned_modules": [],
     "worktree": null,
     "branch_name": "feature/WF02-GH2682-EXAM-SNAPSHOT-20261016"
   },
   "task": {
-    "description": "WF-02 step 4 hard gate, ROUND 3 (diff check of N1 and N2). Read-only; no lib/test edits, no mix."
+    "description": "WF-02 step 4 hard gate, ROUND 5 (diff check of C1-C4, SEC A1-A5, PR a buildability). Read-only; no lib/test edits, no mix."
   },
   "result": {
-    "status": "PASS",
-    "verdict": "PASS",
-    "summary": "PASS. Round-2 N1 and N2 are fixed in place and no new contradiction was found. Full gate re-checked: every acceptance criterion maps to a design element, no TBD/deferral language, signatures and error unions specified, cross-module dependencies listed (13, 17.2, 17.6), no implementation code.",
+    "status": "FAIL",
+    "verdict": "FAIL",
+    "summary": "FAIL on one narrow, mechanical defect (D1) plus one labelling gap (D2); everything else from rounds 4 and SEC round 2 is fixed in place. D1: the PR (a) mix task exit rule uses report key gate_blocked_total, but 17.2 says the extra report fields ship in PR (b), so PR (a) references a PR (b) component and is ambiguous to build. D2: T-63 (and the PR split of T-43..T-52, T-58, T-59) is not explicitly assigned to PR (b). Both are one-sentence design edits; ELIXIR-DEV can already build the rest of PR (a).",
     "local_issue_id": null,
     "artifacts_out": [],
     "independent_verification": {
-      "N1": "CLOSED. Row Snapshot.ensure_certificate_facts/3 (17.2) now includes :snapshot_too_large (plus snapshot_missing/corrupt/exam_section_missing/certificate_facts_missing and the snapshot_error tags). Session.get_snapshot_for_user/3 states the complete ensure_certificate_facts/3 union including :snapshot_too_large. Snapshot.late_origin_counts/1 (17.6) now gives {:ok, %{late, late_certificate}} | {:error, :invalid_schema_name}. 7.4 and T-20 render every grading reason as the generic 500; T-55d covers :snapshot_too_large.",
-      "N2": "CLOSED. 10.1 now says flag refusal ships in PR (a) and per-tenant prerequisites in PR (b) (header, layers 1 and 2, 10.2 last lines), consistent with D7, 13 row (a)/(b), 17.2 and T-36/T-38. 5.3 now splits in_progress (ensure; PR (a) snapshot_missing) from terminal (no ensure, no write, no error), consistent with 17.1 and I-3. 9.3 heading says OQ-1 RESOLVED, short 503 window accepted per 17.5; OQ-1 row 'accepted'. D2 reason says accident detection only and cites 17.3 withdrawing the out-of-band claim. 4.1 exam row example and T-41 use the normalised '60'; remaining '60.0' occurrences are only the removed legacy literal (F3, AC2, T-08, T-16, T-19) and the 17.2 normalisation rule example. 7.4 503 row lists definition_missing | restrictions_missing | audit_failed | write_failed. R-FILTER renamed to PR-0 refusal (no occurrence remains).",
-      "stale_grep": "No remaining 'ensure for every session', 'out-of-band edit' as a live claim, 'no window between the PRs' contradiction (10.1 line is now consistent: refusal exists from PR (a)), OQ-1 open, or R-FILTER."
+      "C1_fixed": "18.5 now names the source: MIN(artifact_activation_history.activated_at) for artifact_kind entity, artifact_name session, new_version_id of a session entity_definitions row whose definition_json declares exam_snapshot; Snapshot.cutover/1 signature with {:ok, DateTime} | {:error, :definition_missing | :invalid_schema_name}, mapped to {:snapshot_error, :definition_missing}; ships in PR (b); states 'NO audit-entry fallback'. Grep for 'exam.snapshot_rollout' finds nothing; 'audit-entry fallback' appears only in the negation. T-62 and T-63b updated.",
+      "C2_fixed": "18.5 fixture rule: one legacy_session! helper moves the session record inserted_at before the cutover (append-only history, so the session side moves), sets started_at before cutover; only T-61/T-61b use a post-cutover session. Covers T-21..T-25, T-43..T-47 legacy variants, T-48..T-52, T-58, T-59, T-63. T-60..T-62 and T-63b are 'all PR (b)'.",
+      "C3_fixed": "Section 13 row (a) lists lib/letflow/release/managed_types.ex (widened @spec) and lib/mix/tasks/letflow.stamp_managed_types.ex; 17.2 'Stamp entry-point mapping' specifies the message, exit 1 on {:error, :snapshot_not_complete}, and the report exit rule. T-36 covers each entry point. See D1 for the one leftover.",
+      "C4_fixed": "Header line 4 now says verified at 828d9d1be with cites re-read; remaining 'efdd83ce1' occurrences are only the unchanged-since baseline, consistent.",
+      "SEC_A1_A5": "A1 T-30 rewritten as GREEN 404 probes plus audit, platform-events, ScriptReads, entity port, PUT/POST echo. A2 18.1 binding REQ-516 line and merged-state header/13. A3 cutover compares entity_record_latest.inserted_at, not started_at; T-61b added; 17.3 consistent. A4 T-63 query-count parity for ensure/3, ensure_certificate_facts/3, autosave, state read. A5 full lock order in 18.6.",
+      "stale_text_grep": "No 'PR-0b pending' or 'to be confirmed' wording. started_at remains only in audit after_state, the fixture rule, and as the thing NOT compared. No TBD/deferral language found.",
+      "no_implementation_code": "Confirmed: signatures, tables and prose only."
     },
-    "findings": [],
-    "passed_checks": [
-      "No implementation code: signatures, type shapes and tables only.",
-      "No TBD/deferral language; every open question carries a default.",
-      "Complete error unions per function (17.2) with render coverage (7.4, T-20, T-55a..e).",
-      "Section 17 and sections 1-16 are mutually consistent on PR sequence, Stamp split, terminal-session handling, 503 class and decimal-string rule."
+    "findings": [
+      {
+        "id": "D1",
+        "severity": "BLOCKING (small)",
+        "where": "17.2 'Stamp additions' (line 748-751) versus 17.2 'Stamp entry-point mapping' (line 753) and 13 row (a)",
+        "problem": "The PR (a) mix task is specified to halt 1 'when failed_total > 0 or gate_blocked_total > 0', and print_tenant prints 'the two new statuses and prerequisites_missing'. But 17.2 says 'the prerequisites, the active-row compatibility change and the extra report fields ship in PR (b)', and gate_blocked_total is one of those report fields (it also counts :snapshot_prerequisite_missing, a PR (b) status). PR (a) therefore references a PR (b) component and the build is ambiguous.",
+        "required_change": "State in 17.2 that in PR (a) the Stamp report gains gate_blocked_total (counting only tenant status :snapshot_not_complete) and the tenant status :snapshot_not_complete, and that the mix task and print_tenant in PR (a) use exactly those; PR (b) adds :snapshot_prerequisite_missing, prerequisites_missing, and extends gate_blocked_total to count it. Then fix the sentence 'the extra report fields ship in PR (b)' to list only prerequisites_missing and the second status."
+      },
+      {
+        "id": "D2",
+        "severity": "MINOR",
+        "where": "12.3, 12.4, 17.4, 18.6 versus 13",
+        "problem": "18.5 labels T-60..T-62 and T-63b as PR (b) but T-63 (18.6) and T-48..T-52, T-58, T-59 (17.4, late path) and T-09..T-11 (certificate) carry no PR label, while T-53, T-35, T-43..T-47 span PR (a) and (b). Section 13 does not map tests to PRs.",
+        "required_change": "Add one line to section 13: PR (b) owns T-09..T-11, T-21..T-25, T-38..T-40, T-48..T-52, T-58..T-63b, M4, M11, M12, M14, M16; all other tests are PR (a)."
+      }
     ],
-    "reroute": null
+    "passed_checks": [
+      "C1, C2, C4 fully fixed in place; C3 fixed except D1.",
+      "SEC A1-A5 all folded in place with no contradiction.",
+      "No implementation code; no TBD/deferral language; cross-module dependencies listed.",
+      "PR (a) otherwise buildable without PR (b) components: ensure/ensure_locked/ensure_certificate_facts/build_late/cutover/Stamp prerequisites/certificate path are all marked PR (b); snapshotless in_progress fails closed in PR (a)."
+    ],
+    "reroute": {
+      "to_agent": "CODE-DESIGNER",
+      "reason": "Apply D1 and D2 (two short doc edits); a one-line re-check suffices. ELIXIR-DEV may continue PR (a) meanwhile, treating gate_blocked_total as shipping in PR (a) counting :snapshot_not_complete only."
+    }
   }
 }

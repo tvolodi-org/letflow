@@ -1,11 +1,11 @@
 # REQ-511 / GH #2682: exam content snapshot at session start; scoring and certificate read only the snapshot
 
 Status: design (CODE-DESIGNER, 2026-10-16). Design only: no implementation code, no mix, reads only.
-Verified against `main` at `efdd83ce1` (the GH #2596 code PR is merged: the six runtime types are in
+Verified against `main` at `828d9d1be` (re-verified 2026-10-17: `lib/letflow/modules/exam/*`, `stamp.ex`, `lib/letflow/release/managed_types.ex`, `lib/mix/tasks/letflow.stamp_managed_types.ex`, `priv/modules/exam/**` and `config/` are byte-unchanged since `efdd83ce1`, so every cited line of those files still holds; `routers/entities.ex` and `routers/instances.ex` changed with PR-0 and PR-0b, and references to them are by function name, not line; the GH #2596 code PR is merged: the six runtime types are in
 `Exam.manifest().manages_entity_types`, `Stamp`, the tamper inventory and the Owner calls exist on main).
 AMENDED 2026-10-16 (round 3: SECURITY-REVIEWER design verdict, section 18, also binding) after CODE-DESIGN-VALIDATOR round 1 (G1-G5) and supervisor rulings: section 17 is the
 binding amendment and SUPERSEDES any conflicting statement in sections 1-16 (conflicts are also fixed in place
-where short). Key changes: the filter/sort fix is a separate first PR (PR-0); PR sequence is PR-0 (#2697), PR-0b, (a), (b);
+where short). Key changes: the filter/sort fix is a separate first PR (PR-0); PR sequence is PR-0 (#2697, MERGED), PR-0b (#2702, MERGED), (a), (b);
 terminal sessions never need a snapshot to be read; one error shape for `:snapshot_missing`; late snapshots are
 audited.
 Binding inputs: the GH #2682 body including "Corrections after REQ-VALIDATOR round 1/2", and design
@@ -13,7 +13,7 @@ Binding inputs: the GH #2682 body including "Corrections after REQ-VALIDATOR rou
 first touch, `snapshot_origin` start|late). Section 17.1's sketch is revised where the code showed a better
 shape; every revision is listed in section 2 with its reason.
 
-## 0. Findings that shape the design (all read in code at `efdd83ce1`)
+## 0. Findings that shape the design (all read in code at `828d9d1be (exam, Stamp, release and mix files unchanged since efdd83ce1)`)
 
 | # | Finding | Evidence | Consequence |
 |---|---|---|---|
@@ -23,14 +23,14 @@ shape; every revision is listed in section 2 with its reason.
 | F4 | `session` fields today: `exam_id`, `user_id`, `status`, `seed`, `started_at`, `expires_at`, `submitted_at`, `score_pct`, `passed` (`passed` is `required: true`, written `false` at create; `submitted_at`, `score_pct` optional). `session_question`: `session_id`, `question_id`, `sort_order`, `options_order`, `question_version_id` (declared optional string, no `lib/` writer or reader; only `web/src/config/__tests__/bilimbagaEntities.test.ts` names it). | `session.json`, `session_question.json`, `session.ex:750-757, 902-907` | The real field list; `additionalProperties: false` in the record validator (`record/validator.ex:76`) means a NEW field needs a new definition version (section 9). |
 | F5 | Record updates are FULL REPLACEMENT of `field_values` (`Records.update_record`, moduledoc). `update_session_after_submit/4` rebuilds the attribute map by hand from nine named fields. | `session.ex:1252-1278` | Any new session field is silently dropped at submit unless carried forward. The certificate path reads the session AFTER submit, so a dropped snapshot is a functional bug, not a cosmetic one (section 5.4, mutant M3). |
 | F6 | Generic READ surfaces: `POST /entities/query`, `POST /entities/query/aggregate`, `POST /entities/records/:type/export`. There is NO generic record GET route (route table in `routers/entities.ex` moduledoc and the `authz_get` list: only definitions and attachments). Restrictions apply by FIELD to every caller without a `user_entity_grants` row, regardless of role (`FieldGrants.load_restrictions/3`). `query` and `export` redact the returned `field_values`; `aggregate` additionally rejects a restricted field named anywhere in the request (403). | `routers/entities.ex:1905-1932, 1957-1995, 2170-2190, 2296` | Section 8. |
-| F7 | **The row-query route does not apply the restricted-field refusal that the aggregate route applies.** `run_query/4` redacts returned values but, unlike `check_aggregate_field_restrictions/2` on the aggregate route, does not refuse a request that filters or sorts on a restricted field, so such a request returns restricted data the aggregate route already refuses. Class only; no exploit detail is recorded here (supervisor ruling). The fix is a SEPARATE first prio-1 security PR, PR-0 (own issue filed by letflow-2 after a reproducing test proves it); REQ-511 AC4 depends on PR-0. | `routers/entities.ex` (`run_query/4`, `run_query_aggregate`) | Scope 4 cannot be "decided and tested" without PR-0 merged; section 8.3 is a dependency statement. |
+| F7 | **The row-query route does not apply the restricted-field refusal that the aggregate route applies.** `run_query/4` redacts returned values but, unlike `check_aggregate_field_restrictions/2` on the aggregate route, does not refuse a request that filters or sorts on a restricted field, so such a request returns restricted data the aggregate route already refuses. Class only; no exploit detail is recorded here (supervisor ruling). The fix was a SEPARATE first prio-1 security PR, PR-0 (#2697), now MERGED, so the dependency is satisfied. | `routers/entities.ex` (`run_query/4`, `run_query_aggregate`) | Scope 4 cannot be "decided and tested" without PR-0 merged; section 8.3 is a dependency statement. |
 | F8 | CANDIDATE's permissions are a closed set of six exam permissions (`core_role_allows?(:CANDIDATE, _) -> false`; grants come from the exam manifest only). It holds no `EntitiesQuery`/`EntitiesAggregate`/`EntitiesRecordsExport`. Roles that read generically: PROCESS_DESIGNER, PROCESS_OPERATOR, TASK_WORKER, TENANT_AUDITOR (query + aggregate), PLATFORM_ADMIN, TENANT_ADMIN. `EntitiesRecordsExportUnredacted` is held ONLY by PLATFORM_ADMIN and TENANT_ADMIN (`priv/permission_matrix/effective.golden:122, 318`). | `authorization.ex`, golden | A pure CANDIDATE cannot read via generic routes; a user with TASK_WORKER (or any generic reader) role can. Restrictions are per user, not per role: admins are redacted too unless granted. |
 | F9 | `Exam.on_install/2` seeds four `entity_field_restrictions` rows (`question.explanation`, `answer_option.is_correct`, `likert_weight`, `likert_polarity`), once per install, `on_conflict: :nothing`. Tenants installed before REQ-411 may have none; `Stamp` (GH #2596) never looks at restrictions. | `exam.ex:33-130` | Reconcile step + test for every exam-installed tenant (section 8.5). |
 | F10 | `Stamp` judges compatibility against EVERY `entity_definitions` row of a name (every version) and stamps all `managed_by IS NULL` rows. Adding a field creates a NEW definition version and leaves the old row; any old row lacking a pack field makes the name a permanent `shape_not_compatible` conflict. | `stamp.ex:fetch_rows/4, classify_name/4, compatible?/2` | The stamp must judge the ACTIVE row (section 10). |
 | F11 | Existing grading failure mode: `Scoring.score_session` returns `{:error, :question_without_correct_option}` and `build_question_row` returns `{:error, {:question_not_found, id}}`; `render_submit/2` maps any unknown error to a logged 500 (`router.ex:512-515`). `render_issue_certificate/2` and `render_download_certificate/2` have the same catch-all. | `scoring.ex:176-195`, `router.ex` | Typed error + its own render clauses (section 7). |
 | F12 | Event payloads carry the full new `field_values` for create and update (so the snapshot is in the events row); a delete event carries no field values (`records.ex`, section 17.2 of the 2596 design). The event store moves oversized payloads to `event_payload_store` (INV-EV-5). | `event_store.ex` moduledoc, `records.ex` | Section 11 (what the tamper inventory and a "late" snapshot can and cannot prove). |
 | F13 | `create_txn/4` holds `FOR UPDATE` on the `exam` row for the whole eligibility-plus-materialization sequence, so all candidates starting the same exam serialize. `fetch_pool_questions/2` already loads every pool question and all option rows (and discards everything but ids). | `session.ex:281-295, 819-844` | Snapshot data for random-pool questions is free (already loaded); only manual pins need extra reads (section 4.3). |
-| F14 | CORRECTED (SECURITY-REVIEWER B1/R1; the earlier claim that no tenant route reads event payloads was WRONG). Record create and update events carry the full `field_values` under a synthetic per-entity-type event instance that `Instances` list, get, history and timeline do not hide, so any caller holding `InstancesRead` (TASK_WORKER, TENANT_AUDITOR and others) can read record content, including the answer key and `exam_snapshot`, through instance history; field redaction does not apply on that path. Class only; no exploit detail. Fix: a separate prio-1 security PR-0b (own issue filed by letflow-2 after SECURITY-REVIEWER's reproducing test). REQ-511 depends on PR-0b. | `Letflow.Instances`, `routers/instances.ex` (to be confirmed by PR-0b's designer) | Section 8.4 events row, section 18.1. |
+| F14 | CORRECTED (SECURITY-REVIEWER B1/R1; the earlier claim that no tenant route reads event payloads was WRONG). Record create and update events carry the full `field_values` under a synthetic per-entity-type event instance that `Instances` list, get, history and timeline do not hide, so any caller holding `InstancesRead` (TASK_WORKER, TENANT_AUDITOR and others) can read record content, including the answer key and `exam_snapshot`, through instance history; field redaction does not apply on that path. Class only; no exploit detail. Fix: a separate prio-1 security PR-0b (#2702), now MERGED; it chose option (A), HIDE: synthetic entity-type instances are a 404 on every `Instances` read. The dependency is satisfied. | `Letflow.Instances`, `routers/instances.ex` (changed by merged #2702) | Section 8.4 events row, section 18.1. |
 
 ## 1. Acceptance criteria map
 
@@ -40,7 +40,7 @@ shape; every revision is listed in section 2 with its reason.
 | AC1 correction 1: certificate path is a second live window; issuance reads only the snapshot | section 6 | T-09, T-10, T-11 |
 | AC2 Missing threshold or missing answer-key item -> grading error, not 60.0; old fallback removed; BOTH row-error and nil-field cases, each tested | section 7 | T-15..T-20 |
 | AC3 In-flight policy implemented and tested for a session created before deploy (conditional on the policy; policy chosen: lazy snapshot at first touch, "late" marker, fail closed on corrupt or unsupported) | section 9 | T-21..T-25 |
-| AC4 (depends on PR-0 for the filter/sort refusal AND on PR-0b for event-payload exposure) Answer-key field restrictions tested; who may read exam/session fields via generic routes decided; record GET routes covered (there are none, F6); event/instance routes covered (F14, 18.1) | section 8 | T-26..T-35, T-30 |
+| AC4 (PR-0 filter/sort refusal and PR-0b event-payload hiding are MERGED dependencies) Answer-key field restrictions tested; who may read exam/session fields via generic routes decided; record GET routes covered (there are none, F6); event/instance routes covered (F14, 18.1) | section 8 | T-26..T-35, T-30 |
 | AC5 Gate: infra stamp does NOT run before this is merged; the PR records the ordering | section 10 | T-36..T-40 |
 | AC6 Design validated, SECURITY-REVIEWER and REVIEWER verdicts, standard gates quoted | section 15 | process |
 | Correction 2 real session fields | F4, section 4.1 | T-04 (carry-forward) |
@@ -346,7 +346,7 @@ step, the start-time precondition (4.3 step 1) and the Stamp prerequisite (10).
 
 ### 8.3 Restricted-field refusal on the row-query and export routes: moved to PR-0 (dependency)
 
-Supervisor ruling: the fix (a request that filters or sorts on a restricted field, on `POST /entities/query`
+Status: MERGED as PR-0 (#2697); this section is now a satisfied dependency. Supervisor ruling (historical): the fix (a request that filters or sorts on a restricted field, on `POST /entities/query`
 plain and join, and on default-redacted export, is refused with the same 403 and constant body the aggregate
 route already uses) is its OWN first prio-1 security PR, PR-0, with its own issue and its own reproducing and
 regression tests. It is NOT part of PR (a) or (b). REQ-511 depends on PR-0 for AC4. Design constraint kept:
@@ -560,7 +560,7 @@ changed) are updated. The `description` of `session.json` gets one sentence for 
 | T-27 | Joined query (`session_question` joined to `session`, and `session` primary) redacts `exam_snapshot`. |
 | T-28 | `ScriptReads` omits `exam_snapshot` for a process script reading a session. |
 | T-29 | Golden: the CANDIDATE row has no `EntitiesQuery`, `EntitiesAggregate`, `EntitiesRecordsExport` (asserts against `effective.golden`/`Authorization.role_allows?`). |
-| T-30 | Full candidate flow (start, state, autosave, submit, certificate, download) serialized, plus every tenant-readable route probed with a TASK_WORKER, a TENANT_AUDITOR and a TENANT_ADMIN token: `POST /entities/query` (plain, join), `/aggregate`, `/export` (default), `GET` instances list, get, history and timeline (including the synthetic entity-type instance of the session), the public certificate projection, and any other event-payload route found by the 8.4 enumeration. On NONE of them does `exam_snapshot`, its `nonce`, its `digest`, `correct_option_ids`, or an `is_correct` flag appear in the body. RED on main for the instance routes (F14); GREEN after PR-0b. |
+| T-30 | Full candidate flow (start, state, autosave, submit, certificate, download) serialized, then probes with a TASK_WORKER, a TENANT_AUDITOR and a TENANT_ADMIN token (PR-0b is merged): (1) `GET` instances list/get/history/timeline for the session's synthetic entity-type instance id AND for an `answer_option` synthetic id each return a 404 byte-identical to the 404 of a random uuid (status and body); (2) `POST /entities/query` (plain, join), `/aggregate`, `/export` (default) show `exam_snapshot` only as the redaction sentinel or not at all; (3) the audit entries read route (`AuditRead`), `GET /promotions/platform-events`, `ScriptReads` (a script reading a session) and the entity port (`StepWrites`/`HandlerWrites` read paths) return no snapshot content; (4) the `PUT`/`POST /entities/records/session` response (and its error bodies) never echoes a PRIOR `exam_snapshot` (it returns what the caller sent); (5) the public certificate projection. In every body `exam_snapshot`, its `nonce`, its `digest`, `correct_option_ids` and `is_correct` flags are absent. The route list is closed by the 8.4 enumeration; a test fails if the enumeration finds a route not in the probe list. |
 | T-31 | OWNED BY PR-0: a request that filters or sorts on a restricted field (plain, join, export default) is refused 403 with the aggregate's constant body; RED on main before the fix; unredacted export by an admin still works. |
 | T-32 | OWNED BY PR-0: unrestricted filter/sort still works; the aggregate refusal is unchanged. |
 | T-33 | For every exam-installed tenant in the test DB, all six `answer_key_fields` rows exist (fresh install via `on_install`; pre-REQ-411-style tenant with zero rows after the rollout reconcile). |
@@ -588,14 +588,16 @@ Existing tests that must be updated: `pack_install_test.exs` (field counts/drift
 
 | PR | Contents | Files |
 |---|---|---|
-| PR-0 (separate, first, prio 1 SECURITY; outside this requirement's PR count) | Restricted-field refusal on row query (plain, join) and default export (8.3). Own issue (letflow-2), own tests. | `lib/letflow/routers/entities.ex` |
-| PR-0b (separate, second, prio 1 SECURITY; outside this requirement's PR count) | Hide synthetic entity-type instances from every `Instances` read (list, get, history, timeline) with the same 404 as a nonexistent instance, OR per-user redaction of event `field_values` through `FieldGrants`; the PR-0b designer chooses (18.1). Own issue (letflow-2) after SECURITY-REVIEWER's reproducing test. | `lib/letflow/instances*.ex`, `lib/letflow/routers/instances.ex` (to be confirmed) |
-| (a) storage + scoring read + restrictions seed + gate flag | `Snapshot` module (build_from_resolved, fetch_*, threshold, to_scoring_questions, canonical_encode, digest); `session.json` + `pack.json` + `generate_pack.exs`; `Exam.answer_key_fields` +1; create writes the snapshot; scoring, autosave, state read the snapshot (snapshotless -> grading error `:snapshot_missing`, no late path yet); `60.0` and `passing_threshold_for` removed; carry-forward; typed error + router clauses for submit/start/503; rollout task + reconcile; `Stamp` flag REFUSAL (real run refused while the flag is false; this closes the gate) and the config flag `false`. | `lib/letflow/modules/exam/{snapshot.ex (new), session.ex, exam.ex, router.ex}`, `lib/letflow/entities/managed_types/stamp.ex`, `lib/letflow/modules/exam/snapshot/rollout.ex`, `lib/letflow/release/exam_snapshot.ex`, `lib/mix/tasks/letflow.exam_snapshot_rollout.ex`, `lib/letflow/api/response.ex` (503 helper), `priv/modules/exam/**`, `config/config.exs`, `config/test.exs`, tests |
+| PR-0 (#2697, MERGED; outside this requirement's PR count) | Restricted-field refusal on row query (plain, join) and default export (8.3). Own issue (letflow-2), own tests. | `lib/letflow/routers/entities.ex` |
+| PR-0b (#2702, MERGED; outside this requirement's PR count) | Chose HIDE: synthetic entity-type instances are a 404 on `Instances` reads, as a nonexistent instance (18.1). | `lib/letflow/routers/instances.ex` and its context (as merged) |
+| (a) storage + scoring read + restrictions seed + gate flag | `Snapshot` module (build_from_resolved, fetch_*, threshold, to_scoring_questions, canonical_encode, digest); `session.json` + `pack.json` + `generate_pack.exs`; `Exam.answer_key_fields` +1; create writes the snapshot; scoring, autosave, state read the snapshot (snapshotless -> grading error `:snapshot_missing`, no late path yet); `60.0` and `passing_threshold_for` removed; carry-forward; typed error + router clauses for submit/start/503; rollout task + reconcile; `Stamp` flag REFUSAL (real run refused while the flag is false; this closes the gate) and the config flag `false`. | `lib/letflow/modules/exam/{snapshot.ex (new), session.ex, exam.ex, router.ex}`, `lib/letflow/entities/managed_types/stamp.ex`, `lib/letflow/release/managed_types.ex` (widen `stamp/1` `@spec` to `{:ok, Stamp.report()} | {:error, :unsupported_module | :snapshot_not_complete}`), `lib/mix/tasks/letflow.stamp_managed_types.ex` (new clause for `{:error, :snapshot_not_complete}` and the gate exit mapping below), `lib/letflow/modules/exam/snapshot/rollout.ex`, `lib/letflow/release/exam_snapshot.ex`, `lib/mix/tasks/letflow.exam_snapshot_rollout.ex`, `lib/letflow/api/response.ex` (503 helper), `priv/modules/exam/**`, `config/config.exs`, `config/test.exs`, tests |
 | (b) certificate + in-flight + Stamp prerequisites | `Stamp` per-tenant prerequisites, active-row compat and new report types (17.2); flag set `true` (the single flip); `Session.get_snapshot_for_user/3`, `Certificate` reads facts only, certificate render clauses; `Snapshot.ensure/3`, `ensure_locked/2`, `build_late`, `ensure_certificate_facts`, late audit entry; late path wired into autosave/state(in_progress)/submit/finalize. | `certificate.ex`, `session.ex`, `snapshot.ex`, `router.ex`, `config/config.exs`, tests |
 
 Between (a) and (b) a snapshotless in-progress session fails closed (typed error), never scores from live
 data; (a) must not be deployed to a tenant with in-flight sessions it cares about (QA has none that matter;
-the PR body says so). Sequence (rulings): PR-0 (#2697), then PR-0b, then (a), then (b); REQ-511 depends on PR-0 and PR-0b. With PR-0 split off, (a) is smaller (R-1 reduced). The PRs record the ordering: PR (a) body states "the infra stamp is refused by code until PR (b)
+the PR body says so). Sequence: PR-0 (#2697, merged), PR-0b (#2702, merged), then (a), then (b); both dependencies are satisfied.
+
+Test-to-PR map (checked against the tables of section 12 and 17.4; T-31 and T-32 were PR-0's and are merged). PR (b) owns: T-09, T-10, T-11, T-21..T-25, T-38, T-39, T-40, T-44, T-48..T-52, T-58..T-63b (T-59, T-60, T-61, T-61b, T-62, T-63, T-63b), the certificate and download render cases of T-20 (T-20b), the `:certificate_facts_missing` case of T-55 (T-55c), the prerequisite and `prerequisites_missing` part of T-57 (T-57b), and mutants M4, M9, M11, M12, M14, M16. Every other test belongs to PR (a): T-01..T-08, T-12..T-19, T-20 (submit, start and 503 cases), T-26..T-30, T-33..T-37, T-41, T-42, T-43, T-45, T-46, T-47, T-53, T-54, T-55 (cases a, b, d, e), T-56, T-57 (the `:snapshot_not_complete` status and `gate_blocked_total`, T-57a), and mutants M1, M2, M3 (via T-04; extended by T-09 and T-11 in PR (b)), M5, M7, M8, M10, M13, M15 (the "fails on a missing snapshot" half; PR (b) adds the `ensure` half). M6 is PR-0's. T-30 runs in PR (a) with the live-exam certificate path and is re-run unchanged in PR (b). With PR-0 split off, (a) is smaller (R-1 reduced). The PRs record the ordering: PR (a) body states "the infra stamp is refused by code until PR (b)
 flips `exam_snapshot_complete`"; PR (b) body states the rollout-then-stamp order.
 
 ## 14. Mutants (the implementer deletes or flips each; the named test must fail)
@@ -745,10 +747,16 @@ non_neg_integer()`; `error :: nil | :nested_transaction | :lock_timeout | {:defi
 
 Stamp additions (typed): `tenant_status` gains `:snapshot_not_complete` (flag false, real run) and
 `:snapshot_prerequisite_missing`; `tenant_report` gains `prerequisites_missing :: [:session_definition |
-:answer_key_restrictions]` (empty by default); `report` gains `prerequisite_missing_total`; `run/1` returns
+:answer_key_restrictions]` (empty by default); `report` gains `gate_blocked_total :: non_neg_integer()` (tenants whose status is `:snapshot_not_complete` or `:snapshot_prerequisite_missing`); `run/1` returns
 `{:ok, report()} | {:error, :unsupported_module | :snapshot_not_complete}`. Which PR: the flag REFUSAL ships in
-PR (a) with the flag `false`; the prerequisites, the active-row compatibility change and the extra report
-fields ship in PR (b) with the flag set `true`.
+PR (a) with the flag `false`; the prerequisites, the active-row compatibility change, the status
+`:snapshot_prerequisite_missing` and the report key `prerequisites_missing` ship in PR (b) with the flag set `true`.
+Report fields by PR (D1, binding): PR (a) adds the tenant status `:snapshot_not_complete` and the report counter
+`gate_blocked_total`, which in PR (a) counts ONLY tenants with status `:snapshot_not_complete`; the mix task and
+`print_tenant/1` use them in PR (a) and therefore reference nothing from PR (b). PR (b) adds
+`:snapshot_prerequisite_missing` and `prerequisites_missing` and extends `gate_blocked_total` to count that status too.
+
+Stamp entry-point mapping (CDV C3; the mix task at `lib/mix/tasks/letflow.stamp_managed_types.ex` currently matches only `{:ok, report}` and `{:error, :unsupported_module}`, so an unhandled `{:error, :snapshot_not_complete}` would raise `CaseClauseError`, and it halts only when `failed_total > 0`): `Release.ManagedTypes.stamp/1` returns the widened spec above; the mix task prints `"stamp refused: exam snapshot gate is closed (:exam_snapshot_complete is false)"` and halts with status 1 on `{:error, :snapshot_not_complete}`; after `{:ok, report}` it halts with status 1 when `failed_total > 0 or gate_blocked_total > 0` (a dry run never has a blocked tenant, so dry-run exits 0); `print_tenant/1` prints the two new statuses and `prerequisites_missing`. T-36 asserts each entry point and the exit statuses; T-57 the report keys.
 
 ### 17.3 G3: what the digest does and does not do (threat model; for SECURITY-REVIEWER)
 
@@ -835,7 +843,7 @@ Recorded by SECURITY-REVIEWER: OQ-12 (digest without HMAC) is acceptable; there 
 #2612 rule is not triggered. PR sequence: PR-0 (#2697) -> PR-0b -> PR (a) -> PR (b); REQ-511 depends on PR-0 and
 PR-0b.
 
-### 18.1 B1/R1: event payloads under synthetic entity-type instances (PR-0b, a dependency)
+### 18.1 B1/R1: event payloads under synthetic entity-type instances (PR-0b #2702, MERGED; chose HIDE)
 
 Finding F14 (corrected above): record create and update events carry the full `field_values` under a synthetic
 per-entity-type event instance; `Instances` list, get, history and timeline do not hide it, so `InstancesRead`
@@ -845,7 +853,7 @@ This is a pre-existing exposure that REQ-511 would otherwise make worse (the key
 after SECURITY-REVIEWER's reproducing test; the designer of PR-0b chooses between two fixes):
 (A) hide synthetic entity-type instances from every `Instances` read (list, get, history, timeline) with the same
 404 body as a nonexistent instance (INV-5), or (B) per-user redaction of event `field_values` through
-`FieldGrants` for the restricted fields. This design requires only the property: after PR-0b, no `Instances` route
+`FieldGrants` for the restricted fields. PR-0b (#2702) chose (A), hide. BINDING LINE (SEC A2): REQ-516 (#2701), and any other present or future route that returns record-event payloads (field_values), must apply the field restrictions of the caller (FieldGrants) or exclude restricted types; a new such route without that fails the SECURITY-REVIEWER gate. This design requires only the property: after PR-0b, no `Instances` route
 returns `exam_snapshot`, its nonce or digest, or answer-key values to any caller without a `user_entity_grants`
 row. Test T-30 (extended) is the acceptance proof for this requirement. Checklist item for SECURITY-REVIEWER at
 the code gate: enumerate every route returning event payloads (8.4 checklist item 1) and attach the list to the
@@ -875,24 +883,50 @@ The Rollout creates the new `session` definition ONLY through `Definitions.creat
 prefix (`tenant_id_for_schema_name/1`), never from input. The new definition equals the tenant's previous active
 one plus exactly the `exam_snapshot` field (T-37 diffs them). Reports carry tags, statuses and counts only.
 
-### 18.5 R5: cutover rule for late snapshots (replaces OQ-3's earlier default)
+### 18.5 R5: cutover rule for late snapshots (BINDING; replaces OQ-3's earlier default; ships in PR (b))
 
-Let `cutover(tenant)` be the time the first `session` definition version that declares `exam_snapshot` became
-ACTIVE in that tenant: for the rollout, the activation time of the version it created; for a fresh install, the
-install time of the pack. ELIXIR-DEV derives it from `entity_definitions` (the active-status flip time; if the
-table has no reliable activation timestamp, the Rollout records the activation time in a hash-chained audit entry
-`exam.snapshot_rollout` with `after_state %{"activated_at" => iso8601}` and `ensure` reads that entry; the PR
-quotes which source is used). Rule: a late snapshot (`late`, `late_certificate`) is allowed ONLY when
-`session.started_at < cutover(tenant)`. A session that started at or after the cutover and has no
-snapshot, or a tenant where no version declares the field, fails closed:
-`{:grading_error, :snapshot_missing}` (or `{:snapshot_error, :definition_missing}`), with no write. This closes the
-"drop the snapshot with a PUT, get a live one" path for every session that started after the cutover. Tests:
-T-60 (session started before the cutover, no snapshot -> late snapshot allowed); T-61 (session started after
-the cutover, snapshot dropped -> `:snapshot_missing`, zero events, not snapshotted; same for the certificate
-facts case); T-62 (fresh-install tenant: cutover is the install time).
+Cutover source (verified in code at `828d9d1be`): `entity_definitions` has only `inserted_at` and
+`Definitions.activate_definition/4` flips `status` without a time, BUT it calls `Activation.activate_group/5`
+with `artifact_kind: :entity`, `artifact_name: name`, `version_id: entity_definition.artifact_version_id`, which
+inserts one `artifact_activation_history` row (schema `Letflow.Repository.ActivationHistory`; columns
+`artifact_kind`, `artifact_name`, `new_version_id`, `new_version_number`, `activated_at :utc_datetime_usec`,
+`tenant_id`; append-only: no update or delete exists). Pack install and the rollout both go through
+`activate_definition/4`, so every activation of a `session` version has such a row. Binding rule:
 
-The late audit entry of 17.6 now has `after_state %{"origin", "taken_at", "exam_id", "started_at"}` (the
-session's `started_at`; ids, names and timestamps only).
+`Snapshot.cutover/1` (PR (b)): `cutover(prefix :: String.t()) :: {:ok, DateTime.t()} | {:error,
+:definition_missing | :invalid_schema_name}`. It returns the MINIMUM `activated_at` over `artifact_activation_history`
+rows where `artifact_kind == :entity`, `artifact_name == "session"`, `tenant_id` is the prefix's tenant
+(`tenant_id_for_schema_name/1`), and `new_version_id` equals the `artifact_version_id` of an `entity_definitions`
+row (same tenant, `name == "session"`) whose `definition_json` declares a field named `exam_snapshot` (matched
+with a bound-parameter jsonb containment, no string interpolation, INV-7). No such row -> `{:error,
+:definition_missing}`, which `ensure/3`, `ensure_locked/2` and `ensure_certificate_facts/3` map to
+`{:snapshot_error, :definition_missing}` (HTTP 503) with no write. There is NO audit-entry fallback and no
+alternative source.
+
+Compared quantity (SEC A3): the cutover is compared with the server-set `inserted_at` of the session RECORD
+(`entity_record_latest.inserted_at`, set on insert, not castable and not changed by `update_record`; ELIXIR-DEV
+confirms the upsert never rewrites it and quotes the line), NOT with the `started_at` field, because before the
+stamp a writer can rewrite `started_at` together with dropping the snapshot. Rule: a late snapshot (`late`,
+`late_certificate`) is allowed ONLY when the session record's `inserted_at` is earlier than the cutover; otherwise
+`{:grading_error, :snapshot_missing}` with no write. Tests (all PR (b)): T-60 (record inserted before the cutover,
+no snapshot -> late snapshot allowed); T-61 (record inserted at or after the cutover, snapshot dropped ->
+`:snapshot_missing`, zero events, not snapshotted; same for the certificate-facts case); T-61b (record inserted
+after the cutover whose writer sets `started_at` far in the past while dropping the snapshot -> still
+`:snapshot_missing`); T-62 (fresh-install tenant: the cutover is the install-time activation row); T-63b
+(`cutover/1` unit test: minimum over several versions, ignores versions without the field, `:definition_missing`
+when none).
+
+Fixture rule (CDV C2, binding): the test fixtures carry `exam_snapshot` from install, so a plain fixture session
+is "after the cutover". Every test that needs a LEGACY (pre-ship) session (T-21..T-25, T-43..T-47 legacy
+variants, T-48..T-52, T-58, T-59, T-63) builds it through ONE helper `legacy_session!` that (i) creates the
+session record and then sets its stored `inserted_at` earlier than the tenant's cutover by a direct fixture
+update of `entity_record_latest.inserted_at` (a test-support write, not a production path), and (ii) sets the
+`started_at` field before the cutover and `expires_at` in the future. Only T-61 and T-61b use a session whose
+record `inserted_at` is at or after the cutover. Cutover rows cannot be edited (append-only history), so the
+session side is moved, never the cutover.
+
+The late audit entry of 17.6 has `after_state %{"origin", "taken_at", "exam_id", "started_at"}` (ids, names and
+timestamps only).
 
 ### 18.6 R6: ownership before prerequisites, and lock order
 
@@ -901,6 +935,6 @@ definition and restriction prerequisites, then the cutover rule, then build and 
 (or a nonexistent session) receives the identical not-found response bytes, never a 503 and never a prerequisite
 probe. The prerequisite probes therefore cannot be used by a non-owner to learn rollout state. Test T-63: for a
 legacy session in a tenant WITHOUT the definition field, a non-owner touch and a touch of a random uuid return
-byte-identical responses; the owner gets the 503. Lock order (no cycle): exam row lock (create only) -> session
-row lock -> audit chain lock. The audit insert is the LAST statement of the snapshot transaction; no code path
-takes the audit chain lock and then a session or exam row lock.
+byte-identical responses AND an identical number of database queries (query-count parity measured with a telemetry counter on the repo; asserted for `ensure/3`, `ensure_certificate_facts/3`, autosave and the state read), so neither bytes nor query count distinguish a non-owner from a nonexistent session; the owner gets the 503. Full lock order (no cycle, SEC A5): exam row lock (create only) -> session
+row lock -> the entity-type instance sequence lock (taken by the `Records` write) -> audit chain lock. The audit insert is the LAST statement of the snapshot transaction; no code path
+takes the audit chain lock and then a session row, exam row or instance sequence lock. ELIXIR-DEV quotes grep evidence in the PR that no path inverts this order, including `Stamp.audit!` (which holds no session or exam row lock).
