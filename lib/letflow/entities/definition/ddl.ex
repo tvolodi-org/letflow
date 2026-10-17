@@ -395,7 +395,7 @@ defmodule Letflow.Entities.Definition.DDL do
   @doc """
   Whether `value` is a safe SQL identifier -- matches the same format
   `Letflow.Entities.Definition.Validator` already enforces on names
-  (`~r/^[a-z][a-z0-9_]{0,63}$/`). This module does not import or call the
+  (`~r/^[a-z][a-z0-9_]{0,63}\\z/`). This module does not import or call the
   Validator's private regex; it defines its own equivalent public check, so
   this module's safety property does not depend on the Validator's private
   implementation detail staying accessible or unchanged.
