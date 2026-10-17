@@ -280,7 +280,70 @@ defmodule Letflow.Modules.Exam.SnapshotRolloutTest do
       assert %{status: :upgraded, definition: :added, restrictions_added: 5, error: nil} =
                Rollout.run_tenant(schema, [])
 
-      assert snapshot_field(active_session!(schema))
+      current = active_session!(schema)
+      assert snapshot_field(current)
+
+      # diff vs the previous version: the added field, and the nil keys dropped -- nothing else
+      drop_nils = fn fields ->
+        Enum.map(fields, fn field -> Map.reject(field, fn {_key, value} -> is_nil(value) end) end)
+      end
+
+      assert current.definition_json["fields"] ==
+               drop_nils.(previous.definition_json["fields"]) ++ [snapshot_field(current)]
+
+      assert Map.delete(current.definition_json, "fields") ==
+               Map.delete(previous.definition_json, "fields")
+    end
+
+    test "a stored definition with a key or a value the rollout does not know is refused and nothing is written" do
+      cases = [
+        {"unknown field key with a value", fn field -> Map.put(field, "bogus_key", "x") end,
+         :unsupported_definition_key},
+        {"unknown field key with a nil value", fn field -> Map.put(field, "bogus_key", nil) end,
+         :unsupported_definition_key},
+        {"unsupported non-nil search_strategy",
+         fn field -> Map.put(field, "search_strategy", "weird") end,
+         :unsupported_definition_value},
+        {"unsupported field type", fn field -> Map.put(field, "type", "exotic") end,
+         :unsupported_definition_value}
+      ]
+
+      for {label, mutate, tag} <- cases do
+        %{schema_name: schema} =
+          pre_rollout_tenant!("gh2682-t37-refuse-#{System.unique_integer([:positive])}")
+
+        active = active_session!(schema)
+        [first | rest] = active.definition_json["fields"]
+        document = Map.put(active.definition_json, "fields", [mutate.(first) | rest])
+
+        {1, _} =
+          Repo.update_all(
+            from(d in EntityDefinition, where: d.id == ^active.id),
+            [set: [definition_json: document]],
+            prefix: schema
+          )
+
+        versions = length(session_versions(schema))
+
+        assert {label,
+                %{
+                  status: :failed,
+                  definition: :skipped,
+                  restrictions_added: 0,
+                  error: {:definition_write_failed, tag}
+                }} ==
+                 {label,
+                  Map.take(Rollout.run_tenant(schema, []), [
+                    :status,
+                    :definition,
+                    :restrictions_added,
+                    :error
+                  ])}
+
+        assert length(session_versions(schema)) == versions
+        assert active_session!(schema).id == active.id
+        assert restriction_pairs(schema) == []
+      end
     end
 
     test "a tenant that already has the field but is missing restriction rows: only the rows are added, no new version" do

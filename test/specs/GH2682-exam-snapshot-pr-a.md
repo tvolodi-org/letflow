@@ -188,3 +188,10 @@ with a default (`opt/2`, `build/3`, `request/4`, `request/5`) are called with an
 - [x] Closed state sets (the five question types, the grading reasons) are covered by a table-driven completeness test and a property test.
 - [x] Regression proof: the scoring/autosave/state tests fail against the pre-change `session.ex` (27 of 34).
 - [ ] The rollout against a definition with JSON-null optional keys passes (blocked on finding 1).
+
+## Update after TDV (tests only, rollout null-key fix now in lib)
+
+- `snapshot_rollout_test.exs`: new test "a stored definition with a key or a value the rollout does not know is refused": unknown field key (value and nil value) -> `:unsupported_definition_key`; non-nil unsupported `search_strategy` and unsupported field `type` -> `:unsupported_definition_value`; status `:failed`, no new version, same active row, no restriction rows (kills a mutant that accepts unknown keys).
+- The null-keys test (no longer a failing REPRO) also asserts the diff vs the previous version is exactly the nil-dropped fields plus `exam_snapshot`, and all other top-level keys equal.
+- R6 query-count test asserts `real_queries > 0` (non-vacuity).
+- Run: T-37 describe + R6 describe: `Result: 9 passed, 45 excluded`; `git diff -- lib` empty. Finding 1 above is resolved by the lib fix; the last coverage box now holds.

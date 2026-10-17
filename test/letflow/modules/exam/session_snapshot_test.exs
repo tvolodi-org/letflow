@@ -825,6 +825,7 @@ defmodule Letflow.Modules.Exam.SessionSnapshotTest do
         assert {name, real_result} == {name, {:error, :not_owner}}
         assert {name, missing_result} == {name, {:error, :session_not_found}}
         assert {name, real_queries} == {name, missing_queries}
+        assert {name, real_queries > 0} == {name, true}
       end
     end
   end
