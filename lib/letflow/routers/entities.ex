@@ -1951,7 +1951,11 @@ defmodule Letflow.Routers.Entities do
   defp guard_row_request(request, %{user_id: user_id, prefix: prefix} = principal) do
     case TypeAccess.authorized?(user_id, request.entity_type, prefix) do
       {:ok, :denied} ->
-        {:ok, :type_denied}
+        # MUTANT M10: denied caller no longer skips the guard
+        with {:ok, ok} <-
+               FieldPolicy.check_request(principal, :row, request, %{exempt?: false}) do
+          {:ok, {:checked, ok}}
+        end
 
       {:ok, :allowed} ->
         with {:ok, ok} <-
@@ -2402,9 +2406,10 @@ defmodule Letflow.Routers.Entities do
              %{exempt?: unredacted?}
            ),
          {:ok, compiled} <- Compiler.compile(request, prefix),
-         :ok <- audit_exempted(user_id, path_entity_type, prefix, guard.exempted),
          {:ok, allowlist} <- Allowlist.load(request.entity_type, prefix),
          {:ok, page} <- Cursor.paginate(request, compiled, allowlist, opts, prefix),
+         # MUTANT M8: audit moved after the records query
+         :ok <- audit_exempted(user_id, path_entity_type, prefix, guard.exempted),
          {:ok, redacted} <- export_redact(page, request, guard.sets, unredacted?) do
       Response.ok(conn, %{
         "record_export_schema_version" => @record_export_schema_version,
