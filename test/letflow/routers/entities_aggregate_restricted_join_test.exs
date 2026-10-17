@@ -594,7 +594,9 @@ defmodule Letflow.Routers.EntitiesAggregateRestrictedJoinTest do
     end
 
     test "A-10 unknown field in filter / group_by / measure, with and without a join, is 422 echoing the caller's string" do
-      ctx = combo_ctx!("aj-unknown", ["TASK_WORKER"], [{"answer_option", "question_id"}])
+      # No restriction on the join fk here: a join through a RESTRICTED fk is (correctly) a 403,
+      # which would mask the 422 this test pins.
+      ctx = combo_ctx!("aj-unknown", ["TASK_WORKER"], [])
 
       bodies = [
         %{"filters" => [%{"field" => "nope", "op" => "eq", "value" => 1}]},
