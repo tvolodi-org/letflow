@@ -241,6 +241,7 @@ defmodule Letflow.Entities.Records do
           | {:error, {:record_already_deleted, record_id :: Ecto.UUID.t()}}
           | {:error, :record_version_conflict}
           | {:error, {:entity_append_only, entity_type :: String.t()}}
+          | {:error, {:definition_changed, entity_type :: String.t()}}
           | {:error, :idempotency_key_reuse}
           | {:error, :entity_type_managed}
           | {:error, :tenant_not_provisioned}
@@ -335,7 +336,7 @@ defmodule Letflow.Entities.Records do
          :ok <- reject_step_key(attrs),
          {:ok, definition} <- fetch_active_definition(entity_type, prefix),
          :ok <- check_write_authority(definition, entity_type, authority),
-         :ok <- validate_field_values(definition, field_values) do
+         {:ok, field_values} <- validate_field_values(definition, field_values) do
       record_id = Ecto.UUID.generate()
 
       ctx = %{
@@ -347,7 +348,8 @@ defmodule Letflow.Entities.Records do
         existing_record: nil,
         expected_last_event_global_seq: nil,
         idempotency_match: match,
-        prefix: prefix
+        prefix: prefix,
+        authority: authority
       }
 
       run_command(ctx, attrs)
@@ -416,7 +418,7 @@ defmodule Letflow.Entities.Records do
          :ok <- ensure_mutable(definition, entity_type),
          {:ok, existing_record} <- fetch_existing_record(record_id, entity_type, prefix),
          :ok <- ensure_not_deleted(existing_record, record_id),
-         :ok <- validate_field_values(definition, field_values) do
+         {:ok, field_values} <- validate_field_values(definition, field_values) do
       ctx = %{
         kind: :update,
         entity_type: entity_type,
@@ -426,7 +428,8 @@ defmodule Letflow.Entities.Records do
         existing_record: existing_record,
         expected_last_event_global_seq: expected,
         idempotency_match: :request,
-        prefix: prefix
+        prefix: prefix,
+        authority: authority
       }
 
       run_command(ctx, attrs)
@@ -486,7 +489,8 @@ defmodule Letflow.Entities.Records do
           existing_record: existing_record,
           expected_last_event_global_seq: expected,
           idempotency_match: :request,
-          prefix: prefix
+          prefix: prefix,
+          authority: authority
         }
 
         run_command(ctx, attrs)
@@ -548,13 +552,13 @@ defmodule Letflow.Entities.Records do
     with {:ok, line} <- check_step_command(command),
          {:ok, definition} <- fetch_active_definition(line.entity_type, prefix),
          :ok <- check_write_authority(definition, line.entity_type, authority),
-         :ok <- validate_field_values(definition, line.field_values),
+         {:ok, field_values} <- validate_field_values(definition, line.field_values),
          {:ok, instance_id} <- fetch_step_instance_id(line.entity_type, prefix) do
       ctx = %{
         kind: :create,
         entity_type: line.entity_type,
         record_id: Ecto.UUID.generate(),
-        field_values: line.field_values,
+        field_values: field_values,
         definition: definition,
         existing_record: nil,
         expected_last_event_global_seq: nil,
@@ -807,6 +811,9 @@ defmodule Letflow.Entities.Records do
       {:ok, multi} ->
         multi
         |> maybe_check_record_version(ctx)
+        |> Multi.run(:recheck_definition, fn _repo, _changes ->
+          recheck_definition(ctx.definition, ctx.entity_type, prefix, ctx.authority)
+        end)
         |> Multi.run(:upsert_record_latest, fn repo, changes ->
           upsert_record_latest(repo, changes, ctx)
         end)
@@ -1448,10 +1455,14 @@ defmodule Letflow.Entities.Records do
 
   defp ensure_not_deleted(%Latest{}, _record_id), do: :ok
 
+  # GH #2654: returns the NORMALISED field_values (strict decimals as canonical
+  # scale-padded strings); every caller must store/append/fingerprint that map,
+  # not its input. A definition with no strict decimal field returns the input
+  # unchanged.
   defp validate_field_values(%EntityDefinition{} = definition, field_values) do
-    case Validator.validate_record_payload(definition_document(definition), field_values) do
-      [] -> :ok
-      violations -> {:error, {:record_payload_invalid, violations}}
+    case Validator.normalize_record_payload(definition_document(definition), field_values) do
+      {:ok, normalised} -> {:ok, normalised}
+      {:error, violations} -> {:error, {:record_payload_invalid, violations}}
     end
   end
 
@@ -1514,6 +1525,8 @@ defmodule Letflow.Entities.Records do
       enum_values: Map.get(field, "enum_values"),
       decimal_precision: Map.get(field, "decimal_precision"),
       decimal_scale: Map.get(field, "decimal_scale"),
+      # GH #2654: nil and false are the same downstream (only `true` is strict).
+      decimal_strict: Map.get(field, "decimal_strict"),
       locales: Map.get(field, "locales"),
       search_strategy: field |> Map.get("search_strategy") |> search_strategy_atom()
     }

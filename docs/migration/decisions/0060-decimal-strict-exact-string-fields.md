@@ -17,7 +17,11 @@ A `:decimal` entity field takes a JSON number on the wire (`{"type":"number"}`),
 5. A `min`/`max` bound on a strict decimal field may be a JSON number or a decimal string; on a non-strict field it must be a number as today.
 6. WMS (REQ-504) declares `decimal_strict: true` on its quantity fields.
 
+## Write-side recheck: the one behaviour change for tenants that do not use the flag
+The immutability rule is only sound if every writer re-validates under the type's sequence lock. `command_multi` already did (`:recheck_definition`). `create_record`, `update_record` and `delete_record` (all through `append_command/4`) now do too: after the sequence-lock step and before the projection upsert they re-resolve the active definition and refuse `{:definition_changed, type}` (HTTP 409, "entity definition changed during the write; retry") when it is not the one the write was validated against; nothing is appended and a retry is safe. This is unconditional, so it is also the single narrow change for tenants that never set `decimal_strict`: a record write that overlaps ANY activation of its type returns 409 instead of committing under the old definition (the same outcome `command_multi` already gives a process step). No other behaviour of a non-strict tenant changes in this work.
+
 ## Why not always-string
+
 Making every decimal field string-typed would break shipped code that reads decimals as numbers: the exam module's definitions (`priv/modules/exam/entity_definitions`: `passing_score_pct`, `score_pct`, `likert_weight`, `score`/`max_score`) are written as computed floats (`Exam.Session`, e.g. 66.6666) and read by `to_float/1` helpers (`session.ex`, `certificate.ex`, `certificate_public_projection.ex`) that have no binary clause; about 33 test definitions and the SPA's number inputs and `parseFloat` filters assume numbers; existing tenants hold stored numbers and number-typed integrations. Rewriting those is a larger, riskier change than the WMS need.
 
 ## Migration path

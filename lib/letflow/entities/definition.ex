@@ -50,12 +50,22 @@ defmodule Letflow.Entities.Definition do
   carries it. The process-step write path (PR B) re-reads the flag from the
   CURRENT active definition at run time; nothing caches it.
 
+  ## Exact decimal strings (GH #2654, decision 0060)
+
+  A `:decimal` field takes the optional boolean `decimal_strict` (never defaulted by
+  any layer; an absent key keeps the stored JSON and the shape hash unchanged). `true`
+  makes writes accept only a canonical decimal string or a JSON integer, enforce
+  `decimal_scale`/`decimal_precision` and compare bounds exactly; see
+  `Letflow.Entities.Record.Decimals`. It is allowed only on `:decimal` fields, caps
+  `decimal_precision` at 1000, and cannot change while the entity type has records
+  (`Letflow.Entities.Definitions.activate_definition/4`).
+
   ## Numeric ranges (GH #2532)
 
   `:integer` and `:decimal` fields take three optional keys, never defaulted
   or inserted by any layer (absent means unbounded, and keeps the stored JSON,
   the record subschema and the shape hashes unchanged): `min` and `max`
-  (inclusive bounds; an integer on `:integer`, any number on `:decimal`) and
+  (inclusive bounds; an integer on `:integer`, any number on `:decimal`, or a decimal string on a `:decimal` field with `decimal_strict: true`) and
   `non_negative` (boolean; `true` means an effective minimum of
   `max(min, 0)`). `non_negative: true` is stored as written, never rewritten
   to `min: 0`, so the two hash differently and are distinct logical shapes.
@@ -94,11 +104,12 @@ defmodule Letflow.Entities.Definition do
           optional(:enum_values) => [String.t()],
           optional(:decimal_precision) => pos_integer(),
           optional(:decimal_scale) => non_neg_integer(),
+          optional(:decimal_strict) => boolean(),
           optional(:default) => term(),
           optional(:locales) => [String.t(), ...],
           optional(:search_strategy) => :plain | :fulltext,
-          optional(:min) => number(),
-          optional(:max) => number(),
+          optional(:min) => number() | String.t(),
+          optional(:max) => number() | String.t(),
           optional(:non_negative) => boolean()
         }
 

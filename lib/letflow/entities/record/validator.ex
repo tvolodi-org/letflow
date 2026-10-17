@@ -38,6 +38,7 @@ defmodule Letflow.Entities.Record.Validator do
   """
 
   alias Letflow.Entities.Definition
+  alias Letflow.Entities.Record.Decimals
   alias Letflow.EventStore.Registry.JsonSchema
   alias Letflow.EventStore.Registry.ValidationFailure
 
@@ -91,6 +92,28 @@ defmodule Letflow.Entities.Record.Validator do
     JsonSchema.validate(field_values, schema)
   end
 
+  @doc """
+  GH #2654: the write-side entry point. Runs the strict-decimal pre-pass
+  (`Letflow.Entities.Record.Decimals.prepass/2`: validate each `decimal_strict`
+  field and rewrite it to its canonical scale-padded string), then
+  `validate_record_payload/2` on the rewritten map, and returns either the
+  rewritten map or every violation (pre-pass violations first). A definition
+  with no strict decimal field returns `{:ok, field_values}` untouched when
+  `validate_record_payload/2` finds nothing, and exactly its violations
+  otherwise (design I6). `validate_record_payload/2` keeps its signature and
+  behaviour.
+  """
+  @spec normalize_record_payload(definition :: Definition.t(), field_values :: term()) ::
+          {:ok, field_values()} | {:error, violations()}
+  def normalize_record_payload(definition, field_values) do
+    {schema_input, prepass_violations} = Decimals.prepass(definition, field_values)
+
+    case prepass_violations ++ validate_record_payload(definition, schema_input) do
+      [] -> {:ok, schema_input}
+      violations -> {:error, violations}
+    end
+  end
+
   # GH #2532: the effective JSON Schema "minimum" for a field's `min` and
   # `non_negative`. Only a literal `true` turns `non_negative` on; a
   # non-number `min` (a corrupt stored definition) is ignored, never
@@ -105,6 +128,10 @@ defmodule Letflow.Entities.Record.Validator do
 
   defp field_subschema(%{type: :string}), do: %{"type" => "string"}
   defp field_subschema(%{type: :integer} = field), do: put_range(%{"type" => "integer"}, field)
+  # GH #2654: a `decimal_strict` field is a canonical string by the time this
+  # schema runs (the pre-pass rewrote it; bounds were enforced there, so no range
+  # keys here). Every other decimal field is byte-identical to before.
+  defp field_subschema(%{type: :decimal, decimal_strict: true}), do: %{"type" => "string"}
   defp field_subschema(%{type: :decimal} = field), do: put_range(%{"type" => "number"}, field)
   defp field_subschema(%{type: :boolean}), do: %{"type" => "boolean"}
   defp field_subschema(%{type: :date}), do: %{"type" => "string"}

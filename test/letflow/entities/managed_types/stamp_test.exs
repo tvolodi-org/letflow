@@ -331,6 +331,45 @@ defmodule Letflow.Entities.ManagedTypes.StampTest do
       assert Fx.managed_by_map(superset.schema_name)["certificate"] == ["exam"]
     end
 
+    # GH #2654 / decision 0060 (A2): adopting a row whose decimal_strict differs from the
+    # pack's would bypass the flag's immutability, so it is a shape mismatch -- even for a
+    # zero-record type (these tenants hold no records). The exam pack declares no strict
+    # field, so the available direction is a strict tenant row against a non-strict pack.
+    test "a tenant decimal field with decimal_strict: true against the non-strict pack is a conflict; false or absent is not" do
+      strict_row =
+        tenant_with_certificate!("gh2654-a2-strict", fn schema ->
+          legacy_def!(schema, "certificate", fn definition ->
+            Map.update!(definition, :fields, fn fields ->
+              Enum.map(fields, fn
+                %{name: "score_pct"} = field -> Map.put(field, :decimal_strict, true)
+                field -> field
+              end)
+            end)
+          end)
+        end)
+
+      explicit_false =
+        tenant_with_certificate!("gh2654-a2-false", fn schema ->
+          legacy_def!(schema, "certificate", fn definition ->
+            Map.update!(definition, :fields, fn fields ->
+              Enum.map(fields, fn
+                %{name: "score_pct"} = field -> Map.put(field, :decimal_strict, false)
+                field -> field
+              end)
+            end)
+          end)
+        end)
+
+      assert %{status: :stamped, rows_stamped: 5, conflicts: [conflict]} =
+               run!(strict_row.schema_name)
+
+      assert %{type: "certificate", reason: :shape_not_compatible, rows: 1} = conflict
+      assert Fx.managed_by_map(strict_row.schema_name)["certificate"] == [nil]
+
+      assert %{status: :stamped, rows_stamped: 6, conflicts: []} =
+               run!(explicit_false.schema_name)
+    end
+
     test "required/enum/constraint differences are NOT conflicts but are listed in differences (names only)" do
       %{schema_name: schema} =
         tenant_with_certificate!("gh2596-c-diff", fn schema ->

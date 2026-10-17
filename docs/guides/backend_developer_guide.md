@@ -245,3 +245,54 @@ PATH in this sandbox" entry: a throwaway `elixir:1.17-otp-27` container plus an 
 `postgres:16` container on a private Docker network. It has worked cleanly before (12/12
 tests including the StreamData property test). Tear both containers down afterward and
 restore any temporarily-edited config.
+
+---
+
+## 8. Exact decimal fields — `decimal_strict` (GH #2654, decision 0060)
+
+A `:decimal` entity field is a JSON number on the wire by default (a float after the body
+decode: `2.50` and `2.5` are the same value, `decimal_scale` is not enforced on write).
+For quantities and money that must stay exact, declare the field with
+`"decimal_strict": true` (optional boolean, default false, never defaulted by any layer).
+Fields without the flag behave exactly as before. Ledger-style modules (WMS REQ-504) set it
+from their first definition.
+
+**Write contract of a strict field (PR 1 of GH #2654):**
+
+- Accepts a canonical decimal string (`"2.50"`) or a JSON integer (`3`). Every JSON float
+  (`2.5`, `3.0`, `1e3`) is refused with constraint `type`: the body decoder already made it
+  a lossy float. A process variable holding a float therefore cannot feed a strict field;
+  convert it to a string first.
+- Never rounds. More fractional digits than `decimal_scale` is refused (`scale`), more
+  integer digits than `decimal_precision - decimal_scale` is refused (`precision`); both are
+  422 with the field path. `"2.500"` is accepted at scale 2 (value-based).
+- The accepted value is stored, put in the event payload, fingerprinted and echoed as the
+  canonical scale-padded string (`"2.5"` -> `"2.50"`, `3` -> `"3.00"`, `"-0"` -> `"0.00"`).
+  Different spellings of one value are one idempotent request.
+- `min` / `max` / `non_negative` are compared exactly (`Decimal.compare/2`). On a strict
+  field a bound may be a JSON number or a decimal string; on a non-strict decimal field a
+  string bound is a definition violation (`invalid_range`). `decimal_precision` may not
+  exceed 1000 on a strict field.
+- Per-unit-of-measure scale is not a core concern: the field scale is the maximum; a module
+  handler narrows it with `Letflow.Entities.Record.Decimals.parse/3`.
+
+**The flag is immutable once the entity type has any record** (any row of
+`entity_record_latest`, soft-deleted included): activating a definition version that changes
+which `:decimal` fields are strict (either direction, a strict field removed or retyped
+included; adding, removing or retyping a non-strict decimal is not a change) answers
+`409` "decimal_strict cannot change while records exist: <field names>" and commits
+nothing. It is allowed on an empty type, and a first activation is never refused. A module
+pack that changes the flag in a shipped definition must bump its manifest `:version`
+(`ManifestHash` does not hash definition content); stamp adoption of a tenant row requires
+the pack and the row to agree on `decimal_strict` for every decimal field.
+
+**One behaviour change for tenants that do not use the flag:** a record create, update or
+delete that overlaps ANY activation of its type now returns `409` ("entity definition
+changed during the write; retry") instead of committing under the old definition (the write
+re-checks the active definition under the type's sequence lock, as `command_multi` always
+did). Retrying is safe.
+
+**Not in PR 1:** reads, filters, aggregates and cursors for strict fields are PR 2. Until it
+lands a strict field is stored and returned as the exact string (HTTP reads pass the stored
+JSON through), but filters, sorting by value, aggregates and Lua reads of it must not be
+relied on.

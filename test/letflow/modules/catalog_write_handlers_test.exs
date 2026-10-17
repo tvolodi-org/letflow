@@ -431,6 +431,23 @@ defmodule Letflow.Modules.CatalogWriteHandlersTest do
       assert ManifestHash.compute(reordered) == ManifestHash.compute(base)
     end
 
+    # GH #2654 (M1): entity-definition content, `decimal_strict` included, is NOT an input
+    # to the hash, so a module that flips the flag in a shipped pack must bump :version.
+    test "a decimal_strict flag change in a pack does not change the hash; a :version bump does" do
+      base = FixtureLedger.manifest()
+
+      field = fn strict ->
+        %{"name" => "qty", "type" => "decimal", "decimal_strict" => strict}
+      end
+
+      strict = Map.put(base, :entity_definitions, [%{"name" => "t", "fields" => [field.(true)]}])
+      lax = Map.put(base, :entity_definitions, [%{"name" => "t", "fields" => [field.(false)]}])
+
+      assert ManifestHash.compute(strict) == ManifestHash.compute(lax)
+      assert ManifestHash.compute(strict) == ManifestHash.compute(base)
+      refute ManifestHash.compute(%{strict | version: "9.9.9"}) == ManifestHash.compute(strict)
+    end
+
     test "absent :write_handlers and [] hash equal" do
       base = Map.delete(FixtureLedger.manifest(), :write_handlers)
 

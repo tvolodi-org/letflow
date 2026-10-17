@@ -28,6 +28,7 @@ defmodule Letflow.Entities.Definition.Validator do
   """
 
   alias Letflow.Entities.Definition
+  alias Letflow.Entities.Record.Decimals
 
   defmodule Violation do
     @moduledoc "One structural-validation failure. See `Letflow.Entities.Definition.Validator`'s `t:violation/0`."
@@ -472,6 +473,7 @@ defmodule Letflow.Entities.Definition.Validator do
       type = Map.get(field, :type)
       precision = Map.get(field, :decimal_precision)
       scale = Map.get(field, :decimal_scale)
+      strict = Map.get(field, :decimal_strict)
 
       cond do
         type == :decimal and (precision == nil or scale == nil) ->
@@ -500,6 +502,36 @@ defmodule Letflow.Entities.Definition.Validator do
               path: [:fields, name],
               message:
                 "decimal_precision and decimal_scale must be absent when type is not :decimal"
+            }
+          ]
+
+        # GH #2654: the opt-in exact-string flag (decision 0060). Fixed messages,
+        # one violation per field; precision is capped for strict fields only
+        # (Postgres numeric's maximum), non-strict precision stays uncapped.
+        type != :decimal and strict != nil ->
+          [
+            %Violation{
+              rule: :invalid_decimal,
+              path: [:fields, name],
+              message: "decimal_strict is only allowed on :decimal fields"
+            }
+          ]
+
+        strict != nil and not is_boolean(strict) ->
+          [
+            %Violation{
+              rule: :invalid_decimal,
+              path: [:fields, name],
+              message: "decimal_strict must be a boolean"
+            }
+          ]
+
+        strict == true and is_integer(precision) and precision > 1000 ->
+          [
+            %Violation{
+              rule: :invalid_decimal,
+              path: [:fields, name],
+              message: "decimal_precision must not exceed 1000 when decimal_strict is true"
             }
           ]
 
@@ -547,6 +579,7 @@ defmodule Letflow.Entities.Definition.Validator do
     min = Map.get(field, :min)
     max = Map.get(field, :max)
     non_negative = Map.get(field, :non_negative)
+    strict? = type == :decimal and Map.get(field, :decimal_strict) == true
 
     cond do
       (has_min? or has_max? or has_non_negative?) and type not in [:integer, :decimal] ->
@@ -555,19 +588,19 @@ defmodule Letflow.Entities.Definition.Validator do
       has_non_negative? and not is_boolean(non_negative) ->
         "non_negative must be a boolean"
 
-      has_min? and not valid_bound?(type, min) ->
-        "min must be an integer for :integer fields and a number for :decimal fields"
+      has_min? and not valid_bound?(type, min, strict?) ->
+        bound_message("min", strict?)
 
-      has_max? and not valid_bound?(type, max) ->
-        "max must be an integer for :integer fields and a number for :decimal fields"
+      has_max? and not valid_bound?(type, max, strict?) ->
+        bound_message("max", strict?)
 
-      has_min? and has_max? and min > max ->
+      has_min? and has_max? and bound_compare(min, max, strict?) == :gt ->
         "min must not exceed max"
 
-      non_negative == true and has_min? and min < 0 ->
+      non_negative == true and has_min? and bound_compare(min, 0, strict?) == :lt ->
         "min must not be negative when non_negative is true"
 
-      non_negative == true and has_max? and max < 0 ->
+      non_negative == true and has_max? and bound_compare(max, 0, strict?) == :lt ->
         "max must not be negative when non_negative is true"
 
       true ->
@@ -575,9 +608,37 @@ defmodule Letflow.Entities.Definition.Validator do
     end
   end
 
-  @spec valid_bound?(:integer | :decimal, term()) :: boolean()
-  defp valid_bound?(:integer, bound), do: is_integer(bound)
-  defp valid_bound?(:decimal, bound), do: is_number(bound)
+  # GH #2654: on a `decimal_strict` field a bound may also be a decimal string
+  # (exactness); on a non-strict decimal field it must be a number, as before, so
+  # a string bound there is a definition violation.
+  @spec valid_bound?(:integer | :decimal | term(), term(), boolean()) :: boolean()
+  defp valid_bound?(:integer, bound, _strict?), do: is_integer(bound)
+  defp valid_bound?(:decimal, bound, true), do: Decimals.bound(bound) != :error
+  defp valid_bound?(:decimal, bound, false), do: is_number(bound)
+
+  defp bound_message(key, true),
+    do:
+      "#{key} must be an integer for :integer fields and a number or a decimal string for :decimal fields"
+
+  defp bound_message(key, false),
+    do: "#{key} must be an integer for :integer fields and a number for :decimal fields"
+
+  # Non-strict: the raw term comparison, unchanged. Strict: exact Decimal
+  # comparison (both operands already passed valid_bound?/3).
+  @spec bound_compare(term(), term(), boolean()) :: :lt | :eq | :gt
+  defp bound_compare(left, right, false) do
+    cond do
+      left > right -> :gt
+      left < right -> :lt
+      true -> :eq
+    end
+  end
+
+  defp bound_compare(left, right, true) do
+    {:ok, left_decimal} = Decimals.bound(left)
+    {:ok, right_decimal} = Decimals.bound(right)
+    Decimal.compare(left_decimal, right_decimal)
+  end
 
   # --- Rule 10 -- locale-set shape (:invalid_localized_text) -------------------
 
