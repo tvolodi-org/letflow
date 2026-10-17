@@ -29,6 +29,7 @@ Changed files: `test/letflow/routers/entities_query_restricted_walker_test.exs` 
 | AC-11, A-13 | W "the aggregate builder emits exactly the :aggregate registry for a maximal body" (extended: join + having/distinct/search/unredacted; bare-body status equal) | Registry equality and inertness of unlisted keys. |
 | A-16 | W describe renamed to "aggregate route uses the shared walker (PR 2)" | Naming only; assertions kept. |
 | A-17 | existing T-1..T-40 in W, `entities_aggregate_test.exs`, `entities_answer_key_field_leak_test.exs`, `exam_snapshot_leak_test.exs`, `query_request_guard_test.exs` | Unchanged; must stay green. |
+| REQ-511 validator | EntRJ "no generic GET /records/:entity_type/:record_id" (2 tests) | Route inventory via `__authz_routes__/0` has no GET for exactly that path (message demands a redaction + probe test); HTTP probe as TASK_WORKER/TENANT_AUDITOR/TENANT_ADMIN: GET records/session/<id> and records/answer_option/<id> give the same status+body as a random uuid, status in 403/404/405 (the catch-all `authz_unmatched(:ordinary)` answers 403 to non-platform callers), no field value in the body. |
 | A-11 | dropped by design (no TypeAccess step on aggregate; #2700) | n/a |
 | R6 | `entities_query_restricted_filter_test.exs` moduledoc no longer names the deleted function | docs only |
 

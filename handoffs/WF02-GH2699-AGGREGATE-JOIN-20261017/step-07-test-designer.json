@@ -32,7 +32,7 @@
   },
   "result": {
     "status": "PASS",
-    "summary": "Tests and spec written; NOT RUN locally because free physical memory was 1.98-2.17 GB (< 4 GB gate); hosted CI runs them. New file entities_aggregate_restricted_join_test.exs (13 tests). Walker test: T-39 'ONLY remaining direct load_restrictions caller' rewritten to the A-12 code-line assertions; describe renamed (A-16); T-26 aggregate extended with distinct/search/unredacted (A-13). Doc comment in entities_query_restricted_filter_test.exs reworded. mix format and mix letflow.check.test were not run; three over-long lines were wrapped by hand, formatter diffs possible. No mutants applied (no mix run). No implementation bug found by reading; unverified by execution.",
+    "summary": "Tests and spec written; NOT RUN locally because free physical memory was 1.98-2.17 GB (< 4 GB gate); hosted CI runs them. New file entities_aggregate_restricted_join_test.exs (15 tests, incl. 2 no-generic-record-GET tests: route inventory + HTTP probe). Walker test: T-39 'ONLY remaining direct load_restrictions caller' rewritten to the A-12 code-line assertions; describe renamed (A-16); T-26 aggregate extended with distinct/search/unredacted (A-13). Doc comment in entities_query_restricted_filter_test.exs reworded. mix format and mix letflow.check.test were not run; three over-long lines were wrapped by hand, formatter diffs possible. No mutants applied (no mix run). No implementation bug found by reading; unverified by execution.",
     "local_issue_id": null,
     "artifacts_out": [
       "test/letflow/routers/entities_aggregate_restricted_join_test.exs",

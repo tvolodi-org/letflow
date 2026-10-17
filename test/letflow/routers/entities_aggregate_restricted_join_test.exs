@@ -715,6 +715,56 @@ defmodule Letflow.Routers.EntitiesAggregateRestrictedJoinTest do
   end
 
   # ==========================================================================
+  # No generic record GET exists (REQ-511 validator question)
+  # ==========================================================================
+
+  describe "no generic GET /records/:entity_type/:record_id" do
+    test "route inventory: the entities router declares no GET for exactly /records/:entity_type/:record_id" do
+      routes = Letflow.Routers.Entities.__authz_routes__()
+
+      offenders =
+        for {"GET", path, _key} <- routes, path == "/records/:entity_type/:record_id", do: path
+
+      assert offenders == [],
+             "a generic record GET must come with a restricted-field redaction + probe test " <>
+               "(exam_snapshot, answer_option.is_correct); found #{inspect(offenders)}"
+    end
+
+    test "HTTP probe: GET /records/session/<id> and /records/answer_option/<id> never return a record, identically to a random uuid, for TASK_WORKER / TENANT_AUDITOR / TENANT_ADMIN" do
+      ctx = exam_ctx!("aj-noget", ["TASK_WORKER"])
+      fields = %{"text" => "probe-marker", "is_correct" => true}
+      option = seed_record!(ctx, "answer_option", fields)
+
+      for roles <- [["TASK_WORKER"], ["TENANT_AUDITOR"], ["TENANT_ADMIN"]] do
+        {:ok, %{plaintext: plaintext}} =
+          Identity.create_token(ctx.user_id, %{roles: roles, expires_at: nil},
+            prefix: ctx.schema_name
+          )
+
+        role_ctx = %{ctx | plaintext: plaintext}
+        path = fn type, id -> "/api/v1/entities/records/#{type}/#{id}" end
+        get = fn type, id -> request(:get, path.(type, id), role_ctx, %{}) end
+
+        random = get.("answer_option", Ecto.UUID.generate())
+        refute random.status == 200
+
+        for conn <- [
+              get.("answer_option", option.record_id),
+              get.("session", option.record_id),
+              get.("session", Ecto.UUID.generate())
+            ] do
+          assert conn.status == random.status, "#{inspect(roles)}: #{conn.status}"
+          assert conn.status in [403, 404, 405]
+          assert conn.resp_body == random.resp_body
+          refute conn.resp_body =~ "probe-marker"
+          refute conn.resp_body =~ "is_correct"
+          refute conn.resp_body =~ "field_values"
+        end
+      end
+    end
+  end
+
+  # ==========================================================================
   # A-14 uniform refusal incl. the join; A-15 response shape
   # ==========================================================================
 
