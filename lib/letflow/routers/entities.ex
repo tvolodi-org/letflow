@@ -245,11 +245,13 @@ defmodule Letflow.Routers.Entities do
   alias Letflow.Entities.Definition.Validator.Violation, as: DefinitionViolation
   alias Letflow.Entities.Definitions
   alias Letflow.Entities.EntityDefinition
+  alias Letflow.Entities.FieldPolicy
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Query.Allowlist
   alias Letflow.Entities.Query.Compiler
   alias Letflow.Entities.Query.Cursor
   alias Letflow.Entities.Query.FieldGrants
+  alias Letflow.Entities.Query.RequestGuard
   alias Letflow.Entities.Query.Types
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Records
@@ -1915,11 +1917,13 @@ defmodule Letflow.Routers.Entities do
   defp run_query(conn, body, user_id, prefix) do
     with {:ok, request} <- build_query_request(body),
          {:ok, opts} <- build_paginate_opts(body),
+         {:ok, checked} <-
+           guard_row_request(request, %{user_id: user_id, prefix: prefix}),
          {:ok, compiled} <- Compiler.compile(request, prefix),
          {:ok, :allowed} <- TypeAccess.authorized?(user_id, request.entity_type, prefix),
          {:ok, allowlist} <- Allowlist.load(request.entity_type, prefix),
          {:ok, page} <- Cursor.paginate(request, compiled, allowlist, opts, prefix),
-         {:ok, redacted} <- redact(page, request, user_id, prefix) do
+         {:ok, redacted} <- redact(page, request, checked) do
       Response.ok(conn, %{
         "items" => Enum.map(redacted.items, &query_item_map/1),
         "next_cursor" => redacted.next_cursor
@@ -1939,6 +1943,34 @@ defmodule Letflow.Routers.Entities do
       {:ok, :denied} -> render_type_hidden(conn)
       {:error, :entity_type_not_found} -> render_type_hidden(conn)
       {:error, reason} -> render_query_error(conn, reason)
+    end
+  end
+
+  # GH #2697: the request-side restricted-field guard for a row query. A
+  # type-denied caller must keep the REQ-394 hidden 200 envelope, so the
+  # TypeAccess decision is read first and the field check is SKIPPED for a
+  # denied type (`check_request/4` itself knows nothing about TypeAccess). The
+  # later `TypeAccess.authorized?/3` step in run_query/4 is kept unchanged and
+  # then turns the denied type into the same hidden 200. A nonexistent type has
+  # no restriction rows, so the check passes trivially and Compiler.compile/2
+  # answers `:entity_type_not_found` -> hidden, as before.
+  @spec guard_row_request(map(), FieldPolicy.principal()) ::
+          {:ok, {:checked, RequestGuard.guard_ok()}}
+          | {:ok, :type_denied}
+          | {:error, RequestGuard.guard_error() | :invalid_schema_name}
+  defp guard_row_request(request, %{user_id: user_id, prefix: prefix} = principal) do
+    case TypeAccess.authorized?(user_id, request.entity_type, prefix) do
+      {:ok, :denied} ->
+        {:ok, :type_denied}
+
+      {:ok, :allowed} ->
+        with {:ok, ok} <-
+               FieldPolicy.check_request(principal, :row, request, %{exempt?: false}) do
+          {:ok, {:checked, ok}}
+        end
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -1964,42 +1996,42 @@ defmodule Letflow.Routers.Entities do
   # the whole class to `Compiler.compile/2`'s runtime rejection (REVIEWER's
   # type-safety note on the REQ-311 rebuild). `run_query/4`'s own second
   # argument stays `map()` because it is the RAW caller body, pre-validation.
-  @spec redact(Pagination.Page.t(term()), Types.query_request(), String.t(), String.t()) ::
-          {:ok, Pagination.Page.t(term())} | {:error, :invalid_schema_name}
-  defp redact(page, %{join: [_ | _] = joins} = request, user_id, prefix) do
-    # One load_restrictions/3 per EXPOSED entity type: :primary for the
-    # primary's own type, plus each join clause's own entity_type. A
-    # `through` entity's type is NOT here -- its row never appears as a key
-    # of a Compiler.joined_row(), so a restriction set keyed for it could
-    # never be fetched, and including it would signal that the key list was
-    # mis-derived (the failure mode being a MISSING exposed key, which
-    # redact_joined_item/2's Map.fetch!/2 turns into a 500).
-    keys = [{:primary, request.entity_type} | Enum.map(joins, &{&1.entity_type, &1.entity_type})]
+  # GH #2697 (design 5.4): the restriction sets come from the request-side
+  # guard (`FieldPolicy.check_request/4`), keyed by entity type -- ONE load per
+  # entity type per request, so the request is refused and the response
+  # redacted from one consistent snapshot of the grants. Page shaping stays in
+  # FieldGrants; this module keeps no redaction logic. The `{:checked, _}`
+  # clause unwraps run_query/4's guard result; a `:type_denied` result never
+  # reaches here (TypeAccess denies earlier) and would fail closed with a
+  # FunctionClauseError rather than pass a page through unredacted.
+  @spec redact(
+          Pagination.Page.t(term()),
+          Types.query_request(),
+          {:checked, RequestGuard.guard_ok()} | RequestGuard.restriction_sets()
+        ) :: {:ok, Pagination.Page.t(term())}
+  defp redact(page, request, {:checked, %{sets: sets}}), do: redact(page, request, sets)
 
-    Enum.reduce_while(keys, {:ok, %{}}, fn {key, entity_type}, {:ok, acc} ->
-      case FieldGrants.load_restrictions(user_id, entity_type, prefix) do
-        {:ok, set} -> {:cont, {:ok, Map.put(acc, key, set)}}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
-    |> case do
-      {:ok, restriction_sets} -> {:ok, FieldGrants.redact_joined_page(page, restriction_sets)}
-      {:error, _reason} = error -> error
-    end
+  defp redact(page, %{join: [_ | _] = joins} = request, sets) when is_map(sets) do
+    # One set per EXPOSED entity type: :primary for the primary's own type,
+    # plus each join clause's own entity_type. A `through` entity's type is
+    # NOT here -- its row never appears as a key of a Compiler.joined_row().
+    keyed =
+      Enum.reduce(joins, %{primary: Map.fetch!(sets, request.entity_type)}, fn join, acc ->
+        Map.put(acc, join.entity_type, Map.fetch!(sets, join.entity_type))
+      end)
+
+    {:ok, FieldGrants.redact_joined_page(page, keyed)}
   end
 
-  defp redact(page, request, user_id, prefix) do
-    with {:ok, restriction_set} <-
-           FieldGrants.load_restrictions(user_id, request.entity_type, prefix) do
-      # FieldGrants.redact_page/2 covers BOTH shapes compile_plain/5 can
-      # emit -- %Latest{} (unpromoted) and a plain Compiler.entity_row()
-      # map (promoted) -- via redact_item/2's two clauses. ⛔ It has no
-      # third, permissive clause: a shape neither matches RAISES (a
-      # logged, detail-free 500 via the pipeline's own error handler)
-      # rather than falling through UNREDACTED, which is the one failure
-      # mode INV-2 cannot tolerate. Do not add a rescue here.
-      {:ok, FieldGrants.redact_page(page, restriction_set)}
-    end
+  defp redact(page, request, sets) when is_map(sets) do
+    # FieldGrants.redact_page/2 covers BOTH shapes compile_plain/5 can
+    # emit -- %Latest{} (unpromoted) and a plain Compiler.entity_row()
+    # map (promoted) -- via redact_item/2's two clauses. It has no
+    # third, permissive clause: a shape neither matches RAISES (a
+    # logged, detail-free 500 via the pipeline's own error handler)
+    # rather than falling through UNREDACTED, which is the one failure
+    # mode INV-2 cannot tolerate. Do not add a rescue here.
+    {:ok, FieldGrants.redact_page(page, Map.fetch!(sets, request.entity_type))}
   end
 
   # ══ Request parsing (design §4) ═══════════════════════════════════════
@@ -2372,10 +2404,18 @@ defmodule Letflow.Routers.Entities do
          :ok <- check_unredacted_permission(conn, unredacted?),
          {:ok, request} <- build_export_query_request(body, path_entity_type),
          {:ok, opts} <- build_export_paginate_opts(body),
+         {:ok, guard} <-
+           FieldPolicy.check_request(
+             %{user_id: user_id, prefix: prefix},
+             :row,
+             request,
+             %{exempt?: unredacted?}
+           ),
          {:ok, compiled} <- Compiler.compile(request, prefix),
+         :ok <- audit_exempted(user_id, path_entity_type, prefix, guard.exempted),
          {:ok, allowlist} <- Allowlist.load(request.entity_type, prefix),
          {:ok, page} <- Cursor.paginate(request, compiled, allowlist, opts, prefix),
-         {:ok, redacted} <- export_redact(page, request, user_id, prefix, unredacted?) do
+         {:ok, redacted} <- export_redact(page, request, guard.sets, unredacted?) do
       Response.ok(conn, %{
         "record_export_schema_version" => @record_export_schema_version,
         "entity_type" => path_entity_type,
@@ -2484,15 +2524,52 @@ defmodule Letflow.Routers.Entities do
   @spec export_redact(
           Pagination.Page.t(term()),
           Types.query_request(),
-          String.t(),
-          String.t(),
+          RequestGuard.restriction_sets(),
           boolean()
-        ) ::
-          {:ok, Pagination.Page.t(term())} | {:error, :invalid_schema_name}
-  defp export_redact(page, _request, _user_id, _prefix, true), do: {:ok, page}
+        ) :: {:ok, Pagination.Page.t(term())}
+  defp export_redact(page, _request, _sets, true), do: {:ok, page}
 
-  defp export_redact(page, request, user_id, prefix, false),
-    do: redact(page, request, user_id, prefix)
+  defp export_redact(page, request, sets, false), do: redact(page, request, sets)
+
+  # GH #2697 (design 6): the unredacted-export exemption lets a holder of the
+  # exact :EntitiesRecordsExportUnredacted permission filter/sort by a field
+  # that is restricted for them (they already read every value in the
+  # response). Each exercise is audited with field NAMES only (never filter
+  # values), AFTER Compiler.compile/2 succeeded and BEFORE Cursor.paginate/5
+  # runs, so a request that would 4xx leaves no row and no query executes
+  # without a recorded audit entry. Fail closed: an audit failure refuses the
+  # export (detail-free 500). No exempted refs -> no entry.
+  @spec audit_exempted(String.t(), String.t(), String.t(), [RequestGuard.field_ref()]) ::
+          :ok | {:error, {:export_audit_failed, term()}}
+  defp audit_exempted(_user_id, _entity_type, _prefix, []), do: :ok
+
+  defp audit_exempted(user_id, entity_type, prefix, exempted) do
+    names = fn clauses ->
+      exempted |> Enum.filter(&(&1.clause in clauses)) |> Enum.map(& &1.field) |> Enum.uniq()
+    end
+
+    attrs = %{
+      actor_id: user_id,
+      action: "entities.export.unredacted_restricted_clause",
+      resource_type: "entity_type",
+      resource_id: entity_type,
+      before_state: nil,
+      after_state: %{
+        "filter_fields" => names.([:filter, :join_on]),
+        "sort_fields" => names.([:sort]),
+        "restricted_fields_used" => names.([:filter, :sort, :join_on])
+      }
+    }
+
+    try do
+      case Letflow.Audit.insert_entry(Letflow.Repo, attrs, prefix) do
+        {:ok, _entry} -> :ok
+        {:error, reason} -> {:error, {:export_audit_failed, reason}}
+      end
+    rescue
+      exception -> {:error, {:export_audit_failed, exception}}
+    end
+  end
 
   # design §1's export_record_entry(): {record_id, field_values, deleted}
   # only -- no entity_def_version, no last_event_global_seq (unlike
@@ -2543,6 +2620,20 @@ defmodule Letflow.Routers.Entities do
         "unredacted export requires a separate, independently-granted permission"
       )
 
+  defp render_export_error(conn, {:export_audit_failed, reason}) do
+    # Log only the failure class/tag, never the term (it can carry changeset data).
+    tag =
+      case reason do
+        %{__exception__: true, __struct__: module} -> inspect(module)
+        {tag, _} when is_atom(tag) -> inspect(tag)
+        atom when is_atom(atom) -> inspect(atom)
+        _other -> "unknown"
+      end
+
+    Logger.error("unredacted export audit entry failed: #{tag}")
+    Response.internal_error(conn)
+  end
+
   defp render_export_error(conn, reason), do: render_query_error(conn, reason)
 
   # ══ Query error mapping (design §4) ═══════════════════════════════════
@@ -2586,6 +2677,13 @@ defmodule Letflow.Routers.Entities do
   #   :expired                            -> the dedicated cursor-expired
   #                                          problem document
   #   {:field_not_allowed, _}             -> 422 (shared clause above)
+
+  # GH #2697: ONE refusal for every restricted-field position and for an
+  # unwalked request clause -- same status, same detail as the aggregate
+  # route's, and never a field, entity type or clause name.
+  defp render_query_error(conn, reason)
+       when reason in [:request_field_restricted, :request_clause_unwalked],
+       do: Response.forbidden(conn, "one or more requested fields are restricted for this caller")
 
   defp render_query_error(conn, {:query_field_invalid, field}),
     do: Response.bad_request(conn, "#{field} is missing or malformed")

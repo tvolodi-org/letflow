@@ -1,0 +1,58 @@
+{
+  "handoff_id": "c4a7d1e0-2697-4a11-8c20-000000000006",
+  "run_id": "WF02-GH2697-QUERY-RESTRICTED-20261016",
+  "workflow_id": "WF-02",
+  "step": "06",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF02-GH2697-QUERY-RESTRICTED-20261016/step-06-elixir-dev.json",
+  "created_at": "2026-10-16T16:25:00Z",
+  "started_at": "2026-10-16T16:26:00Z",
+  "completed_at": "2026-10-16T16:41:13Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2697": "PR 1 of lib/letflow/design/gh2697-restricted-field-request-walker.md: restricted-field request walker for entity query, join query and export. Aggregate (PR 2, #2699) out of scope."
+    },
+    "related_handoff_ids": ["c4a7d1e0-2697-4a11-8c20-000000000003", "c4a7d1e0-2697-4a11-8c20-000000000005"],
+    "artifacts_in": ["lib/letflow/design/gh2697-restricted-field-request-walker.md"],
+    "owned_modules": [
+      "lib/letflow/entities/field_policy.ex",
+      "lib/letflow/entities/query/request_guard.ex",
+      "lib/letflow/entities/query/compiler.ex",
+      "lib/letflow/routers/entities.ex"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2697-QUERY-RESTRICTED-20261016"
+  },
+  "task": {
+    "description": "WF-02 Step 2a ELIXIR-DEV: implement PR 1 of the GH #2697 design. No tests written, none run, nothing committed."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "Implemented PR 1. New: Letflow.Entities.FieldPolicy (restriction_set/2, load_sets/2, check_request/4 with required exempt? key, redact/3, redact_with_sets/3); Letflow.Entities.Query.RequestGuard (pure walker: field_refs/3 with fail-closed closed registry per kind, registry_keys/1, restriction_entity_types/2, restricted_refs/2, check/2). Compiler.join_relations/3 (check_join_shape first, then resolve_all_raw_relations; direct = 1 hop, through = [near, far]). Router: run_query/4 now builds the principal and calls private guard_row_request/2 (TypeAccess first, skip field check for a denied type, else FieldPolicy.check_request(:row, exempt? false)) before Compiler.compile; later TypeAccess step unchanged; redact/3 reuses the guard's sets with FieldGrants.redact_page/redact_joined_page (no second load). run_export/5: FieldPolicy.check_request(:row, exempt?: unredacted?) after paginate opts and the unredacted permission check, before Compiler.compile; audit_exempted/4 after compile and before Allowlist.load/Cursor.paginate, names only, {:export_audit_failed, reason} -> new render_export_error clause (Logger.error of reason, detail-free 500). render_query_error/2 gets one clause mapping :request_field_restricted and :request_clause_unwalked to Response.forbidden with the aggregate route's exact detail string. run_query_aggregate/4 and check_aggregate_field_restrictions/2 untouched. Verification: MIX_ENV=test mix compile --warnings-as-errors (and --force) clean, mix format --check-formatted on the 4 files OK, mix letflow.check_boundaries OK (1595 edges, 0 violations). Tests NOT run (TEST-DESIGNER owns). authorization.ex and priv/permission_matrix/effective.golden NOT touched (#2612 trigger not fired). No migration. Deviations: none; two small design-ambiguity choices listed in notes.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "lib/letflow/entities/field_policy.ex",
+      "lib/letflow/entities/query/request_guard.ex",
+      "lib/letflow/entities/query/compiler.ex",
+      "lib/letflow/routers/entities.ex"
+    ],
+    "notes_for_test_designer": [
+      "audit after_state keys: filter_fields (filter + join_on names), sort_fields, restricted_fields_used (all), each only for EXEMPTED (restricted) refs, deduplicated.",
+      "RequestGuard.registry_keys/1 exists for the T-26 tripwire; row keys [entity_type, filters, sort, join], aggregate keys [entity_type, aggregates, group_by, filters, join].",
+      "T-39: run_query/run_export/redact contain no FieldGrants.load_restrictions; run_query_aggregate/4 still does (allow-listed until #2699). The existing AC4 chain test still needs 'Compiler.compile(' < 'Cursor.paginate(' < 'redact(' in run_query's with chain, which holds.",
+      "Unwalked/unknown request keys cannot be produced via HTTP (builders whitelist); test field_refs/3 directly (T-27) and check/restricted_refs with a missing set (T-28).",
+      "Restricted + queried:false fields now yield 403 instead of 422 on row routes (T-19..T-21).",
+      "Type-denied caller: guard_row_request returns {:ok, :type_denied}; compile still runs (as before) then TypeAccess hides with 200."
+    ],
+    "sec_rework": "B1 fixed in Compiler.join_relations/3: after check_join_shape and before relation resolution, ensure_primary_exists/3 (Allowlist.fk_defs on the primary, skipped for empty joins) returns :entity_type_not_found first, matching compile/2's precedence, so a missing primary with a through join no longer yields 422 (query -> hidden 200, export -> 404 as before). One fix covers both routes. Advisory: audit-failure log now prints only the exception module / error tag. REVIEWER nit: FieldPolicy alias moved to alphabetical position. Files: compiler.ex, routers/entities.ex. Re-verified: compile --warnings-as-errors exit 0, format check OK, check_boundaries OK (1595 edges, 0 violations). No tests run.",
+    "authorization_ex_touched": false,
+    "effective_golden_touched": false,
+    "trigger_2612_applies": false
+  }
+}

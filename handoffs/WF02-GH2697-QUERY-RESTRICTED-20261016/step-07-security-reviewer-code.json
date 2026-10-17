@@ -1,0 +1,60 @@
+{
+  "handoff_id": "c4a7d1e0-2697-4a11-8c20-000000000007",
+  "run_id": "WF02-GH2697-QUERY-RESTRICTED-20261016",
+  "workflow_id": "WF-02",
+  "step": "07",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF02-GH2697-QUERY-RESTRICTED-20261016/step-07-security-reviewer-code.json",
+  "created_at": "2026-10-16T16:45:00Z",
+  "started_at": "2026-10-16T16:45:30Z",
+  "completed_at": "2026-10-16T16:45:48Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2697": "PR 1 CODE gate: restricted-field request walker for entity query, join query and export. Aggregate (PR 2, #2699) out of scope."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-2697-4a11-8c20-000000000005",
+      "c4a7d1e0-2697-4a11-8c20-000000000006"
+    ],
+    "artifacts_in": [
+      "lib/letflow/entities/field_policy.ex",
+      "lib/letflow/entities/query/request_guard.ex",
+      "lib/letflow/entities/query/compiler.ex",
+      "lib/letflow/routers/entities.ex"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2697-QUERY-RESTRICTED-20261016"
+  },
+  "task": {
+    "description": "SECURITY-REVIEWER CODE gate for GH #2697 PR 1. Read-only; no lib/ or test/ edits; mix not run."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "CODE VERDICT (delta re-review, round 2): PASS. B1 CLOSED. Compiler.join_relations/3 now runs check_join_shape, then ensure_primary_exists (Allowlist.fk_defs(primary, prefix), skipped with no I/O when joins == []), then resolve_all_raw_relations. A nonexistent primary therefore yields :entity_type_not_found before any join-specific error (incl. :no_through_relation). /entities/query: run_query -> guard_row_request reads TypeAccess first (a nonexistent type has no restriction rows -> :allowed -> check_request -> field_refs -> join_refs -> join_relations -> :entity_type_not_found), which run_query maps to render_type_hidden (200 empty envelope), identical to a type-denied existing primary (:type_denied -> guard skipped -> later {:ok,:denied} -> render_type_hidden); direct and through joins both covered because ensure_primary_exists runs for any non-empty join list. Export: run_export has no TypeAccess step; :entity_type_not_found falls to render_export_error -> render_query_error -> 404 Response.not_found, same as main (compile/2 returned it for a ghost primary). NO NEW ORACLE: the existence check never runs before TypeAccess for a denied existing primary (denied skips the guard entirely); it runs before load_sets (restriction load) but only learns existence of the primary which the pre-change compile/2 also resolved before any caller-visible difference; join_relations preserves compile/2 error precedence (check_join_shape first, then primary). Residual timing difference (ghost returns after fewer queries than an allowed existing type, and differs in query count from a denied one) is negligible and pre-existing in kind; advisory only. Advisory: :request_clause_unwalked (403) is derived from request shape before join_relations and the denied-type skip returns 200, so a ghost vs denied type would differ only for a request shape the router never builds (build_query_request emits registry keys only) - unreachable via HTTP, no action. TENANT PREFIX: Allowlist.fk_defs(entity_type, prefix) calls TenantProvisioning.tenant_id_for_schema_name(prefix) then Definitions.get_active_definition_by_name(entity_type, prefix); prefix is the prefix!(conn)-derived value passed by the router; no body-supplied tenant. LOG LINE: render_export_error({:export_audit_failed, reason}) logs only inspect(exception module) / inspect(error tag atom) / \"unknown\" via Logger.error(\"unredacted export audit entry failed: #{tag}\"); no term, changeset, field name, value or user id is interpolated; response is Response.internal_error. INVARIANTS unchanged from round 1: INV-1/2/4/5/7/8/10 APPLIES-PASS, INV-3/9 N/A, #2612 trigger not fired (diff touches compiler.ex and routers/entities.ex only plus new files). TEST OBLIGATION (still open, carried to TEST-DESIGNER, not a code blocker): add ghost-primary + through join (through entity existing) == hidden 200 envelope == denied-type envelope, ghost-primary + direct join, and export ghost primary + join == 404; no ghost/join_relations test exists in the working tree yet. PR reminders from round 1 stand: Refs #2697 not Closes; aggregate join-on oracle tracked in #2699.",
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "gate": "CODE",
+    "invariants_assessed": {
+      "INV-1": "APPLIES-PASS",
+      "INV-2": "APPLIES-PASS",
+      "INV-3": "NOT-APPLICABLE",
+      "INV-4": "APPLIES-PASS",
+      "INV-5": "APPLIES-PASS",
+      "INV-6": "APPLIES-this-handoff",
+      "INV-7": "APPLIES-PASS",
+      "INV-8": "APPLIES-PASS",
+      "INV-9": "NOT-APPLICABLE",
+      "INV-10": "APPLIES-PASS"
+    },
+    "trigger_2612_applies": false,
+    "required_changes": [],
+    "implementation_written": false
+  }
+}
