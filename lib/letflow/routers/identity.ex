@@ -754,7 +754,9 @@ defmodule Letflow.Routers.Identity do
   end
 
   defp require_oidc(conn) do
-    if Map.get(conn.assigns.auth_context, :credential) == :oidc, do: :ok, else: :forbidden
+    # MUTANT M9: API-token credential check dropped
+    _ = conn
+    :ok
   end
 
   defp require_tenant_admin_tenant_wide(conn) do
