@@ -38,7 +38,7 @@ defmodule Letflow.Entities.EntityTypeInstanceRaceTest do
     # Release the sandbox ownership DataCase checked out: an owned (and never committed)
     # connection would be shared with Task children via `$callers`, which would both hide
     # the race and make the deterministic test wait on a transaction that never commits.
-    :ok = Ecto.Adapters.SQL.Sandbox.checkin(Letflow.Repo)
+    _ = Ecto.Adapters.SQL.Sandbox.checkin(Letflow.Repo)
 
     %{tenant_id: tenant_id, schema_name: schema_name} =
       TenantFixture.provisioned_tenant!(

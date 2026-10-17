@@ -33,7 +33,7 @@ is superseded; the tests follow the code.
 | Replayed `Idempotency-Key` on cancel and rebind-pins is indistinguishable and stores nothing | `T2b (i)`: first == replay == nonexistent replay; `IdempotencyRecord` count unchanged. |
 | 403 identical (permission precedes existence) | `T2b (ii)`: TASK_WORKER on cancel, rebind-pins, reconstruct, advance-timer. |
 | 422 identical (over-long key, bad entries, missing reason) | `T2b (iii)`. |
-| Malformed body with a synthetic id equals the nonexistent id | `T2b (iv)`. |
+| Non-object JSON body (`[1, 2]`) with a synthetic id equals the nonexistent id | `T2b (iv)`. Syntactically invalid JSON is not used: Plug.Parsers raises before any route code. |
 | Equal DB round trips where the design says equal | `T2b (v)`: get, history, timeline, cancel, rebind-pins counted with a `[:letflow, :repo, :query]` handler scoped to the test process (warm-up first). Reconstruct is NOT equal by design after the guard change (a nonexistent id continues into the log reads, a synthetic id stops after the registry read), so only `synthetic <= nonexistent` is asserted. Pins (1 vs 2 queries) is the accepted residual and is not asserted. |
 | Mutating routes never change a synthetic instance | `T3`: projection struct equal before/after, status `:active`, `cancelled_at` nil, event list (sequence + type) unchanged, no `INSTANCE_CANCELLED` / `INSTANCE_PINS_REBOUND`, idempotency count unchanged, and a later `Records.create_record` for the type still succeeds (the DoS is gone). |
 | Real workflow instances unchanged | `T5`: list contains the real id and not the synthetic ones; get 200, history has `INSTANCE_STARTED`, timeline 200, pins 200, cancel 200 and projection `:cancelled`. Kills the inverted predicate (M4). |

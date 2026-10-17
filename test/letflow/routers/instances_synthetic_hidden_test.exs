@@ -503,11 +503,12 @@ defmodule Letflow.Routers.InstancesSyntheticHiddenTest do
       end
     end
 
-    test "(iv) a malformed JSON body with a synthetic id equals the same body with a nonexistent id" do
+    test "(iv) a non-object JSON body with a synthetic id equals the same body with a nonexistent id" do
       ctx = ctx!()
 
       for template <- ["/:id/rebind-pins", "/:id/advance-timer"] do
-        opts = [body: "{not json", content_type: "application/json"]
+        # valid JSON that is not an object: Plug.Parsers raises on invalid JSON before any route code
+        opts = [body: "[1, 2]", content_type: "application/json"]
         random_id = Ecto.UUID.generate()
         hidden = request(ctx, :admin, "POST", api(template, ctx.widget_id), opts)
         random = request(ctx, :admin, "POST", api(template, random_id), opts)

@@ -163,7 +163,7 @@ defmodule Letflow.EventStore.InstanceVisibilityTest do
         |> then(&Repo.to_sql(:all, &1))
 
       assert String.contains?(sql, ~s("#{prefix}"."entity_type_instances"))
-      assert String.contains?(sql, "NOT EXISTS")
+      assert sql =~ ~r/NOT\s*\(\s*exists\s*\(/i
     end
 
     test "a non-binary prefix is a FunctionClauseError, never swallowed" do

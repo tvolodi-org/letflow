@@ -50,6 +50,7 @@
       "403 expectation for TASK_WORKER on advance-timer unverified",
       "T2 walk assumes upload/link routes answer identically for synthetic and random ids"
     ],
-    "rework": "TDV gaps 1-2 fixed: T8 adds 2 synthetic instances newer than the real ones; T7 limit test uses fixed synthetic-first ids. Spec notes weak attachment rows and unverified rebind-pins query-count equality. Still not run (mutex/memory gates)."
+    "rework": "TDV gaps 1-2 fixed: T8 adds 2 synthetic instances newer than the real ones; T7 limit test uses fixed synthetic-first ids. Spec notes weak attachment rows and unverified rebind-pins query-count equality. Still not run (mutex/memory gates).",
+    "ci_rework": "CI defects fixed in tests: SQL assert now regex on 'NOT (exists(' ; race helper no longer matches Sandbox.checkin result (:not_found); T2b(iv) uses non-object JSON. Not re-run locally."
   }
 }
