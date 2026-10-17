@@ -45,7 +45,8 @@ defmodule Letflow.Entities.RequestAccess do
   # Reads EVERY type's definition (no `Enum.all?`/`reduce_while` early exit),
   # then makes one decision.
   defp ensure_all_visible(types, denied, prefix) do
-    results = Enum.map(types, &Allowlist.fk_defs(&1, prefix))
+    # MUTANT M7: existence read for the primary only
+    results = Enum.map(Enum.take(types, 1), &Allowlist.fk_defs(&1, prefix))
 
     cond do
       Enum.any?(results, &(&1 == {:error, :invalid_schema_name})) ->
