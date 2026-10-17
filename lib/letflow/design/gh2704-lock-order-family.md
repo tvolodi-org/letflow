@@ -281,6 +281,24 @@ Public/internal shapes (signatures only):
   plus a wrapper `EntityPort.lock_types/4` that returns the multi unchanged when the configured
   implementation does not export it (test doubles that `@behaviour` the port keep compiling; an
   optional callback produces no warning under `--warnings-as-errors`).
+  **Supervisor ruling (rev 4): optional for doubles, mandatory for the production adapter.** An
+  optional callback cannot make the compiler flag an omission, so the guarantee is three explicit
+  pieces: (1) `@optional_callbacks [lock_types: 4]` in the port, and `Letflow.Entities.EntityPortImpl`
+  declares `@impl true` on its `lock_types/4` (the compiler then rejects a wrong arity or a function
+  that is not a callback); (2) a boot-time check, `EntityPort.verify_adapter!/0`, called from
+  `Letflow.Application.start/2` before the supervision tree, which raises with a named message when
+  the configured adapter (`config :letflow, :entity_port`, `config/config.exs:127`) does not export
+  `lock_types/4` (test doubles are installed with `Application.put_env` after boot, so they keep the
+  no-op default and never reach this check); (3) a test, `test/letflow/engine/entity_port_prelock_wired_test.exs`,
+  of this shape: it fails if the production adapter lacks the pre-lock, either by (a) asserting
+  `function_exported?(Letflow.Entities.EntityPortImpl, :lock_types, 4)` and that `verify_adapter!/0`
+  returns `:ok` for it and raises for a stub module without the function, and (b) behaviourally:
+  building the service Multi for a plan with lines on type X through the production adapter and
+  asserting (via `Multi.to_list/1` names, the introspection helper at `engine.ex:2735-2750`
+  generalised or a sibling for the service build) that a `{:pre_type_lock, "X"}` step exists
+  between `:lock_ancestors` and the token-insert step; the same assertion for a handler-only target Y
+  (E6). Omitting the adapter function therefore fails at boot AND in CI; the wrapper's silent
+  fallback applies only to doubles.
 * `Letflow.Entities.EntityPortImpl.lock_types/4` -> new public `Letflow.Entities.StepWrites.lock_planned_types/4`
   (`Multi.t(), [line()], [module_write_line()], prefix`) :: `Multi.t()`; it is the private
   `lock_types/4` without its "no module_writes -> identity" first clause (that clause stays for the
@@ -335,9 +353,11 @@ longer (harmless to siblings). Tests changed: the flip of the existing statement
 of type-row locks relative to `tokens`/`tasks` inserts (C-5 statement log; re-read at build).
 Docs: engine moduledoc "Lock ordering" through the GH #2648 paragraph (`engine.ex:359-474`)
 rewritten to GO (repair `402-403`, drop "NOT closed ... Q1"), the comment `5003-5007`, the comment
-`7209-7213` removed with the step, and an Amendment paragraph in
-`docs/migration/decisions/0054-process-step-writes-entity.md` D3 stating rule "2b: the ancestor
-group of a sub-process child is taken after step 2 and before step 3a/4" (open question Q5).
+`7209-7213` removed with the step, and a NEW decision record,
+`docs/migration/decisions/decision NNNN (number to be allocated by letflow-2)`, stating GO (section 2)
+as a platform invariant, plus one pointer line in `0054-process-step-writes-entity.md` D3,
+"Amended by decision NNNN" (rule 2b: the ancestor group of a sub-process child is taken after step 2
+and before step 3a/4). Ruling: new record, not an in-place amendment of D3.
 
 ### 4.2 #2709 - ExecutionError landing
 
@@ -411,7 +431,10 @@ router callers) untouched.
 
 ### 4.4 What the global order implies for the follow-on issues (not designed here)
 
-* **#2705 (AUDIT-SEQ).** Reduces to I4 (section 2.2). With C-E in PR-1, there is no `A` / S-row
+* **#2705 (AUDIT-SEQ).** Reduces to I4 (section 2.2). Ruling (rev 4): this is a service-vs-HUMAN
+  inversion proven by reading, not a "possible, not demonstrated" item. PR-1 MUST include its
+  demonstrating test (E5, red on main, quoted) and #2705 is to be relabelled accordingly (it is no
+  longer "possible, not demonstrated"; its fix is C-E in PR-1, PR-4 keeps only the residual proof). With C-E in PR-1, there is no `A` / S-row
   inversion left among the family's paths. #2705 becomes: forced-overlap test (service step that
   activates a HUMAN task and has lines on X, versus a HUMAN completion with lines on X; start
   order service first, `Z` holds `A`; release) which is RED on main (A -> E vs E -> A) and must be
@@ -447,10 +470,10 @@ is in CI.
 | Order | PR | Issue | Content | Size (est.) | Depends on |
 |---|---|---|---|---|---|
 | 0 | docs | - | this design note | 1 file | - |
-| 1 | PR-1 | #2704 | C-P, C-E, port callback, `Letflow.LockOrderHelpers` extraction, tests E0-E6 (E5 and E6 are the I4 / #2705 cases), moduledoc rewrite, 0054 D3 amendment | prod ~70 lines, tests ~450, docs ~120 | note merged; owns the moduledoc rewrite, so it goes first |
+| 1 | PR-1 | #2704 | C-P, C-E, port callback, `Letflow.LockOrderHelpers` extraction, tests E0-E6 (E5 and E6 are the I4 / #2705 cases), moduledoc rewrite, new decision record NNNN (number to be allocated by letflow-2) + the 0054 D3 "Amended by" pointer line, boot-time adapter check + wiring test | prod ~70 lines, tests ~450, docs ~120 | note merged; owns the moduledoc rewrite, so it goes first |
 | 2 | PR-2 | #2709 | `ExecutionError` step, tests X0-X4, one moduledoc line | prod ~25, tests ~250 | PR-1 (shared helpers, moduledoc) |
 | 3 | PR-3 | #2708 | cancel step, `lock_parent_group` generalisation, tests C0-C4, one moduledoc line | prod ~15, tests ~220 | PR-1; independent of PR-2 (either order) |
-| 4 | PR-4 | #2705 | proof for the remaining `A` vs `S_x` pairs and regression tests (and a fix only if a test is red after PR-1) | tests ~200 | PR-1 |
+| 4 | PR-4 | #2705 (relabelled: proven service-vs-HUMAN inversion; demonstrating test E5 is in PR-1) | proof for the remaining `A` vs `S_x` pairs and regression tests (and a fix only if a test is red after PR-1) | tests ~200 | PR-1 |
 | later | - | #2706, #2707 | own design notes after PR-1/PR-3 are on main (they inherit GO, section 4.4) | - | PR-1 |
 
 If a mechanism probe (X0/C0) shows no FK locks, PR-2 and PR-3 shrink to tests plus a moduledoc line
@@ -482,7 +505,8 @@ and are filed as "cannot occur, proof attached" (allowed by their acceptance cri
    stays within the per-session cap (<= 4 heavy processes) and the ten-minute experiment bound;
    barriers are always released in `on_exit`; polls are bounded.
 6. **Decision-record consistency.** GO changes where a child's ancestor group sits relative to 0054
-   D3 steps; REVIEWER to confirm the amendment route (Q5).
+   D3 steps; settled: a new decision record (NNNN, number to be allocated by letflow-2) with an
+   "Amended by" pointer in 0054 D3, both in PR-1.
 7. **Residual after this family:** HUMAN tail timers, cold appenders (TIMER_FIRED, attachment events, reminder fire; section 2.4), escalation `tasks`-after-`P`, and cancel's stale snapshot remain until #2706/#2707. The no-cycle claim is for the family's paths only.
 
 ## 7. SECURITY-REVIEWER
@@ -522,7 +546,7 @@ RELEASE-VALIDATOR re-runs the new files.
 1. **FK-lock mechanism (blocking for #2708/#2709 scope).** Run probes X0/C0 first. If no FK lock is
    taken, both issues become proof-only; if it is taken for some tenant schemas only, the tests must
    keep the detect-and-branch.
-2. **Entity-port seam (Q2).** Optional callback plus wrapper (chosen) versus a flag in `multi_ctx`.
+2. **Entity-port seam (Q2): settled** (supervisor, rev 4): optional callback, production adapter mandatory via `@impl`, boot check and wiring test (section 4.1). The alternatives below are kept for the record. Optional callback plus wrapper (chosen) versus a flag in `multi_ctx`.
    The flag would change what every existing test double of `multi/3` does; rejected, but REVIEWER
    may prefer a required callback and updating the doubles listed by
    `grep -rl "@behaviour Letflow.Engine.EntityPort" test` (10 files, including `test/support/chaos_entity_port.ex` and `test/support/script_task_fixture.ex:421`).
@@ -535,8 +559,7 @@ RELEASE-VALIDATOR re-runs the new files.
    order beyond "ascending type".
 4. **`scope_node_paths` (0054 D3 rule 3a)** is not taken today (no scoped type). When it is, the
    service pre-lock must take it before the type rows. Not applicable now.
-5. **Decision-record route (Q5).** Amendment paragraph to 0054 D3 (proposed) versus a new decision
-   record; REVIEWER to rule. The engine moduledoc is rewritten either way.
+5. **Decision-record route: settled** (supervisor, rev 4): new record NNNN, number to be allocated by letflow-2, plus the pointer in 0054 D3; both in PR-1.
 6. **Pre-lock when the ancestors do not exist yet.** `lock_waiting_parent` reads the waiting token
    unlocked and re-selects it after locking the parent projection (`sub_process.ex:778-799`);
    unchanged. A child whose parent token moved between the read and the lock yields `nil` and the
