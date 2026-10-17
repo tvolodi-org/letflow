@@ -331,6 +331,32 @@ defmodule Letflow.Routers.InstancesSyntheticHiddenTest do
     end
   end
 
+  # Measures a hidden/random request pair. `Identity.touch_last_used_and_verify/2`
+  # truncates to the second and Ecto only issues `UPDATE api_tokens SET last_used_at`
+  # when the value changed, so whichever request first runs in a new wall-clock second
+  # pays one extra query (GH #2729). Pinning is racy (the second can roll after the
+  # pin), so instead: warm up both routes inside the attempt, record the second before
+  # and after the measured pair, and if it was crossed retry the whole pair (max 5).
+  # An attempt that stayed inside one second is returned as-is and must satisfy the
+  # caller's unchanged assertion; a crossed final attempt is returned too (and fails
+  # honestly rather than being masked).
+  defp measure_pair(warmup, hidden_fun, random_fun, attempts \\ 5) do
+    # The boundary check must cover the warm-up too: its last request touches last_used_at
+    # partway through, so a roll between that touch and a later clock read would charge the
+    # first measured request the extra UPDATE without being detected.
+    second_before = System.os_time(:second)
+    warmup.()
+    {hidden, hidden_queries} = count_queries(hidden_fun)
+    {random, random_queries} = count_queries(random_fun)
+    crossed? = System.os_time(:second) != second_before
+
+    if crossed? and hidden_queries != random_queries and attempts > 1 do
+      measure_pair(warmup, hidden_fun, random_fun, attempts - 1)
+    else
+      {{hidden, hidden_queries}, {random, random_queries}}
+    end
+  end
+
   defp idempotency_count(ctx),
     do: Repo.aggregate(IdempotencyRecord, :count, prefix: ctx.schema_name)
 
@@ -533,15 +559,19 @@ defmodule Letflow.Routers.InstancesSyntheticHiddenTest do
       for {role, method, template, opts} <- probes do
         random_id = Ecto.UUID.generate()
 
-        # warm-up: first request of a route may populate token/tenant caches
-        request(ctx, role, method, api(template, ctx.widget_id), opts)
-        request(ctx, role, method, api(template, random_id), opts)
+        hidden_fun = fn -> request(ctx, role, method, api(template, ctx.widget_id), opts) end
+        random_fun = fn -> request(ctx, role, method, api(template, random_id), opts) end
 
-        {hidden, hidden_queries} =
-          count_queries(fn -> request(ctx, role, method, api(template, ctx.widget_id), opts) end)
-
-        {random, random_queries} =
-          count_queries(fn -> request(ctx, role, method, api(template, random_id), opts) end)
+        # warm-up (inside measure_pair): first request of a route may populate caches
+        {{hidden, hidden_queries}, {random, random_queries}} =
+          measure_pair(
+            fn ->
+              hidden_fun.()
+              random_fun.()
+            end,
+            hidden_fun,
+            random_fun
+          )
 
         assert {template, hidden.status, hidden_queries > 0} == {template, 404, true}
         assert {template, hidden_queries} == {template, random_queries}
@@ -554,14 +584,18 @@ defmodule Letflow.Routers.InstancesSyntheticHiddenTest do
       random_id = Ecto.UUID.generate()
       path = fn id -> api("/:id/reconstruct", id) end
 
-      request(ctx, :admin, "POST", path.(ctx.widget_id))
-      request(ctx, :admin, "POST", path.(random_id))
+      hidden_fun = fn -> request(ctx, :admin, "POST", path.(ctx.widget_id)) end
+      random_fun = fn -> request(ctx, :admin, "POST", path.(random_id)) end
 
-      {_, hidden_queries} =
-        count_queries(fn -> request(ctx, :admin, "POST", path.(ctx.widget_id)) end)
-
-      {_, random_queries} =
-        count_queries(fn -> request(ctx, :admin, "POST", path.(random_id)) end)
+      {{_, hidden_queries}, {_, random_queries}} =
+        measure_pair(
+          fn ->
+            hidden_fun.()
+            random_fun.()
+          end,
+          hidden_fun,
+          random_fun
+        )
 
       assert hidden_queries <= random_queries
     end

@@ -1,0 +1,44 @@
+{
+  "handoff_id": "c4a7d1e0-2729-4a11-8c20-000000000001",
+  "run_id": "WF02-GH2729-QUERYCOUNT-FLAKE-20261017",
+  "workflow_id": "WF-02",
+  "step": "01",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGNER",
+  "file": "handoffs/WF02-GH2729-QUERYCOUNT-FLAKE-20261017/step-01-test-designer.json",
+  "created_at": "2026-10-17T05:40:00Z",
+  "started_at": "2026-10-17T05:41:00Z",
+  "completed_at": "2026-10-17T05:56:00Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2729": "Flaky T2b INV-5 query-count test: wall-clock second boundary adds a last_used_at UPDATE (6 vs 7)."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "lib/letflow/identity.ex",
+      "test/letflow/routers/instances_synthetic_hidden_test.exs"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "fix/WF02-GH2729-QUERYCOUNT-FLAKE-20261017"
+  },
+  "task": {
+    "description": "Harden the query-count equality tests against second-boundary last_used_at UPDATE. Test only."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "Added measure_pair/4 helper to test/letflow/routers/instances_synthetic_hidden_test.exs: warm-up inside each attempt, records System.os_time(:second) before/after the hidden+random pair, retries the whole pair (max 5) only when a second boundary was crossed AND counts differ; a same-second mismatch fails immediately. Equality assertion unchanged (pinning rejected as racy). Applied to both '(v) equal DB query count' and the '(v) reconstruct ... never more queries' test (same exposure). Not exposed: entities_query_restricted_walker T-30 (filters SQL on entity_field_restrictions), instances_test REQ-399/REQ-200 (filter by table), session_snapshot_test/public_read/login_directory (no token). Ran file alone 6 times under mutex, MIX_ENV=test --warnings-as-errors: exit 0 each (31 tests, 0 failures; summary line not printed by this env, verified via --trace for last 5). Fail-before not demonstrated (race is nondeterministic). mix letflow.check.test not run.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "test/letflow/routers/instances_synthetic_hidden_test.exs"
+    ],
+    "diagnosis_confirmed": true,
+    "implementation_written": true,
+    "classification": "TEST_FLAKE"
+  }
+}
