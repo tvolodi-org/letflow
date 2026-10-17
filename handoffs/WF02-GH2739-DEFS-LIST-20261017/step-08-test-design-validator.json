@@ -1,0 +1,50 @@
+{
+  "handoff_id": "c4a7d1e0-2739-4a11-8c20-000000000008",
+  "run_id": "WF02-GH2739-DEFS-LIST-20261017",
+  "workflow_id": "WF-02",
+  "step": "08",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGN-VALIDATOR",
+  "file": "handoffs/WF02-GH2739-DEFS-LIST-20261017/step-08-test-design-validator.json",
+  "created_at": "2026-10-17T12:58:00Z",
+  "started_at": "2026-10-17T12:58:30Z",
+  "completed_at": "2026-10-17T13:01:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S4",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2739": "GET /entities/definitions list ignores TypeAccess (SECURITY). Static validation of the test design."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-2739-4a11-8c20-000000000007"
+    ],
+    "artifacts_in": [
+      "test/specs/GH2739-definitions-list-type-access.md",
+      "test/letflow/routers/entities_definitions_list_type_access_test.exs",
+      "test/letflow/entities/definitions_list_type_access_test.exs",
+      "test/support/definitions_list_fixture.ex",
+      "test/support/query_count.ex",
+      "lib/letflow/design/gh2739-definitions-list-type-access.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2739-DEFS-LIST-20261017"
+  },
+  "task": {
+    "description": "WF-02 step 3b: static validation of the GH #2739 tests against the design (T-1..T-17), the SEC R1-R4 conditions and mutants M1..M10. Read-only; mix was NOT run (per ORCH)."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "summary": "PASS (static only; nothing executed, no mutant measured). All 17 design tests are present and runnable in form: router file T-1, T-2 (x2), T-3, T-6, T-7, T-8, T-10, T-11, T-16, T-17 (10 tests); context file T-4, T-5, T-9, T-12a/b, T-13, T-14, T-15 x2 (9 tests); no @tag :skip, no TODO, no hardcoded secrets (only the __NO_PASSWORD_SET__ sentinel the existing joins test also uses), each test builds its own tenant(s) via TenantFixture, none depends on another. Existing type_access_test.exs, entities_type_access_joins_test.exs, request_access_test.exs and entities_test.exs are absent from `git diff main...HEAD`; only definitions_test.exs changed, and there only the 12 list_definitions calls (+ @unrestricted_viewer) with assertions unchanged. No list_definitions/2 caller remains in lib/ or test/ (grep). STRENGTH: T-1 and T-2 would fail on main (the list returns all 8 rows, so x ids and x_ent appear in the body and the world-without-X comparison differs); T-1 has a granted-caller control proving X is in the fixture; sizes 1..7,200 cover a page ending exactly on denied x2 (size 4), a denied-leading row (x3) and a trailing denied tail (x0, size 4 -> one page, next_cursor nil); T-2 also checks every cursor names the page's last visible row. Fixture is deterministic: fixed uuids ...0001..0008, distinct fixed inserted_at (base + n min), raw order x3 b1 a3 x2 a2 x1 a1 x0 verified against @rows; denied-world vs without-X world are two real tenants. cursor_position/craft_cursor match the ED:<mint>:<id>:<inserted_at_us> format in definitions.ex; the 410/400 statuses in T-6 match Error.cursor_expired and the router; 404 detail is a fixed string so T-10 byte comparison is sound. T-12 covers both directions on two real schemas. T-13 covers other-name restriction, other user's grant, caller's grant for another type, then own grant. T-14 covers duplicate-name versions, grant for a different type, other user's grant, absent name, and checks authorized?/3, denied_types/3 and list visibility against explicit expected sets. T-15 uses function_exported? and apply/3 FunctionClauseError (guards in definitions.ex and type_access.ex are is_binary/is_atom, so nil/atom/integer and a string binding raise). T-16 uses TENANT_ADMIN with no grant. T-17 compares status, headers and bytes to an empty tenant. QueryCount: handler attached to [:letflow, :repo, :query] (default telemetry prefix of Letflow.Repo), counts only when self() == test pid, unique handler id, detach in `after`: correct. MASKING: replacing the one world-specific artifact_version_id uuid is ACCEPTABLE and does not weaken the claim: all fixture rows in a world share a single artifact version, so the value carries no per-row/X information, any other differing uuid would still fail the byte/item comparison, and the id is length-equal so content-length headers still compare; item comparison drops the key in both worlds. MUTANT REASONING (predicted, not measured): M1 killed by router T-2/T-11/T-17 and size-4/size-5 pages; M2 by context T-4 and T-5 (cursor at x2 / x1 / x3 would otherwise return x rows); M3 by T-1, T-7, T-13, T-14; M4 by T-13 (other user's grant) and T-14 step 3; M5 (status-restricted or wrong-column match) by T-1 (x0/x1/x3 inactive); M6 by T-2 cursor-position equality; M7 by T-16 and T-1 (all router callers are TENANT_ADMIN); M8 by T-15; M9 by T-12a/b; M10 by T-14. No listed mutant is unkilled by reading. FINDINGS (non-blocking): (1) NOTHING HAS BEEN EXECUTED: the two .exs files were never compiled or run and no mutant was applied; hosted CI is the first execution, so a compile error, a wrong fixture assumption (e.g. a DB CHECK/trigger on entity_definitions or Repository.create attrs) or an arithmetic slip would first show there. The mandatory-mutant rule of WF-03 does not strictly apply (pre-fix failure for the router tests is an assertion failure, not 'module does not exist'), but ORCH should still measure M1, M2, M3 and M9 on hosted CI (throwaway worktree/branch, revert-and-verify) and quote counts before RELEASE-VALIDATOR; T-9 and M-sets T-4/T-5 especially have no execution evidence. (2) M7 coverage is TENANT_ADMIN only (the single role the test tokens hold); a bypass for another role (e.g. a platform role) would survive. (3) T-9 kills only a multi-statement implementation (design option A / extra round trip), not M1..M10; this is its design purpose. (4) T-7 golden is derived from the fixture table rather than captured pre-change; equivalent and acceptable, relies on utc_datetime_usec rendering '.000000Z' which matches DateTime.add on the .000000Z base. (5) T-5 exercises denied x1 and x3 only (x0 and x2 not as cursors); T-4 covers x2; sufficient. (6) A hosted-CI failure in any of these tests should be diagnosed from the test, not weakened: do not loosen assertions to go green.",
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "verdict": "PASS",
+    "mutants_measured": [],
+    "mutants_predicted_unkilled": [],
+    "mix_run": false,
+    "required_followup": "ORCH measures mutants (at least M1, M2, M3, M9) on hosted CI and quotes counts"
+  }
+}
