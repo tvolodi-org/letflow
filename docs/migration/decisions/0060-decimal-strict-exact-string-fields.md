@@ -26,5 +26,8 @@ Non-strict fields stay legacy and are documented as such (lossy floats, no scale
 ## Managed types
 `ManifestHash` does not hash entity-definition content, so a flag change alone does not change a module's manifest hash. A module that flips the flag in its shipped pack must bump its manifest `:version` (hashed) in the same release; that changes the hash, and in-flight handler tasks then refuse per the OQ-R3 pilot limit.
 
+## Obligation on the future module-upgrade planner (0055)
+The 0055 upgrade path is not built (module install on main is first-install only). When it is built, its planner MUST refuse a `decimal_strict` change on an entity type that has records at PLAN time, surface the 409-shaped reason in the upgrade journal and run report to the tenant admin (permission `:ModulesManage`), and never start the upgrade. The activation gate (`activate_definition/4`, evaluated before any activation is committed, under the type's sequence lock) stays as a backstop.
+
 ## Not decided here
 Adding strict-field names to the manifest-hash surface; strict-field input widgets in the SPA and mobile app; per-unit-of-measure scale (the module's handler narrows within the field scale); the record-history route's use of the shared decoder (its own design, REQ-516).
