@@ -58,7 +58,11 @@ Adjacent reads with the same flaw that do NOT go through `get/3` (found while re
 |---|---|---|---|
 | A1 | `snapshot.ex:773` | `query_all("session_question", ...)` in `build_late` | soft-deleted session_question rows still enter `order`. CHANGE (late path). |
 | A2 | `snapshot.ex:813` | `query_all("answer_option", ...)` in `load_item` | soft-deleted options still enter the key/correct set. CHANGE (late path): key-bearing deleted option refuses, other deleted options excluded (section 5). |
-| A3 | `session.ex:563` | `query_all("answer_option")` in `build_option_states` | display only; UNCHANGED (OQ-4). |
+| A3 | `session.ex:564` | `query_all("answer_option")` in `build_option_states` | display only; UNCHANGED (OQ-4). |
+| A5 | `session.ex:966` | `fetch_question_row/3` (START / pool path) reads `answer_option` rows unfiltered and builds the START snapshot source (`session.ex:970-981`) | Same defect class on the START path. UNCHANGED here: out of scope per ruled OQ-2; related follow-ups #2759 / #2760 cover `session.ex:1024` and `lock_exam_row`, but this option read is NOT named by them and needs its own follow-up note. |
+
+Truthful count: besides the late-path read this issue changes (`snapshot.ex:813`), exactly two other unfiltered
+`answer_option` reads exist: `session.ex:564` (display, A3) and `session.ex:966` (start snapshot source, A5).
 | A4 | `session.ex:738-749` | `lock_exam_row/2` (create) selects the exam row with `FOR UPDATE`, no `deleted` condition | a soft-deleted but `active` exam may still start a session. Same class, START path. OQ-2. |
 
 Docstring/comment-only mentions (no behaviour): `record/projector.ex:51`, `modules/exam/router.ex:90`,
@@ -91,7 +95,7 @@ D. RECOMMENDED: add `Latest.get_live/3`, leave `get/3` unchanged, and switch the
 
    Rationale:
    * Security: the deleted condition is in the SQL predicate (`deleted == false`), matching the existing
-     convention (section 2). A deleted row is never loaded into the process, so no snapshot content can be built
+     convention (section 2). For the exam and question rows (via `get_live/3`) and session_question rows a deleted row is never loaded into the process (options are the carve-out: they are read and split on the `deleted` flag, see 4.1 and section 5), so no snapshot content can be built
      from it by a later code edit that forgets a post-check.
    * No information leak: `get_live/3` returns the same `{:error, :not_found}` as an absent row. The builder maps it
      to the same `{:grading_error, ...}` atoms a hard delete produces (T-49/T-50), so a soft-deleted and a
@@ -124,8 +128,16 @@ D. RECOMMENDED: add `Latest.get_live/3`, leave `get/3` unchanged, and switch the
 * `Snapshot.build_late/3`: the `session_question` query gains `deleted == false`. `load_item/2` still reads all
   `answer_option` rows of the question, partitions them on the row's `deleted` flag, and for each deleted option
   decides: key-bearing -> the whole late build is refused with `{:error, {:grading_error, {:key_missing,
-  question_id}}}`; not key-bearing -> dropped. Key-bearing means: `is_correct == true` for single/multiple choice;
-  a non-nil `likert_weight` for likert (a deleted weighted likert option changes the scale, same reasoning).
+  question_id}}}`; not key-bearing -> dropped. Key-bearing is defined per type, matching the builder (`@key_types = ~w(single multiple truefalse)`,
+  `snapshot.ex:73`; `build_item/2` collects `is_correct` for EVERY type, `snapshot.ex:204-208`; `check_key/3`
+  `snapshot.ex:221`; `build_likert/3` weights):
+  * `single`, `multiple`, `truefalse`: key-bearing iff `is_correct == true`.
+  * `likert`: key-bearing iff `likert_weight` is non-nil OR `is_correct == true`. A deleted likert option with
+    `is_correct: true` and a nil weight is therefore key-bearing and REFUSES (`{:key_missing, question_id}`),
+    because `build_item/2` would otherwise have put it in `correct_option_ids` of the likert item; fail closed.
+    A deleted likert option with a nil weight and `is_correct` not true is excluded.
+  * `shorttext`: no option is key-bearing; every deleted option is excluded.
+  Any other (unknown) type keeps its existing `{:question_type_invalid, id}` refusal, unchanged.
   Only live options continue into the snapshot item. Atom decision: REUSE `{:key_missing, question_id}`. A distinct
   atom (e.g. `:key_option_deleted`) would add an error variant a caller or log could use to tell "deleted" from
   "absent", against I-2, and `key_missing` already carries the right meaning (the answer key cannot be completely
@@ -148,7 +160,7 @@ option and session_question => EXCLUDE.
 |---|---|---|
 | exam | REFUSE: `{:error, {:grading_error, :exam_section_missing}}` (same atom as T-49), nothing written, no audit entry | REFUSE: same atom, nothing written, no audit |
 | question of a session_question | REFUSE: `{:error, {:grading_error, {:question_item_missing, id}}}` (same as T-50) | n/a (reads the exam only) |
-| answer_option that was key-bearing (correct on single/multiple choice; weighted on likert) | REFUSE: `{:error, {:grading_error, {:key_missing, question_id}}}`, nothing written | n/a |
+| answer_option that was key-bearing (per type, see 4.1: `is_correct` on single/multiple/truefalse; weight or `is_correct` on likert; never on shorttext) | REFUSE: `{:error, {:grading_error, {:key_missing, question_id}}}`, nothing written | n/a |
 | answer_option that was NOT key-bearing (incorrect; unweighted likert) | EXCLUDE from the snapshot item | n/a |
 | live options leave a single-choice/likert question with no key | REFUSE: existing `{:key_missing, id}` (T-51), unchanged | n/a |
 | session_question | EXCLUDE (query filter) | n/a |
@@ -182,9 +194,11 @@ main before the fix (ELIXIR-DEV/TEST-DESIGNER quote the red run).
 | T-50b | same | soft-deleted question: `{:grading_error, {:question_item_missing, q_id}}`, nothing written | yes |
 | T-50c | same | soft-deleted INCORRECT option of a single-choice question: late snapshot is built, the deleted id is absent from the item's options, the correct set is unchanged | yes |
 | T-50c2 | same | soft-deleted CORRECT option of a single-choice question (other live options remain, none correct): `{:grading_error, {:key_missing, q_id}}`, nothing written | yes |
+| T-50c2b | same | truefalse: soft-deleted CORRECT option (the other live option incorrect): `{:grading_error, {:key_missing, q_id}}`, nothing written; soft-deleted INCORRECT option: built, excluded | yes |
 | T-50c3 | same | multiple-choice, soft-deleted CORRECT option while another correct option stays live: still `{:key_missing, q_id}` refused (not a smaller correct set), nothing written | yes |
 | T-50c4 | same | multiple-choice, soft-deleted INCORRECT option: built, deleted id excluded, correct set identical to a snapshot taken with no deletion | yes |
-| T-50c5 | same | likert: soft-deleted weighted option refused with `{:key_missing, q_id}`; soft-deleted unweighted option excluded | yes |
+| T-50c5 | same | likert: soft-deleted weighted option refused with `{:key_missing, q_id}`; soft-deleted option with nil weight and no `is_correct` excluded; soft-deleted option with nil weight and `is_correct: true` refused | yes |
+| T-50c7 | same | shorttext: soft-deleted option is excluded (built) | yes |
 | T-50c6 | same | every refusal above leaves status `in_progress`, snapshot field absent, scores unchanged, no audit entry (via `assert_late_build_fails!/2`) | yes |
 | T-50d | same | soft-deleted session_question: excluded from snapshot `order`/`questions` | yes |
 | T-49c | same file or `certificate_snapshot_test.exs` (also pins the RULED OQ-6 product consequence) | `Snapshot.ensure_certificate_facts/3` on a submitted legacy session with a soft-deleted exam: `{:error, {:grading_error, :exam_section_missing}}`, no write, no `exam.session_snapshot_late` audit entry | yes |
@@ -220,8 +234,8 @@ check quoted": this touches a tenant-data read path (INV prefix scoping preserve
 * OQ-5 (RULED, changed from the earlier "exclude" default): a soft-deleted key-bearing option REFUSES the late
   snapshot with `{:key_missing, question_id}` (atom reuse decided and justified in 4.1); a soft-deleted
   non-key-bearing option is excluded; no-correct-option-left keeps `{:key_missing, id}`. Decision recorded for the
-  supervisor's visibility: for likert, "key-bearing" is defined as a non-nil `likert_weight`, since likert has no
-  `is_correct`.
+  supervisor's visibility: the per-type "key-bearing" definition (likert: non-nil `likert_weight` or `is_correct` true; single/multiple/truefalse: `is_correct` true; shorttext: none) replaces the earlier likert-only sketch; likert has no
+  `is_correct`; per-type definition, including the likert `is_correct`-with-nil-weight case, is in 4.1.
 * OQ-2, OQ-3, OQ-4 (RULED out of scope): `session.ex:1024` (C6) and `lock_exam_row/2` (A4) are separate follow-ups
   (filed by letflow-2); soft-deleted sessions (C2, C4, C7) and display/anti-cheat policy reads (C3, C5, A3) are
   unchanged.
