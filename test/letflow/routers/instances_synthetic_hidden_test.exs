@@ -341,8 +341,11 @@ defmodule Letflow.Routers.InstancesSyntheticHiddenTest do
   # caller's unchanged assertion; a crossed final attempt is returned too (and fails
   # honestly rather than being masked).
   defp measure_pair(warmup, hidden_fun, random_fun, attempts \\ 5) do
-    warmup.()
+    # The boundary check must cover the warm-up too: its last request touches last_used_at
+    # partway through, so a roll between that touch and a later clock read would charge the
+    # first measured request the extra UPDATE without being detected.
     second_before = System.os_time(:second)
+    warmup.()
     {hidden, hidden_queries} = count_queries(hidden_fun)
     {random, random_queries} = count_queries(random_fun)
     crossed? = System.os_time(:second) != second_before
