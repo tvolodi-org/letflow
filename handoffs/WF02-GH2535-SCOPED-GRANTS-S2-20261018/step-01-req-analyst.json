@@ -8,7 +8,7 @@
   "file": "handoffs/WF02-GH2535-SCOPED-GRANTS-S2-20261018/step-01-req-analyst.json",
   "created_at": "2026-10-17T14:28:00Z",
   "started_at": "2026-10-17T14:29:00Z",
-  "completed_at": "2026-10-17T14:55:31Z",
+  "completed_at": "2026-10-17T14:59:36Z",
   "status": "COMPLETED",
   "priority": "HIGH",
   "context": {
@@ -93,6 +93,12 @@
         "REQ-518 AC 1: per-site :all justification, exam sites need threaded scope or a SECURITY-REVIEWER ruling, source scan for unjustified :all; AC 17 three verbatim sentences",
         "CODE FINDING: no GET-by-id record route, no bulk-update route and no PATCH on records exist on main (PUT/DELETE by id, POST import/export, POST query); REQ-518 ACs 6-9 and REQ-519 AC 16 reworded",
         "REQ-519: AC 1 states platform bindings cannot be created while on (+OQ-5); AC 8 tokens cannot flip; AC 9 lock order as built (A, tenants row, tree lock; validator order differs from scope_enforcement.ex:164-192); AC 11 partial-day rule and sixth reason role_not_held; AC 13 on->shadow reason marked D12 extension; AC 14 counts all six reasons"
+      ],
+      "req_validator_round3": [
+        "REQ-519 AC 16 names the real by-id routes",
+        "REQ-519 OQ-2 lists four non-blocking reasons",
+        "REQ-519 AC 13: on->shadow and on->off run no precondition; enable_checks! only for off->shadow (code runs it for any :shadow target today, scope_enforcement.ex:175); test added",
+        "REQ-517/518/519 headers record rounds 1-3 (revision 4); eligibility moot once PR #2754 merges; titles contain no word entity; 458 entries"
       ]
     },
     "code_contradictions": [
