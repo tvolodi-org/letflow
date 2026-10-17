@@ -1,0 +1,73 @@
+{
+  "handoff_id": "d2535517-0517-4c02-9e11-000000000007",
+  "run_id": "WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018",
+  "workflow_id": "WF-02",
+  "step": "07",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018/step-07-security-reviewer-code-2a.json",
+  "created_at": "2026-10-17T17:00:00Z",
+  "started_at": "2026-10-17T17:00:00Z",
+  "completed_at": "2026-10-17T17:45:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": ["REQ-517"],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "SECURITY-REVIEWER CODE gate for REQ-517 slice 2a, commit 781a3dfe6 on feature/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018. Read-only; no mix run (static review)."
+    },
+    "related_handoff_ids": ["d2535517-0517-4c02-9e11-000000000004"],
+    "artifacts_in": [
+      "lib/letflow/routers/tenant_role_scope_grants.ex",
+      "lib/letflow/identity/scoped_grants.ex",
+      "lib/letflow/identity/role_scope_grants.ex",
+      "lib/letflow/identity/service_principal.ex",
+      "lib/letflow/identity/tenant_admin_guard.ex",
+      "lib/letflow/identity.ex",
+      "lib/letflow/scope_node_paths.ex",
+      "lib/letflow/api/authorization.ex",
+      "lib/mix/tasks/letflow.check_role_scope_grants_writers.ex",
+      "mix.exs",
+      "priv/repo/migrations/20261018100001_add_scope_node_fkey_to_role_scope_grants.exs",
+      "priv/repo/migrations/20261018100002_add_admin_flagged_service_principal_to_users.exs",
+      "test/letflow/scope_node_paths/migration_test.exs"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018"
+  },
+  "task": {
+    "description": "Security code gate for REQ-517 2a against INV-1..INV-8, decision 0051 D1/D8/D11 and the mandatory #2586/#2612 trigger list. No edits to lib/ or test/."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "CODE GATE (2a): PASS, no BLOCKER; four non-blocking advisories (C-1..C-4). Static review only: nothing was compiled or run by this reviewer (no mix); the dev compiled with --warnings-as-errors, no tests have run and migrations have never been applied, so runtime claims below marked UNVERIFIED must be confirmed by TEST-RUNNER. SCOPE: in scope (tenant-data routes, two tenant migrations, and the mandatory triggers authorization.ex, mix.exs @check_static_steps, the tenant migration manifest). (1) GRANT ROUTES: every handler runs Scope.require_tenant_wide(:UsersGroupsRolesManage) before any parse or lookup (tenant_role_scope_grants.ex:50-56), uniform 403; tenant from auth_context/scoped_opts only (INV-1, INV-10); tokens pass allowed? as {:allow,:token} (ruling R5) and every grant.* audit after_state carries credential (scoped_grants.ex:533-543, plus self-refusal at :499; D-3 satisfied); PLATFORM_ADMIN is not grantable (parse_role refuses it). (2) LOCK ORDER: create = lock_tenant_admins! (A) then TENANT_ADMIN binding row (R) then reads then node FOR SHARE (N) then insert then audit; delete = A, row read, R; make_tenant_wide = A only (matches design 3.x row 'make-tenant-wide: A; B; C'); service-principal = A then user row FOR UPDATE then audit; add_group_member self-refusal is decided right after A. No path takes N before A. (3) D-1: VERIFIED by trace. delete refuses a group's sole tenant-wide TENANT_ADMIN row with last_admin_binding_row (scoped_grants.ex:222) and a sole scoped row with last_scoped_row first (:219), so precedence is correct and last_admin_binding_row writes no guard_refused event (not routed through TenantAdminGuard). The explicit counter is used by revoke_tenant_admin_grant (delete, :193/:198) AND scope_tenant_admin (create, :147/:157). The lockout path A-explicit-via-G1 plus B-in-G2 does not remain: G2 rows [tw] cannot be deleted; G2 rows [tw, scoped] can be (tw deleted) but then B is scoped-only, so count_tenant_wide_admins (exclude_scoped_holders, identity.ex:1456) also drops B, and the other guards (update_user_status etc.) see one admin. The only residual is a PRE-EXISTING zero-row (T9) binding that the counted definition still counts; this route cannot create one and PR #2758 amends REQ-519 AC 9 to the explicit count. (4) F2: retire_live_node locks the node row FOR NO KEY UPDATE before references_node? (scope_node_paths.ex:306-324); lock_active_node_for_share! uses FOR SHARE and re-reads retired_at after the lock (:156-166); the FK is ON DELETE RESTRICT with lock A first and a frozen SQL precheck whose message is a count only; both migrations registered in the tenant manifest (tenant_provisioning.ex:708-713); only interpolation is the schema name from prefix() (INV-7); lock key is a bound parameter; down is guarded with to_regclass. migration_test :down fix is sound in design (FK rolled back before the historical drop table; the grant fixture is inserted by SQL; the post-recreate precheck raise is asserted as RuntimeError with the count) but UNVERIFIED at runtime: Ecto.Migrator.run must propagate the RuntimeError unwrapped. (5) SERVICE-PRINCIPAL FLAG: credential == :oidc first (identity.ex require_oidc, auth_context credential is set only by the pipeline branches, auth_pipeline.ex:473), then tenant-wide UsersGroupsRolesManage, then TENANT_ADMIN held with effective_scope :tenant_wide (a platform-only PLATFORM_ADMIN is refused); every refusal the same forbid_insufficient 403; body keys strict; reason validated before any user lookup (blank/non-string reason_required, Audit.Reason invalid_reason); invalid or unknown id is one 404; flag set in one module (ServicePrincipal.set_flag, no cast list), audit in the same transaction (audit failure rolls back), no-op writes nothing; the exemption is only the target side of check_roles_held (identity.ex mint step 7, issuer_held still enforced, PLATFORM_ADMIN rules untouched); unflag after_state carries tokens_exceeding_owner as a COUNT only; flag never read by Scope.allowed?. (6) AC 9 FOR TOKENS: auth_context carries only the owner user id for an API token; check_not_self! compares the owner (user principal) and owner group membership (group principal). That satisfies the intent: the grant table has no token principal (principal_type is user|group), so there is no token principal id to refuse; refusing the OWNER is the only meaningful self-widening check, and the check cannot stop collusion by design. Consequence: a TENANT_ADMIN token cannot widen its own owner but can grant any other user or group, which adds no capability because tokens already add group members, bind roles and mint tokens (ruling R5). Accepted. (7) WRITER SCAN: word-boundary schema and table names, plural context module never matches, allowlist is 4 files, scans lib and priv/modules, wired in mix.exs @check_static_steps before format/compile; I grepped lib for non-allowlisted mentions: only reads (identity.ex:1464, :2512 are from(g in RoleScopeGrant) with no adjacent Repo write), comments and doc strings, so the scan should pass (UNVERIFIED by execution). (8) POLICY KEYS: endpoint_policy_key clauses for the 5 routes and required_permission(key in the three new keys) -> :UsersGroupsRolesManage exactly (authorization.ex:1423); no new permission atom, so priv/permission_matrix/effective.golden is unchanged and no CORE MATRIX CHANGE can print (permission_scope(:UsersGroupsRolesManage) stays :tenant); the new keys are in the policy-key type. (9) ERRORS: every service function returns a typed result; Repo.transaction is wrapped in rescue to {:transaction_failed, exception} and the router maps any unmapped error to a detail-free 500; constraint errors are mapped (grant_exists, tenant_wide_row_exists, invalid_scope_node); unknown principal, unknown, retired or malformed node, uncastable ids all answer the same code/body (invalid_principal 422, invalid_scope_node 422, delete not_found 404 for both uncastable and unknown); TenantAdminGuard.resource_type gained the two role_scope_grant clauses (F3) so refuse/4 no longer rescues a FunctionClauseError; refusal events are written after rollback in their own transaction and never raise; Logger lines are constant (no ids, no secrets; INV-4). INV-1: every query/Repo call in the new code carries prefix:. INV-7: all values bound; the only interpolations are the schema name in the two migrations (from prefix()). INV-2: grant_map and the flag response are built field by field. INV-3, INV-9: NOT-APPLICABLE.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "handoffs/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018/step-07-security-reviewer-code-2a.json"
+    ],
+    "invariants_assessed": {
+      "INV-1": "APPLIES, PASS",
+      "INV-2": "APPLIES, PASS",
+      "INV-3": "NOT-APPLICABLE (no Lua/WASM host function)",
+      "INV-4": "APPLIES, PASS (constant log lines; count-only precheck and tokens_exceeding_owner; no secrets in audit)",
+      "INV-5": "APPLIES, PASS (uniform 403 before lookup; uniform 422/404 bodies)",
+      "INV-6": "APPLIES, PASS (single writer RoleScopeGrants; scan wired)",
+      "INV-7": "APPLIES, PASS (bound values; schema from prefix() only)",
+      "INV-8": "APPLIES, PASS (typed errors, rescue to 500, refuse never raises)",
+      "INV-9": "NOT-APPLICABLE (no outbound URL)",
+      "INV-10": "APPLIES, PASS (tenant from auth_context/scoped_opts)"
+    },
+    "required_changes": [],
+    "advisories": [
+      "C-1 (test, must exist): pin the D-1 trace as a test: group G2 rows [tw] delete -> 409 last_admin_binding_row and no guard_refused event; rows [tw, scoped] delete tw -> 200, then deactivating the only other explicit admin is refused (counted == explicit agree); precedence rows [scoped] -> last_scoped_row.",
+      "C-2 (test): assert READ COMMITTED in the F2 retire-vs-create race tests (SEC A-4); a REPEATABLE READ default would break the lock-then-read ordering.",
+      "C-3 (test, UNVERIFIED items): TEST-RUNNER to run migration_test (the Ecto.Migrator RuntimeError propagation and the :down order) and mix letflow.check_role_scope_grants_writers; and a test that a token (credential :api_token) holding TENANT_ADMIN gets 403 on PUT /users/:id/service-principal and 2xx on a grant write.",
+      "C-4 (residual, REQ-519): the other admin guards (update_user_status, remove member, revoke_token, rebind) still use the counted definition, which counts a pre-existing zero-row binding; REQ-519 AC 9 (PR #2758) must use the explicit count for the zero_tenant_wide_admins flip blocker."
+    ],
+    "classification": "CODE_PASS",
+    "implementation_written": true
+  }
+}

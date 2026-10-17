@@ -1,0 +1,94 @@
+{
+  "handoff_id": "d2535517-0517-4c02-9e11-000000000005",
+  "run_id": "WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018",
+  "workflow_id": "WF-02",
+  "step": "05",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018/step-05-elixir-dev-2a.json",
+  "created_at": "2026-10-17T15:59:00Z",
+  "started_at": "2026-10-17T15:59:33Z",
+  "completed_at": "2026-10-17T16:35:05Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": ["REQ-517"],
+    "requirement_text": {},
+    "source_text": {
+      "slice": "REQ-517 slice 2a (grant admin plane), GH #2535, decision 0051 stage 2. 2b (route classes, stored on, Authorize enforcement, attachment-link audit, shadow counters AC 22) is NOT in this change."
+    },
+    "related_handoff_ids": ["d2535517-0517-4c02-9e11-000000000002"],
+    "artifacts_in": ["lib/letflow/design/req517-scoped-grants-admin-plane.md"],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018"
+  },
+  "task": {
+    "description": "Implement PR 2a of the REQ-517 design. No tests written; nothing committed or pushed."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "REVIEWER cleanups R1-R4 applied after the first pass (see reviewer_cleanups) but NOT recompiled: the machine mutex was held by another session for the full 8 minute poll, so mix was not run (not compiled after the cleanups; the numbers below are from before them). 2a implemented. MIX_ENV=test mix compile --warnings-as-errors: clean. mix format --check-formatted: clean. mix letflow.check_boundaries: 0 violations (1696 edges). mix letflow.check_role_scope_grants_writers: no violations on the real tree; ad-hoc audit() probe flagged Repo.insert_all of the schema, Multi.delete_all, raw DELETE FROM, struct literal, and RoleScopeGrant.changeset, and passed the verbatim RoleScopeGrants.delete_group_principal_rows! pair. MIX_ENV=dev mix letflow.permission_matrix --check: needed --baseline-ref HEAD~1 because the baseline equals HEAD on an uncommitted tree (plain --check raises baseline_is_head); with it result=pass, core matrix changes none, golden file untouched. NOT RUN: mix test (forbidden), mix letflow.check as a whole, migrations against a database.",
+    "migrations": ["20261018100001_add_scope_node_fkey_to_role_scope_grants.exs", "20261018100002_add_admin_flagged_service_principal_to_users.exs"],
+    "files_created": [
+      "lib/letflow/identity/scoped_grants.ex",
+      "lib/letflow/identity/service_principal.ex",
+      "lib/letflow/routers/tenant_role_scope_grants.ex",
+      "lib/mix/tasks/letflow.check_role_scope_grants_writers.ex",
+      "priv/repo/migrations/20261018100001_add_scope_node_fkey_to_role_scope_grants.exs",
+      "priv/repo/migrations/20261018100002_add_admin_flagged_service_principal_to_users.exs"
+    ],
+    "files_changed": [
+      "lib/letflow/api/authorization.ex",
+      "lib/letflow/identity.ex",
+      "lib/letflow/identity/role_scope_grant.ex",
+      "lib/letflow/identity/role_scope_grants.ex",
+      "lib/letflow/identity/tenant_admin_guard.ex",
+      "lib/letflow/identity/token_preconditions.ex",
+      "lib/letflow/identity/user.ex",
+      "lib/letflow/plugs/api_pipeline.ex",
+      "lib/letflow/routers/identity.ex",
+      "lib/letflow/routers/tenant_scope_enforcement.ex",
+      "lib/letflow/scope_node_paths.ex",
+      "lib/letflow/tenant_provisioning.ex",
+      "mix.exs",
+      "test/letflow/scope_node_paths/migration_test.exs"
+    ],
+    "touched": {
+      "authorization_ex": true,
+      "permission_matrix_golden": false,
+      "mix_exs": true,
+      "ci_yml": false
+    },
+    "coordinator_amendments_applied": [
+      "G1: write_error includes :last_admin_binding_row; delete maps it to typed 409 last_admin_binding_row.",
+      "G2: sole remaining row of a (principal, TENANT_ADMIN) set: scoped => last_scoped_row WINS; last_admin_binding_row only when that sole row is tenant_wide and the principal is a group. last_admin_binding_row writes NO tenant_admin.guard_refused event (plain rollback, no guard path).",
+      "scope_tenant_admin uses count_explicit_tenant_wide_admins (TenantAdminGuard.count_before!/2 and ensure_admins_remain!/5 with :explicit), per the coordinator amendment, instead of the design 3.9 counted default.",
+      "AC 9 self-grant: auth_context carries only the owner user id for an API token (no token id), so 'caller' = auth_context.user_id (the token's owner) and a group the caller is a member of. A token's own id is not available in auth_context; if a separate token principal id must also be refused, the pipeline would have to expose it (not done)."
+    ],
+    "deviations": [
+      "actor map (ScopedGrants, ServicePrincipal) carries an optional credential string (oidc or api_token) for SEC D-3; design 3.4 typed it as user_id and trace_id only.",
+      "RoleScopeGrants.effective?/4 is implemented with its own queries rather than calling the Identity read functions (avoids a RoleScopeGrants -> Identity dependency); Identity has the same-shape reads for ScopedGrants.",
+      "Cursor encode/decode lives in ScopedGrants.list/4 (prefix RG:), the router passes the raw cursor string.",
+      "ScopeNodePaths.retire reads the node via plain fetch first to keep the idempotent already-retired path unlocked, then locks FOR NO KEY UPDATE and re-checks retired_at before references_node?.",
+      "The migration_test :down fix was made in the test (design 3.6.3 and the task asked for it): FK migration rolled back first, scoped grant fixture inserted by SQL, precheck assertion RuntimeError ~r/role_scope_grants fk precheck: 1/ then re-insert nodes and FK :up. The raising assertion (Ecto.Migrator re-raising the RuntimeError unwrapped) is unverified because tests were not run."
+    ],
+    "notes_for_test_designer": [
+      "Existing tests that WILL fail or need editing: test/letflow/api/scope_grants_route_walk_test.exs T-RW1b (public function list of RoleScopeGrants now also insert_scoped/5, insert_tenant_wide/4, delete_row!/2, delete_scoped_rows!/4, get_row/2, rows_for/4, references_node?/2, list_page/4, effective?/4) and T-RW1c (scope_node_id params / tenant_wide: false now legal in insert_scoped and the readers); T-RW2c new. test/letflow/api/authorization_enforcement_test.exs: register Letflow.Routers.TenantRoleScopeGrants in @routers and @mount_prefix '/tenant/role-scope-grants'; platform-scope inventory tests via forward regex. Any test pinning the exact list of manifest entries / migration count, and any test asserting TokenPreconditions.findings/1 keys or the token-preconditions body 'information' keys (now also service_principal_owner). Tests that add the TENANT_ADMIN caller to a group through POST /groups/:id/members now get 409 self_grant_refused (grep test/letflow/routers/identity*, test/letflow/identity*). Tests that create a retire on a node and a tests of ScopeNodePaths.write retire are unchanged unless a grant names the node. Any test asserting list_tokens/1 item shape by exact map equality (now has owner_flagged). Any test calling TenantAdminGuard.ensure_admins_remain!/4 or count_before!/1 is unaffected (they delegate with :counted).",
+      "G2 test: sole remaining row of a group's TENANT_ADMIN set that is SCOPED => 409 last_scoped_row (not last_admin_binding_row); sole row tenant_wide of the admin group => 409 last_admin_binding_row and NO tenant_admin.guard_refused audit row; the group with 2+ rows deleting the tenant_wide row is allowed subject to revoke_tenant_admin_grant (explicit count).",
+      "scope_tenant_admin is unreachable via HTTP (step 8 refuses with tenant_wide_row_exists first): test it at function level with TenantAdminGuard.count_before!(prefix, :explicit) / ensure_admins_remain!(prefix, :scope_tenant_admin, id, before, :explicit) inside a transaction, per the coordinator.",
+      "Service-principal route gate order: credential == :oidc, then Scope.require_tenant_wide, then TENANT_ADMIN held tenant-wide; all refusals are the same uniform 403 'insufficient permissions'. Body: extra key or non-boolean/missing flagged => 422 invalid_body (checked before the reason); then reason_required / invalid_reason; unknown or non-UUID user => 404 only after the reason check.",
+      "list: 'limit' non-integer or outside 1..200 => 400 'invalid limit'; bad cursor => 400 'invalid cursor'; bad filter value => 422 invalid_principal / invalid_role. Other query params (including tenant) are ignored.",
+      "Audit: grant.created/revoked/made_tenant_wide/self_grant_refused and service_principal.flagged/unflagged all carry credential in after_state; grant.revoked after_state is {credential, actor, trace_id} and before_state is the row keys. unflagged carries tokens_exceeding_owner (count). Audit.list_entries has no action filter (finding F8).",
+      "ServicePrincipal.set_flag with an unchanged value returns changed false and writes no audit row.",
+      "FK migration down uses DO block guarded by to_regclass on both tables; precheck message is 'role_scope_grants fk precheck: <count>'.",
+      "Scan fixtures: must-pass fixtures should be the verbatim identity.ex group-principal delete pair and tenant_admin_migration reconcile pair; the whole-word rule is verified by an ad-hoc probe only.",
+      "AC 22 (shadow counters) is 2b; nothing for it here."
+    ],
+    "local_issue_id": null,
+    "implementation_written": true,
+    "reviewer_cleanups": ["R1 removed Identity.user_holds_role_through_group?/3", "R2 ScopedGrants.actor_from_conn/1 shared by both routers; Identity.same_user_id/2 made public (@doc false) and used by ScopedGrants, same_id/2 removed", "R3 run/2 without the unused actor argument", "R4 make_tenant_wide takes lock_writers!(role, prefix) (A then R for TENANT_ADMIN)"],
+    "stray_working_tree_change_not_mine": "docs/requirements.yaml shows as modified in git status; not touched by ELIXIR-DEV."
+  }
+}

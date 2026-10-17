@@ -17,6 +17,14 @@ defmodule Letflow.Identity.RoleScopeGrants do
   Lock A serialises every group-row write of a tenant, which is what makes
   `repair_group_row!/3`'s check-then-insert race-free; a caller must hold it.
 
+  ## Stage 2 admin plane (REQ-517)
+
+  `insert_scoped/5`, `insert_tenant_wide/4`, `delete_row!/2` and `delete_scoped_rows!/4` are
+  the row writers behind `Letflow.Identity.ScopedGrants` (the only caller); `get_row/2`,
+  `rows_for/4`, `list_page/4`, `effective?/4` and `references_node?/2` are its readers. This
+  module stays the single writer of the table
+  (`mix letflow.check_role_scope_grants_writers`).
+
   ## Checks
 
   `bindings_without_row/1` is T9 (a `:platform_role` binding with no group row of any
@@ -219,6 +227,293 @@ defmodule Letflow.Identity.RoleScopeGrants do
       )
 
     count
+  end
+
+  # --- REQ-517 stage 2 admin-plane writers -----------------------------------
+  #
+  # The scoped / tenant-wide row writers behind `Letflow.Identity.ScopedGrants`. Every one runs
+  # inside the caller's transaction under lock A; a Postgres constraint error aborts that
+  # transaction, which every caller rolls back on.
+
+  @typedoc "A principal type of a grant row."
+  @type principal_type :: :user | :group
+
+  @doc """
+  Inserts one scoped row (`tenant_wide: false`). `{:error, :grant_exists}` when the scoped
+  unique index fires, `{:error, :invalid_scope_node}` when the scope-node foreign key fires.
+  Raises `ArgumentError` outside a transaction, and on any other changeset error (the caller
+  validated the role and principal first).
+  """
+  @spec insert_scoped(
+          principal_type(),
+          principal_id :: Ecto.UUID.t(),
+          role :: String.t(),
+          scope_node_id :: String.t(),
+          prefix :: String.t()
+        ) :: {:ok, RoleScopeGrant.t()} | {:error, :grant_exists | :invalid_scope_node}
+  def insert_scoped(principal_type, principal_id, role, scope_node_id, prefix)
+      when is_binary(prefix) do
+    ensure_in_transaction!("insert_scoped/5")
+
+    attrs = %{
+      principal_type: principal_type,
+      principal_id: principal_id,
+      role: role,
+      scope_node_id: scope_node_id,
+      tenant_wide: false
+    }
+
+    case Repo.insert(RoleScopeGrant.changeset(%RoleScopeGrant{}, attrs), prefix: prefix) do
+      {:ok, row} -> {:ok, row}
+      {:error, changeset} -> {:error, scoped_insert_error!(changeset)}
+    end
+  end
+
+  @doc """
+  Inserts the tenant-wide row of a principal and role. `{:error, :tenant_wide_row_exists}`
+  when the tenant-wide unique index fires. Raises `ArgumentError` outside a transaction.
+  """
+  @spec insert_tenant_wide(
+          principal_type(),
+          principal_id :: Ecto.UUID.t(),
+          role :: String.t(),
+          prefix :: String.t()
+        ) :: {:ok, RoleScopeGrant.t()} | {:error, :tenant_wide_row_exists}
+  def insert_tenant_wide(principal_type, principal_id, role, prefix) when is_binary(prefix) do
+    ensure_in_transaction!("insert_tenant_wide/4")
+
+    attrs = %{
+      principal_type: principal_type,
+      principal_id: principal_id,
+      role: role,
+      scope_node_id: nil,
+      tenant_wide: true
+    }
+
+    case Repo.insert(RoleScopeGrant.changeset(%RoleScopeGrant{}, attrs), prefix: prefix) do
+      {:ok, row} ->
+        {:ok, row}
+
+      {:error, changeset} ->
+        if constraint_error?(changeset, "role_scope_grants_tenant_wide_uniq") do
+          {:error, :tenant_wide_row_exists}
+        else
+          raise ArgumentError, "insert_tenant_wide/4: unexpected changeset error"
+        end
+    end
+  end
+
+  @doc "Deletes one row by id. Raises `ArgumentError` outside a transaction."
+  @spec delete_row!(row_id :: Ecto.UUID.t(), prefix :: String.t()) :: :ok
+  def delete_row!(row_id, prefix) when is_binary(prefix) do
+    ensure_in_transaction!("delete_row!/2")
+
+    {_count, _} =
+      Repo.delete_all(from(g in RoleScopeGrant, where: g.id == ^row_id), prefix: prefix)
+
+    :ok
+  end
+
+  @doc """
+  Deletes every SCOPED row of (principal, role) and returns the removed ids, sorted. Raises
+  `ArgumentError` outside a transaction.
+  """
+  @spec delete_scoped_rows!(
+          principal_type(),
+          principal_id :: Ecto.UUID.t(),
+          role :: String.t(),
+          prefix :: String.t()
+        ) :: [Ecto.UUID.t()]
+  def delete_scoped_rows!(principal_type, principal_id, role, prefix) when is_binary(prefix) do
+    ensure_in_transaction!("delete_scoped_rows!/4")
+
+    {_count, ids} =
+      Repo.delete_all(
+        from(g in principal_role_rows(principal_type, principal_id, role),
+          where: not g.tenant_wide,
+          select: g.id
+        ),
+        prefix: prefix
+      )
+
+    Enum.sort(ids)
+  end
+
+  # --- REQ-517 stage 2 admin-plane readers -----------------------------------
+
+  @doc "One row by id, or `nil`. Plain read."
+  @spec get_row(row_id :: Ecto.UUID.t(), prefix :: String.t()) :: RoleScopeGrant.t() | nil
+  def get_row(row_id, prefix) when is_binary(prefix),
+    do: Repo.get(RoleScopeGrant, row_id, prefix: prefix)
+
+  @doc "Every row of (principal, role), ordered by `(inserted_at, id)`. Plain read."
+  @spec rows_for(
+          principal_type(),
+          principal_id :: Ecto.UUID.t(),
+          role :: String.t(),
+          prefix :: String.t()
+        ) :: [RoleScopeGrant.t()]
+  def rows_for(principal_type, principal_id, role, prefix) when is_binary(prefix) do
+    Repo.all(
+      from(g in principal_role_rows(principal_type, principal_id, role),
+        order_by: [asc: g.inserted_at, asc: g.id]
+      ),
+      prefix: prefix
+    )
+  end
+
+  @doc """
+  True when any row names the scope node `node_id`: the retire guard's read (AC 5). Plain
+  read; the retiring caller holds the node row lock.
+  """
+  @spec references_node?(node_id :: String.t(), prefix :: String.t()) :: boolean()
+  def references_node?(node_id, prefix) when is_binary(node_id) and is_binary(prefix) do
+    Repo.exists?(from(g in RoleScopeGrant, where: g.scope_node_id == ^node_id), prefix: prefix)
+  end
+
+  @doc """
+  True when the row currently applies to someone: a `:group` principal bound to `role` as a
+  `:platform_role`; a `:user` principal who is a member of a group bound to `role` as a
+  `:platform_role`. Plain read.
+  """
+  @spec effective?(
+          principal_type(),
+          principal_id :: Ecto.UUID.t(),
+          role :: String.t(),
+          prefix :: String.t()
+        ) :: boolean()
+  def effective?(:group, group_id, role, prefix) when is_binary(prefix) do
+    Repo.exists?(
+      from(t in TenantRole,
+        where: t.group_id == ^group_id and t.name == ^role and t.kind == ^:platform_role
+      ),
+      prefix: prefix
+    )
+  end
+
+  def effective?(:user, user_id, role, prefix) when is_binary(prefix) do
+    Repo.exists?(
+      from(m in GroupMember,
+        join: t in TenantRole,
+        on: t.group_id == m.group_id,
+        where: m.user_id == ^user_id and t.name == ^role and t.kind == ^:platform_role
+      ),
+      prefix: prefix
+    )
+  end
+
+  @typedoc "Filters of `list_page/4`: any subset of the three keys."
+  @type list_filters :: %{
+          optional(:principal_type) => principal_type(),
+          optional(:principal_id) => Ecto.UUID.t(),
+          optional(:role) => String.t()
+        }
+
+  @doc """
+  One page of rows ordered by `(inserted_at, id)` ascending; `limit + 1` rows are read to
+  find the next key. `effective` is computed in the same select by two `exists` subqueries
+  (no N+1). Filters are bound parameters. `after_key` is the previous page's `next_key`.
+  """
+  @spec list_page(
+          list_filters(),
+          limit :: pos_integer(),
+          after_key :: {DateTime.t(), Ecto.UUID.t()} | nil,
+          prefix :: String.t()
+        ) :: %{
+          rows: [%{row: RoleScopeGrant.t(), effective: boolean()}],
+          next_key: {DateTime.t(), Ecto.UUID.t()} | nil
+        }
+  def list_page(filters, limit, after_key, prefix)
+      when is_map(filters) and is_integer(limit) and limit > 0 and is_binary(prefix) do
+    group_bound =
+      from(t in TenantRole,
+        where:
+          t.group_id == parent_as(:grant).principal_id and t.name == parent_as(:grant).role and
+            t.kind == ^:platform_role
+      )
+
+    user_held =
+      from(m in GroupMember,
+        join: t in TenantRole,
+        on: t.group_id == m.group_id,
+        where:
+          m.user_id == parent_as(:grant).principal_id and t.name == parent_as(:grant).role and
+            t.kind == ^:platform_role
+      )
+
+    query =
+      from(g in RoleScopeGrant,
+        as: :grant,
+        order_by: [asc: g.inserted_at, asc: g.id],
+        limit: ^(limit + 1),
+        select: {
+          g,
+          (g.principal_type == ^:group and exists(group_bound)) or
+            (g.principal_type == ^:user and exists(user_held))
+        }
+      )
+      |> filter_list(filters)
+      |> after_list(after_key)
+
+    {page, rest} = query |> Repo.all(prefix: prefix) |> Enum.split(limit)
+
+    next_key =
+      case {rest, List.last(page)} do
+        {[_ | _], {last, _effective}} -> {last.inserted_at, last.id}
+        _no_more -> nil
+      end
+
+    %{
+      rows: Enum.map(page, fn {row, effective} -> %{row: row, effective: effective} end),
+      next_key: next_key
+    }
+  end
+
+  defp filter_list(query, filters) do
+    Enum.reduce(filters, query, fn
+      {:principal_type, type}, q -> where(q, [g], g.principal_type == ^type)
+      {:principal_id, id}, q -> where(q, [g], g.principal_id == ^id)
+      {:role, role}, q -> where(q, [g], g.role == ^role)
+    end)
+  end
+
+  defp after_list(query, nil), do: query
+
+  defp after_list(query, {%DateTime{} = ts, id}) do
+    where(
+      query,
+      [g],
+      g.inserted_at > ^ts or (g.inserted_at == ^ts and g.id > type(^id, :binary_id))
+    )
+  end
+
+  defp principal_role_rows(principal_type, principal_id, role) do
+    from(g in RoleScopeGrant,
+      where:
+        g.principal_type == ^principal_type and g.principal_id == ^principal_id and
+          g.role == ^role
+    )
+  end
+
+  defp scoped_insert_error!(changeset) do
+    cond do
+      constraint_error?(changeset, "role_scope_grants_scope_node_id_fkey") ->
+        :invalid_scope_node
+
+      constraint_error?(changeset, "role_scope_grants_scoped_uniq") ->
+        :grant_exists
+
+      true ->
+        raise ArgumentError, "insert_scoped/5: unexpected changeset error"
+    end
+  end
+
+  # A mapped constraint error carries the constraint name in its options, whichever field
+  # the changeset attached it to.
+  defp constraint_error?(changeset, name) do
+    Enum.any?(changeset.errors, fn {_field, {_message, opts}} ->
+      Keyword.get(opts, :constraint_name) == name
+    end)
   end
 
   # --- checks ----------------------------------------------------------------

@@ -170,6 +170,9 @@ defmodule Letflow.MixProject do
     # §7): non-compiling textual scan, same class as check_issue_refs -- module
     # code may not name the scope_node_paths table or its internal modules.
     "letflow.check_scope_node_paths_writers",
+    # REQ-517 (design req517-scoped-grants-admin-plane.md 3.13; SEC rule #2612): only
+    # Letflow.Identity.RoleScopeGrants may write the role grants table. Same class of scan.
+    "letflow.check_role_scope_grants_writers",
     "format --check-formatted",
     "compile --warnings-as-errors",
     # REQ-405: D3 backend boundary check (xref-based module boundary enforcement).

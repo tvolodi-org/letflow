@@ -116,6 +116,26 @@ defmodule Letflow.Api.ScopeGrantsRouteWalkTest do
     end)
   end
 
+  # The scoped (tenant_wide = false) rows only: the walk of T-RW2c.
+  defp scoped_snapshot(schema) do
+    schema
+    |> snapshot()
+    |> Enum.reject(fn {_key, json} -> Jason.decode!(json)["tenant_wide"] end)
+    |> Map.new()
+  end
+
+  # `{inspect(router), method, path}` of every call that changed a scoped row (REQ-517 AC 15).
+  defp scoped_mismatches(schema, calls, ctx) do
+    Enum.flat_map(calls, fn {router, method, path} ->
+      before = scoped_snapshot(schema)
+      _outcome = walk_call(router, method, path, ctx)
+
+      if scoped_snapshot(schema) == before,
+        do: [],
+        else: [{inspect(router), method, path}]
+    end)
+  end
+
   defp tw_key(group_id, role), do: {"group", group_id, role, nil}
 
   # `after` equals `before` except: `removed` keys are gone, `added` keys are new tenant-wide
@@ -238,6 +258,10 @@ defmodule Letflow.Api.ScopeGrantsRouteWalkTest do
     acc
   end
 
+  # The function name of a `def` / `defp` head (a head with a guard wraps the call in :when).
+  defp head_name({:when, _, [call, _guard]}), do: head_name(call)
+  defp head_name({name, _, _args}) when is_atom(name), do: name
+
   defp any_node?(ast, pred) do
     {_ast, found?} = Macro.prewalk(ast, false, fn node, acc -> {node, acc or pred.(node)} end)
     found?
@@ -336,13 +360,15 @@ defmodule Letflow.Api.ScopeGrantsRouteWalkTest do
       assert writers == [@grants_module]
     end
 
-    test "T-RW1b RoleScopeGrants' public functions are exactly the six 1a writers plus the readers" do
+    test "T-RW1b RoleScopeGrants' public functions are exactly the six 1a writers, the REQ-517 row writers and the readers" do
       Code.ensure_loaded!(RoleScopeGrants)
 
       assert Enum.sort(RoleScopeGrants.__info__(:functions)) ==
                Enum.sort(
                  # the six 1a writers
+                 # REQ-517 PR 2a: the four row writers behind Letflow.Identity.ScopedGrants
                  # read-only
+                 # REQ-517 PR 2a readers
                  [
                    reconcile_binding!: 3,
                    ensure_tenant_wide_group_row!: 3,
@@ -352,32 +378,58 @@ defmodule Letflow.Api.ScopeGrantsRouteWalkTest do
                    delete_group_principal_rows!: 2
                  ] ++
                    [
+                     insert_scoped: 5,
+                     insert_tenant_wide: 4,
+                     delete_row!: 2,
+                     delete_scoped_rows!: 4
+                   ] ++
+                   [
                      bindings_without_row: 1,
                      bindings_without_row_count: 1,
                      orphan_group_rows: 1,
                      user_row_count: 1,
                      applicable_rows_for_user: 2
+                   ] ++
+                   [
+                     get_row: 2,
+                     rows_for: 4,
+                     references_node?: 2,
+                     list_page: 4,
+                     effective?: 4
                    ]
                )
     end
 
-    test "T-RW1c no public RoleScopeGrants function takes a scope_node_id and the module never writes tenant_wide: false" do
+    test "T-RW1c only insert_scoped takes a scope_node_id and only insert_scoped writes tenant_wide: false (REQ-517 narrowing of the stage-1 rule)" do
       ast = parse(@grants_module)
 
-      heads =
-        for {:def, _, [head, _body]} <- function_bodies(ast), do: head
+      defs =
+        for {kind, _, [head, _body]} = node <- function_bodies(ast), kind in [:def, :defp] do
+          {kind, head_name(head), head, node}
+        end
 
-      assert heads != []
+      assert defs != []
 
-      for head <- heads do
-        refute any_node?(head, fn
-                 {:scope_node_id, _, context} when is_atom(context) -> true
-                 _other -> false
-               end),
-               "a public writer takes scope_node_id: #{Macro.to_string(head)}"
-      end
+      takers =
+        for {:def, name, head, _node} <- defs,
+            any_node?(head, fn
+              {:scope_node_id, _, context} when is_atom(context) -> true
+              _other -> false
+            end),
+            uniq: true,
+            do: name
 
-      refute any_node?(ast, &(&1 == {:tenant_wide, false}))
+      assert takers == [:insert_scoped],
+             "public functions taking scope_node_id: #{inspect(takers)}"
+
+      false_writers =
+        for {_kind, name, _head, node} <- defs,
+            any_node?(node, &(&1 == {:tenant_wide, false})),
+            uniq: true,
+            do: name
+
+      assert false_writers == [:insert_scoped],
+             "functions naming tenant_wide: false: #{inspect(false_writers)}"
     end
   end
 
@@ -577,6 +629,117 @@ defmodule Letflow.Api.ScopeGrantsRouteWalkTest do
       assert tripwire_hits(s) == 1
       assert tripwire_hits(platform) == 0
       RSG.assert_t9_zero!(s)
+    end
+
+    test "T-RW2c (REQ-517 AC 15) with valid bodies ONLY POST /, DELETE /:id and POST /make-tenant-wide of the grants router change scoped rows; a seeded route that inserts a scoped row is reported as a mismatch" do
+      world = H.world!()
+      s = world.tenant.schema_name
+      ta = TokenMintFixture.role_holder!(s, ["TENANT_ADMIN"])
+      ctx = oidc_context(ta.id, world.tenant.tenant_id, ["TENANT_ADMIN"])
+      grants = Letflow.Routers.TenantRoleScopeGrants
+
+      allowed = [
+        {grants, "POST", "/"},
+        {grants, "DELETE", "/:id"},
+        {grants, "POST", "/make-tenant-wide"}
+      ]
+
+      # A binding with zero rows, two nodes: the state a scoped create starts from.
+      group = RSG.group_of!(s, "TASK_WORKER")
+      _ = RSG.raw_delete_rows!(s, group, "TASK_WORKER")
+      [n1, n2, n3] = for _ <- 1..3, do: RSG.node!(s)
+
+      create_body = fn node ->
+        %{
+          "principal_type" => "group",
+          "principal_id" => group,
+          "role" => "TASK_WORKER",
+          "scope_node_id" => node
+        }
+      end
+
+      # Positive control: each allowed route, with a valid body, DOES change the scoped rows.
+      changed? = fn router, method, path, body ->
+        before = scoped_snapshot(s)
+        conn = request(router, method, path, ctx, body)
+        {conn.status, scoped_snapshot(s) != before}
+      end
+
+      assert {201, true} = changed?.(grants, :post, "/", create_body.(n1))
+      assert {201, true} = changed?.(grants, :post, "/", create_body.(n2))
+      assert {201, true} = changed?.(grants, :post, "/", create_body.(n3))
+      assert {200, false} = changed?.(grants, :get, "/", %{})
+
+      [deleted | _] = scoped_snapshot(s) |> Map.keys() |> Enum.sort()
+      {_type, _principal, _role, deleted_node} = deleted
+
+      scoped_id = fn node ->
+        Repo.one!(
+          from(g in Letflow.Identity.RoleScopeGrant,
+            where: g.scope_node_id == ^node,
+            select: g.id
+          ),
+          prefix: s
+        )
+      end
+
+      assert {204, true} = changed?.(grants, :delete, "/#{scoped_id.(deleted_node)}", %{})
+
+      assert {200, true} =
+               changed?.(grants, :post, "/make-tenant-wide", %{
+                 "principal_type" => "group",
+                 "principal_id" => group,
+                 "role" => "TASK_WORKER"
+               })
+
+      # Walk: every OTHER route of every router, empty body, changes no scoped row.
+      # (A scoped row must exist for a change to be visible: re-create one first.)
+      _ = RSG.raw_delete_rows!(s, group, "TASK_WORKER")
+      :ok = RSG.raw_scoped_row!(s, group, "TASK_WORKER", n1)
+
+      other_routes =
+        for router <- routers(),
+            {method, path, _key} <- router.__authz_routes__(),
+            {router, method |> to_string() |> String.upcase(), path} not in allowed,
+            do: {router, method, path}
+
+      assert length(other_routes) > 100, "the walk cannot pass vacuously"
+
+      {mismatches, _log} =
+        with_log(fn -> scoped_mismatches(s, other_routes, ctx) end)
+
+      assert mismatches == [], "routes that changed a scoped row: #{inspect(mismatches)}"
+
+      # Control: a seeded route that inserts a scoped row by SQL IS reported.
+      seeded = [{__MODULE__.SeededScopedWriter, :post, "/seeded"}]
+
+      assert scoped_mismatches(s, seeded, ctx) ==
+               [{inspect(__MODULE__.SeededScopedWriter), :post, "/seeded"}]
+    end
+  end
+
+  # A test-support router: inserts a scoped row by SQL, as a route outside the allowed list would.
+  defmodule SeededScopedWriter do
+    @moduledoc false
+    @behaviour Plug
+
+    @impl Plug
+    def init(opts), do: opts
+
+    @impl Plug
+    def call(conn, _opts) do
+      {:ok, schema} =
+        Letflow.TenantProvisioning.schema_name_for_tenant(conn.assigns.auth_context.tenant_id)
+
+      :ok =
+        Letflow.Support.RoleScopeGrantsFixture.raw_scoped_row!(
+          schema,
+          Ecto.UUID.generate(),
+          "TASK_WORKER",
+          Letflow.Support.RoleScopeGrantsFixture.node!(schema)
+        )
+
+      Plug.Conn.send_resp(conn, 200, "")
     end
   end
 

@@ -12,7 +12,10 @@ defmodule Letflow.Identity.TokenPreconditions do
       subset of the owner's tenant-wide role names (`Identity.tenant_wide_role_names/2`,
       called once per distinct owner);
     * `non_expiring_platform_admin` (information): `PLATFORM_ADMIN` with no expiry;
-    * `null_issuer` (information): minted by the trusted path, no issuer recorded.
+    * `null_issuer` (information): minted by the trusted path, no issuer recorded;
+    * `service_principal_owner` (information, REQ-517): for each owner carrying the
+      admin-set service-principal flag, the owner id and that owner's listed token ids. It
+      never blocks, and the flag does not change `roles_exceed_owner`.
 
   Each list keeps `Identity.list_tokens/1`'s order (newest first).
   """
@@ -24,7 +27,8 @@ defmodule Letflow.Identity.TokenPreconditions do
   @type findings :: %{
           roles_exceed_owner: [item()],
           non_expiring_platform_admin: [item()],
-          null_issuer: [item()]
+          null_issuer: [item()],
+          service_principal_owner: [%{user_id: Ecto.UUID.t(), token_ids: [Ecto.UUID.t()]}]
         }
 
   @doc "The three categories for the tenant schema `prefix` (see the moduledoc)."
@@ -33,11 +37,13 @@ defmodule Letflow.Identity.TokenPreconditions do
     {:ok, rows} = Identity.list_tokens(prefix: prefix)
     now = DateTime.utc_now()
 
-    items =
-      for %{token: token, owner_active: owner_active} <- rows,
+    entries =
+      for %{token: token, owner_active: owner_active, owner_flagged: flagged} <- rows,
           status = Identity.token_effective_status(token, owner_active, now),
           status in [:active, :owner_inactive],
-          do: %{token: token, status: status}
+          do: {%{token: token, status: status}, flagged}
+
+    items = Enum.map(entries, &elem(&1, 0))
 
     owner_roles =
       items
@@ -54,8 +60,19 @@ defmodule Letflow.Identity.TokenPreconditions do
         Enum.filter(items, fn %{token: t} ->
           "PLATFORM_ADMIN" in (t.roles || []) and is_nil(t.expires_at)
         end),
-      null_issuer: Enum.filter(items, fn %{token: t} -> is_nil(t.issuer_user_id) end)
+      null_issuer: Enum.filter(items, fn %{token: t} -> is_nil(t.issuer_user_id) end),
+      service_principal_owner: flagged_owner_tokens(entries)
     }
+  end
+
+  defp flagged_owner_tokens(entries) do
+    entries
+    |> Enum.filter(fn {_item, flagged} -> flagged end)
+    |> Enum.group_by(fn {%{token: t}, _flagged} -> t.user_id end, fn {%{token: t}, _flagged} ->
+      t.id
+    end)
+    |> Enum.map(fn {user_id, ids} -> %{user_id: user_id, token_ids: Enum.sort(ids)} end)
+    |> Enum.sort_by(& &1.user_id)
   end
 
   @doc """

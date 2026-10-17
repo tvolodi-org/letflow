@@ -283,7 +283,7 @@ defmodule Letflow.Identity.RoleScopeGrantsMigrationTest do
 
   # ===========================================================================================
   describe "T-M3 / T-M4: constraints and indexes" do
-    test "T-M3: the tenant_wide XOR node CHECK, the principal_type CHECK, the tenant-wide unique index; no FK in 1a",
+    test "T-M3: the tenant_wide XOR node CHECK, the principal_type CHECK, the tenant-wide unique index; the scope-node FK arrived with REQ-517 PR 2a",
          %{schema: schema} do
       node = node!(schema)
       gid = Ecto.UUID.generate()
@@ -309,12 +309,15 @@ defmodule Letflow.Identity.RoleScopeGrantsMigrationTest do
 
       assert pg.constraint == "role_scope_grants_principal_type_check"
 
-      # (e) no FOREIGN KEY at all in 1a (deferred to stage 2, #2535); the CHECKs are there.
-      assert constraint_count(schema, "f") == 0
+      # (e) REQ-517 PR 2a (#2535) added the one FOREIGN KEY (scope_node_id -> scope_node_paths,
+      # ON DELETE RESTRICT); the two CHECKs are still there.
+      assert constraint_count(schema, "f") == 1
       assert constraint_count(schema, "c") == 2
-      # A node id that does not exist is accepted for that reason.
-      assert {:ok, %{num_rows: 1}} =
+      # A node id that does not exist is now refused by the FK.
+      assert {:error, %Postgrex.Error{postgres: %{code: :foreign_key_violation} = pg}} =
                raw_insert(schema, "group", gid, "TASK_WORKER", "rsg-no-such-node", false)
+
+      assert pg.constraint == "role_scope_grants_scope_node_id_fkey"
 
       # (f) a second tenant-wide row for the same (principal, role)
       assert {:ok, %{num_rows: 1}} = raw_insert(schema, "group", gid, "TENANT_ADMIN", nil, true)

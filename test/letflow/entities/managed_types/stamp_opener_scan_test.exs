@@ -70,7 +70,10 @@ defmodule Letflow.Entities.ManagedTypes.StampOpenerScanTest do
     "lib/letflow/scope_node_paths.ex",
     "lib/letflow/tenant_provisioning.ex",
     "priv/repo/migrations/20260926010001_backfill_exam_tenant_modules.exs",
-    "priv/repo/migrations/20261015025331_create_role_scope_grants.exs"
+    "priv/repo/migrations/20261015025331_create_role_scope_grants.exs",
+    # REQ-517 2a: the FK migration interpolates only the schema name from `prefix()` (same shape as
+    # the 20261015025331 migration above); reviewed by SECURITY-REVIEWER (code gate step-07).
+    "priv/repo/migrations/20261018100001_add_scope_node_fkey_to_role_scope_grants.exs"
   ]
   # Assertion 3
   @set_config_files [@step_writes, @stamp, @snapshot_rollout]
