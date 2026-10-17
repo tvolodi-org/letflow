@@ -219,8 +219,7 @@ defmodule Letflow.Identity.ScopedGrants do
       {[_only], %{tenant_wide: false}} ->
         Repo.rollback(:last_scoped_row)
 
-      {[_only], %{tenant_wide: true, principal_type: :group, role: @tenant_admin_role}} ->
-        Repo.rollback(:last_admin_binding_row)
+      # MUTANT M18: the group-row last_admin_binding_row refusal is dropped
 
       _allowed ->
         :ok

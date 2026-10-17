@@ -151,6 +151,10 @@ defmodule Letflow.Identity.ServicePrincipal do
       select: t.roles
     )
     |> Repo.all(prefix: prefix)
-    |> Enum.count(fn roles -> not MapSet.subset?(MapSet.new(roles || []), held) end)
+    # MUTANT X1: counts EVERY live token, not only those exceeding the owner's roles
+    |> Enum.count(fn roles ->
+      _ = {roles, held}
+      true
+    end)
   end
 end
