@@ -704,7 +704,13 @@ defmodule Letflow.TenantProvisioning do
      "20261016100002_add_manifest_hash_to_tenant_modules.exs"},
     # GH #2596: the single, narrow exception to REQ-496 D3 (NULL -> 'exam' on six frozen names).
     {20_261_016_120_001, Letflow.Repo.Migrations.AllowExamManagedByStamp,
-     "20261016120001_allow_exam_managed_by_stamp.exs"}
+     "20261016120001_allow_exam_managed_by_stamp.exs"},
+    # GH #2535 / REQ-517 PR 2a (decision 0051 D1): the FK from role_scope_grants.scope_node_id
+    # to scope_node_paths (ON DELETE RESTRICT), and the admin-flagged service principal flag.
+    {20_261_018_100_001, Letflow.Repo.Migrations.AddScopeNodeFkeyToRoleScopeGrants,
+     "20261018100001_add_scope_node_fkey_to_role_scope_grants.exs"},
+    {20_261_018_100_002, Letflow.Repo.Migrations.AddAdminFlaggedServicePrincipalToUsers,
+     "20261018100002_add_admin_flagged_service_principal_to_users.exs"}
   ]
 
   @doc """
@@ -758,7 +764,9 @@ defmodule Letflow.TenantProvisioning do
   one more: `role_scope_grants`
   (`lib/letflow/design/req497-1a-role-scope-grants-table-backfill-writers.md` §1), and GH #2596
   one more: `AllowExamManagedByStamp`, the single documented exception to REQ-496 D3
-  (`lib/letflow/design/gh2596-exam-managed-types.md` §4) —
+  (`lib/letflow/design/gh2596-exam-managed-types.md` §4), and REQ-517 two more: the
+  `role_scope_grants.scope_node_id` foreign key and `users.admin_flagged_service_principal`
+  (`lib/letflow/design/req517-scoped-grants-admin-plane.md` §3.6) —
   entries in total (see `@tenant_scoped_migration_manifest` itself for the
   authoritative, up-to-date count), ordered by version. Every future tenant-scoped migration must append its
   own entry to `@tenant_scoped_migration_manifest`, in addition to following the
