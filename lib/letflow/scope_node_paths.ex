@@ -154,7 +154,10 @@ defmodule Letflow.ScopeNodePaths do
 
     with :ok <- validate_node_id(node_id),
          {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
-         %Node{} = node <- lock_node_row_shared(node_id, prefix) do
+         # MUTANT M2: retired_at is read BEFORE the share lock and never re-read after it
+         %Node{} = node <-
+           Repo.one(from(n in Node, where: n.node_id == ^node_id), prefix: prefix),
+         %Node{} = _locked <- lock_node_row_shared(node_id, prefix) do
       case node.retired_at do
         nil -> {:ok, node}
         _retired -> {:error, :node_retired}
@@ -306,6 +309,9 @@ defmodule Letflow.ScopeNodePaths do
   # REQ-517 (design 3.7, finding F2): the node row lock FIRST, then the grants read. Under
   # READ COMMITTED the read after the lock waits for and sees a grant a creator committed.
   defp retire_live_node(node, prefix) do
+    # MUTANT M1: the grants read happens BEFORE the node row lock
+    early_references? = RoleScopeGrants.references_node?(node.node_id, prefix)
+
     case lock_node_row_for_update(node.node_id, prefix) do
       nil ->
         {:error, :node_not_found}
@@ -314,7 +320,7 @@ defmodule Letflow.ScopeNodePaths do
         {:ok, locked}
 
       %Node{} = locked ->
-        if RoleScopeGrants.references_node?(locked.node_id, prefix) do
+        if early_references? do
           {:error, :node_has_grants}
         else
           now = DateTime.utc_now()

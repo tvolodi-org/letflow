@@ -190,7 +190,7 @@ defmodule Letflow.Identity.ScopedGrants do
           guarded? = row.role == @tenant_admin_role and row.tenant_wide
 
           before_count =
-            if guarded?, do: TenantAdminGuard.count_before!(prefix, :explicit)
+            if guarded?, do: TenantAdminGuard.count_before!(prefix, :counted)  # MUTANT M5
 
           :ok = RoleScopeGrants.delete_row!(row.id, prefix)
 
@@ -200,7 +200,7 @@ defmodule Letflow.Identity.ScopedGrants do
               :revoke_tenant_admin_grant,
               row.principal_id,
               before_count,
-              :explicit
+              :counted
             )
           end
 
