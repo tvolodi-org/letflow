@@ -388,6 +388,9 @@ defmodule Letflow.Api.Authorization do
           | :ScopeEnforcementManage
           | :ScopeGrantsIntegrityRead
           | :ScopeEnforcementTokensRead
+          | :RoleScopeGrantsRead
+          | :RoleScopeGrantsManage
+          | :ServicePrincipalManage
           | :TenantSettingsManage
           | :PromotionsRead
           | :PromotionsManage
@@ -1162,6 +1165,19 @@ defmodule Letflow.Api.Authorization do
   def endpoint_policy_key("GET", "/tenant/scope-enforcement/token-preconditions"),
     do: :ScopeEnforcementTokensRead
 
+  # REQ-517 PR 2a (decision 0051 D1/D11; design req517-scoped-grants-admin-plane.md 3.14) --
+  # Letflow.Routers.TenantRoleScopeGrants, mounted at /tenant/role-scope-grants, and the
+  # service-principal flag route of Letflow.Routers.Identity. Policy keys over the EXISTING
+  # :UsersGroupsRolesManage permission (no new permission atom).
+  def endpoint_policy_key("GET", "/tenant/role-scope-grants"), do: :RoleScopeGrantsRead
+  def endpoint_policy_key("POST", "/tenant/role-scope-grants"), do: :RoleScopeGrantsManage
+  def endpoint_policy_key("DELETE", "/tenant/role-scope-grants/:id"), do: :RoleScopeGrantsManage
+
+  def endpoint_policy_key("POST", "/tenant/role-scope-grants/make-tenant-wide"),
+    do: :RoleScopeGrantsManage
+
+  def endpoint_policy_key("PUT", "/users/:id/service-principal"), do: :ServicePrincipalManage
+
   # REQ-403 — Letflow.Routers.Me's new route, mounted at /me (full path
   # /api/v1/me/modules). See this module's moduledoc "MyModulesRead" section
   # and lib/letflow/design/req403-module-install-route.md §5.3.
@@ -1399,6 +1415,12 @@ defmodule Letflow.Api.Authorization do
              :ScopeGrantsIntegrityRead,
              :ScopeEnforcementTokensRead
            ],
+      do: :UsersGroupsRolesManage
+
+  # REQ-517 PR 2a (design 3.14): REQUIRED clause, same trap as the keys above. Tenant scope,
+  # exactly :UsersGroupsRolesManage; the handlers then require it tenant-wide.
+  def required_permission(key)
+      when key in [:RoleScopeGrantsRead, :RoleScopeGrantsManage, :ServicePrincipalManage],
       do: :UsersGroupsRolesManage
 
   def required_permission(:Unknown), do: :MetricsRead

@@ -181,6 +181,7 @@ defmodule Letflow.Routers.TenantScopeEnforcement do
       [findings.roles_exceed_owner, findings.non_expiring_platform_admin, findings.null_issuer]
       |> Enum.concat()
       |> Enum.map(& &1.token.id)
+      |> Enum.concat(Enum.flat_map(findings.service_principal_owner, & &1.token_ids))
       |> Enum.uniq()
       |> Enum.sort()
 
@@ -192,7 +193,11 @@ defmodule Letflow.Routers.TenantScopeEnforcement do
            "blocking" => %{"roles_exceed_owner" => items(findings.roles_exceed_owner)},
            "information" => %{
              "non_expiring_platform_admin" => items(findings.non_expiring_platform_admin),
-             "null_issuer" => items(findings.null_issuer)
+             "null_issuer" => items(findings.null_issuer),
+             "service_principal_owner" =>
+               Enum.map(findings.service_principal_owner, fn owner ->
+                 %{"user_id" => owner.user_id, "token_ids" => owner.token_ids}
+               end)
            },
            "count" => length(token_ids)
          }}

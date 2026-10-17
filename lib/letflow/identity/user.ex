@@ -43,6 +43,8 @@ defmodule Letflow.Identity.User do
     field(:external_id, :string)
     field(:external_realm, :string)
     field(:role_claims_synced_at, :utc_datetime_usec)
+    # REQ-517: written ONLY by `Letflow.Identity.ServicePrincipal`; in no cast list.
+    field(:admin_flagged_service_principal, :boolean, default: false)
 
     timestamps()
   end

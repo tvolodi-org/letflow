@@ -1,0 +1,71 @@
+{
+  "handoff_id": "d2535517-0517-4c02-9e11-000000000002",
+  "run_id": "WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018",
+  "workflow_id": "WF-02",
+  "step": "02",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGNER",
+  "file": "handoffs/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018/step-02-code-designer.json",
+  "created_at": "2026-10-17T15:35:34Z",
+  "started_at": "2026-10-17T15:35:34Z",
+  "completed_at": "2026-10-17T15:59:03Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [
+      "REQ-517"
+    ],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2535": "REQ-517 slices 2a (grant admin plane: scoped grant CRUD routes, FK on scope_node_id, retire guard, zero-admin guard, self-grant and self-add refusal, admin-flagged service principal act, single-writer scan) and 2b (route classification, Authorize enforcement under stored mode on, retired node unresolvable, attachment link audit, persisted per-tenant shadow counters). Decision 0051 D1, D5, D8, D11, M2, M5, T6, T9, T15. Design only."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "docs/requirements.yaml",
+      "docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md",
+      "lib/letflow/design/req497-1a-role-scope-grants-table-backfill-writers.md",
+      "lib/letflow/design/req497-1b-allowed-flag-shadow-n1.md",
+      "lib/letflow/design/gh2586-permission-matrix-golden.md",
+      "lib/letflow/api/scope.ex",
+      "lib/letflow/api/scope/shadow.ex",
+      "lib/letflow/scope_enforcement.ex",
+      "lib/letflow/identity/role_scope_grants.ex",
+      "lib/letflow/identity/tenant_admin_guard.ex",
+      "lib/letflow/identity/token_preconditions.ex",
+      "lib/letflow/scope_node_paths.ex",
+      "lib/letflow/routers/tenant_scope_enforcement.ex",
+      "lib/letflow/plugs/authorize.ex",
+      "lib/letflow/plugs/auth_pipeline.ex",
+      "lib/letflow/api/authorization.ex",
+      "lib/mix/tasks/letflow.check_scope_node_paths_writers.ex",
+      "test/letflow/scope_node_paths/migration_test.exs",
+      "test/letflow/api/scope_grants_route_walk_test.exs"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018"
+  },
+  "task": {
+    "description": "WF-02 step 1 design for REQ-517 (GH #2535 stage 2, slices 2a and 2b as two PRs). Design only, no implementation code, no mix."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "Wrote lib/letflow/design/req517-scoped-grants-admin-plane.md (design only, no implementation code). Covers both PRs: 2a grant admin plane (route inventory pinned in one table, ScopedGrants service over new low-level RoleScopeGrants functions, lock order A, R, N, B, C, FK migration with precheck, test-side :down ordering, retire guard, tenant-wide versus scoped rule, last-row refusal, zero-admin guard, self-grant and self-add refusal, audit event table, admin-flagged service principal with mint target-side relaxation only, single-writer mix scan with must-pass fixtures) and 2b route plane (scope option on the authz macros plus admin-plane key table plus committed default snapshot, stored on value with CHECK widening and unsettable parse_mode, Authorize enforcement under on, retired node unresolvable, fail-closed error path, attachment link audit, persisted shadow counters with ETS and a flush GenServer). Every one of the 23 ACs maps to a design element, tests (over 100 test rows, some ids cover ranges) and mutants (17 for 2a, 15 for 2b). No new permission atom: the permission-matrix golden is unchanged. Findings against the requirement text: F1 AC 8 revoke guard cannot fire with the existing admin count (zero-row binding still counted), so a new explicit count is designed; F2 the AC 5 retire side must lock the node row before it reads references_node?, or a create and a retire can interleave; F3 TenantAdminGuard.resource_type has no clause for the new actions (audit would be lost silently); F4 get_mode guard would 500 for a stored on; F5 stage-1 route-walk tests T-RW1b and T-RW1c also break and are edited; F6 unclassified versus default tenant_wide resolved by a committed snapshot; F7 Infrastructure child count test 24 to 25; F9 flag route must check credential oidc explicitly; F10 self-service routes have no class under on. REVISION r1 (CDV FAIL D1-D4, SEC FAIL D-1/D-2/D-3 applied in place): manifest anchor fixed to the 20_261_016_120_001 entry with exact 2a and 2b entries; read signatures and owning modules added (Identity read functions plus RoleScopeGrants.effective?); route_row and error types defined; T-G1 committed fixture, enforce-denied telemetry observable, ShadowEvidence async false with shared sandbox, counts_between reads the table only; new 409 last_admin_binding_row refuses deleting the only row of a group TENANT_ADMIN set (lockout unreachable), counted and explicit counts agree (T-Z7); flush binds the schema via insert_all prefix after validator, hostile keys dropped; credential in grant and service_principal audit payloads; requirement amendments RA-1..RA-5 and gate rulings in section 16.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "lib/letflow/design/req517-scoped-grants-admin-plane.md"
+    ],
+    "open_questions": [
+      "OQ-1 AC 8 revoke_tenant_admin_grant cannot fire with count_tenant_wide_admins (zero-row binding still counted). Default: new count_explicit_tenant_wide_admins for that action; existing count for scope_tenant_admin.",
+      "OQ-2 AC 17 unclassified fails versus default tenant_wide. Default: three sources (declared, key table, default) plus a committed snapshot of default-sourced routes; runtime fail closed.",
+      "OQ-3 Self-service routes (/me, /help) are 403 for scoped-only users under on; no class exists. Default: stay tenant_wide, listed in the PR body; follow-up class needed.",
+      "OQ-4 Platform-tenant PLATFORM_ADMIN on the service principal route. Default: refused, TENANT_ADMIN role holders only.",
+      "OQ-6 Enforce DB error answer. Default: 500 detail-free, never allow.",
+      "OQ-15 RESOLVED by SECURITY: token principals may call grant write routes; flag route OIDC-only.",
+      "OQ-3 ACCEPTED for 2b; REQ-519 flip blocked until a self-service route class exists (RA-3)."
+    ],
+    "implementation_written": false,
+    "classification": "DESIGN"
+  }
+}

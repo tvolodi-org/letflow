@@ -10,9 +10,10 @@ defmodule Letflow.Identity.RoleScopeGrant do
   `role_scope_grants_tenant_wide_xor_node` CHECK forbids anything else. Per-tenant table, no
   `tenant_id` column (0006 D2).
 
-  Only `Letflow.Identity.RoleScopeGrants` writes the table. Its writers in 1a use
-  `Repo.insert_all/3` for the idempotent tenant-wide insert, not `changeset/2`, which exists
-  for tests and stage-2 CRUD.
+  Only `Letflow.Identity.RoleScopeGrants` writes the table (the single-writer scan
+  `mix letflow.check_role_scope_grants_writers` enforces it). Its 1a writers use
+  `Repo.insert_all/3` for the idempotent tenant-wide insert; `changeset/2` builds the stage-2
+  scoped row (REQ-517 `RoleScopeGrants.insert_scoped/5`).
   """
 
   use Ecto.Schema
@@ -44,8 +45,8 @@ defmodule Letflow.Identity.RoleScopeGrant do
   @doc """
   Casts the five data fields, requires all but `scope_node_id`, restricts `role` to
   `Letflow.Api.Authorization.roles/0`, and maps the table's CHECK and partial unique index
-  names to changeset errors. No `foreign_key_constraint`: there is no FK in 1a (stage 2 adds
-  it).
+  names to changeset errors. The `scope_node_id` foreign key (REQ-517 migration
+  `20261018100001`) maps to a changeset error.
   """
   @spec changeset(t(), map()) :: Ecto.Changeset.t()
   def changeset(grant, attrs) do
@@ -58,6 +59,7 @@ defmodule Letflow.Identity.RoleScopeGrant do
     )
     |> check_constraint(:scope_node_id, name: :role_scope_grants_tenant_wide_xor_node)
     |> check_constraint(:principal_type, name: :role_scope_grants_principal_type_check)
+    |> foreign_key_constraint(:scope_node_id, name: :role_scope_grants_scope_node_id_fkey)
     |> unique_constraint([:principal_type, :principal_id, :role],
       name: :role_scope_grants_tenant_wide_uniq
     )

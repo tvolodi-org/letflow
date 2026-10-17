@@ -92,7 +92,10 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
     {Letflow.Routers.ScriptPolicy, "/script-policy", :put, "/kill-switch", :route},
     # REQ-497 PR 1b (GH #2533): the scope-enforcement flip requires :UsersGroupsRolesManage
     # (tenant-admin class), which TENANT_AUDITOR does not hold, so the real PUT must answer 403.
-    {Letflow.Routers.TenantScopeEnforcement, "/tenant/scope-enforcement", :put, "/", :route}
+    {Letflow.Routers.TenantScopeEnforcement, "/tenant/scope-enforcement", :put, "/", :route},
+    # REQ-517 PR 2a (GH #2535): the scoped role grant admin plane requires
+    # :UsersGroupsRolesManage (tenant-admin class), which TENANT_AUDITOR does not hold.
+    {Letflow.Routers.TenantRoleScopeGrants, "/tenant/role-scope-grants", :post, "/", :route}
   ]
 
   # Additional named routes (design 7.2 "also" column and the supervisor's decisions).
@@ -100,6 +103,11 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
     {Letflow.Routers.Identity, :get, "/users"},
     {Letflow.Routers.Identity, :post, "/tokens"},
     {Letflow.Routers.Identity, :post, "/roles"},
+    # REQ-517 PR 2a: the service-principal flag route and the other grant routes.
+    {Letflow.Routers.Identity, :put, "/users/:id/service-principal"},
+    {Letflow.Routers.TenantRoleScopeGrants, :get, "/"},
+    {Letflow.Routers.TenantRoleScopeGrants, :delete, "/:id"},
+    {Letflow.Routers.TenantRoleScopeGrants, :post, "/make-tenant-wide"},
     {Letflow.Routers.Tenants, :post, "/:test_tenant_id/promote/:process_key"},
     {Letflow.Routers.Instances, :post, "/:id/cancel"},
     {Letflow.Routers.Instances, :post, "/:id/attachments"},
@@ -689,14 +697,15 @@ defmodule Letflow.Routers.TenantAuditorRoutesTest do
   # --- AC2: 403 block --------------------------------------------------------------------------
 
   describe "AC2 completeness guards" do
-    test "the routers mounted in ApiPipeline are exactly the 27 named in the table: a new router fails here" do
+    test "the routers mounted in ApiPipeline are exactly the 28 named in the table: a new router fails here" do
       mounted = mounted_routers()
       named = Enum.map(@named_routes, &elem(&1, 0))
 
       assert length(mounted) == length(Enum.uniq(mounted))
       assert Enum.sort(mounted) == Enum.sort(named)
-      # REQ-497 PR 1b: 27 with Letflow.Routers.TenantScopeEnforcement.
-      assert length(named) == 27
+      # REQ-497 PR 1b: 27 with Letflow.Routers.TenantScopeEnforcement; REQ-517 PR 2a: 28 with
+      # Letflow.Routers.TenantRoleScopeGrants.
+      assert length(named) == 28
     end
 
     test "every named :route exists in its router and the auditor does NOT hold its permission (a row cannot pass by naming a permitted route)" do

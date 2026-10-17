@@ -51,10 +51,15 @@ defmodule Letflow.Identity.TenantAdminGuard do
           | :revoke_pending_grant
           | :revoke_token
           | :deactivate_user
+          | :scope_tenant_admin
+          | :revoke_tenant_admin_grant
 
   @type refusal :: %{action: action(), target_id: String.t(), counted_admins: non_neg_integer()}
 
   @type refuse_opt :: {:platform_companion, platform_prefix :: String.t()}
+
+  @typedoc "Which admin count a guarded path uses (REQ-517 finding F1)."
+  @type counter :: :counted | :explicit
 
   @doc """
   Locks the `tenant_role` row named `TENANT_ADMIN` (no `kind` filter) `FOR UPDATE` in the
@@ -85,10 +90,22 @@ defmodule Letflow.Identity.TenantAdminGuard do
   `ArgumentError` outside a transaction.
   """
   @spec count_before!(prefix :: String.t()) :: non_neg_integer()
-  def count_before!(prefix) when is_binary(prefix) do
-    ensure_in_transaction!("count_before!/1")
-    Identity.count_tenant_wide_admins(prefix)
+  def count_before!(prefix), do: count_before!(prefix, :counted)
+
+  @doc """
+  REQ-517: `count_before!/1` with a counter. `:counted` is
+  `Letflow.Identity.count_tenant_wide_admins/1`; `:explicit` is
+  `Letflow.Identity.count_explicit_tenant_wide_admins/1` (used by `revoke_tenant_admin_grant`,
+  design finding F1).
+  """
+  @spec count_before!(prefix :: String.t(), counter()) :: non_neg_integer()
+  def count_before!(prefix, counter) when is_binary(prefix) do
+    ensure_in_transaction!("count_before!/2")
+    count(prefix, counter)
   end
+
+  defp count(prefix, :counted), do: Identity.count_tenant_wide_admins(prefix)
+  defp count(prefix, :explicit), do: Identity.count_explicit_tenant_wide_admins(prefix)
 
   @doc "`ensure_admins_remain!(prefix, action, target_id, :not_measured)` (state rule)."
   @spec ensure_admins_remain!(prefix :: String.t(), action(), target_id :: String.t()) :: :ok
@@ -115,13 +132,25 @@ defmodule Letflow.Identity.TenantAdminGuard do
           target_id :: String.t(),
           before_count :: non_neg_integer() | :not_measured
         ) :: :ok
-  def ensure_admins_remain!(prefix, action, target_id, before_count) when is_binary(prefix) do
-    ensure_in_transaction!("ensure_admins_remain!/4")
+  def ensure_admins_remain!(prefix, action, target_id, before_count),
+    do: ensure_admins_remain!(prefix, action, target_id, before_count, :counted)
+
+  @doc "`ensure_admins_remain!/4` counting with `counter` (REQ-517; default `:counted`)."
+  @spec ensure_admins_remain!(
+          prefix :: String.t(),
+          action(),
+          target_id :: String.t(),
+          before_count :: non_neg_integer() | :not_measured,
+          counter()
+        ) :: :ok
+  def ensure_admins_remain!(prefix, action, target_id, before_count, counter)
+      when is_binary(prefix) do
+    ensure_in_transaction!("ensure_admins_remain!/5")
 
     if before_count == 0 do
       :ok
     else
-      case Identity.count_tenant_wide_admins(prefix) do
+      case count(prefix, counter) do
         0 ->
           Repo.rollback(
             {:tenant_admin_guard, %{action: action, target_id: target_id, counted_admins: 0}}
@@ -246,6 +275,11 @@ defmodule Letflow.Identity.TenantAdminGuard do
   defp resource_type(:revoke_token), do: "api_token"
   defp resource_type(:revoke_pending_grant), do: "pending_admin_grant"
   defp resource_type(:deactivate_user), do: "user"
+
+  # REQ-517 (finding F3): without these clauses `refuse/4` would raise `FunctionClauseError`
+  # into its blanket rescue and silently lose the audit event.
+  defp resource_type(action) when action in [:scope_tenant_admin, :revoke_tenant_admin_grant],
+    do: "role_scope_grant"
 
   defp ensure_in_transaction!(function) do
     if not Repo.in_transaction?() do

@@ -172,12 +172,15 @@ defmodule Letflow.Routers.Identity do
   alias Letflow.Api.Authorization
   alias Letflow.Api.Pagination
   alias Letflow.Api.Response
+  alias Letflow.Api.Scope
   alias Letflow.Api.TokenView
   alias Letflow.Api.Validation
   alias Letflow.Api.Validation.FieldConstraint
   alias Letflow.Identity
   alias Letflow.Identity.PendingAdminGrants
   alias Letflow.Identity.RoleRegistry
+  alias Letflow.Identity.ScopedGrants
+  alias Letflow.Identity.ServicePrincipal
   alias Letflow.PlatformTenant
 
   @users_cursor_prefix "U:"
@@ -200,6 +203,12 @@ defmodule Letflow.Routers.Identity do
 
   authz_post "/users/:id/status", :UsersManage do
     handle_status_update(conn, conn.params["id"], user_write_opts(conn))
+  end
+
+  # REQ-517 PR 2a (AC 12): the admin-flagged service principal; interactive tenant
+  # administrators only (see `handle_service_principal/2`).
+  authz_put "/users/:id/service-principal", :ServicePrincipalManage do
+    handle_service_principal(conn, conn.params["id"])
   end
 
   authz_post "/groups", :GroupsManage do
@@ -673,7 +682,10 @@ defmodule Letflow.Routers.Identity do
             # Body user id is cast here (after the guard and validation, so 403/422 still
             # win); an uncastable one is the same 404 as an unknown user.
             with_cast_id(conn, raw_user_id, fn user_id ->
-              case Identity.add_group_member(group_id, user_id, audit_opts(conn, opts)) do
+              # REQ-517 AC 10: a caller may not add THEMSELVES to a group through this route.
+              add_opts = Keyword.put(audit_opts(conn, opts), :refuse_self_add, true)
+
+              case Identity.add_group_member(group_id, user_id, add_opts) do
                 {:ok, %{member: _member, created: created?}} ->
                   status = if created?, do: 201, else: 200
                   Response.send_json(conn, status, member_result_map(group_id, user_id, created?))
@@ -683,6 +695,15 @@ defmodule Letflow.Routers.Identity do
 
                 {:error, :user_not_found} ->
                   Response.not_found(conn)
+
+                {:error, :self_grant_refused} ->
+                  info = %{act: "add_member", principal_type: :user, principal_id: user_id}
+                  ScopedGrants.record_self_grant_refused(
+                    info,
+                    ScopedGrants.actor_from_conn(conn),
+                    prefix(opts)
+                  )
+                  Response.conflict(conn, "self_grant_refused")
 
                 # GH 2547: rolled back with its audit entry; a server fault.
                 {:error, {:audit_failed, _reason}} ->
@@ -709,6 +730,74 @@ defmodule Letflow.Routers.Identity do
   end
 
   defp resolve_member_user_id(_attrs), do: {:error, :user_id_required}
+
+  defp prefix(opts), do: Keyword.fetch!(opts, :prefix)
+
+  # ── PUT /users/:id/service-principal (REQ-517 AC 12, design 3.12) ───────
+  #
+  # Gate, in this order, every refusal the same uniform 403: (1) the plug (unchanged); (2) an
+  # interactive (`:oidc`) credential, so an API token, even holding TENANT_ADMIN, is refused;
+  # (3) `:UsersGroupsRolesManage` held tenant-wide; (4) the caller holds TENANT_ADMIN
+  # tenant-wide (a platform-tenant PLATFORM_ADMIN alone does not).
+
+  @service_principal_keys ["flagged", "reason"]
+
+  defp handle_service_principal(conn, raw_id) do
+    with :ok <- require_oidc(conn),
+         {:ok, conn} <- require_tenant_admin_tenant_wide(conn) do
+      do_service_principal(conn, raw_id)
+    else
+      :forbidden -> forbid_insufficient(conn)
+    end
+  end
+
+  defp require_oidc(conn) do
+    if Map.get(conn.assigns.auth_context, :credential) == :oidc, do: :ok, else: :forbidden
+  end
+
+  defp require_tenant_admin_tenant_wide(conn) do
+    with {:ok, conn} <- Scope.require_tenant_wide(conn, :UsersGroupsRolesManage),
+         {:ok, conn, principal} <- Scope.principal_from_conn(conn),
+         true <- :TENANT_ADMIN in principal.roles,
+         :tenant_wide <- Scope.effective_scope(principal, "TENANT_ADMIN") do
+      {:ok, conn}
+    else
+      _not_allowed -> :forbidden
+    end
+  end
+
+  defp do_service_principal(conn, raw_id) do
+    body = conn.body_params
+
+    with true <- is_map(body) and not is_struct(body),
+         true <- Enum.all?(Map.keys(body), &(&1 in @service_principal_keys)),
+         flagged when is_boolean(flagged) <- Map.get(body, "flagged") do
+      case ServicePrincipal.set_flag(
+             raw_id,
+             flagged,
+             Map.get(body, "reason"),
+             ScopedGrants.actor_from_conn(conn),
+             prefix(conn.assigns.scoped_opts)
+           ) do
+        {:ok, %{user_id: user_id, flagged: now_flagged}} ->
+          Response.ok(conn, %{
+            "user_id" => user_id,
+            "admin_flagged_service_principal" => now_flagged
+          })
+
+        {:error, :not_found} ->
+          Response.not_found(conn)
+
+        {:error, code} when code in [:reason_required, :invalid_reason] ->
+          Response.unprocessable(conn, Atom.to_string(code))
+
+        {:error, _server_fault} ->
+          Response.internal_error(conn)
+      end
+    else
+      _invalid -> Response.unprocessable(conn, "invalid_body")
+    end
+  end
 
   # ── GET /groups/:id/members (design §3.5) ───────────────────────────────
 
