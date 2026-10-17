@@ -102,6 +102,7 @@ defmodule Letflow.Repository.Attachments do
 
   alias Letflow.Api.Pagination
   alias Letflow.EventStore
+  alias Letflow.EventStore.InstanceVisibility
   alias Letflow.Repo
   alias Letflow.Repository
   alias Letflow.Identity.Tenant
@@ -628,9 +629,17 @@ defmodule Letflow.Repository.Attachments do
   def delete(id, deleted_by, opts) when is_list(opts) do
     prefix = Keyword.fetch!(opts, :prefix)
 
+    # GH #2718 (D6 option 2): a synthetic entity-type instance must never
+    # receive an ATTACHMENT_REMOVED event (#2702 invariant I2). The read is
+    # made UNCONDITIONALLY, AFTER the row lookup and BEFORE Repo.delete, and
+    # the answer is kept in a local, so a DB failure of this read raises
+    # while the row is still intact. Do NOT wrap this function in
+    # Repo.transaction: the A17(c) test relies on each statement running
+    # under its own sandbox savepoint.
     with {:ok, attachment} <- get(id, opts),
+         synthetic? = InstanceVisibility.synthetic?(attachment.instance_id, prefix),
          {:ok, deleted} <- Repo.delete(attachment, prefix: prefix) do
-      record_attachment_removed_event(attachment, deleted_by, prefix)
+      unless synthetic?, do: record_attachment_removed_event(attachment, deleted_by, prefix)
       {:ok, deleted}
     end
   end

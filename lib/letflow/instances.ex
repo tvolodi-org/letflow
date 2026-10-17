@@ -363,18 +363,29 @@ defmodule Letflow.Instances do
 
   # ── shared: existence check (INV-5) ────────────────────────────────────
 
-  defp ensure_instance_exists(id, prefix) do
-    query =
-      InstanceProjection
-      |> where([p], p.instance_id == ^id)
-      |> InstanceVisibility.exclude_synthetic(prefix)
-      |> select([p], 1)
+  @doc """
+  True when `id` names an instance projection in the caller's tenant schema
+  that is NOT a synthetic entity-type instance (GH #2718, #2702 predicate).
 
-    if Repo.exists?(query, prefix: prefix) do
-      :ok
-    else
-      {:error, :not_found}
-    end
+  One `EXISTS` query composed with `InstanceVisibility.exclude_synthetic/2`;
+  unknown and synthetic ids are indistinguishable. `opts` must carry
+  `:prefix` (`Keyword.fetch!`). `id` must already be a cast canonical UUID.
+  Status is irrelevant (terminal instances are visible). A DB error raises;
+  it is never folded into `false`.
+  """
+  @spec instance_visible?(id :: Ecto.UUID.t(), opts()) :: boolean()
+  def instance_visible?(id, opts) when is_list(opts) do
+    prefix = Keyword.fetch!(opts, :prefix)
+
+    InstanceProjection
+    |> where([p], p.instance_id == ^id)
+    |> InstanceVisibility.exclude_synthetic(prefix)
+    |> select([p], 1)
+    |> Repo.exists?(prefix: prefix)
+  end
+
+  defp ensure_instance_exists(id, prefix) do
+    if instance_visible?(id, prefix: prefix), do: :ok, else: {:error, :not_found}
   end
 
   defp cast_instance_id(raw_id) do

@@ -299,13 +299,19 @@ defmodule Letflow.Routers.Instances do
   `PROCESS_OPERATOR`, `TASK_WORKER` and `TENANT_ADMIN`; `GET .../link-content`
   stays `AttachmentsRead`.
 
-  ### Not validated by this route layer (design §5.1, §9 OQ-1)
+  ### Instance existence (GH #2718)
 
-  Instance existence itself is not checked before `upload/2`/`list/2` — no
-  acceptance criterion asks for it, and REQ-211's own OQ-1 left it
-  unresolved. A caller can upload/list against a syntactically-valid UUID
-  that names no real instance; `upload/2` creates the row anyway and
-  `list/2` returns an empty page. Deferred, not silently decided.
+  Upload, list, download, link-issue and link-content require the path
+  `:id` to name a VISIBLE instance (`Instances.instance_visible?/2`: a
+  projection that is not a synthetic entity-type instance). An unknown or
+  synthetic id answers `Response.not_found/1`, identical to the other
+  Instances routes. Order: permission, UUID 422, existence-independent
+  request validation (page size, `file` part present), then the 404, then
+  any read of uploaded bytes or write. For link-content the check precedes
+  token verification. `DELETE .../attachments/:attachment_id` deliberately
+  has NO instance check: legacy orphan rows under an unknown or synthetic
+  id stay deletable, and `Attachments.delete/3` skips the
+  `ATTACHMENT_REMOVED` event for a synthetic parent.
 
   ### Route ordering
 
@@ -1113,11 +1119,16 @@ defmodule Letflow.Routers.Instances do
 
     with {:ok, instance_id} <- cast_instance_id(raw_id),
          {:ok, actor_id} <- actor_id(conn),
-         {:ok, attrs} <- upload_attrs_from_conn(conn, instance_id, actor_id) do
+         {:ok, upload} <- upload_file_part(conn),
+         :ok <- require_visible_instance(opts, instance_id) do
+      attrs = build_upload_attrs(upload, instance_id, actor_id, conn)
       render_upload_attachment(conn, attrs, Attachments.upload(attrs, opts))
     else
       {:error, :invalid_instance_id} ->
         Response.unprocessable(conn, "instance_id is not a valid UUID")
+
+      {:error, :not_found} ->
+        Response.not_found(conn)
 
       {:error, :missing_scope_or_actor} ->
         Response.internal_error(conn)
@@ -1131,25 +1142,40 @@ defmodule Letflow.Routers.Instances do
   # :id, raw_bytes/file_name/content_type from the multipart `file` part
   # (%Plug.Upload{}), uploaded_by from the authenticated caller (never a
   # request field), description from the optional `description` text part.
-  @spec upload_attrs_from_conn(Plug.Conn.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
-          {:ok, Attachments.upload_attrs()} | {:error, :missing_file}
-  defp upload_attrs_from_conn(conn, instance_id, actor_id) do
+  #
+  # GH #2718: split in two so the `file` part check (pure, reads nothing)
+  # precedes the instance-visibility check, which precedes the File.read!.
+  @spec upload_file_part(Plug.Conn.t()) :: {:ok, Plug.Upload.t()} | {:error, :missing_file}
+  defp upload_file_part(conn) do
     case conn.body_params["file"] do
-      %Plug.Upload{path: path, filename: filename, content_type: content_type} ->
-        attrs = %{
-          instance_id: instance_id,
-          raw_bytes: File.read!(path),
-          file_name: filename,
-          content_type: content_type,
-          uploaded_by: actor_id,
-          description: attachment_description(conn.body_params["description"])
-        }
-
-        {:ok, attrs}
-
-      _missing_or_not_a_file ->
-        {:error, :missing_file}
+      %Plug.Upload{} = upload -> {:ok, upload}
+      _missing_or_not_a_file -> {:error, :missing_file}
     end
+  end
+
+  @spec build_upload_attrs(Plug.Upload.t(), Ecto.UUID.t(), Ecto.UUID.t(), Plug.Conn.t()) ::
+          Attachments.upload_attrs()
+  defp build_upload_attrs(
+         %Plug.Upload{path: path, filename: filename, content_type: content_type},
+         instance_id,
+         actor_id,
+         conn
+       ) do
+    %{
+      instance_id: instance_id,
+      raw_bytes: File.read!(path),
+      file_name: filename,
+      content_type: content_type,
+      uploaded_by: actor_id,
+      description: attachment_description(conn.body_params["description"])
+    }
+  end
+
+  # GH #2718: the single instance-existence step shared by the attachment
+  # routes (not DELETE, see moduledoc). No Repo.* here (INV-RT-1).
+  @spec require_visible_instance(keyword(), Ecto.UUID.t()) :: :ok | {:error, :not_found}
+  defp require_visible_instance(scoped_opts, instance_id) do
+    if Instances.instance_visible?(instance_id, scoped_opts), do: :ok, else: {:error, :not_found}
   end
 
   defp attachment_description(value) when is_binary(value) and byte_size(value) > 0, do: value
@@ -1220,7 +1246,8 @@ defmodule Letflow.Routers.Instances do
 
     with {:ok, instance_id} <- cast_instance_id(raw_id),
          {:ok, raw_page_size} <- Pagination.parse_page_size_param(Map.get(query, "page_size")),
-         {:ok, page_size} <- Pagination.validate_page_size(raw_page_size) do
+         {:ok, page_size} <- Pagination.validate_page_size(raw_page_size),
+         :ok <- require_visible_instance(opts, instance_id) do
       params = %{
         instance_id: instance_id,
         cursor: Map.get(query, "cursor"),
@@ -1237,6 +1264,9 @@ defmodule Letflow.Routers.Instances do
 
       {:error, :page_size_too_large} ->
         Response.bad_request(conn, "page_size out of range")
+
+      {:error, :not_found} ->
+        Response.not_found(conn)
     end
   end
 
@@ -1266,6 +1296,7 @@ defmodule Letflow.Routers.Instances do
     opts = conn.assigns.scoped_opts
 
     with {:ok, instance_id} <- cast_instance_id(raw_id),
+         :ok <- require_visible_instance(opts, instance_id),
          {:ok, attachment, artifact} <-
            fetch_scoped_attachment_content(raw_attachment_id, instance_id, opts, conn) do
       send_attachment_content(conn, attachment, artifact)
@@ -1482,6 +1513,7 @@ defmodule Letflow.Routers.Instances do
     tenant_id = conn.assigns.auth_context.tenant_id
 
     with {:ok, instance_id} <- cast_instance_id(raw_id),
+         :ok <- require_visible_instance(opts, instance_id),
          {:ok, _attachment} <-
            fetch_scoped_attachment_metadata(raw_attachment_id, instance_id, opts),
          {:ok, %{token: token, expires_at: expires_at}} <-
@@ -1540,6 +1572,7 @@ defmodule Letflow.Routers.Instances do
     link_token = conn.query_params["link_token"]
 
     with {:ok, instance_id} <- cast_instance_id(raw_id),
+         :ok <- require_visible_instance(opts, instance_id),
          {:ok, decoded_attachment_id} <- verify_link_token(link_token, tenant_id),
          :ok <- check_attachment_id_matches(decoded_attachment_id, raw_attachment_id),
          {:ok, attachment, artifact} <-
