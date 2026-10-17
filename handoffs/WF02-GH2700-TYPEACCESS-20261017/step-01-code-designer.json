@@ -1,0 +1,49 @@
+{
+  "handoff_id": "d3b9e2a1-2700-4c10-9a00-000000000001",
+  "run_id": "WF02-GH2700-TYPEACCESS-20261017",
+  "workflow_id": "WF-02",
+  "step": "01",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGNER",
+  "file": "handoffs/WF02-GH2700-TYPEACCESS-20261017/step-01-code-designer.json",
+  "created_at": "2026-10-17T10:10:40Z",
+  "started_at": "2026-10-17T10:10:40Z",
+  "completed_at": "2026-10-17T10:18:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2700": "TypeAccess checked only for the primary type: type-denied join targets returned; export and aggregate unchecked. Design only."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "lib/letflow/routers/entities.ex",
+      "lib/letflow/entities/type_access.ex",
+      "lib/letflow/entities/field_policy.ex",
+      "lib/letflow/entities/query/request_guard.ex",
+      "lib/letflow/entities/query/compiler.ex",
+      "lib/letflow/design/req394-per-entity-type-authorization.md",
+      "lib/letflow/design/gh2697-restricted-field-request-walker.md",
+      "lib/letflow/design/gh2699-aggregate-join-restricted.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2700-TYPEACCESS-20261017"
+  },
+  "task": {
+    "description": "WF-02 step 1 design for GH #2700. No implementation code, no lib/ edits."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "Design written to lib/letflow/design/gh2700-type-access-joins-export-aggregate.md. One new gate module Letflow.Entities.RequestAccess.check/4 (shape check, TypeAccess.denied_types/3 batch read over primary+join entity_type+through, existence via Allowlist.fk_defs/2, then the unchanged FieldPolicy.check_request/4) used by /query, export and aggregate; denied and absent both yield :entity_type_not_found so each route answers its own existing nonexistent-type response (200-empty on /query, 404 on export and aggregate): no new shape, no existence oracle. Existence of ALL targets is checked before any relation is resolved (otherwise denied+wrong-fk gives 422 vs absent not-found). Type denial is not lifted by the unredacted-export permission. 21 tests, 11 mutants, one PR (~650-750 lines incl. tests, split seam documented), #2612 not triggered. Open questions with defaults: Q1 per-route refusal shape (SECURITY ruling), Q2 left-join drop vs refuse, Q3 exempt export, Q4 existence mechanism, Q5 internal compile callers, Q6 follow-ups (GET /entities/definitions lists denied definitions; attachments #2718), Q7 timing, Q8 audit. AMENDED 2026-10-17T10:18:00Z for CDV FAIL + SEC conditional PASS: section 3.1 lists the existing tests edited (walker-test T-39/A-12, chain-order test, GH2697 spec) with replacement assertions plus stale comments; Compiler.join_shape_error() defined as {:error,_}-wrapped union; request_entity_types/2 order stated (unwalked before shape, no crash, T-14 case); constant-work existence step (R1) with T-22 equal-query-count test; denied_types/3 typed array, dedupe, [] no I/O (R2); byte/content-type compare, audit/telemetry check, source test for new handlers (R4,R5); SEC rulings Q1-Q8 recorded; definitions-list leak issue number pending, cite in PR body (R3).",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "lib/letflow/design/gh2700-type-access-joins-export-aggregate.md"
+    ],
+    "implementation_written": false,
+    "classification": "SECURITY_DESIGN"
+  }
+}

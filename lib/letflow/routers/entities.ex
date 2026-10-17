@@ -60,13 +60,13 @@ defmodule Letflow.Routers.Entities do
   | create_record | `POST /entities/records/:entity_type` | `Letflow.Entities.Records.create_record/2` | `EntitiesRecordsWrite` | 201 / 404 / 422 (422 also `idempotency_key_reuse`, GH #2543; `idempotency_key` over 199 bytes -> 422 `max_length`, not valid UTF-8 or containing NUL -> 422 `format`, GH #2550) |
   | update_record | `PUT /entities/records/:entity_type/:record_id` | `Letflow.Entities.Records.update_record/2` | `EntitiesRecordsWrite` | 200 / 404 / 409 / 422 (422 also `idempotency_key_reuse`, GH #2543; `idempotency_key` over 199 bytes -> 422 `max_length`, not valid UTF-8 or containing NUL -> 422 `format`, GH #2550) |
   | delete_record | `DELETE /entities/records/:entity_type/:record_id` | `Letflow.Entities.Records.delete_record/2` | `EntitiesRecordsWrite` | 200 / 400 / 404 / 409 / 422 (a fresh key per request, so never `idempotency_key_reuse`) |
-  | query | `POST /entities/query` | `Letflow.Entities.Query.Compiler.compile/2` then `Letflow.Entities.Query.Allowlist.load/2` then `Letflow.Entities.Query.Cursor.paginate/5` then a `Letflow.Entities.Query.FieldGrants` redaction step | `EntitiesQuery` | 200 / 400 / 404 / 422 |
-  | query_aggregate | `POST /entities/query/aggregate` | the shared restricted-field walker (`Letflow.Entities.FieldPolicy.check_request/4`, kind `:aggregate`, covering every field and join fk) then `Letflow.Entities.Query.Compiler.run_aggregate/2` | `EntitiesAggregate` | 200 / 400 / 403 / 404 / 422 |
+  | query | `POST /entities/query` | `Letflow.Entities.RequestAccess.check/4` (type gate over the primary and every join target, then the restricted-field guard) then `Letflow.Entities.Query.Compiler.compile/2` then `Letflow.Entities.Query.Allowlist.load/2` then `Letflow.Entities.Query.Cursor.paginate/5` then a `Letflow.Entities.Query.FieldGrants` redaction step | `EntitiesQuery` | 200 / 400 / 404 / 422 |
+  | query_aggregate | `POST /entities/query/aggregate` | `Letflow.Entities.RequestAccess.check/4` (kind `:aggregate`: type gate over the primary and every join target, then the shared restricted-field walker covering every field and join fk) then `Letflow.Entities.Query.Compiler.run_aggregate/2` | `EntitiesAggregate` | 200 / 400 / 403 / 404 / 422 |
   | create_record_attachment | `POST /entities/records/:entity_type/:record_id/attachments` | `Letflow.Repository.EntityAttachments.upload/2` | `EntitiesAttachmentsManage` | 201 / 404 / 422 |
   | list_record_attachments | `GET /entities/records/:entity_type/:record_id/attachments` | `Letflow.Repository.EntityAttachments.list/2` | `EntitiesAttachmentsRead` | 200 / 400 / 404 |
   | get_record_attachment_content | `GET /entities/records/:entity_type/:record_id/attachments/:attachment_id` | `Letflow.Repository.EntityAttachments.get_content/2` | `EntitiesAttachmentsRead` | 200 (raw bytes) / 404 / 500 |
   | delete_record_attachment | `DELETE /entities/records/:entity_type/:record_id/attachments/:attachment_id` | `Letflow.Repository.EntityAttachments.delete/2` | `EntitiesAttachmentsManage` | 204 / 404 |
-  | export_records | `POST /entities/records/:entity_type/export` | the identical `Letflow.Entities.Query.Allowlist.load/2` → `Letflow.Entities.Query.Compiler.compile/2` → `Letflow.Entities.Query.Cursor.paginate/5` sequence `query` uses above, then EITHER a `Letflow.Entities.Query.FieldGrants` redaction step (default) OR a second, in-handler `Letflow.Api.Authorization.evaluate_access/2` check against `:EntitiesRecordsExportUnredacted` that skips redaction entirely on success (`unredacted: true`) | `EntitiesRecordsExport` (route-level); `EntitiesRecordsExportUnredacted` (in-handler only, see below) | 200 / 400 / 403 / 404 / 422 |
+  | export_records | `POST /entities/records/:entity_type/export` | `Letflow.Entities.RequestAccess.check/4` (the unredacted permission never lifts type denial), then the identical `Letflow.Entities.Query.Allowlist.load/2` → `Letflow.Entities.Query.Compiler.compile/2` → `Letflow.Entities.Query.Cursor.paginate/5` sequence `query` uses above, then EITHER a `Letflow.Entities.Query.FieldGrants` redaction step (default) OR a second, in-handler `Letflow.Api.Authorization.evaluate_access/2` check against `:EntitiesRecordsExportUnredacted` that skips redaction entirely on success (`unredacted: true`) | `EntitiesRecordsExport` (route-level); `EntitiesRecordsExportUnredacted` (in-handler only, see below) | 200 / 400 / 403 / 404 / 422 |
   | import_records | `POST /entities/records/:entity_type/import` | `Letflow.Entities.Records.create_record/2` per entry (REQ-320) | `EntitiesRecordsImport` | 200 / 404 / 413 / 422 |
   | import_restrictions | `POST /entities/restrictions/import` | `Letflow.Entities.Restrictions.import_restrictions/2` (ISS-0935) | `EntitiesRestrictionsManage` | 200 / 400 / 403 / 422 |
 
@@ -245,7 +245,6 @@ defmodule Letflow.Routers.Entities do
   alias Letflow.Entities.Definition.Validator.Violation, as: DefinitionViolation
   alias Letflow.Entities.Definitions
   alias Letflow.Entities.EntityDefinition
-  alias Letflow.Entities.FieldPolicy
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Query.Allowlist
   alias Letflow.Entities.Query.Compiler
@@ -255,6 +254,7 @@ defmodule Letflow.Routers.Entities do
   alias Letflow.Entities.Query.Types
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Records
+  alias Letflow.Entities.RequestAccess
   alias Letflow.Entities.Restrictions
   alias Letflow.Entities.TypeAccess
   alias Letflow.EventStore.Registry.ValidationFailure
@@ -1893,14 +1893,13 @@ defmodule Letflow.Routers.Entities do
   # exactly this chain (comments stripped) to assert its order. Keep the
   # five steps here, in this order.
   #
-  # REQ-394: `TypeAccess.authorized?/3` runs AFTER `Compiler.compile/2` has
-  # already confirmed the entity type exists (design §2.1) -- it is only
-  # ever asked about a real entity type, never a nonexistent one. Its
-  # `{:ok, :denied}` result does not match the `{:ok, :allowed}` pattern
-  # below, so it falls into this `with`'s implicit `else` as the bare value
-  # `{:ok, :denied}`, mapped by `render_query_error/2`'s own clause for it
-  # (design §2.2) to the same 200-empty envelope a genuinely-empty type
-  # produces -- deliberately indistinguishable, not a 403/404.
+  # GH #2700 (supersedes REQ-394's after-compile TypeAccess step):
+  # `RequestAccess.check/4` runs BEFORE `Compiler.compile/2` and covers the
+  # primary type AND every join `entity_type`/`through` -- type denial, then
+  # existence of every named type, then the restricted-field guard. A denied
+  # type and an absent one are the same `{:error, :entity_type_not_found}`,
+  # mapped in the `else` below to the 200-empty envelope (REQ-394 design
+  # §2.2) -- deliberately indistinguishable, not a 403/404.
   #
   # `Allowlist.load/2` is called here even though `compile/2` loads one
   # internally, and that is DELIBERATE, not an oversight to optimise away.
@@ -1917,60 +1916,27 @@ defmodule Letflow.Routers.Entities do
   defp run_query(conn, body, user_id, prefix) do
     with {:ok, request} <- build_query_request(body),
          {:ok, opts} <- build_paginate_opts(body),
-         {:ok, checked} <-
-           guard_row_request(request, %{user_id: user_id, prefix: prefix}),
+         {:ok, %{sets: sets}} <-
+           RequestAccess.check(%{user_id: user_id, prefix: prefix}, :row, request, %{
+             exempt?: false
+           }),
          {:ok, compiled} <- Compiler.compile(request, prefix),
-         {:ok, :allowed} <- TypeAccess.authorized?(user_id, request.entity_type, prefix),
          {:ok, allowlist} <- Allowlist.load(request.entity_type, prefix),
          {:ok, page} <- Cursor.paginate(request, compiled, allowlist, opts, prefix),
-         {:ok, redacted} <- redact(page, request, checked) do
+         {:ok, redacted} <- redact(page, request, sets) do
       Response.ok(conn, %{
         "items" => Enum.map(redacted.items, &query_item_map/1),
         "next_cursor" => redacted.next_cursor
       })
     else
-      # REQ-394 (design §2.2): both "the type does not exist at all" and
-      # "the type exists but this caller is denied by TypeAccess" collapse
-      # to the SAME 200-empty envelope, on THIS route only. This is a
-      # local override of render_query_error/2's own :entity_type_not_found
-      # clause (which stays a 404 below, unchanged) -- render_query_error/2
-      # is shared with the aggregate (render_aggregate_error/2) and export
-      # (render_export_error/2) routes' own fallthrough clauses, and
-      # REQ-394's acceptance criteria name only POST /entities/query and the
-      # three definitions-read routes; changing the shared function's own
-      # :entity_type_not_found clause would silently change those two
-      # unrelated routes' already-shipped 404 behavior too.
-      {:ok, :denied} -> render_type_hidden(conn)
+      # REQ-394 (design §2.2), GH #2700: "the type (or any join target) does
+      # not exist" and "the caller is denied by TypeAccess" arrive as the SAME
+      # `:entity_type_not_found` and collapse to the SAME 200-empty envelope,
+      # on THIS route only. This is a local override of render_query_error/2's
+      # own :entity_type_not_found clause (a 404, shared with the aggregate
+      # and export routes, whose shipped 404 contract is unchanged).
       {:error, :entity_type_not_found} -> render_type_hidden(conn)
       {:error, reason} -> render_query_error(conn, reason)
-    end
-  end
-
-  # GH #2697: the request-side restricted-field guard for a row query. A
-  # type-denied caller must keep the REQ-394 hidden 200 envelope, so the
-  # TypeAccess decision is read first and the field check is SKIPPED for a
-  # denied type (`check_request/4` itself knows nothing about TypeAccess). The
-  # later `TypeAccess.authorized?/3` step in run_query/4 is kept unchanged and
-  # then turns the denied type into the same hidden 200. A nonexistent type has
-  # no restriction rows, so the check passes trivially and Compiler.compile/2
-  # answers `:entity_type_not_found` -> hidden, as before.
-  @spec guard_row_request(map(), FieldPolicy.principal()) ::
-          {:ok, {:checked, RequestGuard.guard_ok()}}
-          | {:ok, :type_denied}
-          | {:error, RequestGuard.guard_error() | :invalid_schema_name}
-  defp guard_row_request(request, %{user_id: user_id, prefix: prefix} = principal) do
-    case TypeAccess.authorized?(user_id, request.entity_type, prefix) do
-      {:ok, :denied} ->
-        {:ok, :type_denied}
-
-      {:ok, :allowed} ->
-        with {:ok, ok} <-
-               FieldPolicy.check_request(principal, :row, request, %{exempt?: false}) do
-          {:ok, {:checked, ok}}
-        end
-
-      {:error, _reason} = error ->
-        error
     end
   end
 
@@ -1997,20 +1963,17 @@ defmodule Letflow.Routers.Entities do
   # type-safety note on the REQ-311 rebuild). `run_query/4`'s own second
   # argument stays `map()` because it is the RAW caller body, pre-validation.
   # GH #2697 (design 5.4): the restriction sets come from the request-side
-  # guard (`FieldPolicy.check_request/4`), keyed by entity type -- ONE load per
-  # entity type per request, so the request is refused and the response
-  # redacted from one consistent snapshot of the grants. Page shaping stays in
-  # FieldGrants; this module keeps no redaction logic. The `{:checked, _}`
-  # clause unwraps run_query/4's guard result; a `:type_denied` result never
-  # reaches here (TypeAccess denies earlier) and would fail closed with a
-  # FunctionClauseError rather than pass a page through unredacted.
+  # guard (`RequestAccess.check/4`, which ends in `FieldPolicy.check_request/4`),
+  # keyed by entity type -- ONE load per entity type per request, so the
+  # request is refused and the response redacted from one consistent snapshot
+  # of the grants. Page shaping stays in FieldGrants; this module keeps no
+  # redaction logic. A type-denied request never reaches here (the gate
+  # refuses it earlier); a page is never passed through unredacted.
   @spec redact(
           Pagination.Page.t(term()),
           Types.query_request(),
-          {:checked, RequestGuard.guard_ok()} | RequestGuard.restriction_sets()
+          RequestGuard.restriction_sets()
         ) :: {:ok, Pagination.Page.t(term())}
-  defp redact(page, request, {:checked, %{sets: sets}}), do: redact(page, request, sets)
-
   defp redact(page, %{join: [_ | _] = joins} = request, sets) when is_map(sets) do
     # One set per EXPOSED entity type: :primary for the primary's own type,
     # plus each join clause's own entity_type. A `through` entity's type is
@@ -2175,8 +2138,9 @@ defmodule Letflow.Routers.Entities do
   # and NOTHING else. A body carrying "tenant_id"/"schema"/"slug"/"prefix"/
   # "user_id" is inert -- those keys are never read anywhere below.
   #
-  # ⛔ INV-2: `FieldPolicy.check_request/4` (kind `:aggregate`, the shared
-  # restricted-field walker) runs BEFORE `Compiler.run_aggregate/2` is ever
+  # ⛔ GH #2700: `RequestAccess.check/4` (kind `:aggregate`) first refuses a
+  # type-denied or absent primary/join/through type with the not-found 404,
+  # then runs the shared restricted-field walker (INV-2), all BEFORE `Compiler.run_aggregate/2` is ever
   # called, against EVERY field named anywhere in the request -- every
   # aggregate target's `:field`, every `group_by` field, every `filters`
   # field, AND every `join` hop's fk/on field (each governed by the entity
@@ -2201,7 +2165,7 @@ defmodule Letflow.Routers.Entities do
   defp run_query_aggregate(conn, body, user_id, prefix) do
     with {:ok, request} <- build_aggregate_request(body),
          {:ok, _guard_ok} <-
-           FieldPolicy.check_request(
+           RequestAccess.check(
              %{user_id: user_id, prefix: prefix},
              :aggregate,
              request,
@@ -2365,6 +2329,10 @@ defmodule Letflow.Routers.Entities do
   #      immediately, BEFORE `build_export_query_request/2` or ANY of
   #      Compiler.compile/2, Allowlist.load/2, Cursor.paginate/5 ever runs.
   #      Never a silent fallback to redacted output.
+  #   3b. GH #2700: `RequestAccess.check/4` -- a type-denied or absent
+  #      primary/join/through type is the route's not-found 404, and
+  #      `unredacted: true` never lifts it (it only exempts restricted
+  #      FIELDS, step 4 of the gate). No audit row, no log line on denial.
   #   4. Only past all of the above does the identical
   #      Allowlist.load/2 -> Compiler.compile/2 -> Cursor.paginate/5
   #      sequence handle_query/1's own run_query/4 uses run, unmodified.
@@ -2380,7 +2348,7 @@ defmodule Letflow.Routers.Entities do
          {:ok, request} <- build_export_query_request(body, path_entity_type),
          {:ok, opts} <- build_export_paginate_opts(body),
          {:ok, guard} <-
-           FieldPolicy.check_request(
+           RequestAccess.check(
              %{user_id: user_id, prefix: prefix},
              :row,
              request,
@@ -2640,11 +2608,10 @@ defmodule Letflow.Routers.Entities do
   #   {:relation_column_not_found, _, _}  -> 422
   #   :invalid_schema_name                -> 500 (unreachable, INV-1)
   #
-  # TypeAccess.authorized?/3's `{:ok, :denied}` result (REQ-394 design
-  # §2.1/§2.2) is NOT a member of this union and never reaches this
-  # function -- it is handled locally in run_query/4's own `with`/`else`,
-  # mapped to the same 200 {"items":[],"next_cursor":null} envelope as
-  # :entity_type_not_found gets on that one route.
+  # GH #2700: a TypeAccess denial is NOT a distinct reason -- it arrives as
+  # `:entity_type_not_found` from RequestAccess.check/4, so aggregate and
+  # export render it with the 404 clause below; run_query/4 maps it locally
+  # to the 200 {"items":[],"next_cursor":null} envelope.
   #
   # Cursor.paginate/5's own union:
   #   :page_size_too_large / :invalid_cursor / :wrong_endpoint /

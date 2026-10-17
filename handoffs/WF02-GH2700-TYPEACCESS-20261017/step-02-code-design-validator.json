@@ -1,0 +1,42 @@
+{
+  "handoff_id": "d3b9e2a1-2700-4c10-9a00-000000000002",
+  "run_id": "WF02-GH2700-TYPEACCESS-20261017",
+  "workflow_id": "WF-02",
+  "step": "02",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGN-VALIDATOR",
+  "file": "handoffs/WF02-GH2700-TYPEACCESS-20261017/step-02-code-design-validator.json",
+  "created_at": "2026-10-17T10:14:30Z",
+  "started_at": "2026-10-17T10:14:30Z",
+  "completed_at": "2026-10-17T11:05:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2700": "TypeAccess checked only for the primary type: type-denied join targets returned; export and aggregate unchecked. Validate design (round 2, diff check)."
+    },
+    "related_handoff_ids": ["d3b9e2a1-2700-4c10-9a00-000000000001", "d3b9e2a1-2700-4c10-9a00-000000000003"],
+    "artifacts_in": [
+      "lib/letflow/design/gh2700-type-access-joins-export-aggregate.md",
+      "handoffs/WF02-GH2700-TYPEACCESS-20261017/step-01-code-designer.json",
+      "handoffs/WF02-GH2700-TYPEACCESS-20261017/step-03-security-reviewer-design.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2700-TYPEACCESS-20261017"
+  },
+  "task": {
+    "description": "WF-02 step 1b round 2: verify the round-1 required changes A/B/C and the SECURITY conditional PASS R1-R5 are folded into the design. Read-only; no lib/ or test/ edits."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "PASS (round 2). Round-1 changes verified in place in the design: (A) section 3.1 now lists the broken tests as EDITED with replacement assertions (query_cursor_field_grants chain-order; entities_query_restricted_walker_test T-39 and A-12 with RequestAccess.check in run_query/run_export/run_query_aggregate, zero FieldPolicy.check_request / guard_row_request / direct load_restrictions in the router, check precedes Compiler.compile/run_aggregate, only run_export passes non-literal exempt?, aggregate binds {:ok, _..} with only the {:error, reason} -> render_aggregate_error else; GH2697 spec wording) and lists the stale comments/moduledoc rows to reword (redact/3 FunctionClauseError comment, guard_row_request block, render_query_error ~2643, run_query else, route-table rows incl. row 64, aggregate INV-2 comment). T-21 now reads 'unchanged EXCEPT the tests listed as edited in 3.1' and is consistent with T-18 (single gate, zero FieldPolicy.check_request in router); single guard path holds (D1, section 3, section 4 Single gate, M8). (B) Compiler.join_shape_error() is now specified as a new exported type with exactly three {:error, _}-wrapped members, no bare forms, and Compiler.join_entity_types/1 is listed as the only new Compiler function. (C) request_entity_types/2 order is explicit (walk first -> :request_clause_unwalked for unknown key / non-list join / non-map or missing-binary-entity_type element / non-binary through; then shape errors; never raises), and T-14 and M13 cover malformed element plus too-many-joins. Round-1 non-blocking notes also folded (T-6 primary-declares-far-fk case; Q1/Q7 rulings obtained). SECURITY conditions: R1 constant work is in D1 step 3 (full distinct set, unconditional, no short-circuit, single decision after), R6/Q7 rewritten and the 'timing accepted' wording is withdrawn with no stale remnant, T-17 and T-22 (measure_pair retry pattern) and M12 cover it; R2 denied_types typed-array bind, dedupe, uuid cast, [] without I/O, T-16 other-user-grant and duplicate-name cases, M14; R3 filing of the definitions-list leak and #2718 citation plus past-exposure and R2-reorder sentences required in the PR body (section 10, Q6); R4 T-6/T-7 compare status, content-type and full body bytes incl. unredacted export, through and far hops, T-20 asserts no audit row and no telemetry/log metadata with the type name; R5 T-18 fails on any handler calling Compiler.compile/run_aggregate without RequestAccess.check ahead, and the chain-order test keeps the check before compile and SQL. No implementation code present; all signatures carry error shapes; cross-module deps listed in section 5; no TBD/deferral language (open questions all have defaults/rulings). NON-BLOCKING nits (no rework, ELIXIR-DEV may proceed): section 7 AC row 5 still says 'Q1 awaits the SECURITY-REVIEWER ruling' and the D2 heading says 'needs SECURITY-REVIEWER ruling' although Q1 is marked APPROVED in section 11; fix wording when the design doc is next touched.",
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "implementation_written": false,
+    "classification": "DESIGN_APPROVED"
+  }
+}
