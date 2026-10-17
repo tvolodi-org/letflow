@@ -1,0 +1,50 @@
+{
+  "handoff_id": "d2535517-0517-4c02-9e11-000000000013",
+  "run_id": "WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018",
+  "workflow_id": "WF-02",
+  "step": "13",
+  "from_agent": "ORCH",
+  "to_agent": "REVIEWER",
+  "file": "handoffs/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018/step-13-reviewer-code-2b.json",
+  "created_at": "2026-10-17T22:30:00Z",
+  "started_at": "2026-10-17T22:30:00Z",
+  "completed_at": "2026-10-17T22:32:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [
+      "REQ-517"
+    ],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "REVIEWER CODE gate for REQ-517 slice 2b (GH #2535) on the uncommitted working tree of branch feature/WF02-REQ517-2B-ROUTE-ENFORCE-20261018. Read-only; no mix run."
+    },
+    "related_handoff_ids": [
+      "d2535517-0517-4c02-9e11-000000000011",
+      "d2535517-0517-4c02-9e11-000000000012"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/req517-scoped-grants-admin-plane.md",
+      "handoffs/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018/step-11-elixir-dev-2b.json",
+      "handoffs/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018/step-12-security-reviewer-code-2b.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ517-2B-ROUTE-ENFORCE-20261018"
+  },
+  "task": {
+    "description": "Idiom, supervision, scope-creep, forced-test-edit and decision-record gate for REQ-517 2b. No edits to lib/ or test/."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "summary": "PASS_WITH_FINDINGS. No blocker; no required change. Static review only (nothing compiled or run; mix memory constrained). 1 OTP IDIOM / SUPERVISION: ShadowEvidence is a plain GenServer with real callbacks (init, handle_call, handle_info, terminate), not a hand-rolled state machine. It is a leaf under Infrastructure (one_for_one, permanent default), placed after Metrics.Registry, exactly as design 4.7.2 and the infrastructure moduledoc/test move 24 -> 25 say. A singleton infra process is correct here: it holds no per-instance state, mirrors Metrics.Registry and the Bucket ETS owners, and does not touch the 0045/REQ-045 decision that InstanceSupervisor stays empty (no process added per instance or per tenant; per-tenant separation is the ETS key {prefix,day,metric} and the tenant schema). ETS ownership: table created in init/1 by the owner, :public named :set with write_concurrency (same shape as PublicReadRateLimit.Bucket); record/3 runs in the caller with rescue/catch and never calls the process, so an owner crash/restart window only drops counts (documented crash residual, can only make REQ-519's gate more lenient). Restart recreates the table cleanly (the old table dies with its owner). Flush: run_flush/1 rescues and catches everything so the process does not crash on DB errors; the timer is rescheduled only from handle_info(:flush) so flush/0 cannot double-schedule; subtract-then-match_delete cannot lose a concurrent increment; hostile keys are dropped without a query; undefined_table/invalid_schema_name discards the prefix. terminate/2 flushes (trap_exit, shutdown 10_000); Repo is child 1 so it is stopped after this child (reverse order) and is still up in terminate. 2 ENFORCE / ROUTESCOPE / MACRO: Enforce.check/3 is a pure function with function-level rescue/catch that fails closed; Authorize.apply_scope_mode is a three-way case on the stored mode (off falls through); AuthorizedRouter adds arity-4 macros that keep __authz_routes__/0 as 3-tuples plus a second accumulator, with compile-time literal validation (CompileError): idiomatic macro use, needed by AC 17, not ahead of need. ScopeNodePaths.resolve/2 with ancestors/2 re-expressed over it: same two reads, no duplicated logic. Migrations: 200001 is public with constant SQL and its down refuses while any tenant is on (execute(fn) with repo().query! is the correct reversible-callback idiom); 200002 is guarded by if prefix(), has explicit constraint names, reversible change/0, and is registered in the manifest and the fixture oracle. 3 SCOPE vs design 4.0-4.8 / ACs 16-22: everything present maps to a design section (route classes 4.1, on 4.2, Enforce 4.3, retired nodes 4.4, DB error path 4.5, link audit 4.6, evidence table/process/retention 4.7, shadow rewire 4.8). No behaviour, protocol or generic plumbing beyond that. Two deviations accepted: (a) :self_service accepted as a fifth class although design 4.1 listed four - justified because AC 17/19 name five classes, it is walled by @self_service_routes_allowed? false plus the :self_service_not_allowed walk rule (SEC F-1), and design 4.1 was amended (SEC F-4); (b) class_of/1 consults the key table before the declared class - a strengthening, design amended. RouteScope's @expected_filter_routes and @issue_time_parent_lookup? are constants, not config or behaviours: fine. 4 EDITS TO EXISTING TESTS: all five in step-11 are FORCED and none weakens an assertion: scope_test T-A8 pinned [:ancestors] and scope.ex now (design 4.4) calls resolve/2 only; scope_enforcement_test T-F7 asserted :on invalid, which the widened Ecto.Enum makes false (replaced by assert on :on plus refute on :bogus, strictly more coverage; the flip/parse_mode rejection of on stays covered by the existing tests); tenant_scope_enforcement_test T-F1 SQL case used 'on' which the widened CHECK now accepts (changed to 'ON', still proves the constraint); infrastructure_test 24 -> 25 plus the id in order (forced by the new child); tenant_fixture_test 56 -> 57 with the oracle entry in test/support/tenant_fixture.ex (forced by the new tenant table). 5 DECISION RECORDS: consistent with 0051 (D5, D11, D12, M7, T6; on is stored but not settable until REQ-519, flip rejects it), 0006 D2 (no tenant_id column), 0045/REQ-045 (no per-instance process). 0011/0012 not applicable. 6 docs/anti-patterns.md: no entry violated. The REQ-072 grep-shaped :ets entry concerns lib/letflow/api/context.ex's own AC; the ETS use here is in a different module (Api.Scope.ShadowEvidence) and context_test.exs only inspects its own module. FINDINGS (non-blocking): F-1 type-safety (FINDING: ORCH to file under docs/issues/ tagged type-safety per WORK_BOARD section 7; this reviewer is read-only): the closed set of metrics/deny reasons is spelled out several times - the Scope.deny_reason() type, ShadowEvidence @reasons and @type metric, and the migration CHECK list - with no single source. A seventh Scope deny reason added later would make record/3 silently fall through to its swallow-everything clause (evidence lost, no error) and any flushed row would hit the CHECK. A Scope-owned reasons list used to build ShadowEvidence @reasons/@metrics, plus one test asserting the ShadowEvidence set equals it and the CHECK list, would make the drift loud. Related: RouteScope.class() contains :self_service and :filter, which the walk forbids only via constants; REQ-518 must flip those constants in the same change that assigns them. F-2 duplication (advisory, ELIXIR-DEV when next in these files): Shadow.@skipped_keys and Enforce.@skipped_keys are identical lists, and Shadow.evaluate/3 and Enforce.require_tenant_wide/3 repeat principal_from_conn + allowed?(:tenant_wide) and the three pass-through class cases. A shared RouteScope helper for the skipped keys and the pass-through classes would stop the two diverging when REQ-518 adds resolver handling; low risk today. F-3 terminate bound (advisory): terminate/2 runs a DB flush under shutdown 10_000 while Repo's default query timeout is 15 s, so a stuck DB can get the child brutal-killed mid-flush (counts lost, same documented residual). A shorter timeout: on the terminate-path insert would make the bound deliberate. F-4 hot key (advisory, perf): every shadow request increments the same {prefix,day,:requests} ETS object, so write_concurrency does not help for that key under one busy tenant; decentralized_counters or striped keys are options if profiling shows contention. Not required. F-5 notes for TEST-DESIGNER: ShadowEvidence is a named singleton under the app supervisor, so its tests must be async: false and need sandbox allowance for the GenServer pid; the periodic timer could flush into another test's sandbox, so set :scope_shadow_flush_interval_ms very high in test config or per-test setup. Unverified here: the down direction of 200001/200002 and the pre-existing PermissionMatrixTest T24 CRLF environment failure.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "handoffs/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018/step-13-reviewer-code-2b.json"
+    ],
+    "diagnosis_confirmed": true,
+    "implementation_written": false,
+    "classification": "REVIEW_PASS_WITH_FINDINGS"
+  }
+}

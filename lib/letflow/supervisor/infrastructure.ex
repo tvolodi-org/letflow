@@ -43,6 +43,10 @@ defmodule Letflow.Supervisor.Infrastructure do
   to 22 (23 listed below: child 3 is a one-shot `:ignore` hook) -- placed
   directly before `Letflow.Obs.Alerts.TaskSupervisor` so that child stays LAST.
 
+  REQ-517 PR 2b (design `req517-scoped-grants-admin-plane.md` section 4.7.2) adds
+  `Letflow.Api.Scope.ShadowEvidence` (child 7 below), bringing the live total to 25: a leaf,
+  placed directly after `Letflow.Metrics.Registry`.
+
   ## Children, in order
 
   1. `Letflow.Repo`
@@ -57,37 +61,38 @@ defmodule Letflow.Supervisor.Infrastructure do
      `lib/letflow/design/req370-multi-issuer-oidc-verification.md` §4)
   5. `Letflow.Registry` (generic `Registry`)
   6. `Letflow.Metrics.Registry`
-  7. `Letflow.Plugs.PublicReadRateLimit.Bucket`
-  8. `Letflow.Plugs.LoginDiscoveryRateLimit.Bucket` (REQ-436)
-  9. `Letflow.Admission`
-  10. `Letflow.InstanceSupervisor`
-  11. `Letflow.SandboxPool.TaskSupervisor`
-  12. `Letflow.SandboxPool`
-  13. `Letflow.Engine.PluginTaskSupervisor`
-  14. `Letflow.Engine.Wasm.InvocationLease`
-  15. `Letflow.Engine.PluginRegistry`
-  16. `Letflow.Engine.Lua.TaskSupervisor`
-  17. `Letflow.Engine.Lua.ScriptAdmission` (GH 2534: a `Letflow.Admission` instance with
+  7. `Letflow.Api.Scope.ShadowEvidence` (REQ-517 2b: shadow-evidence ETS counters + flush)
+  8. `Letflow.Plugs.PublicReadRateLimit.Bucket`
+  9. `Letflow.Plugs.LoginDiscoveryRateLimit.Bucket` (REQ-436)
+  10. `Letflow.Admission`
+  11. `Letflow.InstanceSupervisor`
+  12. `Letflow.SandboxPool.TaskSupervisor`
+  13. `Letflow.SandboxPool`
+  14. `Letflow.Engine.PluginTaskSupervisor`
+  15. `Letflow.Engine.Wasm.InvocationLease`
+  16. `Letflow.Engine.PluginRegistry`
+  17. `Letflow.Engine.Lua.TaskSupervisor`
+  18. `Letflow.Engine.Lua.ScriptAdmission` (GH 2534: a `Letflow.Admission` instance with
       `monitor_callers: true` for tenant scripts, decision 0053 D8)
-  18. `Letflow.Engine.Wasm.ModuleRegistryTaskSupervisor`
-  19. `Letflow.Engine.Wasm.CapabilityGateTaskSupervisor`
-  20. `Letflow.Engine.Wasm.ModuleVersionRegistry`
-  21. `Letflow.Engine.Wasm.ModuleVersionRegistryTaskSupervisor`
-  22. `Letflow.EventStore.RetirementTaskSupervisor`
-  23. `Letflow.LoginDiscovery.TaskSupervisor` (REQ-437: off-request-path
+  19. `Letflow.Engine.Wasm.ModuleRegistryTaskSupervisor`
+  20. `Letflow.Engine.Wasm.CapabilityGateTaskSupervisor`
+  21. `Letflow.Engine.Wasm.ModuleVersionRegistry`
+  22. `Letflow.Engine.Wasm.ModuleVersionRegistryTaskSupervisor`
+  23. `Letflow.EventStore.RetirementTaskSupervisor`
+  24. `Letflow.LoginDiscovery.TaskSupervisor` (REQ-437: off-request-path
       notifier tasks of the login-discovery endpoint)
-  24. `Letflow.Obs.Alerts.TaskSupervisor`
+  25. `Letflow.Obs.Alerts.TaskSupervisor`
 
   ## Ordering guarantees preserved (both load-bearing, unchanged from
   `Letflow.Application`'s own prior flat list)
 
-    * ISS-0224: child 11 (`SandboxPool.TaskSupervisor`) precedes child 12
+    * ISS-0224: child 12 (`SandboxPool.TaskSupervisor`) precedes child 13
       (`{Letflow.SandboxPool, []}`) -- unchanged relative order. Every
       `SandboxPool` DB operation runs under this `Task.Supervisor` via
       `Task.Supervisor.async_nolink/3`; registering it after its dependant
       would leave a window in which a `claim/2` call exits `:noproc` inside
       a pool callback and kills the pool.
-    * ISS-0429: child 24 (`Obs.Alerts.TaskSupervisor`) is the LAST child of
+    * ISS-0429: child 25 (`Obs.Alerts.TaskSupervisor`) is the LAST child of
       this supervisor. Its "must precede either Poller's first tick"
       guarantee is now a SUPERVISOR-BOUNDARY guarantee, not merely a
       list-position fact: `Letflow.Supervisor.Pollers` is started only
@@ -98,7 +103,7 @@ defmodule Letflow.Supervisor.Infrastructure do
       possible between this supervisor's last child starting and
       `Letflow.Supervisor.Pollers`' first child starting, since an entire
       supervisor boundary sits between them.
-    * ISS-0418: child 14 (`Engine.Wasm.InvocationLease`) has no ordering
+    * ISS-0418: child 15 (`Engine.Wasm.InvocationLease`) has no ordering
       dependency in either direction, mirroring `Letflow.Admission`'s own
       "no ordering dependency" precedent (see that module's moduledoc) --
       its `init/1` reads only static application config, makes no `Repo`
@@ -106,16 +111,16 @@ defmodule Letflow.Supervisor.Infrastructure do
       process. Placed directly after `PluginTaskSupervisor` as a
       readability choice (both are WASM/plugin-dispatch infrastructure),
       not a correctness requirement.
-    * REQ-352: child 7 (`Plugs.PublicReadRateLimit.Bucket`) has no ordering
+    * REQ-352: child 8 (`Plugs.PublicReadRateLimit.Bucket`) has no ordering
       dependency in either direction, mirroring `Letflow.Metrics.Registry`'s
       own "leaf, independently-startable" precedent immediately above it --
       its `init/1` creates a fresh named ETS table and reads no other
       supervised process. Placed directly after `Metrics.Registry` as a
       readability choice, not a correctness requirement.
-    * REQ-436: child 8 (`Plugs.LoginDiscoveryRateLimit.Bucket`) has no ordering
-      dependency in either direction, mirroring child 7 -- its `init/1`
+    * REQ-436: child 9 (`Plugs.LoginDiscoveryRateLimit.Bucket`) has no ordering
+      dependency in either direction, mirroring child 8 -- its `init/1`
       validates application config, creates a fresh named ETS table and calls
-      no other supervised process. Placed directly after child 7 as a
+      no other supervised process. Placed directly after child 8 as a
       readability choice, not a correctness requirement.
     * ISS-0771: child 3 (`TenantProvisioning.MigrationReplayBoot`) has one
       ordering dependency, in one direction only -- it must follow child 2
@@ -239,6 +244,10 @@ defmodule Letflow.Supervisor.Infrastructure do
       # mirroring the Wasm.ModuleVersionRegistry placement precedent below ("order
       # between these two is not load-bearing").
       Letflow.Metrics.Registry,
+      # REQ-517 PR 2b (design req517-scoped-grants-admin-plane.md section 4.7.2): the persisted
+      # shadow-evidence counters (ETS + 30 s flush into a tenant table). A leaf with no ordering
+      # dependency; the request path only touches its ETS table and never calls the process.
+      Letflow.Api.Scope.ShadowEvidence,
       # REQ-352 (design req352-unauthenticated-read-platform.md §11.3): the
       # ETS-backed token bucket behind Letflow.Plugs.PublicReadRateLimit. A
       # leaf, independently-startable component with no startup-order

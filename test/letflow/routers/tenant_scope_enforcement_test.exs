@@ -190,12 +190,14 @@ defmodule Letflow.Routers.TenantScopeEnforcementTest do
       assert flip_entries(fx) == []
     end
 
-    test "a direct SQL write of 'on' violates tenants_scope_enforcement_check" do
+    # REQ-517 2b widened the CHECK to off | shadow | on: `on` is a STORED value now (no route
+    # can set it), any other spelling still violates the constraint.
+    test "a direct SQL write of 'ON' violates tenants_scope_enforcement_check" do
       fx = tenant!("req497-rt-f1-sql")
 
       assert {:error, %Postgrex.Error{postgres: %{constraint: "tenants_scope_enforcement_check"}}} =
                Repo.query(
-                 "UPDATE public.tenants SET scope_enforcement = 'on' WHERE id = $1",
+                 "UPDATE public.tenants SET scope_enforcement = 'ON' WHERE id = $1",
                  [Ecto.UUID.dump!(fx.tenant_id)]
                )
 

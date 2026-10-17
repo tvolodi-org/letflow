@@ -428,11 +428,15 @@ defmodule Letflow.Routers.Instances do
   # grouped with the other attachment routes and above the bare
   # `authz_get "/:id"` below, matching this router's own "longer, more
   # specific suffixes first" convention (design §3.3).
-  authz_post "/:id/attachments/:attachment_id/link", :AttachmentLinksIssue do
+  # REQ-517 2b (AC 21): both link routes are explicitly `:tenant_wide` (never silently
+  # default-sourced) and the route walk fails if either is reclassified while no issue-time
+  # scoped lookup of the attachment's parent exists (decision 0051 M7).
+  authz_post "/:id/attachments/:attachment_id/link", :AttachmentLinksIssue, scope: :tenant_wide do
     handle_issue_attachment_link(conn, conn.params["id"], conn.params["attachment_id"])
   end
 
-  authz_get "/:id/attachments/:attachment_id/link-content", :AttachmentsRead do
+  authz_get "/:id/attachments/:attachment_id/link-content", :AttachmentsRead,
+    scope: :tenant_wide do
     handle_get_attachment_link_content(conn, conn.params["id"], conn.params["attachment_id"])
   end
 
@@ -1517,9 +1521,14 @@ defmodule Letflow.Routers.Instances do
          {:ok, _attachment} <-
            fetch_scoped_attachment_metadata(raw_attachment_id, instance_id, opts),
          {:ok, %{token: token, expires_at: expires_at}} <-
-           AttachmentLinks.issue(raw_attachment_id, tenant_id) do
+           AttachmentLinks.issue(raw_attachment_id, tenant_id),
+         :ok <- record_attachment_link_issued(conn, instance_id, raw_attachment_id, opts) do
       render_attachment_link(conn, raw_id, raw_attachment_id, token, expires_at)
     else
+      {:error, :link_audit_failed} ->
+        # Fail closed (REQ-517 AC 21): no audit entry, no token in the body.
+        Response.internal_error(conn)
+
       {:error, :invalid_instance_id} ->
         Response.unprocessable(conn, "instance_id is not a valid UUID")
 
@@ -1532,6 +1541,46 @@ defmodule Letflow.Routers.Instances do
       {:error, {:secret_write_failed, _reason}} ->
         Response.internal_error(conn)
     end
+  end
+
+  # REQ-517 AC 21 (T15): the `attachment_link.issued` audit entry, written in the issue
+  # request AFTER the link was minted and BEFORE the response is built, in every enforcement
+  # mode. Issuer, instance id, attachment id and `scope_node` (nil while instances carry
+  # none); NEVER the token, the url or the expiry. A failed or raising write returns
+  # `{:error, :link_audit_failed}` (one constant log line, no ids) and the caller answers a
+  # detail-free 500, so a link is never handed out unaudited.
+  @spec record_attachment_link_issued(Plug.Conn.t(), Ecto.UUID.t(), String.t(), keyword()) ::
+          :ok | {:error, :link_audit_failed}
+  defp record_attachment_link_issued(conn, instance_id, attachment_id, opts) do
+    attrs = %{
+      actor_id: conn.assigns.auth_context.user_id,
+      action: "attachment_link.issued",
+      resource_type: "attachment",
+      resource_id: attachment_id,
+      before_state: nil,
+      after_state: %{
+        "issuer" => conn.assigns.auth_context.user_id,
+        "instance_id" => instance_id,
+        "attachment_id" => attachment_id,
+        "scope_node" => nil,
+        "trace_id" => conn.assigns[:trace_id]
+      },
+      trace_id: conn.assigns[:trace_id]
+    }
+
+    case Audit.insert_entry(Letflow.Repo, attrs, Keyword.fetch!(opts, :prefix)) do
+      {:ok, _entry} -> :ok
+      {:error, _reason} -> link_audit_failed()
+    end
+  rescue
+    _exception -> link_audit_failed()
+  catch
+    _kind, _reason -> link_audit_failed()
+  end
+
+  defp link_audit_failed do
+    Logger.error("attachment_link.issued audit write failed")
+    {:error, :link_audit_failed}
   end
 
   defp render_attachment_link(conn, raw_id, raw_attachment_id, token, expires_at) do

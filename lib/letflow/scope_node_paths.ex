@@ -191,16 +191,30 @@ defmodule Letflow.ScopeNodePaths do
   @spec ancestors(node_id(), prefix :: String.t()) ::
           {:ok, [Node.t()]} | {:error, :invalid_node_id | :node_not_found | :invalid_schema_name}
   def ancestors(node_id, prefix) when is_binary(prefix) do
+    with {:ok, %{ancestors: ancestors}} <- resolve(node_id, prefix), do: {:ok, ancestors}
+  end
+
+  @doc """
+  REQ-517 2b (design 4.4): the node itself AND its ancestors (root first, retired ones
+  included), with the same two reads as `ancestors/2`, which is expressed over this function.
+  `Letflow.Api.Scope` uses it to see the resource node's own `retired_at`.
+  """
+  @spec resolve(node_id(), prefix :: String.t()) ::
+          {:ok, %{node: Node.t(), ancestors: [Node.t()]}}
+          | {:error, :invalid_node_id | :node_not_found | :invalid_schema_name}
+  def resolve(node_id, prefix) when is_binary(prefix) do
     with :ok <- validate_node_id(node_id),
          {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
          {:ok, node} <- fetch_node(node_id, prefix, :node_not_found) do
       ancestor_ids = node.path |> path_segments() |> Enum.drop(-1)
 
-      {:ok,
-       Repo.all(
-         from(n in Node, where: n.node_id in ^ancestor_ids, order_by: [asc: n.depth]),
-         prefix: prefix
-       )}
+      ancestors =
+        Repo.all(
+          from(n in Node, where: n.node_id in ^ancestor_ids, order_by: [asc: n.depth]),
+          prefix: prefix
+        )
+
+      {:ok, %{node: node, ancestors: ancestors}}
     end
   end
 

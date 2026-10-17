@@ -1,0 +1,72 @@
+{
+  "handoff_id": "d2535517-0517-4c02-9e11-000000000015",
+  "run_id": "WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018",
+  "workflow_id": "WF-02",
+  "step": "15",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGN-VALIDATOR",
+  "file": "handoffs/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018/step-15-test-design-validator-2b.json",
+  "created_at": "2026-10-17T23:05:30Z",
+  "started_at": "2026-10-17T23:05:45Z",
+  "completed_at": "2026-10-17T23:08:03Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": ["REQ-517"],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "TEST-DESIGN-VALIDATOR gate for REQ-517 slice 2b (GH #2535), uncommitted working tree on feature/WF02-REQ517-2B-ROUTE-ENFORCE-20261018. No mix process was started (the mix mutex directory C:\\Users\\tvolo\\AppData\\Local\\Temp\\claude\\mixlock was present; not created, not removed). Verification used plain elixir and ExUnit processes against the existing _build/test beams (no database, no mix)."
+    },
+    "related_handoff_ids": [
+      "d2535517-0517-4c02-9e11-000000000012",
+      "d2535517-0517-4c02-9e11-000000000013",
+      "d2535517-0517-4c02-9e11-000000000014"
+    ],
+    "artifacts_in": [
+      "test/specs/REQ-517-2b.md",
+      "handoffs/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018/step-14-test-designer-2b.json",
+      "lib/letflow/design/req517-scoped-grants-admin-plane.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ517-2B-ROUTE-ENFORCE-20261018"
+  },
+  "task": {
+    "description": "Hard gate on TEST-DESIGNER's REQ-517 2b tests (ACs 16-22): a runnable test per AC with real assertions, no skips, isolated fixtures, async false where required, formatting, T-G1 fixture provenance, mutant predictions. Test files and the spec may be fixed by the validator; lib/ and priv/ untouched."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "summary": "PASS_WITH_FINDINGS after the validator fixed 3 test defects and 2 coverage gaps in place (see changes_made). Nothing under lib/ or priv/ was edited and no mutant is left in the tree (mutants were compiled in memory in scratch processes only). EXECUTED (plain elixir against the _build/test beams, no mix, no DB): (1) the two pure files route_scope_test.exs and route_scope_walk_test.exs: 48 tests, 0 failures, including the CompileError cases; (2) in-memory mutants of Letflow.Api.RouteScope, measured: N12 fails 1 test, N14 fails 5, SEC F-1 (self_service allowed) fails 1, SEC F-3 (drop the permission rule) fails 2; (3) the real route table with the 2b macro: 173 routes in 29 routers, audit_routes == [], snapshot equals the default-sourced set, exactly the two link routes are declared, 28 admin-plane rows over 13 keys, TENANT_ADMIN is coarse-allowed on all 13 admin keys (the T-N1 premise), and all 74 mounted policy keys map to a member of Authorization.permissions/0 (SEC F-3 holds on the real table); (4) all 13 test files and scope_on_fixture compile with no warnings, and Code.format_string! (line length 98, ecto locals_without_parens) reports every touched file formatter-clean, re-run after my edits; (5) the deny_reason type set and the five non-DB deny shapes of the agreement test evaluate to exactly the expected lists; (6) an Instances request without auth_context answers a halted 500 (premise of a new test). NOT EXECUTED: every DB-backed file (mutex present); hosted CI is the first execution of enforce, admin_plane_under_on, authorize/auth_pipeline_scope_on, scope_enforcement_on, retired_node, attachment_link, off_shadow_byte_identity, shadow_evidence, shadow_counters_migration and deny_reason_agreement. AC COVERAGE (read against requirements.yaml ACs 16-22, design 4.x/5/6.2, SEC T-1..T-6, REVIEWER F-1/F-5): AC16 T-O1..T-O6 and auth_pipeline T-O3; AC17 route_scope_test and the walk test; AC18 T-N1 (28 generated rows, on/off/shadow, two callers, byte identity of the 403s); AC19 enforce_test, authorize_scope_on_test, T-G1, retired node, T-G9 and, new, the clause 'self_service only after the coarse allow and never for an unauthenticated request'; AC20 T-I1/T-I2 (malformed memo, dropped table); AC21 T-K2..T-K6, SEC T-4/T-6, revoke-then-serve (direct and full router); AC22 shadow_evidence (store, observer, safety, process, and now the periodic tick), migration shape/clone/replay/up-down, deny_reason_agreement. No @tag :skip, TODO, sleep, unseeded randomness or hardcoded secret in any new file; all DB files are async false; only the two pure files are async true and reach neither Repo nor provisioned_tenant!. T-G1 FIXTURE PROVENANCE: sound enough, with two stated limits. It is derived, not captured as the design asked, but (a) six of twelve bodies (R01, R03, R05, R06, R09, R11) were rebuilt with the real Letflow.Api.Response/Error modules and equal the fixture exactly, including type URL, title, content type and trace id; (b) the coarse decisions behind the other rows were evaluated with Authorization.evaluate_access and match the fixture premises; (c) git diff HEAD of every lib file on the off/shadow response path shows the 2b change is limited to the on branch, the shadow observer and the link audit (which runs after the 404 for R08), so main and the working tree agree for off and shadow; (d) a wrong derivation fails loudly on both off and shadow, never silently. Limits: only the content-type header is pinned to the fixture (other headers are compared off-versus-shadow only) and raw bytes are compared off-versus-shadow, not to main. Neither limit hides a response change made by 2b. MUTANT PREDICTIONS: all 16 are plausible by reading the code. Two precision notes: N6 (@modes includes :on) is killed by the flip and modes() assertions, not by parse_mode (its clauses are literal strings); N7 is one shared scope_enforcement/1 clause, so the clause deletion is killed on both credentials.",
+    "local_issue_id": null,
+    "artifacts_out": ["test/specs/REQ-517-2b.md"],
+    "implementation_written": false,
+    "classification": "TEST_DESIGN_PASS",
+    "changes_made": [
+      "test/letflow/api/scope/enforce_test.exs: the dropped-table test checks the schema name against the constant scope_enforcement_failed line only. Cause: the test log level is debug, so the with_log capture also holds Ecto QUERY ERROR lines naming the tenant schema; the whole-capture refute would have failed on a correct implementation.",
+      "test/letflow/api/scope/shadow_evidence_test.exs: T-H4 checks tenant ids against the scope_shadow_flush_failed line only; T-H5 checks the lines written by the shadow/evidence code (containing scope_shadow, asserted non-empty). Same cause (the capture held CREATE FUNCTION, INSERT and grants-load query lines).",
+      "test/letflow/routers/attachment_link_scope_test.exs: the T-K5 fault test filters on 'attachment_link.issued audit write failed'; the fault trigger DDL and the failed INSERT are also logged by Ecto and carry the action text and the actor id, so assert [line] = lines would have matched several lines.",
+      "test/letflow/plugs/authorize_scope_on_test.exs: two new AC 19 tests: a role-less caller is refused 403 on :self_service, :filter and resolver routes in off, shadow and on with no enforce event; an unauthenticated request (no auth_context) is halted and never reaches any handler.",
+      "test/letflow/api/scope/shadow_evidence_test.exs: new T-H9 test sends the bare :flush tick (and an unknown message) and checks the counts are persisted and the process survives; the periodic path was otherwise untested because config/test.exs sets the interval to one hour.",
+      "test/specs/REQ-517-2b.md: appended a 'TEST-DESIGN-VALIDATOR changes' section recording the above."
+    ],
+    "findings": [
+      "F1 (non-blocking, ORCH): hosted CI is the first execution of every DB-backed file. The assumptions TEST-DESIGNER flagged (dropped-table end-to-end 500, scratch-schema migration with LIKE public.tenants INCLUDING ALL, trigger-based flush fault, Supervisor.terminate_child and restart_child of ShadowEvidence, Code.Typespec on Letflow.Api.Scope, T-N1 handler-gated 403 on four GETs) are read-verified, not executed. A failure there is more likely a test premise than a product defect; each is isolated in its own test.",
+      "F2 (non-blocking): the default 30 s flush interval ('at most every 30 s') is not asserted because config/test.exs overrides it to one hour; only the tick handler is exercised.",
+      "F3 (non-blocking): the Enforce exit/throw catch clause is unreachable with real inputs and untested (stated in the spec).",
+      "F4 (non-blocking): the T-G1 fixture pins only the content-type header; if its first CI run fails identically under off and shadow, regenerate it from a real main worktree as the fixture _provenance says."
+    ],
+    "mutants": {
+      "measured_by_validator": [
+        {"id": "N12", "edit": "RouteScope.class_of/1 declared class before key table (in memory)", "failing": "route_scope_test class_of every admin-plane key (1 of 48)"},
+        {"id": "N14", "edit": "audit_routes stale = [] (in memory)", "failing": "5 failures: route_scope_test stale (T-C7), no-longer-default, several-at-once; walk test default-turned-filter, vanished route"},
+        {"id": "SEC-F1", "edit": "@self_service_routes_allowed? true (in memory)", "failing": "route_scope_test SEC F-1 :self_service_not_allowed (1)"},
+        {"id": "SEC-F3", "edit": "drop the :unknown_permission rule (in memory)", "failing": "route_scope_test SEC F-3 and several-at-once (2)"}
+      ],
+      "left_in_tree": false,
+      "revert_verification": "mutants were compiled in memory from the unchanged file in scratch processes; nothing was written to lib/ or priv/. The pure files re-ran green (48 passed) before the mutants and the lib/ file set in git status is unchanged.",
+      "to_measure_on_hosted_ci": ["N1", "N2", "N3", "N4", "N5", "N8", "N9", "N10", "N11", "N13", "N15", "M19"]
+    },
+    "run_command_for_test_runner": "as in step-14; the files changed by this step (enforce_test, shadow_evidence_test, attachment_link_scope_test, authorize_scope_on_test) are already in that list. Run the evidence files alone first."
+  }
+}

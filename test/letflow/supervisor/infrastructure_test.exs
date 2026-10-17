@@ -75,7 +75,7 @@ defmodule Letflow.Supervisor.InfrastructureTest do
     refute Letflow.Scheduler.Poller in ids
   end
 
-  test "Letflow.Supervisor.Infrastructure owns the 24 expected children, in order" do
+  test "Letflow.Supervisor.Infrastructure owns the 25 expected children, in order" do
     children = Supervisor.which_children(Letflow.Supervisor.Infrastructure)
 
     ids =
@@ -94,6 +94,9 @@ defmodule Letflow.Supervisor.InfrastructureTest do
              Letflow.Oidc.ProviderRegistry,
              Letflow.Registry,
              Letflow.Metrics.Registry,
+             # REQ-517 PR 2b: persisted shadow-evidence counters (ETS + flush). A leaf,
+             # placed directly after Letflow.Metrics.Registry.
+             Letflow.Api.Scope.ShadowEvidence,
              # REQ-352: ETS-backed token bucket behind
              # Letflow.Plugs.PublicReadRateLimit. No ordering dependency --
              # mirrors Letflow.Metrics.Registry's own "leaf,
@@ -133,7 +136,7 @@ defmodule Letflow.Supervisor.InfrastructureTest do
              Letflow.Obs.Alerts.TaskSupervisor
            ]
 
-    assert length(ids) == 24
+    assert length(ids) == 25
   end
 
   test "ISS-0224: SandboxPool.TaskSupervisor precedes SandboxPool" do

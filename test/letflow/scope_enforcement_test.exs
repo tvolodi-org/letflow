@@ -198,7 +198,9 @@ defmodule Letflow.ScopeEnforcementTest do
 
     assert flag_cs.changes == %{scope_enforcement: :shadow}
 
-    refute Tenant.scope_enforcement_changeset(tenant, %{scope_enforcement: :on}).valid?
+    # REQ-517 2b: `on` is a STORED value now (the flip still cannot set it, see parse_mode/1).
+    assert Tenant.scope_enforcement_changeset(tenant, %{scope_enforcement: :on}).valid?
+    refute Tenant.scope_enforcement_changeset(tenant, %{scope_enforcement: :bogus}).valid?
   end
 
   # --- preconditions/1 ---------------------------------------------------------------------------
