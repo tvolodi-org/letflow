@@ -201,7 +201,8 @@ defmodule Letflow.Modules.Exam.Session do
   Lists the `exam` entity records a CANDIDATE may currently start a session
   against (`lib/letflow/design/iss0718-candidate-exam-list-route.md` §1.2).
 
-  `entity_type: "exam"` and `filters: [status eq "active"]` are hardcoded
+  `entity_type: "exam"` and `filters: [status eq "active", deleted eq false]`
+  (GH #2760: a soft-deleted exam is never offered) are hardcoded
   in this function's own body, never derived from `opts` or any caller
   input -- `opts` carries pagination only (`:cursor`, `:page_size`, default
   #{@default_available_exams_page_size} when `:page_size` is omitted or
@@ -212,7 +213,7 @@ defmodule Letflow.Modules.Exam.Session do
   redaction step: `entity_field_restrictions` carries no row for
   entity_type "exam" today (design doc §6 OQ-1), so there is nothing for
   redaction to enforce that plain `field_values` exposure does not already
-  cover for this fixed, hardcoded, `status = "active"` query.
+  cover for this fixed, hardcoded, `status = "active"` and `deleted = false` query.
   """
   @spec list_available_exams(prefix :: String.t(), opts :: keyword()) ::
           {:ok, %{items: [exam_row()], next_cursor: String.t() | nil}}
