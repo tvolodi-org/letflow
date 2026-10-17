@@ -489,6 +489,17 @@ backstop). Because a service completion cannot stay pending, the strict manifest
 `docs/runbooks/module-write-handlers-manifest-hash.md` and
 `docs/runbooks/service-task-entity-write-refusal.md`.
 
+Review outcome (recorded, not a sign-off): SECURITY-REVIEWER returned PASS_WITH_FINDINGS and RULED that
+script-bound SERVICE_TASK nodes are allowed (consistent with 0053/0054 D2: the module, handler, arguments
+and ordinal come from the stamped snapshot, a script output only feeds a declared `var` argument). REVIEWER
+returned PASS_WITH_FINDINGS and TEST-DESIGN-VALIDATOR FAIL on missing test rows, which this PR addresses.
+
+Authorization parity with HUMAN: a handler line is authorized by the definition stamp, the manifest hash
+triple and the `managed_by` assertion of its registered target, NOT by the activator's recorded
+(entity type, `create`) pairs (those authorize declarative lines only); the activator contributes the
+field-restriction subject and `source.activator_id`. A `var` argument on a SERVICE_TASK node is EXTERNAL
+data (an HTTP response or a script output): the handler must validate its type, shape and size.
+
 Sign-off for this amendment: pending (SECURITY-REVIEWER and REVIEWER on the R5 PR).
 
 ## Sign-off

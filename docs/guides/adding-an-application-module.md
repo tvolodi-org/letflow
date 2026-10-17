@@ -368,7 +368,8 @@ script-bound (R5); this section is the contract a handler is written against.
   (a HUMAN node: `{:task, id}`). A handler never branches on the origin: write the same
   `create/3` calls. A refusal there lands the instance in ERROR + DLQ (it cannot stay pending),
   so keep argument validation strict and total: a `var` argument may be fed by a service response
-  or a script output, and values are byte-capped (64 KiB per value, 256 KiB per line).
+  or a script output, and values are byte-capped (64 KiB per value, 256 KiB per line). A `var`
+  argument on a SERVICE_TASK node is EXTERNAL data: validate its type, shape and size in the handler.
 
 ## 6. Registration: `config/config.exs`, `config/test.exs`, and `catalog_test.exs`
 

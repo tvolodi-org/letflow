@@ -43,6 +43,9 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
   alias Letflow.Support.ChaosEntityPort
   alias Letflow.Support.ScriptTaskFixture, as: F
 
+  # a distinctive request value: any leak into a DLQ entry, event or audit row is greppable
+  @label "ZQX-7731-LABEL"
+
   setup do
     on_exit(fn ->
       ChaosEntityPort.disarm!()
@@ -150,7 +153,77 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
     assert refused.after_state["detail"] == detail
     assert refused.after_state["dispatch_id"] == ctx.dispatch.id
     refute inspect(refused.after_state) =~ ~r/[0-9a-f]{64}/
-    refute inspect(entry) =~ "L1"
+
+    # the distinctive request value is in none of the operator surfaces
+    refute inspect(entry) =~ @label
+    refute inspect(refused) =~ @label
+
+    for event <- Fx.instance_events(ctx.schema, ctx.instance_id, "EXECUTION_ERROR") do
+      refute inspect(payload(event)) =~ @label
+    end
+  end
+
+  # The row-lock statements of a captured query log as `{table, id}`; an unparsable one fails
+  # the test (never a MatchError).
+  defp row_locks(queries) do
+    for %{query: sql} = q <- queries, sql =~ "FOR UPDATE" do
+      table =
+        case Regex.run(~r/FROM "[^"]+"\."([a-z_]+)"/, sql) do
+          [_, table] -> table
+          nil -> flunk("unparsable lock statement: #{sql}")
+        end
+
+      {table, q |> Map.get(:params, []) |> List.first() |> lock_param()}
+    end
+  end
+
+  defp lock_param(param) when is_binary(param) and byte_size(param) == 16,
+    do: Ecto.UUID.load!(param)
+
+  defp lock_param(param), do: param
+
+  # Counts the calls of the fixture handlers (global call counters),
+  # so "no second handler run" and "replay runs no handler" are assertions on the real functions.
+  @traced [Letflow.Modules.FixtureLedger.Handlers, Letflow.Modules.FixtureLedgerRogue.Handlers]
+
+  # Global call counters (`:call_count`; the test module is `async: false`). `drain_handler_calls/0`
+  # returns the number of handler calls since the last drain and resets the counters.
+  defp trace_handlers! do
+    for mod <- @traced do
+      {:module, ^mod} = Code.ensure_loaded(mod)
+      :erlang.trace_pattern({mod, :_, :_}, true, [:call_count])
+    end
+
+    on_exit(fn ->
+      for mod <- @traced, do: :erlang.trace_pattern({mod, :_, :_}, false, [:call_count])
+    end)
+
+    :ok
+  end
+
+  defp drain_handler_calls do
+    total =
+      for mod <- @traced,
+          {fun, arity} <- mod.module_info(:functions),
+          fun != :module_info,
+          reduce: 0 do
+        acc ->
+          case :erlang.trace_info({mod, fun, arity}, :call_count) do
+            {:call_count, count} when is_integer(count) -> acc + count
+            _other -> acc
+          end
+      end
+
+    for mod <- @traced, do: :erlang.trace_pattern({mod, :_, :_}, true, [:call_count])
+    total
+  end
+
+  defp flush_port_calls do
+    receive do
+      {:port_call, _name, _arg} -> flush_port_calls()
+    after
+      0 -> :ok
+    end
   end
 
   describe "T-10: success (HTTP route)" do
@@ -158,12 +231,12 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
       ctx = Mw.service_case!("gh2590-r5-ok", :svc_module)
       sentinel = EventStore.platform_actor_id()
 
-      assert {:ok, :advanced} = Fx.apply_http(ctx, %{"label" => "L1", "extra" => "x"})
+      assert {:ok, :advanced} = Fx.apply_http(ctx, %{"label" => @label, "extra" => "x"})
 
       assert [ledger] = Fx.records(ctx.schema, "fxl_ledger")
       assert [balance] = Fx.records(ctx.schema, "fxl_balance")
-      assert ledger.field_values == %{"item" => "L1", "quantity" => 1}
-      assert balance.field_values == %{"item" => "L1", "quantity" => 1}
+      assert ledger.field_values == %{"item" => @label, "quantity" => 1}
+      assert balance.field_values == %{"item" => @label, "quantity" => 1}
 
       projection = Fx.projection!(ctx.schema, ctx.instance_id)
       assert projection.status == :completed
@@ -227,7 +300,7 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
         assert audit.after_state["handler_module"] == "fixture_ledger"
         assert audit.after_state["handler"] == "post_entry"
         refute Map.has_key?(audit.after_state, "field_values")
-        refute inspect(audit.after_state) =~ "L1"
+        refute inspect(audit.after_state) =~ @label
       end
 
       assert Enum.sort(Enum.map(audits, & &1.after_state["write_ordinal"])) == [1, 2]
@@ -247,7 +320,7 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
       ctx = Mw.service_case!("gh2590-r5-ctx", :svc_module)
       ChaosEntityPort.record!()
 
-      assert {:ok, :advanced} = Fx.apply_http(ctx, %{"label" => "L1"})
+      assert {:ok, :advanced} = Fx.apply_http(ctx, %{"label" => @label})
 
       assert_received {:port_call, :multi, port_ctx}
       assert port_ctx.origin == {:dispatch, ctx.dispatch.id}
@@ -257,14 +330,14 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
       assert [%{"module" => "fixture_ledger", "handler" => "post_entry"}] = port_ctx.module_writes
       assert %{module_id: "fixture_ledger"} = port_ctx.owner
       assert port_ctx.entity_write_count == 0
-      assert port_ctx.guard_budget_ms <= 10_000
+      assert port_ctx.guard_budget_ms > 0 and port_ctx.guard_budget_ms <= 10_000
     end
 
     test "a MIXED node: declarative line (index 0) first, then the handler call (index 1)" do
       ctx = Mw.service_case!("gh2590-r5-mixed", :svc_mixed)
       sentinel = EventStore.platform_actor_id()
 
-      assert {:ok, :advanced} = Fx.apply_http(ctx, %{"label" => "L1"})
+      assert {:ok, :advanced} = Fx.apply_http(ctx, %{"label" => @label})
 
       assert [_] = Fx.records(ctx.schema, "stock_move")
       assert [_] = Fx.records(ctx.schema, "fxl_ledger")
@@ -293,7 +366,7 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
     test "two handler calls on one node: the second call is line_index 1, ordinals restart" do
       ctx = Mw.service_case!("gh2590-r5-two", :svc_two_handlers)
 
-      assert {:ok, :advanced} = Fx.apply_http(ctx, %{"label" => "L1"})
+      assert {:ok, :advanced} = Fx.apply_http(ctx, %{"label" => @label})
 
       keys = Fx.entity_events(ctx.schema) |> Enum.map(& &1.idempotency_key)
       d = ctx.dispatch.id
@@ -305,45 +378,84 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
 
       {result, queries} =
         Letflow.Support.PlatformTenantFixture.capture_repo_queries(fn ->
-          Fx.apply_http(ctx, %{"label" => "L1"})
+          Fx.apply_http(ctx, %{"label" => @label})
         end)
 
       assert {:ok, :advanced} = result
 
-      locks =
-        for %{query: sql} = q <- queries, sql =~ "FOR UPDATE" do
-          [_, table] = Regex.run(~r/FROM "[^"]+"\."([a-z_]+)"/, sql)
-          {table, q |> Map.get(:params, []) |> List.first()}
-        end
+      locks = row_locks(queries)
 
       assert Enum.take(Enum.map(locks, &elem(&1, 0)), 2) ==
                ["service_task_dispatches", "instance_projections"]
 
-      ids =
-        Letflow.Entities.EntityTypeInstance
-        |> Repo.all(prefix: ctx.schema)
-        |> Map.new(&{&1.entity_type, &1.instance_id})
+      positions =
+        type_lock_positions(ctx.schema, locks, ["aaa_move", "fxl_balance", "fxl_ledger"])
 
-      normalize = fn
-        param when is_binary(param) and byte_size(param) == 16 -> Ecto.UUID.load!(param)
-        param -> param
-      end
-
-      first_position = fn type ->
-        id = Map.fetch!(ids, type)
-
-        Enum.find_index(locks, fn {table, param} ->
-          table == "instance_sequence" and normalize.(param) == id
-        end)
-      end
-
-      positions = Enum.map(["aaa_move", "fxl_balance", "fxl_ledger"], first_position)
-      assert Enum.all?(positions, &is_integer/1)
       assert positions == Enum.sort(positions)
 
       audit = locks |> Enum.map(&elem(&1, 0)) |> Enum.find_index(&(&1 == "audit_chain_locks"))
       assert is_integer(audit) and audit > List.last(positions)
       refute Enum.any?(queries, &(&1.query =~ ~r/LOCK TABLE/i))
+    end
+
+    # GH #2695 order for a sub-process CHILD whose last node is the handler-calling service node:
+    # dispatch row, child projection, then the parent group (parent projection, waiting token),
+    # then the handler type rows ascending, then the audit chain row last.
+    test "a sub-process CHILD service node: parent group first, then the handler type rows ascending, audit last" do
+      ctx = Mw.subprocess_service_case!("gh2590-r5-lockchild")
+
+      {result, queries} =
+        Letflow.Support.PlatformTenantFixture.capture_repo_queries(fn ->
+          Fx.apply_http(ctx, %{"label" => @label})
+        end)
+
+      assert {:ok, :advanced} = result
+      assert length(Fx.records(ctx.schema, "fxl_ledger")) == 1
+
+      locks = row_locks(queries)
+
+      position = fn key ->
+        idx = Enum.find_index(locks, &(&1 == key))
+        assert idx, "no lock #{inspect(key)} in #{inspect(locks)}"
+        idx
+      end
+
+      dispatch = Enum.find_index(locks, fn {table, _} -> table == "service_task_dispatches" end)
+      child_projection = position.({"instance_projections", ctx.instance_id})
+      parent_projection = position.({"instance_projections", ctx.parent_id})
+      # the cascade's waiting-token lookup is keyed by the waiting CHILD id
+      parent_token = position.({"tokens", ctx.instance_id})
+
+      type_positions = type_lock_positions(ctx.schema, locks, ["fxl_balance", "fxl_ledger"])
+      audit = Enum.find_index(locks, fn {table, _} -> table == "audit_chain_locks" end)
+
+      assert is_integer(dispatch) and is_integer(audit)
+      assert dispatch < child_projection
+      assert child_projection < parent_projection
+      assert parent_projection < parent_token
+      assert parent_token < hd(type_positions)
+      assert type_positions == Enum.sort(type_positions)
+      assert List.last(type_positions) < audit
+      refute Enum.any?(queries, &(&1.query =~ ~r/LOCK TABLE/i))
+    end
+
+    defp type_lock_positions(schema, locks, types) do
+      ids =
+        Letflow.Entities.EntityTypeInstance
+        |> Repo.all(prefix: schema)
+        |> Map.new(&{&1.entity_type, &1.instance_id})
+
+      positions =
+        for type <- types do
+          id = Map.fetch!(ids, type)
+
+          Enum.find_index(locks, fn {table, param} ->
+            table == "instance_sequence" and param == id
+          end)
+        end
+
+      assert Enum.all?(positions, &is_integer/1), "type locks missing: #{inspect(positions)}"
+      positions
     end
   end
 
@@ -386,7 +498,7 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
       # somebody else's grant matters not: there is no completer
       grant_item!(ctx, Fx.user!(ctx.schema, "someone-else").id)
 
-      assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => "L1"})
+      assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => @label})
 
       assert_landed(ctx, "write_not_permitted", 0, "field_restricted")
     end
@@ -396,16 +508,27 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
       restrict_item!(ctx)
       grant_item!(ctx, ctx.user.id)
 
-      assert {:ok, :advanced} = Fx.apply_http(ctx, %{"label" => "L1"})
+      assert {:ok, :advanced} = Fx.apply_http(ctx, %{"label" => @label})
       assert [_] = Fx.records(ctx.schema, "fxl_ledger")
     end
   end
 
   describe "rogue handlers (HTTP route): ERROR + DLQ, nothing committed" do
+    # The closed `handler` detail atom is produced by `StepWrites.interpret_line/4` (`:build` with
+    # `:handler_shape` | `:handler_raised` -> `{:failed, index, :handler}`) and reaches the audit
+    # entry through the engine's `{:refuse, :entity_write_failed, index, step}` landing.
     for {handler, code, detail} <- [
           {"denies", "write_not_permitted", "handler_not_permitted"},
+          {"writes_foreign_type", "write_not_permitted", "handler_not_permitted"},
+          {"forge_handler", "write_not_permitted", "handler_not_permitted"},
+          {"invalid", "validation_failed", "handler_invalid_arguments"},
+          {"raises", "entity_write_failed", "handler"},
           {"throws", "entity_write_failed", "handler"},
           {"exits", "entity_write_failed", "handler"},
+          {"bad_return", "entity_write_failed", "handler"},
+          {"loose_step", "entity_write_failed", "handler"},
+          {"out_of_range_step", "entity_write_failed", "handler"},
+          {"run_after_create", "entity_write_failed", "handler"},
           {"drop_policy", "entity_write_failed", "handler"}
         ] do
       test "rogue handler #{handler}: #{code} (detail #{detail})" do
@@ -413,13 +536,21 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
 
         log =
           capture_log(fn ->
-            assert {:ok, :error_set} = Fx.apply_http(ctx, %{})
+            assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => @label})
           end)
 
         assert_landed(ctx, unquote(code), 0, unquote(detail))
-        # no exception text and no secret detail in the log (INV-4)
-        refute log =~ "secret detail"
         assert Fx.all_records(ctx.schema) == []
+
+        # no exception text, no secret detail and no request value in the log (INV-4)
+        refute log =~ "secret detail"
+        refute log =~ @label
+
+        if unquote(handler) == "raises" do
+          # non-vacuous: the handler DID run and raise, and only its exception module is logged
+          assert log =~ "module write handler raised"
+          assert log =~ "RuntimeError"
+        end
       end
     end
   end
@@ -446,7 +577,7 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
         end)
       end)
 
-      assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => "L1"})
+      assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => @label})
       assert_landed(ctx, "write_not_permitted", 0, "body_changed")
     end
 
@@ -467,7 +598,7 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
         end)
       end)
 
-      assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => "L1"})
+      assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => @label})
       assert_landed(ctx, "write_not_permitted", 1, "body_changed")
       assert Fx.records(ctx.schema, "stock_move") == []
     end
@@ -490,7 +621,7 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
 
       ctx = %{ctx | dispatch: dispatch}
 
-      assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => "L1"})
+      assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => @label})
       assert_landed(ctx, "write_not_permitted", 0, "stamp_missing")
     end
 
@@ -498,7 +629,26 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
       ctx = Mw.service_case!("gh2590-r5-hash", :svc_module)
       Mw.set_installed_hash!(ctx.schema, "fixture_ledger", String.duplicate("a", 64))
 
-      assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => "L1"})
+      assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => @label})
+      assert_landed(ctx, "write_not_permitted", 0, "hash_mismatch")
+    end
+
+    test "installed == stamp but != the compiled manifest hash lands ERROR: hash_mismatch" do
+      ctx = Mw.service_case!("gh2590-r5-compiled", :svc_module)
+      other = String.duplicate("d", 64)
+
+      Mw.set_stamp_hash!(ctx, other)
+      Mw.set_installed_hash!(ctx.schema, "fixture_ledger", other)
+
+      assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => @label})
+      assert_landed(ctx, "write_not_permitted", 0, "hash_mismatch")
+    end
+
+    test "installed == compiled but != the stamp lands ERROR: hash_mismatch" do
+      ctx = Mw.service_case!("gh2590-r5-stamp", :svc_module)
+      Mw.set_stamp_hash!(ctx, String.duplicate("e", 64))
+
+      assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => @label})
       assert_landed(ctx, "write_not_permitted", 0, "hash_mismatch")
     end
 
@@ -511,7 +661,7 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
           prefix: ctx.schema
         )
 
-      assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => "L1"})
+      assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => @label})
       assert_landed(ctx, "write_not_permitted", 0, "module_not_installed")
     end
 
@@ -526,7 +676,7 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
           prefix: ctx.schema
         )
 
-      assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => "L1"})
+      assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => @label})
       assert_landed(ctx, "write_not_permitted", 0, "event_schema_outdated")
     end
 
@@ -549,7 +699,7 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
         end)
       end)
 
-      assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => "L1"})
+      assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => @label})
       assert_landed(ctx, "validation_failed", 20, "too_many_lines")
     end
   end
@@ -560,7 +710,7 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
       F.put_env!(:entity_port, FlipHashPort)
       F.put_env!(:flip_hash_target, {ctx.schema, "fixture_ledger"})
 
-      assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => "L1"})
+      assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => @label})
 
       # the handler was never invoked: no record exists
       assert_landed(ctx, "write_not_permitted", 0, "hash_mismatch")
@@ -580,6 +730,25 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
       assert refused.after_state["detail"] == "value_too_large"
       refute inspect(entry) =~ "aaaaaaaa"
       refute inspect(refused.after_state) =~ "aaaaaaaa"
+    end
+
+    # D-C.7 boundary pair: the cap is on the JSON encoding of a value (65_536 bytes), the string
+    # quotes included. 65_533 characters encode to 65_535 bytes (under), 65_535 to 65_537 (over).
+    test "a value one byte under the service cap commits (control for the over-cap refusal)" do
+      ctx = Mw.service_case!("gh2590-r5-size-under", :svc_module)
+      under = String.duplicate("a", 65_533)
+
+      assert {:ok, :advanced} = Fx.apply_http(ctx, %{"label" => under})
+      assert [%{field_values: %{"item" => ^under}}] = Fx.records(ctx.schema, "fxl_ledger")
+    end
+
+    test "a value one byte over the service cap is refused" do
+      ctx = Mw.service_case!("gh2590-r5-size-over", :svc_module)
+
+      assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => String.duplicate("a", 65_535)})
+      assert [refused] = Fx.audit_rows(ctx.schema, "entity_write.refused")
+      assert refused.after_state["detail"] == "value_too_large"
+      assert_nothing_written(ctx)
     end
 
     test "a missing required argument (the response did not carry `label`) is validation_failed" do
@@ -606,28 +775,43 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
   end
 
   describe "duplicate apply, contention and the deadline guard" do
-    test "a second apply answers already_final and writes nothing (no second incident)" do
+    test "a second apply answers already_final: no second handler run, no port multi, nothing written" do
       ctx = Mw.service_case!("gh2590-r5-dup", :svc_module)
+      trace_handlers!()
+      ChaosEntityPort.record!()
 
-      assert {:ok, :advanced} = Fx.apply_http(ctx, %{"label" => "L1"})
+      assert {:ok, :advanced} = Fx.apply_http(ctx, %{"label" => @label})
+      # non-vacuous: the first apply DID run the handler once and build the Multi
+      assert drain_handler_calls() == 1
+      assert_received {:port_call, :multi, _ctx}
+      flush_port_calls()
       before = written(ctx)
 
       log =
         capture_log(fn ->
-          assert {:ok, :already_final} = Fx.apply_http(ctx, %{"label" => "L1"})
+          assert {:ok, :already_final} = Fx.apply_http(ctx, %{"label" => @label})
         end)
 
       refute log =~ "[error]"
+      assert drain_handler_calls() == 0
+      refute_received {:port_call, :multi, _ctx}
 
       assert written(ctx) == before
       assert Fx.dlq_entries(ctx.schema) == []
     end
 
-    test "a refused apply is repeatable only as already_final: one incident, no second landing" do
+    test "a refused apply is repeatable only as already_final: one incident, no second handler run" do
       ctx = Mw.rogue_service_case!("gh2590-r5-dup-refused", "denies")
+      trace_handlers!()
+      ChaosEntityPort.record!()
 
       assert {:ok, :error_set} = Fx.apply_http(ctx, %{})
+      assert drain_handler_calls() == 1
+      flush_port_calls()
+
       assert {:ok, :already_final} = Fx.apply_http(ctx, %{})
+      assert drain_handler_calls() == 0
+      refute_received {:port_call, :multi, _ctx}
       assert length(Fx.dlq_entries(ctx.schema)) == 1
     end
 
@@ -635,7 +819,7 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
       ctx = Mw.service_case!("gh2590-r5-cont1", :svc_module)
       counter = ChaosEntityPort.arm!(:lock_not_available, 1)
 
-      assert {:ok, :advanced} = Fx.apply_http(ctx, %{"label" => "L1"})
+      assert {:ok, :advanced} = Fx.apply_http(ctx, %{"label" => @label})
 
       assert :counters.get(counter, 1) == 2
       assert length(Fx.records(ctx.schema, "fxl_ledger")) == 1
@@ -648,10 +832,18 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
       ctx = Mw.service_case!("gh2590-r5-cont3", :svc_module)
       counter = ChaosEntityPort.arm!(:lock_not_available, :infinity)
 
-      assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => "L1"})
+      assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => @label})
 
       assert :counters.get(counter, 1) == 3
       assert_landed(ctx, "entity_write_contention", 0, "exhausted")
+    end
+
+    test "control: the same port double with no tightened budget commits (the guard is positive)" do
+      ctx = Mw.service_case!("gh2590-r5-deadline-ok", :svc_module)
+      F.put_env!(:entity_port, FlipHashPort)
+
+      assert {:ok, :advanced} = Fx.apply_http(ctx, %{"label" => @label})
+      assert [_] = Fx.records(ctx.schema, "fxl_ledger")
     end
 
     test "the handler-call deadline guard sits inside the service budget: an exhausted budget is contention" do
@@ -660,7 +852,7 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
       # a budget no wall clock can meet: the call-level guard `{:line, k0, :deadline}` fails
       F.put_env!(:tiny_guard_budget, -1)
 
-      assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => "L1"})
+      assert {:ok, :error_set} = Fx.apply_http(ctx, %{"label" => @label})
 
       # re-applied (bounded) and landed as contention; the handler never ran
       assert_landed(ctx, "entity_write_contention", 0, "exhausted")
@@ -668,18 +860,13 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
 
     test "rebuilding the instance makes no port call and runs no handler" do
       ctx = Mw.service_case!("gh2590-r5-replay", :svc_module)
+      trace_handlers!()
       ChaosEntityPort.record!()
-      assert {:ok, :advanced} = Fx.apply_http(ctx, %{"label" => "L1"})
+      assert {:ok, :advanced} = Fx.apply_http(ctx, %{"label" => @label})
 
-      drain = fn drain ->
-        receive do
-          {:port_call, _name, _arg} -> drain.(drain)
-        after
-          0 -> :ok
-        end
-      end
-
-      drain.(drain)
+      # non-vacuous: the apply itself ran the handler once
+      assert drain_handler_calls() == 1
+      flush_port_calls()
       before = written(ctx)
 
       assert {:ok, %{instance_state: _state}} =
@@ -687,6 +874,7 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
                  prefix: ctx.schema
                )
 
+      assert drain_handler_calls() == 0
       refute_received {:port_call, _name, _arg}
       assert written(ctx) == before
     end
@@ -807,13 +995,50 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
       instance_id = F.start!(schema, definition, %{"amount" => 2}, Ecto.UUID.generate())
       Mw.set_installed_hash!(schema, "fixture_ledger", String.duplicate("a", 64))
 
-      assert {_row, {:ok, :failed}} = F.run_next!(schema)
+      assert {row, {:ok, :failed}} = F.run_next!(schema)
+
+      # row failed with the closed outcome detail, ERROR + exactly one DLQ entry, no run twice
+      done = F.reload(schema, row)
+
+      assert {done.status, done.outcome, done.outcome_detail} ==
+               {"failed", "script_rejected", "entity_write_refused"}
 
       assert Fx.all_records(schema) == []
+      assert Fx.step_idempotency_count(schema) == 0
       assert F.projection(schema, instance_id).status == :error
+      assert F.dlq_count(schema) == 1
+      refute "TASK_ENTITY_WRITES_APPLIED" in Fx.instance_event_types(schema, instance_id)
       assert [refused] = Fx.audit_rows(schema, "entity_write.refused")
       assert refused.after_state["code"] == "write_not_permitted"
       assert refused.after_state["detail"] == "hash_mismatch"
+      assert refused.after_state["dispatch_id"] == row.id
+    end
+
+    test "a const over the service byte cap is refused on the script route: value_too_large, ERROR + DLQ",
+         %{schema: schema, activator: activator} do
+      big = String.duplicate("b", 70_000)
+
+      lines = [
+        %{
+          "module" => "fixture_ledger",
+          "handler" => "post_entry",
+          "args" => %{"item" => %{"const" => big}, "quantity" => %{"var" => "total"}}
+        }
+      ]
+
+      definition = script_definition!(schema, activator, lines)
+      instance_id = F.start!(schema, definition, %{"amount" => 2}, Ecto.UUID.generate())
+
+      assert {row, {:ok, :failed}} = F.run_next!(schema)
+
+      assert Fx.all_records(schema) == []
+      assert F.projection(schema, instance_id).status == :error
+      assert F.dlq_count(schema) == 1
+      assert [refused] = Fx.audit_rows(schema, "entity_write.refused")
+      assert refused.after_state["code"] == "validation_failed"
+      assert refused.after_state["detail"] == "value_too_large"
+      assert refused.after_state["dispatch_id"] == row.id
+      refute inspect(refused.after_state) =~ "bbbbbbbb"
     end
   end
 end

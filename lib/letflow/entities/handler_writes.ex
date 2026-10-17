@@ -549,6 +549,9 @@ defmodule Letflow.Entities.HandlerWrites do
 
   defp resolve_args(_args, _declared, _variables), do: {:error, :handler_invalid_arguments}
 
+  # A `var` argument on a SERVICE_TASK node is EXTERNAL data (an HTTP response or a script output):
+  # the handler must validate its type, shape and size. The platform only byte-caps the written
+  # values (`StepWrites.check_service_sizes/2`).
   defp put_arg(acc, name, %{"const" => value}, _variables), do: Map.put(acc, name, value)
 
   defp put_arg(acc, name, %{"var" => var}, variables) when is_binary(var) do

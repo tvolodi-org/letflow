@@ -211,6 +211,96 @@ defmodule Letflow.ModuleWritesFixture do
     advanced!(base, definition)
   end
 
+  @doc """
+  GH #2590 R5 (#2695 lock order): a sub-process CHILD whose last node is the handler-calling
+  SERVICE_TASK. The stamped child `fxl_svc_child` (HUMAN `ct`, then service `svc`) is started by
+  a tenant parent's SUB_PROCESS node; the child's `ct` task is completed and its dispatch row is
+  marked `"advanced"`. `ctx.instance_id` is the CHILD, `ctx.parent_id` the parent.
+  """
+  @spec subprocess_service_case!(String.t()) :: map()
+  def subprocess_service_case!(slug_prefix) do
+    base = tenant!(slug_prefix)
+    schema = base.schema
+    _child_def = activate_installed!(schema, base.user, "fxl_svc_child")
+
+    parent_graph = %{
+      "nodes" => [
+        %{"id" => "start", "node_type" => "START"},
+        %{
+          "id" => "sub",
+          "node_type" => "SUB_PROCESS",
+          "attributes" => %{"definition_name" => "fxl_svc_child"}
+        },
+        %{"id" => "after", "node_type" => "HUMAN_TASK", "attributes" => %{"role" => "REVIEWER"}},
+        %{"id" => "end", "node_type" => "END"}
+      ],
+      "edges" => [
+        %{"id" => "p0", "source" => "start", "target" => "sub"},
+        %{"id" => "p1", "source" => "sub", "target" => "after"},
+        %{"id" => "p2", "source" => "after", "target" => "end"}
+      ]
+    }
+
+    {:ok, parent_row} =
+      Definitions.create(
+        %{
+          name: Fx.unique("gh2590-r5-parent"),
+          version: "1.0",
+          graph: parent_graph,
+          created_by: base.user.id
+        },
+        prefix: schema
+      )
+
+    {:ok, %{definition: parent}} = Definitions.activate(parent_row.id, prefix: schema)
+
+    {:ok, %{instance_id: parent_id}} =
+      Letflow.Engine.create(
+        %{
+          definition_id: parent.id,
+          initial_variables: %{},
+          actor_id: base.user.id,
+          idempotency_key: Fx.unique("gh2590-r5-parent-start")
+        },
+        prefix: schema
+      )
+
+    child_id =
+      Repo.one!(
+        from(p in Letflow.EventStore.InstanceProjection,
+          where: p.parent_instance_id == ^parent_id,
+          select: p.instance_id
+        ),
+        prefix: schema
+      )
+
+    child_task = Fx.pending_task!(schema, child_id)
+
+    {:ok, _} =
+      Letflow.Engine.complete_task(
+        child_task.id,
+        %{
+          output_variables: %{},
+          actor_id: base.user.id,
+          idempotency_key: Fx.unique("gh2590-r5-child-complete")
+        },
+        prefix: schema
+      )
+
+    row =
+      Repo.one!(
+        from(d in Letflow.Engine.ServiceTaskDispatcher.ServiceTaskDispatch,
+          where: d.instance_id == ^child_id
+        ),
+        prefix: schema
+      )
+
+    dispatch =
+      row |> Ecto.Changeset.change(%{status: "advanced"}) |> Repo.update!(prefix: schema)
+
+    Map.merge(base, %{instance_id: child_id, parent_id: parent_id, dispatch: dispatch})
+  end
+
   defp advanced!(base, definition) do
     pending = Fx.start_service_instance!(base, definition)
 

@@ -389,6 +389,70 @@
         ]
       }
     }
+    ,{
+      "definition_id": "00501000-0000-0040-0080-00000000001a",
+      "process_key": "fxl_svc_child",
+      "version": "1.0.0",
+      "graph": {
+        "nodes": [
+          {
+            "id": "start",
+            "node_type": "START"
+          },
+          {
+            "id": "ct",
+            "node_type": "HUMAN_TASK",
+            "attributes": {
+              "role": "REVIEWER"
+            }
+          },
+          {
+            "id": "svc",
+            "node_type": "SERVICE_TASK",
+            "attributes": {
+              "endpoint": "https://example.test/svc",
+              "method": "POST",
+              "timeout_ms": 300000,
+              "module_writes": [
+                {
+                  "module": "fixture_ledger",
+                  "handler": "post_entry",
+                  "args": {
+                    "item": {
+                      "var": "label"
+                    },
+                    "quantity": {
+                      "const": 1
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "id": "end",
+            "node_type": "END"
+          }
+        ],
+        "edges": [
+          {
+            "id": "c0",
+            "source": "start",
+            "target": "ct"
+          },
+          {
+            "id": "c1",
+            "source": "ct",
+            "target": "svc"
+          },
+          {
+            "id": "c2",
+            "source": "svc",
+            "target": "end"
+          }
+        ]
+      }
+    }
   ],
   "variable_schemas": [],
   "service_catalog_entries": [],

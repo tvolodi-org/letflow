@@ -221,7 +221,7 @@ their own order) -> R5. WMS slice 5 needs R4b plus a separate update-kind prereq
 * **D-R.15 A module-owned version is immutable to the tenant API.** `update/3` of a stamped row is refused; the DB trigger refuses a raw change of `owner_*` or `graph` on a stamped row. Rationale: 0054 D6 property 2; precedent `managed_by` trigger (0050 D3).
 * **D-R.16 Activation requires the same activator authority as declarative lines.** A graph with `module_writes` records `activated_by` through the existing function (pairs possibly empty, plus an additive `"module_handlers"` list) and needs `:EntitiesRecordsWrite` + an active user. Rationale: reuse `recorded_activator/1` unchanged. Ruled OQ-R6.
 * **D-R.17 Handler writes are create-only.** F-R5 / OQ-R4.
-* **D-R.18 No handler on the script paths.** A script output is never a command (0053/0054 D2); `module_writes` is refused on any node type other than HUMAN_TASK until PR C1/R5 admits SERVICE_TASK. Rationale: scope.
+* **D-R.18 `module_writes` is admitted on HUMAN_TASK and SERVICE_TASK (HTTP and script-bound; the node type is the fence); no handler call on any other script path.** A script output is never a command (0053/0054 D2): SECURITY-REVIEWER ruled the script-bound SERVICE_TASK consistent with that, because the module, handler, arguments and ordinal come from the stamped, hash-verified snapshot and a script output can only feed a declared `var` argument, which the handler validates. Any other node type is refused (`module_writes_node_type_not_supported`). Rationale: scope.
 * **D-R.19 Replay never runs a handler.** No handler call site exists outside the completion Multi build; a test double fails the test if invoked (AC).
 
 ## 4. Interfaces, specs and shapes (no bodies)
@@ -819,7 +819,7 @@ directory; the AST scan (S16). Everything below keeps that guard exactly as is.
 | Handler invoking another module's handler | no API exists; `module` must equal the stamp (`:module_write_stamp_mismatch` at activation, authorize at run time) | refused |
 | HUMAN task path without module line | literal `:tenant` only | as REQ-499 |
 | SERVICE_TASK path (R5) | same `HandlerWrites`; Owner built the same way from the pinned line | allowed iff stamped |
-| Script paths | never call `command_multi`; D-R.18 | n/a |
+| Script paths | a script-bound SERVICE_TASK is the SERVICE_TASK row above (the node type is the fence; a script output only feeds a declared `var` argument); no other script path calls `command_multi`; D-R.18 | allowed iff stamped |
 | Plain core caller (`RecordDeadlineSweep`, any `Records.*` caller without an Owner) | `:tenant` default (`/2` arities) | `:entity_type_managed` (existing #2583 tests) |
 | Request data (field in definition, record, request, settings) | none of them is read by 7.2 steps 1-2 except the stored pinned line, which must also equal the install-time stamp and body hash | no effect |
 
