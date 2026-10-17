@@ -849,7 +849,7 @@ defmodule Letflow.Modules.Exam.Snapshot do
   end
 
   # Would this option have carried answer-key content in `build_item/2`/`build_likert/3`?
-  defp key_bearing?(type, option) when type in ~w(single multiple truefalse),
+  defp key_bearing?(type, option) when type in @key_types,
     do: fv(option, "is_correct") == true
 
   defp key_bearing?("likert", option),
