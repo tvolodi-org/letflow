@@ -388,6 +388,55 @@ defmodule Letflow.ExamFixtures do
     :ok
   end
 
+  @doc """
+  GH #2682 / REQ-511 PR b: turns a session into a LEGACY (pre-ship) one, design 18.5 fixture rule
+  (the one helper every legacy-session test uses). The fixtures carry `exam_snapshot` from install,
+  so a plain session is "after the cutover"; this makes it look like a session started before the
+  rollout:
+
+    * removes `exam_snapshot` from the stored `field_values` (a direct test-support write, not a
+      production path),
+    * moves the session RECORD's `entity_record_latest.inserted_at` one hour before the tenant's
+      `Snapshot.cutover/1` (the cutover itself cannot be edited: the activation history is
+      append-only, so the session side is moved),
+    * sets the `started_at` field before the cutover and `expires_at` one hour in the future (so a
+      deadline check does not interfere).
+
+  Works for any status (a submitted session is made a legacy submitted one the same way). Returns
+  `:ok`.
+  """
+  @spec legacy_session!(String.t(), Ecto.UUID.t()) :: :ok
+  def legacy_session!(schema, session_id) do
+    assert {:ok, cutover} = Exam.Snapshot.cutover(schema)
+    inserted_at = DateTime.add(cutover, -3600, :second)
+    started_at = DateTime.add(cutover, -3000, :second)
+    expires_at = DateTime.add(DateTime.utc_now(), 3600, :second)
+
+    assert {:ok, row} = Latest.get(session_id, "session", schema)
+
+    field_values =
+      row.field_values
+      |> Map.delete("exam_snapshot")
+      |> Map.merge(%{
+        "started_at" => DateTime.to_iso8601(started_at),
+        "expires_at" => DateTime.to_iso8601(expires_at)
+      })
+
+    assert {:ok, _updated} =
+             row
+             |> Latest.update_changeset(%{field_values: field_values})
+             |> Repo.update(prefix: schema)
+
+    assert {1, _} =
+             Repo.update_all(
+               from(l in Latest, where: l.id == ^row.id),
+               [set: [inserted_at: inserted_at]],
+               prefix: schema
+             )
+
+    :ok
+  end
+
   @doc "The stored `exam_snapshot` of a session (decoded map), or nil when the field is absent."
   @spec session_snapshot(String.t(), Ecto.UUID.t()) :: map() | nil
   def session_snapshot(schema, session_id) do

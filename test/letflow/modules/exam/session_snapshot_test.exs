@@ -15,8 +15,11 @@ defmodule Letflow.Modules.Exam.SessionSnapshotTest do
       absent: the start fails closed with a typed 503-class error).
     * Terminal sessions never need a snapshot to be read: T-43, T-45, T-46, T-47.
 
-  The certificate path is PR b; the late (in-flight) snapshot is PR b. In PR a a snapshotless
-  `in_progress` session fails closed (`:snapshot_missing`) and is never written.
+  The certificate path and the late (in-flight) snapshot are PR b (`snapshot_late_test.exs`). A
+  snapshotless `in_progress` session of a POST-cutover record (every plain fixture session: its
+  record was inserted after the fixture activated the session definition) still fails closed
+  (`:snapshot_missing`) and is never written (T-61); only a PRE-cutover record gets a late
+  snapshot (`Letflow.ExamFixtures.legacy_session!/2`).
 
   Runs against Postgres outside the sandbox transaction (`Letflow.ExamFixtures` switches the
   sandbox to `:auto`): `async: false`.
@@ -711,7 +714,7 @@ defmodule Letflow.Modules.Exam.SessionSnapshotTest do
       end
     end
 
-    test "an in-progress session with NO snapshot fails closed on submit, autosave and the state read, and nothing is written (PR a has no late path)",
+    test "a POST-cutover in-progress session that lost its snapshot fails closed on submit, finalize, autosave and the state read, and nothing is written (T-61: no live heal for a record inserted after the cutover)",
          ctx do
       Fx.force_field!(ctx.schema, "session", ctx.session_id, "exam_snapshot", :delete)
       events = event_count(ctx.schema)

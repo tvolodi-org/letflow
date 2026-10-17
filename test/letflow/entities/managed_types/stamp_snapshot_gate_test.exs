@@ -6,10 +6,14 @@ defmodule Letflow.Entities.ManagedTypes.StampSnapshotGateTest do
 
   While `config :letflow, :exam_snapshot_complete` is not exactly `true`, a REAL stamp is refused
   on every entry point (`Stamp.run/1`, `Stamp.run_tenant/2`, `Letflow.Release.ManagedTypes.stamp/1`
-  and the Mix task) and stamps nothing and writes no audit entry; a dry run is never blocked. The
-  shipped config is `false` in `config/config.exs` and `true` in `config/test.exs` (so every
-  other stamp test keeps running); this file overrides it per test with `Application.put_env/3` and
-  restores it. The flag is never read from the environment, `runtime.exs` or written from `lib/`.
+  and the Mix task) and stamps nothing and writes no audit entry; a dry run is never blocked. In PR
+  a the shipped config was `false` in `config/config.exs` and `true` in `config/test.exs`; this
+  file overrides the flag per test with `Application.put_env/3` and restores it. The flag is never read from the environment, `runtime.exs` or written from `lib/`.
+
+  PR b (the single flip, design 10.1/18.3): the shipped config is now `true` in BOTH
+  `config/config.exs` and `config/test.exs`; the closed-gate tests below still pass because they
+  set the flag to `false` themselves. The per-tenant prerequisites that replace the flag as the
+  live gate are tested in `stamp_snapshot_prerequisites_test.exs`.
 
   Runs outside the sandbox transaction (`Stamp` refuses to run inside one): `async: false`.
   """
@@ -28,6 +32,7 @@ defmodule Letflow.Entities.ManagedTypes.StampSnapshotGateTest do
     :differences,
     :error,
     :exam_named_types_present,
+    :prerequisites_missing,
     :rows_already_stamped,
     :rows_stamped,
     :schema_name,
@@ -200,9 +205,18 @@ defmodule Letflow.Entities.ManagedTypes.StampSnapshotGateTest do
   describe "T-36 flag provenance" do
     @flag "exam_snapshot_complete"
 
-    test "config.exs sets false, test.exs sets true, and no other config file mentions it" do
+    # GH #2682 / REQ-511 PR b is the SINGLE flip (design 10.1, 18.3): `false` in PR a, `true` here.
+    # The gate that matters from now on is the per-tenant prerequisite (see
+    # `stamp_snapshot_prerequisites_test.exs`); the closed-gate tests in this file drive the flag
+    # with `Application.put_env/3` and restore it.
+    test "config.exs and test.exs both set true, nothing else sets it, and runtime.exs / the environment never do" do
       assert File.read!("config/config.exs") =~
+               ~r/^config :letflow, :exam_snapshot_complete, true$/m
+
+      refute File.read!("config/config.exs") =~
                ~r/^config :letflow, :exam_snapshot_complete, false$/m
+
+      refute File.read!("config/runtime.exs") =~ @flag
 
       assert File.read!("config/test.exs") =~
                ~r/^config :letflow, :exam_snapshot_complete, true$/m
@@ -277,12 +291,13 @@ defmodule Letflow.Entities.ManagedTypes.StampSnapshotGateTest do
       assert %{status: :stamped} = report_for(report, schema)
     end
 
-    test "PR a adds no prerequisite status or key: those are PR b (the tenant report keeps its keys)" do
+    test "the tenant report carries prerequisites_missing (empty for a rolled-out tenant and for a dry run); the PR b key list is exact" do
       %{schema_name: schema} = Fx.legacy_tenant!("gh2682-t57a-keys")
 
       report = Stamp.run_tenant(schema, dry_run: true)
 
       assert Enum.sort(Map.keys(report)) == @tenant_report_keys
+      assert report.prerequisites_missing == []
       refute report.status == :snapshot_prerequisite_missing
     end
   end

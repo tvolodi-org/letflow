@@ -726,10 +726,8 @@ defmodule Letflow.Modules.Exam.SnapshotTest do
 
   # ── T-55 completeness ─────────────────────────────────────────────────────────────────────
 
-  describe "T-55 completeness: every grading_reason() of design 7.2 that PR a can produce has a test" do
-    # Reasons PR b alone produces (certificate path / late path); PR a only declares them.
-    @pr_b_reasons [:certificate_facts_missing]
-
+  describe "T-55 completeness: every grading_reason() of design 7.2 has a test" do
+    # PR b produces the last one (`:certificate_facts_missing`, T-55c): the table is complete.
     test "each reason is produced by a concrete input below" do
       big_ids = for _ <- 1..20_000, do: Ecto.UUID.generate()
       big_item = %{type: "multiple", options: Enum.map(big_ids, &opt(&1, is_correct: true))}
@@ -744,6 +742,7 @@ defmodule Letflow.Modules.Exam.SnapshotTest do
         question_item_missing: build(%{}, [@q1]),
         question_type_invalid: build(%{@q1 => %{type: "x", options: []}}, [@q1]),
         key_missing: build(%{@q1 => %{type: "single", options: []}}, [@q1]),
+        certificate_facts_missing: Snapshot.certificate_facts(%{"exam" => %{"title" => "T"}}),
         snapshot_too_large:
           build(%{"a" => big_item, "b" => big_item, "c" => big_item}, ["a", "b", "c"])
       }
@@ -768,7 +767,7 @@ defmodule Letflow.Modules.Exam.SnapshotTest do
         :snapshot_too_large
       ]
 
-      assert Enum.sort(declared -- @pr_b_reasons) == Enum.sort(Map.keys(produced))
+      assert Enum.sort(declared) == Enum.sort(Map.keys(produced))
     end
   end
 end

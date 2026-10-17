@@ -1,0 +1,210 @@
+{
+  "handoff_id": "e511b000-2682-4a11-8c20-000000000004",
+  "run_id": "WF02-GH2682-EXAM-SNAPSHOT-B-20261017",
+  "workflow_id": "WF-02",
+  "step": "04",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGNER",
+  "file": "handoffs/WF02-GH2682-EXAM-SNAPSHOT-B-20261017/step-04-test-designer-pr-b.json",
+  "created_at": "2026-10-17T07:00:00Z",
+  "started_at": "2026-10-17T07:00:30Z",
+  "completed_at": "2026-10-17T07:45:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S8",
+    "requirement_ids": [
+      "REQ-511"
+    ],
+    "requirement_text": {
+      "GH#2682": "Exam content snapshot, PR b: certificate path from the snapshot, lazy late snapshot with cutover, Stamp prerequisites, flag true. TEST-DESIGNER step (tests only)."
+    },
+    "related_handoff_ids": [
+      "e511b000-2682-4a11-8c20-000000000002",
+      "c4a7d1e0-2682-4b11-8c20-000000000003"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/req511-exam-content-snapshot.md",
+      "handoffs/WF02-GH2682-EXAM-SNAPSHOT-B-20261017/step-01-elixir-dev-pr-b.json",
+      "handoffs/WF02-GH2682-EXAM-SNAPSHOT-B-20261017/step-02-security-reviewer-code-pr-b.json",
+      "handoffs/WF02-GH2682-EXAM-SNAPSHOT-B-20261017/step-03-reviewer-code-pr-b.json",
+      "test/specs/GH2682-exam-snapshot-pr-a.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2682-EXAM-SNAPSHOT-B-20261017"
+  },
+  "task": {
+    "description": "Write the PR b tests for REQ-511 / GH #2682 (T-09..T-11, T-20b, T-21..T-25, T-38..T-40, T-44, T-48..T-52, T-55c, T-57b, T-58..T-63b), fix the tests broken by the flag flip and the Stamp prerequisites, run only the new and affected files under the machine mutex, apply mutants M4, M9, M11, M12, M14, M16 and PR b-specific ones. Tests only: lib/, priv/, config/ untouched, nothing committed."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "PR b tests written and run green. 4 new test files (87 tests: snapshot_late_test 39, certificate_snapshot_test 21, exam_snapshot_late_router_test 10, stamp_snapshot_prerequisites_test 17), 1 spec, 2 fixture helpers, 4 existing test files updated. Every new and affected file passed under LETFLOW_DEV_DB_CONFIRMED=1 MIX_ENV=test mix test --warnings-as-errors: snapshot_late_test 39/39; certificate_snapshot_test + exam_snapshot_late_router_test 31/31; stamp_snapshot_prerequisites_test + stamp_snapshot_gate_test 31/31; stamp_test + snapshot_test 69/69; session_snapshot_test + exam_snapshot_router_test + certificate_test 52/52; exam_sessions_test + exam_stamped_tenant_test 41/41; session_test + snapshot_rollout_test 67/67. The first run of snapshot_late_test failed 2 tests (T-62 assumed pack install activates the session definition; record_late typed-failure test used a format-valid but unprovisioned prefix); both were test errors, fixed, rerun 39/39. Mutants M4a, M4b, M9, M11, M12, M14, M16 and PR b-specific M17..M24 were all killed (counts below); each reverted with git checkout and git diff --quiet on lib/letflow/modules, lib/letflow/entities, lib/letflow/release, lib/mix, config, priv confirmed clean. No implementation bug found. Not run: mix letflow.check.test (it runs the whole suite; the instruction was never the full suite); the Mix task real-run exit (System.halt(1) cannot run in-process: source guard plus the exit condition evaluated on the report).",
+    "artifacts_out": [
+      "test/specs/GH2682-exam-snapshot-pr-b.md",
+      "test/letflow/modules/exam/snapshot_late_test.exs",
+      "test/letflow/modules/exam/certificate_snapshot_test.exs",
+      "test/letflow/modules/exam/exam_snapshot_late_router_test.exs",
+      "test/letflow/entities/managed_types/stamp_snapshot_prerequisites_test.exs",
+      "test/support/exam_fixtures.ex",
+      "test/support/exam_stamp_fixtures.ex",
+      "test/letflow/entities/managed_types/stamp_snapshot_gate_test.exs",
+      "test/letflow/entities/managed_types/stamp_test.exs",
+      "test/letflow/modules/exam/snapshot_test.exs",
+      "test/letflow/modules/exam/session_snapshot_test.exs"
+    ],
+    "issues": [],
+    "git_evidence": "Not committed (instruction). New: snapshot_late_test.exs, certificate_snapshot_test.exs, exam_snapshot_late_router_test.exs, stamp_snapshot_prerequisites_test.exs, test/specs/GH2682-exam-snapshot-pr-b.md. Modified: stamp_snapshot_gate_test.exs, stamp_test.exs, session_snapshot_test.exs, snapshot_test.exs, exam_fixtures.ex, exam_stamp_fixtures.ex. git diff --quiet -- lib/letflow/modules lib/letflow/entities lib/letflow/release lib/mix config priv is clean. lib/letflow/design/req511-exam-content-snapshot.md and handoffs/WF02-GH2682-EXAM-SNAPSHOT-20261016/step-03-code-designer.json also show as modified: not by this agent.",
+    "next_action": "TEST-DESIGN-VALIDATOR: re-apply at least one reported mutant yourself (M4b, M12, M14 are one-line edits: 11, 6, 12 failing tests) and check the AC to test map in test/specs/GH2682-exam-snapshot-pr-b.md. ORCH: the design text (17.2 ensure_locked row, 9.2 step 3, T-59 wording, the section 13 PR b row, the word six for the restriction pairs, the 18.5 sentence that pack install activates definitions) still lags the accepted D-b1 deviation and the code (REVIEWER required doc fix).",
+    "counts": {
+      "new_tests": 87,
+      "per_file": {
+        "snapshot_late_test.exs": 39,
+        "certificate_snapshot_test.exs": 21,
+        "exam_snapshot_late_router_test.exs": 10,
+        "stamp_snapshot_prerequisites_test.exs": 17
+      },
+      "existing_files_updated": [
+        "stamp_snapshot_gate_test.exs",
+        "stamp_test.exs",
+        "snapshot_test.exs",
+        "session_snapshot_test.exs"
+      ],
+      "support_added": [
+        "ExamFixtures.legacy_session!/2",
+        "ExamStampFixtures.stamp_ready_tenant!/1"
+      ]
+    },
+    "mutants": [
+      {
+        "id": "M4a",
+        "mutation": "Snapshot.ensure_locked/2: the {:error, _corrupt} branch calls build_missing/2",
+        "files": "snapshot_late_test, certificate_snapshot_test, session_snapshot_test",
+        "failed": 2,
+        "of": 95
+      },
+      {
+        "id": "M4b",
+        "mutation": "ensure_locked/2: the {:ok, _} branch calls build_missing/2 (an existing snapshot is rebuilt)",
+        "files": "snapshot_late_test",
+        "failed": 11,
+        "of": 39
+      },
+      {
+        "id": "M9",
+        "mutation": "Snapshot.ensure/3: check_owner removed",
+        "files": "snapshot_late_test",
+        "failed": 2,
+        "of": 39
+      },
+      {
+        "id": "M11",
+        "mutation": "Certificate.issue_or_get_for_user/3 reads the live exam row",
+        "files": "certificate_snapshot_test, exam_snapshot_late_router_test",
+        "failed": 13,
+        "of": 31
+      },
+      {
+        "id": "M12",
+        "mutation": "Stamp.incompatible_judged_rows/2 judges every row again",
+        "files": "stamp_snapshot_prerequisites_test, stamp_test",
+        "failed": 6,
+        "of": 40
+      },
+      {
+        "id": "M14",
+        "mutation": "Snapshot.build_missing/2 returns the stale session (the late snapshot is dropped by the submit)",
+        "files": "snapshot_late_test, exam_snapshot_late_router_test",
+        "failed": 12,
+        "of": 49
+      },
+      {
+        "id": "M16",
+        "mutation": "Snapshot.record_late/4 skips the audit insert",
+        "files": "snapshot_late_test, certificate_snapshot_test",
+        "failed": 15,
+        "of": 60
+      },
+      {
+        "id": "M17",
+        "mutation": "check_before_cutover/2 always allows",
+        "files": "snapshot_late_test, certificate_snapshot_test, exam_snapshot_late_router_test",
+        "failed": 6,
+        "of": 70
+      },
+      {
+        "id": "M18",
+        "mutation": "check_before_cutover/2 allows an instant equal to the cutover (!= :gt)",
+        "files": "snapshot_late_test",
+        "failed": 1,
+        "of": 39
+      },
+      {
+        "id": "M19",
+        "mutation": "Stamp.prerequisites_missing/2 always []",
+        "files": "stamp_snapshot_prerequisites_test",
+        "failed": 11,
+        "of": 17
+      },
+      {
+        "id": "M20",
+        "mutation": "Stamp gate_blocked_total ignores :snapshot_prerequisite_missing",
+        "files": "stamp_snapshot_prerequisites_test",
+        "failed": 2,
+        "of": 17
+      },
+      {
+        "id": "M21",
+        "mutation": "Stamp real run drops the prerequisite re-check from the locked rows",
+        "files": "stamp_snapshot_prerequisites_test",
+        "failed": 2,
+        "of": 17
+      },
+      {
+        "id": "M22",
+        "mutation": "build_missing/2 drops require_status in_progress",
+        "files": "snapshot_late_test",
+        "failed": 1,
+        "of": 39
+      },
+      {
+        "id": "M23",
+        "mutation": "certificate_snapshot/3 drops require_status submitted",
+        "files": "snapshot_late_test, certificate_snapshot_test",
+        "failed": 2,
+        "of": 60
+      },
+      {
+        "id": "M24",
+        "mutation": "ensure_certificate_facts/3 check_owner removed (this run overlapped another agent's mix process)",
+        "files": "snapshot_late_test, certificate_snapshot_test",
+        "failed": 2,
+        "of": 60
+      }
+    ],
+    "test_changes_to_existing_files": [
+      "stamp_snapshot_gate_test.exs: T-36 provenance rewritten to true in config.exs and test.exs (the failing assertion REVIEWER named at :204-206), runtime.exs never mentions the flag; tenant report key list gains prerequisites_missing; header updated; closed-gate tests unchanged (Application.put_env false + restore)",
+      "stamp_test.exs: five hand-built exam tenants start from ExamStampFixtures.stamp_ready_tenant!/1 (they had no restriction rows); OLDER-VERSION test rewritten to the judged-row rule plus a new active-row case; SECURITY F-4 race test now creates AND activates the hostile version",
+      "snapshot_test.exs: T-55 completeness now produces :certificate_facts_missing; @pr_b_reasons dropped",
+      "session_snapshot_test.exs: header and one title only (post-cutover wording); assertions unchanged"
+    ],
+    "no_edit_needed_ran_green": [
+      "certificate_test.exs",
+      "exam_sessions_test.exs",
+      "session_test.exs",
+      "exam_snapshot_router_test.exs",
+      "snapshot_rollout_test.exs",
+      "exam_stamped_tenant_test.exs"
+    ],
+    "findings_for_orch": [
+      "SEC N2 confirmed against the code: exam.certificate_enabled is required:true type boolean in the exam definition, so nil or absent is unreachable through validated writes; with a forced nil row the certificate is {:grading_error, :certificate_facts_missing} (HTTP 500 constant body), by design T-55c. Tested, not a defect.",
+      "SEC N1 pinned as documented behaviour: with no ACTIVE session version the newest version is judged by the Stamp prerequisite.",
+      "Pack install (SolutionPack.install) creates definitions INACTIVE and never calls activate_definition/4, so a freshly installed tenant has no activation history row and Snapshot.cutover/1 is :definition_missing until go-live; the design 18.5 wording that pack install goes through activate_definition/4 is imprecise. Fails closed; T-62 asserts both states.",
+      "Latest.get/3 does not filter deleted=true: build_late builds from a SOFT-deleted exam or question; only a hard delete (row gone) is :exam_section_missing or :question_item_missing. Observation only, not asserted either way.",
+      "The Mix task real-run exit (System.halt(1)) is asserted by source guard plus the exit condition on the report; a nested mix spawn would need the nested_mix_test allowlist and would sweep the whole test database.",
+      "MUTEX: the mixlock directory this agent created (no owner file) was replaced by ELIXIR-DEV-2654 at about 12:38 local while mutant M24 and the final format check ran; the directory now holds that agent's owner file and was NOT removed by this agent. Only M24 overlapped.",
+      "mix test prints every Ecto query at debug level to stdout (about 100 MB per file); logs were redirected to the scratchpad."
+    ],
+    "toolchain": "elixir 1.20.3, mix test --warnings-as-errors with LETFLOW_DEV_DB_CONFIRMED=1 MIX_ENV=test; mix format --check-formatted on every touched test file: clean. One mix process at a time under the mutex; 4.15 GB free checked before starting."
+  }
+}
