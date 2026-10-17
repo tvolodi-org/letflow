@@ -64,7 +64,10 @@ defmodule Letflow.Entities.ManagedTypesCallersTest do
   @exam_anti_cheat "lib/letflow/modules/exam/anti_cheat.ex"
   @exam_certificate "lib/letflow/modules/exam/certificate.ex"
   @exam_session "lib/letflow/modules/exam/session.ex"
-  @exam_writers [@exam_anti_cheat, @exam_certificate, @exam_session]
+  # GH #2682 PR b: the exam snapshot module writes the late snapshot / certificate facts through
+  # the exam Owner (Records /3), like the other exam writers.
+  @exam_snapshot "lib/letflow/modules/exam/snapshot.ex"
+  @exam_writers [@exam_anti_cheat, @exam_certificate, @exam_session, @exam_snapshot]
   @exam_dir ["lib", "letflow", "modules", "exam"]
 
   # Static allow-list for R1: adding a file here is a reviewed diff (design 7.3). Kept in the
