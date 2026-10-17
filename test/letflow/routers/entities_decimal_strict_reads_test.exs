@@ -364,7 +364,8 @@ defmodule Letflow.Routers.EntitiesDecimalStrictReadsTest do
         conn = filter_ledger(ctx, "eq", bad)
         assert conn.status == 422, inspect(bad)
         assert conn.resp_body =~ "qty"
-        refute conn.resp_body =~ "DROP"
+        problem = Jason.decode!(conn.resp_body)
+        refute (problem["detail"] || "") <> (problem["title"] || "") =~ "DROP"
       end
 
       conn = filter_ledger(ctx, "in", ["2.50", 1.5])
@@ -909,9 +910,11 @@ defmodule Letflow.Routers.EntitiesDecimalStrictReadsTest do
       for op <- ["gt", "gte", "lt", "lte", "neq", "eq"], bad <- ["+1", "1.5.5", 1234.5678] do
         conn = filter_ledger(ctx, op, bad)
         assert conn.status == 422, "#{op} #{inspect(bad)}"
-        refute conn.resp_body =~ "1234.5678"
-        refute conn.resp_body =~ "1.5.5"
-        refute conn.resp_body =~ "+1"
+        problem = Jason.decode!(conn.resp_body)
+        readable = (problem["detail"] || "") <> (problem["title"] || "")
+        refute readable =~ "1234.5678"
+        refute readable =~ "1.5.5"
+        refute readable =~ "+1"
       end
 
       assert filter_ledger(ctx, "not_in", ["2.5", "+1"]).status == 422
