@@ -8,7 +8,7 @@
   "file": "handoffs/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018/step-05-elixir-dev-2a.json",
   "created_at": "2026-10-17T15:59:00Z",
   "started_at": "2026-10-17T15:59:33Z",
-  "completed_at": "2026-10-17T16:14:00Z",
+  "completed_at": "2026-10-17T16:35:05Z",
   "status": "COMPLETED",
   "priority": "HIGH",
   "context": {
@@ -29,7 +29,7 @@
   },
   "result": {
     "status": "PASS",
-    "summary": "2a implemented. MIX_ENV=test mix compile --warnings-as-errors: clean. mix format --check-formatted: clean. mix letflow.check_boundaries: 0 violations (1696 edges). mix letflow.check_role_scope_grants_writers: no violations on the real tree; ad-hoc audit() probe flagged Repo.insert_all of the schema, Multi.delete_all, raw DELETE FROM, struct literal, and RoleScopeGrant.changeset, and passed the verbatim RoleScopeGrants.delete_group_principal_rows! pair. MIX_ENV=dev mix letflow.permission_matrix --check: needed --baseline-ref HEAD~1 because the baseline equals HEAD on an uncommitted tree (plain --check raises baseline_is_head); with it result=pass, core matrix changes none, golden file untouched. NOT RUN: mix test (forbidden), mix letflow.check as a whole, migrations against a database.",
+    "summary": "REVIEWER cleanups R1-R4 applied after the first pass (see reviewer_cleanups) but NOT recompiled: the machine mutex was held by another session for the full 8 minute poll, so mix was not run (not compiled after the cleanups; the numbers below are from before them). 2a implemented. MIX_ENV=test mix compile --warnings-as-errors: clean. mix format --check-formatted: clean. mix letflow.check_boundaries: 0 violations (1696 edges). mix letflow.check_role_scope_grants_writers: no violations on the real tree; ad-hoc audit() probe flagged Repo.insert_all of the schema, Multi.delete_all, raw DELETE FROM, struct literal, and RoleScopeGrant.changeset, and passed the verbatim RoleScopeGrants.delete_group_principal_rows! pair. MIX_ENV=dev mix letflow.permission_matrix --check: needed --baseline-ref HEAD~1 because the baseline equals HEAD on an uncommitted tree (plain --check raises baseline_is_head); with it result=pass, core matrix changes none, golden file untouched. NOT RUN: mix test (forbidden), mix letflow.check as a whole, migrations against a database.",
     "migrations": ["20261018100001_add_scope_node_fkey_to_role_scope_grants.exs", "20261018100002_add_admin_flagged_service_principal_to_users.exs"],
     "files_created": [
       "lib/letflow/identity/scoped_grants.ex",
@@ -88,6 +88,7 @@
     ],
     "local_issue_id": null,
     "implementation_written": true,
+    "reviewer_cleanups": ["R1 removed Identity.user_holds_role_through_group?/3", "R2 ScopedGrants.actor_from_conn/1 shared by both routers; Identity.same_user_id/2 made public (@doc false) and used by ScopedGrants, same_id/2 removed", "R3 run/2 without the unused actor argument", "R4 make_tenant_wide takes lock_writers!(role, prefix) (A then R for TENANT_ADMIN)"],
     "stray_working_tree_change_not_mine": "docs/requirements.yaml shows as modified in git status; not touched by ELIXIR-DEV."
   }
 }

@@ -908,8 +908,11 @@ defmodule Letflow.Identity do
     end
   end
 
-  # Canonical UUID comparison; a nil or uncastable id never matches.
-  defp same_user_id?(a, b) do
+  @doc false
+  # Canonical UUID comparison; a nil or uncastable id never matches. Shared with
+  # `Letflow.Identity.ScopedGrants` (REQ-517 self-grant check).
+  @spec same_user_id?(term(), term()) :: boolean()
+  def same_user_id?(a, b) do
     with {:ok, left} <- Ecto.UUID.cast(a), {:ok, right} <- Ecto.UUID.cast(b) do
       left == right
     else
@@ -1368,26 +1371,6 @@ defmodule Letflow.Identity do
   def group_member?(group_id, user_id, prefix) when is_binary(prefix) do
     Repo.exists?(
       from(m in GroupMember, where: m.group_id == ^group_id and m.user_id == ^user_id),
-      prefix: prefix
-    )
-  end
-
-  @doc """
-  REQ-517: true when `user_id` is a member of a group bound to `role` as a `:platform_role`.
-  Plain read.
-  """
-  @spec user_holds_role_through_group?(
-          user_id :: Ecto.UUID.t(),
-          role :: String.t(),
-          prefix :: String.t()
-        ) :: boolean()
-  def user_holds_role_through_group?(user_id, role, prefix) when is_binary(prefix) do
-    Repo.exists?(
-      from(m in GroupMember,
-        join: t in TenantRole,
-        on: t.group_id == m.group_id,
-        where: m.user_id == ^user_id and t.name == ^role and t.kind == ^:platform_role
-      ),
       prefix: prefix
     )
   end

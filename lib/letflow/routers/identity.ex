@@ -698,7 +698,7 @@ defmodule Letflow.Routers.Identity do
 
                 {:error, :self_grant_refused} ->
                   info = %{act: "add_member", principal_type: :user, principal_id: user_id}
-                  ScopedGrants.record_self_grant_refused(info, grant_actor(conn), prefix(opts))
+                  ScopedGrants.record_self_grant_refused(info, ScopedGrants.actor_from_conn(conn), prefix(opts))
                   Response.conflict(conn, "self_grant_refused")
 
                 # GH 2547: rolled back with its audit entry; a server fault.
@@ -729,21 +729,6 @@ defmodule Letflow.Routers.Identity do
 
   defp prefix(opts), do: Keyword.fetch!(opts, :prefix)
 
-  # The authenticated caller for REQ-517 audit entries (never a request value).
-  defp grant_actor(conn) do
-    ctx = conn.assigns.auth_context
-
-    %{
-      user_id: ctx.user_id,
-      trace_id: conn.assigns[:trace_id],
-      credential: credential_name(Map.get(ctx, :credential))
-    }
-  end
-
-  defp credential_name(credential) when is_atom(credential) and not is_nil(credential),
-    do: Atom.to_string(credential)
-
-  defp credential_name(_other), do: nil
 
   # ── PUT /users/:id/service-principal (REQ-517 AC 12, design 3.12) ───────
   #
@@ -788,7 +773,7 @@ defmodule Letflow.Routers.Identity do
              raw_id,
              flagged,
              Map.get(body, "reason"),
-             grant_actor(conn),
+             ScopedGrants.actor_from_conn(conn),
              prefix(conn.assigns.scoped_opts)
            ) do
         {:ok, %{user_id: user_id, flagged: now_flagged}} ->
