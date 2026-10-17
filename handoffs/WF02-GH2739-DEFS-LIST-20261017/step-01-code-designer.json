@@ -1,0 +1,50 @@
+{
+  "handoff_id": "c4a7d1e0-2739-4a11-8c20-000000000001",
+  "run_id": "WF02-GH2739-DEFS-LIST-20261017",
+  "workflow_id": "WF-02",
+  "step": "01",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGNER",
+  "file": "handoffs/WF02-GH2739-DEFS-LIST-20261017/step-01-code-designer.json",
+  "created_at": "2026-10-17T12:43:51Z",
+  "started_at": "2026-10-17T12:44:20Z",
+  "completed_at": "2026-10-17T12:46:29Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S4",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2739": "GET /entities/definitions list has no TypeAccess filter: definitions and names of denied types returned. Filter inside the cursor-paginated query; design note first; failing test first; single-definition GETs unchanged."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "lib/letflow/routers/entities.ex",
+      "lib/letflow/entities/definitions.ex",
+      "lib/letflow/entities/type_access.ex",
+      "lib/letflow/entities/request_access.ex",
+      "lib/letflow/design/gh2700-type-access-joins-export-aggregate.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2739-DEFS-LIST-20261017"
+  },
+  "task": {
+    "description": "WF-02 step 1 design for GH #2739. Design only, no implementation code.",
+    "acceptance_criteria": [
+      "Design note: TypeAccess decision inside the paginated query and cursor behaviour",
+      "Failing test first; page and next_cursor equal to world without X; single GETs unchanged",
+      "SECURITY-REVIEWER and REVIEWER verdicts; scoped tests, warnings-as-errors compile, format check quoted"
+    ]
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "Design written to lib/letflow/design/gh2739-definitions-list-type-access.md. Denial is a correlated NOT EXISTS in the single list statement via a new shared TypeAccess.visible_to/2 built from the same denial base query as authorized?/3 and denied_types/3; keyset cursor (inserted_at,id) is a position so filtered pages, over-fetch row and next_cursor equal the world without X; crafted or old cursors are plain positions (no signal). list_definitions/2 replaced by /3 taking user_id (fail closed). No filters exist on the list, none added. No admin exemption (matches authorized?/3). Three single GETs verified to use render_get_definition/3 and stay untouched. 17 tests (T-17 all-denied added), 10 mutants. #2718 recommended as a separate PR. #2612 not triggered. Open questions Q1-Q6 with defaults in the design. AMENDED after CDV FAIL and SECURITY conditional PASS: visible_to/2 pinned, named binding :def with parent_as and WHERE placement, cross-module deps, deterministic next_cursor comparison rules, new shared QueryCount helper, T-12 blocking both directions, R2 single denial query, R3 solution-pack export recorded as open, decode_list_definitions_seek follow-up recorded. ROUND-2 CDV wording fixes applied (determinism rule on T-5/T-7/T-8/T-11/section 9, helper name in section 8).",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "lib/letflow/design/gh2739-definitions-list-type-access.md"
+    ],
+    "implementation_written": false
+  }
+}

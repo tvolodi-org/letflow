@@ -1,0 +1,39 @@
+{
+  "handoff_id": "c4a7d1e0-2739-4a11-8c20-000000000006",
+  "run_id": "WF02-GH2739-DEFS-LIST-20261017",
+  "workflow_id": "WF-02",
+  "step": "06",
+  "from_agent": "ORCH",
+  "to_agent": "REVIEWER",
+  "file": "handoffs/WF02-GH2739-DEFS-LIST-20261017/step-06-reviewer-code.json",
+  "created_at": "2026-10-17T13:00:00Z",
+  "started_at": "2026-10-17T13:00:30Z",
+  "completed_at": "2026-10-17T13:12:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2739": "GET /entities/definitions list ignores TypeAccess (SECURITY). REVIEWER code gate on commit b56dc738c."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "lib/letflow/entities/type_access.ex",
+      "lib/letflow/entities/definitions.ex",
+      "lib/letflow/routers/entities.ex",
+      "lib/letflow/entities/query/cursor.ex"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2739-DEFS-LIST-20261017"
+  },
+  "task": {
+    "description": "REVIEWER code gate for GH #2739: idiom, module boundaries, scope, denial_query refactor equivalence, stale references, tests that will break. Read-only."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "PASS, no required changes; 4 non-blocking notes. IDIOM: visible_to/2 builds a correlated NOT EXISTS via dynamic([], not exists(subquery)) with parent_as(^name_binding).name; parent_as accepts an interpolated atom binding in the pinned Ecto 3.14.1 (deps/ecto/lib/ecto/query/api.ex:652), Ecto.Query.dynamic_expr() is a real exported type (query.ex:554). The parent binding is named :def in Definitions via from(e in EntityDefinition, as: :def); later where([e], ...) / order_by([e], ...) stay positional and unaffected. Guards is_binary(user_id) and is_atom(name_binding) give a FunctionClauseError (fail closed) for nil user or missing binding, as designed. ORDER of composition is correct: tenant_id, keyset, visible_to, then order_by and limit(page_size+1), so the extra-row next_cursor probe runs over visible rows only. REFACTOR EQUIVALENCE (read the diff): denial_query/1 = restriction r LEFT JOIN grant g ON g.entity_type == r.entity_type AND g.user_id == type(^user_id, Ecto.UUID) WHERE is_nil(g.id) -- byte-for-byte the old join and the old is_nil(g.id) predicate. authorized?/3 now adds where r.entity_type == ^entity_type (old: same AND is_nil), select r.id unchanged; denied_types/3 adds where r.entity_type in type(^names, {:array, :string}), select r.entity_type unchanged. Combining two where clauses is an AND, so the predicates are logically identical and the only SQL difference is parameter ordering ($1 user_id first, then the name); no behaviour change. Guards, tenant_id_for_schema_name step, Repo.all(prefix:) and return shapes are untouched. BOUNDARIES: Definitions -> TypeAccess is a new edge but TypeAccess references only Repo and TenantProvisioning (no Definitions alias), so no cycle; both are in lib/letflow/entities/, outside lib/letflow/modules/<id>/ so Rule 0 makes it ok; dev reports check_boundaries 1373 edges 0 violations (not re-run here, read-only). SUPERVISION/OTP: not applicable (pure query construction, no process, no spawn). SCOPE: only #2739; the diff touches the 4 owned modules plus design and handoffs; no behaviour, macro or generic plumbing added; the shared denial_query/1 is the single rule the design required (SECURITY R2), not speculative abstraction; no unscoped list_definitions sibling left. Router passes conn.assigns.auth_context.user_id, the same source every other handler uses (INV-1). Prefix propagation into the exists subquery relies on Repo.all(prefix:) reaching the subquery source: not provable by reading, it is the design's T-12 runtime gate. TYPE-SAFETY: no new gap warranting an issue (user_id is guarded binary; unrepresentable-state improvement not available for a UUID string without a project-wide UUID type), none filed. STALE REFERENCES LEFT (all non-blocking): (1) lib/letflow/entities/type_access.ex:11-18 moduledoc lists the query path and definitions-read getters as the consumers but not the definitions list route now served by visible_to/2; also add visible_to/2 to the moduledoc. (2) lib/letflow/design/req394-per-entity-type-authorization.md:416 OQ-1 says the plural list route is left unfiltered: historical design, now resolved by GH #2739; acceptable to leave, DOC-UPDATER may add a pointer. (3) list_definitions/2 text remains only in historical docs/design artefacts: lib/letflow/design/{iss0519,iss0522,req226,req231,req304}*.md, docs/issues/ISS-0522.yaml, docs/requirements.yaml:18835,19277,19679, test/specs/ISS-0522.md:3, and the test comment test/letflow/api/pagination_test.exs:374 (comment in a test file, TEST-DESIGNER may refresh). Zero /2 references remain in executable lib/ code; no other lib/ caller of list_definitions exists. (4) lib/letflow/routers/entities.ex:927-933 handler comment block does not mention the TypeAccess filtering or the user_id argument (cosmetic). The router moduledoc table row at entities.ex:59 correctly says /3. TESTS THAT WILL BREAK (for TEST-DESIGNER): test/letflow/entities/definitions_test.exs calls list_definitions/2 at lines 312, 315, 330, 335, 341, 357, 360, 376, 381, 407, 424, 429 (arity change to /3 with a binary user_id first; the 381 case with prefix \"not-a-real-schema\" still returns {:error, :invalid_schema_name} given a valid user_id first; a nil/non-binary user_id now raises FunctionClauseError, so tests must pass a UUID string). test/letflow/routers/entities_test.exs hits the route over HTTP only and should keep passing for unrestricted types. NEW COVERAGE NEEDED per design: restricted type hidden for ungranted user, visible with grant, page/next_cursor computed over visible rows only (denied rows interleaved across a page boundary), cross-tenant prefix T-12, authorized?/3 and denied_types/3 regression, visible_to/2 FunctionClauseError on nil user."
+  }
+}

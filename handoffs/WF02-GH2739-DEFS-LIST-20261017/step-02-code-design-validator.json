@@ -1,0 +1,47 @@
+{
+  "handoff_id": "c4a7d1e0-2739-4a11-8c20-000000000002",
+  "run_id": "WF02-GH2739-DEFS-LIST-20261017",
+  "workflow_id": "WF-02",
+  "step": "02",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGN-VALIDATOR",
+  "file": "handoffs/WF02-GH2739-DEFS-LIST-20261017/step-02-code-design-validator.json",
+  "created_at": "2026-10-17T12:46:30Z",
+  "started_at": "2026-10-17T13:10:00Z",
+  "completed_at": "2026-10-17T13:14:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S4",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2739": "GET /entities/definitions list has no TypeAccess filter. Validate the design: filter in the cursor-paginated query; failing test first; single GETs unchanged; SEC mandatory."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-2739-4a11-8c20-000000000001"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/gh2739-definitions-list-type-access.md",
+      "handoffs/WF02-GH2739-DEFS-LIST-20261017/step-01-code-designer.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2739-DEFS-LIST-20261017"
+  },
+  "task": {
+    "description": "WF-02 step 1b validation of the GH #2739 design, round 2 (diff check of round-1 fixes). Read-only.",
+    "acceptance_criteria": [
+      "Design note: TypeAccess decision inside the paginated query and cursor behaviour",
+      "Failing test first; page and next_cursor equal to world without X; single GETs unchanged",
+      "SECURITY-REVIEWER and REVIEWER verdicts; scoped tests, warnings-as-errors compile, format check quoted"
+    ]
+  },
+  "result": {
+    "status": "FAIL",
+    "summary": "ROUND 2: FAIL, doc-only rework (no change to the build contract; ELIXIR-DEV need not stop). ROUND-1 FIXES VERIFIED IN PLACE: (1) visible_to/2 pinned in section 3 with spec, guards and 'arity 2 only'; Q2 closed; section 2 states no /3 fallback; no 'visible_to/3' text remains; T-12 is a regression gate. (2) Binding pinned: list_definitions/3 declares as: :def on EntityDefinition, passes :def, parent_as(^binding), placement in WHERE order tenant_id, keyset, visible_to, order_by, limit; cross-module edges Router -> Definitions.list_definitions/3 -> TypeAccess.visible_to/2 listed. (3) Section 10 determinism rules added (fixed uuids and pairwise-distinct inserted_at in both worlds; decoded last-row position and null-ness where next_cursor non-null, raw bytes only where null); T-2 and T-9 reworded; new helper Letflow.TestSupport.QueryCount.count_statements/1 in test/support/query_count.ex named; T-5 distinct inserted_at stated; definitions_test.exs 312-429 listed in section 11. REMAINING DEFECTS (all wording, fix in place): D1 STALE: section 8 last sentence still says 'using the existing query-count telemetry helper the gh2700 T-22 uses', contradicting T-9 (new helper, existing one is a private defp). Replace with 'using Letflow.TestSupport.QueryCount.count_statements/1 (T-9)'. D2 T-7 ('response bytes unchanged from baseline (golden captured pre-change)') and section 9 AC row ('full response bytes equal to main fixture') state unconditional byte equality; golden bytes with a non-null next_cursor can never match (mint time). Not reworded as designer said. Fix: append to T-7 'golden compared per the section 10 determinism rule: raw bytes only on a page with next_cursor nil (fixture/page size chosen so), otherwise items bytes plus decoded next_cursor position' and make the section 9 row say the same. D3 T-11 ('byte-for-byte equal ... body') same defect: add 'on a page where next_cursor is nil (the fixture must include such a page size); on pages with a non-null next_cursor compare items bytes plus decoded next_cursor position and null-ness'. D4 T-5 ('identical bytes in items/next_cursor presence') and section 6 D5 'T-8 pins this (bytes identical to the unfiltered request)' and T-8 'body identical': add 'per the section 10 determinism rule' (or restrict to next_cursor nil pages). D5 cosmetic but fix: T-9 bullet has the 'all denied' case ('{items: [], next_cursor: null} equal to an empty-tenant response') run into its text with 'result of'; split it into its own test id (T-17) so it maps to a runnable test. Everything else (AC to element table, 10 mutants, #2718 separate, #2612 not triggered, no implementation code, no TBD in signatures) passes. Re-validation after these edits is a quick diff check.",
+    "local_issue_id": null,
+    "verdict": "FAIL",
+    "implementation_written": false
+  }
+}

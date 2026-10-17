@@ -3,7 +3,7 @@ defmodule Letflow.Entities.Definitions do
   Tenant-scoped CRUD context module for `entity_definitions` (REQ-226). See
   `lib/letflow/design/req226-entity-definitions-persistence-crud.md` §3 for
   the full design this module implements: §3.3 (`create_definition/2`'s
-  exact ordering guarantee and `list_definitions/2`'s REQ-067 cursor
+  exact ordering guarantee and `list_definitions/3`'s REQ-067 cursor
   contract) and §3.4 (`activate_definition/4`'s thin wrapper over REQ-203's
   existing activation machinery).
 
@@ -71,6 +71,7 @@ defmodule Letflow.Entities.Definitions do
   alias Letflow.Entities.EntityDefinition
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.ProcessWritable
+  alias Letflow.Entities.TypeAccess
   alias Letflow.Api.Pagination
   alias Letflow.Repo
   alias Letflow.Repository
@@ -92,7 +93,7 @@ defmodule Letflow.Entities.Definitions do
           | {:error, :entity_type_managed}
           | {:error, {:managed_name_taken, String.t()}}
 
-  @typedoc "REQ-067's opts shape for `list_definitions/2` -- see design §3.3."
+  @typedoc "REQ-067's opts shape for `list_definitions/3` -- see design §3.3."
   @type list_definitions_filters :: %{
           optional(:cursor) => String.t() | nil,
           optional(:page_size) => pos_integer() | nil
@@ -260,7 +261,7 @@ defmodule Letflow.Entities.Definitions do
   `name` alone is not unique in `entity_definitions` -- REQ-225/226's own
   versioning model allows 2+ rows to share one `name` under distinct
   `logical_shape_version`s -- so the query is ordered `inserted_at desc, id
-  desc` (the same "latest by name" ordering idiom `list_definitions/2`
+  desc` (the same "latest by name" ordering idiom `list_definitions/3`
   already uses) and limited to 1, resolving deterministically to the newest
   row instead of raising `Ecto.MultipleResultsError` once 2+ rows exist
   (ISS-0519 fix, `lib/letflow/design/iss0519-entity-definition-versioning-fix.md`
@@ -347,22 +348,36 @@ defmodule Letflow.Entities.Definitions do
   cursor decodes to -- the `tenant_id` WHERE clause below is the same
   belt-and-suspenders discipline every Decision-B table carries, not the
   sole isolation mechanism.
+
+  Per-type authorization (GH #2739, INV-2/INV-5): rows whose `name` is denied to
+  `user_id` by `Letflow.Entities.TypeAccess` are excluded INSIDE the one
+  statement (`TypeAccess.visible_to/2`), ANDed into the WHERE with `tenant_id`
+  and the keyset predicate before `ORDER BY`/`LIMIT`, so pages and
+  `next_cursor` are computed over visible rows only. Any future filter must
+  compose with AND after that predicate, never before or instead of it. There is
+  no unscoped sibling: the viewer is a required argument.
   """
-  @spec list_definitions(list_definitions_filters(), prefix :: String.t()) ::
+  @spec list_definitions(
+          user_id :: String.t(),
+          list_definitions_filters(),
+          prefix :: String.t()
+        ) ::
           {:ok, Pagination.Page.t(EntityDefinition.t())}
           | {:error, :invalid_schema_name}
           | {:error, :page_size_too_large}
           | {:error, :wrong_endpoint}
           | {:error, :expired}
           | {:error, :invalid_cursor}
-  def list_definitions(filters, prefix) when is_map(filters) and is_binary(prefix) do
+  def list_definitions(user_id, filters, prefix)
+      when is_binary(user_id) and is_map(filters) and is_binary(prefix) do
     with {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
          {:ok, page_size} <- Pagination.validate_page_size(Map.get(filters, :page_size)),
          {:ok, cursor_seek} <- decode_list_definitions_cursor(Map.get(filters, :cursor)) do
       rows =
-        EntityDefinition
+        from(e in EntityDefinition, as: :def)
         |> where([e], e.tenant_id == ^tenant_id)
         |> filter_by_list_definitions_cursor(cursor_seek)
+        |> where(^TypeAccess.visible_to(user_id, :def))
         |> order_by([e], desc: e.inserted_at, desc: e.id)
         |> limit(^(page_size + 1))
         |> Repo.all(prefix: prefix)

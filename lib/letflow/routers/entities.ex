@@ -56,7 +56,7 @@ defmodule Letflow.Routers.Entities do
   | get_active_definition_by_name | `GET /entities/definitions/active/:name` | `Letflow.Entities.Definitions.get_active_definition_by_name/2` | `EntitiesDefinitionsRead` | 200 / 404 |
   | get_definition_by_name | `GET /entities/definitions/by-name/:name` | `Letflow.Entities.Definitions.get_definition_by_name/2` | `EntitiesDefinitionsRead` | 200 / 404 |
   | get_definition | `GET /entities/definitions/:id` | `Letflow.Entities.Definitions.get_definition/2` | `EntitiesDefinitionsRead` | 200 / 404 |
-  | list_definitions | `GET /entities/definitions` | `Letflow.Entities.Definitions.list_definitions/2` | `EntitiesDefinitionsRead` | 200 / 400 |
+  | list_definitions | `GET /entities/definitions` | `Letflow.Entities.Definitions.list_definitions/3` | `EntitiesDefinitionsRead` | 200 / 400 |
   | create_record | `POST /entities/records/:entity_type` | `Letflow.Entities.Records.create_record/2` | `EntitiesRecordsWrite` | 201 / 404 / 422 (422 also `idempotency_key_reuse`, GH #2543; `idempotency_key` over 199 bytes -> 422 `max_length`, not valid UTF-8 or containing NUL -> 422 `format`, GH #2550) |
   | update_record | `PUT /entities/records/:entity_type/:record_id` | `Letflow.Entities.Records.update_record/2` | `EntitiesRecordsWrite` | 200 / 404 / 409 / 422 (422 also `idempotency_key_reuse`, GH #2543; `idempotency_key` over 199 bytes -> 422 `max_length`, not valid UTF-8 or containing NUL -> 422 `format`, GH #2550) |
   | delete_record | `DELETE /entities/records/:entity_type/:record_id` | `Letflow.Entities.Records.delete_record/2` | `EntitiesRecordsWrite` | 200 / 400 / 404 / 409 / 422 (a fresh key per request, so never `idempotency_key_reuse`) |
@@ -939,14 +939,18 @@ defmodule Letflow.Routers.Entities do
     case Pagination.parse_page_size_param(Map.get(query, "page_size")) do
       {:ok, page_size} ->
         filters = %{cursor: Map.get(query, "cursor"), page_size: page_size}
-        render_list_definitions(conn, Definitions.list_definitions(filters, prefix))
+
+        render_list_definitions(
+          conn,
+          Definitions.list_definitions(conn.assigns.auth_context.user_id, filters, prefix)
+        )
 
       {:error, :invalid_page_size} ->
         Response.bad_request(conn, "invalid page_size")
     end
   end
 
-  # design §7, list_definitions/2: :page_size_too_large/:invalid_cursor/
+  # design §7, list_definitions/3: :page_size_too_large/:invalid_cursor/
   # :wrong_endpoint -> 400 (matching render_list_result/2's own identical
   # mapping in Letflow.Routers.Definitions); :expired -> the dedicated
   # cursor-expired problem document every other cursor-consuming route uses;

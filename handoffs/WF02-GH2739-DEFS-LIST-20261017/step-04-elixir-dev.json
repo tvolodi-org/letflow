@@ -1,0 +1,48 @@
+{
+  "handoff_id": "c4a7d1e0-2739-4a11-8c20-000000000004",
+  "run_id": "WF02-GH2739-DEFS-LIST-20261017",
+  "workflow_id": "WF-02",
+  "step": "04",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF02-GH2739-DEFS-LIST-20261017/step-04-elixir-dev.json",
+  "created_at": "2026-10-17T12:40:00Z",
+  "started_at": "2026-10-17T12:41:00Z",
+  "completed_at": "2026-10-17T12:51:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2739": "GET /entities/definitions list ignores TypeAccess (SECURITY)."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": ["lib/letflow/design/gh2739-definitions-list-type-access.md"],
+    "owned_modules": [
+      "lib/letflow/entities/type_access.ex",
+      "lib/letflow/entities/definitions.ex",
+      "lib/letflow/routers/entities.ex",
+      "lib/letflow/entities/query/cursor.ex"
+    ],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2739-DEFS-LIST-20261017"
+  },
+  "task": {
+    "description": "Implement the GH #2739 design: TypeAccess.denial_query shared base + visible_to/2; Definitions.list_definitions/3 replaces /2; router passes auth user id. No tests written."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "Implemented per design. TypeAccess: private denial_query/1 (restriction left-join grant, is_nil(g.id), user cast type(^user_id, Ecto.UUID)) used by authorized?/3, denied_types/3 and new public visible_to/2 (is_binary user_id, is_atom binding; dynamic not exists(denial where r.entity_type == parent_as(^binding).name)). Definitions.list_definitions/3(user_id, filters, prefix): from(e in EntityDefinition, as: :def), tenant_id, keyset, visible_to, order_by, limit page_size+1; /2 removed; alias TypeAccess added. Router handle_list_definitions passes conn.assigns.auth_context.user_id; stale /2 mentions updated in entities.ex and query/cursor.ex. MIX_ENV=test mix compile --warnings-as-errors clean, mix format applied, mix letflow.check_boundaries OK (1373 edges, 0 violations). Tests NOT run (per instructions). SQL-level rendering of the EXISTS subquery was only partially checked (query struct builds with exists(%SubQuery{}) and parent_as(:def)); T-12 (prefix propagation) remains the runtime gate.",
+    "files_changed": [
+      "lib/letflow/entities/type_access.ex",
+      "lib/letflow/entities/definitions.ex",
+      "lib/letflow/routers/entities.ex",
+      "lib/letflow/entities/query/cursor.ex"
+    ],
+    "tests_to_migrate": "test/letflow/entities/definitions_test.exs ~312-429 (list_definitions/2 -> /3)",
+    "untouched": ["authorization.ex", "effective.golden", "catalog.ex", "config/*"],
+    "deviations": []
+  }
+}

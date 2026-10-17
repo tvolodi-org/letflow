@@ -1,0 +1,62 @@
+{
+  "handoff_id": "c4a7d1e0-2739-4a11-8c20-000000000003",
+  "run_id": "WF02-GH2739-DEFS-LIST-20261017",
+  "workflow_id": "WF-02",
+  "step": "03",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF02-GH2739-DEFS-LIST-20261017/step-03-security-reviewer-design.json",
+  "created_at": "2026-10-17T12:50:00Z",
+  "started_at": "2026-10-17T12:50:05Z",
+  "completed_at": "2026-10-17T13:00:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S4",
+    "requirement_ids": [],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2739": "Design gate: TypeAccess filter on GET /entities/definitions list."
+    },
+    "related_handoff_ids": [
+      "c4a7d1e0-2739-4a11-8c20-000000000001"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/gh2739-definitions-list-type-access.md",
+      "docs/agents/instructions/security-invariants.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-GH2739-DEFS-LIST-20261017"
+  },
+  "task": {
+    "description": "SECURITY-REVIEWER DESIGN gate for GH #2739. Read-only; no lib/ or test/ edits."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "DESIGN GATE: PASS, conditional on R1-R4. RULINGS. Q1 APPROVED option B (single-statement correlated NOT EXISTS in the same WHERE as tenant_id and keyset, before ORDER BY/LIMIT page_size+1): one snapshot (no TOCTOU), constant bind count, and constant DB work per request shape (gh2700 Q7: one statement regardless of denied count, no early exit, no extra round trips). Option A rejected (needs a new all-denied-names function, two statements, array grows with restrictions). Q5 APPROVED: remove list_definitions/2; only lib caller is handle_list_definitions (verified by grep); stale doc mentions (entities.ex:59, query/cursor.ex comments, tests) to be updated. Cursor: keyset (inserted_at,id) is a pure position, decode does no row lookup, filter is in the same WHERE so old/crafted cursors naming a denied row return exactly the visible rows older than that tuple, identical to a random tuple; no signalling error; page and over-fetch row and next_cursor are computed over visible rows so equal the world without X. Filters/counts: router reads only cursor and page_size (verified), envelope is items+next_cursor, Page.count not rendered: no confirmation channel. Every version of every name is returned but all versions of a denied name are filtered together (restriction keyed on name), so version counts leak nothing. Q2 prefix: Repo.all(prefix:) is expected to cascade to subquery sources; T-12 is a hard gate, and if it fails the fragment must take an explicit prefix (R1); failure mode if not propagated is a missing-relation error or wrong schema, never a silent allow of another tenant's data, but must be proven. Q4 CONFIRMED no admin bypass: authorized?/3 and denied_types/3 consult no role, RequestAccess exempt? only reaches FieldPolicy (verified); T-16 required. user_id from conn.assigns.auth_context.user_id only (as the three single GETs), never query/body; non-binary user_id fails with FunctionClauseError/500, same as the singles, never allow-all. HTTP parity: list output for denied == absent world is byte-identical by construction (same statement, filtered rows absent); T-11 pins status/headers/body. Other metadata routes: GET /entities/definitions family is the only router surface in entities.ex returning definitions (4 GETs); the 3 singles already gate. Records/query/export/aggregate/import routes are type-denial gated by #2700. NEW FINDING (R3): solution pack export (lib/letflow/definitions/solution_pack.ex export/4 via Definitions.get_definition_by_name under caller prefix, no TypeAccess) packs full definitions of named entity types, so a caller with the pack-export permission can read a denied type's definition and distinguish denied-vs-absent by the export result; out of scope for #2739 (different route and permission), file as its own issue. #2718 stays separate (agree). #2612 NOT triggered (no ci.yml/cd.yml/mix.exs/authorization.ex/permission_matrix/catalog change; route key unchanged). Pre-existing, not for this PR: decode_list_definitions_seek uses bare pattern matches and String.to_integer/DateTime.from_unix! on the decoded cursor tail (INV-8 heuristic); a validly-prefixed cursor with malformed tail could raise; independent of type visibility, do not widen this PR, optionally file.",
+    "local_issue_id": null,
+    "artifacts_out": [],
+    "gate": "DESIGN",
+    "invariants_assessed": {
+      "INV-1": "APPLIES-PASS-conditional-R1 (tenant prefix from auth context; subquery over entity_type_restrictions/user_entity_type_grants must resolve to the same tenant schema, proven by T-12; tenant_id WHERE retained)",
+      "INV-2": "APPLIES-PASS (denied definition rows never reach definition_map/1; filter in the query, before serialisation, not a post-hoc redaction)",
+      "INV-3": "NOT-APPLICABLE",
+      "INV-4": "NOT-APPLICABLE (no secret touched)",
+      "INV-5": "APPLIES-PASS (denied and absent are the same bytes by construction; one statement regardless of denial; cursor gives no signal)",
+      "INV-6": "APPLIES-this-handoff",
+      "INV-7": "APPLIES-PASS (Ecto dynamic/exists with bound user_id; no raw SQL; no interpolation)",
+      "INV-8": "APPLIES-PASS (guards make a bad user_id a FunctionClauseError, never allow-all; no new bare matches)",
+      "INV-9": "NOT-APPLICABLE",
+      "INV-10": "APPLIES-PASS (no new route or permission; route stays EntitiesDefinitionsRead)"
+    },
+    "trigger_2612_applies": false,
+    "required_changes": [
+      "R1: T-12 is a blocking gate in both directions (restriction in tenant A hides in A; restriction only in tenant B does not hide in A) and must run against a second real tenant schema. If Ecto does not cascade the Repo prefix into the exists subquery, visible_to takes an explicit prefix and the denial query sets it; do not ship on a single-schema test.",
+      "R2: D2 refactor changes existing security code (authorized?/3, denied_types/3): all three consumers must be built from the one shared denial query, the existing TypeAccess and gh2700 tests must stay green unmodified, and T-14 parity must include a duplicate-name case and a user holding a grant for a different type. Guard visible_to on is_binary(user_id) with no nil/default form; keep the type(^user_id, Ecto.UUID) cast.",
+      "R3: File a separate issue for the solution-pack export path (Definitions.get_definition_by_name without TypeAccess in solution_pack.ex export) as a denied-definition disclosure and existence oracle; mention it and #2718 as open in the PR body. Do not fix in this PR.",
+      "R4: T-2 and T-11 must compare against a real second world without X using explicit inserted_at values, include page sizes that end exactly on a denied row and a trailing denied tail (next_cursor must be nil), and T-9 must assert equal statement counts. Update stale list_definitions/2 mentions (entities.ex:59 and the cursor.ex comments) to /3."
+    ],
+    "implementation_written": false
+  }
+}
