@@ -1165,7 +1165,14 @@ defmodule Letflow.Routers.TenantRoleScopeGrantsTest do
 
       assert S.entries(fx, "grant.self_grant_refused") == []
       assert log =~ "grant_self_refusal_not_recorded"
-      refute log =~ fx.admin.id
+      # The capture also holds the Ecto debug SQL of the whole test (params carry ids): only the
+      # refusal-not-recorded log line itself must be id-free.
+      line =
+        log
+        |> String.split("
+")
+        |> Enum.find(&(&1 =~ "grant_self_refusal_not_recorded"))
+      refute line =~ fx.admin.id
     end
 
     test "G1 tokens: a TENANT_ADMIN token creates, deletes and makes tenant-wide (credential api_token in every audit entry); a non-admin token gets the uniform 403 on all four routes" do
