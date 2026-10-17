@@ -514,9 +514,11 @@ Script-bound conditions (advisor ruling; each is visible in code and covered by 
    script returned: `Engine.apply_script_task_result/3` -> `maybe_service_entity_writes/5` ->
    `EntityPort.multi/3` -> `StepWrites.multi/3` -> `HandlerWrites.build_call/4`, actor
    `EventStore.platform_actor_id()`, key `sys:step:<dispatch_id>:<line>:<ordinal>`. Tests:
-   `lua_host_no_handler_access_test.exs` (no module of `lib/letflow/engine/lua/**` or
-   `lib/letflow/scripts/**` names `HandlerWrites`, `HandlerContext`, `write_handler`,
-   `write_handler_in` or `call_write_handler`; non-vacuity cases) and the script-route success test
+   `lua_host_no_handler_access_test.exs` (inverted scan over ALL of `lib/**/*.ex`: only an explicit
+   allowlist of ten files may name `HandlerWrites`, `HandlerContext`, `write_handler`,
+   `write_handler_in` or `call_write_handler`, so every Lua, script, wasm, exam-scoring and admission
+   file is covered; a named assertion keeps the Lua/script/wasm surface out of the allowlist;
+   non-vacuity cases) and the script-route success test
    "activation accepts the stamped script-bound node; the run commits the handler writes" (sentinel
    actor, dispatch key, activator).
 
