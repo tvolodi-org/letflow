@@ -678,7 +678,9 @@ defmodule Letflow.Api.ScopeGrantsRouteWalkTest do
           from(g in Letflow.Identity.RoleScopeGrant,
             where: g.scope_node_id == ^node,
             select: g.id
-          ), prefix: s)
+          ),
+          prefix: s
+        )
       end
 
       assert {204, true} = changed?.(grants, :delete, "/#{scoped_id.(deleted_node)}", %{})
