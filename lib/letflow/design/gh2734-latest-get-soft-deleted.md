@@ -1,6 +1,6 @@
 # GH #2734 design note: a late exam snapshot must not be built from soft-deleted content
 
-Status: DRAFT for CODE-DESIGN-VALIDATOR. Author: CODE-DESIGNER. Base: main 78200a07.
+Status: RULED (supervisor rulings applied, section 8). For CODE-DESIGN-VALIDATOR. Author: CODE-DESIGNER. Base: main 78200a07.
 Links: #2682 (REQ-511), PRs #2730 / #2732, `test/specs/GH2682-exam-snapshot-pr-b.md` (Observations),
 `test/specs/GH2682-exam-snapshot-pr-a.md` (Observation 2), `lib/letflow/design/req511-exam-content-snapshot.md`
 (3.4, 17.2). Design only: no implementation code in this file.
@@ -57,7 +57,7 @@ Adjacent reads with the same flaw that do NOT go through `get/3` (found while re
 | # | file:line | what | note |
 |---|---|---|---|
 | A1 | `snapshot.ex:773` | `query_all("session_question", ...)` in `build_late` | soft-deleted session_question rows still enter `order`. CHANGE (late path). |
-| A2 | `snapshot.ex:813` | `query_all("answer_option", ...)` in `load_item` | soft-deleted options still enter the key/correct set. CHANGE (late path). |
+| A2 | `snapshot.ex:813` | `query_all("answer_option", ...)` in `load_item` | soft-deleted options still enter the key/correct set. CHANGE (late path): key-bearing deleted option refuses, other deleted options excluded (section 5). |
 | A3 | `session.ex:563` | `query_all("answer_option")` in `build_option_states` | display only; UNCHANGED (OQ-4). |
 | A4 | `session.ex:738-749` | `lock_exam_row/2` (create) selects the exam row with `FOR UPDATE`, no `deleted` condition | a soft-deleted but `active` exam may still start a session. Same class, START path. OQ-2. |
 
@@ -105,8 +105,11 @@ D. RECOMMENDED: add `Latest.get_live/3`, leave `get/3` unchanged, and switch the
      touch time; replays of submit/finalize on a snapshotted session are byte-identical.
    * Concurrency: build runs inside the session-row-locked transaction. An authoring delete committing after the
      read is equivalent to a delete just after the snapshot; deleted is terminal, so there is no flip-back race.
-   * Options/session_questions: add an explicit `deleted == false` filter to the two `query_all/3` calls in the late
-     path (A1, A2) using the allowlisted `"deleted"` filter field, not a new function.
+   * session_questions (A1): add an explicit `deleted == false` filter to that `query_all/3` call using the
+     allowlisted `"deleted"` filter field, not a new function.
+   * Options (A2, RULED OQ-5): the `answer_option` query is NOT filtered, because the builder must see a deleted
+     option to know whether it was key-bearing. The compiler row already carries the `deleted` column; the builder
+     partitions live from deleted options (see 4.1 and section 5).
 
 ### 4.1 Signatures and shapes (no bodies)
 
@@ -118,8 +121,15 @@ D. RECOMMENDED: add `Latest.get_live/3`, leave `get/3` unchanged, and switch the
   stating it returns soft-deleted rows and pointing to `get_live/3`.
 * `Snapshot.fetch_live/3` (private): calls `get_live/3`; return shape unchanged (`{:ok, row} | :not_found |
   {:error, :invalid_schema_name}`).
-* `Snapshot.build_late/3` filter sets: `session_question` query gains `deleted == false`; `answer_option` query in
-  `load_item/2` gains `deleted == false`. No change to `build_from_resolved/4`, the snapshot map, digest, or version.
+* `Snapshot.build_late/3`: the `session_question` query gains `deleted == false`. `load_item/2` still reads all
+  `answer_option` rows of the question, partitions them on the row's `deleted` flag, and for each deleted option
+  decides: key-bearing -> the whole late build is refused with `{:error, {:grading_error, {:key_missing,
+  question_id}}}`; not key-bearing -> dropped. Key-bearing means: `is_correct == true` for single/multiple choice;
+  a non-nil `likert_weight` for likert (a deleted weighted likert option changes the scale, same reasoning).
+  Only live options continue into the snapshot item. Atom decision: REUSE `{:key_missing, question_id}`. A distinct
+  atom (e.g. `:key_option_deleted`) would add an error variant a caller or log could use to tell "deleted" from
+  "absent", against I-2, and `key_missing` already carries the right meaning (the answer key cannot be completely
+  built) and is already mapped by every consumer. No change to `build_from_resolved/4`, the snapshot map, digest, or version.
 * No DB change, no migration, no new index, no new error atom, no new event/audit field, no API/OpenAPI change.
 
 ## 5. Behaviour on the late-snapshot path: refuse vs exclude
@@ -131,24 +141,31 @@ either way". For options, a hard delete today simply drops the row from `query_a
 from the remaining rows, and the existing fail-closed checks (`build_item` -> `{:key_missing, id}`, T-51) fire only
 when no correct option remains.
 
-Recommendation (single rule: a soft delete behaves exactly like the already-tested hard delete):
+RULED behaviour (supervisor, OQ-1 and OQ-5): exam, question and key-bearing option => REFUSE; non-key-bearing
+option and session_question => EXCLUDE.
 
 | Soft-deleted row | Late `build_late` | Late `build_certificate_only` |
 |---|---|---|
-| exam | REFUSE: `{:error, {:grading_error, :exam_section_missing}}`, nothing written, no audit entry | REFUSE: same atom, nothing written, no audit |
-| question of a session_question | REFUSE: `{:error, {:grading_error, {:question_item_missing, id}}}` | n/a (certificate-only reads the exam only) |
-| answer_option | EXCLUDE (as a hard delete does). If the exclusion leaves a single-choice/likert question without its key, existing `{:key_missing, id}` refuses it. | n/a |
-| session_question | EXCLUDE (as a hard delete does) | n/a |
+| exam | REFUSE: `{:error, {:grading_error, :exam_section_missing}}` (same atom as T-49), nothing written, no audit entry | REFUSE: same atom, nothing written, no audit |
+| question of a session_question | REFUSE: `{:error, {:grading_error, {:question_item_missing, id}}}` (same as T-50) | n/a (reads the exam only) |
+| answer_option that was key-bearing (correct on single/multiple choice; weighted on likert) | REFUSE: `{:error, {:grading_error, {:key_missing, question_id}}}`, nothing written | n/a |
+| answer_option that was NOT key-bearing (incorrect; unweighted likert) | EXCLUDE from the snapshot item | n/a |
+| live options leave a single-choice/likert question with no key | REFUSE: existing `{:key_missing, id}` (T-51), unchanged | n/a |
+| session_question | EXCLUDE (query filter) | n/a |
 
-Why refuse the exam/question rather than exclude: excluding a question changes the maximum score and pass
-threshold arithmetic and silently drops a graded item for a real candidate; the exam row carries the pass
-threshold and certificate facts which cannot be invented. Refusal is the only fail-closed choice and reuses the
-existing, already-mapped typed errors (no new surface).
+Why refuse the exam/question: excluding a question changes the maximum score and pass threshold arithmetic and
+silently drops a graded item for a real candidate; the exam row carries the pass threshold and certificate facts
+which cannot be invented. Why refuse a deleted key-bearing option: excluding it silently shrinks a multiple-choice
+correct set (or a likert scale) and changes who scores correct; fail closed instead. Both reuse existing, already
+mapped typed errors (no new surface).
 
-Known cost of refusing (state for the supervisor, OQ-1): the legacy `in_progress` session then cannot be scored
+Known cost of refusing (RULED OQ-1; MUST be stated in the PR body): the legacy `in_progress` session then cannot be scored
 (submit, deadline auto-submit and state read all return the typed error until an operator restores content, which
 undelete cannot do because deleted is terminal). That is identical to the hard-delete behaviour that PR b already
-accepted.
+accepted. PR body wording: "an in-progress, snapshotless session on a deleted exam (or deleted question or
+key-bearing option) is unscorable until an operator restores the content." Known product consequence (RULED OQ-6,
+fail closed, also PR body): an earned certificate of a legacy submitted session cannot be issued from a soft-deleted
+exam (`build_certificate_only` refuses) without operator restore.
 
 ## 6. Acceptance criteria -> design/test mapping
 
@@ -163,15 +180,20 @@ main before the fix (ELIXIR-DEV/TEST-DESIGNER quote the red run).
 | G2 | same file | `get/3` STILL returns the soft-deleted row with `deleted: true` (regression guard for C1 and the 60 test sites) | passes (guard) |
 | T-49b | `test/letflow/modules/exam/snapshot_late_test.exs`, describe "T-48 .. T-51" | soft-deleted exam (`Fx.delete_record!/3`) on a legacy session: `ensure` and `submit` both `{:error, {:grading_error, :exam_section_missing}}`, snapshot field and scores unchanged, status `in_progress` (reuse `assert_late_build_fails!/2`) | yes |
 | T-50b | same | soft-deleted question: `{:grading_error, {:question_item_missing, q_id}}`, nothing written | yes |
-| T-50c | same | soft-deleted answer_option: late snapshot is built and its option/correct set does NOT contain the deleted id; a single-choice question whose only correct option is deleted -> `{:key_missing, q_id}` | yes |
+| T-50c | same | soft-deleted INCORRECT option of a single-choice question: late snapshot is built, the deleted id is absent from the item's options, the correct set is unchanged | yes |
+| T-50c2 | same | soft-deleted CORRECT option of a single-choice question (other live options remain, none correct): `{:grading_error, {:key_missing, q_id}}`, nothing written | yes |
+| T-50c3 | same | multiple-choice, soft-deleted CORRECT option while another correct option stays live: still `{:key_missing, q_id}` refused (not a smaller correct set), nothing written | yes |
+| T-50c4 | same | multiple-choice, soft-deleted INCORRECT option: built, deleted id excluded, correct set identical to a snapshot taken with no deletion | yes |
+| T-50c5 | same | likert: soft-deleted weighted option refused with `{:key_missing, q_id}`; soft-deleted unweighted option excluded | yes |
+| T-50c6 | same | every refusal above leaves status `in_progress`, snapshot field absent, scores unchanged, no audit entry (via `assert_late_build_fails!/2`) | yes |
 | T-50d | same | soft-deleted session_question: excluded from snapshot `order`/`questions` | yes |
-| T-49c | same file or `certificate_snapshot_test.exs` | `Snapshot.ensure_certificate_facts/3` on a submitted legacy session with a soft-deleted exam: `{:error, {:grading_error, :exam_section_missing}}`, no write, no `exam.session_snapshot_late` audit entry | yes |
+| T-49c | same file or `certificate_snapshot_test.exs` (also pins the RULED OQ-6 product consequence) | `Snapshot.ensure_certificate_facts/3` on a submitted legacy session with a soft-deleted exam: `{:error, {:grading_error, :exam_section_missing}}`, no write, no `exam.session_snapshot_late` audit entry | yes |
 | T-49d | same | indistinguishability: error value for a soft-deleted exam equals the value for a hard-deleted exam (T-49) | yes |
 | R1 | same | replay: a legacy session that already has a late snapshot, then exam/question soft-deleted: `ensure`, state read, submit return the existing snapshot untouched (no rebuild, no new audit) | passes (guard, pins D) |
 | P1 | `records_test.exs` / existing | C1 per-caller: `update_record` on a deleted record -> `{:record_already_deleted, id}`; second `delete_record` is a no-op success (name the existing tests; add only if none exists) | passes (guard) |
 | P2 | `anti_cheat_test.exs` | C3: a signal on an in-progress session whose exam is soft-deleted still records with the stored policy (pins UNCHANGED) | passes (guard) |
 | P3 | `session_test.exs` | C5/A3: state read of an in-progress snapshotted session with a soft-deleted question/option still renders (pins UNCHANGED) | passes (guard) |
-| M | mutation | revert the `deleted == false` predicate in `get_live/3`: G1, T-49b fail; remove the option/session_question filter: T-50c/T-50d fail; point `fetch_live/3` back at `get/3`: T-49b, T-50b, T-49c fail | n/a |
+| M | mutation | revert the `deleted == false` predicate in `get_live/3`: G1, T-49b fail; remove the session_question filter: T-50d fails; drop the deleted-key-bearing refusal in `load_item/2` (treat every deleted option as excluded): T-50c2, T-50c3, T-50c5 fail; refuse on ANY deleted option: T-50c, T-50c4 fail; point `fetch_live/3` back at `get/3`: T-49b, T-50b, T-49c fail | n/a |
 
 AC3 "SECURITY-REVIEWER verdict (recommended); REVIEWER verdict; scoped tests one file at a time, compile and format
 check quoted": this touches a tenant-data read path (INV prefix scoping preserved: `get_live/3` keeps the
@@ -189,29 +211,22 @@ check quoted": this touches a tenant-data read path (INV prefix scoping preserve
 * I-4 A present snapshot is never rebuilt or altered by a later delete.
 * I-5 No new error atom, audit field or log line carries content of a deleted row (INV-4/INV-5 unchanged).
 
-## 8. Open questions for the supervisor (not guessed)
+## 8. Supervisor rulings and closed questions (all binding)
 
-* OQ-1 Refuse vs exclude for exam/question (section 5). I recommend refuse (== hard delete). Operational cost: a
-  snapshotless in_progress session whose exam/question was soft-deleted cannot be scored or auto-submitted, and
-  deleted is terminal, so the only recovery is operator action (re-create content / fixture). Confirm, or rule
-  "exclude question" (which changes max score) instead.
-* OQ-2 Scope of START path: C6 (`session.ex:1024` pin to a soft-deleted active question) and A4 (`lock_exam_row/2`
-  lets a soft-deleted active exam start a session) are the same defect class but are not the late-snapshot path.
-  Recommend a separate follow-up issue (they change create/start behaviour and error mapping); confirm not to
-  include them here. A start snapshot built from a soft-deleted question is arguably also in "snapshot built from
-  deleted content", so this is the supervisor's call.
-* OQ-3 Soft-deleted SESSION (C2, C4, C7): all three keep serving a deleted session (autosave/submit/signals work).
-  Not in this issue's scope; separate issue?
-* OQ-4 Display/policy reads (C3 anti-cheat policy, C5/A3 state read): recommended UNCHANGED so an authoring delete
-  does not break candidates mid-exam. Confirm; the alternative (refuse) is a behaviour change visible to
-  candidates.
-* OQ-5 Multi-choice silent drift: excluding a soft-deleted CORRECT option from a multiple-choice question builds a
-  valid-looking key with a smaller correct set (no `key_missing`), changing who scores correct. A hard delete
-  already does this today. Accept (consistency), or refuse any late build that touches a soft-deleted option?
-  I recommend accept with this note, since refusing is cheap to add later but exclusion matches existing behaviour;
-  it is the weakest point of the recommendation.
-* OQ-6 `build_certificate_only` with a soft-deleted exam refuses certificate facts for a legacy submitted session
-  that previously (on main) would have been issued. Intended per "no building content from deleted rows"; confirm.
-* OQ-7 Implementer to verify, not assume: that the compiler accepts `eq` on field `"deleted"` with boolean `false`
-  for both the generic and the promoted per-type table paths (allowlist maps it, but no existing caller uses it).
-  If not, fall back to a post-filter on the `deleted` select field in the builder (still before any content use).
+* OQ-1 (RULED, includes OQ-6): a soft-deleted exam or question in a late snapshot is REFUSED with the same atoms as
+  T-49/T-50. Known consequences, to be written in the PR body: an in-progress snapshotless session on a deleted exam
+  is unscorable until an operator restores the exam; an earned certificate of a legacy submitted session cannot be
+  issued from a soft-deleted exam (fail closed) without operator restore.
+* OQ-5 (RULED, changed from the earlier "exclude" default): a soft-deleted key-bearing option REFUSES the late
+  snapshot with `{:key_missing, question_id}` (atom reuse decided and justified in 4.1); a soft-deleted
+  non-key-bearing option is excluded; no-correct-option-left keeps `{:key_missing, id}`. Decision recorded for the
+  supervisor's visibility: for likert, "key-bearing" is defined as a non-nil `likert_weight`, since likert has no
+  `is_correct`.
+* OQ-2, OQ-3, OQ-4 (RULED out of scope): `session.ex:1024` (C6) and `lock_exam_row/2` (A4) are separate follow-ups
+  (filed by letflow-2); soft-deleted sessions (C2, C4, C7) and display/anti-cheat policy reads (C3, C5, A3) are
+  unchanged.
+* OQ-7 (closed, implementer verification note): `eq` on `"deleted"` is already exercised in
+  `test/letflow/entities/query_test.exs:511-515` and handled by `allowlist.ex:94` / `compiler.ex:455`. The only
+  remaining check for the implementer is the promoted per-type table path for the `session_question` filter (A1) and
+  for the option rows' returned `deleted` flag; if a promoted path misbehaves, post-filter on the selected `deleted`
+  field in the builder before any content use.
