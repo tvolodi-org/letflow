@@ -144,7 +144,8 @@ defmodule Letflow.Identity.ScopedGrants do
       check_create_rows!(type, pid, role, node_id, prefix)
 
       before_count =
-        if role == @tenant_admin_role, do: TenantAdminGuard.count_before!(prefix, :explicit)
+        # MUTANT M5: counted (not explicit) count source for the tenant-admin guard
+        if role == @tenant_admin_role, do: TenantAdminGuard.count_before!(prefix, :counted)
 
       row =
         case RoleScopeGrants.insert_scoped(type, pid, role, node_id, prefix) do
@@ -159,7 +160,7 @@ defmodule Letflow.Identity.ScopedGrants do
             :scope_tenant_admin,
             pid,
             before_count,
-            :explicit
+            :counted
           )
 
       audit!(prefix, actor, "grant.created", row.id, nil, row_state(row, actor))
@@ -190,7 +191,7 @@ defmodule Letflow.Identity.ScopedGrants do
           guarded? = row.role == @tenant_admin_role and row.tenant_wide
 
           before_count =
-            if guarded?, do: TenantAdminGuard.count_before!(prefix, :explicit)
+            if guarded?, do: TenantAdminGuard.count_before!(prefix, :counted)
 
           :ok = RoleScopeGrants.delete_row!(row.id, prefix)
 
@@ -200,7 +201,7 @@ defmodule Letflow.Identity.ScopedGrants do
               :revoke_tenant_admin_grant,
               row.principal_id,
               before_count,
-              :explicit
+              :counted
             )
           end
 
