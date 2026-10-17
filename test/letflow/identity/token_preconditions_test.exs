@@ -80,7 +80,8 @@ defmodule Letflow.Identity.TokenPreconditionsTest do
     assert TokenPreconditions.findings(s) == %{
              roles_exceed_owner: [],
              non_expiring_platform_admin: [],
-             null_issuer: []
+             null_issuer: [],
+             service_principal_owner: []
            }
 
     assert TokenPreconditions.exceeding_owner_count(s) == 0

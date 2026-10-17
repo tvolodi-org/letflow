@@ -102,7 +102,12 @@ defmodule Letflow.Api.AuthorizationEnforcementTest do
     Letflow.Modules.Fixture.Router,
     # GH 2534 PR 7b-2a -- Letflow.Routers.ScriptPolicy's five routes declare :ScriptPolicyRead /
     # :ScriptPolicyManage, each backed by an endpoint_policy_key/2 clause.
-    Letflow.Routers.ScriptPolicy
+    Letflow.Routers.ScriptPolicy,
+    # REQ-517 PR 2a (GH #2535) -- Letflow.Routers.TenantRoleScopeGrants' four routes declare
+    # :RoleScopeGrantsRead / :RoleScopeGrantsManage, each backed by an endpoint_policy_key/2
+    # clause (and required_permission/1 maps both to :UsersGroupsRolesManage), so every one
+    # resolves through the normal path above and none is added to @allowlist.
+    Letflow.Routers.TenantRoleScopeGrants
   ]
 
   # `Letflow.Plugs.ApiPipeline`'s own `forward/2` mount prefix per router
@@ -139,7 +144,8 @@ defmodule Letflow.Api.AuthorizationEnforcementTest do
     Letflow.Routers.Me => "/me",
     Letflow.Routers.TenantSettings => "/tenant/settings",
     Letflow.Modules.Fixture.Router => "/modules/fixture",
-    Letflow.Routers.ScriptPolicy => "/script-policy"
+    Letflow.Routers.ScriptPolicy => "/script-policy",
+    Letflow.Routers.TenantRoleScopeGrants => "/tenant/role-scope-grants"
   }
 
   # {method, path_template, reason} -- a route whose declared policy key is

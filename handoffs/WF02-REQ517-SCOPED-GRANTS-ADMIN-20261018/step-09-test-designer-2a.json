@@ -1,0 +1,94 @@
+{
+  "handoff_id": "d2535517-0517-4c02-9e11-000000000009",
+  "run_id": "WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018",
+  "workflow_id": "WF-02",
+  "step": "09",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGNER",
+  "file": "handoffs/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018/step-09-test-designer-2a.json",
+  "created_at": "2026-10-17T16:30:00Z",
+  "started_at": "2026-10-17T16:30:30Z",
+  "completed_at": "2026-10-17T17:06:47Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": ["REQ-517"],
+    "requirement_text": {},
+    "source_text": {
+      "slice": "REQ-517 slice 2a (grant admin plane), GH #2535. Tests only; lib/ and priv/ untouched (git diff -- lib priv is empty). 2b ACs 16 to 22 have no test here."
+    },
+    "related_handoff_ids": [
+      "d2535517-0517-4c02-9e11-000000000005",
+      "d2535517-0517-4c02-9e11-000000000007",
+      "d2535517-0517-4c02-9e11-000000000008"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/req517-scoped-grants-admin-plane.md",
+      "handoffs/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018/step-05-elixir-dev-2a.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018"
+  },
+  "task": {
+    "description": "Write the test spec and test code for REQ-517 PR 2a (design section 5/6 AC map, T-* ids), fix the existing tests the 2a change breaks, add a test for the writer-scan mix task. Not committed, not pushed."
+  },
+  "result": {
+    "status": "PASS_WITH_GAPS",
+    "summary": "TESTS WRITTEN, NOT EXECUTED. No mix process was started: (1) the machine mutex C:\\Users\\tvolo\\AppData\\Local\\Temp\\claude\\mixlock was held by another session from 21:24 QST (I acquired it once at 21:52 QST, then released it unused because free memory was 3.49 GB); (2) free physical memory stayed between 2.35 and 3.5 GB (threshold 4 GB) from 21:52 to 22:05 QST (samples quoted in memory_samples_kb). Per the brief nothing was run, no mutant was applied, nothing compiled. Hosted CI runs them. What WAS verified without mix: every touched test file parses and is formatter-clean under `Code.format_string!/2` at line_length 98 (a scratch script that reproduces `mix format --check-formatted` on 4 untouched already-formatted files: ok on all), and `git diff -- lib priv` is empty. NEW FILES (9 test files, 125 test cases by `test \"` count: tenant_role_scope_grants_test 48, service_principal_route_test 17, mint_service_principal_test 9, tenant_admin_guard_scoped_test 6, role_scope_grants_fk_test 9, retire_guard_test 9, group_member_self_add_test 4, check_role_scope_grants_writers_test 18, role_scope_grants_policy_keys_test 5) plus test/support/scoped_grants_fixture.ex and test/specs/REQ-517-2a.md (AC -> test map, M1..M20 mapping). EDITED existing tests: scope_grants_route_walk_test (T-RW1b function list, T-RW1c narrowed to insert_scoped only, new T-RW2c with a seeded writer route as the positive control), authorization_enforcement_test (TenantRoleScopeGrants registered in @routers and @mount_prefix at /tenant/role-scope-grants), tenant_auditor_routes_test (28 mounted routers; the grant routes and the flag route are auditor-403), token_preconditions_test (findings/1 fourth key service_principal_owner), role_scope_grants_migration_test T-M3 (e) (1 FK constraint now; an unknown node is refused by role_scope_grants_scope_node_id_fkey). CHECKED, NO EDIT NEEDED (static reading, not run): identity_test.exs and gh2552_token_issuer_test.exs (no exact-map equality on list_tokens items: only .token/.owner_active fields are read), tenant_scope_enforcement_test.exs (no assertion on the exact 'information' key set or on a count that a flagged owner would change), permission_matrix_test.exs (no new permission atom, golden untouched), support/tenant_fixture_test.exs and the stamp_*/backfill_exam_tenant_modules tests (they reference the version 20261016120001 as a named migration, none pins the manifest length or its last entry; grep of tenant_scoped_migrations() in tests found no count/last assertion), and every test that POSTs /groups/:id/members (all use a random Ecto.UUID.generate() caller id, so none adds the caller itself, hence no 409 self_grant_refused regression). UNVERIFIED BECAUSE NOT RUN, listed for TEST-RUNNER: migration_test.exs (the assert_raise RuntimeError on Ecto.Migrator.run; my role_scope_grants_fk_test.exs T-F4 asserts the same propagation with an exact message), the new mix task test, the held-lock tests T-R3/T-R4/T-Z5/T-P6 (pg_stat_activity wait on the current database), the T-A6/T-P2 byte-identical 403 comparisons (assumes the plug 403 and the handler 403 carry the same bytes), T-U6 (exact action set under resource_type role_scope_grant), T-E7 (static scan of lib/**/*.ex for the column name).",
+    "tests_run": false,
+    "memory_samples_kb": [4758588, 4739516, 3491580, 3484736, 3054568, 3335408, 3111960, 2710020, 2588064, 2405452, 2352448, 2472660, 2582220, 2631448, 2700392, 2579320, 2635324, 2653032, 2599328, 2602288, 2509224],
+    "mutex": "held by another session at 21:24:19 QST and again from 21:55 QST; I created and removed it once (21:52 to 21:53 QST) without running mix",
+    "files_created": [
+      "test/letflow/routers/tenant_role_scope_grants_test.exs",
+      "test/letflow/routers/service_principal_route_test.exs",
+      "test/letflow/identity/mint_service_principal_test.exs",
+      "test/letflow/identity/tenant_admin_guard_scoped_test.exs",
+      "test/letflow/identity/role_scope_grants_fk_test.exs",
+      "test/letflow/scope_node_paths/retire_guard_test.exs",
+      "test/letflow/routers/group_member_self_add_test.exs",
+      "test/mix/tasks/letflow.check_role_scope_grants_writers_test.exs",
+      "test/letflow/api/role_scope_grants_policy_keys_test.exs",
+      "test/support/scoped_grants_fixture.ex",
+      "test/specs/REQ-517-2a.md"
+    ],
+    "files_changed": [
+      "test/letflow/api/scope_grants_route_walk_test.exs",
+      "test/letflow/api/authorization_enforcement_test.exs",
+      "test/letflow/routers/tenant_auditor_routes_test.exs",
+      "test/letflow/identity/token_preconditions_test.exs",
+      "test/letflow/identity/role_scope_grants_migration_test.exs"
+    ],
+    "run_command_for_test_runner": "MIX_ENV=test timeout 540 mix test --warnings-as-errors test/letflow/routers/tenant_role_scope_grants_test.exs test/letflow/routers/service_principal_route_test.exs test/letflow/identity/mint_service_principal_test.exs test/letflow/identity/tenant_admin_guard_scoped_test.exs test/letflow/identity/role_scope_grants_fk_test.exs test/letflow/scope_node_paths test/letflow/routers/group_member_self_add_test.exs test/mix/tasks/letflow.check_role_scope_grants_writers_test.exs test/letflow/api/role_scope_grants_policy_keys_test.exs test/letflow/api/scope_grants_route_walk_test.exs test/letflow/api/authorization_enforcement_test.exs test/letflow/api/permission_matrix_test.exs test/letflow/routers/tenant_auditor_routes_test.exs test/letflow/routers/tenant_scope_enforcement_test.exs test/letflow/identity/token_preconditions_test.exs test/letflow/identity/role_scope_grants_migration_test.exs ; then mix letflow.check.test (the dead-default-argument grep; none of my helpers has a default argument)",
+    "implementation_findings": [
+      "FORMAT (CI static step `format --check-formatted` will FAIL): the REVIEWER cleanups left four lib files unformatted. `Code.format_string!/2` at line_length 98 changes lib/letflow/identity/scoped_grants.ex (line 428 `defp self?(:user, ...)` one-liner over 98 columns, and a stray blank line after the `self?(:group, ...)` clause near line 432), lib/letflow/routers/tenant_role_scope_grants.ex (a double blank line after `prefix/1` near line 60, and the `with` lines of handle_create and handle_make_tenant_wide at lines 65 and 76 over 98 columns), lib/letflow/routers/identity.ex (line 701 `ScopedGrants.record_self_grant_refused(info, ScopedGrants.actor_from_conn(conn), prefix(opts))` over 98 columns, and a double blank line at line 731). ELIXIR-DEV must run `mix format` on those three files. (priv/repo/migrations/20261018100002_*.exs shows as unformatted only under my script, which lacks the ecto_sql locals_without_parens; it is fine under the real formatter config.)",
+      "AUDIT SHAPE deviation (low): grant.made_tenant_wide after_state also carries \"scope_node_id\": null (row_state/2 reuses the row keys); design 3.11 lists id, principal_type, principal_id, role, tenant_wide, removed_scoped_ids, trace_id (+ credential). The test T-U3 asserts the design keys with exact values and tolerates only that one extra key; decide whether to drop the key or amend the design.",
+      "SCAN limit (low, undocumented): `mix letflow.check_role_scope_grants_writers` rule (iii) does not match a raw write written with escaped quotes in a plain string, e.g. UPDATE \\\"#{prefix}\\\".role_scope_grants (the qualifier alternative needs the opening quote directly after the keyword); the codebase's own style `~s|... \"#{schema}\".role_scope_grants|` IS caught. Not asserted either way.",
+      "HTTP reach of scope_tenant_admin: with the explicit counter a scoped TENANT_ADMIN create on a zero-row binding is ALLOWED (before-count 0 is never refused); the design 3.9 row 'scope_tenant_admin ... seeded zero-row binding: 409' no longer holds by the coordinator ruling. Tested as allowed (T-Z3b is the user-principal variant; the guard function itself is tested in tenant_admin_guard_scoped_test T-Z2)."
+    ],
+    "mutants": {
+      "measured": [],
+      "not_measured_reason": "no mix run was possible (mutex + memory, see summary). The 20 design mutants M1..M20 are mapped to killing tests in test/specs/REQ-517-2a.md. Concrete edits for TEST-DESIGN-VALIDATOR / TEST-RUNNER to apply and revert, with the failures I PREDICT (predictions, not measurements):",
+      "proposed": [
+        {"id": "M1", "edit": "lib/letflow/scope_node_paths.ex retire_live_node/2: call RoleScopeGrants.references_node?/2 BEFORE lock_node_row_for_update/2", "predicted_failing": "retire_guard_test T-R3 (the retire returns {:ok, node} or errors differently while the create holds the share lock)"},
+        {"id": "M2", "edit": "lib/letflow/scope_node_paths.ex lock_active_node_for_share!/2: return {:ok, node} for a retired node (drop the node_retired branch)", "predicted_failing": "retire_guard_test T-R4, lock_active_node_for_share! test, tenant_role_scope_grants_test T-V8"},
+        {"id": "M4", "edit": "lib/letflow/identity/scoped_grants.ex check_delete_rule!/2: first clause only for principal_type :group", "predicted_failing": "tenant_role_scope_grants_test T-L2"},
+        {"id": "M5", "edit": "lib/letflow/identity/scoped_grants.ex delete/3: use :counted instead of :explicit for count_before! and ensure_admins_remain!", "predicted_failing": "tenant_role_scope_grants_test T-Z1 (the delete returns 204)"},
+        {"id": "M7", "edit": "lib/letflow/identity/scoped_grants.ex self?(:group, ...) -> false", "predicted_failing": "tenant_role_scope_grants_test T-S2 and the group half of the token AC 9 test"},
+        {"id": "M9", "edit": "lib/letflow/routers/identity.ex handle_service_principal/2: drop require_oidc/1", "predicted_failing": "service_principal_route_test T-P2 token test (200 instead of 403)"},
+        {"id": "M10", "edit": "lib/letflow/identity.ex check_roles_held/5: when flagged, allowed = MapSet.new(roles)", "predicted_failing": "mint_service_principal_test T-E3"},
+        {"id": "M11", "edit": "lib/mix/tasks/letflow.check_role_scope_grants_writers.ex @name: drop the trailing \\b of RoleScopeGrant", "predicted_failing": "check_role_scope_grants_writers_test T-X1 (real tree flagged), both verbatim must-pass tests"},
+        {"id": "M13", "edit": "lib/letflow/identity/scoped_grants.ex parse_role/1: drop the PLATFORM_ADMIN exclusion", "predicted_failing": "tenant_role_scope_grants_test T-V1"},
+        {"id": "M16", "edit": "lib/letflow/identity.ex add_group_member/3: refuse_self? default true", "predicted_failing": "group_member_self_add_test T-M3 (and any IdP-sync / bind_on_login test adding the user itself)"},
+        {"id": "M18", "edit": "lib/letflow/identity/scoped_grants.ex check_delete_rule!/2: remove the :last_admin_binding_row clause", "predicted_failing": "tenant_role_scope_grants_test T-L6"},
+        {"id": "M20", "edit": "lib/letflow/identity/scoped_grants.ex with_credential/2: do not add credential", "predicted_failing": "tenant_role_scope_grants_test T-U1, T-U2, T-U3, T-S1 and the token AC 9 test"}
+      ]
+    },
+    "local_issue_id": null,
+    "artifacts_out": [
+      "test/specs/REQ-517-2a.md"
+    ],
+    "implementation_written": false
+  }
+}

@@ -57,12 +57,12 @@ defmodule Letflow.Routers.TenantRoleScopeGrants do
 
   defp prefix(conn), do: Keyword.fetch!(conn.assigns.scoped_opts, :prefix)
 
-
   # ── POST / ───────────────────────────────────────────────────────────────
 
   defp handle_create(conn) do
     with {:ok, attrs} <- ScopedGrants.parse_create(conn.body_params),
-         {:ok, view} <- ScopedGrants.create(attrs, ScopedGrants.actor_from_conn(conn), prefix(conn)) do
+         {:ok, view} <-
+           ScopedGrants.create(attrs, ScopedGrants.actor_from_conn(conn), prefix(conn)) do
       Response.created(conn, grant_map(view))
     else
       {:error, reason} -> error_response(conn, reason)
@@ -73,7 +73,12 @@ defmodule Letflow.Routers.TenantRoleScopeGrants do
 
   defp handle_make_tenant_wide(conn) do
     with {:ok, attrs} <- ScopedGrants.parse_make_tenant_wide(conn.body_params),
-         {:ok, result} <- ScopedGrants.make_tenant_wide(attrs, ScopedGrants.actor_from_conn(conn), prefix(conn)) do
+         {:ok, result} <-
+           ScopedGrants.make_tenant_wide(
+             attrs,
+             ScopedGrants.actor_from_conn(conn),
+             prefix(conn)
+           ) do
       Response.ok(conn, %{
         "id" => result.id,
         "tenant_wide" => true,
