@@ -59,7 +59,10 @@ from `prepare_child_activation/4`, BEFORE the child snapshot is created, so noth
   failures: the parent instance goes to ERROR, `error_type: :subprocess_interface_violation`,
   `details.code: "SUB_PROCESS_PIN_UNRESOLVED"`, no child, the gate task stays pending.
 
-This matches `create/2`, which refuses to start an instance whose pins cannot be resolved.
+Pins are resolved for the WHOLE child graph, so an unresolvable pin anywhere in it (including a
+branch that would never execute, and any SUB_PROCESS `module_ref` node, since the default
+`module_lookup` always answers not-found) blocks the parent's start, exactly as for a top-level
+instance of that definition under `create/2`. This matches `create/2`, which refuses to start an instance whose pins cannot be resolved.
 
 ## 5. Replay / reconstruction
 
@@ -87,5 +90,9 @@ migration is not needed.
   #2695 lock order (parent group first, then the child) is unchanged. Resolution runs inside
   `prepare_child_activation/4`, which is already documented as read-only in the lock-order
   statement-log test.
+* TOCTOU: pins are read without a lock, as in `create/2`. Each run re-checks the version in
+  `Scripts.Runtime.prepare_run/3` (not trusted from the pin alone): a version revoked after the
+  pin was taken, or a sha256 / hook-kind mismatch, is refused; a version merely retired keeps
+  running for instances already pinned to it (by design, the same as for top-level instances).
 * A child can resolve a script/catalog entry the parent could not; that is correct (visibility is
   the tenant's, the same as a top-level start of that definition).

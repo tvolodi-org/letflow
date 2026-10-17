@@ -427,6 +427,41 @@ defmodule Letflow.Engine.ServiceTaskSubprocessCascadeTest do
       assert "SUB_PROCESS_COMPLETED" in snapshot(schema, middle_id).event_types
     end
 
+    test "the cascade recurses with a script-ended grandchild (GH #2694): real child pins, grandparent wakes" do
+      t = F.tenant!("gh2694-gp")
+      schema = t.schema_name
+
+      rule =
+        F.published!(
+          schema,
+          "k#{System.unique_integer([:positive])}",
+          "return { total = 7 }",
+          script_manifest()
+        )
+
+      child_name = unique("c2694-gc")
+      middle_name = unique("c2694-mid")
+      create_active!(schema, child_name, child_graph({:script, rule.key, rule.version}))
+      create_active!(schema, middle_name, middle_graph(child_name))
+      grand = create_active!(schema, unique("c2694-gp"), parent_graph(middle_name))
+
+      grand_id = start_instance!(schema, grand)
+      middle_id = child_of!(schema, grand_id)
+      complete!(schema, pending_task!(schema, middle_id))
+      child_id = child_of!(schema, middle_id)
+
+      complete!(schema, pending_task!(schema, child_id))
+      assert {_row, {:ok, :applied}} = F.run_next!(schema)
+
+      assert Repo.get!(InstanceProjection, child_id, prefix: schema).status == :completed
+      assert Repo.get!(InstanceProjection, middle_id, prefix: schema).status == :completed
+
+      grandparent = snapshot(schema, grand_id)
+      assert grandparent.status == :active
+      assert grandparent.current_nodes == ["after"]
+      assert "SUB_PROCESS_COMPLETED" in grandparent.event_types
+    end
+
     test "a duplicate apply does not cascade twice" do
       t = F.tenant!("gh2648-dup")
       schema = t.schema_name

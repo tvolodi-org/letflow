@@ -26,6 +26,9 @@ defmodule Letflow.Engine.SubProcessChildPinsTest do
   alias Letflow.Engine.Task, as: EngineTask
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.Repo
+  alias Letflow.ServiceCatalog
+  alias Letflow.ServiceCatalog.Entry
+  alias Letflow.ServiceCatalog.Version
   alias Letflow.Support.ScriptTaskFixture, as: F
 
   setup do
@@ -159,6 +162,9 @@ defmodule Letflow.Engine.SubProcessChildPinsTest do
     pins
   end
 
+  defp count(schema, source),
+    do: Repo.aggregate(from(r in source), :count, prefix: schema)
+
   defp projection_count(schema),
     do: Repo.aggregate(InstanceProjection, :count, :instance_id, prefix: schema)
 
@@ -234,10 +240,78 @@ defmodule Letflow.Engine.SubProcessChildPinsTest do
       rule = publish!(schema, "k#{System.unique_integer([:positive])}")
 
       child_name = unique("c2694-child")
-      create_active!(schema, child_name, F.human_then_script_graph(rule.key, rule.version))
+
+      child_def =
+        create_active!(schema, child_name, F.human_then_script_graph(rule.key, rule.version))
+
       parent = create_active!(schema, unique("c2694-parent"), parent_graph(child_name))
 
       F.retire_raw!(schema, rule)
+      before_count = projection_count(schema)
+      events_before = count(schema, "events")
+      snapshots_before = count(schema, "instance_definition_snapshots")
+
+      assert {:error,
+              {:activation_failed,
+               {:subprocess_interface_violation, {:pin_resolution_failed, _reason}}}} =
+               Engine.create(start_attrs(parent), prefix: schema)
+
+      assert projection_count(schema) == before_count
+      assert count(schema, "events") == events_before
+      # create/2 snapshots the PARENT's definition before child preparation (pre-existing: an
+      # orphan snapshot is left by any later activation refusal); the refused child adds none.
+      snaps =
+        Repo.all(from(r in "instance_definition_snapshots", select: r.definition_id),
+          prefix: schema
+        )
+
+      assert length(snaps) - snapshots_before <= 1
+      assert Enum.all?(snaps, &(Ecto.UUID.load!(&1) != child_def.id))
+    end
+
+    test "a retired catalog entry in the child definition refuses the child (catalog pin)" do
+      t = F.tenant!("gh2694-fail-catalog")
+      schema = t.schema_name
+      service_id = unique("c2694-svc")
+
+      on_exit(fn ->
+        Repo.delete_all(from(v in Version, where: v.service_id == ^service_id))
+        Repo.delete_all(from(e in Entry, where: e.service_id == ^service_id))
+      end)
+
+      assert {:ok, _} =
+               ServiceCatalog.register(%{
+                 service_id: service_id,
+                 endpoint_url: "https://example.test/c2694",
+                 required_auth: :NONE,
+                 timeout_ms: 5_000,
+                 scope: :global
+               })
+
+      child_name = unique("c2694-child")
+
+      child_graph = %{
+        "nodes" => [
+          %{"id" => "start", "node_type" => "START"},
+          %{"id" => "ct", "node_type" => "HUMAN_TASK", "attributes" => %{"role" => "role-x"}},
+          %{
+            "id" => "svc",
+            "node_type" => "SERVICE_TASK",
+            "attributes" => %{"service_id" => service_id, "timeout_ms" => 5_000}
+          },
+          end_node()
+        ],
+        "edges" => [
+          %{"id" => "c0", "source" => "start", "target" => "ct"},
+          %{"id" => "c1", "source" => "ct", "target" => "svc"},
+          %{"id" => "c2", "source" => "svc", "target" => "end"}
+        ]
+      }
+
+      create_active!(schema, child_name, child_graph)
+      parent = create_active!(schema, unique("c2694-parent"), parent_graph(child_name))
+
+      assert {:ok, _} = ServiceCatalog.retire(service_id)
       before_count = projection_count(schema)
 
       assert {:error,

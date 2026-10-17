@@ -379,10 +379,7 @@ defmodule Letflow.Engine.SubProcess do
   # registry of that prefix), never inherited from the parent. Read-only; takes no lock.
   defp resolve_child_pins(graph, definition, prefix) do
     with {:ok, tenant_id} <- child_tenant_id(prefix),
-         lookup = %{
-           PinLookup.build(tenant_id)
-           | script_lookup: Letflow.Scripts.Runtime.pin_lookup(prefix)
-         },
+         lookup = PinLookup.build(tenant_id, prefix),
          {:ok, pins, _variable_json_schema} <- PinResolver.resolve(graph, definition, lookup, []) do
       {:ok, pins}
     else
@@ -504,7 +501,7 @@ defmodule Letflow.Engine.SubProcess do
         child_instance_id,
         definition,
         child_initial_state.variables,
-        Map.get(prepared, :pins, []),
+        prepared.pins,
         parent_instance_id,
         parent_token_record_id,
         parent_node_id,
