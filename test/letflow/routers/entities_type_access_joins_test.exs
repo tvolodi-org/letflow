@@ -7,7 +7,7 @@ defmodule Letflow.Routers.EntitiesTypeAccessJoinsTest do
 
   A type-denied type and a nonexistent type must be indistinguishable on every
   route (INV-5): same status, same body bytes, same headers (request id and date
-  masked), same number of database queries (T-22). Refusal shape per route:
+  masked), the same gate reads: one denied-set read and one existence read per distinct type (T-22). Refusal shape per route:
   /query 200 `{"items": [], "next_cursor": null}`; export and aggregate 404.
 
   Spec: `test/specs/GH2700-type-access.md`. Design:

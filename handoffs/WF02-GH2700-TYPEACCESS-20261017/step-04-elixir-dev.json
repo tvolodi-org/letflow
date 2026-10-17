@@ -8,7 +8,7 @@
   "file": "handoffs/WF02-GH2700-TYPEACCESS-20261017/step-04-elixir-dev.json",
   "created_at": "2026-10-17T10:40:00Z",
   "started_at": "2026-10-17T10:40:30Z",
-  "completed_at": "2026-10-17T10:22:00Z",
+  "completed_at": "2026-10-17T11:23:09Z",
   "status": "COMPLETED",
   "priority": "HIGH",
   "context": {
@@ -18,8 +18,12 @@
     "source_text": {
       "GH#2700": "TypeAccess on primary and every join target (/query, export, aggregate)."
     },
-    "related_handoff_ids": ["d3b9e2a1-2700-4c10-9a00-000000000003"],
-    "artifacts_in": ["lib/letflow/design/gh2700-type-access-joins-export-aggregate.md"],
+    "related_handoff_ids": [
+      "d3b9e2a1-2700-4c10-9a00-000000000003"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/gh2700-type-access-joins-export-aggregate.md"
+    ],
     "owned_modules": [
       "Letflow.Entities.RequestAccess",
       "Letflow.Entities.TypeAccess",
@@ -43,7 +47,12 @@
       "lib/letflow/entities/query/compiler.ex",
       "lib/letflow/routers/entities.ex"
     ],
-    "untouched_confirmed": ["lib/letflow/api/authorization.ex", "effective.golden", "lib/letflow/modules/catalog.ex", "config/"],
+    "untouched_confirmed": [
+      "lib/letflow/api/authorization.ex",
+      "effective.golden",
+      "lib/letflow/modules/catalog.ex",
+      "config/"
+    ],
     "deviations": [
       "request_entity_types/2 also fails closed (:request_clause_unwalked) for a non-binary/absent primary entity_type, matching field_refs/3.",
       "RequestGuard.entity_type_class/1 added as a public accessor so T-15 can classify without reaching into a module attribute; design named only the table.",
