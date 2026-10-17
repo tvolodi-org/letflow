@@ -55,8 +55,8 @@ defmodule Letflow.Secrets do
   # exists today; this keeps a future one from borrowing the key.
   @reserved_namespace "platform"
 
-  @name_format ~r/^[a-z0-9_-]+$/
-  @reference_format ~r/^sec:\/\/tenant\/([a-z0-9_-]+)\/([a-z0-9_-]+)\/([a-z0-9_-]+)(?:#(\d+))?$/
+  @name_format ~r/^[a-z0-9_-]+\z/
+  @reference_format ~r/^sec:\/\/tenant\/([a-z0-9_-]+)\/([a-z0-9_-]+)\/([a-z0-9_-]+)(?:#(\d+))?\z/
 
   # ===========================================================================
   # put/2 (design §3.1)

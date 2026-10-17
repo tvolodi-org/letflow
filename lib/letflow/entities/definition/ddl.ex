@@ -104,14 +104,17 @@ defmodule Letflow.Entities.Definition.DDL do
           | {:unsupported_index_field_type,
              index_name: String.t(), field: String.t(), type: Definition.field_type()}
 
-  @identifier_format_regex ~r/^[a-z][a-z0-9_]{0,63}$/
+  # GH #2635: end-anchor with \z, not $ -- in PCRE `$` also matches just before a
+  # final newline, so a name with a trailing newline would pass.
+  @identifier_format_regex ~r/^[a-z][a-z0-9_]{0,63}\z/
 
   # REQ-301 defence-in-depth: the exact two SQL-expression shapes
   # `localized_text_generated_expression/3` below ever emits, with `name`/
   # `locale` constrained to the same formats Validator Rules 1/10 already
   # enforce (`^[a-z][a-z0-9_]{0,63}$` / `^[a-z]{2,8}$`). See
-  # `valid_generated_as_expression?/1`.
-  @localized_text_generated_as_regex ~r/^(?:field_values->'[a-z][a-z0-9_]{0,63}'->>'[a-z]{2,8}'|to_tsvector\('simple', coalesce\(field_values->'[a-z][a-z0-9_]{0,63}'->>'[a-z]{2,8}', ''\)\))$/
+  # `valid_generated_as_expression?/1`. End-anchored with \z (GH #2635), not $:
+  # `$` would accept a trailing newline; the emitted expressions never have one.
+  @localized_text_generated_as_regex ~r/^(?:field_values->'[a-z][a-z0-9_]{0,63}'->>'[a-z]{2,8}'|to_tsvector\('simple', coalesce\(field_values->'[a-z][a-z0-9_]{0,63}'->>'[a-z]{2,8}', ''\)\))\z/
 
   @doc """
   Generates the full `CREATE TABLE` DDL text for `definition`'s per-entity-type
@@ -392,7 +395,7 @@ defmodule Letflow.Entities.Definition.DDL do
   @doc """
   Whether `value` is a safe SQL identifier -- matches the same format
   `Letflow.Entities.Definition.Validator` already enforces on names
-  (`~r/^[a-z][a-z0-9_]{0,63}$/`). This module does not import or call the
+  (`~r/^[a-z][a-z0-9_]{0,63}\\z/`). This module does not import or call the
   Validator's private regex; it defines its own equivalent public check, so
   this module's safety property does not depend on the Validator's private
   implementation detail staying accessible or unchanged.

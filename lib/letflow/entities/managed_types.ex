@@ -62,7 +62,9 @@ defmodule Letflow.Entities.ManagedTypes do
   # Two-int4 advisory-lock class id; see the moduledoc for the other namespaces.
   @create_lock_namespace 496_001
 
-  @managed_name_format ~r/^[a-z][a-z0-9_]{0,63}$/
+  # GH #2635: end-anchor with \z, not $ -- in PCRE `$` also matches just before a
+  # final newline, so a name with a trailing newline would pass.
+  @managed_name_format ~r/^[a-z][a-z0-9_]{0,63}\z/
 
   defmodule Owner do
     @moduledoc """

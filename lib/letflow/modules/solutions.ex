@@ -67,7 +67,7 @@ defmodule Letflow.Modules.Solutions do
         }
 
   # Only lower-case alphanumeric, underscore, and hyphen — prevents path traversal.
-  @id_regex ~r/^[a-z0-9_-]+$/
+  @id_regex ~r/^[a-z0-9_-]+\z/
 
   @doc """
   Reads and validates `priv/solutions/<solution_id>.json`.

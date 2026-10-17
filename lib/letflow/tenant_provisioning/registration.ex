@@ -40,7 +40,7 @@ defmodule Letflow.TenantProvisioning.Registration do
   # every write, not just by the call graph (today, schema_name_for_tenant/1 is the
   # only writer -- this is defence in depth against a future second writer, e.g. S3's
   # instance engine or S4's API surface, ever bypassing that derivation).
-  @schema_name_format ~r/^tenant_[0-9a-f]{32}$/
+  @schema_name_format ~r/^tenant_[0-9a-f]{32}\z/
 
   @doc """
   Defensive structural changeset for insert/upsert. Casts and requires
