@@ -489,6 +489,41 @@ backstop). Because a service completion cannot stay pending, the strict manifest
 `docs/runbooks/module-write-handlers-manifest-hash.md` and
 `docs/runbooks/service-task-entity-write-refusal.md`.
 
+The fence is the stamped snapshot, not the node type. A script-bound node can now write module data, so
+the separation-of-duties and publish rules of decision 0053 D6 apply to such a script: a script
+computing stock quantities needs the same publish-time review (`ScriptsWrite` / `ScriptsPublish`,
+`scripts.sod` strict or solo_audited, the stored test cases that must pass before publish) as any
+other script; nothing in this PR relaxes or waives them.
+
+Script-bound conditions (advisor ruling; each is visible in code and covered by a test):
+
+1. A script cannot affect handler selection. Module, handler and line come from the stamped, hash-
+   verified snapshot (`Engine.resolve_service_entity_plan/5` -> `HandlerWrites.authorize_module_writes/2`
+   and `StepWrites.append_handler_calls/6`, `HandlerWrites.build_call/4`/`invoke/4`: `resolve/1` reads
+   the PINNED line); the ordinal is minted in `HandlerWrites.create/3` (`next_ordinal/1`) and the key in
+   `StepSource.idempotency_key/1`. Test: `module_write_service_task_test.exs` "COND 1: script output
+   keys named module/handler/ordinal/... are ignored".
+2. A script output only fills declared `var` arguments (`HandlerWrites.resolve_args/3`, `put_arg/4`:
+   argument names the handler did not declare are refused; a `var` naming a reserved `_sys` key resolves to nothing) and the handler validates them
+   (`test/support/modules/fixture_ledger/handlers.ex`: string item, non-negative integer quantity).
+   Undeclared and `_sys` output keys never get that far: the closed output schema rejects the run
+   (`ScriptTaskDispatcher`, outcome `output_invalid`). Tests: "COND 2: a script output violating the
+   handler's validation (negative quantity)", "... (string quantity)", "... undeclared output keys and
+   `_sys` keys".
+3. The write goes through the same path as every other caller, outside the Lua process, after the
+   script returned: `Engine.apply_script_task_result/3` -> `maybe_service_entity_writes/5` ->
+   `EntityPort.multi/3` -> `StepWrites.multi/3` -> `HandlerWrites.build_call/4`, actor
+   `EventStore.platform_actor_id()`, key `sys:step:<dispatch_id>:<line>:<ordinal>`. Tests:
+   `lua_host_no_handler_access_test.exs` (no module of `lib/letflow/engine/lua/**` or
+   `lib/letflow/scripts/**` names `HandlerWrites`, `HandlerContext`, `write_handler`,
+   `write_handler_in` or `call_write_handler`; non-vacuity cases) and the script-route success test
+   "activation accepts the stamped script-bound node; the run commits the handler writes" (sentinel
+   actor, dispatch key, activator).
+
+If a reviewer finds any of the three not holding, the fallback is HTTP-only: drop the script clause
+from `Definitions.ModuleWrites` (one line) and refuse a script-bound node's `module_writes` in
+`resolve_service_entity_plan/5`.
+
 Review outcome (recorded, not a sign-off): SECURITY-REVIEWER returned PASS_WITH_FINDINGS and RULED that
 script-bound SERVICE_TASK nodes are allowed (consistent with 0053/0054 D2: the module, handler, arguments
 and ordinal come from the stamped snapshot, a script output only feeds a declared `var` argument). REVIEWER

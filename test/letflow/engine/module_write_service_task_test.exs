@@ -928,9 +928,15 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
 
     # A stamped, script-bound definition: the stamp is the module's own install stamp (the same
     # owner a pack install would use), the handler line reads `quantity` from the script output.
-    defp script_definition!(schema, activator_user, module_lines) do
+    defp script_definition!(
+           schema,
+           activator_user,
+           module_lines,
+           source \\ F.doubling_source(),
+           manifest \\ F.closed_manifest()
+         ) do
       key = "k#{System.unique_integer([:positive])}"
-      rule = F.published!(schema, key, F.doubling_source(), F.closed_manifest())
+      rule = F.published!(schema, key, source, manifest)
 
       graph =
         update_in(F.script_graph(key, rule.version), ["nodes"], fn nodes ->
@@ -1053,6 +1059,135 @@ defmodule Letflow.Engine.ModuleWriteServiceTaskTest do
       assert refused.after_state["detail"] == "value_too_large"
       assert refused.after_state["dispatch_id"] == row.id
       refute inspect(refused.after_state) =~ "bbbbbbbb"
+    end
+
+    # ---- advisor conditions for the script-bound route (D-R.18) ----------------------------
+
+    # Condition 1: a script cannot affect handler selection. The script returns (declared, so they
+    # merge into the instance variables) keys NAMED like every field the platform derives; none of
+    # them reaches the module, handler, ordinal, line index or idempotency key of the write.
+    test "COND 1: script output keys named module/handler/ordinal/... are ignored; the pinned line decides",
+         %{schema: schema, activator: activator} do
+      decoys = %{
+        "module" => "string",
+        "handler" => "string",
+        "handler_module" => "string",
+        "ordinal" => "integer",
+        "write_ordinal" => "integer",
+        "line_index" => "integer"
+      }
+
+      manifest =
+        F.closed_manifest()
+        |> update_in(["output_schema", "properties"], fn props ->
+          Enum.reduce(decoys, props, fn {name, type}, acc ->
+            Map.put(acc, name, %{"type" => type})
+          end)
+        end)
+        |> update_in(["output_schema", "required"], &(&1 ++ Map.keys(decoys)))
+
+      source = """
+      return { total = ctx.input.amount * 2, module = "fixture_ledger_other",
+               handler = "post_balance_only", handler_module = "fixture_ledger_other",
+               ordinal = 9, write_ordinal = 9, line_index = 7 }
+      """
+
+      definition = script_definition!(schema, activator, script_lines(), source, manifest)
+      instance_id = F.start!(schema, definition, %{"amount" => 2}, Ecto.UUID.generate())
+
+      assert {row, {:ok, :applied}} = F.run_next!(schema)
+
+      # non-vacuous: the decoys really are in the instance variables
+      variables = F.projection(schema, instance_id).variables
+      assert variables["module"] == "fixture_ledger_other"
+      assert variables["write_ordinal"] == 9
+
+      # ... and the committed writes are exactly the pinned line's
+      events = Fx.entity_events(schema)
+      assert length(events) == 2
+
+      for {event, ordinal} <- Enum.with_index(events, 1) do
+        assert event.idempotency_key == "sys:step:#{row.id}:0:#{ordinal}"
+        assert event.metadata["source.handler_module"] == "fixture_ledger"
+        assert event.metadata["source.handler_name"] == "post_entry"
+        assert event.metadata["source.write_ordinal"] == Integer.to_string(ordinal)
+        assert event.metadata["source.line_index"] == "0"
+        assert event.actor_id == EventStore.platform_actor_id()
+      end
+
+      assert [_] = Fx.records(schema, "fxl_ledger")
+      assert [_] = Fx.records(schema, "fxl_balance")
+    end
+
+    # Condition 2: the script output only fills declared `var` arguments and the handler validates
+    # them (non-negative integer quantity, string item).
+    test "COND 2: a script output violating the handler's validation (negative quantity) is refused, nothing written",
+         %{schema: schema, activator: activator} do
+      definition = script_definition!(schema, activator, script_lines())
+      instance_id = F.start!(schema, definition, %{"amount" => -2}, Ecto.UUID.generate())
+
+      assert {row, {:ok, :failed}} = F.run_next!(schema)
+
+      assert Fx.all_records(schema) == []
+      assert Fx.step_idempotency_count(schema) == 0
+      assert F.projection(schema, instance_id).status == :error
+      assert F.dlq_count(schema) == 1
+      assert [refused] = Fx.audit_rows(schema, "entity_write.refused")
+      assert refused.after_state["code"] == "validation_failed"
+      assert refused.after_state["detail"] == "handler_invalid_arguments"
+      assert refused.after_state["dispatch_id"] == row.id
+      # value-free: exactly the closed key set, no argument value
+      assert Map.keys(refused.after_state) |> Enum.sort() ==
+               ~w(code detail dispatch_id instance_id line_index node_id)
+    end
+
+    test "COND 2: a script output of the wrong type for the handler (string quantity) is refused",
+         %{schema: schema, activator: activator} do
+      manifest =
+        put_in(F.closed_manifest(), ["output_schema", "properties", "total"], %{
+          "type" => "string"
+        })
+
+      definition =
+        script_definition!(
+          schema,
+          activator,
+          script_lines(),
+          ~S|return { total = "many" }|,
+          manifest
+        )
+
+      instance_id = F.start!(schema, definition, %{"amount" => 2}, Ecto.UUID.generate())
+
+      assert {_row, {:ok, :failed}} = F.run_next!(schema)
+
+      assert Fx.all_records(schema) == []
+      assert F.projection(schema, instance_id).status == :error
+      assert [refused] = Fx.audit_rows(schema, "entity_write.refused")
+      assert refused.after_state["detail"] == "handler_invalid_arguments"
+      refute inspect(refused.after_state) =~ "many"
+    end
+
+    test "COND 2: undeclared output keys and `_sys` keys never reach a handler: the run is rejected, nothing written",
+         %{schema: schema, activator: activator} do
+      for {label, source} <- [
+            {"undeclared", ~S|return { total = 4, undeclared_extra = 1 }|},
+            {"sys", ~S|return { total = 4, ["_sys.forged"] = "x" }|}
+          ] do
+        definition =
+          script_definition!(schema, activator, script_lines(), source, F.closed_manifest())
+
+        instance_id = F.start!(schema, definition, %{"amount" => 2}, Ecto.UUID.generate())
+
+        assert {row, {:ok, :failed}} = F.run_next!(schema), label
+        done = F.reload(schema, row)
+        assert done.status == "failed", label
+        assert done.outcome == "output_invalid", label
+        assert F.projection(schema, instance_id).status == :error, label
+      end
+
+      assert Fx.all_records(schema) == []
+      assert Fx.entity_events(schema) == []
     end
   end
 end
