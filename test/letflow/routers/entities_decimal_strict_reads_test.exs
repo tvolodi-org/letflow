@@ -21,6 +21,7 @@ defmodule Letflow.Routers.EntitiesDecimalStrictReadsTest do
   alias Letflow.Identity.User
   alias Letflow.TenantFixture
   alias Letflow.TenantProvisioning
+  alias Letflow.TenantProvisioning.ColumnPromotion
 
   defp dispatch(conn), do: Letflow.Router.call(conn, Letflow.Router.init([]))
 
@@ -66,6 +67,7 @@ defmodule Letflow.Routers.EntitiesDecimalStrictReadsTest do
       Identity.create_token(user.id, %{roles: roles, expires_at: nil}, prefix: tenant.schema_name)
 
     ctx = %{
+      tenant_id: tenant.tenant_id,
       schema_name: tenant.schema_name,
       slug: tenant.tenant.slug,
       plaintext: plaintext,
@@ -106,11 +108,38 @@ defmodule Letflow.Routers.EntitiesDecimalStrictReadsTest do
     ctx
   end
 
-  defp seed_active!(ctx, name, fields) do
+  # A second token (a new user) holding `roles` in the same tenant.
+  defp with_role(ctx, roles) do
+    user =
+      %User{}
+      |> Ecto.Changeset.change(%{
+        username: "gh2654r-role-#{Ecto.UUID.generate()}",
+        display_name: "GH-2654 role user",
+        email: "gh2654r-role-#{Ecto.UUID.generate()}@example.com",
+        password_hash: "__NO_PASSWORD_SET__",
+        status: :active,
+        auth_source: :internal
+      })
+      |> Repo.insert!(prefix: ctx.schema_name)
+
+    {:ok, %{plaintext: plaintext}} =
+      Identity.create_token(user.id, %{roles: roles, expires_at: nil}, prefix: ctx.schema_name)
+
+    %{ctx | plaintext: plaintext, user_id: user.id}
+  end
+
+  defp seed_active!(ctx, name, fields, foreign_keys \\ []) do
+    definition = %{name: name, display_name: String.capitalize(name), fields: fields}
+
+    definition =
+      if foreign_keys == [],
+        do: definition,
+        else: Map.put(definition, :foreign_keys, foreign_keys)
+
     {:ok, _} =
       Definitions.create_definition(
         %{
-          definition: %{name: name, display_name: String.capitalize(name), fields: fields},
+          definition: definition,
           created_by: ctx.user_id
         },
         ctx.schema_name
@@ -269,9 +298,16 @@ defmodule Letflow.Routers.EntitiesDecimalStrictReadsTest do
       conn = query(ctx, %{"entity_type" => "vault"})
       assert conn.status == 200, conn.resp_body
       assert [%{"field_values" => values}] = body_of(conn)["items"]
-      assert values["qty"] == "1.50"
-      refute inspect(values) =~ "99"
-      refute values["secret"] == "99.90"
+      assert values == %{"qty" => "1.50", "secret" => "__field_redacted__"}
+      refute conn.resp_body =~ "99"
+
+      # export is default-redacted for the role that holds it (TENANT_ADMIN)
+      admin = with_role(ctx, ["TENANT_ADMIN"])
+      exported = export(admin, "vault")
+      assert exported.status == 200, exported.resp_body
+      assert [%{"field_values" => exp_values}] = body_of(exported)["records"]
+      assert exp_values == %{"qty" => "1.50", "secret" => "__field_redacted__"}
+      refute exported.resp_body =~ "99"
     end
   end
 
@@ -420,7 +456,7 @@ defmodule Letflow.Routers.EntitiesDecimalStrictReadsTest do
         [ts, json] = String.split(rest, ":", parts: 2)
         [_value | tail] = Jason.decode!(json)
 
-        for bad <- ["abc", "1; DROP", "", "NaN", "1e", "--1"] do
+        for bad <- ["abc", "1; DROP", "", "NaN", "1e", "--1", "zz-tampered-9"] do
           tampered =
             Base.url_encode64(head <> "EQ:" <> ts <> ":" <> Jason.encode!([bad | tail]),
               padding: false
@@ -435,6 +471,8 @@ defmodule Letflow.Routers.EntitiesDecimalStrictReadsTest do
             })
 
           assert conn.status == 400, "#{type} #{inspect(bad)} -> #{conn.status} #{conn.resp_body}"
+
+          if bad != "", do: refute(conn.resp_body =~ bad, "the tampered value was echoed")
         end
       end
     end
@@ -504,6 +542,459 @@ defmodule Letflow.Routers.EntitiesDecimalStrictReadsTest do
         })
 
       assert [%{"values" => %{"sum_amount" => "5.0"}}] = body_of(conn)["results"]
+    end
+  end
+
+  # ── review batch for 098d1e58 ───────────────────────────────────────────────
+
+  defp promote!(ctx, entity_type, attribute, pg_type, opts \\ []) do
+    column_spec =
+      case Keyword.get(opts, :references_entity) do
+        nil -> %{pg_type: pg_type, nullable: true}
+        ref -> %{pg_type: pg_type, nullable: true, references_entity: ref}
+      end
+
+    {:ok, [row]} =
+      TenantProvisioning.register_column_promotion(entity_type, attribute, column_spec, [
+        ctx.tenant_id
+      ])
+
+    {:ok, %{status: "ddl_applied"}} = TenantProvisioning.run_column_promotion(row.id)
+
+    on_exit(fn ->
+      Repo.delete_all(from(cp in ColumnPromotion, where: cp.tenant_id == ^ctx.tenant_id))
+    end)
+
+    :ok
+  end
+
+  defp strict_decimal(name, extra \\ %{}) do
+    Map.merge(
+      %{
+        name: name,
+        type: :decimal,
+        decimal_precision: 10,
+        decimal_scale: 2,
+        decimal_strict: true,
+        queried: true
+      },
+      extra
+    )
+  end
+
+  describe "joined rows (review 1)" do
+    setup do
+      ctx = tenant_ctx("gh2654r-join")
+      promote!(ctx, "ledger", "qty", "numeric(10, 2)")
+
+      seed_active!(
+        ctx,
+        "line",
+        [
+          strict_decimal("lqty"),
+          %{
+            name: "lamount",
+            type: :decimal,
+            decimal_precision: 10,
+            decimal_scale: 2,
+            queried: true
+          },
+          %{name: "ledger_id", type: :string}
+        ],
+        [%{name: "line_fk", field: "ledger_id", references_entity: "ledger"}]
+      )
+
+      promote!(ctx, "line", "ledger_id", "uuid", references_entity: "ledger")
+
+      seed_active!(
+        ctx,
+        "tag",
+        [%{name: "label", type: :string, queried: true}, %{name: "ledger_id", type: :string}],
+        [%{name: "tag_fk", field: "ledger_id", references_entity: "ledger"}]
+      )
+
+      promote!(ctx, "tag", "ledger_id", "uuid", references_entity: "ledger")
+
+      ledger_id = insert!(ctx, "ledger", %{"qty" => "2.5", "hidden" => "3", "note" => "n"})
+
+      line_id =
+        insert!(ctx, "line", %{"lqty" => "4", "lamount" => 1.5, "ledger_id" => ledger_id})
+
+      tag_id = insert!(ctx, "tag", %{"label" => "t", "ledger_id" => ledger_id})
+
+      # legacy JSON numbers under the strict fields (unreachable by the write path)
+      force_stored!(ctx, "ledger", ledger_id, %{"qty" => 2.5, "hidden" => 3, "note" => "n"})
+
+      force_stored!(ctx, "line", line_id, %{
+        "lqty" => 4,
+        "lamount" => 1.5,
+        "ledger_id" => ledger_id
+      })
+
+      %{ctx: ctx, ledger_id: ledger_id, line_id: line_id, tag_id: tag_id}
+    end
+
+    @joins [
+      %{"entity_type" => "line", "fk" => "line_fk"},
+      %{"entity_type" => "tag", "fk" => "tag_fk"}
+    ]
+
+    test "primary and each joined type render by their OWN definition", %{ctx: ctx} do
+      conn = query(ctx, %{"entity_type" => "ledger", "join" => @joins})
+      assert conn.status == 200, conn.resp_body
+      assert [item] = body_of(conn)["items"]
+
+      assert item["primary"]["field_values"]["qty"] == "2.50"
+      assert item["primary"]["field_values"]["hidden"] == "3.00"
+      # joined strict field: padded string
+      assert item["line"]["field_values"]["lqty"] == "4.00"
+      # joined NON-strict twin: the stored number, unchanged
+      assert item["line"]["field_values"]["lamount"] == 1.5
+      # joined type with no decimal field: untouched
+      assert item["tag"]["field_values"]["label"] == "t"
+    end
+
+    test "export with a join renders the primary side", %{ctx: ctx} do
+      conn = request(:post, "/api/v1/entities/records/ledger/export", ctx, %{"join" => @joins})
+      assert conn.status == 200, conn.resp_body
+
+      assert [%{"field_values" => %{"qty" => "2.50", "hidden" => "3.00"}}] =
+               body_of(conn)["records"]
+    end
+  end
+
+  describe "promoted per-type column (review 2)" do
+    setup do
+      ctx = tenant_ctx("gh2654r-promoted")
+      promote!(ctx, "ledger", "qty", "numeric(10, 2)")
+      {:ok, table} = TenantProvisioning.table_name_for_entity_type("ledger")
+      assert TenantProvisioning.entity_table_exists?(ctx.schema_name, table)
+      %{ctx: ctx}
+    end
+
+    test "the allowlist treats qty as a promoted typed column (non-vacuous)", %{ctx: ctx} do
+      {:ok, allowlist} = Letflow.Entities.Query.Allowlist.load("ledger", ctx.schema_name)
+      assert %{source: :typed_column, type: :decimal, decimal_strict: true} = allowlist["qty"]
+      assert allowlist["qty"].decimal_scale == 2
+    end
+
+    test "filters coerce exactly on the typed column", %{ctx: ctx} do
+      insert!(ctx, "ledger", %{"qty" => "2.50"})
+      insert!(ctx, "ledger", %{"qty" => "9"})
+
+      assert qtys(filter_ledger(ctx, "eq", "2.5")) == ["2.50"]
+      assert qtys(filter_ledger(ctx, "gt", "2.4999")) == ["2.50", "9.00"]
+      assert filter_ledger(ctx, "eq", 2.5).status == 422
+      assert filter_ledger(ctx, "in", ["2.5", 1.5]).status == 422
+      assert qtys(filter_ledger(ctx, "in", ["2.5", 9])) == ["2.50", "9.00"]
+    end
+
+    test "the per-type row is the one read: a planted legacy number renders padded", %{ctx: ctx} do
+      id = insert!(ctx, "ledger", %{"qty" => "1.00"})
+      force_stored!(ctx, "ledger", id, %{"qty" => 2.5, "hidden" => 3})
+
+      conn = query(ctx, %{"entity_type" => "ledger"})
+
+      assert [%{"field_values" => %{"qty" => "2.50", "hidden" => "3.00"}}] =
+               body_of(conn)["items"]
+    end
+
+    test "sum over the promoted column is exact and padded", %{ctx: ctx} do
+      for _ <- 1..2 do
+        id = insert!(ctx, "ledger", %{"qty" => "2.50"})
+        force_stored!(ctx, "ledger", id, %{"qty" => 2.5})
+      end
+
+      conn =
+        aggregate(ctx, %{
+          "entity_type" => "ledger",
+          "aggregates" => [
+            %{"fn" => "sum", "field" => "qty"},
+            %{"fn" => "max", "field" => "qty"}
+          ]
+        })
+
+      assert [%{"values" => %{"sum_qty" => "5.00", "max_qty" => "2.50"}}] =
+               body_of(conn)["results"]
+    end
+
+    test "a keyset page over the promoted column orders numerically", %{ctx: ctx} do
+      for q <- ["2.50", "10.00", "0.10", "7.00"], do: insert!(ctx, "ledger", %{"qty" => q})
+
+      page = fn cursor ->
+        conn =
+          query(ctx, %{
+            "entity_type" => "ledger",
+            "sort" => [%{"field" => "qty", "dir" => "asc"}],
+            "page_size" => 3,
+            "cursor" => cursor
+          })
+
+        assert conn.status == 200, conn.resp_body
+        body = body_of(conn)
+        {Enum.map(body["items"], & &1["field_values"]["qty"]), body["next_cursor"]}
+      end
+
+      {p1, c1} = page.(nil)
+      {p2, c2} = page.(c1)
+      assert p1 ++ p2 == ["0.10", "2.50", "7.00", "10.00"]
+      assert c2 == nil
+    end
+  end
+
+  describe "write responses (review 3)" do
+    test "a delete returns the planted legacy number rendered; an update's body cannot carry one" do
+      ctx = tenant_ctx("gh2654r-wr")
+      id = insert!(ctx, "ledger", %{"qty" => "1.00", "note" => "a"})
+      force_stored!(ctx, "ledger", id, %{"qty" => 2.5, "note" => "a"})
+
+      # update replaces field_values wholesale and the strict write path refuses a float, so
+      # a legacy number can never appear in an update RESPONSE (nor a create response); the
+      # renderer still runs and leaves the note-only body untouched.
+      updated =
+        request(:put, "/api/v1/entities/records/ledger/#{id}", ctx, %{
+          "field_values" => %{"note" => "b"}
+        })
+
+      assert updated.status == 200, updated.resp_body
+      assert body_of(updated)["field_values"] == %{"note" => "b"}
+
+      id2 = insert!(ctx, "ledger", %{"qty" => "1.00", "note" => "c"})
+      force_stored!(ctx, "ledger", id2, %{"qty" => 2.5, "note" => "c"})
+
+      deleted = request(:delete, "/api/v1/entities/records/ledger/#{id2}", ctx)
+      assert deleted.status == 200, deleted.resp_body
+      assert body_of(deleted)["field_values"]["qty"] == "2.50"
+    end
+  end
+
+  describe "aggregates, exact (review 4)" do
+    test "legacy numbers 2.5 + 2.5 sum to the padded 5.00" do
+      ctx = tenant_ctx("gh2654r-ag1")
+
+      for _ <- 1..2 do
+        id = insert!(ctx, "ledger", %{"qty" => "2.50"})
+        force_stored!(ctx, "ledger", id, %{"qty" => 2.5})
+      end
+
+      conn =
+        aggregate(ctx, %{
+          "entity_type" => "ledger",
+          "aggregates" => [%{"fn" => "sum", "field" => "qty"}]
+        })
+
+      assert [%{"values" => %{"sum_qty" => "5.00"}}] = body_of(conn)["results"]
+    end
+
+    test "min and max compare numerically over {1, 2.5, 10} and are padded" do
+      ctx = tenant_ctx("gh2654r-ag2")
+
+      for {q, planted} <- [{"1", 1}, {"2.5", 2.5}, {"10", 10}] do
+        id = insert!(ctx, "ledger", %{"qty" => q})
+        force_stored!(ctx, "ledger", id, %{"qty" => planted})
+      end
+
+      conn =
+        aggregate(ctx, %{
+          "entity_type" => "ledger",
+          "aggregates" => [
+            %{"fn" => "min", "field" => "qty"},
+            %{"fn" => "max", "field" => "qty"}
+          ]
+        })
+
+      # a text comparison would give max "2.5"
+      assert [%{"values" => %{"min_qty" => "1.00", "max_qty" => "10.00"}}] =
+               body_of(conn)["results"]
+    end
+
+    test "group_by pads every group key; a null key stays nil" do
+      ctx = tenant_ctx("gh2654r-ag3")
+
+      for {q, planted} <- [{"3", 3}, {"2.5", 2.5}, {"3", 3}] do
+        id = insert!(ctx, "ledger", %{"qty" => q})
+        force_stored!(ctx, "ledger", id, %{"qty" => planted})
+      end
+
+      insert!(ctx, "ledger", %{"note" => "no qty"})
+
+      conn =
+        aggregate(ctx, %{
+          "entity_type" => "ledger",
+          "aggregates" => [%{"fn" => "count"}],
+          "group_by" => [%{"field" => "qty"}]
+        })
+
+      assert conn.status == 200, conn.resp_body
+
+      groups =
+        body_of(conn)["results"]
+        |> Map.new(fn %{"group" => %{"qty" => key}, "values" => %{"count_none" => n}} ->
+          {key, n}
+        end)
+
+      assert groups == %{"3.00" => 2, "2.50" => 1, nil => 1}
+    end
+
+    test "a scale-0 strict field is rendered without a dot" do
+      ctx = tenant_ctx("gh2654r-ag4")
+
+      seed_active!(ctx, "counter", [
+        strict_decimal("n", %{decimal_precision: 10, decimal_scale: 0})
+      ])
+
+      for q <- [2, 3] do
+        id = insert!(ctx, "counter", %{"n" => q})
+        force_stored!(ctx, "counter", id, %{"n" => q})
+      end
+
+      conn =
+        aggregate(ctx, %{
+          "entity_type" => "counter",
+          "aggregates" => [%{"fn" => "sum", "field" => "n"}, %{"fn" => "max", "field" => "n"}]
+        })
+
+      assert [%{"values" => %{"sum_n" => "5", "max_n" => "3"}}] = body_of(conn)["results"]
+    end
+
+    test "avg of 1 and 2 at scale 2 is NOT padded to the field scale" do
+      ctx = tenant_ctx("gh2654r-ag5")
+      insert!(ctx, "ledger", %{"qty" => "1"})
+      insert!(ctx, "ledger", %{"qty" => "2"})
+
+      conn =
+        aggregate(ctx, %{
+          "entity_type" => "ledger",
+          "aggregates" => [%{"fn" => "avg", "field" => "qty"}]
+        })
+
+      assert [%{"values" => %{"avg_qty" => avg}}] = body_of(conn)["results"]
+      assert Decimal.equal?(Decimal.new(avg), Decimal.new("1.5"))
+      # Postgres' own scale (many digits), never the field scale "1.50"
+      refute avg == "1.50"
+    end
+  end
+
+  describe "filters and sort, edges (review 5)" do
+    test "lte, desc sort, negatives and an empty list" do
+      ctx = tenant_ctx("gh2654r-f1")
+      for q <- ["-2.5", "0.10", "2.50", "7"], do: insert!(ctx, "ledger", %{"qty" => q})
+
+      assert qtys(filter_ledger(ctx, "lte", "2.5")) == ["-2.50", "0.10", "2.50"]
+      assert qtys(filter_ledger(ctx, "eq", "-2.5")) == ["-2.50"]
+      assert qtys(filter_ledger(ctx, "in", [])) == []
+
+      desc =
+        query(ctx, %{
+          "entity_type" => "ledger",
+          "sort" => [%{"field" => "qty", "dir" => "desc"}]
+        })
+
+      assert qtys(desc) == ["7.00", "2.50", "0.10", "-2.50"]
+    end
+
+    test "malformed values are a 422 on every comparison operator; the body never echoes them" do
+      ctx = tenant_ctx("gh2654r-f2")
+      insert!(ctx, "ledger", %{"qty" => "2.50"})
+
+      for op <- ["gt", "gte", "lt", "lte", "neq", "eq"], bad <- ["+1", "1.5.5", 1234.5678] do
+        conn = filter_ledger(ctx, op, bad)
+        assert conn.status == 422, "#{op} #{inspect(bad)}"
+        refute conn.resp_body =~ "1234.5678"
+        refute conn.resp_body =~ "1.5.5"
+        refute conn.resp_body =~ "+1"
+      end
+
+      assert filter_ledger(ctx, "not_in", ["2.5", "+1"]).status == 422
+      assert filter_ledger(ctx, "in", "2.5").status == 422
+      assert filter_ledger(ctx, "in", 2).status == 422
+    end
+
+    test "an integer above the cap is a 422 over HTTP" do
+      ctx = tenant_ctx("gh2654r-f3")
+      insert!(ctx, "ledger", %{"qty" => "2.50"})
+
+      conn =
+        request(:post, "/api/v1/entities/query", ctx, %{
+          "entity_type" => "ledger",
+          "filters" => [
+            %{
+              "field" => "qty",
+              "op" => "eq",
+              "value" => String.to_integer(String.duplicate("9", 1024))
+            }
+          ]
+        })
+
+      assert conn.status == 422
+    end
+
+    test "an in / not_in list is bounded at 1000 for a strict decimal field" do
+      ctx = tenant_ctx("gh2654r-f4")
+      insert!(ctx, "ledger", %{"qty" => "2.50"})
+
+      assert filter_ledger(ctx, "in", List.duplicate("1", 1000)).status == 200
+      assert filter_ledger(ctx, "in", List.duplicate("1", 1001)).status == 422
+      assert filter_ledger(ctx, "not_in", List.duplicate("1", 1001)).status == 422
+    end
+
+    test "ties: two rows with the same qty page with no duplicate and no skip" do
+      ctx = tenant_ctx("gh2654r-f5")
+      ids = for q <- ["2.50", "2.50", "1.00", "3.00"], do: insert!(ctx, "ledger", %{"qty" => q})
+
+      pages =
+        Enum.reduce_while(1..6, {nil, []}, fn _, {cursor, acc} ->
+          conn =
+            query(ctx, %{
+              "entity_type" => "ledger",
+              "sort" => [%{"field" => "qty", "dir" => "asc"}],
+              "page_size" => 1,
+              "cursor" => cursor
+            })
+
+          assert conn.status == 200, conn.resp_body
+          body = body_of(conn)
+          acc = acc ++ Enum.map(body["items"], & &1["record_id"])
+
+          if body["next_cursor"],
+            do: {:cont, {body["next_cursor"], acc}},
+            else: {:halt, {nil, acc}}
+        end)
+
+      {_, seen} = pages
+      assert length(seen) == 4
+      assert Enum.sort(seen) == Enum.sort(ids)
+    end
+  end
+
+  describe "cursor parse limits (review 9)" do
+    test "a strict value longer than Decimal's default 34 digits still pages" do
+      ctx = tenant_ctx("gh2654r-big")
+
+      seed_active!(ctx, "big", [
+        strict_decimal("v", %{decimal_precision: 60, decimal_scale: 2})
+      ])
+
+      values = [String.duplicate("1", 40) <> ".25", String.duplicate("2", 40) <> ".25"]
+      for v <- values, do: insert!(ctx, "big", %{"v" => v})
+
+      page = fn cursor ->
+        conn =
+          query(ctx, %{
+            "entity_type" => "big",
+            "sort" => [%{"field" => "v", "dir" => "asc"}],
+            "page_size" => 1,
+            "cursor" => cursor
+          })
+
+        assert conn.status == 200, conn.resp_body
+        body = body_of(conn)
+        {Enum.map(body["items"], & &1["field_values"]["v"]), body["next_cursor"]}
+      end
+
+      {p1, c1} = page.(nil)
+      {p2, _} = page.(c1)
+      assert p1 ++ p2 == values
     end
   end
 end

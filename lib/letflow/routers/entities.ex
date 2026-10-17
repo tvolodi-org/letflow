@@ -12,7 +12,8 @@ defmodule Letflow.Routers.Entities do
   row, `POST /entities/query/aggregate` — the aggregation/reporting query
   route, per `lib/letflow/design/req312-query-aggregation.md`. Its handler
   calls `Letflow.Entities.Query.Compiler.run_aggregate/2`, a thin wrapper
-  around `compile_aggregate/2` plus the query's own execution, added
+  around `compile_aggregate/2` plus the query's own execution (and, GH #2654, the
+  padding of a `decimal_strict` field's `sum`/`min`/`max`/group key), added
   specifically so this route stays composition-only, same as every other
   route here — this module executes no query of its own (INV-1, below).
   REQ-317 appended a twelfth-through-fifteenth set of rows, the four

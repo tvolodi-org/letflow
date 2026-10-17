@@ -139,13 +139,17 @@ defmodule Letflow.Entities.Record.Decimals do
 
   def parse(value, precision, scale) when is_integer(value) do
     cond do
-      byte_size(:binary.encode_unsigned(abs(value))) > @max_integer_bytes -> {:error, :precision}
+      not integer_within_cap?(value) -> {:error, :precision}
       abs(value) >= Integer.pow(10, precision - scale) -> {:error, :precision}
       true -> {:ok, normalise_zero(Decimal.new(value))}
     end
   end
 
   def parse(_value, _precision, _scale), do: {:error, :type}
+
+  # An integer literal's magnitude cap (checked before any power of ten is built).
+  defp integer_within_cap?(value),
+    do: byte_size(:binary.encode_unsigned(abs(value))) <= @max_integer_bytes
 
   # Value-based digit counting on the reduced form: "2.500" at scale 2 is fine,
   # "2.505" is not; numeric(2,2) takes "0.99" and refuses "1.00".
@@ -333,9 +337,7 @@ defmodule Letflow.Entities.Record.Decimals do
   def filter_value(value) when is_binary(value), do: bound(value)
 
   def filter_value(value) when is_integer(value) do
-    if byte_size(:binary.encode_unsigned(abs(value))) <= @max_integer_bytes,
-      do: {:ok, Decimal.new(value)},
-      else: :error
+    if integer_within_cap?(value), do: {:ok, Decimal.new(value)}, else: :error
   end
 
   def filter_value(%Decimal{} = value) do

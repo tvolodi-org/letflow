@@ -219,9 +219,6 @@ defmodule Letflow.Entities.ScriptReads do
   defp row_cap(limit) when is_integer(limit) and limit >= 1, do: min(limit, @max_rows)
   defp row_cap(_invalid), do: 1
 
-  # The match value converted to what the compiled comparison binds for the field's type; a
-  # value of the wrong type yields a type-correct placeholder plus `false` (constant-false
-  # predicate, the same single query).
   # GH #2654: a `decimal_strict` field matches a canonical decimal string or an integer, exactly;
   # a float (already lossy) or a malformed string is the type-mismatch constant-false query.
   # A non-strict decimal field is unchanged (integer or float only).
@@ -235,6 +232,9 @@ defmodule Letflow.Entities.ScriptReads do
   defp coerce(:decimal, true, _value), do: placeholder(:decimal)
   defp coerce(type, _strict?, value), do: coerce(type, value)
 
+  # The match value converted to what the compiled comparison binds for the field's type; a
+  # value of the wrong type yields a type-correct placeholder plus `false` (constant-false
+  # predicate, the same single query).
   defp coerce(type, value) when type in [:string, :enum] and is_binary(value), do: {value, true}
   defp coerce(:integer, value) when is_integer(value), do: {value, true}
   defp coerce(:decimal, value) when is_integer(value), do: {Decimal.new(value), true}

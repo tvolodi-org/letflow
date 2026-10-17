@@ -441,20 +441,16 @@ defmodule Letflow.Entities.Query.Compiler do
   # exact and a malformed literal is a 422 instead of a database encoding error. Any other
   # field, and the null-tests/`contains`/`starts_with` operators, are untouched.
   @strict_decimal_ops [:eq, :neq, :gt, :gte, :lt, :lte, :in, :not_in]
+  # Bound on an `in`/`not_in` list for a strict decimal field only (each element is parsed).
+  @max_strict_decimal_list 1000
 
   defp coerce_strict_decimal(%{type: :decimal, decimal_strict: true, name: name}, op, value)
        when op in @strict_decimal_ops do
     if op in [:in, :not_in] do
-      value
-      |> Enum.reduce_while({:ok, []}, fn element, {:ok, acc} ->
-        case Decimals.filter_value(element) do
-          {:ok, decimal} -> {:cont, {:ok, [decimal | acc]}}
-          :error -> {:halt, {:error, {:invalid_decimal_value, name}}}
-        end
-      end)
-      |> case do
-        {:ok, decimals} -> {:ok, Enum.reverse(decimals)}
-        {:error, _reason} = error -> error
+      if length(value) > @max_strict_decimal_list do
+        {:error, {:invalid_decimal_value, name}}
+      else
+        coerce_strict_decimal_list(value, name)
       end
     else
       case Decimals.filter_value(value) do
@@ -465,6 +461,20 @@ defmodule Letflow.Entities.Query.Compiler do
   end
 
   defp coerce_strict_decimal(_allowlisted_field, _op, value), do: {:ok, value}
+
+  defp coerce_strict_decimal_list(value, name) do
+    value
+    |> Enum.reduce_while({:ok, []}, fn element, {:ok, acc} ->
+      case Decimals.filter_value(element) do
+        {:ok, decimal} -> {:cont, {:ok, [decimal | acc]}}
+        :error -> {:halt, {:error, {:invalid_decimal_value, name}}}
+      end
+    end)
+    |> case do
+      {:ok, decimals} -> {:ok, Enum.reverse(decimals)}
+      {:error, _reason} = error -> error
+    end
+  end
 
   defp check_in_value_shape(op, value, field_name) when op in [:in, :not_in] do
     if is_list(value) do
