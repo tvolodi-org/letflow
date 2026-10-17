@@ -131,8 +131,11 @@ defmodule Letflow.Entities.TypeAccess do
   """
   @spec visible_to(user_id :: String.t(), name_binding :: atom()) :: Ecto.Query.dynamic_expr()
   def visible_to(user_id, name_binding) when is_binary(user_id) and is_atom(name_binding) do
+    # MUTANT M3: visible_to ignores the user grant (restricted == hidden for everyone).
+    _ = user_id
+
     denial =
-      from(r in denial_query(user_id),
+      from(r in "entity_type_restrictions",
         where: r.entity_type == parent_as(^name_binding).name,
         select: 1
       )
@@ -146,9 +149,8 @@ defmodule Letflow.Entities.TypeAccess do
   defp denial_query(user_id) do
     from(r in "entity_type_restrictions",
       left_join: g in "user_entity_type_grants",
-      on:
-        g.entity_type == r.entity_type and
-          g.user_id == type(^user_id, Ecto.UUID),
+      # MUTANT M4: grant type condition dropped (a grant for ANY type lifts the denial).
+      on: g.user_id == type(^user_id, Ecto.UUID),
       where: is_nil(g.id)
     )
   end

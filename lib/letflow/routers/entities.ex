@@ -938,7 +938,14 @@ defmodule Letflow.Routers.Entities do
 
     case Pagination.parse_page_size_param(Map.get(query, "page_size")) do
       {:ok, page_size} ->
-        filters = %{cursor: Map.get(query, "cursor"), page_size: page_size}
+        # MUTANT M7: TENANT_ADMIN bypasses the type-access filter on the list.
+        bypass =
+          Enum.any?(
+            conn.assigns.auth_context.roles,
+            &(to_string(&1) == "TENANT_ADMIN")
+          )
+
+        filters = %{cursor: Map.get(query, "cursor"), page_size: page_size, bypass: bypass}
 
         render_list_definitions(
           conn,
