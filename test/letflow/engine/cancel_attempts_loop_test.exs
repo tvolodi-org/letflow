@@ -58,7 +58,7 @@ defmodule Letflow.Engine.CancelAttemptsLoopTest do
 
   test "the time cap: a first attempt older than one contention timeout is not retried" do
     {attempt, calls} = counting([:held_by_other])
-    old = now() - (Engine.contention_lock_timeout_ms() + 1_000)
+    old = now() - (Letflow.Engine.Contention.lock_timeout_ms() + 1_000)
 
     capture_log(fn ->
       assert Engine.run_cancel_attempts(attempt, 1, old, true, @instance) ==
