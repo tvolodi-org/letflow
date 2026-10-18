@@ -621,7 +621,7 @@ defmodule Letflow.Engine.TimerWiringTest do
       assert projection.status == :active
     end
 
-    test "run_cancel_instance/5's own Multi places :timer_cancellations between :open_tasks and :instance_projection" do
+    test "cancel_multi/5's own Multi places :timer_cancellations between :open_tasks and :instance_projection" do
       # Design doc §6.1-§6.2: this ordering is load-bearing lock-ordering
       # (avoids an AB-BA deadlock against Scheduler.fire_timer/2's own
       # timers-then-instance_projections lock order), not cosmetic grouping
@@ -631,11 +631,12 @@ defmodule Letflow.Engine.TimerWiringTest do
       source = File.read!(Path.join(File.cwd!(), "lib/letflow/engine.ex"))
 
       [_before, body] =
-        String.split(source, "defp run_cancel_instance(instance_id, actor_id", parts: 2)
+        String.split(source, "defp cancel_multi(instance_id, actor_id", parts: 2)
 
-      [multi_body, _rest] = String.split(body, "\n  # M1 --", parts: 2)
+      [multi_body, _rest] =
+        String.split(body, "\n  # REQ-195 -- cancel_instance/3's own", parts: 2)
 
-      open_tasks_index = :binary.match(multi_body, ":open_tasks") |> elem(0)
+      open_tasks_index = :binary.match(multi_body, "Multi.run(:open_tasks,") |> elem(0)
       timer_cancellations_index = :binary.match(multi_body, ":timer_cancellations") |> elem(0)
       instance_projection_index = :binary.match(multi_body, ":instance_projection,") |> elem(0)
 

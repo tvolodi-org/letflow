@@ -410,7 +410,14 @@ defmodule Letflow.Engine do
       accepted, a script task in a sub-process child is not reachable end to end until GH #2694).
     * `cancel_instance/3`: `tasks`, timers, dispatch rows, the projection, `:lock_ancestors` (the
       group of a sub-process child, `FOR KEY SHARE` on the immediate parent: GH #2708; a cancel
-      never completes the child), live tokens, the INSTANCE_CANCELLED append, the audit row last.
+      never completes the child), then (GH #2706) a SECOND read of the open `tasks`, `FOR UPDATE
+      SKIP LOCKED`, which is complete because no task of the instance can be inserted while its
+      projection is held (the `tasks.instance_id` foreign key needs `KEY SHARE` on it) and never
+      waits (a pending task held by another transaction, usually a completer queued behind the
+      projection, aborts the attempt: rolled back and retried, at most 3 attempts within one
+      contention-timeout constant of the first attempt's start, never when nested in a caller's
+      transaction; exhaustion is `{:error, :cancel_contention}`), live tokens, the
+      INSTANCE_CANCELLED append, the audit row last.
       It never goes child-ward. On the parent side every writer follows projection, token, sequence row,
       audit row: `complete_task/3`, `Scheduler.fire_timer`, `ExecutionError`, and the cascade
       (`SubProcess.lock_waiting_parent/3`: parent projection, then the token re-selected
@@ -445,8 +452,8 @@ defmodule Letflow.Engine do
 
   Known gaps, tracked and NOT closed so far: cold appenders that append before locking the
   projection (`Scheduler.fire_timer`'s TIMER_FIRED, reminder fire, attachment events), the HUMAN tail's timer cancel after the projection, and
-  escalation fire's `tasks` lock after the projection (GH #2707); cancel's open-tasks snapshot taken
-  before the projection lock (GH #2706). The no-cycle argument covers the paths named in
+  escalation fire's `tasks` lock after the projection (GH #2707); timers and dispatch rows armed
+  during a cancel's wait for the projection. The no-cycle argument covers the paths named in
   `lib/letflow/design/gh2704-lock-order-family.md` and nothing else.
 
   The cascade recurses ancestor-ward (child to parent to grandparent), never downward. The
@@ -8481,6 +8488,7 @@ defmodule Letflow.Engine do
           | {:error, :instance_not_found}
           | {:error, {:instance_already_terminal, status :: :completed | :cancelled}}
           | {:error, {:event_append_failed, term()}}
+          | {:error, :cancel_contention}
           | {:error, Ecto.Changeset.t()}
           | {:error, {:transaction_failed, Exception.t()}}
           | {:error, term()}
@@ -8503,6 +8511,16 @@ defmodule Letflow.Engine do
   `cancel_instance/3` call against a concurrent `complete_task/3` call on the
   same instance: exactly one of the two commits, the other observes a
   distinct, typed conflict error.
+
+  GH #2706: the open tasks are read a second time after the instance
+  projection and the ancestor group, with `FOR UPDATE SKIP LOCKED`, so a task
+  a concurrent writer inserted while this call waited is cancelled too (and
+  listed in `cancelled_task_ids` and in the INSTANCE_CANCELLED payload). A
+  pending task that another transaction holds at that point is never waited
+  for: the attempt rolls back and is retried (at most 3 attempts, within one
+  contention-timeout constant of the first attempt's start; no retry when the
+  caller already holds a transaction, whose transaction then becomes
+  rollback-only); on exhaustion the result is `{:error, :cancel_contention}`.
 
   Cancelling an instance whose `instance_projections.status` is already
   `:completed`/`:cancelled` (`Letflow.EventStore.InstanceProjection.terminal?/1`,
@@ -8572,95 +8590,176 @@ defmodule Letflow.Engine do
   # Atomic phase (design doc §7) -- one Ecto.Multi.
   # ---------------------------------------------------------------------
 
+  # GH #2706: the leftover (a pending task the post-`P_x` re-read cannot lock because another
+  # transaction holds it, usually one queued behind `P_x`) aborts the attempt with the named reason below;
+  # this loop is the only reader of that exact `{:error, :open_tasks_recheck, :cancel_task_held_by_other, _}`
+  # shape. A new attempt starts only while fewer than 3 attempts ran AND less than one contention
+  # timeout elapsed since the start of the first attempt (monotonic clock, blocked time included),
+  # and never when the caller already holds a transaction (a rolled-back Multi cannot be re-run
+  # inside the caller's transaction, which stays rollback-only): then the typed error is returned at
+  # once. Nothing is committed by an aborted attempt, so a retry is safe.
+  @cancel_max_attempts 3
+  @contention_lock_timeout_ms 5_000
+
   defp run_cancel_instance(instance_id, actor_id, idempotency_key, cancelled_at, prefix) do
-    try do
-      Multi.new()
-      |> Multi.run(:open_tasks, fn repo, _changes ->
-        fetch_and_lock_open_tasks(repo, instance_id, prefix)
-      end)
-      |> Multi.run(:timer_cancellations, fn repo, _changes ->
-        # REQ-187 design doc §6.1-§6.2 -- positioned here, between :open_tasks
-        # and :instance_projection, NOT grouped with :task_cancellations/
-        # :token_cancellations after :eligibility as its topical grouping
-        # might suggest. This ordering is load-bearing, not cosmetic: it
-        # makes cancel_instance/3 acquire the `timers` lock before the
-        # `instance_projections` lock, uniformly matching
-        # Letflow.Scheduler.fire_timer/2's own (`timers` then
-        # `instance_projections`, via advance_after_timer_fired/3) lock
-        # order -- avoiding the AB-BA Postgres deadlock two code paths
-        # locking the same two tables in opposite order would otherwise
-        # produce. Running before :eligibility (M3) has confirmed the
-        # instance isn't already terminal is intentional: an ineligible
-        # cancel_instance/3 call still executes this update_all, but
-        # Ecto.Multi rolls back the entire transaction the moment
-        # :eligibility later returns {:error, _}, so no row is left changed
-        # by an ineligible attempt.
-        TaskActivation.cancel_pending_timers(
-          repo,
-          instance_id,
-          cancelled_at,
-          "instance_cancelled",
-          prefix
-        )
-      end)
-      |> Multi.run(:service_task_dispatch_cancellations, fn repo, _changes ->
-        # REQ-215 design doc §4 -- positioned identically to
-        # :timer_cancellations immediately above, for the identical
-        # lock-ordering reason: acquire the service_task_dispatches lock
-        # before the instance_projections lock, matching every other code
-        # path's lock order (avoids an AB-BA Postgres deadlock).
-        ServiceTaskDispatcher.cancel_pending_dispatches(repo, instance_id, cancelled_at, prefix)
-      end)
-      |> Multi.run(:script_task_dispatch_cancellations, fn repo, _changes ->
-        # GH 2534 PR 7c-1 (design 5.6, CDV C5): the script route's pending AND running rows,
-        # same lock-order rule (dispatch row before the projection), the order
-        # apply_script_task_result/3 takes too; an ineligible cancel rolls it back.
-        ScriptTaskDispatcher.cancel_open_dispatches(repo, instance_id, cancelled_at, prefix)
-      end)
-      |> Multi.run(:instance_projection, fn repo, _changes ->
-        # GH #2695: parent-side order: P then T, same as the cascade.
-        fetch_and_lock_instance_projection_for_cancel(repo, instance_id, prefix)
-      end)
-      |> Multi.run(:eligibility, fn _repo, %{instance_projection: projection} ->
-        check_cancel_eligibility(projection)
-      end)
-      |> Multi.run(:lock_ancestors, fn repo, _changes ->
-        # GH #2708: after the child's projection (L3) and its eligibility, and BEFORE the FIRST
-        # UPDATE of the child's projection row (the :event step's last_event_seq bump). That is
-        # what makes the second UPDATE's FK check safe: the check then queues KEY SHARE on the
-        # parent token and projection, which this transaction already holds. A cancel never
-        # completes the child: KEY SHARE, immediate parent only. No-op for a non-waiting child.
-        lock_parent_group(repo, instance_id, :continuing, prefix)
-      end)
-      |> Multi.run(:task_cancellations, fn repo, %{open_tasks: open_tasks} ->
-        cancel_task_rows(repo, open_tasks, cancelled_at, prefix)
-      end)
-      |> Multi.run(:live_tokens, fn repo, _changes ->
-        fetch_and_lock_live_tokens(repo, instance_id, prefix)
-      end)
-      |> Multi.run(:token_cancellations, fn repo, %{live_tokens: live_tokens} ->
-        cancel_token_rows(repo, live_tokens, cancelled_at, prefix)
-      end)
-      |> Multi.run(:event, fn _repo, changes ->
-        append_instance_cancelled_event(
-          instance_id,
-          changes,
-          actor_id,
-          idempotency_key,
-          prefix
-        )
-      end)
-      |> Multi.run(:projection, fn repo, %{instance_projection: projection} ->
-        cancel_instance_projection(repo, projection, cancelled_at, prefix)
-      end)
-      |> Multi.merge(fn changes ->
-        record_instance_cancel_audit(changes, instance_id, actor_id, prefix)
-      end)
-      |> Repo.transaction()
-      |> interpret_cancel_result(instance_id, cancelled_at)
-    rescue
-      exception -> {:error, {:transaction_failed, exception}}
+    started_at = System.monotonic_time(:millisecond)
+    retry? = not Repo.in_transaction?()
+
+    attempt = fn ->
+      cancel_attempt(instance_id, actor_id, idempotency_key, cancelled_at, prefix)
     end
+
+    run_cancel_attempts(attempt, 1, started_at, retry?, instance_id)
+  end
+
+  @doc false
+  # The retry loop of `cancel_instance/3`, public only so its caps are unit-testable without a
+  # database: `attempt` returns `:held_by_other` (retryable) or `{:final, result}`. There is
+  # deliberately NO pause between attempts: the retry starts with the class-1 locking read, which
+  # blocks on the holder and so paces itself, and the re-read never waits. PR-2 adds the DB
+  # `lock_timeout` and one shared lock-timeout function for this cap and that step.
+  @spec run_cancel_attempts(
+          (-> :held_by_other | {:final, term()}),
+          pos_integer(),
+          integer(),
+          boolean(),
+          Ecto.UUID.t()
+        ) :: term()
+  def run_cancel_attempts(attempt, n, started_at, retry?, instance_id) do
+    case attempt.() do
+      :held_by_other ->
+        elapsed = System.monotonic_time(:millisecond) - started_at
+
+        if retry? and n < @cancel_max_attempts and elapsed < @contention_lock_timeout_ms do
+          run_cancel_attempts(attempt, n + 1, started_at, retry?, instance_id)
+        else
+          # no PII: the attempt number and the instance id only
+          Logger.warning(
+            "cancel_instance contention: gave up after attempt #{n} (retry allowed: #{retry?}) " <>
+              "instance_id=#{instance_id}"
+          )
+
+          {:error, :cancel_contention}
+        end
+
+      {:final, result} ->
+        result
+    end
+  end
+
+  @doc false
+  @spec contention_lock_timeout_ms() :: pos_integer()
+  def contention_lock_timeout_ms, do: @contention_lock_timeout_ms
+
+  defp cancel_attempt(instance_id, actor_id, idempotency_key, cancelled_at, prefix) do
+    try do
+      result = cancel_multi(instance_id, actor_id, idempotency_key, cancelled_at, prefix)
+
+      case result do
+        {:error, :open_tasks_recheck, :cancel_task_held_by_other, _changes} ->
+          :held_by_other
+
+        other ->
+          {:final, interpret_cancel_result(other, instance_id, cancelled_at)}
+      end
+    rescue
+      exception -> {:final, {:error, {:transaction_failed, exception}}}
+    end
+  end
+
+  defp cancel_multi(instance_id, actor_id, idempotency_key, cancelled_at, prefix) do
+    Multi.new()
+    |> Multi.run(:open_tasks, fn repo, _changes ->
+      fetch_and_lock_open_tasks(repo, instance_id, prefix)
+    end)
+    |> Multi.run(:timer_cancellations, fn repo, _changes ->
+      # REQ-187 design doc §6.1-§6.2 -- positioned here, between :open_tasks
+      # and :instance_projection, NOT grouped with :task_cancellations/
+      # :token_cancellations after :eligibility as its topical grouping
+      # might suggest. This ordering is load-bearing, not cosmetic: it
+      # makes cancel_instance/3 acquire the `timers` lock before the
+      # `instance_projections` lock, uniformly matching
+      # Letflow.Scheduler.fire_timer/2's own (`timers` then
+      # `instance_projections`, via advance_after_timer_fired/3) lock
+      # order -- avoiding the AB-BA Postgres deadlock two code paths
+      # locking the same two tables in opposite order would otherwise
+      # produce. Running before :eligibility (M3) has confirmed the
+      # instance isn't already terminal is intentional: an ineligible
+      # cancel_instance/3 call still executes this update_all, but
+      # Ecto.Multi rolls back the entire transaction the moment
+      # :eligibility later returns {:error, _}, so no row is left changed
+      # by an ineligible attempt.
+      TaskActivation.cancel_pending_timers(
+        repo,
+        instance_id,
+        cancelled_at,
+        "instance_cancelled",
+        prefix
+      )
+    end)
+    |> Multi.run(:service_task_dispatch_cancellations, fn repo, _changes ->
+      # REQ-215 design doc §4 -- positioned identically to
+      # :timer_cancellations immediately above, for the identical
+      # lock-ordering reason: acquire the service_task_dispatches lock
+      # before the instance_projections lock, matching every other code
+      # path's lock order (avoids an AB-BA Postgres deadlock).
+      ServiceTaskDispatcher.cancel_pending_dispatches(repo, instance_id, cancelled_at, prefix)
+    end)
+    |> Multi.run(:script_task_dispatch_cancellations, fn repo, _changes ->
+      # GH 2534 PR 7c-1 (design 5.6, CDV C5): the script route's pending AND running rows,
+      # same lock-order rule (dispatch row before the projection), the order
+      # apply_script_task_result/3 takes too; an ineligible cancel rolls it back.
+      ScriptTaskDispatcher.cancel_open_dispatches(repo, instance_id, cancelled_at, prefix)
+    end)
+    |> Multi.run(:instance_projection, fn repo, _changes ->
+      # GH #2695: parent-side order: P then T, same as the cascade.
+      fetch_and_lock_instance_projection_for_cancel(repo, instance_id, prefix)
+    end)
+    |> Multi.run(:eligibility, fn _repo, %{instance_projection: projection} ->
+      check_cancel_eligibility(projection)
+    end)
+    |> Multi.run(:lock_ancestors, fn repo, _changes ->
+      # GH #2708: after the child's projection (L3) and its eligibility, and BEFORE the FIRST
+      # UPDATE of the child's projection row (the :event step's last_event_seq bump). That is
+      # what makes the second UPDATE's FK check safe: the check then queues KEY SHARE on the
+      # parent token and projection, which this transaction already holds. A cancel never
+      # completes the child: KEY SHARE, immediate parent only. No-op for a non-waiting child.
+      lock_parent_group(repo, instance_id, :continuing, prefix)
+    end)
+    |> Multi.run(:open_tasks_recheck, fn repo, _changes ->
+      # GH #2706 (decision 0061, "Amended (GH #2706, PR-1)"): the class-1 read above ran before
+      # `P_x`, so a task a concurrent writer inserted since is invisible to it. No task can be
+      # inserted for this instance while `P_x` is held (the immediate `tasks.instance_id`
+      # foreign key needs KEY SHARE on it), so this read, which starts after `P_x` and the
+      # group, is complete. NON-WAITING (SKIP LOCKED): a wait on a task row here could close a
+      # cycle with its holder, who is queued behind `P_x`.
+      recheck_open_tasks(repo, instance_id, prefix)
+    end)
+    |> Multi.run(:task_cancellations, fn repo, %{open_tasks_recheck: open_tasks} ->
+      cancel_task_rows(repo, open_tasks, cancelled_at, prefix)
+    end)
+    |> Multi.run(:live_tokens, fn repo, _changes ->
+      fetch_and_lock_live_tokens(repo, instance_id, prefix)
+    end)
+    |> Multi.run(:token_cancellations, fn repo, %{live_tokens: live_tokens} ->
+      cancel_token_rows(repo, live_tokens, cancelled_at, prefix)
+    end)
+    |> Multi.run(:event, fn _repo, changes ->
+      append_instance_cancelled_event(
+        instance_id,
+        changes,
+        actor_id,
+        idempotency_key,
+        prefix
+      )
+    end)
+    |> Multi.run(:projection, fn repo, %{instance_projection: projection} ->
+      cancel_instance_projection(repo, projection, cancelled_at, prefix)
+    end)
+    |> Multi.merge(fn changes ->
+      record_instance_cancel_audit(changes, instance_id, actor_id, prefix)
+    end)
+    |> Repo.transaction()
   end
 
   # REQ-195 -- cancel_instance/3's own actor_id (attrs[:actor_id], already an
@@ -8701,6 +8800,35 @@ defmodule Letflow.Engine do
       |> repo.all(prefix: prefix)
 
     {:ok, tasks}
+  end
+
+  # GH #2706: the post-`P_x` re-read of the open tasks, `FOR UPDATE SKIP LOCKED`, ordered by id.
+  # Rows this transaction already holds (the class-1 read) are returned, rows held by another
+  # transaction are skipped. A pending row that the plain read sees but the locking read could not
+  # take is held by someone else (usually a transaction queued behind `P_x`, e.g. a completer; a row
+  # held only by `FOR KEY SHARE`, e.g. a concurrent foreign-key insert, is skipped too and costs one
+  # extra bounded retry): it is never waited for, the attempt aborts with `:cancel_task_held_by_other` (the retry loop in
+  # `run_cancel_attempts/5` is the only reader of that reason). The pending set cannot grow while
+  # `P_x` is held, so the two reads need no further guard.
+  defp recheck_open_tasks(repo, instance_id, prefix) do
+    tasks =
+      Task
+      |> where([t], t.instance_id == ^instance_id and t.status == :pending)
+      |> order_by([t], asc: t.id)
+      |> lock("FOR UPDATE SKIP LOCKED")
+      |> repo.all(prefix: prefix)
+
+    pending_ids =
+      Task
+      |> where([t], t.instance_id == ^instance_id and t.status == :pending)
+      |> select([t], t.id)
+      |> repo.all(prefix: prefix)
+
+    if pending_ids -- Enum.map(tasks, & &1.id) == [] do
+      {:ok, tasks}
+    else
+      {:error, :cancel_task_held_by_other}
+    end
   end
 
   # M2 -- row-lock + fetch the instance_projections row. Unlike
@@ -8824,7 +8952,7 @@ defmodule Letflow.Engine do
   # and reject its own call.
   defp append_instance_cancelled_event(
          instance_id,
-         %{open_tasks: open_tasks, live_tokens: live_tokens},
+         %{open_tasks_recheck: open_tasks, live_tokens: live_tokens},
          actor_id,
          idempotency_key,
          prefix
@@ -8866,7 +8994,7 @@ defmodule Letflow.Engine do
   # ---------------------------------------------------------------------
 
   defp interpret_cancel_result(
-         {:ok, %{instance_projection: %InstanceProjection{}, open_tasks: open_tasks}},
+         {:ok, %{instance_projection: %InstanceProjection{}, open_tasks_recheck: open_tasks}},
          instance_id,
          cancelled_at
        ) do

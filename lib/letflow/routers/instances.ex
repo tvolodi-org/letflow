@@ -12,7 +12,7 @@ defmodule Letflow.Routers.Instances do
   |-------------|-------------------------------------|-------------------------------------------------------------------------|------------|----------|
   | rebind      | `POST /instances/:id/rebind-pins`  | `Letflow.Engine.PinRebind.rebind_pins/3`                                | none in REQ-078 (REQ-131) | 200, `{instance_id, changes, rebound_at}`; 422 `max_length` if the `idempotency-key` header is over 162 bytes, 422 `format` if it is not valid UTF-8 or contains NUL (GH #2550) |
   | create      | `POST /instances`                  | `Letflow.Engine.create/2`                                               | `InstancesStart` | 201, `{instance_id, status, created_at}`; 422 `max_length` if the `idempotency-key` header is over 199 bytes, 422 `format` if it is not valid UTF-8 or contains NUL (GH #2550) |
-  | cancel      | `POST /instances/:id/cancel`       | `Letflow.Engine.cancel_instance/3`                                      | `InstancesCancel` | 200, `{instance_id, status}`; 409 if already `COMPLETED` or already `CANCELLED`; 422 `max_length` if the `idempotency-key` header is over 162 bytes, 422 `format` if it is not valid UTF-8 or contains NUL (GH #2550) |
+  | cancel      | `POST /instances/:id/cancel`       | `Letflow.Engine.cancel_instance/3`                                      | `InstancesCancel` | 200, `{instance_id, status}`; 409 if already `COMPLETED` or already `CANCELLED`; 503 if the cancel could not settle against a concurrent writer (`{:error, :cancel_contention}`, constant detail, nothing committed, GH #2706); 422 `max_length` if the `idempotency-key` header is over 162 bytes, 422 `format` if it is not valid UTF-8 or contains NUL (GH #2550) |
   | reconstruct | `POST /instances/:id/reconstruct`  | `Letflow.Engine.Reconstruction.reconstruct_instance/2` (`write_back: true`, not caller-controllable) | none (REQ-079 — same precedent as rebind, a future policy decision) | 200, `{instance_id, status, tokens: [{node_id, branch_id}], variables}` |
   | advance-timer | `POST /instances/:id/advance-timer` | `Letflow.Scheduler.resolve_advance_target/3` (new) then `Letflow.Scheduler.fire_timer/2` (existing, unchanged) | `InstancesAdvanceTimer` (ISS-0389 — a real permission, fully wired, not the rebind-pins/reconstruct ad-hoc pattern) | 200, `{instance_id, timer_id, node_id, timer_status}`; 400 ambiguous pending timers (`code: ambiguous_pending_timers`); 404 no matching pending timer |
 
@@ -711,6 +711,18 @@ defmodule Letflow.Routers.Instances do
 
   defp render_cancel(conn, {:error, {:instance_already_terminal, :cancelled}}),
     do: Response.conflict(conn, "instance is already cancelled")
+
+  # GH #2706 (PR-1): only the leftover exhaustion of the engine's bounded retry produces this today;
+  # the mapping of a lock timeout / deadlock raise to it is PR-2 (until then such a raise is the
+  # generic 500 below). The cancel could not settle against a concurrent writer (a task it must cancel was
+  # held by a transaction queued behind the instance, and the bounded retry ran out). Nothing was
+  # committed, so the call is retryable. Constant detail: nothing from the engine (INV-4).
+  defp render_cancel(conn, {:error, :cancel_contention}),
+    do:
+      Response.service_unavailable(
+        conn,
+        "the instance is being modified concurrently; retry"
+      )
 
   # {:event_append_failed, _}, %Ecto.Changeset{}, :missing_actor_id,
   # :missing_idempotency_key, :invalid_schema_name, and any other term:
