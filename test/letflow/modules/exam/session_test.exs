@@ -1893,4 +1893,427 @@ defmodule Letflow.Modules.Exam.SessionTest do
       end
     end
   end
+
+  # ---------------------------------------------------------------------
+  # GH #2762 -- a soft-deleted answer option is excluded from the START snapshot and from the
+  # options shown to a NEW session; a start is refused only when a DRAWN question is left without
+  # a live key (design: lib/letflow/design/gh2762-exam-soft-deleted-reads.md, section 3.3;
+  # spec: test/specs/GH-2762.md). `Snapshot.live_options/3` itself is in
+  # snapshot_live_options_test.exs; the late path and the start/late parity are in
+  # snapshot_late_test.exs.
+  # ---------------------------------------------------------------------
+
+  # A question of `type` with options built from `option_specs` (`{is_correct, extra_attrs}`, in
+  # sort order). Returns `%{id: question_id, option_ids: [..]}`.
+  defp g62_question!(schema, category_id, type, option_specs) do
+    question = create_question!(schema, category_id, %{"type" => type})
+
+    option_ids =
+      option_specs
+      |> Enum.with_index()
+      |> Enum.map(fn {{is_correct, attrs}, index} ->
+        create_option!(schema, question.record_id, index, is_correct, attrs).record_id
+      end)
+
+    %{id: question.record_id, option_ids: option_ids}
+  end
+
+  # An exam with ONE manual rule pinning `question_ids` in order.
+  defp g62_pin_exam!(schema, question_ids) do
+    exam = create_exam!(schema, %{"max_attempts" => 50})
+    rule = create_rule!(schema, exam.record_id, Ecto.UUID.generate(), 1, 0, "manual")
+
+    question_ids
+    |> Enum.with_index()
+    |> Enum.each(fn {question_id, index} ->
+      create_manual_question!(schema, rule.record_id, question_id, index)
+    end)
+
+    exam
+  end
+
+  # An exam with ONE random rule drawing `count` questions from `category_id`.
+  defp g62_pool_exam!(schema, category_id, count) do
+    exam = create_exam!(schema, %{"max_attempts" => 50})
+    create_rule!(schema, exam.record_id, category_id, count)
+    exam
+  end
+
+  defp g62_key_missing(question_id), do: {:error, {:grading_error, {:key_missing, question_id}}}
+
+  defp g62_start!(schema, exam, seed \\ 1) do
+    candidate = Ecto.UUID.generate()
+    assert {:ok, view} = Session.create_with_seed(candidate, exam.record_id, schema, seed)
+    {candidate, view}
+  end
+
+  defp g62_options_order(schema, session_id, question_id) do
+    [row] =
+      Enum.filter(session_question_rows(schema, session_id), &(&1["question_id"] == question_id))
+
+    row["options_order"]
+  end
+
+  defp g62_item(schema, session_id, question_id),
+    do: ExamFixtures.session_snapshot(schema, session_id)["questions"][question_id]
+
+  defp g62_nothing_written!(schema) do
+    assert count_rows(schema, "session") == 0
+    assert count_rows(schema, "session_question") == 0
+  end
+
+  describe "GH #2762 -- START excludes soft-deleted options (incorrect ones never block)" do
+    test "T-62a: a POOL question with a soft-deleted INCORRECT option starts; the id is in neither options_order nor the shown options, the key is unchanged" do
+      %{schema_name: schema} = tenant("gh2762-62a")
+      category = Ecto.UUID.generate()
+      q = g62_question!(schema, category, "single", [{true, %{}}, {false, %{}}, {false, %{}}])
+      [correct_id, wrong_kept, wrong_deleted] = q.option_ids
+      exam = g62_pool_exam!(schema, category, 1)
+
+      # Control: the snapshot of a start BEFORE the deletion.
+      {_c0, before_view} = g62_start!(schema, exam)
+      before_item = g62_item(schema, before_view.id, q.id)
+      assert before_item["correct_option_ids"] == [correct_id]
+
+      ExamFixtures.delete_record!(schema, "answer_option", wrong_deleted)
+
+      {candidate, view} = g62_start!(schema, exam)
+      item = g62_item(schema, view.id, q.id)
+
+      assert item == before_item
+      assert g62_options_order(schema, view.id, q.id) == [correct_id, wrong_kept]
+      refute wrong_deleted in g62_options_order(schema, view.id, q.id)
+
+      assert {:ok, %{questions: [%{options: shown}]}} =
+               Session.get_session_state_for_user(view.id, candidate, schema)
+
+      assert Enum.map(shown, & &1.id) == [correct_id, wrong_kept]
+    end
+
+    test "T-62b: a PINNED question with a soft-deleted INCORRECT option starts the same way" do
+      %{schema_name: schema} = tenant("gh2762-62b")
+
+      q =
+        g62_question!(schema, Ecto.UUID.generate(), "single", [
+          {true, %{}},
+          {false, %{}},
+          {false, %{}}
+        ])
+
+      [correct_id, wrong_kept, wrong_deleted] = q.option_ids
+      exam = g62_pin_exam!(schema, [q.id])
+      ExamFixtures.delete_record!(schema, "answer_option", wrong_deleted)
+
+      {_candidate, view} = g62_start!(schema, exam)
+
+      assert g62_item(schema, view.id, q.id)["correct_option_ids"] == [correct_id]
+      assert g62_options_order(schema, view.id, q.id) == [correct_id, wrong_kept]
+    end
+
+    test "T-62c: SWAP on a pin -- old correct option deleted, new correct option added -> the start works, the new option is the key and scores correct" do
+      %{schema_name: schema} = tenant("gh2762-62c")
+      q = g62_question!(schema, Ecto.UUID.generate(), "single", [{true, %{}}, {false, %{}}])
+      [old_correct, wrong] = q.option_ids
+      exam = g62_pin_exam!(schema, [q.id])
+
+      new_correct = create_option!(schema, q.id, 2, true).record_id
+      ExamFixtures.delete_record!(schema, "answer_option", old_correct)
+
+      {candidate, view} = g62_start!(schema, exam)
+
+      assert g62_item(schema, view.id, q.id)["correct_option_ids"] == [new_correct]
+      assert g62_options_order(schema, view.id, q.id) == [wrong, new_correct]
+      refute old_correct in g62_options_order(schema, view.id, q.id)
+
+      assert {:ok, _} =
+               Session.autosave_answer(
+                 view.id,
+                 candidate,
+                 %{question_id: q.id, selected_option_ids: [new_correct], time_spent_seconds: 1},
+                 schema
+               )
+
+      assert {:ok, outcome} = Session.submit(view.id, candidate, schema)
+      assert outcome.percentage == 100.0
+      assert outcome.passed == true
+    end
+
+    test "T-62c2: SWAP in a pool, multiple-choice -- one of two correct options swapped -> the key is the live correct options only" do
+      %{schema_name: schema} = tenant("gh2762-62c2")
+      category = Ecto.UUID.generate()
+      q = g62_question!(schema, category, "multiple", [{true, %{}}, {true, %{}}, {false, %{}}])
+      [old_correct, kept_correct, _wrong] = q.option_ids
+      exam = g62_pool_exam!(schema, category, 1)
+
+      new_correct = create_option!(schema, q.id, 3, true).record_id
+      ExamFixtures.delete_record!(schema, "answer_option", old_correct)
+
+      {_candidate, view} = g62_start!(schema, exam)
+
+      assert g62_item(schema, view.id, q.id)["correct_option_ids"] ==
+               Enum.sort([kept_correct, new_correct])
+
+      refute old_correct in g62_options_order(schema, view.id, q.id)
+    end
+  end
+
+  describe "GH #2762 -- START refuses a DRAWN question left without a live key" do
+    test "T-62d: a pin whose only correct option is soft-deleted -> {:key_missing, qid}, nothing written" do
+      %{schema_name: schema} = tenant("gh2762-62d")
+      q = g62_question!(schema, Ecto.UUID.generate(), "single", [{true, %{}}, {false, %{}}])
+      exam = g62_pin_exam!(schema, [q.id])
+      ExamFixtures.delete_record!(schema, "answer_option", hd(q.option_ids))
+
+      assert g62_key_missing(q.id) ==
+               Session.create(Ecto.UUID.generate(), exam.record_id, schema)
+
+      g62_nothing_written!(schema)
+    end
+
+    test "T-62d2: a pin with EVERY option soft-deleted (single) -> {:key_missing, qid}, nothing written" do
+      %{schema_name: schema} = tenant("gh2762-62d2-single")
+      q = g62_question!(schema, Ecto.UUID.generate(), "single", [{true, %{}}, {false, %{}}])
+      exam = g62_pin_exam!(schema, [q.id])
+      for id <- q.option_ids, do: ExamFixtures.delete_record!(schema, "answer_option", id)
+
+      assert g62_key_missing(q.id) ==
+               Session.create(Ecto.UUID.generate(), exam.record_id, schema)
+
+      g62_nothing_written!(schema)
+    end
+
+    test "T-62d2: a pin with EVERY option soft-deleted (likert) -> {:key_missing, qid}, nothing written" do
+      %{schema_name: schema} = tenant("gh2762-62d2-likert")
+
+      weighted = %{"likert_weight" => 1.0, "likert_polarity" => "positive"}
+
+      q =
+        g62_question!(schema, Ecto.UUID.generate(), "likert", [
+          {false, weighted},
+          {false, weighted}
+        ])
+
+      exam = g62_pin_exam!(schema, [q.id])
+      for id <- q.option_ids, do: ExamFixtures.delete_record!(schema, "answer_option", id)
+
+      assert g62_key_missing(q.id) ==
+               Session.create(Ecto.UUID.generate(), exam.record_id, schema)
+
+      g62_nothing_written!(schema)
+    end
+
+    test "T-62d3: a refusal on a drawn pin that is NOT the first one names that pin, not the healthy first" do
+      %{schema_name: schema} = tenant("gh2762-62d3")
+      good = g62_question!(schema, Ecto.UUID.generate(), "single", [{true, %{}}, {false, %{}}])
+      broken = g62_question!(schema, Ecto.UUID.generate(), "single", [{true, %{}}, {false, %{}}])
+      exam = g62_pin_exam!(schema, [good.id, broken.id])
+      ExamFixtures.delete_record!(schema, "answer_option", hd(broken.option_ids))
+
+      assert g62_key_missing(broken.id) ==
+               Session.create(Ecto.UUID.generate(), exam.record_id, schema)
+
+      g62_nothing_written!(schema)
+    end
+
+    test "T-62e: truefalse -- a soft-deleted CORRECT option with no live correct refuses; a soft-deleted INCORRECT one starts" do
+      %{schema_name: schema} = tenant("gh2762-62e")
+
+      refused =
+        g62_question!(schema, Ecto.UUID.generate(), "truefalse", [{true, %{}}, {false, %{}}])
+
+      built =
+        g62_question!(schema, Ecto.UUID.generate(), "truefalse", [{true, %{}}, {false, %{}}])
+
+      ExamFixtures.delete_record!(schema, "answer_option", hd(refused.option_ids))
+      ExamFixtures.delete_record!(schema, "answer_option", List.last(built.option_ids))
+
+      assert g62_key_missing(refused.id) ==
+               Session.create(
+                 Ecto.UUID.generate(),
+                 g62_pin_exam!(schema, [refused.id]).record_id,
+                 schema
+               )
+
+      {_candidate, view} = g62_start!(schema, g62_pin_exam!(schema, [built.id]))
+      assert g62_item(schema, view.id, built.id)["correct_option_ids"] == [hd(built.option_ids)]
+      assert g62_options_order(schema, view.id, built.id) == [hd(built.option_ids)]
+    end
+
+    test "T-62g: likert -- a soft-deleted weighted option is excluded and the start proceeds on the live options; a live option with a nil weight is still refused" do
+      %{schema_name: schema} = tenant("gh2762-62g")
+      weighted = fn w -> %{"likert_weight" => w, "likert_polarity" => "positive"} end
+
+      ok_q =
+        g62_question!(schema, Ecto.UUID.generate(), "likert", [
+          {false, weighted.(1.0)},
+          {false, weighted.(2.0)},
+          {false, weighted.(3.0)}
+        ])
+
+      [kept_a, kept_b, deleted] = ok_q.option_ids
+      ExamFixtures.delete_record!(schema, "answer_option", deleted)
+
+      {_candidate, view} = g62_start!(schema, g62_pin_exam!(schema, [ok_q.id]))
+
+      assert g62_item(schema, view.id, ok_q.id)["likert_options"] |> Map.keys() |> Enum.sort() ==
+               Enum.sort([kept_a, kept_b])
+
+      refute deleted in g62_options_order(schema, view.id, ok_q.id)
+
+      nil_q =
+        g62_question!(schema, Ecto.UUID.generate(), "likert", [
+          {false, weighted.(1.0)},
+          {false, weighted.(2.0)}
+        ])
+
+      ExamFixtures.force_field!(
+        schema,
+        "answer_option",
+        hd(nil_q.option_ids),
+        "likert_weight",
+        {:put, nil}
+      )
+
+      assert g62_key_missing(nil_q.id) ==
+               Session.create(
+                 Ecto.UUID.generate(),
+                 g62_pin_exam!(schema, [nil_q.id]).record_id,
+                 schema
+               )
+    end
+
+    test "T-62h / T-62h2: shorttext -- a soft-deleted option never blocks the start (GUARD) and is absent from options_order (RED on main)" do
+      %{schema_name: schema} = tenant("gh2762-62h")
+      q = g62_question!(schema, Ecto.UUID.generate(), "shorttext", [{false, %{}}, {false, %{}}])
+      [deleted, kept] = q.option_ids
+      ExamFixtures.delete_record!(schema, "answer_option", deleted)
+      exam = g62_pin_exam!(schema, [q.id])
+
+      {_candidate, view} = g62_start!(schema, exam)
+
+      # T-62h: the start succeeded and built a snapshot; a shorttext item has no key.
+      assert %{"type" => "shorttext", "correct_option_ids" => []} =
+               g62_item(schema, view.id, q.id)
+
+      # T-62h2
+      assert g62_options_order(schema, view.id, q.id) == [kept]
+
+      # A shorttext question left with NO live option at all is also never refused.
+      empty = g62_question!(schema, Ecto.UUID.generate(), "shorttext", [{false, %{}}])
+      ExamFixtures.delete_record!(schema, "answer_option", hd(empty.option_ids))
+      {_c2, view2} = g62_start!(schema, g62_pin_exam!(schema, [empty.id]))
+      assert g62_options_order(schema, view2.id, empty.id) == []
+    end
+  end
+
+  describe "GH #2762 -- a broken POOL question blocks only the starts that DRAW it" do
+    # A pool of three single-choice questions, the first of which has lost its only correct option.
+    defp g62_broken_pool!(schema, count) do
+      category = Ecto.UUID.generate()
+
+      [broken | healthy] =
+        for _ <- 1..3,
+            do: g62_question!(schema, category, "single", [{true, %{}}, {false, %{}}])
+
+      ExamFixtures.delete_record!(schema, "answer_option", hd(broken.option_ids))
+      %{exam: g62_pool_exam!(schema, category, count), broken: broken, healthy: healthy}
+    end
+
+    test "T-62m: with count < pool size, a start whose draw misses the broken question succeeds, one that draws it is refused with that question's key_missing" do
+      %{schema_name: schema} = tenant("gh2762-62m")
+      %{exam: exam, broken: broken, healthy: healthy} = g62_broken_pool!(schema, 2)
+      healthy_ids = Enum.map(healthy, & &1.id)
+
+      # The draw is seeded, so each seed is deterministic; thirty seeds make both outcomes certain
+      # in practice (each seed misses the broken question with probability 1/3).
+      results =
+        for seed <- 1..30 do
+          {seed, Session.create_with_seed(Ecto.UUID.generate(), exam.record_id, schema, seed)}
+        end
+
+      {oks, errors} = Enum.split_with(results, fn {_seed, result} -> match?({:ok, _}, result) end)
+
+      assert oks != [], "no seed missed the broken question"
+      assert errors != [], "no seed drew the broken question"
+
+      for {seed, {:ok, view}} <- oks do
+        drawn = Enum.map(session_question_rows(schema, view.id), & &1["question_id"])
+        assert {seed, Enum.sort(drawn)} == {seed, Enum.sort(healthy_ids)}
+      end
+
+      for {seed, result} <- errors do
+        assert {seed, result} == {seed, g62_key_missing(broken.id)}
+      end
+
+      # Only the successful starts wrote anything.
+      assert count_rows(schema, "session") == length(oks)
+    end
+
+    test "T-62n: count == pool size (the broken question is always drawn) -> {:key_missing, broken_qid}, nothing written" do
+      %{schema_name: schema} = tenant("gh2762-62n")
+      %{exam: exam, broken: broken} = g62_broken_pool!(schema, 3)
+
+      for seed <- [1, 2, 3] do
+        assert g62_key_missing(broken.id) ==
+                 Session.create_with_seed(Ecto.UUID.generate(), exam.record_id, schema, seed)
+      end
+
+      g62_nothing_written!(schema)
+    end
+
+    test "T-62n2: two broken drawn questions -> the FIRST one in draw order is reported" do
+      %{schema_name: schema} = tenant("gh2762-62n2")
+      category = Ecto.UUID.generate()
+
+      questions =
+        for _ <- 1..3,
+            do: g62_question!(schema, category, "single", [{true, %{}}, {false, %{}}])
+
+      exam = g62_pool_exam!(schema, category, 3)
+
+      # Control: the draw order for this seed while every question is still healthy.
+      {_c, control} = g62_start!(schema, exam, 7)
+      order = Enum.map(session_question_rows(schema, control.id), & &1["question_id"])
+      assert Enum.sort(order) == Enum.sort(Enum.map(questions, & &1.id))
+      [first, second, _third] = order
+
+      for id <- [second, first] do
+        q = Enum.find(questions, &(&1.id == id))
+        ExamFixtures.delete_record!(schema, "answer_option", hd(q.option_ids))
+      end
+
+      assert g62_key_missing(first) ==
+               Session.create_with_seed(Ecto.UUID.generate(), exam.record_id, schema, 7)
+    end
+  end
+
+  describe "GH #2762 -- display of options for a session that is already running" do
+    test "T-62l: an option deleted AFTER the start is still shown to that session (GUARD); a session started AFTER the deletion does not show it (RED on main)" do
+      %{schema_name: schema} = tenant("gh2762-62l")
+      category = Ecto.UUID.generate()
+      q = g62_question!(schema, category, "single", [{true, %{}}, {false, %{}}, {false, %{}}])
+      [correct_id, wrong_a, wrong_b] = q.option_ids
+      exam = g62_pool_exam!(schema, category, 1)
+
+      {early_candidate, early} = g62_start!(schema, exam)
+      ExamFixtures.delete_record!(schema, "answer_option", wrong_b)
+
+      # First half: the in-progress session keeps showing (and scoring against) what it captured.
+      assert g62_options_order(schema, early.id, q.id) == [correct_id, wrong_a, wrong_b]
+
+      assert {:ok, %{questions: [%{options: shown_early}]}} =
+               Session.get_session_state_for_user(early.id, early_candidate, schema)
+
+      assert Enum.map(shown_early, & &1.id) == [correct_id, wrong_a, wrong_b]
+
+      # Second half: a session started after the deletion never lists it.
+      {late_candidate, late} = g62_start!(schema, exam)
+      assert g62_options_order(schema, late.id, q.id) == [correct_id, wrong_a]
+
+      assert {:ok, %{questions: [%{options: shown_late}]}} =
+               Session.get_session_state_for_user(late.id, late_candidate, schema)
+
+      assert Enum.map(shown_late, & &1.id) == [correct_id, wrong_a]
+    end
+  end
 end

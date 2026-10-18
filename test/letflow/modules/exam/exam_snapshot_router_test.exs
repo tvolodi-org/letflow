@@ -396,6 +396,48 @@ defmodule Letflow.Modules.Exam.ExamSnapshotRouterTest do
     end
   end
 
+  # ── GH #2762: soft-deleted answer options on the start route ───────────────────────────────
+
+  describe "GH #2762 T-62o start with soft-deleted answer options" do
+    test "a drawn question left without a live correct option is the existing constant 500 for start (no reason, no id), and creates no session" do
+      tenant = tenant("gh2762-t62o-refused")
+      ctx = candidate_ctx(tenant)
+      %{exam: exam, option_ids: [correct_id, _wrong]} = build_exam!(tenant.schema_name, %{})
+      :ok = Fx.delete_record!(tenant.schema_name, "answer_option", correct_id)
+
+      conn = request("POST", @base, ctx, %{"exam_id" => exam.record_id})
+      assert_constant_problem!(conn, 500, @content_detail)
+      refute conn.resp_body =~ correct_id
+
+      assert Repo.aggregate(
+               from(l in Latest, where: l.entity_type == "session"),
+               :count,
+               prefix: tenant.schema_name
+             ) == 0
+    end
+
+    test "SWAP (delete the old correct option, add a new one) starts with 201" do
+      tenant = tenant("gh2762-t62o-swap")
+      ctx = candidate_ctx(tenant)
+
+      %{exam: exam, question_id: question_id, option_ids: [correct_id, _wrong]} =
+        build_exam!(tenant.schema_name, %{})
+
+      Fx.create_record!(tenant.schema_name, "answer_option", %{
+        "question_id" => question_id,
+        "sort_order" => 2,
+        "is_correct" => true,
+        "text" => %{"en" => "New correct"}
+      })
+
+      :ok = Fx.delete_record!(tenant.schema_name, "answer_option", correct_id)
+
+      conn = request("POST", @base, ctx, %{"exam_id" => exam.record_id})
+      assert conn.status == 201
+      refute conn.resp_body =~ correct_id
+    end
+  end
+
   # ── ownership before the snapshot (R6) ─────────────────────────────────────────────────────
 
   describe "R6 ownership" do

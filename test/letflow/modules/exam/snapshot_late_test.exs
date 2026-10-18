@@ -1032,6 +1032,82 @@ defmodule Letflow.Modules.Exam.SnapshotLateTest do
     end
   end
 
+  describe "GH #2762 T-62j parity: real start and real late build on the SAME rows follow the two modes" do
+    # One cell: a session started before the mutation (made legacy, so the LATE rule applies to
+    # it) and a brand new start after it (the START rule). `mutate` edits the option rows.
+    defp parity!(slug, spec, mutate) do
+      ctx = legacy_ctx!(slug, [spec])
+      mutated = mutate.(ctx)
+
+      start = Session.create(Ecto.UUID.generate(), ctx.exam.record_id, ctx.schema)
+      late = Snapshot.ensure(ctx.session_id, ctx.candidate, ctx.schema)
+      {ctx, start, late, mutated}
+    end
+
+    test "deleted INCORRECT option (single): both build, and agree on the key" do
+      {ctx, start, late, _mutated} =
+        parity!("gh2762-62j-incorrect", three_option_single_spec(), fn ctx ->
+          soft_delete_option!(ctx, 2)
+        end)
+
+      assert {:ok, view} = start
+      assert {:ok, snapshot} = late
+      assert snapshot["questions"][ctx.q.id]["correct_option_ids"] == [hd(ctx.q.option_ids)]
+
+      assert Fx.session_snapshot(ctx.schema, view.id)["questions"][ctx.q.id]["correct_option_ids"] ==
+               [hd(ctx.q.option_ids)]
+    end
+
+    test "SWAP (single): the START rule accepts it, the LATE rule refuses it" do
+      {ctx, start, late, mutated} =
+        parity!("gh2762-62j-swap", three_option_single_spec(), fn ctx ->
+          new = create_option!(ctx.schema, ctx.q.id, 3, true, %{}).record_id
+          soft_delete_option!(ctx, 0)
+          new
+        end)
+
+      new = mutated
+      assert {:ok, view} = start
+
+      assert Fx.session_snapshot(ctx.schema, view.id)["questions"][ctx.q.id]["correct_option_ids"] ==
+               [new]
+
+      assert late == {:error, key_missing(ctx)}
+    end
+
+    test "deleted correct option and NO live correct (single): both rules refuse with the same value" do
+      {ctx, start, late, _mutated} =
+        parity!("gh2762-62j-nokey", three_option_single_spec(), fn ctx ->
+          soft_delete_option!(ctx, 0)
+        end)
+
+      assert start == {:error, key_missing(ctx)}
+      assert late == {:error, key_missing(ctx)}
+    end
+
+    test "likert, a deleted weighted option with live options left: START builds, LATE refuses" do
+      {ctx, start, late, _mutated} =
+        parity!("gh2762-62j-likert", likert_spec(), fn ctx -> soft_delete_option!(ctx, 1) end)
+
+      assert {:ok, view} = start
+      assert late == {:error, key_missing(ctx)}
+
+      assert Fx.session_snapshot(ctx.schema, view.id)["questions"][ctx.q.id]["likert_options"]
+             |> Map.keys() == [hd(ctx.q.option_ids)]
+    end
+
+    test "shorttext, a deleted option: both build" do
+      {_ctx, start, late, _mutated} =
+        parity!("gh2762-62j-shorttext", {"shorttext", []}, fn ctx ->
+          option = create_option!(ctx.schema, ctx.q.id, 0, false, %{})
+          :ok = Fx.delete_record!(ctx.schema, "answer_option", option.record_id)
+        end)
+
+      assert {:ok, _view} = start
+      assert {:ok, %{"origin" => "late"}} = late
+    end
+  end
+
   # ── T-52 / T-63: ownership before every probe ──────────────────────────────────────────────
 
   describe "T-52 a non-owner never causes a write" do
