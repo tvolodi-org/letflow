@@ -170,83 +170,17 @@ defmodule Letflow.Engine.ExecutionErrorLockOrderTest do
     )
   end
 
-  # ---- FK order control --------------------------------------------------------------------------
-
-  # The order in which Postgres fires the two foreign-key checks of an UPDATE of a child's
-  # projection row: constraint triggers of one event fire by trigger name
-  # (`RI_ConstraintTrigger_c_<oid>`, a string comparison), so it differs between freshly
-  # provisioned tenant schemas. Returns the referenced tables in firing order.
-  defp fk_firing_order(schema) do
-    %{rows: rows} =
-      Repo.query!(
-        """
-        SELECT (SELECT relname FROM pg_class WHERE oid = c.confrelid)
-        FROM pg_trigger t
-        JOIN pg_constraint c ON c.oid = t.tgconstraint
-        WHERE t.tgrelid = $1::text::regclass AND t.tgisinternal AND c.contype = 'f'
-          AND (SELECT proname FROM pg_proc WHERE oid = t.tgfoid) = 'RI_FKey_check_upd'
-          AND c.confrelid IN ($2::text::regclass, $3::text::regclass)
-        ORDER BY t.tgname
-        """,
-        [
-          ~s("#{schema}".instance_projections),
-          ~s("#{schema}".tokens),
-          ~s("#{schema}".instance_projections)
-        ]
-      )
-
-    List.flatten(rows)
-  end
-
-  # Re-creates the two parent foreign keys of `instance_projections` so that the check against
-  # `first` (`"tokens"` or `"instance_projections"`) fires first, then asserts it (the red and the
-  # green of this file depend on it, so the order is a precondition, not an assumption).
-  defp set_fk_order!(schema, first) do
-    %{rows: rows} =
-      Repo.query!(
-        """
-        SELECT c.conname, pg_get_constraintdef(c.oid),
-               (SELECT relname FROM pg_class WHERE oid = c.confrelid)
-        FROM pg_constraint c
-        WHERE c.conrelid = $1::text::regclass AND c.contype = 'f'
-          AND c.confrelid IN ($2::text::regclass, $3::text::regclass)
-        """,
-        [
-          ~s("#{schema}".instance_projections),
-          ~s("#{schema}".tokens),
-          ~s("#{schema}".instance_projections)
-        ]
-      )
-
-    assert length(rows) == 2
-
-    ordered =
-      Enum.sort_by(rows, fn [_name, _definition, target] -> if target == first, do: 0, else: 1 end)
-
-    for [name, _definition, _target] <- ordered do
-      Repo.query!(~s(ALTER TABLE "#{schema}".instance_projections DROP CONSTRAINT "#{name}"))
-    end
-
-    for [name, definition, _target] <- ordered do
-      Repo.query!(
-        ~s(ALTER TABLE "#{schema}".instance_projections ADD CONSTRAINT "#{name}" #{definition})
-      )
-    end
-
-    assert List.first(fk_firing_order(schema)) == first,
-           "precondition: the FK check against #{first} must fire first, got " <>
-             inspect(fk_firing_order(schema))
-  end
+  # ---- FK order control (Letflow.LockOrderHelpers.set_fk_order!/2) ----------------------------------
 
   defp token_first(_context) do
     %{base: base} = tenant(%{})
-    set_fk_order!(base.schema, "tokens")
+    H.set_fk_order!(base.schema, "tokens")
     %{base: base}
   end
 
   defp projection_first(_context) do
     %{base: base} = tenant(%{})
-    set_fk_order!(base.schema, "instance_projections")
+    H.set_fk_order!(base.schema, "instance_projections")
     %{base: base}
   end
 

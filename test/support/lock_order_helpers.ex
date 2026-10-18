@@ -252,6 +252,80 @@ defmodule Letflow.LockOrderHelpers do
   def margin_ms(%{window_first: w1, window_second: w2, done_first: d1, done_second: d2}),
     do: 2000 - Enum.max([w1 + d1, w2 + d2])
 
+  @doc """
+  The order in which Postgres fires the two foreign-key checks of an UPDATE of a sub-process
+  child's projection row (`parent_instance_id` and `parent_token_id`): constraint triggers of one
+  event fire by trigger name (`RI_ConstraintTrigger_c_<oid>`, a string comparison), so it differs
+  between freshly provisioned tenant schemas. Returns the referenced tables in firing order.
+  """
+  @spec fk_firing_order(String.t()) :: [String.t()]
+  def fk_firing_order(schema) do
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT (SELECT relname FROM pg_class WHERE oid = c.confrelid)
+        FROM pg_trigger t
+        JOIN pg_constraint c ON c.oid = t.tgconstraint
+        WHERE t.tgrelid = $1::text::regclass AND t.tgisinternal AND c.contype = 'f'
+          AND (SELECT proname FROM pg_proc WHERE oid = t.tgfoid) = 'RI_FKey_check_upd'
+          AND c.confrelid IN ($2::text::regclass, $3::text::regclass)
+        ORDER BY t.tgname
+        """,
+        [
+          ~s("#{schema}".instance_projections),
+          ~s("#{schema}".tokens),
+          ~s("#{schema}".instance_projections)
+        ]
+      )
+
+    List.flatten(rows)
+  end
+
+  @doc """
+  Re-creates the two parent foreign keys of `instance_projections` so that the check against
+  `first` (`"tokens"` or `"instance_projections"`) fires first, then asserts it (the red and the
+  green of the lock-order files depend on it, so the order is a precondition, not an assumption).
+  """
+  @spec set_fk_order!(String.t(), String.t()) :: :ok
+  def set_fk_order!(schema, first) do
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT c.conname, pg_get_constraintdef(c.oid),
+               (SELECT relname FROM pg_class WHERE oid = c.confrelid)
+        FROM pg_constraint c
+        WHERE c.conrelid = $1::text::regclass AND c.contype = 'f'
+          AND c.confrelid IN ($2::text::regclass, $3::text::regclass)
+        """,
+        [
+          ~s("#{schema}".instance_projections),
+          ~s("#{schema}".tokens),
+          ~s("#{schema}".instance_projections)
+        ]
+      )
+
+    assert length(rows) == 2
+
+    ordered =
+      Enum.sort_by(rows, fn [_name, _definition, target] -> if target == first, do: 0, else: 1 end)
+
+    for [name, _definition, _target] <- ordered do
+      Repo.query!(~s(ALTER TABLE "#{schema}".instance_projections DROP CONSTRAINT "#{name}"))
+    end
+
+    for [name, definition, _target] <- ordered do
+      Repo.query!(
+        ~s(ALTER TABLE "#{schema}".instance_projections ADD CONSTRAINT "#{name}" #{definition})
+      )
+    end
+
+    assert List.first(fk_firing_order(schema)) == first,
+           "precondition: the FK check against #{first} must fire first, got " <>
+             inspect(fk_firing_order(schema))
+
+    :ok
+  end
+
   @doc "Normalizes a dumped 16-byte UUID query parameter."
   @spec normalize(term()) :: term()
   def normalize(param) when is_binary(param) and byte_size(param) == 16,
