@@ -1629,8 +1629,15 @@ defmodule Letflow.Routers.Instances do
          {:ok, _deleted} <- Attachments.delete(raw_attachment_id, actor_id, opts) do
       Response.no_content(conn)
     else
-      {:error, :not_found} -> Response.not_found(conn)
-      {:error, :missing_scope_or_actor} -> Response.internal_error(conn)
+      # GH #2778: malformed instance id answers the same 422 as the sibling routes.
+      {:error, :invalid_instance_id} ->
+        Response.unprocessable(conn, "instance_id is not a valid UUID")
+
+      {:error, :not_found} ->
+        Response.not_found(conn)
+
+      {:error, :missing_scope_or_actor} ->
+        Response.internal_error(conn)
     end
   end
 
