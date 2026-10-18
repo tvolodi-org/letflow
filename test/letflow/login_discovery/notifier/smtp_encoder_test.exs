@@ -25,6 +25,9 @@ defmodule Letflow.LoginDiscovery.Notifier.Smtp.EncoderTest do
   @recipient "typed.address@example.org"
   @allowed_headers ~w(Date From To Subject Message-ID MIME-Version Content-Type Content-Transfer-Encoding)
 
+  # Header NAMES that must never appear (anchored to line start, multiline, case-insensitive).
+  @forbidden_header_names ~r/^(bcc|reply-to|cc|sender|x-[a-z0-9-]+):/mi
+
   @hostile_tenants [
     %{slug: "acme", display_name: "Evil\r\nBcc: victim@evil.example\r\n\r\nInjected body"},
     %{slug: "slug\r\nBcc: x@evil.example", display_name: "<script>alert(1)</script>"},
@@ -64,7 +67,27 @@ defmodule Letflow.LoginDiscovery.Notifier.Smtp.EncoderTest do
       names = header_block |> headers() |> Enum.map(&elem(&1, 0))
       assert Enum.sort(names) == Enum.sort(@allowed_headers)
       assert names == Enum.uniq(names)
-      refute header_block =~ ~r/bcc|reply-to|^cc:|^sender:|x-/mi
+      refute header_block =~ @forbidden_header_names
+    end
+
+    # The Message-ID local part is random hex, so an unanchored `bcc` (or any other word) can
+    # appear inside a legitimate header VALUE. The pattern is anchored to header-name position.
+    test "the forbidden-header pattern matches header NAMES only, never a value" do
+      legitimate =
+        "Date: Sun, 18 Oct 2026 22:17:15 +0000\r\nMessage-ID: <18f46a814db815d884cbcc9a@mail.example.org>\r\nSubject: reply-to x-ray cc: sender: bcc"
+
+      refute legitimate =~ @forbidden_header_names
+
+      for line <- [
+            "Bcc: victim@evil.example",
+            "Reply-To: a@evil.example",
+            "Cc: a@evil.example",
+            "Sender: a@evil.example",
+            "X-Mailer: evil",
+            "x-custom-header: 1"
+          ] do
+        assert "From: a@b.example\r\n" <> line =~ @forbidden_header_names, line
+      end
     end
 
     test "exact fixed header values", %{sink: sink} do
