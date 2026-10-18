@@ -30,6 +30,7 @@ defmodule Letflow.Routers.AttachmentLinkScopeTest do
   use Letflow.DataCase, async: false
 
   import ExUnit.CaptureLog
+  import Letflow.TestSupport.InstanceFixture, only: [real_instance!: 1]
   import Plug.Conn
   import Plug.Test
 
@@ -100,7 +101,7 @@ defmodule Letflow.Routers.AttachmentLinkScopeTest do
   # A tenant with a tenant-wide TENANT_ADMIN, a scoped-only one, and one attachment.
   defp world!(slug_prefix) do
     fx = S.tenant!(slug_prefix)
-    instance_id = Ecto.UUID.generate()
+    instance_id = real_instance!(fx)
 
     %{
       fx: fx,
@@ -390,7 +391,7 @@ defmodule Letflow.Routers.AttachmentLinkScopeTest do
       user_id = first.assigns.auth_context.user_id
       TokenMintFixture.grant_roles!(s, user_id, [@role])
 
-      iid = Ecto.UUID.generate()
+      iid = real_instance!(fx)
       attachment = upload!(fx, iid, "end to end bytes")
       base = "/api/v1/instances/#{iid}/attachments/#{attachment.id}"
 

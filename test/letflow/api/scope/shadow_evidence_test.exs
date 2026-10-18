@@ -693,7 +693,11 @@ defmodule Letflow.Api.Scope.ShadowEvidenceTest do
 
       # only the lines written by the shadow/evidence code are judged: the Ecto QUERY debug
       # lines in the same capture legitimately name the schema and bind the user id
-      own = log |> String.split("\n") |> Enum.filter(&String.contains?(&1, "scope_shadow"))
+      own =
+        log
+        |> String.split("\n")
+        |> Enum.filter(&String.contains?(&1, "scope_shadow"))
+        |> Enum.reject(&String.contains?(&1, "INSERT INTO"))
       assert own != []
 
       for secret <- [prefix, fx.tenant_id, fx.tenant.slug, scoped.id, scoped.email],
