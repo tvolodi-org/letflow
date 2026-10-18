@@ -28,7 +28,7 @@ own live tokens, entity-type rows, `A`, sequence rows, projection UPDATEs).
    path; 0061 gets a small amendment.
 3. **Residual (1):** a transaction-local lock timeout (bound `set_config`, constant
    `:contention_lock_timeout_ms`, skipped when nested) on the cancel transaction (first statement), a typed
-   `{:error, :cancel_contention}` for 55P03 and 40P01, HTTP 503 from `render_cancel/2` (section 3).
+   `{:error, :cancel_contention}` for 55P03 and 40P01 (that mapping and the lock timeout are PR-2; PR-1 adds the atom and the 503 clause for the leftover exhaustion only, and its `rescue` still returns `{:transaction_failed, exception}`, a generic 500), HTTP 503 from `render_cancel/2` (section 3).
 4. **Residual (2):** the ExecutionError landing step stays as it is (it raises, and every
    in-transaction caller already classifies a raise); the unprotected caller is
    `Engine.set_instance_error/2`, whose raise from the service-task GIVE_UP path leaves the
@@ -261,13 +261,13 @@ the projection lock (GH #2706)" item from "Known gaps" (`engine.ex:446-449`), ad
 
 ### 3.2 Error mapping
 
-* In `run_cancel_instance/5`'s existing `rescue` (`engine.ex:8661-8662`, which today turns every
+* **PR-2 (not PR-1):** in `run_cancel_instance/5`'s existing `rescue` (`engine.ex:8661-8662`, which today turns every
   raise into `{:error, {:transaction_failed, exception}}`) add a clause BEFORE it: a
   `Postgrex.Error` whose `postgres.code` is `:lock_not_available` (55P03) or `:deadlock_detected`
   (40P01) -> `{:error, :cancel_contention}`. Other raises are unchanged. Log one warning with the
   classified tag only (no exception text, no ids beyond the instance id: SEC S3 style used at
   `engine.ex:6212`). `:query_canceled` is not mapped (no statement timeout is set).
-* Add `{:error, :cancel_contention}` to `cancel_error()` (`engine.ex:8476-8486`) and to the
+* (PR-1) Add `{:error, :cancel_contention}` to `cancel_error()` (`engine.ex:8476-8486`) and to the
   `@spec` of `cancel_instance/3`.
 * Shared classifier: new tiny pure module `Letflow.Engine.Contention` with
   `contention_code(term()) :: {:ok, :lock_not_available | :deadlock_detected} | :error`

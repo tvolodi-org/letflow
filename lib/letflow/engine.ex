@@ -413,7 +413,7 @@ defmodule Letflow.Engine do
       never completes the child), then (GH #2706) a SECOND read of the open `tasks`, `FOR UPDATE
       SKIP LOCKED`, which is complete because no task of the instance can be inserted while its
       projection is held (the `tasks.instance_id` foreign key needs `KEY SHARE` on it) and never
-      waits (a pending task held by another transaction, necessarily one queued behind the
+      waits (a pending task held by another transaction, usually a completer queued behind the
       projection, aborts the attempt: rolled back and retried, at most 3 attempts within one
       contention-timeout constant of the first attempt's start, never when nested in a caller's
       transaction; exhaustion is `{:error, :cancel_contention}`), live tokens, the
@@ -8591,7 +8591,7 @@ defmodule Letflow.Engine do
   # ---------------------------------------------------------------------
 
   # GH #2706: the leftover (a pending task the post-`P_x` re-read cannot lock because another
-  # transaction, queued behind `P_x`, holds it) aborts the attempt with the named reason below;
+  # transaction holds it, usually one queued behind `P_x`) aborts the attempt with the named reason below;
   # this loop is the only reader of that exact `{:error, :open_tasks_recheck, :cancel_task_held_by_other, _}`
   # shape. A new attempt starts only while fewer than 3 attempts ran AND less than one contention
   # timeout elapsed since the start of the first attempt (monotonic clock, blocked time included),
@@ -8609,17 +8609,36 @@ defmodule Letflow.Engine do
       cancel_attempt(instance_id, actor_id, idempotency_key, cancelled_at, prefix)
     end
 
-    run_cancel_attempts(attempt, 1, started_at, retry?)
+    run_cancel_attempts(attempt, 1, started_at, retry?, instance_id)
   end
 
-  defp run_cancel_attempts(attempt, n, started_at, retry?) do
+  @doc false
+  # The retry loop of `cancel_instance/3`, public only so its caps are unit-testable without a
+  # database: `attempt` returns `:held_by_other` (retryable) or `{:final, result}`. There is
+  # deliberately NO pause between attempts: the retry starts with the class-1 locking read, which
+  # blocks on the holder and so paces itself, and the re-read never waits. PR-2 adds the DB
+  # `lock_timeout` and one shared lock-timeout function for this cap and that step.
+  @spec run_cancel_attempts(
+          (-> :held_by_other | {:final, term()}),
+          pos_integer(),
+          integer(),
+          boolean(),
+          Ecto.UUID.t()
+        ) :: term()
+  def run_cancel_attempts(attempt, n, started_at, retry?, instance_id) do
     case attempt.() do
-      {:held_by_other, _changes} ->
+      :held_by_other ->
         elapsed = System.monotonic_time(:millisecond) - started_at
 
         if retry? and n < @cancel_max_attempts and elapsed < @contention_lock_timeout_ms do
-          run_cancel_attempts(attempt, n + 1, started_at, retry?)
+          run_cancel_attempts(attempt, n + 1, started_at, retry?, instance_id)
         else
+          # no PII: the attempt number and the instance id only
+          Logger.warning(
+            "cancel_instance contention: gave up after attempt #{n} (retry allowed: #{retry?}) " <>
+              "instance_id=#{instance_id}"
+          )
+
           {:error, :cancel_contention}
         end
 
@@ -8628,13 +8647,17 @@ defmodule Letflow.Engine do
     end
   end
 
+  @doc false
+  @spec contention_lock_timeout_ms() :: pos_integer()
+  def contention_lock_timeout_ms, do: @contention_lock_timeout_ms
+
   defp cancel_attempt(instance_id, actor_id, idempotency_key, cancelled_at, prefix) do
     try do
       result = cancel_multi(instance_id, actor_id, idempotency_key, cancelled_at, prefix)
 
       case result do
-        {:error, :open_tasks_recheck, :cancel_task_held_by_other, changes} ->
-          {:held_by_other, changes}
+        {:error, :open_tasks_recheck, :cancel_task_held_by_other, _changes} ->
+          :held_by_other
 
         other ->
           {:final, interpret_cancel_result(other, instance_id, cancelled_at)}
@@ -8782,9 +8805,10 @@ defmodule Letflow.Engine do
   # GH #2706: the post-`P_x` re-read of the open tasks, `FOR UPDATE SKIP LOCKED`, ordered by id.
   # Rows this transaction already holds (the class-1 read) are returned, rows held by another
   # transaction are skipped. A pending row that the plain read sees but the locking read could not
-  # take is held by someone else (necessarily a transaction queued behind `P_x`, e.g. a completer):
-  # it is never waited for, the attempt aborts with `:cancel_task_held_by_other` (the retry loop in
-  # `run_cancel_attempts/4` is the only reader of that reason). The pending set cannot grow while
+  # take is held by someone else (usually a transaction queued behind `P_x`, e.g. a completer; a row
+  # held only by `FOR KEY SHARE`, e.g. a concurrent foreign-key insert, is skipped too and costs one
+  # extra bounded retry): it is never waited for, the attempt aborts with `:cancel_task_held_by_other` (the retry loop in
+  # `run_cancel_attempts/5` is the only reader of that reason). The pending set cannot grow while
   # `P_x` is held, so the two reads need no further guard.
   defp recheck_open_tasks(repo, instance_id, prefix) do
     tasks =

@@ -34,6 +34,13 @@ defmodule Letflow.LockOrderHelpers do
   @poll_ms 10
   @await_ms 15_000
 
+  # the 2 s `lock_timeout` the forced-overlap margins are measured against
+  @lock_timeout_ms 2_000
+
+  @doc "The lock timeout (ms) the green cases' margins are measured against."
+  @spec lock_timeout_ms() :: pos_integer()
+  def lock_timeout_ms, do: @lock_timeout_ms
+
   @doc "The bound the test files use for `Task.await/2` of workers and holders."
   @spec await_ms() :: pos_integer()
   def await_ms, do: @await_ms
@@ -261,7 +268,7 @@ defmodule Letflow.LockOrderHelpers do
   """
   @spec margin_ms(map()) :: integer()
   def margin_ms(%{window_first: w1, window_second: w2, done_first: d1, done_second: d2}),
-    do: 2000 - Enum.max([w1 + d1, w2 + d2])
+    do: @lock_timeout_ms - Enum.max([w1 + d1, w2 + d2])
 
   @doc """
   The order in which Postgres fires the two foreign-key checks of an UPDATE of a sub-process

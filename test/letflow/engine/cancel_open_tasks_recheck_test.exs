@@ -17,7 +17,11 @@ defmodule Letflow.Engine.CancelOpenTasksRecheckTest do
       waiting task lock after `P_x`, an ineligible cancel issues none);
     * N1: a cancel nested in a caller's transaction returns the typed error at once (no retry)
       and the OUTER transaction is rollback-only;
-    * H1: the route maps `{:error, :cancel_contention}` to HTTP 503 with a constant body.
+    * H1: the route maps `{:error, :cancel_contention}` to HTTP 503 with a constant body. The
+      route module is called directly with a hand-assigned `auth_context` (the policy enforcement
+      of the `authz_post` pipeline is covered elsewhere), and the retry exhaustion is SIMULATED by
+      nesting the call in an outer transaction (no retry is allowed there), not reached by real
+      attempts; the cap itself is unit-tested in `cancel_attempts_loop_test.exs`.
 
   Forced-overlap method: `Letflow.LockOrderHelpers`. Sandbox `:auto`, hence `async: false`.
   """
@@ -344,7 +348,9 @@ defmodule Letflow.Engine.CancelOpenTasksRecheckTest do
     task_b = insert_straggler!(schema, x, task_a, end_a_token?)
     {holder_p, barrier_p} = H.hold_row(schema, {:projection, x})
 
-    # (5) release A: the cancel advances and queues at P_x, first in line
+    # (5) release A: the cancel advances and queues at P_x, first in line. Its (conservative)
+    # wait clock starts here: the margin is measured from this instant, not from the P_x release.
+    cancel_waiting_at = System.monotonic_time(:millisecond)
     send(holder_a.pid, :release)
     assert {:ok, _} = Task.await(holder_a, H.await_ms())
     wait_blocked_by!(cancel_pid, barrier_p)
@@ -355,7 +361,6 @@ defmodule Letflow.Engine.CancelOpenTasksRecheckTest do
     assert Enum.any?(H.blockers(w_pid), &(&1 in [barrier_p, cancel_pid]))
 
     # (7) release P_x: FIFO gives it to the cancel
-    released_at = System.monotonic_time(:millisecond)
     send(holder_p.pid, :release)
     assert {:ok, _} = Task.await(holder_p, H.await_ms())
 
@@ -364,7 +369,7 @@ defmodule Letflow.Engine.CancelOpenTasksRecheckTest do
 
     refute_receive {:deadlock_detected, _error}, 0
 
-    margin = 2000 - max(cancel_done_at, w_done_at) + released_at
+    margin = H.lock_timeout_ms() - (max(cancel_done_at, w_done_at) - cancel_waiting_at)
 
     assert margin >= 500,
            "lock_timeout margin #{margin} ms is under 500 ms"
@@ -410,6 +415,11 @@ defmodule Letflow.Engine.CancelOpenTasksRecheckTest do
       assert Fx.task!(base.schema, s.task_b.id).status == :completed
       assert Fx.projection!(base.schema, s.instance).status == :completed
       assert class1_task_reads(s.queries, base.schema) == 2
+
+      # A's token is synthetic here (finished by the fixture so B's completion ends the instance)
+      # and A itself was only barrier-held: it stays pending on the completed instance, which is
+      # why the assertions above are on B and the instance only.
+      assert Fx.task!(base.schema, s.task_a.id).status == :pending
     end
   end
 
@@ -443,14 +453,23 @@ defmodule Letflow.Engine.CancelOpenTasksRecheckTest do
         held_straggler!(base, fn x ->
           fn ->
             Repo.transaction(fn ->
-              send(parent, {:inner, cancel_fn(base, x).()})
+              send(
+                parent,
+                {:inner, PlatformTenantFixture.capture_repo_queries(cancel_fn(base, x))}
+              )
+
               :unreachable_commit
             end)
           end
         end)
 
-      assert_receive {:inner, {:error, :cancel_contention}}, 1_000
+      assert_receive {:inner, {{:error, :cancel_contention}, queries}}, 1_000
       assert s.result == {:error, :rollback}
+
+      # "at once, no retry" proven directly: one class-1 read, one SKIP LOCKED re-read, no second
+      # attempt (a retry would repeat the class-1 read)
+      assert class1_task_reads(queries, base.schema) == 1
+      assert Enum.count(queries, &(&1.query =~ "SKIP LOCKED")) == 1
 
       # nothing committed: instance active, A and B pending, no INSTANCE_CANCELLED event
       assert Fx.projection!(base.schema, s.instance).status == :active
