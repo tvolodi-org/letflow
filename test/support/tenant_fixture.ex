@@ -171,6 +171,7 @@ defmodule Letflow.TenantFixture do
     "repository_artifacts",
     "role_scope_grants",
     "scope_node_paths",
+    "scope_shadow_counters",
     "script_policy",
     "script_readable_masters",
     "script_rules",

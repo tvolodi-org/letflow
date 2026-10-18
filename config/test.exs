@@ -338,3 +338,10 @@ config :letflow, :engine_test_seams, true
 # GH #2682 / REQ-511 (design 10, 18.3): open the exam stamp gate under test so the existing stamp
 # tests keep running; the gate test overrides it per test with Application.put_env/3 and restores.
 config :letflow, :exam_snapshot_complete, true
+
+# REQ-517 PR 2b (AC 22): the persisted shadow-evidence flush process
+# (Letflow.Api.Scope.ShadowEvidence, a named singleton that writes to the database from its own
+# process) flushes on a timer in production. Under test a timer flush could land in another test's
+# sandbox state, so the periodic tick is pushed out to one hour; the tests call `flush/0` (and
+# `terminate/2` via the supervisor) explicitly.
+config :letflow, :scope_shadow_flush_interval_ms, 3_600_000

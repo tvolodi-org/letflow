@@ -68,6 +68,13 @@ defmodule Letflow.Plugs.Authorize do
   email, raw ids, path values) reaches the line (INV-4), and the denial
   response is identical: it still carries no tenant id, role or token.
 
+  ## Scope modes (REQ-497 / REQ-517)
+
+  After the coarse allow, a tenant stored as `shadow` is only observed
+  (`Letflow.Api.Scope.Shadow`) and one stored as `on` is enforced
+  (`Letflow.Api.Scope.Enforce`, which may halt with a 403 or a fail-closed 500); `off`
+  changes nothing.
+
   ## What reaches the handler on `:Allow`/`:AllowWithRowFilter` (design §6)
 
     * `conn.assigns[:scoped_opts]` — the `[prefix: schema]` keyword list
@@ -141,18 +148,24 @@ defmodule Letflow.Plugs.Authorize do
             conn
             |> assign(:scoped_opts, opts)
             |> assign(:access_decision, decision)
-            |> observe_scope_shadow(ctx, policy_key)
+            |> apply_scope_mode(ctx, policy_key)
         end
     end
   end
 
-  # REQ-497 PR 1b (design section 4.1, 0051 Rollout 3): in a tenant whose flag is `shadow`,
-  # the scope decision is computed AFTER the coarse allow and only observed (counter + sampled
-  # log); it never halts or changes the response. Runs after the assigns, so the observer
-  # uses this plug's own `scoped_opts[:prefix]`. A context without the key reads as `:off`.
-  defp observe_scope_shadow(conn, ctx, policy_key) do
-    if Map.get(conn.assigns.auth_context, :scope_enforcement) == :shadow,
-      do: Letflow.Api.Scope.Shadow.observe(conn, ctx, policy_key),
-      else: conn
+  # Runs after the assigns, so both modes use this plug's own `scoped_opts[:prefix]`. A
+  # context without the `scope_enforcement` key (or any other value) reads as `:off`.
+  #
+  #   * `:shadow` (REQ-497 PR 1b, design section 4.1, 0051 Rollout 3): the scope decision is
+  #     computed AFTER the coarse allow and only observed (counters + sampled log); it never
+  #     halts or changes the response.
+  #   * `:on` (REQ-517 PR 2b, design section 4.3): `Letflow.Api.Scope.Enforce.check/3` applies
+  #     the route's scope class and may halt with a 403 (or a fail-closed 500).
+  defp apply_scope_mode(conn, ctx, policy_key) do
+    case Map.get(conn.assigns.auth_context, :scope_enforcement) do
+      :shadow -> Letflow.Api.Scope.Shadow.observe(conn, ctx, policy_key)
+      :on -> Letflow.Api.Scope.Enforce.check(conn, ctx, policy_key)
+      _off_or_absent -> conn
+    end
   end
 end

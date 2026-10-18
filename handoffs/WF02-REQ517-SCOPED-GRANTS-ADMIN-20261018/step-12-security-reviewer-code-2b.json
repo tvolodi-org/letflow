@@ -1,0 +1,117 @@
+{
+  "handoff_id": "d2535517-0517-4c02-9e11-000000000012",
+  "run_id": "WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018",
+  "workflow_id": "WF-02",
+  "step": "12",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018/step-12-security-reviewer-code-2b.json",
+  "created_at": "2026-10-17T22:27:00Z",
+  "started_at": "2026-10-17T22:27:00Z",
+  "completed_at": "2026-10-17T22:29:30Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": ["REQ-517"],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "SECURITY-REVIEWER CODE gate for REQ-517 slice 2b (GH #2535), uncommitted working tree on feature/WF02-REQ517-2B-ROUTE-ENFORCE-20261018. Mandatory trigger: new route_scope.ex, scope/enforce.ex, authorized_router.ex change (#2612 / RA-5), two migrations. Read-only static review; no mix run, nothing compiled or executed by this reviewer."
+    },
+    "related_handoff_ids": ["d2535517-0517-4c02-9e11-000000000011"],
+    "artifacts_in": [
+      "lib/letflow/api/route_scope.ex",
+      "lib/letflow/api/scope/enforce.ex",
+      "lib/letflow/api/scope/shadow_evidence.ex",
+      "lib/letflow/api/scope/shadow_evidence/counter.ex",
+      "lib/letflow/api/scope/shadow.ex",
+      "lib/letflow/api/scope.ex",
+      "lib/letflow/api/authorized_router.ex",
+      "lib/letflow/plugs/authorize.ex",
+      "lib/letflow/plugs/auth_pipeline.ex",
+      "lib/letflow/routers/instances.ex",
+      "lib/letflow/scope_enforcement.ex",
+      "lib/letflow/scope_node_paths.ex",
+      "lib/letflow/identity/tenant.ex",
+      "lib/letflow/tenant_provisioning.ex",
+      "priv/repo/migrations/20261018200001_widen_tenants_scope_enforcement_check.exs",
+      "priv/repo/migrations/20261018200002_create_scope_shadow_counters.exs",
+      "test/fixtures/route_scope/tenant_wide_default_routes.txt"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ517-2B-ROUTE-ENFORCE-20261018"
+  },
+  "task": {
+    "description": "Security code gate for REQ-517 2b against INV-1..INV-10, design sections 4.0-4.8, REQ-517 ACs 16-22 and the four stated ELIXIR-DEV deviations. No edits to lib/ or test/."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "summary": "CODE GATE (2b): PASS_WITH_FINDINGS. No BLOCKER. Four non-blocking findings (F-1..F-4) and two carry-forward conditions for REQ-518/519. Static review only: nothing compiled or run by this reviewer; runtime claims rest on the dev's reported compile/format/boundary results and a deleted scratch test, so the 2b test suite (not yet written) must confirm them. SCOPE: in scope (new route_scope.ex and scope/enforce.ex, authorized_router.ex, two migrations, tenant-data routes). No change to authorization.ex, mix.exs, priv/permission_matrix or any permission atom, so no CORE MATRIX CHANGE can print. (1) FAIL-CLOSED UNDER on: Enforce.check/3 has function-level rescue and catch around the whole decision; any raise, exit or throw gives one constant line (class and exception module name only) and a halted detail-free Response.internal_error; no code path in the rescue or catch returns the original conn. A DB error from ScopeNodePaths.resolve/2 or load_grants propagates by design and lands in that 500. A missing principal or not-loaded grants is a 403, never an allow. Policy keys outside the four skipped keys that map to a non-permission atom are denied (:role_not_held), also fail closed. (2) on NOT SETTABLE VIA ANY ROUTE: parse_mode/1 and check_target/1 still accept only off and shadow; flip/4 returns invalid_mode for on; scope_enforcement_changeset/2 is the only cast of the field and is called only from flip/4; Tenant.changeset and every other tenant cast list exclude scope_enforcement; the only writer of on in the tree is the test-support SQL fixture. get_mode/1 and the router render on safely (Atom.to_string). A tenant stored on can be flipped back to off or shadow through the existing admin-plane route (requires a reason and a tenant-wide TENANT_ADMIN; a scoped-only admin is blocked by Enforce under on, which is the intended lockout-safe direction). (3) RETIRED NODES: Scope.decide_resource/3 denies :unresolvable when the resource node's own retired_at is set, for scoped principals only; tenant-wide principals are allowed with no read (design 4.4, T6); resolve/2 returns the same two reads as ancestors/2; node_not_found, invalid_node_id and invalid_schema_name stay :unresolvable. Retired ancestors are not considered, as designed and ruled at the design gate (OQ-7, a grant cannot name a retired node after 2a). (4) INV-5 / 404-403: the Enforce deny is route-level and runs before any handler lookup, with the same Response.forbidden('insufficient permissions') bytes and the same AuthzDenyLog call as the coarse deny; existence of an instance, attachment or entity cannot influence it, so there is no existence oracle and no extra round-trip signal. (5) ETS KEY HOSTILITY / SQL INJECTION: ETS keys are {prefix, day, metric} where prefix is only ever the plug's own scoped_opts[:prefix] (server-derived), record/3 guards metric against the closed 7-atom list and day to a Date, and the table is public only inside the VM. The flush validates every prefix with TenantProvisioning.tenant_id_for_schema_name/1 (anchored regex tenant_ plus exactly 32 lowercase hex, then UUID cast) and DROPS a failing key without any query; a valid prefix is passed only as Repo.insert_all(..., prefix: prefix), so Ecto quotes it as an identifier; the on_conflict fragment is the constant '? + EXCLUDED.count'; no string concatenation of tenant data into SQL anywhere in the new code (INV-7). counts_between/3 validates the prefix too (ArgumentError otherwise; callers are server-side). The subtract-then-match_delete step cannot lose a concurrent increment (update_counter with default object is atomic; match_delete only matches a zero value). Flush failures log one constant line with no tenant or ids; undefined_table and invalid_schema_name discard that prefix. Migrations: 200001 is public, constant SQL only, down refuses while any tenant is on (no silent de-escalation); 200002 is guarded by if prefix(), no tenant_id column (0006 D2), composite PK, count and metric CHECKs, registered in the tenant manifest and in the fixture oracle. (6) AUDIT BEFORE RESPONSE FOR LINKS: record_attachment_link_issued runs inside the with chain after AttachmentLinks.issue and before render_attachment_link; after_state carries issuer, instance id, attachment id, scope_node nil, trace id and never the token, url or expiry; an error, raise, exit or throw returns link_audit_failed and the router answers a detail-free 500 with no token in the body, one constant log line. Both link routes declare scope: :tenant_wide explicitly, and RouteScope.audit_routes reports :link_route_reclassified while issue_time_parent_lookup? is false. (7) TENANT-WIDE DEFAULT ROUTES CANNOT BE WEAKENED BY DECLARATION (admin plane): class_of/1 consults the key table first, so an admin-plane policy key is always :admin_plane at runtime whatever a route declares, and the walk reports :declared_conflicts_with_key_table plus the completeness rule (:admin_key_not_in_table derived from required_permission, plus :TokensManage and :RolesManage). For ordinary default-sourced routes, a declaration of :filter, :self_service or {:resolver, _} would pass through Enforce after the coarse allow; the guard is the walk's :stale_snapshot rule (a snapshot line that stops being default-sourced fails) plus review of the snapshot file; no route carries any of those classes in 2b (only the two link routes declare, both :tenant_wide). See F-1 and F-2. INV-1: the only new tenant table is per-schema, all reads and writes carry prefix:, tenant_id is not a column. INV-2: no new tenant response shape (attachment link body unchanged). INV-3, INV-9: NOT-APPLICABLE. INV-4: constant log lines, telemetry metadata is policy and reason only, audit has no token. INV-8: every new path is typed or rescued; the only deliberate raise is counts_between ArgumentError on a non-tenant prefix. INV-10: platform-scope permissions are decided by the platform branch of allowed?/3, unchanged. DEVIATION RULINGS: (D-1) class_of admin-key precedence over declared: ACCEPTED, strictly stronger than the design (declared > key table) because it makes the admin plane unweakenable at runtime; record it in the design as the intended rule. (D-2) fifth class :self_service: ACCEPTED for 2b on two conditions: no route carries it (true today) and the walk must restrict it before REQ-518 assigns any route (F-1); non-implementation of the pending_sec_ruling marker for /me/modules and /help/resolved is ACCEPTED because nothing can set on before REQ-519, on condition C-2 below. (D-3) per-day prune for prefixes flushed that day: ACCEPTED (counts only, bounded, a left-shadow tenant keeps at most 90 days of seven-key rows; no leak). (D-4) counts_between returns all seven keys, 0 when absent: ACCEPTED (a zero-filled map cannot hide an absent metric from the gate; REQ-519 must call it per UTC day to apply the RA-4 every-day rule, since one call sums the window).",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "handoffs/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018/step-12-security-reviewer-code-2b.json"
+    ],
+    "invariants_assessed": {
+      "INV-1": "APPLIES, PASS (scope_shadow_counters is per-schema, every Repo call carries prefix:, no tenant_id column; ETS prefix is the plug's own scoped_opts[:prefix])",
+      "INV-2": "APPLIES, PASS (no new tenant-scoped response shape; link body unchanged)",
+      "INV-3": "NOT-APPLICABLE (no Lua/WASM host function)",
+      "INV-4": "APPLIES, PASS (constant log lines, no token in audit, no ids in telemetry)",
+      "INV-5": "APPLIES, PASS (route-level uniform 403 before any lookup, byte-identical to the coarse deny)",
+      "INV-6": "APPLIES, PASS (scoping statements above; route walk and snapshot as the proof)",
+      "INV-7": "APPLIES, PASS (prefix validated then bound by Ecto, constant fragment, constant migration SQL)",
+      "INV-8": "APPLIES, PASS (Enforce fails closed to 500; flush and record never raise to callers; link audit failure is a 500)",
+      "INV-9": "NOT-APPLICABLE (no outbound URL)",
+      "INV-10": "APPLIES, PASS (platform permissions decided by the unchanged platform branch; tenant from auth_context only)"
+    },
+    "findings": [
+      {
+        "id": "F-1",
+        "severity": "MAJOR",
+        "blocking": false,
+        "title": "self_service and filter and resolver classes are an unrestricted pass-through with no walk rule",
+        "detail": "Enforce lets a route declared :self_service, :filter or {:resolver, _} through after only the coarse allow. Nothing in RouteScope.audit_routes limits which routes may carry :self_service (design RA-3 rules exactly one member, GET /me/memberships) or requires a :filter/:resolver route to be on an expected list (design 4.1 says the walk asserts filter_routes equals the committed expectation, empty in 2b; the audit_routes code does not implement that comparison, filter_routes/1 is informational only). Harmless in 2b because no route declares any of them and nothing can set on, but REQ-518 will start assigning them and a mis-declared route would silently become unenforced.",
+        "required_action": "Not a 2b blocker. Route to ELIXIR-DEV/TEST-DESIGNER to add, in 2b if cheap or as a hard precondition of REQ-518: a walk error for any route declared :self_service that is not in a committed allowlist, and the committed-expectation assertion for filter_routes (empty in 2b)."
+      },
+      {
+        "id": "F-2",
+        "severity": "MINOR",
+        "blocking": false,
+        "title": "snapshot file and walk are the trust boundary for default routes but are not on the #2612 trigger list",
+        "detail": "test/fixtures/route_scope/tenant_wide_default_routes.txt and the route walk test decide which routes may be default-sourced, and a PR runs its own copy of both. Editing the snapshot is how a reclassification is legitimised. The mandatory trigger list covers route_scope.ex, scope/enforce.ex and authorized_router.ex but not this fixture or test/support/route_inventory.ex.",
+        "required_action": "Governance follow-up (full chain, not an inline edit): add the snapshot file and test/support/route_inventory.ex to the mandatory SECURITY-REVIEWER trigger paths in .claude/agents/security-reviewer.md and WF-02 Step 2c."
+      },
+      {
+        "id": "F-3",
+        "severity": "MINOR",
+        "blocking": false,
+        "title": "routes whose policy key has no permission atom are all-denied under on",
+        "detail": "Scope.allowed?/3 returns {:deny, :role_not_held} when required_permission(key) is not in Authorization.permissions(). Under on this would 403 every caller, including a tenant-wide admin, on any such route; it is fail closed (no security impact) but would be an availability lockout and would also show up as role_not_held in shadow evidence. Not verified by execution which keys, if any, fall in this set.",
+        "required_action": "TEST-DESIGNER: add a walk assertion that every non-skipped, mounted policy key resolves to a member of Authorization.permissions() (or is explicitly self_service/skipped) so REQ-519 does not discover it at flip time."
+      },
+      {
+        "id": "F-4",
+        "severity": "MINOR",
+        "blocking": false,
+        "title": "design text drift to record",
+        "detail": "Design 4.1 says declared > key table > default and lists four classes; the code is key table > declared > default with five classes (rulings D-1, D-2). The design 4.1 instruction that the walk fail on an unlisted pending_sec_ruling marker is unimplemented (accepted, REQ-518 scope).",
+        "required_action": "DOC-UPDATER or CODE-DESIGNER: amend design 4.1 to the as-built rule; no code change."
+      }
+    ],
+    "carry_forward_conditions": [
+      "C-1 (REQ-519 flip gate): the stored value on is unreachable from any route in 2b only because flip/4 rejects it. REQ-519 must not add the on target until /me/*, /help/* and any other tenant-level read are classified (RA-3), because under on every default-sourced route is :tenant_wide and a scoped-only user is refused on them.",
+      "C-2 (REQ-518): reclassifying default-sourced data routes to :filter, :self_service or {:resolver, _} is a security-relevant change; each such PR needs SECURITY-REVIEWER, the snapshot shrink must be reviewed line by line, and the handlers must actually apply the scope (the plug no longer does)."
+    ],
+    "required_changes": [],
+    "advisories": [
+      "T-1 (test, must exist): Enforce fail-closed (malformed Grants struct and end-to-end dropped role_scope_grants table), asserted as a halted 500 with exactly one scope_enforcement_failed line and the handler never run; plus a test that no code path returns the conn on a raise.",
+      "T-2 (test): on is unreachable through PUT /tenant/scope-enforcement (422 invalid_enforcement_mode) and through Tenant.changeset/2 mass-assignment; a lib/ scan that scope_enforcement_changeset( is called only from scope_enforcement.ex.",
+      "T-3 (test): hostile ETS key inserted directly (for example a prefix containing a quote or a semicolon, or an uppercase or short hex) is dropped, nothing is executed, and the table is empty afterwards; plus a concurrent record-during-flush test showing no lost increment.",
+      "T-4 (test): link audit failure (force Audit.insert_entry to fail) answers 500 with no token in the body and writes no attachment_link.issued row; success path writes exactly one row whose after_state has no token, url or expiry, in off, shadow and on.",
+      "T-5 (test, UNVERIFIED items): migration 200001 down raising while a tenant is on, and 200002 replay and clone through the C6 oracle; TEST-RUNNER to run them; also the full mix test suite, which the dev did not run, and mix letflow.permission_matrix --check (no matrix change is expected).",
+      "T-6 (test): INV-5 byte-identity under on: a scoped-only caller gets the same 403 bytes for an existing and a nonexistent instance id on the tenant-wide link and instance routes."
+    ],
+    "classification": "CODE_PASS_WITH_FINDINGS",
+    "implementation_written": true
+  }
+}

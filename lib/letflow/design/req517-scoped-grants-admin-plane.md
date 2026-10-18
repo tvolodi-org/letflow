@@ -579,9 +579,9 @@ of the golden, editing `lib/letflow/api/authorization.ex` is in SECURITY-REVIEWE
 
 ## 4.1 Route classification (AC 17)
 
-Classes: `:admin_plane`, `:tenant_wide`, `{:resolver, {module, function}}` (function/1 maps the loaded resource
+Classes (AS BUILT, SEC F-4): `:admin_plane`, `:tenant_wide`, `{:resolver, {module, function}}` (function/1 maps the loaded resource
 to a `Scope.resource_scope()`; REQ-518 defines the resolvers; arity pinned by a constant in the walk, OQ-8),
-`:filter` (list endpoints).
+`:filter` (list endpoints), and `:self_service` (defined and accepted by the macro and the plug, passes through after the coarse allow; UNUSED in 2b: the walk fails any route that carries it, `:self_service_not_allowed`, until REQ-518 AC 21 assigns it). Source order as built: the admin key table is checked FIRST (an admin-plane key is always `:admin_plane`, source `:key_table`, whatever a route declares; the walk reports a conflicting declaration as `:declared_conflicts_with_key_table`), then the declared class, then the default `:tenant_wide`. The walk also fails `:unexpected_filter_route` (the committed expectation of `:filter` routes is none) and `:unknown_permission` (SEC F-3: a policy key whose `required_permission/1` is not in `Authorization.permissions/0`).
 
 `Letflow.Api.AuthorizedRouter` changes (keeping `__authz_routes__/0` as 3-tuples; existing tests assert that exact
 shape):

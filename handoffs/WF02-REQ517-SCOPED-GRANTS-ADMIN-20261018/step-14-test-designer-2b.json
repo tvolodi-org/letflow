@@ -1,0 +1,172 @@
+{
+  "handoff_id": "d2535517-0517-4c02-9e11-000000000014",
+  "run_id": "WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018",
+  "workflow_id": "WF-02",
+  "step": "14",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGNER",
+  "file": "handoffs/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018/step-14-test-designer-2b.json",
+  "created_at": "2026-10-17T22:40:00Z",
+  "started_at": "2026-10-17T22:40:30Z",
+  "completed_at": "2026-10-17T23:05:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": [
+      "REQ-517"
+    ],
+    "requirement_text": {},
+    "source_text": {
+      "slice": "REQ-517 slice 2b (route plane, `on` enforcement, persisted shadow evidence), GH #2535, ACs 16 to 22. Tests only; this step changed nothing under lib/ or priv/ (the uncommitted 2b implementation is in the working tree)."
+    },
+    "related_handoff_ids": [
+      "d2535517-0517-4c02-9e11-000000000011",
+      "d2535517-0517-4c02-9e11-000000000012",
+      "d2535517-0517-4c02-9e11-000000000013"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/req517-scoped-grants-admin-plane.md",
+      "handoffs/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018/step-11-elixir-dev-2b.json",
+      "handoffs/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018/step-12-security-reviewer-code-2b.json",
+      "handoffs/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018/step-13-reviewer-code-2b.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ517-2B-ROUTE-ENFORCE-20261018"
+  },
+  "task": {
+    "description": "Write the test spec and test code for REQ-517 PR 2b (design sections 4.0-4.8, 5, 6.2, 7): route classification walk and audit errors, Enforce, admin plane under on, stored on, retired nodes, link audit, persisted shadow evidence, deny/metric set agreement (REVIEWER F-1), the off/shadow byte-identity fixture (T-G1). Not run, not committed."
+  },
+  "result": {
+    "status": "PASS_WITH_GAPS",
+    "summary": "TESTS WRITTEN, NOT EXECUTED. 13 new test files (about 166 test cases by a 'test \"' count, plus generated per-mode cases), 1 new support module, 1 JSON fixture, 1 spec, 1 config line. No mix process was started: the machine mutex directory C:\\Users\\tvolo\\AppData\\Local\\Temp\\claude\\mixlock exists (held by another session) and the brief forbids running the suite on this memory-constrained machine. WHAT WAS VERIFIED WITHOUT MIX: (1) every touched .ex/.exs file parses and is formatter-clean under a standalone Code.format_string! script (line length 98, ecto/ecto_sql exported locals_without_parens), whose fidelity was proven first on five untouched already-formatted files (ok on all five: scope_test.exs, scoped_grants_fixture.ex, tenant_role_scope_grants_test.exs, config/test.exs, route_scope.ex); (2) a static scan found no unused alias, unused defp or unused module attribute in the new files (a stray import of Ecto.Query was found and removed); (3) no helper has a default argument (grep for a double backslash), so the ISS-0069 dead-default check cannot fire; (4) this step changed nothing under lib/ or priv/. T-G1 FIXTURE PROVENANCE (honest): test/fixtures/route_scope/off_shadow_responses.json was NOT captured from a running main. It was DERIVED by reading main's code paths (Response/Error serialisation, the Instances/Tasks/Identity handlers, the Authorize coarse deny, AttachmentLinks) because a git worktree build of origin/main was not feasible (memory, mutex). Its _provenance field says so and gives the regeneration procedure; the replay test compares decoded JSON and content type to it and, independently, the raw body and all headers of off against shadow, asserts the shadow observer really ran, and has a negative control under on. If a request fails identically under BOTH off and shadow the derivation is wrong; if only under shadow, 2b changed an HTTP response. COVERAGE: AC 16 (T-O1..T-O6), 17 (T-C1..T-C9, SEC F-1, F-3), 18 (T-N1 over every admin-plane route), 19 (T-G1..T-G9), 20 (T-I1, T-I2, SEC T-1), 21 (T-K2..T-K6, SEC T-4, T-6, revoke-then-serve direct and full router), 22 (T-H1..T-H10, T-H4b, SEC T-3, migration shape/clone/replay/up-down, REVIEWER F-1 agreement test). Each audit error of RouteScope.audit_routes/2 (:self_service_not_allowed, :unexpected_filter_route, :unknown_permission and the six others) has a seeded-row test; the route-table walk is run against test/fixtures/route_scope/tenant_wide_default_routes.txt and each rule is also shown to fire on the REAL table with one seeded violation. UNVERIFIED BECAUSE NOT RUN (for TEST-RUNNER): the dropped-table end-to-end fail-closed test (assumes Instances GET / reaches the plug and a Postgrex.Error from the lazy grants load); the public-migration scratch-schema test (assumes LIKE public.tenants INCLUDING ALL copies the CHECK by name and that Ecto.Migrator with a prefix runs the constraint commands against the prefixed table); the evidence flush-failure test (a BEFORE INSERT/UPDATE trigger raising must be non-discardable); Supervisor.terminate_child/restart_child of ShadowEvidence (assumes one_for_one); Code.Typespec.fetch_types/1 on Letflow.Api.Scope; the T-N1 handler-gated expected 403 on the four static admin GET routes; the full-router OIDC cases (GET /api/v1/identity/tokens is 200 for a scoped-only admin under off and shadow). A failure in one of these would more likely be a wrong test assumption than an implementation bug; each is isolated in its own test.",
+    "tests_run": false,
+    "mutex": "directory C:\\Users\\tvolo\\AppData\\Local\\Temp\\claude\\mixlock exists (held by another session); not created, not removed, mix not started",
+    "files_created": [
+      "test/letflow/api/route_scope_test.exs",
+      "test/letflow/api/route_scope_walk_test.exs",
+      "test/letflow/api/scope/enforce_test.exs",
+      "test/letflow/api/admin_plane_under_on_test.exs",
+      "test/letflow/plugs/authorize_scope_on_test.exs",
+      "test/letflow/plugs/auth_pipeline_scope_on_test.exs",
+      "test/letflow/scope_enforcement_on_test.exs",
+      "test/letflow/api/scope_retired_node_test.exs",
+      "test/letflow/routers/attachment_link_scope_test.exs",
+      "test/letflow/routers/off_shadow_byte_identity_test.exs",
+      "test/fixtures/route_scope/off_shadow_responses.json",
+      "test/letflow/api/scope/shadow_evidence_test.exs",
+      "test/letflow/api/scope/shadow_counters_migration_test.exs",
+      "test/letflow/api/scope/deny_reason_agreement_test.exs",
+      "test/support/scope_on_fixture.ex",
+      "test/specs/REQ-517-2b.md"
+    ],
+    "files_changed": [
+      "config/test.exs"
+    ],
+    "run_command_for_test_runner": "MIX_ENV=test timeout 540 mix test --warnings-as-errors test/letflow/api/route_scope_test.exs test/letflow/api/route_scope_walk_test.exs test/letflow/api/scope/enforce_test.exs test/letflow/api/admin_plane_under_on_test.exs test/letflow/plugs/authorize_scope_on_test.exs test/letflow/plugs/auth_pipeline_scope_on_test.exs test/letflow/scope_enforcement_on_test.exs test/letflow/api/scope_retired_node_test.exs test/letflow/routers/attachment_link_scope_test.exs test/letflow/routers/off_shadow_byte_identity_test.exs test/letflow/api/scope/shadow_evidence_test.exs test/letflow/api/scope/shadow_counters_migration_test.exs test/letflow/api/scope/deny_reason_agreement_test.exs test/letflow/api/scope_test.exs test/letflow/scope_enforcement_test.exs test/letflow/routers/tenant_scope_enforcement_test.exs test/letflow/supervisor/infrastructure_test.exs test/letflow/support/tenant_fixture_test.exs test/letflow/api/scope_shadow_test.exs test/letflow/plugs/auth_pipeline_scope_test.exs test/letflow/api/authorization_enforcement_test.exs test/letflow/api/scope_grants_route_walk_test.exs ; then mix letflow.check.test (the dead-default-argument grep; none of the new helpers has a default argument). Run the evidence files alone first (they are async false and share one named process).",
+    "implementation_findings": [
+      "NO IMPLEMENTATION BUG CONFIRMED (nothing was run). Observations a TEST-RUNNER failure could point at: (a) ShadowEvidence.counts_between/3 raises a Postgrex.Error (not an ArgumentError) for a well-formed prefix whose schema does not exist; documented only as ArgumentError for a non-tenant prefix. Low. (b) the Enforce catch clause (exit/throw) is structurally identical to the rescue but unreachable with real inputs; only the raise path is tested.",
+      "TEST-INFRASTRUCTURE note: config/test.exs now sets :scope_shadow_flush_interval_ms to 3_600_000 (REVIEWER F-5); the process reads it at every reschedule, so it takes effect at boot.",
+      "T-G1 fixture needs verification on the first run (see the provenance paragraph in the summary)."
+    ],
+    "mutants": {
+      "measured": [],
+      "not_measured_reason": "no mix run was possible (mutex held, memory-constrained machine, brief forbids running the suite). The 15 design mutants N1..N15 and M19 are mapped to killing tests in test/specs/REQ-517-2b.md. Concrete edits for TEST-DESIGN-VALIDATOR / TEST-RUNNER to apply and revert, with PREDICTED (not measured) failures:",
+      "proposed": [
+        {
+          "id": "N1",
+          "edit": "lib/letflow/plugs/authorize.ex apply_scope_mode/3: `:shadow -> Enforce.check(conn, ctx, policy_key)`",
+          "predicted_failing": "off_shadow_byte_identity_test T-G1 (R02, R04, R08, R09 become 403 under shadow), authorize_scope_on_test 'off and shadow never halt'"
+        },
+        {
+          "id": "N2",
+          "edit": "lib/letflow/api/scope/enforce.ex check/3: return conn for a class whose source is :default",
+          "predicted_failing": "enforce_test 'scoped-only holder is refused on all three shapes', authorize_scope_on_test '/default' refusal, admin_plane_under_on_test"
+        },
+        {
+          "id": "N3",
+          "edit": "enforce.ex: drop the {:resolver, _} / :filter / :self_service clauses so they fall through to require_tenant_wide",
+          "predicted_failing": "enforce_test T-G4 pass-through, authorize_scope_on_test pass-through"
+        },
+        {
+          "id": "N4",
+          "edit": "lib/letflow/api/scope.ex decide_resource/3: ignore retired_at (match only {:ok, %{ancestors: a}})",
+          "predicted_failing": "scope_retired_node_test T-G7 (first test)"
+        },
+        {
+          "id": "N5",
+          "edit": "enforce.ex: in the rescue clause return conn instead of fail_closed",
+          "predicted_failing": "enforce_test T-I1 (3 tests)"
+        },
+        {
+          "id": "N6",
+          "edit": "lib/letflow/scope_enforcement.ex @modes [:off, :shadow, :on]",
+          "predicted_failing": "scope_enforcement_on_test T-O2 (parse_mode, flip, PUT) and the existing T-F1"
+        },
+        {
+          "id": "N7",
+          "edit": "lib/letflow/plugs/auth_pipeline.ex: delete the scope_enforcement(%Tenant{scope_enforcement: :on}) clause",
+          "predicted_failing": "auth_pipeline_scope_on_test T-O3 (token and OIDC), the full-router on cases"
+        },
+        {
+          "id": "N8",
+          "edit": "lib/letflow/routers/instances.ex: write the link audit after render, or ignore its error",
+          "predicted_failing": "attachment_link_scope_test T-K5 fault-trigger test"
+        },
+        {
+          "id": "N9",
+          "edit": "bypass Enforce for the link-content route",
+          "predicted_failing": "attachment_link_scope_test T-K4 (both)"
+        },
+        {
+          "id": "N10",
+          "edit": "ShadowEvidence.record/3: Repo.insert_all synchronously",
+          "predicted_failing": "shadow_evidence_test T-H6 (both)"
+        },
+        {
+          "id": "N11",
+          "edit": "Authorize: call Shadow.observe for any mode",
+          "predicted_failing": "shadow_evidence_test 'stored off or on writes no counter', enforce/authorize tests"
+        },
+        {
+          "id": "N12",
+          "edit": "RouteScope.class_of/1: check the declared class before the key table",
+          "predicted_failing": "route_scope_test class_of (admin keys), enforce_test 'cannot be weakened', authorize_scope_on_test '/weakened-admin'"
+        },
+        {
+          "id": "N13",
+          "edit": "ShadowEvidence.upsert/2: discard(entries) in the generic rescue",
+          "predicted_failing": "shadow_evidence_test T-H4 first test"
+        },
+        {
+          "id": "N14",
+          "edit": "RouteScope.audit_routes/2: stale = []",
+          "predicted_failing": "route_scope_test stale tests, route_scope_walk_test 'vanished route'"
+        },
+        {
+          "id": "N15",
+          "edit": "ScopeEnforcement.get_mode/1: `mode when mode in @modes`",
+          "predicted_failing": "scope_enforcement_on_test T-O4"
+        },
+        {
+          "id": "M19",
+          "edit": "ShadowEvidence.flush_prefix/2: skip the valid_prefix? check",
+          "predicted_failing": "shadow_evidence_test T-H4b (hostile prefixes reach SQL)"
+        }
+      ]
+    },
+    "local_issue_id": null,
+    "artifacts_out": [
+      "test/specs/REQ-517-2b.md"
+    ],
+    "implementation_written": false,
+    "ci_round_1_fixes": [
+      "shadow_evidence_test T-H1/T-H2 counts_between and T-H10 explicit days: fixed calendar dates (2026-03-0x, 2026-01-0x) are older than the 90-day retention, so the prune that runs right after the flush deleted them. Days are now relative to today and inside the window (test defect).",
+      "shadow_evidence_test T-H5: Ecto debug QUERY lines in the same capture name the schema; already narrowed to the scope_shadow lines in HEAD (test defect, was fixed before this round).",
+      "attachment_link_scope_test (10 failures): every one is the tenant-wide link ISSUE answering 404 (the other failures are consequences: nil token). Same code path passes in req386 with TENANT_ADMIN; the new tests used PROCESS_DESIGNER and the failing request's only query is the instance_projections exists check. Role switched to TENANT_ADMIN (the scoped-only holder and the tenant-wide holder both hold it). NOT PROVEN: the logs do not show why a designer gets 404; if the role switch does not fix it, the cause is elsewhere and must be read from a local run.",
+      "off_shadow_byte_identity_test T-G1: R09 (link-content with a malformed token, derived as the 410 problem) differed from the derivation already under OFF, where 2b changes no response, so the fixture was wrong, not the implementation. R09 removed (11 requests); 410 stays covered by req386 and the T-K4 tests. Failure message now prints observed and expected. R01..R08 matched under off.",
+      "Line endings: python text-mode edits had written CRLF on Windows; all touched files re-run through the formatter script (LF)."
+    ]
+  }
+}

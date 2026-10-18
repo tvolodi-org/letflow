@@ -441,7 +441,7 @@ defmodule Letflow.Plugs.AuthPipeline do
   # every write from :api_token (a tenant admin can mint a token for any user, so a token write
   # could launder authorship past the separation-of-duties check).
   #
-  # REQ-497 PR 1b (design section 2): adds `scope_enforcement` (`:off | :shadow`, from the
+  # REQ-497 PR 1b (design section 2): adds `scope_enforcement` (`:off | :shadow | :on`, from the
   # tenant row the branch already loaded: zero extra queries, read per request) and
   # `scope_grants` (`Grants.t() | :token | :not_loaded`, the request memo). A context built
   # elsewhere without these keys reads as `:off` / not loaded (fail closed).
@@ -476,6 +476,7 @@ defmodule Letflow.Plugs.AuthPipeline do
     })
   end
 
+  defp scope_enforcement(%Tenant{scope_enforcement: :on}), do: :on
   defp scope_enforcement(%Tenant{scope_enforcement: :shadow}), do: :shadow
   defp scope_enforcement(%Tenant{}), do: :off
 

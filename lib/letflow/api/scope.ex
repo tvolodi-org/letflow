@@ -5,7 +5,7 @@ defmodule Letflow.Api.Scope do
 
   `allowed?/3` runs AFTER the coarse `Letflow.Api.Authorization.evaluate_access/2`, which it
   does not change. It reads the database only for a `{:node, id}` resource, through
-  `Letflow.ScopeNodePaths.ancestors/2` (the 0050 D8 interface, the ONLY tree access). Grants
+  `Letflow.ScopeNodePaths.resolve/2` (the 0050 D8 interface, the ONLY tree access). Grants
   are loaded by `load_grants/2` (one query through `Letflow.Identity.RoleScopeGrants`), once
   per request: the OIDC pipeline stores them in `auth_context.scope_grants`, the request
   memo every later consumer reads.
@@ -26,9 +26,13 @@ defmodule Letflow.Api.Scope do
     8. resource `:tenant_wide`: `{:allow, :tenant_wide}` or `{:deny, :not_tenant_wide}`;
     9. resource `{:node, id}`: tenant-wide -> allow without a read; else the node or one of
        its ancestors in the node set -> `{:allow, :subtree}`, otherwise
-       `{:deny, :out_of_scope}`; a missing or malformed node -> `{:deny, :unresolvable}`.
+       `{:deny, :out_of_scope}`; a missing, malformed or retired node ->
+       `{:deny, :unresolvable}`.
 
-  Retired nodes are not considered in stage 1 (#2535). A `script` principal (0051 D1) is
+  A resource node that is RETIRED is `{:deny, :unresolvable}` for a scoped principal
+  (decision 0051 T6, REQ-517 2b); a tenant-wide principal is allowed without any read, so a
+  retired node is still allowed for it. Only the resource node's own `retired_at` is
+  considered (a grant can never name a retired node after 2a). A `script` principal (0051 D1) is
   not constructed in stage 1; the type excludes it on purpose.
   """
 
@@ -158,8 +162,11 @@ defmodule Letflow.Api.Scope do
   defp decide_resource({:nodes, _ids}, :tenant_wide, _principal), do: {:deny, :not_tenant_wide}
 
   defp decide_resource({:nodes, ids}, {:node, node_id}, principal) do
-    case ScopeNodePaths.ancestors(node_id, principal.prefix) do
-      {:ok, ancestors} ->
+    case ScopeNodePaths.resolve(node_id, principal.prefix) do
+      {:ok, %{node: %{retired_at: retired_at}}} when not is_nil(retired_at) ->
+        {:deny, :unresolvable}
+
+      {:ok, %{ancestors: ancestors}} ->
         if node_id in ids or Enum.any?(ancestors, &(&1.node_id in ids)),
           do: {:allow, :subtree},
           else: {:deny, :out_of_scope}

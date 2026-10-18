@@ -1,0 +1,86 @@
+{
+  "handoff_id": "d2535517-0517-4c02-9e11-000000000011",
+  "run_id": "WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018",
+  "workflow_id": "WF-02",
+  "step": "11",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF02-REQ517-SCOPED-GRANTS-ADMIN-20261018/step-11-elixir-dev-2b.json",
+  "created_at": "2026-10-17T21:40:00Z",
+  "started_at": "2026-10-17T21:41:00Z",
+  "completed_at": "2026-10-17T22:26:36Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S3",
+    "requirement_ids": ["REQ-517"],
+    "requirement_text": {},
+    "source_text": {
+      "slice": "REQ-517 slice 2b (GH #2535): route classification, stored on, Authorize enforcement, DB error path, attachment-link audit, persisted shadow evidence (ACs 16-22). 2a is merged."
+    },
+    "related_handoff_ids": ["d2535517-0517-4c02-9e11-000000000005"],
+    "artifacts_in": ["lib/letflow/design/req517-scoped-grants-admin-plane.md"],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ517-2B-ROUTE-ENFORCE-20261018"
+  },
+  "task": {
+    "description": "Implement PR 2b of the REQ-517 design (sections 4.0-4.8). No new tests written beyond the minimal edits to existing tests that the change forces; nothing committed or pushed."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "2b implemented. MIX_ENV=test mix compile --warnings-as-errors --force: clean. mix format --check-formatted: clean. mix letflow.check_boundaries: 0 violations (1422 edges). mix letflow.check.static: completed, scope_node_paths and role_scope_grants writer scans no violations. Targeted mix test (51 files in 3 runs): all pass except one pre-existing environment failure, PermissionMatrixTest T24, which reads .github CI yaml with CRLF line endings in this working tree and fails on a String.split of the CRLF text, unrelated to this change. A throwaway scratch test (deleted) exercised: stored on read by get_mode, tenant-wide admin passes under on, a user with no grants gets 403 under on, a malformed Grants struct gives a halted 500 with exactly one scope_enforcement_failed line, ShadowEvidence record then flush then counts_between (additive across two flushes, other days zero, a hostile ETS key dropped and never executed). NOT RUN: the full mix test suite (too long for one call), MIX_ENV=dev mix letflow.permission_matrix --check (no permission atom or role_allows? change was made), the down direction of the two new migrations.",
+    "migrations": ["20261018200001_widen_tenants_scope_enforcement_check.exs (public, not in the manifest)", "20261018200002_create_scope_shadow_counters.exs (tenant-scoped, registered)"],
+    "files_created": [
+      "lib/letflow/api/route_scope.ex",
+      "lib/letflow/api/scope/enforce.ex",
+      "lib/letflow/api/scope/shadow_evidence.ex",
+      "lib/letflow/api/scope/shadow_evidence/counter.ex",
+      "priv/repo/migrations/20261018200001_widen_tenants_scope_enforcement_check.exs",
+      "priv/repo/migrations/20261018200002_create_scope_shadow_counters.exs",
+      "test/support/route_inventory.ex",
+      "test/support/scope_enforcement_fixture.ex",
+      "test/fixtures/route_scope/tenant_wide_default_routes.txt"
+    ],
+    "files_changed": [
+      "lib/letflow/api/authorized_router.ex",
+      "lib/letflow/api/scope.ex",
+      "lib/letflow/api/scope/shadow.ex",
+      "lib/letflow/identity/tenant.ex",
+      "lib/letflow/plugs/auth_pipeline.ex",
+      "lib/letflow/plugs/authorize.ex",
+      "lib/letflow/routers/instances.ex",
+      "lib/letflow/scope_enforcement.ex",
+      "lib/letflow/scope_node_paths.ex",
+      "lib/letflow/supervisor/infrastructure.ex",
+      "lib/letflow/tenant_provisioning.ex",
+      "test/support/tenant_fixture.ex",
+      "test/letflow/support/tenant_fixture_test.exs",
+      "test/letflow/supervisor/infrastructure_test.exs",
+      "test/letflow/api/scope_test.exs",
+      "test/letflow/scope_enforcement_test.exs",
+      "test/letflow/routers/tenant_scope_enforcement_test.exs"
+    ],
+    "deviations": [
+      "RouteScope.class_of/1: the key table is consulted BEFORE the declared class (design says declared > key table > default), so an admin-plane key can never be weakened at runtime by a declared option; the walk still reports the conflict as :declared_conflicts_with_key_table.",
+      "The macro and Enforce/Shadow accept and pass through a fifth class :self_service (AC 17 and 19 name five classes; design 4.1 lists four). No route carries it; REQ-518 assigns it. The pending_sec_ruling marker for /me/modules and /help/resolved (design 4.1 last paragraph) is NOT implemented here (REQ-518 scope, RA-3).",
+      "ShadowEvidence retention prune runs once per UTC day for each prefix the process flushed that day (a tenant that left shadow keeps its old rows).",
+      "ShadowEvidence.counts_between/3 returns all seven metric keys, 0 when absent.",
+      "Existing tests edited because the change forces it: scope_test T-A8 (resolve instead of ancestors), tenant_fixture_test (56 -> 57 tables) with test/support/tenant_fixture.ex oracle, infrastructure_test (24 -> 25 children), scope_enforcement_test T-F7 (on is now a valid stored changeset value; bogus is not), tenant_scope_enforcement_test T-F1 SQL case (ON, not on, violates the widened CHECK).",
+      "Test support created beyond the design list is none; the design-listed test/support/route_inventory.ex and scope_enforcement_fixture.ex and the snapshot file were generated here (snapshot: 143 default-sourced routes of 173; audit_routes returned [])."
+    ],
+    "notes_for_test_designer": [
+      "NOT created: test/fixtures/route_scope/off_shadow_responses.json (T-G1) -- it must be captured from unchanged main behavior; no off/shadow HTTP response was changed by this code.",
+      "Unverified assumption now verified once ad hoc: Repo.insert_all with prefix: plus a query-form on_conflict produces INSERT ... AS s0 ... DO UPDATE SET count = s0.count + EXCLUDED.count against the tenant schema.",
+      "The 2b target tests that must still be written: route_scope_walk_test, admin_plane_under_on_test, Enforce unit tests, ShadowEvidence tests (async false), link audit tests, migration tests (including down raising while a tenant is on).",
+      "Enforce.check/3 with a malformed Grants struct (rows_by_role not a map) gives a halted 500 and one scope_enforcement_failed class=error exception=BadMapError line."
+    ],
+    "sec_code_gate_followups": [
+      "F-1: RouteScope.audit_routes/2 now also returns {:self_service_not_allowed, row} for any route of class :self_service and {:unexpected_filter_route, row} for any :filter route outside the committed expectation (empty).",
+      "F-3: audit_routes/2 returns {:unknown_permission, key} when required_permission(key) is not in Authorization.permissions(); the real route table audits to [].",
+      "F-4: design section 4.1 amended to the as-built rule (key table before declared, five classes, :self_service unused)."
+    ],
+    "local_issue_id": null,
+    "implementation_written": true
+  }
+}

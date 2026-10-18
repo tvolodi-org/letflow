@@ -321,10 +321,11 @@ defmodule Letflow.Support.TenantFixtureTest do
       # (GH #2530) added scope_node_paths, bumping it to 52 -- GH 2534 7b-2a added
       # script_policy and script_readable_masters, bumping it to 54 -- REQ-497
       # (GH #2533 PR 1a) added role_scope_grants, bumping it to 55 -- GH 2534 7c-1 added
-      # script_task_dispatches, bumping it to 56.
+      # script_task_dispatches, bumping it to 56 -- REQ-517 PR 2b (GH #2535) added
+      # scope_shadow_counters, bumping it to 57.
       # test/support/tenant_fixture.ex's own @expected_tenant_tables
-      # list already carries all 56.)
-      assert length(TenantFixture.expected_tenant_tables()) == 56
+      # list already carries all 57.)
+      assert length(TenantFixture.expected_tenant_tables()) == 57
       assert length(state.manifest_versions) > 0
     end
 

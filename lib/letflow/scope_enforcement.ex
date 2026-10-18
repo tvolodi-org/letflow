@@ -3,9 +3,12 @@ defmodule Letflow.ScopeEnforcement do
   The per-tenant org-scope enforcement flag (REQ-497 PR 1b / GH #2533, decision 0051 D12 and
   Rollout; design `lib/letflow/design/req497-1b-allowed-flag-shadow-n1.md` section 3).
 
-  Stage 1 has two modes: `off` and `shadow` (the scope decision is computed and counted,
-  nothing is denied). `on` does not exist: it is not parseable here and the DB CHECK on
-  `tenants.scope_enforcement` refuses it; stage 2 (#2535) adds it. The flag is a column of
+  Two modes are SETTABLE: `off` and `shadow` (the scope decision is computed and counted,
+  nothing is denied). A third value, `on`, is STORED since REQ-517 2b (#2535): the DB CHECK
+  and the `Tenant` enum accept it and `Letflow.Plugs.Authorize` enforces it, but it is not
+  parseable here and `flip/4` rejects it as `:invalid_mode`, so no route can set it until
+  REQ-519 adds the guarded flip. A tenant stored as `on` can still be flipped back to
+  `off` (with a reason). The flag is a column of
   the PUBLIC `tenants` row, read per request by both auth paths with no extra query, and
   written ONLY by `flip/4`.
 
@@ -43,9 +46,11 @@ defmodule Letflow.ScopeEnforcement do
   alias Letflow.TenantProvisioning
 
   @modes [:off, :shadow]
+  @stored_modes [:off, :shadow, :on]
   @integrity_items_cap 1000
 
   @type mode :: :off | :shadow
+  @type stored_mode :: :off | :shadow | :on
   @type precondition :: :bindings_without_row | :org_inconsistent | :tokens_exceed_owner
   @type precondition_report :: %{
           bindings_without_row: non_neg_integer(),
@@ -70,9 +75,13 @@ defmodule Letflow.ScopeEnforcement do
           findings: [integrity_finding()]
         }
 
-  @doc "The stage-1 modes, `[:off, :shadow]`."
+  @doc "The settable modes, `[:off, :shadow]`."
   @spec modes() :: [mode()]
   def modes, do: @modes
+
+  @doc "Every mode the column can store, `[:off, :shadow, :on]` (reads only; `on` is not settable)."
+  @spec stored_modes() :: [stored_mode()]
+  def stored_modes, do: @stored_modes
 
   @doc """
   Exactly the strings `"off"` and `"shadow"`. Every other value (`"on"`, `"ON"`, `nil`,
@@ -84,10 +93,11 @@ defmodule Letflow.ScopeEnforcement do
   def parse_mode(_other), do: {:error, :invalid_mode}
 
   @doc "The tenant's current mode (one read of the public `tenants` row)."
-  @spec get_mode(tenant_id :: Ecto.UUID.t()) :: {:ok, mode()} | {:error, :tenant_not_found}
+  @spec get_mode(tenant_id :: Ecto.UUID.t()) ::
+          {:ok, stored_mode()} | {:error, :tenant_not_found}
   def get_mode(tenant_id) do
     with {:ok, id} <- Ecto.UUID.cast(tenant_id),
-         mode when mode in @modes <-
+         mode when mode in @stored_modes <-
            Repo.one(from(t in Tenant, where: t.id == ^id, select: t.scope_enforcement)) do
       {:ok, mode}
     else
@@ -126,7 +136,8 @@ defmodule Letflow.ScopeEnforcement do
           target :: mode(),
           attrs :: %{actor_id: Ecto.UUID.t() | nil, reason: term(), trace_id: String.t() | nil}
         ) ::
-          {:ok, %{mode: mode(), previous: mode(), changed: boolean()}} | {:error, flip_error()}
+          {:ok, %{mode: mode(), previous: stored_mode(), changed: boolean()}}
+          | {:error, flip_error()}
   def flip(tenant_id, prefix, target, attrs) when is_binary(prefix) and is_map(attrs) do
     with :ok <- check_target(target),
          :ok <- check_prefix(tenant_id, prefix),

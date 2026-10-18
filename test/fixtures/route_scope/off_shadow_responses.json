@@ -1,0 +1,198 @@
+{
+  "_provenance": "REQ-517 2b T-G1. Responses of the UNCHANGED main behavior (commit c309227b2, PR 2a merge) for the off and shadow modes, derived by reading main's code paths (Letflow.Api.Response/Error serialisation, Instances/Tasks/Identity handlers, Authorize coarse deny, AttachmentLinks); NOT captured from a running main (machine memory-constrained, mix mutex held). The shadow observer changes how routes are OBSERVED in 2b but no off/shadow HTTP response. If a request here fails against BOTH off and shadow in the same way, the derivation is wrong: re-capture with the 2b lib changes stashed (git stash -- lib priv) and regenerate this file. Bodies are compared as decoded JSON; headers record content-type only; the trace id is the one ScopedGrantsFixture assigns. R09 (a link-content request with a malformed token, derived as the 410 expired problem) was REMOVED after hosted CI showed it differing from the derivation already under off, where 2b changes nothing; the 410 behavior stays covered by req386_attachment_links_routes_test.exs and the T-K4 tests.",
+  "trace_id": "req517-2a-trace-0001",
+  "requests": [
+    {
+      "id": "R01",
+      "router": "Instances",
+      "method": "GET",
+      "path": "/",
+      "caller": "tenant_wide_admin",
+      "response": {
+        "status": 200,
+        "content_type": "application/json; charset=utf-8",
+        "body": {
+          "items": [],
+          "next_cursor": null,
+          "count": 0
+        }
+      }
+    },
+    {
+      "id": "R02",
+      "router": "Instances",
+      "method": "GET",
+      "path": "/",
+      "caller": "scoped_admin",
+      "response": {
+        "status": 200,
+        "content_type": "application/json; charset=utf-8",
+        "body": {
+          "items": [],
+          "next_cursor": null,
+          "count": 0
+        }
+      }
+    },
+    {
+      "id": "R03",
+      "router": "Instances",
+      "method": "GET",
+      "path": "/00000000-0000-4000-8000-0000000000a1",
+      "caller": "tenant_wide_admin",
+      "response": {
+        "status": 404,
+        "content_type": "application/problem+json; charset=utf-8",
+        "body": {
+          "type": "https://bpm.example.com/problems/not-found",
+          "title": "Not Found",
+          "status": 404,
+          "detail": "the requested resource was not found",
+          "trace_id": "req517-2a-trace-0001"
+        }
+      }
+    },
+    {
+      "id": "R04",
+      "router": "Instances",
+      "method": "GET",
+      "path": "/00000000-0000-4000-8000-0000000000a1",
+      "caller": "scoped_admin",
+      "response": {
+        "status": 404,
+        "content_type": "application/problem+json; charset=utf-8",
+        "body": {
+          "type": "https://bpm.example.com/problems/not-found",
+          "title": "Not Found",
+          "status": 404,
+          "detail": "the requested resource was not found",
+          "trace_id": "req517-2a-trace-0001"
+        }
+      }
+    },
+    {
+      "id": "R05",
+      "router": "Instances",
+      "method": "GET",
+      "path": "/not-a-uuid",
+      "caller": "tenant_wide_admin",
+      "response": {
+        "status": 422,
+        "content_type": "application/problem+json; charset=utf-8",
+        "body": {
+          "type": "https://bpm.example.com/problems/unprocessable-entity",
+          "title": "Unprocessable Entity",
+          "status": 422,
+          "detail": "instance_id is not a valid UUID",
+          "trace_id": "req517-2a-trace-0001"
+        }
+      }
+    },
+    {
+      "id": "R06",
+      "router": "Instances",
+      "method": "GET",
+      "path": "/",
+      "caller": "no_role",
+      "response": {
+        "status": 403,
+        "content_type": "application/problem+json; charset=utf-8",
+        "body": {
+          "type": "https://bpm.example.com/problems/forbidden",
+          "title": "Forbidden",
+          "status": 403,
+          "detail": "insufficient permissions",
+          "trace_id": "req517-2a-trace-0001"
+        }
+      }
+    },
+    {
+      "id": "R07",
+      "router": "Instances",
+      "method": "GET",
+      "path": "/no/such/route/at/all",
+      "caller": "tenant_wide_admin",
+      "response": {
+        "status": 403,
+        "content_type": "application/problem+json; charset=utf-8",
+        "body": {
+          "type": "https://bpm.example.com/problems/forbidden",
+          "title": "Forbidden",
+          "status": 403,
+          "detail": "insufficient permissions",
+          "trace_id": "req517-2a-trace-0001"
+        }
+      }
+    },
+    {
+      "id": "R08",
+      "router": "Instances",
+      "method": "POST",
+      "path": "/00000000-0000-4000-8000-0000000000b1/attachments/00000000-0000-4000-8000-0000000000c1/link",
+      "caller": "scoped_admin",
+      "response": {
+        "status": 404,
+        "content_type": "application/problem+json; charset=utf-8",
+        "body": {
+          "type": "https://bpm.example.com/problems/not-found",
+          "title": "Not Found",
+          "status": 404,
+          "detail": "the requested resource was not found",
+          "trace_id": "req517-2a-trace-0001"
+        }
+      }
+    },
+    {
+      "id": "R10",
+      "router": "Tasks",
+      "method": "GET",
+      "path": "/",
+      "caller": "tenant_wide_worker",
+      "response": {
+        "status": 200,
+        "content_type": "application/json; charset=utf-8",
+        "body": {
+          "items": [],
+          "next_cursor": null,
+          "count": 0
+        }
+      }
+    },
+    {
+      "id": "R11",
+      "router": "Tasks",
+      "method": "GET",
+      "path": "/?status=BOGUS",
+      "caller": "tenant_wide_worker",
+      "response": {
+        "status": 400,
+        "content_type": "application/problem+json; charset=utf-8",
+        "body": {
+          "type": "https://bpm.example.com/problems/bad-request",
+          "title": "Bad Request",
+          "status": 400,
+          "detail": "status must be one of PENDING, COMPLETED, CANCELLED",
+          "trace_id": "req517-2a-trace-0001"
+        }
+      }
+    },
+    {
+      "id": "R12",
+      "router": "Identity",
+      "method": "GET",
+      "path": "/users",
+      "caller": "task_worker_claim",
+      "response": {
+        "status": 403,
+        "content_type": "application/problem+json; charset=utf-8",
+        "body": {
+          "type": "https://bpm.example.com/problems/forbidden",
+          "title": "Forbidden",
+          "status": 403,
+          "detail": "insufficient permissions",
+          "trace_id": "req517-2a-trace-0001"
+        }
+      }
+    }
+  ]
+}
