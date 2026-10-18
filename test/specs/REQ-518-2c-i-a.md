@@ -47,6 +47,8 @@ aggregate, aggregate over a join) were written to `test/fixtures/scope/compiler_
 the renamed copy are not committed. The test compares `compile(r, p, :all)` to those strings, so a `:all` query that gained
 a `where` fails. The same file's pinned `ManifestHash` value for a literal manifest was produced the same way.
 
+Note (CI fix): the `latest_filter` shape's SELECT column list (the `Latest` schema columns, which gained `external_system` / `external_id` on main) is normalised to a marker on both sides; the rest of the SQL and the parameters are compared exactly.
+
 ## AC -> test
 
 | AC | Tests | Why it exists (what it would catch) |

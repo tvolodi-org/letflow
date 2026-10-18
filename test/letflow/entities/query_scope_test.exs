@@ -106,6 +106,21 @@ defmodule Letflow.Entities.QueryScopeTest do
     ]
   }
 
+  # The `:latest` shape selects every column of the `Latest` schema; that column list is a
+  # property of the schema (it grew with `external_system` / `external_id` on main), not of the
+  # scope argument, so it is replaced by a marker on BOTH sides. Everything after FROM (table,
+  # WHERE, parameters) is compared exactly.
+  defp normalise(%{"sql" => sql} = shape) do
+    if sql =~ ~s("entity_record_latest") do
+      %{
+        shape
+        | "sql" => Regex.replace(~r/\ASELECT .*? FROM /, sql, "SELECT <latest columns> FROM ")
+      }
+    else
+      shape
+    end
+  end
+
   # the target row of a joined result row (nil when the LEFT join found nothing in scope)
   defp target(row, type) do
     case Map.get(row, type) do
@@ -137,9 +152,14 @@ defmodule Letflow.Entities.QueryScopeTest do
       assert Enum.sort(Map.keys(expected)) == Enum.sort(Enum.map(F.sql_shapes(), &elem(&1, 0)))
 
       for {name, kind, request} <- F.sql_shapes() do
-        assert F.sql_of(Compiler, kind, request, fx.schema_name, :all) ==
-                 Map.fetch!(expected, name),
-               "shape #{name}: the :all query differs from the pre-change query"
+        actual = normalise(F.sql_of(Compiler, kind, request, fx.schema_name, :all))
+        wanted = normalise(Map.fetch!(expected, name))
+
+        assert actual == wanted,
+               "shape #{name}: the :all query differs from the pre-change query
+" <>
+                 "expected: #{inspect(wanted)}
+actual:   #{inspect(actual)}"
       end
     end
 
