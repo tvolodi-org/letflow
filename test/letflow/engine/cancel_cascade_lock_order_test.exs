@@ -647,7 +647,10 @@ defmodule Letflow.Engine.CancelCascadeLockOrderTest do
   end
 
   describe "HUMAN child completion WITH entity_writes (statement trace)" do
-    test "entity-type row, then the parent group, all before the first UPDATE of the child's projection",
+    # GH #2704 (decision 0061, change C-P): the parent group is taken right after the pure
+    # `:transition` step and BEFORE the entity-type rows (this test used to pin the reverse
+    # order, entity-type row first), and both precede the first UPDATE of the child's projection.
+    test "the parent group, then the entity-type row, all before the first UPDATE of the child's projection",
          %{base: base} do
       schema = base.schema
       Fx.define_type!(schema, "stock_move", %{})
@@ -697,8 +700,13 @@ defmodule Letflow.Engine.CancelCascadeLockOrderTest do
       index = fn pred -> Enum.find_index(queries, pred) end
       params = fn q -> q |> Map.get(:params, []) |> Enum.map(&normalize/1) end
 
+      # the TYPE's sequence row, not the child's own (which the event appends also lock)
+      {:ok, type_id} = Letflow.Entities.EntityTypeInstance.fetch_instance_id("stock_move", schema)
+
       first_type_row =
-        index.(fn q -> q.query =~ "instance_sequence" and q.query =~ "FOR UPDATE" end)
+        index.(fn q ->
+          q.query =~ "instance_sequence" and q.query =~ "FOR UPDATE" and type_id in params.(q)
+        end)
 
       first_parent_lock =
         index.(fn q ->
@@ -712,14 +720,10 @@ defmodule Letflow.Engine.CancelCascadeLockOrderTest do
             child.instance_id in params.(q)
         end)
 
-      IO.puts(
-        "TRACE type_row=#{first_type_row} parent_lock=#{first_parent_lock} child_update=#{first_child_update}"
-      )
-
       assert is_integer(first_type_row) and is_integer(first_parent_lock)
       assert is_integer(first_child_update)
-      assert first_type_row < first_parent_lock
-      assert first_parent_lock < first_child_update
+      assert first_parent_lock < first_type_row
+      assert first_type_row < first_child_update
     end
   end
 

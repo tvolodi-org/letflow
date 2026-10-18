@@ -7,6 +7,10 @@ defmodule Letflow.Application do
 
   @impl true
   def start(_type, _args) do
+    # GH #2704 (decision 0061 rule 4): the configured entity-port adapter must implement the
+    # optional pre-lock callback, or the service apply would silently skip it.
+    :ok = Letflow.Engine.EntityPort.verify_adapter!()
+
     # GH 2534 PR 7c-1 SECURITY note (design gh2534-7c-script-handler.md 5.1): every 7b/7c
     # script test seam is honoured only while :scripts_test_hooks is true, so a :prod node
     # refuses to start with it set (fixed text, no value echoed).

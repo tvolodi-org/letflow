@@ -424,12 +424,23 @@ defmodule Letflow.Entities.HandlerWrites do
   `{:entity_type_instance_missing, type}`.
   """
   @spec lock_types(Multi.t(), [String.t()], prefix :: String.t()) :: Multi.t()
-  def lock_types(%Multi{} = multi, types, prefix) when is_list(types) and is_binary(prefix) do
+  def lock_types(%Multi{} = multi, types, prefix),
+    do: lock_types(multi, types, prefix, :type_lock)
+
+  @doc """
+  `lock_types/3` with the step-key tag chosen by the caller: `:type_lock` for the locks inside the
+  write Multi, `:pre_type_lock` for the service apply's pre-lock (GH #2704), which must not reuse
+  the key because both exist in one Multi.
+  """
+  @spec lock_types(Multi.t(), [String.t()], prefix :: String.t(), :type_lock | :pre_type_lock) ::
+          Multi.t()
+  def lock_types(%Multi{} = multi, types, prefix, tag)
+      when is_list(types) and is_binary(prefix) and tag in [:type_lock, :pre_type_lock] do
     types
     |> Enum.uniq()
     |> Enum.sort()
     |> Enum.reduce(multi, fn type, acc ->
-      Multi.run(acc, {:type_lock, type}, fn repo, _changes ->
+      Multi.run(acc, {tag, type}, fn repo, _changes ->
         case EntityTypeInstance.fetch_instance_id(type, prefix) do
           {:ok, instance_id} -> EventStore.lock_instance_sequence(repo, instance_id, prefix)
           {:error, :not_found} -> {:error, {:entity_type_instance_missing, type}}

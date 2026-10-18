@@ -407,7 +407,7 @@ defmodule Letflow.Engine.CompleteTaskEntityWritesTest do
   end
 
   describe "B-15: a completion without lines is today's Multi" do
-    test "the step names are exactly the pre-B2 names" do
+    test "the step names are exactly the pre-B2 names plus the GH #2704 ancestor lock" do
       base = Fx.tenant_case!("gh2587-b2names")
       plain = Fx.attach!(base, [])
 
@@ -426,6 +426,7 @@ defmodule Letflow.Engine.CompleteTaskEntityWritesTest do
                :form_expression_reevaluation,
                :merge,
                :transition,
+               :lock_ancestors,
                :__merge__
              ]
     end
@@ -444,6 +445,7 @@ defmodule Letflow.Engine.CompleteTaskEntityWritesTest do
                :form_expression_reevaluation,
                :merge,
                :transition,
+               :lock_ancestors,
                :__merge__,
                :__merge__
              ]

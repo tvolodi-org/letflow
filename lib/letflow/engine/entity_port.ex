@@ -232,6 +232,28 @@ defmodule Letflow.Engine.EntityPort do
   @callback multi(Ecto.Multi.t(), lines :: [line()], multi_ctx()) :: Ecto.Multi.t()
 
   @doc """
+  GH #2704 (decision 0061 rules 3 and 4), OPTIONAL: appends to the Multi a group of lock-only
+  `{:pre_type_lock, entity_type}` steps, one per type in the ASCENDING union of the declared line
+  types and the registered target types of the `module_writes` handlers (types without a synthetic
+  instance are skipped), each taking the type's `instance_sequences` row. The service apply calls
+  it right after its ancestor-group lock and BEFORE its task activation (the first audit chain row),
+  so the entity-type rows precede the audit chain row on both child kinds. It writes nothing and
+  reads no record data; the later per-line lock steps then re-lock the same rows.
+
+  Optional so that test doubles of this behaviour keep compiling (`lock_types/4` below is then the
+  identity); the PRODUCTION adapter must implement it: `@impl true`, `verify_adapter!/0` at boot
+  and the wiring test `entity_port_prelock_wired_test.exs`.
+  """
+  @callback lock_types(
+              Ecto.Multi.t(),
+              lines :: [line()],
+              module_lines :: [module_write_line()],
+              lock_ctx :: %{required(:prefix) => String.t()}
+            ) :: Ecto.Multi.t()
+
+  @optional_callbacks lock_types: 4
+
+  @doc """
   Maps a failed `{:line, i, step}` Multi step (and its reason) to a `failure()`. The engine
   cannot call the entity layer's own interpreter (engine -> entities is forbidden), so this
   is the one door. Never carries a field value or name.
@@ -244,6 +266,51 @@ defmodule Letflow.Engine.EntityPort do
   """
   @spec impl() :: module()
   def impl, do: Application.fetch_env!(:letflow, :entity_port)
+
+  @doc """
+  The pre-lock through the configured implementation (`impl/0`): the Multi unchanged when the
+  implementation does not export `lock_types/4` (a test double). See the callback.
+  """
+  @spec lock_types(
+          Ecto.Multi.t(),
+          [line()],
+          [module_write_line()],
+          %{required(:prefix) => String.t()}
+        ) :: Ecto.Multi.t()
+  def lock_types(multi, lines, module_lines, lock_ctx),
+    do: lock_types(impl(), multi, lines, module_lines, lock_ctx)
+
+  @doc false
+  @spec lock_types(module(), Ecto.Multi.t(), [line()], [module_write_line()], map()) ::
+          Ecto.Multi.t()
+  def lock_types(impl, multi, lines, module_lines, lock_ctx) do
+    if exports_lock_types?(impl),
+      do: impl.lock_types(multi, lines, module_lines, lock_ctx),
+      else: multi
+  end
+
+  @doc """
+  Boot-time guarantee (decision 0061 rule 4): raises when the CONFIGURED adapter does not export
+  the optional `lock_types/4`, so omitting it from the production adapter cannot go unnoticed.
+  Called from `Letflow.Application.start/2`; test doubles are installed with `Application.put_env`
+  after boot and keep the no-op default.
+  """
+  @spec verify_adapter!() :: :ok
+  def verify_adapter!, do: verify_adapter!(impl())
+
+  @doc false
+  @spec verify_adapter!(module()) :: :ok
+  def verify_adapter!(adapter) when is_atom(adapter) do
+    if exports_lock_types?(adapter) do
+      :ok
+    else
+      raise "config :letflow, :entity_port (#{inspect(adapter)}) does not export lock_types/4: " <>
+              "the service apply's entity-type pre-lock (GH #2704, decision 0061 rule 4) would be skipped."
+    end
+  end
+
+  defp exports_lock_types?(module),
+    do: Code.ensure_loaded?(module) and function_exported?(module, :lock_types, 4)
 
   @doc "The instance event type PR B/C append once a step's entity writes committed."
   @spec applied_event_type() :: String.t()
