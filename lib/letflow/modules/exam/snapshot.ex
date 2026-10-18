@@ -810,34 +810,73 @@ defmodule Letflow.Modules.Exam.Snapshot do
     end)
   end
 
+  @doc """
+  The live option rows of a question, or the typed refusal (GH #2762, design section 5). Rows are
+  compiler rows exposing `deleted` and `field_values`; the result is the live rows in input order.
+
+    * `:late` (the #2734 rule): a soft-deleted key-bearing option refuses, since a candidate may
+      have seen it and dropping it silently changes who scores correct.
+    * `:start` (content as authored now): deleted rows are ignored for key purposes; refuses only
+      when the LIVE set cannot form a key (no live correct option for `single`/`multiple`/
+      `truefalse`, no live option for `likert`). `shorttext` and unknown types never refuse here.
+
+  Refusal is `{:error, {:grading_error, {:key_missing, question_id}}}`. An unknown mode raises
+  `FunctionClauseError`.
+  """
+  @spec live_options(
+          option_rows :: [map()],
+          question :: %{required(:type) => String.t() | nil, required(:question_id) => String.t()},
+          mode :: :start | :late
+        ) :: {:ok, [map()]} | {:error, {:grading_error, {:key_missing, String.t()}}}
+  def live_options(option_rows, %{type: type, question_id: question_id}, :late) do
+    {deleted, live} = Enum.split_with(option_rows, &(&1.deleted == true))
+
+    if Enum.any?(deleted, &key_bearing?(type, &1)),
+      do: grading_error({:key_missing, question_id}),
+      else: {:ok, live}
+  end
+
+  def live_options(option_rows, %{type: type, question_id: question_id}, :start) do
+    live = Enum.reject(option_rows, &(&1.deleted == true))
+
+    if start_key_ok?(type, live),
+      do: {:ok, live},
+      else: grading_error({:key_missing, question_id})
+  end
+
+  # Mirrors `check_key/3` / `build_likert/3` on the live set (a typed early signal; the
+  # `build_from_resolved/4` checks remain the authority). Shorttext is exempt for the same reason
+  # as in `key_bearing?/2` (see its TRIPWIRE): it is never auto-graded.
+  defp start_key_ok?(type, live) when type in @key_types,
+    do: Enum.any?(live, &(fv(&1, "is_correct") == true))
+
+  defp start_key_ok?("likert", live), do: live != []
+  defp start_key_ok?(_type, _live), do: true
+
   defp load_item(question_id, prefix) do
     case fetch_live(question_id, "question", prefix) do
       {:ok, question} ->
         type = fv(question, "type")
 
         # All option rows are read: a soft-deleted one must be seen to know whether it was
-        # key-bearing (GH #2734). A deleted key-bearing option refuses; other deleted ones drop.
+        # key-bearing (GH #2734). The rule itself is `live_options/3` in `:late` mode.
         with {:ok, options} <-
-               query_all("answer_option", [eq("question_id", question_id)], prefix) do
-          {deleted, live} = Enum.split_with(options, &(&1.deleted == true))
-
-          if Enum.any?(deleted, &key_bearing?(type, &1)) do
-            grading_error({:key_missing, to_string(question_id)})
-          else
-            {:ok,
-             %{
-               type: type,
-               options:
-                 Enum.map(live, fn option ->
-                   %{
-                     id: normalize_record_id(option.record_id),
-                     is_correct: fv(option, "is_correct"),
-                     likert_weight: fv(option, "likert_weight"),
-                     likert_polarity: fv(option, "likert_polarity")
-                   }
-                 end)
-             }}
-          end
+               query_all("answer_option", [eq("question_id", question_id)], prefix),
+             {:ok, live} <-
+               live_options(options, %{type: type, question_id: to_string(question_id)}, :late) do
+          {:ok,
+           %{
+             type: type,
+             options:
+               Enum.map(live, fn option ->
+                 %{
+                   id: normalize_record_id(option.record_id),
+                   is_correct: fv(option, "is_correct"),
+                   likert_weight: fv(option, "likert_weight"),
+                   likert_polarity: fv(option, "likert_polarity")
+                 }
+               end)
+           }}
         end
 
       :not_found ->
