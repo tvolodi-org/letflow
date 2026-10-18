@@ -38,6 +38,8 @@ defmodule Letflow.Api.Scope do
 
   import Plug.Conn, only: [assign: 3]
 
+  require Logger
+
   alias Letflow.Api.Authorization
   alias Letflow.Identity.RoleScopeGrants
   alias Letflow.PlatformTenant
@@ -56,6 +58,26 @@ defmodule Letflow.Api.Scope do
           | :grants_unavailable
   @type decision :: {:allow, allow_basis()} | {:deny, deny_reason()}
   @type effective :: :tenant_wide | {:nodes, [node_id()]} | :deny
+
+  defmodule ScopeSetError do
+    @moduledoc """
+    Raised by `Letflow.Api.Scope.allowed_set/2` when the allowed node set cannot be computed
+    (REQ-518 SEC C-1). Carries only the reason atom; the message is constant (INV-4). It
+    implements `Plug.Exception` with status 500; `Letflow.Plugs.ApiPipeline.handle_errors/2`
+    turns it into the detail-free 500 response.
+    """
+    defexception [:reason]
+
+    @type t :: %__MODULE__{reason: atom()}
+
+    @impl true
+    def message(_exception), do: "scope_set_failed"
+  end
+
+  defimpl Plug.Exception, for: ScopeSetError do
+    def status(_exception), do: 500
+    def actions(_exception), do: []
+  end
 
   defmodule Grants do
     @moduledoc """
@@ -122,27 +144,87 @@ defmodule Letflow.Api.Scope do
     end
   end
 
+  @doc """
+  REQ-518 (design 3.3): the EXPANDED allowed node-id set of `principal` for `permission`, for
+  the scoped data path: `{:ok, :all}` for a tenant-wide, token or platform principal,
+  `{:ok, :none}` when the permission is not held, grants are unavailable or the grants name no
+  live node, `{:ok, {:nodes, ids}}` otherwise (grant roots plus their LIVE descendants,
+  sorted). Same decision order as `allowed?/3` (they share `tenant_effective/2`).
+
+  Fail closed (SEC C-1, INV-8): if the node expansion fails (`:invalid_node_id`,
+  `:invalid_schema_name`, `:too_many_ids`) this RAISES `Letflow.Api.Scope.ScopeSetError`
+  carrying only the reason atom, after one constant log line; it never returns `:all`, a
+  partial set or a silent `:none`. A database error from the node reads propagates.
+  """
+  @spec allowed_set(Principal.t(), Authorization.permission() | atom()) ::
+          {:ok, Letflow.Entities.Query.Types.scope_set()}
+  def allowed_set(%Principal{} = principal, permission) do
+    cond do
+      permission not in Authorization.permissions() ->
+        {:ok, :none}
+
+      Authorization.permission_scope(permission) == :platform ->
+        if Authorization.has_permission_in_scope?(
+             principal.roles,
+             permission,
+             principal.platform_tenant?
+           ),
+           do: {:ok, :all},
+           else: {:ok, :none}
+
+      true ->
+        principal |> tenant_effective(permission) |> expand_set(principal)
+    end
+  end
+
+  defp expand_set({:decided, {:allow, _basis}}, _principal), do: {:ok, :all}
+  defp expand_set({:decided, {:deny, _reason}}, _principal), do: {:ok, :none}
+  defp expand_set({:combined, :tenant_wide}, _principal), do: {:ok, :all}
+  defp expand_set({:combined, :deny}, _principal), do: {:ok, :none}
+
+  defp expand_set({:combined, {:nodes, roots}}, principal) do
+    case ScopeNodePaths.allowed_node_ids(roots, principal.prefix) do
+      {:ok, []} -> {:ok, :none}
+      {:ok, ids} -> {:ok, {:nodes, ids}}
+      {:error, reason} -> raise_scope_set_error(reason)
+    end
+  end
+
+  defp raise_scope_set_error(reason) do
+    Logger.error("scope_set_failed reason=#{reason}")
+    raise ScopeSetError, reason: reason
+  end
+
   defp decide_tenant_permission(principal, permission, resource_scope) do
+    case tenant_effective(principal, permission) do
+      {:decided, decision} -> decision
+      {:combined, combined} -> decide_resource(combined, resource_scope, principal)
+    end
+  end
+
+  # Steps 3-7 of the decision order, shared by `allowed?/3` and `allowed_set/2` so the two
+  # cannot diverge (REQ-518 D1): either a final decision, or the combined effective scope.
+  defp tenant_effective(principal, permission) do
     candidates = Enum.filter(principal.roles, &Authorization.role_allows?(&1, permission))
 
     cond do
       candidates == [] ->
-        {:deny, :role_not_held}
+        {:decided, {:deny, :role_not_held}}
 
       :PLATFORM_ADMIN in candidates and principal.platform_tenant? == true ->
-        {:allow, :platform}
+        {:decided, {:allow, :platform}}
 
       principal.kind == :token ->
-        {:allow, :token}
+        {:decided, {:allow, :token}}
 
       not is_struct(principal.grants, Grants) ->
-        {:deny, :grants_unavailable}
+        {:decided, {:deny, :grants_unavailable}}
 
       true ->
-        candidates
-        |> Enum.map(&effective_scope(principal, Atom.to_string(&1)))
-        |> combine()
-        |> decide_resource(resource_scope, principal)
+        {:combined,
+         candidates
+         |> Enum.map(&effective_scope(principal, Atom.to_string(&1)))
+         |> combine()}
     end
   end
 

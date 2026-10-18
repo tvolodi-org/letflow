@@ -58,7 +58,9 @@ defmodule Letflow.Modules.CatalogTest do
                Letflow.Modules.FixtureManagedNoPack,
                Letflow.Modules.FixtureLedger,
                Letflow.Modules.FixtureLedgerOther,
-               Letflow.Modules.FixtureLedgerRogue
+               Letflow.Modules.FixtureLedgerRogue,
+               # REQ-518: scope declarations fixture
+               Letflow.Modules.FixtureScoped
              ]
     end
 

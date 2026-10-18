@@ -1,0 +1,73 @@
+{
+  "handoff_id": "d2535518-0518-4c02-9e11-000000000006",
+  "run_id": "WF02-REQ518-COMPILER-SCOPE-20261018",
+  "workflow_id": "WF-02",
+  "step": "06",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGN-VALIDATOR",
+  "file": "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-06-cdv-recheck-r2.json",
+  "created_at": "2026-10-18T04:30:00Z",
+  "started_at": "2026-10-18T04:30:30Z",
+  "completed_at": "2026-10-18T04:50:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-518"],
+    "requirement_text": {
+      "REQ-518": "Diff check of design r2 against SEC design-gate handoff step-04 (C-1..C-7, rulings, A-1..A-8, RA-13)."
+    },
+    "source_text": {
+      "GH#2535": "Quick recheck of lib/letflow/design/req518-compiler-scope-filter.md r2. No mix."
+    },
+    "related_handoff_ids": ["d2535518-0518-4c02-9e11-000000000004", "d2535518-0518-4c02-9e11-000000000003"],
+    "artifacts_in": [
+      "lib/letflow/design/req518-compiler-scope-filter.md",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-04-security-reviewer-design.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ518-COMPILER-SCOPE-20261018"
+  },
+  "task": {
+    "description": "WF-02 step 1b recheck of REQ-518 design r2 against the SEC design gate."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "All of C-1..C-7, the R-1..R-8/RA-13/OQ-3 rulings and advisories are present and consistent. C-1: 3.3 raises ScopeSetError on any allowed_node_ids error incl. :too_many_ids, 50,000 cap via :scope_allowed_ids_cap, one constant log line, decision table and 3.4 spec updated, T-C13/T-C14, MU40/MU41. C-2: 3.8 fixture has retired intermediate a2 with live child a2x, T-C4, T-C12, MU4. C-3: 5.3 PUT order is lookup, body, schema, pure check_new_value, idempotency; spec has no I/O; T-W22, MU39. C-4: C.4 plain read on the Multi repo after the task lock, Scope.load_grants fresh, T-F17. C-5/C-6: T-W21, T-W23. C-7: section 8 records ruling ids (SEC-518-R1, SEC-518-R2-modules, SEC-518-R2-help), threading fallback removed, 7.5 PR checklist, config/test.exs :modules trigger. Snapshot arithmetic 0 + 6 + 15 + 7 = 28 with M2/H1 now :self_service. Two defects fixed directly (below); one affects 2c-i-a.",
+    "local_issue_id": null,
+    "artifacts_out": ["lib/letflow/design/req518-compiler-scope-filter.md (rev r2a)"],
+    "findings": [
+      {
+        "id": "V-1",
+        "severity": "MEDIUM_FIXED",
+        "affects": "2c-i-a",
+        "where": "3.1, section 1, 3.6, 3.7 R-1 condition (a)",
+        "problem": "R-1 makes the :exam_route_reclassified walk rule mandatory in 2c-i-a (the literal :all at exam sites 7-9 is built there and the ruling lapses without the guard), but 3.1 and section 1 said 2c-i-a changes no route walk, the rule was missing from the 3.6 walk-error list and had no test id. ELIXIR-DEV could have shipped the literals without the guard.",
+        "fix": "3.1 and the section 1 row now say the ONE additive walk rule shipping in 2c-i-a is :exam_route_reclassified (route_scope.ex and its walk test; no class, snapshot or expectation-list change); added to the 3.6 error list; new test T-C15 (walk rule over ANY exam entry-module route plus the scan for an exam manifest gaining :scope_declarations while the SEC-518-R1 literal remains). Note route_scope.ex is therefore a SEC trigger file for 2c-i-a as well (7.5 item 2 already lists it)."
+      },
+      {
+        "id": "V-2",
+        "severity": "LOW_FIXED",
+        "affects": "2c-ii",
+        "where": "5.3 POST create paragraph",
+        "problem": "C-3 requires the pure new-value check before Idempotency.from_body for create AND update, but the create paragraph still said the new value is checked only in the :scope_check step.",
+        "fix": "Create paragraph now states ScopedWrites.check_new_value/3 runs right after envelope validation and before Idempotency.from_body, with :scope_check as race backstop."
+      },
+      {
+        "id": "V-3",
+        "severity": "INFO",
+        "affects": "2c-i-a",
+        "where": "T-C13, 3.3",
+        "problem": "The ScopeSetError to detail-free 500 mapping relies on the existing pipeline error handler for exceptions raised in a handler; ELIXIR-DEV should assert it through HTTP (T-C13 already says 'through HTTP the response is the detail-free 500') rather than assume it.",
+        "fix": "none needed in the design"
+      }
+    ],
+    "orch_actions": [
+      "Tell ELIXIR-DEV 2c-i-a: add the :exam_route_reclassified walk rule and T-C15 (V-1), implement C-1 (ScopeSetError, 50_000 cap via :scope_allowed_ids_cap, :too_many_ids) and the C-2 fixture tree (a2 retired intermediate, a2x live child).",
+      "Proceed to REQ-ANALYST for the RA-13 / AC 13 text amendment before 2d merges (SEC condition d)."
+    ],
+    "reroute": null
+  }
+}

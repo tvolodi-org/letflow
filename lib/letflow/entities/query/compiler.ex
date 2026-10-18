@@ -79,6 +79,19 @@ defmodule Letflow.Entities.Query.Compiler do
        check is what turns that gap into a named `{:relation_column_not_found,
        entity_type, column}` error instead of a raw Postgres error surfacing
        only once the returned query is executed.
+
+  ## Scope (REQ-518, decision 0051; design `lib/letflow/design/req518-compiler-scope-filter.md` 3.4)
+
+  `compile/3`, `compile_aggregate/3` and `run_aggregate/3` take the caller's allowed node set
+  (`t:Letflow.Entities.Query.Types.scope_set/0`) as a REQUIRED third argument; there is no
+  two-argument form, so a call site cannot forget it. `:all` produces exactly the query built
+  before scoping existed. For `:none` / `{:nodes, ids}` the primary binding gets its own
+  outermost `where` (separate from the user filter) and every joined hop gets the predicate of
+  its TARGET type in its ON clause. Per type (`Letflow.Entities.ScopeDeclaration`): a
+  `:tenant_wide` declaration adds nothing; an undeclared type, a type read from the shared
+  `:latest` table, or a declared column that is not physically present adds constant false (no
+  JSON fallback); a `{:column, name}` declaration adds `name = ANY(<ids as one bound text[]>)`.
+  A scope failure is never an error, it is an empty result.
   """
 
   import Ecto.Query
@@ -86,6 +99,7 @@ defmodule Letflow.Entities.Query.Compiler do
   alias Letflow.Entities.Definition
   alias Letflow.Entities.Query.Allowlist
   alias Letflow.Entities.Query.Types
+  alias Letflow.Entities.ScopeDeclaration
   alias Letflow.Entities.Record.Decimals
   alias Letflow.Entities.Record.Latest
   alias Letflow.Repo
@@ -186,11 +200,16 @@ defmodule Letflow.Entities.Query.Compiler do
   `:join` field). Never calls `Repo.*` to execute the returned query -- see
   this module's own moduledoc for the two narrow, genuine `Repo.*` reads
   REQ-300 adds during *compilation* itself.
+
+  `scope` (REQ-518, required, no default) is the caller's allowed node set
+  (`Types.scope_set()`); see the moduledoc "Scope" section. `:all` yields exactly the query
+  built before scoping existed.
   """
-  @spec compile(Types.query_request(), prefix :: String.t()) ::
+  @spec compile(Types.query_request(), prefix :: String.t(), Types.scope_set()) ::
           {:ok, Ecto.Query.t()} | compile_error()
-  def compile(%{entity_type: entity_type} = request, prefix)
+  def compile(%{entity_type: entity_type} = request, prefix, scope)
       when is_binary(entity_type) and is_binary(prefix) do
+    scope = normalize_scope!(scope)
     filters = Map.get(request, :filters, [])
     sorts = Map.get(request, :sort, [])
     joins = Map.get(request, :join, [])
@@ -200,10 +219,20 @@ defmodule Letflow.Entities.Query.Compiler do
          {:ok, primary_source0} <- resolve_binding_source(entity_type, prefix),
          {:ok, prepared_joins, primary_source} <-
            resolve_joins(joins, entity_type, primary_source0, prefix) do
+      plan = scope_plan(scope, entity_type, primary_source, prepared_joins, prefix)
+
       if prepared_joins == [] do
-        compile_plain(entity_type, allowlist, primary_source, filters, sorts)
+        compile_plain(entity_type, allowlist, primary_source, filters, sorts, plan)
       else
-        compile_joined(entity_type, allowlist, primary_source, prepared_joins, filters, sorts)
+        compile_joined(
+          entity_type,
+          allowlist,
+          primary_source,
+          prepared_joins,
+          filters,
+          sorts,
+          plan
+        )
       end
     end
   end
@@ -796,23 +825,25 @@ defmodule Letflow.Entities.Query.Compiler do
   this function -- this function itself performs no such check, mirroring
   `compile/2`'s own "resolution only, no grant-awareness" scope.
   """
-  @spec compile_aggregate(aggregate_request(), prefix :: String.t()) ::
+  @spec compile_aggregate(aggregate_request(), prefix :: String.t(), Types.scope_set()) ::
           {:ok, Ecto.Query.t()} | aggregate_compile_error()
-  def compile_aggregate(request, prefix) do
-    with {:ok, query, _render_scales} <- compile_aggregate_with_scales(request, prefix) do
+  def compile_aggregate(request, prefix, scope) do
+    with {:ok, query, _render_scales} <- compile_aggregate_with_scales(request, prefix, scope) do
       {:ok, query}
     end
   end
 
   # GH #2654: compile_aggregate/2 plus, for the rendering step, the result keys whose value is a
   # strict decimal (key -> field scale). Same single allowlist load.
-  @spec compile_aggregate_with_scales(aggregate_request(), String.t()) ::
+  @spec compile_aggregate_with_scales(aggregate_request(), String.t(), Types.scope_set()) ::
           {:ok, Ecto.Query.t(), %{String.t() => non_neg_integer()}} | aggregate_compile_error()
   defp compile_aggregate_with_scales(
          %{entity_type: entity_type, aggregates: aggregates} = request,
-         prefix
+         prefix,
+         scope
        )
        when is_binary(entity_type) and is_binary(prefix) and is_list(aggregates) do
+    scope = normalize_scope!(scope)
     filters = Map.get(request, :filters, [])
     group_by = Map.get(request, :group_by, [])
     joins = Map.get(request, :join, [])
@@ -823,6 +854,7 @@ defmodule Letflow.Entities.Query.Compiler do
          {:ok, prepared_joins, primary_source} <-
            resolve_joins(joins, entity_type, primary_source0, prefix) do
       ctx = binding_ctx(primary_source, entity_type)
+      plan = scope_plan(scope, entity_type, primary_source, prepared_joins, prefix)
 
       with {:ok, filter_dynamics} <- build_all_filter_dynamics(filters, allowlist, ctx),
            {:ok, group_by_specs} <- resolve_group_by_specs(group_by, allowlist),
@@ -831,9 +863,9 @@ defmodule Letflow.Entities.Query.Compiler do
 
         base =
           if prepared_joins == [] do
-            aggregate_base_plain(entity_type, primary_source, combined)
+            aggregate_base_plain(entity_type, primary_source, combined, plan)
           else
-            aggregate_base_joined(entity_type, primary_source, prepared_joins, combined)
+            aggregate_base_joined(entity_type, primary_source, prepared_joins, combined, plan)
           end
 
         query =
@@ -869,10 +901,10 @@ defmodule Letflow.Entities.Query.Compiler do
   Postgres computes it (a precision-bearing average is not a field-scale value), a null stays
   null, and every other value (non-strict decimals included) is returned exactly as before.
   """
-  @spec run_aggregate(aggregate_request(), prefix :: String.t()) ::
+  @spec run_aggregate(aggregate_request(), prefix :: String.t(), Types.scope_set()) ::
           {:ok, [map()]} | aggregate_compile_error()
-  def run_aggregate(request, prefix) do
-    with {:ok, query, render_scales} <- compile_aggregate_with_scales(request, prefix) do
+  def run_aggregate(request, prefix, scope) do
+    with {:ok, query, render_scales} <- compile_aggregate_with_scales(request, prefix, scope) do
       rows = Repo.all(query, prefix: prefix)
 
       if render_scales == %{} do
@@ -892,21 +924,24 @@ defmodule Letflow.Entities.Query.Compiler do
     end)
   end
 
-  defp aggregate_base_plain(entity_type, primary_source, combined) do
-    case primary_source do
-      :latest ->
-        Latest
-        |> where([r], r.entity_type == ^entity_type)
-        |> where([r], ^combined)
+  defp aggregate_base_plain(entity_type, primary_source, combined, plan) do
+    query =
+      case primary_source do
+        :latest ->
+          Latest
+          |> where([r], r.entity_type == ^entity_type)
+          |> where([r], ^combined)
 
-      {:per_type_table, table_name} ->
-        table_name
-        |> from()
-        |> where([r], ^combined)
-    end
+        {:per_type_table, table_name} ->
+          table_name
+          |> from()
+          |> where([r], ^combined)
+      end
+
+    apply_primary_scope(query, plan, :positional)
   end
 
-  defp aggregate_base_joined(entity_type, primary_source, prepared_joins, combined) do
+  defp aggregate_base_joined(entity_type, primary_source, prepared_joins, combined, plan) do
     base =
       case primary_source do
         :latest -> from(r in Latest, as: :primary) |> where([r], r.entity_type == ^entity_type)
@@ -915,7 +950,8 @@ defmodule Letflow.Entities.Query.Compiler do
 
     base
     |> where([r], ^combined)
-    |> add_all_hops(prepared_joins)
+    |> apply_primary_scope(plan, {:named, :primary})
+    |> add_all_hops(prepared_joins, plan)
   end
 
   # -- group_by resolution (design §1: Allowlist.resolve_field/2, the SAME
@@ -1097,6 +1133,97 @@ defmodule Letflow.Entities.Query.Compiler do
   # Private: per-clause pipeline + fold/assemble (design §5.1 steps 2-5).
   # ---------------------------------------------------------------------------------
 
+  # ---------------------------------------------------------------------------------
+  # REQ-518 -- the scope predicate (design req518-compiler-scope-filter.md 3.4).
+  #
+  # `scope_plan/5` resolves, once per compile and only for a scope other than `:all`, how each
+  # binding (the primary and every joined hop target) is filtered:
+  #   :open           -- no predicate (a `:tenant_wide` declaration, T16);
+  #   :closed         -- constant false (undeclared type, `:latest` source, column not physically
+  #                      present: fail closed, never a JSON fallback);
+  #   {:column, name} -- `name = ANY(<ids as ONE bound text[] parameter>)`; NULL never matches.
+  # The column name comes from a format-validated module declaration, never from the request.
+  # ---------------------------------------------------------------------------------
+
+  defp normalize_scope!(:all), do: :all
+  defp normalize_scope!(:none), do: :none
+  defp normalize_scope!({:nodes, []}), do: :none
+
+  defp normalize_scope!({:nodes, ids} = scope) when is_list(ids) do
+    if Enum.all?(ids, &is_binary/1) do
+      scope
+    else
+      raise ArgumentError, "compile scope must be :all, :none or {:nodes, [binary]}"
+    end
+  end
+
+  defp normalize_scope!(_other) do
+    raise ArgumentError, "compile scope must be :all, :none or {:nodes, [binary]}"
+  end
+
+  defp scope_plan(:all, _entity_type, _primary_source, _prepared_joins, _prefix), do: :all
+  defp scope_plan(:none, _entity_type, _primary_source, _prepared_joins, _prefix), do: :none
+
+  defp scope_plan({:nodes, ids}, entity_type, primary_source, prepared_joins, prefix) do
+    hops = for pj <- prepared_joins, hop <- pj.hops, do: hop
+    types = Enum.uniq([entity_type | Enum.map(hops, & &1.to_entity_type)])
+    declarations = ScopeDeclaration.for_types(types, prefix)
+
+    kind = fn type, source ->
+      binding_scope_kind(Map.fetch!(declarations, type), source, prefix)
+    end
+
+    %{
+      ids: ids,
+      primary: kind.(entity_type, primary_source),
+      hops: Map.new(hops, &{&1.to_alias, kind.(&1.to_entity_type, &1.to_source)})
+    }
+  end
+
+  defp binding_scope_kind(:tenant_wide, _source, _prefix), do: :open
+
+  defp binding_scope_kind({:column, column}, {:per_type_table, table_name}, prefix) do
+    if relation_column_exists?(prefix, table_name, column), do: {:column, column}, else: :closed
+  end
+
+  defp binding_scope_kind(_declaration, _source, _prefix), do: :closed
+
+  # The primary binding's predicate as its own outermost `where` (separate from the user filter).
+  defp apply_primary_scope(query, :all, _ref), do: query
+
+  defp apply_primary_scope(query, plan, ref) do
+    case primary_scope_dynamic(plan, ref) do
+      nil -> query
+      scope_dynamic -> where(query, [r], ^scope_dynamic)
+    end
+  end
+
+  defp primary_scope_dynamic(:none, _ref), do: dynamic(false)
+  defp primary_scope_dynamic(%{ids: ids, primary: kind}, ref), do: kind_dynamic(kind, ids, ref)
+
+  defp hop_scope_predicate(:all, _hop), do: nil
+  defp hop_scope_predicate(:none, _hop), do: dynamic(false)
+
+  defp hop_scope_predicate(%{ids: ids, hops: hops}, hop) do
+    kind_dynamic(Map.fetch!(hops, hop.to_alias), ids, {:named, hop.to_alias})
+  end
+
+  @any_fragment "? = ANY(?)"
+
+  defp kind_dynamic(:open, _ids, _ref), do: nil
+  defp kind_dynamic(:closed, _ids, _ref), do: dynamic(false)
+
+  defp kind_dynamic({:column, column}, ids, :positional) do
+    dynamic([r], fragment(@any_fragment, literal(^column), type(^ids, {:array, :string})))
+  end
+
+  defp kind_dynamic({:column, column}, ids, {:named, alias_atom}) do
+    dynamic(
+      [],
+      fragment(@any_fragment, field(as(^alias_atom), ^column), type(^ids, {:array, :string}))
+    )
+  end
+
   @typep binding_ctx :: %{source: binding_source(), entity_type: String.t()}
 
   defp binding_ctx(primary_source, entity_type),
@@ -1162,7 +1289,7 @@ defmodule Letflow.Entities.Query.Compiler do
   # is the hard non-regression requirement rework cycle 1 exists to protect.
   # ---------------------------------------------------------------------------------
 
-  defp compile_plain(entity_type, allowlist, primary_source, filters, sorts) do
+  defp compile_plain(entity_type, allowlist, primary_source, filters, sorts, plan) do
     ctx = binding_ctx(primary_source, entity_type)
 
     with {:ok, filter_dynamics} <- build_all_filter_dynamics(filters, allowlist, ctx),
@@ -1175,12 +1302,14 @@ defmodule Letflow.Entities.Query.Compiler do
             Latest
             |> where([r], r.entity_type == ^entity_type)
             |> where([r], ^combined)
+            |> apply_primary_scope(plan, :positional)
             |> apply_order_bys(order_bys)
 
           {:per_type_table, table_name} ->
             table_name
             |> from()
             |> where([r], ^combined)
+            |> apply_primary_scope(plan, :positional)
             |> apply_order_bys(order_bys)
             |> select_entity_row()
         end
@@ -1214,7 +1343,15 @@ defmodule Letflow.Entities.Query.Compiler do
   # REQ-300 design §3-5 -- the joined compile path.
   # ---------------------------------------------------------------------------------
 
-  defp compile_joined(entity_type, allowlist, primary_source, prepared_joins, filters, sorts) do
+  defp compile_joined(
+         entity_type,
+         allowlist,
+         primary_source,
+         prepared_joins,
+         filters,
+         sorts,
+         plan
+       ) do
     ctx = binding_ctx(primary_source, entity_type)
 
     with {:ok, filter_dynamics} <- build_all_filter_dynamics(filters, allowlist, ctx),
@@ -1233,22 +1370,28 @@ defmodule Letflow.Entities.Query.Compiler do
       query =
         base
         |> where([r], ^combined)
+        |> apply_primary_scope(plan, {:named, :primary})
         |> apply_order_bys(order_bys)
-        |> add_all_hops(prepared_joins)
+        |> add_all_hops(prepared_joins, plan)
         |> apply_joined_select(prepared_joins)
 
       {:ok, query}
     end
   end
 
-  defp add_all_hops(query, prepared_joins) do
+  defp add_all_hops(query, prepared_joins, plan) do
     Enum.reduce(prepared_joins, query, fn pj, acc ->
-      Enum.reduce(pj.hops, acc, fn hop, acc2 -> add_hop_join(acc2, hop, pj.join_type) end)
+      Enum.reduce(pj.hops, acc, fn hop, acc2 ->
+        add_hop_join(acc2, hop, pj.join_type, hop_scope_predicate(plan, hop))
+      end)
     end)
   end
 
-  defp add_hop_join(query, hop, join_type) do
+  # REQ-518 (design 3.4): the scope predicate of the hop's TARGET binding goes into the ON
+  # clause, so a LEFT join keeps the primary row with a NULL target and an INNER join drops it.
+  defp add_hop_join(query, hop, join_type, scope_pred) do
     on_dyn = hop_on_dynamic(hop)
+    on_dyn = if scope_pred == nil, do: on_dyn, else: dynamic([], ^on_dyn and ^scope_pred)
 
     case hop.to_source do
       :latest ->

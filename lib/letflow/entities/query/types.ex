@@ -106,6 +106,16 @@ defmodule Letflow.Entities.Query.Types do
           optional(:join) => [join_clause()]
         }
 
+  @typedoc """
+  The scope argument of `Letflow.Entities.Query.Compiler.compile/3`,
+  `compile_aggregate/3` and `run_aggregate/3` (REQ-518, decision 0051): `:all` is a
+  tenant-wide caller (the query is the one built before scoping existed), `:none` is a
+  caller with no live node (the data predicate is constant false), `{:nodes, ids}` is the
+  EXPANDED allowed node-id set (grant roots plus live descendants), computed once per
+  request by `Letflow.Api.Scope.allowed_set/2`. `{:nodes, []}` is treated as `:none`.
+  """
+  @type scope_set :: :all | {:nodes, [String.t()]} | :none
+
   @filter_ops ~w(eq neq gt gte lt lte in not_in contains starts_with is_null is_not_null)a
 
   @sort_dirs ~w(asc desc)a

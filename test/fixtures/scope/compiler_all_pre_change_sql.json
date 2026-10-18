@@ -1,0 +1,34 @@
+{
+  "aggregate_group_by": {
+    "params": "[]",
+    "sql": "SELECT max(\"scope_node\"), count(e0.\"record_id\"), sum(\"amount\") FROM \"entity_scoped_item\" AS e0 GROUP BY \"scope_node\""
+  },
+  "aggregate_join": {
+    "params": "[]",
+    "sql": "SELECT count(e0.\"record_id\") FROM \"entity_scoped_item\" AS e0 INNER JOIN \"entity_scoped_child\" AS e1 ON e0.\"record_id\" = e1.\"item_id\""
+  },
+  "inner_join": {
+    "params": "[]",
+    "sql": "SELECT e0.\"record_id\"::uuid, e0.\"field_values\", e0.\"deleted\", e0.\"entity_def_version\", e0.\"last_event_global_seq\", e0.\"inserted_at\", e0.\"updated_at\", e1.\"record_id\"::uuid, e1.\"field_values\", e1.\"deleted\", e1.\"entity_def_version\", e1.\"last_event_global_seq\", e1.\"inserted_at\", e1.\"updated_at\" FROM \"entity_scoped_item\" AS e0 INNER JOIN \"entity_scoped_child\" AS e1 ON e0.\"record_id\" = e1.\"item_id\""
+  },
+  "latest_filter": {
+    "params": "[\"scoped_master\", \"name\", \"m\"]",
+    "sql": "SELECT e0.\"id\", e0.\"entity_type\", e0.\"record_id\", e0.\"field_values\", e0.\"deleted\", e0.\"entity_def_version\", e0.\"last_event_global_seq\", e0.\"inserted_at\", e0.\"updated_at\" FROM \"entity_record_latest\" AS e0 WHERE (e0.\"entity_type\" = $1) AND (TRUE AND (e0.\"field_values\"->>$2 = $3))"
+  },
+  "left_join": {
+    "params": "[]",
+    "sql": "SELECT e0.\"record_id\"::uuid, e0.\"field_values\", e0.\"deleted\", e0.\"entity_def_version\", e0.\"last_event_global_seq\", e0.\"inserted_at\", e0.\"updated_at\", e1.\"record_id\"::uuid, e1.\"field_values\", e1.\"deleted\", e1.\"entity_def_version\", e1.\"last_event_global_seq\", e1.\"inserted_at\", e1.\"updated_at\" FROM \"entity_scoped_item\" AS e0 LEFT OUTER JOIN \"entity_scoped_child\" AS e1 ON e0.\"record_id\" = e1.\"item_id\""
+  },
+  "plain": {
+    "params": "[]",
+    "sql": "SELECT e0.\"record_id\"::uuid, e0.\"field_values\", e0.\"deleted\", e0.\"entity_def_version\", e0.\"last_event_global_seq\", e0.\"inserted_at\", e0.\"updated_at\" FROM \"entity_scoped_item\" AS e0"
+  },
+  "plain_filter_sort": {
+    "params": "[\"item-a\"]",
+    "sql": "SELECT e0.\"record_id\"::uuid, e0.\"field_values\", e0.\"deleted\", e0.\"entity_def_version\", e0.\"last_event_global_seq\", e0.\"inserted_at\", e0.\"updated_at\" FROM \"entity_scoped_item\" AS e0 WHERE (TRUE AND (\"name\" = $1)) ORDER BY \"amount\""
+  },
+  "through_join": {
+    "params": "[]",
+    "sql": "SELECT e0.\"record_id\"::uuid, e0.\"field_values\", e0.\"deleted\", e0.\"entity_def_version\", e0.\"last_event_global_seq\", e0.\"inserted_at\", e0.\"updated_at\", e2.\"record_id\"::uuid, e2.\"field_values\", e2.\"deleted\", e2.\"entity_def_version\", e2.\"last_event_global_seq\", e2.\"inserted_at\", e2.\"updated_at\" FROM \"entity_scoped_item\" AS e0 LEFT OUTER JOIN \"entity_scoped_child\" AS e1 ON e0.\"record_id\" = e1.\"item_id\" LEFT OUTER JOIN \"entity_scoped_item\" AS e2 ON e1.\"item_id\" = e2.\"record_id\""
+  }
+}

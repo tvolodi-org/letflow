@@ -247,10 +247,12 @@ defmodule Letflow.Modules.Exam.AntiCheat do
   end
 
   defp query_events(session_id, prefix) do
+    # scope-all: SEC-518-R1
     with {:ok, query} <-
            Compiler.compile(
              %{entity_type: "session_event", filters: [eq("session_id", session_id)]},
-             prefix
+             prefix,
+             :all
            ) do
       {:ok, Repo.all(query, prefix: prefix)}
     end

@@ -1,0 +1,82 @@
+{
+  "pack_id": "fixture-scoped-foundation",
+  "version": "0.1.0",
+  "bpm_export_schema_version": "bpm/definition/v1",
+  "exported_at": "2026-10-18T00:00:00Z",
+  "manifest": {
+    "required_roles": []
+  },
+  "definitions": [],
+  "variable_schemas": [],
+  "service_catalog_entries": [],
+  "entity_definitions": [
+    {
+      "entity_definition_id": "00518000-0000-4000-8000-000000000001",
+      "name": "scoped_item",
+      "display_name": "Scoped Item",
+      "logical_shape_version": "0000000000000000000000000000000000000000000000000000000000000000",
+      "definition_json": {
+        "name": "scoped_item",
+        "display_name": "Scoped Item",
+        "description": "REQ-518 test fixture: scope column scope_node (unmanaged, test-only declaration).",
+        "fields": [
+          {"name": "scope_node", "type": "string", "queried": true},
+          {"name": "name", "type": "string", "queried": true},
+          {"name": "amount", "type": "integer", "queried": true}
+        ]
+      }
+    },
+    {
+      "entity_definition_id": "00518000-0000-4000-8000-000000000002",
+      "name": "scoped_master",
+      "display_name": "Scoped Master",
+      "logical_shape_version": "1111111111111111111111111111111111111111111111111111111111111111",
+      "definition_json": {
+        "name": "scoped_master",
+        "display_name": "Scoped Master",
+        "description": "REQ-518 test fixture: tenant_wide declaration.",
+        "fields": [
+          {"name": "name", "type": "string", "queried": true}
+        ]
+      }
+    },
+    {
+      "entity_definition_id": "00518000-0000-4000-8000-000000000003",
+      "name": "scoped_managed_item",
+      "display_name": "Scoped Managed Item",
+      "logical_shape_version": "2222222222222222222222222222222222222222222222222222222222222222",
+      "definition_json": {
+        "name": "scoped_managed_item",
+        "display_name": "Scoped Managed Item",
+        "description": "REQ-518 test fixture: managed type with a scope column.",
+        "fields": [
+          {"name": "scope_node", "type": "string", "queried": true},
+          {"name": "name", "type": "string", "queried": true}
+        ]
+      }
+    },
+    {
+      "entity_definition_id": "00518000-0000-4000-8000-000000000004",
+      "name": "scoped_child",
+      "display_name": "Scoped Child",
+      "logical_shape_version": "3333333333333333333333333333333333333333333333333333333333333333",
+      "definition_json": {
+        "name": "scoped_child",
+        "display_name": "Scoped Child",
+        "description": "REQ-518 test fixture: child with an fk to scoped_item, own scope column.",
+        "fields": [
+          {"name": "scope_node", "type": "string", "queried": true},
+          {"name": "item_id", "type": "string", "queried": true},
+          {"name": "name", "type": "string", "queried": true}
+        ],
+        "foreign_keys": [
+          {
+            "name": "fk_scoped_child_item_id",
+            "field": "item_id",
+            "references_entity": "scoped_item"
+          }
+        ]
+      }
+    }
+  ]
+}

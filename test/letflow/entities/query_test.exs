@@ -174,7 +174,7 @@ defmodule Letflow.Entities.QueryTest do
         filters: [%{field: "customer_email_address", op: :eq, value: "a@b.com"}]
       }
 
-      assert Compiler.compile(request, schema) ==
+      assert Compiler.compile(request, schema, :all) ==
                {:error, {:field_not_allowed, "customer_email_address"}}
     end
 
@@ -184,7 +184,7 @@ defmodule Letflow.Entities.QueryTest do
 
       request = %{entity_type: "customer", sort: [%{field: "not_a_real_field", dir: :asc}]}
 
-      assert Compiler.compile(request, schema) ==
+      assert Compiler.compile(request, schema, :all) ==
                {:error, {:field_not_allowed, "not_a_real_field"}}
     end
 
@@ -193,7 +193,7 @@ defmodule Letflow.Entities.QueryTest do
 
       request = %{entity_type: "does-not-exist", filters: []}
 
-      assert Compiler.compile(request, schema) == {:error, :entity_type_not_found}
+      assert Compiler.compile(request, schema, :all) == {:error, :entity_type_not_found}
     end
   end
 
@@ -296,7 +296,7 @@ defmodule Letflow.Entities.QueryTest do
         filters: [%{field: "customer_name", op: :eq, value: payload}]
       }
 
-      assert {:ok, query} = Compiler.compile(request, schema)
+      assert {:ok, query} = Compiler.compile(request, schema, :all)
 
       # Execute the compiled query against the real tenant schema.
       results = Repo.all(query, prefix: schema)
@@ -324,7 +324,7 @@ defmodule Letflow.Entities.QueryTest do
         filters: [%{field: "customer_name", op: :contains, value: payload}]
       }
 
-      assert {:ok, query} = Compiler.compile(request, schema)
+      assert {:ok, query} = Compiler.compile(request, schema, :all)
       results = Repo.all(query, prefix: schema)
 
       # If the payload's "OR '1'='1" fragment had been executed as SQL, every
@@ -346,7 +346,7 @@ defmodule Letflow.Entities.QueryTest do
         filters: [%{field: "balance", op: :eq, value: payload}]
       }
 
-      assert {:ok, query} = Compiler.compile(request, schema)
+      assert {:ok, query} = Compiler.compile(request, schema, :all)
 
       # The value is bound as a genuine positional parameter throughout --
       # confirmed here by the fact that it NEVER reaches Postgres as SQL
@@ -386,7 +386,7 @@ defmodule Letflow.Entities.QueryTest do
         filters: [%{field: "customer_name", op: :eq, value: "Acme"}]
       }
 
-      assert {:ok, query} = Compiler.compile(request, schema)
+      assert {:ok, query} = Compiler.compile(request, schema, :all)
 
       assert [%Latest{field_values: %{"customer_name" => "Acme"}}] =
                Repo.all(query, prefix: schema)
@@ -408,7 +408,8 @@ defmodule Letflow.Entities.QueryTest do
       assert {:error, {:value_arity_mismatch, :eq}} =
                Compiler.compile(
                  %{entity_type: "customer", filters: [%{field: "customer_name", op: :eq}]},
-                 schema
+                 schema,
+                 :all
                )
 
       # value_arity_mismatch -- :is_null forbids a value.
@@ -418,14 +419,16 @@ defmodule Letflow.Entities.QueryTest do
                    entity_type: "customer",
                    filters: [%{field: "customer_name", op: :is_null, value: "x"}]
                  },
-                 schema
+                 schema,
+                 :all
                )
 
       # invalid_in_value -- :in requires a list.
       assert {:error, {:invalid_in_value, "age"}} =
                Compiler.compile(
                  %{entity_type: "customer", filters: [%{field: "age", op: :in, value: 42}]},
-                 schema
+                 schema,
+                 :all
                )
 
       # operator_not_valid_for_type -- :contains against a non-string field.
@@ -435,12 +438,17 @@ defmodule Letflow.Entities.QueryTest do
                    entity_type: "customer",
                    filters: [%{field: "age", op: :contains, value: "4"}]
                  },
-                 schema
+                 schema,
+                 :all
                )
 
       # invalid_schema_name -- a malformed prefix.
       assert {:error, :invalid_schema_name} =
-               Compiler.compile(%{entity_type: "customer", filters: []}, "not-a-real-schema")
+               Compiler.compile(
+                 %{entity_type: "customer", filters: []},
+                 "not-a-real-schema",
+                 :all
+               )
     end
 
     test "no query is ever built against another tenant's schema (INV-1) -- compile/2 requires an explicit prefix" do
@@ -457,8 +465,8 @@ defmodule Letflow.Entities.QueryTest do
         filters: [%{field: "customer_name", op: :eq, value: "TenantA-Only"}]
       }
 
-      assert {:ok, query_a} = Compiler.compile(request, schema_a)
-      assert {:ok, query_b} = Compiler.compile(request, schema_b)
+      assert {:ok, query_a} = Compiler.compile(request, schema_a, :all)
+      assert {:ok, query_b} = Compiler.compile(request, schema_b, :all)
 
       assert length(Repo.all(query_a, prefix: schema_a)) == 1
       # The same request compiled/executed under tenant B's own schema finds
@@ -509,11 +517,11 @@ defmodule Letflow.Entities.QueryTest do
                )
 
       request = %{entity_type: "customer", filters: [%{field: "deleted", op: :eq, value: false}]}
-      assert {:ok, query} = Compiler.compile(request, schema)
+      assert {:ok, query} = Compiler.compile(request, schema, :all)
       assert Repo.all(query, prefix: schema) == []
 
       request2 = %{entity_type: "customer", filters: [%{field: "deleted", op: :eq, value: true}]}
-      assert {:ok, query2} = Compiler.compile(request2, schema)
+      assert {:ok, query2} = Compiler.compile(request2, schema, :all)
       assert length(Repo.all(query2, prefix: schema)) == 1
     end
 
@@ -525,7 +533,7 @@ defmodule Letflow.Entities.QueryTest do
       create_record!(schema, %{"customer_name" => "Second", "age" => 2, "balance" => 2})
 
       request = %{entity_type: "customer", sort: [%{field: "inserted_at", dir: :desc}]}
-      assert {:ok, query} = Compiler.compile(request, schema)
+      assert {:ok, query} = Compiler.compile(request, schema, :all)
 
       [first, second] = Repo.all(query, prefix: schema)
       assert first.field_values["customer_name"] == "Second"
@@ -542,7 +550,7 @@ defmodule Letflow.Entities.QueryTest do
       create_record!(schema, %{"customer_name" => "Old", "age" => 99, "balance" => 1})
 
       request = %{entity_type: "customer", filters: [%{field: "age", op: :gt, value: 10}]}
-      assert {:ok, query} = Compiler.compile(request, schema)
+      assert {:ok, query} = Compiler.compile(request, schema, :all)
 
       assert [%Latest{field_values: %{"customer_name" => "Old"}}] =
                Repo.all(query, prefix: schema)
@@ -561,7 +569,7 @@ defmodule Letflow.Entities.QueryTest do
         filters: [%{field: "customer_name", op: :in, value: ["Acme", "Widgets"]}]
       }
 
-      assert {:ok, query} = Compiler.compile(request, schema)
+      assert {:ok, query} = Compiler.compile(request, schema, :all)
       results = Repo.all(query, prefix: schema)
       assert length(results) == 2
       assert Enum.all?(results, &(&1.field_values["customer_name"] in ["Acme", "Widgets"]))
@@ -576,7 +584,7 @@ defmodule Letflow.Entities.QueryTest do
       create_record!(schema, %{"customer_name" => "C", "age" => 1, "balance" => 2.00})
 
       request = %{entity_type: "customer", sort: [%{field: "balance", dir: :asc}]}
-      assert {:ok, query} = Compiler.compile(request, schema)
+      assert {:ok, query} = Compiler.compile(request, schema, :all)
 
       names = query |> Repo.all(prefix: schema) |> Enum.map(& &1.field_values["customer_name"])
       # Numeric order: 2.00 < 9.00 < 10.00. A lexicographic (text) sort would
@@ -590,7 +598,7 @@ defmodule Letflow.Entities.QueryTest do
 
       create_record!(schema, %{"customer_name" => "Acme", "age" => 1, "balance" => 1})
 
-      assert {:ok, query} = Compiler.compile(%{entity_type: "customer"}, schema)
+      assert {:ok, query} = Compiler.compile(%{entity_type: "customer"}, schema, :all)
       assert length(Repo.all(query, prefix: schema)) == 1
     end
   end

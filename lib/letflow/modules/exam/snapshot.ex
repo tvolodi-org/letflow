@@ -1108,7 +1108,9 @@ defmodule Letflow.Modules.Exam.Snapshot do
   defp eq(field, value), do: %{field: field, op: :eq, value: value}
 
   defp query_all(entity_type, filters, prefix) do
-    with {:ok, query} <- Compiler.compile(%{entity_type: entity_type, filters: filters}, prefix) do
+    # scope-all: SEC-518-R1
+    with {:ok, query} <-
+           Compiler.compile(%{entity_type: entity_type, filters: filters}, prefix, :all) do
       {:ok, Repo.all(query, prefix: prefix)}
     end
   end
