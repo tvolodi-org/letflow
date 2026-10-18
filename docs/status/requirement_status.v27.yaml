@@ -134,3 +134,20 @@ history:
       AC4 (no behaviour change for existing identity/onboarding/auth tests) was not run
       locally. Decision-record consistency with 0051 not independently checked. Stage 2 is
       REQ-517..519 (GH #2535).
+
+  - req: REQ-517
+    event: done
+    agent: DOC-UPDATER
+    at: "2026-10-18T02:11:31Z"
+    note: >
+      GH #2535 slices 2a (#2765) and 2b (#2782, 84f6773f) merged through the merge queue
+      (required checks ran on each). RELEASE-VALIDATOR re-verification: PASS WITH GAPS, all
+      24 ACs have code and a named test on main. Run one file at a time, all passed:
+      tenant_role_scope_grants_test (50), route_scope_walk_test (18), shadow_evidence_test
+      (31), service_principal_route_test (18); the code run equals main's code. Read but NOT
+      run locally (static evidence only, covered by the CI shards at merge): ACs 3, 4, 5, 10,
+      13 (partly), 14, 15, 16, 18, 19, 20, 21. AC 24 gates (compile, format, mix letflow.check,
+      check_boundaries, permission_matrix --check, scoped directories) were not re-run by the
+      validator; PR CI is the evidence. Decision-record amendment 0051 A1-A7 and the WF-04
+      stage-gate checks were not re-checked. Follow-ups: #2800 (one source for the deny
+      reasons), REQ-518 AC 23 and REQ-519 AC 22 (SEC C-2, C-1; PR #2801).
