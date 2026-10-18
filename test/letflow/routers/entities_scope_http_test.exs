@@ -139,6 +139,13 @@ defmodule Letflow.Routers.EntitiesScopeHttpTest do
   defp unwrap(%Plug.Conn.WrapperError{reason: reason}), do: reason
   defp unwrap(other), do: other
 
+  # only the scope_set_failed line(s): the debug-level Ecto QUERY lines of the same log name
+  # schemas and ids legitimately
+  defp failed_lines(log),
+    do: log |> String.split("
+") |> Enum.filter(&(&1 =~ "scope_set_failed")) |> Enum.join("
+")
+
   defp count(log, needle), do: length(String.split(log, needle)) - 1
 
   # ===========================================================================================
@@ -279,8 +286,10 @@ defmodule Letflow.Routers.EntitiesScopeHttpTest do
           refute resp_body =~ "item-", "#{route}"
 
           assert count(log, "scope_set_failed") == 1, "#{route}: #{log}"
-          refute log =~ "sf-a", "#{route}: a node id in the log"
-          refute log =~ "scoped_item", "#{route}"
+          failed_lines = failed_lines(log)
+          refute failed_lines =~ "sf-a", "#{route}: a node id in the line"
+          refute failed_lines =~ "scoped_item", "#{route}"
+          refute failed_lines =~ fx.schema_name, "#{route}"
         end
       end)
     end

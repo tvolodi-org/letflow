@@ -8,12 +8,14 @@
   "file": "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-14-test-designer-2c-i-b.json",
   "created_at": "2026-10-18T05:53:00Z",
   "started_at": "2026-10-18T05:56:48Z",
-  "completed_at": "2026-10-18T06:32:22Z",
+  "completed_at": "2026-10-18T07:10:21Z",
   "status": "COMPLETED",
   "priority": "HIGH",
   "context": {
     "stage": "S7",
-    "requirement_ids": ["REQ-518"],
+    "requirement_ids": [
+      "REQ-518"
+    ],
     "requirement_text": {},
     "source_text": {
       "slice": "REQ-518 slice 2c-i-b (GH #2535): ScopeGate, Enforce before-send backstop, the three :filter routes, the :self_service class. Tests only; nothing under lib/ or priv/ was changed; nothing committed."
@@ -70,42 +72,186 @@
     "mutants": {
       "method": "the mutated source is compiled into the test VM (Code.compile_string of the file with one or more textual replacements, anchor required to occur exactly once) via 'mix do run --no-start -r <apply script> + test <files>'; nothing on disk was changed (git status of lib/ and priv/ identical before and after); one mix at a time under the mixlock",
       "measured": [
-        {"id": "G1 (MU12)", "edit": "scope_gate.ex: not-on branch also computes the set (consults the DB) and still returns :all", "failed": "1 of 19 (scope_gate)"},
-        {"id": "G2", "edit": "scope_gate.ex: memo ignores the permission", "failed": "4 of 19"},
-        {"id": "G3", "edit": "scope_gate.ex: memo never hits", "failed": "3 of 19"},
-        {"id": "G4", "edit": "scope_gate.ex: guarded/1 re-raises any other error raw instead of ScopeSetError", "failed": "5 of 26 (scope_gate + entities_scope_http)"},
-        {"id": "G5", "edit": "scope_gate.ex: guarded/1 logs a ScopeSetError a second time", "failed": "1 of 19"},
-        {"id": "G6 (MU12)", "edit": "scope_gate.ex: shadow treated as on", "failed": "3 of 36 (scope_gate + entities_scope_filter)"},
-        {"id": "G7", "edit": "scope_gate.ex: scope_set/2 does not set the marker", "failed": "4 of 28 (backstop + scope_gate)"},
-        {"id": "G8", "edit": "scope_gate.ex: applied?/1 always true", "failed": "6 of 28"},
-        {"id": "G9", "edit": "scope_gate.ex: no principal gives :all (fail open)", "failed": "1 of 19"},
-        {"id": "G10", "edit": "scope_gate.ex: resource_allowed?/3 with no principal gives true", "failed": "1 of 19"},
-        {"id": "G11", "edit": "scope_gate.ex: set always computed for :EntitiesQuery whatever the route key", "failed": "4 of 19"},
-        {"id": "GR1", "edit": "scope.ex: pipeline grants memo ignored (grants re-read by the gate)", "failed": "3 of 26 (scope_gate + entities_scope_http)"},
-        {"id": "E1 (MU27)", "edit": "enforce.ex: no backstop on :filter", "failed": "4 of 9 (backstop)"},
-        {"id": "E2", "edit": "enforce.ex: backstop on status == 200 only", "failed": "1 of 9"},
-        {"id": "E3", "edit": "enforce.ex: backstop on every status >= 200", "failed": "1 of 9"},
-        {"id": "E4", "edit": "enforce.ex: no backstop on {:resolver, _}", "failed": "1 of 9"},
-        {"id": "E5", "edit": "enforce.ex: backstop also on :self_service", "failed": "1 of 9"},
-        {"id": "E7", "edit": "enforce.ex: replacement is a detail-bearing 400", "failed": "4 of 9"},
-        {"id": "E8", "edit": "enforce.ex: scope_not_applied line suppressed", "failed": "4 of 9"},
-        {"id": "R1 (MU28)", "edit": "route_scope.ex: a :self_service route not on the list is not reported", "failed": "3 of 29 (route_scope_self_service)"},
-        {"id": "R2", "edit": "route_scope.ex: /me and /help prefix match without the '/' boundary", "failed": "1 of 29"},
-        {"id": "R3", "edit": "route_scope.ex: list/route class mismatch never reported", "failed": "3 of 29"},
-        {"id": "R4", "edit": "route_scope.ex: unruled :tenant_wide entries never reported", "failed": "2 of 29"},
-        {"id": "R5", "edit": "route_scope.ex: stale pending marker never reported", "failed": "2 of 29"},
-        {"id": "R6", "edit": "route_scope.ex: a listed filter route mounted with another class not reported", "failed": "3 of 29"},
-        {"id": "R7", "edit": "route_scope.ex: an unlisted :filter route not reported", "failed": "1 of 29"},
-        {"id": "R8", "edit": "route_scope.ex: :self_service_not_listed never reported", "failed": "4 of 29"},
-        {"id": "Q1", "edit": "entities.ex run_query: literal :all instead of the gate set", "failed": "5 of 17 (entities_scope_filter)"},
-        {"id": "A1", "edit": "entities.ex run_query_aggregate: literal :all", "failed": "2 of 17"},
-        {"id": "X1", "edit": "entities.ex run_export: literal :all", "failed": "3 of 17"},
-        {"id": "GW", "edit": "entities.ex run_query: the conn returned by the gate is dropped (marker lost)", "failed": "8 of 17"},
-        {"id": "D1", "edit": "entities.ex: scope: :filter removed from POST /query/aggregate", "failed": "6 of 46 (entities_scope_filter + route_scope_self_service)"},
-        {"id": "D2", "edit": "me.ex: scope: :self_service removed from GET /memberships", "failed": "8 of 40 (self_service_scope + route_scope_self_service)"},
-        {"id": "S1 (MU29 variant)", "edit": "me.ex: memberships subject key taken from a query parameter", "failed": "1 of 11 (self_service_scope)"},
-        {"id": "S2 (MU30)", "edit": "authorize.ex: the coarse deny is skipped for :self_service routes", "failed": "2 of 11"},
-        {"id": "S3", "edit": "help.ex: the request process_definition_id probes Definitions (existence oracle)", "failed": "1 of 11"}
+        {
+          "id": "G1 (MU12)",
+          "edit": "scope_gate.ex: not-on branch also computes the set (consults the DB) and still returns :all",
+          "failed": "1 of 19 (scope_gate)"
+        },
+        {
+          "id": "G2",
+          "edit": "scope_gate.ex: memo ignores the permission",
+          "failed": "4 of 19"
+        },
+        {
+          "id": "G3",
+          "edit": "scope_gate.ex: memo never hits",
+          "failed": "3 of 19"
+        },
+        {
+          "id": "G4",
+          "edit": "scope_gate.ex: guarded/1 re-raises any other error raw instead of ScopeSetError",
+          "failed": "5 of 26 (scope_gate + entities_scope_http)"
+        },
+        {
+          "id": "G5",
+          "edit": "scope_gate.ex: guarded/1 logs a ScopeSetError a second time",
+          "failed": "1 of 19"
+        },
+        {
+          "id": "G6 (MU12)",
+          "edit": "scope_gate.ex: shadow treated as on",
+          "failed": "3 of 36 (scope_gate + entities_scope_filter)"
+        },
+        {
+          "id": "G7",
+          "edit": "scope_gate.ex: scope_set/2 does not set the marker",
+          "failed": "4 of 28 (backstop + scope_gate)"
+        },
+        {
+          "id": "G8",
+          "edit": "scope_gate.ex: applied?/1 always true",
+          "failed": "6 of 28"
+        },
+        {
+          "id": "G9",
+          "edit": "scope_gate.ex: no principal gives :all (fail open)",
+          "failed": "1 of 19"
+        },
+        {
+          "id": "G10",
+          "edit": "scope_gate.ex: resource_allowed?/3 with no principal gives true",
+          "failed": "1 of 19"
+        },
+        {
+          "id": "G11",
+          "edit": "scope_gate.ex: set always computed for :EntitiesQuery whatever the route key",
+          "failed": "4 of 19"
+        },
+        {
+          "id": "GR1",
+          "edit": "scope.ex: pipeline grants memo ignored (grants re-read by the gate)",
+          "failed": "3 of 26 (scope_gate + entities_scope_http)"
+        },
+        {
+          "id": "E1 (MU27)",
+          "edit": "enforce.ex: no backstop on :filter",
+          "failed": "4 of 9 (backstop)"
+        },
+        {
+          "id": "E2",
+          "edit": "enforce.ex: backstop on status == 200 only",
+          "failed": "1 of 9"
+        },
+        {
+          "id": "E3",
+          "edit": "enforce.ex: backstop on every status >= 200",
+          "failed": "1 of 9"
+        },
+        {
+          "id": "E4",
+          "edit": "enforce.ex: no backstop on {:resolver, _}",
+          "failed": "1 of 9"
+        },
+        {
+          "id": "E5",
+          "edit": "enforce.ex: backstop also on :self_service",
+          "failed": "1 of 9"
+        },
+        {
+          "id": "E7",
+          "edit": "enforce.ex: replacement is a detail-bearing 400",
+          "failed": "4 of 9"
+        },
+        {
+          "id": "E8",
+          "edit": "enforce.ex: scope_not_applied line suppressed",
+          "failed": "4 of 9"
+        },
+        {
+          "id": "R1 (MU28)",
+          "edit": "route_scope.ex: a :self_service route not on the list is not reported",
+          "failed": "3 of 29 (route_scope_self_service)"
+        },
+        {
+          "id": "R2",
+          "edit": "route_scope.ex: /me and /help prefix match without the '/' boundary",
+          "failed": "1 of 29"
+        },
+        {
+          "id": "R3",
+          "edit": "route_scope.ex: list/route class mismatch never reported",
+          "failed": "3 of 29"
+        },
+        {
+          "id": "R4",
+          "edit": "route_scope.ex: unruled :tenant_wide entries never reported",
+          "failed": "2 of 29"
+        },
+        {
+          "id": "R5",
+          "edit": "route_scope.ex: stale pending marker never reported",
+          "failed": "2 of 29"
+        },
+        {
+          "id": "R6",
+          "edit": "route_scope.ex: a listed filter route mounted with another class not reported",
+          "failed": "3 of 29"
+        },
+        {
+          "id": "R7",
+          "edit": "route_scope.ex: an unlisted :filter route not reported",
+          "failed": "1 of 29"
+        },
+        {
+          "id": "R8",
+          "edit": "route_scope.ex: :self_service_not_listed never reported",
+          "failed": "4 of 29"
+        },
+        {
+          "id": "Q1",
+          "edit": "entities.ex run_query: literal :all instead of the gate set",
+          "failed": "5 of 17 (entities_scope_filter)"
+        },
+        {
+          "id": "A1",
+          "edit": "entities.ex run_query_aggregate: literal :all",
+          "failed": "2 of 17"
+        },
+        {
+          "id": "X1",
+          "edit": "entities.ex run_export: literal :all",
+          "failed": "3 of 17"
+        },
+        {
+          "id": "GW",
+          "edit": "entities.ex run_query: the conn returned by the gate is dropped (marker lost)",
+          "failed": "8 of 17"
+        },
+        {
+          "id": "D1",
+          "edit": "entities.ex: scope: :filter removed from POST /query/aggregate",
+          "failed": "6 of 46 (entities_scope_filter + route_scope_self_service)"
+        },
+        {
+          "id": "D2",
+          "edit": "me.ex: scope: :self_service removed from GET /memberships",
+          "failed": "8 of 40 (self_service_scope + route_scope_self_service)"
+        },
+        {
+          "id": "S1 (MU29 variant)",
+          "edit": "me.ex: memberships subject key taken from a query parameter",
+          "failed": "1 of 11 (self_service_scope)"
+        },
+        {
+          "id": "S2 (MU30)",
+          "edit": "authorize.ex: the coarse deny is skipped for :self_service routes",
+          "failed": "2 of 11"
+        },
+        {
+          "id": "S3",
+          "edit": "help.ex: the request process_definition_id probes Definitions (existence oracle)",
+          "failed": "1 of 11"
+        }
       ],
       "summary": "36 mutants measured, 36 killed, 0 survived",
       "not_measured": "MU31 (a snapshot line kept after reclassification) is covered by a seeded test (audit with a snapshot that kept each of the six lines gives :stale_snapshot), not by an in-memory mutation, because the snapshot is a committed file and nothing on disk may change; MU11 and MU12-via-HTTP belong to the cost tests listed above; MU13..MU26, MU32..MU36, MU38, MU39 belong to 2c-ii and 2d; MU32 (:unexpected_resolver_route) requires the rule SEC step-12 F-1 makes mandatory in 2c-ii."
@@ -114,7 +260,8 @@
       "OBS-1 (PRE-EXISTING, not this slice, not scope related): a join clause with a string type on the wire (\"type\": \"left\") raises ArgumentError invalid join qualifier from Compiler.add_hop_join/4 (parse_join_clause/1 passes the string through; the compiler needs :left). The wire therefore cannot express a LEFT join; HTTP join tests use the default INNER join and LEFT stays covered at the compiler layer (2c-i-a). Route to ISSUE-FIXER / an issue; no 2c-i-b change needed.",
       "OBS-2 (design vs code, low): design 4.2 says a :pending_sec_ruling entry is 'printed by the walk in a stable line the PR body copies'; the code only validates the marker and prints nothing. T-S8 therefore pins the shipped list (none pending) and the marker rules, not a printed line.",
       "OBS-3 (SEC step-12 F-2, still open, optional): the walk does not report an unmounted list entry or an entry whose key differs from the route's; the new real-table test checks that every shipped entry IS mounted with the same class, key and declared source, so the shipped list cannot drift silently, and one test documents the current behavior for a synthetic unmounted entry.",
-      "NO IMPLEMENTATION BUG FOUND in the 2c-i-b working tree: no test is red against it and all 36 mutants of it are killed."
+      "NO IMPLEMENTATION BUG FOUND in the 2c-i-b working tree: no test is red against it and all 36 mutants of it are killed.",
+      "CI ROUND 1 FIX (PR #2817): scope_gate_test T-C13 and entities_scope_http_test T-C13 refuted ids and the schema name on the WHOLE captured log; at the CI log level (debug) Ecto QUERY lines name them. Now only the scope_set_failed line(s) are judged for ids/schema; the exactly-one-line count is kept. Other with_log/capture_log users (enforce_backstop_test, entities_scope_http_test fault helper) only count their constant line. Re-run at default log level: scope_gate 19, enforce_backstop 9, entities_scope_http 7, all pass; format clean."
     ],
     "t_s4_provenance": "test/fixtures/route_scope/off_shadow_responses_2c_i_b.json: 14 rows DERIVED by reading main's handler code (git show HEAD:lib/letflow/routers/{me,help,entities}.ex at ed822c606), NOT captured from a running main (machine shared, one mix mutex); same provenance as the 517 fixture off_shadow_responses.json. Shapes chosen to be independent of tenant data. The lib diff for these handlers is the scope: option plus one ScopeGate call that is neutral unless the tenant is on, so a replay against the working tree under off and shadow equals a replay against main; the rows are also replayed under on. The statement is in the fixture's _provenance and in test/specs/REQ-518-2c-i-b.md.",
     "artifacts_out": [

@@ -375,7 +375,11 @@ defmodule Letflow.Api.ScopeGateTest do
         end)
 
       assert count(log, "scope_set_failed") == 1
-      refute log =~ fx.schema_name or log =~ "rsg-node"
+      failed = log |> String.split("
+") |> Enum.filter(&(&1 =~ "scope_set_failed")) |> Enum.join("
+")
+      refute failed =~ fx.schema_name
+      refute failed =~ "rsg-node"
     end
 
     test "a cap failure (:too_many_ids) raises ScopeSetError with exactly ONE line: the gate does not log it a second time",
