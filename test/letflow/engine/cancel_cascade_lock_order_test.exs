@@ -647,7 +647,10 @@ defmodule Letflow.Engine.CancelCascadeLockOrderTest do
   end
 
   describe "HUMAN child completion WITH entity_writes (statement trace)" do
-    test "entity-type row, then the parent group, all before the first UPDATE of the child's projection",
+    # GH #2704 (decision 0061, change C-P): the parent group is taken right after the pure
+    # `:transition` step and BEFORE the entity-type rows (this test used to pin the reverse
+    # order, entity-type row first), and both precede the first UPDATE of the child's projection.
+    test "the parent group, then the entity-type row, all before the first UPDATE of the child's projection",
          %{base: base} do
       schema = base.schema
       Fx.define_type!(schema, "stock_move", %{})
@@ -718,8 +721,8 @@ defmodule Letflow.Engine.CancelCascadeLockOrderTest do
 
       assert is_integer(first_type_row) and is_integer(first_parent_lock)
       assert is_integer(first_child_update)
-      assert first_type_row < first_parent_lock
-      assert first_parent_lock < first_child_update
+      assert first_parent_lock < first_type_row
+      assert first_type_row < first_child_update
     end
   end
 

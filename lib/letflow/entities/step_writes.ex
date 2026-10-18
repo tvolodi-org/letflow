@@ -621,7 +621,28 @@ defmodule Letflow.Entities.StepWrites do
   # per-line result a node without `module_writes` gives.
   defp lock_types(multi, _lines, [], _prefix), do: multi
 
-  defp lock_types(multi, lines, module_lines, prefix) do
+  defp lock_types(multi, lines, module_lines, prefix),
+    do: lock_union(multi, lines, module_lines, prefix, :type_lock)
+
+  @doc """
+  GH #2704 (decision 0061, the entity-port callback `lock_types/4`): the same ascending union of
+  line types and handler target types as the in-`multi/3` locks, as `{:pre_type_lock, type}` steps
+  (a different key tag, because `build_lines/4` emits `{:type_lock, type}` later in the same
+  Multi and Ecto.Multi rejects duplicate names; those later steps become no-op re-locks). Unlike
+  the private clause above it also covers a node WITHOUT `module_writes`. Lock-only: no read of
+  record data, no authorization step, no write.
+  """
+  @spec lock_planned_types(
+          Multi.t(),
+          [EntityPort.line()],
+          [EntityPort.module_write_line()],
+          %{required(:prefix) => String.t()}
+        ) :: Multi.t()
+  def lock_planned_types(%Multi{} = multi, lines, module_lines, %{prefix: prefix})
+      when is_list(lines) and is_list(module_lines) and is_binary(prefix),
+      do: lock_union(multi, lines, module_lines, prefix, :pre_type_lock)
+
+  defp lock_union(multi, lines, module_lines, prefix, tag) do
     declarative =
       for %{"entity_type" => type} <- lines, is_binary(type), do: type
 
@@ -630,7 +651,7 @@ defmodule Letflow.Entities.StepWrites do
       |> Enum.uniq()
       |> Enum.filter(&match?({:ok, _id}, EntityTypeInstance.fetch_instance_id(&1, prefix)))
 
-    HandlerWrites.lock_types(multi, types, prefix)
+    HandlerWrites.lock_types(multi, types, prefix, tag)
   end
 
   # Handler calls, in declared order, after every declarative line. Call `j` has

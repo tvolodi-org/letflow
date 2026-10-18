@@ -763,6 +763,7 @@ defmodule Letflow.Entities.ModuleWriteOwnerPathTest do
                build_call: 4,
                create: 3,
                lock_types: 3,
+               lock_types: 4,
                prepare_targets: 2,
                registered_targets: 1
              ]

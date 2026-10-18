@@ -33,4 +33,11 @@ defmodule Letflow.Entities.EntityPortImpl do
 
   @impl Letflow.Engine.EntityPort
   defdelegate interpret_failure(step, reason), to: StepWrites
+
+  # GH #2704: MANDATORY for the production adapter (the port declares it optional only for test
+  # doubles); `Letflow.Engine.EntityPort.verify_adapter!/0` checks it at boot.
+  @impl Letflow.Engine.EntityPort
+  defdelegate lock_types(multi, lines, module_lines, lock_ctx),
+    to: StepWrites,
+    as: :lock_planned_types
 end
