@@ -143,24 +143,29 @@ activate_definition() {
 seed_entity_definition() {
   local name="$1"
   local fixture_path="$2"
+  # GH #2826: a per-call temp file (was a fixed /tmp path shared by concurrent runs/tests).
+  local def_check_file
+  def_check_file=$(mktemp)
 
   echo ""
   echo "--- entity type '${name}': checking for an existing definition ---"
 
   local status
-  status=$(curl -s -o /tmp/vortex_entity_def_check.json -w '%{http_code}' \
+  status=$(curl -s -o "${def_check_file}" -w '%{http_code}' \
     -H "${AUTH_HEADER}" \
     "${API}/entities/definitions/by-name/${name}") || {
     echo "ERROR: GET /api/v1/entities/definitions/by-name/${name} failed (network error)." >&2
+    rm -f "${def_check_file}"
     exit 1
   }
 
   if [[ "${status}" == "200" ]]; then
     echo "  Already exists -- skipping creation (this script never updates an existing definition in place)."
     local existing_id existing_status
-    existing_id=$(jq -r '.id' /tmp/vortex_entity_def_check.json)
-    existing_status=$(jq -r '.status // empty' /tmp/vortex_entity_def_check.json)
+    existing_id=$(jq -r '.id' "${def_check_file}")
+    existing_status=$(jq -r '.status // empty' "${def_check_file}")
     echo "  Definition ID: ${existing_id} (status: ${existing_status:-unknown})"
+    rm -f "${def_check_file}"
     # ISS-0931: resume a draft left inactive by an earlier aborted run.
     if [[ "${existing_status}" == "inactive" ]]; then
       echo "--- entity type '${name}': inactive draft found -- activating ---"
@@ -171,10 +176,12 @@ seed_entity_definition() {
 
   if [[ "${status}" != "404" ]]; then
     echo "ERROR: GET /api/v1/entities/definitions/by-name/${name} returned unexpected HTTP ${status}." >&2
-    cat /tmp/vortex_entity_def_check.json >&2
+    cat "${def_check_file}" >&2
+    rm -f "${def_check_file}"
     exit 1
   fi
 
+  rm -f "${def_check_file}"
   echo "--- entity type '${name}': creating (DRAFT) ---"
   local create_response
   create_response=$(curl -sf \
