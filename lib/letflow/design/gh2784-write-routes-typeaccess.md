@@ -25,7 +25,7 @@ gate so there is one implementation. Denied == absent is claimed at the level of
 code), not total SQL statements: the existing-vs-missing definition read is the #2700-accepted residual (SECURITY R6). Two PRs, attachments
 first (section 12).
 
-Revision 2 (2026-10-18): folds CDV findings F1-F7 of the verdict on `e4f2d438`.
+Revision 3, folds the verdicts on e4f2d438 and cbdc70f0 (2026-10-18).
 
 ## 1. Findings: every write route, re-grepped on main `27274bd2` (AC 1)
 
@@ -136,8 +136,8 @@ gate; a tenant with no `entity_field_restrictions` row has `restricted == MapSet
 
 ## 3. Ordering and the denial answer (decision (2) and (3))
 
-Per record write handler, in this order (handler = the existing `*_unmanaged` function split in two: a thin wrapper that decides, and the
-existing body that now receives the decision):
+Per record write handler, in this order (handler split in two, names pinned: the existing `handle_create_record/2`, `handle_update_record/3`, `handle_delete_record/3`, `handle_import_records/2` become the deciders (compute `RecordAccess.write/3`, answer `:managed`, else call the body); the existing `*_unmanaged` bodies are renamed `create_record_with_access/3`, `update_record_with_access/4`, `delete_record_with_access/4`, `import_records_with_access/3`, each taking the extra argument `access :: :hidden | {:open, restricted}` last; the names do not clash with `Records.do_create_record/4`, which is private to another module. Earlier wording: a thin wrapper that decides, and the
+):
 
 1. Route-level `authz_*` permission gate (unchanged; independent of the type).
 2. `decision = RecordAccess.write(user_id, entity_type, prefix)` computed FIRST, before the body, path id or query string is read. The same four
@@ -215,7 +215,7 @@ its response MUST be redacted (refusing was weighed and rejected: it would make 
 the delete itself reads and sets nothing). Rule, shared by every `{:open, restricted}` success rendering: when `restricted` is non-empty,
 `record.field_values` is passed through `FieldGrants.redact_field_values/2` (value becomes the `__field_redacted__` sentinel, the #2697 /
 REQ-231 read-side behaviour) BEFORE `Decimals.render_field_values`, in the same order the read routes use. PINNED mechanism: `render_record_command/3` becomes
-`render_record_command/4` `(conn, result, status, restricted)`; in the `{:ok, %{record: %Latest{}}}` clauses (:1595, :1603), when
+`render_record_command/4` `(conn, result, status, restricted)`; in the `{:ok, %{record: %Latest{}}}` clauses (:1595, :1602), when
 `MapSet.size(restricted) > 0`, `record.field_values` is passed through `FieldGrants.redact_field_values/2` and the redacted `Latest` goes to
 `record_map/2`, which is UNCHANGED (so redaction precedes `Decimals.render_field_values`, as on the read routes). The three handlers (POST
 :1039, PUT :1109, DELETE :1174) pass the set taken from `{:open, restricted}`; the `:hidden` path and every error clause never receive or use
@@ -231,7 +231,7 @@ Grep `record_map(`, `"field_values" =>` over `lib/` on `27274bd2`:
 
 | Renderer | Used by | Redaction today | Decision |
 |---|---|---|---|
-| `record_map/2` (:2934) via `render_record_command/3` (:1595, :1603) | POST, PUT, DELETE (and re-DELETE) | NONE | FIX in PR A (above) |
+| `record_map/2` (:2934) via `render_record_command/3` (:1595, :1602) | POST, PUT, DELETE (and re-DELETE) | NONE | FIX in PR A (above) |
 | `record_map/2` via `query_item_map/2` (:2847) | `/query` | yes: `redact/3` (:2087-2108) on the page before shaping | none |
 | `entity_row_map/2` (:2896-2902) | `/query` promoted rows | yes (same `redact_page`) | none |
 | `export_record_map/2` (:2643-2660) | export | yes (`export_redact`, :2468) except `unredacted: true`, which needs `EntitiesRecordsExportUnredacted` and is audited (`audit_exempted`) | none |
@@ -346,7 +346,7 @@ change. Re-grep result (implementer re-runs and quotes it in the PR):
   `seed_scripts_no_argv_payload_test.exs` (the grant payload and any captured import response must not add a payload to argv; capture the
   response through stdout/a temp file, not a new literal argument); update that test's expected list only if the number of body-carrying curl
   calls really changes. PINNED binding: the grants go to the user named by `SEED_ACTOR_USERNAME` but the import runs as the `QA_AUTH_TOKEN` user, so
-  the script MUST compare the token owner's own id against the looked-up id and exit non-zero on mismatch (otherwise the grant silently does
+  the script MUST compare the token owner's own id (`GET /api/v1/me`, field `.id`, `Routers.Me`, api_pipeline.ex ~:244) against the looked-up id and exit non-zero on mismatch (otherwise the grant silently does
   nothing). (As a side
   note, since #2700 the script's `existing_keys_for` pre-check on `shipment_manifest` already returns empty for a denied seeder, so its
   idempotency was already broken; the grant repairs that too.) RESOLVED (supervisor 2026-10-18/19, OQ-4). The PR body must state that any RESEED of QA is UAT-class and needs a written APPROVE from letflow-2.
@@ -407,7 +407,7 @@ Per route (POST, PUT, DELETE, import create, import upsert, attachment upload, l
    `Definitions.get_active_definition_by_name/2`, `FieldGrants.load_restrictions/3`, asserting the call order), and that the statements AFTER
    the gate are the same list for denied and absent: record `Repo` query telemetry in order for each request and CUT the log after the
    `entity_field_restrictions` query (the last gate call, iv), then compare the remainder; the total count is not compared (the
-   existing-vs-missing definition read inside the gate is the stated I1 residual);
+   existing-vs-missing definition read inside the gate is the stated I1 residual). The router is dispatched in-process via `Letflow.Router.call/2`, so tracing runs in the TEST process: `:erlang.trace(self(), :call, ...)` with `:erlang.trace_pattern` on the four MFAs (`ManagedTypes.owner_of/2`, `TypeAccess.authorized?/3`, `Definitions.get_active_definition_by_name/2`, `FieldGrants.load_restrictions/3`); if a test uses Tasks or another process the tracer must be set on that pid;
 7. an allowed caller (no restriction rows in the tenant, and with unrelated restriction rows) is unchanged: status and body equal to the
    pre-change golden for create/update/delete/import/attachments;
 8. field restrictions on an open type (actor holds none of the grants): POST naming a restricted key -> 403 with the constant detail and no event;
