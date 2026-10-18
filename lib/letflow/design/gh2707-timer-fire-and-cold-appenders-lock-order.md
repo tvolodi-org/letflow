@@ -665,7 +665,7 @@ PR-1); the `margin_ms` of the green cases (measured and recorded by ELIXIR-DEV).
 | Child timer FK hazard: where, which order | 5 (C6, F6) |
 | Cold appenders (attachments, reminder, first TIMER_FIRED) | 2.1 C1/C7, 2.3 C8, 7 |
 | Escalation `tasks` after `P_x` | 2.1 C3/C4, 4.1 |
-| Pending timer on a dead instance: choice | 6 (settle in `fire_timer`; probes P1-P6; concurrent SCH-03 case F10; PR-1 `Closes #2822`) |
+| Pending timer on a dead instance: choice | 6 (settle in `fire_timer`; probes P1-P6; concurrent SCH-03 case F9; PR-1 `Closes #2822`) |
 | Reproduce-first deterministic tests, exact end states | 8 |
 | PR split, SECURITY-REVIEWER triggers, risks, rollout | 9, 11 |
 | 0061 amendment verbatim, one appendable text, closes the Open bullet | 10 |
