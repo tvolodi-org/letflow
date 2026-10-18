@@ -1,0 +1,138 @@
+{
+  "handoff_id": "d2535518-0518-4c02-9e11-000000000024",
+  "run_id": "WF02-REQ518-COMPILER-SCOPE-20261018",
+  "workflow_id": "WF-02",
+  "step": "24",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-24-security-reviewer-code-2d.json",
+  "created_at": "2026-10-18T11:31:00Z",
+  "started_at": "2026-10-18T11:31:30Z",
+  "completed_at": "2026-10-18T11:34:01Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-518"],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "SECURITY-REVIEWER code gate for REQ-518 slice 2d (GH #2535): uncommitted tree on feature/WF02-REQ518-2D-APPROVER-20261018. Read-only static review; no mix, no tests run (hosted CI is the suite)."
+    },
+    "related_handoff_ids": [
+      "d2535518-0518-4c02-9e11-000000000004",
+      "d2535518-0518-4c02-9e11-000000000012",
+      "d2535518-0518-4c02-9e11-000000000017",
+      "d2535518-0518-4c02-9e11-000000000021",
+      "d2535518-0518-4c02-9e11-000000000023"
+    ],
+    "artifacts_in": [
+      "priv/repo/migrations/20261019200001_add_scope_node_id_to_tasks.exs",
+      "lib/letflow/tasks.ex",
+      "lib/letflow/tasks/scope_resolver.ex",
+      "lib/letflow/routers/tasks.ex",
+      "lib/letflow/engine.ex",
+      "lib/letflow/engine/task.ex",
+      "lib/letflow/engine/task_activation.ex",
+      "lib/letflow/api/scope.ex",
+      "lib/letflow/api/scope_gate.ex",
+      "lib/letflow/api/route_scope.ex",
+      "lib/letflow/tenant_provisioning.ex",
+      "test/fixtures/route_scope/tenant_wide_default_routes.txt",
+      "test/support/task_scope_fixture.ex",
+      "docs/roles.md",
+      "lib/letflow/design/req518-compiler-scope-filter.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ518-2D-APPROVER-20261018"
+  },
+  "task": {
+    "description": "Code gate for slice 2d against INV-1..INV-10, ACs 12-17, 20, 23. No edits to lib/ or test/."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "No blocking defect in the working tree. Static review only; every runtime claim (bytes, statement counts, the F1 branch, the migration down path) rests on TEST-DESIGNER's tests in hosted CI, because ELIXIR-DEV ran no F1 behavioral test and did not execute the down path. VERIFIED: (1) Migration 20261019200001: tenant-schema DDL under the mandatory `if prefix() do` guard; nullable text column, no default; FK tasks_scope_node_id_fkey to scope_node_paths(node_id) (a primary key) ON DELETE RESTRICT; partial index WHERE scope_node_id IS NOT NULL; no backfill, no data touched; down is reversible (index, then FK and column inside a to_regclass guard); only interpolation is the schema from prefix() (INV-7); registered last in @tenant_scoped_migration_manifest, no new table so @expected_tenant_tables is unchanged; nothing in lib deletes scope_node_paths rows (nodes are retired), so RESTRICT cannot surface as a 500. (2) F1 rule: Tasks.f1_allowed?/3 = (Scope.allowed?(principal, route_permission, :tenant_wide) allows) OR Scope.allowed_for_role?(principal, \"TASK_WORKER\", ScopeResolver.task_scope(task)); allowed_for_role?/3 counts only the ONE role (role_held? on the request roles, then effective_scope(principal, role), shared decide_resource/3 with allowed?/3, so retired nodes and unknown nodes deny); a scoped PROCESS_OPERATOR or TENANT_ADMIN without a TASK_WORKER grant gets allowed_set_for_role = {:ok, :none} and is refused; a NULL node resolves :unresolvable and only the tenant-wide exemption reaches it. (3) Exemption is exactly Scope.allowed?(..., :tenant_wide) with no role-name logic, evaluated per route permission (TasksList, TasksGetById, TasksComplete, TasksAssign, TasksReassign), and the routing-role checks (authorize_completion, claim_task apply_claim) are untouched and still run for the exempt principal; the d3 mixed case (scoped TASK_WORKER not covering the task plus PROCESS_OPERATOR tenant-wide on the permission) gives scope :all and f1_allowed? true. (4) INV-5: every route computes the scope set unconditionally before any lookup; out-of-scope and nonexistent ids take the same branch: get_task puts the predicate in the SAME single statement (:none gives where false, still one statement); in_scope issues one `exists?` statement for {:nodes, ids}, none for :none, both give {:error, :task_not_found}, which every handler maps to Response.not_found (identical bytes). Claim and complete refuse in_scope BEFORE authorize_completion/claim_task, so the routing-role error cannot leak for an out-of-scope task. Assign/reassign validate the body first and only then check scope: invalid body answers the validation problem for out-of-scope and nonexistent alike, valid body answers 404 for both; the ScopeGate marker is checked only on 2xx (Enforce.assert_scope_applied), so the early validation return is not a false 500. (5) Engine path: Multi step :f1_scope is inserted right after the :task row lock in both Tasks.claim_task and Engine.build_complete_task_multi, only when f1 is a principal (nil unless the tenant is `on`, so steps and lock order are unchanged when off); f1_recheck reloads grants with Scope.load_grants(user_id, prefix) (fresh, on the transaction's own connection, plain read, no FOR SHARE/UPDATE, no advisory lock); refusal is {:error, :task_not_found}, unwrapped by unwrap_write_result and by the interpret_complete_result catch-all to the same 404; a raise rolls back and surfaces as the detail-free 500 (complete rescues to {:transaction_failed, _}; claim propagates to ApiPipeline.handle_errors). No lock-order test file is modified (git status: engine/*lock_order tests untouched). (6) tasks.scope_node_id never leaves the server: task_list_item_map and task_detail_map are hand-built allowlists without it; Task.insert_changeset, the completion changeset and the claim changeset cast lists do not name it; all five Audit.struct_state sites on tasks exclude it (task_activation.ex:491 create, engine.ex:4301-4302 cancel, engine.ex:7845-7846 complete, tasks.ex:753-754 assign/reassign/claim write, plus the shared write_assignment audit); the other struct_state callers (instance create/cancel, identity, definitions, activation) are not task structs; no site missed; the hand-built task audits (task.remind, completion_refused, entity_write.refused) carry no column. (7) T-F2: grep over lib/ finds no writer (no insert_all against tasks, no cast, no changeset field); the only writer is test/support/task_scope_fixture.ex, compiled in :test only (elixirc_paths(:test)); Engine.complete_task, Tasks.claim_task, get_task, list_tasks are called only from Routers.Tasks. (8) docs/roles.md: heading 'Known limitation: scoped approvers (stage 2)'; S1, S2, S3 each occur exactly once verbatim (grep -oF counted 1/1/1); the RA-13 exemption is a separate blank-line-delimited paragraph that contains none of the three strings. (9) Snapshot: exactly the seven task lines removed (GET /tasks, /tasks/:id, /tasks/inbox, POST assign, claim, complete, reassign), 122 to 115; @expected_filter_routes gains the two list routes, @expected_resolver_routes gains the five single-task routes, and Letflow.Routers.Tasks joins @data_routers in the same change; Tasks.ScopeResolver.task_scope/1 is exported and pure. (10) Trust-boundary files touched (migration, route_scope.ex, scope.ex, scope_gate.ex, snapshot, tasks.ex, engine.ex, routers/tasks.ex) are all read in full for the diff; permission_matrix, authorization.ex, ci.yml, cd.yml, mix.exs, catalog and priv/permission_matrix are untouched, so no core matrix change.",
+    "invariants_assessed": {
+      "INV-1": "APPLIES, PASS (a) every new query carries prefix: (get_task, list_tasks, in_scope, f1_recheck via load_grants(user_id, prefix)); (b) migration is tenant-schema DDL under the prefix guard, registered in the manifest; (c) no tenant_id column involved",
+      "INV-2": "APPLIES, PASS (task maps are hand-built allowlists; scope_node_id is in no response map and in no audit before/after state; all five Audit.struct_state sites on tasks exclude it)",
+      "INV-3": "NOT-APPLICABLE (no Lua/WASM host function)",
+      "INV-4": "APPLIES, PASS (no secret resolved; no new log line; f1 failures are not logged with ids)",
+      "INV-5": "APPLIES, PASS (conditional on the equality tests listed in conditions_for_merge): out-of-scope and nonexistent task ids take one code path per route, same status and bytes, same statement count (one statement in get/in_scope for a node set, none for :none on both sides); assign/reassign order is validation, then scope, so neither body validity nor routing-role errors reveal an out-of-scope task",
+      "INV-6": "APPLIES, PASS (this handoff states the invariants assessed and the AC 23 table)",
+      "INV-7": "APPLIES, PASS (migration interpolates only the system-supplied prefix(); runtime queries use Ecto bindings; test/support fixture uses Repo.query! with bound values and a schema name guarded by a strict ^[a-z0-9_]+$ match, compiled in :test only)",
+      "INV-8": "APPLIES, PASS (scope and F1 failures are fail-closed: ScopeGate.guarded re-raises as the detail-free 500, the in-transaction recheck rolls back; no bare match on an external result added)",
+      "INV-9": "NOT-APPLICABLE (no outbound URL)",
+      "INV-10": "APPLIES, PASS (tenant-scope task routes and permissions only; no platform route or permission atom added or changed; the exemption uses Scope.allowed?, which keeps the platform-tenant rule)"
+    },
+    "findings": [
+      {
+        "id": "F-1",
+        "severity": "MINOR",
+        "blocking": false,
+        "title": "In-transaction recheck reloads grants but keeps the request-time role list",
+        "detail": "Tasks.f1_recheck/3 replaces principal.grants with Scope.load_grants/2 but principal.roles (used by role_held?/2 and the exemption) stay as loaded at the start of the request. A grant row revoked mid-request is seen (AC 15); a role removed from the user mid-request is not. This is exactly the D9/C-4 design (grants reload only) and the window is one request.",
+        "required_action": "None. Do not extend the recheck to reload roles (it would add statements and could change lock behaviour); T-F for AC 15 should revoke a GRANT row."
+      },
+      {
+        "id": "F-2",
+        "severity": "MINOR",
+        "blocking": false,
+        "title": "f1 = nil conflates 'tenant not on' with 'on but no principal'",
+        "detail": "ScopeGate.f1_principal/2 returns nil both when the tenant is not `on` and when it is `on` but no principal can be built. In the second case the engine would skip the recheck. It is safe today only because scope_set_for_role/3 returns :none for a missing principal and Tasks.in_scope/3 refuses with task_not_found BEFORE Engine.complete_task/Tasks.claim_task is reached, on claim and complete both.",
+        "required_action": "None in code. Do not reorder in_scope after the engine call. TEST-DESIGNER: pin 'on with no principal gives the 404 and never starts the transaction' (a cheap guard against a future reorder)."
+      },
+      {
+        "id": "F-3",
+        "severity": "INFO",
+        "blocking": false,
+        "title": "Assign/reassign: validation precedes scope",
+        "detail": "A scoped caller whose assign set is :none who sends an invalid body gets the validation problem whatever the task id. That reveals nothing about any task (same answer for nonexistent and out-of-scope ids) and matches the ordering ELIXIR-DEV documented in the handler.",
+        "required_action": "None. Tests must compare out-of-scope vs nonexistent for BOTH an invalid and a valid body."
+      },
+      {
+        "id": "F-4",
+        "severity": "INFO",
+        "blocking": false,
+        "title": "F1 branch and migration down path not executed by the author",
+        "detail": "step-23 states that only existing suites with the tenant not `on` were run; no T-F3..T-F17 test exists yet and the down path was never run. All F1 conclusions above are code-read conclusions.",
+        "required_action": "See conditions_for_merge."
+      },
+      {
+        "id": "F-5",
+        "severity": "INFO",
+        "blocking": false,
+        "title": "TaskScopeFixture is the only writer and uses raw SQL",
+        "detail": "test/support/task_scope_fixture.ex interpolates the schema into Repo.query! after a strict regex guard; values are bound. It is under test/support, compiled only for :test (mix.exs elixirc_paths/1 unchanged), so it is absent from a release build. T-F2 must scan lib/ only and must not treat test/support as a violation.",
+        "required_action": "None."
+      }
+    ],
+    "conditions_for_merge": [
+      "Hosted CI is green for the whole suite, including the unedited lock-order suites (engine/entity_writes_lock_order_test, engine/module_write_lock_order_test), the tenant template build (replays the new manifest migration; the clone path re-adds the FK), route_scope_walk_test (115 snapshot lines) and route_scope_resolver_test.",
+      "TEST-DESIGNER delivers, and hosted CI shows green: T-F1 (migration up, down, replay, manifest entry, FK ON DELETE RESTRICT, partial index; the down path has never been run), T-F2 (lib/ source scan: no writer of scope_node_id incl. insert_all keyword forms and TaskActivation; absent from cast lists and response maps), T-F3..T-F7 (AC 13 cases a, b, c, d, e), T-F15 (d3 mixed case: scoped TASK_WORKER not covering the task plus PROCESS_OPERATOR tenant-wide, allowed), a scoped PROCESS_OPERATOR or TENANT_ADMIN without TASK_WORKER grant refused on get, claim, complete, list, and a tenant-wide holder outside the routing role refused with the existing routing-role error (d2).",
+      "INV-5 tests on ALL seven task routes: out-of-scope vs nonexistent id, same status, byte-identical body and header set (request id and date excluded and named), same Ecto-telemetry statement count; assign and reassign for both an invalid and a valid body.",
+      "AC 15 test: claim, revoke the TASK_WORKER grant, then complete answers the 404 (the :f1_scope step), with a pg_locks or statement capture showing no new lock mode from the recheck; AC 16 test: tenant off and shadow give byte-identical task behaviour with no F1 statement; AC 14 test: list intersection with the assignee filter and NULL-node exclusion.",
+      "The PR body repeats S1, S2 and S3 verbatim, contains the AC 23 table below, quotes this handoff id (d2535518-0518-4c02-9e11-000000000024) as the verdict id, and ORCH checks it at merge (the snapshot and seven route classes change).",
+      "F-2 guard test (on with no principal gives 404 and no engine call) is recommended, not blocking."
+    ],
+    "advisories": [
+      "A-1: The 'on' flip precondition for tenants with scoped approvers (REQ-519 AC 10) is the control for the known limitation; this slice only documents it. Do not claim the shadow period proves any F1 denial (the task routes are no longer in the tenant-wide snapshot that shadow evidence covers).",
+      "A-2: Under `on`, a scoped caller now reaches the task handlers that were previously a 403 from the default tenant_wide class; assign/reassign follow the route permission's own scope set (Scope.allowed_set), not TASK_WORKER, as specified."
+    ],
+    "reclassified_routes_ac23": [
+      {"method": "GET", "path": "/tasks/inbox", "key": "TasksList", "old_class": ":tenant_wide (default)", "new_class": ":filter"},
+      {"method": "GET", "path": "/tasks", "key": "TasksList", "old_class": ":tenant_wide (default)", "new_class": ":filter"},
+      {"method": "GET", "path": "/tasks/:id", "key": "TasksGetById", "old_class": ":tenant_wide (default)", "new_class": "{:resolver, {Letflow.Tasks.ScopeResolver, :task_scope}}"},
+      {"method": "POST", "path": "/tasks/:id/complete", "key": "TasksComplete", "old_class": ":tenant_wide (default)", "new_class": "{:resolver, {Letflow.Tasks.ScopeResolver, :task_scope}}"},
+      {"method": "POST", "path": "/tasks/:id/claim", "key": "TasksComplete", "old_class": ":tenant_wide (default)", "new_class": "{:resolver, {Letflow.Tasks.ScopeResolver, :task_scope}}"},
+      {"method": "POST", "path": "/tasks/:id/assign", "key": "TasksAssign", "old_class": ":tenant_wide (default)", "new_class": "{:resolver, {Letflow.Tasks.ScopeResolver, :task_scope}}"},
+      {"method": "POST", "path": "/tasks/:id/reassign", "key": "TasksReassign", "old_class": ":tenant_wide (default)", "new_class": "{:resolver, {Letflow.Tasks.ScopeResolver, :task_scope}}"}
+    ],
+    "ac23_verdict_sentence": "SECURITY-REVIEWER code gate for REQ-518 2d: PASS_WITH_FINDINGS (the approver rule F1 requires a literal TASK_WORKER grant covering the task's scope node for a scoped caller, with the RA-13 exemption exactly Scope.allowed?(principal, route_permission, :tenant_wide); an out-of-scope task answers like a nonexistent one on all seven task routes, claim and complete re-check F1 inside the transaction with a plain read, and tasks.scope_node_id is nullable, has no production writer and appears in no response or audit payload; handoff d2535518-0518-4c02-9e11-000000000024); exactly seven routes are reclassified from the default tenant_wide class (GET /tasks and GET /tasks/inbox to :filter; GET /tasks/:id and POST /tasks/:id/claim, /complete, /assign, /reassign to {:resolver, {Letflow.Tasks.ScopeResolver, :task_scope}}) and the snapshot goes from 122 to 115 lines.",
+    "required_changes": [],
+    "classification": "CODE_PASS_WITH_FINDINGS",
+    "implementation_written": false,
+    "artifacts_out": ["handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-24-security-reviewer-code-2d.json"],
+    "local_issue_id": null
+  }
+}

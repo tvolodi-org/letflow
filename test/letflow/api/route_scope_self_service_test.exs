@@ -30,7 +30,10 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
   @filter_lines [
     "POST /entities/query EntitiesQuery",
     "POST /entities/query/aggregate EntitiesAggregate",
-    "POST /entities/records/:entity_type/export EntitiesRecordsExport"
+    "POST /entities/records/:entity_type/export EntitiesRecordsExport",
+    # REQ-518 PR 2d (AC 20): the two task list routes
+    "GET /tasks TasksList",
+    "GET /tasks/inbox TasksList"
   ]
   @removed_lines [
     "GET /help/resolved HelpRead",
@@ -431,7 +434,8 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
 
     test "the snapshot lost exactly the six 2c-i-b lines and the fifteen 2c-ii lines: 122 remain, none of the six is present",
          %{snapshot: snapshot} do
-      assert length(snapshot) == 122
+      # 122 after 2c-ii; PR 2d removed the seven task lines (the two list lines are in @filter_lines)
+      assert length(snapshot) == 115
 
       for l <- @removed_lines, do: refute(l in snapshot, l)
     end

@@ -488,7 +488,7 @@ defmodule Letflow.Engine.TaskActivation do
              resource_type: "task",
              resource_id: task.id,
              before_state: nil,
-             after_state: Audit.struct_state(task),
+             after_state: Task.audit_state(task),
              trace_id: nil
            },
            prefix

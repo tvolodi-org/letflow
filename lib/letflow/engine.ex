@@ -2488,7 +2488,7 @@ defmodule Letflow.Engine do
           required(:idempotency_key) => String.t()
         }
 
-  @type complete_opts :: [prefix: String.t()]
+  @type complete_opts :: [prefix: String.t(), f1: Letflow.Tasks.f1()]
 
   # `{:error, {:variable_schema_lookup_failed, VariableSchema.error_reason()}}` was
   # removed from this union (GH#310 / ISS-0091): neither member of
@@ -2614,7 +2614,8 @@ defmodule Letflow.Engine do
         actor_id,
         idempotency_key,
         completed_at,
-        prefix
+        prefix,
+        Keyword.get(opts, :f1, :off)
       )
     end
   end
@@ -2655,7 +2656,8 @@ defmodule Letflow.Engine do
          actor_id,
          idempotency_key,
          completed_at,
-         prefix
+         prefix,
+         f1
        ) do
     try do
       # GH #2587 PR B2 (design 7.3, P0/P1): the read-only plan phase and `prepare/2` run
@@ -2669,7 +2671,8 @@ defmodule Letflow.Engine do
             actor_id,
             idempotency_key,
             completed_at,
-            prefix
+            prefix,
+            f1
           )
 
         {:error, _reason} = error ->
@@ -2687,7 +2690,8 @@ defmodule Letflow.Engine do
          actor_id,
          idempotency_key,
          completed_at,
-         prefix
+         prefix,
+         f1
        ) do
     plan
     |> build_complete_task_multi(
@@ -2696,7 +2700,8 @@ defmodule Letflow.Engine do
       actor_id,
       idempotency_key,
       completed_at,
-      prefix
+      prefix,
+      f1
     )
     |> run_transaction(plan)
     |> fold_sys_into_transition()
@@ -2722,7 +2727,8 @@ defmodule Letflow.Engine do
             actor_id,
             "step-names-probe",
             DateTime.utc_now(),
-            prefix
+            prefix,
+            :off
           )
           |> Multi.to_list()
           |> Enum.map(fn
@@ -2742,11 +2748,17 @@ defmodule Letflow.Engine do
          actor_id,
          idempotency_key,
          completed_at,
-         prefix
+         prefix,
+         f1
        ) do
     Multi.new()
     |> maybe_entity_write_timeouts(plan)
     |> Multi.run(:task, fn repo, _changes -> fetch_and_lock_task(repo, task_id, prefix) end)
+    # REQ-518 PR 2d (design C.4, AC 15): the approver rule F1, re-checked INSIDE the transaction
+    # right after the task row lock (a grant revoked since the request began is seen). `f1` is
+    # :off unless the tenant is `on`, and then this step does not exist (steps unchanged). A plain
+    # read, no lock of its own (Letflow.Tasks.f1_recheck/3), so the lock orders are untouched.
+    |> maybe_f1_scope(f1, prefix)
     |> Multi.run(:instance_projection, fn repo, %{task: task} ->
       fetch_and_lock_instance_projection(repo, task.instance_id, prefix)
     end)
@@ -3515,6 +3527,14 @@ defmodule Letflow.Engine do
   end
 
   defp maybe_snapshot_after_complete_task(result, _prefix), do: result
+
+  defp maybe_f1_scope(multi, :off, _prefix), do: multi
+
+  defp maybe_f1_scope(multi, {:enforce, %Letflow.Api.Scope.Principal{} = principal}, prefix) do
+    Multi.run(multi, :f1_scope, fn _repo, %{task: task} ->
+      Letflow.Tasks.f1_recheck(task, principal, prefix)
+    end)
+  end
 
   # M1 -- row-lock + fetch the tasks row (design doc §8.1, AC4). Ecto's
   # lock/2 query composition, never a hand-written SQL string (INV-7).
@@ -4285,8 +4305,8 @@ defmodule Letflow.Engine do
                         action: "task.cancel",
                         resource_type: "task",
                         resource_id: before_task.id,
-                        before_state: Audit.struct_state(before_task),
-                        after_state: Audit.struct_state(updated_task),
+                        before_state: Task.audit_state(before_task),
+                        after_state: Task.audit_state(updated_task),
                         trace_id: nil
                       },
                       prefix
@@ -7829,8 +7849,8 @@ defmodule Letflow.Engine do
         action: "task.complete",
         resource_type: "task",
         resource_id: before_task.id,
-        before_state: Audit.struct_state(before_task),
-        after_state: Audit.struct_state(updated),
+        before_state: Task.audit_state(before_task),
+        after_state: Task.audit_state(updated),
         trace_id: nil
       },
       prefix

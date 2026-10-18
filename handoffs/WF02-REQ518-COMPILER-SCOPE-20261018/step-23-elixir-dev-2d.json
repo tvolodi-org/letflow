@@ -1,0 +1,151 @@
+{
+  "handoff_id": "d2535518-0518-4c02-9e11-000000000023",
+  "run_id": "WF02-REQ518-COMPILER-SCOPE-20261018",
+  "workflow_id": "WF-02",
+  "step": "23",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-23-elixir-dev-2d.json",
+  "created_at": "2026-10-18T11:20:25Z",
+  "started_at": "2026-10-18T11:20:25Z",
+  "completed_at": "2026-10-18T11:38:10Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [
+      "REQ-518"
+    ],
+    "requirement_text": {},
+    "source_text": {
+      "slice": "REQ-518 slice 2d (GH #2535): tasks.scope_node_id column (no production writer), Tasks.ScopeResolver, Tasks.in_scope/3, f1_allowed?/3, f1_recheck/3, Scope.allowed_for_role?/3 and allowed_set_for_role/2, ScopeGate.scope_set_for_role/3 and f1_principal/2, :f1_scope step in claim_task and Engine.complete_task, task route classes (2 :filter, 5 resolver), docs/roles.md section."
+    },
+    "related_handoff_ids": [
+      "d2535518-0518-4c02-9e11-000000000004",
+      "d2535518-0518-4c02-9e11-000000000020"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/req518-compiler-scope-filter.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ518-2D-APPROVER-20261018"
+  },
+  "task": {
+    "description": "Implement PR 2d of the REQ-518 design (rev r2b), sections C.0-C.5, 7.1 T1-T7. Implementation only; new tests are TEST-DESIGNER's. Nothing committed."
+  },
+  "result": {
+    "status": "COMPLETED",
+    "summary": "All five C.0 commit-order steps implemented in full in the working tree, uncommitted. RAN (MIX_ENV=test, one mix at a time, under my own mixlock dir, always released): mix compile --warnings-as-errors clean; mix format --check-formatted clean; mix letflow.check_boundaries OK (1818 edges, 0 violations). Per-file mix test: route_scope_walk_test, route_scope_resolver_test, route_scope_self_service_test, route_scope_test, scope_gate_test (after 5 forced test edits all pass); routers/tasks_test, engine_complete_task_test, engine/entity_writes_lock_order_test, engine/module_write_lock_order_test, roles_matrix_parity_test, route_scope_* (192 passed, lock-order suites unedited); routers/tasks_distinct_from_test, api/scope_test, api/scope_allowed_set_test, test/support/tenant_template_test (67 passed; the template build replays the new manifest migration and the clone path re-adds the FK). NOT RUN: mix letflow.check, any full or multi-partition suite, any F1 behavioral test (T-F3..T-F17 are TEST-DESIGNER's; there is no test of allowed_for_role?/3, in_scope/3, the :f1_scope step or the new route handlers beyond the existing tasks suites with the gate off/not-on), the migration down path (not executed), pg_locks capture. The F1 branch is therefore compiled and exercised only through the existing suites, where the tenant is not `on`.",
+    "migrations": [
+      "priv/repo/migrations/20261019200001_add_scope_node_id_to_tasks.exs"
+    ],
+    "files_created": [
+      "priv/repo/migrations/20261019200001_add_scope_node_id_to_tasks.exs",
+      "lib/letflow/tasks/scope_resolver.ex",
+      "test/support/task_scope_fixture.ex"
+    ],
+    "files_changed": [
+      "lib/letflow/tenant_provisioning.ex",
+      "lib/letflow/engine/task.ex",
+      "lib/letflow/engine/task_activation.ex",
+      "lib/letflow/engine.ex",
+      "lib/letflow/tasks.ex",
+      "lib/letflow/api/scope.ex",
+      "lib/letflow/api/scope_gate.ex",
+      "lib/letflow/api/route_scope.ex",
+      "lib/letflow/routers/tasks.ex",
+      "test/fixtures/route_scope/tenant_wide_default_routes.txt",
+      "docs/roles.md",
+      "test/letflow/api/route_scope_walk_test.exs",
+      "test/letflow/api/route_scope_resolver_test.exs",
+      "test/letflow/api/route_scope_self_service_test.exs"
+    ],
+    "ledger_rows": [
+      {
+        "id": "T1",
+        "route": "GET /tasks/inbox",
+        "old": ":tenant_wide (default)",
+        "new": ":filter",
+        "snapshot_line_removed": "GET /tasks/inbox TasksList"
+      },
+      {
+        "id": "T2",
+        "route": "GET /tasks",
+        "old": ":tenant_wide (default)",
+        "new": ":filter",
+        "snapshot_line_removed": "GET /tasks TasksList"
+      },
+      {
+        "id": "T3",
+        "route": "GET /tasks/:id",
+        "old": ":tenant_wide (default)",
+        "new": "{:resolver, {Letflow.Tasks.ScopeResolver, :task_scope}}",
+        "snapshot_line_removed": "GET /tasks/:id TasksGetById"
+      },
+      {
+        "id": "T4",
+        "route": "POST /tasks/:id/complete",
+        "old": ":tenant_wide (default)",
+        "new": "resolver (same)",
+        "snapshot_line_removed": "POST /tasks/:id/complete TasksComplete"
+      },
+      {
+        "id": "T5",
+        "route": "POST /tasks/:id/claim",
+        "old": ":tenant_wide (default)",
+        "new": "resolver (same)",
+        "snapshot_line_removed": "POST /tasks/:id/claim TasksComplete"
+      },
+      {
+        "id": "T6",
+        "route": "POST /tasks/:id/assign",
+        "old": ":tenant_wide (default)",
+        "new": "resolver (same)",
+        "snapshot_line_removed": "POST /tasks/:id/assign TasksAssign"
+      },
+      {
+        "id": "T7",
+        "route": "POST /tasks/:id/reassign",
+        "old": ":tenant_wide (default)",
+        "new": "resolver (same)",
+        "snapshot_line_removed": "POST /tasks/:id/reassign TasksReassign"
+      }
+    ],
+    "mandatory_sec_files_touched": [
+      "priv/repo/migrations/20261019200001_add_scope_node_id_to_tasks.exs",
+      "lib/letflow/api/route_scope.ex",
+      "test/fixtures/route_scope/tenant_wide_default_routes.txt",
+      "lib/letflow/routers/tasks.ex",
+      "lib/letflow/api/scope.ex",
+      "lib/letflow/api/scope_gate.ex",
+      "lib/letflow/tasks.ex",
+      "lib/letflow/engine.ex"
+    ],
+    "deviations": [
+      "MIGRATION VERSION: the design and the task name 20261019100001, but GH #2659 (REQ-505 PR-1, already merged) owns 20261019100001 and 20261019100002; Ecto versions must be unique. The migration is 20261019200001_add_scope_node_id_to_tasks.exs, registered last in @tenant_scoped_migration_manifest. TEST-DESIGNER's T-F1 must use 20_261_019_200_001. Content is exactly C.1 (nullable text column, FK tasks_scope_node_id_fkey ON DELETE RESTRICT to scope_node_paths(node_id), partial index tasks_scope_node_id_idx, guarded down).",
+      "AUDIT STATE: adding the schema field would have added a scope_node_id key to the before/after_state of the task.create, task.assign, task.complete and task.cancel audit entries. To keep audit payloads (and off/shadow behaviour) byte-identical, the five Audit.struct_state calls on task structs (task_activation.ex 491, engine.ex 4281/4282/7825/7826, tasks.ex assign audit) now pass the exclude list [:scope_node_id]. Not in the design text; small and mechanical.",
+      "f1_recheck/3 lives in Letflow.Tasks (public, @doc'd) and is called by both claim_task/3 and Engine.complete_task/3 so the in-transaction rule is one function. It uses the claim/complete route permission (:TasksComplete) as the RA-13 route permission. Scope.load_grants/2 runs on Letflow.Repo from the transaction's own process, i.e. the same connection as the Multi's repo handle (plain read, no FOR SHARE/UPDATE, no advisory lock).",
+      "The :f1_scope Multi step exists ONLY when opts[:f1] is a principal (tenant `on`); with nil the Multi step list is exactly today's (the __complete_task_multi_step_names__ seam passes nil). build_complete_task_multi gained an 8th argument f1.",
+      "ScopeGate.scope_set_for_role/3 returns :all when Scope.allowed?(principal, permission, :tenant_wide) allows (RA-13, predicate exactly that, nothing role-name based), otherwise Scope.allowed_set_for_role/2; the memo key for it is {permission, role}. ScopeGate.f1_principal/2 (new, not named in the design) hands the engine/claim path the principal; nil unless the tenant is `on`.",
+      "Assign and reassign: scope check runs AFTER body validation (scope_set(conn, :TasksAssign/:TasksReassign) + Tasks.in_scope/3), so a nonexistent and an out-of-scope task answer identically for both an invalid body (the validation error) and a valid body (404). Putting it before validation would create an existence oracle with today's validation-first behaviour.",
+      "Tasks.in_scope/3 issues NO statement for :all (off/shadow byte-identical, AC 16) and for :none (refusal, no statement); one statement only for {:nodes, ids}. An out-of-scope non-pending task is refused by the router-level in_scope BEFORE the lock, so the task_not_pending (409) answer cannot leak; the in-transaction :f1_scope step sits after fetch_and_lock_task, which answers task_not_pending first for a non-pending row (revocation mid-flight on a non-pending task still gives 409, not an oracle for the caller because in_scope already ran).",
+      "Forced edits to existing tests (assertions only about route classes and snapshot size): route_scope_walk_test (filter set gains the two task list lines, __authz_route_scopes__ list gains Tasks and its 7 entries), route_scope_resolver_test (the 'another resolver function' seed uses path /tasks/:id/other; the resolver set is entities 8 + tasks 5; 'Routers.Tasks is NOT a data router yet' flipped to IS a data router; snapshot 122 -> 115), route_scope_self_service_test (@filter_lines gains the two task list lines; snapshot 122 -> 115). No other test edited; the lock-order and tasks suites passed unedited.",
+      "docs/roles.md: new section 'Known limitation: scoped approvers (stage 2)' placed before '## Matrix'; the three verbatim sentences each once on their own line; a second paragraph states routing plus TASK_WORKER cover; the RA-13 exemption is a SEPARATE third paragraph containing none of the three strings. The PR body must repeat the three sentences. The AC 13 amendment (PR #2810) is merged, so the RA-13 condition (d) precondition holds.",
+      "No tenant_fixture.ex edit: @expected_tenant_tables is unchanged (no new table) and the clone path re-adds FKs generically; no oracle counts tasks columns (grepped). The migration down was not executed.",
+      "REWORK after SEC/REVIEWER (steps 24, 25), uncommitted: (F-1) Task.audit_state/1 is the one owner of the scope_node_id audit exclusion, used at all 7 sites (task_activation.ex, engine.ex x4, tasks.ex x2); (F-2/SEC F-2) f1 is now :off | {:enforce, principal} in Tasks.claim_task and Engine.complete_task opts (default :off), ScopeGate.f1_principal/2 returns that and raises ScopeSetError (fail closed, detail-free 500) when `on` without a principal; (F-5) the RA-13 last sentence in docs/roles.md split in two, S1-S3 untouched; (F-6) Scope had no roles-held helper, so the private role_held?/2 stays and effective_scope/2 now reuses it; (F-3) Task.t() names scope_node_id. Re-ran: compile --warnings-as-errors clean, format check clean, check_boundaries 0 violations (1819 edges), tasks_test + engine_complete_task_test + scope_gate_test 107 passed."
+    ],
+    "notes_for_test_designer": [
+      "Use Letflow.Support.TaskScopeFixture.set_scope_node!(task_id, node_id_or_nil, prefix) (test/support/task_scope_fixture.ex) to set tasks.scope_node_id; there is no other writer.",
+      "T-F1 version is 20_261_019_200_001 (see deviations). T-F2 scan: the column is read by Task field, task_scope/1, filter_by_scope/2, in_scope/3; written by nothing in lib/. It is in no cast list and in no response map (task_list_item_map/task_detail_map untouched).",
+      "Public API for tests: Tasks.in_scope/3, Tasks.f1_allowed?/3, Tasks.f1_recheck/3, Tasks.list_tasks(params[:scope]), Tasks.get_task(id, opts[:scope]), claim_task opts[:f1], Engine.complete_task opts[:f1], Scope.allowed_for_role?/3, Scope.allowed_set_for_role/2, ScopeGate.scope_set_for_role/3, ScopeGate.f1_principal/2, Tasks.ScopeResolver.task_scope/1.",
+      "Telemetry [:letflow,:scope,:not_found] is a 2c-ii event for entities; the task refusal path does not emit it (the design asks for none here).",
+      "T-L19..T-L27: handlers of all seven task routes call ScopeGate (list/inbox scope_set_for_role, get scope_set_for_role, complete/claim scope_set_for_role + f1_principal, assign/reassign scope_set), so the Enforce before-send backstop marker is set on every path; the returned conn is the one finally sent."
+    ],
+    "sec_code_gate_followups": [
+      "SEC step-04/07/12/17/21 conditions to verify on this diff: INV-5 byte equality out-of-scope vs nonexistent task (claim/complete/get/assign/reassign all go through Tasks.in_scope/3 or get_task(scope:) to the existing task_not_found / :not_found answers); scope_node_id never in a response map; no production writer (T-F2); the :f1_scope step is a plain read after the task lock; ScopeGate called with the conn finally sent."
+    ],
+    "local_issue_id": null,
+    "implementation_written": true
+  }
+}

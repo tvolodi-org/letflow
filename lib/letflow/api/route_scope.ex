@@ -94,12 +94,14 @@ defmodule Letflow.Api.RouteScope do
 
   # The committed expectation of `:filter` routes (SEC F-1), as `METHOD FULL_PATH KEY` lines
   # (`snapshot_line/1`). REQ-518 PR 2c-i-b: the three entity list/aggregate/export routes; PR 2d
-  # adds `GET /tasks` and `GET /tasks/inbox`. The walk fails a `:filter` route that is not listed
+  # adds `GET /tasks` and `GET /tasks/inbox` (listed below). The walk fails a `:filter` route that is not listed
   # AND a listed route that is mounted with another class (AC 18).
   @expected_filter_routes [
     "POST /entities/query EntitiesQuery",
     "POST /entities/query/aggregate EntitiesAggregate",
-    "POST /entities/records/:entity_type/export EntitiesRecordsExport"
+    "POST /entities/records/:entity_type/export EntitiesRecordsExport",
+    "GET /tasks TasksList",
+    "GET /tasks/inbox TasksList"
   ]
 
   # The committed expectation of `{:resolver, _}` routes (SEC F-1, same line format), REQ-518
@@ -114,13 +116,18 @@ defmodule Letflow.Api.RouteScope do
     "POST /entities/records/:entity_type EntitiesRecordsWrite",
     "POST /entities/records/:entity_type/:record_id/attachments EntitiesAttachmentsManage",
     "POST /entities/records/:entity_type/import EntitiesRecordsImport",
-    "PUT /entities/records/:entity_type/:record_id EntitiesRecordsWrite"
+    "PUT /entities/records/:entity_type/:record_id EntitiesRecordsWrite",
+    "GET /tasks/:id TasksGetById",
+    "POST /tasks/:id/assign TasksAssign",
+    "POST /tasks/:id/claim TasksComplete",
+    "POST /tasks/:id/complete TasksComplete",
+    "POST /tasks/:id/reassign TasksReassign"
   ]
 
   # AC 19: every route of these routers is CLASSIFIED (declared or admin key table); a default-
   # sourced one fails `:data_route_default`, so a route added without a class breaks the build.
-  # REQ-518 PR 2d adds `Letflow.Routers.Tasks` when its seven routes are classified.
-  @data_routers [Letflow.Routers.Entities]
+  # REQ-518 PR 2d added `Letflow.Routers.Tasks` together with the classification of its seven routes.
+  @data_routers [Letflow.Routers.Entities, Letflow.Routers.Tasks]
 
   # `:self_service` routes are allowed from REQ-518 PR 2c-i-b (AC 21); WHICH routes is the
   # committed `@self_service_routes` list below (SEC F-1).

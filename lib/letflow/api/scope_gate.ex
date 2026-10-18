@@ -7,7 +7,9 @@ defmodule Letflow.Api.ScopeGate do
     * `scope_set/2` -- the caller's expanded allowed node set for the route's permission, as
       `t:Letflow.Entities.Query.Types.scope_set/0`, for `Letflow.Entities.Query.Compiler`;
     * `resource_allowed?/3` -- one resource's allow/deny (`Letflow.Api.Scope.allowed?/3`);
-    * `mode/1` -- the per-request scope-enforcement mode.
+    * `mode/1` -- the per-request scope-enforcement mode;
+    * `scope_set_for_role/3` and `f1_principal/2` -- the task approver rule F1 (REQ-518 PR 2d,
+      design C.2 to C.4): the set of ONE role, and the principal the engine path re-checks.
 
   ## Not `on` means no read
 
@@ -113,29 +115,84 @@ defmodule Letflow.Api.ScopeGate do
     end
   end
 
-  defp memoised_set(conn, permission) do
+  @doc """
+  REQ-518 PR 2d (design C.2, C.3): the allowed node set for the approver rule F1. Not `on` ->
+  `{conn, :all}` with no query. `:on` -> `:all` when the caller holds the route permission of
+  `policy_key` tenant-wide (the RA-13 exemption, predicate exactly
+  `Letflow.Api.Scope.allowed?(principal, permission, :tenant_wide)`, nothing role-name based);
+  otherwise `Letflow.Api.Scope.allowed_set_for_role/2` for the ONE role `role`. A request without
+  a principal gets `:none`. Memoised per permission and role; failures are loud like `scope_set/2`.
+  """
+  @spec scope_set_for_role(Plug.Conn.t(), policy_key :: atom(), role :: String.t()) ::
+          {Plug.Conn.t(), Types.scope_set()}
+  def scope_set_for_role(%Plug.Conn{} = conn, policy_key, role)
+      when is_atom(policy_key) and is_binary(role) do
+    conn = Plug.Conn.put_private(conn, @marker, true)
+
+    case mode(conn) do
+      :on -> memoised_set(conn, {Authorization.required_permission(policy_key), role})
+      _not_on -> {conn, :all}
+    end
+  end
+
+  @doc """
+  REQ-518 PR 2d (design C.4): the principal the engine path hands to the in-transaction F1
+  re-check: `:off` when the tenant is not `on` (the F1 branch is selected ONLY by the
+  per-request flag, AC 16, and then no query is issued), `{:enforce, principal}` when it is.
+  `on` without a principal fails closed: it raises `ScopeSetError` (detail-free 500), so the
+  engine step can never be skipped silently. Marks the conn like `scope_set/2`.
+  """
+  @spec f1_principal(Plug.Conn.t(), policy_key :: atom()) ::
+          {Plug.Conn.t(), :off | {:enforce, Scope.Principal.t()}}
+  def f1_principal(%Plug.Conn{} = conn, policy_key) when is_atom(policy_key) do
+    conn = Plug.Conn.put_private(conn, @marker, true)
+
+    case mode(conn) do
+      :on ->
+        guarded(fn ->
+          case Scope.principal_from_conn(conn) do
+            {:ok, conn, principal} -> {conn, {:enforce, principal}}
+            {:error, :no_principal} -> fail(:no_principal)
+          end
+        end)
+
+      _not_on ->
+        {conn, :off}
+    end
+  end
+
+  defp memoised_set(conn, key) do
     memo = Map.get(conn.private, @memo, %{})
 
-    case Map.fetch(memo, permission) do
+    case Map.fetch(memo, key) do
       {:ok, set} ->
         {conn, set}
 
       :error ->
-        {conn, set} = guarded(fn -> compute_set(conn, permission) end)
-        {Plug.Conn.put_private(conn, @memo, Map.put(memo, permission, set)), set}
+        {conn, set} = guarded(fn -> compute_set(conn, key) end)
+        {Plug.Conn.put_private(conn, @memo, Map.put(memo, key, set)), set}
     end
   end
 
-  defp compute_set(conn, permission) do
+  defp compute_set(conn, key) do
     case Scope.principal_from_conn(conn) do
       {:ok, conn, principal} ->
-        {:ok, set} = Scope.allowed_set(principal, permission)
+        {:ok, set} = set_for(principal, key)
         {conn, set}
 
       {:error, :no_principal} ->
         {conn, :none}
     end
   end
+
+  defp set_for(principal, {permission, role}) do
+    case Scope.allowed?(principal, permission, :tenant_wide) do
+      {:allow, _basis} -> {:ok, :all}
+      {:deny, _reason} -> Scope.allowed_set_for_role(principal, role)
+    end
+  end
+
+  defp set_for(principal, permission), do: Scope.allowed_set(principal, permission)
 
   # SEC F-1: a database error (or any raise, exit, throw) while reading grants or nodes must
   # give the Letflow detail-free 500, not the server's crash response, so it is re-raised as the

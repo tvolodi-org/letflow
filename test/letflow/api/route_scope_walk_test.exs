@@ -88,11 +88,14 @@ defmodule Letflow.Api.RouteScopeWalkTest do
              |> RouteScope.filter_routes()
              |> Enum.map(&RouteScope.snapshot_line/1)
              |> Enum.sort() ==
-               [
+               Enum.sort([
                  "POST /entities/query EntitiesQuery",
                  "POST /entities/query/aggregate EntitiesAggregate",
-                 "POST /entities/records/:entity_type/export EntitiesRecordsExport"
-               ]
+                 "POST /entities/records/:entity_type/export EntitiesRecordsExport",
+                 # REQ-518 PR 2d (AC 20): the two task list routes
+                 "GET /tasks TasksList",
+                 "GET /tasks/inbox TasksList"
+               ])
 
       assert routes
              |> Enum.filter(&(&1.class == :self_service))
@@ -290,6 +293,7 @@ defmodule Letflow.Api.RouteScopeWalkTest do
             do: {router, entry}
 
       resolver = {:resolver, {Letflow.Entities.ScopeResolver, :record_scope}}
+      task_resolver = {:resolver, {Letflow.Tasks.ScopeResolver, :task_scope}}
 
       assert Enum.sort(Enum.map(scopes, fn {_router, entry} -> entry end)) ==
                Enum.sort([
@@ -318,7 +322,15 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  {"GET", "/records/:entity_type/:record_id/attachments", resolver},
                  {"GET", "/records/:entity_type/:record_id/attachments/:attachment_id", resolver},
                  {"DELETE", "/records/:entity_type/:record_id/attachments/:attachment_id",
-                  resolver}
+                  resolver},
+                 # REQ-518 PR 2d: the two task list routes and the five single-task routes
+                 {"GET", "/inbox", :filter},
+                 {"GET", "/", :filter},
+                 {"GET", "/:id", task_resolver},
+                 {"POST", "/:id/complete", task_resolver},
+                 {"POST", "/:id/claim", task_resolver},
+                 {"POST", "/:id/assign", task_resolver},
+                 {"POST", "/:id/reassign", task_resolver}
                ])
 
       assert scopes |> Enum.map(fn {router, _entry} -> router end) |> Enum.uniq() |> Enum.sort() ==
@@ -326,7 +338,8 @@ defmodule Letflow.Api.RouteScopeWalkTest do
                  Letflow.Routers.Entities,
                  Letflow.Routers.Help,
                  Letflow.Routers.Instances,
-                 Letflow.Routers.Me
+                 Letflow.Routers.Me,
+                 Letflow.Routers.Tasks
                ])
     end
   end

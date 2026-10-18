@@ -721,7 +721,11 @@ defmodule Letflow.TenantProvisioning do
     {20_261_019_100_001, Letflow.Repo.Migrations.AddExternalRefColumnsToEntityRecordLatest,
      "20261019100001_add_external_ref_columns_to_entity_record_latest.exs"},
     {20_261_019_100_002, Letflow.Repo.Migrations.AddExternalRefIndexToEntityRecordLatest,
-     "20261019100002_add_external_ref_index_to_entity_record_latest.exs"}
+     "20261019100002_add_external_ref_index_to_entity_record_latest.exs"},
+    # GH #2535 / REQ-518 PR 2d (design C.1, AC 12): the nullable `tasks.scope_node_id` with its
+    # foreign key to scope_node_paths (ON DELETE RESTRICT) and a partial index. No production writer.
+    {20_261_019_200_001, Letflow.Repo.Migrations.AddScopeNodeIdToTasks,
+     "20261019200001_add_scope_node_id_to_tasks.exs"}
   ]
 
   @doc """
@@ -780,7 +784,9 @@ defmodule Letflow.TenantProvisioning do
   (`lib/letflow/design/req517-scoped-grants-admin-plane.md` §3.6), and REQ-517 PR 2b one more:
   `scope_shadow_counters` (same design, §4.7.1), and GH #2659 two more: the
   `entity_record_latest` `external_ref` columns + CHECK and its partial unique index
-  (`lib/letflow/design/gh2659-external-ref-idempotent-import.md` §2.1) —
+  (`lib/letflow/design/gh2659-external-ref-idempotent-import.md` §2.1), and REQ-518 PR 2d one
+  more: the nullable `tasks.scope_node_id` with its foreign key and partial index
+  (`lib/letflow/design/req518-compiler-scope-filter.md` C.1) —
   entries in total (see `@tenant_scoped_migration_manifest` itself for the
   authoritative, up-to-date count), ordered by version. Every future tenant-scoped migration must append its
   own entry to `@tenant_scoped_migration_manifest`, in addition to following the

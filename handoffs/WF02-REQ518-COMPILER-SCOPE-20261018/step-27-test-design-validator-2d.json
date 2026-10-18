@@ -1,0 +1,91 @@
+{
+  "handoff_id": "d2535518-0518-4c02-9e11-000000000027",
+  "run_id": "WF02-REQ518-COMPILER-SCOPE-20261018",
+  "workflow_id": "WF-02",
+  "step": "27",
+  "from_agent": "TEST-DESIGN-VALIDATOR",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-27-test-design-validator-2d.json",
+  "created_at": "2026-10-18T12:45:00Z",
+  "started_at": "2026-10-18T12:45:00Z",
+  "completed_at": "2026-10-18T13:05:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-518"],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "TEST-DESIGN-VALIDATOR gate for REQ-518 slice 2d (GH #2535), uncommitted tree on feature/WF02-REQ518-2D-APPROVER-20261018. Mix ran per file group, one mix at a time, under the shared mixlock directory this session created and removed. No full suite, no letflow.check.test. Mutants compiled in memory only."
+    },
+    "related_handoff_ids": [
+      "d2535518-0518-4c02-9e11-000000000023",
+      "d2535518-0518-4c02-9e11-000000000024",
+      "d2535518-0518-4c02-9e11-000000000025",
+      "d2535518-0518-4c02-9e11-000000000026"
+    ],
+    "artifacts_in": [
+      "test/specs/REQ-518-2d.md",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-26-test-designer-2d.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ518-2D-APPROVER-20261018"
+  },
+  "task": {
+    "description": "Hard gate on TEST-DESIGNER 2d tests: REQ-518 AC 12-17, 20, 23 (walk), SEC step-24 merge conditions, REVIEWER step-25 notes; fixture isolation, formatting, flake and CI-environment risk, own mutants, OBS-1 ruling."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "PASS_WITH_FINDINGS. No coverage gap, no test file changed by this validator. EXECUTED (MIX_ENV=test, LOG_LEVEL=error to cover the CI-environment risk, per file group, one mix at a time under the mixlock): migration 9 + no_writer_scan 7 + tasks_route_classes 11 + roles_scoped_approvers 13 = 40 passed; scope_for_role 27 passed; f1_context 33 passed; tasks_scope_http 18 passed; tasks_scope_inv5_http 19 passed (137 of 137 green under LOG_LEVEL=error; the new tests assert only on error-level lines via capture_log level :error, one constant scope_set_failed line, no id refutation, so no new test depends on the log level; CI sets no LOG_LEVEL and config/runtime.exs defaults the test env to debug). Two files were also re-run unmutated after the mutants (25 passed). mix format --check-formatted over the 8 new tests, both support fixtures and the 3 edited route_scope tests: exit 0. No skip tag, TODO, FIXME, sleep, wall-clock call or secret in any new or changed test file. COVERAGE: every assigned AC (12, 13 a-e, d2, d3, 14, 15, 16, 17, 20, 23 walk), every SEC step-24 merge condition (T-F1 up/down/replay, T-F2 scan incl. insert_all and ten seeded writer forms, T-F3..T-F7, T-F15 mixed case and refusals, INV-5 on all seven routes with invalid and valid bodies for assign/reassign, AC 15 real concurrent revocation at context and router level with lock-multiset equality, AC 16 off/shadow byte identity, AC 14 list/assignee/NULL exclusion, f1 on without principal, {:nodes, []}) and the REVIEWER notes (audit rows never carry scope_node_id, T-F1 uses 20_261_019_200_001) maps to a green test with real assertions (spec table cross-read against the requirements.yaml AC text and the lib diff). FIXTURES: committed provisioned tenant per test with on_exit teardown; all database files async: false; the two async: true files touch no database (they read lib/ and docs/ from disk); the migration test runs DDL only inside its own provisioned tenant schema; version 20261019200001 has no collision on this tree or on origin/main (latest there is 20261019100002); interleave/2 waits are bounded (10 s monotonic deadline on pg_stat_activity, 10 s and 20 s message timeouts). FLAKE: requests are hand-built auth_context dispatches (no AuthPipeline, no api_tokens.last_used_at write), so the #2729 second-boundary shape is absent; headers and ids are sorted before comparison. OBS-1 ruling: documentation fix. M2 judged equivalent.",
+    "local_issue_id": null,
+    "artifacts_out": ["handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-27-test-design-validator-2d.json"],
+    "implementation_written": false,
+    "classification": "n/a (WF-02)",
+    "changes_made": [],
+    "findings": [
+      {
+        "id": "F-1",
+        "severity": "MINOR",
+        "blocking": false,
+        "title": "AC 13 and design C.2 sentence about Tasks.resolve_principal_scope/2 does not match the build (OBS-1)",
+        "detail": "See obs1_ruling. Amend the sentence; no code or test change.",
+        "required_action": "DOC-UPDATER / CODE-DESIGNER amend AC 13 and design C.2, together with REVIEWER F-4 (the stale migration version 20261019100001)."
+      },
+      {
+        "id": "F-2",
+        "severity": "INFO",
+        "blocking": false,
+        "title": "await_parked! spins with :erlang.yield between queries",
+        "detail": "Bounded (10 s monotonic deadline, one pg_stat_activity query per turn); acceptable under the machine-load rule. A short pause would be gentler but is not worth a rework.",
+        "required_action": "None."
+      }
+    ],
+    "obs1_ruling": {
+      "ruling": "DOC FIX. Do not change the code.",
+      "reasons": [
+        "AC 16 requires off and shadow to be byte-identical with no F1 statement; extending resolve_principal_scope/2 (called on every claim) with the allowed node set would add a grants and node-tree read to the off path, or force a mode branch inside the single place that reads groups and roles.",
+        "As built the node set is computed once per request by ScopeGate.scope_set_for_role/3 (memoised per permission and role, zero statements when not on) and re-read inside the transaction by f1_recheck with fresh grants (AC 15); resolve_principal_scope/2 stays the single reader of groups and roles for the routing check, which is what the AC sentence protects, and a test pins its three keys and two statements.",
+        "Both gates (SEC step-24, REVIEWER step-25) accepted the build as functionally equivalent."
+      ],
+      "recommended_text": "Tasks.resolve_principal_scope/2 stays the single place groups and roles are read for the routing-role check and is NOT extended; the allowed node set comes from ScopeGate.scope_set_for_role/3 and Scope.allowed_set_for_role/2."
+    },
+    "m2_judgement": "EQUIVALENT. Making ScopeResolver.task_scope return :tenant_wide for a NULL node changes allowed_for_role? only for a principal holding TASK_WORKER tenant-wide, and every such principal holds the route permission tenant-wide, so Scope.allowed?(principal, route_permission, :tenant_wide) exempts it first; a scoped principal is denied against :tenant_wide anyway. The strong form (M2b, f1_allowed? letting NULL through) is killed (2 of 45). Assign and reassign do not use f1_allowed?.",
+    "mutants": {
+      "method": "mutated source compiled into the test VM with Code.compile_string (each anchor required to occur exactly once, ignore_module_conflict) via mix do run --no-start -r mut.exs + test <files> over the four heavy files (97 tests; V4 over the two router files, 37 tests); nothing written to lib/ or priv/.",
+      "measured_by_validator": [
+        {"id": "V1", "edit": "f1_recheck keeps the request-time grants (no Scope.load_grants)", "failing": "9 of 97"},
+        {"id": "V2", "edit": "claim_task has no :f1_scope step", "failing": "8 of 97"},
+        {"id": "V3", "edit": "union of roles: f1_allowed? uses Scope.allowed?/3 on the route permission and the gate uses allowed_set/2 (scoped PROCESS_OPERATOR allowed)", "failing": "6 of 97"},
+        {"id": "V4", "edit": "assign checks scope BEFORE body validation", "failing": "1 of 37 (INV-5 invalid-body equality)"},
+        {"id": "V5", "edit": "Task.audit_state/1 leaks scope_node_id", "failing": "2 of 97"},
+        {"id": "V6", "edit": "a FOR SHARE read added in f1_recheck", "failing": "2 of 97 (T-F17 claim and complete)"},
+        {"id": "V7", "edit": "tenant-wide exemption widened by role name (PROCESS_OPERATOR in roles, in f1_allowed? and the gate)", "failing": "8 of 97"}
+      ],
+      "survivors": []
+    },
+    "reverted_and_verified": "Nothing was applied to disk. After the last mutant git status --porcelain lib/ test/ lists the same 24 entries as before (no new path), git diff --stat -- lib priv is unchanged (9 files changed, 364 insertions, 66 deletions), and tasks_scope_http_test + scope_node_id_no_writer_scan_test re-ran green unmutated (25 passed). Scratch note: this session's mut.exs and patch.py were written into the shared scratchpad directory, overwriting earlier scratch files of the same names (scratch only; nothing in the repo).",
+    "run_command_for_test_runner": "for each of: test/letflow/migrations/tasks_scope_node_id_migration_test.exs test/letflow/tasks/scope_node_id_no_writer_scan_test.exs test/letflow/api/scope_for_role_test.exs test/letflow/tasks/f1_context_test.exs test/letflow/routers/tasks_scope_http_test.exs test/letflow/routers/tasks_scope_inv5_http_test.exs test/letflow/api/tasks_route_classes_test.exs test/letflow/docs/roles_scoped_approvers_test.exs : MIX_ENV=test mix test <file>; hosted CI is the suite."
+  }
+}
