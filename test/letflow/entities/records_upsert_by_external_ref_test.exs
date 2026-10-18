@@ -42,11 +42,17 @@ defmodule Letflow.Entities.RecordsUpsertByExternalRefTest do
   alias Letflow.Repo
   alias Letflow.TenantFixture
   alias Letflow.TenantProvisioning.ColumnPromotion
+  alias Letflow.Test.SandboxAutoMode
+
+  import ExUnit.CaptureLog
 
   @actor "00000000-0000-0000-0000-0000000000a5"
   @index "entity_record_latest_external_ref_idx"
 
   setup do
+    SandboxAutoMode.enter_auto_mode!(Repo)
+    on_exit(fn -> SandboxAutoMode.exit_auto_mode!(Repo) end)
+
     tenant = TenantFixture.provisioned_tenant!(slug_prefix: "gh2659-ups")
     {:ok, _seeded} = EventTypes.seed!(tenant.schema_name)
     H.attach_error_handler(__MODULE__)
@@ -179,9 +185,10 @@ defmodule Letflow.Entities.RecordsUpsertByExternalRefTest do
       assert length(events(schema)) == 1
     end
 
-    test "a soft-deleted ref is refused with a constant error and nothing is appended", %{
-      schema: schema
-    } do
+    test "a soft-deleted ref is refused (the error carries the caller's own ref) and nothing is appended",
+         %{
+           schema: schema
+         } do
       seed_type!(schema, "customer")
 
       {:ok, %{record: created}} =
@@ -209,8 +216,42 @@ defmodule Letflow.Entities.RecordsUpsertByExternalRefTest do
                  schema
                )
 
+      # IDENTICAL values: deleted is decided before unchanged
+      assert {:error, {:external_ref_record_deleted, %{system: "sap", id: "42"}}} =
+               Records.upsert_record_by_external_ref(
+                 attrs("customer", "sap", "42", name("Acme")),
+                 schema
+               )
+
       assert length(events(schema)) == before
       assert [%Latest{deleted: true}] = rows(schema)
+    end
+
+    test "a soft-deleted ref on an append_only type is the deleted refusal, not append-only", %{
+      schema: schema
+    } do
+      seed_type!(schema, "ledger", nil, %{append_only: true})
+
+      {:ok, %{record: created}} =
+        Records.upsert_record_by_external_ref(attrs("ledger", "sap", "1", name("A")), schema)
+
+      # append_only types refuse delete through the command, so the row is flagged directly
+      Repo.query!(
+        ~s(UPDATE "#{schema}".entity_record_latest SET deleted = true WHERE record_id = $1),
+        [Ecto.UUID.dump!(created.record_id)]
+      )
+
+      before = length(events(schema))
+
+      for value <- ["A", "B"] do
+        assert {:error, {:external_ref_record_deleted, %{system: "sap", id: "1"}}} =
+                 Records.upsert_record_by_external_ref(
+                   attrs("ledger", "sap", "1", name(value)),
+                   schema
+                 )
+      end
+
+      assert length(events(schema)) == before
     end
 
     test "refusals before any write: bad ref, unknown type, invalid payload, reserved input", %{
@@ -351,7 +392,7 @@ defmodule Letflow.Entities.RecordsUpsertByExternalRefTest do
         )
 
       assert {:ok, %{outcome: :created, record: winner}} = first
-      assert {:ok, %{outcome: :updated, record: loser}} = second
+      assert {:ok, %{outcome: :updated, is_duplicate: false, record: loser}} = second
       assert winner.record_id == loser.record_id
 
       assert [%Latest{field_values: %{"customer_name" => "second"}}] =
@@ -371,17 +412,23 @@ defmodule Letflow.Entities.RecordsUpsertByExternalRefTest do
 
       run = fn ->
         Records.upsert_record_by_external_ref(
-          attrs("customer", "sap", "same", name("same")),
+          attrs("customer", "sap", "secret-same", name("same")),
           schema
         )
       end
 
-      %{first: first, second: second} =
-        H.forced_overlap(schema, {:sequence, instance_id}, run, run)
+      {results, log} =
+        with_log([level: :warning], fn ->
+          H.forced_overlap(schema, {:sequence, instance_id}, run, run)
+        end)
 
+      %{first: first, second: second} = results
       assert {:ok, %{outcome: :created}} = first
-      assert {:ok, %{outcome: :unchanged}} = second
+      assert {:ok, %{outcome: :unchanged, is_duplicate: false}} = second
       assert length(events(schema)) == before + 1
+      # the lost unique violation carries the ref: it must reach neither a result nor a log
+      refute log =~ "secret-same"
+      refute inspect(second) =~ "unique"
     end
 
     test "forced overlap on update: the version check loses once, the retry converges", %{
@@ -413,7 +460,7 @@ defmodule Letflow.Entities.RecordsUpsertByExternalRefTest do
         )
 
       assert {:ok, %{outcome: :updated, record: r1}} = first
-      assert {:ok, %{outcome: :updated, record: r2}} = second
+      assert {:ok, %{outcome: :updated, is_duplicate: false, record: r2}} = second
       assert r1.record_id == created.record_id and r2.record_id == created.record_id
 
       assert event_types(schema) == [
@@ -431,8 +478,13 @@ defmodule Letflow.Entities.RecordsUpsertByExternalRefTest do
       seed_type!(schema, "customer")
       refs = for n <- 1..4, do: "r#{n}"
 
+      # a start barrier: both workers are parked on `:go`, then released together
       worker = fn tag ->
         Task.async(fn ->
+          receive do
+            :go -> :ok
+          end
+
           for id <- refs do
             Records.upsert_record_by_external_ref(
               attrs("customer", "sap", id, name("w#{tag}")),
@@ -442,7 +494,9 @@ defmodule Letflow.Entities.RecordsUpsertByExternalRefTest do
         end)
       end
 
-      results = [worker.(1), worker.(2)] |> Enum.flat_map(&Task.await(&1, H.await_ms()))
+      tasks = [worker.(1), worker.(2)]
+      for task <- tasks, do: send(task.pid, :go)
+      results = Enum.flat_map(tasks, &Task.await(&1, H.await_ms()))
 
       assert Enum.all?(
                results,
@@ -463,7 +517,8 @@ defmodule Letflow.Entities.RecordsUpsertByExternalRefTest do
       Repo.query!("""
       CREATE FUNCTION "#{schema}".gh2659_always_conflict() RETURNS trigger AS $$
       BEGIN
-        RAISE unique_violation USING CONSTRAINT = '#{@index}', MESSAGE = 'forced';
+        RAISE unique_violation USING CONSTRAINT = '#{@index}', MESSAGE = 'forced',
+          DETAIL = 'Key (entity_type, external_system, external_id)=(customer, sap, secret-id) already exists.';
       END $$ LANGUAGE plpgsql
       """)
 
@@ -487,11 +542,17 @@ defmodule Letflow.Entities.RecordsUpsertByExternalRefTest do
 
       on_exit(fn -> :telemetry.detach(handler) end)
 
-      assert {:error, :external_ref_contention} =
-               Records.upsert_record_by_external_ref(
-                 attrs("customer", "sap", "secret-id", name("A")),
-                 schema
-               )
+      {result, log} =
+        with_log([level: :warning], fn ->
+          Records.upsert_record_by_external_ref(
+            attrs("customer", "sap", "secret-id", name("A")),
+            schema
+          )
+        end)
+
+      assert result == {:error, :external_ref_contention}
+      refute log =~ "secret-id"
+      refute inspect(result) =~ "secret-id"
 
       for _ <- 1..3, do: assert_received(:insert_attempt)
       refute_received :insert_attempt
@@ -619,7 +680,8 @@ defmodule Letflow.Entities.RecordsUpsertByExternalRefTest do
 
       assert events(schema) == []
 
-      assert {:ok, %{outcome: :created}} = Records.upsert_record_by_external_ref(a, schema, owner)
+      assert {:ok, %{outcome: :created, is_duplicate: false}} =
+               Records.upsert_record_by_external_ref(a, schema, owner)
 
       assert {:ok, %{outcome: :unchanged}} =
                Records.upsert_record_by_external_ref(a, schema, owner)
@@ -675,6 +737,183 @@ defmodule Letflow.Entities.RecordsUpsertByExternalRefTest do
 
       assert updated.field_values == %{"qty" => "12.51"}
       assert length(events(schema)) == 2
+    end
+  end
+
+  # ---- review follow-ups (REVIEWER F1/F4, TDV 2-8) --------------------------------------------
+
+  describe "caller-chosen key across refs (REVIEWER F1) and dropped internals (F4)" do
+    test "a key used for ref A then ref B with equal values is key reuse, never A's record", %{
+      schema: schema
+    } do
+      seed_type!(schema, "customer")
+      key = Ecto.UUID.generate()
+
+      assert {:ok, %{outcome: :created, record: a}} =
+               Records.upsert_record_by_external_ref(
+                 attrs("customer", "sap", "A", name("same"), %{idempotency_key: key}),
+                 schema
+               )
+
+      before = length(events(schema))
+
+      assert {:error, :idempotency_key_reuse} =
+               Records.upsert_record_by_external_ref(
+                 attrs("customer", "sap", "B", name("same"), %{idempotency_key: key}),
+                 schema
+               )
+
+      assert length(events(schema)) == before
+      assert [%Latest{record_id: id, external_id: "A"}] = rows(schema)
+      assert id == a.record_id
+    end
+
+    test "idempotency_match and legacy_original in the attrs are dropped, not forwarded", %{
+      schema: schema
+    } do
+      seed_type!(schema, "customer")
+
+      {:ok, _} =
+        Records.upsert_record_by_external_ref(attrs("customer", "sap", "A", name("same")), schema)
+
+      [original] = events(schema)
+      before = length(events(schema))
+
+      # forwarded, `legacy_original` would short-circuit the append and answer A's record
+      assert {:ok, %{outcome: :created, is_duplicate: false, record: b}} =
+               Records.upsert_record_by_external_ref(
+                 attrs("customer", "sap", "B", name("same"), %{
+                   legacy_original: original,
+                   idempotency_match: :target
+                 }),
+                 schema
+               )
+
+      assert b.external_id == "B"
+      assert length(events(schema)) == before + 1
+      assert length(rows(schema)) == 2
+    end
+  end
+
+  describe "deleted overlap and update replay" do
+    test "forced overlap: a delete wins, the upsert converges to the deleted refusal", %{
+      schema: schema
+    } do
+      seed_type!(schema, "customer")
+
+      {:ok, _} =
+        Records.upsert_record_by_external_ref(attrs("customer", "sap", "seed", name("S")), schema)
+
+      {:ok, %{record: target}} =
+        Records.upsert_record_by_external_ref(attrs("customer", "sap", "d", name("v0")), schema)
+
+      {:ok, instance_id} = EntityTypeInstance.get_or_create("customer", schema)
+
+      %{first: first, second: second} =
+        H.forced_overlap(
+          schema,
+          {:sequence, instance_id},
+          fn ->
+            Records.delete_record(
+              %{
+                entity_type: "customer",
+                record_id: target.record_id,
+                actor_id: @actor,
+                idempotency_key: Ecto.UUID.generate()
+              },
+              schema
+            )
+          end,
+          fn ->
+            Records.upsert_record_by_external_ref(
+              attrs("customer", "sap", "d", name("v1")),
+              schema
+            )
+          end
+        )
+
+      assert {:ok, %{record: %Latest{deleted: true}}} = first
+      assert {:error, {:external_ref_record_deleted, %{system: "sap", id: "d"}}} = second
+
+      assert [%Latest{deleted: true, field_values: %{"customer_name" => "v0"}}] =
+               Enum.filter(rows(schema), &(&1.external_id == "d"))
+    end
+
+    test "update replay with the same key: unchanged while equal, then the original again", %{
+      schema: schema
+    } do
+      seed_type!(schema, "customer")
+
+      {:ok, %{record: created}} =
+        Records.upsert_record_by_external_ref(attrs("customer", "sap", "u", name("v1")), schema)
+
+      key = Ecto.UUID.generate()
+      a = attrs("customer", "sap", "u", name("v2"), %{idempotency_key: key})
+
+      assert {:ok, %{outcome: :updated, is_duplicate: false}} =
+               Records.upsert_record_by_external_ref(a, schema)
+
+      assert {:ok, %{outcome: :unchanged, is_duplicate: false}} =
+               Records.upsert_record_by_external_ref(a, schema)
+
+      {:ok, _} =
+        Records.update_record(
+          %{
+            entity_type: "customer",
+            record_id: created.record_id,
+            field_values: name("v3"),
+            actor_id: @actor,
+            idempotency_key: Ecto.UUID.generate()
+          },
+          schema
+        )
+
+      before = length(events(schema))
+
+      # the key is bound to the SAME update request, so the underlying command answers the
+      # original as a safe duplicate and writes nothing (design 5.3.1, last bullet)
+      assert {:ok, %{outcome: :updated, is_duplicate: true}} =
+               Records.upsert_record_by_external_ref(a, schema)
+
+      assert length(events(schema)) == before
+      assert [%Latest{field_values: %{"customer_name" => "v3"}}] = rows(schema)
+    end
+  end
+
+  describe "ref-less records" do
+    test "a record from create_record stays NULL/NULL and untouched by upserts of two refs", %{
+      schema: schema
+    } do
+      seed_type!(schema, "customer")
+
+      {:ok, %{record: plain}} =
+        Records.create_record(
+          %{
+            entity_type: "customer",
+            field_values: name("plain"),
+            actor_id: @actor,
+            idempotency_key: Ecto.UUID.generate()
+          },
+          schema
+        )
+
+      assert {:ok, _} =
+               Records.upsert_record_by_external_ref(
+                 attrs("customer", "sap", "1", name("A")),
+                 schema
+               )
+
+      assert {:ok, _} =
+               Records.upsert_record_by_external_ref(
+                 attrs("customer", "sap", "2", name("A")),
+                 schema
+               )
+
+      assert length(events(schema)) == 3
+      assert {:ok, row} = Latest.get(plain.record_id, "customer", schema)
+      assert row.external_system == nil and row.external_id == nil
+      assert row.last_event_global_seq == plain.last_event_global_seq
+      assert length(rows(schema)) == 3
     end
   end
 end

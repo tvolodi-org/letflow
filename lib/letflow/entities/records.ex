@@ -439,6 +439,9 @@ defmodule Letflow.Entities.Records do
         authority
       )
       when is_binary(prefix) and is_authority(authority) do
+    # The definition is resolved and the values validated here (to compare before writing) and
+    # again inside create_record/update_record: two cheap reads kept so the write path stays the
+    # one existing command pipeline (no second copy of its checks).
     with {:ok, ref} <- ExternalRef.parse(Map.get(attrs, :external_ref)),
          :ok <- reject_reserved_attributes(attrs),
          :ok <- reject_step_key(attrs),
@@ -480,8 +483,16 @@ defmodule Letflow.Entities.Records do
 
   defp upsert_create(%{attrs: attrs, ref: ref, prefix: prefix, authority: authority}) do
     case do_create_record(attrs, prefix, authority, ref) do
-      {:ok, %{record: record, is_duplicate: duplicate?}} ->
-        {:ok, %{record: record, outcome: :created, is_duplicate: duplicate?}}
+      {:ok, %{record: record, is_duplicate: false}} ->
+        {:ok, %{record: record, outcome: :created, is_duplicate: false}}
+
+      # The create fingerprint binds neither the ref nor the record id, so a caller key that
+      # created ref A and is replayed for an absent ref B with equal values would otherwise be
+      # answered with A's record as a "created" duplicate (REVIEWER F1): that is key reuse.
+      {:ok, %{record: record, is_duplicate: true}} ->
+        if record.external_system == ref.system and record.external_id == ref.id,
+          do: {:ok, %{record: record, outcome: :created, is_duplicate: true}},
+          else: {:error, :idempotency_key_reuse}
 
       {:error, _reason} = error ->
         error
@@ -1562,7 +1573,11 @@ defmodule Letflow.Entities.Records do
         field_values: Map.get(payload, "field_values", %{}),
         deleted: event_type == "ENTITY_RECORD_DELETED",
         entity_def_version: Base.decode16!(entity_def_version_hex, case: :lower),
-        last_event_global_seq: global_seq
+        last_event_global_seq: global_seq,
+        # GH #2659: the ref the ORIGINAL create carried (nil for an update, delete or ref-less
+        # original), so `upsert_create/1` can tell whose record a replayed key belongs to.
+        external_system: get_in(payload, ["external_ref", "system"]),
+        external_id: get_in(payload, ["external_ref", "id"])
       },
       is_duplicate: true
     }
