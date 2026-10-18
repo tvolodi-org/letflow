@@ -526,9 +526,10 @@ defmodule Letflow.Engine.EntityParentLockOrderTest do
       assert_key_share_group(group_lock_modes(queries, parent_id))
     end
 
-    test "E4x: an execution-error transition takes no ancestor group and does not raise", %{
-      base: base
-    } do
+    test "E4x: an execution-error transition does not raise; the landing takes the KEY SHARE pair",
+         %{
+           base: base
+         } do
       graph =
         linear([
           start_node(),
@@ -538,7 +539,7 @@ defmodule Letflow.Engine.EntityParentLockOrderTest do
         ])
 
       # the only edge out of the gateway never matches: the :transition step ends in an execution
-      # error, so :lock_ancestors must return {:ok, []}
+      # error, so the completion's own :lock_ancestors step returns {:ok, []}
       graph =
         update_in(graph, ["edges"], fn edges ->
           Enum.map(edges, fn
@@ -577,6 +578,17 @@ defmodule Letflow.Engine.EntityParentLockOrderTest do
       # GH #2709 the ExecutionError landing itself locks the group, `FOR KEY SHARE` and never
       # `FOR UPDATE` (the landing never completes the child), so that is the only group lock here
       assert_key_share_group(group_lock_modes(queries, parent_id))
+
+      # ... and it is taken before the first UPDATE of the child's projection (the FK checks queue
+      # on the second one)
+      first_group =
+        first_index(queries, fn q -> q.query =~ "FOR KEY SHARE" and group_kind(q, parent_id) end)
+
+      first_update =
+        first_index(queries, &(&1.query =~ ~r/UPDATE "[^"]+"\."instance_projections"/))
+
+      assert is_integer(first_group) and is_integer(first_update)
+      assert first_group < first_update
     end
   end
 

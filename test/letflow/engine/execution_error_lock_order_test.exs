@@ -27,6 +27,16 @@ defmodule Letflow.Engine.ExecutionErrorLockOrderTest do
   Forced-overlap method: `Letflow.LockOrderHelpers` (a barrier row held by a third connection plus
   lock-queue FIFO; deadlocks and lock timeouts are reported through the Repo telemetry event, so a
   retried victim cannot hide). Sandbox `:auto` mode (real commits), hence `async: false`.
+
+  The caller at the cascade error branch (`engine.ex` cascade; the instance is the parent and the
+  chain is already locked `FOR UPDATE` by the completing child) is a documented no-op re-lock and is
+  NOT tested by a separate case. The 2 s `lock_timeout` margin asserted in `overlap!/2` is only a
+  yardstick shared with the PR-1 files: these paths set no `lock_timeout` of their own.
+
+  S1 covers the limit of the guarantee: the group is found through `tokens.waiting_child_instance_id
+  = child AND status = :waiting`, so it is held for a WAITING parent only. A child whose parent was
+  already cancelled lands without any group lock; nothing holds the parent rows then, so the FK
+  check does not queue.
   """
 
   use Letflow.DataCase, async: false
@@ -355,9 +365,8 @@ defmodule Letflow.Engine.ExecutionErrorLockOrderTest do
     margin = H.margin_ms(overlap.timing)
 
     assert margin >= 500,
-           "lock_timeout margin #{margin} ms is under 500 ms (#{inspect(overlap.timing)})"
+           "#{kind}: lock_timeout margin #{margin} ms is under 500 ms (#{inspect(overlap.timing)})"
 
-    IO.puts("X-MARGIN #{kind} margin=#{margin} timing=#{inspect(overlap.timing)}")
     overlap
   end
 
@@ -426,21 +435,19 @@ defmodule Letflow.Engine.ExecutionErrorLockOrderTest do
       one = probe!(base, parent_id, child_id, [first])
       two = probe!(base, parent_id, child_id, [first, second])
 
-      IO.puts("X0 PROBE one_update=#{inspect(one)} two_updates=#{inspect(two)}")
-
       # the probe sees locks at all
       assert one.control == {:refused, :lock_not_available}
       assert two.control == {:refused, :lock_not_available}
 
       # one UPDATE: the old row version was written by an earlier transaction and no key column
       # changed, so Postgres skips the FK checks
-      assert one.token == {:granted, 1}
-      assert one.parent_projection == {:granted, 1}
+      assert one.token == {:granted, 1}, inspect({one, two})
+      assert one.parent_projection == {:granted, 1}, inspect({one, two})
 
       # two UPDATEs: the old version of the second was written by this transaction, so the FK
       # checks run and take KEY SHARE on both parent rows. This is what the landing does.
-      assert two.token == {:refused, :lock_not_available}
-      assert two.parent_projection == {:refused, :lock_not_available}
+      assert two.token == {:refused, :lock_not_available}, inspect({one, two})
+      assert two.parent_projection == {:refused, :lock_not_available}, inspect({one, two})
     end
   end
 
@@ -493,7 +500,7 @@ defmodule Letflow.Engine.ExecutionErrorLockOrderTest do
       {second, queries} =
         PlatformTenantFixture.capture_repo_queries(set_error_fn(base, child_id))
 
-      refute match?({:ok, _}, second)
+      assert {:error, {:instance_already_error, _detail}} = second
       refute Enum.any?(queries, &(&1.query =~ "FOR KEY SHARE"))
 
       # a top-level instance has no waiting parent: a token read, no row lock on a parent
@@ -531,6 +538,28 @@ defmodule Letflow.Engine.ExecutionErrorLockOrderTest do
 
     test "set_instance_error/2 against cancel_instance(parent)", %{base: base} do
       overlap!(base, :set_error)
+    end
+  end
+
+  describe "S1: a child whose parent is no longer waiting" do
+    setup :tenant
+
+    test "a landing on a child of an already cancelled parent neither blocks nor deadlocks", %{
+      base: base
+    } do
+      {parent_id, child_id} = pair!(base, plain_child())
+      assert {:ok, _} = cancel_parent_fn(base, parent_id).()
+      assert Fx.projection!(base.schema, parent_id).status == :cancelled
+
+      {result, queries} =
+        PlatformTenantFixture.capture_repo_queries(set_error_fn(base, child_id))
+
+      assert {:ok, _} = result
+      assert Fx.projection!(base.schema, child_id).status == :error
+      refute_receive {:deadlock_detected, _error}, 0
+
+      # the parent token is no longer :waiting, so the step finds no group and locks nothing
+      refute Enum.any?(queries, &(&1.query =~ "FOR KEY SHARE"))
     end
   end
 end

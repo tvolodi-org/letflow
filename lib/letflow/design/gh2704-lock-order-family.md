@@ -209,7 +209,8 @@ This holds for the family's paths only, NOT tenant-wide. Residual exceptions (al
   projection only when the old row version was written by the SAME transaction (Postgres skips the
   check for an unchanged key otherwise); the first UPDATE takes none, the second does. The
   ExecutionError landing UPDATEs the row twice (event append, then `:error`), so it does. The
-  original text of this bullet follows, kept for the record. (Was: FK mechanism is unconfirmed.) Postgres queues an FK check on UPDATE of the referencing row
+  original text of this bullet follows, kept for the record.
+  * (Was: FK mechanism is unconfirmed.) Postgres queues an FK check on UPDATE of the referencing row
   only when a key column changes; `InstanceProjection.update_changeset` does not cast
   `parent_instance_id`/`parent_token_id` (the #2695 build note says so). #2695 observed the
   behaviour (T5, intermittent 40P01, the parent token's `xmax` was the child apply) but could not
@@ -479,7 +480,7 @@ is in CI.
 |---|---|---|---|---|---|
 | 0 | docs | - | this design note | 1 file | - |
 | 1 | PR-1 | #2704 | C-P, C-E, port callback, `Letflow.LockOrderHelpers` extraction, tests E0-E6 (E5 and E6 are the I4 / #2705 cases), moduledoc rewrite, new decision record 0061 + the 0054 D3 "Amended by" pointer line, boot-time adapter check + wiring test | prod ~70 lines, tests ~450, docs ~120 | note merged; owns the moduledoc rewrite, so it goes first |
-| 2 | PR-2 | #2709 | `ExecutionError` step, tests X0-X4, one moduledoc line. STATUS: built (section 10a): probe positive, lib change made, X1/X2/X4 red on the unmodified landing and green after | prod ~25, tests ~250 | PR-1 (shared helpers, moduledoc) |
+| 2 | PR-2 | #2709 | `ExecutionError` step, tests X0-X4, one moduledoc line. STATUS: built (section 10a): probe positive, lib change made, X1/X2/X4 red on the unmodified landing and green after | prod ~25, tests ~250 planned; actual file ~560 lines (FK-order control, probe, three caller classes, S1) | PR-1 (shared helpers, moduledoc) |
 | 3 | PR-3 | #2708 | cancel step, `lock_parent_group` generalisation, tests C0-C4, one moduledoc line | prod ~15, tests ~220 | PR-1; independent of PR-2 (either order) |
 | 4 | PR-4 | #2705 (relabelled: proven service-vs-HUMAN inversion; demonstrating test E5 is in PR-1) | proof for the remaining `A` vs `S_x` pairs and regression tests (and a fix only if a test is red after PR-1) | tests ~200 | PR-1 |
 | later | - | #2706, #2707 | own design notes after PR-1/PR-3 are on main (they inherit GO, section 4.4) | - | PR-1 |
@@ -640,3 +641,19 @@ RELEASE-VALIDATOR re-runs the new files.
   `sub_process.ex:554`, `1302`): there the instance is the parent and the completing chain is already
   held `FOR UPDATE`, so the landing's key share is a no-op re-lock. The engine moduledoc "Known gaps"
   no longer lists #2709.
+* **Size.** The test file is about 560 lines against the ~250 planned: the FK-order control (re-create
+  the two FKs and assert the trigger order), the two-UPDATE probe with its positive control, the
+  three caller classes (set_instance_error, HUMAN tail, service no-matching-edge), the projection-first
+  variant and S1.
+* **Limit of the guarantee (S1).** `lock_waiting_parent` finds the group through
+  `tokens.waiting_child_instance_id = child AND status = :waiting`, so the new step covers a WAITING
+  parent only. If the parent token has left `:waiting` (parent cancelled or completed) but the child
+  can still land, no group is locked and the child's FK check may still queue on the parent rows.
+  Test S1 errors a child whose parent is already cancelled: it lands without blocking or deadlock
+  (nothing holds the parent rows of a terminal parent) and takes no `FOR KEY SHARE`. Residual,
+  documented: a foreign holder of a terminal parent's rows would still make the check wait; no engine
+  path writes them.
+* **Failure of the new step (S2).** A `55P03` or `40P01` at `:execution_error_lock_ancestors` raises out
+  of `Multi.run` (the transaction rolls back, no EXECUTION_ERROR event and no DLQ row), exactly as the
+  FK-check failure at the final UPDATE did before. To classify it (retry/sweeper) if #2707 or a
+  sweeper reaches the landing paths.

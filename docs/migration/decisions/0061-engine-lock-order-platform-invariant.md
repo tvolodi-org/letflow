@@ -36,3 +36,6 @@ The engine serialises concurrent writers with Postgres row locks, not with proce
 
 ## Open
 * The lock mode for child timer fires (FOR UPDATE on the immediate parent is recommended, because the hop chain that says whether the timer completes the child runs after the first event append): to be settled in the #2707 note, which then amends this record only if it must.
+
+## Amended (GH #2709, PR-2)
+The foreign-key mechanism named above as unconfirmed is CONFIRMED by the GH #2709 probe: the FK check on an UPDATE of the referencing row runs when the old row version was written by the current transaction (xmin equal to the current xid; `RI_FKey_fk_upd_check_required`), so the SECOND UPDATE of a row within one transaction (or an UPDATE of a row inserted in the same transaction) queues `KEY SHARE` on the parent token and the parent projection; the first UPDATE of a previously committed row takes none. GH #2709 therefore shipped a lib change (the ExecutionError landing locks the group `FOR KEY SHARE`). GH #2708 (direct cancel of a child) still needs its own probe. Rule 2 is unchanged. The group is found through the WAITING parent token, so the guarantee covers a waiting parent only.

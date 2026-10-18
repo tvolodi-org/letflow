@@ -424,15 +424,21 @@ defmodule Letflow.Engine do
   (decision 0054 D3 rules 4 and 5); the service apply used to activate its next task, an audit
   write, before its entity writes (GH #2705, "I4").
 
-  Foreign-key locks (GH #2695, mechanism measured by GH #2709's probe): the second UPDATE of a
-  sub-process child's projection row within one transaction (the old row version was written by
-  this transaction) queues the foreign-key checks, i.e. `KEY SHARE` on the parent token and the
-  parent projection, in an order fixed per tenant schema; the first UPDATE takes none. A parent
-  cancel queued on the parent projection could therefore form a cycle with the child's own UPDATE
-  before the cascade code ran. So the group must be held before the second UPDATE of the child's
-  row (every event append is an UPDATE, so before the first write). The ExecutionError landing
-  does this for all its callers in `ExecutionError.append_multi/3` (`:execution_error_lock_ancestors`,
-  `FOR KEY SHARE`, after its eligibility check; GH #2709).
+  Foreign-key locks (GH #2695, mechanism measured by GH #2709's probe): Postgres runs the FK check
+  of an UPDATE of a referencing row when the OLD row version was written by the current transaction
+  (a row updated earlier in the transaction, or inserted in it), even if no key column changed; it
+  skips the check otherwise. So the SECOND UPDATE of a sub-process child's projection row within one
+  transaction queues `KEY SHARE` on the parent token and the parent projection, in an order fixed per
+  tenant schema, while the first UPDATE of a previously committed row takes none. A parent cancel
+  queued on the parent projection could therefore form a cycle with the child's own UPDATE. The
+  group must be held before that second UPDATE; every event append is an UPDATE and a landing's
+  append is its first, so it is taken before the first write. The ExecutionError landing does this
+  for all its callers in `ExecutionError.append_multi/3` (`:execution_error_lock_ancestors`,
+  `FOR KEY SHARE`, after its eligibility check; GH #2709). The group is found through
+  `tokens.waiting_child_instance_id = child AND status = :waiting`, so the guarantee covers a
+  WAITING parent only. For GH #2708 (direct cancel of a child): a child created in the same
+  transaction is the exception, its first UPDATE already takes the FK locks (the row was inserted
+  by this transaction).
 
   Known gaps, tracked and NOT closed so far: a direct `cancel_instance/3` of a child (GH #2708)
   takes no ancestor lock;
