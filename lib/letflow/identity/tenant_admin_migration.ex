@@ -433,9 +433,9 @@ defmodule Letflow.Identity.TenantAdminMigration do
   defp remove_legacy_binding(nil, _schema), do: :ok
 
   defp remove_legacy_binding(%TenantRole{id: id} = pa, schema) do
+    # REQ-497 W5 (c): the binding's grant rows go with it, before its audit entry. Removal
+    # never widens: always `:ok`, in every mode.
     Repo.delete_all(from(t in TenantRole, where: t.id == ^id), prefix: schema)
-    # REQ-497 W5 (c): the binding's grant rows go with it, before its audit entry.
-    # Removal never widens: always `:ok`, in every mode.
     :ok = RoleScopeGrants.reconcile_binding!(pa, nil, schema)
 
     audit!(schema, "role_binding.removed", "tenant_role", id, %{"name" => @legacy}, nil)
