@@ -81,7 +81,9 @@ defmodule Letflow.Modules.Exam.ExamSnapshotLeakTest do
 
   defp json(conn), do: Jason.decode!(conn.resp_body)
 
-  defp mint_token!(schema, roles) do
+  defp mint_token!(schema, roles), do: schema |> mint_token_and_user!(roles) |> elem(0)
+
+  defp mint_token_and_user!(schema, roles) do
     user =
       %User{}
       |> Ecto.Changeset.change(%{
@@ -97,7 +99,7 @@ defmodule Letflow.Modules.Exam.ExamSnapshotLeakTest do
     {:ok, %{plaintext: plaintext}} =
       Identity.create_token(user.id, %{roles: roles, expires_at: nil}, prefix: schema)
 
-    plaintext
+    {plaintext, user.id}
   end
 
   defp normalised(conn, id) do
@@ -119,11 +121,13 @@ defmodule Letflow.Modules.Exam.ExamSnapshotLeakTest do
 
     %Tenant{slug: slug} = Repo.get(Tenant, tenant_id)
 
+    {admin_token, admin_id} = mint_token_and_user!(schema, ["TENANT_ADMIN"])
+
     tokens = %{
       candidate: mint_token!(schema, ["CANDIDATE"]),
       worker: mint_token!(schema, ["TASK_WORKER"]),
       auditor: mint_token!(schema, ["TENANT_AUDITOR"]),
-      admin: mint_token!(schema, ["TENANT_ADMIN"])
+      admin: admin_token
     }
 
     category_id = Ecto.UUID.generate()
@@ -209,6 +213,7 @@ defmodule Letflow.Modules.Exam.ExamSnapshotLeakTest do
       schema: schema,
       slug: slug,
       tokens: tokens,
+      admin_id: admin_id,
       session_id: session_id,
       question_id: question.record_id,
       candidate_conns: [started, state, saved, signal, submitted, certificate, download, public],
@@ -430,6 +435,33 @@ defmodule Letflow.Modules.Exam.ExamSnapshotLeakTest do
       path = "/api/v1/entities/records/session/#{flow.session_id}"
       stored = flow.schema |> session_values(flow.session_id) |> Map.delete("exam_snapshot")
 
+      # GH #2784: an actor holding no grant for the restricted `exam_snapshot` is refused every PUT
+      # of a `session` outright (PUT replaces `field_values` wholesale): one constant 403, so no
+      # response of any shape can carry the prior snapshot.
+      refused =
+        request(flow.tokens.admin, flow.slug, "PUT", path, %{
+          "field_values" => stored,
+          "expected_last_event_global_seq" => 0
+        })
+
+      assert refused.status == 403
+      assert_no_snapshot_content!(:put_ungranted, refused, flow.secrets)
+
+      # the rest of the scenario runs as an admin holding the grant
+      Repo.insert_all(
+        "user_entity_grants",
+        [
+          %{
+            id: Ecto.UUID.bingenerate(),
+            user_id: Ecto.UUID.dump!(flow.admin_id),
+            entity_type: "session",
+            field_name: "exam_snapshot",
+            inserted_at: NaiveDateTime.utc_now()
+          }
+        ],
+        prefix: flow.schema
+      )
+
       # a stale version guard: the 409 body is constant
       conflict =
         request(flow.tokens.admin, flow.slug, "PUT", path, %{
@@ -463,6 +495,22 @@ defmodule Letflow.Modules.Exam.ExamSnapshotLeakTest do
 
       assert echoed.status == 200
       assert_no_snapshot_content!(:put_forged, echoed, flow.secrets)
+    end
+  end
+
+  describe "T-30 (4b): DELETE /entities/records/session/:id" do
+    test "an ungranted admin's delete response (and a repeat) never carries the snapshot" do
+      flow = flow!()
+      path = "/api/v1/entities/records/session/#{flow.session_id}"
+
+      for _attempt <- 1..2 do
+        deleted = request(flow.tokens.admin, flow.slug, "DELETE", path)
+        assert deleted.status == 200
+        assert_no_snapshot_content!(:delete_ungranted, deleted, flow.secrets)
+
+        assert Jason.decode!(deleted.resp_body)["field_values"]["exam_snapshot"] ==
+                 "__field_redacted__"
+      end
     end
   end
 

@@ -663,6 +663,28 @@ defmodule Letflow.Routers.EntitiesImportUpsertTest do
       assert outcomes_ok(import!(ctx, "customer", [entry("sap", "1", "A")], false))
     end
 
+    test "GH #2784: a denied type below CREATED v2 is the 404 of an absent type, not the 503" do
+      ctx = tenant_ctx("gh2784-t9c")
+      seed_type!(ctx, "customer")
+      insert_type_restriction!(ctx, "customer")
+
+      Repo.update_all(
+        from(e in "event_type_registry", where: e.name == "ENTITY_RECORD_CREATED"),
+        [set: [schema_version: 1]],
+        prefix: ctx.schema_name
+      )
+
+      {denied, reads} =
+        count_version_reads(fn -> import!(ctx, "customer", [entry("sap", "1", "A")]) end)
+
+      absent = import!(ctx, "nonexistent_type", [entry("sap", "1", "A")])
+      assert denied.status == 404
+      assert reads == 1
+
+      assert Map.drop(strip_trace(denied), ["instance"]) ==
+               Map.drop(strip_trace(absent), ["instance"])
+    end
+
     defp outcomes_ok(conn), do: Enum.all?(results(conn), &(&1["status"] == "ok"))
   end
 
@@ -757,9 +779,20 @@ defmodule Letflow.Routers.EntitiesImportUpsertTest do
       assert event_count(ctx) == before + 1
       assert length(rows(ctx, "customer")) == 3
 
-      # the same actor WITHOUT upsert_by is unchanged from today (no field check on import)
-      plain = import!(ctx, "customer", [entry("sap", "9", "P", %{"credit_limit" => "1"})], false)
-      assert [%{"status" => "ok"}] = results(plain)
+      # GH #2784: the same actor WITHOUT upsert_by is now refused per entry too (the create-mode
+      # import shares the restricted-key rule); an entry without the restricted key still proceeds
+      plain =
+        import!(
+          ctx,
+          "customer",
+          [entry("sap", "9", "P", %{"credit_limit" => "1"}), entry("sap", "8", "Q")],
+          false
+        )
+
+      assert [
+               %{"status" => "error", "reason" => %{"type" => "field_restricted"}},
+               %{"status" => "ok"}
+             ] = results(plain)
 
       # a grant lifts the restriction
       insert_grant!(ctx, "customer", "credit_limit")

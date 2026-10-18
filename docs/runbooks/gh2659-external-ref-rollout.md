@@ -181,7 +181,10 @@ path (guide `docs/guides/backend_developer_guide.md` section 9). Operator notes:
   re-send whole: refs already imported come back `unchanged`.
 - The importing user must hold every restricted field of the type (a field grant), or an entry
   that matches an existing ref is refused `field_restricted`; a type-denied user gets the same 404
-  as for an unknown type.
+  as for an unknown type. Since GH #2784 the same holds without `upsert_by`: an entry naming a
+  restricted key is refused per entry, and a type-denied user gets the 404 path. A seeding account
+  therefore needs the type grant and the field grants first (`scripts/seed_vortex_entities.sh`
+  takes the required `SEED_ACTOR_USERNAME` for exactly this); a reseed of QA is UAT-class.
 - A soft-deleted ref answers `external_ref_record_deleted`; it is never revived.
 - Module-managed types are refused (constant 403) by this route; the owning module calls the
   primitive directly.

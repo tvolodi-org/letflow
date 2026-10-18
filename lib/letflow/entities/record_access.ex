@@ -1,0 +1,82 @@
+defmodule Letflow.Entities.RecordAccess do
+  @moduledoc """
+  The one gate for a caller's record WRITE request (GH #2784, INV-2, INV-5, INV-8;
+  design `lib/letflow/design/gh2784-write-routes-typeaccess.md` sections 2-5). The model is
+  `Letflow.Entities.RequestAccess` (GH #2700): do every read unconditionally, then make ONE
+  decision from a closed value that carries nothing the caller could tell apart.
+
+  `Letflow.Routers.Entities` calls `write/3` first in `create_record`, `update_record`,
+  `delete_record` and `import_records` (and `Letflow.Entities.ImportUpsert.precheck/2` consumes
+  its value). The decision is computed first but APPLIED last, at the exact point where
+  `Letflow.Entities.Records` would run: a `:hidden` value is replaced by `hidden_result/1`, the
+  result `Records` itself gives an absent type, so a type denied to the caller travels the same
+  router code and renders the same bytes as an absent one.
+
+  `Records` stays unchanged: engine step writes, module handlers, exam and scripts write through
+  it with `:tenant`/`Owner` authority and must not gain a caller-principal gate.
+  """
+
+  alias Letflow.Entities.Definitions
+  alias Letflow.Entities.ManagedTypes
+  alias Letflow.Entities.Query.FieldGrants
+  alias Letflow.Entities.TypeAccess
+
+  @typedoc """
+  `:hidden`: denied by TypeAccess, OR no active definition, OR any failed read (one value, no
+  payload). `:managed`: visible but module-managed. `{:open, restricted}`: writable, with the
+  caller's restricted field set (empty when the caller holds every grant or none is restricted).
+  """
+  @type write_decision :: :hidden | :managed | {:open, MapSet.t(String.t())}
+
+  @typedoc "The part of `t:write_decision/0` a handler body receives (`:managed` is answered earlier)."
+  @type access :: :hidden | {:open, MapSet.t(String.t())}
+
+  @doc """
+  Makes ALL four reads, in this order and with no short-circuit and no branching on an earlier
+  result: `ManagedTypes.owner_of/2`, `TypeAccess.authorized?/3`,
+  `Definitions.get_active_definition_by_name/2`, `FieldGrants.load_restrictions/3`; then decides
+  with the precedence hidden > managed > open. Total: a failed read is `:hidden` (fail closed).
+  Writes nothing, logs nothing, audits nothing (INV-8).
+  """
+  @spec write(user_id :: String.t(), entity_type :: String.t(), prefix :: String.t()) ::
+          write_decision()
+  def write(user_id, entity_type, prefix)
+      when is_binary(user_id) and is_binary(entity_type) and is_binary(prefix) do
+    owner = ManagedTypes.owner_of(entity_type, prefix)
+    access = TypeAccess.authorized?(user_id, entity_type, prefix)
+    definition = Definitions.get_active_definition_by_name(entity_type, prefix)
+    restrictions = FieldGrants.load_restrictions(user_id, entity_type, prefix)
+
+    decide(owner, access, definition, restrictions)
+  end
+
+  # Denied, absent and any failed read are the one `:hidden`.
+  defp decide(owner, {:ok, :allowed}, {:ok, _definition}, {:ok, restricted}) do
+    case owner do
+      {:ok, _module_id} -> :managed
+      :unmanaged -> {:open, restricted}
+      _failed_read -> :hidden
+    end
+  end
+
+  defp decide(_owner, _access, _definition, _restrictions), do: :hidden
+
+  @doc """
+  True iff `field_values` is a map with at least one top-level key in `restricted`. A non-map is
+  false (the schema and `Records` layers reject it).
+  """
+  @spec names_restricted?(field_values :: term(), restricted :: MapSet.t(String.t())) ::
+          boolean()
+  def names_restricted?(field_values, restricted) when is_map(field_values) do
+    Enum.any?(Map.keys(field_values), &MapSet.member?(restricted, &1))
+  end
+
+  def names_restricted?(_field_values, _restricted), do: false
+
+  @doc """
+  The value `Records.create_record/2`, `update_record/2` and `delete_record/2` return for an
+  absent type: the one definition of "what absent looks like" to the router.
+  """
+  @spec hidden_result(entity_type :: String.t()) :: {:error, {:definition_not_found, String.t()}}
+  def hidden_result(entity_type), do: {:error, {:definition_not_found, entity_type}}
+end

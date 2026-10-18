@@ -358,14 +358,74 @@ top-level member `"upsert_by": "external_ref"`; design
   bodies), 503 `event_schema_outdated` while the tenant is below `ENTITY_RECORD_CREATED` v2.
 - **Permission**: `EntitiesRecordsImport` alone, including the update branch (no new atom).
   Pinned by `test/letflow/api/gh2659_import_implies_write_test.exs`: every role with Import
-  also holds `EntitiesRecordsWrite`. In upsert mode only, write-side field restrictions apply as
+  also holds `EntitiesRecordsWrite`. In upsert mode, write-side field restrictions apply as
   for step writes: a restricted key, or ANY restricted field on the type with an existing
   record matching the ref, is `field_restricted` (an admin without the grant must be granted the
-  field to re-run an import against existing refs).
-- **Module-managed types**: the HTTP import refuses them with the constant 403, with or without
+  field to re-run an import against existing refs). Since GH #2784 the create-only import
+  refuses an entry naming a restricted key as `field_restricted` too (section 10).
+- **Module-managed types**: the HTTP import refuses them with the constant 403 for a caller who
+  can see the type (a type denied to the caller is the 404 path, section 10), with or without
   `upsert_by`. A module's write handler calls
   `Letflow.Entities.Records.upsert_record_by_external_ref/3` with its `Owner` authority instead
   (one read of `EventStore.Registry.max_schema_version("ENTITY_RECORD_CREATED", prefix)` before
   its batch; the primitive does not re-read).
 - **Idempotency key**: server-derived per entry (`Letflow.Entities.ImportUpsert.idempotency_key/2`,
   128 bytes); the external ref, not the key, is what makes a re-import idempotent.
+
+## 10. The record write routes apply type access and field restrictions (GH #2784)
+
+`POST`, `PUT`, `DELETE /api/v1/entities/records/...` and `POST .../import` go through ONE gate,
+`Letflow.Entities.RecordAccess.write/3` (design `lib/letflow/design/gh2784-write-routes-typeaccess.md`),
+which replaced their managed-type guard. It makes four reads unconditionally (managed stamp,
+`TypeAccess`, active definition, field restrictions) and returns `:hidden`, `:managed` or
+`{:open, restricted}`. A new generic record write route MUST call it first and apply the decision
+as the router moduledoc says; `Records` itself stays gate-free (engine step writes and module
+handlers write through it with their own authority).
+
+- **A type denied to the caller is an absent type.** It runs the same validation an absent type
+  runs (400/422 first), then answers the same 404 (import create: an empty `records` array is the
+  same 200 `{"results": []}`; upsert mode the same 404). It writes nothing: no event, no latest
+  row, no idempotency key, no synthetic type instance.
+- **A module-managed type**: visible to the caller it is the constant 403 before the body is read;
+  denied to the caller it is the 404 path (never a 403 that would reveal it). A managed type with
+  no active definition is the 404 path for everyone.
+- **Restricted fields** (the caller lacks the grant of an `entity_field_restrictions` field):
+  `POST` naming a restricted key, and ANY `PUT` by an actor holding any restricted field on the
+  type (PUT replaces `field_values` wholesale, so such an actor cannot send the whole document),
+  are the constant 403 `one or more requested fields are restricted for this caller`. An import
+  entry naming a restricted key is `field_restricted`, the other entries proceed. The remedy for
+  an operator who must write the type is a field grant.
+- **Responses are redacted.** The `field_values` of a `POST`/`PUT`/`DELETE` response (the first
+  delete and a repeat of it) show `__field_redacted__` for every restricted field, as the read
+  routes do (`render_record_command/4`). `DELETE` stays allowed for such an actor.
+- The shared 403 detail lives in one module attribute of the router; do not restate the string.
+
+### Deploy warning: grant authoring staff first
+
+Restriction rows are inserted by modules (`Exam.on_install/2`) without any grant, so right after
+this change nobody, a `TENANT_ADMIN` included, may write a restricted field or PUT a type that has
+one: the exam authoring flow (`answer_option.is_correct`, `question.explanation`, `session.exam_snapshot`)
+and any tenant with its own restrictions (QA vortex `production_batch.cost_figure`) get 403s.
+Before deploying follow `docs/runbooks/exam-snapshot-rollout.md`, "Authoring grants BEFORE the GH #2784
+deploy":
+
+1. List the tenants and types that hold field restrictions (per tenant schema):
+   `SELECT entity_type, field_name FROM "<tenant_schema>".entity_field_restrictions ORDER BY 1, 2;`
+   Every row is a field the generic record write routes now refuse to an actor without a grant.
+2. BEFORE deploying, grant the authoring staff (by name) the answer-key fields, through
+   `POST /api/v1/entities/restrictions/import` (permission `EntitiesRestrictionsManage`), body
+   `{"field_grants": [{"user_id": "<uuid>", "entity_type": "<type>", "field_name": "<field>"}, ...]}`.
+   The route is idempotent. The exam fields (`Letflow.Modules.Exam.answer_key_fields/0`) are:
+   `question.explanation`; `answer_option.is_correct`, `answer_option.likert_weight`,
+   `answer_option.likert_polarity`; `session.exam_snapshot`. An author who edits an answer option
+   needs ALL THREE `answer_option` grants plus `question.explanation` for questions.
+3. Grant `session.exam_snapshot` ONLY to admins who genuinely PUT sessions. NEVER grant any
+   answer-key field to a `TASK_WORKER` or candidate user: the grant lifts the redaction on every
+   read route too.
+4. Other tenants with their own restrictions (for example QA vortex `production_batch.cost_figure`)
+   need the same list-then-grant pass for the staff who write those types; the seeding account of
+   `scripts/seed_vortex_entities.sh` is `SEED_ACTOR_USERNAME`.
+5. After the deploy, check as an authoring user: `PUT /api/v1/entities/records/answer_option/<id>`
+   with the whole `field_values` answers 200 (not 403), and `POST /api/v1/entities/records/answer_option`
+   naming `is_correct` answers 201. A 403 with detail `one or more requested fields are restricted
+   for this caller` means a grant is missing.

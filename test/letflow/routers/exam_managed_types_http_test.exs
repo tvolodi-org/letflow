@@ -365,28 +365,65 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
       for name <- @ten, do: assert(Fx.managed_by_map(ctx.schema)[name] == [nil], name)
     end
 
-    test "POST, PUT, DELETE and import succeed for each authoring type, for both caller kinds",
-         ctx do
+    # GH #2784: the exam answer-key restrictions (`Exam.answer_key_fields/0`) sit on two of the ten
+    # UNMANAGED authoring types (`question.explanation`; `answer_option.is_correct` and the likert
+    # fields). The generic write routes now honour them for a caller holding no grant: a POST
+    # naming a restricted key is the constant 403, any PUT on such a type is a 403 (it replaces
+    # `field_values` wholesale), DELETE succeeds with the restricted value redacted. The other
+    # eight authoring types carry no restriction and stay fully writable.
+    test "POST, PUT, DELETE and import for each authoring type, for both caller kinds", ctx do
+      keys_by_type =
+        Letflow.Modules.Exam.answer_key_fields()
+        |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+
+      restricted_types = Map.keys(keys_by_type)
+
       for type <- @ten, roles <- [@operator, @admin] do
         label = "#{type} as #{inspect(roles)}"
+
+        names_restricted_key? =
+          Enum.any?(Map.keys(values(type, 5)), &(&1 in Map.get(keys_by_type, type, [])))
 
         created =
           call_entities(ctx, roles, :post, "/records/#{type}", %{
             "field_values" => values(type, 5)
           })
 
-        assert created.status == 201, "POST #{label}: #{created.resp_body}"
-        new_id = body_of(created)["record_id"]
+        if names_restricted_key? do
+          assert created.status == 403, "POST #{label}: #{created.resp_body}"
+
+          assert body_of(created)["detail"] ==
+                   "one or more requested fields are restricted for this caller"
+
+          refute created.resp_body == managed_body()
+        else
+          assert created.status == 201, "POST #{label}: #{created.resp_body}"
+        end
+
+        record_id = ExamFixtures.create_record!(ctx.schema, type, values(type, 7)).record_id
 
         updated =
-          call_entities(ctx, roles, :put, "/records/#{type}/#{new_id}", %{
+          call_entities(ctx, roles, :put, "/records/#{type}/#{record_id}", %{
             "field_values" => values(type, 6)
           })
 
-        assert updated.status == 200, "PUT #{label}: #{updated.resp_body}"
+        if type in restricted_types do
+          assert updated.status == 403, "PUT #{label}: #{updated.resp_body}"
 
-        deleted = call_entities(ctx, roles, :delete, "/records/#{type}/#{new_id}", nil)
+          assert body_of(updated)["detail"] ==
+                   "one or more requested fields are restricted for this caller"
+
+          refute updated.resp_body == managed_body()
+        else
+          assert updated.status == 200, "PUT #{label}: #{updated.resp_body}"
+        end
+
+        deleted = call_entities(ctx, roles, :delete, "/records/#{type}/#{record_id}", nil)
         assert deleted.status == 200, "DELETE #{label}: #{deleted.resp_body}"
+
+        if type == "answer_option" do
+          assert body_of(deleted)["field_values"]["is_correct"] == "__field_redacted__"
+        end
       end
 
       for type <- @ten do
@@ -395,6 +432,58 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
 
         assert imported.status == 200, "import #{type}: #{imported.resp_body}"
         refute imported.resp_body == managed_body()
+
+        [entry] = body_of(imported)["results"]
+
+        if type == "answer_option" do
+          assert entry["reason"] == %{"type" => "field_restricted"}, imported.resp_body
+        else
+          assert entry["status"] == "ok", imported.resp_body
+        end
+      end
+    end
+
+    # The remedy for the refusals above: a field grant for the authoring actor.
+    test "an actor holding the answer-key grants writes question and answer_option (PUT 200)",
+         ctx do
+      now = NaiveDateTime.utc_now()
+
+      rows =
+        for {type, field} <- Letflow.Modules.Exam.answer_key_fields(),
+            type in ["question", "answer_option"] do
+          %{
+            id: Ecto.UUID.bingenerate(),
+            user_id: Ecto.UUID.dump!(ctx.actor_id),
+            entity_type: type,
+            field_name: field,
+            inserted_at: now
+          }
+        end
+
+      {_n, _} = Repo.insert_all("user_entity_grants", rows, prefix: ctx.schema)
+
+      for type <- ["question", "answer_option"], roles <- [@operator, @admin] do
+        label = "#{type} as #{inspect(roles)}"
+
+        created =
+          call_entities(ctx, roles, :post, "/records/#{type}", %{
+            "field_values" => values(type, 5)
+          })
+
+        assert created.status == 201, "POST #{label}: #{created.resp_body}"
+
+        record_id = ExamFixtures.create_record!(ctx.schema, type, values(type, 7)).record_id
+
+        updated =
+          call_entities(ctx, roles, :put, "/records/#{type}/#{record_id}", %{
+            "field_values" => values(type, 6)
+          })
+
+        assert updated.status == 200, "PUT #{label}: #{updated.resp_body}"
+
+        if type == "answer_option" do
+          assert body_of(updated)["field_values"]["is_correct"] == true
+        end
       end
     end
   end
