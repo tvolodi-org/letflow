@@ -1,0 +1,65 @@
+{
+  "handoff_id": "d2535519-0519-4c02-9e11-000000000010",
+  "run_id": "WF02-REQ519-ENFORCED-WRITERS-20261018",
+  "workflow_id": "WF-02",
+  "step": "10",
+  "from_agent": "ELIXIR-DEV",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-10-elixir-dev-2e-b.json",
+  "created_at": "2026-10-18T20:33:52Z",
+  "started_at": "2026-10-18T20:33:52Z",
+  "completed_at": "2026-10-18T20:42:09Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-519"],
+    "requirement_text": {"REQ-519": "slice 2e-b: ACs 2,3,4 and registry membership rows; GH #2535"},
+    "artifacts_in": ["lib/letflow/design/req519-enforced-writers-and-flag-on.md"],
+    "branch_name": "feature/WF02-REQ519-2EB-IDP-SYNC-20261019"
+  },
+  "task": {"description": "Implement REQ-519 PR 2e-b. Mandatory SEC: identity.ex sync, role_registry.ex (untouched), binding_writers.ex."},
+  "result": {
+    "status": "COMPLETED",
+    "verdict": "IMPLEMENTED_PENDING_SEC_AND_REVIEWER",
+    "summary": "IdP sync no-widening suppression in on tenants (mode_under_lock! then bound platform roles read after lock A inside :memberships; routing roles ignored), grant.sync_suppressed / binding.pending_scope with exact key set {user,group,role,trace_id} and permanent dedup from the audit table, marker stamping untouched (group_ids not shrunk), Identity.sync_role_claims_report/3 typed result with sync_role_claims_from_token/3 a thin User.t() wrapper, scope_delta (cap 50 ids + count) on group_member.added/removed in every mode, BindingWriters.membership_rows/0 (M-a..M-f), docs/roles.md section (whole group withheld, A-7).",
+    "files_changed": {
+      "new": [
+        "lib/letflow/identity/membership_scope.ex",
+        "lib/letflow/identity/sync_scope_guard.ex"
+      ],
+      "modified": [
+        "lib/letflow/identity.ex",
+        "lib/letflow/api/scope.ex (public pure effective_from_rows/1 extracted from rows_scope/1, no behaviour change)",
+        "lib/letflow/identity/binding_writers.ex (membership_rows/0)",
+        "docs/roles.md"
+      ],
+      "existing_tests_edited_forced": [
+        "test/letflow/routers/identity_gh2547_audit_test.exs (two exact after_state maps gain scope_delta)"
+      ]
+    },
+    "deviations": [
+      "Audit.latest_matching/4 does not exist yet (2f-a adds it); dedup uses a private Repo.exists? on Audit.Entry in SyncScopeGuard (same stored-data semantics). 2f-a can swap it in.",
+      "grant.sync_suppressed vs binding.pending_scope kind is decided from the user's applicable grant rows per role regardless of whether the role is held (MembershipScope.row_scopes/2): role names are unique per tenant so a role is bound to exactly one group, and a user not in that group can only hold scoped rows for it as user-principal rows; the held-aware snapshot would classify that as deny. The widening decision itself uses the held-aware snapshots (design 3.9).",
+      "insert_membership_audit/6 keeps arity 6: its 4th argument is now the tuple {before_roles, before_scope_snapshot}.",
+      "SyncScopeGuard.evaluate treats an existing member of the group as :allow (the insert is then a no-op), per design step 3 'user is not already a member'.",
+      "Pipeline log line role_claims_sync_suppressed was NOT added (design says MAY). The pre-existing claimed_roles warning is untouched (A-6).",
+      "A mix compile was started once while the mixlock dir had just been created by another session (race: the ls and the compile ran in one command); it only compiled. All later mix runs held the lock which I created and removed.",
+      "No new RoleScopeGrants export; no route, snapshot or route_inventory.ex change; no migration."
+    ],
+    "run": {
+      "MIX_ENV=test mix compile --warnings-as-errors": "clean",
+      "mix format --check-formatted": "clean",
+      "mix letflow.check_boundaries": "OK 1492 edges 0 violations",
+      "mix letflow.check_role_scope_grants_writers": "no violations",
+      "per-file mix test": "check_role_scope_grants_writers_test 19; scope_grants_route_walk 9; identity_gh2547_audit 18; gh2547_ta_audit_paths 25; identity_test 69; role_scope_grants_writers 22; iss0736 revocation 3; group_member_self_add 4; platform_admin_outside_platform 25; platform_scope_not_conferred 8; identity_login_directory 44; iss0778 seeding e2e 1 (all passed)",
+      "throwaway_smoke_test_deleted": "on tenant pending_scope with exact keys, dedup (deduped 1, still one entry), grant.sync_suppressed with scoped user row, shadow adds membership, marker stamped: passed"
+    },
+    "not_run": [
+      "mix letflow.check.test, full suite, multi-partition (forbidden)",
+      "new tests T-S1..T-S17, T-D1..T-D5, T-A3/T-A4, registry existence/scan checks, mutants (TEST-DESIGNER)"
+    ],
+    "rework_after_sec_reviewer": "F-4 @resource_type attribute; F-3 kinds renamed :has_scoped_rows/:no_scoped_rows (action_for/1 is the only mapping to the wire strings, wire values and key sets unchanged); F-5 record/5 matches %{actor_id: _, trace_id: _} (AuditContext is a plain map type, not a struct) and the re-wrap in sync_one_group is gone. F-1 and F-6 skipped. FOR TEST-DESIGNER (F-3b): a user whose only row for the role is a tenant-wide USER-principal row, role not held, is classified :no_scoped_rows (binding.pending_scope) and still suppressed; only a scoped node row selects :has_scoped_rows (grant.sync_suppressed).",
+    "remaining": "none for implementation; M-row existence checks and tests belong to TEST-DESIGNER"
+  }
+}

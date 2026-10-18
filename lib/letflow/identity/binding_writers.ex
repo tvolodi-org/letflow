@@ -37,11 +37,19 @@ defmodule Letflow.Identity.BindingWriters do
         }
 
   @role_registry "lib/letflow/identity/role_registry.ex"
+  @pending_admin_grants "lib/letflow/identity/pending_admin_grants.ex"
   @tam "lib/letflow/identity/tenant_admin_migration.ex"
   @backfill "lib/letflow/identity/role_scope_grants/backfill.ex"
   @identity "lib/letflow/identity.ex"
   @mix_task "lib/mix/tasks/letflow.backfill_role_scope_grants.ex"
   @router "lib/letflow/routers/identity.ex"
+
+  @type membership_row :: %{
+          id: atom(),
+          site: site(),
+          state: :delta_audited | :suppressed_in_on | :unchanged,
+          why: String.t()
+        }
 
   @entry_points [
     {:reconcile_binding!, 3},
@@ -159,6 +167,58 @@ defmodule Letflow.Identity.BindingWriters do
       )
     ]
   end
+
+  @doc """
+  The membership writers (REQ-519 AC 1 (f) and AC 2 to 4, design 3.4), classified so none is
+  silent. They write no grant row, so they are not subject to the completeness scan; each
+  names a function that must exist in its file (checked by a test). States: `:delta_audited`
+  (the audit entry carries the effective-scope `scope_delta`), `:suppressed_in_on` (the sync
+  withholds a widening membership in an `on` tenant), `:unchanged` (cannot widen, asserted).
+  """
+  @spec membership_rows() :: [membership_row()]
+  def membership_rows do
+    [
+      member(
+        :m_a,
+        @identity,
+        {:add_group_member, 3},
+        :delta_audited,
+        "writes no row; the group's rows decide; the audit carries scope_delta"
+      ),
+      member(
+        :m_b,
+        @identity,
+        {:remove_group_member, 3},
+        :delta_audited,
+        "removal never widens; the audit carries scope_delta"
+      ),
+      member(
+        :m_c,
+        @identity,
+        {:sync_role_claims_report, 3},
+        :suppressed_in_on,
+        "IdP sync: a widening membership is withheld in an on tenant (also reached through sync_role_claims_from_token/3)"
+      ),
+      member(
+        :m_d,
+        @pending_admin_grants,
+        {:bind_on_login, 5},
+        :unchanged,
+        "the 0048 explicit audited tenant-wide admin act joins the TENANT_ADMIN group"
+      ),
+      member(:m_e, @identity, {:delete_group, 2}, :unchanged, "memberless group only"),
+      member(
+        :m_f,
+        @tam,
+        {:copy_members, 3},
+        :unchanged,
+        "bulk membership copy; unreachable in on (the tenant is skipped before the plan runs)"
+      )
+    ]
+  end
+
+  defp member(id, file, function, state, why),
+    do: %{id: id, site: %{file: file, function: function}, state: state, why: why}
 
   defp scanned(id, file, function, transition, state, why) do
     %{

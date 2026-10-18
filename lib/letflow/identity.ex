@@ -68,10 +68,12 @@ defmodule Letflow.Identity do
   alias Letflow.Identity.AuditContext
   alias Letflow.Identity.Group
   alias Letflow.Identity.GroupMember
+  alias Letflow.Identity.MembershipScope
   alias Letflow.Identity.OnboardingRecord
   alias Letflow.Identity.RoleScopeGrant
   alias Letflow.Identity.RoleScopeGrants
   alias Letflow.Identity.ServicePrincipal
+  alias Letflow.Identity.SyncScopeGuard
   alias Letflow.Identity.Tenant
   alias Letflow.Identity.TenantAdminGuard
   alias Letflow.Identity.TenantMembership
@@ -81,6 +83,7 @@ defmodule Letflow.Identity do
   alias Letflow.Oidc.IdentityContext
   alias Letflow.Oidc.JitProvisioningConfig
   alias Letflow.Repo
+  alias Letflow.ScopeEnforcement
   alias Letflow.TenantProvisioning
 
   @type provisioning_error ::
@@ -944,11 +947,19 @@ defmodule Letflow.Identity do
 
     # Read only when an audit row may be written (`:caller_audits` writes none).
     before_roles = if mode == :emit, do: sorted_effective_role_names(user_id, prefix), else: []
+    before_scope = if mode == :emit, do: MembershipScope.snapshot(user_id, prefix), else: %{}
 
     case insert_or_fetch_group_member(group_id, user_id, prefix) do
       {:ok, %{member: member, created: created, inserted: inserted}} ->
         if inserted and mode == :emit do
-          case insert_membership_audit(:added, group_id, user_id, before_roles, prefix, ctx) do
+          case insert_membership_audit(
+                 :added,
+                 group_id,
+                 user_id,
+                 {before_roles, before_scope},
+                 prefix,
+                 ctx
+               ) do
             {:ok, _entry} -> :ok
             {:error, reason} -> Repo.rollback({:audit_failed, reason})
           end
@@ -1186,6 +1197,7 @@ defmodule Letflow.Identity do
     if is_nil(key_share_lock_group(group_id, prefix)), do: Repo.rollback(:group_not_found)
 
     before_roles = sorted_effective_role_names(user_id, prefix)
+    before_scope = MembershipScope.snapshot(user_id, prefix)
 
     # N1 transition rule: the before-count, under lock A and the row locks, before the
     # delete, only for the group the TENANT_ADMIN platform binding points to.
@@ -1210,7 +1222,14 @@ defmodule Letflow.Identity do
     end
 
     if count == 1 do
-      case insert_membership_audit(:removed, group_id, user_id, before_roles, prefix, ctx) do
+      case insert_membership_audit(
+             :removed,
+             group_id,
+             user_id,
+             {before_roles, before_scope},
+             prefix,
+             ctx
+           ) do
         {:ok, _entry} -> :ok
         {:error, reason} -> Repo.rollback({:audit_failed, reason})
       end
@@ -1530,6 +1549,13 @@ defmodule Letflow.Identity do
   `opts[:audit_context]`). Any failure, an audit failure, a lock timeout or a raise
   included, rolls back every membership of this call and leaves the marker `nil`, and
   the original `user` is returned, so the next login retries.
+
+  REQ-519 2e-b: in a tenant whose scope enforcement is `on` a candidate group whose
+  membership would make the user tenant-wide for a role it is not tenant-wide for is
+  SUPPRESSED (no membership, one `grant.sync_suppressed` or `binding.pending_scope` audit
+  entry per user and role, see `Letflow.Identity.SyncScopeGuard`); login still succeeds. This
+  function keeps returning the `User.t()` and discards the suppression summary; callers that
+  need it use `sync_role_claims_report/3`.
   """
   @spec sync_role_claims_from_token(
           user :: User.t(),
@@ -1537,6 +1563,39 @@ defmodule Letflow.Identity do
           opts :: opts()
         ) :: User.t()
   def sync_role_claims_from_token(%User{} = user, %IdentityContext{} = identity_context, opts) do
+    case sync_role_claims_report(user, identity_context, opts) do
+      {:ok, synced_user} -> synced_user
+      {:suppressed, synced_user, _summary} -> synced_user
+    end
+  end
+
+  @typedoc "One (group, role) pair the sync withheld in an `on` tenant: ids and a fixed kind only."
+  @type suppressed_item :: %{
+          group_id: Ecto.UUID.t(),
+          role: String.t(),
+          kind: :has_scoped_rows | :no_scoped_rows
+        }
+
+  @typedoc "`deduped` counts the pairs whose audit entry already existed."
+  @type suppressed_summary :: %{
+          suppressed: [suppressed_item(), ...],
+          deduped: non_neg_integer()
+        }
+
+  @doc """
+  The typed form of `sync_role_claims_from_token/3` (REQ-519 AC 2, design 3.9a): the same
+  sync, returning `{:ok, user}` when nothing was suppressed (also for the failure fallback
+  that returns the original user) and `{:suppressed, user, summary}` when at least one
+  (group, role) was suppressed in this call, whether or not other memberships were written
+  and whether or not the audit entry was new. The `user` is the one
+  `sync_role_claims_from_token/3` returns. The summary holds ids and the fixed kind only.
+  """
+  @spec sync_role_claims_report(
+          user :: User.t(),
+          identity_context :: IdentityContext.t(),
+          opts :: opts()
+        ) :: {:ok, User.t()} | {:suppressed, User.t(), suppressed_summary()}
+  def sync_role_claims_report(%User{} = user, %IdentityContext{} = identity_context, opts) do
     prefix = Keyword.fetch!(opts, :prefix)
     ctx = %{AuditContext.from_opts(opts) | actor_id: user.id, source: "idp_sync"}
     group_ids = resolve_group_ids_for_role_names(identity_context.roles, opts)
@@ -1619,11 +1678,11 @@ defmodule Letflow.Identity do
       end
 
     case result do
-      {:ok, %{user: synced_user}} ->
-        synced_user
+      {:ok, %{user: synced_user, memberships: summary}} ->
+        sync_result(synced_user, summary)
 
-      {:ok, %{memberships: _}} ->
-        user
+      {:ok, %{memberships: summary}} ->
+        sync_result(user, summary)
 
       {:error, step, {:audit_failed, _reason}, _changes} ->
         # The reason holds the audit payload; the tag is enough.
@@ -1632,7 +1691,7 @@ defmodule Letflow.Identity do
             "for user_id=#{user.id}: :audit_failed"
         )
 
-        user
+        {:ok, user}
 
       {:error, step, reason, _changes} ->
         Logger.error(
@@ -1640,7 +1699,7 @@ defmodule Letflow.Identity do
             "for user_id=#{user.id}: #{inspect(reason)}"
         )
 
-        user
+        {:ok, user}
 
       {:raised, exception_module} ->
         Logger.error(
@@ -1648,9 +1707,14 @@ defmodule Letflow.Identity do
             "user_id=#{user.id}, exception=#{inspect(exception_module)})"
         )
 
-        user
+        {:ok, user}
     end
   end
+
+  defp sync_result(user, %{suppressed: []}), do: {:ok, user}
+
+  defp sync_result(user, %{suppressed: suppressed, deduped: deduped}),
+    do: {:suppressed, user, %{suppressed: suppressed, deduped: deduped}}
 
   # GH 2547 (design section 3.6): one group at a time, in resolution order. Only a row
   # this call inserted is audited; the first failure halts with an error tuple, which
@@ -1660,25 +1724,87 @@ defmodule Letflow.Identity do
           user_id :: Ecto.UUID.t(),
           prefix :: String.t(),
           ctx :: AuditContext.t()
-        ) :: {:ok, [Ecto.UUID.t()]} | {:error, term()}
+        ) ::
+          {:ok, %{suppressed: [suppressed_item()], deduped: non_neg_integer()}} | {:error, term()}
   defp insert_synced_memberships(group_ids, user_id, prefix, ctx) do
-    Enum.reduce_while(group_ids, {:ok, group_ids}, fn group_id, acc ->
-      before_roles = sorted_effective_role_names(user_id, prefix)
+    guard = sync_guard(group_ids, prefix)
 
-      case insert_or_fetch_group_member(group_id, user_id, prefix) do
-        {:ok, %{inserted: true}} ->
-          case insert_membership_audit(:added, group_id, user_id, before_roles, prefix, ctx) do
-            {:ok, _entry} -> {:cont, acc}
-            {:error, reason} -> {:halt, {:error, {:audit_failed, reason}}}
-          end
+    group_ids
+    |> Enum.reduce_while({:ok, %{suppressed: [], deduped: 0}}, fn group_id, {:ok, acc} ->
+      case sync_one_group(guard, group_id, user_id, prefix, ctx) do
+        :ok ->
+          {:cont, {:ok, acc}}
 
-        {:ok, %{inserted: false}} ->
-          {:cont, acc}
+        {:ok, items, deduped} ->
+          {:cont, {:ok, %{suppressed: acc.suppressed ++ items, deduped: acc.deduped + deduped}}}
 
         {:error, reason} ->
           {:halt, {:error, reason}}
       end
     end)
+  end
+
+  # REQ-519 2e-b (design 3.9 steps 1 and 2): the mode and the roles each candidate group
+  # binds are read here, in the :memberships step, AFTER lock A (SEC C-3). `group_ids == []`
+  # takes no lock and reads no mode. A mode read that raises propagates and rolls the sync
+  # back (the transaction rescue returns the original user, the marker stays nil).
+  defp sync_guard([], _prefix), do: :off
+
+  defp sync_guard(group_ids, prefix) do
+    case ScopeEnforcement.mode_under_lock!(prefix) do
+      :on -> {:on, SyncScopeGuard.bound_platform_roles(group_ids, prefix)}
+      _off_or_shadow -> :off
+    end
+  end
+
+  defp sync_one_group(guard, group_id, user_id, prefix, ctx) do
+    decision =
+      case guard do
+        {:on, roles_by_group} ->
+          SyncScopeGuard.evaluate(
+            user_id,
+            group_id,
+            Map.get(roles_by_group, group_id, []),
+            prefix
+          )
+
+        :off ->
+          :allow
+      end
+
+    case decision do
+      :allow ->
+        insert_synced_membership(group_id, user_id, prefix, ctx)
+
+      {:suppress, suppressed} ->
+        SyncScopeGuard.record(user_id, group_id, suppressed, prefix, ctx)
+    end
+  end
+
+  defp insert_synced_membership(group_id, user_id, prefix, ctx) do
+    before_roles = sorted_effective_role_names(user_id, prefix)
+    before_scope = MembershipScope.snapshot(user_id, prefix)
+
+    case insert_or_fetch_group_member(group_id, user_id, prefix) do
+      {:ok, %{inserted: true}} ->
+        case insert_membership_audit(
+               :added,
+               group_id,
+               user_id,
+               {before_roles, before_scope},
+               prefix,
+               ctx
+             ) do
+          {:ok, _entry} -> :ok
+          {:error, reason} -> {:error, {:audit_failed, reason}}
+        end
+
+      {:ok, %{inserted: false}} ->
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   # ── GH 2547: group_member.added / group_member.removed audit payload ─────
@@ -1691,12 +1817,20 @@ defmodule Letflow.Identity do
           event :: :added | :removed,
           group_id :: Ecto.UUID.t(),
           user_id :: Ecto.UUID.t(),
-          before_roles :: [String.t()],
+          before :: {before_roles :: [String.t()], before_scope :: MembershipScope.snapshot()},
           prefix :: String.t(),
           ctx :: AuditContext.t()
         ) :: {:ok, Audit.Entry.t()} | {:error, term()}
-  defp insert_membership_audit(event, group_id, user_id, before_roles, prefix, ctx) do
+  defp insert_membership_audit(
+         event,
+         group_id,
+         user_id,
+         {before_roles, before_scope},
+         prefix,
+         ctx
+       ) do
     after_roles = sorted_effective_role_names(user_id, prefix)
+    scope_delta = MembershipScope.delta(before_scope, MembershipScope.snapshot(user_id, prefix))
 
     base = %{
       "group_id" => group_id,
@@ -1721,6 +1855,7 @@ defmodule Letflow.Identity do
         base
         |> Map.merge(%{"member" => not was_member?, "user_platform_roles" => after_roles})
         |> Map.merge(delta)
+        |> Map.put("scope_delta", scope_delta)
         |> Map.put("source", ctx.source),
       trace_id: ctx.trace_id
     }

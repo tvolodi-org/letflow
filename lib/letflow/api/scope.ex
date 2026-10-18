@@ -320,7 +320,7 @@ defmodule Letflow.Api.Scope do
   def effective_scope(%Principal{grants: %Grants{} = grants} = principal, role)
       when is_binary(role) do
     if role_held?(principal, role) do
-      grants.rows_by_role |> Map.get(role, []) |> rows_scope()
+      grants.rows_by_role |> Map.get(role, []) |> effective_from_rows()
     else
       :deny
     end
@@ -328,9 +328,15 @@ defmodule Letflow.Api.Scope do
 
   def effective_scope(%Principal{}, _role), do: :deny
 
-  defp rows_scope([]), do: :deny
+  @doc """
+  The scope of one role's applicable grant rows (the pure core of `effective_scope/2`, REQ-519
+  2e-b): `:deny` for no rows, `:tenant_wide` when any row is tenant-wide, else the sorted,
+  deduplicated scope node ids. Each row is a map with `:tenant_wide` and `:scope_node_id`.
+  """
+  @spec effective_from_rows(rows :: [map()]) :: effective()
+  def effective_from_rows([]), do: :deny
 
-  defp rows_scope(rows) do
+  def effective_from_rows(rows) do
     if Enum.any?(rows, & &1.tenant_wide) do
       :tenant_wide
     else

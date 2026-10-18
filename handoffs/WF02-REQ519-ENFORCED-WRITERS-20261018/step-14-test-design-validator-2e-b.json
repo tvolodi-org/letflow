@@ -1,0 +1,170 @@
+{
+  "handoff_id": "d2535519-0519-4c02-9e11-000000000014",
+  "run_id": "WF02-REQ519-ENFORCED-WRITERS-20261018",
+  "workflow_id": "WF-02",
+  "step": "14",
+  "from_agent": "TEST-DESIGN-VALIDATOR",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-14-test-design-validator-2e-b.json",
+  "created_at": "2026-10-18T21:37:23Z",
+  "started_at": "2026-10-18T21:37:23Z",
+  "completed_at": "2026-10-18T21:52:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [
+      "REQ-519"
+    ],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "TEST-DESIGN-VALIDATOR gate for REQ-519 slice 2e-b (GH #2535), uncommitted tree on feature/WF02-REQ519-2EB-IDP-SYNC-20261019. Mix ran per file, one mix at a time, under the shared mixlock directory (taken with mkdir, released by the same script; another session's lock (elixir-dev wt2706b) was waited for, never removed). No full suite, no letflow.check.test. Mutants compiled in memory only."
+    },
+    "related_handoff_ids": [
+      "d2535519-0519-4c02-9e11-000000000010",
+      "d2535519-0519-4c02-9e11-000000000011",
+      "d2535519-0519-4c02-9e11-000000000012",
+      "d2535519-0519-4c02-9e11-000000000013"
+    ],
+    "artifacts_in": [
+      "test/specs/REQ-519-2e-b.md",
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-13-test-designer-2e-b.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ519-2EB-IDP-SYNC-20261019"
+  },
+  "task": {
+    "description": "Hard gate on TEST-DESIGNER 2e-b tests: REQ-519 ACs 2, 3, 4, 7 (2e-b half), AC 1(f) membership rows, SEC step-11 merge conditions, REVIEWER step-12 notes F-3b and TS-1; fixtures, formatting, log lesson, flake and CI-environment risk, own mutants."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "PASS_WITH_FINDINGS. No coverage gap. EXECUTED (MIX_ENV=test, one mix at a time under the mixlock): after mix compile --force (498 files, no warning) the four files together, seed 4242: 83 passed in 57.9 s; mix format --check-formatted over the fixture, the 3 new test files, enforced_audit_actions_test and identity_gh2547_audit_test: exit 0; after my one test edit, the four files again with LOG_LEVEL=error: 83 passed in 54.3 s (so no LOG_LEVEL dependence, the 2e-a T-L6 lesson does not recur) and format exit 0. Nine own mutants (A..I), compiled in memory only: 9 of 9 killed. The T-S15 order deviation from design 8.2 is JUDGED CORRECT: with the design's order (sync queued first, rebind behind it) the sync commits before the rebind and a before-lock read and an after-lock read agree, so it cannot kill the C-3 mutant; the shipped test queues the rebind first and keeps the design order as a control; my mutant A (roles read before lock A) is killed by exactly that test.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-14-test-design-validator-2e-b.json"
+    ],
+    "implementation_written": false,
+    "classification": "n/a (WF-02)",
+    "changes_made": [
+      {
+        "file": "test/letflow/identity/sync_scope_guard_test.exs",
+        "change": "strengthened 'dedup is tenant-scoped': tenant B now holds an audit entry with EXACTLY the resource id tenant A's sync would write (binding.pending_scope, user_a.id:SYNC_ROLE_A); the test asserts A still writes its own entry (deduped 0, trace id of the sync) and B still holds only its foreign entry",
+        "why": "the original only showed that B had no entry after A's sync, which a dedup that read another schema or ignored the schema would also satisfy; a cross-tenant entry with the same id is the discriminating fixture",
+        "verified": "83 passed under LOG_LEVEL=error after the edit; mix format --check-formatted exit 0"
+      }
+    ],
+    "findings": [
+      {
+        "id": "F-1",
+        "severity": "MINOR",
+        "blocking": false,
+        "title": "Tenant-scope of the dedup was asserted too weakly (fixed by this validator)",
+        "detail": "See changes_made. No mutant that is expressible without a second schema in the query was found for the prefix, so the fix is pinned by the fixture, not by a measured kill.",
+        "required_action": "None."
+      },
+      {
+        "id": "F-2",
+        "severity": "INFO",
+        "blocking": false,
+        "title": "Own-tenant ids in scope_delta: read isolation is asserted, not mutation-measured",
+        "detail": "The test 'a snapshot of one tenant never reads another tenant's rows' and the 55-node test with a second tenant's same-role group assert no foreign id. I did not apply a mutant that widens the snapshot read across schemas (the reads take the prefix per query, no single anchor); the cap and count are measured (mutant G).",
+        "required_action": "None."
+      },
+      {
+        "id": "F-3",
+        "severity": "INFO",
+        "blocking": false,
+        "title": "Held-lock helpers keep the shared 700 ms per-phase deadline",
+        "detail": "T-S15 and T-S15c use Letflow.LockOrderHelpers.wait_for_blocked/2, whose deadline can only produce a false failure on a badly overloaded host, never a false pass. The lock is held in a separate Task transaction with a 15 s bounded receive and released in on_exit; queue order is read from pg_locks (blockers/1), no sleeps. The sync's own lock_timeout is 2 s and the release happens right after both workers are parked.",
+        "required_action": "None."
+      },
+      {
+        "id": "F-4",
+        "severity": "INFO",
+        "blocking": false,
+        "title": "TS-1 pinned as current behaviour",
+        "detail": "T-S12 asserts {:ok, original_user} for a swallowed failure and states it; a future failure variant changes that assertion on purpose. Acceptable for this slice (REVIEWER step-12 TS-1 asked only for the pin).",
+        "required_action": "None."
+      },
+      {
+        "id": "F-5",
+        "severity": "INFO",
+        "blocking": false,
+        "title": "Not killable branch: non-raising {:error, _} of the suppression audit write",
+        "detail": "Audit.insert_entry/3 raises rather than returns an error tuple for a valid schema and normalised trace id, so write_once/6's error branch is unreachable from a test; the raising variant is covered by T-S1b and T-S12. Agreed with TEST-DESIGNER.",
+        "required_action": "None."
+      }
+    ],
+    "ac_coverage_check": {
+      "AC 2": "T-S1 (exact key set user/group/role/trace_id, before_state nil, resource user_role/<user>:<role>, same-transaction T-S1b with a real injected audit fault, scope unchanged), T-S2 off/shadow (legacy membership, no suppression entry, scope_delta present) plus per-call mode read T-S2flip, T-S3/T-S3b multi-role whole-group withheld with only widening roles audited, T-S4/T-S5 (not over-suppressed), T-S6c TENANT_ADMIN on a seeded on tenant with T-S6d shadow control, T-S13/T-S14 typed result and the User.t() wrapper (behaviour in every mode and the rendered @spec).",
+      "AC 3": "T-S6 exact key set and no claim value, T-S6b REVIEWER F-3b (tenant-wide USER row for an unheld role is :no_scoped_rows and still suppressed), T-S6e log has no claim value and no new sync_role_claims line, T-S7 role not held ({:deny, :role_not_held}, not :no_grant_rows), T-S8/T-S9/T-S9b/T-S9c permanent dedup from the table (pre-seeded entry in a brand-new process, per action, per tenant, no process state in the guard source), T-S10 remedy, T-S11 marker.",
+      "AC 4": "T-D1..T-D5 add/remove in off, shadow and on, only changed roles, empty delta for a no-row group, legacy keys intact plus exactly scope_delta, same-transaction rollback, cap 50 + count 55 on add and on remove, exactly 50 untruncated, other tenant's ids absent; pure functions would_widen?/render/delta, reads snapshot/row_scopes/snapshot_if_added.",
+      "AC 7 (2e-b half)": "T-A3 listed through Audit.list_entries resource filters, chain verifies; T-A4 exact key sets of the four actions and no realm/e-mail/name/group name/password/token prefix in any payload (secret strings checked non-empty first).",
+      "AC 1(f) membership rows": "binding_writers_membership_rows_test: exactly M-a..M-f in order with the design states, file and function exist (private copy_members/3 included), each row still reaches its classifying call, guard calls not reachable from the pre-lock resolve, AST walk proven live on a seeded source, completeness scan under lib/ proven live on a seeded unregistered writer.",
+      "SEC step-11 merge list": "TENANT_ADMIN, multi-role whole-group withheld, routing-role admitted (T-S16a) and platform-only bound_platform_roles, scoped rows kept + grant.sync_suppressed, no rows + binding.pending_scope, exact key sets, permanent dedup, mode-raise rollback with marker nil (T-S12b) and no-candidate path never reads the mode (T-S12c), shadow/off unchanged except scope_delta, cap 50 + count, sync_role_claims_from_token/3 returns User.t(), registry existence, C-3 ordering with a REAL held lock A (T-S15, T-S15c)",
+      "REVIEWER step-12": "F-3b pinned by T-S6b; TS-1 pinned by T-S12."
+    },
+    "fixture_and_flake_review": {
+      "isolation": "Every database file is async: false and builds its own committed tenants through EnforcedWritersFixture (tenant!/seeded_tenant!, on_exit teardown; the run end sweep printed clean DROP SCHEMA/DELETE lines). Fault triggers and functions are dropped in after; the renamed-schema helper restores the name in after; the lenient key is restored in with_lenient_key. The registry file is async: true and reads only lib/ and the AST: no DB, no Application env, no global state. No test depends on another test.",
+      "formatting": "mix format --check-formatted exit 0 on all six touched test/support files, before and after my edit.",
+      "log_lesson": "Refutations on whole captured logs are only on unique claim values (uuid-based external id, e-mail, display name, a constant realm string); id, group name and role refutations are applied to the entry payload dumps, not to a log. Group and user names (rsg-g-N, rsg-user-N) cannot collide with hex ids in a payload. T-S12c's two refutes name strings that exist in lib/letflow/identity.ex (the Logger.error text 'transaction raised' and the exception module), so they are not vacuous.",
+      "flake": "Lock tests use a real held lock A with queue order read from pg_locks and bounded waits (F-3). Audit entry ordering: RSG.entries orders by a utc_datetime_usec timestamp, so the two-entry assertions in 'the delta lists only changed roles' are not second-boundary sensitive (#2729 shape absent: no api_tokens.last_used_at, no wall-clock read). No per-entity INSERT list is compared verbatim anywhere in the new files (PR #2850 lesson: grep for INSERT finds nothing).",
+      "ci_environment": "I recompiled with mix compile --force before the baseline (no stale _build dependence); no test-only config key beyond :scope_mode_lenient_for_tests which is set via with_lenient_key; files are read with project-relative paths (docs/roles.md, lib/...) the same way the existing scan tests do; LOG_LEVEL=error run: 83 passed; runtime of the 83 tests 54 to 58 s on this host."
+    },
+    "mutants": {
+      "method": "mutated source compiled into the test VM with Code.compile_string (each anchor required to occur exactly once) via mix do run --no-start -r mut.exs + test <the 4 files>, MIX_ENV=test, one mix at a time under the mixlock, each run bounded by timeout 500; nothing written to lib/ or priv/. Counts are failed tests of the 83.",
+      "measured_by_validator": [
+        {
+          "id": "A",
+          "edit": "C-3: bound_platform_roles read BEFORE lock A (stashed in the process dictionary, the guard uses the stashed value)",
+          "failing": "1 of 83 (T-S15 rebind-queued-first)"
+        },
+        {
+          "id": "B",
+          "edit": "mode read BEFORE lock A (stashed, the guard uses the stashed value)",
+          "failing": "2 of 83 (T-S15c, the real kill; T-S12b fails only because my pre-lock read raises outside the rescue)"
+        },
+        {
+          "id": "C",
+          "edit": "multi-role group admitted when at least one bound role does not widen",
+          "failing": "2 of 83 (T-S3 and the T-S15 rebind-first test)"
+        },
+        {
+          "id": "D",
+          "edit": "routing-role binding counted: bound_platform_roles without the kind filter",
+          "failing": "2 of 83 (both T-S16a tests)"
+        },
+        {
+          "id": "E",
+          "edit": "wrong audit key set: an extra key kind added to the suppression after_state",
+          "failing": "3 of 83 (T-S1, T-S6, T-A4)"
+        },
+        {
+          "id": "F",
+          "edit": "dedup keyed without the role (any entry of the same user suppresses)",
+          "failing": "2 of 83 (T-S8, T-S1b control)"
+        },
+        {
+          "id": "G",
+          "edit": "scope_delta cap off by one (49 ids instead of 50)",
+          "failing": "3 of 83 (T-D5 55 nodes, T-D5 exactly 50, render/1)"
+        },
+        {
+          "id": "H",
+          "edit": "sync_role_claims_from_token/3 returns the typed tuple for the suppressed case",
+          "failing": "2 of 83 (T-S13, T-S1c export test)"
+        },
+        {
+          "id": "I",
+          "edit": "TENANT_ADMIN removed from the roles the guard evaluates",
+          "failing": "1 of 83 (T-S6c)"
+        }
+      ],
+      "survivors": []
+    },
+    "reverted_and_verified": "Nothing was applied to disk. After the last mutant run: git status --porcelain lib/ priv/ test/ lists exactly the 12 entries it listed at the start (5 modified, 7 untracked; the only content change by this step is the test edit above inside an already listed file), no tdv_ marker string occurs under lib, priv or test, and the four files re-ran green unmutated (83 passed, LOG_LEVEL=error). The shared scratchpad holds mut.exs and my tdv2eb scripts (scratch only); the mixlock directory was released after every run and the other session's lock was never touched.",
+    "run_command_for_test_runner": "for each of: test/letflow/identity/sync_scope_guard_test.exs test/letflow/identity/membership_scope_delta_test.exs test/letflow/identity/binding_writers_membership_rows_test.exs test/letflow/identity/enforced_audit_actions_test.exs test/letflow/routers/identity_gh2547_audit_test.exs : MIX_ENV=test mix test <file>; hosted CI is the suite."
+  }
+}

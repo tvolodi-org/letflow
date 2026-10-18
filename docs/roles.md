@@ -76,6 +76,15 @@ While a tenant's scope enforcement is `on`, no binding writer creates a tenant-w
 - Such a binding has no grant row, so its holders are denied until an admin grants scope. The integrity report (`GET /api/v1/tenant/scope-enforcement/integrity`, `bindings_without_row`) shows it, and it blocks a later flip to `on`.
 - If the tenant's enforcement mode cannot be read, a binding write fails with a server error and writes nothing (it never proceeds as `off`).
 
+## IdP role-claims sync while scope enforcement is on
+
+While a tenant's scope enforcement is `on`, the login-time sync of IdP role claims never widens a user (REQ-519). A claimed role resolves to the group that binds it; if adding the user to that group would make the user tenant-wide for a role the user is not already tenant-wide for, the membership is withheld and login still succeeds.
+
+- The WHOLE group is withheld when ANY platform role it binds would widen the user: a membership cannot be split by role, so the user does not receive the group's other roles either. The audit entries list only the widening roles. A group bound only as a process-routing role is never withheld.
+- One audit entry per user and role records it, written in the sync's own transaction with the keys `user`, `group`, `role`, `trace_id` only (no IdP claim value): `grant.sync_suppressed` when the user already holds scoped grants for the role, `binding.pending_scope` when the user holds none. Repeated logins add no further entry for the same user, role and action.
+- The user does not hold the withheld role (the coarse role check answers the existing 403). Remedy: an admin adds the user to a group whose grants for the role are scoped, and the user then holds exactly that scope.
+- Admin `POST /groups/:id/members` and `DELETE /groups/:id/members/:user_id` write `group_member.added` / `group_member.removed` with a `scope_delta` (per role: from and to, at most 50 org-unit ids plus a count) in every mode.
+
 ## Matrix
 
 Format, parsed by the REQ-448 parity test: one row per permission; first column the permission atom
