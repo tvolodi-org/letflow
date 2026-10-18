@@ -163,7 +163,12 @@ defmodule Letflow.Plugs.Authorize do
   #     the route's scope class and may halt with a 403 (or a fail-closed 500).
   defp apply_scope_mode(conn, ctx, policy_key) do
     case Map.get(conn.assigns.auth_context, :scope_enforcement) do
-      :shadow -> Letflow.Api.Scope.Shadow.observe(conn, ctx, policy_key)
+      # MUTANT N1: Enforce also runs under shadow
+      :shadow ->
+        conn
+        |> Letflow.Api.Scope.Shadow.observe(ctx, policy_key)
+        |> Letflow.Api.Scope.Enforce.check(ctx, policy_key)
+
       :on -> Letflow.Api.Scope.Enforce.check(conn, ctx, policy_key)
       _off_or_absent -> conn
     end

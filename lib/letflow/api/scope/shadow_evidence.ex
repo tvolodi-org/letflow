@@ -221,7 +221,8 @@ defmodule Letflow.Api.Scope.ShadowEvidence do
   end
 
   defp flush_prefix(prefix, entries) do
-    if valid_prefix?(prefix) do
+    # MUTANT M19: the flush builds the schema from the raw ETS key (no validation)
+    if is_binary(prefix) do
       upsert(prefix, entries)
     else
       # A hostile or malformed key is dropped, never flushed (INV-7).
@@ -247,6 +248,8 @@ defmodule Letflow.Api.Scope.ShadowEvidence do
         discard(entries)
         :dropped
       else
+        # MUTANT N13: a transient flush error discards the counters
+        discard(entries)
         note_failure(:error)
       end
 

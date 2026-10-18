@@ -476,7 +476,7 @@ defmodule Letflow.Plugs.AuthPipeline do
     })
   end
 
-  defp scope_enforcement(%Tenant{scope_enforcement: :on}), do: :on
+  # MUTANT N7: the :on mapping is deleted (maps to :off on both credentials)
   defp scope_enforcement(%Tenant{scope_enforcement: :shadow}), do: :shadow
   defp scope_enforcement(%Tenant{}), do: :off
 
