@@ -1017,7 +1017,8 @@ defmodule Letflow.Modules.Exam.Session do
   # 4.3 step 2): the question's stored type and its option rows' key fields. The option rows are
   # the ones this function always loaded to get the ids; nothing extra is queried for a pool.
   # `source` is `{:usable, source}` or the `{:error, ...}` key_missing refusal (see `wrapped_source`).
-  @spec fetch_question_row(String.t(), map(), String.t()) :: {:ok, session_row()} | {:error, term()}
+  @spec fetch_question_row(String.t(), map(), String.t()) ::
+          {:ok, session_row()} | {:error, term()}
   defp fetch_question_row(question_id, question, prefix) do
     with {:ok, options} <- query_all("answer_option", [eq("question_id", question_id)], prefix) do
       type = fv(question, "type")
