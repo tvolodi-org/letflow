@@ -15,6 +15,8 @@ defmodule Letflow.Entities.Record.ExternalRefLockTimeoutTest do
 
   use Letflow.DataCase, async: false
 
+  require Logger
+
   alias Letflow.Repo
   alias Letflow.TenantFixture
   alias Letflow.TenantProvisioning
@@ -73,7 +75,7 @@ defmodule Letflow.Entities.Record.ExternalRefLockTimeoutTest do
   end
 
   # Waits (bounded) until some backend is waiting on a lock held by `holder_pid`.
-  defp blocked_by(holder_pid, attempts \\ 100) do
+  defp blocked_by(holder_pid, attempts \\ 200) do
     %{rows: rows} =
       Repo.query!(
         """
@@ -139,15 +141,19 @@ defmodule Letflow.Entities.Record.ExternalRefLockTimeoutTest do
     # The migrator's migration connection is a different one than the holder's, and it is
     # actually WAITING on a lock the holder owns (not merely slow).
     blocked = blocked_by(holder_backend)
-    assert [[waiting_pid, blockers]] = Enum.take(blocked, 1)
+
+    assert blocked != [],
+           "no backend was observed waiting on a lock held by the holder (pid #{holder_backend})"
+
+    [[waiting_pid, blockers] | _] = blocked
     assert waiting_pid != holder_backend
     assert holder_backend in blockers
 
     assert {:raised, error} = Task.await(migrator, 20_000)
     elapsed = System.monotonic_time(:millisecond) - started
 
-    IO.puts(
-      "LOCKTIMEOUT_EVIDENCE holder_pid=#{holder_backend} waiting_migrator_pid=#{waiting_pid} " <>
+    Logger.debug(
+      "lock_timeout evidence: holder_pid=#{holder_backend} waiting_pid=#{waiting_pid} " <>
         "blocking_pids=#{inspect(blockers)} elapsed_ms=#{elapsed} code=#{error.postgres.code}"
     )
 

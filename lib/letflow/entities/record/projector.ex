@@ -457,7 +457,8 @@ defmodule Letflow.Entities.Record.Projector do
 
   # First event must be CREATED.
   defp apply_event(nil, %{event_type: @created_event} = event, record_id) do
-    with {:ok, {external_system, external_id}} <- external_ref_pair(event.payload, record_id) do
+    with {:ok, {external_system, external_id}} <-
+           external_ref_pair(event.payload, record_id, event.event_id) do
       {:ok,
        %{
          record_id: record_id,
@@ -530,12 +531,14 @@ defmodule Letflow.Entities.Record.Projector do
   # registered schema bounds length by characters and its `pattern` keyword is inert, so it
   # cannot be the only gate). An absent key is NULL/NULL; a present but invalid or malformed
   # value is an explicit corrupt-stream error (never a silent drop and never a half pair that
-  # would trip the database CHECK mid-rebuild). The error carries the record id only, no value.
+  # would trip the database CHECK mid-rebuild). The error carries the record id and the
+  # offending event id (so an operator can find it), never the ref value.
   @doc false
-  @spec external_ref_pair(map(), Ecto.UUID.t()) ::
+  @spec external_ref_pair(map(), Ecto.UUID.t(), Ecto.UUID.t()) ::
           {:ok, {String.t() | nil, String.t() | nil}}
-          | {:error, {:corrupt_event_stream, {:invalid_external_ref, Ecto.UUID.t()}}}
-  def external_ref_pair(payload, record_id) do
+          | {:error,
+             {:corrupt_event_stream, {:invalid_external_ref, Ecto.UUID.t(), Ecto.UUID.t()}}}
+  def external_ref_pair(payload, record_id, event_id) do
     case Map.fetch(payload, "external_ref") do
       :error ->
         {:ok, {nil, nil}}
@@ -546,7 +549,7 @@ defmodule Letflow.Entities.Record.Projector do
             {:ok, {system, id}}
 
           {:error, :external_ref_invalid} ->
-            {:error, {:corrupt_event_stream, {:invalid_external_ref, record_id}}}
+            {:error, {:corrupt_event_stream, {:invalid_external_ref, record_id, event_id}}}
         end
     end
   end

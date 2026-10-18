@@ -34,6 +34,29 @@ defmodule Letflow.Entities.ExternalRefTest do
     end
   end
 
+  describe "frozen corpus (values valid at PR-1 must stay valid)" do
+    # The parser may only be LOOSENED for history (see the ExternalRef moduledoc): a rebuild
+    # re-parses old events with the live parser. Never remove an entry; add new ones.
+    @frozen_valid [
+      {"1c", "42"},
+      {"sap", "0000012345"},
+      {"erp.eu-west_1", "A/B 7"},
+      {"a", "x"},
+      {"wms2", "SKU-001/\u0416\u0435\u043B\u0442\u044B\u0439"},
+      {"crm", " leading and trailing "},
+      {"crm", "\u00A0nbsp-prefixed"},
+      {"legacy", "id with spaces & punctuation: (1)#2;3"},
+      {"x9", String.duplicate("\u017E", 127)},
+      {"s", String.duplicate("i", 255)}
+    ]
+
+    test "every frozen pair still parses to itself" do
+      for {system, id} <- @frozen_valid do
+        assert ExternalRef.parse(%{"system" => system, "id" => id}) == ok(system, id)
+      end
+    end
+  end
+
   describe "parse/1 rejects with :external_ref_invalid" do
     @invalid {:error, :external_ref_invalid}
 

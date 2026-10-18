@@ -13,6 +13,9 @@ defmodule Letflow.Entities.Record.ExternalRefStorageTest do
     * T10: the projector carries the ref (replay, rebuild through `write_snapshots/3`) across
       UPDATED and DELETED.
 
+  The INVALID-index test updates `pg_index.indisvalid` directly to simulate a failed concurrent
+  build, which needs a SUPERUSER test database role (the project's CI and local test roles are).
+
   Real Postgres, dedicated tenant schemas, raw DDL, so `async: false`.
   """
 
@@ -348,11 +351,12 @@ defmodule Letflow.Entities.Record.ExternalRefStorageTest do
          %{schema: schema} do
       assert {:ok, %{num_rows: 1}} = raw_insert(schema, "item", "1c", "42")
 
-      Repo.update_all(
-        from(l in Latest, where: l.entity_type == "item" and l.external_id == "42"),
-        [set: [deleted: true]],
-        prefix: schema
-      )
+      assert {1, _} =
+               Repo.update_all(
+                 from(l in Latest, where: l.entity_type == "item" and l.external_id == "42"),
+                 [set: [deleted: true]],
+                 prefix: schema
+               )
 
       assert {:error, %Postgrex.Error{postgres: %{code: :unique_violation, constraint: @index}}} =
                raw_insert(schema, "item", "1c", "42")
@@ -369,10 +373,17 @@ defmodule Letflow.Entities.Record.ExternalRefStorageTest do
       refute a.record_id == b.record_id
     end
 
-    test "get_by_external_ref/4 answers :not_found, without a query, for a non-binary type, system or id",
+    test "get_by_external_ref/4 answers :not_found, without a query, for a non-binary type, system, id or prefix",
          %{schema: schema} do
-      for args <- [[nil, "1c", "42"], ["item", nil, "42"], ["item", "1c", 42], [:item, "1c", "x"]] do
-        assert {:error, :not_found} = apply(Latest, :get_by_external_ref, args ++ [schema])
+      for args <- [
+            [nil, "1c", "42", schema],
+            ["item", nil, "42", schema],
+            ["item", "1c", 42, schema],
+            [:item, "1c", "x", schema],
+            ["item", "1c", "42", nil],
+            ["item", "1c", "42", :not_a_schema]
+          ] do
+        assert {:error, :not_found} = apply(Latest, :get_by_external_ref, args)
       end
     end
 
@@ -783,15 +794,17 @@ defmodule Letflow.Entities.Record.ExternalRefStorageTest do
       assert record_id == ids.deleted
     end
 
-    test "external_ref_pair/2: absent is NULL/NULL; a valid ref is the pair; a malformed or invalid one is an explicit corrupt-stream error" do
+    test "external_ref_pair/3: absent is NULL/NULL; a valid ref is the pair; a malformed or invalid one is an explicit corrupt-stream error" do
       id = Ecto.UUID.generate()
-      error = {:error, {:corrupt_event_stream, {:invalid_external_ref, id}}}
+      event_id = Ecto.UUID.generate()
+      error = {:error, {:corrupt_event_stream, {:invalid_external_ref, id, event_id}}}
 
-      assert Projector.external_ref_pair(%{}, id) == {:ok, {nil, nil}}
+      assert Projector.external_ref_pair(%{}, id, event_id) == {:ok, {nil, nil}}
 
       assert Projector.external_ref_pair(
                %{"external_ref" => %{"system" => "1c", "id" => "42"}},
-               id
+               id,
+               event_id
              ) == {:ok, {"1c", "42"}}
 
       for bad <- [
@@ -804,7 +817,7 @@ defmodule Letflow.Entities.Record.ExternalRefStorageTest do
             %{"system" => "1c", "id" => "a\u200Bb"},
             %{"system" => "1c", "id" => "1", "extra" => "x"}
           ] do
-        assert Projector.external_ref_pair(%{"external_ref" => bad}, id) == error
+        assert Projector.external_ref_pair(%{"external_ref" => bad}, id, event_id) == error
       end
     end
 
@@ -821,10 +834,20 @@ defmodule Letflow.Entities.Record.ExternalRefStorageTest do
         created_payload(record_id, %{"external_ref" => %{"system" => "SAP", "id" => "1"}})
       )
 
-      assert {:error, {:corrupt_event_stream, {:invalid_external_ref, ^record_id}}} =
+      # The error names the offending event so an operator can find it (never the ref value).
+      event_id =
+        Repo.one!(
+          from(e in EventStore.Event,
+            where: e.event_type == "ENTITY_RECORD_CREATED",
+            select: e.event_id
+          ),
+          prefix: schema
+        )
+
+      assert {:error, {:corrupt_event_stream, {:invalid_external_ref, ^record_id, ^event_id}}} =
                Projector.replay_record("customer", record_id, schema)
 
-      assert {:error, {:corrupt_event_stream, {:invalid_external_ref, ^record_id}}} =
+      assert {:error, {:corrupt_event_stream, {:invalid_external_ref, ^record_id, ^event_id}}} =
                Projector.rebuild_projection(schema, entity_type: "customer")
     end
 

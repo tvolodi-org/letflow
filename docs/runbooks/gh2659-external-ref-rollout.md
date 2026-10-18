@@ -80,6 +80,39 @@ statement fails with `lock_not_available`. The migration rolls back whole and re
 - The v2 event schema is registered by the same replay, after the migrations succeed. A tenant
   whose migrations failed is still at CREATED v1; confirm with `max_schema_version/2` as above.
 
+## 3a. Migration (b) aborted because the index is INVALID
+
+Migration (b) raises `index entity_record_latest_external_ref_idx exists but is INVALID` when a
+failed `CREATE UNIQUE INDEX CONCURRENTLY` left an invalid index under the name. The cause is
+almost always duplicate refs: two rows with the same `(entity_type, external_system, external_id)`
+made the unique build fail. (Rows can only hold a ref if something wrote one, so this normally
+means the manual route was run after refs already existed.)
+
+1. Diagnose (`indisvalid = f` confirms it):
+
+   ```sql
+   SELECT indisvalid FROM pg_index
+    WHERE indexrelid = '"<schema>".entity_record_latest_external_ref_idx'::regclass;
+   ```
+
+2. Drop the invalid index:
+
+   ```sql
+   DROP INDEX CONCURRENTLY "<schema>".entity_record_latest_external_ref_idx;
+   ```
+
+3. Find and fix the duplicate rows that failed the build:
+
+   ```sql
+   SELECT entity_type, external_system, external_id, count(*)
+     FROM "<schema>".entity_record_latest
+    WHERE external_id IS NOT NULL
+    GROUP BY 1, 2, 3 HAVING count(*) > 1;
+   ```
+
+4. Re-run the concurrent create from section 4 step 3 (the existing manual route), or call
+   `replay_migrations/2` as in section 3 so migration (b) builds it. Then re-check `indisvalid = t`.
+
 ## 4. Large tenants: the manual route first
 
 Prerequisite for every real environment: **infra produces a per-tenant row count of
