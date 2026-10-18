@@ -1880,11 +1880,16 @@ defmodule Letflow.Modules.Exam.SessionTest do
       ExamFixtures.delete_record!(schema, "question", dead_id)
       live_ids = Enum.map(live, fn {id, _, _} -> id end)
 
-      assert {:ok, view} = Session.create(Ecto.UUID.generate(), exam.record_id, schema)
-      drawn = Enum.map(session_question_rows(schema, view.id), & &1["question_id"])
+      # The draw is random: with the deleted question still in the pool of 4 a single start misses
+      # it 1 time in 4. Twenty independent starts make a regression slip through with probability
+      # (1/4)^20, so this fails deterministically in practice if the pool filter is lost.
+      for _ <- 1..20 do
+        assert {:ok, view} = Session.create(Ecto.UUID.generate(), exam.record_id, schema)
+        drawn = Enum.map(session_question_rows(schema, view.id), & &1["question_id"])
 
-      assert Enum.sort(drawn) == Enum.sort(live_ids)
-      refute dead_id in drawn
+        assert Enum.sort(drawn) == Enum.sort(live_ids)
+        refute dead_id in drawn
+      end
     end
   end
 end
