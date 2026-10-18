@@ -170,6 +170,7 @@ defmodule Letflow.Routers.Identity do
   use Letflow.Api.AuthorizedRouter
 
   alias Letflow.Api.Authorization
+  alias Letflow.Api.Error
   alias Letflow.Api.Pagination
   alias Letflow.Api.Response
   alias Letflow.Api.Scope
@@ -184,6 +185,9 @@ defmodule Letflow.Routers.Identity do
   alias Letflow.PlatformTenant
 
   @users_cursor_prefix "U:"
+
+  # REQ-519 2e-a: the fixed remedy text of the 409 `scope_required` extension.
+  @scope_required_remedy "create the binding before enabling enforcement, or set enforcement to off with a reason, create it, narrow its scope, and enable again"
 
   authz_post "/users", :UsersManage do
     handle_create(conn, user_write_opts(conn))
@@ -1084,9 +1088,17 @@ defmodule Letflow.Routers.Identity do
     # Letflow.Identity.TenantRole's own Ecto.Enum field).
     kind = String.to_existing_atom(kind_string)
 
-    case RoleRegistry.upsert_role(name, kind, group_id, audit_opts(conn, opts)) do
-      {:ok, role} ->
-        Response.ok(conn, role_map(role))
+    case RoleRegistry.upsert_role_report(name, kind, group_id, audit_opts(conn, opts)) do
+      {:ok, role, rows} ->
+        Response.ok(conn, role |> role_map() |> put_grant_rows(rows))
+
+      # REQ-519 2e-a: the tenant's enforcement is `on`; a new platform binding needs a
+      # scoped grant first. Fixed code and remedy, the body names no id (INV-2).
+      {:error, :scope_required} ->
+        Response.send_problem(conn, %{
+          Error.conflict("scope_required")
+          | extensions: %{"remedy" => @scope_required_remedy}
+        })
 
       {:error, :invalid_role_name} ->
         Response.unprocessable(conn, "invalid_role_name")
@@ -1145,8 +1157,8 @@ defmodule Letflow.Routers.Identity do
 
       opts = conn |> audit_opts(opts) |> Keyword.put(:platform_scope, platform_scope?(conn))
 
-      case RoleRegistry.rebind_role(id, Map.get(body, "group_id"), attrs, opts) do
-        {:ok, role} -> Response.ok(conn, role_map(role))
+      case RoleRegistry.rebind_role_report(id, Map.get(body, "group_id"), attrs, opts) do
+        {:ok, role, rows} -> Response.ok(conn, role |> role_map() |> put_grant_rows(rows))
         {:error, :role_not_found} -> Response.not_found(conn)
         {:error, :group_not_found} -> Response.not_found(conn)
         # Not the POST /roles mapping (422): on this route H1 is an authorization refusal.
@@ -1246,6 +1258,11 @@ defmodule Letflow.Routers.Identity do
   defp revoked_token_map(%Letflow.Identity.ApiToken{} = token) do
     TokenView.token_map(token, Identity.token_effective_status(token, true, DateTime.utc_now()))
   end
+
+  # REQ-519 2e-a: `grant_rows` appears ONLY when the binding was left without a grant row
+  # (the tenant is `on`); every other body is byte-identical to before.
+  defp put_grant_rows(map, :skipped_enforced), do: Map.put(map, "grant_rows", "skipped_enforced")
+  defp put_grant_rows(map, _rows), do: map
 
   @spec role_map(Letflow.Identity.TenantRole.t()) :: map()
   defp role_map(%Letflow.Identity.TenantRole{} = role) do

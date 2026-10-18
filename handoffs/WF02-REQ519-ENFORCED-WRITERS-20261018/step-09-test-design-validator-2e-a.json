@@ -1,0 +1,177 @@
+{
+  "handoff_id": "d2535519-0519-4c02-9e11-000000000009",
+  "run_id": "WF02-REQ519-ENFORCED-WRITERS-20261018",
+  "workflow_id": "WF-02",
+  "step": "09",
+  "from_agent": "TEST-DESIGN-VALIDATOR",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-09-test-design-validator-2e-a.json",
+  "created_at": "2026-10-18T17:53:00Z",
+  "started_at": "2026-10-18T17:53:00Z",
+  "completed_at": "2026-10-18T18:27:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [
+      "REQ-519"
+    ],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "TEST-DESIGN-VALIDATOR gate for REQ-519 slice 2e-a (GH #2535), uncommitted tree on feature/WF02-REQ519-ENFORCED-WRITERS-20261018. Mix ran per file group, one mix at a time, under the shared mixlock directory (taken with mkdir, released by the same script; another session's lock was waited for, never removed). No full suite, no letflow.check.test. Mutants compiled in memory only."
+    },
+    "related_handoff_ids": [
+      "d2535519-0519-4c02-9e11-000000000005",
+      "d2535519-0519-4c02-9e11-000000000006",
+      "d2535519-0519-4c02-9e11-000000000007",
+      "d2535519-0519-4c02-9e11-000000000008"
+    ],
+    "artifacts_in": [
+      "test/specs/REQ-519-2e-a.md",
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-08-test-designer-2e-a.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ519-ENFORCED-WRITERS-20261018"
+  },
+  "task": {
+    "description": "Hard gate on TEST-DESIGNER 2e-a tests: REQ-519 ACs 1, 5, 6, 7 (binding.refused half) per design r2a section 1 and 7, SEC step-06 merge conditions (F-1, F-2, C-2 and the on-tests, 409 bytes, refusal after rollback, removal never reads the mode), REVIEWER step-07 notes; fixture isolation, formatting, log lesson, flake and CI-environment risk, eight own mutants."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "PASS_WITH_FINDINGS. No coverage gap in the 2e-a scope. EXECUTED (MIX_ENV=test, one mix at a time under the mixlock): the seven new test files together, seed 771432: 116 passed (1 property, 115 tests) in 125 s, the only compiler warning is the pre-existing stream_data register_test/4 deprecation; the lock file alone under LOG_LEVEL=error to cover the CI-environment risk: 17 of 18 passed, T-L6 FAILED (its constant line scope_mode_read_lenient is a Logger.warning, which LOG_LEVEL=error suppresses); I fixed that in the test (see changes_made) and re-ran: 18 passed under LOG_LEVEL=error, then lock + scan + audit files at the default level: 35 passed. mix format --check-formatted over the support fixture and the 7 test files after my edit: exit 0. No skip tag, TODO, FIXME, sleep, wall-clock call or secret in any new test file (grep). Ten of my own mutants (M1-M8 over all seven files, M9 and M10 as re-measures of the two aborted step-08 mutants), compiled in memory only: 10 of 10 killed (counts below). git status --porcelain lib/ test/ lists the same 24 entries before and after (no new path), and no mutant marker string occurs under lib, priv or test. COVERAGE: AC 1 (a)-(g) in each of off/shadow/on (T-B1..T-B14, T-R, T-N), the completeness scan as a multiset with a live scanner and an indirect-row reachability check (T-C1, T-C2), AC 5 (property with a sanctioned-insert control, T-I1, T-I2), AC 6 (T-L2, T-L3 with a real held lock A and queue order read from pg_locks), AC 7 binding.refused half (T-A1, T-A2), SEC F-1 (Config.Reader prod/dev/test evaluation plus text scan), SEC F-2 (registry scan on the real tree, converge_existing_role/5 twice), SEC C-2 (T-L7a-f: no binding, row or audit entry), 409 body bytes (T-R1, T-R6), refusal after rollback (T-R3 on committed state, T-R4, T-R5), removal never reads the mode (T-L8). AC 3 and the rest of AC 7 and AC 1 (f) membership rows are 2e-b per design r2a section 1 and 7; the dispatching task named AC 3 for 2e-a, see F-1.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-09-test-design-validator-2e-a.json"
+    ],
+    "implementation_written": false,
+    "classification": "n/a (WF-02)",
+    "changes_made": [
+      {
+        "file": "test/letflow/identity/enforced_writers_lock_test.exs",
+        "change": "added a setup to describe T-L6 that sets Logger.configure(level: :debug) and restores the previous level in on_exit, the same device binding_no_row_report_test.exs already uses",
+        "why": "T-L6 asserts one captured scope_mode_read_lenient line, which ScopeEnforcement emits with Logger.warning; under LOG_LEVEL=error (developer machines, any local override) the line is never emitted and the test failed 17/18. CI sets no LOG_LEVEL (config/runtime.exs defaults the test env to debug), so CI was not affected; the fix removes the dependence on the environment.",
+        "verified": "lock file under LOG_LEVEL=error: 18 passed; lock + scan + audit files at the default level: 35 passed; mix format --check-formatted exit 0"
+      }
+    ],
+    "findings": [
+      {
+        "id": "F-1",
+        "severity": "MINOR",
+        "blocking": false,
+        "title": "Dispatch named AC 3 for 2e-a, design r2a puts it in 2e-b; AC 1 (f) membership rows are not in the shipped registry",
+        "detail": "Design r2a section 1 and the section 7 AC map assign 2e-a: 1, 5, 6, 7 (binding.refused only), 21; AC 2, 3, 4, the rest of AC 7 and the membership rows M-a..M-d (add_group_member, remove_group_member, PendingAdminGrants.bind_on_login, the UNCHANGED half of AC 1 (f)) belong to 2e-b. The 2e-a tests do not cover them and the 2e-a registry has no membership rows, consistent with the design. If ORCH intended AC 3 for this PR, the design and the dispatch disagree.",
+        "required_action": "ORCH: confirm the split. 2e-b must add the membership registry rows with a test for each (AC 1 (f)), T-S/T-D/T-A3/T-A4."
+      },
+      {
+        "id": "F-2",
+        "severity": "MINOR",
+        "blocking": false,
+        "title": "T-L6 depended on LOG_LEVEL (fixed by this validator)",
+        "detail": "See changes_made. The same dependence exists nowhere else in the seven files: binding_no_row_report_test.exs sets the level itself for its Logger.info lines, binding_refusal_test.exs asserts only Logger.error lines, and the T-L6 line is now covered.",
+        "required_action": "None."
+      },
+      {
+        "id": "F-3",
+        "severity": "INFO",
+        "blocking": false,
+        "title": "T-L2/T-L3 queue-order helper has a 700 ms per-phase deadline",
+        "detail": "Letflow.LockOrderHelpers.wait_for_blocked/2 (shared with the GH 2704 tests) fails with a 'slow start' message when a worker is not parked on lock A within 700 ms. The workers do almost nothing before lock A (a checkout, one pid query, then upsert_role_report validation and Repo.transaction), so a miss needs a badly overloaded host; it would be a false failure, never a false pass. The stand-in flip (lock A, preconditions/1 read, set_stored_mode! in one transaction) matches flip/4 do_flip order for the part that matters (lock A, then the tenants row update, committed together); it omits the T-rank FOR UPDATE and the audit insert, neither of which changes what a writer queued on A can observe. 2f-b's end-to-end suite should repeat the pair through the real flip (OBS-4 of step-08).",
+        "required_action": "None for this PR."
+      },
+      {
+        "id": "F-4",
+        "severity": "INFO",
+        "blocking": false,
+        "title": "The unreadable-mode (table renamed) case is pinned by one test only",
+        "detail": "Mutant M3 (mode_under_lock! answers :off when the read FAILS) is killed by exactly one test, T-L1 'a read that FAILS raises ModeUnavailableError'. T-L7 exercises the unregistered-prefix path of the writers, not a failed read, so a writer-level 'rescue the raise as off' is covered by MU-48a/b/c of step-08 rather than by a failed-read writer test. Real assertion, killed; just thin.",
+        "required_action": "None."
+      },
+      {
+        "id": "F-5",
+        "severity": "INFO",
+        "blocking": false,
+        "title": "Runtime: 116 tests take 125 s on this host (step-08 measured 96 s)",
+        "detail": "All files are async: false and use committed tenant schemas; under the CI shard layout (4 partitions per leg, each with its own database) they run serially inside one partition. T-L4 evaluates config.exs/prod.exs/runtime.exs through RuntimeConfigEval (existing helper, isolate_env in setup). The property runs max_runs 40 with up to 6 operations each against one tenant; the ExUnit seed is printed and StreamData is seeded from it, so a failure is reproducible with --seed.",
+        "required_action": "None."
+      }
+    ],
+    "ac_coverage_check": {
+      "AC 1": "T-B1..T-B14 each row in off, shadow and on with real assertions on binding, rows, audit and report; T-R1..T-R6; T-N1..T-N6; T-C1/T-C2. Read against requirements.yaml AC text: (a) (b) refused with 409, (c) c1/c2/c3 skipped_enforced, (d) rows follow and zero moved is skipped, (e) Backfill + mix task, (f) removals and delete_group, completeness multiset. Membership half of (f) is 2e-b (F-1).",
+      "AC 5": "T-I1 property over upsert/rebind/seed/backfill/drop_rows/reconcile/ensure/repair, tenant_wide count never increases in on, controls: insert_tenant_wide DOES move it, each writer alone on a gap leaves it; T-I2 off/shadow still insert.",
+      "AC 6": "T-L2 writer queued first, T-L3 flip queued first, held lock A, queue order from pg_locks, no sleeps, deadlock telemetry handler attached.",
+      "AC 7 (binding.refused)": "T-A1 via Audit.list_entries resource filters with the action on the item and chain verification; T-A2 no plaintext, hash, e-mail, username, password text.",
+      "SEC F-1": "T-L4 (prod config evaluation unset, dev unset, test exactly true) and T-L5 (text in config/test.exs only, lib reads once, sets never).",
+      "SEC F-2": "T-C1 multiset equals the 10 SCANNED rows, converge_existing_role/5 counted twice, scanner live on seeded sources (unregistered, aliases, pipe, capture, apply/3, look-alikes), stale row and dropped row both detected; T-C2 indirect rows exist and reach a scanned site, entry points reach reconcile_binding!.",
+      "SEC C-2": "T-L7a-e plus T-L7f: no binding, row or audit entry for upsert, repair, rebind, seeding, Backfill.run_tenant; never off.",
+      "SEC on-tests, 409 bytes, refusal after rollback, removal": "T-B rows in on; T-R1 whole body key set and fixed remedy, no id, same bytes for two refusals; T-R3 on committed state (the fixture leaves the sandbox in :auto) with exact key set; T-R4 raising and non-raising audit failure; T-R5 inside a transaction; T-L8 removal with an unreadable mode.",
+      "REVIEWER step-07 notes": "rows_state :in_place/:skipped_enforced exercised through the reports and HTTP grant_rows (emitted only for skipped); lenient key scan; registry scan; forced edits to gh2547_ta_audit_paths_test, role_scope_grants_backfill_test, tenant_admin_migration_test are exact-map additions (skipped_enforced, rows) and were green in the dispatch of step-08."
+    },
+    "fixture_and_flake_review": {
+      "isolation": "Every database file is async: false; each test provisions its own committed tenant through TenantFixture.provisioned_tenant! with on_exit teardown; Mig.isolate_registrations! (existing helper) restores the removed registrations in on_exit; schema renames (T-L7*, T-L8, T-R4b, T-N5b) are restored in try/after and the tenant teardown then drops the restored name; the audit-fault trigger/function (T-R4a) is dropped in after; the ALTER TABLE tenants rename of T-L1c runs inside one transaction that is rolled back; Logger level and Mix.shell are restored in on_exit; the lenient application key is restored in with_key/2. The only async: true file (scan) reads lib/ and docs from disk and touches no database. No test depends on another test having run.",
+      "log_lesson": "Id refutations (group id, role name, tenant id, hex) are applied only to the module's own constant lines (own_lines/1, skip_lines/1, the T-L6 filtered lines), never to the whole captured log.",
+      "ci_environment": "No stale _build dependence (the scan reads sources, not beams; I compiled first and ran from a fresh recompile); the test-only key is set in config/test.exs and every test that needs it unset uses with_key/2; hand-made schema names are well-formed tenant_<32 hex> or rsg_<32 hex> and restored; no wall-clock or second-boundary reads (requests are direct router dispatches without the auth pipeline, so the #2729 api_tokens.last_used_at shape is absent); one property, seeded from the ExUnit seed.",
+      "stand_in_flip": "See F-3."
+    },
+    "mutants": {
+      "method": "mutated source compiled into the test VM with Code.compile_string (each anchor required to occur exactly once, edits to one file applied cumulatively, ignore_module_conflict) via mix do run --no-start -r tdv_mut.exs + test <the 7 files>, MIX_ENV=test, one mix at a time under the mixlock, each run bounded by timeout 480; nothing written to lib/ or priv/. Counts are failed tests of the 116 in each run.",
+      "measured_by_validator": [
+        {
+          "id": "M1",
+          "edit": "create_or_refuse inserts the tenant-wide row in on instead of refusing (a writer ignoring the mode)",
+          "failing": "21 of 116 (T-B1, T-B2, T-B12, T-B14, T-R1..T-R4, T-R6, T-L3, T-N3, T-A1, T-A2, T-I1 property and control)"
+        },
+        {
+          "id": "M2",
+          "edit": "mode read BEFORE lock A in do_upsert_role (stale value kept in the process dictionary and returned by mode_under_lock!)",
+          "failing": "16 of 116, including T-L3 (the flip-queued-first test, run in a fresh worker process, so a genuine kill) and T-L8; the rest are the test process inheriting the stale value, not discriminating"
+        },
+        {
+          "id": "M3",
+          "edit": "mode_under_lock! answers :off when the read itself fails (fail open)",
+          "failing": "1 of 116 (T-L1 'a read that FAILS raises ModeUnavailableError')"
+        },
+        {
+          "id": "M4",
+          "edit": "binding.refused written INSIDE the rolled-back transaction and the post-rollback BindingRefusal.refuse call dropped",
+          "failing": "9 of 116 (T-R2, T-R3, T-R4, T-L3, T-B1, T-B2, T-A1, T-A2)"
+        },
+        {
+          "id": "M5",
+          "edit": "seeding audit key rows = skipped_enforced dropped",
+          "failing": "2 of 116 (T-N3, T-A2)"
+        },
+        {
+          "id": "M6",
+          "edit": "TenantAdminMigration does not skip an on tenant",
+          "failing": "3 of 116 (T-B6, T-B13, T-N4)"
+        },
+        {
+          "id": "M7",
+          "edit": "Backfill writes scope.backfill_completed for an on tenant",
+          "failing": "2 of 116 (T-B9, T-N5a)"
+        },
+        {
+          "id": "M8",
+          "edit": "removal (P -> nil) reads the mode",
+          "failing": "1 of 116 (T-L8)"
+        },
+        {
+          "id": "M9",
+          "edit": "Backfill dry run reads the mode with mode_under_lock! (raises outside a transaction; re-measure of step-08 MU-X6)",
+          "failing": "1 of 2 in the T-N5b describe (T-N5b an on tenant is flagged via get_mode/1); over the whole no_row + modes files the run aborted with exit 1 before the summary because the mix-task test (T-N5 mix task output, dry run) halts the VM on a failed sweep"
+        },
+        {
+          "id": "M10",
+          "edit": "Backfill gap check still rolls back in on (re-measure of step-08 MU-43)",
+          "failing": "2 printed failures (T-N5a, T-N5c) before the run aborted with exit 1 before the summary, same cause (mix task test halts the VM on a failed sweep)"
+        }
+      ],
+      "survivors": [],
+      "step08_aborted_runs": "MU-43 and MU-X6 aborted before the ExUnit summary in step-08. RE-RUN by this validator as M10 and M9: the abort is caused by the T-N5 mix-task tests, because Mix.Tasks.Letflow.BackfillRoleScopeGrants halts the VM with exit 1 when the sweep reports an error, which the mutants provoke; it is not a hang and not a test defect. Kill evidence is the failures printed before the abort (M10: T-N5a and T-N5c) and, for M9, a targeted run of the T-N5b describe alone: 1 of 2 failed with the summary line present. Judged killed."
+    },
+    "reverted_and_verified": "Nothing was applied to disk. After the last mutant run and my one test edit: git status --porcelain lib/ test/ lists 24 entries (the same 24 as at the start: 12 modified, 12 untracked, no new path); git diff --stat -- lib priv reports 9 files changed, 624 insertions, 145 deletions (unchanged by this step); grep for the mutant markers tdv_ and tdv_stale under lib, priv and test finds nothing; the lock, scan and audit files re-ran green unmutated (35 passed) and the lock file alone under LOG_LEVEL=error (18 passed). The shared scratchpad holds tdv_mut.exs, tdv_run.sh, tdv_all.sh and tdv_fin.sh written by this step (scratch only; the mixlock directory was released after every run).",
+    "run_command_for_test_runner": "for each of: test/letflow/identity/binding_writers_modes_test.exs test/letflow/identity/binding_refusal_test.exs test/letflow/identity/binding_no_row_report_test.exs test/letflow/identity/binding_writers_scan_test.exs test/letflow/identity/enforced_writers_lock_test.exs test/letflow/identity/enforced_writers_invariant_test.exs test/letflow/identity/enforced_audit_actions_test.exs : MIX_ENV=test mix test <file>; hosted CI is the suite."
+  }
+}

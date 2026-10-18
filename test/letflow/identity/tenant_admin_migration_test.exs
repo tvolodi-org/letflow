@@ -128,7 +128,8 @@ defmodule Letflow.Identity.TenantAdminMigrationTest do
                  :members_copied,
                  :platform_admin_binding_removed,
                  :tokens_rewritten,
-                 :tenant_admin_member_count_after
+                 :tenant_admin_member_count_after,
+                 :rows
                ])
 
       assert %{

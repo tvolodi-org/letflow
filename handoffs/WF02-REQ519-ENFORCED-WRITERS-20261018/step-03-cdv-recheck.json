@@ -1,0 +1,93 @@
+{
+  "handoff_id": "d2535519-0519-4c02-9e11-000000000003",
+  "run_id": "WF02-REQ519-ENFORCED-WRITERS-20261018",
+  "workflow_id": "WF-02",
+  "step": "03",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGN-VALIDATOR",
+  "file": "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-03-cdv-recheck.json",
+  "created_at": "2026-10-18T15:46:30Z",
+  "started_at": "2026-10-18T15:46:30Z",
+  "completed_at": "2026-10-18T15:49:30Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [
+      "REQ-519"
+    ],
+    "requirement_text": {
+      "REQ-519": "22 ACs (2e: 1-7, 2f: 8-20, both: 21, 2f: 22 SEC C-1/C-2); depends_on REQ-518, REQ-517. docs/requirements.yaml line 36798."
+    },
+    "source_text": {
+      "GH#2535": "Diff-check of design r1 against CDV step-02 findings G1-G3 and F-1..F-5. No mix, no tests."
+    },
+    "related_handoff_ids": [
+      "d2535519-0519-4c02-9e11-000000000002"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/req519-enforced-writers-and-flag-on.md",
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-01-code-designer.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ519-ENFORCED-WRITERS-20261018"
+  },
+  "task": {
+    "description": "WF-02 step 1b re-check of REQ-519 design r1 (G1, G2, G3, F-1..F-5)."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "G1, G2, G3 and F-1..F-5 resolved in r1. Two tiny inconsistencies fixed directly (rev r1a). One item for the SEC gate: S-1b (mode_under_lock! returns :off for a malformed prefix or a schema with no tenants row). GO for SECURITY-REVIEWER design gate.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "lib/letflow/design/req519-enforced-writers-and-flag-on.md (rev r1a)"
+    ],
+    "independent_verification": {
+      "G1": "3.9a: sync_role_claims_report/3 in Letflow.Identity returns {:ok, user} | {:suppressed, user, summary}; arity-3 export keeps User.t() as a thin wrapper (callers identity.ex 3565/3591/3601 and the pipeline unchanged); items carry ids and a fixed kind only; failure fallback maps to {:ok, original user}. No Identity export pin exists in test/ (only RoleScopeGrants is pinned). T-S13/T-S14 and MU-45/46 present. Resolved.",
+      "G2": "3.6a: in `on` Backfill.repair_tenant skips repair, the :gap_remains check and the scope.backfill_completed audit, returns skipped_enforced: true with the real T9 count; off/shadow unchanged; dry run gains the flag; run/1 adds skipped_enforced_tenants and continues; T-N5a/b/c, MU-43/44 present. Consistent with the as-built repair_tenant (lock A, count, repair loop, gap check, audit only when inserted > 0). Resolved.",
+      "G3": "Grep of lib for the six functions outside role_scope_grants.ex: role_registry.ex 304/534/565/576/789, tenant_admin_migration.ex 349/398, identity.ex 1026, backfill.ex 193 (9 and 104 are doc text), plus the single Backfill.run caller (lib/mix/tasks/letflow.backfill_role_scope_grants.ex:42; the other two `Backfill.run` hits are TenantProvisioning/LoginDirectory modules, excluded by alias resolution). This equals the design's scanned set, so the scan passes on main. Indirect rows (W-g1, W-g2, W-h, M-a..M-f) are checked by T-C2 (named function exists). Resolved; the mix-task caller now has an explicit row W-e2 (r1a).",
+      "F-1": "3.2 now returns :off for a malformed prefix or an absent tenants row and raises only when the read fails; this removes the risk to existing tests with hand-made schema names (role_registry_test.exs, simulation tests), and T-L1 asserts it. No new RoleScopeGrants export (pinned). The relaxation is reasonable: the flag lives only in that row, so no enforced state can exist for such a schema, and the Registration FK guarantees a row for every provisioned tenant. It does weaken the r0 'never default to off' stance, so it is correctly listed as SEC S-1b; INV-1 row updated to match.",
+      "F-2_F-5": "M-f row present; TAM skip also skips legacy-binding removal and token rewrite and is folded into S-1; on_gate integrity test moved to 2f-a (8.3 line); RA-10 present."
+    },
+    "findings": [
+      {
+        "id": "R-1",
+        "severity": "LOW (fixed)",
+        "where": "INV-1 row and W-e row",
+        "problem": "INV-1 still said the mode read 'fails closed on mismatch', contradicting S-1b; the mix-task Backfill.run caller (a scanned site) had no row.",
+        "required_change": "Fixed directly in r1a."
+      },
+      {
+        "id": "R-2",
+        "severity": "FOR SEC",
+        "where": "S-1b",
+        "problem": "mode_under_lock! returning :off for a malformed prefix or missing tenants row is a deliberate fail-open for a schema that cannot be enforced. SEC should rule on it explicitly together with S-1.",
+        "required_change": "SEC design gate."
+      }
+    ],
+    "ac_coverage": {
+      "covered": "All 22 ACs now have design elements; AC 2 typed result closed (3.9a).",
+      "no_implementation_code": "verified for the new sections.",
+      "no_tbd": "verified."
+    },
+    "claims_checked_and_true": [
+      "scan set equals main call sites",
+      "indirect rows covered by T-C2",
+      "Backfill as-built flow matches 3.6a premise",
+      "Identity has no export pin"
+    ],
+    "design_edits_made": [
+      "INV-1 row aligned with S-1b",
+      "W-e row names mix-task caller (W-e2)",
+      "changelog row r1a"
+    ],
+    "open_question_judgement": "No change from step 02; S-1..S-10 plus S-1b ready for SEC.",
+    "orch_actions": [
+      "Proceed to SECURITY-REVIEWER design gate (S-1..S-10, S-1b).",
+      "handoffs/registry.json entry for this run still missing (lint H5)."
+    ],
+    "reroute": null
+  }
+}

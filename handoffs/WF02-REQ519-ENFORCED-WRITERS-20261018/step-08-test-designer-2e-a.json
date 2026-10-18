@@ -1,0 +1,128 @@
+{
+  "handoff_id": "d2535519-0519-4c02-9e11-000000000008",
+  "run_id": "WF02-REQ519-ENFORCED-WRITERS-20261018",
+  "workflow_id": "WF-02",
+  "step": "08",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGNER",
+  "file": "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-08-test-designer-2e-a.json",
+  "created_at": "2026-10-18T16:26:00Z",
+  "started_at": "2026-10-18T16:26:00Z",
+  "completed_at": "2026-10-18T17:53:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-519"],
+    "requirement_text": {},
+    "source_text": {
+      "slice": "REQ-519 slice 2e-a (GH #2535): mode read under lock A, reconcile_binding!/3 result type, mode-aware low-level writers, BindingWriters registry, scope_required refusal and binding.refused, NO-ROW reporting for role_registry, TAM, Backfill, seeding, docs/roles.md remedy. Tests only; nothing under lib/ or priv/ was changed; nothing committed."
+    },
+    "related_handoff_ids": [
+      "d2535519-0519-4c02-9e11-000000000005",
+      "d2535519-0519-4c02-9e11-000000000006",
+      "d2535519-0519-4c02-9e11-000000000007"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/req519-enforced-writers-and-flag-on.md",
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-05-elixir-dev-2e-a.json",
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-06-security-reviewer-code-2e-a.json",
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-07-reviewer-code-2e-a.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ519-ENFORCED-WRITERS-20261018"
+  },
+  "task": {
+    "description": "Write the test spec and test code for REQ-519 slice 2e-a (design r2a section 1 2e-a rows, tests T-B/T-R/T-N/T-C/T-L/T-I/T-A, mutants assigned to 2e-a), REQ-519 ACs 1, 5, 6 and the binding.refused half of 7, the SEC code-gate (step-06) MERGE CONDITIONS F-1, F-2 and C-2, and the REVIEWER (step-07) notes. Per-file runs only under the shared mixlock; no mix letflow.check.test, no full or multi-partition suite; mutants applied in memory only."
+  },
+  "result": {
+    "status": "PASS",
+    "verdict": "TESTS_WRITTEN",
+    "summary": "116 new tests in 7 new files plus one support module, ALL GREEN, run per file, one mix at a time under the mixlock (MIX_ENV=test): binding_writers_modes 50, binding_refusal 10, binding_no_row_report 16, binding_writers_scan 15, enforced_writers_lock 18, enforced_writers_invariant 5 (1 property), enforced_audit_actions 2; the seven files together before the last addition: 115 passed in 96 s, the lock file alone afterwards: 18 passed. mix format applied to every new file. 31 mutants measured in memory: 31 killed (MU-1 is proven by seeded-source scanner tests, not by an in-memory mutant). One mutant (MU-48c) first SURVIVED because the inner repair read the mode again; a test (T-L7f) was added and it is now killed. NOT RUN by instruction: mix letflow.check.test, full or multi-partition suites. No implementation bug found.",
+    "local_issue_id": null,
+    "tests_run": true,
+    "tests_run_scope": "per file, one mix at a time under C:\\Users\\tvolo\\AppData\\Local\\Temp\\claude\\mixlock (taken per run with mkdir, released with rmdir by the same script; another session's lock (owner ELIXIR-DEV-2747) was waited for, never removed); no full-suite and no multi-partition run; no mix letflow.check.test. The warnings-as-errors dead-default check of mix letflow.check.test was NOT run; by inspection no helper added in this step has a default argument (the one candidate, tenant!/2, was written without one).",
+    "files_created": [
+      "test/support/enforced_writers_fixture.ex",
+      "test/letflow/identity/binding_writers_modes_test.exs",
+      "test/letflow/identity/binding_refusal_test.exs",
+      "test/letflow/identity/binding_no_row_report_test.exs",
+      "test/letflow/identity/binding_writers_scan_test.exs",
+      "test/letflow/identity/enforced_writers_lock_test.exs",
+      "test/letflow/identity/enforced_writers_invariant_test.exs",
+      "test/letflow/identity/enforced_audit_actions_test.exs",
+      "test/specs/REQ-519-2e-a.md"
+    ],
+    "files_changed": [],
+    "coverage": {
+      "AC 1": "T-B1..T-B14 each row in off, shadow and on; T-R1..T-R6; T-N1..T-N6; T-C1 (AST completeness scan, multiset, live on seeded sources) and T-C2 (indirect rows exist and still reach a scanned site)",
+      "AC 5": "T-I1 property (writer set in on never increases tenant_wide rows) with two controls; T-I2 off/shadow legacy writers still insert",
+      "AC 6": "T-L2 writer queued first, T-L3 flip queued first (real held lock A, queue order via pg_locks), T-L1 mode_under_lock! contract",
+      "AC 7 (2e-a: binding.refused)": "T-A1 listed through Audit.list_entries, T-A2 no secret; the 2e-b actions are the next slice",
+      "AC 21": "gate commands, not tests; per-file runs listed above",
+      "SEC F-1": "T-L4 Config.Reader evaluation of prod and dev (key unset) and test (true), T-L5 text scan of config/mix/rel and lib",
+      "SEC F-2": "T-C1 + T-C2 incl. the six AC functions plus Backfill.run (entry_points equality with the AC list)",
+      "SEC C-2": "T-L7 (writer, repair, rebind, seeding, Backfill.run_tenant: no binding, no row, no audit entry, never off), T-L7f, T-L8 (removal never reads the mode)",
+      "SEC merge list": "on tests for every writer row incl. reconcile_binding! results through the callers, ensure/repair/move low-level via T-I1/T-I2, upsert_role, rebind, seeding audit key, TAM skip, Backfill skip (no error, no audit entry), dry run via get_mode/1, RoleBackfill sweep, mix task output; 409 body bytes (key set, fixed remedy, no ids); grant_rows only when skipped; binding.refused after the rollback (T-R3) and the inside-transaction/failed-audit variants"
+    },
+    "mutants": {
+      "method": "the edited source of each file is compiled into the test VM (Code.compile_string, anchor required to occur exactly once, ignore_module_conflict) via 'mix do run --no-start -r mut.exs + test <the 7 files>'; nothing on disk changed; each run took ~100 s, bounded by timeout 500; one mix at a time under the mixlock. Counts are failed tests of the 115 (116 for the last three) at the time of the run.",
+      "measured": [
+        {"id": "MU-2", "edit": "ensure_tenant_wide_group_row! ignores the mode", "failed": "2 of 115 (T-B1-style and the T-I1 property)"},
+        {"id": "MU-3", "edit": "repair_group_row! inserts in on", "failed": "7 of 115"},
+        {"id": "MU-4", "edit": "move_group_rows! repairs when zero moved in on", "failed": "4 of 115"},
+        {"id": "MU-5a", "edit": "reconcile_binding! refuses P -> not P in on", "failed": "5 of 115"},
+        {"id": "MU-5b", "edit": "reconcile_binding! refuses P -> P (same group) in on", "failed": "4 of 115"},
+        {"id": "MU-6", "edit": "mode_under_lock! swallows a failed read as :off", "failed": "1 of 115 (T-L1)"},
+        {"id": "MU-6b", "edit": "lenient branch always taken (key ignored)", "failed": "6 of 115"},
+        {"id": "MU-47", "edit": "lenient key defaults to true", "failed": "6 of 115"},
+        {"id": "MU-48a", "edit": "create-or-refuse rescues a raised mode read as off", "failed": "2 of 115"},
+        {"id": "MU-48b", "edit": "P -> P branch rescues a raised mode read as off", "failed": "2 of 115"},
+        {"id": "MU-48c", "edit": "Backfill rescues a raised mode read as off", "failed": "SURVIVED 0 of 115 in the first run (the inner repair reads the mode again, so a tenant WITH a gap still raised); after adding T-L7f: 1 of 116, killed"},
+        {"id": "MU-7", "edit": "mode read BEFORE lock A (stale snapshot stashed in the process dictionary)", "failed": "18 of 115"},
+        {"id": "MU-8a", "edit": "binding.refused never written (post-rollback call dropped)", "failed": "9 of 115"},
+        {"id": "MU-8b", "edit": "binding.refused written INSIDE the rolled-back transaction", "failed": "9 of 115"},
+        {"id": "MU-9", "edit": "refusal audit raise propagates (rescue removed)", "failed": "1 of 115 (T-R4)"},
+        {"id": "MU-10", "edit": "seeding nil branch REFUSES in on", "failed": "5 of 115"},
+        {"id": "MU-11", "edit": "binding_policy accepted from the HTTP body", "failed": "1 of 115 (HTTP injection test; the text scan reads disk so it is not reached by an in-memory mutant)"},
+        {"id": "MU-43", "edit": "Backfill gap check still rolls back in on", "failed": "KILLED: 2 of 115 in run 1, 1 in run 2 (T-N5c / T-N5a family); both runs aborted before the ExUnit summary line (the mutant leaves the sweep halted; the 500 s bound ended the run), so the count is the failures printed before the abort"},
+        {"id": "MU-44", "edit": "Backfill writes scope.backfill_completed in on", "failed": "2 of 115"},
+        {"id": "MU-X1", "edit": "removal reads the mode (REVIEWER F-1 shape)", "failed": "1 of 115 (T-L8)"},
+        {"id": "MU-X2", "edit": "grant_rows always emitted", "failed": "4 of 115"},
+        {"id": "MU-X3", "edit": "seeding audit key rows dropped", "failed": "2 of 115"},
+        {"id": "MU-X4", "edit": "seeding audit key rows always added", "failed": "1 of 115"},
+        {"id": "MU-X5", "edit": "TAM ignores the on mode", "failed": "3 of 115"},
+        {"id": "MU-X6", "edit": "Backfill dry run reads the mode with mode_under_lock! (raises outside a transaction)", "failed": "KILLED: 1 of 115 (T-N5b); run aborted before the summary line, same cause as MU-43"},
+        {"id": "MU-X7", "edit": "refusal case value wrong for routing -> platform", "failed": "3 of 115"},
+        {"id": "MU-X8", "edit": "binding.refused actor nil", "failed": "2 of 115"},
+        {"id": "MU-X10", "edit": "rebind with zero rows moved reports :moved instead of skipped (silent skip)", "failed": "2 of 115"},
+        {"id": "MU-X11", "edit": "the constant NO-ROW log line removed (silent skip)", "failed": "3 of 115"},
+        {"id": "MU-R1", "edit": "registry row W-a state changed from refused to no_row", "failed": "1 of 115"},
+        {"id": "MU-R2", "edit": "registry site of delete_group changed (stale row, unregistered real site)", "failed": "4 of 115"}
+      ],
+      "summary": "31 mutants: 31 killed, 0 survive (MU-48c survived once and was killed after T-L7f was added). MU-1 (a new unregistered call site) is proven live by the seeded-source tests of the scanner (unregistered call found and the comparison fails; a stale row reported; a dropped row makes the real site unregistered), not by an in-memory mutant, because the scan reads lib/ from disk.",
+      "not_measured": "the binding_policy and lenient-key text scans and the T-C1 scan of real lib/ read from disk, so an in-memory mutant cannot reach them; their liveness is the seeded-source tests and the HTTP injection test."
+    },
+    "implementation_findings": [
+      "NO IMPLEMENTATION BUG FOUND: every test is green against the working tree and every mutant is killed.",
+      "OBS-1: Backfill.run_tenant reads the mode at the sweep level AND the inner repair_group_row! reads it again, so the sweep-level read is only observable for a tenant with no gap; T-L7f pins it. Not a defect.",
+      "OBS-2: a Backfill mutant that halts the sweep (MU-43, MU-X6) leaves the following tests of the same file running into the 500 s bound in this harness; irrelevant for the shipped code, noted for anyone re-running mutants.",
+      "OBS-3 (environment): the scratchpad directory is shared with earlier sessions; mut.exs, muts_defs.exs, runmut.sh and mixrun.sh in it were (over)written by this step.",
+      "OBS-4: AC 6's flip cannot be driven through ScopeEnforcement.flip/4 (on is unsettable until 2f); T-L2/T-L3 use a transaction that does flip/4's core (lock A, read the facts, set the stored mode) with a real held lock A. 2f-b's end-to-end suite should repeat the pair through the real flip."
+    ],
+    "artifacts_out": [
+      "test/specs/REQ-519-2e-a.md",
+      "test/support/enforced_writers_fixture.ex",
+      "test/letflow/identity/binding_writers_modes_test.exs",
+      "test/letflow/identity/binding_refusal_test.exs",
+      "test/letflow/identity/binding_no_row_report_test.exs",
+      "test/letflow/identity/binding_writers_scan_test.exs",
+      "test/letflow/identity/enforced_writers_lock_test.exs",
+      "test/letflow/identity/enforced_writers_invariant_test.exs",
+      "test/letflow/identity/enforced_audit_actions_test.exs"
+    ],
+    "run_command_for_test_runner": "for each of the seven test files above: MIX_ENV=test mix test <file> (each 1 to 60 s; the modes file ~45 s); then the neighbours test/letflow/identity/role_scope_grants_writers_test.exs test/letflow/identity/role_scope_grants_backfill_test.exs test/letflow/identity/tenant_admin_migration_test.exs test/letflow/identity/gh2547_ta_audit_paths_test.exs test/letflow/api/scope_grants_route_walk_test.exs; hosted CI is the suite.",
+    "implementation_written": false
+  }
+}

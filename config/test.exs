@@ -324,6 +324,12 @@ config :letflow, :modules, [
 # a module id listed here; no production configuration sets it (scan test T-D8).
 config :letflow, :scope_declaration_unmanaged_modules, ["fixture_scoped"]
 
+# REQ-519 2e-a (SEC C-1): the ONLY place this key may be set. Letflow.ScopeEnforcement.mode_under_lock!/1
+# RAISES in production for a malformed prefix or a tenant with no `tenants` row; with this key it
+# answers :off for those two cases only, for tests that run a binding writer against a
+# hand-renamed schema (role_scope_grants_backfill_test T-B7). No production configuration sets it.
+config :letflow, :scope_mode_lenient_for_tests, true
+
 # REQ-439: explicit test default -- no proxy is trusted, so Letflow.Plugs.ClientIp
 # never honours X-Real-IP unless a test passes :trusted_proxies as plug opts.
 config :letflow, Letflow.Plugs.ClientIp, trusted_proxies: []

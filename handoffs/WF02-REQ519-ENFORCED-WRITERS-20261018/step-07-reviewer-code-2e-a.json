@@ -1,0 +1,48 @@
+{
+  "handoff_id": "d2535519-0519-4c02-9e11-000000000007",
+  "run_id": "WF02-REQ519-ENFORCED-WRITERS-20261018",
+  "workflow_id": "WF-02",
+  "step": "07",
+  "from_agent": "ORCH",
+  "to_agent": "REVIEWER",
+  "file": "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-07-reviewer-code-2e-a.json",
+  "created_at": "2026-10-18T16:22:37Z",
+  "started_at": "2026-10-18T16:22:37Z",
+  "completed_at": "2026-10-18T16:22:37Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-519"],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "REVIEWER code gate for REQ-519 slice 2e-a (GH #2535), uncommitted tree of feature/WF02-REQ519-ENFORCED-WRITERS-20261018. Read-only; no mix run; no file edited."
+    },
+    "related_handoff_ids": ["d2535519-0519-4c02-9e11-000000000005", "d2535519-0519-4c02-9e11-000000000006"],
+    "artifacts_in": [
+      "lib/letflow/design/req519-enforced-writers-and-flag-on.md",
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-05-elixir-dev-2e-a.json",
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-06-security-reviewer-code-2e-a.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ519-ENFORCED-WRITERS-20261018"
+  },
+  "task": {
+    "description": "Idiom, supervision, scope-creep, report-sibling, rows-state, lenient-key, registry, forced-test-edit, HTTP, docs and decision-record gate for REQ-519 2e-a."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "PASS_WITH_FINDINGS. No blocker, no required change before TEST-DESIGNER. Static review only (nothing compiled or run). 1 IDIOM: no process, spawn, GenServer or supervisor added; InstanceSupervisor untouched; decision 0045 (plain transactional context) consistent. Transaction shapes follow the repo: errors leave Repo.transaction via Repo.rollback with a tagged tuple, the refusal audit is written AFTER the rollback in its own transaction (TenantAdminGuard.refuse precedent), BindingRefusal.refuse/3 is a def-level rescue with a constant log that still returns the refusal, and it no-ops inside a transaction. Raise vs return is coherent: an unavailable mode RAISES (ModeUnavailableError, constant message); expected business outcomes are returned tuples ({:refused,:scope_required}, {:skipped,:enforced}). do_reconcile/4 is multi-clause with the mode as last argument, no hand-rolled case-state machine. Specs read accurate. 2 SUPERVISION: nothing added or collapsed. 3 SCOPE vs design r2a (2e-a row, 3.3 to 3.6): every changed file maps to a design item. binding_policy is internal to role_registry.ex only. No behaviour, macro or generic plumbing beyond the design. The :moved member of rows_state is an addition to the design triple (F-2). 4 REPORT SIBLINGS: upsert_role/4, seed_default_platform_role_groups/1, rebind_role/4 are thin wrappers over upsert_role_report/4, seed_default_platform_role_groups_report/1, rebind_role_report/4, which hold the single core. No duplication. Nit: rebind_role/4 lost its %{actor_id:, reason:} head match, so a malformed attrs now raises FunctionClauseError from the report function (same exception, different frame). 5 ROWS STATE: :covered is returned for the P->P same-group repair even when reconcile_binding! inserted the row (the result collapses :inserted and :covered to :ok), and :written vs :covered for nil->P and kind changes is chosen by kind, not by an observed write. Only :skipped_enforced is exact, and it is the only value that leaves the module (router emits grant_rows only for it; seeding keys only on it), so behaviour is right but the names claim more than they know. Fix (F-2/TS-1): collapse to what is true, e.g. :in_place | :skipped_enforced (rebind :moved folds in), or keep four names and state in the typedoc that they are by-intent, not observed. 6 LENIENT KEY: needed by exactly one test (role_scope_grants_backfill_test T-B7, run_tenant/2 on a hand-renamed schema; the audit failure it pins IS the invalid schema name, so dropping the rename drops the test). One reader (scope_enforcement.ex unregistered_mode!/0), one setter (config/test.exs), default false, constant log line, documented at both ends. Acceptable for 2e-a. Retire later by rewriting T-B7 around a renamed schema that keeps a tenant_<32 hex> name registered, or a mode stub (F-3); until then SEC F-1 (scan plus Config.Reader evaluation) is the pin. 7 BINDINGWRITERS: data only, 13 rows, entry_points/0 matches the design six. Dead until TEST-DESIGNER writes the T-C1 scan and T-C2 indirect check, which is the design split (SEC F-2); AC 1 requires it, so not scope creep. Nits (F-6): the index field disambiguates two call sites in one function and is fragile to reordering (scan should key on entry-point call plus function where it can); indirect/6 hardcodes index 0. 8 ensure_tenant_wide_group_row!/3 now raises ArgumentError outside a transaction. Blast radius by grep over lib and test: callers are RoleScopeGrants internals, test/support/token_mint_fixture.ex:94 (inside Repo.transaction), test/letflow/identity/role_scope_grants_test.exs:239 (inside in_tx/2) and the scope_grants_route_walk_test export pin (arity unchanged). No caller outside a transaction. Safe. 9 FORCED TEST EDITS (3 files, diffs read): gh2547_ta_audit_paths_test (RoleBackfill.run key set gains :skipped_enforced, sorted equality kept): forced. role_scope_grants_backfill_test (two exact-equality tenant reports gain skipped_enforced: false): forced, not weakened. tenant_admin_migration_test (report key list gains :rows): forced. None weakens. 10 HTTP (routers/identity.ex +27/-4): small. One 409 clause with a fixed module-attribute remedy, a two-clause put_grant_rows/2, report calls swapped in. F-5: the @spec role_map/1 line is now separated from defp role_map by the new put_grant_rows comment and clauses (still binds by name/arity, no warning, but reads as put_grant_rows spec); move put_grant_rows above the spec. The remedy is prose-duplicated in docs/roles.md in different words (docs describe, router constant is the wire text); fine, the TEST-DESIGNER 409 body test should pin the wire text once. Rebind route correctly has no scope_required clause (rebind never refuses). 11 DOCS roles.md: new section 'Creating role bindings while scope enforcement is on' before Matrix, four bullets, accurate against code and SEC, no run-on. 12 MIX TASK: backfill task adds one skipped_enforced line per tenant with the gap count, no new id or name; check_role_scope_grants_writers gains a moduledoc paragraph only. 13 DECISION RECORDS: 0051 and 0045 consistent; no decision-record disagreement. 14 ANTI-PATTERNS: no entry hit. Literals: 'skipped_enforced' string at role_registry rows_key and routers/identity put_grant_rows; scope_required tag at role_scope_grants, role_registry (two sites), BindingRefusal and the router. Small closed vocabularies; shared owner not warranted yet (F-7, watch). 15 STALE TEXT: none found, none edited. FINDINGS (all non-blocking): F-1 reconcile_binding!/3 reads the mode on every call including pure removals (P->nil, P->routing in upsert, TAM remove_legacy_binding), so an unreadable mode fails a removal that the design says behaves the same in every mode; read the mode lazily only on the widening and repair branches, or document fail-closed removal. F-2 rows_state naming. F-3 lenient key retirement. F-5 router spec placement. F-6 BindingWriters index field. F-7 literals watch. F-8 dry_run_tenant_report and skipped_enforced_tenants declare Ecto.UUID.t() | nil for tenant_id; say why nil is possible or tighten.",
+    "type_safety_findings": [
+      {"id": "TS-1", "title": "rows_state :covered/:written/:moved are by-intent labels; only :skipped_enforced is observed", "suggestion": "two-value type :in_place | :skipped_enforced; ORCH files under docs/issues/ tagged type-safety via FINDING per WORK_BOARD section 7"},
+      {"id": "TS-2", "title": "converge_existing_role and move_role case on reconcile_binding! results with partial clauses (the impossible {:refused,_} or {:skipped,_} is left to a runtime CaseClauseError)", "suggestion": "split reconcile_binding! into widening and non-widening entry points, or a result type per transition, so impossible results are unrepresentable"}
+    ],
+    "local_issue_id": null,
+    "artifacts_out": ["handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-07-reviewer-code-2e-a.json"],
+    "diagnosis_confirmed": true,
+    "implementation_written": false,
+    "classification": "REVIEW_PASS_WITH_FINDINGS"
+  }
+}

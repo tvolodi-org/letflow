@@ -1,0 +1,63 @@
+{
+  "handoff_id": "d2535519-0519-4c02-9e11-000000000001",
+  "run_id": "WF02-REQ519-ENFORCED-WRITERS-20261018",
+  "workflow_id": "WF-02",
+  "step": "01",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGNER",
+  "file": "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-01-code-designer.json",
+  "created_at": "2026-10-18T15:00:00Z",
+  "started_at": "2026-10-18T15:00:00Z",
+  "completed_at": "2026-10-18T15:57:45Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [
+      "REQ-519"
+    ],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2535": "REQ-519 slices 2e (enforced-tenant writers) and 2f (flag on settable last). Decision 0051 D1, D8, D11, D12, Rollout 4, Amendment 1. SEC conditions C-1 and C-2 (AC 22). Design only."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "docs/requirements.yaml",
+      "docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md",
+      "docs/agents/instructions/security-invariants.md",
+      "lib/letflow/design/req517-scoped-grants-admin-plane.md",
+      "lib/letflow/design/req518-compiler-scope-filter.md",
+      "lib/letflow/scope_enforcement.ex",
+      "lib/letflow/identity/role_scope_grants.ex",
+      "lib/letflow/identity/role_registry.ex",
+      "lib/letflow/identity/tenant_admin_migration.ex",
+      "lib/letflow/identity.ex",
+      "lib/letflow/api/route_scope.ex",
+      "lib/letflow/api/scope.ex",
+      "lib/letflow/api/scope/shadow_evidence.ex",
+      "lib/letflow/routers/tenant_scope_enforcement.ex"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ519-ENFORCED-WRITERS-20261018"
+  },
+  "task": {
+    "description": "WF-02 step 1 design for REQ-519 (GH #2535 slices 2e and 2f). Design only, no implementation code, no mix."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "Wrote lib/letflow/design/req519-enforced-writers-and-flag-on.md (design only). Proposed four sub-PRs: 2e-a (mode read under lock A, reconcile result type, writer registry and AST scan, scope_required refusal and binding.refused, NO-ROW reports), 2e-b (IdP sync suppression with a no-widening rule, pending_scope dedup from stored data, scope_delta on group_member audits), 2f-a (OnGate, ScopedApprovers, ShadowWindow, counts_by_day, Audit.latest_matching, RefusedAudit; flag still unsettable) and 2f-b (parse_mode on, transition table, interactive tenant-wide TENANT_ADMIN authority, C-1 walk test, end-to-end suite). Findings: AC 1 misses the seeding and TAM nil->P writers (seeding refusal would halt the all-tenant RoleBackfill sweep); audit has no action filter; counts_between cannot give per-day totals so counts_by_day is added; T0 comes from the audit chain; check_reason re-key kept minimal; AC 8 narrows PUT (token and platform-tenant PLATFORM_ADMIN lose it); AC 10 scoped-approver definition over-blocks relative to the F1 exemption; C-1 literal is already satisfied on main by the 518 AC 21 rulings (#2817), the wider tenant-level read gap is a documented census with no reclassification in 519; no tasks.scope_node_id writer needed; on is safe but not useful in production until module scope declarations and the task scope writer exist. 9 requirement amendments RA-1..RA-9, 10 SEC rulings S-1..S-10, 42 mutants. REWORK r1 (CDV FAIL step-02): G1 typed suppressed sync result via new Identity.sync_role_claims_report/3 sibling (existing export unchanged, no new RoleScopeGrants export); G2 Backfill in an enforced tenant skips repair, gap check and audit without error, dry-run and sweep report skipped_enforced; G3 completeness scan narrowed to the six AC functions plus Backfill.run, registry scanned rows by call site plus indirect rows checked by T-C2; lows: mode_under_lock! returns :off for a schema without a tenants row, copy_members M-f, TAM skip also skips legacy removal and token rewrite (S-1), integrity test in 2f-a, RA-10; mutants MU-43..MU-46. REWORK r2 (SEC design gate PASS_WITH_FINDINGS step-04): C-1 mode_under_lock! raises in production for malformed prefix or missing tenants row, lenient :off only behind a test-only config key (replaces S-1b); C-2 raised mode read rolls back, sweeps report that tenant; C-3 group-bound roles read after lock A, routing roles never widen; C-4 gate fact 4 counts interactive explicit admins only (no token owners, no flagged service principals); C-5 constant log line on flip 500; C-6 platform-tenant-on test; C-7 ruling ids, per-PR SEC verdict list, ON_IN_PRODUCTION text in sections 6 and 4.10; folded S-1 audit key, S-3 behaviour-change list, S-5 scans, RA-1 reachability, RA-6 before 2f-b, advisories A-1..A-8; mutants MU-47..MU-53.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "lib/letflow/design/req519-enforced-writers-and-flag-on.md"
+    ],
+    "open_questions": [
+      "SEC rulings S-1..S-10 requested at the design gate (design section 11)",
+      "RA-1..RA-9 requirement amendments for REQ-ANALYST (design section 13), RA-5 sub-PR split needs ORCH decision",
+      "OQ-1 refusal body shape, OQ-3 TAM skip, OQ-4 active-only scoped approvers, OQ-6 informational scope-declaration count",
+      "handoffs/registry.json has no entry for this run id (lint H5), ORCH to add"
+    ],
+    "implementation_written": false,
+    "classification": "DESIGN"
+  }
+}

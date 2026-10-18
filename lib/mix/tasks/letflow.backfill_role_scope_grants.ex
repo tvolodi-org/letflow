@@ -68,6 +68,20 @@ defmodule Mix.Tasks.Letflow.BackfillRoleScopeGrants do
     end)
   end
 
+  # REQ-519 2e-a: an enforced (`on`) tenant is skipped by design; its gap is reported.
+  defp print_tenant(%{skipped_enforced: true} = tenant) do
+    gap =
+      Map.get(
+        tenant,
+        :bindings_without_row_after,
+        Map.get(tenant, :bindings_without_row_before, 0)
+      )
+
+    Mix.shell().info(
+      "  tenant #{tenant.tenant_id}: skipped_enforced (#{gap} binding(s) without a row)"
+    )
+  end
+
   defp print_tenant(%{bindings_without_row_before: gap} = tenant) when gap > 0 do
     Mix.shell().info(
       "  tenant #{tenant.tenant_id}: #{gap} binding(s) without a row " <>

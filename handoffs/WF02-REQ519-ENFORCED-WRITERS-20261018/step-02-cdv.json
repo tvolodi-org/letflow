@@ -1,0 +1,163 @@
+{
+  "handoff_id": "d2535519-0519-4c02-9e11-000000000002",
+  "run_id": "WF02-REQ519-ENFORCED-WRITERS-20261018",
+  "workflow_id": "WF-02",
+  "step": "02",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGN-VALIDATOR",
+  "file": "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-02-cdv.json",
+  "created_at": "2026-10-18T15:39:28Z",
+  "started_at": "2026-10-18T15:39:28Z",
+  "completed_at": "2026-10-18T15:50:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [
+      "REQ-519"
+    ],
+    "requirement_text": {
+      "REQ-519": "22 ACs (2e: 1-7, 2f: 8-20, both: 21, 2f: 22 SEC C-1/C-2); depends_on REQ-518, REQ-517. docs/requirements.yaml line 36798."
+    },
+    "source_text": {
+      "GH#2535": "Hard gate on lib/letflow/design/req519-enforced-writers-and-flag-on.md r0. Read-only for code; small design-doc fixes allowed and recorded. No mix, no test suite."
+    },
+    "related_handoff_ids": [
+      "d2535519-0519-4c02-9e11-000000000001"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/req519-enforced-writers-and-flag-on.md",
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-01-code-designer.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ519-ENFORCED-WRITERS-20261018"
+  },
+  "task": {
+    "description": "WF-02 step 1b gate of the REQ-519 design (r0) against the 22 ACs, decision 0051, security-invariants.md and the as-built REQ-517/518 code. Read-only except small design-doc fixes."
+  },
+  "result": {
+    "status": "FAIL",
+    "verdict": "FAIL",
+    "summary": "FAIL on three required changes: G1 AC 2's 'typed suppressed result' of the sync has no design element; G2 W-e (Backfill) in an `on` tenant hits the as-built :gap_remains rollback and halts the whole sweep, the defect the design fixes for seeding; G3 the writer-registry and scan semantics are inconsistent (definition sites vs call sites) with the widened entry-point set, so the scan would fail on main and cannot be built unambiguously. Everything else verified: AC 1 does miss two writers (seeding nil branch via ensure_platform_role_binding -> upsert_role, and TenantAdminMigration.ensure_binding(nil, ...) -> upsert_role); C-1 is already met on main; 115 default tenant_wide routes and none under /me or /help; no module manifest declares scope; flip/4, parse_mode, lock order and audit claims true. Small defects fixed directly in the design (rev r0a).",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "lib/letflow/design/req519-enforced-writers-and-flag-on.md (edited in place, rev r0a)"
+    ],
+    "independent_verification": {
+      "code_anchors": "role_registry.ex reconcile_binding! callers 304, 534, 565, 576, 789; tenant_admin_migration.ex 349, 398; identity.ex delete_group_principal_rows! 1026; scope_enforcement.ex parse_mode 91-93, flip/4 141, do_flip 173, enable_checks! 202, @modes [:off, :shadow] line 48; identity.ex add_group_member 890, remove_group_member 1158, delete_group 1006, sync_role_claims_from_token 1539, lock_tenant_admins! 1487, count_explicit_tenant_wide_admins 1333: all match design F1.",
+      "ac1_missing_writers": "ensure_platform_role_binding/2 nil branch calls upsert_role/4 -> insert_role -> reconcile_binding!(nil, role); TenantAdminMigration.ensure_binding(nil, schema) (line 365) calls RoleRegistry.upsert_role. Both absent from AC 1 (a)-(f). F2 true.",
+      "halting_sweeps": "RoleBackfill.run uses Enum.reduce_while and halts on the first {:error, _}: true. RoleScopeGrants.Backfill.process_registration halts the same way and repair_tenant rolls back :gap_remains (G2).",
+      "sync_marker": "identity.ex stamps role_claims_synced_at whenever group_ids != [] (Multi.update inside `if group_ids != []`), not only when a membership was written: design F5 misdescribed it; corrected in the design.",
+      "c1_route_walk": "test/fixtures/route_scope/tenant_wide_default_routes.txt has 115 lines, none under /me or /help; route_scope.ex @self_service_routes lists the three routes as :self_service with rulings 0051-A7, SEC-518-R2-modules, SEC-518-R2-help; @self_service_routes_allowed? true. C-1 met on main.",
+      "scope_declarations": "grep of lib and priv: only catalog.ex, manifest_hash.ex, module.ex, entities/scope_declaration.ex name the key; config/test.exs:325 sets the unmanaged allowlist (fixture_scoped) only in test.",
+      "audit": "Audit.list_entries filters are from, to, actor_id, resource_id, resource_type, cursor: no action filter (F7 true); index #3 is (resource_type, resource_id, timestamp desc, id desc).",
+      "shadow_evidence": "counts_between/3 returns ONE sum per metric over a range; no reasons/0 accessor exists (design adds one); flush/0 exists; default retention 90. F11/F17 true.",
+      "authority": "Routers.Identity handle_service_principal uses private require_oidc/1 and require_tenant_admin_tenant_wide/1 (lines 748-770); TenantScopeEnforcement PUT uses with_tenant_wide only; permission_scope/1 returns :platform for an atom not in @permission_scope (F8 true).",
+      "tenant_admin_guard": "TenantAdminGuard.refuse/4 writes after the rollback, logs a constant line inside a transaction and still returns the error: the BindingRefusal pattern is accurate.",
+      "census": "Snapshot has 8 exam lines (design said 12; fixed); /entities/definitions, /tasks, /me, /help are not among the 115 (declared or self-service), so those census rows are class notes, not snapshot lines.",
+      "lock_order": "REQ-517 design 3.5 rank table A < R < G < N < B < T < S < C matches design 3.7 and 4.1; writers never lock the tenants row; flip takes A, T, S; the plain mode read after A is sound under READ COMMITTED.",
+      "not_run": "mix and tests not run, per instruction."
+    },
+    "findings": [
+      {
+        "id": "G1",
+        "severity": "BLOCKING",
+        "where": "AC 2 vs design 3.9 and 3.1",
+        "problem": "AC 2 requires that the suppressed sync 'returns a typed suppressed result'. The design says the public signature of sync_role_claims_from_token/3 is unchanged (returns User.t()) and nowhere defines a typed suppressed result (grep 'typed' in the design: no hit). The AC element has no design element, and no RA amendment withdraws it.",
+        "required_change": "Specify the result, e.g. a NEW sibling sync_role_claims_from_token_report/3 returning {User.t(), %{suppressed: [%{group_id, role, event: :grant_sync_suppressed | :pending_scope | :deduped}], memberships_added: non_neg_integer()}} (ids and atoms only, no claim values), with the arity-3 function delegating and still returning the user; add the test ids to T-S1/T-S6 and the AC 2/3 rows of the AC map. Or drop the clause through an RA amendment for REQ-ANALYST."
+      },
+      {
+        "id": "G2",
+        "severity": "BLOCKING",
+        "where": "design 3.3/3.4 W-e and 3.5 Backfill row",
+        "problem": "W-e says Backfill is NO-ROW per tenant with skipped_enforced, but the as-built RoleScopeGrants.Backfill.repair_tenant/2 runs repair_group_row! for every bindings_without_row entry and then Repo.rollback(:gap_remains) when bindings_without_row_count != 0; run_tenant returns {:error, :gap_remains} and process_registration halts the WHOLE sweep with {:backfill_failed, tid, :gap_remains}. In an `on` tenant with a zero-row binding (exactly the NO-ROW case) repair returns {:skipped, :enforced}, the gap remains, and the sweep halts: the availability defect F2 identifies for RoleBackfill, reproduced in the writer AC 1 row (e) names. The design does not say how the :gap_remains check, the halt, the scope.backfill_completed audit and the dry-run report behave for an enforced tenant.",
+        "required_change": "Specify repair_tenant/2 for mode `on`: read mode_under_lock! right after lock_tenant_admins!; for `on` skip the repair loop and the :gap_remains check, return {:ok, %{skipped_enforced: true, group_rows_inserted: 0, bindings_without_row_after: <real count>, ...}}, state the audit (none, or a named one), and let the sweep continue; state the dry-run report for an `on` tenant; add a test that a two-tenant sweep with the first tenant `on` and gapped still repairs the second tenant and returns ok."
+      },
+      {
+        "id": "G3",
+        "severity": "BLOCKING_AMBIGUITY",
+        "where": "design 3.4 completeness scan and registry",
+        "problem": "Registry rows are keyed by DEFINITION site for the membership rows (M-a..M-e name Identity.add_group_member/3, remove_group_member/3, sync_role_claims_from_token/3 as the site) while the scan records CALL sites ({file, enclosing def, nth call}) of an entry-point set that RA-1 widened to upsert_role, rebind_role, seed_default_platform_role_groups, add_group_member, remove_group_member, sync_role_claims_from_token and bind_on_login, and requires set equality with the registry. Grep of lib shows call sites no row names: tenant_onboarding.ex:201 and role_backfill.ex:161 (seeding), role_registry.ex:154 and :313 and tenant_admin_migration.ex:365 (upsert_role), routers/identity.ex 260/264/688/863/1072/1087/1148, identity.ex 3565/3591/3601 (sync), plugs/auth_pipeline.ex:372 (bind_on_login), pending_admin_grants.ex:591 (add_group_member). As written the scan fails on main and an implementer cannot tell whether to add ~20 rows or narrow the entry-point set. The AC itself requires only the six reconcile-level functions plus Backfill.run.",
+        "required_change": "Pick one and state it: (a) scan = the AC's six entry points by CALL site, rows keyed by call site (the 5+2 reconcile sites, identity.ex:1026, backfill.ex:193, the mix task), with the upsert-level and membership writers classified in a separate NON-scanned table; or (b) keep the wider set and enumerate every call site as a row, or state a callee-row rule under which callers of a registered callee are exempt. Define 'site' once and make the M- and W-h rows follow it."
+      },
+      {
+        "id": "F-1",
+        "severity": "LOW",
+        "where": "design 3.2 and 8.1",
+        "problem": "mode_under_lock!/1 raises when the prefix is not tenant_<32 hex> or the tenants row is absent, and the four RoleScopeGrants writers now call it. Every provisioned tenant has a tenants row (FK from the registration; TenantFixture inserts one), but an existing test calling a binding writer with a hand-made schema would now raise, and AC 1 requires T-W1..T-W14 to pass unedited. scope_grants_route_walk_test.exs:366 pins RoleScopeGrants.__info__(:functions) exactly.",
+        "required_change": "State in 3.2 that ELIXIR-DEV greps test/ for binding-writer calls with a non-provisioned prefix, and that RoleScopeGrants gains no new public function. No design change otherwise."
+      },
+      {
+        "id": "F-2",
+        "severity": "LOW",
+        "where": "design 3.4 membership rows",
+        "problem": "TenantAdminMigration.copy_members (tenant_admin_migration.ex:382) inserts GroupMember rows directly: a membership writer in no M- row and invisible to an entry-point scan. It is covered by the 3.6 whole-tenant skip but not classified.",
+        "required_change": "Add row M-f (UNCHANGED in off/shadow, unreachable in `on` because the tenant is skipped)."
+      },
+      {
+        "id": "F-3",
+        "severity": "LOW",
+        "where": "design 3.6",
+        "problem": "Skipping an `on` tenant in TenantAdminMigration also skips remove_legacy_binding and rewrite_tokens, so a PLATFORM_ADMIN legacy binding and tokens carrying it stay. Safe direction, but not stated, and S-1 mentions only the copy.",
+        "required_change": "Add one sentence and include it in S-1."
+      },
+      {
+        "id": "F-4",
+        "severity": "LOW",
+        "where": "design section 1 vs 8.4",
+        "problem": "The integrity on_gate block is assigned to 2f-a in section 1 while its endpoint test sat in the 2f-b list. Note added to 8.4.",
+        "required_change": "ELIXIR-DEV keeps the on_gate key and its test in 2f-a."
+      },
+      {
+        "id": "F-5",
+        "severity": "LOW",
+        "where": "AC 16 wording",
+        "problem": "AC 16 asks for 'totals excluding other rows' on query/export/cursor pages; main has no total there (518 F2; design 4.8 says so). The design reads it as aggregate counts and buckets, which is right, but no RA records the mismatch.",
+        "required_change": "Add RA-10: AC 16 'totals' means aggregate counts and buckets."
+      }
+    ],
+    "ac_coverage": {
+      "covered": "1,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22 each map to a design element, section and test ids (sections 7 and 8). AC 2 is covered EXCEPT the 'typed suppressed result' clause (G1). AC 1 W-e is incomplete for the sweep (G2); AC 1's completeness scan is specified inconsistently (G3).",
+      "no_implementation_code": "verified: signatures, type shapes and prose only; no function bodies.",
+      "no_tbd": "verified: open items are OQ-1..OQ-9 with built defaults; no TBD or deferral language in the contract text.",
+      "amendments": "RA-1..RA-9 consistent and each justified: RA-1 (missing writers verified), RA-3 (AC 8 narrowing follows the AC text and REQ-517 AC 12), RA-4, RA-7, RA-8, RA-9 (description corrected), RA-2 (AC literal built; over-block vs the F1 exemption of roles.md lines 66-68 acknowledged, safe direction), RA-5 (four sub-PRs, 518 precedent, sizing sensible, 2f-a unreachable until 2f-b stated). Add RA-10 (F-5)."
+    },
+    "claims_checked_and_true": [
+      "F1 line anchors",
+      "F2 two missed writers",
+      "F3 reconcile_binding! returns :ok and callers match :ok =",
+      "F4 a group can bind several roles",
+      "F6 group_member.* have roles_gained/roles_lost, no scope delta",
+      "F7 no action filter",
+      "F8 permission_scope trap",
+      "F9 stage-1 PUT admits tokens",
+      "F10 off -> off without reason is reason_required (scope_enforcement_test.exs:434)",
+      "F11 counts_between single sum",
+      "F12 no function for T0",
+      "F13 C-1 already met",
+      "F14 no tasks.scope_node_id production writer (scan test exists)",
+      "F15 no manifest declares scope",
+      "F17 retention default 90",
+      "S-1..S-10 are precise questions with stated defaults",
+      "42 mutants MU-1..MU-42 each have a killer test id (after the r0a fixes)",
+      "lock-order claims"
+    ],
+    "design_edits_made": [
+      "F5 description corrected to the as-built stamp condition",
+      "census: exam lines 12 -> 8",
+      "test id collision T-W1..T-W4 -> T-RW1..T-RW4 (8.4 and AC 22 map)",
+      "T-E16 defined in 8.3",
+      "T-B1..T-B14 mapped to registry order; MU-5 killers corrected",
+      "integrity test PR assignment note in 8.4",
+      "changelog row r0a"
+    ],
+    "open_question_judgement": "OQ-1 acceptable (matches the stage-1 shape). OQ-2, OQ-4, OQ-5, OQ-7, OQ-8, OQ-9 defaults acceptable. OQ-3 acceptable once the F-3 sentence is added. OQ-6 not built: acceptable. S-1..S-10 precise enough for SEC; add the TAM legacy-binding and token skip (F-3) to S-1.",
+    "orch_actions": [
+      "Route to CODE-DESIGNER with G1, G2, G3 and F-1..F-5; the small edits are already in the file (rev r0a).",
+      "After the redesign a diff-check CDV pass suffices (G1 result shape and test ids, G2 repair_tenant behaviour for `on`, G3 scan definition and tables), then SECURITY-REVIEWER design gate with S-1..S-10.",
+      "handoffs/registry.json has no entry for run WF02-REQ519-ENFORCED-WRITERS-20261018 (lint H5); add it."
+    ],
+    "reroute": "CODE-DESIGNER"
+  }
+}

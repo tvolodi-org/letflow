@@ -554,7 +554,13 @@ defmodule Letflow.Identity.Gh2547TaAuditPathsTest do
 
       assert {:ok, result} = RoleBackfill.run()
 
-      assert Enum.sort(Map.keys(result)) == [:role_claims_markers_reset, :seeded, :unchanged]
+      assert Enum.sort(Map.keys(result)) == [
+               :role_claims_markers_reset,
+               :seeded,
+               :skipped_enforced,
+               :unchanged
+             ]
+
       assert result.seeded == [seeded.tenant_id]
       assert result.unchanged == [unchanged.tenant_id]
       assert result.role_claims_markers_reset == 3

@@ -35,6 +35,8 @@ defmodule Letflow.ScopeEnforcement do
 
   import Ecto.Query
 
+  require Logger
+
   alias Letflow.Audit
   alias Letflow.Identity
   alias Letflow.Identity.RoleScopeGrants
@@ -91,6 +93,74 @@ defmodule Letflow.ScopeEnforcement do
   def parse_mode("off"), do: {:ok, :off}
   def parse_mode("shadow"), do: {:ok, :shadow}
   def parse_mode(_other), do: {:error, :invalid_mode}
+
+  defmodule ModeUnavailableError do
+    @moduledoc """
+    Raised by `Letflow.ScopeEnforcement.mode_under_lock!/1` when a tenant's mode cannot be
+    resolved (the read failed, the prefix is not a tenant schema name, or the tenant has no
+    `tenants` row). No fields and a constant message: nothing about the tenant leaks (INV-4).
+    """
+    defexception message: "scope enforcement mode unavailable"
+  end
+
+  @doc """
+  The tenant's mode as seen by a WRITER (REQ-519 2e-a, design section 3.2). Must run inside a
+  transaction that already holds the tenant admin lock (lock A,
+  `Letflow.Identity.lock_tenant_admins!/1`): `flip/4` takes A first and commits the new mode
+  while holding it, so after a writer acquires A the committed value is final for the writer's
+  transaction. One plain primary-key read of the public `tenants` row, no row lock (no new
+  lock rank). Ownership of lock A is documented, not probed (an advisory-lock probe would
+  itself change lock state).
+
+  Raises `ArgumentError` outside a transaction. RAISES `ModeUnavailableError` when the read
+  fails, the prefix is not a `tenant_<32 hex>` schema name, or the tenant has no `tenants` row;
+  it never answers `:off` for those (INV-8: no fail-open default on a flag read; the only
+  exception is the test-only application key `:scope_mode_lenient_for_tests`, set in
+  `config/test.exs` ONLY, which answers `:off` for the last two cases). The raise
+  propagates out of the writer's transaction, which rolls back the whole call; sweeps report
+  that tenant's error.
+  """
+  @spec mode_under_lock!(prefix :: String.t()) :: stored_mode()
+  def mode_under_lock!(prefix) when is_binary(prefix) do
+    if not Repo.in_transaction?() do
+      raise ArgumentError, "mode_under_lock!/1 must run inside a transaction"
+    end
+
+    case read_stored_mode(prefix) do
+      {:ok, mode} -> mode
+      :unregistered -> unregistered_mode!()
+      :unavailable -> raise ModeUnavailableError
+    end
+  end
+
+  # `:unregistered` = a malformed prefix or a well-formed one with no `tenants` row;
+  # `:unavailable` = the read itself failed (a missing `tenants` table included).
+  defp read_stored_mode(prefix) do
+    case TenantProvisioning.tenant_id_for_schema_name(prefix) do
+      {:ok, tenant_id} ->
+        case Repo.one(from(t in Tenant, where: t.id == ^tenant_id, select: t.scope_enforcement)) do
+          mode when mode in @stored_modes -> {:ok, mode}
+          nil -> :unregistered
+          _other -> :unavailable
+        end
+
+      {:error, _reason} ->
+        :unregistered
+    end
+  rescue
+    _exception -> :unavailable
+  end
+
+  # TEST-ONLY leniency (design 3.2, SEC C-1): the application key is set in config/test.exs
+  # and nowhere else; production never reaches the `:off` branch.
+  defp unregistered_mode! do
+    if Application.get_env(:letflow, :scope_mode_lenient_for_tests, false) == true do
+      Logger.warning("scope_mode_read_lenient")
+      :off
+    else
+      raise ModeUnavailableError
+    end
+  end
 
   @doc "The tenant's current mode (one read of the public `tenants` row)."
   @spec get_mode(tenant_id :: Ecto.UUID.t()) ::

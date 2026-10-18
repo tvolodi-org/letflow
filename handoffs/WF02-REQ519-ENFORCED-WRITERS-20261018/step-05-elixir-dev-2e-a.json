@@ -1,0 +1,95 @@
+{
+  "handoff_id": "d2535519-0519-4c02-9e11-000000000005",
+  "run_id": "WF02-REQ519-ENFORCED-WRITERS-20261018",
+  "workflow_id": "WF-02",
+  "step": "05",
+  "from_agent": "ELIXIR-DEV",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-05-elixir-dev-2e-a.json",
+  "created_at": "2026-10-18T15:58:05Z",
+  "started_at": "2026-10-18T15:58:05Z",
+  "completed_at": "2026-10-18T16:25:43Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [
+      "REQ-519"
+    ],
+    "requirement_text": {
+      "REQ-519": "slice 2e-a: ACs 1,5,6,7 (binding.refused),21; GH #2535"
+    },
+    "related_handoff_ids": [
+      "d2535519-0519-4c02-9e11-000000000004"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/req519-enforced-writers-and-flag-on.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ519-ENFORCED-WRITERS-20261018"
+  },
+  "task": {
+    "description": "Implement REQ-519 PR 2e-a (enforced-tenant writers). Mandatory SEC: role_registry.ex, scoped writers, ScopeEnforcement."
+  },
+  "result": {
+    "status": "COMPLETED",
+    "verdict": "IMPLEMENTED_PENDING_SEC_AND_REVIEWER",
+    "summary": "2e-a built per design r2a: ScopeEnforcement.mode_under_lock!/1 (raises ModeUnavailableError in production; lenient :off only behind test-only key, built because role_scope_grants_backfill_test T-B7 truly needs it), reconcile_binding!/3 result type and mode-aware low-level writers, refusal + binding.refused (BindingRefusal), NO-ROW report siblings, seeding NO-ROW with audit key rows=skipped_enforced, TAM skip for on, Backfill skip for on (dry run reads get_mode/1), HTTP 409 scope_required, BindingWriters registry. NOT done: the registry completeness scan test and all new tests (TEST-DESIGNER), the mix-task run in 2e-b items (sync suppression, scope_delta, membership_rows).",
+    "files_changed": {
+      "new": [
+        "lib/letflow/identity/binding_refusal.ex",
+        "lib/letflow/identity/binding_writers.ex"
+      ],
+      "modified": [
+        "lib/letflow/scope_enforcement.ex",
+        "lib/letflow/identity/role_scope_grants.ex",
+        "lib/letflow/identity/role_scope_grants/backfill.ex",
+        "lib/letflow/identity/role_registry.ex",
+        "lib/letflow/identity/role_backfill.ex",
+        "lib/letflow/identity/tenant_admin_migration.ex",
+        "lib/letflow/routers/identity.ex",
+        "lib/mix/tasks/letflow.backfill_role_scope_grants.ex",
+        "lib/mix/tasks/letflow.check_role_scope_grants_writers.ex",
+        "config/test.exs",
+        "docs/roles.md"
+      ],
+      "existing_tests_edited_forced": [
+        "test/letflow/identity/role_scope_grants_backfill_test.exs (exact report maps gain skipped_enforced)",
+        "test/letflow/identity/tenant_admin_migration_test.exs (report keys gain rows)",
+        "test/letflow/identity/gh2547_ta_audit_paths_test.exs (RoleBackfill result keys gain skipped_enforced)"
+      ]
+    },
+    "deviations": [
+      "Lenient test-only key :scope_mode_lenient_for_tests built (config/test.exs only) because role_scope_grants_backfill_test T-B7 renames the schema to rsg_<hex> to force a non-raising audit failure; no other surveyed test needed it. Only malformed prefix and absent tenants row are lenient; a failed read always raises. The scan/prod-config evaluation test for the key is TEST-DESIGNER's.",
+      "BindingWriters has binding_rows/0 and entry_points/0 only; membership_rows/0 is 2e-b. Scan test not written (new test).",
+      "ensure_tenant_wide_group_row!/3 now raises ArgumentError outside a transaction (via ensure_in_transaction!), previously it did not check.",
+      "No new public function on RoleScopeGrants; route walk test (exports pin) passes.",
+      "TAM dry run reads the mode with get_mode/1 and reports a skipped_enforced tenant for an on tenant."
+    ],
+    "not_run": [
+      "mix letflow.check.test, full suite, multi-partition runs (forbidden by supervisor)",
+      "tests for T-C1 scan, T-L*, T-N*, mutants (TEST-DESIGNER)"
+    ],
+    "run": {
+      "MIX_ENV=test mix compile --warnings-as-errors": "clean",
+      "mix format --check-formatted": "clean",
+      "mix letflow.check_boundaries": "OK 1844 edges 0 violations",
+      "mix letflow.check_role_scope_grants_writers": "no violations",
+      "per-file mix test": "role_scope_grants_writers 22 passed; role_registry 28 passed; tenant_admin_migration 36 passed; role_scope_grants_backfill 11 passed; role_backfill 15 passed; tenant_admin_seeding 14 passed; identity_role_rebind 18 passed; identity_roles_guard 8 passed; role_scope_grants 15 passed; scope_grants_route_walk 9 passed; gh2547_ta_audit_paths 25 passed; scope_enforcement 23 passed"
+    },
+    "routes_changed": "NONE (route snapshot and route_inventory.ex untouched; POST /roles gains 409 scope_required and optional grant_rows key, no class change)",
+    "lock_order": "A->R->G->N->B->T->S->C preserved; mode read is a plain read after A, no new lock",
+    "sec_notes": [
+      "INV-4: only constant log lines (binding_row_skipped, binding_refusal_not_recorded, scope_mode_read_lenient); audit payload binding.refused holds ids and fixed strings",
+      "INV-8: production mode read raises, never proceeds as off; raise rolls back the write",
+      "A-5: BindingRefusal mirrors TenantAdminGuard.refuse inside-transaction guard"
+    ],
+    "rework_after_sec_reviewer": [
+      "F-1 reconcile_binding! reads the mode lazily (only insert/widen clauses); removals never read it",
+      "F-2/TS-1 rows_state is :in_place | :skipped_enforced; external rows values unchanged",
+      "F-5 @spec role_map/1 adjacent again",
+      "F-6 BindingWriters site has no index field; scan compares multiset of {file, function}"
+    ]
+  }
+}
