@@ -60,6 +60,17 @@ defmodule Letflow.Engine.ExecutionError do
   un-stick the instance from `ERROR`) — i.e. the same OBS-05/S4 gap named
   above.
 
+  ## Contention contract (GH #2706)
+
+  `append_multi/3` RAISES on the lock-contention class: a lock timeout (SQLSTATE 55P03) or a
+  deadlock victim (40P01) in its `:execution_error_lock_ancestors` step surfaces as the
+  `Postgrex.Error` out of the repo call, never as an error tuple from the step. Callers classify
+  that raise (the service-apply contention clauses of `Letflow.Engine`) or, for the standalone
+  entry point `Letflow.Engine.set_instance_error/2`, catch it, retry in a fresh transaction and
+  return a typed `{:error, {:execution_error_contention, code}}`. Changing the step to return a
+  tuple would silently stop those classifiers matching. A failed statement also aborts the
+  Postgres transaction, so nothing (a DLQ row included) can be written after it in the same one.
+
   ## `ERROR` is explicitly NOT terminal, unlike `CANCELLED` and `COMPLETED`
 
   `Letflow.EventStore.InstanceProjection.terminal?/1` (already shipped,

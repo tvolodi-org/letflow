@@ -4646,6 +4646,7 @@ defmodule Letflow.Engine do
           | {:ok, :error_set}
           | {:ok, :already_final}
           | {:error, {:instance_not_active, atom()}}
+          | {:error, {:execution_error_contention, :lock_not_available | :deadlock_detected}}
           | {:error, term()}
   def advance_after_service_task_outcome(dispatch_id, {:advance, decoded_body}, repo, prefix) do
     # GH #2587 PR C2: a SERVICE_TASK node that declares `entity_writes` composes them into this
@@ -9159,6 +9160,7 @@ defmodule Letflow.Engine do
           | {:error, {:instance_terminal, status :: :completed | :cancelled}}
           | {:error, {:instance_already_error, error_detail :: map()}}
           | {:error, {:event_append_failed, term()}}
+          | {:error, {:execution_error_contention, :lock_not_available | :deadlock_detected}}
           | {:error, Ecto.Changeset.t()}
           | {:error, term()}
 
@@ -9177,6 +9179,19 @@ defmodule Letflow.Engine do
   module's moduledoc for the OBS-05 dead-letter (S6) scope boundary and the
   "ERROR is not terminal" invariant this function's own callers should not
   assume otherwise.
+
+  GH #2706 PR-3 (design section 4): the transaction is bounded by a transaction-local
+  `lock_timeout` (`Letflow.Engine.Contention.lock_timeout_ms/0`, set first, skipped when the
+  caller already holds a transaction); it bounds EVERY lock wait of the landing (the instance row
+  `FOR UPDATE` as well as the parent group). A lock timeout (55P03) or deadlock victim (40P01) in the
+  landing is retried in a fresh transaction, 3 attempts in all with 100 ms / 300 ms backoffs, only
+  when this call opened the transaction. After the last failure the result is
+  `{:error, {:execution_error_contention, code}}` (a contention failure never raises; any other
+  exception is re-raised); the instance stays `:active`
+  (it is not moved to `ERROR` without the parent group lock, see decision 0061). Unless the
+  caller passed `dlq_landed_externally: true`, a standalone best-effort `dlq_entries` row
+  (`context_json` `{"landing": "contention"}`, no variables, no reason text, no details) tells the
+  operator; it is not written for a nested call, whose transaction is aborted.
   """
   @spec set_instance_error(
           attrs :: standalone_error_attrs(),
@@ -9199,16 +9214,118 @@ defmodule Letflow.Engine do
         idempotency_key: idempotency_key
       }
 
-      Multi.new()
-      |> ExecutionError.append_multi(error_args,
-        prefix: prefix,
-        dlq_landed_externally: Keyword.get(opts, :dlq_landed_externally, false)
-      )
-      |> Repo.transaction()
+      dlq_landed_externally = Keyword.get(opts, :dlq_landed_externally, false)
+      nested? = Repo.in_transaction?()
+
+      attempt = fn ->
+        error_landing_transaction(error_args, prefix, dlq_landed_externally, nested?)
+      end
+
+      run_error_landing_attempts(attempt, 1, nested?, error_args, prefix, dlq_landed_externally)
       |> maybe_snapshot_after_set_instance_error(instance_id, prefix)
       |> interpret_set_instance_error_result(instance_id, error_args.error_type)
     end
   end
+
+  # GH #2706 PR-3 (design 4.2): the landing transaction. Its first statement bounds every later
+  # lock wait (the same step as the cancel's, `set_cancel_lock_timeout/2`, skipped when nested).
+  # `ExecutionError.append_multi/3` itself is unchanged: it raises on a lock timeout (55P03) or a
+  # deadlock victim (40P01), which is caught here and only here.
+  defp error_landing_transaction(error_args, prefix, dlq_landed_externally, nested?) do
+    Multi.new()
+    |> Multi.run(:lock_timeout, fn repo, _changes -> set_cancel_lock_timeout(repo, nested?) end)
+    |> ExecutionError.append_multi(error_args,
+      prefix: prefix,
+      dlq_landed_externally: dlq_landed_externally
+    )
+    |> Repo.transaction()
+  rescue
+    exception ->
+      case Contention.contention_code(exception) do
+        {:ok, code} -> {:contention, code}
+        :error -> reraise exception, __STACKTRACE__
+      end
+  end
+
+  # At most 3 attempts in all, constant 100 ms / 300 ms backoffs between them (none in a
+  # `:engine_test_seams` build, see `service_backoff/1`), retried only when this call opened the
+  # transaction (a nested attempt left the caller's transaction aborted: the typed error at once).
+  defp run_error_landing_attempts(attempt, n, nested?, error_args, prefix, dlq_landed_externally) do
+    case attempt.() do
+      # the cap is deliberately the service-apply cap (3 attempts, the same backoff table)
+      {:contention, _code} when not nested? and n < @service_apply_attempts ->
+        service_backoff(n)
+
+        run_error_landing_attempts(
+          attempt,
+          n + 1,
+          nested?,
+          error_args,
+          prefix,
+          dlq_landed_externally
+        )
+
+      {:contention, code} ->
+        # no PII: the classified tag, the attempt count and the instance id only
+        Logger.warning(
+          "set_instance_error contention: #{code} after attempt #{n} instance_id=#{error_args.instance_id}"
+        )
+
+        unless dlq_landed_externally or nested? do
+          land_contention_dlq_row(error_args, prefix, code, n)
+        end
+
+        {:error, {:execution_error_contention, code}}
+
+      other ->
+        other
+    end
+  end
+
+  # Best-effort standalone row in its OWN transaction (a failed landing cannot write in the aborted
+  # one), after the failed one rolled back; it takes no ancestor lock and no instance lock and never
+  # raises. Only fixed text, the error type, the affected descriptor and the contention tag are
+  # stored: the variables, the original reason text and the details map can carry tenant data and
+  # are NOT copied. Skipped when nested (the caller's transaction is aborted, nothing can be
+  # written in a separate one).
+  defp land_contention_dlq_row(error_args, prefix, code, attempts) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    attrs = %{
+      entry_type: "event",
+      instance_id: error_args.instance_id,
+      reason: "execution error could not be recorded on the instance (lock contention)",
+      error_detail: %{
+        "error_type" => to_string(error_args.error_type),
+        "affected" => contention_affected(error_args.affected),
+        "contention" => to_string(code),
+        "attempts" => attempts
+      },
+      context_json: %{"landing" => "contention"},
+      first_failed_at: now,
+      last_failed_at: now
+    }
+
+    case Dlq.enqueue(attrs, prefix: prefix) do
+      {:ok, _entry} ->
+        :ok
+
+      {:error, _changeset} ->
+        # never log or inspect the changeset (it holds the row attributes)
+        Logger.warning(
+          "set_instance_error contention: DLQ row not written instance_id=#{error_args.instance_id}"
+        )
+    end
+  rescue
+    _exception ->
+      Logger.warning(
+        "set_instance_error contention: DLQ row not written instance_id=#{error_args.instance_id}"
+      )
+  end
+
+  defp contention_affected({:node, id}), do: %{"node" => id}
+  defp contention_affected({:field, name}), do: %{"field" => name}
+  defp contention_affected(_other), do: %{}
 
   # REQ-054 (design doc §4.2) -- SnapshotWriter's third named call site
   # (ExecutionError.append_multi/3, via this standalone entry point).
@@ -9300,6 +9417,15 @@ defmodule Letflow.Engine do
        ) do
     {:error, reason}
   end
+
+  # GH #2706 PR-3: the typed contention result of `run_error_landing_attempts/6` (a 2-tuple,
+  # unlike a failed Multi's 4-tuple above) passes through unchanged.
+  defp interpret_set_instance_error_result(
+         {:error, {:execution_error_contention, _code}} = error,
+         _instance_id,
+         _error_type
+       ),
+       do: error
 
   # =========================================================================
   # land_service_task_exhaustion/2 (REQ-177) -- see
