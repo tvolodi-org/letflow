@@ -42,9 +42,6 @@ GET /script-policy/readable-masters ScriptPolicyRead
 GET /script-rules ScriptRulesList
 GET /script-rules/:key/versions/:version ScriptRulesRead
 GET /services ServicesRead
-GET /tasks TasksList
-GET /tasks/:id TasksGetById
-GET /tasks/inbox TasksList
 GET /tenants TenantsManage
 GET /tenants/:slug TenantsManage
 GET /tenants/:slug/script-policy TenantsManage
@@ -100,10 +97,6 @@ POST /solution-packs/:pack_id/update-apply DefinitionsCreate
 POST /solution-packs/:pack_id/update-review DefinitionsRead
 POST /solution-packs/export DefinitionsRead
 POST /solution-packs/install DefinitionsCreate
-POST /tasks/:id/assign TasksAssign
-POST /tasks/:id/claim TasksComplete
-POST /tasks/:id/complete TasksComplete
-POST /tasks/:id/reassign TasksReassign
 POST /tenant/modules ModulesManage
 POST /tenant/solutions ModulesManage
 POST /tenants TenantsManage

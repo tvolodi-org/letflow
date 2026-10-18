@@ -118,6 +118,9 @@ defmodule Letflow.Routers.Tasks do
 
   use Letflow.Api.AuthorizedRouter
 
+  alias Letflow.Api.ScopeGate
+  alias Letflow.Tasks.ScopeResolver
+
   alias Letflow.Api.Authorization
   alias Letflow.Api.Error
   alias Letflow.Api.Pagination
@@ -127,31 +130,36 @@ defmodule Letflow.Routers.Tasks do
   alias Letflow.Engine
   alias Letflow.Tasks
 
-  authz_get "/inbox", :TasksList do
+  # REQ-518 PR 2d (AC 20, design 7.1 T1-T7): the two list routes are `:filter` (the handler passes
+  # the caller's allowed node set to `Tasks.list_tasks/2`); the five single-task routes are
+  # `{:resolver, {ScopeResolver, :task_scope}}` (the handler gates through `ScopeGate` and
+  # `Tasks.in_scope/3`, or `Tasks.get_task/2` with the set). Approver rule F1: a scoped caller
+  # needs a covering TASK_WORKER grant (docs/roles.md "Known limitation: scoped approvers").
+  authz_get "/inbox", :TasksList, scope: :filter do
     handle_inbox(conn, conn.assigns.scoped_opts, conn.assigns.access_decision)
   end
 
-  authz_get "/", :TasksList do
+  authz_get "/", :TasksList, scope: :filter do
     handle_list(conn, conn.assigns.scoped_opts, conn.assigns.access_decision)
   end
 
-  authz_get "/:id", :TasksGetById do
+  authz_get "/:id", :TasksGetById, scope: {:resolver, {ScopeResolver, :task_scope}} do
     handle_get_by_id(conn, conn.params["id"], conn.assigns.scoped_opts)
   end
 
-  authz_post "/:id/complete", :TasksComplete do
+  authz_post "/:id/complete", :TasksComplete, scope: {:resolver, {ScopeResolver, :task_scope}} do
     handle_complete(conn, conn.params["id"], conn.assigns.scoped_opts)
   end
 
-  authz_post "/:id/claim", :TasksComplete do
+  authz_post "/:id/claim", :TasksComplete, scope: {:resolver, {ScopeResolver, :task_scope}} do
     handle_claim(conn, conn.params["id"], conn.assigns.scoped_opts)
   end
 
-  authz_post "/:id/assign", :TasksAssign do
+  authz_post "/:id/assign", :TasksAssign, scope: {:resolver, {ScopeResolver, :task_scope}} do
     handle_assign(conn, conn.params["id"], conn.assigns.scoped_opts)
   end
 
-  authz_post "/:id/reassign", :TasksReassign do
+  authz_post "/:id/reassign", :TasksReassign, scope: {:resolver, {ScopeResolver, :task_scope}} do
     handle_reassign(conn, conn.params["id"], conn.assigns.scoped_opts)
   end
 
@@ -169,12 +177,14 @@ defmodule Letflow.Routers.Tasks do
          {:ok, page_size} <- Pagination.validate_page_size(raw_page_size) do
       assignee_id = non_empty(Map.get(query, "assignee_id"))
       assignee_scope = build_list_assignee_scope(decision, assignee_id, opts)
+      {conn, scope} = ScopeGate.scope_set_for_role(conn, :TasksList, "TASK_WORKER")
 
       Tasks.list_tasks(
         %{
           status: status,
           instance_id: instance_id,
           assignee_scope: assignee_scope,
+          scope: scope,
           cursor: Map.get(query, "cursor"),
           page_size: page_size
         },
@@ -230,9 +240,15 @@ defmodule Letflow.Routers.Tasks do
          {:ok, page_size} <- Pagination.validate_page_size(raw_page_size) do
       user_id = conn.assigns.auth_context.user_id
       assignee_scope = build_inbox_assignee_scope(conn, user_id, opts)
+      {conn, scope} = ScopeGate.scope_set_for_role(conn, :TasksList, "TASK_WORKER")
 
       Tasks.list_tasks(
-        %{assignee_scope: assignee_scope, cursor: Map.get(query, "cursor"), page_size: page_size},
+        %{
+          assignee_scope: assignee_scope,
+          scope: scope,
+          cursor: Map.get(query, "cursor"),
+          page_size: page_size
+        },
         opts
       )
       |> handle_list_result(conn)
@@ -293,7 +309,9 @@ defmodule Letflow.Routers.Tasks do
   # ── GET /tasks/:id (design §5.4) ────────────────────────────────────────
 
   defp handle_get_by_id(conn, id, opts) do
-    case Tasks.get_task(id, opts) do
+    {conn, scope} = ScopeGate.scope_set_for_role(conn, :TasksGetById, "TASK_WORKER")
+
+    case Tasks.get_task(id, Keyword.put(opts, :scope, scope)) do
       {:ok, {task, correlation_key, form_version}} ->
         Response.ok(conn, task_detail_map(task, correlation_key, form_version))
 
@@ -324,22 +342,26 @@ defmodule Letflow.Routers.Tasks do
   # lib/letflow/design/iss0942-task-complete-authorization-gap.md §3.
   defp handle_complete(conn, id, opts) do
     actor_id = conn.assigns.auth_context.user_id
+    {conn, scope} = ScopeGate.scope_set_for_role(conn, :TasksComplete, "TASK_WORKER")
+    {conn, f1} = ScopeGate.f1_principal(conn, :TasksComplete)
 
-    case Tasks.authorize_completion(id, actor_id, opts) do
-      :ok ->
-        output_variables = conn.body_params
-        idempotency_key = Ecto.UUID.generate()
+    # REQ-518 PR 2d: the scope gate comes first; an out-of-scope task answers like a nonexistent
+    # one, and the routing-role errors below stay as they were (AC 14).
+    with :ok <- Tasks.in_scope(id, scope, opts),
+         :ok <- Tasks.authorize_completion(id, actor_id, opts) do
+      output_variables = conn.body_params
+      idempotency_key = Ecto.UUID.generate()
 
-        attrs = %{
-          output_variables: output_variables,
-          actor_id: actor_id,
-          idempotency_key: idempotency_key
-        }
+      attrs = %{
+        output_variables: output_variables,
+        actor_id: actor_id,
+        idempotency_key: idempotency_key
+      }
 
-        id
-        |> Engine.complete_task(attrs, opts)
-        |> handle_complete_result(conn)
-
+      id
+      |> Engine.complete_task(attrs, Keyword.put(opts, :f1, f1))
+      |> handle_complete_result(conn)
+    else
       {:error, reason} ->
         handle_complete_result({:error, reason}, conn)
     end
@@ -471,10 +493,18 @@ defmodule Letflow.Routers.Tasks do
 
   defp handle_claim(conn, id, opts) do
     attrs = %{actor_id: conn.assigns.auth_context.user_id}
+    {conn, scope} = ScopeGate.scope_set_for_role(conn, :TasksComplete, "TASK_WORKER")
+    {conn, f1} = ScopeGate.f1_principal(conn, :TasksComplete)
 
-    id
-    |> Tasks.claim_task(attrs, opts)
-    |> handle_claim_result(conn, opts)
+    case Tasks.in_scope(id, scope, opts) do
+      :ok ->
+        id
+        |> Tasks.claim_task(attrs, Keyword.put(opts, :f1, f1))
+        |> handle_claim_result(conn, opts)
+
+      {:error, _reason} = error ->
+        handle_claim_result(error, conn, opts)
+    end
   end
 
   defp handle_claim_result({:ok, task}, conn, opts) do
@@ -532,9 +562,17 @@ defmodule Letflow.Routers.Tasks do
         Response.send_problem(conn, Validation.problem(field_errors))
 
       {:ok, %{"user_id" => user_id}} ->
-        id
-        |> Tasks.assign_task(%{user_id: user_id}, opts)
-        |> handle_assign_result(conn, opts)
+        # Scope after validation: a nonexistent and an out-of-scope task with an invalid body
+        # both answer the validation error, a valid body both answer 404 (no existence oracle).
+        {conn, scope} = ScopeGate.scope_set(conn, :TasksAssign)
+
+        with :ok <- Tasks.in_scope(id, scope, opts) do
+          id
+          |> Tasks.assign_task(%{user_id: user_id}, opts)
+          |> handle_assign_result(conn, opts)
+        else
+          {:error, _reason} = error -> handle_assign_result(error, conn, opts)
+        end
     end
   end
 
@@ -544,9 +582,15 @@ defmodule Letflow.Routers.Tasks do
         Response.send_problem(conn, Validation.problem(field_errors))
 
       {:ok, %{"user_id" => user_id}} ->
-        id
-        |> Tasks.reassign_task(%{user_id: user_id}, opts)
-        |> handle_reassign_result(conn, opts)
+        {conn, scope} = ScopeGate.scope_set(conn, :TasksReassign)
+
+        with :ok <- Tasks.in_scope(id, scope, opts) do
+          id
+          |> Tasks.reassign_task(%{user_id: user_id}, opts)
+          |> handle_reassign_result(conn, opts)
+        else
+          {:error, _reason} = error -> handle_reassign_result(error, conn, opts)
+        end
     end
   end
 

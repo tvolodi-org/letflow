@@ -177,6 +177,55 @@ defmodule Letflow.Api.Scope do
     end
   end
 
+  @doc """
+  REQ-518 PR 2d (design C.3, the F1 rule): like `allowed?/3`, but only the effective scope of the
+  ONE role named `role` counts, never the union of the roles that allow some permission. A role
+  the principal does not hold is `{:deny, :role_not_held}`; a token principal that holds the
+  role is `{:allow, :token}`; grants not loaded is `{:deny, :grants_unavailable}`; a role with
+  no applicable row is `{:deny, :no_grant_rows}`; otherwise the same resource rules as
+  `allowed?/3` (they share `decide_resource/3`, so the two cannot diverge).
+  """
+  @spec allowed_for_role?(Principal.t(), role :: String.t(), resource_scope()) :: decision()
+  def allowed_for_role?(%Principal{} = principal, role, resource_scope) when is_binary(role) do
+    cond do
+      resource_scope == :unresolvable ->
+        {:deny, :unresolvable}
+
+      not role_held?(principal, role) ->
+        {:deny, :role_not_held}
+
+      principal.kind == :token ->
+        {:allow, :token}
+
+      not is_struct(principal.grants, Grants) ->
+        {:deny, :grants_unavailable}
+
+      true ->
+        decide_resource(effective_scope(principal, role), resource_scope, principal)
+    end
+  end
+
+  @doc """
+  REQ-518 PR 2d (design C.3): the expanded allowed node set of `principal` for the ONE role
+  `role` (same relation to `allowed_for_role?/3` as `allowed_set/2` has to `allowed?/3`): `:all`
+  for a token principal holding the role or a tenant-wide grant of it, `:none` when the role is
+  not held, grants are unavailable or no row names a live node, else `{:nodes, ids}`. Fails
+  closed exactly like `allowed_set/2` (raises `ScopeSetError`, never `:all` or a partial set).
+  """
+  @spec allowed_set_for_role(Principal.t(), role :: String.t()) ::
+          {:ok, Letflow.Entities.Query.Types.scope_set()}
+  def allowed_set_for_role(%Principal{} = principal, role) when is_binary(role) do
+    cond do
+      not role_held?(principal, role) -> {:ok, :none}
+      principal.kind == :token -> {:ok, :all}
+      not is_struct(principal.grants, Grants) -> {:ok, :none}
+      true -> expand_set({:combined, effective_scope(principal, role)}, principal)
+    end
+  end
+
+  defp role_held?(principal, role),
+    do: Enum.any?(principal.roles, &(Atom.to_string(&1) == role))
+
   defp expand_set({:decided, {:allow, _basis}}, _principal), do: {:ok, :all}
   defp expand_set({:decided, {:deny, _reason}}, _principal), do: {:ok, :none}
   defp expand_set({:combined, :tenant_wide}, _principal), do: {:ok, :all}
@@ -270,7 +319,7 @@ defmodule Letflow.Api.Scope do
   @spec effective_scope(Principal.t(), role :: String.t()) :: effective()
   def effective_scope(%Principal{grants: %Grants{} = grants} = principal, role)
       when is_binary(role) do
-    if Enum.any?(principal.roles, &(Atom.to_string(&1) == role)) do
+    if role_held?(principal, role) do
       grants.rows_by_role |> Map.get(role, []) |> rows_scope()
     else
       :deny

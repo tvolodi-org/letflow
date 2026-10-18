@@ -73,10 +73,23 @@ defmodule Letflow.Engine.Task do
     field(:completed_at, :utc_datetime_usec)
     field(:cancelled_at, :utc_datetime_usec)
 
+    # REQ-518 PR 2d (AC 12): the scope node of the approver rule F1. In NO cast list and written
+    # by no production code (tasks carry no scope node until W3b); never in a response map.
+    field(:scope_node_id, :string)
+
     timestamps(type: :utc_datetime_usec)
   end
 
-  @type t :: %__MODULE__{}
+  @type t :: %__MODULE__{scope_node_id: String.t() | nil}
+
+  @doc """
+  The audit-state map of a task: `Letflow.Audit.struct_state/2` minus `scope_node_id` (REQ-518
+  PR 2d), the ONE owner of that exclusion so audit payloads stay byte-identical to before the
+  column existed.
+  """
+  @spec audit_state(t()) :: map()
+  def audit_state(%__MODULE__{} = task), do: Letflow.Audit.struct_state(task, [:scope_node_id])
+
   @type status :: :pending | :completed | :cancelled
 
   @doc """

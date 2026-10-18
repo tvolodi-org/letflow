@@ -143,13 +143,17 @@ defmodule Letflow.Tasks do
 
   alias Ecto.Multi
   alias Letflow.Audit
+  alias Letflow.Api.Authorization
   alias Letflow.Api.Pagination
+  alias Letflow.Api.Scope
+  alias Letflow.Entities.Query.Types
   alias Letflow.Definitions.InstanceDefinitionSnapshot
   alias Letflow.Engine.SeparationOfDuties
   alias Letflow.Engine.Task
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.Identity.GroupMember
   alias Letflow.Identity.TenantRole
+  alias Letflow.Tasks.ScopeResolver
   alias Letflow.Repo
 
   @typedoc "Threaded into every `Repo` call below — `:prefix` derived by the caller from `Letflow.Api.Context.scoped_repo_opts/1`, never from request data."
@@ -171,6 +175,7 @@ defmodule Letflow.Tasks do
   @type list_tasks_params :: %{
           optional(:status) => task_status() | nil,
           optional(:instance_id) => Ecto.UUID.t() | nil,
+          optional(:scope) => Types.scope_set(),
           assignee_scope: assignee_scope(),
           cursor: String.t() | nil,
           page_size: pos_integer()
@@ -230,6 +235,7 @@ defmodule Letflow.Tasks do
         |> filter_by_status(Map.get(params, :status))
         |> filter_by_instance_id(Map.get(params, :instance_id))
         |> filter_by_assignee_scope(Map.get(params, :assignee_scope, :unfiltered))
+        |> filter_by_scope(Map.get(params, :scope, :all))
         |> filter_by_list_cursor(cursor_seek)
         |> order_by([t], desc: t.inserted_at, desc: t.id)
         |> limit(^(page_size + 1))
@@ -257,6 +263,13 @@ defmodule Letflow.Tasks do
   (INV-5/AC3), the identical structural mechanism REQ-072's own AC4
   demonstration established.
 
+  REQ-518 PR 2d (design C.2): the optional `opts[:scope]` (a
+  `t:Letflow.Entities.Query.Types.scope_set/0`, default `:all` = today's single statement)
+  adds the node predicate `scope_node_id IN (ids)` to that SAME statement; `:none` and a NULL
+  node never match, so an out-of-scope task resolves to `{:error, :not_found}` exactly like a
+  nonexistent one. `list_tasks/2` takes the same set as `params[:scope]` and ANDs it with the
+  assignee scope (intersection).
+
   This function does not itself decide tenant scope or authorization —
   `prefix` is supplied by the caller.
   """
@@ -265,6 +278,7 @@ defmodule Letflow.Tasks do
           | {:error, :not_found | :invalid_id}
   def get_task(id, opts) do
     prefix = Keyword.fetch!(opts, :prefix)
+    scope = Keyword.get(opts, :scope, :all)
 
     case Ecto.UUID.cast(id) do
       :error ->
@@ -280,6 +294,7 @@ defmodule Letflow.Tasks do
             where: t.id == ^id,
             select: {t, ip.correlation_key, s.definition_ver}
           )
+          |> filter_by_scope(scope)
 
         case Repo.one(query, prefix: prefix) do
           nil -> {:error, :not_found}
@@ -375,6 +390,79 @@ defmodule Letflow.Tasks do
   end
 
   # =========================================================================
+  # REQ-518 PR 2d (design C.2 to C.4): the approver rule F1.
+  # =========================================================================
+
+  @doc """
+  Whether the task `task_id` lies in the allowed node set `scope` (design C.2). `:all` -> `:ok`
+  with NO statement (today's behaviour; a nonexistent id then fails later as before). `:none` ->
+  `{:error, :task_not_found}` with no statement. `{:nodes, ids}` -> ONE statement on the `tasks`
+  row `WHERE id = $1 AND scope_node_id IN (ids)`; a task outside the set, with a NULL node, or
+  nonexistent all give `{:error, :task_not_found}`. A malformed id gives
+  `{:error, :invalid_task_id}` before any statement, as the routes do today.
+  """
+  @spec in_scope(task_id :: String.t(), Types.scope_set(), opts()) ::
+          :ok | {:error, :invalid_task_id | :task_not_found}
+  def in_scope(task_id, scope, opts) do
+    prefix = Keyword.fetch!(opts, :prefix)
+
+    with {:ok, task_id} <- cast_task_id(task_id) do
+      case scope do
+        :all ->
+          :ok
+
+        :none ->
+          {:error, :task_not_found}
+
+        {:nodes, ids} ->
+          query = from(t in Task, where: t.id == ^task_id and t.scope_node_id in ^ids, select: 1)
+          if Repo.exists?(query, prefix: prefix), do: :ok, else: {:error, :task_not_found}
+      end
+    end
+  end
+
+  @doc """
+  The F1 grant requirement for one task (design C.3). (1) A principal who holds
+  `route_permission` tenant-wide (`Scope.allowed?(principal, route_permission, :tenant_wide)`
+  allows: a tenant-wide holder, a token principal, a platform admin) is exempt (RA-13; nothing
+  role-name based). (2) Otherwise the principal must hold a TASK_WORKER grant covering the
+  task's scope node (`Scope.allowed_for_role?/3`); a NULL node, a retired node, other roles'
+  grants and a PROCESS_OPERATOR or TENANT_ADMIN grant never count. The routing-role checks of
+  `claim_task/3` and `authorize_completion/3` are separate and unchanged.
+  """
+  @spec f1_allowed?(Task.t(), Scope.Principal.t(), Authorization.permission() | atom()) ::
+          boolean()
+  def f1_allowed?(%Task{} = task, %Scope.Principal{} = principal, route_permission) do
+    match?({:allow, _basis}, Scope.allowed?(principal, route_permission, :tenant_wide)) or
+      match?(
+        {:allow, _basis},
+        Scope.allowed_for_role?(principal, "TASK_WORKER", ScopeResolver.task_scope(task))
+      )
+  end
+
+  @doc """
+  The in-transaction F1 re-check (design C.4, AC 15), run by `claim_task/3` and
+  `Letflow.Engine.complete_task/3` right after the task row lock. A user principal's grants are
+  reloaded with `Scope.load_grants(user_id, prefix)` (fresh, not the request memo, so a grant or
+  membership revoked since the request began is seen). It is a PLAIN READ: no `FOR SHARE` or
+  `FOR UPDATE`, no advisory lock, so the lock orders are untouched. Refusal is
+  `{:error, :task_not_found}`, the same answer as a nonexistent task.
+  """
+  @spec f1_recheck(Task.t(), Scope.Principal.t(), prefix :: String.t()) ::
+          {:ok, :f1_allowed} | {:error, :task_not_found}
+  def f1_recheck(%Task{} = task, %Scope.Principal{} = principal, prefix) do
+    principal =
+      case principal.kind do
+        :user -> %{principal | grants: Scope.load_grants(principal.user_id, prefix)}
+        _token -> principal
+      end
+
+    if f1_allowed?(task, principal, Authorization.required_permission(:TasksComplete)),
+      do: {:ok, :f1_allowed},
+      else: {:error, :task_not_found}
+  end
+
+  # =========================================================================
   # claim_task/3, assign_task/4, reassign_task/4 (REQ-085) -- see
   # lib/letflow/design/req085-task-routes-write.md §3 for the full design
   # these implement.
@@ -391,7 +479,8 @@ defmodule Letflow.Tasks do
   # =========================================================================
 
   @type claim_attrs :: %{required(:actor_id) => Ecto.UUID.t()}
-  @type claim_opts :: opts()
+  @type f1 :: :off | {:enforce, Scope.Principal.t()}
+  @type claim_opts :: [prefix: String.t(), f1: f1()]
 
   @type claim_error ::
           {:error, :invalid_task_id}
@@ -436,6 +525,7 @@ defmodule Letflow.Tasks do
     with {:ok, task_id} <- cast_task_id(task_id) do
       Multi.new()
       |> Multi.run(:task, fn repo, _changes -> fetch_and_lock_task(repo, task_id, prefix) end)
+      |> maybe_f1_scope(Keyword.get(opts, :f1, :off), prefix)
       |> Multi.run(:scope, fn _repo, _changes ->
         {:ok, resolve_principal_scope(actor_id, prefix: prefix)}
       end)
@@ -445,6 +535,12 @@ defmodule Letflow.Tasks do
       |> Repo.transaction()
       |> unwrap_write_result()
     end
+  end
+
+  defp maybe_f1_scope(multi, :off, _prefix), do: multi
+
+  defp maybe_f1_scope(multi, {:enforce, %Scope.Principal{} = principal}, prefix) do
+    Multi.run(multi, :f1_scope, fn _repo, %{task: task} -> f1_recheck(task, principal, prefix) end)
   end
 
   defp apply_claim(_repo, %Task{assignee_type: nil} = task, actor_id, _scope, prefix) do
@@ -655,8 +751,8 @@ defmodule Letflow.Tasks do
         action: "task.assign",
         resource_type: "task",
         resource_id: before.id,
-        before_state: Audit.struct_state(before),
-        after_state: Audit.struct_state(updated),
+        before_state: Task.audit_state(before),
+        after_state: Task.audit_state(updated),
         trace_id: nil
       },
       prefix
@@ -782,6 +878,12 @@ defmodule Letflow.Tasks do
           (t.assignee_type == "ROLE" and t.assignee_ref in ^role_names)
     )
   end
+
+  defp filter_by_scope(query, :all), do: query
+  defp filter_by_scope(query, :none), do: from(t in query, where: false)
+
+  defp filter_by_scope(query, {:nodes, ids}) when is_list(ids),
+    do: from(t in query, where: t.scope_node_id in ^ids)
 
   defp filter_by_list_cursor(query, nil), do: query
 

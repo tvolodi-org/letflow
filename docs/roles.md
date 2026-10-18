@@ -57,6 +57,16 @@ configuration; if that is missing, no tenant is the platform tenant (0046 D1, D2
 - Does: read definitions, instances, all tasks, audit, metrics, attachments, entity data, promotion reads (`PromotionsRead`, own-tenant, read-only; the stored-tenant check of ISS-1029 applies as for a tenant admin).
 - Must not: write, export, import, issue attachment links, manage tokens, users, roles, modules or settings.
 
+## Known limitation: scoped approvers (stage 2)
+
+Tasks carry no scope node until W3b; this is a known limitation of stage 2, not a bug.
+A scoped-only approver cannot see, claim or complete any task while scope enforcement is on for the tenant.
+This gap blocks turning scope enforcement on for any tenant that has scoped approvers, until the W3b writer of tasks.scope_node_id lands.
+
+Under scope enforcement a user who holds a task route only through scoped grants may see, claim or complete a task only if the user is in the task's routing role and holds a TASK_WORKER grant whose subtree covers the task's scope node. A grant of another role (PROCESS_OPERATOR, TENANT_ADMIN) never substitutes for the TASK_WORKER grant, and a task without a scope node is invisible to a scoped caller. Assigning and reassigning a task follow the route permission itself.
+
+The RA-13 exemption is separate: a principal who holds the permission a task route is classified under tenant-wide (any role, a token principal, a platform admin) is exempt from the TASK_WORKER grant requirement, because tenant-wide on that permission is already tenant-wide authority over the route. The test is exactly whether the principal is allowed the route permission tenant-wide, never a role name. The routing-role checks stay in force for the exempt principal. A scoped TASK_WORKER whose grant does not cover the task is also exempt when the same user holds the permission tenant-wide through another role.
+
 ## Matrix
 
 Format, parsed by the REQ-448 parity test: one row per permission; first column the permission atom

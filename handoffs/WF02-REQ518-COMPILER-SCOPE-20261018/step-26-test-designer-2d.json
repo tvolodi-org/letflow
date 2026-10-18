@@ -1,0 +1,319 @@
+{
+  "handoff_id": "d2535518-0518-4c02-9e11-000000000026",
+  "run_id": "WF02-REQ518-COMPILER-SCOPE-20261018",
+  "workflow_id": "WF-02",
+  "step": "26",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGNER",
+  "file": "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-26-test-designer-2d.json",
+  "created_at": "2026-10-18T11:35:41Z",
+  "started_at": "2026-10-18T11:35:41Z",
+  "completed_at": "2026-10-18T12:44:38Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [
+      "REQ-518"
+    ],
+    "requirement_text": {},
+    "source_text": {
+      "slice": "REQ-518 slice 2d (GH #2535): approver rule F1 on tasks (tasks.scope_node_id, Tasks.ScopeResolver, Tasks.in_scope/3, f1_allowed?/3, f1_recheck/3, Scope.allowed_for_role?/3 and allowed_set_for_role/2, ScopeGate.scope_set_for_role/3 and f1_principal/2, the :f1_scope step of claim_task and Engine.complete_task, task route classes (2 :filter, 5 resolver), docs/roles.md section). Tests only; nothing under lib/ or priv/ was changed; nothing committed."
+    },
+    "related_handoff_ids": [
+      "d2535518-0518-4c02-9e11-000000000023",
+      "d2535518-0518-4c02-9e11-000000000024",
+      "d2535518-0518-4c02-9e11-000000000025"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/req518-compiler-scope-filter.md",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-23-elixir-dev-2d.json",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-24-security-reviewer-code-2d.json",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-25-reviewer-code-2d.json",
+      "test/support/task_scope_fixture.ex"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ518-2D-APPROVER-20261018"
+  },
+  "task": {
+    "description": "Write the test spec and test code for REQ-518 slice 2d (design r2b sections C.0-C.5, 7.1, 10.3: T-F1..T-F17, T-L12..T-L18, the mutants of 2d), REQ-518 ACs 12-17 and 20 (AC 13 as amended by PR #2810 incl. cases d2 and d3), the SEC code-gate (step-24) MERGE CONDITIONS and the REVIEWER (step-25) notes. Per-file runs only under the shared mixlock; no mix letflow.check.test, no full or multi-partition suite; mutants applied in memory only."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "137 new tests in 8 new files plus the extended TaskScopeFixture, ALL GREEN, run per file, one mix at a time under the shared mixlock (MIX_ENV=test, default log level): tasks_scope_node_id_migration_test 9, scope_node_id_no_writer_scan_test 7, scope_for_role_test 27, f1_context_test 33, tasks_scope_http_test 18, tasks_scope_inv5_http_test 19, tasks_route_classes_test 11, roles_scoped_approvers_test 13. Neighbours green: engine/entity_writes_lock_order_test 5 and engine/module_write_lock_order_test 6 (UNEDITED, T-F17), engine_distinct_from_test 40, engine_distinct_from_concurrency_test 2, tasks_distinct_from_test 13 (T-F12), tasks_test + route_scope_walk_test + route_scope_resolver_test + route_scope_self_service_test 144 together, engine_complete_task_test green. mix format --check-formatted over every new or changed test file: 0. No compile warning in any new file. 43 mutants measured in memory: 42 killed, 1 survives (M2, equivalent by construction). NOT RUN (by instruction): mix letflow.check.test, any full or multi-partition suite. One environmental note: tasks_distinct_from_test A-15 asserts on a WARNING log line and fails under LOG_LEVEL=error (my first batch used it); at the default level it passes (13). No implementation bug found; one spec-vs-build observation (OBS-1).",
+    "local_issue_id": null,
+    "tests_run": true,
+    "tests_run_scope": "per file, one mix at a time under C:\\Users\\tvolo\\AppData\\Local\\Temp\\claude\\mixlock (taken and released per run by this step; another session's lock was waited for, never removed); no full-suite and no multi-partition run; no mix letflow.check.test",
+    "files_created": [
+      "test/letflow/migrations/tasks_scope_node_id_migration_test.exs",
+      "test/letflow/tasks/scope_node_id_no_writer_scan_test.exs",
+      "test/letflow/api/scope_for_role_test.exs",
+      "test/letflow/tasks/f1_context_test.exs",
+      "test/letflow/routers/tasks_scope_http_test.exs",
+      "test/letflow/routers/tasks_scope_inv5_http_test.exs",
+      "test/letflow/api/tasks_route_classes_test.exs",
+      "test/letflow/docs/roles_scoped_approvers_test.exs",
+      "test/specs/REQ-518-2d.md"
+    ],
+    "files_changed": [
+      "test/support/task_scope_fixture.ex (the implementer's helper EXTENDED: provision!, caller!, set_grant!, principal, insert_task!, start_task!, fire_escalation!, call, wire, statements, interleave, audit readers; set_scope_node! kept as the only writer)",
+      "test/support/scope_set_fixture.ex (build_tree!/1 made public: one definition of the node tree)"
+    ],
+    "coverage": {
+      "AC 12": "T-F1 (migration: cloned and replayed tenant shape, RESTRICT FK confdeltype r, partial index, manifest last/once/ordered, the if prefix() guard, FK behavior, down repeatable and guarded, replay after down, replay no-op, no new table); T-F2 (AST ledger scan of lib/ incl. strings/raw SQL, def-level writer check, scanner proven live on 10 seeded writer forms, every Task changeset ignores the key, no response map or audit payload names it); reads covered in f1_context_test",
+      "AC 13 (a)-(e)": "T-F3..T-F7 over HTTP (get, list, inbox, claim, complete) and at the context layer; (c) existing 409/403 errors; (e) NULL node",
+      "AC 13 (d2) (d3)": "T-F15: tenant-wide PROCESS_OPERATOR unchanged, outside the routing role gets the existing claim 409 / complete 403; mixed case (scoped TASK_WORKER not covering + tenant-wide PROCESS_OPERATOR) exempt on get, list, inbox, claim, complete, routing role still enforced; unit level in scope_for_role_test",
+      "AC 13 G1 / T-F15": "scoped PROCESS_OPERATOR and TENANT_ADMIN without a TASK_WORKER grant refused on get, list, inbox, claim, complete; allowed with a covering TASK_WORKER grant; another-node TASK_WORKER grant does not help; allowed_for_role? vs allowed? union contrast",
+      "T-F16": "agreement property: 41 principals x 10 nodes, 410 decisions",
+      "AC 14": "T-F8 INV-5 on ALL SEVEN routes: status, sorted headers, raw body bytes and SQL statement sequence equal to a nonexistent id for 8 out-of-scope shapes (incl. retired nodes, NULL, completed and cancelled), for scoped and :none callers; assign and reassign with BOTH an invalid and a valid body; T-F10 list/inbox exclusion, count, cursor pages, cursor holds no node id, later page applies the current scope, intersection with the row scope, status/instance filters, RA-13 exemption lists all",
+      "AC 15": "claim -> revoke -> complete gives the 404 with no lock taken by the refused request; REAL concurrent revocation while the request waits for the task row lock (context layer and end to end through the router, claim and complete) plus the no-revocation control; stale principal in both directions and group-level grant; T-F17: lock multiset identical with and without f1 for complete_task and claim_task, extras are plain SELECTs in the right place; lock-order suites unedited and green",
+      "AC 16": "T-F14: off and shadow byte-identical, scope-free, no grants/node-tree/scope_node_id statement for 5 request shapes x 3 callers; claim/complete/assign/reassign likewise; contrast under on",
+      "AC 17": "T-F13: S1, S2, S3 exactly once each, in the section, equal to the AC 17 sentences in requirements.yaml; RA-13 paragraph separate and holds none; rules proven live on six seeded bad documents",
+      "AC 20 / AC 23 walk": "T-L12..T-L18 real table + seeded rows for all four walk rules; T-L19..T-L25 one scoped-caller test per ledger row",
+      "SEC step-24 conditions": "T-F1, T-F2, T-F3..T-F7, T-F15 (d3 + refusals + d2), INV-5 on all seven routes with both bodies for assign/reassign, AC 15 (claim, revoke, complete, no new lock mode), AC 16, AC 14, F-2 guard (on with no principal: raises, 404, no transaction): all delivered",
+      "REVIEWER step-25 notes": "audit rows of create, assign, complete, cancel never carry scope_node_id (+ key set equals pre-change, + AST pin of the seven Task.audit_state sites); f1 on-without-principal; in_scope with {:nodes, []}; T-F1 uses 20_261_019_200_001"
+    },
+    "mutants": {
+      "method": "the mutated source is compiled into the test VM (Code.compile_string of the file with the textual edits, each anchor required to occur exactly once, ignore_module_conflict) via 'mix do run --no-start -r mut.exs + test <files>'; nothing on disk was changed (md5 of git diff lib priv identical before and after; grep for each mutant text finds nothing); one mix at a time under the mixlock; counts are the failed tests of the listed files at the time of the run",
+      "measured": [
+        {
+          "id": "M1",
+          "edit": "MU23 f1_recheck keeps the request-time grants",
+          "failed": "9 of 51"
+        },
+        {
+          "id": "M2",
+          "edit": "MU24 NULL task node treated as tenant-wide",
+          "failed": "SURVIVED 0 of 45: equivalent by construction (a scoped principal is still denied against :tenant_wide with :not_tenant_wide and a tenant-wide TASK_WORKER is already exempt by the route permission)"
+        },
+        {
+          "id": "M3",
+          "edit": "MU25 list scope replaces the row scope instead of intersecting",
+          "failed": "2 of 51"
+        },
+        {
+          "id": "M4",
+          "edit": "MU26 scope_node_id castable in insert_changeset",
+          "failed": "1 of 7"
+        },
+        {
+          "id": "M5",
+          "edit": "MU33 gate consults the database when the flag is not on",
+          "failed": "3 of 46"
+        },
+        {
+          "id": "M6",
+          "edit": "MU36 gate uses the union of roles allowing the permission",
+          "failed": "5 of 45"
+        },
+        {
+          "id": "M7",
+          "edit": "allowed_for_role? uses the union (allowed?) instead of the one role",
+          "failed": "2 of 27"
+        },
+        {
+          "id": "M8",
+          "edit": "f1_allowed? loses the RA-13 exemption",
+          "failed": "7 of 45"
+        },
+        {
+          "id": "M9",
+          "edit": "f1_allowed? exemption is role-name based (PROCESS_OPERATOR only)",
+          "failed": "4 of 45"
+        },
+        {
+          "id": "M10",
+          "edit": "in_scope: :none is accepted",
+          "failed": "1 of 50"
+        },
+        {
+          "id": "M11",
+          "edit": "in_scope: a NULL node matches",
+          "failed": "3 of 50"
+        },
+        {
+          "id": "M12",
+          "edit": "get_task ignores the scope",
+          "failed": "7 of 50"
+        },
+        {
+          "id": "M13",
+          "edit": "list_tasks ignores the scope",
+          "failed": "7 of 51"
+        },
+        {
+          "id": "M14",
+          "edit": "claim_task has no :f1_scope step",
+          "failed": "9 of 51"
+        },
+        {
+          "id": "M17",
+          "edit": "f1_recheck takes a FOR SHARE lock",
+          "failed": "2 of 32"
+        },
+        {
+          "id": "M18",
+          "edit": "gate memo key ignores the role",
+          "failed": "1 of 27"
+        },
+        {
+          "id": "M19",
+          "edit": "gate loses the RA-13 exemption",
+          "failed": "4 of 45"
+        },
+        {
+          "id": "M20",
+          "edit": "handle_complete: routing check before the scope gate",
+          "failed": "3 of 37"
+        },
+        {
+          "id": "M22",
+          "edit": "handle_assign: scope check BEFORE body validation (existence oracle)",
+          "failed": "1 of 19"
+        },
+        {
+          "id": "M23",
+          "edit": "assign uses the TASK_WORKER set instead of the route permission",
+          "failed": "2 of 18"
+        },
+        {
+          "id": "M24",
+          "edit": "reassign uses the TASK_WORKER set instead of the route permission",
+          "failed": "2 of 18"
+        },
+        {
+          "id": "M26",
+          "edit": "GET /tasks passes :all (marker kept)",
+          "failed": "8 of 37"
+        },
+        {
+          "id": "M26b",
+          "edit": "GET /tasks/inbox passes :all (marker kept)",
+          "failed": "7 of 37"
+        },
+        {
+          "id": "M27",
+          "edit": "audit_state does not exclude scope_node_id",
+          "failed": "2 of 32"
+        },
+        {
+          "id": "M28a",
+          "edit": "migration FK is ON DELETE CASCADE",
+          "failed": "2 of 9"
+        },
+        {
+          "id": "M28b",
+          "edit": "migration index is not partial",
+          "failed": "2 of 9"
+        },
+        {
+          "id": "M28c",
+          "edit": "migration down keeps the column",
+          "failed": "3 of 9"
+        },
+        {
+          "id": "M28d",
+          "edit": "migration down is unguarded (no to_regclass)",
+          "failed": "1 of 9"
+        },
+        {
+          "id": "M29",
+          "edit": "handle_complete does not hand f1 to the engine",
+          "failed": "1 of 19"
+        },
+        {
+          "id": "M29b",
+          "edit": "handle_claim does not hand f1 to claim_task",
+          "failed": "1 of 19"
+        },
+        {
+          "id": "M30",
+          "edit": "handle_claim has no in_scope gate",
+          "failed": "2 of 37"
+        },
+        {
+          "id": "M32",
+          "edit": "f1_principal returns :off when on without a principal (silent skip)",
+          "failed": "1 of 27"
+        },
+        {
+          "id": "M33",
+          "edit": "in_scope(:all) issues a statement",
+          "failed": "1 of 32"
+        },
+        {
+          "id": "M34",
+          "edit": "scope_set_for_role does not set the marker",
+          "failed": "13 of 45"
+        },
+        {
+          "id": "M38",
+          "edit": "claim/assign audit site reverts to Audit.struct_state",
+          "failed": "1 of 32"
+        },
+        {
+          "id": "M39",
+          "edit": "task.create audit site reverts to Audit.struct_state",
+          "failed": "1 of 32"
+        },
+        {
+          "id": "M15",
+          "edit": "complete_task has no :f1_scope step",
+          "failed": "7 of 51"
+        },
+        {
+          "id": "M16",
+          "edit": "complete_task :f1_scope step runs after the instance lock",
+          "failed": "1 of 32"
+        },
+        {
+          "id": "M40",
+          "edit": "task.complete audit site reverts to Audit.struct_state",
+          "failed": "1 of 32"
+        },
+        {
+          "id": "M41",
+          "edit": "task.cancel audit site reverts to Audit.struct_state",
+          "failed": "1 of 32"
+        },
+        {
+          "id": "M2b",
+          "edit": "MU24 (strong form) f1_allowed? lets a NULL-node task through for scoped callers",
+          "failed": "2 of 45"
+        },
+        {
+          "id": "M43",
+          "edit": "task_scope resolves a NULL node to {:node, \"\"} style empty node (resolver accepts the empty string)",
+          "failed": "1 of 11"
+        }
+      ],
+      "summary": "43 mutants measured: 42 killed, 1 survives (M2, equivalent by construction). M4 and the ledger half of T-F2 read lib/ from disk, so an in-memory mutant only reaches the behavioral changeset test (1 failure); the ledger's liveness is proven by the seeded writer forms in the same file.",
+      "not_measured": "the docs test reads the file from disk (liveness proven by six seeded bad documents instead)"
+    },
+    "implementation_findings": [
+      "NO IMPLEMENTATION BUG FOUND: every test is green against the working tree and every mutant but the equivalent M2 is killed.",
+      "OBS-1 (spec vs build): AC 13 and design C.2 say Tasks.resolve_principal_scope/2 'is extended with the allowed node set'; as built it is NOT extended (map unchanged: user_id, group_ids, role_names) and the node set comes from ScopeGate.scope_set_for_role/3 and Scope.allowed_set_for_role/2. Functionally equivalent; the unchanged shape is pinned by a test. REVIEWER / DOC-UPDATER decide whether the sentence or the code moves.",
+      "OBS-2: claim_task and reassign_task write no audit entry (only assign_task writes task.assign); the audit test checks EVERY task entry so a future writer is covered.",
+      "OBS-3: M2 is equivalent: ScopeResolver.task_scope returning :unresolvable for a NULL node is defence in depth; the refusal of a NULL-node task for scoped callers is carried by the node-set predicate (in_scope, filter_by_scope) and by allowed_for_role? against :tenant_wide.",
+      "OBS-4 (as-built pin): at the context layer claim_task/complete_task answer task_not_pending for a non-pending task before the recheck; the router-level Tasks.in_scope/3 runs first, so completed and cancelled out-of-scope tasks give the same 404 over HTTP (tested).",
+      "OBS-5 (environment): tasks_distinct_from_test A-15 fails under LOG_LEVEL=error because it asserts on a WARNING line; it passes at the default level. Not an F1 regression.",
+      "OBS-6: the design text still names migration version 20261019100001 (REVIEWER F-4, CODE-DESIGNER/DOC-UPDATER); the tests use 20_261_019_200_001."
+    ],
+    "artifacts_out": [
+      "test/specs/REQ-518-2d.md",
+      "test/letflow/migrations/tasks_scope_node_id_migration_test.exs",
+      "test/letflow/tasks/scope_node_id_no_writer_scan_test.exs",
+      "test/letflow/api/scope_for_role_test.exs",
+      "test/letflow/tasks/f1_context_test.exs",
+      "test/letflow/routers/tasks_scope_http_test.exs",
+      "test/letflow/routers/tasks_scope_inv5_http_test.exs",
+      "test/letflow/api/tasks_route_classes_test.exs",
+      "test/letflow/docs/roles_scoped_approvers_test.exs",
+      "test/support/task_scope_fixture.ex",
+      "test/support/scope_set_fixture.ex"
+    ],
+    "run_command_for_test_runner": "for each of: test/letflow/migrations/tasks_scope_node_id_migration_test.exs test/letflow/tasks/scope_node_id_no_writer_scan_test.exs test/letflow/api/scope_for_role_test.exs test/letflow/tasks/f1_context_test.exs test/letflow/routers/tasks_scope_http_test.exs test/letflow/routers/tasks_scope_inv5_http_test.exs test/letflow/api/tasks_route_classes_test.exs test/letflow/docs/roles_scoped_approvers_test.exs : MIX_ENV=test mix test <file> (each 1 to 60 s); then the neighbours: test/letflow/engine/entity_writes_lock_order_test.exs test/letflow/engine/module_write_lock_order_test.exs test/letflow/routers/tasks_distinct_from_test.exs test/letflow/routers/tasks_test.exs test/letflow/engine_distinct_from_test.exs (at the DEFAULT log level: tasks_distinct_from_test A-15 asserts on a warning line); then hosted CI is the suite.",
+    "implementation_written": false
+  }
+}

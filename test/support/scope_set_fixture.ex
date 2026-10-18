@@ -117,7 +117,13 @@ defmodule Letflow.Support.ScopeSetFixture do
     Map.put(fx, :nodes, @nodes)
   end
 
-  defp build_tree!(schema) do
+  @doc """
+  Builds only the scope-node tree (no module, no event types) in `schema`; `provision!/2` calls it.
+  Public so that task fixtures (REQ-518 PR 2d, `Letflow.Support.TaskScopeFixture`) can reuse the
+  one tree definition instead of duplicating it.
+  """
+  @spec build_tree!(String.t()) :: :ok
+  def build_tree!(schema) do
     for {id, parent} <- [
           {@nodes.root, nil},
           {@nodes.a, @nodes.root},

@@ -1,0 +1,50 @@
+{
+  "handoff_id": "d2535518-0518-4c02-9e11-000000000025",
+  "run_id": "WF02-REQ518-COMPILER-SCOPE-20261018",
+  "workflow_id": "WF-02",
+  "step": "25",
+  "from_agent": "ORCH",
+  "to_agent": "REVIEWER",
+  "file": "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-25-reviewer-code-2d.json",
+  "created_at": "2026-10-18T11:31:00Z",
+  "started_at": "2026-10-18T11:31:00Z",
+  "completed_at": "2026-10-18T11:36:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [
+      "REQ-518"
+    ],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "REVIEWER CODE gate for REQ-518 slice 2d (GH #2535), uncommitted working tree of feature/WF02-REQ518-2D-APPROVER-20261018. Read-only; no mix run; no file edited."
+    },
+    "related_handoff_ids": [
+      "d2535518-0518-4c02-9e11-000000000023",
+      "d2535518-0518-4c02-9e11-000000000024"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/req518-compiler-scope-filter.md",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-23-elixir-dev-2d.json",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-24-security-reviewer-code-2d.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ518-2D-APPROVER-20261018"
+  },
+  "task": {
+    "description": "Idiom, supervision, scope-creep, deviation, f1 nil-semantics, forced-test-edit, snapshot, docs/roles.md and decision-record gate for REQ-518 2d."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "summary": "PASS_WITH_FINDINGS. No blocker, no required change. Static review only (nothing compiled or run). 0 SEC FILE: step-24 parses as valid JSON, status PASS_WITH_FINDINGS, summary intact (10 numbered verification points). 1 IDIOM: no process, spawn, GenServer or supervisor change; InstanceSupervisor untouched; decision 0045 consistent. Tasks.ScopeResolver is a pure 2-clause function. The :f1_scope Multi.run step has the repo step shape (fn _repo, %{task: task} -> ... returning {:ok, :f1_allowed} | {:error, :task_not_found}), inserted right after the :task lock, present only when f1 is a principal via maybe_f1_scope/3 (multi-clause on nil vs %Principal{}). The with-chains in handle_complete/claim are well formed (in_scope before authorize_completion so routing-role errors cannot leak). Specs of in_scope/3, f1_allowed?/3, f1_recheck/3, allowed_for_role?/3, allowed_set_for_role/2, scope_set_for_role/3, f1_principal/2 are accurate; claim_opts and complete_opts widened with f1. engine.ex and tasks.ex changes are minimal (one step helper, one arg threaded through the private complete chain, one filter_by_scope). 2 SUPERVISION: nothing added or collapsed. 3 SCOPE vs design r2b C.0-C.5/7.1/10.3: files map to the commit-order steps. No behaviour, macro or generic plumbing beyond the design. 4 DEVIATIONS: (a) migration 20261019200001: ACCEPTED, forced by the GH #2659 collision on 20261019100001/2; header comment says so; manifest entry and provisioning doc updated. (b) ScopeGate.f1_principal/2: ACCEPTED, the engine path needs the principal and the flag. (c) Scope.allowed_for_role?/3, allowed_set_for_role/2, scope_set_for_role/3: ACCEPTED, design C.3; allowed_for_role? shares decide_resource/3 and effective_scope/2 with allowed?/3 so decisions cannot diverge. (d) Audit.struct_state exclusions: behaviour is right (task audit payloads byte-identical; SEC verified no task site missed) BUT it is the literal [:scope_node_id] repeated at seven call expressions in four files (task_activation.ex:491, engine.ex:4301/4302 and 7845/7846, tasks.ex:753/754) with no single owner; a deny-list repeated per call site means the next task audit writer silently leaks the column. F-1: add one owner, e.g. Letflow.Engine.Task.audit_state/1 wrapping Audit.struct_state(task, @audit_excluded), used by all sites, pinned by a test. No docs/anti-patterns.md entry is hit (the password_hash/token_hash convention is the same per-site deny-list and already tolerated). 5 F1 NIL SEMANTICS (SEC F-2): f1 = nil conflates tenant-not-on (correct: no F1 step) with tenant-on-but-no-principal (principal_from_conn {:error, :no_principal}), where the engine step is silently skipped. Not exploitable today (Authorization rejects a principal-less request earlier and scope_set_for_role gives :none, so Tasks.in_scope refuses first), but the engine API would run unchecked on a missing-principal programming error. Cheap fix F-2 (ELIXIR-DEV): explicit tagged option f1: :off | {:enforce, Principal.t()}; f1_principal/2 returns :off when not on, {:enforce, p} when on, and raises (detail-free 500) on on+no_principal; maybe_f1_scope/3 then has two total clauses and any other value is a FunctionClauseError instead of a silent skip. Alternative: keep nil but make f1_principal raise on on+no_principal. Not a blocker. 6 TYPE-SAFETY (does not block; FINDING for ORCH to file under docs/issues/ tagged type-safety): (i) the f1 option above; (ii) Types.scope_set {:nodes, [String.t()]} still allows {:nodes, []} (open since step-08/13; in_scope and filter_by_scope would send an empty IN list and fail closed, correct but representable); (iii) Task.t() is a bare %__MODULE__{}, so scope_node_id is not in the type. 7 FORCED TEST EDITS (diff read in full): route_scope_walk_test: filter list gains two task list lines (now Enum.sort-wrapped, equality kept), data-router scopes list gains 7 task entries and Routers.Tasks: forced. route_scope_resolver_test: (1) another-resolver-function row gets path /tasks/:id/other so the unexpected_resolver_route rule does not fire first: forced, original assertion kept; (2) Routers.Tasks is NOT a data router flipped to assert exactly one :data_route_default: forced (its own message said so) and stronger; (3) resolver set 8 -> 13 with per-router class check, equality kept: forced; (4) snapshot 122 -> 115: forced. route_scope_self_service_test: @filter_lines +2, 122 -> 115: forced. None weakens. Lock-order suites and routers/tasks tests untouched. 8 SNAPSHOT: tenant_wide_default_routes.txt diff is exactly 7 removed lines, 0 added (GET /tasks, /tasks/:id, /tasks/inbox, POST assign, claim, complete, reassign); 122 - 7 = 115 matches the edited counts. 9 DOCS roles.md: section Known limitation: scoped approvers (stage 2), before Matrix; the three required sentences each on their own line, once; second paragraph states the F1 rule and that assign/reassign follow the route permission; the RA-13 exemption is a separate paragraph. Accurate and consistent with C.3 and SEC point 8. F-5 nit: the last sentence of the exemption paragraph is a run-on; split it. 10 DECISION RECORDS: 0051 (single predicate, tasks.scope_node_id, generic 404) and 0045 consistent. No decision-record disagreement. 11 STALE TEXT (recorded, not edited): the design doc req518-compiler-scope-filter.md still names migration version 20261019100001 (F-4, CODE-DESIGNER/DOC-UPDATER; CDV-gated). FINDINGS (all non-blocking): F-1 audit-exclusion single owner; F-2 explicit f1 representation; F-3 type-safety FINDING (section 6, ORCH files); F-4 design text amend for migration version; F-5 roles.md run-on; F-6 check Scope for an existing roles-held helper before keeping role_held?/2; F-7 nits: redundant | atom() in f1_allowed? spec, assign/reassign with/else with a single else clause reads better as case, alias order in Routers.Tasks (ScopeGate, ScopeResolver above the alphabetical block) and Letflow.Tasks (Authorization after Audit). NOTES for TEST-DESIGNER: assert no scope_node_id key in task.create/assign/complete/cancel audit rows; the f1 on + no principal path; in_scope with {:nodes, []}; T-F1 uses 20_261_019_200_001.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-25-reviewer-code-2d.json"
+    ],
+    "diagnosis_confirmed": true,
+    "implementation_written": false,
+    "classification": "REVIEW_PASS_WITH_FINDINGS"
+  }
+}

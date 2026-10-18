@@ -27,6 +27,7 @@ and the code: `Letflow.Entities.Query.Compiler` (all of it relevant), `Allowlist
 | r1a | 2026-10-18 | CODE-DESIGN-VALIDATOR recheck (step-03-cdv-recheck): stale 2c-i labels -> 2c-i-a/2c-i-b, mutant range note MU1..MU41, RA-13 (tenant-wide exemption of the F1 grant rule), 2c-i-a sizing note for the threading fallback. |
 | r2 | 2026-10-18 | SEC design gate PASS_WITH_FINDINGS (step-04): C-1 `allowed_set/2` raises on any `allowed_node_ids/2` error and on a 50,000-id cap, never `:all`/partial/silent `:none` (3.3, T-C13, T-C14, MU40, MU41); C-2 fixture with a retired INTERMEDIATE node with a live descendant (3.8, T-C4, T-C12); C-3 pure new-value check before the transaction and before the idempotency claim (5.3, T-W22, MU39); C-4 `:f1_scope` is a plain read on the transaction's repo handle after the task lock, lock orders unchanged (C.4, T-F17); C-5 T-W21 production-shaped refusal test; C-6 type-gate bytes test T-W23 (5.3); C-7 rulings recorded in section 8 (R-1 SEC-518-R1 literal form is the build default, threading fallback removed; R-2 ids SEC-518-R2-modules and SEC-518-R2-help, so /me/modules and /help/resolved become `:self_service` in 4.2), AC 23 PR-checklist table (7.5), `config/test.exs` `:modules` SEC trigger; R-2 added sentence and help condition (4.1, 4.4, T-S9); R-3 prod-config evaluation test (T-D8); R-4 detective-only conditions (3.6); advisories A-1..A-8 (12.3); RA-13 conditions (C.3, C.5, section 14). |
 | r2b | 2026-10-18 | SEC BUG-1 ruling (step-20) and 2c-ii review/test findings (steps 18, 19, 20): F7 premise WITHDRAWN (the promoted reference column has a Postgres foreign key, so the AC 7 reference clause is live) and RA-9 withdrawn; 5.3 gains the reference pre-check through the scope of the referenced type in three positions, the in-transaction recheck, the foreign-key-violation backstop, the import batch pre-check per FK field, and the pinned pre-existing tenant-wide nonexistent-reference 500; T-W8 rewritten as the reference oracle tests (a)-(g); 5.2 `fetch_in_scope` is the 5-argument form returning the declaration (REVIEWER F-5); 5.4 a scoped caller's import with `upsert_by external_ref` is refused with the generic 404 (REQ-519 note); query on a nonexistent type equals the undeclared-type empty page for a scoped caller; managed-type attachment routes have no managed lock (#2582) so T-W21's 403 does not apply to them; SEC F-3 release-note line; T-F15 gains the mixed case (d3). |
+| r2c | 2026-10-18 | TDV OBS-1 (step-27), REVIEWER F-4, as-built f1 (2d): `Tasks.resolve_principal_scope/2` is NOT extended (C.2: the allowed node set comes from `ScopeGate.scope_set_for_role/3` and `Scope.allowed_set_for_role/2`; extending it would add a grants and node-tree read to the off-mode path and break AC 16); the 2d migration version is 20261019200001 (20261019100001 is taken by #2659), every mention fixed; the f1 option is `:off | {:enforce, principal}` with `f1_principal/2` raising on `on` without a principal; `Task.audit_state/1` is the single owner of the `scope_node_id` audit exclusion (C.4, T-F2, T-F18). |
 | r2a | 2026-10-18 | CODE-DESIGN-VALIDATOR recheck of r2 (step-06): `:exam_route_reclassified` walk rule explicitly ships in 2c-i-a (3.1, section 1, 3.6, new T-C15); create path states the pure C-3 check before `Idempotency.from_body` (5.3). |
 
 ---
@@ -527,7 +528,7 @@ module (R-1 family), seed tasks).
 
 ## C.0 Commit order of PR 2d (each commit compiles and passes the tests that exist at it)
 
-1. Migration `20261019100001`, manifest registration, `Task` field (no cast), `TaskScopeFixture`, scan T-F2, migration tests T-F1. No behavior change.
+1. Migration `20261019200001`, manifest registration, `Task` field (no cast), `TaskScopeFixture`, scan T-F2, migration tests T-F1. No behavior change.
 2. `Scope.allowed_for_role?/3` and `Scope.allowed_set_for_role/2` (pure additions in `scope.ex`), unit tests incl. the agreement property for roles (T-F16).
 3. `Tasks.ScopeResolver`, `Tasks.in_scope/3`, `Tasks.f1_allowed?/3`, the `:scope` param of `list_tasks/2` and `get_task/2`, the `f1` opt and the `:f1_scope` step of `claim_task/3` and `Engine.complete_task/3`, `ScopeGate.scope_set_for_role/3`. All default to today's behavior when the opt is absent; tests T-F3..T-F12, T-F14, T-F15 pass here against the context API with `f1` supplied directly.
 4. Router handlers pass the set and `f1` (from `ScopeGate`), the seven `scope:` classes, expectation lists and the removal of the 7 snapshot lines; route-walk and ledger tests T-L12..T-L18, T-L19..T-L27. This is the only commit that changes route classes, so the only one the SEC pass must read line by line (SEC C-2).
@@ -535,9 +536,9 @@ module (R-1 family), seed tasks).
 
 ## C.1 Column (AC 12)
 
-Migration `priv/repo/migrations/20261019100001_add_scope_node_id_to_tasks.exs`: tenant-scoped, `if prefix() do` guard,
+Migration `priv/repo/migrations/20261019200001_add_scope_node_id_to_tasks.exs`: tenant-scoped, `if prefix() do` guard,
 registered in `@tenant_scoped_migration_manifest` after the last entry (the 517 `20_261_018_200_002` scope shadow
-counters) as `{20_261_019_100_001, Letflow.Repo.Migrations.AddScopeNodeIdToTasks, "20261019100001_add_scope_node_id_to_tasks.exs"}`;
+counters) as `{20_261_019_200_001, Letflow.Repo.Migrations.AddScopeNodeIdToTasks, "20261019200001_add_scope_node_id_to_tasks.exs"}`;
 moduledoc counts moved. `ALTER TABLE "<schema>".tasks ADD COLUMN scope_node_id text NULL` and constraint
 `tasks_scope_node_id_fkey` (24 bytes) `FOREIGN KEY (scope_node_id) REFERENCES "<schema>".scope_node_paths (node_id) ON DELETE
 RESTRICT` (only interpolation: the schema from `prefix()`, INV-7), partial index `tasks_scope_node_id_idx` on
@@ -559,65 +560,12 @@ Letflow.Tasks.in_scope(task_id :: String.t(), Types.scope_set(), opts) :: :ok | 
 Letflow.Tasks.f1_allowed?(Task.t(), Scope.Principal.t(), permission) :: boolean()
     # Scope.allowed?(principal_with_FRESH_grants, permission, task_scope(task)) is {:allow, _}
 ```
-`Tasks.resolve_principal_scope/2` stays the single reader of groups and roles. It is EXTENDED, per D4/AC 13, with an
-optional `:scope` field in its result map `principal_scope()` (`allowed_nodes :: Types.scope_set()`), computed only when
-the caller supplies a principal (`resolve_principal_scope(user_id, opts)` with `opts[:f1]` set); with `f1` absent the
-result is exactly today's map (existing tests unedited).
-
-The set given to `in_scope/3`, `list_tasks/2` and `get_task/2` for the five F1 routes (get, list, inbox, claim, complete) is `ScopeGate.scope_set_for_role(conn, policy_key, "TASK_WORKER")`; for assign and reassign it is `ScopeGate.scope_set(conn, policy_key)` (route permission).
-
-Handler order (claim, complete, assign, reassign, get), scoped caller in `on`: set read, `Tasks.in_scope/3`; failing
--> the route's existing answer for a nonexistent task (`{:error, :task_not_found}` -> 404 on claim/complete/assign/
-reassign/get), then the existing code. The existing "in scope but outside the routing role" errors
-(`assignee_group_not_member`, `assignee_role_not_held`, `assigned_to_other_user`) are unchanged and come AFTER the
-scope gate (AC 14).
-
-List and inbox (AC 14): `Tasks.list_tasks/2` params gain `:scope` (a `Types.scope_set()`); `{:nodes, ids}` adds the
-predicate `scope_node_id IN (ids)` (NULL excluded), `:none` adds `false`, `:all` nothing. It COMPOSES with the
-existing `filter_by_assignee_scope` by AND (intersection). `count` and the cursor page therefore exclude out-of-scope
-tasks; the cursor holds no set. `get_task/2` gets the same optional `:scope` param (one query with the predicate).
-
-## C.3 The F1 rule (AC 13; G1)
-
-Named per-role functions in `Letflow.Api.Scope` (the only place a scope decision is made; they reuse the same private
-`effective_scope/2` and `decide_resource` logic as `allowed?/3`, so the rules cannot diverge):
-
-```
-@spec allowed_for_role?(Principal.t(), role :: String.t(), resource_scope()) :: decision()
-    # only the effective scope of THAT role name counts (tenant_wide row -> allow; nodes -> subtree test as allowed?/3;
-    # role not held, grants not loaded, zero rows, retired or unresolvable node -> the same deny reasons)
-@spec allowed_set_for_role(Principal.t(), role :: String.t()) :: {:ok, Types.scope_set()}
-```
-
-Task gate `Tasks.f1_allowed?(task, principal, route_permission)`: (1) if the principal is NOT narrower than tenant-wide
-on the route permission (`Scope.allowed?(principal, route_permission, :tenant_wide)` allows: a tenant-wide holder, a token
-principal, a platform admin) the grant requirement does not apply and today's behavior is unchanged (a tenant-wide
-PROCESS_OPERATOR or TENANT_ADMIN keeps working); (2) otherwise the caller must hold a TASK_WORKER grant covering the
-task: `Scope.allowed_for_role?(principal, "TASK_WORKER", Tasks.ScopeResolver.task_scope(task))` allows. A scoped
-PROCESS_OPERATOR or TENANT_ADMIN WITHOUT a TASK_WORKER grant is therefore refused (negative test T-F15), and a scoped
-caller's other-role grants never widen the task view. Lists and `in_scope/3` use the same rule through
-`allowed_set_for_role(principal, "TASK_WORKER")` (when (1) does not apply).
-
-A user may see, claim or complete a task iff (routing) the existing checks pass: for the worker-only `list`/inbox the
-`{:own_user_and_groups}` row scope; for claim/complete the `USER`/`GROUP`/`ROLE` assignee rules of
-`apply_claim`/`apply_completion_authz`, where a role is held through a group (the existing `resolve_principal_scope`
-fresh queries) AND (grant) the rule above, so:
-(a) routing role + TASK_WORKER grant on an ancestor: allowed; (b) TASK_WORKER grant on a sibling subtree: refused
-(404-equivalent); (c) outside the routing role with a covering grant: the existing error (403/409 per route); (d)
-tenant-wide TASK_WORKER in the routing role: allowed; (e) NULL node: refused for scoped, allowed for tenant-wide.
-Task nodes in tests are set by `TaskScopeFixture`.
-
-Assign and reassign (not in AC 13's text; AC 20 classifies them): scope gate with the ROUTE PERMISSION
-(`:TasksAssign`, `:TasksReassign`) through `Scope.allowed?/3` over the task's node, no TASK_WORKER requirement and no
-routing-role rule beyond what exists; recorded so the ledger has no unclassified task route.
-
-The wider reading (the union of the roles that allow the route permission, so that a scoped PROCESS_OPERATOR grant on the
-node would suffice) is NOT built; it stays OQ-3 pending the RA-10 amendment.
+`Tasks.resolve_principal_scope/2` stays the single place groups and roles are read for the routing-role check and is NOT extended (TDV OBS-1: extending it would add a grants and node-tree read to the off-mode path and break AC 16); the allowed node set comes from `ScopeGate.scope_set_for_role/3` and `Scope.allowed_set_for_role/2`.
 
 ## C.4 Engine path (AC 15)
 
-`Engine.complete_task/3` and `Tasks.claim_task/3` take an optional opt `f1: nil | Scope.Principal.t()` (nil means the
-flag is not `on`: the F1 branch is selected ONLY by the per-request flag, AC 16; the router sets it from
+`Engine.complete_task/3` and `Tasks.claim_task/3` take the opt `f1 :: :off | {:enforce, Scope.Principal.t()}` (as built; `:off` means the
+flag is not `on`; the router builds it with `f1_principal/2`, which RAISES when the tenant is `on` but no principal can be built, so an `on` request can never silently fall back to `:off`: the F1 branch is selected ONLY by the per-request flag, AC 16; the router sets it from
 `ScopeGate.mode/1` and the conn's principal; token principals pass the F1 gate as tenant-wide). With a principal, a new Multi
 step `:f1_scope` runs right after the task row is locked and before any transition/SoD step: it reloads the grants of
 the actor with `Scope.load_grants(user_id, prefix)` INSIDE the transaction (fresh, not the request memo, so group membership is fresh too), then
@@ -859,6 +807,7 @@ Unless stated: real HTTP through the router with real tenants, the stored value 
 | Id | AC | Test |
 |---|---|---|
 | T-F1 | 12 | migration applies/rolls back; FK `confdeltype = 'r'`; replayed tenant and clone carry the FK; `@expected_tenant_tables` unchanged |
+| T-F18 | 12/A-8 | `Task.audit_state/1` is the single owner of the `scope_node_id` audit exclusion: task audit/state payloads built through it never carry the column (a source scan finds no other site that builds a task audit map); `f1_principal/2` raises for `on` without a principal and returns `:off` otherwise |
 | T-F2 | 12 | source scan: no `lib/` writer of `scope_node_id`, covering `insert_all`/`Repo.insert_all` keyword forms and `TaskActivation`; the column appears in no cast list and in no task response map (`task_json`, list, detail, complete; INV-2, A-8) |
 | T-F3..F7 | 13 | the five cases (a)-(e) with `TaskScopeFixture` |
 | T-F8 | 14 | claim and complete outside scope: same status, body, headers and statement count as a nonexistent task id; unchanged existing errors for in-scope/out-of-routing-role |
@@ -966,7 +915,7 @@ Each PR: `mix compile --warnings-as-errors`, `mix format --check-formatted`, `mi
 `test/letflow/routers/me_test.exs`, `test/letflow/routers/help_test.exs`, plus `test/letflow/scope_node_paths`,
 `test/letflow/tasks*` and `test/letflow/docs` (2d) which AC 22 does not list. SECURITY-REVIEWER and REVIEWER required
 on each PR. Anti-pattern checks for ELIXIR-DEV: manifest registration and version collision for
-`20261019100001`; explicit short constraint names; no grep-shaped scan that the module's own moduledoc trips (the
+`20261019200001`; explicit short constraint names; no grep-shaped scan that the module's own moduledoc trips (the
 new scans are AST-based); the tenant fixture oracle unchanged because no table is added; CRLF working tree for edits
 to `entities.ex` (new files LF).
 

@@ -101,6 +101,7 @@ defmodule Letflow.Api.RouteScopeResolverTest do
       route =
         resolver_row("GET /tasks/:id TasksGetById", %{
           router: Letflow.Routers.Tasks,
+          path: "/tasks/:id/other",
           declared: other,
           class: other
         })
@@ -201,12 +202,12 @@ defmodule Letflow.Api.RouteScopeResolverTest do
       end
     end
 
-    test "Routers.Tasks is NOT a data router yet (PR 2d must add it in the SAME change that classifies its seven routes)" do
+    test "Routers.Tasks IS a data router (REQ-518 PR 2d added it in the SAME change that classified its seven routes)" do
       route =
         entities_row(%{router: Letflow.Routers.Tasks, path: "/tasks/:id", key: :TasksGetById})
 
-      assert kinds(audit([route], [RouteScope.snapshot_line(route)]), :data_route_default) == [],
-             "when 2d adds Routers.Tasks to @data_routers this assertion must flip"
+      assert [{:data_route_default, ^route}] =
+               kinds(audit([route], [RouteScope.snapshot_line(route)]), :data_route_default)
     end
   end
 
@@ -223,22 +224,36 @@ defmodule Letflow.Api.RouteScopeResolverTest do
       assert RouteScope.audit_routes(routes, snapshot) == []
     end
 
-    test "the {:resolver, _} routes of the table are EXACTLY the eight listed, with the exported resolver",
+    test "the {:resolver, _} routes of the table are EXACTLY the eight entity routes and the five task routes (PR 2d), with the exported resolvers",
          %{
            routes: routes
          } do
       resolver_rows = Enum.filter(routes, &match?({:resolver, _}, &1.class))
 
+      task_lines = [
+        "GET /tasks/:id TasksGetById",
+        "POST /tasks/:id/assign TasksAssign",
+        "POST /tasks/:id/claim TasksComplete",
+        "POST /tasks/:id/complete TasksComplete",
+        "POST /tasks/:id/reassign TasksReassign"
+      ]
+
       assert resolver_rows |> Enum.map(&RouteScope.snapshot_line/1) |> Enum.sort() ==
-               Enum.sort(@resolver_lines)
+               Enum.sort(@resolver_lines ++ task_lines)
 
       for row <- resolver_rows do
-        assert row.class == @resolver
         assert row.source == :declared
-        assert row.router == Letflow.Routers.Entities
+
+        if row.router == Letflow.Routers.Tasks do
+          assert row.class == {:resolver, {Letflow.Tasks.ScopeResolver, :task_scope}}
+        else
+          assert row.class == @resolver
+          assert row.router == Letflow.Routers.Entities
+        end
       end
 
       assert function_exported?(ScopeResolver, :record_scope, 1)
+      assert function_exported?(Letflow.Tasks.ScopeResolver, :task_scope, 1)
     end
 
     test "the seven definition/restriction routes are declared :tenant_wide", %{routes: routes} do
@@ -259,7 +274,8 @@ defmodule Letflow.Api.RouteScopeResolverTest do
          %{
            snapshot: snapshot
          } do
-      assert length(snapshot) == 122
+      # 122 after 2c-ii; PR 2d removed the seven task lines (design 7.1 T1-T7)
+      assert length(snapshot) == 115
 
       for line <- @resolver_lines ++ @tenant_wide_lines do
         refute line in snapshot, line
