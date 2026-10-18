@@ -136,8 +136,7 @@ gate; a tenant with no `entity_field_restrictions` row has `restricted == MapSet
 
 ## 3. Ordering and the denial answer (decision (2) and (3))
 
-Per record write handler, in this order (handler split in two, names pinned: the existing `handle_create_record/2`, `handle_update_record/3`, `handle_delete_record/3`, `handle_import_records/2` become the deciders (compute `RecordAccess.write/3`, answer `:managed`, else call the body); the existing `*_unmanaged` bodies are renamed `create_record_with_access/3`, `update_record_with_access/4`, `delete_record_with_access/4`, `import_records_with_access/3`, each taking the extra argument `access :: :hidden | {:open, restricted}` last; the names do not clash with `Records.do_create_record/4`, which is private to another module. Earlier wording: a thin wrapper that decides, and the
-):
+Per record write handler, in this order (handler split in two, names pinned: the existing `handle_create_record/2`, `handle_update_record/3`, `handle_delete_record/3`, `handle_import_records/2` become the deciders (compute `RecordAccess.write/3`, answer `:managed`, else call the body); the existing `*_unmanaged` bodies are renamed `create_record_with_access/3`, `update_record_with_access/4`, `delete_record_with_access/4`, `import_records_with_access/3`, each taking the extra argument `access :: :hidden | {:open, restricted}` last; the names do not clash with `Records.do_create_record/4`, which is private to another module):
 
 1. Route-level `authz_*` permission gate (unchanged; independent of the type).
 2. `decision = RecordAccess.write(user_id, entity_type, prefix)` computed FIRST, before the body, path id or query string is read. The same four
