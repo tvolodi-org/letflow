@@ -692,19 +692,18 @@ defmodule Letflow.ServiceCatalog do
 
   defp filter_by_list_cursor(query, nil), do: query
 
-  defp filter_by_list_cursor(query, {created_at_us, service_id}) do
-    ts = DateTime.from_unix!(created_at_us, :microsecond)
+  defp filter_by_list_cursor(query, {ts, service_id}) do
     from(e in query, where: {e.created_at, e.service_id} < {^ts, ^service_id})
   end
 
   @spec decode_list_cursor(String.t() | nil) ::
-          {:ok, {non_neg_integer(), String.t()} | nil}
+          {:ok, {DateTime.t(), String.t()} | nil}
           | {:error, :invalid_cursor | :wrong_endpoint | :expired}
   defp decode_list_cursor(nil), do: {:ok, nil}
 
   defp decode_list_cursor(raw) when is_binary(raw) do
     case Pagination.decode_cursor(raw, @list_cursor_prefix, byte_size(@list_cursor_prefix)) do
-      {:ok, %Pagination.Cursor{} = cursor} -> {:ok, decode_seek(cursor, @list_cursor_prefix)}
+      {:ok, %Pagination.Cursor{} = cursor} -> decode_seek(cursor, @list_cursor_prefix)
       {:error, :wrong_endpoint} -> {:error, :wrong_endpoint}
       {:error, :expired} -> {:error, :expired}
       {:error, _invalid_base64_or_invalid_cursor} -> {:error, :invalid_cursor}
@@ -712,10 +711,10 @@ defmodule Letflow.ServiceCatalog do
   end
 
   defp decode_seek(%Pagination.Cursor{inner: inner}, prefix) do
-    prefix_len = byte_size(prefix)
-    rest = binary_part(inner, prefix_len, byte_size(inner) - prefix_len)
-    [ts_str, service_id] = String.split(rest, ":", parts: 2)
-    {String.to_integer(ts_str), service_id}
+    case Pagination.decode_seek_parts(inner, prefix, [:datetime_us, :string]) do
+      {:ok, [created_at, service_id]} -> {:ok, {created_at, service_id}}
+      {:error, :invalid_cursor} = error -> error
+    end
   end
 
   # `prefix` is threaded through here (rather than each caller building its
@@ -794,7 +793,7 @@ defmodule Letflow.ServiceCatalog do
   end
 
   @spec decode_list_all_cursor(String.t() | nil) ::
-          {:ok, {non_neg_integer(), String.t()} | nil}
+          {:ok, {DateTime.t(), String.t()} | nil}
           | {:error, :invalid_cursor | :wrong_endpoint | :expired}
   defp decode_list_all_cursor(nil), do: {:ok, nil}
 
@@ -804,7 +803,7 @@ defmodule Letflow.ServiceCatalog do
            @list_all_cursor_prefix,
            byte_size(@list_all_cursor_prefix)
          ) do
-      {:ok, %Pagination.Cursor{} = cursor} -> {:ok, decode_seek(cursor, @list_all_cursor_prefix)}
+      {:ok, %Pagination.Cursor{} = cursor} -> decode_seek(cursor, @list_all_cursor_prefix)
       {:error, :wrong_endpoint} -> {:error, :wrong_endpoint}
       {:error, :expired} -> {:error, :expired}
       {:error, _invalid_base64_or_invalid_cursor} -> {:error, :invalid_cursor}

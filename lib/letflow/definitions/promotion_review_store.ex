@@ -374,8 +374,7 @@ defmodule Letflow.Definitions.PromotionReviewStore do
 
   defp filter_by_list_reviews_cursor(query, nil), do: query
 
-  defp filter_by_list_reviews_cursor(query, {id, inserted_at_us}) do
-    ts = DateTime.from_unix!(inserted_at_us, :microsecond)
+  defp filter_by_list_reviews_cursor(query, {id, ts}) do
     from(r in query, where: {r.inserted_at, r.id} < {^ts, ^id})
   end
 
@@ -387,7 +386,7 @@ defmodule Letflow.Definitions.PromotionReviewStore do
            @promotion_reviews_list_cursor_prefix,
            byte_size(@promotion_reviews_list_cursor_prefix)
          ) do
-      {:ok, %Pagination.Cursor{} = cursor} -> {:ok, decode_list_reviews_seek(cursor)}
+      {:ok, %Pagination.Cursor{} = cursor} -> decode_list_reviews_seek(cursor)
       {:error, :wrong_endpoint} -> {:error, :wrong_endpoint}
       {:error, :expired} -> {:error, :expired}
       {:error, _invalid_base64_or_invalid_cursor} -> {:error, :invalid_cursor}
@@ -400,10 +399,14 @@ defmodule Letflow.Definitions.PromotionReviewStore do
   # always the mint-time timestamp decode_cursor/4's own expiry check reads,
   # never the domain inserted_at value itself.
   defp decode_list_reviews_seek(%Pagination.Cursor{inner: inner}) do
-    prefix_len = byte_size(@promotion_reviews_list_cursor_prefix)
-    rest = binary_part(inner, prefix_len, byte_size(inner) - prefix_len)
-    [_mint_time_us_str, id_str, inserted_at_us_str] = String.split(rest, ":", parts: 3)
-    {id_str, String.to_integer(inserted_at_us_str)}
+    case Pagination.decode_seek_parts(inner, @promotion_reviews_list_cursor_prefix, [
+           :skip,
+           :uuid,
+           :datetime_us
+         ]) do
+      {:ok, [id, inserted_at]} -> {:ok, {id, inserted_at}}
+      {:error, :invalid_cursor} = error -> error
+    end
   end
 
   defp split_list_reviews_page(rows, page_size) when length(rows) > page_size do

@@ -2110,8 +2110,7 @@ defmodule Letflow.Definitions do
 
   defp filter_by_definitions_list_cursor(query, nil), do: query
 
-  defp filter_by_definitions_list_cursor(query, {id, created_at_us}) do
-    ts = DateTime.from_unix!(created_at_us, :microsecond)
+  defp filter_by_definitions_list_cursor(query, {id, ts}) do
     from(d in query, where: {d.created_at, d.id} < {^ts, ^id})
   end
 
@@ -2123,7 +2122,7 @@ defmodule Letflow.Definitions do
            @definitions_list_cursor_prefix,
            byte_size(@definitions_list_cursor_prefix)
          ) do
-      {:ok, %Pagination.Cursor{} = cursor} -> {:ok, decode_definitions_list_seek(cursor)}
+      {:ok, %Pagination.Cursor{} = cursor} -> decode_definitions_list_seek(cursor)
       {:error, :wrong_endpoint} -> {:error, :wrong_endpoint}
       {:error, :expired} -> {:error, :expired}
       {:error, _invalid_base64_or_invalid_cursor} -> {:error, :invalid_cursor}
@@ -2135,10 +2134,14 @@ defmodule Letflow.Definitions do
   # first slot after the prefix is always the mint-time timestamp
   # decode_cursor/4's expiry check reads, never a domain value.
   defp decode_definitions_list_seek(%Pagination.Cursor{inner: inner}) do
-    prefix_len = byte_size(@definitions_list_cursor_prefix)
-    rest = binary_part(inner, prefix_len, byte_size(inner) - prefix_len)
-    [_mint_time_us_str, id_str, created_at_us_str] = String.split(rest, ":", parts: 3)
-    {id_str, String.to_integer(created_at_us_str)}
+    case Pagination.decode_seek_parts(inner, @definitions_list_cursor_prefix, [
+           :skip,
+           :uuid,
+           :datetime_us
+         ]) do
+      {:ok, [id, created_at]} -> {:ok, {id, created_at}}
+      {:error, :invalid_cursor} = error -> error
+    end
   end
 
   defp split_definitions_list_page(rows, page_size) when length(rows) > page_size do
@@ -2251,10 +2254,8 @@ defmodule Letflow.Definitions do
          query,
          search_query,
          pattern,
-         {cursor_rank, cursor_created_at_us, cursor_id}
+         {cursor_rank, ts, cursor_id}
        ) do
-    ts = DateTime.from_unix!(cursor_created_at_us, :microsecond)
-
     where(
       query,
       [d],
@@ -2291,7 +2292,7 @@ defmodule Letflow.Definitions do
            @definitions_search_cursor_prefix,
            byte_size(@definitions_search_cursor_prefix)
          ) do
-      {:ok, %Pagination.Cursor{} = cursor} -> {:ok, decode_definitions_search_seek(cursor)}
+      {:ok, %Pagination.Cursor{} = cursor} -> decode_definitions_search_seek(cursor)
       {:error, :wrong_endpoint} -> {:error, :wrong_endpoint}
       {:error, :expired} -> {:error, :expired}
       {:error, _invalid_base64_or_invalid_cursor} -> {:error, :invalid_cursor}
@@ -2305,11 +2306,19 @@ defmodule Letflow.Definitions do
   # build_raw_cursor_timestamp_key/4 since only two non-expiry slots exist
   # for three domain values (rank, created_at, id) -- design §3.3.
   defp decode_definitions_search_seek(%Pagination.Cursor{inner: inner}) do
-    prefix_len = byte_size(@definitions_search_cursor_prefix)
-    rest = binary_part(inner, prefix_len, byte_size(inner) - prefix_len)
-    [_mint_time_us_str, rank_and_id_str, created_at_us_str] = String.split(rest, ":", parts: 3)
-    [rank_int_str, id_str] = String.split(rank_and_id_str, "|", parts: 2)
-    {String.to_integer(rank_int_str) * 1.0, String.to_integer(created_at_us_str), id_str}
+    with {:ok, [rank_and_id, created_at]} <-
+           Pagination.decode_seek_parts(inner, @definitions_search_cursor_prefix, [
+             :skip,
+             :string,
+             :datetime_us
+           ]),
+         [rank_int_str, id_str] <- String.split(rank_and_id, "|", parts: 2),
+         {rank_int, ""} when rank_int in 1..3 <- Integer.parse(rank_int_str),
+         {:ok, id} <- Pagination.cast_binary_id_component(id_str) do
+      {:ok, {rank_int * 1.0, created_at, id}}
+    else
+      _malformed -> {:error, :invalid_cursor}
+    end
   end
 
   defp split_definitions_search_page(rows, page_size) when length(rows) > page_size do

@@ -350,7 +350,7 @@ defmodule Letflow.Repository do
            @list_versions_cursor_prefix,
            byte_size(@list_versions_cursor_prefix)
          ) do
-      {:ok, %Pagination.Cursor{} = cursor} -> {:ok, decode_list_versions_seek(cursor)}
+      {:ok, %Pagination.Cursor{} = cursor} -> decode_list_versions_seek(cursor)
       {:error, :wrong_endpoint} -> {:error, :wrong_endpoint}
       {:error, :expired} -> {:error, :expired}
       {:error, _invalid_base64_or_invalid_cursor} -> {:error, :invalid_cursor}
@@ -362,10 +362,10 @@ defmodule Letflow.Repository do
   # decode_cursor/4's expiry check reads, never a domain value (same idiom
   # `Letflow.Definitions`' cursor helpers use).
   defp decode_list_versions_seek(%Pagination.Cursor{inner: inner}) do
-    prefix_len = byte_size(@list_versions_cursor_prefix)
-    rest = binary_part(inner, prefix_len, byte_size(inner) - prefix_len)
-    [_mint_time_us_str, version_id_str, version_number_str] = String.split(rest, ":", parts: 3)
-    {String.to_integer(version_number_str), version_id_str}
+    case Pagination.decode_seek_parts(inner, @list_versions_cursor_prefix, [:skip, :uuid, :int]) do
+      {:ok, [version_id, version_number]} -> {:ok, {version_number, version_id}}
+      {:error, :invalid_cursor} = error -> error
+    end
   end
 
   defp split_list_versions_page(rows, page_size) when length(rows) > page_size do

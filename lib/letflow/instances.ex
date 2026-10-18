@@ -430,8 +430,7 @@ defmodule Letflow.Instances do
 
   defp filter_by_list_cursor(query, nil), do: query
 
-  defp filter_by_list_cursor(query, {started_at_us, instance_id}) do
-    ts = DateTime.from_unix!(started_at_us, :microsecond)
+  defp filter_by_list_cursor(query, {ts, instance_id}) do
     from(p in query, where: {p.started_at, p.instance_id} < {^ts, ^instance_id})
   end
 
@@ -439,7 +438,7 @@ defmodule Letflow.Instances do
 
   defp decode_list_cursor(raw) when is_binary(raw) do
     case Pagination.decode_cursor(raw, @list_cursor_prefix, byte_size(@list_cursor_prefix)) do
-      {:ok, %Pagination.Cursor{} = cursor} -> {:ok, decode_list_seek(cursor)}
+      {:ok, %Pagination.Cursor{} = cursor} -> decode_list_seek(cursor)
       {:error, :wrong_endpoint} -> {:error, :wrong_endpoint}
       {:error, :expired} -> {:error, :expired}
       {:error, _invalid_base64_or_invalid_cursor} -> {:error, :invalid_cursor}
@@ -447,10 +446,10 @@ defmodule Letflow.Instances do
   end
 
   defp decode_list_seek(%Pagination.Cursor{inner: inner}) do
-    prefix_len = byte_size(@list_cursor_prefix)
-    rest = binary_part(inner, prefix_len, byte_size(inner) - prefix_len)
-    [ts_str, id_str] = String.split(rest, ":", parts: 2)
-    {String.to_integer(ts_str), id_str}
+    case Pagination.decode_seek_parts(inner, @list_cursor_prefix, [:datetime_us, :uuid]) do
+      {:ok, [started_at, instance_id]} -> {:ok, {started_at, instance_id}}
+      {:error, :invalid_cursor} = error -> error
+    end
   end
 
   defp split_list_page(rows, page_size) when length(rows) > page_size do

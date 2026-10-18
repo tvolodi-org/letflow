@@ -887,8 +887,7 @@ defmodule Letflow.Tasks do
 
   defp filter_by_list_cursor(query, nil), do: query
 
-  defp filter_by_list_cursor(query, {inserted_at_us, id}) do
-    ts = DateTime.from_unix!(inserted_at_us, :microsecond)
+  defp filter_by_list_cursor(query, {ts, id}) do
     from(t in query, where: {t.inserted_at, t.id} < {^ts, ^id})
   end
 
@@ -898,13 +897,13 @@ defmodule Letflow.Tasks do
   # atom -- a cursor is opaque to callers, so there's no caller-actionable
   # difference between the two failure shapes.
   @spec decode_list_cursor(String.t() | nil) ::
-          {:ok, {non_neg_integer(), String.t()} | nil}
+          {:ok, {DateTime.t(), Ecto.UUID.t()} | nil}
           | {:error, :invalid_cursor | :wrong_endpoint | :expired}
   defp decode_list_cursor(nil), do: {:ok, nil}
 
   defp decode_list_cursor(raw) when is_binary(raw) do
     case Pagination.decode_cursor(raw, @list_cursor_prefix, byte_size(@list_cursor_prefix)) do
-      {:ok, %Pagination.Cursor{} = cursor} -> {:ok, decode_seek(cursor)}
+      {:ok, %Pagination.Cursor{} = cursor} -> decode_seek(cursor)
       {:error, :wrong_endpoint} -> {:error, :wrong_endpoint}
       {:error, :expired} -> {:error, :expired}
       {:error, _invalid_base64_or_invalid_cursor} -> {:error, :invalid_cursor}
@@ -912,10 +911,10 @@ defmodule Letflow.Tasks do
   end
 
   defp decode_seek(%Pagination.Cursor{inner: inner}) do
-    prefix_len = byte_size(@list_cursor_prefix)
-    rest = binary_part(inner, prefix_len, byte_size(inner) - prefix_len)
-    [ts_str, id_str] = String.split(rest, ":", parts: 2)
-    {String.to_integer(ts_str), id_str}
+    case Pagination.decode_seek_parts(inner, @list_cursor_prefix, [:datetime_us, :uuid]) do
+      {:ok, [inserted_at, id]} -> {:ok, {inserted_at, id}}
+      {:error, :invalid_cursor} = error -> error
+    end
   end
 
   # `rows` are now `{Task.t(), form_version}` pairs (REQ-126's

@@ -243,21 +243,9 @@ defmodule Letflow.Routers.Audit do
   # This is the ONLY place the cursor's internal layout is interpreted; no
   # other module in REQ-078/REQ-196 parses it.
   defp cursor_seek_from_cursor(inner) do
-    with mint_colon when not is_nil(mint_colon) <- Pagination.find_nth_colon(inner, 2),
-         entry_ts_colon when not is_nil(entry_ts_colon) <- Pagination.find_nth_colon(inner, 3),
-         {:ok, entry_ts_us} <-
-           Pagination.parse_int_from_cursor(
-             inner,
-             mint_colon + 1,
-             entry_ts_colon - mint_colon - 1
-           ),
-         entry_id <-
-           binary_part(inner, entry_ts_colon + 1, byte_size(inner) - entry_ts_colon - 1),
-         {:ok, _} <- Ecto.UUID.cast(entry_id) do
-      {:ok, {DateTime.from_unix!(entry_ts_us, :microsecond), entry_id}}
-    else
-      _invalid ->
-        {:error, :invalid_cursor}
+    case Pagination.decode_seek_parts(inner, @audit_cursor_prefix, [:skip, :datetime_us, :uuid]) do
+      {:ok, [entry_ts, entry_id]} -> {:ok, {entry_ts, entry_id}}
+      {:error, :invalid_cursor} = error -> error
     end
   end
 
