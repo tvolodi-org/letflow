@@ -697,7 +697,8 @@ defmodule Letflow.Api.Scope.ShadowEvidenceTest do
         log
         |> String.split("\n")
         |> Enum.filter(&String.contains?(&1, "scope_shadow"))
-        |> Enum.reject(&String.contains?(&1, "INSERT INTO"))
+        |> Enum.reject(&String.contains?(&1, ~s("scope_shadow_counters")))
+
       assert own != []
 
       for secret <- [prefix, fx.tenant_id, fx.tenant.slug, scoped.id, scoped.email],
