@@ -36935,6 +36935,8 @@ requirements:
       - "20. [2f] open follow-up: the PR body of 2f lists the platform-scope flip route for ANOTHER tenant as an open follow-up (needs a decision record first; 0046 D4, 0051 M5); AC 8's source scan is the machine check that it was not built"
       - "21. [2e][2f] each PR: mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check, mix letflow.check_boundaries, and the scoped mix test over test/letflow/identity*, test/letflow/routers/identity*, test/letflow/routers/onboarding*, test/letflow/plugs, test/letflow/api, test/letflow/scope_enforcement_test.exs, test/letflow/routers/tasks*_test.exs and the new tests pass, real output quoted; mix letflow.check_requirements_registration passes with this entry"
       - "22. [2f] SECURITY C-1 (REQ-517 2b review): the `on` target is NOT added to parse_mode/1 and flip/4 (AC 8) until every route under /me/* and /help/* is classified and SEC-ruled (REQ-518 AC 21): the PR 2f body names the REQ-518 PR that classified them (AC 21 of REQ-518, after the SEC ruling on /me/modules and /help/resolved), and a test asserts the route-walk reports no default-sourced row under /me or /help AND that no self-service route entry carries pending_sec_ruling (every :tenant_wide entry there carries a ruling id). 2f is not started before that REQ-518 PR merges; if it is, `on` stays invalid_enforcement_mode and AC 8 and AC 16 are not met. Until then `on` stays unsettable (invalid_enforcement_mode). SECURITY-REVIEWER records this check in its 2f verdict."
+      - "23. [docs] known limitations of an enforced (`on`) tenant, stated in docs/roles.md (a section headed 'Known limitations of an enforced tenant') and in the operator runbook that carries the ON_IN_PRODUCTION text (SEC S-9, handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-04-security-reviewer-design.json; not repeated here); the file:line cited below were re-read on main d98c330b on 2026-10-19; a source-scan test asserts that each of the four limitation labels (a) to (d) occurs once in docs/roles.md. (a) IdP sync withholds the WHOLE group membership: in an `on` tenant Identity.sync_role_claims_report/3 adds no membership to a group that binds a platform role which would make the user tenant-wide for that role, and a membership cannot be split by role, so the non-widening roles of that group are withheld too (SEC A-7); the audit entry is `grant.sync_suppressed` when the user already holds scoped rows for the role and `binding.pending_scope` when the user holds none (lib/letflow/identity/sync_scope_guard.ex:167-168 action_for/1; lib/letflow/identity.ex:1751-1783 sync_guard/2 and sync_one_group/5); login still succeeds. Behaviour is covered by AC 2 and AC 3; this AC adds only the documentation. (b) POST /roles answers 409 `scope_required` in an enforced tenant for a new platform-role binding (lib/letflow/routers/identity.ex:1097-1100, remedy constant @scope_required_remedy at :190); behaviour and remedy are covered by AC 1 rows (a) and (b) (create the binding before the flip, or flip down with a reason, create it, narrow it, flip up again), which the docs repeat. (c) a scoped caller's import with `upsert_by: \"external_ref\"` is refused with the generic 404 because the upsert primitive (Records.upsert_record_by_external_ref, lib/letflow/entities/records.ex:463-468) is not scope-aware: the refusal lives in lib/letflow/routers/entities.ex:1571-1587 (import_scope_check/6: `with :create <- mode` does not match for the upsert mode, then ScopedLookup.emit_not_found and {:error, :scope_refused}; rationale comment at :1566-1570); origin REQ-518 AC 9 (2c-ii). A scope-aware upsert is not built and is not part of this requirement. (d) the `on` flag value is not settable until PR 2f-b merges: lib/letflow/scope_enforcement.ex:50 `@modes [:off, :shadow]` and :93-95 parse_mode/1 (`on` is {:error, :invalid_mode} on main d98c330b); REQ-519 AC 8 and AC 22 govern when that changes. The docs also state that (a) to (c) still hold after 2f-b"
+      - "24. [process] NO production tenant is set to `on` until the supervisor says so, and flipping a production tenant is a UAT/infra step that needs the user's written approval; it is not done by an implementation agent as part of any PR of this requirement, and no test, seed, migration or script of this requirement flips a production tenant. RELAYED supervisor statement of 2026-10-19 (recorded as relayed; not verified by REQ-ANALYST). Companion of SEC S-9 (pilot tenants only) and OQ-6 (process control instead of a code signal, accepted); the 2f-a and 2f-b PR bodies and the operator runbook state it. Check: both PR bodies contain the sentence and a grep of each diff finds no migration, seed or config that sets scope_enforcement to `on`"
     depends_on: [REQ-518, REQ-517]
 
   # ---------------------------------------------------------------------
@@ -37120,3 +37122,119 @@ requirements:
       - "4. [GH #2422 AC 6] The first handoff of a run records the tier as field `tier: FULL|SHORT` in docs/agents/shared/HANDOFF_PROTOCOL.md (schema block and field description); DIRECT writes no handoff and is recorded in the PR body. The field is added to @schema_top_keys in lib/mix/tasks/letflow.lint_handoffs.ex and to the optional-field sentence of HANDOFF_PROTOCOL.md section 2, with a test in test/mix/tasks/letflow.lint_handoffs_test.exs that a handoff with tier: SHORT lints clean and tier: BOGUS is refused; the PR states that the structured format of GH #2418 adopts the field, and this requirement does not wait for it."
       - "5. The sole filer files the 30-run review issue before this turn; its number is in the task text and is written in the section 12 rule. If the task text carries no such number, this requirement is blocked."
     depends_on: [REQ-520]
+
+  - id: REQ-525
+    title: "Follow-up to REQ-519 (SEC RA-6): rule the definitions and services reads into :self_service, one route at a time (design and SEC rulings first)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 2535
+    # Source: GH #2535; SEC design verdict of REQ-519, handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-04-security-reviewer-design.json, ruling RA-6 (verbatim: "REQUIRED, not optional: REQ-ANALYST files the follow-up requirement (rule definitions, entity definitions, services reads into :self_service one by one with a SEC ruling each, and decide instance scope T13) BEFORE PR 2f-b merges, and the 2f-b body cites its id. Without it the production value of on is unbounded-time admin-plane-only."), rulings S-7, S-9 and the ON_IN_PRODUCTION block; route census lib/letflow/design/req519-enforced-writers-and-flag-on.md section 5, F13, section 6 item 3, RA-6 row in section 13.
+    # HARD ORDERING (RA-6): PR 2f-b of REQ-519 may NOT merge before REQ-525, REQ-526 and REQ-527 exist in docs/requirements.yaml on main, and the 2f-b PR body must cite their ids. REQ-VALIDATOR and ORCH check this ordering. The three are one RA-6 follow-up split by size: REQ-525 (DefinitionsRead family and GET /services), REQ-526 (GET /entities/definitions*), REQ-527 (instance scope, decision only).
+    # NOT COVERED, on purpose: the "W3b follow-up" named by SEC S-9 and ON_IN_PRODUCTION item 8 ("the task scope writer") is the roadmap item that ships the production writer of tasks.scope_node_id (REQ-519 out-of-scope paragraph, AC 10). RA-6 does not ask for it, the SEC ruling lists it as a separate follow-up ("RA-6 and W3b follow-ups"), and no W3b requirement exists in docs/requirements.yaml (only prose mentions in REQ-518 AC 17 and REQ-519). It needs its own REQ-ANALYST pass and is raised as an open question to the supervisor. Also not covered: the platform-scope flip route (REQ-519 AC 20) and a module that ships :scope_declarations (S-9 item 1, a per-module concern).
+    # No application code before the SEC rulings of AC 2 exist; the implementation requirements are filed from the design (AC 5).
+    description: >
+      Source: GH #2535; SEC ruling RA-6 on the REQ-519 design. After REQ-519
+      2f-b a tenant can be set to `on`. The routes of the DefinitionsRead
+      family are `:tenant_wide` today (default-sourced lines of
+      test/fixtures/route_scope/tenant_wide_default_routes.txt), so a SCOPED
+      holder of DefinitionsRead (PROCESS_DESIGNER, PROCESS_OPERATOR,
+      TASK_WORKER or TENANT_AUDITOR with scoped rows) gets the uniform 403
+      under `on`: GET /definitions*, POST /definitions/:id/validate,
+      /solution-packs/export, /solution-packs/update-review and GET /services.
+      Per SEC RA-6 each is a candidate for the `:self_service` class
+      (tenant-level metadata, no per-resource data) and each classification
+      needs its OWN SECURITY-REVIEWER ruling; a family is not ruled in bulk.
+      The census says "candidate", not "decided": a ruling may keep a route
+      `:tenant_wide`. Without this follow-up the production value of `on` is
+      admin-plane-only for an unbounded time.
+
+      FACTS (from the REQ-519 design section 5; the designer re-reads them on
+      current main before relying on them): the permission is DefinitionsRead;
+      the roles holding it besides TENANT_ADMIN are PROCESS_DESIGNER,
+      PROCESS_OPERATOR, TASK_WORKER, TENANT_AUDITOR. The `:self_service`
+      class, its ruled list @self_service_routes in
+      lib/letflow/api/route_scope.ex and its entry rule (a new
+      SECURITY-REVIEWER ruling plus an edit of the list) are from REQ-518
+      AC 21. Precedents: 0051-A7, SEC-518-R2-modules, SEC-518-R2-help.
+
+      OUT OF SCOPE: entity definitions (REQ-526); instance scope (REQ-527);
+      the task scope writer (W3b, see the header comment); any route not
+      named here; the exam routes (SEC-518-R1 keeps them `:tenant_wide`).
+
+      GATES: CODE-DESIGNER design, CODE-DESIGN-VALIDATOR, SECURITY-REVIEWER
+      (INV-1, INV-2, INV-5, INV-6) for the design and again per
+      implementation PR.
+    acceptance_criteria:
+      - "1. A design record (lib/letflow/design/, CODE-DESIGNER) lists every route of the family by method and path with its current class, the response fields each returns, and for each field whether it is tenant-level metadata or per-resource data, re-derived from the code on current main, not copied from section 5 of the REQ-519 design: GET /definitions*, POST /definitions/:id/validate, /solution-packs/export, /solution-packs/update-review, GET /services. No implementation code in the design"
+      - "2. A SECURITY-REVIEWER ruling EXISTS FOR EACH ROUTE (a ruling id per route, not per family): may it be `:self_service` (allowed to a scoped caller holding the coarse permission), stays `:tenant_wide`, or becomes `:self_service` only after a named response-shaping change. The rulings are recorded in a handoff and cited in the design. A route without a ruling stays `:tenant_wide`; a route is never reclassified because a sibling was"
+      - "3. The design states this open question and the SEC ruling decides it, not the designer: the `:self_service` definition in lib/letflow/api/route_scope.ex says role-independent reads, while DefinitionsRead is held by four roles only; either the class definition is widened (with the REQ-518 AC 21 walk rule updated) or these routes keep a role gate inside `:self_service`"
+      - "4. For every route ruled `:self_service`: its entry and ruling id are added to @self_service_routes, the route-walk test is green, test/fixtures/route_scope/tenant_wide_default_routes.txt loses exactly that line, and a test under `on` shows a SCOPED holder of the permission gets 200 with the same body shape as a tenant-wide holder, while a principal WITHOUT the coarse permission still gets the uniform 403 (INV-5). Each such PR has its OWN SECURITY-REVIEWER code verdict (REQ-518 AC 23 rule)"
+      - "5. The implementation requirements are filed by REQ-ANALYST from the rulings (one per ruled-in route group, sized to one agent turn, owner ELIXIR-DEV, depends_on this requirement). This requirement is done when the design, the rulings and those filed requirements exist; it does not itself change a route class. NOT DELIVERED until then"
+      - "6. docs/roles.md and the operator runbook keep the REQ-519 statement that scoped users lose definitions, entity-definition, instance and service reads (ON_IN_PRODUCTION item 5) until the implementation PR for the route in question has merged, and are updated per route when it does"
+    depends_on: [REQ-519]
+
+  - id: REQ-526
+    title: "Follow-up to REQ-519 (SEC RA-6): rule the type-definition catalogue reads (GET .../definitions*) into :self_service (design and SEC ruling first)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 2535
+    # Source: GH #2535; SEC ruling RA-6 of the REQ-519 design (verbatim text in the REQ-525 header); route census lib/letflow/design/req519-enforced-writers-and-flag-on.md section 5, row EntitiesDefinitionsRead. Part of the RA-6 follow-up that 2f-b may not merge before (see the REQ-525 header). Split from REQ-525 because the entity-definition routes have a different permission and a different leak surface (the column catalogue of a type).
+    description: >
+      Source: GH #2535; SEC ruling RA-6. GET /entities/definitions* (census
+      items E3 to E6, declared `:tenant_wide` by REQ-518) require
+      EntitiesDefinitionsRead, held besides TENANT_ADMIN by PROCESS_DESIGNER,
+      PROCESS_OPERATOR, TASK_WORKER and TENANT_AUDITOR. Under `on` a scoped
+      worker cannot read the column catalogue of the entity type it is
+      allowed to query (uniform 403). Per RA-6 each route in the family needs
+      its own SECURITY-REVIEWER ruling on whether it may be `:self_service`.
+      The ruling must consider whether a definition response differs between
+      a type the caller may query and one it may not (REQ-518 treats an
+      undeclared type as no data for a scoped caller); a definition read must
+      not become an existence oracle for such a type (INV-5).
+
+      OUT OF SCOPE: the definitions and services routes (REQ-525); instances
+      (REQ-527); modules shipping :scope_declarations.
+
+      GATES: as REQ-525.
+    acceptance_criteria:
+      - "1. A design record lists every GET /entities/definitions* route by method and path with its current class and response fields, per field whether it is tenant-level metadata or per-resource data, re-derived from the code on current main, and states for each whether the response differs between a type the caller may query and a type it may not (existence-oracle analysis, INV-5)"
+      - "2. A SECURITY-REVIEWER ruling EXISTS FOR EACH ROUTE (ruling id per route): may it be `:self_service`, stays `:tenant_wide`, or `:self_service` only after a named response-shaping change. A route without a ruling stays `:tenant_wide`"
+      - "3. For every route ruled `:self_service`: entry plus ruling id in @self_service_routes, the route-walk test green, test/fixtures/route_scope/tenant_wide_default_routes.txt loses exactly that line, and under `on` a SCOPED holder of EntitiesDefinitionsRead gets the same body shape as a tenant-wide holder for a type it may query, the answer for a type it may not query is identical to the answer for a nonexistent type, and a principal without the coarse permission still gets the uniform 403. Own SECURITY-REVIEWER code verdict per PR"
+      - "4. The implementation requirements are filed by REQ-ANALYST from the rulings (owner ELIXIR-DEV, depends_on this requirement); this requirement changes no route class and is done when the design, the rulings and the filed requirements exist. NOT DELIVERED until then"
+    depends_on: [REQ-519]
+
+  - id: REQ-527
+    title: "Follow-up to REQ-519 (SEC RA-6): decide instance scope (T13), does an instance get a scope node (decision only, no implementation)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 2535
+    # Source: GH #2535; SEC ruling RA-6 ("... and decide instance scope T13"); route census lib/letflow/design/req519-enforced-writers-and-flag-on.md section 5 rows InstancesRead, instance attachments and instance start/cancel/advance-timer/rebind-pins/reconstruct, section 6 item 2, F14. T13 is a decision-0051 item and is not built. This is a DECISION requirement: owner CODE-DESIGNER, design first, nothing implemented. It must not silently pre-empt a decision record (core-directives: do not re-decide what a record settled); a proposed amendment is flagged for letflow-2 to record in docs/migration/decisions/.
+    description: >
+      Source: GH #2535; SEC ruling RA-6; decision 0051 T13. Instances have NO
+      scope node: GET /instances, /instances/:id, /history, /pins, /timeline
+      (InstancesRead), the instance attachment routes, and POST /instances,
+      cancel, advance-timer, rebind-pins and reconstruct are `:tenant_wide`
+      today, so under `on` a scoped TASK_WORKER, PROCESS_OPERATOR or
+      PROCESS_DESIGNER is denied every instance route (uniform 403); the
+      census records that a resolver would be empty until an instance carries
+      a scope node. REQ-519 design section 6 item 2 lists instance scope,
+      with the task scope writer (W3b), as a precondition for `on` to be
+      useful. This requirement DECIDES, it does not build: whether instances
+      get a scope node, where it comes from, how a task's scope node and its
+      instance's relate, and what stays `:tenant_wide` regardless.
+
+      OUT OF SCOPE: implementation of any resolver, migration or route
+      change; the task scope writer (W3b, a separate roadmap item, see the
+      REQ-525 header); the REQ-525 and REQ-526 routes.
+
+      GATES: CODE-DESIGNER, CODE-DESIGN-VALIDATOR, SECURITY-REVIEWER (INV-1,
+      INV-5, INV-6); REVIEWER for decision-record consistency.
+    acceptance_criteria:
+      - "1. A design record (lib/letflow/design/) enumerates every instance-family route of the census (GET /instances, /instances/:id, /history, /pins, /timeline; instance attachments and /instances/storage-usage; POST /instances, cancel, advance-timer, rebind-pins, reconstruct) by method and path, re-derived from the code on current main, with its permission and current class"
+      - "2. The design lists the options for where an instance's scope node comes from and, for each option: who can set it, whether it can change after start, its relation to the task scope node, the effect on 404 equivalence (D7) and on cursor/aggregate totals, the migration for existing instances (a NULL scope node must stay invisible to non-tenant-wide principals, fail-closed), and the effect on the scoped-approver blocker of REQ-519 AC 10. It ends in ONE recommended option with the alternatives rejected and why. A recommendation other than instances staying tenant-wide must say what a scoped operator can then do and what stays denied"
+      - "3. A SECURITY-REVIEWER ruling on the recommended option exists (INV-1, INV-5, INV-6) and a CODE-DESIGN-VALIDATOR verdict approves the design. If the decision amends a decision record, the amendment is flagged for letflow-2 to record in docs/migration/decisions/ before any implementation requirement is filed; the designer does not edit the record"
+      - "4. Implementation requirements, if the decision calls for any, are filed by REQ-ANALYST from the approved design (one per layer, each sized to one agent turn); this requirement files none itself and changes no code. NOT DELIVERED until then"
+    depends_on: [REQ-519]
