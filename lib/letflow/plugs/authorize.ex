@@ -164,8 +164,14 @@ defmodule Letflow.Plugs.Authorize do
   defp apply_scope_mode(conn, ctx, policy_key) do
     case Map.get(conn.assigns.auth_context, :scope_enforcement) do
       :shadow -> Letflow.Api.Scope.Shadow.observe(conn, ctx, policy_key)
-      :on -> Letflow.Api.Scope.Enforce.check(conn, ctx, policy_key)
-      _off_or_absent -> conn
+      :on -> conn |> mutant_record() |> Letflow.Api.Scope.Enforce.check(ctx, policy_key)
+      _off_or_absent -> mutant_record(conn)
     end
+  end
+
+  defp mutant_record(conn) do
+    # MUTANT N11: counters written for off and on tenants
+    Letflow.Api.Scope.ShadowEvidence.record(conn.assigns.scoped_opts[:prefix], :requests)
+    conn
   end
 end

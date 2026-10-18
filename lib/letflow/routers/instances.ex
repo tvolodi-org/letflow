@@ -435,8 +435,9 @@ defmodule Letflow.Routers.Instances do
     handle_issue_attachment_link(conn, conn.params["id"], conn.params["attachment_id"])
   end
 
+  # MUTANT N9: link-content skips the pipeline Enforce (pass-through class)
   authz_get "/:id/attachments/:attachment_id/link-content", :AttachmentsRead,
-    scope: :tenant_wide do
+    scope: :self_service do
     handle_get_attachment_link_content(conn, conn.params["id"], conn.params["attachment_id"])
   end
 

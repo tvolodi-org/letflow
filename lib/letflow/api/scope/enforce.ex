@@ -53,13 +53,13 @@ defmodule Letflow.Api.Scope.Enforce do
     {class, _source} = RouteScope.class_of(conn.private)
 
     case class do
-      {:resolver, _fun} -> conn
-      :filter -> conn
+      # MUTANT N3: resolver and filter routes are enforced as tenant_wide
       :self_service -> conn
       _admin_or_tenant_wide -> require_tenant_wide(conn, ctx, policy_key)
     end
   rescue
-    e -> fail_closed(conn, :error, e.__struct__)
+    # MUTANT N5: a raise inside Enforce allows the request
+    _e -> conn
   catch
     kind, _reason -> fail_closed(conn, kind, nil)
   end
