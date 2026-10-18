@@ -847,6 +847,7 @@ defmodule Letflow.Modules.Exam.Snapshot do
   # Mirrors `check_key/3` / `build_likert/3` on the live set (a typed early signal; the
   # `build_from_resolved/4` checks remain the authority). Shorttext is exempt for the same reason
   # as in `key_bearing?/2` (see its TRIPWIRE): it is never auto-graded.
+  # TRIPWIRE: this is the START-rule twin of `key_bearing?/2`'s late rule; flip BOTH together.
   defp start_key_ok?(type, live) when type in @key_types,
     do: Enum.any?(live, &(fv(&1, "is_correct") == true))
 
@@ -898,7 +899,8 @@ defmodule Letflow.Modules.Exam.Snapshot do
   # (`Scoring.score_question/2` never scores a `:short_text`; a session containing one is always
   # `:grading_pending`). If accepted-answer grading is ever added, flip this to refuse
   # (`is_correct == true`). The test "short_text is never auto-graded" in snapshot_late_test.exs
-  # fails when that premise stops holding.
+  # fails when that premise stops holding. The same exemption is encoded a second time in
+  # `start_key_ok?/2` (the start rule); flip BOTH.
   defp key_bearing?(_type, _option), do: false
 
   # `Latest.get_live/3` raises on a non-UUID id; a stored id that is not one is simply "not found".

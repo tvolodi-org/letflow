@@ -914,9 +914,25 @@ defmodule Letflow.Modules.Exam.Session do
     end
   end
 
+  # GH #2762: a question's snapshot source as read at start. `{:error, ...}` is the refusal carried
+  # (not raised) until the draw shows whether the question is actually used.
+  @typep wrapped_source ::
+           {:usable, Snapshot.question_source()}
+           | {:error, {:grading_error, {:key_missing, String.t()}}}
+
+  # The resolver row (`question_id`, `option_ids`) plus the `source` the snapshot needs.
+  @typep session_row :: %{
+           question_id: String.t(),
+           option_ids: [String.t()],
+           source: wrapped_source()
+         }
+
   # GH #2762: only DRAWN questions (`order`; pins are always in it) can refuse the start, with the
   # first refusal in `order`; an undrawn broken pool question does not block. Unwraps the drawn
   # sources to plain `question_source` maps for `Snapshot.build_from_resolved/4`.
+  @spec refuse_drawn(%{optional(String.t()) => wrapped_source()}, [String.t()]) ::
+          {:ok, %{optional(String.t()) => Snapshot.question_source()}}
+          | {:error, {:grading_error, {:key_missing, String.t()}}}
   defp refuse_drawn(sources, order) do
     drawn = Map.take(sources, order)
 
@@ -1000,6 +1016,8 @@ defmodule Letflow.Modules.Exam.Session do
   # One resolver row (`question_id`, `option_ids`) plus the `:source` the snapshot needs (design
   # 4.3 step 2): the question's stored type and its option rows' key fields. The option rows are
   # the ones this function always loaded to get the ids; nothing extra is queried for a pool.
+  # `source` is `{:usable, source}` or the `{:error, ...}` key_missing refusal (see `wrapped_source`).
+  @spec fetch_question_row(String.t(), map(), String.t()) :: {:ok, session_row()} | {:error, term()}
   defp fetch_question_row(question_id, question, prefix) do
     with {:ok, options} <- query_all("answer_option", [eq("question_id", question_id)], prefix) do
       type = fv(question, "type")
@@ -1043,7 +1061,7 @@ defmodule Letflow.Modules.Exam.Session do
   # contributing zero questions (design doc §3/§6) -- this is the fix's own
   # answer to the class of bug ISS-0722 reports, applied to the new path too.
   @spec fetch_manual_questions(rule_id :: String.t(), prefix :: String.t()) ::
-          {:ok, [QuestionSetResolver.question_row()]} | {:error, :manual_rule_empty | term()}
+          {:ok, [session_row()]} | {:error, :manual_rule_empty | term()}
   defp fetch_manual_questions(rule_id, prefix) do
     with {:ok, pins} <-
            query_all("exam_manual_question", [eq("rule_id", rule_id)], prefix) do

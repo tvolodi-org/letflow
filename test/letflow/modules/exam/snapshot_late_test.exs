@@ -1014,7 +1014,7 @@ defmodule Letflow.Modules.Exam.SnapshotLateTest do
 
       msg =
         "shorttext key_bearing? exemption (snapshot.ex TRIPWIRE) no longer holds; " <>
-          "flip key_bearing?/2 to refuse for shorttext"
+          "flip BOTH key_bearing?/2 and start_key_ok?/2 to refuse for shorttext"
 
       assert {:ok, %{grading_status: :pending_manual, score: score, max_score: 1.0}} =
                Scoring.score_question(question, answer),

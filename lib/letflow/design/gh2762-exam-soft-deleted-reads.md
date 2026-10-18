@@ -125,6 +125,8 @@ Pipeline (where the read and the refusal happen):
    (section 5) and builds `option_ids` from the live rows only. It does NOT fail the start. If `live_options` returned
    `{:error, reason}` the row is kept, with `option_ids: []`, and its Session-private source wrapper is
    `{:refused, reason}`; otherwise `{:usable, source}` with `source.options` built from the live rows only.
+   *Implemented as:* the refusal wrapper is the `{:error, {:grading_error, {:key_missing, id}}}` tuple itself on the
+   row `source` (`{:usable, source}` otherwise), not a `{:refused, reason}` tag.
    The wrapper is internal to `Session` (the `sources` map of `materialize_session/5`); the resolver and `Snapshot`
    signatures and the `question_source` type are unchanged (the resolver reads `question_id`/`option_ids`; the
    implementer confirms it treats `source` as opaque, as it does today).
@@ -134,7 +136,8 @@ Pipeline (where the read and the refusal happen):
    question ids (`Map.take(sources, order)`, in `order` sequence) are checked: the first `{:refused, reason}` makes the
    start fail with `{:error, reason}` = `{:error, {:grading_error, {:key_missing, question_id}}}`; otherwise the wrappers
    are unwrapped to plain `question_source` maps and `build_from_resolved/4` runs as today (its `build_item`/`check_key`
-   checks remain the last line of defence). Nothing is written on refusal (the transaction rolls back via
+   checks remain the last line of defence). *Implemented as:* the first drawn `source` that is the
+   `{:error, {:grading_error, {:key_missing, id}}}` tuple (not a `{:refused, reason}` tag) fails the start. Nothing is written on refusal (the transaction rolls back via
    `create_txn`'s `Repo.rollback/1`).
 4. Pins are always drawn (every pin is in `order`), so a broken pinned question refuses every start. A broken question
    in a random pool refuses a start only when this seed draws it; an undrawn broken question does not block the exam.
