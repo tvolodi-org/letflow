@@ -1522,7 +1522,8 @@ defmodule Letflow.Routers.Instances do
            fetch_scoped_attachment_metadata(raw_attachment_id, instance_id, opts),
          {:ok, %{token: token, expires_at: expires_at}} <-
            AttachmentLinks.issue(raw_attachment_id, tenant_id),
-         :ok <- record_attachment_link_issued(conn, instance_id, raw_attachment_id, opts) do
+         # MUTANT N8: an audit failure still returns the token
+         _ <- record_attachment_link_issued(conn, instance_id, raw_attachment_id, opts) do
       render_attachment_link(conn, raw_id, raw_attachment_id, token, expires_at)
     else
       {:error, :link_audit_failed} ->

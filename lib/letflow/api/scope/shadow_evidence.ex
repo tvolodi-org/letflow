@@ -91,7 +91,10 @@ defmodule Letflow.Api.Scope.ShadowEvidence do
   @doc "As `record/2` with an explicit UTC `day` (tests and day-rollover handling)."
   @spec record(prefix :: String.t(), metric(), day :: Date.t()) :: :ok
   def record(prefix, metric, %Date{} = day) when is_binary(prefix) and metric in @metrics do
-    increment({prefix, day, metric})
+    result = increment({prefix, day, metric})
+    # MUTANT N10: record writes to the DB synchronously on the request path
+    _ = flush()
+    result
   end
 
   def record(_prefix, _metric, _day), do: :ok
