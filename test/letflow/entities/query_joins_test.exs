@@ -219,7 +219,7 @@ defmodule Letflow.Entities.QueryJoinsTest do
         join: [%{entity_type: "answer_option", fk: "question_fk"}]
       }
 
-      assert {:ok, %Ecto.Query{joins: joins} = query} = Compiler.compile(request, schema)
+      assert {:ok, %Ecto.Query{joins: joins} = query} = Compiler.compile(request, schema, :all)
       assert [%Ecto.Query.JoinExpr{qual: :inner}] = joins
 
       # A :left join is honored too, structurally.
@@ -229,7 +229,7 @@ defmodule Letflow.Entities.QueryJoinsTest do
         ])
 
       assert {:ok, %Ecto.Query{joins: [%Ecto.Query.JoinExpr{qual: :left}]}} =
-               Compiler.compile(left_request, schema)
+               Compiler.compile(left_request, schema, :all)
 
       # Sanity: compile/2 never executes the query it returns.
       assert %Ecto.Query{} = query
@@ -275,7 +275,7 @@ defmodule Letflow.Entities.QueryJoinsTest do
         join: [%{entity_type: "answer_option", fk: "question_fk"}]
       }
 
-      assert {:ok, query} = Compiler.compile(request, schema)
+      assert {:ok, query} = Compiler.compile(request, schema, :all)
 
       assert [row] = Repo.all(query, prefix: schema)
       assert row.primary.field_values["stem"] == "2 + 2 = ?"
@@ -355,7 +355,7 @@ defmodule Letflow.Entities.QueryJoinsTest do
         join: [%{entity_type: "tag_m2m", through: "question_tags_m2m", fk: "fk_tag"}]
       }
 
-      assert {:ok, query} = Compiler.compile(request, schema)
+      assert {:ok, query} = Compiler.compile(request, schema, :all)
 
       # A per-type-table-sourced select casts `record_id` back to a real
       # string via `type/2` in `Compiler`'s select (ISS-0652) -- the row's
@@ -383,7 +383,7 @@ defmodule Letflow.Entities.QueryJoinsTest do
 
       request = %{entity_type: "question", join: joins}
 
-      assert Compiler.compile(request, schema) == {:error, {:too_many_joins, 5}}
+      assert Compiler.compile(request, schema, :all) == {:error, {:too_many_joins, 5}}
     end
 
     test "a join_clause carrying its own nested :join key is rejected" do
@@ -394,7 +394,7 @@ defmodule Letflow.Entities.QueryJoinsTest do
         join: [%{entity_type: "answer_option", fk: "question_fk", join: []}]
       }
 
-      assert Compiler.compile(request, schema) == {:error, :join_depth_exceeded}
+      assert Compiler.compile(request, schema, :all) == {:error, :join_depth_exceeded}
     end
   end
 
@@ -430,7 +430,7 @@ defmodule Letflow.Entities.QueryJoinsTest do
         join: [%{entity_type: "answer_option", fk: "question_fk"}]
       }
 
-      assert {:ok, query} = Compiler.compile(request, schema)
+      assert {:ok, query} = Compiler.compile(request, schema, :all)
       items = Repo.all(query, prefix: schema)
       page = Letflow.Api.Pagination.page_response(items, nil)
 
@@ -480,7 +480,8 @@ defmodule Letflow.Entities.QueryJoinsTest do
         join: [%{entity_type: "answer_option", fk: "not_a_relation"}]
       }
 
-      assert Compiler.compile(request, schema) == {:error, {:field_not_allowed, "not_a_relation"}}
+      assert Compiler.compile(request, schema, :all) ==
+               {:error, {:field_not_allowed, "not_a_relation"}}
     end
   end
 
@@ -505,7 +506,7 @@ defmodule Letflow.Entities.QueryJoinsTest do
       create_record!(schema, "widget", %{"sku" => "ZZZ-9"})
 
       request = %{entity_type: "widget", filters: [%{field: "sku", op: :eq, value: "ABC-1"}]}
-      assert {:ok, query} = Compiler.compile(request, schema)
+      assert {:ok, query} = Compiler.compile(request, schema, :all)
 
       # Not the ordinary JSONB-extraction fragment ("?->>?") -- the
       # promoted-column literal/1-fragment path instead.
@@ -539,7 +540,7 @@ defmodule Letflow.Entities.QueryJoinsTest do
         filters: [%{field: "customer_name", op: :eq, value: "Acme"}]
       }
 
-      assert {:ok, query} = Compiler.compile(request, schema)
+      assert {:ok, query} = Compiler.compile(request, schema, :all)
 
       assert %Ecto.Query{from: %{source: {"entity_record_latest", Latest}}, joins: []} = query
       assert query.wheres != []
@@ -593,7 +594,7 @@ defmodule Letflow.Entities.QueryJoinsTest do
         join: [%{entity_type: "answer_option_rc2", fk: "question_fk"}]
       }
 
-      assert Compiler.compile(join_request, schema) ==
+      assert Compiler.compile(join_request, schema, :all) ==
                {:error, {:relation_column_not_found, "answer_option_rc2", "question_id"}}
 
       plain_request = %{
@@ -601,7 +602,7 @@ defmodule Letflow.Entities.QueryJoinsTest do
         filters: [%{field: "text", op: :eq, value: "existing"}]
       }
 
-      assert {:ok, _query} = Compiler.compile(plain_request, schema)
+      assert {:ok, _query} = Compiler.compile(plain_request, schema, :all)
     end
   end
 
@@ -648,7 +649,7 @@ defmodule Letflow.Entities.QueryJoinsTest do
         filters: [%{field: "batch_code", op: :eq, value: "whatever"}]
       }
 
-      assert {:ok, batch_code_query} = Compiler.compile(batch_code_request, schema)
+      assert {:ok, batch_code_query} = Compiler.compile(batch_code_request, schema, :all)
 
       # :json_field fallback -- the ordinary JSONB-extraction fragment
       # ("?->>?"), never the promoted-column literal/1-fragment path, and
@@ -663,7 +664,7 @@ defmodule Letflow.Entities.QueryJoinsTest do
         filters: [%{field: "sku", op: :eq, value: "SKU-1"}]
       }
 
-      assert {:ok, sku_query} = Compiler.compile(sku_request, schema)
+      assert {:ok, sku_query} = Compiler.compile(sku_request, schema, :all)
       refute inspect(sku_query.wheres) =~ "->>"
       assert inspect(sku_query.wheres) =~ "identifier"
 
@@ -697,7 +698,7 @@ defmodule Letflow.Entities.QueryJoinsTest do
         sort: [%{field: "batch_code", dir: :asc}]
       }
 
-      assert {:ok, query} = Compiler.compile(sort_request, schema)
+      assert {:ok, query} = Compiler.compile(sort_request, schema, :all)
       assert [%{field_values: %{"batch_code" => "b"}}] = Repo.all(query, prefix: schema)
     end
   end
@@ -733,7 +734,7 @@ defmodule Letflow.Entities.QueryJoinsTest do
         filters: [%{field: "stem", op: :eq, value: "2 + 2 = ?"}]
       }
 
-      assert {:ok, query} = Compiler.compile(request, schema)
+      assert {:ok, query} = Compiler.compile(request, schema, :all)
       assert [row] = Repo.all(query, prefix: schema)
 
       # The defect this regression guards: a raw, un-cast uuid column comes

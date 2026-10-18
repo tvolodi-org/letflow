@@ -313,8 +313,16 @@ config :letflow, :modules, [
   Letflow.Modules.FixtureLedgerOther,
   # GH #2590 / REQ-501 R4a: handlers that misbehave on purpose (negative controls for
   # HandlerWrites and scan H4); test/support/modules/fixture_ledger_rogue/.
-  Letflow.Modules.FixtureLedgerRogue
+  Letflow.Modules.FixtureLedgerRogue,
+  # REQ-518 / GH #2535: scope declarations (test/support/modules/fixture_scoped/). Its id is on
+  # :scope_declaration_unmanaged_modules below, so it alone may declare UNMANAGED types.
+  Letflow.Modules.FixtureScoped
 ]
+
+# REQ-518 (SEC ruling R-3): the ONLY place this key may be set. Catalog rule 11 and
+# Letflow.Entities.ScopeDeclaration accept a scope declaration on an unmanaged entity type only for
+# a module id listed here; no production configuration sets it (scan test T-D8).
+config :letflow, :scope_declaration_unmanaged_modules, ["fixture_scoped"]
 
 # REQ-439: explicit test default -- no proxy is trusted, so Letflow.Plugs.ClientIp
 # never honours X-Real-IP unless a test passes :trusted_proxies as plug opts.

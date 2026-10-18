@@ -95,6 +95,12 @@ defmodule Letflow.Modules.Module do
       manifest hash (`Letflow.Modules.ManifestHash`) covers `id`, `version`,
       `manages_entity_types` and the handler declarations but NOT handler code:
       bump `:version` whenever handler code changes.
+    * `:scope_declarations` - **optional** (REQ-518, decision 0051 D6; design
+      `lib/letflow/design/req518-compiler-scope-filter.md` 3.2); `%{entity_type_name =>
+      {:column, field_name} | :tenant_wide}`. Absent means none. Read by
+      `Letflow.Entities.ScopeDeclaration` only. Production modules may declare only types in
+      their own `:manages_entity_types` (`Catalog` rule 11). The manifest hash covers it only
+      when present.
   """
   @type manifest :: %{
           required(:id) => String.t(),
@@ -108,7 +114,8 @@ defmodule Letflow.Modules.Module do
           required(:route_policies) => [route_policy()],
           optional(:manages_entity_types) => [String.t()],
           optional(:widens_grants) => [{atom(), atom()}],
-          optional(:write_handlers) => [write_handler_spec()]
+          optional(:write_handlers) => [write_handler_spec()],
+          optional(:scope_declarations) => %{String.t() => {:column, String.t()} | :tenant_wide}
         }
 
   @callback manifest() :: manifest()
@@ -176,6 +183,7 @@ defmodule Letflow.Modules.Module do
   | `:route_policies` | `[{String.t(), String.t(), atom()}]` literal list |
   | `:widens_grants` (optional) | `[{atom(), atom()}]` literal list (narrowing declarations, GH #2586) |
   | `:write_handlers` (optional) | `[t:write_handler_spec/0]` literal list; `function: {Mod, :fun}` with full aliases (GH #2590) |
+  | `:scope_declarations` (optional) | `%{String.t() => {:column, String.t()} | :tenant_wide}` literal map (REQ-518) |
 
   If any `role_grants` value atom is absent from `permissions`, a
   `CompileError` is raised at the call site during compilation. Non-literal

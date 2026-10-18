@@ -1764,7 +1764,8 @@ defmodule Letflow.Modules.Exam.SessionTest do
       %{exam: archived} = build_minimal_exam!(schema, exam_attrs: %{"status" => "archived"})
       ExamFixtures.delete_record!(schema, "exam", dead.record_id)
 
-      assert {:ok, %{items: items, next_cursor: cursor}} = Session.list_available_exams(schema)
+      assert {:ok, %{items: items, next_cursor: cursor}} =
+               Session.list_available_exams(schema, scope: :all)
 
       ids = Enum.map(items, &item_id/1)
       assert ids == [live.record_id]
@@ -1778,7 +1779,7 @@ defmodule Letflow.Modules.Exam.SessionTest do
       %{exam: a} = build_minimal_exam!(schema)
       %{exam: b} = build_minimal_exam!(schema)
 
-      assert {:ok, %{items: items}} = Session.list_available_exams(schema)
+      assert {:ok, %{items: items}} = Session.list_available_exams(schema, scope: :all)
       assert Enum.sort(Enum.map(items, &item_id/1)) == Enum.sort([a.record_id, b.record_id])
     end
   end

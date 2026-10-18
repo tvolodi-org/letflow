@@ -402,7 +402,8 @@ defmodule Letflow.Modules.Exam.Router do
 
     case Pagination.parse_page_size_param(Map.get(query, "page_size")) do
       {:ok, page_size} ->
-        opts = [cursor: Map.get(query, "cursor"), page_size: page_size]
+        # scope-all: exam routes are :tenant_wide until reclassified (walk guard :exam_route_reclassified)
+        opts = [cursor: Map.get(query, "cursor"), page_size: page_size, scope: :all]
         render_list_available_exams(conn, Session.list_available_exams(prefix, opts))
 
       {:error, :invalid_page_size} ->

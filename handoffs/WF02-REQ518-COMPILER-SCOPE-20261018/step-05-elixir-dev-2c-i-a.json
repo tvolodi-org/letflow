@@ -1,0 +1,105 @@
+{
+  "handoff_id": "d2535518-0518-4c02-9e11-000000000005",
+  "run_id": "WF02-REQ518-COMPILER-SCOPE-20261018",
+  "workflow_id": "WF-02",
+  "step": "05",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-05-elixir-dev-2c-i-a.json",
+  "created_at": "2026-10-18T02:20:00Z",
+  "started_at": "2026-10-18T02:21:00Z",
+  "completed_at": "2026-10-18T04:14:47Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [
+      "REQ-518"
+    ],
+    "requirement_text": {},
+    "source_text": {
+      "slice": "REQ-518 slice 2c-i-a (GH #2535): compiler scope argument, ScopeDeclaration, Scope.allowed_set/2, ScopeNodePaths.allowed_node_ids/2, Catalog rule 11, nine call sites, exam_route_reclassified walk rule. No route class changes."
+    },
+    "related_handoff_ids": [
+      "d2535518-0518-4c02-9e11-000000000004"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/req518-compiler-scope-filter.md",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-04-security-reviewer-design.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ518-COMPILER-SCOPE-20261018"
+  },
+  "task": {
+    "description": "Implement PR 2c-i-a of the REQ-518 design (rev r2a). Implementation only; new tests are TEST-DESIGNER's. Nothing committed."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "2c-i-a implemented. MIX_ENV=test mix compile --warnings-as-errors: clean. mix format --check-formatted: clean. mix letflow.check_boundaries: 0 violations (1748 edges). Per-file mix test of query_test, query_joins_test, catalog_test, route_scope_walk_test, scope_test: the only two failures were forced edits (catalog entry_modules list, scope_test T-A8 static pin), both fixed and rerun green. Two throwaway scratch tests (deleted) exercised on a real tenant: install of fixture_scoped; ScopeNodePaths.allowed_node_ids (retired intermediate excluded, its live descendant kept, retired leaf excluded, cap 2 gives :too_many_ids); ScopeDeclaration for column, tenant_wide, managed and unknown types; Compiler.compile and run_aggregate under :all, {:nodes, ids}, :none and {:nodes, []}, invalid scope raises ArgumentError, LEFT join keeps the primary row with a NULL out-of-scope target, INNER join drops it; Scope.allowed_set for scoped user, tenant-wide, token, no-grant, no-role, unknown permission, unknown node, invalid node id (raises ScopeSetError) and cap (raises); ApiPipeline.handle_errors returns the detail-free 500 for ScopeSetError and leaves other exceptions untouched. NOT RUN: any full or multi-partition suite, mix letflow.check, MIX_ENV=dev permission_matrix --check (no permission atom added), the other forced-edit test files individually (only query_test and query_joins_test ran), the exam session_test. No route class, snapshot line or expectation list changed.",
+    "migrations": [],
+    "files_created": [
+      "lib/letflow/entities/scope_declaration.ex",
+      "priv/module_fixtures/scoped_foundation.json",
+      "test/support/modules/fixture_scoped/fixture_scoped.ex"
+    ],
+    "files_changed": [
+      "lib/letflow/entities/query/types.ex",
+      "lib/letflow/entities/query/compiler.ex",
+      "lib/letflow/api/scope.ex",
+      "lib/letflow/api/route_scope.ex",
+      "lib/letflow/plugs/api_pipeline.ex",
+      "lib/letflow/scope_node_paths.ex",
+      "lib/letflow/modules/module.ex",
+      "lib/letflow/modules/catalog.ex",
+      "lib/letflow/modules/manifest_hash.ex",
+      "lib/letflow/entities/script_reads.ex",
+      "lib/letflow/routers/entities.ex",
+      "lib/letflow/modules/exam/anti_cheat.ex",
+      "lib/letflow/modules/exam/session.ex",
+      "lib/letflow/modules/exam/snapshot.ex",
+      "lib/letflow/modules/exam/router.ex",
+      "lib/mix/tasks/letflow.seed.exam_fixtures.ex",
+      "config/test.exs",
+      "priv/module_fixtures/README.md",
+      "test/letflow/engine/service_task_entity_writes_sentinel_test.exs",
+      "test/letflow/entities/query_aggregate_test.exs",
+      "test/letflow/entities/query_cursor_field_grants_test.exs",
+      "test/letflow/entities/query_joins_test.exs",
+      "test/letflow/entities/query_self_join_test.exs",
+      "test/letflow/entities/query_test.exs",
+      "test/letflow/modules/exam/certificate_test.exs",
+      "test/letflow/modules/exam/pack_install_test.exs",
+      "test/letflow/modules/exam/session_test.exs",
+      "test/letflow/modules/catalog_test.exs",
+      "test/letflow/api/scope_test.exs"
+    ],
+    "deviations": [
+      "ScopeSetError to detail-free 500: the existing pipeline did NOT map it (ApiPipeline.handle_errors/2 was cleanup-only and Plug.ErrorHandler re-raises into Bandit's crash response). Added a narrow branch in lib/letflow/plugs/api_pipeline.ex handle_errors/2 that sends Response.internal_error for ScopeSetError only, while the conn state is unset or set; the exception still propagates. ScopeSetError also implements Plug.Exception (status 500). api_pipeline.ex is therefore an additional SEC-review file. Not exercised through a real HTTP route in this slice (no route calls allowed_set until 2c-i-b); verified by calling handle_errors directly. T-C13 over HTTP needs a route that calls ScopeGate.",
+      "Compiler: one required third argument; private normalize_scope!/1 raises ArgumentError (constant message, no values) for anything but :all, :none, {:nodes, [binary]}; {:nodes, []} becomes :none. Predicate is a separate outermost where (positional with literal(^column) for the plain per-type-table primary, as(:primary) for the joined primary) and an AND in each hop ON clause via field(as(^alias), ^column); ids bound as one type(^ids, {:array, :string}) parameter. :all adds nothing (query untouched).",
+      "Scope.decide_tenant_permission was refactored into a shared private tenant_effective/2 used by both allowed?/3 and allowed_set/2 (allowed?/3 behaviour unchanged; scope_test passes) so the two cannot diverge (D1).",
+      "ScopeNodePaths.allowed_node_ids/2 reuses descendants_of/2 per chunk of 500 roots and filters retired nodes in Elixir; a :too_many_nodes from descendants_of cannot occur (chunking) but maps to :too_many_ids defensively. Cap read from config :letflow, :scope_allowed_ids_cap (default 50_000).",
+      "Catalog rule 11 duplicate check lives in validate/2 against the known manifests (there is no validate_all/0 in catalog.ex).",
+      "ScopeDeclaration treats a type named by two modules as :undeclared and re-validates the declaration shape (defence in depth behind rule 11).",
+      "ManifestHash includes scope_declarations only when the key is present.",
+      "list_available_exams/2 lost its default opts and now requires :scope via Keyword.fetch!; exam/router.ex passes literal :all with the required comment. Exam sites 7-9 carry the SEC-518-R1 comment; script_reads, the mix task and the three entities.ex sites carry their scope-all comments.",
+      "RouteScope.audit_routes/2 gains the additive {:exam_route_reclassified, row} rule (any route whose full path starts with /modules/exam/ and whose class is not :tenant_wide). Nothing else in route_scope.ex changed; no snapshot or expectation list change. Its walk test and the scan test (T-C15) are NOT written (TEST-DESIGNER).",
+      "Fixture: test/support/modules/fixture_scoped plus priv/module_fixtures/scoped_foundation.json (scoped_item, scoped_master, scoped_managed_item, scoped_child with fk; only queried: true, no definition.indexes entries) and config/test.exs entries (:modules gains Letflow.Modules.FixtureScoped; :scope_declaration_unmanaged_modules = [fixture_scoped]). config/test.exs :modules is a mandatory SEC trigger. test/support/scope_set_fixture.ex (tree and principals helper) is NOT created: left to TEST-DESIGNER with the new tests.",
+      "Forced test edits beyond the 63 explicit :all additions: catalog_test.exs entry_modules list (+FixtureScoped), scope_test.exs T-A8 static pin (now expects allowed_node_ids and resolve), session_test.exs two list_available_exams calls (scope: :all). The design counted about 67 sites; 63 real calls were edited (3 hits in entities_query_restricted_walker_test and 1 in query_cursor_field_grants_test are source-string checks, not calls).",
+      "Not done (later slices or tests): scope_all_scan_test.exs, T-D8 config scan, all new tests T-C*, T-D*, MU kills. README state diagram unaffected (no state transition).",
+      "REVIEWER rework (step-08 F-2, F-3, F-4): the \"? = ANY(?)\" fragment literal is now the module attribute @any_fragment in compiler.ex; the list_available_exams @doc in modules/exam/session.ex now states the required :scope option and cites Compiler.compile/3; Catalog duplicate-scope-declaration check skips another manifest whose :scope_declarations is not a map (declares_scope_type?/2), so no BadMapError. After the rework mix format --check-formatted and MIX_ENV=test mix compile --warnings-as-errors are clean. Handoff timestamps corrected to the real UTC clock.",
+      "TEST-DESIGNER rework (step-09 BUG-1, BUG-2): ScopeDeclaration.for_types/2 now validates the prefix with TenantProvisioning.tenant_id_for_schema_name/1 (pure, no query) before any read and returns :undeclared for every type on a malformed prefix (still zero queries when no manifest names the type); RouteScope.exam_route?/1 now matches path == /modules/exam as well as the /modules/exam/ prefix (SEC step-07 F-2). Confirmed: test/letflow/entities/scope_declaration_test.exs and test/letflow/api/route_scope_exam_guard_test.exs pass (27 tests); mix format --check-formatted and MIX_ENV=test mix compile --warnings-as-errors clean."
+    ],
+    "notes_for_test_designer": [
+      "Install of fixture_scoped works in a provisioned tenant with EventTypes.seed! (see installs_managed_by_test setup); records of the unmanaged types are created with Records.create_record/2; omit the scope column (do not send nil) for a NULL scope value.",
+      "Per-type table name comes from TenantProvisioning.table_name_for_entity_type/1.",
+      "Other tests that enumerate Catalog.entry_modules or manifests may need FixtureScoped added; only catalog_test was run."
+    ],
+    "sec_code_gate_followups": [
+      "SEC trigger files touched: route_scope.ex, config/test.exs :modules, plugs/api_pipeline.ex, api/scope.ex, scope_node_paths.ex, entities/query/compiler.ex.",
+      "Run the INV-4 grep pair on the new log line (scope_set_failed reason=<atom> only)."
+    ],
+    "local_issue_id": null,
+    "implementation_written": true
+  }
+}

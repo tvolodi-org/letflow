@@ -615,6 +615,7 @@ defmodule Mix.Tasks.Letflow.Seed.ExamFixtures do
   end
 
   defp existing_sessions(prefix, exam_id, candidate_id) do
+    # scope-all: mix task, no HTTP user
     {:ok, query} =
       Compiler.compile(
         %{
@@ -624,7 +625,8 @@ defmodule Mix.Tasks.Letflow.Seed.ExamFixtures do
             %{field: "user_id", op: :eq, value: candidate_id}
           ]
         },
-        prefix
+        prefix,
+        :all
       )
 
     Repo.all(query, prefix: prefix)

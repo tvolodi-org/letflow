@@ -81,7 +81,7 @@ defmodule Letflow.Entities.QueryAggregateTest do
   end
 
   defp run(request, prefix) do
-    {:ok, query} = Compiler.compile_aggregate(request, prefix)
+    {:ok, query} = Compiler.compile_aggregate(request, prefix, :all)
     Repo.all(query, prefix: prefix)
   end
 
@@ -211,7 +211,7 @@ defmodule Letflow.Entities.QueryAggregateTest do
 
       request = %{entity_type: "widget", aggregates: [%{fn: :sum, field: "not_a_real_field"}]}
 
-      assert Compiler.compile_aggregate(request, ctx.schema_name) ==
+      assert Compiler.compile_aggregate(request, ctx.schema_name, :all) ==
                {:error, {:field_not_allowed, "not_a_real_field"}}
     end
 
@@ -225,7 +225,7 @@ defmodule Letflow.Entities.QueryAggregateTest do
         group_by: [%{field: "not_a_real_field"}]
       }
 
-      assert Compiler.compile_aggregate(request, ctx.schema_name) ==
+      assert Compiler.compile_aggregate(request, ctx.schema_name, :all) ==
                {:error, {:field_not_allowed, "not_a_real_field"}}
     end
   end
@@ -242,7 +242,7 @@ defmodule Letflow.Entities.QueryAggregateTest do
 
       request = %{entity_type: "widget", aggregates: [%{fn: :sum, field: "title"}]}
 
-      assert Compiler.compile_aggregate(request, ctx.schema_name) ==
+      assert Compiler.compile_aggregate(request, ctx.schema_name, :all) ==
                {:error, {:aggregate_type_not_valid, :sum, :string}}
     end
 
@@ -252,7 +252,7 @@ defmodule Letflow.Entities.QueryAggregateTest do
 
       request = %{entity_type: "widget", aggregates: [%{fn: :sum}]}
 
-      assert Compiler.compile_aggregate(request, ctx.schema_name) ==
+      assert Compiler.compile_aggregate(request, ctx.schema_name, :all) ==
                {:error, {:aggregate_field_required, :sum}}
     end
 
@@ -262,7 +262,7 @@ defmodule Letflow.Entities.QueryAggregateTest do
 
       request = %{entity_type: "widget", aggregates: [%{fn: :avg}]}
 
-      assert Compiler.compile_aggregate(request, ctx.schema_name) ==
+      assert Compiler.compile_aggregate(request, ctx.schema_name, :all) ==
                {:error, {:aggregate_field_required, :avg}}
     end
 
@@ -272,7 +272,7 @@ defmodule Letflow.Entities.QueryAggregateTest do
 
       request = %{entity_type: "widget", aggregates: [%{fn: :min}]}
 
-      assert Compiler.compile_aggregate(request, ctx.schema_name) ==
+      assert Compiler.compile_aggregate(request, ctx.schema_name, :all) ==
                {:error, {:aggregate_field_required, :min}}
     end
 
@@ -282,7 +282,7 @@ defmodule Letflow.Entities.QueryAggregateTest do
 
       request = %{entity_type: "widget", aggregates: [%{fn: :max}]}
 
-      assert Compiler.compile_aggregate(request, ctx.schema_name) ==
+      assert Compiler.compile_aggregate(request, ctx.schema_name, :all) ==
                {:error, {:aggregate_field_required, :max}}
     end
 
@@ -292,7 +292,7 @@ defmodule Letflow.Entities.QueryAggregateTest do
 
       request = %{entity_type: "widget", aggregates: [%{fn: :count, field: "quantity"}]}
 
-      assert Compiler.compile_aggregate(request, ctx.schema_name) ==
+      assert Compiler.compile_aggregate(request, ctx.schema_name, :all) ==
                {:error, {:aggregate_field_not_allowed, :count}}
     end
   end
@@ -310,7 +310,7 @@ defmodule Letflow.Entities.QueryAggregateTest do
       seed_record!(ctx, %{"title" => "a", "quantity" => 1})
 
       request = %{entity_type: "widget", filters: [], sort: [], join: []}
-      assert {:ok, query} = Compiler.compile(request, ctx.schema_name)
+      assert {:ok, query} = Compiler.compile(request, ctx.schema_name, :all)
       assert [%Letflow.Entities.Record.Latest{}] = Repo.all(query, prefix: ctx.schema_name)
     end
   end

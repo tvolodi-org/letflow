@@ -220,7 +220,7 @@ defmodule Letflow.Entities.QueryCursorFieldGrantsTest do
         ]
       }
 
-      assert {:ok, compiled_query} = Compiler.compile(request, schema)
+      assert {:ok, compiled_query} = Compiler.compile(request, schema, :all)
       assert {:ok, allowlist} = Allowlist.load("customer", schema)
 
       expected_order = [
@@ -258,7 +258,7 @@ defmodule Letflow.Entities.QueryCursorFieldGrantsTest do
 
       request = %{entity_type: "customer", sort: [%{field: "age", dir: :asc}]}
 
-      assert {:ok, compiled_query} = Compiler.compile(request, schema)
+      assert {:ok, compiled_query} = Compiler.compile(request, schema, :all)
       assert {:ok, allowlist} = Allowlist.load("customer", schema)
 
       assert {:ok, page} =
@@ -281,7 +281,7 @@ defmodule Letflow.Entities.QueryCursorFieldGrantsTest do
         sort: [%{field: "customer_name", dir: :asc}, %{field: "age", dir: :asc}]
       }
 
-      assert {:ok, compiled_query} = Compiler.compile(mint_request, schema)
+      assert {:ok, compiled_query} = Compiler.compile(mint_request, schema, :all)
       assert {:ok, allowlist} = Allowlist.load("customer", schema)
 
       assert {:ok, page} =
@@ -291,7 +291,7 @@ defmodule Letflow.Entities.QueryCursorFieldGrantsTest do
 
       # Resend with only one sort field -- arity no longer matches.
       resume_request = %{entity_type: "customer", sort: [%{field: "age", dir: :asc}]}
-      assert {:ok, compiled_query2} = Compiler.compile(resume_request, schema)
+      assert {:ok, compiled_query2} = Compiler.compile(resume_request, schema, :all)
 
       assert Cursor.paginate(
                resume_request,
@@ -324,7 +324,7 @@ defmodule Letflow.Entities.QueryCursorFieldGrantsTest do
       end
 
       request = %{entity_type: "customer", sort: [%{field: "age", dir: :asc}]}
-      assert {:ok, compiled_query} = Compiler.compile(request, schema)
+      assert {:ok, compiled_query} = Compiler.compile(request, schema, :all)
       assert {:ok, allowlist} = Allowlist.load("customer", schema)
 
       %{schema: schema, request: request, compiled_query: compiled_query, allowlist: allowlist}
@@ -573,7 +573,7 @@ defmodule Letflow.Entities.QueryCursorFieldGrantsTest do
 
     test "redact_page/2 accepts a promoted per-type-table row (entity_row() map shape) and redacts it identically to the %Latest{} path",
          %{schema: schema} do
-      assert {:ok, query} = Compiler.compile(%{entity_type: "promoted_customer"}, schema)
+      assert {:ok, query} = Compiler.compile(%{entity_type: "promoted_customer"}, schema, :all)
 
       assert [%{field_values: %{"ssn" => "123-45-6789"}} = row] = Repo.all(query, prefix: schema)
       refute match?(%Latest{}, row)
@@ -601,7 +601,7 @@ defmodule Letflow.Entities.QueryCursorFieldGrantsTest do
 
     test "a user holding an explicit grant sees the field populated, promoted-table shape",
          %{schema: schema} do
-      assert {:ok, query} = Compiler.compile(%{entity_type: "promoted_customer"}, schema)
+      assert {:ok, query} = Compiler.compile(%{entity_type: "promoted_customer"}, schema, :all)
       assert [row] = Repo.all(query, prefix: schema)
 
       page = Pagination.page_response([row], "some-next-cursor")
@@ -719,7 +719,7 @@ defmodule Letflow.Entities.QueryCursorFieldGrantsTest do
         sort: [%{field: "age", dir: :asc}]
       }
 
-      assert {:ok, compiled_query} = Compiler.compile(request, schema)
+      assert {:ok, compiled_query} = Compiler.compile(request, schema, :all)
       assert {:ok, allowlist} = Allowlist.load("promoted_pager", schema)
 
       # Confirm the setup produced the shape this test needs: "age"
@@ -842,7 +842,7 @@ defmodule Letflow.Entities.QueryCursorFieldGrantsTest do
         sort: [%{field: "customer_name", dir: :asc}]
       }
 
-      assert {:ok, compiled_query} = Compiler.compile(request, schema)
+      assert {:ok, compiled_query} = Compiler.compile(request, schema, :all)
       assert {:ok, allowlist} = Allowlist.load("promoted_sorter", schema)
 
       # Confirm the setup produced the shape this test needs: "customer_name"

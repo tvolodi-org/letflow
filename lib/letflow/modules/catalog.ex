@@ -335,6 +335,13 @@ defmodule Letflow.Modules.Catalog do
       carrying this manifest (the entry module itself is refused) (also when no registered module carries the manifest).
     * `{:write_handler_function_not_exported, name}` - not loadable, or no
       exported arity-3 function.
+
+  Rule 11 (REQ-518) runs after rule 10: the optional `:scope_declarations` key. Errors:
+  `{:invalid_scope_declarations, value}` (not a map of managed-format names to
+  `{:column, field}` or `:tenant_wide`), `{:scope_declaration_unmanaged_type, name}` (a key not
+  in the same manifest's `:manages_entity_types`, unless the module id is on the test-only
+  `:scope_declaration_unmanaged_modules` allowlist), `{:duplicate_scope_declaration, name}`
+  (another known manifest declares the same type). Absent is valid.
   """
   @spec validate(Module.manifest(), [Module.manifest()]) :: :ok | {:error, {atom(), term()}}
   def validate(manifest, known_manifests) do
@@ -352,7 +359,8 @@ defmodule Letflow.Modules.Catalog do
          :ok <- validate_manages_entity_types(manifest),
          :ok <- validate_widens_grants(manifest),
          :ok <- validate_permissions_not_declared_elsewhere(manifest, known_manifests),
-         :ok <- validate_write_handlers(manifest, entry_module) do
+         :ok <- validate_write_handlers(manifest, entry_module),
+         :ok <- validate_scope_declarations(manifest, known_manifests) do
       :ok
     end
   end
@@ -502,6 +510,74 @@ defmodule Letflow.Modules.Catalog do
         nil -> nil
         other -> {:error, {:permission_declared_by_other_module, permission, other.id}}
       end
+    end)
+  end
+
+  # Rule 11 (REQ-518 / GH #2535, design req518-compiler-scope-filter.md 3.2, SEC ruling R-3).
+  # The optional `:scope_declarations` key: `%{type_name => {:column, field} | :tenant_wide}`.
+  # Every key is a managed-name-format name that the SAME manifest lists in
+  # `:manages_entity_types` -- except for a module id on the test-only allowlist
+  # `:scope_declaration_unmanaged_modules` (set in config/test.exs only). A type declared by
+  # two manifests is a duplicate.
+  defp validate_scope_declarations(manifest, known_manifests) do
+    case Map.fetch(manifest, :scope_declarations) do
+      :error ->
+        :ok
+
+      {:ok, decls} when is_map(decls) and not is_struct(decls) ->
+        with :ok <- check_scope_declaration_entries(manifest, decls) do
+          check_scope_declaration_duplicates(manifest, decls, known_manifests)
+        end
+
+      {:ok, other} ->
+        {:error, {:invalid_scope_declarations, other}}
+    end
+  end
+
+  defp check_scope_declaration_entries(manifest, decls) do
+    managed = Map.get(manifest, :manages_entity_types, [])
+
+    allowlisted? =
+      Map.get(manifest, :id) in Application.get_env(
+        :letflow,
+        :scope_declaration_unmanaged_modules,
+        []
+      )
+
+    Enum.find_value(decls, :ok, fn {name, decl} ->
+      cond do
+        not (ManagedTypes.managed_name?(name) and valid_scope_declaration?(decl)) ->
+          {:error, {:invalid_scope_declarations, decls}}
+
+        not allowlisted? and name not in managed ->
+          {:error, {:scope_declaration_unmanaged_type, name}}
+
+        true ->
+          nil
+      end
+    end)
+  end
+
+  defp valid_scope_declaration?(:tenant_wide), do: true
+
+  defp valid_scope_declaration?({:column, field}),
+    do: ManagedTypes.managed_name?(field)
+
+  defp valid_scope_declaration?(_other), do: false
+
+  defp declares_scope_type?(manifest, name) do
+    case Map.get(manifest, :scope_declarations, %{}) do
+      decls when is_map(decls) -> Map.has_key?(decls, name)
+      _not_a_map -> false
+    end
+  end
+
+  defp check_scope_declaration_duplicates(manifest, decls, known_manifests) do
+    others = Enum.reject(known_manifests, &(&1.id == manifest.id))
+
+    Enum.find_value(Map.keys(decls), :ok, fn name ->
+      if Enum.any?(others, &declares_scope_type?(&1, name)),
+        do: {:error, {:duplicate_scope_declaration, name}}
     end)
   end
 

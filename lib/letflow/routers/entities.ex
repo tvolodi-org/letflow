@@ -2028,7 +2028,8 @@ defmodule Letflow.Routers.Entities do
            RequestAccess.check(%{user_id: user_id, prefix: prefix}, :row, request, %{
              exempt?: false
            }),
-         {:ok, compiled} <- Compiler.compile(request, prefix),
+         # scope-all: route is still :tenant_wide until 2c-i-b (a scoped caller is refused 403 before here)
+         {:ok, compiled} <- Compiler.compile(request, prefix, :all),
          {:ok, allowlist} <- Allowlist.load(request.entity_type, prefix),
          {:ok, page} <- Cursor.paginate(request, compiled, allowlist, opts, prefix),
          {:ok, redacted} <- redact(page, request, sets) do
@@ -2281,7 +2282,8 @@ defmodule Letflow.Routers.Entities do
              request,
              %{exempt?: false}
            ),
-         {:ok, rows} <- Compiler.run_aggregate(request, prefix) do
+         # scope-all: route is still :tenant_wide until 2c-i-b (a scoped caller is refused 403 before here)
+         {:ok, rows} <- Compiler.run_aggregate(request, prefix, :all) do
       Response.ok(conn, %{"results" => Enum.map(rows, &aggregate_result_map/1)})
     else
       {:error, reason} -> render_aggregate_error(conn, reason)
@@ -2464,7 +2466,8 @@ defmodule Letflow.Routers.Entities do
              request,
              %{exempt?: unredacted?}
            ),
-         {:ok, compiled} <- Compiler.compile(request, prefix),
+         # scope-all: route is still :tenant_wide until 2c-i-b (a scoped caller is refused 403 before here)
+         {:ok, compiled} <- Compiler.compile(request, prefix, :all),
          :ok <- audit_exempted(user_id, path_entity_type, prefix, guard.exempted),
          {:ok, allowlist} <- Allowlist.load(request.entity_type, prefix),
          {:ok, page} <- Cursor.paginate(request, compiled, allowlist, opts, prefix),

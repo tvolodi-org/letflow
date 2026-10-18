@@ -1255,13 +1255,13 @@ defmodule Letflow.Routers.EntitiesQueryRestrictedWalkerTest do
         "search" => "x"
       }
 
-      q = traced_request(Compiler, :compile, 2, fn -> assert query(ctx, body).status == 200 end)
+      q = traced_request(Compiler, :compile, 3, fn -> assert query(ctx, body).status == 200 end)
       assert Enum.sort(Map.keys(q)) == Enum.sort(RequestGuard.registry_keys(:row))
 
       export_body = Map.delete(body, "entity_type")
 
       e =
-        traced_request(Compiler, :compile, 2, fn ->
+        traced_request(Compiler, :compile, 3, fn ->
           assert export(ctx, "question", export_body).status == 200
         end)
 
@@ -1284,7 +1284,7 @@ defmodule Letflow.Routers.EntitiesQueryRestrictedWalkerTest do
       }
 
       a =
-        traced_request(Compiler, :run_aggregate, 2, fn ->
+        traced_request(Compiler, :run_aggregate, 3, fn ->
           assert aggregate(ctx, body).status == 200
         end)
 

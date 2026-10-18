@@ -57,6 +57,7 @@ defmodule Letflow.Api.RouteScope do
           | {:self_service_not_allowed, route_row()}
           | {:unexpected_filter_route, route_row()}
           | {:unknown_permission, atom()}
+          | {:exam_route_reclassified, route_row()}
 
   # 0051 D11 admin plane, by policy key. `:UsersGroupsRolesManage` is a permission, not a key:
   # the completeness rule in `audit_routes/2` derives the rest from `required_permission/1`.
@@ -181,6 +182,15 @@ defmodule Letflow.Api.RouteScope do
           snapshot_line(r) not in @expected_filter_routes,
           do: {:unexpected_filter_route, r}
 
+    # REQ-518 R-1 (SEC-518-R1) guard: the literal `:all` at the exam data-access sites is safe only
+    # while EVERY route mounted by the exam module (/modules/exam/...) is `:tenant_wide`; a scoped
+    # principal is then refused before exam code runs. The ruling lapses if this rule is removed.
+    exam_reclassified =
+      for r <- routes,
+          exam_route?(r),
+          r.class != :tenant_wide,
+          do: {:exam_route_reclassified, r}
+
     # SEC F-3: every policy key maps to a real permission, or `allowed?/3` would deny it to
     # everyone (admins included) under `on`.
     unknown_permissions =
@@ -193,7 +203,8 @@ defmodule Letflow.Api.RouteScope do
       conflicts ++
       unresolved ++
       missing_keys ++
-      reclassified ++ self_service ++ unexpected_filters ++ unknown_permissions
+      reclassified ++
+      self_service ++ unexpected_filters ++ unknown_permissions ++ exam_reclassified
   end
 
   # Completeness rule (AC 17): every key whose permission is :UsersGroupsRolesManage, plus
@@ -202,6 +213,9 @@ defmodule Letflow.Api.RouteScope do
 
   defp admin_by_permission?(key),
     do: Authorization.required_permission(key) == :UsersGroupsRolesManage
+
+  defp exam_route?(%{path: path}),
+    do: path == "/modules/exam" or String.starts_with?(path, "/modules/exam/")
 
   defp link_route?(%{method: "POST", path: path}),
     do: String.ends_with?(path, "/attachments/:attachment_id/link")

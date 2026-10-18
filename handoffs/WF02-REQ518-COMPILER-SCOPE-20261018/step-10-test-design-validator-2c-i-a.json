@@ -1,0 +1,119 @@
+{
+  "handoff_id": "d2535518-0518-4c02-9e11-000000000010",
+  "run_id": "WF02-REQ518-COMPILER-SCOPE-20261018",
+  "workflow_id": "WF-02",
+  "step": "10",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGN-VALIDATOR",
+  "file": "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-10-test-design-validator-2c-i-a.json",
+  "created_at": "2026-10-18T04:12:30Z",
+  "started_at": "2026-10-18T04:13:00Z",
+  "completed_at": "2026-10-18T04:30:10Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [
+      "REQ-518"
+    ],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "TEST-DESIGN-VALIDATOR gate for REQ-518 slice 2c-i-a (GH #2535), uncommitted tree on feature/WF02-REQ518-COMPILER-SCOPE-20261018. Mix ran per file, one at a time, with the mixlock directory created and removed by this session around each batch (it was absent at start; no foreign lock touched). No full suite, no letflow.check.test. Mutants were compiled in memory only; nothing under lib/, priv/ or test/ was edited."
+    },
+    "related_handoff_ids": [
+      "d2535518-0518-4c02-9e11-000000000007",
+      "d2535518-0518-4c02-9e11-000000000008",
+      "d2535518-0518-4c02-9e11-000000000009"
+    ],
+    "artifacts_in": [
+      "test/specs/REQ-518-2c-i-a.md",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-09-test-designer-2c-i-a.json",
+      "lib/letflow/design/req518-compiler-scope-filter.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ518-COMPILER-SCOPE-20261018"
+  },
+  "task": {
+    "description": "Hard gate on TEST-DESIGNER REQ-518 2c-i-a tests: a runnable test with real assertions per AC 1-5 (18/21 are 2c-i-b by design 10.1), every SEC step-07 merge condition and REVIEWER F-5; fixture soundness; own mutants."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "summary": "PASS_WITH_FINDINGS. No test file was changed by the validator. EXECUTED (mix per file, LOG_LEVEL=warning): scope_declaration 16 passed, route_scope_exam_guard 11 passed (BUG-1 and BUG-2 now green), query_scope 35, scope_allowed_set 21, scope_node_paths_allowed_ids 16, catalog_scope_declarations 25, scope_all_scan 17, api_pipeline_scope_set_error 9: 150 of 150 passed. mix format --check-formatted over the 8 new test files, scope_set_fixture.ex, fixture_scoped.ex and the edited walker test exited 0 (control: an unformatted scratch file exits 1). No skip, TODO-implement, sleep or hardcoded secret; no backslash default argument in any new file. All DB files are async false; the three async true files (scope_all_scan, route_scope_exam_guard, api_pipeline_scope_set_error) touch no Repo and no global env. FIXTURE SOUNDNESS, independently re-derived: I compiled git show HEAD:lib/letflow/entities/query/compiler.ex renamed to PreChangeV.Compiler in a scratch test (session scratchpad, not committed), provisioned the fixture tenant, dropped the scoped_master table as the real test does, and compared SQL text and params of all 8 shapes to test/fixtures/scope/compiler_all_pre_change_sql.json: 1 test, 1 passed, so the committed fixture equals the pre-change compiler output exactly. Same for the ManifestHash pinned value 8763a9c6...: HEAD manifest_hash.ex renamed and run on the @plain manifest gives that digest (1 passed). OWN MUTANTS (in memory, measured): V1 cap counts retired nodes fails 4 of 37; V2 cap checked per chunk instead of cumulative fails 1 of 37; V3 declared column on :latest fails open fails 1 of 35; V4 a second ScopeDeclaration.for_types read per compile fails 2 of 35 (stands in for MU11); V5 handle_errors only for conn state :unset fails 1 of 9; V6 exam_route? back to prefix-with-slash only fails 1 of 11; V11 for_types prefix validation replaced by a starts_with check fails 1 of 51. SURVIVORS (3): V9a ScopeDeclaration.valid_declaration?/1 catch-all returns true, V9b the column-name managed_name? check removed, V10 two-manifest ambiguity resolved to the first manifest: each passes 51 of 51 (scope_declaration + query_scope). Not reachable from a test: Catalog @modules is a compile-time attribute, so no test can register a manifest with a malformed or duplicated declaration; Catalog rule 11 (T-D7: duplicate, bad shape, bad column, every registered module validates) is the tested first line and these three are defence in depth behind it. Recorded as F-1, no action. DESIGNER PREDICTIONS judged: MU8 confirmed by V3; MU9 killed by T-D3 (keys injected into definition_json would make an undeclared type readable or redirect a declared column) plus the AST test; MU11 confirmed by V4 for the compile path and by the page-size counts [1,1,1] for execution. COVERAGE READ AGAINST docs/requirements.yaml: AC 1 query_scope T-C1 (function_exported 3 true and 2 false for all three functions, committed SQL of 8 shapes, no tenant_modules read under :all), T-C3 (12 bad scopes, constant message, {:nodes, []} is :none, before any query) and scope_all_scan (AST parse with tokenizer comments, alias forms, piped calls, moduledoc and string cases, five-site ledger, no two-argument call, router literals tied to route classes, list_available_exams/2 required :scope); AC 2 T-C4/T-C5 (rows, count, sum, group_by, cursor pages 1/2 and page 2 under a narrower set, user filters that try to reach out of scope, exactly one extra WHERE on data, aggregate and joined statements, one bound array, position before GROUP BY/ORDER BY/LIMIT, hostile id) plus node_ids tests (LIKE metacharacters one test each, chunking); AC 3 T-C7/T-C8 (LEFT keeps primary with NULL target, INNER drops, two-hop through, ON-clause shape per hop, undeclared and column-less targets, aggregate over a join); AC 4 scope_declaration T-D1..T-D4/T-D8, catalog T-D7/T-D8 (prod config evaluated through RuntimeConfigEval, key text only in config/test.exs, AST proof no lib code writes the key), query_scope T-D5/T-D6; AC 5 T-C9/T-C10 plus allowed_set cost (0 statements for token, tenant-wide, zero-row; 2 for scoped). AC 18 and AC 21: design section 10.1 assigns both to 2c-i-b (no route is reclassified in 2c-i-a), so their absence is correct; the router-literal tie and the exam walk rule are the 2c-i-a guards. SEC MERGE CONDITIONS: (1) T-C15 scan + :exam_route_reclassified walk test present and green; (2) handle_errors branch tested directly (500, byte-identical to Response.internal_error, state :set, already-sent untouched, other errors untouched, Postgrex.Error pinned unmapped for 2c-i-b) and T-C14 with a lowered cap (cap 3 with 4 live nodes fails closed to ScopeSetError, exactly at cap 4 succeeds, retired nodes do not use the budget, cross-chunk); (3) C-2 a2/a2x/a3 in allowed_set, node_ids and T-C12 agreement with allowed?/3 for 4 scoped principals x 9 nodes plus :all and :none principals; (4) T-D8 prod and runtime config check. REVIEWER F-5: AST parse not grep, normalize_scope! incl {:nodes,[1]}, allowed_set/2 directly. No vacuous assertions found: loops carry control assertions (non-empty positive sets, ids in statement.params, exactly one constant log line).",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "test/specs/REQ-518-2c-i-a.md"
+    ],
+    "implementation_written": false,
+    "classification": "TEST_DESIGN_PASS",
+    "changes_made": [],
+    "findings": [
+      "F-1 (LOW, no action): three ScopeDeclaration defence-in-depth branches are unexercised because the catalog is compile-time: valid_declaration?/1 shape re-validation (V9a), the managed_name? column check (V9b) and the two-manifest ambiguity clause (V10). Catalog rule 11 is the tested gate and 'every registered module validates' proves the shipped set. If a seam for injecting manifests appears, add the three cases.",
+      "F-2 (LOW, test hygiene): scope_node_paths_allowed_ids_test 'the default cap is not hit by a normal grant' calls Application.delete_env(:letflow, :scope_allowed_ids_cap) without restoring it. The key is set by no config file and every put_cap! restores it, so nothing leaks today; if a config ever sets the key it would be deleted for the rest of the VM.",
+      "F-3 (note): the scan sees only a literal :all third argument (a variable, function result or module attribute passes unseen); the fail-closed normalize_scope! guard is the backstop. Already stated in the spec for SECURITY-REVIEWER.",
+      "F-4 (note): AC 4 HTTP forms, T-C13 over HTTP, the ScopeGate memo and export reuse are 2c-i-b by design (routes stay :tenant_wide); AC 5 token-path and OIDC grants-once suites (auth_pipeline_scope_test and the REQ-497 files) are unedited and remain the carriers.",
+      "F-5 (note): permission_matrix_test T24 failing on this Windows checkout (CRLF in the CI yaml) is unrelated; not re-run here."
+    ],
+    "mutants": {
+      "measured_by_validator": [
+        {
+          "id": "V1",
+          "edit": "ScopeNodePaths.allowed_node_ids cap compares length(nodes) (retired included)",
+          "failing": "4 of 37 (node_ids cap, cross-chunk, allowed_set exactly-at-cap, live-only budget)"
+        },
+        {
+          "id": "V2",
+          "edit": "cap checked on the live nodes of one chunk instead of the accumulated set",
+          "failing": "1 of 37 (501 live roots with cap 500)"
+        },
+        {
+          "id": "V3",
+          "edit": "Compiler.binding_scope_kind({:column,_}, :latest, _) returns :open",
+          "failing": "1 of 35 (T-D6 :latest test)"
+        },
+        {
+          "id": "V4",
+          "edit": "Compiler.scope_plan reads ScopeDeclaration.for_types twice",
+          "failing": "2 of 35 (T-C9 plain delta of 3 statements, joined single tenant_modules read)"
+        },
+        {
+          "id": "V5",
+          "edit": "ApiPipeline ScopeSetError branch only for conn state :unset",
+          "failing": "1 of 9 (state :set test)"
+        },
+        {
+          "id": "V6",
+          "edit": "RouteScope.exam_route? prefix with trailing slash only",
+          "failing": "1 of 11 (bare prefix)"
+        },
+        {
+          "id": "V11",
+          "edit": "ScopeDeclaration.for_types prefix validation replaced by starts_with tenant_",
+          "failing": "1 of 51 (malformed prefix is :undeclared)"
+        }
+      ],
+      "survivors": [
+        {
+          "id": "V9a",
+          "edit": "ScopeDeclaration.valid_declaration?(_other) returns true",
+          "failing": "0 of 51",
+          "verdict": "unreachable by tests (compile-time catalog); Catalog rule 11 covers"
+        },
+        {
+          "id": "V9b",
+          "edit": "ScopeDeclaration column managed_name? check removed",
+          "failing": "0 of 51",
+          "verdict": "same"
+        },
+        {
+          "id": "V10",
+          "edit": "two manifests naming one type resolve to the first",
+          "failing": "0 of 51",
+          "verdict": "same; Catalog rejects duplicates (T-D7)"
+        }
+      ]
+    },
+    "reverted_and_verified": "No mutant touched disk: the mutated source was compiled into the VM only, and the validator wrote nothing under lib/, priv/ or test/. git status --porcelain lib/ priv/ shows the same 20 pre-existing uncommitted ELIXIR-DEV paths as before the gate (an empty status is impossible on an uncommitted tree); the 8 test files ran green unmutated (150 of 150) before the mutant runs and each mutated run was a fresh VM.",
+    "run_command_for_test_runner": "per file, one mix at a time: mix test test/letflow/entities/query_scope_test.exs; then test/letflow/entities/scope_declaration_test.exs, test/letflow/api/scope_allowed_set_test.exs, test/letflow/scope_node_paths_allowed_ids_test.exs, test/letflow/modules/catalog_scope_declarations_test.exs, test/letflow/entities/scope_all_scan_test.exs, test/letflow/api/route_scope_exam_guard_test.exs, test/letflow/plugs/api_pipeline_scope_set_error_test.exs, test/letflow/routers/entities_query_restricted_walker_test.exs"
+  }
+}

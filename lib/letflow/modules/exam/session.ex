@@ -204,11 +204,13 @@ defmodule Letflow.Modules.Exam.Session do
   `entity_type: "exam"` and `filters: [status eq "active", deleted eq false]`
   (GH #2760: a soft-deleted exam is never offered) are hardcoded
   in this function's own body, never derived from `opts` or any caller
-  input -- `opts` carries pagination only (`:cursor`, `:page_size`, default
+  input -- `opts` carries pagination (`:cursor`, `:page_size`, default
   #{@default_available_exams_page_size} when `:page_size` is omitted or
-  `nil`). Reuses the same three-step read pipeline
+  `nil`) and the REQUIRED `:scope` (REQ-518: the caller's allowed node set, a
+  `Types.scope_set()`, read with `Keyword.fetch!/2`, so a missing key raises; it is passed to
+  `Compiler.compile/3`). Reuses the same three-step read pipeline
   `Letflow.Routers.Entities`' generic `POST /entities/query` route calls
-  (`Compiler.compile/2`, `Allowlist.load/2`, `Cursor.paginate/5`) -- library
+  (`Compiler.compile/3`, `Allowlist.load/2`, `Cursor.paginate/5`) -- library
   modules, not HTTP-route-specific -- without that route's `FieldGrants`
   redaction step: `entity_field_restrictions` carries no row for
   entity_type "exam" today (design doc §6 OQ-1), so there is nothing for
@@ -218,7 +220,7 @@ defmodule Letflow.Modules.Exam.Session do
   @spec list_available_exams(prefix :: String.t(), opts :: keyword()) ::
           {:ok, %{items: [exam_row()], next_cursor: String.t() | nil}}
           | {:error, term()}
-  def list_available_exams(prefix, opts \\ []) when is_binary(prefix) and is_list(opts) do
+  def list_available_exams(prefix, opts) when is_binary(prefix) and is_list(opts) do
     request = %{
       entity_type: "exam",
       # GH #2760: a soft-deleted exam is not offered (start refuses it).
@@ -235,7 +237,9 @@ defmodule Letflow.Modules.Exam.Session do
       page_size: Keyword.get(opts, :page_size) || @default_available_exams_page_size
     }
 
-    with {:ok, compiled} <- Compiler.compile(request, prefix),
+    scope = Keyword.fetch!(opts, :scope)
+
+    with {:ok, compiled} <- Compiler.compile(request, prefix, scope),
          {:ok, allowlist} <- Allowlist.load(request.entity_type, prefix),
          {:ok, page} <- Cursor.paginate(request, compiled, allowlist, paginate_opts, prefix) do
       {:ok, %{items: page.items, next_cursor: page.next_cursor}}
@@ -1491,7 +1495,9 @@ defmodule Letflow.Modules.Exam.Session do
   defp eq(field, value), do: %{field: field, op: :eq, value: value}
 
   defp query_all(entity_type, filters, prefix) do
-    with {:ok, query} <- Compiler.compile(%{entity_type: entity_type, filters: filters}, prefix) do
+    # scope-all: SEC-518-R1
+    with {:ok, query} <-
+           Compiler.compile(%{entity_type: entity_type, filters: filters}, prefix, :all) do
       {:ok, Repo.all(query, prefix: prefix)}
     end
   end

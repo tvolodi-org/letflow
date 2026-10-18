@@ -282,7 +282,8 @@ defmodule Letflow.Modules.Exam.CertificateTest do
                    entity_type: "certificate",
                    filters: [%{field: "session_id", op: :eq, value: session_id}]
                  },
-                 schema
+                 schema,
+                 :all
                )
                |> then(fn {:ok, query} -> {:ok, Repo.all(query, prefix: schema)} end)
 

@@ -41,13 +41,15 @@ defmodule Letflow.Plugs.ApiPipeline do
   `Letflow.Plugs.Admission.release_global_ref/1` for the mechanics.
 
   `use Plug.ErrorHandler` + `handle_errors/2` below is Mechanism B of
-  `Letflow.Plugs.Admission`'s raise-safety net — pure cleanup plumbing (drains
-  and releases whatever admission refs this process accumulated before a raise
-  that occurred in a plug running before `:dispatch`), never a response
-  helper. It introduces no new response body/status/contract: `handle_errors/2`
-  returns the conn unchanged and `Plug.ErrorHandler`'s own generated `call/2`
-  unconditionally re-raises afterward, so Bandit's existing crash-response
-  path runs exactly as it does today.
+  `Letflow.Plugs.Admission`'s raise-safety net: it drains and releases whatever
+  admission refs this process accumulated before a raise that occurred in a
+  plug running before `:dispatch`. It adds no response body of its own for
+  ordinary errors: it returns the conn unchanged and `Plug.ErrorHandler`'s
+  generated `call/2` unconditionally re-raises afterward, so Bandit's existing
+  crash-response path runs as it does today. The ONE exception (REQ-518 SEC C-1)
+  is `Letflow.Api.Scope.ScopeSetError`: for it (and only while no response has
+  been sent) `handle_errors/2` sends the constant, detail-free 500 of
+  `Letflow.Api.Response.internal_error/1`. Do not remove that branch as dead code.
 
   ## Deferred plugs (not yet declared — added by owning stage)
 
@@ -266,13 +268,28 @@ defmodule Letflow.Plugs.ApiPipeline do
   # admission-ref assign. Process-dictionary state survives that raise
   # regardless of which conn binding is in scope at crash time.
   #
-  # Pure cleanup plumbing: returns conn unchanged, introduces no new response
-  # body/status. Plug.ErrorHandler's own generated call/2 unconditionally
-  # re-raises after this returns, so Bandit's existing crash-response path is
-  # unaffected.
+  # Cleanup plumbing: returns conn unchanged for every error EXCEPT
+  # Letflow.Api.Scope.ScopeSetError (REQ-518 SEC C-1), which gets the constant
+  # detail-free 500 (respond_scope_set_error/2 below). Plug.ErrorHandler's own
+  # generated call/2 unconditionally re-raises after this returns, so Bandit's
+  # existing crash-response path is unaffected.
   @impl Plug.ErrorHandler
-  def handle_errors(conn, %{kind: _kind, reason: _reason, stack: _stack}) do
+  def handle_errors(conn, %{kind: _kind, reason: reason, stack: _stack}) do
     Letflow.Plugs.Admission.release_pending_refs()
-    conn
+    respond_scope_set_error(conn, reason)
   end
+
+  # REQ-518 SEC C-1: a failed allowed-node-set computation answers the SAME detail-free 500
+  # body as `Letflow.Api.Scope.Enforce`'s fail-closed path, not Bandit's crash response; the
+  # exception still propagates (Plug.ErrorHandler re-raises). Only for this one exception, and
+  # only while no response has been sent.
+  defp respond_scope_set_error(
+         %Plug.Conn{state: state} = conn,
+         %Letflow.Api.Scope.ScopeSetError{}
+       )
+       when state in [:unset, :set] do
+    Letflow.Api.Response.internal_error(conn)
+  end
+
+  defp respond_scope_set_error(conn, _reason), do: conn
 end

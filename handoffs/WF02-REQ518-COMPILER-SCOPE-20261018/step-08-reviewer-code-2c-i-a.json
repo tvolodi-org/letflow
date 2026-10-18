@@ -1,0 +1,51 @@
+{
+  "handoff_id": "d2535518-0518-4c02-9e11-000000000008",
+  "run_id": "WF02-REQ518-COMPILER-SCOPE-20261018",
+  "workflow_id": "WF-02",
+  "step": "08",
+  "from_agent": "ORCH",
+  "to_agent": "REVIEWER",
+  "file": "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-08-reviewer-code-2c-i-a.json",
+  "created_at": "2026-10-18T03:00:00Z",
+  "started_at": "2026-10-18T03:00:00Z",
+  "completed_at": "2026-10-18T03:12:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [
+      "REQ-518"
+    ],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "REVIEWER CODE gate for REQ-518 slice 2c-i-a (GH #2535), uncommitted working tree of feature/WF02-REQ518-COMPILER-SCOPE-20261018. Read-only except the SEC F-3 comment fix in api_pipeline.ex; no mix run."
+    },
+    "related_handoff_ids": [
+      "d2535518-0518-4c02-9e11-000000000005",
+      "d2535518-0518-4c02-9e11-000000000007"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/req518-compiler-scope-filter.md",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-05-elixir-dev-2c-i-a.json",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-07-security-reviewer-code-2c-i-a.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ518-COMPILER-SCOPE-20261018"
+  },
+  "task": {
+    "description": "Idiom, supervision, scope-creep, forced-test-edit, fixture-isolation, ManifestHash, typespec and decision-record gate for REQ-518 2c-i-a. Only edit allowed: SEC F-3 stale comment in lib/letflow/plugs/api_pipeline.ex."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "summary": "PASS_WITH_FINDINGS. No blocker, no required change. Static review only (nothing compiled or run; mix memory constrained). 1 IDIOM: compile/3, compile_aggregate/3, run_aggregate/3 take a required third scope arg with no default, normalised by normalize_scope!/1 (function-head clauses, ArgumentError with a constant message) then resolved once by scope_plan/5 into per-binding kinds (:open, :closed, {:column, c}); predicate placement uses small pattern-matched helpers, not a hand-rolled case machine. Scope.allowed_set/2 and allowed?/3 share tenant_effective/2 (tagged {:decided,_} | {:combined,_}), so the decision order cannot diverge. ScopeSetError is a defexception with a constant message plus a Plug.Exception impl; ApiPipeline.handle_errors/2 pattern-matches only that struct and only while conn.state is :unset or :set. @specs are accurate: scope_set :: :all | {:nodes, [String.t()]} | :none matches what the compiler accepts ({:nodes, []} normalised to :none, documented); allowed_set returns {:ok, scope_set} and raises ScopeSetError (documented); allowed_node_ids error set matches descendants_of with :too_many_nodes mapped to :too_many_ids. Cosmetic: allowed_set permission type 'Authorization.permission() | atom()' is redundant (atom() subsumes). No GenServer or gen_statem added. 2 SUPERVISION: nothing added or collapsed; InstanceSupervisor untouched, no spawn, no singleton (decision 0045/REQ-045 consistent). 3 SCOPE vs design r2a 'Slice 2c-i-a': every file in the diff maps to the design PR assignment in 3.1 (types, compiler, scope_declaration, module, catalog rule 11, manifest_hash, scope.ex allowed_set, scope_node_paths.allowed_node_ids, script_reads, mix task, three exam files plus exam router :scope opt, three entities.ex literal-:all sites, fixture, forced test edits) plus the single route_scope walk rule :exam_route_reclassified that the design (3.1, T-C15) explicitly ships in 2c-i-a, and api_pipeline.ex, the ELIXIR-DEV deviation (needed for SEC C-1 fail-closed 500; SEC reviewed and accepted it). allowed_set/2, ScopeSetError and the handle_errors branch have no production caller until 2c-i-b; that is design-assigned (3.3), not speculative framework. No behaviours, macros or generic plumbing added. 4 FORCED TEST EDITS (diff -U0 read in full): about 60 one-token edits adding the :all third argument (query_test, query_joins_test, query_self_join_test, query_aggregate_test, query_cursor_field_grants_test, service_task_entity_writes_sentinel_test, exam certificate_test, pack_install_test) are forced by removal of the 2-arity forms and weaken nothing (:all is exactly the pre-scoping query; every assertion is otherwise unchanged; multi-line reflows are formatter-only). session_test x2 add scope: :all, forced by removal of the opts default. catalog_test adds FixtureScoped to the expected module list, forced by the config/test.exs registration. scope_test T-A8 changes the tree-accessor pin from [:resolve] to sorted [:allowed_node_ids, :resolve], forced because allowed_set legitimately calls the new accessor, and it still pins the exact accessor set (equality, not subset). No assertion removed or loosened; grep finds no leftover 2-arity Compiler call and no arity-1 list_available_exams call in lib/ or test/. 5 FIXTURE ISOLATION: FixtureScoped lives under test/support (elixirc_paths adds it only for :test), is registered only in config/test.exs :modules, and the unmanaged-type allowlist :scope_declaration_unmanaged_modules is set only in config/test.exs; a tree grep finds no other reference (config.exs, dev, prod, runtime, mix.exs do not mention either). The catalog is built from config :modules, so a dev/prod boot cannot pick it up. priv/module_fixtures/scoped_foundation.json ships in the release but nothing in lib/ references it (inert; same arrangement as the other module fixtures). 6 MANIFESTHASH: scope_declarations enters the hashed surface only when the key is present, so every existing manifest hash is byte-identical; the canonicalizer already handles tuples and atoms. A module that later adds scope_declarations changes its hash (intended). 7 DECISION RECORDS: consistent with 0051 (D1/D6/F6: scoped data-path filter, script principal tenant-wide, undeclared type returns no data, declarations from compiled manifests and never tenant definitions) and 0045 (no per-instance process). No decision-record disagreement. 8 ANTI-PATTERNS: one hit, see F-2 (duplicated fragment literal); the grep-shaped-AC entry is relevant to the T-C15 scan test (F-5). SEC F-3 FIXED by this reviewer: lib/letflow/plugs/api_pipeline.ex moduledoc (Mechanism B paragraph) and the comment above handle_errors/2 now state that the conn is returned unchanged for every error EXCEPT Letflow.Api.Scope.ScopeSetError, which gets the constant detail-free 500, and say not to remove the branch as dead code. Comment/doc only, no code change; grep confirms no test pins the old wording. FINDINGS (all non-blocking). F-1 type-safety (FINDING: ORCH to file under docs/issues/ tagged type-safety per WORK_BOARD section 7; reviewer does not file): scope-declaration validity is checked at runtime in two independent copies (Catalog.valid_scope_declaration?/1 with managed_name? and ScopeDeclaration.valid_declaration?/1), and the scope arg type admits {:nodes, []} and relies on an ArgumentError for non-binary ids. Make ScopeDeclaration the single validity owner (used by Catalog) and tighten Types.scope_set to {:nodes, [String.t(), ...]} so the empty case is unrepresentable (Scope.allowed_set already returns :none for empty). F-2 anti-pattern (ELIXIR-DEV, small): the fragment literal \"? = ANY(?)\" is duplicated in the two kind_dynamic/3 clauses of compiler.ex (positional and named). docs/anti-patterns.md 'Duplicating an Ecto fragment/1 SQL literal' says to hoist it to a module attribute (@scope_any_sql) and use fragment(@scope_any_sql, ...). The literal is trivial and adjacent so I do not fail on it, but the entry has precedent as a rework ground; fix before merge if ELIXIR-DEV touches the file anyway. F-3 stale doc (ELIXIR-DEV): lib/letflow/modules/exam/session.ex list_available_exams @doc still says opts 'carries pagination only' in the paragraph that now adds the required :scope, and cites Compiler.compile/2 (now /3). F-4 robustness (advisory): Catalog.check_scope_declaration_duplicates/3 calls Map.has_key? on every OTHER known manifest's :scope_declarations; a non-map value there would raise BadMapError instead of surfacing that module's own error. Guard with is_map. Unlikely, since manifests are compiled. F-5 notes for TEST-DESIGNER: (a) the T-C15 scope-all scan is grep-shaped and moduledocs/comments in compiler.ex, scope.ex and session.ex mention 'compile/3' and 'scope-all:'; parse call sites (AST) or exclude comments/docs, per the anti-pattern 'grep-shaped acceptance criterion can be tripped by the module's own moduledoc'; (b) SEC conditions carry over unchanged (T-C13/T-C14, C-2 retired-intermediate, T-D8, the :exam_route_reclassified walk test plus a seeded bare-prefix /modules/exam route per SEC F-2); (c) test the ArgumentError path of normalize_scope! including a mixed {:nodes, [1]}; (d) allowed_set/2 has no production caller until 2c-i-b, so test it directly.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-08-reviewer-code-2c-i-a.json",
+      "lib/letflow/plugs/api_pipeline.ex"
+    ],
+    "diagnosis_confirmed": true,
+    "implementation_written": false,
+    "classification": "REVIEW_PASS_WITH_FINDINGS"
+  }
+}

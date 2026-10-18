@@ -1,0 +1,236 @@
+{
+  "handoff_id": "d2535518-0518-4c02-9e11-000000000009",
+  "run_id": "WF02-REQ518-COMPILER-SCOPE-20261018",
+  "workflow_id": "WF-02",
+  "step": "09",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGNER",
+  "file": "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-09-test-designer-2c-i-a.json",
+  "created_at": "2026-10-18T02:59:27Z",
+  "started_at": "2026-10-18T02:59:27Z",
+  "completed_at": "2026-10-18T04:55:02Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [
+      "REQ-518"
+    ],
+    "requirement_text": {},
+    "source_text": {
+      "slice": "REQ-518 slice 2c-i-a (GH #2535), ACs 1 to 5 (and the 2c-i-a share of 18, 21, 22): compiler scope argument, ScopeDeclaration, Scope.allowed_set/2, ScopeNodePaths.allowed_node_ids/2, Catalog rule 11, ManifestHash, the nine call sites (scan), the exam_route_reclassified walk rule, the ScopeSetError pipeline branch. Tests only; nothing under lib/ or priv/ was changed."
+    },
+    "related_handoff_ids": [
+      "d2535518-0518-4c02-9e11-000000000005",
+      "d2535518-0518-4c02-9e11-000000000007",
+      "d2535518-0518-4c02-9e11-000000000008"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/req518-compiler-scope-filter.md",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-05-elixir-dev-2c-i-a.json",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-07-security-reviewer-code-2c-i-a.json",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-08-reviewer-code-2c-i-a.json",
+      "test/specs/REQ-517-2b.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ518-COMPILER-SCOPE-20261018"
+  },
+  "task": {
+    "description": "Write the test spec and test code for REQ-518 slice 2c-i-a (design r2a section 10.1: T-C1..T-C10, T-C12..T-C15, T-D1..T-D8, fixture 3.8, mutants assigned to 2c-i-a) and the SEC/REVIEWER merge conditions of steps 07 and 08. Tests per file only; no full suite; nothing committed."
+  },
+  "result": {
+    "status": "PASS_WITH_GAPS",
+    "summary": "TESTS WRITTEN AND RUN PER FILE. 150 new test cases in 8 new files (plus 1 support module, 1 JSON fixture, 1 spec) and one forced 3-token edit of an existing test. Per-file results (mixlock taken and released around each run, one mix at a time, LOG_LEVEL=warning, no full suite, no multi-partition run, no mix letflow.check.test): query_scope 35/35, scope_allowed_set 21/21, scope_node_paths_allowed_ids 16/16, catalog_scope_declarations 25/25, scope_all_scan 17/17, api_pipeline_scope_set_error 9/9, scope_declaration 15/16, route_scope_exam_guard 10/11. THE TWO RED TESTS ARE IMPLEMENTATION DEVIATIONS, not test defects. BUG-1 (LOW): ScopeDeclaration.for_type/2 with a malformed prefix (empty, not a schema, tenant_xyz, a prefix with a double quote) raises (Postgrex.Error or ArgumentError) instead of returning :undeclared as design 3.2 and the moduledoc say; fail closed by exception, no data; fix: validate the prefix with TenantProvisioning.tenant_id_for_schema_name/1 in for_types/2. BUG-2 (MINOR, SEC step-07 F-2): RouteScope.exam_route?/1 matches the prefix /modules/exam/ only, so a route at exactly /modules/exam escapes the R-1 guard; fix: path == /modules/exam or starts_with /modules/exam/. Both fixes are one-liners in lib/ (ELIXIR-DEV); the tests stay red until then. FORCED-1: test/letflow/routers/entities_query_restricted_walker_test.exs T-26 traced Compiler.compile/2 and run_aggregate/2 by arity and failed 2 tests after the arity change (ELIXIR-DEV counted only source-string hits); fixed by changing the three arities to 3, then 55/55. Existing files run one by one and green: query_test, query_joins_test, query_aggregate_test, query_cursor_field_grants_test, query_self_join_test, catalog_test, scope_test, service_task_entity_writes_sentinel_test, exam/certificate_test, exam/pack_install_test, exam/session_test, route_scope_walk_test, route_scope_test, authorization_enforcement_test, platform_scope_inventory_test, handler_writes_callers_test, install_activation_test. permission_matrix_test T24 fails only on this Windows checkout (CRLF in the CI yaml), unrelated. mix format --check-formatted over all new files and the edited test: exit 0. COVERAGE: AC 1 (T-C1 committed pre-change SQL of 8 shapes, arity, T-C3 guard incl {:nodes,[1]}, AST scan T-C2 with the five-site ledger and the router-literal/route-class tie); AC 2 (T-C4 rows/count/sum/group_by/cursor/page-2-under-narrower-set, T-C5 telemetry: one extra WHERE, one bound array, position); AC 3 (T-C7 LEFT keeps primary with NULL target, INNER drops, through NULLs far hop, ON-clause SQL shape of every hop, T-C8 undeclared target); AC 4 (T-D1..T-D8 incl prod-config evaluation of the allowlist key); AC 5 (T-C9/T-C10 statement counts); C-1/C-2/T-C12/T-C13 Scope half/T-C14; T-C15 scan + walk. AC 18 and 21 and the HTTP half of T-C13 are 2c-i-b by design (no route is reclassified here); stated in the spec. Not derivable here: ScopeGate memo, export reuse over HTTP, token/OIDC per-request shapes (existing suites), a :all value that travels through a variable (AST scan blind spot, residual for SEC). CI FIX (PR #2806, query_scope_test T-C1 latest_filter): the committed pre-change SQL listed the Latest schema columns captured from a stale _build; on main the Latest schema gained external_system/external_id, so the :latest shape differed in its SELECT column list only (not an implementation bug, not scope related; reproduced locally by running the test alone after a fresh compile). The test now replaces the SELECT column list by a marker on both sides for entity_record_latest queries (everything after FROM, params included, still compared exactly) and prints expected vs actual on failure. query_scope_test 35/35.",
+    "tests_run": true,
+    "tests_run_scope": "per file, one mix at a time, mixlock taken by this session and released after each run; no full-suite and no mix letflow.check.test run (supervisor rule)",
+    "mutex": "directory C:\\Users\\tvolo\\AppData\\Local\\Temp\\claude\\mixlock was created and removed by this session around every mix invocation; a foreign lock was never removed (runs waited for it)",
+    "files_created": [
+      "test/support/scope_set_fixture.ex",
+      "test/fixtures/scope/compiler_all_pre_change_sql.json",
+      "test/letflow/entities/query_scope_test.exs",
+      "test/letflow/entities/scope_declaration_test.exs",
+      "test/letflow/api/scope_allowed_set_test.exs",
+      "test/letflow/scope_node_paths_allowed_ids_test.exs",
+      "test/letflow/modules/catalog_scope_declarations_test.exs",
+      "test/letflow/entities/scope_all_scan_test.exs",
+      "test/letflow/api/route_scope_exam_guard_test.exs",
+      "test/letflow/plugs/api_pipeline_scope_set_error_test.exs",
+      "test/specs/REQ-518-2c-i-a.md"
+    ],
+    "files_changed": [
+      "test/letflow/routers/entities_query_restricted_walker_test.exs"
+    ],
+    "run_command_for_test_runner": "for each of: test/letflow/entities/query_scope_test.exs test/letflow/entities/scope_declaration_test.exs test/letflow/api/scope_allowed_set_test.exs test/letflow/scope_node_paths_allowed_ids_test.exs test/letflow/modules/catalog_scope_declarations_test.exs test/letflow/entities/scope_all_scan_test.exs test/letflow/api/route_scope_exam_guard_test.exs test/letflow/plugs/api_pipeline_scope_set_error_test.exs test/letflow/routers/entities_query_restricted_walker_test.exs: MIX_ENV=test mix test <file> (each 20 to 60 s; query_scope_test about 55 s); then hosted CI is the suite. Expect exactly 2 failures until BUG-1 and BUG-2 are fixed.",
+    "implementation_findings": [
+      "BUG-1 (LOW): ScopeDeclaration.for_type/2 raises for a malformed prefix instead of :undeclared (design 3.2). Test: scope_declaration_test.exs 'a malformed prefix is :undeclared'.",
+      "BUG-2 (MINOR, SEC step-07 F-2): RouteScope.exam_route?/1 does not cover the bare /modules/exam path. Test: route_scope_exam_guard_test.exs 'a route exactly at the bare prefix'.",
+      "FORCED-1: entities_query_restricted_walker_test.exs traced Compiler.compile/2 and run_aggregate/2 by arity; fixed in this step (3 tokens).",
+      "OBS-1: the id list parameter is typed varchar[] ({:array, :string}), not text[]; one bound array either way.",
+      "OBS-2: SEC step-07 F-1 stands: a Postgrex.Error from the node reads is not mapped by handle_errors; api_pipeline_scope_set_error_test pins today's behaviour (conn untouched) and 2c-i-b must flip it together with the gate fix.",
+      "OBS-3: the scan blind spot (a :all that reaches the compiler through a variable, a function result or a module attribute) is a residual for SECURITY-REVIEWER; the fail-closed argument guard still refuses any value that is not :all, :none or {:nodes, [binary]}."
+    ],
+    "mutants": {
+      "measured": [
+        {
+          "id": "MU1",
+          "edit": "compiler.ex apply_primary_scope: scope_dynamic -> query (predicate not applied)",
+          "failed": "23 of 35 (query_scope)"
+        },
+        {
+          "id": "MU2",
+          "edit": "compiler.ex aggregate_base_plain: scope not applied",
+          "failed": "9 of 35 (query_scope)"
+        },
+        {
+          "id": "MU3",
+          "edit": "scope_node_paths.ex allowed_node_ids: only grant roots kept",
+          "failed": "24 of 72 (node_ids, allowed_set, query_scope)"
+        },
+        {
+          "id": "MU4a",
+          "edit": "scope_node_paths.ex: retired nodes kept in the set",
+          "failed": "24 of 72"
+        },
+        {
+          "id": "MU4b",
+          "edit": "scope_node_paths.ex: live descendants of a retired intermediate node dropped",
+          "failed": "21 of 72"
+        },
+        {
+          "id": "MU5+MU6",
+          "edit": "compiler.ex add_hop_join: hop predicate dropped from every ON clause",
+          "failed": "7 of 35 (query_scope)"
+        },
+        {
+          "id": "MU7",
+          "edit": "compiler.ex binding_scope_kind: :undeclared -> :open",
+          "failed": "2 of 35"
+        },
+        {
+          "id": "MU10",
+          "edit": "compiler.ex primary_scope_dynamic(:none) -> nil",
+          "failed": "7 of 35"
+        },
+        {
+          "id": "MU34",
+          "edit": "compiler.ex scope_plan(:all) also reads ScopeDeclaration.for_types",
+          "failed": "2 of 35"
+        },
+        {
+          "id": "MU37a",
+          "edit": "scope_declaration.ex: unmanaged allowlist check replaced by true",
+          "failed": "4 of 16 (3 net of BUG-1)"
+        },
+        {
+          "id": "MU37b",
+          "edit": "catalog.ex rule 11: unmanaged-type check dropped",
+          "failed": "2 of 25"
+        },
+        {
+          "id": "MU40a",
+          "edit": "scope.ex expand_set: {:error, _} -> {:ok, :none}",
+          "failed": "5 of 21"
+        },
+        {
+          "id": "MU40b",
+          "edit": "scope.ex expand_set: {:error, _} -> {:ok, :all}",
+          "failed": "5 of 21"
+        },
+        {
+          "id": "MU41",
+          "edit": "scope_node_paths.ex: cap truncates instead of {:error, :too_many_ids}",
+          "failed": "3 of 37"
+        },
+        {
+          "id": "X13",
+          "edit": "scope_node_paths.ex: cap > changed to >=",
+          "failed": "3 of 37"
+        },
+        {
+          "id": "X17",
+          "edit": "manifest_hash.ex: scope_declarations always included",
+          "failed": "1 of 25"
+        },
+        {
+          "id": "X18",
+          "edit": "route_scope.ex exam_route? -> false",
+          "failed": "8 of 11"
+        },
+        {
+          "id": "X19",
+          "edit": "api_pipeline.ex ScopeSetError guard 'when state in []'",
+          "failed": "3 of 9"
+        },
+        {
+          "id": "X20",
+          "edit": "scope.ex tenant_effective: token principal denied",
+          "failed": "2 of 21"
+        },
+        {
+          "id": "X21",
+          "edit": "scope.ex expand_set: {:ok, []} -> :all",
+          "failed": "1 of 21"
+        },
+        {
+          "id": "X22/30/31",
+          "edit": "scope_node_paths.ex like_prefix_pattern: _ / % / backslash not escaped (three mutants)",
+          "failed": "1 of 16 each"
+        },
+        {
+          "id": "X23",
+          "edit": "scope_declaration.ex: owner stamp of another module accepted",
+          "failed": "2 of 16 (1 net of BUG-1)"
+        },
+        {
+          "id": "X24",
+          "edit": "scope_declaration.ex: module installed check dropped",
+          "failed": "2 of 16 (1 net of BUG-1)"
+        },
+        {
+          "id": "X25",
+          "edit": "compiler.ex normalize_scope!(_other) -> :all",
+          "failed": "2 of 35"
+        },
+        {
+          "id": "X26",
+          "edit": "compiler.ex: non-binary ids accepted",
+          "failed": "2 of 35"
+        },
+        {
+          "id": "X27",
+          "edit": "compiler.ex: declared column assumed present",
+          "failed": "3 of 35"
+        },
+        {
+          "id": "X28",
+          "edit": "compiler.ex binding_scope_kind catch-all -> :open",
+          "failed": "3 of 35"
+        },
+        {
+          "id": "X29",
+          "edit": "scope.ex: PLATFORM_ADMIN :all ignores platform_tenant?",
+          "failed": "1 of 21"
+        }
+      ],
+      "method": "the mutated source is compiled into the test VM (Code.compile_string of the file with one textual replacement) via 'mix do run --no-start -r <apply script> + test <files>'; nothing on disk was changed, git status of lib/ and priv/ identical before and after; a first racing method (loader inside the test run) was discarded after it let an async:true file pass by accident",
+      "not_measured": "MU8 (JSON fallback), MU9 (declaration read from definition_json), MU11 (set recomputed per row; no such path exists to mutate): predicted killers T-D6, T-D3 plus the AST alias test, T-C10; MU12 and later belong to 2c-i-b, 2c-ii, 2d. All 28 measured mutants were killed."
+    },
+    "local_issue_id": null,
+    "artifacts_out": [
+      "test/support/scope_set_fixture.ex",
+      "test/fixtures/scope/compiler_all_pre_change_sql.json",
+      "test/letflow/entities/query_scope_test.exs",
+      "test/letflow/entities/scope_declaration_test.exs",
+      "test/letflow/api/scope_allowed_set_test.exs",
+      "test/letflow/scope_node_paths_allowed_ids_test.exs",
+      "test/letflow/modules/catalog_scope_declarations_test.exs",
+      "test/letflow/entities/scope_all_scan_test.exs",
+      "test/letflow/api/route_scope_exam_guard_test.exs",
+      "test/letflow/plugs/api_pipeline_scope_set_error_test.exs",
+      "test/specs/REQ-518-2c-i-a.md",
+      "test/letflow/routers/entities_query_restricted_walker_test.exs"
+    ],
+    "implementation_written": false
+  }
+}

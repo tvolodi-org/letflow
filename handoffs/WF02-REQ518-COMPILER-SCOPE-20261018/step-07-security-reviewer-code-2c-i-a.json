@@ -1,0 +1,129 @@
+{
+  "handoff_id": "d2535518-0518-4c02-9e11-000000000007",
+  "run_id": "WF02-REQ518-COMPILER-SCOPE-20261018",
+  "workflow_id": "WF-02",
+  "step": "07",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-07-security-reviewer-code-2c-i-a.json",
+  "created_at": "2026-10-18T02:40:00Z",
+  "started_at": "2026-10-18T02:41:00Z",
+  "completed_at": "2026-10-18T02:55:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-518"],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "SECURITY-REVIEWER CODE gate for REQ-518 slice 2c-i-a (GH #2535), uncommitted working tree on feature/WF02-REQ518-COMPILER-SCOPE-20261018. Mandatory triggers: route_scope.ex, config/test.exs :modules, api/scope.ex, scope_node_paths.ex, entities/query/compiler.ex, plugs/api_pipeline.ex (extra file from the ELIXIR-DEV deviation). Read-only static review; no mix, no tests run by this reviewer."
+    },
+    "related_handoff_ids": [
+      "d2535518-0518-4c02-9e11-000000000004",
+      "d2535518-0518-4c02-9e11-000000000005"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/req518-compiler-scope-filter.md",
+      "lib/letflow/entities/query/compiler.ex",
+      "lib/letflow/entities/query/types.ex",
+      "lib/letflow/entities/scope_declaration.ex",
+      "lib/letflow/api/scope.ex",
+      "lib/letflow/api/route_scope.ex",
+      "lib/letflow/plugs/api_pipeline.ex",
+      "lib/letflow/scope_node_paths.ex",
+      "lib/letflow/modules/catalog.ex",
+      "lib/letflow/modules/manifest_hash.ex",
+      "lib/letflow/modules/module.ex",
+      "lib/letflow/entities/script_reads.ex",
+      "lib/letflow/routers/entities.ex",
+      "lib/letflow/modules/exam/anti_cheat.ex",
+      "lib/letflow/modules/exam/session.ex",
+      "lib/letflow/modules/exam/snapshot.ex",
+      "lib/letflow/modules/exam/router.ex",
+      "lib/mix/tasks/letflow.seed.exam_fixtures.ex",
+      "config/test.exs",
+      "test/support/modules/fixture_scoped/fixture_scoped.ex",
+      "priv/module_fixtures/scoped_foundation.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ518-COMPILER-SCOPE-20261018"
+  },
+  "task": {
+    "description": "Security code gate for REQ-518 2c-i-a against INV-1..INV-10, design r2a, design-gate handoff step-04 (C-1, C-2, C-7, R-1, R-3, advisories) and REQ-518 ACs 1-5, 18, 21. No edits to lib/ or test/."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "CODE GATE (2c-i-a): PASS_WITH_FINDINGS. No BLOCKER and no MAJOR. Three MINOR findings and four test-phase conditions (the latter are preconditions of the 2c-i-a PR merge, not code defects). Static review only: nothing compiled or run by this reviewer; runtime claims rest on the ELIXIR-DEV report (compile, format, boundaries clean; scratch tests deleted) and the 2c-i-a test suite, which is not yet written. SCOPE: in scope (tenant-data path compiler, mandatory triggers route_scope.ex, config/test.exs :modules, api/scope.ex, scope_node_paths.ex, entities/query/compiler.ex, api_pipeline.ex). Verified: (1) PREDICATE: compiler.ex adds the scope as its own outermost where (plain path: positional with literal(^column) quoted identifier; joined path: field(as(:primary), ^column)) AND-ed after the user filter, and for every joined hop the TARGET type predicate is AND-ed into that hop's ON clause (add_hop_join), so LEFT keeps the primary row with a NULL target and INNER drops it; a later hop whose from-side is NULL also goes NULL. The id list is ONE bound type(^ids, {:array, :string}) parameter; the column name comes only from a format-validated module declaration and is additionally checked physically present (relation_column_exists?), otherwise constant false. (2) :all adds nothing in plain, aggregate and joined paths (apply_primary_scope(:all) and hop predicate nil leave the query as built before). :none and {:nodes, []} both normalise to :none (dynamic(false), primary and hops). Invalid scope (non-binary id, wrong shape) raises ArgumentError with a constant message and no values, before any DB read. :latest source and undeclared types are constant false, no JSON fallback. (3) allowed_set/2 shares tenant_effective/2 with allowed?/3 (cannot diverge); unknown permission, platform-scope permission, no role, no grants and token paths agree with allowed?/3. ScopeNodePaths errors (:invalid_node_id, :invalid_schema_name, :too_many_ids) raise ScopeSetError after one constant log line carrying only the closed reason atom (verified all descendants_of error atoms are atoms from a closed set); never :all, never a partial set, never a silent :none. Cap 50,000 default from app env, no truncation, checked after each 500-root chunk. Retired nodes are filtered out in Elixir while live descendants of a retired intermediate stay, matching allowed?/3 which tests only the resource node's own retired_at. (4) ApiPipeline branch: matches only %ScopeSetError{} with conn state unset or set; sends Response.internal_error(conn), the same constant detail-free body as the Enforce fail-closed path; all other exceptions return conn unchanged as before; Plug.ErrorHandler skips handle_errors when a response was already sent and re-raises afterwards; the exception message is the constant scope_set_failed; the single log line has no ids, tenant or values. (5) NINE CALL SITES: grep of every Compiler.compile, compile_aggregate and run_aggregate call in lib/ finds exactly: routers/entities.ex x3 (scope-all: route is still :tenant_wide until 2c-i-b), script_reads.ex (scope-all: script principal is tenant-wide, 0051 D1/F6), mix task seed.exam_fixtures (scope-all: mix task, no HTTP user), exam session.ex query_all, snapshot.ex query_all, anti_cheat.ex query_events (each literal :all with # scope-all: SEC-518-R1), and exam list_available_exams (required :scope opt via Keyword.fetch!, router passes literal :all with the walk-guard comment). All other textual hits are comments. No site missed; no two-argument form remains. (6) :exam_route_reclassified: sound for every route whose path starts with /modules/exam/ (the snapshot path format has the leading slash) and whose class is not :tenant_wide, covering routes added later; see F-2 for the bare-prefix gap. No snapshot file, route class, authorization.ex, authorized_router.ex, permission_matrix or permission atom changed (git status shows none), so no CORE MATRIX CHANGE can print. (7) CONFIG: :scope_declaration_unmanaged_modules appears only in config/test.exs; :scope_allowed_ids_cap in no config file (default only); FixtureScoped only in the test :modules list and its source lives under test/support; config/config.exs, prod.exs, runtime.exs and mix.exs do not mention either. (8) MANIFEST HASH: scope_declarations is added to the hashed surface only when the key is present; the canonicalizer already converts tuples and atoms, so every existing manifest hash is unchanged and only manifests that declare scopes change. (9) CATALOG RULE 11: runs after rule 10; map shape, managed-name format, value shape, same-manifest manages_entity_types membership (unless allowlisted module id) and cross-manifest duplicate all checked; ScopeDeclaration re-validates shape, requires the module installed, the owner stamp to equal the declaring module (or the unmanaged allowlist), and treats a type named by two modules as undeclared. Declarations come from compiled manifests only, never from a tenant definition. INV-4 grep pair over the diff: no System.get_env, no hardcoded secret, one Logger call. INV-7: no Repo.query or raw SQL in the diff; the only fragment is ? = ANY(?) with a literal-quoted identifier and a bound array.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-07-security-reviewer-code-2c-i-a.json"
+    ],
+    "invariants_assessed": {
+      "INV-1": "APPLIES, PASS (a) every new query path runs in the caller's prefix: ScopeDeclaration.for_types and ManagedTypes.owner_of take the prefix, allowed_node_ids validates it through tenant_id_for_schema_name, the compiler reads the per-type table under the same prefix; (b) no migration in this slice; (c) no tenant_id column added or written; no hard delete of scope_node_paths added",
+      "INV-2": "APPLIES, PASS (the predicate is applied inside the query before rows exist, so FieldGrants and redaction run on top of an already-scoped result; the allowed set is never in a response, cursor or log; no response map changed in this slice). Carry-forward A-8 of the design gate unchanged",
+      "INV-3": "NOT-APPLICABLE (no Lua/WASM host function added; script_reads passes literal :all as the tenant-wide script principal per 0051 D1/F6, comment present)",
+      "INV-4": "APPLIES, PASS (one new log line scope_set_failed reason=<atom>, closed atom set, no ids or values; exception message constant; grep pair clean over the diff; no secret resolved or threaded)",
+      "INV-5": "APPLIES for the compiler outcome, PASS (out-of-scope rows and rows that never existed yield the same empty/NULL result at the compiler layer; scope failure is an empty result, never an error; by-id routes and the 404 path are 2c-ii/2d and not in this slice)",
+      "INV-6": "APPLIES, PASS (this handoff states the invariants and the scoping proof for the compiler, declaration and set modules; the nine call-site ledger is verified above)",
+      "INV-7": "APPLIES, PASS (id list is one bound text[]; column identifier is literal/field-quoted and format-validated plus physically checked; no raw SQL)",
+      "INV-8": "APPLIES, PASS WITH F-1 (C-1 closed: ScopeSetError fail-closed branch, cap, constant log, detail-free 500; invalid compile scope raises ArgumentError rather than failing open)",
+      "INV-9": "NOT-APPLICABLE (no outbound URL)",
+      "INV-10": "APPLIES, PASS (no route, permission or platform branch added; allowed_set keeps the platform-scope branch before grants and tenant-wide for a platform-tenant admin only through tenant_effective, identical to allowed?/3; permission_matrix golden untouched, no atom added)"
+    },
+    "design_gate_followups": {
+      "C-1": "CLOSED in code (raise, constant log, cap, 500 mapping). Tests T-C13/T-C14 still to be written.",
+      "C-2": "OPEN for the test phase: retired INTERMEDIATE node with a live descendant and a grant on a live ancestor, asserting allowed_set and allowed? agree and the retired node itself is absent (code supports it: live filter keeps descendants).",
+      "C-7": "Process: design section 8 ids and AC 23 checklist are the PR author's; this verdict is the per-PR verdict id for 2c-i-a (no route reclassified, no snapshot line removed).",
+      "R-1": "Conditions (a) and (b) met in code (walk rule over any /modules/exam/ route, required :scope opt); condition (a) also requires the walk test and the scan test, see conditions below. The ruling lapses if either guard is removed.",
+      "R-3": "Allowlist test-only confirmed in config; conditions (a) prod-config evaluation test and (b) runtime.exs scan are test-phase items (T-D8)."
+    },
+    "findings": [
+      {
+        "id": "F-1",
+        "severity": "MINOR",
+        "blocking": false,
+        "title": "only ScopeSetError gets the constant 500 body; a database error from the node reads falls to the server default crash response",
+        "detail": "allowed_set/2 documents that a DB error propagates. Such an error is not a ScopeSetError, so ApiPipeline.handle_errors/2 leaves the conn alone and the server answers with its default 500 (a different body from the Letflow problem body). Fail closed, no data and no ids leave; the only difference is the response shape. Under an enforced route, Enforce.check/3 already wraps its own decision in a rescue, but the data-path call of 2c-i-b will not be inside that rescue.",
+        "required_action": "Not a blocker. In 2c-i-b, ScopeGate should call allowed_set inside the same rescue-to-constant-500 pattern as Enforce.check/3, or ScopeSetError should wrap DB errors; add a test that a DB error from allowed_set also yields the detail-free Letflow 500."
+      },
+      {
+        "id": "F-2",
+        "severity": "MINOR",
+        "blocking": false,
+        "title": "exam_route? matches the prefix /modules/exam/ with a trailing slash, so a route mounted at exactly /modules/exam is not covered",
+        "detail": "R-1 requires the guard to cover ANY route of module exam. The exam router has no bare-prefix route today (all eight are under /modules/exam/exam-sessions), so there is no current gap, but a future GET /modules/exam would be neither tenant_wide-checked nor flagged.",
+        "required_action": "ELIXIR-DEV in a later slice or TEST-DESIGNER via the walk test: match path == \"/modules/exam\" as well as the prefix. The walk test should include a seeded bare-prefix route."
+      },
+      {
+        "id": "F-3",
+        "severity": "MINOR",
+        "blocking": false,
+        "title": "stale documentation in api_pipeline.ex",
+        "detail": "The moduledoc (Mechanism B, around line 43-48) and the comment above handle_errors/2 still say the handler returns the conn unchanged and introduces no new response body or status. It now sends a constant 500 for ScopeSetError.",
+        "required_action": "DOC fix in the same PR or the next: update both texts so a later reader does not remove the branch as dead."
+      }
+    ],
+    "conditions_for_merge": [
+      "T-C15 scope-all scan test must exist and pass in the PR (every non-test Compiler call site carries a # scope-all: comment or an opts-derived value; the exam manifest gains scope_declarations while a literal remains is a failure) together with the :exam_route_reclassified walk test; without both the R-1 ruling lapses (design gate R-1 condition a).",
+      "T-C13 (ScopeSetError over HTTP is the detail-free 500) cannot be run until a route calls allowed_set (2c-i-b); until then handle_errors must be unit-tested directly, and T-C13 must land in 2c-i-b. T-C14 cap test (lowered cap, exact-at-cap succeeds) in 2c-i-a.",
+      "C-2 retired-intermediate fixture test and the :all/:none/{:nodes, []}/invalid-scope/left-join/inner-join/undeclared/:latest/missing-column tests (ACs 1-5, 18, 21) in the PR; the ELIXIR-DEV scratch results do not count as evidence.",
+      "T-D8: Application.get_env of :scope_declaration_unmanaged_modules is [] after evaluating the prod and runtime configs, and the key appears only in config/test.exs (R-3 conditions a and b)."
+    ],
+    "advisories": [
+      "A-1: a LEFT join keeps the primary row, so the foreign-key value on that row (the out-of-scope target's record id) remains visible while the target fields are NULL. This is the design-accepted semantics (design 3.4, step-04 summary); record ids are not treated as secrets. Do not extend the join output with target-derived fields.",
+      "A-2: the 50,000 cap is checked after each 500-root chunk is loaded, so one chunk can transiently load more than the cap before failing closed. descendants_of has its own bound; acceptable, note only.",
+      "A-3: ScopeDeclaration does the installed-module read and the owner read as separate statements (no transaction); an install or uninstall racing a request can only move the result between declared and undeclared (fail closed), never widen it.",
+      "A-4: the fixture pack priv/module_fixtures/scoped_foundation.json ships in the release but is only reachable through FixtureScoped, which is registered in config/test.exs only; no production effect.",
+      "A-5: carried from step-04: me.ex bare {:ok, memberships} = match (pre-existing INV-8), tasks.scope_node_id must not enter response maps (A-8)."
+    ],
+    "required_changes": [],
+    "carry_forward_conditions": [
+      "2c-i-b: route reclassification for the three filter routes must pass its own SECURITY-REVIEWER code verdict with the AC 23 reclassified-route table; ScopeGate must apply F-1.",
+      "Any change that removes the walk rule, the required :scope opt of list_available_exams, or adds a scope_declarations entry to the exam manifest while a literal :all remains, lapses ruling R-1 and needs a new SEC pass."
+    ],
+    "classification": "CODE_PASS_WITH_FINDINGS",
+    "implementation_written": false
+  }
+}

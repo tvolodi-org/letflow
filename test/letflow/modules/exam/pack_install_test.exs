@@ -655,7 +655,7 @@ defmodule Letflow.Modules.Exam.PackInstallTest do
         join: [%{entity_type: "tag", through: "question_tag", fk: "fk_question_tag_tag_id"}]
       }
 
-      assert {:ok, query} = Compiler.compile(request, schema)
+      assert {:ok, query} = Compiler.compile(request, schema, :all)
       rows = Repo.all(query, prefix: schema)
 
       IO.puts("\n=== REQ-328 through-join request + rows (verbatim) ===")
@@ -677,7 +677,7 @@ defmodule Letflow.Modules.Exam.PackInstallTest do
         join: [%{entity_type: "tag", through: "question_tag", fk: "fk_question_tag_tag_id"}]
       }
 
-      assert {:ok, tag_side_query} = Compiler.compile(tag_side_request, schema)
+      assert {:ok, tag_side_query} = Compiler.compile(tag_side_request, schema, :all)
       assert [tag_side_row] = Repo.all(tag_side_query, prefix: schema)
       assert tag_side_row["tag"].record_id == tag.record_id
     end

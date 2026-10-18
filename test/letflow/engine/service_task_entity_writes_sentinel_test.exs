@@ -109,7 +109,7 @@ defmodule Letflow.Engine.ServiceTaskEntityWritesSentinelTest do
 
     # a read through the entity QUERY path resolves nothing about the actor
     request = %{entity_type: @type_name}
-    assert {:ok, compiled} = Compiler.compile(request, schema)
+    assert {:ok, compiled} = Compiler.compile(request, schema, :all)
     assert {:ok, allowlist} = Allowlist.load(@type_name, schema)
     assert {:ok, page} = Cursor.paginate(request, compiled, allowlist, %{page_size: 10}, schema)
     assert [item] = page.items

@@ -151,7 +151,7 @@ defmodule Letflow.Entities.QuerySelfJoinTest do
         join: [%{entity_type: "node", fk: "parent_fk"}]
       }
 
-      assert {:ok, %Ecto.Query{joins: joins} = query} = Compiler.compile(request, schema)
+      assert {:ok, %Ecto.Query{joins: joins} = query} = Compiler.compile(request, schema, :all)
       assert [%Ecto.Query.JoinExpr{qual: :inner}] = joins
       assert %Ecto.Query{} = query
     end
@@ -182,7 +182,7 @@ defmodule Letflow.Entities.QuerySelfJoinTest do
         join: [%{entity_type: "node", fk: "parent_fk"}]
       }
 
-      assert {:ok, query} = Compiler.compile(request, schema)
+      assert {:ok, query} = Compiler.compile(request, schema, :all)
 
       rows = Repo.all(query, prefix: schema)
       by_primary_label = Map.new(rows, &{&1.primary.field_values["label"], &1})
@@ -210,7 +210,7 @@ defmodule Letflow.Entities.QuerySelfJoinTest do
         join: [%{entity_type: "node", fk: "parent_fk"}]
       }
 
-      assert {:ok, query} = Compiler.compile(request, schema)
+      assert {:ok, query} = Compiler.compile(request, schema, :all)
 
       assert_raise Postgrex.Error, ~r/ambiguous_column/, fn ->
         Repo.all(query, prefix: schema)

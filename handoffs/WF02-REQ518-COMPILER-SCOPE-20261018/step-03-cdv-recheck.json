@@ -1,0 +1,72 @@
+{
+  "handoff_id": "d2535518-0518-4c02-9e11-000000000003",
+  "run_id": "WF02-REQ518-COMPILER-SCOPE-20261018",
+  "workflow_id": "WF-02",
+  "step": "03",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGN-VALIDATOR",
+  "file": "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-03-cdv-recheck.json",
+  "created_at": "2026-10-18T03:20:00Z",
+  "started_at": "2026-10-18T03:20:30Z",
+  "completed_at": "2026-10-18T03:40:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-518"],
+    "requirement_text": {
+      "REQ-518": "Diff check of design r1 against step-02-cdv findings G1, G2, G3, F-1, F-2, F-3."
+    },
+    "source_text": {
+      "GH#2535": "Recheck of lib/letflow/design/req518-compiler-scope-filter.md r1. No mix, no tests."
+    },
+    "related_handoff_ids": ["d2535518-0518-4c02-9e11-000000000002"],
+    "artifacts_in": [
+      "lib/letflow/design/req518-compiler-scope-filter.md",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-02-cdv.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ518-COMPILER-SCOPE-20261018"
+  },
+  "task": {
+    "description": "WF-02 step 1b recheck of REQ-518 design r1 (diff-check of G1, G2, G3 and four non-blocking items)."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "G1, G2, G3, F-1, F-2, F-3 are resolved. G1: literal TASK_WORKER rule via Scope.allowed_for_role?/3 and allowed_set_for_role/2 (C.3, D9, T-F15, T-F16, MU36); assign/reassign on the route permission; the wider reading stays OQ-3. G2: Catalog rule 11 admits an unmanaged declaration only for a module on a config/test.exs-only allowlist, ScopeDeclaration repeats the check (defence in depth), T-D8 scans config and lib, R-3 restated, R-7 corrected to say tenant_wide is not restrictive-only, R-8 added, OQ-1/OQ-4 closed for production. G3: 2c-i-a / 2c-i-b split with consistent section 1, 3.1, 7.1, 9, 10 tables; 2d five-commit order (C.0) with only commit 4 changing route classes; snapshot arithmetic 0 + 4(+2) + 15 + 7 = 28 holds with M2/H1 declared in 2c-i-b. F-1: telemetry event [:letflow,:scope,:not_found] with closed metadata and T-W19. F-2: 5.5 create short-circuits before the multipart read, MU38/T-W20; mutants renamed MU. F-3: OQ-8 states the committed-write caveat. Findings (non-blocking, fixed or recorded): the G1 tenant-wide exemption widens AC 13's 'iff' and needed an RA entry (added RA-13); stale 2c-i labels fixed; 2c-i-a sizing under the threading default recorded.",
+    "local_issue_id": null,
+    "artifacts_out": ["lib/letflow/design/req518-compiler-scope-filter.md (rev r1a)"],
+    "independent_verification": {
+      "exemption_check": "C.3 (1): a principal for whom Scope.allowed?(principal, route_permission, :tenant_wide) allows is exempt from the grant requirement and keeps today's behavior plus the routing-role checks. This does not contradict AC 13 cases (a)-(e) or D9/Q3 for scoped callers and matches D1 (tenant-wide on a permission is tenant-wide), including the mixed scoped TASK_WORKER + tenant-wide PROCESS_OPERATOR case (T-F15). It does extend AC 13's literal 'iff TASK_WORKER grant' to a tenant-wide PROCESS_OPERATOR/TENANT_ADMIN without that grant, who is still bound by the routing-role rule. Not a defect, but it must be visible to REQ-ANALYST and SEC: recorded as RA-13.",
+      "snapshot_arithmetic": "2c-i-a 0, 2c-i-b 4 (+2 for M2/H1; otherwise declared with marker), 2c-ii 15, 2d 7; total 28 of 143.",
+      "stale_text": "Fixed lines mentioning 2c-i (Public API, flags, snapshot sentence, F12), changelog mutant count."
+    },
+    "findings": [
+      {
+        "id": "R-A",
+        "severity": "LOW_FIXED",
+        "where": "C.3 exemption (1)",
+        "fix": "RA-13 added so the AC 13 'iff' extension is explicit; SEC design gate should confirm."
+      },
+      {
+        "id": "R-B",
+        "severity": "LOW_FIXED",
+        "where": "section 1 sizing",
+        "fix": "Added the note that under the threading default (R-1 unruled) the ~20 exam signatures are the first commit of 2c-i-a and the PR may be cut there."
+      },
+      {
+        "id": "R-C",
+        "severity": "INFO",
+        "where": "r1 changelog and 7.3",
+        "fix": "Changelog said MU1..MU35; actual range is MU1..MU38 (fixed). Row 23 of the AC map still says '(relayed)'; harmless."
+      }
+    ],
+    "orch_actions": [
+      "Proceed to the SECURITY-REVIEWER design gate with R-1..R-8 and RA-13.",
+      "Add run WF02-REQ518-COMPILER-SCOPE-20261018 to handoffs/registry.json (lint H5)."
+    ],
+    "reroute": null
+  }
+}

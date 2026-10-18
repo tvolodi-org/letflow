@@ -10,7 +10,8 @@ defmodule Letflow.Modules.ManifestHash do
 
   ## Hashed surface
 
-  `id`, `version`, the sorted `manages_entity_types`, and per write handler
+  `id`, `version`, the sorted `manages_entity_types`, the `scope_declarations` map (REQ-518;
+  only when the key is present, so existing hashes are unchanged), and per write handler
   (sorted by `name`) `name`, `inspect(module)`, the function name, the sorted
   unique `targets` and `args`. It does NOT cover permissions, routes,
   settings, pack content or handler CODE: a change of handler behaviour
@@ -44,7 +45,7 @@ defmodule Letflow.Modules.ManifestHash do
   end
 
   defp surface(manifest) do
-    %{
+    base = %{
       "id" => Map.get(manifest, :id),
       "version" => Map.get(manifest, :version),
       "manages_entity_types" => manifest |> Map.get(:manages_entity_types, []) |> sorted_list(),
@@ -55,6 +56,12 @@ defmodule Letflow.Modules.ManifestHash do
         |> Enum.map(&handler_surface/1)
         |> Enum.sort_by(fn %{"name" => name} -> inspect(name) end)
     }
+
+    # REQ-518: covered only when present, so every existing module hash is unchanged.
+    case Map.fetch(manifest, :scope_declarations) do
+      {:ok, decls} -> Map.put(base, "scope_declarations", decls)
+      :error -> base
+    end
   end
 
   defp handler_list(handlers) when is_list(handlers), do: handlers

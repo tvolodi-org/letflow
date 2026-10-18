@@ -257,6 +257,50 @@ defmodule Letflow.ScopeNodePaths do
   end
 
   @doc """
+  REQ-518 (design 3.4): the ids of every LIVE node in the subtrees of `root_ids` (the roots
+  themselves included when live), deduplicated and sorted. The single tree access of the
+  scoped data path. Roots are processed in chunks of 500 (the `descendants_of/2` input cap),
+  so no input size is rejected; for up to 500 roots the cost is exactly two statements. A
+  retired node is excluded, but its live descendants stay (a retired INTERMEDIATE node does
+  not hide its subtree, consistent with `Letflow.Api.Scope.allowed?/3`).
+
+  Fails closed: the expanded set is bounded by `config :letflow, :scope_allowed_ids_cap`
+  (default 50_000; a set larger than the cap is `{:error, :too_many_ids}`, never truncated).
+  """
+  @spec allowed_node_ids(root_ids :: [node_id()], prefix :: String.t()) ::
+          {:ok, [node_id()]} | {:error, :invalid_node_id | :invalid_schema_name | :too_many_ids}
+  def allowed_node_ids(root_ids, prefix) when is_list(root_ids) and is_binary(prefix) do
+    ids = Enum.uniq(root_ids)
+    cap = Application.get_env(:letflow, :scope_allowed_ids_cap, 50_000)
+
+    with :ok <- validate_node_ids(ids),
+         {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix) do
+      ids
+      |> Enum.chunk_every(@max_descendants_input)
+      |> Enum.reduce_while({:ok, MapSet.new()}, fn chunk, {:ok, acc} ->
+        case descendants_of(chunk, prefix) do
+          {:ok, nodes} ->
+            live = for n <- nodes, is_nil(n.retired_at), into: acc, do: n.node_id
+
+            if MapSet.size(live) > cap,
+              do: {:halt, {:error, :too_many_ids}},
+              else: {:cont, {:ok, live}}
+
+          {:error, :too_many_nodes} ->
+            {:halt, {:error, :too_many_ids}}
+
+          {:error, _reason} = error ->
+            {:halt, error}
+        end
+      end)
+      |> case do
+        {:ok, set} -> {:ok, set |> MapSet.to_list() |> Enum.sort()}
+        {:error, _reason} = error -> error
+      end
+    end
+  end
+
+  @doc """
   The LIKE pattern matching `path` and everything below it: escapes `\\`, `%`
   and `_` with a backslash, then appends `%`. The single escaping helper for
   every `scope_node_paths` LIKE query (0051 reuses it); pass the result as a

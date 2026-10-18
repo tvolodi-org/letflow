@@ -270,10 +270,13 @@ defmodule Letflow.Api.ScopeTest do
       %{ast: ast, source: File.read!(@scope_source)}
     end
 
-    test "the tree is reached only through ScopeNodePaths.resolve/2", %{ast: ast} do
+    test "the tree is reached only through ScopeNodePaths.resolve/2 and allowed_node_ids/2 (REQ-518)",
+         %{
+           ast: ast
+         } do
       calls = remote_calls(ast, [:ScopeNodePaths])
       assert calls != []
-      assert Enum.uniq(calls) == [:resolve]
+      assert calls |> Enum.uniq() |> Enum.sort() == [:allowed_node_ids, :resolve]
     end
 
     test "no ScopeNodePaths.Node schema and no \"scope_node_paths\" literal", %{ast: ast} do

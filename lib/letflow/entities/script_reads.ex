@@ -196,7 +196,8 @@ defmodule Letflow.Entities.ScriptReads do
       {value, usable?} = coerce(type, Map.has_key?(strict, field), Map.get(vars, var))
       request = %{entity_type: entity_type, filters: [%{field: field, op: :eq, value: value}]}
 
-      case Compiler.compile(request, prefix) do
+      # scope-all: script principal is tenant-wide, 0051 D1/F6
+      case Compiler.compile(request, prefix, :all) do
         {:ok, query} ->
           query =
             query
