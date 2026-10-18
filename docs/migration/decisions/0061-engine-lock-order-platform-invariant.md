@@ -94,3 +94,6 @@ Rolling deploy: opposite orders of the same two rows now coexist in two symmetri
 `cancel_instance/3` (timers before `P_x`) against a new fire (`P_x` before the timer), and an old fire
 (timer, then `P_x`) against a new `cancel_instance/3` (timers after `P_x`). Either pair can produce a
 recoverable `deadlock_detected` (a failed cancel, or a counted fire failure); no other pair is affected.
+
+## Amended (GH #2706, PR-2)
+`cancel_instance/3` bounds every lock wait of its transaction: the first statement is `SELECT set_config('lock_timeout', $1, true)` with a bound parameter, the value from `Letflow.Engine.Contention.lock_timeout_ms/0` (5 s; the same value is the time cap of the leftover retry loop). It is skipped when the caller already holds a transaction (Ecto nested transactions use no savepoint, so the setting would leak to the caller). A lock timeout (55P03) or a deadlock this call loses (40P01) rolls the transaction back and is returned as `{:error, :cancel_contention}` (HTTP 503), retryable, nothing committed. No lock order changes.

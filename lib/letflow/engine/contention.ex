@@ -9,7 +9,8 @@ defmodule Letflow.Engine.Contention do
       `config :letflow, :engine_test_seams` set (the test config only; compiled out of
       production) a positive integer in the process dictionary key
       `:contention_lock_timeout_ms_override` of the CALLING process replaces it, which is how a
-      test reaches a real `55P03` in about 300 ms without lowering the timeout globally.
+      test reaches a real `55P03` in about 300 ms without lowering the timeout globally. The
+      override also moves the retry loop's time cap, since both read this function.
     * `lock_timeout_setting/0`: the same value as the text bound to `set_config('lock_timeout',
       $1, true)` (INV-7: a runtime value is a bound parameter, never part of the SQL text).
     * `contention_code/1`: classifies a raised exception as a lock timeout or a deadlock. Used by

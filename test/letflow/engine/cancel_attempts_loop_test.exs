@@ -68,6 +68,33 @@ defmodule Letflow.Engine.CancelAttemptsLoopTest do
     assert calls.() == 1
   end
 
+  describe "the time cap follows the shared lock-timeout function (override 300 ms)" do
+    setup do
+      Process.put(:contention_lock_timeout_ms_override, 300)
+      on_exit(fn -> Process.delete(:contention_lock_timeout_ms_override) end)
+    end
+
+    test "started 400 ms ago: not retried" do
+      {attempt, calls} = counting([:held_by_other])
+
+      capture_log(fn ->
+        assert Engine.run_cancel_attempts(attempt, 1, now() - 400, true, @instance) ==
+                 {:error, :cancel_contention}
+      end)
+
+      assert calls.() == 1
+    end
+
+    test "started 100 ms ago: retried" do
+      {attempt, calls} = counting([:held_by_other, {:final, {:ok, :cancelled}}])
+
+      assert Engine.run_cancel_attempts(attempt, 1, now() - 100, true, @instance) ==
+               {:ok, :cancelled}
+
+      assert calls.() == 2
+    end
+  end
+
   test "a success on the second attempt stops the loop" do
     {attempt, calls} = counting([:held_by_other, {:final, {:ok, :cancelled}}])
 

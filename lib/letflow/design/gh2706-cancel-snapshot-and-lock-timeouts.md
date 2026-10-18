@@ -336,8 +336,11 @@ not a production path (the only caller is the route), only tests and future call
   (`Repo.in_transaction?()` before the first attempt) and passed down, not re-read inside the
   transaction (which is always true there).
 * The contention clause sits in `cancel_attempt/6`'s `rescue` and logs the code and the instance id only.
-* T1b (leftover path, real permanent holder) uses a 1.5 s override: the first attempt also waits
+* T1b (leftover path, real permanent holder) uses a 4 s override (setup bounded to 2 s, explicit slow-start failure): the first attempt also waits
   on task A while the test arranges the straggler, which a 300 ms bound would cut short.
+  T4b covers a nested cancel hitting a real 55P03 (the caller sets its own `lock_timeout`, since a
+  nested cancel sets none): typed error, the caller's transaction is rolling back, and the outer
+  `Repo.transaction/1` returns `{:error, :rollback}`.
   T3 (deadlock victim) is deterministic: the cancel is the first waiter, so it detects the cycle.
 
 ## 4. Residual (2): the ExecutionError landing step (decision 4)

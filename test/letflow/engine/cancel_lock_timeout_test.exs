@@ -24,6 +24,7 @@ defmodule Letflow.Engine.CancelLockTimeoutTest do
 
   use Letflow.DataCase, async: false
 
+  import ExUnit.CaptureLog
   import Ecto.Query
   import Plug.Conn
   import Plug.Test
@@ -40,7 +41,9 @@ defmodule Letflow.Engine.CancelLockTimeoutTest do
   @override_ms 300
   # T1b: the first attempt also waits on A while the test arranges the straggler, so its budget
   # must outlast that setup (the 300 ms of the other tests would time out on A itself)
-  @leftover_override_ms 1_500
+  @leftover_override_ms 4_000
+  # the setup of T1b must fit well inside that budget, or the retry time cap fires for the wrong reason
+  @leftover_setup_bound_ms 2_000
 
   setup do
     SandboxAutoMode.enter_auto_mode!(Repo)
@@ -195,6 +198,8 @@ defmodule Letflow.Engine.CancelLockTimeoutTest do
 
       {holder_a, _} = H.hold_row(schema, {:task, task_a.id})
 
+      setup_started = System.monotonic_time(:millisecond)
+
       {worker, pid} =
         H.start_worker(with_override(traced(cancel_fn(base, x)), @leftover_override_ms))
 
@@ -206,7 +211,13 @@ defmodule Letflow.Engine.CancelLockTimeoutTest do
       send(holder_a.pid, :release)
       assert {:ok, _} = Task.await(holder_a, H.await_ms())
 
-      {{result, queries}, _done_at} = await_within!(worker, 8_000)
+      setup_ms = System.monotonic_time(:millisecond) - setup_started
+
+      assert setup_ms < @leftover_setup_bound_ms,
+             "slow start, not a failure of the code: the T1b setup took #{setup_ms} ms " <>
+               "(bound #{@leftover_setup_bound_ms} ms) of the #{@leftover_override_ms} ms budget"
+
+      {{result, queries}, _done_at} = await_within!(worker, 3 * @leftover_override_ms)
       assert result == {:error, :cancel_contention}
       assert_55p03_reported!()
 
@@ -256,26 +267,48 @@ defmodule Letflow.Engine.CancelLockTimeoutTest do
               H.await_ms() -> :timeout
             end
 
-            Repo.query!(~s(SELECT 1 FROM "#{schema}"."tasks" WHERE id = $1 FOR UPDATE), [
-              Ecto.UUID.dump!(task_a.id)
-            ])
+            try do
+              Repo.query!(~s(SELECT 1 FROM "#{schema}"."tasks" WHERE id = $1 FOR UPDATE), [
+                Ecto.UUID.dump!(task_a.id)
+              ])
+
+              :z_ok
+            rescue
+              e in Postgrex.Error -> {:z_was_the_victim, e.postgres.code}
+            end
           end)
         end)
 
       on_exit(fn -> send(z.pid, :go) end)
       assert_receive :z_holds_projection, 10_000
 
-      {worker, pid} = H.start_worker(cancel_fn(base, x))
-      H.wait_for_blocked([pid], 1)
-      send(z.pid, :go)
+      log =
+        capture_log(fn ->
+          {worker, pid} = H.start_worker(cancel_fn(base, x))
+          H.wait_for_blocked([pid], 1)
+          # a margin widener (not a barrier): the cancel must be the older waiter
+          Process.sleep(100)
+          send(z.pid, :go)
 
-      {result, _done_at} = await_within!(worker, 8_000)
+          {result, _done_at} = await_within!(worker, 8_000)
+          send(test_pid, {:cancel_result, result})
+        end)
+
+      assert_receive {:cancel_result, result}
       assert result == {:error, :cancel_contention}
+
+      # value-free log: the code tag and the instance id, nothing of the exception
+      assert log =~ "deadlock_detected"
+      assert log =~ "instance_id=#{x}"
+      refute log =~ "Postgrex"
+      refute log =~ "deadlock detected"
 
       assert_receive {:deadlock_detected, %Postgrex.Error{postgres: %{code: :deadlock_detected}}},
                      1_000
 
-      assert {:ok, _} = Task.await(z, H.await_ms())
+      assert {:ok, :z_ok} = Task.await(z, H.await_ms()),
+             "Z was the deadlock victim instead of the cancel (timing, not the code)"
+
       assert_nothing_committed!(base, x, [task_a.id])
     end
   end
@@ -305,6 +338,41 @@ defmodule Letflow.Engine.CancelLockTimeoutTest do
     end
   end
 
+  describe "T4b: nested in the caller's transaction, real lock timeout" do
+    test "typed error, the caller's transaction is aborted and rolls back", %{base: base} do
+      {x, task_a} = started!(base, ["a", "b"])
+      {holder, _} = H.hold_row(base.schema, {:projection, x})
+      test_pid = self()
+
+      nested = fn ->
+        Repo.transaction(fn ->
+          # the nested cancel sets no timeout of its own: the CALLER bounds the wait
+          Repo.query!("SELECT set_config('lock_timeout', '300ms', true)")
+          call = cancel_fn(base, x).()
+          # the failed nested transaction marked the caller's transaction rolling back: a further
+          # statement is refused
+          send(test_pid, {:inner, call, Repo.query("SELECT 1")})
+          :unreachable_commit
+        end)
+      end
+
+      {worker, pid} = H.start_worker(nested)
+      H.wait_for_blocked([pid], 1)
+
+      {outer, _done_at} = await_within!(worker, 3_000)
+      assert_55p03_reported!()
+
+      assert_receive {:inner, {:error, :cancel_contention},
+                      {:error, %DBConnection.ConnectionError{message: "transaction rolling back"}}}
+
+      assert {:error, :rollback} = outer, inspect(outer)
+
+      assert_nothing_committed!(base, x, [task_a.id])
+      send(holder.pid, :release)
+      assert {:ok, _} = Task.await(holder, H.await_ms())
+    end
+  end
+
   describe "T5: not nested" do
     test "the setting is transaction-local: the pinned connection returns to its default",
          %{base: base} do
@@ -329,15 +397,15 @@ defmodule Letflow.Engine.CancelLockTimeoutTest do
       assert {:ok, _} = result
 
       stmts = Enum.map(queries, & &1.query)
+      assert Enum.count(stmts, &(&1 == "begin")) == 1
       begin_at = Enum.find_index(stmts, &(&1 == "begin"))
-      assert is_integer(begin_at)
 
       first = Enum.at(queries, begin_at + 1)
       assert first.query == "SELECT set_config('lock_timeout', $1, true)"
       assert first.params == ["5000ms"]
 
       # no timeout value is spliced into any SQL text of the transaction
-      refute Enum.any?(stmts, &(&1 =~ "5000" or &1 =~ "5s"))
+      refute Enum.any?(stmts, &(&1 =~ "5000" or &1 =~ ~r/5s/))
       assert Enum.count(stmts, &(&1 =~ "set_config")) == 1
     end
 

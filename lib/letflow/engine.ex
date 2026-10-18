@@ -3190,7 +3190,7 @@ defmodule Letflow.Engine do
     Multi.run(multi, :entity_write_timeouts, fn repo, _changes ->
       repo.query!(@entity_write_set_lock_timeout)
       repo.query!(@entity_write_set_statement_timeout)
-      {:ok, :set}
+      {:ok, nil}
     end)
   end
 
@@ -8765,7 +8765,7 @@ defmodule Letflow.Engine do
   # `set_config(..., true)` is transaction-local (`SET LOCAL`); the value is a BOUND parameter
   # (INV-7: no runtime value in SQL text). Skipped when the caller already holds a transaction:
   # Ecto nested transactions use no savepoint, so the setting would outlive this call.
-  defp set_cancel_lock_timeout(_repo, true), do: {:ok, :nested_skip}
+  defp set_cancel_lock_timeout(_repo, true), do: {:ok, nil}
 
   defp set_cancel_lock_timeout(repo, false) do
     repo.query!("SELECT set_config('lock_timeout', $1, true)", [Contention.lock_timeout_setting()])
