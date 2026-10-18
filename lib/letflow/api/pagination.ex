@@ -21,8 +21,9 @@ defmodule Letflow.Api.Pagination do
   caller's own request-context parameter (REQ-072, not yet implemented),
   never anything this module decodes. `cursor.inner` is a fully opaque byte
   string a caller may only parse for its own already-known
-  sort-key/pagination fields via `parse_int_from_cursor/3`/`find_nth_colon/2`
-  (design §0.3).
+  sort-key/pagination fields, normally via `decode_seek_parts/3` (design
+  §0.3). `parse_int_from_cursor/3` and `find_nth_colon/2` remain as
+  lower-level primitives.
 
   **INV-8 (no unhandled crashes on realistic failure paths).** No function in
   this module raises on well-typed input — every fallible operation returns a
@@ -51,6 +52,8 @@ defmodule Letflow.Api.Pagination do
   @default_page_size 50
   @min_page_size 1
   @cursor_expiry_us 86_400_000_000
+  @int64_min -9_223_372_036_854_775_808
+  @int64_max 9_223_372_036_854_775_807
 
   defmodule Cursor do
     @moduledoc """
@@ -364,7 +367,8 @@ defmodule Letflow.Api.Pagination do
   store/list function uses this to validate a domain field parsed out of
   `cursor.inner` before pinning it into a query against a `:binary_id`
   column -- this module never interprets `cursor.inner`'s domain fields on
-  its own (design §0.3 is unchanged by this addition).
+  its own (design §0.3 is unchanged by this addition). Most callers should
+  prefer `decode_seek_parts/3`, which applies this cast per `:uuid` slot.
   """
   @spec cast_binary_id_component(String.t()) ::
           {:ok, Ecto.UUID.t()} | {:error, :invalid_cursor}
@@ -390,9 +394,6 @@ defmodule Letflow.Api.Pagination do
       as a `DateTime` (`DateTime.from_unix/2`, never `from_unix!/2`).
   """
   @type seek_part :: :skip | :string | :uuid | :int | :datetime_us
-
-  @int64_min -9_223_372_036_854_775_808
-  @int64_max 9_223_372_036_854_775_807
 
   @doc """
   Decodes the domain slots of a `decode_cursor/4`-validated seek payload,
