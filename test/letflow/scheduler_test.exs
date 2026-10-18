@@ -25,16 +25,17 @@ defmodule Letflow.SchedulerTest do
   Uses `Letflow.DataCase` (real Postgres) per
   `docs/guides/test_developer_guide.md` DIRECTIVE T-1 -- no mocked database.
   Each test that needs real rows provisions a real tenant schema via
-  `Letflow.TenantFixture.provisioned_tenant!/1`. `Letflow.EventStore.append/2`'s
-  own `active_instance_guard` step requires a real, non-terminal
-  `instance_projections` row for `attrs[:instance_id]` (verified directly in
-  `event_store.ex`'s `active_instance_guard/3` -- `{:error, :instance_not_started}`
-  for any instance_id with no such row) -- every timer expected to actually
-  *fire* successfully in these tests is therefore armed against a real,
-  started `Letflow.Engine` instance (`start_instance!/1`, mirroring
-  `test/letflow/engine_dlq_landing_test.exs`'s own fixture), while a timer
-  deliberately armed against a bare `Ecto.UUID.generate()` instance id (no
-  matching `instance_projections` row) is this design's own natural,
+  `Letflow.TenantFixture.provisioned_tenant!/1`. Since GH #2707
+  `Letflow.Scheduler.fire_timer/2` locks the instance projection BEFORE the
+  timer row (`Letflow.Engine.lock_for_timer_fire/3`), so an instance_id with
+  no `instance_projections` row at all fails there with
+  `{:error, :instance_not_found}` (formerly `EventStore.append/2`'s
+  `active_instance_guard` `{:error, :instance_not_started}`) -- every timer
+  expected to actually *fire* successfully in these tests is therefore armed
+  against a real, started `Letflow.Engine` instance (`start_instance!/1`,
+  mirroring `test/letflow/engine_dlq_landing_test.exs`'s own fixture), while
+  a timer deliberately armed against a bare `Ecto.UUID.generate()` instance
+  id (no matching `instance_projections` row) is this design's own natural,
   organic "fire attempt fails" fixture for AC6/AC7 -- no mocking library
   exists in this codebase (`mix.exs` has no `mox`/`meck` dependency) and none
   is introduced here.
@@ -440,17 +441,20 @@ defmodule Letflow.SchedulerTest do
     test "the first of two due timers fails (no active instance to append its event against); the second still fires" do
       %{schema_name: schema_name} = provisioned_tenant()
 
-      # No instance_projections row exists for this instance_id at all --
-      # Letflow.EventStore.append/2's own active_instance_guard step
-      # (verified in event_store.ex) returns {:error, :instance_not_started}
-      # for it, which fire_timer/2's own `Repo.rollback/1` surfaces as a
-      # normal {:error, _} return from `Repo.transaction/1` -- exactly the
-      # class of failure attempt_fire/2's `{:error, _reason} ->` branch
-      # exists to handle (design §2.5 step 3), the same branch a genuine
-      # raised exception is converted into by attempt_fire/2's own outer
-      # try/rescue before reaching it. See "AC6: a raise inside fire_timer/2
-      # itself never escapes attempt_fire/2" below for the raise-specific
-      # half of this acceptance criterion.
+      # No instance_projections row exists for this instance_id at all, so
+      # fire_timer/2's lock prelude (Letflow.Engine.lock_for_timer_fire/3, GH #2707)
+      # finds no projection row to lock and returns `{:error, :instance_not_found}`
+      # before the timer row is even locked (formerly EventStore.append/2's own
+      # active_instance_guard `{:error, :instance_not_started}`). fire_timer/2's
+      # `Repo.rollback/1` surfaces it as a normal {:error, _} return from
+      # `Repo.transaction/1` -- still a COUNTED failure, exactly the class
+      # attempt_fire/2's `{:error, _reason} ->` branch exists to handle (design §2.5
+      # step 3), the same branch a genuine raised exception is converted into by
+      # attempt_fire/2's own outer try/rescue before reaching it. A projection that
+      # EXISTS but is not :active is a different case: its timers are settled, not
+      # counted (test/letflow/scheduler_dead_instance_timer_test.exs). See "AC6: a
+      # raise inside fire_timer/2 itself never escapes attempt_fire/2" below for the
+      # raise-specific half of this acceptance criterion.
       failing_instance_id = Ecto.UUID.generate()
 
       failing_timer =
@@ -487,8 +491,8 @@ defmodule Letflow.SchedulerTest do
       %{schema_name: schema_name} = provisioned_tenant()
 
       # A syntactically invalid UUID for a :binary_id-typed column raises
-      # Ecto.Query.CastError from inside fetch_and_lock_timer/2's own query
-      # execution -- a genuine exception, not a returned {:error, _} tuple --
+      # Ecto.Query.CastError from inside peek_timer/2's own query (the first
+      # statement of fire_timer/2 since GH #2707) execution -- a genuine exception, not a returned {:error, _} tuple --
       # which propagates out of fire_timer/2's own Repo.transaction/1 call
       # (Ecto's own documented "an unhandled raise inside a transaction fun
       # rolls back and re-raises" behavior, cited by the design doc §2.4).

@@ -83,7 +83,9 @@ defmodule Letflow.Scheduler do
 
   alias Ecto.Multi
   alias Letflow.Dlq
+  alias Letflow.Engine.TaskActivation
   alias Letflow.EventStore
+  alias Letflow.EventStore.InstanceProjection
   alias Letflow.Repo
   alias Letflow.Scheduler.Timer
   alias Letflow.TenantProvisioning
@@ -273,25 +275,116 @@ defmodule Letflow.Scheduler do
   # fire_timer/2 -- one timer, one transaction (design §2.4)
   # ===========================================================================
 
+  @doc """
+  Fires one timer in one transaction (GH #2707, decision 0061 "Amended (GH #2707, PR-1)"). The
+  row locks are taken in the order of every other instance writer: the timer is PEEKED without a
+  lock (its `instance_id`, `token_id`, `node_id` and `timer_type` never change), then
+  `Letflow.Engine.lock_for_timer_fire/3` locks the pending tasks of an escalation's token, the
+  instance projection and, for a child, the parent group (`FOR KEY SHARE`), and only then is the
+  timer row locked. A timer that is no longer pending returns `{:ok, :already_final}`.
+
+  A timer whose instance is not `:active` (cancelled, completed or errored) is SETTLED: every
+  pending timer of that instance is cancelled with reason `instance_<status>` in this same
+  transaction, nothing is fired, no failure is counted and no DLQ row is written; the result is
+  `{:ok, :already_final}` and a `[:letflow, :scheduler, :timers_settled]` telemetry event (and an
+  info log) follows the commit. A timer whose instance has no projection row at all is still
+  `{:error, :instance_not_found}` (a counted failure).
+
+  Settling an `:error` instance's timers is IRREVERSIBLE: `:error` is not a terminal status but
+  nothing resumes such an instance today, so its pending timers are cancelled for good (reason
+  `instance_error`, kept greppable). A future resume / reconstruct feature must RE-ARM the
+  timers of the node the instance resumes at.
+  """
   @spec fire_timer(timer_id :: Ecto.UUID.t(), tenant_schema :: String.t()) ::
           {:ok, :fired} | {:ok, :already_final} | {:error, term()}
   def fire_timer(timer_id, tenant_schema) when is_binary(tenant_schema) do
-    Repo.transaction(fn ->
-      case fetch_and_lock_timer(timer_id, tenant_schema) do
-        nil ->
-          {:ok, :already_final}
+    transaction_result =
+      Repo.transaction(fn ->
+        case lock_and_fire(timer_id, tenant_schema) do
+          {:ok, result} -> result
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
 
-        %Timer{status: status} when status != "pending" ->
-          {:ok, :already_final}
+    case transaction_result do
+      {:ok, {:settled, instance_id, reason, count}} ->
+        announce_settled(tenant_schema, instance_id, reason, count)
+        {:ok, :already_final}
 
-        %Timer{} = timer ->
+      other ->
+        other
+    end
+  end
+
+  defp lock_and_fire(timer_id, tenant_schema) do
+    case peek_timer(timer_id, tenant_schema) do
+      nil ->
+        {:ok, :already_final}
+
+      %Timer{status: status} when status != "pending" ->
+        {:ok, :already_final}
+
+      %Timer{} = peeked ->
+        with {:ok, projection} <- Letflow.Engine.lock_for_timer_fire(peeked, Repo, tenant_schema) do
+          fire_locked_timer(timer_id, projection, tenant_schema)
+        end
+    end
+  end
+
+  defp fire_locked_timer(timer_id, %InstanceProjection{} = projection, tenant_schema) do
+    case fetch_and_lock_timer(timer_id, tenant_schema) do
+      nil ->
+        {:ok, :already_final}
+
+      %Timer{status: status} when status != "pending" ->
+        {:ok, :already_final}
+
+      %Timer{} = timer ->
+        if projection.status == :active do
           do_fire(timer, tenant_schema)
-      end
-      |> case do
-        {:ok, result} -> result
-        {:error, reason} -> Repo.rollback(reason)
-      end
-    end)
+        else
+          settle_dead_instance(timer, projection.status, tenant_schema)
+        end
+    end
+  end
+
+  # The instance is dead: nothing can fire against it, and nothing else ever terminates its
+  # pending timers (an `:error` landing does not; a completion or cancel racing a deploy may not).
+  # Runs under the `P_x` lock taken by the prelude, which protects every timer row of the instance.
+  defp settle_dead_instance(%Timer{} = timer, status, tenant_schema) do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    reason = "instance_" <> Atom.to_string(status)
+
+    {:ok, count} =
+      TaskActivation.cancel_pending_timers(
+        Repo,
+        timer.instance_id,
+        now,
+        reason,
+        tenant_schema
+      )
+
+    {:ok, {:settled, timer.instance_id, reason, count}}
+  end
+
+  defp announce_settled(tenant_schema, instance_id, reason, count) do
+    :telemetry.execute(
+      [:letflow, :scheduler, :timers_settled],
+      %{count: count},
+      %{tenant_schema: tenant_schema, reason: reason}
+    )
+
+    Logger.info(
+      "scheduler: settled #{count} pending timer(s) of a dead instance (#{reason}) " <>
+        "instance_id=#{instance_id}",
+      schema: tenant_schema
+    )
+  end
+
+  defp peek_timer(timer_id, tenant_schema) do
+    Timer
+    |> where([t], t.id == ^timer_id)
+    |> Repo.one(prefix: tenant_schema)
   end
 
   defp do_fire(%Timer{} = timer, tenant_schema) do

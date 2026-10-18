@@ -621,27 +621,46 @@ defmodule Letflow.Engine.TimerWiringTest do
       assert projection.status == :active
     end
 
-    test "cancel_multi/5's own Multi places :timer_cancellations between :open_tasks and :instance_projection" do
-      # Design doc §6.1-§6.2: this ordering is load-bearing lock-ordering
-      # (avoids an AB-BA deadlock against Scheduler.fire_timer/2's own
-      # timers-then-instance_projections lock order), not cosmetic grouping
-      # -- a single-process test can't observe a deadlock directly, so this
-      # is a structural/source-position check instead, mirroring this
-      # file's own AC8 structural tests.
+    test "cancel_multi/5's own Multi places :timer_cancellations after :open_tasks_recheck and before :task_cancellations" do
+      # GH #2707 (decision 0061, "Amended (GH #2707, PR-1)"): timer rows are P-protected, so the
+      # cancel's timer UPDATE runs AFTER the instance projection, the ancestor group and the open
+      # tasks re-read, immediately before :task_cancellations -- the order
+      # Scheduler.fire_timer/2 has (P_x before the timer row). Flipped from REQ-187 design doc
+      # §6.1-§6.2 (which put it before :instance_projection). A single-process test cannot
+      # observe a deadlock, so this is a structural/source-position check; the forced-overlap
+      # behaviour is in test/letflow/scheduler_fire_lock_order_test.exs (F4, F8).
       source = File.read!(Path.join(File.cwd!(), "lib/letflow/engine.ex"))
 
-      [_before, body] =
-        String.split(source, "defp cancel_multi(instance_id, actor_id", parts: 2)
+      [_before, body] = String.split(source, "defp cancel_multi(", parts: 2)
 
       [multi_body, _rest] =
         String.split(body, "\n  # REQ-195 -- cancel_instance/3's own", parts: 2)
 
-      open_tasks_index = :binary.match(multi_body, "Multi.run(:open_tasks,") |> elem(0)
-      timer_cancellations_index = :binary.match(multi_body, ":timer_cancellations") |> elem(0)
-      instance_projection_index = :binary.match(multi_body, ":instance_projection,") |> elem(0)
+      index = fn needle -> :binary.match(multi_body, needle) |> elem(0) end
 
-      assert open_tasks_index < timer_cancellations_index
-      assert timer_cancellations_index < instance_projection_index
+      open_tasks_index = index.("Multi.run(:open_tasks,")
+      instance_projection_index = index.("Multi.run(:instance_projection,")
+      lock_ancestors_index = index.("Multi.run(:lock_ancestors,")
+      recheck_index = index.("Multi.run(:open_tasks_recheck,")
+      timer_cancellations_index = index.("Multi.run(:timer_cancellations,")
+      task_cancellations_index = index.("Multi.run(:task_cancellations,")
+
+      assert open_tasks_index < instance_projection_index
+      assert instance_projection_index < timer_cancellations_index
+      assert lock_ancestors_index < timer_cancellations_index
+      assert recheck_index < timer_cancellations_index
+      assert timer_cancellations_index < task_cancellations_index
+
+      # adjacent: nothing else sits between the re-read and the timer step, or between the timer
+      # step and the task cancellations
+      steps =
+        Regex.scan(~r/Multi\.run\(:([a-z_]+),/, multi_body, capture: :all_but_first)
+        |> List.flatten()
+
+      assert Enum.chunk_every(steps, 3, 1, :discard)
+             |> Enum.any?(
+               &(&1 == ["open_tasks_recheck", "timer_cancellations", "task_cancellations"])
+             )
     end
   end
 
@@ -951,8 +970,11 @@ defmodule Letflow.Engine.TimerWiringTest do
       # This is NOT a "fired" outcome: persist_timer_fired_advance/7 returns
       # {:error, {:invalid_form_schema, ...}}, which attempt_fire/2 (scheduler.ex,
       # ISS-303/ISS-0618 failure accounting) routes through the generic
-      # `{:error, _reason} -> safe_record_fire_failure/2` clause (not the
-      # `{:error, {:instance_not_active, _}} -> :already_final` special case),
+      # `{:error, _reason} -> safe_record_fire_failure/2` clause (not an
+      # `:already_final` outcome: since GH #2707 fire_timer/2 returns
+      # `{:ok, :already_final}` for a timer of a dead instance, settling its timers,
+      # and the former `{:instance_not_active, _}` special case is only a defensive
+      # clause for a status change after the lock prelude -- impossible while it holds `P_x`),
       # incrementing the timer's own fire_error_count in a SEPARATE, later
       # transaction and reporting :errored back to poll_and_fire/1's tally --
       # confirmed by first running this assertion as `%{fired: 1}` (this

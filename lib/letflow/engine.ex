@@ -358,18 +358,20 @@ defmodule Letflow.Engine do
 
   Lock ordering (decision 0061, GH #2704: one global order for every write path and both child
   kinds). A path takes a SUBSEQUENCE of these row classes, in this order, per instance X:
-  (1) X's `timers` / service-dispatch / script-CAS rows and (2) X's `tasks` rows (decision 0061 rule 1
-  numbers 1-2 as one class: the pair cannot cycle; `complete_task/3` and
-  `cancel_instance/3` take `tasks` first, an apply the dispatch row, `Scheduler.fire_timer` the timer
-  row); (3) X's projection (always before X's tokens and before
+  (1) X's service-dispatch / script-CAS rows and (2) X's `tasks` rows (decision 0061 rule 1
+  numbers 1-2 as one class; `complete_task/3`, `cancel_instance/3` and an ESCALATION timer fire take
+  `tasks` first, an apply the dispatch row; GH #2707: X's `timers` rows are NOT in this class, see
+  (7)); (3) X's projection (always before X's tokens and before
   everything below); (4) the ANCESTOR GROUP of a sub-process child, nearest first: parent projection,
   then the parent's waiting token, then the grandparent's (`lock_parent_group/4`); (5) X's live
   `tokens`; (6) the ENTITY-TYPE rows, ascending by entity type (decision 0054 D3: the type's
   `instance_sequences` row, then its synthetic projection row; no record row is locked, writes are
   create-only; the `scope_node_paths` table lock of rule 3a is not taken yet, no scoped type
-  exists); (7) the tenant-wide AUDIT CHAIN row (the first audit write of the transaction, held to
-  commit); (8) the sequence rows: X's own, then the ancestors' (`EventStore.append/2`, the cascade);
-  (9) the projection UPDATEs. Across instances a child's rows come strictly before its
+  exists); (7) X's `timers` rows (GH #2707: P-protected like the tokens, touched only while X's
+  projection is held, their order among themselves and against the tokens unconstrained);
+  (8) the tenant-wide AUDIT CHAIN row (the first audit write of the transaction, held to
+  commit); (9) the sequence rows: X's own, then the ancestors' (`EventStore.append/2`, the cascade);
+  (10) the projection UPDATEs. Across instances a child's rows come strictly before its
   ancestors' and nothing goes child-ward.
 
   The ancestor group's mode is decided from the pure transition BEFORE its first lock
@@ -408,7 +410,13 @@ defmodule Letflow.Engine do
       applies; an UNPLANNED script apply goes straight to `apply_script_task_result_once/4`, whose
       blanket rescue turns a deadlock into `:raised` (a terminal `script_rejected`/`apply_failed`;
       accepted, a script task in a sub-process child is not reachable end to end until GH #2694).
-    * `cancel_instance/3`: `tasks`, timers, dispatch rows, the projection, `:lock_ancestors` (the
+    * `Scheduler.fire_timer/2` (GH #2707, through `lock_for_timer_fire/3`): for an escalation timer the
+      pending `tasks` rows of its token, then the projection (any status), then, for an active
+      child, the immediate parent group `FOR KEY SHARE` (a timer fire never completes the child
+      through the cascade), then the timer row, then the TIMER_FIRED append and the advance. A timer
+      whose instance is not active is settled: all pending timers of that instance are cancelled
+      with reason `instance_<status>` and the transaction commits.
+    * `cancel_instance/3`: `tasks`, dispatch rows, the projection, `:lock_ancestors` (the
       group of a sub-process child, `FOR KEY SHARE` on the immediate parent: GH #2708; a cancel
       never completes the child), then (GH #2706) a SECOND read of the open `tasks`, `FOR UPDATE
       SKIP LOCKED`, which is complete because no task of the instance can be inserted while its
@@ -416,10 +424,10 @@ defmodule Letflow.Engine do
       waits (a pending task held by another transaction, usually a completer queued behind the
       projection, aborts the attempt: rolled back and retried, at most 3 attempts within one
       contention-timeout constant of the first attempt's start, never when nested in a caller's
-      transaction; exhaustion is `{:error, :cancel_contention}`), live tokens, the
-      INSTANCE_CANCELLED append, the audit row last.
+      transaction; exhaustion is `{:error, :cancel_contention}`), then (GH #2707) the instance's
+      timers, live tokens, the INSTANCE_CANCELLED append, the audit row last.
       It never goes child-ward. On the parent side every writer follows projection, token, sequence row,
-      audit row: `complete_task/3`, `Scheduler.fire_timer`, `ExecutionError`, and the cascade
+      audit row: `complete_task/3`, `Scheduler.fire_timer` (escalation: the task rows first), `ExecutionError`, and the cascade
       (`SubProcess.lock_waiting_parent/3`: parent projection, then the token re-selected
       `FOR UPDATE`; GH #2695).
 
@@ -451,9 +459,8 @@ defmodule Letflow.Engine do
   transaction).
 
   Known gaps, tracked and NOT closed so far: cold appenders that append before locking the
-  projection (`Scheduler.fire_timer`'s TIMER_FIRED, reminder fire, attachment events), the HUMAN tail's timer cancel after the projection, and
-  escalation fire's `tasks` lock after the projection (GH #2707); timers and dispatch rows armed
-  during a cancel's wait for the projection. The no-cycle argument covers the paths named in
+  projection (attachment events, a Lua `emit_event`; GH #2707 PR-2); dispatch and script-CAS rows
+  armed during a cancel's wait for the projection. The no-cycle argument covers the paths named in
   `lib/letflow/design/gh2704-lock-order-family.md` and nothing else.
 
   The cascade recurses ancestor-ward (child to parent to grandparent), never downward. The
@@ -4016,9 +4023,10 @@ defmodule Letflow.Engine do
   # for the still-pending task at (instance, token, node). No pending task
   # there means the reminder outlived its task (race with completion or
   # escalation) -- `{:ok, :reminder_stale}`, nothing written, and the caller
-  # skips the re-arm. Deliberately takes no task/projection row lock: the
-  # caller holds the timer row, and complete_task/3 locks task -> projection
-  # -> timers, so locking here would add a lock-order inversion (design §3.2).
+  # skips the re-arm. Takes no lock of its own: since GH #2707 the caller
+  # (Scheduler.fire_timer/2, through lock_for_timer_fire/3) already holds the
+  # instance projection before the timer row, and every task status change
+  # needs that projection, so this plain read of the pending task is consistent.
   @doc false
   @spec record_reminder_fired(Timer.t(), Ecto.Repo.t(), prefix :: String.t()) ::
           {:ok, :reminded}
@@ -4103,6 +4111,55 @@ defmodule Letflow.Engine do
   # =========================================================================
   # advance_after_escalation_timer_fired/3 (REQ-396, design doc §4.3)
   # =========================================================================
+
+  # The pending tasks rows of one token: the ONE predicate behind both the escalation fire's
+  # pre-`P_x` lock (`lock_for_timer_fire/3`) and its `:original_task_row` step, so the two sets
+  # cannot drift apart (GH #2707).
+  defp pending_token_tasks_query(token_id) do
+    Letflow.Engine.Task
+    |> where([t], t.token_id == ^token_id and t.status == :pending)
+  end
+
+  @doc false
+  # GH #2707 (decision 0061, "Amended (GH #2707, PR-1)"): the lock prelude of `Scheduler.fire_timer/2`,
+  # called inside its transaction BEFORE the timer row is locked. Order: (1) escalation timers only,
+  # the pending `tasks` rows of the timer's token (the same relative order as `complete_task/3` and
+  # `cancel_instance/3`: the task row before `P_x`); (2) `P_x` `FOR UPDATE` with NO status filter, so
+  # the scheduler learns the status of a dead instance and can settle its timers; (3) only for an
+  # `:active` instance, the immediate parent group `FOR KEY SHARE` (a timer fire never runs the
+  # sub-process completion cascade, so the `:continuing` intent is the right one; no-op for an
+  # instance that is not a waiting child). After this the second UPDATE of a child's projection
+  # (`reconcile_projection`) finds its foreign-key locks already held (GH #2708/#2709 mechanism).
+  # Writes nothing. `advance_after_*` keep their own `P_x` lock (now a no-op re-lock).
+  @spec lock_for_timer_fire(Timer.t(), Ecto.Repo.t() | module(), prefix :: String.t()) ::
+          {:ok, InstanceProjection.t()} | {:error, :instance_not_found} | {:error, term()}
+  def lock_for_timer_fire(%Timer{} = timer, repo, prefix) do
+    if timer.timer_type == "escalation" and not is_nil(timer.token_id) do
+      timer.token_id
+      |> pending_token_tasks_query()
+      |> order_by([t], asc: t.id)
+      |> lock("FOR UPDATE")
+      |> repo.all(prefix: prefix)
+    end
+
+    InstanceProjection
+    |> where([p], p.instance_id == ^timer.instance_id)
+    |> lock("FOR UPDATE")
+    |> repo.one(prefix: prefix)
+    |> case do
+      nil ->
+        {:error, :instance_not_found}
+
+      %InstanceProjection{status: :active} = projection ->
+        with {:ok, _tokens} <-
+               lock_parent_group(repo, timer.instance_id, :continuing, prefix) do
+          {:ok, projection}
+        end
+
+      %InstanceProjection{} = projection ->
+        {:ok, projection}
+    end
+  end
 
   # Called from Letflow.Scheduler.do_fire/2 when timer_type == "escalation",
   # still inside fire_timer/2's already-open Repo.transaction/1. Mirrors
@@ -4244,8 +4301,8 @@ defmodule Letflow.Engine do
               # Task.complete_changeset/2 (changeset-backed Repo.update/2, which
               # bumps updated_at) instead of update_all/3 (which bypassed it).
               |> Multi.run(:original_task_row, fn inner_repo, _changes ->
-                Letflow.Engine.Task
-                |> where([t], t.token_id == ^timer.token_id and t.status == :pending)
+                timer.token_id
+                |> pending_token_tasks_query()
                 |> lock("FOR UPDATE")
                 |> inner_repo.one(prefix: prefix)
                 |> case do
@@ -8692,37 +8749,13 @@ defmodule Letflow.Engine do
     |> Multi.run(:open_tasks, fn repo, _changes ->
       fetch_and_lock_open_tasks(repo, instance_id, prefix)
     end)
-    |> Multi.run(:timer_cancellations, fn repo, _changes ->
-      # REQ-187 design doc §6.1-§6.2 -- positioned here, between :open_tasks
-      # and :instance_projection, NOT grouped with :task_cancellations/
-      # :token_cancellations after :eligibility as its topical grouping
-      # might suggest. This ordering is load-bearing, not cosmetic: it
-      # makes cancel_instance/3 acquire the `timers` lock before the
-      # `instance_projections` lock, uniformly matching
-      # Letflow.Scheduler.fire_timer/2's own (`timers` then
-      # `instance_projections`, via advance_after_timer_fired/3) lock
-      # order -- avoiding the AB-BA Postgres deadlock two code paths
-      # locking the same two tables in opposite order would otherwise
-      # produce. Running before :eligibility (M3) has confirmed the
-      # instance isn't already terminal is intentional: an ineligible
-      # cancel_instance/3 call still executes this update_all, but
-      # Ecto.Multi rolls back the entire transaction the moment
-      # :eligibility later returns {:error, _}, so no row is left changed
-      # by an ineligible attempt.
-      TaskActivation.cancel_pending_timers(
-        repo,
-        instance_id,
-        cancelled_at,
-        "instance_cancelled",
-        prefix
-      )
-    end)
     |> Multi.run(:service_task_dispatch_cancellations, fn repo, _changes ->
-      # REQ-215 design doc §4 -- positioned identically to
-      # :timer_cancellations immediately above, for the identical
-      # lock-ordering reason: acquire the service_task_dispatches lock
-      # before the instance_projections lock, matching every other code
-      # path's lock order (avoids an AB-BA Postgres deadlock).
+      # REQ-215 design doc §4 -- positioned before :instance_projection
+      # (class 1, like :open_tasks), for the lock-ordering reason: acquire
+      # the service_task_dispatches lock before the instance_projections
+      # lock, matching every other code path's lock order (avoids an AB-BA
+      # Postgres deadlock). Unlike the timers (GH #2707: now after `P_x`,
+      # see :timer_cancellations below) these rows are not P-protected.
       ServiceTaskDispatcher.cancel_pending_dispatches(repo, instance_id, cancelled_at, prefix)
     end)
     |> Multi.run(:script_task_dispatch_cancellations, fn repo, _changes ->
@@ -8754,6 +8787,23 @@ defmodule Letflow.Engine do
       # group, is complete. NON-WAITING (SKIP LOCKED): a wait on a task row here could close a
       # cycle with its holder, who is queued behind `P_x`.
       recheck_open_tasks(repo, instance_id, prefix)
+    end)
+    |> Multi.run(:timer_cancellations, fn repo, _changes ->
+      # GH #2707 (decision 0061, "Amended (GH #2707, PR-1)"): timer rows are P-protected. They are
+      # touched only while `P_x` is held, so this step sits after `:instance_projection`, the
+      # ancestor group and `:open_tasks_recheck`, and before `:task_cancellations`. That is the
+      # order `Scheduler.fire_timer/2` has (`P_x` before the timer row, through
+      # `Engine.lock_for_timer_fire/3`), which removes the AB-BA between the two. REQ-187 design
+      # doc §6.1-§6.2 (SCH-03) still holds: every pending timer of the instance is cancelled,
+      # now including one a cascade armed while this cancel waited for `P_x`. An ineligible
+      # cancel no longer runs this UPDATE at all (`:eligibility` stops the Multi first).
+      TaskActivation.cancel_pending_timers(
+        repo,
+        instance_id,
+        cancelled_at,
+        "instance_cancelled",
+        prefix
+      )
     end)
     |> Multi.run(:task_cancellations, fn repo, %{open_tasks_recheck: open_tasks} ->
       cancel_task_rows(repo, open_tasks, cancelled_at, prefix)

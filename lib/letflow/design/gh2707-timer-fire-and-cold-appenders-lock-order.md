@@ -670,3 +670,46 @@ PR-1); the `margin_ms` of the green cases (measured and recorded by ELIXIR-DEV).
 | PR split, SECURITY-REVIEWER triggers, risks, rollout | 9, 11 |
 | 0061 amendment verbatim, one appendable text, closes the Open bullet | 10 |
 | 2026-10-18 residual comment on #2707 (cancel sets no `lock_timeout`; the ExecutionError landing step raises at `execution_error.ex:219` with no DLQ row) | owned by #2706 PR-2 (cancel lock timeout) and #2706 PR-3 (landing); NOT in #2707's PRs. #2707 closes with PR-3 on the condition those two have merged; referenced in each of this note's PR bodies |
+
+## 14. As built (PR-1)
+
+Written by ELIXIR-DEV after the build, on REVIEWER finding F1. Where this section and the sections above
+disagree, this section describes what shipped. Commit `168d8409` plus its review follow-up.
+
+1. **F6b is RED on main (the section 8.1 row F6b claim "green (unreachable)" is wrong).** With the
+   projection-first foreign-key order the child timer fire still deadlocks against `cancel_instance(parent)`
+   on main (Postgres reported `deadlock_detected` on the `SELECT 1 FROM ONLY instance_projections x ...
+   FOR KEY SHARE OF x` statement of the foreign-key check). Why, by reading and consistent with that report
+   (the cycle was not separately measured): the foreign-key order only decides whether the parent TOKEN is
+   also part of the cycle. The fire already holds the tenant-wide audit chain row `A` (its `task.create`
+   audit) and the child's sequence row when `reconcile_projection` issues UPDATE #2 of `P_c`, whose check
+   queues `KEY SHARE` on `P_p` behind cancel(parent). Cancel(parent) holds `P_p` and wants `A` for its
+   `instance.cancel` audit, so `P_p` versus `A` closes a cycle in EITHER foreign-key order; the token-first
+   order adds the `T_p` cycle of F6. After the fix the group is taken before `A` and before the first write,
+   so both orders are green. F6 and F6b share one body in the test file.
+2. **Child fixture graph.** A child created through a SUB_PROCESS node does not arm a TIMER that directly
+   follows its START. The F-tests use the child graph START -> HUMAN (h0) -> TIMER -> HUMAN (h1) -> END and
+   complete h0 to arm the timer.
+3. **Peek shortcut (a small extension of section 4.1 steps 1 and 3).** After the unlocked peek,
+   `fire_timer/2` returns `{:ok, :already_final}` at once, taking no lock, when the peeked timer is not
+   `pending`. Safe because the terminal statuses (`fired`, `cancelled`, `failed`) never revert to `pending`.
+   The locked re-check of step 3 stays for the race where the status changes after the peek.
+4. **F7 is a pin, not a red.** The `FOR KEY SHARE` group statements and the "a sibling's key share does not
+   block the fire" case pass on main too (main takes no group at all); they pin the mode of the new lock.
+   The sibling case holds `FOR KEY SHARE` on the parent projection from another connection; it does not
+   build a second child with a completing `FOR UPDATE` group.
+5. **Telemetry and log after the commit.** The `[:letflow, :scheduler, :timers_settled]` event and the info
+   log are emitted after `Repo.transaction/1` returned, so a rolled-back settle never announces itself.
+   Measurement `count` is the number of timers the instance-wide statement cancelled.
+6. **Verified for the 0061 amendment, item 1** (SECURITY F6): every writer of `timers` rows holds `P_x`
+   (or a row nobody else can see) except the two named exceptions. The paths read: the `complete_task/3`
+   tail (`:cancel_escalation_timers`, `:cancel_reminder_timers`, after `:instance_projection`); the
+   escalation fire's reminder cancellation and the arm inserts (inside the fire, after the prelude);
+   `cancel_instance/3` (`:timer_cancellations`, after `:instance_projection`); the settle (after the
+   prelude); and `finalize_instance_projection/5`'s `instance_completed` cancel, whose only caller is
+   `create/2` and which runs on a projection row inserted by the same transaction (no other transaction can
+   see it). `record_fire_failure/2` (own transaction, timer row alone, plus its DLQ insert) and
+   `claim_due_timer_ids/2` are the exceptions the amendment already names.
+7. **Irreversibility of the `:error` settle** (SECURITY F2) is documented on `Scheduler.fire_timer/2`: the
+   reason string `instance_error` is greppable, and a future resume / reconstruct feature must re-arm the
+   timers.

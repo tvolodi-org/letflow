@@ -84,7 +84,8 @@ defmodule Letflow.LockOrderHelpers do
   @doc """
   Holds one row `FOR UPDATE` on a third connection until `:release` is sent to the holder;
   returns `{task, backend_pid}`. `spec` is `{:sequence, instance_id}`,
-  `{:projection, instance_id}`, `{:task, task_id}` (GH #2706: one `tasks` row) or `:audit_chain` (the
+  `{:projection, instance_id}`, `{:task, task_id}` (GH #2706: one `tasks` row), `{:timer, timer_id}` (GH #2707: one `timers`
+  row) or `:audit_chain` (the
   tenant's one `audit_chain_locks` row).
   """
   @spec hold_row(
@@ -92,6 +93,7 @@ defmodule Letflow.LockOrderHelpers do
           {:sequence, Ecto.UUID.t()}
           | {:projection, Ecto.UUID.t()}
           | {:task, Ecto.UUID.t()}
+          | {:timer, Ecto.UUID.t()}
           | :audit_chain
         ) ::
           {Task.t(), pos_integer()}
@@ -114,6 +116,13 @@ defmodule Letflow.LockOrderHelpers do
       hold(
         ~s(SELECT 1 FROM "#{schema}"."tasks" WHERE id = $1 FOR UPDATE),
         [Ecto.UUID.dump!(task_id)]
+      )
+
+  def hold_row(schema, {:timer, timer_id}),
+    do:
+      hold(
+        ~s(SELECT 1 FROM "#{schema}"."timers" WHERE id = $1 FOR UPDATE),
+        [Ecto.UUID.dump!(timer_id)]
       )
 
   def hold_row(schema, :audit_chain),
