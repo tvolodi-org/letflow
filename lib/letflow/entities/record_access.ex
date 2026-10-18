@@ -61,6 +61,30 @@ defmodule Letflow.Entities.RecordAccess do
 
   defp decide(_owner, _access, _definition, _restrictions), do: :hidden
 
+  @typedoc """
+  `:hidden`: the type is denied to the caller, or the read failed (one value, no payload).
+  `:open`: the attachment route proceeds as it always did.
+  """
+  @type attachment_decision :: :hidden | :open
+
+  @doc """
+  The gate of the four record ATTACHMENT routes (design section 7): ONE read,
+  `TypeAccess.authorized?/3`; anything but `{:ok, :allowed}` (denied or a failed read) is
+  `:hidden`. No definition-existence and no managed read on purpose: the attachment routes work on
+  a type with no active definition, and `:hidden` is applied by substituting fresh UUIDs for the
+  ids, which is the absent answer by construction, so existence needs no probe. Writes nothing,
+  logs nothing, audits nothing (INV-8).
+  """
+  @spec attachment(user_id :: String.t(), entity_type :: String.t(), prefix :: String.t()) ::
+          attachment_decision()
+  def attachment(user_id, entity_type, prefix)
+      when is_binary(user_id) and is_binary(entity_type) and is_binary(prefix) do
+    case TypeAccess.authorized?(user_id, entity_type, prefix) do
+      {:ok, :allowed} -> :open
+      _denied_or_failed -> :hidden
+    end
+  end
+
   @doc """
   True iff `field_values` is a map with at least one top-level key in `restricted`. A non-map is
   false (the schema and `Records` layers reject it).
