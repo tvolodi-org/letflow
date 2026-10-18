@@ -8,7 +8,7 @@
   "file": "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-26-test-designer-2d.json",
   "created_at": "2026-10-18T11:35:41Z",
   "started_at": "2026-10-18T11:35:41Z",
-  "completed_at": "2026-10-18T12:44:38Z",
+  "completed_at": "2026-10-18T13:56:30Z",
   "status": "COMPLETED",
   "priority": "HIGH",
   "context": {
@@ -41,7 +41,7 @@
   },
   "result": {
     "status": "PASS",
-    "summary": "137 new tests in 8 new files plus the extended TaskScopeFixture, ALL GREEN, run per file, one mix at a time under the shared mixlock (MIX_ENV=test, default log level): tasks_scope_node_id_migration_test 9, scope_node_id_no_writer_scan_test 7, scope_for_role_test 27, f1_context_test 33, tasks_scope_http_test 18, tasks_scope_inv5_http_test 19, tasks_route_classes_test 11, roles_scoped_approvers_test 13. Neighbours green: engine/entity_writes_lock_order_test 5 and engine/module_write_lock_order_test 6 (UNEDITED, T-F17), engine_distinct_from_test 40, engine_distinct_from_concurrency_test 2, tasks_distinct_from_test 13 (T-F12), tasks_test + route_scope_walk_test + route_scope_resolver_test + route_scope_self_service_test 144 together, engine_complete_task_test green. mix format --check-formatted over every new or changed test file: 0. No compile warning in any new file. 43 mutants measured in memory: 42 killed, 1 survives (M2, equivalent by construction). NOT RUN (by instruction): mix letflow.check.test, any full or multi-partition suite. One environmental note: tasks_distinct_from_test A-15 asserts on a WARNING log line and fails under LOG_LEVEL=error (my first batch used it); at the default level it passes (13). No implementation bug found; one spec-vs-build observation (OBS-1).",
+    "summary": "137 new tests in 8 new files plus the extended TaskScopeFixture, ALL GREEN, run per file, one mix at a time under the shared mixlock (MIX_ENV=test, default log level): tasks_scope_node_id_migration_test 9, scope_node_id_no_writer_scan_test 7, scope_for_role_test 27, f1_context_test 33, tasks_scope_http_test 18, tasks_scope_inv5_http_test 19, tasks_route_classes_test 11, roles_scoped_approvers_test 13. Neighbours green: engine/entity_writes_lock_order_test 5 and engine/module_write_lock_order_test 6 (UNEDITED, T-F17), engine_distinct_from_test 40, engine_distinct_from_concurrency_test 2, tasks_distinct_from_test 13 (T-F12), tasks_test + route_scope_walk_test + route_scope_resolver_test + route_scope_self_service_test 144 together, engine_complete_task_test green. mix format --check-formatted over every new or changed test file: 0. No compile warning in any new file. 43 mutants measured in memory: 42 killed, 1 survives (M2, equivalent by construction). NOT RUN (by instruction): mix letflow.check.test, any full or multi-partition suite. One environmental note: tasks_distinct_from_test A-15 asserts on a WARNING log line and fails under LOG_LEVEL=error (my first batch used it); at the default level it passes (13). No implementation bug found; one spec-vs-build observation (OBS-1). CI FOLLOW-UP: one forced edit to test/letflow/plugs/authorize_scope_on_test.exs (T-G9, 12 passed); the second CI failure of partition 5 could not be identified from the log (see the last implementation_findings entry); 25 further existing files that could encode the interim behaviour pass.",
     "local_issue_id": null,
     "tests_run": true,
     "tests_run_scope": "per file, one mix at a time under C:\\Users\\tvolo\\AppData\\Local\\Temp\\claude\\mixlock (taken and released per run by this step; another session's lock was waited for, never removed); no full-suite and no multi-partition run; no mix letflow.check.test",
@@ -58,7 +58,8 @@
     ],
     "files_changed": [
       "test/support/task_scope_fixture.ex (the implementer's helper EXTENDED: provision!, caller!, set_grant!, principal, insert_task!, start_task!, fire_escalation!, call, wire, statements, interleave, audit readers; set_scope_node! kept as the only writer)",
-      "test/support/scope_set_fixture.ex (build_tree!/1 made public: one definition of the node tree)"
+      "test/support/scope_set_fixture.ex (build_tree!/1 made public: one definition of the node tree)",
+      "test/letflow/plugs/authorize_scope_on_test.exs (FORCED EDIT after hosted CI of PR #2838: 517 T-G9 'the real tasks list' now asserts the scoped-only TASK_WORKER gets 200 and the empty filtered page {items: [], next_cursor: nil, count: 0} with NO enforce deny telemetry under on, off unchanged, tenant-wide assertions kept; test name and moduledoc updated)"
     ],
     "coverage": {
       "AC 12": "T-F1 (migration: cloned and replayed tenant shape, RESTRICT FK confdeltype r, partial index, manifest last/once/ordered, the if prefix() guard, FK behavior, down repeatable and guarded, replay after down, replay no-op, no new table); T-F2 (AST ledger scan of lib/ incl. strings/raw SQL, def-level writer check, scanner proven live on 10 seeded writer forms, every Task changeset ignores the key, no response map or audit payload names it); reads covered in f1_context_test",
@@ -298,7 +299,8 @@
       "OBS-3: M2 is equivalent: ScopeResolver.task_scope returning :unresolvable for a NULL node is defence in depth; the refusal of a NULL-node task for scoped callers is carried by the node-set predicate (in_scope, filter_by_scope) and by allowed_for_role? against :tenant_wide.",
       "OBS-4 (as-built pin): at the context layer claim_task/complete_task answer task_not_pending for a non-pending task before the recheck; the router-level Tasks.in_scope/3 runs first, so completed and cancelled out-of-scope tasks give the same 404 over HTTP (tested).",
       "OBS-5 (environment): tasks_distinct_from_test A-15 fails under LOG_LEVEL=error because it asserts on a WARNING line; it passes at the default level. Not an F1 regression.",
-      "OBS-6: the design text still names migration version 20261019100001 (REVIEWER F-4, CODE-DESIGNER/DOC-UPDATER); the tests use 20_261_019_200_001."
+      "OBS-6: the design text still names migration version 20261019100001 (REVIEWER F-4, CODE-DESIGNER/DOC-UPDATER); the tests use 20_261_019_200_001.",
+      "CI FOLLOW-UP (PR #2838, shard 2/3 partition 5, 2 failures): failure 1 = authorize_scope_on_test.exs:234 (T-G9), an intended behaviour change of the slice (GET /tasks is now :filter), fixed as a forced edit; passes (12). Failure 2 is NOT in the supplied log: the log holds exactly one failure block ('1)'), no '2)', no property failure and no ##[error] line besides the first; the partition output is truncated after it. To find it I ran per file, all green: scope_shadow_test 6, off_shadow_byte_identity_test 3, shadow_evidence_test 31, engine/schemas_test 29, engine/migrations_test 14, admin_plane_under_on_test 8, deny_reason_agreement_test 2, scope/enforce_test 17, shadow_counters_migration_test 9, scope_test 16, entities/scope_all_scan_test 17, route_scope_exam_guard_test 11, route_scope_test 31, authorization_enforcement_test 22, tenant_auditor_routes_test 30, platform_admin_outside_platform_test 25, roles_matrix_parity_test 26, ci_backend_path_filter_test 18, migration_filenames_test 2, event_store/migrations_test 13, definitions/migrations_test 14, lua_script_audit_retired_test 4, stamp_trigger_test 12, role_scope_grants_fk_test 9, req442_tenant_mode_schema_test 12. No other existing test encodes the interim task-route behaviour (grep of 'until REQ-518', :TasksList and the task paths, the shadow/off fixtures, the snapshot and the migration/column counts). The second failure is therefore most likely a flake or a test outside the files that mention tasks; it needs the full partition-5 log (/tmp/letflow_test_parallel.YXppex/partition-5.log) or a re-run of the shard."
     ],
     "artifacts_out": [
       "test/specs/REQ-518-2d.md",
@@ -311,7 +313,8 @@
       "test/letflow/api/tasks_route_classes_test.exs",
       "test/letflow/docs/roles_scoped_approvers_test.exs",
       "test/support/task_scope_fixture.ex",
-      "test/support/scope_set_fixture.ex"
+      "test/support/scope_set_fixture.ex",
+      "test/letflow/plugs/authorize_scope_on_test.exs"
     ],
     "run_command_for_test_runner": "for each of: test/letflow/migrations/tasks_scope_node_id_migration_test.exs test/letflow/tasks/scope_node_id_no_writer_scan_test.exs test/letflow/api/scope_for_role_test.exs test/letflow/tasks/f1_context_test.exs test/letflow/routers/tasks_scope_http_test.exs test/letflow/routers/tasks_scope_inv5_http_test.exs test/letflow/api/tasks_route_classes_test.exs test/letflow/docs/roles_scoped_approvers_test.exs : MIX_ENV=test mix test <file> (each 1 to 60 s); then the neighbours: test/letflow/engine/entity_writes_lock_order_test.exs test/letflow/engine/module_write_lock_order_test.exs test/letflow/routers/tasks_distinct_from_test.exs test/letflow/routers/tasks_test.exs test/letflow/engine_distinct_from_test.exs (at the DEFAULT log level: tasks_distinct_from_test A-15 asserts on a warning line); then hosted CI is the suite.",
     "implementation_written": false

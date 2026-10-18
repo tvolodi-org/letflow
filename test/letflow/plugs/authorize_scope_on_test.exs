@@ -56,8 +56,8 @@ defmodule Letflow.Plugs.AuthorizeScopeOnTest do
       behave identically (T-C9);
     * under `off` and `shadow` the same scoped caller reaches every handler (the plug never halts);
     * the real tasks list (`AllowWithRowFilter`): a tenant-wide TASK_WORKER gets the same 200 body
-      under `on` as under `off` (T-G9), a scoped-only worker gets the 403 the design documents
-      until REQ-518 reclassifies the task routes;
+      under `on` as under `off` (T-G9), a scoped-only worker gets the 200 filtered page
+      since REQ-518 2d reclassified GET /tasks to `:filter` (it was a 403 before);
     * the unmatched-route catch-all of a real router keeps its uniform 403 under `on` (T-G5).
 
   `async: false`: committed writes and VM-global telemetry handlers.
@@ -231,7 +231,7 @@ defmodule Letflow.Plugs.AuthorizeScopeOnTest do
 
   # ===========================================================================================
   describe "T-G9 the real tasks list (AllowWithRowFilter)" do
-    test "a tenant-wide TASK_WORKER gets the same 200 body under on as under off; a scoped-only worker is refused until REQ-518" do
+    test "a tenant-wide TASK_WORKER gets the same 200 body under on as under off; a scoped-only worker gets 200 and the filtered body (REQ-518 2d)" do
       fx = S.tenant!("r517-aon-tasks")
       worker = TokenMintFixture.role_holder!(fx.schema_name, ["TASK_WORKER"])
       scoped_worker = On.scoped_holder!(fx, "TASK_WORKER")
@@ -246,11 +246,20 @@ defmodule Letflow.Plugs.AuthorizeScopeOnTest do
       assert Jason.decode!(on.resp_body) == %{"items" => [], "next_cursor" => nil, "count" => 0}
 
       ref = On.attach_enforce_denied!()
-      refused = On.call(router, :get, "/", fx, scoped_worker.id, ["TASK_WORKER"], :on, nil)
-      assert refused.status == 403
-      assert [{_m, %{policy: :TasksList, reason: :not_tenant_wide}}] = On.drain(ref)
+      # REQ-518 2d: GET /tasks is a :filter route, so the scoped-only worker is no longer refused
+      # by the tenant-wide rule; the F1 filter answers 200 with the (here empty) filtered page.
+      filtered = On.call(router, :get, "/", fx, scoped_worker.id, ["TASK_WORKER"], :on, nil)
+      assert filtered.status == 200
 
-      # off: the same scoped worker is not refused by the scope rule
+      assert Jason.decode!(filtered.resp_body) == %{
+               "items" => [],
+               "next_cursor" => nil,
+               "count" => 0
+             }
+
+      assert On.drain(ref) == []
+
+      # off: unchanged, the same scoped worker is not refused by the scope rule
       assert On.call(router, :get, "/", fx, scoped_worker.id, ["TASK_WORKER"], :off, nil).status ==
                200
     end
