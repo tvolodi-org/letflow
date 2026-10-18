@@ -63,6 +63,22 @@ defmodule Letflow.Entities.EventTypes do
     "additionalProperties" => false
   }
 
+  # GH #2659 / REQ-505: v2 of ENTITY_RECORD_CREATED = the same schema plus an OPTIONAL top-level
+  # `external_ref` object. Every v1 payload is also a valid v2 payload.
+  @created_v2_schema %{
+    @created_or_updated_schema
+    | "properties" =>
+        Map.put(@created_or_updated_schema["properties"], "external_ref", %{
+          "type" => "object",
+          "required" => ["system", "id"],
+          "properties" => %{
+            "system" => %{"type" => "string"},
+            "id" => %{"type" => "string"}
+          },
+          "additionalProperties" => false
+        })
+  }
+
   @deleted_schema %{
     "type" => "object",
     "required" => ["entity_type", "entity_def_version", "record_id"],
@@ -77,9 +93,15 @@ defmodule Letflow.Entities.EventTypes do
   @event_type_specs [
     %{
       name: "ENTITY_RECORD_CREATED",
-      schema_version: 1,
-      json_schema: @created_or_updated_schema,
-      description: "An entity record was created (REQ-228)."
+      # v2 (GH #2659 / REQ-505): bumped IN PLACE, like TASK_ENTITY_WRITES_APPLIED v2 (a v1 entry
+      # kept beside v2 would fail every replay with :schema_version_not_monotonic for a tenant
+      # already at v2). An upgraded tenant registers v2 at its next replay (monotonic); a
+      # re-seed of an already-upgraded tenant hits the :duplicate_event_type_version skip.
+      schema_version: 2,
+      json_schema: @created_v2_schema,
+      description:
+        "An entity record was created (REQ-228). Version 2 adds the OPTIONAL top-level " <>
+          "external_ref {system, id} object (GH #2659); every v1 payload is also a valid v2 payload."
     },
     %{
       name: "ENTITY_RECORD_UPDATED",

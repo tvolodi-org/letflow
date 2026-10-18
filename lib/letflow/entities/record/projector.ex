@@ -93,6 +93,8 @@ defmodule Letflow.Entities.Record.Projector do
           field_values: map(),
           deleted: boolean(),
           entity_def_version: binary(),
+          external_system: String.t() | nil,
+          external_id: String.t() | nil,
           last_event_global_seq: pos_integer(),
           last_event_sequence_number: pos_integer(),
           last_event_type: String.t()
@@ -279,7 +281,9 @@ defmodule Letflow.Entities.Record.Projector do
           record_id: snapshot.record_id,
           field_values: snapshot.field_values,
           entity_def_version: snapshot.entity_def_version,
-          last_event_global_seq: snapshot.last_event_global_seq
+          last_event_global_seq: snapshot.last_event_global_seq,
+          external_system: snapshot.external_system,
+          external_id: snapshot.external_id
         })
         |> maybe_mark_deleted(snapshot.deleted)
         |> Repo.insert!(prefix: prefix)
@@ -458,6 +462,8 @@ defmodule Letflow.Entities.Record.Projector do
        field_values: Map.get(event.payload, "field_values", %{}),
        deleted: false,
        entity_def_version: decode_entity_def_version(event.payload),
+       external_system: external_ref_part(event.payload, "system"),
+       external_id: external_ref_part(event.payload, "id"),
        last_event_global_seq: event.global_seq,
        last_event_sequence_number: event.sequence_number,
        last_event_type: event.event_type
@@ -511,6 +517,16 @@ defmodule Letflow.Entities.Record.Projector do
   # Unrecognized event_type, at any fold state.
   defp apply_event(_acc, %{event_type: event_type, event_id: event_id}, _record_id) do
     {:error, {:corrupt_event_stream, {:unrecognized_event_type, event_type, event_id}}}
+  end
+
+  # GH #2659: the master external_ref is set only by CREATED (optional payload object); UPDATED
+  # and DELETED carry the accumulator's pair forward unchanged (the `%{acc | ...}` clauses above
+  # never touch it) and never clear it.
+  defp external_ref_part(payload, key) do
+    case Map.get(payload, "external_ref") do
+      %{^key => value} when is_binary(value) -> value
+      _ -> nil
+    end
   end
 
   # Mirrors `Letflow.Entities.Records`'s own `duplicate_result/1`/`hex_version/1`

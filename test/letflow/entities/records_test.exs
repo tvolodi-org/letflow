@@ -154,7 +154,9 @@ defmodule Letflow.Entities.RecordsTest do
       for name <- ~w(ENTITY_RECORD_CREATED ENTITY_RECORD_UPDATED ENTITY_RECORD_DELETED) do
         rows = Repo.all(from(e in EventType, where: e.name == ^name), prefix: schema)
         assert length(rows) == 1
-        assert hd(rows).schema_version == 1
+        # GH #2659: CREATED is bumped IN PLACE to v2 (optional external_ref); no v1 row beside it.
+        expected_version = if name == "ENTITY_RECORD_CREATED", do: 2, else: 1
+        assert hd(rows).schema_version == expected_version
       end
     end
 

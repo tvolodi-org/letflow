@@ -349,7 +349,9 @@ defmodule Letflow.Entities.Records do
         expected_last_event_global_seq: nil,
         idempotency_match: match,
         prefix: prefix,
-        authority: authority
+        authority: authority,
+        # GH #2659: set only by the upsert-by-external-ref primitive (a later PR); nil here.
+        external_ref: nil
       }
 
       run_command(ctx, attrs)
@@ -563,7 +565,9 @@ defmodule Letflow.Entities.Records do
         existing_record: nil,
         expected_last_event_global_seq: nil,
         idempotency_match: :request,
-        prefix: prefix
+        prefix: prefix,
+        # GH #2659: engine step writes never carry an external ref (NULL/NULL columns).
+        external_ref: nil
       }
 
       event_attrs =
@@ -835,7 +839,11 @@ defmodule Letflow.Entities.Records do
   end
 
   defp build_event_attrs(%{kind: :create} = ctx, attrs, instance_id) do
-    payload = base_payload(ctx) |> Map.put("field_values", ctx.field_values)
+    payload =
+      base_payload(ctx)
+      |> Map.put("field_values", ctx.field_values)
+      |> put_external_ref(ctx.external_ref)
+
     to_append_attrs("ENTITY_RECORD_CREATED", payload, attrs, instance_id)
   end
 
@@ -848,6 +856,18 @@ defmodule Letflow.Entities.Records do
     payload = base_payload(ctx)
     to_append_attrs("ENTITY_RECORD_DELETED", payload, attrs, instance_id)
   end
+
+  # GH #2659: the payload gains "external_ref" only when a ref is supplied, so every other
+  # payload stays byte-identical to today.
+  defp put_external_ref(payload, nil), do: payload
+
+  defp put_external_ref(payload, %{system: system, id: id}),
+    do: Map.put(payload, "external_ref", %{"system" => system, "id" => id})
+
+  defp external_ref_columns(nil), do: %{}
+
+  defp external_ref_columns(%{system: system, id: id}),
+    do: %{external_system: system, external_id: id}
 
   defp base_payload(%{entity_type: entity_type, record_id: record_id, definition: definition}) do
     %{
@@ -869,13 +889,18 @@ defmodule Letflow.Entities.Records do
 
   defp upsert_record_latest(repo, changes, %{kind: :create} = ctx) do
     %Latest{}
-    |> Latest.insert_changeset(%{
-      entity_type: ctx.entity_type,
-      record_id: ctx.record_id,
-      field_values: ctx.field_values,
-      entity_def_version: ctx.definition.logical_shape_version,
-      last_event_global_seq: fetch_global_seq(changes)
-    })
+    |> Latest.insert_changeset(
+      Map.merge(
+        %{
+          entity_type: ctx.entity_type,
+          record_id: ctx.record_id,
+          field_values: ctx.field_values,
+          entity_def_version: ctx.definition.logical_shape_version,
+          last_event_global_seq: fetch_global_seq(changes)
+        },
+        external_ref_columns(ctx.external_ref)
+      )
+    )
     |> repo.insert(prefix: ctx.prefix)
   end
 
