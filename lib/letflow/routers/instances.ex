@@ -1580,7 +1580,8 @@ defmodule Letflow.Routers.Instances do
 
   defp link_audit_failed do
     Logger.error("attachment_link.issued audit write failed")
-    {:error, :link_audit_failed}
+    # MUTANT N8: audit failure no longer fails closed
+    :ok
   end
 
   defp render_attachment_link(conn, raw_id, raw_attachment_id, token, expires_at) do
