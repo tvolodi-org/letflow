@@ -42,6 +42,7 @@ defmodule Letflow.Tasks.ScopeNodeIdNoWriterScanTest do
   # the grants / node-path area: `role_scope_grants.scope_node_id` and its callers. None may touch tasks.
   @grants_area [
     "lib/letflow/api/scope.ex",
+    "lib/letflow/identity/membership_scope.ex",
     "lib/letflow/identity/role_scope_grant.ex",
     "lib/letflow/identity/role_scope_grants.ex",
     "lib/letflow/identity/scoped_grants.ex",
