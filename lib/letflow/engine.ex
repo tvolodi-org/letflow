@@ -443,8 +443,8 @@ defmodule Letflow.Engine do
   is the exception: its first UPDATE already takes the FK locks (the row was inserted by this
   transaction).
 
-  Known gaps, tracked and NOT closed so far: cold appenders that append before locking the projection (`Scheduler.fire_timer`'s TIMER_FIRED,
-  reminder fire, attachment events), the HUMAN tail's timer cancel after the projection, and
+  Known gaps, tracked and NOT closed so far: cold appenders that append before locking the
+  projection (`Scheduler.fire_timer`'s TIMER_FIRED, reminder fire, attachment events), the HUMAN tail's timer cancel after the projection, and
   escalation fire's `tasks` lock after the projection (GH #2707); cancel's open-tasks snapshot taken
   before the projection lock (GH #2706). The no-cycle argument covers the paths named in
   `lib/letflow/design/gh2704-lock-order-family.md` and nothing else.
@@ -8625,10 +8625,11 @@ defmodule Letflow.Engine do
         check_cancel_eligibility(projection)
       end)
       |> Multi.run(:lock_ancestors, fn repo, _changes ->
-        # GH #2708: after the child's projection (L3) and its eligibility, before the first
-        # write that UPDATEs the child's projection row (the second UPDATE of the transaction
-        # takes the parent FK locks). A cancel never completes the child: KEY SHARE, immediate
-        # parent only. No-op for an instance that is not a waiting child.
+        # GH #2708: after the child's projection (L3) and its eligibility, and BEFORE the FIRST
+        # UPDATE of the child's projection row (the :event step's last_event_seq bump). That is
+        # what makes the second UPDATE's FK check safe: the check then queues KEY SHARE on the
+        # parent token and projection, which this transaction already holds. A cancel never
+        # completes the child: KEY SHARE, immediate parent only. No-op for a non-waiting child.
         lock_parent_group(repo, instance_id, :continuing, prefix)
       end)
       |> Multi.run(:task_cancellations, fn repo, %{open_tasks: open_tasks} ->

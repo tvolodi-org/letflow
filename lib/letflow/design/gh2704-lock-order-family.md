@@ -431,7 +431,7 @@ token stays `:waiting`, existing behaviour, not decided here, cf. #2695 Q5).
 | C0 | mechanism probe | same as X0, on the cancel's projection UPDATE | decides go/no-go | n/a |
 | C1 | statement order | `cancel_instance/3` of a child under `capture_repo_queries` | red: no parent-side lock statement at all | green: parent projection, token, then the INSTANCE_CANCELLED insert |
 | C2 | forced AB-BA, token-first schemas | `Z` on the parent projection row, `cancel_instance(p)` parks first, `cancel_instance(c)` second, release | red 40P01 | green; `cancel(c)` blocks at the group, `cancel(p)` completes, then `cancel(c)` |
-| C3 | cancel(c) vs cascade of a sibling | as C2 with a completing sibling as the second worker | red or green by reading (group is FOR UPDATE for the completer) | green |
+| C3 | cancel(c) vs cascade of a sibling | as C2 with a completing sibling as the second worker | red or green by reading (group is FOR UPDATE for the completer) | green (see 10b: not a cycle, the file's C3 is the projection-first variant) |
 | C4 | fixture sanity | child cancelled, parent token `:waiting`, parent still `:active`; no `SUB_PROCESS_COMPLETED` | green | green (documents the existing semantics) |
 
 **Blast radius.** About 12 lines plus the `lock_parent_group` signature; one new early (key-share)
@@ -684,3 +684,5 @@ RELEASE-VALIDATOR re-runs the new files.
   a cancelled parent leaves its child `:active`), so no cascade children exist to lock.
 * **Shared helper:** `fk_firing_order/1` and `set_fk_order!/2` moved from the PR-2 test file into
   `Letflow.LockOrderHelpers`.
+* **Residual (S3).** The cancel transaction sets no `SET LOCAL lock_timeout`, so a wait on the parent
+  rows is unbounded apart from deadlock detection (as before this change); a candidate for #2706/#2707.

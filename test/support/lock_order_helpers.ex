@@ -260,6 +260,8 @@ defmodule Letflow.LockOrderHelpers do
   """
   @spec fk_firing_order(String.t()) :: [String.t()]
   def fk_firing_order(schema) do
+    check_schema!(schema)
+
     %{rows: rows} =
       Repo.query!(
         """
@@ -288,6 +290,8 @@ defmodule Letflow.LockOrderHelpers do
   """
   @spec set_fk_order!(String.t(), String.t()) :: :ok
   def set_fk_order!(schema, first) do
+    check_schema!(schema)
+
     %{rows: rows} =
       Repo.query!(
         """
@@ -322,6 +326,17 @@ defmodule Letflow.LockOrderHelpers do
     assert List.first(fk_firing_order(schema)) == first,
            "precondition: the FK check against #{first} must fire first, got " <>
              inspect(fk_firing_order(schema))
+
+    :ok
+  end
+
+  # these helpers run DDL on a tenant schema: only the schema of a fixture-built tenant
+  # (`tenant_<32 hex>`) is accepted
+  defp check_schema!(schema) do
+    unless is_binary(schema) and Regex.match?(~r/\Atenant_[0-9a-f]{32}\z/, schema) do
+      raise ArgumentError,
+            "expected a committed-tenant schema name (tenant_<32 hex>), got: #{inspect(schema)}"
+    end
 
     :ok
   end
