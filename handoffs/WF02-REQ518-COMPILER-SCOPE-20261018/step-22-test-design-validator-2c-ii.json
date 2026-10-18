@@ -1,0 +1,63 @@
+{
+  "handoff_id": "d2535518-0518-4c02-9e11-000000000022",
+  "run_id": "WF02-REQ518-COMPILER-SCOPE-20261018",
+  "workflow_id": "WF-02",
+  "step": "22",
+  "from_agent": "TEST-DESIGN-VALIDATOR",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-22-test-design-validator-2c-ii.json",
+  "created_at": "2026-10-18T10:23:00Z",
+  "started_at": "2026-10-18T10:23:00Z",
+  "completed_at": "2026-10-18T10:38:07Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-518"],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "TEST-DESIGN-VALIDATOR gate for REQ-518 slice 2c-ii (GH #2535), uncommitted tree on feature/WF02-REQ518-2CII-WRITES-20261018. Mix ran per file, under the shared mixlock directory this session acquired (after waiting for elixir-dev's hold to end) and removed. No full suite, no letflow.check.test. Mutants compiled in memory only."
+    },
+    "related_handoff_ids": [
+      "d2535518-0518-4c02-9e11-000000000017",
+      "d2535518-0518-4c02-9e11-000000000018",
+      "d2535518-0518-4c02-9e11-000000000019",
+      "d2535518-0518-4c02-9e11-000000000020",
+      "d2535518-0518-4c02-9e11-000000000021"
+    ],
+    "artifacts_in": [
+      "test/specs/REQ-518-2c-ii.md",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-19-test-designer-2c-ii.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ518-2CII-WRITES-20261018"
+  },
+  "task": {
+    "description": "Hard gate on TEST-DESIGNER 2c-ii tests: AC 6-11, 19, 20 (walk part), SEC step-17/20/21 conditions, REVIEWER step-18 notes; fixture isolation, formatting, flake risk, own mutants."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "PASS. No gap, no test file changed by this validator. EXECUTED (MIX_ENV=test LOG_LEVEL=error, per file group, one mix at a time under the mixlock): entities_scope_writes_http_test 32 passed; attachments 13 + production_shape 6 + references_http 15 = 34 passed; records_scope 26 + records_scope_references 14 + scoped_writes 17 + route_scope_resolver 19 + records_scope_all_scan 14 = 90 passed. FLAKE CHECK: the four router files together (66 tests) ran 3 more times, 66 passed each time (4 of 4 green runs with the first). No capture_log or log assertion exists in the new files, so the log lesson does not apply; statement-equality is only asserted between scoped-user requests (OIDC, no api_tokens.last_used_at write), never across API-token requests, so the #2729 second-boundary shape is absent; no sleep, no wall-clock sync, no skip tag, no TODO. mix format --check-formatted: exit 0. Fixture: provisioned tenant via ScopeSetFixture.provision! (on_exit cleanup of installs/bases/promotions), VM-global oidc and allowlist config restored in on_exit, async: false where committed rows or locks are used, async: true only for the pure files. COVERAGE: every assigned AC and SEC condition maps to a green test with real assertions (see test/specs/REQ-518-2c-ii.md AC table; spot-read the T-W1/T-W19 statement and telemetry equality, T-W22 replay, T-W23 type gate, T-W9 positions, race backstop, walk seeds). MU17c judged EQUIVALENT: Records create/update run scope_new_value on the validated document before the transaction and scope_check_new runs the same function on the same ctx.field_values inside it, so the in-transaction NEW-value recheck cannot differ; the in-transaction REFERENCE recheck is a different matter and is killed by the sequence-lock test.",
+    "local_issue_id": null,
+    "artifacts_out": ["handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-22-test-design-validator-2c-ii.json"],
+    "implementation_written": false,
+    "classification": "n/a (WF-02)",
+    "changes_made": [],
+    "findings": [],
+    "mutants": {
+      "measured_by_validator": [
+        {"id": "V1", "edit": "router reference check dropped (check_new_scope_value: check_references_of_type -> :ok)", "failing": "1 of 15 (entities_scope_references_http_test)"},
+        {"id": "V2", "edit": "import check_batch looks at the first entry only", "failing": "2 of 32 (entities_scope_writes_http_test)"},
+        {"id": "V3", "edit": "router create: pre-idempotency check_new_scope_value removed (C-3 ordering)", "failing": "3+ of 47 (writes_http T-W22, T-W5; references_http T-W8 c)"},
+        {"id": "V4", "edit": "telemetry metadata gains an extra key (id: leak)", "failing": "1 of 32 (T-W1/T-W19 PUT closed shape)"},
+        {"id": "V5", "edit": "walk rule :data_route_default dropped (@data_routers -> [])", "failing": "2 of 19 (route_scope_resolver_test)"},
+        {"id": "V6", "edit": "FK violation mapping made unconditional (scoped branch removed)", "failing": "2 (records_scope_references T-W8 g; references_http T-W8 g)"},
+        {"id": "V7", "edit": "import check_batch_references dropped", "failing": "2 of 15 (references_http T-W8 e)"}
+      ],
+      "survivors": []
+    },
+    "reverted_and_verified": "Every mutant was compiled into a throwaway VM through mix do run --no-start -r apply.exs + test; nothing was written to lib/ or priv/. After the last mutant git status --porcelain lib/ test/ lists the same 29 entries as at session start (no new path), git diff --stat -- lib is unchanged in shape (11 files changed), and the files re-ran green unmutated in the flake loop that followed the first mutants and the format check (exit 0) at the end.",
+    "run_command_for_test_runner": "MIX_ENV=test mix test test/letflow/routers/entities_scope_writes_http_test.exs test/letflow/routers/entities_scope_attachments_http_test.exs test/letflow/routers/entities_scope_production_shape_test.exs test/letflow/routers/entities_scope_references_http_test.exs test/letflow/entities/records_scope_test.exs test/letflow/entities/records_scope_references_test.exs test/letflow/entities/scoped_writes_test.exs test/letflow/api/route_scope_resolver_test.exs test/letflow/entities/records_scope_all_scan_test.exs"
+  }
+}

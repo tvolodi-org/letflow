@@ -931,6 +931,7 @@ defmodule Letflow.Modules.Exam.Snapshot do
   # One `Records` update of the session through the exam module's Owner. The full replacement
   # `field_values` is the locked row's own values plus the snapshot (invariant I-1).
   defp write_session(%Latest{} = session, %Latest{} = session_after, prefix) do
+    # scope-all: SEC-518-R1 (exam module, own-record system path)
     result =
       Records.update_record(
         %{

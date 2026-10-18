@@ -284,6 +284,9 @@ defmodule Letflow.Routers.Entities do
   alias Letflow.Entities.Records
   alias Letflow.Entities.RequestAccess
   alias Letflow.Entities.Restrictions
+  alias Letflow.Entities.ScopedLookup
+  alias Letflow.Entities.ScopedWrites
+  alias Letflow.Entities.ScopeResolver
   alias Letflow.Entities.TypeAccess
   alias Letflow.EventStore.Registry.ValidationFailure
   alias Letflow.Idempotency
@@ -297,11 +300,11 @@ defmodule Letflow.Routers.Entities do
   # one-segment "/" below regardless of order -- declared above it anyway,
   # matching Letflow.Routers.Definitions' own readability precedent.
 
-  authz_post "/definitions/:name/activate", :EntitiesDefinitionsWrite do
+  authz_post "/definitions/:name/activate", :EntitiesDefinitionsWrite, scope: :tenant_wide do
     handle_activate_definition(conn, conn.params["name"])
   end
 
-  authz_post "/definitions", :EntitiesDefinitionsWrite do
+  authz_post "/definitions", :EntitiesDefinitionsWrite, scope: :tenant_wide do
     handle_create_definition(conn)
   end
 
@@ -312,19 +315,19 @@ defmodule Letflow.Routers.Entities do
   # Moving either below the bare :id route silently breaks it with no compile
   # error and no warning.
 
-  authz_get "/definitions/active/:name", :EntitiesDefinitionsRead do
+  authz_get "/definitions/active/:name", :EntitiesDefinitionsRead, scope: :tenant_wide do
     handle_get_active_definition_by_name(conn, conn.params["name"])
   end
 
-  authz_get "/definitions/by-name/:name", :EntitiesDefinitionsRead do
+  authz_get "/definitions/by-name/:name", :EntitiesDefinitionsRead, scope: :tenant_wide do
     handle_get_definition_by_name(conn, conn.params["name"])
   end
 
-  authz_get "/definitions/:id", :EntitiesDefinitionsRead do
+  authz_get "/definitions/:id", :EntitiesDefinitionsRead, scope: :tenant_wide do
     handle_get_definition(conn, conn.params["id"])
   end
 
-  authz_get "/definitions", :EntitiesDefinitionsRead do
+  authz_get "/definitions", :EntitiesDefinitionsRead, scope: :tenant_wide do
     handle_list_definitions(conn)
   end
 
@@ -333,15 +336,26 @@ defmodule Letflow.Routers.Entities do
   # No GET route under /records exists, by design -- see this module's
   # moduledoc "No route reads a record by id".
 
-  authz_post "/records/:entity_type", :EntitiesRecordsWrite do
+  # REQ-518 PR 2c-ii: the record write and attachment routes are `{:resolver, _}` routes (AC 19):
+  # their handlers apply the caller's scope through `ScopeGate` (set), `ScopedLookup` (by id) and
+  # `ScopedWrites` (type gate, old and new value). `ScopeResolver.record_scope/1` is the exported
+  # resolver the route walk requires.
+
+  authz_post "/records/:entity_type",
+             :EntitiesRecordsWrite,
+             scope: {:resolver, {ScopeResolver, :record_scope}} do
     handle_create_record(conn, conn.params["entity_type"])
   end
 
-  authz_put "/records/:entity_type/:record_id", :EntitiesRecordsWrite do
+  authz_put "/records/:entity_type/:record_id",
+            :EntitiesRecordsWrite,
+            scope: {:resolver, {ScopeResolver, :record_scope}} do
     handle_update_record(conn, conn.params["entity_type"], conn.params["record_id"])
   end
 
-  authz_delete "/records/:entity_type/:record_id", :EntitiesRecordsWrite do
+  authz_delete "/records/:entity_type/:record_id",
+               :EntitiesRecordsWrite,
+               scope: {:resolver, {ScopeResolver, :record_scope}} do
     handle_delete_record(conn, conn.params["entity_type"], conn.params["record_id"])
   end
 
@@ -354,7 +368,9 @@ defmodule Letflow.Routers.Entities do
   # 3-segment "/records/:entity_type/import" path with the 2-segment
   # "/records/:entity_type" route above it).
 
-  authz_post "/records/:entity_type/import", :EntitiesRecordsImport do
+  authz_post "/records/:entity_type/import",
+             :EntitiesRecordsImport,
+             scope: {:resolver, {ScopeResolver, :record_scope}} do
     handle_import_records(conn, conn.params["entity_type"])
   end
 
@@ -369,7 +385,7 @@ defmodule Letflow.Routers.Entities do
   # a sibling of "/records/..." and "/definitions/..." above -- no ordering
   # hazard with either (distinct first path segment).
 
-  authz_post "/restrictions/import", :EntitiesRestrictionsManage do
+  authz_post "/restrictions/import", :EntitiesRestrictionsManage, scope: :tenant_wide do
     handle_import_restrictions(conn)
   end
 
@@ -412,16 +428,21 @@ defmodule Letflow.Routers.Entities do
   # declaration order. Declared after them anyway, for readability, matching
   # this module's own listing convention.
 
-  authz_post "/records/:entity_type/:record_id/attachments", :EntitiesAttachmentsManage do
+  authz_post "/records/:entity_type/:record_id/attachments",
+             :EntitiesAttachmentsManage,
+             scope: {:resolver, {ScopeResolver, :record_scope}} do
     handle_create_record_attachment(conn, conn.params["entity_type"], conn.params["record_id"])
   end
 
-  authz_get "/records/:entity_type/:record_id/attachments", :EntitiesAttachmentsRead do
+  authz_get "/records/:entity_type/:record_id/attachments",
+            :EntitiesAttachmentsRead,
+            scope: {:resolver, {ScopeResolver, :record_scope}} do
     handle_list_record_attachments(conn, conn.params["entity_type"], conn.params["record_id"])
   end
 
   authz_get "/records/:entity_type/:record_id/attachments/:attachment_id",
-            :EntitiesAttachmentsRead do
+            :EntitiesAttachmentsRead,
+            scope: {:resolver, {ScopeResolver, :record_scope}} do
     handle_get_record_attachment_content(
       conn,
       conn.params["entity_type"],
@@ -431,7 +452,8 @@ defmodule Letflow.Routers.Entities do
   end
 
   authz_delete "/records/:entity_type/:record_id/attachments/:attachment_id",
-               :EntitiesAttachmentsManage do
+               :EntitiesAttachmentsManage,
+               scope: {:resolver, {ScopeResolver, :record_scope}} do
     handle_delete_record_attachment(
       conn,
       conn.params["entity_type"],
@@ -1046,26 +1068,95 @@ defmodule Letflow.Routers.Entities do
   # (denied, absent, or a failed read) runs the same validation as an absent type and then gets
   # the result `Records` gives an absent type.
   defp handle_create_record(conn, entity_type) do
-    case RecordAccess.write(conn.assigns.auth_context.user_id, entity_type, prefix!(conn)) do
-      :managed -> Response.send_problem(conn, Error.entity_type_managed())
-      access -> create_record_with_access(conn, entity_type, access)
+    # REQ-518 (2c-ii): the set is read FIRST through the one gate, and every response below is
+    # sent on the conn it returns (the "scope applied" marker). A scoped caller then passes the
+    # type gate BEFORE the body is read (R-6); `:all` callers take today's path unchanged.
+    {conn, scope} = ScopeGate.scope_set(conn, :EntitiesRecordsWrite)
+    prefix = prefix!(conn)
+
+    case RecordAccess.write(conn.assigns.auth_context.user_id, entity_type, prefix) do
+      :managed ->
+        Response.send_problem(conn, Error.entity_type_managed())
+
+      access ->
+        case write_type_gate(access, entity_type, scope, prefix) do
+          {:ok, declaration} ->
+            create_record_with_access(conn, entity_type, access, {scope, declaration})
+
+          :refused ->
+            scope_refused(conn, :EntitiesRecordsWrite, :write_value)
+        end
     end
   end
 
-  defp create_record_with_access(conn, entity_type, access) do
+  # REQ-518 (2c-ii) type gate of a scoped caller's CREATE and IMPORT: a hidden (denied or absent)
+  # type, an undeclared type and a `:tenant_wide` master are one refusal, so a nonexistent type
+  # name gives exactly the same answer as an undeclared one (SEC C-6). `:all` is not gated.
+  defp write_type_gate(_access, _entity_type, :all, _prefix), do: {:ok, :unscoped}
+  defp write_type_gate(:hidden, _entity_type, _scope, _prefix), do: :refused
+
+  defp write_type_gate({:open, _restricted}, entity_type, scope, prefix),
+    do: ScopedWrites.type_gate(entity_type, scope, prefix)
+
+  # By-id visibility for PUT and DELETE (D5): one predicate lookup AFTER the set read and BEFORE
+  # the body (or query string) is read. A hidden type is not visible to a scoped caller.
+  defp visible_record(_access, _entity_type, _record_id, :all, _prefix, _policy),
+    do: {:ok, :unscoped}
+
+  defp visible_record(:hidden, _entity_type, _record_id, _scope, _prefix, policy) do
+    ScopedLookup.emit_not_found(policy, :by_id)
+    {:error, :scope_refused}
+  end
+
+  defp visible_record({:open, _restricted}, entity_type, record_id, scope, prefix, policy) do
+    case ScopedLookup.fetch_in_scope(entity_type, record_id, scope, prefix, {policy, :by_id}) do
+      {:ok, declaration} -> {:ok, declaration}
+      :not_found -> {:error, :scope_refused}
+    end
+  end
+
+  # C-3: the pure new-value check, then the reference resolution (SEC BUG-1: a reference to an
+  # out-of-scope record must answer like one to a nonexistent record); both run before the
+  # idempotency claim and share the one refusal and telemetry kind.
+  defp check_new_scope_value({scope, declaration}, field_values, policy, entity_type, prefix) do
+    with :ok <- ScopedWrites.check_new_value(field_values, declaration, scope),
+         :ok <- ScopedWrites.check_references_of_type(entity_type, field_values, scope, prefix) do
+      :ok
+    else
+      :refused ->
+        ScopedLookup.emit_not_found(policy, :write_value)
+        {:error, :scope_refused}
+    end
+  end
+
+  defp scope_refused(conn, policy, kind) do
+    ScopedLookup.emit_not_found(policy, kind)
+    Response.not_found(conn)
+  end
+
+  defp create_record_with_access(conn, entity_type, access, {scope, _declaration} = scoped) do
     prefix = prefix!(conn)
 
     actor_id = conn.assigns.auth_context.user_id
 
     with {:ok, body} <- object_body(conn),
          {:ok, attrs} <- validate_schema(@record_write_schema, body),
+         :ok <-
+           check_new_scope_value(
+             scoped,
+             Map.fetch!(attrs, "field_values"),
+             :EntitiesRecordsWrite,
+             entity_type,
+             prefix
+           ),
          {:ok, resolved} <- Idempotency.from_body(attrs, :rec, actor_id) do
       command_attrs =
         %{
           entity_type: entity_type,
           field_values: Map.fetch!(attrs, "field_values"),
           actor_id: actor_id,
-          idempotency_key: resolved.key
+          idempotency_key: resolved.key,
+          scope: scope
         }
         |> put_legacy_original(resolved, actor_id, prefix)
 
@@ -1090,6 +1181,9 @@ defmodule Letflow.Routers.Entities do
           )
       end
     else
+      {:error, :scope_refused} ->
+        Response.not_found(conn)
+
       {:error, :malformed_json} ->
         Response.bad_request(conn, "request body must be a JSON object")
 
@@ -1133,20 +1227,35 @@ defmodule Letflow.Routers.Entities do
                           ]
 
   defp handle_update_record(conn, entity_type, raw_record_id) do
+    {conn, scope} = ScopeGate.scope_set(conn, :EntitiesRecordsWrite)
+
     case RecordAccess.write(conn.assigns.auth_context.user_id, entity_type, prefix!(conn)) do
       :managed -> Response.send_problem(conn, Error.entity_type_managed())
-      access -> update_record_with_access(conn, entity_type, raw_record_id, access)
+      access -> update_record_with_access(conn, entity_type, raw_record_id, access, scope)
     end
   end
 
-  defp update_record_with_access(conn, entity_type, raw_record_id, access) do
+  defp update_record_with_access(conn, entity_type, raw_record_id, access, scope) do
     prefix = prefix!(conn)
 
     actor_id = conn.assigns.auth_context.user_id
 
+    # REQ-518 (2c-ii): the by-id lookup follows the id cast and precedes the body (a malformed or
+    # schema-invalid body for an out-of-scope or nonexistent id is the same 404); the new value is
+    # checked (pure) before the idempotency claim.
     with {:ok, record_id} <- cast_record_id(raw_record_id),
+         {:ok, declaration} <-
+           visible_record(access, entity_type, record_id, scope, prefix, :EntitiesRecordsWrite),
          {:ok, body} <- object_body(conn),
          {:ok, attrs} <- validate_schema(@record_update_schema, body),
+         :ok <-
+           check_new_scope_value(
+             {scope, declaration},
+             Map.fetch!(attrs, "field_values"),
+             :EntitiesRecordsWrite,
+             entity_type,
+             prefix
+           ),
          {:ok, resolved} <- Idempotency.from_body(attrs, :rec, actor_id) do
       command_attrs =
         %{
@@ -1155,7 +1264,8 @@ defmodule Letflow.Routers.Entities do
           field_values: Map.fetch!(attrs, "field_values"),
           actor_id: actor_id,
           idempotency_key: resolved.key,
-          expected_last_event_global_seq: Map.get(attrs, "expected_last_event_global_seq")
+          expected_last_event_global_seq: Map.get(attrs, "expected_last_event_global_seq"),
+          scope: scope
         }
         |> put_legacy_original(resolved, actor_id, prefix)
 
@@ -1185,6 +1295,9 @@ defmodule Letflow.Routers.Entities do
       # INV-5: a malformed record id takes the same zero-detail 404 a
       # well-formed-but-absent (or cross-tenant) one takes.
       {:error, :invalid_record_id} ->
+        Response.not_found(conn)
+
+      {:error, :scope_refused} ->
         Response.not_found(conn)
 
       {:error, :malformed_json} ->
@@ -1251,14 +1364,27 @@ defmodule Letflow.Routers.Entities do
   # record id, live, deleted or absent (refused before the record lookup).
 
   defp handle_delete_record(conn, entity_type, raw_record_id) do
+    {conn, scope} = ScopeGate.scope_set(conn, :EntitiesRecordsWrite)
+
     case RecordAccess.write(conn.assigns.auth_context.user_id, entity_type, prefix!(conn)) do
       :managed -> Response.send_problem(conn, Error.entity_type_managed())
-      access -> delete_record_with_access(conn, entity_type, raw_record_id, access)
+      access -> delete_record_with_access(conn, entity_type, raw_record_id, access, scope)
     end
   end
 
-  defp delete_record_with_access(conn, entity_type, raw_record_id, access) do
+  defp delete_record_with_access(conn, entity_type, raw_record_id, access, scope) do
+    # REQ-518 (2c-ii): the by-id lookup precedes the query-string parse (a 400 for a bad
+    # `expected_last_event_global_seq` must not tell an out-of-scope id from a nonexistent one).
     with {:ok, record_id} <- cast_record_id(raw_record_id),
+         {:ok, _declaration} <-
+           visible_record(
+             access,
+             entity_type,
+             record_id,
+             scope,
+             prefix!(conn),
+             :EntitiesRecordsWrite
+           ),
          conn = fetch_query_params(conn),
          {:ok, expected} <-
            parse_expected_seq_param(Map.get(conn.query_params, "expected_last_event_global_seq")) do
@@ -1267,7 +1393,8 @@ defmodule Letflow.Routers.Entities do
         record_id: record_id,
         actor_id: conn.assigns.auth_context.user_id,
         idempotency_key: Ecto.UUID.generate(),
-        expected_last_event_global_seq: expected
+        expected_last_event_global_seq: expected,
+        scope: scope
       }
 
       # No body, so no key check; the RESPONSE of an open type is redacted for an actor holding
@@ -1291,6 +1418,9 @@ defmodule Letflow.Routers.Entities do
       end
     else
       {:error, :invalid_record_id} ->
+        Response.not_found(conn)
+
+      {:error, :scope_refused} ->
         Response.not_found(conn)
 
       {:error, :invalid_expected_seq} ->
@@ -1349,13 +1479,15 @@ defmodule Letflow.Routers.Entities do
   @record_export_schema_version "entities/record-export/v1"
 
   defp handle_import_records(conn, entity_type) do
+    {conn, scope} = ScopeGate.scope_set(conn, :EntitiesRecordsImport)
+
     case RecordAccess.write(conn.assigns.auth_context.user_id, entity_type, prefix!(conn)) do
       :managed -> Response.send_problem(conn, Error.entity_type_managed())
-      access -> import_records_with_access(conn, entity_type, access)
+      access -> import_records_with_access(conn, entity_type, access, scope)
     end
   end
 
-  defp import_records_with_access(conn, entity_type, access) do
+  defp import_records_with_access(conn, entity_type, access, scope) do
     prefix = prefix!(conn)
     actor_id = conn.assigns.auth_context.user_id
 
@@ -1363,7 +1495,8 @@ defmodule Letflow.Routers.Entities do
          {:ok, records} <- records_within_cap(body),
          :ok <- check_record_export_schema_version(body),
          :ok <- check_import_entity_type_match(body, entity_type),
-         {:ok, mode} <- check_upsert_by(body) do
+         {:ok, mode} <- check_upsert_by(body),
+         :ok <- import_scope_check(access, scope, mode, entity_type, records, prefix) do
       import_request_id = Ecto.UUID.generate()
 
       case run_import_mode(
@@ -1373,7 +1506,7 @@ defmodule Letflow.Routers.Entities do
              actor_id,
              import_request_id,
              prefix,
-             access
+             {access, scope}
            ) do
         {:ok, results} ->
           Response.ok(conn, %{"results" => Enum.map(results, &import_entry_result_json/1)})
@@ -1397,6 +1530,10 @@ defmodule Letflow.Routers.Entities do
           Response.service_unavailable(conn, "event_schema_outdated")
       end
     else
+      # REQ-518 (2c-ii): one answer for a refused batch, whichever row or reason (R-5).
+      {:error, :scope_refused} ->
+        Response.not_found(conn)
+
       {:error, :malformed_json} ->
         Response.bad_request(conn, "request body must be a JSON object")
 
@@ -1423,6 +1560,26 @@ defmodule Letflow.Routers.Entities do
 
       {:error, :invalid_upsert_by} ->
         Response.unprocessable(conn, "upsert_by must be \"external_ref\" when present")
+    end
+  end
+
+  # REQ-518 (2c-ii, AC 9), AFTER the structural checks (they concern the document, not a
+  # resource) and BEFORE the first row is written: a scoped caller passes the type gate and EVERY
+  # entry's scope value is checked, or the whole batch is refused with one answer and nothing
+  # written (R-5). Upsert mode can update an existing record, so it is not offered to a scoped
+  # caller (the same refusal). `:all` callers are not touched.
+  defp import_scope_check(_access, :all, _mode, _entity_type, _records, _prefix), do: :ok
+
+  defp import_scope_check(access, scope, mode, entity_type, records, prefix) do
+    with :create <- mode,
+         {:ok, declaration} <- write_type_gate(access, entity_type, scope, prefix),
+         :ok <- ScopedWrites.check_batch(records, declaration, scope),
+         :ok <- ScopedWrites.check_batch_references(entity_type, records, scope, prefix) do
+      :ok
+    else
+      _refused ->
+        ScopedLookup.emit_not_found(:EntitiesRecordsImport, :import)
+        {:error, :scope_refused}
     end
   end
 
@@ -1485,13 +1642,30 @@ defmodule Letflow.Routers.Entities do
          actor_id,
          import_request_id,
          prefix,
-         access
+         access_and_scope
        ),
-       do: run_import(records, entity_type, actor_id, import_request_id, prefix, access)
+       do:
+         run_import(
+           records,
+           entity_type,
+           actor_id,
+           import_request_id,
+           prefix,
+           access_and_scope
+         )
 
   # Pre-check once (the schema-version read, then the decision `RecordAccess.write/3` already
-  # made), then the per-entry upsert.
-  defp run_import_mode(:upsert, records, entity_type, actor_id, import_request_id, prefix, access) do
+  # made), then the per-entry upsert. A scoped caller never reaches it (`import_scope_check/6`
+  # refuses upsert mode for it), so the scope in the pair is always `:all`.
+  defp run_import_mode(
+         :upsert,
+         records,
+         entity_type,
+         actor_id,
+         import_request_id,
+         prefix,
+         {access, :all}
+       ) do
     with {:ok, restricted} <- ImportUpsert.precheck(access, prefix) do
       {:ok,
        ImportUpsert.run(records, entity_type, actor_id, import_request_id, restricted, prefix)}
@@ -1546,7 +1720,15 @@ defmodule Letflow.Routers.Entities do
   # contract; GH #2543: only identical field_values dedupe, differing ones
   # give a per-entry idempotency_key_reuse), while two separate calls -- even a byte-identical re-POST --
   # each mint their own import_request_id and share no relationship at all.
-  defp import_one_entry(entry, index, entity_type, actor_id, import_request_id, prefix, access) do
+  defp import_one_entry(
+         entry,
+         index,
+         entity_type,
+         actor_id,
+         import_request_id,
+         prefix,
+         {access, scope}
+       ) do
     source_record_id = Map.get(entry, "record_id")
     field_values = Map.get(entry, "field_values", %{})
     idempotency_key = import_idempotency_key(import_request_id, source_record_id, index)
@@ -1555,7 +1737,8 @@ defmodule Letflow.Routers.Entities do
       entity_type: entity_type,
       field_values: field_values,
       actor_id: actor_id,
-      idempotency_key: idempotency_key
+      idempotency_key: idempotency_key,
+      scope: scope
     }
 
     # GH #2784: the write point. A hidden type gets the result `Records` gives an absent type
@@ -1838,6 +2021,11 @@ defmodule Letflow.Routers.Entities do
   defp render_record_command(conn, {:error, :entity_type_managed}, _status),
     do: Response.send_problem(conn, Error.entity_type_managed())
 
+  # REQ-518 (2c-ii): the in-transaction scope recheck (old or new value; the race backstop of
+  # the pre-checks above). The same bytes as the by-id 404 (decision 0051 D7); counted, not audited.
+  defp render_record_command(conn, {:error, :scope_refused}, _status),
+    do: scope_refused(conn, :EntitiesRecordsWrite, :write_value)
+
   defp render_record_command(conn, {:error, reason}, _status)
        when reason in [:tenant_not_provisioned, :invalid_schema_name],
        do: Response.internal_error(conn)
@@ -1865,6 +2053,43 @@ defmodule Letflow.Routers.Entities do
   defp hide_if_denied(:open, id), do: id
   defp hide_if_denied(:hidden, _id), do: Ecto.UUID.generate()
 
+  # REQ-518 (2c-ii, AC 11): the PARENT gate of the four attachment routes. An `:all` caller is
+  # always visible (no statement; `hide_if_denied/2` still applies). A scoped caller's parent is
+  # visible only through `ScopedLookup` (a hidden type never is). An invisible parent takes the
+  # branch a NONEXISTENT parent takes today: the handlers re-enter the same code with freshly
+  # generated ids (list, content, delete) or answer the same 404 (create), so the two cases are
+  # one answer and one statement shape (INV-5). Counted, not audited.
+  @spec parent_visible?(
+          Types.scope_set(),
+          RecordAccess.attachment_decision(),
+          String.t(),
+          Ecto.UUID.t(),
+          String.t(),
+          atom()
+        ) :: boolean()
+  defp parent_visible?(:all, _access, _entity_type, _record_id, _prefix, _policy), do: true
+
+  defp parent_visible?(_scoped, :hidden, _entity_type, _record_id, _prefix, policy) do
+    ScopedLookup.emit_not_found(policy, :attachment_parent)
+    false
+  end
+
+  defp parent_visible?(scope, :open, entity_type, record_id, prefix, policy) do
+    match?(
+      {:ok, _declaration},
+      ScopedLookup.fetch_in_scope(
+        entity_type,
+        record_id,
+        scope,
+        prefix,
+        {policy, :attachment_parent}
+      )
+    )
+  end
+
+  defp visible_or_fresh_id(true, access, id), do: hide_if_denied(access, id)
+  defp visible_or_fresh_id(false, _access, _id), do: Ecto.UUID.generate()
+
   # ══ POST /entities/records/:entity_type/:record_id/attachments (REQ-317) ══
   #
   # Multipart upload, same shape as Letflow.Routers.Instances' own
@@ -1874,10 +2099,14 @@ defmodule Letflow.Routers.Entities do
   # field (design §5 INV-1). `entity_type`/`record_id` come from the path.
 
   defp handle_create_record_attachment(conn, entity_type, raw_record_id) do
+    {conn, scope} = ScopeGate.scope_set(conn, :EntitiesAttachmentsManage)
     opts = conn.assigns.scoped_opts
     access = record_attachment_access(conn, entity_type)
 
+    # REQ-518 (2c-ii): for a scoped caller the parent gate runs BEFORE the multipart part is read,
+    # so an out-of-scope and a nonexistent parent both answer 404 without examining the upload.
     with {:ok, record_id} <- cast_record_id(raw_record_id),
+         :ok <- attachment_parent_gate(scope, access, entity_type, record_id, prefix!(conn)),
          record_id = hide_if_denied(access, record_id),
          {:ok, attrs} <- record_attachment_upload_attrs_from_conn(conn, entity_type, record_id) do
       render_create_record_attachment(conn, EntityAttachments.upload(attrs, opts))
@@ -1888,9 +2117,25 @@ defmodule Letflow.Routers.Entities do
       {:error, :invalid_record_id} ->
         Response.not_found(conn)
 
+      {:error, :parent_out_of_scope} ->
+        Response.not_found(conn)
+
       {:error, :missing_file} ->
         Response.unprocessable(conn, "a file part named \"file\" is required")
     end
+  end
+
+  defp attachment_parent_gate(scope, access, entity_type, record_id, prefix) do
+    if parent_visible?(
+         scope,
+         access,
+         entity_type,
+         record_id,
+         prefix,
+         :EntitiesAttachmentsManage
+       ),
+       do: :ok,
+       else: {:error, :parent_out_of_scope}
   end
 
   @spec record_attachment_upload_attrs_from_conn(Plug.Conn.t(), String.t(), Ecto.UUID.t()) ::
@@ -1962,13 +2207,23 @@ defmodule Letflow.Routers.Entities do
   # cast_record_id/1 convention for the record-command routes.
 
   defp handle_list_record_attachments(conn, entity_type, raw_record_id) do
+    {conn, scope} = ScopeGate.scope_set(conn, :EntitiesAttachmentsRead)
     opts = conn.assigns.scoped_opts
     access = record_attachment_access(conn, entity_type)
     conn = fetch_query_params(conn)
     query = conn.query_params
 
     with {:ok, record_id} <- cast_record_id(raw_record_id),
-         record_id = hide_if_denied(access, record_id),
+         visible? =
+           parent_visible?(
+             scope,
+             access,
+             entity_type,
+             record_id,
+             prefix!(conn),
+             :EntitiesAttachmentsRead
+           ),
+         record_id = visible_or_fresh_id(visible?, access, record_id),
          {:ok, raw_page_size} <- Pagination.parse_page_size_param(Map.get(query, "page_size")),
          {:ok, page_size} <- Pagination.validate_page_size(raw_page_size) do
       params = %{
@@ -2028,12 +2283,22 @@ defmodule Letflow.Routers.Entities do
   # field -- no MIME-sniffing.
 
   defp handle_get_record_attachment_content(conn, entity_type, raw_record_id, raw_attachment_id) do
+    {conn, scope} = ScopeGate.scope_set(conn, :EntitiesAttachmentsRead)
     opts = conn.assigns.scoped_opts
     access = record_attachment_access(conn, entity_type)
 
     with {:ok, record_id} <- cast_record_id(raw_record_id),
-         record_id = hide_if_denied(access, record_id),
-         attachment_id = hide_if_denied(access, raw_attachment_id),
+         visible? =
+           parent_visible?(
+             scope,
+             access,
+             entity_type,
+             record_id,
+             prefix!(conn),
+             :EntitiesAttachmentsRead
+           ),
+         record_id = visible_or_fresh_id(visible?, access, record_id),
+         attachment_id = visible_or_fresh_id(visible?, access, raw_attachment_id),
          {:ok, attachment, artifact} <-
            fetch_scoped_record_attachment_content(attachment_id, entity_type, record_id, opts) do
       send_record_attachment_content(conn, attachment, artifact)
@@ -2117,12 +2382,22 @@ defmodule Letflow.Routers.Entities do
   # ══ (REQ-317) ══════════════════════════════════════════════════════════
 
   defp handle_delete_record_attachment(conn, entity_type, raw_record_id, raw_attachment_id) do
+    {conn, scope} = ScopeGate.scope_set(conn, :EntitiesAttachmentsManage)
     opts = conn.assigns.scoped_opts
     access = record_attachment_access(conn, entity_type)
 
     with {:ok, record_id} <- cast_record_id(raw_record_id),
-         record_id = hide_if_denied(access, record_id),
-         attachment_id = hide_if_denied(access, raw_attachment_id),
+         visible? =
+           parent_visible?(
+             scope,
+             access,
+             entity_type,
+             record_id,
+             prefix!(conn),
+             :EntitiesAttachmentsManage
+           ),
+         record_id = visible_or_fresh_id(visible?, access, record_id),
+         attachment_id = visible_or_fresh_id(visible?, access, raw_attachment_id),
          {:ok, _attachment} <-
            fetch_scoped_record_attachment_metadata(
              attachment_id,

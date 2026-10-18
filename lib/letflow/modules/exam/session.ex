@@ -1255,6 +1255,7 @@ defmodule Letflow.Modules.Exam.Session do
         time_value =
           bounded_time_spent(time_spent_seconds, stored_time_spent(existing), started_at, now)
 
+        # scope-all: SEC-518-R1 (exam module, own-record system path)
         write_result =
           Records.update_record(
             %{
@@ -1435,6 +1436,7 @@ defmodule Letflow.Modules.Exam.Session do
       })
 
     ok_or_error(
+      # scope-all: SEC-518-R1 (exam module, own-record system path)
       Records.update_record(
         %{
           entity_type: "session",
@@ -1503,6 +1505,7 @@ defmodule Letflow.Modules.Exam.Session do
   end
 
   defp write_record(entity_type, field_values, actor_id, prefix) do
+    # scope-all: SEC-518-R1 (exam module, own-record system path)
     Records.create_record(
       %{
         entity_type: entity_type,

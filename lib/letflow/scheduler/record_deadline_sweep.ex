@@ -262,6 +262,7 @@ defmodule Letflow.Scheduler.RecordDeadlineSweep do
       |> Map.put(rule.status_field, rule.new_status_value)
       |> put_completion_field(rule, record)
 
+    # scope-all: scheduler system write, no HTTP user
     Records.update_record(
       %{
         entity_type: rule.entity_type,

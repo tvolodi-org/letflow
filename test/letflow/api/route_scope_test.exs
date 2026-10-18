@@ -35,6 +35,24 @@ defmodule Letflow.Api.RouteScopeTest do
     )
   end
 
+  # Rows whose `METHOD FULL_PATH KEY` line is on the committed `@expected_resolver_routes`.
+  defp listed_resolver(:create),
+    do: %{method: "POST", path: "/entities/records/:entity_type", key: :EntitiesRecordsWrite}
+
+  defp listed_resolver(:update),
+    do: %{
+      method: "PUT",
+      path: "/entities/records/:entity_type/:record_id",
+      key: :EntitiesRecordsWrite
+    }
+
+  defp listed_resolver(:delete),
+    do: %{
+      method: "DELETE",
+      path: "/entities/records/:entity_type/:record_id",
+      key: :EntitiesRecordsWrite
+    }
+
   defp declared_row(class, fields) do
     row(Map.merge(%{declared: class, class: class, source: :declared}, Map.new(fields)))
   end
@@ -194,18 +212,26 @@ defmodule Letflow.Api.RouteScopeTest do
   # --- T-C2 :resolver_not_exported -------------------------------------------------------------
 
   describe ":resolver_not_exported" do
+    # REQ-518 PR 2c-ii: a resolver route must also be on the committed expectation list
+    # (`:unexpected_resolver_route`), so these rows are routes of that list.
     test "a resolver whose function/1 exists passes" do
-      exported = declared_row({:resolver, {RouteScope, :class_of}}, %{})
+      exported = declared_row({:resolver, {RouteScope, :class_of}}, listed_resolver(:create))
       assert RouteScope.audit_routes([exported], []) == []
     end
 
     test "a missing function, a wrong arity and a missing module each fail" do
-      missing_fun = declared_row({:resolver, {RouteScope, :no_such_resolver}}, %{path: "/a"})
+      missing_fun =
+        declared_row({:resolver, {RouteScope, :no_such_resolver}}, listed_resolver(:create))
+
       # snapshot_line/1 has arity 1 too; admin_plane_keys/0 is arity 0, so it is NOT a /1 resolver
-      wrong_arity = declared_row({:resolver, {RouteScope, :admin_plane_keys}}, %{path: "/b"})
+      wrong_arity =
+        declared_row({:resolver, {RouteScope, :admin_plane_keys}}, listed_resolver(:update))
 
       missing_mod =
-        declared_row({:resolver, {Letflow.Api.NoSuchResolverModule, :resolve}}, %{path: "/c"})
+        declared_row(
+          {:resolver, {Letflow.Api.NoSuchResolverModule, :resolve}},
+          listed_resolver(:delete)
+        )
 
       errors = RouteScope.audit_routes([missing_fun, wrong_arity, missing_mod], [])
 
@@ -371,7 +397,7 @@ defmodule Letflow.Api.RouteScopeTest do
     end
 
     test "a {:resolver, _} route is not restricted by these two rules" do
-      resolver = declared_row({:resolver, {RouteScope, :class_of}}, %{path: "/r"})
+      resolver = declared_row({:resolver, {RouteScope, :class_of}}, listed_resolver(:create))
       assert RouteScope.audit_routes([resolver], []) == []
     end
   end

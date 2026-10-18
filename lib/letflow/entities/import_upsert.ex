@@ -167,6 +167,7 @@ defmodule Letflow.Entities.ImportUpsert do
           idempotency_key: idempotency_key(ctx.request_id, ref)
         }
 
+        # scope-all: tenant-wide callers only (import_scope_check/6 refuses upsert mode for a scoped caller)
         case Records.upsert_record_by_external_ref(attrs, ctx.prefix) do
           {:ok, %{record: %Latest{record_id: record_id}, outcome: outcome}} ->
             {:ok,

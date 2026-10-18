@@ -1,0 +1,81 @@
+{
+  "handoff_id": "d2535518-0518-4c02-9e11-000000000020",
+  "run_id": "WF02-REQ518-COMPILER-SCOPE-20261018",
+  "workflow_id": "WF-02",
+  "step": "20",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-20-security-reviewer-bug1-ruling.json",
+  "created_at": "2026-10-18T09:40:00Z",
+  "started_at": "2026-10-18T09:40:10Z",
+  "completed_at": "2026-10-18T09:48:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-518"],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "SECURITY-REVIEWER ruling on TEST-DESIGNER BUG-1 (step-19): promoted foreign key on scoped_child.item_id is an existence oracle for a scoped caller. Read-only static review; no mix, no tests run."
+    },
+    "related_handoff_ids": [
+      "d2535518-0518-4c02-9e11-000000000017",
+      "d2535518-0518-4c02-9e11-000000000019"
+    ],
+    "artifacts_in": [
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-19-test-designer-2c-ii.json",
+      "lib/letflow/design/req518-compiler-scope-filter.md",
+      "lib/letflow/entities/records.ex",
+      "lib/letflow/entities/scoped_writes.ex",
+      "priv/module_fixtures/scoped_foundation.json",
+      "test/letflow/routers/entities_scope_writes_http_test.exs"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ518-2CII-WRITES-20261018"
+  },
+  "task": {
+    "description": "Binding ruling and fix spec for BUG-1 (reference existence oracle). No edits to lib/ or test/."
+  },
+  "result": {
+    "status": "FAIL",
+    "verdict": "FAIL",
+    "summary": "BUG-1 is a REAL INV-5 / AC 7 violation and BLOCKS the 2c-ii merge. REQ-518 AC 7 reads (requirements.yaml): 'a reference field pointing at an out-of-scope or nonexistent record gives the same error (T16)'. Design finding F7 (and RA-9) called the clause vacuous because Validator/Records do no reference lookup. The premise is false: the lookup is done by Postgres. Records.write_entity_table_row (dual_write_promoted_columns) inserts into the per-type table whose promoted reference column carries a DB foreign key (fixture scoped_child.foreign_keys -> scoped_item). The FK is satisfied by ANY existing row of the target table regardless of scope, so a scoped POST/PUT answers 201 for an out-of-scope existing id and an unhandled FK violation (generic 500, Records.write_entity_table_row's catch-all {:error, reason}) for a nonexistent id. A scoped caller can therefore enumerate record ids outside its scope. The red T-W8 is correct and stays as the gate. NOT waivable by R-8: R-8 (empty production allowlist) makes scoped record writes unreachable in production TODAY, but (1) the AC and INV-5 are stated on behavior, not on reachability; the AC 6-9 behavior is exercised ONLY on the test fixture by design (design 12.2, RA-8), so deferring would leave AC 7 unmet and unverified anywhere; (2) the first module that declares an unmanaged type with a promoted reference column (or W3b module write routes) would ship the oracle with no further gate; (3) the fix is small and local. Step-17 INV-5 PASS is hereby qualified: it covered the scope-column and by-id paths, not the promoted-reference path. Step-17 verdict becomes FAIL for 2c-ii until the fix below lands and the re-review passes; everything else in step-17 stands.",
+    "local_issue_id": null,
+    "artifacts_out": ["handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-20-security-reviewer-bug1-ruling.json"],
+    "invariants_assessed": {
+      "INV-5": "APPLIES, FAIL (reference-payload existence oracle: 201 vs 500)",
+      "INV-8": "APPLIES, noted (unhandled FK violation answers a bare 500 for client input; pre-existing for tenant-wide callers, see ruling c)",
+      "INV-1": "unchanged PASS", "INV-2": "unchanged PASS", "INV-4": "unchanged PASS", "INV-6": "unchanged PASS", "INV-7": "unchanged PASS (new lookups must reuse the bound-parameter ScopedLookup form)", "INV-10": "unchanged PASS"
+    },
+    "rulings": {
+      "a_scoped_precheck": "REQUIRED. For a scoped caller, every non-null reference value in the NEW field_values (fields named by the type's definition_json foreign_keys, regardless of promotion state; the definition is the source) must resolve through the scope on the REFERENCED type: use the ScopedLookup by-id predicate semantics (declaration of the referenced type via ScopeDeclaration.for_type). Referenced type declared by column: record must exist with its column in the caller's set. Referenced type :tenant_wide: record must exist (one existence statement; tenant-wide data is readable by scoped callers, same visibility as a read). Referenced type undeclared or caller :none: refused with NO statement (same as reads: undeclared = no data). Value absent, null: skipped (nothing to resolve, no oracle). Value not a string / not a castable UUID: refused, no statement. Any refusal = ScopedWrites :refused = router Response.not_found via scope_refused (same bytes, same telemetry metadata %{policy, kind} as the existing refusals; use the same kind as the scope-column write refusal so out-of-scope and nonexistent references are indistinguishable). Position: after the pure check_new_value and after schema validation (validation outcomes do not depend on the reference), BEFORE Idempotency.from_body and put_legacy_original (C-3: a replayed key with an out-of-scope reference must be the generic 404 and never return the stored id/version). Also in Records before the transaction. Deleted referenced rows: deleted is NOT in the predicate (consistent with ScopedLookup and with the FK, which a soft-deleted row still satisfies). No exemption for an unchanged stored reference on update (fail closed, no old-value comparison, no TOCTOU); consequence: a PUT by a scoped caller on a record whose stored reference has since left the caller's scope answers the generic 404 until the reference is changed; accept, document in the moduledoc, a follow-up if product needs it.",
+      "a_statement_equality": "Exactly ONE lookup statement per distinct (referenced type, field) with at least one well-formed non-null value, issued whether the id exists, is out of scope or does not exist, so out-of-scope and nonexistent give an identical SQL statement sequence. No statement for undeclared/none targets or absent/null/malformed values (type-level and value-shape differences only, no record-level information). Bound parameters only (INV-7), via ScopedLookup, no new Repo.query with interpolated identifiers beyond the already-validated literal(^column) form.",
+      "a_transaction_recheck": "REQUIRED. Repeat the reference resolution inside the existing :scope_check Multi step (transaction repo, after the old/new value checks, before upsert_record_latest and dual_write), returning {:error, :scope_refused}. It narrows but cannot close the window in which the referenced row's scope column is changed by a concurrent writer after the check (FK KEY SHARE does not conflict with non-key updates); that residual is the same class as T-W10 / R-3 snapshot and is ACCEPTED and must be stated in the moduledoc and in T-W10's documented-behavior test. Do not add row locks on the referenced row (new lock order, deadlock surface).",
+      "b_fk_violation_mapping": "REQUIRED as backstop for scoped writes only. In Records.write_entity_table_row add a clause for %Postgrex.Error{postgres: %{code: :foreign_key_violation}}: when ctx.scope is not :all return {:error, :scope_refused} (generic 404). A scoped caller must never see a 500 from this path. Message and constraint name must not be logged beyond closed atoms. When ctx.scope is :all leave the existing {:error, reason} (see c). Same mapping for the import per-entry path is NOT needed (the pre-check refuses the batch first) but the per-entry catch-all must not leak the constraint name; it already answers a constant internal_error type.",
+      "c_tenant_wide_nonexistent_reference": "OUT OF 2c-ii. A tenant-wide caller (scope :all) may read every record, so the 500 is an INV-8 defect (client input answered with a bare 500) but NOT an INV-5 leak. Changing it to 422 would alter the unscoped path, which 2c-ii promises to leave byte-for-byte unchanged (step-17 item 8) and which has its own existing tests. Leave 500 in 2c-ii, keep the 'wide + absent id == 500' assertion in T-W8 test 2 as an explicitly labelled pre-existing pin. File a SEPARATE issue (ISSUE-FIXER/ORCH): 'record write with a nonexistent promoted-reference value returns 500; should be 422 record_payload_invalid on the FK field (map foreign_key_violation in write_entity_table_row to a Violation on the foreign key field with the same wire shape as the unique-violation 422)'. When that issue lands it must preserve the scoped behavior (generic 404, never 422, which would be an oracle: 422 for nonexistent vs 404 for out-of-scope). Add that sentence to the issue and to the T-W8 comment.",
+      "d_update_import_upsert": "PUT: the same pre-check on the new field_values, in the same positions as create (router pure+lookup check before Idempotency.from_body; Records before the transaction; in-transaction recheck). Changing the reference to out-of-scope vs nonexistent: identical bytes and statements. A PUT that omits the reference field (partial/unchanged document) is judged on the document as validated/merged by the current update path: whatever new field_values Records will write is what is checked (no separate old-value rule, see a). DELETE: no reference check (no new value). IMPORT: extend ScopedWrites.check_batch/import_scope_check so the batch pre-check also resolves references of EVERY entry; to keep statement count independent of which entry is bad, collect all distinct non-null well-formed reference ids per FK field across the batch and issue ONE statement per FK field (id = ANY(^ids)); any unresolved id, malformed value, or undeclared target refuses the WHOLE batch with the existing single generic 404 (nothing written, no count, no per-row detail, same status/body/headers/telemetry as the other batch refusals, position independent). UPSERT (upsert_by external_ref): unchanged, still refused wholesale for a scoped caller (step-17 item 5); no change needed because the batch is refused before any write.",
+      "e_equality_and_tests": "Required equality for out-of-scope vs nonexistent reference value, create and update and import: same HTTP status, same body bytes, same response headers (request id and date excluded and named, as in T-W1), same ordered SQL statement sequence, one telemetry event with metadata keys exactly policy and kind and identical values, nothing written (counts unchanged), no idempotency row claimed. Tests that MUST be added/changed by TEST-DESIGNER after ELIXIR-DEV: (1) keep T-W8 test 1 UNCHANGED (red -> green; it is the gate; do not weaken to a status-class assertion). (2) T-W8 test 2: keep the in-scope 201 and wide-out-of-scope 201 assertions, relabel the 'wide absent id == 500' line as a pinned PRE-EXISTING defect with a reference to the separate issue; do not turn it into an assertion that tenant-wide gets 404. (3) New: bytes+headers+SQL-sequence+telemetry equality (T-W1 style) for create with out-of-scope vs nonexistent reference; PUT changing the reference to each; PUT with unchanged in-scope reference succeeds. (4) New: reference to a :tenant_wide master that exists succeeds, nonexistent refused; reference to an undeclared target type refused with no lookup statement; null/omitted reference succeeds; non-string/malformed/empty-string reference refused with the identical bytes. (5) New: idempotency replay (T-W22) with a reference that is now out of scope: generic 404, no stored id/version in body or headers. (6) New: import with a bad reference in first/middle/last position and each reason (out-of-scope, nonexistent, malformed, null is allowed) identical answer, zero rows written, statement count equal across the reasons. (7) New: Records-level test (records_scope_test) calling create_record/update_record directly with a scoped set and an out-of-scope reference returns {:error, :scope_refused} and writes nothing, and a test of the (b) mapping (a forced FK violation under a scoped set yields :scope_refused, never a raw error). (8) Mutants to measure: skip router reference check (T-W8 red), skip Records pre-transaction reference check, skip in-transaction recheck (may be EQUIVALENT like MU17c; record it, but the (b) mapping must then be killed by test 7), drop the foreign_key_violation clause, import checks references of first entry only, reference check placed after Idempotency.from_body (T-W22 red), undeclared target treated as visible. (9) Scan/design: add a source-scan or fixture assertion that every foreign_keys entry of a scope-declared type is covered (the pre-check is driven by definition foreign_keys, so a new FK needs no code change).",
+      "f_design_amendment": "The design must be amended (CODE-DESIGNER, small, before merge, record as r2b): F7 premise corrected (the DB foreign key on a promoted reference column IS a lookup; AC 7 reference clause is live, not vacuous), RA-9 withdrawn, 5.3 gets the reference pre-check/recheck/backstop and the ruling statements above, T-W8 and the AC map updated, residual stated (referenced-row scope change after the check). REQ-ANALYST amendment is NOT needed: AC 7 text already demands the behavior."
+    },
+    "merge_decision": "BLOCKED. 2c-ii must not merge with BUG-1 deferred. Rationale: AC 7 and INV-5 are normative on behavior; R-8 only reduces production exposure to zero today and is a reason to accept the residual race, not to accept a known oracle; the pin test is already red on the branch, so merging would also require weakening a test, which this gate forbids. Minimum to unblock: (a) pre-check + transaction recheck + (b) backstop in ELIXIR-DEV; tests 1-7 above green in hosted CI; design r2b note; step-17 merge conditions (F-1 and the owed tests) still apply; SECURITY-REVIEWER re-review of the diff (expected quick, scoped to ScopedWrites/Records/entities.ex reference paths). Item (c) separate issue is NOT a merge condition for 2c-ii but must be filed before merge.",
+    "findings": [
+      {
+        "id": "BUG-1 / F-4",
+        "severity": "BLOCKER",
+        "blocking": true,
+        "title": "promoted foreign key is an existence oracle for scoped writers (AC 7 reference clause, INV-5)",
+        "detail": "POST/PUT of scoped_child with item_id naming an existing out-of-scope scoped_item gives 201; a nonexistent id gives 500. The design F7 premise (no reference lookup exists) is wrong: the database performs it.",
+        "required_action": "ELIXIR-DEV implements rulings a, b, d; TEST-DESIGNER adds tests per e; CODE-DESIGNER records r2b per f; ORCH files the separate tenant-wide 500 issue per c."
+      }
+    ],
+    "required_changes": [
+      "ELIXIR-DEV: ScopedWrites gains a reference resolution function (suggested ScopedWrites.check_references/4: foreign_keys of the definition, new field_values, scope, prefix, telemetry -> :ok | :refused, one bound statement per FK field via ScopedLookup) used by the router (create, update, import pre-check) before Idempotency.from_body, by Records before the transaction, and inside the :scope_check Multi step with the transaction repo; Records.write_entity_table_row maps foreign_key_violation to {:error, :scope_refused} when ctx.scope != :all; tenant-wide path untouched.",
+      "TEST-DESIGNER: tests per ruling e.",
+      "CODE-DESIGNER: design r2b per ruling f.",
+      "ORCH: file the separate issue per ruling c before merge."
+    ],
+    "classification": "CODE_FAIL_BLOCKER",
+    "implementation_written": false
+  }
+}

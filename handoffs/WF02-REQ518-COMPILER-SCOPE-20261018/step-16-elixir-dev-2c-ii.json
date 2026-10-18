@@ -1,0 +1,97 @@
+{
+  "handoff_id": "d2535518-0518-4c02-9e11-000000000016",
+  "run_id": "WF02-REQ518-COMPILER-SCOPE-20261018",
+  "workflow_id": "WF-02",
+  "step": "16",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-16-elixir-dev-2c-ii.json",
+  "created_at": "2026-10-18T08:05:00Z",
+  "started_at": "2026-10-18T08:05:00Z",
+  "completed_at": "2026-10-18T09:54:20Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-518"],
+    "requirement_text": {},
+    "source_text": {
+      "slice": "REQ-518 slice 2c-ii (GH #2535): 404 equivalence and writes (ScopedLookup, ScopedWrites, Records scope recheck), import all-or-nothing, record attachment parent gate, resolvers, route classes (8 resolver routes, 7 explicit tenant_wide), walk rules unexpected_resolver_route and data_route_default, snapshot shrink by 15."
+    },
+    "related_handoff_ids": ["d2535518-0518-4c02-9e11-000000000004", "d2535518-0518-4c02-9e11-000000000012", "d2535518-0518-4c02-9e11-000000000013"],
+    "artifacts_in": [
+      "lib/letflow/design/req518-compiler-scope-filter.md",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-04-security-reviewer-design.json",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-12-security-reviewer-code-2c-i-b.json",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-13-reviewer-code-2c-i-b.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ518-2CII-WRITES-20261018"
+  },
+  "task": {
+    "description": "Implement PR 2c-ii of the REQ-518 design (rev r2a). Implementation only; new tests are TEST-DESIGNER's. Nothing committed."
+  },
+  "result": {
+    "status": "COMPLETED",
+    "summary": "2c-ii implemented in full, uncommitted. RAN (MIX_ENV=test, one mix at a time under my own mixlock, always released): mix compile --warnings-as-errors clean; mix format --check-formatted clean; mix letflow.check_boundaries 0 violations (1792 edges). Per-file mix test: route_scope_test, route_scope_walk_test, route_scope_self_service_test, route_scope_exam_guard_test, scope_all_scan_test (107 passed after the forced edits); entities_write_type_access_test, entities_attachments_type_access_test, entities_import_upsert_test, entities_scope_http_test, scope_all_scan_test (91 passed). One throwaway scratch HTTP test (deleted) drove a scoped TENANT_ADMIN at node a under mode on through the full Letflow.Router on the fixture_scoped tenant and passed: PUT/DELETE out-of-scope id vs nonexistent id give identical status and body (trace_id excluded); PUT in scope 200, moving to node b 404, omitting the scope field 404; POST in scope 201, node b / missing / nonexistent node / nonexistent type / scoped_master (tenant_wide) all the identical 404; import with an out-of-scope row in either position 404 with the same body and an all-valid batch 200; attachment list for an out-of-scope parent equals the nonexistent parent (empty 200), create with a missing file part is 404 for out-of-scope and nonexistent parents and 422 for an in-scope parent, content GET and DELETE out-of-scope equal nonexistent. The scratch test caught one real bug (the :scope_check Multi step returned :ok instead of {:ok, _}), fixed. NOT RUN: mix letflow.check, any full or multi-partition suite, permission_matrix --check (no permission atom changed), the five-file run records_test / entities_test / entities_managed_by_test / enforce_test / enforce_backstop_test (it ran once but its result line was lost to a bad output filter, and the mixlock was then taken by another session, so the re-run was not possible; NOT claimed as passing), T-W1 statement-count equality via telemetry, the idempotency replay T-W22, the race backstop inside the transaction.",
+    "migrations": [],
+    "files_created": [
+      "lib/letflow/entities/scoped_lookup.ex",
+      "lib/letflow/entities/scoped_writes.ex",
+      "lib/letflow/entities/scope_resolver.ex"
+    ],
+    "files_changed": [
+      "lib/letflow/routers/entities.ex",
+      "lib/letflow/entities/records.ex",
+      "lib/letflow/api/route_scope.ex",
+      "test/fixtures/route_scope/tenant_wide_default_routes.txt",
+      "lib/letflow/entities/import_upsert.ex",
+      "lib/letflow/modules/exam/session.ex",
+      "lib/letflow/modules/exam/snapshot.ex",
+      "lib/letflow/modules/exam/anti_cheat.ex",
+      "lib/letflow/modules/exam/certificate.ex",
+      "lib/letflow/scheduler/record_deadline_sweep.ex",
+      "lib/mix/tasks/letflow.seed.exam_fixtures.ex",
+      "test/letflow/api/route_scope_test.exs",
+      "test/letflow/api/route_scope_walk_test.exs",
+      "test/letflow/api/route_scope_self_service_test.exs"
+    ],
+    "ledger_rows": [
+      "E1-E7 (POST /entities/definitions/:name/activate, POST /entities/definitions, GET /entities/definitions/active/:name, GET /entities/definitions/by-name/:name, GET /entities/definitions/:id, GET /entities/definitions, POST /entities/restrictions/import): default-sourced :tenant_wide -> declared :tenant_wide (scope: :tenant_wide); behaviour unchanged.",
+      "E11-E18 (POST /entities/records/:entity_type, PUT and DELETE /entities/records/:entity_type/:record_id, POST /entities/records/:entity_type/import, POST/GET /entities/records/:entity_type/:record_id/attachments, GET/DELETE .../attachments/:attachment_id): default-sourced :tenant_wide -> {:resolver, {Letflow.Entities.ScopeResolver, :record_scope}}.",
+      "Snapshot: 15 lines removed (137 -> 122), exactly the 15 routes above; no line added."
+    ],
+    "mandatory_sec_files_touched": [
+      "lib/letflow/api/route_scope.ex",
+      "test/fixtures/route_scope/tenant_wide_default_routes.txt",
+      "lib/letflow/routers/entities.ex",
+      "(also: lib/letflow/entities/records.ex, scoped_lookup.ex, scoped_writes.ex, scope_resolver.ex as tenant-data paths). authorized_router.ex and scope/enforce.ex NOT touched."
+    ],
+    "deviations": [
+      "BUG-1 fix (SEC step-20): ScopedLookup.all_in_scope?/4 (one record_id = ANY(ids) count statement per referenced field; column target: column in set; tenant_wide target: exists; undeclared, :none, :latest or missing column: false with no statement); ScopedWrites.check_references/4, check_references_of_type/4 and check_batch_references/4 (foreign_keys of the definition_json, null skipped, non-UUID refused, all fields evaluated); router runs it with the pure value check before Idempotency.from_body on create and PUT, Records runs it before the transaction and again in the :scope_check step, import extends the batch pre-check; write_entity_table_row maps foreign_key_violation to {:error, :scope_refused} for a scoped write only (tenant-wide 500 untouched). No exemption for an unchanged stored reference on PUT; documented in Records and ScopedWrites moduledocs with the accepted TOCTOU residual. Verified: entities_scope_writes_http_test, records_scope_test, scoped_writes_test 75 passed (T-W8 green).",
+      "ScopedLookup.fetch_in_scope has arity 5 (extra {policy_key, kind} for the [:letflow,:scope,:not_found] event) and returns {:ok, declaration} (or {:ok, :unscoped} for :all) instead of {:ok, :visible}, so the router reuses the declaration for the pure new-value check without a second read. ScopedLookup.emit_not_found/2 is the single owner of the event; ScopedWrites and the router call it.",
+      "The guard of the GH #2784 RecordAccess.write decision runs unchanged first; design wording 'guard_tenant_write' maps to its :managed branch. ScopeGate.scope_set is called at the very top of every write, import and attachment handler (before RecordAccess), so every response is sent on the conn that carries the marker; the managed 403 therefore also pays the set read for a scoped caller.",
+      "Scoped callers: a HIDDEN type (denied or absent) is refused at the same point and with the same bytes as an undeclared or :tenant_wide type (create: before the body is read; import: after the structural checks (200-record cap, schema version, entity type match, upsert_by), as design 5.4 says; PUT/DELETE: the by-id lookup answer; attachments: parent not visible). For tenant-wide callers a hidden type keeps today's validate-then-hidden_result path. This makes a nonexistent type name indistinguishable from an undeclared one for a scoped caller even with an invalid body (SEC C-6), a slightly stronger reading than the design text.",
+      "Import with \"upsert_by\": \"external_ref\" (GH #2659, added after the design's F5 'import never updates') is refused with the same generic 404 for a scoped caller, because Records.upsert_record_by_external_ref can update an existing record and was not scope-aware. Tenant-wide callers are unchanged. Flagged for SEC/REVIEWER; supporting scoped upsert would need an old-value check inside the primitive.",
+      "Attachment routes: for a scoped caller whose parent is not visible, list / content GET / DELETE re-enter the SAME code with freshly generated ids (the existing hide_if_denied substitution) so status, body and statement shape equal a nonexistent parent; create answers Response.not_found BEFORE the multipart part is read. Tenant-wide callers: unchanged.",
+      "Records got the optional attr :scope (default :all) on create/update/delete with: a type gate and the pure old/new value check BEFORE the transaction (also on the already-deleted delete no-op path), plus a :scope_check Multi step (old value from the row locked FOR UPDATE, reusing check_record_version's lock when present; new value) only when scope is not :all. The step returns {:ok, :in_scope}; refusal is {:error, :scope_refused} rendered as Response.not_found plus the telemetry event. No lock is added to any existing order (same row lock the update takes anyway, after the sequence lock).",
+      "RouteScope: added @expected_resolver_routes (8 lines) with :unexpected_resolver_route (both directions) and @data_routers = [Letflow.Routers.Entities] with :data_route_default. Letflow.Routers.Tasks is deliberately NOT in @data_routers yet (its seven routes are classified by PR 2d; adding it now fails the walk); 2d must add it in the same change. The dead :self_service_not_allowed branch (REVIEWER 2c-i-b F-3) was left in place.",
+      "Added '# scope-all: <rule>' comments (no code change) at the non-router Records callers so the AC 1 scan extension (design 5.7) can pass: 6 exam call sites (SEC-518-R1), record_deadline_sweep, the seed mix task, and ImportUpsert (tenant-wide only). The scan test extension itself is TEST-DESIGNER's.",
+      "Forced edits to existing tests: route_scope_test (the three :resolver_not_exported / resolver-not-restricted tests now use rows whose line is on the committed resolver list via a listed_resolver/1 helper; assertions unchanged), route_scope_walk_test (T-C4 declared-routes list now includes the seven tenant_wide and eight resolver routes), route_scope_self_service_test (snapshot length 137 -> 122 and title). No assertion removed or loosened.",
+      "Entity record-write mix of scoped caller and the managed-type lock (F3): in production the generic write routes of a managed declared type stay the constant 403 entity_type_managed, so AC 6-9 over HTTP are exercised only against the test-only fixture_scoped module (R-8), as the design states."
+    ],
+    "notes_for_test_designer": [
+      "New tests owed (design 10.2): T-W1..T-W23, T-L4..T-L11 (+ T-L27 backstop per class), the scan extension (Records scope key / scope-all comments), the walk seeds for :unexpected_resolver_route and :data_route_default, T-W21 production-shaped refusal, T-W22 replay, T-W23 type-gate bytes. The telemetry event is [:letflow,:scope,:not_found] with metadata %{policy, kind}; kinds used: :by_id, :write_value, :import, :attachment_parent.",
+      "Statement shape: for a scoped caller each by-id case pays ScopeGate set read (2 statements), ScopeDeclaration reads, resolve_binding_source, relation_column_exists? and at most one predicate statement; out-of-scope and nonexistent ids run the identical path.",
+      "The fixture user in my scratch test was a TENANT_ADMIN granted only at node a; a TASK_WORKER lacks the record write permission (coarse 403), so use TENANT_ADMIN or add a role with the write permission."
+    ],
+    "sec_code_gate_followups": [
+      "PR body must carry the 15 ledger rows (E1-E7 declared tenant_wide, E11-E18 resolver) with old and new class, the 15 removed snapshot lines, the SEC verdict id, and the R-4 sentence only if Enforce is touched (it is not).",
+      "Spot checks A-7: attachment list for an out-of-scope parent equals the nonexistent parent (verified by the scratch run), attachment create short-circuits before the multipart read (verified for the missing-file case), import structural checks precede the type gate and the refusal reveals nothing about scope.",
+      "Residual: a scoped import is bound to the request's grant snapshot (R-3); scoped upsert import refused (deviation above)."
+    ],
+    "local_issue_id": null,
+    "implementation_written": true
+  }
+}

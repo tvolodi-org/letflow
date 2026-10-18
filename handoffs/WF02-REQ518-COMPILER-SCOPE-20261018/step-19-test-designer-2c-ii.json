@@ -1,0 +1,445 @@
+{
+  "handoff_id": "d2535518-0518-4c02-9e11-000000000019",
+  "run_id": "WF02-REQ518-COMPILER-SCOPE-20261018",
+  "workflow_id": "WF-02",
+  "step": "19",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGNER",
+  "file": "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-19-test-designer-2c-ii.json",
+  "created_at": "2026-10-18T08:41:00Z",
+  "started_at": "2026-10-18T08:44:18Z",
+  "completed_at": "2026-10-18T10:21:07Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [
+      "REQ-518"
+    ],
+    "requirement_text": {},
+    "source_text": {
+      "slice": "REQ-518 slice 2c-ii (GH #2535): 404 equivalence and writes (ScopedLookup, ScopedWrites, Records scope recheck), import all-or-nothing, record attachment parent gate, resolvers, route classes (8 resolver routes, 7 explicit tenant_wide), walk rules unexpected_resolver_route and data_route_default. Tests only; nothing under lib/ or priv/ was changed; nothing committed."
+    },
+    "related_handoff_ids": [
+      "d2535518-0518-4c02-9e11-000000000016",
+      "d2535518-0518-4c02-9e11-000000000017",
+      "d2535518-0518-4c02-9e11-000000000018"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/req518-compiler-scope-filter.md",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-16-elixir-dev-2c-ii.json",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-17-security-reviewer-code-2c-ii.json",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-18-reviewer-code-2c-ii.json",
+      "test/specs/REQ-518-2c-i-b.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ518-2CII-WRITES-20261018"
+  },
+  "task": {
+    "description": "Write the test spec and test code for REQ-518 slice 2c-ii (design r2a sections 1, 3.6, 5.1 to 5.7, 7.1, 10.2: T-W*, T-L*, T-D8, the mutants of 2c-ii) and the SEC code-gate (step-17) merge conditions and REVIEWER (step-18) notes. Per-file runs only under the shared mixlock; no mix letflow.check.test, no full or multi-partition suite; mutants applied in memory only."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "ROUND 2 (BUG-1 fix, SEC step-20 ruling, design r2b): extended and re-run. 155 new tests in 9 new files plus 1 support module, ALL GREEN, per file, one mix at a time under the mixlock (created and released by this step), MIX_ENV=test LOG_LEVEL=error: entities_scope_writes_http_test 32, entities_scope_attachments_http_test 13, entities_scope_production_shape_test 6, entities_scope_references_http_test 15 (new), records_scope_test 26, records_scope_references_test 14 (new), scoped_writes_test 17, route_scope_resolver_test 19, records_scope_all_scan_test 14 (the F7 pin replaced by wiring pins). Five-file Records neighbourhood green: records_test 79, entities_test 134, entities_managed_by_test 19, enforce_test 17, enforce_backstop_test 9. mix format --check-formatted: FMT=0; no compile warnings in any run; lib/ and priv/ untouched (md5 of git diff lib priv and of the new lib files identical before and after the round-2 mutant runs). NOT RUN: mix letflow.check.test, any full or multi-partition suite. Round-1 facts stand (neighbours, T-D8 re-run, 45 mutants); the four round-1 mutants whose anchors moved with the fix (MU17a, MU17c, MU39, MU39a) were re-anchored and re-measured. Dead-default check by hand: every default argument is called with and without the optional argument.",
+    "local_issue_id": null,
+    "tests_run": true,
+    "tests_run_scope": "per file, one mix at a time under C:\\Users\\tvolo\\AppData\\Local\\Temp\\claude\\mixlock (absent at start, created and removed by this step); no full-suite and no multi-partition run; no mix letflow.check.test",
+    "files_created": [
+      "test/letflow/routers/entities_scope_writes_http_test.exs",
+      "test/letflow/routers/entities_scope_attachments_http_test.exs",
+      "test/letflow/routers/entities_scope_production_shape_test.exs",
+      "test/letflow/entities/records_scope_test.exs",
+      "test/letflow/entities/scoped_writes_test.exs",
+      "test/letflow/entities/records_scope_all_scan_test.exs",
+      "test/letflow/api/route_scope_resolver_test.exs",
+      "test/support/scope_writes_fixture.ex",
+      "test/specs/REQ-518-2c-ii.md",
+      "test/letflow/routers/entities_scope_references_http_test.exs",
+      "test/letflow/entities/records_scope_references_test.exs"
+    ],
+    "files_changed": [],
+    "coverage": {
+      "AC 6": "T-W1 / T-W19 on PUT and DELETE for six out-of-scope keys (retired nodes and NULL included): equal status, headers, body, equal SQL statement sequences, one counted event with metadata keys exactly policy and kind, nothing written; T-W2 query filter values; MU14, MU15 killed",
+      "AC 7": "T-W3 (six bad bodies and a bad query parameter for out-of-scope vs nonexistent vs in-scope ids), T-W8 scan half green, T-W8 HTTP half RED (BUG-1: the promoted foreign key is an existence oracle)",
+      "AC 8": "T-W4 (fourteen refused new values), T-W5 (create), T-W6 (module-action path through Records), T-W7 (field grant), T-W22 (idempotency replay, tenant-wide key and own key, create and update), T-W23 (type-gate bytes on create and import, nonexistent type with invalid bodies), T-W21 and T-W18 (production allowlist [])",
+      "AC 9": "T-W9 (24 bad-row combinations all refused with zero rows, partial success of an invalid in-scope entry kept, structural checks first and equal to tenant-wide), upsert_by external_ref refused, T-W10 snapshot residual",
+      "AC 10": "revocation: grant swapped, grant removed, subtree moved, for the write routes and the four attachment routes; T-W11 cursor revocation with no node id or set in the cursor",
+      "AC 11": "T-W13 to T-W16 per attachment route (same bytes, same statements, one event, list stays the empty page), T-W20 / MU38 missing file part is still 404, SEC F-3 undeclared and denied types, tenant-wide unchanged",
+      "AC 19": "walk: seeded :unexpected_resolver_route both directions, :data_route_default, the committed list against the real table, 15 snapshot lines removed (137 to 122) and MU31; HTTP success in scope on all 8 routes proves the gate marker",
+      "AC 20": "only the shared walk rules; Routers.Tasks pinned as NOT a data router until PR 2d",
+      "T-L27": "race backstop at the Records layer: old value moved by a concurrent writer (update, update with expected seq, delete), row removed, two controls",
+      "T-W17": "AST scan of the Records write callers with a pinned ledger (7 files, 9 calls) and the router's four attribute literals",
+      "T-D8": "delivered in 2c-i-a, re-run green (catalog_scope_declarations_test 25, scope_declaration_test 16); T-W21 is its compensating production-shaped test",
+      "SEC step-17 merge conditions": "F-1 seeded walk tests (route_scope_resolver_test), T-W1 statement counts, T-W5, T-W19, T-W21, T-W22, T-W23, T-D8 re-run, T-L27, scan extension, five-file Records neighbourhood: all present; the log lesson of 2c-i was applied by not asserting on captured logs at all (no with_log in any new file)",
+      "BUG-1 / AC 7": "T-W8 (a) create and PUT out-of-scope vs nonexistent reference: status, headers, body, SQL sequence, telemetry identical, nothing written, no idempotency row; unchanged in-scope PUT; fail closed for an unchanged reference that left the scope; (b) tenant-wide 2xx and the nonexistent 500 pinned as pre-existing (issue #2832) with the comment that the fix must keep the scoped 404; (c) omitted ok, JSON null is the schema 422 for scoped and tenant-wide alike, malformed/non-string/empty references one answer with no lookup statement; tenant_wide target (existence) and undeclared target (no statement) at the ScopedWrites level; (d)/T-W22 replay with an out-of-scope reference and with a reference that left the scope; (e) import first/middle/last x out-of-scope/nonexistent/malformed, one lookup statement per field, zero rows; (f) Records-level :scope_refused, nothing written, decided before the transaction; (g) FK-violation backstop over HTTP and at Records (scoped: generic 404 / :scope_refused; :all: raw error, pinned), in-transaction recheck via a held sequence lock; T-W9b scoped upsert refused"
+    },
+    "mutants": {
+      "method": "the mutated source is compiled into the test VM (Code.compile_string of the file with the textual edits, each anchor required to occur exactly once, ignore_module_conflict) via 'mix do run --no-start -r mut.exs + test <files>'; nothing on disk was changed (md5 of git diff lib priv and of the new lib files identical before and after); one mix at a time under the mixlock; counts below are the failed tests of the listed files; the HTTP file contains the one baseline-red test (BUG-1), which is counted in 'failed' and subtracted in 'net'",
+      "measured": [
+        {
+          "id": "MU32a",
+          "edit": "entities.ex: POST /records/:entity_type loses its resolver class (default)",
+          "files": "route_scope_resolver_test",
+          "failed": "4 of 19"
+        },
+        {
+          "id": "MU32b",
+          "edit": "entities.ex: DELETE /records/... declared :tenant_wide instead of the resolver",
+          "files": "route_scope_resolver_test",
+          "failed": "2 of 19"
+        },
+        {
+          "id": "MU32c",
+          "edit": "route_scope.ex: a listed route mounted with another class is not reported",
+          "files": "route_scope_resolver_test",
+          "failed": "2 of 19"
+        },
+        {
+          "id": "MU32d",
+          "edit": "route_scope.ex: an unlisted resolver route is not reported",
+          "files": "route_scope_resolver_test",
+          "failed": "3 of 19"
+        },
+        {
+          "id": "MU-DD",
+          "edit": "route_scope.ex: :data_route_default never reported",
+          "files": "route_scope_resolver_test",
+          "failed": "2 of 19"
+        },
+        {
+          "id": "MU-DD2",
+          "edit": "route_scope.ex: @data_routers empty",
+          "files": "route_scope_resolver_test",
+          "failed": "2 of 19"
+        },
+        {
+          "id": "MU-DD3",
+          "edit": "route_scope.ex: @data_routers also holds Routers.Tasks",
+          "files": "route_scope_resolver_test",
+          "failed": "2 of 19"
+        },
+        {
+          "id": "MU-SR",
+          "edit": "scope_resolver.ex: the empty string accepted as a node",
+          "files": "scoped_writes_test",
+          "failed": "1 of 17"
+        },
+        {
+          "id": "MU-NI",
+          "edit": "records.ex: no :scope_check step in the transaction",
+          "files": "records_scope_test",
+          "failed": "5 of 25"
+        },
+        {
+          "id": "MU-NJ",
+          "edit": "records.ex: the in-transaction recheck skips the old value for DELETE",
+          "files": "records_scope_test",
+          "failed": "1 of 25"
+        },
+        {
+          "id": "MU-NK",
+          "edit": "records.ex: an absent row inside the transaction is accepted",
+          "files": "records_scope_test",
+          "failed": "1 of 25"
+        },
+        {
+          "id": "MU-NL",
+          "edit": "records.ex: the scope check step also runs on the :all path",
+          "files": "records_scope_test",
+          "failed": "SURVIVED 0 of 25 against the first draft; after adding the row-lock statement test: 1 of 26"
+        },
+        {
+          "id": "MU16b (MU16 family)",
+          "edit": "records.ex: the in-transaction recheck uses the stale pre-transaction row instead of the locked one",
+          "files": "records_scope_test",
+          "failed": "5 of 25"
+        },
+        {
+          "id": "MU-LU2",
+          "edit": "scoped_lookup.ex: :none treated as visible",
+          "files": "records_scope_test",
+          "failed": "1 of 25"
+        },
+        {
+          "id": "MU-LU4",
+          "edit": "scoped_lookup.ex: an unreadable source (dropped table or column) is visible",
+          "files": "records_scope_test",
+          "failed": "2 of 25"
+        },
+        {
+          "id": "MU-TG2",
+          "edit": "scoped_writes.ex: type_gate accepts a :tenant_wide master",
+          "files": "records_scope_test, writes_http, production_shape, scoped_writes_test",
+          "failed": "3 of 80 (net 2)"
+        },
+        {
+          "id": "MU13",
+          "edit": "entities.ex: PUT scope lookup AFTER body validation",
+          "files": "writes_http",
+          "failed": "2 of 32 (net 1)"
+        },
+        {
+          "id": "MU13b",
+          "edit": "entities.ex: DELETE query-string parse before the scope lookup",
+          "files": "writes_http",
+          "failed": "2 of 32 (net 1)"
+        },
+        {
+          "id": "MU14",
+          "edit": "entities.ex: every scope_refused/3 answer is 403",
+          "files": "writes_http",
+          "failed": "2 of 32 (net 1)"
+        },
+        {
+          "id": "MU14b",
+          "edit": "entities.ex: DELETE by-id scope refusal is 403",
+          "files": "writes_http",
+          "failed": "5 of 32 (net 4)"
+        },
+        {
+          "id": "MU15",
+          "edit": "scoped_lookup.ex: an extra existence-probe statement for a missed id (count differs from nonexistent)",
+          "files": "writes_http, attachments_http",
+          "failed": "7 of 45 (net 6)"
+        },
+        {
+          "id": "MU16",
+          "edit": "records.ex: the stored (old) value is not checked",
+          "files": "records_scope_test, writes_http",
+          "failed": "6 of 58 (net 5)"
+        },
+        {
+          "id": "MU17a",
+          "edit": "entities.ex: the router pure new-value check is skipped",
+          "files": "writes_http",
+          "failed": "5 of 32 (net 4)"
+        },
+        {
+          "id": "MU17b",
+          "edit": "records.ex: the new value is not checked before the transaction",
+          "files": "records_scope_test, writes_http",
+          "failed": "4 of 58 (net 3)"
+        },
+        {
+          "id": "MU17c",
+          "edit": "records.ex: the new value is not rechecked inside the transaction",
+          "files": "records_scope_test, writes_http",
+          "failed": "SURVIVED: 1 of 58 failed, and it is the baseline-red BUG-1 test (net 0). EQUIVALENT by construction: the same validated document and the same set were accepted before the transaction"
+        },
+        {
+          "id": "MU18",
+          "edit": "scoped_writes.ex: NULL / unresolvable scope accepted",
+          "files": "scoped_writes_test, writes_http, records_scope_test",
+          "failed": "9 of 75 (net 8)"
+        },
+        {
+          "id": "MU18b",
+          "edit": "scoped_writes.ex: prefix match instead of set membership",
+          "files": "scoped_writes_test, writes_http",
+          "failed": "7 of 49 (net 6)"
+        },
+        {
+          "id": "MU19",
+          "edit": "scoped_writes.ex: import checks only the first row",
+          "files": "scoped_writes_test, writes_http",
+          "failed": "6 of 49 (net 5)"
+        },
+        {
+          "id": "MU19b",
+          "edit": "entities.ex: import pre-check skipped (writes before checking)",
+          "files": "writes_http",
+          "failed": "8 of 32 (net 7)"
+        },
+        {
+          "id": "MU20",
+          "edit": "entities.ex: the import refusal carries a per-row detail",
+          "files": "writes_http",
+          "failed": "8 of 32 (net 7)"
+        },
+        {
+          "id": "MU22",
+          "edit": "entities.ex: attachment LIST of an out-of-scope parent is a 404",
+          "files": "attachments_http",
+          "failed": "3 of 13"
+        },
+        {
+          "id": "MU22b",
+          "edit": "entities.ex: an out-of-scope parent keeps its real ids on list, content, delete",
+          "files": "attachments_http, production_shape",
+          "failed": "7 of 19"
+        },
+        {
+          "id": "MU38",
+          "edit": "entities.ex: attachment create reads the multipart part before the parent gate",
+          "files": "attachments_http",
+          "failed": "1 of 13"
+        },
+        {
+          "id": "MU38b",
+          "edit": "entities.ex: attachment create has no parent gate",
+          "files": "attachments_http",
+          "failed": "4 of 13"
+        },
+        {
+          "id": "MU39",
+          "edit": "entities.ex and records.ex: new-value check only inside the transaction (router check and Records pre-check both skipped)",
+          "files": "writes_http",
+          "failed": "9 of 32 (net 8)"
+        },
+        {
+          "id": "MU39a",
+          "edit": "entities.ex: router pure check skipped only",
+          "files": "writes_http",
+          "failed": "5 of 32 (net 4)"
+        },
+        {
+          "id": "MU-TG",
+          "edit": "entities.ex: write_type_gate treats a hidden/nonexistent type as open",
+          "files": "writes_http",
+          "failed": "2 of 32 (net 1)"
+        },
+        {
+          "id": "MU-LU",
+          "edit": "scoped_lookup.ex: the scope predicate dropped (any existing id visible)",
+          "files": "writes_http, attachments_http, records_scope_test",
+          "failed": "9 of 71 (net 8)"
+        },
+        {
+          "id": "MU-LU3",
+          "edit": "scoped_lookup.ex: deleted becomes part of the predicate",
+          "files": "writes_http, records_scope_test",
+          "failed": "2 of 58 (net 1)"
+        },
+        {
+          "id": "MU-TE",
+          "edit": "scoped_lookup.ex: telemetry metadata carries an extra key",
+          "files": "writes_http",
+          "failed": "2 of 32 (net 1)"
+        },
+        {
+          "id": "MU-TE2",
+          "edit": "scoped_lookup.ex: telemetry emitted twice per refusal",
+          "files": "writes_http",
+          "failed": "7 of 32 (net 6)"
+        },
+        {
+          "id": "MU-UP1",
+          "edit": "entities.ex: scoped upsert guard removed (the FunctionClauseError path)",
+          "files": "writes_http",
+          "failed": "2 of 32 (net 1)"
+        },
+        {
+          "id": "MU-UP2",
+          "edit": "entities.ex: guard removed AND the :upsert clause relaxed (scoped import reaches the unscoped primitive)",
+          "files": "writes_http",
+          "failed": "2 of 32 (net 1)"
+        },
+        {
+          "id": "MU-G1",
+          "edit": "entities.ex: DELETE handler drops the conn returned by the gate (backstop 500 on a real route)",
+          "files": "writes_http",
+          "failed": "4 of 32 (net 3)"
+        },
+        {
+          "id": "MU-G2",
+          "edit": "entities.ex: attachment content handler drops the conn returned by the gate",
+          "files": "attachments_http",
+          "failed": "3 of 13"
+        },
+        {
+          "id": "MR-A",
+          "edit": "entities.ex: the reference check dropped (create and PUT)",
+          "files": "references_http, writes_http",
+          "failed": "1 of 47"
+        },
+        {
+          "id": "MR-B",
+          "edit": "records.ex: the pre-transaction reference check dropped (create and update)",
+          "files": "records_scope_references, references_http",
+          "failed": "1 of 28"
+        },
+        {
+          "id": "MR-C",
+          "edit": "records.ex: the in-transaction reference recheck dropped",
+          "files": "records_scope_references, references_http",
+          "failed": "SURVIVED the first draft (0 of 28); after the held-sequence-lock test: 1 of 29"
+        },
+        {
+          "id": "MR-D",
+          "edit": "records.ex: the foreign-key-violation mapping removed (scoped caller gets the raw error)",
+          "files": "records_scope_references, references_http",
+          "failed": "2 of 28 (the two backstop tests)"
+        },
+        {
+          "id": "MR-E",
+          "edit": "scoped_lookup.ex: one statement per VALUE instead of per field",
+          "files": "records_scope_references, references_http",
+          "failed": "3 of 28"
+        },
+        {
+          "id": "MR-F",
+          "edit": "scoped_writes.ex: the import reference check looks at the first entry only",
+          "files": "records_scope_references, references_http",
+          "failed": "2 of 28"
+        },
+        {
+          "id": "MR-G",
+          "edit": "scoped_writes.ex: a malformed reference value skipped instead of refused",
+          "files": "records_scope_references, references_http",
+          "failed": "5 of 28"
+        },
+        {
+          "id": "MR-H",
+          "edit": "scoped_lookup.ex: an undeclared target treated as visible",
+          "files": "records_scope_references",
+          "failed": "1 of 13"
+        },
+        {
+          "id": "MR-I",
+          "edit": "scoped_writes.ex: only the first reference field checked",
+          "files": "records_scope_references",
+          "failed": "1 of 13"
+        },
+        {
+          "id": "MR-J",
+          "edit": "entities.ex: the import batch reference check dropped",
+          "files": "references_http",
+          "failed": "2 of 15"
+        },
+        {
+          "id": "MR-K",
+          "edit": "scoped_lookup.ex: a :tenant_wide target refused (existence not enough)",
+          "files": "records_scope_references",
+          "failed": "1 of 13"
+        }
+      ],
+      "summary": "56 mutants measured: 55 killed, 1 survives (MU17c, equivalent by construction). Round 2 re-measured MU17a 4 of 32, MU17c SURVIVED (0 of 58; the writes file is fully green now), MU39 8 of 32, MU39a 4 of 32 after re-anchoring; MR-C survived its first draft and was killed after adding the held-sequence-lock test",
+      "not_measured": "MU21 (cursor embeds the set) belongs to 2c-i (the Cursor module is not touched by this slice; T-W11 asserts the cursor text holds no node id and no set); MU12, MU27 to MU30 are 2c-i-b mutants measured in step 14; MU23 to MU26, MU33, MU36 belong to 2d"
+    },
+    "implementation_findings": [
+      "BUG-1: FIXED by ELIXIR-DEV (SEC step-20 ruling, design r2b 5.3); the formerly red test is green and covered by 29 new tests. The tenant-wide nonexistent-reference 500 remains and is pinned as a pre-existing defect (issue #2832). Observation: an explicit JSON null for a reference field is the schema 422 (type) for scoped and tenant-wide callers alike, so 'null allowed' in the ruling holds for an omitted field; not an oracle (independent of any record).",
+      "OBS-1: design 5.3 / T-W23 expect POST /entities/query with a nonexistent type to differ from an undeclared existing type (error envelope vs empty page). As built both are the same empty page for a scoped caller (stricter than the design); the test pins equality.",
+      "OBS-2: MU17c is equivalent; the in-transaction new-value recheck is defence in depth, not the 'authoritative check' design 5.3 words it as. The old-value recheck is the load-bearing one and is killed by five mutants.",
+      "OBS-3: design 10.2 T-W21 lists a 403 for the attachment routes of a managed declared type; those routes have no managed lock (#2582 by design). As-built behavior pinned (served in scope, nonexistent answer out of scope); no change asked.",
+      "OBS-4: at the Records layer (module code) a NULL or non-string scope value fails type validation FIRST ({:error, {:record_payload_invalid, _}}), before the scope check; over HTTP the router's pure check runs first and the answer is the canonical 404. Refused and nothing written either way; not a defect.",
+      "OBS-5 (harness fact): a malformed JSON body raises Plug.Parsers.ParseError out of ApiPipeline when the router is called without the real endpoint error handler, so T-W3 uses parseable but invalid documents.",
+      "NO OTHER IMPLEMENTATION BUG FOUND in round 2: every test is green against the working tree and every mutant but the equivalent MU17c is killed."
+    ],
+    "artifacts_out": [
+      "test/specs/REQ-518-2c-ii.md",
+      "test/letflow/routers/entities_scope_writes_http_test.exs",
+      "test/letflow/routers/entities_scope_attachments_http_test.exs",
+      "test/letflow/routers/entities_scope_production_shape_test.exs",
+      "test/letflow/entities/records_scope_test.exs",
+      "test/letflow/entities/scoped_writes_test.exs",
+      "test/letflow/entities/records_scope_all_scan_test.exs",
+      "test/letflow/api/route_scope_resolver_test.exs",
+      "test/support/scope_writes_fixture.ex",
+      "test/letflow/routers/entities_scope_references_http_test.exs",
+      "test/letflow/entities/records_scope_references_test.exs"
+    ],
+    "run_command_for_test_runner": "for each of: test/letflow/routers/entities_scope_writes_http_test.exs test/letflow/routers/entities_scope_attachments_http_test.exs test/letflow/routers/entities_scope_production_shape_test.exs test/letflow/entities/records_scope_test.exs test/letflow/entities/scoped_writes_test.exs test/letflow/entities/records_scope_all_scan_test.exs test/letflow/api/route_scope_resolver_test.exs: MIX_ENV=test mix test <file> (each 1 to 45 s; the writes_http file is red on exactly one test until BUG-1 is ruled and fixed); then the five-file Records neighbourhood; then hosted CI is the suite.",
+    "implementation_written": false
+  }
+}

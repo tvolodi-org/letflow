@@ -65,6 +65,8 @@ defmodule Letflow.Api.RouteScope do
           | {:tenant_wide_unruled, route_row() | String.t()}
           | {:pending_marker_unlisted, String.t()}
           | {:unexpected_filter_route, route_row()}
+          | {:unexpected_resolver_route, route_row()}
+          | {:data_route_default, route_row()}
           | {:unknown_permission, atom()}
           | {:exam_route_reclassified, route_row()}
 
@@ -99,6 +101,26 @@ defmodule Letflow.Api.RouteScope do
     "POST /entities/query/aggregate EntitiesAggregate",
     "POST /entities/records/:entity_type/export EntitiesRecordsExport"
   ]
+
+  # The committed expectation of `{:resolver, _}` routes (SEC F-1, same line format), REQ-518
+  # PR 2c-ii (AC 19): the eight entity record write and attachment routes; PR 2d adds the five
+  # task routes. The walk fails a resolver route that is not listed AND a listed route that is
+  # mounted with another class (a resolver silently dropped).
+  @expected_resolver_routes [
+    "DELETE /entities/records/:entity_type/:record_id EntitiesRecordsWrite",
+    "DELETE /entities/records/:entity_type/:record_id/attachments/:attachment_id EntitiesAttachmentsManage",
+    "GET /entities/records/:entity_type/:record_id/attachments EntitiesAttachmentsRead",
+    "GET /entities/records/:entity_type/:record_id/attachments/:attachment_id EntitiesAttachmentsRead",
+    "POST /entities/records/:entity_type EntitiesRecordsWrite",
+    "POST /entities/records/:entity_type/:record_id/attachments EntitiesAttachmentsManage",
+    "POST /entities/records/:entity_type/import EntitiesRecordsImport",
+    "PUT /entities/records/:entity_type/:record_id EntitiesRecordsWrite"
+  ]
+
+  # AC 19: every route of these routers is CLASSIFIED (declared or admin key table); a default-
+  # sourced one fails `:data_route_default`, so a route added without a class breaks the build.
+  # REQ-518 PR 2d adds `Letflow.Routers.Tasks` when its seven routes are classified.
+  @data_routers [Letflow.Routers.Entities]
 
   # `:self_service` routes are allowed from REQ-518 PR 2c-i-b (AC 21); WHICH routes is the
   # committed `@self_service_routes` list below (SEC F-1).
@@ -243,6 +265,19 @@ defmodule Letflow.Api.RouteScope do
             (r.class != :filter and snapshot_line(r) in @expected_filter_routes),
           do: {:unexpected_filter_route, r}
 
+    unexpected_resolvers =
+      for r <- routes,
+          (match?({:resolver, _}, r.class) and snapshot_line(r) not in @expected_resolver_routes) or
+            (not match?({:resolver, _}, r.class) and
+               snapshot_line(r) in @expected_resolver_routes),
+          do: {:unexpected_resolver_route, r}
+
+    data_defaults =
+      for r <- routes,
+          r.router in @data_routers,
+          r.source == :default,
+          do: {:data_route_default, r}
+
     self_service_errors = audit_self_service(routes, self_service_list)
 
     # REQ-518 R-1 (SEC-518-R1) guard: the literal `:all` at the exam data-access sites is safe only
@@ -268,7 +303,9 @@ defmodule Letflow.Api.RouteScope do
       missing_keys ++
       reclassified ++
       self_service ++
-      unexpected_filters ++ unknown_permissions ++ exam_reclassified ++ self_service_errors
+      unexpected_filters ++
+      unexpected_resolvers ++
+      data_defaults ++ unknown_permissions ++ exam_reclassified ++ self_service_errors
   end
 
   # REQ-518 AC 21 (i), design 4.2. Every `/me` and `/help` route is on the list; the routes of

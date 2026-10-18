@@ -1,7 +1,5 @@
 DELETE /admin/services/:service_id AdminServicesManage
 DELETE /definitions/:id DefinitionsDelete
-DELETE /entities/records/:entity_type/:record_id EntitiesRecordsWrite
-DELETE /entities/records/:entity_type/:record_id/attachments/:attachment_id EntitiesAttachmentsManage
 DELETE /instances/:id/attachments/:attachment_id AttachmentsManage
 DELETE /onboarding/:id/pending-admins/:grant_id TenantsManage
 DELETE /script-rules/:key/versions/:version ScriptsWrite
@@ -16,12 +14,6 @@ GET /definitions/delta DefinitionsRead
 GET /definitions/search DefinitionsRead
 GET /dlq DlqReadRetryDiscard
 GET /dlq/:id DlqReadRetryDiscard
-GET /entities/definitions EntitiesDefinitionsRead
-GET /entities/definitions/:id EntitiesDefinitionsRead
-GET /entities/definitions/active/:name EntitiesDefinitionsRead
-GET /entities/definitions/by-name/:name EntitiesDefinitionsRead
-GET /entities/records/:entity_type/:record_id/attachments EntitiesAttachmentsRead
-GET /entities/records/:entity_type/:record_id/attachments/:attachment_id EntitiesAttachmentsRead
 GET /event-retention/retirements/:id TenantsManage
 GET /event-retention/summary TenantsManage
 GET /instances InstancesRead
@@ -75,12 +67,6 @@ POST /definitions/:process_key/rollback DefinitionsRollback
 POST /definitions/import DefinitionsImport
 POST /dlq/:id/discard DlqReadRetryDiscard
 POST /dlq/:id/retry DlqReadRetryDiscard
-POST /entities/definitions EntitiesDefinitionsWrite
-POST /entities/definitions/:name/activate EntitiesDefinitionsWrite
-POST /entities/records/:entity_type EntitiesRecordsWrite
-POST /entities/records/:entity_type/:record_id/attachments EntitiesAttachmentsManage
-POST /entities/records/:entity_type/import EntitiesRecordsImport
-POST /entities/restrictions/import EntitiesRestrictionsManage
 POST /event-retention/retirements TenantsManage
 POST /instances InstancesStart
 POST /instances/:id/advance-timer InstancesAdvanceTimer
@@ -126,7 +112,6 @@ POST /tenants/:slug/reactivate TenantsManage
 POST /tenants/:test_tenant_id/promote/:process_key PromotionsManage
 POST /webhooks/subscriptions WebhookSubscriptionsManage
 PUT /definitions/:id DefinitionsUpdate
-PUT /entities/records/:entity_type/:record_id EntitiesRecordsWrite
 PUT /modules/exam/exam-sessions/:id/answers/:question_id ExamSessionSave
 PUT /script-policy/kill-switch ScriptPolicyManage
 PUT /script-policy/readable-masters/:entity_type ScriptPolicyManage

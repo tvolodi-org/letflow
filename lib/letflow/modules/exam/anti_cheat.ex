@@ -259,6 +259,7 @@ defmodule Letflow.Modules.Exam.AntiCheat do
   end
 
   defp write_event(session_id, signal_type, action_taken, actor_id, prefix) do
+    # scope-all: SEC-518-R1 (exam module, own-record system path)
     Records.create_record(
       %{
         entity_type: "session_event",

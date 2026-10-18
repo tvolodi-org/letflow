@@ -429,9 +429,9 @@ defmodule Letflow.Api.RouteScopeSelfServiceTest do
       end
     end
 
-    test "the snapshot lost exactly the six reclassified lines: 137 remain, none of the six is present",
+    test "the snapshot lost exactly the six 2c-i-b lines and the fifteen 2c-ii lines: 122 remain, none of the six is present",
          %{snapshot: snapshot} do
-      assert length(snapshot) == 137
+      assert length(snapshot) == 122
 
       for l <- @removed_lines, do: refute(l in snapshot, l)
     end
