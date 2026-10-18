@@ -122,9 +122,9 @@ Invariants (each gets a unit test in `test/letflow/entities/record_access_test.e
   outcome and whatever earlier calls returned; the code after the gate is identical for denied and absent. The statement count inside the calls
   is NOT constant and is not claimed: `get_active_definition_by_name/2` (definitions.ex:318-340) does the tenant lookup plus
   `Activation.resolve` and, only for an existing type, a version read and a definition read; `ManagedTypes.owner_of/2` issues 0 queries for a
-  name failing the managed-name format and 2 otherwise. This existing-vs-missing definition read is the same residual #2700 accepted (SECURITY
-  R6); it is not a denied-vs-absent signal because a denied existing type and an absent type both reach it with the type's own existence
-  (a denied type exists, an absent one does not, so THIS residual remains and is stated, not hidden).
+  name failing the managed-name format and 2 otherwise. The residual, stated once: a denied EXISTING type differs from an ABSENT type by this
+  definition read inside `get_active_definition_by_name/2` (an existing type also does the version and definition reads) and by the post-gate
+  work it implies; it is the #2700 R6 accepted residual (gh2700 design ~296-299).
 - I2 `write/3` for a denied type and for an absent type returns the identical term `:hidden` (a denied type that is also managed, and one that has
   field restrictions, still returns `:hidden`).
 - I3 `write/3` returns `{:open, restricted}` only when TypeAccess allows AND an active definition exists AND the type is unmanaged.
@@ -157,8 +157,7 @@ existing body that now receives the decision):
 6. An ABSENT type is `:hidden` too (no active definition), so absent and denied do not just render equally, they execute the same
    code: the gate's four calls, the same step-4 code, then the substitution. Neither reaches `Records`, so neither reaches
    `EntityTypeInstance.get_or_create` (records.ex:955-957, the first write-capable step of `run_command`): a hidden write creates no synthetic
-   instance row either. The one remaining difference is the existing-vs-missing definition read inside `get_active_definition_by_name/2`
-   (I1), the residual #2700 accepted (SECURITY R6).
+   instance row either. The only remaining difference is the I1 residual (#2700 R6).
 
 Per-route denial answer (a write has no 200-empty analogue; the answer is whatever an absent type gets, which is the generic 404 except for
 two route-shaped cases):
@@ -174,7 +173,7 @@ two route-shaped cases):
 A caller that LACKS the route permission still gets the route-level 403 for every type including absent ones; the type does not influence it.
 
 Timing: denied and absent run the same calls and the same code after the gate (point 6); the I1 residual is stated, not claimed away. The
-visible-type path adds the four gate calls to today's work (cost in section 8), which is not a denied-vs-absent signal.
+visible-type path adds the four gate calls to today's work (cost in section 8).
 
 Byte-identity scope: status, headers and body of `Response.not_found/1` are a function of nothing request-specific except `trace_id` (and the
 Problem `instance` member if the shaper echoes the path; the tests normalise only those two, as #2659's `strip_trace/1` does, and also compare
@@ -215,10 +214,16 @@ field with one DELETE (and re-DELETE of a deleted record repeats it). Decision: 
 its response MUST be redacted (refusing was weighed and rejected: it would make partly-restricted types undeletable by ordinary operators;
 the delete itself reads and sets nothing). Rule, shared by every `{:open, restricted}` success rendering: when `restricted` is non-empty,
 `record.field_values` is passed through `FieldGrants.redact_field_values/2` (value becomes the `__field_redacted__` sentinel, the #2697 /
-REQ-231 read-side behaviour) BEFORE `Decimals.render_field_values`, in the same order the read routes use. `render_record_command/3` gains the
-restriction set as an argument (or the redaction is applied to the `Latest` before it); `:hidden` never reaches it. The redaction applies on
-the first delete, the re-delete (no-op success of an already-deleted record) and on POST (create may echo defaulted restricted fields). PUT
-needs none (refused for these actors). The stored event and row are untouched; this is rendering only (INV-2).
+REQ-231 read-side behaviour) BEFORE `Decimals.render_field_values`, in the same order the read routes use. PINNED mechanism: `render_record_command/3` becomes
+`render_record_command/4` `(conn, result, status, restricted)`; in the `{:ok, %{record: %Latest{}}}` clauses (:1595, :1603), when
+`MapSet.size(restricted) > 0`, `record.field_values` is passed through `FieldGrants.redact_field_values/2` and the redacted `Latest` goes to
+`record_map/2`, which is UNCHANGED (so redaction precedes `Decimals.render_field_values`, as on the read routes). The three handlers (POST
+:1039, PUT :1109, DELETE :1174) pass the set taken from `{:open, restricted}`; the `:hidden` path and every error clause never receive or use
+it (the error clauses ignore the fourth argument). The sentinel is `:__field_redacted__` (query/field_grants.ex ~113). The redaction
+applies on the first delete and on the re-delete (no-op success of an already-deleted record). POST: redaction is DEFENCE IN DEPTH only and
+unreachable by construction (`Records` applies no defaults, records.ex ~1712; a restricted key in the body is refused before `Records`;
+idempotency keys are namespaced per actor), so it is covered by a UNIT assertion on the helper, not an HTTP-level echo test. PUT needs none
+(refused for these actors) but passes the set uniformly. The stored event and row are untouched; this is rendering only (INV-2).
 
 ### 4.1 Sweep of every renderer of record `field_values` (supervisor ruling b)
 
@@ -328,22 +333,28 @@ change. Re-grep result (implementer re-runs and quotes it in the PR):
   edit (PUT) and on create when the form submits a restricted key; before it silently wrote the sentinel/erased the value. A user type-denied
   cannot navigate to the type at all. No `web/` change is required for correctness; a friendlier 403 message is a FRONTEND follow-up (OQ-9).
 - Caller grep results (CDV F7, recorded; implementer re-runs): `scripts/seed_vortex_entities.sh` is the ONLY script writing records over HTTP;
-  `web/src/api/entities.ts:61-90` the only SPA caller; `test/letflow/scripts/seed_scripts_no_argv_payload_test.exs` runs the seed script under a
-  stub `curl` with NUMBERED invocations (~:551+), so the new `lookup_user_id` call and the grant payload shift the numbering and must be
-  reflected; `test/scripts/seed_vortex_entities_activate_test.exs` also runs it.
+  `web/src/api/entities.ts:61-90` the only SPA caller; `test/letflow/scripts/seed_scripts_no_argv_payload_test.exs` is a STATIC scan that counts
+  the `:stdin`/`:file`/`:literal` body modes of the script's curl calls (~:390-396) and expects `[:file, :literal, :stdin, :stdin, :stdin]`;
+  the stub-curl numbered-invocation harness (~:551+) applies to the DEFINITION scripts only. `test/scripts/seed_vortex_entities_activate_test.exs`
+  extracts functions from the script and is unaffected unless those functions change.
 - BREAKING for `scripts/seed_vortex_entities.sh`: step 2 restricts `shipment_manifest` (type, no grant for the seeder) and
   `production_batch.cost_figure` (grant only for Anna); step 3 then imports as the admin token. After this change step 3 gets 404 for
   `shipment_manifest` (`curl -sf` exits non-zero) and a 200 with per-entry `field_restricted` for `production_batch` rows carrying `cost_figure`
   (silent partial seed). Fix in PR A: the script resolves the seeding actor with its existing `lookup_user_id` (a new required
   `SEED_ACTOR_USERNAME`, which MUST name a DEDICATED non-persona account: if it were Karl, Anna or an admin persona the UAT redaction/denial scenarios depend on, the grant would defeat them) and adds that user to the `type_grants` / `field_grants` of the same restrictions import; it also fails loudly on any
-  `status: "error"` entry (today it ignores the response body). `test/scripts/seed_vortex_entities_activate_test.exs` and
-  `test/letflow/scripts/seed_scripts_no_argv_payload_test.exs` are the existing tests around it; the implementer greps for others. (As a side
+  `status: "error"` entry (today it ignores the response body). Test consequences: keep the three-`:stdin` invariant of
+  `seed_scripts_no_argv_payload_test.exs` (the grant payload and any captured import response must not add a payload to argv; capture the
+  response through stdout/a temp file, not a new literal argument); update that test's expected list only if the number of body-carrying curl
+  calls really changes. PINNED binding: the grants go to the user named by `SEED_ACTOR_USERNAME` but the import runs as the `QA_AUTH_TOKEN` user, so
+  the script MUST compare the token owner's own id against the looked-up id and exit non-zero on mismatch (otherwise the grant silently does
+  nothing). (As a side
   note, since #2700 the script's `existing_keys_for` pre-check on `shipment_manifest` already returns empty for a denied seeder, so its
   idempotency was already broken; the grant repairs that too.) RESOLVED (supervisor 2026-10-18/19, OQ-4). The PR body must state that any RESEED of QA is UAT-class and needs a written APPROVE from letflow-2.
-- Existing tests that restrict a type/field and then write records through HTTP (to be re-grepped by the implementer): `entities_test.exs` (insert_field_restriction! at :1479-:2066,
-  insert_type_restriction! at :2691-:2904 use `Records` or the read routes for their writes per my read, to be re-grepped), 
-  `entities_answer_key_field_leak_test.exs`, `bilimbaga_solution_e2e_test.exs`, the REQ-317 attachment route tests (no restrictions
-  present, unaffected). Any that write a denied type or a restricted key via HTTP are updated to the new answer in PR A, not weakened.
+- Existing tests (CDV grep result): router tests that insert restrictions (`entities_test.exs` and the others listed by the grep) do NOT call
+  the write routes under a restriction, and no UAT fixture PUTs records, so no existing test is expected to change answer. The implementer
+  re-runs the grep; any test found writing a denied type or a restricted key over HTTP is updated to the new answer in PR A, not weakened.
+- Docs to update in PR A, owner DOC-UPDATER: `docs/runbooks/gh2659-external-ref-rollout.md` and `docs/guides/backend_developer_guide.md`
+  (the generic record write routes now go through `RecordAccess`; PUT/DELETE/POST behaviour for restricted-field actors).
 - Rollout: no migration, no feature flag, no schema change, no event change. One deploy; the only data-dependent behaviour is keyed off existing
   restriction rows. Rollback = revert; nothing to repair. Cost: four small indexed reads per record write request (managed stamp, restriction
   existence incl. the tenant lookup, definition resolve, field restriction anti-join), plus one read per attachment request; the import pays them
@@ -392,9 +403,11 @@ Per route (POST, PUT, DELETE, import create, import upsert, attachment upload, l
    so also assert no `entity_type_instances` row is created for the denied type): `events`, `entity_record_latest` (and any promoted-column table the
    type has), event-store idempotency keys, `entity_record_attachments`, `repository_artifacts`, audit log rows; all equal; also assert no
    warning/error log line (`capture_log`) except the infected-upload warning, which is asserted equal to the absent case;
-6. call-sequence parity (CDV F2): assert the gate makes the same four calls in the same order for denied and absent (a trace on the four
-   functions), and that the statements AFTER the gate are the same list for denied and absent (compare the post-gate query log, not the total
-   count; the existing-vs-missing definition read inside the gate is the stated I1 residual);
+6. call-sequence parity (CDV F2): assert the gate makes the same four calls in the same order for denied and absent (`:erlang.trace/3` or `:dbg` on `ManagedTypes.owner_of/2`, `TypeAccess.authorized?/3`,
+   `Definitions.get_active_definition_by_name/2`, `FieldGrants.load_restrictions/3`, asserting the call order), and that the statements AFTER
+   the gate are the same list for denied and absent: record `Repo` query telemetry in order for each request and CUT the log after the
+   `entity_field_restrictions` query (the last gate call, iv), then compare the remainder; the total count is not compared (the
+   existing-vs-missing definition read inside the gate is the stated I1 residual);
 7. an allowed caller (no restriction rows in the tenant, and with unrelated restriction rows) is unchanged: status and body equal to the
    pre-change golden for create/update/delete/import/attachments;
 8. field restrictions on an open type (actor holds none of the grants): POST naming a restricted key -> 403 with the constant detail and no event;
@@ -402,13 +415,16 @@ Per route (POST, PUT, DELETE, import create, import upsert, attachment upload, l
    (no 404/403 difference between a live and a random record id), with the pinned order: an invalid record id is still 404 and a malformed
    body is still 400/422 BEFORE the 403; PUT for an actor WITH the grant -> 200 and the full replacement; DELETE by a
    restricted-field actor -> 200 whose `field_values` carry `__field_redacted__` for every restricted field and never the stored value, also on
-   a re-DELETE of the already-deleted record; POST success echoes are redacted the same way; an actor WITH the grant sees the real values; import create with one entry naming a restricted key -> that entry `field_restricted`, others
+   a re-DELETE of the already-deleted record; the DELETE (first, re-delete) assertions drive the REAL router, and the same body-level assertion is made for PUT (an actor with a
+   restricted set is refused, so only a granted or unrestricted actor gets a 200) and for POST with an unrestricted actor; a UNIT test on
+   `render_record_command/4` shows the POST/PUT clauses redact when given a non-empty set (defence in depth, no HTTP echo test is claimed for
+   POST); an actor WITH the grant sees the real values; import create with one entry naming a restricted key -> that entry `field_restricted`, others
    created, HTTP 200, the refused entry wrote nothing; a granted actor -> all created;
 9. precedence: denied AND restricted-key body -> 404 path (not 403); allowed + restricted key + malformed body -> the validation error (POST and PUT alike, per the pinned order in section 4);
-11. attachments content GET / delete: a denied type with a real attachment id answers the same bytes as a random attachment id, and no
-    `repository_artifacts` content read is issued for it;
 10. upsert refactor regression: the full existing `entities_import_upsert_test.exs` suite stays green; the "one schema-version read per request"
-    test still passes; add: a denied type with `upsert_by` and a tenant below CREATED v2 is 404, not 503 (hidden beats outdated).
+    test still passes; add: a denied type with `upsert_by` and a tenant below CREATED v2 is 404, not 503 (hidden beats outdated);
+11. attachments content GET / delete: a denied type with a real attachment id answers the same bytes as a random attachment id, and no
+    `repository_artifacts` content read is issued for it.
 
 ## 11. Route inventory and snapshot (decision (9))
 
