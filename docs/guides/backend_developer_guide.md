@@ -325,3 +325,43 @@ did). Retrying is safe.
   decimal `group_by` key are returned padded to the field scale (ten `"0.10"` sum to
   `"1.00"`). `avg` is returned exactly as Postgres computes it, UNPADDED (an average is not
   a field-scale value). Non-strict decimal aggregates are unchanged.
+
+## 9. Idempotent master import — `upsert_by: "external_ref"` (GH #2659, REQ-505)
+
+A record may carry a master reference `{system, id}` (nullable columns `external_system` /
+`external_id` on `entity_record_latest`, unique per `(entity_type, system, id)`). The generic
+`POST /api/v1/entities/records/:entity_type/import` imports by it when the body has the optional
+top-level member `"upsert_by": "external_ref"`; design
+`lib/letflow/design/gh2659-external-ref-idempotent-import.md`, runbook
+`docs/runbooks/gh2659-external-ref-rollout.md`.
+
+- **Without `upsert_by` nothing changes**: create-only import, same response, an entry
+  `external_ref` is ignored (no ref is stored). Any `upsert_by` value other than the string
+  `"external_ref"` (null included) is a 422.
+- **Request**: each entry is `{"external_ref": {"system", "id"}, "field_values": {...}}`.
+  `system` is a lower-case slug (1..64 bytes, `[a-z0-9][a-z0-9._-]*`); `id` is a string of
+  1..255 bytes (numeric source ids are sent as strings). `record_id` on an entry stays echo-only.
+- **Response**: still 200 `{"results": [...]}`, cap 200 (413 above), per-entry report (no
+  whole-file rollback; re-running a partly failed file converges). An ok entry adds
+  `"outcome"` (`created` | `updated` | `unchanged`) and its `"external_ref"`. An `unchanged`
+  entry writes no event. Error reasons are constant strings that never echo the ref:
+  `external_ref_invalid` (also for an entry without a ref: an upsert needs a key),
+  `duplicate_external_ref_in_request` (a ref seen earlier in the same file),
+  `external_ref_record_deleted` (a soft-deleted ref is never revived), `external_ref_contention`,
+  `entity_append_only` (a differing value on an `append_only` type; an identical re-run is
+  `unchanged`), `field_restricted`, plus the existing `record_payload_invalid` and friends.
+- **Whole-request answers**: 404 for a type that is absent OR denied to the caller (identical
+  bodies), 503 `event_schema_outdated` while the tenant is below `ENTITY_RECORD_CREATED` v2.
+- **Permission**: `EntitiesRecordsImport` alone, including the update branch (no new atom).
+  Pinned by `test/letflow/api/gh2659_import_implies_write_test.exs`: every role with Import
+  also holds `EntitiesRecordsWrite`. In upsert mode only, write-side field restrictions apply as
+  for step writes: a restricted key, or ANY restricted field on the type with an existing
+  record matching the ref, is `field_restricted` (an admin without the grant must be granted the
+  field to re-run an import against existing refs).
+- **Module-managed types**: the HTTP import refuses them with the constant 403, with or without
+  `upsert_by`. A module's write handler calls
+  `Letflow.Entities.Records.upsert_record_by_external_ref/3` with its `Owner` authority instead
+  (one read of `EventStore.Registry.max_schema_version("ENTITY_RECORD_CREATED", prefix)` before
+  its batch; the primitive does not re-read).
+- **Idempotency key**: server-derived per entry (`Letflow.Entities.ImportUpsert.idempotency_key/2`,
+  128 bytes); the external ref, not the key, is what makes a re-import idempotent.

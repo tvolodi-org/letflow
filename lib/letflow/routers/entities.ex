@@ -68,7 +68,7 @@ defmodule Letflow.Routers.Entities do
   | get_record_attachment_content | `GET /entities/records/:entity_type/:record_id/attachments/:attachment_id` | `Letflow.Repository.EntityAttachments.get_content/2` | `EntitiesAttachmentsRead` | 200 (raw bytes) / 404 / 500 |
   | delete_record_attachment | `DELETE /entities/records/:entity_type/:record_id/attachments/:attachment_id` | `Letflow.Repository.EntityAttachments.delete/2` | `EntitiesAttachmentsManage` | 204 / 404 |
   | export_records | `POST /entities/records/:entity_type/export` | `Letflow.Entities.RequestAccess.check/4` (the unredacted permission never lifts type denial), then the identical `Letflow.Entities.Query.Allowlist.load/2` → `Letflow.Entities.Query.Compiler.compile/2` → `Letflow.Entities.Query.Cursor.paginate/5` sequence `query` uses above, then EITHER a `Letflow.Entities.Query.FieldGrants` redaction step (default) OR a second, in-handler `Letflow.Api.Authorization.evaluate_access/2` check against `:EntitiesRecordsExportUnredacted` that skips redaction entirely on success (`unredacted: true`) | `EntitiesRecordsExport` (route-level); `EntitiesRecordsExportUnredacted` (in-handler only, see below) | 200 / 400 / 403 / 404 / 422 |
-  | import_records | `POST /entities/records/:entity_type/import` | `Letflow.Entities.Records.create_record/2` per entry (REQ-320) | `EntitiesRecordsImport` | 200 / 404 / 413 / 422 |
+  | import_records | `POST /entities/records/:entity_type/import` | `Letflow.Entities.Records.create_record/2` per entry (REQ-320); with the optional `"upsert_by": "external_ref"`, `Letflow.Entities.ImportUpsert` (one pre-check, then `Records.upsert_record_by_external_ref/2` per entry, GH #2659) | `EntitiesRecordsImport` (alone, also for the upsert's update branch) | 200 / 404 / 413 / 422 / 503 (`event_schema_outdated`, upsert mode only) |
   | import_restrictions | `POST /entities/restrictions/import` | `Letflow.Entities.Restrictions.import_restrictions/2` (ISS-0935) | `EntitiesRestrictionsManage` | 200 / 400 / 403 / 422 |
 
   ## `POST .../export`'s two-tier redaction mechanism (REQ-319, design §6 INV-2)
@@ -246,6 +246,7 @@ defmodule Letflow.Routers.Entities do
   alias Letflow.Entities.Definition.Validator.Violation, as: DefinitionViolation
   alias Letflow.Entities.Definitions
   alias Letflow.Entities.EntityDefinition
+  alias Letflow.Entities.ImportUpsert
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Query.Allowlist
   alias Letflow.Entities.Query.Compiler
@@ -1222,6 +1223,10 @@ defmodule Letflow.Routers.Entities do
   #   3. the `entity_type` path-vs-body match (§4) -- before any
   #      `create_record/2` call.
   #
+  #   4. (GH #2659) the optional `upsert_by` member: absent -> the create-only
+  #      import above, byte-identical to before; "external_ref" -> the
+  #      idempotent upsert (`Letflow.Entities.ImportUpsert`); other -> 422.
+  #
   # Only after all three pass does any entry reach `create_record/2`.
   @record_export_schema_version "entities/record-export/v1"
 
@@ -1236,10 +1241,11 @@ defmodule Letflow.Routers.Entities do
     with {:ok, body} <- object_body(conn),
          {:ok, records} <- records_within_cap(body),
          :ok <- check_record_export_schema_version(body),
-         :ok <- check_import_entity_type_match(body, entity_type) do
+         :ok <- check_import_entity_type_match(body, entity_type),
+         {:ok, mode} <- check_upsert_by(body) do
       import_request_id = Ecto.UUID.generate()
 
-      case run_import(records, entity_type, actor_id, import_request_id, prefix) do
+      case run_import_mode(mode, records, entity_type, actor_id, import_request_id, prefix) do
         {:ok, results} ->
           Response.ok(conn, %{"results" => Enum.map(results, &import_entry_result_json/1)})
 
@@ -1250,6 +1256,16 @@ defmodule Letflow.Routers.Entities do
         # produces. No cross-tenant-specific pre-check is added here.
         {:error, {:definition_not_found, _entity_type}} ->
           Response.not_found(conn)
+
+        # GH #2659 upsert mode only: a type that is absent OR denied to the
+        # caller (one exit, design 4.5/5.2), decided before any entry is read.
+        {:error, :not_found} ->
+          Response.not_found(conn)
+
+        # GH #2659: the tenant is not yet replayed to ENTITY_RECORD_CREATED v2;
+        # constant, nothing was written.
+        {:error, :event_schema_outdated} ->
+          Response.service_unavailable(conn, "event_schema_outdated")
       end
     else
       {:error, :malformed_json} ->
@@ -1275,6 +1291,9 @@ defmodule Letflow.Routers.Entities do
           conn,
           "entity_type in the request body does not match the route's :entity_type path segment"
         )
+
+      {:error, :invalid_upsert_by} ->
+        Response.unprocessable(conn, "upsert_by must be \"external_ref\" when present")
     end
   end
 
@@ -1316,6 +1335,28 @@ defmodule Letflow.Routers.Entities do
     case Map.get(body, "entity_type") do
       ^entity_type -> :ok
       _mismatch -> {:error, :import_entity_type_mismatch}
+    end
+  end
+
+  # GH #2659 (design 5.1): after the entity_type match, so the existing error
+  # ordering is unchanged. Absent -> today's create-only import; exactly
+  # "external_ref" -> the idempotent upsert; anything else (null included) -> 422.
+  defp check_upsert_by(body) do
+    case Map.fetch(body, "upsert_by") do
+      :error -> {:ok, :create}
+      {:ok, "external_ref"} -> {:ok, :upsert}
+      {:ok, _other} -> {:error, :invalid_upsert_by}
+    end
+  end
+
+  defp run_import_mode(:create, records, entity_type, actor_id, import_request_id, prefix),
+    do: run_import(records, entity_type, actor_id, import_request_id, prefix)
+
+  # Pre-check once (all reads, then one decision), then the per-entry upsert.
+  defp run_import_mode(:upsert, records, entity_type, actor_id, import_request_id, prefix) do
+    with {:ok, restricted} <- ImportUpsert.precheck(actor_id, entity_type, prefix) do
+      {:ok,
+       ImportUpsert.run(records, entity_type, actor_id, import_request_id, restricted, prefix)}
     end
   end
 
@@ -1389,6 +1430,26 @@ defmodule Letflow.Routers.Entities do
     "entities-record-import:#{import_request_id}:#{inspect(source_record_id)}"
   end
 
+  # GH #2659 upsert mode: an ok entry also carries its outcome and the ref it was
+  # filed under. Error entries never carry the ref (import_reason_json/1).
+  defp import_entry_result_json(
+         {:ok,
+          %{
+            record_id: record_id,
+            source_record_id: source_record_id,
+            outcome: outcome,
+            external_ref: %{system: system, id: id}
+          }}
+       ) do
+    %{
+      "status" => "ok",
+      "record_id" => record_id,
+      "source_record_id" => source_record_id,
+      "outcome" => Atom.to_string(outcome),
+      "external_ref" => %{"system" => system, "id" => id}
+    }
+  end
+
   defp import_entry_result_json(
          {:ok, %{record_id: record_id, source_record_id: source_record_id}}
        ) do
@@ -1436,6 +1497,22 @@ defmodule Letflow.Routers.Entities do
   # appended for it and a retry is safe. Constant, no type name.
   defp import_reason_json({:definition_changed, _entity_type}) do
     %{"type" => "definition_changed"}
+  end
+
+  # GH #2659 upsert mode: constant reasons, never the ref or the type name.
+  defp import_reason_json(reason)
+       when reason in [
+              :external_ref_invalid,
+              :external_ref_record_deleted,
+              :external_ref_contention,
+              :duplicate_external_ref_in_request,
+              :field_restricted
+            ] do
+    %{"type" => Atom.to_string(reason)}
+  end
+
+  defp import_reason_json({:entity_append_only, _entity_type}) do
+    %{"type" => "entity_append_only"}
   end
 
   defp import_reason_json(reason)
