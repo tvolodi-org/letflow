@@ -5,15 +5,16 @@ defmodule Letflow.Entities.ImportUpsert do
   sections 4.5, 5.2, 5.3, 5.4). The router stays thin and Repo-free: it calls `precheck/3` once
   per request, then `run/6`, and shapes the returned entry results into JSON.
 
-  ## `precheck/3` (once per request, before any entry is written)
+  ## `precheck/2` (once per request, before any entry is written)
 
-  Does ALL four reads unconditionally and in this order, then decides, so that a denied type, an
-  absent type and an outdated schema all do the same database work (the model is
-  `Letflow.Entities.RequestAccess`, #2700): `TypeAccess.authorized?/3`, the active-definition
-  existence read, `FieldGrants.load_restrictions/3`, and ONE
-  `Registry.max_schema_version("ENTITY_RECORD_CREATED", prefix)`. A denied OR absent type (or any
-  failed read) is the one `{:error, :not_found}`; a CREATED schema below v2 is
-  `{:error, :event_schema_outdated}` (a tenant not yet replayed, design 2.4).
+  Takes the decision `Letflow.Entities.RecordAccess.write/3` already made for the request (GH
+  #2784: the type gate, the active-definition read and the restriction read live ONLY there, in
+  one implementation shared with the other record write routes) and ALWAYS does the one
+  `Registry.max_schema_version("ENTITY_RECORD_CREATED", prefix)` read, so a denied type, an absent
+  type and an outdated schema all do the same database work (the model is
+  `Letflow.Entities.RequestAccess`, #2700). A `:hidden` decision (denied, absent, or any failed
+  read) is the one `{:error, :not_found}` and beats the version check; an open type with a CREATED
+  schema below v2 is `{:error, :event_schema_outdated}` (a tenant not yet replayed, design 2.4).
 
   ## `run/6` (per entry, sequential, per-entry report not whole-file rollback, design 5.4)
 
@@ -38,12 +39,10 @@ defmodule Letflow.Entities.ImportUpsert do
   the pre-check as a hint and the unique index as the arbiter).
   """
 
-  alias Letflow.Entities.Definitions
   alias Letflow.Entities.ExternalRef
-  alias Letflow.Entities.Query.FieldGrants
   alias Letflow.Entities.Record.Latest
+  alias Letflow.Entities.RecordAccess
   alias Letflow.Entities.Records
-  alias Letflow.Entities.TypeAccess
   alias Letflow.EventStore.Registry
 
   @created_event_type "ENTITY_RECORD_CREATED"
@@ -85,25 +84,21 @@ defmodule Letflow.Entities.ImportUpsert do
   @doc """
   The per-request pre-check; returns the actor's restriction set on success. See the moduledoc.
   """
-  @spec precheck(user_id :: String.t(), entity_type :: String.t(), prefix :: String.t()) ::
+  @spec precheck(RecordAccess.access(), prefix :: String.t()) ::
           {:ok, MapSet.t(String.t())} | {:error, :not_found | :event_schema_outdated}
-  def precheck(user_id, entity_type, prefix)
-      when is_binary(user_id) and is_binary(entity_type) and is_binary(prefix) do
-    # All four reads, no short-circuit (design 5.2 step 1).
-    access = TypeAccess.authorized?(user_id, entity_type, prefix)
-    definition = Definitions.get_active_definition_by_name(entity_type, prefix)
-    restrictions = FieldGrants.load_restrictions(user_id, entity_type, prefix)
+  def precheck(access, prefix) when is_binary(prefix) do
+    # The one unconditional read, whatever the decision (design 5.2 step 1).
     version = Registry.max_schema_version(@created_event_type, prefix)
 
-    with {:ok, :allowed} <- access,
-         {:ok, _definition} <- definition,
-         {:ok, restricted} <- restrictions do
-      if is_integer(version) and version >= @min_created_schema_version,
-        do: {:ok, restricted},
-        else: {:error, :event_schema_outdated}
-    else
+    case access do
       # Denied, absent, and any failed read are one exit: fail closed, indistinguishable.
-      _denied_or_absent -> {:error, :not_found}
+      :hidden ->
+        {:error, :not_found}
+
+      {:open, restricted} ->
+        if is_integer(version) and version >= @min_created_schema_version,
+          do: {:ok, restricted},
+          else: {:error, :event_schema_outdated}
     end
   end
 
@@ -200,7 +195,7 @@ defmodule Letflow.Entities.ImportUpsert do
       MapSet.size(restricted) == 0 ->
         :ok
 
-      is_map(field_values) and Enum.any?(Map.keys(field_values), &MapSet.member?(restricted, &1)) ->
+      RecordAccess.names_restricted?(field_values, restricted) ->
         {:error, :field_restricted}
 
       # Any restricted field on the type: an existing record (live or deleted) is refused before

@@ -365,28 +365,51 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
       for name <- @ten, do: assert(Fx.managed_by_map(ctx.schema)[name] == [nil], name)
     end
 
-    test "POST, PUT, DELETE and import succeed for each authoring type, for both caller kinds",
-         ctx do
+    # GH #2784: the exam answer-key restrictions (`Exam.answer_key_fields/0`) sit on two of the ten
+    # UNMANAGED authoring types (`question.explanation`; `answer_option.is_correct` and the likert
+    # fields). The generic write routes now honour them for a caller holding no grant: a POST
+    # naming a restricted key is the constant 403, any PUT on such a type is a 403 (it replaces
+    # `field_values` wholesale), DELETE succeeds with the restricted value redacted. The other
+    # eight authoring types carry no restriction and stay fully writable.
+    test "POST, PUT, DELETE and import for each authoring type, for both caller kinds", ctx do
+      restricted_types =
+        Letflow.Modules.Exam.answer_key_fields() |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+
       for type <- @ten, roles <- [@operator, @admin] do
         label = "#{type} as #{inspect(roles)}"
+        names_restricted_key? = type == "answer_option"
 
         created =
           call_entities(ctx, roles, :post, "/records/#{type}", %{
             "field_values" => values(type, 5)
           })
 
-        assert created.status == 201, "POST #{label}: #{created.resp_body}"
-        new_id = body_of(created)["record_id"]
+        if names_restricted_key? do
+          assert created.status == 403, "POST #{label}: #{created.resp_body}"
+          assert created.resp_body =~ "restricted for this caller"
+        else
+          assert created.status == 201, "POST #{label}: #{created.resp_body}"
+        end
+
+        record_id = ExamFixtures.create_record!(ctx.schema, type, values(type, 7)).record_id
 
         updated =
-          call_entities(ctx, roles, :put, "/records/#{type}/#{new_id}", %{
+          call_entities(ctx, roles, :put, "/records/#{type}/#{record_id}", %{
             "field_values" => values(type, 6)
           })
 
-        assert updated.status == 200, "PUT #{label}: #{updated.resp_body}"
+        if type in restricted_types do
+          assert updated.status == 403, "PUT #{label}: #{updated.resp_body}"
+        else
+          assert updated.status == 200, "PUT #{label}: #{updated.resp_body}"
+        end
 
-        deleted = call_entities(ctx, roles, :delete, "/records/#{type}/#{new_id}", nil)
+        deleted = call_entities(ctx, roles, :delete, "/records/#{type}/#{record_id}", nil)
         assert deleted.status == 200, "DELETE #{label}: #{deleted.resp_body}"
+
+        if type == "answer_option" do
+          assert body_of(deleted)["field_values"]["is_correct"] == "__field_redacted__"
+        end
       end
 
       for type <- @ten do
@@ -395,6 +418,14 @@ defmodule Letflow.Routers.ExamManagedTypesHttpTest do
 
         assert imported.status == 200, "import #{type}: #{imported.resp_body}"
         refute imported.resp_body == managed_body()
+
+        [entry] = body_of(imported)["results"]
+
+        if type == "answer_option" do
+          assert entry["reason"] == %{"type" => "field_restricted"}, imported.resp_body
+        else
+          assert entry["status"] == "ok", imported.resp_body
+        end
       end
     end
   end

@@ -15,6 +15,11 @@
 #        - entity_type_restrictions: shipment_manifest restricted tenant-wide
 #        - (no user_entity_type_grants row for actor-vortex-karl -- his
 #          denial is the absence of that row, design §2.2)
+#        - GH #2784: the SEEDING account (SEED_ACTOR_USERNAME) is granted both
+#          production_batch.cost_figure and shipment_manifest, because the record
+#          write routes now apply type access and field restrictions to the caller
+#          (without the grants step 3 would 404 for shipment_manifest and silently
+#          refuse every production_batch row naming cost_figure)
 #   3. Imports the sample record sets via the existing bulk-import route
 #      (`POST /entities/records/:entity_type/import`):
 #        production_batch     (test/fixtures/qa/vortex_production_batch_records.json, 83 rows)
@@ -54,14 +59,22 @@
 #       requires, to resolve actor-vortex-anna's and actor-vortex-karl's
 #       user ids (same requirement seed_swiftroute_persona_actors.sh already
 #       states for its own user lookups).
+#   - SEED_ACTOR_USERNAME (REQUIRED, GH #2784): the username of the account QA_AUTH_TOKEN
+#       belongs to. It MUST be a DEDICATED non-persona account (a service/seeder user),
+#       never actor-vortex-anna, actor-vortex-karl or an admin persona the UAT
+#       redaction/denial scenarios depend on: it is granted the restricted field and
+#       type below, which would defeat those scenarios for a persona. The script refuses
+#       to run when the token does not belong to this account.
 #   - QA_URL: base URL of the QA instance (default: https://qa.bizdala.com)
 #
 # Usage:
 #   export QA_AUTH_TOKEN="<bearer-token>"
+#   export SEED_ACTOR_USERNAME="<the token owner's username>"
 #   bash scripts/seed_vortex_entities.sh
 #
 #   # Or override the base URL:
-#   QA_URL=https://qa.bizdala.com QA_AUTH_TOKEN="<token>" bash scripts/seed_vortex_entities.sh
+#   QA_URL=https://qa.bizdala.com QA_AUTH_TOKEN="<token>" SEED_ACTOR_USERNAME="<user>" \
+#     bash scripts/seed_vortex_entities.sh
 #
 # NOT RUN by ELIXIR-DEV against live QA (no credentials in the build
 # sandbox, same documented posture as ISS-0897/ISS-0886/ISS-0892's own
@@ -78,6 +91,13 @@ if [[ -z "${QA_AUTH_TOKEN:-}" ]]; then
   echo "ERROR: QA_AUTH_TOKEN is not set." >&2
   echo "       Set it to a Bearer token for a user in the vortex tenant holding" >&2
   echo "       EntitiesDefinitionsWrite + EntitiesRecordsImport + EntitiesRestrictionsManage." >&2
+  exit 1
+fi
+
+if [[ -z "${SEED_ACTOR_USERNAME:-}" ]]; then
+  echo "ERROR: SEED_ACTOR_USERNAME is not set." >&2
+  echo "       Set it to the username of the DEDICATED (non-persona) account QA_AUTH_TOKEN belongs to;" >&2
+  echo "       the record write routes apply type access and field restrictions to that account (GH #2784)." >&2
   exit 1
 fi
 
@@ -215,21 +235,30 @@ ANNA_ID=$(lookup_user_id "actor-vortex-anna")
 echo "  actor-vortex-anna (cost_approver)   : ${ANNA_ID}"
 KARL_ID=$(lookup_user_id "actor-vortex-karl")
 echo "  actor-vortex-karl (quality_manager) : ${KARL_ID} (no grant row seeded for Karl -- design §2.2)"
+SEED_ID=$(lookup_user_id "${SEED_ACTOR_USERNAME}")
+echo "  ${SEED_ACTOR_USERNAME} (seeding account)       : ${SEED_ID}"
+if [[ "${SEED_ID}" == "${ANNA_ID}" || "${SEED_ID}" == "${KARL_ID}" ]]; then
+  echo "ERROR: SEED_ACTOR_USERNAME must be a DEDICATED account, not a persona (actor-vortex-anna / actor-vortex-karl)." >&2
+  exit 1
+fi
 
 echo ""
 echo "--- Seeding restriction/grant rows via POST /entities/restrictions/import ---"
 
-restrictions_payload=$(jq -n --arg anna "${ANNA_ID}" '{
+restrictions_payload=$(jq -n --arg anna "${ANNA_ID}" --arg seed "${SEED_ID}" '{
   field_restrictions: [
     {entity_type: "production_batch", field_name: "cost_figure"}
   ],
   field_grants: [
-    {user_id: $anna, entity_type: "production_batch", field_name: "cost_figure"}
+    {user_id: $anna, entity_type: "production_batch", field_name: "cost_figure"},
+    {user_id: $seed, entity_type: "production_batch", field_name: "cost_figure"}
   ],
   type_restrictions: [
     {entity_type: "shipment_manifest"}
   ],
-  type_grants: []
+  type_grants: [
+    {user_id: $seed, entity_type: "shipment_manifest"}
+  ]
 }')
 
 restrictions_response=$(printf '%s' "${restrictions_payload}" | curl -sf \
@@ -245,6 +274,22 @@ restrictions_response=$(printf '%s' "${restrictions_payload}" | curl -sf \
 
 echo "  Inserted counts: $(echo "${restrictions_response}" | jq -c '.inserted')"
 echo "  (all-zero on a re-run is expected and correct -- the route is idempotent)"
+
+# GH #2784: the grants above went to SEED_ACTOR_USERNAME, but the record import below runs as the
+# QA_AUTH_TOKEN user. The type gate answers GET /entities/definitions/by-name/<type> with 200 only
+# to a caller holding the type grant (404 otherwise), and the only type grant just seeded is the
+# seeding account's: so a 200 here proves the token belongs to that account. A 404 means the grant
+# silently does nothing for this token -- refuse to import. (No route returns the token owner's own
+# user id, so the check goes through the gate itself.)
+owner_check_status=$(curl -s -o /dev/null -w '%{http_code}' \
+  -H "${AUTH_HEADER}" \
+  "${API}/entities/definitions/by-name/shipment_manifest") || owner_check_status="network-error"
+if [[ "${owner_check_status}" != "200" ]]; then
+  echo "ERROR: QA_AUTH_TOKEN does not belong to SEED_ACTOR_USERNAME (${SEED_ACTOR_USERNAME}):" >&2
+  echo "       GET /api/v1/entities/definitions/by-name/shipment_manifest returned ${owner_check_status}, not 200." >&2
+  echo "       The type and field grants were seeded for ${SEED_ACTOR_USERNAME}; the import would be refused." >&2
+  exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # Step 3: sample records (§4.3) -- idempotent via this script's own
@@ -334,15 +379,26 @@ import_records_if_missing() {
     chunk_payload=$(echo "${remaining_payload}" | jq --argjson start "${start}" --argjson size "${chunk_size}" \
       '.records |= .[$start:($start + $size)]')
 
-    printf '%s' "${chunk_payload}" | curl -sf \
+    local import_response
+    import_response=$(printf '%s' "${chunk_payload}" | curl -sf \
       -X POST \
       -H "${AUTH_HEADER}" \
       -H "Content-Type: application/json" \
       --data-binary @- \
-      "${API}/entities/records/${entity_type}/import" > /dev/null || {
+      "${API}/entities/records/${entity_type}/import") || {
       echo "ERROR: POST /api/v1/entities/records/${entity_type}/import failed (chunk $((chunk_index + 1))/${chunk_count})." >&2
       exit 1
     }
+
+    # GH #2784: the route answers 200 with a per-entry report; an entry refused (for example
+    # `field_restricted`) is a status "error" entry, never an HTTP error. Fail loudly on any.
+    local failed_entries
+    failed_entries=$(echo "${import_response}" | jq '[.results[]? | select(.status == "error")] | length')
+    if [[ "${failed_entries}" != "0" ]]; then
+      echo "ERROR: ${failed_entries} ${entity_type} entry(ies) were refused in chunk $((chunk_index + 1))/${chunk_count}:" >&2
+      echo "${import_response}" | jq -c '[.results[] | select(.status == "error") | .reason]' >&2
+      exit 1
+    fi
 
     chunk_index=$((chunk_index + 1))
   done

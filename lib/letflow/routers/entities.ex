@@ -41,14 +41,33 @@ defmodule Letflow.Routers.Entities do
 
   REQ-496 (decision 0050 D7, design
   `lib/letflow/design/req496-managed-by-and-scope-node-paths.md` §3.1-§3.2):
-  `create_record`, `update_record`, `delete_record`, `import_records` and
-  `activate_definition` refuse a module-managed entity type as their FIRST step
+  `activate_definition` refuses a module-managed entity type as its FIRST step
   (`guard_tenant_write/3`, before the body, path id or query string is read),
   and `create_definition` right after the body parse; every refusal is the one
-  constant 403 `Letflow.Api.Error.entity_type_managed/0`. **Inheritance rule:**
-  any future entity-definition write route, or generic record write route, MUST
-  call `Letflow.Entities.ManagedTypes.check_tenant_write/2` first. The attachment
-  routes are not guarded (design OQ-3).
+  constant 403 `Letflow.Api.Error.entity_type_managed/0`.
+
+  GH #2784 (design `lib/letflow/design/gh2784-write-routes-typeaccess.md`): the four generic
+  record WRITE routes (`create_record`, `update_record`, `delete_record`, `import_records`) go
+  through ONE gate, `Letflow.Entities.RecordAccess.write/3`, which replaced their
+  `guard_tenant_write/3` call. It makes four reads unconditionally (managed stamp, TypeAccess,
+  active definition, field restrictions) and returns `:hidden` (denied, absent, or a failed
+  read), `:managed` or `{:open, restricted}`. The decision is computed FIRST and applied LAST:
+
+    * `:managed` is the constant 403 before the body is read (visible types only, so it never
+      reveals a denied type);
+    * `:hidden` runs the SAME validation an absent type runs and, at the exact point where
+      `Records` would be called, substitutes `RecordAccess.hidden_result/1` (the result `Records`
+      gives an absent type), so a denied type answers byte-identically to an absent one and
+      writes nothing;
+    * `{:open, restricted}`: POST naming a restricted key, and any PUT by an actor holding any
+      restricted field (PUT replaces `field_values` wholesale), is the constant 403 of GH #2697;
+      each import entry naming a restricted key is `field_restricted`; the POST/PUT/DELETE
+      response `field_values` are redacted for such an actor (`render_record_command/4`).
+
+  **Inheritance rule:** any future generic record write route MUST call
+  `Letflow.Entities.RecordAccess.write/3` first and apply its decision as above; any future
+  entity-definition write route MUST call `Letflow.Entities.ManagedTypes.check_tenant_write/2`
+  first. The attachment routes are not gated by either (design OQ-3, GH #2784 PR B).
 
   | Handler | Method/path | Delegate | Permission | Response |
   |---|---|---|---|---|
@@ -256,6 +275,7 @@ defmodule Letflow.Routers.Entities do
   alias Letflow.Entities.Query.Types
   alias Letflow.Entities.Record.Decimals
   alias Letflow.Entities.Record.Latest
+  alias Letflow.Entities.RecordAccess
   alias Letflow.Entities.Records
   alias Letflow.Entities.RequestAccess
   alias Letflow.Entities.Restrictions
@@ -1015,11 +1035,19 @@ defmodule Letflow.Routers.Entities do
     }
   ]
 
+  # GH #2784: the decider. `RecordAccess.write/3` is computed FIRST (before the body is read) and
+  # APPLIED last, at the write point inside `create_record_with_access/3`: a managed type is the
+  # constant 403 here (visible types only, so it can never reveal a denied one); a hidden type
+  # (denied, absent, or a failed read) runs the same validation as an absent type and then gets
+  # the result `Records` gives an absent type.
   defp handle_create_record(conn, entity_type) do
-    guard_tenant_write(conn, entity_type, fn -> create_record_unmanaged(conn, entity_type) end)
+    case RecordAccess.write(conn.assigns.auth_context.user_id, entity_type, prefix!(conn)) do
+      :managed -> Response.send_problem(conn, Error.entity_type_managed())
+      access -> create_record_with_access(conn, entity_type, access)
+    end
   end
 
-  defp create_record_unmanaged(conn, entity_type) do
+  defp create_record_with_access(conn, entity_type, access) do
     prefix = prefix!(conn)
 
     actor_id = conn.assigns.auth_context.user_id
@@ -1036,7 +1064,26 @@ defmodule Letflow.Routers.Entities do
         }
         |> put_legacy_original(resolved, actor_id, prefix)
 
-      render_record_command(conn, Records.create_record(command_attrs, prefix), :created)
+      case write_point(access, Map.fetch!(attrs, "field_values")) do
+        {:run, restricted} ->
+          render_record_command(
+            conn,
+            Records.create_record(command_attrs, prefix),
+            :created,
+            restricted
+          )
+
+        {:refuse, :restricted_field} ->
+          restricted_fields_refusal(conn)
+
+        {:refuse, :hidden} ->
+          render_record_command(
+            conn,
+            RecordAccess.hidden_result(entity_type),
+            :created,
+            MapSet.new()
+          )
+      end
     else
       {:error, :malformed_json} ->
         Response.bad_request(conn, "request body must be a JSON object")
@@ -1081,12 +1128,13 @@ defmodule Letflow.Routers.Entities do
                           ]
 
   defp handle_update_record(conn, entity_type, raw_record_id) do
-    guard_tenant_write(conn, entity_type, fn ->
-      update_record_unmanaged(conn, entity_type, raw_record_id)
-    end)
+    case RecordAccess.write(conn.assigns.auth_context.user_id, entity_type, prefix!(conn)) do
+      :managed -> Response.send_problem(conn, Error.entity_type_managed())
+      access -> update_record_with_access(conn, entity_type, raw_record_id, access)
+    end
   end
 
-  defp update_record_unmanaged(conn, entity_type, raw_record_id) do
+  defp update_record_with_access(conn, entity_type, raw_record_id, access) do
     prefix = prefix!(conn)
 
     actor_id = conn.assigns.auth_context.user_id
@@ -1106,7 +1154,28 @@ defmodule Letflow.Routers.Entities do
         }
         |> put_legacy_original(resolved, actor_id, prefix)
 
-      render_record_command(conn, Records.update_record(command_attrs, prefix), :ok)
+      # PUT replaces `field_values` wholesale, so an actor holding ANY restricted field on the
+      # type is refused whatever the body (GH #2784 section 4; fail closed, no record lookup).
+      case update_write_point(access) do
+        {:run, restricted} ->
+          render_record_command(
+            conn,
+            Records.update_record(command_attrs, prefix),
+            :ok,
+            restricted
+          )
+
+        {:refuse, :restricted_field} ->
+          restricted_fields_refusal(conn)
+
+        {:refuse, :hidden} ->
+          render_record_command(
+            conn,
+            RecordAccess.hidden_result(entity_type),
+            :ok,
+            MapSet.new()
+          )
+      end
     else
       # INV-5: a malformed record id takes the same zero-detail 404 a
       # well-formed-but-absent (or cross-tenant) one takes.
@@ -1125,6 +1194,30 @@ defmodule Letflow.Routers.Entities do
       {:error, :idempotency_key_invalid} ->
         Response.send_problem(conn, Validation.problem([Idempotency.invalid_error(:body)]))
     end
+  end
+
+  # The shared 403 detail of every restricted-field refusal (GH #2697 for the query routes, GH #2784
+  # for the record writes): one constant, never a field, entity type or clause name.
+  @restricted_fields_detail "one or more requested fields are restricted for this caller"
+
+  defp restricted_fields_refusal(conn), do: Response.forbidden(conn, @restricted_fields_detail)
+
+  # The write point of POST: what to do with the access decision once the request validated.
+  defp write_point(:hidden, _field_values), do: {:refuse, :hidden}
+
+  defp write_point({:open, restricted}, field_values) do
+    if RecordAccess.names_restricted?(field_values, restricted),
+      do: {:refuse, :restricted_field},
+      else: {:run, restricted}
+  end
+
+  # The write point of PUT: any restricted field on the type refuses, whatever the body.
+  defp update_write_point(:hidden), do: {:refuse, :hidden}
+
+  defp update_write_point({:open, restricted}) do
+    if MapSet.size(restricted) > 0,
+      do: {:refuse, :restricted_field},
+      else: {:run, restricted}
   end
 
   # GH #2550 (design D3), removed by GH #2578: a supplied key that passes the
@@ -1153,12 +1246,13 @@ defmodule Letflow.Routers.Entities do
   # record id, live, deleted or absent (refused before the record lookup).
 
   defp handle_delete_record(conn, entity_type, raw_record_id) do
-    guard_tenant_write(conn, entity_type, fn ->
-      delete_record_unmanaged(conn, entity_type, raw_record_id)
-    end)
+    case RecordAccess.write(conn.assigns.auth_context.user_id, entity_type, prefix!(conn)) do
+      :managed -> Response.send_problem(conn, Error.entity_type_managed())
+      access -> delete_record_with_access(conn, entity_type, raw_record_id, access)
+    end
   end
 
-  defp delete_record_unmanaged(conn, entity_type, raw_record_id) do
+  defp delete_record_with_access(conn, entity_type, raw_record_id, access) do
     with {:ok, record_id} <- cast_record_id(raw_record_id),
          conn = fetch_query_params(conn),
          {:ok, expected} <-
@@ -1171,7 +1265,25 @@ defmodule Letflow.Routers.Entities do
         expected_last_event_global_seq: expected
       }
 
-      render_record_command(conn, Records.delete_record(command_attrs, prefix!(conn)), :ok)
+      # No body, so no key check; the RESPONSE of an open type is redacted for an actor holding
+      # restricted fields (the deleted row is returned with its `field_values`).
+      case access do
+        {:open, restricted} ->
+          render_record_command(
+            conn,
+            Records.delete_record(command_attrs, prefix!(conn)),
+            :ok,
+            restricted
+          )
+
+        :hidden ->
+          render_record_command(
+            conn,
+            RecordAccess.hidden_result(entity_type),
+            :ok,
+            MapSet.new()
+          )
+      end
     else
       {:error, :invalid_record_id} ->
         Response.not_found(conn)
@@ -1232,10 +1344,13 @@ defmodule Letflow.Routers.Entities do
   @record_export_schema_version "entities/record-export/v1"
 
   defp handle_import_records(conn, entity_type) do
-    guard_tenant_write(conn, entity_type, fn -> import_records_unmanaged(conn, entity_type) end)
+    case RecordAccess.write(conn.assigns.auth_context.user_id, entity_type, prefix!(conn)) do
+      :managed -> Response.send_problem(conn, Error.entity_type_managed())
+      access -> import_records_with_access(conn, entity_type, access)
+    end
   end
 
-  defp import_records_unmanaged(conn, entity_type) do
+  defp import_records_with_access(conn, entity_type, access) do
     prefix = prefix!(conn)
     actor_id = conn.assigns.auth_context.user_id
 
@@ -1246,7 +1361,15 @@ defmodule Letflow.Routers.Entities do
          {:ok, mode} <- check_upsert_by(body) do
       import_request_id = Ecto.UUID.generate()
 
-      case run_import_mode(mode, records, entity_type, actor_id, import_request_id, prefix) do
+      case run_import_mode(
+             mode,
+             records,
+             entity_type,
+             actor_id,
+             import_request_id,
+             prefix,
+             access
+           ) do
         {:ok, results} ->
           Response.ok(conn, %{"results" => Enum.map(results, &import_entry_result_json/1)})
 
@@ -1350,12 +1473,21 @@ defmodule Letflow.Routers.Entities do
     end
   end
 
-  defp run_import_mode(:create, records, entity_type, actor_id, import_request_id, prefix),
-    do: run_import(records, entity_type, actor_id, import_request_id, prefix)
+  defp run_import_mode(
+         :create,
+         records,
+         entity_type,
+         actor_id,
+         import_request_id,
+         prefix,
+         access
+       ),
+       do: run_import(records, entity_type, actor_id, import_request_id, prefix, access)
 
-  # Pre-check once (all reads, then one decision), then the per-entry upsert.
-  defp run_import_mode(:upsert, records, entity_type, actor_id, import_request_id, prefix) do
-    with {:ok, restricted} <- ImportUpsert.precheck(actor_id, entity_type, prefix) do
+  # Pre-check once (the schema-version read, then the decision `RecordAccess.write/3` already
+  # made), then the per-entry upsert.
+  defp run_import_mode(:upsert, records, entity_type, actor_id, import_request_id, prefix, access) do
+    with {:ok, restricted} <- ImportUpsert.precheck(access, prefix) do
       {:ok,
        ImportUpsert.run(records, entity_type, actor_id, import_request_id, restricted, prefix)}
     end
@@ -1368,10 +1500,11 @@ defmodule Letflow.Routers.Entities do
   # handle_import_records/2's comment); every entry (first included) still
   # contributes its own result to the accumulated list on every other
   # outcome.
-  defp run_import([], _entity_type, _actor_id, _import_request_id, _prefix), do: {:ok, []}
+  defp run_import([], _entity_type, _actor_id, _import_request_id, _prefix, _access),
+    do: {:ok, []}
 
-  defp run_import([first | rest], entity_type, actor_id, import_request_id, prefix) do
-    case import_one_entry(first, 0, entity_type, actor_id, import_request_id, prefix) do
+  defp run_import([first | rest], entity_type, actor_id, import_request_id, prefix, access) do
+    case import_one_entry(first, 0, entity_type, actor_id, import_request_id, prefix, access) do
       {:error, _source_record_id, {:error, {:definition_not_found, _} = reason}} ->
         {:error, reason}
 
@@ -1380,7 +1513,15 @@ defmodule Letflow.Routers.Entities do
           rest
           |> Enum.with_index(1)
           |> Enum.map(fn {entry, index} ->
-            import_one_entry(entry, index, entity_type, actor_id, import_request_id, prefix)
+            import_one_entry(
+              entry,
+              index,
+              entity_type,
+              actor_id,
+              import_request_id,
+              prefix,
+              access
+            )
           end)
 
         {:ok, [first_result | rest_results]}
@@ -1400,7 +1541,7 @@ defmodule Letflow.Routers.Entities do
   # contract; GH #2543: only identical field_values dedupe, differing ones
   # give a per-entry idempotency_key_reuse), while two separate calls -- even a byte-identical re-POST --
   # each mint their own import_request_id and share no relationship at all.
-  defp import_one_entry(entry, index, entity_type, actor_id, import_request_id, prefix) do
+  defp import_one_entry(entry, index, entity_type, actor_id, import_request_id, prefix, access) do
     source_record_id = Map.get(entry, "record_id")
     field_values = Map.get(entry, "field_values", %{})
     idempotency_key = import_idempotency_key(import_request_id, source_record_id, index)
@@ -1412,7 +1553,21 @@ defmodule Letflow.Routers.Entities do
       idempotency_key: idempotency_key
     }
 
-    case Records.create_record(command_attrs, prefix) do
+    # GH #2784: the write point. A hidden type gets the result `Records` gives an absent type
+    # (so the first-entry fold in `run_import/6` answers exactly as for an absent type); an entry
+    # naming a restricted field is refused per entry before `Records`.
+    result =
+      case access do
+        :hidden ->
+          RecordAccess.hidden_result(entity_type)
+
+        {:open, restricted} ->
+          if RecordAccess.names_restricted?(field_values, restricted),
+            do: {:error, :field_restricted},
+            else: Records.create_record(command_attrs, prefix)
+      end
+
+    case result do
       {:ok, %{record: %Latest{record_id: record_id}}} ->
         {:ok, %{record_id: record_id, source_record_id: source_record_id}}
 
@@ -1592,15 +1747,37 @@ defmodule Letflow.Routers.Entities do
   #   :tenant_not_provisioned        -> 500  (unreachable, INV-1)
   #   :invalid_schema_name           -> 500  (unreachable, INV-1)
   #   any other term()               -> 500  (INV-8 catch-all, no detail)
-  defp render_record_command(conn, {:ok, %{record: %Latest{} = record}}, :created),
-    do:
-      Response.created(
-        conn,
-        record_map(record, strict_specs_for(record.entity_type, prefix!(conn)))
-      )
+  #
+  # GH #2784: `render_record_command/4` is the one renderer of a record command. For a success it
+  # redacts `record.field_values` through `FieldGrants.redact_field_values/2` when `restricted` is
+  # non-empty, BEFORE `record_map/2` (which stays unchanged), the order the read routes use. Every
+  # other result is rendered by the error clauses of `render_record_command/3`, which never see
+  # the set. `@doc false def` only so the redaction can be unit tested.
+  @doc false
+  @spec render_record_command(Plug.Conn.t(), term(), :created | :ok, MapSet.t(String.t())) ::
+          Plug.Conn.t()
+  def render_record_command(conn, {:ok, %{record: %Latest{} = record}}, status, restricted)
+      when status in [:created, :ok] do
+    record = redact_record(record, restricted)
+    body = record_map(record, strict_specs_for(record.entity_type, prefix!(conn)))
 
-  defp render_record_command(conn, {:ok, %{record: %Latest{} = record}}, :ok),
-    do: Response.ok(conn, record_map(record, strict_specs_for(record.entity_type, prefix!(conn))))
+    case status do
+      :created -> Response.created(conn, body)
+      :ok -> Response.ok(conn, body)
+    end
+  end
+
+  def render_record_command(conn, result, status, _restricted),
+    do: render_record_command(conn, result, status)
+
+  defp redact_record(%Latest{field_values: field_values} = record, restricted)
+       when is_map(field_values) do
+    if MapSet.size(restricted) > 0,
+      do: %{record | field_values: FieldGrants.redact_field_values(field_values, restricted)},
+      else: record
+  end
+
+  defp redact_record(%Latest{} = record, _restricted), do: record
 
   defp render_record_command(conn, {:error, {:definition_not_found, _entity_type}}, _status),
     do: Response.not_found(conn)
@@ -2738,7 +2915,7 @@ defmodule Letflow.Routers.Entities do
   # route's, and never a field, entity type or clause name.
   defp render_query_error(conn, reason)
        when reason in [:request_field_restricted, :request_clause_unwalked],
-       do: Response.forbidden(conn, "one or more requested fields are restricted for this caller")
+       do: restricted_fields_refusal(conn)
 
   defp render_query_error(conn, {:query_field_invalid, field}),
     do: Response.bad_request(conn, "#{field} is missing or malformed")
