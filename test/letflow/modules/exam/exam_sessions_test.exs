@@ -1374,6 +1374,42 @@ defmodule Letflow.Modules.Exam.RouterTest do
     end
   end
 
+  describe "GH #2760 -- HTTP start on a soft-deleted exam" do
+    test "T-60b: POST exam-sessions for a deleted active exam is 422, byte-identical to a nonexistent exam id" do
+      tenant = tenant("gh2760-http-deleted")
+      ctx = candidate_ctx(tenant)
+      %{exam: exam} = build_minimal_exam!(tenant.schema_name)
+      ExamFixtures.delete_record!(tenant.schema_name, "exam", exam.record_id)
+      path = "/api/v1/modules/exam/exam-sessions"
+
+      deleted =
+        request("POST", path, ctx, %{"exam_id" => exam.record_id}, trace_id: "gh2760-trace")
+
+      missing =
+        request("POST", path, ctx, %{"exam_id" => Ecto.UUID.generate()}, trace_id: "gh2760-trace")
+
+      assert deleted.status == 422
+      assert missing.status == 422
+      assert deleted.resp_body == missing.resp_body
+    end
+
+    test "T-60b2: GET available omits a soft-deleted active exam and keeps a live one" do
+      tenant = tenant("gh2760-http-available")
+      ctx = candidate_ctx(tenant)
+      %{exam: dead} = build_minimal_exam!(tenant.schema_name)
+      %{exam: live} = build_minimal_exam!(tenant.schema_name)
+      ExamFixtures.delete_record!(tenant.schema_name, "exam", dead.record_id)
+
+      conn = request("GET", "/api/v1/modules/exam/exam-sessions/available", ctx)
+      assert conn.status == 200
+
+      assert %{"items" => items, "next_cursor" => _} = json(conn)
+      ids = Enum.map(items, & &1["record_id"])
+      assert live.record_id in ids
+      refute dead.record_id in ids
+    end
+  end
+
   # ── REQ-410 AC3: 404 gate — no tenant_modules row ────────────────────────
 
   describe "REQ-410 AC3 — D5 gate: 404 for a tenant without exam module installed" do
