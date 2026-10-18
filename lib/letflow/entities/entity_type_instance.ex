@@ -33,7 +33,8 @@ defmodule Letflow.Entities.EntityTypeInstance do
   (using `Letflow.Repo`, not a `Multi`-supplied `repo`) to obtain a concrete
   `instance_id` *before* building any `Ecto.Multi`, then feed that value
   into `append_multi/3`'s `attrs[:instance_id]`. This function's own
-  get-or-create protocol (below) is still race-safe under concurrent
+  get-or-create protocol (below; its create step and the projection ensure are now ONE
+  transaction, and the function nests in a caller's transaction) is still race-safe under concurrent
   first-creation for the same brand-new `entity_type` — the same
   insert-if-absent-then-re-select idiom `Letflow.EventStore`'s own
   `assign_sequence/3`/`claim_idempotency/3` already use — so no correctness
@@ -80,7 +81,12 @@ defmodule Letflow.Entities.EntityTypeInstance do
     1. Read — if a row already exists for `entity_type`, return its
        `instance_id` with no writes (one joined read also checks the projection; a
        missing projection is healed with the same `on_conflict: :nothing` ensure).
-    2. Else, mint a fresh `instance_id`, insert this table's row
+       That heal is LEGACY / crash-recovery only: with the atomic create below, a
+       registry row without a projection can only come from rows written by the
+       pre-atomic code or from manual damage. It costs one joined PK probe per call
+       and can be dropped once production data is verified clean.
+    2. Else, in ONE transaction (step 2 and the projection ensure are atomic, so no
+       reader sees the registry row without its projection), mint a fresh `instance_id`, insert this table's row
        (`on_conflict: :nothing`), re-read the row and take **that** row's
        `instance_id` (whichever concurrent caller's insert actually won the race),
        never the locally-minted one blindly, then insert the matching
@@ -90,6 +96,10 @@ defmodule Letflow.Entities.EntityTypeInstance do
        synthetic instances have no real `process_definitions` row to point at and
        `definition_id` carries no FK constraint). GH #2702: ensuring the projection
        only after the re-read means a race loser creates no orphan projection.
+
+  The create path nests inside a caller's transaction (`Repo.transaction/1` joins it).
+  An `{:error, _}` from it therefore rolls back the OUTER transaction (`Repo.rollback/1`);
+  callers such as `Letflow.Entities.StepWrites` roll back on that error anyway.
   """
   @spec get_or_create(entity_type :: String.t(), prefix :: String.t()) ::
           {:ok, instance_id :: Ecto.UUID.t()} | {:error, term()}

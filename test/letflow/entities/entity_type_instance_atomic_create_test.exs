@@ -99,6 +99,19 @@ defmodule Letflow.Entities.EntityTypeInstanceAtomicCreateTest do
     instance_id
   end
 
+  defp projection_rows(schema) do
+    Repo.all(from(p in InstanceProjection, where: p.definition_id == p.instance_id),
+      prefix: schema
+    )
+  end
+
+  defp assert_synthetic_projection!(schema, instance_id) do
+    assert [%InstanceProjection{instance_id: ^instance_id, definition_id: ^instance_id} = row] =
+             projection_rows(schema)
+
+    assert row.status == :active
+  end
+
   test "crash hole: a registry row with no projection is healed by a create", %{schema: schema} do
     instance_id = insert_registry_row_alone!(schema)
     assert projection_ids(schema) == []
@@ -106,7 +119,7 @@ defmodule Letflow.Entities.EntityTypeInstanceAtomicCreateTest do
     assert {:ok, _result} = create(schema)
 
     assert registry_ids(schema) == [instance_id]
-    assert projection_ids(schema) == [instance_id]
+    assert_synthetic_projection!(schema, instance_id)
   end
 
   test "crash hole: get_or_create/2 on the fast path ensures the missing projection", %{
@@ -115,9 +128,12 @@ defmodule Letflow.Entities.EntityTypeInstanceAtomicCreateTest do
     instance_id = insert_registry_row_alone!(schema)
 
     assert {:ok, ^instance_id} = EntityTypeInstance.get_or_create(@type_name, schema)
-    assert projection_ids(schema) == [instance_id]
+    assert_synthetic_projection!(schema, instance_id)
     assert {:ok, ^instance_id} = EntityTypeInstance.get_or_create(@type_name, schema)
-    assert projection_ids(schema) == [instance_id]
+    assert_synthetic_projection!(schema, instance_id)
+
+    # the healed projection is usable: an append against it succeeds
+    assert {:ok, _result} = create(schema)
   end
 
   test "fetch_instance_id/2 stays read-only: no registry row is created", %{schema: schema} do
@@ -126,9 +142,111 @@ defmodule Letflow.Entities.EntityTypeInstanceAtomicCreateTest do
     assert projection_ids(schema) == []
   end
 
+  test "nesting: get_or_create/2 inside an outer transaction creates both rows on commit", %{
+    schema: schema
+  } do
+    assert {:ok, instance_id} =
+             Repo.transaction(fn ->
+               {:ok, id} = EntityTypeInstance.get_or_create(@type_name, schema)
+               assert registry_ids(schema) == [id]
+               id
+             end)
+
+    assert registry_ids(schema) == [instance_id]
+    assert_synthetic_projection!(schema, instance_id)
+    assert {:ok, ^instance_id} = EntityTypeInstance.get_or_create(@type_name, schema)
+  end
+
   test "forced overlap: a second writer never observes the registry row without a projection",
        %{schema: schema} do
-    # Barrier: every projection insert in this tenant waits on an advisory lock the test holds.
+    hold_barrier!(schema)
+
+    # The creator parks on the barrier at its projection insert.
+    creator = Task.async(fn -> EntityTypeInstance.get_or_create(@type_name, schema) end)
+    wait_until!(fn -> barrier_waiters() == 1 end, "the creator never parked on the barrier")
+
+    # Atomicity, sleep-free: while the creator is parked another connection sees neither row
+    # (on the unfixed code the registry row is already committed and visible here).
+    assert registry_ids(schema) == []
+    assert projection_ids(schema) == []
+
+    # The second writer starts while the creator is parked mid-creation. Unfixed code: the
+    # registry row is committed, so it takes the fast path and returns an error at once.
+    # Fixed code: it parks on the registry unique key (lock waiters reach 2).
+    test_pid = self()
+
+    second =
+      Task.async(fn ->
+        result = create(schema, "second")
+        send(test_pid, :second_done)
+        result
+      end)
+
+    wait_until!(
+      fn -> second_done?() or lock_waiters() >= 2 end,
+      "the second writer neither returned nor parked behind the creator"
+    )
+
+    # the invariant holds at the observation point
+    registry = registry_ids(schema)
+    assert registry == [] or projection_ids(schema) != []
+
+    release_barrier!()
+
+    assert {:ok, instance_id} = Task.await(creator, 30_000)
+    assert {:ok, _result} = Task.await(second, 30_000)
+
+    assert registry_ids(schema) == [instance_id]
+    assert projection_ids(schema) == [instance_id]
+  end
+
+  test "N writers parked behind the barrier: one registry row, one projection, all succeed", %{
+    schema: schema
+  } do
+    n = 6
+    hold_barrier!(schema)
+
+    tasks = for i <- 1..n, do: Task.async(fn -> create(schema, "w#{i}") end)
+
+    # 1 writer on the advisory barrier + (n - 1) on the registry unique key
+    wait_until!(
+      fn -> barrier_waiters() == 1 and lock_waiters() == n end,
+      "the writers did not all park (1 on the barrier, n-1 on the registry key)"
+    )
+
+    assert registry_ids(schema) == []
+    release_barrier!()
+
+    results = Enum.map(tasks, &Task.await(&1, 60_000))
+    assert Enum.all?(results, &match?({:ok, _}, &1)), inspect(results)
+    assert [instance_id] = registry_ids(schema)
+    assert projection_ids(schema) == [instance_id]
+  end
+
+  test "smoke: 8 unsynchronised concurrent first writers all succeed with one row each", %{
+    schema: schema
+  } do
+    tasks =
+      for n <- 1..8 do
+        Task.async(fn ->
+          receive do
+            :go -> create(schema, "w#{n}")
+          end
+        end)
+      end
+
+    for task <- tasks, do: send(task.pid, :go)
+    results = Enum.map(tasks, &Task.await(&1, 60_000))
+
+    assert Enum.all?(results, &match?({:ok, _}, &1)), inspect(results)
+    assert [instance_id] = registry_ids(schema)
+    assert projection_ids(schema) == [instance_id]
+  end
+
+  # ---- barrier helpers -----------------------------------------------------------------------
+
+  # Every projection insert in this tenant waits on an advisory lock the test holds.
+  defp hold_barrier!(schema) do
     Repo.query!("""
     CREATE FUNCTION "#{schema}".gh2702_barrier() RETURNS trigger AS $$
     BEGIN
@@ -159,66 +277,61 @@ defmodule Letflow.Entities.EntityTypeInstanceAtomicCreateTest do
         end)
       end)
 
+    Process.put(:barrier_holder, holder)
     on_exit(fn -> send(holder.pid, :release) end)
     assert_receive :barrier_held, 10_000
+  end
 
-    # The creator: parks on the barrier at its projection insert.
-    creator = Task.async(fn -> EntityTypeInstance.get_or_create(@type_name, schema) end)
-    wait_until_a_lock_waiter_exists!()
-
-    # The second writer starts while the creator is parked mid-creation. On the unfixed code
-    # the registry row is already committed, so this takes the fast path and the append guard
-    # finds no projection.
-    second = Task.async(fn -> create(schema, "second") end)
-    Process.sleep(300)
-
+  defp release_barrier! do
+    holder = Process.get(:barrier_holder)
     send(holder.pid, :release)
     assert {:ok, _} = Task.await(holder, 30_000)
-
-    assert {:ok, instance_id} = Task.await(creator, 30_000)
-    assert {:ok, _result} = Task.await(second, 30_000)
-
-    assert registry_ids(schema) == [instance_id]
-    assert projection_ids(schema) == [instance_id]
   end
 
-  test "N concurrent first writers on a brand-new type all succeed with one row each", %{
-    schema: schema
-  } do
-    tasks =
-      for n <- 1..8 do
-        Task.async(fn ->
-          receive do
-            :go -> create(schema, "w#{n}")
-          end
-        end)
-      end
-
-    for task <- tasks, do: send(task.pid, :go)
-    results = Enum.map(tasks, &Task.await(&1, 60_000))
-
-    assert Enum.all?(results, &match?({:ok, _}, &1)), inspect(results)
-    assert [instance_id] = registry_ids(schema)
-    assert projection_ids(schema) == [instance_id]
+  defp second_done? do
+    receive do
+      :second_done -> true
+    after
+      0 -> false
+    end
   end
 
-  # Waits until some backend of this database is blocked on a lock.
-  defp wait_until_a_lock_waiter_exists!(attempts \\ 200) do
-    %{rows: [[waiting]]} =
+  # Backends of this database waiting on OUR advisory lock (not any other lock).
+  defp barrier_waiters do
+    %{rows: [[count]]} =
+      Repo.query!(
+        """
+        SELECT count(*) FROM pg_locks l JOIN pg_database d ON d.oid = l.database
+        WHERE l.locktype = 'advisory' AND NOT l.granted AND l.objid = $1::bigint::oid
+          AND d.datname = current_database()
+        """,
+        [@barrier_key]
+      )
+
+    count
+  end
+
+  # All backends of this database blocked on any lock.
+  defp lock_waiters do
+    %{rows: [[count]]} =
       Repo.query!(
         "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND pid <> pg_backend_pid()"
       )
 
+    count
+  end
+
+  defp wait_until!(fun, message, attempts \\ 400) do
     cond do
-      waiting > 0 ->
+      fun.() ->
         :ok
 
       attempts == 0 ->
-        flunk("the creator never blocked on the projection barrier")
+        flunk(message)
 
       true ->
         Process.sleep(25)
-        wait_until_a_lock_waiter_exists!(attempts - 1)
+        wait_until!(fun, message, attempts - 1)
     end
   end
 end
