@@ -57,7 +57,7 @@ defmodule Mix.Tasks.Letflow.CheckRoleScopeGrantsWritersTest do
   defp identity_snippet, do: verbatim!("lib/letflow/identity.ex", @identity_anchor, 3)
 
   defp migration_snippet,
-    do: verbatim!("lib/letflow/identity/tenant_admin_migration.ex", @migration_anchor, 3)
+    do: verbatim!("lib/letflow/identity/tenant_admin_migration.ex", @migration_anchor, 4)
 
   defp rules(violations), do: violations |> Enum.map(& &1.rule) |> Enum.uniq() |> Enum.sort()
 
