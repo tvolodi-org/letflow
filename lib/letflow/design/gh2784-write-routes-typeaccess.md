@@ -328,6 +328,7 @@ change. Re-grep result (implementer re-runs and quotes it in the PR):
   (`ScriptReads` is read-only), WMS/offline flows reached through module handlers. The exam answer-key restrictions
   (`Exam.answer_key_fields`, exam.ex:96-160) are on managed exam types whose HTTP writes are 403 already (visible callers) or the 404 path
   (TypeAccess-denied, none are type-restricted by default).
+  (CORRECTED, see "As built": `question.explanation` and `answer_option.is_correct/likert_*` sit on UNMANAGED authoring types.)
 - `web/src/api/entities.ts` (:61-90) is the only SPA caller (`EntityCrudPage.tsx`): a user with a restricted field on a type now gets 403 on
   edit (PUT) and on create when the form submits a restricted key; before it silently wrote the sentinel/erased the value. A user type-denied
   cannot navigate to the type at all. No `web/` change is required for correctness; a friendlier 403 message is a FRONTEND follow-up (OQ-9).
@@ -483,3 +484,12 @@ Still open:
 - OQ-9: FRONTEND follow-up for a friendly message on the new 403 (non-blocking).
 - OQ-10: `exam_row_json` returns record `field_values` with no redaction step (by design today); decide whether the exam module should apply
   `FieldPolicy` if a restriction row for `exam` is ever added (not this PR).
+
+## As built (PR A, ELIXIR-DEV, 2026-10-19)
+
+- Exam answer-key restrictions are on UNMANAGED authoring types (`question`, `answer_option`), not on managed ones (the claim at section 8 is wrong). After PR A an actor without a grant gets: POST naming `is_correct` 403, any PUT of `question`/`answer_option`/`session` 403, import entries `field_restricted`, DELETE 200 redacted. `Exam.on_install` inserts restriction rows and no grants, so the rollout needs grants first (runbook `docs/runbooks/exam-snapshot-rollout.md`, guide section 10). Tests `exam_managed_types_http_test` T-23 and `exam_snapshot_leak_test` T-30(4) were changed to these answers, plus a granted-actor success path.
+- `StepWrites.check_restrictions/3` and `HandlerWrites` still duplicate the `names_restricted?/2` predicate (engine path; follow-up with OQ-3).
+- `render_record_command/4` is `@doc false def` (public only for unit tests); `render_record_command/3` is kept for the error clauses, and /4 delegates to it for every non-success result.
+- Token-owner check: `Routers.Me` has only `/memberships` and `/modules`; `GET /api/v1/me` does not exist, so the pinned `.id` comparison could not be built. The script probes `GET /entities/definitions/by-name/shipment_manifest` after the restrictions import: 200 proves the token holds a type grant (the seeder's is the only one seeded), NOT identity, and it cannot run before the grants are written (on a first run the restriction row does not exist yet, so the probe would pass for any token). The persona guard (Anna/Karl refused), the exact-username lookup and the per-entry `status: "error"` scan close most of the remaining gap.
+- Changed assertion: the create-mode import (no `upsert_by`) now refuses an entry naming a restricted key per entry (`entities_import_upsert_test`: "the same actor WITHOUT upsert_by is unchanged" became a `field_restricted` entry).
+- Accepted-class race (SECURITY F4): the gate reads and the `Records` write are separate statements, so a restriction or grant row changed in between is not seen by that one request (as section 8 "Residual window").

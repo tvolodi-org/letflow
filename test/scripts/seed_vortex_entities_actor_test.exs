@@ -42,9 +42,18 @@ defmodule Letflow.Scripts.SeedVortexEntitiesActorTest do
       n=$(( $(cat "$STUB_COUNTER" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$STUB_COUNTER"
       if (( n >= 3 )); then printf '%s' "$STUB_OWNER_STATUS"
       else emit '{"id":"def-1","status":"active"}'; printf 200; fi ;;
-    "GET "*"/identity/users?search="*) name="${url##*search=}"; printf '{"items":[{"id":"id-%s"}]}' "$name" ;;
+    "GET "*"/identity/users?search="*)
+      name="${url##*search=}"
+      if [[ "$STUB_FUZZY" == "1" ]]; then
+        printf '{"items":[{"id":"decoy-%s","username":"%s-extra"},{"id":"id-%s","username":"%s"}]}' "$name" "$name" "$name" "$name"
+      elif [[ "$STUB_FUZZY" == "2" ]]; then
+        printf '{"items":[{"id":"decoy-%s","username":"%s-extra"}]}' "$name" "$name"
+      else
+        printf '{"items":[{"id":"id-%s","username":"%s"}]}' "$name" "$name"
+      fi ;;
     "POST "*"/restrictions/import") printf '{"inserted":{"field_restrictions":1,"field_grants":2,"type_restrictions":1,"type_grants":1}}' ;;
     "POST "*"/entities/query") printf '{"items":[],"next_cursor":null}' ;;
+    "POST "*"/shipment_manifest/import") printf '%s' "$STUB_SHIPMENT_IMPORT_RESPONSE" ;;
     "POST "*"/import") printf '%s' "$STUB_IMPORT_RESPONSE" ;;
   esac
   """
@@ -77,6 +86,13 @@ defmodule Letflow.Scripts.SeedVortexEntitiesActorTest do
         {"STUB_COUNTER", Path.join(dir, "counter")},
         {"STUB_OWNER_STATUS", Keyword.get(opts, :owner_status, "200")},
         {"STUB_IMPORT_RESPONSE", Keyword.get(opts, :import_response, @ok_import)},
+        {"STUB_SHIPMENT_IMPORT_RESPONSE",
+         Keyword.get(
+           opts,
+           :shipment_import_response,
+           Keyword.get(opts, :import_response, @ok_import)
+         )},
+        {"STUB_FUZZY", Keyword.get(opts, :fuzzy, "0")},
         {"QA_AUTH_TOKEN", "t"},
         {"QA_URL", "http://stub"},
         {"TMPDIR", dir}
@@ -100,6 +116,26 @@ defmodule Letflow.Scripts.SeedVortexEntitiesActorTest do
     refute result.calls =~ "restrictions/import"
   end
 
+  test "Karl is refused as the seeder too" do
+    result = run_seed(actor: "actor-vortex-karl")
+    assert result.status != 0
+    assert result.out =~ "DEDICATED account"
+    refute result.calls =~ "restrictions/import"
+  end
+
+  test "the username is matched exactly: a fuzzy search hit is never used" do
+    result = run_seed(fuzzy: "1")
+    assert result.status == 0, result.out
+    [payload | _] = String.split(result.stdin, "\n", trim: true)
+    assert payload =~ "id-seeder-svc"
+    refute payload =~ "decoy-"
+
+    refuted = run_seed(fuzzy: "2")
+    assert refuted.status != 0
+    assert refuted.out =~ "not found (exact username match)"
+    refute refuted.calls =~ "restrictions/import"
+  end
+
   test "the seeding account is granted the restricted field and the restricted type" do
     result = run_seed([])
     assert result.status == 0, result.out
@@ -116,6 +152,11 @@ defmodule Letflow.Scripts.SeedVortexEntitiesActorTest do
     # the persona grants are unchanged: Anna keeps hers, Karl has none
     assert Enum.any?(decoded["field_grants"], &(&1["user_id"] == "id-actor-vortex-anna"))
     refute payload =~ "id-actor-vortex-karl"
+
+    # the token-owner probe is a GET of the restricted type's definition, after the two step-1 checks
+    by_name = "GET http://stub/api/v1/entities/definitions/by-name/shipment_manifest"
+    assert result.calls |> String.split("\n") |> Enum.count(&(&1 == by_name)) == 2
+
     assert result.calls =~ "POST http://stub/api/v1/entities/records/production_batch/import"
     assert result.calls =~ "POST http://stub/api/v1/entities/records/shipment_manifest/import"
   end
@@ -127,6 +168,18 @@ defmodule Letflow.Scripts.SeedVortexEntitiesActorTest do
 
     refute result.calls =~ "records/production_batch/import"
     refute result.calls =~ "records/shipment_manifest/import"
+  end
+
+  test "a refused entry in the SECOND entity's import fails the script" do
+    result = run_seed(shipment_import_response: @refused_import)
+    assert result.status != 0
+    assert result.out =~ "shipment_manifest entry"
+    assert result.calls =~ "records/production_batch/import"
+  end
+
+  test "a non-JSON import response fails the script" do
+    result = run_seed(import_response: "<html>gateway</html>")
+    assert result.status != 0
   end
 
   test "any status error entry of an import response fails the script" do

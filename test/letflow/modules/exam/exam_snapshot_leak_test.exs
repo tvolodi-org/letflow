@@ -498,6 +498,22 @@ defmodule Letflow.Modules.Exam.ExamSnapshotLeakTest do
     end
   end
 
+  describe "T-30 (4b): DELETE /entities/records/session/:id" do
+    test "an ungranted admin's delete response (and a repeat) never carries the snapshot" do
+      flow = flow!()
+      path = "/api/v1/entities/records/session/#{flow.session_id}"
+
+      for _attempt <- 1..2 do
+        deleted = request(flow.tokens.admin, flow.slug, "DELETE", path)
+        assert deleted.status == 200
+        assert_no_snapshot_content!(:delete_ungranted, deleted, flow.secrets)
+
+        assert Jason.decode!(deleted.resp_body)["field_values"]["exam_snapshot"] ==
+                 "__field_redacted__"
+      end
+    end
+  end
+
   defp session_values(schema, session_id) do
     assert {:ok, row} = Letflow.Entities.Record.Latest.get(session_id, "session", schema)
     row.field_values

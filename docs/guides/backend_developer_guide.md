@@ -399,3 +399,33 @@ handlers write through it with their own authority).
   delete and a repeat of it) show `__field_redacted__` for every restricted field, as the read
   routes do (`render_record_command/4`). `DELETE` stays allowed for such an actor.
 - The shared 403 detail lives in one module attribute of the router; do not restate the string.
+
+### Deploy warning: grant authoring staff first
+
+Restriction rows are inserted by modules (`Exam.on_install/2`) without any grant, so right after
+this change nobody, a `TENANT_ADMIN` included, may write a restricted field or PUT a type that has
+one: the exam authoring flow (`answer_option.is_correct`, `question.explanation`, `session.exam_snapshot`)
+and any tenant with its own restrictions (QA vortex `production_batch.cost_figure`) get 403s.
+Before deploying follow `docs/runbooks/exam-snapshot-rollout.md`, "Authoring grants BEFORE the GH #2784
+deploy":
+
+1. List the tenants and types that hold field restrictions (per tenant schema):
+   `SELECT entity_type, field_name FROM "<tenant_schema>".entity_field_restrictions ORDER BY 1, 2;`
+   Every row is a field the generic record write routes now refuse to an actor without a grant.
+2. BEFORE deploying, grant the authoring staff (by name) the answer-key fields, through
+   `POST /api/v1/entities/restrictions/import` (permission `EntitiesRestrictionsManage`), body
+   `{"field_grants": [{"user_id": "<uuid>", "entity_type": "<type>", "field_name": "<field>"}, ...]}`.
+   The route is idempotent. The exam fields (`Letflow.Modules.Exam.answer_key_fields/0`) are:
+   `question.explanation`; `answer_option.is_correct`, `answer_option.likert_weight`,
+   `answer_option.likert_polarity`; `session.exam_snapshot`. An author who edits an answer option
+   needs ALL THREE `answer_option` grants plus `question.explanation` for questions.
+3. Grant `session.exam_snapshot` ONLY to admins who genuinely PUT sessions. NEVER grant any
+   answer-key field to a `TASK_WORKER` or candidate user: the grant lifts the redaction on every
+   read route too.
+4. Other tenants with their own restrictions (for example QA vortex `production_batch.cost_figure`)
+   need the same list-then-grant pass for the staff who write those types; the seeding account of
+   `scripts/seed_vortex_entities.sh` is `SEED_ACTOR_USERNAME`.
+5. After the deploy, check as an authoring user: `PUT /api/v1/entities/records/answer_option/<id>`
+   with the whole `field_values` answers 200 (not 403), and `POST /api/v1/entities/records/answer_option`
+   naming `is_correct` answers 201. A 403 with detail `one or more requested fields are restricted
+   for this caller` means a grant is missing.

@@ -350,7 +350,7 @@ defmodule Letflow.Routers.EntitiesWriteTypeAccessTest do
   end
 
   describe "T4: import create on a denied type" do
-    test "a non-map first entry and a second entry behave as for an absent type" do
+    test "a two-entry import behaves as for an absent type" do
       {denied, absent, _} = denied_and_absent("gh2784-t4")
       p = path("customer") <> "/import"
 
@@ -419,6 +419,14 @@ defmodule Letflow.Routers.EntitiesWriteTypeAccessTest do
       after
         :erlang.trace(self(), false, [:call])
         for mfa <- @gate_calls, do: :erlang.trace_pattern(mfa, false, [])
+      end
+
+      :erlang.trace_delivered(:all)
+
+      receive do
+        {:trace_delivered, :all, _ref} -> :ok
+      after
+        5_000 -> flunk("trace messages were not delivered")
       end
 
       send(tracer, {:collect, self()})
@@ -539,6 +547,24 @@ defmodule Letflow.Routers.EntitiesWriteTypeAccessTest do
 
   # ---- T8 / T9: field restrictions on an open type -------------------------------------------
 
+  describe "F5: an absent record under a visible type" do
+    test "PUT and DELETE of an unknown record id are the 404 they always were" do
+      ctx = tenant_ctx("gh2784-f5")
+      seed_type!(ctx, "customer")
+      id = Ecto.UUID.generate()
+      before = counts(ctx)
+
+      put =
+        request(:put, path("customer", id), ctx, %{"field_values" => %{"customer_name" => "Z"}})
+
+      delete = request(:delete, path("customer", id), ctx, nil)
+      assert put.status == 404
+      assert delete.status == 404
+      assert norm(put) == norm(delete)
+      assert counts(ctx) == before
+    end
+  end
+
   describe "T8: an actor holding a restricted field" do
     setup do
       ctx = tenant_ctx("gh2784-t8")
@@ -592,6 +618,38 @@ defmodule Letflow.Routers.EntitiesWriteTypeAccessTest do
                422
 
       assert counts(ctx) == before
+    end
+
+    test "POST naming a restricted key with the grant is 201 and shows the real value", %{
+      ctx: ctx
+    } do
+      insert_grant!(ctx, "customer", "credit_limit")
+
+      conn =
+        request(:post, path("customer"), ctx, %{
+          "field_values" => %{"customer_name" => "N", "credit_limit" => "1"}
+        })
+
+      assert conn.status == 201
+      assert Jason.decode!(conn.resp_body)["field_values"]["credit_limit"] == "1"
+    end
+
+    test "the 403 never names the restricted field in the response or the log", %{ctx: ctx} do
+      log =
+        capture_log(fn ->
+          for {method, p, b} <- [
+                {:post, path("customer"),
+                 %{"field_values" => %{"customer_name" => "N", "credit_limit" => "1"}}},
+                {:put, path("customer", Ecto.UUID.generate()),
+                 %{"field_values" => %{"customer_name" => "N"}}}
+              ] do
+            conn = request(method, p, ctx, b)
+            assert conn.status == 403
+            refute conn.resp_body =~ "credit_limit"
+          end
+        end)
+
+      refute log =~ "credit_limit"
     end
 
     test "PUT with the grant replaces the whole document", %{ctx: ctx, record_id: record_id} do
@@ -675,7 +733,12 @@ defmodule Letflow.Routers.EntitiesWriteTypeAccessTest do
       seed_type!(ctx, "customer")
       insert_restriction!(ctx, "customer", "credit_limit")
 
-      post = request(:post, path("customer"), ctx, %{"field_values" => "not an object"})
+      # a restricted key AND an invalid (empty) idempotency key: validation must win
+      post =
+        request(:post, path("customer"), ctx, %{
+          "field_values" => %{"credit_limit" => "1"},
+          "idempotency_key" => ""
+        })
 
       put =
         request(:put, path("customer", Ecto.UUID.generate()), ctx, %{"idempotency_key" => "k"})

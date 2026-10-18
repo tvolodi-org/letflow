@@ -220,10 +220,13 @@ lookup_user_id() {
     echo "ERROR: GET /api/v1/identity/users?search=${username} failed (HTTP error)." >&2
     exit 1
   }
+  # GH #2784: the search is fuzzy, so pick the item whose username matches EXACTLY (never items[0]):
+  # a grant must not go to a similarly named account.
   local user_id
-  user_id=$(echo "${response}" | jq -r '.items[0].id // empty')
+  user_id=$(echo "${response}" | jq -r --arg u "${username}" \
+    '[.items[]? | select(.username == $u)][0].id // empty')
   if [[ -z "${user_id}" ]]; then
-    echo "ERROR: user ${username} not found in the vortex tenant." >&2
+    echo "ERROR: user ${username} not found (exact username match) in the vortex tenant." >&2
     exit 1
   fi
   echo "${user_id}"
@@ -280,7 +283,10 @@ echo "  (all-zero on a re-run is expected and correct -- the route is idempotent
 # to a caller holding the type grant (404 otherwise), and the only type grant just seeded is the
 # seeding account's: so a 200 here proves the token belongs to that account. A 404 means the grant
 # silently does nothing for this token -- refuse to import. (No route returns the token owner's own
-# user id, so the check goes through the gate itself.)
+# user id, so the check goes through the gate itself. It cannot run BEFORE the grants are written:
+# on a first run the restriction row does not exist yet, so the GET would be 200 for any token and
+# prove nothing. It proves a type grant, not identity; the persona guard above and the per-entry
+# status "error" scan below close most of the remaining gap.)
 owner_check_status=$(curl -s -o /dev/null -w '%{http_code}' \
   -H "${AUTH_HEADER}" \
   "${API}/entities/definitions/by-name/shipment_manifest") || owner_check_status="network-error"
