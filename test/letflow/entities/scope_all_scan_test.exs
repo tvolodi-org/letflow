@@ -359,11 +359,11 @@ defmodule Letflow.Entities.ScopeAllScanTest do
       found
     end
 
-    test "the scan sees the sites at all: the three router sites and the five ledger sites exist" do
+    test "the scan sees the sites at all: the five ledger sites exist; the router derives its set (no literal since 2c-i-b)" do
       sites = real_sites()
 
-      assert Enum.count(sites, &(&1.file == @router_file)) == 3
-      assert length(sites) == 8
+      assert Enum.count(sites, &(&1.file == @router_file)) == 0
+      assert length(sites) == 5
     end
   end
 

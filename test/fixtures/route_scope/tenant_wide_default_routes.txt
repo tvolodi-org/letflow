@@ -24,7 +24,6 @@ GET /entities/records/:entity_type/:record_id/attachments EntitiesAttachmentsRea
 GET /entities/records/:entity_type/:record_id/attachments/:attachment_id EntitiesAttachmentsRead
 GET /event-retention/retirements/:id TenantsManage
 GET /event-retention/summary TenantsManage
-GET /help/resolved HelpRead
 GET /instances InstancesRead
 GET /instances/:id InstancesRead
 GET /instances/:id/attachments AttachmentsRead
@@ -33,8 +32,6 @@ GET /instances/:id/history InstancesRead
 GET /instances/:id/pins InstancesRead
 GET /instances/:id/timeline InstancesRead
 GET /instances/storage-usage AttachmentsRead
-GET /me/memberships MembershipsRead
-GET /me/modules MyModulesRead
 GET /modules/exam/exam-sessions/:id ExamSessionRead
 GET /modules/exam/exam-sessions/:id/certificate/download ExamCertificateIssue
 GET /modules/exam/exam-sessions/available ExamSessionStart
@@ -80,11 +77,8 @@ POST /dlq/:id/discard DlqReadRetryDiscard
 POST /dlq/:id/retry DlqReadRetryDiscard
 POST /entities/definitions EntitiesDefinitionsWrite
 POST /entities/definitions/:name/activate EntitiesDefinitionsWrite
-POST /entities/query EntitiesQuery
-POST /entities/query/aggregate EntitiesAggregate
 POST /entities/records/:entity_type EntitiesRecordsWrite
 POST /entities/records/:entity_type/:record_id/attachments EntitiesAttachmentsManage
-POST /entities/records/:entity_type/export EntitiesRecordsExport
 POST /entities/records/:entity_type/import EntitiesRecordsImport
 POST /entities/restrictions/import EntitiesRestrictionsManage
 POST /event-retention/retirements TenantsManage

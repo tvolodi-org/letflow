@@ -193,11 +193,21 @@ defmodule Letflow.Api.Response do
   """
   @spec send_problem(Plug.Conn.t(), Error.t()) :: Plug.Conn.t()
   def send_problem(conn, %Error{} = problem) do
+    conn |> put_problem(problem) |> send_resp()
+  end
+
+  @doc """
+  Sets (does NOT send) the problem response: the same content type, status and body
+  `send_problem/2` sends. For a `Plug.Conn.register_before_send/2` callback, which must replace
+  the pending response without sending it (REQ-518 `Letflow.Api.Scope.Enforce` backstop).
+  """
+  @spec put_problem(Plug.Conn.t(), Error.t()) :: Plug.Conn.t()
+  def put_problem(conn, %Error{} = problem) do
     problem = %{problem | trace_id: effective_trace_id(problem.trace_id, conn)}
 
     conn
     |> put_resp_content_type(@problem_content_type)
-    |> send_resp(problem.status, Error.serialise(problem))
+    |> resp(problem.status, Error.serialise(problem))
   end
 
   @doc "HTTP 400 — Bad Request."

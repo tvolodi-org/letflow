@@ -3,16 +3,20 @@ defmodule Letflow.Plugs.AuthorizeScopeOnTest.FixtureRouter do
   # A test-only router (defined here, NOT under test/support, so the route inventory of the real
   # mounted routers never sees it) with one route of every scope class, all behind the same policy
   # key, whose handler answers a recognisable 200 body. It proves what `Letflow.Plugs.Authorize`
-  # does under `on` for each class WITHOUT depending on any real handler.
+  # does under `on` for each class WITHOUT depending on any real handler. The `:filter` and
+  # `{:resolver, _}` handlers call `Letflow.Api.ScopeGate` as a real handler must (REQ-518 R-4
+  # backstop: a 2xx without the gate marker is a 500 under `on`).
 
   use Letflow.Api.AuthorizedRouter
 
   authz_get "/filtered", :InstancesRead, scope: :filter do
+    {conn, _set} = Letflow.Api.ScopeGate.scope_set(conn, :InstancesRead)
     send_resp(conn, 200, "handler-ran")
   end
 
   authz_get "/resolver", :InstancesRead,
     scope: {:resolver, {Letflow.Api.RouteScope, :class_of}} do
+    {conn, _set} = Letflow.Api.ScopeGate.scope_set(conn, :InstancesRead)
     send_resp(conn, 200, "handler-ran")
   end
 

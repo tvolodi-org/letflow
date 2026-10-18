@@ -92,9 +92,9 @@ defmodule Letflow.Support.ScopeSetFixture do
   Provisions the tenant (with `S.tenant!/1`), builds the node tree, seeds the event types and
   installs `fixture_scoped`. Returns the fixture map (`S.tenant!/1`'s keys) plus `:nodes`.
   """
-  @spec provision!(String.t()) :: map()
-  def provision!(slug_prefix) do
-    fx = S.tenant!(slug_prefix)
+  @spec provision!(String.t(), keyword()) :: map()
+  def provision!(slug_prefix, tenant_opts \\ []) do
+    fx = S.tenant!(slug_prefix, tenant_opts)
     schema = fx.schema_name
 
     ExUnit.Callbacks.on_exit(fn ->
@@ -225,6 +225,34 @@ defmodule Letflow.Support.ScopeSetFixture do
     end
 
     S.principal(fx, user.id)
+  end
+
+  @doc """
+  A real user who holds `role` ONLY through user-level grant rows (no group membership, so no
+  group row contributes anything): `{:nodes, [node_key]}` one row per node, `:tenant_wide` one
+  tenant-wide row, `:zero_rows` none. The role itself is claimed by the request context
+  (`Letflow.Support.ScopeOnFixture.call/8`), as the REQ-517 2b tests do. Used by the REQ-518
+  2c-i-b route tests, which need a role other than the fixed `TASK_WORKER` of `principal/2`
+  (the export route needs `TENANT_ADMIN`).
+  """
+  @spec holder!(map(), String.t(), {:nodes, [atom()]} | :tenant_wide | :zero_rows) ::
+          Letflow.Identity.User.t()
+  def holder!(fx, role, spec) do
+    schema = fx.schema_name
+    user = RSG.user!(schema)
+
+    case spec do
+      {:nodes, keys} ->
+        for key <- keys, do: RSG.raw_user_row!(schema, user.id, role, Map.fetch!(@nodes, key))
+
+      :tenant_wide ->
+        RSG.raw_user_row!(schema, user.id, role, nil)
+
+      :zero_rows ->
+        :ok
+    end
+
+    user
   end
 
   @doc "A token principal (tokens are tenant-wide, design D1): no user, no grants."

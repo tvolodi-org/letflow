@@ -1,0 +1,76 @@
+{
+  "handoff_id": "d2535518-0518-4c02-9e11-000000000015",
+  "run_id": "WF02-REQ518-COMPILER-SCOPE-20261018",
+  "workflow_id": "WF-02",
+  "step": "15",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGN-VALIDATOR",
+  "file": "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-15-test-design-validator-2c-i-b.json",
+  "created_at": "2026-10-18T06:32:30Z",
+  "started_at": "2026-10-18T06:32:53Z",
+  "completed_at": "2026-10-18T06:46:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [
+      "REQ-518"
+    ],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "TEST-DESIGN-VALIDATOR gate for REQ-518 slice 2c-i-b (GH #2535), uncommitted tree on feature/WF02-REQ518-2CIB-GATE-20261018. Mix ran per file, one at a time, under a mixlock directory this session created and removed (it was absent at start). No full suite, no letflow.check.test. Mutants were compiled in memory only."
+    },
+    "related_handoff_ids": [
+      "d2535518-0518-4c02-9e11-000000000012",
+      "d2535518-0518-4c02-9e11-000000000013",
+      "d2535518-0518-4c02-9e11-000000000014"
+    ],
+    "artifacts_in": [
+      "test/specs/REQ-518-2c-i-b.md",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-14-test-designer-2c-i-b.json",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-12-security-reviewer-code-2c-i-b.json",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-13-reviewer-code-2c-i-b.json",
+      "lib/letflow/design/req518-compiler-scope-filter.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ518-2CIB-GATE-20261018"
+  },
+  "task": {
+    "description": "Hard gate on TEST-DESIGNER REQ-518 2c-i-b tests: a runnable test with real assertions per AC 1-5 and 18-21 as assigned to 2c-i-b, every SEC step-12 merge condition (T-B1, T-C13 over HTTP, T-S9, on-mode test per filter route, T-S4, walk seeds) and REVIEWER step-13 F-2; fixture isolation and cleanup; CI partition safety; formatting; own mutants; T-S4 row soundness."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "summary": "PASS_WITH_FINDINGS after ONE validator fix to a test file. FOUND AND FIXED A FLAKE: entities_scope_http_test.exs 'the API-token shape is unchanged by the gate' failed in 2 of 10 of my unmutated runs ([off: 27, on: 27, off: 27, on: 28]). Cause: Identity.touch_last_used_and_verify/2 writes api_tokens.last_used_at with a second-truncated clock, and Ecto issues the UPDATE only when the value differs from the stored one, so the statement count depends on whether a second boundary falls between the measured requests (the known GH #2729 shape; auth_pipeline_scope_test resets last_used_at for the same reason). Fix: reset last_used_at to nil (Repo.update_all on ApiToken, prefix tenant schema) before EVERY measured request, outside the capture, so each request performs exactly one such write; added alias Letflow.Identity.ApiToken. After the fix: 8 of 8 consecutive runs 7 passed; mix format --check-formatted exit 0. EXECUTED (mix per file, LOG_LEVEL=warning, MIX_ENV=test): scope_gate_test 19 passed, enforce_backstop_test 9 passed, route_scope_self_service_test 30 passed, route_scope_test 31 passed, self_service_scope_test 11 passed, off_shadow_byte_identity_2c_i_b_test 4 passed, entities_scope_filter_test 17 passed, entities_scope_http_test 7 passed (8 consecutive green runs after the fix): 128 of 128. mix format --check-formatted over the 8 new/edited test files plus 6 other edited test/support files: exit 0. No skip, TODO, sleep or hardcoded secret in the new files. COVERAGE: AC 18 and the HTTP halves of AC 2/3: entities_scope_filter_test asserts on real rows (exact name sets item-a/item-a1/item-a2x for query, aggregate count 3 and sum, group_by buckets, export; two-root scope; zero-row; tenant-wide sees nine; page 2 via next_cursor for query and export with page sizes [2,1]; cross-caller cursor does not widen; joined query and joined export drop out-of-scope hops; filter naming an out-of-scope row returns nothing; 200-empty envelope not turned into a 500; 400/422/404 unchanged) and entities_scope_http_test repeats them through the full Letflow.Router with an OIDC credential. T-B1: enforce_backstop_test drives a fixture router with 14 routes (omit/gated/resource-gated/201/204/404/422/302/dropped-conn/resolver/self_service/tenant_wide) in on/off/shadow with byte equality to Response.internal_error and exactly one scope_not_applied line. T-C13 over HTTP: renames the tenant schema's scope_node_paths, asserts status 500, ScopeSetError propagated, body equals the shared detail-free body minus trace_id, no page key/schema/table/data, exactly one scope_set_failed line, repair gives 200, token caller unaffected, off/shadow unaffected; gate half covers DB fault, cap failure (one line), corrupt grants memo (read_failed), no memo after a failed read. T-S9: byte-identical status/body/headers AND equal statement count at three stages plus a control that the id IS a filter, plus stale-from-selected-row. T-S4: 14 recorded rows replayed under off, shadow and on. Walk: 35 seed references for the five error kinds incl. both directions of :unexpected_filter_route; REVIEWER F-2 re-titled and the reverse case added (route_scope_test 31 green). AC 5: memo per permission and per request, grants once, zero in off/shadow, token shape no scope statement, over the full pipeline. FIXTURE ISOLATION: every DB file is async false except route_scope_self_service_test (async true, no Repo). Tenants come from provisioned_tenant! (unique slug, teardown drops the schema CASCADE and deletes the tenant). The two GLOBAL-table writes (second Tenant row and TenantMembership rows with UUID e-mail and UUID-suffixed slug in self_service_scope_test) are removed in an on_exit registered AFTER the fixture teardown, so it runs first (ExUnit on_exit is LIFO): memberships by tenant_id, then the tenant; the e-mail is collision-proof even if a cleanup were skipped. Other global state touched: the :oidc application env (restored in on_exit), :scope_allowed_ids_cap (restored or deleted in on_exit), the :letflow_scope_shadow_evidence ETS table (cleared before and after) and telemetry handlers (detached in on_exit); all in async false modules, which ExUnit runs exclusively. CI PARTITION SAFETY of the T-C13 fault injection: the renamed table is scope_node_paths of the per-test provisioned tenant schema only (ALTER TABLE in that schema), restored in an 'after', and the schema is dropped CASCADE by teardown; config/test.exs gives each partition its own database (letflow_test<MIX_TEST_PARTITION>), and within a partition the module is async false, so no other test can observe the renamed table. If the test process were killed mid-rename the only victim is that tenant's own schema, which teardown still drops. Safe. T-S4 ROW SOUNDNESS: the 14 rows are DERIVED, not captured from main (SEC step-12 asked for captured). Judged sound because (1) the shapes are decided before any tenant data is read (400 missing screen_id, 404 unknown screen, 200 empty envelope for an unknown type, 404 unknown type for aggregate/export, 422 path/body mismatch, own-tenant-only memberships, empty modules), (2) I re-read HEAD (git show HEAD:lib/letflow/routers/help.ex handle_resolve and entities.ex check_export_entity_type_match / render_export_error) and the sampled rows H1a (400 'screen_id is required'), H1b (404), E10a (422 'entity_type in the request body does not match the path') match the HEAD code literally, (3) git diff HEAD lib/letflow/routers shows the handlers changed only by scope: and the ScopeGate call, neutral unless the tenant is on. Limitation: no row records a DATA-bearing response of a filter route on main; that half is held by the off == shadow == tenant-wide-on comparisons in entities_scope_filter_test, which is adequate given the diff. OWN MUTANTS (in memory via Code.compile_string, anchor required exactly once, nothing written to disk): V1 enforce.ex backstop status guard 200..299 changed to [200, 204] killed 1 of 9 (every-2xx test); V2 scope_gate.ex memoised_set rescues any error and returns :all (T-C13 fail-open) killed 6 of 26 (2 HTTP T-C13 tests, 4 gate T-C13 tests); V3 help.ex stale reported true when the REQUESTED definition id does not exist (existence oracle) killed 1 of 11 (T-S9); V4 entities.ex run_export applies the scope only when the body has no cursor (page 2 widens) killed 1 of 24 (export pages test); V5 entities.ex run_export compiles with a literal :all (scope not applied to export) killed 4 of 24 (3 filter, 1 HTTP end to end); V6 scope_gate.ex resource_allowed?/3 does not set the marker killed 3 of 28 (backstop, neutral-answer, applied?); V7 help.ex bad_request text 'screen_id is required' changed killed 2 of 4 (T-S4 off/shadow and on replay). 7 of 7 killed, 0 survived. DESIGNER'S 36 mutants were not re-run; the 7 above are independent.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-15-test-design-validator-2c-i-b.json"
+    ],
+    "implementation_written": false,
+    "classification": "TEST_DESIGN_PASS_WITH_FINDINGS",
+    "changes_made": [
+      "test/letflow/routers/entities_scope_http_test.exs: alias Letflow.Identity.ApiToken; in 'the API-token shape is unchanged by the gate' the warm-up reliance was replaced by a reset of api_tokens.last_used_at to nil before every measured request (second-boundary flake, GH #2729 shape)"
+    ],
+    "findings": [
+      "F-1 (FIXED by validator, MEDIUM): second-boundary flake in the token statement-count test, see summary. Roughly 20 percent failure rate before the fix; 8 of 8 green after.",
+      "F-2 (LOW, note): T-S4 rows are derived from main's handler code, not captured from a running main as SEC step-12 literally asked; accepted for the reasons in the summary. The rows carry no data-bearing filter response.",
+      "F-3 (LOW, no action): design 4.2 'printed stable line' for :pending_sec_ruling is not implemented (designer OBS-2) and SEC step-12 F-2 (unmounted list entry not reported by the walk) is pinned as documented behavior; both are lib follow-ups, not test gaps.",
+      "F-4 (note, PRE-EXISTING): a join clause with type 'left' on the wire raises ArgumentError (designer OBS-1); LEFT semantics stay proven at the compiler layer only. Route to an issue.",
+      "F-5 (note): 2c-ii must add the :unexpected_resolver_route / :data_route_default walk rules with seeded tests (SEC step-12 F-1); their absence here is by design."
+    ],
+    "mutants": {
+      "measured_by_validator": [
+        {"id": "V1", "edit": "Enforce backstop status guard 200..299 -> [200, 204]", "failing": "1 of 9"},
+        {"id": "V2", "edit": "ScopeGate.memoised_set rescues any error and returns :all", "failing": "6 of 26"},
+        {"id": "V3", "edit": "Help stale true when the requested definition id does not exist", "failing": "1 of 11"},
+        {"id": "V4", "edit": "Export scope applied only when no cursor is present", "failing": "1 of 24"},
+        {"id": "V5", "edit": "Export compiled with literal :all", "failing": "4 of 24"},
+        {"id": "V6", "edit": "ScopeGate.resource_allowed?/3 does not set the marker", "failing": "3 of 28"},
+        {"id": "V7", "edit": "Help bad_request text changed (T-S4)", "failing": "2 of 4"}
+      ],
+      "survivors": []
+    },
+    "reverted_and_verified": "No mutant touched disk: each was compiled into a throwaway VM through mix do run --no-start -r apply.exs + test. After the last mutant git status --porcelain lib/ priv/ shows only the pre-existing uncommitted ELIXIR-DEV paths (api/response.ex, route_scope.ex, scope/enforce.ex, routers/entities.ex, help.ex, me.ex modified, api/scope_gate.ex new) with no new entry, git diff --stat -- lib/ unchanged in shape, and the 8 test files re-ran green unmutated (128 of 128, the HTTP file 8 consecutive times). The only edit made by this validator is the test file listed in changes_made.",
+    "run_command_for_test_runner": "per file, one mix at a time: mix test test/letflow/api/scope_gate_test.exs; then test/letflow/api/scope/enforce_backstop_test.exs, test/letflow/api/route_scope_self_service_test.exs, test/letflow/api/route_scope_test.exs, test/letflow/routers/self_service_scope_test.exs, test/letflow/routers/off_shadow_byte_identity_2c_i_b_test.exs, test/letflow/routers/entities_scope_filter_test.exs, test/letflow/routers/entities_scope_http_test.exs"
+  }
+}

@@ -11,8 +11,9 @@ defmodule Letflow.Api.Scope.Enforce do
     1. the policy key is `:Unknown`, `:UnmatchedRoute`, `:UnmatchedPlatformPath` or
        `:MetricsRead`: the conn is returned (their own handling is unchanged);
     2. the route's class is `Letflow.Api.RouteScope.class_of/1` of `conn.private`;
-    3. `{:resolver, _}`, `:filter` and `:self_service`: the conn is returned (the handler
-       applies the scope, REQ-518);
+    3. `:self_service`: the conn is returned (tenant-level or own-data reads, REQ-518 AC 21);
+       `{:resolver, _}` and `:filter`: the conn is returned with a before-send check registered
+       (below); the handler applies the scope through `Letflow.Api.ScopeGate` (REQ-518);
     4. `:admin_plane`, `:tenant_wide` and a default-sourced (unclassified) route:
        `Letflow.Api.Scope.allowed?(principal, permission, :tenant_wide)`. An allow returns the
        conn. A deny, or no principal, emits `[:letflow, :scope, :enforce, :denied]`
@@ -24,19 +25,33 @@ defmodule Letflow.Api.Scope.Enforce do
        `scope_enforcement_failed class=<error|exit|throw> exception=<module|none>` per
        occurrence (no ids, no values) and a halted detail-free 500. NEVER an allow.
 
+  ## Before-send backstop (REQ-518 SEC ruling R-4, DETECTIVE only)
+
+  For `{:resolver, _}` and `:filter` routes (in this `on` branch only) a before-send callback
+  turns a 2xx response sent WITHOUT the `Letflow.Api.ScopeGate` marker into the detail-free 500
+  of `fail_closed/3` and logs one constant line `scope_not_applied` (no ids). It detects a handler
+  that omitted `ScopeGate`; it does NOT make a response safe, and the marker proves "gate
+  called", not "result applied" (the preventive controls are the per-route tests and the ledger).
+  Every non-2xx response passes unchanged. The callback rescues itself and answers the same
+  detail-free 500. Caveat (design OQ-8): a write already committed before the check still
+  commits; write handlers therefore apply scope BEFORE writing. A handler that drops the conn
+  `ScopeGate` returned loses the marker and gets a false 500 (fail closed, accepted).
+
   `:admin_plane` and `:tenant_wide` decide identically here; the difference is declarative
   (the D11 inventory, the route walk, and the handlers' own `require_tenant_wide/2`).
   """
 
-  import Plug.Conn, only: [halt: 1]
+  import Plug.Conn, only: [halt: 1, register_before_send: 2]
 
   require Logger
 
   alias Letflow.Api.Authorization
   alias Letflow.Api.AuthzDenyLog
+  alias Letflow.Api.Error
   alias Letflow.Api.Response
   alias Letflow.Api.RouteScope
   alias Letflow.Api.Scope
+  alias Letflow.Api.ScopeGate
 
   @skipped_keys [:Unknown, :UnmatchedRoute, :UnmatchedPlatformPath, :MetricsRead]
   @event [:letflow, :scope, :enforce, :denied]
@@ -53,8 +68,8 @@ defmodule Letflow.Api.Scope.Enforce do
     {class, _source} = RouteScope.class_of(conn.private)
 
     case class do
-      {:resolver, _fun} -> conn
-      :filter -> conn
+      {:resolver, _fun} -> require_scope_applied(conn)
+      :filter -> require_scope_applied(conn)
       :self_service -> conn
       _admin_or_tenant_wide -> require_tenant_wide(conn, ctx, policy_key)
     end
@@ -63,6 +78,34 @@ defmodule Letflow.Api.Scope.Enforce do
   catch
     kind, _reason -> fail_closed(conn, kind, nil)
   end
+
+  defp require_scope_applied(conn), do: register_before_send(conn, &assert_scope_applied/1)
+
+  # Runs when the response is about to be sent: only a 2xx without the ScopeGate marker is
+  # replaced (detective control, moduledoc). It must never raise: any failure is the same
+  # detail-free 500.
+  defp assert_scope_applied(%Plug.Conn{status: status} = conn) when status in 200..299 do
+    if ScopeGate.applied?(conn) do
+      conn
+    else
+      Logger.error("scope_not_applied")
+      replace_with_internal_error(conn)
+    end
+  rescue
+    e -> fail_closed_unsent(conn, :error, e.__struct__)
+  catch
+    kind, _reason -> fail_closed_unsent(conn, kind, nil)
+  end
+
+  defp assert_scope_applied(conn), do: conn
+
+  defp fail_closed_unsent(conn, class, mod) do
+    log_failure(class, mod)
+    replace_with_internal_error(conn)
+  end
+
+  defp replace_with_internal_error(conn),
+    do: Response.put_problem(conn, Error.internal())
 
   defp require_tenant_wide(conn, ctx, policy_key) do
     permission = Authorization.required_permission(policy_key)
@@ -87,10 +130,13 @@ defmodule Letflow.Api.Scope.Enforce do
 
   # One constant line per occurrence: class and exception module name only (INV-4, INV-8).
   defp fail_closed(conn, class, mod) do
+    log_failure(class, mod)
+    conn |> Response.internal_error() |> halt()
+  end
+
+  defp log_failure(class, mod) do
     Logger.error(
       "scope_enforcement_failed class=#{class} exception=#{if mod, do: inspect(mod), else: "none"}"
     )
-
-    conn |> Response.internal_error() |> halt()
   end
 end

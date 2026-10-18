@@ -1,0 +1,257 @@
+{
+  "_provenance": "REQ-518 2c-i-b T-S4 (and the off/shadow identity of the three :filter routes). Responses of the UNCHANGED behavior of main (HEAD ed822c606, PR 2c-i-a merge) for the off and shadow modes, derived by READING main's handler code, not captured from a running main (the machine shares one mix mutex and several sessions; the 517 fixture off_shadow_responses.json has the same provenance). Sources: Me.handle_list_memberships (the caller's home tenant is the only entry when the caller's subject key has no tenant_memberships row), Me.handle_list_modules (Installs.list_installed of a fresh tenant is empty), Help.handle_resolve (missing screen_id is the 400 of Response.bad_request; an unknown screen has no row, so Response.not_found), Entities.run_query (an unknown entity type is the local 200 {items:[],next_cursor:null} envelope of REQ-394), Entities.render_aggregate_error / render_export_error (entity_type_not_found is the shared 404; a body entity_type that differs from the path is the 422 of render_export_error). The lib diff of the 2c-i-b working tree touches these handlers only by the `scope:` option and, in the three entity handlers, one ScopeGate call that returns :all with no query unless the tenant is `on` (git diff HEAD lib/letflow/routers), so a replay against the working tree under off and shadow is also a replay against main. If a row here fails against BOTH off and shadow in the same way the derivation is wrong: re-read main's handler (git show HEAD:lib/letflow/routers/<router>.ex) and regenerate the row; if it fails against only ONE of off/shadow, or only the working tree differs from main's handler, the implementation changed behavior. Placeholders ${tenant_id}, ${tenant_slug}, ${tenant_display_name} are replaced by the fixture tenant's values before comparing. Bodies are compared as decoded JSON; headers record content-type only; the trace id is the one ScopedGrantsFixture assigns.",
+  "trace_id": "req517-2a-trace-0001",
+  "requests": [
+    {
+      "id": "M1a",
+      "router": "Me",
+      "method": "GET",
+      "path": "/memberships",
+      "caller": "scoped_worker",
+      "response": {
+        "status": 200,
+        "content_type": "application/json; charset=utf-8",
+        "body": {
+          "memberships": [
+            {
+              "tenant_id": "${tenant_id}",
+              "tenant_slug": "${tenant_slug}",
+              "tenant_display_name": "${tenant_display_name}",
+              "display_label": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "M1b",
+      "router": "Me",
+      "method": "GET",
+      "path": "/memberships",
+      "caller": "tenant_wide_admin",
+      "response": {
+        "status": 200,
+        "content_type": "application/json; charset=utf-8",
+        "body": {
+          "memberships": [
+            {
+              "tenant_id": "${tenant_id}",
+              "tenant_slug": "${tenant_slug}",
+              "tenant_display_name": "${tenant_display_name}",
+              "display_label": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "M2a",
+      "router": "Me",
+      "method": "GET",
+      "path": "/modules",
+      "caller": "scoped_worker",
+      "response": {
+        "status": 200,
+        "content_type": "application/json; charset=utf-8",
+        "body": {
+          "installed_modules": []
+        }
+      }
+    },
+    {
+      "id": "M2b",
+      "router": "Me",
+      "method": "GET",
+      "path": "/modules",
+      "caller": "tenant_wide_admin",
+      "response": {
+        "status": 200,
+        "content_type": "application/json; charset=utf-8",
+        "body": {
+          "installed_modules": []
+        }
+      }
+    },
+    {
+      "id": "H1a",
+      "router": "Help",
+      "method": "GET",
+      "path": "/resolved",
+      "caller": "scoped_worker",
+      "response": {
+        "status": 400,
+        "content_type": "application/problem+json; charset=utf-8",
+        "body": {
+          "type": "https://bpm.example.com/problems/bad-request",
+          "title": "Bad Request",
+          "status": 400,
+          "detail": "screen_id is required",
+          "trace_id": "req517-2a-trace-0001"
+        }
+      }
+    },
+    {
+      "id": "H1b",
+      "router": "Help",
+      "method": "GET",
+      "path": "/resolved?screen_id=no-such-screen-518",
+      "caller": "scoped_worker",
+      "response": {
+        "status": 404,
+        "content_type": "application/problem+json; charset=utf-8",
+        "body": {
+          "type": "https://bpm.example.com/problems/not-found",
+          "title": "Not Found",
+          "status": 404,
+          "detail": "the requested resource was not found",
+          "trace_id": "req517-2a-trace-0001"
+        }
+      }
+    },
+    {
+      "id": "H1c",
+      "router": "Help",
+      "method": "GET",
+      "path": "/resolved?screen_id=no-such-screen-518",
+      "caller": "tenant_wide_admin",
+      "response": {
+        "status": 404,
+        "content_type": "application/problem+json; charset=utf-8",
+        "body": {
+          "type": "https://bpm.example.com/problems/not-found",
+          "title": "Not Found",
+          "status": 404,
+          "detail": "the requested resource was not found",
+          "trace_id": "req517-2a-trace-0001"
+        }
+      }
+    },
+    {
+      "id": "E8a",
+      "router": "Entities",
+      "method": "POST",
+      "path": "/query",
+      "request_body": {"entity_type": "no_such_type_518"},
+      "caller": "scoped_worker",
+      "response": {
+        "status": 200,
+        "content_type": "application/json; charset=utf-8",
+        "body": {
+          "items": [],
+          "next_cursor": null
+        }
+      }
+    },
+    {
+      "id": "E8b",
+      "router": "Entities",
+      "method": "POST",
+      "path": "/query",
+      "request_body": {"entity_type": "no_such_type_518"},
+      "caller": "tenant_wide_admin",
+      "response": {
+        "status": 200,
+        "content_type": "application/json; charset=utf-8",
+        "body": {
+          "items": [],
+          "next_cursor": null
+        }
+      }
+    },
+    {
+      "id": "E9a",
+      "router": "Entities",
+      "method": "POST",
+      "path": "/query/aggregate",
+      "request_body": {"entity_type": "no_such_type_518", "aggregates": [{"fn": "count"}]},
+      "caller": "scoped_worker",
+      "response": {
+        "status": 404,
+        "content_type": "application/problem+json; charset=utf-8",
+        "body": {
+          "type": "https://bpm.example.com/problems/not-found",
+          "title": "Not Found",
+          "status": 404,
+          "detail": "the requested resource was not found",
+          "trace_id": "req517-2a-trace-0001"
+        }
+      }
+    },
+    {
+      "id": "E9b",
+      "router": "Entities",
+      "method": "POST",
+      "path": "/query/aggregate",
+      "request_body": {"entity_type": "no_such_type_518", "aggregates": [{"fn": "count"}]},
+      "caller": "tenant_wide_admin",
+      "response": {
+        "status": 404,
+        "content_type": "application/problem+json; charset=utf-8",
+        "body": {
+          "type": "https://bpm.example.com/problems/not-found",
+          "title": "Not Found",
+          "status": 404,
+          "detail": "the requested resource was not found",
+          "trace_id": "req517-2a-trace-0001"
+        }
+      }
+    },
+    {
+      "id": "E10a",
+      "router": "Entities",
+      "method": "POST",
+      "path": "/records/no_such_type_518/export",
+      "request_body": {"entity_type": "another_type_518"},
+      "caller": "scoped_admin",
+      "response": {
+        "status": 422,
+        "content_type": "application/problem+json; charset=utf-8",
+        "body": {
+          "type": "https://bpm.example.com/problems/unprocessable-entity",
+          "title": "Unprocessable Entity",
+          "status": 422,
+          "detail": "entity_type in the request body does not match the path",
+          "trace_id": "req517-2a-trace-0001"
+        }
+      }
+    },
+    {
+      "id": "E10b",
+      "router": "Entities",
+      "method": "POST",
+      "path": "/records/no_such_type_518/export",
+      "request_body": {"entity_type": "no_such_type_518"},
+      "caller": "scoped_admin",
+      "response": {
+        "status": 404,
+        "content_type": "application/problem+json; charset=utf-8",
+        "body": {
+          "type": "https://bpm.example.com/problems/not-found",
+          "title": "Not Found",
+          "status": 404,
+          "detail": "the requested resource was not found",
+          "trace_id": "req517-2a-trace-0001"
+        }
+      }
+    },
+    {
+      "id": "E10c",
+      "router": "Entities",
+      "method": "POST",
+      "path": "/records/no_such_type_518/export",
+      "request_body": {"entity_type": "no_such_type_518"},
+      "caller": "tenant_wide_admin",
+      "response": {
+        "status": 404,
+        "content_type": "application/problem+json; charset=utf-8",
+        "body": {
+          "type": "https://bpm.example.com/problems/not-found",
+          "title": "Not Found",
+          "status": 404,
+          "detail": "the requested resource was not found",
+          "trace_id": "req517-2a-trace-0001"
+        }
+      }
+    }
+  ]
+}
