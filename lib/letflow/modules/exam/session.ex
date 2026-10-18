@@ -955,7 +955,12 @@ defmodule Letflow.Modules.Exam.Session do
 
   defp fetch_pool_questions(category_id, prefix) do
     with {:ok, questions} <-
-           query_all("question", [eq("category_id", category_id), eq("status", "active")], prefix) do
+           query_all(
+             "question",
+             # GH #2759: a soft-deleted active question is never drawn from the pool.
+             [eq("category_id", category_id), eq("status", "active"), eq("deleted", false)],
+             prefix
+           ) do
       questions
       |> Enum.reduce_while({:ok, []}, fn question, {:ok, acc} ->
         case fetch_question_row(normalize_record_id(question.record_id), question, prefix) do
@@ -1026,13 +1031,14 @@ defmodule Letflow.Modules.Exam.Session do
   end
 
   # Design 4.3 step 2: a pin used to be read without ever loading its question. The snapshot needs
-  # the question's type, so one `Latest.get` is added, and a pin whose question is missing or not
-  # `active` is a start failure instead of a silent skip.
+  # the question's type, so one `Latest.get_live` is added, and a pin whose question is missing,
+  # soft-deleted or not `active` is a start failure instead of a silent skip.
   defp fetch_pinned_question_row(question_id, prefix) do
-    # `Latest.get/3` raises Ecto.Query.CastError on a non-UUID id, so a malformed pin is a typed
-    # start failure here instead.
+    # `Latest.get_live/3` raises Ecto.Query.CastError on a non-UUID id, so a malformed pin is a typed
+    # start failure here instead. GH #2759: get_live/3 reports a soft-deleted question as
+    # `:not_found`, so it is indistinguishable from a missing one.
     with {:ok, _uuid} <- Ecto.UUID.cast(question_id) do
-      case Latest.get(question_id, "question", prefix) do
+      case Latest.get_live(question_id, "question", prefix) do
         {:ok, question} ->
           if fv(question, "status") == "active",
             do: fetch_question_row(question_id, question, prefix),

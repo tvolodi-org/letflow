@@ -1782,4 +1782,114 @@ defmodule Letflow.Modules.Exam.SessionTest do
       assert Enum.sort(Enum.map(items, &item_id/1)) == Enum.sort([a.record_id, b.record_id])
     end
   end
+
+  # ---------------------------------------------------------------------
+  # GH #2759 -- a soft-deleted question is not startable via a manual pin and is not drawn from
+  # a random pool (design: lib/letflow/design/gh2762-exam-soft-deleted-reads.md, section 3.2;
+  # spec: test/specs/GH-2759.md)
+  # ---------------------------------------------------------------------
+
+  describe "GH #2759 -- manual pin to a soft-deleted question" do
+    test "T-59a: a pin to a deleted question (status still active) -> {:question_not_found, id}, nothing written" do
+      %{schema_name: schema} = tenant("gh2759-pin-deleted")
+
+      %{exam: exam, pinned_question_ids: [_live, dead_id]} =
+        build_minimal_exam!(schema, mode: :manual, pool_size: 2)
+
+      ExamFixtures.delete_record!(schema, "question", dead_id)
+
+      assert {:error, {:question_not_found, ^dead_id}} =
+               Session.create(Ecto.UUID.generate(), exam.record_id, schema)
+
+      assert count_rows(schema, "session") == 0
+      assert count_rows(schema, "session_question") == 0
+    end
+
+    test "T-59c: the deleted-pin refusal has exactly the shape a pin to a nonexistent question gets" do
+      %{schema_name: schema} = tenant("gh2759-pin-identical")
+
+      %{exam: deleted_exam, pinned_question_ids: [dead_id]} =
+        build_minimal_exam!(schema, mode: :manual, pool_size: 1)
+
+      ExamFixtures.delete_record!(schema, "question", dead_id)
+
+      missing_exam = create_exam!(schema, %{})
+      missing_id = Ecto.UUID.generate()
+      rule = create_rule!(schema, missing_exam.record_id, Ecto.UUID.generate(), 1, 0, "manual")
+      create_manual_question!(schema, rule.record_id, missing_id, 0)
+
+      deleted = Session.create(Ecto.UUID.generate(), deleted_exam.record_id, schema)
+      missing = Session.create(Ecto.UUID.generate(), missing_exam.record_id, schema)
+
+      # Same tuple shape, differing only in the id each pin named.
+      assert deleted == {:error, {:question_not_found, dead_id}}
+      assert missing == {:error, {:question_not_found, missing_id}}
+    end
+
+    test "T-59e (guard): a pin to a live question still starts while another exam's pin is deleted" do
+      %{schema_name: schema} = tenant("gh2759-pin-live")
+
+      %{exam: dead_exam, pinned_question_ids: [dead_id]} =
+        build_minimal_exam!(schema, mode: :manual, pool_size: 1)
+
+      %{exam: live_exam, pinned_question_ids: pinned} =
+        build_minimal_exam!(schema, mode: :manual, pool_size: 2)
+
+      ExamFixtures.delete_record!(schema, "question", dead_id)
+
+      assert {:error, {:question_not_found, ^dead_id}} =
+               Session.create(Ecto.UUID.generate(), dead_exam.record_id, schema)
+
+      assert {:ok, view} = Session.create(Ecto.UUID.generate(), live_exam.record_id, schema)
+      assert Enum.map(session_question_rows(schema, view.id), & &1["question_id"]) == pinned
+    end
+
+    test "T-59f (guard): a pin that is not a UUID is still {:question_not_found, id}" do
+      %{schema_name: schema} = tenant("gh2759-pin-not-uuid")
+      exam = create_exam!(schema, %{})
+      rule = create_rule!(schema, exam.record_id, Ecto.UUID.generate(), 1, 0, "manual")
+      create_manual_question!(schema, rule.record_id, "not-a-uuid", 0)
+
+      assert {:error, {:question_not_found, "not-a-uuid"}} =
+               Session.create(Ecto.UUID.generate(), exam.record_id, schema)
+    end
+  end
+
+  describe "GH #2759 -- a soft-deleted question is not drawn from a random pool" do
+    test "T-59d: pool size == count with one deleted active question -> the resolver's undersized-pool error, nothing written" do
+      %{schema_name: schema} = tenant("gh2759-pool-undersized")
+
+      %{exam: exam, questions: [{dead_id, _, _} | _]} =
+        build_minimal_exam!(schema, pool_size: 3, count: 3)
+
+      ExamFixtures.delete_record!(schema, "question", dead_id)
+
+      # Before the fix all three (the deleted one included) were drawn and the start succeeded.
+      # Now the pool holds two, below the rule count, so the resolver refuses the whole start.
+      assert {:error, :pool_underflow} =
+               Session.create(Ecto.UUID.generate(), exam.record_id, schema)
+
+      assert count_rows(schema, "session") == 0
+      assert count_rows(schema, "session_question") == 0
+    end
+
+    test "T-59g (guard): live pool questions are still all drawn when a deleted sibling is excluded" do
+      %{schema_name: schema} = tenant("gh2759-pool-live")
+      %{exam: exam, questions: questions} = build_minimal_exam!(schema, pool_size: 4, count: 3)
+      [{dead_id, _, _} | live] = questions
+      ExamFixtures.delete_record!(schema, "question", dead_id)
+      live_ids = Enum.map(live, fn {id, _, _} -> id end)
+
+      # The draw is random: with the deleted question still in the pool of 4 a single start misses
+      # it 1 time in 4. Twenty independent starts make a regression slip through with probability
+      # (1/4)^20, so this fails deterministically in practice if the pool filter is lost.
+      for _ <- 1..20 do
+        assert {:ok, view} = Session.create(Ecto.UUID.generate(), exam.record_id, schema)
+        drawn = Enum.map(session_question_rows(schema, view.id), & &1["question_id"])
+
+        assert Enum.sort(drawn) == Enum.sort(live_ids)
+        refute dead_id in drawn
+      end
+    end
+  end
 end

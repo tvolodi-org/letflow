@@ -1410,6 +1410,69 @@ defmodule Letflow.Modules.Exam.RouterTest do
     end
   end
 
+  describe "GH #2759 -- HTTP start with a pin to a soft-deleted question" do
+    defp pinned_exam!(schema, question_id) do
+      exam = create_exam!(schema, %{})
+
+      rule =
+        ExamFixtures.create_record!(schema, "exam_question_rule", %{
+          "exam_id" => exam.record_id,
+          "mode" => "manual",
+          "category_id" => Ecto.UUID.generate(),
+          "count" => 1,
+          "sort_order" => 0
+        })
+
+      ExamFixtures.create_record!(schema, "exam_manual_question", %{
+        "rule_id" => rule.record_id,
+        "question_id" => question_id,
+        "sort_order" => 0
+      })
+
+      exam
+    end
+
+    test "T-59b: POST exam-sessions with a deleted pin is the same constant 422 body as a missing pin" do
+      tenant = tenant("gh2759-http-pin")
+      ctx = candidate_ctx(tenant)
+      schema = tenant.schema_name
+      path = "/api/v1/modules/exam/exam-sessions"
+
+      %{question_id: dead_id} = build_minimal_exam!(schema)
+      ExamFixtures.delete_record!(schema, "question", dead_id)
+
+      deleted_exam = pinned_exam!(schema, dead_id)
+      missing_exam = pinned_exam!(schema, Ecto.UUID.generate())
+
+      deleted =
+        request("POST", path, ctx, %{"exam_id" => deleted_exam.record_id},
+          trace_id: "gh2759-trace"
+        )
+
+      missing =
+        request("POST", path, ctx, %{"exam_id" => missing_exam.record_id},
+          trace_id: "gh2759-trace"
+        )
+
+      assert deleted.status == 422
+      assert missing.status == 422
+      assert deleted.resp_body == missing.resp_body
+      refute deleted.resp_body =~ dead_id
+    end
+
+    test "T-59e2 (guard): POST exam-sessions with a pin to a live question is 201" do
+      tenant = tenant("gh2759-http-live-pin")
+      ctx = candidate_ctx(tenant)
+      %{question_id: live_id} = build_minimal_exam!(tenant.schema_name)
+      exam = pinned_exam!(tenant.schema_name, live_id)
+
+      conn =
+        request("POST", "/api/v1/modules/exam/exam-sessions", ctx, %{"exam_id" => exam.record_id})
+
+      assert conn.status == 201
+    end
+  end
+
   # ── REQ-410 AC3: 404 gate — no tenant_modules row ────────────────────────
 
   describe "REQ-410 AC3 — D5 gate: 404 for a tenant without exam module installed" do
