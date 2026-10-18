@@ -26,7 +26,8 @@ own live tokens, entity-type rows, `A`, sequence rows, projection UPDATEs).
    deadlock with that completer), so the cancel rolls back and is retried (bounded); on exhaustion
    it reports a typed, retryable contention error (section 2). GO is not changed for any other
    path; 0061 gets a small amendment.
-3. **Residual (1):** `SET LOCAL lock_timeout` on the cancel transaction (first statement), a typed
+3. **Residual (1):** a transaction-local lock timeout (bound `set_config`, constant
+   `:contention_lock_timeout_ms`, skipped when nested) on the cancel transaction (first statement), a typed
    `{:error, :cancel_contention}` for 55P03 and 40P01, HTTP 503 from `render_cancel/2` (section 3).
 4. **Residual (2):** the ExecutionError landing step stays as it is (it raises, and every
    in-transaction caller already classifies a raise); the unprotected caller is
@@ -106,9 +107,16 @@ which a held `P_x FOR UPDATE` blocks: no task can be inserted for x while cancel
 * **R3 (same class, not in the issue): timers and dispatch rows.** Steps 2-4 also run before
   `P_x`, so a timer, service dispatch row or script dispatch row armed by a cascade/apply that
   commits between step 2-4 and step 5 is missed too. Their consequence is benign by existing
-  handling (a timer fire on a non-active instance is `:already_final`, `scheduler.ex:543`; a
-  dispatch advance logs `instance_not_active` at debug, `service_task_dispatcher.ex:621`), unlike
-  a pending task, which is user-visible and completable. See open question Q2.
+  handling for correctness (a dispatch advance logs `instance_not_active` at debug,
+  `service_task_dispatcher.ex:621`), unlike a pending task, which is user-visible and completable.
+  **Timers are a log/CPU leak, found by CDV:** `Scheduler.fire_timer/2` maps
+  `{:instance_not_active, _}` to `:already_final` (`scheduler.ex:543`) but that result comes out of
+  a rolled-back transaction, so the timer row is never flipped and is re-polled on every tick
+  forever. DECISION (Q2): a follow-up issue is filed BEFORE PR-1 merges; PR-1 does not touch timers.
+  A plain second `update_all` after `P_x` is rejected (it waits on a timer row held by an in-flight
+  fire, which holds the timer then wants `P_x`: a deadlock). The two candidate fixes for the
+  follow-up are a `SKIP LOCKED` recheck of timers after `P_x` (same rule as tasks) or making
+  `fire_timer` flip the row on `instance_not_active`; the choice belongs to that issue.
 
 The problem therefore CAN occur; the proof that nothing else protects it is that no step between
 1 and 9 reads `tasks` again and every inserter is serialised only through `P_x`, which cancel takes
@@ -163,9 +171,15 @@ read of `tasks` WHERE `instance_id = x AND status = pending`. Rows in the plain 
 `SKIP LOCKED` set are held by another transaction. The pending set cannot grow (section 2.2), so the
 two reads need no further guard. A non-empty difference is the leftover.
 
-On a leftover the step returns a private error that makes the Multi roll back (nothing committed,
-`P_x` released, W proceeds). `run_cancel_instance/5` then re-runs the whole Multi, at most 3
-attempts in total, only when `Repo.in_transaction?()` is false (a caller that wraps cancel in its own
+On a leftover the step `:open_tasks_recheck` returns the named error atom
+`:cancel_task_held_by_other`, so `Repo.transaction/1` yields exactly
+`{:error, :open_tasks_recheck, :cancel_task_held_by_other, changes_so_far}` and rolls back (nothing
+committed, `P_x` released, W proceeds). That 4-tuple is the ONLY shape the retry loop acts on: it
+matches the failed step name AND the reason atom, so a step failure of any other step (event
+append, changeset, ineligible) keeps going through `interpret_cancel_result/3` unchanged.
+`run_cancel_instance/5` then re-runs the whole Multi, at most 3
+attempts in total and only while less than 5 s have elapsed since the first attempt began
+(monotonic clock; see section 8), only when `Repo.in_transaction?()` is false (a caller that wraps cancel in its own
 transaction cannot retry a rolled-back Multi: it returns the error at once). No backoff: the retry
 starts with the class-1 locking read, which blocks on B until W commits, so it paces itself. If the
 third attempt still finds a leftover (a sustained stream of completers; practically unreachable)
@@ -177,19 +191,47 @@ retry is safe.
 
 * `cancelled_task_ids` in the result is the re-read set (a superset of the class-1 set: the class-1
   rows are still pending and still ours). `open_tasks` stays in the Multi (it is what takes the
-  class-1 locks); a new change key (name for ELIXIR-DEV: `:open_tasks_recheck`) feeds
-  `:task_cancellations` and `interpret_cancel_result/3`.
+  class-1 locks); the new change key `:open_tasks_recheck` (the list, ordered by id) feeds ALL
+  THREE readers: `:task_cancellations`, the `:event` step (the INSTANCE_CANCELLED payload's
+  `cancelled_task_ids`, `append_instance_cancelled_event/5` at `engine.ex:8825-8836`, which
+  pattern-matches `open_tasks` today and is changed to match the recheck) and
+  `interpret_cancel_result/3` (`8868-8880`). The persisted event therefore lists exactly the tasks
+  cancelled, stragglers included; this is a content change to the event payload (shape unchanged),
+  pinned by the payload test of section 6 and by `engine_cancel_instance_test.exs:223`.
 * New outcome `{:error, :cancel_contention}` (also used by section 3).
 * An ineligible cancel (already terminal) still returns before the re-read: no extra lock, no
   extra statement (the existing test "an ineligible cancel takes no group lock" pattern applies).
-* Event, audit, sequence numbers: unchanged in count and position (the re-read adds no write).
+* Event, audit, sequence numbers: unchanged in count and position (the re-read adds no write); the
+  event's `cancelled_task_ids` content now includes the stragglers (above).
 
 ### 2.5 Decision 0061 and the moduledoc
 
-Amend 0061 (new "Amended (GH #2706)" section, rule 1 and 2 unchanged, rule 6 loses the cancel
-snapshot exception): the tasks class may be read a second time after `P_x` only non-waiting
-(`SKIP LOCKED`); a path that finds a row it must have but cannot take without waiting aborts and
-retries instead of waiting. Engine moduledoc: delete the "cancel's open-tasks snapshot taken before
+Append this section to `docs/migration/decisions/0061-engine-lock-order-platform-invariant.md`
+VERBATIM (PR-1; REVIEWER gate), and edit rule 6 as stated in its last paragraph:
+
+> ## Amended (GH #2706, PR-1)
+> Rule 1 gains one exception, stated precisely: class 1 (the instance's own `tasks`, timer and
+> dispatch rows) is normally taken before `P_x` and never after it. `cancel_instance/3` takes the
+> `tasks` rows of class 1 before `P_x` as before, and ADDITIONALLY reads the instance's pending
+> `tasks` a second time after `P_x` and the ancestor group, with `SELECT ... FOR UPDATE SKIP
+> LOCKED`. This second read is a non-waiting read of class 1 after `P_x` and is the only such read
+> allowed: it cannot create a wait edge, and it is complete because every task insert needs
+> `KEY SHARE` on `P_x` through the immediate foreign key `tasks.instance_id ->
+> instance_projections`, which a held `P_x FOR UPDATE` blocks. A pending task row that the
+> second read must have but cannot lock (it is held by another transaction, necessarily one that
+> is queued behind `P_x`, such as a completer) is never waited for: the transaction aborts, rolls
+> back and is retried a bounded number of times (3 attempts, within 5 s of the first), after which
+> it reports a typed retryable contention error. Any other path that must read class 1 after `P_x`
+> follows the same rule (non-waiting, abort and retry on a skipped row) or amends this record.
+> Rule 2 (modes) is unchanged. Rule 6 no longer lists "cancel's open-tasks snapshot taken before
+> the projection lock" as an exception. Timers and dispatch rows armed between cancel's class-1
+> UPDATEs and its `P_x` lock remain an exception, tracked by a separate issue (they are benign
+> for correctness and cost only repeated no-op polls).
+
+Rule 6 edit: delete the phrase "; cancel's open-tasks snapshot taken before the projection lock"
+and add the sentence "Timers and dispatch rows armed during cancel's wait for `P_x` are the
+remaining cancel exception." Also update the record's header "Implementation" line to mention
+#2706. Engine moduledoc: delete the "cancel's open-tasks snapshot taken before
 the projection lock (GH #2706)" item from "Known gaps" (`engine.ex:446-449`), add the re-read to the
 `cancel_instance/3` bullet (`engine.ex:411-417`), update the `cancel_instance/3` `@doc` (the
 "tasks locked before instance_projections" paragraph at `8500-8506`).
@@ -198,9 +240,14 @@ the projection lock (GH #2706)" item from "Known gaps" (`engine.ex:446-449`), ad
 
 ### 3.1 The timeout
 
-* New FIRST step of the Multi (before `:open_tasks`): `SET LOCAL lock_timeout`, one statement, the
-  same shape as `maybe_entity_write_timeouts/2` (`engine.ex:3164-3172`, constants `2885-2888`).
-  Value **5 s** (module attribute with a runtime-overridable default, see 3.4). Rationale: longer
+* New FIRST step of the Multi (before `:open_tasks`), one statement. SQL construction (INV-7): the
+  entity-write timeouts use compile-time literal strings (`engine.ex:2885-2888`); a runtime value
+  must never be interpolated into SQL text. So the statement is the parameterised
+  `SELECT set_config('lock_timeout', $1, true)` (third argument `true` = transaction-local, the
+  equivalent of `SET LOCAL`), with ONE bound text argument built from a compile-time integer
+  constant of milliseconds (for example `"5000ms"`). `maybe_entity_write_timeouts/2` is left as it
+  is. Value **5 s**. Name of the constant and of the test override: `:contention_lock_timeout_ms`
+  (not cancel-specific; the same constant and statement serve section 4 / PR-3). Rationale: longer
   than one lock wait of a plan-completion (2 s) so an ordinary completer that holds a task or
   `P_x` for one bounded wait does not fail the cancel; short enough that a stuck holder surfaces as
   a retryable 503 instead of an open-ended hang. No `statement_timeout` (not asked, cancel's
@@ -246,10 +293,21 @@ the key.
 
 ### 3.4 Configuration
 
-`Application.get_env(:letflow, :cancel_lock_timeout_ms, 5_000)`, read per cancel (a positive integer
-no greater than 60_000, else the default). Tests lower it (300 ms) to make the 55P03 path fast and
-restore it in `on_exit`; production never sets it. (Alternative rejected: a compile-time test seam
-like `:engine_test_seams`, because the value must change per test, not per build.)
+**No runtime key.** The value is the compile-time constant of 3.1. A fast 55P03 test uses the
+existing compile-time switch `Application.compile_env(:letflow, :engine_test_seams, false)`
+(`config/test.exs`, the same one the service backoffs use at `engine.ex` ~5530): under it the
+constant is read from `compile_env(:letflow, :contention_lock_timeout_ms, 5_000)`, set to 300 ms in
+`config/test.exs`; a production build can only have 5 s. (The rejected alternative, a per-cancel
+`Application.get_env`, would force interpolation or a validated runtime integer into the statement
+and is what the CDV review ruled out.)
+
+**Nested transactions (F6).** Ecto nested transactions use no savepoint, so a `SET LOCAL`/
+`set_config(..., true)` issued inside a caller's transaction lasts until the OUTER transaction
+ends and would leak a 5 s timeout to the caller's later statements. Rule: when
+`Repo.in_transaction?()` is true at entry, the step is SKIPPED (no timeout, no leak), the leftover
+retry loop is not used (the typed error is returned at once, section 2.3), and the contention
+`rescue` mapping still applies. T4 pins this. A nested cancel therefore has no wait bound; it is
+not a production path (the only caller is the route), only tests and future callers.
 
 ## 4. Residual (2): the ExecutionError landing step (decision 4)
 
@@ -284,9 +342,9 @@ DLQ row exists but the instance stays ACTIVE.)
   clauses matching. Document the contract in `ExecutionError`'s moduledoc and pin it with a test.
 * **Fix `set_instance_error/2` itself** (it is documented as the entry point "for a caller with no
   other Multi of its own open"):
-  1. Its transaction starts with `SET LOCAL lock_timeout` (same constant and config key as the
-     cancel, `:cancel_lock_timeout_ms` generalised to a shared name, e.g. `:contention_lock_timeout_ms`,
-     decided in PR-2). It cannot go inside `ExecutionError.append_multi/3`, which is shared with
+  1. Its transaction starts with the lock timeout set exactly as in section 3.1 (the same
+     bound-parameter `set_config` statement and shared constant; skipped when
+     `Repo.in_transaction?()`). It cannot go inside `ExecutionError.append_multi/3`, which is shared with
      transactions that set their own (2 s) timeouts.
   2. A contention-class raise (via `Letflow.Engine.Contention`) is retried with a fresh transaction,
      at most 3 attempts total, constant backoffs 100 ms / 300 ms (the existing `@service_backoffs_ms`
@@ -296,8 +354,11 @@ DLQ row exists but the instance stays ACTIVE.)
      `set_error_error()`, `engine.ex:8941-8950`), never raising.
   4. When the call did not pass `dlq_landed_externally: true`, it ALSO writes a standalone
      best-effort DLQ row in a separate transaction, rescue-wrapped (it must never raise or mask the
-     typed error): `entry_type: "execution_error_landing"` (the column is a plain extensible string,
-     `dlq/entry.ex:45`), `instance_id`, `reason` a fixed sentence, `error_detail` carrying only
+     typed error): `entry_type: "event"` (the type `ExecutionError` already lands; the DLQ page's source
+     filter, `web/src/pages/dlq/DlqPage.tsx` ~365-368, lists only event/timer/webhook, so a new type
+     would be invisible in the UI), marked by `context_json` `{"landing": "contention"}` (the key is
+     in `Dlq.enqueue/2`'s attribute whitelist, `dlq.ex:87-100`), `instance_id`, `reason` a fixed
+     sentence, `error_detail` carrying only
      `error_type`, the `affected` descriptor, the SQLSTATE class tag and the attempt count. The
      variables, the original reason text and the details map are NOT copied (they can carry tenant
      data; same INV as `script_failure_sentence`). It takes no ancestor lock and no instance lock.
@@ -321,8 +382,12 @@ DLQ row exists but the instance stays ACTIVE.)
 * Authorization and eligibility order are unchanged: the route's policy check (`InstancesCancel`)
   and `check_cancel_eligibility/1` precede every new step; the new steps add no read of tenant data
   beyond the instance's own `tasks`, and no response field.
-* The result shape only gains a superset in `cancelled_task_ids` and one error atom.
-* No migration, no persisted-state change, no event/audit shape change, replay unaffected.
+* The result's and the INSTANCE_CANCELLED event's `cancelled_task_ids` gain the stragglers (a
+  superset; same shape) and one error atom is added. 0061 rule 1 gets the one precisely stated
+  exception of section 2.5; rule 2 is unchanged.
+* No migration, no persisted-schema change, no new event or audit type; replay is unaffected (the
+  event payload of a cancel that missed a task on main was incomplete; replay never read it back
+  to cancel tasks, tasks are rows).
 
 ## 6. Test plan (reproduce first, deterministic forced overlap)
 
@@ -351,17 +416,35 @@ PR-1 (red on main, green after):
   tokens cancelled. Red on main: B `:pending`.
 * **R3** (optional, same fix): the same shape with a service-task apply or a timer fire as the
   inserter. Cost/benefit is the supervisor's call; R1+R2 pin the mechanism.
-* **L1** (the leftover; proves no deadlock and the retry). Steps: hold task A of x with
-  `{:task, A}`; start cancel (it locks the other class-1 rows, blocks on A at step 1); INSERT task B
-  for x directly (fixture, P_x is free) and its token; take a second barrier on `{:projection, x}`;
-  release the A barrier (cancel advances to `P_x`, queues); start `complete_task(B)` (locks B, queues
-  behind cancel at `P_x`); wait both blocked; release the `P_x` barrier. Expected: cancel's first
-  attempt gets `P_x`, the `SKIP LOCKED` read skips B, the plain read shows it, the attempt aborts;
-  the completion of B commits; the retry cancels whatever is left. Assert: no `40P01`, B's
-  completion `{:ok, _}` OR B `:cancelled` and the completion refused, but never B pending next to a
-  cancelled instance; the final instance state is `:cancelled`. (If this ordering is too fragile in
-  CI, the fallback is a pause seam on the pattern of `ScriptTaskDispatcher.pause/2`, honoured only
-  under `Runtime.test_hooks?`: `cancel_instance` pauses once after `:lock_ancestors`.)
+* **Payload test (F1).** For R1, R2 and the existing fixtures of `engine_cancel_instance_test.exs`
+  (`:206` result ids, `:223` event payload): the persisted INSTANCE_CANCELLED event's
+  `cancelled_task_ids` (sorted) equals the sorted ids of the tasks that are `:cancelled` with this
+  `cancelled_at`, AND the result's `cancelled_task_ids`, and B is in all three. The `:event` step
+  (`append_instance_cancelled_event/5`, `engine.ex:8825-8836`, which pattern-matches
+  `%{open_tasks: _, live_tokens: _}` today), `:task_cancellations` and `interpret_cancel_result/3`
+  (`8868-8880`) ALL read `:open_tasks_recheck`; no step reads the class-1 `:open_tasks` except the
+  recheck itself. Corollary for section 5: the event payload content changes only by including the
+  stragglers; its shape is unchanged.
+* **L1** (the leftover; proves no deadlock and the retry), pinned order. Fixture: nodes A, then B,
+  then another HUMAN node C. Steps: (1) hold task A of x with `{:task, A}`; (2) start cancel: it
+  does its class-1 work and blocks on A at step 1; (3) INSERT task B for x directly (fixture; `P_x`
+  is free) with its token; (4) take a second barrier on `{:projection, x}`; (5) release the A
+  barrier: cancel advances and QUEUES at `P_x` (first in line); (6) start `complete_task(B)` (W): it
+  locks B and queues at `P_x` AFTER cancel; wait until both are blocked; (7) release the `P_x`
+  barrier. FIFO gives `P_x` to cancel: its `SKIP LOCKED` read skips B, the plain read shows B, the
+  attempt aborts and rolls back; W gets `P_x`, completes B (activates C) and commits; cancel's second
+  attempt locks C in the class-1 read, takes `P_x`, cancels C, commits. Assert: W's completion
+  returns `{:ok, _}`; C is `:cancelled`; B is `:completed`; the instance is `:cancelled`; the cancel
+  returns `{:ok, _}` with C in `cancelled_task_ids`; no `40P01`/`55P03` through the telemetry
+  handler. Separately, the attempt count is exactly 2, asserted from a statement trace on the
+  cancel's backend (count of its class-1 `tasks ... FOR UPDATE` statements; the trace helper
+  pattern is C1's in `cancel_child_lock_order_test.exs`).
+* **L1b** (B final). Same steps but B leads to END: W's completion completes the instance; cancel's
+  retry finds it terminal and returns `{:error, {:instance_already_terminal, :completed}}` (HTTP
+  409 on the route). Assert exactly that, no pending task, no `40P01`.
+  (If the ordering of steps 5-6 proves fragile in CI, the fallback is a pause seam on the pattern
+  of `ScriptTaskDispatcher.pause/2`, honoured only under `Runtime.test_hooks?`: `cancel_instance`
+  pauses once after `:lock_ancestors`.)
 * **O1 statement order** (like C1 of `cancel_child_lock_order_test.exs`): the re-read follows the
   `P_x` FOR UPDATE and the ancestor group lock, uses `SKIP LOCKED`, and no statement against `tasks`
   after the `P_x` lock takes a non-skip `FOR UPDATE` (guards the "never wait on tasks after `P_x`"
@@ -370,7 +453,7 @@ PR-1 (red on main, green after):
   unchanged.
 * Router: `{:error, :cancel_contention}` -> 503 with the constant body (no exception text).
 
-PR-2: **T1** with the config lowered to 300 ms, barrier `{:projection, x}` held by a third
+PR-2: **T1** with the compile-time test override of section 3.1 lowered to 300 ms, barrier `{:projection, x}` held by a third
 connection: `cancel_instance(x)` returns `{:error, :cancel_contention}` within about 300 ms plus
 margin (a REAL 55P03), nothing committed (instance still `:active`, all tasks pending, no
 INSTANCE_CANCELLED event), then succeeds after the barrier is released. **T2** unit test of
@@ -380,13 +463,17 @@ deadlock victim maps to `:cancel_contention`: only if a deterministic victim can
 (the test worker takes `P_x` then asks for a task row that cancel's step 1 already holds, started
 FIRST so cancel is the second waiter and therefore the detector); otherwise left to T2 plus the
 `rescue` clause test through a stubbed raise. **T4** a cancel wrapped in an outer transaction does
-not retry (returns the typed error). **T5** the lock timeout applies only inside the cancel
-transaction (`SHOW lock_timeout` after it on the same connection is back to the default).
+not retry and does NOT set the lock timeout (section 3.1 nested rule): `SHOW lock_timeout` inside
+the outer transaction after the call is still the default, and a leftover returns
+`{:error, :cancel_contention}` at once. **T5** (non-nested only) the lock timeout is
+transaction-local: `SHOW lock_timeout` on the same pinned connection after the cancel returns the
+default. **T6** the statement trace shows the timeout is set with the bound `set_config` form (one
+parameter, no interpolated number in the SQL text).
 
 PR-3: **E1** `set_instance_error(child)` with the parent projection held by a barrier and the
 timeout lowered: typed `{:error, {:execution_error_contention, :lock_not_available}}`, the child
-projection unchanged, and a `dlq_entries` row of `entry_type "execution_error_landing"` exists with
-none of the variables in it. **E2** with `dlq_landed_externally: true` no DLQ row is added. **E3**
+projection unchanged, and a `dlq_entries` row of `entry_type "event"` with `context_json`
+`{"landing": "contention"}` exists with none of the variables in it. **E2** with `dlq_landed_externally: true` no DLQ row is added. **E3**
 the same call succeeds once the barrier is released within the retry window (second attempt).
 **E4** moduledoc contract test: `ExecutionError.append_multi/3` still raises (does not return an
 error tuple) on a contention class (pins section 4.2's "do not change the step").
@@ -395,14 +482,21 @@ error tuple) on a contention class (pins section 4.2's "do not change the step")
 
 | PR | Content | lib | tests | Notes |
 |---|---|---|---|---|
-| PR-1 | `:open_tasks_recheck` step (SKIP LOCKED re-read, leftover detection, bounded re-run), `cancel_contention` atom in `cancel_error()`, router 503 clause, `{:task, id}` helper spec, 0061 "Amended (GH #2706)", moduledoc and `@doc` edits | about 70 lines in `engine.ex`, 8 in `routers/instances.ex` | R1, R2, L1, O1, router; about 300 lines | Red-first: R1/R2 merged red-then-green in the same PR. SECURITY-REVIEWER: the router file is touched (`render_cancel/2`); trigger it. REVIEWER: 0061 amendment. Not proof-only. |
-| PR-2 | `SET LOCAL lock_timeout` step, `rescue` clause, config key, `Letflow.Engine.Contention`, T1-T5 | about 40 lines | about 150 lines | Depends on PR-1 (same function, same error atom). |
-| PR-3 | `set_instance_error/2` lock timeout, bounded retry, typed error, standalone DLQ row, dispatcher log clause, E1-E4 | about 80 lines | about 150 lines | Depends on PR-2 (module and config key). SECURITY-REVIEWER: a new DLQ write path with tenant-adjacent fields (what is NOT copied). |
+| PR-1 | `:open_tasks_recheck` step (SKIP LOCKED re-read, leftover detection, bounded re-run), `:event`, `:task_cancellations` and `interpret_cancel_result/3` all read it, `cancel_contention` atom in `cancel_error()`, router 503 clause, `{:task, id}` helper spec, 0061 "Amended (GH #2706)", moduledoc and `@doc` edits | about 70 lines in `engine.ex`, 8 in `routers/instances.ex` | R1, R2, L1/L1b, O1, payload test, router; about 300 lines | Red-first: R1/R2 merged red-then-green in the same PR. SECURITY-REVIEWER: the router file is touched (`render_cancel/2`); trigger it. REVIEWER: 0061 amendment. Not proof-only. The follow-up issues of F4/Q7 are filed before it merges. |
+| PR-2 | lock-timeout step (bound `set_config`), nested-skip rule, `rescue` clause, constant, `Letflow.Engine.Contention`, T1-T5 | about 40 lines | about 150 lines | Depends on PR-1 (same function, same error atom). **SECURITY-REVIEWER (INV-7: SQL construction, even though the value is a bound parameter).** |
+| PR-3 | `set_instance_error/2` lock timeout, bounded retry, typed error, standalone DLQ row, dispatcher log clause, E1-E4 | about 80 lines | about 150 lines | Depends on PR-2 (module and constant). SECURITY-REVIEWER: a new DLQ write path with tenant-adjacent fields (what is NOT copied) and the same SQL-construction point. |
 
-Merge discipline: one PR per issue clause as above; no docs-only merge while a functional PR is in
+**Authorisation of the split.** The #2706 comment ("track under this issue; decide when this issue
+is designed") makes the residuals part of this issue's scope, but core-directives says one PR per
+issue and a comment is not an authorisation to split. Recommendation: ORCH files two sub-issues via
+letflow-2 (PR-2 "cancel lock timeout", PR-3 "set_instance_error landing contention"), each linking
+#2706; if the supervisor prefers, the reason (this design, section 0) is recorded in each PR body
+instead (Q8).
+
+Merge discipline: no docs-only merge while a functional PR is in
 CI; run the whole-repo format check and grep the test suite for callers of `cancel_instance/3`
 and `set_instance_error/2` whose assertions pin `cancelled_task_ids` or the exact error shapes before
-pushing.
+pushing (`engine_cancel_instance_test.exs:206`, `223`, `292` pin them today).
 
 Rollout: no migration, no persisted state, rolling deploy safe (old nodes keep the old behaviour; a
 new node can only turn a missed task into a cancelled task, or a hang/500 into a 503). The only
@@ -420,6 +514,19 @@ client-visible change: a new 503 on `POST /instances/:id/cancel`, and `cancelled
   and a future task path that inserts without the FK would break it (guarded by the 0061 text).
 * `set_instance_error/2` retry doubles the time a dispatcher poll can spend on a give-up (about 0.4 s
   of backoff plus up to three lock waits); acceptable, polls are batch background work.
+* **Pre-existing cycle, not fixed here (#2707's):** escalation fire takes `P_x` and then the task
+  row (`engine.ex:4090`, `4222-4252`), the inverse of cancel's class-1 order (task rows, then
+  `P_x`). A cancel racing an escalation fire on the same task can deadlock; with this design the
+  outcome for the cancel is a 40P01 mapped to `:cancel_contention` (503, retryable) instead of an
+  unbounded wait, and nothing commits. The `SKIP LOCKED` re-read does not add to it.
+* **Cancel latency.** Only the leftover path retries (a lock timeout or deadlock is NOT retried
+  inside the engine; it is returned as 503). The leftover retry loop starts a new attempt only
+  while less than 5 s (one lock timeout) have elapsed on a monotonic clock since the first attempt
+  began, so the worst case is about two attempts of at most one lock timeout per wait each, well
+  below an HTTP request budget in practice, and never three back-to-back full timeouts.
+* **Orphan/timer follow-ups** (section 1.4 notes): timers armed in the R3 window are re-polled
+  forever; the orphaned child instance of a cancelled parent. Both are filed as follow-up issues,
+  not fixed here.
 
 ## 9. Not verified (no `mix`, reading only)
 
@@ -428,29 +535,25 @@ client-visible change: a new 503 on `POST /instances/:id/cancel`, and `cancelled
   documented READ COMMITTED semantics, not measured here; R1 is the measurement.
 * That an escalation fire creates a new task (`engine.ex:4307` calls task activation) was read from
   the call site only.
-* Whether a pending timer row on a cancelled instance is re-claimed on every scheduler tick
-  forever (Q2): `scheduler.ex:543` returns `:already_final` but the row's resulting status was not
-  traced.
-* How `Dlq` replay handles an unknown `entry_type` (Q3).
+* The pre-existing cycle recorded in section 8 (escalation fire) was read, not reproduced.
 
 ## 10. Open questions for the supervisor
 
-1. **Lock timeout value**: 5 s recommended (2 s, the entity-write constant, would also fail cancels
-   queued behind one plan-completion's two waits). OK to make it a config key
-   (`:cancel_lock_timeout_ms` / shared `:contention_lock_timeout_ms`)?
-2. **Timers and dispatch rows armed between steps 2-4 and step 5 (R3)**: leave as is (recommended:
-   benign by existing handling) or extend the post-`P_x` re-read to `timers`/dispatch rows with the
-   same `SKIP LOCKED` rule? ELIXIR-DEV to check first whether a pending timer on a cancelled
-   instance is re-polled forever; if so, extend in PR-1.
-3. **DLQ entry type** `"execution_error_landing"` for PR-3: acceptable, or reuse `"event"`? Does the
-   DLQ retry/replay path tolerate a type it does not know (read `Dlq` retry before building)?
-4. **`complete_task/3` without a plan** still answers a raised deadlock with a generic 500. Out of
-   scope here; file separately?
-5. **Shared classifier**: introduce `Letflow.Engine.Contention` for new code only (this design), or
-   also fold the three existing copies in a follow-up refactor?
-6. **HTTP status**: 503 chosen over 409; confirm. A `Retry-After` header is not added (the engine
-   completion mapping has none either).
-7. Cancelling a parent whose cascade just created a SUB-PROCESS CHILD instance (a cascade can start
-   another sub-process): the child remains `:active` because cancel never goes child-ward (family
-   note, C4). Unchanged and out of scope; mentioned so the validator does not read it as a gap of
-   this fix.
+Answers below are the coordinator's defaults after CDV, pending the supervisor's confirmation.
+
+1. **Lock timeout value**: 5 s, one shared constant, applied through the bound parameter of
+   section 3.1 (no runtime config interpolation into SQL). Confirm.
+2. **Timers/dispatch rows armed between steps 2-4 and step 5 (R3)**: DECIDED, a follow-up issue,
+   filed BEFORE PR-1 merges (section 1.4 F4 note). PR-1 does not touch timers.
+3. **DLQ entry type**: DECIDED, reuse `"event"` (the type `ExecutionError` already writes) with
+   `context_json` marker `{"landing": "contention"}`. No new type, no UI filter change.
+4. **`complete_task/3` without a plan** answering a raised deadlock with a generic 500: separate
+   issue, out of scope.
+5. **Shared classifier**: `Letflow.Engine.Contention` for NEW code only; folding the three
+   existing copies (`engine.ex:3208`, `5581`, `5610`) is a separate refactor PR.
+6. **HTTP status**: 503, no `Retry-After`.
+7. The orphaned CHILD instance of a cancelled parent (cancel never goes child-ward): out of scope;
+   a follow-up issue is filed for it (same class as the follow-up of Q2).
+8. **Sub-issues** (section 7): confirm that ORCH files sub-issues for PR-2 and PR-3 (via
+   letflow-2), since core-directives says one PR per issue; the alternative is to record the
+   reason in each PR body.
