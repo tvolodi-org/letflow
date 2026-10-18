@@ -11,8 +11,8 @@ defmodule Letflow.Engine.Contention do
       `:contention_lock_timeout_ms_override` of the CALLING process replaces it, which is how a
       test reaches a real `55P03` in about 300 ms without lowering the timeout globally. The
       override also moves the retry loop's time cap, since both read this function.
-    * `lock_timeout_setting/0`: the same value as the text bound to `set_config('lock_timeout',
-      $1, true)` (INV-7: a runtime value is a bound parameter, never part of the SQL text).
+    * `lock_timeout_setting/0`: the same value as the text bound as the transaction-local
+      `lock_timeout` setting of the cancel transaction (INV-7: a runtime value is a bound parameter, never part of the SQL text).
     * `contention_code/1`: classifies a raised exception as a lock timeout or a deadlock. Used by
       new code only; the three older copies in `Letflow.Engine` are deliberately untouched (design
       Q5).
@@ -33,7 +33,7 @@ defmodule Letflow.Engine.Contention do
     def lock_timeout_ms, do: @contention_lock_timeout_ms
   end
 
-  @doc "`lock_timeout_ms/0` as the text bound to `set_config('lock_timeout', $1, true)`."
+  @doc "`lock_timeout_ms/0` as the text bound as the transaction-local `lock_timeout` setting."
   @spec lock_timeout_setting() :: String.t()
   def lock_timeout_setting, do: Integer.to_string(lock_timeout_ms()) <> "ms"
 
