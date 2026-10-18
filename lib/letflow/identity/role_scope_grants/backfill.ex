@@ -13,11 +13,20 @@ defmodule Letflow.Identity.RoleScopeGrants.Backfill do
   Sequential over `Letflow.TenantProvisioning.list_registrations/0`, one transaction per
   tenant, none across tenants (same shape as `Letflow.Identity.RoleBackfill`).
 
+  REQ-519 2e-a (design 3.6a): a tenant whose scope enforcement is `on` is SKIPPED, not repaired
+  and not an error. A binding writer there creates no tenant-wide row by design, so the gap
+  (T9) is expected to remain; the sweep attempts no repair, skips the gap check, writes no
+  `scope.backfill_completed` entry, reports `skipped_enforced: true` with the current gap in
+  `bindings_without_row_after`, and carries on with the next tenant. A mode that cannot be read
+  is that tenant's error (`{:unexpected_exception, ModeUnavailableError}`).
+
   In a release (no Mix), printing the result:
   `bin/letflow rpc "IO.inspect(Letflow.Identity.RoleScopeGrants.Backfill.run([]))"`.
   """
 
   import Ecto.Query
+
+  require Logger
 
   alias Letflow.Audit
   alias Letflow.Identity
@@ -25,6 +34,7 @@ defmodule Letflow.Identity.RoleScopeGrants.Backfill do
   alias Letflow.Identity.RoleScopeGrants
   alias Letflow.Identity.TenantRole
   alias Letflow.Repo
+  alias Letflow.ScopeEnforcement
   alias Letflow.TenantProvisioning
   alias Letflow.TenantProvisioning.Registration
 
@@ -39,13 +49,15 @@ defmodule Letflow.Identity.RoleScopeGrants.Backfill do
           tenant_id: Ecto.UUID.t(),
           platform_role_bindings: non_neg_integer(),
           group_rows_inserted: non_neg_integer(),
-          bindings_without_row_after: 0
+          bindings_without_row_after: non_neg_integer(),
+          skipped_enforced: boolean()
         }
 
   @type dry_run_tenant_report :: %{
-          tenant_id: Ecto.UUID.t(),
+          tenant_id: Ecto.UUID.t() | nil,
           platform_role_bindings: non_neg_integer(),
-          bindings_without_row_before: non_neg_integer()
+          bindings_without_row_before: non_neg_integer(),
+          skipped_enforced: boolean()
         }
 
   @type skipped :: %{
@@ -58,7 +70,8 @@ defmodule Letflow.Identity.RoleScopeGrants.Backfill do
           dry_run: boolean(),
           tenants: [tenant_report()] | [dry_run_tenant_report()],
           skipped: [skipped()],
-          inserted_total: non_neg_integer()
+          inserted_total: non_neg_integer(),
+          skipped_enforced_tenants: [Ecto.UUID.t() | nil]
         }
 
   @doc """
@@ -81,7 +94,14 @@ defmodule Letflow.Identity.RoleScopeGrants.Backfill do
               reason :: run_tenant_error() | {:unexpected_exception, module()}}}
   def run(opts) do
     dry_run? = Keyword.get(opts, :dry_run, false) == true
-    initial = %{dry_run: dry_run?, tenants: [], skipped: [], inserted_total: 0}
+
+    initial = %{
+      dry_run: dry_run?,
+      tenants: [],
+      skipped: [],
+      inserted_total: 0,
+      skipped_enforced_tenants: []
+    }
 
     Letflow.Obs.Logger.with_trace(fn ->
       TenantProvisioning.list_registrations()
@@ -90,7 +110,13 @@ defmodule Letflow.Identity.RoleScopeGrants.Backfill do
       end)
       |> case do
         {:ok, acc} ->
-          {:ok, %{acc | tenants: Enum.reverse(acc.tenants), skipped: Enum.reverse(acc.skipped)}}
+          {:ok,
+           %{
+             acc
+             | tenants: Enum.reverse(acc.tenants),
+               skipped: Enum.reverse(acc.skipped),
+               skipped_enforced_tenants: Enum.reverse(acc.skipped_enforced_tenants)
+           }}
 
         {:error, _reason} = error ->
           error
@@ -108,7 +134,9 @@ defmodule Letflow.Identity.RoleScopeGrants.Backfill do
   tag or the exception module, never the raw reason, see `t:run_tenant_error/0`).
 
   Dry run (`dry_run: true`): read-only, no transaction, no lock, no audit; reports the gap
-  as `bindings_without_row_before` and never returns `{:error, _}`.
+  as `bindings_without_row_before` and whether the tenant is `on` as `skipped_enforced` (read
+  with `ScopeEnforcement.get_mode/1`, no transaction; an unreadable or absent mode reports
+  `false`) and never returns `{:error, _}`.
 
   A raise (DB error, missing schema) propagates to the caller.
   """
@@ -122,7 +150,8 @@ defmodule Letflow.Identity.RoleScopeGrants.Backfill do
        %{
          tenant_id: tenant_id,
          platform_role_bindings: binding_count(schema_name, :platform_role),
-         bindings_without_row_before: RoleScopeGrants.bindings_without_row_count(schema_name)
+         bindings_without_row_before: RoleScopeGrants.bindings_without_row_count(schema_name),
+         skipped_enforced: enforced_snapshot?(tenant_id)
        }}
     else
       repair_tenant(schema_name, tenant_id)
@@ -157,10 +186,16 @@ defmodule Letflow.Identity.RoleScopeGrants.Backfill do
   end
 
   defp add_tenant(acc, tenant_report) do
+    enforced =
+      if tenant_report.skipped_enforced,
+        do: [tenant_report.tenant_id | acc.skipped_enforced_tenants],
+        else: acc.skipped_enforced_tenants
+
     %{
       acc
       | tenants: [tenant_report | acc.tenants],
-        inserted_total: acc.inserted_total + Map.get(tenant_report, :group_rows_inserted, 0)
+        inserted_total: acc.inserted_total + Map.get(tenant_report, :group_rows_inserted, 0),
+        skipped_enforced_tenants: enforced
     }
   end
 
@@ -186,30 +221,56 @@ defmodule Letflow.Identity.RoleScopeGrants.Backfill do
 
         platform_role_bindings = binding_count(schema, :platform_role)
 
-        inserted =
-          schema
-          |> RoleScopeGrants.bindings_without_row()
-          |> Enum.count(fn %{group_id: group_id, name: name} ->
-            RoleScopeGrants.repair_group_row!(group_id, name, schema) == :inserted
-          end)
-
-        if RoleScopeGrants.bindings_without_row_count(schema) != 0 do
-          Repo.rollback(:gap_remains)
+        case ScopeEnforcement.mode_under_lock!(schema) do
+          :on -> enforced_report(schema, tenant_id, platform_role_bindings)
+          _off_or_shadow -> repair_rows!(schema, tenant_id, platform_role_bindings)
         end
-
-        if inserted > 0 do
-          audit!(schema, tenant_id, platform_role_bindings, inserted)
-        end
-
-        %{
-          tenant_id: tenant_id,
-          platform_role_bindings: platform_role_bindings,
-          group_rows_inserted: inserted,
-          bindings_without_row_after: 0
-        }
       end,
       prefix: schema
     )
+  end
+
+  # REQ-519 design 3.6a: no repair, no gap check, no audit entry.
+  defp enforced_report(schema, tenant_id, platform_role_bindings) do
+    Logger.info("binding_row_skipped reason=enforced writer=backfill")
+
+    %{
+      tenant_id: tenant_id,
+      platform_role_bindings: platform_role_bindings,
+      group_rows_inserted: 0,
+      bindings_without_row_after: RoleScopeGrants.bindings_without_row_count(schema),
+      skipped_enforced: true
+    }
+  end
+
+  defp enforced_snapshot?(nil), do: false
+
+  defp enforced_snapshot?(tenant_id),
+    do: match?({:ok, :on}, ScopeEnforcement.get_mode(tenant_id))
+
+  defp repair_rows!(schema, tenant_id, platform_role_bindings) do
+    inserted =
+      schema
+      |> RoleScopeGrants.bindings_without_row()
+      |> Enum.count(fn %{group_id: group_id, name: name} ->
+        RoleScopeGrants.repair_group_row!(group_id, name, schema) == :inserted
+      end)
+
+    if RoleScopeGrants.bindings_without_row_count(schema) != 0 do
+      Repo.rollback(:gap_remains)
+    end
+
+    if inserted > 0 do
+      audit!(schema, tenant_id, platform_role_bindings, inserted)
+    end
+
+    %{
+      tenant_id: tenant_id,
+      platform_role_bindings: platform_role_bindings,
+      group_rows_inserted: inserted,
+      bindings_without_row_after: 0,
+      skipped_enforced: false
+    }
   end
 
   defp audit!(schema, tenant_id, platform_role_bindings, inserted) do

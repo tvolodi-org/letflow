@@ -59,6 +59,7 @@ defmodule Letflow.Identity.TenantAdminMigration do
   alias Letflow.Identity.TenantRole
   alias Letflow.PlatformTenant
   alias Letflow.Repo
+  alias Letflow.ScopeEnforcement
   alias Letflow.TenantProvisioning
   alias Letflow.TenantProvisioning.Registration
 
@@ -93,7 +94,8 @@ defmodule Letflow.Identity.TenantAdminMigration do
           members_copied: non_neg_integer(),
           platform_admin_binding_removed: boolean(),
           tokens_rewritten: non_neg_integer(),
-          tenant_admin_member_count_after: non_neg_integer()
+          tenant_admin_member_count_after: non_neg_integer(),
+          rows: :written | :skipped_enforced
         }
 
   @type preconditions :: %{
@@ -233,8 +235,9 @@ defmodule Letflow.Identity.TenantAdminMigration do
   end
 
   defp unchanged?(rep) do
-    not rep.tenant_admin_binding_created and not rep.platform_admin_binding_removed and
-      rep.tokens_rewritten == 0
+    # REQ-519: a tenant skipped because enforcement is `on` is always reported.
+    rep.rows != :skipped_enforced and not rep.tenant_admin_binding_created and
+      not rep.platform_admin_binding_removed and rep.tokens_rewritten == 0
   end
 
   defp classify_exception(%Postgrex.Error{postgres: %{code: :undefined_table}}),
@@ -288,9 +291,19 @@ defmodule Letflow.Identity.TenantAdminMigration do
   end
 
   defp dry_tenant(schema, tid, slug, realm) do
+    # REQ-519: a dry run reads the mode without a lock (a snapshot) and never raises for it.
+    if match?({:ok, :on}, ScopeEnforcement.get_mode(tid)) do
+      {:ok, skipped_report(tid, slug, realm)}
+    else
+      dry_plan(schema, tid, slug, realm)
+    end
+  end
+
+  defp dry_plan(schema, tid, slug, realm) do
     with {:ok, plan} <- plan(schema) do
       {:ok,
        %{
+         rows: :written,
          tenant_id: tid,
          slug: slug,
          idp_realm_id: realm,
@@ -311,9 +324,19 @@ defmodule Letflow.Identity.TenantAdminMigration do
         # GH 2547 (design 6.6): the tenant admin lock before any read or row lock.
         Identity.lock_tenant_admins!(schema)
 
-        case plan(schema) do
-          {:error, tag} -> Repo.rollback(tag)
-          {:ok, plan} -> apply_plan(plan, schema, tid, slug, realm)
+        # REQ-519 2e-a (S-1, design 3.6): a bulk membership copy in an enforced tenant is an
+        # unreviewed grant of the group's scope, so the whole one-shot plan is skipped (the
+        # legacy binding removal and token rewrite with it) and the tenant is reported.
+        case ScopeEnforcement.mode_under_lock!(schema) do
+          :on ->
+            Logger.info("binding_row_skipped reason=enforced writer=tenant_admin_migration")
+            skipped_report(tid, slug, realm)
+
+          _off_or_shadow ->
+            case plan(schema) do
+              {:error, tag} -> Repo.rollback(tag)
+              {:ok, plan} -> apply_plan(plan, schema, tid, slug, realm)
+            end
         end
       end)
 
@@ -324,6 +347,20 @@ defmodule Letflow.Identity.TenantAdminMigration do
     end
   end
 
+  defp skipped_report(tid, slug, realm) do
+    %{
+      tenant_id: tid,
+      slug: slug,
+      idp_realm_id: realm,
+      tenant_admin_binding_created: false,
+      members_copied: 0,
+      platform_admin_binding_removed: false,
+      tokens_rewritten: 0,
+      tenant_admin_member_count_after: 0,
+      rows: :skipped_enforced
+    }
+  end
+
   defp apply_plan(plan, schema, tid, slug, realm) do
     ta_group_id = ensure_binding(plan.ta, schema)
     copy_members(plan, ta_group_id, schema)
@@ -331,6 +368,7 @@ defmodule Letflow.Identity.TenantAdminMigration do
     rewrite_tokens(plan.tokens, schema)
 
     %{
+      rows: :written,
       tenant_id: tid,
       slug: slug,
       idp_realm_id: realm,
@@ -346,7 +384,9 @@ defmodule Letflow.Identity.TenantAdminMigration do
   # it is called.
   # REQ-497 W5 (b): repair-only, inserts a grant row only for a binding with none.
   defp ensure_binding(%TenantRole{group_id: group_id} = ta, schema) do
-    :ok = RoleScopeGrants.reconcile_binding!(ta, ta, schema)
+    # Unreachable in an `on` tenant through real_tenant/4 (skipped); a direct caller gets
+    # the NO-ROW answer, which is not an error here.
+    _ = RoleScopeGrants.reconcile_binding!(ta, ta, schema)
     group_id
   end
 
@@ -393,8 +433,9 @@ defmodule Letflow.Identity.TenantAdminMigration do
   defp remove_legacy_binding(nil, _schema), do: :ok
 
   defp remove_legacy_binding(%TenantRole{id: id} = pa, schema) do
+    # REQ-497 W5 (c): the binding's grant rows go with it, before its audit entry. Removal
+    # never widens: always `:ok`, in every mode.
     Repo.delete_all(from(t in TenantRole, where: t.id == ^id), prefix: schema)
-    # REQ-497 W5 (c): the binding's grant rows go with it, before its audit entry.
     :ok = RoleScopeGrants.reconcile_binding!(pa, nil, schema)
 
     audit!(schema, "role_binding.removed", "tenant_role", id, %{"name" => @legacy}, nil)

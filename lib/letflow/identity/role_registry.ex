@@ -19,10 +19,13 @@ defmodule Letflow.Identity.RoleRegistry do
 
   import Ecto.Query
 
+  require Logger
+
   alias Letflow.Api.Authorization
   alias Letflow.Audit
   alias Letflow.Identity
   alias Letflow.Identity.AuditContext
+  alias Letflow.Identity.BindingRefusal
   alias Letflow.Identity.Group
   alias Letflow.Identity.GroupMember
   alias Letflow.Identity.RoleScopeGrants
@@ -41,6 +44,7 @@ defmodule Letflow.Identity.RoleRegistry do
           | :platform_admin_outside_platform_tenant
           | :role_already_bound
           | :last_tenant_wide_admin
+          | :scope_required
           | {:audit_failed, term()}
           | {:transaction_failed, Exception.t()}
           | Ecto.Changeset.t()
@@ -55,6 +59,14 @@ defmodule Letflow.Identity.RoleRegistry do
           | {:audit_failed, term()}
           | {:transaction_failed, Exception.t()}
           | Ecto.Changeset.t()
+
+  @typedoc """
+  What happened to the grant row of a binding write (REQ-519 2e-a): `:in_place` (the grant
+  rows are as the binding needs; the module does not say whether this write inserted or moved
+  one) or `:skipped_enforced` (the tenant is `on`, so the binding was left WITHOUT a row; the
+  integrity report and T9 show it). Only `:skipped_enforced` ever leaves this module.
+  """
+  @type rows_state :: :in_place | :skipped_enforced
 
   @type coverage_gap :: %{
           held_process_routing_roles: [String.t()],
@@ -147,6 +159,35 @@ defmodule Letflow.Identity.RoleRegistry do
           {:ok, TenantRole.t()} | {:error, upsert_error()}
   def upsert_role(name, kind, group_id, opts)
       when kind in [:platform_role, :process_routing_role] do
+    case upsert_role_report(name, kind, group_id, opts) do
+      {:ok, role, _rows} -> {:ok, role}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc """
+  `upsert_role/4` plus the state of the grant row (REQ-519 2e-a, design section 3.5): same
+  validation, locking and audit, the public `upsert_role/4` shape is unchanged. In a tenant
+  whose scope enforcement is `on`, creating a binding that needs a tenant-wide row
+  (`nil -> platform_role`, `routing -> platform_role`) is refused: the transaction rolls
+  back and the result is `{:error, :scope_required}` after one `binding.refused` audit entry
+  (`Letflow.Identity.BindingRefusal`). The INTERNAL option `binding_policy:
+  :no_row_when_enforced` (never passed by a router; used only by the platform-role seeding)
+  turns that refusal, for `nil -> platform_role`, into a binding created WITHOUT a row,
+  reported as `:skipped_enforced`.
+  """
+  @spec upsert_role_report(
+          name :: String.t(),
+          kind :: kind(),
+          group_id :: Ecto.UUID.t() | String.t(),
+          opts :: [
+            prefix: String.t(),
+            audit_context: AuditContext.t(),
+            binding_policy: :no_row_when_enforced
+          ]
+        ) :: {:ok, TenantRole.t(), rows_state()} | {:error, upsert_error()}
+  def upsert_role_report(name, kind, group_id, opts)
+      when kind in [:platform_role, :process_routing_role] do
     with :ok <- validate_role_name(name),
          :ok <- validate_platform_role_name(kind, name),
          :ok <- reject_platform_admin_outside_platform_tenant(kind, name, opts),
@@ -221,6 +262,22 @@ defmodule Letflow.Identity.RoleRegistry do
   @spec seed_default_platform_role_groups(opts :: [prefix: String.t()]) ::
           {:ok, [TenantRole.t()]} | {:error, term()}
   def seed_default_platform_role_groups(opts) do
+    case seed_default_platform_role_groups_report(opts) do
+      {:ok, %{roles: roles}} -> {:ok, roles}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc """
+  `seed_default_platform_role_groups/1` plus the names whose binding has NO grant row because
+  the tenant is `on` (REQ-519 2e-a, S-1): `{:ok, %{roles: roles, skipped_enforced: names}}`.
+  In an `on` tenant a missing platform-role binding is created WITHOUT a row (a refusal would
+  halt the all-tenants sweep); the binding is audited with the fixed key `rows =
+  "skipped_enforced"`, the next flip to `on` is blocked by T9 until an admin grants scope.
+  """
+  @spec seed_default_platform_role_groups_report(opts :: [prefix: String.t()]) ::
+          {:ok, %{roles: [TenantRole.t()], skipped_enforced: [String.t()]}} | {:error, term()}
+  def seed_default_platform_role_groups_report(opts) do
     prefix = Keyword.fetch!(opts, :prefix)
 
     with :ok <- check_guarded_names_free(prefix) do
@@ -268,17 +325,26 @@ defmodule Letflow.Identity.RoleRegistry do
   end
 
   @spec seed_names([String.t()], prefix: String.t()) ::
-          {:ok, [TenantRole.t()]} | {:error, term()}
+          {:ok, %{roles: [TenantRole.t()], skipped_enforced: [String.t()]}} | {:error, term()}
   defp seed_names(names, opts) do
-    Enum.reduce_while(names, {:ok, []}, fn name, {:ok, acc} ->
+    Enum.reduce_while(names, {:ok, [], []}, fn name, {:ok, acc, skipped} ->
       case ensure_platform_role_binding(name, opts) do
-        {:ok, %TenantRole{} = role} -> {:cont, {:ok, [role | acc]}}
-        {:error, reason} -> {:halt, {:error, reason}}
+        {:ok, %TenantRole{} = role, :skipped_enforced} ->
+          {:cont, {:ok, [role | acc], [name | skipped]}}
+
+        {:ok, %TenantRole{} = role, _rows} ->
+          {:cont, {:ok, [role | acc], skipped}}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
       end
     end)
     |> case do
-      {:ok, roles} -> {:ok, Enum.reverse(roles)}
-      {:error, _reason} = error -> error
+      {:ok, roles, skipped} ->
+        {:ok, %{roles: Enum.reverse(roles), skipped_enforced: Enum.reverse(skipped)}}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -288,37 +354,54 @@ defmodule Letflow.Identity.RoleRegistry do
   # row with this name fails closed (check_guarded_names_free/1 normally catches it
   # first); no row binds the group named after the role, as before.
   @spec ensure_platform_role_binding(String.t(), prefix: String.t()) ::
-          {:ok, TenantRole.t()} | {:error, term()}
+          {:ok, TenantRole.t(), rows_state()} | {:error, term()}
   defp ensure_platform_role_binding(name, opts) do
     prefix = Keyword.fetch!(opts, :prefix)
 
-    Repo.transaction(
-      fn ->
-        # GH 2547 (design 6.6): the tenant admin lock before the role row, so the nested
-        # upsert_role/4 re-enters it instead of taking it after a row lock.
-        Identity.lock_tenant_admins!(prefix)
+    transaction_result =
+      Repo.transaction(
+        fn ->
+          # GH 2547 (design 6.6): the tenant admin lock before the role row, so the nested
+          # upsert_role/4 re-enters it instead of taking it after a row lock.
+          Identity.lock_tenant_admins!(prefix)
 
-        case lock_role_by_name(name, prefix) do
-          %TenantRole{kind: :platform_role} = role ->
-            # REQ-497 W4 (b): repair-only, inserts a row only for a binding with none.
-            :ok = RoleScopeGrants.reconcile_binding!(role, role, prefix)
-            role
+          case lock_role_by_name(name, prefix) do
+            %TenantRole{kind: :platform_role} = role ->
+              # REQ-497 W4 (b): repair-only, inserts a row only for a binding with none.
+              case RoleScopeGrants.reconcile_binding!(role, role, prefix) do
+                :ok ->
+                  {role, :in_place}
 
-          %TenantRole{kind: :process_routing_role} ->
-            Repo.rollback({:role_name_taken_by_routing_role, name})
+                {:skipped, :enforced} ->
+                  log_row_skipped("seeding")
+                  {role, :skipped_enforced}
+              end
 
-          nil ->
-            with {:ok, %Group{id: group_id}} <- get_or_create_group_by_name(name, opts),
-                 {:ok, %TenantRole{} = role} <-
-                   upsert_role(name, :platform_role, group_id, opts) do
-              role
-            else
-              {:error, reason} -> Repo.rollback(reason)
-            end
-        end
-      end,
-      prefix: prefix
-    )
+            %TenantRole{kind: :process_routing_role} ->
+              Repo.rollback({:role_name_taken_by_routing_role, name})
+
+            nil ->
+              with {:ok, %Group{id: group_id}} <- get_or_create_group_by_name(name, opts),
+                   {:ok, %TenantRole{} = role, rows} <-
+                     upsert_role_report(
+                       name,
+                       :platform_role,
+                       group_id,
+                       Keyword.put(opts, :binding_policy, :no_row_when_enforced)
+                     ) do
+                {role, rows}
+              else
+                {:error, reason} -> Repo.rollback(reason)
+              end
+          end
+        end,
+        prefix: prefix
+      )
+
+    case transaction_result do
+      {:ok, {role, rows}} -> {:ok, role, rows}
+      {:error, _reason} = error -> error
+    end
   end
 
   @doc """
@@ -459,7 +542,7 @@ defmodule Letflow.Identity.RoleRegistry do
           kind :: kind(),
           group_id :: Ecto.UUID.t(),
           opts :: [prefix: String.t()]
-        ) :: {:ok, TenantRole.t()} | {:error, upsert_error()}
+        ) :: {:ok, TenantRole.t(), rows_state()} | {:error, upsert_error()}
   # GH 2547 (design 3.0, 3.4, 6.6): lock order is the tenant admin lock, the role row by
   # name, then the group row FOR UPDATE (taken on BOTH branches, so a concurrent member
   # insert on that group, which needs KEY SHARE, waits for this write or this waits for
@@ -476,7 +559,7 @@ defmodule Letflow.Identity.RoleRegistry do
 
           case lock_group_for_update(group_id, prefix) do
             nil -> Repo.rollback(:group_not_found)
-            %Group{} -> insert_or_update_role(name, kind, group_id, prefix, ctx)
+            %Group{} -> insert_or_update_role(name, kind, group_id, prefix, ctx, opts)
           end
         end,
         prefix: prefix
@@ -485,6 +568,9 @@ defmodule Letflow.Identity.RoleRegistry do
         # REQ-497 PR 1b (design 6.2 (a)): the kind change rolled back; the guard event is
         # written in its own transaction, after the rollback.
         {:error, {:tenant_admin_guard, refusal}} -> TenantAdminGuard.refuse(prefix, refusal, ctx)
+        # REQ-519 2e-a: refused in an `on` tenant; the audit entry is written after the rollback.
+        {:error, {:binding_refused, refusal}} -> BindingRefusal.refuse(prefix, refusal, ctx)
+        {:ok, {role, rows}} -> {:ok, role, rows}
         other -> other
       end
     rescue
@@ -501,14 +587,20 @@ defmodule Letflow.Identity.RoleRegistry do
           kind :: kind(),
           group_id :: Ecto.UUID.t(),
           prefix :: String.t(),
-          ctx :: AuditContext.t()
-        ) :: TenantRole.t()
+          ctx :: AuditContext.t(),
+          opts :: keyword()
+        ) :: {TenantRole.t(), rows_state()}
   # GH 2524 (design 4.1): never moves an existing binding. Must run inside a transaction
   # (the row lock is held until it ends).
-  defp insert_or_update_role(name, kind, group_id, prefix, ctx) do
+  defp insert_or_update_role(name, kind, group_id, prefix, ctx, opts) do
+    policy = Keyword.get(opts, :binding_policy)
+
     case lock_role_by_name(name, prefix) do
-      nil -> insert_role(name, kind, group_id, prefix, ctx)
-      %TenantRole{} = existing -> converge_existing_role(existing, kind, group_id, prefix, ctx)
+      nil ->
+        insert_role(name, kind, group_id, prefix, ctx, policy)
+
+      %TenantRole{} = existing ->
+        converge_existing_role(existing, kind, group_id, prefix, ctx)
     end
   end
 
@@ -516,9 +608,15 @@ defmodule Letflow.Identity.RoleRegistry do
   # concurrent insert of the same name still returns {:ok, struct} with an id that is not
   # in the table. Re-read by name under the lock and compare ids (insert_group/2's
   # precedent); a lost race continues with the winner's row.
-  @spec insert_role(String.t(), kind(), Ecto.UUID.t(), String.t(), AuditContext.t()) ::
-          TenantRole.t()
-  defp insert_role(name, kind, group_id, prefix, ctx) do
+  @spec insert_role(
+          String.t(),
+          kind(),
+          Ecto.UUID.t(),
+          String.t(),
+          AuditContext.t(),
+          :no_row_when_enforced | nil
+        ) :: {TenantRole.t(), rows_state()}
+  defp insert_role(name, kind, group_id, prefix, ctx, policy) do
     case %TenantRole{}
          |> TenantRole.changeset(%{name: name, group_id: group_id, kind: kind})
          |> Repo.insert(
@@ -531,9 +629,25 @@ defmodule Letflow.Identity.RoleRegistry do
         case lock_role_by_name(name, prefix) do
           %TenantRole{id: ^inserted_id} = role ->
             # REQ-497 W1: the grant row in the binding's transaction, before its audit.
-            :ok = RoleScopeGrants.reconcile_binding!(nil, role, prefix)
-            :ok = audit_binding_write(:created, role, prefix, ctx)
-            role
+            # REQ-519 2e-a: in an `on` tenant the write is refused (W-a), except the seeding's
+            # internal no-row policy (W-g1), which keeps the binding and reports it.
+            rows =
+              case {RoleScopeGrants.reconcile_binding!(nil, role, prefix), policy} do
+                {:ok, _policy} ->
+                  :in_place
+
+                {{:refused, :scope_required}, :no_row_when_enforced} ->
+                  log_row_skipped("seeding")
+                  :skipped_enforced
+
+                {{:refused, :scope_required}, _other} ->
+                  Repo.rollback(
+                    {:binding_refused, %{case: :nil_to_platform, role: name, group_id: group_id}}
+                  )
+              end
+
+            :ok = audit_binding_write(:created, role, prefix, ctx, rows)
+            {role, rows}
 
           %TenantRole{} = winner ->
             converge_existing_role(winner, kind, group_id, prefix, ctx)
@@ -553,8 +667,7 @@ defmodule Letflow.Identity.RoleRegistry do
           Ecto.UUID.t(),
           String.t(),
           AuditContext.t()
-        ) ::
-          TenantRole.t()
+        ) :: {TenantRole.t(), rows_state()}
   defp converge_existing_role(%TenantRole{group_id: bound} = role, kind, group_id, prefix, ctx) do
     cond do
       not same_id?(bound, group_id) ->
@@ -562,8 +675,17 @@ defmodule Letflow.Identity.RoleRegistry do
 
       role.kind == kind ->
         # REQ-497 W2 (b): repair-only for a platform binding, a no-op for a routing one.
-        :ok = RoleScopeGrants.reconcile_binding!(role, role, prefix)
-        role
+        rows =
+          case RoleScopeGrants.reconcile_binding!(role, role, prefix) do
+            :ok ->
+              :in_place
+
+            {:skipped, :enforced} ->
+              log_row_skipped("upsert_role")
+              :skipped_enforced
+          end
+
+        {role, rows}
 
       true ->
         # REQ-497 PR 1b N1 transition rule: the before-count under lock A and the role row
@@ -573,12 +695,24 @@ defmodule Letflow.Identity.RoleRegistry do
         case role |> Ecto.Changeset.change(kind: kind) |> Repo.update(prefix: prefix) do
           {:ok, updated} ->
             # REQ-497 W2 (a): inserts on routing -> platform, removes on platform -> routing.
-            :ok = RoleScopeGrants.reconcile_binding!(role, updated, prefix)
-            :ok = audit_binding_write({:kind_changed, role.kind}, updated, prefix, ctx)
+            # REQ-519 2e-a: routing -> platform is refused in an `on` tenant (W-b).
+            rows =
+              case RoleScopeGrants.reconcile_binding!(role, updated, prefix) do
+                :ok ->
+                  :in_place
+
+                {:refused, :scope_required} ->
+                  Repo.rollback(
+                    {:binding_refused,
+                     %{case: :routing_to_platform, role: role.name, group_id: group_id}}
+                  )
+              end
+
+            :ok = audit_binding_write({:kind_changed, role.kind}, updated, prefix, ctx, rows)
             # REQ-497 PR 1b N1 (design 6.2 (a)): converting the TENANT_ADMIN platform
             # binding away from platform must leave a tenant-wide admin. Rolls back on 0.
             :ok = guard_unbind_tenant_admin(role, before, prefix)
-            updated
+            {updated, rows}
 
           {:error, changeset} ->
             Repo.rollback(changeset)
@@ -611,16 +745,17 @@ defmodule Letflow.Identity.RoleRegistry do
           event :: :created | {:kind_changed, old_kind :: kind()},
           role :: TenantRole.t(),
           prefix :: String.t(),
-          ctx :: AuditContext.t()
+          ctx :: AuditContext.t(),
+          rows :: rows_state()
         ) :: :ok
-  defp audit_binding_write(event, %TenantRole{} = role, prefix, ctx) do
+  defp audit_binding_write(event, %TenantRole{} = role, prefix, ctx, rows) do
     case group_member_ids(role.group_id, prefix) do
       [] ->
         :ok
 
       member_ids ->
         attrs =
-          Map.merge(binding_audit_states(event, role, member_ids, ctx.source), %{
+          Map.merge(binding_audit_states(event, role, member_ids, ctx.source, rows), %{
             actor_id: ctx.actor_id,
             resource_type: "tenant_role",
             resource_id: role.id,
@@ -634,20 +769,23 @@ defmodule Letflow.Identity.RoleRegistry do
     end
   end
 
-  defp binding_audit_states(:created, role, member_ids, source) do
+  defp binding_audit_states(:created, role, member_ids, source, rows) do
     %{
       action: "role_binding.created",
       before_state: nil,
       after_state:
-        Map.merge(role_state(role), %{
-          "granted_user_ids" => member_ids,
-          "granted_count" => length(member_ids),
-          "source" => source
-        })
+        Map.merge(
+          role_state(role),
+          rows_key(rows, %{
+            "granted_user_ids" => member_ids,
+            "granted_count" => length(member_ids),
+            "source" => source
+          })
+        )
     }
   end
 
-  defp binding_audit_states({:kind_changed, old_kind}, role, member_ids, source) do
+  defp binding_audit_states({:kind_changed, old_kind}, role, member_ids, source, _rows) do
     %{
       action: "role_binding.kind_changed",
       before_state: %{role_state(role) | "kind" => Atom.to_string(old_kind)},
@@ -665,6 +803,14 @@ defmodule Letflow.Identity.RoleRegistry do
     from(m in GroupMember, where: m.group_id == ^group_id, select: m.user_id, order_by: m.user_id)
     |> Repo.all(prefix: prefix)
   end
+
+  # S-1: the FIXED key `rows` marks a binding created without a grant row; absent otherwise.
+  defp rows_key(:skipped_enforced, state), do: Map.put(state, "rows", "skipped_enforced")
+  defp rows_key(_rows, state), do: state
+
+  # One constant line per NO-ROW write (no ids, no names, INV-4).
+  defp log_row_skipped(writer),
+    do: Logger.info("binding_row_skipped reason=enforced writer=#{writer}")
 
   defp lock_role_by_name(name, prefix) do
     Repo.one(from(t in TenantRole, where: t.name == ^name, lock: "FOR UPDATE"), prefix: prefix)
@@ -713,7 +859,26 @@ defmodule Letflow.Identity.RoleRegistry do
           attrs :: %{actor_id: Ecto.UUID.t() | nil, reason: term()},
           opts :: [prefix: String.t(), platform_scope: boolean(), audit_context: AuditContext.t()]
         ) :: {:ok, TenantRole.t()} | {:error, rebind_error()}
-  def rebind_role(role_id, group_id, %{actor_id: actor_id, reason: reason}, opts) do
+  def rebind_role(role_id, group_id, attrs, opts) do
+    case rebind_role_report(role_id, group_id, attrs, opts) do
+      {:ok, role, _rows} -> {:ok, role}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc """
+  `rebind_role/4` plus the state of the grant rows (REQ-519 2e-a): `:in_place` (rows followed
+  the binding, or nothing needed to move), or `:skipped_enforced` (the tenant is `on` and no
+  row moved, so the new group's binding has no row). The public `rebind_role/4` shape is
+  unchanged.
+  """
+  @spec rebind_role_report(
+          role_id :: Ecto.UUID.t(),
+          group_id :: term(),
+          attrs :: %{actor_id: Ecto.UUID.t() | nil, reason: term()},
+          opts :: [prefix: String.t(), platform_scope: boolean(), audit_context: AuditContext.t()]
+        ) :: {:ok, TenantRole.t(), rows_state()} | {:error, rebind_error()}
+  def rebind_role_report(role_id, group_id, %{actor_id: actor_id, reason: reason}, opts) do
     prefix = Keyword.fetch!(opts, :prefix)
     platform_scope? = Keyword.get(opts, :platform_scope, false) == true
     ctx = AuditContext.from_opts(opts)
@@ -724,6 +889,9 @@ defmodule Letflow.Identity.RoleRegistry do
       |> case do
         {:error, {:tenant_admin_guard, refusal}} ->
           TenantAdminGuard.refuse(prefix, refusal, %{ctx | actor_id: actor_id})
+
+        {:ok, {role, rows}} ->
+          {:ok, role, rows}
 
         other ->
           other
@@ -758,7 +926,7 @@ defmodule Letflow.Identity.RoleRegistry do
         share_lock_group(target, prefix) || Repo.rollback(:group_not_found)
 
         if same_id?(role.group_id, target) do
-          role
+          {role, :in_place}
         else
           move_role(role, target, actor_id, trimmed_reason, prefix, trace_id)
         end
@@ -786,7 +954,15 @@ defmodule Letflow.Identity.RoleRegistry do
 
     # REQ-497 W3: the binding's grant rows follow it to the target group (a raise is
     # caught by rebind_role/4's rescue since PR 1b, GH #2575).
-    :ok = RoleScopeGrants.reconcile_binding!(role, updated, prefix)
+    rows =
+      case RoleScopeGrants.reconcile_binding!(role, updated, prefix) do
+        :ok ->
+          :in_place
+
+        {:skipped, :enforced} ->
+          log_row_skipped("rebind_role")
+          :skipped_enforced
+      end
 
     # REQ-497 PR 1b N1 (design 6.2 (c)): after the move, before the role.rebound audit.
     if is_integer(before) do
@@ -804,7 +980,7 @@ defmodule Letflow.Identity.RoleRegistry do
     }
 
     case Audit.insert_entry(Repo, attrs, prefix) do
-      {:ok, _entry} -> updated
+      {:ok, _entry} -> {updated, rows}
       {:error, audit_error} -> Repo.rollback({:audit_failed, audit_error})
     end
   end

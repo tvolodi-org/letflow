@@ -13,6 +13,11 @@ defmodule Mix.Tasks.Letflow.CheckRoleScopeGrantsWriters do
     * `lib/letflow/identity/role_scope_grant.ex`
     * `lib/mix/tasks/letflow.check_role_scope_grants_writers.ex` (this file names the patterns)
 
+  REQ-519 2e-a: `RoleScopeGrants.insert_tenant_wide/4` is the only UNCONDITIONAL tenant-wide
+  insert (the explicit, audited make-tenant-wide act, called only by `ScopedGrants`); the two
+  other tenant-wide insert paths (`ensure_tenant_wide_group_row!/3`, `repair_group_row!/3`)
+  read the tenant's scope enforcement mode themselves and insert nothing when it is `on`.
+
   ## Roots and rules
 
   Scans every `.ex` file under `lib` and every regular file under `priv/modules` (a missing

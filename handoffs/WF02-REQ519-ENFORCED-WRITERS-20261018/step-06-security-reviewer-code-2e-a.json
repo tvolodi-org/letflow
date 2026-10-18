@@ -1,0 +1,91 @@
+{
+  "handoff_id": "d2535519-0519-4c02-9e11-000000000006",
+  "run_id": "WF02-REQ519-ENFORCED-WRITERS-20261018",
+  "workflow_id": "WF-02",
+  "step": "06",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-06-security-reviewer-code-2e-a.json",
+  "created_at": "2026-10-18T16:19:00Z",
+  "started_at": "2026-10-18T16:19:30Z",
+  "completed_at": "2026-10-18T16:24:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-519"],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "SECURITY-REVIEWER code gate for REQ-519 slice 2e-a (GH #2535): uncommitted tree on feature/WF02-REQ519-ENFORCED-WRITERS-20261018. Read-only static review; no mix, no tests run."
+    },
+    "related_handoff_ids": ["d2535519-0519-4c02-9e11-000000000004", "d2535519-0519-4c02-9e11-000000000005"],
+    "artifacts_in": [
+      "lib/letflow/scope_enforcement.ex",
+      "lib/letflow/identity/role_scope_grants.ex",
+      "lib/letflow/identity/role_registry.ex",
+      "lib/letflow/identity/binding_refusal.ex",
+      "lib/letflow/identity/binding_writers.ex",
+      "lib/letflow/identity/role_scope_grants/backfill.ex",
+      "lib/letflow/identity/tenant_admin_migration.ex",
+      "lib/letflow/identity/role_backfill.ex",
+      "lib/letflow/routers/identity.ex",
+      "lib/mix/tasks/letflow.backfill_role_scope_grants.ex",
+      "lib/mix/tasks/letflow.check_role_scope_grants_writers.ex",
+      "config/test.exs",
+      "docs/roles.md",
+      "lib/letflow/design/req519-enforced-writers-and-flag-on.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ519-ENFORCED-WRITERS-20261018"
+  },
+  "task": {
+    "description": "Code gate for 2e-a against INV-1..INV-10, REQ-519 ACs 1, 5, 6, 7, 21 and design r2a. No edits to lib/ or test/."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "No blocking defect. Static review only; runtime claims rest on TEST-DESIGNER tests in hosted CI. VERIFIED: (1) Every tenant-wide grant-row insert for a binding goes through mode-aware code: reconcile_binding!/3 reads the mode once via ScopeEnforcement.mode_under_lock! after the caller's lock A and returns :ok | {:skipped, :enforced} | {:refused, :scope_required}; nil->P and not-P->P in on return refused before any insert; P->P same group in on never inserts (skipped when no row); P->P other group moves rows with no repair fallback in on; removal is unchanged. The public ensure_tenant_wide_group_row!/3 and repair_group_row!/3 read the mode themselves (cannot be bypassed) and raise ArgumentError outside a transaction. The only unconditional tenant-wide insert is insert_tenant_wide/4, whose sole caller is ScopedGrants (the sanctioned audited admin act); no new public RoleScopeGrants export. Grep of lib for all writers finds only role_registry.ex, tenant_admin_migration.ex, identity.ex (delete_group, removal), backfill.ex, scoped_grants.ex; IdP sync and group_member paths write no grant rows. (2) C-1: mode_under_lock! raises ModeUnavailableError (constant message, no fields) for an unavailable read, a malformed prefix, or a missing tenants row; the read rescue maps to :unavailable and raises, never :off. (3) C-2: the raise propagates out of Repo.transaction (whole write rolls back); upsert_role_report and rebind_role_report rescue it into {:error, {:transaction_failed, exception}} (500 path, nothing written, never off); seeding and Backfill surface it as that tenant's error. (4) Lenient key :scope_mode_lenient_for_tests: grep of config/*.exs, mix.exs, lib shows it set only in config/test.exs:331 and read only in scope_enforcement.ex unregistered_mode!/0 (== true check, default false); it covers only malformed prefix and absent tenants row, a failed read always raises; prod, dev and runtime config do not set it. (5) Lock order A->R->G->N->B->T->S->C preserved: the mode read is a plain primary-key read of public.tenants with no lock, taken after lock A in every enforcing writer (upsert, rebind, seeding take lock_tenant_admins! first; TAM and Backfill take it before the mode read; delete_group removal does not read the mode). (6) BindingRefusal mirrors TenantAdminGuard.refuse: called after the rollback, own transaction, no-op with one constant log line inside a transaction, audit failure or raise logs a constant line and the refusal is still returned; after_state holds exactly actor, role, group, case, trace_id (ids and fixed strings, no claim or token value). (7) POST /roles: 409 via Error.conflict(scope_required) with a fixed remedy extension (module constant, no interpolation), no id in the body; grant_rows=skipped_enforced only when the binding was left without a row; no existence oracle beyond what a RolesManage caller already has via GET /roles. (8) Seeding in on: a missing binding is created without a row via the internal binding_policy :no_row_when_enforced, audited with fixed key rows=skipped_enforced; binding_policy occurs only in role_registry.ex (grep: no other file; no router passes it); a binding without a row is denied by the scope engine (D1), so a name collision gains nothing; check_guarded_names_free is not in the diff. (9) TAM: an on tenant skips the whole plan, reports rows=skipped_enforced, no error, no audit; dry run reads get_mode/1 and never raises. Backfill: an on tenant is skipped after lock A, no repair, no gap check, no audit entry, skipped_enforced=true with the current gap; dry run uses get_mode/1. RoleBackfill lists skipped_enforced tenants and carries on. (10) INV-4: only constant log lines. (11) INV-7: no new SQL interpolation. (12) No route_scope.ex, authorized_router.ex, route snapshot, route_inventory.ex, ci.yml, mix.exs, permission matrix or catalog file in git status: routes changed NONE.",
+    "local_issue_id": null,
+    "artifacts_out": ["handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-06-security-reviewer-code-2e-a.json"],
+    "invariants_assessed": {
+      "INV-1": "APPLIES, PASS (every new query carries the prefix; tenant id for the mode read derives from the schema name; no tenant value from body, query or path)",
+      "INV-2": "APPLIES, PASS (409 body fixed code and remedy, no id; grant_rows is a fixed enum string; refusal audit payload ids and fixed strings only)",
+      "INV-3": "NOT-APPLICABLE (no Lua/WASM host function)",
+      "INV-4": "APPLIES, PASS (constant log lines; no secret resolved; the lenient key is a boolean test flag)",
+      "INV-5": "NOT-APPLICABLE (no lookup-by-id handler added or changed)",
+      "INV-6": "APPLIES, PASS (this verdict is the 2e-a code gate)",
+      "INV-7": "APPLIES, PASS (no new interpolated SQL)",
+      "INV-8": "APPLIES, PASS (the writer mode read fails closed; the only off paths are stored off/shadow values and the test-only key)",
+      "INV-9": "NOT-APPLICABLE (no new route or class; routes changed NONE)",
+      "INV-10": "APPLIES, PASS (no writer creates a tenant-wide or scoped row for an on tenant outside the sanctioned ScopedGrants plane; refusal audited after rollback)"
+    },
+    "findings": [
+      {"id": "F-1", "severity": "MINOR", "blocking": false, "title": "Lenient test key has no scan or prod-config evaluation test yet", "detail": "The key is set only in config/test.exs (verified by grep), but the design pin (scan that the string occurs in no config/*.exs except test.exs, plus a Config.Reader evaluation of config.exs, prod.exs, runtime.exs with env prod yielding the key unset) is not written; left to TEST-DESIGNER."},
+      {"id": "F-2", "severity": "MINOR", "blocking": false, "title": "Completeness scan test and registry validity check not yet written", "detail": "BindingWriters is data only; the scan of call sites of the six entry points against binding_rows/0 and the indirect-row existence check are TEST-DESIGNER's. I did not re-run mix letflow.check_role_scope_grants_writers (no mix by instruction); ELIXIR-DEV reports no violations."},
+      {"id": "F-3", "severity": "INFO", "blocking": false, "title": "BindingRefusal writes ctx.actor_id on the tenant chain", "detail": "Same as the TenantAdminGuard.refuse/3 precedent for upsert_role (no platform companion). Not a regression; confirm in 2e-b or later whether a platform operator can reach POST /roles in a tenant and, if so, use the companion shape."},
+      {"id": "F-4", "severity": "INFO", "blocking": false, "title": "rows state covered reported when reconcile inserted a row (off/shadow)", "detail": "Disclosed deviation; no security effect because grant_rows is emitted only for skipped_enforced, which is exact."},
+      {"id": "F-5", "severity": "INFO", "blocking": false, "title": "Backfill sweep halts on the first tenant whose mode is unreadable", "detail": "Fail-closed and per design; an availability trade-off, not a security defect."}
+    ],
+    "conditions_for_merge": [
+      "Hosted CI is green for the whole suite, including role_scope_grants_backfill_test T-B7 (the only user of the lenient key), route_scope_walk_test and the exports pin.",
+      "TEST-DESIGNER delivers the F-1 test (key scan and prod config evaluation), the F-2 completeness scan plus indirect-row check, a test that a raised mode read leaves no row and no binding (C-2), mode on tests for each writer row (w_a, w_b, w_c1, w_c2, w_d, w_e, w_e2, TAM skip, seeding rows=skipped_enforced audit key), POST /roles 409 body bytes, and binding.refused written after rollback.",
+      "The PR body carries the items in pr_body_items."
+    ],
+    "advisories": [
+      "A-1: 2e-b must keep the mode read after lock A and add no new lock rank.",
+      "A-2: Rebind in on still moves existing rows (tenant-wide included) to the target group and clears the target's stale rows first; pre-existing admin-plane behavior (RolesManage plus reason, audited) that never creates a row; 2f docs should state it."
+    ],
+    "pr_body_items": {
+      "registry_and_scan_output": "Paste the output of mix letflow.check_role_scope_grants_writers (no violations) and the completeness scan test result once delivered; binding_policy occurs only in lib/letflow/identity/role_registry.ex.",
+      "S_1_statement": "In an on tenant the platform-role seeding creates a missing binding WITHOUT a grant row (audit key rows=skipped_enforced); the binding is denied everywhere (D1) until an admin grants scope, T9 blocks the next flip to on, and check_guarded_names_free is unchanged.",
+      "routes_changed_table": [
+        {"method": "ALL", "path": "ALL", "old_class": "unchanged", "new_class": "unchanged", "note": "routes changed: NONE (route snapshot and route_inventory.ex untouched); POST /roles gains 409 scope_required and an optional grant_rows key with no class change"}
+      ],
+      "verdict_sentence": "SECURITY-REVIEWER code gate for REQ-519 2e-a: PASS_WITH_FINDINGS (every binding and grant-row writer reads the tenant mode under lock A and in an on tenant writes no tenant-wide row, refusing nil-to-platform and routing-to-platform with 409 scope_required and an after-rollback binding.refused audit; an unreadable mode raises and rolls back instead of proceeding as off; the lenient key is test-only; routes changed NONE)."
+    },
+    "required_changes": [],
+    "classification": "CODE_PASS_WITH_FINDINGS",
+    "implementation_written": false
+  }
+}

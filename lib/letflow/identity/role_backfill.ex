@@ -130,7 +130,8 @@ defmodule Letflow.Identity.RoleBackfill do
            %{
              seeded: [Ecto.UUID.t()],
              unchanged: [Ecto.UUID.t()],
-             role_claims_markers_reset: non_neg_integer()
+             role_claims_markers_reset: non_neg_integer(),
+             skipped_enforced: [Ecto.UUID.t()]
            }}
           | {:error, {:backfill_failed, tenant_id :: Ecto.UUID.t(), reason :: term()}}
   def run do
@@ -139,7 +140,7 @@ defmodule Letflow.Identity.RoleBackfill do
     Letflow.Obs.Logger.with_trace(fn ->
       TenantProvisioning.list_registrations()
       |> Enum.reduce_while(
-        {:ok, %{seeded: [], unchanged: [], role_claims_markers_reset: 0}},
+        {:ok, %{seeded: [], unchanged: [], role_claims_markers_reset: 0, skipped_enforced: []}},
         fn registration, {:ok, acc} ->
           process_registration(registration, acc)
         end
@@ -151,14 +152,16 @@ defmodule Letflow.Identity.RoleBackfill do
   @spec process_registration(Registration.t(), %{
           seeded: [Ecto.UUID.t()],
           unchanged: [Ecto.UUID.t()],
-          role_claims_markers_reset: non_neg_integer()
+          role_claims_markers_reset: non_neg_integer(),
+          skipped_enforced: [Ecto.UUID.t()]
         }) ::
           {:cont, {:ok, map()}} | {:halt, {:error, {:backfill_failed, Ecto.UUID.t(), term()}}}
   defp process_registration(%Registration{tenant_id: tenant_id, schema_name: schema_name}, acc) do
     held_platform_role_names_before = held_platform_role_names(schema_name)
 
-    with {:ok, _tenant_roles} <-
-           RoleRegistry.seed_default_platform_role_groups(prefix: schema_name),
+    with {:ok, %{skipped_enforced: skipped}} <-
+           RoleRegistry.seed_default_platform_role_groups_report(prefix: schema_name),
+         acc = note_skipped_enforced(acc, tenant_id, skipped),
          {:ok, acc} <- classify(acc, tenant_id, schema_name, held_platform_role_names_before) do
       {:cont, {:ok, acc}}
     else
@@ -173,6 +176,13 @@ defmodule Letflow.Identity.RoleBackfill do
     exception ->
       {:halt, {:error, {:backfill_failed, tenant_id, {:unexpected_exception, exception}}}}
   end
+
+  # REQ-519 2e-a (S-1): a tenant stored `on` gets a missing binding WITHOUT a grant row; it is
+  # listed (once) so the sweep result shows it. The sweep itself carries on.
+  defp note_skipped_enforced(acc, _tenant_id, []), do: acc
+
+  defp note_skipped_enforced(acc, tenant_id, _names),
+    do: %{acc | skipped_enforced: [tenant_id | acc.skipped_enforced]}
 
   # Only a genuinely `:seeded` tenant (missed a role of
   # RoleRegistry.seedable_role_names/1 before this call) gets its users'
@@ -278,7 +288,13 @@ defmodule Letflow.Identity.RoleBackfill do
            }}
           | {:error, term()}
   defp finalize({:ok, %{seeded: seeded, unchanged: unchanged} = acc}) do
-    {:ok, %{acc | seeded: Enum.reverse(seeded), unchanged: Enum.reverse(unchanged)}}
+    {:ok,
+     %{
+       acc
+       | seeded: Enum.reverse(seeded),
+         unchanged: Enum.reverse(unchanged),
+         skipped_enforced: Enum.reverse(acc.skipped_enforced)
+     }}
   end
 
   defp finalize({:error, _reason} = error), do: error

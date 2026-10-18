@@ -41,6 +41,7 @@ defmodule Letflow.Identity.RoleScopeGrants do
   alias Letflow.Identity.RoleScopeGrant
   alias Letflow.Identity.TenantRole
   alias Letflow.Repo
+  alias Letflow.ScopeEnforcement
 
   # A constant, nothing interpolated (INV-7): the partial unique index of tenant-wide rows.
   @tenant_wide_conflict_target {:unsafe_fragment,
@@ -58,67 +59,117 @@ defmodule Letflow.Identity.RoleScopeGrants do
 
   # --- writers ---------------------------------------------------------------
 
+  @typedoc """
+  The result of `reconcile_binding!/3` (REQ-519 2e-a): `:ok` (the grant rows are as the
+  binding needs), `{:skipped, :enforced}` (the tenant is `on`, so NO row was written and the
+  binding is left without one, reported by the caller), or `{:refused, :scope_required}` (the
+  tenant is `on` and the write would create a binding that needs a tenant-wide row; the caller
+  rolls back).
+  """
+  @type reconcile_result :: :ok | {:skipped, :enforced} | {:refused, :scope_required}
+
   @doc """
   The entry point every binding writer calls with the binding as it was (`before_binding`)
   and as it is after its write (`after_binding`), in the same transaction. `nil` means no
-  binding. With P = `kind == :platform_role`:
+  binding. With P = `kind == :platform_role` and the tenant mode M read ONCE under lock A
+  (`Letflow.ScopeEnforcement.mode_under_lock!/1`):
 
-    * `nil -> P` and `not P -> P`: `ensure_tenant_wide_group_row!/3` (unconditional create);
+    * `nil -> P` and `not P -> P`: M `off`/`shadow`: `ensure_tenant_wide_group_row!/3`
+      (unconditional create); M `on`: `{:refused, :scope_required}`, nothing written;
     * `P -> P`, same group: `repair_group_row!/3` (inserts only when the binding has no row);
-    * `P -> P`, other group: `move_group_rows!/4`;
-    * `P -> not P` and `P -> nil`: `remove_group_rows!/3`;
+      in `on` it never inserts and answers `{:skipped, :enforced}` when the binding has no row;
+    * `P -> P`, other group: `move_group_rows!/4`; in `on` moved rows are `:ok`, none moved is
+      `{:skipped, :enforced}` (no repair fallback);
+    * `P -> not P` and `P -> nil`: `remove_group_rows!/3` (removal never widens, every mode);
     * anything else: nothing.
 
-  Raises `ArgumentError` outside a transaction (the "same transaction" rule, enforced
-  structurally) and raises on any DB error, which the caller's transaction turns into a
-  rollback.
+  The mode is read only by the clauses that could insert or widen a row, so removals never
+  depend on it. In `off` and `shadow` the result is always `:ok`. Raises `ArgumentError` outside a
+  transaction (the "same transaction" rule, enforced structurally), raises on any DB error and
+  raises `Letflow.ScopeEnforcement.ModeUnavailableError` when the mode cannot be read; the
+  caller's transaction turns every raise into a rollback.
   """
   @spec reconcile_binding!(
           before_binding :: TenantRole.t() | nil,
           after_binding :: TenantRole.t() | nil,
           prefix :: String.t()
-        ) :: :ok
+        ) :: reconcile_result()
   def reconcile_binding!(before_binding, after_binding, prefix) when is_binary(prefix) do
     ensure_in_transaction!("reconcile_binding!/3")
-    _ = do_reconcile(before_binding, after_binding, prefix)
-    :ok
+    do_reconcile(before_binding, after_binding, prefix)
   end
 
+  # The mode is read LAZILY (once, under lock A) and only by the clauses that could insert or
+  # widen a row; a pure removal (`P -> not P`, `P -> nil`) and the no-op clause never read it,
+  # so an unreadable mode cannot fail a removal.
   defp do_reconcile(nil, %TenantRole{kind: :platform_role} = new, prefix),
-    do: ensure_tenant_wide_group_row!(new.group_id, new.name, prefix)
+    do: create_or_refuse(new, prefix)
 
   defp do_reconcile(
          %TenantRole{kind: :platform_role} = old,
          %TenantRole{kind: :platform_role} = new,
          prefix
        ) do
+    mode = ScopeEnforcement.mode_under_lock!(prefix)
+
     if same_id?(old.group_id, new.group_id) do
-      repair_group_row!(new.group_id, new.name, prefix)
+      case repair_row!(new.group_id, new.name, prefix, mode) do
+        {:skipped, :enforced} = skipped -> skipped
+        _inserted_or_covered -> :ok
+      end
     else
-      move_group_rows!(new.name, old.group_id, new.group_id, prefix)
+      case move_rows!(new.name, old.group_id, new.group_id, prefix, mode) do
+        {:skipped, :enforced} = skipped -> skipped
+        {:moved, _count} -> :ok
+      end
     end
   end
 
-  defp do_reconcile(%TenantRole{kind: :platform_role} = old, _not_platform_or_nil, prefix),
-    do: remove_group_rows!(old.group_id, old.name, prefix)
+  defp do_reconcile(%TenantRole{kind: :platform_role} = old, _not_platform_or_nil, prefix) do
+    _ = remove_group_rows!(old.group_id, old.name, prefix)
+    :ok
+  end
 
   defp do_reconcile(%TenantRole{}, %TenantRole{kind: :platform_role} = new, prefix),
-    do: ensure_tenant_wide_group_row!(new.group_id, new.name, prefix)
+    do: create_or_refuse(new, prefix)
 
   defp do_reconcile(_before_binding, _after_binding, _prefix), do: :ok
+
+  defp create_or_refuse(%TenantRole{} = new, prefix) do
+    case ScopeEnforcement.mode_under_lock!(prefix) do
+      :on ->
+        {:refused, :scope_required}
+
+      _off_or_shadow ->
+        _ = insert_tenant_wide_row!(new.group_id, new.name, prefix)
+        :ok
+    end
+  end
 
   @doc """
   Inserts the tenant-wide row of (`:group`, `group_id`, `role`) unless one exists
   (`on_conflict: :nothing` on the tenant-wide partial unique index). Unconditional create:
   called only for a binding that becomes `:platform_role` in this write. Ignores scoped rows
-  by design.
+  by design. REQ-519: in an `on` tenant it inserts NOTHING and answers
+  `{:skipped, :enforced}` (it reads the mode itself, so no caller can bypass the check; the
+  explicit make-tenant-wide act is `insert_tenant_wide/4`). Raises `ArgumentError` outside a
+  transaction.
   """
   @spec ensure_tenant_wide_group_row!(
           group_id :: Ecto.UUID.t(),
           role :: String.t(),
           prefix :: String.t()
-        ) :: :inserted | :exists
+        ) :: :inserted | :exists | {:skipped, :enforced}
   def ensure_tenant_wide_group_row!(group_id, role, prefix) when is_binary(prefix) do
+    ensure_in_transaction!("ensure_tenant_wide_group_row!/3")
+
+    case ScopeEnforcement.mode_under_lock!(prefix) do
+      :on -> {:skipped, :enforced}
+      _off_or_shadow -> insert_tenant_wide_row!(group_id, role, prefix)
+    end
+  end
+
+  defp insert_tenant_wide_row!(group_id, role, prefix) do
     now = DateTime.utc_now()
 
     row = %{
@@ -146,23 +197,31 @@ defmodule Letflow.Identity.RoleScopeGrants do
   The ensure/repair path for an EXISTING binding (SEC B1): inserts the tenant-wide row only
   when (`:group`, `group_id`, `role`) has no row of any `tenant_wide` value, i.e. exactly when
   the binding is in T9's result; otherwise writes nothing and returns `:covered`. A group
-  holding only scoped rows is never widened to tenant-wide.
+  holding only scoped rows is never widened to tenant-wide. REQ-519: in an `on` tenant it never
+  inserts; a binding with no row answers `{:skipped, :enforced}`.
 
   Precondition: the caller holds the tenant admin lock (every binding writer and the backfill
   take it first). Raises `ArgumentError` outside a transaction.
   """
   @spec repair_group_row!(group_id :: Ecto.UUID.t(), role :: String.t(), prefix :: String.t()) ::
-          :inserted | :covered
+          :inserted | :covered | {:skipped, :enforced}
   def repair_group_row!(group_id, role, prefix) when is_binary(prefix) do
     ensure_in_transaction!("repair_group_row!/3")
+    repair_row!(group_id, role, prefix, ScopeEnforcement.mode_under_lock!(prefix))
+  end
 
-    if Repo.exists?(group_rows(group_id, role), prefix: prefix) do
-      :covered
-    else
-      case ensure_tenant_wide_group_row!(group_id, role, prefix) do
-        :inserted -> :inserted
-        :exists -> :covered
-      end
+  defp repair_row!(group_id, role, prefix, mode) do
+    cond do
+      Repo.exists?(group_rows(group_id, role), prefix: prefix) -> :covered
+      mode == :on -> {:skipped, :enforced}
+      true -> repair_insert!(group_id, role, prefix)
+    end
+  end
+
+  defp repair_insert!(group_id, role, prefix) do
+    case insert_tenant_wide_row!(group_id, role, prefix) do
+      :inserted -> :inserted
+      :exists -> :covered
     end
   end
 
@@ -182,8 +241,9 @@ defmodule Letflow.Identity.RoleScopeGrants do
   @doc """
   Re-points every row of (`:group`, `from_group_id`, `role`) to `to_group_id` (the rows follow
   a rebound binding). First deletes any stale row already on (`:group`, `to_group_id`,
-  `role`), so the unique indexes cannot fire; when no row moved, repairs the target with
-  `repair_group_row!/3`. Returns the moved count. Raises `ArgumentError` outside a
+  `role`), so the unique indexes cannot fire; in `off`/`shadow`, when no row moved, repairs
+  the target. Returns `{:moved, count}`; in an `on` tenant, when no row moved there is NO repair
+  fallback and the answer is `{:skipped, :enforced}`. Raises `ArgumentError` outside a
   transaction.
   """
   @spec move_group_rows!(
@@ -191,9 +251,20 @@ defmodule Letflow.Identity.RoleScopeGrants do
           from_group_id :: Ecto.UUID.t(),
           to_group_id :: Ecto.UUID.t(),
           prefix :: String.t()
-        ) :: non_neg_integer()
+        ) :: {:moved, non_neg_integer()} | {:skipped, :enforced}
   def move_group_rows!(role, from_group_id, to_group_id, prefix) when is_binary(prefix) do
     ensure_in_transaction!("move_group_rows!/4")
+
+    move_rows!(
+      role,
+      from_group_id,
+      to_group_id,
+      prefix,
+      ScopeEnforcement.mode_under_lock!(prefix)
+    )
+  end
+
+  defp move_rows!(role, from_group_id, to_group_id, prefix, mode) do
     _cleared = remove_group_rows!(to_group_id, role, prefix)
 
     {moved, _} =
@@ -203,9 +274,17 @@ defmodule Letflow.Identity.RoleScopeGrants do
         prefix: prefix
       )
 
-    if moved == 0, do: _ = repair_group_row!(to_group_id, role, prefix)
+    cond do
+      moved > 0 ->
+        {:moved, moved}
 
-    moved
+      mode == :on ->
+        {:skipped, :enforced}
+
+      true ->
+        _ = repair_insert!(to_group_id, role, prefix)
+        {:moved, 0}
+    end
   end
 
   @doc """

@@ -67,6 +67,15 @@ Under scope enforcement a user who holds a task route only through scoped grants
 
 The RA-13 exemption is separate: a principal who holds the permission a task route is classified under tenant-wide (any role, a token principal, a platform admin) is exempt from the TASK_WORKER grant requirement, because tenant-wide on that permission is already tenant-wide authority over the route. The test is exactly whether the principal is allowed the route permission tenant-wide, never a role name. The routing-role checks stay in force for the exempt principal. A scoped TASK_WORKER whose grant does not cover the task is also exempt when the same user holds the permission tenant-wide through another role.
 
+## Creating role bindings while scope enforcement is on
+
+While a tenant's scope enforcement is `on`, no binding writer creates a tenant-wide grant row (REQ-519).
+
+- `POST /roles` that would create a platform-role binding (a new binding, or a routing-role binding converted to a platform role) answers 409 `scope_required` and writes nothing except one `binding.refused` audit entry. Remedy: create the binding before enforcement is turned on, or set enforcement to off with a reason, create it, narrow its scope (stage-2 grants), and enable it again through the gate.
+- Some writers still run but write NO grant row and say so: a repair of an existing binding that has no row, a rebind where no row moved, the platform-role seeding of a missing binding (the audit entry carries `rows = skipped_enforced`), the tenant-admin migration (the whole tenant is reported `skipped_enforced`), and the grant-row backfill (`skipped_enforced`, not an error). `POST /roles` and `POST /roles/:id/rebind` add `"grant_rows": "skipped_enforced"` to the body in that case only.
+- Such a binding has no grant row, so its holders are denied until an admin grants scope. The integrity report (`GET /api/v1/tenant/scope-enforcement/integrity`, `bindings_without_row`) shows it, and it blocks a later flip to `on`.
+- If the tenant's enforcement mode cannot be read, a binding write fails with a server error and writes nothing (it never proceeds as `off`).
+
 ## Matrix
 
 Format, parsed by the REQ-448 parity test: one row per permission; first column the permission atom

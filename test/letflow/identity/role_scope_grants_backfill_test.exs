@@ -104,7 +104,8 @@ defmodule Letflow.Identity.RoleScopeGrantsBackfillTest do
                   tenant_id: fx.tenant_id,
                   platform_role_bindings: binding_count(s),
                   group_rows_inserted: 0,
-                  bindings_without_row_after: 0
+                  bindings_without_row_after: 0,
+                  skipped_enforced: false
                 }}
 
       assert rows(s) == rows_before
@@ -217,7 +218,8 @@ defmodule Letflow.Identity.RoleScopeGrantsBackfillTest do
                 %{
                   tenant_id: fx.tenant_id,
                   platform_role_bindings: binding_count(s),
-                  bindings_without_row_before: 1
+                  bindings_without_row_before: 1,
+                  skipped_enforced: false
                 }}
 
       assert queries != []

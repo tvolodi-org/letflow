@@ -1,0 +1,94 @@
+{
+  "handoff_id": "d2535519-0519-4c02-9e11-000000000005",
+  "run_id": "WF02-REQ519-ENFORCED-WRITERS-20261018",
+  "workflow_id": "WF-02",
+  "step": "05",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGN-VALIDATOR",
+  "file": "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-05-cdv-recheck-r2.json",
+  "created_at": "2026-10-18T15:55:00Z",
+  "started_at": "2026-10-18T15:55:00Z",
+  "completed_at": "2026-10-18T15:59:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [
+      "REQ-519"
+    ],
+    "requirement_text": {
+      "REQ-519": "22 ACs (2e: 1-7, 2f: 8-20, both: 21, 2f: 22 SEC C-1/C-2); depends_on REQ-518, REQ-517. docs/requirements.yaml line 36798."
+    },
+    "source_text": {
+      "GH#2535": "Diff-check of design r2 against SEC design-gate required changes C-1..C-7 and the 2e-a build brief."
+    },
+    "related_handoff_ids": [
+      "d2535519-0519-4c02-9e11-000000000003",
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-04-security-reviewer-design.json"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/req519-enforced-writers-and-flag-on.md",
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-01-code-designer.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ519-ENFORCED-WRITERS-20261018"
+  },
+  "task": {
+    "description": "WF-02 re-check of REQ-519 design r2 against step-04 SEC design verdict."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "All of C-1..C-7 are present and consistent in r2; nothing contradicts the 2e-a brief. One tiny defect affecting 2e-a fixed directly (rev r2a): the Backfill dry run is not in a transaction, so it cannot call mode_under_lock!/1 (raises outside a transaction); 3.6a now says it uses ScopeEnforcement.get_mode/1. GO for 2e-a.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "lib/letflow/design/req519-enforced-writers-and-flag-on.md (rev r2a)"
+    ],
+    "independent_verification": {
+      "C-1": "3.2: production raises ModeUnavailableError for a failed read, malformed prefix and missing tenants row; lenient :off only behind test-only key :scope_mode_lenient_for_tests (config/test.exs only, scan + prod Config.Reader test, constant log line, no prefix), key dropped if no test needs it; replaces the r1 S-1b softening; F16 and INV-1 rows consistent (T-L1/T-L4).",
+      "C-2": "3.2a: raised read rolls the whole write back; upsert_role/rebind_role return {:error, {:transaction_failed, _}}; sync rescues and returns original user with marker nil; sweeps report that tenant's error, never write for it; T-L7, MU-48.",
+      "C-3": "3.9 step 2: roles each candidate group binds read after lock A inside :memberships; routing roles ignored by would_widen?; resolve_group_ids signature unchanged.",
+      "C-4": "4.4 fact 4 uses new count_interactive_explicit_tenant_wide_admins/1; OQ-5 default updated; T-G4 case.",
+      "C-5": "4.2 500 row logs scope_enforcement_flip_failed once; T-H10; rescue encloses OnGate.evaluate.",
+      "C-6": "4.2a T-O7 platform tenant on.",
+      "C-7": "sections 1 (per-PR verdict list), 6, 4.10, 11, 13 carry ruling ids and the ON_IN_PRODUCTION text.",
+      "S-1_seeding_audit": "3.6: role_binding.created kept, fixed key rows = skipped_enforced only in on; absent in other modes so existing payload tests unchanged.",
+      "brief_2e-a": "writer mode under lock A, reconcile result type, registry + six-function scan, scope_required refusal + binding.refused, seeding no-row, TAM skip, Backfill skip: all consistent with r2."
+    },
+    "findings": [
+      {
+        "id": "R2-1",
+        "severity": "LOW (fixed)",
+        "where": "3.6a dry run",
+        "problem": "Dry run has no transaction; mode_under_lock!/1 raises ArgumentError outside one.",
+        "required_change": "Fixed: dry run reads via ScopeEnforcement.get_mode/1 (snapshot), absent/unreadable reports false, never errors."
+      },
+      {
+        "id": "R2-2",
+        "severity": "NOTE for ELIXIR-DEV",
+        "where": "3.2",
+        "problem": "ELIXIR-DEV decides whether the lenient test key is needed: grep test/ for binding-writer calls on schemas without a tenants row (role_registry_test.exs, simulation tests); if none, do not build the key.",
+        "required_change": "None."
+      }
+    ],
+    "ac_coverage": {
+      "covered": "unchanged from step 03",
+      "no_implementation_code": "verified",
+      "no_tbd": "verified"
+    },
+    "claims_checked_and_true": [
+      "r2 changelog items present in the cited sections"
+    ],
+    "design_edits_made": [
+      "3.6a dry-run mode read",
+      "changelog row r2a"
+    ],
+    "open_question_judgement": "OQ-5 default now YES with interactive count; accepted by SEC.",
+    "orch_actions": [
+      "2e-a may proceed on r2a.",
+      "registry.json entry still missing (H5)."
+    ],
+    "reroute": null
+  }
+}
