@@ -42,7 +42,11 @@ defmodule Letflow.Scripts.SeedVortexEntitiesActivateTest do
   defp bash, do: System.get_env("UAT_PF_BASH") || System.find_executable("bash")
   defp path_sep, do: if(match?({:win32, _}, :os.type()), do: ";", else: ":")
 
-  defp run_seed(by_name_status) do
+  defp run_seed(by_name_status), do: by_name_status |> prepare_seed() |> exec_seed()
+
+  # Split so a test can prepare several runs (on_exit must be registered from the test
+  # process) and then execute them concurrently.
+  defp prepare_seed(by_name_status) do
     dir = Path.join(System.tmp_dir!(), "iss0931-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     on_exit(fn -> File.rm_rf(dir) end)
@@ -70,12 +74,16 @@ defmodule Letflow.Scripts.SeedVortexEntitiesActivateTest do
     harness_file = Path.join(dir, "harness.sh")
     File.write!(harness_file, "set -euo pipefail\n" <> harness)
 
+    %{dir: dir, log: log, harness_file: harness_file, by_name_status: by_name_status}
+  end
+
+  defp exec_seed(%{dir: dir, log: log, harness_file: harness_file, by_name_status: status_in}) do
     {out, status} =
       System.cmd(bash(), [harness_file],
         env: [
           {"PATH", dir <> path_sep() <> System.get_env("PATH")},
           {"STUB_LOG", log},
-          {"STUB_BY_NAME_STATUS", by_name_status},
+          {"STUB_BY_NAME_STATUS", status_in},
           {"TMPDIR", dir}
         ],
         stderr_to_stdout: true
@@ -109,5 +117,33 @@ defmodule Letflow.Scripts.SeedVortexEntitiesActivateTest do
       assert status == 0, out
       refute calls =~ "/activate"
     end
+  end
+
+  test "two seeds running at the same time do not see each other's by-name answer (GH #2826)" do
+    if available?() do
+      # An 'inactive' run and an 'active' run share nothing but the machine: before the fix both
+      # wrote /tmp/vortex_entity_def_check.json and one could read the other's answer.
+      for _ <- 1..6 do
+        inactive = prepare_seed("inactive")
+        active = prepare_seed("active")
+
+        [inactive_task, active_task] =
+          for prepared <- [inactive, active], do: Task.async(fn -> exec_seed(prepared) end)
+
+        {out_i, status_i, calls_i} = Task.await(inactive_task, 60_000)
+        {out_a, status_a, calls_a} = Task.await(active_task, 60_000)
+
+        assert status_i == 0, out_i
+        assert status_a == 0, out_a
+        assert calls_i =~ ~s(/activate {"rationale":")
+        refute calls_a =~ "/activate"
+      end
+    end
+  end
+
+  test "the script never writes the definition check to a fixed shared /tmp path" do
+    # Concurrent tests (and concurrent seed runs) share /tmp; a fixed path let one run
+    # overwrite another's by-name answer (CI flake on the 'inactive draft' test).
+    refute File.read!(@script) =~ "/tmp/vortex_entity_def_check.json"
   end
 end
