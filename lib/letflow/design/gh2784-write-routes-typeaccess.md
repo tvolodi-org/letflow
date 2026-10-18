@@ -19,8 +19,13 @@ type travels the SAME code and renders the SAME bytes as an absent one by constr
 point today. The decision is computed FIRST (so the managed 403 can never reveal a denied type) but is APPLIED last. A restricted written
 key is refused with the #2697 constant 403 (POST, PUT) or the #2659 per-entry `field_restricted` (both imports). PUT, which replaces
 `field_values` wholesale, is refused for any actor holding any restricted field on the type (fail closed, the PUT analogue of the upsert
-rule). DELETE needs the type gate only. `ImportUpsert.precheck/3` is refactored onto the same gate so there is one implementation.
-Two PRs (section 11).
+rule). DELETE (and POST) responses of an open type are rendered through `FieldGrants.redact_field_values/2` for an actor with restricted
+fields, because `record_map/2` renders `field_values` unredacted today (section 4). `ImportUpsert.precheck/3` is refactored onto the same
+gate so there is one implementation. Denied == absent is claimed at the level of CALLS and RESPONSE BYTES (same four gate calls, then identical
+code), not total SQL statements: the existing-vs-missing definition read is the #2700-accepted residual (SECURITY R6). Two PRs, attachments
+first (section 12).
+
+Revision 2 (2026-10-18): folds CDV findings F1-F7 of the verdict on `e4f2d438`.
 
 ## 1. Findings: every write route, re-grepped on main `27274bd2` (AC 1)
 
@@ -31,7 +36,7 @@ distinguish denied from absent and needs no change.
 |---|---|---|---|---|
 | 1 | `POST /records/:entity_type` `:EntitiesRecordsWrite` (:311) | `handle_create_record` :1018 -> `create_record_unmanaged` :1022 | `guard_tenant_write/3` (:2972, managed 403) only; no TypeAccess, no FieldGrants | `RecordAccess.write/3` decision; hidden -> 404, restricted key -> 403 |
 | 2 | `PUT /records/:entity_type/:record_id` `:EntitiesRecordsWrite` (:315) | `handle_update_record` :1083 -> :1089 | managed guard only | decision; hidden -> 404, actor has any restricted field -> 403 |
-| 3 | `DELETE /records/:entity_type/:record_id` `:EntitiesRecordsWrite` (:319) | `handle_delete_record` :1155 -> :1161 | managed guard only | decision; hidden -> 404; no field check |
+| 3 | `DELETE /records/:entity_type/:record_id` `:EntitiesRecordsWrite` (:319) | `handle_delete_record` :1155 -> :1161 | managed guard only | decision; hidden -> 404; no field-key check, but the response `field_values` are redacted for a restricted actor (section 4) |
 | 4 | `POST /records/:entity_type/import` `:EntitiesRecordsImport` (:332) | `handle_import_records` :1234 -> :1238; create mode `run_import*` :1353-1424; upsert mode `ImportUpsert` | managed guard; upsert mode alone has TypeAccess + FieldGrants (`precheck/3`, import_upsert.ex:90); create mode has neither | decision for both modes; create mode gains hidden fold + per-entry `field_restricted`; upsert reuses the same decision |
 | 5 | `POST /records/:entity_type/:record_id/attachments` `:EntitiesAttachmentsManage` (:390) | `handle_create_record_attachment` :1676 | NO gate at all (not even managed; #2582 left attachments out of managed scope) | `RecordAccess.attachment/3`; hidden -> 404 |
 | 6 | `GET /records/:entity_type/:record_id/attachments` `:EntitiesAttachmentsRead` (:394) | `handle_list_record_attachments` :1762 | none | hidden -> the absent answer, 200 empty page |
@@ -94,7 +99,8 @@ Types:
 
 Functions (signatures only):
 - `write(user_id :: String.t(), entity_type :: String.t(), prefix :: String.t()) :: write_decision()`. Total (never raises on a well-typed call,
-  never returns an error tuple). Performs, in this order and ALWAYS all four, with no short-circuit and no branching on an earlier result:
+  never returns an error tuple). Makes, in this order and ALWAYS all four CALLS, with no short-circuit and no branching on an earlier result
+  (the number of SQL statements inside a call is not constant, see I1):
   (i) `ManagedTypes.owner_of/2`; (ii) `TypeAccess.authorized?/3`; (iii) `Definitions.get_active_definition_by_name/2`;
   (iv) `FieldGrants.load_restrictions/3`. Then ONE decision: `:hidden` when (ii) is not `{:ok, :allowed}` OR (iii) is not `{:ok, _}` OR (iv) is
   not `{:ok, _}` OR (i) is an error (every failed read fails closed to hidden, like `precheck/3`); else `:managed` when (i) is `{:ok, _module_id}`;
@@ -112,7 +118,13 @@ Functions (signatures only):
   `update_record/2`, `delete_record/2` return for an absent type. The one definition of "what absent looks like" to the renderers.
 
 Invariants (each gets a unit test in `test/letflow/entities/record_access_test.exs`):
-- I1 `write/3` executes exactly four reads per call, whatever the outcome (denied, absent, managed, open, restriction rows present or not).
+- I1 `write/3` makes the same four calls (owner_of, authorized?, get_active_definition_by_name, load_restrictions), in that order, whatever the
+  outcome and whatever earlier calls returned; the code after the gate is identical for denied and absent. The statement count inside the calls
+  is NOT constant and is not claimed: `get_active_definition_by_name/2` (definitions.ex:318-340) does the tenant lookup plus
+  `Activation.resolve` and, only for an existing type, a version read and a definition read; `ManagedTypes.owner_of/2` issues 0 queries for a
+  name failing the managed-name format and 2 otherwise. This existing-vs-missing definition read is the same residual #2700 accepted (SECURITY
+  R6); it is not a denied-vs-absent signal because a denied existing type and an absent type both reach it with the type's own existence
+  (a denied type exists, an absent one does not, so THIS residual remains and is stated, not hidden).
 - I2 `write/3` for a denied type and for an absent type returns the identical term `:hidden` (a denied type that is also managed, and one that has
   field restrictions, still returns `:hidden`).
 - I3 `write/3` returns `{:open, restricted}` only when TypeAccess allows AND an active definition exists AND the type is unmanaged.
@@ -128,8 +140,9 @@ Per record write handler, in this order (handler = the existing `*_unmanaged` fu
 existing body that now receives the decision):
 
 1. Route-level `authz_*` permission gate (unchanged; independent of the type).
-2. `decision = RecordAccess.write(user_id, entity_type, prefix)` computed FIRST, before the body, path id or query string is read. All four
-   reads happen here, unconditionally, so the database work up to this point is identical for denied, absent, managed and open types.
+2. `decision = RecordAccess.write(user_id, entity_type, prefix)` computed FIRST, before the body, path id or query string is read. The same four
+   calls happen here, unconditionally and in the same order for denied, absent, managed and open types (statement counts inside the calls
+   differ, I1).
 3. `decision == :managed` -> `Response.send_problem(conn, Error.entity_type_managed())`, exactly today's guard answer and today's position
    (before the body is read). Reached only for a type that is visible to the caller and has an active definition, so the 403 can never reveal a
    denied type. `{:error, :invalid_schema_name}`-style 500 of the old guard disappears: a failed read is `:hidden` (INV-1 makes it unreachable).
@@ -142,8 +155,10 @@ existing body that now receives the decision):
      `Response.not_found(conn)`: status, headers and body are produced by the same function as for an absent type.
    - `{:open, restricted}` -> the field checks of section 4, then `Records` exactly as today.
 6. An ABSENT type is `:hidden` too (no active definition), so absent and denied do not just render equally, they execute the same
-   statements: the gate's four reads, the same step-4 code, then the substitution. The residual difference of an absent type in the old code
-   (one extra definition read inside `Records`) disappears because neither calls `Records`.
+   code: the gate's four calls, the same step-4 code, then the substitution. Neither reaches `Records`, so neither reaches
+   `EntityTypeInstance.get_or_create` (records.ex:955-957, the first write-capable step of `run_command`): a hidden write creates no synthetic
+   instance row either. The one remaining difference is the existing-vs-missing definition read inside `get_active_definition_by_name/2`
+   (I1), the residual #2700 accepted (SECURITY R6).
 
 Per-route denial answer (a write has no 200-empty analogue; the answer is whatever an absent type gets, which is the generic 404 except for
 two route-shaped cases):
@@ -158,8 +173,8 @@ two route-shaped cases):
 
 A caller that LACKS the route permission still gets the route-level 403 for every type including absent ones; the type does not influence it.
 
-Timing: denied and absent run the same statements (point 6). The visible-type path adds the four gate reads to today's work (cost in section 9),
-which is not a denied-vs-absent signal.
+Timing: denied and absent run the same calls and the same code after the gate (point 6); the I1 residual is stated, not claimed away. The
+visible-type path adds the four gate calls to today's work (cost in section 8), which is not a denied-vs-absent signal.
 
 Byte-identity scope: status, headers and body of `Response.not_found/1` are a function of nothing request-specific except `trace_id` (and the
 Problem `instance` member if the shaper echoes the path; the tests normalise only those two, as #2659's `strip_trace/1` does, and also compare
@@ -174,8 +189,9 @@ restricted value, no event, no key claim.
 | Route | Rule | Answer |
 |---|---|---|
 | POST create | `names_restricted?(field_values, restricted)` | 403 `Response.forbidden(conn, "one or more requested fields are restricted for this caller")`: the #2697 constant. The detail string becomes one shared module attribute used by `render_query_error` (:2739) and the new write renderer, so the two cannot diverge. No field name, type name or value in the body or logs |
-| PUT replace | `MapSet.size(restricted) > 0`, whatever the body (decided before any record lookup) | the same 403 |
-| DELETE | none | n/a |
+| PUT replace | `MapSet.size(restricted) > 0`, whatever the body (decided before any record lookup, AFTER id cast and body validation, see the pinned order below) | the same 403 |
+| DELETE | no key check (no body); the RESPONSE is redacted | 200 with `field_values` passed through `FieldGrants.redact_field_values/2` |
+| POST / DELETE success body | for `{:open, restricted}` with `restricted` non-empty | `record_map` output redacted the same way (see 4.1) |
 | Import create mode | per entry: `names_restricted?(entry.field_values, restricted)` | that entry's result `{"status":"error","reason":{"type":"field_restricted"}}` (reason already in `ImportUpsert.error_reasons/0`, rendered by `import_reason_json/1`, :1506); other entries proceed; HTTP 200 as today |
 | Import upsert | unchanged (`ImportUpsert.check_restrictions/3`, now calling `names_restricted?/2`) | unchanged |
 
@@ -190,14 +206,45 @@ field_restricted`) applied where "matching existing record" cannot be known with
 admin included) with an ungranted restricted field on a type cannot PUT records of that type through this route; the remedy is a field grant,
 same as for the upsert import. POST of a record that does not mention a restricted field still works.
 
-DELETE: no field check. Delete is a record-lifecycle operation, not a field write: it is soft (`delete_record` appends `ENTITY_RECORD_DELETED`,
-sets `deleted: true`, keeps `field_values` unchanged), it neither reads nor sets a restricted value, and its response is `record_map` of the
-caller's own redactable view. Requiring field grants would make records of any partly-restricted type undeletable by ordinary operators without a
-confidentiality gain. The type gate (section 3) still applies. Flagged for SECURITY-REVIEWER ruling (OQ-2).
+DELETE (CDV F1, BLOCKER, supervisor prio 1): the earlier claim that DELETE "neither reads nor sets a restricted value" and returns the
+caller's "own redactable view" was WRONG. `Records.delete_record` returns the existing row with `field_values` unchanged (records.ex
+~648-660; an already-deleted record returns the same row), and `render_record_command/3` (:1595-1603) renders it through `record_map/2`
+(:2934-2944), which applies `Decimals.render_field_values` and NO `FieldGrants` redaction. `entities_decimal_strict_reads_test.exs:775-777`
+shows the DELETE body carries `field_values`. So today any caller with `EntitiesRecordsWrite` who knows a record id reads every restricted
+field with one DELETE (and re-DELETE of a deleted record repeats it). Decision: DELETE is allowed for an actor with restricted fields, but
+its response MUST be redacted (refusing was weighed and rejected: it would make partly-restricted types undeletable by ordinary operators;
+the delete itself reads and sets nothing). Rule, shared by every `{:open, restricted}` success rendering: when `restricted` is non-empty,
+`record.field_values` is passed through `FieldGrants.redact_field_values/2` (value becomes the `__field_redacted__` sentinel, the #2697 /
+REQ-231 read-side behaviour) BEFORE `Decimals.render_field_values`, in the same order the read routes use. `render_record_command/3` gains the
+restriction set as an argument (or the redaction is applied to the `Latest` before it); `:hidden` never reaches it. The redaction applies on
+the first delete, the re-delete (no-op success of an already-deleted record) and on POST (create may echo defaulted restricted fields). PUT
+needs none (refused for these actors). The stored event and row are untouched; this is rendering only (INV-2).
 
-The order of the restricted-field refusal against body validation, for a visible type: validation errors (400/422) first, then the refusal, then
-`Records` (a restricted-key body that is also malformed is the validation error, which depends only on the body). Against the key-claim window:
-the refusal precedes `put_legacy_original`'s result being used; the read itself still runs (no behaviour difference visible to anyone).
+### 4.1 Sweep of every renderer of record `field_values` (supervisor ruling b)
+
+Grep `record_map(`, `"field_values" =>` over `lib/` on `27274bd2`:
+
+| Renderer | Used by | Redaction today | Decision |
+|---|---|---|---|
+| `record_map/2` (:2934) via `render_record_command/3` (:1595, :1603) | POST, PUT, DELETE (and re-DELETE) | NONE | FIX in PR A (above) |
+| `record_map/2` via `query_item_map/2` (:2847) | `/query` | yes: `redact/3` (:2087-2108) on the page before shaping | none |
+| `entity_row_map/2` (:2896-2902) | `/query` promoted rows | yes (same `redact_page`) | none |
+| `export_record_map/2` (:2643-2660) | export | yes (`export_redact`, :2468) except `unredacted: true`, which needs `EntitiesRecordsExportUnredacted` and is audited (`audit_exempted`) | none |
+| import result JSON (`import_entry_result_json`, :1436-1465) | import | echoes `record_id`/`source_record_id`/`outcome`/`external_ref` only, never `field_values` | none |
+| `exam_row_json/1` (modules/exam/router.ex:1005-1020) | exam list | NONE by design (comment ~:392: no restriction row for type `exam`) | finding: not a caller of the generic gate; unredacted if an operator later adds a row for `exam`. Listed, not changed here (OQ-10) |
+| `ScriptReads` (entities/script_reads.ex:179, :302) | script reads | restricted fields excluded by policy (`Scripts.Policy`) | none |
+| Record history / audit / webhook / DLQ copies of event `field_values` | decision 0059, REQ-516 | n/a (route not built) | already tracked by 0059 / #2701; instances routes hide the synthetic instances (#2702) |
+
+So A fixes the one unredacted generic caller (`render_record_command/3`); the rest are covered or tracked elsewhere.
+
+PINNED order, one place (CDV F4), for a visible (`{:open, restricted}`) type:
+- POST: body parse (400) -> schema (422) -> idempotency key (422) -> restricted KEY 403 -> `Records`.
+- PUT: record id cast (404) -> body parse (400) -> schema (422) -> idempotency key (422) -> restricted-SET 403 (any restricted field on the type,
+  whatever the body) -> `Records`.
+- DELETE: record id cast (404) -> `expected_last_event_global_seq` (400) -> `Records` -> redacted response.
+- Import create: caps and checks as today -> per entry restricted key `field_restricted` -> `Records`.
+The refusal never precedes validation, so validation errors depend only on the request; `put_legacy_original`'s read still runs before it.
+A `:hidden` decision replaces ALL of the restricted steps (a denied type never reveals field restrictions).
 
 ## 5. Import (decision (5): ONE gate, no second implementation)
 
@@ -257,11 +304,12 @@ denied path runs the same code as the absent path, not a parallel one:
   (`log_infected_upload_attempt`) logs the caller's type and the substituted id; identical in shape to the absent case, no new tenant data.
 - List: `:hidden` -> `EntityAttachments.list/2` called with the substituted `record_id`: an empty page, with the same page-size / cursor
   validation errors (400 / 422) as for an absent record. Absent-type bytes: `{"items": [], "next_cursor": null}` with 200.
-- Content GET: `:hidden` -> the handler still performs `EntityAttachments.get_content/2` (same statements), then discards its result and
-  answers `{:error, :not_found}` -> 404. This also folds `:content_missing` (500) and `:not_available` (409) into 404, which is what an absent
-  type with that attachment id gives (no such attachment row under that type).
-- Delete: `:hidden` -> `fetch_scoped_record_attachment_metadata` still runs, its result is discarded, `EntityAttachments.delete/2` is NOT called,
-  answer 404.
+- Content GET (CDV F3): `:hidden` -> the handler continues unchanged with BOTH `record_id` (after the cast) and `attachment_id` replaced by
+  freshly generated UUIDs, so `get_content/2` looks up a row that cannot exist and returns `{:error, :not_found}` -> 404, exactly the
+  absent-attachment path. No get-and-discard, nothing loads `repository_artifacts` bytes for a denied type, and `:content_missing` (500) /
+  `:not_available` (409) can never surface for it.
+- Delete (CDV F3): `:hidden` -> same substitution of `attachment_id`; `fetch_scoped_record_attachment_metadata` finds nothing -> 404 and
+  `EntityAttachments.delete/2` is never reached.
 No managed check is added (attachments on managed types are deliberately out of managed scope, #2582) and no field-restriction check (an
 attachment is not a `field_values` document, router :1952-1960 INV-2 comment). No change to `EntityAttachments`.
 
@@ -279,15 +327,19 @@ change. Re-grep result (implementer re-runs and quotes it in the PR):
 - `web/src/api/entities.ts` (:61-90) is the only SPA caller (`EntityCrudPage.tsx`): a user with a restricted field on a type now gets 403 on
   edit (PUT) and on create when the form submits a restricted key; before it silently wrote the sentinel/erased the value. A user type-denied
   cannot navigate to the type at all. No `web/` change is required for correctness; a friendlier 403 message is a FRONTEND follow-up (OQ-9).
+- Caller grep results (CDV F7, recorded; implementer re-runs): `scripts/seed_vortex_entities.sh` is the ONLY script writing records over HTTP;
+  `web/src/api/entities.ts:61-90` the only SPA caller; `test/letflow/scripts/seed_scripts_no_argv_payload_test.exs` runs the seed script under a
+  stub `curl` with NUMBERED invocations (~:551+), so the new `lookup_user_id` call and the grant payload shift the numbering and must be
+  reflected; `test/scripts/seed_vortex_entities_activate_test.exs` also runs it.
 - BREAKING for `scripts/seed_vortex_entities.sh`: step 2 restricts `shipment_manifest` (type, no grant for the seeder) and
   `production_batch.cost_figure` (grant only for Anna); step 3 then imports as the admin token. After this change step 3 gets 404 for
   `shipment_manifest` (`curl -sf` exits non-zero) and a 200 with per-entry `field_restricted` for `production_batch` rows carrying `cost_figure`
   (silent partial seed). Fix in PR A: the script resolves the seeding actor with its existing `lookup_user_id` (a new required
-  `SEED_ACTOR_USERNAME`) and adds that user to the `type_grants` / `field_grants` of the same restrictions import; it also fails loudly on any
+  `SEED_ACTOR_USERNAME`, which MUST name a DEDICATED non-persona account: if it were Karl, Anna or an admin persona the UAT redaction/denial scenarios depend on, the grant would defeat them) and adds that user to the `type_grants` / `field_grants` of the same restrictions import; it also fails loudly on any
   `status: "error"` entry (today it ignores the response body). `test/scripts/seed_vortex_entities_activate_test.exs` and
   `test/letflow/scripts/seed_scripts_no_argv_payload_test.exs` are the existing tests around it; the implementer greps for others. (As a side
   note, since #2700 the script's `existing_keys_for` pre-check on `shipment_manifest` already returns empty for a denied seeder, so its
-  idempotency was already broken; the grant repairs that too.) Needs supervisor acknowledgement because it touches a UAT seed (OQ-4).
+  idempotency was already broken; the grant repairs that too.) RESOLVED (supervisor 2026-10-18/19, OQ-4). The PR body must state that any RESEED of QA is UAT-class and needs a written APPROVE from letflow-2.
 - Existing tests that restrict a type/field and then write records through HTTP (to be re-grepped by the implementer): `entities_test.exs` (insert_field_restriction! at :1479-:2066,
   insert_type_restriction! at :2691-:2904 use `Records` or the read routes for their writes per my read, to be re-grepped), 
   `entities_answer_key_field_leak_test.exs`, `bilimbaga_solution_e2e_test.exs`, the REQ-317 attachment route tests (no restrictions
@@ -319,6 +371,13 @@ has NO type `X`. Same request (same method, path, body, headers) to both; compar
 with `trace_id` removed (and `instance` removed only if present). Because the path is identical, no other normalisation is needed. A second
 variant uses an absent name in the same tenant.
 
+Per-route RED expectations on main (these must FAIL before the change; quote the run): denied-vs-absent for POST, PUT, DELETE, import create
+and import-create-empty (items 1, 2 where a denied type is written or answers differently, 3, 5: today a denied type is simply written);
+managed-denied (3: 403 vs 404); restricted-key POST/PUT/import-create (8: written today); DELETE and POST redaction (8: the real value is
+returned today); attachments upload/list/content/delete denied vs absent (today a denied type works like any other). GREEN on main by design:
+allowed-caller goldens (7), precedence of malformed bodies on ABSENT types, and the existing upsert suite (10), which must stay green
+through the refactor.
+
 Per route (POST, PUT, DELETE, import create, import upsert, attachment upload, list, content, delete), all with the denied caller:
 1. denied vs absent byte-identical for a well-formed request (existing record id for PUT/DELETE/attachments, so the denied type really has
    data);
@@ -329,18 +388,25 @@ Per route (POST, PUT, DELETE, import create, import upsert, attachment upload, l
    still gets 403 `entity_type_managed` before the body is read (the existing gh2583 tests stay green);
 4. import create: empty `records` -> 200 `{"results":[]}` for denied == absent; non-empty -> 404 for both; a non-map first entry behaves the same
    for both; upsert mode -> 404 for both even with empty `records` and with a malformed first-entry ref (T14 style);
-5. no side effects on a denied request, by counting rows before and after: `events`, `entity_record_latest` (and any promoted-column table the
+5. no side effects on a denied request, by counting rows before and after (a hidden write never reaches `EntityTypeInstance.get_or_create`,
+   so also assert no `entity_type_instances` row is created for the denied type): `events`, `entity_record_latest` (and any promoted-column table the
    type has), event-store idempotency keys, `entity_record_attachments`, `repository_artifacts`, audit log rows; all equal; also assert no
    warning/error log line (`capture_log`) except the infected-upload warning, which is asserted equal to the absent case;
-6. query-count parity: a telemetry counter on `Repo` queries shows denied and absent execute the same number of statements per route;
+6. call-sequence parity (CDV F2): assert the gate makes the same four calls in the same order for denied and absent (a trace on the four
+   functions), and that the statements AFTER the gate are the same list for denied and absent (compare the post-gate query log, not the total
+   count; the existing-vs-missing definition read inside the gate is the stated I1 residual);
 7. an allowed caller (no restriction rows in the tenant, and with unrelated restriction rows) is unchanged: status and body equal to the
    pre-change golden for create/update/delete/import/attachments;
 8. field restrictions on an open type (actor holds none of the grants): POST naming a restricted key -> 403 with the constant detail and no event;
    POST naming only unrestricted keys -> 201; PUT with any restricted field on the type -> 403 whatever the body and whether the record exists
-   (no 404/403 difference between a live and a random record id); PUT for an actor WITH the grant -> 200 and the full replacement; DELETE by a
-   restricted-field actor -> 200/204 as today; import create with one entry naming a restricted key -> that entry `field_restricted`, others
+   (no 404/403 difference between a live and a random record id), with the pinned order: an invalid record id is still 404 and a malformed
+   body is still 400/422 BEFORE the 403; PUT for an actor WITH the grant -> 200 and the full replacement; DELETE by a
+   restricted-field actor -> 200 whose `field_values` carry `__field_redacted__` for every restricted field and never the stored value, also on
+   a re-DELETE of the already-deleted record; POST success echoes are redacted the same way; an actor WITH the grant sees the real values; import create with one entry naming a restricted key -> that entry `field_restricted`, others
    created, HTTP 200, the refused entry wrote nothing; a granted actor -> all created;
-9. precedence: denied AND restricted-key body -> 404 path (not 403); allowed + restricted key + malformed body -> the validation error;
+9. precedence: denied AND restricted-key body -> 404 path (not 403); allowed + restricted key + malformed body -> the validation error (POST and PUT alike, per the pinned order in section 4);
+11. attachments content GET / delete: a denied type with a real attachment id answers the same bytes as a random attachment id, and no
+    `repository_artifacts` content read is issued for it;
 10. upsert refactor regression: the full existing `entities_import_upsert_test.exs` suite stays green; the "one schema-version read per request"
     test still passes; add: a denied type with `upsert_by` and a tenant below CREATED v2 is 404, not 503 (hidden beats outdated).
 
@@ -348,23 +414,32 @@ Per route (POST, PUT, DELETE, import create, import upsert, attachment upload, l
 
 No route is added, removed or renamed; no policy key changes (the same nine `authz_*` lines at :311-:432). So
 `test/fixtures/route_scope/tenant_wide_default_routes.txt` (e.g. lines 3, 4, 23, 24, 85-88, 135) and `test/support/route_inventory.ex` need NO
-change, and the route-snapshot test must stay green untouched; if it goes red the change is wrong. `lib/letflow/routers/entities.ex` is a
-SECURITY-REVIEWER mandatory-trigger file (tenant data path, authorization; `authorized_router`/route-scope triggers are not hit because nothing
-about route scope changes).
+change, and the route-snapshot test must stay green untouched; if it goes red the change is wrong. Security triggers (CDV F6):
+`lib/letflow/routers/entities.ex` is NOT on the explicit mandatory list (`.claude/agents/security-reviewer.md:29-40`) but is in scope through
+the tenant-data-path and response-shaping bullets; `lib/letflow/api/authorization.ex` IS on the explicit list. The earlier plan to edit the
+`authorization.ex` moduledoc is DROPPED (the sentence goes in the router moduledoc table instead), so no PR here touches an explicit-list path.
 
-## 12. PR split (decision (9))
+## 12. PR split (decision (9); supervisor ruling a, 2026-10-18/19)
 
-Mandatory gates on each: SECURITY-REVIEWER (hard gate; authorization on a tenant data path), REVIEWER, scoped tests one file at a time, compile
-with warnings as errors, full-repo format check read by exit code. Neither PR holds a migration or an event-schema change. The repo rule is
-"one PR per issue"; two PRs are proposed because the second is independent and the first is already large (OQ-7). Both link #2784.
+Mandatory gates on each: SECURITY-REVIEWER (hard gate), REVIEWER, scoped tests one file at a time, compile with warnings as errors, full-repo
+format check read by exit code. No migration or event-schema change in either. `core-directives.md:699-700` allows several PRs per issue with a
+reason recorded in the PR body; the reason sentence for both bodies: "split because the record routes carry the confidentiality fix and the
+behaviour breaks (PUT, seed script) and must land first with their own SECURITY review; the attachment routes are independent code paths
+reusing the same gate." PR A body says "Refs #2784", PR B "Closes #2784" (as #2697 did).
 
-- PR A, ~450-600 changed lines plus tests: `RecordAccess` (+ unit tests), the four record handlers, `ImportUpsert.precheck/2` refactor and
-  `names_restricted?` adoption, router moduledoc and inheritance-rule rewrite, the shared 403 detail attribute, the seed script fix, test
-  updates. Closes AC 1, the type and field halves of AC 2 and 3 for routes 1-4.
-- PR B, ~150-250 changed lines plus tests: `RecordAccess.attachment/3` and the four attachment handlers (substitution), the attachment test
-  file. Closes AC 2 and 3 for routes 5-8. Depends on A only for the module; can be written in parallel on top of it.
-- Both: DOC-UPDATER notes in the router moduledoc table and `authorization.ex` moduledoc (the Write/Import/Attachments grants now also
-  require type access, one sentence each).
+Order decision: the validator suggested attachments first because list and content GET return denied-type bytes. Weighed against the DELETE
+leak: DELETE (and re-DELETE) returns every restricted FIELD value of any record to any `EntitiesRecordsWrite` caller who has a record id, a
+live leak independent of any type restriction; the attachment routes need an `EntitiesAttachmentsRead` grant and only matter for TYPE-denied
+types, a narrower population. The supervisor ruled DELETE first (A), recorded here.
+
+- PR A (lands FIRST, ~500-650 changed lines plus tests), closes the confidentiality gap on the record routes alone: `RecordAccess`
+  (`write/3`, `names_restricted?/2`, `hidden_result/1`) + unit tests; the response redaction of `render_record_command/3` (DELETE, re-DELETE,
+  POST echo; section 4); the four record handlers (hidden, managed ordering, restricted key, PUT blanket 403, import create per entry); the
+  `ImportUpsert.precheck` refactor; router moduledoc and inheritance-rule rewrite; the shared 403 detail attribute; the seed script fix and its
+  harness test updates. Closes AC 1 and AC 2/3 for routes 1-4. Needs SECURITY-REVIEWER before merge, not held for B.
+- PR B (~150-250 lines plus tests): `RecordAccess.attachment/3`, the four attachment handlers via substitution, the attachment test file;
+  closes AC 2/3 for routes 5-8 and the issue. Depends on A only for the module file.
+- Window: until B merges, attachments of type-denied types stay open; B follows in the next merge slot.
 
 ## 13. Risks
 
@@ -375,18 +450,21 @@ types as an admin (OQ-4). R4 four extra reads per write request. R5 a half-insta
 non-transactional gate/write window (section 8). R7 engine step writes and module handlers also lack TypeAccess (OQ-3), so a type-denied actor
 who can start a process whose step writes that type still writes it: out of scope here, to be filed.
 
-## 14. Open questions for the supervisor
+## 14. Rulings and open questions
 
-- OQ-1: PUT blanket 403 for any actor with a restricted field on the type (chosen) versus preserving unseen restricted values by merge
-  semantics (changes `update_record` and replay). Needs a ruling; the chosen option is the conservative one and matches the upsert rule.
-- OQ-2: DELETE without a field check, and DELETE of a record whose restricted fields the actor cannot see: confirm (SECURITY-REVIEWER).
-- OQ-3: should the definition write routes (`POST /definitions`, `/definitions/:name/activate`) and the engine step-write / module-handler
-  paths apply TypeAccess too (a type-denied actor with `EntitiesDefinitionsWrite` can create or activate a version of a type they cannot
-  read; a 409/200 difference may be an existence oracle)? Proposal: file one follow-up issue; not in this PR.
-- OQ-4: the seed script change (new required `SEED_ACTOR_USERNAME`, grants for the seeder) touches a QA/UAT seed; confirm, or choose instead to
-  seed records before restrictions (cannot be re-run safely).
-- OQ-5: confirm list and content-GET attachment routes are in scope (issue names them; they are reads and #2700 left them out).
-- OQ-6: precedence hidden > managed (a managed type with no active definition becomes 404 for allowed callers). Accept?
-- OQ-7: two PRs under one issue versus one large PR (repo rule is one PR per issue).
-- OQ-8: the 403 for a restricted key reuses the #2697 constant detail text (chosen) instead of a new `Error` constructor or a 422; confirm.
+RESOLVED (supervisor 2026-10-18/19), recorded as decisions:
+- OQ-1 RESOLVED: ship the blanket 403 for PUT by an actor holding ANY restricted field on the type now; letflow-2 files a follow-up issue for
+  merge semantics. UAT impact: non-Anna users editing `production_batch` (restricted `cost_figure`) lose PUT.
+- OQ-2 RESOLVED: DELETE allowed but REDACTED (section 4, F1).
+- OQ-3 RESOLVED: letflow-2 is the sole filer of ONE follow-up issue covering the definition write routes, `POST /restrictions/import` and
+  the engine step-write / module-handler paths; filed before PR A merges. Not filed by this note.
+- OQ-4 RESOLVED: required `SEED_ACTOR_USERNAME` (dedicated non-persona account), fail loud on any `status: "error"` entry, update the stub-curl
+  harness tests; any RESEED of QA is UAT-class and needs a written APPROVE from letflow-2 (stated in the PR body).
+- OQ-5 RESOLVED: attachment list and content GET are in scope.
+- OQ-6 RESOLVED: accept (a managed type with no active definition moves 403 -> 404 for allowed callers).
+- OQ-7 RESOLVED: two PRs, reason sentence in the bodies, A first (section 12).
+- OQ-8 RESOLVED: reuse the #2697 constant 403; per-entry `field_restricted` for imports.
+Still open:
 - OQ-9: FRONTEND follow-up for a friendly message on the new 403 (non-blocking).
+- OQ-10: `exam_row_json` returns record `field_values` with no redaction step (by design today); decide whether the exam module should apply
+  `FieldPolicy` if a restriction row for `exam` is ever added (not this PR).
