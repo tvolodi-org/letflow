@@ -97,7 +97,8 @@ defmodule Letflow.ScopeEnforcement do
           {:ok, stored_mode()} | {:error, :tenant_not_found}
   def get_mode(tenant_id) do
     with {:ok, id} <- Ecto.UUID.cast(tenant_id),
-         mode when mode in @stored_modes <-
+         # MUTANT N15: two-value guard
+         mode when mode in @modes <-
            Repo.one(from(t in Tenant, where: t.id == ^id, select: t.scope_enforcement)) do
       {:ok, mode}
     else
