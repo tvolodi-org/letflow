@@ -77,6 +77,7 @@ defmodule Letflow.Entities.Record.Projector do
   alias Letflow.Entities.Definition.DDL
   alias Letflow.Entities.Definitions
   alias Letflow.Entities.EntityTypeInstance
+  alias Letflow.Entities.ExternalRef
   alias Letflow.Entities.Record.Latest
   alias Letflow.EventStore
   alias Letflow.EventStore.Event
@@ -93,6 +94,8 @@ defmodule Letflow.Entities.Record.Projector do
           field_values: map(),
           deleted: boolean(),
           entity_def_version: binary(),
+          external_system: String.t() | nil,
+          external_id: String.t() | nil,
           last_event_global_seq: pos_integer(),
           last_event_sequence_number: pos_integer(),
           last_event_type: String.t()
@@ -279,7 +282,9 @@ defmodule Letflow.Entities.Record.Projector do
           record_id: snapshot.record_id,
           field_values: snapshot.field_values,
           entity_def_version: snapshot.entity_def_version,
-          last_event_global_seq: snapshot.last_event_global_seq
+          last_event_global_seq: snapshot.last_event_global_seq,
+          external_system: snapshot.external_system,
+          external_id: snapshot.external_id
         })
         |> maybe_mark_deleted(snapshot.deleted)
         |> Repo.insert!(prefix: prefix)
@@ -452,16 +457,21 @@ defmodule Letflow.Entities.Record.Projector do
 
   # First event must be CREATED.
   defp apply_event(nil, %{event_type: @created_event} = event, record_id) do
-    {:ok,
-     %{
-       record_id: record_id,
-       field_values: Map.get(event.payload, "field_values", %{}),
-       deleted: false,
-       entity_def_version: decode_entity_def_version(event.payload),
-       last_event_global_seq: event.global_seq,
-       last_event_sequence_number: event.sequence_number,
-       last_event_type: event.event_type
-     }}
+    with {:ok, {external_system, external_id}} <-
+           external_ref_pair(event.payload, record_id, event.event_id) do
+      {:ok,
+       %{
+         record_id: record_id,
+         field_values: Map.get(event.payload, "field_values", %{}),
+         deleted: false,
+         entity_def_version: decode_entity_def_version(event.payload),
+         external_system: external_system,
+         external_id: external_id,
+         last_event_global_seq: event.global_seq,
+         last_event_sequence_number: event.sequence_number,
+         last_event_type: event.event_type
+       }}
+    end
   end
 
   defp apply_event(nil, %{event_type: event_type}, record_id)
@@ -511,6 +521,37 @@ defmodule Letflow.Entities.Record.Projector do
   # Unrecognized event_type, at any fold state.
   defp apply_event(_acc, %{event_type: event_type, event_id: event_id}, _record_id) do
     {:error, {:corrupt_event_stream, {:unrecognized_event_type, event_type, event_id}}}
+  end
+
+  # GH #2659: the master external_ref is set only by CREATED (optional payload object); UPDATED
+  # and DELETED carry the accumulator's pair forward unchanged (the `%{acc | ...}` clauses above
+  # never touch it) and never clear it.
+  #
+  # The stored pair is re-parsed with the same `ExternalRef.parse/1` the writer uses (the
+  # registered schema bounds length by characters and its `pattern` keyword is inert, so it
+  # cannot be the only gate). An absent key is NULL/NULL; a present but invalid or malformed
+  # value is an explicit corrupt-stream error (never a silent drop and never a half pair that
+  # would trip the database CHECK mid-rebuild). The error carries the record id and the
+  # offending event id (so an operator can find it), never the ref value.
+  @doc false
+  @spec external_ref_pair(map(), Ecto.UUID.t(), Ecto.UUID.t()) ::
+          {:ok, {String.t() | nil, String.t() | nil}}
+          | {:error,
+             {:corrupt_event_stream, {:invalid_external_ref, Ecto.UUID.t(), Ecto.UUID.t()}}}
+  def external_ref_pair(payload, record_id, event_id) do
+    case Map.fetch(payload, "external_ref") do
+      :error ->
+        {:ok, {nil, nil}}
+
+      {:ok, ref} ->
+        case ExternalRef.parse(ref) do
+          {:ok, %{system: system, id: id}} ->
+            {:ok, {system, id}}
+
+          {:error, :external_ref_invalid} ->
+            {:error, {:corrupt_event_stream, {:invalid_external_ref, record_id, event_id}}}
+        end
+    end
   end
 
   # Mirrors `Letflow.Entities.Records`'s own `duplicate_result/1`/`hex_version/1`

@@ -73,7 +73,8 @@ Add `field :external_system, :string` and `field :external_id, :string`. The ins
 `parse(term) :: {:ok, %{system: String.t(), id: String.t()}} | {:error, :external_ref_invalid}`:
 * Exactly keys `"system"` and `"id"`, both strings; unknown key, non-object, either missing -> error.
 * `system`: 1..64 bytes, `[a-z0-9][a-z0-9._-]*` (lower-case slug). No case folding: a mixed-case system is rejected, never normalised.
-* `id`: 1..255 bytes, valid UTF-8, no NUL, not all whitespace; compared byte-exact (no trim, no fold). Numeric source ids are sent as strings.
+* `id`: 1..255 bytes, valid UTF-8, no control (`\p{Cc}`, includes NUL) or format (`\p{Cf}`, includes ZWNJ/ZWJ and bidi marks) characters (amended in PR-1 review from "no NUL"), not all whitespace; compared byte-exact (no trim, no fold). Numeric source ids are sent as strings. The parser may only be loosened for history: the projector re-parses stored events with the live parser, so a tightening needs a new CREATED schema version (v3).
+* **PR-3 scope (recorded from the PR-1 security review, A2):** the registered v2 schema bounds `system`/`id` by character count only, and its `pattern` keyword is inert in `Registry.JsonSchema`. PR-3 must either add an append-time `ExternalRef.parse/1` hook in `Registry.validate_payload/3` for `ENTITY_RECORD_CREATED` v2, or implement `pattern` in `JsonSchema`, so an unparseable ref is refused at append rather than failing a later rebuild (PR-1 keeps the fail-loud projector re-parse as the backstop).
 
 ### 2.4 Event payload and the registered event schema (BLOCKER B1 of CDV)
 

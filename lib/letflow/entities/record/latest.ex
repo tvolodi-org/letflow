@@ -31,6 +31,10 @@ defmodule Letflow.Entities.Record.Latest do
     field(:deleted, :boolean, default: false)
     field(:entity_def_version, :binary)
     field(:last_event_global_seq, :integer)
+    # GH #2659 / REQ-505: the master `external_ref` pair, NULL/NULL for a ref-less record
+    # (both-or-neither CHECK in the database). Set only on insert, immutable afterwards.
+    field(:external_system, :string)
+    field(:external_id, :string)
 
     timestamps(type: :utc_datetime_usec)
   end
@@ -45,6 +49,8 @@ defmodule Letflow.Entities.Record.Latest do
     :last_event_global_seq
   ]
 
+  @optional_insert_fields [:external_system, :external_id]
+
   @update_fields [:field_values, :deleted, :entity_def_version, :last_event_global_seq]
 
   @doc """
@@ -52,15 +58,24 @@ defmodule Letflow.Entities.Record.Latest do
   step (design §5.1 step 4). `:entity_type`/`:record_id`/`:field_values`/
   `:entity_def_version`/`:last_event_global_seq` are required; `:deleted`
   defaults `false`, never cast on insert (design §6.1).
+
+  GH #2659: `:external_system`/`:external_id` are cast optionally (not required; both or
+  neither, enforced by the database CHECK) and declare the partial unique index
+  `entity_record_latest_external_ref_idx` as a `unique_constraint`. The update changeset never
+  casts them: a reference is immutable once set.
   """
   @spec insert_changeset(t(), attrs :: map()) :: Ecto.Changeset.t()
   def insert_changeset(record, attrs) do
     record
-    |> cast(attrs, @insert_fields)
+    |> cast(attrs, @insert_fields ++ @optional_insert_fields)
     |> validate_required(@insert_fields)
     |> unique_constraint([:entity_type, :record_id],
       name: :entity_record_latest_entity_type_record_id_idx
     )
+    |> unique_constraint([:entity_type, :external_system, :external_id],
+      name: :entity_record_latest_external_ref_idx
+    )
+    |> check_constraint(:external_id, name: :entity_record_latest_external_ref_pair_chk)
   end
 
   @doc """
@@ -99,6 +114,39 @@ defmodule Letflow.Entities.Record.Latest do
       end
     end
   end
+
+  @doc """
+  Fetches the row bound to the external reference `(entity_type, system, id)`, scoped to the
+  tenant schema named by `prefix` (GH #2659, design §3). Returns soft-deleted rows too, like
+  `get/3`: a reference stays bound to its record after deletion. A non-binary `entity_type`,
+  `system` or `id` is `{:error, :not_found}` without a query. Never raises.
+  """
+  @spec get_by_external_ref(
+          entity_type :: term(),
+          system :: term(),
+          id :: term(),
+          prefix :: String.t()
+        ) :: {:ok, t()} | {:error, :not_found} | {:error, :invalid_schema_name}
+  def get_by_external_ref(entity_type, system, id, prefix)
+      when is_binary(entity_type) and is_binary(system) and is_binary(id) and is_binary(prefix) do
+    with {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix) do
+      query =
+        from(r in __MODULE__,
+          where:
+            r.entity_type == ^entity_type and r.external_system == ^system and
+              r.external_id == ^id
+        )
+
+      case Repo.one(query, prefix: prefix) do
+        nil -> {:error, :not_found}
+        %__MODULE__{} = record -> {:ok, record}
+      end
+    end
+  end
+
+  # A non-binary type, system or id (for example a malformed request member) can never be
+  # bound to a row: answered as an absent reference, no query, never a FunctionClauseError.
+  def get_by_external_ref(_entity_type, _system, _id, _prefix), do: {:error, :not_found}
 
   @doc """
   Like `get/3`, but a soft-deleted row is `{:error, :not_found}`, byte-identical

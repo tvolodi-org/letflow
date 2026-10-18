@@ -210,6 +210,13 @@ defmodule Letflow.Entities.RecordsCommandMultiTest do
       events = record_events(schema)
       assert length(events) == 3
 
+      # GH #2659: engine step writes never carry an external ref (NULL/NULL, no payload key).
+      for %Latest{} = row <- Repo.all(Latest, prefix: schema) do
+        assert {row.external_system, row.external_id} == {nil, nil}
+      end
+
+      for event <- events, do: refute(Map.has_key?(event.payload, "external_ref"))
+
       for {event, i} <- Enum.with_index(events) do
         cmd = Enum.at(commands, i)
         assert event.actor_id == @actor_id

@@ -714,7 +714,14 @@ defmodule Letflow.TenantProvisioning do
     # GH #2535 / REQ-517 PR 2b (design section 4.7.1): the persisted shadow-evidence counters.
     # (20261018200001, the public tenants CHECK widening, is deliberately NOT listed.)
     {20_261_018_200_002, Letflow.Repo.Migrations.CreateScopeShadowCounters,
-     "20261018200002_create_scope_shadow_counters.exs"}
+     "20261018200002_create_scope_shadow_counters.exs"},
+    # GH #2659 / REQ-505 PR-1 (decision 0057 D1): nullable `external_system`/`external_id` on
+    # entity_record_latest + both-or-neither CHECK (a), then the partial unique index (b); two
+    # files so each takes its own lock in its own transaction, each with `SET LOCAL lock_timeout`.
+    {20_261_019_100_001, Letflow.Repo.Migrations.AddExternalRefColumnsToEntityRecordLatest,
+     "20261019100001_add_external_ref_columns_to_entity_record_latest.exs"},
+    {20_261_019_100_002, Letflow.Repo.Migrations.AddExternalRefIndexToEntityRecordLatest,
+     "20261019100002_add_external_ref_index_to_entity_record_latest.exs"}
   ]
 
   @doc """
@@ -771,7 +778,9 @@ defmodule Letflow.TenantProvisioning do
   (`lib/letflow/design/gh2596-exam-managed-types.md` §4), and REQ-517 two more: the
   `role_scope_grants.scope_node_id` foreign key and `users.admin_flagged_service_principal`
   (`lib/letflow/design/req517-scoped-grants-admin-plane.md` §3.6), and REQ-517 PR 2b one more:
-  `scope_shadow_counters` (same design, §4.7.1) —
+  `scope_shadow_counters` (same design, §4.7.1), and GH #2659 two more: the
+  `entity_record_latest` `external_ref` columns + CHECK and its partial unique index
+  (`lib/letflow/design/gh2659-external-ref-idempotent-import.md` §2.1) —
   entries in total (see `@tenant_scoped_migration_manifest` itself for the
   authoritative, up-to-date count), ordered by version. Every future tenant-scoped migration must append its
   own entry to `@tenant_scoped_migration_manifest`, in addition to following the
