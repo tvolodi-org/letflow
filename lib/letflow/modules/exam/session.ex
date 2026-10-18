@@ -880,10 +880,11 @@ defmodule Letflow.Modules.Exam.Session do
         |> Enum.concat(manual_questions)
         |> Map.new(&{&1.question_id, &1.source})
 
-      with {:ok, snapshot} <-
+      with {:ok, usable} <- refuse_drawn(sources, order),
+           {:ok, snapshot} <-
              Snapshot.build_from_resolved(
                exam.field_values,
-               Map.take(sources, order),
+               usable,
                order,
                %{origin: :start, exam_id: exam_id, taken_at: now}
              ),
@@ -911,6 +912,39 @@ defmodule Letflow.Modules.Exam.Session do
         {:ok, session_view(session_record)}
       end
     end
+  end
+
+  # GH #2762: a question's snapshot source as read at start. `{:error, ...}` is the refusal carried
+  # (not raised) until the draw shows whether the question is actually used.
+  @typep wrapped_source ::
+           {:usable, Snapshot.question_source()}
+           | {:error, {:grading_error, {:key_missing, String.t()}}}
+
+  # The resolver row (`question_id`, `option_ids`) plus the `source` the snapshot needs.
+  @typep session_row :: %{
+           question_id: String.t(),
+           option_ids: [String.t()],
+           source: wrapped_source()
+         }
+
+  # GH #2762: only DRAWN questions (`order`; pins are always in it) can refuse the start, with the
+  # first refusal in `order`; an undrawn broken pool question does not block. Unwraps the drawn
+  # sources to plain `question_source` maps for `Snapshot.build_from_resolved/4`.
+  @spec refuse_drawn(%{optional(String.t()) => wrapped_source()}, [String.t()]) ::
+          {:ok, %{optional(String.t()) => Snapshot.question_source()}}
+          | {:error, {:grading_error, {:key_missing, String.t()}}}
+  defp refuse_drawn(sources, order) do
+    drawn = Map.take(sources, order)
+
+    refusal =
+      Enum.find_value(order, fn question_id ->
+        case Map.get(drawn, question_id) do
+          {:error, _reason} = error -> error
+          _usable_or_absent -> nil
+        end
+      end)
+
+    refusal || {:ok, Map.new(drawn, fn {id, {:usable, source}} -> {id, source} end)}
   end
 
   defp fetch_question_pools(exam_id, prefix) do
@@ -982,25 +1016,42 @@ defmodule Letflow.Modules.Exam.Session do
   # One resolver row (`question_id`, `option_ids`) plus the `:source` the snapshot needs (design
   # 4.3 step 2): the question's stored type and its option rows' key fields. The option rows are
   # the ones this function always loaded to get the ids; nothing extra is queried for a pool.
+  # `source` is `{:usable, source}` or the `{:error, ...}` key_missing refusal (see `wrapped_source`).
+  @spec fetch_question_row(String.t(), map(), String.t()) ::
+          {:ok, session_row()} | {:error, term()}
   defp fetch_question_row(question_id, question, prefix) do
     with {:ok, options} <- query_all("answer_option", [eq("question_id", question_id)], prefix) do
+      type = fv(question, "type")
       sorted = Enum.sort_by(options, &fv(&1, "sort_order"))
-      option_ids = Enum.map(sorted, &normalize_record_id(&1.record_id))
 
-      source = %{
-        type: fv(question, "type"),
-        options:
-          Enum.map(sorted, fn option ->
-            %{
-              id: normalize_record_id(option.record_id),
-              is_correct: fv(option, "is_correct"),
-              likert_weight: fv(option, "likert_weight"),
-              likert_polarity: fv(option, "likert_polarity")
-            }
-          end)
-      }
+      # GH #2762: soft-deleted options are excluded (all rows are read so the shared rule sees
+      # them). A question left with no live key is NOT failed here: it is carried as a refusal
+      # and refused only if the draw picks it (`refuse_drawn/2`), so the pool is not shrunk.
+      case Snapshot.live_options(sorted, %{type: type, question_id: question_id}, :start) do
+        {:ok, live} ->
+          source = %{
+            type: type,
+            options:
+              Enum.map(live, fn option ->
+                %{
+                  id: normalize_record_id(option.record_id),
+                  is_correct: fv(option, "is_correct"),
+                  likert_weight: fv(option, "likert_weight"),
+                  likert_polarity: fv(option, "likert_polarity")
+                }
+              end)
+          }
 
-      {:ok, %{question_id: question_id, option_ids: option_ids, source: source}}
+          {:ok,
+           %{
+             question_id: question_id,
+             option_ids: Enum.map(live, &normalize_record_id(&1.record_id)),
+             source: {:usable, source}
+           }}
+
+        {:error, _reason} = refusal ->
+          {:ok, %{question_id: question_id, option_ids: [], source: refusal}}
+      end
     end
   end
 
@@ -1011,7 +1062,7 @@ defmodule Letflow.Modules.Exam.Session do
   # contributing zero questions (design doc §3/§6) -- this is the fix's own
   # answer to the class of bug ISS-0722 reports, applied to the new path too.
   @spec fetch_manual_questions(rule_id :: String.t(), prefix :: String.t()) ::
-          {:ok, [QuestionSetResolver.question_row()]} | {:error, :manual_rule_empty | term()}
+          {:ok, [session_row()]} | {:error, :manual_rule_empty | term()}
   defp fetch_manual_questions(rule_id, prefix) do
     with {:ok, pins} <-
            query_all("exam_manual_question", [eq("rule_id", rule_id)], prefix) do
