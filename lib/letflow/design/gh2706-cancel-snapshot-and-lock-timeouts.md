@@ -326,6 +326,23 @@ outer `Repo.transaction/1` then returns `{:error, :rollback}` even if the caller
 typed error. T4 pins both the typed error of the call and this outer result. A nested cancel therefore has no wait bound; it is
 not a production path (the only caller is the route), only tests and future callers.
 
+### 3.5 As built (PR-2)
+
+* `Letflow.Engine.Contention` holds `lock_timeout_ms/0` (5 s; under `engine_test_seams` only, the
+  process-local override of 3.4), `lock_timeout_setting/0` (the text bound to `set_config`) and
+  `contention_code/1`. The `Letflow.Engine.contention_lock_timeout_ms/0` of PR-1 is removed; the
+  retry loop's time cap (`run_cancel_attempts/5`) reads the same function as the DB timeout.
+* The `:lock_timeout` Multi step is first; its nested-skip is decided once at entry
+  (`Repo.in_transaction?()` before the first attempt) and passed down, not re-read inside the
+  transaction (which is always true there).
+* The contention clause sits in `cancel_attempt/6`'s `rescue` and logs the code and the instance id only.
+* T1b (leftover path, real permanent holder) uses a 4 s override (setup bounded to 2 s, explicit slow-start failure): the first attempt also waits
+  on task A while the test arranges the straggler, which a 300 ms bound would cut short.
+  T4b covers a nested cancel hitting a real 55P03 (the caller sets its own `lock_timeout`, since a
+  nested cancel sets none): typed error, the caller's transaction is rolling back, and the outer
+  `Repo.transaction/1` returns `{:error, :rollback}`.
+  T3 (deadlock victim) is deterministic: the cancel is the first waiter, so it detects the cycle.
+
 ## 4. Residual (2): the ExecutionError landing step (decision 4)
 
 ### 4.1 Facts (re-read)

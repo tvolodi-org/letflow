@@ -425,7 +425,10 @@ defmodule Letflow.Engine do
       projection, aborts the attempt: rolled back and retried, at most 3 attempts within one
       contention-timeout constant of the first attempt's start, never when nested in a caller's
       transaction; exhaustion is `{:error, :cancel_contention}`), then (GH #2707) the instance's
-      timers, live tokens, the INSTANCE_CANCELLED append, the audit row last.
+      timers, live tokens, the INSTANCE_CANCELLED append, the audit row last. Every wait of the
+      transaction is bounded by a transaction-local `lock_timeout` (GH #2706, 5 s, set first as
+      a bound parameter, skipped when nested; `Letflow.Engine.Contention`): a lock timeout or
+      deadlock victim rolls back and is `{:error, :cancel_contention}` too.
       It never goes child-ward. On the parent side every writer follows projection, token, sequence row,
       audit row: `complete_task/3`, `Scheduler.fire_timer` (escalation: the task rows first), `ExecutionError`, and the cascade
       (`SubProcess.lock_waiting_parent/3`: parent projection, then the token re-selected
@@ -491,6 +494,7 @@ defmodule Letflow.Engine do
   alias Letflow.Definitions
   alias Letflow.Definitions.Graph
   alias Letflow.Definitions.SnapshotStore
+  alias Letflow.Engine.Contention
   alias Letflow.Engine.EntityPort
   alias Letflow.Engine.ExecutionError
   alias Letflow.Engine.FormExpressionReevaluation
@@ -3186,7 +3190,7 @@ defmodule Letflow.Engine do
     Multi.run(multi, :entity_write_timeouts, fn repo, _changes ->
       repo.query!(@entity_write_set_lock_timeout)
       repo.query!(@entity_write_set_statement_timeout)
-      {:ok, :set}
+      {:ok, nil}
     end)
   end
 
@@ -8597,7 +8601,12 @@ defmodule Letflow.Engine do
   for: the attempt rolls back and is retried (at most 3 attempts, within one
   contention-timeout constant of the first attempt's start; no retry when the
   caller already holds a transaction, whose transaction then becomes
-  rollback-only); on exhaustion the result is `{:error, :cancel_contention}`.
+  rollback-only); on exhaustion the result is `{:error, :cancel_contention}`. The first
+  statement of the transaction sets a transaction-local `lock_timeout` (5 s,
+  `Letflow.Engine.Contention.lock_timeout_ms/0`, the same value as the retry budget above;
+  skipped when the caller already holds a transaction): a lock wait that exceeds it (55P03) or
+  a deadlock this call loses (40P01) rolls everything back and returns
+  `{:error, :cancel_contention}` (HTTP 503); nothing is committed, so a retry is safe.
 
   Cancelling an instance whose `instance_projections.status` is already
   `:completed`/`:cancelled` (`Letflow.EventStore.InstanceProjection.terminal?/1`,
@@ -8676,14 +8685,14 @@ defmodule Letflow.Engine do
   # inside the caller's transaction, which stays rollback-only): then the typed error is returned at
   # once. Nothing is committed by an aborted attempt, so a retry is safe.
   @cancel_max_attempts 3
-  @contention_lock_timeout_ms 5_000
 
   defp run_cancel_instance(instance_id, actor_id, idempotency_key, cancelled_at, prefix) do
     started_at = System.monotonic_time(:millisecond)
-    retry? = not Repo.in_transaction?()
+    nested? = Repo.in_transaction?()
+    retry? = not nested?
 
     attempt = fn ->
-      cancel_attempt(instance_id, actor_id, idempotency_key, cancelled_at, prefix)
+      cancel_attempt(instance_id, actor_id, idempotency_key, cancelled_at, prefix, nested?)
     end
 
     run_cancel_attempts(attempt, 1, started_at, retry?, instance_id)
@@ -8693,8 +8702,8 @@ defmodule Letflow.Engine do
   # The retry loop of `cancel_instance/3`, public only so its caps are unit-testable without a
   # database: `attempt` returns `:held_by_other` (retryable) or `{:final, result}`. There is
   # deliberately NO pause between attempts: the retry starts with the class-1 locking read, which
-  # blocks on the holder and so paces itself, and the re-read never waits. PR-2 adds the DB
-  # `lock_timeout` and one shared lock-timeout function for this cap and that step.
+  # blocks on the holder and so paces itself, and the re-read never waits. The time cap reads
+  # `Contention.lock_timeout_ms/0`, the same value as the DB `lock_timeout` of the attempt.
   @spec run_cancel_attempts(
           (-> :held_by_other | {:final, term()}),
           pos_integer(),
@@ -8707,7 +8716,7 @@ defmodule Letflow.Engine do
       :held_by_other ->
         elapsed = System.monotonic_time(:millisecond) - started_at
 
-        if retry? and n < @cancel_max_attempts and elapsed < @contention_lock_timeout_ms do
+        if retry? and n < @cancel_max_attempts and elapsed < Contention.lock_timeout_ms() do
           run_cancel_attempts(attempt, n + 1, started_at, retry?, instance_id)
         else
           # no PII: the attempt number and the instance id only
@@ -8724,13 +8733,10 @@ defmodule Letflow.Engine do
     end
   end
 
-  @doc false
-  @spec contention_lock_timeout_ms() :: pos_integer()
-  def contention_lock_timeout_ms, do: @contention_lock_timeout_ms
-
-  defp cancel_attempt(instance_id, actor_id, idempotency_key, cancelled_at, prefix) do
+  defp cancel_attempt(instance_id, actor_id, idempotency_key, cancelled_at, prefix, nested?) do
     try do
-      result = cancel_multi(instance_id, actor_id, idempotency_key, cancelled_at, prefix)
+      result =
+        cancel_multi(instance_id, actor_id, idempotency_key, cancelled_at, prefix, nested?)
 
       case result do
         {:error, :open_tasks_recheck, :cancel_task_held_by_other, _changes} ->
@@ -8740,12 +8746,36 @@ defmodule Letflow.Engine do
           {:final, interpret_cancel_result(other, instance_id, cancelled_at)}
       end
     rescue
-      exception -> {:final, {:error, {:transaction_failed, exception}}}
+      exception ->
+        # GH #2706 (design 3.2): a lock timeout (55P03) or deadlock victim (40P01) rolled the
+        # whole transaction back; it is retryable (a 503), not an internal failure. Log the
+        # classified tag and the instance id only, never the exception text.
+        case Contention.contention_code(exception) do
+          {:ok, code} ->
+            Logger.warning("cancel_instance contention: #{code} instance_id=#{instance_id}")
+            {:final, {:error, :cancel_contention}}
+
+          :error ->
+            {:final, {:error, {:transaction_failed, exception}}}
+        end
     end
   end
 
-  defp cancel_multi(instance_id, actor_id, idempotency_key, cancelled_at, prefix) do
+  # GH #2706 (design 3.1): the first statement of the transaction bounds every later lock wait.
+  # `set_config(..., true)` is transaction-local (`SET LOCAL`); the value is a BOUND parameter
+  # (INV-7: no runtime value in SQL text). Skipped when the caller already holds a transaction:
+  # Ecto nested transactions use no savepoint, so the setting would outlive this call.
+  defp set_cancel_lock_timeout(_repo, true), do: {:ok, nil}
+
+  defp set_cancel_lock_timeout(repo, false) do
+    repo.query!("SELECT set_config('lock_timeout', $1, true)", [Contention.lock_timeout_setting()])
+
+    {:ok, :set}
+  end
+
+  defp cancel_multi(instance_id, actor_id, idempotency_key, cancelled_at, prefix, nested?) do
     Multi.new()
+    |> Multi.run(:lock_timeout, fn repo, _changes -> set_cancel_lock_timeout(repo, nested?) end)
     |> Multi.run(:open_tasks, fn repo, _changes ->
       fetch_and_lock_open_tasks(repo, instance_id, prefix)
     end)

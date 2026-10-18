@@ -712,10 +712,10 @@ defmodule Letflow.Routers.Instances do
   defp render_cancel(conn, {:error, {:instance_already_terminal, :cancelled}}),
     do: Response.conflict(conn, "instance is already cancelled")
 
-  # GH #2706 (PR-1): only the leftover exhaustion of the engine's bounded retry produces this today;
-  # the mapping of a lock timeout / deadlock raise to it is PR-2 (until then such a raise is the
-  # generic 500 below). The cancel could not settle against a concurrent writer (a task it must cancel was
-  # held by a transaction queued behind the instance, and the bounded retry ran out). Nothing was
+  # GH #2706: the engine returns this when the cancel could not settle against a concurrent writer:
+  # the bounded leftover retry ran out (a task it must cancel was held by a transaction queued behind
+  # the instance), or a lock wait exceeded the transaction-local lock timeout (55P03) or the cancel
+  # lost a deadlock (40P01); the engine maps both to this atom. Nothing was
   # committed, so the call is retryable. Constant detail: nothing from the engine (INV-4).
   defp render_cancel(conn, {:error, :cancel_contention}),
     do:
