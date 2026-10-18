@@ -36515,7 +36515,7 @@ requirements:
   - id: REQ-517
     title: "Core: org-scoped role grants stage 2a-2b (decision 0051): grant CRUD, guards, route plane"
     owner: ELIXIR-DEV
-    status: pending
+    status: done
     stage: S7
     gh: 2535
     # Source: GH #2535 (filed by letflow-2, sole filer, 2026-10-14) with ALL added ACs and comments, read 2026-10-17: supervisor rulings of 2026-10-15 (admin-flagged service principal act; FK on scope_node_id; single-writer mix check; no tenant_wide rows from binding writes in an enforced tenant; zero_tenant_wide_admins blocking; optional platform-scope flip route), the carried-over stage-1 items (comment 2026-10-16) and the filer's optional-item note. Decision 0051 D1, D5, D8, D11, M2, M5, T6, T9, T15. Advisor rulings (letflow-ec via the supervisor, 2026-10-17) and the REQ-VALIDATOR findings of rounds 1, 2 and 3 (letflow-2) are applied (revision 4: round 1 = split and sizing, round 2 = single-writer scan, route reclassification ownership, shadow claim, writer details; round 3 = four low findings: by-id wording, reason list, on -> shadow gating, header). Stage 2 of GH #2535 is split into THREE requirements by letflow-2: REQ-517 (slices 2a, 2b), REQ-518 (2c-i, 2c-ii, 2d), REQ-519 (2e, 2f); all three carry gh: 2535 and the issue closes only when REQ-519 is done. Ids allocated by letflow-2 (sole allocator).
