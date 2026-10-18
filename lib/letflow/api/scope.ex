@@ -164,7 +164,8 @@ defmodule Letflow.Api.Scope do
   defp decide_resource({:nodes, ids}, {:node, node_id}, principal) do
     case ScopeNodePaths.resolve(node_id, principal.prefix) do
       {:ok, %{node: %{retired_at: retired_at}}} when not is_nil(retired_at) ->
-        {:deny, :unresolvable}
+        # MUTANT N4: a retired node is allowed for a scoped principal
+        {:allow, :subtree}
 
       {:ok, %{ancestors: ancestors}} ->
         if node_id in ids or Enum.any?(ancestors, &(&1.node_id in ids)),

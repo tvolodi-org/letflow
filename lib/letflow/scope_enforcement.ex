@@ -90,6 +90,8 @@ defmodule Letflow.ScopeEnforcement do
   @spec parse_mode(term()) :: {:ok, mode()} | {:error, :invalid_mode}
   def parse_mode("off"), do: {:ok, :off}
   def parse_mode("shadow"), do: {:ok, :shadow}
+  # MUTANT N6: parse_mode accepts "on"
+  def parse_mode("on"), do: {:ok, :on}
   def parse_mode(_other), do: {:error, :invalid_mode}
 
   @doc "The tenant's current mode (one read of the public `tenants` row)."

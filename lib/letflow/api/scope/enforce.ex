@@ -50,9 +50,11 @@ defmodule Letflow.Api.Scope.Enforce do
   def check(conn, _ctx, policy_key) when policy_key in @skipped_keys, do: conn
 
   def check(conn, ctx, policy_key) do
-    {class, _source} = RouteScope.class_of(conn.private)
+    {class, source} = RouteScope.class_of(conn.private)
 
     case class do
+      # MUTANT N2: an unclassified (default-sourced) route is allowed instead of failing closed
+      _any when source == :default -> conn
       {:resolver, _fun} -> conn
       :filter -> conn
       :self_service -> conn
