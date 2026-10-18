@@ -408,9 +408,10 @@ defmodule Letflow.Engine do
       applies; an UNPLANNED script apply goes straight to `apply_script_task_result_once/4`, whose
       blanket rescue turns a deadlock into `:raised` (a terminal `script_rejected`/`apply_failed`;
       accepted, a script task in a sub-process child is not reachable end to end until GH #2694).
-    * `cancel_instance/3`: `tasks`, timers, dispatch rows, the projection, live tokens, the
-      INSTANCE_CANCELLED append, the audit row last. It takes no ancestor lock (GH #2708) and never
-      goes child-ward. On the parent side every writer follows projection, token, sequence row,
+    * `cancel_instance/3`: `tasks`, timers, dispatch rows, the projection, `:lock_ancestors` (the
+      group of a sub-process child, `FOR KEY SHARE` on the immediate parent: GH #2708; a cancel
+      never completes the child), live tokens, the INSTANCE_CANCELLED append, the audit row last.
+      It never goes child-ward. On the parent side every writer follows projection, token, sequence row,
       audit row: `complete_task/3`, `Scheduler.fire_timer`, `ExecutionError`, and the cascade
       (`SubProcess.lock_waiting_parent/3`: parent projection, then the token re-selected
       `FOR UPDATE`; GH #2695).
@@ -436,14 +437,14 @@ defmodule Letflow.Engine do
   for all its callers in `ExecutionError.append_multi/3` (`:execution_error_lock_ancestors`,
   `FOR KEY SHARE`, after its eligibility check; GH #2709). The group is found through
   `tokens.waiting_child_instance_id = child AND status = :waiting`, so the guarantee covers a
-  WAITING parent only. For GH #2708 (direct cancel of a child): a child created in the same
-  transaction is the exception, its first UPDATE already takes the FK locks (the row was inserted
-  by this transaction).
+  WAITING parent only. A direct `cancel_instance/3` of a child (GH #2708) updates the child's
+  projection twice (the INSTANCE_CANCELLED append, then the status), so it takes the group in
+  `:lock_ancestors` right after its eligibility check. A child created in the same transaction
+  is the exception: its first UPDATE already takes the FK locks (the row was inserted by this
+  transaction).
 
-  Known gaps, tracked and NOT closed so far: a direct `cancel_instance/3` of a child (GH #2708)
-  takes no ancestor lock;
-  cold appenders that append before locking the projection (`Scheduler.fire_timer`'s TIMER_FIRED,
-  reminder fire, attachment events), the HUMAN tail's timer cancel after the projection, and
+  Known gaps, tracked and NOT closed so far: cold appenders that append before locking the
+  projection (`Scheduler.fire_timer`'s TIMER_FIRED, reminder fire, attachment events), the HUMAN tail's timer cancel after the projection, and
   escalation fire's `tasks` lock after the projection (GH #2707); cancel's open-tasks snapshot taken
   before the projection lock (GH #2706). The no-cycle argument covers the paths named in
   `lib/letflow/design/gh2704-lock-order-family.md` and nothing else.
@@ -8622,6 +8623,14 @@ defmodule Letflow.Engine do
       end)
       |> Multi.run(:eligibility, fn _repo, %{instance_projection: projection} ->
         check_cancel_eligibility(projection)
+      end)
+      |> Multi.run(:lock_ancestors, fn repo, _changes ->
+        # GH #2708: after the child's projection (L3) and its eligibility, and BEFORE the FIRST
+        # UPDATE of the child's projection row (the :event step's last_event_seq bump). That is
+        # what makes the second UPDATE's FK check safe: the check then queues KEY SHARE on the
+        # parent token and projection, which this transaction already holds. A cancel never
+        # completes the child: KEY SHARE, immediate parent only. No-op for a non-waiting child.
+        lock_parent_group(repo, instance_id, :continuing, prefix)
       end)
       |> Multi.run(:task_cancellations, fn repo, %{open_tasks: open_tasks} ->
         cancel_task_rows(repo, open_tasks, cancelled_at, prefix)

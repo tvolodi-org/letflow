@@ -431,7 +431,7 @@ token stays `:waiting`, existing behaviour, not decided here, cf. #2695 Q5).
 | C0 | mechanism probe | same as X0, on the cancel's projection UPDATE | decides go/no-go | n/a |
 | C1 | statement order | `cancel_instance/3` of a child under `capture_repo_queries` | red: no parent-side lock statement at all | green: parent projection, token, then the INSTANCE_CANCELLED insert |
 | C2 | forced AB-BA, token-first schemas | `Z` on the parent projection row, `cancel_instance(p)` parks first, `cancel_instance(c)` second, release | red 40P01 | green; `cancel(c)` blocks at the group, `cancel(p)` completes, then `cancel(c)` |
-| C3 | cancel(c) vs cascade of a sibling | as C2 with a completing sibling as the second worker | red or green by reading (group is FOR UPDATE for the completer) | green |
+| C3 | cancel(c) vs cascade of a sibling | as C2 with a completing sibling as the second worker | red or green by reading (group is FOR UPDATE for the completer) | green (see 10b: not a cycle, the file's C3 is the projection-first variant) |
 | C4 | fixture sanity | child cancelled, parent token `:waiting`, parent still `:active`; no `SUB_PROCESS_COMPLETED` | green | green (documents the existing semantics) |
 
 **Blast radius.** About 12 lines plus the `lock_parent_group` signature; one new early (key-share)
@@ -481,7 +481,7 @@ is in CI.
 | 0 | docs | - | this design note | 1 file | - |
 | 1 | PR-1 | #2704 | C-P, C-E, port callback, `Letflow.LockOrderHelpers` extraction, tests E0-E6 (E5 and E6 are the I4 / #2705 cases), moduledoc rewrite, new decision record 0061 + the 0054 D3 "Amended by" pointer line, boot-time adapter check + wiring test | prod ~70 lines, tests ~450, docs ~120 | note merged; owns the moduledoc rewrite, so it goes first |
 | 2 | PR-2 | #2709 | `ExecutionError` step, tests X0-X4, one moduledoc line. STATUS: built (section 10a): probe positive, lib change made, X1/X2/X4 red on the unmodified landing and green after | prod ~25, tests ~250 planned; actual file ~560 lines (FK-order control, probe, three caller classes, S1) | PR-1 (shared helpers, moduledoc) |
-| 3 | PR-3 | #2708 | cancel step, `lock_parent_group` generalisation, tests C0-C4, one moduledoc line | prod ~15, tests ~220 | PR-1; independent of PR-2 (either order) |
+| 3 | PR-3 | #2708 | cancel step, tests C0-C4, one moduledoc line. STATUS: built (section 10b): probe positive, lib change made, C1/C2 red on the unmodified cancel and green after (`lock_parent_group/4` generalisation already shipped in PR-1) | prod ~10, tests ~330 | PR-1; independent of PR-2 (either order) |
 | 4 | PR-4 | #2705 (relabelled: proven service-vs-HUMAN inversion; demonstrating test E5 is in PR-1) | proof for the remaining `A` vs `S_x` pairs and regression tests (and a fix only if a test is red after PR-1) | tests ~200 | PR-1 |
 | later | - | #2706, #2707 | own design notes after PR-1/PR-3 are on main (they inherit GO, section 4.4) | - | PR-1 |
 
@@ -657,3 +657,32 @@ RELEASE-VALIDATOR re-runs the new files.
   of `Multi.run` (the transaction rolls back, no EXECUTION_ERROR event and no DLQ row), exactly as the
   FK-check failure at the final UPDATE did before. To classify it (retry/sweeper) if #2707 or a
   sweeper reaches the landing paths.
+
+## 10b. As built (PR-3, GH #2708, ELIXIR-DEV)
+
+* **Probe first (C0), result.** `cancel_instance/3` of a child, by statement trace
+  (`capture_repo_queries`), issues at least two `UPDATE ... instance_projections` statements for the
+  child inside one transaction: the INSTANCE_CANCELLED append (`last_event_seq`), then the status
+  UPDATE. With the PR-2 mechanism (X0: the second UPDATE of one transaction queues `KEY SHARE` on
+  the parent token and the parent projection) the hazard is real.
+* **Red on the unmodified cancel** (token-first schema, forced overlap C2: `Z` on the parent
+  projection, `cancel_instance(parent)` parked first, `cancel_instance(child)` second): `ERROR 40P01
+  (deadlock_detected)` reported by the telemetry handler, statement `SELECT 1 FROM ONLY
+  ...instance_projections x WHERE "instance_id" = $1 FOR KEY SHARE OF x` (the RI check). C1 red: no
+  parent-side lock statement before the event insert.
+* **The fix:** step `:lock_ancestors` in `run_cancel_instance/5`, after `:eligibility` and before
+  `:task_cancellations`, `lock_parent_group(repo, instance_id, :continuing, prefix)` (the PR-1
+  signature; no generalisation was needed). C1 also pins that the group follows the child's own
+  projection lock, precedes the audit row, and is `KEY SHARE`.
+* **Margin.** The two green overlap cases measured 1942 and 1943 ms against the 2 s yardstick
+  (cancel sets no `lock_timeout` of its own); asserted >= 500 ms.
+* **C3 renumbered.** The design's C3 (cancel(c) vs a cascading sibling) is not a cycle by reading:
+  each child has its OWN waiting token, so a completing sibling's group (`P_p`, `T_sibling`) shares
+  only `P_p` with the cancelled child's `KEY SHARE` and nothing wants a token the other holds. The
+  file's C3 is the projection-first variant of C2 (green before and after) instead.
+* **Parent-cancel cascade children:** `cancel_instance(parent)` never goes child-ward (C4 pins that
+  a cancelled parent leaves its child `:active`), so no cascade children exist to lock.
+* **Shared helper:** `fk_firing_order/1` and `set_fk_order!/2` moved from the PR-2 test file into
+  `Letflow.LockOrderHelpers`.
+* **Residual (S3).** The cancel transaction sets no `SET LOCAL lock_timeout`, so a wait on the parent
+  rows is unbounded apart from deadlock detection (as before this change); a candidate for #2706/#2707.
