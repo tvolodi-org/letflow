@@ -67,9 +67,76 @@ defmodule Letflow.Engine.EntityPortPrelockWiredTest do
     first_merge = Enum.find_index(names, &(&1 == :__merge__))
 
     assert is_integer(ancestors), "no :lock_ancestors step in #{inspect(names)}"
+    # nil would make `prelock < first_merge` vacuously true (Erlang term order: number < atom)
+    assert is_integer(first_merge), "no merge step in #{inspect(names)}"
     assert is_integer(prelock), "no {:pre_type_lock, #{inspect(type)}} step in #{inspect(names)}"
     assert ancestors < prelock
     assert prelock < first_merge
+
+    # the pre-lock group is contiguous and directly followed by the first merge, which is the
+    # token-insert step (the first merge in the service Multi's code; entity_parent_lock_order_test
+    # E0s pins it with the statement trace: type row before the first `tokens` INSERT)
+    last_prelock =
+      names
+      |> Enum.with_index()
+      |> Enum.filter(&match?({{:pre_type_lock, _}, _}, &1))
+      |> List.last()
+
+    assert Enum.at(names, elem(last_prelock, 1) + 1) == :__merge__
+  end
+
+  defmodule FailingPrelockPort do
+    @moduledoc false
+    # The production adapter, except that the pre-lock's one step fails the way a database fault
+    # would (`{:sequence_conflict, _}`).
+    @behaviour Letflow.Engine.EntityPort
+
+    @impl true
+    defdelegate prefetch(prefix, reads, vars), to: EntityPortImpl
+    @impl true
+    defdelegate authorize_module_writes(lines, ctx), to: EntityPortImpl
+    @impl true
+    defdelegate prepare(lines, ctx), to: EntityPortImpl
+    @impl true
+    defdelegate validate_lines(lines, ctx), to: EntityPortImpl
+    @impl true
+    defdelegate multi(multi, lines, ctx), to: EntityPortImpl
+    @impl true
+    defdelegate interpret_failure(step, reason), to: EntityPortImpl
+
+    @impl true
+    def lock_types(multi, _lines, _module_lines, _ctx),
+      do: Ecto.Multi.error(multi, {:pre_type_lock, "stock_move"}, {:sequence_conflict, :boom})
+  end
+
+  describe "a failed pre-lock step (SEC L1)" do
+    test "the port maps it like a failed type lock: an internal fault, never a refusal" do
+      assert {:failed, 0, :type_lock} =
+               Letflow.Entities.StepWrites.interpret_failure(
+                 {:pre_type_lock, "stock_move"},
+                 {:sequence_conflict, :boom}
+               )
+    end
+
+    test "the service apply lands it as an entity_write_failed ERROR + one DLQ entry" do
+      ctx =
+        Fx.service_case!(
+          "gh2704-wire-f",
+          Fx.service_then_human_graph([Fx.line("stock_move", %{"label" => %{"const" => "x"}})])
+        )
+
+      previous = Application.fetch_env!(:letflow, :entity_port)
+      Application.put_env(:letflow, :entity_port, FailingPrelockPort)
+      on_exit(fn -> Application.put_env(:letflow, :entity_port, previous) end)
+
+      # the failed step is interpreted by the port instead of leaking as a bare reason
+      Fx.apply_http(ctx, %{})
+
+      assert Fx.projection!(ctx.schema, ctx.instance_id).status == :error
+      assert [entry] = Fx.dlq_entries(ctx.schema)
+      assert entry.error_detail["code"] == "entity_write_failed"
+      assert Fx.all_records(ctx.schema) == []
+    end
   end
 
   describe "the service Multi built through the production adapter" do

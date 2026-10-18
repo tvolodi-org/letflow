@@ -951,6 +951,12 @@ defmodule Letflow.Entities.StepWrites do
   def interpret_failure({:type_lock, type}, _reason) when is_binary(type),
     do: {:failed, 0, :type_lock}
 
+  # GH #2704: the service apply's pre-lock (`{:pre_type_lock, type}`) fails the same way and is
+  # the same internal fault, so the service classification (`interpret_service_step_failure/2`)
+  # lands it like a failed `{:type_lock, type}`.
+  def interpret_failure({:pre_type_lock, type}, _reason) when is_binary(type),
+    do: {:failed, 0, :type_lock}
+
   def interpret_failure(_step, _reason), do: :not_a_line_failure
 
   # The DECLARED line index of a step key: a declarative key is its own index; a handler-range

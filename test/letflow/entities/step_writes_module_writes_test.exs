@@ -232,6 +232,10 @@ defmodule Letflow.Entities.StepWritesModuleWritesTest do
       assert {:failed, 0, :type_lock} = StepWrites.interpret_failure({:type_lock, "t"}, :boom)
     end
 
+    test "a pre-lock failure (GH #2704) is the same internal fault" do
+      assert {:failed, 0, :type_lock} = StepWrites.interpret_failure({:pre_type_lock, "t"}, :boom)
+    end
+
     test "declarative mapping is unchanged, and the overflow failure keeps index 20" do
       assert {:refused, 3, :write_not_permitted, :scoped} =
                StepWrites.interpret_failure({:line, 3, :process_policy}, :scoped_type)

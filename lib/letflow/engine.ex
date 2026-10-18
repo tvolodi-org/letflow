@@ -358,9 +358,10 @@ defmodule Letflow.Engine do
 
   Lock ordering (decision 0061, GH #2704: one global order for every write path and both child
   kinds). A path takes a SUBSEQUENCE of these row classes, in this order, per instance X:
-  (1) X's `timers` / service-dispatch / script-CAS rows and (2) X's `tasks` rows (one unordered
-  class: `complete_task/3` and `cancel_instance/3` take `tasks` first, an apply the dispatch row,
-  `Scheduler.fire_timer` the timer row); (3) X's projection (always before X's tokens and before
+  (1) X's `timers` / service-dispatch / script-CAS rows and (2) X's `tasks` rows (decision 0061 rule 1
+  numbers 1-2 as one class: the pair cannot cycle; `complete_task/3` and
+  `cancel_instance/3` take `tasks` first, an apply the dispatch row, `Scheduler.fire_timer` the timer
+  row); (3) X's projection (always before X's tokens and before
   everything below); (4) the ANCESTOR GROUP of a sub-process child, nearest first: parent projection,
   then the parent's waiting token, then the grandparent's (`lock_parent_group/4`); (5) X's live
   `tokens`; (6) the ENTITY-TYPE rows, ascending by entity type (decision 0054 D3: the type's
@@ -5123,6 +5124,13 @@ defmodule Letflow.Engine do
               # the entry function can run it through the port's interpreter. Every other failed
               # step, and every apply without a plan, returns today's `{:error, reason}`.
               {:error, {:line, _index, _step} = failed_step, reason, _changes}
+              when is_map_key(completion, :entity_plan) ->
+                {:error, {:entity_write_step_failed, failed_step, reason}}
+
+              # GH #2704: the pre-lock steps are named too, so a failed one (a database fault,
+              # `{:sequence_conflict, _}`) is interpreted by the port like a failed line step
+              # instead of leaking as a bare reason.
+              {:error, {:pre_type_lock, _type} = failed_step, reason, _changes}
               when is_map_key(completion, :entity_plan) ->
                 {:error, {:entity_write_step_failed, failed_step, reason}}
 

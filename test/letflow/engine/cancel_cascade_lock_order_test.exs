@@ -700,8 +700,13 @@ defmodule Letflow.Engine.CancelCascadeLockOrderTest do
       index = fn pred -> Enum.find_index(queries, pred) end
       params = fn q -> q |> Map.get(:params, []) |> Enum.map(&normalize/1) end
 
+      # the TYPE's sequence row, not the child's own (which the event appends also lock)
+      {:ok, type_id} = Letflow.Entities.EntityTypeInstance.fetch_instance_id("stock_move", schema)
+
       first_type_row =
-        index.(fn q -> q.query =~ "instance_sequence" and q.query =~ "FOR UPDATE" end)
+        index.(fn q ->
+          q.query =~ "instance_sequence" and q.query =~ "FOR UPDATE" and type_id in params.(q)
+        end)
 
       first_parent_lock =
         index.(fn q ->
@@ -714,10 +719,6 @@ defmodule Letflow.Engine.CancelCascadeLockOrderTest do
           q.query =~ ~r/UPDATE "[^"]+"\."instance_projections"/ and
             child.instance_id in params.(q)
         end)
-
-      IO.puts(
-        "TRACE type_row=#{first_type_row} parent_lock=#{first_parent_lock} child_update=#{first_child_update}"
-      )
 
       assert is_integer(first_type_row) and is_integer(first_parent_lock)
       assert is_integer(first_child_update)

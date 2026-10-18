@@ -6,11 +6,21 @@ defmodule Letflow.Engine.EntityParentLockOrderTest do
 
   One global order for both child kinds: `P_c`, ancestor group, `E`, `A`, `S_c`, ...
 
-    * E0s: statement order of a service apply (parent group, then the type rows, then `A`);
+    * E0s / E0c: statement order of a service apply (the type rows before the first token insert
+      and the audit chain row) and of a service CHILD (parent group, waiting token, type rows,
+      audit chain row);
     * E1: a completing HUMAN child and a completing service sibling, both with lines on one type;
     * E2a / E2b / E2c: a CONTINUING HUMAN child (key-share group) against the parent's own
-      completion, a completing sibling, and a continuing sibling (the control: key-share is
-      compatible, so C-P does not serialise continuing siblings);
+      completion, a completing sibling, and a continuing service sibling. E2c is NOT a green
+      control on main: it was measured RED on main (the continuing service sibling activates a
+      HUMAN task, so it takes the audit chain row before the type rows: the "I4" inversion with
+      the HUMAN sibling's type-rows-then-audit order) and is GREEN after PR-1. It cannot detect a
+      continuing child wrongly taking the group FOR UPDATE (that would be the same order, no
+      deadlock); E2d pins the lock MODE by statement trace;
+    * E2d: a continuing child takes the group `FOR KEY SHARE` and never `FOR UPDATE`, HUMAN and
+      service shaped;
+    * E4x: a completion whose transition is an execution error takes no ancestor group and does
+      not raise (the `:lock_ancestors` step returns `{:ok, []}`);
     * E3: a HUMAN child completion against the parent's OWN completion with lines on the type;
     * E5 / E6 (the demonstrating tests of GH #2705, "I4"): a service apply that activates a HUMAN
       task (so it writes `task.create` and takes `A`) versus a HUMAN completion with lines on the
@@ -224,10 +234,13 @@ defmodule Letflow.Engine.EntityParentLockOrderTest do
     overlap
   end
 
-  defp report_margin(label, overlap) do
-    IO.puts(
-      "MARGIN #{label} timing=#{inspect(overlap.timing)} margin_ms=#{H.margin_ms(overlap.timing)}"
-    )
+  # the 2 s lock_timeout of the entity-write transactions must leave real room (design 4, "Margin")
+  defp assert_margin(overlap) do
+    margin = H.margin_ms(overlap.timing)
+
+    assert margin >= 500,
+           "lock_timeout margin #{margin} ms is under 500 ms (#{inspect(overlap.timing)}): " <>
+             "add the test-env timeout seam of the design"
   end
 
   defp first_index(queries, pred), do: Enum.find_index(queries, pred)
@@ -256,9 +269,55 @@ defmodule Letflow.Engine.EntityParentLockOrderTest do
 
       first_audit_row = first_index(queries, &(&1.query =~ "audit_chain_locks"))
 
-      IO.puts("E0s type_row=#{first_type_row} audit_chain=#{first_audit_row}")
+      first_task_insert = first_index(queries, &(&1.query =~ ~r/INSERT INTO "[^"]+"\."tasks"/))
+
       assert is_integer(first_type_row) and is_integer(first_audit_row)
+      assert is_integer(first_task_insert)
       assert first_type_row < first_audit_row
+      # the pre-lock sits before the first merge after :lock_ancestors (hop-chain tokens, then the
+      # task activation whose `tasks` INSERT is traced here)
+      assert first_type_row < first_task_insert
+    end
+  end
+
+  describe "E0c: statement order of a completing service CHILD" do
+    setup :plain_tenant
+
+    test "parent projection, waiting token, type row, audit chain row", %{
+      base: base,
+      type_id: type_id
+    } do
+      s_def = activate!(base, service_child(:completing))
+      parent = activate!(base, linear([start_node(), sub_process("sp", s_def), end_node()]))
+      parent_id = start_instance!(base, parent)
+      s_id = child_of(base, parent_id, s_def)
+      apply_fn = service_apply_fn(base, s_id)
+
+      {result, queries} = PlatformTenantFixture.capture_repo_queries(apply_fn)
+      assert {:ok, :advanced} = result
+
+      parent_projection =
+        first_index(queries, fn q ->
+          q.query =~ "instance_projections" and q.query =~ "FOR UPDATE" and
+            parent_id in params(q)
+        end)
+
+      waiting_token =
+        first_index(queries, fn q ->
+          q.query =~ "FOR UPDATE" and q.query =~ "waiting_child_instance_id"
+        end)
+
+      type_row =
+        first_index(queries, fn q ->
+          q.query =~ "instance_sequence" and q.query =~ "FOR UPDATE" and type_id in params(q)
+        end)
+
+      audit_row = first_index(queries, &(&1.query =~ "audit_chain_locks"))
+
+      assert Enum.all?([parent_projection, waiting_token, type_row, audit_row], &is_integer/1)
+      assert parent_projection < waiting_token
+      assert waiting_token < type_row
+      assert type_row < audit_row
     end
   end
 
@@ -288,7 +347,7 @@ defmodule Letflow.Engine.EntityParentLockOrderTest do
 
       overlap = H.forced_overlap(base.schema, {:sequence, type_id}, h, s)
       assert_ok_and_clean(base, overlap, 2)
-      report_margin("E1", overlap)
+      assert_margin(overlap)
 
       assert Fx.projection!(base.schema, parent_id).status == :completed
       assert length(Fx.instance_events(base.schema, parent_id, "SUB_PROCESS_COMPLETED")) == 2
@@ -317,7 +376,7 @@ defmodule Letflow.Engine.EntityParentLockOrderTest do
 
       overlap = H.forced_overlap(base.schema, {:sequence, type_id}, child, own)
       assert_ok_and_clean(base, overlap, 2)
-      report_margin("E2a", overlap)
+      assert_margin(overlap)
 
       assert Fx.projection!(base.schema, c_id).status == :active
     end
@@ -341,13 +400,18 @@ defmodule Letflow.Engine.EntityParentLockOrderTest do
 
       overlap = H.forced_overlap(base.schema, {:sequence, type_id}, child, sibling)
       assert_ok_and_clean(base, overlap, 2)
-      report_margin("E2b", overlap)
+      assert_margin(overlap)
 
       assert Fx.projection!(base.schema, c_id).status == :active
       assert Fx.projection!(base.schema, s_id).status == :completed
     end
 
-    test "E2c (control): two continuing siblings are not serialised on the group", %{
+    # E2c was measured RED on main: the continuing service sibling activates a HUMAN task (`h2`),
+    # so on main it takes the audit chain row BEFORE the type rows while the HUMAN sibling takes
+    # the type rows before the audit chain row (the I4 inversion), a 40P01 on `instance_sequence`.
+    # After PR-1 it is GREEN. It does NOT discriminate the group's lock mode (a FOR UPDATE group
+    # would give the same order and no deadlock): E2d does.
+    test "E2c: two continuing siblings (red on main by I4, green after PR-1)", %{
       base: base,
       type_id: type_id
     } do
@@ -366,7 +430,7 @@ defmodule Letflow.Engine.EntityParentLockOrderTest do
 
       overlap = H.forced_overlap(base.schema, {:sequence, type_id}, child, sibling)
       assert_ok_and_clean(base, overlap, 2)
-      report_margin("E2c", overlap)
+      assert_margin(overlap)
 
       assert Fx.projection!(base.schema, c_id).status == :active
       assert Fx.projection!(base.schema, s_id).status == :active
@@ -397,10 +461,117 @@ defmodule Letflow.Engine.EntityParentLockOrderTest do
 
       overlap = H.forced_overlap(base.schema, {:sequence, type_id}, child, own)
       assert_ok_and_clean(base, overlap, 2)
-      report_margin("E3", overlap)
+      assert_margin(overlap)
 
       assert Fx.projection!(base.schema, parent_id).status == :completed
       assert length(Fx.instance_events(base.schema, parent_id, "SUB_PROCESS_COMPLETED")) == 1
+    end
+  end
+
+  # ---- E2d / E4x: the group's lock MODE and the execution-error transition ------------------------
+
+  # the statements that lock the parent projection or a waiting token, as {table, mode}
+  defp group_lock_modes(queries, parent_id) do
+    for q <- queries,
+        q.query =~ ~r/FOR (UPDATE|KEY SHARE)/,
+        kind = group_kind(q, parent_id),
+        do: {kind, if(q.query =~ "FOR KEY SHARE", do: :key_share, else: :update)}
+  end
+
+  defp group_kind(q, parent_id) do
+    cond do
+      q.query =~ "instance_projections" and parent_id in params(q) -> :parent_projection
+      q.query =~ "waiting_child_instance_id" -> :waiting_token
+      true -> nil
+    end
+  end
+
+  defp assert_key_share_group(modes) do
+    assert {:parent_projection, :key_share} in modes
+    assert {:waiting_token, :key_share} in modes
+    refute Enum.any?(modes, fn {_kind, mode} -> mode == :update end), inspect(modes)
+  end
+
+  describe "E2d/E4x: group mode and execution error" do
+    setup :plain_tenant
+
+    test "E2d: a continuing HUMAN child takes the group FOR KEY SHARE, never FOR UPDATE", %{
+      base: base
+    } do
+      c_def = activate!(base, continuing_human_child())
+      parent = activate!(base, linear([start_node(), sub_process("sp", c_def), end_node()]))
+      parent_id = start_instance!(base, parent)
+      c_id = child_of(base, parent_id, c_def)
+      complete = complete_task_fn(base, pending_task(base, c_id, "h1"))
+
+      {result, queries} = PlatformTenantFixture.capture_repo_queries(complete)
+      assert {:ok, _} = result
+
+      assert_key_share_group(group_lock_modes(queries, parent_id))
+    end
+
+    test "E2d: a continuing service child takes the group FOR KEY SHARE, never FOR UPDATE", %{
+      base: base
+    } do
+      s_def = activate!(base, service_child(:continuing))
+      parent = activate!(base, linear([start_node(), sub_process("sp", s_def), end_node()]))
+      parent_id = start_instance!(base, parent)
+      s_id = child_of(base, parent_id, s_def)
+      apply_fn = service_apply_fn(base, s_id)
+
+      {result, queries} = PlatformTenantFixture.capture_repo_queries(apply_fn)
+      assert {:ok, :advanced} = result
+
+      assert_key_share_group(group_lock_modes(queries, parent_id))
+    end
+
+    test "E4x: an execution-error transition takes no ancestor group and does not raise", %{
+      base: base
+    } do
+      graph =
+        linear([
+          start_node(),
+          human("ht", %{"entity_writes" => [x_line()]}),
+          %{"id" => "xg", "node_type" => "EXCLUSIVE_GATEWAY"},
+          end_node()
+        ])
+
+      # the only edge out of the gateway never matches: the :transition step ends in an execution
+      # error, so :lock_ancestors must return {:ok, []}
+      graph =
+        update_in(graph, ["edges"], fn edges ->
+          Enum.map(edges, fn
+            %{"source" => "xg"} = edge ->
+              Map.put(edge, "condition", "variables.approved == true")
+
+            edge ->
+              edge
+          end)
+        end)
+
+      c_def = activate!(base, graph)
+      parent = activate!(base, linear([start_node(), sub_process("sp", c_def), end_node()]))
+      parent_id = start_instance!(base, parent)
+      c_id = child_of(base, parent_id, c_def)
+      task = pending_task(base, c_id, "ht")
+
+      {result, queries} =
+        PlatformTenantFixture.capture_repo_queries(fn ->
+          Engine.complete_task(
+            task.id,
+            %{
+              output_variables: %{"approved" => false},
+              actor_id: base.user.id,
+              idempotency_key: Fx.unique("ep-xerr")
+            },
+            prefix: base.schema
+          )
+        end)
+
+      assert {:error, {:instance_execution_error, _type, _affected}} = result
+      assert Fx.projection!(base.schema, c_id).status == :error
+      assert Fx.records(base.schema, "stock_move") == []
+      assert group_lock_modes(queries, parent_id) == []
     end
   end
 
@@ -427,7 +598,7 @@ defmodule Letflow.Engine.EntityParentLockOrderTest do
       assert {:ok, _} = overlap.second
       assert length(Fx.records(base.schema, "stock_move")) == 2
       assert {:ok, :valid} = Audit.verify_chain(base.schema)
-      report_margin("E5", overlap)
+      assert_margin(overlap)
     end
   end
 
@@ -472,7 +643,7 @@ defmodule Letflow.Engine.EntityParentLockOrderTest do
       assert length(Fx.records(schema, "fxl_balance")) == 2
       assert length(Fx.records(schema, "fxl_ledger")) == 1
       assert {:ok, :valid} = Audit.verify_chain(schema)
-      report_margin("E6", overlap)
+      assert_margin(overlap)
     end
   end
 end

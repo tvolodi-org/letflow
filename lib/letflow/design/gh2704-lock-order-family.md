@@ -169,7 +169,7 @@ That is the proof sketch for #2705: with GO there is no pair that takes `A` and 
 Mode is decided from the pure transition BEFORE any lock of L4: `FOR UPDATE` on the whole chain
 when the final status is `:completed` (its cascade follows), `FOR KEY SHARE` on the immediate
 parent otherwise (compatible between siblings, still queued ahead of a parent cancel's FOR UPDATE).
-No path takes key-share and later upgrades the same rows (two sibling upgraders would deadlock).
+Key-share compatibility holds for the group itself, but it does not make two continuing siblings deadlock-free on main: E2c was measured RED on main through the I4 inversion (the continuing service sibling's activated HUMAN task takes `A` before the type rows), not through the group. No path takes key-share and later upgrades the same rows (two sibling upgraders would deadlock).
 The new users inherit this rule: cancel(c) and the ExecutionError landing are "continuing" shaped
 (they never complete the child), so key-share immediate parent; both decide before their first
 write. fire_timer (#2707) must respect it too (section 6.3).
@@ -329,7 +329,7 @@ the race, C2 does the same).
 | E1 | sibling completing H and S (pins the sibling inversion of the amendment) | `Z` holds X's sequence row. Start H, wait 1 blocked, start S, wait 2 blocked, release. H queued first at E on main, S holds the group and queues second | red: 40P01 (H holds E, wants group; S holds group, wants E) | green: H holds the group (FOR UPDATE), S parks at the group, no E cycle |
 | E2a | continuing H' (HUMAN node to another HUMAN node, key-share group) vs the parent's OWN completion with lines on X | `Z` on X. Start H' FIRST, wait 1 blocked (main: queued at E, no group yet), start the parent completion (takes `tasks_p`, `P_p` FOR UPDATE, queues at E second), wait 2 blocked, release | red on main: H' gets E first, then wants the key-share group held FOR UPDATE by the parent, which waits for E | green: H' (started first) holds the key-share group and E; the parent parks at `P_p` |
 | E2b | continuing H' vs a COMPLETING sibling S (group FOR UPDATE) | same barrier; H' first, S second | red on main: H' holds E and wants the group S holds; S holds the group and wants E | green |
-| E2c | two continuing siblings H' and S' | same barrier | green on main AND after (key-share is compatible, section 2.3); the control that C-P does not serialise continuing siblings | green |
+| E2c | two continuing siblings H' and S' | same barrier | **RED on main (measured, as built)**: the continuing service sibling S' activates a HUMAN task (`h2`), so on main it takes `A` before the type rows while H' takes the type rows before `A`, the I4 inversion (a 40P01 on `instance_sequence`), not a group cycle. Key-share is still compatible between siblings (section 2.3), so the GROUP itself never blocks them | green after PR-1. E2c cannot detect a continuing child wrongly taking the group FOR UPDATE (same order, no deadlock), so E2d pins the MODE by statement trace |
 | E3 | child completion (HUMAN, lines on X) vs the parent's OWN completion with lines on X (parent has a second parallel HUMAN branch with lines) | `Z` on X. Start the CHILD FIRST, wait 1 blocked, start the parent completion second, wait 2 blocked, release. FIFO: the child gets E, then wants `P_p` (held by the parent, which waits for E) | red on main: 40P01 (`E -> P_p` vs `P_p -> E`). With the opposite start order it would be green on main, so the order is part of the test | green |
 | E5 | I4, service vs HUMAN, no parent needed: S' = service node WITH lines on X whose NEXT node is a HUMAN_TASK (the apply activates that task, so it writes `task.create` and takes `A` before E on main) vs a HUMAN completion with lines on X | The fixture first performs one audit write so the `audit_chain_locks` row exists (`lock_chain_tail!` creates it lazily, `audit.ex:284-300`); `Z` then holds it. Start S' first, wait 1 blocked (on main it is parked at `A`), start H, wait 2 blocked (H holds E, parked at `A`), release: S' is granted `A`, wants E | red on main: 40P01 (`A -> E` vs `E -> A`); green after (S' takes E before `A`, H queues behind it) |
 | E6 | C-E for a handler-only target: service node with `module_writes` whose handler's registered target type Y is NOT a declared line type (fixtures of `test/letflow/engine/module_write_service_task_test.exs`), next node HUMAN, vs a HUMAN completion with `module_writes` to Y | as E5 (including the warm-up audit write), barrier `Z` on `A` | red on main AND red with a lines-only pre-lock (this case proves the union is needed) | green with the union |
@@ -573,3 +573,21 @@ RELEASE-VALIDATOR re-runs the new files.
 8. **#2705 test placement: settled.** E5/E6 are in PR-1; PR-4 holds the remaining proof only.
 9. **fire_timer lock mode** (4.4): FOR UPDATE on the immediate parent for every child timer fire is
    the recommendation; to be settled in the #2707 note.
+
+## 10. As built (PR-1, ELIXIR-DEV)
+
+* Added fixture definition `fxl_svc_then_human` in `priv/module_fixtures/ledger_foundation.json`
+  (SERVICE_TASK with `module_writes` `post_balance_only`, then a HUMAN task): E6 needs a service
+  node with a handler-only target followed by a HUMAN task, which no existing pack definition had.
+* Test seam `probe_service_multi/1` in `engine.ex` (compiled only with `config :letflow,
+  :engine_test_seams`; sends the step names of the service Multi to the pid in the
+  `:service_multi_probe` env key): used by `entity_port_prelock_wired_test.exs`.
+* Three existing tests edited for the changed contracts: `complete_task_entity_writes_test.exs`
+  (the B-15 step names now contain `:lock_ancestors` after `:transition`), `entity_port_boundary_test.exs`
+  (seven port callbacks, the seventh optional) and `module_write_owner_path_test.exs` (`HandlerWrites`
+  exports `lock_types/4`).
+* Failed pre-lock step: `StepWrites.interpret_failure({:pre_type_lock, _}, _)` is `{:failed, 0, :type_lock}`
+  and the service apply names that step so the port interprets it (security review L1).
+* E2c is red on main (see its row); E2d (lock mode) and E0c (service child statement trace) were added.
+  The harness duplication in `cancel_cascade_lock_order_test.exs` stays (follow-up).
+

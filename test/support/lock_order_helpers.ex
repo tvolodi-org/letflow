@@ -6,7 +6,7 @@ defmodule Letflow.LockOrderHelpers do
 
   Determinism without sleep-coupled timing: a third connection `Z` holds ONE row (a barrier),
   the workers run on their own pinned connections (`Repo.checkout/1`, each reporting
-  `pg_backend_pid()`), and the test polls (bounded, 10 ms steps) until the number of DISTINCT
+  `pg_backend_pid()`), and the test polls (every 10 ms, to a 700 ms monotonic deadline per phase) until the number of DISTINCT
   blocked backends among the workers' pids reaches the expected count. Only then is `Z` released.
   Postgres grants the waiters of one row in arrival order, so "start worker 1, wait until it is
   blocked, start worker 2, wait until both are blocked, release `Z`" fixes who gets the contended
@@ -27,8 +27,10 @@ defmodule Letflow.LockOrderHelpers do
 
   alias Letflow.Repo
 
-  # entity-write fixtures run under a 2 s lock_timeout, so the poll bound must stay far below it
-  @poll_steps 80
+  # entity-write fixtures run under a 2 s lock_timeout, so each wait for parked workers is bounded
+  # by a monotonic DEADLINE (wall clock, not a step count: a query round trip is not free) that
+  # stays far below it
+  @poll_deadline_ms 700
   @poll_ms 10
   @await_ms 15_000
 
@@ -146,9 +148,11 @@ defmodule Letflow.LockOrderHelpers do
   end
 
   @doc """
-  Waits until `n` DISTINCT workers among `pids` are blocked on a lock; bounded
-  (`#{@poll_steps}` steps of `#{@poll_ms}` ms, so under one second). Returns the monotonic
-  millisecond at which the count was reached.
+  Waits until `n` DISTINCT workers among `pids` are blocked on a lock; bounded by a monotonic
+  deadline of `#{@poll_deadline_ms}` ms per phase (polled every `#{@poll_ms}` ms), so a phase never
+  eats the 2 s `lock_timeout` of the workers. Returns the monotonic millisecond at which the
+  count was reached. A miss is a SLOW START of the workers (host load), not a deadlock: deadlocks
+  are reported by the telemetry handler.
   """
   @spec wait_for_blocked([pos_integer()], pos_integer()) :: integer()
   def wait_for_blocked(pids, n) do
@@ -159,22 +163,30 @@ defmodule Letflow.LockOrderHelpers do
     WHERE a.pid = ANY($1) AND a.wait_event_type = 'Lock'
     """
 
-    blocked =
-      Enum.reduce_while(1..@poll_steps, 0, fn _step, _last ->
-        %{rows: [[count]]} = Repo.query!(sql, [pids])
-
-        if count >= n do
-          {:halt, count}
-        else
-          Process.sleep(@poll_ms)
-          {:cont, count}
-        end
-      end)
+    deadline = System.monotonic_time(:millisecond) + @poll_deadline_ms
+    blocked = poll_blocked(sql, pids, n, deadline)
 
     assert blocked >= n,
-           "expected #{n} distinct blocked worker backend(s) within the poll bound, saw #{blocked}"
+           "slow start, not a deadlock: expected #{n} distinct blocked worker backend(s) within " <>
+             "#{@poll_deadline_ms} ms, saw #{blocked}"
 
     System.monotonic_time(:millisecond)
+  end
+
+  defp poll_blocked(sql, pids, n, deadline) do
+    %{rows: [[count]]} = Repo.query!(sql, [pids])
+
+    cond do
+      count >= n ->
+        count
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        count
+
+      true ->
+        Process.sleep(@poll_ms)
+        poll_blocked(sql, pids, n, deadline)
+    end
   end
 
   @doc "The backend pids blocking `pid`."
