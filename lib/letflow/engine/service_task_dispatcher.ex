@@ -670,6 +670,11 @@ defmodule Letflow.Engine.ServiceTaskDispatcher do
   defp classify_advance_failure(:entity_write_needs_reactivation),
     do: :entity_write_needs_reactivation
 
+  # GH #2706 PR-3: the :give_up landing could not take its locks (lock timeout or deadlock) after
+  # its bounded retries. The instance stays active; a standalone DLQ row tells the operator.
+  defp classify_advance_failure({:execution_error_contention, _code}),
+    do: :execution_error_contention
+
   defp classify_advance_failure(_other), do: :other
 
   # Re-fetches the dispatch row (no lock) to recover instance_id/node_id,

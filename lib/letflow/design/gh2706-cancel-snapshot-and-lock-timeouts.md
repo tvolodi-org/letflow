@@ -409,6 +409,13 @@ DLQ row exists but the instance stays ACTIVE.)
   raised deadlock to `{:transaction_failed, _}` / 500 (family note, `engine.ex:391`); changing that
   is a separate issue (Q4).
 
+### 4.3 As built (PR-3)
+
+* `Engine.set_instance_error/2` runs `error_landing_transaction/4` (the shared lock-timeout step of the cancel first, then `ExecutionError.append_multi/3` unchanged) under `run_error_landing_attempts/6`: a contention-class raise (`Contention.contention_code/1`, rescued in the transaction function, other exceptions re-raised) is retried with `service_backoff/1` (100 ms / 300 ms, none under `:engine_test_seams`), 3 attempts in all, not when nested.
+* Exhaustion returns `{:error, {:execution_error_contention, code}}`, logs the tag, attempt and instance id only, and (unless `dlq_landed_externally` or nested) writes the standalone row through `Dlq.enqueue/2`: `entry_type "event"`, `context_json {"landing": "contention"}`, a fixed reason sentence, `error_detail` = `error_type`, the affected descriptor (`{"node": id}` or `{"field": name}`), `contention` (`lock_not_available`/`deadlock_detected`) and `attempts`. The row is skipped for a nested call: its caller's transaction is aborted by the failed statement and no separate transaction can be opened inside it.
+* The dispatcher's `classify_advance_failure/1` has an `:execution_error_contention` clause (logged and audited failure); `give_up_service_task_dispatch/3` is a private function without a spec and already forwards `{:error, reason}`, the public `advance_after_service_task_outcome/4` spec lists the new member.
+* Tests: `test/letflow/engine/set_instance_error_contention_test.exs` E1-E3 as designed, E4 (the `append_multi/3` raise contract) and E5 (nested: typed error at once, no row, one 55P03 only).
+
 ## 5. Invariants this design preserves (INV list for the validator)
 
 * GO is unchanged: class 1 (tasks, timers, dispatch) before `P_x`; the new read adds no waiting
