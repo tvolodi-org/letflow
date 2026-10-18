@@ -45,10 +45,11 @@ New here: `TM` a `timers` row, `TK` a `tasks` row, `W` any writer that takes `P_
    with `{:instance_terminated, _}`, which lands in the failure accounting: 3 attempts, then `failed` plus
    a `timer` DLQ row); it is re-claimed forever only for an `:error` instance. Section 6 gives the red-first
    probe that pins which.
-5. **PR split (section 8):** PR-1 the `P_x`-first fire + cancel timer move + dead-instance flip + 0061
+5. **PR split (section 9):** PR-1 the `P_x`-first fire + cancel timer move + dead-instance flip + 0061
    amendment; PR-2 cold appenders (`EventStore.append/2` locks the projection in its guard); PR-3 contention
    hygiene for the scheduler loop (lock timeout, `:contended` accounting, route 503). PR-3 depends on #2706
-   PR-2; PR-1 depends on #2706 PR-1 (same function). Two sub-issues are needed (one PR per issue).
+   PR-2; PR-1 depends on #2706 PR-1 (same function). No sub-issues (supervisor ruling for #2706): the split
+   reason is recorded in each PR body; PR-1 `Closes #2822`, PR-1 and PR-2 say `Refs #2707`, PR-3 `Closes #2707`.
 
 ## 1. Inventory: the real lock order of every timer-related path on main
 
@@ -67,9 +68,9 @@ One transaction (`Repo.transaction`), in order:
 | 2 | `Timer.fire_changeset` update | `TM` UPDATE `fired` | `301-304` |
 | 3 | `append_timer_fired_event` (COLD `EventStore.append/2`, idempotency key `timer_fired:<id>`) | guard: plain read of `P_x`; `S_x` FOR UPDATE; event insert; `P_x` UPDATE (#1 of the row) | `400-420`, `event_store.ex:680-698`, `700-760`, `897-910` |
 | 4 | `route_fire` | by `timer_type`: `escalation` -> 4a, `reminder` -> 4b, else (`deadline`, `scheduled_transition`) -> 4c | `329-344` |
-| 4a | `advance_after_escalation_timer_fired` | `P_x` FOR UPDATE (`engine.ex:4090`; already write-locked by step 3), tokens/tasks reads, then a Multi in a SAVEPOINT: `TK` (token_id, pending) FOR UPDATE (`4219-4228`), task cancel UPDATE, reminder `TM` update_all (`4254-4264`), `A` at `task.cancel` and `task.create` audits, token inserts/reconcile, timer arms, dispatch arms, sub-process children, `P_x` UPDATE #2 (`reconcile_projection`, `4362-4364`) | `4089-4381` |
+| 4a | `advance_after_escalation_timer_fired` | `P_x` FOR UPDATE (`engine.ex:4090`; already write-locked by step 3), tokens/tasks reads, then a Multi (a nested `repo.transaction`, which joins the outer one; the "SAVEPOINT" wording of the engine comments is unverified): `TK` (token_id, pending) FOR UPDATE (`4219-4228`), task cancel UPDATE, reminder `TM` update_all (`4254-4264`), `A` at `task.cancel` and `task.create` audits, token inserts/reconcile, timer arms, dispatch arms, sub-process children, `P_x` UPDATE #2 (`reconcile_projection`, `4362-4364`) | `4089-4381` |
 | 4b | `record_reminder_fired` | plain read of the pending task (no lock, by design, comment `3993-3994`), `A` (one `task.remind` audit, `4015-4032`) | `4003-4038` |
-| 4c | `advance_after_timer_fired` | `P_x` FOR UPDATE (`3702`, no-op re-lock), Multi in a SAVEPOINT: token inserts, task activation (`A`), timer/dispatch arms, children, `P_x` UPDATE #2 (`3938-3940`) | `3701-3980` |
+| 4c | `advance_after_timer_fired` | `P_x` FOR UPDATE (`3702`, no-op re-lock), Multi (nested `repo.transaction`, joins the outer one): token inserts, task activation (`A`), timer/dispatch arms, children, `P_x` UPDATE #2 (`3938-3940`) | `3701-3980` |
 | 5 | `maybe_rearm_timer` | INSERT of the successor `TM` | `313`, `472-494` |
 
 Real order today: `TM, S_x, P_x(upd #1), [TK (escalation), reminder TM], A, ..., P_x(upd #2)`. No ancestor
@@ -130,7 +131,7 @@ Pre-condition for all: nothing here needs a sub-process except C6; C1-C5 and C7 
 
 `complete_task` without a plan has no `lock_timeout` and reports a victim as `{:transaction_failed, _}` (500);
 the apply re-applies; a fire victim goes to the failure accounting and is COUNTED (`attempt_fire/2` generic
-`{:error, _}` clause, `569`): three deadlocks make a healthy timer `failed` plus a DLQ row (section 7 PR-3
+`{:error, _}` clause, `569`): three deadlocks make a healthy timer `failed` plus a DLQ row (sections 8.4 and 11, PR-3
 fixes the accounting). Evidence therefore comes from the Repo telemetry handler of the forced-overlap
 helper, as in the family tests.
 
@@ -148,13 +149,13 @@ helper, as in the family tests.
   locked): no cycle. A parent fire creating a child that completes synchronously cascades under `P_p` held.
 * A cold appender vs a cold appender: both `S_x` then `P_x`, same order, serialised on `S_x`.
 
-### 2.4 Benign (cannot cycle; reason)
+### 2.4 Benign (cannot cycle; reason) and corrections to the first draft
 
-* fire (deadline) vs cancel on main: cancel waits on `TM` holding only `TK`; the fire never wants `TK` (deadline path): no edge back. (The escalation variant is C4.)
+* the SAME deadline timer vs cancel on main: cancel waits on that `TM` holding only `TK`; the fire never wants `TK` (deadline path): no edge back. A timer ARMED after cancel's `update_all` ran (a cascade committing while cancel waits at `P_x`) is not benign: the fire of it is C1 with W = cancel. (The escalation variant is C4.)
 * two fires of the same timer (two nodes, or poller plus route): the second blocks on `TM`, then sees a non-pending row and returns `:already_final`.
-* fire vs apply: no shared row before `P_x`; both serialise on `P_x`.
-* `record_fire_failure/2` (`610-638`, own transaction) holds `TM` only.
-* `claim_due_timer_ids/2`: instantaneous.
+* fire vs apply: NOT benign on main (an apply is a W, so it is C1: `S_x` before `P_x` in the fire); benign only after PR-1, when both serialise on `P_x`.
+* a fire queued at `P_x` behind cancel's `P_x` while holding `TK` (escalation): not a cycle (cancel does not want a task row after `P_x`, except through #2706's recheck). In #2706's `SKIP LOCKED` recheck that `TK` is a leftover: cancel aborts and retries, and converges once the fire has committed.
+* `record_fire_failure/2` (`610-638`, own transaction) holds `TM` only; `claim_due_timer_ids/2` is instantaneous (both are the exceptions named in section 10).
 
 ## 3. The chosen order and why not the family note's variant
 
@@ -162,30 +163,32 @@ helper, as in the family tests.
 
 Fire: `TM`, then `P_x`; `complete_task` adds a pre-`P_x` lock of its task's timers between `TK` and `P_x`;
 cancel keeps `TK, TM, P_x`. Rejected because:
-* it adds a statement and a lock wait to the hottest write path;
-* the escalation fire needs `TK` first, so the fire must take `TK` BEFORE `TM` (otherwise `TM -> TK`
-  vs completion `TK -> TM` is a new cycle), which needs an unlocked peek of the timer anyway and an explicit
-  rule "tasks, then timers" inside class 1;
-* the recurring reminder successor `TM'` is inserted by the fire AFTER the completer's pre-lock statement
-  ran, so the completer's tail `update_all` (post-`P_x`) can meet a `TM'` that a fire already holds and is
-  queued behind `P_x`: a deadlock needing a `SKIP LOCKED` variant of the tail update;
-* two timer rows locked in different orders (cancel's unordered `update_all`, the fire's `E` then reminders)
-  need a row-ordering rule with a legacy corner (an escalation timer whose token has no pending task).
+* the recurring reminder successor `TM'` is inserted by a fire AFTER a completer's pre-lock statement ran
+  (the statement's snapshot cannot see it), so the completer's tail `update_all` (post-`P_x`) can meet a
+  `TM'` that another fire already holds while queued behind `P_x`: a deadlock needing a `SKIP LOCKED`
+  variant of the tail update (the recurring-successor window);
+* it adds a statement and a lock wait to the hottest write path (every HUMAN completion);
+* cancel would keep its pre-`P_x` timer update and so still miss timers armed while it waits at `P_x`,
+  whereas under B cancel sees late-armed timers.
+(The earlier draft also argued a timer-row ordering problem; that argument was weak and is dropped.)
 
 ### 3.2 Option B (chosen): timers AFTER `P_x`
 
 Rule: **every path that locks or updates `timers` rows of an instance does so while holding that
 instance's `P_x` FOR UPDATE.** Then all timer locks of one instance are serialised by `P_x`, so two timer
-rows can never be waited for in a cycle, a recurring successor is invisible to nobody (its creator holds
-`P_x`), and nothing that holds a timer row can want a row of an earlier class except what GO already allows.
+rows can never be waited for in a cycle, a recurring successor is created under `P_x` (so no
+concurrent holder can miss it), and nothing that holds a timer row can want a row of an earlier class except what GO already allows.
 
-Resulting per-path orders (GO classes of the family note; new class `L6b`: own timer rows, after `L6`
-entity-type rows and before `L7` the audit chain row):
+Resulting per-path orders (GO classes of the family note). `timers` and `tokens` are both "P_x-protected"
+rows: they are touched only while `P_x` is held, and their order AMONG THEMSELVES is unconstrained (a
+waiter on either already owns `P_x`, so every other holder of them is itself serialised behind it). The
+only constraints on the timer class are against rows that can be waited for without `P_x`: it comes after
+E where a path takes both and before `A` and `S` where a path takes them:
 
 | Path | Order |
 |---|---|
 | `complete_task` (unchanged) | `TK, P_x, group, E, TM(tail), A, S_x, P_x upd` |
-| cancel (timer step moved) | `TK(all pending), dispatch/CAS rows, P_x, eligibility, group, TM(update_all), T_x, ..., S_x, P_x upd, A` |
+| cancel (timer step moved) | `TK(all pending), dispatch/CAS rows, P_x, eligibility, group, [#2706: open_tasks_recheck], TM(update_all), T_x, ..., S_x, P_x upd, A` |
 | fire, deadline / scheduled_transition | `peek, P_x, group(key share), TM, [S_x, P_x upd #1 (TIMER_FIRED)], tokens, A, ..., P_x upd #2` |
 | fire, escalation | `peek, TK(token pending), P_x, group, TM, [S_x...], reminder TM, A, ... P_x upd #2` |
 | fire, reminder | `peek, P_x, group, TM, [S_x, P_x upd], A` |
@@ -207,8 +210,8 @@ reminder's single audit is the last write, the escalation/deadline audits come a
 
 The TIMER_FIRED append stays exactly where it is (after the timer UPDATE, before `route_fire`); only locks
 move earlier. Inside the fire `S_x` (L8) is therefore taken before `A` (L7), the reverse of GO. This is
-safe because of invariant **I-S: every writer of x's event stream holds `P_x` FOR UPDATE before taking
-`S_x`.** A transaction that holds `A` and wants `S_x(x)` must hold `P_x(x)`, which the fire owns; so no
+safe because of invariant **I-S: every writer of a WORKFLOW instance's event stream holds `P_x` before taking
+`S_x`** (entity-type synthetic streams take `S` then `P` and are outside it). A transaction that holds `A` and wants `S_x(x)` must hold `P_x(x)`, which the fire owns; so no
 edge from an `A` holder to the fire exists. I-S is what PR-1 (fire) and PR-2 (cold appenders) establish;
 it was claimed by 0054 D3 and is stated as a rule in the 0061 amendment (section 10).
 
@@ -219,7 +222,7 @@ it was claimed by 0054 D3 and is stated as a rule in the 0061 amendment (section
 New engine function (the engine owns the projection and the group; the scheduler owns the timer row):
 
 * `Letflow.Engine.lock_for_timer_fire(Timer.t(), repo :: Ecto.Repo.t(), prefix :: String.t()) ::
-  {:ok, InstanceProjection.t()} | {:error, :instance_not_found}`, `@doc false`, called by the scheduler
+  {:ok, InstanceProjection.t()} | {:error, :instance_not_found} | {:error, term()}`, `@doc false`, called by the scheduler
   inside its transaction, BEFORE the timer row is locked. Steps, in this order:
   1. only when `timer_type == "escalation"` and `token_id` is not nil: the pending `tasks` rows of the token
      (`token_id = ^timer.token_id AND status = :pending`, the exact predicate of `original_task_row` at
@@ -229,12 +232,15 @@ New engine function (the engine owns the projection and the group; the scheduler
      settle a dead instance);
   3. only when the locked projection is `:active`: `lock_parent_group(repo, instance_id, :continuing, prefix)`
      (`engine.ex:8730`, KEY SHARE immediate parent, no-op for a non-child). A non-active instance takes no group.
+  `{:error, term()}` is whatever `lock_parent_group/4` returns on failure (its spec allows it). The task predicate
+  is shared, not copied: one private function (name chosen by the build) builds the query for both this
+  step and `original_task_row` (`engine.ex:4219-4228`), so the two sets cannot drift apart.
   Returns the projection (any status). No write. The functions it replaces nowhere: `advance_after_*`
   keep their own `P_x` lock (now a no-op re-lock) and `original_task_row` keeps its `FOR UPDATE` (a no-op
   re-lock of rows already held; same set by construction, same predicate). No behaviour change for direct
   callers of `advance_after_timer_fired/3` (tests).
 
-`Letflow.Scheduler.fire_timer/2` (spec unchanged in PR-1: `{:ok, :fired} | {:ok, :already_final} | {:error, term()}`):
+`Letflow.Scheduler.fire_timer/2` (spec in PR-1 unchanged: `{:ok, :fired} | {:ok, :already_final} | {:error, term()}`; PR-3 adds `{:error, :contention}` to the spec and a matching `attempt_fire/2` clause BEFORE the generic `{:error, _}` clause):
 
   1. unlocked read of the timer by id (`peek`); nil -> `{:ok, :already_final}`. The columns used (`instance_id`,
      `token_id`, `node_id`, `timer_type`) are immutable (the changesets `fire`, `retry_increment`, `fail`
@@ -247,13 +253,16 @@ New engine function (the engine owns the projection and the group; the scheduler
   5. `do_fire` unchanged (timer UPDATE, TIMER_FIRED append, `route_fire`, re-arm).
 
 Cancel: `run_cancel_instance/5` moves `:timer_cancellations` from between `:open_tasks` and
-`:instance_projection` (`8581-8605`) to immediately after `:lock_ancestors` (`8627-8634`) and before
+`:instance_projection` (`8581-8605`) to immediately after `:lock_ancestors` (`8627-8634`) and, once
+#2706 PR-1 is merged (it is, by the mandated merge order), immediately after its `:open_tasks_recheck` step and before
 `:task_cancellations`; the dispatch and script-CAS steps stay before `P_x` (class 1, untouched). The
 comment `8582-8597` is rewritten; `test/letflow/engine/timer_wiring_test.exs` (~`622-640`, the source-position
-test) is FLIPPED (timer step after `:instance_projection` and after `:lock_ancestors`). Behaviour: an
+test) is FLIPPED (timer step after `:instance_projection`, `:lock_ancestors` and `:open_tasks_recheck`, before `:task_cancellations`). Behaviour: an
 ineligible cancel no longer runs a timer UPDATE that rolls back; timers armed by a cascade while cancel
 waited at `P_x` are now cancelled (closes the timers part of #2706's R3 exception; dispatch/CAS rows
 remain that exception).
+
+Stale comments rewritten in PR-1: `test/letflow/scheduler_test.exs` ~`440-450` (the "no active instance to append against" comment now describes the settle/`instance_not_found` behaviour) and `timer_wiring_test.exs` ~`954` (names the `{:instance_not_active, _}` special case that `fire_timer/2` no longer returns for a dead instance).
 
 Docs: engine moduledoc "Lock ordering" (`engine.ex:359-474`): timers move out of item (1) into the new
 item after (6); "Known gaps" (`446-449`) loses the timer/cold-append/escalation entries; `record_reminder_fired`
@@ -312,7 +321,7 @@ is written (`land_exhausted_timer`, `640-664`). For an `:error` instance the app
 `advance_after_*` returns `{:error, {:instance_not_active, :error}}` (`engine.ex:3537`), mapped to
 `:already_final` (`543-544`) AFTER the rollback, so the timer is re-claimed every tick forever. Because the
 claim is `ORDER BY fire_at ASC LIMIT 64`, 64 such immortal timers would starve every younger due timer
-(head-of-line blocking). The #2706 CDV statement is thus right for `:error` only; the P1 probe of section 7
+(head-of-line blocking). The #2706 CDV statement is thus right for `:error` only; the P1 probe of section 8.2
 pins this on main before anything changes.
 
 If PR-1 only added the `P_x`-first prelude and mapped a non-active projection to `{:error, {:instance_not_active, _}}`,
@@ -342,7 +351,7 @@ for a dead instance it answered 500 (the `{:error, _}` clause) and now answers 2
 ## 7. Cold appenders (PR-2)
 
 Fix at the one choke point instead of at each call site: **`EventStore.append/2`'s first step locks the
-projection row `FOR UPDATE` instead of the plain read** (`active_instance_guard`, `event_store.ex:680-698`,
+projection row `FOR NO KEY UPDATE` instead of the plain read** (`active_instance_guard`, `event_store.ex:680-698`,
 used only by `build_multi/1`; the composable core used by `append_multi/3` and the `{:line, i}` namespaces
 keeps its unlocked guard, because there the synthetic entity-type projection must keep the order "sequence
 row, then projection row", 0054 D3 / rule 5, and the E pre-lock relies on it).
@@ -355,12 +364,12 @@ re-lock returns at once; for the scheduler's TIMER_FIRED the prelude holds it; f
 (attachments, Lua emit) it turns `S_x, P_x` into `P_x, S_x`. Rejected alternatives: an opt-in option
 (`lock_projection: true`) because forgetting it re-creates the defect silently; auto-detection by
 `Repo.in_transaction?/0` because the test sandbox is "in a transaction" and prod/test behaviour would
-diverge. Terminal or missing instances: the FOR UPDATE read returns the same row/nil, same errors
+diverge. Terminal or missing instances: the locking read returns the same row/nil, same errors
 (`{:instance_terminated, _}`, `:instance_not_started`); the attachment path logs and swallows as before.
 For a child instance the cold append is one UPDATE of `P_c`: no FK lock, no group needed (5.1).
 
 Verification at build time (census): `sub_process.ex:709`, `1504` and the Lua route (`platform.ex:866`)
-are the call sites not proven by reading to hold `P_x`; the census test (section 8, T-census) asserts the
+are the call sites not proven by reading to hold `P_x`; the census test (section 8.3, case A2) asserts the
 statement order for every `EventStore.append/2` caller flow, so a caller found not holding `P_x` simply
 becomes correct.
 
@@ -388,15 +397,16 @@ New files: `test/letflow/scheduler_fire_lock_order_test.exs` (PR-1), `test/letfl
 | # | Case | Method (barrier; first worker; second worker) | On main | After |
 |---|---|---|---|---|
 | F0 | statement order, each timer type | `capture_repo_queries` of one uncontended `fire_timer`; no concurrency | red by reading: the first `instance_projections ... FOR UPDATE` follows the first `instance_sequence` lock; no group statement for a child | order: `timers` peek (plain), [escalation: `tasks ... FOR UPDATE`], `instance_projections ... FOR UPDATE`, [child: parent projection and token `FOR KEY SHARE`], `timers ... FOR UPDATE`, `timers` UPDATE, `instance_sequence` lock, events insert |
-| F1 (C1) | fire vs a non-timer W | barrier `{:sequence, x}`. First: `fire_timer` of a deadline (or reminder) timer on instance x; second: `Engine.set_instance_error(x, ...)` (takes `P_x`, then wants `S_x`, touches no timer). Release | red: fire holds `S_x` and wants `P_x`, W holds `P_x` and wants `S_x`: 40P01 reported | green: fire parks holding `P_x`; W parks at `P_x`; no deadlock; both return; instance ends `:error` after the fire's advance (assert the fire returns `{:ok, :fired}` or the documented not-active outcome, whichever the fixture's order yields) |
-| F2 (C2) | HUMAN completion vs reminder fire of the same task | barrier `{:sequence, x}`. First: reminder `fire_timer` (holds `TM`, parks at `S_x` on main); second: `complete_task` of that task (takes `TK`, `P_x`, parks at its tail timer update on `TM`). Release | red: 40P01 | green: fire parks at `S_x` holding `P_x`; completion parks at `P_x`; both return, the reminder row `fired` (or `cancelled` if completion won; assert only no-deadlock, task `completed`, and exactly one terminal state per timer) |
+| F1 (C1) | fire vs a non-timer W | barrier `{:sequence, x}`. First: `fire_timer` of a deadline (or reminder) timer on instance x; second: `Engine.set_instance_error(x, ...)` (takes `P_x`, then wants `S_x`, touches no timer). Release | red: fire holds `S_x` and wants `P_x`, W holds `P_x` and wants `S_x`: 40P01 reported | green: fire parks holding `P_x`; W parks at `P_x`; no deadlock; both return; the fire (first worker, so it owns `P_x` first) returns `{:ok, :fired}`, the timer row is `fired`, then W lands: instance `:error`. Fixture: `TIMER -> HUMAN_TASK`, so the instance is still active after the fire |
+| F2 (C2) | HUMAN completion vs reminder fire of the same task | barrier `{:sequence, x}`. First: reminder `fire_timer` (holds `TM`, parks at `S_x` on main); second: `complete_task` of that task (takes `TK`, `P_x`, parks at its tail timer update on `TM`). Release | red: 40P01 | green: fire parks at `S_x` holding `P_x`; completion parks at `P_x`; both return; exact end state (the fire is the first worker and holds `P_x`): the fire returns `{:ok, :fired}`, the reminder row is `fired` (non-recurring fixture), one `task.remind` audit exists, then the completion succeeds and the task is `completed`; the fired row is untouched by the completion |
 | F3 (C3) | completion vs escalation fire on the same task | barrier `{:task, T}`. First: `complete_task(T)` (parks on `TK`); second: escalation `fire_timer` (on main takes `TM`, `P_x`, then parks on `TK`). Release | red: completion gets `TK` then wants `P_x` held by the fire: 40P01 | green: fire peeks, parks on `TK` behind the completion; completion finishes (cancels the escalation timer); the fire then finds a cancelled timer -> `{:ok, :already_final}`; no second task created |
-| F4 (C4) | cancel vs escalation fire | barrier `{:sequence, x}`. First: escalation `fire_timer` (holds `TM`, parks at `S_x` on main); second: `cancel_instance(x)` (holds all `TK`, parks at its timer `update_all`). Release | red: fire then wants `TK` held by cancel: 40P01 | green: fire holds `TK` first; cancel parks at `TK`; after the fire commits cancel runs; end state: instance `:cancelled`, no pending task (with #2706 PR-1 merged the escalation's new task is cancelled by the recheck; WITHOUT it, assert only no deadlock and the instance `:cancelled`) |
-| F5 (C5) | escalation fire vs reminder fire (two callers) | barrier `{:sequence, x}`. First: escalation `fire_timer`; second: reminder `fire_timer` of the same task | red: esc holds `S_x`/`P_x`, wants the reminder `TM`; reminder fire holds `TM`, wants `S_x`: 40P01 | green: serialised on `P_x`; both return; the reminder is `cancelled` by the escalation or `fired` first (assert one terminal state each, no deadlock) |
+| F4 (C4) | cancel vs escalation fire | barrier `{:sequence, x}`. First: escalation `fire_timer` (holds `TM`, parks at `S_x` on main); second: `cancel_instance(x)` (holds all `TK`, parks at its timer `update_all`). Release | red: fire then wants `TK` held by cancel: 40P01 | green: fire holds `TK` first; cancel parks at `TK`; after the fire commits cancel runs; exact end state (merge order mandates #2706 PR-1): fire `{:ok, :fired}`, original task `cancelled`, escalation task created then `cancelled` by cancel's recheck, escalation timer `fired`, instance `:cancelled`, no pending task or timer |
+| F5 (C5) | escalation fire vs reminder fire (two callers) | barrier `{:sequence, x}`. First: escalation `fire_timer`; second: reminder `fire_timer` of the same task | red: esc holds `S_x`/`P_x`, wants the reminder `TM`; reminder fire holds `TM`, wants `S_x`: 40P01 | green: serialised on `P_x`; exact end state (the escalation is the first worker): escalation `fire_timer` returns `{:ok, :fired}`; the reminder row is `cancelled` with reason `task_escalated`; the reminder `fire_timer` returns `{:ok, :already_final}`; no `task.remind` audit |
 | F6 (C6) | child timer fire vs cancel(p), token-first schema | `H.set_fk_order!(schema, token_first)` (precondition asserted via `fk_firing_order/1`); child graph `TIMER -> HUMAN`; barrier `{:projection, p}`. First: `cancel_instance(p)` parks at `P_p`; second: `fire_timer(child timer)` (on main reaches UPDATE #2 and parks on the FK check). Release | red: 40P01 on the `FOR KEY SHARE OF x` RI statement, as #2708 C2 | green: the fire parks at the group lock (`FOR KEY SHARE` on `P_p`) holding only `P_c`; cancel(p) completes; the fire then sees no waiting parent token and finishes; child `:active` task created, parent `:cancelled` (documented orphan semantics) |
 | F6b | same with the projection-first FK order | `set_fk_order!` the other way | green (unreachable) | green (regression) |
 | F7 | lock mode | statement trace of a child fire | n/a | group statements are exactly `FOR KEY SHARE`, never `FOR UPDATE`; a sibling's completing group (FOR UPDATE on its own token) does not block a fire of another child (no cycle, pins 5.2) |
-| F8 | cancel timer step moved | source-position test FLIPPED (`timer_wiring_test.exs` ~`622-640`): `:timer_cancellations` after `:instance_projection` and `:lock_ancestors`, before `:task_cancellations`; plus behaviour: a timer inserted while cancel waits at `P_x` (barrier `{:projection, x}`, insert via the fixture before release) ends `cancelled` | red: that timer stays `pending` | green |
+| F8 | cancel timer step moved | source-position test FLIPPED (`timer_wiring_test.exs` ~`622-640`): `:timer_cancellations` after `:instance_projection`, `:lock_ancestors` and `:open_tasks_recheck`, immediately before `:task_cancellations` (the test matches that exact adjacency); plus behaviour: a timer inserted while cancel waits at `P_x` (barrier `{:projection, x}`, insert via the fixture before release) ends `cancelled` | red: that timer stays `pending` | green |
+| F10 | SCH-03 race (#2822 acceptance criterion 2) | (a) sequential: `claim_due_timer_ids/2` returns the timer id, `cancel_instance` commits, then `attempt_fire/2`; (b) overlap: barrier `{:projection, x}`, first `cancel_instance(x)` parks at `P_x`, second `attempt_fire/2` parks at `P_x`; release | (a) and (b) green on main by reading (cancel holds `TM` first; the fire parks on `TM`, then sees `cancelled`): a regression pin, not a red | `:already_final`, `fire_error_count` 0, no `timer` DLQ row, no TIMER_FIRED event |
 | F9 | regression | existing `timer_wiring_test.exs`, `human_task_escalation_test.exs`, `req494_*`, `cancel_cascade_lock_order_test.exs`, `cancel_child_lock_order_test.exs` unchanged | green | green |
 
 Margins: the paths under test have no `lock_timeout` in PR-1 (PR-3 adds one); like #2708 the
@@ -418,38 +428,50 @@ run under a plan; F1-F8 assert no-deadlock and `Task.await` bounds (`await_ms`).
 
 | # | Case | Method | On main | After |
 |---|---|---|---|---|
-| A0 | statement order | `capture_repo_queries` of `EventStore.append/2` | `instance_projections` read is not FOR UPDATE and follows nothing; sequence lock before the projection UPDATE | `instance_projections ... FOR UPDATE` precedes `instance_sequence ... FOR UPDATE` |
+| A0 | statement order | `capture_repo_queries` of `EventStore.append/2` | `instance_projections` read is not FOR UPDATE and follows nothing; sequence lock before the projection UPDATE | `instance_projections ... FOR NO KEY UPDATE` precedes `instance_sequence ... FOR UPDATE` |
 | A1 (C7) | cold appender vs W | barrier `{:sequence, x}`. First: `EventStore.append` of ATTACHMENT_ATTACHED (the type registered by the fixture; via the `Attachments` post-commit helper path when the file store fixture is available, else the generic append: both go through `append/2`); second: `set_instance_error(x)`. Release | red: 40P01 reported (the cold side's failure is swallowed in the real attachments path, the telemetry handler still sees it) | green: the append parks at `P_x`; no cycle |
 | A2 | census | for each flow that appends via `append/2` (create, complete, cancel, apply, landing, rebind, cascade, creation, script record, Lua emit): `capture_repo_queries`, assert the first `instance_sequence` lock for instance x is preceded by `instance_projections ... FOR UPDATE` for x in the same transaction | red only for the cold flows | green |
 | A3 | semantics | append for a terminal instance returns `{:instance_terminated, _}`, for a missing one `:instance_not_started`, for a duplicate key the original event; counts of events/projection updates unchanged | green | green |
 
 ### 8.4 PR-3 cases (`scheduler_fire_contention_test.exs`)
 
-C-L1 a barrier `{:projection, x}` held longer than the timer lock timeout: `fire_timer/2` returns
-`{:error, :contention}` within the timeout plus margin, nothing committed (timer still `pending`,
-`fire_error_count` unchanged). C-L2 `poll_and_fire/1` reports `contended: 1`, `errored: 0` and the timer
-fires on the next poll after the release (never `failed`). C-L3 three consecutive contended polls do not
-exhaust the timer (red on main: three raised deadlocks/timeouts exhaust it to `failed` plus DLQ row).
-C-L4 `Contention` classifier for 55P03 and 40P01, non-contention errors still counted. C-L5 the timeout is
+C-L1 a barrier `{:projection, x}` held longer than the fire lock timeout (test override, 300 ms):
+`fire_timer/2` returns `{:error, :contention}` within the timeout plus margin, nothing committed (timer
+still `pending`, `fire_error_count` unchanged, no TIMER_FIRED event). C-L2 `poll_and_fire/1` reports
+`contended: 1`, `errored: 0`, emits the `[:letflow, :scheduler, :timer_contended]` telemetry event once and a
+warning log, and the timer fires on the next poll after the release (never `failed`). C-L3 three consecutive
+lock-timeout polls do not exhaust the timer (red on main: raised lock errors are counted, three exhaust the
+timer to `failed` plus a DLQ row). C-L4 `Contention` classifier: 55P03 -> uncounted `:contended`; 40P01 ->
+the existing COUNTED failure (a deterministic deadlock is a defect that must surface through the retry cap
+and the DLQ, not be retried forever uncounted); non-contention errors counted as before. C-L5 the timeout is
 transaction-local and bound as a parameter (statement trace shows the `set_config` form, as #2706 T5/T6).
-C-L6 route: `{:error, :contention}` -> 503 with a constant detail.
+C-L6 route: `{:error, :contention}` -> 503 with a constant detail. C-L7 same-instance skip: two due timers of
+instance x and one of instance y in one cycle, the first contended: the second of x is not attempted
+(`claimed` 3, attempted 2), y fires. C-L8 cycle budget: with the budget forced to 0 ms the cycle returns
+after the first timer, the rest stay `pending` and fire next poll. C-L9 first-poll settle burst emits one
+`[:letflow, :scheduler, :timers_settled]` event per settled instance (count in measurements).
 
 ## 9. PR split, sizes, ordering, dependencies
 
 | Order | PR | Content | Size (est.) | Depends on |
 |---|---|---|---|---|
 | 0 | docs | this note | 1 file | - |
-| 1 | PR-1 | `lock_for_timer_fire`, scheduler restructure, settle of dead-instance timers, cancel timer step moved, docs/moduledoc, 0061 amendment (section 10), tests F0-F9, P1-P6, helper specs | prod ~110 lines (`engine.ex` ~60, `scheduler.ex` ~40, comments), tests ~700 | #2706 PR-1 merged first (same function `run_cancel_instance/5`, same 0061 file, `{:task,id}` spec) |
-| 2 | PR-2 | `EventStore.append/2` guard lock, A0-A3, moduledoc line | prod ~15, tests ~250 | independent; after PR-1 so the 0061 rule 6 final edit lands once |
-| 3 | PR-3 | fire lock timeout, `{:error, :contention}`, `:contended` counter (new `poll_result` key), route 503 clause, F-cases C-L1..C-L6 | prod ~50, tests ~250 | #2706 PR-2 (`Letflow.Engine.Contention` and the bound `set_config` statement); PR-1 |
+| 1 | PR-1 | `lock_for_timer_fire`, scheduler restructure, settle of dead-instance timers (+ telemetry/log), cancel timer step moved, stale-comment fixes, docs/moduledoc, 0061 amendment (section 10), tests F0-F10, P1-P6, helper specs | prod ~110 lines (`engine.ex` ~60, `scheduler.ex` ~40, comments), tests ~700 | #2706 PR-1 merged first (same function `run_cancel_instance/5`, same 0061 file, `{:task,id}` spec) |
+| 2 | PR-2 | `EventStore.append/2` guard lock (`FOR NO KEY UPDATE`), A0-A3, 0061 "Amended (GH #2707, PR-2)", moduledoc line | prod ~15, tests ~250 | after PR-1 |
+| 3 | PR-3 | fire lock timeout, `{:error, :contention}`, `:contended` counter, telemetry + warning, same-instance skip, cycle budget, route 503 clause, C-L1..C-L9 | prod ~80, tests ~300 | #2706 PR-2 (`Letflow.Engine.Contention` and the bound `set_config` statement); PR-1 |
 
 Strictly sequential (one functional PR in CI at a time; no docs-only merge while one is in CI). PR-1 must be
 one PR: the cancel timer move and the fire's `P_x`-first order are opposite orders of the same two rows and
-cannot ship apart (3.2); PR-1 also carries the settle step (6.1). **One PR per issue** (core-directives):
-recommend ORCH files two sub-issues via letflow-2 — "cold appenders: EventStore.append locks the
-projection" (PR-2) and "scheduler fire: contention accounting and lock timeout" (PR-3) — each linking
-#2707; PR-1 closes #2707 (the pending-timer finding of #2706 is closed by PR-1: the #2706 follow-up issue
-filed for R3 is referenced in the PR body). Alternative recorded as Q6.
+cannot ship apart (3.2); PR-1 also carries the settle step (6.1).
+
+Issue handling (supervisor ruling for #2706, applied here): NO sub-issues. The reason for the split (three
+independently revertable changes, each with its own red-first tests; PR-1 and PR-2 cannot be one PR
+without mixing a lock-order reversal with a one-line guard change; PR-3 depends on #2706 PR-2) is recorded
+in each PR body. #2707 stays open until PR-3: PR-1 and PR-2 say `Refs #2707`, PR-3 says `Closes #2707`.
+PR-1 says `Closes #2822` explicitly. Because the P1 probe contradicts #2822's acceptance criterion 1
+(a terminated instance's timer is not re-claimed forever; it fails 3 times and lands in the DLQ), a
+corrective comment on #2822 is needed: ask the supervisor / letflow-2 to post it (this agent does not
+post to GitHub).
 
 SECURITY-REVIEWER: tenant-data path yes for all three (prefix-scoped row locks on tenant tables; PR-3 adds
 a bound-parameter `set_config`, INV-7; PR-1 changes the `advance-timer` route's observable result for dead
@@ -457,127 +479,179 @@ instances; PR-3 touches `routers/instances.ex`). None of the WF-02 Step 2c trust
 (no `ci.yml`, `mix.exs`, `permission_matrix.ex`, `authorization.ex`, `authorized_router.ex`,
 `route_scope.ex`, `scope/enforce.ex`, `modules/catalog.ex`, config). INV-1 every new query carries the prefix;
 INV-4/INV-5: the 503 detail is a constant and no exception text is returned; the settle step writes only the
-timer's own status/reason. REVIEWER mandatory on all three (0061 amendment in PR-1). RELEASE-VALIDATOR
+timer's own status/reason. REVIEWER mandatory on all three (0061 amendment in PR-1 and PR-2). RELEASE-VALIDATOR
 re-runs the new files.
+
+PR-3 specifics (scheduler loop):
+
+* **Lock timeout choice: ~2 s over the WHOLE fire transaction** (one bound `set_config('lock_timeout', ...)`
+  as the first statement, a dedicated `:timer_fire_lock_timeout_ms`, 2000 default, 300 in the test config
+  under `:engine_test_seams`; skipped when `Repo.in_transaction?()`, as #2706 3.4). A 500 ms bound over the
+  whole transaction would also bound the waits on `S_x` and on the tenant-wide `A`, which are plain FIFO
+  queueing behind long completions: a fire could starve. 2 s matches the entity-write plan timeouts and a
+  contended timer is retried 5 s later at no penalty. The prelude locks alone are not given a tighter bound
+  (one value, one rule).
+* **Per-tenant budget.** `@default_sweep_task_timeout_ms 10_000` (`scheduler.ex:112`) kills the tenant's
+  task; 64 timers x 2 s exceeds it. Two bounds: (1) after the first `:contended` result for an instance,
+  the remaining timers of THAT instance in the same cycle are skipped (not attempted, left `pending`);
+  (2) `poll_and_fire/1` stops starting new fires once 8 s of monotonic time have elapsed in the cycle. Both
+  leave rows `pending`, so nothing is lost.
+* **Observability.** `Poller` discards `poll_result` (`poller.ex:255-258`), so a `contended` key alone is
+  invisible. PR-3 emits `[:letflow, :scheduler, :timer_contended]` (measurement: count 1; metadata:
+  tenant schema, timer type, SQLSTATE class tag only) and a `Logger.warning` with the classified tag only
+  (no exception text). PR-1 emits `[:letflow, :scheduler, :timers_settled]` (measurement: count; metadata:
+  tenant schema, reason) plus an info log per settled instance, so the first-poll burst after deploy
+  (up to 64 timers per tick per tenant) is visible.
+* **Retry cap.** Only 55P03 is uncounted. A 40P01 stays a counted failure (existing accounting), so a
+  deterministic deadlock cannot be retried forever uncounted; after three it lands as `failed` plus the
+  `timer` DLQ row, which is the correct escalation for a defect.
+* **Existing test that breaks:** `test/letflow/scheduler_test.exs:618-625` (ISS-0444 "returns an all-zero
+  poll_result") asserts the WHOLE map with `==`; it must gain `contended: 0` in PR-3. A grep of all
+  `poll_and_fire` map assertions precedes the push (the other call sites match partial maps).
+* `fire_timer/2`'s `@spec` lists `{:error, :contention}`; `attempt_fire/2` gets the contended clause before the
+  generic `{:error, _}` clause (`568`); `{:error, {:raised, exception}}` from a raised lock error is classified
+  through `Letflow.Engine.Contention` first.
 
 ## 10. Decision 0061 amendment (append verbatim in PR-1; REVIEWER gate)
 
+PR-1 follows #2706 PR-1 (mandated merge order), so this is the final text with no conditionals. It
+SUPERSEDES, in the record, two statements of "Amended (GH #2706, PR-1)" and of the #2706 design note
+(`gh2706-cancel-snapshot-and-lock-timeouts.md` section 2.5, which puts timers in "class 1" and lists "timers
+and dispatch rows armed during cancel's wait" as an exception); the docs PR for this note adds a one-line
+"Superseded in part by gh2707 section 10" pointer to that section. It also CLOSES the "## Open" bullet of 0061.
+
 > ## Amended (GH #2707, PR-1)
-> 1. **Timer rows are P-protected.** Rule 1 item 1 no longer lists the instance's own `timers` rows: item 1
->    is the instance's own `tasks` rows and its dispatch / script-CAS rows, taken before `P_x`. The
->    instance's own `timers` rows form a new class between item 5 (entity-type rows) and item 6 (the audit
->    chain row) and are taken ONLY while `P_x` is held `FOR UPDATE`. Every path that locks or updates the
->    timer rows of an instance does so under that instance's `P_x`: `Scheduler.fire_timer/2` (through
->    `Engine.lock_for_timer_fire/3`), the tail of `complete_task/3`, the escalation fire's reminder
->    cancellation, and `cancel_instance/3`, whose timer UPDATE moves after `P_x` and the ancestor group.
->    Consequence: timer rows of one instance can never be waited for in a cycle, and timers armed while a
->    cancel waits for `P_x` are cancelled by it (dispatch and script-CAS rows armed in that window remain
->    the exception recorded by GH #2706).
+> 1. **Timer rows are P-protected.** Rule 1 item 1 is amended: it is the instance's own `tasks` rows and its
+>    dispatch / script-CAS rows, taken before `P_x`; `timers` rows are NOT part of it (this supersedes the
+>    parenthetical "the pair cannot cycle because tasks are contended only by completers and cancel": tasks
+>    are contended by completers, cancel AND the escalation fire, and the three take the task row first, so
+>    they serialise on it). The instance's own `timers` rows, like its tokens, are touched ONLY while `P_x`
+>    is held `FOR UPDATE`, and their order among themselves and against the live tokens is unconstrained
+>    (every waiter on them already owns `P_x`). Against the other classes a path that takes them takes
+>    them after the entity-type rows and before the audit chain row and the sequence rows. The paths:
+>    `Scheduler.fire_timer/2` (through `Engine.lock_for_timer_fire/3`), the tail of `complete_task/3`, the
+>    escalation fire's reminder cancellation, `cancel_instance/3` (its timer UPDATE moves after `P_x`, the
+>    ancestor group and the open-tasks recheck). Two statements do not hold `P_x` and are the only
+>    exceptions: `Scheduler.claim_due_timer_ids/2` (an autocommit `SKIP LOCKED` read; the lock lasts one
+>    statement and nothing waits on it) and `Scheduler.record_fire_failure/2` (its own transaction, holds the
+>    timer row alone and waits for no other lock). Consequence: timer rows of one instance can never be
+>    waited for in a cycle; timers armed while a cancel waits for `P_x` are cancelled by it; dispatch and
+>    script-CAS rows armed in that window remain the only cancel exception (this replaces the sentence of
+>    "Amended (GH #2706, PR-1)" that lists timers and dispatch rows).
 > 2. **The fire path.** A timer fire takes, in this order: the pending `tasks` rows of the timer's token
 >    (escalation timers only; the same relative order as `complete_task/3` and `cancel_instance/3`), `P_x`,
->    the ancestor group `FOR KEY SHARE` of the immediate parent (a continuing step: a timer fire does not
->    run the completion cascade), then the timer row, then the existing TIMER_FIRED append and advance. The
->    group is taken before the first write of the child's projection, so the second UPDATE of that row
->    (`reconcile_projection`) finds its foreign-key locks already held (the #2708/#2709 mechanism). A timer
->    whose instance is not `:active` is settled (cancelled with reason `instance_<status>`) and the
->    transaction commits; it is never re-claimed.
-> 3. **Invariant I-S.** Every writer of an instance's event stream holds `P_x` `FOR UPDATE` before it
->    takes the instance's `S_x`. `EventStore.append/2` enforces it by locking the projection row in its
->    first step; `append_multi/3` callers hold it by construction (the synthetic projection rows of
->    entity types keep rule 5's order, sequence row then projection row). Within a transaction that holds
->    `P_x`, taking `S_x` before the audit chain row `A` (the timer fire's TIMER_FIRED append precedes its
->    audits) is permitted: a transaction that holds `A` and wants `S_x` of that instance must hold `P_x`
->    of that instance first.
-> 4. Rule 6 no longer lists as exceptions: the HUMAN tail's timer cancel after the projection, cold
->    `EventStore.append` callers that append before locking the projection (TIMER_FIRED, reminder fire,
->    attachment events), and escalation fire's `tasks` lock after the projection. (If GH #2706's
->    amendment has already removed the cancel-snapshot item, the remaining rule 6 text is the single
->    sentence "Dispatch and script-CAS rows armed during cancel's wait for `P_x` are the remaining cancel
->    exception.")
-> 5. Rule 5 (new code) is unchanged and applies to the new class: new code that locks timer rows locks
+>    the ancestor group `FOR KEY SHARE` of the immediate parent, then the timer row, then the existing
+>    TIMER_FIRED append and advance. The mode is key share (a continuing step) because a timer fire does not
+>    run the completion cascade; this closes the "## Open" bullet of this record and overrides the family
+>    note's FOR UPDATE leaning. The group is taken before the first write of the child's projection, so the
+>    second UPDATE of that row (`reconcile_projection`) finds its foreign-key locks already held (the
+>    #2708/#2709 mechanism). A timer whose instance is not `:active` is settled (every pending timer of the
+>    instance cancelled with reason `instance_<status>`) and the transaction commits; it is never re-claimed.
+> 3. **Invariant I-S (workflow instances).** Every writer of a workflow instance's event stream holds
+>    `P_x` before it takes that instance's `S_x`. The timer fire establishes it for TIMER_FIRED in this
+>    amendment; the remaining cold appenders (attachment events, a Lua `emit_event`) stay exceptions until
+>    GH #2707 PR-2. The streams of entity-type synthetic instances are outside I-S: they keep rule 5's order,
+>    sequence row then projection row. Within a transaction that holds `P_x`, taking `S_x` before the audit
+>    chain row `A` (the timer fire's TIMER_FIRED append precedes its audits) is permitted: a transaction
+>    that holds `A` and wants `S_x` of a workflow instance must hold that instance's `P_x` first.
+> 4. Rule 6 no longer lists as exceptions: the HUMAN tail's timer cancel after the projection,
+>    `Scheduler.fire_timer`'s TIMER_FIRED append and reminder fire, and escalation fire's `tasks` lock after
+>    the projection. It STILL lists, until GH #2707 PR-2: cold `EventStore.append/2` callers that append
+>    before locking the projection (attachment events, a Lua `emit_event`). The sentence of "Amended
+>    (GH #2706, PR-1)" about timers and dispatch rows armed during cancel's wait for `P_x` is replaced by:
+>    "Dispatch and script-CAS rows armed during cancel's wait for `P_x` are the remaining cancel exception."
+> 5. Rule 5 (new code) is unchanged and applies to the timer class: new code that locks timer rows locks
 >    them under `P_x`.
+> 6. The "## Open" bullet (lock mode for child timer fires) is closed by item 2.
 >
-> Rolling deploy: during a deploy an old `cancel_instance/3` (timers before `P_x`) and a new fire
-> (`P_x` before the timer) are opposite orders of the same two rows; the mixed window can produce a
-> recoverable `deadlock_detected` between those two paths only.
+> Rolling deploy: opposite orders of the same two rows now coexist in two symmetric mixed windows: an old
+> `cancel_instance/3` (timers before `P_x`) against a new fire (`P_x` before the timer), and an old fire
+> (timer, then `P_x`) against a new `cancel_instance/3` (timers after `P_x`). Either pair can produce a
+> recoverable `deadlock_detected` (a failed cancel, or a counted fire failure); no other pair is affected.
 
-(PR-2 amends item 3's sentence "enforces it" in the same words once it lands; if PR-2 follows PR-1, PR-1's
-text says "will enforce" and PR-2 flips it, so the record never claims an unbuilt guard. The Implementation
-header line of 0061 and the Related line gain "#2707".)
+> ## Amended (GH #2707, PR-2)
+> `EventStore.append/2` takes `FOR NO KEY UPDATE` on the instance's projection row in its first step
+> (before `S_x`), so I-S holds for every `append/2` caller: the cold appenders (attachment events, a Lua
+> `emit_event`) are no longer exceptions in rule 6 and item 3 of "Amended (GH #2707, PR-1)" applies without
+> the cold-appender qualification. `append_multi/3` callers hold `P_x` by construction (entity-type
+> synthetic streams excepted, rule 5).
+
+The Implementation and Related header lines of 0061 gain "#2707". Q9 (FOR NO KEY UPDATE) is adopted:
+it conflicts with every `FOR UPDATE` / `FOR NO KEY UPDATE` holder, so the I-S ordering is intact, and it
+lets a child's `KEY SHARE` FK check pass during a cold append of its parent.
 
 ## 11. Risks (timers fire in a scheduler loop)
 
 1. **Back-pressure and head-of-line.** One tenant's poll is serial within a 10 s task budget
-   (`@default_sweep_task_timeout_ms 10_000`, `scheduler.ex:112`, `Task.async_stream ... on_timeout: :kill_task`).
-   Unbounded lock waits in a fire stall every later timer of the tenant and then the whole tick is killed
-   (a safe rollback, but a lost tick). The new lock waits (`TK`, `P_x`, group, `TM`) make waits more
-   frequent in exchange for no deadlocks. PR-3 bounds them: recommend a dedicated
-   `:timer_fire_lock_timeout_ms` of 500 ms (not #2706's 5 s: four waits of 5 s exceed the 10 s tenant
-   budget); a contended timer is simply retried next tick (5 s later). Persistent contention on the same
-   oldest 64 timers still causes head-of-line delay; accepted (it indicates a stuck transaction, an
-   incident in itself); Q4.
-2. **Retries and exhaustion.** Today a deadlock/lock-timeout raise in a fire is counted
-   (`attempt_fire/2` -> `safe_record_fire_failure/2`): three transient contentions make a healthy timer
-   `failed` plus a DLQ row. PR-3 adds `:contended` (no count). PR-1 alone does not change this; its cycles
-   are gone, so the exposure shrinks, but it remains until PR-3.
-3. **Rollout with in-flight timers.** Lock order is a per-transaction property; there is no migration and no
-   persisted state to convert. Pending timers of live instances fire as before. The first poll after PR-1
-   settles every pending timer of a dead instance (bounded 64 per tick per tenant, instance-wide per
-   settled instance); for `:error` instances this cancels timers that were previously immortal (Q3). The
-   mixed old/new window is stated in the 0061 amendment: unlike the family's earlier PRs, PR-1 reverses
-   one pair of orders (cancel vs fire), so the mixed window can reproduce a recoverable deadlock between
-   exactly those two paths; no new class elsewhere. Rollback is a plain revert (after a revert, timers
-   settled in the meantime stay cancelled, which is correct).
-4. **Throughput.** Fires now hold `P_x` while waiting for the timer row and the group; a fire of a hot
-   instance queues behind its long completions (previously it queued at `P_x` inside the append anyway). A
-   child fire adds a key-share lookup and lock on the parent (indexed on `tokens.waiting_child_instance_id`,
-   `20260819045553_add_sub_process_parent_columns.exs:50`). PR-2 adds a `P_x` lock to cold appends, which
-   already serialised on `S_x`.
-5. **Peek/lock gap.** The unlocked peek can race with completion/cancel of the timer; the locked re-check
-   (`status != pending` -> `:already_final`) resolves it. A peek that sees a timer deleted/absent returns
+   (`scheduler.ex:107-112`, `Task.async_stream ... on_timeout: :kill_task`). PR-1 does not bound waits; PR-3
+   does (section 9, PR-3 specifics: 2 s whole-transaction timeout, same-instance skip, 8 s cycle budget).
+   Persistent contention on the oldest 64 timers still delays younger timers; it indicates a stuck
+   transaction and is alerted through the PR-3 telemetry.
+2. **Retries and exhaustion.** Today a raised deadlock/lock-timeout in a fire is counted
+   (`attempt_fire/2` -> `safe_record_fire_failure/2`). PR-3 makes 55P03 uncounted and keeps 40P01 counted.
+   Until PR-3 the exposure shrinks with PR-1 (the cycles are gone) but remains.
+3. **Rollout with in-flight timers.** Lock order is a per-transaction property; no migration, no persisted
+   state to convert. Pending timers of live instances fire as before. The first poll after PR-1 settles
+   every pending timer of a dead instance (up to 64 per tick per tenant, one instance-wide statement per
+   instance); for `:error` instances this cancels timers that were previously immortal (Q3). Visibility:
+   `timers_settled` telemetry and log (section 9). The two mixed old/new windows are stated in the 0061
+   amendment. Rollback is a plain revert (timers settled in the meantime stay cancelled, which is correct).
+4. **Throughput and index.** Fires now hold `P_x` while waiting for the timer row and the group. A child
+   fire adds a key-share lookup (indexed on `tokens.waiting_child_instance_id`,
+   `20260819045553_add_sub_process_parent_columns.exs:50`). `timers` has NO `instance_id` index (the
+   `create_timers` migration comment, line ~60: only the partial pending index serves the claim): the settle
+   statement and cancel's instance-wide update scan the pending index, as cancel's already does. Not
+   blocking; ELIXIR-DEV measures the settle and cancel statements on a populated tenant and records it in
+   PR-1. PR-2 adds a `P_x` lock to cold appends, which already serialised on `S_x`.
+5. **Peek/lock gap.** The unlocked peek can race with completion/cancel; the locked re-check
+   (`status != pending` -> `:already_final`) resolves it. A peek that finds the timer absent returns
    `:already_final`.
 6. **Test load.** Forced overlaps use 3 connections; each file within the per-session cap; barriers
    released in `on_exit`; polls bounded (helper `await_ms`).
 
-## 12. Open questions and unverified items
+## 12. Open questions, follow-ups and unverified items
 
-Open questions for the supervisor (answers are the designer's defaults):
+Open questions for the supervisor (defaults as ruled by the CDV / coordinator):
 
-* **Q1 (order).** Timers AFTER `P_x` (this note) instead of the family note's "timers before `P_x`,
-  `complete_task` pre-locks". Default: this note (section 3). It amends 0061 item 1 and moves cancel's timer
-  step; confirm.
-* **Q2 (mode and a possible bug).** Key share for all child timer fires (default). Separately: a child
-  completing through a timer node does not resume its parent (5.2, by reading, unrun). Default: file a
-  separate issue; if it is fixed the fire must decide `:completing` before the group lock.
+* **Q1 (order).** Timers AFTER `P_x` (agreed by CDV). Closed.
+* **Q2 (mode and a possible bug).** Key share for all child timer fires. Closed. The bug is follow-up F-1.
 * **Q3 (`:error` instances).** Settle pending timers of `:error` instances as `cancelled` with reason
-  `instance_error` (default). No code path resumes an ERRORed instance (`Dlq.retry/2` is documented as not
-  doing so, `dlq.ex:12-16`; grep found none); if a resume is planned it must re-arm timers.
-* **Q4 (timeout).** Dedicated 500 ms fire lock timeout in PR-3 versus #2706's shared 5 s constant
-  (default 500 ms; needs the #2706 helper to take the millisecond value as an argument; if it does not,
-  PR-3 adapts it). Also whether the contended timers should be skipped for the rest of the poll cycle.
-* **Q5 (route).** `advance-timer` answering 200 `already_final` instead of 500 for a dead instance, and
-  503 for contention (default yes).
-* **Q6 (issues).** File two sub-issues (default) or record the split reason in each PR body.
-* **Q7 (coordination with #2706).** PR-1 waits for #2706 PR-1 (cancel function, 0061, helper spec); the
-  amendment text of section 10 is written to merge after #2706's. Confirm the order.
-* **Q8 (`poll_result`).** Adds a `contended` key to the `poll_and_fire/1` map (default yes; tests that match
-  a partial map keep passing, an equality assertion on the whole map must be updated: grep before push).
-* **Q9 (cold default).** `append/2` locks the projection by default (default) versus an explicit option.
-* **Q10 (legacy corner).** An escalation timer whose token has no pending task at all (legacy data before
-  ISS-0925) takes no `tasks` lock; it serialises on `P_x` only. Cannot cycle under the chosen order
-  because timers are `P_x`-protected, so no action; recorded for the validator.
+  `instance_error`. No code path resumes an ERRORed instance (`Dlq.retry/2` documents that it does not,
+  `dlq.ex:12-16`; grep found none); if a resume is planned it must re-arm timers. Confirm.
+* **Q4 (timeout).** Decided: one ~2 s timeout over the whole fire transaction plus the same-instance skip
+  for the rest of the poll cycle (section 9). Needs the #2706 helper to take the millisecond value as an
+  argument; if it does not, PR-3 adapts it.
+* **Q5 (route).** `advance-timer` answering 200 `already_final` instead of 500 for a dead instance, and 503
+  for contention. Default yes.
+* **Q6 (issues).** Decided: NO sub-issues; split reason in each PR body; #2707 closes with PR-3; PR-1
+  closes #2822.
+* **Q7 (coordination with #2706).** PR-1 waits for #2706 PR-1; PR-3 for #2706 PR-2. Mandated.
+* **Q8 (`poll_result`).** New `contended` key; `scheduler_test.exs:618-625` updated (PR-3).
+* **Q9 (cold default).** `append/2` locks by default, with `FOR NO KEY UPDATE`. Adopted (section 10).
+* **Q10 (legacy corner).** An escalation timer whose token has no pending task takes no `tasks` lock and
+  serialises on `P_x` only; cannot cycle (timers are P-protected). No action.
+
+Follow-ups to file (NOT part of #2707's PRs; the supervisor / letflow-2 files them):
+
+* **F-1.** A child whose last node is a TIMER (`TIMER -> END`) completes through `reconcile_projection`
+  without any completion cascade, so the parent token stays `:waiting` forever (5.2). Needs a red test first
+  (child graph `TIMER -> END`, fire the timer, assert the parent resumes). If fixed, the fire decides
+  `:completing` before the group lock.
+* **F-2.** The ExecutionError landing should cancel the instance's pending timers (under the `P_x` it
+  already holds, so rule 1 item 1 is respected): that is the root cause of the `:error`-instance leak that
+  PR-1's settle only cleans up after the fact.
+* **F-3.** Index on `timers.instance_id` if the PR-1 measurement shows the settle/cancel scan is costly.
 
 Unverified (no `mix` was run): every cycle in section 2 (reading only; section 8 are the reproductions);
-that `reconcile_projection` is the second UPDATE of `P_c` in a child fire (the append is the first; both
-by reading); that the SAVEPOINT in `persist_*` does not change the FK "same transaction" rule (a
-subtransaction's xid counts as current for `TransactionIdIsCurrentTransactionId`, standard PG behaviour,
-the probe F6 measures it); that the timer fire never cascades (grep of the two call sites); that the
-Lua `emit_event` route holds or not holds a transaction; the exact `timer_wiring_test.exs` line numbers;
-whether any test asserts the old 3-attempt DLQ outcome for a terminated instance (grep
-`exhausted`/`timer` DLQ assertions in `scheduler_*_test.exs` before pushing PR-1); the `margin_ms` of the
-green cases (to be measured and recorded by ELIXIR-DEV).
+that `reconcile_projection` is the second UPDATE of `P_c` in a child fire; the "SAVEPOINT" wording of the
+engine comments (`engine.ex:3691`, `3793`): an Ecto nested `repo.transaction` joins the outer transaction,
+so the FK "same transaction" rule applies whichever it is, and F6 measures it; that the timer fire never
+cascades (grep of the two call sites); whether the Lua `emit_event` route holds a transaction; the exact
+`timer_wiring_test.exs` line numbers; whether any test asserts the old 3-attempt DLQ outcome for a
+terminated instance (grep `exhausted`/`timer` DLQ assertions in `scheduler_*_test.exs` before pushing
+PR-1); the `margin_ms` of the green cases (measured and recorded by ELIXIR-DEV).
 
-## 13. Acceptance-criteria map (issue #2707 and the amendments)
+## 13. Acceptance-criteria map (issue #2707, its amendments and #2822)
 
 | Criterion | Where |
 |---|---|
@@ -587,7 +661,8 @@ green cases (to be measured and recorded by ELIXIR-DEV).
 | Child timer FK hazard: where, which order | 5 (C6, F6) |
 | Cold appenders (attachments, reminder, first TIMER_FIRED) | 2.1 C1/C7, 2.3 C8, 7 |
 | Escalation `tasks` after `P_x` | 2.1 C3/C4, 4.1 |
-| Pending timer on a cancelled instance: choice | 6 (settle in `fire_timer`; probes P1-P6) |
-| Reproduce-first deterministic tests | 8 |
+| Pending timer on a dead instance: choice | 6 (settle in `fire_timer`; probes P1-P6; concurrent SCH-03 case F10; PR-1 `Closes #2822`) |
+| Reproduce-first deterministic tests, exact end states | 8 |
 | PR split, SECURITY-REVIEWER triggers, risks, rollout | 9, 11 |
-| 0061 amendment verbatim | 10 |
+| 0061 amendment verbatim, one appendable text, closes the Open bullet | 10 |
+| 2026-10-18 residual comment on #2707 (cancel sets no `lock_timeout`; the ExecutionError landing step raises at `execution_error.ex:219` with no DLQ row) | owned by #2706 PR-2 (cancel lock timeout) and #2706 PR-3 (landing); NOT in #2707's PRs. #2707 closes with PR-3 on the condition those two have merged; referenced in each of this note's PR bodies |
