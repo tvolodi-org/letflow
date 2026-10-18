@@ -71,7 +71,7 @@ defmodule Letflow.Routers.Entities do
   TypeAccess read, no managed or field check; GH #2784 PR B): a denied type runs the same code
   with freshly generated UUIDs for `record_id` (and `attachment_id` on content GET and delete),
   so it answers exactly like an absent record (upload 404, list the empty 200 page, content GET
-  and delete 404) and loads and writes nothing.
+  and delete 404) and nothing persists (a denied upload still attempts its write inside a transaction that rolls back at COMMIT).
 
   | Handler | Method/path | Delegate | Permission | Response |
   |---|---|---|---|---|
@@ -1861,8 +1861,8 @@ defmodule Letflow.Routers.Entities do
   defp record_attachment_access(conn, entity_type),
     do: RecordAccess.attachment(conn.assigns.auth_context.user_id, entity_type, prefix!(conn))
 
-  defp visible_attachment_id(:open, id), do: id
-  defp visible_attachment_id(:hidden, _id), do: Ecto.UUID.generate()
+  defp hide_if_denied(:open, id), do: id
+  defp hide_if_denied(:hidden, _id), do: Ecto.UUID.generate()
 
   # ══ POST /entities/records/:entity_type/:record_id/attachments (REQ-317) ══
   #
@@ -1877,7 +1877,7 @@ defmodule Letflow.Routers.Entities do
     access = record_attachment_access(conn, entity_type)
 
     with {:ok, record_id} <- cast_record_id(raw_record_id),
-         record_id = visible_attachment_id(access, record_id),
+         record_id = hide_if_denied(access, record_id),
          {:ok, attrs} <- record_attachment_upload_attrs_from_conn(conn, entity_type, record_id) do
       render_create_record_attachment(conn, EntityAttachments.upload(attrs, opts))
     else
@@ -1967,7 +1967,7 @@ defmodule Letflow.Routers.Entities do
     query = conn.query_params
 
     with {:ok, record_id} <- cast_record_id(raw_record_id),
-         record_id = visible_attachment_id(access, record_id),
+         record_id = hide_if_denied(access, record_id),
          {:ok, raw_page_size} <- Pagination.parse_page_size_param(Map.get(query, "page_size")),
          {:ok, page_size} <- Pagination.validate_page_size(raw_page_size) do
       params = %{
@@ -2031,10 +2031,10 @@ defmodule Letflow.Routers.Entities do
     access = record_attachment_access(conn, entity_type)
 
     with {:ok, record_id} <- cast_record_id(raw_record_id),
-         record_id = visible_attachment_id(access, record_id),
-         raw_attachment_id = visible_attachment_id(access, raw_attachment_id),
+         record_id = hide_if_denied(access, record_id),
+         attachment_id = hide_if_denied(access, raw_attachment_id),
          {:ok, attachment, artifact} <-
-           fetch_scoped_record_attachment_content(raw_attachment_id, entity_type, record_id, opts) do
+           fetch_scoped_record_attachment_content(attachment_id, entity_type, record_id, opts) do
       send_record_attachment_content(conn, attachment, artifact)
     else
       {:error, :invalid_record_id} ->
@@ -2120,16 +2120,16 @@ defmodule Letflow.Routers.Entities do
     access = record_attachment_access(conn, entity_type)
 
     with {:ok, record_id} <- cast_record_id(raw_record_id),
-         record_id = visible_attachment_id(access, record_id),
-         raw_attachment_id = visible_attachment_id(access, raw_attachment_id),
+         record_id = hide_if_denied(access, record_id),
+         attachment_id = hide_if_denied(access, raw_attachment_id),
          {:ok, _attachment} <-
            fetch_scoped_record_attachment_metadata(
-             raw_attachment_id,
+             attachment_id,
              entity_type,
              record_id,
              opts
            ),
-         {:ok, _deleted} <- EntityAttachments.delete(raw_attachment_id, opts) do
+         {:ok, _deleted} <- EntityAttachments.delete(attachment_id, opts) do
       Response.no_content(conn)
     else
       {:error, :invalid_record_id} -> Response.not_found(conn)

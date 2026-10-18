@@ -165,11 +165,14 @@ defmodule Letflow.Routers.EntitiesAttachmentsTypeAccessTest do
     )
   end
 
+  # Response headers that legitimately differ per request; exact names, nothing else is dropped.
+  @volatile_headers ~w(x-trace-id)
+
   # status, the stable headers, and the decoded body without the per-request trace id.
   defp norm(conn) do
     headers =
       conn.resp_headers
-      |> Enum.reject(fn {name, _} -> name =~ ~r/id|trace|date|time/ end)
+      |> Enum.reject(fn {name, _} -> name in @volatile_headers end)
       |> Enum.sort()
 
     body =
@@ -233,7 +236,9 @@ defmodule Letflow.Routers.EntitiesAttachmentsTypeAccessTest do
       assert norm(d) == norm(a)
     end
 
-    test "delete 404 and the attachment survives" do
+    # The denied-delete side-effect test: counts of attachments, artifacts, events and audit rows
+    # are unchanged and the attachment still exists.
+    test "delete 404, counts unchanged (side-effect test) and the attachment survives" do
       {denied, absent, rid, aid} = denied_and_absent("gh2784b-t1d")
       before = counts(denied)
       d = delete_req(item_path("widget", rid, aid), denied)
@@ -257,7 +262,7 @@ defmodule Letflow.Routers.EntitiesAttachmentsTypeAccessTest do
         {:get, list_path("widget", "not-a-uuid"), nil, 404},
         {:get, list_path("widget", rid) <> "?page_size=abc", nil, 400},
         {:get, list_path("widget", rid) <> "?page_size=99999", nil, 400},
-        {:get, list_path("widget", rid) <> "?cursor=garbage", nil, nil},
+        {:get, list_path("widget", rid) <> "?cursor=garbage", nil, 422},
         {:get, item_path("widget", "not-a-uuid", aid), nil, 404},
         {:get, item_path("widget", rid, "not-a-uuid"), nil, 404},
         {:delete, item_path("widget", "not-a-uuid", aid), nil, 404},
@@ -326,31 +331,124 @@ defmodule Letflow.Routers.EntitiesAttachmentsTypeAccessTest do
   # ---- T5 ------------------------------------------------------------------------------------
 
   describe "T5: an allowed caller is unchanged" do
-    test "upload, list, content, delete with an unrelated restriction row" do
+    test "no restriction rows: upload, list, content, delete; the content GET reads artifacts" do
+      ctx = tenant_ctx("gh2784b-t5n")
+      seed_type!(ctx, "widget")
+      record = seed_record!(ctx, "widget")
+      exercise_allowed!(ctx, record)
+    end
+
+    test "an unrelated restriction row changes nothing" do
       ctx = tenant_ctx("gh2784b-t5")
       seed_type!(ctx, "widget")
       record = seed_record!(ctx, "widget")
       insert_type_restriction!(ctx, "other")
-      p = list_path("widget", record.record_id)
+      exercise_allowed!(ctx, record)
+    end
 
-      created = upload_req(p, ctx)
-      assert created.status == 201, created.resp_body
-      %{"id" => id} = Jason.decode!(created.resp_body)
-
-      listed = get_req(p, ctx)
-      assert listed.status == 200
-      assert [%{"id" => ^id}] = Jason.decode!(listed.resp_body)["items"]
-
-      content = get_req(p <> "/#{id}", ctx)
-      assert content.status == 200
-      assert content.resp_body == "UPLOADED-BYTES"
-
-      assert delete_req(p <> "/#{id}", ctx).status == 204
-      assert get_req(p <> "/#{id}", ctx).status == 404
+    test "a restricted type with a GRANT for the actor is open" do
+      ctx = tenant_ctx("gh2784b-t5g")
+      seed_type!(ctx, "widget")
+      record = seed_record!(ctx, "widget")
+      insert_type_restriction!(ctx, "widget")
+      insert_type_grant!(ctx, "widget")
+      exercise_allowed!(ctx, record)
     end
   end
 
-  defp recorded_queries(fun) do
+  # Upload, list, content GET, delete: 201 / 200 / 200 / 204. The content GET is also the
+  # positive control of the telemetry hook: it DOES query repository_artifacts.
+  defp exercise_allowed!(ctx, record) do
+    p = list_path("widget", record.record_id)
+
+    created = upload_req(p, ctx)
+    assert created.status == 201, created.resp_body
+    %{"id" => id} = Jason.decode!(created.resp_body)
+
+    listed = get_req(p, ctx)
+    assert listed.status == 200
+    assert [%{"id" => ^id}] = Jason.decode!(listed.resp_body)["items"]
+
+    {content, queries} = recorded_queries_with(fn -> get_req(p <> "/#{id}", ctx) end)
+    assert content.status == 200
+    assert content.resp_body == "UPLOADED-BYTES"
+
+    assert Enum.any?(queries, &(&1 =~ "repository_artifacts")),
+           "telemetry hook saw no artifact read"
+
+    assert delete_req(p <> "/#{id}", ctx).status == 204
+    assert get_req(p <> "/#{id}", ctx).status == 404
+  end
+
+  # ---- T6: the upload pre-checks run first, for a denied type as for an absent one ----------
+
+  describe "norm/1 header filter" do
+    test "drops only the known per-request header and keeps every other one" do
+      ctx = tenant_ctx("gh2784b-norm")
+      resp = get_req(list_path("widget", Ecto.UUID.generate()), ctx)
+      names = Enum.map(resp.resp_headers, &elem(&1, 0))
+      assert "x-trace-id" in names
+      {_, kept, _} = norm(resp)
+      assert Enum.map(names -- Enum.map(kept, &elem(&1, 0)), & &1) == ["x-trace-id"]
+    end
+  end
+
+  describe "T6: scan outcomes of a denied upload equal the absent type's" do
+    test "infected 422 and scanner unavailable 503" do
+      {denied, absent, rid, _aid} = denied_and_absent("gh2784b-t6")
+
+      for {scanner, expected} <- [
+            {__MODULE__.InfectedScanner, 422},
+            {__MODULE__.BrokenScanner, 503}
+          ] do
+        put_scanner!(scanner)
+        d = upload_req(list_path("widget", rid), denied)
+        a = upload_req(list_path("widget", rid), absent)
+        assert a.status == expected, "absent: #{a.status} #{a.resp_body}"
+        assert norm(d) == norm(a)
+      end
+    end
+  end
+
+  defmodule InfectedScanner do
+    @behaviour Letflow.Repository.AttachmentScanner
+    @impl true
+    def scan(_bytes, _content_type), do: {:ok, :infected, "test-signature"}
+  end
+
+  defmodule BrokenScanner do
+    @behaviour Letflow.Repository.AttachmentScanner
+    @impl true
+    def scan(_bytes, _content_type), do: {:error, :unreachable}
+  end
+
+  defp put_scanner!(module) do
+    previous = Application.get_env(:letflow, :attachment_scanner)
+    Application.put_env(:letflow, :attachment_scanner, module)
+
+    on_exit(fn ->
+      if previous,
+        do: Application.put_env(:letflow, :attachment_scanner, previous),
+        else: Application.delete_env(:letflow, :attachment_scanner)
+    end)
+  end
+
+  defp insert_type_grant!(ctx, type) do
+    Repo.insert_all(
+      "user_entity_type_grants",
+      [
+        %{
+          id: Ecto.UUID.bingenerate(),
+          user_id: Ecto.UUID.dump!(ctx.user_id),
+          entity_type: type,
+          inserted_at: NaiveDateTime.utc_now()
+        }
+      ],
+      prefix: ctx.schema_name
+    )
+  end
+
+  defp recorded_queries_with(fun) do
     parent = self()
     handler = "gh2784b-queries-#{System.unique_integer([:positive])}"
 
@@ -363,13 +461,19 @@ defmodule Letflow.Routers.EntitiesAttachmentsTypeAccessTest do
       nil
     )
 
-    try do
-      fun.()
-    after
-      :telemetry.detach(handler)
-    end
+    result =
+      try do
+        fun.()
+      after
+        :telemetry.detach(handler)
+      end
 
-    drain_queries([])
+    {result, drain_queries([])}
+  end
+
+  defp recorded_queries(fun) do
+    {_result, queries} = recorded_queries_with(fun)
+    queries
   end
 
   defp drain_queries(acc) do
