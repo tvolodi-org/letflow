@@ -48,6 +48,7 @@ defmodule Letflow.Entities.EntityTypeInstance do
 
   use Ecto.Schema
   import Ecto.Changeset
+  import Ecto.Query, only: [from: 2]
 
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.Repo
@@ -77,7 +78,8 @@ defmodule Letflow.Entities.EntityTypeInstance do
   matching `instance_projections` row) on first use. Design §6.2's protocol:
 
     1. Read — if a row already exists for `entity_type`, return its
-       `instance_id` immediately, no writes.
+       `instance_id` with no writes (one joined read also checks the projection; a
+       missing projection is healed with the same `on_conflict: :nothing` ensure).
     2. Else, mint a fresh `instance_id`, insert this table's row
        (`on_conflict: :nothing`), re-read the row and take **that** row's
        `instance_id` (whichever concurrent caller's insert actually won the race),
@@ -92,9 +94,17 @@ defmodule Letflow.Entities.EntityTypeInstance do
   @spec get_or_create(entity_type :: String.t(), prefix :: String.t()) ::
           {:ok, instance_id :: Ecto.UUID.t()} | {:error, term()}
   def get_or_create(entity_type, prefix) when is_binary(entity_type) and is_binary(prefix) do
-    case Repo.get(__MODULE__, entity_type, prefix: prefix) do
-      %__MODULE__{instance_id: instance_id} ->
+    case lookup_with_projection(entity_type, prefix) do
+      {instance_id, true} ->
         {:ok, instance_id}
+
+      # GH #2702 follow-up: a registry row whose projection is missing (a creator that crashed
+      # between the two statements of the pre-atomic code) is healed here, so the append guard
+      # never sees a registry row without its projection. Idempotent (`on_conflict: :nothing`).
+      {instance_id, false} ->
+        with {:ok, _projection} <- ensure_instance_projection(instance_id, prefix) do
+          {:ok, instance_id}
+        end
 
       nil ->
         create_and_reselect(entity_type, prefix)
@@ -117,30 +127,50 @@ defmodule Letflow.Entities.EntityTypeInstance do
     end
   end
 
+  # One round trip: the registry row plus whether its projection exists (indexed PK joins).
+  defp lookup_with_projection(entity_type, prefix) do
+    from(e in __MODULE__,
+      left_join: p in InstanceProjection,
+      on: p.instance_id == e.instance_id,
+      where: e.entity_type == ^entity_type,
+      select: {e.instance_id, not is_nil(p.instance_id)}
+    )
+    |> Repo.one(prefix: prefix)
+  end
+
+  # GH #2702 (F8) + atomic-create fix: registry insert, re-read the WINNER, and the winner's
+  # projection in ONE transaction, so no reader ever sees the registry row without its
+  # projection (and a creator crash leaves neither). A race loser blocks on the registry unique
+  # key until the winner commits (registry + projection together); its insert then does
+  # nothing, and under READ COMMITTED (a fresh snapshot per statement) its re-read sees the
+  # winner's committed row, so it ensures an on-conflict-nothing projection for the WINNER's id
+  # only: no orphan projection for the loser's minted id. Nests inside a caller's transaction.
   defp create_and_reselect(entity_type, prefix) do
     instance_id = Ecto.UUID.generate()
 
     changeset =
       insert_changeset(%__MODULE__{}, %{entity_type: entity_type, instance_id: instance_id})
 
-    # GH #2702 (F8): registry insert, re-read the WINNER, then ensure the projection
-    # for the winning id only. Ensuring the minted id's projection before the re-read
-    # left an orphan projection (not in the registry, so not hidden) for a race loser.
-    with {:ok, _} <-
-           Repo.insert(changeset,
-             on_conflict: :nothing,
-             conflict_target: :entity_type,
-             prefix: prefix
-           ) do
-      case Repo.get(__MODULE__, entity_type, prefix: prefix) do
-        %__MODULE__{instance_id: won_instance_id} ->
-          with {:ok, _projection} <- ensure_instance_projection(won_instance_id, prefix) do
-            {:ok, won_instance_id}
-          end
-
-        nil ->
-          {:error, {:entity_type_instance_lookup_failed, entity_type}}
+    Repo.transaction(fn ->
+      with {:ok, _} <-
+             Repo.insert(changeset,
+               on_conflict: :nothing,
+               conflict_target: :entity_type,
+               prefix: prefix
+             ),
+           {:ok, won_instance_id} <- reread_winner(entity_type, prefix),
+           {:ok, _projection} <- ensure_instance_projection(won_instance_id, prefix) do
+        won_instance_id
+      else
+        {:error, reason} -> Repo.rollback(reason)
       end
+    end)
+  end
+
+  defp reread_winner(entity_type, prefix) do
+    case Repo.get(__MODULE__, entity_type, prefix: prefix) do
+      %__MODULE__{instance_id: won_instance_id} -> {:ok, won_instance_id}
+      nil -> {:error, {:entity_type_instance_lookup_failed, entity_type}}
     end
   end
 
