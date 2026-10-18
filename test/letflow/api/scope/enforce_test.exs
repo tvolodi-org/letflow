@@ -324,7 +324,18 @@ defmodule Letflow.Api.Scope.EnforceTest do
             Enforce.check(conn, access(auth_context), :InstancesRead)
           end)
 
-        assert result == conn, inspect(class)
+        # REQ-518 R-4: `:filter` and `{:resolver, _}` only gain the before-send backstop callback.
+        if class == :self_service do
+          assert result == conn, inspect(class)
+        else
+          refute result.halted, inspect(class)
+
+          assert %{result | private: Map.delete(result.private, :before_send)} == conn,
+                 inspect(class)
+
+          assert length(result.private[:before_send]) == 1, inspect(class)
+        end
+
         assert queries == [], inspect(class)
       end
 

@@ -1,0 +1,80 @@
+{
+  "handoff_id": "d2535518-0518-4c02-9e11-000000000011",
+  "run_id": "WF02-REQ518-COMPILER-SCOPE-20261018",
+  "workflow_id": "WF-02",
+  "step": "11",
+  "from_agent": "ORCH",
+  "to_agent": "ELIXIR-DEV",
+  "file": "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-11-elixir-dev-2c-i-b.json",
+  "created_at": "2026-10-18T05:25:00Z",
+  "started_at": "2026-10-18T05:30:00Z",
+  "completed_at": "2026-10-18T05:52:28Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-518"],
+    "requirement_text": {},
+    "source_text": {
+      "slice": "REQ-518 slice 2c-i-b (GH #2535): ScopeGate, Enforce before-send backstop (detective), :filter routes (query, aggregate, export), :self_service routes (me/memberships, me/modules, help/resolved), RouteScope lists and walk rules, snapshot shrink, SEC F-1 wrapper."
+    },
+    "related_handoff_ids": ["d2535518-0518-4c02-9e11-000000000005"],
+    "artifacts_in": [
+      "lib/letflow/design/req518-compiler-scope-filter.md",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-04-security-reviewer-design.json",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-07-security-reviewer-code-2c-i-a.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ518-2CIB-GATE-20261018"
+  },
+  "task": {
+    "description": "Implement PR 2c-i-b of the REQ-518 design (rev r2a). Implementation only; new tests are TEST-DESIGNER's. Nothing committed."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "2c-i-b implemented, uncommitted. RAN (MIX_ENV=test, one mix at a time under my own mixlock, released at the end): mix compile --warnings-as-errors clean; mix format --check-formatted clean; mix letflow.check_boundaries 0 violations (1445 edges). Per-file mix test: route_scope_walk_test, route_scope_test, route_scope_exam_guard_test, scope_all_scan_test (76 passed); enforce_test, authorize_scope_on_test, shadow_evidence_test (59/60 first run, the one failure was my forced enforce_test edit using a wrong struct key, fixed, enforce_test then 17 passed); off_shadow_byte_identity_test, me_test, help_test, query_cursor_field_grants_test, scope_all_scan_test, route_scope_walk_test (74 passed). Two throwaway scratch tests (deleted): (1) Enforce.check then send_resp on :filter and resolver routes: 2xx without the ScopeGate marker gives the detail-free 500 body and one scope_not_applied line, with the marker 200, a 404 is unchanged, :self_service untouched; (2) real HTTP via ScopeOnFixture: a scoped TASK_WORKER gets 200 from POST /entities/query under on and under off, and a non-ScopeSetError raise inside the gate (bad grants memo) is re-raised as ScopeSetError with one scope_set_failed reason=read_failed line. NOT RUN: mix letflow.check, any full or multi-partition suite, the exam/session suites, the entities router test files other than those listed, permission_matrix --check (no permission atom changed), T-C13 over a real HTTP 500 (needs DB fault injection; only the gate-level re-raise was verified), T-S4 recorded rows, T-S9.",
+    "migrations": [],
+    "files_created": ["lib/letflow/api/scope_gate.ex"],
+    "files_changed": [
+      "lib/letflow/api/response.ex",
+      "lib/letflow/api/route_scope.ex",
+      "lib/letflow/api/scope/enforce.ex",
+      "lib/letflow/routers/entities.ex",
+      "lib/letflow/routers/me.ex",
+      "lib/letflow/routers/help.ex",
+      "test/fixtures/route_scope/tenant_wide_default_routes.txt",
+      "test/letflow/api/route_scope_test.exs",
+      "test/letflow/api/route_scope_walk_test.exs",
+      "test/letflow/api/scope/enforce_test.exs",
+      "test/letflow/entities/scope_all_scan_test.exs",
+      "test/letflow/plugs/authorize_scope_on_test.exs"
+    ],
+    "deviations": [
+      "Snapshot: 143 -> 137 lines, removed exactly POST /entities/query EntitiesQuery, POST /entities/query/aggregate EntitiesAggregate, POST /entities/records/:entity_type/export EntitiesRecordsExport, GET /me/memberships MembershipsRead, GET /me/modules MyModulesRead, GET /help/resolved HelpRead. Matches design 7.1 (3 + 3). The file keeps CRLF.",
+      "@expected_filter_routes holds METHOD FULL_PATH KEY lines (snapshot_line format, the existing comparison), not {method, path} tuples. The filter walk now also fails a listed route that is mounted with another class (:unexpected_filter_route); checked per mounted row, not for an unmounted listed route, so the many existing audit_routes unit tests on small route lists stay valid.",
+      "Walk rules shipped: :self_service_not_listed, :self_service_list_mismatch, :tenant_wide_unruled, :pending_marker_unlisted. NOT added: :unexpected_resolver_route, @expected_resolver_routes, :data_route_default (no resolver route exists until 2c-ii; adding them now would force edits to unrelated tests). :pending_marker_unlisted is implemented as a pending_sec_ruling entry that is classed :self_service or whose mounted route is not :tenant_wide, because a marker lives only in the list. audit_routes gained an optional third argument (the self-service list, default @self_service_routes) so tests can seed lists; RouteScope.self_service_routes/0 exposes the list. @self_service_routes_allowed? is flipped to true (the :self_service_not_allowed branch is now dead but kept per the design wording).",
+      "Response.put_problem/2 added (public): sets, does not send, the same problem response send_problem/2 sends (send_problem now delegates to it, bytes unchanged). Needed because a before-send callback must not call send_resp (it would re-run the callbacks). The backstop uses it with Error.internal(). response.ex is therefore an additional SEC-review file.",
+      "Enforce backstop (R-4, detective only): registered in the :on branch only, for :filter and {:resolver, _}; replaces only a 2xx without conn.private[:letflow_scope_applied], logs one constant line scope_not_applied, rescues itself to the same detail-free 500; the failure log text is shared with fail_closed via log_failure/2. The replacement conn is not halted (the response is already being sent).",
+      "SEC F-1 (step-07): ScopeGate wraps principal_from_conn and allowed_set/allowed? in guarded/1. ScopeSetError passes through (already logged); any other raise, exit or throw is logged as scope_set_failed reason=read_failed and re-raised as ScopeSetError, which ApiPipeline.handle_errors maps to the detail-free 500. api_pipeline.ex itself is unchanged.",
+      "ScopeGate is called at the TOP of run_query, run_query_aggregate and run_export, before the with chain, so the 200-empty type-hidden envelope (returned before the compiler) still carries the marker. The set is therefore also read for requests that later fail validation (2 extra statements, under on only). run_query's with chain keeps its five steps in order (query_cursor_field_grants_test chain extraction passes).",
+      "ScopeGate.resource_allowed?/3 is implemented per design 3.5 although no 2c-i-b caller uses it (2c-ii does).",
+      "/help/resolved R-2 condition already holds in the code as built (stale is computed from the SELECTED help row's own process_definition_id via Definitions.get_by_id; the request id only filters rows); no help.ex logic change, only scope: :self_service. T-S9 is a test.",
+      "Forced edits to existing tests: route_scope_test (self-service test now asserts :self_service_not_listed plus :self_service_list_mismatch for an unlisted route), route_scope_walk_test (T-C1 class test pins the exact 3 filter and 3 self-service routes; T-C4 declared-routes test lists the 8 declared routes and 4 routers), enforce_test (T-G4: filter/resolver conn differs from the input only by the one before-send callback in conn.private; self_service still untouched), scope_all_scan_test (router literal sites 3 -> 0, total sites 8 -> 5), authorize_scope_on_test (the :filter and :resolver fixture handlers call ScopeGate as a real handler must, otherwise the backstop turns their 200 into a 500 under on).",
+      "REVIEWER F-1 fixed: ScopeGate.applied?/1 is the single owner of the marker key; Enforce.assert_scope_applied/1 reads it through it (no test sets the marker directly, the fixtures call ScopeGate). F-3 left as is.",
+      "Three edited files were briefly written with CRLF by a script on this Windows host and were converted back to LF before finishing; git ls-files --eol shows i/lf w/lf for every touched file except the snapshot fixture (w/crlf, as it was)."
+    ],
+    "notes_for_test_designer": [
+      "New tests owed (design 10.1): T-C11, T-S1..T-S9, T-B1 (fixture filter/resolver route that omits the gate: on gives 500 plus one scope_not_applied, off/shadow give 200), T-C13 over HTTP (DB fault in the set read gives the detail-free 500 with exactly one scope_set_failed line, never a 200), T-S4 needs three recorded rows (M1, M2, H1) in off_shadow_responses.json captured on main; walk seeds for the four new self-service errors via audit_routes/3.",
+      "T-C9: ScopeGate memo key is conn.private[:letflow_scope_sets] (per permission); the marker key is conn.private[:letflow_scope_applied]; the before-send list is conn.private[:before_send].",
+      "In my scratch run a scoped TASK_WORKER got 404 from aggregate and 403 from export for a nonexistent type / a role without the export permission: existing semantics, not scope results."
+    ],
+    "sec_code_gate_followups": [
+      "Mandatory-SEC trigger files touched: route_scope.ex, the route snapshot, scope/enforce.ex, routers/entities.ex, me.ex, help.ex (authorized_router.ex NOT touched). Additional: response.ex (put_problem), scope_gate.ex (new).",
+      "PR body must carry the 6 ledger rows (E8, E9, E10: tenant_wide default to :filter; M1, M2, H1: tenant_wide default to :self_service with rulings 0051-A7, SEC-518-R2-modules, SEC-518-R2-help), the 6 removed snapshot lines, and the R-4 sentence: the before-send check detects a handler that omitted ScopeGate; it does not make a response safe.",
+      "Step-07 F-1 applied in ScopeGate (above); F-2 (bare /modules/exam) is already covered by exam_route?; F-3 (stale api_pipeline docs) is already updated on main."
+    ],
+    "local_issue_id": null,
+    "implementation_written": true
+  }
+}

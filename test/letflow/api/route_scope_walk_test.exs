@@ -76,15 +76,29 @@ defmodule Letflow.Api.RouteScopeWalkTest do
       end
     end
 
-    test "every route is exactly one class and the walk has no :filter or :self_service route in 2b",
+    test "every route is exactly one class; :filter and :self_service are exactly the committed REQ-518 2c-i-b routes",
          %{routes: routes} do
       for r <- routes do
-        assert r.class in [:admin_plane, :tenant_wide] or match?({:resolver, _}, r.class),
+        assert r.class in [:admin_plane, :tenant_wide, :filter, :self_service] or
+                 match?({:resolver, _}, r.class),
                inspect(r)
       end
 
-      assert RouteScope.filter_routes(routes) == []
-      assert Enum.filter(routes, &(&1.class == :self_service)) == []
+      assert routes
+             |> RouteScope.filter_routes()
+             |> Enum.map(&RouteScope.snapshot_line/1)
+             |> Enum.sort() ==
+               [
+                 "POST /entities/query EntitiesQuery",
+                 "POST /entities/query/aggregate EntitiesAggregate",
+                 "POST /entities/records/:entity_type/export EntitiesRecordsExport"
+               ]
+
+      assert routes
+             |> Enum.filter(&(&1.class == :self_service))
+             |> Enum.map(&"#{&1.method} #{&1.path}")
+             |> Enum.sort() ==
+               ["GET /help/resolved", "GET /me/memberships", "GET /me/modules"]
     end
   end
 
@@ -268,7 +282,7 @@ defmodule Letflow.Api.RouteScopeWalkTest do
       end
     end
 
-    test "__authz_route_scopes__/0 lists DECLARED routes only: the two link routes, nothing else",
+    test "__authz_route_scopes__/0 lists DECLARED routes only: the two link routes and the REQ-518 2c-i-b routes, nothing else",
          %{routes: routes} do
       scopes =
         for router <- routes |> Enum.map(& &1.router) |> Enum.uniq(),
@@ -277,11 +291,22 @@ defmodule Letflow.Api.RouteScopeWalkTest do
 
       assert Enum.sort(Enum.map(scopes, fn {_router, entry} -> entry end)) == [
                {"GET", "/:id/attachments/:attachment_id/link-content", :tenant_wide},
-               {"POST", "/:id/attachments/:attachment_id/link", :tenant_wide}
+               {"GET", "/memberships", :self_service},
+               {"GET", "/modules", :self_service},
+               {"GET", "/resolved", :self_service},
+               {"POST", "/:id/attachments/:attachment_id/link", :tenant_wide},
+               {"POST", "/query", :filter},
+               {"POST", "/query/aggregate", :filter},
+               {"POST", "/records/:entity_type/export", :filter}
              ]
 
-      assert Enum.uniq(Enum.map(scopes, fn {router, _entry} -> router end)) ==
-               [Letflow.Routers.Instances]
+      assert scopes |> Enum.map(fn {router, _entry} -> router end) |> Enum.uniq() |> Enum.sort() ==
+               Enum.sort([
+                 Letflow.Routers.Entities,
+                 Letflow.Routers.Help,
+                 Letflow.Routers.Instances,
+                 Letflow.Routers.Me
+               ])
     end
   end
 

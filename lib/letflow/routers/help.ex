@@ -108,7 +108,7 @@ defmodule Letflow.Routers.Help do
   alias Letflow.Help
   alias Letflow.Help.HelpContent
 
-  authz_get "/resolved", :HelpRead do
+  authz_get "/resolved", :HelpRead, scope: :self_service do
     handle_resolve(conn)
   end
 

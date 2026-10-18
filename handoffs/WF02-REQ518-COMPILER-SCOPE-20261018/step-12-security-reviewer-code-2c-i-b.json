@@ -1,0 +1,118 @@
+{
+  "handoff_id": "d2535518-0518-4c02-9e11-000000000012",
+  "run_id": "WF02-REQ518-COMPILER-SCOPE-20261018",
+  "workflow_id": "WF-02",
+  "step": "12",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-12-security-reviewer-code-2c-i-b.json",
+  "created_at": "2026-10-18T05:48:00Z",
+  "started_at": "2026-10-18T05:48:10Z",
+  "completed_at": "2026-10-18T05:48:50Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-518"],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "SECURITY-REVIEWER CODE gate for REQ-518 slice 2c-i-b (GH #2535), uncommitted working tree on feature/WF02-REQ518-2CIB-GATE-20261018. Mandatory triggers touched: route_scope.ex, scope/enforce.ex, the route snapshot, routers/entities.ex, me.ex, help.ex; extra: response.ex, scope_gate.ex (new). Read-only static review; no mix, no tests run by this reviewer."
+    },
+    "related_handoff_ids": [
+      "d2535518-0518-4c02-9e11-000000000004",
+      "d2535518-0518-4c02-9e11-000000000007",
+      "d2535518-0518-4c02-9e11-000000000011"
+    ],
+    "artifacts_in": [
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-11-elixir-dev-2c-i-b.json",
+      "lib/letflow/design/req518-compiler-scope-filter.md",
+      "lib/letflow/api/scope_gate.ex",
+      "lib/letflow/api/scope/enforce.ex",
+      "lib/letflow/api/route_scope.ex",
+      "lib/letflow/api/response.ex",
+      "lib/letflow/routers/entities.ex",
+      "lib/letflow/routers/me.ex",
+      "lib/letflow/routers/help.ex",
+      "test/fixtures/route_scope/tenant_wide_default_routes.txt"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ518-2CIB-GATE-20261018"
+  },
+  "task": {
+    "description": "Security code gate for REQ-518 2c-i-b against INV-1..INV-10, design r2a, design-gate step-04 (R-2, R-4, A-6, C-1) and code-gate step-07 (F-1, T-C13), ACs 1-5, 18-21, 23. No edits to lib/ or test/."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "CODE GATE (2c-i-b): PASS_WITH_FINDINGS. No BLOCKER, no MAJOR. Two MINOR findings and merge conditions on tests (not code defects). Static review only; runtime claims rest on the ELIXIR-DEV report and hosted CI. SCOPE: in scope (mandatory triggers route_scope.ex, scope/enforce.ex, snapshot, plus response.ex and scope_gate.ex as tenant-data response shaping). Verified: (1) THREE FILTER HANDLERS: run_query, run_query_aggregate and run_export call ScopeGate.scope_set at the very top and pass the returned set to Compiler.compile / Compiler.run_aggregate (the three literal :all sites are gone; grep of the diff shows no remaining :all in entities.ex for these routes). Every response is sent on the rebound conn. Cursor.paginate receives the compiled (scoped) query and only AND-s the resume filter onto it; the cursor carries no set and the set is recomputed per request, so page 2 cannot widen. The output has no count/total field (query: items+next_cursor; aggregate: results from the scoped query; export: records+next_cursor+constant metadata). Pre-gate returns are only 400 malformed body (non-2xx, backstop irrelevant); the type-hidden 200-empty envelope is after the gate, so it carries the marker. No error path returns data before the gate. (2) OFF/SHADOW: ScopeGate.mode reads auth_context.scope_enforcement, the same key Authorize.apply_scope_mode uses to call Enforce, so the gate and the backstop agree; not-on returns {conn, :all} / {conn, true} with no query and Compiler :all adds nothing (2c-i-a verified), so bytes are unchanged; the backstop is registered only in the Enforce on branch. (3) MEMO: stored in conn.private (per request process/conn), keyed by permission atom; grants come from the existing per-conn principal memo; nothing global, no ETS, no process dictionary; a different principal or conn cannot see it. The marker is set before the mode test (also under off), harmless. (4) BACKSTOP: registered only for :filter and {:resolver,_} in the on branch; replaces only 2xx without the marker; every non-2xx unchanged; one constant log line scope_not_applied (no ids); rescue and catch inside the callback answer the same detail-free 500 via Response.put_problem(Error.internal()); the exporting handlers use Response.ok (no chunked send) so the body can be replaced. A handler that rebuilds the conn from an older copy loses the marker and gets a false 500 (fail closed, accepted by R-4 e). It cannot be defeated into a LEAK by rebuilding; only by explicitly putting the private key, which is gate-bypass by code review, covered by the ledger and per-route tests. The control remains detective: the marker proves gate called, not result applied. (5) ScopeGate F-1/C-1: guarded/1 rescues ScopeSetError (re-raise, already logged) and any other raise, exit or throw (-> one constant scope_set_failed reason=read_failed line, re-raised as ScopeSetError, mapped by ApiPipeline.handle_errors to the detail-free 500); the {:ok, set} = match inside compute_set is inside guarded, so a bad return also fails closed. Never :all, never partial, never silent :none for a fault. A request with no principal gets :none under on (fail closed). (6) SELF-SERVICE: me.ex, help.ex change is the scope: :self_service declaration only; no handler logic changed. /me/memberships = caller's own data (0051-A7); /me/modules = tenant module metadata (Installs.list_installed, no caller filter); /help/resolved: process_definition_id remains a filter over help rows and stale comes from the selected row's own definition (not from the request id), so it is not a definition-existence oracle; the diff adds no field derived from a scoped resource. Enforce passes :self_service after the coarse allow only. /me and /help each contain exactly these routes plus authz_unmatched. (7) SNAPSHOT: git numstat is 0 added / 6 removed; line count 143 -> 137; the removed lines are exactly POST /entities/query, POST /entities/query/aggregate, POST /entities/records/:entity_type/export, GET /me/memberships, GET /me/modules, GET /help/resolved, no other line touched. (8) WALK: @expected_filter_routes lists the three filter routes and fails both a mounted :filter route not listed and a listed route mounted with another class; @self_service_routes list with rulings 0051-A7, SEC-518-R2-modules, SEC-518-R2-help; new errors :self_service_not_listed (any route under /me or /help not on the list), :self_service_list_mismatch (class differs from the entry, or a :self_service route not on the list), :tenant_wide_unruled, :pending_marker_unlisted are sound for the shipped routes. (9) put_problem/2: send_problem now = put_problem |> send_resp; put_problem does the same effective_trace_id, put_resp_content_type and resp(status, Error.serialise) that send_resp(status, body) did, so denied and error responses are byte-identical (INV-5); put_problem only sets, so a before-send replacement never re-runs the callbacks. (10) NO migration, no secret, no tenant_id column, no new log field beyond two constant lines (INV-1, INV-4, INV-7, INV-10 unchanged; permission_matrix golden not affected, no permission atom or role changed).",
+    "local_issue_id": null,
+    "artifacts_out": ["handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-12-security-reviewer-code-2c-i-b.json"],
+    "invariants_assessed": {
+      "INV-1": "APPLIES, PASS (set computed in the caller's prefix via Scope.principal_from_conn / allowed_set; prefix only from prefix!/1; no migration; no tenant_id)",
+      "INV-2": "APPLIES, PASS (predicate inside the query before rows exist; redaction and FieldGrants run on top; cursor and responses carry no set; no response map changed; no count/total)",
+      "INV-3": "NOT-APPLICABLE (no Lua/WASM host function)",
+      "INV-4": "APPLIES, PASS (two constant log lines, scope_not_applied and scope_set_failed reason=<atom>, no ids/tenant/values; no secret resolved)",
+      "INV-5": "APPLIES, PASS (put_problem delegation byte-identical; type-hidden 200-empty envelope unchanged; 500 body is the shared detail-free body)",
+      "INV-6": "APPLIES, PASS (ledger rows for six routes listed below; ScopeGate is the single conn-level entry)",
+      "INV-7": "APPLIES, PASS (no new query construction in this slice; the compiler path was cleared in 2c-i-a)",
+      "INV-8": "APPLIES, PASS (F-1 and C-1 closed in ScopeGate; backstop rescues itself; pre-existing bare match in me.ex memberships is unchanged, advisory A-5 from step-04 still open, not a blocker)",
+      "INV-9": "NOT-APPLICABLE (no outbound URL)",
+      "INV-10": "APPLIES, PASS (platform branch and permission set unchanged; no permission atom added)"
+    },
+    "design_gate_followups": {
+      "R-2": "MET in code (self-service class definition in route_scope moduledoc; /help/resolved still a filter). Test T-S9 (existing-definition-without-help-row vs no-definition give byte-identical responses for a scoped-only user) is a merge condition.",
+      "R-4": "MET in code, conditions a-g satisfied by implementation; the PR body must carry the detective-only sentence.",
+      "A-6": "MET (gate called with the conn finally sent; all three handlers rebind conn).",
+      "C-1": "CLOSED including HTTP mapping; T-C13 over HTTP still owed as a test.",
+      "step-07 F-1": "CLOSED in ScopeGate.guarded/1."
+    },
+    "findings": [
+      {
+        "id": "F-1",
+        "severity": "MINOR",
+        "blocking": false,
+        "title": "walk rules omitted by the ELIXIR-DEV deviation leave no expected-list control for a {:resolver, _} declaration",
+        "detail": ":unexpected_resolver_route, @expected_resolver_routes and :data_route_default were not added. In 2c-i-b no resolver route exists and the omission is acceptable for this slice: Enforce passes a {:resolver,_} route only with the before-send detective check, and a router edit declaring one is not itself a mandatory SECURITY-REVIEWER trigger (routers/*.ex are not on the trigger list), so until the rule exists a mistaken `scope: {:resolver, f}` in a PR would pass the walk.",
+        "required_action": "2c-ii MUST add :unexpected_resolver_route with a committed @expected_resolver_routes list (the eight record write and attachment routes) in the SAME change that first declares a {:resolver,_} route, and the :data_route_default rule (design AC 18), each with a seeded walk test. Absence of those in the 2c-ii diff is a FAIL of the 2c-ii gate."
+      },
+      {
+        "id": "F-2",
+        "severity": "MINOR",
+        "blocking": false,
+        "title": "walk does not detect a stale or unmounted list entry or a key mismatch",
+        "detail": "audit_self_service checks mounted routes against the list, but a @self_service_routes entry whose route is not mounted, an entry whose :key differs from the route's policy key, and an @expected_filter_routes line for an unmounted route are not reported. None creates exposure (an entry cannot reclassify a route; the class comes from the route declaration), it only weakens the 'list equals reality' guarantee.",
+        "required_action": "Optional hardening in 2c-ii or 2d (report unmounted entries and key mismatches). Not required for merge."
+      }
+    ],
+    "conditions_for_merge": [
+      "Tests T-B1 (fixture filter/resolver route that omits ScopeGate: on gives 500 plus exactly one scope_not_applied line; off/shadow give 200), T-C13 over HTTP (DB fault in the set read gives the detail-free 500 with exactly one scope_set_failed line, never a 200), T-S9 (see R-2), and an on-mode behaviour test per filter route (T-L19.. for query, aggregate, export: a scoped caller sees only in-scope rows, including a second page via next_cursor, a joined query, and export) must exist and pass in CI. The ELIXIR-DEV scratch results do not count as evidence.",
+      "T-S4: recorded off/shadow byte-identity rows for the three filter routes (M1, M2, H1 for self-service) captured on main, per the design.",
+      "Walk seed tests for :self_service_not_listed, :self_service_list_mismatch, :tenant_wide_unruled, :pending_marker_unlisted and :unexpected_filter_route (both directions) via audit_routes/3.",
+      "PR body (AC 23) must carry the table of six reclassified routes below, the six removed snapshot lines, and the R-4 sentence: the before-send check detects a handler that omitted ScopeGate; it does not make a response safe."
+    ],
+    "advisories": [
+      "A-1: the marker is also set by resource_allowed?/3 and in not-on modes; it proves 'gate called' only. Per-route behaviour tests are the preventive control.",
+      "A-2: the set is read for requests that later fail validation (2 extra statements under on); no data leaves, acceptable.",
+      "A-3: no remaining scope-all literal in routers/entities.ex for the three routes; the scope_all_scan_test counts (sites 8 -> 5) must keep passing.",
+      "A-4 (carry from step-04 A-5): me.ex bare {:ok, memberships} = match is pre-existing, now reachable by scoped users; route to ELIXIR-DEV as a drive-by or issue."
+    ],
+    "reclassified_routes_ac23": [
+      {"method": "POST", "path": "/entities/query", "old_class": "tenant_wide (default)", "new_class": "filter", "ledger": "E8", "snapshot_line_removed": true},
+      {"method": "POST", "path": "/entities/query/aggregate", "old_class": "tenant_wide (default)", "new_class": "filter", "ledger": "E9", "snapshot_line_removed": true},
+      {"method": "POST", "path": "/entities/records/:entity_type/export", "old_class": "tenant_wide (default)", "new_class": "filter", "ledger": "E10", "snapshot_line_removed": true},
+      {"method": "GET", "path": "/me/memberships", "old_class": "tenant_wide (default)", "new_class": "self_service (ruling 0051-A7)", "ledger": "M1", "snapshot_line_removed": true},
+      {"method": "GET", "path": "/me/modules", "old_class": "tenant_wide (default)", "new_class": "self_service (ruling SEC-518-R2-modules)", "ledger": "M2", "snapshot_line_removed": true},
+      {"method": "GET", "path": "/help/resolved", "old_class": "tenant_wide (default)", "new_class": "self_service (ruling SEC-518-R2-help)", "ledger": "H1", "snapshot_line_removed": true}
+    ],
+    "ac23_verdict_sentence": "SECURITY-REVIEWER code gate for REQ-518 2c-i-b: PASS_WITH_FINDINGS (no BLOCKER or MAJOR; handoff step-12-security-reviewer-code-2c-i-b.json); exactly six routes are reclassified from the default tenant_wide class (POST /entities/query, POST /entities/query/aggregate and POST /entities/records/:entity_type/export to filter; GET /me/memberships, GET /me/modules and GET /help/resolved to self_service), exactly those six lines are removed from test/fixtures/route_scope/tenant_wide_default_routes.txt (143 to 137), and the before-send check detects a handler that omitted ScopeGate; it does not make a response safe.",
+    "required_changes": [],
+    "carry_forward_conditions": [
+      "2c-ii: add :unexpected_resolver_route, @expected_resolver_routes and :data_route_default in the same change as the first {:resolver,_} declaration (F-1); needs its own SECURITY-REVIEWER code verdict with the AC 23 table.",
+      "2c-ii: ScopeGate.resource_allowed?/3 gets its first callers; the gate must verify scope BEFORE any write (design 5.3) and C-3/C-5/C-6 from step-04 apply.",
+      "Any change to a self-service handler that adds a field derived from a scoped resource, or probes Definitions with the request process_definition_id, re-opens ruling R-2."
+    ],
+    "classification": "CODE_PASS_WITH_FINDINGS",
+    "implementation_written": false
+  }
+}

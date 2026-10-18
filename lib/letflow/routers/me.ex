@@ -71,11 +71,11 @@ defmodule Letflow.Routers.Me do
   alias Letflow.Modules.Installs
   alias Letflow.Modules.TenantModule
 
-  authz_get "/memberships", :MembershipsRead do
+  authz_get "/memberships", :MembershipsRead, scope: :self_service do
     handle_list_memberships(conn)
   end
 
-  authz_get "/modules", :MyModulesRead do
+  authz_get "/modules", :MyModulesRead, scope: :self_service do
     handle_list_modules(conn)
   end
 

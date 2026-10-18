@@ -42,10 +42,10 @@ defmodule Letflow.Support.ScopedGrantsFixture do
   A provisioned tenant with the default platform-role groups seeded and an active
   TENANT_ADMIN group member under `:admin` (a real user, so the tenant-wide gate holds).
   """
-  @spec tenant!(String.t()) :: fixture()
-  def tenant!(slug_prefix) do
+  @spec tenant!(String.t(), keyword()) :: fixture()
+  def tenant!(slug_prefix, tenant_opts \\ []) do
     Fixture.unpin!()
-    fx = TenantFixture.provisioned_tenant!(slug_prefix: slug_prefix)
+    fx = TenantFixture.provisioned_tenant!([slug_prefix: slug_prefix] ++ tenant_opts)
     {:ok, _roles} = RoleRegistry.seed_default_platform_role_groups(prefix: fx.schema_name)
     Map.put(fx, :admin, TokenMintFixture.role_holder!(fx.schema_name, ["TENANT_ADMIN"]))
   end

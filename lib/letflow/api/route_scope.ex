@@ -11,8 +11,13 @@ defmodule Letflow.Api.RouteScope do
       (`module.function/1`, REQ-518 defines the resolvers). Passes through `Authorize`.
     * `:filter` -- a list endpoint whose handler applies the scope (REQ-518). Passes through.
     * `:self_service` -- tenant-level, non-sensitive, role-independent reads (defined and
-      assigned by REQ-518 AC 21; in 2b no route carries it). Passes through after the coarse
-      allow.
+      assigned by REQ-518 AC 21; the ruled list is `@self_service_routes`, below). Passes
+      through after the coarse allow. DEFINITION: the response is either the caller's own
+      principal data or tenant-level metadata with no per-resource data (no entity record, task,
+      instance or attachment), and a caller-supplied id may appear only as a FILTER, never to
+      select a resource the caller must be scoped for. No field derived from a resource the
+      caller must be scoped for may be added to a `:self_service` response; doing so requires a
+      new SECURITY-REVIEWER ruling and an edit of `@self_service_routes`.
 
   ## Where a class comes from (`class_of/1`)
 
@@ -55,6 +60,10 @@ defmodule Letflow.Api.RouteScope do
           | {:admin_key_not_in_table, atom()}
           | {:link_route_reclassified, route_row()}
           | {:self_service_not_allowed, route_row()}
+          | {:self_service_not_listed, route_row()}
+          | {:self_service_list_mismatch, route_row()}
+          | {:tenant_wide_unruled, route_row() | String.t()}
+          | {:pending_marker_unlisted, String.t()}
           | {:unexpected_filter_route, route_row()}
           | {:unknown_permission, atom()}
           | {:exam_route_reclassified, route_row()}
@@ -81,16 +90,63 @@ defmodule Letflow.Api.RouteScope do
   # routes may only be `:tenant_wide`. Flip to true only together with such a lookup.
   @issue_time_parent_lookup? false
 
-  # The committed expectation of `:filter` routes (SEC F-1): none until REQ-518 reclassifies
-  # list endpoints. REQ-518 replaces this list in the same change that declares them.
-  @expected_filter_routes []
+  # The committed expectation of `:filter` routes (SEC F-1), as `METHOD FULL_PATH KEY` lines
+  # (`snapshot_line/1`). REQ-518 PR 2c-i-b: the three entity list/aggregate/export routes; PR 2d
+  # adds `GET /tasks` and `GET /tasks/inbox`. The walk fails a `:filter` route that is not listed
+  # AND a listed route that is mounted with another class (AC 18).
+  @expected_filter_routes [
+    "POST /entities/query EntitiesQuery",
+    "POST /entities/query/aggregate EntitiesAggregate",
+    "POST /entities/records/:entity_type/export EntitiesRecordsExport"
+  ]
 
-  # `:self_service` is defined but NO route may carry it until REQ-518 AC 21 (SEC F-1).
-  @self_service_routes_allowed? false
+  # `:self_service` routes are allowed from REQ-518 PR 2c-i-b (AC 21); WHICH routes is the
+  # committed `@self_service_routes` list below (SEC F-1).
+  @self_service_routes_allowed? true
+
+  # REQ-518 AC 21 (design 4.2): the ONE named place where the `/me` and `/help` routes are
+  # ruled. Each entry: `route` (`"METHOD FULL_PATH"`), the policy `key`, `class`
+  # (`:self_service`, or `:tenant_wide` for the "SEC-ruled tenant-wide" state) and `ruling` (a
+  # ruling id, or `:pending_sec_ruling` for a route awaiting a ruling, which blocks REQ-519
+  # AC 9). A route joins or leaves the class by editing this list AND its `scope:` declaration.
+  @self_service_routes [
+    %{
+      route: "GET /me/memberships",
+      key: :MembershipsRead,
+      class: :self_service,
+      ruling: "0051-A7"
+    },
+    %{
+      route: "GET /me/modules",
+      key: :MyModulesRead,
+      class: :self_service,
+      ruling: "SEC-518-R2-modules"
+    },
+    %{
+      route: "GET /help/resolved",
+      key: :HelpRead,
+      class: :self_service,
+      ruling: "SEC-518-R2-help"
+    }
+  ]
+
+  # The path prefixes whose every route must appear in `@self_service_routes`.
+  @self_service_prefixes ["/me", "/help"]
 
   @doc "The admin-plane key table."
   @spec admin_plane_keys() :: [atom()]
   def admin_plane_keys, do: @admin_plane_keys
+
+  @doc "The committed ruled list of the `/me` and `/help` routes (AC 21, design 4.2)."
+  @spec self_service_routes() :: [
+          %{
+            route: String.t(),
+            key: atom(),
+            class: :self_service | :tenant_wide,
+            ruling: String.t() | :pending_sec_ruling
+          }
+        ]
+  def self_service_routes, do: @self_service_routes
 
   @doc "0051 M7: whether an issue-time scoped lookup of the attachment parent exists (false)."
   @spec issue_time_parent_lookup?() :: boolean()
@@ -124,8 +180,12 @@ defmodule Letflow.Api.RouteScope do
   The walk logic. `routes` are the mounted routes (FULL mounted paths), `default_snapshot` the
   committed `METHOD FULL_PATH KEY` lines. Returns every violation; `[]` is a pass.
   """
-  @spec audit_routes(routes :: [route_row()], default_snapshot :: [String.t()]) :: [error()]
-  def audit_routes(routes, default_snapshot) do
+  @spec audit_routes(
+          routes :: [route_row()],
+          default_snapshot :: [String.t()],
+          self_service_list :: [map()]
+        ) :: [error()]
+  def audit_routes(routes, default_snapshot, self_service_list \\ @self_service_routes) do
     snapshot = MapSet.new(default_snapshot)
 
     default_lines =
@@ -178,9 +238,12 @@ defmodule Letflow.Api.RouteScope do
       end
 
     unexpected_filters =
-      for r <- filter_routes(routes),
-          snapshot_line(r) not in @expected_filter_routes,
+      for r <- routes,
+          (r.class == :filter and snapshot_line(r) not in @expected_filter_routes) or
+            (r.class != :filter and snapshot_line(r) in @expected_filter_routes),
           do: {:unexpected_filter_route, r}
+
+    self_service_errors = audit_self_service(routes, self_service_list)
 
     # REQ-518 R-1 (SEC-518-R1) guard: the literal `:all` at the exam data-access sites is safe only
     # while EVERY route mounted by the exam module (/modules/exam/...) is `:tenant_wide`; a scoped
@@ -204,8 +267,67 @@ defmodule Letflow.Api.RouteScope do
       unresolved ++
       missing_keys ++
       reclassified ++
-      self_service ++ unexpected_filters ++ unknown_permissions ++ exam_reclassified
+      self_service ++
+      unexpected_filters ++ unknown_permissions ++ exam_reclassified ++ self_service_errors
   end
+
+  # REQ-518 AC 21 (i), design 4.2. Every `/me` and `/help` route is on the list; the routes of
+  # class `:self_service` are EXACTLY the list entries classed `:self_service`; a `:tenant_wide`
+  # route of those prefixes (or entry) carries a ruling id or the `:pending_sec_ruling` marker; a
+  # marker on an entry that is not a `:tenant_wide` route is stale.
+  defp audit_self_service(routes, list) do
+    by_route = Map.new(list, &{&1.route, &1})
+
+    not_listed =
+      for r <- routes,
+          self_service_prefix?(r),
+          not Map.has_key?(by_route, route_string(r)),
+          do: {:self_service_not_listed, r}
+
+    mismatch =
+      for r <- routes,
+          entry = Map.get(by_route, route_string(r)),
+          self_service?(r) != self_service?(entry),
+          do: {:self_service_list_mismatch, r}
+
+    unlisted_self_service =
+      for r <- routes,
+          r.class == :self_service,
+          not Map.has_key?(by_route, route_string(r)),
+          do: {:self_service_list_mismatch, r}
+
+    unruled_routes =
+      for r <- routes,
+          self_service_prefix?(r),
+          r.class == :tenant_wide,
+          entry = Map.get(by_route, route_string(r)),
+          not ruled?(entry),
+          do: {:tenant_wide_unruled, r}
+
+    unruled_entries =
+      for %{class: :tenant_wide} = entry <- list,
+          not ruled?(entry),
+          do: {:tenant_wide_unruled, entry.route}
+
+    stale_markers =
+      for %{ruling: :pending_sec_ruling} = entry <- list,
+          entry.class != :tenant_wide or
+            Enum.any?(routes, &(route_string(&1) == entry.route and &1.class != :tenant_wide)),
+          do: {:pending_marker_unlisted, entry.route}
+
+    not_listed ++
+      mismatch ++ unlisted_self_service ++ unruled_routes ++ unruled_entries ++ stale_markers
+  end
+
+  defp self_service_prefix?(%{path: path}),
+    do: Enum.any?(@self_service_prefixes, &(path == &1 or String.starts_with?(path, &1 <> "/")))
+
+  defp self_service?(%{class: class}), do: class == :self_service
+
+  defp route_string(%{method: method, path: path}), do: "#{method} #{path}"
+
+  defp ruled?(%{ruling: :pending_sec_ruling}), do: true
+  defp ruled?(%{ruling: ruling}), do: is_binary(ruling) and ruling != ""
 
   # Completeness rule (AC 17): every key whose permission is :UsersGroupsRolesManage, plus
   # :TokensManage and :RolesManage, belongs to the admin plane.

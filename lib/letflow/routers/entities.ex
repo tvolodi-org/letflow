@@ -259,6 +259,7 @@ defmodule Letflow.Routers.Entities do
   alias Letflow.Api.Error
   alias Letflow.Api.Pagination
   alias Letflow.Api.Response
+  alias Letflow.Api.ScopeGate
   alias Letflow.Api.Validation
   alias Letflow.Api.Validation.FieldConstraint
   alias Letflow.Api.Validation.FieldError
@@ -380,7 +381,7 @@ defmodule Letflow.Routers.Entities do
   # Letflow.Routers.Definitions' own POST /definitions/:id/validate uses,
   # for the same reason.
 
-  authz_post "/query", :EntitiesQuery do
+  authz_post "/query", :EntitiesQuery, scope: :filter do
     handle_query(conn)
   end
 
@@ -393,7 +394,7 @@ defmodule Letflow.Routers.Entities do
   # Gated by the DISTINCT :EntitiesAggregate permission, not :EntitiesQuery
   # (design §3).
 
-  authz_post "/query/aggregate", :EntitiesAggregate do
+  authz_post "/query/aggregate", :EntitiesAggregate, scope: :filter do
     handle_query_aggregate(conn)
   end
 
@@ -449,7 +450,7 @@ defmodule Letflow.Routers.Entities do
   # this route's OWN policy key -- it is checked a second time, manually,
   # from inside the handler.
 
-  authz_post "/records/:entity_type/export", :EntitiesRecordsExport do
+  authz_post "/records/:entity_type/export", :EntitiesRecordsExport, scope: :filter do
     handle_export_records(conn, conn.params["entity_type"])
   end
 
@@ -2199,14 +2200,17 @@ defmodule Letflow.Routers.Entities do
   # second call agrees with the first, but it is not free.
   @spec run_query(Plug.Conn.t(), map(), String.t(), String.t()) :: Plug.Conn.t()
   defp run_query(conn, body, user_id, prefix) do
+    # REQ-518: the caller's allowed node set, read through the ONE gate (`ScopeGate` returns the
+    # conn that carries the "scope applied" marker; every response below is sent on it).
+    {conn, scope_set} = ScopeGate.scope_set(conn, :EntitiesQuery)
+
     with {:ok, request} <- build_query_request(body),
          {:ok, opts} <- build_paginate_opts(body),
          {:ok, %{sets: sets}} <-
            RequestAccess.check(%{user_id: user_id, prefix: prefix}, :row, request, %{
              exempt?: false
            }),
-         # scope-all: route is still :tenant_wide until 2c-i-b (a scoped caller is refused 403 before here)
-         {:ok, compiled} <- Compiler.compile(request, prefix, :all),
+         {:ok, compiled} <- Compiler.compile(request, prefix, scope_set),
          {:ok, allowlist} <- Allowlist.load(request.entity_type, prefix),
          {:ok, page} <- Cursor.paginate(request, compiled, allowlist, opts, prefix),
          {:ok, redacted} <- redact(page, request, sets) do
@@ -2451,6 +2455,8 @@ defmodule Letflow.Routers.Entities do
 
   @spec run_query_aggregate(Plug.Conn.t(), map(), String.t(), String.t()) :: Plug.Conn.t()
   defp run_query_aggregate(conn, body, user_id, prefix) do
+    {conn, scope_set} = ScopeGate.scope_set(conn, :EntitiesAggregate)
+
     with {:ok, request} <- build_aggregate_request(body),
          {:ok, _guard_ok} <-
            RequestAccess.check(
@@ -2459,8 +2465,7 @@ defmodule Letflow.Routers.Entities do
              request,
              %{exempt?: false}
            ),
-         # scope-all: route is still :tenant_wide until 2c-i-b (a scoped caller is refused 403 before here)
-         {:ok, rows} <- Compiler.run_aggregate(request, prefix, :all) do
+         {:ok, rows} <- Compiler.run_aggregate(request, prefix, scope_set) do
       Response.ok(conn, %{"results" => Enum.map(rows, &aggregate_result_map/1)})
     else
       {:error, reason} -> render_aggregate_error(conn, reason)
@@ -2631,6 +2636,8 @@ defmodule Letflow.Routers.Entities do
   #      redaction policy introduced.
   @spec run_export(Plug.Conn.t(), map(), String.t(), String.t(), String.t()) :: Plug.Conn.t()
   defp run_export(conn, body, path_entity_type, user_id, prefix) do
+    {conn, scope_set} = ScopeGate.scope_set(conn, :EntitiesRecordsExport)
+
     with :ok <- check_export_entity_type_match(body, path_entity_type),
          {:ok, unredacted?} <- parse_unredacted_flag(body),
          :ok <- check_unredacted_permission(conn, unredacted?),
@@ -2643,8 +2650,7 @@ defmodule Letflow.Routers.Entities do
              request,
              %{exempt?: unredacted?}
            ),
-         # scope-all: route is still :tenant_wide until 2c-i-b (a scoped caller is refused 403 before here)
-         {:ok, compiled} <- Compiler.compile(request, prefix, :all),
+         {:ok, compiled} <- Compiler.compile(request, prefix, scope_set),
          :ok <- audit_exempted(user_id, path_entity_type, prefix, guard.exempted),
          {:ok, allowlist} <- Allowlist.load(request.entity_type, prefix),
          {:ok, page} <- Cursor.paginate(request, compiled, allowlist, opts, prefix),

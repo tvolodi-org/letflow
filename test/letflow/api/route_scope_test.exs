@@ -312,14 +312,53 @@ defmodule Letflow.Api.RouteScopeTest do
   # --- SEC F-1: :self_service_not_allowed / :unexpected_filter_route ---------------------------
 
   describe "SEC F-1 restrictions on the pass-through classes" do
-    test "a route of class :self_service fails with :self_service_not_allowed" do
-      route = declared_row(:self_service, %{path: "/me/memberships", key: :MembershipsRead})
-      assert RouteScope.audit_routes([route], []) == [{:self_service_not_allowed, route}]
+    test "a :self_service route that is not on the committed list fails (REQ-518 AC 21)" do
+      route = declared_row(:self_service, %{path: "/me/unlisted", key: :MembershipsRead})
+
+      assert RouteScope.audit_routes([route], []) == [
+               {:self_service_not_listed, route},
+               {:self_service_list_mismatch, route}
+             ]
     end
 
-    test "a :filter route outside the (empty) committed expectation fails with :unexpected_filter_route" do
+    test "a :filter route that is not on the committed expectation fails with :unexpected_filter_route" do
+      # the committed expectation holds the POST /entities/query line (REQ-518 2c-i-b); the same
+      # path under GET is a DIFFERENT line, so it is not expected
       route = declared_row(:filter, %{path: "/entities/query", key: :EntitiesQuery})
       assert RouteScope.audit_routes([route], []) == [{:unexpected_filter_route, route}]
+
+      unlisted_post =
+        declared_row(:filter, %{method: "POST", path: "/entities/not-listed", key: :EntitiesQuery})
+
+      assert RouteScope.audit_routes([unlisted_post], []) == [
+               {:unexpected_filter_route, unlisted_post}
+             ]
+    end
+
+    test "a LISTED :filter route mounted with another class fails with :unexpected_filter_route (REVIEWER step-13 F-2)" do
+      listed = %{method: "POST", path: "/entities/query", key: :EntitiesQuery}
+
+      # the listed route as :filter is clean ...
+      assert RouteScope.audit_routes([declared_row(:filter, listed)], []) == []
+
+      # ... and mounted as anything else it is reported with its own row
+      for class <- [
+            :tenant_wide,
+            :self_service,
+            :admin_plane,
+            {:resolver, {RouteScope, :class_of}}
+          ] do
+        route = declared_row(class, listed)
+
+        assert {:unexpected_filter_route, route} in RouteScope.audit_routes([route], []),
+               inspect(class)
+      end
+
+      defaulted = row(listed)
+
+      assert {:unexpected_filter_route, defaulted} in RouteScope.audit_routes([defaulted], [
+               line(defaulted)
+             ])
     end
 
     test "filter_routes/1 lists exactly the :filter rows" do

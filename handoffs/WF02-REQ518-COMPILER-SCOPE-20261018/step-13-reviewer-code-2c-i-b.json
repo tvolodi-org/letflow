@@ -1,0 +1,48 @@
+{
+  "handoff_id": "d2535518-0518-4c02-9e11-000000000013",
+  "run_id": "WF02-REQ518-COMPILER-SCOPE-20261018",
+  "workflow_id": "WF-02",
+  "step": "13",
+  "from_agent": "ORCH",
+  "to_agent": "REVIEWER",
+  "file": "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-13-reviewer-code-2c-i-b.json",
+  "created_at": "2026-10-18T05:48:00Z",
+  "started_at": "2026-10-18T05:48:00Z",
+  "completed_at": "2026-10-18T05:52:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-518"],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "REVIEWER CODE gate for REQ-518 slice 2c-i-b (GH #2535), uncommitted working tree of feature/WF02-REQ518-2CIB-GATE-20261018. Read-only; no mix run; no file edited."
+    },
+    "related_handoff_ids": [
+      "d2535518-0518-4c02-9e11-000000000011",
+      "d2535518-0518-4c02-9e11-000000000012"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/req518-compiler-scope-filter.md",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-11-elixir-dev-2c-i-b.json",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-12-security-reviewer-code-2c-i-b.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ518-2CIB-GATE-20261018"
+  },
+  "task": {
+    "description": "Idiom, supervision, scope-creep, put_problem, RouteScope additions, forced-test-edit, snapshot, decision-record and anti-pattern gate for REQ-518 2c-i-b."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "summary": "PASS_WITH_FINDINGS. No blocker, no required change. Static review only (nothing compiled or run). 1 IDIOM: ScopeGate is a plain stateless module; memo and marker live in conn.private (per-request, per-permission map), the Plug-idiomatic place; no process added. guarded/1 uses rescue+catch in one function body, re-raises ScopeSetError with its stacktrace (already logged, no double log) and maps every other raise/exit/throw to one constant scope_set_failed line plus ScopeSetError, which ApiPipeline already maps to the detail-free 500 (SEC F-1 applied). memoised_set reads the memo from the incoming conn and writes it onto the conn returned by principal_from_conn, so the principal memo is not lost. The Enforce backstop is register_before_send/2 with a 200..299 guard clause and a catch-all clause; the callback rescues and catches itself and does not halt (correct: response already being sent). Response.put_problem/2 uses resp/3, not send_resp, so callbacks are not re-run. @specs accurate: mode/1 :: :off|:shadow|:on, scope_set/2 and resource_allowed?/3 return {conn, _}. 2 SUPERVISION: nothing added or collapsed; no spawn, no singleton; InstanceSupervisor untouched; decision 0045 consistent. 3 SCOPE vs design r2a: files map to 3.5/3.6/3.9 and 4.x for 2c-i-b. ScopeGate.resource_allowed?/3 has no 2c-i-b caller; accepted because design 3.5 names it as part of the one gate and 2c-ii uses it (design-assigned, not speculative). @self_service_routes, audit_routes/3, self_service_routes/0 and the four walk errors are design 4.2/7. Deliberately not added (resolver list, :unexpected_resolver_route, :data_route_default): correct deferral to 2c-ii. 4 Response.put_problem/2: minimal; send_problem/2 now delegates (put_problem then send_resp), so no duplicated logic, bytes unchanged; a public set-without-send function is the only way to build a problem response inside a before-send callback. 5 ROUTESCOPE: attributes and naming consistent with the file; the six comprehensions in audit_self_service are each a distinct rule; the only dead code is deliberate, see F-3. 6 FORCED TEST EDITS (diff read in full): route_scope_test self-service test (forced: :self_service_not_allowed is gone; asserts two specific errors, not weaker), route_scope_walk_test T-C1 (forced; pins exact 3 filter and 3 self-service lines by sorted equality, stronger than before) and T-C4 (forced; exact sorted equality on 8 declared routes and 4 routers), enforce_test T-G4 (forced by the registered callback; self_service stays strict equality, filter/resolver compare the whole conn minus :before_send and also assert exactly one callback and no halt), scope_all_scan_test (forced: router literal :all sites 3 -> 0, total 8 -> 5, equality kept), authorize_scope_on_test (forced: fixture handlers must call ScopeGate or the backstop turns their 200 into 500 under on). No assertion removed or loosened. 7 SNAPSHOT: git diff shows exactly six removed lines and no additions: the three entities POST lines and GET /me/memberships, GET /me/modules, GET /help/resolved, matching design 7.1 and the new lists. 8 DECISION RECORDS: consistent with 0051 (D2 single gate, D6 detective backstop, R-4 wording carried into the moduledocs, A7 ruling id) and 0045 (no per-instance process). No decision-record disagreement. 9 ANTI-PATTERNS: one hit, F-1. FINDINGS (all non-blocking). F-1 (ELIXIR-DEV, small, duplicated literal): the marker atom :letflow_scope_applied is written twice, as @marker in scope_gate.ex and as a bare literal in Enforce.assert_scope_applied/1. A drift would silently turn every filter/resolver 2xx into a false 500 under on (fail closed but invisible to the compiler). Expose it from its one owner, e.g. ScopeGate.applied?(conn) used by Enforce; the design makes ScopeGate the single owner of the marker. Fix before merge if ELIXIR-DEV touches the files anyway; T-B1 would catch a drift. F-2 (TEST-DESIGNER, test hygiene): route_scope_test 'a :filter route outside the (empty) committed expectation fails with :unexpected_filter_route' now passes only because declared_row defaults method to GET while the committed list holds POST lines; the title is stale. Re-title it, make the unlisted case explicit (a POST path not on the list), and add the reverse case (a listed route mounted with another class gives :unexpected_filter_route) at unit level. F-3 (cleanup, optional): :self_service_not_allowed (error type, branch, @self_service_routes_allowed?) is unreachable now; remove in 2c-ii or when the walk is next edited. F-4 (advisory): the set is read at the top of run_query/run_query_aggregate/run_export, so requests that later fail validation under on still cost 2 statements; documented by ELIXIR-DEV as a deviation, acceptable. F-5 type-safety (FINDING: ORCH to file under docs/issues/ tagged type-safety per WORK_BOARD section 7; reviewer does not file): entries of @self_service_routes are plain maps validated only by the route walk at test time (class in [:self_service, :tenant_wide], ruling :pending_sec_ruling | String.t()); define one @type (or an @enforce_keys struct) shared by the attribute, self_service_routes/0 and audit_routes/3 so a malformed entry is unrepresentable. The step-08 F-1 tightening of Types.scope_set to {:nodes, [String.t(), ...]} remains open. NOTES for TEST-DESIGNER: T-C13 over HTTP, T-B1 (omitting handler: on gives 500 plus one scope_not_applied; off/shadow 200), T-S1..T-S9, walk seeds for the four new self-service errors via audit_routes/3. NO FILE EDITED by this reviewer (no stale comment found in the touched lib files).",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-13-reviewer-code-2c-i-b.json"
+    ],
+    "diagnosis_confirmed": true,
+    "implementation_written": false,
+    "classification": "REVIEW_PASS_WITH_FINDINGS"
+  }
+}
