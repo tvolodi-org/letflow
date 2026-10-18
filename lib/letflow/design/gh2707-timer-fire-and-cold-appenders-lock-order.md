@@ -406,8 +406,8 @@ New files: `test/letflow/scheduler_fire_lock_order_test.exs` (PR-1), `test/letfl
 | F6b | same with the projection-first FK order | `set_fk_order!` the other way | green (unreachable) | green (regression) |
 | F7 | lock mode | statement trace of a child fire | n/a | group statements are exactly `FOR KEY SHARE`, never `FOR UPDATE`; a sibling's completing group (FOR UPDATE on its own token) does not block a fire of another child (no cycle, pins 5.2) |
 | F8 | cancel timer step moved | source-position test FLIPPED (`timer_wiring_test.exs` ~`622-640`): `:timer_cancellations` after `:instance_projection`, `:lock_ancestors` and `:open_tasks_recheck`, immediately before `:task_cancellations` (the test matches that exact adjacency); plus behaviour: a timer inserted while cancel waits at `P_x` (barrier `{:projection, x}`, insert via the fixture before release) ends `cancelled` | red: that timer stays `pending` | green |
-| F10 | SCH-03 race (#2822 acceptance criterion 2) | (a) sequential: `claim_due_timer_ids/2` returns the timer id, `cancel_instance` commits, then `attempt_fire/2`; (b) overlap: barrier `{:projection, x}`, first `cancel_instance(x)` parks at `P_x`, second `attempt_fire/2` parks at `P_x`; release | (a) and (b) green on main by reading (cancel holds `TM` first; the fire parks on `TM`, then sees `cancelled`): a regression pin, not a red | `:already_final`, `fire_error_count` 0, no `timer` DLQ row, no TIMER_FIRED event |
-| F9 | regression | existing `timer_wiring_test.exs`, `human_task_escalation_test.exs`, `req494_*`, `cancel_cascade_lock_order_test.exs`, `cancel_child_lock_order_test.exs` unchanged | green | green |
+| F10 | regression | existing `timer_wiring_test.exs`, `human_task_escalation_test.exs`, `req494_*`, `cancel_cascade_lock_order_test.exs`, `cancel_child_lock_order_test.exs` unchanged | green | green |
+| F9 | SCH-03 race (#2822 acceptance criterion 2) | (a) sequential: `claim_due_timer_ids/2` returns the timer id, `cancel_instance` commits, then `attempt_fire/2`; (b) overlap: barrier `{:projection, x}`, first `cancel_instance(x)` parks at `P_x`, second `attempt_fire/2` parks at `P_x`; release | (a) and (b) green on main by reading (cancel holds `TM` first; the fire parks on `TM`, then sees `cancelled`): a regression pin, not a red | `:already_final`, `fire_error_count` 0, no `timer` DLQ row, no TIMER_FIRED event |
 
 Margins: the paths under test have no `lock_timeout` in PR-1 (PR-3 adds one); like #2708 the
 helper's 2 s yardstick is reported in the PR description, assert `margin_ms >= 500` only for the cases that
@@ -447,7 +447,7 @@ and the DLQ, not be retried forever uncounted); non-contention errors counted as
 transaction-local and bound as a parameter (statement trace shows the `set_config` form, as #2706 T5/T6).
 C-L6 route: `{:error, :contention}` -> 503 with a constant detail. C-L7 same-instance skip: two due timers of
 instance x and one of instance y in one cycle, the first contended: the second of x is not attempted
-(`claimed` 3, attempted 2), y fires. C-L8 cycle budget: with the budget forced to 0 ms the cycle returns
+(`claimed` 3, attempted 2), y fires. C-L8 cycle budget (5 s by default): with the budget forced to 0 ms the cycle returns
 after the first timer, the rest stay `pending` and fire next poll. C-L9 first-poll settle burst emits one
 `[:letflow, :scheduler, :timers_settled]` event per settled instance (count in measurements).
 
@@ -484,18 +484,22 @@ re-runs the new files.
 
 PR-3 specifics (scheduler loop):
 
-* **Lock timeout choice: ~2 s over the WHOLE fire transaction** (one bound `set_config('lock_timeout', ...)`
+* **Lock timeout choice: ~2 s applied to EVERY lock wait of the fire transaction, PER WAIT, not cumulatively** (one bound `set_config('lock_timeout', ...)`
   as the first statement, a dedicated `:timer_fire_lock_timeout_ms`, 2000 default, 300 in the test config
   under `:engine_test_seams`; skipped when `Repo.in_transaction?()`, as #2706 3.4). A 500 ms bound over the
   whole transaction would also bound the waits on `S_x` and on the tenant-wide `A`, which are plain FIFO
   queueing behind long completions: a fire could starve. 2 s matches the entity-write plan timeouts and a
-  contended timer is retried 5 s later at no penalty. The prelude locks alone are not given a tighter bound
+  contended timer is retried 5 s later at no penalty. Because the bound is per wait and a fire can wait
+  on up to about six locks (`TK`, `P_x`, group parent projection, group token, timer row, `S_x`, `A`), a
+  single fire can take several times 2 s in the worst case; the cycle bound below accounts for that. The prelude locks alone are not given a tighter bound
   (one value, one rule).
 * **Per-tenant budget.** `@default_sweep_task_timeout_ms 10_000` (`scheduler.ex:112`) kills the tenant's
-  task; 64 timers x 2 s exceeds it. Two bounds: (1) after the first `:contended` result for an instance,
+  task; 64 timers x 2 s per wait exceeds it. Two bounds, chosen as the LOWER-BUDGET option (not a worst-case gate): (1) after the first `:contended` result for an instance,
   the remaining timers of THAT instance in the same cycle are skipped (not attempted, left `pending`);
-  (2) `poll_and_fire/1` stops starting new fires once 8 s of monotonic time have elapsed in the cycle. Both
-  leave rows `pending`, so nothing is lost.
+  (2) `poll_and_fire/1` stops starting new fires once 5 s of monotonic time have elapsed in the cycle (half the 10 s tenant task budget, leaving room for
+  one in-flight fire of several times 2 s). The `on_timeout: :kill_task` of the sweep remains a rare, safe
+  rollback (the killed transaction aborts whole; the timer stays `pending` and is retried next tick). Both
+  bounds leave rows `pending`, so nothing is lost.
 * **Observability.** `Poller` discards `poll_result` (`poller.ex:255-258`), so a `contended` key alone is
   invisible. PR-3 emits `[:letflow, :scheduler, :timer_contended]` (measurement: count 1; metadata:
   tenant schema, timer type, SQLSTATE class tag only) and a `Logger.warning` with the classified tag only
@@ -512,7 +516,7 @@ PR-3 specifics (scheduler loop):
   generic `{:error, _}` clause (`568`); `{:error, {:raised, exception}}` from a raised lock error is classified
   through `Letflow.Engine.Contention` first.
 
-## 10. Decision 0061 amendment (append verbatim in PR-1; REVIEWER gate)
+## 10. Decision 0061 amendment (PR-1 appends the first block; PR-2 appends the second; REVIEWER gate)
 
 PR-1 follows #2706 PR-1 (mandated merge order), so this is the final text with no conditionals. It
 SUPERSEDES, in the record, two statements of "Amended (GH #2706, PR-1)" and of the #2706 design note
@@ -576,7 +580,7 @@ and dispatch rows armed during cancel's wait" as an exception); the docs PR for 
 > the cold-appender qualification. `append_multi/3` callers hold `P_x` by construction (entity-type
 > synthetic streams excepted, rule 5).
 
-The Implementation and Related header lines of 0061 gain "#2707". Q9 (FOR NO KEY UPDATE) is adopted:
+The Status line of 0061 is extended to say "#2707 PR-1 to PR-3" (the Related line already names #2707 on main; nothing else in the header changes). Q9 (FOR NO KEY UPDATE) is adopted:
 it conflicts with every `FOR UPDATE` / `FOR NO KEY UPDATE` holder, so the I-S ordering is intact, and it
 lets a child's `KEY SHARE` FK check pass during a cold append of its parent.
 
@@ -584,7 +588,7 @@ lets a child's `KEY SHARE` FK check pass during a cold append of its parent.
 
 1. **Back-pressure and head-of-line.** One tenant's poll is serial within a 10 s task budget
    (`scheduler.ex:107-112`, `Task.async_stream ... on_timeout: :kill_task`). PR-1 does not bound waits; PR-3
-   does (section 9, PR-3 specifics: 2 s whole-transaction timeout, same-instance skip, 8 s cycle budget).
+   does (section 9, PR-3 specifics: 2 s per-wait timeout, per-wait lock timeout, same-instance skip, 5 s cycle budget).
    Persistent contention on the oldest 64 timers still delays younger timers; it indicates a stuck
    transaction and is alerted through the PR-3 telemetry.
 2. **Retries and exhaustion.** Today a raised deadlock/lock-timeout in a fire is counted
@@ -618,8 +622,8 @@ Open questions for the supervisor (defaults as ruled by the CDV / coordinator):
 * **Q3 (`:error` instances).** Settle pending timers of `:error` instances as `cancelled` with reason
   `instance_error`. No code path resumes an ERRORed instance (`Dlq.retry/2` documents that it does not,
   `dlq.ex:12-16`; grep found none); if a resume is planned it must re-arm timers. Confirm.
-* **Q4 (timeout).** Decided: one ~2 s timeout over the whole fire transaction plus the same-instance skip
-  for the rest of the poll cycle (section 9). Needs the #2706 helper to take the millisecond value as an
+* **Q4 (timeout).** Decided: one ~2 s lock timeout applied per wait to every lock of the fire transaction, the same-instance skip for
+  the rest of the poll cycle, and a 5 s poll-cycle budget with `:kill_task` as a rare safe rollback (section 9). Needs the #2706 helper to take the millisecond value as an
   argument; if it does not, PR-3 adapts it.
 * **Q5 (route).** `advance-timer` answering 200 `already_final` instead of 500 for a dead instance, and 503
   for contention. Default yes.
