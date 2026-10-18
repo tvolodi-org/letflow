@@ -1,0 +1,48 @@
+{
+  "handoff_id": "d2535519-0519-4c02-9e11-000000000012",
+  "run_id": "WF02-REQ519-ENFORCED-WRITERS-20261018",
+  "workflow_id": "WF-02",
+  "step": "12",
+  "from_agent": "REVIEWER",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-12-reviewer-code-2e-b.json",
+  "created_at": "2026-10-18T20:39:44Z",
+  "started_at": "2026-10-18T20:39:44Z",
+  "completed_at": "2026-10-18T20:39:44Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-519"],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "REVIEWER code gate for REQ-519 slice 2e-b (GH #2535), uncommitted tree of feature/WF02-REQ519-2EB-IDP-SYNC-20261019. Read-only; no mix run; no file edited."
+    },
+    "related_handoff_ids": ["d2535519-0519-4c02-9e11-000000000010", "d2535519-0519-4c02-9e11-000000000011"],
+    "artifacts_in": [
+      "lib/letflow/design/req519-enforced-writers-and-flag-on.md",
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-10-elixir-dev-2e-b.json",
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-11-security-reviewer-code-2e-b.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ519-2EB-IDP-SYNC-20261019"
+  },
+  "task": {
+    "description": "Idiom, supervision, scope-creep, extraction, audit-dedup, classification, literals, registry, forced-test-edit, docs and decision-record gate for REQ-519 2e-b."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "PASS_WITH_FINDINGS. No blocker, nothing required before TEST-DESIGNER. Static review only. 1 IDIOM: no process, spawn or supervisor added; InstanceSupervisor untouched; decisions 0045 (plain transactional context) and 0051 consistent. The guard reads (mode_under_lock!, bound_platform_roles, evaluate, record) run inside the :memberships Multi.run step, after lock A, so they are inside the transaction; group_ids == [] short-circuits to :off with no lock or read. Error handling follows the repo: business outcomes are returned tuples, an unreadable mode RAISES and is rescued by the existing transaction wrapper (original user, marker nil). sync_role_claims_from_token/3 is a thin wrapper over sync_role_claims_report/3 (single core, no duplication). Specs read accurate. 2 SUPERVISION: nothing added or collapsed. 3 SCOPE vs design r2a 2e-b (3.8, 3.9, 3.9a, M-rows): every changed file maps to a design item; MembershipScope and SyncScopeGuard are the two modules the design names; no behaviour, macro or generic plumbing. 4 EXTRACTION: Api.Scope.effective_from_rows/1 is the old rows_scope/1 body verbatim (clauses, order, result), renamed, made public with a doc and @spec effective(); grep shows rows_scope had no other caller; effective_scope/2 calls it. Behaviour-preserving, no duplication (MembershipScope.build/2 reuses it). The [map()] row spec is loose but acceptable. 5 AUDIT DEDUP: SyncScopeGuard.already_recorded?/3 is a private Repo.exists? over Audit.Entry, a second place that knows the audit columns (resource_type, resource_id, action). Design 3.9 text says Audit.latest_matching/4 but the design slice table puts that function in 2f-a, so the local query is the only workable choice in 2e-b; acceptable. Cleanest bridge: keep it private with a comment naming the replacement, and in 2f-a replace its body by Audit.latest_matching(prefix, user_role, resource_id, [action]) != nil so the audit schema is read in one module (F-2). 6 INSERT_MEMBERSHIP_AUDIT: the 4th argument changed from before_roles to a {before_roles, before_scope} tuple; all three callers (add_group_member emit path, remove_group_member, insert_synced_membership) are updated, no other caller (grep). Works; a two-tuple argument in a six-arity private function is slightly opaque, a map with roles and scope keys would read better (F-6). 7 CLASSIFICATION: logic is correct but naming is confusing. Every item in a suppressed list is suppressed, yet one kind is called :sync_suppressed; the pair :sync_suppressed vs :pending_scope names the audit action, not the user state that distinguishes them (user already has scoped rows vs none). Suggest kinds :has_scoped_rows | :no_scoped_rows with action_for/1 as the only mapping to the wire strings (F-3). Edge F-3b: row_scopes ignores held-ness, so a user with only a tenant-wide user-principal row for an unheld role is classed pending_scope while docs say 'holds none'; pin intent in a test. 8 LITERALS (anti-patterns.md: no entry hit): the wire action strings and the four payload keys have one owner each (action_for/1, write_once/6); the resource type string user_role appears twice in sync_scope_guard.ex (write and read) and should be a module attribute (F-4); cap 50 is a single @max_node_ids in MembershipScope (docs repeat it in prose, fine). 9 READS PER GROUP: evaluate/4 runs member? plus snapshot (2 reads), snapshot_if_added (2 reads plus rows_for per bound role) and row_scopes (1 read), so list_effective_role_names and applicable_rows_for_user each run 2 to 3 times per candidate group while lock A is held. Correct but wasteful; load held and rows once and compute the three views purely (F-1, performance only). 10 MEMBERSHIP_ROWS: pure data, six rows matching design M-a..M-f; m_d is labelled :unchanged though it IS the explicit tenant-wide admin act; consistent with design M-d, wording nit only. Sites carry no index, consistent with the 2e-a site type; the existence test is TEST-DESIGNER's. 11 FORCED TEST EDIT: identity_gh2547_audit_test gains scope_delta in the two exact-equality payload maps (add and remove). Forced by the new payload key; exact equality kept, nothing relaxed; values match the TENANT_ADMIN tenant-wide expectation. Not weakened. 12 DOCS roles.md: new section 'IdP role-claims sync while scope enforcement is on' is accurate against code and SEC (whole-group withhold, audit keys, dedup, remedy, scope_delta in every mode), four bullets, no run-on. 13 DECISION RECORDS: 0051 (D1/N3/D8) and 0045 consistent; no decision-record disagreement. 14 STALE TEXT: none found, none edited. 15 NITS (F-5): sync_one_group's inner case re-wraps the result of record/5 into the identical shape (a direct return would do); SyncScopeGuard.record/5 guards is_map(ctx) where an AuditContext struct match would be accurate (the alias is otherwise used only in the spec). FINDINGS (non-blocking): F-1 reads per group; F-2 dedup bridge to Audit.latest_matching/4 in 2f-a; F-3 kind naming (+F-3b edge test); F-4 user_role literal; F-5 wrapping and is_map guard; F-6 tuple argument shape.",
+    "type_safety_findings": [
+      {"id": "TS-1", "title": "sync_role_claims_report/3 returns {:ok, user} for the swallowed-failure fallback as well as for a clean sync, so a caller cannot tell a rolled-back sync from nothing-to-do; the typed form carries no failure variant", "suggestion": "add a {:failed, user} variant to the return type so the case is representable; ORCH files under docs/issues/ tagged type-safety via FINDING per WORK_BOARD section 7"},
+      {"id": "TS-2", "title": "suppressed_item.kind and the Audit action are two encodings of one fact, and role/kind pairs travel as tuples in evaluate/record", "suggestion": "one closed kind type owned by SyncScopeGuard with action_for/1 as the only mapping; use small maps or a struct instead of {String.t(), kind()} tuples"}
+    ],
+    "local_issue_id": null,
+    "artifacts_out": ["handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-12-reviewer-code-2e-b.json"],
+    "diagnosis_confirmed": true,
+    "implementation_written": false,
+    "classification": "REVIEW_PASS_WITH_FINDINGS"
+  }
+}

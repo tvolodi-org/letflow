@@ -202,6 +202,9 @@ defmodule Letflow.Routers.IdentityGh2547AuditTest do
                "group_roles" => group_roles,
                "user_platform_roles" => ["TENANT_ADMIN"],
                "roles_gained" => ["TENANT_ADMIN"],
+               "scope_delta" => [
+                 %{"role" => "TENANT_ADMIN", "from" => "deny", "to" => "tenant_wide"}
+               ],
                "source" => "api"
              }
 
@@ -322,6 +325,9 @@ defmodule Letflow.Routers.IdentityGh2547AuditTest do
                "group_roles" => group_roles,
                "user_platform_roles" => [],
                "roles_lost" => ["TENANT_ADMIN"],
+               "scope_delta" => [
+                 %{"role" => "TENANT_ADMIN", "from" => "tenant_wide", "to" => "deny"}
+               ],
                "source" => "api"
              }
 

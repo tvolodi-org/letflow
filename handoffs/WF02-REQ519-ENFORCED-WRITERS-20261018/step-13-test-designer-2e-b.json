@@ -1,0 +1,124 @@
+{
+  "handoff_id": "d2535519-0519-4c02-9e11-000000000013",
+  "run_id": "WF02-REQ519-ENFORCED-WRITERS-20261018",
+  "workflow_id": "WF-02",
+  "step": "13",
+  "from_agent": "ORCH",
+  "to_agent": "TEST-DESIGNER",
+  "file": "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-13-test-designer-2e-b.json",
+  "created_at": "2026-10-18T20:42:31Z",
+  "started_at": "2026-10-18T20:42:31Z",
+  "completed_at": "2026-10-18T21:37:23Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-519"],
+    "requirement_text": {},
+    "source_text": {
+      "slice": "REQ-519 slice 2e-b (GH #2535): IdP sync no-widening in an on tenant (grant.sync_suppressed, binding.pending_scope), typed sync report, scope_delta on group_member.*, BindingWriters.membership_rows/0. Tests only; nothing under lib/ or priv/ was changed; nothing committed."
+    },
+    "related_handoff_ids": [
+      "d2535519-0519-4c02-9e11-000000000010",
+      "d2535519-0519-4c02-9e11-000000000011",
+      "d2535519-0519-4c02-9e11-000000000012"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/req519-enforced-writers-and-flag-on.md",
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-10-elixir-dev-2e-b.json",
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-11-security-reviewer-code-2e-b.json",
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-12-reviewer-code-2e-b.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ519-2EB-IDP-SYNC-20261019"
+  },
+  "task": {
+    "description": "Write the test spec and test code for REQ-519 slice 2e-b (design r2a section 1 2e-b rows, T-S1..T-S17, T-D1..T-D5, T-A3/T-A4, mutants assigned to 2e-b), ACs 2, 3, 4, the 2e-b half of 7 and AC 1(f) membership rows, the SEC step-11 merge conditions and the REVIEWER step-12 notes (F-3b, TS-1). Per-file runs only under the shared mixlock; no mix letflow.check.test, no full or multi-partition suite; mutants applied in memory only."
+  },
+  "result": {
+    "status": "PASS",
+    "verdict": "TESTS_WRITTEN",
+    "summary": "83 tests in 3 new files plus 2 added to an existing file, ALL GREEN, run per file, one mix at a time under the mixlock (MIX_ENV=test): sync_scope_guard 40, membership_scope_delta 19, binding_writers_membership_rows 20, enforced_audit_actions 4 (2 new). The existing neighbours identity_gh2547_audit_test (18, with the two forced scope_delta edits) and scope_grants_route_walk_test (9, exports pin) also pass. mix format --check-formatted is clean on every new file. 32 mutants measured in memory: 32 killed, 0 survive. NOT RUN by instruction: mix letflow.check.test, full or multi-partition suites (the warnings-as-errors dead-default check of that task was therefore not run; by inspection no helper added in this step has a default argument, and the per-file runs printed no compiler warning). No implementation bug found.",
+    "local_issue_id": null,
+    "tests_run": true,
+    "tests_run_scope": "per file, one mix at a time under the shared mixlock directory (taken with mkdir and released with rmdir by the same script; another session's lock (owner elixir-dev wt2706b) was waited for, never removed); no full-suite and no multi-partition run; no mix letflow.check.test",
+    "files_created": [
+      "test/support/sync_scope_fixture.ex",
+      "test/letflow/identity/sync_scope_guard_test.exs",
+      "test/letflow/identity/membership_scope_delta_test.exs",
+      "test/letflow/identity/binding_writers_membership_rows_test.exs",
+      "test/specs/REQ-519-2e-b.md"
+    ],
+    "files_changed": [
+      "test/letflow/identity/enforced_audit_actions_test.exs (appended T-A3, T-A4 and a moduledoc paragraph; the 2e-a tests untouched)"
+    ],
+    "coverage": {
+      "AC 2": "T-S1 (exact key set, same transaction T-S1b, scope unchanged), T-S2 off and shadow, T-S3/T-S3b multi-role whole-group withhold, T-S4/T-S5, TENANT_ADMIN T-S6c/T-S6d, typed result T-S13/T-S14",
+      "AC 3": "T-S6 exact key set and no claim value, T-S6b F-3b, T-S7 not held (list_effective_role_names, coarse check, {:deny, :role_not_held}), T-S8/T-S9/T-S9b/T-S9c permanent dedup from the table, T-S10 remedy",
+      "AC 4": "T-D1..T-D5 in off, shadow and on, cap 50 plus count on add and remove, own-tenant ids, legacy keys intact",
+      "AC 7 (2e-b)": "T-A3 listed through Audit.list_entries, T-A4 key sets and no secret",
+      "AC 1(f) membership rows": "binding_writers_membership_rows_test: rows M-a..M-f, existence incl. copy_members/3, T-C2 style reachability, completeness scan of every GroupMember writer under lib/",
+      "SEC merge list": "TENANT_ADMIN group; multi-role group whole withheld, audit lists only widening roles; routing-role binding never widens; user with scoped rows -> grant.sync_suppressed; none -> binding.pending_scope; exact key sets; permanent dedup per user/role/action; mode-raise rollback leaves marker nil and the original user; shadow/off unchanged except scope_delta; cap 50 + count and own-tenant ids; sync_role_claims_from_token/3 returns User.t() (behaviour in every mode plus @spec); registry membership_rows/0 existence check; C-3 ordering mutant killed by a held-lock rebind test",
+      "REVIEWER": "F-3b pinned (T-S6b: tenant-wide USER row for an unheld role is :no_scoped_rows and still suppressed); TS-1 failure variant: T-S12 pins the CURRENT behaviour {:ok, original_user} for a swallowed failure and says so"
+    },
+    "mutants": {
+      "method": "the edited source of each file is compiled into the test VM (Code.compile_string, every anchor required to occur exactly once, ignore_module_conflict) via 'mix do run --no-start -r mut.exs + test <the 4 files>'; nothing on disk changed, so nothing to revert (git status checked); each run about 1 minute; counts are failed tests of 83",
+      "measured": [
+        {"id": "MU-12", "edit": "sync evaluates only the claimed role", "failed": "3 of 83"},
+        {"id": "MU-13", "edit": "suppress also when the group has scoped rows", "failed": "13 of 83"},
+        {"id": "MU-14a", "edit": "would_widen?/2 ignores the start scope", "failed": "1 of 83 (pure would_widen? test)"},
+        {"id": "MU-14b", "edit": "MU-14a and the member shortcut removed", "failed": "4 of 83"},
+        {"id": "MU-15", "edit": "pending_scope payload gains a key", "failed": "3 of 83"},
+        {"id": "MU-16", "edit": "dedup kept in memory (persistent_term)", "failed": "3 of 83 (T-S9, T-S1b, T-S12)"},
+        {"id": "MU-17", "edit": "marker not stamped when all suppressed", "failed": "5 of 83"},
+        {"id": "MU-18", "edit": "scope_delta only in on", "failed": "6 of 83"},
+        {"id": "MU-19", "edit": "roles_gained/roles_lost dropped from the payload", "failed": "4 of 83"},
+        {"id": "MU-45", "edit": "sync_role_claims_from_token/3 returns {:ok, user}", "failed": "1 of 83 (T-S13)"},
+        {"id": "MU-46a", "edit": "the written pair is dropped from the summary", "failed": "22 of 83"},
+        {"id": "MU-46b", "edit": "an extra key on a summary item", "failed": "8 of 83"},
+        {"id": "MU-46c", "edit": "the deduped pair is dropped from the summary", "failed": "3 of 83"},
+        {"id": "MU-49", "edit": "C-3: the group-role read happens BEFORE lock A (stashed in the process dictionary)", "failed": "1 of 83 (T-S15 held-lock rebind)"},
+        {"id": "MU-50", "edit": "bound_platform_roles counts routing bindings", "failed": "2 of 83 (T-S16)"},
+        {"id": "MU-W1", "edit": "a failed mode read is swallowed as off", "failed": "1 of 83 (T-S12b)"},
+        {"id": "MU-W2", "edit": "the MODE is read before lock A", "failed": "3 of 83 (T-S15c, plus the two unreadable-mode tests)"},
+        {"id": "MU-W4", "edit": "shadow runs the guard", "failed": "4 of 83"},
+        {"id": "MU-W5", "edit": "action names swapped for :has_scoped_rows", "failed": "6 of 83"},
+        {"id": "MU-W6", "edit": "classification: any non-nil row scope counts as scoped (F-3b)", "failed": "1 of 83 (T-S6b)"},
+        {"id": "MU-W22", "edit": "classification uses the held-aware snapshot instead of the row scopes", "failed": "6 of 83"},
+        {"id": "MU-W7", "edit": "the group is joined anyway after the entry (split membership)", "failed": "20 of 83"},
+        {"id": "MU-W8", "edit": "dedup ignores the action", "failed": "1 of 83 (T-S9b)"},
+        {"id": "MU-W13", "edit": "scope_delta key not written", "failed": "16 of 83"},
+        {"id": "MU-W14a", "edit": "cap 51 instead of 50", "failed": "2 of 83"},
+        {"id": "MU-W14b", "edit": "count is the capped length", "failed": "2 of 83"},
+        {"id": "MU-W15", "edit": "removal takes an empty before snapshot", "failed": "7 of 83"},
+        {"id": "MU-W16", "edit": "snapshot_if_added ignores the group's rows", "failed": "24 of 83"},
+        {"id": "MU-W19", "edit": "the no-candidate sync reads the mode", "failed": "1 of 83 (T-S12c)"},
+        {"id": "MU-R3", "edit": "registry row M-f names copy_memberz/3", "failed": "4 of 83"},
+        {"id": "MU-R4", "edit": "registry row M-e dropped", "failed": "5 of 83"},
+        {"id": "MU-R5", "edit": "registry row M-c state changed", "failed": "1 of 83"}
+      ],
+      "summary": "32 mutants: 32 killed, 0 survive. The C-3 ordering mutants MU-49 (roles read before lock A) and MU-W2 (mode read before lock A) are killed by tests that hold lock A for real and queue the writers behind it.",
+      "not_measured": "on-disk scanners (reachability, completeness, docs/roles.md, guard-source scan) are read from disk, so an in-memory mutant cannot reach them; their liveness is proven by seeded-source tests and by the registry mutants MU-R3..R5. A mutant that turns the non-raising error branch of write_once/6 into success is not killable: Audit.insert_entry/3 cannot return an error tuple for a valid schema name and a normalised trace id (only raise, covered by T-S12)."
+    },
+    "implementation_findings": [
+      "NO IMPLEMENTATION BUG FOUND: every test is green against the working tree and every mutant is killed.",
+      "OBS-1: a role is bound to exactly one group (tenant_roles.name is globally unique), so a NON-member's held-aware before scope for a role bound to the candidate group is always :deny. 'Already tenant-wide for the role' is therefore reachable only as 'already a member' (T-S5), where the member shortcut applies; the widening test's before-is-tenant-wide branch is exercised by the pure would_widen?/2 test only (MU-14a/14b). Not a defect.",
+      "OBS-2: design 8.2 T-S15 words the queue as 'sync queued, rebind queued behind it'; with that order the sync commits first and both a before-lock and an after-lock read give the same result, so it cannot kill MU-49. The test queues the REBIND first and the sync second (the sync has already resolved its candidates when it blocks on lock A) and keeps the other order as a control. Same for the mode (T-S15c).",
+      "OBS-3: the design (3.8) says the GH 2547 tests pass unedited; the forced scope_delta edit in test/letflow/routers/identity_gh2547_audit_test.exs (ELIXIR-DEV) is exact-equality and not weakened.",
+      "OBS-4: the claim resolver only resolves kind platform_role names, so a routing-role-only group is never a sync candidate; T-S16 pins both that and the ignored routing binding on a mixed group.",
+      "OBS-5 (TS-1): sync_role_claims_report/3 returns {:ok, original_user} for a swallowed failure, indistinguishable from nothing to do; T-S12 pins the current behaviour deliberately.",
+      "OBS-6 (environment): the scratchpad mut.exs, runmut.sh, runtests.sh and muts/ were written by this step; the mixlock directory is also taken by other sessions (owner file), waited for, never removed."
+    ],
+    "artifacts_out": [
+      "test/specs/REQ-519-2e-b.md",
+      "test/support/sync_scope_fixture.ex",
+      "test/letflow/identity/sync_scope_guard_test.exs",
+      "test/letflow/identity/membership_scope_delta_test.exs",
+      "test/letflow/identity/binding_writers_membership_rows_test.exs",
+      "test/letflow/identity/enforced_audit_actions_test.exs"
+    ],
+    "run_command_for_test_runner": "for each of the four test files: MIX_ENV=test mix test <file> (1 to 60 s each); then test/letflow/routers/identity_gh2547_audit_test.exs and test/letflow/api/scope_grants_route_walk_test.exs; hosted CI is the suite.",
+    "implementation_written": false
+  }
+}

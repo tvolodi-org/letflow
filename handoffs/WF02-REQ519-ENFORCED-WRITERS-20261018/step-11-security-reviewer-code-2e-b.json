@@ -1,0 +1,89 @@
+{
+  "handoff_id": "d2535519-0519-4c02-9e11-000000000011",
+  "run_id": "WF02-REQ519-ENFORCED-WRITERS-20261018",
+  "workflow_id": "WF-02",
+  "step": "11",
+  "from_agent": "SECURITY-REVIEWER",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-11-security-reviewer-code-2e-b.json",
+  "created_at": "2026-10-18T20:35:00Z",
+  "started_at": "2026-10-18T20:35:00Z",
+  "completed_at": "2026-10-18T20:36:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-519"],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "SECURITY-REVIEWER code gate for REQ-519 slice 2e-b (GH #2535): uncommitted tree on feature/WF02-REQ519-2EB-IDP-SYNC-20261019. Read-only static review; no mix, no tests run."
+    },
+    "related_handoff_ids": ["d2535519-0519-4c02-9e11-000000000004", "d2535519-0519-4c02-9e11-000000000006", "d2535519-0519-4c02-9e11-000000000010"],
+    "artifacts_in": [
+      "lib/letflow/identity.ex",
+      "lib/letflow/identity/sync_scope_guard.ex",
+      "lib/letflow/identity/membership_scope.ex",
+      "lib/letflow/identity/binding_writers.ex",
+      "lib/letflow/api/scope.ex",
+      "docs/roles.md",
+      "lib/letflow/design/req519-enforced-writers-and-flag-on.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ519-2EB-IDP-SYNC-20261019"
+  },
+  "task": {
+    "description": "Code gate for 2e-b against INV-1..INV-10, REQ-519 ACs 2, 3 (+ AC 1(f)) and design r2a section 1 (2e-b), 3.9, 3.9a. No edits to lib/ or test/."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "No blocking defect. Static review only; runtime claims rest on TEST-DESIGNER tests in hosted CI. VERIFIED: (1) Ordering (C-3): in sync_role_claims_report/3 the Multi runs lock_timeout, then tenant_admin_lock (lock A), then :memberships; sync_guard/2 inside :memberships reads ScopeEnforcement.mode_under_lock! and, only for :on, SyncScopeGuard.bound_platform_roles/2 (tenant_roles, kind platform_role) AFTER lock A; the pre-lock resolve supplies candidate group ids only, never bound roles. group_ids == [] takes no lock, reads no mode, writes no membership. (2) Fail closed: mode_under_lock! raises for an unavailable read; the raise passes out of Multi.run and Repo.transaction, rolls back every membership and the marker, is rescued into {:raised, module} (module name logged only) and the original user is returned with marker nil; never treated as off. (3) Widening decision: for a group the user is not yet in, evaluate/4 compares the held-aware before snapshot with snapshot_if_added (held roles plus bound roles; user applicable rows plus the group's own rows for each bound role; scope computed by the pure Api.Scope.effective_from_rows/1) and withholds the WHOLE group if ANY bound platform role goes to tenant_wide from not-tenant-wide. Walked: TENANT_ADMIN group (tenant-wide row) withheld unless the user is already tenant-wide for it; multi-role group withheld if any role widens, audit lists only widening roles; routing-role-only group (kind process_routing_role is filtered out of bound_platform_roles) allowed, and role names are unique per tenant so no mixed group; user with scoped rows keeps them and a tenant-wide group is withheld as grant.sync_suppressed; user already tenant-wide through another group is allowed; a group with no row for the role stays deny so is allowed (membership grants nothing under D1); a user-principal tenant-wide row for a not-yet-held role is caught (held set unioned with the bound roles); groups are evaluated sequentially against fresh state so claim order cannot defeat the test; an existing member is :allow and the insert is a no-op. Removal and rejoin: removal never widens; a rejoin is re-evaluated like a first join. (4) Concurrency: admin add/remove member, rebind and upsert all take lock A first (do_add_group_member, remove path, 2e-a writers), the sync takes lock A before reading roles and rows, so a concurrent binding change is either fully before (read sees it) or fully after. Row writes by the sanctioned ScopedGrants plane are an explicit audited admin act, not a sync path. (5) shadow/off: sync_guard returns :off, evaluate is not called, insert_synced_membership behaves as before except scope_delta on the audit entry. (6) Audit keys: grant.sync_suppressed and binding.pending_scope after_state is exactly user, group, role, trace_id (two uuids, the admin-defined platform role name, the trace id); before_state nil; resource_type user_role, resource_id user_id:role; no IdP claim value, no email, no group name. An audit failure returns {:error, {:audit_failed, _}} and rolls the sync back. (7) Dedup: permanent per (user, role, action) from the stored audit table; a prefix-scoped Repo.exists? on audit_entries restricted to resource_type user_role, the exact resource_id and the exact action, so it sees no other tenant, user or action; its only effect is skipping one duplicate audit insert inside the sync; the deduped count is returned to in-process callers only, never to the IdP or an HTTP response; no oracle to the claimant. The suppression itself is independent of dedup, so dedup can never cause a widening. (8) scope_delta on group_member.added/removed in every mode: MembershipScope.delta over this tenant's prefixed grant rows; values are the fixed strings deny / tenant_wide or a map of sorted org-unit record ids (at most 50) plus count; no names, paths or secrets. The before snapshot is read under lock A. (9) sync_role_claims_from_token/3 is a thin wrapper returning User.t() from both {:ok, user} and {:suppressed, user, _} (spec unchanged); sync_role_claims_report/3 is new on Letflow.Identity; no new RoleScopeGrants export (role_scope_grants.ex not in the diff; T-RW1b pin unaffected). Api.Scope gains effective_from_rows/1 (pure extraction of rows_scope/1, no behaviour change). (10) Registry: BindingWriters.membership_rows/0 lists M-a add_group_member/3, M-b remove_group_member/3, M-c sync_role_claims_report/3, M-d PendingAdminGrants.bind_on_login/5, M-e delete_group/2, M-f TenantAdminMigration.copy_members/3; the functions exist in their files (grep); the existence-check test is TEST-DESIGNER's. (11) Lock order A->R->G->N->B->T->S->C preserved: every new operation is a plain read (tenants pk, tenant_roles, group_members, grant rows, audit_entries) or an audit insert taking the existing chain lock (C, last); no new lock or rank. (12) INV-4: no new log line; the pre-existing claimed_roles sync warning is unchanged and not extended. INV-7: Ecto queries with pinned params only. (13) No route_scope.ex, authorized_router.ex, route snapshot, route_inventory.ex, router, migration, ci.yml, mix.exs, config, catalog or permission matrix file in git status: routes changed NONE.",
+    "local_issue_id": null,
+    "artifacts_out": ["handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-11-security-reviewer-code-2e-b.json"],
+    "invariants_assessed": {
+      "INV-1": "APPLIES, PASS (every new query passes the schema prefix; user id from the login context, group ids from tenant_roles; no tenant value from body, query or path)",
+      "INV-2": "APPLIES, PASS (no new response shaping; the suppression summary is not exposed to the client; audit payloads are ids, role names and fixed strings)",
+      "INV-3": "NOT-APPLICABLE (no Lua/WASM host function)",
+      "INV-4": "APPLIES, PASS (no new log line; audit keys exactly user, group, role, trace_id)",
+      "INV-5": "NOT-APPLICABLE (no lookup-by-id handler added or changed)",
+      "INV-6": "APPLIES, PASS (this verdict is the 2e-b code gate)",
+      "INV-7": "APPLIES, PASS (no interpolated SQL added)",
+      "INV-8": "APPLIES, PASS (mode read via mode_under_lock!, fail-closed raise rolls back; only stored off/shadow or the test-only lenient key reach the off path)",
+      "INV-9": "NOT-APPLICABLE (no new route or class; routes changed NONE)",
+      "INV-10": "APPLIES, PASS (an IdP claim in an on tenant cannot add a user to a group whose bound role would make them tenant-wide for a role they were not; the withheld group is audited)"
+    },
+    "findings": [
+      {"id": "F-1", "severity": "MINOR", "blocking": false, "title": "Permanent dedup means a later, different suppression of the same (user, role, action) is not audited", "detail": "By design (design 3.9a). If a user is later admitted, removed, and a different group widening the same role is withheld, no new entry is written. No security effect (withholding does not depend on the audit); audit-completeness trade-off, state in the PR body and let 2f review."},
+      {"id": "F-2", "severity": "MINOR", "blocking": false, "title": "Marker is stamped even when every candidate group was withheld", "detail": "Pre-existing semantics (stamp when group_ids is non-empty), accepted in step-04. The next login does not re-run the sync, so a withheld user stays without the group until an admin acts; this is the intended remedy path in docs/roles.md. Not a widening."},
+      {"id": "F-3", "severity": "INFO", "blocking": false, "title": "Private Repo.exists? on Audit.Entry in SyncScopeGuard until 2f-a adds Audit.latest_matching/4", "detail": "Disclosed deviation; same stored-data semantics, prefix-scoped. No security effect."},
+      {"id": "F-4", "severity": "INFO", "blocking": false, "title": "Kind classification uses row scopes regardless of held state", "detail": "Disclosed deviation; affects only which of the two audit actions is written. The widening decision itself is held-aware. TEST-DESIGNER must cover the user-principal scoped row case."},
+      {"id": "F-5", "severity": "INFO", "blocking": false, "title": "Existing claimed_roles warning log not extended", "detail": "Pre-existing log unchanged; no new claim value is logged."}
+    ],
+    "conditions_for_merge": [
+      "Hosted CI is green for the whole suite, including identity_gh2547_audit_test, scope_grants_route_walk_test (T-RW1b exports pin) and route_scope_walk_test.",
+      "TEST-DESIGNER delivers tests for: TENANT_ADMIN group claim withheld in on; multi-role group withheld whole with only widening roles audited; routing-role-only group admitted; user with scoped rows gets grant.sync_suppressed with no scope change; user holding none gets binding.pending_scope; exact after_state key set (user, group, role, trace_id) with no claim value; permanent dedup (second login adds no entry, deduped counted) and dedup never admits the membership; a mode raise leaves no membership and marker nil; shadow and off admit as before; scope_delta cap 50 plus count in added and removed in every mode; sync_role_claims_from_token/3 returns User.t(); membership_rows/0 function-existence check; a roles-read-after-lock-A (C-3) ordering mutant.",
+      "The PR body carries the items in pr_body_items."
+    ],
+    "advisories": [
+      "A-1: 2f-a should replace the private audit-exists check with Audit.latest_matching/4 and keep the key set and prefix scoping.",
+      "A-2: 2f docs should state that a withheld user is not re-synced automatically (marker stamped) and that the remedy is an admin scoped grant."
+    ],
+    "pr_body_items": {
+      "audit_key_sets": {
+        "grant.sync_suppressed": ["user", "group", "role", "trace_id"],
+        "binding.pending_scope": ["user", "group", "role", "trace_id"],
+        "group_member.added / group_member.removed": "existing keys plus scope_delta (list of role, from, to; org-unit ids at most 50 plus count)"
+      },
+      "C_3_ordering_statement": "The mode and the roles each candidate group binds are read inside the :memberships step, after lock A (and after SET LOCAL lock_timeout), never carried from the pre-lock resolve; the pre-lock resolve supplies candidate group ids only. A concurrent binding change under lock A is either fully visible or fully after the sync.",
+      "sync_export_statement": "Letflow.Identity.sync_role_claims_from_token/3 still returns User.t() (thin wrapper over the new sync_role_claims_report/3); no new RoleScopeGrants export.",
+      "routes_changed_table": [
+        {"method": "ALL", "path": "ALL", "old_class": "unchanged", "new_class": "unchanged", "note": "routes changed: NONE (route snapshot, route_inventory.ex, route_scope.ex, authorized_router.ex untouched)"}
+      ],
+      "verdict_sentence": "SECURITY-REVIEWER code gate for REQ-519 2e-b: PASS_WITH_FINDINGS (in an on tenant the IdP role-claims sync withholds the whole group when any bound platform role would make the user tenant-wide for a role they were not, reading the mode and the bound roles after lock A with a fail-closed mode read, auditing grant.sync_suppressed / binding.pending_scope with exactly user, group, role, trace_id and a permanent per-(user, role, action) dedup; scope_delta in the membership audits is ids-only and capped; routes changed NONE). Handoff d2535519-0519-4c02-9e11-000000000011."
+    },
+    "required_changes": [],
+    "classification": "CODE_PASS_WITH_FINDINGS",
+    "implementation_written": false
+  }
+}
