@@ -1,0 +1,48 @@
+{
+  "handoff_id": "d2535518-0518-4c02-9e11-000000000018",
+  "run_id": "WF02-REQ518-COMPILER-SCOPE-20261018",
+  "workflow_id": "WF-02",
+  "step": "18",
+  "from_agent": "ORCH",
+  "to_agent": "REVIEWER",
+  "file": "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-18-reviewer-code-2c-ii.json",
+  "created_at": "2026-10-18T08:35:00Z",
+  "started_at": "2026-10-18T08:35:00Z",
+  "completed_at": "2026-10-18T08:36:40Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-518"],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "REVIEWER CODE gate for REQ-518 slice 2c-ii (GH #2535), uncommitted working tree of feature/WF02-REQ518-2CII-WRITES-20261018. Read-only; no mix run; no file edited."
+    },
+    "related_handoff_ids": [
+      "d2535518-0518-4c02-9e11-000000000016",
+      "d2535518-0518-4c02-9e11-000000000017"
+    ],
+    "artifacts_in": [
+      "lib/letflow/design/req518-compiler-scope-filter.md",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-16-elixir-dev-2c-ii.json",
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-17-security-reviewer-code-2c-ii.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ518-2CII-WRITES-20261018"
+  },
+  "task": {
+    "description": "Idiom, supervision, scope-creep, Records scope attr, router growth, duplication, forced-test-edit, snapshot, decision-record and anti-pattern gate for REQ-518 2c-ii."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "summary": "PASS_WITH_FINDINGS. No blocker, no required change. Static review only (nothing compiled or run). 1 IDIOM: ScopedLookup, ScopedWrites and ScopeResolver are plain stateless modules; no process, no spawn, no GenServer; InstanceSupervisor untouched; decision 0045 consistent. Records adds ONE Multi.run step (:scope_check) returning {:ok, :in_scope} or the raw {:error, :scope_refused}, matching the existing step convention; it reuses the row check_record_version already locked FOR UPDATE (Map.get(changes, :check_record_version)) and falls back to Latest.get_for_update, so no new lock order. The with-chains are well formed: resolve_scope sits after check_write_authority and before the existing-record read; scope_old_value precedes ensure_not_deleted (an out-of-scope deleted record is a scope 404, not a deleted answer, consistent with design 5.2 'deleted not in predicate'). @specs accurate: fetch_in_scope/5, type_gate/3, check_new_value/3 (field_values :: term(), matches the entry_verdict(%{}) fallback), check_batch/3, record_scope/1 :: Scope.resource_scope(); Records command attr types and the {:error, :scope_refused} union member added. ScopedLookup binds the id list as one text array and literal(^column) for a format-validated declaration column, Repo.one with limit 1. 2 SUPERVISION: nothing added or collapsed. 3 SCOPE vs design r2a 1/5.x/7.1/10.2: files map 1:1 to the 5.1 module map; 8 resolver routes, 7 tenant_wide declarations, 15 snapshot lines, @expected_resolver_routes, @data_routers and the two new walk errors are design 3.6/7.1 (AC 19). check_batch/type_gate/emit_not_found are design 5.2-5.4. No behaviour, macro or generic plumbing beyond the design. 4 RECORDS scope attr: optional(:scope), default :all (Map.get(attrs, :scope, :all)), validated at the boundary by validate_scope!/1, which RAISES ArgumentError on a malformed set (acceptable: programming error of a trusted caller, never user input; {:nodes, []} normalises to :none). Documented in a section comment and in the three command @types, but NOT in the @moduledoc or the create/update/delete @doc (F-2). The nine system callers carry '# scope-all:' comments. 5 ROUTER SIZE: lib/letflow/routers/entities.ex 3243 -> 3507 lines (+264; 263 def/defp), the largest router by far (next: instances 1819, promotions 1432, definitions 1327; about 1.9x the next). It was NOT split; the new private helpers (write_type_gate, visible_record, check_new_scope_value, scope_refused, import_scope_check, parent_visible?, visible_or_fresh_id, attachment_parent_gate) sit next to their handlers. Design 5.1 lists entities.ex as 'changed', so it is in scope for 2c-ii, but the file is now unwieldy: F-1. Other new files are small (scope_resolver 37, scoped_lookup 108, scoped_writes 84 lines; records.ex 1864). 6 DUPLICATION: ScopeResolver.record_scope/1 is the single extractor and ScopedWrites.check_new_value/3 calls it (no repeated field_values[field] read); ScopedLookup.emit_not_found/2 is the single owner of the telemetry event (@event literal appears once). No docs/anti-patterns.md entry hit. Small near-duplicates, non-blocking: (a) the pair emit_not_found + Response.not_found is spelled four ways in the router (scope_refused/3, check_new_scope_value, the visible_record :hidden clause, the parent_visible? :hidden clause); (b) Records.scope_old_value/2 calls ScopedWrites.check_new_value/3, a name that reads wrongly for the old value; (c) three places hold a 'hidden/undeclared -> refused' mapping (F-3). 7 DEAD CODE: Records.maybe_scope_check/2 third clause (ctx without :scope) is unreachable because every ctx from create/update/delete is Map.merge(scope_ctx, ...). run_import_mode(:upsert, ..., {access, :all}) has no clause for a scoped pair, so a regression of import_scope_check would be a FunctionClauseError 500 (fail closed and loud; keep). 8 FORCED TEST EDITS (diff read in full): route_scope_test: five resolver rows re-pointed to listed_resolver/1 rows; forced because the new :unexpected_resolver_route rule would otherwise fire on the old /a /b /c /r paths; each test keeps its original assertion (exported, missing function, wrong arity, missing module, non-self-service resolver); no weakening. route_scope_walk_test: declared-routes assertion grows to 15 more entries and is an exact sorted-list equality (forced by the 15 new declarations; equality kept, not loosened). route_scope_self_service_test: title and count 137 -> 122 only (forced). No assertion removed or loosened. 9 SNAPSHOT: git diff of tenant_wide_default_routes.txt is exactly 15 removed lines and 0 additions (8 resolver routes + 7 tenant_wide declarations), matching design 7.1 'Snapshot lines removed 15'; 137 - 15 = 122 matches the edited count. The git LF->CRLF warning is a working-copy line-ending note, not a content change. 10 DECISION RECORDS: 0051 (D5 single predicate lookup, D6 resolver/writes, D7 generic 404 bytes, D8 counted not audited) and 0045 (no process per instance) consistent. No decision-record disagreement. 11 ELIXIR-DEV DEVIATIONS: (a) fetch_in_scope/5 with a 5th telemetry arg returning the declaration instead of :visible: ACCEPTED; the declaration is needed by the next step (check_new_value), avoiding a second ScopeDeclaration.for_type, and the telemetry arg keeps emission in its one owner. Design 5.2 still shows the 4-arg :visible signature (F-5). (b) upsert_by external_ref refused for a scoped caller: ACCEPTED as the safer reading (upsert can update an existing record and ImportUpsert is not scope-aware; carries a scope-all comment in ImportUpsert); the router answers the same generic 404 and counts it. It is a behaviour restriction for scoped callers only; tenant-wide callers and every non-on tenant are unaffected; it must be recorded before REQ-519 flips on (F-6). (c) hidden type same bytes: ACCEPTED; write_type_gate and visible_record map :hidden to the same refusal as an undeclared type, and a nonexistent type already folds to Response.not_found (SEC C-6). FINDINGS (all non-blocking). F-1 (ELIXIR-DEV, maintainability, file as an issue): extract the scoped-write and attachment-parent helpers, ideally the whole record write/import/attachment handler group, out of Routers.Entities into a sibling module in a follow-up; each slice adds to the largest router in the repo. F-2 (ELIXIR-DEV, doc): document optional :scope (default :all, meaning, :scope_refused, the scope-all convention) in the Records @moduledoc and the three function @docs. F-3 (advisory): collapse the three hidden/undeclared -> refused mappings if a third caller appears (PR 2d tasks). F-4 (cleanup): drop the unreachable maybe_scope_check/2 catch-all clause; rename or comment scope_old_value's callee. F-5 (CODE-DESIGNER/DOC-UPDATER): amend design 5.2 to the as-built fetch_in_scope/5 and its return value, and 5.4 to say scoped upsert import is refused; not edited by this reviewer (CDV-gated artefact). F-6 (docs): record the scoped-upsert refusal where REQ-519 reads it. F-7 type-safety (FINDING: ORCH to file under docs/issues/ tagged type-safety per WORK_BOARD section 7; reviewer does not file): Records command attrs are plain maps whose :scope is checked at runtime by validate_scope!/1 (raise), and the pairs {scope, declaration} and {access, scope} are positional tuples threaded through run_import_mode/import_one_entry. A struct with enforce_keys, or a Types.scope_set tightened to {:nodes, [String.t(), ...]} (the open step-08/13 item), would make a malformed set and 'scoped caller reaches the :all-only upsert clause' unrepresentable. NOTES for TEST-DESIGNER: T-W1..T-W23 per design 10.2; add the {:nodes, []} to :none normalisation, a scoped upsert-import refusal (same 404 bytes, one telemetry event), and a mutant for the run_import_mode(:upsert) clause. NO FILE EDITED by this reviewer (no stale comment found in the touched lib files; design 5.2 staleness recorded as F-5).",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-18-reviewer-code-2c-ii.json"
+    ],
+    "diagnosis_confirmed": true,
+    "implementation_written": false,
+    "classification": "REVIEW_PASS_WITH_FINDINGS"
+  }
+}

@@ -10,6 +10,21 @@ defmodule Letflow.Entities.Records do
   explicit `prefix :: String.t()` argument; no function here accepts a
   separately-trusted `tenant_id`.
 
+  ## Scope (REQ-518 PR 2c-ii)
+
+  `create_record/3`, `update_record/3` and `delete_record/3` accept the optional attribute
+  `:scope`, the caller's allowed node set (`Letflow.Entities.Query.Types.scope_set/0`): `:all`
+  (the default, for system callers and tenant-wide callers), `:none`, or `{:nodes, [id]}`. An
+  empty node list means `:none`; a malformed value raises `ArgumentError`. See
+  `Letflow.Entities.ScopedWrites` for the rules; refusal is `{:error, :scope_refused}`.
+
+  A scoped write also resolves every reference (`foreign_keys` field) of the NEW document through
+  the scope of the referenced type (before the transaction and again inside it), with no
+  exemption for an unchanged stored reference on an update (fail closed). A foreign-key violation
+  of a scoped write is `{:error, :scope_refused}`, never a 500; a tenant-wide write keeps today's
+  answer. Residual: the referenced row's scope can change between the check and the commit (no
+  lock is taken on it).
+
   ## The inner/outer validation split (AC7)
 
   Each command function runs REQ-227's **inner** check
@@ -174,8 +189,11 @@ defmodule Letflow.Entities.Records do
   alias Letflow.Entities.EntityTypeInstance
   alias Letflow.Entities.ExternalRef
   alias Letflow.Entities.ManagedTypes
+  alias Letflow.Entities.Query.Types, as: QueryTypes
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Record.Validator
+  alias Letflow.Entities.ScopeDeclaration
+  alias Letflow.Entities.ScopedWrites
   alias Letflow.Entities.StepSource
   alias Letflow.EventStore
   alias Letflow.EventStore.Event
@@ -197,6 +215,7 @@ defmodule Letflow.Entities.Records do
           required(:actor_id) => Ecto.UUID.t(),
           required(:idempotency_key) => String.t(),
           optional(:idempotency_match) => idempotency_match(),
+          optional(:scope) => QueryTypes.scope_set(),
           optional(:legacy_original) => Event.t()
         }
 
@@ -222,6 +241,7 @@ defmodule Letflow.Entities.Records do
           required(:actor_id) => Ecto.UUID.t(),
           required(:idempotency_key) => String.t(),
           optional(:expected_last_event_global_seq) => expected_seq(),
+          optional(:scope) => QueryTypes.scope_set(),
           optional(:legacy_original) => Event.t()
         }
 
@@ -230,7 +250,8 @@ defmodule Letflow.Entities.Records do
           required(:record_id) => Ecto.UUID.t(),
           required(:actor_id) => Ecto.UUID.t(),
           required(:idempotency_key) => String.t(),
-          optional(:expected_last_event_global_seq) => expected_seq()
+          optional(:expected_last_event_global_seq) => expected_seq(),
+          optional(:scope) => QueryTypes.scope_set()
         }
 
   @type command_result :: %{record: Latest.t(), is_duplicate: boolean()}
@@ -269,6 +290,7 @@ defmodule Letflow.Entities.Records do
           | {:error, {:definition_changed, entity_type :: String.t()}}
           | {:error, :idempotency_key_reuse}
           | {:error, :entity_type_managed}
+          | {:error, :scope_refused}
           | {:error, :tenant_not_provisioned}
           | {:error, :invalid_schema_name}
           | {:error, {:payload_validation_failed, [term()]}}
@@ -342,6 +364,14 @@ defmodule Letflow.Entities.Records do
   written only with that module's `Owner` naming the type; `:tenant` (the `/2`
   default) and any other `Owner` get `{:error, :entity_type_managed}` with
   nothing read beyond the definition.
+
+  Optional `attrs.scope` (REQ-518, default `:all`): the caller's allowed node set,
+  `:all | :none | {:nodes, [String.t()]}`. `:all` (system and tenant-wide callers) adds no read
+  and no check; an empty `{:nodes, []}` means `:none`; any other value raises `ArgumentError`.
+  For a scoped set the type must be declared by a column (else `{:error, :scope_refused}`), the
+  declared column of the new (create, update) and the stored (update, delete) document must be a
+  string in the set, checked before the transaction and again inside it. Nothing is appended on
+  refusal.
   """
   @spec create_record(create_attrs(), prefix :: String.t()) ::
           {:ok, command_result()} | command_error()
@@ -369,23 +399,27 @@ defmodule Letflow.Entities.Records do
          :ok <- reject_step_key(attrs),
          {:ok, definition} <- fetch_active_definition(entity_type, prefix),
          :ok <- check_write_authority(definition, entity_type, authority),
-         {:ok, field_values} <- validate_field_values(definition, field_values) do
+         {:ok, scope_ctx} <- resolve_scope(attrs, entity_type, prefix),
+         {:ok, field_values} <- validate_field_values(definition, field_values),
+         :ok <- scope_new_value(scope_ctx, field_values),
+         :ok <- scope_new_references(scope_ctx, definition, field_values, prefix) do
       record_id = Ecto.UUID.generate()
 
-      ctx = %{
-        kind: :create,
-        entity_type: entity_type,
-        record_id: record_id,
-        field_values: field_values,
-        definition: definition,
-        existing_record: nil,
-        expected_last_event_global_seq: nil,
-        idempotency_match: match,
-        prefix: prefix,
-        authority: authority,
-        # GH #2659: set only by `upsert_record_by_external_ref/3` (parsed); nil otherwise.
-        external_ref: external_ref
-      }
+      ctx =
+        Map.merge(scope_ctx, %{
+          kind: :create,
+          entity_type: entity_type,
+          record_id: record_id,
+          field_values: field_values,
+          definition: definition,
+          existing_record: nil,
+          expected_last_event_global_seq: nil,
+          idempotency_match: match,
+          prefix: prefix,
+          authority: authority,
+          # GH #2659: set only by `upsert_record_by_external_ref/3` (parsed); nil otherwise.
+          external_ref: external_ref
+        })
 
       run_command(ctx, attrs)
     end
@@ -562,6 +596,14 @@ defmodule Letflow.Entities.Records do
   written only with that module's `Owner` naming the type; `:tenant` (the `/2`
   default) and any other `Owner` get `{:error, :entity_type_managed}` with
   nothing read beyond the definition.
+
+  Optional `attrs.scope` (REQ-518, default `:all`): the caller's allowed node set,
+  `:all | :none | {:nodes, [String.t()]}`. `:all` (system and tenant-wide callers) adds no read
+  and no check; an empty `{:nodes, []}` means `:none`; any other value raises `ArgumentError`.
+  For a scoped set the type must be declared by a column (else `{:error, :scope_refused}`), the
+  declared column of the new (create, update) and the stored (update, delete) document must be a
+  string in the set, checked before the transaction and again inside it. Nothing is appended on
+  refusal.
   """
   @spec update_record(update_attrs(), prefix :: String.t()) ::
           {:ok, command_result()} | command_error()
@@ -583,21 +625,26 @@ defmodule Letflow.Entities.Records do
          {:ok, definition} <- fetch_active_definition(entity_type, prefix),
          :ok <- check_write_authority(definition, entity_type, authority),
          :ok <- ensure_mutable(definition, entity_type),
+         {:ok, scope_ctx} <- resolve_scope(attrs, entity_type, prefix),
          {:ok, existing_record} <- fetch_existing_record(record_id, entity_type, prefix),
+         :ok <- scope_old_value(scope_ctx, existing_record),
          :ok <- ensure_not_deleted(existing_record, record_id),
-         {:ok, field_values} <- validate_field_values(definition, field_values) do
-      ctx = %{
-        kind: :update,
-        entity_type: entity_type,
-        record_id: record_id,
-        field_values: field_values,
-        definition: definition,
-        existing_record: existing_record,
-        expected_last_event_global_seq: expected,
-        idempotency_match: :request,
-        prefix: prefix,
-        authority: authority
-      }
+         {:ok, field_values} <- validate_field_values(definition, field_values),
+         :ok <- scope_new_value(scope_ctx, field_values),
+         :ok <- scope_new_references(scope_ctx, definition, field_values, prefix) do
+      ctx =
+        Map.merge(scope_ctx, %{
+          kind: :update,
+          entity_type: entity_type,
+          record_id: record_id,
+          field_values: field_values,
+          definition: definition,
+          existing_record: existing_record,
+          expected_last_event_global_seq: expected,
+          idempotency_match: :request,
+          prefix: prefix,
+          authority: authority
+        })
 
       run_command(ctx, attrs)
     end
@@ -626,6 +673,14 @@ defmodule Letflow.Entities.Records do
   written only with that module's `Owner` naming the type; `:tenant` (the `/2`
   default) and any other `Owner` get `{:error, :entity_type_managed}` with
   nothing read beyond the definition.
+
+  Optional `attrs.scope` (REQ-518, default `:all`): the caller's allowed node set,
+  `:all | :none | {:nodes, [String.t()]}`. `:all` (system and tenant-wide callers) adds no read
+  and no check; an empty `{:nodes, []}` means `:none`; any other value raises `ArgumentError`.
+  For a scoped set the type must be declared by a column (else `{:error, :scope_refused}`), the
+  declared column of the new (create, update) and the stored (update, delete) document must be a
+  string in the set, checked before the transaction and again inside it. Nothing is appended on
+  refusal.
   """
   @spec delete_record(delete_attrs(), prefix :: String.t()) ::
           {:ok, command_result()} | command_error()
@@ -643,22 +698,25 @@ defmodule Letflow.Entities.Records do
          {:ok, definition} <- fetch_active_definition(entity_type, prefix),
          :ok <- check_write_authority(definition, entity_type, authority),
          :ok <- ensure_mutable(definition, entity_type),
-         {:ok, existing_record} <- fetch_existing_record(record_id, entity_type, prefix) do
+         {:ok, scope_ctx} <- resolve_scope(attrs, entity_type, prefix),
+         {:ok, existing_record} <- fetch_existing_record(record_id, entity_type, prefix),
+         :ok <- scope_old_value(scope_ctx, existing_record) do
       if existing_record.deleted do
         {:ok, %{record: existing_record, is_duplicate: false}}
       else
-        ctx = %{
-          kind: :delete,
-          entity_type: entity_type,
-          record_id: record_id,
-          field_values: existing_record.field_values,
-          definition: definition,
-          existing_record: existing_record,
-          expected_last_event_global_seq: expected,
-          idempotency_match: :request,
-          prefix: prefix,
-          authority: authority
-        }
+        ctx =
+          Map.merge(scope_ctx, %{
+            kind: :delete,
+            entity_type: entity_type,
+            record_id: record_id,
+            field_values: existing_record.field_values,
+            definition: definition,
+            existing_record: existing_record,
+            expected_last_event_global_seq: expected,
+            idempotency_match: :request,
+            prefix: prefix,
+            authority: authority
+          })
 
         run_command(ctx, attrs)
       end
@@ -980,6 +1038,8 @@ defmodule Letflow.Entities.Records do
       {:ok, multi} ->
         multi
         |> maybe_check_record_version(ctx)
+        # REQ-518: the scope recheck (old and new value), under the same locks; scoped callers only.
+        |> maybe_scope_check(ctx)
         # GH #2654: under the type's sequence lock (taken by the append steps above).
         # On a race the step's raw `{:error, reason}` (`{:definition_changed, type}`, or the
         # defensive `{:definition_not_found, type}` / `:entity_type_managed` /
@@ -1088,6 +1148,101 @@ defmodule Letflow.Entities.Records do
   defp fetch_global_seq(changes) do
     %Event{global_seq: global_seq} = Map.fetch!(changes, :insert_event)
     global_seq
+  end
+
+  # ---------------------------------------------------------------------
+  # REQ-518 PR 2c-ii -- the scope of a scoped caller's write (design
+  # lib/letflow/design/req518-compiler-scope-filter.md 5.3, SEC C-3)
+  # ---------------------------------------------------------------------
+
+  # The optional attr `:scope` is the caller's allowed node set. Absent or `:all` (every system
+  # caller and every tenant-wide caller) adds nothing: no read, no Multi step. A scoped set gates
+  # the TYPE (a type not declared by a column is refused, R-6), then the old and the new value
+  # of the declared column must be in the set. Refusal is `{:error, :scope_refused}`; the new
+  # value is also checked BEFORE the transaction, so a replayed idempotency key never returns
+  # a stored record to a caller whose value is out of scope (C-3).
+  @typep scope_ctx :: %{
+           scope: QueryTypes.scope_set(),
+           scope_declaration: ScopeDeclaration.declaration() | :unscoped
+         }
+
+  @spec resolve_scope(map(), String.t(), String.t()) ::
+          {:ok, scope_ctx()} | {:error, :scope_refused}
+  defp resolve_scope(attrs, entity_type, prefix) do
+    scope = attrs |> Map.get(:scope, :all) |> validate_scope!()
+
+    case ScopedWrites.type_gate(entity_type, scope, prefix) do
+      {:ok, declaration} -> {:ok, %{scope: scope, scope_declaration: declaration}}
+      :refused -> {:error, :scope_refused}
+    end
+  end
+
+  defp validate_scope!(:all), do: :all
+  defp validate_scope!(:none), do: :none
+  defp validate_scope!({:nodes, []}), do: :none
+
+  defp validate_scope!({:nodes, ids} = scope) when is_list(ids) do
+    if Enum.all?(ids, &is_binary/1), do: scope, else: raise_bad_scope()
+  end
+
+  defp validate_scope!(_other), do: raise_bad_scope()
+
+  defp raise_bad_scope,
+    do: raise(ArgumentError, "scope must be :all, :none or {:nodes, [binary]}")
+
+  # The same pure membership rule applies to the stored (old) and the written (new) document:
+  # the declared column's value must be a string in the caller's set.
+  defp scope_value_in_set(%{scope: scope, scope_declaration: declaration}, field_values),
+    do: scope_verdict(ScopedWrites.check_new_value(field_values, declaration, scope))
+
+  defp scope_new_value(scope_ctx, field_values), do: scope_value_in_set(scope_ctx, field_values)
+
+  # BUG-1: the references of the new document resolve through the REFERENCED type's scope.
+  defp scope_new_references(%{scope: scope}, definition, field_values, prefix),
+    do: scope_verdict(ScopedWrites.check_references(definition, field_values, scope, prefix))
+
+  defp scope_old_value(scope_ctx, %Latest{field_values: stored}),
+    do: scope_value_in_set(scope_ctx, stored)
+
+  defp scope_verdict(:ok), do: :ok
+  defp scope_verdict(:refused), do: {:error, :scope_refused}
+
+  defp maybe_scope_check(multi, %{scope: :all}), do: multi
+
+  defp maybe_scope_check(multi, %{scope: _scoped} = ctx) do
+    Multi.run(multi, :scope_check, fn repo, changes -> scope_check(repo, changes, ctx) end)
+  end
+
+  # Under the type's sequence lock and after the idempotency step. The OLD value is the row
+  # locked FOR UPDATE (the row `check_record_version` already locked, when it ran); the NEW value
+  # is the validated document. A create has no old value, a delete no new one. An absent row is
+  # refused.
+  defp scope_check(repo, changes, ctx) do
+    with :ok <- scope_check_old(repo, changes, ctx),
+         :ok <- scope_check_new(ctx) do
+      {:ok, :in_scope}
+    end
+  end
+
+  defp scope_check_old(_repo, _changes, %{kind: :create}), do: :ok
+
+  defp scope_check_old(repo, changes, ctx) do
+    locked =
+      Map.get(changes, :check_record_version) ||
+        Latest.get_for_update(repo, ctx.record_id, ctx.entity_type, ctx.prefix)
+
+    case locked do
+      %Latest{} = row -> scope_old_value(ctx, row)
+      nil -> {:error, :scope_refused}
+    end
+  end
+
+  defp scope_check_new(%{kind: :delete}), do: :ok
+
+  defp scope_check_new(ctx) do
+    with :ok <- scope_new_value(ctx, ctx.field_values) do
+      scope_new_references(ctx, ctx.definition, ctx.field_values, ctx.prefix)
+    end
   end
 
   # ---------------------------------------------------------------------
@@ -1227,6 +1382,14 @@ defmodule Letflow.Entities.Records do
          %Postgrex.Error{postgres: %{code: :unique_violation, constraint: constraint_name}}} ->
           {:error,
            {:record_payload_invalid, unique_violation_from_constraint(ctx, constraint_name)}}
+
+        # BUG-1 backstop: a scoped caller never sees a 500 (nor a constraint name) from a
+        # foreign-key violation; the pre-checks refuse an unresolvable reference first, this
+        # covers the race. Scope `:all` keeps today's answer.
+        {:error, %Postgrex.Error{postgres: %{code: :foreign_key_violation}} = error} ->
+          if Map.get(ctx, :scope, :all) == :all,
+            do: {:error, error},
+            else: {:error, :scope_refused}
 
         {:error, reason} ->
           {:error, reason}

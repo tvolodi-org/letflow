@@ -1,0 +1,95 @@
+{
+  "handoff_id": "d2535518-0518-4c02-9e11-000000000021",
+  "run_id": "WF02-REQ518-COMPILER-SCOPE-20261018",
+  "workflow_id": "WF-02",
+  "step": "21",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-21-security-reviewer-recheck-2c-ii.json",
+  "created_at": "2026-10-18T10:21:00Z",
+  "started_at": "2026-10-18T10:21:43Z",
+  "completed_at": "2026-10-18T10:23:30Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-518"],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "SECURITY-REVIEWER re-review of REQ-518 slice 2c-ii after the BUG-1 fix (step-20 spec a-f). Uncommitted tree on feature/WF02-REQ518-2CII-WRITES-20261018. Read-only static review; no mix, no tests run."
+    },
+    "related_handoff_ids": [
+      "d2535518-0518-4c02-9e11-000000000016",
+      "d2535518-0518-4c02-9e11-000000000017",
+      "d2535518-0518-4c02-9e11-000000000019",
+      "d2535518-0518-4c02-9e11-000000000020"
+    ],
+    "artifacts_in": [
+      "lib/letflow/entities/scoped_lookup.ex",
+      "lib/letflow/entities/scoped_writes.ex",
+      "lib/letflow/entities/records.ex",
+      "lib/letflow/routers/entities.ex",
+      "lib/letflow/design/req518-compiler-scope-filter.md",
+      "test/letflow/routers/entities_scope_references_http_test.exs",
+      "test/letflow/entities/records_scope_references_test.exs",
+      "test/letflow/api/route_scope_resolver_test.exs"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ518-2CII-WRITES-20261018"
+  },
+  "task": {
+    "description": "Verify the BUG-1 fix against step-20 (a)-(e); confirm nothing else changed since step-17. No edits to lib/ or test/."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "BUG-1 is FIXED in code. Static review only; runtime claims (statement-sequence equality, bytes) rest on TEST-DESIGNER's tests in hosted CI. The step-20 FAIL is lifted and the INV-5 verdict for 2c-ii is RESTORED as PASS (conditional on the merge conditions below). VERIFIED against step-20: (a) resolution per foreign_keys field: ScopedWrites.reference_fields reads definition_json foreign_keys (field, references_entity; matches the fixture shape) regardless of promotion state; ScopedLookup.all_in_scope?/4 dispatches on the REFERENCED type's ScopeDeclaration.for_type: {:column,f} -> count of rows with record_id = ANY($ids) AND column = ANY($set), compared with the distinct id count; :tenant_wide -> existence only (same statement without the column predicate); :undeclared -> false with no statement; scope :none -> false, no statement; :latest source or absent column -> -1 with no predicate statement (fails closed); [] and :all -> true, no statement. Null/absent skipped; non-string, non-UUID and empty string -> :malformed -> refused, no statement. (b) ONE bound statement per field whether the id is in scope, out of scope or nonexistent: count_visible issues a single Repo.one; every field is evaluated (no short-circuit across fields); the reference lookups therefore give an identical SQL sequence for out-of-scope vs nonexistent (the shared prefix statements, definition read and ScopeDeclaration reads, are the same for both). (c) THREE POSITIONS: router create and PUT run check_new_scope_value (pure check_new_value, then check_references_of_type) after validate_schema and before Idempotency.from_body and put_legacy_original (C-3 holds for references); Records create/update run scope_new_references before the transaction (explicit tests assert no begin); scope_check_new repeats it inside the :scope_check Multi step after the old value check and before upsert_record_latest and the dual write. DELETE: no reference check (scope_check_new returns :ok for :delete). (d) NO ROW LOCKS added: lookups are plain SELECT count; the existing FOR UPDATE on the record row and sequence lock order are untouched. (e) FK BACKSTOP: write_entity_table_row maps Postgrex.Error code :foreign_key_violation to {:error, :scope_refused} only when ctx.scope is not :all; for :all the raw {:error, error} is returned exactly as before (tenant-wide 500 unchanged, issue #2832). The Multi failure surfaces as {:error, :scope_refused}, rendered Response.not_found with the same telemetry kind (:write_value) as every other scoped write refusal. No constraint name or message is logged or returned. (f) PUT: no exemption for an unchanged stored reference (fail closed, documented in the ScopedWrites and Records moduledocs, pinned by a test). (g) IMPORT: check_batch_references collects the distinct well-formed ids per FK field across the whole batch and issues ONE ANY(ids) statement per field; any malformed value, unresolved id or undeclared target refuses the whole batch with the existing generic 404 (kind :import), evaluated after check_batch and before run_import_mode, position-independent; upsert_by external_ref still refused wholesale for a scoped caller before any write; ImportUpsert unchanged (one-line scope annotation only). (h) INV-7: the only identifier interpolation is literal(^column) from a format-validated module declaration; record ids and the scope set are bound arrays (type(^ids, {:array, Ecto.UUID}), type(^set, {:array, :string})); no new Repo.query with string building. (i) Telemetry: closed atoms %{policy, kind}; no id, node, set, tenant or constraint name. (j) Residual TOCTOU (referenced row's scope column changed after the check; FK KEY SHARE does not conflict with non-key updates) is ACCEPTED and documented in the ScopedWrites moduledoc, the Records moduledoc and design r2b 5.3 item 7; no lock on the referenced row. NOTHING ELSE CHANGED since step-17 that I have not reviewed: files modified after step-17 completed are only records.ex, scoped_lookup.ex, scoped_writes.ex, routers/entities.ex and the design doc in lib/ (route_scope.ex, scope_resolver.ex, the route snapshot, the exam/scheduler/seed/import_upsert annotation files and the compiler are older than step-17), plus tests. The F-2/F-4 refactor is sound: scope_value_in_set delegates to ScopedWrites.check_new_value for both the old (stored) and new document; maybe_scope_check keeps exactly two clauses (:all adds no step; scoped adds :scope_check).",
+    "local_issue_id": null,
+    "artifacts_out": ["handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-21-security-reviewer-recheck-2c-ii.json"],
+    "invariants_assessed": {
+      "INV-1": "APPLIES, PASS (every new query carries prefix:; references resolve inside the caller's tenant schema)",
+      "INV-2": "APPLIES, PASS (refusals are the generic 404 before any record data is read; no response shape changed)",
+      "INV-3": "NOT-APPLICABLE (no Lua/WASM host function)",
+      "INV-4": "APPLIES, PASS (no secret resolved; no ids or constraint names logged or in telemetry)",
+      "INV-5": "APPLIES, PASS RESTORED for 2c-ii (out-of-scope vs nonexistent reference: same branch, one statement per field, same bytes, same telemetry on create, PUT and import; FK violation never a 500 for a scoped caller). Accepted residuals: type-level statement difference (undeclared/tenant_wide target), value-shape difference (malformed value skips its own lookup statement), referenced-row scope change after the check",
+      "INV-6": "APPLIES, PASS (this handoff plus the AC 23 table in step-17)",
+      "INV-7": "APPLIES, PASS (bound parameters; literal(^column) on a validated identifier)",
+      "INV-8": "APPLIES, PASS for scoped callers; tenant-wide nonexistent reference 500 is the pre-existing defect tracked in issue #2832, not in 2c-ii",
+      "INV-9": "NOT-APPLICABLE (no outbound URL)",
+      "INV-10": "APPLIES, PASS (tenant-scope routes only; no platform route or permission atom touched)"
+    },
+    "findings": [
+      {
+        "id": "F-5",
+        "severity": "MINOR",
+        "blocking": false,
+        "title": "import statement count is not literally equal for a malformed reference",
+        "detail": "Step-20 e(6) asked for equal statement counts across import reasons. A malformed value refuses its field without a lookup (as ruled in step-20 a: no statement for malformed values), so a batch whose only bad entry is malformed issues one statement fewer than an out-of-scope or nonexistent one when that field has other ids. This is a value-shape difference chosen by the caller, carries no record-level information (out-of-scope and nonexistent remain identical), and is not an oracle.",
+        "required_action": "None. TEST-DESIGNER's equality assertion should compare out-of-scope vs nonexistent, and treat malformed separately; no code change."
+      },
+      {
+        "id": "F-6",
+        "severity": "MINOR",
+        "blocking": false,
+        "title": "Ecto query logging of the failed FK insert",
+        "detail": "The scoped FK-violation backstop returns a closed atom, but Ecto's own query logger (pre-existing, all tenants) may log the failed insert. Not new, not a response leak.",
+        "required_action": "None for 2c-ii."
+      }
+    ],
+    "conditions_for_merge": [
+      "Step-17 F-1 is now MET in the tree: test/letflow/api/route_scope_resolver_test.exs seeds :unexpected_resolver_route (both directions) and :data_route_default. Hosted CI must show it green.",
+      "TEST-DESIGNER's reference tests (T-W8 a-g, 15 HTTP tests and 14 Records/ScopedWrites tests) and the measured 56 mutants (55 killed, MU17c equivalent) are accepted as designed; TEST-DESIGN-VALIDATOR is still to come and hosted CI must be green, including the five Records-adjacent files named in step-17.",
+      "The separate issue for the tenant-wide nonexistent-reference 500 exists as #2832; the PR body references it and states that its fix must keep the scoped generic 404 (never 422).",
+      "PR body carries the AC 23 table, the verdict sentence below, the 15 removed snapshot lines, the upsert-refusal sentence and the SEC F-3 attachment release note."
+    ],
+    "advisories": [
+      "A-1 through A-4 of step-17 carry forward unchanged."
+    ],
+    "reclassified_routes_ac23": "Unchanged from step-17 (15 routes: E1-E7 to tenant_wide declared, E11-E18 to resolver ScopeResolver.record_scope; snapshot 137 to 122 lines). The route classes, resolver and snapshot files were not modified after step-17.",
+    "ac23_verdict_sentence": "SECURITY-REVIEWER code gate for REQ-518 2c-ii: PASS_WITH_FINDINGS after the BUG-1 fix (reference fields of a scoped write are resolved through the scope of the referenced type in the router, in Records and inside the transaction, with a foreign-key-violation backstop, so an out-of-scope and a nonexistent reference are indistinguishable; handoffs step-17, step-20 and step-21); exactly fifteen routes are reclassified from the default tenant_wide class (seven entity definition/restriction routes to an explicit tenant_wide declaration; the eight entity record write, import and record attachment routes to a resolver class), exactly those fifteen lines are removed from test/fixtures/route_scope/tenant_wide_default_routes.txt (137 to 122), and a scoped caller's import with upsert_by external_ref is refused with the generic 404 because the upsert primitive is not scope-aware.",
+    "required_changes": [],
+    "classification": "CODE_PASS_WITH_FINDINGS",
+    "implementation_written": false
+  }
+}

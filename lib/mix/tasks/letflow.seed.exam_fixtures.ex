@@ -574,6 +574,7 @@ defmodule Mix.Tasks.Letflow.Seed.ExamFixtures do
   end
 
   defp create_record!(prefix, actor_id, entity_type, idempotency_key, field_values) do
+    # scope-all: mix task, no HTTP user
     case Letflow.Entities.Records.create_record(
            %{
              entity_type: entity_type,

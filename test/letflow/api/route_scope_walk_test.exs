@@ -282,23 +282,44 @@ defmodule Letflow.Api.RouteScopeWalkTest do
       end
     end
 
-    test "__authz_route_scopes__/0 lists DECLARED routes only: the two link routes and the REQ-518 2c-i-b routes, nothing else",
+    test "__authz_route_scopes__/0 lists DECLARED routes only: the two link routes and the REQ-518 2c-i-b and 2c-ii routes, nothing else",
          %{routes: routes} do
       scopes =
         for router <- routes |> Enum.map(& &1.router) |> Enum.uniq(),
             entry <- router.__authz_route_scopes__(),
             do: {router, entry}
 
-      assert Enum.sort(Enum.map(scopes, fn {_router, entry} -> entry end)) == [
-               {"GET", "/:id/attachments/:attachment_id/link-content", :tenant_wide},
-               {"GET", "/memberships", :self_service},
-               {"GET", "/modules", :self_service},
-               {"GET", "/resolved", :self_service},
-               {"POST", "/:id/attachments/:attachment_id/link", :tenant_wide},
-               {"POST", "/query", :filter},
-               {"POST", "/query/aggregate", :filter},
-               {"POST", "/records/:entity_type/export", :filter}
-             ]
+      resolver = {:resolver, {Letflow.Entities.ScopeResolver, :record_scope}}
+
+      assert Enum.sort(Enum.map(scopes, fn {_router, entry} -> entry end)) ==
+               Enum.sort([
+                 {"GET", "/:id/attachments/:attachment_id/link-content", :tenant_wide},
+                 {"GET", "/memberships", :self_service},
+                 {"GET", "/modules", :self_service},
+                 {"GET", "/resolved", :self_service},
+                 {"POST", "/:id/attachments/:attachment_id/link", :tenant_wide},
+                 {"POST", "/query", :filter},
+                 {"POST", "/query/aggregate", :filter},
+                 {"POST", "/records/:entity_type/export", :filter},
+                 # REQ-518 PR 2c-ii: seven explicit :tenant_wide declarations ...
+                 {"POST", "/definitions/:name/activate", :tenant_wide},
+                 {"POST", "/definitions", :tenant_wide},
+                 {"GET", "/definitions/active/:name", :tenant_wide},
+                 {"GET", "/definitions/by-name/:name", :tenant_wide},
+                 {"GET", "/definitions/:id", :tenant_wide},
+                 {"GET", "/definitions", :tenant_wide},
+                 {"POST", "/restrictions/import", :tenant_wide},
+                 # ... and the eight resolver routes
+                 {"POST", "/records/:entity_type", resolver},
+                 {"PUT", "/records/:entity_type/:record_id", resolver},
+                 {"DELETE", "/records/:entity_type/:record_id", resolver},
+                 {"POST", "/records/:entity_type/import", resolver},
+                 {"POST", "/records/:entity_type/:record_id/attachments", resolver},
+                 {"GET", "/records/:entity_type/:record_id/attachments", resolver},
+                 {"GET", "/records/:entity_type/:record_id/attachments/:attachment_id", resolver},
+                 {"DELETE", "/records/:entity_type/:record_id/attachments/:attachment_id",
+                  resolver}
+               ])
 
       assert scopes |> Enum.map(fn {router, _entry} -> router end) |> Enum.uniq() |> Enum.sort() ==
                Enum.sort([

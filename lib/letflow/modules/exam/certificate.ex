@@ -322,6 +322,7 @@ defmodule Letflow.Modules.Exam.Certificate do
         "branding_snapshot" => branding_snapshot
       }
 
+      # scope-all: SEC-518-R1 (exam module, own-record system path)
       case Records.create_record(
              %{
                entity_type: "certificate",

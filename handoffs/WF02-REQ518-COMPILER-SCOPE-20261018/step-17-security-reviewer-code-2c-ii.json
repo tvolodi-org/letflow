@@ -1,0 +1,136 @@
+{
+  "handoff_id": "d2535518-0518-4c02-9e11-000000000017",
+  "run_id": "WF02-REQ518-COMPILER-SCOPE-20261018",
+  "workflow_id": "WF-02",
+  "step": "17",
+  "from_agent": "ORCH",
+  "to_agent": "SECURITY-REVIEWER",
+  "file": "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-17-security-reviewer-code-2c-ii.json",
+  "created_at": "2026-10-18T08:33:00Z",
+  "started_at": "2026-10-18T08:33:10Z",
+  "completed_at": "2026-10-18T08:34:48Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-518"],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "SECURITY-REVIEWER CODE gate for REQ-518 slice 2c-ii (GH #2535), uncommitted working tree on feature/WF02-REQ518-2CII-WRITES-20261018. Mandatory triggers touched: route_scope.ex, the route snapshot, routers/entities.ex; also tenant-data paths records.ex, scoped_lookup.ex, scoped_writes.ex, scope_resolver.ex. Read-only static review; no mix, no tests run by this reviewer."
+    },
+    "related_handoff_ids": [
+      "d2535518-0518-4c02-9e11-000000000004",
+      "d2535518-0518-4c02-9e11-000000000007",
+      "d2535518-0518-4c02-9e11-000000000012",
+      "d2535518-0518-4c02-9e11-000000000016"
+    ],
+    "artifacts_in": [
+      "handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-16-elixir-dev-2c-ii.json",
+      "lib/letflow/design/req518-compiler-scope-filter.md",
+      "lib/letflow/entities/scoped_lookup.ex",
+      "lib/letflow/entities/scoped_writes.ex",
+      "lib/letflow/entities/scope_resolver.ex",
+      "lib/letflow/entities/records.ex",
+      "lib/letflow/routers/entities.ex",
+      "lib/letflow/api/route_scope.ex",
+      "test/fixtures/route_scope/tenant_wide_default_routes.txt"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ518-2CII-WRITES-20261018"
+  },
+  "task": {
+    "description": "Security code gate for REQ-518 2c-ii against INV-1..INV-10, design r2a (5.1-5.7, 7.1, 7.5, 10.2), design-gate step-04 (R-3, R-5, R-6, C-3, C-5, C-6) and code-gate step-12 F-1; ACs 6-11, 19-20, 23. No edits to lib/ or test/."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "CODE GATE (2c-ii): PASS_WITH_FINDINGS. No BLOCKER in code, no MAJOR. Static review only; runtime and statement-count claims rest on hosted CI and the tests TEST-DESIGNER still owes. One finding (F-1) is a hard merge condition: the seeded walk tests for :unexpected_resolver_route and :data_route_default do not exist yet in the tree (grep over test/ finds none); the rules themselves are present and sound, so the code half of step-12 F-1 is met, but the PR must not merge without the seeded tests. VERIFIED: (1) WRITE ORDER. PUT: ScopeGate.scope_set (marker conn) -> RecordAccess.write (managed 403 unchanged, type-level) -> cast_record_id -> visible_record (ONE predicate statement via ScopedLookup, or a hidden type refused with no statement) -> only then object_body / validate_schema -> pure new-value check -> Idempotency.from_body -> Records. DELETE: cast -> lookup -> only then the query-string parse. So an out-of-scope id and a nonexistent id take the same branch at the same point with the same statements (set read, ScopeDeclaration reads, resolve_binding_source, relation_column_exists?, at most one predicate statement); both answer Response.not_found, same status/body/headers; telemetry [:letflow,:scope,:not_found] metadata is closed atoms %{policy, kind}, kind :by_id for both, no id/node/set/tenant. deleted is not in the predicate so a deleted in-scope row keeps Records' own answers and a deleted out-of-scope row is the same 404. (2) C-3: create and update run ScopedWrites.check_new_value (pure, no I/O) BEFORE Idempotency.from_body and before put_legacy_original, so a replayed key with an out-of-scope value is the generic 404 and never returns the stored id/version; Records re-runs the new value before the transaction and in the :scope_check Multi step. Idempotency keys are namespaced per actor (:rec, actor_id) so a key cannot confirm another caller's record. (3) RACE BACKSTOP. :scope_check is a Multi.run placed after the append steps (type sequence lock, idempotency) and after check_record_version; the old value comes from the row locked FOR UPDATE (check_record_version returns {:ok, locked Latest}, else Latest.get_for_update inside the same transaction), absent row = refused, the new value is the validated document; delete checks old only; create new only. No new lock order: it takes the same row lock upsert_record_latest takes anyway, after the sequence lock; refusal rolls the transaction back before upsert_record_latest. The old value is read from Latest.field_values (JSON) while the by-id lookup reads the per-type table column; both must pass, so divergence can only deny. (4) TYPE GATE R-3/R-6/C-6. write_type_gate: :hidden (denied or absent) and :none and undeclared and :tenant_wide all give :refused before the body is read (create) with Response.not_found; a nonexistent type name and an undeclared type are therefore the same bytes even with an invalid body. Scoped writes to :tenant_wide masters are refused in the router and again in Records.resolve_scope. Type existence is tenant metadata (design 5.3). (5) IMPORT. Structural checks (cap, schema version, type match, upsert_by) precede the scope check; they depend only on the document, not on type or scope, so no oracle. import_scope_check: type gate then check_batch over EVERY entry (a missing field_values is checked as %{} -> refused), any failure = one Response.not_found, nothing written (the check precedes run_import_mode). After a passing pre-check the per-entry create_record gets scope: the same set, so an in-transaction refusal is unreachable (create has no old value, new value identical to the pre-check); were it reached, the per-entry catch-all would answer a constant internal_error type and log only the atom, no ids. Import remains per-record partial success for in-scope rows with per-entry validation failures (design 5.4, pre-existing). RULING ON THE UPSERT DEVIATION: ACCEPTED. A scoped caller using upsert_by external_ref gets the same generic 404 as any refused batch (import_scope_check returns it for mode :upsert before any write); run_import_mode(:upsert) pattern-matches {access, :all}, so the unscoped upsert primitive is structurally unreachable by a scoped set (a scoped set would be a FunctionClauseError, not a write); ImportUpsert.run has exactly one caller. This fails closed and leaks nothing; supporting scoped upsert needs an old-value check inside upsert_record_by_external_ref and is a follow-up, not a precondition. (6) ATTACHMENTS (AC 11). All four handlers call ScopeGate.scope_set first. create: parent gate BEFORE record_attachment_upload_attrs_from_conn (the multipart read), invisible parent = 404 (also for a missing file part), hidden type counted as :attachment_parent. list/content/delete: invisible parent re-enters the existing code with freshly generated ids (visible_or_fresh_id), the same branch a nonexistent parent takes, so status/body/statement shape are those of a nonexistent parent (list = empty 200 page). Tenant-wide callers: parent_visible?(:all) is true with no statement and hide_if_denied unchanged. (7) REVOCATION (AC 10). No cache: the set is memoised only in conn.private for the request (step-12), recomputed per request from live grants and node paths; the cursor carries no set; a scoped import is bound to its request snapshot (R-3 residual, accepted). (8) PRODUCTION REACHABILITY (R-8). ScopeDeclaration resolves a declaration only from module manifests; no production manifest declares one and :scope_declaration_unmanaged_modules is set only in config/test.exs, so in production every type is :undeclared and a scoped caller (tenant in mode on) gets the uniform 404 on every record write, import and record attachment route; unscoped callers (off/shadow or tenant-wide) are byte-for-byte today's path (scope :all, declaration :unscoped, Records adds no step). Fail closed as designed. (9) Records :scope ATTRIBUTE. Every lib/ caller of create_record/update_record/delete_record/upsert_record_by_external_ref outside entities.ex is annotated: exam anti_cheat, certificate, session x3, snapshot (SEC-518-R1), record_deadline_sweep (scheduler, no HTTP user), the seed mix task, ImportUpsert (unreachable for a scoped set, see 5). command_multi callers (step_writes, handler_writes) are engine/system step paths that do not go through resolve_scope (F11, unchanged). Router callers all pass scope:. The comments are justified; the scan test extension is TEST-DESIGNER's. validate_scope! raises ArgumentError on a malformed set (programmer error, internal callers only; no tenant input reaches it: the set is computed server-side). (10) INV-7: the only new query is ScopedLookup.column_lookup; record_id is a bound cast UUID, the id list one bound text array, the column name goes through literal(^column) after the declaration validation and relation_column_exists? (the declaration is module-owned, never tenant input); no Repo.query. (11) ROUTE CLASSES. Fifteen routes reclassified, snapshot numstat 0 added / 15 removed, 137 -> 122 lines (122 confirmed with wc), the removed lines are exactly the E1-E7 and E11-E18 routes below, no other line touched. @expected_resolver_routes lists the eight resolver routes and fails both directions; :data_route_default fails any default-sourced route of Letflow.Routers.Entities; Routers.Tasks correctly NOT yet in @data_routers (adding it now would fail; 2d must add it with its seven classifications). The existing route_scope tests were adjusted so listed routes are used; no assertion removed (diff checked).",
+    "local_issue_id": null,
+    "artifacts_out": ["handoffs/WF02-REQ518-COMPILER-SCOPE-20261018/step-17-security-reviewer-code-2c-ii.json"],
+    "invariants_assessed": {
+      "INV-1": "APPLIES, PASS (tenant data path; every query carries prefix: from prefix!/1 or the Records prefix arg; no migration; no tenant_id column added; the set is computed in the caller's schema)",
+      "INV-2": "APPLIES, PASS (no response map changed; refusals are the generic 404 before any record data is read; redaction and FieldGrants unchanged and run before the scope recheck cannot lift it)",
+      "INV-3": "NOT-APPLICABLE (no Lua/WASM host function)",
+      "INV-4": "APPLIES, PASS (no secret resolved; telemetry and logs carry closed atoms only, no id/node/set/tenant)",
+      "INV-5": "APPLIES, PASS (out-of-scope vs nonexistent: same branch, same statements, same bytes on PUT, DELETE, create-with-value, import and the four attachment routes; C-3 new-value check precedes the idempotency claim; C-6 hidden/undeclared/nonexistent type collapse). Residual, accepted by design 5.2: a declared type issues one lookup statement and an undeclared/tenant_wide type none; this is a type-level difference, not a record-level one. Runtime statement-count equality (T-W1) is owed as a test",
+      "INV-6": "APPLIES, PASS (this handoff plus the AC 23 table below; the 15-row ledger is the proof of scoping per route)",
+      "INV-7": "APPLIES, PASS (bound parameters; literal(^column) on a validated identifier)",
+      "INV-8": "APPLIES, PASS (typed {:ok,_}|:not_found|:refused results throughout; the dead :self_service_not_allowed branch and the me.ex bare match are carried, see advisories)",
+      "INV-9": "NOT-APPLICABLE (no outbound URL)",
+      "INV-10": "APPLIES, PASS (tenant-scope routes only; no platform route or permission atom touched; prefix server-derived; permission_matrix golden unaffected, no permission or role changed)"
+    },
+    "design_gate_followups": {
+      "R-3": "MET in code for the allowlist semantics (no production declaration). T-D8 (allowlist key [] under prod config evaluation) and T-W21 remain owed as tests.",
+      "R-5": "MET (one answer per batch, no count, no per-row detail; check precedes any write). Tests T-W5/T-W23 owed.",
+      "R-6": "MET (refusal before the body is read for create; for PUT/DELETE the by-id lookup answer).",
+      "C-3": "MET in code (pure check before Idempotency.from_body and put_legacy_original). T-W22 replay test and mutant MU39 owed.",
+      "C-5": "MET in code (production reachability, see 8). T-W21 production-shaped refusal owed.",
+      "C-6": "MET in code (hidden/undeclared/nonexistent type same bytes). T-W23 owed.",
+      "step-12 F-1": "CODE HALF MET (rules and committed list present). TEST HALF OPEN: seeded walk tests for :unexpected_resolver_route (both directions) and :data_route_default are absent from the tree; they are a hard merge condition (F-1 below)."
+    },
+    "findings": [
+      {
+        "id": "F-1",
+        "severity": "MINOR",
+        "blocking": true,
+        "title": "seeded walk tests for :unexpected_resolver_route and :data_route_default absent",
+        "detail": "Step-12 F-1 required the two rules plus a committed list in the SAME change that first declares a resolver route, each with a seeded walk test. The rules and @expected_resolver_routes are in route_scope.ex and are correct; the tests are TEST-DESIGNER's turn and do not exist yet (no match in test/ other than a spec comment). Per the pipeline order this is not a code defect, but step-12 made their absence a FAIL of this gate, so it is carried as a blocking merge condition rather than waived.",
+        "required_action": "TEST-DESIGNER adds, via RouteScope.audit_routes/3, seeds for: a {:resolver,_} route not on the list; a listed route mounted with another class; a default-sourced route of an @data_routers router. CI must show them green. No merge without them."
+      },
+      {
+        "id": "F-2",
+        "severity": "MINOR",
+        "blocking": false,
+        "title": "ELIXIR-DEV deviation text overstates the import type-gate position",
+        "detail": "The handoff says the import type gate runs before the body is read; in code import_scope_check runs after object_body and the structural checks, which is what design 5.4 specifies and is not an oracle (those checks do not depend on type or scope). Documentation inaccuracy only.",
+        "required_action": "Correct the PR body and any moduledoc wording; no code change."
+      },
+      {
+        "id": "F-3",
+        "severity": "MINOR",
+        "blocking": false,
+        "title": "behaviour change for scoped callers on record attachments of undeclared/tenant_wide types",
+        "detail": "Under mode on, a scoped caller can no longer list or read attachments of records of any undeclared or :tenant_wide type (uniform 404 / empty page), which is every type in production today (R-8). This is the design (5.5, D6) and fails closed, but it is user-visible for tenants that turn the mode on with scoped grants.",
+        "required_action": "Release note / PR body sentence; no code change. Confirm with the product owner before any tenant is switched to mode on."
+      }
+    ],
+    "conditions_for_merge": [
+      "F-1 tests present and green in hosted CI.",
+      "Tests owed from design 10.2 and not yet existing: T-W1 (statement-count and bytes equality, out-of-scope vs nonexistent, per PUT/DELETE/attachment route, headers and telemetry metadata), T-W5/T-W23 (batch and type-gate byte equality incl. nonexistent type with invalid body), T-W21 (production-shaped refusal), T-W22 (replay of an existing key with an out-of-scope value: create and update, generic 404, no stored id/version in body or headers), the race backstop per class (T-L27: old value changed by a concurrent writer, new value, delete), an import all-or-nothing test (out-of-scope row in first, middle and last position, nothing written, identical answer), the attachment parent gate tests (create 404 before the multipart read incl. missing file part), the scan extension, T-D8, and T-W19 (event and metadata keys). ELIXIR-DEV scratch results do not count as evidence.",
+      "The five-file run (records_test, entities_test, entities_managed_by_test, enforce_test, enforce_backstop_test) was NOT confirmed by ELIXIR-DEV; hosted CI must pass it (Records was changed).",
+      "PR body carries the AC 23 table and verdict sentence below, the 15 removed snapshot lines, and the upsert-refusal sentence: a scoped caller's import with upsert_by external_ref is refused with the generic 404 because the upsert primitive is not scope-aware."
+    ],
+    "advisories": [
+      "A-1: dead :self_service_not_allowed branch (REVIEWER 2c-i-b F-3) remains; harmless, REVIEWER's call.",
+      "A-2: me.ex bare {:ok, memberships} = match (step-04 A-5 / step-12 A-4) still open.",
+      "A-3: 2d must add Letflow.Routers.Tasks to @data_routers and extend @expected_resolver_routes with the task routes in the same change that classifies them, and needs its own SEC code verdict.",
+      "A-4: scoped upsert import is a follow-up (needs an old-value check inside Records.upsert_record_by_external_ref and the same transaction rules as update)."
+    ],
+    "reclassified_routes_ac23": [
+      {"method": "POST", "path": "/entities/definitions/:name/activate", "old_class": "tenant_wide (default)", "new_class": "tenant_wide (declared)", "ledger": "E1"},
+      {"method": "POST", "path": "/entities/definitions", "old_class": "tenant_wide (default)", "new_class": "tenant_wide (declared)", "ledger": "E2"},
+      {"method": "GET", "path": "/entities/definitions/active/:name", "old_class": "tenant_wide (default)", "new_class": "tenant_wide (declared)", "ledger": "E3"},
+      {"method": "GET", "path": "/entities/definitions/by-name/:name", "old_class": "tenant_wide (default)", "new_class": "tenant_wide (declared)", "ledger": "E4"},
+      {"method": "GET", "path": "/entities/definitions/:id", "old_class": "tenant_wide (default)", "new_class": "tenant_wide (declared)", "ledger": "E5"},
+      {"method": "GET", "path": "/entities/definitions", "old_class": "tenant_wide (default)", "new_class": "tenant_wide (declared)", "ledger": "E6"},
+      {"method": "POST", "path": "/entities/restrictions/import", "old_class": "tenant_wide (default)", "new_class": "tenant_wide (declared)", "ledger": "E7"},
+      {"method": "POST", "path": "/entities/records/:entity_type", "old_class": "tenant_wide (default)", "new_class": "resolver (ScopeResolver.record_scope)", "ledger": "E11"},
+      {"method": "PUT", "path": "/entities/records/:entity_type/:record_id", "old_class": "tenant_wide (default)", "new_class": "resolver (ScopeResolver.record_scope)", "ledger": "E12"},
+      {"method": "DELETE", "path": "/entities/records/:entity_type/:record_id", "old_class": "tenant_wide (default)", "new_class": "resolver (ScopeResolver.record_scope)", "ledger": "E13"},
+      {"method": "POST", "path": "/entities/records/:entity_type/import", "old_class": "tenant_wide (default)", "new_class": "resolver (ScopeResolver.record_scope)", "ledger": "E14"},
+      {"method": "POST", "path": "/entities/records/:entity_type/:record_id/attachments", "old_class": "tenant_wide (default)", "new_class": "resolver (ScopeResolver.record_scope)", "ledger": "E15"},
+      {"method": "GET", "path": "/entities/records/:entity_type/:record_id/attachments", "old_class": "tenant_wide (default)", "new_class": "resolver (ScopeResolver.record_scope)", "ledger": "E16"},
+      {"method": "GET", "path": "/entities/records/:entity_type/:record_id/attachments/:attachment_id", "old_class": "tenant_wide (default)", "new_class": "resolver (ScopeResolver.record_scope)", "ledger": "E17"},
+      {"method": "DELETE", "path": "/entities/records/:entity_type/:record_id/attachments/:attachment_id", "old_class": "tenant_wide (default)", "new_class": "resolver (ScopeResolver.record_scope)", "ledger": "E18"}
+    ],
+    "ac23_verdict_sentence": "SECURITY-REVIEWER code gate for REQ-518 2c-ii: PASS_WITH_FINDINGS (no BLOCKER or MAJOR in code; one blocking merge condition on the seeded walk tests for the resolver rules; handoff step-17-security-reviewer-code-2c-ii.json); exactly fifteen routes are reclassified from the default tenant_wide class (seven entity definition/restriction routes to an explicit tenant_wide declaration; the eight entity record write, import and record attachment routes to a resolver class), exactly those fifteen lines are removed from test/fixtures/route_scope/tenant_wide_default_routes.txt (137 to 122), and a scoped caller's import with upsert_by external_ref is refused with the generic 404 because the upsert primitive is not scope-aware.",
+    "required_changes": [],
+    "carry_forward_conditions": [
+      "2d: add Letflow.Routers.Tasks to @data_routers and the task routes to @expected_resolver_routes in the same change; own SEC code verdict with the AC 23 table.",
+      "Any later caller of Records.create_record/update_record/delete_record that acts for an HTTP user must pass scope:; a new unannotated caller breaks the scan test (to be added)."
+    ],
+    "classification": "CODE_PASS_WITH_FINDINGS",
+    "implementation_written": false
+  }
+}
