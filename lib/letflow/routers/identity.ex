@@ -351,14 +351,17 @@ defmodule Letflow.Routers.Identity do
       search = non_empty(Map.get(query, "search"))
 
       # A valid-prefix cursor with a malformed tail is `{:error, :invalid_cursor}`
-      # from Identity (GH 2747) -> the same 400 as a bad prefix, below.
-      with {:ok, %{users: users, next_cursor: next_cursor}} <-
-             Identity.list_users(
-               %{search: search, status: status, cursor: cursor, page_size: page_size},
-               opts
-             ) do
-        page = Pagination.page_response(Enum.map(users, &user_map/1), next_cursor)
-        Response.ok(conn, page)
+      # from Identity (GH 2747); mapped to the same 400 as a bad prefix here.
+      case Identity.list_users(
+             %{search: search, status: status, cursor: cursor, page_size: page_size},
+             opts
+           ) do
+        {:ok, %{users: users, next_cursor: next_cursor}} ->
+          page = Pagination.page_response(Enum.map(users, &user_map/1), next_cursor)
+          Response.ok(conn, page)
+
+        {:error, :invalid_cursor} ->
+          Response.bad_request(conn, "invalid cursor")
       end
     else
       {:error, :status_invalid} ->

@@ -1039,16 +1039,13 @@ defmodule Letflow.Routers.Promotions do
   # Routers.Audit's own "<prefix>:<mint_time_us>:<...>" layout -- the only
   # place this cursor's internal layout is interpreted.
   defp platform_events_seek_from_cursor(inner) do
-    with mint_colon when not is_nil(mint_colon) <- Pagination.find_nth_colon(inner, 2),
-         seq_colon when not is_nil(seq_colon) <- Pagination.find_nth_colon(inner, 3),
-         {:ok, sequence_num} <-
-           Pagination.parse_int_from_cursor(inner, mint_colon + 1, seq_colon - mint_colon - 1),
-         event_id <- binary_part(inner, seq_colon + 1, byte_size(inner) - seq_colon - 1),
-         {:ok, _} <- Ecto.UUID.cast(event_id) do
-      {:ok, {sequence_num, event_id}}
-    else
-      _invalid ->
-        {:error, :invalid_cursor}
+    case Pagination.decode_seek_parts(inner, @platform_events_cursor_prefix, [
+           :skip,
+           :int,
+           :uuid
+         ]) do
+      {:ok, [sequence_num, event_id]} -> {:ok, {sequence_num, event_id}}
+      {:error, :invalid_cursor} -> {:error, :invalid_cursor}
     end
   end
 

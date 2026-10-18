@@ -507,7 +507,7 @@ defmodule Letflow.Instances do
 
   defp decode_seq_cursor(raw, prefix) when is_binary(raw) do
     case Pagination.decode_cursor(raw, prefix, byte_size(prefix)) do
-      {:ok, %Pagination.Cursor{} = cursor} -> {:ok, decode_seq_seek(cursor, prefix)}
+      {:ok, %Pagination.Cursor{} = cursor} -> decode_seq_seek(cursor, prefix)
       {:error, :wrong_endpoint} -> {:error, :wrong_endpoint}
       {:error, :expired} -> {:error, :expired}
       {:error, _invalid_base64_or_invalid_cursor} -> {:error, :invalid_cursor}
@@ -518,11 +518,10 @@ defmodule Letflow.Instances do
   # the real wall-clock timestamp `decode_cursor/4` already validated for
   # expiry; the seek key (`seq`) is everything AFTER it.
   defp decode_seq_seek(%Pagination.Cursor{inner: inner}, prefix) do
-    prefix_len = byte_size(prefix)
-    rest = binary_part(inner, prefix_len, byte_size(inner) - prefix_len)
-    colon_pos = elem(:binary.match(rest, ":"), 0)
-    seq_str = binary_part(rest, colon_pos + 1, byte_size(rest) - colon_pos - 1)
-    String.to_integer(seq_str)
+    case Pagination.decode_seek_parts(inner, prefix, [:skip, :int]) do
+      {:ok, [seq]} -> {:ok, seq}
+      {:error, :invalid_cursor} = error -> error
+    end
   end
 
   defp split_seq_page(rows, page_size, cursor_prefix) when length(rows) > page_size do

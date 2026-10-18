@@ -436,7 +436,13 @@ defmodule Letflow.Api.Pagination do
   end
 
   defp decode_seek_slot(:string, ""), do: {:error, :invalid_cursor}
-  defp decode_seek_slot(:string, part), do: {:ok, part}
+
+  defp decode_seek_slot(:string, part) do
+    if String.valid?(part) and not String.contains?(part, <<0>>),
+      do: {:ok, part},
+      else: {:error, :invalid_cursor}
+  end
+
   defp decode_seek_slot(:uuid, part), do: cast_binary_id_component(part)
 
   defp decode_seek_slot(:int, part) do
