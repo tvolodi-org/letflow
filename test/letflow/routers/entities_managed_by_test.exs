@@ -275,6 +275,30 @@ defmodule Letflow.Routers.EntitiesManagedByTest do
         assert record_count(ctx.schema, type) == 0
       end
     end
+
+    # GH #2659 (design section 1, T8): `upsert_by` does not open a managed type to the HTTP
+    # import; the constant 403 is decided before the body (so before `upsert_by`) is read.
+    test "T-04b: import with upsert_by external_ref on a managed type -> the same constant 403, zero records",
+         ctx do
+      for type <- @six do
+        document =
+          type
+          |> import_document(2)
+          |> Map.put("upsert_by", "external_ref")
+          |> Map.update!("records", fn records ->
+            records
+            |> Enum.with_index()
+            |> Enum.map(fn {entry, i} ->
+              Map.put(entry, "external_ref", %{"system" => "sap", "id" => "#{type}-#{i}"})
+            end)
+          end)
+
+        conn = call_entities(ctx, @admin, :post, "/records/#{type}/import", document, [])
+
+        assert_managed!(conn, "upsert import #{type}")
+        assert record_count(ctx.schema, type) == 0
+      end
+    end
   end
 
   describe "T-05 (AC1): neither request data nor request shape changes the answer" do

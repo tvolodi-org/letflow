@@ -120,7 +120,13 @@ defmodule Letflow.Api.Authorization do
     from `:EntitiesRecordsWrite` — not a policy-key-only divergence mapped
     back onto it the way `:DefinitionsImport` maps back onto
     `:DefinitionsWrite` above (design §5 states why bulk record import is
-    materially riskier than a single `create_record/2` call).
+    materially riskier than a single `create_record/2` call). GH #2659: with
+    the optional request member `upsert_by: "external_ref"` this one grant
+    also covers UPDATING existing records by external ref within the type;
+    there is no second permission check. That is only free of escalation
+    while every role holding Import also holds `:EntitiesRecordsWrite`, which
+    `test/letflow/api/gh2659_import_implies_write_test.exs` pins over the
+    effective-permission golden.
 
   Per design §5, this requirement deliberately adds **no** new
   `role_allows?/2` clause for `PROCESS_DESIGNER`, `PROCESS_OPERATOR`, or

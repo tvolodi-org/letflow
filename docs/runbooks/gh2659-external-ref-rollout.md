@@ -22,9 +22,10 @@ transaction) and use guarded DDL (`ADD COLUMN IF NOT EXISTS`; the CHECK added on
 ## 1. Deploy order (must hold)
 
 **migrations (a)(b) -> `ENTITY_RECORD_CREATED` v2 registered in every tenant -> code that writes
-a ref.**
+a ref.** Deploy ALL nodes before ANY client sends `upsert_by`: an old node ignores the unknown
+member and runs a create-only import, which creates duplicates (see section 2).
 
-PR-1 ships the first two and no writer. PR-2 and PR-3 merge after it. Do not deploy PR-3 (the
+PR-1 ships the first two and no writer. PR-2 (the primitive) and PR-3 (the route) merge after it. Do not deploy PR-3 (the
 `upsert_by` route) to an environment until step 3 below confirms every tenant is at v2: the
 router answers a constant 503 `event_schema_outdated` for a tenant still below v2, but the
 correct order makes that unreachable.
@@ -168,6 +169,22 @@ that tenant.
 
 Migration (a) has no concurrent route of its own: the columns are catalog-only and only the CHECK
 validation scan is long, which step 2 replaces.
+
+## 4a. Using the route (PR-3)
+
+`POST /api/v1/entities/records/:entity_type/import` with `"upsert_by": "external_ref"` is the seed
+path (guide `docs/guides/backend_developer_guide.md` section 9). Operator notes:
+
+- A tenant still below `ENTITY_RECORD_CREATED` v2 answers the whole request 503
+  `event_schema_outdated` with nothing written; the fix is the replay of section 3, then retry.
+- Send a large seed as several requests of at most 200 entries. A partly failed file is safe to
+  re-send whole: refs already imported come back `unchanged`.
+- The importing user must hold every restricted field of the type (a field grant), or an entry
+  that matches an existing ref is refused `field_restricted`; a type-denied user gets the same 404
+  as for an unknown type.
+- A soft-deleted ref answers `external_ref_record_deleted`; it is never revived.
+- Module-managed types are refused (constant 403) by this route; the owning module calls the
+  primitive directly.
 
 ## 5. Not covered
 
