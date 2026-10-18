@@ -41,6 +41,9 @@ defmodule Letflow.Api.Gh2659ImportImpliesWriteTest do
 
   test "the authorization moduledoc records that upsert is within Import's remit" do
     {:docs_v1, _, _, _, %{"en" => doc}, _, _} = Code.fetch_docs(Letflow.Api.Authorization)
-    assert doc =~ "upsert_by"
+    flat = String.replace(doc, ~r/\s+/, " ")
+
+    assert flat =~
+             "with the optional request member `upsert_by: \"external_ref\"` this one grant also covers UPDATING existing records by external ref within the type; there is no second permission check"
   end
 end

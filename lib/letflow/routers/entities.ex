@@ -1227,7 +1227,8 @@ defmodule Letflow.Routers.Entities do
   #      import above, byte-identical to before; "external_ref" -> the
   #      idempotent upsert (`Letflow.Entities.ImportUpsert`); other -> 422.
   #
-  # Only after all three pass does any entry reach `create_record/2`.
+  # Only after checks 1-3 pass does the body reach an entry. Check 4 only selects
+  # the mode: absent -> `create_record/2` per entry, "external_ref" -> the upsert.
   @record_export_schema_version "entities/record-export/v1"
 
   defp handle_import_records(conn, entity_type) do
@@ -1500,14 +1501,9 @@ defmodule Letflow.Routers.Entities do
   end
 
   # GH #2659 upsert mode: constant reasons, never the ref or the type name.
-  defp import_reason_json(reason)
-       when reason in [
-              :external_ref_invalid,
-              :external_ref_record_deleted,
-              :external_ref_contention,
-              :duplicate_external_ref_in_request,
-              :field_restricted
-            ] do
+  @upsert_error_reasons ImportUpsert.error_reasons()
+
+  defp import_reason_json(reason) when reason in @upsert_error_reasons do
     %{"type" => Atom.to_string(reason)}
   end
 

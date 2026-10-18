@@ -22,7 +22,8 @@ transaction) and use guarded DDL (`ADD COLUMN IF NOT EXISTS`; the CHECK added on
 ## 1. Deploy order (must hold)
 
 **migrations (a)(b) -> `ENTITY_RECORD_CREATED` v2 registered in every tenant -> code that writes
-a ref.**
+a ref.** Deploy ALL nodes before ANY client sends `upsert_by`: an old node ignores the unknown
+member and runs a create-only import, which creates duplicates (see section 2).
 
 PR-1 ships the first two and no writer. PR-2 (the primitive) and PR-3 (the route) merge after it. Do not deploy PR-3 (the
 `upsert_by` route) to an environment until step 3 below confirms every tenant is at v2: the

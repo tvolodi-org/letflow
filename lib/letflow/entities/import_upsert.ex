@@ -49,6 +49,29 @@ defmodule Letflow.Entities.ImportUpsert do
   @created_event_type "ENTITY_RECORD_CREATED"
   @min_created_schema_version 2
 
+  # The constant reasons this module itself produces (the router renders them as
+  # `{"type": reason}` without detail). A reason added here is rendered by the router
+  # automatically; one added to the type below but not to this list would fall through
+  # to the router's `internal_error`, so keep the two together.
+  @error_reasons [
+    :external_ref_invalid,
+    :external_ref_record_deleted,
+    :external_ref_contention,
+    :duplicate_external_ref_in_request,
+    :field_restricted
+  ]
+
+  @type import_error_reason ::
+          :external_ref_invalid
+          | :external_ref_record_deleted
+          | :external_ref_contention
+          | :duplicate_external_ref_in_request
+          | :field_restricted
+
+  @doc "The closed list of `t:import_error_reason/0` atoms."
+  @spec error_reasons() :: [import_error_reason()]
+  def error_reasons, do: @error_reasons
+
   @type entry_result ::
           {:ok,
            %{

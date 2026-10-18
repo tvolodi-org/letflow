@@ -337,7 +337,11 @@ top-level member `"upsert_by": "external_ref"`; design
 
 - **Without `upsert_by` nothing changes**: create-only import, same response, an entry
   `external_ref` is ignored (no ref is stored). Any `upsert_by` value other than the string
-  `"external_ref"` (null included) is a 422.
+  `"external_ref"` (null included) is a 422. This is a deliberate change of behaviour: before this
+  change an unknown top-level member such as `"upsert_by": null` or `"upsert_by": "other"` was
+  silently ignored; a client that sent one now gets the 422 (checked before the type pre-check,
+  so it also wins over a 404 for an unknown type). A malformed entry `external_ref` WITHOUT
+  `upsert_by` is still ignored (200, created without a ref).
 - **Request**: each entry is `{"external_ref": {"system", "id"}, "field_values": {...}}`.
   `system` is a lower-case slug (1..64 bytes, `[a-z0-9][a-z0-9._-]*`); `id` is a string of
   1..255 bytes (numeric source ids are sent as strings). `record_id` on an entry stays echo-only.

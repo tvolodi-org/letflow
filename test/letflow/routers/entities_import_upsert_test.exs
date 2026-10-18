@@ -481,19 +481,26 @@ defmodule Letflow.Routers.EntitiesImportUpsertTest do
       |> Letflow.Routers.Entities.call(Letflow.Routers.Entities.init([]))
     end
 
-    test "two imports of the same refs behind a barrier leave exactly one record per ref" do
+    # A soak/integration check of the route, not the proof of the race arbiter: the deterministic
+    # forced overlap (a third connection holds the type's sequence row, two creates queue, one
+    # wins by the partial unique index, the other converges; deadlock and lock-timeout observed
+    # through Repo telemetry) lives in the PR-2 domain test `records_upsert_by_external_ref_test.exs`
+    # (describe "T5: concurrency"), which is what kills a naive check-then-insert. Here the second
+    # import sends the SAME refs in REVERSE order so the two requests contend on each ref from
+    # opposite ends; the HTTP layer must not add a 5xx or a duplicate on top of that.
+    test "two imports of the same refs, one reversed, behind a barrier leave exactly one record per ref" do
       ctx = tenant_ctx("gh2659-t5")
       seed_type!(ctx, "customer")
       file = for i <- 1..6, do: entry("sap", "#{i}", "N#{i}")
       parent = self()
 
       tasks =
-        for n <- 1..2 do
+        for {n, entries} <- [{1, file}, {2, Enum.reverse(file)}] do
           Task.async(fn ->
             send(parent, {:ready, n})
 
             receive do
-              :go -> import_direct!(ctx, "customer", file)
+              :go -> import_direct!(ctx, "customer", entries)
             after
               10_000 -> :no_go
             end
@@ -824,6 +831,155 @@ defmodule Letflow.Routers.EntitiesImportUpsertTest do
                        ]}
 
       refute String.downcase(log) =~ @marker
+    end
+  end
+
+  describe "no echo, extended: more reasons, create/update paths, whole-request bodies" do
+    test "field_restricted, record_payload_invalid, 413, 422 and 503 never carry the ref; no warning log does" do
+      ctx = tenant_ctx("gh2659-leak2")
+      seed_type!(ctx, "customer", [%{name: "credit_limit", type: :string}])
+      sys = "#{@marker}-sys"
+      id = "#{@marker}-id-888"
+
+      log =
+        capture_log([level: :warning], fn ->
+          # create and update paths (an ok entry echoes its own ref by design; the log must not)
+          assert outcomes(
+                   import!(ctx, "customer", [entry(sys, id, "A", %{"credit_limit" => "1"})])
+                 ) ==
+                   ["created"]
+
+          assert outcomes(
+                   import!(ctx, "customer", [entry(sys, id, "B", %{"credit_limit" => "1"})])
+                 ) ==
+                   ["updated"]
+
+          invalid =
+            import!(ctx, "customer", [
+              %{"external_ref" => ref(sys, id <> "2"), "field_values" => %{}}
+            ])
+
+          insert_restriction!(ctx, "customer", "credit_limit")
+
+          restricted_key =
+            import!(ctx, "customer", [entry(sys, id <> "3", "C", %{"credit_limit" => "1"})])
+
+          restricted_existing =
+            import!(ctx, "customer", [entry(sys, id, "B", %{"credit_limit" => "1"})])
+
+          assert outcomes(invalid) == ["record_payload_invalid"]
+          assert outcomes(restricted_key) == ["field_restricted"]
+          assert outcomes(restricted_existing) == ["field_restricted"]
+
+          for conn <- [invalid, restricted_key, restricted_existing] do
+            refute String.downcase(conn.resp_body) =~ @marker, conn.resp_body
+          end
+
+          # whole-request answers
+          too_many =
+            import!(ctx, "customer", for(_ <- 1..201, do: entry(sys, id, "N")))
+
+          bad_upsert =
+            request(
+              :post,
+              "/api/v1/entities/records/customer/import",
+              ctx,
+              Map.put(document("customer", [entry(sys, id, "A")], false), "upsert_by", "other")
+            )
+
+          Repo.update_all(
+            from(e in "event_type_registry", where: e.name == "ENTITY_RECORD_CREATED"),
+            [set: [schema_version: 1]],
+            prefix: ctx.schema_name
+          )
+
+          outdated = import!(ctx, "customer", [entry(sys, id, "A")])
+
+          assert {too_many.status, bad_upsert.status, outdated.status} == {413, 422, 503}
+
+          for conn <- [too_many, bad_upsert, outdated] do
+            refute String.downcase(conn.resp_body) =~ @marker, conn.resp_body
+          end
+        end)
+
+      refute String.downcase(log) =~ @marker
+    end
+  end
+
+  describe "review follow-ups: boundaries and ordering" do
+    test "WITHOUT upsert_by a malformed external_ref is still ignored: 200 and created" do
+      ctx = tenant_ctx("gh2659-f2")
+      seed_type!(ctx, "customer")
+
+      conn =
+        import!(
+          ctx,
+          "customer",
+          [%{"external_ref" => "not-a-map", "field_values" => %{"customer_name" => "A"}}],
+          false
+        )
+
+      assert [%{"status" => "ok"}] = results(conn)
+      assert [%{external_system: nil, external_id: nil}] = rows(ctx, "customer")
+    end
+
+    test "exactly 200 entries are accepted (the cap boundary)" do
+      ctx = tenant_ctx("gh2659-cap")
+      seed_type!(ctx, "customer")
+      entries = for i <- 1..200, do: entry("sap", "#{i}", "N#{i}")
+
+      conn = import!(ctx, "customer", entries)
+      assert length(results(conn)) == 200
+      assert Enum.all?(results(conn), &(&1["outcome"] == "created"))
+      assert length(rows(ctx, "customer")) == 200
+    end
+
+    test "a malformed first-entry ref on an allowed type is 200 with a per-entry error" do
+      ctx = tenant_ctx("gh2659-first")
+      seed_type!(ctx, "customer")
+
+      conn =
+        import!(ctx, "customer", [
+          %{"external_ref" => "not-a-map", "field_values" => %{}},
+          entry("sap", "1", "A")
+        ])
+
+      assert outcomes(conn) == ["external_ref_invalid", "created"]
+    end
+
+    test "an invalid upsert_by is a 422 even on an unknown type (the mode check precedes the type pre-check)" do
+      ctx = tenant_ctx("gh2659-order")
+
+      body =
+        Map.put(
+          document("nonexistent_type", [entry("sap", "1", "A")], false),
+          "upsert_by",
+          "other"
+        )
+
+      assert request(:post, "/api/v1/entities/records/nonexistent_type/import", ctx, body).status ==
+               422
+    end
+
+    test "two changed entries both get a new UPDATED event" do
+      ctx = tenant_ctx("gh2659-two-updates")
+      seed_type!(ctx, "customer")
+
+      assert outcomes(import!(ctx, "customer", [entry("sap", "1", "A"), entry("sap", "2", "B")])) ==
+               ["created", "created"]
+
+      before = event_count(ctx)
+
+      assert outcomes(
+               import!(ctx, "customer", [entry("sap", "1", "A2"), entry("sap", "2", "B2")])
+             ) == ["updated", "updated"]
+
+      assert event_count(ctx) == before + 2
+
+      assert Enum.take(Enum.reverse(types(ctx)), 2) == [
+               "ENTITY_RECORD_UPDATED",
+               "ENTITY_RECORD_UPDATED"
+             ]
     end
   end
 end
