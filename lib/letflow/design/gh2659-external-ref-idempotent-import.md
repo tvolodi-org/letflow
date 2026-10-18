@@ -31,7 +31,7 @@ existing generic import route. Reasons:
    (`guard_tenant_write`, `entities.ex:2899-2906`, via `ManagedTypes.check_tenant_write/2`, `entities/managed_types.ex:248-256`),
    so the HTTP import cannot reach a managed type. If the WMS masters end up module-managed, the module's write handler
    (REQ-501 mechanism) calls the SAME core primitive with its `Owner` authority (the `authority` argument of
-   `create_record/3`, `records.ex:325-332`). One implementation, two callers (OQ-1).
+   `create_record/3`, `records.ex:325-332`). One implementation, two callers (OQ-1, resolved: the WMS masters are tenant-owned, so the HTTP route serves them; ledger/movement types are module-managed; no code branch on it).
 
 Rejected: a module-only importer (duplicates the race logic; no D12 seed path); a new route (second permission surface).
 
@@ -58,7 +58,7 @@ a top-level optional `"external_ref"` object, NOT inside `field_values`.**
 Plan (rev 3): **two migration files, two manifest entries**, so each runs in its own Ecto DDL transaction and no lock is held across both scans. Inside one DDL transaction `ADD COLUMN` takes ACCESS EXCLUSIVE and holds it to commit, which would cover the CHECK validation scan and the index build and block reads; `NOT VALID` + `VALIDATE` only helps "if the DDL transaction is lifted" (`priv/repo/migrations/20261017100001_add_catalog_endpoint_url_reserved_ref_guard.exs:18-19`), and the manifest runner (`Ecto.Migrator.run(Repo, migrations, :up, all: true, prefix: ...)`, `tenant_provisioning.ex:387-410`) lifts nothing.
 * **Migration (a)** (columns + CHECK): `ADD COLUMN` x2 nullable, no default (catalog-only, no rewrite), and `CHECK ((external_system IS NULL) = (external_id IS NULL))` named `entity_record_latest_external_ref_pair_chk`, a plain constraint in the same transaction (no `NOT VALID` step: it would add nothing inside one transaction). Cost: ACCESS EXCLUSIVE on that tenant's `entity_record_latest` for ONE validation scan (every row is NULL/NULL, so it passes); that tenant's reads and writes wait for it.
 * **Migration (b)** (index): partial unique index `entity_record_latest_external_ref_idx` on `(entity_type, external_system, external_id)` `WHERE external_id IS NOT NULL`, plain `CREATE INDEX` (NOT `CONCURRENTLY`, which cannot run in the manifest's transaction). Cost: SHARE lock (blocks writes, not reads) for ONE scan; the index holds zero rows. Separate transactions mean the ACCESS EXCLUSIVE and SHARE windows never overlap.
-* Boot-time cost: per tenant, one short ACCESS EXCLUSIVE scan and one short SHARE scan of its own `entity_record_latest`. Accepted for expected tenant sizes (seconds at most); an operator can run the boot replay in a maintenance window for a very large tenant (OQ-10: acceptable?).
+* Boot-time cost: per tenant, one short ACCESS EXCLUSIVE scan and one short SHARE scan of its own `entity_record_latest`. Accepted for expected tenant sizes (seconds at most); an operator can run the boot replay in a maintenance window for a very large tenant (OQ-10 resolved: accepted with the mandatory `lock_timeout` below).
 * No backfill.
 * No `deleted` predicate on the index (section 4.4). Two systems with the same id differ in `external_system`; the entity type is in the key.
 
@@ -249,18 +249,27 @@ Merge order PR-1 -> PR-2 -> PR-3 (the rollout order of 2.4 is thereby structural
 Risks: optimistic loop under heavy contention (bounded, fallback 4.2); index build SHARE lock on a large tenant table (single scan; accepted); `unchanged` writes no event (by design); rolling-deploy duplicate window for an upsert request on an old node (5.5, mitigated by rollout order and operational rule); a future writer of `entity_record_latest` that skips the ref (guarded by T10).
 
 Open questions for the supervisor:
-* OQ-1: are the WMS masters tenant-owned types (HTTP import reaches them) or module-managed (only the module handler, via the same primitive)?
-* OQ-2: a re-import of a soft-deleted ref is refused per entry (this design); revive instead would need a new event type.
-* OQ-3: expose `external_ref` in query/export rows and as a filter (IN-06, MD-01 will need it)? Out of scope here.
-* OQ-4: a client-supplied expected version per entry? Not in this design.
-* OQ-7: should single `POST`/`PUT` accept `external_ref`? Not in scope; the primitive supports it.
-* OQ-9: accept the rolling-deploy duplicate window of 5.5, or require a distinct request marker (which means a version-gate change)?
-(Resolved in this revision: permission model (7), ref-less entries (5.1), entry ref without `upsert_by` (5.1), schema-version bump (5.5).)
-* OQ-10: is the boot-time lock cost of 2.1 (one ACCESS EXCLUSIVE scan and one SHARE scan per tenant, each in its own transaction) acceptable, or should the replay be run in a maintenance window?
-* OQ-11: align the plain `POST`/`PUT`/non-upsert import with the upsert-mode TypeAccess and field-restriction checks (4.5)? Separate issue.
+**RESOLVED (supervisor 2026-10-18):**
+* OQ-1 RESOLVED: assume the WMS masters (items, locations, partners) are TENANT-OWNED; only ledger/movement types are module-managed (0054/0057). The design works for both and has no code branch on it (the primitive takes `authority`; the HTTP route serves tenant-owned types).
+* OQ-2 RESOLVED: REFUSE a soft-deleted external ref with the typed error `external_ref_record_deleted`; no silent revive. Revive may be a later, explicit operation (own issue and event type).
+* OQ-9 RESOLVED (accepted): the rolling-deploy duplicate window of 5.5 is accepted; a runbook requirement is added to PR scope (section 12).
+* OQ-10 RESOLVED (accepted): ACCESS EXCLUSIVE for one scan per tenant at current sizes, with a mandatory `lock_timeout` (section 2.1) and the runbook/inventory requirements of section 12.
+* OQ-11 RESOLVED: YES, aligning the plain `POST`/`PUT`/non-upsert import with the upsert-mode `TypeAccess` and field-restriction checks is a SEPARATE issue (letflow-2 files it). This design keeps a pointer only; it changes nothing outside upsert mode.
+
+**Deferred (not decided here):**
+* OQ-3: expose `external_ref` in query/export rows and as a filter (IN-06, MD-01 will need it). Out of scope.
+* OQ-4: a client-supplied expected version per entry. Not in this design.
+* OQ-7: should single `POST`/`PUT` accept `external_ref`. Not in scope; the primitive supports it.
 
 ## 11. Notes for ELIXIR-DEV (test fallout)
 
 * Adding `external_system`/`external_id` to the projector `snapshot()` map (`projector.ex:90`) and to `Latest` can break exact-map assertions in `test/letflow/entities/record/projector_test.exs` and any test comparing a whole `%Latest{}`/snapshot; update them in PR-1.
 * Any test asserting the `seed!/1` result shape or the registered `ENTITY_RECORD_CREATED` `schema_version` (now 2 on fresh tenants, with no v1 row) must be updated in PR-1; `seed!/1` itself is unchanged.
 * The tenant-provisioning manifest count/ordering tests change by two entries (migrations a and b).
+
+## 12. Rulings folded in (supervisor 2026-10-18): lock_timeout, runbook, inventory
+
+* **`lock_timeout` on BOTH migrations (fail fast).** Each migration (a) and (b) sets `SET LOCAL lock_timeout = '5s'` as its first statement inside its own DDL transaction (so the setting dies with the transaction and leaks nowhere; it is the value, `5s`, the build may tune with REVIEWER sign-off). If the lock cannot be taken within 5 s, the statement fails with `lock_not_available`, the migration rolls back whole and records nothing, and the per-tenant replay reports `{:error, {:migration_failed, _}}` for that tenant only; the migration is retried by the NEXT boot replay (ISS-0771 re-runs every unapplied manifest entry), so a busy tenant is skipped, not blocked, and never half-migrated. No `statement_timeout` is set (the scans are the intended work). Test: with a second connection holding a conflicting lock on a tenant's `entity_record_latest`, migration (a) fails within about the timeout and the table is unchanged; after release the replay applies it.
+* **Runbook (PR-1 scope, deliverable):** a new `docs/runbooks/gh2659-external-ref-rollout.md` (beside `docs/runbooks/definition-security-fix-rollout.md`) stating: (1) the deploy-order rule **migrations (a)(b) -> `ENTITY_RECORD_CREATED` v2 registered in every tenant -> code that writes a ref**; (2) **never let old nodes write during the import cutover**: the one-time seed (D12) runs only after the deploy has completed on ALL nodes, because an old node ignores `upsert_by` and would create duplicates (5.5); verification step = every node reports the new version and `max_schema_version(CREATED) == 2` for the tenant; (3) a failed lock-timeout migration is retried by the next boot replay, and how to confirm it applied; (4) **large tenants**: before the first real environment, a tenant whose `entity_record_latest` is large needs the CONCURRENT-index route first (create the index by hand with `CREATE UNIQUE INDEX CONCURRENTLY ... WHERE external_id IS NOT NULL` under the same name outside the migration transaction, then let migration (b) become a no-op through an `IF NOT EXISTS` guard); the migration (b) text therefore uses `CREATE UNIQUE INDEX IF NOT EXISTS`. Migration (a) has no concurrent route (the columns are catalog-only; only the CHECK scan is long), so large tenants add the CHECK as `NOT VALID` by hand first and (a) uses `ADD CONSTRAINT IF NOT EXISTS`-equivalent guarded DDL (`DO` block checking `pg_constraint`).
+* **Row-count inventory (prerequisite note, PR-1 scope):** infra produces a per-tenant row count of `entity_record_latest` for every real environment BEFORE the migrations are deployed there; the runbook records the threshold above which a tenant takes the concurrent route. Not a code change; a deploy gate recorded in the PR-1 description and the runbook.
+* **PR scope deltas:** PR-1 gains the two `lock_timeout` statements and their test, the `IF NOT EXISTS` guards, the runbook file, and the inventory prerequisite note.
