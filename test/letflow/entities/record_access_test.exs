@@ -240,4 +240,24 @@ defmodule Letflow.Entities.RecordAccessTest do
                RecordAccess.hidden_result("x")
     end
   end
+
+  describe "attachment/3 (PR B)" do
+    test "I4: open for an unrestricted or an absent type, hidden iff TypeAccess denies", ctx do
+      assert RecordAccess.attachment(ctx.user_id, "customer", ctx.schema) == :open
+      assert RecordAccess.attachment(ctx.user_id, "no_such_type", ctx.schema) == :open
+
+      insert_type_restriction!(ctx.schema, "customer")
+      assert RecordAccess.attachment(ctx.user_id, "customer", ctx.schema) == :hidden
+      assert RecordAccess.attachment(ctx.user_id, "no_such_type", ctx.schema) == :open
+    end
+
+    test "a failed read is :hidden (fail closed)", ctx do
+      assert RecordAccess.attachment(ctx.user_id, "customer", "no_such_schema") == :hidden
+    end
+
+    test "I4: performs exactly one gate read (TypeAccess), none of the other three", ctx do
+      calls = traced_calls(fn -> RecordAccess.attachment(ctx.user_id, "customer", ctx.schema) end)
+      assert calls == [{Letflow.Entities.TypeAccess, :authorized?, 3}]
+    end
+  end
 end
