@@ -440,17 +440,20 @@ defmodule Letflow.SchedulerTest do
     test "the first of two due timers fails (no active instance to append its event against); the second still fires" do
       %{schema_name: schema_name} = provisioned_tenant()
 
-      # No instance_projections row exists for this instance_id at all --
-      # Letflow.EventStore.append/2's own active_instance_guard step
-      # (verified in event_store.ex) returns {:error, :instance_not_started}
-      # for it, which fire_timer/2's own `Repo.rollback/1` surfaces as a
-      # normal {:error, _} return from `Repo.transaction/1` -- exactly the
-      # class of failure attempt_fire/2's `{:error, _reason} ->` branch
-      # exists to handle (design §2.5 step 3), the same branch a genuine
-      # raised exception is converted into by attempt_fire/2's own outer
-      # try/rescue before reaching it. See "AC6: a raise inside fire_timer/2
-      # itself never escapes attempt_fire/2" below for the raise-specific
-      # half of this acceptance criterion.
+      # No instance_projections row exists for this instance_id at all, so
+      # fire_timer/2's lock prelude (Letflow.Engine.lock_for_timer_fire/3, GH #2707)
+      # finds no projection row to lock and returns `{:error, :instance_not_found}`
+      # before the timer row is even locked (formerly EventStore.append/2's own
+      # active_instance_guard `{:error, :instance_not_started}`). fire_timer/2's
+      # `Repo.rollback/1` surfaces it as a normal {:error, _} return from
+      # `Repo.transaction/1` -- still a COUNTED failure, exactly the class
+      # attempt_fire/2's `{:error, _reason} ->` branch exists to handle (design §2.5
+      # step 3), the same branch a genuine raised exception is converted into by
+      # attempt_fire/2's own outer try/rescue before reaching it. A projection that
+      # EXISTS but is not :active is a different case: its timers are settled, not
+      # counted (test/letflow/scheduler_dead_instance_timer_test.exs). See "AC6: a
+      # raise inside fire_timer/2 itself never escapes attempt_fire/2" below for the
+      # raise-specific half of this acceptance criterion.
       failing_instance_id = Ecto.UUID.generate()
 
       failing_timer =

@@ -1,6 +1,6 @@
 # 0061 -- Engine row-lock order is a platform invariant: one global order for every write path
 
-Status: Accepted: ruled by the supervisor (2026-10-18, rev 4 of the GH #2704 design); drafted by CODE-DESIGNER. Implementation: GH #2704 (PR-1), #2709, #2708, #2705 (proof), #2706 (PR-1: cancel's post-`P_x` open-tasks re-read; see "Amended (GH #2706, PR-1)" below), then #2707 under its own note.
+Status: Accepted: ruled by the supervisor (2026-10-18, rev 4 of the GH #2704 design); drafted by CODE-DESIGNER. Implementation: GH #2704 (PR-1), #2709, #2708, #2705 (proof), #2706 (PR-1: cancel's post-`P_x` open-tasks re-read; see "Amended (GH #2706, PR-1)" below), then #2707 PR-1 to PR-3 under its own note (PR-1: the timer fire and cancel's timer step; see "Amended (GH #2707, PR-1)" below).
 
 Date: 2026-10-18
 
@@ -35,7 +35,7 @@ The engine serialises concurrent writers with Postgres row locks, not with proce
 * Rejected: entity-type rows before the ancestor group (a parent's own completion takes its projection second, so child-versus-parent-completion would stay inverted for good); a global audit-last rule (would move 0054 D3 rules 5 and 6 and every audit position for no gain, since the audit row and the type rows are ordered by this record).
 
 ## Open
-* The lock mode for child timer fires (FOR UPDATE on the immediate parent is recommended, because the hop chain that says whether the timer completes the child runs after the first event append): to be settled in the #2707 note, which then amends this record only if it must.
+* The lock mode for child timer fires (FOR UPDATE on the immediate parent is recommended, because the hop chain that says whether the timer completes the child runs after the first event append): to be settled in the #2707 note, which then amends this record only if it must. CLOSED by "Amended (GH #2707, PR-1)" item 2 (key share).
 
 ## Amended (GH #2709, PR-2)
 The foreign-key mechanism named above as unconfirmed is CONFIRMED by the GH #2709 probe: the FK check on an UPDATE of the referencing row runs when the old row version was written by the current transaction (xmin equal to the current xid; `RI_FKey_fk_upd_check_required`), so the SECOND UPDATE of a row within one transaction (or an UPDATE of a row inserted in the same transaction) queues `KEY SHARE` on the parent token and the parent projection; the first UPDATE of a previously committed row takes none. GH #2709 therefore shipped a lib change (the ExecutionError landing locks the group `FOR KEY SHARE`). Rule 2 is unchanged. The group is found through the WAITING parent token, so the guarantee covers a waiting parent only.
@@ -45,3 +45,52 @@ The direct cancel of a child is two-UPDATE shaped (the INSTANCE_CANCELLED append
 
 ## Amended (GH #2706, PR-1)
 Rule 1 gains one exception, stated precisely: class 1 (the instance's own `tasks`, timer and dispatch rows) is normally taken before `P_x` and never after it. `cancel_instance/3` takes the `tasks` rows of class 1 before `P_x` as before, and ADDITIONALLY reads the instance's pending `tasks` a second time after `P_x` and the ancestor group, with `SELECT ... FOR UPDATE SKIP LOCKED`. This second read is a non-waiting read of class 1 after `P_x` and is the only such read allowed: it cannot create a wait edge, and it is complete because every task insert needs `KEY SHARE` on `P_x` through the immediate foreign key `tasks.instance_id -> instance_projections`, which a held `P_x FOR UPDATE` blocks. A pending task row that the second read must have but cannot lock (it is held by another transaction, usually one that is queued behind `P_x`, such as a completer; a row held only by `FOR KEY SHARE`, e.g. by a concurrent foreign-key insert, is also skipped and costs one extra bounded retry) is never waited for: the transaction aborts, rolls back and is retried a bounded number of times (3 attempts, within one lock-timeout constant of the first attempt's start), after which it reports a typed retryable contention error. Any other path that must read class 1 after `P_x` follows the same rule (non-waiting, abort and retry on a skipped row) or amends this record. Rule 2 (modes) is unchanged. Rule 6 no longer lists "cancel's open-tasks snapshot taken before the projection lock" as an exception. Timers and dispatch rows armed between cancel's class-1 UPDATEs and its `P_x` lock remain an exception, tracked by a separate issue (they are benign for correctness and cost only repeated no-op polls).
+
+## Amended (GH #2707, PR-1)
+1. **Timer rows are P-protected.** Rule 1 item 1 is amended: it is the instance's own `tasks` rows and its
+   dispatch / script-CAS rows, taken before `P_x`; `timers` rows are NOT part of it (this supersedes the
+   parenthetical "the pair cannot cycle because tasks are contended only by completers and cancel": tasks
+   are contended by completers, cancel AND the escalation fire, and the three take the task row first, so
+   they serialise on it). The instance's own `timers` rows, like its tokens, are touched ONLY while `P_x`
+   is held `FOR UPDATE`, and their order among themselves and against the live tokens is unconstrained
+   (every waiter on them already owns `P_x`). Against the other classes a path that takes them takes
+   them after the entity-type rows and before the audit chain row and the sequence rows. The paths:
+   `Scheduler.fire_timer/2` (through `Engine.lock_for_timer_fire/3`), the tail of `complete_task/3`, the
+   escalation fire's reminder cancellation, `cancel_instance/3` (its timer UPDATE moves after `P_x`, the
+   ancestor group and the open-tasks recheck). Two statements do not hold `P_x` and are the only
+   exceptions: `Scheduler.claim_due_timer_ids/2` (an autocommit `SKIP LOCKED` read; the lock lasts one
+   statement and nothing waits on it) and `Scheduler.record_fire_failure/2` (its own transaction, holds the
+   timer row alone and waits for no other lock). Consequence: timer rows of one instance can never be
+   waited for in a cycle; timers armed while a cancel waits for `P_x` are cancelled by it; dispatch and
+   script-CAS rows armed in that window remain the only cancel exception (this replaces the sentence of
+   "Amended (GH #2706, PR-1)" that lists timers and dispatch rows).
+2. **The fire path.** A timer fire takes, in this order: the pending `tasks` rows of the timer's token
+   (escalation timers only; the same relative order as `complete_task/3` and `cancel_instance/3`), `P_x`,
+   the ancestor group `FOR KEY SHARE` of the immediate parent, then the timer row, then the existing
+   TIMER_FIRED append and advance. The mode is key share (a continuing step) because a timer fire does not
+   run the completion cascade; this closes the "## Open" bullet of this record and overrides the family
+   note's FOR UPDATE leaning. The group is taken before the first write of the child's projection, so the
+   second UPDATE of that row (`reconcile_projection`) finds its foreign-key locks already held (the
+   #2708/#2709 mechanism). A timer whose instance is not `:active` is settled (every pending timer of the
+   instance cancelled with reason `instance_<status>`) and the transaction commits; it is never re-claimed.
+3. **Invariant I-S (workflow instances).** Every writer of a workflow instance's event stream holds
+   `P_x` before it takes that instance's `S_x`. The timer fire establishes it for TIMER_FIRED in this
+   amendment; the remaining cold appenders (attachment events, a Lua `emit_event`) stay exceptions until
+   GH #2707 PR-2. The streams of entity-type synthetic instances are outside I-S: they keep rule 5's order,
+   sequence row then projection row. Within a transaction that holds `P_x`, taking `S_x` before the audit
+   chain row `A` (the timer fire's TIMER_FIRED append precedes its audits) is permitted: a transaction
+   that holds `A` and wants `S_x` of a workflow instance must hold that instance's `P_x` first.
+4. Rule 6 no longer lists as exceptions: the HUMAN tail's timer cancel after the projection,
+   `Scheduler.fire_timer`'s TIMER_FIRED append and reminder fire, and escalation fire's `tasks` lock after
+   the projection. It STILL lists, until GH #2707 PR-2: cold `EventStore.append/2` callers that append
+   before locking the projection (attachment events, a Lua `emit_event`). The sentence of "Amended
+   (GH #2706, PR-1)" about timers and dispatch rows armed during cancel's wait for `P_x` is replaced by:
+   "Dispatch and script-CAS rows armed during cancel's wait for `P_x` are the remaining cancel exception."
+5. Rule 5 (new code) is unchanged and applies to the timer class: new code that locks timer rows locks
+   them under `P_x`.
+6. The "## Open" bullet (lock mode for child timer fires) is closed by item 2.
+
+Rolling deploy: opposite orders of the same two rows now coexist in two symmetric mixed windows: an old
+`cancel_instance/3` (timers before `P_x`) against a new fire (`P_x` before the timer), and an old fire
+(timer, then `P_x`) against a new `cancel_instance/3` (timers after `P_x`). Either pair can produce a
+recoverable `deadlock_detected` (a failed cancel, or a counted fire failure); no other pair is affected.
