@@ -634,8 +634,7 @@ defmodule Letflow.Engine.TimerWiringTest do
       [_before, body] = String.split(source, "defp cancel_multi(", parts: 2)
 
       [multi_body, _rest] =
-        String.split(body, "
-  # REQ-195 -- cancel_instance/3's own", parts: 2)
+        String.split(body, "\n  # REQ-195 -- cancel_instance/3's own", parts: 2)
 
       index = fn needle -> :binary.match(multi_body, needle) |> elem(0) end
 

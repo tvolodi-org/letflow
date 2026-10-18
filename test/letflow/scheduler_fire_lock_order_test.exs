@@ -276,12 +276,14 @@ defmodule Letflow.SchedulerFireLockOrderTest do
     end
   end
 
+  # The margin (2 s lock-timeout yardstick minus the worst wait-start-to-return time, measured from
+  # the waiting side as in the sibling lock-order files, hard floor 500 ms like them) is reported in
+  # the assertion message, not on stdout.
   defp assert_margin!(overlap, label) do
     margin = H.margin_ms(overlap.timing)
-    IO.puts("MARGIN #{label}: #{margin} ms #{inspect(overlap.timing)}")
 
     assert margin >= 500,
-           "lock_timeout margin #{margin} ms is under 500 ms (#{inspect(overlap.timing)})"
+           "#{label}: lock_timeout margin #{margin} ms is under 500 ms (#{inspect(overlap.timing)})"
 
     margin
   end
@@ -615,9 +617,10 @@ defmodule Letflow.SchedulerFireLockOrderTest do
       on_exit(fn -> send(holder.pid, :release) end)
       assert_receive :sibling_holds, 10_000
 
-      started = System.monotonic_time(:millisecond)
-      assert {:ok, :fired} = Scheduler.fire_timer(timer.id, base.schema)
-      assert System.monotonic_time(:millisecond) - started < 1_000
+      # the fire runs in its own task and must COMPLETE while the sibling still holds its key share
+      fire = Task.async(fn -> Scheduler.fire_timer(timer.id, base.schema) end)
+      yielded = Task.yield(fire, 3_000) || Task.shutdown(fire, :brutal_kill)
+      assert {:ok, {:ok, :fired}} = yielded, "the fire waited for a sibling's key share"
 
       send(holder.pid, :release)
       assert {:ok, _} = Task.await(holder, H.await_ms())

@@ -204,14 +204,12 @@ defmodule Letflow.SchedulerDeadInstanceTimerTest do
       cancel!(schema, x)
       timer = arm!(schema, x, 60)
 
-      handler = attach_settled_handler()
+      attach_settled_handler()
 
       assert_settled_once!(schema, x, timer, "instance_cancelled")
 
       assert_receive {:settled, %{count: 1},
                       %{tenant_schema: ^schema, reason: "instance_cancelled"}}
-
-      detach(handler)
     end
   end
 
@@ -236,8 +234,14 @@ defmodule Letflow.SchedulerDeadInstanceTimerTest do
 
       assert reload(schema, engine_timer).status == "pending"
 
+      attach_settled_handler()
+
       assert_settled_once!(schema, x, due, "instance_error")
       assert_settled!(schema, engine_timer, "instance_error")
+
+      # instance-wide: ONE settle announcement counting both timers
+      assert_receive {:settled, %{count: 2}, %{reason: "instance_error"}}
+      refute_receive {:settled, _, _}, 50
     end
   end
 
@@ -333,13 +337,12 @@ defmodule Letflow.SchedulerDeadInstanceTimerTest do
       x = start_instance!(schema, timer_graph())
       timer = hd(Repo.all(from(t in Timer, where: t.instance_id == ^x), prefix: schema))
 
-      handler = attach_settled_handler()
+      attach_settled_handler()
 
       assert {:ok, :fired} = Scheduler.fire_timer(timer.id, schema)
       assert reload(schema, timer).status == "fired"
       assert [_one] = timer_fired_events(schema, x)
       refute_receive {:settled, _, _}, 50
-      detach(handler)
     end
 
     test "a second fire of the same timer is already_final" do
@@ -359,6 +362,8 @@ defmodule Letflow.SchedulerDeadInstanceTimerTest do
     id = {__MODULE__, make_ref()}
     test_pid = self()
 
+    on_exit(fn -> :telemetry.detach(id) end)
+
     :telemetry.attach(
       id,
       [:letflow, :scheduler, :timers_settled],
@@ -368,8 +373,6 @@ defmodule Letflow.SchedulerDeadInstanceTimerTest do
       nil
     )
 
-    id
+    :ok
   end
-
-  defp detach(id), do: :telemetry.detach(id)
 end

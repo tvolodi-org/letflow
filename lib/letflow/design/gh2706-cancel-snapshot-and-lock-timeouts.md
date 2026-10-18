@@ -208,6 +208,8 @@ retry is safe.
 
 ### 2.5 Decision 0061 and the moduledoc
 
+*Superseded in part by gh2707 section 10:* timers are no longer class 1 (they are P-protected, taken after `P_x`), and "timers and dispatch rows armed during cancel's wait" is reduced to dispatch and script-CAS rows.
+
 Append this section to `docs/migration/decisions/0061-engine-lock-order-platform-invariant.md`
 VERBATIM (PR-1; REVIEWER gate), and edit rule 6 as stated in its last paragraph:
 

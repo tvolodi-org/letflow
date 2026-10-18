@@ -83,6 +83,7 @@ defmodule Letflow.Scheduler do
 
   alias Ecto.Multi
   alias Letflow.Dlq
+  alias Letflow.Engine.TaskActivation
   alias Letflow.EventStore
   alias Letflow.EventStore.InstanceProjection
   alias Letflow.Repo
@@ -288,6 +289,11 @@ defmodule Letflow.Scheduler do
   `{:ok, :already_final}` and a `[:letflow, :scheduler, :timers_settled]` telemetry event (and an
   info log) follows the commit. A timer whose instance has no projection row at all is still
   `{:error, :instance_not_found}` (a counted failure).
+
+  Settling an `:error` instance's timers is IRREVERSIBLE: `:error` is not a terminal status but
+  nothing resumes such an instance today, so its pending timers are cancelled for good (reason
+  `instance_error`, kept greppable). A future resume / reconstruct feature must RE-ARM the
+  timers of the node the instance resumes at.
   """
   @spec fire_timer(timer_id :: Ecto.UUID.t(), tenant_schema :: String.t()) ::
           {:ok, :fired} | {:ok, :already_final} | {:error, term()}
@@ -350,7 +356,7 @@ defmodule Letflow.Scheduler do
     reason = "instance_" <> Atom.to_string(status)
 
     {:ok, count} =
-      Letflow.Engine.TaskActivation.cancel_pending_timers(
+      TaskActivation.cancel_pending_timers(
         Repo,
         timer.instance_id,
         now,

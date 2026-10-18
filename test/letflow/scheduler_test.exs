@@ -25,16 +25,17 @@ defmodule Letflow.SchedulerTest do
   Uses `Letflow.DataCase` (real Postgres) per
   `docs/guides/test_developer_guide.md` DIRECTIVE T-1 -- no mocked database.
   Each test that needs real rows provisions a real tenant schema via
-  `Letflow.TenantFixture.provisioned_tenant!/1`. `Letflow.EventStore.append/2`'s
-  own `active_instance_guard` step requires a real, non-terminal
-  `instance_projections` row for `attrs[:instance_id]` (verified directly in
-  `event_store.ex`'s `active_instance_guard/3` -- `{:error, :instance_not_started}`
-  for any instance_id with no such row) -- every timer expected to actually
-  *fire* successfully in these tests is therefore armed against a real,
-  started `Letflow.Engine` instance (`start_instance!/1`, mirroring
-  `test/letflow/engine_dlq_landing_test.exs`'s own fixture), while a timer
-  deliberately armed against a bare `Ecto.UUID.generate()` instance id (no
-  matching `instance_projections` row) is this design's own natural,
+  `Letflow.TenantFixture.provisioned_tenant!/1`. Since GH #2707
+  `Letflow.Scheduler.fire_timer/2` locks the instance projection BEFORE the
+  timer row (`Letflow.Engine.lock_for_timer_fire/3`), so an instance_id with
+  no `instance_projections` row at all fails there with
+  `{:error, :instance_not_found}` (formerly `EventStore.append/2`'s
+  `active_instance_guard` `{:error, :instance_not_started}`) -- every timer
+  expected to actually *fire* successfully in these tests is therefore armed
+  against a real, started `Letflow.Engine` instance (`start_instance!/1`,
+  mirroring `test/letflow/engine_dlq_landing_test.exs`'s own fixture), while
+  a timer deliberately armed against a bare `Ecto.UUID.generate()` instance
+  id (no matching `instance_projections` row) is this design's own natural,
   organic "fire attempt fails" fixture for AC6/AC7 -- no mocking library
   exists in this codebase (`mix.exs` has no `mox`/`meck` dependency) and none
   is introduced here.
@@ -490,8 +491,8 @@ defmodule Letflow.SchedulerTest do
       %{schema_name: schema_name} = provisioned_tenant()
 
       # A syntactically invalid UUID for a :binary_id-typed column raises
-      # Ecto.Query.CastError from inside fetch_and_lock_timer/2's own query
-      # execution -- a genuine exception, not a returned {:error, _} tuple --
+      # Ecto.Query.CastError from inside peek_timer/2's own query (the first
+      # statement of fire_timer/2 since GH #2707) execution -- a genuine exception, not a returned {:error, _} tuple --
       # which propagates out of fire_timer/2's own Repo.transaction/1 call
       # (Ecto's own documented "an unhandled raise inside a transaction fun
       # rolls back and re-raises" behavior, cited by the design doc §2.4).
