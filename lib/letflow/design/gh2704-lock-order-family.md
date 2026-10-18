@@ -204,7 +204,12 @@ This holds for the family's paths only, NOT tenant-wide. Residual exceptions (al
 * **The `engine.ex` moduledoc is corrupted at lines 402-403** ("foreign-key locks on the p  while
   cancel takes it last. I3 (fixed for ..."): a bad edit merged text. PR-1 must repair it while
   rewriting the paragraph.
-* **FK mechanism is unconfirmed.** Postgres queues an FK check on UPDATE of the referencing row
+* **FK mechanism: CONFIRMED by the GH #2709 probe (PR-2, section 10a), refined.** An UPDATE of a
+  child's projection row takes the FK `KEY SHARE` locks on the parent token and the parent
+  projection only when the old row version was written by the SAME transaction (Postgres skips the
+  check for an unchanged key otherwise); the first UPDATE takes none, the second does. The
+  ExecutionError landing UPDATEs the row twice (event append, then `:error`), so it does. The
+  original text of this bullet follows, kept for the record. (Was: FK mechanism is unconfirmed.) Postgres queues an FK check on UPDATE of the referencing row
   only when a key column changes; `InstanceProjection.update_changeset` does not cast
   `parent_instance_id`/`parent_token_id` (the #2695 build note says so). #2695 observed the
   behaviour (T5, intermittent 40P01, the parent token's `xmax` was the child apply) but could not
@@ -325,7 +330,10 @@ the race, C2 does the same).
 | # | Case | Forced interleaving | On main | After |
 |---|---|---|---|---|
 | E0 | statement order, HUMAN (plan) | none | red: `first_type_row < first_parent_lock` is today's assertion (`cancel_cascade_lock_order_test.exs:649-723`, assertion `721`); the NEW assertion is the reverse | green; the old test is FLIPPED in this PR |
-| E0s | statement order, service (plan) | none | red when the service node is followed by a HUMAN node: `A` (`audit_chain_locks`) precedes the first type-row lock | green: parent group, then type rows, then `A` |
+| E0s | statement order, service (plan) | none | red when the service node is followed by a HUMAN node: `A` (`audit_chain_locks`) precedes the first type-row lock, and (as built) the first `tasks` INSERT precedes the type row | green: parent group, then type rows, then `A`; the type row also precedes the first `tasks` INSERT (the pre-lock sits before the first merge after `:lock_ancestors`) |
+| E0c | statement order, completing service CHILD (plan, as built in PR-1) | none: `capture_repo_queries` of the apply of a service child that ends the child (`ct` -> svc(lines X) -> END) | trace: parent projection `FOR UPDATE`, waiting token `FOR UPDATE`, type-row sequence `FOR UPDATE`, `audit_chain_locks`, in that index order. Green on main by reading (a completing child activates no task, so no `A` before E; the group already preceded E on the service path since #2695): it pins that both child kinds read the same string, it is not a red | green (same trace) |
+| E2d | lock MODE of a continuing child, by statement trace (as built in PR-1) | none: `capture_repo_queries` of a continuing HUMAN child's completion and of a continuing service child's apply | trace: the group statements are exactly parent projection `FOR KEY SHARE` and waiting token `FOR KEY SHARE`, no `FOR UPDATE` among them. Expected green on main for both by reading; it exists because E2c cannot see a wrongly strong mode (same order, no deadlock) | green (same trace) |
+| E4x | execution-error transition inside a child completion (as built in PR-1) | none: a HUMAN child completion with lines whose gateway has no matching edge (the `:transition` step ends in an execution error) | no raise; child `:error`; no records written. Trace at PR-1: no group statement at all (the `:lock_ancestors` step returned `{:ok, []}`). Trace after PR-2: the only group statements are the landing's own `FOR KEY SHARE` pair (E4x asserts key share, never `FOR UPDATE`) | green |
 | E1 | sibling completing H and S (pins the sibling inversion of the amendment) | `Z` holds X's sequence row. Start H, wait 1 blocked, start S, wait 2 blocked, release. H queued first at E on main, S holds the group and queues second | red: 40P01 (H holds E, wants group; S holds group, wants E) | green: H holds the group (FOR UPDATE), S parks at the group, no E cycle |
 | E2a | continuing H' (HUMAN node to another HUMAN node, key-share group) vs the parent's OWN completion with lines on X | `Z` on X. Start H' FIRST, wait 1 blocked (main: queued at E, no group yet), start the parent completion (takes `tasks_p`, `P_p` FOR UPDATE, queues at E second), wait 2 blocked, release | red on main: H' gets E first, then wants the key-share group held FOR UPDATE by the parent, which waits for E | green: H' (started first) holds the key-share group and E; the parent parks at `P_p` |
 | E2b | continuing H' vs a COMPLETING sibling S (group FOR UPDATE) | same barrier; H' first, S second | red on main: H' holds E and wants the group S holds; S holds the group and wants E | green |
@@ -384,7 +392,7 @@ projection precedes the new step in any caller: `4883`/`4917` (reads only before
 
 | # | Case | Method | On main | After |
 |---|---|---|---|---|
-| X0 | mechanism probe | transaction A UPDATEs the child's projection row; connection B tries `FOR UPDATE NOWAIT` on the parent's waiting token and on the parent projection | tells whether key-share FK locks are taken at all; if B is NOT refused, #2708 and #2709 cannot occur and both end as proof-and-regression (no lib change) | n/a |
+| X0 | mechanism probe | transaction A UPDATEs the child's projection row; connection B tries `FOR UPDATE NOWAIT` on the parent's waiting token and on the parent projection | tells whether key-share FK locks are taken at all; if B is NOT refused, #2708 and #2709 cannot occur and both end as proof-and-regression (no lib change). MEASURED (PR-2): ONE UPDATE does not refuse B, TWO UPDATEs of the row in the same transaction refuse B on both parent rows (section 10a); the hazard is real | n/a |
 | X1 | statement order | `set_instance_error/2` on a child under `capture_repo_queries`: parent projection lock and waiting-token lock precede the EXECUTION_ERROR insert and the child projection UPDATE | red | green |
 | X2 | forced AB-BA | read the tenant's FK trigger order (`pg_trigger` names for the two FKs); if token-first: `Z` holds the parent projection row, `cancel_instance(p)` parks first on it, then the landing arrives (it locks the token through the FK check and parks on the projection), release | red: 40P01 (this is #2695's T5 for a landing) | green |
 | X3 | other FK order | barrier variant is moot (cycle unreachable); assert only X1 | green | green |
@@ -471,7 +479,7 @@ is in CI.
 |---|---|---|---|---|---|
 | 0 | docs | - | this design note | 1 file | - |
 | 1 | PR-1 | #2704 | C-P, C-E, port callback, `Letflow.LockOrderHelpers` extraction, tests E0-E6 (E5 and E6 are the I4 / #2705 cases), moduledoc rewrite, new decision record 0061 + the 0054 D3 "Amended by" pointer line, boot-time adapter check + wiring test | prod ~70 lines, tests ~450, docs ~120 | note merged; owns the moduledoc rewrite, so it goes first |
-| 2 | PR-2 | #2709 | `ExecutionError` step, tests X0-X4, one moduledoc line | prod ~25, tests ~250 | PR-1 (shared helpers, moduledoc) |
+| 2 | PR-2 | #2709 | `ExecutionError` step, tests X0-X4, one moduledoc line. STATUS: built (section 10a): probe positive, lib change made, X1/X2/X4 red on the unmodified landing and green after | prod ~25, tests ~250 | PR-1 (shared helpers, moduledoc) |
 | 3 | PR-3 | #2708 | cancel step, `lock_parent_group` generalisation, tests C0-C4, one moduledoc line | prod ~15, tests ~220 | PR-1; independent of PR-2 (either order) |
 | 4 | PR-4 | #2705 (relabelled: proven service-vs-HUMAN inversion; demonstrating test E5 is in PR-1) | proof for the remaining `A` vs `S_x` pairs and regression tests (and a fix only if a test is red after PR-1) | tests ~200 | PR-1 |
 | later | - | #2706, #2707 | own design notes after PR-1/PR-3 are on main (they inherit GO, section 4.4) | - | PR-1 |
@@ -591,3 +599,44 @@ RELEASE-VALIDATOR re-runs the new files.
 * E2c is red on main (see its row); E2d (lock mode) and E0c (service child statement trace) were added.
   The harness duplication in `cancel_cascade_lock_order_test.exs` stays (follow-up).
 
+* Asymmetry, stated (security-review delta): on the service apply a failed in-Multi
+  `{:type_lock, _}` step (the lock a node with `module_writes` still emits inside `StepWrites.multi`)
+  is not named by the engine failure clause, which names `{:line, _, _}` and `{:pre_type_lock, _}`
+  only, so it would surface as the generic `{:error, reason}`. After PR-1 it is a no-op re-lock of a
+  row the pre-lock already holds in the same transaction, so it cannot be the step that waits or
+  fails; accepted, not to be "fixed". The HUMAN path names no step by key and is unaffected.
+
+## 10a. As built (PR-2, GH #2709, ELIXIR-DEV)
+
+* **Probe first (X0), result.** Transaction A UPDATEd a child's projection row; a second connection
+  then tried `FOR UPDATE NOWAIT` on the child's own row (positive control), the parent's waiting
+  token and the parent projection:
+  `one_update=%{control: {:refused, :lock_not_available}, token: {:granted, 1}, parent_projection: {:granted, 1}}`,
+  `two_updates=%{control: {:refused, :lock_not_available}, token: {:refused, :lock_not_available}, parent_projection: {:refused, :lock_not_available}}`.
+  A single UPDATE takes no FK lock; the second UPDATE of the same row in one transaction takes both.
+  The landing is exactly such a pair (the EXECUTION_ERROR append updates `last_event_seq`, then the
+  projection goes to `:error`), so the hazard is real and the "unconfirmed" caveat of sections 3
+  and 9.1 is closed for #2709. (It also explains the schema dependence: the check order is the FK
+  constraint-trigger order, and the first UPDATE of any transaction is lock-free.)
+* **Red on the unmodified landing** (X2, X4a, X4b, token-first schema): `ERROR 40P01
+  (deadlock_detected)`: reported through the telemetry handler for the HUMAN tail (the RI statement
+  `SELECT 1 FROM ONLY ...instance_projections x WHERE "instance_id" = $1 FOR KEY SHARE OF x`) and as
+  the worker exit for X2 and X4b; X1 red: no `FOR KEY SHARE` statement before the EXECUTION_ERROR
+  insert. X3 (projection-first schema) is green before and after.
+* **The fix** is the one choke point of 4.2: step `:execution_error_lock_ancestors` in
+  `ExecutionError.append_multi/3`, after `:execution_error_eligibility`, calling
+  `SubProcess.lock_waiting_parent(repo, instance_id, prefix, :key_share)`. All nine callers are
+  covered; no caller changed. Runtime call `ExecutionError -> SubProcess` only (no struct, no macro).
+* **Test control of the FK order.** X2/X3 re-create the two parent FKs of `instance_projections` in
+  the wanted order inside their own fresh tenant and assert the resulting constraint-trigger firing
+  order as a precondition, so the red does not depend on the OID luck of provisioning (4.2 had a
+  detect-and-branch; this is deterministic instead).
+* **Margin.** The paths have no `lock_timeout`; the PR-1 yardstick (2000 ms minus the worst
+  park-plus-finish time) measured 1920-1941 ms in the green runs, against the 500 ms floor.
+* **Existing test edited:** `entity_parent_lock_order_test.exs` E4x asserted no group statement at
+  all for an execution-error transition; since PR-2 the landing's own `FOR KEY SHARE` pair is the
+  only group lock (asserted as key share, never `FOR UPDATE`).
+* **Not covered by a separate case:** the cascade error branch (`engine.ex:7442`,
+  `sub_process.ex:554`, `1302`): there the instance is the parent and the completing chain is already
+  held `FOR UPDATE`, so the landing's key share is a no-op re-lock. The engine moduledoc "Known gaps"
+  no longer lists #2709.

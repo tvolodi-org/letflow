@@ -424,14 +424,18 @@ defmodule Letflow.Engine do
   (decision 0054 D3 rules 4 and 5); the service apply used to activate its next task, an audit
   write, before its entity writes (GH #2705, "I4").
 
-  Foreign-key locks (GH #2695; observed, mechanism unconfirmed): an UPDATE of a sub-process child's
-  projection row was seen to queue behind a parent cancel's pending lock on the parent projection
-  and, for some tenant schemas, to leave the parent token locked by the child, i.e. the cancel
-  versus cascade cycle formed before the cascade code ran. So the group must be held before any
-  write that UPDATEs the child's projection (every event append does).
+  Foreign-key locks (GH #2695, mechanism measured by GH #2709's probe): the second UPDATE of a
+  sub-process child's projection row within one transaction (the old row version was written by
+  this transaction) queues the foreign-key checks, i.e. `KEY SHARE` on the parent token and the
+  parent projection, in an order fixed per tenant schema; the first UPDATE takes none. A parent
+  cancel queued on the parent projection could therefore form a cycle with the child's own UPDATE
+  before the cascade code ran. So the group must be held before the second UPDATE of the child's
+  row (every event append is an UPDATE, so before the first write). The ExecutionError landing
+  does this for all its callers in `ExecutionError.append_multi/3` (`:execution_error_lock_ancestors`,
+  `FOR KEY SHARE`, after its eligibility check; GH #2709).
 
-  Known gaps, tracked and NOT closed by decision 0061's first pull request: the ExecutionError
-  landing (GH #2709) and a direct `cancel_instance/3` of a child (GH #2708) take no ancestor lock;
+  Known gaps, tracked and NOT closed so far: a direct `cancel_instance/3` of a child (GH #2708)
+  takes no ancestor lock;
   cold appenders that append before locking the projection (`Scheduler.fire_timer`'s TIMER_FIRED,
   reminder fire, attachment events), the HUMAN tail's timer cancel after the projection, and
   escalation fire's `tasks` lock after the projection (GH #2707); cancel's open-tasks snapshot taken

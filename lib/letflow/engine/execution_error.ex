@@ -81,6 +81,7 @@ defmodule Letflow.Engine.ExecutionError do
 
   alias Ecto.Multi
   alias Letflow.Dlq
+  alias Letflow.Engine.SubProcess
   alias Letflow.EventStore
   alias Letflow.EventStore.InstanceProjection
 
@@ -148,6 +149,19 @@ defmodule Letflow.Engine.ExecutionError do
       status}}`; already `:error` -> `{:error, {:instance_already_error,
       error_detail}}` (AC5's own conflict shape, the mechanism the row-lock
       queueing establishes); `:active` -> proceeds.
+    * `:execution_error_lock_ancestors` (GH #2709, decision 0061 rules 1-2) —
+      for a sub-process child, locks the waiting parent group (the parent's
+      projection, then its waiting token) `FOR KEY SHARE` via
+      `Letflow.Engine.SubProcess.lock_waiting_parent/4`; a no-op for any
+      other instance. Runs after the eligibility check (an ineligible
+      landing takes no extra lock) and before the first write: the final
+      projection UPDATE of this landing is the SECOND UPDATE of the row in
+      the transaction (the event append is the first), and Postgres queues
+      the foreign-key checks on the parent token and the parent projection
+      for it, in an order fixed per tenant schema, so the group has to be
+      held in the global order (parent projection, then token) beforehand
+      or a parent cancel can deadlock against the landing. Key share
+      because an `ERROR` landing never completes the child.
     * `:execution_error_event` — `Letflow.EventStore.append/2`, one
       `EXECUTION_ERROR` event built from `error_args`. Runs **before** the
       projection update, matching `req052`'s own M6-before-M7 ordering
@@ -201,6 +215,9 @@ defmodule Letflow.Engine.ExecutionError do
       check_eligibility(
         locked_projection || Map.fetch!(changes, :execution_error_projection_lock)
       )
+    end)
+    |> Multi.run(:execution_error_lock_ancestors, fn repo, _changes ->
+      SubProcess.lock_waiting_parent(repo, error_args.instance_id, prefix, :key_share)
     end)
     |> Multi.run(:execution_error_event, fn _repo, _changes ->
       append_execution_error_event(error_args, prefix)

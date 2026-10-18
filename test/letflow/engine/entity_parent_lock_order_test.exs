@@ -19,8 +19,9 @@ defmodule Letflow.Engine.EntityParentLockOrderTest do
       deadlock); E2d pins the lock MODE by statement trace;
     * E2d: a continuing child takes the group `FOR KEY SHARE` and never `FOR UPDATE`, HUMAN and
       service shaped;
-    * E4x: a completion whose transition is an execution error takes no ancestor group and does
-      not raise (the `:lock_ancestors` step returns `{:ok, []}`);
+    * E4x: a completion whose transition is an execution error does not raise (the
+      `:lock_ancestors` step returns `{:ok, []}`); the only group lock is the ExecutionError
+      landing's own `FOR KEY SHARE` (GH #2709);
     * E3: a HUMAN child completion against the parent's OWN completion with lines on the type;
     * E5 / E6 (the demonstrating tests of GH #2705, "I4"): a service apply that activates a HUMAN
       task (so it writes `task.create` and takes `A`) versus a HUMAN completion with lines on the
@@ -571,7 +572,11 @@ defmodule Letflow.Engine.EntityParentLockOrderTest do
       assert {:error, {:instance_execution_error, _type, _affected}} = result
       assert Fx.projection!(base.schema, c_id).status == :error
       assert Fx.records(base.schema, "stock_move") == []
-      assert group_lock_modes(queries, parent_id) == []
+
+      # the completion's own `:lock_ancestors` step took nothing (its result is `{:ok, []}`); since
+      # GH #2709 the ExecutionError landing itself locks the group, `FOR KEY SHARE` and never
+      # `FOR UPDATE` (the landing never completes the child), so that is the only group lock here
+      assert_key_share_group(group_lock_modes(queries, parent_id))
     end
   end
 
