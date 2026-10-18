@@ -118,12 +118,13 @@ defmodule Letflow.Entities.Record.Latest do
   @doc """
   Fetches the row bound to the external reference `(entity_type, system, id)`, scoped to the
   tenant schema named by `prefix` (GH #2659, design §3). Returns soft-deleted rows too, like
-  `get/3`: a reference stays bound to its record after deletion. Never raises.
+  `get/3`: a reference stays bound to its record after deletion. A non-binary `entity_type`,
+  `system` or `id` is `{:error, :not_found}` without a query. Never raises.
   """
   @spec get_by_external_ref(
-          entity_type :: String.t(),
-          system :: String.t(),
-          id :: String.t(),
+          entity_type :: term(),
+          system :: term(),
+          id :: term(),
           prefix :: String.t()
         ) :: {:ok, t()} | {:error, :not_found} | {:error, :invalid_schema_name}
   def get_by_external_ref(entity_type, system, id, prefix)
@@ -142,6 +143,10 @@ defmodule Letflow.Entities.Record.Latest do
       end
     end
   end
+
+  # A non-binary type, system or id (for example a malformed request member) can never be
+  # bound to a row: answered as an absent reference, no query, never a FunctionClauseError.
+  def get_by_external_ref(_entity_type, _system, _id, _prefix), do: {:error, :not_found}
 
   @doc """
   Like `get/3`, but a soft-deleted row is `{:error, :not_found}`, byte-identical

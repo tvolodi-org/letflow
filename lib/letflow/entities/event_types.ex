@@ -72,8 +72,17 @@ defmodule Letflow.Entities.EventTypes do
           "type" => "object",
           "required" => ["system", "id"],
           "properties" => %{
-            "system" => %{"type" => "string"},
-            "id" => %{"type" => "string"}
+            # Bounds match Letflow.Entities.ExternalRef. minLength/maxLength count CHARACTERS
+            # (the parser counts bytes, so it is the stricter gate); `pattern` is inert in the
+            # platform's JSON Schema subset (Registry.JsonSchema), so it is documentation here:
+            # the parser and the projector's re-parse are the enforcement.
+            "system" => %{
+              "type" => "string",
+              "minLength" => 1,
+              "maxLength" => 64,
+              "pattern" => "^[a-z0-9][a-z0-9._-]*$"
+            },
+            "id" => %{"type" => "string", "minLength" => 1, "maxLength" => 255}
           },
           "additionalProperties" => false
         })

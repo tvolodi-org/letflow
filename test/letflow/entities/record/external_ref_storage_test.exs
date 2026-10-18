@@ -255,6 +255,10 @@ defmodule Letflow.Entities.Record.ExternalRefStorageTest do
       assert index.(@cols_version) < index.(@idx_version)
     end
 
+    # A source-text check on purpose: the BEHAVIOURAL lock_timeout proof is migration (a)'s, in
+    # external_ref_lock_timeout_test.exs. Migration (b) shares the identical first statement, and
+    # forcing its lock wait needs the same two-connection harness for no extra signal, so its
+    # ordering (lock_timeout before any DDL, prefix guard present) is pinned by reading the file.
     test "the migrations carry the prefix guard and SET LOCAL lock_timeout as their first statement" do
       for file <- [
             "20261019100001_add_external_ref_columns_to_entity_record_latest.exs",
@@ -269,63 +273,6 @@ defmodule Letflow.Entities.Record.ExternalRefStorageTest do
         {ddl_at, _} = :binary.match(source, ~s|execute("""|)
         assert lock_at < ddl_at
       end
-    end
-  end
-
-  describe "migration (a) lock_timeout (fail fast)" do
-    test "a conflicting lock held from a second connection makes it fail within the timeout and leaves the table unchanged; after release it applies",
-         %{schema: schema} do
-      assert [@idx_version] == migrate(schema, @idx_version, @idx_migration, :down)
-      assert [@cols_version] == migrate(schema, @cols_version, @cols_migration, :down)
-      assert columns(schema) == []
-
-      test_pid = self()
-
-      holder =
-        Task.async(fn ->
-          Repo.transaction(fn ->
-            Repo.query!(~s|LOCK TABLE "#{schema}".entity_record_latest IN ACCESS SHARE MODE|)
-            send(test_pid, :lock_held)
-
-            receive do
-              :release -> :ok
-            after
-              30_000 -> :timed_out
-            end
-          end)
-        end)
-
-      assert_receive :lock_held, 10_000
-
-      started = System.monotonic_time(:millisecond)
-
-      error =
-        assert_raise Postgrex.Error, fn ->
-          migrate(schema, @cols_version, @cols_migration, :up)
-        end
-
-      elapsed = System.monotonic_time(:millisecond) - started
-
-      assert error.postgres.code == :lock_not_available
-      assert elapsed >= 4_000 and elapsed < 20_000
-
-      send(holder.pid, :release)
-      assert {:ok, :ok} = Task.await(holder, 10_000)
-
-      # Rolled back whole: nothing recorded, table unchanged.
-      assert columns(schema) == []
-      assert check_def(schema) == nil
-
-      assert %{rows: [[0]]} =
-               Repo.query!(
-                 ~s|SELECT count(*)::int FROM "#{schema}".schema_migrations WHERE version = $1|,
-                 [@cols_version]
-               )
-
-      # After release the next run applies it.
-      assert [@cols_version] == migrate(schema, @cols_version, @cols_migration, :up)
-      assert [@idx_version] == migrate(schema, @idx_version, @idx_migration, :up)
-      assert_migrated(schema)
     end
   end
 
@@ -395,6 +342,70 @@ defmodule Letflow.Entities.Record.ExternalRefStorageTest do
                %Latest{}
                |> Latest.insert_changeset(attrs.(nil, nil))
                |> Repo.insert(prefix: schema)
+    end
+
+    test "a soft-deleted row keeps holding its reference: re-inserting the same triple is a unique violation",
+         %{schema: schema} do
+      assert {:ok, %{num_rows: 1}} = raw_insert(schema, "item", "1c", "42")
+
+      Repo.update_all(
+        from(l in Latest, where: l.entity_type == "item" and l.external_id == "42"),
+        [set: [deleted: true]],
+        prefix: schema
+      )
+
+      assert {:error, %Postgrex.Error{postgres: %{code: :unique_violation, constraint: @index}}} =
+               raw_insert(schema, "item", "1c", "42")
+    end
+
+    test "the same (type, system, id) in two tenant schemas does not collide", %{schema: schema} do
+      other = TenantFixture.provisioned_tenant!(slug_prefix: "gh2659-two")
+
+      assert {:ok, %{num_rows: 1}} = raw_insert(schema, "item", "1c", "42")
+      assert {:ok, %{num_rows: 1}} = raw_insert(other.schema_name, "item", "1c", "42")
+
+      assert {:ok, a} = Latest.get_by_external_ref("item", "1c", "42", schema)
+      assert {:ok, b} = Latest.get_by_external_ref("item", "1c", "42", other.schema_name)
+      refute a.record_id == b.record_id
+    end
+
+    test "get_by_external_ref/4 answers :not_found, without a query, for a non-binary type, system or id",
+         %{schema: schema} do
+      for args <- [[nil, "1c", "42"], ["item", nil, "42"], ["item", "1c", 42], [:item, "1c", "x"]] do
+        assert {:error, :not_found} = apply(Latest, :get_by_external_ref, args ++ [schema])
+      end
+    end
+
+    test "migration (b) accepts a VALID pre-existing index and refuses an INVALID one",
+         %{schema: schema} do
+      assert [@idx_version] == migrate(schema, @idx_version, @idx_migration, :down)
+
+      create_index = fn ->
+        Repo.query!(
+          ~s|CREATE UNIQUE INDEX #{@index} ON "#{schema}".entity_record_latest | <>
+            ~s|(entity_type, external_system, external_id) WHERE external_id IS NOT NULL|
+        )
+      end
+
+      # A VALID pre-existing index (the runbook's manual route) is accepted: no-op.
+      create_index.()
+      assert [@idx_version] == migrate(schema, @idx_version, @idx_migration, :up)
+      assert [@idx_version] == migrate(schema, @idx_version, @idx_migration, :down)
+
+      create_index.()
+
+      # Simulate a failed CREATE INDEX CONCURRENTLY.
+      Repo.query!(
+        ~s|UPDATE pg_index SET indisvalid = false | <>
+          ~s|WHERE indexrelid = '"#{schema}".#{@index}'::regclass|
+      )
+
+      error =
+        assert_raise Postgrex.Error, fn -> migrate(schema, @idx_version, @idx_migration, :up) end
+
+      assert error.postgres.code == :raise_exception
+      assert error.postgres.message =~ "INVALID"
+      refute error.postgres.message =~ schema
     end
 
     test "Latest.update_changeset/2 never casts the ref (immutable once set)", %{schema: schema} do
@@ -523,6 +534,40 @@ defmodule Letflow.Entities.Record.ExternalRefStorageTest do
         assert {:error, {:payload_validation_failed, [_ | _]}} =
                  validate("ENTITY_RECORD_CREATED", created_payload(record_id, bad), tenant_id)
       end
+    end
+
+    test "the v2 schema bounds system and id (length); a poisoned oversize ref cannot be appended",
+         %{tenant_id: tenant_id} do
+      record_id = Ecto.UUID.generate()
+
+      check = fn ref ->
+        validate(
+          "ENTITY_RECORD_CREATED",
+          created_payload(record_id, %{"external_ref" => ref}),
+          tenant_id
+        )
+      end
+
+      assert :ok =
+               check.(%{
+                 "system" => String.duplicate("a", 64),
+                 "id" => String.duplicate("x", 255)
+               })
+
+      for bad <- [
+            %{"system" => String.duplicate("a", 65), "id" => "1"},
+            %{"system" => "", "id" => "1"},
+            %{"system" => "a", "id" => ""},
+            %{"system" => "a", "id" => String.duplicate("x", 256)},
+            # maxLength counts characters while the parser counts bytes: 256 characters fail too.
+            %{"system" => "a", "id" => String.duplicate("ž", 256)}
+          ] do
+        assert {:error, {:payload_validation_failed, [_ | _]}} = check.(bad)
+      end
+
+      # Odd-but-within-length values pass the schema (its `pattern` is inert in the platform's
+      # JSON Schema subset); the parser and the projector are the gate for those.
+      assert :ok = check.(%{"system" => "SAP", "id" => "1"})
     end
 
     test "UPDATED payloads carry no ref: the v1 schema rejects an external_ref key", %{
@@ -693,9 +738,28 @@ defmodule Letflow.Entities.Record.ExternalRefStorageTest do
                Projector.replay_record("customer", ids.plain, schema)
     end
 
-    test "rebuild_projection/2 (write_snapshots/3) reproduces both columns, replacing a wiped projection",
+    test "rebuild_projection/2 (write_snapshots/3) overwrites stale refs with the ones folded from the events",
          %{schema: schema} do
       ids = seed_stream!(schema)
+
+      # Pre-populate STALE rows (wrong refs, including a ref on the ref-less record) so the
+      # assertions below can only pass if write_snapshots/3 passes the folded pair through.
+      for {record_id, n} <- Enum.with_index(Map.values(ids)) do
+        %Latest{}
+        |> Latest.insert_changeset(%{
+          entity_type: "customer",
+          record_id: record_id,
+          field_values: %{"stale" => true},
+          entity_def_version: <<0>>,
+          last_event_global_seq: 1,
+          external_system: "stale",
+          external_id: "stale-#{n}"
+        })
+        |> Repo.insert!(prefix: schema)
+      end
+
+      assert {:ok, row} = Latest.get_by_external_ref("customer", "stale", "stale-0", schema)
+      assert row.field_values == %{"stale" => true}
 
       expected = %{
         ids.kept => {"1c", "42"},
@@ -717,6 +781,51 @@ defmodule Letflow.Entities.Record.ExternalRefStorageTest do
                Latest.get_by_external_ref("customer", "sap", "42", schema)
 
       assert record_id == ids.deleted
+    end
+
+    test "external_ref_pair/2: absent is NULL/NULL; a valid ref is the pair; a malformed or invalid one is an explicit corrupt-stream error" do
+      id = Ecto.UUID.generate()
+      error = {:error, {:corrupt_event_stream, {:invalid_external_ref, id}}}
+
+      assert Projector.external_ref_pair(%{}, id) == {:ok, {nil, nil}}
+
+      assert Projector.external_ref_pair(
+               %{"external_ref" => %{"system" => "1c", "id" => "42"}},
+               id
+             ) == {:ok, {"1c", "42"}}
+
+      for bad <- [
+            "1c:42",
+            nil,
+            [],
+            %{"system" => "1c"},
+            %{"id" => "42"},
+            %{"system" => "SAP", "id" => "1"},
+            %{"system" => "1c", "id" => "a\u200Bb"},
+            %{"system" => "1c", "id" => "1", "extra" => "x"}
+          ] do
+        assert Projector.external_ref_pair(%{"external_ref" => bad}, id) == error
+      end
+    end
+
+    test "a stream whose CREATED carries a schema-valid but unparseable ref fails replay and rebuild explicitly",
+         %{schema: schema} do
+      {:ok, instance_id} = EntityTypeInstance.get_or_create("customer", schema)
+      record_id = Ecto.UUID.generate()
+
+      # Within the schema's length bounds (so it is appended) but not a valid system slug.
+      append_event!(
+        schema,
+        instance_id,
+        "ENTITY_RECORD_CREATED",
+        created_payload(record_id, %{"external_ref" => %{"system" => "SAP", "id" => "1"}})
+      )
+
+      assert {:error, {:corrupt_event_stream, {:invalid_external_ref, ^record_id}}} =
+               Projector.replay_record("customer", record_id, schema)
+
+      assert {:error, {:corrupt_event_stream, {:invalid_external_ref, ^record_id}}} =
+               Projector.rebuild_projection(schema, entity_type: "customer")
     end
 
     test "a record written through Records.create_record/2 and updated stays NULL/NULL; live and rebuilt agree",

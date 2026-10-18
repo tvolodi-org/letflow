@@ -15,7 +15,9 @@
 # its record after soft delete.
 #
 # `SET LOCAL lock_timeout = '5s'` is the FIRST statement (dies with the transaction); on
-# timeout the migration rolls back whole and the next boot replay retries it.
+# timeout the migration rolls back whole and the next boot replay retries it. An existing but
+# INVALID index of this name (a failed concurrent build) aborts the migration instead of being
+# accepted by `IF NOT EXISTS`.
 #
 # TENANT-SCOPED MIGRATION -- the `if prefix() do` guard below is MANDATORY, and so is this
 # file's registration in `Letflow.TenantProvisioning`'s `@tenant_scoped_migration_manifest`.
@@ -31,6 +33,22 @@ defmodule Letflow.Repo.Migrations.AddExternalRefIndexToEntityRecordLatest do
       schema = prefix()
 
       execute("SET LOCAL lock_timeout = '5s'")
+
+      # A failed `CREATE UNIQUE INDEX CONCURRENTLY` (the runbook's manual route) leaves an
+      # INVALID index under this name; `IF NOT EXISTS` below would then silently accept it and
+      # the uniqueness guarantee would not hold. Refuse, with the index name only.
+      execute("""
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM pg_index
+           WHERE indexrelid = to_regclass('"#{schema}".#{@index}') AND NOT indisvalid
+        ) THEN
+          RAISE EXCEPTION 'GH #2659: index #{@index} exists but is INVALID; drop it and recreate it (see docs/runbooks/gh2659-external-ref-rollout.md)';
+        END IF;
+      END
+      $$
+      """)
 
       execute("""
       CREATE UNIQUE INDEX IF NOT EXISTS #{@index}

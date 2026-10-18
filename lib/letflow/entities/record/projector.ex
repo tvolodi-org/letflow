@@ -77,6 +77,7 @@ defmodule Letflow.Entities.Record.Projector do
   alias Letflow.Entities.Definition.DDL
   alias Letflow.Entities.Definitions
   alias Letflow.Entities.EntityTypeInstance
+  alias Letflow.Entities.ExternalRef
   alias Letflow.Entities.Record.Latest
   alias Letflow.EventStore
   alias Letflow.EventStore.Event
@@ -456,18 +457,20 @@ defmodule Letflow.Entities.Record.Projector do
 
   # First event must be CREATED.
   defp apply_event(nil, %{event_type: @created_event} = event, record_id) do
-    {:ok,
-     %{
-       record_id: record_id,
-       field_values: Map.get(event.payload, "field_values", %{}),
-       deleted: false,
-       entity_def_version: decode_entity_def_version(event.payload),
-       external_system: external_ref_part(event.payload, "system"),
-       external_id: external_ref_part(event.payload, "id"),
-       last_event_global_seq: event.global_seq,
-       last_event_sequence_number: event.sequence_number,
-       last_event_type: event.event_type
-     }}
+    with {:ok, {external_system, external_id}} <- external_ref_pair(event.payload, record_id) do
+      {:ok,
+       %{
+         record_id: record_id,
+         field_values: Map.get(event.payload, "field_values", %{}),
+         deleted: false,
+         entity_def_version: decode_entity_def_version(event.payload),
+         external_system: external_system,
+         external_id: external_id,
+         last_event_global_seq: event.global_seq,
+         last_event_sequence_number: event.sequence_number,
+         last_event_type: event.event_type
+       }}
+    end
   end
 
   defp apply_event(nil, %{event_type: event_type}, record_id)
@@ -522,10 +525,29 @@ defmodule Letflow.Entities.Record.Projector do
   # GH #2659: the master external_ref is set only by CREATED (optional payload object); UPDATED
   # and DELETED carry the accumulator's pair forward unchanged (the `%{acc | ...}` clauses above
   # never touch it) and never clear it.
-  defp external_ref_part(payload, key) do
-    case Map.get(payload, "external_ref") do
-      %{^key => value} when is_binary(value) -> value
-      _ -> nil
+  #
+  # The stored pair is re-parsed with the same `ExternalRef.parse/1` the writer uses (the
+  # registered schema bounds length by characters and its `pattern` keyword is inert, so it
+  # cannot be the only gate). An absent key is NULL/NULL; a present but invalid or malformed
+  # value is an explicit corrupt-stream error (never a silent drop and never a half pair that
+  # would trip the database CHECK mid-rebuild). The error carries the record id only, no value.
+  @doc false
+  @spec external_ref_pair(map(), Ecto.UUID.t()) ::
+          {:ok, {String.t() | nil, String.t() | nil}}
+          | {:error, {:corrupt_event_stream, {:invalid_external_ref, Ecto.UUID.t()}}}
+  def external_ref_pair(payload, record_id) do
+    case Map.fetch(payload, "external_ref") do
+      :error ->
+        {:ok, {nil, nil}}
+
+      {:ok, ref} ->
+        case ExternalRef.parse(ref) do
+          {:ok, %{system: system, id: id}} ->
+            {:ok, {system, id}}
+
+          {:error, :external_ref_invalid} ->
+            {:error, {:corrupt_event_stream, {:invalid_external_ref, record_id}}}
+        end
     end
   end
 

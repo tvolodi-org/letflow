@@ -56,7 +56,8 @@ statement fails with `lock_not_available`. The migration rolls back whole and re
 - The migration is retried by the NEXT boot replay (it re-runs every unapplied manifest entry).
   A busy tenant is skipped, never blocked and never half-migrated.
 - To retry sooner, call `Letflow.TenantProvisioning.replay_migrations(tenant_id)` for that tenant
-  (for example through `bin/letflow rpc`) during a quiet period.
+  during a quiet period, with
+  `bin/letflow rpc "IO.inspect(Letflow.TenantProvisioning.replay_migrations(\"<tenant_id>\"))"`.
 - Confirm it applied for a tenant (replace `<schema>`):
 
   ```sql
@@ -69,9 +70,13 @@ statement fails with `lock_not_available`. The migration rolls back whole and re
      AND connamespace = '<schema>'::regnamespace;
   SELECT indexname FROM pg_indexes
    WHERE schemaname = '<schema>' AND indexname = 'entity_record_latest_external_ref_idx';
+  SELECT indisvalid FROM pg_index
+   WHERE indexrelid = '"<schema>".entity_record_latest_external_ref_idx'::regclass;
   ```
 
-  Both versions present, two columns, the CHECK with `convalidated = t`, and the index.
+  Both versions present, two columns, the CHECK with `convalidated = t`, and the index with
+  `indisvalid = t`. Migration (b) refuses (aborts) when an index of that name exists but is
+  INVALID, so a failed concurrent build cannot be mistaken for a working guarantee.
 - The v2 event schema is registered by the same replay, after the migrations succeed. A tenant
   whose migrations failed is still at CREATED v1; confirm with `max_schema_version/2` as above.
 
@@ -86,8 +91,10 @@ each; that is accepted for expected tenant sizes (seconds at most).
 > manual route below. Infra confirms or changes this number from the inventory; the migrations
 > themselves are unaffected by it.
 
-For such a tenant, prepare the objects by hand, in this order, before (or instead of waiting for)
-the boot replay. Every migration statement is guarded, so the migration then becomes a no-op for
+For such a tenant, prepare the objects by hand, in this order. **Manual preparation MUST finish
+before the new release boots on that environment**: the boot replay is synchronous and runs
+migration (a) itself (ACCESS EXCLUSIVE for the CHECK scan), so a release that boots first takes
+the long lock this route exists to avoid. Every migration statement is guarded, so the migration then becomes a no-op for
 that tenant.
 
 1. Columns (catalog-only, fast):
@@ -109,6 +116,8 @@ that tenant.
      VALIDATE CONSTRAINT entity_record_latest_external_ref_pair_chk;
    ```
 
+   Forgetting the `VALIDATE` leaves the CHECK `NOT VALID` (new rows are checked, existing rows
+   are not proven); the `convalidated` query in section 3 catches it (`f` means not validated).
    Migration (a) adds the CHECK only when `pg_constraint` has no constraint of that name, so it
    will not touch the one created here.
 

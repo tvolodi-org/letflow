@@ -59,6 +59,23 @@ defmodule Letflow.Entities.ExternalRefTest do
       assert {:ok, _} = ExternalRef.parse(%{"system" => "a", "id" => String.duplicate("ž", 127)})
     end
 
+    test "control and format characters in an id (tab, newline, DEL, zero-width, bidi, BOM)" do
+      for bad <- ["a\tb", "a\nb", "a\u007Fb", "a\u200Bb", "a\u200Db", "a\u202Eb", "\uFEFFab"] do
+        assert ExternalRef.parse(%{"system" => "a", "id" => bad}) == @invalid
+      end
+
+      # Ordinary printable characters, including interior and surrounding spaces, stay valid.
+      assert {:ok, _} = ExternalRef.parse(%{"system" => "a", "id" => " a b "})
+    end
+
+    test "all-Unicode-whitespace ids (U+00A0, U+3000, U+2003) are rejected, a non-blank one is not" do
+      for blank <- ["\u00A0", "\u3000", "\u2003", " \u00A0\u3000 "] do
+        assert ExternalRef.parse(%{"system" => "a", "id" => blank}) == @invalid
+      end
+
+      assert {:ok, _} = ExternalRef.parse(%{"system" => "a", "id" => "\u00A0x"})
+    end
+
     test "NUL, all-whitespace and invalid UTF-8 ids" do
       assert ExternalRef.parse(%{"system" => "a", "id" => "a" <> <<0>> <> "b"}) == @invalid
       assert ExternalRef.parse(%{"system" => "a", "id" => "   "}) == @invalid

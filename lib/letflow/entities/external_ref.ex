@@ -9,15 +9,27 @@ defmodule Letflow.Entities.ExternalRef do
       missing key is `{:error, :external_ref_invalid}`.
     * `system`: 1..64 bytes, `[a-z0-9][a-z0-9._-]*` (lower-case slug). Never case-folded: a
       mixed-case system is rejected, not normalised.
-    * `id`: 1..255 bytes, valid UTF-8, no NUL, not all whitespace. Compared byte-exact (no trim,
-      no fold). A numeric source id is sent as a string.
+    * `id`: 1..255 bytes, valid UTF-8, no control (`\p{Cc}`, which includes NUL, tab and
+      newline) and no format (`\p{Cf}`, for example zero-width and bidi marks) characters, not
+      all whitespace (Unicode whitespace such as U+00A0 and U+3000 counts as whitespace).
+      Compared byte-exact (no trim, no fold): an ordinary interior or surrounding space is kept.
+      A numeric source id is sent as a string.
 
   The error carries no detail (no echo of the offending value).
+
+  The design (section 2.3) says "no NUL"; rejecting the wider control/format classes is a
+  deliberate tightening (an id with an invisible character cannot be told apart by eye from
+  another id and is almost certainly a bad export). The registered event schema v2 bounds the
+  same fields by character count (`maxLength` counts characters, this parser counts bytes, so
+  the parser is the stricter) and its `pattern` keyword is inert in the platform's JSON Schema
+  subset. This parser is the real gate, and the projector re-parses a stored `external_ref` so
+  a stream that bypassed it fails the rebuild explicitly.
   """
 
   @system_max_bytes 64
   @id_max_bytes 255
   @system_pattern ~r/\A[a-z0-9][a-z0-9._-]*\z/
+  @forbidden_id_chars ~r/[\p{Cc}\p{Cf}]/u
 
   @type t :: %{system: String.t(), id: String.t()}
 
@@ -38,6 +50,6 @@ defmodule Letflow.Entities.ExternalRef do
 
   defp valid_id?(id) do
     byte_size(id) in 1..@id_max_bytes and String.valid?(id) and
-      not String.contains?(id, <<0>>) and String.trim(id) != ""
+      not Regex.match?(@forbidden_id_chars, id) and String.trim(id) != ""
   end
 end
