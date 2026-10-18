@@ -27,6 +27,7 @@ defmodule Letflow.Scripts.SeedVortexEntitiesActivateTest do
     esac
   done
   echo "$method $url $data" >> "$STUB_LOG"
+  if [[ "$method" == "GET" && -n "$outfile" ]]; then echo "OUT $outfile" >> "$STUB_LOG"; fi
   emit() { if [[ -n "$outfile" ]]; then printf '%s' "$1" > "$outfile"; else printf '%s' "$1"; fi; }
   case "$method $url" in
     "GET "*"/by-name/"*)
@@ -130,13 +131,33 @@ defmodule Letflow.Scripts.SeedVortexEntitiesActivateTest do
         [inactive_task, active_task] =
           for prepared <- [inactive, active], do: Task.async(fn -> exec_seed(prepared) end)
 
-        {out_i, status_i, calls_i} = Task.await(inactive_task, 60_000)
-        {out_a, status_a, calls_a} = Task.await(active_task, 60_000)
+        {out_i, status_i, calls_i} = Task.await(inactive_task, 30_000)
+        {out_a, status_a, calls_a} = Task.await(active_task, 30_000)
 
         assert status_i == 0, out_i
         assert status_a == 0, out_a
         assert calls_i =~ ~s(/activate {"rationale":")
         refute calls_a =~ "/activate"
+      end
+    end
+  end
+
+  # Deterministic (timing independent) form of the same property: the by-name answer goes to a
+  # temp file inside THIS run's own TMPDIR (never a fixed shared path) and the file is gone
+  # afterwards (GH #2826).
+  for mode <- ["404", "active", "inactive"] do
+    test "the by-name answer is written to a private temp file that is removed (#{mode})" do
+      if available?() do
+        prepared = prepare_seed(unquote(mode))
+        {out, status, calls} = exec_seed(prepared)
+        assert status == 0, out
+
+        [out_path] = Regex.run(~r/^OUT (.+)$/m, calls, capture: :all_but_first)
+        refute out_path == "/tmp/vortex_entity_def_check.json"
+        # mktemp's default template is tmp.XXXXXXXX (GNU, macOS, Git-bash); the path may be in
+        # a different notation than Elixir's on Windows, so only the base name is pinned.
+        assert Path.basename(out_path) =~ ~r/^tmp\./
+        refute File.exists?(out_path)
       end
     end
   end

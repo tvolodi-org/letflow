@@ -143,7 +143,7 @@ activate_definition() {
 seed_entity_definition() {
   local name="$1"
   local fixture_path="$2"
-  # GH #2784 follow-up: a per-call temp file (was a fixed /tmp path shared by concurrent runs/tests).
+  # GH #2826: a per-call temp file (was a fixed /tmp path shared by concurrent runs/tests).
   local def_check_file
   def_check_file=$(mktemp)
 
@@ -155,6 +155,7 @@ seed_entity_definition() {
     -H "${AUTH_HEADER}" \
     "${API}/entities/definitions/by-name/${name}") || {
     echo "ERROR: GET /api/v1/entities/definitions/by-name/${name} failed (network error)." >&2
+    rm -f "${def_check_file}"
     exit 1
   }
 
