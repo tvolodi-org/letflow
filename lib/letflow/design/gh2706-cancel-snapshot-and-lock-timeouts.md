@@ -178,8 +178,10 @@ committed, `P_x` released, W proceeds). That 4-tuple is the ONLY shape the retry
 matches the failed step name AND the reason atom, so a step failure of any other step (event
 append, changeset, ineligible) keeps going through `interpret_cancel_result/3` unchanged.
 `run_cancel_instance/5` then re-runs the whole Multi, at most 3
-attempts in total and only while less than 5 s have elapsed since the first attempt began
-(monotonic clock; see section 8), only when `Repo.in_transaction?()` is false (a caller that wraps cancel in its own
+attempts in total and only while less than `:contention_lock_timeout_ms` (the section 3.1
+constant, not a literal 5000) has elapsed since the START of the first attempt on a monotonic
+clock (the elapsed time includes time spent blocked; see section 8). A cap that is exhausted
+before a new attempt would start returns `{:error, :cancel_contention}`. The loop runs only when `Repo.in_transaction?()` is false (a caller that wraps cancel in its own
 transaction cannot retry a rolled-back Multi: it returns the error at once). No backoff: the retry
 starts with the class-1 locking read, which blocks on B until W commits, so it paces itself. If the
 third attempt still finds a leftover (a sustained stream of completers; practically unreachable)
@@ -220,7 +222,7 @@ VERBATIM (PR-1; REVIEWER gate), and edit rule 6 as stated in its last paragraph:
 > instance_projections`, which a held `P_x FOR UPDATE` blocks. A pending task row that the
 > second read must have but cannot lock (it is held by another transaction, necessarily one that
 > is queued behind `P_x`, such as a completer) is never waited for: the transaction aborts, rolls
-> back and is retried a bounded number of times (3 attempts, within 5 s of the first), after which
+> back and is retried a bounded number of times (3 attempts, within one lock-timeout constant of the first attempt's start), after which
 > it reports a typed retryable contention error. Any other path that must read class 1 after `P_x`
 > follows the same rule (non-waiting, abort and retry on a skipped row) or amends this record.
 > Rule 2 (modes) is unchanged. Rule 6 no longer lists "cancel's open-tasks snapshot taken before
@@ -295,18 +297,31 @@ the key.
 
 **No runtime key.** The value is the compile-time constant of 3.1. A fast 55P03 test uses the
 existing compile-time switch `Application.compile_env(:letflow, :engine_test_seams, false)`
-(`config/test.exs`, the same one the service backoffs use at `engine.ex` ~5530): under it the
-constant is read from `compile_env(:letflow, :contention_lock_timeout_ms, 5_000)`, set to 300 ms in
-`config/test.exs`; a production build can only have 5 s. (The rejected alternative, a per-cancel
-`Application.get_env`, would force interpolation or a validated runtime integer into the statement
-and is what the CDV review ruled out.)
+(`config/test.exs`, the same one the service backoffs use at `engine.ex` ~5530). **The test config
+keeps the 5 s default; it is NOT lowered globally** (the barrier tests R1, R2, L1, L1b and the
+existing `cancel_child_lock_order_test.exs` deliberately park a cancel on a held row for as long
+as they need, and a global 300 ms would turn those into 55P03). Instead, under
+`engine_test_seams` ONLY (compiled out of a production build), the step reads a PROCESS-LOCAL
+override, `Process.get(:contention_lock_timeout_ms_override)`, in the calling process (the Multi
+step runs in the process that called `cancel_instance/3` / `set_instance_error/2`, so a worker
+started by the test sets it with `Process.put/2` as the first line of its own function). It must
+be a positive integer; otherwise it is ignored and the constant applies. **How T1 and E1 reach a
+real 55P03 within bounded time:** the worker function does `Process.put(:contention_lock_timeout_ms_override, 300)`
+and then calls the engine; a third connection holds the barrier row; Postgres raises a genuine
+55P03 after about 300 ms; the test awaits the worker with the usual `H.await_ms/0` bound. Other
+tests, and other processes, keep 5 s. A production build has no such read and can only have 5 s.
+(The rejected alternatives: a per-cancel `Application.get_env`, which would force a runtime
+integer into the statement and is what the CDV review ruled out; a global test-config value.)
 
 **Nested transactions (F6).** Ecto nested transactions use no savepoint, so a `SET LOCAL`/
 `set_config(..., true)` issued inside a caller's transaction lasts until the OUTER transaction
 ends and would leak a 5 s timeout to the caller's later statements. Rule: when
 `Repo.in_transaction?()` is true at entry, the step is SKIPPED (no timeout, no leak), the leftover
 retry loop is not used (the typed error is returned at once, section 2.3), and the contention
-`rescue` mapping still applies. T4 pins this. A nested cancel therefore has no wait bound; it is
+`rescue` mapping still applies. A failure inside the nested call (a leftover, or a contention
+error) makes `Repo.transaction/1` roll back, which marks the OUTER transaction rollback-only: the
+outer `Repo.transaction/1` then returns `{:error, :rollback}` even if the caller handled the
+typed error. T4 pins both the typed error of the call and this outer result. A nested cancel therefore has no wait bound; it is
 not a production path (the only caller is the route), only tests and future callers.
 
 ## 4. Residual (2): the ExecutionError landing step (decision 4)
@@ -433,7 +448,9 @@ PR-1 (red on main, green after):
   locks B and queues at `P_x` AFTER cancel; wait until both are blocked; (7) release the `P_x`
   barrier. FIFO gives `P_x` to cancel: its `SKIP LOCKED` read skips B, the plain read shows B, the
   attempt aborts and rolls back; W gets `P_x`, completes B (activates C) and commits; cancel's second
-  attempt locks C in the class-1 read, takes `P_x`, cancels C, commits. Assert: W's completion
+  attempt finds C either in its class-1 read or, if that statement started before W committed,
+  in the `SKIP LOCKED` recheck after `P_x` (both are correct; the test must not depend on which),
+  takes `P_x`, cancels C, commits. Assert: W's completion
   returns `{:ok, _}`; C is `:cancelled`; B is `:completed`; the instance is `:cancelled`; the cancel
   returns `{:ok, _}` with C in `cancelled_task_ids`; no `40P01`/`55P03` through the telemetry
   handler. Separately, the attempt count is exactly 2, asserted from a statement trace on the
@@ -441,7 +458,10 @@ PR-1 (red on main, green after):
   pattern is C1's in `cancel_child_lock_order_test.exs`).
 * **L1b** (B final). Same steps but B leads to END: W's completion completes the instance; cancel's
   retry finds it terminal and returns `{:error, {:instance_already_terminal, :completed}}` (HTTP
-  409 on the route). Assert exactly that, no pending task, no `40P01`.
+  409 on the route). Assert exactly that, no `40P01`, and no pending task EXCEPT task A: A is only
+  barrier-held in this fixture and stays `:pending` on the completed instance (completion does not
+  cancel it), so the assertions are on B (`:completed`) and the instance (`:completed`) only; or
+  the fixture completes/cancels A before step 3.
   (If the ordering of steps 5-6 proves fragile in CI, the fallback is a pause seam on the pattern
   of `ScriptTaskDispatcher.pause/2`, honoured only under `Runtime.test_hooks?`: `cancel_instance`
   pauses once after `:lock_ancestors`.)
@@ -453,7 +473,8 @@ PR-1 (red on main, green after):
   unchanged.
 * Router: `{:error, :cancel_contention}` -> 503 with the constant body (no exception text).
 
-PR-2: **T1** with the compile-time test override of section 3.1 lowered to 300 ms, barrier `{:projection, x}` held by a third
+PR-2: **T1** with the per-test process-local override of section 3.4 (`Process.put` of 300 in the
+worker, `engine_test_seams` builds only; the test config default stays 5 s), barrier `{:projection, x}` held by a third
 connection: `cancel_instance(x)` returns `{:error, :cancel_contention}` within about 300 ms plus
 margin (a REAL 55P03), nothing committed (instance still `:active`, all tasks pending, no
 INSTANCE_CANCELLED event), then succeeds after the barrier is released. **T2** unit test of
@@ -465,12 +486,13 @@ FIRST so cancel is the second waiter and therefore the detector); otherwise left
 `rescue` clause test through a stubbed raise. **T4** a cancel wrapped in an outer transaction does
 not retry and does NOT set the lock timeout (section 3.1 nested rule): `SHOW lock_timeout` inside
 the outer transaction after the call is still the default, and a leftover returns
-`{:error, :cancel_contention}` at once. **T5** (non-nested only) the lock timeout is
+`{:error, :cancel_contention}` at once; AND the OUTER `Repo.transaction/1` that wrapped the call
+returns `{:error, :rollback}` (the nested failure marked it rollback-only). **T5** (non-nested only) the lock timeout is
 transaction-local: `SHOW lock_timeout` on the same pinned connection after the cancel returns the
 default. **T6** the statement trace shows the timeout is set with the bound `set_config` form (one
 parameter, no interpolated number in the SQL text).
 
-PR-3: **E1** `set_instance_error(child)` with the parent projection held by a barrier and the
+PR-3: **E1** `set_instance_error(child)` (worker sets the process-local override of section 3.4 to 300 ms) with the parent projection held by a barrier and the
 timeout lowered: typed `{:error, {:execution_error_contention, :lock_not_available}}`, the child
 projection unchanged, and a `dlq_entries` row of `entry_type "event"` with `context_json`
 `{"landing": "contention"}` exists with none of the variables in it. **E2** with `dlq_landed_externally: true` no DLQ row is added. **E3**
@@ -521,7 +543,7 @@ client-visible change: a new 503 on `POST /instances/:id/cancel`, and `cancelled
   unbounded wait, and nothing commits. The `SKIP LOCKED` re-read does not add to it.
 * **Cancel latency.** Only the leftover path retries (a lock timeout or deadlock is NOT retried
   inside the engine; it is returned as 503). The leftover retry loop starts a new attempt only
-  while less than 5 s (one lock timeout) have elapsed on a monotonic clock since the first attempt
+  while less than `:contention_lock_timeout_ms` (one lock timeout, blocked time included) has elapsed on a monotonic clock since the start of the first attempt
   began, so the worst case is about two attempts of at most one lock timeout per wait each, well
   below an HTTP request budget in practice, and never three back-to-back full timeouts.
 * **Orphan/timer follow-ups** (section 1.4 notes): timers armed in the R3 window are re-polled
