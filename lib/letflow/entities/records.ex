@@ -172,6 +172,7 @@ defmodule Letflow.Entities.Records do
   alias Letflow.Entities.Definitions
   alias Letflow.Entities.EntityDefinition
   alias Letflow.Entities.EntityTypeInstance
+  alias Letflow.Entities.ExternalRef
   alias Letflow.Entities.ManagedTypes
   alias Letflow.Entities.Record.Latest
   alias Letflow.Entities.Record.Validator
@@ -234,6 +235,30 @@ defmodule Letflow.Entities.Records do
 
   @type command_result :: %{record: Latest.t(), is_duplicate: boolean()}
 
+  @typedoc """
+  GH #2659: `external_ref` is the RAW `%{"system" => _, "id" => _}` map (the parser's input); the
+  other keys are as `create_attrs()`.
+  """
+  @type upsert_attrs :: %{
+          required(:entity_type) => String.t(),
+          required(:external_ref) => map(),
+          required(:field_values) => Validator.field_values(),
+          required(:actor_id) => Ecto.UUID.t(),
+          required(:idempotency_key) => String.t()
+        }
+
+  @type upsert_result :: %{
+          record: Latest.t(),
+          outcome: :created | :updated | :unchanged,
+          is_duplicate: boolean()
+        }
+
+  @type upsert_error ::
+          command_error()
+          | {:error, :external_ref_invalid}
+          | {:error, {:external_ref_record_deleted, ExternalRef.t()}}
+          | {:error, :external_ref_contention}
+
   @type command_error ::
           {:error, {:definition_not_found, entity_type :: String.t()}}
           | {:error, {:record_payload_invalid, Validator.violations() | [Violation.t()]}}
@@ -279,6 +304,7 @@ defmodule Letflow.Entities.Records do
           | {:error, :invalid_schema_name}
           | EventStore.append_error()
 
+  @upsert_max_attempts 3
   @step_key_prefix "sys:step:"
   @step_key_max_bytes 255
   @step_key_format ~r/\Asys:step:[A-Za-z0-9:_.-]+\z/
@@ -324,12 +350,19 @@ defmodule Letflow.Entities.Records do
 
   @spec create_record(create_attrs(), prefix :: String.t(), ManagedTypes.owner()) ::
           {:ok, command_result()} | command_error()
-  def create_record(
-        %{entity_type: entity_type, field_values: field_values} = attrs,
-        prefix,
-        authority
-      )
-      when is_binary(prefix) and is_authority(authority) do
+  def create_record(%{entity_type: _, field_values: _} = attrs, prefix, authority)
+      when is_binary(prefix) and is_authority(authority),
+      do: do_create_record(attrs, prefix, authority, nil)
+
+  # The shared create pipeline. `external_ref` is nil for `create_record/3` and the PARSED
+  # `ExternalRef.t()` for the upsert primitive (GH #2659): it never comes from `attrs`, so no
+  # caller-supplied map reaches the payload or the columns without `ExternalRef.parse/1`.
+  defp do_create_record(
+         %{entity_type: entity_type, field_values: field_values} = attrs,
+         prefix,
+         authority,
+         external_ref
+       ) do
     match = idempotency_match(attrs)
 
     with :ok <- reject_reserved_attributes(attrs),
@@ -350,13 +383,145 @@ defmodule Letflow.Entities.Records do
         idempotency_match: match,
         prefix: prefix,
         authority: authority,
-        # GH #2659: set only by the upsert-by-external-ref primitive (a later PR); nil here.
-        external_ref: nil
+        # GH #2659: set only by `upsert_record_by_external_ref/3` (parsed); nil otherwise.
+        external_ref: external_ref
       }
 
       run_command(ctx, attrs)
     end
   end
+
+  @doc """
+  Idempotent create-or-update of one record by its master `external_ref` (GH #2659 / REQ-505,
+  design `lib/letflow/design/gh2659-external-ref-idempotent-import.md` sections 3-4). The `/2`
+  arity is `/3` with `:tenant`.
+
+  `attrs.external_ref` is the raw `%{"system" => _, "id" => _}` map; it enters only through
+  `Letflow.Entities.ExternalRef.parse/1` (`{:error, :external_ref_invalid}` otherwise, nothing
+  queried). Steps: parse, the reserved-attribute and `sys:step:` refusals, the active definition
+  and write authority, the NORMALISED `field_values` (so strict decimals compare as in
+  `create_record/3`), then a lookup by `(entity_type, system, id)` and, in this order:
+
+    * absent: create with the ref in the `ENTITY_RECORD_CREATED` v2 payload and on the row
+      (`outcome: :created`);
+    * present and soft-deleted: `{:error, {:external_ref_record_deleted, ref}}`, nothing appended
+      (no silent revival);
+    * present, live, normalised values JSON-equal to the stored ones: `outcome: :unchanged`,
+      no event and no write. Evaluated BEFORE the append-only check, so re-running a file against
+      an `append_only` type is safe;
+    * present, live, different: `update_record/3` (full replacement) with the read
+      `last_event_global_seq` as the expected version (`outcome: :updated`; an `append_only` type
+      answers `{:error, {:entity_append_only, type}}`).
+
+  Races are arbitrated by the existing locks, never by a new one (decision 0061 rule 1, class 5):
+  the partial unique index on the create path, `check_record_version` on the update path, both
+  after the type's sequence-row lock. A lost race (the ref index's unique violation, a
+  `:record_version_conflict`, or a delete that landed between lookup and write) re-runs from the
+  lookup; each failed attempt rolled back whole. After 3 attempts the answer is the constant
+  `{:error, :external_ref_contention}`; the unique-violation changeset, which carries the ref, is
+  never returned.
+
+  The function is convergent, not replay-keyed: its result follows the current state first and the
+  `idempotency_key` only protects an append (design section 5.3.1). `is_duplicate: true` is
+  returned only when the underlying command returns it. The router (PR 3) applies the per-request
+  `TypeAccess`, field-restriction and event-schema-version checks; the primitive does not.
+  """
+  @spec upsert_record_by_external_ref(upsert_attrs(), prefix :: String.t()) ::
+          {:ok, upsert_result()} | upsert_error()
+  def upsert_record_by_external_ref(attrs, prefix) when is_binary(prefix),
+    do: upsert_record_by_external_ref(attrs, prefix, :tenant)
+
+  @spec upsert_record_by_external_ref(upsert_attrs(), prefix :: String.t(), ManagedTypes.owner()) ::
+          {:ok, upsert_result()} | upsert_error()
+  def upsert_record_by_external_ref(
+        %{entity_type: entity_type, field_values: field_values} = attrs,
+        prefix,
+        authority
+      )
+      when is_binary(prefix) and is_authority(authority) do
+    # The definition is resolved and the values validated here (to compare before writing) and
+    # again inside create_record/update_record: two cheap reads kept so the write path stays the
+    # one existing command pipeline (no second copy of its checks).
+    with {:ok, ref} <- ExternalRef.parse(Map.get(attrs, :external_ref)),
+         :ok <- reject_reserved_attributes(attrs),
+         :ok <- reject_step_key(attrs),
+         {:ok, definition} <- fetch_active_definition(entity_type, prefix),
+         :ok <- check_write_authority(definition, entity_type, authority),
+         {:ok, normalised} <- validate_field_values(definition, field_values) do
+      # `external_ref` is parsed above and travels separately; `idempotency_match` and
+      # `legacy_original` are create-only internals that the upsert never forwards.
+      command_attrs = Map.drop(attrs, [:external_ref, :idempotency_match, :legacy_original])
+
+      upsert_attempt(
+        %{
+          attrs: command_attrs,
+          ref: ref,
+          normalised: canonical_json(normalised),
+          prefix: prefix,
+          authority: authority
+        },
+        @upsert_max_attempts
+      )
+    end
+  end
+
+  defp upsert_attempt(_run, 0), do: {:error, :external_ref_contention}
+
+  defp upsert_attempt(%{ref: ref, prefix: prefix} = run, attempts_left) do
+    outcome =
+      case Latest.get_by_external_ref(run.attrs.entity_type, ref.system, ref.id, prefix) do
+        {:error, :not_found} -> upsert_create(run)
+        {:ok, %Latest{deleted: true}} -> {:error, {:external_ref_record_deleted, ref}}
+        {:ok, %Latest{} = existing} -> upsert_existing(run, existing)
+        {:error, :invalid_schema_name} = error -> error
+      end
+
+    if lost_race?(outcome),
+      do: upsert_attempt(run, attempts_left - 1),
+      else: outcome
+  end
+
+  defp upsert_create(%{attrs: attrs, ref: ref, prefix: prefix, authority: authority}) do
+    case do_create_record(attrs, prefix, authority, ref) do
+      {:ok, %{record: record, is_duplicate: false}} ->
+        {:ok, %{record: record, outcome: :created, is_duplicate: false}}
+
+      # The create fingerprint binds neither the ref nor the record id, so a caller key that
+      # created ref A and is replayed for an absent ref B with equal values would otherwise be
+      # answered with A's record as a "created" duplicate (REVIEWER F1): that is key reuse.
+      {:ok, %{record: record, is_duplicate: true}} ->
+        if record.external_system == ref.system and record.external_id == ref.id,
+          do: {:ok, %{record: record, outcome: :created, is_duplicate: true}},
+          else: {:error, :idempotency_key_reuse}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp upsert_existing(run, %Latest{} = existing) do
+    if json_equal?(existing.field_values, run.normalised) do
+      {:ok, %{record: existing, outcome: :unchanged, is_duplicate: false}}
+    else
+      update_attrs =
+        run.attrs
+        |> Map.put(:record_id, existing.record_id)
+        |> Map.put(:expected_last_event_global_seq, existing.last_event_global_seq)
+
+      case update_record(update_attrs, run.prefix, run.authority) do
+        {:ok, %{record: record, is_duplicate: duplicate?}} ->
+          {:ok, %{record: record, outcome: :updated, is_duplicate: duplicate?}}
+
+        {:error, _reason} = error ->
+          error
+      end
+    end
+  end
+
+  defp lost_race?({:error, :record_version_conflict}), do: true
+  defp lost_race?({:error, {:record_already_deleted, _record_id}}), do: true
+  defp lost_race?({:error, %Ecto.Changeset{} = changeset}), do: external_ref_conflict?(changeset)
+  defp lost_race?(_outcome), do: false
 
   @doc """
   Updates an existing entity record with a **full replacement** `field_values`
@@ -1408,10 +1573,24 @@ defmodule Letflow.Entities.Records do
         field_values: Map.get(payload, "field_values", %{}),
         deleted: event_type == "ENTITY_RECORD_DELETED",
         entity_def_version: Base.decode16!(entity_def_version_hex, case: :lower),
-        last_event_global_seq: global_seq
+        last_event_global_seq: global_seq,
+        # GH #2659: the ref the ORIGINAL create carried (nil for an update, delete or ref-less
+        # original), so `upsert_create/1` can tell whose record a replayed key belongs to.
+        external_system: get_in(payload, ["external_ref", "system"]),
+        external_id: get_in(payload, ["external_ref", "id"])
       },
       is_duplicate: true
     }
+  end
+
+  # GH #2659: true when the changeset carries the unique violation of the partial external-ref
+  # index. The changeset holds the offending ref value, so it is only ever mapped to a constant
+  # outcome (retry, then `:external_ref_contention`), never returned or logged.
+  defp external_ref_conflict?(%Ecto.Changeset{errors: errors}) do
+    Enum.any?(errors, fn {_field, {_message, opts}} ->
+      Keyword.get(opts, :constraint) == :unique and
+        Keyword.get(opts, :constraint_name) == "entity_record_latest_external_ref_idx"
+    end)
   end
 
   defp sequence_conflict?(%Ecto.Changeset{errors: errors}) do
