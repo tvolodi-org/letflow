@@ -9182,10 +9182,12 @@ defmodule Letflow.Engine do
 
   GH #2706 PR-3 (design section 4): the transaction is bounded by a transaction-local
   `lock_timeout` (`Letflow.Engine.Contention.lock_timeout_ms/0`, set first, skipped when the
-  caller already holds a transaction). A lock timeout (55P03) or deadlock victim (40P01) in the
+  caller already holds a transaction); it bounds EVERY lock wait of the landing (the instance row
+  `FOR UPDATE` as well as the parent group). A lock timeout (55P03) or deadlock victim (40P01) in the
   landing is retried in a fresh transaction, 3 attempts in all with 100 ms / 300 ms backoffs, only
   when this call opened the transaction. After the last failure the result is
-  `{:error, {:execution_error_contention, code}}` (never a raise); the instance stays `:active`
+  `{:error, {:execution_error_contention, code}}` (a contention failure never raises; any other
+  exception is re-raised); the instance stays `:active`
   (it is not moved to `ERROR` without the parent group lock, see decision 0061). Unless the
   caller passed `dlq_landed_externally: true`, a standalone best-effort `dlq_entries` row
   (`context_json` `{"landing": "contention"}`, no variables, no reason text, no details) tells the
@@ -9250,6 +9252,7 @@ defmodule Letflow.Engine do
   # transaction (a nested attempt left the caller's transaction aborted: the typed error at once).
   defp run_error_landing_attempts(attempt, n, nested?, error_args, prefix, dlq_landed_externally) do
     case attempt.() do
+      # the cap is deliberately the service-apply cap (3 attempts, the same backoff table)
       {:contention, _code} when not nested? and n < @service_apply_attempts ->
         service_backoff(n)
 
@@ -9308,6 +9311,7 @@ defmodule Letflow.Engine do
         :ok
 
       {:error, _changeset} ->
+        # never log or inspect the changeset (it holds the row attributes)
         Logger.warning(
           "set_instance_error contention: DLQ row not written instance_id=#{error_args.instance_id}"
         )

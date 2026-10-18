@@ -157,10 +157,15 @@ defmodule Letflow.Engine.SetInstanceErrorContentionTest do
       {holder, _} = H.hold_row(base.schema, {:projection, parent_id})
 
       call = fn -> Engine.set_instance_error(attrs(base, child_id), prefix: base.schema) end
-      {worker, pid} = H.start_worker(with_override(traced(call)))
-      H.wait_for_blocked([pid], 1)
 
-      {{result, queries}, _done_at} = await_within!(worker, 5_000)
+      log =
+        capture_log([level: :warning], fn ->
+          {worker, pid} = H.start_worker(with_override(traced(call)))
+          H.wait_for_blocked([pid], 1)
+          send(self(), {:done, await_within!(worker, 5_000)})
+        end)
+
+      assert_received {:done, {{result, queries}, _done_at}}
 
       assert result == {:error, {:execution_error_contention, :lock_not_available}}
       assert_55p03_reported!()
@@ -173,7 +178,16 @@ defmodule Letflow.Engine.SetInstanceErrorContentionTest do
 
       assert_child_untouched!(base, child_id)
 
+      # the log carries the instance id and the classified tag, never tenant data
+      assert log =~ "instance_id=#{child_id}"
+      assert log =~ "lock_not_available after attempt 3"
+      refute log =~ @secret_variable
+      refute log =~ @secret_reason
+      refute log =~ @secret_detail
+
       assert [row] = Fx.dlq_entries(base.schema)
+      assert row.tenant_id == base.tenant.tenant_id
+      assert row.status == :pending
       assert row.entry_type == "event"
       assert row.instance_id == child_id
       assert row.context_json == %{"landing" => "contention"}
@@ -216,11 +230,13 @@ defmodule Letflow.Engine.SetInstanceErrorContentionTest do
         )
       end
 
-      {worker, pid} = H.start_worker(with_override(call))
+      {worker, pid} = H.start_worker(with_override(traced(call)))
       H.wait_for_blocked([pid], 1)
-      {result, _} = await_within!(worker, 5_000)
+      {{result, queries}, _} = await_within!(worker, 5_000)
 
       assert result == {:error, {:execution_error_contention, :lock_not_available}}
+      # all three attempts ran, only the extra row is skipped
+      assert Enum.count(queries, &(&1.query =~ "lock_timeout")) == 3
       assert_child_untouched!(base, child_id)
       assert Fx.dlq_entries(base.schema) == []
 
@@ -251,6 +267,8 @@ defmodule Letflow.Engine.SetInstanceErrorContentionTest do
 
       {result, _} = await_within!(worker, 5_000)
       assert {:ok, %{instance_id: ^child_id, status: :error}} = result
+      # exactly one timeout was reported: the second attempt succeeded
+      refute_receive {:deadlock_detected, _}, 100
 
       assert Fx.projection!(base.schema, child_id).status == :error
       assert [_one] = Fx.instance_events(base.schema, child_id, "EXECUTION_ERROR")
@@ -331,7 +349,7 @@ defmodule Letflow.Engine.SetInstanceErrorContentionTest do
       end
 
       log =
-        capture_log(fn ->
+        capture_log([level: :warning], fn ->
           {worker, pid} = H.start_worker(call)
           H.wait_for_blocked([pid], 1)
           {result, _} = await_within!(worker, 5_000)
@@ -339,7 +357,13 @@ defmodule Letflow.Engine.SetInstanceErrorContentionTest do
           assert result == {:error, {:error, {:execution_error_contention, :lock_not_available}}}
         end)
 
-      assert log =~ "set_instance_error contention"
+      assert log =~ "set_instance_error contention: lock_not_available after attempt 1"
+      assert log =~ "instance_id=#{child_id}"
+      # skipped by the nested guard, not attempted and rescued
+      refute log =~ "DLQ row not written"
+      refute log =~ @secret_variable
+      refute log =~ @secret_reason
+      refute log =~ @secret_detail
       assert_55p03_reported!()
       refute_receive {:deadlock_detected, _}, 100
       assert_child_untouched!(base, child_id)
