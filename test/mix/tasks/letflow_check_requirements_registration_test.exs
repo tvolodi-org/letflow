@@ -738,6 +738,64 @@ defmodule Mix.Tasks.Letflow.CheckRequirementsRegistrationTest do
                  "#{report.counts.unclassified} unclassified"
     end
   end
+
+  describe "R8 -- whole-file YAML parse guard (GH #2891)" do
+    setup do
+      {:ok, _} = Application.ensure_all_started(:yaml_elixir)
+      :ok
+    end
+
+    # A requirements-shaped body: one registered entry carrying an
+    # acceptance_criteria list whose single item is `item` (a full YAML list
+    # item line payload, i.e. the text after "- ").
+    defp entry_with_criterion(item) do
+      req("REQ-001", [
+        "stage: S0",
+        "title: A registered requirement",
+        "impl_order: 42  # letflow-queue task id",
+        "acceptance_criteria:",
+        "  - " <> item
+      ])
+    end
+
+    # The real defect shape: a double-quoted scalar with unescaped inner
+    # double quotes.
+    @bad_item ~S|"x contains the sentence "A" and the sentence "B", end"|
+    # The fix shape: inner quotes single-quoted.
+    @good_item ~S|"x contains the sentence 'A' and the sentence 'B', end"|
+
+    test "R8-VALID -- a small valid requirements document parses :ok" do
+      assert Check.parse_check(doc(entry_with_criterion("plain criterion"))) == :ok
+    end
+
+    test "R8-BROKEN -- unescaped inner double quotes are rejected, and scan/2 alone misses it" do
+      content = doc(entry_with_criterion(@bad_item))
+
+      assert {:error, msg} = Check.parse_check(content)
+      assert is_binary(msg)
+      assert msg != ""
+
+      # The gap the guard closes: the line-scanning check stays green on the
+      # very same bytes.
+      assert Check.scan(content).violations == []
+    end
+
+    test "R8-FIXED-SHAPE -- the same item with single-quoted inner quotes parses :ok" do
+      assert Check.parse_check(doc(entry_with_criterion(@good_item))) == :ok
+    end
+
+    test "R8-NEVER-RAISES -- garbage input returns {:error, binary}, never raises or throws" do
+      for garbage <- ["a: [unclosed", "		bad: :
+  - -"] do
+        assert {:error, msg} = Check.parse_check(garbage)
+        assert is_binary(msg)
+      end
+    end
+
+    test "T-LIVE-PARSE -- the real docs/requirements.yaml parses as YAML" do
+      assert Check.parse_check(File.read!(@live_corpus)) == :ok
+    end
+  end
 end
 
 defmodule Mix.Tasks.Letflow.CheckRequirementsRegistrationTaskTest do

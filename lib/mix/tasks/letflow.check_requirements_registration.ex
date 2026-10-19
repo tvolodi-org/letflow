@@ -72,6 +72,11 @@ defmodule Mix.Tasks.Letflow.CheckRequirementsRegistration do
       terminal (`done` / `cancelled`) and is registered only by a legacy
       `impl_order: <n>` line carries no `gh: <number>`, so it has no work-board
       issue. Before cutover this rule never fires.
+    * **R8** -- the whole file parses as YAML (`YamlElixir.read_from_string/1`,
+      see `parse_check/1`). The line scan above cannot see a document that is
+      structurally invalid (GH #2891: unescaped inner quotes in one scalar made
+      the file unparseable while this check stayed green). `yaml_elixir` is a
+      dev/test dependency, like `mix letflow.check_uat_scenario_schema`.
 
   ## The work-board registration form (ISS-1073 / GH #2430)
 
@@ -238,6 +243,28 @@ defmodule Mix.Tasks.Letflow.CheckRequirementsRegistration do
           )
       end
 
+    case Application.ensure_all_started(:yaml_elixir) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Mix.raise(
+          "mix letflow.check_requirements_registration: FAILED [R8] -- " <>
+            "yaml_elixir is not available (run under MIX_ENV=test or dev): #{inspect(reason)}"
+        )
+    end
+
+    case parse_check(content) do
+      :ok ->
+        :ok
+
+      {:error, message} ->
+        Mix.raise(
+          "mix letflow.check_requirements_registration: FAILED [R8] -- " <>
+            "#{@requirements_file} does not parse as YAML: #{message}"
+        )
+    end
+
     report = scan(content, cutover: WorkBoardCutover.cutover?())
 
     report |> render() |> IO.write()
@@ -254,6 +281,37 @@ defmodule Mix.Tasks.Letflow.CheckRequirementsRegistration do
   end
 
   # -- pure core ------------------------------------------------------------
+
+  @doc """
+  R8: the whole document must parse as YAML. Pure: takes **content**.
+
+  Returns `:ok` or `{:error, message}`; a parser error, throw, exit or raise is
+  always returned as `{:error, message}` (with line/column when the parser gives
+  them), never propagated. Requires `:yaml_elixir` to be started.
+  """
+  @spec parse_check(String.t()) :: :ok | {:error, String.t()}
+  def parse_check(content) when is_binary(content) do
+    case YamlElixir.read_from_string(content) do
+      {:ok, _data} -> :ok
+      {:error, reason} -> {:error, describe_parse_error(reason)}
+    end
+  catch
+    kind, reason -> {:error, "parser #{kind}: " <> describe_parse_error(reason)}
+  end
+
+  @spec describe_parse_error(term()) :: String.t()
+  defp describe_parse_error(%{message: message} = error) do
+    where =
+      case {Map.get(error, :line), Map.get(error, :column)} do
+        {nil, _} -> ""
+        {line, nil} -> " (line #{line})"
+        {line, column} -> " (line #{line}, column #{column})"
+      end
+
+    to_string(message) <> where
+  end
+
+  defp describe_parse_error(other), do: inspect(other)
 
   @doc """
   Classifies the whole file. Pure: takes **content**, not a path, so
