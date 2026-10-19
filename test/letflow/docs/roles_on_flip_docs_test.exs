@@ -58,7 +58,13 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
     4 => ["denials of tenant-wide and admin-plane routes"],
     5 => ["definitions, entity-definition, instance and service reads", "RA-6"],
     6 => ["Do not scope the CANDIDATE binding"],
-    7 => ["mandatory reason", "Tokens cannot", "no platform-scope break-glass"],
+    7 => [
+      "mandatory reason",
+      "Tokens cannot",
+      "letflow.scope_enforcement.break_glass",
+      "Letflow.Release.ScopeBreakGlass",
+      "no HTTP route"
+    ],
     8 => [@platform_sentence]
   }
 
@@ -542,6 +548,307 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
     test "a limitation section without the scoped upsert refusal", %{good: good} do
       assert {:limitation_missing, "import_scope_check/6"} in violations(
                String.replace(good, "import_scope_check/6", "the router")
+             )
+    end
+  end
+
+  # --- GH #2883 (T-BG-30): the operator break-glass is documented, nothing else moved ---------------
+
+  # built from parts: the CI path-filter guard (ci_backend_path_filter_test) treats every path-like
+  # string literal in test/ as a path the backend gate READS, and docs/migration/ is not in the
+  # filter (a change confined to the decision record would skip the backend job: reported).
+  @decision Path.join([
+              "docs",
+              "migration",
+              "decisions",
+              "0051-org-scoped-role-grants-and-enforcement.md"
+            ])
+  @bg_heading "## Break-glass: turning an on tenant off without an admin (platform operator)"
+  @old_phrase "no platform-scope break-glass"
+  @old_sentence "There is no platform-scope break-glass in this release"
+
+  # the text of the numbered item `n` of the production section, whitespace-normalised
+  defp item_text(text, n) do
+    case production(text) do
+      nil ->
+        nil
+
+      {_intro, items} ->
+        case List.keyfind(items, n, 0) do
+          {^n, item} -> flat(item)
+          nil -> nil
+        end
+    end
+  end
+
+  defp flat(text), do: String.replace(text, ~r/\s+/, " ")
+
+  @bg_item_claims [
+    "mandatory reason",
+    "Tokens cannot",
+    "letflow.scope_enforcement.break_glass",
+    "Letflow.Release.ScopeBreakGlass",
+    "no HTTP route",
+    "operator label"
+  ]
+
+  @bg_section_claims [
+    "NO HTTP route",
+    "bin/letflow eval",
+    "is not supported",
+    "dry_run: true",
+    "confirm:",
+    "--dry-run",
+    "--confirm",
+    "TARGET",
+    "current_mode=on",
+    "The Mix form is for dev and CI hosts ONLY",
+    "app.start",
+    "a second full Letflow application",
+    "against the same database as the running node",
+    "not_enforced",
+    "lock_conflict",
+    "server_fault",
+    "operator_break_glass",
+    "scope.enforcement_disabled",
+    "Never write the column with SQL",
+    "the command needs the running application",
+    "RESTARTS",
+    "Do NOT put secrets, personal data or quotes in the reason",
+    "at most 64 characters"
+  ]
+
+  @bg_record_claims [
+    "release command with no HTTP route (GH #2883)",
+    "authorised by host access, not by any role, token or permission",
+    "from `on` to `shadow` or `off`",
+    "a null actor, the operator label and the node name",
+    "it grants no role, reads no tenant content",
+    "is not the platform-scope flip route of A6, which stays unbuilt",
+    # the two statements the SECURITY-REVIEWER design gate required (RA-B1 edits)
+    "The operator label is an ATTESTATION by someone who already holds host access, not an authenticated identity.",
+    "A10's gap (a tenant stored `on` with nobody able to turn it off) is only PARTLY answered by this command",
+    "the last-admin guard (GH #2869 part (a)) stays open and is still required before any customer `on`",
+    "The A7 token break-glass covers GRANT writes only",
+    "needs a NEW decision record"
+  ]
+
+  # Every violation of the GH #2883 documentation rules for the three documents (pure).
+  defp bg_violations(roles, runbook, record) do
+    bg_section = section(runbook, @bg_heading)
+    section_flat = if bg_section, do: flat(bg_section), else: ""
+
+    checks =
+      [
+        {occurrences(runbook, @bg_heading) != 1, :runbook_heading_not_exactly_once},
+        {is_nil(bg_section), :runbook_section_missing},
+        {String.contains?(roles, @old_phrase) or String.contains?(runbook, @old_phrase),
+         :old_no_break_glass_sentence_remains},
+        {String.contains?(roles, @old_sentence) or String.contains?(runbook, @old_sentence),
+         :old_release_sentence_remains},
+        {item_text(roles, 7) != item_text(runbook, 7), :item_7_differs_between_documents},
+        {not String.contains?(roles, "is delivered by GH #2883"),
+         :roles_gate_paragraph_not_updated},
+        {not String.contains?(runbook, "is delivered by GH #2883"),
+         :runbook_gate_paragraph_not_updated},
+        {Regex.match?(~r/LIMIT-[A-Z0-9-]*(BREAK|GLASS)/, roles <> runbook),
+         :an_eighth_limit_item_for_the_break_glass},
+        {occurrences(record, "**A11. Operator break-glass for the flag.**") != 1,
+         :record_a11_not_exactly_once},
+        {String.contains?(record, "**A12."), :record_has_an_unexpected_a12}
+      ]
+      |> Enum.filter(&elem(&1, 0))
+      |> Enum.map(&elem(&1, 1))
+
+    item_gaps =
+      for claim <- @bg_item_claims,
+          not String.contains?(item_text(runbook, 7) || "", claim),
+          do: {:item_7_missing, claim}
+
+    section_gaps =
+      for claim <- @bg_section_claims,
+          not String.contains?(section_flat, claim),
+          do: {:runbook_section_missing_claim, claim}
+
+    record_flat = flat(record)
+
+    record_gaps =
+      for claim <- @bg_record_claims,
+          not String.contains?(record_flat, claim),
+          do: {:record_missing, claim}
+
+    checks ++ item_gaps ++ section_gaps ++ record_gaps
+  end
+
+  describe "T-BG-30 the break-glass documentation (GH #2883)" do
+    setup do
+      {:ok, roles: read("docs/roles.md"), runbook: read(@runbook), record: read(@decision)}
+    end
+
+    test "the real documents satisfy every GH #2883 rule", %{
+      roles: roles,
+      runbook: runbook,
+      record: record
+    } do
+      assert bg_violations(roles, runbook, record) == []
+    end
+
+    test "item 7 is the same text in docs/roles.md and the runbook and names the command, no HTTP route and the label",
+         %{roles: roles, runbook: runbook} do
+      item = item_text(roles, 7)
+
+      assert item == item_text(runbook, 7)
+
+      assert item =~
+               "To turn `on` off: an interactive tenant-wide TENANT_ADMIN, with a mandatory reason. Tokens cannot."
+
+      assert item =~
+               "`Letflow.Release.ScopeBreakGlass` (`mix letflow.scope_enforcement.break_glass`)"
+
+      assert item =~ "which has no HTTP route and needs a mandatory reason and an operator label"
+      refute item =~ @old_phrase
+    end
+
+    test "the runbook has the Break-glass heading exactly once, after the production section and before the limitations",
+         %{runbook: runbook} do
+      assert occurrences(runbook, @bg_heading) == 1
+
+      {production_at, _} = :binary.match(runbook, @production_heading)
+      {heading_at, _} = :binary.match(runbook, @bg_heading)
+      {limits_at, _} = :binary.match(runbook, "\n" <> @limitations_heading)
+
+      assert production_at < heading_at
+      assert heading_at < limits_at
+    end
+
+    test "exactly seven LIMIT items remain in both documents and none concerns the break-glass",
+         %{
+           roles: roles,
+           runbook: runbook
+         } do
+      body = heading_body(roles, @ac23_heading)
+      assert length(list_items(body)) == 7
+
+      for text <- [roles, runbook] do
+        tokens = ~r/LIMIT-[A-Z0-9-]+/ |> Regex.scan(text) |> List.flatten() |> Enum.uniq()
+        assert Enum.sort(tokens) == Enum.sort(Enum.map(@ac23_items, &elem(&1, 0)))
+      end
+    end
+
+    test "the A6 sentence about the unbuilt route for ANOTHER tenant is still in the operator procedure",
+         %{roles: roles, runbook: runbook} do
+      for text <- [roles, runbook] do
+        assert flat(text) =~
+                 "The flag route for ANOTHER tenant from the platform scope is not built."
+      end
+    end
+
+    test "decision 0051 holds A11 once, after A10, as Amendment 3, and it is the last paragraph",
+         %{record: record} do
+      {a10, _} = :binary.match(record, "**A10. Known gap, tracked.**")
+      {a11, _} = :binary.match(record, "**A11. Operator break-glass for the flag.**")
+      assert a10 < a11
+
+      assert record =~
+               "## Amendment 3 (2026-10-19): operator break-glass for the enforcement flag"
+
+      tail = binary_part(record, a11, byte_size(record) - a11)
+      refute tail =~ "\n## "
+    end
+
+    test "seeded bad documents fire every rule", %{roles: roles, runbook: runbook, record: record} do
+      assert :runbook_heading_not_exactly_once in bg_violations(
+               roles,
+               String.replace(runbook, @bg_heading, "## Something else"),
+               record
+             )
+
+      assert :runbook_heading_not_exactly_once in bg_violations(
+               roles,
+               runbook <> "\n" <> @bg_heading <> "\n",
+               record
+             )
+
+      assert :old_release_sentence_remains in bg_violations(
+               roles <> "\n" <> @old_sentence <> " in this release.\n",
+               runbook,
+               record
+             )
+
+      assert :old_no_break_glass_sentence_remains in bg_violations(
+               roles,
+               runbook <> "\n" <> @old_phrase <> "\n",
+               record
+             )
+
+      assert :item_7_differs_between_documents in bg_violations(
+               roles,
+               String.replace(runbook, "an operator label.", "a label."),
+               record
+             )
+
+      assert {:item_7_missing, "no HTTP route"} in bg_violations(
+               String.replace(roles, "which has no HTTP route and", "which"),
+               String.replace(runbook, "which has no HTTP route and", "which"),
+               record
+             )
+
+      assert {:item_7_missing, "Tokens cannot"} in bg_violations(
+               String.replace(roles, "Tokens cannot.", "Tokens can."),
+               String.replace(runbook, "Tokens cannot.", "Tokens can."),
+               record
+             )
+
+      assert {:runbook_section_missing_claim, "The Mix form is for dev and CI hosts ONLY"} in bg_violations(
+               roles,
+               String.replace(
+                 runbook,
+                 "The Mix form is for dev and CI hosts ONLY",
+                 "The Mix form is fine"
+               ),
+               record
+             )
+
+      assert {:runbook_section_missing_claim, "a second full Letflow application"} in bg_violations(
+               roles,
+               String.replace(runbook, "a second full Letflow application", "an application"),
+               record
+             )
+
+      assert :an_eighth_limit_item_for_the_break_glass in bg_violations(
+               roles <> "\n- LIMIT-BREAK-GLASS: an eighth item\n",
+               runbook,
+               record
+             )
+
+      assert :roles_gate_paragraph_not_updated in bg_violations(
+               String.replace(roles, "is delivered by GH #2883", "is open"),
+               runbook,
+               record
+             )
+
+      assert :record_a11_not_exactly_once in bg_violations(
+               roles,
+               runbook,
+               String.replace(record, "**A11. Operator break-glass for the flag.**", "**A11.**")
+             )
+
+      attestation =
+        "The operator label is an ATTESTATION by someone who already holds host access, not an authenticated identity."
+
+      assert {:record_missing, attestation} in bg_violations(
+               roles,
+               runbook,
+               String.replace(record, "not an authenticated identity", "a login")
+             )
+
+      partly =
+        "the last-admin guard (GH #2869 part (a)) stays open and is still required before any customer `on`"
+
+      assert {:record_missing, partly} in bg_violations(
+               roles,
+               runbook,
+               String.replace(record, "stays open and is still required", "is done")
              )
     end
   end

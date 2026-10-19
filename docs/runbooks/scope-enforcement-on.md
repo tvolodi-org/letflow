@@ -30,7 +30,7 @@ The flip request itself counts as a shadow request, and request counts include e
 
 ## What `on` means in production today
 
-Read this before flipping any tenant. Only pilot tenants may be flipped, and pilot use must wait for the open items: the tenant-level metadata reads for scoped users (RA-6, REQ-525..527, filed in #2862); the last-admin gap (#2869: a tenant stored `on` can end with nobody able to turn it off; a guard extension or a break-glass is still undecided); and the writer of `tasks.scope_node_id` (W3b, #2870). The decision-record amendment is 0051 A8-A10 (PR #2871).
+Read this before flipping any tenant. Only pilot tenants may be flipped, and pilot use must wait for the open items: the tenant-level metadata reads for scoped users (RA-6, REQ-525..527, filed in #2862); the last-admin gap (#2869: a tenant stored `on` can end with nobody able to turn it off; the operator break-glass is built, GH #2883, and the guard that prevents the gap is still open); and the writer of `tasks.scope_node_id` (W3b, #2870). The decision-record amendment is 0051 A8-A10 (PR #2871); A11 records the GH #2883 break-glass.
 
 1. A tenant that passes the gate can be set to `on` by an interactive tenant-wide TENANT_ADMIN, only from `shadow`, with an audit trail.
 2. `on` delivers: the admin plane is closed to scoped admins, scoped users get a uniform 403 on every tenant-wide route, binding writers and IdP sync no longer widen anyone, and the grant tables fail closed.
@@ -38,7 +38,7 @@ Read this before flipping any tenant. Only pilot tenants may be flipped, and pil
 4. The shadow period proves only the denials of tenant-wide and admin-plane routes (the sentence above).
 5. Scoped users lose definitions, entity-definition, instance and service reads until the tenant-level metadata follow-up (RA-6) ships.
 6. Do not scope the CANDIDATE binding: the exam routes stay tenant-wide, so a scoped CANDIDATE gets 403 and exam sessions break.
-7. To turn `on` off: an interactive tenant-wide TENANT_ADMIN, with a mandatory reason. Tokens cannot. There is no platform-scope break-glass in this release.
+7. To turn `on` off: an interactive tenant-wide TENANT_ADMIN, with a mandatory reason. Tokens cannot. When no such admin can log in, use the platform-operator break-glass command `Letflow.Release.ScopeBreakGlass` (`mix letflow.scope_enforcement.break_glass`), which has no HTTP route and needs a mandatory reason and an operator label.
 8. A platform tenant stored as `on` does not restrict its PLATFORM_ADMIN on platform-scope routes; grants never decide platform scope.
 
 The scoped-approver blocker is evaluated at flip time only: a scoped approver created after `on` is fail-closed and shown in the `on_gate` information count of the integrity report.
@@ -49,7 +49,23 @@ The scoped-approver blocker is evaluated at flip time only: a scoped approver cr
 
 **Refusal audit.** The `scope.enforcement_refused` entry is best-effort, written in its own transaction after the rollback. A refusal can therefore go unrecorded (the 409 is still returned and one constant log line `scope_enforcement_refusal_not_recorded` is written). A successful flip is audited in the same transaction and cannot go unrecorded.
 
-**Gate #2869 (last admin).** Before ANY production or pilot `on`, #2869 must be resolved: a guard that refuses the removal, demotion, deactivation, scoping or service-flagging of the last interactive explicit tenant-wide TENANT_ADMIN of a tenant stored `on`, plus a platform-operator break-glass with no HTTP route, a mandatory reason and an audit entry. The decision record must say whether the 0051 A7 token break-glass covers it (it covers it only partly).
+**Gate #2869 (last admin).** Before ANY production or pilot `on`, #2869 must be resolved: a guard that refuses the removal, demotion, deactivation, scoping or service-flagging of the last interactive explicit tenant-wide TENANT_ADMIN of a tenant stored `on` (still open). The other half, a platform-operator break-glass with no HTTP route, a mandatory reason and an audit entry, is delivered by GH #2883, and 0051 A11 records that the 0051 A7 token break-glass covers grant writes only.
+
+## Break-glass: turning an on tenant off without an admin (platform operator)
+
+Use this ONLY when a tenant stored `on` has nobody who can turn enforcement off through the API (an interactive tenant-wide TENANT_ADMIN is required for the PUT, and tokens cannot). Typical cause: the identity provider no longer lets the admins log in, which Letflow cannot see. There is NO HTTP route for this and it is not a role: it is a command on the release host, authorised by access to that host (decision 0051 A11).
+
+Before you start: you hold shell access to the running node; you have an incident ticket id; you know the tenant slug exactly. Choose your label: your personal handle as it appears in the infrastructure access log (letters, digits and `. _ @ + -`, at most 64 characters). Do NOT put secrets, personal data or quotes in the reason; the reason and your label are readable in the tenant's audit log by anyone with AuditRead.
+
+The Mix form is for dev and CI hosts ONLY. Do not run `mix` on a production host: `app.start` there boots a second full Letflow application against the same database as the running node. On a deployed release use the `rpc` form below.
+
+1. Dry run (writes nothing). Release form (stdin, `docs/runbooks/login-directory-pepper-rotation.md` section 0; `bin/letflow eval` is not supported): `Letflow.Release.ScopeBreakGlass.run("<slug>", "shadow", "<ticket id>: <short reason>", "<your label>", dry_run: true)`. Mix form (dev and CI only): `mix letflow.scope_enforcement.break_glass <slug> --to shadow --reason "<text>" --operator <label> --dry-run`. Read the `TARGET` line: the tenant must be `current_mode=on`. Any `ERROR` line means nothing was changed; fix the input.
+2. Choose the target. `shadow`: enforcement stops denying, shadow counters keep counting; the shadow window RESTARTS, so returning to `on` needs a full new window (default 7 days) and the six gate facts, including at least one interactive explicit tenant-wide TENANT_ADMIN who can log in. `off`: enforcement and counting stop; returning needs `off` to `shadow` (three facts), a full window, then `on`. Prefer `shadow` unless the counters themselves are the problem.
+3. Real run: the same expression with `confirm: "<slug>"` instead of `dry_run: true` (Mix: `--confirm <slug>`). Pass/fail is the printed line: `OK ... mode=<shadow|off> action=scope.enforcement_disabled` is success; `ERROR <tag>` is a refusal and nothing changed (`not_enforced`: the tenant is not `on`, maybe someone already fixed it; `lock_conflict`: another admin operation holds the tenant, retry; `server_fault`: stop, the flag was NOT changed, escalate). The exit status of `rpc` is not meaningful.
+4. Verify: the change is effective on every node from the next request. An admin who can log in reads `GET /api/v1/tenant/scope-enforcement`; the audit log (`GET /api/v1/audit`, resource type `tenant`) holds one `scope.enforcement_disabled` entry with a null actor and, in its state, your label, your reason, `"source": "operator_break_glass"` and the name of the node that ran it.
+5. Then fix the root cause (restore an admin at the identity provider). Do not repeat the command for the same incident.
+
+Never write the column with SQL: that skips the audit entry and the locks. If the node cannot start at all, fix that first; the command needs the running application.
 
 ## Known limitations of an enforced tenant
 
