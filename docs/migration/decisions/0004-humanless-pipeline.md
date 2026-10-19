@@ -142,3 +142,29 @@ original "Decision"/"Reasoning" sections, nor the 2026-09-16 addendum, which
 remain correct as stated for their own periods. With both halves of the
 original R-Co-parity deferral now actioned, "What is explicitly NOT reproduced
 from R-Co" no longer has an open item tracked against this decision record.
+
+## Addendum (2026-10-19, REQ-521) — risk-tiered pipeline (SHORT and HIGH tiers)
+
+This addendum does not revise the original "Decision"/"Reasoning" sections or the earlier
+addenda. It records that the pipeline now has risk tiers, defined once in
+`docs/agents/ORCHESTRATOR.md` section 13 (the path lists and the chains are there, not here).
+
+**Approval, as relayed.** The letflow-9a audit of 2026-10-12 relayed the user approval; the user's
+direct statement to the supervisor on 2026-10-19 (letflow-9a's audit decisions, and audit results
+registered as issues, have absolute authority except the user's direct orders) was relayed by the
+supervisor to letflow-2 (supervisor ruling 1, ADOPT). The user's statement reached this repository
+only through the supervisor. Sources: the letflow-9a team audit relayed 2026-10-12, filed as
+GH #2422; the supervisor's relay of 2026-10-19 on letflow-9a's priority. Nothing here is asserted
+as said directly to this repository.
+
+**Reasoning (the GH #2422 team audit).** 123 of 186 non-merge commits on `main` since 2026-10-01
+touch nothing under `lib/`, `web/`, `apps/` or `priv/`. Approximate October rejection counts:
+REVIEWER 0 of 45, SECURITY-REVIEWER 0 of 28, RELEASE-VALIDATOR 1 of 29, TEST-DESIGN-VALIDATOR 1 of
+36, CODE-DESIGN-VALIDATOR 12 of 38. A full chain on a test-only or document-only change buys little.
+
+**Principle 1 is unchanged.** "Every producing step has a validating step" still holds: the SHORT
+chain keeps one validator.
+
+**HIGH tier (auditor decision of 2026-10-19, audit #2874 R5, GH #2876).** The opposite end: a FULL
+change that is large and touches security-sensitive areas gets one outside review in addition
+to the full chain. Thresholds and paths are in ORCHESTRATOR.md section 13.

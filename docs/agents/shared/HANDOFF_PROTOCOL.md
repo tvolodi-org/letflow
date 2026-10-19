@@ -320,6 +320,7 @@ subsection adds. Nothing contradicts; nothing needed its own edit.
   "completed_at": "<ISO8601-UTC or null>",
   "status": "PENDING|IN_PROGRESS|COMPLETED|FAILED|ESCALATED|CANCELLED",
   "priority": "HIGH|NORMAL|LOW",
+  "tier": "FULL|SHORT",
   "context": {
     "stage": "<S0-S8 or null>",
     "requirement_ids": ["<REQ-ID>", "..."],
@@ -370,14 +371,18 @@ subsection adds. Nothing contradicts; nothing needed its own edit.
 }
 ```
 
-**Exactly three fields in the block above are OPTIONAL — top-level `not_agent_attested`,
-top-level `gate_history`, and `context.source_text`. Every other field is always
-present.** The three are optional for unrelated reasons and none licenses a fourth:
+**Exactly four fields in the block above are OPTIONAL — top-level `not_agent_attested`,
+top-level `gate_history`, top-level `tier`, and `context.source_text`. Every other field is always
+present.** The four are optional for unrelated reasons and none licenses a fifth:
 `not_agent_attested` marks a reconstruction (§4.1), `gate_history` records prior FAIL
 iterations on a step that was reworked (see below), `context.source_text` carries copied
-source text when a dispatch has any (see below). All three are OPTIONAL-BY-ABSENCE, so
+source text when a dispatch has any (see below), `tier` is the risk tier of the run (below). All four are OPTIONAL-BY-ABSENCE, so
 every handoff file written before any of them existed stays valid unchanged and still
 parses against this schema.
+
+**`tier`** (`FULL` or `SHORT`; anything else is an H3 violation of `mix letflow.lint_handoffs`) is
+written in the FIRST handoff of a run, per `docs/agents/ORCHESTRATOR.md` §13. A HIGH run records `FULL`.
+DIRECT writes no handoff, so DIRECT is recorded in the PR body, not here. `tier` is self-declared: the linter checks only its form, not the diff (it must equal `mix letflow.risk_tier` output once REQ-522 lands; until then ORCH runs the ORCHESTRATOR.md §13 checklist and quotes it). An explicit `null` or non-string `tier` is refused; omit the field by leaving it out.
 
 **`gate_history`** appears ONLY on a gate-step handoff (a CODE-DESIGN-VALIDATOR,
 TEST-DESIGN-VALIDATOR, REVIEWER, or SECURITY-REVIEWER step, or a close-gate re-run of one)
@@ -403,7 +408,7 @@ block would read as an invitation for a second file to acquire it. A linter vali
 `not_agent_attested` therefore reads §4.1(b)'s table for that object's member set; one
 that derives the set from this fence alone and rejects the one authorised file carrying
 `backfill_note` has mis-read this paragraph, not found a defect. "None licenses a
-fourth" is a statement about the three OPTIONAL fields of this block and about nothing
+fifth" is a statement about the four OPTIONAL fields of this block and about nothing
 else.
 
 **`not_agent_attested`** appears ONLY on a handoff *reconstructed* under §4.1(a-2). A

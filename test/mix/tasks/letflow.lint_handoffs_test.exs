@@ -1505,4 +1505,55 @@ defmodule Mix.Tasks.Letflow.LintHandoffsTest do
       refute Enum.any?(result.advisory.warnings, &match?({:warn, "H7" <> _, _}, &1))
     end
   end
+
+  describe "REQ-524 -- optional top-level `tier` field" do
+    setup do
+      dir = Path.join(System.tmp_dir!(), "lint_tier_#{System.unique_integer([:positive])}")
+      File.mkdir_p!(dir)
+      on_exit(fn -> File.rm_rf!(dir) end)
+      %{dir: dir}
+    end
+
+    test "T-TIER-SHORT -- a handoff with tier: SHORT lints clean", %{dir: dir} do
+      path = write_raw!(dir, "step-01-agent.json", ~s({"status": "COMPLETED", "tier": "SHORT"}))
+      result = LintHandoffs.lint_file(path, @empty_schema)
+      assert result.hard_new == []
+      assert result.hard_grandfathered == []
+    end
+
+    test "T-TIER-FULL -- a handoff with tier: FULL lints clean", %{dir: dir} do
+      path = write_raw!(dir, "step-01-agent.json", ~s({"status": "COMPLETED", "tier": "FULL"}))
+      assert LintHandoffs.lint_file(path, @empty_schema).hard_new == []
+    end
+
+    test "T-TIER-BOGUS -- tier: BOGUS is refused", %{dir: dir} do
+      path = write_raw!(dir, "step-01-agent.json", ~s({"status": "COMPLETED", "tier": "BOGUS"}))
+      result = LintHandoffs.lint_file(path, @empty_schema)
+      assert [violation] = result.hard_new
+      assert violation.rule == "H3"
+      assert violation.message =~ "tier"
+      assert violation.message =~ "not one of"
+      assert violation.message =~ "BOGUS"
+    end
+
+    test "T-TIER-EXACT -- the match is exact: \"short\" and \" FULL\" are refused", %{dir: dir} do
+      for tier <- ["short", " FULL"] do
+        path =
+          write_raw!(
+            dir,
+            "step-01-agent.json",
+            ~s({"status": "COMPLETED", "tier": #{inspect(tier)}})
+          )
+
+        assert [%{rule: "H3"}] = LintHandoffs.lint_file(path, @empty_schema).hard_new
+      end
+    end
+
+    test "T-TIER-NONSTRING -- an explicit null or non-string tier is refused", %{dir: dir} do
+      for raw <- ["null", "1"] do
+        path = write_raw!(dir, "step-01-agent.json", ~s({"status": "COMPLETED", "tier": #{raw}}))
+        assert [%{rule: "H3"}] = LintHandoffs.lint_file(path, @empty_schema).hard_new
+      end
+    end
+  end
 end
