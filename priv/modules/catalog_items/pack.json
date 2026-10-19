@@ -1,0 +1,144 @@
+{
+  "bpm_export_schema_version": "bpm/definition/v1",
+  "definitions": [],
+  "entity_definitions": [
+    {
+      "definition_json": {
+        "constraints": [
+          {
+            "fields": [
+              "code"
+            ],
+            "name": "uq_catalog_uom_code",
+            "type": "unique"
+          },
+          {
+            "fields": [
+              "external_ref_system",
+              "external_ref_id"
+            ],
+            "name": "uq_catalog_uom_external_ref",
+            "type": "unique"
+          }
+        ],
+        "description": "GH #2663 / REQ-474, decisions 0050 D1 and 0057 D1. A unit of measure master. The decimal scale and conversion factors are not here (REQ-504). external_ref_system and external_ref_id are the nullable import key (0057 D1).",
+        "display_name": "Catalog Unit of Measure",
+        "fields": [
+          {
+            "name": "code",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "name",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "active",
+            "queried": true,
+            "required": true,
+            "type": "boolean"
+          },
+          {
+            "name": "external_ref_system",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "external_ref_id",
+            "queried": true,
+            "type": "string"
+          }
+        ],
+        "name": "catalog_uom"
+      },
+      "display_name": "Catalog Unit of Measure",
+      "entity_definition_id": "e7e57811-5333-393e-5258-61501d663a5d",
+      "logical_shape_version": "9dcbcef340246a9b879253e028c1a9c9187c0b8c987198c12826387396917edf",
+      "name": "catalog_uom"
+    },
+    {
+      "definition_json": {
+        "constraints": [
+          {
+            "fields": [
+              "code"
+            ],
+            "name": "uq_catalog_item_code",
+            "type": "unique"
+          },
+          {
+            "fields": [
+              "external_ref_system",
+              "external_ref_id"
+            ],
+            "name": "uq_catalog_item_external_ref",
+            "type": "unique"
+          }
+        ],
+        "description": "GH #2663 / REQ-474, decisions 0050 D1 and 0057 D1. An item master. base_uom_id is the id of a catalog_uom record as a queried string (declarative reference, no foreign key: 0050 D3.6). kind is material or service (services are a later catalog). external_ref_system and external_ref_id are the nullable import key (0057 D1).",
+        "display_name": "Catalog Item",
+        "fields": [
+          {
+            "name": "code",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "name",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "base_uom_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "enum_values": [
+              "material",
+              "service"
+            ],
+            "name": "kind",
+            "queried": true,
+            "required": true,
+            "type": "enum"
+          },
+          {
+            "name": "active",
+            "queried": true,
+            "required": true,
+            "type": "boolean"
+          },
+          {
+            "name": "external_ref_system",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "external_ref_id",
+            "queried": true,
+            "type": "string"
+          }
+        ],
+        "name": "catalog_item"
+      },
+      "display_name": "Catalog Item",
+      "entity_definition_id": "802d6a3a-9f95-0c9c-d9b8-7261ade45e3d",
+      "logical_shape_version": "72be36ff9738d7d3a21da778c8b08c5263ff86278ce2e09da531a2c0eedd75c8",
+      "name": "catalog_item"
+    }
+  ],
+  "exported_at": "2026-10-19T00:00:00Z",
+  "manifest": {
+    "required_roles": []
+  },
+  "pack_id": "letflow-catalog_items",
+  "service_catalog_entries": [],
+  "variable_schemas": [],
+  "version": "0.1.0"
+}

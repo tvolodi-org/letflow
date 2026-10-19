@@ -147,7 +147,8 @@ defmodule Letflow.Api.PermissionMatrixTest do
 
       assert golden.modules == %{
                "exam" => Letflow.Modules.Exam.manifest().version,
-               "org" => Letflow.Modules.Org.manifest().version
+               "org" => Letflow.Modules.Org.manifest().version,
+               "catalog_items" => Letflow.Modules.CatalogItems.manifest().version
              }
 
       for role <- golden.roles do
@@ -951,7 +952,7 @@ defmodule Letflow.Api.PermissionMatrixTest do
   end
 
   describe "T28 F1: the real config files" do
-    test "the source scan passes and the :prod config list is [Exam, Org]" do
+    test "the source scan passes and the :prod config list is [Exam, Org, CatalogItems]" do
       sources =
         "config/*.exs" |> Path.wildcard() |> Enum.sort() |> Enum.map(&{&1, File.read!(&1)})
 
@@ -960,11 +961,15 @@ defmodule Letflow.Api.PermissionMatrixTest do
       prod_modules =
         "config/config.exs" |> Config.Reader.read!(env: :prod) |> get_in([:letflow, :modules])
 
-      assert prod_modules == [Letflow.Modules.Exam, Letflow.Modules.Org]
+      assert prod_modules == [
+               Letflow.Modules.Exam,
+               Letflow.Modules.Org,
+               Letflow.Modules.CatalogItems
+             ]
 
       # The :dev read is done by the CI step itself: config/dev.exs raises when
       # MIX_TEST_PARTITION is set, which scripts/test_parallel.sh sets.
-      modules = [Letflow.Modules.Exam, Letflow.Modules.Org]
+      modules = [Letflow.Modules.Exam, Letflow.Modules.Org, Letflow.Modules.CatalogItems]
 
       assert PermissionMatrix.check_module_list(
                modules,

@@ -56,8 +56,13 @@ config :letflow, :lua_platform_time_source, Letflow.Engine.Lua.Platform.SystemCl
 # the compiled list of registered platform modules, read once via
 # Application.compile_env/3 by Letflow.Modules.Catalog. The first real
 # module shipped in P2 is Letflow.Modules.Exam; GH #2661 (REQ-473) adds the foundation
-# module Letflow.Modules.Org; config/test.exs appends the test-only fixture modules on top.
-config :letflow, :modules, [Letflow.Modules.Exam, Letflow.Modules.Org]
+# module Letflow.Modules.Org; GH #2663 (REQ-474) adds Letflow.Modules.CatalogItems;
+# config/test.exs appends the test-only fixture modules on top.
+config :letflow, :modules, [
+  Letflow.Modules.Exam,
+  Letflow.Modules.Org,
+  Letflow.Modules.CatalogItems
+]
 
 # GH #2682 / REQ-511 (design lib/letflow/design/req511-exam-content-snapshot.md section 10 and
 # 18.3): gate for the exam managed-type stamp. While this is not `true`, a real

@@ -47,9 +47,11 @@ defmodule Letflow.Modules.CatalogTest do
       # the registered write-handler fixtures; R4a appends FixtureLedgerRogue, the
       # misbehaving-handler negative control):
       # GH #2661 (REQ-473) adds Letflow.Modules.Org right after Exam, matching config/config.exs.
+      # GH #2663 (REQ-474) adds Letflow.Modules.CatalogItems right after Org.
       assert Catalog.entry_modules() == [
                Letflow.Modules.Exam,
                Letflow.Modules.Org,
+               Letflow.Modules.CatalogItems,
                Letflow.Modules.Fixture,
                Letflow.Modules.FixtureDependent,
                Letflow.Modules.FixtureFailingInstall,
@@ -74,13 +76,13 @@ defmodule Letflow.Modules.CatalogTest do
       assert Catalog.fetch("does-not-exist") == {:error, :not_found}
     end
 
-    test "config/config.exs registers exactly [Letflow.Modules.Exam, Letflow.Modules.Org]" do
+    test "config/config.exs registers exactly [Exam, Org, CatalogItems]" do
       # REQ-408 added Letflow.Modules.Exam to config/config.exs; the test
       # env (config/test.exs) adds the fixture modules for test coverage.
       config_source = File.read!(Path.join([File.cwd!(), "config", "config.exs"]))
 
       assert config_source =~
-               ~r/config :letflow, :modules, \[Letflow\.Modules\.Exam, Letflow\.Modules\.Org\]/
+               ~r/config :letflow, :modules, \[\s*Letflow\.Modules\.Exam,\s*Letflow\.Modules\.Org,\s*Letflow\.Modules\.CatalogItems\s*\]/
     end
   end
 

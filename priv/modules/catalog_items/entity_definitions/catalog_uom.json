@@ -1,0 +1,51 @@
+{
+  "name": "catalog_uom",
+  "display_name": "Catalog Unit of Measure",
+  "description": "GH #2663 / REQ-474, decisions 0050 D1 and 0057 D1. A unit of measure master. The decimal scale and conversion factors are not here (REQ-504). external_ref_system and external_ref_id are the nullable import key (0057 D1).",
+  "fields": [
+    {
+      "name": "code",
+      "type": "string",
+      "required": true,
+      "queried": true
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "active",
+      "type": "boolean",
+      "required": true,
+      "queried": true
+    },
+    {
+      "name": "external_ref_system",
+      "type": "string",
+      "queried": true
+    },
+    {
+      "name": "external_ref_id",
+      "type": "string",
+      "queried": true
+    }
+  ],
+  "constraints": [
+    {
+      "name": "uq_catalog_uom_code",
+      "type": "unique",
+      "fields": [
+        "code"
+      ]
+    },
+    {
+      "name": "uq_catalog_uom_external_ref",
+      "type": "unique",
+      "fields": [
+        "external_ref_system",
+        "external_ref_id"
+      ]
+    }
+  ]
+}
