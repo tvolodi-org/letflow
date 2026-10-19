@@ -608,6 +608,26 @@ those are under `lib/` and so never SHORT.
 - `test/scripts/persona_actor_seed_drift_test.exs`
 - `test/scripts/test_parallel_env_guard_test.exs`
 
+**Extensions per SECURITY-REVIEWER findings (2026-10-19).** Additive to the lists above; each is also FULL:
+- `docs/roles.md`, and every `docs/` path that `BACKEND_PATHS_RE` in `scripts/ci_changed_paths.sh`
+  names (the CI backend inputs): `docs/issues/*.yaml`, `docs/status/requirement_status*.yaml`,
+  `docs/status/work_board_cutover.yaml`, `docs/frontend/x-ui-widget-vocabulary.md`,
+  `docs/migration/stage-7-simulation-uat-parity.md`, `docs/runbooks/` (incl.
+  `definition-security-fix-rollout.md`). They are not "documents". `docs/requirements.yaml` stays
+  under its own `acceptance_criteria` rule above. The helper (REQ-522) pins this list to that script.
+- ALL of `test/fixtures/` (an unlisted subdirectory of a partly named one such as `test/fixtures/uat/`
+  too; `test/fixtures/route_scope/off_shadow_responses*.json` by name), and `test/support/` files whose
+  name matches `fixture|double|verifier|oidc|keycloak|admission|scope|role|grant|route_inventory|tenant`
+  (today e.g. `tenant_fixture.ex`, `token_verifier_double.ex`, `mock_oidc_provider.ex`,
+  `keycloak_test_client.ex`, `admission_test_helpers.ex`, `scope_on_fixture.ex`,
+  `role_scope_grants_fixture.ex`, `route_inventory.ex`, `tenant_slug.ex`).
+- `lib/letflow/api/`, `lib/letflow/secrets*`, `lib/letflow/entities/`, `config/`.
+- Guard test, widened (supersedes the narrow definition above where they differ): a file matching the live
+  regex `(guard|invariant|inventory|drift|golden|permission_matrix|path_filter|boundaries|authoriz|enforce|route_scope|scope|authorize|leak|secret|escalat|cross_tenant|isolation)[^/]*_test\.exs$`
+  over `git ls-files test` (122 files on 2026-10-19; the 30 listed above are the subset the narrow
+  regex matches). ANY change to such a file is FULL, not only a removed assertion. A rename or delete
+  of any `test/` file counts as a removal.
+
 **SHORT chain:** one producer (TEST-DESIGNER for tests, DOC-UPDATER for docs), one validator
 (TEST-DESIGN-VALIDATOR with mutation evidence for tests; REVIEWER for docs), then CI. No separate
 design pair, security review, idiom review or release re-validation; the status flip rides in the
@@ -617,11 +637,12 @@ producer's last commit. Decision 0004 principle 1 holds: one validator remains.
 (added plus deleted, `git diff --numstat origin/main...HEAD`) AND touches any of:
 `lib/letflow/routers/`, `lib/letflow/scope_enforcement*`, `lib/letflow/identity/`,
 `lib/letflow/engine*`, `lib/letflow/scheduler*`, `priv/repo/migrations/`, or any SECURITY-REVIEWER
-scope path. HIGH = the FULL chain plus ONE outside review by a session other than the worker
+scope path (extended per SECURITY-REVIEWER finding, additive to audit R5: also `lib/letflow/api/`,
+`lib/letflow/secrets*`, `lib/letflow/entities/`, `config/`). HIGH = the FULL chain plus ONE outside review by a session other than the worker
 (an advisory/architect session), requested through the supervisor after SECURITY-REVIEWER passes;
 one round at most; its findings and verdict go on the `Outside review:` line of the Gates block.
 The tier goes on the existing `Tier:` line (`Tier: HIGH`); there is no second line. A HIGH run
-records `tier: FULL` in its handoff.
+records `tier: FULL` in its handoff. The declared tier must equal the helper's output; until REQ-522 lands, ORCH runs this checklist and quotes it in the PR body.
 
 **Measurement and withdrawal (REQ-524).** `docs/status/risk_tier_measurements.yaml` holds the per-run
 rows and the defects list. Every main-red or filed defect traced to a SHORT-chain change is recorded

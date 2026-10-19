@@ -1533,6 +1533,27 @@ defmodule Mix.Tasks.Letflow.LintHandoffsTest do
       assert violation.rule == "H3"
       assert violation.message =~ "tier"
       assert violation.message =~ "not one of"
+      assert violation.message =~ "BOGUS"
+    end
+
+    test "T-TIER-EXACT -- the match is exact: \"short\" and \" FULL\" are refused", %{dir: dir} do
+      for tier <- ["short", " FULL"] do
+        path =
+          write_raw!(
+            dir,
+            "step-01-agent.json",
+            ~s({"status": "COMPLETED", "tier": #{inspect(tier)}})
+          )
+
+        assert [%{rule: "H3"}] = LintHandoffs.lint_file(path, @empty_schema).hard_new
+      end
+    end
+
+    test "T-TIER-NONSTRING -- an explicit null or non-string tier is refused", %{dir: dir} do
+      for raw <- ["null", "1"] do
+        path = write_raw!(dir, "step-01-agent.json", ~s({"status": "COMPLETED", "tier": #{raw}}))
+        assert [%{rule: "H3"}] = LintHandoffs.lint_file(path, @empty_schema).hard_new
+      end
     end
   end
 end

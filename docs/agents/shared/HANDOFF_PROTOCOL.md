@@ -382,7 +382,7 @@ parses against this schema.
 
 **`tier`** (`FULL` or `SHORT`; anything else is an H3 violation of `mix letflow.lint_handoffs`) is
 written in the FIRST handoff of a run, per `docs/agents/ORCHESTRATOR.md` §13. A HIGH run records `FULL`.
-DIRECT writes no handoff, so DIRECT is recorded in the PR body, not here.
+DIRECT writes no handoff, so DIRECT is recorded in the PR body, not here. `tier` is self-declared: the linter checks only its form, not the diff (it must equal `mix letflow.risk_tier` output once REQ-522 lands; until then ORCH runs the ORCHESTRATOR.md §13 checklist and quotes it). An explicit `null` or non-string `tier` is refused; omit the field by leaving it out.
 
 **`gate_history`** appears ONLY on a gate-step handoff (a CODE-DESIGN-VALIDATOR,
 TEST-DESIGN-VALIDATOR, REVIEWER, or SECURITY-REVIEWER step, or a close-gate re-run of one)
@@ -408,7 +408,7 @@ block would read as an invitation for a second file to acquire it. A linter vali
 `not_agent_attested` therefore reads §4.1(b)'s table for that object's member set; one
 that derives the set from this fence alone and rejects the one authorised file carrying
 `backfill_note` has mis-read this paragraph, not found a defect. "None licenses a
-fourth" is a statement about the three OPTIONAL fields of this block and about nothing
+fifth" is a statement about the four OPTIONAL fields of this block and about nothing
 else.
 
 **`not_agent_attested`** appears ONLY on a handoff *reconstructed* under §4.1(a-2). A
