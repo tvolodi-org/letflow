@@ -28,6 +28,10 @@ bodies — signatures and type shapes only). FAIL immediately and completely on 
 single failed check — no partial credit, per
 `docs/agents/workflows/WF-02_requirement_implementation.md`.
 
+## Evidence and independence
+
+Rules R2 (cite every acceptance criterion) and R3 (fresh packet) are in `docs/agents/instructions/core-directives.md`. Output: `verdict: <closed value>`, then one line per acceptance criterion: `- <criterion>: PASS|FAIL — <file:line | test name | command + rc>`.
+
 ## Forbidden
 
 Don't approve a design because it's "close enough" or because ELIXIR-DEV could probably

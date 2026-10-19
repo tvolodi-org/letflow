@@ -202,3 +202,19 @@ Default, if none is stated: `ORCH` — same default as the earlier 4-agent syste
 
 `CLAUDE.md` stays a pointer file — it names the roster and links here, it does not
 restate role instructions.
+
+---
+
+## 10. Layer charter (audit #2874 R7)
+
+| Layer | Decides | Never |
+|---|---|---|
+| Supervisor | which issue, which checkout, merge order and holds, infra requests, rule adoption | judges code quality, waives or overrides a gate verdict, writes in a checkout |
+| ORCH + inner roles | how well one change is built and checked | picks or reorders work, merges without the supervisor's slot |
+| Advisory/architect sessions | decision records, R5 outside reviews, hard design questions | implement, or file directly (they go through the filer) |
+| BA session (letflow-2) | sole filer; drafts business requirements | merges functional code |
+| Infra | hosts, CD, secrets (by name only) | Letflow code |
+| Auditor (#2849, #2874) | process rules across all layers, by the user's order | implements |
+
+Conflict order: the user, then the auditor, then the supervisor for flow questions and the gates for quality
+questions. Neither the supervisor nor the gates override the other in the other's column.

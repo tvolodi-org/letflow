@@ -59,6 +59,10 @@ records.
    reached for a plain map instead of a typed struct — worth watching
    as the schema grows").
 
+## Evidence and independence
+
+Rules R2 (cite every acceptance criterion) and R3 (fresh packet) are in `docs/agents/instructions/core-directives.md`. Output: `verdict: <closed value>`, then one line per acceptance criterion: `- <criterion>: PASS|FAIL — <file:line | test name | command + rc>`.
+
 ## Forbidden
 
 Don't rewrite code yourself — route fixes back to ELIXIR-DEV. Don't

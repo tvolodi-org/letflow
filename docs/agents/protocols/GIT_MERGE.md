@@ -90,6 +90,35 @@ read it there; it is not restated here. **Do not attribute by comparing counts w
 previous run.** A failure you have structurally cleared is filed and forwarded per
 `ISSUE_QUEUE.md` and does not block this precondition; a failure you cannot clear does.
 
+## Gates block (audit #2874 R1, R4: binding)
+
+A PR that changes `lib/`, `web/`, `apps/`, `priv/` or `test/` carries this section in its body,
+one line per gate, each the last verdict on the final code:
+
+```
+## Gates
+Tier: FULL | SHORT | DIRECT | HIGH
+- CODE-DESIGN-VALIDATOR: <verdict> — evidence: <file:line | test name | command + rc>[, ...]
+- SECURITY-REVIEWER: <verdict> — evidence: ...
+- REVIEWER: <verdict> — evidence: ...
+- TEST-DESIGN-VALIDATOR: <verdict> — evidence: ...
+- CI: <run URL> <conclusion>
+- Outside review: <session> <verdict> — evidence: ...   (HIGH only)
+```
+
+`<verdict>` is exactly one of `PASS`, `PASS_WITH_FINDINGS`, `FAIL`, `N/A (<one-line reason>)`. Until
+REQ-522 lands the tier is `FULL` unless `ORCHESTRATOR.md` §10 (DIRECT) applies. Every `fix` PR body also
+carries two lines, found from `git log`/`git blame`, never guessed:
+
+```
+Introduced-by: #<PR> | <sha> | unknown
+Missed-by: <gate role> | CI | none (not catchable before merge) | unknown
+```
+
+The supervisor checks the block (`scripts/check_pr_gates.sh <PR>`) before it grants a merge slot: a missing
+block or a line without evidence gets no slot. The supervisor never waives or overrides a gate verdict
+(`AGENT_SYSTEM.md` §10).
+
 ## Procedure
 
 ```

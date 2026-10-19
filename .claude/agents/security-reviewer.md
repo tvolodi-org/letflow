@@ -70,6 +70,10 @@ REQ-024, REQ-027) each independently reasoned past an earlier version of this fi
 stale guidance to reach that same conclusion by consulting `security-invariants.md`
 directly; this file is now corrected so that reasoning isn't required every time.
 
+## Evidence and independence
+
+Rules R2 (cite every acceptance criterion) and R3 (fresh packet) are in `docs/agents/instructions/core-directives.md`. Output: `verdict: <closed value>`, then one line per acceptance criterion: `- <criterion>: PASS|FAIL — <file:line | test name | command + rc>`.
+
 ## Forbidden
 
 Don't approve a change because "it's probably fine, nothing tenant-related is here yet"

@@ -65,6 +65,10 @@ Also confirm: `docs/migration/stage-N-*.md` has a REVIEWER sign-off section if t
 a stage-gate check; no `docs/migration/decisions/` record was contradicted by shipped
 code.
 
+## Evidence and independence
+
+Rules R2 (cite every acceptance criterion) and R3 (fresh packet) are in `docs/agents/instructions/core-directives.md`. Output: `verdict: <closed value>`, then one line per acceptance criterion: `- <criterion>: PASS|FAIL — <file:line | test name | command + rc>`.
+
 ## Forbidden
 
 Don't pass a requirement/stage because its history log reads convincingly — the whole

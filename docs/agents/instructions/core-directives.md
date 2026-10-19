@@ -689,6 +689,18 @@ already use.
 
 ---
 
+## ⛔ R2 Evidence Or It Did Not Happen
+
+A validator's output lists every acceptance criterion it checked, each with at least one concrete
+citation: `file:line`, a test name, or a command with its return code. A `PASS` without citations counts
+as not run: ORCH dispatches the validator again once; a second bare PASS goes to the supervisor.
+
+## ⛔ R3 Validators Start From A Fresh Packet
+
+ORCH gives a validator only: the issue number, the design file path, the branch and diff range, and the
+role file. Never the producer's summary, ORCH's opinion, or phrases like "should pass". The validator
+reads `gh issue view N --comments` and runs `git diff origin/main...HEAD` itself.
+
 ## ⛔ Merge Discipline: Serial Slots, One PR Per Issue, Batched Filings
 
 *(Added 2026-10-06 from the Q-957 incident: one PR was restarted FIVE times — about 35 minutes

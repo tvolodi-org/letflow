@@ -6,3 +6,16 @@
 - [ ] New env vars / dependencies / feature flags listed (new flags default off)
 - [ ] Work item identified by its GH issue number in the title or body: `Closes #N` only if this PR fully resolves it, otherwise `Refs #N` plus a new linked issue for the residual
 - [ ] Status-index `entries:` counter bumped (if requirement statuses flipped)
+
+## Gates
+Tier: FULL | SHORT | DIRECT | HIGH
+- CODE-DESIGN-VALIDATOR: <verdict> — evidence: <file:line | test name | command + rc>[, ...]
+- SECURITY-REVIEWER: <verdict> — evidence: ...
+- REVIEWER: <verdict> — evidence: ...
+- TEST-DESIGN-VALIDATOR: <verdict> — evidence: ...
+- CI: <run URL> <conclusion>
+- Outside review: <session> <verdict> — evidence: ...   (HIGH only)
+
+<!-- Verdict: PASS | PASS_WITH_FINDINGS | FAIL | N/A (<one-line reason>). Required when the PR changes lib/ web/ apps/ priv/ test/. fix PRs also add: -->
+Introduced-by: #<PR> | <sha> | unknown
+Missed-by: <gate role> | CI | none (not catchable before merge) | unknown

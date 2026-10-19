@@ -98,3 +98,7 @@ standard workflow (WF-01 through WF-05) that matches the trigger — there is no
 ask permission to skip one, so the answer is always "run it in full" unless
 `docs/agents/ORCHESTRATOR.md` explicitly names an exception (e.g. WF-01's docs-only git
 wrapper exemption).
+
+## Validator dispatch and gate record
+
+Dispatch validators with the R3 fresh packet only, and record every gate in the PR's Gates block, per `docs/agents/ORCHESTRATOR.md` §12 (CI as the per-PR test gate, RELEASE-VALIDATOR once per requirement, DOC-UPDATER in the last PR).

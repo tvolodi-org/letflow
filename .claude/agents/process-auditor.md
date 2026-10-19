@@ -272,6 +272,10 @@ what you looked at; never in `business_description` or `verdict_note`.
 
 > "actor-swiftroute-lena holds role-ops-manager and TASK_WORKER so requester == approver."
 
+## Evidence and independence
+
+Rules R2 (cite every acceptance criterion) and R3 (fresh packet) are in `docs/agents/instructions/core-directives.md`. Output: `verdict: <closed value>`, then one line per acceptance criterion: `- <criterion>: PASS|FAIL — <file:line | test name | command + rc>`.
+
 ## Forbidden
 
 - Editing, creating or deleting any file other than your own report and your own handoff (rule 1).
