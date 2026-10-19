@@ -1,0 +1,67 @@
+{
+  "name": "catalog_item",
+  "display_name": "Catalog Item",
+  "description": "GH #2663 / REQ-474, decisions 0050 D1 and 0057 D1. An item master. base_uom_id is the id of a catalog_uom record as a queried string (declarative reference, no foreign key: 0050 D3.6). kind is material or service (services are a later catalog). external_ref_system and external_ref_id are the nullable import key (0057 D1).",
+  "fields": [
+    {
+      "name": "code",
+      "type": "string",
+      "required": true,
+      "queried": true
+    },
+    {
+      "name": "name",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "base_uom_id",
+      "type": "string",
+      "required": true,
+      "queried": true
+    },
+    {
+      "name": "kind",
+      "type": "enum",
+      "required": true,
+      "queried": true,
+      "enum_values": [
+        "material",
+        "service"
+      ]
+    },
+    {
+      "name": "active",
+      "type": "boolean",
+      "required": true,
+      "queried": true
+    },
+    {
+      "name": "external_ref_system",
+      "type": "string",
+      "queried": true
+    },
+    {
+      "name": "external_ref_id",
+      "type": "string",
+      "queried": true
+    }
+  ],
+  "constraints": [
+    {
+      "name": "uq_catalog_item_code",
+      "type": "unique",
+      "fields": [
+        "code"
+      ]
+    },
+    {
+      "name": "uq_catalog_item_external_ref",
+      "type": "unique",
+      "fields": [
+        "external_ref_system",
+        "external_ref_id"
+      ]
+    }
+  ]
+}

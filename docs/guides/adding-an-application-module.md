@@ -378,10 +378,10 @@ script-bound (R5); this section is the contract a handler is written against.
 Registering a new module means editing **both** config files, plus the test
 that pins their contents:
 
-- `config/config.exs:60` — `config :letflow, :modules, [Letflow.Modules.Exam, Letflow.Modules.Org]`
+- `config/config.exs:60` — `config :letflow, :modules, [Letflow.Modules.Exam, Letflow.Modules.Org, Letflow.Modules.CatalogItems]`
   — the real, production module list. Add your entry module here.
 - `config/test.exs:294` — `config :letflow, :modules, [...]` — the test-env
-  list, currently `[Letflow.Modules.Exam, Letflow.Modules.Org,
+  list, currently `[Letflow.Modules.Exam, Letflow.Modules.Org, Letflow.Modules.CatalogItems,
   Letflow.Modules.Fixture, Letflow.Modules.FixtureDependent,
   Letflow.Modules.FixtureFailingInstall, ...]` (more fixtures follow;
   prod entries first, then the test-only fixtures under
@@ -393,10 +393,11 @@ that pins their contents:
   hardcode the module list and go stale unless updated in the same change:
   - `"entry_modules/0 returns the registered test-only fixtures, in config
     order"` asserts `Catalog.entry_modules() ==
-    [Letflow.Modules.Exam, Letflow.Modules.Org, Letflow.Modules.Fixture, ...]` literally — add
+    [Letflow.Modules.Exam, Letflow.Modules.Org, Letflow.Modules.CatalogItems, Letflow.Modules.Fixture, ...]` literally — add
     your module to this literal list, in the same order as `config/test.exs`.
-  - `"config/config.exs registers exactly [Letflow.Modules.Exam, Letflow.Modules.Org]"` greps the
-    real file (`~r/config :letflow, :modules, \[Letflow\.Modules\.Exam, Letflow\.Modules\.Org\]/`)
+  - `"config/config.exs registers exactly [Exam, Org, CatalogItems]"` greps the
+    real file (`~r/config :letflow, :modules, \[\s*Letflow\.Modules\.Exam,\s*Letflow\.Modules\.Org,\s*Letflow\.Modules\.CatalogItems\s*\]/`;
+    the line is wrapped by `mix format` once it passes 98 columns, hence the `\s*`)
     — update this regex to match your new `config/config.exs` line.
 
 Forgetting either edit does not fail compilation — it fails exactly these
