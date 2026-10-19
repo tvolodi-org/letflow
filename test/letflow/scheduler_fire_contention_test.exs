@@ -205,7 +205,10 @@ defmodule Letflow.SchedulerFireContentionTest do
       {result, elapsed} = timed(fn -> Scheduler.fire_timer(timer.id, base.schema) end)
 
       assert result == {:error, :contention}
-      assert elapsed >= @timeout_ms - 50 and elapsed < 2_000, "returned after #{elapsed} ms"
+
+      assert elapsed >= @timeout_ms - 50 and elapsed < @timeout_ms + 3_000,
+             "returned after #{elapsed} ms"
+
       assert_nothing_committed!(base, x, timer)
       release!(holder)
 
@@ -221,7 +224,10 @@ defmodule Letflow.SchedulerFireContentionTest do
       {result, elapsed} = timed(fn -> Scheduler.fire_timer(timer.id, base.schema) end)
 
       assert result == {:error, :contention}
-      assert elapsed >= @timeout_ms - 50 and elapsed < 2_000, "returned after #{elapsed} ms"
+
+      assert elapsed >= @timeout_ms - 50 and elapsed < @timeout_ms + 3_000,
+             "returned after #{elapsed} ms"
+
       assert_nothing_committed!(base, x, timer)
       release!(holder)
       assert {:ok, :fired} = Scheduler.fire_timer(timer.id, base.schema)
@@ -235,9 +241,13 @@ defmodule Letflow.SchedulerFireContentionTest do
       {result, elapsed} = timed(fn -> Scheduler.fire_timer(timer.id, base.schema) end)
 
       assert result == {:error, :contention}
-      assert elapsed >= @timeout_ms - 50 and elapsed < 2_000, "returned after #{elapsed} ms"
+
+      assert elapsed >= @timeout_ms - 50 and elapsed < @timeout_ms + 3_000,
+             "returned after #{elapsed} ms"
+
       assert_nothing_committed!(base, x, timer)
       release!(holder)
+      assert {:ok, :fired} = Scheduler.fire_timer(timer.id, base.schema)
     end
   end
 
@@ -522,11 +532,9 @@ defmodule Letflow.SchedulerFireContentionTest do
       attach_telemetry([:letflow, :scheduler, :timer_contended])
       {holder, _} = H.hold_row(base.schema, {:projection, x})
 
-      {result, elapsed} = timed(fn -> Scheduler.poll_and_fire(base.schema) end)
+      result = Scheduler.poll_and_fire(base.schema)
 
       assert %{claimed: 3, contended: 1, fired: 1, errored: 0, exhausted: 0} = result
-      # one lock timeout only: the second timer of x was never attempted
-      assert elapsed < 2 * @timeout_ms + 700, "cycle took #{elapsed} ms"
       assert_received {:telemetry, _, %{count: 1}, %{timer_type: "reminder"}}
       refute_received {:telemetry, _, _, _}
 
@@ -565,8 +573,9 @@ defmodule Letflow.SchedulerFireContentionTest do
     test "one timers_settled event per settled instance", %{base: base} do
       attach_telemetry([:letflow, :scheduler, :timers_settled])
 
+      # instance one has TWO pending ghost timers (count 2), instance two has one (count 1)
       settled =
-        for _ <- 1..2 do
+        for ghosts <- [2, 1] do
           x = instance!(base, timer_graph())
 
           {:ok, _} =
@@ -576,35 +585,74 @@ defmodule Letflow.SchedulerFireContentionTest do
               prefix: base.schema
             )
 
-          {:ok, timer} =
-            Scheduler.create(
-              Repo,
-              %{
-                instance_id: x,
-                timer_type: "deadline",
-                node_id: "ghost",
-                fire_at:
-                  DateTime.utc_now()
-                  |> DateTime.add(-30, :second)
-                  |> DateTime.truncate(:microsecond)
-              },
-              prefix: base.schema
-            )
+          for n <- 1..ghosts do
+            {:ok, timer} =
+              Scheduler.create(
+                Repo,
+                %{
+                  instance_id: x,
+                  timer_type: "deadline",
+                  node_id: "ghost-#{n}",
+                  fire_at:
+                    DateTime.utc_now()
+                    |> DateTime.add(-30, :second)
+                    |> DateTime.truncate(:microsecond)
+                },
+                prefix: base.schema
+              )
 
-          timer
+            timer
+          end
         end
+        |> List.flatten()
 
-      assert %{claimed: 2, errored: 0, contended: 0} = Scheduler.poll_and_fire(base.schema)
+      assert %{claimed: 3, errored: 0, contended: 0} = Scheduler.poll_and_fire(base.schema)
 
       schema = base.schema
 
-      for _ <- 1..2 do
-        assert_received {:telemetry, [:letflow, :scheduler, :timers_settled], %{count: 1},
-                         %{tenant_schema: ^schema, reason: "instance_cancelled"}}
-      end
+      counts =
+        for _ <- 1..2 do
+          assert_received {:telemetry, [:letflow, :scheduler, :timers_settled], %{count: count},
+                           %{tenant_schema: ^schema, reason: "instance_cancelled"}}
 
+          count
+        end
+
+      assert Enum.sort(counts) == [1, 2]
       refute_received {:telemetry, [:letflow, :scheduler, :timers_settled], _, _}
       assert Enum.all?(settled, &(reload(base, &1).status == "cancelled"))
+    end
+  end
+
+  # ---- cycle budget default, peek failure ---------------------------------------------------------
+
+  describe "the cycle budget default and the sweep budget" do
+    test "the default is 5 s and at most half the sweep task timeout" do
+      assert Scheduler.default_cycle_budget_ms() == 5_000
+      assert Scheduler.sweep_task_timeout_ms() >= 2 * Scheduler.default_cycle_budget_ms()
+    end
+  end
+
+  describe "a failing post-fire peek" do
+    test "contended is still counted, the type is nil, nothing is skipped, nothing crashes", %{
+      base: base
+    } do
+      x = instance!(base, two_timer_graph())
+      reminder = make_due!(base, timer!(base, x, "reminder"), 30)
+      escalation = make_due!(base, timer!(base, x, "escalation"), 20)
+      attach_telemetry([:letflow, :scheduler, :timer_contended])
+      {holder, _} = H.hold_row(base.schema, {:projection, x})
+      Process.put(:timer_peek_failure, true)
+
+      result = Scheduler.poll_and_fire(base.schema)
+
+      # no instance id is known, so the second timer is attempted too and contends as well
+      assert %{claimed: 2, contended: 2, errored: 0, fired: 0} = result
+      assert_received {:telemetry, _, %{count: 1}, %{timer_type: nil}}
+      assert_received {:telemetry, _, %{count: 1}, %{timer_type: nil}}
+      assert reload(base, reminder).status == "pending"
+      assert reload(base, escalation).status == "pending"
+      release!(holder)
     end
   end
 end

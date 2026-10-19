@@ -206,10 +206,16 @@ defmodule Letflow.Scheduler do
 
   # GH #2707 (PR-3): the poll cycle starts no new fire once this much monotonic time has passed
   # (half the 10 s per-tenant sweep task budget, which leaves room for one in-flight fire whose
-  # several lock waits are each bounded by the fire lock timeout). A `:engine_test_seams` build
-  # lets a test replace it through the process dictionary key `:timer_cycle_budget_ms_override`
-  # (a non-negative integer) of the calling process.
+  # several lock waits are each bounded by the fire lock timeout). Deliberately a FIXED 5 s, not
+  # derived from `sweep_task_timeout_ms/0`: the sweep's `:kill_task` rollback is the accepted
+  # backstop (the killed fire's transaction aborts whole, the timer stays pending, nothing is
+  # counted). A `:engine_test_seams` build lets a test replace it through the process dictionary
+  # key `:timer_cycle_budget_ms_override` (a non-negative integer) of the calling process.
   @default_cycle_budget_ms 5_000
+
+  @doc false
+  @spec default_cycle_budget_ms() :: pos_integer()
+  def default_cycle_budget_ms, do: @default_cycle_budget_ms
 
   if Application.compile_env(:letflow, :engine_test_seams, false) do
     defp cycle_budget_ms do
@@ -298,9 +304,26 @@ defmodule Letflow.Scheduler do
 
   # poll_and_fire/1 never raises: a failed peek only loses the skip / the timer type.
   defp safe_peek_timer(timer_id, tenant_schema) do
+    inject_peek_failure()
     peek_timer(timer_id, tenant_schema)
   rescue
-    _exception -> nil
+    exception ->
+      Logger.debug("scheduler: timer peek failed (#{inspect(exception.__struct__)})",
+        schema: tenant_schema
+      )
+
+      nil
+  end
+
+  # `:engine_test_seams` builds only: a truthy process dictionary key `:timer_peek_failure`
+  # makes the post-fire peek raise, so a test reaches the rescue above deterministically.
+  if Application.compile_env(:letflow, :engine_test_seams, false) do
+    defp inject_peek_failure do
+      if Process.get(:timer_peek_failure), do: raise("injected timer peek failure")
+      :ok
+    end
+  else
+    defp inject_peek_failure, do: :ok
   end
 
   defp announce_contended(tenant_schema, timer) do
@@ -373,7 +396,9 @@ defmodule Letflow.Scheduler do
   GH #2707 (PR-3): the transaction's first statement is one bound-parameter, transaction-local
   `lock_timeout` setting (`Letflow.Engine.Contention.timer_fire_lock_timeout_ms/0`,
   2 s by default) that bounds EACH lock wait of the fire, not their sum; it is skipped when the
-  caller already holds a transaction. A lock timeout (55P03) rolls the fire back whole and returns
+  caller already holds a transaction (a NESTED caller therefore gets no per-wait bound from this
+  function, and after `{:error, :contention}` the caller's outer transaction is aborted: the rescue
+  here cannot repair it; no nested caller exists in `lib/` today). A lock timeout (55P03) rolls the fire back whole and returns
   `{:error, :contention}` (nothing committed, the timer stays `pending`); a deadlock victim (40P01)
   keeps raising.
 
@@ -770,17 +795,12 @@ defmodule Letflow.Scheduler do
 
       # GH #2707 (PR-3): a lock timeout (55P03) rolled the fire back whole; it is not a firing
       # failure (nothing counted, the timer stays pending and is retried on a later poll).
-      # `fire_timer/2` classifies its own raise; the `{:raised, _}` form is the same class raised
-      # from anywhere else in the attempt. A deadlock victim (40P01) falls through to the counted
+      # `fire_timer/2` classifies its own raise (every statement of the fire runs inside its
+      # `try`), so a 55P03 never reaches the `rescue` above as `{:raised, _}`; that form is
+      # deliberately not special-cased. A deadlock victim (40P01) falls through to the counted
       # failure below, so a deterministic deadlock still reaches the retry cap and the DLQ.
       {:error, :contention} ->
         :contended
-
-      {:error, {:raised, exception}} ->
-        case Contention.contention_code(exception) do
-          {:ok, :lock_not_available} -> :contended
-          _other -> safe_record_fire_failure(timer_id, tenant_schema)
-        end
 
       {:error, _reason} ->
         safe_record_fire_failure(timer_id, tenant_schema)

@@ -752,3 +752,17 @@ blocks; PR-3 adds no lock, no order and no writer).
    SQLSTATE only for the `fired` transition (the failure-accounting updates stay untouched), because a
    real deadlock cannot be forced deterministically in a single fire. `scheduler_test.exs`'s whole-map
    assertion gained `contended: 0`.
+8. **Review follow-ups.** The `{:error, {:raised, exception}}` clause of `attempt_fire/2` was removed:
+   `fire_timer/2` rescues every raise of the fire itself, so the clause was unreachable. The default cycle
+   budget is a fixed 5 s (not derived from `sweep_task_timeout_ms/0`; the sweep's `:kill_task` rollback is
+   the accepted backstop: the timer stays pending, nothing is counted), exposed through the `@doc false`
+   `Scheduler.default_cycle_budget_ms/0`. A `:engine_test_seams` key `:timer_peek_failure` makes the
+   post-fire peek raise, to pin the peek failure path.
+9. **Accepted residual: starvation by uncounted contention.** Because 55P03 is never counted, a timer stuck
+   behind a permanently held lock keeps its slot in the claim window (`max_timers_per_cycle`, ordered by
+   `fire_at`); enough of them could starve other due timers of the tenant. Follow-up issue (to be filed by
+   the supervisor / letflow-2): a retry count or a `fire_at` backoff on `:contended`. The telemetry event
+   `[:letflow, :scheduler, :timer_contended]` is the alerting signal meanwhile.
+10. **Accepted gaps.** A `>=` versus `>` pin on the budget comparison is not deterministic (the elapsed time of
+    the first fire is never exactly the budget), so it is not tested; the other review gaps M5, M6 and M7
+    are accepted as recorded in the review, not covered here.
