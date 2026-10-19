@@ -1,0 +1,58 @@
+{
+  "handoff_id": "d2883000-0519-4c02-9e11-000000000001",
+  "run_id": "WF02-GH2883-BREAKGLASS-20261019",
+  "workflow_id": "WF-02",
+  "step": "01",
+  "from_agent": "ORCH",
+  "to_agent": "CODE-DESIGNER",
+  "file": "handoffs/WF02-GH2883-BREAKGLASS-20261019/step-01-code-designer.json",
+  "created_at": "2026-10-19T05:58:43Z",
+  "started_at": "2026-10-19T05:58:43Z",
+  "completed_at": "2026-10-19T06:11:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [
+      "REQ-519"
+    ],
+    "requirement_text": {},
+    "source_text": {
+      "GH#2883": "Operator break-glass: release command or mix task flipping an on tenant to shadow or off out of band; no HTTP route; mandatory reason; operator as actor; audited scope.enforcement_disabled in the same transaction; flag only.",
+      "GH#2869": "REQ-519 GATE: last-admin guard (a), break-glass (b = #2883), decision record (c). Not designed here beyond interface assumptions."
+    },
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "lib/letflow/design/req519-enforced-writers-and-flag-on.md",
+      "lib/letflow/audit.ex",
+      "lib/letflow/release/idempotency_squats.ex",
+      "lib/letflow/idempotency/squat_remediation.ex",
+      "docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ519-2883-BREAKGLASS-20261019"
+  },
+  "task": {
+    "description": "WF-02 step 1 design for GH #2883 (operator break-glass for an on tenant). Design only, no implementation code, no mix."
+  },
+  "result": {
+    "status": "PASS",
+    "summary": "Wrote lib/letflow/design/gh2883-scope-enforcement-break-glass.md (design only). Mechanism: Letflow.Release.ScopeBreakGlass.run/5 called via bin/letflow rpc (no Mix, no eval) plus a thin Mix task letflow.scope_enforcement.break_glass; new ScopeEnforcement.flip_out_of_band/3 sharing two private helpers (lock A then tenants row, then the single changeset write plus audit) with flip/4, which is unchanged. Only on -> shadow or on -> off; mandatory reason; mandatory attested operator label stored in after_state with actor_id NULL (audit actor column is a UUID); lock order lock_timeout, A, T, C; restarts the shadow window by construction (T0 reads the same action); confirm-slug guard plus dry run; works with zero admins; no ids printed; one constant fault log line. Tests T-BG-1..32, mutants MU-BG-1..26, AC map, runbook text, SEC rulings S-BG1..S-BG12, open questions OQ-1..OQ-10. REWORK r1 (SEC design gate PASS_WITH_FINDINGS, CDV r0a fixes kept): F-1 explicit transaction timeout 3xL+10s above the three lock waits (T-BG-14c, MU-BG-27); F-2 text scan over all of lib/ limited to the three allowed files, apply/3 and capture forms, each scan proven live; F-3 after_state node added and operator label in refusal/fault log lines only when valid; F-4 Mix form dev and CI only (moduledoc, runbook); RA-B1 accepted as 0051 A11 with three edits.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "lib/letflow/design/gh2883-scope-enforcement-break-glass.md"
+    ],
+    "open_questions": [
+      "OQ-1 allow shadow -> off out of band (default no)",
+      "OQ-2 operator allow-list or second factor (default attested label only)",
+      "OQ-3 confirm-slug guard versus other guard",
+      "OQ-4 audit refused attempts (default no)",
+      "SEC S-BG1..S-BG12 requested at the design gate (design section 12)",
+      "RA-B1 decision record amendment 0051 A11 (also answers #2869 (c) for the flag)",
+      "Depends on PR #2882 (2f-b) merging first; docs test roles_on_flip_docs_test item 7 must change with the docs"
+    ],
+    "implementation_written": false,
+    "classification": "DESIGN"
+  }
+}
