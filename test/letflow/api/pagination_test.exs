@@ -612,4 +612,23 @@ defmodule Letflow.Api.PaginationTest do
       assert page.next_cursor == nil
     end
   end
+
+  describe "int64?/1 (GH #2844)" do
+    test "true at both int64 bounds and zero" do
+      assert Pagination.int64?(-9_223_372_036_854_775_808)
+      assert Pagination.int64?(9_223_372_036_854_775_807)
+      assert Pagination.int64?(0)
+    end
+
+    test "false one past either bound" do
+      refute Pagination.int64?(-9_223_372_036_854_775_809)
+      refute Pagination.int64?(9_223_372_036_854_775_808)
+    end
+
+    test "false for every non-integer" do
+      for v <- [1.0, 0.0, 1.0e30, nil, "1", true, [1], %{}, :a] do
+        refute Pagination.int64?(v)
+      end
+    end
+  end
 end

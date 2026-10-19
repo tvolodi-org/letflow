@@ -40,7 +40,8 @@ defmodule Letflow.Entities.QueryCursorComponentsTest do
       "qty" => "1.50",
       "born" => "2020-01-01",
       "seen" => "2020-01-01T00:00:00Z",
-      "flag" => false
+      "flag" => false,
+      "tier" => "alpha"
     },
     %{
       "name" => "b:ünï",
@@ -49,7 +50,8 @@ defmodule Letflow.Entities.QueryCursorComponentsTest do
       "qty" => "2.50",
       "born" => "2021-02-02",
       "seen" => "2021-02-02T10:00:00Z",
-      "flag" => false
+      "flag" => false,
+      "tier" => "beta"
     },
     %{
       "name" => "c 日本",
@@ -58,7 +60,8 @@ defmodule Letflow.Entities.QueryCursorComponentsTest do
       "qty" => "3.50",
       "born" => "2022-03-03",
       "seen" => "2022-03-03T12:30:00Z",
-      "flag" => true
+      "flag" => true,
+      "tier" => "gamma"
     }
   ]
 
@@ -106,7 +109,13 @@ defmodule Letflow.Entities.QueryCursorComponentsTest do
         },
         %{name: "born", type: :date, queried: true},
         %{name: "seen", type: :datetime, queried: true},
-        %{name: "flag", type: :boolean, queried: true}
+        %{name: "flag", type: :boolean, queried: true},
+        %{
+          name: "tier",
+          type: :enum,
+          enum_values: ["alpha", "beta", "gamma"],
+          queried: true
+        }
       ]
     }
 
@@ -354,6 +363,30 @@ defmodule Letflow.Entities.QueryCursorComponentsTest do
       test "#{label} does not raise", ctx do
         result = page(ctx, unquote(field), mint([unquote(v), id()]))
         assert match?({:ok, _}, result) or result == {:error, :invalid_cursor}
+      end
+    end
+  end
+
+  describe "AC5 -- :enum sort component (reachable through the string clause)" do
+    test "enum-sorted pagination round-trips across pages", ctx do
+      assert page_all(ctx, "tier", :asc) == ["a:one", "b:ünï", "c 日本"]
+      assert page_all(ctx, "tier", :desc) == ["c 日本", "b:ünï", "a:one"]
+    end
+
+    test "NUL byte in the enum component -> :invalid_cursor", ctx do
+      assert page(ctx, "tier", mint(["al" <> <<0>> <> "pha", id()])) == {:error, :invalid_cursor}
+    end
+
+    test "valid enum component is accepted", ctx do
+      assert {:ok, pg} = page(ctx, "tier", mint(["beta", id()]))
+      tiers = Enum.map(pg.items, & &1.field_values["tier"])
+      assert "gamma" in tiers
+      refute "alpha" in tiers
+    end
+
+    for {label, v} <- [{"integer", 5}, {"boolean", true}, {"null", nil}] do
+      test "non-binary enum component (#{label}) -> :invalid_cursor", ctx do
+        assert page(ctx, "tier", mint([unquote(v), id()])) == {:error, :invalid_cursor}
       end
     end
   end
