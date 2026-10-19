@@ -120,6 +120,18 @@ Read this before flipping any tenant. Only pilot tenants may be flipped, and pil
 
 The scoped-approver blocker is evaluated at flip time only: a scoped approver created after `on` is fail-closed and shown in the `on_gate` information count of the integrity report.
 
+**Conditions and cautions for any flip** (they are not numbered items above and not limitations):
+
+**Service accounts.** "Interactive" means the credential is `:oidc`. An unflagged IdP service account that holds TENANT_ADMIN passes the PUT and is counted by gate fact 4 (`zero_tenant_wide_admins`). Every service account must be flagged (the service-principal flag, `PUT /users/:id/service-principal`) before any pilot.
+
+**Several nodes.** The evidence flush before the flip (`ShadowWindow.flush_evidence/0`) flushes only the local node's in-memory counters. A failed flush only makes the gate stricter on that node, but with several nodes the other nodes' unflushed would-deny counters are invisible to the gate. CONDITION: a multi-node deployment needs a cross-node flush before an `on` flip.
+
+**Shadow window restart.** The shadow window starts at the latest flip entry (both `scope.enforcement_enabled` and `scope.enforcement_disabled`). An emergency `on` to `shadow` therefore forces a full new window before `on` can be set again. This is safe by design.
+
+**Refusal audit.** The `scope.enforcement_refused` entry is best-effort, written in its own transaction after the rollback. A refusal can therefore go unrecorded (the 409 is still returned and one constant log line `scope_enforcement_refusal_not_recorded` is written). A successful flip is audited in the same transaction and cannot go unrecorded.
+
+**Gate #2869 (last admin).** Before ANY production or pilot `on`, #2869 must be resolved: a guard that refuses the removal, demotion, deactivation, scoping or service-flagging of the last interactive explicit tenant-wide TENANT_ADMIN of a tenant stored `on`, plus a platform-operator break-glass with no HTTP route, a mandatory reason and an audit entry. The decision record must say whether the 0051 A7 token break-glass covers it (it covers it only partly).
+
 ## Known limitations of an enforced tenant
 
 These hold for a tenant stored as `on` (REQ-519). The operator runbook `docs/runbooks/scope-enforcement-on.md` repeats them.
