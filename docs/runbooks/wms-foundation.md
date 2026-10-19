@@ -47,6 +47,6 @@ was written.
    but unprovisioned `tenant_<hex>` prefix raises `undefined_table` from Postgres). `member?/3`
    returns `false`, without a query, for a `user_id` containing NUL, invalid UTF-8 or longer
    than 256 bytes.
-6. **Ids are matched as exact text.** `member?/3` compares the stored `org_unit_id` and
+6. **Ids are matched as exact text.** `member?/3` (`lib/letflow/modules/org/org.ex`) compares the stored `org_unit_id` and
    `user_id` byte for byte and expects the canonical lowercase uuid, so REQ-495's write
    functions must normalise ids on write.
