@@ -65,9 +65,9 @@ The Mix form is for dev and CI hosts ONLY. Do not run `mix` on a production host
 4. Verify: the change is effective on every node from the next request. An admin who can log in reads `GET /api/v1/tenant/scope-enforcement`; the audit log (`GET /api/v1/audit`, resource type `tenant`) holds one `scope.enforcement_disabled` entry with a null actor and, in its state, your label, your reason, `"source": "operator_break_glass"` and the name of the node that ran it.
 5. Then fix the root cause (restore an admin at the identity provider). Do not repeat the command for the same incident.
 
-Never write the column with SQL as a routine step: that skips the audit entry and the locks. If the node cannot start at all, fix that first; the command needs the running application.
+Never write the column with SQL: that skips the audit entry and the locks. If the node cannot start at all, fix that first; the command needs the running application.
 
-**Audit-chain fault (last resort).** The command writes the flag and its audit entry in one transaction, so if the audit chain itself is broken (corrupt tail, hash mismatch) the entry cannot be written, the whole change rolls back and the command answers `ERROR server_fault`. In that case the command cannot turn enforcement off. The only remaining path is a DBA running SQL in ONE transaction that both sets the tenant's `scope_enforcement` to `shadow` or `off` and inserts the matching `scope.enforcement_disabled` audit row, executed by infrastructure ONLY with the WRITTEN sign-off of the decision owner (the user, as platform owner). Without that sign-off nobody runs it. Repair the audit chain afterwards.
+**Audit-chain fault (accepted limitation).** The command writes the flag and its audit entry in one transaction, so it depends on the audit chain. If the audit insert fails (corrupt tail, hash mismatch) the command answers `ERROR server_fault`, rolls back, and enforcement stays exactly as it was. There is NO sanctioned SQL path: do not write the column or an audit row by hand. Escalate to the platform owner (the user) and to infrastructure, who must repair the audit chain first. Repairing the chain is out of scope of this runbook and needs its own decision record.
 
 ## Known limitations of an enforced tenant
 
