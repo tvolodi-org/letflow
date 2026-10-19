@@ -44,6 +44,7 @@ defmodule Letflow.Identity.RoleRegistry do
           | :platform_admin_outside_platform_tenant
           | :role_already_bound
           | :last_tenant_wide_admin
+          | :last_interactive_tenant_wide_admin
           | :scope_required
           | {:audit_failed, term()}
           | {:transaction_failed, Exception.t()}
@@ -56,6 +57,7 @@ defmodule Letflow.Identity.RoleRegistry do
           | :invalid_reason
           | :platform_admin_outside_platform_tenant
           | :last_tenant_wide_admin
+          | :last_interactive_tenant_wide_admin
           | {:audit_failed, term()}
           | {:transaction_failed, Exception.t()}
           | Ecto.Changeset.t()
@@ -691,6 +693,7 @@ defmodule Letflow.Identity.RoleRegistry do
         # REQ-497 PR 1b N1 transition rule: the before-count under lock A and the role row
         # lock, before the write (nil when this is not a TA unbind).
         before = unbind_before_count(role, kind, prefix)
+        interactive_before = unbind_interactive_before_count(role, kind, prefix)
 
         case role |> Ecto.Changeset.change(kind: kind) |> Repo.update(prefix: prefix) do
           {:ok, updated} ->
@@ -712,6 +715,8 @@ defmodule Letflow.Identity.RoleRegistry do
             # REQ-497 PR 1b N1 (design 6.2 (a)): converting the TENANT_ADMIN platform
             # binding away from platform must leave a tenant-wide admin. Rolls back on 0.
             :ok = guard_unbind_tenant_admin(role, before, prefix)
+            # GH #2869 (a): the second guard, after the N1 guard.
+            :ok = guard_unbind_interactive_admin(role, interactive_before, prefix)
             {updated, rows}
 
           {:error, changeset} ->
@@ -731,6 +736,28 @@ defmodule Letflow.Identity.RoleRegistry do
        do: TenantAdminGuard.count_before!(prefix)
 
   defp unbind_before_count(_role, _new_kind, _prefix), do: nil
+
+  # GH #2869 (a): same trigger, interactive explicit count.
+  defp unbind_interactive_before_count(
+         %TenantRole{name: @tenant_admin_role, kind: :platform_role},
+         new_kind,
+         prefix
+       )
+       when new_kind != :platform_role,
+       do: TenantAdminGuard.count_before!(prefix, :interactive_explicit)
+
+  defp unbind_interactive_before_count(_role, _new_kind, _prefix), do: nil
+
+  defp guard_unbind_interactive_admin(_role, nil, _prefix), do: :ok
+
+  defp guard_unbind_interactive_admin(%TenantRole{} = role, before, prefix),
+    do:
+      TenantAdminGuard.ensure_interactive_admin_remains!(
+        prefix,
+        :unbind_tenant_admin,
+        role.id,
+        before
+      )
 
   defp guard_unbind_tenant_admin(_role, nil, _prefix), do: :ok
 
@@ -852,6 +879,11 @@ defmodule Letflow.Identity.RoleRegistry do
   (action `rebind_tenant_admin`) is written in its own transaction. GH #2575: a raise inside
   the transaction (Ecto has already rolled it back) returns
   `{:error, {:transaction_failed, exception}}`.
+
+  GH #2869 (a): in a tenant stored `on`, the same rebind (and the kind change of
+  `upsert_role/4`) is also refused with `{:error, :last_interactive_tenant_wide_admin}` when
+  it takes the interactive explicit tenant-wide admin count from at least one to none, after
+  the N1 guard. This covers the `on` rebind that skips the grant-row move.
   """
   @spec rebind_role(
           role_id :: Ecto.UUID.t(),
@@ -942,6 +974,11 @@ defmodule Letflow.Identity.RoleRegistry do
       if role.name == @tenant_admin_role and role.kind == :platform_role,
         do: TenantAdminGuard.count_before!(prefix)
 
+    # GH #2869 (a): the interactive before-count, same trigger.
+    interactive_before =
+      if role.name == @tenant_admin_role and role.kind == :platform_role,
+        do: TenantAdminGuard.count_before!(prefix, :interactive_explicit)
+
     updated =
       role
       |> Ecto.Changeset.change(group_id: target)
@@ -967,6 +1004,18 @@ defmodule Letflow.Identity.RoleRegistry do
     # REQ-497 PR 1b N1 (design 6.2 (c)): after the move, before the role.rebound audit.
     if is_integer(before) do
       :ok = TenantAdminGuard.ensure_admins_remain!(prefix, :rebind_tenant_admin, role.id, before)
+    end
+
+    # GH #2869 (a): the second guard, after the N1 guard. Also covers an `on` rebind that
+    # skipped the grant-row move (the new group's members hold no tenant-wide row).
+    if is_integer(interactive_before) do
+      :ok =
+        TenantAdminGuard.ensure_interactive_admin_remains!(
+          prefix,
+          :rebind_tenant_admin,
+          role.id,
+          interactive_before
+        )
     end
 
     attrs = %{

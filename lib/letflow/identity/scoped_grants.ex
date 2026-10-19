@@ -63,6 +63,7 @@ defmodule Letflow.Identity.ScopedGrants do
           | :last_scoped_row
           | :last_admin_binding_row
           | :last_tenant_wide_admin
+          | :last_interactive_tenant_wide_admin
           | :not_found
           | {:audit_failed, term()}
           | {:transaction_failed, Exception.t()}
@@ -170,7 +171,13 @@ defmodule Letflow.Identity.ScopedGrants do
 
   # --- delete ------------------------------------------------------------------
 
-  @doc "Deletes one row by id (design 3.8, 3.9). An uncastable or unknown id is `:not_found`."
+  @doc """
+  Deletes one row by id (design 3.8, 3.9). An uncastable or unknown id is `:not_found`.
+
+  GH #2869 (a): deleting a tenant-wide TENANT_ADMIN row in a tenant stored `on` is also
+  refused with `{:error, :last_interactive_tenant_wide_admin}` when it takes the interactive
+  explicit tenant-wide admin count from at least one to none (after the N1 guard).
+  """
   @spec delete(row_id :: String.t(), actor(), prefix :: String.t()) ::
           :ok | {:error, write_error()}
   def delete(row_id, actor, prefix) when is_binary(prefix) do
@@ -192,6 +199,10 @@ defmodule Letflow.Identity.ScopedGrants do
           before_count =
             if guarded?, do: TenantAdminGuard.count_before!(prefix, :explicit)
 
+          # GH #2869 (a): the interactive before-count, same trigger.
+          interactive_before =
+            if guarded?, do: TenantAdminGuard.count_before!(prefix, :interactive_explicit)
+
           :ok = RoleScopeGrants.delete_row!(row.id, prefix)
 
           if guarded? do
@@ -201,6 +212,14 @@ defmodule Letflow.Identity.ScopedGrants do
               row.principal_id,
               before_count,
               :explicit
+            )
+
+            # GH #2869 (a): the second guard, after the N1 guard.
+            TenantAdminGuard.ensure_interactive_admin_remains!(
+              prefix,
+              :revoke_tenant_admin_grant,
+              row.principal_id,
+              interactive_before
             )
           end
 

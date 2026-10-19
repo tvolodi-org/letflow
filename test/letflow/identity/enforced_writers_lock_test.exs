@@ -418,6 +418,47 @@ defmodule Letflow.Identity.EnforcedWritersLockTest do
 
       assert rows(s) == []
     end
+
+    # GH #2869 (a), design section 6 (bounded change of T-L8): the last-interactive-admin guard
+    # reads the mode ONLY when a guarded write would take the interactive count from above 0 to
+    # 0. Every other removal still never reads it.
+    test "GH #2869: a TENANT_ADMIN removal that leaves a second interactive admin never reads the mode, even for an unreadable tenant" do
+      fx = seeded_tenant!("req519-l8b", :on)
+      s = fx.schema_name
+      ta_group = group_of!(s, "TENANT_ADMIN")
+      a1 = Letflow.Support.TokenMintFixture.role_holder!(s, ["TENANT_ADMIN"])
+      _a2 = Letflow.Support.TokenMintFixture.role_holder!(s, ["TENANT_ADMIN"])
+      assert Identity.count_interactive_explicit_tenant_wide_admins(s) == 2
+
+      with_unregistered_schema(fx, fn renamed ->
+        with_key(:unset, fn ->
+          assert :ok = Identity.remove_group_member(ta_group, a1.id, prefix: renamed)
+        end)
+      end)
+
+      assert Identity.count_interactive_explicit_tenant_wide_admins(s) == 1
+    end
+
+    test "GH #2869: a removal that would empty the interactive count with an unreadable mode raises, rolls back and is never allowed (T-LA-23)" do
+      fx = seeded_tenant!("req519-l8c", :on)
+      s = fx.schema_name
+      ta_group = group_of!(s, "TENANT_ADMIN")
+      last = Letflow.Support.TokenMintFixture.role_holder!(s, ["TENANT_ADMIN"])
+      # a live token owner keeps the OLD counted guard quiet, so only the new guard can act
+      other = user!(s)
+
+      {:ok, %{token: _token}} =
+        Identity.create_token(other.id, %{roles: ["TENANT_ADMIN"], expires_at: nil}, prefix: s)
+
+      with_unregistered_schema(fx, fn renamed ->
+        with_key(:unset, fn ->
+          assert {:error, {:transaction_failed, %ModeUnavailableError{}}} =
+                   Identity.remove_group_member(ta_group, last.id, prefix: renamed)
+        end)
+      end)
+
+      assert Identity.count_interactive_explicit_tenant_wide_admins(s) == 1
+    end
   end
 
   # ===========================================================================================

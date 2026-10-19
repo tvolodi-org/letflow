@@ -20,8 +20,8 @@ defmodule Letflow.Routers.Identity do
   * POST   /users                        -> Identity.create_user/2
   * GET    /users                        -> Identity.list_users/2
   * GET    /users/:id                    -> Identity.get_user/2
-  * PATCH  /users/:id                    -> Identity.get_user/2, then Identity.update_user_profile/3 (409 `last_tenant_wide_admin`, GH 2564)
-  * POST   /users/:id/status             -> Identity.get_user/2, then Identity.update_user_status/3 (409 `last_tenant_wide_admin`, GH 2564)
+  * PATCH  /users/:id                    -> Identity.get_user/2, then Identity.update_user_profile/3 (409 `last_tenant_wide_admin`, GH 2564; 409 `last_interactive_tenant_wide_admin`, GH #2869)
+  * POST   /users/:id/status             -> Identity.get_user/2, then Identity.update_user_status/3 (409 `last_tenant_wide_admin`, GH 2564; 409 `last_interactive_tenant_wide_admin`, GH #2869)
   * POST   /groups                       -> Identity.create_group/2
   * GET    /groups                       -> Identity.list_groups/1
   * DELETE /groups/:id                   -> Identity.delete_group/2 (409 `group is bound to a role` for a memberless role-bound group, ISS-1032)
@@ -478,6 +478,7 @@ defmodule Letflow.Routers.Identity do
           {:error, :tenant_prefix_mismatch} -> Response.internal_error(conn)
           # GH 2564: fixed bodies, naming no admin and no count (INV-2).
           {:error, :last_tenant_wide_admin} -> Response.conflict(conn, "last_tenant_wide_admin")
+          {:error, :last_interactive_tenant_wide_admin} -> last_interactive_admin_conflict(conn)
           {:error, {:token_revocation_failed, _reason}} -> Response.internal_error(conn)
         end
     end
@@ -527,6 +528,7 @@ defmodule Letflow.Routers.Identity do
           {:error, :tenant_prefix_mismatch} -> Response.internal_error(conn)
           # GH 2564: fixed bodies, naming no admin and no count (INV-2).
           {:error, :last_tenant_wide_admin} -> Response.conflict(conn, "last_tenant_wide_admin")
+          {:error, :last_interactive_tenant_wide_admin} -> last_interactive_admin_conflict(conn)
           {:error, {:token_revocation_failed, _reason}} -> Response.internal_error(conn)
         end
     end
@@ -783,6 +785,10 @@ defmodule Letflow.Routers.Identity do
         {:error, code} when code in [:reason_required, :invalid_reason] ->
           Response.unprocessable(conn, Atom.to_string(code))
 
+        # GH #2869 (a): BEFORE the catch-all, or the refusal would surface as a 500.
+        {:error, :last_interactive_tenant_wide_admin} ->
+          last_interactive_admin_conflict(conn)
+
         {:error, _server_fault} ->
           Response.internal_error(conn)
       end
@@ -859,6 +865,7 @@ defmodule Letflow.Routers.Identity do
             {:error, :group_not_found} -> Response.not_found(conn)
             # REQ-497 PR 1b N1: removing the last tenant-wide admin; nothing changed.
             {:error, :last_tenant_wide_admin} -> last_admin_conflict(conn)
+            {:error, :last_interactive_tenant_wide_admin} -> last_interactive_admin_conflict(conn)
             # GH 2547: rolled back with its audit entry; a server fault.
             {:error, {:audit_failed, _reason}} -> Response.internal_error(conn)
             {:error, {:transaction_failed, _exception}} -> Response.internal_error(conn)
@@ -1112,6 +1119,10 @@ defmodule Letflow.Routers.Identity do
       {:error, :last_tenant_wide_admin} ->
         last_admin_conflict(conn)
 
+      # GH #2869 (a): in an `on` tenant, the last interactive explicit admin; nothing changed.
+      {:error, :last_interactive_tenant_wide_admin} ->
+        last_interactive_admin_conflict(conn)
+
       # REQ-447 PR 2 (design 3.4): defence in depth behind H1 (which already
       # answers 403 first); the wire contract gains no new public code.
       {:error, :platform_admin_outside_platform_tenant} ->
@@ -1157,6 +1168,7 @@ defmodule Letflow.Routers.Identity do
         {:error, :invalid_group_id} -> Response.unprocessable(conn, "invalid_group_id")
         # REQ-497 PR 1b N1: the rebind would leave no tenant-wide admin; nothing changed.
         {:error, :last_tenant_wide_admin} -> last_admin_conflict(conn)
+        {:error, :last_interactive_tenant_wide_admin} -> last_interactive_admin_conflict(conn)
         # Rolled back: a server fault, not a client one.
         {:error, {:audit_failed, _reason}} -> Response.internal_error(conn)
         # GH #2575: a raise inside the transaction, rolled back and caught.
@@ -1169,6 +1181,10 @@ defmodule Letflow.Routers.Identity do
   # REQ-497 PR 1b (design 6.1, pinned with GH #2564): every N1 count refusal answers 409
   # with the one stable code; the body names no user, group or role (INV-2).
   defp last_admin_conflict(conn), do: Response.conflict(conn, "last_tenant_wide_admin")
+
+  # GH #2869 (a): fixed code, the body names no id and carries no count.
+  defp last_interactive_admin_conflict(conn),
+    do: Response.conflict(conn, "last_interactive_tenant_wide_admin")
 
   # ── Audit context (GH 2547, design gh2547-tenant-admin-audit-and-count.md 2.3) ──
   #

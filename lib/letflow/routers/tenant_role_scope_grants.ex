@@ -154,7 +154,8 @@ defmodule Letflow.Routers.TenantRoleScopeGrants do
     :self_grant_refused,
     :last_scoped_row,
     :last_admin_binding_row,
-    :last_tenant_wide_admin
+    :last_tenant_wide_admin,
+    :last_interactive_tenant_wide_admin
   ]
 
   defp error_response(conn, reason) when reason in @unprocessable,

@@ -178,6 +178,7 @@ defmodule Letflow.Identity.TenantAdminGuardTest do
              "action" => action,
              "actor" => actor,
              "target_id" => target_id,
+             # the default reason_code of the N1 paths (GH #2869 adds a second value for the new guard only)
              "reason_code" => "last_tenant_wide_admin",
              "counted_admins" => 0,
              "trace_id" => trace
