@@ -646,6 +646,67 @@ defmodule Letflow.Routers.ScriptRulesTest do
 
   # ── dry-run (7) ────────────────────────────────────────────────────────────
 
+  describe "GH #2843: crafted cursor keys" do
+    defp crafted(key, version),
+      do: Letflow.Api.Pagination.encode_cursor("script-rules:" <> key <> "\n" <> version)
+
+    defp list_with(ctx, cursor), do: call(:get, "/?cursor=#{cursor}", ctx.a, @designer, nil)
+
+    test "a NUL byte in the cursor key is 422, not a Postgres 500", ctx do
+      conn = list_with(ctx, crafted("a" <> <<0>> <> "b", "1"))
+      assert conn.status == 422, "status #{conn.status}: #{conn.resp_body}"
+      assert detail(conn) == "invalid pagination parameters"
+    end
+
+    test "invalid UTF-8 in the cursor key is 422, not a Postgres 500", ctx do
+      conn = list_with(ctx, crafted(<<255, 254>>, "1"))
+      assert conn.status == 422, "status #{conn.status}: #{conn.resp_body}"
+      assert detail(conn) == "invalid pagination parameters"
+    end
+
+    test "an empty key is a valid seek position today: 200 and every row sorts after it", ctx do
+      k = key()
+      create!(ctx.a, k, Ecto.UUID.generate())
+
+      conn = list_with(ctx, crafted("", "1"))
+      assert conn.status == 200, conn.resp_body
+      assert k in Enum.map(json(conn)["items"], & &1["key"])
+    end
+
+    test "a cursor from a real first page round-trips unchanged to the second page", ctx do
+      [k1, k2] = Enum.sort([key(), key()])
+      create!(ctx.a, k1, Ecto.UUID.generate())
+      create!(ctx.a, k2, Ecto.UUID.generate())
+
+      first = json(call(:get, "/?page_size=1", ctx.a, @designer, nil))
+      assert [%{"key" => ^k1, "version" => 1}] = first["items"]
+      assert first["next_cursor"] == crafted(k1, "1")
+
+      second = json(list_with(ctx, first["next_cursor"]))
+      assert [%{"key" => ^k2, "version" => 1}] = second["items"]
+    end
+
+    test "a version out of range or not a number is still 422", ctx do
+      for v <- ["0", "-1", "2147483648", "x", "1x", ""] do
+        conn = list_with(ctx, crafted("rule_a", v))
+        assert conn.status == 422, "version #{inspect(v)}: #{conn.status}"
+        assert detail(conn) == "invalid pagination parameters"
+      end
+    end
+
+    test "a ':' key and a non-ASCII (valid UTF-8) key are valid seek positions", ctx do
+      k = key()
+      create!(ctx.a, k, Ecto.UUID.generate())
+
+      colon = list_with(ctx, crafted("0:a:b", "1"))
+      assert colon.status == 200, colon.resp_body
+      assert k in Enum.map(json(colon)["items"], & &1["key"])
+
+      unicode = list_with(ctx, crafted("ключ", "1"))
+      assert unicode.status == 200, unicode.resp_body
+    end
+  end
+
   describe "dry-run" do
     test "returns output, stats and the print buffer; an error outcome carries the author detail; audited without values",
          ctx do
