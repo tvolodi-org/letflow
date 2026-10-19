@@ -166,6 +166,5 @@ REVIEWER 0 of 45, SECURITY-REVIEWER 0 of 28, RELEASE-VALIDATOR 1 of 29, TEST-DES
 chain keeps one validator.
 
 **HIGH tier (auditor decision of 2026-10-19, audit #2874 R5, GH #2876).** The opposite end: a FULL
-change that is large and touches the routers, scope enforcement, identity, engine, scheduler,
-migrations or a SECURITY-REVIEWER scope path gets one outside review in addition to the full chain.
-The thresholds are in section 13.
+change that is large and touches security-sensitive areas gets one outside review in addition
+to the full chain. Thresholds and paths are in ORCHESTRATOR.md section 13.

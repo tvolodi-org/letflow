@@ -628,6 +628,9 @@ those are under `lib/` and so never SHORT.
   regex matches). ANY change to such a file is FULL, not only a removed assertion. A rename or delete
   of any `test/` file counts as a removal.
 
+This section supersedes the §12 `Tier:` bullet's sentence "HIGH is defined in audit #2874 (R5) and the
+risk-tier requirements, not here": §13 defines HIGH.
+
 **SHORT chain:** one producer (TEST-DESIGNER for tests, DOC-UPDATER for docs), one validator
 (TEST-DESIGN-VALIDATOR with mutation evidence for tests; REVIEWER for docs), then CI. No separate
 design pair, security review, idiom review or release re-validation; the status flip rides in the
