@@ -101,6 +101,7 @@ defmodule Letflow.Repository.Attachments do
   require Logger
 
   alias Letflow.Api.Pagination
+  alias Letflow.Engine.Contention
   alias Letflow.EventStore
   alias Letflow.EventStore.InstanceVisibility
   alias Letflow.Repo
@@ -372,7 +373,10 @@ defmodule Letflow.Repository.Attachments do
       idempotency_key: "attachment_attached:" <> attachment.id
     }
 
-    case EventStore.append(event_attrs, prefix: prefix) do
+    case EventStore.append(event_attrs,
+           prefix: prefix,
+           lock_timeout_ms: Contention.cold_append_lock_timeout_ms()
+         ) do
       {:ok, _result} ->
         :ok
 
@@ -410,7 +414,10 @@ defmodule Letflow.Repository.Attachments do
       idempotency_key: "attachment_removed:" <> attachment.id
     }
 
-    case EventStore.append(event_attrs, prefix: prefix) do
+    case EventStore.append(event_attrs,
+           prefix: prefix,
+           lock_timeout_ms: Contention.cold_append_lock_timeout_ms()
+         ) do
       {:ok, _result} ->
         :ok
 

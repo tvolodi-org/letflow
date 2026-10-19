@@ -191,7 +191,10 @@ defmodule Letflow.Engine.Lua.Platform do
   (e)). This is the one function this requirement adds that calls `Letflow.Repo` at all
   (transitively, via `append/2`). Any `{:error, reason}` from `append/2` becomes a
   structured `[nil, error_table]` Lua result, never a raise; the only raise on this
-  function's entire call path is the fold-level `event:emit` capability gate.
+  function's entire call path is the fold-level `event:emit` capability gate. GH #2707 PR-2:
+  the append is bounded by a lock timeout (`Contention.cold_append_lock_timeout_ms/0`) and a
+  wait on the instance projection that exceeds it (or a deadlock-victim abort) is returned as the
+  error reason `contention`.
   `execution_context` gains one new field for this, `actor_id` — host-authored only,
   exactly like `trace_id`/`script_identity` (REQ-159 §2.3), never taken from a script
   argument. GH #2550: the script's key is stored namespaced as `script:<actor_id>:<key>`
@@ -276,6 +279,7 @@ defmodule Letflow.Engine.Lua.Platform do
   not preserve it.
   """
 
+  alias Letflow.Engine.Contention
   alias Letflow.Engine.Lua.Capabilities
   alias Letflow.Engine.Lua.Platform.TimeSource
   alias Letflow.Engine.LuaNumberMarshalling
@@ -863,7 +867,10 @@ defmodule Letflow.Engine.Lua.Platform do
       idempotency_key: idempotency_key
     }
 
-    case EventStore.append(attrs, prefix: execution_context.prefix) do
+    case EventStore.append(attrs,
+           prefix: execution_context.prefix,
+           lock_timeout_ms: Contention.cold_append_lock_timeout_ms()
+         ) do
       {:ok, _append_result} -> {[true], lua}
       {:error, reason} -> encode_error(lua, stringify_reason(reason))
     end

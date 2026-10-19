@@ -461,9 +461,13 @@ defmodule Letflow.Engine do
   is the exception: its first UPDATE already takes the FK locks (the row was inserted by this
   transaction).
 
-  Known gaps, tracked and NOT closed so far: cold appenders that append before locking the
-  projection (attachment events, a Lua `emit_event`; GH #2707 PR-2); dispatch and script-CAS rows
-  armed during a cancel's wait for the projection. The no-cycle argument covers the paths named in
+  Cold appenders (GH #2707 PR-2): `EventStore.append/2` locks the instance projection `FOR NO KEY
+  UPDATE` in its first step, before the sequence row, so the attachment events and a Lua
+  `emit_event` take the same order as the engine writers (invariant I-S, decision 0061). The
+  streams of entity-type synthetic instances and `append_platform_event/2` are outside I-S.
+
+  Known gap, tracked and NOT closed so far: dispatch and script-CAS rows armed during a cancel's wait
+  for the projection. The no-cycle argument covers the paths named in
   `lib/letflow/design/gh2704-lock-order-family.md` and nothing else.
 
   The cascade recurses ancestor-ward (child to parent to grandparent), never downward. The
@@ -8786,6 +8790,19 @@ defmodule Letflow.Engine do
   def set_timer_fire_lock_timeout(repo, false) do
     repo.query!("SELECT set_config('lock_timeout', $1, true)", [
       Contention.timer_fire_lock_timeout_setting()
+    ])
+
+    {:ok, :set}
+  end
+
+  # GH #2707 (PR-2): the same statement for `EventStore.append/2`'s `:lock_timeout_ms` option (a
+  # cold appender's bound). It lives here only so the set-config string stays inside the T-11
+  # whitelist (`stamp_opener_scan_test`); the value is a bound parameter, transaction-local.
+  @doc false
+  @spec set_lock_timeout_ms(Ecto.Repo.t() | module(), pos_integer()) :: {:ok, :set}
+  def set_lock_timeout_ms(repo, timeout_ms) when is_integer(timeout_ms) and timeout_ms > 0 do
+    repo.query!("SELECT set_config('lock_timeout', $1, true)", [
+      Integer.to_string(timeout_ms) <> "ms"
     ])
 
     {:ok, :set}

@@ -1659,7 +1659,9 @@ defmodule Letflow.Engine.Lua.PlatformTest do
          } do
       source = File.read!("lib/letflow/engine/lua/platform.ex")
 
-      assert source =~ "EventStore.append(attrs, prefix: execution_context.prefix)"
+      # GH #2707 PR-2: the call also carries the cold-append `lock_timeout_ms:` option; the prefix
+      # is still, and only, `execution_context.prefix`.
+      assert source =~ ~r/EventStore\.append\(attrs,\s*prefix: execution_context\.prefix,/
       refute source =~ "prefix: event_type"
       refute source =~ "prefix: idempotency_key"
 

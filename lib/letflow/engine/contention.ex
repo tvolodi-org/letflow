@@ -69,6 +69,34 @@ defmodule Letflow.Engine.Contention do
   def timer_fire_lock_timeout_setting,
     do: Integer.to_string(timer_fire_lock_timeout_ms()) <> "ms"
 
+  @default_cold_append_lock_timeout_ms 2_000
+
+  @doc """
+  GH #2707 (PR-2): the PER-WAIT lock timeout in milliseconds that the cold appenders (attachment
+  events, a Lua `emit_event`) pass as `EventStore.append/2`'s `:lock_timeout_ms` (config
+  `:cold_append_lock_timeout_ms`, default 2 s). In a `:engine_test_seams` build a positive integer
+  in the process dictionary key `:cold_append_lock_timeout_ms_override` of the CALLING process
+  replaces it.
+  """
+  @spec cold_append_lock_timeout_ms() :: pos_integer()
+  if Application.compile_env(:letflow, :engine_test_seams, false) do
+    def cold_append_lock_timeout_ms do
+      case Process.get(:cold_append_lock_timeout_ms_override) do
+        ms when is_integer(ms) and ms > 0 -> ms
+        _ -> configured_cold_append_lock_timeout_ms()
+      end
+    end
+  else
+    def cold_append_lock_timeout_ms, do: configured_cold_append_lock_timeout_ms()
+  end
+
+  defp configured_cold_append_lock_timeout_ms do
+    case Application.get_env(:letflow, :cold_append_lock_timeout_ms) do
+      ms when is_integer(ms) and ms > 0 -> ms
+      _ -> @default_cold_append_lock_timeout_ms
+    end
+  end
+
   @doc "`lock_timeout_ms/0` as the text bound as the transaction-local `lock_timeout` setting."
   @spec lock_timeout_setting() :: String.t()
   def lock_timeout_setting, do: Integer.to_string(lock_timeout_ms()) <> "ms"
