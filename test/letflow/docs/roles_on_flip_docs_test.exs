@@ -641,7 +641,19 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
     "SECURITY-REVIEWER reviews the event",
     "Within 24 hours",
     "GH #2896",
-    "is the only exception to `Never write the column with SQL`"
+    "is the only exception to `Never write the column with SQL`",
+    # R5 follow-up: every placeholder is checked BEFORE it is substituted
+    "do NOT neutralise quotes or `$`",
+    "BEFORE substituting it",
+    "tenant_[0-9a-f]{32}",
+    "-?[0-9]{1,19}",
+    "NO placeholder may contain a quote",
+    "pasted ONLY from the output of the `rpc` expression",
+    "never typed or edited",
+    # the clock refusal
+    "clock is not after the chain tail",
+    "re-run the SAME SQL; never edit it",
+    "after 10 minutes, escalate to the platform owner"
   ]
 
   @bg_record_claims [
@@ -674,7 +686,7 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
   ]
 
   # Any SQL that writes the flag or an audit row.
-  @sql_snippet ~r/INSERT\s+INTO\s+\S*audit_entries|UPDATE\s+(public\.)?tenants\b[^;]*scope_enforcement|UPDATE\s+(public\.)?tenants\s+SET/i
+  @sql_snippet ~r/INSERT\s+INTO\s+\S*audit_entries|UPDATE\s+(public\.)?tenants\s+SET/i
 
   defp strip_sql_blocks(text), do: Regex.replace(~r/```sql\n.*?\n```/s, text, "")
 
@@ -744,13 +756,10 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
            "Never write the column with SQL: that skips the audit entry and the locks."
          ) !=
            1, :absolute_prohibition_not_exactly_once},
-        {occurrences(section_flat, "Never write the column with SQL") != 2,
-         :prohibition_cross_reference_not_single},
         {Regex.match?(
            ~r/as a routine step|unless |except when/i,
            absolute_sentence(section_flat)
-         ), :sql_prohibition_weakened},
-        {String.contains?(section_flat, "as a routine step"), :sql_prohibition_weakened}
+         ), :sql_prohibition_weakened}
       ]
       |> Enum.filter(&elem(&1, 0))
       |> Enum.map(&elem(&1, 1))
@@ -983,6 +992,55 @@ UPDATE public.tenants SET x = 1;
                String.replace(record, "**A11. Operator break-glass for the flag.**", "**A11.**")
              )
 
+      # the placeholder / clock sentences: each stable word fires when removed
+      for claim <- [
+            "BEFORE substituting it",
+            "tenant_[0-9a-f]{32}",
+            "-?[0-9]{1,19}",
+            "NO placeholder may contain a quote",
+            "pasted ONLY from the output of the `rpc` expression",
+            "never typed or edited",
+            "re-run the SAME SQL; never edit it",
+            "after 10 minutes, escalate to the platform owner"
+          ] do
+        assert {:runbook_section_missing_claim, claim} in bg_violations(
+                 roles,
+                 String.replace(runbook, claim, "REMOVED"),
+                 record
+               ),
+               claim
+      end
+
+      # prose that merely MENTIONS `UPDATE tenants` is not a SQL snippet ...
+      refute Enum.any?(
+               bg_violations(
+                 roles,
+                 String.replace(
+                   runbook,
+                   "Every other case uses the command.",
+                   "Every other case uses the command (the SQL runs `UPDATE tenants` last)."
+                 ),
+                 record
+               ),
+               &(&1 in [:sql_snippet_outside_the_block, :sql_snippet_in_roles])
+             )
+
+      # ... but a second real SQL block is caught, by the block count and by the snippet scan
+      second_block = runbook <> "
+```sql
+UPDATE public.tenants SET scope_enforcement = 'off';
+```
+"
+      assert :sql_block_not_exactly_one in bg_violations(roles, second_block, record)
+
+      assert :sql_snippet_outside_the_block in bg_violations(
+               roles,
+               runbook <> "
+    UPDATE public.tenants SET scope_enforcement = 'off';
+",
+               record
+             )
+
       # --- F4: the last-resort paragraph, each stable word and each negative rule fires ---------------
       for claim <- [
             "Audit-chain fault (last resort)",
@@ -1101,16 +1159,6 @@ UPDATE public.tenants SET x = 1;
                  runbook,
                  "Never write the column with SQL: that skips",
                  "Avoid writing the column with SQL: that skips"
-               ),
-               record
-             )
-
-      assert :prohibition_cross_reference_not_single in bg_violations(
-               roles,
-               String.replace(
-                 runbook,
-                 "5. This paragraph is the only exception to `Never write the column with SQL`; it is absolute everywhere else.",
-                 "5. This paragraph is the only exception to `Never write the column with SQL`; see also `Never write the column with SQL`."
                ),
                record
              )

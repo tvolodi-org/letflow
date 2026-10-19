@@ -44,6 +44,39 @@ defmodule Letflow.Support.BreakGlassFixture do
   @spec purge_stale!() :: :ok
   def purge_stale! do
     _ = EW.purge_stale_enforced_tenants!(@slug_prefix)
+    purge_stale_roles!()
+    :ok
+  end
+
+  @role_prefix "gh2883_noinsert_"
+
+  @doc "The unique name prefix of the NOLOGIN roles the last-resort SQL test creates (cluster-wide objects)."
+  @spec role_prefix() :: String.t()
+  def role_prefix, do: @role_prefix
+
+  @doc """
+  Drops the leftover roles of a KILLED run of the last-resort SQL test: ONLY roles whose name starts
+  with `role_prefix/0` (the underscore escaped, so no other role can match) and that cannot log in.
+  A role is a cluster-wide object, so a VM that died before its `on_exit` would leave it behind.
+  Never raises: a role that cannot be dropped is skipped.
+  """
+  @spec purge_stale_roles!() :: :ok
+  def purge_stale_roles! do
+    %{rows: rows} =
+      Repo.query!(
+        "SELECT rolname FROM pg_roles WHERE rolname LIKE $1 AND NOT rolcanlogin AND NOT rolsuper",
+        [String.replace(@role_prefix, "_", "\\_") <> "%"]
+      )
+
+    for [name] <- rows, String.starts_with?(name, @role_prefix), name =~ ~r/\A[a-z0-9_]+\z/ do
+      try do
+        Repo.query!("DROP OWNED BY #{name}")
+        Repo.query!("DROP ROLE IF EXISTS #{name}")
+      rescue
+        _exception -> :ok
+      end
+    end
+
     :ok
   end
 

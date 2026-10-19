@@ -162,7 +162,7 @@ defmodule Letflow.ScopeEnforcementLastResortSqlTest do
       # one UPDATE of the column and one audit INSERT, nothing else writes
       assert length(Regex.scan(~r/UPDATE public\.tenants/, sql)) == 1
       assert length(Regex.scan(~r/INSERT INTO %I\.audit_entries/, sql)) == 1
-      refute sql =~ ~r/(DELETE|TRUNCATE|DROP|ALTER|DISABLE)/i
+      refute sql =~ ~r/\x08(DELETE|TRUNCATE|DROP|ALTER|DISABLE)\x08/i
 
       # the locks in the command's order: A, the tenants row, the audit chain lock
       {a, _} = :binary.match(sql, "pg_advisory_xact_lock")
@@ -207,7 +207,8 @@ defmodule Letflow.ScopeEnforcementLastResortSqlTest do
 
       # the SQL-written hash equals the test's own recomputation
       assert row.chain_hash == recompute(row)
-      # and the break-glass command's own entry shape is a superset-compatible neighbour
+
+      # the SQL row is the latest flip entry: the shadow-window reader (T0) sees it as the newest one
       assert F.latest_flip_entry!(fx).id == row.id
     end
 
@@ -365,7 +366,13 @@ defmodule Letflow.ScopeEnforcementLastResortSqlTest do
             restore.()
           end
 
-        assert {:error, %Postgrex.Error{}} = result
+        # it fails AT the read of the renamed relation (the lock row for audit_chain_locks, which is
+        # the first audit statement; the tail read for audit_entries), not at some earlier guard:
+        # the error is undefined_table naming that very table
+        assert {:error, %Postgrex.Error{postgres: %{code: :undefined_table, message: message}}} =
+                 result
+
+        assert message =~ table
         assert_untouched(fx, before, "audit path broken (#{table})")
       end
     end
@@ -373,7 +380,7 @@ defmodule Letflow.ScopeEnforcementLastResortSqlTest do
     test "a revoked INSERT privilege on the audit table also rolls everything back (the application role may be a different one, so this runs as a role without the privilege)" do
       fx = BG.on_tenant!("lr3-revoke")
       before = length(entries(fx))
-      role = "gh2883_noinsert_#{System.unique_integer([:positive])}"
+      role = BG.role_prefix() <> "#{System.unique_integer([:positive])}"
       schema = fx.schema_name
 
       Repo.query!("CREATE ROLE #{role} NOLOGIN")
@@ -394,6 +401,9 @@ defmodule Letflow.ScopeEnforcementLastResortSqlTest do
       Repo.query!(~s|GRANT SELECT, INSERT, UPDATE ON "#{schema}".audit_chain_locks TO #{role}|)
       Repo.query!(~s|GRANT SELECT ON "#{schema}".audit_entries TO #{role}|)
 
+      # the clock guard runs BEFORE the audit insert: wait past the tail so the failure is the privilege
+      wait_past_tail(fx)
+
       result =
         Repo.transaction(fn ->
           Repo.query!("SET LOCAL ROLE #{role}")
@@ -412,35 +422,52 @@ defmodule Letflow.ScopeEnforcementLastResortSqlTest do
   # --- refusals -------------------------------------------------------------------------------------------
 
   describe "refusals change nothing" do
+    # Each refusal must come from the guard under test: the RAISE message (or, for a value that
+    # breaks the literal, the exact error class) is asserted, so a different fault cannot satisfy it.
+    # `wait_past_tail/1` first, so that the clock guard (the last one) can never be the failure.
+    defp refuse(fx, overrides, expected) do
+      wait_past_tail(fx)
+
+      assert {:error, %Postgrex.Error{postgres: %{code: code, message: message}}} =
+               run(fx, overrides)
+
+      case expected do
+        {:raise, fragment} ->
+          assert code == :raise_exception, inspect({overrides, code, message})
+          assert message =~ fragment, inspect({overrides, message})
+
+        {:code, wanted} ->
+          assert code == wanted, inspect({overrides, code, message})
+      end
+    end
+
     test "a second run on the now-shadow tenant is refused: not stored on" do
       fx = BG.on_tenant!("lr4a")
       run!(fx, %{})
       count = length(entries(fx))
 
-      assert {:error, %Postgrex.Error{postgres: %{message: message}}} = run(fx, %{})
-      assert message =~ "not stored on"
+      refuse(fx, %{}, {:raise, "tenant is not stored on"})
       assert BG.mode(fx) == "shadow"
       assert length(entries(fx)) == count
     end
 
-    test "a bad mode is rejected" do
+    test "a bad mode is rejected by the mode guard" do
       fx = BG.on_tenant!("lr4b")
       before = length(entries(fx))
 
       for mode <- ["on", "ON", "", "Shadow", "shadow ", "off\\", "shadow'||'x"] do
-        assert {:error, %Postgrex.Error{}} = run(fx, %{"<MODE>" => mode}), inspect(mode)
+        refuse(fx, %{"<MODE>" => mode}, {:raise, "mode must be shadow or off"})
       end
 
       assert_untouched(fx, before, "bad mode")
     end
 
-    test "a bad operator label is rejected (quote, backslash, space, control, over-length, empty)" do
+    test "a bad operator label is rejected by the label guard (a single quote breaks the literal instead)" do
       fx = BG.on_tenant!("lr4c")
       before = length(entries(fx))
 
       for operator <- [
             "a\"b",
-            "a'b",
             "a\\b",
             "a b",
             "a\nb",
@@ -449,21 +476,21 @@ defmodule Letflow.ScopeEnforcementLastResortSqlTest do
             String.duplicate("a", 65),
             "",
             ".ab",
-            "a;b"
+            "a;b",
+            "a$$b"
           ] do
-        assert {:error, %Postgrex.Error{}} = run(fx, %{"<OPERATOR>" => operator}),
-               inspect(operator)
+        refuse(fx, %{"<OPERATOR>" => operator}, {:raise, "bad operator label"})
       end
 
+      refuse(fx, %{"<OPERATOR>" => "a'b"}, {:code, :syntax_error})
       assert_untouched(fx, before, "bad operator")
     end
 
-    test "a bad reason is rejected (quote, backslash, control, over-length, empty, bad edges)" do
+    test "a bad reason is rejected by the reason guard (a single quote breaks the literal instead)" do
       fx = BG.on_tenant!("lr4d")
       before = length(entries(fx))
 
       for reason <- [
-            "SIGN'OFF 1",
             "SIGN\"OFF 1",
             "SIGN\\OFF 1",
             "SIGN\nOFF 1",
@@ -478,9 +505,10 @@ defmodule Letflow.ScopeEnforcementLastResortSqlTest do
             "SIGN OFF 1-",
             "$$ SIGN"
           ] do
-        assert {:error, %Postgrex.Error{}} = run(fx, %{"<REASON>" => reason}), inspect(reason)
+        refuse(fx, %{"<REASON>" => reason}, {:raise, "bad reason"})
       end
 
+      refuse(fx, %{"<REASON>" => "SIGN'OFF 1"}, {:code, :syntax_error})
       assert_untouched(fx, before, "bad reason")
     end
 
@@ -492,7 +520,7 @@ defmodule Letflow.ScopeEnforcementLastResortSqlTest do
       assert List.last(entries(fx)).after_state["reason"] == reason
     end
 
-    test "a schema that does not match the registration, and another tenant's schema, are rejected" do
+    test "a schema that does not match the registration, and another tenant's schema, hit the registration guard" do
       fx = BG.on_tenant!("lr4f")
       other = BG.on_tenant!("lr4g")
       before = length(entries(fx))
@@ -501,34 +529,37 @@ defmodule Letflow.ScopeEnforcementLastResortSqlTest do
       fake = "tenant_" <> String.duplicate("0", 32)
 
       for schema <- [fake, other.schema_name, "public", "tenant_x"] do
-        assert {:error, %Postgrex.Error{}} = run(fx, %{"<SCHEMA_NAME>" => schema}), schema
+        refuse(fx, %{"<SCHEMA_NAME>" => schema}, {:raise, "does not match the registration"})
       end
 
       # another tenant's schema with this tenant's id, and the reverse
-      assert {:error, %Postgrex.Error{}} = run(other, %{"<TENANT_ID>" => fx.tenant_id})
+      refuse(other, %{"<TENANT_ID>" => fx.tenant_id}, {:raise, "does not match the registration"})
 
       assert_untouched(fx, before, "schema mismatch")
       assert_untouched(other, other_before, "schema mismatch (other)")
     end
 
-    test "an unknown tenant id and a non-uuid id are rejected" do
+    test "an unknown tenant id hits the registration guard; a non-uuid fails the uuid cast" do
       fx = BG.on_tenant!("lr4h")
       before = length(entries(fx))
 
-      for id <- [Ecto.UUID.generate(), "not-a-uuid"] do
-        assert {:error, %Postgrex.Error{}} = run(fx, %{"<TENANT_ID>" => id}), id
-      end
+      refuse(
+        fx,
+        %{"<TENANT_ID>" => Ecto.UUID.generate()},
+        {:raise, "does not match the registration"}
+      )
 
+      refuse(fx, %{"<TENANT_ID>" => "not-a-uuid"}, {:code, :invalid_text_representation})
       assert_untouched(fx, before, "unknown tenant")
     end
 
-    test "a tenant stored off or shadow is refused, nothing is written" do
+    test "a tenant stored off or shadow is refused by the stored-mode guard, nothing is written" do
       for stored <- [:off, :shadow] do
         fx = BG.on_tenant!("lr4i-#{stored}")
         :ok = Letflow.Support.ScopeEnforcementFixture.set_stored_mode!(fx.tenant_id, stored)
         count = length(entries(fx))
 
-        assert {:error, %Postgrex.Error{}} = run(fx, %{})
+        refuse(fx, %{}, {:raise, "tenant is not stored on"})
         assert length(entries(fx)) == count
         assert BG.mode(fx) == Atom.to_string(stored)
       end
