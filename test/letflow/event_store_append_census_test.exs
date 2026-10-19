@@ -67,18 +67,122 @@ defmodule Letflow.EventStoreAppendCensusTest do
     "lib/letflow/scheduler.ex" => 1
   }
 
+  # Counts REAL call sites: comment lines and the contents of `"""` heredocs (the docs) are
+  # ignored, and three forms count: `EventStore.append(`, a capture `EventStore.append/2` and
+  # `apply(EventStore, :append, ...)`. An aliased module (`alias Letflow.EventStore, as: ES`) or a
+  # dynamic module name is NOT detected; no such form exists in lib/ (the aliases are
+  # `alias Letflow.EventStore`).
+  @call_form ~r/EventStore\.append(\(|\/2)|EventStore,\s*:append\b/
+
+  def call_site_count(source) do
+    source
+    |> String.split("\n")
+    |> Enum.reduce({false, 0}, fn line, {in_heredoc?, count} ->
+      toggles? = rem(length(String.split(line, ~s(""\"))) - 1, 2) == 1
+      trimmed = String.trim_leading(line)
+
+      cond do
+        in_heredoc? -> {not toggles?, count}
+        String.starts_with?(trimmed, "#") -> {false, count}
+        toggles? -> {true, count}
+        true -> {false, count + length(Regex.scan(@call_form, line))}
+      end
+    end)
+    |> elem(1)
+  end
+
+  test "the call-site counter ignores comments and docs and sees the three call forms" do
+    tq = ~s(""\")
+
+    source =
+      Enum.join(
+        [
+          "defmodule Fixture do",
+          "  @moduledoc " <> tq,
+          "  mentions EventStore.append( and EventStore.append/2 in prose",
+          "  " <> tq,
+          "  # EventStore.append(commented, out)",
+          ~s|  def a, do: EventStore.append(%{}, prefix: "p")|,
+          "  def b, do: Enum.map([], &EventStore.append/2)",
+          "  def c, do: apply(EventStore, :append, [%{}, []])",
+          "end"
+        ],
+        "\n"
+      )
+
+    assert call_site_count(source) == 3
+  end
+
   test "the set of EventStore.append/2 call sites is the classified one" do
     actual =
       for path <- Path.wildcard("lib/**/*.ex"),
           not String.starts_with?(path, "lib/letflow/design/"),
-          count =
-            path |> File.read!() |> String.split("EventStore.append(") |> length() |> Kernel.-(1),
+          count = path |> File.read!() |> call_site_count(),
           count > 0,
           into: %{},
           do: {path, count}
 
     assert actual == @expected_call_sites,
            "a new or removed EventStore.append/2 caller: classify its flow in this census"
+  end
+
+  # ---- self-test of the order assertion ------------------------------------------------------------
+  # The census must FAIL (not pass quietly) when a caller holds the audit chain row A or an
+  # entity-type row E without P_x first.
+
+  describe "assert_p_first!/3 self-test" do
+    @x "11111111-1111-1111-1111-111111111111"
+    @e "22222222-2222-2222-2222-222222222222"
+
+    defp stmt(sql, id), do: %{query: sql, params: [Ecto.UUID.dump!(id)]}
+
+    defp p_lock(id),
+      do:
+        stmt(
+          ~s|SELECT i0."instance_id" FROM "t"."instance_projections" AS i0 WHERE (i0."instance_id" = $1) FOR NO KEY UPDATE|,
+          id
+        )
+
+    defp s_row(id),
+      do:
+        stmt(
+          ~s|INSERT INTO "t"."instance_sequence" ("instance_id","next_seq") VALUES ($1,$2)|,
+          id
+        )
+
+    defp audit_lock,
+      do: %{
+        query: ~s|SELECT a0."tenant_id" FROM "t"."audit_chain_locks" AS a0 FOR UPDATE|,
+        params: []
+      }
+
+    test "accepts P_x, then A and E rows, then S_x" do
+      assert :ok = assert_p_first!([p_lock(@x), audit_lock(), s_row(@e), s_row(@x)], @x, "good")
+    end
+
+    test "raises when S_x comes before P_x" do
+      assert_raise ExUnit.AssertionError, ~r/S_x .* taken before P_x/s, fn ->
+        assert_p_first!([s_row(@x), p_lock(@x)], @x, "s-first")
+      end
+    end
+
+    test "raises when the audit chain row precedes P_x" do
+      assert_raise ExUnit.AssertionError, ~r/audit chain row or another sequence row/, fn ->
+        assert_p_first!([audit_lock(), p_lock(@x), s_row(@x)], @x, "audit-first")
+      end
+    end
+
+    test "raises when an entity-type sequence row precedes P_x" do
+      assert_raise ExUnit.AssertionError, ~r/audit chain row or another sequence row/, fn ->
+        assert_p_first!([s_row(@e), p_lock(@x), s_row(@x)], @x, "e-first")
+      end
+    end
+
+    test "raises when P_x is never taken" do
+      assert_raise ExUnit.AssertionError, ~r/P_x never taken/, fn ->
+        assert_p_first!([s_row(@x)], @x, "no-p")
+      end
+    end
   end
 
   # ---- statement classification ---------------------------------------------------------------

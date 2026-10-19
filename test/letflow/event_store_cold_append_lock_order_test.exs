@@ -169,6 +169,44 @@ defmodule Letflow.EventStoreColdAppendLockOrderTest do
   # wait (bounded) until `pid` is blocked on a lock
   defp await_blocked(pid), do: H.wait_for_blocked([pid], 1)
 
+  # wait (bounded) until some OTHER backend is blocked by the barrier backend (the emit Task or any
+  # worker whose pid the test does not know), then return its pid
+  defp await_blocked_by(barrier_pid) do
+    deadline = System.monotonic_time(:millisecond) + 3_000
+
+    Stream.repeatedly(fn ->
+      %{rows: rows} =
+        Repo.query!(
+          "SELECT pid FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))",
+          [barrier_pid]
+        )
+
+      if rows == [] and System.monotonic_time(:millisecond) < deadline, do: Process.sleep(10)
+      rows
+    end)
+    |> Enum.find(fn rows -> rows != [] or System.monotonic_time(:millisecond) >= deadline end)
+    |> case do
+      [[pid] | _] -> pid
+      _ -> flunk("no backend became blocked by the barrier holder")
+    end
+  end
+
+  # BEFORE UPDATE trigger on the tenant's projections raising the given SQLSTATE: a deterministic
+  # stand-in for a lock timeout / deadlock victim on the append's last statement
+  defp inject_projection_error!(base, sqlstate) do
+    schema = base.schema
+
+    Repo.query!(
+      ~s|CREATE FUNCTION "#{schema}".gh2707_boom() RETURNS trigger LANGUAGE plpgsql AS $$ | <>
+        ~s|BEGIN RAISE EXCEPTION 'injected' USING ERRCODE = '#{sqlstate}'; END $$|
+    )
+
+    Repo.query!(
+      ~s|CREATE TRIGGER gh2707_boom BEFORE UPDATE ON "#{schema}".instance_projections | <>
+        ~s|FOR EACH ROW EXECUTE FUNCTION "#{schema}".gh2707_boom()|
+    )
+  end
+
   defp flush_contention_reports do
     receive do
       {:deadlock_detected, _} -> flush_contention_reports()
@@ -326,7 +364,9 @@ defmodule Letflow.EventStoreColdAppendLockOrderTest do
       release!(holder_x)
       assert {{:ok, _}, _} = Task.await(task_x, H.await_ms())
 
-      # the synthetic stream: append/2 waits on S_s but does NOT hold P_s
+      # the synthetic stream: append/2 waits on S_s but does NOT hold P_s (the row exists, so a
+      # :free probe is not vacuous)
+      assert Fx.projection!(base.schema, synthetic).instance_id == synthetic
       {holder_s, _} = H.hold_row(base.schema, {:sequence, synthetic})
       {task_s, pid_s} = H.start_worker(cold_append_fn(base, synthetic))
       await_blocked(pid_s)
@@ -374,13 +414,25 @@ defmodule Letflow.EventStoreColdAppendLockOrderTest do
       before = {event_types(base, x), projection_seq(base, x)}
       {holder, _} = H.hold_row(base.schema, {:projection, x})
 
-      started = System.monotonic_time(:millisecond)
+      append = cold_append_fn(base, x, lock_timeout_ms: 300)
 
-      {task, _pid} = H.start_worker(cold_append_fn(base, x, lock_timeout_ms: 300))
-      {result, finished} = Task.await(task, 5_000)
+      {task, _pid} =
+        H.start_worker(fn ->
+          started = System.monotonic_time(:millisecond)
+          result = append.()
+          {result, System.monotonic_time(:millisecond) - started}
+        end)
+
+      {{result, elapsed}, _finished} = Task.await(task, 5_000)
 
       assert result == {:error, :contention}
-      assert finished - started < 1_500, "the wait is bounded by the option, not by the holder"
+
+      assert elapsed >= 250,
+             "the append waited for the bound (#{elapsed} ms), it did not fail early"
+
+      assert elapsed < 1_500,
+             "the wait is bounded by the option, not by the holder (#{elapsed} ms)"
+
       release!(holder)
       flush_contention_reports()
       assert before == {event_types(base, x), projection_seq(base, x)}
@@ -402,9 +454,60 @@ defmodule Letflow.EventStoreColdAppendLockOrderTest do
     test "an invalid value is a programmer error", %{base: base} do
       x = instance!(base)
 
-      assert_raise ArgumentError, ~r/lock_timeout_ms/, fn ->
-        EventStore.append(attach_attrs(base, x), prefix: base.schema, lock_timeout_ms: 0)
+      for bad <- [0, -1, "300", 1.5] do
+        assert_raise ArgumentError, ~r/lock_timeout_ms/, fn ->
+          EventStore.append(attach_attrs(base, x), prefix: base.schema, lock_timeout_ms: bad)
+        end
       end
+    end
+
+    test "nested in a caller's transaction the option is a no-op (no set-config, outer setting kept)",
+         %{base: base} do
+      x = instance!(base)
+
+      {{outer_before, result, outer_after}, queries} =
+        PlatformTenantFixture.capture_repo_queries(fn ->
+          Repo.transaction(fn ->
+            before = Repo.query!("SHOW lock_timeout").rows
+            appended = cold_append_fn(base, x, lock_timeout_ms: 300).()
+            {before, appended, Repo.query!("SHOW lock_timeout").rows}
+          end)
+          |> elem(1)
+        end)
+
+      assert {:ok, %{is_duplicate: false}} = result
+      assert outer_before == outer_after
+      refute outer_after == [["300ms"]]
+      refute Enum.any?(queries, &(&1.query =~ "set_config"))
+    end
+
+    test "a 40P01 under the option makes the cold append the victim: {:error, :contention}, nothing written",
+         %{base: base} do
+      x = instance!(base)
+      before = {event_types(base, x), projection_seq(base, x)}
+      inject_projection_error!(base, "40P01")
+
+      assert {:error, :contention} = cold_append_fn(base, x, lock_timeout_ms: 300).()
+      flush_contention_reports()
+      assert before == {event_types(base, x), projection_seq(base, x)}
+
+      assert Contention.contention_code(%Postgrex.Error{postgres: %{code: :deadlock_detected}}) ==
+               {:ok, :deadlock_detected}
+    end
+
+    test "without the option the same deadlock still raises", %{base: base} do
+      x = instance!(base)
+      inject_projection_error!(base, "40P01")
+
+      assert_raise Postgrex.Error, ~r/injected/, cold_append_fn(base, x)
+      flush_contention_reports()
+    end
+
+    test "a non-contention database error still raises under the option", %{base: base} do
+      x = instance!(base)
+      inject_projection_error!(base, "22012")
+
+      assert_raise Postgrex.Error, ~r/injected/, cold_append_fn(base, x, lock_timeout_ms: 300)
     end
   end
 
@@ -446,6 +549,45 @@ defmodule Letflow.EventStoreColdAppendLockOrderTest do
     end
   end
 
+  describe "L2b: Attachments.delete/3" do
+    test "a bounded wait on P_x is logged and swallowed; delete/3 still returns {:ok, _}",
+         %{base: base} do
+      x = instance!(base)
+
+      assert {:ok, attachment} =
+               Attachments.upload(
+                 %{
+                   instance_id: x,
+                   raw_bytes: "hello",
+                   file_name: "n.txt",
+                   content_type: "text/plain",
+                   uploaded_by: base.user.id,
+                   description: nil
+                 },
+                 prefix: base.schema
+               )
+
+      {holder, _} = H.hold_row(base.schema, {:projection, x})
+
+      log =
+        capture_log(fn ->
+          {task, _pid} =
+            H.start_worker(fn ->
+              Process.put(:cold_append_lock_timeout_ms_override, 300)
+              Attachments.delete(attachment.id, base.user.id, prefix: base.schema)
+            end)
+
+          {result, _} = Task.await(task, 5_000)
+          assert {:ok, _deleted} = result
+        end)
+
+      release!(holder)
+      flush_contention_reports()
+      assert log =~ "attachment history event not recorded: ATTACHMENT_REMOVED"
+      refute "ATTACHMENT_REMOVED" in event_types(base, x)
+    end
+  end
+
   # ---- L3 ---------------------------------------------------------------------------------------
 
   describe "L3: Lua emit_event against a held P_x" do
@@ -462,6 +604,7 @@ defmodule Letflow.EventStoreColdAppendLockOrderTest do
       """
 
       Task.Supervisor.async_nolink(Letflow.Engine.Lua.TaskSupervisor, fn ->
+        started = System.monotonic_time(:millisecond)
         Process.put(:cold_append_lock_timeout_ms_override, timeout_override_ms)
 
         lua =
@@ -476,7 +619,7 @@ defmodule Letflow.EventStoreColdAppendLockOrderTest do
           )
 
         {values, _lua} = Lua.eval!(lua, script)
-        values
+        {values, System.monotonic_time(:millisecond) - started}
       end)
     end
 
@@ -484,38 +627,40 @@ defmodule Letflow.EventStoreColdAppendLockOrderTest do
          %{base: base} do
       x = instance!(base)
       {holder, _} = H.hold_row(base.schema, {:projection, x})
-      started = System.monotonic_time(:millisecond)
 
       task = run_script_task(base, x, 300)
 
-      result =
+      {result, elapsed} =
         case Task.yield(task, 3_000) do
-          {:ok, values} ->
-            values
+          {:ok, {values, elapsed}} ->
+            {values, elapsed}
 
           nil ->
             Task.shutdown(task, :brutal_kill)
             flunk("emit_event hung past the bound")
         end
 
-      elapsed = System.monotonic_time(:millisecond) - started
       release!(holder)
       flush_contention_reports()
 
       assert result == [nil, "contention"]
-      assert elapsed < 2_000
+      assert elapsed >= 250, "the emit waited for the bound (#{elapsed} ms)"
+      assert elapsed < 1_500, "bounded by the option (#{elapsed} ms)"
       refute "ATTACHMENT_ATTACHED" in event_types(base, x)
     end
 
     test "released within the bound: the emit succeeds", %{base: base} do
       x = instance!(base)
-      {holder, _} = H.hold_row(base.schema, {:projection, x})
+      {holder, barrier_pid} = H.hold_row(base.schema, {:projection, x})
       task = run_script_task(base, x, 5_000)
 
-      Process.sleep(150)
+      # release only once the emit is really parked on the barrier
+      await_blocked_by(barrier_pid)
       release!(holder)
 
-      assert {:ok, [true]} = Task.yield(task, 5_000) || Task.shutdown(task, :brutal_kill)
+      assert {:ok, {[true], _elapsed}} =
+               Task.yield(task, 5_000) || Task.shutdown(task, :brutal_kill)
+
       assert "ATTACHMENT_ATTACHED" in event_types(base, x)
       flush_contention_reports()
     end

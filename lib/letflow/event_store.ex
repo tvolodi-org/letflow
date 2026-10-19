@@ -315,9 +315,11 @@ defmodule Letflow.EventStore do
   Factors the *same* M1-M6 steps `append/2` runs internally
   (`active_instance_guard`, `assign_sequence`, `idempotency`, `insert_event`,
   optionally `store_oversized_payload`, `update_projection`) — reused
-  verbatim via `build_multi_composable/2`, not duplicated — onto the given
-  `multi`. `append/2` and `append_platform_event/2` are left completely
-  unmodified; every existing caller of either is unaffected.
+  verbatim via `build_multi_composable/3` (which `append/2` shares through its own
+  `build_multi/2`), not duplicated — onto the given `multi`. Unlike `append/2`, it keeps the
+  UNLOCKED projection guard (GH #2707 PR-2: only `append/2` sets the `guard_lock` flag, so the
+  entity-type synthetic streams keep decision 0054 D3 rule 5's order). `append_platform_event/2`
+  is unaffected.
 
   Runs the exact same pre-transaction validation phase `append/2` runs
   (P0-P6: reject a caller-supplied `tenant_id`, resolve the tenant schema,

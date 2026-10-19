@@ -808,9 +808,25 @@ block quoted in section 10 as listed in item 6.
    own connection, as the executor runs it) with `Platform.install/3` granting `event:emit`, against a
    third-connection barrier on `P_x` playing the writer that holds the instance row.
 6. **Differences from the section 10 block.** The shipped block adds the workflow-instance qualifier on
-   `append_multi/3` callers, the synthetic and `append_platform_event/2` exclusions, the bound option, the empty
-   rule 6 list (the separately tracked cancel exception for dispatch / script-CAS rows stays) and a rolling-deploy
+   `append_multi/3` callers, the synthetic and `append_platform_event/2` exclusions, the bound option, the
+   rule 6 statement (every exception rule 6 listed except the cancel one is closed; the SOLE remaining rule 6
+   exception is dispatch and script-CAS rows armed during cancel's wait for `P_x`) and a rolling-deploy
    note for the cold-appender pair.
 7. **Tests.** `event_store_cold_append_lock_order_test.exs` (A0, A1, A3, R1 terminal race, S1 synthetic, L1
    option, L2 attachments, L3 Lua) and `event_store_append_census_test.exs` (A2). The census is a separate file
    because it runs in the standard sandbox mode (statement order only), while the forced overlaps need `:auto`.
+8. **Residual: no payload size cap on the Lua `emit_event` path (review finding SEC 1).** Neither
+   `Platform.emit_event` nor `EventStore.append/2` caps the payload size: only the 4096-byte inline threshold
+   exists, above which the payload is stored by the `:store_oversized_payload` step inside the transaction, after
+   `P_x` is held (the registry check validates the schema shape only). A large payload therefore lengthens the time
+   `P_x` is held on a cold append; the cold callers' lock timeout bounds other writers' waits per statement, not
+   this hold time. No cap is introduced by this PR; a follow-up is recommended.
+9. **Accepted follow-up (review finding REVIEWER 4).** Move the lock-timeout helpers into the leaf
+   `Letflow.Engine.Contention` (for example `bound_lock_wait!/2`, whitelisting that one file for the set-config
+   scan) so that `EventStore` no longer depends on `Letflow.Engine`.
+10. **Review follow-up tests.** `Attachments.delete/3` swallow (L2b); option semantics: nested no-op (L1 nested),
+    `40P01` as the cold victim (L1 deadlock), default-off still raises on a deadlock, invalid values loop; the
+    bounds measured inside the worker (>= 250 ms and < 1500 ms); the Lua timeout test (>= 250 ms) and the released
+    case waiting on the real blocked backend instead of a sleep; the census self-test of `assert_p_first!/3` on
+    synthetic statement lists (it raises when `A` or an `E` row precedes `P_x`), a static pin that ignores comment
+    and doc lines, and an S1 control that asserts the synthetic projection exists before probing.
