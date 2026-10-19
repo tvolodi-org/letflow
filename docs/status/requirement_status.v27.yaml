@@ -167,3 +167,18 @@ history:
       supervisor explicit authorisation of 2026-10-19, not a RELEASE-VALIDATOR verdict. Open, tracked
       separately: module-handler part of design T9 (follow-up filed), #2794, #2784; permission_matrix_test
       T24 failed locally on a Windows CRLF checkout (not confirmed by a base run); CI on PR #2805 was green.
+
+  - req: REQ-445
+    event: done
+    agent: DOC-UPDATER
+    at: "2026-10-19T04:21:30Z"
+    note: >
+      Status drift fix (GH #2505, audit #2874 R9). Delivered by PR #2250 (merge 8c44eec3, 2026-10-05):
+      decision record 0046 and docs/roles.md; REVIEWER and SECURITY-REVIEWER pass 3 PASS sign-offs
+      are in 0046 (lines 363, 368). RELEASE-VALIDATOR re-verification on origin/main, read-only, no
+      mix run: AC1 to AC5 PASS (D1..D10 present; roles.md matrix has 43 rows equal to the permission
+      list in authorization.ex, each with one scope; eight role sections; 0013 untouched by the PR).
+      Known gap, not an unmet AC: the 0046 D3 table lists 35 atoms, and four later permissions
+      (AttachmentLinksIssue, PlatformServicesManage, ScriptsWrite, ScriptsPublish) are only in the
+      roles.md matrix, which is the parity-tested authority. GH #2233 was closed COMPLETED on
+      2026-10-05 with no comments.
