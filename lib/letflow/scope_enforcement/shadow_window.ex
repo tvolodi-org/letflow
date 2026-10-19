@@ -7,9 +7,9 @@ defmodule Letflow.ScopeEnforcement.ShadowWindow do
 
   `evaluate/3` reads PERSISTED evidence only (`Letflow.Api.Scope.ShadowEvidence.counts_by_day/3`,
   ONE grouped query) and the audit chain (`Letflow.Audit.latest_matching/4`). It takes no lock
-  and writes nothing. Reached today through `Letflow.ScopeEnforcement.integrity/1` (the lock-free
-  `on_gate` block of `GET /integrity`); `Letflow.ScopeEnforcement.flip/4`
-  also evaluates it for a target `on`, which `parse_mode/1` does not yet accept (REQ-519 2f-b).
+  and writes nothing. Reached through `Letflow.ScopeEnforcement.integrity/1` (the lock-free
+  `on_gate` block of `GET /integrity`) and through `Letflow.ScopeEnforcement.flip/4` for the
+  `shadow -> on` transition (REQ-519 2f-b).
 
   ## Criteria (all five must hold)
 

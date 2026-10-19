@@ -14,16 +14,22 @@ defmodule Letflow.Support.EnforcedWritersFixture do
   import Ecto.Query
   import Plug.Conn
 
+  require Logger
+
   alias Letflow.Audit.Entry
   alias Letflow.Identity.RoleRegistry
+  alias Letflow.Identity.Tenant
   alias Letflow.Repo
   alias Letflow.Support.PlatformTenantFixture
   alias Letflow.Support.RoleScopeGrantsFixture, as: RSG
   alias Letflow.Support.ScopeEnforcementFixture
   alias Letflow.TenantFixture
+  alias Letflow.TenantProvisioning
+  alias Letflow.TenantProvisioning.Registration
 
   @modes [:off, :shadow, :on]
   @trace "req519-2ea-trace-0001"
+  @stale_after_seconds 600
 
   @doc "The three stored modes the per-mode tests iterate."
   @spec modes() :: [:off | :shadow | :on]
@@ -61,6 +67,70 @@ defmodule Letflow.Support.EnforcedWritersFixture do
   @spec set_mode!(map(), :off | :shadow | :on) :: :ok
   def set_mode!(%{tenant_id: tenant_id}, mode),
     do: ScopeEnforcementFixture.set_stored_mode!(tenant_id, mode)
+
+  @doc """
+  Removes the committed leftovers of an earlier KILLED run: every tenant whose slug starts with
+  `slug_prefix`, that is stored `on` and was last touched more than ten minutes ago (schema,
+  registration and `tenants` row, the same three steps as the fixture teardown). Returns the
+  purged slugs.
+
+  Why it exists: a test that runs `mix letflow.backfill_role_scope_grants` in-process commits an
+  `on` tenant, and that task calls `System.halt(1)` when a tenant fails. A halt kills the VM
+  before any `on_exit` runs, so the tenant stays stored `on` in the shared local test database
+  (three such rows, slugs `req519-n5-mix*`, made the two migration-down tests of
+  `scope_enforcement_on_test.exs` fail locally: that rollback refuses while any tenant is `on`).
+  The suite-boundary reaper does not reclaim them (the registration was removed by
+  `TenantAdminMigrationFixture.isolate_registrations!/1`, which only puts it back in an
+  `on_exit`). A test calls this in its own setup, so the next run heals the database.
+  """
+  @spec purge_stale_enforced_tenants!(String.t()) :: [String.t()]
+  def purge_stale_enforced_tenants!(slug_prefix) when is_binary(slug_prefix) do
+    # the purge must COMMIT, like the tenant fixture it mirrors
+    Ecto.Adapters.SQL.Sandbox.mode(Repo, :auto)
+
+    cutoff = NaiveDateTime.add(NaiveDateTime.utc_now(), -@stale_after_seconds, :second)
+
+    escaped =
+      slug_prefix
+      |> String.replace("\\", "\\\\")
+      |> String.replace("%", "\\%")
+      |> String.replace("_", "\\_")
+
+    pattern = escaped <> "%"
+
+    stale =
+      Repo.all(
+        from(t in Tenant,
+          where: like(t.slug, ^pattern) and t.scope_enforcement == :on and t.updated_at < ^cutoff,
+          select: {t.id, t.slug}
+        )
+      )
+
+    # Total over what a killed run can leave (docs/anti-patterns.md, "A self-heal wired into
+    # `setup` that is not total"): each leftover is purged on its own and a failure is logged
+    # (naming the slug) and skipped, so one unpurgeable row can never fail every test of a file.
+    for {tenant_id, slug} <- stale do
+      try do
+        case TenantProvisioning.schema_name_for_tenant(tenant_id) do
+          {:ok, schema_name} -> Repo.query!(~s(DROP SCHEMA IF EXISTS "#{schema_name}" CASCADE))
+          {:error, _reason} -> :ok
+        end
+
+        Repo.delete_all(from(r in Registration, where: r.tenant_id == ^tenant_id))
+        Repo.delete_all(from(t in Tenant, where: t.id == ^tenant_id))
+        slug
+      rescue
+        exception ->
+          Logger.warning(
+            "purge_stale_enforced_tenants!/1 could not purge #{slug}: " <>
+              Exception.message(exception)
+          )
+
+          nil
+      end
+    end
+    |> Enum.reject(&is_nil/1)
+  end
 
   @doc "The stored mode of the fixture tenant, read raw."
   @spec stored_mode(map()) :: String.t()

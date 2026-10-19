@@ -1,0 +1,116 @@
+{
+  "handoff_id": "d2535519-0519-4c02-9e11-000000000020",
+  "run_id": "WF02-REQ519-ENFORCED-WRITERS-20261018",
+  "workflow_id": "WF-02",
+  "step": "20",
+  "from_agent": "ELIXIR-DEV",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-20-elixir-dev-2f-b.json",
+  "created_at": "2026-10-19T02:16:00Z",
+  "started_at": "2026-10-19T02:16:00Z",
+  "completed_at": "2026-10-19T02:38:07Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [
+      "REQ-519"
+    ],
+    "requirement_text": {
+      "REQ-519": "slice 2f-b: make on settable; ACs 8, 13, 16-24 as assigned to 2f-b; GH #2535"
+    },
+    "artifacts_in": [
+      "lib/letflow/design/req519-enforced-writers-and-flag-on.md",
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-04-security-reviewer-design.json",
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-16-security-reviewer-code-2f-a.json",
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-17-reviewer-code-2f-a.json",
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-19-test-design-validator-2f-a.json"
+    ],
+    "branch_name": "feature/WF02-REQ519-2FB-ON-SETTABLE-20261019"
+  },
+  "task": {
+    "description": "Implement REQ-519 2f-b. Mandatory SEC second pass (step-16 F-6): lib/letflow/scope_enforcement.ex, lib/letflow/routers/tenant_scope_enforcement.ex, lib/letflow/api/scope.ex (authz helper), lib/letflow/routers/identity.ex (service-principal gate now delegates to the shared helper)."
+  },
+  "result": {
+    "status": "COMPLETED",
+    "verdict": "IMPLEMENTED_PENDING_SEC_AND_REVIEWER",
+    "summary": "on is settable. parse_mode/1 accepts \"on\"; modes/0 = stored_modes/0 = [:off,:shadow,:on] (one list; flush_before? and the guard-form workarounds removed). flip/4 transition table: same-mode no-op; off->shadow enable_checks! (tagged {:three_facts,r}); shadow->on OnGate after A,T,S (tagged {:on_gate,r}); off->on :shadow_required; on->shadow runs NO precondition and needs a reason (in-transaction :reason_required after the T lock); ->off no precondition, reason pre-checked as before (same-mode off without reason stays 422). Audit action by rank off<shadow<on. PUT now uses Api.Scope.require_interactive_tenant_admin/1 (oidc credential, tenant-wide UsersGroupsRolesManage, TENANT_ADMIN role tenant-wide); Routers.Identity.handle_service_principal delegates to it (private require_oidc and require_tenant_admin_tenant_wide deleted). 409 shadow_required (current_mode off) and 409 enforcement_precondition_failed with failed codes, report (6 counts) and evidence for on; the stage-1 three-fact 409 is unchanged. OnGate gains counts_state/2 and evidence_state/1: ONE serialisation shared by audit_state/1, the 409 body and the integrity on_gate body (REVIEWER F-9). GET /integrity: a rescue logs one constant line scope_enforcement_integrity_failed exception=<module> and answers the detail-free 500 (SEC 2f-a F-2). Stale moduledocs fixed. docs/roles.md: operator procedure, gate codes, AC 12 sentence verbatim, ON-in-production text (items 1-8), known limitations incl. scoped upsert_by external_ref refused in the router import_scope_check/6 (AC 23); AC 24 respected.",
+    "files_changed": {
+      "modified_lib": [
+        "lib/letflow/scope_enforcement.ex",
+        "lib/letflow/scope_enforcement/on_gate.ex",
+        "lib/letflow/scope_enforcement/shadow_window.ex (moduledoc only)",
+        "lib/letflow/routers/tenant_scope_enforcement.ex",
+        "lib/letflow/routers/identity.ex",
+        "lib/letflow/api/scope.ex"
+      ],
+      "docs": [
+        "docs/roles.md"
+      ],
+      "existing_tests_edited_forced": [
+        "test/letflow/scope_enforcement_test.exs (T-F1: modes()/parse_mode accept on; ON and padded on still invalid)",
+        "test/letflow/scope_enforcement_on_test.exs (T-O2 rewritten from 'nothing can set on' to the guarded flip: shadow_required, gate refusal, PUT 409; T-O4 and modes assertions list three modes)",
+        "test/letflow/scope_enforcement/dormant_on_test.exs (the 'door shut' describe inverted: PUT on is 409 not 422, flip(:on) from off is :shadow_required, GET lists three modes; source-scan and C-5 tests kept; the file name is now stale)",
+        "test/letflow/routers/tenant_scope_enforcement_test.exs (GET available_modes; 'on' removed from the 422 list; T-F3 platform-tenant PLATFORM_ADMIN PUT now 403 (S-3 behaviour change); T-I1 off->shadow non-blocking check moved to function level)",
+        "test/letflow/scope_enforcement/on_gate_test.exs and test/support/scope_enforcement_fixture.ex (comments only)"
+      ],
+      "routes_changed": "NONE (route snapshot, route_inventory.ex, route_scope.ex untouched; no route class change)",
+      "migrations": "none",
+      "seeds_or_config_setting_a_tenant_on": "none (AC 24; grep of lib/, priv/ and config/ finds no setter)"
+    },
+    "behaviour_changes_for_pr_body": [
+      "PUT /tenant/scope-enforcement is now interactive (OIDC) tenant-wide TENANT_ADMIN only for EVERY transition: API tokens and a platform-tenant PLATFORM_ADMIN without TENANT_ADMIN lose it, off->shadow included (stage 1 allowed them).",
+      "GET / available_modes is [off, shadow, on].",
+      "on->shadow no longer runs enable_checks! and audits as scope.enforcement_disabled; shadow->off audit unchanged.",
+      "New refusals: 409 shadow_required, 409 enforcement_precondition_failed with codes for on.",
+      "GET /integrity 500 path logs scope_enforcement_integrity_failed (exception module only)."
+    ],
+    "verification_of_stored_on_safety": "Authorize.apply_scope_mode calls Enforce.check for :on (517 2b). Platform-scope permissions are decided by Scope.allowed?/3 on role and platform membership only (never grants), so a platform tenant stored on does not lock out its PLATFORM_ADMIN on /tenants*, /onboarding*, /platform-migrations*, /event-retention* (C-6, INV-10); the flag PUT stays TENANT_ADMIN-only there. No further lib change was needed. Not proven by a test in this slice (TEST-DESIGNER T-O7/T-O8).",
+    "executed": {
+      "mix compile --warnings-as-errors (MIX_ENV=test)": "exit 0, no warnings (final run after all lib edits)",
+      "mix format --check-formatted (all changed .ex/.exs)": "exit 0 after mix format of 3 files",
+      "mix letflow.check_boundaries": "OK, 1516 edges, 0 violations",
+      "mix letflow.check_role_scope_grants_writers": "no violations",
+      "mix test per file set, one mix at a time under the mixlock dir (created and removed by me), LOG_LEVEL=error": [
+        "scope_enforcement_test.exs: 23 passed",
+        "scope_enforcement_on_test.exs: 14/16; the 2 T-O1 migration-down tests fail because the shared letflow_test DB holds 3 STALE tenants stored as on (slugs req519-n5-mix*, updated 2026-10-18 17:48-18:27 by earlier 2e-a test runs, verified by a SELECT); not caused by this slice, not cleaned up by me",
+        "routers/tenant_scope_enforcement_test, tenant_scope_enforcement_integrity_test, api/service_principal_route_test, api/scope_grants_route_walk_test: 42/44; the 2 failures were the two forced edits above, fixed afterwards and green in the next batch",
+        "second batch (tenant_scope_enforcement_test, dormant_on_test, admin_plane_under_on_test, auth_pipeline_scope_test, tenant_auditor_routes_test, platform_marker_not_writable_test, token_preconditions_test, refused_audit_test): 118/120; the 2 failures are auth_pipeline_scope_test T-P5 asserting a captured scope_grants_load_failed log that my LOG_LEVEL=error suppresses (log-level artefact, unrelated; not re-run at the default level)"
+      ]
+    },
+    "not_run": [
+      "no full suite, no mix letflow.check.test, no multi-partition run (supervisor limit)",
+      "on_gate_test.exs and shadow_window_test.exs were not re-run after the OnGate refactor (audit_state output is key-for-key identical by construction; only comments in on_gate_test changed)",
+      "no test exercises the live shadow->on flip through flip/4 or the PUT with a satisfied gate: TEST-DESIGNER work"
+    ],
+    "deviations": [
+      "The 409 shadow_required body carries current_mode as the constant \"off\" (that refusal is reachable only from off) instead of a second read.",
+      "flip_entry dispatches on an explicit tag ({:three_facts,_} | {:on_gate,_} | nil) instead of key sniffing (REVIEWER 2f-a F-4/TS-1); RefusedAudit.gate_state/1 still distinguishes nil from a report (unchanged).",
+      "stored_modes/0 delegates to modes/0 (design 4.1); the guard-form workarounds were removed because @modes now contains :on.",
+      "dormant_on_test.exs kept its now misleading file and module name to limit churn; a rename is a TEST-DESIGNER call.",
+      "Line endings: python edits briefly wrote CRLF; all edited .ex/.exs/.md files were normalised back to LF (git warns that docs/roles.md will be CRLF on touch because of autocrlf, as for other files).",
+      "started_at is approximate (first edit at 02:19:10Z, reading before it)."
+    ],
+    "obligations_for_test_designer": [
+      "flip-level: shadow->on success audit (preconditions and evidence key set, action enabled by rank), refusal audit per failing code and for shadow_required (committed, non-sandbox setup), refusal NOT recorded for a gate raise (500, one scope_enforcement_flip_failed line, no flag change), flush before the transaction (MU-42), S lock before the facts on the on path (MU-22), attrs[:now] honoured only as a DateTime (kills V7), MU-23/MU-39, on->shadow succeeds with a failing fact and needs a reason, same-mode off without reason stays 422, audit rank rule (on->off and on->shadow disabled), forced audit failure rolls the flip back",
+      "AC 8: permission_scope(required_permission(:ScopeEnforcementManage)) == :tenant (composed form); a token holding TENANT_ADMIN, a scoped TENANT_ADMIN and a platform-tenant PLATFORM_ADMIN get the uniform 403 on PUT; both routes use the shared helper; flip callers and literal attrs source scan",
+      "C-1 route-walk test route_scope_on_flip_blocker_test.exs (design 4.7); T-O7/T-O8 platform tenant stored on; AC 16/17 end-to-end suite (scoped upsert external_ref refused by import_scope_check/6); T-E15 docs sentence; GET /integrity raise logging"
+    ],
+    "sec_second_pass_requested": true,
+    "classification": "CODE_IMPLEMENTED",
+    "implementation_written": true,
+    "local_issue_id": null,
+    "artifacts_out": [
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-20-elixir-dev-2f-b.json"
+    ],
+    "followup_after_sec_reviewer": {
+      "changes": [
+        "REVIEWER F-1 check_reason(_target, nil) collapsed",
+        "REVIEWER F-2 counts_state/1 plus counts_with_task_workers/1 (wire shapes unchanged)",
+        "REVIEWER F-5 service-principal comment is a pointer",
+        "SEC F-2 docs/roles.md intro names RA-6/REQ-525..527 #2862, #2869, #2870, amendment 0051 A8-A10 PR #2871"
+      ],
+      "verified": "compile --warnings-as-errors, format, check_boundaries, writers scan green; dormant_on_test + on_gate_test 51 passed"
+    }
+  }
+}

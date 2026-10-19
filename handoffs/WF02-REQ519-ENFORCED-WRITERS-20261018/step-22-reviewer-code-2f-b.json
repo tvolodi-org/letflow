@@ -1,0 +1,59 @@
+{
+  "handoff_id": "d2535519-0519-4c02-9e11-000000000022",
+  "run_id": "WF02-REQ519-ENFORCED-WRITERS-20261018",
+  "workflow_id": "WF-02",
+  "step": "22",
+  "from_agent": "REVIEWER",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-22-reviewer-code-2f-b.json",
+  "created_at": "2026-10-19T02:34:50Z",
+  "started_at": "2026-10-19T02:34:50Z",
+  "completed_at": "2026-10-19T02:41:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-519"],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "REVIEWER code gate for REQ-519 slice 2f-b (GH #2535), uncommitted tree of feature/WF02-REQ519-2FB-ON-SETTABLE-20261019. Read-only static review; no mix run; one stale comment edited (lib/letflow/identity/tenant.ex)."
+    },
+    "related_handoff_ids": ["d2535519-0519-4c02-9e11-000000000017", "d2535519-0519-4c02-9e11-000000000020", "d2535519-0519-4c02-9e11-000000000021"],
+    "artifacts_in": [
+      "lib/letflow/design/req519-enforced-writers-and-flag-on.md",
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-20-elixir-dev-2f-b.json",
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-21-security-reviewer-code-2f-b.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ519-2FB-ON-SETTABLE-20261019"
+  },
+  "task": {
+    "description": "Idiom, supervision, scope-creep, duplication, dead-code, test-edit and docs gate for REQ-519 2f-b."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "PASS_WITH_FINDINGS. No blocker. Static review only. 1 IDIOM: no process, spawn, supervisor or GenServer added; InstanceSupervisor untouched; 0045 and 0051 D12 consistent. flip/4 keeps one Repo.transaction inside the single try/rescue; business refusals are Repo.rollback tuples, faults are raises mapped to {:transaction_failed, e}. The transition handling is data-like: do_flip's cond covers same-mode, off->on (shadow_required) and the on->shadow mandatory reason; transition_report!/5 is three function heads (shadow->on, off->shadow, default nil) returning a TAGGED report ({:on_gate, r} | {:three_facts, r} | nil) and flip_entry dispatches on the tag (closes 2f-a F-4 / TS-1 on the producer side); rank/1 as three heads drives the enabled/disabled action. Specs accurate: flip/4 target and result mode widened to mode() (2f-a F-3 done); flush_before? is deleted and the flush is a plain target == :on. 2 SUPERVISION: nothing collapsed. 3 Api.Scope.require_interactive_tenant_admin/1: right module (Scope already owns require_tenant_wide, principal_from_conn, effective_scope), same return convention as require_tenant_wide, fail-closed with/else. Hoisting removed the duplicated require_oidc / require_tenant_admin_tenant_wide from routers/identity.ex so the two routes cannot diverge. Not a duplicate of TenantAdminGuard (that guards last-admin invariants on writes). 4 SHARED SERIALISATION: OnGate is now the single owner of counts_state/2 and evidence_state/1; audit_state, the 409 body and the integrity body all call them, and the router's hand-written copies are gone (2f-a F-9 closed). Leftovers: counts_state/2 has an optional second argument that switches an extra key in (F-2); the three-fact off->shadow report is still hand-built twice with the same three keys (flip_entry 'preconditions' and the router precondition_failed clause, F-3, pre-existing). 5 409 MAPPING: ordered flip_response/2 clauses, one head per business tag (invalid_mode, reason_required, invalid_reason, shadow_required, on_precondition_failed, precondition_failed) and a deliberate final {:error, server_fault} default to a detail-free 500 with one constant log line; a new unmapped tag would become a 500 'unknown' (see TS-1). 6 SCOPE vs design r2a section 1 (2f-b): every file maps to a design item (4.1 modes, 4.2 route + helper, 4.2a, 4.9 tests, 4.10 docs). Extras: the integrity rescue (requested by SEC 2f-a F-2) and rank/1 (AC 13). No new behaviour, macro, abstraction or process. 7 DEAD CODE: flush_before? gone; check_target/parse_mode plain. Remaining simplification: check_reason(target, nil) when target in [:shadow, :on] is now 'any target but :off' after the first clause (F-1). 8 TEST EDITS: all forced, none weakens. scope_enforcement_test T-F1: 'on' moves from refused to accepted, refused list gains 'On', ' on', 'on ', and the flip/4 non-mode targets gain the string \"on\" (stricter). scope_enforcement_on_test T-O2/T-O4: inverted because the asserted fact (on unsettable, two available_modes) is exactly what this slice changes; the rewrite asserts specific outcomes (shadow_required; gate refusal containing shadow_evidence_insufficient; 409 detail per stored mode; column and entries unchanged) and adds a same-mode PUT on an on tenant (200, changed false). dormant_on_test: the 422 assertions inverted to exact 409 details plus failed code, the entries-empty checks kept, the source-scan tests (literal three-key attrs; only the router calls flip/4) untouched. tenant_scope_enforcement_test: platform PLATFORM_ADMIN 200 became 403 with detail (SEC S-3 behaviour change, commented), and the zero_tenant_wide_admins informational test moved to a function-level flip which still proves 'does not block off->shadow'. 9 STALE NAME: dormant_on_test.exs / Letflow.ScopeEnforcement.DormantOnTest no longer proves 'dormant'; propose on_flip_guards_test.exs / Letflow.ScopeEnforcement.OnFlipGuardsTest, update test/specs/REQ-519-2f-a.md lines 20 and 55, the only other references (F-4). 10 DOCS: docs/roles.md matches the code: the transition table equals do_flip; 409 body keys failed/report/evidence match the router; codes match OnGate; 7/100 thresholds match 2f-a config; the scope sentence occurs exactly once and is byte-identical to ShadowWindow @scope_sentence (grep count 1). S1-S3: in the design these are SEC rulings (S-1 seeding NO-ROW, S-2 sync no-widening, S-3 flip authority narrowing), not verbatim text blocks; the only verbatim sentence is the AC 12 one (ShadowWindow.scope_sentence/0, design 4.10 item 4), present in roles.md; the S-3 behaviour change and the 8 ON_IN_PRODUCTION items of design 4.10 are present in substance. 11 DUPLICATED LITERALS: 'enforcement_precondition_failed' is written in two router heads and 'invalid_enforcement_mode' in two places in the router (single module owner, low risk); the two log-line literals have one owner each; the flip action strings are read by ShadowWindow through ScopeEnforcement.flip_actions/0 (2f-a F-6 resolved) and RefusedAudit has its own @action for the distinct refused action. 12 DECISION RECORDS: 0051 D12 gate honoured; decision 0051 A1(4) text drift (token owner vs interactive admins only) from 2f-a F-7 is still open for DOC-UPDATER. 13 STALE TEXT: lib/letflow/identity/tenant.ex said 'nothing in lib/ can set it yet (the flip rejects it until REQ-519)'; EDITED to 'since REQ-519 2f-b only the guarded flip (shadow -> on, six-fact gate) sets it'. No other stale 'unsettable' text found in lib or docs outside the design file.",
+    "findings": [
+      {"id": "F-1", "severity": "MINOR", "blocking": false, "title": "check_reason guard form is now redundant", "detail": "check_reason(target, nil) when target in [:shadow, :on] follows check_reason(:off, nil); replace by check_reason(_target, nil) -> {:ok, nil}. ELIXIR-DEV."},
+      {"id": "F-2", "severity": "MINOR", "blocking": false, "title": "OnGate.counts_state/2 optional second argument adds a key", "detail": "A nil sentinel is a hidden mode switch; use two functions or let the caller Map.put the informational key. Not blocking."},
+      {"id": "F-3", "severity": "MINOR", "blocking": false, "title": "Three-fact off->shadow report serialised twice", "detail": "flip_entry 'preconditions' and the router precondition_failed clause hand-write the same three string keys; add one shared precondition_state/1. Pre-existing."},
+      {"id": "F-4", "severity": "MINOR", "blocking": false, "title": "Stale test file and module name dormant_on_test / DormantOnTest", "detail": "Rename to on_flip_guards_test.exs / Letflow.ScopeEnforcement.OnFlipGuardsTest and update test/specs/REQ-519-2f-a.md lines 20 and 55. TEST-DESIGNER."},
+      {"id": "F-5", "severity": "INFO", "blocking": false, "title": "Comment duplication in routers/identity.ex", "detail": "The gate-order comment above handle_service_principal restates Scope.require_interactive_tenant_admin/1's doc; shorten to a pointer."},
+      {"id": "F-6", "severity": "INFO", "blocking": false, "title": "Decision 0051 A1(4) text drift (2f-a F-7) still open", "detail": "DOC-UPDATER amends A1(4) to 'interactive explicit tenant-wide admins'."}
+    ],
+    "type_safety_findings": [
+      {"id": "TS-1", "title": "flip_error and the router mapping are an open union of ad-hoc tuples with a catch-all; a new refusal tag compiles and silently becomes a 500 'unknown'", "suggestion": "fold into the existing type-safety issue from 2f-a (TS-1/TS-2, largely resolved on the producer side by the tagged report): a closed Refusal kind enum or struct. ORCH files via FINDING per WORK_BOARD section 7 if not already filed."}
+    ],
+    "conditions_for_next_step": [
+      "C-1: none blocking. ELIXIR-DEV may fold F-1 and F-5 before commit; no second SEC pass needed (no behaviour change).",
+      "C-2: TEST-DESIGNER renames the dormant_on file/module (F-4) and updates test/specs/REQ-519-2f-a.md references."
+    ],
+    "local_issue_id": null,
+    "artifacts_out": ["handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-22-reviewer-code-2f-b.json", "lib/letflow/identity/tenant.ex"],
+    "diagnosis_confirmed": true,
+    "implementation_written": false,
+    "classification": "REVIEW_PASS_WITH_FINDINGS"
+  }
+}

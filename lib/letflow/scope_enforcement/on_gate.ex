@@ -9,8 +9,9 @@ defmodule Letflow.ScopeEnforcement.OnGate do
   `Letflow.ScopeEnforcement.flip/4` it runs after the tenant admin lock (A), the `tenants` row
   (T) and the scope-tree table lock (S), so it sees the flip transaction's locks; the
   integrity endpoint (`GET /integrity`, via `ScopeEnforcement.integrity/1`) calls it with NO lock,
-  a labelled snapshot. The flip evaluates it for a target `on` only once `parse_mode/1` accepts
-  `on` (REQ-519 2f-b).
+  a labelled snapshot. The flip evaluates it for a target `on` (`shadow -> on` only, REQ-519
+  2f-b); the wire shapes below are the ONE serialisation shared by the audit entries, the 409
+  refusal body and the integrity endpoint.
 
   Facts, in read order; ALL six are evaluated every time so a refusal names every failure:
 
@@ -65,26 +66,57 @@ defmodule Letflow.ScopeEnforcement.OnGate do
   """
   @spec audit_state(report()) :: %{String.t() => map()}
   def audit_state(report) do
-    evidence = report.evidence
-
     %{
-      "preconditions" => %{
-        "bindings_without_row" => report.bindings_without_row,
-        "org_consistency" => Atom.to_string(report.org_consistency),
-        "tokens_exceeding_owner" => report.tokens_exceeding_owner,
-        "explicit_tenant_wide_admins" => report.explicit_tenant_wide_admins,
-        "scoped_approvers" => report.scoped_approvers,
-        "scoped_task_workers_without_task_scope" => report.scoped_task_workers_without_task_scope
-      },
-      "evidence" => %{
-        "would_deny" =>
-          Map.new(evidence.would_deny, fn {reason, count} -> {Atom.to_string(reason), count} end),
-        "requests" => evidence.requests,
-        "days_without_requests" => evidence.days_without_requests,
-        "criteria" =>
-          Map.new(evidence.criteria, fn {name, met?} -> {Atom.to_string(name), met?} end),
-        "evidence_scope" => evidence.evidence_scope
-      }
+      "preconditions" => counts_with_task_workers(report),
+      "evidence" => evidence_state(report.evidence)
+    }
+  end
+
+  @doc """
+  The five blocking counts as a string-keyed map (`bindings_without_row`, `org_consistency`,
+  `tokens_exceeding_owner`, `explicit_tenant_wide_admins`, `scoped_approvers`), read from an
+  `t:report/0` or from the `counts` of the integrity snapshot.
+  """
+  @spec counts_state(map()) :: %{String.t() => term()}
+  def counts_state(counts) do
+    %{
+      "bindings_without_row" => counts.bindings_without_row,
+      "org_consistency" => Atom.to_string(counts.org_consistency),
+      "tokens_exceeding_owner" => counts.tokens_exceeding_owner,
+      "explicit_tenant_wide_admins" => counts.explicit_tenant_wide_admins,
+      "scoped_approvers" => counts.scoped_approvers
+    }
+  end
+
+  @doc """
+  `counts_state/1` plus the informational `scoped_task_workers_without_task_scope` of a full
+  `t:report/0` (the audit `"preconditions"` map and the 409 `report`).
+  """
+  @spec counts_with_task_workers(report()) :: %{String.t() => term()}
+  def counts_with_task_workers(report) do
+    Map.put(
+      counts_state(report),
+      "scoped_task_workers_without_task_scope",
+      report.scoped_task_workers_without_task_scope
+    )
+  end
+
+  @doc """
+  The evidence summary as a string-keyed map: the six would-deny counts, `requests`,
+  `days_without_requests`, the per-criterion booleans and `evidence_scope`. The window dates
+  and `shadow_since` are NOT in it (the audit never stored them); callers that show them add
+  them.
+  """
+  @spec evidence_state(ShadowWindow.report()) :: %{String.t() => term()}
+  def evidence_state(evidence) do
+    %{
+      "would_deny" =>
+        Map.new(evidence.would_deny, fn {reason, count} -> {Atom.to_string(reason), count} end),
+      "requests" => evidence.requests,
+      "days_without_requests" => evidence.days_without_requests,
+      "criteria" =>
+        Map.new(evidence.criteria, fn {name, met?} -> {Atom.to_string(name), met?} end),
+      "evidence_scope" => evidence.evidence_scope
     }
   end
 

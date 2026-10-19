@@ -7,13 +7,18 @@ defmodule Letflow.Routers.TenantScopeEnforcement do
   Mounted at `/tenant/scope-enforcement` by `Letflow.Plugs.ApiPipeline`:
 
     * `GET  /`                    (`:ScopeEnforcementRead`) -> the mode;
-    * `PUT  /`                    (`:ScopeEnforcementManage`) -> `Letflow.ScopeEnforcement.flip/4`;
+    * `PUT  /`                    (`:ScopeEnforcementManage`) -> `Letflow.ScopeEnforcement.flip/4`,
+      for an INTERACTIVE tenant-wide TENANT_ADMIN only (REQ-519 2f-b, SEC S-3: tokens and a
+      platform-tenant PLATFORM_ADMIN without TENANT_ADMIN get the uniform 403, for every
+      transition, `off -> shadow` included; the check is
+      `Letflow.Api.Scope.require_interactive_tenant_admin/1`, shared with the service-principal
+      route);
     * `GET  /integrity`           (`:ScopeGrantsIntegrityRead`) -> `Letflow.ScopeEnforcement.integrity/1`;
     * `GET  /token-preconditions` (`:ScopeEnforcementTokensRead`) -> the flip-precondition
       token listing, audited as `token.listed`.
 
   Every key requires the tenant-scope permission `:UsersGroupsRolesManage` (the plug's
-  403), and every handler then requires that permission to be held TENANT-WIDE
+  403), and every GET handler then requires that permission to be held TENANT-WIDE
   (`Letflow.Api.Scope.require_tenant_wide/2`, 0051 D11), answering the same 403 otherwise.
 
   The tenant comes ONLY from `auth_context.tenant_id` and `scoped_opts[:prefix]`; the path
@@ -21,9 +26,12 @@ defmodule Letflow.Routers.TenantScopeEnforcement do
   are built field by field (INV-2); the token listing uses `Letflow.Api.TokenView`, which
   carries no hash or plaintext (INV-4).
 
-  PUT body: `{"mode": "off" | "shadow", "reason": string?}`. Read directly rather than
-  through `Letflow.Api.Validation`, so that every bad mode (missing, non-string, `"on"`)
-  answers the one stable code `invalid_enforcement_mode`.
+  PUT body: `{"mode": "off" | "shadow" | "on", "reason": string?}`. Read directly rather than
+  through `Letflow.Api.Validation`, so that every bad mode (missing, non-string, `"ON"`)
+  answers the one stable code `invalid_enforcement_mode`. Refusals: 409 `shadow_required`
+  (`on` from `off`) and 409 `enforcement_precondition_failed` with the failing codes in
+  `failed`; a server fault is a detail-free 500 with one constant log line. The `attrs` given
+  to `flip/4` is ONE literal three-key map; a request can never supply a clock or a threshold.
   """
 
   use Letflow.Api.AuthorizedRouter
@@ -35,6 +43,7 @@ defmodule Letflow.Routers.TenantScopeEnforcement do
   alias Letflow.Audit
   alias Letflow.Identity.TokenPreconditions
   alias Letflow.ScopeEnforcement
+  alias Letflow.ScopeEnforcement.OnGate
 
   require Logger
 
@@ -43,7 +52,7 @@ defmodule Letflow.Routers.TenantScopeEnforcement do
   end
 
   authz_put "/", :ScopeEnforcementManage do
-    with_tenant_wide(conn, fn conn -> handle_put(conn) end)
+    with_interactive_tenant_admin(conn, fn conn -> handle_put(conn) end)
   end
 
   authz_get "/integrity", :ScopeGrantsIntegrityRead do
@@ -61,6 +70,15 @@ defmodule Letflow.Routers.TenantScopeEnforcement do
     case Scope.require_tenant_wide(conn, :UsersGroupsRolesManage) do
       {:ok, conn} -> fun.(conn)
       {:error, conn, :not_tenant_wide} -> Response.forbidden(conn, "insufficient permissions")
+    end
+  end
+
+  @spec with_interactive_tenant_admin(Plug.Conn.t(), (Plug.Conn.t() -> Plug.Conn.t())) ::
+          Plug.Conn.t()
+  defp with_interactive_tenant_admin(conn, fun) do
+    case Scope.require_interactive_tenant_admin(conn) do
+      {:ok, conn} -> fun.(conn)
+      {:error, conn, :forbidden} -> Response.forbidden(conn, "insufficient permissions")
     end
   end
 
@@ -122,6 +140,30 @@ defmodule Letflow.Routers.TenantScopeEnforcement do
   defp flip_response({:error, :invalid_reason}, conn),
     do: Response.unprocessable(conn, "invalid_reason")
 
+  # `shadow_required` is only ever returned for a tenant stored `off` (same-mode and `shadow ->
+  # on` never reach it), so the current mode is a constant, not a second read.
+  defp flip_response({:error, :shadow_required}, conn) do
+    problem = %{Error.conflict("shadow_required") | extensions: %{"current_mode" => "off"}}
+
+    Response.send_problem(conn, problem)
+  end
+
+  # `on` from the gate: the failing codes plus the counts and the evidence summary (the one
+  # `OnGate` serialisation shared with the audit entries). Counts, enums and booleans only: no
+  # ids, no names (INV-2).
+  defp flip_response({:error, {:on_precondition_failed, failed, report}}, conn) do
+    problem = %{
+      Error.conflict("enforcement_precondition_failed")
+      | extensions: %{
+          "failed" => Enum.map(failed, &Atom.to_string/1),
+          "report" => OnGate.counts_with_task_workers(report),
+          "evidence" => evidence_body(report.evidence)
+        }
+    }
+
+    Response.send_problem(conn, problem)
+  end
+
   # Names the failing checks and the three counts/status only: no ids, no names (INV-2).
   defp flip_response({:error, {:precondition_failed, failed, report}}, conn) do
     problem = %{
@@ -157,6 +199,8 @@ defmodule Letflow.Routers.TenantScopeEnforcement do
 
   # ── GET /integrity ───────────────────────────────────────────────────────
 
+  # A raise inside the (lock-free) gate snapshot is a detail-free 500 with ONE constant log line
+  # (exception module only), like the flip's 500 path; never a partial body (SEC 2f-a F-2).
   defp handle_integrity(conn) do
     report = ScopeEnforcement.integrity(prefix(conn))
 
@@ -171,40 +215,37 @@ defmodule Letflow.Routers.TenantScopeEnforcement do
       "findings" => Enum.map(report.findings, &Atom.to_string/1),
       "on_gate" => on_gate_body(report.on_gate)
     })
+  rescue
+    exception ->
+      Logger.error(
+        "scope_enforcement_integrity_failed exception=#{inspect(exception.__struct__)}"
+      )
+
+      Response.internal_error(conn)
   end
 
   # What the `on` flip will check (a lock-free snapshot, REQ-519 AC 9). Counts, enums and
-  # booleans only: no ids, no names, no token data (INV-2).
+  # booleans only: no ids, no names, no token data (INV-2). The count and evidence maps come
+  # from `OnGate`, the same serialisation as the audit entries and the 409 body.
   defp on_gate_body(on_gate) do
-    evidence = on_gate.evidence
-    counts = on_gate.counts
-
     %{
       "blocking" => Enum.map(on_gate.blocking, &Atom.to_string/1),
       "information" => %{
         "scoped_task_workers_without_task_scope" =>
           on_gate.information.scoped_task_workers_without_task_scope
       },
-      "counts" => %{
-        "bindings_without_row" => counts.bindings_without_row,
-        "org_consistency" => Atom.to_string(counts.org_consistency),
-        "tokens_exceeding_owner" => counts.tokens_exceeding_owner,
-        "explicit_tenant_wide_admins" => counts.explicit_tenant_wide_admins,
-        "scoped_approvers" => counts.scoped_approvers
-      },
-      "evidence" => %{
-        "shadow_since" => evidence.shadow_since && DateTime.to_iso8601(evidence.shadow_since),
-        "window_from" => Date.to_iso8601(evidence.window_from),
-        "window_to" => Date.to_iso8601(evidence.window_to),
-        "requests" => evidence.requests,
-        "days_without_requests" => evidence.days_without_requests,
-        "would_deny" =>
-          Map.new(evidence.would_deny, fn {reason, count} -> {Atom.to_string(reason), count} end),
-        "criteria" =>
-          Map.new(evidence.criteria, fn {name, met?} -> {Atom.to_string(name), met?} end),
-        "evidence_scope" => evidence.evidence_scope
-      }
+      "counts" => OnGate.counts_state(on_gate.counts),
+      "evidence" => evidence_body(on_gate.evidence)
     }
+  end
+
+  # The shared evidence summary plus the window (the audit entries never stored it).
+  defp evidence_body(evidence) do
+    Map.merge(OnGate.evidence_state(evidence), %{
+      "shadow_since" => evidence.shadow_since && DateTime.to_iso8601(evidence.shadow_since),
+      "window_from" => Date.to_iso8601(evidence.window_from),
+      "window_to" => Date.to_iso8601(evidence.window_to)
+    })
   end
 
   # ── GET /token-preconditions ─────────────────────────────────────────────

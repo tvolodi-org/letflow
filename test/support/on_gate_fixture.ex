@@ -31,6 +31,7 @@ defmodule Letflow.Support.OnGateFixture do
   alias Letflow.Repo
   alias Letflow.Support.PlatformTenantFixture
   alias Letflow.Support.RoleScopeGrantsFixture, as: RSG
+  alias Letflow.Support.ScopeEnforcementFixture
   alias Letflow.Support.SyncScopeFixture
   alias Letflow.Support.TokenMintFixture
   alias Letflow.ScopeEnforcement
@@ -77,6 +78,91 @@ defmodule Letflow.Support.OnGateFixture do
     fx
     |> Map.put(:t0, t0)
     |> Map.put(:now, after_days(t0, @default_min_days))
+  end
+
+  @doc """
+  A tenant (`admin_tenant!/1`) put through `backdate_shadow!/1`: stored `shadow` with a satisfied
+  gate at the REAL clock. Adds `:t0`.
+  """
+  @spec backdated_shadow_tenant!(String.t()) :: map()
+  def backdated_shadow_tenant!(slug_prefix),
+    do: slug_prefix |> admin_tenant!() |> backdate_shadow!()
+
+  @doc """
+  Stores the tenant `shadow` (set directly) and makes the shadow evidence satisfy the gate at the
+  REAL clock, for the tests that go through the HTTP route (which cannot inject `now`): the shadow
+  start is a RAW audit entry eight days in the past and persisted `requests` counters cover every
+  date from nine days ago to tomorrow (so the window of the real `now` is covered even if the test
+  straddles UTC midnight). The raw entry has synthetic chain hashes, so never combine this tenant
+  with `Audit.verify_chain/1`. Needs only `:tenant_id` and `:schema_name`; adds `:t0`.
+  """
+  @spec backdate_shadow!(map()) :: map()
+  def backdate_shadow!(fx) do
+    :ok = ScopeEnforcementFixture.set_stored_mode!(fx.tenant_id, :shadow)
+    t0 = DateTime.add(DateTime.utc_now(), -8 * @day_seconds, :second)
+
+    _id =
+      raw_entry!(fx, %{
+        action: "scope.enforcement_enabled",
+        resource_type: "tenant",
+        resource_id: fx.tenant_id,
+        timestamp: t0,
+        after_state: %{"mode" => "shadow"}
+      })
+
+    today = Date.utc_today()
+    for offset <- -9..1, do: :ok = put_count!(fx, Date.add(today, offset), :requests, 20)
+
+    Map.put(fx, :t0, t0)
+  end
+
+  @doc "A platform binding without any grant row (fact 1 fails): returns the raw binding."
+  @spec gap!(map()) :: term()
+  def gap!(fx) do
+    group = RSG.fresh_group!(fx.schema_name)
+    RSG.raw_binding!(fx.schema_name, "PROCESS_OPERATOR", :platform_role, group.id)
+  end
+
+  @doc """
+  Breaks exactly ONE gate fact of a tenant that satisfies all six (fact 6 is broken by the
+  caller, by not seeding evidence): `code` is one of the stable codes of facts 1 to 5.
+  """
+  @spec break_fact!(map(), atom()) :: :ok
+  def break_fact!(fx, :bindings_without_row) do
+    _gap = gap!(fx)
+    :ok
+  end
+
+  def break_fact!(fx, :org_inconsistent), do: seed_orphan_node!(fx.schema_name)
+
+  def break_fact!(fx, :tokens_exceed_owner) do
+    lone = RSG.user!(fx.schema_name)
+    _token = raw_token!(fx.schema_name, lone.id, ["PROCESS_DESIGNER"], fx.admin.id)
+    :ok
+  end
+
+  def break_fact!(fx, :zero_tenant_wide_admins),
+    do: remove_memberships!(fx.schema_name, fx.admin.id)
+
+  def break_fact!(fx, :scoped_approvers_without_task_scope) do
+    _worker = scoped_task_worker!(fx.schema_name, true)
+    :ok
+  end
+
+  @doc "Breaks facts 1 to 5 at once (every fact the de-escalations must ignore)."
+  @spec break_all_facts!(map()) :: :ok
+  def break_all_facts!(fx) do
+    for code <- [
+          :bindings_without_row,
+          :org_inconsistent,
+          :tokens_exceed_owner,
+          :scoped_approvers_without_task_scope,
+          :zero_tenant_wide_admins
+        ] do
+      :ok = break_fact!(fx, code)
+    end
+
+    :ok
   end
 
   @doc "A real flip that must succeed with a change."

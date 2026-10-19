@@ -449,4 +449,27 @@ defmodule Letflow.Api.Scope do
         {:error, conn, :not_tenant_wide}
     end
   end
+
+  @doc """
+  The shared authority of the two admin-only flag-like routes (REQ-519 2f-b, SEC S-3; REQ-517
+  AC 12): `PUT /tenant/scope-enforcement` and `PUT /users/:id/service-principal`. In this
+  order: (1) an interactive credential (`auth_context.credential == :oidc`, so an API token,
+  even one holding TENANT_ADMIN, is refused; an absent credential is refused); (2)
+  `:UsersGroupsRolesManage` held tenant-wide (`require_tenant_wide/2`); (3) the caller holds
+  TENANT_ADMIN, tenant-wide (a platform-tenant PLATFORM_ADMIN alone does not). Every refusal
+  is the same `{:error, conn, :forbidden}`; the caller answers the unchanged uniform 403.
+  """
+  @spec require_interactive_tenant_admin(Plug.Conn.t()) ::
+          {:ok, Plug.Conn.t()} | {:error, Plug.Conn.t(), :forbidden}
+  def require_interactive_tenant_admin(%Plug.Conn{} = conn) do
+    with :oidc <- Map.get(conn.assigns[:auth_context] || %{}, :credential),
+         {:ok, conn} <- require_tenant_wide(conn, :UsersGroupsRolesManage),
+         {:ok, conn, principal} <- principal_from_conn(conn),
+         true <- :TENANT_ADMIN in principal.roles,
+         :tenant_wide <- effective_scope(principal, "TENANT_ADMIN") do
+      {:ok, conn}
+    else
+      _not_allowed -> {:error, conn, :forbidden}
+    end
+  end
 end

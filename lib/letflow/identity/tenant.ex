@@ -96,7 +96,7 @@ defmodule Letflow.Identity.Tenant do
     # REQ-497 PR 1b (decision 0051 D12): the per-tenant scope-enforcement flag, read per
     # request by both auth paths from this row. Cast ONLY by scope_enforcement_changeset/2
     # (written only by Letflow.ScopeEnforcement.flip/4). `on` is a stored value since REQ-517 2b;
-    # nothing in lib/ can set it yet (the flip rejects it until REQ-519).
+    # since REQ-519 2f-b only the guarded flip (shadow -> on, six-fact gate) sets it.
     field(:scope_enforcement, Ecto.Enum, values: [:off, :shadow, :on], default: :off)
 
     timestamps()

@@ -392,6 +392,11 @@ defmodule Letflow.Identity.BindingNoRowReportTest do
       original = Mix.shell()
       Mix.shell(Mix.Shell.Process)
       on_exit(fn -> Mix.shell(original) end)
+
+      # The task halts the VM when a tenant fails (`System.halt(1)`), and a halt skips every
+      # `on_exit`, leaving the `on` tenants of this describe committed in the shared test database
+      # (they made `scope_enforcement_on_test.exs` T-O1 migration-down fail). Heal it first.
+      _purged = purge_stale_enforced_tenants!("req519-n5-mix")
       :ok
     end
 
