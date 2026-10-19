@@ -1,0 +1,121 @@
+{
+  "handoff_id": "d2883000-0519-4c02-9e11-000000000003",
+  "run_id": "WF02-GH2883-BREAKGLASS-20261019",
+  "workflow_id": "WF-02",
+  "step": "03",
+  "from_agent": "SECURITY-REVIEWER",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF02-GH2883-BREAKGLASS-20261019/step-03-security-reviewer-design.json",
+  "created_at": "2026-10-19T06:07:33Z",
+  "started_at": "2026-10-19T06:00:00Z",
+  "completed_at": "2026-10-19T06:12:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-519"],
+    "source_text": {
+      "gate": "SECURITY-REVIEWER design gate (audit #2874 R2/R3 fresh packet) for lib/letflow/design/gh2883-scope-enforcement-break-glass.md r0 (uncommitted, branch feature/WF02-REQ519-2883-BREAKGLASS-20261019). Read-only: no mix, no suite. Packet read: the design (all 711 lines), GH #2883 body (gh issue view 2883, rc 0, 0 comments), decision 0051 A6-A10, INV-10 text, Letflow.Audit.insert_entry/3, Audit.Reason.validate/1, Identity.lock_tenant_admins!/1 and get_tenant_by_slug/1, Letflow.Release.IdempotencySquats and Idempotency.SquatRemediation (precedent), 2f-b branch scope_enforcement.ex and shadow_window.ex via git show. #2869 and #2535 were not needed beyond the issue text quoted in #2883."
+    },
+    "artifacts_in": ["lib/letflow/design/gh2883-scope-enforcement-break-glass.md"],
+    "branch_name": "feature/WF02-REQ519-2883-BREAKGLASS-20261019"
+  },
+  "task": {
+    "description": "Rule on S-BG1..S-BG12, OQ-1..OQ-10 and RA-B1 (0051 A11). No edits to lib/ or test/."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "SCOPE: in scope (authorization path: a second writer of tenants.scope_enforcement in lib/letflow/scope_enforcement.ex, audit payloads, lock order, a trust-boundary scan change). The design is sound. Threat model ruling: the command is reachable only by someone who can run code in the live node (bin/letflow rpc, Erlang distribution, or a Mix host with DATABASE_URL); that principal already has full DB access, so the command adds no capability, and adds a hash-chained audit entry that raw SQL would not. No path from HTTP, token, scoped admin or platform admin: the design adds no route, permission or router reference, and the scans of section 6 (once finding F-2 is applied) pin that. Four non-blocking findings with required design changes (F-1..F-4) and two doc-level notes. No FAIL.",
+    "scope_test": "IN SCOPE: tenant-data path (writes tenants.scope_enforcement, tenant audit entry), authorization change (new authority path for a flag flip), mandatory trigger neighbourhood (flip_authority scan test, roles docs test). Not touched: lib/letflow/api/authorization.ex, route_scope.ex, permission matrix, route snapshot (design states no change; must stay so).",
+    "invariants_assessed": {
+      "INV-1": "APPLIES, PASS (slug matched exactly against public tenants via Repo.get_by, unique index priv/repo/migrations/20260816000001_create_tenants.exs:36; schema comes from TenantProvisioning registration, design 3.10 and 3.4 step 2; Audit.insert_entry/3 derives tenant id from the prefix, lib/letflow/audit.ex:234; no caller-supplied prefix, unlike flip/4)",
+      "INV-2": "APPLIES, PASS (output limited to escaped slug, modes, action name, boolean, design 3.2; audit entry holds no user id)",
+      "INV-3": "NOT-APPLICABLE (no Lua/WASM host function)",
+      "INV-4": "APPLIES, PASS_WITH_FINDING F-3 (no secret; constant log lines; label charset excludes control/bidi; refusal log lines carry no operator so a probe is unattributable)",
+      "INV-5": "NOT-APPLICABLE (no lookup-by-id HTTP handler; unknown_tenant is uniform anyway, design 3.9)",
+      "INV-6": "APPLIES, PASS (this verdict is the design gate)",
+      "INV-7": "APPLIES, PASS (set_config with bound parameter, Ecto only; precedent SquatRemediation uses constant SET LOCAL)",
+      "INV-8": "APPLIES, PASS_WITH_FINDING F-1 (every failure rolls back or refuses; flag cannot change without the entry; transaction-timeout classification gap)",
+      "INV-9": "NOT-APPLICABLE (no outbound URL)",
+      "INV-10": "APPLIES, PASS (no platform-scope HTTP action exists; authority is host access, never a role name; the command acts on one tenant row and reads no tenant content; the platform-scope flip ROUTE of A6 stays unbuilt)"
+    },
+    "rulings": {
+      "S-BG1": "ACCEPT. Release function + Mix task authorised by host access only, with a separate flip_out_of_band/3, is the right shape. Not widening flip/4's attrs is correct: flip/4's authority is established by its caller (router, interactive admin) and its attrs map is a literal three-key map (2f-b scan). The separate function has a target type that excludes :on (design 3.4 point 2) and takes no prefix (3.4 point 3). Satisfies 0051 A6 (no route; A6 text: 'optional platform-scope route that flips ANOTHER tenant's flag stays unbuilt', 0051:597), A7 (token break-glass is grants only; the PUT is interactive-only, 0051:599, A8 0051:605), 0046 D4 (flag only, no tenant content) and INV-10 (security-invariants.md:387-394: role name never confers platform authority; none used). Condition: F-2.",
+      "S-BG2": "ACCEPT attested label, no allow-list (OQ-2 = no). Reasoning: anyone able to call the function can also call Ecto/Repo directly or run SQL, so a label check or env allow-list gives no security against that person (design 3.3 states the same). An allow-list held in config is absent in exactly the emergency and is forgeable by the same access. Label charset rule and 'no environment-derived default' are right (rpc runs as the node service account, F4). Condition: F-3 adds node() (not operator-forgeable) to the entry so the entry records at least one fact the operator cannot choose.",
+      "S-BG3": "ACCEPT. actor_id NULL + after_state operator/source, existing action name. Verified precedent: SquatRemediation writes actor nil and the operator label in before_state (lib/letflow/idempotency/squat_remediation.ex:159-170). audit_entries.actor_id is a UUID column hashed canonically, so a label cannot be an actor (design F2; Audit.insert_entry/3 reads actor_id from attrs, lib/letflow/audit.ex:252). A new action name is correctly rejected: ShadowWindow T0 keys on flip_actions and after_state mode (shadow_window.ex:179-189 on the 2f-b branch). Forgeability analysis: can an HTTP-reachable flip/4 write an entry looking like a break-glass? No: flip/4's after_state has only mode and reason (design 3.7 notes), so operator/source keys cannot be injected by a tenant admin through the PUT. Residual: the label can name another person; the entry is inside the hash chain (tamper-evident afterwards) and the runbook ties label + ticket to the infrastructure access log. Acceptable for a break-glass whose requester is already trusted with full DB access; audit trail is accepted with F-3.",
+      "S-BG4": "ACCEPT platform tenant allowed (OQ-5 = yes). It changes one flag, grants nothing, reads nothing; refusing would strand the platform tenant's own TENANT_ADMIN. Not a platform-scope act in the INV-10 sense (no registry read/write beyond the one tenants row, no other tenant's data). T-BG-16 pins that PLATFORM_ADMIN access is unaffected.",
+      "S-BG5": "ACCEPT on-only source (OQ-1 = on only; shadow -> off stays interactive). In shadow nothing is denied (design 3.6), so no lock-out exists to break; a narrower table narrows the one unauthenticated-by-role command. T-BG-9 / MU-BG-4 pin it.",
+      "S-BG6": "ACCEPT with F-3 (OQ-4 = do not audit refusals). Refusals change nothing; every refusal is an operator input error or a precondition miss (non-on mode), not a gate near-miss. Auditing refusals would add a second, best-effort write path. A hostile operator probing gains nothing a direct SELECT does not give. But an unattributable refusal is weak: required change F-3(b), add the validated operator label (only when it passes the label rule) to the constant refusal and fault log lines. Server faults are correctly never recorded as refusals (design 3.9 table).",
+      "S-BG7": "ACCEPT confirm: <slug> + dry run (OQ-3 = stateless confirm, no time-window dry-run token). A stateful 'dry run within N minutes' needs storage and adds a failure mode in an emergency. Exact string equality (MU-BG-15) is enough for the wrong-tenant mistake; the confirm is a typo guard, not an authorisation, and the design says so.",
+      "S-BG8": "ACCEPT lock_timeout with :lock_conflict, OQ-9 10 s acceptable, WITH F-1. Order A, T, C is the flip/4 order minus S (compare lib/letflow/scope_enforcement.ex on the 2f-b branch: line 362 lock_tenant_admins!, line 365 tenants FOR UPDATE, audit last), so no new edge in the lock graph and no deadlock cycle is introduced; reading previous only from the locked row removes the TOCTOU (3.5, MU-BG-8). Deadlock/timeout mapped to :lock_conflict mirrors SquatRemediation (squat_remediation.ex:113-117). Gap F-1: Repo.transaction default timeout is 15 s whereas up to three waits of 10 s are allowed; a DBConnection timeout is not a Postgrex.Error and would surface as server_fault. Fail-closed either way (rolled back), but the runbook tells the operator to 'stop, escalate' for server_fault.",
+      "S-BG9": "ACCEPT. Restart of the shadow window on on -> shadow follows by construction from shadow_since using the latest enabled/disabled entry with after_state mode shadow (shadow_window.ex:179-189). The command offers no parameter to shorten it (T-BG-13). This is the safe direction (REQ-519 AC 23 LIMIT-EMERGENCY-RESHADOW).",
+      "S-BG10": "ACCEPT the docs change. The sentence 'There is no platform-scope break-glass in this release' becomes false and must go; replacing the pinned claim 'no platform-scope break-glass' by pins on the command names, 'no HTTP route', 'mandatory reason' and 'Tokens cannot' strengthens rather than weakens the docs test, provided the test keeps asserting 'no HTTP route' and the A6 sentence about the unbuilt route for ANOTHER tenant stays (design 10.1 says it does). Seven LIMIT-* items unchanged. Condition: the runbook must say the Mix form is for dev/CI checkouts only (F-4).",
+      "S-BG11": "ACCEPT. Reason and label are readable by AuditRead holders of the tenant; the label charset and the reason rule (Audit.Reason.validate/1 forbids control/bidi, lib/letflow/audit/reason.ex:24-33) bound the content, and the runbook forbids secrets and personal data. Note the reason is not constrained against quotes, only the label is; acceptable because the audit viewer escapes JSON.",
+      "S-BG12": "ACCEPT. The operator already has DB access; uniform unknown_tenant is sufficient and not an oracle beyond that. Uniform exact-match resolution via Repo.get_by on a unique column.",
+      "RA-B1": "ACCEPT with two edits: (1) number it A11 (verified: last amendment is A10, 0051 decision file line 609), and state in the same record that A10's 'known gap' is partly answered: the flag now has an operator recovery, the last-admin guard (GH #2869 part a) stays open. (2) Add one sentence that the operator label is an attestation, not authentication, and that authority is host access; and that a new route or role-based entry to this function requires a new decision record. Do not call it 'a platform-scope route', which A6 reserves."
+    },
+    "open_question_rulings": {
+      "OQ-1": "on only (see S-BG5)",
+      "OQ-2": "no allow-list / no second factor (see S-BG2)",
+      "OQ-3": "confirm + dry run, stateless (see S-BG7)",
+      "OQ-4": "do not audit refusals, but log the validated operator label (see S-BG6, F-3)",
+      "OQ-5": "platform tenant allowed (see S-BG4)",
+      "OQ-6": "do NOT print the trace id; keeps the output id-free (design brief); the entry carries it for support. Print is optional later, not a security matter",
+      "OQ-7": "no; the command must stay free of identity-table reads (F9, 3.12)",
+      "OQ-8": "name accepted; nothing security-relevant",
+      "OQ-9": "10 s accepted, but see F-1",
+      "OQ-10": "no boot-less recovery. Correct: direct SQL stays forbidden by the runbook and any boot-less writer would be a second, unaudited writer. Note in the residual list that a host operator can still run SQL, which is outside what the application can prevent"
+    },
+    "findings": [
+      {
+        "id": "F-1",
+        "severity": "MEDIUM",
+        "title": "Transaction timeout vs lock_timeout, timeout classification",
+        "detail": "Design 3.4 step 3a allows lock_timeout 10 s per lock wait (A, T, audit chain C), but Repo.transaction uses the 15 s DBConnection default; the precedent run/3 in squat_remediation.ex:97-119 only maps Postgrex.Error codes lock_not_available and deadlock_detected. A DBConnection timeout/ownership error raises a different exception, would be mapped to {:transaction_failed, e} and printed server_fault ('flag was NOT changed, escalate'). Safe (rollback) but misleading in an emergency.",
+        "required_change": "Design must state an explicit transaction timeout larger than three lock waits (for example Repo.transaction(..., timeout: 45_000)) or lower lock_timeout so the sum stays under the transaction timeout; and add a test that a held-lock scenario longer than 15 s total cannot report server_fault where lock_conflict is intended (or document that DBConnection timeouts map to lock_conflict). Extend T-BG-14c."
+      },
+      {
+        "id": "F-2",
+        "severity": "MEDIUM",
+        "title": "Single-caller scan must be a lib-wide text+AST scan, not name-keyed calls only",
+        "detail": "flip_out_of_band/3 is a public function taking a tenant id and has no internal authority check; the only control that nobody in lib/ calls it is the scan in design section 6 (2) and (4). (2) is AST name-keyed (calls?/2), which misses apply(Mod, :flip_out_of_band, ...), Function capture/remote through a variable module, or a dynamic route handler; (4) covers only routers/api/plugs directories; (5) is text but only scripts/.github/config/priv. Any other lib/ directory (a module-hook, a plugin runtime, a worker) is unscanned.",
+        "required_change": "Section 6 must add: a text scan over ALL of lib/ (and mix.exs, config/, priv/, scripts/, .github/) asserting the tokens flip_out_of_band and ScopeBreakGlass appear only in lib/letflow/scope_enforcement.ex, lib/letflow/release/scope_break_glass.ex, lib/mix/tasks/letflow.scope_enforcement.break_glass.ex (and the design/doc files); each scan proven live on a seeded offender, as the design already requires. Consider @doc with an explicit 'operator only' note and keeping the helper functions private (as designed). Also add this file set to the mandatory-trigger list in security-reviewer.md in the build PR is NOT required, but the scan test file already is in scope."
+      },
+      {
+        "id": "F-3",
+        "severity": "LOW",
+        "title": "Audit/log accountability: add a non-forgeable fact and the label to refusal lines",
+        "detail": "The label is operator-chosen and can name someone else (accepted, S-BG2). Refusal and fault log lines carry no operator, so unaudited failed attempts (D-10) are attributable only through the infrastructure access log.",
+        "required_change": "(a) Add after_state[\"node\"] = Atom.to_string(node()) to the out-of-band entry (a value the caller does not choose; distinguishes which node ran it); update T-BG-4's exact-match after_state accordingly and keep it out of the printed output. (b) Include operator=<label> in the constant scope_break_glass_refused and scope_break_glass_failed log lines ONLY when the label passes valid_operator_label?/1 (otherwise operator=invalid); adjust T-BG-22/24/25 (the 'no operator in log' assertions) accordingly; the label charset makes this injection-safe."
+      },
+      {
+        "id": "F-4",
+        "severity": "LOW",
+        "title": "Mix form on a production host",
+        "detail": "mix letflow.scope_enforcement.break_glass runs app.start, which boots a second full application (endpoint, shadow counters, jobs) against the same database if run on a host holding production config. The release form is the sanctioned path (design 3.2).",
+        "required_change": "Runbook 10.1 and the task moduledoc state: the Mix form is for dev/CI checkouts and tests only; production uses the rpc form. No code change required beyond documentation."
+      }
+    ],
+    "notes": [
+      "Doc defect fixed by me: none (read-only; no tiny doc defects found).",
+      "Design header r0a validator fixes (3.4 step 1 order, tag mapping) are consistent with 3.9; no conflict found.",
+      "The refactor shared core (write_flag_and_audit!/6) must keep flip/4 byte-identical; T-BG-19 plus the existing 2f-b scans cover it. SECURITY-REVIEWER will re-check at the code gate that exactly one scope_enforcement_changeset call expression exists and that the new function reads exactly :operator and :reason from attrs.",
+      "Attribution of mutation: hash chain makes later tampering detectable (Letflow.Audit.verify_chain), but a host operator with SQL could rewrite the chain tail; this is the accepted R-BG-1/R-BG-2 residual and cannot be fixed inside the application."
+    ],
+    "citations": [
+      "design lines 29-73 (F1-F10), 206-263 (3.4), 289-302 (3.5), 317-337 (3.7), 347-377 (3.9), 652-667 (S-BG1..12), 669-675 (RA-B1)",
+      "gh issue view 2883 -> rc 0, state OPEN, 0 comments, requirement block quoted in packet",
+      "docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md:597 (A6), :599 (A7), :605 (A8), :609 (A10)",
+      "docs/agents/instructions/security-invariants.md:387-421 (INV-10)",
+      "lib/letflow/audit.ex:231-262 (insert_entry/3, actor_id from attrs, server timestamp)",
+      "lib/letflow/audit/reason.ex:24-35 (Reason.validate/1)",
+      "lib/letflow/identity.ex:1543-1552 (lock_tenant_admins!/1 bound-parameter advisory lock), :2045-2050 (get_tenant_by_slug/1 exact Repo.get_by)",
+      "priv/repo/migrations/20260816000001_create_tenants.exs:36 (unique_index tenants slug)",
+      "lib/letflow/idempotency/squat_remediation.ex:97-119, 159-170 (precedent: lock_timeout, lock_conflict mapping, actor nil + operator label)",
+      "lib/letflow/release/idempotency_squats.ex:1-26 (rpc pattern, no System.halt)",
+      "git show origin/feature/WF02-REQ519-2FB-ON-SETTABLE-20261019:lib/letflow/scope_enforcement.ex lines 362,365,386,463-469 (lock order A,T; single changeset call; attrs actor_id/trace_id) and shadow_window.ex lines 179-189 (T0)"
+    ],
+    "gates_line": "- SECURITY-REVIEWER: PASS_WITH_FINDINGS — evidence: design gate GH #2883 break-glass r0; S-BG1..S-BG12, OQ-1..OQ-10, RA-B1 (as A11) ruled accept with edits; INV-1/2/4/7/8/10 applied; findings F-1 (txn timeout vs lock_timeout, MEDIUM), F-2 (lib-wide single-caller text scan, MEDIUM), F-3 (node() in entry, operator label in refusal log lines, LOW), F-4 (Mix form dev/CI only, LOW); handoffs/WF02-GH2883-BREAKGLASS-20261019/step-03-security-reviewer-design.json"
+  }
+}

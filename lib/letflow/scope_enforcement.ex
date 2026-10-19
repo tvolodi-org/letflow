@@ -7,9 +7,11 @@ defmodule Letflow.ScopeEnforcement do
   Three modes are SETTABLE since REQ-519 2f-b: `off`, `shadow` (the scope decision is computed
   and counted, nothing is denied) and `on` (`Letflow.Plugs.Authorize` enforces it since REQ-517
   2b). The flag is a column of the PUBLIC `tenants` row, read per request by both auth paths
-  with no extra query, and written ONLY by `flip/4`, which only
-  `Letflow.Routers.TenantScopeEnforcement` calls (PUT, interactive tenant-wide TENANT_ADMIN
-  only; no seed, migration or config sets a tenant to `on`).
+  with no extra query, and written only through ONE shared write helper, used by `flip/4`
+  (called only by `Letflow.Routers.TenantScopeEnforcement`: PUT, interactive tenant-wide
+  TENANT_ADMIN only) and by `flip_out_of_band/3` (called only by
+  `Letflow.Release.ScopeBreakGlass`: the platform-operator break-glass, GH #2883, `on` to
+  `shadow` or `off` only, no gate). No seed, migration or config sets a tenant to `on`.
 
   ## Flip (server-side preconditions)
 
@@ -30,7 +32,10 @@ defmodule Letflow.ScopeEnforcement do
       `scope.enforcement_disabled`;
     * `shadow -> off`, `on -> off`: no precondition, mandatory reason (checked before the
       transaction, so a same-mode `off` request without a reason is still `:reason_required`);
-      audited `scope.enforcement_disabled`.
+      audited `scope.enforcement_disabled`;
+    * out of band (`flip_out_of_band/3`, no HTTP route, no role): ONLY `on -> shadow` and
+      `on -> off`, no precondition, mandatory reason and operator label, audited
+      `scope.enforcement_disabled` with a NULL actor (see "Out of band" below).
 
   The audit action follows the rank off < shadow < on: `enabled` when the target outranks the
   previous mode, `disabled` otherwise. The update and its audit entry commit together; a
@@ -43,6 +48,17 @@ defmodule Letflow.ScopeEnforcement do
   (never extends lock hold time; a failed flush can only make the gate stricter). The only clock
   seam is the internal `attrs[:now]`, honoured ONLY when it is a `DateTime`; the router never
   sets it.
+
+  ## Out of band (GH #2883)
+
+  `flip_out_of_band/3` is the operator break-glass for a tenant stored `on` whose interactive
+  tenant-wide TENANT_ADMINs cannot turn it off (design
+  `lib/letflow/design/gh2883-scope-enforcement-break-glass.md`). Its authority is host access to
+  the running node, not a role, token or permission; its only caller is
+  `Letflow.Release.ScopeBreakGlass`. It takes lock A, then the `tenants` row (T), then the audit
+  chain lock (C), never the scope-tree lock (S); runs no gate fact; and writes one
+  `scope.enforcement_disabled` entry with `actor_id` NULL and `operator`, `source` and `node` in
+  the `after_state`. The `on -> shadow` entry restarts the shadow window (T0) by construction.
 
   ## The `on` gate and its limits
 
@@ -107,6 +123,12 @@ defmodule Letflow.ScopeEnforcement do
   @disabled_action "scope.enforcement_disabled"
   @resource_type "tenant"
   @integrity_items_cap 1000
+  # GH #2883: the operator label rule (design 3.3) and the break-glass timeouts.
+  @out_of_band_source "operator_break_glass"
+  @default_lock_timeout_ms 10_000
+  # Below the 15 s default per-query timeout, so a lock wait ends as the lock error (R5 F3).
+  @max_lock_timeout_ms 14_000
+  @transaction_slack_ms 10_000
 
   @type mode :: :off | :shadow | :on
   @type stored_mode :: mode()
@@ -125,6 +147,18 @@ defmodule Letflow.ScopeEnforcement do
           | {:precondition_failed, [precondition()], precondition_report()}
           | :shadow_required
           | {:on_precondition_failed, [OnGate.on_precondition(), ...], OnGate.report()}
+          | {:audit_failed, term()}
+          | {:transaction_failed, Exception.t()}
+  @type out_of_band_target :: :shadow | :off
+  @type out_of_band_error ::
+          :invalid_target
+          | :operator_required
+          | :invalid_operator
+          | :reason_required
+          | :invalid_reason
+          | :tenant_not_found
+          | {:not_enforced, :off | :shadow}
+          | :lock_conflict
           | {:audit_failed, term()}
           | {:transaction_failed, Exception.t()}
   @type integrity_finding :: :zero_tenant_wide_admins
@@ -359,11 +393,7 @@ defmodule Letflow.ScopeEnforcement do
 
   defp do_flip(tenant_id, prefix, target, reason, attrs, now) do
     # Rank A, then T (lock order of design section 10).
-    Identity.lock_tenant_admins!(prefix)
-
-    tenant =
-      Repo.one(from(t in Tenant, where: t.id == ^tenant_id, lock: "FOR UPDATE")) ||
-        Repo.rollback(:tenant_not_found)
+    tenant = lock_tenant_row!(tenant_id, prefix)
 
     previous = tenant.scope_enforcement
 
@@ -383,16 +413,42 @@ defmodule Letflow.ScopeEnforcement do
       true ->
         report = transition_report!(previous, target, tenant_id, prefix, now)
 
-        Repo.update!(Tenant.scope_enforcement_changeset(tenant, %{scope_enforcement: target}))
+        write_flag_and_audit!(
+          tenant,
+          prefix,
+          previous,
+          target,
+          flip_entry(tenant_id, previous, target, reason, report, attrs)
+        )
+    end
+  end
 
-        case Audit.insert_entry(
-               Repo,
-               flip_entry(tenant_id, previous, target, reason, report, attrs),
-               prefix
-             ) do
-          {:ok, _entry} -> %{mode: target, previous: previous, changed: true}
-          {:error, audit_error} -> Repo.rollback({:audit_failed, audit_error})
-        end
+  # Shared by `flip/4` and `flip_out_of_band/3` (GH #2883). Inside a transaction: the tenant
+  # admin lock (A) FIRST, then the `tenants` row `FOR UPDATE` (T). Rolls back
+  # `:tenant_not_found` when the row is absent.
+  @spec lock_tenant_row!(tenant_id :: Ecto.UUID.t(), prefix :: String.t()) :: Tenant.t()
+  defp lock_tenant_row!(tenant_id, prefix) do
+    Identity.lock_tenant_admins!(prefix)
+
+    Repo.one(from(t in Tenant, where: t.id == ^tenant_id, lock: "FOR UPDATE")) ||
+      Repo.rollback(:tenant_not_found)
+  end
+
+  # Shared by both writers: the ONE call of `Tenant.scope_enforcement_changeset/2`, then the
+  # audit entry (rank C) in the same transaction; a failed audit insert rolls the flag back.
+  @spec write_flag_and_audit!(
+          tenant :: Tenant.t(),
+          prefix :: String.t(),
+          previous :: mode(),
+          target :: mode(),
+          entry :: map()
+        ) :: %{mode: mode(), previous: mode(), changed: true}
+  defp write_flag_and_audit!(tenant, prefix, previous, target, entry) do
+    Repo.update!(Tenant.scope_enforcement_changeset(tenant, %{scope_enforcement: target}))
+
+    case Audit.insert_entry(Repo, entry, prefix) do
+      {:ok, _entry} -> %{mode: target, previous: previous, changed: true}
+      {:error, audit_error} -> Repo.rollback({:audit_failed, audit_error})
     end
   end
 
@@ -474,6 +530,190 @@ defmodule Letflow.ScopeEnforcement do
   defp rank(:off), do: 0
   defp rank(:shadow), do: 1
   defp rank(:on), do: 2
+
+  @doc """
+  Exactly the strings `"shadow"` and `"off"` (the only out-of-band targets). Every other value
+  (`"on"`, `"ON"`, `nil`, non-strings) is `{:error, :invalid_target}`. No atom is minted.
+  """
+  @spec parse_out_of_band_target(term()) ::
+          {:ok, out_of_band_target()} | {:error, :invalid_target}
+  def parse_out_of_band_target("shadow"), do: {:ok, :shadow}
+  def parse_out_of_band_target("off"), do: {:ok, :off}
+  def parse_out_of_band_target(_other), do: {:error, :invalid_target}
+
+  @doc """
+  The operator label rule (pure, never raises): a binary of 1 to 64 bytes, an ASCII letter or
+  digit followed by letters, digits and `. _ @ + -`, anchored at both ends (a trailing newline
+  is rejected). Excludes whitespace, control, format and bidi characters and quotes, so a label
+  cannot spoof an audit reader or inject into a log line.
+  """
+  @spec valid_operator_label?(term()) :: boolean()
+  def valid_operator_label?(label) when is_binary(label),
+    do: Regex.match?(~r/\A[A-Za-z0-9][A-Za-z0-9._@+-]{0,63}\z/, label)
+
+  def valid_operator_label?(_label), do: false
+
+  @doc """
+  The pre-transaction input checks of the break-glass, in the order target, reason, operator
+  (no database access, no write). The reason is mandatory for both targets: `nil`, a non-binary
+  or a blank binary is `:reason_required`, a binary failing `Letflow.Audit.Reason` is
+  `:invalid_reason`; the operator likewise (`:operator_required` / `:invalid_operator`).
+  `{:ok, trimmed_reason}` on success.
+  """
+  @spec check_out_of_band_inputs(target :: term(), reason :: term(), operator :: term()) ::
+          {:ok, String.t()}
+          | {:error,
+             :invalid_target
+             | :reason_required
+             | :invalid_reason
+             | :operator_required
+             | :invalid_operator}
+  def check_out_of_band_inputs(target, reason, operator) do
+    with :ok <- check_out_of_band_target(target),
+         {:ok, trimmed} <- check_out_of_band_reason(reason),
+         :ok <- check_out_of_band_operator(operator) do
+      {:ok, trimmed}
+    end
+  end
+
+  defp check_out_of_band_target(target) when target in [:shadow, :off], do: :ok
+  defp check_out_of_band_target(_target), do: {:error, :invalid_target}
+
+  defp check_out_of_band_reason(reason) do
+    if blank?(reason) do
+      {:error, :reason_required}
+    else
+      case Letflow.Audit.Reason.validate(reason) do
+        {:ok, trimmed} -> {:ok, trimmed}
+        :error -> {:error, :invalid_reason}
+      end
+    end
+  end
+
+  defp check_out_of_band_operator(operator) do
+    cond do
+      blank?(operator) -> {:error, :operator_required}
+      valid_operator_label?(operator) -> :ok
+      true -> {:error, :invalid_operator}
+    end
+  end
+
+  defp blank?(value) when is_binary(value), do: String.trim(value) == ""
+  defp blank?(_value), do: true
+
+  @doc """
+  The platform-operator break-glass writer (GH #2883): `on -> shadow` or `on -> off` for the
+  tenant `tenant_id`, with no HTTP route and no role. OPERATOR ONLY: its single caller is
+  `Letflow.Release.ScopeBreakGlass` (a scan pins it), whose authority is host access.
+
+  Reads exactly two keys of `attrs`, `:operator` (a label, see `valid_operator_label?/1`) and
+  `:reason` (mandatory, see `check_out_of_band_inputs/3`); any other key is ignored. The audit
+  entry is `scope.enforcement_disabled` with `actor_id` NULL and `operator`, `source` and `node`
+  in its `after_state`. Runs NO gate fact and takes no scope-tree lock. A tenant not stored `on`
+  is `{:not_enforced, mode}`, decided from the LOCKED row. Lock order A, T, C; each wait is
+  bounded by the lock timeout (`:scope_break_glass_lock_timeout_ms`, default 10 s, test-only
+  override) and the transaction timeout is `transaction_timeout_ms/1` (SEC F-1), so a lock
+  expiry is `:lock_conflict` and never a connection timeout.
+  """
+  @spec flip_out_of_band(
+          tenant_id :: Ecto.UUID.t(),
+          target :: out_of_band_target(),
+          attrs :: %{required(:operator) => term(), required(:reason) => term()}
+        ) ::
+          {:ok, %{mode: out_of_band_target(), previous: :on, changed: true}}
+          | {:error, out_of_band_error()}
+  def flip_out_of_band(tenant_id, target, attrs) when is_map(attrs) do
+    operator = Map.get(attrs, :operator)
+
+    with {:ok, reason} <- check_out_of_band_inputs(target, Map.get(attrs, :reason), operator),
+         {:ok, id, prefix} <- out_of_band_registration(tenant_id) do
+      lock_ms = lock_timeout_ms()
+
+      # The `rescue` encloses the WHOLE transaction: a raise anywhere is a rolled-back fault,
+      # never a refusal (INV-8).
+      try do
+        Repo.transaction(
+          fn -> do_flip_out_of_band(id, prefix, target, reason, operator, lock_ms) end,
+          timeout: transaction_timeout_ms(lock_ms)
+        )
+      rescue
+        exception in Postgrex.Error ->
+          case exception.postgres do
+            %{code: code} when code in [:lock_not_available, :deadlock_detected] ->
+              {:error, :lock_conflict}
+
+            _other ->
+              {:error, {:transaction_failed, exception}}
+          end
+
+        exception ->
+          {:error, {:transaction_failed, exception}}
+      end
+    end
+  end
+
+  # An invalid id or an id without a provisioned schema is `:tenant_not_found` (no raise).
+  defp out_of_band_registration(tenant_id) do
+    with {:ok, id} <- Ecto.UUID.cast(tenant_id),
+         {:ok, prefix} <- TenantProvisioning.registered_schema(id) do
+      {:ok, id, prefix}
+    else
+      _unknown -> {:error, :tenant_not_found}
+    end
+  end
+
+  defp do_flip_out_of_band(tenant_id, prefix, target, reason, operator, lock_ms) do
+    # Transaction-local, bound parameter (INV-7): bounds each of the three lock waits.
+    Repo.query!("SELECT set_config('lock_timeout', $1, true)", [Integer.to_string(lock_ms)],
+      timeout: transaction_timeout_ms(lock_ms)
+    )
+
+    # Rank A, then T. NO scope-tree lock (S): a de-escalation runs no gate fact.
+    tenant = lock_tenant_row!(tenant_id, prefix)
+
+    # `previous` is read FROM THE LOCKED ROW, never from an earlier read.
+    case tenant.scope_enforcement do
+      :on ->
+        entry = %{
+          actor_id: nil,
+          action: @disabled_action,
+          resource_type: @resource_type,
+          resource_id: tenant_id,
+          before_state: %{"mode" => "on"},
+          after_state: %{
+            "mode" => Atom.to_string(target),
+            "reason" => reason,
+            "operator" => operator,
+            "source" => @out_of_band_source,
+            "node" => Atom.to_string(node())
+          },
+          trace_id: "break-glass-" <> Base.encode16(:crypto.strong_rand_bytes(16), case: :lower)
+        }
+
+        write_flag_and_audit!(tenant, prefix, :on, target, entry)
+
+      not_on ->
+        Repo.rollback({:not_enforced, not_on})
+    end
+  end
+
+  defp lock_timeout_ms do
+    case Application.get_env(
+           :letflow,
+           :scope_break_glass_lock_timeout_ms,
+           @default_lock_timeout_ms
+         ) do
+      ms when is_integer(ms) and ms > 0 -> min(ms, @max_lock_timeout_ms)
+      _other -> @default_lock_timeout_ms
+    end
+  end
+
+  @doc false
+  # SEC F-1: up to three lock waits (A, the `tenants` row, the audit chain lock) can each last
+  # `lock_ms`, so the transaction timeout is strictly above their sum: 3 x L + 10 s.
+  @spec transaction_timeout_ms(lock_ms :: pos_integer()) :: pos_integer()
+  def transaction_timeout_ms(lock_ms) when is_integer(lock_ms) and lock_ms > 0,
+    do: 3 * lock_ms + @transaction_slack_ms
 
   @doc """
   The grant-table integrity report for the tenant schema `prefix` (see the moduledoc).

@@ -1,0 +1,70 @@
+{
+  "handoff_id": "d2883000-0519-4c02-9e11-000000000004",
+  "run_id": "WF02-GH2883-BREAKGLASS-20261019",
+  "workflow_id": "WF-02",
+  "step": "04",
+  "from_agent": "ELIXIR-DEV",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF02-GH2883-BREAKGLASS-20261019/step-04-elixir-dev.json",
+  "created_at": "2026-10-19T06:37:22Z",
+  "started_at": "2026-10-19T06:14:00Z",
+  "completed_at": "2026-10-19T09:11:48Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [
+      "REQ-519"
+    ],
+    "branch_name": "feature/WF02-REQ519-2883-BREAKGLASS-20261019",
+    "artifacts_in": [
+      "lib/letflow/design/gh2883-scope-enforcement-break-glass.md",
+      "handoffs/WF02-GH2883-BREAKGLASS-20261019/step-03-security-reviewer-design.json"
+    ]
+  },
+  "task": {
+    "description": "Implement GH #2883 operator break-glass per design r1. Nothing committed. New tests are TEST-DESIGNER's."
+  },
+  "result": {
+    "status": "COMPLETED",
+    "summary": "Implemented flip_out_of_band/3 (+ lock_tenant_row!/2 and write_flag_and_audit!/5 shared with flip/4), Letflow.Release.ScopeBreakGlass.run/5, the dev/CI Mix task, decision 0051 amendment 3 (A11), runbook section, roles.md and runbook item 7 / intro / gate paragraph edits, and the forced docs-test claim edit. No route, router, permission or role change.",
+    "files_changed": [
+      "lib/letflow/scope_enforcement.ex",
+      "lib/letflow/release/scope_break_glass.ex (new)",
+      "lib/mix/tasks/letflow.scope_enforcement.break_glass.ex (new)",
+      "docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md",
+      "docs/runbooks/scope-enforcement-on.md",
+      "docs/roles.md",
+      "test/letflow/docs/roles_on_flip_docs_test.exs",
+      "test/letflow/release/scope_break_glass_test.exs (dry-run log assertion)"
+    ],
+    "lib_line_count": "git diff origin/main --numstat -- lib: scope_enforcement.ex +254/-18 (the design md +727 is committed on the branch); untracked new files: scope_break_glass.ex 193 lines, break_glass mix task 99 lines",
+    "deviations": [
+      "write_flag_and_audit! takes 5 args (tenant, prefix, previous, target, entry), not 6: the tenant_id argument was unused",
+      "added public check_out_of_band_inputs/3 in ScopeEnforcement (target, reason, operator checks, shared by the core and the release module so the order cannot drift); not in the design signature list",
+      "transaction_timeout_ms/1 is public @doc false (design said private) so T-BG-14c (iii) can unit test it",
+      "Mix task has a public @doc false parse_args!/1 so argv tests need no app.start",
+      "the TARGET line is printed before the confirm check (after slug resolution); current_mode comes from ScopeEnforcement.get_mode/1",
+      "operator-label log suffix, tags and print protocol as in 3.9; success logged at Logger.info"
+    ],
+    "run": [
+      "MIX_ENV=test mix compile --warnings-as-errors: clean",
+      "mix format --check-formatted: clean",
+      "mix letflow.check_boundaries: OK, 0 violations",
+      "mix letflow.check_role_scope_grants_writers: no violations",
+      "mix test (one file at a time): roles_on_flip_docs_test 18 passed; scope_enforcement_flip_authority_test 14 passed; scope_enforcement/on_flip_guards_test 17 passed; scope_enforcement_transitions_test 36 passed; scope_enforcement_on_test 16 passed; ci_backend_path_filter_test 18 passed"
+    ],
+    "not_run": [
+      "mix letflow.check.test, full suite, permission_matrix check, check_requirements_registration",
+      "the break-glass itself (no runtime exercise of flip_out_of_band/3 or ScopeBreakGlass.run/5; no tenant touched, none set to on); covered only by compile and the unchanged flip/4 regressions",
+      "new scans and new tests (T-BG-*, flip-authority scan extensions) are TEST-DESIGNER's"
+    ],
+    "mandatory_sec_files": [
+      "lib/letflow/scope_enforcement.ex",
+      "lib/letflow/release/scope_break_glass.ex",
+      "lib/mix/tasks/letflow.scope_enforcement.break_glass.ex",
+      "docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md"
+    ],
+    "r5_rework": "R5 outside review F1-F4 applied as uncommitted new changes (2026-10-19T07:08:47Z): F1 docs (runbook, mix task moduledoc, run/5 @doc: ticket id prefix of reason); F2 scope_break_glass_dry_run Logger.info (early refusals already logged); F3 lock timeout clamped to 14 s and timeout passed to set_config; F4 A11 sentence + runbook last-resort audit-chain path. Forced test edit: scope_break_glass_test.exs dry-run log assertion. | F4 switched to option (b) (2026-10-19T07:24:07Z): absolute 'Never write the column with SQL' restored, DBA last-resort path removed, audit-chain fault documented as accepted limitation in runbook and 0051 A11 (docs only). F-A superseded. | F4 final (option a, 2026-10-19T09:01:04Z): last-resort path restored with the auditor's trigger (two server_fault/audit_failed attempts >=1 min apart AND infra-confirmed app audit-INSERT-path fault), verbatim DO-block SQL in the runbook (locks A,T,C; audit row before UPDATE; one atomic statement), A11 updated; temp SQL test run and deleted. | SEC delta 4 / REVIEWER delta 2 docs follow-ups (2026-10-19T09:11:48Z): placeholder pre-check rule (F-1) and clock-not-after-tail handling (F-2) added to the runbook last-resort paragraph; SQL unchanged."
+  }
+}

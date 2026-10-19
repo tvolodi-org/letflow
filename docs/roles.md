@@ -107,7 +107,7 @@ The flip request itself counts as a shadow request, and request counts include e
 
 ## What `on` means in production today
 
-Read this before flipping any tenant. Only pilot tenants may be flipped, and pilot use must wait for the open items: the tenant-level metadata reads for scoped users (RA-6, REQ-525..527, filed in #2862); the last-admin gap (#2869: a tenant stored `on` can end with nobody able to turn it off; a guard extension or a break-glass is still undecided); and the writer of `tasks.scope_node_id` (W3b, #2870). The decision-record amendment is 0051 A8-A10 (PR #2871).
+Read this before flipping any tenant. Only pilot tenants may be flipped, and pilot use must wait for the open items: the tenant-level metadata reads for scoped users (RA-6, REQ-525..527, filed in #2862); the last-admin gap (#2869: a tenant stored `on` can end with nobody able to turn it off; the operator break-glass is built, GH #2883, and the guard that prevents the gap is still open); and the writer of `tasks.scope_node_id` (W3b, #2870). The decision-record amendment is 0051 A8-A10 (PR #2871); A11 records the GH #2883 break-glass.
 
 1. A tenant that passes the gate can be set to `on` by an interactive tenant-wide TENANT_ADMIN, only from `shadow`, with an audit trail.
 2. `on` delivers: the admin plane is closed to scoped admins, scoped users get a uniform 403 on every tenant-wide route, binding writers and IdP sync no longer widen anyone, and the grant tables fail closed.
@@ -115,7 +115,7 @@ Read this before flipping any tenant. Only pilot tenants may be flipped, and pil
 4. The shadow period proves only the denials of tenant-wide and admin-plane routes (the sentence above).
 5. Scoped users lose definitions, entity-definition, instance and service reads until the tenant-level metadata follow-up (RA-6) ships.
 6. Do not scope the CANDIDATE binding: the exam routes stay tenant-wide, so a scoped CANDIDATE gets 403 and exam sessions break.
-7. To turn `on` off: an interactive tenant-wide TENANT_ADMIN, with a mandatory reason. Tokens cannot. There is no platform-scope break-glass in this release.
+7. To turn `on` off: an interactive tenant-wide TENANT_ADMIN, with a mandatory reason. Tokens cannot. When no such admin can log in, use the platform-operator break-glass command `Letflow.Release.ScopeBreakGlass` (`mix letflow.scope_enforcement.break_glass`), which has no HTTP route and needs a mandatory reason and an operator label.
 8. A platform tenant stored as `on` does not restrict its PLATFORM_ADMIN on platform-scope routes; grants never decide platform scope.
 
 The scoped-approver blocker is evaluated at flip time only: a scoped approver created after `on` is fail-closed and shown in the `on_gate` information count of the integrity report.
@@ -126,7 +126,7 @@ The scoped-approver blocker is evaluated at flip time only: a scoped approver cr
 
 **Refusal audit.** The `scope.enforcement_refused` entry is best-effort, written in its own transaction after the rollback. A refusal can therefore go unrecorded (the 409 is still returned and one constant log line `scope_enforcement_refusal_not_recorded` is written). A successful flip is audited in the same transaction and cannot go unrecorded.
 
-**Gate #2869 (last admin).** Before ANY production or pilot `on`, #2869 must be resolved: a guard that refuses the removal, demotion, deactivation, scoping or service-flagging of the last interactive explicit tenant-wide TENANT_ADMIN of a tenant stored `on`, plus a platform-operator break-glass with no HTTP route, a mandatory reason and an audit entry. The decision record must say whether the 0051 A7 token break-glass covers it (it covers it only partly).
+**Gate #2869 (last admin).** Before ANY production or pilot `on`, #2869 must be resolved: a guard that refuses the removal, demotion, deactivation, scoping or service-flagging of the last interactive explicit tenant-wide TENANT_ADMIN of a tenant stored `on` (still open). The other half, a platform-operator break-glass with no HTTP route, a mandatory reason and an audit entry, is delivered by GH #2883, and 0051 A11 records that the 0051 A7 token break-glass covers grant writes only.
 
 ## Known limitations of an enforced tenant
 
