@@ -1,0 +1,63 @@
+{
+  "handoff_id": "fb033d37-76ce-432a-ae61-52ed9e44127b",
+  "run_id": "WF02-REQ520-RISK-TIER-20261019",
+  "workflow_id": "WF-02",
+  "step": "02",
+  "from_agent": "SECURITY-REVIEWER",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF02-REQ520-RISK-TIER-20261019/step-02-security-reviewer-final-2876.json",
+  "created_at": "2026-10-19T00:01:00Z",
+  "started_at": "2026-10-19T00:01:00Z",
+  "completed_at": "2026-10-19T00:01:00Z",
+  "status": "COMPLETED",
+  "priority": "NORMAL",
+  "tier": "FULL",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [
+      "REQ-521",
+      "REQ-520",
+      "REQ-524"
+    ],
+    "requirement_text": {},
+    "source_text": {},
+    "related_handoff_ids": [],
+    "artifacts_in": [
+      "docs/migration/decisions/0004-humanless-pipeline.md",
+      "docs/agents/ORCHESTRATOR.md",
+      "docs/agents/shared/HANDOFF_PROTOCOL.md",
+      "docs/requirements.yaml",
+      "docs/status/risk_tier_measurements.yaml",
+      "lib/mix/tasks/letflow.lint_handoffs.ex"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "docs/GH-2876-risk-tier-checklist"
+  },
+  "task": {
+    "description": "SECURITY-REVIEWER final gate for REQ-521 AC 5 (GH #2876): ORCHESTRATOR.md section 13 risk-tier checklist against security-invariants.md INV-1..INV-10. Read-only; no edits."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "SECURITY-REVIEWER: PASS_WITH_FINDINGS\nNo IN-SCOPE-NOW finding remains. Every open finding is DEFERRED to issue #2885, accepted by the auditor's ruling of 2026-10-19 for REQ-521 AC 5 (PASS_WITH_FINDINGS acceptable only if every finding is deferred to #2885). Evidence: ORCHESTRATOR.md section 13 reviewed against .claude/agents/security-reviewer.md triggers, security-invariants.md and scripts/ci_changed_paths.sh line 41. HIGH path globs match existing files (git ls-files lib counts: identity* 32, tenant_provisioning* 6, platform_tenant* 1, plugs/ 14, oidc/ 8, webhooks* 4, login_directory* 3, login_discovery* 9, api/ 19, secrets* 4, entities/ 40, scope_enforcement* 4, engine* 53, scheduler* 4, routers/ 33). docs/migration/ (all, decisions excluded), all of test/support/ and test/fixtures/, docs/roles.md and the BACKEND_PATHS_RE docs, process-governing docs are FULL; widened guard regex 124 files, narrow 30; rename/delete of a test file counts as a removal. Nothing touches .github/workflows, rulesets, CLAUDE.md, .claude, scripts, mix.exs, config or permission configuration. lint_handoffs tier check refuses any value not exactly FULL or SHORT. Narrow delta d17a1c5d..cbd98982 (REQ-522 AC 1 adds TIER: HIGH and the numstat input) loosens nothing.\nDeferred to #2885: removed-assertion gaming (test_helper excludes, helper scripts, continuation lines, corpus shrink, renames away from _test.exs); status flips to done/verified and deletions in risk_tier_measurements.yaml/requirement_status*.yaml, owner/depends_on/title/stage edits, defects-row edits; description edits of security-owned requirements; evidence/record files under test/ and docs/ (test/uat-reports, test/reports, docs/status/*-release-*.yaml); HIGH escaped by splitting an issue into PRs of <=300 lines, migration lines not counted; unnamed tenant-data lib areas in the HIGH list; handoff files making SHORT PRs FULL.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "handoffs/WF02-REQ520-RISK-TIER-20261019/step-02-security-reviewer-final-2876.json"
+    ],
+    "invariants_assessed": {
+      "INV-1": "NOT-APPLICABLE",
+      "INV-2": "NOT-APPLICABLE",
+      "INV-3": "NOT-APPLICABLE",
+      "INV-4": "APPLIES, PASS (greps of the diff found no System.get_env or Repo.query)",
+      "INV-5": "NOT-APPLICABLE",
+      "INV-6": "APPLIES, PASS (this verdict)",
+      "INV-7": "APPLIES, PASS (greps of the diff found no System.get_env or Repo.query)",
+      "INV-8": "APPLIES, PASS (typed guard clause)",
+      "INV-9": "NOT-APPLICABLE",
+      "INV-10": "NOT-APPLICABLE"
+    },
+    "classification": "CODE_PASS_WITH_FINDINGS",
+    "implementation_written": false
+  }
+}
