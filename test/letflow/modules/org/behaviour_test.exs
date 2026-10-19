@@ -97,6 +97,54 @@ defmodule Letflow.Modules.Org.BehaviourTest do
     end
   end
 
+  describe "AC2 (key reuse branches, isolated)" do
+    defp site_attrs(code, actor, key) do
+      %{
+        entity_type: "org_site",
+        field_values: values("org_site", code),
+        actor_id: actor,
+        idempotency_key: key
+      }
+    end
+
+    test "D-03: same actor and key with a different payload is :idempotency_key_reuse",
+         %{schema: schema} do
+      actor = Ecto.UUID.generate()
+      key = Ecto.UUID.generate()
+
+      assert {:ok, _} = Records.create_record(site_attrs("D3A", actor, key), schema, owner())
+
+      assert {:error, :idempotency_key_reuse} =
+               Records.create_record(site_attrs("D3B", actor, key), schema, owner())
+
+      # Nothing was stored for the refused payload.
+      assert {:ok, _} = create(schema, "org_site", values("org_site", "D3B"))
+    end
+
+    test "D-04: same key and payload from a different actor is :idempotency_key_reuse",
+         %{schema: schema} do
+      key = Ecto.UUID.generate()
+
+      assert {:ok, %{record: first}} =
+               Records.create_record(
+                 site_attrs("D4A", Ecto.UUID.generate(), key),
+                 schema,
+                 owner()
+               )
+
+      # `match_original/3` compares the actor before the payload (records.ex): a different
+      # actor is a reuse, never a duplicate that returns the original.
+      assert {:error, :idempotency_key_reuse} =
+               Records.create_record(
+                 site_attrs("D4A", Ecto.UUID.generate(), key),
+                 schema,
+                 owner()
+               )
+
+      assert {:ok, %{"code" => "D4A"}} = Org.lookup(schema, first.record_id)
+    end
+  end
+
   describe "AC3: optimistic concurrency" do
     test "C-01: update with the current sequence succeeds and advances it", %{schema: schema} do
       rec = create!(schema, "org_site", values("org_site", "CC1"))

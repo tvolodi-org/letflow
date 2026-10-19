@@ -188,13 +188,20 @@ defmodule Letflow.Modules.Org.ReadApiTest do
       end
     end
 
-    test "H-02: a 256-byte user_id is accepted (boundary), 257 is not", %{schema: schema} do
+    test "H-02: a stored 256-byte user_id is a member, a stored 257-byte one is not", %{
+      schema: schema
+    } do
       unit = unit!(schema, "U-Y")
       at_cap = String.duplicate("b", 256)
+      over_cap = String.duplicate("c", 257)
+
+      # Both memberships EXIST (written through the Owner path), so only the 256-byte cap in
+      # `member?/3` can make the 257-byte one false.
       membership!(schema, at_cap, unit)
+      membership!(schema, over_cap, unit)
 
       assert Org.member?(schema, at_cap, unit.record_id) == true
-      assert Org.member?(schema, at_cap <> "b", unit.record_id) == false
+      assert Org.member?(schema, over_cap, unit.record_id) == false
     end
   end
 
