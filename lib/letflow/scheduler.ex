@@ -83,6 +83,7 @@ defmodule Letflow.Scheduler do
 
   alias Ecto.Multi
   alias Letflow.Dlq
+  alias Letflow.Engine.Contention
   alias Letflow.Engine.TaskActivation
   alias Letflow.EventStore
   alias Letflow.EventStore.InstanceProjection
@@ -199,36 +200,145 @@ defmodule Letflow.Scheduler do
           claimed: non_neg_integer(),
           fired: non_neg_integer(),
           errored: non_neg_integer(),
-          exhausted: non_neg_integer()
+          exhausted: non_neg_integer(),
+          contended: non_neg_integer()
         }
+
+  # GH #2707 (PR-3): the poll cycle starts no new fire once this much monotonic time has passed
+  # (half the 10 s per-tenant sweep task budget, which leaves room for one in-flight fire whose
+  # several lock waits are each bounded by the fire lock timeout). Deliberately a FIXED 5 s, not
+  # derived from `sweep_task_timeout_ms/0`: the sweep's `:kill_task` rollback is the accepted
+  # backstop (the killed fire's transaction aborts whole, the timer stays pending, nothing is
+  # counted). A `:engine_test_seams` build lets a test replace it through the process dictionary
+  # key `:timer_cycle_budget_ms_override` (a non-negative integer) of the calling process.
+  @default_cycle_budget_ms 5_000
+
+  @doc false
+  @spec default_cycle_budget_ms() :: pos_integer()
+  def default_cycle_budget_ms, do: @default_cycle_budget_ms
+
+  if Application.compile_env(:letflow, :engine_test_seams, false) do
+    defp cycle_budget_ms do
+      case Process.get(:timer_cycle_budget_ms_override) do
+        ms when is_integer(ms) and ms >= 0 -> ms
+        _ -> @default_cycle_budget_ms
+      end
+    end
+  else
+    defp cycle_budget_ms, do: @default_cycle_budget_ms
+  end
 
   @doc """
   Called once per tenant schema per tick by `Letflow.Scheduler.Poller`
   (design §3), never by application code directly. Never raises — every
   per-timer failure is caught internally and folded into the returned
   counts (design §2.2, §2.5).
+
+  GH #2707 (PR-3): a fire that hit a lock timeout (`55P03`) is `contended`, not `errored`: no failure
+  is counted, the timer stays `pending` and fires on a later poll. The first contended timer of an
+  instance leaves that instance's remaining timers of this cycle untouched, and no new fire starts
+  once the cycle has run for 5 s (the first fire always starts). Each contended timer emits
+  `[:letflow, :scheduler, :timer_contended]` (count 1; metadata `tenant_schema`, `timer_type`,
+  `code`) and a warning log carrying the classified code only.
   """
   @spec poll_and_fire(tenant_schema :: String.t()) :: poll_result()
   def poll_and_fire(tenant_schema) when is_binary(tenant_schema) do
     timer_ids = claim_due_timer_ids(tenant_schema, max_timers_per_cycle())
+    started_at = System.monotonic_time(:millisecond)
+    budget_ms = cycle_budget_ms()
 
-    Enum.reduce(
-      timer_ids,
-      %{
-        tenant_schema: tenant_schema,
-        claimed: length(timer_ids),
-        fired: 0,
-        errored: 0,
-        exhausted: 0
-      },
-      fn timer_id, acc ->
-        case attempt_fire(timer_id, tenant_schema) do
-          :fired -> %{acc | fired: acc.fired + 1}
-          :already_final -> acc
-          :errored -> %{acc | errored: acc.errored + 1}
-          :exhausted -> %{acc | exhausted: acc.exhausted + 1}
+    initial = %{
+      tenant_schema: tenant_schema,
+      claimed: length(timer_ids),
+      fired: 0,
+      errored: 0,
+      exhausted: 0,
+      contended: 0
+    }
+
+    {result, _attempted, _skip} =
+      Enum.reduce_while(timer_ids, {initial, 0, MapSet.new()}, fn timer_id,
+                                                                  {acc, attempted, skip} ->
+        cond do
+          attempted > 0 and System.monotonic_time(:millisecond) - started_at >= budget_ms ->
+            {:halt, {acc, attempted, skip}}
+
+          MapSet.size(skip) > 0 and skipped_instance?(timer_id, tenant_schema, skip) ->
+            {:cont, {acc, attempted, skip}}
+
+          true ->
+            {acc, skip} = tally_fire(attempt_fire(timer_id, tenant_schema), timer_id, acc, skip)
+            {:cont, {acc, attempted + 1, skip}}
         end
+      end)
+
+    result
+  end
+
+  defp tally_fire(:fired, _timer_id, acc, skip), do: {%{acc | fired: acc.fired + 1}, skip}
+  defp tally_fire(:already_final, _timer_id, acc, skip), do: {acc, skip}
+  defp tally_fire(:errored, _timer_id, acc, skip), do: {%{acc | errored: acc.errored + 1}, skip}
+
+  defp tally_fire(:exhausted, _timer_id, acc, skip),
+    do: {%{acc | exhausted: acc.exhausted + 1}, skip}
+
+  defp tally_fire(:contended, timer_id, acc, skip) do
+    timer = safe_peek_timer(timer_id, acc.tenant_schema)
+    announce_contended(acc.tenant_schema, timer)
+
+    skip =
+      case timer do
+        %Timer{instance_id: instance_id} -> MapSet.put(skip, instance_id)
+        nil -> skip
       end
+
+    {%{acc | contended: acc.contended + 1}, skip}
+  end
+
+  defp skipped_instance?(timer_id, tenant_schema, skip) do
+    case safe_peek_timer(timer_id, tenant_schema) do
+      %Timer{instance_id: instance_id} -> MapSet.member?(skip, instance_id)
+      nil -> false
+    end
+  end
+
+  # poll_and_fire/1 never raises: a failed peek only loses the skip / the timer type.
+  defp safe_peek_timer(timer_id, tenant_schema) do
+    inject_peek_failure()
+    peek_timer(timer_id, tenant_schema)
+  rescue
+    exception ->
+      Logger.debug("scheduler: timer peek failed (#{inspect(exception.__struct__)})",
+        schema: tenant_schema
+      )
+
+      nil
+  end
+
+  # `:engine_test_seams` builds only: a truthy process dictionary key `:timer_peek_failure`
+  # makes the post-fire peek raise, so a test reaches the rescue above deterministically.
+  if Application.compile_env(:letflow, :engine_test_seams, false) do
+    defp inject_peek_failure do
+      if Process.get(:timer_peek_failure), do: raise("injected timer peek failure")
+      :ok
+    end
+  else
+    defp inject_peek_failure, do: :ok
+  end
+
+  defp announce_contended(tenant_schema, timer) do
+    timer_type = if timer, do: timer.timer_type, else: nil
+
+    :telemetry.execute(
+      [:letflow, :scheduler, :timer_contended],
+      %{count: 1},
+      %{tenant_schema: tenant_schema, timer_type: timer_type, code: :lock_not_available}
+    )
+
+    Logger.warning(
+      "scheduler: timer fire contended (lock_not_available), left pending",
+      schema: tenant_schema,
+      timer_type: timer_type
     )
   end
 
@@ -283,6 +393,15 @@ defmodule Letflow.Scheduler do
   instance projection and, for a child, the parent group (`FOR KEY SHARE`), and only then is the
   timer row locked. A timer that is no longer pending returns `{:ok, :already_final}`.
 
+  GH #2707 (PR-3): the transaction's first statement is one bound-parameter, transaction-local
+  `lock_timeout` setting (`Letflow.Engine.Contention.timer_fire_lock_timeout_ms/0`,
+  2 s by default) that bounds EACH lock wait of the fire, not their sum; it is skipped when the
+  caller already holds a transaction (a NESTED caller therefore gets no per-wait bound from this
+  function, and after `{:error, :contention}` the caller's outer transaction is aborted: the rescue
+  here cannot repair it; no nested caller exists in `lib/` today). A lock timeout (55P03) rolls the fire back whole and returns
+  `{:error, :contention}` (nothing committed, the timer stays `pending`); a deadlock victim (40P01)
+  keeps raising.
+
   A timer whose instance is not `:active` (cancelled, completed or errored) is SETTLED: every
   pending timer of that instance is cancelled with reason `instance_<status>` in this same
   transaction, nothing is fired, no failure is counted and no DLQ row is written; the result is
@@ -296,15 +415,31 @@ defmodule Letflow.Scheduler do
   timers of the node the instance resumes at.
   """
   @spec fire_timer(timer_id :: Ecto.UUID.t(), tenant_schema :: String.t()) ::
-          {:ok, :fired} | {:ok, :already_final} | {:error, term()}
+          {:ok, :fired} | {:ok, :already_final} | {:error, :contention} | {:error, term()}
   def fire_timer(timer_id, tenant_schema) when is_binary(tenant_schema) do
+    nested? = Repo.in_transaction?()
+
     transaction_result =
-      Repo.transaction(fn ->
-        case lock_and_fire(timer_id, tenant_schema) do
-          {:ok, result} -> result
-          {:error, reason} -> Repo.rollback(reason)
-        end
-      end)
+      try do
+        Repo.transaction(fn ->
+          # GH #2707 (PR-3): the FIRST statement bounds EVERY lock wait of this fire (per wait, not
+          # cumulatively); bound parameter, transaction-local, skipped when nested.
+          {:ok, _} = Letflow.Engine.set_timer_fire_lock_timeout(Repo, nested?)
+
+          case lock_and_fire(timer_id, tenant_schema) do
+            {:ok, result} -> result
+            {:error, reason} -> Repo.rollback(reason)
+          end
+        end)
+      rescue
+        exception ->
+          # a lock timeout (55P03) rolled the whole fire back: nothing committed, timer pending.
+          # A deadlock victim (40P01) and every other exception keep raising (a counted failure).
+          case Contention.contention_code(exception) do
+            {:ok, :lock_not_available} -> {:error, :contention}
+            _other -> reraise exception, __STACKTRACE__
+          end
+      end
 
     case transaction_result do
       {:ok, {:settled, instance_id, reason, count}} ->
@@ -610,7 +745,7 @@ defmodule Letflow.Scheduler do
   # ===========================================================================
 
   @spec attempt_fire(timer_id :: Ecto.UUID.t(), tenant_schema :: String.t()) ::
-          :fired | :already_final | :errored | :exhausted
+          :fired | :already_final | :errored | :exhausted | :contended
   def attempt_fire(timer_id, tenant_schema) when is_binary(tenant_schema) do
     result =
       try do
@@ -657,6 +792,15 @@ defmodule Letflow.Scheduler do
         )
 
         safe_record_fire_failure(timer_id, tenant_schema)
+
+      # GH #2707 (PR-3): a lock timeout (55P03) rolled the fire back whole; it is not a firing
+      # failure (nothing counted, the timer stays pending and is retried on a later poll).
+      # `fire_timer/2` classifies its own raise (every statement of the fire runs inside its
+      # `try`), so a 55P03 never reaches the `rescue` above as `{:raised, _}`; that form is
+      # deliberately not special-cased. A deadlock victim (40P01) falls through to the counted
+      # failure below, so a deterministic deadlock still reaches the retry cap and the DLQ.
+      {:error, :contention} ->
+        :contended
 
       {:error, _reason} ->
         safe_record_fire_failure(timer_id, tenant_schema)

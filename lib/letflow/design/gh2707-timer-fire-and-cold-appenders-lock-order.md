@@ -713,3 +713,56 @@ disagree, this section describes what shipped. Commit `168d8409` plus its review
 7. **Irreversibility of the `:error` settle** (SECURITY F2) is documented on `Scheduler.fire_timer/2`: the
    reason string `instance_error` is greppable, and a future resume / reconstruct feature must re-arm the
    timers.
+
+## 15. As built (PR-3)
+
+Written by ELIXIR-DEV after the build. Where this section and sections 8.4 and 9 disagree, this section
+describes what shipped. Decision 0061 is NOT amended by PR-3 (section 10 lists only the PR-1 and PR-2
+blocks; PR-3 adds no lock, no order and no writer).
+
+1. **Timeout source.** `Letflow.Engine.Contention.timer_fire_lock_timeout_ms/0` reads
+   `config :letflow, :timer_fire_lock_timeout_ms` (default 2000, no config entry added). The test value
+   is NOT a global 300 in `config/test.exs` (it would shorten every legitimate queueing wait of every
+   other test's fires): a build with `:engine_test_seams` reads the process-local key
+   `:timer_fire_lock_timeout_ms_override` of the calling process, the same mechanism as `lock_timeout_ms/0`.
+2. **The statement.** `Letflow.Engine.set_timer_fire_lock_timeout/2` (`@doc false`, in `engine.ex`, so the
+   `set_config` string stays inside the T-11 whitelist) runs one `SELECT set_config('lock_timeout', $1, true)`
+   with the value as a bound parameter. `Scheduler.fire_timer/2` calls it as the first statement inside its
+   `Repo.transaction/1`, before the peek, and skips it when `Repo.in_transaction?()` was true on entry.
+3. **Where 55P03 is classified.** `fire_timer/2` itself rescues the raised exception and returns
+   `{:error, :contention}` for `:lock_not_available`, so the route (which calls `fire_timer/2` directly)
+   sees the typed error; a 40P01 and every other exception keep raising. `attempt_fire/2` maps
+   `{:error, :contention}` to the new `:contended` outcome and classifies a `{:error, {:raised, exception}}`
+   through `Contention.contention_code/1` as well; a deadlock victim falls through to the counted failure.
+   A 55P03 on `S_x` (the later waits of the same fire) is raised from inside the event append and is
+   covered by the same rescue (case C-L1, third test).
+4. **Poll loop.** `poll_result` gains `contended`. The same-instance skip and the telemetry metadata need
+   the contended timer's instance and type, which `attempt_fire/2` does not return, so the loop PEEKS the
+   row (plain read, `rescue`-guarded, never raising) after a contended outcome and, while the skip set is
+   non-empty, before each later timer. In the all-uncontended case no extra query runs. Telemetry
+   `[:letflow, :scheduler, :timer_contended]`: count 1; metadata `tenant_schema`, `timer_type`,
+   `code: :lock_not_available`. The warning log carries the same tag and the schema only.
+5. **Cycle start gate.** `@default_cycle_budget_ms 5_000`, checked before each timer except the first (the
+   first fire of a cycle always starts, so a 0 ms budget still makes progress); a test-seam build reads
+   the process-local key `:timer_cycle_budget_ms_override` (non-negative integer).
+6. **Route.** `advance-timer` maps `{:error, :contention}` to 503 with the constant detail of
+   `render_cancel`'s `:cancel_contention` clause and no `Retry-After` header.
+7. **Tests.** `test/letflow/scheduler_fire_contention_test.exs` (C-L1..C-L9). C-L4 injects the 40P01 and
+   non-contention errors with a `BEFORE UPDATE` trigger on the tenant's `timers` table raising the given
+   SQLSTATE only for the `fired` transition (the failure-accounting updates stay untouched), because a
+   real deadlock cannot be forced deterministically in a single fire. `scheduler_test.exs`'s whole-map
+   assertion gained `contended: 0`.
+8. **Review follow-ups.** The `{:error, {:raised, exception}}` clause of `attempt_fire/2` was removed:
+   `fire_timer/2` rescues every raise of the fire itself, so the clause was unreachable. The default cycle
+   budget is a fixed 5 s (not derived from `sweep_task_timeout_ms/0`; the sweep's `:kill_task` rollback is
+   the accepted backstop: the timer stays pending, nothing is counted), exposed through the `@doc false`
+   `Scheduler.default_cycle_budget_ms/0`. A `:engine_test_seams` key `:timer_peek_failure` makes the
+   post-fire peek raise, to pin the peek failure path.
+9. **Accepted residual: starvation by uncounted contention.** Because 55P03 is never counted, a timer stuck
+   behind a permanently held lock keeps its slot in the claim window (`max_timers_per_cycle`, ordered by
+   `fire_at`); enough of them could starve other due timers of the tenant. Follow-up issue (to be filed by
+   the supervisor / letflow-2): a retry count or a `fire_at` backoff on `:contended`. The telemetry event
+   `[:letflow, :scheduler, :timer_contended]` is the alerting signal meanwhile.
+10. **Accepted gaps.** A `>=` versus `>` pin on the budget comparison is not deterministic (the elapsed time of
+    the first fire is never exactly the budget), so it is not tested. Also accepted (TDV survivors): the log `schema:`
+    metadata is not asserted; the `:timer_fire_lock_timeout_ms` config read is not tested (only the default and the override); a nested call whose 55P03 leaves the outer transaction aborted is documented, not tested.

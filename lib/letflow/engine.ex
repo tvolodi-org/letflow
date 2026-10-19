@@ -8774,6 +8774,23 @@ defmodule Letflow.Engine do
     {:ok, :set}
   end
 
+  # GH #2707 (PR-3): the FIRST statement of a timer-fire transaction, `Letflow.Scheduler.fire_timer/2`.
+  # The same bound-parameter `set_config(..., true)` as the cancel's, with the dedicated PER-WAIT
+  # value `Contention.timer_fire_lock_timeout_setting/0` (it bounds each lock wait of the fire, not
+  # the transaction as a whole). Skipped when the caller already holds a transaction.
+  @doc false
+  @spec set_timer_fire_lock_timeout(Ecto.Repo.t() | module(), nested? :: boolean()) ::
+          {:ok, nil | :set}
+  def set_timer_fire_lock_timeout(_repo, true), do: {:ok, nil}
+
+  def set_timer_fire_lock_timeout(repo, false) do
+    repo.query!("SELECT set_config('lock_timeout', $1, true)", [
+      Contention.timer_fire_lock_timeout_setting()
+    ])
+
+    {:ok, :set}
+  end
+
   defp cancel_multi(instance_id, actor_id, idempotency_key, cancelled_at, prefix, nested?) do
     Multi.new()
     |> Multi.run(:lock_timeout, fn repo, _changes -> set_cancel_lock_timeout(repo, nested?) end)

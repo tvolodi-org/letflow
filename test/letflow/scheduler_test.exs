@@ -625,7 +625,8 @@ defmodule Letflow.SchedulerTest do
                    claimed: 0,
                    fired: 0,
                    errored: 0,
-                   exhausted: 0
+                   exhausted: 0,
+                   contended: 0
                  }
         end)
 

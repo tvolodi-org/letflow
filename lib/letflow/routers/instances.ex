@@ -14,7 +14,7 @@ defmodule Letflow.Routers.Instances do
   | create      | `POST /instances`                  | `Letflow.Engine.create/2`                                               | `InstancesStart` | 201, `{instance_id, status, created_at}`; 422 `max_length` if the `idempotency-key` header is over 199 bytes, 422 `format` if it is not valid UTF-8 or contains NUL (GH #2550) |
   | cancel      | `POST /instances/:id/cancel`       | `Letflow.Engine.cancel_instance/3`                                      | `InstancesCancel` | 200, `{instance_id, status}`; 409 if already `COMPLETED` or already `CANCELLED`; 503 if the cancel could not settle against a concurrent writer (`{:error, :cancel_contention}`, constant detail, nothing committed, GH #2706); 422 `max_length` if the `idempotency-key` header is over 162 bytes, 422 `format` if it is not valid UTF-8 or contains NUL (GH #2550) |
   | reconstruct | `POST /instances/:id/reconstruct`  | `Letflow.Engine.Reconstruction.reconstruct_instance/2` (`write_back: true`, not caller-controllable) | none (REQ-079 — same precedent as rebind, a future policy decision) | 200, `{instance_id, status, tokens: [{node_id, branch_id}], variables}` |
-  | advance-timer | `POST /instances/:id/advance-timer` | `Letflow.Scheduler.resolve_advance_target/3` (new) then `Letflow.Scheduler.fire_timer/2` (existing, unchanged) | `InstancesAdvanceTimer` (ISS-0389 — a real permission, fully wired, not the rebind-pins/reconstruct ad-hoc pattern) | 200, `{instance_id, timer_id, node_id, timer_status}`; 400 ambiguous pending timers (`code: ambiguous_pending_timers`); 404 no matching pending timer |
+  | advance-timer | `POST /instances/:id/advance-timer` | `Letflow.Scheduler.resolve_advance_target/3` (new) then `Letflow.Scheduler.fire_timer/2` (existing; GH #2707 adds `{:error, :contention}`) | `InstancesAdvanceTimer` (ISS-0389 — a real permission, fully wired, not the rebind-pins/reconstruct ad-hoc pattern) | 200, `{instance_id, timer_id, node_id, timer_status}`; 400 ambiguous pending timers (`code: ambiguous_pending_timers`); 404 no matching pending timer; 503 if the fire hit a lock timeout (`{:error, :contention}`, constant detail, nothing committed, GH #2707) |
 
   ## Route ordering — `rebind-pins`/`cancel`/`reconstruct` MUST precede any future `POST /instances/:id`
 
@@ -843,6 +843,16 @@ defmodule Letflow.Routers.Instances do
       "timer_status" => Atom.to_string(fire_result)
     })
   end
+
+  # GH #2707 (PR-3): the fire hit a lock timeout (55P03) and rolled back whole; nothing was
+  # committed and the timer is still pending, so the call is retryable. Constant detail: nothing
+  # from the scheduler or the database reaches the response (INV-4).
+  defp render_advance_timer(conn, _instance_id, _timer, {:error, :contention}),
+    do:
+      Response.service_unavailable(
+        conn,
+        "the instance is being modified concurrently; retry"
+      )
 
   # INV-4 no-detail 500 -- matches render_cancel/2, render_reconstruct/2's
   # own precedent for internal/unexpected fire_timer/2 failures.
