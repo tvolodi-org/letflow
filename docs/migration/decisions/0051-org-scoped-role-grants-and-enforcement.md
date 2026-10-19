@@ -597,3 +597,13 @@ Status: Accepted, relayed. Source: the supervisor (letflow-supervisor-22) and le
 **A6. Not decided here.** The optional platform-scope route that flips ANOTHER tenant's flag stays unbuilt and needs its own decision record (0046 D4, M5). In an `on` tenant no new platform-role binding can be created; the remedy is to create it before the flip or flip down and up (REQ-519 OQ-5).
 
 **A7. Admin plane rules (SEC design review of REQ-517, relayed).** API tokens may call the grant write routes (tokens are tenant-wide by D1 and are the break-glass path under `on`); the flag route and the service-principal flag route are interactive-user only. Deleting the only remaining TENANT_ADMIN row of a group is refused with typed 409 `last_admin_binding_row` (the operator unbinds the role instead). Self-service routes (`/me/*`, `/help`) need their own route class or scoped-only users are locked out of them under `on`; the class is `:self_service` with ONE ruled member, `/me/memberships`, until SECURITY-REVIEWER rules on `/me/modules` and `/help/resolved` (REQ-518 AC 21, marker `pending_sec_ruling`); those two stay `:tenant_wide` meanwhile, and the `on` flip is blocked until the class ships.
+
+## Amendment 2 (2026-10-19): flip route as built in 2f-b (additive, corrects A4)
+
+Status: Accepted, relayed. Source: the second SECURITY-REVIEWER pass on REQ-519 2f-b (handoff d2535519-0519-4c02-9e11-000000000021), relayed by letflow-9c; recorded by letflow-2 to satisfy REQ-519 AC 19. Not verified by the recorder against the 2f-b code; the 2f-b PR is the evidence. Additive: it narrows the wording of A4 to what 2f-b builds.
+
+**A8. Who can call the flip route.** The `PUT` flip route is interactive-user only for EVERY transition, including `off -> shadow`: API tokens, and platform-tenant PLATFORM_ADMIN without a TENANT_ADMIN role, lose the `PUT` that stage 1 allowed. A4's "API tokens cannot" is read as covering all transitions, not only the flip to `on`. `GET` and `available_modes` list `off`, `shadow` and `on`.
+
+**A9. De-escalation.** `on -> shadow` runs no `enable_checks!` (the Rollout-4 facts gate escalation only) and its audit entry is `scope.enforcement_disabled`, with the mandatory reason of A4.
+
+**A10. Known gap, tracked.** The last-admin guard still counts token owners while the flip route needs an interactive admin, so an `on` tenant can lose the last interactive TENANT_ADMIN and have no way to turn enforcement off. Tracked as GH #2869 (needs a design decision before any pilot use; REQ-519 AC 24).
