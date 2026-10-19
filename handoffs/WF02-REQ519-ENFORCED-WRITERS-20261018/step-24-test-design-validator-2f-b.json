@@ -1,0 +1,184 @@
+{
+  "handoff_id": "d2535519-0519-4c02-9e11-000000000024",
+  "run_id": "WF02-REQ519-ENFORCED-WRITERS-20261018",
+  "workflow_id": "WF-02",
+  "step": "24",
+  "from_agent": "TEST-DESIGN-VALIDATOR",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-24-test-design-validator-2f-b.json",
+  "created_at": "2026-10-19T03:47:00Z",
+  "started_at": "2026-10-19T03:47:00Z",
+  "completed_at": "2026-10-19T04:19:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-519"],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "TEST-DESIGN-VALIDATOR gate for REQ-519 slice 2f-b (GH #2535), uncommitted tree on feature/WF02-REQ519-2FB-ON-SETTABLE-20261019. A foreign mixlock (ELIXIR-DEV-2661) was present at the start; I waited for it to disappear (never removed it), then took the lock with mkdir and released it after the last mix command. One mix at a time, per file, no full suite, no letflow.check.test, no real tenant set to on."
+    },
+    "related_handoff_ids": [
+      "d2535519-0519-4c02-9e11-000000000020",
+      "d2535519-0519-4c02-9e11-000000000021",
+      "d2535519-0519-4c02-9e11-000000000022",
+      "d2535519-0519-4c02-9e11-000000000023"
+    ],
+    "artifacts_in": [
+      "test/specs/REQ-519-2f-b.md",
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-23-test-designer-2f-b.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ519-2FB-ON-SETTABLE-20261019"
+  },
+  "task": {
+    "description": "Hard gate on TEST-DESIGNER 2f-b tests: REQ-519 ACs 8, 12 (docs), 13, 14 (wiring), 15, 16, 17, 18, 20, 22, 24; SEC step-21 merge conditions; REVIEWER step-22 notes; judge the UNCOVERED items and the 8 surviving mutants; own mutants; isolation, formatting, flake and CI-environment risks."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "PASS_WITH_FINDINGS. EXECUTED (MIX_ENV=test, mix compile --force first: 504 files, exit 0, no warning): every 2f-b file green per file, default log level and the four log-heavy files again at LOG_LEVEL=error: transitions 36, routers/tenant_scope_enforcement_on 24 (22 + my 2), flip_authority 14, route_scope_on_flip_blocker 8, roles_on_flip_docs 14, on_e2e 8, on_flip_guards 17, binding_no_row_report 16, scope_enforcement_on_test 16 (the T-O1 migration-down tests: no stale on tenant left); no compiler warning in any run; mix format --check-formatted exit 0 on all ten files created or edited. 17 own in-memory mutants (details below): every non-equivalent one killed; the 8 survivors of the designer are ruled: MU-37a, MU-37b, MU-37d, MU-53, MU-T-O8/b/c EQUIVALENT or covered elsewhere; MU-37c was a REAL gap (a platform-tenant user holding PLATFORM_ADMIN plus only a scoped TENANT_ADMIN row passes checks 1, 2, 3 and was stopped by check 4 alone, untested): I added a test, now killed. The designer's UNCOVERED list is acceptable (see findings F-2..F-4). The blank-vs-missing reason difference: the AC text should move, not the code (F-1).",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-24-test-design-validator-2f-b.json",
+      "test/letflow/routers/tenant_scope_enforcement_on_test.exs",
+      "test/specs/REQ-519-2f-b.md"
+    ],
+    "implementation_written": false,
+    "classification": "n/a (WF-02)",
+    "changes_made": [
+      {
+        "file": "test/letflow/routers/tenant_scope_enforcement_on_test.exs",
+        "change": "two tests added to the T-H2 describe: (1) 'platform tenant: PLATFORM_ADMIN with only a SCOPED TENANT_ADMIN row is refused every transition' (reference tenant built before the pin; scoped holder via ScopeOnFixture.scoped_holder!; context roles PLATFORM_ADMIN + TENANT_ADMIN; all five transitions: 403 identical to the reference body, mode and audit unchanged); (2) 'platform tenant: a context without the TENANT_ADMIN role is refused despite tenant-wide rows' with a positive control (same user and rows, TENANT_ADMIN added to the context, passes 200). A comment records which single-check mutants are equivalent and why. First test names exceeded the 255-character atom limit (SystemLimitError at compile time) and were shortened before any measurement was recorded.",
+        "why": "MU-37c (effective-scope check of Scope.require_interactive_tenant_admin/1 dropped) survived all 40 tests. The platform tenant is the one place where the tenant-wide permission check passes on the PLATFORM_ADMIN shortcut, so a platform user with a scoped-only TENANT_ADMIN grant passes every other check. Without this test a regression removing check 4 would have let a scoped admin flip enforcement in the platform tenant unnoticed.",
+        "verified": "file 24 passed (default log level and LOG_LEVEL=error); MU-37c now fails 1 of 42 (router file + service_principal_route_test); mix format --check-formatted exit 0"
+      },
+      {
+        "file": "test/specs/REQ-519-2f-b.md",
+        "change": "the MU-37a/b/c/d row now carries the validator ruling (a, b, d equivalent with the reason; c killed by the new test).",
+        "why": "the spec said 'survived by design'; that was wrong for c.",
+        "verified": "text only"
+      }
+    ],
+    "survivor_rulings": [
+      {"id": "MU-37a (credential check dropped)", "ruling": "EQUIVALENT", "reason": "principal_from_conn maps :oidc to a user principal and :api_token to a token principal with grants :token; any other or absent credential yields no principal (check 2 fails). effective_scope/2 is :deny for a token principal, so check 4 stops every credential the dropped check stopped. No principal exists that passes checks 2, 3, 4 with a non-:oidc credential. Not testable without changing lib; the pair mutants MU-37ac (5 killed) pin the stack."},
+      {"id": "MU-37b (TENANT_ADMIN role check dropped)", "ruling": "EQUIVALENT", "reason": "effective_scope/2 begins with role_held?(principal, role) and returns :deny when the role is not among principal.roles, so check 4 implies check 3. Verified by running: my role-less-context test (platform tenant, tenant-wide TENANT_ADMIN rows, context roles PLATFORM_ADMIN only, with a positive control) still passes with check 3 removed. The test is kept as an outcome pin."},
+      {"id": "MU-37c (effective-scope check dropped)", "ruling": "NOT EQUIVALENT: REAL GAP, FIXED", "reason": "see changes_made; killed by the new platform-tenant scoped-row test."},
+      {"id": "MU-37d (tenant-wide permission check dropped)", "ruling": "EQUIVALENT", "reason": "UsersGroupsRolesManage is held only by PLATFORM_ADMIN and TENANT_ADMIN. A caller that passes checks 1, 3, 4 holds TENANT_ADMIN with a tenant-wide row, so tenant_effective combines to :tenant_wide and check 2 passes. Verified by running: survives 0 of 42."},
+      {"id": "MU-53 (only the platform clause of allowed?/3)", "ruling": "EQUIVALENT in the e2e file, killed elsewhere", "reason": "tenant_effective has its own PLATFORM_ADMIN shortcut; the only observable difference is a platform-scope permission with resource :unresolvable, which scope_test T-A9 (test/letflow/api/scope_test.exs line 355, resources :tenant_wide, node and :unresolvable, zero queries) pins. Not run (pre-existing file, outside the 2f-b set); judged by reading."},
+      {"id": "MU-T-O8 / b / c (PLATFORM_ADMIN inert outside the platform tenant)", "ruling": "COVERED ELSEWHERE", "reason": "scope_test T-A9 second test ('a PLATFORM_ADMIN outside the platform tenant is denied :role_not_held, with zero queries', both the effective-roles layer and a raw principal carrying the atom) and the authorization suites pin each layer; the e2e T-O8 pins the observable 403. Not run, judged by reading."}
+    ],
+    "findings": [
+      {
+        "id": "F-1",
+        "severity": "MINOR",
+        "blocking": false,
+        "title": "AC 13 wording: 'missing or blank: reason_required' does not match the code; the AC should move",
+        "detail": "The code answers reason_required (422) only for a MISSING reason (nil: check_reason(:off, nil) before the transaction; on -> shadow inside the transaction) and invalid_reason (422) for a blank, whitespace-only, multi-line or over-long one (Audit.Reason.validate), exactly as stage 1 did for shadow -> off. That stage-1 behaviour is pinned by unedited stage-1 tests (test/letflow/routers/tenant_scope_enforcement_test.exs line 397-408: no reason -> reason_required; invalid -> invalid_reason) and AC 13 itself says off -> shadow 'keeps the stage-1' behaviour. Changing the code would change the stage-1 contract and break those tests; both are 422, nothing is written, no information leaks. The tests (T-X9, router) pin the implementation correctly.",
+        "required_action": "DOC-UPDATER: amend AC 13 to 'missing: reason_required; blank or invalid: invalid_reason; both 422, nothing written' and list it in the PR body behaviour notes. No code change."
+      },
+      {
+        "id": "F-2",
+        "severity": "MINOR",
+        "blocking": false,
+        "title": "AC 16 data-path bullets are not re-driven after a REAL flip",
+        "detail": "Query/aggregate/export/cursor totals, by-id indistinguishability, moving a record out of scope, import with one out-of-scope row, undeclared types and the scoped approver are proven by the REQ-518 suites under stored on (entities_scope_*, tasks_scope_http_test, attachment_link_scope_test, scope_gate_test) which set the column through the fixture. The flip only writes the column and the data path reads it per request, so the marginal value of re-driving them after the PUT is low; T-Z1 proves the real flip changes the tenant-wide route class, the admin plane, the writers, the sync and the way back byte-identically. AC 16 says 'one suite'; that literal form is not met.",
+        "required_action": "Acceptable to leave. The PR body should state that AC 16's data-path clauses are covered by the REQ-518 suites (names above) and the e2e file covers the flip itself; if the supervisor insists on the literal single suite, extend OnGateFixture.backdate_shadow! + real flip with the entities_scope_http harness as a follow-up."
+      },
+      {
+        "id": "F-3",
+        "severity": "INFO",
+        "blocking": false,
+        "title": "AC 17 data-route 404 equivalence for a zero-row principal and the entities-API clause of AC 8",
+        "detail": "Zero-row principal: T-Z15 asserts {:deny, :no_grant_rows} and the uniform 403 on a tenant-wide route; entities_scope_writes_http_test, entities_scope_filter_test, entities_scope_references_http_test and scope_gate_test carry the zero-row data-route cases (grep: no_grant_rows / zero-row). Entities API clause of AC 8: the records API cannot reach the public tenants table by construction (records live in per-tenant schema tables); the two APIs that can (PATCH /tenant/settings, PATCH /tenants/:slug) are tested and the Tenant changesets are pinned by scope_enforcement_on_test T-O5, and the AC 24 scan pins the single writer.",
+        "required_action": "Acceptable to leave."
+      },
+      {
+        "id": "F-4",
+        "severity": "INFO",
+        "blocking": false,
+        "title": "Post-on lockout (#2869, SEC F-1) deliberately has no test",
+        "detail": "Not pinning a defect is correct. The follow-up must ship its own test.",
+        "required_action": "None; the PR body must carry the follow-up id (SEC condition)."
+      },
+      {
+        "id": "F-5",
+        "severity": "INFO",
+        "blocking": false,
+        "title": "RefusedAudit called inside the flip transaction is a no-op by design; the mutant that only adds such a call is equivalent",
+        "detail": "RefusedAudit.record/6 refuses inside an open transaction (writes nothing, logs scope_enforcement_refusal_not_recorded). My first form of the 'refusal audit inside the transaction' mutant (add an in-transaction call, keep the post-rollback call) therefore survived (77 passed): equivalent. The real form (move the call inside: in-transaction call plus the post-rollback call disabled) is killed 7+ ways (T-A6, every AC 14 refusal test, T-H5/T-H7).",
+        "required_action": "None."
+      },
+      {
+        "id": "F-6",
+        "severity": "INFO",
+        "blocking": false,
+        "title": "Flake and CI-environment review",
+        "detail": "Held-lock tests share the existing 700 ms per-phase deadline (a loaded host can only produce a false failure, never a false pass). Day-count tests: the HTTP flip tests backdate the shadow entry 8 days and cover request counters from -9 to +1 days (a run across UTC midnight is covered); flip-level tests use fx.now = t0 + 7 days of the real flip entry (moves with t0); the one real-clock assertion in on_flip_guards uses a 300 s tolerance. No Process.sleep in any new file. Scan and docs tests are async: true with no database, read the working tree via cwd-relative globs, and the temp-dir test uses a unique directory removed in on_exit. Runtime of the 2f-b files on this host: 33 + 29 + 5 + 1 + 0.1 + 8 + 17 s (about 95 s plus about 70 s boot overhead). Stale _build: mix compile --force before measuring. LOG_LEVEL both ways: default (debug) and error, 24 + 17 + 36 + 8 passed under error. Hard facts on log capture (with_log captures Ecto debug QUERY lines) are respected: every assertion extracts the constant marker line.",
+        "required_action": "None."
+      },
+      {
+        "id": "F-7",
+        "severity": "INFO",
+        "blocking": false,
+        "title": "purge_stale_enforced_tenants!/1 safety",
+        "detail": "Lives in test/support (compiled only for MIX_ENV=test: elixirc_paths(:test) = [lib, test/support]); called from exactly one place (the setup of the T-N5 describe of binding_no_row_report_test). It deletes only tenants whose slug starts with the caller's prefix (LIKE metacharacters escaped), stored on, updated more than ten minutes ago; per-tenant try/rescue with a logged skip (total). It cannot touch a real tenant: no real slug starts with req519-n5-mix, and tests run against the test database only. Concurrent run risk: a tenant of a parallel run of the same file is minutes old at most (the file takes 25 s), well inside the ten-minute guard. Verified by running: binding_no_row_report 16 passed and scope_enforcement_on_test 16 passed after it (no stale on tenant left).",
+        "required_action": "None."
+      },
+      {
+        "id": "F-8",
+        "severity": "INFO",
+        "blocking": false,
+        "title": "AC 24 lib-side scan limits",
+        "detail": "The scan catches literal on pairs in lib/ (AST), SQL and bulk setters in lib/ and priv/, any changeset caller other than scope_enforcement.ex, any flip caller other than the router, and text in priv/config/scripts/.github/mix.exs. A variable-valued setter in lib/ (Ecto.Changeset.change(t, scope_enforcement: var)) is not caught by the pair scan; it would be caught only if it went through scope_enforcement_changeset. Acceptable (SEC-level residual, the column is set only through the changeset by construction of Tenant's casting); the file-text scan is proven live on the REAL directories by me (see mutants).",
+        "required_action": "None."
+      }
+    ],
+    "ac_coverage_check": {
+      "AC 8": "T-X1, T-H1..T-H4, T-X8 + scans, PUT authority matrix for all five transitions (token with admin owner, no credential key, scoped-only admin, flagged service principal, non-admin, unknown user, zero-row OIDC admin, platform PLATFORM_ADMIN without TENANT_ADMIN, full-pipeline token) plus my two platform-tenant rows. Entities-API clause: F-3.",
+      "AC 12 (docs)": "roles_on_flip_docs_test 14 passed (sentence exactly once, equal to ShadowWindow.scope_sentence/0).",
+      "AC 13": "T-X2..T-X13, router walk back; wording deviation F-1.",
+      "AC 14 wiring": "ONE refusal entry after the rollback per failing code and for shadow_required; gate raise never a refusal; own mutants refusal_moved and gate_fail_pass killed.",
+      "AC 15": "T-A6 (killed by gate_skip and gate_fail_pass mutants too).",
+      "AC 16 / 17": "T-Z0, T-Z1, T-Z2, T-Z15..T-Z17; data-path bullets via REQ-518 suites (F-2, F-3).",
+      "AC 18": "409 / 500 / integrity bodies field by field; one constant flip_failed line and one constant integrity_failed line; leak_id mutant killed (2).",
+      "AC 20": "T-X8 (one PUT route with the key) in flip_authority_test (14 passed).",
+      "AC 22": "route_scope_on_flip_blocker_test 8 passed (T-RW1..T-RW4), T-Z0 repeats the walk.",
+      "AC 24": "scan file 14 passed; probe seeded in the REAL scripts/, .github/ and config/ directories (UPDATE tenants SET scope_enforcement = 'on' in a .sql, a commented scope_enforcement: :on in a .yml and config/*.exs): exactly the three AC 24 text tests failed (priv/config/scripts line scan, no seed or script drives the route, config never names the column); probes deleted, git status of those directories empty.",
+      "SEC step-21 merge conditions": "all test items present: PUT matrix every transition; shadow -> on with passing gate (six-fact payload); each fact alone; off -> on 409 shadow_required constant current_mode + refusal entry after rollback; on -> shadow with failing seeded fact succeeds while off -> shadow with the same seed is refused; 422 without reason; on -> off; same-mode off without reason 422; gate raise = 500 + one constant line + no refusal; attrs[:now] only a DateTime and not from the body; T-O7/T-O8; admin plane under on; /integrity raise; AC 24 scan.",
+      "REVIEWER step-22": "F-4 rename done (OnFlipGuardsTest 17 passed incl. TS-1 unknown tag = detail-free 500 with one constant line)."
+    },
+    "mutants": {
+      "method": "mutated source of ONE lib file (CRLF normalised, anchor occurring exactly once, else INVALID) compiled into the test VM with Code.compile_string via 'mix do run --no-start -r mut.exs + test <files>', MIX_ENV=test, after mix compile --force. The loader lives in the session scratchpad. Nothing was written to lib/ or priv/. Counts are failed tests of the files named; baselines were green (transitions 36, router_on 24, on_flip_guards 17, service_principal_route 18).",
+      "measured_by_validator": [
+        {"id": "m37a", "edit": "credential check dropped", "failing": "0 of 42 (EQUIVALENT)"},
+        {"id": "m37b", "edit": "TENANT_ADMIN role check dropped", "failing": "0 of 42 (EQUIVALENT; effective_scope/2 role_held?)"},
+        {"id": "m37c", "edit": "effective-scope check dropped", "failing": "1 of 42 with my new test (0 of 40 before it)"},
+        {"id": "m37d", "edit": "tenant-wide permission check dropped", "failing": "0 of 42 (EQUIVALENT)"},
+        {"id": "off_on", "edit": "off -> on allowed (shadow_required clause disabled)", "failing": "8 of 77"},
+        {"id": "gate_skip", "edit": "shadow -> on runs no gate (report nil)", "failing": "22 of 77"},
+        {"id": "gate_fail_pass", "edit": "gate failures treated as a pass (no rollback)", "failing": "17 of 77"},
+        {"id": "onshadow_noreason", "edit": "on -> shadow without a reason allowed", "failing": "2 of 77"},
+        {"id": "token_put", "edit": "PUT uses require_tenant_wide (tokens and platform admins pass)", "failing": "6 of 59"},
+        {"id": "refusal_inside_tx (add form)", "edit": "an in-transaction RefusedAudit.record call added, post-rollback call kept", "failing": "0 of 77 (EQUIVALENT: RefusedAudit is a no-op inside a transaction, F-5)"},
+        {"id": "refusal_moved", "edit": "refusal audit moved inside the transaction, post-rollback call disabled", "failing": "7+ of 60 (T-A6, AC 14 tests, T-H5/T-H7)"},
+        {"id": "leak_id", "edit": "409 body leaks tenant_id", "failing": "2 of 59"},
+        {"id": "now_body", "edit": "router passes a body-supplied now to flip/4", "failing": "1 of 59"},
+        {"id": "flush_dropped", "edit": "flush_evidence dropped from flip/4", "failing": "1 of 77 (T-E16 flip half)"},
+        {"id": "no_lock_s", "edit": "lock S not taken before the six facts", "failing": "1 of 36 (T-G10 flip half)"},
+        {"id": "clock_any", "edit": "clock/1 honours any non-nil :now", "failing": "1 of 36 (V7)"},
+        {"id": "ac24 file probes", "edit": "offenders seeded in real scripts/, .github/ and config/ (files, deleted afterwards)", "failing": "3 of 14 flip_authority tests, exactly the AC 24 text tests"}
+      ],
+      "not_applied": "a tenant created on by a fixture path from lib/ (AC 24 lib-side): the scan reads the disk, so it cannot be mutated in memory and the instructions forbid editing lib/. The AST pair scan, changeset-caller scan and flip-caller scan are proven live on seeded strings by the designer's own tests (11 + 3 passing, asserted counts), and the real-directory glob wiring by my probe above. I did not re-measure the designer's other mutants; the 16 above cover the supervisor's list."
+    },
+    "fixture_and_flake_review": {
+      "isolation": "All DB-touching files are async: false and build their own provisioned tenants with teardown; scan and docs files are async: true, DB-free. No test depends on another. No hardcoded secrets or connection strings (grep). The VM-global platform pin is cleared in setup and registered through Fixture.pin! (on_exit). No @tag :skip, no TODO in any new file or the spec.",
+      "formatting": "mix format --check-formatted exit 0 on the ten changed or created test files and fixtures (also after my edit).",
+      "log_lesson": "assertions on logs extract the constant marker line (with_log captures Ecto debug QUERY lines); runs under LOG_LEVEL=error pass.",
+      "stale_on_tenants": "see F-7."
+    },
+    "reverted_and_verified": "No mutant touched disk. Probe files in scripts/, .github/ and config/ were deleted in the same command that ran them: git status --porcelain scripts .github config printed nothing. Final git status --porcelain lib/ priv/ lists exactly the 7 modified lib files it listed at the start (api/scope.ex, identity/tenant.ex, routers/identity.ex, routers/tenant_scope_enforcement.ex, scope_enforcement.ex, scope_enforcement/on_gate.ex, scope_enforcement/shadow_window.ex), no priv entry; the 2f-b files re-ran green after the last mutant (see summary; the final unmutated full set ran after the last probe and before the last two single-file mutants, which are in-memory only).",
+    "run_command_for_test_runner": "per file, MIX_ENV=test mix test <file>: test/letflow/scope_enforcement_transitions_test.exs, test/letflow/routers/tenant_scope_enforcement_on_test.exs, test/letflow/scope_enforcement_flip_authority_test.exs, test/letflow/api/route_scope_on_flip_blocker_test.exs, test/letflow/docs/roles_on_flip_docs_test.exs, test/letflow/scope_enforcement_on_e2e_test.exs, test/letflow/scope_enforcement/on_flip_guards_test.exs, test/letflow/identity/binding_no_row_report_test.exs, test/letflow/scope_enforcement_on_test.exs; hosted CI runs the suite and mix letflow.check.test (the warnings-as-errors dead-default check was not run here by instruction)."
+  }
+}

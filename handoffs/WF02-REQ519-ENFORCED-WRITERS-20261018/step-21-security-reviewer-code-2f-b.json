@@ -1,0 +1,97 @@
+{
+  "handoff_id": "d2535519-0519-4c02-9e11-000000000021",
+  "run_id": "WF02-REQ519-ENFORCED-WRITERS-20261018",
+  "workflow_id": "WF-02",
+  "step": "21",
+  "from_agent": "SECURITY-REVIEWER",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-21-security-reviewer-code-2f-b.json",
+  "created_at": "2026-10-19T02:31:00Z",
+  "started_at": "2026-10-19T02:31:00Z",
+  "completed_at": "2026-10-19T02:33:22Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-519"],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "SECURITY-REVIEWER code gate (second SEC pass, 2f-a F-6) for REQ-519 slice 2f-b (GH #2535): uncommitted tree on feature/WF02-REQ519-2FB-ON-SETTABLE-20261019 (base 0a1f2cb43). Read-only static review; no mix, no tests run."
+    },
+    "related_handoff_ids": ["d2535519-0519-4c02-9e11-000000000004", "d2535519-0519-4c02-9e11-000000000016", "d2535519-0519-4c02-9e11-000000000020"],
+    "artifacts_in": [
+      "lib/letflow/scope_enforcement.ex",
+      "lib/letflow/scope_enforcement/on_gate.ex",
+      "lib/letflow/scope_enforcement/shadow_window.ex",
+      "lib/letflow/routers/tenant_scope_enforcement.ex",
+      "lib/letflow/routers/identity.ex",
+      "lib/letflow/api/scope.ex",
+      "lib/letflow/api/scope/enforce.ex",
+      "docs/roles.md",
+      "lib/letflow/design/req519-enforced-writers-and-flag-on.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ519-2FB-ON-SETTABLE-20261019"
+  },
+  "task": {
+    "description": "Code gate for 2f-b (on becomes settable) against INV-1..INV-10, REQ-519 ACs 8, 13, 16-24, design r2a, step-04 rulings S-3, S-5, S-6, C-5, C-6 and step-16 F-6. No edits to lib/ or test/."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "No blocking defect. Static review only; runtime claims rest on hosted CI and the TEST-DESIGNER tests still to be written. VERIFIED: (1) PUT authority: the PUT goes through Scope.require_interactive_tenant_admin/1 = credential == :oidc (a token of any role set, including an owner who is a tenant-wide admin, is refused; absent credential refused), then require_tenant_wide(:UsersGroupsRolesManage), then :TENANT_ADMIN in principal.roles AND effective_scope(principal, TENANT_ADMIN) == :tenant_wide. effective_roles strips PLATFORM_ADMIN outside the platform tenant and effective_scope has no PLATFORM_ADMIN shortcut, so a platform-tenant PLATFORM_ADMIN without TENANT_ADMIN, a scoped-only admin (node rows), a group with zero rows (:deny) and a non-Grants struct (:deny) all fall to the one uniform 403 (same body, no existence info). The helper is the old private pair from Routers.Identity moved in the same order (oidc, tenant-wide, role, effective scope); the service-principal route behaviour is unchanged (same 403 via forbid_insufficient). (2) Transitions in do_flip under locks A, T (S taken inside the gate step) in one Repo.transaction with the single rescue around the whole transaction: same mode no-op first; target :on from anything but :shadow rolls back :shadow_required before any fact is read; shadow->on runs OnGate (tagged {:on_gate, report}); off->shadow keeps enable_checks! (tagged {:three_facts, r}); on->shadow runs NO precondition and rolls back :reason_required when the reason is nil (422), so a failing fact or a scoped-out admin cannot block de-escalation, and it is reachable only through the same interactive tenant-wide TENANT_ADMIN PUT; ->off unchanged (check_reason(:off, nil) pre-transaction, so same-mode off without reason stays 422). Audit action by rank off<shadow<on. (3) on reachability: grep of lib/ priv/ config/ finds exactly ONE writer of tenants.scope_enforcement: Tenant.scope_enforcement_changeset/2 called only from ScopeEnforcement.do_flip (the other Tenant changesets cast slug, display_name, status, idp_realm_id, settings, login_disclosure_mode only). The DB CHECK widening (20261018200001) sets no row; the original migration defaults to off; no seed, mix task, TenantProvisioning, config or lib fixture sets on; test/support fixtures set it in tests only. (4) Gate not bypassable by request input: the router builds a literal three-key attrs map (actor_id, reason, trace_id); attrs[:now] is honoured only as a %DateTime{} via clock/1 and the router never sets it; thresholds are Application env from config.exs only (shadow_window.ex diff is moduledoc only). (5) 409 bodies: shadow_required carries the constant current_mode off; enforcement_precondition_failed carries failed codes, the counts, and evidence counts/booleans/dates; no ids, names or token data; OnGate.counts_state/evidence_state are the one shared serialisation (audit, 409, integrity). RefusedAudit runs after Repo.transaction returned, so after the rollback; a server fault is {:transaction_failed,_} and is never recorded as a refusal. (6) GET /integrity gains a rescue with one constant log line scope_enforcement_integrity_failed exception=<module> and a detail-free 500 (closes 2f-a F-2). (7) Under stored on, Authorize calls Enforce.check; admin-plane and default-class routes require Scope.allowed?(principal, permission, :tenant_wide). Platform-scope permissions are decided by role plus platform_tenant? only (Scope.allowed? platform clause), so a platform tenant stored on does not lock out PLATFORM_ADMIN on platform routes (INV-10). An interactive tenant-wide TENANT_ADMIN passes the admin plane (turn-off path); a scoped-only admin is denied. Route classes: no route_scope.ex, route snapshot, route_inventory.ex, authorized_router.ex, ci.yml, mix.exs, permission matrix or config change in git status, so the 115-route census and the 3 :self_service rulings are unchanged and this diff adds no exposure. (8) docs/roles.md: the AC 12 sentence is present verbatim (matches ShadowWindow scope_sentence), on-in-production items 1-8, known limitations incl. the scoped upsert_by external_ref refusal in import_scope_check/6, gate codes, transition table. (9) AC 24: no code path or data sets any tenant to on. The 3 stale on tenants ELIXIR-DEV saw in the shared LOCAL test DB (req519-n5-mix*) are test residue; no lib path can leave a tenant on outside a flip through the guarded PUT.",
+    "local_issue_id": null,
+    "artifacts_out": ["handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-21-security-reviewer-code-2f-b.json"],
+    "invariants_assessed": {
+      "INV-1": "APPLIES, PASS (tenants public row updated under the verified prefix/tenant id pair via check_prefix; all gate reads carry the prefix; no new table or column)",
+      "INV-2": "APPLIES, PASS (409 and integrity bodies are allowlisted counts, enums, booleans, dates; no ids, names, token data)",
+      "INV-3": "NOT-APPLICABLE (no Lua/WASM host function)",
+      "INV-4": "APPLIES, PASS (no secret resolved; log lines scope_enforcement_flip_failed and scope_enforcement_integrity_failed carry a tag and exception module only)",
+      "INV-5": "APPLIES, PASS (all PUT refusals for unauthorised callers are the one uniform 403; the Enforce 403 is route-level; shadow_required reveals only the caller's own tenant mode to an authorised admin)",
+      "INV-6": "APPLIES, PASS (this is the 2f-b code gate)",
+      "INV-7": "APPLIES, PASS (no Repo.query or interpolated SQL in the diff)",
+      "INV-8": "APPLIES, PASS (single rescue around the whole transaction including OnGate; integrity rescue; refusal audit best-effort)",
+      "INV-9": "NOT-APPLICABLE (no outbound URL; routes changed NONE)",
+      "INV-10": "APPLIES, PASS (platform authority unaffected by a platform tenant stored on; PUT is TENANT_ADMIN-only in the platform tenant too; no platform-scope flip route exists)"
+    },
+    "findings": [
+      {"id": "F-1", "severity": "MINOR", "blocking": false, "title": "Post-on lockout is possible: the last-admin guard counts token owners, the flip route needs an interactive admin, and there is no break-glass", "detail": "The on gate requires at least one interactive explicit tenant-wide TENANT_ADMIN at flip time (C-4), but TenantAdminGuard.ensure_admins_remain! still counts with count_tenant_wide_admins (token owners and flagged principals included). After on, the last interactive admin can be demoted or deactivated while a token-owner admin remains, leaving a tenant stored on that nobody can switch off through the API (tokens cannot PUT; no platform-scope flip route; docs item 7 states no break-glass). Accepted for pilot tenants and documented, but a real operational trap. Follow-up: make the guard use the interactive count for tenants stored on, or build the platform-scope flip route. File before pilot use; not a merge blocker."},
+      {"id": "F-2", "severity": "INFO", "blocking": false, "title": "Docs intro says pilot tenants only until 'the follow-ups named below' but only RA-6 is named", "detail": "The task scope writer follow-up is implied by item 3, not named by id. Design item 8 is met in substance. Optional wording fix."},
+      {"id": "F-3", "severity": "INFO", "blocking": false, "title": "Every off->on attempt writes a scope.enforcement_refused audit row", "detail": "Admin-only, interactive-only after this change, bounded by admin traffic (design advisory A-8). No action."},
+      {"id": "F-4", "severity": "INFO", "blocking": false, "title": "No test in the ELIXIR-DEV set drives the live shadow->on flip, the satisfied-gate PUT, platform-tenant-on or admin-plane-under-on", "detail": "step-20 states this and T-O7/T-O8 are TEST-DESIGNER work. The conclusions above are from code reading; the tests in conditions_for_merge must exist before merge."},
+      {"id": "F-5", "severity": "INFO", "blocking": false, "title": "dormant_on_test.exs keeps a misleading name; stale on tenants in the shared local test DB", "detail": "Test hygiene only. CI uses a fresh DB. No lib path produces the stale rows."}
+    ],
+    "conditions_for_merge": [
+      "Branch is rebased or merged on origin/main, which already contains #2862 (verified: 1908a545c is on origin/main; RA-6 requirements REQ-525..527 filed).",
+      "Hosted CI is green for the whole suite, including route_scope_walk_test, route_scope_on_flip_blocker_test, scope_grants_route_walk_test, the service-principal route test and the edited existing tests.",
+      "TEST-DESIGNER delivers tests for: the PUT authority matrix for every transition (oidc tenant-wide TENANT_ADMIN allowed; token incl. admin-owned, platform-tenant PLATFORM_ADMIN without TENANT_ADMIN, scoped-only admin, zero-row group admin, service principal all 403 with the identical body); shadow->on success with a passing gate (audit scope.enforcement_enabled, six-fact payload); each gate fact failing alone (409 codes, no ids); off->on 409 shadow_required with constant current_mode and a scope.enforcement_refused entry written after rollback; on->shadow with a seeded failing fact succeeding (scope.enforcement_disabled, no enable_checks!) and 422 without reason; on->off; same-mode off without reason 422; a gate raise is a 500 with one constant log line and no refusal entry; attrs[:now] ignored unless a DateTime and not settable from the body; a platform tenant stored on keeps PLATFORM_ADMIN on platform-scope routes (T-O7/C-6); under stored on an interactive tenant-wide TENANT_ADMIN reaches PUT and a scoped-only admin does not (T-O8); GET /integrity 500 path logs the constant line and leaks nothing; an AC 24 scan test (no setter of on in lib, priv, config).",
+      "Follow-ups filed, ids in the PR body: F-1 (last-admin guard under on / break-glass), the AC 19 amendment link or its pending status, the platform-scope flip route, RA-6 ids REQ-525..527.",
+      "AC 24 gate is handled by the supervisor / letflow-2; NO tenant is set to on (no production or QA flip, no seed) before the supervisor's explicit word. Merging this PR makes on settable, not set.",
+      "The PR body carries the items in pr_body_items."
+    ],
+    "advisories": [
+      "A-1: the stale on tenants in the shared local test DB make the two T-O1 migration-down tests fail locally; clean them with the test fixtures' own cleanup, not hand-edited SQL against any non-test database."
+    ],
+    "pr_body_items": {
+      "on_in_production_statement": "A tenant that passes the six-fact gate can be set to on by an interactive tenant-wide TENANT_ADMIN, only from shadow, with an audit trail. In production today on delivers admin-plane closure to scoped admins, a uniform 403 for scoped users on every tenant-wide route, no new tenant-wide grants from binding writers or IdP sync, and fail-closed grant tables. It does NOT deliver data-level scoping (no installed module declares scope; no writer sets tasks.scope_node_id). The shadow period proves only the denials of tenant-wide and admin-plane routes. Scoped users lose definition, entity-definition, instance and service reads until RA-6 (REQ-525..527). Do not scope the CANDIDATE binding. Turning on off needs an interactive tenant-wide TENANT_ADMIN with a reason; no break-glass in this release. Pilot tenants only. No tenant is set to on by this PR (AC 24).",
+      "behaviour_changes": [
+        "PUT /tenant/scope-enforcement is now interactive (OIDC) tenant-wide TENANT_ADMIN only for EVERY transition: API tokens (any role set) and a platform-tenant PLATFORM_ADMIN without TENANT_ADMIN lose it, off->shadow included.",
+        "GET /tenant/scope-enforcement available_modes is now [off, shadow, on].",
+        "on->shadow no longer runs enable_checks! and is audited as scope.enforcement_disabled (rank rule off<shadow<on); a reason is mandatory.",
+        "New refusals: 409 shadow_required (off->on) and 409 enforcement_precondition_failed with gate codes, counts and evidence for shadow->on.",
+        "GET /tenant/scope-enforcement/integrity 500 path logs the constant line scope_enforcement_integrity_failed (exception module only).",
+        "PUT /users/:id/service-principal: no behaviour change (the same checks now live in Api.Scope.require_interactive_tenant_admin/1, same order, same 403)."
+      ],
+      "c1_route_walk_statement": "C-1: quote the route walk output from the CI run at the PR head (route_scope_on_flip_blocker_test): @self_service_routes holds the three ruled routes (0051-A7, SEC-518-R2-modules, SEC-518-R2-help), none :pending_sec_ruling, and no /me or /help line in test/fixtures/route_scope/tenant_wide_default_routes.txt. This review did not run the test; the claim here is code-read (route_scope.ex untouched) and needs the CI output attached.",
+      "routes_changed_table": [
+        {"method": "ALL", "path": "ALL", "old_class": "unchanged", "new_class": "unchanged", "note": "routes changed: NONE (git status shows test/fixtures/route_scope/tenant_wide_default_routes.txt, test/support/route_inventory.ex, lib/letflow/api/route_scope.ex, authorized_router.ex, permission matrix, ci.yml, mix.exs unchanged); PUT /tenant/scope-enforcement and PUT /users/:id/service-principal keep their class (admin_plane); only the handler authority check changed"}
+      ],
+      "ac13_ac24_wording": "AC 13: the audit action follows the rank off<shadow<on (enabled when the target outranks the previous mode, disabled otherwise); on->shadow runs no precondition and needs a mandatory reason. AC 24: no seed, migration, config or lib path sets any tenant to on; the single writer is ScopeEnforcement.flip/4 via the interactive PUT; no tenant is set to on before the supervisor's word.",
+      "verdict_sentence": "SECURITY-REVIEWER code gate for REQ-519 2f-b: PASS_WITH_FINDINGS (on becomes settable only through ScopeEnforcement.flip/4 from shadow with a passing six-fact gate, by an interactive tenant-wide TENANT_ADMIN only for every transition; on->shadow needs a reason and no precondition; 409 bodies carry counts and codes only; no code path sets any tenant to on; routes changed NONE; open finding F-1 post-on lockout, follow-up required before pilot use). Handoff d2535519-0519-4c02-9e11-000000000021."
+    },
+    "required_changes": [],
+    "classification": "CODE_PASS_WITH_FINDINGS",
+    "implementation_written": false
+  }
+}

@@ -1,29 +1,27 @@
-defmodule Letflow.ScopeEnforcement.DormantOnTest do
+defmodule Letflow.ScopeEnforcement.OnFlipGuardsTest do
   @moduledoc """
-  REQ-519 slice 2f-a (GH #2535): what must STILL hold after the gate machinery landed but
-  `on` was NOT made settable (design
-  `lib/letflow/design/req519-enforced-writers-and-flag-on.md` section 1 row 2f-a, SEC code-gate
-  merge conditions of step-16, `pr_body_items.on_unsettable_statement`; spec
-  `test/specs/REQ-519-2f-a.md`). 2f-b widens `parse_mode/1`, `@modes` and `check_target/1`; until
-  then these tests are the proof that nothing in 2f-a opened the door:
+  REQ-519 slice 2f-b (GH #2535): `on` became settable. This file began in 2f-a as the proof that
+  the door was shut (`dormant_on_test.exs`); it was renamed in 2f-b (REVIEWER step-22 F-4) and now
+  pins the guards that must hold with the door open (design
+  `lib/letflow/design/req519-enforced-writers-and-flag-on.md` sections 4.1, 4.2, 4.9; SEC code-gate
+  step-16 `pr_body_items.on_unsettable_statement`, now inverted):
 
-    * `parse_mode/1` and `modes/0` are the stage-1 pair, `flip/4` answers `:invalid_mode` for
-      `:on` from `off` and from `shadow`, with no flag change, no flip entry and NO refusal
-      entry (a refusal is a gate outcome; an invalid target never reaches the gate);
-    * `PUT /tenant/scope-enforcement` with `mode: "on"` is `422 invalid_enforcement_mode`, also
-      when the body carries a clock or thresholds; the same body with `mode: "shadow"` flips
-      normally and those extra keys change nothing (they are never read);
+    * `parse_mode/1` accepts exactly `"on"` beside `off` and `shadow`; `flip/4` reaches `on` only
+      from `shadow` through the gate (`off -> on` is `:shadow_required` and audited as a refusal);
+    * `PUT /tenant/scope-enforcement` with `mode: "on"` is a 409 (never a 200) from `off` and from
+      a `shadow` tenant without evidence, also when the body carries a clock or thresholds; the
+      same body with `mode: "shadow"` flips normally and those extra keys change nothing (never read);
     * the router builds the `flip/4` attrs from a LITERAL three-key map (`actor_id`, `reason`,
       `trace_id`), so a request can never supply `now` or a threshold, and no `lib/` file but
       the router calls `ScopeEnforcement.flip/4`;
-    * the stage-1 flip paths are intact after the `flip_entry/6` dispatch change (the entry shapes
-      of `off -> shadow` and `shadow -> off`, the audit vocabulary owned by `ScopeEnforcement`);
+    * the stage-1 flip paths are intact (the entry shapes of `off -> shadow` and `shadow -> off`,
+      the audit vocabulary owned by `ScopeEnforcement`);
     * SEC C-5: a raise inside the flip transaction is a detail-free 500 with NO flag change and
-      exactly ONE constant log line `scope_enforcement_flip_failed reason=<tag> exception=<module>`.
-
-  What 2f-a cannot show (and the spec lists as deferred to 2f-b): the `shadow -> on` flip through
-  `flip/4` itself (refusal audit after the rollback, flush before the transaction, the gate
-  inside the one `rescue`, `shadow_required`).
+      exactly ONE constant log line `scope_enforcement_flip_failed reason=<tag> exception=<module>`;
+    * REVIEWER step-22 TS-1: the 409 mapping is an open union with a deliberate default, so a refusal
+      tag the router does not know is a detail-free 500 with ONE constant log line (never a 200, never
+      a body that echoes the tag), proven on an in-memory copy of the router whose `flip/4` call is
+      replaced by a stub that answers a brand-new tag.
 
   `async: false`: committed writes, DDL (an audit fault trigger), VM-global platform pin.
   """
@@ -51,7 +49,9 @@ defmodule Letflow.ScopeEnforcement.DormantOnTest do
 
   # --- helpers ---------------------------------------------------------------------------------
 
-  defp put(fx, body) do
+  defp put(fx, body), do: put_via(@router, fx, body)
+
+  defp put_via(router, fx, body) do
     :put
     |> Fixture.router_conn("/", fx, ["TENANT_ADMIN"], body)
     |> assign(:auth_context, %{
@@ -61,7 +61,7 @@ defmodule Letflow.ScopeEnforcement.DormantOnTest do
       credential: :oidc
     })
     |> assign(:trace_id, @trace)
-    |> @router.call(@router.init([]))
+    |> router.call(router.init([]))
   end
 
   defp get(fx) do
@@ -127,36 +127,31 @@ defmodule Letflow.ScopeEnforcement.DormantOnTest do
     found
   end
 
-  # --- on is unsettable ------------------------------------------------------------------------
+  # --- on is settable only through the guarded flip -------------------------------------------
 
-  describe "on is still unsettable" do
-    test "parse_mode/1 and modes/0 are the stage-1 pair; stored_modes/0 still lists on for reads" do
-      assert ScopeEnforcement.modes() == [:off, :shadow]
-      assert ScopeEnforcement.stored_modes() == [:off, :shadow, :on]
+  describe "on is settable only through the guarded flip" do
+    test "parse_mode/1 and modes/0 list on; stored_modes/0 is the same list" do
+      assert ScopeEnforcement.modes() == [:off, :shadow, :on]
+      assert ScopeEnforcement.stored_modes() == ScopeEnforcement.modes()
       assert ScopeEnforcement.parse_mode("off") == {:ok, :off}
       assert ScopeEnforcement.parse_mode("shadow") == {:ok, :shadow}
+      assert ScopeEnforcement.parse_mode("on") == {:ok, :on}
 
-      for value <- ["on", "ON", " on", "on ", :on, nil, 1, %{}, ["on"]] do
+      for value <- ["ON", "On", " on", "on ", :on, nil, 1, %{}, ["on"]] do
         assert ScopeEnforcement.parse_mode(value) == {:error, :invalid_mode}, inspect(value)
       end
     end
 
-    test "flip(:on) is :invalid_mode from off and from shadow: no change, no entry of any kind" do
+    test "flip(:on) from off is :shadow_required: no change, no flip entry, one refusal entry" do
       off = F.admin_tenant!("req519-d1a")
-      shadow = F.shadow_tenant!("req519-d1b")
-      shadow_entries = flip_entries(shadow)
+      attrs = Map.put(F.attrs(off, "req519 try on"), :now, ~U[2000-01-01 00:00:00Z])
 
-      for fx <- [off, shadow] do
-        attrs = Map.put(F.attrs(fx, "req519 try on"), :now, ~U[2000-01-01 00:00:00Z])
-
-        assert ScopeEnforcement.flip(fx.tenant_id, fx.schema_name, :on, attrs) ==
-                 {:error, :invalid_mode}
-      end
+      assert ScopeEnforcement.flip(off.tenant_id, off.schema_name, :on, attrs) ==
+               {:error, :shadow_required}
 
       assert mode!(off) == :off
-      assert flip_entries(off) == []
-      assert mode!(shadow) == :shadow
-      assert flip_entries(shadow) == shadow_entries
+      assert F.entries(off, "scope.enforcement_enabled") == []
+      assert F.entries(off, "scope.enforcement_disabled") == []
     end
 
     test "a non-DateTime clock in the attrs is never read: a shadow flip with each junk value succeeds" do
@@ -171,10 +166,9 @@ defmodule Letflow.ScopeEnforcement.DormantOnTest do
       end
     end
 
-    test "PUT mode=on is 422 invalid_enforcement_mode from off and from shadow, extra body keys or not" do
+    test "PUT mode=on is a 409 from off and from a shadow tenant without evidence, extra body keys or not" do
       off = F.admin_tenant!("req519-d3a")
       shadow = F.shadow_tenant!("req519-d3b")
-      shadow_entries = flip_entries(shadow)
 
       bodies = [
         %{"mode" => "on"},
@@ -189,16 +183,22 @@ defmodule Letflow.ScopeEnforcement.DormantOnTest do
         }
       ]
 
-      for fx <- [off, shadow], b <- bodies do
-        conn = put(fx, b)
-        assert conn.status == 422, inspect(b)
-        assert body(conn)["detail"] == "invalid_enforcement_mode"
+      for b <- bodies do
+        conn = put(off, b)
+        assert conn.status == 409, inspect(b)
+        assert body(conn)["detail"] == "shadow_required"
+
+        conn = put(shadow, b)
+        assert conn.status == 409, inspect(b)
+        assert body(conn)["detail"] == "enforcement_precondition_failed"
+        assert "shadow_evidence_insufficient" in body(conn)["failed"]
       end
 
       assert mode!(off) == :off
-      assert flip_entries(off) == []
       assert mode!(shadow) == :shadow
-      assert flip_entries(shadow) == shadow_entries
+
+      assert F.entries(off, "scope.enforcement_enabled") == []
+      assert F.entries(shadow, "scope.enforcement_disabled") == []
     end
 
     test "PUT mode=shadow with a clock and thresholds in the body flips normally and ignores them" do
@@ -225,14 +225,14 @@ defmodule Letflow.ScopeEnforcement.DormantOnTest do
                %{min_days: 7, min_requests: 100, retention_days: 90}
     end
 
-    test "GET / still lists exactly off and shadow" do
+    test "GET / lists off, shadow and on" do
       fx = F.admin_tenant!("req519-d5")
 
-      assert body(get(fx)) == %{"mode" => "off", "available_modes" => ["off", "shadow"]}
+      assert body(get(fx)) == %{"mode" => "off", "available_modes" => ["off", "shadow", "on"]}
     end
   end
 
-  describe "the source keeps the door shut" do
+  describe "the source keeps the flip authority narrow" do
     test "the router builds the flip attrs from ONE literal map of exactly actor_id, reason, trace_id" do
       assert [keys] = router_attrs_literals()
       assert Enum.sort(keys) == [:actor_id, :reason, :trace_id]
@@ -422,6 +422,67 @@ defmodule Letflow.ScopeEnforcement.DormantOnTest do
 
       assert conn.status == 200
       assert F.lines_with(log, "scope_enforcement_flip_failed") == []
+    end
+  end
+
+  # --- REVIEWER TS-1: an unknown refusal tag -----------------------------------------------------
+
+  defmodule UnknownRefusalStub do
+    @moduledoc false
+    # Stands in for `ScopeEnforcement` in the in-memory router copy of the TS-1 test.
+    def flip(_tenant_id, _prefix, _target, _attrs),
+      do: {:error, {:brand_new_refusal_tag, "secret-detail-ts1"}}
+  end
+
+  describe "TS-1 the refusal mapping has a detail-free default" do
+    @flip_call "ScopeEnforcement.flip(tenant_id(conn), prefix(conn), target, attrs)"
+    @router_head "defmodule Letflow.Routers.TenantScopeEnforcement do"
+
+    test "a refusal tag the router does not know is a detail-free 500 with ONE constant log line" do
+      source = File.read!(@router_path)
+
+      # the anchors must occur exactly once, or the copy would not be the router under test
+      assert length(String.split(source, @flip_call)) == 2
+      assert length(String.split(source, @router_head)) == 2
+
+      patched =
+        source
+        |> String.replace(@router_head, "defmodule Letflow.Routers.TenantScopeEnforcementTs1 do")
+        |> String.replace(
+          @flip_call,
+          "#{inspect(UnknownRefusalStub)}.flip(tenant_id(conn), prefix(conn), target, attrs)"
+        )
+
+      [{copy, _binary}] = Code.compile_string(patched, "tenant_scope_enforcement_ts1.ex")
+
+      on_exit(fn ->
+        :code.purge(copy)
+        :code.delete(copy)
+      end)
+
+      fx = F.admin_tenant!("req519-ts1")
+
+      {conn, log} = with_log(fn -> put_via(copy, fx, %{"mode" => "shadow"}) end)
+
+      assert conn.status == 500
+      refute conn.resp_body =~ "brand_new"
+      refute conn.resp_body =~ "secret-detail-ts1"
+      refute conn.resp_body =~ "refus"
+      refute F.uuid_in?(conn.resp_body)
+
+      lines =
+        log
+        |> F.lines_with("scope_enforcement_flip_failed")
+        |> Enum.map(fn line ->
+          [constant] = Regex.run(~r/scope_enforcement_flip_failed.*$/, line)
+          constant
+        end)
+
+      assert lines == ["scope_enforcement_flip_failed reason=unknown exception=none"]
+
+      refute log =~ "secret-detail-ts1"
+      refute log =~ "brand_new"
+      assert mode!(fx) == :off
     end
   end
 end

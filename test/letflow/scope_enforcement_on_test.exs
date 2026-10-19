@@ -10,10 +10,11 @@ defmodule Letflow.ScopeEnforcementOnTest do
       migration `20261018200001` applies and rolls back on a SCRATCH schema holding a copy of
       `tenants` (never on the shared table), and its `down` RAISES while any tenant is `on` (it
       never silently de-escalates);
-    * T-O2 nothing can SET `on`: `parse_mode/1`, `flip/4` and `PUT /tenant/scope-enforcement`
-      all reject it, and the stored column is unchanged by a refused attempt;
-    * T-O4 `GET /tenant/scope-enforcement` for an `on` tenant answers `"mode": "on"` while
-      `available_modes` stays `["off", "shadow"]` (no 500: `get_mode/1` reads the stored set);
+    * T-O2 `on` is settable only through the guarded flip (REQ-519 2f-b): `parse_mode/1` accepts
+      exactly `"on"`, `flip/4` refuses `off -> on` and a gate failure, `PUT` answers 409, and the
+      stored column is unchanged by a refused attempt;
+    * T-O4 `GET /tenant/scope-enforcement` for an `on` tenant answers `"mode": "on"` with
+      `available_modes` listing all three (no 500: `get_mode/1` reads the stored set);
     * T-O5 the test helper lives under `test/support`, never `lib/`, and
       `Tenant.scope_enforcement_changeset/2` is called from `lib/` only by
       `lib/letflow/scope_enforcement.ex`; no other tenant changeset casts the field, `on`
@@ -104,8 +105,8 @@ defmodule Letflow.ScopeEnforcementOnTest do
 
       assert Ecto.Enum.values(Tenant, :scope_enforcement) == [:off, :shadow, :on]
       assert ScopeEnforcement.stored_modes() == [:off, :shadow, :on]
-      # the SETTABLE set is unchanged
-      assert ScopeEnforcement.modes() == [:off, :shadow]
+      # the settable set is the stored set since REQ-519 2f-b
+      assert ScopeEnforcement.modes() == [:off, :shadow, :on]
 
       store!(fx, :on)
       assert Repo.get!(Tenant, fx.tenant_id).scope_enforcement == :on
@@ -184,62 +185,75 @@ defmodule Letflow.ScopeEnforcementOnTest do
   end
 
   # ===========================================================================================
-  describe "T-O2 nothing can set on" do
-    test "parse_mode/1 rejects on in every spelling" do
-      for value <- ["on", "ON", "On", " on", "enforce", "true", nil, :on, 1, %{}] do
+  describe "T-O2 on is settable only through the guarded flip (REQ-519 2f-b)" do
+    test "parse_mode/1 accepts exactly the string on; every other spelling is invalid" do
+      for value <- ["ON", "On", " on", "on ", "enforce", "true", nil, :on, 1, %{}] do
         assert ScopeEnforcement.parse_mode(value) == {:error, :invalid_mode}, inspect(value)
       end
 
+      assert ScopeEnforcement.parse_mode("on") == {:ok, :on}
       assert ScopeEnforcement.parse_mode("off") == {:ok, :off}
       assert ScopeEnforcement.parse_mode("shadow") == {:ok, :shadow}
     end
 
-    test "flip/4 to :on is {:error, :invalid_mode} from off and from shadow, and the column is unchanged (N6)" do
+    test "flip/4 to :on from off is :shadow_required; from shadow without evidence the gate refuses; the column is unchanged" do
       fx = S.tenant!("r517-o2-flip")
 
       assert ScopeEnforcement.flip(fx.tenant_id, fx.schema_name, :on, attrs("try on")) ==
-               {:error, :invalid_mode}
+               {:error, :shadow_required}
 
       assert mode!(fx) == :off
 
       assert {:ok, %{mode: :shadow}} =
                ScopeEnforcement.flip(fx.tenant_id, fx.schema_name, :shadow, attrs(nil))
 
-      assert ScopeEnforcement.flip(fx.tenant_id, fx.schema_name, :on, attrs("try on")) ==
-               {:error, :invalid_mode}
+      assert {:error, {:on_precondition_failed, failed, _report}} =
+               ScopeEnforcement.flip(fx.tenant_id, fx.schema_name, :on, attrs("try on"))
+
+      assert :shadow_evidence_insufficient in failed
 
       assert mode!(fx) == :shadow
       assert entries(fx, "scope.enforcement_enabled") |> length() == 1
     end
 
-    test "PUT mode=on is 422 invalid_enforcement_mode for an off, a shadow and an on tenant, and changes nothing" do
-      for stored <- [:off, :shadow, :on] do
+    test "PUT mode=on is refused 409 from off and from shadow (no evidence), and a same-mode PUT on an on tenant changes nothing" do
+      for stored <- [:off, :shadow] do
         fx = S.tenant!("r517-o2-put-#{stored}")
         store!(fx, stored)
 
-        for body <- [%{"mode" => "on"}, %{"mode" => "on", "reason" => "enable enforcement"}] do
-          conn = S.as_admin(@router, :put, "/", fx, body)
-          assert conn.status == 422, "#{stored}: #{conn.resp_body}"
-          assert S.body(conn)["detail"] == "invalid_enforcement_mode"
-        end
+        conn = S.as_admin(@router, :put, "/", fx, %{"mode" => "on"})
+        assert conn.status == 409, "#{stored}: #{conn.resp_body}"
+
+        assert S.body(conn)["detail"] ==
+                 if(stored == :off,
+                   do: "shadow_required",
+                   else: "enforcement_precondition_failed"
+                 )
 
         assert mode!(fx) == stored
         assert entries(fx, "scope.enforcement_enabled") == []
         assert entries(fx, "scope.enforcement_disabled") == []
       end
+
+      fx = S.tenant!("r517-o2-put-on")
+      store!(fx, :on)
+      conn = S.as_admin(@router, :put, "/", fx, %{"mode" => "on"})
+      assert conn.status == 200, conn.resp_body
+      assert S.body(conn) == %{"mode" => "on", "previous" => "on", "changed" => false}
+      assert mode!(fx) == :on
     end
   end
 
   # ===========================================================================================
   describe "T-O4 the read side for an on tenant" do
-    test "GET /tenant/scope-enforcement answers mode on with the unchanged available_modes" do
+    test "GET /tenant/scope-enforcement answers mode on with all three available_modes" do
       fx = S.tenant!("r517-o4")
       store!(fx, :on)
 
       conn = S.as_admin(@router, :get, "/", fx, nil)
 
       assert conn.status == 200
-      assert S.body(conn) == %{"mode" => "on", "available_modes" => ["off", "shadow"]}
+      assert S.body(conn) == %{"mode" => "on", "available_modes" => ["off", "shadow", "on"]}
     end
 
     test "get_mode/1 answers each stored value and an unknown tenant still errors" do

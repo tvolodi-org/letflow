@@ -156,22 +156,21 @@ defmodule Letflow.Routers.TenantScopeEnforcementTest do
 
   # --- GET / ---------------------------------------------------------------------------------
 
-  test "GET / returns the mode and the stage-1 modes only" do
+  test "GET / returns the mode and the three settable modes" do
     fx = admin_tenant!("req497-rt-get")
     conn = as_admin(:get, "/", fx, nil)
 
     assert conn.status == 200
-    assert body(conn) == %{"mode" => "off", "available_modes" => ["off", "shadow"]}
+    assert body(conn) == %{"mode" => "off", "available_modes" => ["off", "shadow", "on"]}
   end
 
   # --- T-F1 ------------------------------------------------------------------------------------
 
-  describe "T-F1 only off | shadow" do
-    test "PUT with on, ON, enforce, 1, null or a missing mode is 422 invalid_enforcement_mode and changes nothing" do
+  describe "T-F1 only off | shadow | on" do
+    test "PUT with ON, enforce, 1, null or a missing mode is 422 invalid_enforcement_mode and changes nothing" do
       fx = admin_tenant!("req497-rt-f1")
 
       bodies = [
-        %{"mode" => "on"},
         %{"mode" => "ON"},
         %{"mode" => "enforce"},
         %{"mode" => 1},
@@ -310,15 +309,19 @@ defmodule Letflow.Routers.TenantScopeEnforcementTest do
       assert actor == fx.admin.id
     end
 
-    test "a platform-tenant PLATFORM_ADMIN flips the platform tenant's own flag (200)" do
+    # REQ-519 2f-b (SEC S-3): the PUT is narrowed to an interactive tenant-wide TENANT_ADMIN, so a
+    # platform-tenant PLATFORM_ADMIN WITHOUT TENANT_ADMIN no longer flips even its own tenant's
+    # flag (it could in stage 1). Documented behaviour change; the GET routes are unchanged.
+    test "a platform-tenant PLATFORM_ADMIN without TENANT_ADMIN is refused the PUT (403), also for off -> shadow" do
       p = tenant!("req497-rt-f3-p")
       :ok = Fixture.pin!(p.tenant_id)
       operator = RSG.user!(p.schema_name)
 
       conn = call(:put, "/", p, operator.id, ["PLATFORM_ADMIN"], %{"mode" => "shadow"})
 
-      assert conn.status == 200
-      assert {:ok, :shadow} = ScopeEnforcement.get_mode(p.tenant_id)
+      assert conn.status == 403
+      assert body(conn)["detail"] == "insufficient permissions"
+      assert {:ok, :off} = ScopeEnforcement.get_mode(p.tenant_id)
     end
 
     test "full pipeline: a TENANT_ADMIN API token reaches GET /api/v1/tenant/scope-enforcement (mount)" do
@@ -496,9 +499,15 @@ defmodule Letflow.Routers.TenantScopeEnforcementTest do
       assert conn.status == 200
       assert body(conn)["findings"] == ["zero_tenant_wide_admins"]
 
-      # Informational: it does not block the off -> shadow flip.
-      conn = call(:put, "/", p, operator.id, ["PLATFORM_ADMIN"], %{"mode" => "shadow"})
-      assert conn.status == 200
+      # Informational: it does not block the off -> shadow flip (checked at function level: the
+      # PUT is TENANT_ADMIN-only since REQ-519 2f-b, and this tenant has no TENANT_ADMIN).
+      assert {:ok, %{mode: :shadow}} =
+               ScopeEnforcement.flip(p.tenant_id, p.schema_name, :shadow, %{
+                 actor_id: operator.id,
+                 reason: nil,
+                 trace_id: nil
+               })
+
       assert {:ok, :shadow} = ScopeEnforcement.get_mode(p.tenant_id)
     end
   end

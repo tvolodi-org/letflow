@@ -146,14 +146,30 @@ defmodule Letflow.ScopeEnforcementTest do
   # --- parse_mode/1, modes/0 (T-F1, function level) --------------------------------------------
 
   describe "T-F1 parse_mode/1" do
-    test "accepts exactly \"off\" and \"shadow\"" do
-      assert ScopeEnforcement.modes() == [:off, :shadow]
+    test "accepts exactly \"off\", \"shadow\" and \"on\" (REQ-519 2f-b)" do
+      assert ScopeEnforcement.modes() == [:off, :shadow, :on]
       assert ScopeEnforcement.parse_mode("off") == {:ok, :off}
       assert ScopeEnforcement.parse_mode("shadow") == {:ok, :shadow}
+      assert ScopeEnforcement.parse_mode("on") == {:ok, :on}
     end
 
-    test "refuses on, ON, enforce, Off, padded values, nil, atoms and non-strings" do
-      for value <- ["on", "ON", "enforce", "Off", " off", "shadow ", "", nil, :off, :on, 1, %{}] do
+    test "refuses ON, enforce, Off, padded values, nil, atoms and non-strings" do
+      for value <- [
+            "ON",
+            "On",
+            " on",
+            "on ",
+            "enforce",
+            "Off",
+            " off",
+            "shadow ",
+            "",
+            nil,
+            :off,
+            :on,
+            1,
+            %{}
+          ] do
         assert ScopeEnforcement.parse_mode(value) == {:error, :invalid_mode}, inspect(value)
       end
     end
@@ -161,7 +177,7 @@ defmodule Letflow.ScopeEnforcementTest do
     test "flip/4 refuses a non-mode target before touching the database" do
       fx = admin_tenant!("req497-f1-fn")
 
-      for target <- [:on, :enforce, "shadow", nil] do
+      for target <- [:enforce, "shadow", "on", nil] do
         assert ScopeEnforcement.flip(fx.tenant_id, fx.schema_name, target, attrs(fx, "r")) ==
                  {:error, :invalid_mode}
       end

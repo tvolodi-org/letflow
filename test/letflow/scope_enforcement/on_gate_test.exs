@@ -5,9 +5,9 @@ defmodule Letflow.ScopeEnforcement.OnGateTest do
   tests T-G1..T-G10, SEC code-gate merge conditions of step-16 and REVIEWER notes of step-17;
   spec `test/specs/REQ-519-2f-a.md`).
 
-  `on` is still unsettable (`parse_mode/1` and `check_target/1` are unchanged), so the shadow ->
-  on path inside `flip/4` cannot be reached; every test here calls `OnGate.evaluate/3` (and the
-  lock-free `ScopeEnforcement.integrity/1` snapshot) directly, with an injected `now`.
+  Every test here calls `OnGate.evaluate/3` (and the lock-free `ScopeEnforcement.integrity/1`
+  snapshot) directly, with an injected `now`; the same gate inside `flip/4` (the `shadow -> on`
+  transition) is exercised by the 2f-b tests.
 
     * T-G1..T-G6: each of the six facts alone refuses with exactly its stable code, on top of a
       tenant that satisfies every fact (so nothing else can fail), including the SEC conditions

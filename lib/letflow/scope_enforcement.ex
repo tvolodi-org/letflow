@@ -1,53 +1,84 @@
 defmodule Letflow.ScopeEnforcement do
   @moduledoc """
   The per-tenant org-scope enforcement flag (REQ-497 PR 1b / GH #2533, decision 0051 D12 and
-  Rollout; design `lib/letflow/design/req497-1b-allowed-flag-shadow-n1.md` section 3).
+  Rollout; REQ-519 2f-b / GH #2535, design `lib/letflow/design/req519-enforced-writers-and-flag-on.md`
+  sections 4.1 to 4.10).
 
-  Two modes are SETTABLE: `off` and `shadow` (the scope decision is computed and counted,
-  nothing is denied). A third value, `on`, is STORED since REQ-517 2b (#2535): the DB CHECK
-  and the `Tenant` enum accept it and `Letflow.Plugs.Authorize` enforces it, but it is not
-  parseable here and `flip/4` rejects it as `:invalid_mode`, so no route can set it until
-  REQ-519 adds the guarded flip. A tenant stored as `on` can still be flipped back to
-  `off` (with a reason). The flag is a column of
-  the PUBLIC `tenants` row, read per request by both auth paths with no extra query, and
-  written ONLY by `flip/4`.
+  Three modes are SETTABLE since REQ-519 2f-b: `off`, `shadow` (the scope decision is computed
+  and counted, nothing is denied) and `on` (`Letflow.Plugs.Authorize` enforces it since REQ-517
+  2b). The flag is a column of the PUBLIC `tenants` row, read per request by both auth paths
+  with no extra query, and written ONLY by `flip/4`, which only
+  `Letflow.Routers.TenantScopeEnforcement` calls (PUT, interactive tenant-wide TENANT_ADMIN
+  only; no seed, migration or config sets a tenant to `on`).
 
   ## Flip (server-side preconditions)
 
-  `flip/4` runs in one transaction: the tenant admin lock (A), the `tenants` row
-  `FOR UPDATE` (T); a same-mode request returns unchanged with no audit; off -> shadow then
-  takes the tenant's scope-tree table lock (S) and evaluates ALL three Rollout-4 facts
-  (bindings without a grant row (T9), the scope-tree consistency, tokens whose roles exceed
-  their owner's tenant-wide roles) and refuses with every failing one; shadow -> off needs a
-  reason (`Letflow.Audit.Reason`). The update and its `scope.enforcement_enabled` /
-  `scope.enforcement_disabled` audit entry commit together. A refused flip writes nothing.
+  `flip/4` runs in one transaction. Lock order: the tenant admin lock (A), the `tenants` row
+  `FOR UPDATE` (T), the tenant's scope-tree table lock (S), then PLAIN READS only. Transition
+  table (`previous -> target`):
+
+    * same mode: `changed: false`, no write, no audit, no precondition;
+    * `off -> shadow`: the three stage-1 facts (bindings without a grant row (T9), scope-tree
+      consistency, tokens whose roles exceed their owner's tenant-wide roles) after S, every
+      failing one named; audited `scope.enforcement_enabled`;
+    * `shadow -> on`: the SIX facts of `Letflow.ScopeEnforcement.OnGate` after S (see below),
+      every failing one named; audited `scope.enforcement_enabled`;
+    * `off -> on`: refused `:shadow_required` (`on` is reached ONLY from `shadow`); nothing else
+      is evaluated;
+    * `on -> shadow`: NO precondition (it must succeed with a failing fact seeded) but a
+      mandatory reason, checked in the transaction after T (`:reason_required`); audited
+      `scope.enforcement_disabled`;
+    * `shadow -> off`, `on -> off`: no precondition, mandatory reason (checked before the
+      transaction, so a same-mode `off` request without a reason is still `:reason_required`);
+      audited `scope.enforcement_disabled`.
+
+  The audit action follows the rank off < shadow < on: `enabled` when the target outranks the
+  previous mode, `disabled` otherwise. The update and its audit entry commit together; a
+  failed audit write rolls the flip back (`{:audit_failed, _}`). A REFUSED flip to `on`
+  (`{:on_precondition_failed, ...}`, `:shadow_required`) changes nothing and is audited AFTER the
+  rollback by `Letflow.ScopeEnforcement.RefusedAudit` (`scope.enforcement_refused`, best-effort,
+  own transaction); a server fault (any raise, including one inside a gate read) is a rolled
+  back `{:transaction_failed, exception}`, answered 500 and NEVER recorded as a refusal (INV-8).
+  Before the transaction of a flip to `on`, the in-memory shadow counters are flushed best-effort
+  (never extends lock hold time; a failed flush can only make the gate stricter). The only clock
+  seam is the internal `attrs[:now]`, honoured ONLY when it is a `DateTime`; the router never
+  sets it.
+
+  ## The `on` gate and its limits
+
+  The six facts (`OnGate`): T9 = 0, org consistency ok, no token exceeds its owner (tokens of a
+  flagged service-principal owner STILL block: the flagged-service-principal exemption covers
+  ONLY the mint subset check), at least one INTERACTIVE explicit tenant-wide TENANT_ADMIN (SEC
+  C-4: the flip route is interactive-only, so a tenant with none could not be turned off), no
+  scoped approver (a scoped TASK_WORKER in a routing group; removed only by the requirement
+  that ships a writer for `tasks.scope_node_id`, evaluated at flip time only), and the shadow
+  evidence (`Letflow.ScopeEnforcement.ShadowWindow`). Limits of the evidence, stated once: the
+  shadow period proves only the denials of tenant-wide and admin-plane routes (the sentence of
+  `ShadowWindow.scope_sentence/0`, also in `docs/roles.md`); request counts include every
+  authorized request of any principal, the flip request itself included, so criterion (b) is an
+  operator-safety control, not an adversarial one.
+
+  BUILD-ORDER dependency (SEC C-1, not a runtime check): `on` may only be settable once every
+  `/me/*` and `/help/*` read is classified. REQ-518 PR #2817 classified the three of them
+  (`:self_service`, rulings `0051-A7`, `SEC-518-R2-modules`, `SEC-518-R2-help`); the route-walk
+  test `route_scope_on_flip_blocker_test.exs` pins it.
 
   ## Integrity (`integrity/1`)
 
   The read-only grant-table integrity report behind
   `GET /api/v1/tenant/scope-enforcement/integrity` (REQ-497 open question 3, AC16): bindings
   without a row (T9, items capped at 1000), orphan group rows, and informational FINDINGS
-  with stable codes. Finding `zero_tenant_wide_admins` (supervisor ruling 2026-10-15): the
-  tenant has zero counted tenant-wide admins (`Letflow.Identity.count_tenant_wide_admins/1`).
-  It is INFORMATIONAL in stage 1 and does NOT block the off -> shadow flip; it becomes a
-  precondition of the stage-2 `on` flip (#2535).
+  with stable codes. Finding `zero_tenant_wide_admins`: the tenant has zero counted
+  tenant-wide admins (`Letflow.Identity.count_tenant_wide_admins/1`); it is informational and
+  does NOT block `off -> shadow`.
 
-  ## The `on` gate (REQ-519 2f-a, dormant until 2f-b)
-
-  The report also carries `on_gate` (design `req519-enforced-writers-and-flag-on.md` section
-  4.4): `blocking` (the failing codes of `Letflow.ScopeEnforcement.OnGate`), `information`
+  The report also carries `on_gate`: `blocking` (the failing codes of `OnGate`), `information`
   (`scoped_task_workers_without_task_scope`), `counts` and the shadow `evidence`, computed
   WITHOUT locks and WITHOUT audit (a labelled snapshot of what the `on` flip will check). It
-  is a different list from `findings`: `findings` is the stage-1 informational list (its
-  `zero_tenant_wide_admins` uses the OLD count so the off -> shadow gate is unchanged);
+  is a different list from `findings`: `findings` is the stage-1 list (its
+  `zero_tenant_wide_admins` uses the OLD count so the `off -> shadow` gate is unchanged);
   `on_gate.blocking` computes `zero_tenant_wide_admins` from the INTERACTIVE EXPLICIT count
-  (`Letflow.Identity.count_interactive_explicit_tenant_wide_admins/1`, SEC C-4).
-
-  `flip/4` already contains the `shadow -> on` path (best-effort evidence flush before the
-  transaction, `OnGate.evaluate/3` after the S lock inside the one `try`, the refusal audit
-  of `Letflow.ScopeEnforcement.RefusedAudit` after the rollback, the `attrs[:now]` clock seam
-  that only internal callers set), but `on` stays UNSETTABLE: `parse_mode/1` and
-  `check_target/1` accept `off` and `shadow` only until REQ-519 2f-b widens them.
+  (`Letflow.Identity.count_interactive_explicit_tenant_wide_admins/1`).
   """
 
   import Ecto.Query
@@ -67,8 +98,9 @@ defmodule Letflow.ScopeEnforcement do
   alias Letflow.ScopeNodePaths.Consistency
   alias Letflow.TenantProvisioning
 
-  @modes [:off, :shadow]
-  @stored_modes [:off, :shadow, :on]
+  # The settable modes are the stored modes (stage 1 kept two lists; `on` became settable in
+  # REQ-519 2f-b, so there is one list and `stored_modes/0` delegates to it).
+  @modes [:off, :shadow, :on]
   # Single owner of the flip audit vocabulary: `flip_entry/6`, `RefusedAudit` and
   # `ShadowWindow` (T0 = the latest flip entry) all read these.
   @enabled_action "scope.enforcement_enabled"
@@ -76,8 +108,8 @@ defmodule Letflow.ScopeEnforcement do
   @resource_type "tenant"
   @integrity_items_cap 1000
 
-  @type mode :: :off | :shadow
-  @type stored_mode :: :off | :shadow | :on
+  @type mode :: :off | :shadow | :on
+  @type stored_mode :: mode()
   @type precondition :: :bindings_without_row | :org_inconsistent | :tokens_exceed_owner
   @type precondition_report :: %{
           bindings_without_row: non_neg_integer(),
@@ -125,21 +157,22 @@ defmodule Letflow.ScopeEnforcement do
   @spec flip_actions() :: [String.t()]
   def flip_actions, do: [@enabled_action, @disabled_action]
 
-  @doc "The settable modes, `[:off, :shadow]`."
+  @doc "The settable modes, `[:off, :shadow, :on]`."
   @spec modes() :: [mode()]
   def modes, do: @modes
 
-  @doc "Every mode the column can store, `[:off, :shadow, :on]` (reads only; `on` is not settable)."
+  @doc "Every mode the column can store, `[:off, :shadow, :on]` (the same list as `modes/0`)."
   @spec stored_modes() :: [stored_mode()]
-  def stored_modes, do: @stored_modes
+  def stored_modes, do: modes()
 
   @doc """
-  Exactly the strings `"off"` and `"shadow"`. Every other value (`"on"`, `"ON"`, `nil`,
+  Exactly the strings `"off"`, `"shadow"` and `"on"`. Every other value (`"ON"`, `nil`,
   non-strings) is `{:error, :invalid_mode}`. No atom is minted from input.
   """
   @spec parse_mode(term()) :: {:ok, mode()} | {:error, :invalid_mode}
   def parse_mode("off"), do: {:ok, :off}
   def parse_mode("shadow"), do: {:ok, :shadow}
+  def parse_mode("on"), do: {:ok, :on}
   def parse_mode(_other), do: {:error, :invalid_mode}
 
   defmodule ModeUnavailableError do
@@ -187,7 +220,7 @@ defmodule Letflow.ScopeEnforcement do
     case TenantProvisioning.tenant_id_for_schema_name(prefix) do
       {:ok, tenant_id} ->
         case Repo.one(from(t in Tenant, where: t.id == ^tenant_id, select: t.scope_enforcement)) do
-          mode when mode in @stored_modes -> {:ok, mode}
+          mode when mode in @modes -> {:ok, mode}
           nil -> :unregistered
           _other -> :unavailable
         end
@@ -215,7 +248,7 @@ defmodule Letflow.ScopeEnforcement do
           {:ok, stored_mode()} | {:error, :tenant_not_found}
   def get_mode(tenant_id) do
     with {:ok, id} <- Ecto.UUID.cast(tenant_id),
-         mode when mode in @stored_modes <-
+         mode when mode in @modes <-
            Repo.one(from(t in Tenant, where: t.id == ^id, select: t.scope_enforcement)) do
       {:ok, mode}
     else
@@ -243,15 +276,15 @@ defmodule Letflow.ScopeEnforcement do
   end
 
   @doc """
-  Flips the tenant's mode to `target` (see the moduledoc). `prefix` must be the tenant's
-  own schema. `attrs.reason` is mandatory for `:off` and validated when present for
-  `:shadow`. A same-mode request returns `changed: false` with no write, audit or
-  precondition check.
+  Flips the tenant's mode to `target` (see the moduledoc for the transition table). `prefix`
+  must be the tenant's own schema. `attrs.reason` is mandatory for `:off` and for `on ->
+  shadow`, and validated when present otherwise. A same-mode request returns `changed: false`
+  with no write, audit or precondition check.
   """
   @spec flip(
           tenant_id :: Ecto.UUID.t(),
           prefix :: String.t(),
-          target :: stored_mode(),
+          target :: mode(),
           attrs :: %{
             :actor_id => Ecto.UUID.t() | nil,
             :reason => term(),
@@ -259,7 +292,7 @@ defmodule Letflow.ScopeEnforcement do
             optional(:now) => DateTime.t()
           }
         ) ::
-          {:ok, %{mode: stored_mode(), previous: stored_mode(), changed: boolean()}}
+          {:ok, %{mode: mode(), previous: mode(), changed: boolean()}}
           | {:error, flip_error()}
   def flip(tenant_id, prefix, target, attrs) when is_binary(prefix) and is_map(attrs) do
     with :ok <- check_target(target),
@@ -269,7 +302,7 @@ defmodule Letflow.ScopeEnforcement do
 
       # SEC S-4: flush the in-memory counters BEFORE the transaction (never extends lock hold
       # time); best-effort, a failed flush can only make the gate stricter.
-      if flush_before?(target), do: ShadowWindow.flush_evidence()
+      if target == :on, do: ShadowWindow.flush_evidence()
 
       # The `rescue` encloses the WHOLE transaction, including OnGate.evaluate/3: a raise from
       # any gate fact is a rolled-back server fault, never a refusal (INV-8).
@@ -304,12 +337,6 @@ defmodule Letflow.ScopeEnforcement do
 
   defp record_refusal(_result, _id, _prefix, _attrs), do: :ok
 
-  # The compiler infers `target` from check_target/1 (off or shadow) and flags a plain `:on`
-  # comparison or clause as unreachable; the guard form keeps the dormant `on` path compiling
-  # until 2f-b widens check_target/1.
-  defp flush_before?(target), do: target in [:on]
-
-  # `on` is deliberately NOT settable here (REQ-519 2f-b widens `@modes`).
   defp check_target(target) when target in @modes, do: :ok
   defp check_target(_target), do: {:error, :invalid_mode}
 
@@ -321,7 +348,7 @@ defmodule Letflow.ScopeEnforcement do
   end
 
   defp check_reason(:off, nil), do: {:error, :reason_required}
-  defp check_reason(target, nil) when target in [:shadow, :on], do: {:ok, nil}
+  defp check_reason(_target, nil), do: {:ok, nil}
 
   defp check_reason(_target, reason) do
     case Letflow.Audit.Reason.validate(reason) do
@@ -348,13 +375,13 @@ defmodule Letflow.ScopeEnforcement do
       target == :on and previous != :shadow ->
         Repo.rollback(:shadow_required)
 
+      # The de-escalation `on -> shadow` runs NO precondition, but its reason is mandatory
+      # (AC 13; the pre-transaction check cannot know the previous mode).
+      previous == :on and target == :shadow and is_nil(reason) ->
+        Repo.rollback(:reason_required)
+
       true ->
-        report =
-          case target do
-            :on -> on_checks!(tenant_id, prefix, now)
-            :shadow -> enable_checks!(prefix)
-            _off -> nil
-          end
+        report = transition_report!(previous, target, tenant_id, prefix, now)
 
         Repo.update!(Tenant.scope_enforcement_changeset(tenant, %{scope_enforcement: target}))
 
@@ -368,6 +395,17 @@ defmodule Letflow.ScopeEnforcement do
         end
     end
   end
+
+  # The facts a transition must satisfy, tagged by kind so the audit entry dispatches on the
+  # tag and not on the shape of the map. Only escalations are gated; every de-escalation
+  # (`on -> shadow`, `* -> off`) runs no precondition.
+  defp transition_report!(:shadow, :on, tenant_id, prefix, now),
+    do: {:on_gate, on_checks!(tenant_id, prefix, now)}
+
+  defp transition_report!(:off, :shadow, _tenant_id, prefix, _now),
+    do: {:three_facts, enable_checks!(prefix)}
+
+  defp transition_report!(_previous, _target, _tenant_id, _prefix, _now), do: nil
 
   # shadow -> on: rank S (after A and T), then ALL six facts (4.4); every failing one is named.
   # A raise propagates out of the transaction (no flag change; not a refusal, INV-8).
@@ -403,27 +441,27 @@ defmodule Letflow.ScopeEnforcement do
   defp flip_entry(tenant_id, previous, target, reason, report, attrs) do
     after_state = %{"mode" => Atom.to_string(target), "reason" => reason}
 
-    # The target decides the report's shape: `:on` carries the six-fact OnGate report,
-    # `:shadow` the three stage-1 facts, `:off` none.
+    # The tag decides the report's shape: `:on_gate` carries the six-fact OnGate report,
+    # `:three_facts` the stage-1 facts, `nil` none (every de-escalation).
     after_state =
-      case target do
-        :on ->
-          Map.merge(after_state, OnGate.audit_state(report))
+      case report do
+        {:on_gate, on_report} ->
+          Map.merge(after_state, OnGate.audit_state(on_report))
 
-        :shadow ->
+        {:three_facts, facts} ->
           Map.put(after_state, "preconditions", %{
-            "bindings_without_row" => report.bindings_without_row,
-            "org_consistency" => Atom.to_string(report.org_consistency),
-            "tokens_exceeding_owner" => report.tokens_exceeding_owner
+            "bindings_without_row" => facts.bindings_without_row,
+            "org_consistency" => Atom.to_string(facts.org_consistency),
+            "tokens_exceeding_owner" => facts.tokens_exceeding_owner
           })
 
-        :off ->
+        nil ->
           after_state
       end
 
     %{
       actor_id: Map.get(attrs, :actor_id),
-      action: if(target in [:shadow, :on], do: @enabled_action, else: @disabled_action),
+      action: if(rank(target) > rank(previous), do: @enabled_action, else: @disabled_action),
       resource_type: @resource_type,
       resource_id: tenant_id,
       before_state: %{"mode" => Atom.to_string(previous)},
@@ -431,6 +469,11 @@ defmodule Letflow.ScopeEnforcement do
       trace_id: Map.get(attrs, :trace_id)
     }
   end
+
+  # Audit action rank (AC 13): enabled when the target outranks the previous mode.
+  defp rank(:off), do: 0
+  defp rank(:shadow), do: 1
+  defp rank(:on), do: 2
 
   @doc """
   The grant-table integrity report for the tenant schema `prefix` (see the moduledoc).

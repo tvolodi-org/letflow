@@ -746,34 +746,15 @@ defmodule Letflow.Routers.Identity do
 
   # ── PUT /users/:id/service-principal (REQ-517 AC 12, design 3.12) ───────
   #
-  # Gate, in this order, every refusal the same uniform 403: (1) the plug (unchanged); (2) an
-  # interactive (`:oidc`) credential, so an API token, even holding TENANT_ADMIN, is refused;
-  # (3) `:UsersGroupsRolesManage` held tenant-wide; (4) the caller holds TENANT_ADMIN
-  # tenant-wide (a platform-tenant PLATFORM_ADMIN alone does not).
+  # Gate: `Letflow.Api.Scope.require_interactive_tenant_admin/1` (see its doc); every refusal
+  # is the same uniform 403.
 
   @service_principal_keys ["flagged", "reason"]
 
   defp handle_service_principal(conn, raw_id) do
-    with :ok <- require_oidc(conn),
-         {:ok, conn} <- require_tenant_admin_tenant_wide(conn) do
-      do_service_principal(conn, raw_id)
-    else
-      :forbidden -> forbid_insufficient(conn)
-    end
-  end
-
-  defp require_oidc(conn) do
-    if Map.get(conn.assigns.auth_context, :credential) == :oidc, do: :ok, else: :forbidden
-  end
-
-  defp require_tenant_admin_tenant_wide(conn) do
-    with {:ok, conn} <- Scope.require_tenant_wide(conn, :UsersGroupsRolesManage),
-         {:ok, conn, principal} <- Scope.principal_from_conn(conn),
-         true <- :TENANT_ADMIN in principal.roles,
-         :tenant_wide <- Scope.effective_scope(principal, "TENANT_ADMIN") do
-      {:ok, conn}
-    else
-      _not_allowed -> :forbidden
+    case Scope.require_interactive_tenant_admin(conn) do
+      {:ok, conn} -> do_service_principal(conn, raw_id)
+      {:error, conn, :forbidden} -> forbid_insufficient(conn)
     end
   end
 
