@@ -1,0 +1,76 @@
+{
+  "handoff_id": "d2535519-0519-4c02-9e11-000000000017",
+  "run_id": "WF02-REQ519-ENFORCED-WRITERS-20261018",
+  "workflow_id": "WF-02",
+  "step": "17",
+  "from_agent": "REVIEWER",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-17-reviewer-code-2f-a.json",
+  "created_at": "2026-10-19T00:05:11Z",
+  "started_at": "2026-10-19T00:05:11Z",
+  "completed_at": "2026-10-19T00:09:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-519"],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "REVIEWER code gate for REQ-519 slice 2f-a (GH #2535), uncommitted tree of feature/WF02-REQ519-2FA-GATE-20261019. Read-only; no mix run; no file edited."
+    },
+    "related_handoff_ids": ["d2535519-0519-4c02-9e11-000000000012", "d2535519-0519-4c02-9e11-000000000015", "d2535519-0519-4c02-9e11-000000000016"],
+    "artifacts_in": [
+      "lib/letflow/design/req519-enforced-writers-and-flag-on.md",
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-15-elixir-dev-2f-a.json",
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-16-security-reviewer-code-2f-a.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ519-2FA-GATE-20261019"
+  },
+  "task": {
+    "description": "Idiom, supervision, scope-creep, duplication, guard-form, decision-record gate for REQ-519 2f-a."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "PASS_WITH_FINDINGS. No blocker. Static review only. 1 IDIOM: no process, spawn, supervisor or GenServer added (grep clean); InstanceSupervisor untouched; decisions 0045 and 0051 D12 consistent in shape. Transaction shapes are right: flip/4 keeps one Repo.transaction inside one try/rescue; do_flip's cond rolls back with Repo.rollback for business refusals (shadow_required, on_precondition_failed, audit_failed) and lets a gate read raise, so refusal is a returned tuple and a fault is an exception (matches repo convention); RefusedAudit and flush_evidence both run outside the try and are self-rescuing, so the rescue window is exactly the transaction. Specs read accurate except the dormant-path typing (F-3). OnGate.evaluate failed-list built from a keyword-style list of {code, failed?} tuples is clear and keeps read order. 2 SUPERVISION: nothing collapsed. 3 TYPE-SAFETY: see TS-1 (report is two shapes discriminated by key sniffing). Does not block. 4 SCOPE vs design r2a section 1 (2f-a): every file maps to a design item. Extras: blocking_reasons/0 and reported_reasons/0 are public with no caller in lib (ShadowWindow uses the attribute directly); OnGate.audit_state/1 is a justified shared serialiser (used by flip_entry and RefusedAudit); the integrity evidence sub-block is SEC-accepted and is the shape the 2f-b UI needs. Verdict on extras: reported_reasons/0 and blocking_reasons/0 are speculative surface, drop or make private (F-5); the rest stay. 5 MODULE BOUNDARIES: five modules is acceptable, not over-split: OnGate (fact composition), ShadowWindow (criteria + thresholds + flush), RefusedAudit (best-effort post-rollback write, mirrors TenantAdminGuard.refuse), ScopedApprovers (an Identity read), plus ScopeEnforcement. RefusedAudit is one public function with one caller; keeping it separate is justified by the outside-transaction invariant and the sibling precedent, and by ScopeEnforcement already being ~460 lines. Note a compile-time-benign cycle ScopeEnforcement <-> OnGate (OnGate calls ScopeEnforcement.preconditions/1; ScopeEnforcement calls OnGate.evaluate/3 and cites its types) and RefusedAudit -> ScopeEnforcement.stored_mode(); mix letflow.check_boundaries reports 0 violations; INFO only (F-8). 6 GUARD-FORM WORKAROUNDS: check_reason(target, nil) when target in [:shadow, :on] and flush_before?(target) = target in [:on] exist only because @type mode and the flip/4 @spec say :off | :shadow while do_flip already handles :on. They are correct and behave identically if :on later becomes reachable, but they hide the real cause: the spec is narrower than the function's body. Cleaner, not dependent on :on being unreachable: widen the flip/4 @spec target (and the ok-result mode) to stored_mode(), which already includes :on, and let check_target/1 (runtime, @modes) be the only place that rejects it. Then literal clauses check_reason(:on, nil) and a plain target == :on compile (the compiler no longer proves them dead), flush_before? can be inlined, and 2f-b only widens @modes/parse_mode. If the compiler still objects after the spec widening, keep the guard forms. Not required for PASS (F-3). 7 DUPLICATION (anti-patterns.md has no entry for this exact shape; nearest is the fragment/literal-sharing entry at line 280): (a) the atom->string Map.new for would_deny and criteria is written in OnGate.audit_state/1 and again in the router on_gate_body/1; (b) the precondition counts -> string-key map is written three times (audit_state 'preconditions', flip_entry 'preconditions' for the three-fact off->shadow report, router 'counts'); (c) 'scope.enforcement_enabled'/'scope.enforcement_disabled' and resource_type 'tenant' are literals in flip_entry and in ShadowWindow.shadow_since (a rename in one silently zeroes T0 and the gate then refuses forever, fail-closed but invisible); (d) 'scope_enforcement_flip_failed' has exactly one owner in lib (router) - fine; 'scope_enforcement_refusal_not_recorded' has one owner (RefusedAudit, three call sites of the same literal prefix) - fine; (e) the three env-key atoms and the default numbers live in both config/config.exs and ShadowWindow module attributes, two sources that can drift (F-6). The reason codes in OnGate.evaluate and on_precondition() type are one list written twice (type and failed-list), normal. 8 AUDIT API: Audit.latest_matching/4 is well shaped (prefix first like every Audit function, closed args, returns Entry.t() | nil, no options bag). Nit: resource_id is spec'd String.t() while tenant_id is an Ecto.UUID.t() string, consistent. SyncScopeGuard swap is exactly the 2e-b F-2 bridge I asked for; behaviour identical; the audit columns are now read in one module. 9 CONFIG: defaults are placed with the SECURITY comment and the explicit statement that prod/runtime must not set them; fine. 10 FORCED TEST EDITS: both are forced (the integrity map gained on_gate); the stage-1 keys are asserted by exact equality on the remainder via Map.pop, and the on_gate key set is asserted exactly. Nothing weakened. 11 DEAD CODE UNTIL 2f-b: the shadow->on branch of do_flip, record_refusal clauses, flush_before?, RefusedAudit, the shadow_required path and ShadowWindow's flush are unreachable from lib callers (only OnGate.evaluate/ShadowWindow via integrity/1 are live). Recommendation: keep, do not defer: the design places them in 2f-a, SEC reviewed them as a unit, and splitting would force a second SEC pass of the transaction shape; TEST-DESIGNER can reach them only through the attrs/target seam, so the tests must call do_flip behaviour via flip/4 with an internal-only route (see condition C-2). 12 DECISION RECORDS: 0045 consistent. 0051 A1 precondition (4) still reads 'or a live TENANT_ADMIN token owner' while SEC ruling C-4 (adopted in code) counts interactive explicit admins only; this is a decision-record text drift, not a code defect; DOC-UPDATER should amend 0051 A1(4) or add a one-line supersession note (F-7). 13 STALE TEXT: the ShadowWindow moduledoc says evaluate/3 is 'NOT yet reachable from a route' - now false for the integrity route (integrity/1 calls OnGate.evaluate/3 -> ShadowWindow.evaluate/3, and GET /integrity is a live route). Recorded, not edited (a doc inside a file under SEC/REVIEWER review; ELIXIR-DEV to fix with F-2). Same sentence in OnGate moduledoc ('It is not yet reachable from a route') is also stale for the snapshot path.",
+    "decision_on_sec_findings": [
+      {
+        "id": "SEC F-1",
+        "question": "tidy integrity/1 MatchError into a with now, or in 2f-b?",
+        "recommendation": "NOW, before TEST-DESIGNER. integrity/1 returns a map, so a with-chain gains nothing; replace the {:ok, tenant_id} = match by a small private tenant_id!/1 that raises ArgumentError 'invalid tenant schema prefix' (the exact message and exception ShadowEvidence.counts_by_day/3 already uses for the same condition). Three lines, no behaviour change on any real caller, and it lets T-I tests pin one exception type instead of a MatchError that would be a test of an implementation accident. Not a blocker if skipped."
+      },
+      {
+        "id": "SEC F-2",
+        "question": "GET /integrity runs the full gate with no constant log line on a raise",
+        "recommendation": "Accept for 2f-a; file as non-blocking observability follow-up. Do not add a rescue in the handler (it would turn a fault into a quiet partial body). Instead have ELIXIR-DEV confirm the router's generic error path logs the exception module only, or add the same fault_tags-style single line in handle_integrity in 2f-b when the router is touched anyway for the 409 mapping. Cost grows by two ScopedApprovers queries plus the grouped evidence query per call on an admin-plane, admission-controlled route; acceptable."
+      }
+    ],
+    "findings": [
+      {"id": "F-1", "severity": "MINOR", "blocking": false, "title": "Stale moduledoc claims (ShadowWindow, OnGate): 'not yet reachable from a route'", "detail": "integrity/1 reaches both on the live GET /integrity route. Reword to 'the flip path is unreachable until 2f-b; the lock-free snapshot is live through GET /integrity'. ELIXIR-DEV."},
+      {"id": "F-2", "severity": "MINOR", "blocking": false, "title": "integrity/1 MatchError", "detail": "See decision_on_sec_findings SEC F-1: do now with a private tenant_id!/1 raising ArgumentError."},
+      {"id": "F-3", "severity": "MINOR", "blocking": false, "title": "flip/4 @spec narrower than the function it fronts; guard-form workarounds hide it", "detail": "Widen target and result mode to stored_mode() (or a new @type target :: mode() | :on) and keep check_target/1 as the sole runtime rejection of :on. check_reason/2 then takes a plain :on clause and flush_before?/1 disappears. If the compiler type checker still flags it, keep the guard forms as is. 2f-b must in any case revisit both."},
+      {"id": "F-4", "severity": "MINOR", "blocking": false, "title": "Report shape discriminated by key sniffing", "detail": "flip_entry matches `%{evidence: _}` versus the three-fact report, and RefusedAudit.gate_state/1 matches `%{evidence: _}` versus `%{}`; record_refusal hard-codes the previous mode (:shadow / :off). Dispatch on the target and the explicit tag instead: flip_entry(..., target, report) with `case {target, report}`, or give enable_checks!/on_checks! results a tag {:three_facts, r} | {:on_gate, r}. Same fact in two encodings is the TS-1 type-safety note."},
+      {"id": "F-5", "severity": "MINOR", "blocking": false, "title": "Speculative public API", "detail": "ShadowWindow.blocking_reasons/0 and reported_reasons/0 have no caller in lib/ (ShadowWindow uses @blocking_reasons internally). Remove reported_reasons/0, and either remove blocking_reasons/0 or use it from the criterion (it is the single owner of the blocking set) and keep it only if a test or the 2f-b UI needs it. ShadowEvidence.reasons/0 is used and stays."},
+      {"id": "F-6", "severity": "MINOR", "blocking": false, "title": "Threshold defaults live in two places; audit literals in two places", "detail": "config.exs defaults and ShadowWindow @default_* must agree; TEST-DESIGNER should pin Application.get_env(:letflow, :scope_shadow_min_days) == thresholds default (one assertion each). The enabled/disabled action strings and 'tenant' resource_type are literal in flip_entry and ShadowWindow.shadow_since; expose them from one owner (e.g. ScopeEnforcement.transition_actions/0) or a module attribute used by both, and pin with a test that a flip into shadow makes shadow_since non-nil."},
+      {"id": "F-7", "severity": "INFO", "blocking": false, "title": "Decision record 0051 A1(4) text drift vs SEC C-4", "detail": "A1(4) counts a live TENANT_ADMIN token owner; the shipped gate counts interactive explicit admins only. Amend or supersede in docs (DOC-UPDATER / 2f-b docs slice). Not a decision disagreement: C-4 is the stricter and safer reading."},
+      {"id": "F-8", "severity": "INFO", "blocking": false, "title": "Mutual references ScopeEnforcement <-> OnGate <-> RefusedAudit", "detail": "Runtime calls plus type references only; boundary check passes. If a fourth module needs the same facts, move preconditions/1 into OnGate (it is gate input) and leave ScopeEnforcement with the flip. No action now."},
+      {"id": "F-9", "severity": "INFO", "blocking": false, "title": "Router duplicates the evidence/counts wire serialisation", "detail": "on_gate_body/1 hand-writes the same string-key shapes as OnGate.audit_state/1 (F-DUP a, b). Prefer one OnGate.wire/1 (or have the integrity snapshot return the already stringified map) so the audit and the endpoint cannot diverge. Do before 2f-b adds a 409 body that carries the same data."}
+    ],
+    "type_safety_findings": [
+      {"id": "TS-1", "title": "OnGate.report() and the off->shadow three-fact precondition report are two different map shapes passed through one `report` parameter and told apart by whether the key :evidence exists; an invalid mix is representable and only a runtime clause order catches it", "suggestion": "make the report a tagged union or two structs (ThreeFacts, OnGateReport) so flip_entry/RefusedAudit pattern match a type, not a key; ORCH files under docs/issues/ tagged type-safety via FINDING per WORK_BOARD section 7"},
+      {"id": "TS-2", "title": "flip/4 target type excludes :on while do_flip handles it; the mismatch forced guard-form workarounds", "suggestion": "widen target to stored_mode() (F-3) so the type matches the body; fold into the same type-safety issue as TS-1"}
+    ],
+    "conditions_for_next_step": [
+      "C-1: before TEST-DESIGNER, ELIXIR-DEV applies F-2 (tenant_id!/1 ArgumentError) and F-1 (moduledoc wording); optional in the same pass F-3/F-5. All are small and do not need a second SEC pass (no lock, no write, no route change); SEC need only be told F-2 changed the raised exception type of integrity/1 for a non-tenant prefix.",
+      "C-2: dormant paths (shadow->on in do_flip, record_refusal, RefusedAudit, flush) can only be reached by TEST-DESIGNER through flip/4 if check_target accepts :on; the tests must therefore either exercise the pieces directly (OnGate.evaluate/3, RefusedAudit.record/6, ShadowWindow.evaluate/3) or use a test-only seam. Do NOT widen @modes in 2f-a to make them testable.",
+      "C-3: TEST-DESIGNER pins the config defaults against ShadowWindow.thresholds/0 (F-6) and the SEC conditions_for_merge list in step-16."
+    ],
+    "local_issue_id": null,
+    "artifacts_out": ["handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-17-reviewer-code-2f-a.json"],
+    "diagnosis_confirmed": true,
+    "implementation_written": false,
+    "classification": "REVIEW_PASS_WITH_FINDINGS"
+  }
+}

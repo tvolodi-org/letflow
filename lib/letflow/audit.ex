@@ -375,6 +375,31 @@ defmodule Letflow.Audit do
     end
   end
 
+  @doc """
+  REQ-519 2f-a (design 4.5/4.6): the LATEST entry of the tenant schema `prefix` for
+  `resource_type` / `resource_id` whose `action` is one of `actions`, or `nil`. One query,
+  `ORDER BY timestamp DESC, id DESC LIMIT 1`, served by index #3 (resource_type,
+  resource_id, timestamp, id). Read-only; the caller reads `after_state` from the entry.
+  """
+  @spec latest_matching(
+          prefix :: String.t(),
+          resource_type :: String.t(),
+          resource_id :: String.t(),
+          actions :: [String.t()]
+        ) :: Entry.t() | nil
+  def latest_matching(prefix, resource_type, resource_id, actions)
+      when is_binary(prefix) and is_binary(resource_type) and is_binary(resource_id) and
+             is_list(actions) do
+    from(e in Entry,
+      where:
+        e.resource_type == ^resource_type and e.resource_id == ^resource_id and
+          e.action in ^actions,
+      order_by: [desc: e.timestamp, desc: e.id],
+      limit: 1
+    )
+    |> Repo.one(prefix: prefix)
+  end
+
   defp validate_actor_id(nil), do: {:ok, nil}
   defp validate_actor_id(""), do: {:ok, nil}
 

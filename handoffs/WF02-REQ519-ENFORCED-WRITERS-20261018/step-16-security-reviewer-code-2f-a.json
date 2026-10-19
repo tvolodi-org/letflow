@@ -1,0 +1,98 @@
+{
+  "handoff_id": "d2535519-0519-4c02-9e11-000000000016",
+  "run_id": "WF02-REQ519-ENFORCED-WRITERS-20261018",
+  "workflow_id": "WF-02",
+  "step": "16",
+  "from_agent": "SECURITY-REVIEWER",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-16-security-reviewer-code-2f-a.json",
+  "created_at": "2026-10-19T00:02:46Z",
+  "started_at": "2026-10-19T00:02:46Z",
+  "completed_at": "2026-10-19T00:04:15Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-519"],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "SECURITY-REVIEWER code gate for REQ-519 slice 2f-a (GH #2535): uncommitted tree on feature/WF02-REQ519-2FA-GATE-20261019. Read-only static review; no mix, no tests run."
+    },
+    "related_handoff_ids": ["d2535519-0519-4c02-9e11-000000000004", "d2535519-0519-4c02-9e11-000000000011", "d2535519-0519-4c02-9e11-000000000015"],
+    "artifacts_in": [
+      "lib/letflow/scope_enforcement.ex",
+      "lib/letflow/scope_enforcement/on_gate.ex",
+      "lib/letflow/scope_enforcement/shadow_window.ex",
+      "lib/letflow/scope_enforcement/refused_audit.ex",
+      "lib/letflow/identity/scoped_approvers.ex",
+      "lib/letflow/identity.ex",
+      "lib/letflow/identity/sync_scope_guard.ex",
+      "lib/letflow/audit.ex",
+      "lib/letflow/api/scope/shadow_evidence.ex",
+      "lib/letflow/routers/tenant_scope_enforcement.ex",
+      "config/config.exs",
+      "lib/letflow/design/req519-enforced-writers-and-flag-on.md"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ519-2FA-GATE-20261019"
+  },
+  "task": {
+    "description": "Code gate for 2f-a against INV-1..INV-10, REQ-519 ACs 7 (2f-a part), 8-15, design r2a section 1 (2f-a), 4.x, 5.x, 12 and step-04 rulings S-4, S-5, S-6, C-4, C-5. No edits to lib/ or test/."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "No blocking defect. Static review only; runtime claims rest on TEST-DESIGNER tests in hosted CI. VERIFIED: (1) `on` is still unsettable: parse_mode/1, @modes and check_target/1 are not in the diff (the only check_target line touched is a comment); the router PUT builds the literal three-key attrs map (actor_id, reason, trace_id), so a request cannot supply `now`, thresholds or any other attrs key; the dormant shadow->on path in flip/do_flip is unreachable from any route. (2) No forgery of the gate: counts_by_day reads only the persisted scope_shadow_counters table (written by the ShadowEvidence flush from the in-process ETS counters) under the tenant prefix with prefix validation; T0 comes from Audit.latest_matching over scope.enforcement_enabled/disabled entries of resource_type tenant and the tenant id, with timestamp assigned server-side by Audit.insert_entry (DateTime.utc_now, not caller-supplied); the only writer of those two actions is ScopeEnforcement.flip_entry; no router or context in lib/ writes an audit action from request input for that action (grep of insert_entry call sites: fixed actions). A tenant admin can therefore only lengthen the window by real traffic (documented limit, see F-4). A later on->shadow or off->shadow transition resets T0 because the LATEST transition must have left mode shadow-entered; a latest transition to off/on yields nil and fails closed. (3) OnGate.evaluate evaluates all six facts every time, in a fixed read order, returns stable atom codes in read order, report holds counts/enums/booleans only; no id, name or token data in the report, the integrity body or the audit payload (audit_state is a closed key set). (4) Lock/ordering: do_flip takes A (lock_tenant_admins!), then T (tenants row), then S (ScopeNodePaths.lock!) before OnGate.evaluate, all inside the one Repo.transaction, so facts are read after the tree lock in the same transaction; no new lock rank; ShadowWindow, ScopedApprovers, OnGate are plain reads. The evidence flush runs before the transaction and never raises (rescue/catch), so a failed flush only makes the gate stricter. (5) C-5: the try/rescue encloses Repo.transaction including OnGate.evaluate, so a raise from any fact is {:transaction_failed, exception}, rolled back, never a refusal and never recorded; the router logs ONE constant line scope_enforcement_flip_failed reason=<tag> exception=<module|none> (no message, no ids). (6) S-6 RefusedAudit: called by flip/4 only after Repo.transaction returned, outside any transaction (guarded: inside a transaction it writes nothing and logs the constant line); own transaction; whole function rescues and returns :ok; only {:on_precondition_failed,..} and :shadow_required are recorded, never {:transaction_failed,_} or {:audit_failed,_}; payload is target, failed codes, and the closed audit_state (counts/booleans). (7) Audit.latest_matching/4: prefix passed to Repo.one, filter resource_type + resource_id + action in ^actions (bound), ORDER BY timestamp DESC, id DESC LIMIT 1; correct and tenant scoped. SyncScopeGuard.already_recorded?/3 now calls it with a single action and tests != nil: identical to the old exists? (same resource_type, resource_id, action, prefix). (8) count_interactive_explicit_tenant_wide_admins/1: active users only (active_user_condition on the base), group half only (exists member_of_admin_group), excludes u.admin_flagged_service_principal, no token-owner branch, tenant-wide TENANT_ADMIN row required (admin_group_holder_filter :interactive_explicit, same as :explicit); count_explicit_tenant_wide_admins/1 and the :counted/:explicit paths unchanged (the or-expression is preserved verbatim for them). (9) ScopedApprovers.count: ACTIVE users only, literal AC 10 definition, bound parameters only, prefix on every Repo.one; no writer added. (10) ShadowWindow thresholds: Application env only, an integer below 1 or a non-integer falls back to the DEFAULT; defaults only in config/config.exs (config/test.exs sets none of the three keys; prod.exs and runtime.exs untouched); no runtime override; configuration criterion fails closed when min_days > retention_days. (11) INV-7: no Repo.query / raw SQL added; Ecto queries with pinned values only. INV-4: no secret resolved or logged; the two new log lines carry reason tags and exception module names only. (12) Routes changed: NONE: route snapshot, route_inventory.ex, route_scope.ex, authorized_router.ex, permission matrix, ci.yml, mix.exs are not in git status; the only router file change is response shaping (integrity body adds on_gate) and the 500 log line in the existing tenant_scope_enforcement.ex.",
+    "local_issue_id": null,
+    "artifacts_out": ["handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-16-security-reviewer-code-2f-a.json"],
+    "invariants_assessed": {
+      "INV-1": "APPLIES, PASS ((a) every new query passes the tenant schema prefix: latest_matching, counts_by_day (valid_prefix? checked), ScopedApprovers, interactive-admin count, RefusedAudit via insert_entry/3; (b) no migration or table added; (c) no tenant_id column written from a caller value: the audit resource_id is the tenant id the flip already verified against the prefix by check_prefix)",
+      "INV-2": "APPLIES, PASS (integrity on_gate body is hand-built from an allowlist: blocking codes, counts, enums, window dates, booleans, evidence_scope; no ids, names, token data; permission ScopeGrantsIntegrityRead unchanged)",
+      "INV-3": "NOT-APPLICABLE (no Lua/WASM host function)",
+      "INV-4": "APPLIES, PASS (no secret handled; new log lines scope_enforcement_flip_failed and scope_enforcement_refusal_not_recorded are constant-shaped)",
+      "INV-5": "NOT-APPLICABLE (no lookup-by-id handler added or changed)",
+      "INV-6": "APPLIES, PASS (this verdict is the 2f-a code gate)",
+      "INV-7": "APPLIES, PASS (no raw SQL; Ecto queries with bound values)",
+      "INV-8": "APPLIES, PASS_WITH_FINDING F-1 (gate raise is a rolled-back server fault inside the single rescue; refusal audit and flush never raise; integrity MatchError on a non-tenant prefix is unreachable from any route and fails closed)",
+      "INV-9": "NOT-APPLICABLE (no outbound URL; routes changed NONE)",
+      "INV-10": "APPLIES, PASS (`on` stays unsettable; the flip route is unchanged and still gated by ScopeEnforcementManage; the gate can only add refusals; the interactive-admin fact prevents an `on` tenant with no admin who can switch it off through the API)"
+    },
+    "deviation_judgements": [
+      "Dormant shadow->on path (check_target still rejects :on): ACCEPTED. It is a strict improvement for this PR (no behavior change reachable); 2f-b must re-gate when it widens parse_mode/@modes.",
+      "Guard-form workaround in check_reason/2 and flush_before?/1: ACCEPTED. Behavior-equivalent; the flush only runs for target :on and is best-effort.",
+      "Audit action rule target in [:shadow, :on] and on->shadow still running enable_checks!: ACCEPTED for 2f-a because unreachable; must be corrected in 2f-b (rank rule, no preconditions on de-escalation) and re-gated.",
+      "integrity/1 MatchError for a non-tenant prefix: ACCEPTED as MINOR F-1. The only caller is handle_integrity with prefix(conn) derived from the authenticated tenant (a tenant_<32 hex> schema), after authorization for ScopeGrantsIntegrityRead (admin-plane). The failure mode is a 500 with no data, i.e. fail-closed; no cross-tenant or unauthenticated path reaches it.",
+      "Extras (blocking_reasons/0, reported_reasons/0, audit_state/1, evidence sub-block): ACCEPTED. All are read-only and expose counts/booleans only."
+    ],
+    "findings": [
+      {"id": "F-1", "severity": "MINOR", "blocking": false, "title": "integrity/1 pattern-matches {:ok, tenant_id} = tenant_id_for_schema_name(prefix)", "detail": "Raises MatchError for a prefix that is not a tenant schema name (previously it never raised). Only reachable with a non-tenant prefix, which no route can produce; fails closed with a 500 and the router has no body to leak. Suggest a with/raise ArgumentError with a constant message in 2f-b or a later cleanup; not a merge blocker."},
+      {"id": "F-2", "severity": "MINOR", "blocking": false, "title": "GET /integrity now runs the full six-fact gate on every call, lock-free, and a raise inside it is an unrescued 500", "detail": "The snapshot is read-only and unaudited by design (AC 9). Cost grows (org consistency check, two ScopedApprovers queries, one grouped evidence query) on an admin-plane route behind ScopeGrantsIntegrityRead and the existing admission control (decision 0040). A raise there is handled by the generic error path; no constant log line is emitted for it. Acceptable; TEST-DESIGNER should cover the 500 shape staying free of exception text."},
+      {"id": "F-3", "severity": "INFO", "blocking": false, "title": "count_interactive_explicit_tenant_wide_admins/1 uses DateTime.utc_now(), not the attrs[:now] seam", "detail": "Only affects the token-expiry boundary of the unchanged shared query; this fact does not count tokens (C-4), so the difference is nil. No action."},
+      {"id": "F-4", "severity": "INFO", "blocking": false, "title": "Criterion (b) is an operator-safety control, not adversarial", "detail": "Request counts include any principal's authorized shadow-evaluated request and the flip request itself counts; an admin willing to generate 100 requests on each of 8 dates can satisfy it. The duration (T0 from the audit chain) cannot be forged or shortened. This is already stated in the ShadowWindow moduledoc and AC 12 sentence; keep the sentence verbatim in docs/roles.md (2f-b)."},
+      {"id": "F-5", "severity": "INFO", "blocking": false, "title": "ShadowEvidence retention pruning reads :scope_shadow_retention_days raw while ShadowWindow validates it", "detail": "Pre-existing pruning code. Under an invalid (non-integer) retention value the gate falls back to 90 while the pruner uses its own default handling. Config-only, no runtime override exists; no action in this PR."},
+      {"id": "F-6", "severity": "INFO", "blocking": false, "title": "Dormant code needs a second SEC pass when 2f-b makes `on` settable", "detail": "2f-b changes parse_mode/@modes/check_target, the 409 mapping of {:on_precondition_failed,...} and :shadow_required, the audit action rank rule and the on->shadow de-escalation. That slice is a separate mandatory trigger (scope_enforcement.ex and the router are on the list)."}
+    ],
+    "conditions_for_merge": [
+      "Hosted CI is green for the whole suite, including route_scope_walk_test, scope_grants_route_walk_test and the two edited existing tests (scope_enforcement_test T-I1 and routers/tenant_scope_enforcement_test integrity body).",
+      "TEST-DESIGNER delivers tests for: OnGate reports every failing fact with stable codes and no ids (T-G*); gate cannot pass with zero days of traffic, with a blocking would-deny, with T0 younger than min_days, with T0 absent or latest transition not shadow; invalid or below-1 threshold env falls back to default; configuration criterion fails when min_days > retention_days; ScopedApprovers literal AC 10 cases incl. inactive user excluded; interactive admin count excludes token owners, flagged service principals and inactive users; RefusedAudit writes after rollback, writes nothing inside a transaction, logs the constant line on failure, payload key set closed; a gate raise is {:transaction_failed,_}, is not recorded as a refusal and logs exactly one scope_enforcement_flip_failed line; Audit.latest_matching ordering (timestamp desc, id desc), tenant prefix and action filter; the SyncScopeGuard dedup test unchanged; attrs[:now] ignored unless a DateTime and not settable from the PUT body; PUT mode=on still answers 422 invalid_enforcement_mode; integrity on_gate body key set contains no ids.",
+      "The PR body carries the items in pr_body_items."
+    ],
+    "advisories": [
+      "A-1: route F-1 and the audit rank rule/on->shadow de-escalation into the 2f-b design for re-gating.",
+      "A-2: docs/roles.md in 2f-b must contain ShadowWindow.scope_sentence/0 verbatim (T-E15)."
+    ],
+    "pr_body_items": {
+      "on_unsettable_statement": "`on` is still unsettable: parse_mode/1, @modes and check_target/1 are unchanged, PUT with mode=on is still 422 invalid_enforcement_mode, and the PUT handler builds a literal three-key attrs map (actor_id, reason, trace_id), so a request cannot supply `now` or thresholds. The shadow->on path inside flip/4 is dormant until REQ-519 2f-b.",
+      "integrity_body_diff": "GET /integrity gains `on_gate`: {blocking: [stable codes], information: {scoped_task_workers_without_task_scope: n}, counts: {bindings_without_row, org_consistency (ok|inconsistent|unavailable), tokens_exceeding_owner, explicit_tenant_wide_admins, scoped_approvers}, evidence: {shadow_since (ISO-8601|null), window_from, window_to, requests, days_without_requests, would_deny: {six reason counts}, criteria: {duration, requests, every_day_has_requests, no_blocking_would_deny, configuration: booleans}, evidence_scope}}. Counts, enums, dates and booleans only; no ids, names or token data; lock-free and unaudited. Existing keys unchanged.",
+      "threshold_scan": "Application env only: :scope_shadow_min_days (default 7), :scope_shadow_min_requests (default 100), :scope_shadow_retention_days (default 90), set in config/config.exs only; config/test.exs, config/prod.exs and config/runtime.exs set none of them; an invalid or below-1 value falls back to the default; no request field, attrs key or runtime override reads them. Scan: grep scope_shadow_(min_days|min_requests|retention_days) over lib/ and config/ finds only config.exs, ShadowWindow and the pre-existing ShadowEvidence prune.",
+      "routes_changed_table": [
+        {"method": "ALL", "path": "ALL", "old_class": "unchanged", "new_class": "unchanged", "note": "routes changed: NONE (route snapshot, route_inventory.ex, route_scope.ex, authorized_router.ex, permission matrix untouched; the GET /integrity response gains on_gate and the PUT / 500 path gains one constant log line)"}
+      ],
+      "verdict_sentence": "SECURITY-REVIEWER code gate for REQ-519 2f-a: PASS_WITH_FINDINGS (the on gate machinery evaluates all six facts after locks A, T, S in one transaction with a single rescue and a constant log line, takes shadow T0 from server-timestamped audit entries and counts from persisted counters, audits a refusal best-effort after the rollback with a closed counts-only payload, with thresholds from config.exs defaults only; `on` is still unsettable and parse_mode/1 is unchanged; routes changed NONE). Handoff d2535519-0519-4c02-9e11-000000000016."
+    },
+    "required_changes": [],
+    "classification": "CODE_PASS_WITH_FINDINGS",
+    "implementation_written": false
+  }
+}

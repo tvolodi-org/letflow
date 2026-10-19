@@ -31,6 +31,23 @@ defmodule Letflow.ScopeEnforcement do
   tenant has zero counted tenant-wide admins (`Letflow.Identity.count_tenant_wide_admins/1`).
   It is INFORMATIONAL in stage 1 and does NOT block the off -> shadow flip; it becomes a
   precondition of the stage-2 `on` flip (#2535).
+
+  ## The `on` gate (REQ-519 2f-a, dormant until 2f-b)
+
+  The report also carries `on_gate` (design `req519-enforced-writers-and-flag-on.md` section
+  4.4): `blocking` (the failing codes of `Letflow.ScopeEnforcement.OnGate`), `information`
+  (`scoped_task_workers_without_task_scope`), `counts` and the shadow `evidence`, computed
+  WITHOUT locks and WITHOUT audit (a labelled snapshot of what the `on` flip will check). It
+  is a different list from `findings`: `findings` is the stage-1 informational list (its
+  `zero_tenant_wide_admins` uses the OLD count so the off -> shadow gate is unchanged);
+  `on_gate.blocking` computes `zero_tenant_wide_admins` from the INTERACTIVE EXPLICIT count
+  (`Letflow.Identity.count_interactive_explicit_tenant_wide_admins/1`, SEC C-4).
+
+  `flip/4` already contains the `shadow -> on` path (best-effort evidence flush before the
+  transaction, `OnGate.evaluate/3` after the S lock inside the one `try`, the refusal audit
+  of `Letflow.ScopeEnforcement.RefusedAudit` after the rollback, the `attrs[:now]` clock seam
+  that only internal callers set), but `on` stays UNSETTABLE: `parse_mode/1` and
+  `check_target/1` accept `off` and `shadow` only until REQ-519 2f-b widens them.
   """
 
   import Ecto.Query
@@ -44,11 +61,19 @@ defmodule Letflow.ScopeEnforcement do
   alias Letflow.Identity.TokenPreconditions
   alias Letflow.Repo
   alias Letflow.ScopeNodePaths
+  alias Letflow.ScopeEnforcement.OnGate
+  alias Letflow.ScopeEnforcement.RefusedAudit
+  alias Letflow.ScopeEnforcement.ShadowWindow
   alias Letflow.ScopeNodePaths.Consistency
   alias Letflow.TenantProvisioning
 
   @modes [:off, :shadow]
   @stored_modes [:off, :shadow, :on]
+  # Single owner of the flip audit vocabulary: `flip_entry/6`, `RefusedAudit` and
+  # `ShadowWindow` (T0 = the latest flip entry) all read these.
+  @enabled_action "scope.enforcement_enabled"
+  @disabled_action "scope.enforcement_disabled"
+  @resource_type "tenant"
   @integrity_items_cap 1000
 
   @type mode :: :off | :shadow
@@ -66,16 +91,39 @@ defmodule Letflow.ScopeEnforcement do
           | :tenant_not_found
           | :tenant_prefix_mismatch
           | {:precondition_failed, [precondition()], precondition_report()}
+          | :shadow_required
+          | {:on_precondition_failed, [OnGate.on_precondition(), ...], OnGate.report()}
           | {:audit_failed, term()}
           | {:transaction_failed, Exception.t()}
   @type integrity_finding :: :zero_tenant_wide_admins
+  @type on_gate_snapshot :: %{
+          blocking: [OnGate.on_precondition()],
+          information: %{scoped_task_workers_without_task_scope: non_neg_integer()},
+          counts: %{
+            bindings_without_row: non_neg_integer(),
+            org_consistency: :ok | :inconsistent | :unavailable,
+            tokens_exceeding_owner: non_neg_integer(),
+            explicit_tenant_wide_admins: non_neg_integer(),
+            scoped_approvers: non_neg_integer()
+          },
+          evidence: ShadowWindow.report()
+        }
   @type integrity_report :: %{
           bindings_without_row: non_neg_integer(),
           items: [RoleScopeGrants.binding_without_row()],
           orphan_group_rows: non_neg_integer(),
           truncated: boolean(),
-          findings: [integrity_finding()]
+          findings: [integrity_finding()],
+          on_gate: on_gate_snapshot()
         }
+
+  @doc "The audit `resource_type` of every flag-flip entry (`\"tenant\"`)."
+  @spec flip_resource_type() :: String.t()
+  def flip_resource_type, do: @resource_type
+
+  @doc "The audit actions of a successful flip: `[enabled, disabled]`."
+  @spec flip_actions() :: [String.t()]
+  def flip_actions, do: [@enabled_action, @disabled_action]
 
   @doc "The settable modes, `[:off, :shadow]`."
   @spec modes() :: [mode()]
@@ -203,23 +251,65 @@ defmodule Letflow.ScopeEnforcement do
   @spec flip(
           tenant_id :: Ecto.UUID.t(),
           prefix :: String.t(),
-          target :: mode(),
-          attrs :: %{actor_id: Ecto.UUID.t() | nil, reason: term(), trace_id: String.t() | nil}
+          target :: stored_mode(),
+          attrs :: %{
+            :actor_id => Ecto.UUID.t() | nil,
+            :reason => term(),
+            :trace_id => String.t() | nil,
+            optional(:now) => DateTime.t()
+          }
         ) ::
-          {:ok, %{mode: mode(), previous: stored_mode(), changed: boolean()}}
+          {:ok, %{mode: stored_mode(), previous: stored_mode(), changed: boolean()}}
           | {:error, flip_error()}
   def flip(tenant_id, prefix, target, attrs) when is_binary(prefix) and is_map(attrs) do
     with :ok <- check_target(target),
          :ok <- check_prefix(tenant_id, prefix),
          {:ok, reason} <- check_reason(target, Map.get(attrs, :reason)) do
-      try do
-        Repo.transaction(fn -> do_flip(tenant_id, prefix, target, reason, attrs) end)
-      rescue
-        exception -> {:error, {:transaction_failed, exception}}
-      end
+      now = clock(attrs)
+
+      # SEC S-4: flush the in-memory counters BEFORE the transaction (never extends lock hold
+      # time); best-effort, a failed flush can only make the gate stricter.
+      if flush_before?(target), do: ShadowWindow.flush_evidence()
+
+      # The `rescue` encloses the WHOLE transaction, including OnGate.evaluate/3: a raise from
+      # any gate fact is a rolled-back server fault, never a refusal (INV-8).
+      result =
+        try do
+          Repo.transaction(fn -> do_flip(tenant_id, prefix, target, reason, attrs, now) end)
+        rescue
+          exception -> {:error, {:transaction_failed, exception}}
+        end
+
+      record_refusal(result, tenant_id, prefix, attrs)
+      result
     end
   end
 
+  # The one clock seam (SEC S-5): only an internal caller sets `attrs[:now]` (the router builds
+  # a literal three-key map); anything but a `DateTime` is ignored.
+  defp clock(attrs) do
+    case Map.get(attrs, :now) do
+      %DateTime{} = now -> now
+      _other -> DateTime.utc_now()
+    end
+  end
+
+  # D-9 (AC 14): a refused flip to `on` is audited AFTER the rollback, in its own transaction.
+  # A server fault ({:transaction_failed, _}, {:audit_failed, _}) is never recorded as one.
+  defp record_refusal({:error, {:on_precondition_failed, failed, report}}, id, prefix, attrs),
+    do: RefusedAudit.record(id, prefix, :shadow, failed, report, attrs)
+
+  defp record_refusal({:error, :shadow_required}, id, prefix, attrs),
+    do: RefusedAudit.record(id, prefix, :off, [:shadow_required], nil, attrs)
+
+  defp record_refusal(_result, _id, _prefix, _attrs), do: :ok
+
+  # The compiler infers `target` from check_target/1 (off or shadow) and flags a plain `:on`
+  # comparison or clause as unreachable; the guard form keeps the dormant `on` path compiling
+  # until 2f-b widens check_target/1.
+  defp flush_before?(target), do: target in [:on]
+
+  # `on` is deliberately NOT settable here (REQ-519 2f-b widens `@modes`).
   defp check_target(target) when target in @modes, do: :ok
   defp check_target(_target), do: {:error, :invalid_mode}
 
@@ -231,7 +321,7 @@ defmodule Letflow.ScopeEnforcement do
   end
 
   defp check_reason(:off, nil), do: {:error, :reason_required}
-  defp check_reason(:shadow, nil), do: {:ok, nil}
+  defp check_reason(target, nil) when target in [:shadow, :on], do: {:ok, nil}
 
   defp check_reason(_target, reason) do
     case Letflow.Audit.Reason.validate(reason) do
@@ -240,7 +330,7 @@ defmodule Letflow.ScopeEnforcement do
     end
   end
 
-  defp do_flip(tenant_id, prefix, target, reason, attrs) do
+  defp do_flip(tenant_id, prefix, target, reason, attrs, now) do
     # Rank A, then T (lock order of design section 10).
     Identity.lock_tenant_admins!(prefix)
 
@@ -250,21 +340,44 @@ defmodule Letflow.ScopeEnforcement do
 
     previous = tenant.scope_enforcement
 
-    if previous == target do
-      %{mode: target, previous: previous, changed: false}
-    else
-      report = if target == :shadow, do: enable_checks!(prefix)
-      Repo.update!(Tenant.scope_enforcement_changeset(tenant, %{scope_enforcement: target}))
+    cond do
+      previous == target ->
+        %{mode: target, previous: previous, changed: false}
 
-      case Audit.insert_entry(
-             Repo,
-             flip_entry(tenant_id, previous, target, reason, report, attrs),
-             prefix
-           ) do
-        {:ok, _entry} -> %{mode: target, previous: previous, changed: true}
-        {:error, audit_error} -> Repo.rollback({:audit_failed, audit_error})
-      end
+      # `on` is reached only from `shadow` (D-6); nothing else is evaluated.
+      target == :on and previous != :shadow ->
+        Repo.rollback(:shadow_required)
+
+      true ->
+        report =
+          case target do
+            :on -> on_checks!(tenant_id, prefix, now)
+            :shadow -> enable_checks!(prefix)
+            _off -> nil
+          end
+
+        Repo.update!(Tenant.scope_enforcement_changeset(tenant, %{scope_enforcement: target}))
+
+        case Audit.insert_entry(
+               Repo,
+               flip_entry(tenant_id, previous, target, reason, report, attrs),
+               prefix
+             ) do
+          {:ok, _entry} -> %{mode: target, previous: previous, changed: true}
+          {:error, audit_error} -> Repo.rollback({:audit_failed, audit_error})
+        end
     end
+  end
+
+  # shadow -> on: rank S (after A and T), then ALL six facts (4.4); every failing one is named.
+  # A raise propagates out of the transaction (no flag change; not a refusal, INV-8).
+  defp on_checks!(tenant_id, prefix, now) do
+    :ok = ScopeNodePaths.lock!(prefix)
+    {report, failed} = OnGate.evaluate(tenant_id, prefix, now)
+
+    if failed != [], do: Repo.rollback({:on_precondition_failed, failed, report})
+
+    report
   end
 
   # off -> shadow: rank S (no tree write can commit between the check and the flip), then
@@ -290,21 +403,28 @@ defmodule Letflow.ScopeEnforcement do
   defp flip_entry(tenant_id, previous, target, reason, report, attrs) do
     after_state = %{"mode" => Atom.to_string(target), "reason" => reason}
 
+    # The target decides the report's shape: `:on` carries the six-fact OnGate report,
+    # `:shadow` the three stage-1 facts, `:off` none.
     after_state =
-      if report,
-        do:
+      case target do
+        :on ->
+          Map.merge(after_state, OnGate.audit_state(report))
+
+        :shadow ->
           Map.put(after_state, "preconditions", %{
             "bindings_without_row" => report.bindings_without_row,
             "org_consistency" => Atom.to_string(report.org_consistency),
             "tokens_exceeding_owner" => report.tokens_exceeding_owner
-          }),
-        else: after_state
+          })
+
+        :off ->
+          after_state
+      end
 
     %{
       actor_id: Map.get(attrs, :actor_id),
-      action:
-        if(target == :shadow, do: "scope.enforcement_enabled", else: "scope.enforcement_disabled"),
-      resource_type: "tenant",
+      action: if(target in [:shadow, :on], do: @enabled_action, else: @disabled_action),
+      resource_type: @resource_type,
       resource_id: tenant_id,
       before_state: %{"mode" => Atom.to_string(previous)},
       after_state: after_state,
@@ -328,7 +448,37 @@ defmodule Letflow.ScopeEnforcement do
       items: Enum.take(gaps, @integrity_items_cap),
       orphan_group_rows: length(RoleScopeGrants.orphan_group_rows(prefix)),
       truncated: length(gaps) > @integrity_items_cap,
-      findings: findings
+      findings: findings,
+      on_gate: on_gate_snapshot(prefix)
+    }
+  end
+
+  # AC 9 last sentence: what the `on` flip will check, WITHOUT locks and WITHOUT audit (counts
+  # only). A prefix that is not a tenant schema name raises (INV-8), like every gate read.
+  defp tenant_id!(prefix) do
+    case TenantProvisioning.tenant_id_for_schema_name(prefix) do
+      {:ok, tenant_id} -> tenant_id
+      {:error, _reason} -> raise ArgumentError, "invalid tenant schema prefix"
+    end
+  end
+
+  defp on_gate_snapshot(prefix) do
+    tenant_id = tenant_id!(prefix)
+    {report, failed} = OnGate.evaluate(tenant_id, prefix, DateTime.utc_now())
+
+    %{
+      blocking: failed,
+      information: %{
+        scoped_task_workers_without_task_scope: report.scoped_task_workers_without_task_scope
+      },
+      counts: %{
+        bindings_without_row: report.bindings_without_row,
+        org_consistency: report.org_consistency,
+        tokens_exceeding_owner: report.tokens_exceeding_owner,
+        explicit_tenant_wide_admins: report.explicit_tenant_wide_admins,
+        scoped_approvers: report.scoped_approvers
+      },
+      evidence: report.evidence
     }
   end
 end

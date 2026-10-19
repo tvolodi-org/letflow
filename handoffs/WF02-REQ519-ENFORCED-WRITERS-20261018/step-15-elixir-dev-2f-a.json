@@ -1,0 +1,74 @@
+{
+  "handoff_id": "d2535519-0519-4c02-9e11-000000000015",
+  "run_id": "WF02-REQ519-ENFORCED-WRITERS-20261018",
+  "workflow_id": "WF-02",
+  "step": "15",
+  "from_agent": "ELIXIR-DEV",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-15-elixir-dev-2f-a.json",
+  "created_at": "2026-10-18T23:45:00Z",
+  "started_at": "2026-10-18T23:45:00Z",
+  "completed_at": "2026-10-19T00:10:41Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": ["REQ-519"],
+    "requirement_text": {"REQ-519": "slice 2f-a: gate machinery, ACs 7 (2f-a part), 8-15 as assigned to 2f-a; GH #2535"},
+    "artifacts_in": ["lib/letflow/design/req519-enforced-writers-and-flag-on.md"],
+    "branch_name": "feature/WF02-REQ519-2FA-GATE-20261019"
+  },
+  "task": {"description": "Implement REQ-519 PR 2f-a. Mandatory SEC: scope_enforcement.ex, scope_enforcement/on_gate.ex, audit.ex, routers/tenant_scope_enforcement.ex (integrity), identity/sync_scope_guard.ex."},
+  "result": {
+    "status": "COMPLETED",
+    "verdict": "IMPLEMENTED_PENDING_SEC_AND_REVIEWER",
+    "summary": "OnGate.evaluate/3 (six facts, all evaluated, read order fixed), ScopedApprovers.count/1 (AC-literal, active only), ShadowWindow (T0 from audit chain, one grouped counts_by_day query, thresholds from env with default fallback, configuration criterion, evidence_scope/scope_sentence, flush_evidence/0), ShadowEvidence.counts_by_day/3 and reasons/0, Audit.latest_matching/4 (SyncScopeGuard dedup swapped to it, behaviour identical), RefusedAudit.record/6 (best-effort, own transaction, constant log line), Identity.count_interactive_explicit_tenant_wide_admins/1 (C-4), integrity on_gate block (lock-free snapshot, no audit), attrs[:now] seam, flip/4 dormant shadow->on path (flush before transaction, gate inside the one rescue, refusal audit after rollback, shadow_required for off->on), router 500 path logs ONE constant line scope_enforcement_flip_failed. on stays UNSETTABLE: parse_mode/1, @modes and check_target/1 untouched.",
+    "files_changed": {
+      "new": [
+        "lib/letflow/scope_enforcement/on_gate.ex",
+        "lib/letflow/scope_enforcement/shadow_window.ex",
+        "lib/letflow/scope_enforcement/refused_audit.ex",
+        "lib/letflow/identity/scoped_approvers.ex"
+      ],
+      "modified": [
+        "lib/letflow/scope_enforcement.ex",
+        "lib/letflow/audit.ex",
+        "lib/letflow/identity.ex",
+        "lib/letflow/identity/sync_scope_guard.ex",
+        "lib/letflow/api/scope/shadow_evidence.ex",
+        "lib/letflow/routers/tenant_scope_enforcement.ex"
+      ],
+      "existing_tests_edited_forced": [
+        "test/letflow/scope_enforcement_test.exs (T-I1 clean tenant: integrity map gains on_gate)",
+        "test/letflow/routers/tenant_scope_enforcement_test.exs (integrity clean body gains on_gate)"
+      ],
+      "routes_changed": "NONE (snapshot, route_inventory.ex, route_scope.ex untouched)"
+    },
+    "deviations": [
+      "The shadow->on path in flip/4 and do_flip is DORMANT: check_target/1 still rejects :on, so no internal caller can reach it through flip/4 in this PR; the gate is exercised by calling OnGate.evaluate/3, ShadowWindow, RefusedAudit directly. The path becomes live when 2f-b widens @modes/parse_mode. check_reason got target in [:shadow, :on] (guard form) because the compiler type check (warnings-as-errors) flags a literal :on clause or a target == :on comparison as unreachable; flush_before?/1 is a one-line helper for the same reason.",
+      "Audit action rule left as 'target in [:shadow, :on] is enabled' (not the rank rule); on -> shadow still runs enable_checks! (stage-1 behaviour). The rank rule and the NO-precondition de-escalation are 2f-b (T-X7, T-X10).",
+      "The router 500 clause logs the constant line (reason tag, exception module or none) for every non-mapped error; the 409 mapping of {:on_precondition_failed,...} / :shadow_required is 2f-b (currently unreachable).",
+      "integrity/1 now raises (MatchError) for a prefix that is not a tenant_<32 hex> schema name (it derives the tenant id for T0); previously it never raised. Real callers always pass a tenant schema.",
+      "Threshold defaults live only in ShadowWindow module attributes (config.exs NOT modified after rework); config files untouched.",
+      "on_gate integrity body also carries an evidence sub-block (window dates, shadow_since, counts, criteria booleans, evidence_scope); no ids.",
+      "Extra public accessors beyond the design: ShadowWindow.blocking_reasons/0, reported_reasons/0, flush_evidence/0; OnGate.audit_state/1 (shared serialisation of the audit payload).",
+      "started_at is approximate (the session did not record its start clock); completed_at is real UTC.",
+      "The mixlock dir was absent for every mix run (I created it for the run and removed it after). At the end rmdir failed because another session had written an owner file into it; I left it untouched."
+    ],
+    "run": {
+      "MIX_ENV=test mix compile --warnings-as-errors": "clean (after fixing two type warnings)",
+      "mix format": "applied (mix format, then no diffs outstanding); --check-formatted not re-run separately",
+      "mix letflow.check_boundaries": "OK 1893 edges 0 violations",
+      "mix letflow.check_role_scope_grants_writers": "no violations",
+      "per-file mix test": "scope_enforcement_test 23 passed; routers/tenant_scope_enforcement_test 26 passed; identity/sync_scope_guard_test 40 passed",
+      "throwaway_smoke_test_deleted": "admin tenant: interactive explicit count 1, ScopedApprovers zero, OnGate.evaluate fails only shadow_evidence_insufficient, flip(:on) is invalid_mode, flip to shadow audited and latest_matching returns it, flush then counts_by_day returns 1 request, integrity on_gate renders: passed"
+    },
+    "not_run": [
+      "mix letflow.check.test, full suite, multi-partition (forbidden)",
+      "new tests T-G1..T-G10, T-P1..T-P7, T-E1..T-E16, T-F1..T-F10, latest_matching tests, integrity on_gate tests, mutants (TEST-DESIGNER)",
+      "docs/roles.md edits (2f-b per design 4.10); the T-E15 sentence test needs the docs sentence to exist (ShadowWindow.scope_sentence/0 is the source)"
+    ],
+    "rework_after_sec_and_reviewer": "C-1: integrity/1 uses private tenant_id!/1 raising ArgumentError invalid tenant schema prefix. Stale moduledocs corrected. F-5: reported_reasons/0 and blocking_reasons/0 dropped. Guard forms KEPT: flip/4 spec widened to stored_mode() but the compiler still infers target from check_target/1 and rejects a plain :on (verified: warnings-as-errors failed), so flush_before?/1 and the check_reason guard remain, with a comment. F-6: ScopeEnforcement.flip_actions/0 and flip_resource_type/0 are the single owner (flip_entry, RefusedAudit, ShadowWindow); threshold defaults live ONLY in ShadowWindow module attributes, the config/config.exs lines were REVERTED (config.exs is no longer modified). F-4: flip_entry dispatches on target, RefusedAudit.record detail is OnGate.report or nil. F-9 skipped (2f-b). Re-ran: compile --warnings-as-errors clean, mix format --check-formatted OK, check_boundaries OK 1895 edges, writers scan clean, per-file tests 23/26/40 passed.",
+    "remaining": "none for 2f-a implementation. Note for TEST-DESIGNER: flip(:on) is not callable until 2f-b; T-F1..T-F8 call RefusedAudit.record/6 directly on committed, non-sandboxed state; T-G9/T-G10 call OnGate.evaluate/3 directly."
+  }
+}
