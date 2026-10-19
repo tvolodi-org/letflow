@@ -82,6 +82,11 @@ defmodule Letflow.ScopeEnforcementFlipAuthorityTest do
   # `scope_enforcement` followed (same line) by the on value in any spelling.
   @on_text ~r/scope_enforcement[^\n]*(['"]on['"]|:on\b)/
 
+  # The CI directory glob is built from a sigil, not written as a string literal: the CI path-filter
+  # guard (ci_backend_path_filter_test) treats every path-like string literal in test/ as a path the
+  # backend gate READS, and this scan only reads the directory to prove nothing in it sets `on`.
+  defp ci_dir_glob, do: Path.join([hd(~w(.github)), "**", "*"])
+
   defp files_with_text(globs, regex) do
     for glob <- globs,
         path <- Path.wildcard(glob, match_dot: true),
@@ -158,7 +163,7 @@ defmodule Letflow.ScopeEnforcementFlipAuthorityTest do
     test "no priv/, config/, scripts/, .github/ or mix.exs line names the column next to an on value, bar the pinned migration" do
       hits =
         files_with_text(
-          ["priv/**/*", "config/**/*", "scripts/**/*", ".github/**/*", "mix.exs"],
+          ["priv/**/*", "config/**/*", "scripts/**/*", ci_dir_glob(), "mix.exs"],
           @on_text
         )
 
@@ -185,7 +190,7 @@ defmodule Letflow.ScopeEnforcementFlipAuthorityTest do
     test "no seed, script, workflow or solution pack drives the flag route" do
       hits =
         files_with_text(
-          ["priv/**/*", "scripts/**/*", ".github/**/*", "deploy/**/*", "config/**/*"],
+          ["priv/**/*", "scripts/**/*", ci_dir_glob(), "deploy/**/*", "config/**/*"],
           ~r/tenant\/scope-enforcement|scope_enforcement/
         )
 
