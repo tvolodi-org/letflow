@@ -324,11 +324,16 @@ defmodule Letflow.Routers.Tenants do
          {:ok, cursor} <- parse_cursor_param(Map.get(query, "cursor")) do
       search = non_empty(Map.get(query, "search"))
 
-      {:ok, %{tenants: tenants, next_cursor: next_cursor}} =
-        Identity.list_tenants(%{search: search, cursor: cursor, page_size: page_size})
+      # A valid-prefix cursor with a malformed tail is `{:error, :invalid_cursor}`
+      # from Identity (GH 2747); mapped to the same 400 as a bad prefix here.
+      case Identity.list_tenants(%{search: search, cursor: cursor, page_size: page_size}) do
+        {:ok, %{tenants: tenants, next_cursor: next_cursor}} ->
+          page = Pagination.page_response(Enum.map(tenants, &tenant_map/1), next_cursor)
+          Response.ok(conn, page)
 
-      page = Pagination.page_response(Enum.map(tenants, &tenant_map/1), next_cursor)
-      Response.ok(conn, page)
+        {:error, :invalid_cursor} ->
+          Response.bad_request(conn, "invalid cursor")
+      end
     else
       {:error, :invalid_page_size} ->
         Response.bad_request(conn, "invalid page_size")

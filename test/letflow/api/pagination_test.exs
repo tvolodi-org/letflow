@@ -8,6 +8,7 @@ defmodule Letflow.Api.PaginationTest do
   """
 
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   alias Letflow.Api.Pagination
   alias Letflow.Api.Pagination.Cursor
@@ -409,6 +410,153 @@ defmodule Letflow.Api.PaginationTest do
     test "non-binary input is rejected with {:error, :invalid_cursor} instead of a pattern-match failure" do
       assert Pagination.cast_binary_id_component(12345) == {:error, :invalid_cursor}
       assert Pagination.cast_binary_id_component(nil) == {:error, :invalid_cursor}
+    end
+  end
+
+  # ── decode_seek_parts/3 (GH 2747) ──────────────────────────────────────────
+  #
+  # GH 2747: every keyset decoder used to `String.split/3`-match and
+  # `String.to_integer/1` the cursor tail, so a cursor with a valid prefix and a
+  # mangled tail raised (500) instead of being refused (400). decode_seek_parts/3 is
+  # the one shared decoder; these cases pin its contract slot type by slot type.
+  # See test/specs/GH-2747.md.
+
+  describe "decode_seek_parts/3 (GH 2747)" do
+    @seek_prefix "X:"
+    @max_datetime_us 253_402_300_799_999_999
+    @int64_max 9_223_372_036_854_775_807
+    @int64_min -9_223_372_036_854_775_808
+
+    defp seek(rest, shape), do: Pagination.decode_seek_parts(@seek_prefix <> rest, "X:", shape)
+
+    test "a valid payload round-trips every slot type; :skip is absent from the result" do
+      uuid = Ecto.UUID.generate()
+      us = 1_700_000_000_123_456
+
+      assert {:ok, ["svc-1", ^uuid, 42, datetime]} =
+               seek("999:svc-1:#{uuid}:42:#{us}", [:skip, :string, :uuid, :int, :datetime_us])
+
+      assert DateTime.to_unix(datetime, :microsecond) == us
+    end
+
+    test ":skip alone yields an empty result list" do
+      assert seek("999", [:skip]) == {:ok, []}
+    end
+
+    test "a payload that does not start with the prefix is refused" do
+      assert Pagination.decode_seek_parts("Y:1:2", "X:", [:skip, :int]) ==
+               {:error, :invalid_cursor}
+
+      assert Pagination.decode_seek_parts("X", "X:", [:int]) == {:error, :invalid_cursor}
+    end
+
+    test "an empty tail and a missing slot are refused" do
+      uuid = Ecto.UUID.generate()
+
+      assert seek("", [:skip, :uuid, :int]) == {:error, :invalid_cursor}
+      assert seek("999", [:skip, :uuid, :int]) == {:error, :invalid_cursor}
+      assert seek("999:#{uuid}", [:skip, :uuid, :int]) == {:error, :invalid_cursor}
+      # a trailing colon leaves the last slot empty, which no numeric/uuid slot accepts
+      assert seek("999:#{uuid}:", [:skip, :uuid, :int]) == {:error, :invalid_cursor}
+    end
+
+    test "the last slot keeps any further colons" do
+      assert seek("1:a:b:c", [:skip, :string]) == {:ok, ["a:b:c"]}
+      assert seek("1:2:a:b", [:skip, :int, :string]) == {:ok, [2, "a:b"]}
+    end
+
+    test "extra colons after a non-string last slot are refused, not truncated" do
+      assert seek("1:2:3", [:skip, :int]) == {:error, :invalid_cursor}
+      assert seek("1:#{Ecto.UUID.generate()}:x", [:skip, :uuid]) == {:error, :invalid_cursor}
+    end
+
+    test ":int and :datetime_us refuse non-numeric text" do
+      for bad <- ["abc", "", "1.5", "5abc", "0x10", "1e3", " 5", "5 "] do
+        assert {bad, seek("1:#{bad}", [:skip, :int])} == {bad, {:error, :invalid_cursor}}
+        assert {bad, seek("1:#{bad}", [:skip, :datetime_us])} == {bad, {:error, :invalid_cursor}}
+      end
+    end
+
+    test ":int accepts the int64 bounds and refuses one past either" do
+      assert seek("1:#{@int64_max}", [:skip, :int]) == {:ok, [@int64_max]}
+      assert seek("1:#{@int64_min}", [:skip, :int]) == {:ok, [@int64_min]}
+      assert seek("1:0", [:skip, :int]) == {:ok, [0]}
+      assert seek("1:-7", [:skip, :int]) == {:ok, [-7]}
+
+      assert seek("1:#{@int64_max + 1}", [:skip, :int]) == {:error, :invalid_cursor}
+      assert seek("1:#{@int64_min - 1}", [:skip, :int]) == {:error, :invalid_cursor}
+      assert seek("1:#{String.duplicate("9", 40)}", [:skip, :int]) == {:error, :invalid_cursor}
+    end
+
+    test ":datetime_us refuses a negative timestamp and accepts zero" do
+      assert seek("1:-1", [:skip, :datetime_us]) == {:error, :invalid_cursor}
+      assert {:ok, [epoch]} = seek("1:0", [:skip, :datetime_us])
+      assert epoch == ~U[1970-01-01 00:00:00.000000Z]
+    end
+
+    test ":datetime_us refuses a timestamp DateTime.from_unix/2 rejects (invalid_unix_time)" do
+      # A valid int64 that is not a representable DateTime; from_unix!/2 used to raise on it.
+      assert seek("1:#{@int64_max}", [:skip, :datetime_us]) == {:error, :invalid_cursor}
+      assert seek("1:#{@max_datetime_us + 1}", [:skip, :datetime_us]) == {:error, :invalid_cursor}
+      assert seek("1:99999999999999999999", [:skip, :datetime_us]) == {:error, :invalid_cursor}
+    end
+
+    test ":datetime_us accepts the largest representable timestamp, to the microsecond" do
+      assert {:ok, [datetime]} = seek("1:#{@max_datetime_us}", [:skip, :datetime_us])
+      assert datetime == ~U[9999-12-31 23:59:59.999999Z]
+      assert DateTime.to_unix(datetime, :microsecond) == @max_datetime_us
+    end
+
+    test ":datetime_us keeps microsecond precision" do
+      assert {:ok, [datetime]} = seek("1:1700000000000001", [:skip, :datetime_us])
+      assert datetime.microsecond == {1, 6}
+    end
+
+    test ":string refuses an empty slot, a NUL byte and invalid UTF-8" do
+      assert seek("1:", [:skip, :string]) == {:error, :invalid_cursor}
+      assert seek("1:a" <> <<0>> <> "b", [:skip, :string]) == {:error, :invalid_cursor}
+      assert seek("1:" <> <<0>>, [:skip, :string]) == {:error, :invalid_cursor}
+      assert seek("1:" <> <<255>>, [:skip, :string]) == {:error, :invalid_cursor}
+      assert seek("1:ok" <> <<255, 254>>, [:skip, :string]) == {:error, :invalid_cursor}
+    end
+
+    test ":string accepts a multi-byte UTF-8 id verbatim" do
+      assert seek("1:svc-é-日本", [:skip, :string]) == {:ok, ["svc-é-日本"]}
+    end
+
+    test ":uuid refuses anything that is not a UUID" do
+      for bad <- ["not-a-uuid", "", "1234", "zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz"] do
+        assert {bad, seek("1:#{bad}", [:skip, :uuid])} == {bad, {:error, :invalid_cursor}}
+      end
+    end
+
+    test ":uuid returns the canonical lower-case form of an upper-case UUID" do
+      uuid = Ecto.UUID.generate()
+
+      assert seek("1:" <> String.upcase(uuid), [:skip, :uuid]) == {:ok, [uuid]}
+    end
+
+    test "the first bad slot decides: a good prefix of slots does not mask a bad later one" do
+      uuid = Ecto.UUID.generate()
+
+      assert seek("1:#{uuid}:abc", [:skip, :uuid, :int]) == {:error, :invalid_cursor}
+      assert seek("1:nope:5", [:skip, :uuid, :int]) == {:error, :invalid_cursor}
+    end
+
+    property "never raises: any binary tail yields {:ok, _} or {:error, :invalid_cursor}" do
+      check all(
+              tail <- StreamData.binary(max_length: 80),
+              shape <-
+                StreamData.list_of(
+                  StreamData.member_of([:skip, :string, :uuid, :int, :datetime_us]),
+                  min_length: 1,
+                  max_length: 4
+                )
+            ) do
+        result = Pagination.decode_seek_parts(@seek_prefix <> tail, "X:", shape)
+
+        assert match?({:ok, _}, result) or result == {:error, :invalid_cursor}
+      end
     end
   end
 

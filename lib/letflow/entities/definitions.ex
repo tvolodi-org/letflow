@@ -419,13 +419,12 @@ defmodule Letflow.Entities.Definitions do
   @spec decode_list_definitions_seek(Pagination.Cursor.t()) ::
           {:ok, {DateTime.t(), Ecto.UUID.t()}} | {:error, :invalid_cursor}
   defp decode_list_definitions_seek(%Pagination.Cursor{inner: inner}) do
-    prefix_len = byte_size(@list_definitions_cursor_prefix)
-    rest = binary_part(inner, prefix_len, byte_size(inner) - prefix_len)
-    [_mint_time_us_str, id_str, inserted_at_us_str] = String.split(rest, ":", parts: 3)
-    inserted_at = DateTime.from_unix!(String.to_integer(inserted_at_us_str), :microsecond)
-
-    case Pagination.cast_binary_id_component(id_str) do
-      {:ok, id} -> {:ok, {inserted_at, id}}
+    case Pagination.decode_seek_parts(inner, @list_definitions_cursor_prefix, [
+           :skip,
+           :uuid,
+           :datetime_us
+         ]) do
+      {:ok, [id, inserted_at]} -> {:ok, {inserted_at, id}}
       {:error, :invalid_cursor} = error -> error
     end
   end

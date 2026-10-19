@@ -629,7 +629,7 @@ defmodule Letflow.Repository.Activation do
            @artifact_history_cursor_prefix,
            byte_size(@artifact_history_cursor_prefix)
          ) do
-      {:ok, %Pagination.Cursor{} = cursor} -> {:ok, decode_history_seek(cursor)}
+      {:ok, %Pagination.Cursor{} = cursor} -> decode_history_seek(cursor)
       {:error, :wrong_endpoint} -> {:error, :wrong_endpoint}
       {:error, :expired} -> {:error, :expired}
       {:error, _invalid_base64_or_invalid_cursor} -> {:error, :invalid_cursor}
@@ -641,11 +641,14 @@ defmodule Letflow.Repository.Activation do
   # decode_cursor/4's expiry check reads, never a domain value (same idiom
   # `Letflow.Repository.list_versions/4`'s cursor helpers use).
   defp decode_history_seek(%Pagination.Cursor{inner: inner}) do
-    prefix_len = byte_size(@artifact_history_cursor_prefix)
-    rest = binary_part(inner, prefix_len, byte_size(inner) - prefix_len)
-    [_mint_time_us_str, history_id_str, activated_at_us_str] = String.split(rest, ":", parts: 3)
-    activated_at = DateTime.from_unix!(String.to_integer(activated_at_us_str), :microsecond)
-    {activated_at, history_id_str}
+    case Pagination.decode_seek_parts(inner, @artifact_history_cursor_prefix, [
+           :skip,
+           :uuid,
+           :datetime_us
+         ]) do
+      {:ok, [history_id, activated_at]} -> {:ok, {activated_at, history_id}}
+      {:error, :invalid_cursor} = error -> error
+    end
   end
 
   defp split_history_page(rows, page_size) when length(rows) > page_size do

@@ -21,8 +21,9 @@ defmodule Letflow.Api.Pagination do
   caller's own request-context parameter (REQ-072, not yet implemented),
   never anything this module decodes. `cursor.inner` is a fully opaque byte
   string a caller may only parse for its own already-known
-  sort-key/pagination fields via `parse_int_from_cursor/3`/`find_nth_colon/2`
-  (design §0.3).
+  sort-key/pagination fields, normally via `decode_seek_parts/3` (design
+  §0.3). `parse_int_from_cursor/3` and `find_nth_colon/2` remain as
+  lower-level primitives.
 
   **INV-8 (no unhandled crashes on realistic failure paths).** No function in
   this module raises on well-typed input — every fallible operation returns a
@@ -51,6 +52,8 @@ defmodule Letflow.Api.Pagination do
   @default_page_size 50
   @min_page_size 1
   @cursor_expiry_us 86_400_000_000
+  @int64_min -9_223_372_036_854_775_808
+  @int64_max 9_223_372_036_854_775_807
 
   defmodule Cursor do
     @moduledoc """
@@ -364,7 +367,8 @@ defmodule Letflow.Api.Pagination do
   store/list function uses this to validate a domain field parsed out of
   `cursor.inner` before pinning it into a query against a `:binary_id`
   column -- this module never interprets `cursor.inner`'s domain fields on
-  its own (design §0.3 is unchanged by this addition).
+  its own (design §0.3 is unchanged by this addition). Most callers should
+  prefer `decode_seek_parts/3`, which applies this cast per `:uuid` slot.
   """
   @spec cast_binary_id_component(String.t()) ::
           {:ok, Ecto.UUID.t()} | {:error, :invalid_cursor}
@@ -376,6 +380,87 @@ defmodule Letflow.Api.Pagination do
   end
 
   def cast_binary_id_component(_component), do: {:error, :invalid_cursor}
+
+  @typedoc """
+  One slot of a seek payload's shape for `decode_seek_parts/3`:
+
+    * `:skip` -- validated as present, dropped from the result (the
+      mint-time slot `decode_cursor/4`'s expiry check already read);
+    * `:string` -- any non-empty string, returned as-is (ids that are not UUIDs);
+    * `:uuid` -- an Ecto `:binary_id` component, cast via
+      `cast_binary_id_component/1`;
+    * `:int` -- a decimal integer within the int64 range;
+    * `:datetime_us` -- a non-negative unix microsecond timestamp, returned
+      as a `DateTime` (`DateTime.from_unix/2`, never `from_unix!/2`).
+  """
+  @type seek_part :: :skip | :string | :uuid | :int | :datetime_us
+
+  @doc """
+  Decodes the domain slots of a `decode_cursor/4`-validated seek payload,
+  `"<prefix><slot>:<slot>:...:<last slot>"`, without ever raising on a
+  malformed tail (INV-8, GH 2747). `shape` lists one `t:seek_part/0` per
+  slot; the payload is split on `:` into exactly `length(shape)` parts (the
+  last slot keeps any remaining colons). Returns `{:ok, values}` -- the
+  decoded value of every non-`:skip` slot, in order -- or
+  `{:error, :invalid_cursor}` for a missing slot, a non-numeric or
+  out-of-range number, a timestamp `DateTime.from_unix/2` rejects, or a
+  non-UUID `:uuid` slot.
+
+  `decode_cursor/4` only validates the prefix and the first timestamp slot,
+  so a cursor with a valid prefix and a mangled rest reaches this function.
+  """
+  @spec decode_seek_parts(binary(), String.t(), [seek_part(), ...]) ::
+          {:ok, [term()]} | {:error, :invalid_cursor}
+  def decode_seek_parts(inner, prefix, [_ | _] = shape)
+      when is_binary(inner) and is_binary(prefix) do
+    slots = length(shape)
+    prefix_len = byte_size(prefix)
+
+    with true <- byte_size(inner) >= prefix_len and String.starts_with?(inner, prefix),
+         rest = binary_part(inner, prefix_len, byte_size(inner) - prefix_len),
+         parts when length(parts) == slots <- String.split(rest, ":", parts: slots) do
+      shape |> Enum.zip(parts) |> decode_seek_slots([])
+    else
+      _malformed -> {:error, :invalid_cursor}
+    end
+  end
+
+  defp decode_seek_slots([], acc), do: {:ok, Enum.reverse(acc)}
+
+  defp decode_seek_slots([{:skip, _part} | rest], acc), do: decode_seek_slots(rest, acc)
+
+  defp decode_seek_slots([{type, part} | rest], acc) do
+    case decode_seek_slot(type, part) do
+      {:ok, value} -> decode_seek_slots(rest, [value | acc])
+      {:error, :invalid_cursor} = error -> error
+    end
+  end
+
+  defp decode_seek_slot(:string, ""), do: {:error, :invalid_cursor}
+
+  defp decode_seek_slot(:string, part) do
+    if String.valid?(part) and not String.contains?(part, <<0>>),
+      do: {:ok, part},
+      else: {:error, :invalid_cursor}
+  end
+
+  defp decode_seek_slot(:uuid, part), do: cast_binary_id_component(part)
+
+  defp decode_seek_slot(:int, part) do
+    case Integer.parse(part) do
+      {int, ""} when int >= @int64_min and int <= @int64_max -> {:ok, int}
+      _ -> {:error, :invalid_cursor}
+    end
+  end
+
+  defp decode_seek_slot(:datetime_us, part) do
+    with {:ok, us} when us >= 0 <- decode_seek_slot(:int, part),
+         {:ok, datetime} <- DateTime.from_unix(us, :microsecond) do
+      {:ok, datetime}
+    else
+      _ -> {:error, :invalid_cursor}
+    end
+  end
 
   @doc """
   PROVENANCE (historical, not current decision authority):

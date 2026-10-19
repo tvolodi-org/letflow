@@ -326,27 +326,31 @@ defmodule Letflow.Identity do
   `build_next_cursor/1`'s comment for why conflating the two would make an
   old row's cursor appear pre-expired the instant it's minted.
 
-  Always returns `{:ok, _}` — an empty or last page is
-  `{:ok, %{users: [], next_cursor: nil}}`, never an error tuple.
+  An empty or last page is `{:ok, %{users: [], next_cursor: nil}}`, never an error
+  tuple; the only error is `{:error, :invalid_cursor}` for a cursor whose prefix is
+  valid but whose payload is malformed (GH 2747).
   """
   @spec list_users(list_users_params(), opts :: opts()) ::
           {:ok, %{users: [User.t()], next_cursor: String.t() | nil}}
+          | {:error, :invalid_cursor}
   def list_users(params, opts) do
     prefix = Keyword.fetch!(opts, :prefix)
     page_size = Map.fetch!(params, :page_size)
 
-    query =
-      User
-      |> filter_by_status(Map.get(params, :status))
-      |> filter_by_search(Map.get(params, :search))
-      |> filter_by_cursor(Map.get(params, :cursor))
-      |> order_by([u], asc: u.inserted_at, asc: u.id)
-      |> limit(^(page_size + 1))
+    with {:ok, cursor_seek} <- decode_users_cursor(Map.get(params, :cursor)) do
+      query =
+        User
+        |> filter_by_status(Map.get(params, :status))
+        |> filter_by_search(Map.get(params, :search))
+        |> filter_by_cursor(cursor_seek)
+        |> order_by([u], asc: u.inserted_at, asc: u.id)
+        |> limit(^(page_size + 1))
 
-    rows = Repo.all(query, prefix: prefix)
-    {page, next_cursor} = split_page(rows, page_size)
+      rows = Repo.all(query, prefix: prefix)
+      {page, next_cursor} = split_page(rows, page_size)
 
-    {:ok, %{users: page, next_cursor: next_cursor}}
+      {:ok, %{users: page, next_cursor: next_cursor}}
+    end
   end
 
   @doc """
@@ -1101,7 +1105,7 @@ defmodule Letflow.Identity do
           opts :: opts()
         ) ::
           {:ok, %{members: [User.t()], next_cursor: String.t() | nil}}
-          | {:error, :group_not_found}
+          | {:error, :group_not_found | :invalid_cursor}
   def list_group_members(group_id, params, opts) do
     prefix = Keyword.fetch!(opts, :prefix)
 
@@ -1112,21 +1116,23 @@ defmodule Letflow.Identity do
       %Group{} ->
         page_size = Map.fetch!(params, :page_size)
 
-        query =
-          from(m in GroupMember,
-            join: u in User,
-            on: u.id == m.user_id,
-            where: m.group_id == ^group_id,
-            select: {u, m.inserted_at}
-          )
-          |> filter_group_members_by_cursor(Map.get(params, :cursor))
-          |> order_by([m, u], asc: m.inserted_at, asc: m.user_id)
-          |> limit(^(page_size + 1))
+        with {:ok, cursor_seek} <- decode_group_members_cursor(Map.get(params, :cursor)) do
+          query =
+            from(m in GroupMember,
+              join: u in User,
+              on: u.id == m.user_id,
+              where: m.group_id == ^group_id,
+              select: {u, m.inserted_at}
+            )
+            |> filter_group_members_by_cursor(cursor_seek)
+            |> order_by([m, u], asc: m.inserted_at, asc: m.user_id)
+            |> limit(^(page_size + 1))
 
-        rows = Repo.all(query, prefix: prefix)
-        {page, next_cursor} = split_group_members_page(rows, page_size)
+          rows = Repo.all(query, prefix: prefix)
+          {page, next_cursor} = split_group_members_page(rows, page_size)
 
-        {:ok, %{members: page, next_cursor: next_cursor}}
+          {:ok, %{members: page, next_cursor: next_cursor}}
+        end
     end
   end
 
@@ -2009,25 +2015,29 @@ defmodule Letflow.Identity do
   Sorted by `inserted_at` ascending, then `id` ascending as a tiebreaker —
   same convention as `list_users/2`.
 
-  Always returns `{:ok, _}` — an empty or last page is `{:ok, %{tenants: [],
-  next_cursor: nil}}`, never an error tuple.
+  An empty or last page is `{:ok, %{tenants: [], next_cursor: nil}}`, never an
+  error tuple; the only error is `{:error, :invalid_cursor}` for a cursor whose
+  prefix is valid but whose payload is malformed (GH 2747).
   """
   @spec list_tenants(list_tenants_params()) ::
           {:ok, %{tenants: [Tenant.t()], next_cursor: String.t() | nil}}
+          | {:error, :invalid_cursor}
   def list_tenants(params) do
     page_size = Map.fetch!(params, :page_size)
 
-    query =
-      Tenant
-      |> filter_tenants_by_search(Map.get(params, :search))
-      |> filter_tenants_by_cursor(Map.get(params, :cursor))
-      |> order_by([t], asc: t.inserted_at, asc: t.id)
-      |> limit(^(page_size + 1))
+    with {:ok, cursor_seek} <- decode_tenants_cursor(Map.get(params, :cursor)) do
+      query =
+        Tenant
+        |> filter_tenants_by_search(Map.get(params, :search))
+        |> filter_tenants_by_cursor(cursor_seek)
+        |> order_by([t], asc: t.inserted_at, asc: t.id)
+        |> limit(^(page_size + 1))
 
-    rows = Repo.all(query)
-    {page, next_cursor} = split_tenants_page(rows, page_size)
+      rows = Repo.all(query)
+      {page, next_cursor} = split_tenants_page(rows, page_size)
 
-    {:ok, %{tenants: page, next_cursor: next_cursor}}
+      {:ok, %{tenants: page, next_cursor: next_cursor}}
+    end
   end
 
   @doc "Fetches a single tenant by its (globally unique) `slug`."
@@ -2283,10 +2293,7 @@ defmodule Letflow.Identity do
 
   defp filter_tenants_by_cursor(query, nil), do: query
 
-  defp filter_tenants_by_cursor(query, %Pagination.Cursor{} = cursor) do
-    {inserted_at_us, id} = decode_tenants_cursor(cursor)
-    ts = naive_datetime_from_us(inserted_at_us)
-
+  defp filter_tenants_by_cursor(query, {ts, id}) do
     from(t in query,
       where: t.inserted_at > ^ts or (t.inserted_at == ^ts and t.id > ^id)
     )
@@ -2296,11 +2303,10 @@ defmodule Letflow.Identity do
   # field-slot repurposing as decode_users_cursor/1 above (see that
   # function's comment for the full expiry-vs-sort-key reasoning, which
   # applies identically here).
+  defp decode_tenants_cursor(nil), do: {:ok, nil}
+
   defp decode_tenants_cursor(%Pagination.Cursor{inner: inner}) do
-    prefix_len = byte_size(@tenants_cursor_prefix)
-    rest = binary_part(inner, prefix_len, byte_size(inner) - prefix_len)
-    [_mint_time_us_str, inserted_at_us_str, id_str] = String.split(rest, ":", parts: 3)
-    {String.to_integer(inserted_at_us_str), id_str}
+    decode_naive_seek(inner, @tenants_cursor_prefix)
   end
 
   defp split_tenants_page(rows, page_size) when length(rows) > page_size do
@@ -3584,10 +3590,7 @@ defmodule Letflow.Identity do
 
   defp filter_group_members_by_cursor(query, nil), do: query
 
-  defp filter_group_members_by_cursor(query, %Pagination.Cursor{} = cursor) do
-    {inserted_at_us, user_id} = decode_group_members_cursor(cursor)
-    ts = naive_datetime_from_us(inserted_at_us)
-
+  defp filter_group_members_by_cursor(query, {ts, user_id}) do
     from([m, u] in query,
       where: m.inserted_at > ^ts or (m.inserted_at == ^ts and m.user_id > ^user_id)
     )
@@ -3596,11 +3599,10 @@ defmodule Letflow.Identity do
   # Same deliberate field-slot repurposing as decode_users_cursor/1 -- see
   # that function's own comment for the full rationale (mint time in the
   # expiry-checked first slot, real sort key/tiebreaker in the other two).
+  defp decode_group_members_cursor(nil), do: {:ok, nil}
+
   defp decode_group_members_cursor(%Pagination.Cursor{inner: inner}) do
-    prefix_len = byte_size(@group_members_cursor_prefix)
-    rest = binary_part(inner, prefix_len, byte_size(inner) - prefix_len)
-    [_mint_time_us_str, inserted_at_us_str, user_id_str] = String.split(rest, ":", parts: 3)
-    {String.to_integer(inserted_at_us_str), user_id_str}
+    decode_naive_seek(inner, @group_members_cursor_prefix)
   end
 
   defp split_group_members_page(rows, page_size) when length(rows) > page_size do
@@ -3644,10 +3646,7 @@ defmodule Letflow.Identity do
 
   defp filter_by_cursor(query, nil), do: query
 
-  defp filter_by_cursor(query, %Pagination.Cursor{} = cursor) do
-    {ts_us, id} = decode_users_cursor(cursor)
-    ts = naive_datetime_from_us(ts_us)
-
+  defp filter_by_cursor(query, {ts, id}) do
     from(u in query,
       where: u.inserted_at > ^ts or (u.inserted_at == ^ts and u.id > ^id)
     )
@@ -3673,11 +3672,21 @@ defmodule Letflow.Identity do
   # are carried in the `key`/`cursor_created_at_us` slots instead, purely for
   # their textual position in the payload, not their parameter names' literal
   # meaning.
+  defp decode_users_cursor(nil), do: {:ok, nil}
+
   defp decode_users_cursor(%Pagination.Cursor{inner: inner}) do
-    prefix_len = byte_size(@list_users_cursor_prefix)
-    rest = binary_part(inner, prefix_len, byte_size(inner) - prefix_len)
-    [_mint_time_us_str, inserted_at_us_str, id_str] = String.split(rest, ":", parts: 3)
-    {String.to_integer(inserted_at_us_str), id_str}
+    decode_naive_seek(inner, @list_users_cursor_prefix)
+  end
+
+  # Shared by the three identity listings whose payload is
+  # "<prefix><mint_time_us>:<inserted_at_us>:<uuid>": returns the seek as
+  # `{NaiveDateTime, uuid}` (the `inserted_at` columns are naive), or
+  # `{:error, :invalid_cursor}` for a malformed tail (GH 2747).
+  defp decode_naive_seek(inner, prefix) do
+    case Pagination.decode_seek_parts(inner, prefix, [:skip, :datetime_us, :uuid]) do
+      {:ok, [inserted_at, id]} -> {:ok, {DateTime.to_naive(inserted_at), id}}
+      {:error, :invalid_cursor} = error -> error
+    end
   end
 
   defp split_page(rows, page_size) when length(rows) > page_size do
@@ -3700,12 +3709,6 @@ defmodule Letflow.Identity do
     ndt
     |> DateTime.from_naive!("Etc/UTC")
     |> DateTime.to_unix(:microsecond)
-  end
-
-  defp naive_datetime_from_us(us) when is_integer(us) do
-    us
-    |> DateTime.from_unix!(:microsecond)
-    |> DateTime.to_naive()
   end
 
   # PROVENANCE (historical, not current decision authority):
