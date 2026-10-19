@@ -1,7 +1,8 @@
 # Generates priv/modules/org/pack.json from the four entity-definition documents under
 # priv/modules/org/entity_definitions/ (GH #2661 / REQ-473). Same provenance choice as the exam
 # pack (priv/modules/exam/generate_pack.exs): pack.json is committed and this script is the only
-# thing that may write it; a drift guard test re-reads the sources and compares.
+# thing that may write it. A drift-guard test that re-reads the sources and compares is planned at
+# test/letflow/modules/org/pack_drift_test.exs (added by TEST-DESIGNER).
 #
 # Run with:  MIX_ENV=test mix run --no-start priv/modules/org/generate_pack.exs
 #

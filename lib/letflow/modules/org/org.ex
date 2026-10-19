@@ -27,6 +27,7 @@ defmodule Letflow.Modules.Org do
 
   alias Letflow.Modules.EntityActivation
 
+  # Must stay equal to `manages_entity_types` in the manifest below (defmanifest takes literals).
   @types [
     "org_legal_entity",
     "org_site",
@@ -52,10 +53,6 @@ defmodule Letflow.Modules.Org do
       "org_unit_membership"
     ]
   )
-
-  @doc "The four entity types this module's pack defines and manages."
-  @spec entity_types() :: [String.t()]
-  def entity_types, do: @types
 
   @impl true
   def on_install(prefix, _settings, ctx) do
