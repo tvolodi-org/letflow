@@ -1,50 +1,80 @@
 {
-  "agent": "ELIXIR-DEV",
-  "workflow": "WF02-GH2869-LASTADMIN-20261019",
-  "step": 4,
-  "timestamp_utc": "2026-10-19T10:45:19Z",
-  "status": "READY_FOR_GATES",
-  "tier": "HIGH",
-  "design": "lib/letflow/design/gh2869-last-interactive-admin-guard.md (r4)",
-  "files_changed": [
-    "lib/letflow/identity/tenant_admin_guard.ex",
-    "lib/letflow/identity.ex",
-    "lib/letflow/identity/role_registry.ex",
-    "lib/letflow/identity/scoped_grants.ex",
-    "lib/letflow/identity/service_principal.ex",
-    "lib/letflow/identity/last_admin_paths.ex (new, data only, 23 rows)",
-    "lib/letflow/routers/identity.ex",
-    "lib/letflow/routers/tenant_role_scope_grants.ex",
-    "docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md (A12 appended, A11/A10 untouched)",
-    "docs/roles.md",
-    "docs/runbooks/scope-enforcement-on.md",
-    "test/letflow/docs/roles_on_flip_docs_test.exs (pins only)"
-  ],
-  "verification": {
-    "mix compile --warnings-as-errors": "clean",
-    "mix format --check-formatted": "clean",
-    "mix test test/letflow/docs/roles_on_flip_docs_test.exs": "27 passed, 0 failed",
-    "full suite": "NOT run (per instruction)"
+  "handoff_id": "d2869000-0519-4c02-9e11-000000000004",
+  "run_id": "WF02-GH2869-LASTADMIN-20261019",
+  "workflow_id": "WF-02",
+  "step": "04",
+  "from_agent": "ELIXIR-DEV",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF02-GH2869-LASTADMIN-20261019/step-04-elixir-dev.json",
+  "created_at": "2026-10-19T10:45:19Z",
+  "started_at": "2026-10-19T10:45:19Z",
+  "completed_at": "2026-10-19T10:47:14Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [
+      "REQ-519"
+    ],
+    "branch_name": "feature/WF02-REQ519-2869-LASTADMIN-20261019",
+    "artifacts_in": [
+      "lib/letflow/design/gh2869-last-interactive-admin-guard.md"
+    ]
   },
-  "builder_duties": {
-    "1_rescue_mapping": "verified, none added: update_locked_user (try/rescue around Multi), remove_group_member, do_upsert_role, rebind_role_report, ScopedGrants.run (covers delete), ServicePrincipal.set_flag (the new post-rollback case sits inside its existing try/rescue) all map a raised ModeUnavailableError to {:transaction_failed, e}",
-    "2_service_principal_clause": "new 409 clause placed before the catch-all {:error, _server_fault} in routers/identity.ex do_service_principal",
-    "3_oq7_oq8": "OQ-7 confirmed: Scripts/Scripts.Policy write only script_rules, script_policy, readable_masters, script publication; no users/groups/memberships/bindings/grants/tokens. OQ-8 re-grep: User status written only via update_locked_user (status_changeset); admin_flagged_service_principal only in ServicePrincipal.do_set_flag; membership/binding deletes only in P2, P8, P16 and role_scope_grants row deletes. Lock-A call sites in lib/ (code, not docs) = 23, matching the design",
-    "4_gate_wording": "roles.md and runbook Gate paragraph say 'see the operator break-glass (item 7)'; 'is delivered by GH #2883' kept; '(still open)' removed; 'No on flip in any customer tenant...' sentence untouched (it lives in the runbook intro only, not added to the Gate paragraph)",
-    "5_oq2": "no defensive guard call added to ScopedGrants.create"
+  "task": {
+    "description": "Implement GH #2869 parts (a) last-interactive-admin guard on the six lock-A paths in a tenant stored on, and (c) decision 0051 Amendment 4 / A12, per design r4 (CDV and SEC design gates passed)."
   },
-  "rework_utc": "2026-10-19T10:47:14Z",
-  "rework": ["alias order fixed in tenant_admin_guard.ex (Credo)", "Gate #2869 text in roles.md and runbook now lists grant revocation (identical text, pinned phrases kept, scoping not named as guarded)", "SEC info confirmed: refusal event keeps the six N1 keys incl. target_id (comment added at the refusal type); counted_admins is 0; the 409 body carries no id and no count"],
-  "deviations": [
-    "D1: TenantAdminGuard gains two helpers beyond the design signatures: interactive_admin_check/2 (returns :ok | :refused, no rollback) and interactive_refusal/2 (builds the refusal map). Reason: update_locked_user is an Ecto.Multi step and the design's ensure_interactive_admin_remains!/4 calls Repo.rollback, which inside a Multi.run would return a bare 2-tuple instead of the {:error, step, value, changes} the design's section 3.7 P1 mapping needs. ensure_interactive_admin_remains!/4 itself delegates to interactive_admin_check/2, so there is one decision function. P1 therefore calls interactive_admin_check/2 (via private interactive_guard/3), not ensure_interactive_admin_remains!/4; T-LA-30's 'G row calls ensure_interactive_admin_remains!' is encoded per row in LastAdminPaths as :guard_call (:interactive_admin_check for P1) and :guard (function holding the call; for P3/P4 that is guard_unbind_interactive_admin/3 and move_role/6, not the lock-A site do_upsert_role/rebind_transaction). TEST-DESIGNER must key the scan on those fields.",
-    "D2: LastAdminPaths row shape is {id, site, class, action, guard, guard_call, reason} (design gave {file, function, arity, class, action | reason}); site is %{file, function: {name, arity}} like BindingWriters. P19 is 5 rows (p19a..p19e).",
-    "D3: P1 refusal is recorded through TenantAdminGuard.refuse/3 (which calls record_guard_refused with reason_code and resource_type 'user') rather than calling record_guard_refused/2 directly; same event, and the function error comes back as {:error, :last_interactive_tenant_wide_admin}.",
-    "D4: docs test: the 'last paragraph' test now also asserts A12 once after A11 and the Amendment 4 heading; the new row (0) checks are A12 once, A12 after A11, no A13, A10 once with its needle (named :record_a12_not_exactly_once, :record_a12_not_after_a11, :record_has_an_unexpected_a13, :record_a10_edited, helper a12_after_a11?/1). The A12 text claims of design section 13 and the new Gate-paragraph claims (last_interactive_tenant_wide_admin, 'the guard cannot see an administrator who exists in Letflow', no '(still open)') are NOT yet pinned: left to TEST-DESIGNER.",
-    "D5: runbook/roles.md intro sentence now says 'the guard that prevents the gap is built, GH #2869 part (a), 0051 A12' and ends 'A12 records the GH #2869 last-admin guard.' (design said drop the 'still open' clause and keep #2869).",
-    "D6: Python edit scripts rewrote lib files with LF line endings where the working copy had CRLF; git normalises (diff is content-only). No functional effect."
-  ],
-  "not_done_by_design": [
-    "No new tests (TEST-DESIGNER). T-L8 in enforced_writers_lock_test.exs and the 'only value' assertions in the guard tests were NOT touched; they may need the bounded changes of design section 6 (not run).",
-    "mix letflow.check_boundaries, permission_matrix, check_role_scope_grants_writers not run (only compile/format requested). No migration, no new route, no config."
-  ]
+  "result": {
+    "status": "COMPLETED",
+    "summary": "GH #2869 (a)+(c) implemented per design r4; see detail",
+    "detail": {
+      "design": "lib/letflow/design/gh2869-last-interactive-admin-guard.md (r4)",
+      "tier": "HIGH",
+      "files_changed": [
+        "lib/letflow/identity/tenant_admin_guard.ex",
+        "lib/letflow/identity.ex",
+        "lib/letflow/identity/role_registry.ex",
+        "lib/letflow/identity/scoped_grants.ex",
+        "lib/letflow/identity/service_principal.ex",
+        "lib/letflow/identity/last_admin_paths.ex (new, data only, 23 rows)",
+        "lib/letflow/routers/identity.ex",
+        "lib/letflow/routers/tenant_role_scope_grants.ex",
+        "docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md (A12 appended, A11/A10 untouched)",
+        "docs/roles.md",
+        "docs/runbooks/scope-enforcement-on.md",
+        "test/letflow/docs/roles_on_flip_docs_test.exs (pins only)"
+      ],
+      "verification": {
+        "mix compile --warnings-as-errors": "clean",
+        "mix format --check-formatted": "clean",
+        "mix test test/letflow/docs/roles_on_flip_docs_test.exs": "27 passed, 0 failed",
+        "full suite": "NOT run (per instruction)"
+      },
+      "builder_duties": {
+        "1_rescue_mapping": "verified, none added: update_locked_user (try/rescue around Multi), remove_group_member, do_upsert_role, rebind_role_report, ScopedGrants.run (covers delete), ServicePrincipal.set_flag (the new post-rollback case sits inside its existing try/rescue) all map a raised ModeUnavailableError to {:transaction_failed, e}",
+        "2_service_principal_clause": "new 409 clause placed before the catch-all {:error, _server_fault} in routers/identity.ex do_service_principal",
+        "3_oq7_oq8": "OQ-7 confirmed: Scripts/Scripts.Policy write only script_rules, script_policy, readable_masters, script publication; no users/groups/memberships/bindings/grants/tokens. OQ-8 re-grep: User status written only via update_locked_user (status_changeset); admin_flagged_service_principal only in ServicePrincipal.do_set_flag; membership/binding deletes only in P2, P8, P16 and role_scope_grants row deletes. Lock-A call sites in lib/ (code, not docs) = 23, matching the design",
+        "4_gate_wording": "roles.md and runbook Gate paragraph say 'see the operator break-glass (item 7)'; 'is delivered by GH #2883' kept; '(still open)' removed; 'No on flip in any customer tenant...' sentence untouched (it lives in the runbook intro only, not added to the Gate paragraph)",
+        "5_oq2": "no defensive guard call added to ScopedGrants.create"
+      },
+      "deviations": [
+        "D1: TenantAdminGuard gains two helpers beyond the design signatures: interactive_admin_check/2 (returns :ok | :refused, no rollback) and interactive_refusal/2 (builds the refusal map). Reason: update_locked_user is an Ecto.Multi step and the design's ensure_interactive_admin_remains!/4 calls Repo.rollback, which inside a Multi.run would return a bare 2-tuple instead of the {:error, step, value, changes} the design's section 3.7 P1 mapping needs. ensure_interactive_admin_remains!/4 itself delegates to interactive_admin_check/2, so there is one decision function. P1 therefore calls interactive_admin_check/2 (via private interactive_guard/3), not ensure_interactive_admin_remains!/4; T-LA-30's 'G row calls ensure_interactive_admin_remains!' is encoded per row in LastAdminPaths as :guard_call (:interactive_admin_check for P1) and :guard (function holding the call; for P3/P4 that is guard_unbind_interactive_admin/3 and move_role/6, not the lock-A site do_upsert_role/rebind_transaction). TEST-DESIGNER must key the scan on those fields.",
+        "D2: LastAdminPaths row shape is {id, site, class, action, guard, guard_call, reason} (design gave {file, function, arity, class, action | reason}); site is %{file, function: {name, arity}} like BindingWriters. P19 is 5 rows (p19a..p19e).",
+        "D3: P1 refusal is recorded through TenantAdminGuard.refuse/3 (which calls record_guard_refused with reason_code and resource_type 'user') rather than calling record_guard_refused/2 directly; same event, and the function error comes back as {:error, :last_interactive_tenant_wide_admin}.",
+        "D4: docs test: the 'last paragraph' test now also asserts A12 once after A11 and the Amendment 4 heading; the new row (0) checks are A12 once, A12 after A11, no A13, A10 once with its needle (named :record_a12_not_exactly_once, :record_a12_not_after_a11, :record_has_an_unexpected_a13, :record_a10_edited, helper a12_after_a11?/1). The A12 text claims of design section 13 and the new Gate-paragraph claims (last_interactive_tenant_wide_admin, 'the guard cannot see an administrator who exists in Letflow', no '(still open)') are NOT yet pinned: left to TEST-DESIGNER.",
+        "D5: runbook/roles.md intro sentence now says 'the guard that prevents the gap is built, GH #2869 part (a), 0051 A12' and ends 'A12 records the GH #2869 last-admin guard.' (design said drop the 'still open' clause and keep #2869).",
+        "D6: Python edit scripts rewrote lib files with LF line endings where the working copy had CRLF; git normalises (diff is content-only). No functional effect."
+      ],
+      "not_done_by_design": [
+        "No new tests (TEST-DESIGNER). T-L8 in enforced_writers_lock_test.exs and the 'only value' assertions in the guard tests were NOT touched; they may need the bounded changes of design section 6 (not run).",
+        "mix letflow.check_boundaries, permission_matrix, check_role_scope_grants_writers not run (only compile/format requested). No migration, no new route, no config."
+      ],
+      "rework": [
+        "alias order fixed in tenant_admin_guard.ex (Credo)",
+        "Gate #2869 text in roles.md and runbook now lists grant revocation (identical text, pinned phrases kept, scoping not named as guarded)",
+        "SEC info confirmed: refusal event keeps the six N1 keys incl. target_id (comment added at the refusal type); counted_admins is 0; the 409 body carries no id and no count"
+      ],
+      "rework_utc": "2026-10-19T10:47:14Z"
+    }
+  }
 }

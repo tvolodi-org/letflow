@@ -12,7 +12,9 @@
   "priority": "HIGH",
   "context": {
     "stage": "S7",
-    "requirement_ids": ["REQ-519"],
+    "requirement_ids": [
+      "REQ-519"
+    ],
     "branch_name": "feature/WF02-REQ519-2869-LASTADMIN-20261019",
     "artifacts_in": [
       "lib/letflow/design/gh2869-last-interactive-admin-guard.md",
@@ -37,24 +39,148 @@
       "modified (one comment line each, no assertion changed): test/letflow/identity/tenant_admin_guard_test.exs, tenant_admin_guard_scoped_test.exs, test/letflow/routers/gh2564_deactivation_revokes_tokens_test.exs, tenant_role_scope_grants_test.exs"
     ],
     "mutants": [
-      {"id": "MU-LA-1", "mutation": "interactive_admin_check counts :counted instead of :interactive_explicit", "result": "KILLED", "failed": 31, "passed": 42, "files": "guard + paths"},
-      {"id": "MU-LA-2", "mutation": "private Repo.aggregate/from query for :interactive_explicit in the guard's count/2", "result": "KILLED", "failed": 3, "passed": 26, "files": "paths + controls (T-LA-18 x2, T-LA-17)"},
-      {"id": "MU-LA-3/P1", "mutation": "P1 interactive_guard step answers ok on refusal", "result": "KILLED", "failed": 8, "passed": 65, "files": "guard + paths"},
-      {"id": "MU-LA-3/P2", "mutation": "P2 second guard call disabled (if false and ...)", "result": "KILLED", "failed": 8, "passed": 65, "files": "guard + paths"},
-      {"id": "MU-LA-3/P3", "mutation": "P3 interactive before-count forced to 0", "result": "KILLED", "failed": 5, "passed": 58, "files": "guard"},
-      {"id": "MU-LA-3/P4", "mutation": "P4 interactive before-count forced to 0", "result": "KILLED", "failed": 3, "passed": 60, "files": "guard"},
-      {"id": "MU-LA-3/P5", "mutation": "P5 interactive before-count forced to 0", "result": "KILLED", "failed": 4, "passed": 59, "files": "guard"},
-      {"id": "MU-LA-3/P6", "mutation": "P6 interactive before-count forced to 0", "result": "KILLED", "failed": 5, "passed": 58, "files": "guard"},
-      {"id": "MU-LA-5", "mutation": "state rule: before_count == 0 no longer short-circuits", "result": "KILLED", "failed": 1, "passed": 18, "files": "controls (T-LA-P7 unrelated writes at zero)"},
-      {"id": "MU-LA-6", "mutation": "refuses in shadow and off too", "result": "KILLED", "failed": 10, "passed": 53, "files": "guard (T-LA-20 x10)"},
-      {"id": "MU-LA-8", "mutation": "failed mode read treated as :off (fail open)", "result": "KILLED", "failed": 11, "passed": 80, "files": "guard + routes (5 function + 6 HTTP; P4 is protected by the pre-existing reconcile read, equivalent for the guard's own read)"},
-      {"id": "MU-LA-9", "mutation": "mode read before the cond, on every guarded write", "result": "KILLED", "failed": 6, "passed": 77, "files": "guard + enforced_writers_lock (new T-L8 test + 5 T-LA-23)"},
-      {"id": "MU-LA-10", "mutation": "P2: the new guard block runs BEFORE the N1 guard", "result": "KILLED", "failed": 2, "passed": 61, "files": "guard (T-LA-22 p2, T-LA-27)"},
-      {"id": "MU-LA-11", "mutation": "refusal event always carries the old reason_code", "result": "KILLED", "failed": 15, "passed": 48, "files": "guard"},
-      {"id": "MU-LA-14", "mutation": "service-principal router clause removed (500)", "result": "KILLED", "failed": 2, "passed": 26, "files": "routes"},
-      {"id": "MU-LA-17", "mutation": "new lock-A call site in ScopedGrants.make_tenant_wide with no inventory row", "result": "KILLED", "failed": 2, "passed": 8, "files": "paths (T-LA-30)"},
-      {"id": "MU-LA-19", "mutation": "lock A removed from do_remove_group_member", "result": "KILLED", "failed": 8, "passed": 12, "files": "race + paths (queue_two! never sees the worker blocked; T-LA-30 sees a missing site)"},
-      {"id": "MU-LA-15", "mutation": "unflag guarded", "result": "EQUIVALENT", "note": "an unflag only raises the interactive count; a guard on it can never refuse. T-LA-P6 still pins that unflagging is allowed."}
+      {
+        "id": "MU-LA-1",
+        "mutation": "interactive_admin_check counts :counted instead of :interactive_explicit",
+        "result": "KILLED",
+        "failed": 31,
+        "passed": 42,
+        "files": "guard + paths"
+      },
+      {
+        "id": "MU-LA-2",
+        "mutation": "private Repo.aggregate/from query for :interactive_explicit in the guard's count/2",
+        "result": "KILLED",
+        "failed": 3,
+        "passed": 26,
+        "files": "paths + controls (T-LA-18 x2, T-LA-17)"
+      },
+      {
+        "id": "MU-LA-3/P1",
+        "mutation": "P1 interactive_guard step answers ok on refusal",
+        "result": "KILLED",
+        "failed": 8,
+        "passed": 65,
+        "files": "guard + paths"
+      },
+      {
+        "id": "MU-LA-3/P2",
+        "mutation": "P2 second guard call disabled (if false and ...)",
+        "result": "KILLED",
+        "failed": 8,
+        "passed": 65,
+        "files": "guard + paths"
+      },
+      {
+        "id": "MU-LA-3/P3",
+        "mutation": "P3 interactive before-count forced to 0",
+        "result": "KILLED",
+        "failed": 5,
+        "passed": 58,
+        "files": "guard"
+      },
+      {
+        "id": "MU-LA-3/P4",
+        "mutation": "P4 interactive before-count forced to 0",
+        "result": "KILLED",
+        "failed": 3,
+        "passed": 60,
+        "files": "guard"
+      },
+      {
+        "id": "MU-LA-3/P5",
+        "mutation": "P5 interactive before-count forced to 0",
+        "result": "KILLED",
+        "failed": 4,
+        "passed": 59,
+        "files": "guard"
+      },
+      {
+        "id": "MU-LA-3/P6",
+        "mutation": "P6 interactive before-count forced to 0",
+        "result": "KILLED",
+        "failed": 5,
+        "passed": 58,
+        "files": "guard"
+      },
+      {
+        "id": "MU-LA-5",
+        "mutation": "state rule: before_count == 0 no longer short-circuits",
+        "result": "KILLED",
+        "failed": 1,
+        "passed": 18,
+        "files": "controls (T-LA-P7 unrelated writes at zero)"
+      },
+      {
+        "id": "MU-LA-6",
+        "mutation": "refuses in shadow and off too",
+        "result": "KILLED",
+        "failed": 10,
+        "passed": 53,
+        "files": "guard (T-LA-20 x10)"
+      },
+      {
+        "id": "MU-LA-8",
+        "mutation": "failed mode read treated as :off (fail open)",
+        "result": "KILLED",
+        "failed": 11,
+        "passed": 80,
+        "files": "guard + routes (5 function + 6 HTTP; P4 is protected by the pre-existing reconcile read, equivalent for the guard's own read)"
+      },
+      {
+        "id": "MU-LA-9",
+        "mutation": "mode read before the cond, on every guarded write",
+        "result": "KILLED",
+        "failed": 6,
+        "passed": 77,
+        "files": "guard + enforced_writers_lock (new T-L8 test + 5 T-LA-23)"
+      },
+      {
+        "id": "MU-LA-10",
+        "mutation": "P2: the new guard block runs BEFORE the N1 guard",
+        "result": "KILLED",
+        "failed": 2,
+        "passed": 61,
+        "files": "guard (T-LA-22 p2, T-LA-27)"
+      },
+      {
+        "id": "MU-LA-11",
+        "mutation": "refusal event always carries the old reason_code",
+        "result": "KILLED",
+        "failed": 15,
+        "passed": 48,
+        "files": "guard"
+      },
+      {
+        "id": "MU-LA-14",
+        "mutation": "service-principal router clause removed (500)",
+        "result": "KILLED",
+        "failed": 2,
+        "passed": 26,
+        "files": "routes"
+      },
+      {
+        "id": "MU-LA-17",
+        "mutation": "new lock-A call site in ScopedGrants.make_tenant_wide with no inventory row",
+        "result": "KILLED",
+        "failed": 2,
+        "passed": 8,
+        "files": "paths (T-LA-30)"
+      },
+      {
+        "id": "MU-LA-19",
+        "mutation": "lock A removed from do_remove_group_member",
+        "result": "KILLED",
+        "failed": 8,
+        "passed": 12,
+        "files": "race + paths (queue_two! never sees the worker blocked; T-LA-30 sees a missing site)"
+      },
+      {
+        "id": "MU-LA-15",
+        "mutation": "unflag guarded",
+        "result": "EQUIVALENT",
+        "note": "an unflag only raises the interactive count; a guard on it can never refuse. T-LA-P6 still pins that unflagging is allowed."
+      }
     ],
     "lib_untouched": "after every mutant the byte-exact backup was restored; sha256 of all nine lib/ files changed or added by ELIXIR-DEV compared with the starting state: 0 differences; git status of lib/ unchanged",
     "findings": [
@@ -63,7 +189,9 @@
       "P4 fail-closed: reconcile_binding! already reads the mode for a platform-to-platform move, so a rebind in an unreadable tenant raises regardless of the new guard; the bounded T-L8 'never reads the mode' claim cannot hold for a rebind, and the guard's own read there is unobservable (equivalent for MU-LA-8).",
       "P8: deleting the populated admin group answers :not_found_or_has_members (bound_to_role is for a memberless bound group).",
       "Windows checkout: mix test prints Result: N passed / N/M passed (no 'tests, failures' line); the repo static guard test/letflow/identity_login_directory_test.exs requires the literal login_directory: :skip (or :tenant_id) in the argument text of every update_user_status/update_user_profile call under test/."
+    ],
+    "gates_requested": [
+      "TEST-DESIGN-VALIDATOR"
     ]
-  },
-  "gates_requested": ["TEST-DESIGN-VALIDATOR"]
+  }
 }
