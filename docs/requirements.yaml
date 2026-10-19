@@ -37057,19 +37057,19 @@ requirements:
     # SIZING NOTE: if sizing fails at CODE-DESIGNER, split the DIRECT mechanization (AC 8) into its own requirement; the SHORT/FULL core stays here.
     description: >
       Source: GH #2422 AC 3. A checkable helper, a mix task, `mix letflow.risk_tier [--base
-      REF] [--head REF]` (defaults origin/main and HEAD), that prints FULL, SHORT or DIRECT
+      REF] [--head REF]` (defaults origin/main and HEAD), that prints FULL, SHORT, DIRECT or HIGH
       with the failing check named, implementing the two mechanical checklists of
       docs/agents/ORCHESTRATOR.md (section 10 for DIRECT, section 13 from REQ-520 for SHORT
-      and the ALWAYS FULL list). It reads `git diff --name-status -M`, `git diff -U0` and `git diff --numstat`
-      of base...head and passes them to a pure classify/1 function, which the tests call
-      directly. classify/1 also takes `git diff --numstat origin/main...HEAD` as input (needed for the 300-line HIGH count). A rename or delete counts as a removal. Output: the first line is exactly
-      'TIER: FULL', 'TIER: SHORT' or 'TIER: DIRECT'; for FULL the second line is exactly
+      and the ALWAYS FULL list). It reads `git diff --name-status -M`, `git diff -U0` and `git diff --numstat` (needed for the 300-line HIGH count)
+      of base...head, passing its resolved base...head to all three git commands (ORCHESTRATOR.md section 13's origin/main...HEAD is only the default), and passes them to a pure classify/1 function, which the tests call
+      directly. A rename or delete counts as a removal. Output: the first line is exactly
+      one of 'TIER: FULL', 'TIER: SHORT', 'TIER: DIRECT', 'TIER: HIGH'; for FULL the second line is exactly
       'FAILED CHECK: <rule id>'. Any ambiguous case is FULL. The task name and flags are
       fixed here; CODE-DESIGNER may rename, recorded in the moduledoc. Existing precedent
       for a path-driven check: test/letflow/ci_backend_path_filter_test.exs and the mix
       letflow.check_* tasks.
     acceptance_criteria:
-      - "1. [GH #2422 AC 3] mix letflow.risk_tier [--base REF] [--head REF] (defaults origin/main and HEAD) reads git diff --name-status -M and -U0 of base...head, classifies through a pure classify/1, and prints as its first line exactly one of 'TIER: FULL', 'TIER: SHORT', 'TIER: DIRECT', 'TIER: HIGH'; for FULL the second line is exactly 'FAILED CHECK: <rule id>' naming the rule or ALWAYS FULL entry that matched. A rename or delete counts as a removal."
+      - "1. [GH #2422 AC 3] mix letflow.risk_tier [--base REF] [--head REF] (defaults origin/main and HEAD) reads git diff --name-status -M, -U0 and --numstat of base...head, classifies through a pure classify/1, and prints as its first line exactly one of 'TIER: FULL', 'TIER: SHORT', 'TIER: DIRECT', 'TIER: HIGH'; for FULL the second line is exactly 'FAILED CHECK: <rule id>' naming the rule or ALWAYS FULL entry that matched. A rename or delete counts as a removal."
       - "2. [GH #2422 AC 3] Tests (classify/1, no git needed) cover one case per path rule of ORCHESTRATOR.md section 13: each ALWAYS FULL entry (test/fixtures/qa/, test/fixtures/simulation/, test/fixtures/uat/process-definition-aliases/, test/fixtures/uat/actors.yaml, a seed script, .github/workflows/, each scope-test path written out by REQ-520 AC 6, a removed test, a removed assertion, a loosened guard test) yields FULL; a diff of only test/ files yields SHORT; a diff of only documents (as REQ-520 AC 4 defines) yields SHORT, and a CLAUDE.md, a .claude/ file or a top-level governing *.md yields FULL; a diff of only docs/agents/ files yields FULL; a diff of only docs/roles.md yields FULL. HIGH cases: a diff of more than 300 lib/ lines touching a listed HIGH path yields HIGH; more than 300 lines touching none yields FULL; 300 lines or fewer touching a listed path yields FULL. Each Extensions entry of section 13 (test/support/, test/fixtures/, docs/merge-queue.md, docs/anti-patterns.md, docs/guides/, docs/migration/, the CI-backend-input docs/ paths, lib/letflow/api/, lib/letflow/secrets*, lib/letflow/entities/, config/) has one FULL case."
       - "3. [GH #2422 AC 3] The tests include a fixture-definition change (a process definition under test/fixtures/qa/ or test/fixtures/simulation/) which yields FULL, and a deleted test which yields FULL."
       - "4. [REQ-VALIDATOR amendment] Cases on docs/requirements.yaml: a SHORT-eligible diff changing only status:, gh: or description: lines yields SHORT; a diff with a hunk inside an acceptance_criteria block yields FULL for the whole diff; a mixed diff (one SHORT-eligible file and one FULL file) yields FULL."
