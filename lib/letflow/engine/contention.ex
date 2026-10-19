@@ -33,6 +33,38 @@ defmodule Letflow.Engine.Contention do
     def lock_timeout_ms, do: @contention_lock_timeout_ms
   end
 
+  @default_timer_fire_lock_timeout_ms 2_000
+
+  @doc """
+  GH #2707 (PR-3): the PER-WAIT lock timeout of one timer-fire transaction in milliseconds
+  (`config :letflow, :timer_fire_lock_timeout_ms`, default 2 s). In a `:engine_test_seams` build a
+  positive integer in the process dictionary key `:timer_fire_lock_timeout_ms_override` of the
+  CALLING process replaces it (a test reaches a real `55P03` in about 300 ms).
+  """
+  @spec timer_fire_lock_timeout_ms() :: pos_integer()
+  if Application.compile_env(:letflow, :engine_test_seams, false) do
+    def timer_fire_lock_timeout_ms do
+      case Process.get(:timer_fire_lock_timeout_ms_override) do
+        ms when is_integer(ms) and ms > 0 -> ms
+        _ -> configured_timer_fire_lock_timeout_ms()
+      end
+    end
+  else
+    def timer_fire_lock_timeout_ms, do: configured_timer_fire_lock_timeout_ms()
+  end
+
+  defp configured_timer_fire_lock_timeout_ms do
+    case Application.get_env(:letflow, :timer_fire_lock_timeout_ms) do
+      ms when is_integer(ms) and ms > 0 -> ms
+      _ -> @default_timer_fire_lock_timeout_ms
+    end
+  end
+
+  @doc "`timer_fire_lock_timeout_ms/0` as the text bound as the transaction-local setting."
+  @spec timer_fire_lock_timeout_setting() :: String.t()
+  def timer_fire_lock_timeout_setting,
+    do: Integer.to_string(timer_fire_lock_timeout_ms()) <> "ms"
+
   @doc "`lock_timeout_ms/0` as the text bound as the transaction-local `lock_timeout` setting."
   @spec lock_timeout_setting() :: String.t()
   def lock_timeout_setting, do: Integer.to_string(lock_timeout_ms()) <> "ms"
