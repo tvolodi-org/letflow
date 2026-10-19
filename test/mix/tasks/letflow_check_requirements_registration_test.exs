@@ -740,7 +740,7 @@ defmodule Mix.Tasks.Letflow.CheckRequirementsRegistrationTest do
   end
 
   describe "R8 -- whole-file YAML parse guard (GH #2891)" do
-    setup_all do
+    setup do
       {:ok, _} = Application.ensure_all_started(:yaml_elixir)
       :ok
     end
