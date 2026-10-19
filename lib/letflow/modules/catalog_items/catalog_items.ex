@@ -16,8 +16,8 @@ defmodule Letflow.Modules.CatalogItems do
   unique constraint over the pair.
 
   Both are declared in `manages_entity_types`, so after install the generic entity routes answer
-  403 `entity_type_managed`. This skeleton ships no routes, no permissions, no role grants and
-  no write functions; the read API is REQ-507 (GH #2664). The unit scale and conversion factors
+  403 `entity_type_managed`. The module ships no routes, no permissions, no role grants and
+  no write functions; the read API (REQ-507, GH #2664) is below. The unit scale and conversion factors
   are REQ-504 (#2660), not here. References between the types are declarative strings (0050
   D3.6), no foreign keys.
 
