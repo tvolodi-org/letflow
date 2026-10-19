@@ -544,8 +544,8 @@ the `Tier:` line of the Gates block (`GIT_MERGE.md`); this section defines SHORT
 Not in force until REQ-521, REQ-522 and REQ-523 are done; until then every change is FULL or DIRECT.
 (HIGH is FULL plus an outside review and is in force now, by the auditor's decision of 2026-10-19.)
 
-**SHORT** applies only when EVERY changed file is under `test/` (test files, `test/support`,
-`test/specs`, `test/reports`) or is a document: ONLY a file under `docs/` outside `docs/agents/`
+**SHORT** applies only when EVERY changed file is under `test/` (test files, `test/specs`,
+`test/reports`; `test/support/` is FULL, see Extensions) or is a document: ONLY a file under `docs/` outside `docs/agents/`
 and `docs/migration/decisions/`, and outside the acceptance criteria of `docs/requirements.yaml`, and outside the paths in Extensions.
 All `CLAUDE.md` files (any level), everything under `.claude/` and any top-level `*.md` that
 governs agents or process (`CLAUDE.md`, `ORCHESTRATOR.md`, workflow docs) are FULL. In doubt a path is FULL.
@@ -620,8 +620,8 @@ those are under `lib/` and so never SHORT.
   (today e.g. `tenant_fixture.ex`, `token_verifier_double.ex`, `mock_oidc_provider.ex`,
   `keycloak_test_client.ex`, `admission_test_helpers.ex`, `scope_on_fixture.ex`,
   `role_scope_grants_fixture.ex`, `route_inventory.ex`, `tenant_slug.ex`).
-- `docs/merge-queue.md`, `docs/anti-patterns.md`, `docs/guides/` (all), `docs/migration/README.md` and
-  `docs/migration/stage-*.md` (process-governing docs; "not documents", like `docs/roles.md`).
+- `docs/merge-queue.md`, `docs/anti-patterns.md`, `docs/guides/` (all), `docs/migration/` (all; decisions already
+  excluded) (process-governing docs; "not documents", like `docs/roles.md`).
 - `lib/letflow/api/`, `lib/letflow/secrets*`, `lib/letflow/entities/`, `config/`.
 - Guard test, widened (supersedes the narrow definition above where they differ): a file matching the live
   regex `(guard|invariant|inventory|drift|golden|permission_matrix|path_filter|boundaries|authoriz|enforce|route_scope|scope|authorize|leak|secret|escalat|cross_tenant|isolation|cd_qa|tip_rule|ci_changed|check_pr_gates)[^/]*_test\.exs$`
@@ -642,8 +642,10 @@ or a separate FULL PR. Decision 0004 principle 1 holds: one validator remains.
 
 **HIGH** is a FULL change (never SHORT or DIRECT) that changes more than 300 lines under `lib/`
 (added plus deleted, `git diff --numstat origin/main...HEAD`; the 300 counts all of `lib/`, not only the named paths) AND touches any of:
-`lib/letflow/routers/`, `lib/letflow/scope_enforcement*`, `lib/letflow/identity/`,
-`lib/letflow/engine*`, `lib/letflow/scheduler*`, `priv/repo/migrations/`, or any SECURITY-REVIEWER
+`lib/letflow/routers/`, `lib/letflow/scope_enforcement*`, `lib/letflow/identity*`,
+`lib/letflow/engine*`, `lib/letflow/scheduler*`, `priv/repo/migrations/`, `lib/letflow/tenant_provisioning*`,
+`lib/letflow/platform_tenant*`, `lib/letflow/plugs/`, `lib/letflow/oidc/`, `lib/letflow/webhooks*`,
+`lib/letflow/login_directory*`, `lib/letflow/login_discovery*`, or any SECURITY-REVIEWER
 scope path (the paths written out in this section; extended per SECURITY-REVIEWER finding, additive to audit R5: also `lib/letflow/api/`,
 `lib/letflow/secrets*`, `lib/letflow/entities/`, `config/`). HIGH = the FULL chain plus ONE outside review by a session other than the worker
 (an advisory/architect session), requested through the supervisor after SECURITY-REVIEWER passes;
