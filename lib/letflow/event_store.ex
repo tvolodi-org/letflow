@@ -116,6 +116,8 @@ defmodule Letflow.EventStore do
   }
 
   alias Letflow.Api.Pagination
+  alias Letflow.Engine.Contention
+  alias Letflow.EventStore.InstanceVisibility
   alias Letflow.EventStore.Registry
   alias Letflow.Repo
   alias Letflow.TenantProvisioning
@@ -175,6 +177,7 @@ defmodule Letflow.EventStore do
           | {:error, :instance_not_started}
           | {:error, {:instance_terminated, :completed | :cancelled}}
           | {:error, {:sequence_conflict, term()}}
+          | {:error, :contention}
           | {:error, Ecto.Changeset.t()}
           | {:error, term()}
 
@@ -232,11 +235,29 @@ defmodule Letflow.EventStore do
   GH #2587 (D-A2.16): an `idempotency_key` starting `"sys:step:"` is refused with
   `{:error, :reserved_idempotency_key}` before any query; that family is written only
   through a namespaced `append_multi/3`.
+
+  GH #2707 (PR-2, decision 0061 "Amended (GH #2707, PR-2)", invariant I-S): the first step
+  of the transaction locks the instance's projection row `FOR NO KEY UPDATE`, BEFORE the
+  `instance_sequence` row, so every `append/2` caller (cold or not) takes `P_x` before `S_x`.
+  A terminal or missing instance returns the same errors as before. A synthetic entity-type
+  instance (`InstanceVisibility.synthetic?/2`) is NEVER locked here: its streams keep rule 5's
+  order (sequence row, then projection row) and are written through `append_multi/3`.
+
+  Optional `opts[:lock_timeout_ms]` (a positive integer, default absent = off, every other
+  caller unchanged): bounds EACH lock wait of the transaction with a transaction-local
+  `lock_timeout` set by the first statement (bound parameter); a wait that exceeds it (55P03) or a
+  deadlock-victim abort (40P01, a mixed-version window) returns `{:error, :contention}` and nothing
+  is written (every other exception keeps raising). Not applied when the caller already holds a
+  transaction (the setting would leak into the caller's transaction).
   """
-  @spec append(attrs :: append_attrs(), opts :: [prefix: String.t()]) ::
+  @spec append(
+          attrs :: append_attrs(),
+          opts :: [prefix: String.t(), lock_timeout_ms: pos_integer()]
+        ) ::
           {:ok, append_result()} | append_error()
   def append(attrs, opts) when is_map(attrs) and is_list(opts) do
     prefix = Keyword.get(opts, :prefix)
+    lock_timeout_ms = lock_timeout_option!(opts)
 
     with :ok <- reject_tenant_id(attrs),
          {:ok, tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
@@ -277,11 +298,7 @@ defmodule Letflow.EventStore do
       # (AC8: a grep for that module's fully-qualified name over this file's real
       # code must return zero hits).
       :telemetry.span([:letflow, :event_store, :append], %{}, fn ->
-        result =
-          ctx
-          |> build_multi()
-          |> Repo.transaction()
-          |> interpret_transaction_result()
+        result = run_append_transaction(ctx, lock_timeout_ms)
 
         {result, %{}}
       end)
@@ -590,7 +607,53 @@ defmodule Letflow.EventStore do
   # prefix: schema_name on every operation.
   # ---------------------------------------------------------------------
 
-  defp build_multi(ctx), do: build_multi_composable(Multi.new(), ctx, nil)
+  # GH #2707 (PR-2): `guard_lock: true` is set ONLY here, so only `append/2` locks the projection
+  # row in its guard; `append_multi/3` and the `{:line, i}` namespaces keep the unlocked guard.
+  defp build_multi(ctx, bound_lock_wait_ms) do
+    Multi.new()
+    |> maybe_bound_lock_wait(bound_lock_wait_ms)
+    |> build_multi_composable(Map.put(ctx, :guard_lock, true), nil)
+  end
+
+  defp lock_timeout_option!(opts) do
+    case Keyword.get(opts, :lock_timeout_ms) do
+      nil ->
+        nil
+
+      ms when is_integer(ms) and ms > 0 ->
+        ms
+
+      other ->
+        raise ArgumentError, "lock_timeout_ms must be a positive integer, got: #{inspect(other)}"
+    end
+  end
+
+  defp run_append_transaction(ctx, nil) do
+    ctx |> build_multi(nil) |> Repo.transaction() |> interpret_transaction_result()
+  end
+
+  # The option is a no-op for a nested caller (a transaction-local setting would leak into it).
+  defp run_append_transaction(ctx, lock_timeout_ms) do
+    bound_ms = if Repo.in_transaction?(), do: nil, else: lock_timeout_ms
+
+    try do
+      ctx |> build_multi(bound_ms) |> Repo.transaction() |> interpret_transaction_result()
+    rescue
+      exception ->
+        case Contention.contention_code(exception) do
+          {:ok, _code} when bound_ms != nil -> {:error, :contention}
+          _other -> reraise exception, __STACKTRACE__
+        end
+    end
+  end
+
+  defp maybe_bound_lock_wait(multi, nil), do: multi
+
+  defp maybe_bound_lock_wait(multi, lock_timeout_ms) do
+    Multi.run(multi, :lock_timeout, fn repo, _changes ->
+      Letflow.Engine.set_lock_timeout_ms(repo, lock_timeout_ms)
+    end)
+  end
 
   # REQ-228 §3.1 -- the composable core `append/2`'s own build_multi/1 and
   # append_multi/3 (public, above) both call, so the M1/M2/M3/M4/M5(?)/M6
@@ -666,19 +729,24 @@ defmodule Letflow.EventStore do
     |> maybe_store_oversized_payload(ctx, nil)
   end
 
-  # M1 -- active-instance guard (invariant 10, ES-01). A plain, unlocked read
-  # (design doc §6.2.1 -- a stronger guarantee, e.g. locking
-  # instance_projections for the append's duration, is design doc OQ-6, not
-  # built here). Update-only per REVIEWER's Step 2d OQ-5 ruling: append/2
-  # never originates an instance_projections row. No row found is a hard
+  # M1 -- active-instance guard (invariant 10, ES-01). Update-only per REVIEWER's Step 2d OQ-5
+  # ruling: append/2 never originates an instance_projections row. No row found is a hard
   # failure, {:error, :instance_not_started} -- a DISTINCT case from
   # :instance_terminated below, not an implicit new/active instance. On
   # success, the actual %InstanceProjection{} struct is returned (not a bare
   # atom) so M6 (update_projection/3) can read its current `status` back via
   # `changes.active_instance_guard` and thread it, unchanged, into
   # InstanceProjection.update_changeset/2 without a second DB read.
-  defp active_instance_guard(repo, _changes, %{instance_id: instance_id, schema_name: schema_name}) do
-    case repo.get(InstanceProjection, instance_id, prefix: schema_name) do
+  #
+  # GH #2707 (PR-2): with `guard_lock: true` (append/2 only) the read is a LOCKING read, FOR NO
+  # KEY UPDATE, so the projection row P_x is taken before the sequence row S_x (invariant I-S,
+  # decision 0061); the status is re-checked on the locked row (a cold append racing a cancel
+  # sees {:instance_terminated, :cancelled}). Do NOT upgrade this to FOR UPDATE on a cold path:
+  # it would wait on a child's KEY SHARE holders. A synthetic entity-type projection is excluded
+  # from the locking read (rule 5: its order is S then P), so it falls through to the plain read,
+  # which also answers the missing-row case.
+  defp active_instance_guard(repo, _changes, ctx) do
+    case read_guarded_projection(repo, ctx) do
       nil ->
         {:error, :instance_not_started}
 
@@ -689,6 +757,23 @@ defmodule Letflow.EventStore do
           {:ok, projection}
         end
     end
+  end
+
+  defp read_guarded_projection(repo, %{guard_lock: true} = ctx) do
+    %{instance_id: instance_id, schema_name: schema_name} = ctx
+
+    locked =
+      InstanceProjection
+      |> where([p], p.instance_id == ^instance_id)
+      |> InstanceVisibility.exclude_synthetic(schema_name)
+      |> lock("FOR NO KEY UPDATE")
+      |> repo.one(prefix: schema_name)
+
+    locked || repo.get(InstanceProjection, instance_id, prefix: schema_name)
+  end
+
+  defp read_guarded_projection(repo, %{instance_id: instance_id, schema_name: schema_name}) do
+    repo.get(InstanceProjection, instance_id, prefix: schema_name)
   end
 
   # M2 -- sequence assignment: the FOR-UPDATE-equivalent locking protocol

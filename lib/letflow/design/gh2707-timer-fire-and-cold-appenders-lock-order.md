@@ -766,3 +766,51 @@ blocks; PR-3 adds no lock, no order and no writer).
 10. **Accepted gaps.** A `>=` versus `>` pin on the budget comparison is not deterministic (the elapsed time of
     the first fire is never exactly the budget), so it is not tested. Also accepted (TDV survivors): the log `schema:`
     metadata is not asserted; the `:timer_fire_lock_timeout_ms` config read is not tested (only the default and the override); a nested call whose 55P03 leaves the outer transaction aborted is documented, not tested.
+
+## 16. As built (PR-2)
+
+Written by ELIXIR-DEV after the build. Where this section and sections 7, 8.3 and 10 disagree, this section
+describes what shipped. Decision 0061 carries the "Amended (GH #2707, PR-2)" block; its text differs from the
+block quoted in section 10 as listed in item 6.
+
+1. **The guard.** `EventStore.append/2` builds its Multi through `build_multi/2`, the only place that sets the
+   ctx flag `guard_lock: true`; `append_multi/3` and the `{:line, i}` namespaces never set it and keep the plain
+   read. The locking read is `InstanceProjection ... WHERE instance_id = ^id AND NOT EXISTS (entity_type_instances
+   ...) FOR NO KEY UPDATE` (the anti-join of `InstanceVisibility.exclude_synthetic/2`); when it returns no row the
+   guard falls back to the plain read, which answers both "missing" (`:instance_not_started`) and "synthetic"
+   (never locked). A normal append is still ONE guard statement; a synthetic or missing one is two. The status is
+   checked on the locked row. A source comment forbids a later upgrade to `FOR UPDATE` on cold paths.
+2. **The bound.** `append/2` takes `lock_timeout_ms:` (a positive integer, else `ArgumentError`). It adds a first
+   Multi step `:lock_timeout` that calls `Letflow.Engine.set_lock_timeout_ms/2` (`@doc false`, in `engine.ex`, so the
+   set-config string stays in the stamp-opener scan whitelist with its literal setting name; the value is a bound
+   parameter). It is skipped when the caller already holds a transaction (the setting would leak into it). A
+   `55P03` AND a `40P01` raised while the option is active are returned as `{:error, :contention}` (nothing is
+   written); without the option no step is added and nothing is rescued. `Letflow.Engine.Contention.
+   cold_append_lock_timeout_ms/0` (config `:cold_append_lock_timeout_ms`, default 2000, process-local test override
+   `:cold_append_lock_timeout_ms_override`) is the value the callers pass. `EventStore` now references
+   `Letflow.Engine.Contention` and `Letflow.Engine` (runtime calls only; `mix letflow.check_boundaries` is green).
+3. **Callers wired.** Both `Repository.Attachments` appends (existing log-and-swallow path) and the Lua
+   `emit_event` route (`encode_error` with the reason `contention`).
+4. **Census findings** (`test/letflow/event_store_append_census_test.exs`): every flow holds `P_x` before `S_x`
+   and before the audit chain row and any entity-type sequence row: create, complete, complete with entity
+   writes, cancel, landing, timer fire, rebind, sub-process start (`sub_process.ex:709`: the child's projection
+   is inserted by the same transaction, and the parent's `S_p` precedes the child's `S_c` only after `P_p`),
+   sub-process completion on the cascade (`sub_process.ex:1504`: the parent group is held), service apply with
+   lines, script run record, `Attachments.upload/2` and `delete/3`. RED on `origin/main` for exactly the cold
+   flows (generic cold append, `Attachments.upload`, Lua emit); the others are green before and after. Not
+   exercised on its own: `engine.ex` `append_sys_variables_event` (it needs `_sys.*` outputs); it runs inside the
+   same transaction as the censused complete / service flows, after their first append. A static test pins the
+   number of `EventStore.append(` call sites per file (16), so a new caller must be classified.
+5. **The Lua route has no production caller with a grant.** `Executor.execute_with_manifest/3` runs
+   `Sandbox.new/1` with no `event:emit` grant and no execution context, and nothing else calls
+   `Platform.install/3` outside tests, so "a script bound to a service task" cannot reach `emit_event` today. The
+   test (L3) builds the nearest real flow: the script body in a `Letflow.Engine.Lua.TaskSupervisor` process (its
+   own connection, as the executor runs it) with `Platform.install/3` granting `event:emit`, against a
+   third-connection barrier on `P_x` playing the writer that holds the instance row.
+6. **Differences from the section 10 block.** The shipped block adds the workflow-instance qualifier on
+   `append_multi/3` callers, the synthetic and `append_platform_event/2` exclusions, the bound option, the empty
+   rule 6 list (the separately tracked cancel exception for dispatch / script-CAS rows stays) and a rolling-deploy
+   note for the cold-appender pair.
+7. **Tests.** `event_store_cold_append_lock_order_test.exs` (A0, A1, A3, R1 terminal race, S1 synthetic, L1
+   option, L2 attachments, L3 Lua) and `event_store_append_census_test.exs` (A2). The census is a separate file
+   because it runs in the standard sandbox mode (statement order only), while the forced overlaps need `:auto`.

@@ -276,6 +276,7 @@ defmodule Letflow.Engine.Lua.Platform do
   not preserve it.
   """
 
+  alias Letflow.Engine.Contention
   alias Letflow.Engine.Lua.Capabilities
   alias Letflow.Engine.Lua.Platform.TimeSource
   alias Letflow.Engine.LuaNumberMarshalling
@@ -863,7 +864,10 @@ defmodule Letflow.Engine.Lua.Platform do
       idempotency_key: idempotency_key
     }
 
-    case EventStore.append(attrs, prefix: execution_context.prefix) do
+    case EventStore.append(attrs,
+           prefix: execution_context.prefix,
+           lock_timeout_ms: Contention.cold_append_lock_timeout_ms()
+         ) do
       {:ok, _append_result} -> {[true], lua}
       {:error, reason} -> encode_error(lua, stringify_reason(reason))
     end
