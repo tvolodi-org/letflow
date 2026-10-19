@@ -36936,3 +36936,187 @@ requirements:
       - "21. [2e][2f] each PR: mix compile --warnings-as-errors, mix format --check-formatted, mix letflow.check, mix letflow.check_boundaries, and the scoped mix test over test/letflow/identity*, test/letflow/routers/identity*, test/letflow/routers/onboarding*, test/letflow/plugs, test/letflow/api, test/letflow/scope_enforcement_test.exs, test/letflow/routers/tasks*_test.exs and the new tests pass, real output quoted; mix letflow.check_requirements_registration passes with this entry"
       - "22. [2f] SECURITY C-1 (REQ-517 2b review): the `on` target is NOT added to parse_mode/1 and flip/4 (AC 8) until every route under /me/* and /help/* is classified and SEC-ruled (REQ-518 AC 21): the PR 2f body names the REQ-518 PR that classified them (AC 21 of REQ-518, after the SEC ruling on /me/modules and /help/resolved), and a test asserts the route-walk reports no default-sourced row under /me or /help AND that no self-service route entry carries pending_sec_ruling (every :tenant_wide entry there carries a ruling id). 2f is not started before that REQ-518 PR merges; if it is, `on` stays invalid_enforcement_mode and AC 8 and AC 16 are not met. Until then `on` stays unsettable (invalid_enforcement_mode). SECURITY-REVIEWER records this check in its 2f verdict."
     depends_on: [REQ-518, REQ-517]
+
+  # ---------------------------------------------------------------------
+  # GH #2422 (ISS-1068): risk-tiered pipeline (SHORT chain for test-only and docs-only changes)
+  # Ids REQ-520..REQ-524 allocated 2026-10-19 by REQ-ANALYST (letflow-2, sole allocator).
+  # Revision 2 (2026-10-19) applies the REQ-VALIDATOR round 1 findings (all five failed).
+  # STATE: GH #2422 was restored to state:ready, prio:1 on 2026-10-19 (board comment of that
+  # date; REQ-VALIDATOR read the labels). The user ruling behind that is relayed by the
+  # supervisor, not verified by this repo's sessions. The earlier state:blocked / prio 3
+  # comments of 2026-10-16 are superseded.
+  # PROVENANCE, stated so nobody upgrades it: the "user approval of 2026-10-12" in the
+  # GH #2422 acceptance criteria is a RELAYED statement (team audit by letflow-9a, relayed
+  # 2026-10-12), not an approval this repo's sessions heard from the user. On 2026-10-19
+  # the supervisor relayed a user ruling that letflow-9a's decisions have top priority; that
+  # is also relayed, and has NOT been verified by this session. The issue's own note:
+  # "Before the 0004 addendum is written, confirm the relayed 'user approved 2026-10-12'
+  # line with the user." REQ-521 AC 2 carries the wording that results.
+  # SUPERVISOR RULINGS of 2026-10-19 (relayed by the supervisor to letflow-2; recorded as relayed):
+  #   (1) ADOPT: a relayed approval suffices. Chain recorded in REQ-521 AC 2: the letflow-9a audit
+  #       of 2026-10-12 relayed the approval; the user's direct statement to the supervisor on
+  #       2026-10-19 (letflow-9a's audit decisions, and audit results registered as issues, have
+  #       absolute authority except the user's direct orders) was relayed by the supervisor to
+  #       letflow-2. The user's statement reached this repo only through the supervisor.
+  #   (2) 'Document' = ONLY files under docs/ outside docs/agents/ and docs/migration/decisions/ and
+  #       outside the acceptance criteria of docs/requirements.yaml. All CLAUDE.md files (any level),
+  #       .claude/** and any top-level *.md that governs agents or process stay FULL. In doubt: FULL.
+  #   (3) Unlisted test/ fixture dirs are FULL, and test/fixtures/uat/process-definition-aliases/
+  #       counts as process definitions: FULL (named in the always-FULL list).
+  # Split (one agent turn each): REQ-520 checklist section + pointers; REQ-521 decision 0004
+  # addendum + sign-offs; REQ-522 helper mix task + tests; REQ-523 PR-body tier rule and
+  # entry into force; REQ-524 measurement/withdrawal + handoff tier. ACs are copied from
+  # GH #2422 where the issue states them; additions from REQ-VALIDATOR round 1 are marked.
+  # ---------------------------------------------------------------------
+
+  - id: REQ-520
+    title: "Risk tier checklist as ORCHESTRATOR.md section 12, with WF-02, WF-03 and AGENT_SYSTEM.md pointing to it"
+    owner: DOC-UPDATER
+    status: pending
+    stage: S7
+    gh: 2422
+    # Source: GH #2422 (ISS-1068), fix direction and AC 1; REQ-VALIDATOR round 1 amendments (a)-(h). Id allocated by REQ-ANALYST.
+    description: >
+      Source: GH #2422. Append a second mechanical checklist to docs/agents/ORCHESTRATOR.md
+      as its own section "## 12." (section 10 is the existing direct-action exception with
+      seven checks, section 11 is merge slots; neither is renumbered). The tier is decided
+      from the diff's paths and changed lines only, never by judgement. SHORT applies only
+      when EVERY changed file is under test/ (test files, test/support, test/specs,
+      test/reports) or is a document outside docs/agents/, docs/migration/decisions/ and
+      the acceptance criteria of docs/requirements.yaml. ALWAYS FULL, even under test/ or
+      scripts/: test/fixtures/qa/, test/fixtures/simulation/ and
+      test/fixtures/uat/process-definition-aliases/ (process definitions decide
+      who may act; the last by supervisor ruling 3, 2026-10-19, relayed); test/fixtures/uat/actors.yaml and the seed scripts (roster);
+      .github/workflows/ (the merge gate); any path a SECURITY-REVIEWER scope test matches;
+      any change that removes a test, removes an assertion, or loosens a guard test. SHORT
+      chain = one producer (TEST-DESIGNER for tests, DOC-UPDATER for docs), one validator
+      (TEST-DESIGN-VALIDATOR with mutation evidence for tests; REVIEWER for docs), then CI;
+      no separate design pair, security review, idiom review or release re-validation; the
+      status flip rides in the producer's last commit. Any ambiguous check means FULL (the
+      same asymmetry rule as section 10). Evidence is in the GH #2422 body (team audit: 123
+      of 186 non-merge commits on main since 2026-10-01 touch nothing under lib/, web/,
+      apps/ or priv/). This requirement edits several canonical governance surfaces, so
+      under section 10 check 1 (it touches more than one file) it needs the full chain (REQ-VALIDATOR, REVIEWER); it is not
+      a direct-action change.
+      The guard-test list of AC 7 is built by this grep (run 2026-10-19, 29 files; the
+      executing agent re-runs it, writes the result out in the section, and reviews it):
+      git ls-files test | grep -E '(guard|invariant|inventory|drift|golden|permission_matrix|path_filter|boundaries)[^/]*_test\.exs$'
+    acceptance_criteria:
+      - "1. [GH #2422 AC 1] The checklist is in docs/agents/ORCHESTRATOR.md as its own section, with the path lists written out."
+      - "2. [GH #2422 AC 1] WF-02_requirement_implementation.md, WF-03_issue_resolving.md and AGENT_SYSTEM.md point to that section and do not restate it. Exact check: running grep -c -e 'ALWAYS FULL' -e 'test/fixtures/qa/' on each of docs/agents/workflows/WF-02_requirement_implementation.md, docs/agents/workflows/WF-03_issue_resolving.md and docs/agents/AGENT_SYSTEM.md returns 0 for each, and each file contains the exact string 'ORCHESTRATOR.md §12' or 'ORCHESTRATOR.md` §12'."
+      - "3. [GH #2422 fix direction, amended by REQ-VALIDATOR] The section states that the tier is decided from the diff only, never by judgement, and that a diff that adds, removes or changes any line inside an acceptance_criteria block of docs/requirements.yaml, in any hunk, is FULL for the whole diff; changes confined to status:, gh: or description: lines are not."
+      - "4. [GH #2422 fix direction; supervisor ruling 2, 2026-10-19, relayed; stricter than the issue text] SHORT applies only when EVERY changed file is under test/ (test files, test/support, test/specs, test/reports) or is a document, where a document is ONLY a file under docs/ outside docs/agents/ and docs/migration/decisions/ and outside the acceptance criteria of docs/requirements.yaml. All CLAUDE.md files (any level), everything under .claude/ and any top-level *.md that governs agents or process (CLAUDE.md, ORCHESTRATOR.md, workflow docs) are FULL. When in doubt a path is FULL."
+      - "5. [GH #2422 fix direction] The section lists as ALWAYS FULL, even under test/ or scripts/, exactly: test/fixtures/qa/ and test/fixtures/simulation/ (process definitions decide who may act); test/fixtures/uat/process-definition-aliases/ (process definitions; supervisor ruling 3, 2026-10-19, relayed, an addition to the issue's list); test/fixtures/uat/actors.yaml and the seed scripts (roster); .github/workflows/ (the merge gate); any path a SECURITY-REVIEWER scope test matches; any change that removes a test, removes an assertion, or loosens a guard test. No entry of the issue's list is dropped or narrowed."
+      - "6. [REQ-VALIDATOR amendment] The section writes out the SECURITY-REVIEWER scope-test paths that can fall under test/ or docs/ or scripts/, verified against .claude/agents/security-reviewer.md at the time of writing: test/fixtures/route_scope/tenant_wide_default_routes.txt, test/support/route_inventory.ex, the permission-matrix files (priv/permission_matrix/, lib/mix/tasks/letflow.permission_matrix.ex, lib/letflow/api/permission_matrix.ex), .github/workflows/ci.yml and .github/workflows/cd.yml, scripts/cd_qa_decide.sh, scripts/ci_changed_paths.sh, mix.exs, config/*.exs. Any other path named in the scope test is also listed."
+      - "7. [REQ-VALIDATOR amendment] The section defines: 'Removes an assertion: a deleted or modified line in a file under test/ whose trimmed text begins assert, refute, assert_ or refute_, or a deleted test/describe line, or an added skip tag. Guard test: a file in the section's named list.' The named list is written out in the section, built by the grep given in the description."
+      - "8. [REQ-VALIDATOR amendment] The section states that a path in an unlisted test/ fixture directory (any directory under test/fixtures/ other than those the section names) is FULL, by the ambiguity rule (supervisor ruling 3, 2026-10-19, relayed)."
+      - "9. [GH #2422 fix direction] The section defines the SHORT chain as one producer (TEST-DESIGNER for tests, DOC-UPDATER for docs), one validator (TEST-DESIGN-VALIDATOR with mutation evidence for tests; REVIEWER for docs), then CI; no separate design pair, security review, idiom review or release re-validation; the status flip rides in the producer's last commit."
+      - "10. [GH #2422 fix direction] The section states that any ambiguous check means FULL (the same asymmetry rule as section 10)."
+      - "11. [REQ-VALIDATOR amendment] The section is appended as '## 12.'; sections 10 and 11 keep their numbers and text (git diff of ORCHESTRATOR.md shows only added lines)."
+      - "12. [REQ-VALIDATOR amendment] The section says 'Not in force until REQ-521, REQ-522 and REQ-523 are done; until then every change is FULL or DIRECT.'"
+      - "13. Scope: this requirement edits only docs/agents/ORCHESTRATOR.md, WF-02, WF-03 and AGENT_SYSTEM.md; the helper (REQ-522), the 0004 addendum (REQ-521), the PR-body rule and entry into force (REQ-523) and the measurement and handoff items (REQ-524) are not delivered here."
+    depends_on: []
+
+  - id: REQ-521
+    title: "Decision 0004 dated addendum for the risk-tiered pipeline, with REVIEWER and SECURITY-REVIEWER sign-offs"
+    owner: DOC-UPDATER
+    status: pending
+    stage: S7
+    gh: 2422
+    # Source: GH #2422 (ISS-1068), AC 2 and the S15 triage note; REQ-VALIDATOR round 1 amendments. The approval is RELAYED, not heard directly (see the header comment). Id allocated by REQ-ANALYST.
+    description: >
+      Source: GH #2422 AC 2. docs/migration/decisions/0004-humanless-pipeline.md gets a
+      dated addendum for the risk-tiered pipeline (same addendum form as the 2026-09-16 and
+      2026-09-17 addenda: it does not revise the original Decision or Reasoning sections).
+      The addendum records the approval of 2026-10-12 as relayed, with source and date, and
+      the reasoning (the GH #2422 team audit: 123 of 186 non-merge commits on main since
+      2026-10-01 touch nothing under lib/, web/, apps/ or priv/; approximate October
+      rejection counts REVIEWER 0 of 45, SECURITY-REVIEWER 0 of 28, RELEASE-VALIDATOR 1 of
+      29, TEST-DESIGN-VALIDATOR 1 of 36, CODE-DESIGN-VALIDATOR 12 of 38). It must not assert
+      that the user said it directly.
+    acceptance_criteria:
+      - "1. [GH #2422 AC 2] docs/migration/decisions/0004-humanless-pipeline.md has a new dated addendum (heading form: Addendum (date, REQ-521)) recording the approval of 2026-10-12 and the reasoning; the original Decision and Reasoning sections and the earlier addenda are unchanged (git diff shows only added lines in that file)."
+      - "2. The addendum records the approval as relayed, with source and date (source: the letflow-9a team audit relayed 2026-10-12, filed as GH #2422; and the supervisor's relay of 2026-10-19 on letflow-9a's priority), and records the chain as relayed, in substance: 'The letflow-9a audit of 2026-10-12 relayed the user approval; the user's direct statement to the supervisor on 2026-10-19 (letflow-9a's audit decisions, and audit results registered as issues, have absolute authority except the user's direct orders) was relayed by the supervisor to letflow-2 (supervisor ruling 1, ADOPT). The user's statement reached this repository only through the supervisor.' The addendum asserts nothing as said directly to this repository."
+      - "3. [GH #2422 AC 2] REQ-VALIDATOR amendment: the addendum states that decision 0004 principle 1 (every producing step has a validating step) is unchanged because the SHORT chain keeps one validator."
+      - "4. [GH #2422 AC 2] REVIEWER sign-off on the addendum is recorded in a named handoff file (path step-NN-reviewer-*.json under the run's handoff directory) with the exact verdict line 'REVIEWER: PASS'; the AC is not met by a handoff naming no verdict."
+      - "5. [GH #2422 AC 2] SECURITY-REVIEWER sign-off on the always-FULL path list (as written in ORCHESTRATOR.md section 12, REQ-520 ACs 5 and 6) is recorded in a named handoff file (path step-NN-security-reviewer-*.json) with the exact verdict line 'SECURITY-REVIEWER: PASS'; a finding that a path must be added is returned to REQ-520, not patched silently here."
+      - "6. The addendum links to ORCHESTRATOR.md section 12 and does not restate the path lists."
+    depends_on: [REQ-520]
+
+  - id: REQ-522
+    title: "mix letflow.risk_tier: prints FULL, SHORT or DIRECT with the failing check named, one test per path rule"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 2422
+    # Source: GH #2422 (ISS-1068), AC 3; REQ-VALIDATOR round 1 amendments. Id allocated by REQ-ANALYST.
+    # SIZING NOTE: if sizing fails at CODE-DESIGNER, split the DIRECT mechanization (AC 8) into its own requirement; the SHORT/FULL core stays here.
+    description: >
+      Source: GH #2422 AC 3. A checkable helper, a mix task, `mix letflow.risk_tier [--base
+      REF] [--head REF]` (defaults origin/main and HEAD), that prints FULL, SHORT or DIRECT
+      with the failing check named, implementing the two mechanical checklists of
+      docs/agents/ORCHESTRATOR.md (section 10 for DIRECT, section 12 from REQ-520 for SHORT
+      and the ALWAYS FULL list). It reads `git diff --name-status -M` and `git diff -U0`
+      of base...head and passes them to a pure classify/1 function, which the tests call
+      directly. A rename or delete counts as a removal. Output: the first line is exactly
+      'TIER: FULL', 'TIER: SHORT' or 'TIER: DIRECT'; for FULL the second line is exactly
+      'FAILED CHECK: <rule id>'. Any ambiguous case is FULL. The task name and flags are
+      fixed here; CODE-DESIGNER may rename, recorded in the moduledoc. Existing precedent
+      for a path-driven check: test/letflow/ci_backend_path_filter_test.exs and the mix
+      letflow.check_* tasks.
+    acceptance_criteria:
+      - "1. [GH #2422 AC 3] mix letflow.risk_tier [--base REF] [--head REF] (defaults origin/main and HEAD) reads git diff --name-status -M and -U0 of base...head, classifies through a pure classify/1, and prints as its first line exactly one of 'TIER: FULL', 'TIER: SHORT', 'TIER: DIRECT'; for FULL the second line is exactly 'FAILED CHECK: <rule id>' naming the rule or ALWAYS FULL entry that matched. A rename or delete counts as a removal."
+      - "2. [GH #2422 AC 3] Tests (classify/1, no git needed) cover one case per path rule of ORCHESTRATOR.md section 12: each ALWAYS FULL entry (test/fixtures/qa/, test/fixtures/simulation/, test/fixtures/uat/process-definition-aliases/, test/fixtures/uat/actors.yaml, a seed script, .github/workflows/, each scope-test path written out by REQ-520 AC 6, a removed test, a removed assertion, a loosened guard test) yields FULL; a diff of only test/ files yields SHORT; a diff of only documents (as REQ-520 AC 4 defines) yields SHORT, and a CLAUDE.md, a .claude/ file or a top-level governing *.md yields FULL; a diff of only docs/agents/ files yields FULL."
+      - "3. [GH #2422 AC 3] The tests include a fixture-definition change (a process definition under test/fixtures/qa/ or test/fixtures/simulation/) which yields FULL, and a deleted test which yields FULL."
+      - "4. [REQ-VALIDATOR amendment] Cases on docs/requirements.yaml: a SHORT-eligible diff changing only status:, gh: or description: lines yields SHORT; a diff with a hunk inside an acceptance_criteria block yields FULL for the whole diff; a mixed diff (one SHORT-eligible file and one FULL file) yields FULL."
+      - "5. [GH #2422 fix direction] An ambiguous case (a path the rules neither list nor exclude, including a path in an unlisted test/fixtures/ directory) yields FULL; each has a test."
+      - "6. [REQ-VALIDATOR amendment] The removed-assertion and guard-test rules implement the definitions in REQ-520 AC 7 exactly (assert/refute/assert_/refute_ prefix on a trimmed deleted or modified line under test/; deleted test/describe line; added skip tag; the named guard list), and cite REQ-520 AC 7 in the moduledoc."
+      - "7. [REQ-VALIDATOR amendment] The helper's path lists (ALWAYS FULL, scope-test paths, guard list) are pinned to the ORCHESTRATOR.md section 12 text by a test that fails on drift (a path added to one and not the other fails)."
+      - "8. [REQ-VALIDATOR amendment] The helper mechanizes section 10 checks 1, 2 (added def/defmodule/@spec lines), 3, 4 and 7, and treats checks 5 and 6 as no unless the single changed file is documentation or a comment-only diff. It prints DIRECT only in that case. Tests: a one-line doc change yields DIRECT; a one-line change to a lib/ file yields FULL with 'FAILED CHECK: sec10-check-6'."
+      - "9. mix compile --warnings-as-errors, mix format --check-formatted and the new tests pass; the real output is quoted in the handoff."
+    depends_on: [REQ-520]
+
+  - id: REQ-523
+    title: "Every SHORT-chain PR body states the tier and the helper's output; the tier comes into force"
+    owner: DOC-UPDATER
+    status: pending
+    stage: S7
+    gh: 2422
+    # Source: GH #2422 (ISS-1068), AC 4; REQ-VALIDATOR round 1 amendments. Id allocated by REQ-ANALYST.
+    description: >
+      Source: GH #2422 AC 4. The PR-body specification in docs/agents/protocols/GIT_MERGE.md
+      requires that every SHORT-chain PR body carries the tier and the helper's output
+      (REQ-522). The rule is written once, in that file only; ORCHESTRATOR.md section 12
+      points to it. When the prerequisites hold, the "Not in force" sentence of section 12
+      is replaced.
+    acceptance_criteria:
+      - "1. [GH #2422 AC 4] Every SHORT-chain PR body states the tier and the helper's output: docs/agents/protocols/GIT_MERGE.md (the PR-body spec) is the ONE file holding the rule, and names the exact PR-body lines: 'Tier: SHORT' followed by the helper's literal output (the 'TIER: ...' line). ORCHESTRATOR.md section 12 and the workflow files point to it and do not restate the lines."
+      - "2. A SHORT-chain PR whose body lacks those lines is a defect under the rule; the rule says so in one sentence and states that the merging agent checks the body before merging."
+      - "3. [REQ-VALIDATOR amendment] The sentence 'Not in force until REQ-521, REQ-522 and REQ-523 are done; until then every change is FULL or DIRECT.' in ORCHESTRATOR.md section 12 is replaced by 'In force from <UTC date>' only after REQ-521's REVIEWER and SECURITY-REVIEWER verdicts are PASS (named handoff files) and mix letflow.risk_tier exists on main; the date is from the clock."
+    depends_on: [REQ-520, REQ-521, REQ-522]
+
+  - id: REQ-524
+    title: "Risk tier measurement file, mechanical withdrawal rule, and tier field in the handoff protocol"
+    owner: DOC-UPDATER
+    status: pending
+    stage: S7
+    gh: 2422
+    # Source: GH #2422 (ISS-1068), AC 5 and AC 6; REQ-VALIDATOR round 1 amendments. AC 6 ties to the structured-handoff item Q-1064 / GH #2418, which is NOT waited for. Id allocated by REQ-ANALYST.
+    description: >
+      Source: GH #2422 AC 5 and AC 6. Delivers the recording mechanism and the written
+      rules; the review itself happens after 30 SHORT-chain runs and is a later action.
+      The numbers live in a new file docs/status/risk_tier_measurements.yaml. The handoff
+      tier field is `tier` in docs/agents/shared/HANDOFF_PROTOCOL.md. mix letflow.lint_handoffs
+      keeps a closed @schema_top_keys list (lib/mix/tasks/letflow.lint_handoffs.ex), and
+      HANDOFF_PROTOCOL.md section 2 says exactly three fields of the schema block are
+      optional; adding `tier` therefore needs both the list and that sentence updated
+      together, with a lint_handoffs test. The structured format of GH #2418 / Q-1064
+      adopts the field; this requirement does not wait for it. DIRECT changes write no
+      handoff, so DIRECT is recorded in the PR body, not in a handoff.
+    acceptance_criteria:
+      - "1. [GH #2422 AC 5] docs/status/risk_tier_measurements.yaml exists with per-run rows (run id, tier, steps, open-to-merge minutes) and a defects list (PR, issue, traced_by AGENT_ID, skipped_gate). It states the October baseline as median 8 steps per run (approximate, from the issue's audit) and the open-to-merge baseline as 'unmeasured' if it is not derivable from existing data."
+      - "2. [GH #2422 AC 5] Every main-red or filed defect traced to a SHORT-chain change is recorded as a defects row; ORCHESTRATOR.md section 12 names the file and says the recording agent is the one that traces it."
+      - "3. [GH #2422 AC 5] The review after 30 SHORT-chain runs and the mechanical withdrawal are written in section 12: 'when the second defect with skipped_gate is recorded, the recording agent writes withdrawn: <UTC> in that file and every change is FULL again.'"
+      - "4. [GH #2422 AC 6] The first handoff of a run records the tier as field `tier: FULL|SHORT` in docs/agents/shared/HANDOFF_PROTOCOL.md (schema block and field description); DIRECT writes no handoff and is recorded in the PR body. The field is added to @schema_top_keys in lib/mix/tasks/letflow.lint_handoffs.ex and to the optional-field sentence of HANDOFF_PROTOCOL.md section 2, with a test in test/mix/tasks/letflow.lint_handoffs_test.exs that a handoff with tier: SHORT lints clean and tier: BOGUS is refused; the PR states that the structured format of GH #2418 adopts the field, and this requirement does not wait for it."
+      - "5. The sole filer files the 30-run review issue before this turn; its number is in the task text and is written in the section 12 rule. If the task text carries no such number, this requirement is blocked."
+    depends_on: [REQ-520]
