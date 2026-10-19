@@ -8,7 +8,7 @@
   "file": "handoffs/WF02-GH2883-BREAKGLASS-20261019/step-04-elixir-dev.json",
   "created_at": "2026-10-19T06:37:22Z",
   "started_at": "2026-10-19T06:14:00Z",
-  "completed_at": "2026-10-19T07:24:07Z",
+  "completed_at": "2026-10-19T09:01:04Z",
   "status": "COMPLETED",
   "priority": "HIGH",
   "context": {
@@ -65,6 +65,6 @@
       "lib/mix/tasks/letflow.scope_enforcement.break_glass.ex",
       "docs/migration/decisions/0051-org-scoped-role-grants-and-enforcement.md"
     ],
-    "r5_rework": "R5 outside review F1-F4 applied as uncommitted new changes (2026-10-19T07:08:47Z): F1 docs (runbook, mix task moduledoc, run/5 @doc: ticket id prefix of reason); F2 scope_break_glass_dry_run Logger.info (early refusals already logged); F3 lock timeout clamped to 14 s and timeout passed to set_config; F4 A11 sentence + runbook last-resort audit-chain path. Forced test edit: scope_break_glass_test.exs dry-run log assertion. | F4 switched to option (b) (2026-10-19T07:24:07Z): absolute 'Never write the column with SQL' restored, DBA last-resort path removed, audit-chain fault documented as accepted limitation in runbook and 0051 A11 (docs only). F-A superseded."
+    "r5_rework": "R5 outside review F1-F4 applied as uncommitted new changes (2026-10-19T07:08:47Z): F1 docs (runbook, mix task moduledoc, run/5 @doc: ticket id prefix of reason); F2 scope_break_glass_dry_run Logger.info (early refusals already logged); F3 lock timeout clamped to 14 s and timeout passed to set_config; F4 A11 sentence + runbook last-resort audit-chain path. Forced test edit: scope_break_glass_test.exs dry-run log assertion. | F4 switched to option (b) (2026-10-19T07:24:07Z): absolute 'Never write the column with SQL' restored, DBA last-resort path removed, audit-chain fault documented as accepted limitation in runbook and 0051 A11 (docs only). F-A superseded. | F4 final (option a, 2026-10-19T09:01:04Z): last-resort path restored with the auditor's trigger (two server_fault/audit_failed attempts >=1 min apart AND infra-confirmed app audit-INSERT-path fault), verbatim DO-block SQL in the runbook (locks A,T,C; audit row before UPDATE; one atomic statement), A11 updated; temp SQL test run and deleted."
   }
 }

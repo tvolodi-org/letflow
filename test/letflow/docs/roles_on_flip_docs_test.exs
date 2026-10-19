@@ -622,13 +622,26 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
     # R5 F2: the dry run and refusals leave constant log lines
     "scope_break_glass_dry_run",
     "scope_break_glass_refused",
-    # R5 F4 / R10 option (b): an accepted limitation, no SQL path
-    "Never write the column with SQL",
-    "that skips the audit entry and the locks",
-    "Audit-chain fault (accepted limitation)",
-    "There is NO sanctioned SQL path",
-    "Escalate to the platform owner",
-    "needs its own decision record"
+    # R5 F4, auditor option (a) + premise correction (comments 6261955610, 6263394062)
+    "Never write the column with SQL: that skips the audit entry and the locks",
+    "Audit-chain fault (last resort)",
+    "TWO attempts at least 1 minute apart",
+    "scope_break_glass_failed reason=audit_failed",
+    "CONFIRMED, and written down",
+    "A damaged OLD chain",
+    "is NEVER a trigger",
+    "its own defect issue",
+    "Written sign-off by the USER",
+    "never an agent",
+    "a sign-off relayed through another session does not count",
+    "ONE transaction that writes the column AND inserts the audit row",
+    "VERBATIM",
+    "AUDIT ROW FIRST",
+    "no column write exists without its audit row",
+    "SECURITY-REVIEWER reviews the event",
+    "Within 24 hours",
+    "GH #2896",
+    "is the only exception to `Never write the column with SQL`"
   ]
 
   @bg_record_claims [
@@ -644,15 +657,49 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
     "the last-admin guard (GH #2869 part (a)) stays open and is still required before any customer `on`",
     "The A7 token break-glass covers GRANT writes only",
     "needs a NEW decision record",
-    # R5 F4 / R10: an audit-chain fault blocks the command; accepted limitation
-    "audit-chain fault",
-    "makes the command fail and roll back",
-    "enforcement then stays as it is",
-    "ACCEPTED LIMITATION",
-    "option (b)",
-    "there is no sanctioned SQL path",
-    "needs its own decision"
+    # R5 F4: the last-resort path, with the auditor's conditions
+    "does NOT block it",
+    "a database-level failure of the audit insert does",
+    "option (a)",
+    "two attempts at least 1 minute apart",
+    "is never a trigger",
+    "written sign-off by the USER, the platform owner, directly",
+    "never an agent and never relayed through another session",
+    "ONE transaction that writes the column AND inserts the audit row",
+    "using the SQL template quoted verbatim in the runbook",
+    "SECURITY-REVIEWER reviews the event",
+    "GH #2896",
+    "the SQL writes the audit row before the column",
+    "never writing the column with SQL stays absolute"
   ]
+
+  # Any SQL that writes the flag or an audit row.
+  @sql_snippet ~r/INSERT\s+INTO\s+\S*audit_entries|UPDATE\s+(public\.)?tenants\b[^;]*scope_enforcement|UPDATE\s+(public\.)?tenants\s+SET/i
+
+  defp strip_sql_blocks(text), do: Regex.replace(~r/```sql\n.*?\n```/s, text, "")
+
+  # the sentence(s) that carry the absolute prohibition (up to the next full stop after it)
+  defp absolute_sentence(flat_text) do
+    case Regex.run(~r/Never write the column with SQL[^.]*\./, flat_text) do
+      [sentence] -> sentence
+      nil -> ""
+    end
+  end
+
+  defp sql_audit_insert_first?(runbook) do
+    case Regex.run(~r/```sql\n(.*?)\n```/s, runbook, capture: :all_but_first) do
+      [sql] ->
+        with {i, _} <- :binary.match(sql, "INSERT INTO %I.audit_entries"),
+             {u, _} <- :binary.match(sql, "UPDATE public.tenants") do
+          i < u
+        else
+          _ -> false
+        end
+
+      _ ->
+        false
+    end
+  end
 
   # Every violation of the GH #2883 documentation rules for the three documents (pure).
   defp bg_violations(roles, runbook, record) do
@@ -683,15 +730,26 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
         {occurrences(record, "**A11. Operator break-glass for the flag.**") != 1,
          :record_a11_not_exactly_once},
         {String.contains?(record, "**A12."), :record_has_an_unexpected_a12},
-        # R10 option (b): NO sanctioned SQL path may come back without going to the auditor
-        {Regex.match?(~r/last[ -]resort/i, section_flat) or
-           Regex.match?(~r/last resort/i, a11_flat), :a_last_resort_path_is_back},
-        {Regex.match?(~r/sign-off/i, section_flat) or Regex.match?(~r/sign-off/i, a11_flat),
-         :a_sign_off_for_sql_is_back},
+        # the last-resort SQL: exactly ONE fenced block, a single DO statement, audit insert first
+        {length(Regex.scan(~r/```sql\n/, runbook)) != 1, :sql_block_not_exactly_one},
+        {occurrences(runbook, "DO $last_resort$") != 1, :last_resort_do_not_exactly_once},
+        {not sql_audit_insert_first?(runbook), :sql_audit_insert_not_before_update},
+        # ... and the SQL appears NOWHERE else: not in the runbook outside that block, not in A11
+        {Regex.match?(@sql_snippet, strip_sql_blocks(runbook)), :sql_snippet_outside_the_block},
+        {Regex.match?(@sql_snippet, strip_sql_blocks(roles)), :sql_snippet_in_roles},
+        {Regex.match?(@sql_snippet, a11_flat), :sql_snippet_in_a11},
+        # the absolute prohibition: exactly one absolute sentence, one cross-reference, no softening
+        {occurrences(
+           section_flat,
+           "Never write the column with SQL: that skips the audit entry and the locks."
+         ) !=
+           1, :absolute_prohibition_not_exactly_once},
+        {occurrences(section_flat, "Never write the column with SQL") != 2,
+         :prohibition_cross_reference_not_single},
         {Regex.match?(
-           ~r/INSERT\s+INTO|UPDATE\s+tenants|UPDATE\s+"?tenant_/i,
-           section_flat <> a11_flat
-         ), :a_sql_snippet_is_back},
+           ~r/as a routine step|unless |except when/i,
+           absolute_sentence(section_flat)
+         ), :sql_prohibition_weakened},
         {String.contains?(section_flat, "as a routine step"), :sql_prohibition_weakened}
       ]
       |> Enum.filter(&elem(&1, 0))
@@ -825,6 +883,29 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
       assert flat(run_doc) =~ "<ticket id>: <short reason>"
     end
 
+    test "the flag / audit SQL appears nowhere in docs/ except inside the single last-resort block of the runbook" do
+      # built from parts: not a path literal for the CI path-filter guard
+      docs = Path.wildcard(Path.join(["docs", "**", "*.md"]))
+      assert length(docs) > 50
+
+      offenders =
+        for path <- docs,
+            text = read(path),
+            text = if(path == @runbook, do: strip_sql_blocks(text), else: text),
+            Regex.match?(@sql_snippet, text),
+            do: path
+
+      assert offenders == []
+
+      # live: the same scan reports a seeded doc, and the block itself is excluded only in the runbook
+      assert Regex.match?(@sql_snippet, "UPDATE tenants SET scope_enforcement = 'off'")
+      assert Regex.match?(@sql_snippet, "INSERT INTO t.audit_entries (id)")
+      refute Regex.match?(@sql_snippet, strip_sql_blocks("```sql
+UPDATE public.tenants SET x = 1;
+```
+"))
+    end
+
     test "seeded bad documents fire every rule", %{roles: roles, runbook: runbook, record: record} do
       assert :runbook_heading_not_exactly_once in bg_violations(
                roles,
@@ -902,32 +983,98 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
                String.replace(record, "**A11. Operator break-glass for the flag.**", "**A11.**")
              )
 
-      assert {:runbook_section_missing_claim, "Audit-chain fault (accepted limitation)"} in bg_violations(
+      # --- F4: the last-resort paragraph, each stable word and each negative rule fires ---------------
+      for claim <- [
+            "Audit-chain fault (last resort)",
+            "TWO attempts at least 1 minute apart",
+            "CONFIRMED, and written down",
+            "is NEVER a trigger",
+            "Written sign-off by the USER",
+            "a sign-off relayed through another session does not count",
+            "ONE transaction that writes the column AND inserts the audit row",
+            "AUDIT ROW FIRST",
+            "SECURITY-REVIEWER reviews the event",
+            "GH #2896"
+          ] do
+        assert {:runbook_section_missing_claim, claim} in bg_violations(
+                 roles,
+                 String.replace(runbook, claim, "REMOVED"),
+                 record
+               ),
+               claim
+      end
+
+      for claim <- [
+            "two attempts at least 1 minute apart",
+            "is never a trigger",
+            "written sign-off by the USER, the platform owner, directly",
+            "SECURITY-REVIEWER reviews the event",
+            "the SQL writes the audit row before the column"
+          ] do
+        assert {:record_missing, claim} in bg_violations(
+                 roles,
+                 runbook,
+                 String.replace(record, claim, "REMOVED")
+               ),
+               claim
+      end
+
+      sql_swapped =
+        runbook
+        |> String.replace("INSERT INTO %I.audit_entries", "INSERT_MARK")
+        |> String.replace("UPDATE public.tenants", "INSERT INTO %I.audit_entries")
+        |> String.replace("INSERT_MARK", "UPDATE public.tenants")
+
+      assert :sql_audit_insert_not_before_update in bg_violations(roles, sql_swapped, record)
+
+      assert :sql_block_not_exactly_one in bg_violations(
+               roles,
+               runbook <> "\n```sql\nSELECT 1;\n```\n",
+               record
+             )
+
+      assert :last_resort_do_not_exactly_once in bg_violations(
+               roles,
+               runbook <> "\nDO $last_resort$\n",
+               record
+             )
+
+      # the SQL anywhere else is a violation: a second snippet in the runbook, in roles.md, in A11
+      assert :sql_snippet_outside_the_block in bg_violations(
                roles,
                String.replace(
                  runbook,
-                 "Audit-chain fault (accepted limitation)",
-                 "Audit fault"
+                 "Every other case uses the command.",
+                 "Every other case uses the command. Or run UPDATE tenants SET scope_enforcement = 'off'."
                ),
                record
              )
 
-      assert {:runbook_section_missing_claim, "There is NO sanctioned SQL path"} in bg_violations(
+      assert :sql_snippet_outside_the_block in bg_violations(
                roles,
-               String.replace(runbook, "There is NO sanctioned SQL path", "There is a path"),
+               runbook <> "\nINSERT INTO audit_entries (id) VALUES (1);\n",
                record
              )
 
-      assert {:runbook_section_missing_claim, "Never write the column with SQL"} in bg_violations(
-               roles,
-               String.replace(
-                 runbook,
-                 "Never write the column with SQL",
-                 "Avoid writing the column with SQL"
-               ),
+      assert :sql_snippet_in_roles in bg_violations(
+               roles <> "\nUPDATE public.tenants SET scope_enforcement = 'off';\n",
+               runbook,
                record
              )
 
+      assert :sql_snippet_in_a11 in bg_violations(
+               roles,
+               runbook,
+               record <> " Run INSERT INTO t1.audit_entries (id) VALUES (1) first."
+             )
+
+      assert :sql_snippet_in_a11 in bg_violations(
+               roles,
+               runbook,
+               record <> " Then UPDATE tenants SET scope_enforcement = 'off'."
+             )
+
+      # the absolute prohibition: no softening, one sentence, one cross-reference
       assert :sql_prohibition_weakened in bg_violations(
                roles,
                String.replace(
@@ -938,45 +1085,34 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
                record
              )
 
-      # a re-introduced SQL path goes to the auditor: each spelling fires its own rule
-      assert :a_last_resort_path_is_back in bg_violations(
-               roles,
-               String.replace(runbook, "(accepted limitation)", "(last resort)"),
-               record
-             )
-
-      assert :a_last_resort_path_is_back in bg_violations(
-               roles,
-               runbook,
-               record <> " The last resort is a DBA."
-             )
-
-      assert :a_sign_off_for_sql_is_back in bg_violations(
-               roles,
-               String.replace(runbook, "Escalate to", "With written sign-off, escalate to"),
-               record
-             )
-
-      assert :a_sign_off_for_sql_is_back in bg_violations(
-               roles,
-               runbook,
-               record <> " Needs sign-off."
-             )
-
-      assert :a_sql_snippet_is_back in bg_violations(
+      assert :sql_prohibition_weakened in bg_violations(
                roles,
                String.replace(
                  runbook,
-                 "Escalate to",
-                 "Run UPDATE tenants SET scope_enforcement = 'off'; then escalate to"
+                 "Never write the column with SQL: that skips the audit entry and the locks.",
+                 "Never write the column with SQL unless the DBA agrees."
                ),
                record
              )
 
-      assert :a_sql_snippet_is_back in bg_violations(
+      assert :absolute_prohibition_not_exactly_once in bg_violations(
                roles,
-               runbook,
-               record <> " Run INSERT INTO audit_entries (...) in the same transaction."
+               String.replace(
+                 runbook,
+                 "Never write the column with SQL: that skips",
+                 "Avoid writing the column with SQL: that skips"
+               ),
+               record
+             )
+
+      assert :prohibition_cross_reference_not_single in bg_violations(
+               roles,
+               String.replace(
+                 runbook,
+                 "5. This paragraph is the only exception to `Never write the column with SQL`; it is absolute everywhere else.",
+                 "5. This paragraph is the only exception to `Never write the column with SQL`; see also `Never write the column with SQL`."
+               ),
+               record
              )
 
       assert {:runbook_section_missing_claim, "MUST start with the incident ticket id"} in bg_violations(
@@ -987,12 +1123,6 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
                  "should name a ticket"
                ),
                record
-             )
-
-      assert {:record_missing, "makes the command fail and roll back"} in bg_violations(
-               roles,
-               runbook,
-               String.replace(record, "makes the command fail and roll back", "is fine")
              )
 
       attestation =

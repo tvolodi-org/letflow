@@ -8,7 +8,7 @@
   "file": "handoffs/WF02-GH2883-BREAKGLASS-20261019/step-05-test-designer.json",
   "created_at": "2026-10-19T07:21:34Z",
   "started_at": "2026-10-19T06:40:00Z",
-  "completed_at": "2026-10-19T07:46:27Z",
+  "completed_at": "2026-10-19T09:08:15Z",
   "status": "COMPLETED",
   "priority": "HIGH",
   "context": {
@@ -28,7 +28,7 @@
   },
   "result": {
     "status": "PASS",
-    "summary": "All T-BG tests written and green per file. Real per-file runs: scope_enforcement_out_of_band_test 43 passed; release/scope_break_glass_test 24 passed; mix/tasks/letflow_scope_enforcement_break_glass_test 12 passed; scope_enforcement_flip_authority_test 31 passed (14 + 17 new); docs/roles_on_flip_docs_test 25 passed (18 + 7 new); regressions unchanged and green: on_flip_guards 17, scope_enforcement_transitions 36, scope_enforcement_test 23, scope_enforcement_on_test 16, ci_backend_path_filter 18. mix format --check-formatted on all six touched/new test files: clean. GAPS: mix letflow.check.test NOT run (supervisor rule), so the dead-default-argument check is not machine-verified (no test helper uses a default argument; the one fixture function with defaults was avoided by design); only 5 mutants measured (below). R5 FOLLOW-UP (F1-F4) done: per-file runs docs 26, flip_authority 33, release 27, core 44, mix task 12, all passed; 12 mutants measured in memory. R10 update: F4 pins switched to option (b) (accepted limitation, positive pins + negative pins for last resort / sign-off / SQL snippet / weakened prohibition, each with a seeded offender); roles_on_flip_docs_test 26 passed, format clean. AUDITOR TIGHTENING (PR #2894): stamp_opener_scan_test.exs @set_config_files is now a minimal file=>names map (scope_enforcement.ex: lock_timeout only; letflow.managed_by_stamp: stamp.ex only), with synthetic negatives (1)-(4); 16 passed, format clean.",
+    "summary": "All T-BG tests written and green per file. Real per-file runs: scope_enforcement_out_of_band_test 43 passed; release/scope_break_glass_test 24 passed; mix/tasks/letflow_scope_enforcement_break_glass_test 12 passed; scope_enforcement_flip_authority_test 31 passed (14 + 17 new); docs/roles_on_flip_docs_test 25 passed (18 + 7 new); regressions unchanged and green: on_flip_guards 17, scope_enforcement_transitions 36, scope_enforcement_test 23, scope_enforcement_on_test 16, ci_backend_path_filter 18. mix format --check-formatted on all six touched/new test files: clean. GAPS: mix letflow.check.test NOT run (supervisor rule), so the dead-default-argument check is not machine-verified (no test helper uses a default argument; the one fixture function with defaults was avoided by design); only 5 mutants measured (below). R5 FOLLOW-UP (F1-F4) done: per-file runs docs 26, flip_authority 33, release 27, core 44, mix task 12, all passed; 12 mutants measured in memory. R10 update: F4 pins switched to option (b) (accepted limitation, positive pins + negative pins for last resort / sign-off / SQL snippet / weakened prohibition, each with a seeded offender); roles_on_flip_docs_test 26 passed, format clean. AUDITOR TIGHTENING (PR #2894): stamp_opener_scan_test.exs @set_config_files is now a minimal file=>names map (scope_enforcement.ex: lock_timeout only; letflow.managed_by_stamp: stamp.ex only), with synthetic negatives (1)-(4); 16 passed, format clean. FINAL F4 (auditor option (a)): new scope_enforcement_last_resort_sql_test.exs (16 passed, 3 runs) executes the runbook SQL (healthy chain with independent hash cross-checked against Audit.insert_entry/3, damaged chain, broken audit path, refusals); roles_on_flip_docs_test rewritten for the new text (27 passed); format clean.",
     "artifacts_out": [
       "test/specs/GH2883-break-glass.md",
       "test/support/break_glass_fixture.ex (new)",
@@ -36,7 +36,8 @@
       "test/letflow/release/scope_break_glass_test.exs (new, 24)",
       "test/mix/tasks/letflow_scope_enforcement_break_glass_test.exs (new, 12)",
       "modified: test/letflow/scope_enforcement_flip_authority_test.exs (+17), test/letflow/docs/roles_on_flip_docs_test.exs (+7)",
-      "modified: test/letflow/entities/managed_types/stamp_opener_scan_test.exs"
+      "modified: test/letflow/entities/managed_types/stamp_opener_scan_test.exs",
+      "test/letflow/scope_enforcement_last_resort_sql_test.exs (new, 16)"
     ],
     "mutants": [
       {
@@ -120,7 +121,8 @@
       "OptionParser keeps the last value of a repeated switch in the Mix task; not rejected (harmless, values validated by run/5). Pinned by a test.",
       "CI gap: docs/migration/ is not in BACKEND_PATHS_RE, so a change confined to decision records does not trigger the backend job although roles_on_flip_docs_test now reads decision 0051. Test builds the path with Path.join to pass ci_backend_path_filter_test.",
       "A fault log line with an invalid operator label is unreachable through the public API (invalid labels are refused first); operator_suffix/1 is exercised via refusal lines.",
-      "No implementation bug found in flip_out_of_band/3, ScopeBreakGlass or the Mix task."
+      "No implementation bug found in flip_out_of_band/3, ScopeBreakGlass or the Mix task.",
+      "Last-resort SQL: refuses when the DB clock is not after the chain tail (app-clock tail); quote in a placeholder can end the literal (comment form yields a valid run); both safe, noted."
     ],
     "for_test_design_validator": "Re-apply reported mutants with test/specs scratch harness idea (in-memory Code.compile_string of a one-line change) and measure the unmeasured ones, notably MU-BG-6/7/8 (locks), MU-BG-22 (no lock_timeout), MU-BG-27b (timeout formula), MU-BG-11b (label suffix), MU-BG-12 (label rule)."
   }
