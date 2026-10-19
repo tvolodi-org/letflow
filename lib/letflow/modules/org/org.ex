@@ -17,6 +17,13 @@ defmodule Letflow.Modules.Org do
   read API is REQ-506. References between the types are declarative strings (0050 D3.6), no
   foreign keys.
 
+  ## Read API contract (GH #2662)
+
+  `prefix` must be derived server-side from the authenticated tenant, never from HTTP input:
+  isolation is by `prefix` alone, and a wrong prefix reads another tenant with no check. The
+  never-raise guarantee holds for a provisioned tenant prefix; a well-formed but unprovisioned
+  `tenant_<hex>` prefix raises `undefined_table` from Postgres (not caught).
+
   `on_install/3` activates and promotes the four packed definitions inside the install
   transaction (decision 0052 D2) through `Letflow.Modules.EntityActivation`.
   """
@@ -30,7 +37,6 @@ defmodule Letflow.Modules.Org do
   alias Letflow.Entities.Record.Latest
   alias Letflow.Modules.EntityActivation
   alias Letflow.Repo
-  alias Letflow.TenantProvisioning
 
   # Must stay equal to `manages_entity_types` in the manifest below (defmanifest takes literals).
   @types [
@@ -100,13 +106,16 @@ defmodule Letflow.Modules.Org do
   @doc """
   True only when `user_id` has an active `org_unit_membership` in `org_unit_id` and that
   `org_unit` is itself live and active. `org_unit_id` is a record_id uuid; a non-uuid value or a
-  non-text `user_id` is `false`.
+  non-text `user_id`, one with NUL or invalid UTF-8, or one over 256 bytes is `false` (no query).
+  `org_unit_id` and `user_id` are matched as exact text; the canonical lowercase uuid is expected.
   """
   @spec member?(prefix :: String.t(), user_id :: term(), org_unit_id :: term()) :: boolean()
   def member?(prefix, user_id, org_unit_id)
       when is_binary(prefix) and is_binary(user_id) do
-    with {:ok, unit_id} <- Ecto.UUID.cast(org_unit_id),
-         {:ok, _tenant_id} <- TenantProvisioning.tenant_id_for_schema_name(prefix),
+    # `unit_by_id/2` runs before the membership query and `Latest.get_live/3` validates `prefix`
+    # (`tenant_id_for_schema_name/1`), so no separate prefix check is needed here.
+    with true <- safe_text?(user_id),
+         {:ok, unit_id} <- Ecto.UUID.cast(org_unit_id),
          {:ok, %{"active" => true}} <- unit_by_id(prefix, unit_id) do
       active_membership?(prefix, user_id, unit_id)
     else
@@ -115,6 +124,12 @@ defmodule Letflow.Modules.Org do
   end
 
   def member?(_prefix, _user_id, _org_unit_id), do: false
+
+  # A bound text parameter must be valid UTF-8 without NUL or Postgres raises; the 256-byte cap
+  # bounds a hostile string (a Letflow user id is a uuid or short subject, far below it).
+  defp safe_text?(text) do
+    byte_size(text) <= 256 and String.valid?(text) and not String.contains?(text, <<0>>)
+  end
 
   defp unit_by_id(prefix, unit_id) do
     case Latest.get_live(unit_id, @unit, prefix) do

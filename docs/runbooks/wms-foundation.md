@@ -31,7 +31,8 @@ was written.
    `idempotency_key` that starts with the exact bytes `sys:step:` and return
    `{:error, :reserved_idempotency_key}` (`reject_step_key/1`,
    `lib/letflow/entities/records.ex:1004`; prefix `@step_key_prefix`, line 330). Only
-   `command_multi/3` accepts that key family, and its one caller is `Letflow.Entities.StepWrites`.
+   `command_multi/3` accepts that key family, and it has two callers:
+   `lib/letflow/entities/step_writes.ex:724` and `lib/letflow/entities/handler_writes.ex:244`.
    `reject_reserved_attributes/1` (`lib/letflow/entities/records.ex:997`) is a separate check:
    a top-level `source` or `metadata` attribute gives `{:error, :reserved_attribute}`. GH #2550
    is closed (PR #2600).
@@ -40,3 +41,12 @@ was written.
    "not found" or `false`, never a raise. A soft-deleted record is indistinguishable from an
    absent one (`Letflow.Entities.Record.Latest.get_live/3`, GH #2734). There is no lookup by
    `code` or by external reference.
+   Contract: `prefix` must be derived server-side from the authenticated tenant, never from
+   HTTP input; isolation is by prefix alone and a wrong prefix reads another tenant with no
+   check. The never-raise guarantee holds for a provisioned tenant prefix only (a well-formed
+   but unprovisioned `tenant_<hex>` prefix raises `undefined_table` from Postgres). `member?/3`
+   returns `false`, without a query, for a `user_id` containing NUL, invalid UTF-8 or longer
+   than 256 bytes.
+6. **Ids are matched as exact text.** `member?/3` compares the stored `org_unit_id` and
+   `user_id` byte for byte and expects the canonical lowercase uuid, so REQ-495's write
+   functions must normalise ids on write.
