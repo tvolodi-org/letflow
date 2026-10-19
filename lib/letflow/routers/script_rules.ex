@@ -183,6 +183,7 @@ defmodule Letflow.Routers.ScriptRules do
     with {:ok, raw} <- Base.url_decode64(cursor, padding: false),
          @cursor_prefix <> rest <- raw,
          [key, version] <- String.split(rest, "\n", parts: 2),
+         true <- Pagination.valid_seek_string?(key),
          {version, ""} when version > 0 and version <= 2_147_483_647 <- Integer.parse(version) do
       {:ok, {key, version}}
     else

@@ -396,6 +396,18 @@ defmodule Letflow.Api.Pagination do
   @type seek_part :: :skip | :string | :uuid | :int | :datetime_us
 
   @doc """
+  True when `value` is a binary Postgres can store as `text`: valid UTF-8 and
+  free of NUL bytes (GH 2843). This is the same test the `:string` slot of
+  `decode_seek_parts/3` applies, minus its empty-string rejection, for cursor
+  decoders whose wire format is not colon-separated.
+  """
+  @spec valid_seek_string?(term()) :: boolean()
+  def valid_seek_string?(value) when is_binary(value),
+    do: String.valid?(value) and not String.contains?(value, <<0>>)
+
+  def valid_seek_string?(_other), do: false
+
+  @doc """
   Decodes the domain slots of a `decode_cursor/4`-validated seek payload,
   `"<prefix><slot>:<slot>:...:<last slot>"`, without ever raising on a
   malformed tail (INV-8, GH 2747). `shape` lists one `t:seek_part/0` per
@@ -439,7 +451,7 @@ defmodule Letflow.Api.Pagination do
   defp decode_seek_slot(:string, ""), do: {:error, :invalid_cursor}
 
   defp decode_seek_slot(:string, part) do
-    if String.valid?(part) and not String.contains?(part, <<0>>),
+    if valid_seek_string?(part),
       do: {:ok, part},
       else: {:error, :invalid_cursor}
   end
