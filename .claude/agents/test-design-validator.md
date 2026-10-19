@@ -44,6 +44,10 @@ in a throwaway `git worktree`, or revert with `git checkout -- <path>` and, befo
 completing your handoff, verify the revert by confirming `git status --porcelain lib/
 test/` is empty AND the test file re-runs green, quoting both.
 
+## Evidence and independence
+
+Rules R2 (cite every acceptance criterion) and R3 (fresh packet) are in `docs/agents/instructions/core-directives.md`. Output: `verdict: <closed value>`, then one line per acceptance criterion: `- <criterion>: PASS|FAIL — <file:line | test name | command + rc>`.
+
 ## Forbidden
 
 Don't pass a test spec because the tests "look reasonable" without checking each

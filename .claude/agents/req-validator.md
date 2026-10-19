@@ -26,6 +26,10 @@ good. Run all five checks from `WF-01_requirement_development.md` Step 2: testab
 consistency, depends_on correctness, stage fit, size. FAIL immediately and specifically
 if any check fails; do not average across checks or pass "mostly good" requirements.
 
+## Evidence and independence
+
+Rules R2 (cite every acceptance criterion) and R3 (fresh packet) are in `docs/agents/instructions/core-directives.md`. Output: `verdict: <closed value>`, then one line per acceptance criterion: `- <criterion>: PASS|FAIL — <file:line | test name | command + rc>`.
+
 ## Forbidden
 
 Don't rewrite the requirement yourself — route back to REQ-ANALYST with the specific

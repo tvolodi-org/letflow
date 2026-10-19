@@ -8,6 +8,7 @@ convention downstream agents need without re-deriving it.
 |---|---|
 | `test_parallel.sh` | Runs the suite as N parallel `mix test --partitions N` processes. Q-1037: `TEST_PARALLEL_SHARD=K/M` (or `TEST_PARALLEL_TOTAL`/`TEST_PARALLEL_OFFSET`) runs only slice K of a TOTAL=N*M partition space (global partition numbers; N must match on every shard); default unchanged. See its header. |
 | `timed_test.sh` | Times a `mix test` run. |
+| `check_pr_gates.sh` | Read-only: exit 1 if a PR touching lib/ web/ apps/ priv/ test/ lacks a valid `## Gates` block (`<PR>` or `--body-file F --files F`); run by the supervisor before a merge slot; not wired into CI. `test_check_pr_gates.sh` is its self-test. |
 | `uat_preflight.sh` | WF-05 Step 0: read-only preflight of a target environment against the UAT scenario corpus's PRECONDITIONS manifest; prints a scenario x check gap table; exit 1 means `ENV_NOT_READY`. Usage in its header comment. |
 | `mutate.py` | Single-occurrence substitution mutation-testing helper (apply mutant, run tests, report kill/survive, always revert). See below. |
 | `seed_meridian_definition.sh`, `seed_vortex_definition.sh`, `seed_swiftroute_definition.sh` | Seed the QA ProcessDefinitions from `test/fixtures/qa/*.json` (create + activate). Sources `lib/seed_service_task_base.sh`. See "QA seed scripts" below. |
