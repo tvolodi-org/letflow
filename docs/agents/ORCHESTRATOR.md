@@ -546,7 +546,7 @@ Not in force until REQ-521, REQ-522 and REQ-523 are done; until then every chang
 
 **SHORT** applies only when EVERY changed file is under `test/` (test files, `test/support`,
 `test/specs`, `test/reports`) or is a document: ONLY a file under `docs/` outside `docs/agents/`
-and `docs/migration/decisions/`, and outside the acceptance criteria of `docs/requirements.yaml`.
+and `docs/migration/decisions/`, and outside the acceptance criteria of `docs/requirements.yaml`, and outside the paths in Extensions.
 All `CLAUDE.md` files (any level), everything under `.claude/` and any top-level `*.md` that
 governs agents or process (`CLAUDE.md`, `ORCHESTRATOR.md`, workflow docs) are FULL. In doubt a path is FULL.
 A diff that adds, removes or changes any line inside an `acceptance_criteria` block of
@@ -616,15 +616,16 @@ those are under `lib/` and so never SHORT.
   `definition-security-fix-rollout.md`). They are not "documents". `docs/requirements.yaml` stays
   under its own `acceptance_criteria` rule above. The helper (REQ-522) pins this list to that script.
 - ALL of `test/fixtures/` (an unlisted subdirectory of a partly named one such as `test/fixtures/uat/`
-  too; `test/fixtures/route_scope/off_shadow_responses*.json` by name), and `test/support/` files whose
-  name matches `fixture|double|verifier|oidc|keycloak|admission|scope|role|grant|route_inventory|tenant`
+  too; `test/fixtures/route_scope/off_shadow_responses*.json` by name), and ALL of `test/support/`
   (today e.g. `tenant_fixture.ex`, `token_verifier_double.ex`, `mock_oidc_provider.ex`,
   `keycloak_test_client.ex`, `admission_test_helpers.ex`, `scope_on_fixture.ex`,
   `role_scope_grants_fixture.ex`, `route_inventory.ex`, `tenant_slug.ex`).
+- `docs/merge-queue.md`, `docs/anti-patterns.md`, `docs/guides/` (all), `docs/migration/README.md` and
+  `docs/migration/stage-*.md` (process-governing docs; "not documents", like `docs/roles.md`).
 - `lib/letflow/api/`, `lib/letflow/secrets*`, `lib/letflow/entities/`, `config/`.
 - Guard test, widened (supersedes the narrow definition above where they differ): a file matching the live
-  regex `(guard|invariant|inventory|drift|golden|permission_matrix|path_filter|boundaries|authoriz|enforce|route_scope|scope|authorize|leak|secret|escalat|cross_tenant|isolation)[^/]*_test\.exs$`
-  over `git ls-files test` (122 files on 2026-10-19; the 30 listed above are the subset the narrow
+  regex `(guard|invariant|inventory|drift|golden|permission_matrix|path_filter|boundaries|authoriz|enforce|route_scope|scope|authorize|leak|secret|escalat|cross_tenant|isolation|cd_qa|tip_rule|ci_changed|check_pr_gates)[^/]*_test\.exs$`
+  over `git ls-files test` (124 files on 2026-10-19; the 30 listed above are the subset the narrow
   regex matches). ANY change to such a file is FULL, not only a removed assertion. A rename or delete
   of any `test/` file counts as a removal.
 
@@ -634,13 +635,16 @@ risk-tier requirements, not here": §13 defines HIGH.
 **SHORT chain:** one producer (TEST-DESIGNER for tests, DOC-UPDATER for docs), one validator
 (TEST-DESIGN-VALIDATOR with mutation evidence for tests; REVIEWER for docs), then CI. No separate
 design pair, security review, idiom review or release re-validation; the status flip rides in the
-producer's last commit. Decision 0004 principle 1 holds: one validator remains.
+producer's last commit. That sentence is governed by this one: the status flip is the `status:` line of
+`docs/requirements.yaml` only; the history event under `docs/status/requirement_status*.yaml` is an Extensions
+path, so a diff carrying it is FULL: a requirement whose last PR must carry the event uses the FULL chain
+or a separate FULL PR. Decision 0004 principle 1 holds: one validator remains.
 
 **HIGH** is a FULL change (never SHORT or DIRECT) that changes more than 300 lines under `lib/`
-(added plus deleted, `git diff --numstat origin/main...HEAD`) AND touches any of:
+(added plus deleted, `git diff --numstat origin/main...HEAD`; the 300 counts all of `lib/`, not only the named paths) AND touches any of:
 `lib/letflow/routers/`, `lib/letflow/scope_enforcement*`, `lib/letflow/identity/`,
 `lib/letflow/engine*`, `lib/letflow/scheduler*`, `priv/repo/migrations/`, or any SECURITY-REVIEWER
-scope path (extended per SECURITY-REVIEWER finding, additive to audit R5: also `lib/letflow/api/`,
+scope path (the paths written out in this section; extended per SECURITY-REVIEWER finding, additive to audit R5: also `lib/letflow/api/`,
 `lib/letflow/secrets*`, `lib/letflow/entities/`, `config/`). HIGH = the FULL chain plus ONE outside review by a session other than the worker
 (an advisory/architect session), requested through the supervisor after SECURITY-REVIEWER passes;
 one round at most; its findings and verdict go on the `Outside review:` line of the Gates block.
