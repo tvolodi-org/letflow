@@ -528,7 +528,7 @@ filing (`WORK_BOARD.md` §7) and WF-03 (Step 0).
 
 ## 12. Validator packet and gate record (audit #2874 R3, R6)
 
-- Dispatch every validator with the R3 packet only (`core-directives.md`, "R3 Validators Start From A Fresh Packet"); a bare PASS is redispatched once (R2).
+- Dispatch every validator with the R3 packet only (`core-directives.md`, "R3 Validators Start From A Fresh Packet").
 - Per PR, the test-run gate is the hosted CI run (local full suite stays forbidden on this host); its URL goes on the `CI:` line of the Gates block.
 - RELEASE-VALIDATOR runs once per requirement, before its `type:requirement` issue closes, not per PR. DOC-UPDATER work rides in the requirement's last PR.
 - The Gates block in the PR body (`GIT_MERGE.md`, "Gates block") is the binding record; handoff files stay allowed.

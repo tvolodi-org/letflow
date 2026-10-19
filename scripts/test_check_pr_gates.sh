@@ -27,7 +27,7 @@ highfix=${valid/Tier: FULL/Tier: HIGH}
 # check <name> <expected rc> <body> <files> [title]
 check() {
   printf '%s' "$3" > "$t/body"
-  out=$("$here/check_pr_gates.sh" --body-file "$t/body" --files "$4" --title "${5:-feat: x}")
+  out=$(bash "$here/check_pr_gates.sh" --body-file "$t/body" --files "$4" --title "${5:-feat: x}")
   rc=$?
   if [ "$rc" = "$2" ]; then echo "PASS $1 (rc=$rc)"; else echo "FAIL $1 (rc=$rc expected $2)"; fail=1; fi
   if [ -n "$out" ]; then echo "     $out" | head -3; fi
@@ -38,6 +38,11 @@ check "docs-only PR needs no block" 0 "no block" "$t/docs_only"
 check "missing block" 1 "just prose" "$t/files"
 check "bad verdict" 1 "${valid/PASS_WITH_FINDINGS/LGTM}" "$t/files"
 check "missing evidence" 1 "${valid/ — evidence: lib\/letflow\/x.ex:40/}" "$t/files"
+ev=" — evidence: lib/letflow/x.ex:40"
+check "placeholder evidence ..." 1 "${valid/"$ev"/ — evidence: ...}" "$t/files"
+check "evidence ./path" 0 "${valid/"$ev"/ — evidence: ./scripts/x.sh rc=0}" "$t/files"
+check "empty Gates section" 1 "## Gates
+" "$t/files"
 check "missing CI line" 1 "${valid/- CI: https:\/\/github.com\/o\/r\/actions\/runs\/123 success/}" "$t/files"
 check "CI without conclusion" 1 "${valid/runs\/123 success/runs/123}" "$t/files"
 check "bad tier" 1 "${valid/Tier: FULL/Tier: FULL | SHORT}" "$t/files"
@@ -51,7 +56,7 @@ check "fix PR with bad Missed-by" 1 "${valid}Introduced-by: unknown
 Missed-by: nobody
 " "$t/files" "fix: y"
 
-"$here/check_pr_gates.sh" > /dev/null
+bash "$here/check_pr_gates.sh" > /dev/null
 rc=$?
 if [ "$rc" = 2 ]; then echo "PASS no arguments (rc=2)"; else echo "FAIL no arguments (rc=$rc)"; fail=1; fi
 exit $fail

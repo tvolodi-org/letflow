@@ -5,6 +5,8 @@
 #
 # Usage: check_pr_gates.sh <PR number>
 #        check_pr_gates.sh --body-file <file> --files <file> [--title <text>]   (local check)
+# Limits: `gh pr view --json files` is capped at about 100 files; a `CI: ... failure` line passes
+# (the script checks form, not outcome).
 # Exit: 0 ok or out of scope, 1 problems (one line each on stdout), 2 bad arguments.
 set -u
 
@@ -64,7 +66,7 @@ check_verdict() { # $1 label, $2 text after "NAME:"
   rest=${rest#"${rest%%[![:space:]]*}"}
   if [[ $rest =~ ^N/A[[:space:]]+\(.+\) ]]; then return 0; fi
   if [[ $rest =~ ^(PASS_WITH_FINDINGS|PASS|FAIL)([[:space:]]|$) ]]; then
-    if [[ $rest =~ evidence:[[:space:]]*[A-Za-z0-9_/.#-] ]]; then return 0; fi
+    if [[ $rest =~ evidence:[[:space:]]*(\.\.?/|[A-Za-z0-9_/]) ]]; then return 0; fi
     bad "$label: verdict without 'evidence:' citation"
     return 1
   fi
@@ -74,7 +76,7 @@ check_verdict() { # $1 label, $2 text after "NAME:"
 
 find_line() { # $1 role name -> prints the rest of the first "- NAME:" line; status 1 if absent
   local l
-  for l in "${block[@]}"; do
+  for l in ${block[@]+"${block[@]}"}; do
     if [[ $l =~ ^-[[:space:]]+$1:[[:space:]]*(.*)$ ]]; then printf '%s' "${BASH_REMATCH[1]}"; return 0; fi
   done
   return 1
@@ -84,7 +86,7 @@ if [ "$have_block" = 0 ]; then
   bad "no '## Gates' section in the PR body"
 else
   tier=""
-  for l in "${block[@]}"; do
+  for l in ${block[@]+"${block[@]}"}; do
     if [[ $l =~ ^Tier:[[:space:]]*(.*[^[:space:]])[[:space:]]*$ ]]; then tier=${BASH_REMATCH[1]}; fi
   done
   case "$tier" in
@@ -113,7 +115,7 @@ fi
 case "$title" in
   [Ff][Ii][Xx]*)
     intro="" missed=""
-    for l in "${body_lines[@]}"; do
+    for l in ${body_lines[@]+"${body_lines[@]}"}; do
       if [[ $l =~ ^Introduced-by:[[:space:]]*(.*[^[:space:]])[[:space:]]*$ ]]; then intro=${BASH_REMATCH[1]}; fi
       if [[ $l =~ ^Missed-by:[[:space:]]*(.*[^[:space:]])[[:space:]]*$ ]]; then missed=${BASH_REMATCH[1]}; fi
     done
