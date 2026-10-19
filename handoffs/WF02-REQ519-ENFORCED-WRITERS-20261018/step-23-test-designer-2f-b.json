@@ -8,12 +8,14 @@
   "file": "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-23-test-designer-2f-b.json",
   "created_at": "2026-10-19T02:41:00Z",
   "started_at": "2026-10-19T02:41:00Z",
-  "completed_at": "2026-10-19T03:47:08Z",
+  "completed_at": "2026-10-19T04:29:09Z",
   "status": "COMPLETED",
   "priority": "HIGH",
   "context": {
     "stage": "S7",
-    "requirement_ids": ["REQ-519"],
+    "requirement_ids": [
+      "REQ-519"
+    ],
     "requirement_text": {},
     "source_text": {
       "slice": "REQ-519 slice 2f-b (GH #2535): on becomes settable (parse_mode/modes, the flip/4 transition table, PUT authority = interactive tenant-wide TENANT_ADMIN via Api.Scope.require_interactive_tenant_admin/1, 409 shadow_required and enforcement_precondition_failed bodies, GET /integrity rescue, docs/roles.md). Tests only; nothing under lib/ or priv/ was changed; nothing committed."
@@ -39,7 +41,7 @@
   "result": {
     "status": "PASS",
     "verdict": "TESTS_WRITTEN",
-    "summary": "102 new tests in 6 new files plus 1 new test (TS-1) in the renamed on_flip_guards_test.exs, ALL GREEN, run per file, one mix at a time under the mixlock (MIX_ENV=test, default LOG_LEVEL): scope_enforcement_transitions 36, routers/tenant_scope_enforcement_on 22, scope_enforcement_flip_authority 14, api/route_scope_on_flip_blocker 8, docs/roles_on_flip_docs 14, scope_enforcement_on_e2e 8, on_flip_guards 17. The neighbours stay green and UNEDITED by this step: scope_enforcement_test 23, routers/tenant_scope_enforcement_test 26, on_gate_test 35, refused_audit_test 13, tenant_scope_enforcement_integrity_test 9, plugs/auth_pipeline_scope_test 7 (T-P5 passes at the default log level), routers/service_principal_route_test (inside the mutant runs, 18 tests), api/admin_plane_under_on_test 8, api/scope_grants_route_walk_test 9. No compiler warning in any run. mix format --check-formatted exit 0 on every file this step created or edited. 48 mutants measured in memory: 40 killed, 8 survived (MU-37a/b/c/d single-check removals of require_interactive_tenant_admin/1, MU-53, MU-T-O8/b/c), every survivor a single removal from a defence-in-depth stack and analysed in the spec; the PAIR mutants of the same stack are killed. One of my own tests was VACUOUS and was found by a surviving mutant (MU-37bc): the platform-tenant row of the authority matrix built its reference tenant after the pin, and building a tenant clears the platform pin; fixed (reference first, pin asserted) and re-measured KILLED. NOT RUN by instruction: mix letflow.check.test, full or multi-partition suites (the warnings-as-errors dead-default check was therefore not run; no helper added in this step has a default argument, and every run printed no compiler warning). No implementation bug found; one wording deviation from AC 13 reported (OBS-2).",
+    "summary": "106 new tests in 6 new files plus 1 new test (TS-1) in the renamed on_flip_guards_test.exs, ALL GREEN, run per file, one mix at a time under the mixlock (MIX_ENV=test, default LOG_LEVEL): scope_enforcement_transitions 36, routers/tenant_scope_enforcement_on 22, scope_enforcement_flip_authority 14, api/route_scope_on_flip_blocker 8, docs/roles_on_flip_docs 18 (incl. 4 AC 23 tests), scope_enforcement_on_e2e 8, on_flip_guards 17. The neighbours stay green and UNEDITED by this step: scope_enforcement_test 23, routers/tenant_scope_enforcement_test 26, on_gate_test 35, refused_audit_test 13, tenant_scope_enforcement_integrity_test 9, plugs/auth_pipeline_scope_test 7 (T-P5 passes at the default log level), routers/service_principal_route_test (inside the mutant runs, 18 tests), api/admin_plane_under_on_test 8, api/scope_grants_route_walk_test 9. No compiler warning in any run. mix format --check-formatted exit 0 on every file this step created or edited. 48 mutants measured in memory: 40 killed, 8 survived (MU-37a/b/c/d single-check removals of require_interactive_tenant_admin/1, MU-53, MU-T-O8/b/c), every survivor a single removal from a defence-in-depth stack and analysed in the spec; the PAIR mutants of the same stack are killed. One of my own tests was VACUOUS and was found by a surviving mutant (MU-37bc): the platform-tenant row of the authority matrix built its reference tenant after the pin, and building a tenant clears the platform pin; fixed (reference first, pin asserted) and re-measured KILLED. NOT RUN by instruction: mix letflow.check.test, full or multi-partition suites (the warnings-as-errors dead-default check was therefore not run; no helper added in this step has a default argument, and every run printed no compiler warning). No implementation bug found; one wording deviation from AC 13 reported (OBS-2).",
     "local_issue_id": null,
     "tests_run": true,
     "tests_run_scope": "per file, one mix at a time under the mixlock directory (created with mkdir by this session before the first run and removed by it after the last mix command); no full-suite and no multi-partition run; no mix letflow.check.test",
@@ -73,54 +75,228 @@
       "AC 24": "AST + text scans over lib/, priv/, config/, scripts/, .github/, mix.exs: no literal on pair outside the auth pipeline's read pattern, no SQL or bulk setter, no priv/config/script line naming the column next to on except the pinned widening migration, config never names the column; each scan live on a seeded offender",
       "SEC C-6 / T-O7 / T-O8": "platform tenant stored on keeps its PLATFORM_ADMIN on /tenants in all three modes even through a zero-row PLATFORM_ADMIN group; the flag route stays TENANT_ADMIN-only; an ordinary tenant's PLATFORM_ADMIN role is inert",
       "REVIEWER step-22": "F-4 rename done; TS-1: an in-memory copy of the router whose flip/4 is a stub answering an unknown tag is a detail-free 500 with ONE constant line reason=unknown exception=none",
-      "docs": "the eight 'what on means' items in order with claims, the intro names RA-6 / REQ-525..527 / #2862 / #2869 / #2870 / #2871, the operator table, all six gate codes, thresholds, integrity snapshot, known limitations incl. import_scope_check/6 (which exists), the platform-tenant sentence once"
+      "docs": "the eight 'what on means' items in order with claims, the intro names RA-6 / REQ-525..527 / #2862 / #2869 / #2870 / #2871, the operator table, all six gate codes, thresholds, integrity snapshot, known limitations incl. import_scope_check/6 (which exists), the platform-tenant sentence once",
+      "AC 23": "docs test \"AC 23 the collecting section\": heading Known limitations of an enforced tenant, exactly four items under it only, tokens LIMIT-IDP-SYNC-WHOLE-GROUP / LIMIT-POST-ROLES-409 / LIMIT-IMPORT-UPSERT-404 / LIMIT-ON-FLAG each once in docs/roles.md and in docs/runbooks/scope-enforcement-on.md, required content per item; live on seeded offenders (missing heading, renamed/duplicated token, fifth item, item under a later heading, missing needle, runbook token missing/duplicated)",
+      "AC 24/25 (process)": "AC 24: the runbook sentence is pinned by the docs test, the in-tree scan is the AC 24 scan file; AC 25 (PR body ids REQ-525/526/527 and the literal sentence, origin/main grep count 3) is a PR-body obligation for ORCH/SEC, not testable in-tree (noted in the spec)"
     },
     "mutants": {
       "method": "the edited source of one lib file is compiled into the test VM (Code.compile_string, anchor exactly once, CRLF normalised, ignore_module_conflict) via 'mix do run --no-start -r mut.exs + test <files>' with the mutant chosen by the MUT_ID env var; the loader and runner live in the session scratchpad, not the repository; nothing on disk changed, so nothing to revert (git status checked); a run with a compile error or an anchor miss is recorded INVALID (the first batch was, for an interpolation slip in the loader, and was re-run); counts are failed tests of the files named",
       "measured": [
-        {"id": "MU-22a", "edit": "on_checks!/3 takes no lock S", "failed": "1 of 36 (transitions)"},
-        {"id": "MU-22b", "edit": "the six facts are read BEFORE lock S", "failed": "1 of 36"},
-        {"id": "MU-23", "edit": "off -> on allowed (shadow_required clause removed)", "failed": "3 of 36"},
-        {"id": "MU-39", "edit": "a raised gate is recorded as a refusal", "failed": "3 of 36"},
-        {"id": "MU-39b", "edit": "rescue narrowed so a Postgrex raise escapes flip/4", "failed": "4 of 36"},
-        {"id": "MU-42", "edit": "flush_evidence/0 dropped from flip/4", "failed": "1 of 36"},
-        {"id": "V7a", "edit": "clock/1 returns any non-nil :now", "failed": "1 of 36"},
-        {"id": "V7b", "edit": "clock/1 ignores :now", "failed": "22 of 36"},
-        {"id": "MU-21", "edit": "enable_checks! also runs for on -> shadow", "failed": "3 of 36"},
-        {"id": "MU-24", "edit": "audit action keyed on target == :shadow", "failed": "7 of 36"},
-        {"id": "MU-rank", "edit": "rank(:on) = 1", "failed": "5 of 36"},
-        {"id": "MU-13a", "edit": "the mandatory on -> shadow reason removed", "failed": "1 of 36"},
-        {"id": "MU-13b", "edit": "check_reason(:off, nil) accepted", "failed": "3 of 36"},
-        {"id": "MU-gate-bypass", "edit": "shadow -> on runs no gate", "failed": "15 of 36"},
-        {"id": "MU-gate-ignored", "edit": "gate failures ignored (no rollback)", "failed": "12 of 36"},
-        {"id": "MU-20a", "edit": "parse_mode accepts \"ON\"", "failed": "1 of 36"},
-        {"id": "MU-20b", "edit": "parse_mode mints atoms", "failed": "1 of 36"},
-        {"id": "MU-same", "edit": "same-mode no-op removed", "failed": "2 of 36"},
-        {"id": "MU-38b", "edit": "the refusal audit is never written", "failed": "10 of 36"},
-        {"id": "MU-38c", "edit": "shadow_required not audited", "failed": "1 of 36"},
-        {"id": "MU-38d", "edit": "the refusal records the wrong previous mode", "failed": "5 of 36"},
-        {"id": "MU-payload", "edit": "the success entry drops the gate payload", "failed": "1 of 36"},
-        {"id": "MU-37e", "edit": "the PUT uses with_tenant_wide (tokens and platform admins pass)", "failed": "4 of 40 (router file + service_principal_route_test)"},
-        {"id": "MU-37ac", "edit": "credential check AND effective_scope check dropped", "failed": "5 of 40"},
-        {"id": "MU-37bc", "edit": "TENANT_ADMIN role check AND effective_scope check dropped", "failed": "1 of 22 (router file alone, after the vacuous-test fix; it SURVIVED the first form of the test; T-P2 of the service-principal test also kills it)"},
-        {"id": "MU-37cd", "edit": "tenant-wide check AND effective_scope check dropped", "failed": "4 of 40"},
-        {"id": "MU-37a/b/c/d", "edit": "ONE check of require_interactive_tenant_admin/1 dropped (credential / role / effective scope / tenant-wide)", "failed": "SURVIVED 0 of 40 each: defence in depth, every caller class is stopped by at least two checks (a token: credential + grants :token is :deny; a scoped-only admin: tenant-wide + effective_scope; a platform admin: role + effective_scope); the three pairs above are killed"},
-        {"id": "MU-S5", "edit": "the router passes a body now to flip/4", "failed": "1 of 39 (router file + on_flip_guards)"},
-        {"id": "MU-52a", "edit": "500 path logs nothing", "failed": "2 of 39"},
-        {"id": "MU-52b", "edit": "500 path log carries the fault term", "failed": "2 of 39"},
-        {"id": "MU-52c", "edit": "500 path answers 200", "failed": "2 of 39"},
-        {"id": "MU-int-a", "edit": "integrity rescue logs nothing", "failed": "1 of 39"},
-        {"id": "MU-int-b", "edit": "integrity rescue logs the exception message", "failed": "1 of 39"},
-        {"id": "MU-int-c", "edit": "integrity rescue answers 200", "failed": "1 of 39"},
-        {"id": "MU-modes", "edit": "available_modes lists two modes", "failed": "2 of 39"},
-        {"id": "MU-curmode", "edit": "shadow_required current_mode not the constant off", "failed": "1 of 39"},
-        {"id": "MU-evid", "edit": "the 409 drops the evidence summary", "failed": "1 of 39"},
-        {"id": "MU-report", "edit": "the 409 report drops the informational worker count", "failed": "1 of 39"},
-        {"id": "MU-og-counts", "edit": "OnGate.counts_state zeroes scoped_approvers", "failed": "1 of 39"},
-        {"id": "MU-53b", "edit": "platform-scope permission decided by grants (platform clause + PLATFORM_ADMIN shortcut of tenant_effective)", "failed": "1 of 8 (e2e)"},
-        {"id": "MU-53", "edit": "only the platform clause of allowed?/3", "failed": "SURVIVED 0 of 8: tenant_effective has its own PLATFORM_ADMIN shortcut; MU-53b removes both"},
-        {"id": "MU-T-O8 / b / c", "edit": "effective_roles keeps PLATFORM_ADMIN outside the platform tenant / plus has_permission_in_scope? ignores the flag / plus evaluate_access keeps the role", "failed": "SURVIVED 0 of 8 each, even with three layers removed: the inertness is enforced by further layers; the test pins the observable outcome"},
-        {"id": "MU-RW", "edit": "the /help/resolved ruling becomes :pending_sec_ruling", "failed": "3 of 8 (route blocker)"}
+        {
+          "id": "MU-22a",
+          "edit": "on_checks!/3 takes no lock S",
+          "failed": "1 of 36 (transitions)"
+        },
+        {
+          "id": "MU-22b",
+          "edit": "the six facts are read BEFORE lock S",
+          "failed": "1 of 36"
+        },
+        {
+          "id": "MU-23",
+          "edit": "off -> on allowed (shadow_required clause removed)",
+          "failed": "3 of 36"
+        },
+        {
+          "id": "MU-39",
+          "edit": "a raised gate is recorded as a refusal",
+          "failed": "3 of 36"
+        },
+        {
+          "id": "MU-39b",
+          "edit": "rescue narrowed so a Postgrex raise escapes flip/4",
+          "failed": "4 of 36"
+        },
+        {
+          "id": "MU-42",
+          "edit": "flush_evidence/0 dropped from flip/4",
+          "failed": "1 of 36"
+        },
+        {
+          "id": "V7a",
+          "edit": "clock/1 returns any non-nil :now",
+          "failed": "1 of 36"
+        },
+        {
+          "id": "V7b",
+          "edit": "clock/1 ignores :now",
+          "failed": "22 of 36"
+        },
+        {
+          "id": "MU-21",
+          "edit": "enable_checks! also runs for on -> shadow",
+          "failed": "3 of 36"
+        },
+        {
+          "id": "MU-24",
+          "edit": "audit action keyed on target == :shadow",
+          "failed": "7 of 36"
+        },
+        {
+          "id": "MU-rank",
+          "edit": "rank(:on) = 1",
+          "failed": "5 of 36"
+        },
+        {
+          "id": "MU-13a",
+          "edit": "the mandatory on -> shadow reason removed",
+          "failed": "1 of 36"
+        },
+        {
+          "id": "MU-13b",
+          "edit": "check_reason(:off, nil) accepted",
+          "failed": "3 of 36"
+        },
+        {
+          "id": "MU-gate-bypass",
+          "edit": "shadow -> on runs no gate",
+          "failed": "15 of 36"
+        },
+        {
+          "id": "MU-gate-ignored",
+          "edit": "gate failures ignored (no rollback)",
+          "failed": "12 of 36"
+        },
+        {
+          "id": "MU-20a",
+          "edit": "parse_mode accepts \"ON\"",
+          "failed": "1 of 36"
+        },
+        {
+          "id": "MU-20b",
+          "edit": "parse_mode mints atoms",
+          "failed": "1 of 36"
+        },
+        {
+          "id": "MU-same",
+          "edit": "same-mode no-op removed",
+          "failed": "2 of 36"
+        },
+        {
+          "id": "MU-38b",
+          "edit": "the refusal audit is never written",
+          "failed": "10 of 36"
+        },
+        {
+          "id": "MU-38c",
+          "edit": "shadow_required not audited",
+          "failed": "1 of 36"
+        },
+        {
+          "id": "MU-38d",
+          "edit": "the refusal records the wrong previous mode",
+          "failed": "5 of 36"
+        },
+        {
+          "id": "MU-payload",
+          "edit": "the success entry drops the gate payload",
+          "failed": "1 of 36"
+        },
+        {
+          "id": "MU-37e",
+          "edit": "the PUT uses with_tenant_wide (tokens and platform admins pass)",
+          "failed": "4 of 40 (router file + service_principal_route_test)"
+        },
+        {
+          "id": "MU-37ac",
+          "edit": "credential check AND effective_scope check dropped",
+          "failed": "5 of 40"
+        },
+        {
+          "id": "MU-37bc",
+          "edit": "TENANT_ADMIN role check AND effective_scope check dropped",
+          "failed": "1 of 22 (router file alone, after the vacuous-test fix; it SURVIVED the first form of the test; T-P2 of the service-principal test also kills it)"
+        },
+        {
+          "id": "MU-37cd",
+          "edit": "tenant-wide check AND effective_scope check dropped",
+          "failed": "4 of 40"
+        },
+        {
+          "id": "MU-37a/b/c/d",
+          "edit": "ONE check of require_interactive_tenant_admin/1 dropped (credential / role / effective scope / tenant-wide)",
+          "failed": "SURVIVED 0 of 40 each: defence in depth, every caller class is stopped by at least two checks (a token: credential + grants :token is :deny; a scoped-only admin: tenant-wide + effective_scope; a platform admin: role + effective_scope); the three pairs above are killed"
+        },
+        {
+          "id": "MU-S5",
+          "edit": "the router passes a body now to flip/4",
+          "failed": "1 of 39 (router file + on_flip_guards)"
+        },
+        {
+          "id": "MU-52a",
+          "edit": "500 path logs nothing",
+          "failed": "2 of 39"
+        },
+        {
+          "id": "MU-52b",
+          "edit": "500 path log carries the fault term",
+          "failed": "2 of 39"
+        },
+        {
+          "id": "MU-52c",
+          "edit": "500 path answers 200",
+          "failed": "2 of 39"
+        },
+        {
+          "id": "MU-int-a",
+          "edit": "integrity rescue logs nothing",
+          "failed": "1 of 39"
+        },
+        {
+          "id": "MU-int-b",
+          "edit": "integrity rescue logs the exception message",
+          "failed": "1 of 39"
+        },
+        {
+          "id": "MU-int-c",
+          "edit": "integrity rescue answers 200",
+          "failed": "1 of 39"
+        },
+        {
+          "id": "MU-modes",
+          "edit": "available_modes lists two modes",
+          "failed": "2 of 39"
+        },
+        {
+          "id": "MU-curmode",
+          "edit": "shadow_required current_mode not the constant off",
+          "failed": "1 of 39"
+        },
+        {
+          "id": "MU-evid",
+          "edit": "the 409 drops the evidence summary",
+          "failed": "1 of 39"
+        },
+        {
+          "id": "MU-report",
+          "edit": "the 409 report drops the informational worker count",
+          "failed": "1 of 39"
+        },
+        {
+          "id": "MU-og-counts",
+          "edit": "OnGate.counts_state zeroes scoped_approvers",
+          "failed": "1 of 39"
+        },
+        {
+          "id": "MU-53b",
+          "edit": "platform-scope permission decided by grants (platform clause + PLATFORM_ADMIN shortcut of tenant_effective)",
+          "failed": "1 of 8 (e2e)"
+        },
+        {
+          "id": "MU-53",
+          "edit": "only the platform clause of allowed?/3",
+          "failed": "SURVIVED 0 of 8: tenant_effective has its own PLATFORM_ADMIN shortcut; MU-53b removes both"
+        },
+        {
+          "id": "MU-T-O8 / b / c",
+          "edit": "effective_roles keeps PLATFORM_ADMIN outside the platform tenant / plus has_permission_in_scope? ignores the flag / plus evaluate_access keeps the role",
+          "failed": "SURVIVED 0 of 8 each, even with three layers removed: the inertness is enforced by further layers; the test pins the observable outcome"
+        },
+        {
+          "id": "MU-RW",
+          "edit": "the /help/resolved ruling becomes :pending_sec_ruling",
+          "failed": "3 of 8 (route blocker)"
+        }
       ],
       "summary": "48 mutants: 40 killed, 8 survived (MU-37a/b/c/d, MU-53, MU-T-O8/b/c), each a single removal or a partial removal from a defence-in-depth stack. The requested MU-22/23/39/42 and V7 are all killed. The scan and docs tests read files from disk and cannot be mutated in memory; each is proven live on seeded offenders instead.",
       "found_by_mutation": "MU-37bc survived against the first form of the authority matrix: the platform-tenant row was vacuous (OnGateFixture.admin_tenant!/1 clears the platform pin, and the reference tenant was built after the pin). Fixed and re-measured KILLED."

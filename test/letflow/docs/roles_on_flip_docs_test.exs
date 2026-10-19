@@ -28,7 +28,7 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
 
   @operator_heading "## Turning scope enforcement on and off (operator procedure)"
   @production_heading "## What `on` means in production today"
-  @limitations_heading "## Known limitations of `on` (REQ-519)"
+  @limitations_heading "## Known limitations of an enforced tenant"
 
   @platform_sentence "A platform tenant stored as `on` does not restrict its PLATFORM_ADMIN on platform-scope routes; grants never decide platform scope."
 
@@ -152,6 +152,92 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
             not String.contains?(body, needle),
             do: {:limitation_missing, needle}
     end
+  end
+
+  # --- AC 23: the single collecting section --------------------------------------------------------
+
+  @runbook "docs/runbooks/scope-enforcement-on.md"
+  @ac23_heading "Known limitations of an enforced tenant"
+  @ac23_items [
+    {"LIMIT-IDP-SYNC-WHOLE-GROUP", ["grant.sync_suppressed", "binding.pending_scope"]},
+    {"LIMIT-POST-ROLES-409", ["scope_required"]},
+    {"LIMIT-IMPORT-UPSERT-404", ["upsert_by", "external_ref", "404"]},
+    {"LIMIT-ON-FLAG", ["shadow", "2f-b"]}
+  ]
+
+  # The lines under the heading `ac23_heading` (any level) until the next heading of the same or
+  # higher level (fewer or equal `#`); nil when the heading is absent.
+  defp heading_body(text, heading) do
+    lines = String.split(text, "\n")
+
+    case Enum.find_index(lines, &Regex.match?(~r/^\#{1,6} #{Regex.escape(heading)}\s*$/, &1)) do
+      nil ->
+        nil
+
+      index ->
+        [head | rest] = Enum.drop(lines, index)
+        [hashes] = Regex.run(~r/^\#+/, head)
+        level = String.length(hashes)
+
+        rest
+        |> Enum.take_while(fn line ->
+          case Regex.run(~r/^(\#+) /, line) do
+            [_all, h] -> String.length(h) > level
+            nil -> true
+          end
+        end)
+    end
+  end
+
+  # The item begins with the literal token, which is not the prefix of a longer token.
+  defp begins_with_token?(line, token) do
+    case line do
+      "- " <> rest ->
+        String.starts_with?(rest, token) and
+          not Regex.match?(~r/^[A-Za-z0-9_-]/, String.replace_prefix(rest, token, ""))
+
+      _other ->
+        false
+    end
+  end
+
+  defp list_items(lines), do: Enum.filter(lines, &String.starts_with?(&1, "- "))
+
+  # Violations of AC 23 for the doc and the runbook texts (pure).
+  defp ac23_violations(doc, runbook) do
+    case heading_body(doc, @ac23_heading) do
+      nil ->
+        [:heading_missing]
+
+      body ->
+        items = list_items(body)
+
+        count = if length(items) == 4, do: [], else: [{:item_count, length(items)}]
+
+        per_token =
+          for {token, needles} <- @ac23_items,
+              violation <- token_violations(doc, runbook, items, token, needles),
+              do: violation
+
+        count ++ per_token
+    end
+  end
+
+  defp token_violations(doc, runbook, items, token, needles) do
+    begins = Enum.filter(items, &begins_with_token?(&1, token))
+    item = List.first(begins) || ""
+
+    checks = [
+      {length(begins) != 1, {:item_missing_or_duplicated, token}},
+      {occurrences(doc, token) != 1, {:token_not_once_in_doc, token}},
+      {occurrences(runbook, token) != 1, {:token_not_once_in_runbook, token}}
+    ]
+
+    needle_checks =
+      for needle <- needles,
+          do: {not String.contains?(item, needle), {:item_lacks, token, needle}}
+
+    (checks ++ needle_checks) |> Enum.filter(&elem(&1, 0)) |> Enum.map(&elem(&1, 1))
   end
 
   # --- the real file -----------------------------------------------------------------------------
@@ -285,6 +371,85 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
     test "the code the docs point at exists: import_scope_check/6 is defined in the entities router" do
       source = File.read!("lib/letflow/routers/entities.ex")
       assert source =~ ~r/defp import_scope_check\(/
+    end
+  end
+
+  describe "AC 23 the collecting section of the known limitations" do
+    setup do
+      {:ok, doc: read("docs/roles.md"), runbook: read(@runbook)}
+    end
+
+    test "the real documents satisfy AC 23", %{doc: doc, runbook: runbook} do
+      assert ac23_violations(doc, runbook) == []
+    end
+
+    test "under the heading ONLY there are exactly four list items, each starting with its token",
+         %{doc: doc} do
+      body = heading_body(doc, @ac23_heading)
+      items = list_items(body)
+
+      assert length(items) == 4
+
+      assert Enum.map(items, fn "- " <> rest -> rest |> String.split(":") |> hd() end) ==
+               Enum.map(@ac23_items, &elem(&1, 0))
+
+      # the other limitation list of the file is a different section and holds no token
+      for {token, _needles} <- @ac23_items do
+        assert occurrences(doc, token) == 1
+        assert occurrences(read(@runbook), token) == 1
+      end
+    end
+
+    test "the runbook states the AC 24 sentence (no production tenant is set to on until the supervisor says so)",
+         %{runbook: runbook} do
+      flat = String.replace(runbook, ~r/\s+/, " ")
+
+      assert flat =~ "No production tenant is set to `on` until the supervisor says so."
+
+      assert flat =~
+               "no test, seed, migration or script of that requirement flips a production tenant"
+    end
+
+    test "seeded offenders fire: missing heading, missing / duplicated token, a fifth item, a missing needle, a token missing from the runbook",
+         %{doc: doc, runbook: runbook} do
+      assert ac23_violations(String.replace(doc, "## " <> @ac23_heading, "## Other"), runbook) ==
+               [:heading_missing]
+
+      assert {:item_missing_or_duplicated, "LIMIT-ON-FLAG"} in ac23_violations(
+               String.replace(doc, "- LIMIT-ON-FLAG:", "- LIMIT-ON-FLAGS:"),
+               runbook
+             )
+
+      assert {:token_not_once_in_doc, "LIMIT-POST-ROLES-409"} in ac23_violations(
+               doc <> "\nSee LIMIT-POST-ROLES-409 again.\n",
+               runbook
+             )
+
+      fifth =
+        String.replace(doc, "- LIMIT-ON-FLAG:", "- LIMIT-EXTRA: a fifth item\n- LIMIT-ON-FLAG:")
+
+      assert {:item_count, 5} in ac23_violations(fifth, runbook)
+
+      # an item moved under a LATER heading of the same level is not "under that heading"
+      moved = String.replace(doc, "- LIMIT-ON-FLAG:", "## Elsewhere\n\n- LIMIT-ON-FLAG:")
+      violations = ac23_violations(moved, runbook)
+      assert {:item_count, 3} in violations
+      assert {:item_missing_or_duplicated, "LIMIT-ON-FLAG"} in violations
+
+      assert {:item_lacks, "LIMIT-POST-ROLES-409", "scope_required"} in ac23_violations(
+               String.replace(doc, "409 `scope_required`", "409"),
+               runbook
+             )
+
+      assert {:token_not_once_in_runbook, "LIMIT-IMPORT-UPSERT-404"} in ac23_violations(
+               doc,
+               String.replace(runbook, "LIMIT-IMPORT-UPSERT-404", "LIMIT-X")
+             )
+
+      assert {:token_not_once_in_runbook, "LIMIT-IDP-SYNC-WHOLE-GROUP"} in ac23_violations(
+               doc,
+               runbook <> "\nLIMIT-IDP-SYNC-WHOLE-GROUP\n"
+             )
     end
   end
 

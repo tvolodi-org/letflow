@@ -8,7 +8,7 @@
   "file": "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-20-elixir-dev-2f-b.json",
   "created_at": "2026-10-19T02:16:00Z",
   "started_at": "2026-10-19T02:16:00Z",
-  "completed_at": "2026-10-19T02:38:07Z",
+  "completed_at": "2026-10-19T04:27:06Z",
   "status": "COMPLETED",
   "priority": "HIGH",
   "context": {
@@ -111,6 +111,14 @@
         "SEC F-2 docs/roles.md intro names RA-6/REQ-525..527 #2862, #2869, #2870, amendment 0051 A8-A10 PR #2871"
       ],
       "verified": "compile --warnings-as-errors, format, check_boundaries, writers scan green; dormant_on_test + on_gate_test 51 passed"
+    },
+    "followup_ac23": {
+      "changes": [
+        "docs/roles.md: heading 'Known limitations of an enforced tenant' with exactly four LIMIT-* items (each token once)",
+        "docs/runbooks/scope-enforcement-on.md created: operator procedure, ON_IN_PRODUCTION items 1-8, AC 24 statement, same four items",
+        "test/letflow/docs/roles_on_flip_docs_test.exs: @limitations_heading constant updated to the new heading (only change)"
+      ],
+      "verified": "mix test test/letflow/docs + roles_matrix_parity_test: 53 passed; format check green"
     }
   }
 }

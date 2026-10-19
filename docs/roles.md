@@ -120,11 +120,14 @@ Read this before flipping any tenant. Only pilot tenants may be flipped, and pil
 
 The scoped-approver blocker is evaluated at flip time only: a scoped approver created after `on` is fail-closed and shown in the `on_gate` information count of the integrity report.
 
-## Known limitations of `on` (REQ-519)
+## Known limitations of an enforced tenant
 
-- A scoped caller's import in `upsert_by external_ref` mode is refused as the generic not-found answer, even for rows inside its scope. The refusal is in the entities router (`import_scope_check/6`), not in the Records primitive, so tenant-wide callers are unchanged. Only `create` mode imports are offered to a scoped caller.
-- A group withheld from IdP sync (see above) stays withheld for every bound role until an admin acts.
-- Every `:tenant_wide` route that a scoped user does not need for tasks (definitions, entity definitions, services, instances) answers a scoped user 403 under `on`.
+These hold for a tenant stored as `on` (REQ-519). The operator runbook `docs/runbooks/scope-enforcement-on.md` repeats them.
+
+- LIMIT-IDP-SYNC-WHOLE-GROUP: in an `on` tenant the IdP role-claims sync adds NO membership to a group that binds a platform role which would make the user tenant-wide for that role. A membership cannot be split by role, so the non-widening roles of that group are withheld too (SEC A-7). The audit entry is `grant.sync_suppressed` when the user already holds scoped rows for the role and `binding.pending_scope` when the user holds none. Login still succeeds.
+- LIMIT-POST-ROLES-409: `POST /roles` answers 409 `scope_required` in an enforced tenant for a new platform-role binding (or a routing-role binding converted to a platform role). Remedy: create the binding before enabling enforcement, or set enforcement to off with a reason, create it, narrow its scope, and enable again.
+- LIMIT-IMPORT-UPSERT-404: a scoped caller's import in `upsert_by external_ref` mode is refused with the generic 404 (the generic not-found answer), even for rows inside its scope, because the upsert primitive (`Records.upsert_record_by_external_ref`) is not scope-aware. The refusal is in the entities router (`import_scope_check/6`, `lib/letflow/routers/entities.ex`, which does not match `create` for it and falls through to `:scope_refused`, mapped to the 404), not in the Records primitive, so tenant-wide callers are unchanged. Only `create` mode imports are offered to a scoped caller. A scope-aware upsert is not built.
+- LIMIT-ON-FLAG: `on` is settable only from `shadow`, by an interactive tenant-wide TENANT_ADMIN, after the gate passes (REQ-519 2f-b); `off` to `on` is refused as `shadow_required`. The three limitations above still hold once `on` is settable.
 
 ## Matrix
 
