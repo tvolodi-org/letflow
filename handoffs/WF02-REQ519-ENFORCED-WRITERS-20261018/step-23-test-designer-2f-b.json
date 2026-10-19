@@ -8,7 +8,7 @@
   "file": "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-23-test-designer-2f-b.json",
   "created_at": "2026-10-19T02:41:00Z",
   "started_at": "2026-10-19T02:41:00Z",
-  "completed_at": "2026-10-19T04:29:09Z",
+  "completed_at": "2026-10-19T04:46:01Z",
   "status": "COMPLETED",
   "priority": "HIGH",
   "context": {
@@ -76,8 +76,8 @@
       "SEC C-6 / T-O7 / T-O8": "platform tenant stored on keeps its PLATFORM_ADMIN on /tenants in all three modes even through a zero-row PLATFORM_ADMIN group; the flag route stays TENANT_ADMIN-only; an ordinary tenant's PLATFORM_ADMIN role is inert",
       "REVIEWER step-22": "F-4 rename done; TS-1: an in-memory copy of the router whose flip/4 is a stub answering an unknown tag is a detail-free 500 with ONE constant line reason=unknown exception=none",
       "docs": "the eight 'what on means' items in order with claims, the intro names RA-6 / REQ-525..527 / #2862 / #2869 / #2870 / #2871, the operator table, all six gate codes, thresholds, integrity snapshot, known limitations incl. import_scope_check/6 (which exists), the platform-tenant sentence once",
-      "AC 23": "docs test \"AC 23 the collecting section\": heading Known limitations of an enforced tenant, exactly four items under it only, tokens LIMIT-IDP-SYNC-WHOLE-GROUP / LIMIT-POST-ROLES-409 / LIMIT-IMPORT-UPSERT-404 / LIMIT-ON-FLAG each once in docs/roles.md and in docs/runbooks/scope-enforcement-on.md, required content per item; live on seeded offenders (missing heading, renamed/duplicated token, fifth item, item under a later heading, missing needle, runbook token missing/duplicated)",
-      "AC 24/25 (process)": "AC 24: the runbook sentence is pinned by the docs test, the in-tree scan is the AC 24 scan file; AC 25 (PR body ids REQ-525/526/527 and the literal sentence, origin/main grep count 3) is a PR-body obligation for ORCH/SEC, not testable in-tree (noted in the spec)"
+      "AC 23": "docs test \"AC 23 the collecting section\" (amended, PR #2884): exactly SEVEN items under the heading Known limitations of an enforced tenant only, tokens LIMIT-IDP-SYNC-WHOLE-GROUP, LIMIT-POST-ROLES-409, LIMIT-IMPORT-UPSERT-404, LIMIT-ON-FLAG, LIMIT-MULTI-NODE-SHADOW-FLUSH, LIMIT-IDP-SERVICE-ACCOUNT-ADMIN, LIMIT-EMERGENCY-RESHADOW in order, each once in docs/roles.md and in docs/runbooks/scope-enforcement-on.md, required content per item; live on seeded offenders (missing heading, renamed/duplicated tokens incl. the three new ones, an eighth item, item under a later heading, missing needle, runbook token missing/duplicated)",
+      "AC 24/25 (process)": "AC 24: the runbook must contain both sentences (No production tenant is set to on until the supervisor says so; No on flip in any customer tenant, pilot included, until GH #2869 and GH #2883 are implemented.), pinned by the docs test; the PR-body half of AC 24 and AC 25 (REQ-525/526/527 ids and the literal sentence, origin/main grep count 3) are PR-body obligations for ORCH/SEC, not testable in-tree (noted in the spec)"
     },
     "mutants": {
       "method": "the edited source of one lib file is compiled into the test VM (Code.compile_string, anchor exactly once, CRLF normalised, ignore_module_conflict) via 'mix do run --no-start -r mut.exs + test <files>' with the mutant chosen by the MUT_ID env var; the loader and runner live in the session scratchpad, not the repository; nothing on disk changed, so nothing to revert (git status checked); a run with a compile error or an anchor miss is recorded INVALID (the first batch was, for an interpolation slip in the loader, and was re-run); counts are failed tests of the files named",

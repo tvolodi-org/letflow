@@ -162,7 +162,10 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
     {"LIMIT-IDP-SYNC-WHOLE-GROUP", ["grant.sync_suppressed", "binding.pending_scope"]},
     {"LIMIT-POST-ROLES-409", ["scope_required"]},
     {"LIMIT-IMPORT-UPSERT-404", ["upsert_by", "external_ref", "404"]},
-    {"LIMIT-ON-FLAG", ["shadow", "2f-b"]}
+    {"LIMIT-ON-FLAG", ["shadow", "2f-b"]},
+    {"LIMIT-MULTI-NODE-SHADOW-FLUSH", ["ShadowWindow", "flush"]},
+    {"LIMIT-IDP-SERVICE-ACCOUNT-ADMIN", ["TENANT_ADMIN", "service principal"]},
+    {"LIMIT-EMERGENCY-RESHADOW", ["shadow window", "restart"]}
   ]
 
   # The lines under the heading `ac23_heading` (any level) until the next heading of the same or
@@ -212,7 +215,7 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
       body ->
         items = list_items(body)
 
-        count = if length(items) == 4, do: [], else: [{:item_count, length(items)}]
+        count = if length(items) == 7, do: [], else: [{:item_count, length(items)}]
 
         per_token =
           for {token, needles} <- @ac23_items,
@@ -383,12 +386,12 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
       assert ac23_violations(doc, runbook) == []
     end
 
-    test "under the heading ONLY there are exactly four list items, each starting with its token",
+    test "under the heading ONLY there are exactly seven list items, each starting with its token",
          %{doc: doc} do
       body = heading_body(doc, @ac23_heading)
       items = list_items(body)
 
-      assert length(items) == 4
+      assert length(items) == 7
 
       assert Enum.map(items, fn "- " <> rest -> rest |> String.split(":") |> hd() end) ==
                Enum.map(@ac23_items, &elem(&1, 0))
@@ -404,13 +407,16 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
          %{runbook: runbook} do
       flat = String.replace(runbook, ~r/\s+/, " ")
 
-      assert flat =~ "No production tenant is set to `on` until the supervisor says so."
+      assert flat =~ "No production tenant is set to `on` until the supervisor says so"
+
+      assert flat =~
+               "No `on` flip in any customer tenant, pilot included, until GH #2869 and GH #2883 are implemented."
 
       assert flat =~
                "no test, seed, migration or script of that requirement flips a production tenant"
     end
 
-    test "seeded offenders fire: missing heading, missing / duplicated token, a fifth item, a missing needle, a token missing from the runbook",
+    test "seeded offenders fire: missing heading, missing / duplicated token, an eighth item, a missing or duplicated new token, a missing needle, a token missing from the runbook",
          %{doc: doc, runbook: runbook} do
       assert ac23_violations(String.replace(doc, "## " <> @ac23_heading, "## Other"), runbook) ==
                [:heading_missing]
@@ -425,10 +431,32 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
                runbook
              )
 
-      fifth =
-        String.replace(doc, "- LIMIT-ON-FLAG:", "- LIMIT-EXTRA: a fifth item\n- LIMIT-ON-FLAG:")
+      eighth =
+        String.replace(
+          doc,
+          "- LIMIT-EMERGENCY-RESHADOW:",
+          "- LIMIT-EXTRA: an eighth item\n- LIMIT-EMERGENCY-RESHADOW:"
+        )
 
-      assert {:item_count, 5} in ac23_violations(fifth, runbook)
+      assert {:item_count, 8} in ac23_violations(eighth, runbook)
+
+      for token <- [
+            "LIMIT-MULTI-NODE-SHADOW-FLUSH",
+            "LIMIT-IDP-SERVICE-ACCOUNT-ADMIN",
+            "LIMIT-EMERGENCY-RESHADOW"
+          ] do
+        renamed = String.replace(doc, "- " <> token <> ":", "- LIMIT-RENAMED:")
+        assert {:item_missing_or_duplicated, token} in ac23_violations(renamed, runbook)
+
+        duplicated_in_doc = doc <> "\nSee " <> token <> ".\n"
+        assert {:token_not_once_in_doc, token} in ac23_violations(duplicated_in_doc, runbook)
+
+        duplicated_in_runbook = runbook <> "\n" <> token <> "\n"
+        assert {:token_not_once_in_runbook, token} in ac23_violations(doc, duplicated_in_runbook)
+
+        missing_in_runbook = String.replace(runbook, token, "LIMIT-X")
+        assert {:token_not_once_in_runbook, token} in ac23_violations(doc, missing_in_runbook)
+      end
 
       # an item moved under a LATER heading of the same level is not "under that heading"
       moved = String.replace(doc, "- LIMIT-ON-FLAG:", "## Elsewhere\n\n- LIMIT-ON-FLAG:")

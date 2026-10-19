@@ -8,7 +8,7 @@
   "file": "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-20-elixir-dev-2f-b.json",
   "created_at": "2026-10-19T02:16:00Z",
   "started_at": "2026-10-19T02:16:00Z",
-  "completed_at": "2026-10-19T04:34:11Z",
+  "completed_at": "2026-10-19T04:44:51Z",
   "status": "COMPLETED",
   "priority": "HIGH",
   "context": {
@@ -124,6 +124,10 @@
       "F2_lock_A": "all writers of gate facts take lock A first: token mint (identity.ex mint/create multi step :tenant_admin_lock ~2799) and revoke (revoke_locked_token ~3003); user status writes (~481), profile writes only when status is in the attrs; create_user/create_group/get_or_create_group_by_name change no gate fact; add/remove_group_member, delete_group, sync (~1662); pending_admin_grants (296, 580); role_registry upsert/seed/rebind (366, 557, 907); tenant_admin_migration (325); Backfill (220); scoped_grants (183, 396); service_principal (89). Org consistency is guarded by lock S (scope tree writers), not A. Exception, not live: IdentityMigration (one-time public->tenant copy, source tables dropped by migration 20260819000004) takes no lock A. No writer needs a change.",
       "docs": "F1 service accounts, F3 multi-node flush condition, F4 window restart, F5 refusal audit best-effort, #2869 gate: added as an unnumbered 'Conditions and cautions' block to docs/roles.md and docs/runbooks/scope-enforcement-on.md (the eight numbered items and the four LIMIT items untouched)",
       "verified": "mix test test/letflow/docs: 31 passed"
+    },
+    "followup_ac23_seven": {
+      "changes": "three LIMIT items appended in docs/roles.md and the runbook (order after LIMIT-ON-FLAG); conditions block F1/F3/F4 folded into a pointer; GATE sentence for GH #2869 and #2883 added next to the supervisor sentence in the runbook",
+      "docs_test_expected_failures": "3 of 31 fail on the count only: AC 23 'exactly four list items' (7), a seeded 'fifth item' offender expecting item_count 5 (gets 8), and one test at roles_on_flip_docs_test.exs:383 (the real-file AC 23 check); to be extended to seven by TEST-DESIGNER"
     }
   }
 }

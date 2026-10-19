@@ -122,11 +122,7 @@ The scoped-approver blocker is evaluated at flip time only: a scoped approver cr
 
 **Conditions and cautions for any flip** (they are not numbered items above and not limitations):
 
-**Service accounts.** "Interactive" means the credential is `:oidc`. An unflagged IdP service account that holds TENANT_ADMIN passes the PUT and is counted by gate fact 4 (`zero_tenant_wide_admins`). Every service account must be flagged (the service-principal flag, `PUT /users/:id/service-principal`) before any pilot.
-
-**Several nodes.** The evidence flush before the flip (`ShadowWindow.flush_evidence/0`) flushes only the local node's in-memory counters. A failed flush only makes the gate stricter on that node, but with several nodes the other nodes' unflushed would-deny counters are invisible to the gate. CONDITION: a multi-node deployment needs a cross-node flush before an `on` flip.
-
-**Shadow window restart.** The shadow window starts at the latest flip entry (both `scope.enforcement_enabled` and `scope.enforcement_disabled`). An emergency `on` to `shadow` therefore forces a full new window before `on` can be set again. This is safe by design.
+**Service accounts, several nodes, window restart.** They are the last three items of the section "Known limitations of an enforced tenant" below, and they are conditions for any flip.
 
 **Refusal audit.** The `scope.enforcement_refused` entry is best-effort, written in its own transaction after the rollback. A refusal can therefore go unrecorded (the 409 is still returned and one constant log line `scope_enforcement_refusal_not_recorded` is written). A successful flip is audited in the same transaction and cannot go unrecorded.
 
@@ -140,6 +136,9 @@ These hold for a tenant stored as `on` (REQ-519). The operator runbook `docs/run
 - LIMIT-POST-ROLES-409: `POST /roles` answers 409 `scope_required` in an enforced tenant for a new platform-role binding (or a routing-role binding converted to a platform role). Remedy: create the binding before enabling enforcement, or set enforcement to off with a reason, create it, narrow its scope, and enable again.
 - LIMIT-IMPORT-UPSERT-404: a scoped caller's import in `upsert_by external_ref` mode is refused with the generic 404 (the generic not-found answer), even for rows inside its scope, because the upsert primitive (`Records.upsert_record_by_external_ref`) is not scope-aware. The refusal is in the entities router (`import_scope_check/6`, `lib/letflow/routers/entities.ex`, which does not match `create` for it and falls through to `:scope_refused`, mapped to the 404), not in the Records primitive, so tenant-wide callers are unchanged. Only `create` mode imports are offered to a scoped caller. A scope-aware upsert is not built.
 - LIMIT-ON-FLAG: `on` is settable only from `shadow`, by an interactive tenant-wide TENANT_ADMIN, after the gate passes (REQ-519 2f-b); `off` to `on` is refused as `shadow_required`. The three limitations above still hold once `on` is settable.
+- LIMIT-MULTI-NODE-SHADOW-FLUSH: the evidence flush before an `on` flip (`ShadowWindow.flush_evidence/0`) flushes only the local node's in-memory counters. With several nodes, the other nodes' unflushed would-deny counters are invisible to the gate (a failed flush only makes the gate stricter on that node). CONDITION: a multi-node deployment needs a cross-node flush of ShadowWindow counters before an `on` flip.
+- LIMIT-IDP-SERVICE-ACCOUNT-ADMIN: "interactive" means the credential is `:oidc`. An unflagged IdP service account holding TENANT_ADMIN passes the flip PUT and is counted by gate fact 4 (`zero_tenant_wide_admins`) as an interactive admin. Flag every such account as a service principal (`PUT /users/:id/service-principal`) before any pilot.
+- LIMIT-EMERGENCY-RESHADOW: the shadow window starts at the latest flip entry (both `scope.enforcement_enabled` and `scope.enforcement_disabled`), so an emergency `on` to `shadow` makes the shadow window restart: a full new window is needed before `on` can be set again. This is safe by design.
 
 ## Matrix
 
