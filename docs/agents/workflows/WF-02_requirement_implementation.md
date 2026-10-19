@@ -4,6 +4,8 @@
 `depends_on` satisfied, and (if produced by WF-01) validated.
 **Owner:** `ORCH`
 
+**Risk tier:** which chain a change runs (FULL, SHORT, HIGH) is decided by `docs/agents/ORCHESTRATOR.md` §13; this file does not restate it.
+
 ## Overview
 
 ```

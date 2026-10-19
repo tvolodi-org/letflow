@@ -105,6 +105,8 @@ section is the canonical definition and this file does not restate the test. The
 handoff-file machinery exists for multi-step work where independent validation actually
 matters; forcing it onto a one-line typo fix would be ceremony without benefit.
 
+**Risk tier:** which chain a change runs (FULL, SHORT, HIGH) is decided by `docs/agents/ORCHESTRATOR.md` §13; this file does not restate it.
+
 ---
 
 ## 5. Requirement status tracking

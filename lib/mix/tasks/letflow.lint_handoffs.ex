@@ -23,7 +23,8 @@ defmodule Mix.Tasks.Letflow.LintHandoffs do
     * **H1** -- top-level `status` is one of the six legal values.
     * **H2** -- `completed_at` never precedes `started_at`, when both are set.
     * **H3** -- top-level keys are a subset of `HANDOFF_PROTOCOL.md` §2's
-      schema (`@schema_top_keys` below), or individually grandfathered.
+      schema (`@schema_top_keys` below), or individually grandfathered; a
+      present `tier` must be `FULL` or `SHORT`.
     * **H4** -- when `not_agent_attested` is present, its member set is
       **exactly** the required six (or those six plus `backfill_note`), read
       live out of `HANDOFF_PROTOCOL.md` §4.1(b)'s own table -- not hardcoded
@@ -173,8 +174,11 @@ defmodule Mix.Tasks.Letflow.LintHandoffs do
   @schema_top_keys ~w(
     handoff_id run_id workflow_id step from_agent to_agent file created_at
     started_at completed_at status priority context task result rework_count
-    max_rework not_agent_attested gate_history
+    max_rework not_agent_attested gate_history tier
   )
+
+  # REQ-524: the optional top-level `tier` (HANDOFF_PROTOCOL.md section 2).
+  @legal_tiers ~w(FULL SHORT)
 
   # The commit that landed ISS-0202's rule (`result.artifacts_out` excludes
   # the handoff's own file) on `main`. Handoffs created before this commit
@@ -907,6 +911,7 @@ defmodule Mix.Tasks.Letflow.LintHandoffs do
           hard = hard ++ check_h1_status(path, data)
           hard = hard ++ check_h2_timestamps(path, data)
           hard = hard ++ check_h3_keys(path, data)
+          hard = hard ++ check_h3_tier(path, data)
           hard = hard ++ check_h4_not_agent_attested(path, data, not_agent_attested_schema)
 
           {grandfathered, new} = Enum.split_with(hard, & &1.grandfathered)
@@ -1104,6 +1109,19 @@ defmodule Mix.Tasks.Letflow.LintHandoffs do
       ]
     end
   end
+
+  defp check_h3_tier(path, %{"tier" => tier}) when tier not in @legal_tiers do
+    [
+      violation(
+        path,
+        "H3",
+        "top-level tier #{inspect(tier)} is not one of #{inspect(@legal_tiers)}",
+        grandfathered?("H3", path)
+      )
+    ]
+  end
+
+  defp check_h3_tier(_path, _data), do: []
 
   # H4 -------------------------------------------------------------------
 

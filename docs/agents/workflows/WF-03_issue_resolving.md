@@ -8,6 +8,8 @@ WF-03 vs. WF-02: if the expected behavior is already specified (in
 `docs/requirements.yaml` or an existing test), this is WF-03. If the feature itself
 isn't specified yet, that's a new requirement — WF-01 then WF-02.
 
+**Risk tier:** which chain a change runs (FULL, SHORT, HIGH) is decided by `docs/agents/ORCHESTRATOR.md` §13; this file does not restate it.
+
 ## Overview
 
 ```

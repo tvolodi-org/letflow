@@ -1,0 +1,24 @@
+# Risk-tier measurements (REQ-524). Rules: docs/agents/ORCHESTRATOR.md section 13.
+# Append-only. The review happens after 30 SHORT-chain runs (GH #2853).
+# Withdrawal: when the second defect with a non-null skipped_gate is recorded in `defects`,
+# the recording agent adds a top-level `withdrawn: <UTC timestamp>` line and every change is FULL again.
+# DIRECT changes write no handoff and are recorded in the PR body, not here.
+
+baseline:
+  # October 2026, approximate, from the GH #2422 audit.
+  median_steps_per_run: 8
+  open_to_merge_minutes: unmeasured   # not derivable from existing data
+
+# One row per SHORT-chain run.
+runs: []
+#  - run_id: <handoff run id>
+#    tier: SHORT
+#    steps: <int>
+#    open_to_merge_minutes: <int>
+
+# One row per main-red or filed defect traced to a SHORT-chain change; the tracing agent records it.
+defects: []
+#  - pr: <PR number>
+#    issue: <issue number>
+#    traced_by: <AGENT_ID>
+#    skipped_gate: <gate role that should have caught it, or null>
