@@ -500,13 +500,19 @@ defmodule Letflow.ScopeEnforcementTest do
     test "a clean writer-built tenant with an admin: zero gaps, no orphans, no findings" do
       fx = admin_tenant!("req497-i1-clean")
 
-      assert ScopeEnforcement.integrity(fx.schema_name) == %{
+      # REQ-519 2f-a: the report gained `on_gate` (forced edit); the stage-1 keys are unchanged.
+      {on_gate, stage_one} = ScopeEnforcement.integrity(fx.schema_name) |> Map.pop(:on_gate)
+
+      assert stage_one == %{
                bindings_without_row: 0,
                items: [],
                orphan_group_rows: 0,
                truncated: false,
                findings: []
              }
+
+      assert on_gate |> Map.keys() |> Enum.sort() ==
+               [:blocking, :counts, :evidence, :information]
     end
 
     test "a seeded gap is listed with role id, name and group id; an orphan group row is counted" do

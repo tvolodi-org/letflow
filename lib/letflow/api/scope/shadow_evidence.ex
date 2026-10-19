@@ -145,6 +145,50 @@ defmodule Letflow.Api.Scope.ShadowEvidence do
     end)
   end
 
+  @doc """
+  REQ-519 2f-a (design 4.6, F11): the PERSISTED counts per UTC day for tenant schema `prefix`
+  over `from..to` (inclusive), in ONE grouped query: `%{Date.t() => %{metric() => count}}`.
+  Only dates that have at least one row appear (a caller treats an absent date as the
+  all-zero map); every present date carries all seven metrics. Same prefix validation and
+  `ArgumentError` as `counts_between/3`; reads the table only.
+  """
+  @spec counts_by_day(prefix :: String.t(), from :: Date.t(), to :: Date.t()) ::
+          %{Date.t() => %{metric() => non_neg_integer()}}
+  def counts_by_day(prefix, %Date{} = from, %Date{} = to) when is_binary(prefix) do
+    unless valid_prefix?(prefix), do: raise(ArgumentError, "invalid tenant schema prefix")
+
+    rows =
+      Repo.all(
+        from(c in Counter,
+          where: c.day >= ^from and c.day <= ^to,
+          group_by: [c.day, c.metric],
+          select: {c.day, c.metric, sum(c.count)}
+        ),
+        prefix: prefix
+      )
+
+    zero = Map.new(@metrics, &{&1, 0})
+
+    Enum.reduce(rows, %{}, fn {day, text, total}, acc ->
+      case Map.fetch(@metric_by_text, text) do
+        {:ok, metric} ->
+          Map.update(
+            acc,
+            day,
+            Map.put(zero, metric, to_count(total)),
+            &Map.put(&1, metric, to_count(total))
+          )
+
+        :error ->
+          acc
+      end
+    end)
+  end
+
+  @doc "The closed six-value would-deny reason set (every metric except `:requests`)."
+  @spec reasons() :: [metric()]
+  def reasons, do: @reasons
+
   defp valid_prefix?(prefix),
     do: match?({:ok, _tenant_id}, TenantProvisioning.tenant_id_for_schema_name(prefix))
 

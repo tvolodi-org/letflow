@@ -139,7 +139,21 @@ defmodule Letflow.Routers.TenantScopeEnforcement do
     Response.send_problem(conn, problem)
   end
 
-  defp flip_response({:error, _server_fault}, conn), do: Response.internal_error(conn)
+  # SEC C-5: the 500 path logs ONE constant line, the reason tag and the exception module
+  # only (no ids, no values, no exception message).
+  defp flip_response({:error, server_fault}, conn) do
+    {reason, exception} = fault_tags(server_fault)
+    Logger.error("scope_enforcement_flip_failed reason=#{reason} exception=#{exception}")
+    Response.internal_error(conn)
+  end
+
+  defp fault_tags({:transaction_failed, %{__struct__: module}}),
+    do: {"transaction_failed", inspect(module)}
+
+  defp fault_tags({:audit_failed, _detail}), do: {"audit_failed", "none"}
+  defp fault_tags(:tenant_not_found), do: {"tenant_not_found", "none"}
+  defp fault_tags(:tenant_prefix_mismatch), do: {"tenant_prefix_mismatch", "none"}
+  defp fault_tags(_other), do: {"unknown", "none"}
 
   # ── GET /integrity ───────────────────────────────────────────────────────
 
@@ -154,8 +168,43 @@ defmodule Letflow.Routers.TenantScopeEnforcement do
         end),
       "orphan_group_rows" => report.orphan_group_rows,
       "truncated" => report.truncated,
-      "findings" => Enum.map(report.findings, &Atom.to_string/1)
+      "findings" => Enum.map(report.findings, &Atom.to_string/1),
+      "on_gate" => on_gate_body(report.on_gate)
     })
+  end
+
+  # What the `on` flip will check (a lock-free snapshot, REQ-519 AC 9). Counts, enums and
+  # booleans only: no ids, no names, no token data (INV-2).
+  defp on_gate_body(on_gate) do
+    evidence = on_gate.evidence
+    counts = on_gate.counts
+
+    %{
+      "blocking" => Enum.map(on_gate.blocking, &Atom.to_string/1),
+      "information" => %{
+        "scoped_task_workers_without_task_scope" =>
+          on_gate.information.scoped_task_workers_without_task_scope
+      },
+      "counts" => %{
+        "bindings_without_row" => counts.bindings_without_row,
+        "org_consistency" => Atom.to_string(counts.org_consistency),
+        "tokens_exceeding_owner" => counts.tokens_exceeding_owner,
+        "explicit_tenant_wide_admins" => counts.explicit_tenant_wide_admins,
+        "scoped_approvers" => counts.scoped_approvers
+      },
+      "evidence" => %{
+        "shadow_since" => evidence.shadow_since && DateTime.to_iso8601(evidence.shadow_since),
+        "window_from" => Date.to_iso8601(evidence.window_from),
+        "window_to" => Date.to_iso8601(evidence.window_to),
+        "requests" => evidence.requests,
+        "days_without_requests" => evidence.days_without_requests,
+        "would_deny" =>
+          Map.new(evidence.would_deny, fn {reason, count} -> {Atom.to_string(reason), count} end),
+        "criteria" =>
+          Map.new(evidence.criteria, fn {name, met?} -> {Atom.to_string(name), met?} end),
+        "evidence_scope" => evidence.evidence_scope
+      }
+    }
   end
 
   # ── GET /token-preconditions ─────────────────────────────────────────────

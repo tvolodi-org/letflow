@@ -168,14 +168,7 @@ defmodule Letflow.Identity.SyncScopeGuard do
   defp action_for(:no_scoped_rows), do: "binding.pending_scope"
 
   defp already_recorded?(resource_id, action, prefix) do
-    Repo.exists?(
-      from(e in Audit.Entry,
-        where:
-          e.resource_type == @resource_type and e.resource_id == ^resource_id and
-            e.action == ^action
-      ),
-      prefix: prefix
-    )
+    Audit.latest_matching(prefix, @resource_type, resource_id, [action]) != nil
   end
 
   defp member?(group_id, user_id, prefix) do

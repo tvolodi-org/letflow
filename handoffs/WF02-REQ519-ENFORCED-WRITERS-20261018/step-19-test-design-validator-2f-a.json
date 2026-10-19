@@ -1,0 +1,187 @@
+{
+  "handoff_id": "d2535519-0519-4c02-9e11-000000000019",
+  "run_id": "WF02-REQ519-ENFORCED-WRITERS-20261018",
+  "workflow_id": "WF-02",
+  "step": "19",
+  "from_agent": "TEST-DESIGN-VALIDATOR",
+  "to_agent": "ORCH",
+  "file": "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-19-test-design-validator-2f-a.json",
+  "created_at": "2026-10-19T01:04:30Z",
+  "started_at": "2026-10-19T01:04:30Z",
+  "completed_at": "2026-10-19T01:34:00Z",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "context": {
+    "stage": "S7",
+    "requirement_ids": [
+      "REQ-519"
+    ],
+    "requirement_text": {},
+    "source_text": {
+      "gate": "TEST-DESIGN-VALIDATOR gate for REQ-519 slice 2f-a (GH #2535), uncommitted tree on feature/WF02-REQ519-2FA-GATE-20261019. Mix ran per file set, one mix at a time, under the shared mixlock directory (taken with mkdir, released by the creating script; other sessions' locks (letflow-3) were waited for, never removed). No full suite, no letflow.check.test. Mutants compiled in memory only."
+    },
+    "related_handoff_ids": [
+      "d2535519-0519-4c02-9e11-000000000015",
+      "d2535519-0519-4c02-9e11-000000000016",
+      "d2535519-0519-4c02-9e11-000000000017",
+      "d2535519-0519-4c02-9e11-000000000018"
+    ],
+    "artifacts_in": [
+      "test/specs/REQ-519-2f-a.md",
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-18-test-designer-2f-a.json"
+    ],
+    "owned_modules": [],
+    "worktree": null,
+    "branch_name": "feature/WF02-REQ519-2FA-GATE-20261019"
+  },
+  "task": {
+    "description": "Hard gate on TEST-DESIGNER 2f-a tests: REQ-519 ACs 7 (2f-a part), 8-15 as assigned to 2f-a, every SEC step-16 merge condition, REVIEWER step-17 notes; the deferred (dormant) items; isolation, formatting, log lesson, flake and CI-environment risk; own mutants."
+  },
+  "result": {
+    "status": "PASS_WITH_FINDINGS",
+    "verdict": "PASS_WITH_FINDINGS",
+    "summary": "PASS_WITH_FINDINGS. No coverage gap in what 2f-a can show. EXECUTED (MIX_ENV=test, one mix at a time under the mixlock): after mix compile --force (504 files, exit 0, no warning) eight in-memory mutants V1..V8 (7 killed, 1 survives by construction, see below); after my two test-support edits the seven new files together, seed 4242, LOG_LEVEL=error: Result: 133 passed in 127.8 s, 0 compiler warnings; the three neighbours (sync_scope_guard_test, scope_enforcement_test, routers/tenant_scope_enforcement_test): Result: 89 passed in 84.7 s; mix format --check-formatted (the real mix task, calibrated: it rejects a deliberately unformatted file) exit 0 on the fixture, all seven new test files and the two edited neighbours, before and after my edit. Of the items the designer lists as not testable while `on` is dormant, NONE can be tested durably without touching lib/: every one lives in a PRIVATE function on the shadow -> on path of flip/4 (do_flip, on_checks!, record_refusal, flush_before?, clock/1 only used for target on) that check_target/1 shields; the only seams would be recompiling ScopeEnforcement with a widened @modes inside the test VM (global module replacement, unsafe for later tests) or a lib change. The spec carries every one of them as an explicit 2f-b obligation (table 'What 2f-a cannot show'), nothing is silently dropped; I add one machine-readable list below (obligations_for_2f_b) for the next step to copy.",
+    "local_issue_id": null,
+    "artifacts_out": [
+      "handoffs/WF02-REQ519-ENFORCED-WRITERS-20261018/step-19-test-design-validator-2f-a.json"
+    ],
+    "implementation_written": false,
+    "classification": "n/a (WF-02)",
+    "changes_made": [
+      {
+        "file": "test/support/on_gate_fixture.ex",
+        "change": "with_plain_schema/2 and with_renamed_table!/3 now ALSO register an idempotent on_exit restore (restore_schema/2 checks pg_namespace first; restore_table/3 uses ALTER TABLE IF EXISTS); added import ExUnit.Callbacks, only: [on_exit: 1]. The existing `after` restores stay.",
+        "why": "ExUnit kills the test process on a timeout (Process.exit :kill), which skips an `after`. For a renamed TABLE the leak was harmless (the tenant teardown DROPs the schema CASCADE), but a killed with_plain_schema/2 would leave a schema named req519_plain_N behind that the teardown (which drops by the ORIGINAL name) never removes. on_exit runs after a kill and, being registered later than the tenant fixture's own on_exit, runs BEFORE its teardown (LIFO).",
+        "verified": "mix format --check-formatted exit 0; the seven files re-ran: 133 passed, 0 warnings, LOG_LEVEL=error"
+      },
+      {
+        "file": "test/letflow/scope_enforcement/on_gate_test.exs",
+        "change": "renamed the test 'each table a fact reads, renamed inside a rolled-back transaction, makes evaluate/3 RAISE' to '... renamed with committed DDL, ...'",
+        "why": "the title described the first form of the test that the designer had to abandon (MU-28 survived it); the body and the spec say committed DDL. A stale title misleads the next reader into re-introducing the weak form.",
+        "verified": "same 133-pass run"
+      }
+    ],
+    "findings": [
+      {
+        "id": "F-1",
+        "severity": "MINOR",
+        "blocking": false,
+        "title": "Restoration of committed DDL was not robust to a killed test process (fixed by this validator)",
+        "detail": "See changes_made. Test failures (assertion or raise) were already safe: the `after` ran. Only a kill (timeout) was exposed, and only for with_plain_schema/2 was the leak real (an orphan schema in the partition database; no other test enumerates it, because its name is not tenant_%).",
+        "required_action": "None."
+      },
+      {
+        "id": "F-2",
+        "severity": "INFO",
+        "blocking": false,
+        "title": "V7 survives by construction: attrs[:now] honoured when not a DateTime",
+        "detail": "clock/1 runs for every target but its value is consumed only on the on path, which parse_mode/check_target shield. Mutant V7 (`_other -> DateTime.utc_now()` replaced by `other -> other`) passes dormant_on_test, as the designer predicted. The guard is pinned only through its observable halves (junk never crashes a shadow flip, the router builds a literal 3-key map, the body cannot carry a clock). The clause itself is a 2f-b obligation.",
+        "required_action": "2f-b: with `on` settable, assert flip/4 with a non-DateTime attrs[:now] uses the server clock (junk 'now' strings must not widen or shorten the window); kill V7."
+      },
+      {
+        "id": "F-3",
+        "severity": "INFO",
+        "blocking": false,
+        "title": "The flip-level dormant path has NO test at all until 2f-b",
+        "detail": "do_flip/on_checks!/record_refusal/flush_before? for target on, the S lock before the six facts, the gate raise inside the flip being a 500, the refusal audit after the rollback and shadow_required from off are all unexercised (they are unreachable from any route; SEC accepted that). The module-level pieces they call (OnGate, RefusedAudit.record/6, ShadowWindow.flush_evidence/0, ScopeEnforcement.integrity/1) are all covered and mutation-measured. A defect in the glue (e.g. wrong previous-mode argument, missing flush) is invisible until 2f-b adds tests; 2f-b must NOT merge without them.",
+        "required_action": "2f-b obligations, see obligations_for_2f_b."
+      },
+      {
+        "id": "F-4",
+        "severity": "INFO",
+        "blocking": false,
+        "title": "Held-lock tests use the shared 700 ms per-phase deadline",
+        "detail": "T-G10c uses Letflow.LockOrderHelpers.wait_for_blocked/2 (as T-S15 in 2e-b). A badly overloaded host can only produce a false failure, never a false pass. The lock holder is released in on_exit and its own receive is bounded at 15 s.",
+        "required_action": "None."
+      },
+      {
+        "id": "F-5",
+        "severity": "INFO",
+        "blocking": false,
+        "title": "Wall-clock use is flake-safe at UTC midnight",
+        "detail": "Every day-count test derives its window from fx.now = t0 + 7 days (t0 is the real flip entry's timestamp), so the window moves with t0, not with the clock at assertion time. The three tests that use the real clock do not depend on the date: satisfy!/eval share one DateTime (T-E1d); T-E16 passes the date explicitly to record/counts_by_day; the integrity router test redoes its seed when Date.utc_today() changed (bounded, 3 tries). Whole-second duration boundaries use t0 +/- n s so the fractional part cancels.",
+        "required_action": "None."
+      }
+    ],
+    "ac_coverage_check": {
+      "AC 7 (2f-a part)": "T-A5 (refused entry through Audit.list_entries with tenant filters, chain verifies) plus the stage-1 entry shapes after the flip_entry dispatch (dormant_on_test).",
+      "AC 8": "NOT 2f-a (on settable, interactive-only flip, source scan of callers): 2f-b. The inverse is covered: parse_mode/modes unchanged, flip(:on) invalid_mode, PUT mode=on 422 also with extra body keys, only the router calls flip/4, the router attrs map is literal three keys.",
+      "AC 9": "T-G0..T-G6 each fact alone with its stable code, T-G4 a..h explicit interactive admin count (zero then bound, zero-row binding, flagged principal, live token owner, human + principal, inactive, scoped-only group + user row, distinct), T-G8 all six in read order with no id, T-G9 raise propagation, T-G10 lock-freedom and facts read after A and S in the live shadow flip, integrity on_gate at function and HTTP level (exact key sets). Flip-level half (held lock inside flip on the on path): 2f-b obligation.",
+      "AC 10": "T-P1..T-P7 plus the literal AC 10 edge cases (user-row only, two routing groups once, routed vs unrouted, inactive excluded, routing-kind binding is not a holder, other-role rows, other tenant, read-only); gate fact 5 and the informational count.",
+      "AC 11": "T-E1..T-E7, T-E10, T-E11, T-E13 (one grouped statement), thresholds T-E8/T-E9/T-E9b (module-attribute defaults, invalid -> DEFAULT never the floor, config scan incl. runtime/prod).",
+      "AC 12": "evidence_scope constant in report / integrity body / audit state / refusal entry; the sentence pinned at its source. T-E15 (docs/roles.md) is 2f-b, carried in the spec.",
+      "AC 13": "NOT 2f-a (audit of success, re-keyed check_reason, enable_checks! gating): 2f-b.",
+      "AC 14 (writer)": "T-F1..T-F7 one entry per code, closed key set, no id, no flag change; T-F8 own transaction and nothing inside an open transaction (A-5); T-F9/T-F10 best effort with ONE constant line. Flip-level half: 2f-b.",
+      "AC 15 (refused)": "T-A5 list_entries returns the refused entry; the enabled/disabled-with-on half is 2f-b.",
+      "SEC step-16 merge list": "PUT mode=on 422: dormant_on. attrs[:now] ignored unless DateTime: observable halves only (F-2). RefusedAudit writes nothing in a transaction: T-F8b (V6 killed). Thresholds only in module attributes: T-E9b scans config/*.exs incl. runtime/prod. `on` unsettable: dormant_on. Integrity exact key sets: router test. OnGate every failing fact, stable order, no ids: T-G8 (V1, V2 killed). T0 reset by a later transition: T-E6 and G0c (V4 killed). counts_by_day 'requests on every day': T-E3. Scoped approvers literal AC 10 active users: T-P1..T-P7. C-4 explicit admins only: T-G4 (V5 killed). Audit.latest_matching/4: nine tests. SyncScopeGuard dedup swap: existing 40 tests green and V8 killed. C-5 one constant log line: dormant_on C-5 block.",
+      "REVIEWER step-17": "module-attribute defaults pinned (T-E9), stored threshold names (T-E9b), integrity/1 ArgumentError 'invalid tenant schema prefix' pinned, single owner of the flip vocabulary pinned."
+    },
+    "obligations_for_2f_b": [
+      "T-X5 / T-F via the route: flip(:on) from shadow with each failing fact returns {:on_precondition_failed,...}, writes exactly one scope.enforcement_refused entry AFTER the rollback (kills MU-23/MU-38 flip half), off -> on is :shadow_required and audited with failed [shadow_required].",
+      "T-G9 flip half / T-H9 / MU-39: a raise inside OnGate.evaluate/3 inside the flip transaction is {:transaction_failed, _} (HTTP 500, ONE scope_enforcement_flip_failed line), no flag change, NO refusal entry.",
+      "T-E16 flip half / MU-42: flip/4 calls ShadowWindow.flush_evidence/0 before the transaction (a request recorded just before the flip counts for date(now)); mutant: drop the call.",
+      "T-G10 flip half / MU-22: on_checks!/3 takes the scope-tree lock S before the six facts (held-lock test on the on path); mutant: swap the order.",
+      "SEC S-5 / V7: attrs[:now] is honoured only as a %DateTime{} (junk -> server clock); with a DateTime the window follows it.",
+      "T-E15 / AC 12: docs/roles.md contains ShadowWindow.scope_sentence/0 verbatim (source scan).",
+      "AC 8, AC 13, AC 15 (enabled/disabled with mode on), AC 16, AC 17, AC 19, AC 20, AC 22 per the spec; re-run the SEC pass (step-16 F-6) and the mutants MU-22, MU-23, MU-39, MU-42 flip half on the widened path."
+    ],
+    "fixture_and_flake_review": {
+      "isolation": "All seven new files are async: false and build their own committed tenants through OnGateFixture (admin_tenant!/shadow_tenant! over TenantFixture.provisioned_tenant!, on_exit teardown that DROPs the schema CASCADE). No test depends on another: each builds its own tenant; no shared hardcoded state beyond slug prefixes unique per test. Fault triggers are dropped in `after`. Committed DDL (table/schema renames) is now restored in `after` AND `on_exit` (F-1). VM-global application env is restored by with_env/3 in an `after`. No hardcoded secret or connection string.",
+      "formatting": "mix format --check-formatted (the real task, not Code.format_string!) exit 0 on the fixture, the seven new test files and both edited neighbours; the check was proven live on a deliberately unformatted file.",
+      "log_lesson": "Refutations on ids are made only on the module's own constant lines (F.lines_with(log, marker)) or on payload dumps, never over a whole capture that contains Ecto debug QUERY lines. The 'gate logs nothing' test filters on the substring scope_enforcement and separately refutes lf_tok_ only.",
+      "flake": "see F-5 and F-4. No Process.sleep in the new files; queue order via pg_locks helper; no per-entity INSERT list compared.",
+      "ci_environment": "mix compile --force before the baseline (no stale _build dependence); LOG_LEVEL=error run: 133 passed (the log assertions use Logger.error lines, so no level dependence); config/test.exs sets only the pre-existing :scope_shadow_flush_interval_ms (1 h) which T-E16 relies on and asserts first; runtime 127.8 s for the seven files on this host (tenant provisioning dominates); ShadowEvidence ETS counters are VM-global but the tests use their own schema names and an explicit flush, and flush failures for dropped schemas are rescued."
+    },
+    "mutants": {
+      "method": "mutated source of ONE lib file compiled into the test VM with Code.compile_string (anchor required to occur exactly once, CRLF normalised) via mix do run --no-start -r mut.exs + test <files>, MIX_ENV=test, after mix compile --force; nothing written to lib/ or priv/. Counts are failed tests of the file(s) named.",
+      "measured_by_validator": [
+        {
+          "id": "V1",
+          "edit": "gate fact order changed: tokens_exceed_owner and zero_tenant_wide_admins swapped in the failed list",
+          "failing": "2 of 35 (on_gate_test: T-G8 all six in order; T-G4 (ii) token-owner case, which names both codes in read order)"
+        },
+        {
+          "id": "V2",
+          "edit": "short-circuit: fact 6 (shadow_evidence_insufficient) suppressed whenever fact 1 (bindings_without_row) fails",
+          "failing": "2 of 35 (T-G8 all six; integrity on_gate every-fact-seeded test)"
+        },
+        {
+          "id": "V3",
+          "edit": "requests criterion `>` instead of `>=` (off by one at exactly min_requests)",
+          "failing": "3 of 33 (T-E2 99/100, T-E3, T-E9 lowered min_requests)"
+        },
+        {
+          "id": "V4",
+          "edit": "T0 read from the latest ENABLED entry only (a later disabled/off transition does not reset or void it)",
+          "failing": "1 of 33 (T-E6 shadow -> off -> shadow restart); on_gate G0c (off tenant: shadow_since nil) is a second independent killer by inspection, not measured under this mutant"
+        },
+        {
+          "id": "V5",
+          "edit": "C-4: fact 4 counts live TENANT_ADMIN token owners (member-or-token-owner and not flagged)",
+          "failing": "1 of 35 (T-G4 (ii) only a live token owner)"
+        },
+        {
+          "id": "V6",
+          "edit": "RefusedAudit writes inside an open transaction (in_transaction? guard replaced by false)",
+          "failing": "1 of 13 (T-F8 inside an open transaction: entry visible and no constant line)"
+        },
+        {
+          "id": "V7",
+          "edit": "clock/1 honours attrs[:now] when it is not a DateTime (`other -> other`)",
+          "failing": "0 of 16 (SURVIVES, unkillable while `on` is dormant: the value is only consumed on the shielded on path; F-2, 2f-b obligation)"
+        },
+        {
+          "id": "V8",
+          "edit": "SyncScopeGuard dedup swap changed: Audit.latest_matching called with the other sync action names as well (dedup no longer per action)",
+          "failing": "1 of 49 (existing sync_scope_guard_test T-S8/T-S9 per-action dedup); latest_matching_test unaffected (it tests the function, not the call site)"
+        }
+      ],
+      "survivors": [
+        "V7 (F-2): not killable in 2f-a."
+      ],
+      "not_applied": "the ordering variant of the dedup swap (asc id) is unobservable at the call site (exists-only semantics) and is already killed at the function by the designer's MU-36/36b in latest_matching_test; I did not duplicate them. I did not re-measure the designer's other 35 mutants; the 8 above were chosen to cover the supervisor's list and were killed or classified independently of the designer's counts."
+    },
+    "reverted_and_verified": "No mutant touched disk. After the last run: git status --porcelain lib/ priv/ lists exactly the 6 modified and 2 untracked entries it listed at the start (lib/letflow/api/scope/shadow_evidence.ex, audit.ex, identity.ex, identity/sync_scope_guard.ex, routers/tenant_scope_enforcement.ex, scope_enforcement.ex; identity/scoped_approvers.ex, scope_enforcement/), no change by me under lib/ or priv/; the only files I edited are the two test files in changes_made. The seven new files re-ran green after my edits (133 passed, 0 warnings) and the three neighbours re-ran green (89 passed). My scratch scripts (mut.exs, runall.sh, logs) live in the session scratchpad. The mixlock directory was released after every run; the lock of the letflow-3 session was waited for and never removed.",
+    "run_command_for_test_runner": "for each of: test/letflow/scope_enforcement/on_gate_test.exs shadow_window_test.exs refused_audit_test.exs dormant_on_test.exs, test/letflow/identity/scoped_approvers_test.exs, test/letflow/audit/latest_matching_test.exs, test/letflow/routers/tenant_scope_enforcement_integrity_test.exs, then test/letflow/identity/sync_scope_guard_test.exs test/letflow/scope_enforcement_test.exs test/letflow/routers/tenant_scope_enforcement_test.exs: MIX_ENV=test mix test <file>; hosted CI is the suite."
+  }
+}

@@ -1356,6 +1356,25 @@ defmodule Letflow.Identity do
     |> Repo.one(prefix: prefix)
   end
 
+  @doc """
+  REQ-519 2f-a (design section 4.4, SEC C-4): fact 4 of the `on` gate. The number of ACTIVE,
+  INTERACTIVE explicit tenant-wide administrators: distinct active users who are members of
+  the group the `TENANT_ADMIN` `:platform_role` binding points to AND have a
+  `tenant_wide = true` TENANT_ADMIN row (as a user principal or as the bound group), whose
+  `admin_flagged_service_principal` is false. It does NOT count live TENANT_ADMIN token
+  owners and does NOT count a flagged service principal (the flip route is interactive-only,
+  so a tenant with only those could not be switched off through the API).
+  `count_explicit_tenant_wide_admins/1` is unchanged. Read-only, no lock, same transaction
+  visibility.
+  """
+  @spec count_interactive_explicit_tenant_wide_admins(prefix :: String.t()) :: non_neg_integer()
+  def count_interactive_explicit_tenant_wide_admins(prefix) when is_binary(prefix) do
+    prefix
+    |> tenant_wide_admins_query(DateTime.utc_now(), :interactive_explicit)
+    |> select([u], count(u.id, :distinct))
+    |> Repo.one(prefix: prefix)
+  end
+
   @doc "REQ-517: true when a `users` row with `user_id` exists in `prefix`. Plain read."
   @spec user_exists?(user_id :: Ecto.UUID.t(), prefix :: String.t()) :: boolean()
   def user_exists?(user_id, prefix) when is_binary(prefix),
@@ -1403,7 +1422,7 @@ defmodule Letflow.Identity do
   @spec tenant_wide_admins_query(
           prefix :: String.t(),
           now :: DateTime.t(),
-          mode :: :counted | :explicit
+          mode :: :counted | :explicit | :interactive_explicit
         ) :: Ecto.Query.t()
   defp tenant_wide_admins_query(prefix, now, mode \\ :counted) do
     now = DateTime.truncate(now, :second)
@@ -1428,15 +1447,27 @@ defmodule Letflow.Identity do
             (is_nil(t.expires_at) or t.expires_at > ^now)
       )
 
-    from(u in User,
-      as: :user,
-      where: ^active_user_condition(:user),
-      where: exists(member_of_admin_group) or exists(owns_live_admin_token)
-    )
+    base = from(u in User, as: :user, where: ^active_user_condition(:user))
+
+    case mode do
+      # REQ-519 C-4: the group half only, never a token owner, never a flagged principal.
+      :interactive_explicit ->
+        where(
+          base,
+          [user: u],
+          exists(member_of_admin_group) and not u.admin_flagged_service_principal
+        )
+
+      _counted_or_explicit ->
+        where(base, [], exists(member_of_admin_group) or exists(owns_live_admin_token))
+    end
   end
 
   defp admin_group_holder_filter(query, prefix, :counted),
     do: exclude_scoped_holders(query, prefix)
+
+  defp admin_group_holder_filter(query, _prefix, :interactive_explicit),
+    do: where(query, [], exists(admin_member_ta_rows(true)))
 
   # REQ-517 F1: an explicit holder has a tenant-wide TENANT_ADMIN row (user or bound group).
   defp admin_group_holder_filter(query, _prefix, :explicit),
