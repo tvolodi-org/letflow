@@ -37417,7 +37417,7 @@ requirements:
   - id: REQ-506
     title: "WMS foundation (slice 0, 1c): module org behaviour, read API (lookup, active?, member?), tenant isolation and limits runbook"
     owner: ELIXIR-DEV
-    status: pending
+    status: done
     stage: S7
     gh: 2662
     # Source: GH #2662 (REQ-506, labels state:blocked, prio:2, type:requirement; blocked on REQ-473). Transcribed from the validated issue body by REQ-ANALYST 2026-10-19; the issue body is the content authority.
