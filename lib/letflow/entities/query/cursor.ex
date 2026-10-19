@@ -347,8 +347,13 @@ defmodule Letflow.Entities.Query.Cursor do
   # `Compiler.build_filter_dynamic/2` already uses for JSON-field
   # comparisons, reimplemented here rather than reused directly since those
   # functions are private to `Compiler` (which this design does not touch).
-  defp decode_component(:integer, v) when is_integer(v), do: {:ok, v}
-  defp decode_component(:integer, v) when is_float(v), do: {:ok, trunc(v)}
+  #
+  # GH #2844: an integer (or a float's truncation) outside int64 is a cursor error -- Postgrex
+  # raises `DBConnection.EncodeError` on it. A string component must be valid UTF-8 without NUL
+  # (`Pagination.valid_seek_string?/1`), and a binary/boolean is accepted only for the field
+  # types that compare against one (no string for an integer, no boolean for a string/decimal).
+  defp decode_component(:integer, v) when is_integer(v), do: int64_component(v)
+  defp decode_component(:integer, v) when is_float(v), do: int64_component(trunc(v))
 
   # GH #2654: strict parse for EVERY decimal field. `Decimal.new/1` raised `Decimal.Error` on a
   # tampered component (a crash instead of the cursor error); a valid component (a string from a
@@ -383,8 +388,16 @@ defmodule Letflow.Entities.Query.Cursor do
     end
   end
 
-  defp decode_component(_type, v) when is_binary(v) or is_boolean(v), do: {:ok, v}
+  defp decode_component(:boolean, v) when is_boolean(v), do: {:ok, v}
+
+  defp decode_component(type, v)
+       when type in [:string, :enum, :json, :localized_text] and is_binary(v) do
+    if Pagination.valid_seek_string?(v), do: {:ok, v}, else: :error
+  end
+
   defp decode_component(_type, _v), do: :error
+
+  defp int64_component(v), do: if(Pagination.int64?(v), do: {:ok, v}, else: :error)
 
   # ── Step 5 -- resume-filter composition (design §2.3) ──────────────────────
 
