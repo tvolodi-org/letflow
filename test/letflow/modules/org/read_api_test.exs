@@ -1,3 +1,5 @@
+Code.require_file("org_fixture.exs", __DIR__)
+
 defmodule Letflow.Modules.Org.ReadApiTest do
   @moduledoc """
   GH #2662 / REQ-506 AC4, AC5 and the hostile-input requirement (spec `test/specs/GH-2662.md`,

@@ -1,3 +1,5 @@
+Code.require_file("org_fixture.exs", __DIR__)
+
 defmodule Letflow.Modules.Org.BehaviourTest do
   @moduledoc """
   GH #2662 / REQ-506 AC1..AC3 (spec `test/specs/GH-2662.md`, tests U-*, D-*, C-*): database
