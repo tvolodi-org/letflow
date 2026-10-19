@@ -645,6 +645,28 @@ defmodule Letflow.ScopeEnforcementOutOfBandTest do
     end
   end
 
+  describe "T-BG-14d the tenants row is locked FOR UPDATE and the mode is read from the locked row" do
+    test "a writer that holds the row and commits `off` first is seen: {:not_enforced, :off}, no write, no entry" do
+      fx = BG.on_tenant!("t14d")
+      before = BG.entry_count(fx)
+
+      # the holder stores `off` on the row and keeps the row lock UNCOMMITTED
+      {holder, _pid} = BG.hold_tenant_row_setting!(fx.tenant_id, "off")
+
+      {task, pid} = Locks.start_worker(fn -> go(fx, :shadow) end)
+      Locks.wait_for_blocked([pid], 1)
+
+      # releasing commits `off`; the command must re-read the LOCKED row, not act on the `on` it
+      # could see before the holder committed (a read without FOR UPDATE would overwrite `off`)
+      BG.release!(holder)
+
+      assert {{:error, {:not_enforced, :off}}, _done} = Task.await(task, Locks.await_ms())
+      assert BG.mode(fx) == "off"
+      assert BG.entry_count(fx) == before
+      assert F.entries(fx, @disabled) == []
+    end
+  end
+
   describe "T-BG-14c every lock wait is bounded and a lock expiry is :lock_conflict" do
     test "(i) a held lock A: :lock_conflict, no write, no entry" do
       fx = BG.on_tenant!("t14c1")

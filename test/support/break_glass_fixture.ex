@@ -105,7 +105,7 @@ defmodule Letflow.Support.BreakGlassFixture do
   @doc """
   A content snapshot of everything the break-glass must NOT change: per identity table of the
   tenant schema an md5 over the row texts and the row count; the `tenants` row without
-  `scope_enforcement` and `updated_at`; the registration row; the number of tenants.
+  `scope_enforcement` and `updated_at`; the registration row.
   """
   @spec snapshot(map()) :: map()
   def snapshot(fx) do
@@ -131,9 +131,8 @@ defmodule Letflow.Support.BreakGlassFixture do
     %{rows: registration} =
       Repo.query!("SELECT schema_name FROM tenant_schemas WHERE tenant_id = $1", [id])
 
-    %{rows: [[tenants]]} = Repo.query!("SELECT count(*) FROM tenants")
-
-    %{tables: tables, tenant_row: tenant_row, registration: registration, tenants: tenants}
+    # no GLOBAL row count (a concurrent session may add or drop other tenants)
+    %{tables: tables, tenant_row: tenant_row, registration: registration}
   end
 
   @doc "The row count of one identity table of the tenant schema."
@@ -156,6 +155,20 @@ defmodule Letflow.Support.BreakGlassFixture do
 
     hold(fn ->
       %{num_rows: 1} = Repo.query!("SELECT 1 FROM tenants WHERE id = $1 FOR UPDATE", [id])
+    end)
+  end
+
+  @doc """
+  Like `hold_tenant_row!/1`, but the holder also stores `mode` (`"off"` or `"shadow"`) on the
+  row WITHOUT committing: the new mode becomes visible only when `release!/1` commits it.
+  """
+  @spec hold_tenant_row_setting!(Ecto.UUID.t(), String.t()) :: {Task.t(), pos_integer()}
+  def hold_tenant_row_setting!(tenant_id, mode) when mode in ["off", "shadow"] do
+    {:ok, id} = Ecto.UUID.dump(tenant_id)
+
+    hold(fn ->
+      %{num_rows: 1} =
+        Repo.query!("UPDATE tenants SET scope_enforcement = $2 WHERE id = $1", [id, mode])
     end)
   end
 
