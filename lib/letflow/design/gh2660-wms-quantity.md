@@ -567,7 +567,7 @@ Explicitly OUT: percent tolerance; chains of conversions; non-multiplicative con
 | OQ-Q14 | Item-specific factors only for `pack` units; kg -> m by client factor refused | yes in release 1 |
 | OQ-Q15 | `convert_command` permission | REQUIRED by rule 12 whenever any unit has dimension `pack` (withdrawn: "optional") |
 | OQ-Q16 | Per-unit `tolerance` in the starter table | none; the stock module adds entries only with customer confirmation |
-| OQ-Q17 | **Confirm with the supervisor:** tolerance and rounding are PER BASE UNIT (registration) in L1-L4, not per ITEM as 0057 D4 and the issue say ("a rounding rule per item", "a tolerance rule on the item"); per-item values arrive with the master at L7, which gates the pilot | yes, per unit in L1-L4 |
+| OQ-Q17 | **CONFIRMED (supervisor, 2026-10-19): YES; recorded as a KNOWN LIMIT of L1-L4:** tolerance and rounding are PER BASE UNIT (registration) in L1-L4, not per ITEM as 0057 D4 and the issue say ("a rounding rule per item", "a tolerance rule on the item"); per-item values arrive with the master at L7, which gates the pilot | yes, per unit in L1-L4 |
 | OQ-Q18 | Does the `reference_quantity` come from the document line server-side at L7 (making the tolerance a real control) | yes, required for L7; until then self-attested (4.6) |
 
 ### 12.2 Customer-dependent input, plain language (for the user)
