@@ -212,3 +212,19 @@ history:
       docs/guides/adding-an-application-module.md was already updated by the implementing
       agent; no other documented behaviour changed. NOT run by this agent: mix
       letflow.check.test and the full suite (hosted CI covers them).
+
+  - req: REQ-506
+    event: done
+    agent: DOC-UPDATER
+    at: "2026-10-19T18:36:40Z"
+    note: >
+      GH #2662. Org read API (lookup/2, active?/2, member?/3) in lib/letflow/modules/org/org.ex
+      and the new runbook docs/runbooks/wms-foundation.md, delivered on branch
+      feat/GH-2662-req506 (HEAD 94f0f5fb); the PR is not yet merged at the time of this entry.
+      SECURITY-REVIEWER PASS_WITH_FINDINGS (final pass, hostile-input proof on a real tenant),
+      REVIEWER PASS_WITH_FINDINGS (findings fixed), TEST-DESIGN-VALIDATOR PASS (18 mutants
+      killed on 94f0f5fb), RELEASE-VALIDATOR PASS (all acceptance criteria evidenced). Docs: the
+      runbook is the doc created by this requirement; no stale statement that the read API is
+      not built was found in docs/guides/adding-an-application-module.md, docs/WMS or decision
+      0050, so none was edited. NOT run by this agent: mix letflow.check.test and the full suite
+      (hosted CI covers them).
