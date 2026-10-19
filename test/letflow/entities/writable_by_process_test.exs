@@ -334,11 +334,11 @@ defmodule Letflow.Entities.WritableByProcessTest do
     test "a managed type with the flag is refused with the managed message, no row" do
       %{schema: schema} = tenant_ctx("gh2587-a4-managed", ["PROCESS_DESIGNER"])
       owner = ManagedTypes.module_owner(FixtureManaged)
-      assert MapSet.member?(owner.manages, "catalog_item")
+      assert MapSet.member?(owner.manages, "fxm_item")
 
       assert {:error, {:validation, [%Violation{} = violation]}} =
                Definitions.create_definition(
-                 attrs("catalog_item", %{writable_by_process: true}),
+                 attrs("fxm_item", %{writable_by_process: true}),
                  schema,
                  owner
                )
@@ -346,7 +346,7 @@ defmodule Letflow.Entities.WritableByProcessTest do
       assert violation.rule == @rule
       assert violation.path == [:writable_by_process]
       assert violation.message =~ "the entity type is managed by a module"
-      assert row_count(schema, "catalog_item") == 0
+      assert row_count(schema, "fxm_item") == 0
     end
 
     test "positive control: the same managed type WITHOUT the flag is created and stamped" do
@@ -354,7 +354,7 @@ defmodule Letflow.Entities.WritableByProcessTest do
       owner = ManagedTypes.module_owner(FixtureManaged)
 
       assert {:ok, %EntityDefinition{managed_by: "fixture_managed"}} =
-               Definitions.create_definition(attrs("catalog_item"), schema, owner)
+               Definitions.create_definition(attrs("fxm_item"), schema, owner)
     end
 
     test "an unmanaged, allowed name with the flag is created" do
@@ -501,7 +501,7 @@ defmodule Letflow.Entities.WritableByProcessTest do
         assert ProcessWritable.matched_rule(exact) == {:exact, exact}
       end
 
-      for allowed <- ["invoice", "orgx", "usery", "rolex", "groupie", "catalog_item"] do
+      for allowed <- ["invoice", "orgx", "usery", "rolex", "groupie", "fxm_item"] do
         refute ProcessWritable.denied_name?(allowed), allowed
       end
 

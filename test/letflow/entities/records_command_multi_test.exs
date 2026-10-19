@@ -448,22 +448,22 @@ defmodule Letflow.Entities.RecordsCommandMultiTest do
           rationale: "GH #2587 command_multi authority test install"
         )
 
-      {:ok, _} = EntityTypeInstance.get_or_create("org_unit", schema)
+      {:ok, _} = EntityTypeInstance.get_or_create("fxm_unit", schema)
       {:ok, owner: ManagedTypes.owner_for!(FixtureManaged)}
     end
 
     test "a managed type with :tenant is :entity_type_managed after exactly the definition query",
          %{schema: schema, task_id: task_id, owner: owner} do
-      {:ok, _} = Definitions.get_active_definition_by_name("org_unit", schema)
+      {:ok, _} = Definitions.get_active_definition_by_name("fxm_unit", schema)
 
       {_def, baseline} =
         PlatformTenantFixture.capture_repo_queries(fn ->
-          Definitions.get_active_definition_by_name("org_unit", schema)
+          Definitions.get_active_definition_by_name("fxm_unit", schema)
         end)
 
       assert baseline != []
 
-      cmd = command("org_unit", 0, task_id, %{field_values: %{"name" => "u"}})
+      cmd = command("fxm_unit", 0, task_id, %{field_values: %{"name" => "u"}})
 
       {result, queries} =
         PlatformTenantFixture.capture_repo_queries(fn ->

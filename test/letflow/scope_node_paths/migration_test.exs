@@ -195,7 +195,7 @@ defmodule Letflow.ScopeNodePaths.MigrationTest do
     owner = ManagedTypes.module_owner(Letflow.Modules.FixtureManaged)
 
     {:ok, stamped} =
-      Definitions.create_definition(definition_attrs("org_unit"), schema, owner)
+      Definitions.create_definition(definition_attrs("fxm_unit"), schema, owner)
 
     {:ok, _plain} = Definitions.create_definition(definition_attrs("fxm_plain"), schema)
     assert stamped.managed_by == "fixture_managed"

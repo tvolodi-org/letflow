@@ -316,15 +316,15 @@ defmodule Letflow.Routers.EntitiesWriteTypeAccessTest do
       ctx: ctx,
       absent: absent
     } do
-      insert_type_restriction!(ctx, "org_unit")
+      insert_type_restriction!(ctx, "fxm_unit")
       id = Ecto.UUID.generate()
       body = %{"field_values" => %{"name" => "N"}}
 
       for {method, p, b} <- [
-            {:post, path("org_unit"), body},
-            {:put, path("org_unit", id), body},
-            {:delete, path("org_unit", id), nil},
-            {:post, path("org_unit") <> "/import", record_doc("org_unit", [entry("A")])}
+            {:post, path("fxm_unit"), body},
+            {:put, path("fxm_unit", id), body},
+            {:delete, path("fxm_unit", id), nil},
+            {:post, path("fxm_unit") <> "/import", record_doc("fxm_unit", [entry("A")])}
           ] do
         d = request(method, p, ctx, b)
         a = request(method, p, absent, b)
@@ -337,10 +337,10 @@ defmodule Letflow.Routers.EntitiesWriteTypeAccessTest do
       id = Ecto.UUID.generate()
 
       for {method, p} <- [
-            {:post, path("org_unit")},
-            {:put, path("org_unit", id)},
-            {:delete, path("org_unit", id) <> "?expected_last_event_global_seq=abc"},
-            {:post, path("org_unit") <> "/import"}
+            {:post, path("fxm_unit")},
+            {:put, path("fxm_unit", id)},
+            {:delete, path("fxm_unit", id) <> "?expected_last_event_global_seq=abc"},
+            {:post, path("fxm_unit") <> "/import"}
           ] do
         conn = request(method, p, ctx, {:raw, "[1]"})
         assert conn.status == 403, "#{method} #{p}: #{conn.status} #{conn.resp_body}"

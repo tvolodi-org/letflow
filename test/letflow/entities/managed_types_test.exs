@@ -112,7 +112,7 @@ defmodule Letflow.Entities.ManagedTypesTest do
   describe "T-12 (AC2/AC3): managed_by is immutable once stamped" do
     test "the trigger refuses clearing, changing or setting managed_by and deleting a stamped row" do
       %{schema_name: schema} = installed_tenant!("req496-trigger")
-      row = stamped_row(schema, "org_unit")
+      row = stamped_row(schema, "fxm_unit")
       assert row.managed_by == "fixture_managed"
 
       assert_raise Postgrex.Error, ~r/managed_by is immutable/, fn ->
@@ -158,7 +158,7 @@ defmodule Letflow.Entities.ManagedTypesTest do
       assert built.valid?
 
       %{schema_name: schema} = installed_tenant!("req496-put-stamp")
-      loaded = stamped_row(schema, "org_site")
+      loaded = stamped_row(schema, "fxm_site")
 
       refused =
         loaded |> Ecto.Changeset.change() |> EntityDefinition.put_managed_by("another_module")
@@ -179,9 +179,9 @@ defmodule Letflow.Entities.ManagedTypesTest do
                Repo.transaction(fn ->
                  assert held_create_locks() == 0
 
-                 assert {:ok, %EntityDefinition{name: "org_unit"}} =
+                 assert {:ok, %EntityDefinition{name: "fxm_unit"}} =
                           Definitions.create_definition(
-                            definition_attrs("org_unit"),
+                            definition_attrs("fxm_unit"),
                             schema,
                             :tenant
                           )
@@ -211,7 +211,7 @@ defmodule Letflow.Entities.ManagedTypesTest do
       # Control: a format-valid name IS looked up, so the capture above can see a query.
       {_result, queries} =
         PlatformTenantFixture.capture_repo_queries(fn ->
-          ManagedTypes.owner_of("org_unit", schema)
+          ManagedTypes.owner_of("fxm_unit", schema)
         end)
 
       assert queries != []
@@ -222,20 +222,20 @@ defmodule Letflow.Entities.ManagedTypesTest do
 
       assert_raise FunctionClauseError, fn ->
         ManagedTypes.check_create(
-          "org_unit",
-          %{module_id: "fixture_managed", manages: MapSet.new(["org_unit"])},
+          "fxm_unit",
+          %{module_id: "fixture_managed", manages: MapSet.new(["fxm_unit"])},
           schema
         )
       end
 
       assert_raise FunctionClauseError, fn ->
-        ManagedTypes.check_create("org_unit", "fixture_managed", schema)
+        ManagedTypes.check_create("fxm_unit", "fixture_managed", schema)
       end
     end
 
     test "the trigger refuses renaming or re-tenanting a stamped row; a status flip passes" do
       %{schema_name: schema} = installed_tenant!("req496-rename")
-      row = stamped_row(schema, "catalog_item")
+      row = stamped_row(schema, "fxm_item")
 
       assert_raise Postgrex.Error, ~r/managed_by is immutable/, fn ->
         Repo.update_all(by_id(row.id), [set: [name: "catalog_item_renamed"]], prefix: schema)
@@ -251,7 +251,7 @@ defmodule Letflow.Entities.ManagedTypesTest do
       reloaded = Repo.get!(EntityDefinition, row.id, prefix: schema)
       assert reloaded.status == :inactive
       assert reloaded.managed_by == "fixture_managed"
-      assert reloaded.name == "catalog_item"
+      assert reloaded.name == "fxm_item"
     end
   end
 
@@ -322,18 +322,18 @@ defmodule Letflow.Entities.ManagedTypesTest do
       owner = ManagedTypes.module_owner(FixtureManaged)
       other = ManagedTypes.module_owner(Letflow.Modules.Fixture)
 
-      assert ManagedTypes.owner_of("org_unit", schema) == {:ok, "fixture_managed"}
-      assert ManagedTypes.check_tenant_write("org_unit", schema) == {:error, :entity_type_managed}
+      assert ManagedTypes.owner_of("fxm_unit", schema) == {:ok, "fixture_managed"}
+      assert ManagedTypes.check_tenant_write("fxm_unit", schema) == {:error, :entity_type_managed}
 
       # {:ok, m} + :tenant
-      assert ManagedTypes.check_create("org_unit", :tenant, schema) ==
+      assert ManagedTypes.check_create("fxm_unit", :tenant, schema) ==
                {:error, :entity_type_managed}
 
       # {:ok, m} + %Owner{module_id: m} declaring the name
-      assert ManagedTypes.check_create("org_unit", owner, schema) == {:ok, "fixture_managed"}
+      assert ManagedTypes.check_create("fxm_unit", owner, schema) == {:ok, "fixture_managed"}
 
       # {:ok, m} + any other %Owner{}
-      assert ManagedTypes.check_create("org_unit", other, schema) ==
+      assert ManagedTypes.check_create("fxm_unit", other, schema) ==
                {:error, :entity_type_managed}
 
       # :unmanaged + :tenant (fxm_free exists, unstamped)
@@ -352,20 +352,20 @@ defmodule Letflow.Entities.ManagedTypesTest do
       %{schema_name: schema} = tenant!("req496-table-claim")
       owner = ManagedTypes.module_owner(FixtureManaged)
 
-      assert MapSet.member?(owner.manages, "org_site")
+      assert MapSet.member?(owner.manages, "fxm_site")
       assert owner.module_id == "fixture_managed"
 
       # :unmanaged + declaring %Owner{} + no row -> stamped
-      assert ManagedTypes.check_create("org_site", owner, schema) == {:ok, "fixture_managed"}
+      assert ManagedTypes.check_create("fxm_site", owner, schema) == {:ok, "fixture_managed"}
 
       # :unmanaged + declaring %Owner{} + a tenant's own unmanaged row -> taken
-      assert {:ok, _own} = Definitions.create_definition(definition_attrs("org_site"), schema)
+      assert {:ok, _own} = Definitions.create_definition(definition_attrs("fxm_site"), schema)
 
-      assert ManagedTypes.check_create("org_site", owner, schema) ==
-               {:error, {:managed_name_taken, "org_site"}}
+      assert ManagedTypes.check_create("fxm_site", owner, schema) ==
+               {:error, {:managed_name_taken, "fxm_site"}}
 
       # The tenant's own type is never locked by that attempt.
-      assert ManagedTypes.owner_of("org_site", schema) == :unmanaged
+      assert ManagedTypes.owner_of("fxm_site", schema) == :unmanaged
     end
 
     test "module_owner/1 reads the compiled manifest; absent manages_entity_types is empty" do
@@ -375,12 +375,12 @@ defmodule Letflow.Entities.ManagedTypesTest do
       assert MapSet.equal?(
                manages,
                MapSet.new([
-                 "org_legal_entity",
-                 "org_site",
-                 "org_unit",
-                 "org_unit_membership",
-                 "catalog_item",
-                 "catalog_uom",
+                 "fxm_legal_entity",
+                 "fxm_site",
+                 "fxm_unit",
+                 "fxm_unit_membership",
+                 "fxm_item",
+                 "fxm_uom",
                  "fxm_ledger"
                ])
              )
@@ -398,19 +398,19 @@ defmodule Letflow.Entities.ManagedTypesTest do
   # 3.1-3.3 and 10 (T-10, T-29); spec `test/specs/GH-2583.md`.
 
   @seven [
-    "org_legal_entity",
-    "org_site",
-    "org_unit",
-    "org_unit_membership",
-    "catalog_item",
-    "catalog_uom",
+    "fxm_legal_entity",
+    "fxm_site",
+    "fxm_unit",
+    "fxm_unit_membership",
+    "fxm_item",
+    "fxm_uom",
     "fxm_ledger"
   ]
 
   describe "GH #2583 T-10 (AC2): check_record_write/3 and owner_for!/1" do
     test "check_record_write/3 follows the design section 3.2 table row by row" do
       owner = ManagedTypes.owner_for!(FixtureManaged)
-      other = %ManagedTypes.Owner{module_id: "other_module", manages: MapSet.new(["org_unit"])}
+      other = %ManagedTypes.Owner{module_id: "other_module", manages: MapSet.new(["fxm_unit"])}
 
       # nil + :tenant / nil + any Owner
       assert ManagedTypes.check_record_write(nil, "fxm_free", :tenant) == :ok
@@ -418,32 +418,32 @@ defmodule Letflow.Entities.ManagedTypesTest do
       assert ManagedTypes.check_record_write(nil, "fxm_free", other) == :ok
 
       # m + :tenant
-      assert ManagedTypes.check_record_write("fixture_managed", "org_unit", :tenant) ==
+      assert ManagedTypes.check_record_write("fixture_managed", "fxm_unit", :tenant) ==
                {:error, :entity_type_managed}
 
       # m + %Owner{module_id: m} naming the type
-      assert ManagedTypes.check_record_write("fixture_managed", "org_unit", owner) == :ok
+      assert ManagedTypes.check_record_write("fixture_managed", "fxm_unit", owner) == :ok
 
       # m + %Owner{module_id: m} NOT naming the type
       assert ManagedTypes.check_record_write("fixture_managed", "fxm_free", owner) ==
                {:error, :entity_type_managed}
 
       # m + %Owner{module_id: other} (even though it names the type)
-      assert ManagedTypes.check_record_write("fixture_managed", "org_unit", other) ==
+      assert ManagedTypes.check_record_write("fixture_managed", "fxm_unit", other) ==
                {:error, :entity_type_managed}
     end
 
     test "check_record_write/3 raises FunctionClauseError for a non-authority third argument" do
       bad = [
         "fixture_managed",
-        %{module_id: "fixture_managed", manages: MapSet.new(["org_unit"])},
+        %{module_id: "fixture_managed", manages: MapSet.new(["fxm_unit"])},
         nil,
         :owner
       ]
 
       for authority <- bad, managed_by <- [nil, "fixture_managed"] do
         assert_raise FunctionClauseError, fn ->
-          ManagedTypes.check_record_write(managed_by, "org_unit", authority)
+          ManagedTypes.check_record_write(managed_by, "fxm_unit", authority)
         end
       end
     end
@@ -517,16 +517,16 @@ defmodule Letflow.Entities.ManagedTypesTest do
       end
 
       # P2: a tenant create of a NEW shape under a managed name adds neither a version nor a row.
-      versions_before = artifact_version_count(schema, "org_unit")
+      versions_before = artifact_version_count(schema, "fxm_unit")
 
       rows_before =
-        Repo.aggregate(from(d in EntityDefinition, where: d.name == "org_unit"), :count,
+        Repo.aggregate(from(d in EntityDefinition, where: d.name == "fxm_unit"), :count,
           prefix: schema
         )
 
       new_shape = %{
         definition: %{
-          name: "org_unit",
+          name: "fxm_unit",
           display_name: "Tenant org unit",
           fields: [
             %{name: "name", type: :string, required: true},
@@ -537,15 +537,15 @@ defmodule Letflow.Entities.ManagedTypesTest do
       }
 
       assert Definitions.create_definition(new_shape, schema) == {:error, :entity_type_managed}
-      assert artifact_version_count(schema, "org_unit") == versions_before
+      assert artifact_version_count(schema, "fxm_unit") == versions_before
 
-      assert Repo.aggregate(from(d in EntityDefinition, where: d.name == "org_unit"), :count,
+      assert Repo.aggregate(from(d in EntityDefinition, where: d.name == "fxm_unit"), :count,
                prefix: schema
              ) == rows_before
 
       # Re-activating the name can only (re)activate a stamped row.
       case Definitions.activate_definition(
-             "org_unit",
+             "fxm_unit",
              Ecto.UUID.generate(),
              "gh2583 t-29",
              schema
@@ -554,7 +554,7 @@ defmodule Letflow.Entities.ManagedTypesTest do
         {:error, _reason} -> :ok
       end
 
-      {:ok, active} = Definitions.get_active_definition_by_name("org_unit", schema)
+      {:ok, active} = Definitions.get_active_definition_by_name("fxm_unit", schema)
       assert active.managed_by == "fixture_managed"
     end
   end

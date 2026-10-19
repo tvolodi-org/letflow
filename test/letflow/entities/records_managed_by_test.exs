@@ -49,12 +49,12 @@ defmodule Letflow.Entities.RecordsManagedByTest do
 
   # The seven types fixture_managed's manifest declares; fxm_ledger is also append_only.
   @seven [
-    "org_legal_entity",
-    "org_site",
-    "org_unit",
-    "org_unit_membership",
-    "catalog_item",
-    "catalog_uom",
+    "fxm_legal_entity",
+    "fxm_site",
+    "fxm_unit",
+    "fxm_unit_membership",
+    "fxm_item",
+    "fxm_uom",
     "fxm_ledger"
   ]
   @six_mutable @seven -- ["fxm_ledger"]
@@ -265,19 +265,19 @@ defmodule Letflow.Entities.RecordsManagedByTest do
 
     test "T-05: an Owner of the right module that does not name the type -> :entity_type_managed",
          %{schema: schema} do
-      narrow = %Owner{module_id: "fixture_managed", manages: MapSet.new(["org_site"])}
-      record = owner_record!(schema, "org_unit")
+      narrow = %Owner{module_id: "fixture_managed", manages: MapSet.new(["fxm_site"])}
+      record = owner_record!(schema, "fxm_unit")
 
       results =
-        without_write!(schema, "narrow owner org_unit", fn ->
+        without_write!(schema, "narrow owner fxm_unit", fn ->
           [
-            Records.create_record(create_attrs("org_unit", %{"name" => "x"}), schema, narrow),
+            Records.create_record(create_attrs("fxm_unit", %{"name" => "x"}), schema, narrow),
             Records.update_record(
-              update_attrs("org_unit", record.record_id, %{"name" => "x"}),
+              update_attrs("fxm_unit", record.record_id, %{"name" => "x"}),
               schema,
               narrow
             ),
-            Records.delete_record(delete_attrs("org_unit", record.record_id), schema, narrow)
+            Records.delete_record(delete_attrs("fxm_unit", record.record_id), schema, narrow)
           ]
         end)
 
@@ -285,7 +285,7 @@ defmodule Letflow.Entities.RecordsManagedByTest do
 
       # Control: the same narrow Owner DOES write the type it names.
       assert {:ok, _} =
-               Records.create_record(create_attrs("org_site", %{"name" => "x"}), schema, narrow)
+               Records.create_record(create_attrs("fxm_site", %{"name" => "x"}), schema, narrow)
     end
 
     test "T-05: :tenant update/delete on fxm_ledger (managed + append_only) answers the managed refusal first",
@@ -324,11 +324,11 @@ defmodule Letflow.Entities.RecordsManagedByTest do
       # `name` is a required string: an integer and a missing key are both invalid.
       for bad <- [%{"name" => 123}, %{}] do
         assert without_write!(schema, "tenant bad payload", fn ->
-                 Records.create_record(create_attrs("org_unit", bad), schema)
+                 Records.create_record(create_attrs("fxm_unit", bad), schema)
                end) == {:error, :entity_type_managed}
 
         assert {:error, {:record_payload_invalid, _violations}} =
-                 Records.create_record(create_attrs("org_unit", bad), schema, owner)
+                 Records.create_record(create_attrs("fxm_unit", bad), schema, owner)
       end
     end
 
@@ -336,46 +336,46 @@ defmodule Letflow.Entities.RecordsManagedByTest do
          %{schema: schema, owner: owner} do
       absent = Ecto.UUID.generate()
 
-      assert Records.update_record(update_attrs("org_unit", absent, %{"name" => "x"}), schema) ==
+      assert Records.update_record(update_attrs("fxm_unit", absent, %{"name" => "x"}), schema) ==
                {:error, :entity_type_managed}
 
-      assert Records.delete_record(delete_attrs("org_unit", absent), schema) ==
+      assert Records.delete_record(delete_attrs("fxm_unit", absent), schema) ==
                {:error, :entity_type_managed}
 
       assert {:error, {:record_not_found, ^absent}} =
                Records.update_record(
-                 update_attrs("org_unit", absent, %{"name" => "x"}),
+                 update_attrs("fxm_unit", absent, %{"name" => "x"}),
                  schema,
                  owner
                )
 
       assert {:error, {:record_not_found, ^absent}} =
-               Records.delete_record(delete_attrs("org_unit", absent), schema, owner)
+               Records.delete_record(delete_attrs("fxm_unit", absent), schema, owner)
     end
 
     test "already deleted: :tenant delete -> :entity_type_managed, not the no-op success",
          %{schema: schema, owner: owner} do
-      record = owner_record!(schema, "org_unit")
+      record = owner_record!(schema, "fxm_unit")
 
       assert {:ok, _} =
-               Records.delete_record(delete_attrs("org_unit", record.record_id), schema, owner)
+               Records.delete_record(delete_attrs("fxm_unit", record.record_id), schema, owner)
 
       assert without_write!(schema, "tenant delete deleted", fn ->
-               Records.delete_record(delete_attrs("org_unit", record.record_id), schema)
+               Records.delete_record(delete_attrs("fxm_unit", record.record_id), schema)
              end) == {:error, :entity_type_managed}
 
       # Control: the owner's repeat delete is the documented no-op success.
       assert {:ok, _} =
-               Records.delete_record(delete_attrs("org_unit", record.record_id), schema, owner)
+               Records.delete_record(delete_attrs("fxm_unit", record.record_id), schema, owner)
     end
 
     test "stale expected seq: :tenant update -> :entity_type_managed; the owner gets record_version_conflict",
          %{schema: schema, owner: owner} do
-      record = owner_record!(schema, "org_unit")
+      record = owner_record!(schema, "fxm_unit")
       stale = record.last_event_global_seq - 1
 
       stale_attrs =
-        "org_unit"
+        "fxm_unit"
         |> update_attrs(record.record_id, %{"name" => "x"})
         |> Map.put(:expected_last_event_global_seq, stale)
 
@@ -426,7 +426,7 @@ defmodule Letflow.Entities.RecordsManagedByTest do
   describe "T-08 (AC2): a bad authority raises before any query" do
     test "a string, a plain map, nil and an unknown atom raise FunctionClauseError on all three /3 functions",
          %{schema: schema} do
-      record = owner_record!(schema, "org_unit")
+      record = owner_record!(schema, "fxm_unit")
 
       bad_authorities = [
         "fixture_managed",
@@ -436,9 +436,9 @@ defmodule Letflow.Entities.RecordsManagedByTest do
       ]
 
       calls = [
-        {:create_record, create_attrs("org_unit", %{"name" => "x"})},
-        {:update_record, update_attrs("org_unit", record.record_id, %{"name" => "x"})},
-        {:delete_record, delete_attrs("org_unit", record.record_id)}
+        {:create_record, create_attrs("fxm_unit", %{"name" => "x"})},
+        {:update_record, update_attrs("fxm_unit", record.record_id, %{"name" => "x"})},
+        {:delete_record, delete_attrs("fxm_unit", record.record_id)}
       ]
 
       for bad <- bad_authorities, {fun, attrs} <- calls do
@@ -461,22 +461,22 @@ defmodule Letflow.Entities.RecordsManagedByTest do
   describe "T-09 (AC2): request data cannot carry ownership" do
     test "authority/owner/managed_by keys inside attrs are ignored by the /2 arities",
          %{schema: schema, owner: owner} do
-      record = owner_record!(schema, "org_unit")
+      record = owner_record!(schema, "fxm_unit")
       claims = %{authority: owner, owner: owner, managed_by: "fixture_managed"}
 
       results =
         without_write!(schema, "attrs claims", fn ->
           [
             Records.create_record(
-              Map.merge(create_attrs("org_unit", %{"name" => "x"}), claims),
+              Map.merge(create_attrs("fxm_unit", %{"name" => "x"}), claims),
               schema
             ),
             Records.update_record(
-              Map.merge(update_attrs("org_unit", record.record_id, %{"name" => "x"}), claims),
+              Map.merge(update_attrs("fxm_unit", record.record_id, %{"name" => "x"}), claims),
               schema
             ),
             Records.delete_record(
-              Map.merge(delete_attrs("org_unit", record.record_id), claims),
+              Map.merge(delete_attrs("fxm_unit", record.record_id), claims),
               schema
             )
           ]
@@ -491,14 +491,14 @@ defmodule Letflow.Entities.RecordsManagedByTest do
   describe "T-11 (AC2): a refusal costs no query beyond the definition lookup" do
     test "refused create/update/delete issue exactly the queries of get_active_definition_by_name/2",
          %{schema: schema, owner: owner} do
-      record = owner_record!(schema, "org_unit")
+      record = owner_record!(schema, "fxm_unit")
 
       # Warm-up so any lazily cached lookup is equally warm for the baseline and the calls.
-      {:ok, _} = Definitions.get_active_definition_by_name("org_unit", schema)
+      {:ok, _} = Definitions.get_active_definition_by_name("fxm_unit", schema)
 
       {_def, baseline} =
         PlatformTenantFixture.capture_repo_queries(fn ->
-          Definitions.get_active_definition_by_name("org_unit", schema)
+          Definitions.get_active_definition_by_name("fxm_unit", schema)
         end)
 
       assert baseline != [], "the capture must see the definition lookup's own queries"
@@ -506,16 +506,16 @@ defmodule Letflow.Entities.RecordsManagedByTest do
 
       refused = [
         {"create",
-         fn -> Records.create_record(create_attrs("org_unit", %{"name" => "x"}), schema) end},
+         fn -> Records.create_record(create_attrs("fxm_unit", %{"name" => "x"}), schema) end},
         {"update",
          fn ->
            Records.update_record(
-             update_attrs("org_unit", record.record_id, %{"name" => "x"}),
+             update_attrs("fxm_unit", record.record_id, %{"name" => "x"}),
              schema
            )
          end},
         {"delete",
-         fn -> Records.delete_record(delete_attrs("org_unit", record.record_id), schema) end}
+         fn -> Records.delete_record(delete_attrs("fxm_unit", record.record_id), schema) end}
       ]
 
       for {label, fun} <- refused do
@@ -527,7 +527,7 @@ defmodule Letflow.Entities.RecordsManagedByTest do
       # Non-vacuity: an accepted write issues strictly more queries than the lookup alone.
       {{:ok, _}, accepted} =
         PlatformTenantFixture.capture_repo_queries(fn ->
-          Records.create_record(create_attrs("org_unit", %{"name" => "x"}), schema, owner)
+          Records.create_record(create_attrs("fxm_unit", %{"name" => "x"}), schema, owner)
         end)
 
       assert length(accepted) > length(baseline)

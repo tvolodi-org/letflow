@@ -142,7 +142,7 @@ defmodule Letflow.Entities.RecordAccessTest do
   describe "write/3 decisions" do
     test "a failed read is :hidden (fail closed), whatever the type", ctx do
       assert RecordAccess.write(ctx.user_id, "customer", "no_such_schema") == :hidden
-      assert RecordAccess.write(ctx.user_id, "org_unit", "no_such_schema") == :hidden
+      assert RecordAccess.write(ctx.user_id, "fxm_unit", "no_such_schema") == :hidden
     end
 
     test "I3: an unrestricted caller on an unmanaged type is open with an empty set", ctx do
@@ -168,10 +168,10 @@ defmodule Letflow.Entities.RecordAccessTest do
 
     test "a visible managed type is :managed, a denied managed type is :hidden", ctx do
       EntityWritesFixture.install_managed_fixture!(ctx.schema)
-      assert RecordAccess.write(ctx.user_id, "org_unit", ctx.schema) == :managed
+      assert RecordAccess.write(ctx.user_id, "fxm_unit", ctx.schema) == :managed
 
-      insert_type_restriction!(ctx.schema, "org_unit")
-      assert RecordAccess.write(ctx.user_id, "org_unit", ctx.schema) == :hidden
+      insert_type_restriction!(ctx.schema, "fxm_unit")
+      assert RecordAccess.write(ctx.user_id, "fxm_unit", ctx.schema) == :hidden
     end
 
     test "I1: the four gate calls happen in order for open, denied, absent and managed", ctx do
@@ -179,7 +179,7 @@ defmodule Letflow.Entities.RecordAccessTest do
       insert_type_restriction!(ctx.schema, "customer")
       seed_open_type!(ctx)
 
-      for type <- ["customer", "no_such_type", "org_unit", "open_type"] do
+      for type <- ["customer", "no_such_type", "fxm_unit", "open_type"] do
         assert traced_calls(fn -> RecordAccess.write(ctx.user_id, type, ctx.schema) end) ==
                  @gate_calls,
                "type #{type}"

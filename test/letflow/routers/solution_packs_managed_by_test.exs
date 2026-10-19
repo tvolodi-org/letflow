@@ -119,14 +119,14 @@ defmodule Letflow.Routers.SolutionPacksManagedByTest do
   end
 
   describe "T-16: POST /solution-packs/install" do
-    test "a tenant pack defining org_unit (plus an unmanaged type) -> uniform 403, nothing written",
+    test "a tenant pack defining fxm_unit (plus an unmanaged type) -> uniform 403, nothing written",
          ctx do
-      org_unit_before = count_named(ctx.schema, "org_unit")
+      org_unit_before = count_named(ctx.schema, "fxm_unit")
 
       pack =
         tenant_pack([
           entity_entry("fxm_tenant_extra", "Tenant extra"),
-          entity_entry("org_unit", "Tenant org unit")
+          entity_entry("fxm_unit", "Tenant org unit")
         ])
 
       conn = call_packs(ctx, "/install", pack)
@@ -134,7 +134,7 @@ defmodule Letflow.Routers.SolutionPacksManagedByTest do
       assert conn.status == 403, conn.resp_body
       assert conn.resp_body == managed_body()
 
-      assert count_named(ctx.schema, "org_unit") == org_unit_before
+      assert count_named(ctx.schema, "fxm_unit") == org_unit_before
       assert count_named(ctx.schema, "fxm_tenant_extra") == 0
 
       refute Repo.exists?(
@@ -160,15 +160,15 @@ defmodule Letflow.Routers.SolutionPacksManagedByTest do
   describe "T-17: POST /solution-packs/:pack_id/update-apply" do
     test "a managed name as artefact_id, only in content, or only in resolved_content -> uniform 403",
          ctx do
-      org_unit_before = count_named(ctx.schema, "org_unit")
+      org_unit_before = count_named(ctx.schema, "fxm_unit")
       resolutions_before = resolution_count(ctx.tenant_id)
-      in_content = Jason.encode!(%{"name" => "org_unit", "fields" => []})
+      in_content = Jason.encode!(%{"name" => "fxm_unit", "fields" => []})
 
       bodies = [
         artefact_id: %{
           "target_version" => "0.2.0",
           "theirs_artefacts" => [],
-          "incoming_artefacts" => [entity_artefact("org_unit", "{}")],
+          "incoming_artefacts" => [entity_artefact("fxm_unit", "{}")],
           "resolutions" => []
         },
         content_only: %{
@@ -200,7 +200,7 @@ defmodule Letflow.Routers.SolutionPacksManagedByTest do
       end
 
       assert resolution_count(ctx.tenant_id) == resolutions_before
-      assert count_named(ctx.schema, "org_unit") == org_unit_before
+      assert count_named(ctx.schema, "fxm_unit") == org_unit_before
     end
 
     test "control: an unmanaged entity_definition artefact is not refused by the managed guard",

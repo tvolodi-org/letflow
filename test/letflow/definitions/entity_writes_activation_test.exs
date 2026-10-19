@@ -59,7 +59,7 @@ defmodule Letflow.Definitions.EntityWritesActivationTest do
     type!(schema, "stock_move")
     type!(schema, "plain_type", %{writable_by_process: false})
     type!(schema, "mutable_type", %{append_only: false})
-    type!(schema, "catalog_item", %{writable_by_process: false}, FixtureManaged)
+    type!(schema, "fxm_item", %{writable_by_process: false}, FixtureManaged)
 
     # created, never activated
     {:ok, _row} =
@@ -244,7 +244,7 @@ defmodule Letflow.Definitions.EntityWritesActivationTest do
       end
 
       test "a managed type (B-12, activation half)", %{t: t} do
-        assert codes(check(t, [line("catalog_item")])) == [v(0, :entity_type_managed)]
+        assert codes(check(t, [line("fxm_item")])) == [v(0, :entity_type_managed)]
       end
 
       test "a type that is not append-only", %{t: t} do
@@ -539,7 +539,7 @@ defmodule Letflow.Definitions.EntityWritesActivationTest do
                svc_check(t, [
                  line("stock_move"),
                  line("plain_type"),
-                 line("catalog_item"),
+                 line("fxm_item"),
                  line("mutable_type"),
                  line("stock_move", %{"op" => "delete"}),
                  line("stock_move", %{"fields" => %{"label" => %{"var" => "_sys.r"}}})

@@ -1,0 +1,251 @@
+{
+  "bpm_export_schema_version": "bpm/definition/v1",
+  "definitions": [],
+  "entity_definitions": [
+    {
+      "definition_json": {
+        "constraints": [
+          {
+            "fields": [
+              "code"
+            ],
+            "name": "uq_org_legal_entity_code",
+            "type": "unique"
+          },
+          {
+            "fields": [
+              "external_ref_system",
+              "external_ref_id"
+            ],
+            "name": "uq_org_legal_entity_external_ref",
+            "type": "unique"
+          }
+        ],
+        "description": "GH #2661 / REQ-473, decisions 0050 D1 and 0057 D1. A legal entity (a taxpayer, identified by bin) that owns sites and org units. active is queried and required (a retired record stays readable by id). code is the unique business key. external_ref_system and external_ref_id are nullable, both queried so each gets a column and the unique pair constraint exists (many rows with both NULL are allowed); the both-set-or-both-absent rule is enforced by the module write functions, not by this definition. No foreign_keys: references are declarative only (0050 D3.6).",
+        "display_name": "Org Legal Entity",
+        "fields": [
+          {
+            "name": "code",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "name",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "bin",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "active",
+            "queried": true,
+            "required": true,
+            "type": "boolean"
+          },
+          {
+            "name": "external_ref_system",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "external_ref_id",
+            "queried": true,
+            "type": "string"
+          }
+        ],
+        "name": "org_legal_entity"
+      },
+      "display_name": "Org Legal Entity",
+      "entity_definition_id": "bf6b91c9-b34a-5734-5ef7-9af4b725fccd",
+      "logical_shape_version": "84191eb5414c12ec36d3372d6a3ec570bfc386cc017df2b3326ee8b1b9d26c4a",
+      "name": "org_legal_entity"
+    },
+    {
+      "definition_json": {
+        "constraints": [
+          {
+            "fields": [
+              "code"
+            ],
+            "name": "uq_org_site_code",
+            "type": "unique"
+          },
+          {
+            "fields": [
+              "external_ref_system",
+              "external_ref_id"
+            ],
+            "name": "uq_org_site_external_ref",
+            "type": "unique"
+          }
+        ],
+        "description": "GH #2661 / REQ-473, decisions 0050 D1 and 0057 D1. A physical site of a legal entity. legal_entity_id is the id of an org_legal_entity record as a queried string (declarative reference, no foreign key: 0050 D3.6). external_ref_system and external_ref_id are the nullable import key (0057 D1).",
+        "display_name": "Org Site",
+        "fields": [
+          {
+            "name": "code",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "name",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "legal_entity_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "active",
+            "queried": true,
+            "required": true,
+            "type": "boolean"
+          },
+          {
+            "name": "external_ref_system",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "external_ref_id",
+            "queried": true,
+            "type": "string"
+          }
+        ],
+        "name": "org_site"
+      },
+      "display_name": "Org Site",
+      "entity_definition_id": "b2bab289-dc9d-0880-4c0a-beaf97ed09d0",
+      "logical_shape_version": "38068501ca8e9b465d8613cc75b0b88d4d7b31da27d392ca7fe64af358440bc1",
+      "name": "org_site"
+    },
+    {
+      "definition_json": {
+        "constraints": [
+          {
+            "fields": [
+              "code"
+            ],
+            "name": "uq_org_unit_code",
+            "type": "unique"
+          },
+          {
+            "fields": [
+              "external_ref_system",
+              "external_ref_id"
+            ],
+            "name": "uq_org_unit_external_ref",
+            "type": "unique"
+          }
+        ],
+        "description": "GH #2661 / REQ-473, decisions 0050 D1 and 0057 D1. A node of the org-unit tree. parent is the id of the parent org_unit as a string, absent for a root (0050 D1). legal_entity_id and site_id are required declarative references and are deliberately NOT queried: no column and no index (0050 D3.6). external_ref_system and external_ref_id are the nullable import key (0057 D1).",
+        "display_name": "Org Unit",
+        "fields": [
+          {
+            "name": "code",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "name",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "legal_entity_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "site_id",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "parent",
+            "type": "string"
+          },
+          {
+            "name": "active",
+            "queried": true,
+            "required": true,
+            "type": "boolean"
+          },
+          {
+            "name": "external_ref_system",
+            "queried": true,
+            "type": "string"
+          },
+          {
+            "name": "external_ref_id",
+            "queried": true,
+            "type": "string"
+          }
+        ],
+        "name": "org_unit"
+      },
+      "display_name": "Org Unit",
+      "entity_definition_id": "4c0322cd-b766-0bf1-4ac9-ba64ed915105",
+      "logical_shape_version": "16790d0fae12f32bedcfc008e35f37051f6a72a7baf97a11042743500ce12250",
+      "name": "org_unit"
+    },
+    {
+      "definition_json": {
+        "constraints": [
+          {
+            "fields": [
+              "user_id",
+              "org_unit_id"
+            ],
+            "name": "uq_org_unit_membership",
+            "type": "unique"
+          }
+        ],
+        "description": "GH #2661 / REQ-473, decision 0050 D1. Membership of a Letflow user in an org unit. user_id is the Letflow user id as text; org_unit_id is the id of an org_unit record. Not a master: no external_ref. One membership per (user_id, org_unit_id).",
+        "display_name": "Org Unit Membership",
+        "fields": [
+          {
+            "name": "user_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "org_unit_id",
+            "queried": true,
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "active",
+            "queried": true,
+            "required": true,
+            "type": "boolean"
+          }
+        ],
+        "name": "org_unit_membership"
+      },
+      "display_name": "Org Unit Membership",
+      "entity_definition_id": "79a02d3e-b679-d0a1-d7e2-53a89fd24354",
+      "logical_shape_version": "2035753201993bdecb93e12db2c5d35a41c18f0c5f0b9d74b423fe9baa15527e",
+      "name": "org_unit_membership"
+    }
+  ],
+  "exported_at": "2026-10-19T00:00:00Z",
+  "manifest": {
+    "required_roles": []
+  },
+  "pack_id": "letflow-org",
+  "service_catalog_entries": [],
+  "variable_schemas": [],
+  "version": "0.1.0"
+}

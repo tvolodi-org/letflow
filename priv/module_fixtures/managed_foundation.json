@@ -12,11 +12,11 @@
   "entity_definitions": [
     {
       "entity_definition_id": "00496000-0000-0040-0080-000000000000",
-      "name": "org_legal_entity",
+      "name": "fxm_legal_entity",
       "display_name": "Org Legal Entity",
       "logical_shape_version": "0000000000000000000000000000000000000000000000000000000000000000",
       "definition_json": {
-        "name": "org_legal_entity",
+        "name": "fxm_legal_entity",
         "display_name": "Org Legal Entity",
         "description": "REQ-496 test fixture (managed).",
         "fields": [
@@ -30,11 +30,11 @@
     },
     {
       "entity_definition_id": "00496000-0000-0040-0080-000000000001",
-      "name": "org_site",
+      "name": "fxm_site",
       "display_name": "Org Site",
       "logical_shape_version": "1111111111111111111111111111111111111111111111111111111111111111",
       "definition_json": {
-        "name": "org_site",
+        "name": "fxm_site",
         "display_name": "Org Site",
         "description": "REQ-496 test fixture (managed).",
         "fields": [
@@ -48,11 +48,11 @@
     },
     {
       "entity_definition_id": "00496000-0000-0040-0080-000000000002",
-      "name": "org_unit",
+      "name": "fxm_unit",
       "display_name": "Org Unit",
       "logical_shape_version": "2222222222222222222222222222222222222222222222222222222222222222",
       "definition_json": {
-        "name": "org_unit",
+        "name": "fxm_unit",
         "display_name": "Org Unit",
         "description": "REQ-496 test fixture (managed).",
         "fields": [
@@ -66,11 +66,11 @@
     },
     {
       "entity_definition_id": "00496000-0000-0040-0080-000000000003",
-      "name": "org_unit_membership",
+      "name": "fxm_unit_membership",
       "display_name": "Org Unit Membership",
       "logical_shape_version": "3333333333333333333333333333333333333333333333333333333333333333",
       "definition_json": {
-        "name": "org_unit_membership",
+        "name": "fxm_unit_membership",
         "display_name": "Org Unit Membership",
         "description": "REQ-496 test fixture (managed).",
         "fields": [
@@ -84,11 +84,11 @@
     },
     {
       "entity_definition_id": "00496000-0000-0040-0080-000000000004",
-      "name": "catalog_item",
+      "name": "fxm_item",
       "display_name": "Catalog Item",
       "logical_shape_version": "4444444444444444444444444444444444444444444444444444444444444444",
       "definition_json": {
-        "name": "catalog_item",
+        "name": "fxm_item",
         "display_name": "Catalog Item",
         "description": "REQ-496 test fixture (managed).",
         "fields": [
@@ -102,11 +102,11 @@
     },
     {
       "entity_definition_id": "00496000-0000-0040-0080-000000000005",
-      "name": "catalog_uom",
+      "name": "fxm_uom",
       "display_name": "Catalog Unit of Measure",
       "logical_shape_version": "5555555555555555555555555555555555555555555555555555555555555555",
       "definition_json": {
-        "name": "catalog_uom",
+        "name": "fxm_uom",
         "display_name": "Catalog Unit of Measure",
         "description": "REQ-496 test fixture (managed).",
         "fields": [

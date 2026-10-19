@@ -28,12 +28,12 @@ defmodule Letflow.Modules.FixtureManaged do
   @actor_id "00000000-0000-0000-0000-000000000000"
 
   @all_types [
-    "org_legal_entity",
-    "org_site",
-    "org_unit",
-    "org_unit_membership",
-    "catalog_item",
-    "catalog_uom",
+    "fxm_legal_entity",
+    "fxm_site",
+    "fxm_unit",
+    "fxm_unit_membership",
+    "fxm_item",
+    "fxm_uom",
     "fxm_ledger",
     "fxm_free"
   ]
@@ -50,12 +50,12 @@ defmodule Letflow.Modules.FixtureManaged do
     settings_schema: nil,
     route_policies: [],
     manages_entity_types: [
-      "org_legal_entity",
-      "org_site",
-      "org_unit",
-      "org_unit_membership",
-      "catalog_item",
-      "catalog_uom",
+      "fxm_legal_entity",
+      "fxm_site",
+      "fxm_unit",
+      "fxm_unit_membership",
+      "fxm_item",
+      "fxm_uom",
       "fxm_ledger"
     ]
   )

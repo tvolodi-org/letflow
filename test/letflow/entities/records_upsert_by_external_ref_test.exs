@@ -671,7 +671,7 @@ defmodule Letflow.Entities.RecordsUpsertByExternalRefTest do
       schema: schema,
       owner: owner
     } do
-      a = attrs("org_site", "sap", "S1", %{"name" => "Site"})
+      a = attrs("fxm_site", "sap", "S1", %{"name" => "Site"})
 
       assert {:error, :entity_type_managed} = Records.upsert_record_by_external_ref(a, schema)
 
@@ -688,7 +688,7 @@ defmodule Letflow.Entities.RecordsUpsertByExternalRefTest do
 
       assert {:ok, %{outcome: :updated}} =
                Records.upsert_record_by_external_ref(
-                 attrs("org_site", "sap", "S1", %{"name" => "Site 2"}),
+                 attrs("fxm_site", "sap", "S1", %{"name" => "Site 2"}),
                  schema,
                  owner
                )

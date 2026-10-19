@@ -1,0 +1,35 @@
+{
+  "name": "org_unit_membership",
+  "display_name": "Org Unit Membership",
+  "description": "GH #2661 / REQ-473, decision 0050 D1. Membership of a Letflow user in an org unit. user_id is the Letflow user id as text; org_unit_id is the id of an org_unit record. Not a master: no external_ref. One membership per (user_id, org_unit_id).",
+  "fields": [
+    {
+      "name": "user_id",
+      "type": "string",
+      "required": true,
+      "queried": true
+    },
+    {
+      "name": "org_unit_id",
+      "type": "string",
+      "required": true,
+      "queried": true
+    },
+    {
+      "name": "active",
+      "type": "boolean",
+      "required": true,
+      "queried": true
+    }
+  ],
+  "constraints": [
+    {
+      "name": "uq_org_unit_membership",
+      "type": "unique",
+      "fields": [
+        "user_id",
+        "org_unit_id"
+      ]
+    }
+  ]
+}
