@@ -6213,7 +6213,7 @@ volumes:
     path: docs/status/requirement_status.v27.yaml
     status: current
     opened: 2026-10-16
-    entries: 6
+    entries: 7
     note: >
       Opened by DOC-UPDATER (letflow-2) at the roll triggered by the REQ-499
       `started` append, successor to volume 26 (closed at 57 entries / 1206

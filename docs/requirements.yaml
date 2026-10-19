@@ -37243,3 +37243,515 @@ requirements:
       - "4. Implementation requirements, if the decision calls for any, are filed by REQ-ANALYST from the approved design (one per layer, each sized to one agent turn); this requirement files none itself and changes no code. NOT DELIVERED until then"
       - "5. docs/roles.md and the runbook are updated per instance route when its implementation PR merges (same rule as REQ-525 AC 6)"
     depends_on: [REQ-519]
+
+  - id: REQ-473
+    title: "WMS foundation (slice 0, 1a): module org skeleton: legal company (org_legal_entity), site, org unit, membership; manifest, install, external_ref columns"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 2661
+    # Source: GH #2661 (REQ-473, labels state:ready, prio:2, type:requirement). Transcribed from the validated issue body by REQ-ANALYST 2026-10-19; the issue body is the content authority.
+    description: >
+      WMS foundation slice 0, module org (legal entity, site, org unit tree,
+      user-to-org-unit membership). Rewritten lean on 2026-10-16 after REQ-VALIDATOR found
+      stale facts in the 2026-10-14 draft; the old long draft stays on the local branch
+      docs/req-wms-draft-v2-20261014 as history only. Authoritative sources: decisions 0050
+      (shared masters, D1-D3, D7-D8), 0052 (install activation, on_install/3,
+      EntityActivation), 0054 option A (managed types), 0057 (WMS reconciliation, advisor
+      letflow-ec ruling under the user's delegation), base document
+      docs/WMS/WMS_Procurement_Requirements_Draft.md, module guide
+      docs/guides/adding-an-application-module.md. Demand source: customer Kazakhmys
+      (decision 0039 D8 gate recorded in the program decisions). Shared masters are
+      platform-level and GH #2657 (REQ-502 ledger core) depends on them: prio 2, ahead of
+      WMS-specific slices (supervisor, 2026-10-16).
+
+      SPLIT: this requirement is the skeleton (definitions, registration, install). The
+      behaviour tests, read API and runbook are REQ-506 (GH #2662, depends on this). The
+      unit functions (create/move/retire, tree integrity, scope_node_paths) are REQ-495
+      (local draft, not yet filed).
+
+      SCOPE. Module id org, entry module Letflow.Modules.Org, directory
+      lib/letflow/modules/org/, pack priv/modules/org/. Entity types (no foreign_keys; every
+      type has an `active` boolean, queried, required):
+
+      1. org_legal_entity: code (string, queried, required), name (string, required), bin
+      (string, required). Unique uq_org_legal_entity_code over [code].
+
+      2. org_site: code, name, legal_entity_id (string, queried, required). Unique over
+      [code].
+
+      3. org_unit: code, name, legal_entity_id (required), site_id (required) (the three
+      reference fields are NOT queried: no column and no index, deliberately, per the
+      declarative-only references of 0050 D3.6), parent (string, not required, absent for a
+      root; decision 0050 names the field `parent`, a :string id in slice 1 with
+      declarative-only references; the REQ-495 draft will be aligned to this name). Unique
+      over [code].
+
+      4. org_unit_membership: user_id (string, queried, required; the Letflow user id as
+      text), org_unit_id (string, queried, required). Unique uq_org_unit_membership over
+      [user_id, org_unit_id] (no duplicate membership; both fields are queried).
+
+      5. external_ref (0057 D1): org_legal_entity, org_site and org_unit (the masters) also
+      carry external_ref_system and external_ref_id, nullable strings, both `queried: true`
+      (an unqueried field gets no column and so no constraint: DDL.promoted_columns/1), with
+      a unique constraint over the pair (Postgres allows many rows with both NULL).
+      org_unit_membership is not a master and has none. The both-set-or-both-absent /
+      non-blank rule is enforced by the module write functions of REQ-495, not by the
+      definition (the definition layer has no such rule); this requirement only declares the
+      columns and the constraint. Import is GH #2659 (REQ-505).
+
+      6. All four types are declared in the manifest manages_entity_types (GH #2530 merged,
+      PR #2568), so after install the generic routes answer 403 entity_type_managed and only
+      the module's Owner can write.
+
+      INSTALL. on_install/3 activates the definitions through
+      EntityActivation.activate_and_promote/3 (decision 0052, PR #2539); installed as
+      TENANT_ADMIN through POST /tenant/modules with a rationale.
+
+      CURRENT FACTS to re-read on main before starting (taken 2026-10-16, main 5997f92c; not
+      run). Production :modules is [Letflow.Modules.Exam] (config/config.exs:60);
+      config/test.exs adds fixtures; test/letflow/modules/catalog_test.exs has literal
+      assertions on the list that this change updates. GH #2583 and #2550 are CLOSED (PR
+      #2599, #2600). Records.create_record/2, update_record/2, delete_record/2 use the
+      :tenant authority and return {:error, :entity_type_managed} for a managed type; the
+      owner path is the /3 arity with ManagedTypes.owner_for!(__MODULE__) (pattern
+      test/support/modules/fixture_managed/fixture_managed.ex). GH #2584 (fixture_managed
+      claims real foundation names) is OPEN and a blocker, closed or done in this change; GH
+      #2582 (attachment routes) and #2551 are open limits. REQ-501 R1 (#2650) and R2 (#2652)
+      are merged; R3 onward (#2590) is not. Not needed here (no handler). Cited code lines
+      move: the implementer re-reads every file:line.
+
+      MANIFEST CONTENT (added after validation, 2026-10-16). The manifest declares
+      permissions: [], no role_grants and no widens_grants in this slice: org writes through
+      module routes and the :UsersGroupsRolesManage rule of decision 0050 D7 are deferred to
+      REQ-495/the route requirement; the module has no routes yet. The permission-matrix
+      check must pass with the module present.
+
+      ROUTING. Owner: ELIXIR-DEV. Depends on: nothing unmerged (GH #2584 is done within this
+      change: this change fixes the fixture and closes #2584). Blocks: REQ-506, REQ-474,
+      REQ-495, GH #2657. Prio 2.
+    acceptance_criteria:
+      - "1. Entity definitions: priv/modules/org/entity_definitions/ holds exactly the four types with exactly the fields above (queried flags as stated, the two external_ref fields queried on the three masters), the unique constraints (one per master type over code, the membership pair [user_id, org_unit_id], and the external_ref pair on the three masters), no foreign_keys entry, no org_position file; asserted by a test that reads the files."
+      - "2. Registration: Catalog.validate/1 accepts the manifest (id org, depends_on [], manages_entity_types equal to the four names); Catalog.entry_modules/0 includes Letflow.Modules.Org; the two literal assertions in catalog_test.exs are updated."
+      - "3. Install and activation on real Postgres: POST /tenant/modules as TENANT_ADMIN with a rationale returns 201; without a rationale, a blank one and a non-string one are 422; after install exactly the four types are active, and exactly one promotion row exists per promoted column (computed from DDL.promoted_columns/1, including the two external_ref columns on each master)."
+      - "4. Name conflict and rollback: with a tenant-created entity type already named org_site, the install is refused and rolls back completely (assert the error shape read from Installs.install/3 on main and that no org type, no tenant_modules row and no promotion row remains)."
+      - "5. external_ref: after install two rows (owner path /3) with both fields NULL are accepted and two rows with the same non-NULL pair are refused with the database unique violation."
+      - "6. Managed: after install a generic POST /entities/records/org_site is 403 entity_type_managed."
+      - "7. Fixture hygiene (GH #2584): grep of test/support/modules/fixture_managed/fixture_managed.ex and priv/module_fixtures/managed_foundation.json for the real names (org_legal_entity, org_site, org_unit, org_unit_membership, catalog_item, catalog_uom) returns nothing, and the fixture's tests still pass."
+      - "8. SECURITY-REVIEWER verdict recorded (new tenant entity types, activation performed on behalf of the installer, the managed lock); REVIEWER verdict recorded."
+      - "9. mix compile --warnings-as-errors, mix format --check-formatted, the scoped mix test over the new files plus the existing modules and catalog tests, mix letflow.check_boundaries and mix letflow.check_requirements_registration pass, real output quoted."
+      - "10. Production module list gates: adding Letflow.Modules.Org to config/config.exs updates the golden modules assertion at test/letflow/api/permission_matrix_test.exs:147 (`assert golden.modules == %{\"exam\" => ...}` today; re-read the line) and the golden file priv/permission_matrix/effective.golden that mix letflow.permission_matrix --check reads (the permissions-equal-core-plus-Exam test at lines 135-146 stays unchanged because permissions: []) (CI, .github/workflows/ci.yml, MIX_ENV=dev); both pass, output quoted. This is a SECURITY-REVIEWER trigger by the 2026-10-16 rule on permission_matrix and `config :letflow, :modules`."
+    depends_on: []
+
+  - id: REQ-474
+    title: "WMS foundation (slice 0, 2a): module catalog_items skeleton: item and unit of measure; manifest, install, external_ref columns"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 2663
+    # Source: GH #2663 (REQ-474, labels state:blocked, prio:2, type:requirement; blocked on REQ-473). Transcribed from the validated issue body by REQ-ANALYST 2026-10-19; the issue body is the content authority.
+    description: >
+      WMS foundation slice 0 (2 of 2), module catalog_items (the architect's `catalog`; the
+      manifest id is catalog_items because `catalog` collides with Letflow.Modules.Catalog:
+      decision 0050 header, supervisor ruling 2026-10-14): item and unit of measure.
+      Rewritten lean 2026-10-16 after REQ-VALIDATOR found stale facts in the 2026-10-14
+      draft (old text on the local branch docs/req-wms-draft-v2-20261014, history only).
+      Authoritative sources: decisions 0050, 0052, 0054, 0057; base document
+      docs/WMS/WMS_Procurement_Requirements_Draft.md (MD-01). Shared masters are
+      platform-level and GH #2657 depends on them: prio 2. Depends on REQ-473 (module
+      pattern and the fixture_managed hygiene). The behaviour tests, the read API and the
+      runbook section are REQ-507 (split for sizing, 2026-10-16; REQ-507 reuses the REQ-506
+      read-API contract and creates no runbook file: REQ-506 creates it).
+
+      SCOPE. Module id catalog_items, entry module Letflow.Modules.CatalogItems, directory
+      lib/letflow/modules/catalog_items/, pack priv/modules/catalog_items/, depends_on []
+      (0050 open point 3: no legal-entity reference here). Entity types are prefixed
+      catalog_; no foreign_keys; each has an `active` boolean, queried, required:
+
+      1. catalog_uom: code (string, queried, required), name (string, required). Unique over
+      [code].
+
+      2. catalog_item: code (string, queried, required), name (string, required),
+      base_uom_id (string, queried, required; the record_id of a catalog_uom), kind (enum
+      material | service, queried, required; services are free-text lines in the purchase
+      request in slice 1, so kind is material for every item and the enum exists for a later
+      services catalog). Unique over [code].
+
+      3. external_ref (0057 D1): both types also carry external_ref_system and
+      external_ref_id, nullable strings, both `queried: true`, with a unique constraint over
+      the pair. The both-or-neither / non-blank rule is enforced by the module write
+      functions, not the definition.
+
+      4. Declared in manages_entity_types (managed, owner path only). The unit-of-measure
+      decimal scale and conversion factors are NOT here: GH #2660 (REQ-504). No decimal
+      field is introduced.
+
+      5. Counterparty is NOT built (0050 D1: named only until a requirement consumes it);
+      REQ-478's supplier_ref stays a plain string.
+
+      MANIFEST AND GATES. The manifest declares permissions: [] and no
+      role_grants/widens_grants in this slice; adding Letflow.Modules.CatalogItems to
+      config/config.exs updates the golden modules assertion
+      (test/letflow/api/permission_matrix_test.exs:147) and
+      priv/permission_matrix/effective.golden so that catalog_items is present alongside
+      exam and org (REQ-473 has merged first), and mix letflow.permission_matrix --check
+      (CI, MIX_ENV=dev) is green; output quoted (SECURITY-REVIEWER trigger, rule of
+      2026-10-16). REQ-473 lands first (it fixes the fixture_managed names, including
+      catalog_item, catalog_uom and org_unit_membership); this change re-runs the fixture
+      grep for catalog_item and catalog_uom and quotes it empty.
+
+      ROUTING. Owner: ELIXIR-DEV. Depends on: REQ-473. Blocks: GH #2657, REQ-475. Prio 2.
+      All file:line references are re-read on main by the implementer.
+    acceptance_criteria:
+      - "1. Definitions: priv/modules/catalog_items/entity_definitions/ holds exactly the two types with exactly the fields, queried flags and unique constraints above (plus the external_ref pair constraint on each), asserted by a test that reads the files."
+      - "2. Registration and manifest: Catalog.validate/1 accepts it (id catalog_items, depends_on [], manages_entity_types equal to the two names); it appears in Catalog.entry_modules/0; the literal assertions in catalog_test.exs are updated."
+      - "3. Install on real Postgres as TENANT_ADMIN with a rationale (201; 422 without one) activates both types; one promotion row per promoted column from DDL.promoted_columns/1, including the four external_ref columns."
+      - "4. Name conflict: a tenant-created type named catalog_item makes the install fail and roll back completely (assert the error shape read from main)."
+      - "5. A generic POST /entities/records/catalog_item is 403 entity_type_managed."
+      - "6. SECURITY-REVIEWER and REVIEWER verdicts recorded; compile, format, scoped tests, mix letflow.check_boundaries and mix letflow.check_requirements_registration pass, real output quoted."
+      - "7. Manifest and gates: the manifest declares permissions: [] and no role_grants/widens_grants in this slice; adding Letflow.Modules.CatalogItems to config/config.exs updates the golden modules assertion (test/letflow/api/permission_matrix_test.exs:147) and priv/permission_matrix/effective.golden so that catalog_items is present alongside exam and org (REQ-473 has merged first), and mix letflow.permission_matrix --check (CI, MIX_ENV=dev) is green; output quoted (SECURITY-REVIEWER trigger, rule of 2026-10-16)."
+      - "8. REQ-473 lands first (it fixes the fixture_managed names, including catalog_item, catalog_uom and org_unit_membership); this change re-runs the fixture grep for catalog_item and catalog_uom and quotes it empty."
+    depends_on: [REQ-473]
+
+  - id: REQ-506
+    title: "WMS foundation (slice 0, 1c): module org behaviour, read API (lookup, active?, member?), tenant isolation and limits runbook"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 2662
+    # Source: GH #2662 (REQ-506, labels state:blocked, prio:2, type:requirement; blocked on REQ-473). Transcribed from the validated issue body by REQ-ANALYST 2026-10-19; the issue body is the content authority.
+    description: >
+      WMS foundation slice 0 (1c), module org: behaviour of the installed types, read API,
+      tenant isolation and the limits runbook. Split from REQ-473 (skeleton) on 2026-10-16
+      (REQ-VALIDATOR sizing). Authoritative sources as in REQ-473: decisions 0050 D2/D3,
+      0052, 0054, 0057; base document docs/WMS/WMS_Procurement_Requirements_Draft.md.
+      Depends on REQ-473 being done. Prio 2.
+
+      SCOPE 1, READ API. Letflow.Modules.Org (decision 0050 D2 shape): lookup(prefix, id)
+      returns {:ok, record_map} | {:error, :not_found}; active?(prefix, id) returns boolean;
+      member?(prefix, user_id, org_unit_id) returns boolean. `id` is a record_id (uuid, 0050
+      D3.1); lookup resolves across the four types; a value that is not a uuid gives
+      {:error, :not_found} from lookup and false from active? and member?, never a raise
+      (asserted); the record_map carries record_id, entity_type (the type name) and the
+      field values; a well-formed unknown uuid and a deleted record give {:error,
+      :not_found}; active? is true only for an existing, non-deleted record whose `active`
+      is true; member? is true only for an active membership of an active unit. Read-only;
+      no new core tables.
+
+      SCOPE 2, RUNBOOK. This requirement CREATES docs/runbooks/wms-foundation.md, section
+      "Org module limits": a numbered list of the module's limits as they are on main when
+      this is done (re-read; the 2026-10-14 list was partly stale): generic writes to the
+      four types are refused 403 entity_type_managed since GH #2530 (PR #2568); module code
+      writes only through its own Owner (/3 arity), with no reference check between types;
+      GH #2582 (attachment routes) still open; client idempotency keys cannot use the
+      reserved server-derived prefixes (reject_step_key returning {:error,
+      :reserved_idempotency_key} in lib/letflow/entities/records.ex;
+      reject_reserved_attributes is the separate attribute check; GH #2550 closed by PR
+      #2600): state the rule as main has it and cite the code.
+
+      ROUTING. Owner: ELIXIR-DEV. Depends on: REQ-473. Blocks: REQ-507 (reuses the read-API
+      contract and the runbook file), GH #2657. All file:line references are re-read on main
+      by the implementer.
+    acceptance_criteria:
+      - "1. Uniqueness refused by the database (owner path /3 with ManagedTypes.owner_for!(Letflow.Modules.Org), actor_id and idempotency_key as in test/support/modules/fixture_managed/fixture_managed.ex): a second org_site with an existing code returns {:error, {:record_payload_invalid, [%Violation{rule: :unique, path: [\"code\"]}]}} (the unique-constraint mapping in records.ex; the test asserts the rule and path); the same for org_legal_entity and org_unit."
+      - "2. Idempotency (owner path): the same create repeated with the same idempotency_key and payload returns {:ok, result} with is_duplicate true, the same record_id and the same last_event_global_seq; the same key with a different payload returns {:error, :idempotency_key_reuse}."
+      - "3. Optimistic concurrency (PR #2542): Records.update_record/3 with the Owner and the record's current last_event_global_seq as expected_last_event_global_seq succeeds; with a stale value it returns {:error, :record_version_conflict}; Records.delete_record/3 with the Owner and a stale value is refused likewise (a throwaway record)."
+      - "4. Read API: lookup, active? and member? behave as in Scope 1 for each of the four types, including the deleted record and the unknown uuid."
+      - "5. Tenant isolation: the read API called with tenant B's prefix never returns a record written under tenant A (two-tenant test)."
+      - "6. The runbook section exists with the numbered limits; a test or grep quoted proves the section header and that each limit names a GH number or code path that exists."
+      - "7. SECURITY-REVIEWER verdict recorded (new module-to-module read surface); REVIEWER verdict recorded."
+      - "8. mix compile --warnings-as-errors, mix format --check-formatted, scoped mix test, mix letflow.check_boundaries pass, real output quoted."
+    depends_on: [REQ-473]
+
+  - id: REQ-507
+    title: "WMS foundation (slice 0, 2b): module catalog_items behaviour, read API (lookup, active?, item_uom_valid?) and limits runbook section"
+    owner: ELIXIR-DEV
+    status: pending
+    stage: S7
+    gh: 2664
+    # Source: GH #2664 (REQ-507, labels state:blocked, prio:2, type:requirement; blocked on REQ-474 and REQ-506). Transcribed from the validated issue body by REQ-ANALYST 2026-10-19; the issue body is the content authority.
+    description: >
+      WMS foundation slice 0 (2b), module catalog_items: owner-path behaviour, read API,
+      tenant isolation and the limits runbook section. Split from REQ-474 (skeleton) on
+      2026-10-16 (REQ-VALIDATOR sizing). Authoritative sources as in REQ-474: decisions
+      0050, 0052, 0054, 0057; base document docs/WMS/WMS_Procurement_Requirements_Draft.md
+      (MD-01). Depends on REQ-474 (skeleton) and REQ-506 (the read-API contract and the
+      runbook file it creates). Prio 2.
+
+      SCOPE 1. Read API in Letflow.Modules.CatalogItems, same contract as REQ-506 (0050 D2):
+      lookup(prefix, id) across both types, active?(prefix, id), and item_uom_valid?(prefix,
+      item_id, uom_id) (the item exists, is active, and uom_id equals its base_uom_id; slice
+      1 allows only the base unit). Added rules: item_uom_valid? is false when the item is
+      inactive or unknown, when the unit is inactive or unknown, and for a value that is not
+      a uuid (never a raise); kind is required and only material or service is accepted (a
+      create with another value is refused).
+
+      ROUTING. Owner: ELIXIR-DEV. Depends on: REQ-474, REQ-506. Blocks: GH #2657, REQ-475.
+      Prio 2. All file:line references are re-read on main by the implementer.
+    acceptance_criteria:
+      - "1. Owner-path behaviour (the /3 arity with the Owner): a duplicate code is refused by the database; the same idempotency key and payload twice gives is_duplicate true; two rows with both external_ref fields NULL are accepted, a duplicate non-NULL pair refused."
+      - "2. Read API: lookup/active? per Scope 5 for both types (unknown and deleted give :not_found / false); item_uom_valid? true only for the base unit of an active item; two-tenant isolation test."
+      - "3. kind: an owner-path create with kind missing, and one with kind = \"other\", are each refused with {:error, {:record_payload_invalid, _}} naming the field (assert the path)."
+      - "4. item_uom_valid? false for an inactive item, an inactive unit, an unknown item, an unknown unit and a non-uuid value."
+      - "5. Runbook docs/runbooks/wms-foundation.md gains a section (the file is created by REQ-506) \"Catalog module limits\", a numbered list of the limits as on main when this is done (the same re-read as REQ-506, plus: no reference check on base_uom_id)."
+      - "6. SECURITY-REVIEWER (module-to-module read surface) and REVIEWER verdicts recorded; compile, format, scoped tests and mix letflow.check_boundaries pass, real output quoted."
+    depends_on: [REQ-474, REQ-506]
+
+  - id: REQ-502
+    title: "WMS stock ledger core (1 of 4): append-only stock_movement header plus legs, gap-free posting sequence, reversal, no-negative guard in the module write handler (design)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 2657
+    # Source: GH #2657 (REQ-502, labels state:in-progress, prio:2, type:requirement, claimed:letflow-4 at transcription time). Transcribed from the validated issue body by REQ-ANALYST 2026-10-19; the issue body is the content authority.
+    description: >
+      REQ-502 (ledger core, 1 of 4 of the WMS stock ledger). Decision:
+      docs/migration/decisions/0057-wms-customer-draft-reconciliation.md D5, gaps G7 and G3
+      (advisor letflow-ec ruling under the user's delegation, 2026-10-16). Base requirements
+      document: docs/WMS/WMS_Procurement_Requirements_Draft.md (MD-08, MD-09, WM-06, CS-01).
+      Mapping: docs/migration/wms-customer-draft-mapping-20261016.md. Per decision 0057 D9,
+      international practice (append-only inventory ledger with balanced postings, reversal
+      by a new entry) is the tie-break. This replaces the single-row receipt base of the
+      earlier local drafts REQ-489..492, which is the wrong base. This is a DESIGN
+      requirement (CODE-DESIGNER), not an implementation: its output is a design note that
+      the later slices implement.
+
+      DEPENDENCY TIERS. depends_on lists the masters and mechanism this design is written
+      against. The dependency is HARD only for the implementation slices; for this DESIGN it
+      is SOFT on the masters REQ-473 (GH #2661, org), REQ-474 (GH #2663, catalog_items) and
+      their behaviour halves REQ-506 (GH #2662) and REQ-507 (GH #2664): the note is written
+      against the planned masters and cites them. The quantity type (GH #2654) is HARD for
+      the implementation slices and SOFT for the design (the design states the interim
+      compatible schema).
+
+      PREREQUISITE the design must not assume is live (as written 2026-10-16). The
+      no-negative guard runs inside the module write handler, the REQ-501 / GH #2590
+      mechanism. On main (5997f92c), per
+      lib/letflow/design/gh2590-req501-module-write-handlers.md section 1.1: R1 (Catalog
+      registration, validation, lookup, manifest hash; inert at runtime, PR #2650) and R2
+      (stamp storage, PR #2652) are merged. R3 (declaration and activation: the
+      module_writes node attribute, EntityPort.validate_module_writes/2 and
+      authorize_module_writes/2, activation checks, PinRebind guard), R4a (entities core:
+      HandlerWrites, HandlerContext, the handler contract), R4b (engine HUMAN_TASK
+      integration, failure mapping) and R5 (SERVICE_TASK) are NOT merged. Production
+      :modules is [Letflow.Modules.Exam], which declares no handlers (config/config.exs:60).
+      So no handler can run today. The design states which REQ-501 acceptance criteria it
+      relies on and marks every one not yet on main as a dependency; it does not require the
+      guard to exist before REQ-501 completes. REGISTRATION NOTE (REQ-ANALYST, 2026-10-19,
+      not in the issue body): REQ-501 is status done in this file (R1-R5 delivered, see its
+      description), so the R3-R5 NOT-merged statements above describe main at 5997f92c; the
+      design re-reads main and marks only what is still not on main.
+
+      MODEL (from the ruling). An append-only stock_movement header (document ids, cause,
+      actor, correlation id, BPM process and task references, event time, posting time,
+      posting_seq, nullable reverses_header_id) and legs (item, location, status, lot,
+      quantity delta, base unit). A transfer's legs sum to zero per item. Balances are
+      derived by sum over legs; a cut-off report is posting_seq <= N. One gap-free posting
+      sequence per tenant or per warehouse (the design chooses and proves gap-freeness under
+      concurrency). A reversal is a new header that references the original, never an edit.
+      The no-negative guard runs under row locks taken in a fixed order (item id, then
+      location). stock_balance is a same-transaction cache, never the source of truth, with
+      a reconciliation read. This note owns the FIRST migration and includes by reference
+      the dimension columns designed in REQ-503 (GH #2658) and the quantity columns designed
+      in REQ-504 (GH #2660). Quantities follow D4 (exact decimal, depends on GH #2654);
+      until it lands the design says how the schema stays compatible.
+
+      ROUTING. Owner: CODE-DESIGNER. Depends on: REQ-501 / GH #2590 (mechanism; R4b is the
+      first usable handler write), GH #2654 (SOFT: the quantity type; the design states the
+      interim compatible schema), the masters GH #2661 (REQ-473 org) and GH #2663 (REQ-474
+      catalog_items), with their behaviour halves GH #2662 (REQ-506) and GH #2664 (REQ-507):
+      SOFT for this design, HARD for the implementation slices, GH #2654 for the quantity
+      type. Priority: core items GH #2654 and REQ-505 stay ahead of WMS-specific slices
+      (supervisor, 2026-10-16). Next: REQ-503 (dimensions), REQ-504 (decimal quantity).
+      Draft source: local branch docs/req-wms-draft-v2-20261014, REQ-502.
+
+      UPDATE 2026-10-17 (supervisor, GH #2654 PR-1). GH #2654 PR-1 is merged (#2761,
+      49f43759): decimal_strict writes, scale/precision, bounds and the flip gate are live
+      (decision 0060, per-field opt-in, default false; the flag is immutable once the type
+      has any record). Strict READS, filters, aggregates and the cursor are NOT live: they
+      arrive after GH #2654 PR-2, which closes GH #2654. Until then a strict field is
+      guaranteed exact only on write, storage and the HTTP echo. Any exact-decimal READ,
+      filter, aggregate or cursor over a WMS quantity field depends on GH #2654 PR-2; this
+      slice's write path may rely on GH #2654 PR-1 only. Read from decision 0060; the
+      supervisor did not run anything. (Superseded by the REQ-504 issue update of
+      2026-10-18: GH #2654 is DONE, PR-2 #2770 e6dc2419 merged, strict reads, filters and
+      aggregates are live. REQ-ANALYST note; re-verify on main.)
+    acceptance_criteria:
+      - "1. A design note (in lib/letflow/design/ per the project's design-artefact convention) names the tables, the append-only enforcement, the sequence mechanism with a proof of gap-freeness under two concurrent postings, and the lock order. Each claim about existing code carries a repository citation re-read on main, or is marked NOT FOUND."
+      - "2. The note says what happens to the event time of a late-synchronised movement (G7) and how a report states its time basis and cut-off."
+      - "3. A test plan covers: a transfer whose legs do not sum to zero is refused; two concurrent postings that would take one item and location below zero leave exactly one posted; a reversal of a reversed header is refused; the balance at cut-off N equals the sum of legs with posting_seq <= N; stock_balance equals the sum after every posting and the reconciliation read reports a deliberately corrupted cache; a duplicate command with the same idempotency key posts once and returns the same stable operation id."
+      - "4. The prerequisite section above is carried into the note, and the note lists the REQ-501 acceptance criteria it depends on that are not on main."
+      - "5. CODE-DESIGN-VALIDATOR passes the note; SECURITY-REVIEWER is a gate (module write handlers on a tenant data path)."
+    depends_on: [REQ-501, REQ-473, REQ-474, REQ-506, REQ-507]
+
+  - id: REQ-503
+    title: "WMS stock ledger core (2 of 4): stock dimensions in the ledger schema from the first migration (design)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 2658
+    # Source: GH #2658 (REQ-503, labels state:ready, prio:2, type:requirement). Transcribed from the validated issue body by REQ-ANALYST 2026-10-19; the issue body is the content authority.
+    description: >
+      REQ-503 (ledger core, 2 of 4). Decision 0057
+      (docs/migration/decisions/0057-wms-customer-draft-reconciliation.md) gap G3, ranked 2:
+      the lot, serial, expiry, status, owner, custodian and alternate-unit columns go into
+      the ledger schema now, so no later migration rewrites an append-only table. Base
+      document: docs/WMS/WMS_Procurement_Requirements_Draft.md (MD-04, MD-06, WM-06). Same
+      schema as REQ-502 (GH #2657), separate review. DESIGN requirement (CODE-DESIGNER).
+
+      SCOPE. Design the dimension columns of the ledger leg: lot, serial, expiry, inventory
+      status (available, quarantine, blocked, reject), owner, custodian. (The original
+      quantity and unit columns are defined by REQ-504, GH #2660, not here.) All new
+      dimension columns are nullable, so a later addition never rewrites a posted row. State
+      which are part of the balance key. Design the serial uniqueness rule (no duplicate
+      active serial) and the effect of status on available-to-pick. The behaviour slices
+      (quarantine flows, owner/custodian transfer) follow separately and are out.
+
+      ROUTING. Owner: CODE-DESIGNER. Depends on: GH #2657 (REQ-502). Prio 2. Quantity type
+      follows GH #2654 (soft for the design; the note states the interim compatible schema,
+      as GH #2657 does). The first migration is designed in GH #2657; this note supplies its
+      dimension columns.
+
+      UPDATE 2026-10-17 (supervisor, GH #2654 PR-1). GH #2654 PR-1 is merged (#2761,
+      49f43759): decimal_strict writes, scale/precision, bounds and the flip gate are live
+      (decision 0060, per-field opt-in, default false; the flag is immutable once the type
+      has any record). Strict READS, filters, aggregates and the cursor are NOT live: they
+      arrive after GH #2654 PR-2, which closes GH #2654. Until then a strict field is
+      guaranteed exact only on write, storage and the HTTP echo. Any exact-decimal READ,
+      filter, aggregate or cursor over a WMS quantity field depends on GH #2654 PR-2; this
+      slice's write path may rely on GH #2654 PR-1 only. Read from decision 0060; the
+      supervisor did not run anything. (Superseded by the REQ-504 issue update of
+      2026-10-18: GH #2654 is DONE, PR-2 #2770 e6dc2419 merged, strict reads, filters and
+      aggregates are live. REQ-ANALYST note; re-verify on main.)
+    acceptance_criteria:
+      - "1. The design note lists each dimension column with type, nullability and index, and states which belong to the balance key."
+      - "2. Test plan: a serial-tracked item cannot be received twice as active; a leg with status quarantine is excluded from available-to-pick; owner and custodian are reported separately for one location; a migration test seeds a posted leg, adds a nullable dimension column and shows the posted row is byte-identical and still sums correctly."
+      - "3. Citations to existing code re-read on main, or NOT FOUND."
+      - "4. CODE-DESIGN-VALIDATOR passes the note."
+    depends_on: [REQ-502]
+
+  - id: REQ-504
+    title: "WMS quantity: exact decimal strings, scale per unit of measure, rounding rule per item, conversion at posting, item tolerance (design)"
+    owner: CODE-DESIGNER
+    status: pending
+    stage: S7
+    gh: 2660
+    # Source: GH #2660 (REQ-504, labels state:ready, prio:2, type:requirement). Transcribed from the validated issue body by REQ-ANALYST 2026-10-19; the issue body is the content authority.
+    description: >
+      REQ-504 (ledger core, 3 of 4). Decision 0057 D4 (advisor ruling, 2026-10-16): exact
+      decimal everywhere, a string on the wire; a scale per unit of measure; a rounding rule
+      per item (half-up default); conversion factors as decimal strings applied to the base
+      unit at posting; the ledger stores the base quantity plus the original quantity and
+      unit; a tolerance rule on the item for measured goods. Base document:
+      docs/WMS/WMS_Procurement_Requirements_Draft.md (MD-01, MD-07). DESIGN requirement
+      (CODE-DESIGNER).
+
+      DEPENDENCY. Core capability GH #2654 (decimal entity fields accept and return exact
+      decimal strings and enforce decimal_scale) is a SOFT dependency for this DESIGN: the
+      design is written against the shape GH #2654 plans and states the interim shape; the
+      IMPLEMENTATION slices wait for GH #2654 (consistent with GH #2657). Verified by
+      reading on main 5997f92c: the write-side schema of a decimal field is JSON number
+      (lib/letflow/entities/record/validator.ex:108), so a string is rejected today; the
+      scale is per field, not per record. Also depends on GH #2657 (REQ-502) for the ledger
+      shape.
+
+      SCOPE. Design the unit-of-measure scale, the per-item rounding rule, the conversion
+      rule applied to the base unit at posting, the stored (base, original quantity,
+      original unit) triple and the item tolerance rule. Which of these the core feature (GH
+      #2654) provides and which is module logic is stated with citations.
+
+      ROUTING. Owner: CODE-DESIGNER. Ordering (no cycle): GH #2657 owns the ledger shape and
+      the first migration; this design may start in parallel against the planned ledger
+      shape, and the quantity columns it designs are folded into GH #2657's first migration
+      by reference. Hard ordering applies only to implementation slices (GH #2657 first; GH
+      #2654 first for the wire form); GH #2654 is SOFT for this design. Prio 2.
+      Customer-dependent input: pilot item scales and tolerances (for the user, plain
+      language).
+
+      OWNERSHIP AND ADDED POINTS. REQ-504 owns the stored (base quantity, original quantity,
+      original unit) columns; REQ-503 (GH #2658) does not define them. REQ-502 (GH #2657)
+      includes both sets by reference. MD-07 of the base document also asks for measurement
+      evidence (scale/measurement reference) at receipt and issue; the design states where
+      it is recorded, or marks it out of this slice.
+
+      UPDATE 2026-10-17 (supervisor, GH #2654 PR-1). GH #2654 PR-1 is merged (#2761,
+      49f43759): decimal_strict writes, scale/precision, bounds and the flip gate are live
+      (decision 0060, per-field opt-in, default false; the flag is immutable once the type
+      has any record). Strict READS, filters, aggregates and the cursor are NOT live: they
+      arrive after GH #2654 PR-2, which closes GH #2654. Until then a strict field is
+      guaranteed exact only on write, storage and the HTTP echo. REQ-504 declares
+      decimal_strict: true on its quantity fields (decision 0060 D6) and the design assumes
+      the opt-in per-field model, not an always-string default. Read from decision 0060; the
+      supervisor did not run anything.
+
+      UPDATE 2026-10-18 (supervisor, GH #2654 DONE). GH #2654 is complete: PR-1 #2761
+      (49f43759) and PR-2 #2770 (e6dc2419) are merged. Strict READS (create/update/delete
+      bodies, query including joined rows, export), filters (eq neq gt gte lt lte in not_in;
+      a float is 422), sort and cursor (a tampered cursor is 400 for every decimal field),
+      aggregates and ScriptReads are live (decision 0060, per-field opt-in). The soft
+      dependency above is now met: the IMPLEMENTATION slices may rely on exact-decimal
+      reads, filters and aggregates. This issue's only remaining block is no longer GH
+      #2654.
+    acceptance_criteria:
+      - "1. The design note ties each rule to what is on main (cited, re-read) or to what GH #2654 PLANS (cited to GH #2654), and marks anything in neither as NOT FOUND."
+      - "2. Test plan: 2.5 m of cable with a tolerance of 0.05 m (absolute, in the item's base unit; the note also says whether a percent basis is supported) posts the base quantity and keeps the original quantity and unit; the same posting under two rounding rules shows both results; the behaviour for a decimal sent as a JSON number and for a conversion factor with more digits than its scale follows the choice GH #2654 makes (refuse, or round by its stated rule); the test asserts whichever GH #2654 decides, and the note names the assumed one."
+      - "3. CODE-DESIGN-VALIDATOR passes the note."
+    depends_on: []
+
+  - id: REQ-505
+    title: "Masters carry a nullable external_ref {system, id} and a one-time idempotent import upserts by external id (design)"
+    owner: CODE-DESIGNER
+    status: done
+    stage: S7
+    gh: 2659
+    # Source: GH #2659 (REQ-505, core-adjacent, prio:2; CLOSED by PR #2805, merged 2026-10-18T04:46:17Z, merge commit 27274bd2). Transcribed from the validated issue body by REQ-ANALYST 2026-10-19; status done set on the supervisor authorisation (2026-10-19) after a read-only check of the closed issue, the merged PR and the design note on origin/main; no RELEASE-VALIDATOR re-run (see the done event in docs/status/requirement_status.v27.yaml).
+    description: >
+      REQ-505 (core-adjacent). Decision 0057 D1 (advisor ruling, 2026-10-16): the module
+      owns items, suppliers, purchase orders and stock; no inbound master sync; masters come
+      in by a one-time idempotent import (EntitiesRecordsImport, upsert by external id);
+      every master has a nullable external_ref {system, id} from day one. Base document:
+      docs/WMS/WMS_Procurement_Requirements_Draft.md (IN-01, IN-06, MD-01). Customer answer
+      is needed only for cutover (which system seeds the import; whether 1C keeps editing
+      masters during the pilot).
+
+      CURRENT CODE (read on main 5997f92c, not run; as written when the issue was filed).
+      The import route POST /entities/records/:entity_type/import calls
+      Letflow.Entities.Records.create_record/2 per entry (lib/letflow/routers/entities.ex:70
+      is the moduledoc table row; the handler is handle_import_records/run_import, about
+      :1208-1230): create only, no upsert. The partial-failure and record-cap behaviour of
+      run_import is NOT yet read: the design note quotes it. No external_ref field exists in
+      lib/ (grep for external_ref finds only design documents).
+
+      SCOPE. Decide (design) whether upsert-by-external-id is a core import change (an
+      optional upsert_by on the import route) or a module function; define the external_ref
+      convention for master record types (a nullable object {system, id} or two columns,
+      unique per (system, id) per type when present). A one-time import must be safe to run
+      twice.
+
+      ROUTING. Owner: CODE-DESIGNER. Prio 2: core work, kept ahead of WMS-specific slices
+      (supervisor, 2026-10-16). Related: GH #2657 (ledger), local drafts REQ-473/474 (org,
+      catalog_items) carry external_ref when filed.
+
+      EVIDENCE 2026-10-18 (as recorded on the closed issue GH #2659; the issue was already
+      closed by the merge; ACs checked against the three PRs, letflow-2 did not run the
+      tests). PR-1 #2797 (c75ad320: external_ref columns and unique index, CREATED event v2,
+      projector), PR-2 #2803 (33d68c57: Records.upsert_record_by_external_ref/2,3), PR-3
+      #2805 (27274bd2: POST /entities/records/:entity_type/import with upsert_by
+      external_ref, lib/letflow/entities/import_upsert.ex). Design note:
+      lib/letflow/design/gh2659-external-ref-idempotent-import.md (core; no upsert_by =
+      today's behaviour byte-identical). Tests:
+      test/letflow/routers/entities_import_upsert_test.exs and
+      records_upsert_by_external_ref_test.exs. No HTTP schema bump (v1 unchanged; CREATED
+      event v2, import returns 503 below v2 via ImportUpsert.precheck/3). The route keeps
+      EntitiesRecordsImport alone; SECURITY, REVIEWER and TEST-DESIGN-VALIDATOR
+      PASS_WITH_FINDINGS, findings applied. Not covered, tracked separately: the
+      module-handler part of design T9 (follow-up filed), GH #2794, GH #2784, and the
+      restricted-field actor two-statement window (documented in the ImportUpsert
+      moduledoc). Known local failure in the PR body: permission_matrix_test T24 on a
+      Windows CRLF checkout, reasoned unrelated, not confirmed by a base run.
+    acceptance_criteria:
+      - "1. A design note decides core versus module, with citations on main, and states the effect on existing tenants (backward compatible: no upsert_by means today's behaviour)."
+      - "2. Test plan: importing the same file twice leaves one record per external id; a record without external_ref is accepted; two systems with the same id value do not collide; a partial failure rolls back or reports per entry (the design states which)."
+      - "3. Extra tests: two concurrent imports of the same external id leave one record; the same external_ref in two tenants does not collide; upsert_by interacts correctly with the idempotency key (GH #2543); the note decides whether the import schema version needs a bump."
+      - "4. Permission model unchanged: the import keeps its route-level gate (EntitiesRecordsImport); SECURITY-REVIEWER gate; CODE-DESIGN-VALIDATOR passes the note."
+    depends_on: []
