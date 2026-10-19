@@ -13,6 +13,9 @@ defmodule Mix.Tasks.Letflow.ScopeEnforcement.BreakGlass do
       mix letflow.scope_enforcement.break_glass <slug> --to shadow|off --reason "<text>" \\
         --operator <label> (--confirm <slug> | --dry-run)
 
+  The `--reason` MUST start with the incident ticket id (`"<ticket id>: <short reason>"`); it is
+  what ties the audit entry to the infrastructure access log (a documented rule, not checked here).
+
   Every switch except `--confirm` / `--dry-run` is mandatory, and exactly one of those two must
   be given. There is no default for `--operator` (no `$USER`): the label is an attestation
   recorded in the audit entry. An unknown switch, a missing value or an extra positional is a

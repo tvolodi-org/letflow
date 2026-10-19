@@ -261,8 +261,8 @@ defmodule Letflow.Release.ScopeBreakGlassTest do
                  {:ok, %{outcome: :dry_run, previous: :on, mode: String.to_existing_atom(target)}}
 
         assert lines == [target_line(fx, "on", target), "DRYRUN would_change=true"]
-        # a dry run logs nothing of its own
-        assert bg_lines(log) == []
+        # a dry run leaves one constant trace in the node log (R5 F2), no write
+        assert bg_lines(log) == ["scope_break_glass_dry_run operator=" <> @op]
       end
 
       assert_untouched(fx, before, "dry run")
@@ -603,6 +603,49 @@ defmodule Letflow.Release.ScopeBreakGlassTest do
       refute Enum.any?(lines, &(&1 =~ "server_fault"))
       assert bg_lines(log) == ["scope_break_glass_refused reason=lock_conflict operator=" <> @op]
       assert_untouched(fx, before, "lock conflict")
+    end
+  end
+
+  describe "R5 F2 the dry run and the early refusals leave one constant log line" do
+    test "a dry run logs scope_break_glass_dry_run with the valid operator label only: no slug, id or reason" do
+      fx = BG.on_tenant!("t-dry-log")
+      before = BG.entry_count(fx)
+
+      {_result, _lines, log} = call(fx.tenant.slug, "shadow", @reason, @op, dry_run: true)
+
+      assert bg_lines(log) == ["scope_break_glass_dry_run operator=" <> @op]
+      [line] = bg_lines(log)
+      refute line =~ fx.tenant.slug
+      refute line =~ fx.tenant_id
+      refute line =~ "REASON-MARKER"
+      assert BG.entry_count(fx) == before
+      assert BG.mode(fx) == "on"
+    end
+
+    test "a dry run that is refused logs the refusal line, not the dry-run line" do
+      fx = BG.on_tenant!("t-dry-refused")
+      :ok = ScopeEnforcementFixture.set_stored_mode!(fx.tenant_id, :off)
+
+      {_result, _lines, log} = call(fx.tenant.slug, "shadow", @reason, @op, dry_run: true)
+
+      assert bg_lines(log) == ["scope_break_glass_refused reason=not_enforced operator=" <> @op]
+    end
+
+    test "unknown tenant, confirm mismatch and invalid reason each leave exactly one constant refusal line" do
+      fx = BG.on_tenant!("t-early-log")
+
+      cases = [
+        {call("gh2883-nobody", "off", @reason, @op, confirm: "gh2883-nobody"), "unknown_tenant"},
+        {call(fx.tenant.slug, "off", @reason, @op, confirm: "other"), "confirm_mismatch"},
+        {call(fx.tenant.slug, "off", "bad\x00reason", @op, confirm: fx.tenant.slug),
+         "invalid_reason"}
+      ]
+
+      for {{_result, _lines, log}, tag} <- cases do
+        assert bg_lines(log) == ["scope_break_glass_refused reason=#{tag} operator=" <> @op]
+      end
+
+      assert BG.mode(fx) == "on"
     end
   end
 

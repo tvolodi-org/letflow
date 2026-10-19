@@ -615,7 +615,19 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
     "the command needs the running application",
     "RESTARTS",
     "Do NOT put secrets, personal data or quotes in the reason",
-    "at most 64 characters"
+    "at most 64 characters",
+    # R5 F1: the ticket id is a prefix of the reason
+    "MUST start with the incident ticket id",
+    "<ticket id>: <short reason>",
+    # R5 F2: the dry run and refusals leave constant log lines
+    "scope_break_glass_dry_run",
+    "scope_break_glass_refused",
+    # R5 F4: the audit-chain last resort
+    "Audit-chain fault (last resort)",
+    "ONE transaction",
+    "inserts the matching `scope.enforcement_disabled` audit row",
+    "WRITTEN sign-off of the decision owner",
+    "Without that sign-off nobody runs it"
   ]
 
   @bg_record_claims [
@@ -630,7 +642,13 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
     "A10's gap (a tenant stored `on` with nobody able to turn it off) is only PARTLY answered by this command",
     "the last-admin guard (GH #2869 part (a)) stays open and is still required before any customer `on`",
     "The A7 token break-glass covers GRANT writes only",
-    "needs a NEW decision record"
+    "needs a NEW decision record",
+    # R5 F4: an audit-chain fault blocks the command
+    "audit-chain fault",
+    "makes the command fail and roll back",
+    "in ONE transaction that also inserts the audit row",
+    "WRITTEN sign-off of the decision owner",
+    "as stated in the runbook"
   ]
 
   # Every violation of the GH #2883 documentation rules for the three documents (pure).
@@ -756,6 +774,38 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
       refute tail =~ "\n## "
     end
 
+    test "the Before-you-start paragraph requires the ticket id as the reason PREFIX, in the runbook and in both doc strings",
+         %{runbook: runbook} do
+      before_start =
+        runbook
+        |> section(@bg_heading)
+        |> flat()
+        |> String.split("Before you start:", parts: 2)
+        |> List.last()
+        |> String.split("The Mix form is for dev", parts: 2)
+        |> hd()
+
+      assert before_start =~ "The reason MUST start with the incident ticket id"
+      assert before_start =~ "`<ticket id>: <short reason>`"
+
+      {:docs_v1, _, _, _, %{"en" => task_doc}, _, _} =
+        Code.fetch_docs(Mix.Tasks.Letflow.ScopeEnforcement.BreakGlass)
+
+      assert flat(task_doc) =~ "MUST start with the incident ticket id"
+      assert flat(task_doc) =~ "<ticket id>: <short reason>"
+
+      {:docs_v1, _, _, _, _, _, docs} = Code.fetch_docs(Letflow.Release.ScopeBreakGlass)
+
+      run_doc =
+        Enum.find_value(docs, fn
+          {{:function, :run, 5}, _, _, %{"en" => doc}, _} -> doc
+          _other -> nil
+        end)
+
+      assert flat(run_doc) =~ "MUST start with the incident ticket id"
+      assert flat(run_doc) =~ "<ticket id>: <short reason>"
+    end
+
     test "seeded bad documents fire every rule", %{roles: roles, runbook: runbook, record: record} do
       assert :runbook_heading_not_exactly_once in bg_violations(
                roles,
@@ -831,6 +881,34 @@ defmodule Letflow.Docs.RolesOnFlipDocsTest do
                roles,
                runbook,
                String.replace(record, "**A11. Operator break-glass for the flag.**", "**A11.**")
+             )
+
+      assert {:runbook_section_missing_claim, "Audit-chain fault (last resort)"} in bg_violations(
+               roles,
+               String.replace(runbook, "Audit-chain fault (last resort)", "Audit fault"),
+               record
+             )
+
+      assert {:runbook_section_missing_claim, "WRITTEN sign-off of the decision owner"} in bg_violations(
+               roles,
+               String.replace(runbook, "WRITTEN sign-off of the decision owner", "sign-off"),
+               record
+             )
+
+      assert {:runbook_section_missing_claim, "MUST start with the incident ticket id"} in bg_violations(
+               roles,
+               String.replace(
+                 runbook,
+                 "MUST start with the incident ticket id",
+                 "should name a ticket"
+               ),
+               record
+             )
+
+      assert {:record_missing, "makes the command fail and roll back"} in bg_violations(
+               roles,
+               runbook,
+               String.replace(record, "makes the command fail and roll back", "is fine")
              )
 
       attestation =

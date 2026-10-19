@@ -682,6 +682,46 @@ defmodule Letflow.ScopeEnforcementOutOfBandTest do
       assert_untouched(fx, before, "audit chain held")
     end
 
+    test "(vi) the configured lock timeout is clamped to 14 s (R5 F3): the value bound to set_config" do
+      handler = {:gh2883_cap, make_ref()}
+      parent = self()
+
+      :telemetry.attach(
+        handler,
+        Repo.config()[:telemetry_prefix] ++ [:query],
+        fn _event, _measurements, metadata, _config ->
+          if is_binary(metadata[:query]) and metadata.query =~ "set_config('lock_timeout'",
+            do: send(parent, {:lock_timeout_param, metadata.params})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      for {configured, bound} <- [
+            {300, "300"},
+            {14_000, "14000"},
+            {14_001, "14000"},
+            {60_000, "14000"},
+            {1_000_000_000, "14000"},
+            {0, "10000"},
+            {-5, "10000"},
+            {"300", "10000"}
+          ] do
+        fx = BG.on_tenant!("t14c-cap")
+
+        assert {:ok, %{mode: :shadow}} =
+                 BG.with_env(@lock_timeout_key, configured, fn -> go(fx, :shadow) end)
+
+        assert_receive {:lock_timeout_param, [^bound]}, 2_000, "configured #{inspect(configured)}"
+      end
+
+      # no key at all: the default
+      fx = BG.on_tenant!("t14c-cap-default")
+      assert {:ok, _} = BG.with_env(@lock_timeout_key, :unset, fn -> go(fx, :off) end)
+      assert_receive {:lock_timeout_param, ["10000"]}, 2_000
+    end
+
     test "(iii) the transaction timeout is strictly above three lock waits and above the 15 s default" do
       for lock_ms <- [1, 300, 10_000, 30_000] do
         assert ScopeEnforcement.transaction_timeout_ms(lock_ms) == 3 * lock_ms + 10_000

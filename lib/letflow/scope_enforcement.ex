@@ -126,6 +126,8 @@ defmodule Letflow.ScopeEnforcement do
   # GH #2883: the operator label rule (design 3.3) and the break-glass timeouts.
   @out_of_band_source "operator_break_glass"
   @default_lock_timeout_ms 10_000
+  # Below the 15 s default per-query timeout, so a lock wait ends as the lock error (R5 F3).
+  @max_lock_timeout_ms 14_000
   @transaction_slack_ms 10_000
 
   @type mode :: :off | :shadow | :on
@@ -662,7 +664,9 @@ defmodule Letflow.ScopeEnforcement do
 
   defp do_flip_out_of_band(tenant_id, prefix, target, reason, operator, lock_ms) do
     # Transaction-local, bound parameter (INV-7): bounds each of the three lock waits.
-    Repo.query!("SELECT set_config('lock_timeout', $1, true)", [Integer.to_string(lock_ms)])
+    Repo.query!("SELECT set_config('lock_timeout', $1, true)", [Integer.to_string(lock_ms)],
+      timeout: transaction_timeout_ms(lock_ms)
+    )
 
     # Rank A, then T. NO scope-tree lock (S): a de-escalation runs no gate fact.
     tenant = lock_tenant_row!(tenant_id, prefix)
@@ -699,7 +703,7 @@ defmodule Letflow.ScopeEnforcement do
            :scope_break_glass_lock_timeout_ms,
            @default_lock_timeout_ms
          ) do
-      ms when is_integer(ms) and ms > 0 -> ms
+      ms when is_integer(ms) and ms > 0 -> min(ms, @max_lock_timeout_ms)
       _other -> @default_lock_timeout_ms
     end
   end

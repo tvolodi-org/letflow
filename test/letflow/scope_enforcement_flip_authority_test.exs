@@ -524,11 +524,57 @@ defmodule Letflow.ScopeEnforcementFlipAuthorityTest do
     end
   end
 
+  # the `timeout:` option of every `Repo.query!` call whose SQL is the set_config of the lock timeout
+  defp set_config_timeouts(source) do
+    {_ast, found} =
+      source
+      |> Code.string_to_quoted!()
+      |> Macro.prewalk([], fn
+        {{:., _, [{:__aliases__, _, [:Repo]}, :query!]}, _, [sql | _] = args} = node, acc
+        when is_binary(sql) ->
+          if String.contains?(sql, "set_config"),
+            do: {node, [transaction_timeout(tl(args) |> then(&[hd(&1), List.last(&1)])) | acc]},
+            else: {node, acc}
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    found
+  end
+
   describe "T-BG-14c (iv) and T-BG-32 the timeouts" do
     test "the transaction of flip_out_of_band/3 carries a timeout derived from transaction_timeout_ms" do
       assert [timeout] = transaction_options(File.read!(@flip_module))
       assert timeout != nil
       assert Macro.to_string(timeout) =~ "transaction_timeout_ms("
+    end
+
+    test "the set_config query of the lock timeout carries a timeout: derived from transaction_timeout_ms (R5 F3)" do
+      assert [timeout] = set_config_timeouts(File.read!(@flip_module))
+      assert timeout != nil
+      assert Macro.to_string(timeout) =~ "transaction_timeout_ms("
+    end
+
+    test "the set_config timeout scan is live: a missing option, a constant and another query are reported" do
+      with_option = ~s|defmodule S do
+ def a(l), do: Repo.query!("SELECT set_config('lock_timeout', $1, true)", [l], timeout: transaction_timeout_ms(l))
+end|
+      without = ~s|defmodule S do
+ def a(l), do: Repo.query!("SELECT set_config('lock_timeout', $1, true)", [l])
+end|
+      constant = ~s|defmodule S do
+ def a(l), do: Repo.query!("SELECT set_config('lock_timeout', $1, true)", [l], timeout: 15_000)
+end|
+      other = ~s|defmodule S do
+ def a(l), do: Repo.query!("SELECT 1", [l], timeout: transaction_timeout_ms(l))
+end|
+
+      assert [t] = set_config_timeouts(with_option)
+      assert Macro.to_string(t) =~ "transaction_timeout_ms("
+      assert set_config_timeouts(without) == [nil]
+      assert set_config_timeouts(constant) == [15_000]
+      assert set_config_timeouts(other) == []
     end
 
     test "the application key is read in lib/ only by scope_enforcement.ex and never set there" do

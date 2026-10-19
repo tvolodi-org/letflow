@@ -67,7 +67,7 @@ Resource rules followed: no `mix letflow.check.test`, no full-suite or multi-par
 
 ## Mutants (applied in memory only: the shipped source is read, one textual mutation compiled into the running VM through `Code.compile_string/2`, the two main test files run in that VM; nothing is written to disk; the revert is "start a fresh VM", verified by the green re-runs listed in the handoff)
 
-Only five mutants were measured (see below); this is a gap in this step, stated plainly.
+Twelve mutants measured in memory (see below); the rest is left to TEST-DESIGN-VALIDATOR.
 
 | Mutant | Mutation | Result (core + release files, 67 tests) |
 |---|---|---|
@@ -76,7 +76,15 @@ Only five mutants were measured (see below); this is a gap in this step, stated 
 | MU-BG-3 (M3) | `operator` not recorded in `after_state` | KILLED: 5 failed / 62 passed |
 | MU-BG-4 (M4) | `shadow -> off` allowed | KILLED: 4 failed / 63 passed |
 | MU-BG-23 (M23) | `changed: true` -> `false` in the shared write helper | KILLED: nearly every test of the core file failed (the fixture's own real `flip!` breaks), first run only, counts not summarised |
-| MU-BG-5..8, 10..15, 17..19, 21, 22, 24, 26, 27b, 28, 29 | prepared in the harness (`mutate.exs`, same mechanism) | NOT MEASURED: the batch was stopped after 4 mutants because the host ran low on memory (the session's wait loop was reaped and the driver was then stopped by this agent). TEST-DESIGN-VALIDATOR must measure them or ask for a re-run. |
+| MU-BG-6 (M6) | lock A not taken | KILLED: 6 failed / 38 passed (14a, 14b, 14c(i), three T-BG-15) |
+| MU-BG-7 (M7) | tenants row locked before lock A | KILLED: 1 failed / 43 passed (T-BG-14b only) |
+| MU-BG-8 (M8) | `previous` read before the locks | KILLED: 2 failed / 42 passed (T-BG-15 flip-first and two-runs) |
+| MU-BG-12 (M12) | operator label rule always true | KILLED: 6 failed / 65 passed (T-BG-3 x2, 21, 23, 25 x2) |
+| MU-BG-22 (M22) | no `set_config` lock timeout | KILLED: 4 failed / 40 passed (14c i, ii x2, vi) |
+| MU-BG-27b (M27b) | transaction timeout formula `L + 10 s` | KILLED: 1 failed / 43 passed (14c iii unit) |
+| R5 F3 (M30) | lock-timeout cap removed | KILLED: 1 failed / 43 passed (14c vi) |
+| R5 F3 option removed | `timeout:` dropped from the `set_config` query | static AST scan (`set_config_timeouts/1`), live on a missing option, a constant and another query; also dropped with the whole query in M22 |
+| not measured | MU-BG-10, 11a/b, 13..15, 17..19, 21, 24, 26, 28, 29 | prepared in an earlier harness, not run (TDV is measuring them); the harness file `gh2883_mutate.exs` holds only the seven run here |
 
 Static-scan mutants (MU-BG-9 second changeset expression, MU-BG-16 a reference from a router / script / `apply/3`, MU-BG-20 a `System.halt` in the release function, MU-BG-22b the key in `runtime.exs`, MU-BG-27a no `timeout:` option) cannot be measured by an in-memory mutation of the module because the tests READ THE FILE ON DISK. They are proven by the seeded-offender tests (each scan is fed a source with exactly that offence and must report it, and the real file must be clean): T-BG-26 (`halt_calls/1` on seven halting spellings), T-BG-29 (ten call forms), T-BG-31 (`call_count/2` and `functions_calling/2` on two-call and misplaced-call sources), T-BG-14c (iv) (`transaction_options/1` on a missing option, a constant timeout and a timeout in another function), T-BG-32 (`key_files/1` on a seeded `runtime.exs`). `MU-BG-9` is also measured as an in-memory mutant (a second `Tenant.scope_enforcement_changeset` call in `write_flag_and_audit!`): it is NOT killed by the dynamic suite (the second update is a no-op) and is killed only by the on-disk scan T-BG-31, whose live-ness is shown on the seeded source.
 
@@ -86,3 +94,14 @@ Static-scan mutants (MU-BG-9 second changeset expression, MU-BG-16 a reference f
 * `mix letflow.permission_matrix --check`, `check_requirements_registration`, `letflow.check.test`, the full suite: not run (supervisor resource rule); TEST-RUNNER's job.
 * The break-glass against any real or pilot tenant: never run.
 * A stuck-for-more-than-15-s end-to-end scenario for SEC F-1: the 40 s derived timeout is pinned by the unit test, the AST scan and the three bounded-wait cases; a real 30 s wait is not run (10 minute / machine-load rule, and it would add nothing the three-wait test does not show: each wait is the lock-timeout bound).
+
+## R5 follow-up (ELIXIR-DEV findings F1 to F4 on top of f46ae8c80)
+
+| Finding | Tests |
+|---|---|
+| F1 ticket id as reason PREFIX | `roles_on_flip_docs_test.exs`: runbook section claims (`MUST start with the incident ticket id`, `<ticket id>: <short reason>`), a dedicated test on the Before-you-start paragraph, the Mix task moduledoc and the `run/5` doc string via `Code.fetch_docs` (docs only, no code check); seeded: claim removed fires |
+| F2 dry run log line | `scope_break_glass_test.exs`: the old "dry run logs nothing" assertion is now `scope_break_glass_dry_run operator=<label>` (no slug, id, reason); a refused dry run logs the refusal line; unknown tenant, confirm mismatch and invalid reason each leave exactly one `scope_break_glass_refused` line |
+| F3 cap and timeout | core file (vi): telemetry on the bound `set_config` parameter: 300 stays, 14_000 stays, 14_001 / 60_000 / 10^9 clamp to "14000", 0 / negative / non-integer / unset give "10000"; flip_authority: AST check that the `set_config` query carries `timeout:` derived from `transaction_timeout_ms/1` (+ seeded offenders); the existing 300 ms held-lock cases still end as `:lock_conflict` |
+| F4 audit-chain fault | docs tests pin stable phrases: runbook `Audit-chain fault (last resort)`, `ONE transaction`, the matching audit row, `WRITTEN sign-off of the decision owner`, `Without that sign-off nobody runs it`; A11: `audit-chain fault`, `makes the command fail and roll back`, `in ONE transaction that also inserts the audit row`, `WRITTEN sign-off of the decision owner`, `as stated in the runbook`; seeded: three removals fire |
+
+Per-file runs after the follow-up: docs 26, flip_authority 33, release 27, core 44 (all passed). NOTE: the scratchpad is shared with sibling sessions; `m.sh` and `mutate.exs` there were overwritten by another session, so this step's harness lives in `gh2883_mutate.exs` / `gh_m.sh`.

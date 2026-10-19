@@ -58,7 +58,11 @@ defmodule Letflow.Release.ScopeBreakGlass do
   Turns enforcement off (`"off"`) or to shadow (`"shadow"`) for the tenant with slug `slug`.
 
   `opts`: `dry_run: true` reads and validates and writes nothing; `confirm: slug` is required
-  for a real run and must equal `slug` exactly. Unknown keys are ignored. Order of checks:
+  for a real run and must equal `slug` exactly. Unknown keys are ignored.
+
+  The `reason` MUST start with the incident ticket id (`"<ticket id>: <short reason>"`): the
+  ticket, the infrastructure access log and the node name in the audit entry are what make the
+  operator label attributable. This is a documented rule (runbook), not checked by code. Order of checks:
   target, reason, operator, slug, (real run only) confirm, then the writer. The first failing
   check answers; none of them writes.
   """
@@ -152,7 +156,11 @@ defmodule Letflow.Release.ScopeBreakGlass do
     Logger.info("scope_break_glass_applied previous=on mode=#{mode} operator=#{operator}")
   end
 
-  defp report({:ok, %{outcome: :dry_run}}, _slug, _operator), do: :ok
+  # A dry run writes nothing but leaves one constant line in the node log (operator label only
+  # when it passes the label rule; no id, slug or reason). Early refusals are logged below.
+  defp report({:ok, %{outcome: :dry_run}}, _slug, operator) do
+    Logger.info("scope_break_glass_dry_run" <> operator_suffix(operator))
+  end
 
   defp report({:error, {:audit_failed, _error}}, _slug, operator) do
     IO.puts("ERROR server_fault")
